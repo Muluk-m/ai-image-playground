@@ -1,20 +1,10 @@
 import type { ApiProfile } from '../types'
 import { BUILTIN_PROFILE_ID_PREFIX, normalizeApiProfile } from './apiProfiles'
 
-const SUB2API_GEMINI_MODELS = [
-  'gemini-3.1-flash-image',
-  'gemini-3.1-pro-preview',
-  'gemini-3-flash-preview',
-  'gemini-3-pro-preview',
-  'gemini-2.5-pro',
-  'gemini-2.5-flash',
-  'gemini-2.0-flash',
-]
-
 export const DEFAULT_BUILTIN_PROFILES: ApiProfile[] = [
   {
     id: 'builtin-sub2api-gemini',
-    name: 'sub2api · Gemini',
+    name: 'sub2api · Gemini Flash Image',
     provider: 'gemini',
     baseUrl: 'https://sub2api.qiliangjia.one/antigravity/v1beta',
     apiKey: 'sk-487f010b880b316af4b0adfa36c9c5e12dc0d0b1b5d7573618310d7c11d76e3e',
@@ -23,7 +13,7 @@ export const DEFAULT_BUILTIN_PROFILES: ApiProfile[] = [
     apiMode: 'images',
     codexCli: false,
     apiProxy: false,
-    models: SUB2API_GEMINI_MODELS,
+    models: ['gemini-3.1-flash-image'],
   },
   {
     id: 'builtin-sub2api-gemini-flash-image-preview',
