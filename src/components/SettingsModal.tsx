@@ -54,22 +54,27 @@ function getActiveDraftProfile(d: DraftSettings): ApiProfile {
 const DEFAULT_BYOK_BASEURL = createDefaultOpenAIByokProfile().baseUrl
 
 // 仅在新建 profile 草稿时用：构造一个扁平的 ApiProfile 默认值。
-const createDefaultOpenAIProfile = (overrides?: Partial<ApiProfile>): ApiProfile =>
-  clientProfileToApiProfile(createDefaultOpenAIByokProfile({
-    id: overrides?.id,
-    name: overrides?.name,
-    baseUrl: overrides?.baseUrl,
-    apiKey: overrides?.apiKey,
-    selectedModelId: overrides?.model,
-    models: overrides?.model ? [overrides.model] : undefined,
-    preferences: overrides ? {
+const createDefaultOpenAIProfile = (overrides?: Partial<ApiProfile>): ApiProfile => {
+  const byokOverrides: Partial<UserByokProfile> = {}
+  if (overrides?.id !== undefined) byokOverrides.id = overrides.id
+  if (overrides?.name !== undefined) byokOverrides.name = overrides.name
+  if (overrides?.baseUrl !== undefined) byokOverrides.baseUrl = overrides.baseUrl
+  if (overrides?.apiKey !== undefined) byokOverrides.apiKey = overrides.apiKey
+  if (overrides?.model !== undefined) {
+    byokOverrides.selectedModelId = overrides.model
+    byokOverrides.models = [overrides.model]
+  }
+  if (overrides) {
+    byokOverrides.preferences = {
       apiMode: overrides.apiMode ?? 'images',
       timeout: overrides.timeout ?? DEFAULT_API_TIMEOUT,
       codexCli: overrides.codexCli ?? false,
       apiProxy: overrides.apiProxy ?? false,
       responseFormatB64Json: overrides.responseFormatB64Json,
-    } : undefined,
-  }))
+    }
+  }
+  return clientProfileToApiProfile(createDefaultOpenAIByokProfile(byokOverrides))
+}
 
 function isOpenAICompatibleProvider(settings: Partial<AppSettings> | unknown, provider: string): boolean {
   if (provider === 'openai' || provider === 'openai-compat') return true
