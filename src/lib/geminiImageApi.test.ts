@@ -72,6 +72,54 @@ describe('buildGeminiRequestBody', () => {
     expect(body.generationConfig?.imageConfig).toEqual({ aspectRatio: '16:9' })
   })
 
+  it('prefers explicit gemini_aspect_ratio over size-based guess', () => {
+    const body = buildGeminiRequestBody({
+      prompt: 'p',
+      inputImageDataUrls: [],
+      params: { ...DEFAULT_PARAMS, size: '1024x1024', gemini_aspect_ratio: '21:9' },
+    })
+    expect(body.generationConfig?.imageConfig).toEqual({ aspectRatio: '21:9' })
+  })
+
+  it('emits imageSize when gemini_image_size set', () => {
+    const body = buildGeminiRequestBody({
+      prompt: 'p',
+      inputImageDataUrls: [],
+      params: { ...DEFAULT_PARAMS, size: 'auto', gemini_image_size: '2K' },
+    })
+    expect(body.generationConfig?.imageConfig).toEqual({ imageSize: '2K' })
+  })
+
+  it('emits both aspectRatio and imageSize together', () => {
+    const body = buildGeminiRequestBody({
+      prompt: 'p',
+      inputImageDataUrls: [],
+      params: {
+        ...DEFAULT_PARAMS,
+        size: 'auto',
+        gemini_aspect_ratio: '16:9',
+        gemini_image_size: '4K',
+      },
+    })
+    expect(body.generationConfig?.imageConfig).toEqual({ aspectRatio: '16:9', imageSize: '4K' })
+  })
+
+  it('emits thinkingConfig only when gemini_thinking_level set', () => {
+    const without = buildGeminiRequestBody({
+      prompt: 'p',
+      inputImageDataUrls: [],
+      params: { ...DEFAULT_PARAMS, size: 'auto' },
+    })
+    expect(without.generationConfig?.thinkingConfig).toBeUndefined()
+
+    const high = buildGeminiRequestBody({
+      prompt: 'p',
+      inputImageDataUrls: [],
+      params: { ...DEFAULT_PARAMS, size: 'auto', gemini_thinking_level: 'high' },
+    })
+    expect(high.generationConfig?.thinkingConfig).toEqual({ thinkingLevel: 'high' })
+  })
+
   it('passes candidateCount only when n > 1', () => {
     const single = buildGeminiRequestBody({
       prompt: 'p',

@@ -68,6 +68,11 @@ export interface AppSettings {
 
 // ===== 任务参数 =====
 
+export type GeminiAspectRatio =
+  | '1:1' | '2:3' | '3:2' | '3:4' | '4:3' | '4:5' | '5:4' | '9:16' | '16:9' | '21:9'
+export type GeminiImageSize = '512' | '1K' | '2K' | '4K'
+export type GeminiThinkingLevel = 'minimal' | 'high'
+
 export interface TaskParams {
   size: string
   quality: 'auto' | 'low' | 'medium' | 'high'
@@ -75,6 +80,12 @@ export interface TaskParams {
   output_compression: number | null
   moderation: 'auto' | 'low'
   n: number
+  /** Gemini 专属：明确的画面比例（替代从 OpenAI size 字符串推测） */
+  gemini_aspect_ratio?: GeminiAspectRatio
+  /** Gemini 专属：分辨率档位；缺省让模型自选 */
+  gemini_image_size?: GeminiImageSize
+  /** Gemini 专属：思考级别；缺省让模型自选 */
+  gemini_thinking_level?: GeminiThinkingLevel
 }
 
 export const DEFAULT_PARAMS: TaskParams = {

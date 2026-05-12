@@ -17,8 +17,9 @@ export interface GeminiRequestBody {
   contents: Array<{ role: 'user'; parts: GeminiPart[] }>
   generationConfig?: {
     responseModalities?: string[]
-    imageConfig?: { aspectRatio: string }
+    imageConfig?: { aspectRatio?: string; imageSize?: string }
     candidateCount?: number
+    thinkingConfig?: { thinkingLevel?: string }
   }
 }
 
@@ -83,8 +84,19 @@ export function buildGeminiRequestBody(opts: {
   }
   const n = Math.max(1, opts.params.n || 1)
   if (n > 1) generationConfig.candidateCount = n
-  const aspect = nearestAspectRatio(opts.params.size)
-  if (aspect) generationConfig.imageConfig = { aspectRatio: aspect }
+
+  const aspect = opts.params.gemini_aspect_ratio ?? nearestAspectRatio(opts.params.size)
+  const imageSize = opts.params.gemini_image_size
+  if (aspect || imageSize) {
+    generationConfig.imageConfig = {
+      ...(aspect ? { aspectRatio: aspect } : {}),
+      ...(imageSize ? { imageSize } : {}),
+    }
+  }
+
+  if (opts.params.gemini_thinking_level) {
+    generationConfig.thinkingConfig = { thinkingLevel: opts.params.gemini_thinking_level }
+  }
 
   return {
     contents: [{ role: 'user', parts }],
