@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { useStore, submitTask, addImageFromFile, updateTaskInStore, removeMultipleTasks, getCachedImage, ensureImageCached } from '../store'
 import { DEFAULT_PARAMS } from '../types'
 import { getActiveApiProfile, normalizeSettings } from '../lib/apiProfiles'
+import { getProviderModelOptions } from '../lib/providerModels'
 import { DEFAULT_FAL_IMAGE_SIZE, getChangedParams, getOutputImageLimitForSettings, normalizeParamsForSettings } from '../lib/paramCompatibility'
 import { getAtImageQuery, getImageMentionLabel, getPromptIndexFromVisibleIndex, getPromptMentionParts, getSelectedImageMentionLabel, imageMentionMatches, insertImageMentionAtVisibleRange, isCursorInSelectedImageMention, stripImageMentionMarkers } from '../lib/promptImageMentions'
 import { normalizeImageSize } from '../lib/size'
@@ -1469,15 +1470,22 @@ export default function InputBar() {
     setSettings({ profiles: nextProfiles })
   }
 
+  const modelQuickOptions = activeProfile.models?.length
+    ? activeProfile.models
+    : getProviderModelOptions(activeProfile.provider)
+  const modelOptionsForSelect = modelQuickOptions.includes(activeProfile.model)
+    ? modelQuickOptions
+    : [activeProfile.model, ...modelQuickOptions]
+
   const renderParams = (cols: string) => (
     <div className={`grid ${cols} gap-2 text-xs flex-1`}>
-      {activeProfile.models && activeProfile.models.length > 0 && (
+      {modelQuickOptions.length > 0 && (
         <label className="flex flex-col gap-0.5 col-span-2">
           <span className="text-gray-400 dark:text-gray-500 ml-1">模型</span>
           <Select
             value={activeProfile.model}
             onChange={(val) => handleActiveModelChange(String(val))}
-            options={activeProfile.models.map((m) => ({ label: m, value: m }))}
+            options={modelOptionsForSelect.map((m) => ({ label: m, value: m }))}
             className={selectClass}
           />
         </label>
