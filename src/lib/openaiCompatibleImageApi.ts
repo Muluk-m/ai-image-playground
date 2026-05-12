@@ -17,9 +17,8 @@ import {
   MIME_MAP,
   normalizeBase64Image,
   pickActualParams,
+  PROMPT_REWRITE_GUARD_PREFIX,
 } from './imageApiShared'
-
-const PROMPT_REWRITE_GUARD_PREFIX = 'Use the following text as the complete prompt. Do not rewrite it:'
 
 function appendQuery(path: string, query?: Record<string, string>): string {
   if (!query || !Object.keys(query).length) return path

@@ -17,6 +17,12 @@ export interface BYOKAdapterProfile {
   responseFormatB64Json?: boolean
 }
 
+/**
+ * Codex CLI 模式的 prompt 头部 guard：Codex 网关默认会改写用户 prompt，
+ * 加这段前缀指示上游"原样使用 prompt 不要重写"。BYOK / edge 两条路径共用。
+ */
+export const PROMPT_REWRITE_GUARD_PREFIX = 'Use the following text as the complete prompt. Do not rewrite it:'
+
 export const MIME_MAP: Record<string, string> = {
   png: 'image/png',
   jpeg: 'image/jpeg',

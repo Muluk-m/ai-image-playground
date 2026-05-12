@@ -67,7 +67,7 @@
       ],
       "defaults": {
         "apiMode": "images",
-        "codexCli": false,
+        "codexCli": true,
         "timeout": 600
       },
       "allowedPaths": [

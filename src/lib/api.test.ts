@@ -202,6 +202,60 @@ describe('callImageApi', () => {
     )
   })
 
+  it('builtin-edge openai-compat with codexCli prefixes prompt guard and drops quality', async () => {
+    const channel: PublicChannel = {
+      id: 'test-codex',
+      kind: 'openai-compat',
+      label: 'Codex',
+      models: [{ id: 'gpt-image-2', label: 'GPT Image 2' }],
+      defaults: { apiMode: 'images', timeout: 600, codexCli: true },
+    }
+    mockChannels.list = [channel]
+
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      data: [{ b64_json: 'aW1hZ2U=' }],
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+
+    await callImageApi({
+      settings: settingsWithBuiltin(channel),
+      prompt: 'a red cat',
+      params: { ...DEFAULT_PARAMS },
+      inputImageDataUrls: [],
+    })
+
+    const [, init] = fetchMock.mock.calls[0]
+    const body = JSON.parse(String((init as RequestInit).body))
+    expect(body.prompt).toBe('Use the following text as the complete prompt. Do not rewrite it:\na red cat')
+    expect(body).not.toHaveProperty('quality')
+  })
+
+  it('builtin-edge openai-compat without codexCli sends raw prompt and quality', async () => {
+    const channel: PublicChannel = {
+      id: 'test-plain',
+      kind: 'openai-compat',
+      label: 'Plain',
+      models: [{ id: 'gpt-image-2', label: 'GPT Image 2' }],
+      defaults: { apiMode: 'images', timeout: 600 },
+    }
+    mockChannels.list = [channel]
+
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      data: [{ b64_json: 'aW1hZ2U=' }],
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+
+    await callImageApi({
+      settings: settingsWithBuiltin(channel),
+      prompt: 'a red cat',
+      params: { ...DEFAULT_PARAMS, quality: 'high' },
+      inputImageDataUrls: [],
+    })
+
+    const [, init] = fetchMock.mock.calls[0]
+    const body = JSON.parse(String((init as RequestInit).body))
+    expect(body.prompt).toBe('a red cat')
+    expect(body.quality).toBe('high')
+  })
+
   it('builtin-edge openai-compat dispatch routes to /api-proxy/<channelId>/ without Authorization', async () => {
     const channel: PublicChannel = {
       id: 'test-openai',
