@@ -1469,14 +1469,13 @@ export default function InputBar() {
     setSettings({ profiles: nextProfiles })
   }
 
-  const modelQuickOptions = activeProfile.models ?? []
-  const modelOptionsForSelect = modelQuickOptions.includes(activeProfile.model)
-    ? modelQuickOptions
-    : [activeProfile.model, ...modelQuickOptions]
+  const modelOptionsForSelect = Array.from(
+    new Set([activeProfile.model, ...(activeProfile.models ?? [])].filter(Boolean)),
+  )
 
   const renderParams = (cols: string) => (
     <div className={`grid ${cols} gap-2 text-xs flex-1`}>
-      {modelQuickOptions.length > 0 && (
+      {modelOptionsForSelect.length > 0 && (
         <label className="flex flex-col gap-0.5 col-span-2">
           <span className="text-gray-400 dark:text-gray-500 ml-1">模型</span>
           <Select
