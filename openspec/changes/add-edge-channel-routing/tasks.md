@@ -33,12 +33,12 @@
 
 - [x] 3.1 新建 `src/lib/channels/types.ts`：定义 `ProviderKind`、`ChannelModel`、`ChannelDefaults`、`PublicChannel`、`ClientProfile`（discriminated union）；`ClientProfile (source='user-byok')` 形态包含 `models: string[]` 与 `selectedModelId: string`（**不再有单 `model` 字段**）；`ClientProfile (source='builtin-edge')` 仅 `channelId + selectedModelId`
 - [ ] 3.2 在 `src/types.ts` 中将 `AppSettings.profiles` 类型从 `ApiProfile[]` 改为 `ClientProfile[]`；删除 `AppSettings.builtinProfileModelSelections`（被并入 builtin-edge profile 的 `selectedModelId`）；保留 `ApiProfile` 类型为 deprecated（用于迁移函数签名）或直接删除并 inline 老形态
-- [x] 3.3 新建 `src/lib/channels/migration.ts`：实现 `migrateLegacyProfiles(rawSettings)`，覆盖 fal 丢弃、builtin → builtin-edge、其它 → user-byok、activeProfileId 回退、TaskRecord 字段清理（`stripLegacyFalFields`）、`builtinProfileModelSelections` 并入 builtin-edge profile；幂等
-- [x] 3.4 在 migration.ts 中实现 BYOK 单 model → models[] + selectedModelId 转换：`models = uniq([model, ...(legacy.models ?? [])].filter(Boolean))`，空时按 provider 注入默认（OpenAI → `gpt-image-2`，Gemini → `gemini-3.1-flash-image`）；`selectedModelId = legacy.model ?? models[0]`
-- [x] 3.5 准备 builtin id 映射表（旧 `builtin-sub2api-gemini` → 新 `qlj-sub2api-gemini-flash-image` 等），随 `channels.json` 一同维护，放在 migration.ts 顶部 (`LEGACY_BUILTIN_ID_MAP`)
-- [ ] 3.6 在 `src/store.ts` hydrate 阶段调用 migration，未识别 profile 触发一次性 toast
+- [~] 3.3 ~~新建 `src/lib/channels/migration.ts`~~ — **已废弃**：项目尚无用户，不需要兼容旧数据；改为 hydrate 时直接丢弃无效 profile
+- [~] 3.4 ~~BYOK 单 model → models[] 转换~~ — **已废弃**：直接以新 schema 启动，无需转换
+- [~] 3.5 ~~builtin id 映射表~~ — **已废弃**：新 channels.json id 直接生效
+- [ ] 3.6 在 `src/store.ts` hydrate 阶段：对老 localStorage 数据按"丢弃不识别字段"策略加载，活配置缺失时回退到第一个可用 profile 或新建空 OpenAI BYOK
 - [x] 3.7 新建 `src/lib/channels/profileSelectors.ts`：导出 `getProfileModels(profile, publicChannels): string[]`、`getSelectedModel(profile, publicChannels): string`、`updateProfileModels(profile, nextModels): ClientProfile`、`updateSelectedModel(profile, modelId): ClientProfile`，保证 `selectedModelId ∈ models` 不变量
-- [x] 3.8 编写 `src/lib/channels/migration.test.ts`：覆盖每个迁移分支与幂等性，含 BYOK 多模型迁移（含 model 已在 models 中、不在、为空、provider 默认注入四种场景）
+- [~] 3.8 ~~编写 migration.test.ts~~ — **已废弃**：随 migration.ts 一并删除
 - [x] 3.9 编写 `src/lib/channels/profileSelectors.test.ts`：覆盖两种 source 下的 getProfileModels / getSelectedModel；覆盖 updateProfileModels 删除当前 selectedModelId 时的回退
 
 ## 4. 删除旧 builtin 模式与相关清理
