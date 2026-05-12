@@ -1,6 +1,8 @@
 # ---- Build stage ----
 FROM --platform=$BUILDPLATFORM node:20-alpine AS build
 
+RUN corepack enable && corepack prepare pnpm@10 --activate
+
 WORKDIR /app
 
 ENV VITE_DEFAULT_API_URL=__VITE_DEFAULT_API_URL_PLACEHOLDER__
@@ -9,11 +11,11 @@ ENV VITE_API_PROXY_LOCKED=__VITE_API_PROXY_LOCKED_PLACEHOLDER__
 ENV VITE_DOCKER_DEPLOYMENT=__VITE_DOCKER_DEPLOYMENT_PLACEHOLDER__
 ENV VITE_DOCKER_LEGACY_API_URL_USED=__VITE_DOCKER_LEGACY_API_URL_USED_PLACEHOLDER__
 
-COPY package.json package-lock.json ./
-RUN npm ci
+COPY package.json pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
 
 COPY . .
-RUN npm run build
+RUN pnpm build
 
 # ---- Production stage ----
 FROM nginx:alpine

@@ -122,7 +122,7 @@ function joinUrl(base: string, suffix: string): string {
 
 export async function callGeminiImageApi(opts: CallApiOptions, profile: ApiProfile): Promise<CallApiResult> {
   if (opts.maskDataUrl) {
-    throw new Error('Gemini 服务商不支持遮罩编辑，请改用 OpenAI 或 fal.ai 服务商')
+    throw new Error('Gemini 服务商不支持遮罩编辑，请改用 OpenAI 服务商')
   }
 
   assertImageInputPayloadSize(

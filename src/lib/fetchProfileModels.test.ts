@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { createDefaultFalProfile, createDefaultGeminiProfile, createDefaultOpenAIProfile } from './apiProfiles'
+import { createDefaultGeminiProfile, createDefaultOpenAIProfile } from './apiProfiles'
 import { fetchProfileModels } from './fetchProfileModels'
 
 describe('fetchProfileModels', () => {
@@ -9,12 +9,6 @@ describe('fetchProfileModels', () => {
   })
   afterEach(() => {
     fetchMock.mockReset()
-  })
-
-  it('rejects fal provider explicitly (no /models endpoint)', async () => {
-    const profile = createDefaultFalProfile({ apiKey: 'k' })
-    await expect(fetchProfileModels(profile)).rejects.toThrow(/fal\.ai/)
-    expect(fetchMock).not.toHaveBeenCalled()
   })
 
   it('rejects when baseUrl is empty', async () => {

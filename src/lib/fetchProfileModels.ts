@@ -9,15 +9,10 @@ import { getApiErrorMessage } from './imageApiShared'
  *   响应形如 { data: [{ id: '...' }] } 或 { data: ['...'] }
  * - gemini：GET {baseUrl}/models with x-api-key
  *   响应形如 { models: [{ name: 'models/gemini-...' }] }，需从 name 提取末段
- * - fal：fal.ai 没有公开的标准 /models 端点 → 抛 unsupported
  *
  * 失败抛 Error；成功返回去重排序后的 model id 列表。
  */
 export async function fetchProfileModels(profile: ApiProfile, signal?: AbortSignal): Promise<string[]> {
-  if (profile.provider === 'fal') {
-    throw new Error('fal.ai 不提供模型列表接口，请手动输入模型 ID')
-  }
-
   const baseUrl = profile.baseUrl.trim().replace(/\/+$/, '')
   if (!baseUrl) throw new Error('请先填写 API URL')
   if (!profile.apiKey.trim()) throw new Error('请先填写 API Key')

@@ -6,14 +6,14 @@
   "scripts": {
     "dev": "vite",
     "mock:api": "node scripts/mock-image-api.mjs",
-    "build": "tsc -b && vite build",
-    "deploy:cf": "npm run build && wrangler deploy",
+    "gen:channels": "node scripts/build-public-channels.mjs",
+    "build": "pnpm gen:channels && tsc -b && vite build",
+    "deploy:cf": "pnpm build && wrangler pages deploy ./dist --project-name=gpt-image-playground",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@fal-ai/client": "^1.10.0",
     "fflate": "^0.8.2",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",

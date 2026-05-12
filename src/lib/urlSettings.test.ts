@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  createDefaultFalProfile,
+  createDefaultGeminiProfile,
   createDefaultOpenAIProfile,
   DEFAULT_IMAGES_MODEL,
   DEFAULT_SETTINGS,
@@ -64,12 +64,12 @@ describe('URL settings params', () => {
     expect(next.activeProfileId).toBe(existingProfile.id)
   })
 
-  it('creates an OpenAI profile from legacy params even when fal is active', () => {
-    const falProfile = createDefaultFalProfile({ id: 'fal-active', apiKey: 'fal-key' })
+  it('creates an OpenAI profile from legacy params even when a non-OpenAI profile is active', () => {
+    const geminiProfile = createDefaultGeminiProfile({ id: 'gemini-active', apiKey: 'gemini-key' })
     const current = normalizeSettings({
       ...DEFAULT_SETTINGS,
-      profiles: [falProfile],
-      activeProfileId: falProfile.id,
+      profiles: [geminiProfile],
+      activeProfileId: geminiProfile.id,
     })
     const next = normalizeSettings({
       ...current,
