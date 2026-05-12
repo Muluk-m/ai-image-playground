@@ -12,7 +12,6 @@ import type {
   CustomProviderSubmitMapping,
   CustomProviderTemplate,
 } from '../types'
-import { getBuiltinProfiles } from './builtinProfiles'
 import { readRuntimeEnv } from './runtimeEnv'
 
 const DEFAULT_BASE_URL = readRuntimeEnv(import.meta.env.VITE_DEFAULT_API_URL) || 'https://api.openai.com/v1'
@@ -23,12 +22,6 @@ export const DEFAULT_GEMINI_BASE_URL = 'https://generativelanguage.googleapis.co
 export const DEFAULT_GEMINI_MODEL = 'gemini-3.1-flash-image'
 export const DEFAULT_OPENAI_PROFILE_ID = 'default-openai'
 export const DEFAULT_API_TIMEOUT = 600
-export const BUILTIN_PROFILE_ID_PREFIX = 'builtin-'
-
-export function isBuiltinProfile(profile: { id?: string } | null | undefined): boolean {
-  return Boolean(profile?.id?.startsWith(BUILTIN_PROFILE_ID_PREFIX))
-}
-
 const BUILT_IN_PROVIDER_IDS = new Set<ApiProvider>(['openai', 'gemini'])
 const DEFAULT_CUSTOM_PROVIDER_PATHS = {
   generationPath: 'images/generations',

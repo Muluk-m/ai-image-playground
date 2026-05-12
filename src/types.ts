@@ -52,32 +52,9 @@ export interface CustomProviderDefinition {
   poll?: CustomProviderPollMapping
 }
 
-export interface ApiProfile {
-  id: string
-  name: string
-  provider: ApiProvider
-  baseUrl: string
-  apiKey: string
-  model: string
-  timeout: number
-  apiMode: ApiMode
-  codexCli: boolean
-  apiProxy: boolean
-  responseFormatB64Json?: boolean
-  /** 可选：声明该配置推荐的模型列表，用于 UI 快选。仅内置 profile 使用。 */
-  models?: string[]
-  providerDrafts?: Partial<Record<ApiProvider, Partial<Pick<ApiProfile, 'baseUrl' | 'model' | 'apiMode' | 'codexCli' | 'apiProxy' | 'responseFormatB64Json'>>>>
-}
+import type { ClientProfile } from './lib/channels/types'
 
 export interface AppSettings {
-  /** 旧版单配置字段：保留用于导入/查询参数兼容，实际请求以 active profile 为准 */
-  baseUrl: string
-  apiKey: string
-  model: string
-  timeout: number
-  apiMode: ApiMode
-  codexCli: boolean
-  apiProxy: boolean
   customProviders: CustomProviderDefinition[]
   providerOrder?: string[]
   clearInputAfterSubmit: boolean
@@ -85,10 +62,8 @@ export interface AppSettings {
   reuseTaskApiProfileTemporarily: boolean
   alwaysShowRetryButton: boolean
   enterSubmit: boolean
-  profiles: ApiProfile[]
+  profiles: ClientProfile[]
   activeProfileId: string
-  /** 内置 profile 的 model 用户选择记忆：id → model。允许内置 profile 的 model 字段被用户修改并持久化，但不存其它字段。 */
-  builtinProfileModelSelections?: Record<string, string>
 }
 
 // ===== 任务参数 =====
