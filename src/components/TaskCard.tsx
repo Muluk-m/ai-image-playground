@@ -406,7 +406,7 @@ export default function TaskCard({
                   <svg className="w-3 h-3 flex-shrink-0 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
                   </svg>
-                  <span className="truncate max-w-[8rem]">
+                  <span>
                     {task.apiModel}
                   </span>
                 </span>
@@ -418,7 +418,7 @@ export default function TaskCard({
                   title={task.apiProfileName || task.apiProvider}
                 >
                   <CodeIcon className="w-3 h-3 flex-shrink-0 text-gray-400" />
-                  <span className="truncate max-w-[8rem]">
+                  <span>
                     {task.apiProfileName || task.apiProvider}
                   </span>
                 </span>
