@@ -1,7 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import type {
-  ApiProfile,
   AppSettings,
   TaskParams,
   InputImage,
@@ -10,7 +9,7 @@ import type {
   ExportData,
 } from './types'
 import { DEFAULT_PARAMS } from './types'
-import { DEFAULT_SETTINGS, getActiveApiProfile, getCustomProviderDefinition, isBuiltinProfile, mergeImportedSettings, normalizeSettings, validateApiProfile } from './lib/apiProfiles'
+import { apiProfileToClientProfile, clientProfileToApiProfile, DEFAULT_SETTINGS, getActiveApiProfile, getCustomProviderDefinition, isBuiltinProfile, mergeImportedSettings, normalizeSettings, validateApiProfile, type ApiProfile } from './lib/apiProfiles'
 import { dismissAllTooltips } from './lib/tooltipDismiss'
 import { remapImageMentionsForOrder, replaceImageMentionsForApi } from './lib/promptImageMentions'
 import {
@@ -305,16 +304,11 @@ function maybeOpenSupportPrompt(previousTasks: TaskRecord[], nextTasks: TaskReco
 
 export function getPersistedState(state: AppState) {
   const normalized = normalizeSettings(state.settings)
-  const builtinSelections: Record<string, string> = { ...(normalized.builtinProfileModelSelections ?? {}) }
-  for (const profile of normalized.profiles) {
-    if (isBuiltinProfile(profile) && profile.model?.trim()) {
-      builtinSelections[profile.id] = profile.model
-    }
-  }
+  // builtin-edge profile 不进 localStorage：其完整定义来自 config/channels.json + edge env。
+  // 只持久化 user-byok profile + 用户对 builtin-edge 的 selectedModelId 选择。
   const settings: AppSettings = {
     ...normalized,
-    profiles: normalized.profiles.filter((p) => !isBuiltinProfile(p)),
-    builtinProfileModelSelections: Object.keys(builtinSelections).length ? builtinSelections : undefined,
+    profiles: normalized.profiles.filter((p) => p.source !== 'builtin-edge'),
   }
   return {
     settings,
@@ -329,9 +323,9 @@ export function getPersistedState(state: AppState) {
     supportPromptDismissed: state.supportPromptDismissed,
     supportPromptOpen: state.supportPromptOpen,
     supportPromptSkippedForImportedData: state.supportPromptSkippedForImportedData,
-    // 内置 profile 的 cache 不进 localStorage（避免敏感模型清单泄漏到导出）
+    // 内置 channel 的 model cache 不进 localStorage（避免敏感模型清单泄漏到导出）
     profileModelCache: Object.fromEntries(
-      Object.entries(state.profileModelCache ?? {}).filter(([id]) => !id.startsWith('builtin-')),
+      Object.entries(state.profileModelCache ?? {}).filter(([id]) => !id.startsWith('qlj-')),
     ),
   }
 }
@@ -358,7 +352,12 @@ function mergePersistedState(persistedState: unknown, currentState: AppState): A
 interface AppState {
   // 设置
   settings: AppSettings
-  setSettings: (s: Partial<AppSettings>) => void
+  // 兼容旧 ApiProfile 顶层字段输入：legacy callers 仍可传 {apiKey: ..., codexCli: ...} 修改 active profile。
+  setSettings: (s: Partial<AppSettings> & {
+    baseUrl?: string; apiKey?: string; model?: string; timeout?: number;
+    apiMode?: 'images' | 'responses'; codexCli?: boolean; apiProxy?: boolean;
+    responseFormatB64Json?: boolean;
+  }) => void
   dismissedCodexCliPrompts: string[]
   dismissCodexCliPrompt: (key: string) => void
 
@@ -448,31 +447,44 @@ export const useStore = create<AppState>()(
       settings: { ...DEFAULT_SETTINGS },
       setSettings: (s) => set((st) => {
         const previous = normalizeSettings(st.settings)
-        const incoming = s as Partial<AppSettings>
-        const hasLegacyOverrides =
-          incoming.baseUrl !== undefined ||
-          incoming.apiKey !== undefined ||
-          incoming.model !== undefined ||
-          incoming.timeout !== undefined ||
-          incoming.apiMode !== undefined ||
-          incoming.codexCli !== undefined ||
-          incoming.apiProxy !== undefined
+        // 过渡期：调用方仍可能传入旧 ApiProfile 顶层字段（baseUrl/apiKey/model/...）作为对 active
+        // profile 的就地修改。本块识别后写到 active 的 user-byok profile 字段上；builtin-edge
+        // profile 不可被这种方式修改（凭据在边缘）。
+        const incoming = s as Partial<AppSettings> & Record<string, unknown>
+        const overrides: {
+          baseUrl?: string; apiKey?: string; model?: string; timeout?: number;
+          apiMode?: 'images' | 'responses'; codexCli?: boolean; apiProxy?: boolean;
+        } = {}
+        if (typeof incoming.baseUrl === 'string') overrides.baseUrl = incoming.baseUrl
+        if (typeof incoming.apiKey === 'string') overrides.apiKey = incoming.apiKey
+        if (typeof incoming.model === 'string') overrides.model = incoming.model
+        if (typeof incoming.timeout === 'number') overrides.timeout = incoming.timeout
+        if (incoming.apiMode === 'images' || incoming.apiMode === 'responses') overrides.apiMode = incoming.apiMode
+        if (typeof incoming.codexCli === 'boolean') overrides.codexCli = incoming.codexCli
+        if (typeof incoming.apiProxy === 'boolean') overrides.apiProxy = incoming.apiProxy
+        const hasLegacyOverrides = Object.keys(overrides).length > 0
         const merged = normalizeSettings({ ...previous, ...incoming })
         if (hasLegacyOverrides && incoming.profiles === undefined) {
-          merged.profiles = merged.profiles.map((profile) =>
-            profile.id === merged.activeProfileId
-              ? {
-                  ...profile,
-                  baseUrl: incoming.baseUrl ?? profile.baseUrl,
-                  apiKey: incoming.apiKey ?? profile.apiKey,
-                  model: incoming.model ?? profile.model,
-                  timeout: incoming.timeout ?? profile.timeout,
-                  apiMode: incoming.apiMode === 'images' || incoming.apiMode === 'responses' ? incoming.apiMode : profile.apiMode,
-                  codexCli: incoming.codexCli ?? profile.codexCli,
-                  apiProxy: incoming.apiProxy ?? profile.apiProxy,
-                }
-              : profile,
-          )
+          merged.profiles = merged.profiles.map((profile) => {
+            if (profile.id !== merged.activeProfileId || profile.source !== 'user-byok') return profile
+            const models = overrides.model && !profile.models.includes(overrides.model)
+              ? [...profile.models, overrides.model]
+              : profile.models
+            return {
+              ...profile,
+              baseUrl: overrides.baseUrl ?? profile.baseUrl,
+              apiKey: overrides.apiKey ?? profile.apiKey,
+              models,
+              selectedModelId: overrides.model ?? profile.selectedModelId,
+              preferences: {
+                ...profile.preferences,
+                timeout: overrides.timeout ?? profile.preferences.timeout,
+                apiMode: overrides.apiMode ?? profile.preferences.apiMode,
+                codexCli: overrides.codexCli ?? profile.preferences.codexCli,
+                apiProxy: overrides.apiProxy ?? profile.preferences.apiProxy,
+              },
+            }
+          })
         }
         const settings = normalizeSettings(merged)
         const shouldClearReusedProfile = st.reusedTaskApiProfileId && settings.activeProfileId === st.reusedTaskApiProfileId
@@ -746,7 +758,8 @@ export function showCodexCliPrompt(force = false, reason = '接口返回的提�
   const state = useStore.getState()
   const settings = state.settings
   const promptKey = getCodexCliPromptKey(settings)
-  if (!force && (settings.codexCli || state.dismissedCodexCliPrompts.includes(promptKey))) return
+  const activeForCheck = getActiveApiProfile(settings)
+  if (!force && (activeForCheck.codexCli || state.dismissedCodexCliPrompts.includes(promptKey))) return
 
   state.setConfirmDialog({
     title: '检测到 Codex CLI API',
@@ -770,26 +783,27 @@ function getCustomRecoveryProfile(settings: AppSettings, task: TaskRecord) {
   const normalized = normalizeSettings(settings)
   const active = getActiveApiProfile(normalized)
   if (active.provider === provider) return active
-  return normalized.profiles.find((profile) =>
+  const candidates = normalized.profiles.map((p) => clientProfileToApiProfile(p))
+  return candidates.find((profile) =>
     profile.provider === provider &&
     (profile.name === task.apiProfileName || profile.model === task.apiModel),
-  ) ?? normalized.profiles.find((profile) => profile.provider === provider) ?? null
+  ) ?? candidates.find((profile) => profile.provider === provider) ?? null
 }
 
 export function getTaskApiProfile(settings: AppSettings, task: TaskRecord): ApiProfile | null {
   const normalized = normalizeSettings(settings)
   const provider = task.apiProvider
+  const allApi = normalized.profiles.map((p) => clientProfileToApiProfile(p))
 
   if (task.apiProfileId) {
-    const byId = normalized.profiles.find((profile) => profile.id === task.apiProfileId)
+    const byId = allApi.find((profile) => profile.id === task.apiProfileId)
     if (byId && (!provider || byId.provider === provider)) return byId
     return null
   }
 
   if (!provider) return null
 
-
-  const candidates = normalized.profiles.filter((profile) => profile.provider === provider)
+  const candidates = allApi.filter((profile) => profile.provider === provider)
   if (!candidates.length) return null
 
   if (task.apiProfileName) {
@@ -807,23 +821,23 @@ export function getTaskApiProfile(settings: AppSettings, task: TaskRecord): ApiP
 
 function createSettingsForApiProfile(settings: AppSettings, profile: ApiProfile): AppSettings {
   const normalized = normalizeSettings(settings)
+  // 把 profile（ApiProfile shape）写回为 ClientProfile：替换同 id 项，未找到则追加。
+  const asClient = apiProfileToClientProfile(profile)
+  const found = normalized.profiles.some((item) => item.id === profile.id)
+  const nextProfiles = found
+    ? normalized.profiles.map((item) => item.id === profile.id ? asClient : item)
+    : [...normalized.profiles, asClient]
   return normalizeSettings({
     ...normalized,
-    baseUrl: profile.baseUrl,
-    apiKey: profile.apiKey,
-    model: profile.model,
-    timeout: profile.timeout,
-    apiMode: profile.apiMode,
-    codexCli: profile.codexCli,
-    apiProxy: profile.apiProxy,
-    profiles: normalized.profiles.map((item) => item.id === profile.id ? profile : item),
+    profiles: nextProfiles,
     activeProfileId: profile.id,
   })
 }
 
 function getReusedTaskApiProfile(settings: AppSettings, profileId: string | null): ApiProfile | null {
   if (!profileId) return null
-  return normalizeSettings(settings).profiles.find((profile) => profile.id === profileId) ?? null
+  const found = normalizeSettings(settings).profiles.find((profile) => profile.id === profileId)
+  return found ? clientProfileToApiProfile(found) : null
 }
 
 function getTaskApiProfileName(task: TaskRecord) {
@@ -849,7 +863,7 @@ function getApiRequestNetworkErrorHint(err: unknown, task: TaskRecord, settings:
 
   const profile = getTaskApiProfile(settings, task)
   const elapsedSeconds = Math.max(0, (Date.now() - task.createdAt) / 1000)
-  const usesApiProxy = profile?.apiProxy ?? settings.apiProxy
+  const usesApiProxy = profile?.apiProxy ?? getActiveApiProfile(settings).apiProxy
 
   if (elapsedSeconds <= 15) {
     if (usesApiProxy) {

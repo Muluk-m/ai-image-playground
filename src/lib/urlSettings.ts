@@ -1,17 +1,20 @@
 import type { ApiMode, AppSettings } from '../types'
 import { normalizeBaseUrl } from './devProxy'
 import {
+  apiProfileToClientProfile,
+  clientProfileToApiProfile,
   createDefaultOpenAIProfile,
   DEFAULT_IMAGES_MODEL,
   DEFAULT_RESPONSES_MODEL,
   findEquivalentApiProfile,
   mergeImportedSettings,
   normalizeSettings,
+  type ApiProfile,
 } from './apiProfiles'
 
 const URL_SETTING_KEYS = ['settings', 'apiUrl', 'apiKey', 'codexCli', 'apiMode', 'model']
 
-function getProfileDedupKey(profile: Pick<AppSettings['profiles'][number], 'provider' | 'baseUrl' | 'apiKey' | 'model' | 'apiMode'>) {
+function getProfileDedupKey(profile: Pick<ApiProfile, 'provider' | 'baseUrl' | 'apiKey' | 'model' | 'apiMode'>) {
   return JSON.stringify([
     profile.provider,
     profile.baseUrl.trim().replace(/\/+$/, '').toLowerCase(),
@@ -64,7 +67,8 @@ function activateFirstImportedProfile(settings: AppSettings, importedSettings: u
     profiles: record.profiles,
   })
   const importedProfile = imported.profiles[0]
-  const activeProfile = findEquivalentApiProfile(settings, importedProfile, imported.customProviders)
+  if (!importedProfile) return settings
+  const activeProfile = findEquivalentApiProfile(settings, clientProfileToApiProfile(importedProfile), imported.customProviders)
 
   return activeProfile
     ? normalizeSettings({ ...settings, activeProfileId: activeProfile.id })
@@ -106,14 +110,17 @@ export function buildSettingsFromUrlParams(currentSettings: Partial<AppSettings>
     if (modelParam !== null && modelParam.trim()) profile.model = modelParam.trim()
     if (codexCliParam !== null) profile.codexCli = codexCliParam.trim().toLowerCase() === 'true'
 
-    const existingProfile = settings.profiles.find((item) => getProfileDedupKey(item) === getProfileDedupKey(profile))
+    const targetKey = getProfileDedupKey(profile)
+    const existingProfile = settings.profiles
+      .map((item) => clientProfileToApiProfile(item))
+      .find((item) => getProfileDedupKey(item) === targetKey)
     if (existingProfile) {
       return normalizeSettings({ ...settings, activeProfileId: existingProfile.id })
     }
 
     return normalizeSettings({
       ...settings,
-      profiles: [...settings.profiles, profile],
+      profiles: [...settings.profiles, apiProfileToClientProfile(profile)],
       activeProfileId: profile.id,
     })
   }

@@ -1,6 +1,5 @@
 import type {
   ApiMode,
-  ApiProfile,
   ApiProvider,
   AppSettings,
   CustomProviderContentType,
@@ -12,7 +11,45 @@ import type {
   CustomProviderSubmitMapping,
   CustomProviderTemplate,
 } from '../types'
+import type { ClientProfile, PublicChannel } from './channels/types'
+import { getPublicChannel, getPublicChannels } from './channels/publicChannels'
 import { readRuntimeEnv } from './runtimeEnv'
+
+// ===== Legacy ApiProfile view (synthesized from ClientProfile + PublicChannel) =====
+//
+// 真正的存储是 AppSettings.profiles: ClientProfile[]（discriminated union）。
+// 但 UI / store / openai|gemini adapter 仍按旧 ApiProfile 平铺字段写就；本类型作为
+// 过渡期的「合成视图」：getActiveApiProfile() 等读路径从 ClientProfile + PublicChannel
+// 合成出 ApiProfile 形态喂给上层。下一个子轮 UI 切到 ClientProfile 后此 type 移除。
+
+export interface ApiProfileProviderDraftValue {
+  baseUrl?: string
+  model?: string
+  apiMode?: ApiMode
+  codexCli?: boolean
+  apiProxy?: boolean
+  responseFormatB64Json?: boolean
+}
+
+export interface ApiProfile {
+  id: string
+  name: string
+  provider: ApiProvider
+  baseUrl: string
+  apiKey: string
+  model: string
+  timeout: number
+  apiMode: ApiMode
+  codexCli: boolean
+  apiProxy: boolean
+  responseFormatB64Json?: boolean
+  models?: string[]
+  providerDrafts?: Partial<Record<ApiProvider, ApiProfileProviderDraftValue>>
+}
+
+type ApiProfileProviderDraft = ApiProfileProviderDraftValue | undefined
+
+// ===== Constants =====
 
 const DEFAULT_BASE_URL = readRuntimeEnv(import.meta.env.VITE_DEFAULT_API_URL) || 'https://api.openai.com/v1'
 const DEFAULT_OPENAI_API_PROXY = readRuntimeEnv(import.meta.env.VITE_API_PROXY_AVAILABLE) === 'true'
@@ -23,6 +60,7 @@ export const DEFAULT_GEMINI_MODEL = 'gemini-3.1-flash-image'
 export const DEFAULT_OPENAI_PROFILE_ID = 'default-openai'
 export const DEFAULT_API_TIMEOUT = 600
 const BUILT_IN_PROVIDER_IDS = new Set<ApiProvider>(['openai', 'gemini'])
+
 const DEFAULT_CUSTOM_PROVIDER_PATHS = {
   generationPath: 'images/generations',
   editPath: 'images/edits',
@@ -48,10 +86,12 @@ const DEFAULT_EDIT_FILES: CustomProviderFileMapping[] = [
   { field: 'mask', source: 'mask' },
 ]
 
-type ApiProfileProviderDraft = NonNullable<ApiProfile['providerDrafts']>[ApiProvider]
-
 function isCustomProviderTemplate(value: unknown): value is CustomProviderTemplate {
   return value === 'http-image'
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
 
 function normalizeProviderPath(value: unknown, fallback: string): string {
@@ -60,13 +100,11 @@ function normalizeProviderPath(value: unknown, fallback: string): string {
 
 function normalizeStringRecord(value: unknown): Record<string, string> | undefined {
   if (!value || typeof value !== 'object') return undefined
-
   const entries = Object.entries(value as Record<string, unknown>)
     .filter((entry): entry is [string, string | number | boolean] =>
       typeof entry[0] === 'string' && ['string', 'number', 'boolean'].includes(typeof entry[1]),
     )
     .map(([key, item]) => [key, String(item)] as const)
-
   return entries.length ? Object.fromEntries(entries) : undefined
 }
 
@@ -74,10 +112,6 @@ function normalizeStringArray(value: unknown, fallback: string[]): string[] {
   return Array.isArray(value)
     ? value.filter((item): item is string => typeof item === 'string' && Boolean(item.trim())).map((item) => item.trim())
     : fallback
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
 
 function normalizeRequestMethod(value: unknown, fallback: CustomProviderRequestMethod = 'POST'): CustomProviderRequestMethod {
@@ -98,11 +132,7 @@ function normalizeFileMappings(value: unknown, fallback: CustomProviderFileMappi
     .map((item): CustomProviderFileMapping | null => {
       if (!isRecord(item) || typeof item.field !== 'string' || !item.field.trim()) return null
       if (item.source !== 'inputImages' && item.source !== 'mask') return null
-      return {
-        field: item.field.trim(),
-        source: item.source,
-        array: Boolean(item.array),
-      }
+      return { field: item.field.trim(), source: item.source, array: Boolean(item.array) }
     })
     .filter((item): item is CustomProviderFileMapping => Boolean(item))
   return files.length ? files : fallback
@@ -112,10 +142,7 @@ function normalizeResultMapping(value: unknown, fallback: CustomProviderResultMa
   const record = isRecord(value) ? value : {}
   const imageUrlPaths = normalizeStringArray(record.imageUrlPaths, fallback.imageUrlPaths ?? [])
   const b64JsonPaths = normalizeStringArray(record.b64JsonPaths, fallback.b64JsonPaths ?? [])
-  return {
-    imageUrlPaths,
-    b64JsonPaths,
-  }
+  return { imageUrlPaths, b64JsonPaths }
 }
 
 function normalizeSubmitMapping(value: unknown, fallback: CustomProviderSubmitMapping): CustomProviderSubmitMapping {
@@ -139,7 +166,6 @@ function normalizePollMapping(value: unknown, fallback?: CustomProviderPollMappi
   const path = normalizeProviderPath(record.path, fallback?.path ?? DEFAULT_CUSTOM_PROVIDER_PATHS.taskPath)
   const statusPath = typeof record.statusPath === 'string' && record.statusPath.trim() ? record.statusPath.trim() : fallback?.statusPath
   if (!statusPath) return undefined
-
   return {
     path,
     method: normalizeRequestMethod(record.method, fallback?.method ?? 'GET'),
@@ -254,6 +280,8 @@ export function normalizeCustomProviderDefinitions(input: unknown): CustomProvid
     .filter((item): item is CustomProviderDefinition => Boolean(item))
 }
 
+// ===== ApiProfile factories (return synthetic view) =====
+
 export function createDefaultOpenAIProfile(overrides: Partial<ApiProfile> = {}): ApiProfile {
   return {
     id: DEFAULT_OPENAI_PROFILE_ID,
@@ -287,7 +315,7 @@ export function createDefaultGeminiProfile(overrides: Partial<ApiProfile> = {}):
 }
 
 export function switchApiProfileProvider(profile: ApiProfile, provider: ApiProvider, customProvider?: CustomProviderDefinition): ApiProfile {
-  const providerDrafts = {
+  const providerDrafts: NonNullable<ApiProfile['providerDrafts']> = {
     ...profile.providerDrafts,
     [profile.provider]: {
       baseUrl: profile.baseUrl,
@@ -343,9 +371,7 @@ export function switchApiProfileProvider(profile: ApiProfile, provider: ApiProvi
 
 function normalizeProviderDraft(input: unknown, provider: ApiProvider, customProviderIds: Set<string>): ApiProfileProviderDraft {
   if (!isRecord(input)) return undefined
-  const fallback = provider === 'gemini'
-    ? createDefaultGeminiProfile()
-    : createDefaultOpenAIProfile()
+  const fallback = provider === 'gemini' ? createDefaultGeminiProfile() : createDefaultOpenAIProfile()
   const baseUrl = typeof input.baseUrl === 'string' ? input.baseUrl : undefined
   const model = typeof input.model === 'string' && input.model.trim() ? input.model : undefined
   const apiMode = input.apiMode === 'responses' ? 'responses' : input.apiMode === 'images' ? 'images' : undefined
@@ -369,7 +395,6 @@ function normalizeProviderDrafts(input: unknown, customProviderIds: Set<string>)
   const entries = Object.entries(input)
     .map(([provider, draft]) => [provider, normalizeProviderDraft(draft, provider, customProviderIds)] as const)
     .filter((entry): entry is [ApiProvider, NonNullable<ApiProfileProviderDraft>] => Boolean(entry[1]))
-
   return entries.length ? Object.fromEntries(entries) : undefined
 }
 
@@ -377,12 +402,8 @@ export function normalizeApiProfile(input: unknown, fallback?: Partial<ApiProfil
   const record = input && typeof input === 'object' ? input as Record<string, unknown> : {}
   const rawProvider = typeof record.provider === 'string' ? record.provider : ''
   const provider: ApiProvider =
-    rawProvider === 'gemini' || customProviderIds.has(rawProvider)
-      ? rawProvider
-      : 'openai'
-  const defaults = provider === 'gemini'
-    ? createDefaultGeminiProfile(fallback)
-    : createDefaultOpenAIProfile(fallback)
+    rawProvider === 'gemini' || customProviderIds.has(rawProvider) ? rawProvider : 'openai'
+  const defaults = provider === 'gemini' ? createDefaultGeminiProfile(fallback) : createDefaultOpenAIProfile(fallback)
   const apiMode: ApiMode = record.apiMode === 'responses' ? 'responses' : 'images'
   const rawBaseUrl = typeof record.baseUrl === 'string' ? record.baseUrl : defaults.baseUrl
 
@@ -391,9 +412,7 @@ export function normalizeApiProfile(input: unknown, fallback?: Partial<ApiProfil
     id: typeof record.id === 'string' && record.id.trim() ? record.id : defaults.id,
     name: typeof record.name === 'string' && record.name.trim() ? record.name : defaults.name,
     provider,
-    baseUrl: provider === 'gemini'
-      ? rawBaseUrl.trim().replace(/\/+$/, '') || DEFAULT_GEMINI_BASE_URL
-      : rawBaseUrl,
+    baseUrl: provider === 'gemini' ? rawBaseUrl.trim().replace(/\/+$/, '') || DEFAULT_GEMINI_BASE_URL : rawBaseUrl,
     apiKey: typeof record.apiKey === 'string' ? record.apiKey : defaults.apiKey,
     model: typeof record.model === 'string' && record.model.trim() ? record.model : defaults.model,
     timeout: typeof record.timeout === 'number' && Number.isFinite(record.timeout) ? record.timeout : defaults.timeout,
@@ -410,72 +429,129 @@ export function normalizeApiProfile(input: unknown, fallback?: Partial<ApiProfil
 
 function validateImportedProfileRecord(input: unknown) {
   if (!isRecord(input)) return
-
   const baseUrl = typeof input.baseUrl === 'string' ? input.baseUrl.trim() : ''
   if (baseUrl && (baseUrl.startsWith('[') || baseUrl.includes(']('))) {
     throw new Error('JSON 包含 Markdown 链接，请粘贴纯文本')
   }
-
   if (typeof input.apiMode === 'string' && input.apiMode !== 'images' && input.apiMode !== 'responses') {
     throw new Error('apiMode 格式无效，应为 images 或 responses')
   }
 }
 
+// ===== Bridge: ApiProfile <-> ClientProfile =====
+
+/** Synthesize a legacy ApiProfile view from a ClientProfile + the channel registry. */
+export function clientProfileToApiProfile(profile: ClientProfile, publicChannels: PublicChannel[] = getPublicChannels()): ApiProfile {
+  if (profile.source === 'builtin-edge') {
+    const channel = publicChannels.find((c) => c.id === profile.channelId)
+    const kind = channel?.kind ?? 'openai-compat'
+    return {
+      id: profile.id,
+      name: channel?.label ?? profile.channelId,
+      provider: kind === 'gemini' ? 'gemini' : 'openai',
+      // builtin-edge 永远通过 /api-proxy/<channelId>/<path> 走边缘，apiKey 留在边缘端
+      baseUrl: `/api-proxy/${profile.channelId}`,
+      apiKey: '',
+      model: profile.selectedModelId,
+      timeout: channel?.defaults.timeout ?? DEFAULT_API_TIMEOUT,
+      apiMode: channel?.defaults.apiMode ?? 'images',
+      codexCli: channel?.defaults.codexCli ?? false,
+      apiProxy: false,
+      responseFormatB64Json: channel?.defaults.responseFormatB64Json,
+      models: channel?.models.map((m) => m.id),
+    }
+  }
+  const provider: ApiProvider = profile.kind === 'gemini' ? 'gemini' : 'openai'
+  return {
+    id: profile.id,
+    name: profile.name,
+    provider,
+    baseUrl: profile.baseUrl,
+    apiKey: profile.apiKey,
+    model: profile.selectedModelId,
+    timeout: profile.preferences.timeout,
+    apiMode: profile.preferences.apiMode,
+    codexCli: profile.preferences.codexCli,
+    apiProxy: profile.preferences.apiProxy,
+    responseFormatB64Json: profile.preferences.responseFormatB64Json,
+    models: profile.models,
+  }
+}
+
+/** Convert a legacy ApiProfile-shape record into a ClientProfile for storage. */
+export function apiProfileToClientProfile(profile: ApiProfile): ClientProfile {
+  // builtin-edge profiles never originate from the UI's ApiProfile flow; only via channels.json.
+  // We treat every ApiProfile in this direction as user-byok.
+  const kind = profile.provider === 'gemini' ? 'gemini' : 'openai-compat'
+  const models = profile.models?.length ? [...profile.models] : [profile.model].filter(Boolean)
+  return {
+    id: profile.id,
+    source: 'user-byok',
+    name: profile.name,
+    kind,
+    baseUrl: profile.baseUrl,
+    apiKey: profile.apiKey,
+    models,
+    selectedModelId: profile.model || models[0] || '',
+    preferences: {
+      apiMode: profile.apiMode,
+      timeout: profile.timeout,
+      codexCli: profile.codexCli,
+      apiProxy: profile.apiProxy,
+      responseFormatB64Json: profile.responseFormatB64Json,
+    },
+  }
+}
+
+// ===== normalizeSettings =====
+
 export interface NormalizeSettingsOptions {
+  /** @deprecated 内置 channel 现在由 config/channels.json 单一来源决定，此选项不再使用。 */
   builtinProfiles?: ApiProfile[]
 }
 
-export function normalizeSettings(input: Partial<AppSettings> | unknown, options: NormalizeSettingsOptions = {}): AppSettings {
-  const record = input && typeof input === 'object' ? input as Record<string, unknown> : {}
+export function normalizeSettings(input: Partial<AppSettings> | unknown, _options: NormalizeSettingsOptions = {}): AppSettings {
+  const record = isRecord(input) ? input : {}
   const customProviders = normalizeCustomProviderDefinitions(record.customProviders)
-  const customProviderIds = new Set(customProviders.map((provider) => provider.id))
-  const legacyProfile = createDefaultOpenAIProfile({
-    baseUrl: typeof record.baseUrl === 'string' ? record.baseUrl : DEFAULT_BASE_URL,
-    apiKey: typeof record.apiKey === 'string' ? record.apiKey : '',
-    model: typeof record.model === 'string' && record.model.trim() ? record.model : DEFAULT_IMAGES_MODEL,
-    timeout: typeof record.timeout === 'number' && Number.isFinite(record.timeout) ? record.timeout : DEFAULT_API_TIMEOUT,
-    apiMode: record.apiMode === 'responses' ? 'responses' : 'images',
-    codexCli: Boolean(record.codexCli),
-    apiProxy: typeof record.apiProxy === 'boolean' ? record.apiProxy : DEFAULT_OPENAI_API_PROXY,
-    responseFormatB64Json: record.responseFormatB64Json === true ? true : undefined,
-  })
-  const rawProfiles = Array.isArray(record.profiles) && record.profiles.length
-    ? record.profiles.map((profile) => normalizeApiProfile(profile, undefined, customProviderIds))
-    : [legacyProfile]
+  const customProviderIds = new Set(customProviders.map((p) => p.id))
 
-  const builtins = options.builtinProfiles ?? getBuiltinProfiles()
-  const rawSelections = isRecord(record.builtinProfileModelSelections) ? record.builtinProfileModelSelections : {}
-  const builtinModelSelections: Record<string, string> = {}
-  for (const [key, value] of Object.entries(rawSelections)) {
-    if (typeof value === 'string' && value.trim()) builtinModelSelections[key] = value
-  }
-  // 优先采纳 rawProfiles 中内置 profile 的 model（用户本次修改），其次用 stored selections
-  const builtinIds = new Set(builtins.map((p) => p.id))
-  for (const profile of rawProfiles) {
-    if (builtinIds.has(profile.id) && profile.model?.trim()) {
-      builtinModelSelections[profile.id] = profile.model
+  // 标准化输入 profiles：支持 ClientProfile-shape（透传）与 ApiProfile-shape（转换）。
+  // 不再做"旧 builtin- 前缀 → channelId"映射（无存量用户需要迁移）。
+  const rawList = Array.isArray(record.profiles) ? record.profiles : []
+  let profiles: ClientProfile[] = []
+  for (const item of rawList) {
+    if (!isRecord(item)) continue
+    if (item.source === 'builtin-edge' || item.source === 'user-byok') {
+      profiles.push(item as unknown as ClientProfile)
+      continue
     }
+    // 视作 ApiProfile-shape 输入，转换为 user-byok ClientProfile。
+    const normalized = normalizeApiProfile(item, undefined, customProviderIds)
+    profiles.push(apiProfileToClientProfile(normalized))
   }
-  const builtinsWithOverrides = builtins.map((p) =>
-    builtinModelSelections[p.id] ? { ...p, model: builtinModelSelections[p.id] } : p,
-  )
-  const userProfiles = rawProfiles.filter((p) => !builtinIds.has(p.id))
-  const profiles = builtinsWithOverrides.length ? [...builtinsWithOverrides, ...userProfiles] : userProfiles
-  const profilesWithFallback = profiles.length ? profiles : [legacyProfile]
 
-  const activeProfileId = typeof record.activeProfileId === 'string' && profilesWithFallback.some((p) => p.id === record.activeProfileId)
-    ? record.activeProfileId
-    : profilesWithFallback[0].id
-  const active = profilesWithFallback.find((p) => p.id === activeProfileId) ?? profilesWithFallback[0]
+  // 完全空（既没有新 profiles，也没有顶层 legacy fields 暗示）→ 注入一个默认 OpenAI BYOK
+  let activeProfileId = typeof record.activeProfileId === 'string' ? record.activeProfileId : ''
+  if (profiles.length === 0) {
+    const seed = createDefaultOpenAIProfile({
+      baseUrl: typeof record.baseUrl === 'string' && record.baseUrl ? record.baseUrl : DEFAULT_BASE_URL,
+      apiKey: typeof record.apiKey === 'string' ? record.apiKey : '',
+      model: typeof record.model === 'string' && record.model.trim() ? record.model : DEFAULT_IMAGES_MODEL,
+      timeout: typeof record.timeout === 'number' && Number.isFinite(record.timeout) ? record.timeout : DEFAULT_API_TIMEOUT,
+      apiMode: record.apiMode === 'responses' ? 'responses' : 'images',
+      codexCli: Boolean(record.codexCli),
+      apiProxy: typeof record.apiProxy === 'boolean' ? record.apiProxy : DEFAULT_OPENAI_API_PROXY,
+      responseFormatB64Json: record.responseFormatB64Json === true ? true : undefined,
+    })
+    profiles = [apiProfileToClientProfile(seed)]
+    activeProfileId = seed.id
+  }
+
+  if (!profiles.some((p) => p.id === activeProfileId)) {
+    activeProfileId = profiles[0].id
+  }
 
   return {
-    baseUrl: active.baseUrl,
-    apiKey: active.apiKey,
-    model: active.model,
-    timeout: active.timeout,
-    apiMode: active.apiMode,
-    codexCli: active.codexCli,
-    apiProxy: active.apiProxy,
     customProviders,
     providerOrder: Array.isArray(record.providerOrder) ? record.providerOrder.map(String) : undefined,
     clearInputAfterSubmit: typeof record.clearInputAfterSubmit === 'boolean' ? record.clearInputAfterSubmit : false,
@@ -483,11 +559,12 @@ export function normalizeSettings(input: Partial<AppSettings> | unknown, options
     reuseTaskApiProfileTemporarily: typeof record.reuseTaskApiProfileTemporarily === 'boolean' ? record.reuseTaskApiProfileTemporarily : false,
     alwaysShowRetryButton: typeof record.alwaysShowRetryButton === 'boolean' ? record.alwaysShowRetryButton : false,
     enterSubmit: typeof record.enterSubmit === 'boolean' ? record.enterSubmit : false,
-    profiles: profilesWithFallback,
+    profiles,
     activeProfileId,
-    builtinProfileModelSelections: Object.keys(builtinModelSelections).length ? builtinModelSelections : undefined,
   }
 }
+
+// ===== Lookup helpers =====
 
 export function getCustomProviderDefinition(settings: Partial<AppSettings> | unknown, provider: ApiProvider): CustomProviderDefinition | null {
   const normalized = normalizeSettings(settings)
@@ -525,14 +602,11 @@ export function importCustomProviderSettingsFromJson(
   } catch {
     throw new Error('JSON 格式无效')
   }
-
   if (!parsed || typeof parsed !== 'object') {
     throw new Error('JSON 根节点必须是对象')
   }
-
   const record = parsed as Record<string, unknown>
 
-  // 包裹结构：{customProviders: [...], profiles: [...]}
   if (Array.isArray(record.customProviders)) {
     const customProviders = normalizeCustomProviderDefinitions(record.customProviders)
     if (customProviders.length === 0) {
@@ -541,21 +615,16 @@ export function importCustomProviderSettingsFromJson(
     const customProviderIds = new Set(customProviders.map((provider) => provider.id))
     const profiles = Array.isArray(record.profiles)
       ? record.profiles
-        .map((item) => {
-          validateImportedProfileRecord(item)
-          return item
-        })
+        .map((item) => { validateImportedProfileRecord(item); return item })
         .map((item) => normalizeApiProfile(item, undefined, customProviderIds))
         .filter((profile) => customProviderIds.has(profile.provider))
       : []
     return { customProviders, profiles }
   }
 
-  // 单个 Manifest 对象：{name, submit, ...}
   const usedIds = new Set(existingProviders.map((provider) => provider.id))
   const direct = normalizeCustomProviderDefinition(parsed, usedIds)
   if (direct) return { customProviders: [direct], profiles: [] }
-
   throw new Error('无法识别该 JSON。请粘贴自定义服务商配置。')
 }
 
@@ -564,21 +633,13 @@ export function importCustomProviderDefinitionFromJson(jsonText: string, existin
   return result.customProviders[0]
 }
 
-export function getActiveApiProfile(settings: Partial<AppSettings> | unknown): ApiProfile {
-  const record = settings && typeof settings === 'object' ? settings as Record<string, unknown> : {}
-  const normalized = normalizeSettings(settings)
-  const profile = normalized.profiles.find((p) => p.id === normalized.activeProfileId) ?? normalized.profiles[0] ?? createDefaultOpenAIProfile()
+// ===== Active profile (synthetic ApiProfile view) =====
 
-  return {
-    ...profile,
-    baseUrl: typeof record.baseUrl === 'string' ? record.baseUrl : profile.baseUrl,
-    apiKey: typeof record.apiKey === 'string' ? record.apiKey : profile.apiKey,
-    model: typeof record.model === 'string' && record.model.trim() ? record.model : profile.model,
-    timeout: typeof record.timeout === 'number' && Number.isFinite(record.timeout) ? record.timeout : profile.timeout,
-    apiMode: record.apiMode === 'images' || record.apiMode === 'responses' ? record.apiMode : profile.apiMode,
-    codexCli: typeof record.codexCli === 'boolean' ? record.codexCli : profile.codexCli,
-    apiProxy: typeof record.apiProxy === 'boolean' ? record.apiProxy : profile.apiProxy,
-  }
+export function getActiveApiProfile(settings: Partial<AppSettings> | unknown): ApiProfile {
+  const normalized = normalizeSettings(settings)
+  const clientProfile = normalized.profiles.find((p) => p.id === normalized.activeProfileId) ?? normalized.profiles[0]
+  if (!clientProfile) return createDefaultOpenAIProfile()
+  return clientProfileToApiProfile(clientProfile)
 }
 
 export function validateApiProfile(profile: ApiProfile): string | null {
@@ -588,6 +649,8 @@ export function validateApiProfile(profile: ApiProfile): string | null {
   if (!profile.model.trim()) return '缺少模型 ID'
   return null
 }
+
+// ===== Default-state detection (for "replace vs append" import logic) =====
 
 function isDefaultOpenAIProfile(profile: ApiProfile): boolean {
   return profile.id === DEFAULT_OPENAI_PROFILE_ID &&
@@ -603,10 +666,11 @@ function isDefaultOpenAIProfile(profile: ApiProfile): boolean {
 }
 
 function hasOnlyDefaultProfiles(settings: AppSettings): boolean {
-  return settings.customProviders.length === 0 &&
-    settings.profiles.length === 1 &&
-    settings.activeProfileId === DEFAULT_OPENAI_PROFILE_ID &&
-    isDefaultOpenAIProfile(settings.profiles[0])
+  if (settings.customProviders.length !== 0) return false
+  if (settings.profiles.length !== 1) return false
+  const only = settings.profiles[0]
+  if (only.source !== 'user-byok') return false
+  return isDefaultOpenAIProfile(clientProfileToApiProfile(only))
 }
 
 function createImportedProfileId(provider: ApiProvider, usedIds: Set<string>): string {
@@ -640,9 +704,6 @@ function getApiProfileConnectionKey(profile: ApiProfile): string {
 function hasEquivalentApiProfile(existingProfiles: ApiProfile[], importedProfile: ApiProfile): boolean {
   const dedupKey = getApiProfileDedupKey(importedProfile)
   if (existingProfiles.some((profile) => getApiProfileDedupKey(profile) === dedupKey)) return true
-
-  // LLM-generated imports intentionally omit API Key. Reuse an existing keyed profile
-  // when the provider, URL, model, and mode are otherwise identical.
   if (importedProfile.apiKey.trim()) return false
   const connectionKey = getApiProfileConnectionKey(importedProfile)
   return existingProfiles.some((profile) => getApiProfileConnectionKey(profile) === connectionKey)
@@ -680,7 +741,6 @@ function mergeImportedCustomProviders(currentProviders: CustomProviderDefinition
       providerIdMap.set(provider.id, existingId)
       continue
     }
-
     const normalized = normalizeCustomProviderDefinition(provider, usedIds)
     if (!normalized) continue
     providerIdMap.set(provider.id, normalized.id)
@@ -699,65 +759,79 @@ export function findEquivalentApiProfile(
   const normalized = normalizeSettings(settings)
   const importedProvider = importedProviders.find((provider) => provider.id === importedProfile.provider)
   const provider = importedProvider
-    ? normalized.customProviders.find((provider) => getCustomProviderDedupKey(provider) === getCustomProviderDedupKey(importedProvider))?.id ?? importedProfile.provider
+    ? normalized.customProviders.find((p) => getCustomProviderDedupKey(p) === getCustomProviderDedupKey(importedProvider))?.id ?? importedProfile.provider
     : importedProfile.provider
   const profile = { ...importedProfile, provider }
   const dedupKey = getApiProfileDedupKey(profile)
-  const exact = normalized.profiles.find((item) => getApiProfileDedupKey(item) === dedupKey)
-  if (exact) return exact
-
+  const exactApi = normalized.profiles
+    .map((p) => clientProfileToApiProfile(p))
+    .find((item) => getApiProfileDedupKey(item) === dedupKey)
+  if (exactApi) return exactApi
   if (profile.apiKey.trim()) return null
   const connectionKey = getApiProfileConnectionKey(profile)
-  return normalized.profiles.find((item) => getApiProfileConnectionKey(item) === connectionKey) ?? null
+  return normalized.profiles
+    .map((p) => clientProfileToApiProfile(p))
+    .find((item) => getApiProfileConnectionKey(item) === connectionKey) ?? null
 }
 
 export function mergeImportedSettings(currentSettings: Partial<AppSettings> | unknown, importedSettings: Partial<AppSettings> | unknown): AppSettings {
   const current = normalizeSettings(currentSettings)
   const normalizedImported = normalizeSettings(importedSettings)
-  const imported = normalizeSettings({
-    ...normalizedImported,
-    profiles: dedupeApiProfiles(normalizedImported.profiles),
-  })
+
+  // Convert client profiles to ApiProfile shape for dedup logic, then back at storage boundary.
+  const currentApi = current.profiles.map((p) => clientProfileToApiProfile(p))
+  const importedApiRaw = normalizedImported.profiles.map((p) => clientProfileToApiProfile(p))
+  const importedApi = dedupeApiProfiles(importedApiRaw)
 
   if (hasOnlyDefaultProfiles(current)) {
-    return imported
+    return normalizeSettings({
+      ...normalizedImported,
+      profiles: importedApi.map(apiProfileToClientProfile),
+    })
   }
 
-  const usedIds = new Set(current.profiles.map((profile) => profile.id))
-  const existingKeys = new Set(current.profiles.map(getApiProfileDedupKey))
-  const { providers: customProviders, providerIdMap } = mergeImportedCustomProviders(current.customProviders, imported.customProviders)
-  const importedProfiles = imported.profiles
+  const usedIds = new Set(currentApi.map((profile) => profile.id))
+  const existingKeys = new Set(currentApi.map(getApiProfileDedupKey))
+  const { providers: customProviders, providerIdMap } = mergeImportedCustomProviders(current.customProviders, normalizedImported.customProviders)
+  const importedFiltered = importedApi
     .map((profile) => providerIdMap.has(profile.provider)
       ? { ...profile, provider: providerIdMap.get(profile.provider) ?? profile.provider }
       : profile,
     )
-    .filter((profile) => !existingKeys.has(getApiProfileDedupKey(profile)) && !hasEquivalentApiProfile(current.profiles, profile))
-    .map((profile) => ({
-      ...profile,
-      id: createImportedProfileId(profile.provider, usedIds),
-    }))
-  const profiles = [...current.profiles, ...importedProfiles]
+    .filter((profile) => !existingKeys.has(getApiProfileDedupKey(profile)) && !hasEquivalentApiProfile(currentApi, profile))
+    .map((profile) => ({ ...profile, id: createImportedProfileId(profile.provider, usedIds) }))
+  const mergedApi = [...currentApi, ...importedFiltered]
 
   return normalizeSettings({
     ...current,
     customProviders,
-    profiles,
+    profiles: mergedApi.map(apiProfileToClientProfile),
     activeProfileId: current.activeProfileId,
   })
 }
 
 export const DEFAULT_SETTINGS: AppSettings = normalizeSettings({
-  baseUrl: DEFAULT_BASE_URL,
-  apiKey: '',
-  model: DEFAULT_IMAGES_MODEL,
-  timeout: DEFAULT_API_TIMEOUT,
-  apiMode: 'images',
-  codexCli: false,
-  apiProxy: DEFAULT_OPENAI_API_PROXY,
   customProviders: [],
+  profiles: [],
   clearInputAfterSubmit: false,
   persistInputOnRestart: true,
   reuseTaskApiProfileTemporarily: false,
   alwaysShowRetryButton: false,
   enterSubmit: false,
-}, { builtinProfiles: [] })
+})
+
+// ===== Back-compat shims (deprecated; will be removed once UI migrates to ClientProfile) =====
+
+/** @deprecated builtin profile 现在是 `source: 'builtin-edge'`；用 `profile.source === 'builtin-edge'` 判断。 */
+export const BUILTIN_PROFILE_ID_PREFIX = 'qlj-'
+
+/** @deprecated 用 `profile.source === 'builtin-edge'` 判断。 */
+export function isBuiltinProfile(profile: { id?: string; source?: string } | null | undefined): boolean {
+  if (!profile) return false
+  if (profile.source === 'builtin-edge') return true
+  return typeof profile.id === 'string' && profile.id.startsWith(BUILTIN_PROFILE_ID_PREFIX)
+}
+
+// Re-export ClientProfile for downstream consumers that want both.
+export type { ClientProfile } from './channels/types'
+export { getPublicChannel }
