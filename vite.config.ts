@@ -17,8 +17,36 @@ function loadDevProxyConfig() {
   }
 }
 
+const EDGE_PROXY_TARGET = process.env.EDGE_PROXY_TARGET ?? 'http://localhost:8788'
+
 export default defineConfig(({ command }) => {
-  const devProxyConfig = command === 'serve' ? loadDevProxyConfig() : null
+  const isServe = command === 'serve'
+  const devProxyConfig = isServe ? loadDevProxyConfig() : null
+
+  const proxy: Record<string, import('vite').ProxyOptions> = {}
+  if (isServe) {
+    // Edge channel routing: /api-proxy/<channelId>/* → wrangler pages dev (functions/).
+    // Run alongside `pnpm dev` with `pnpm dev:edge`.
+    proxy['/api-proxy'] = {
+      target: EDGE_PROXY_TARGET,
+      changeOrigin: true,
+      secure: false,
+    }
+    // BYOK dev-proxy (optional, opt-in via dev-proxy.config.json). Same key
+    // intentionally overrides the edge proxy if a tester points it here.
+    if (devProxyConfig?.enabled) {
+      proxy[devProxyConfig.prefix] = {
+        target: devProxyConfig.target,
+        changeOrigin: devProxyConfig.changeOrigin,
+        secure: devProxyConfig.secure,
+        rewrite: (path) =>
+          path.replace(
+            new RegExp(`^${devProxyConfig.prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`),
+            '',
+          ),
+      }
+    }
+  }
 
   return {
     plugins: [react()],
@@ -29,21 +57,7 @@ export default defineConfig(({ command }) => {
     },
     server: {
       host: true,
-      proxy:
-        devProxyConfig?.enabled
-          ? {
-              [devProxyConfig.prefix]: {
-                target: devProxyConfig.target,
-                changeOrigin: devProxyConfig.changeOrigin,
-                secure: devProxyConfig.secure,
-                rewrite: (path) =>
-                  path.replace(
-                    new RegExp(`^${devProxyConfig.prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`),
-                    '',
-                  ),
-              },
-            }
-          : undefined,
+      proxy: Object.keys(proxy).length ? proxy : undefined,
     },
   }
 })

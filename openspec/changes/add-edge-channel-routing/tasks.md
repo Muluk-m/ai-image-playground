@@ -87,19 +87,19 @@
 
 ## 8. 开发环境与部署
 
-- [ ] 8.1 在 `package.json` `scripts.dev` 旁新增 `scripts.dev:edge` 调用 `wrangler pages dev . --port 8788 --binding ...`（或类似），文档中说明同时运行 vite 与 pages dev
-- [ ] 8.2 在 `vite.config.ts` 加 dev proxy：把 `/api-proxy/<channelId>/*` 代理到 `http://localhost:8788`，让 `npm run dev` 用户感无差异
-- [ ] 8.3 在仓库根新增 `.dev.vars.example`：列出 `SUB2API_GEMINI_FLASH_KEY=` 等 secret 占位
-- [ ] 8.4 README：删除 fal 段落；新增「内置 channel 工作流」章节（改 channels.json + 加 Pages secret + 部署）；新增「BYOK vs 内置」对比段
-- [ ] 8.5 `wrangler.jsonc` 检查：assets-only 配置无需改动；如需 Pages Functions 显式开关则补 `pages_build_output_dir` 等字段
+- [x] 8.1 在 `package.json` `scripts.dev` 旁新增 `scripts.dev:edge` 调用 `wrangler pages dev . --port 8788 --binding ...`（或类似），文档中说明同时运行 vite 与 pages dev
+- [x] 8.2 在 `vite.config.ts` 加 dev proxy：把 `/api-proxy/<channelId>/*` 代理到 `http://localhost:8788`，让 `npm run dev` 用户感无差异
+- [x] 8.3 在仓库根新增 `.dev.vars.example`：列出 `SUB2API_GEMINI_FLASH_KEY=` 等 secret 占位
+- [x] 8.4 README：删除 fal 段落；新增「内置 channel 工作流」章节（改 channels.json + 加 Pages secret + 部署）；新增「BYOK vs 内置」对比段
+- [x] 8.5 `wrangler.jsonc` 检查：assets-only 配置无需改动；如需 Pages Functions 显式开关则补 `pages_build_output_dir` 等字段 _(确认无需改动：`wrangler pages deploy ./dist` 自动发现仓库根 `functions/` 目录)_
 - [ ] 8.6 Cloudflare Pages dashboard 同步：在 production 与 preview 环境分别添加 channels.json 中所有 secretRef 对应的环境变量
 
 ## 9. 验收与归档
 
 - [x] 9.1 `pnpm test` 全部通过（15 文件 / 158 用例）
-- [x] 9.2 `tsc -b` 通过（vite build 待手动确认）
+- [x] 9.2 `tsc -b` 通过；`pnpm build`（含 `vite build`）通过
 - [ ] 9.3 Pages preview 部署验证：内置 profile 出图正常；DevTools 无 Authorization；secret 未配置时返回 500
 - [ ] 9.4 BYOK profile 在 preview 上验证：直连与 apiProxy 两条路径均可出图
 - [ ] 9.5 在生产环境分别用 Chrome 与 Safari 验证一次
-- [ ] 9.6 运行 `openspec validate add-edge-channel-routing --strict`，确认通过
+- [x] 9.6 运行 `openspec validate add-edge-channel-routing --strict`，确认通过
 - [ ] 9.7 合并 PR 后运行 `/opsx:apply` 收尾或 `openspec archive` 归档变更
