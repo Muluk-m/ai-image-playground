@@ -2,11 +2,14 @@ import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_FAL_BASE_URL,
   DEFAULT_FAL_MODEL,
+  DEFAULT_GEMINI_BASE_URL,
+  DEFAULT_GEMINI_MODEL,
   DEFAULT_IMAGES_MODEL,
   DEFAULT_OPENAI_PROFILE_ID,
   DEFAULT_SETTINGS,
   createDefaultOpenAIProfile,
   createDefaultFalProfile,
+  createDefaultGeminiProfile,
   findEquivalentApiProfile,
   importCustomProviderDefinitionFromJson,
   importCustomProviderSettingsFromJson,
@@ -543,5 +546,26 @@ describe('custom providers', () => {
     expect(restoredProfile.baseUrl).toBe('https://api.compat.example.com/v1')
     expect(restoredProfile.model).toBe('custom-openai-model')
     expect(restoredProfile.apiProxy).toBe(false)
+  })
+})
+
+describe('createDefaultGeminiProfile', () => {
+  it('returns a gemini profile with Google v1beta defaults', () => {
+    const profile = createDefaultGeminiProfile()
+    expect(profile.provider).toBe('gemini')
+    expect(profile.baseUrl).toBe('https://generativelanguage.googleapis.com/v1beta')
+    expect(profile.model).toBe('gemini-3.1-flash-image')
+    expect(profile.apiMode).toBe('images')
+    expect(profile.codexCli).toBe(false)
+    expect(profile.apiProxy).toBe(false)
+    expect(DEFAULT_GEMINI_BASE_URL).toBe('https://generativelanguage.googleapis.com/v1beta')
+    expect(DEFAULT_GEMINI_MODEL).toBe('gemini-3.1-flash-image')
+  })
+
+  it('applies overrides', () => {
+    const profile = createDefaultGeminiProfile({ name: 'My Gemini', apiKey: 'k', model: 'gemini-x' })
+    expect(profile.name).toBe('My Gemini')
+    expect(profile.apiKey).toBe('k')
+    expect(profile.model).toBe('gemini-x')
   })
 })
