@@ -1,8 +1,35 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DEFAULT_PARAMS, type AppSettings } from '../types'
 import { DEFAULT_SETTINGS, normalizeSettings } from './apiProfiles'
-import type { UserByokProfile } from './channels/types'
+import type { BuiltinEdgeProfile, PublicChannel, UserByokProfile } from './channels/types'
 import { callImageApi } from './api'
+
+const mockChannels = vi.hoisted(() => ({ list: [] as PublicChannel[] }))
+vi.mock('./channels/publicChannels', () => ({
+  getPublicChannels: () => mockChannels.list,
+  getPublicChannel: (id: string) => mockChannels.list.find((c) => c.id === id),
+}))
+
+function expectNoAuthHeaders(headers: Record<string, string>): void {
+  expect(headers.Authorization).toBeUndefined()
+  expect(headers.authorization).toBeUndefined()
+  expect(headers['x-api-key']).toBeUndefined()
+  expect(headers['x-goog-api-key']).toBeUndefined()
+}
+
+function settingsWithBuiltin(channel: PublicChannel, selectedModelId = channel.models[0].id): AppSettings {
+  const profile: BuiltinEdgeProfile = {
+    id: `builtin-${channel.id}`,
+    source: 'builtin-edge',
+    channelId: channel.id,
+    selectedModelId,
+  }
+  return normalizeSettings({
+    ...DEFAULT_SETTINGS,
+    profiles: [profile],
+    activeProfileId: profile.id,
+  })
+}
 
 function settingsWithByok(overrides: {
   apiKey?: string
@@ -45,6 +72,7 @@ describe('callImageApi', () => {
     vi.restoreAllMocks()
     vi.unstubAllEnvs()
     vi.useRealTimers()
+    mockChannels.list = []
   })
 
   it.each([false, true])(
@@ -172,6 +200,66 @@ describe('callImageApi', () => {
       'http://api.example.com/v1/images/generations',
       expect.objectContaining({ method: 'POST' }),
     )
+  })
+
+  it('builtin-edge openai-compat dispatch routes to /api-proxy/<channelId>/ without Authorization', async () => {
+    const channel: PublicChannel = {
+      id: 'test-openai',
+      kind: 'openai-compat',
+      label: 'Test OpenAI',
+      models: [{ id: 'gpt-image-2', label: 'GPT Image 2' }],
+      defaults: { apiMode: 'images', timeout: 600 },
+    }
+    mockChannels.list = [channel]
+
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      data: [{ b64_json: 'aW1hZ2U=' }],
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }))
+
+    await callImageApi({
+      settings: settingsWithBuiltin(channel),
+      prompt: 'prompt',
+      params: { ...DEFAULT_PARAMS },
+      inputImageDataUrls: [],
+    })
+
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe('/api-proxy/test-openai/images/generations')
+    expectNoAuthHeaders(((init as RequestInit).headers ?? {}) as Record<string, string>)
+  })
+
+  it('builtin-edge gemini dispatch routes to /api-proxy/<channelId>/ without Authorization', async () => {
+    const channel: PublicChannel = {
+      id: 'test-gemini',
+      kind: 'gemini',
+      label: 'Test Gemini',
+      models: [{ id: 'gemini-3.1-flash-image', label: 'Gemini Flash Image' }],
+      defaults: { apiMode: 'images', timeout: 600 },
+    }
+    mockChannels.list = [channel]
+
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      candidates: [{
+        content: { parts: [{ inlineData: { mimeType: 'image/png', data: 'aW1hZ2U=' } }] },
+      }],
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }))
+
+    await callImageApi({
+      settings: settingsWithBuiltin(channel),
+      prompt: 'prompt',
+      params: { ...DEFAULT_PARAMS },
+      inputImageDataUrls: [],
+    })
+
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe('/api-proxy/test-gemini/models/gemini-3.1-flash-image:generateContent')
+    expectNoAuthHeaders(((init as RequestInit).headers ?? {}) as Record<string, string>)
   })
 
   it('user-byok dispatch always carries Authorization header', async () => {

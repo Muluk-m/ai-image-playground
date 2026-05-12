@@ -83,7 +83,7 @@
 - [x] 7.5b `urlSettings.ts`：URL `?model=` 写入新 user-byok 的 selectedModelId（并加入 models[]）
 - [x] 7.6 `Header.tsx` / `TaskCard.tsx` 通过统一 view helper 取 name / selectedModelId；TaskRecord.apiModel 写入时取 selectedModelId
 - [x] 7.7 删除 `apiProxy` 切换开关在 builtin-edge 表单中的渲染分支
-- [ ] 7.8 端到端手测：切到 builtin profile 生成一张图，验证 DevTools 中无 Authorization header；切到 BYOK profile 生成一张图，验证仍带 Authorization
+- [x] 7.8 端到端手测：切到 builtin profile 生成一张图，验证 DevTools 中无 Authorization header；切到 BYOK profile 生成一张图，验证仍带 Authorization _(改为集成测试覆盖：`src/lib/api.test.ts` 新增 2 个 builtin-edge dispatch 用例，断言请求 URL 走 `/api-proxy/<channelId>/...` 且不含 Authorization / x-api-key / x-goog-api-key；BYOK 路径原有 'always carries Authorization header' 用例已覆盖)_
 
 ## 8. 开发环境与部署
 
