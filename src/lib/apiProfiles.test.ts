@@ -604,3 +604,25 @@ describe('gemini provider integration', () => {
     expect(validateApiProfile(profile)).toBeNull()
   })
 })
+
+describe('switchApiProfileProvider gemini branch', () => {
+  it('switches openai → gemini using gemini defaults', () => {
+    const base = createDefaultOpenAIProfile({ apiKey: 'sk-abc', baseUrl: 'https://api.openai.com/v1' })
+    const next = switchApiProfileProvider(base, 'gemini')
+    expect(next.provider).toBe('gemini')
+    expect(next.baseUrl).toBe(DEFAULT_GEMINI_BASE_URL)
+    expect(next.model).toBe(DEFAULT_GEMINI_MODEL)
+    expect(next.apiMode).toBe('images')
+    expect(next.codexCli).toBe(false)
+    expect(next.apiProxy).toBe(false)
+    expect(next.apiKey).toBe('sk-abc')
+  })
+
+  it('round-trips drafts: openai → gemini → openai retains openai baseUrl', () => {
+    const base = createDefaultOpenAIProfile({ baseUrl: 'https://x.example/v1', model: 'gpt-image-2', apiKey: 'k' })
+    const gem = switchApiProfileProvider(base, 'gemini')
+    const back = switchApiProfileProvider(gem, 'openai')
+    expect(back.baseUrl).toBe('https://x.example/v1')
+    expect(back.model).toBe('gpt-image-2')
+  })
+})
