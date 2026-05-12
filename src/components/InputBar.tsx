@@ -1461,27 +1461,42 @@ export default function InputBar() {
     )
   }
 
-  const handleActiveModelChange = (nextModel: string) => {
-    if (!nextModel || nextModel === activeProfile.model) return
-    const nextProfiles = settings.profiles.map((profile) =>
-      profile.id === activeProfile.id ? { ...profile, model: nextModel } : profile,
+  // 跨 profile 模型快选：展示所有 profile 中配置过的模型（profile.model + profile.models 去重），
+  // 切换时同时切换 activeProfileId 与该 profile 的 model。
+  const globalModelOptions = settings.profiles.flatMap((profile) => {
+    const combined = Array.from(
+      new Set([profile.model, ...(profile.models ?? [])].filter((m): m is string => Boolean(m))),
     )
-    setSettings({ profiles: nextProfiles })
+    return combined.map((model) => ({
+      profileId: profile.id,
+      profileName: profile.name,
+      model,
+      value: `${profile.id}::${model}`,
+    }))
+  })
+  const currentModelValue = `${activeProfile.id}::${activeProfile.model}`
+  const handleGlobalModelPick = (rawValue: string) => {
+    const option = globalModelOptions.find((o) => o.value === rawValue)
+    if (!option) return
+    if (option.profileId === activeProfile.id && option.model === activeProfile.model) return
+    const nextProfiles = settings.profiles.map((profile) =>
+      profile.id === option.profileId ? { ...profile, model: option.model } : profile,
+    )
+    setSettings({ profiles: nextProfiles, activeProfileId: option.profileId })
   }
-
-  const modelOptionsForSelect = Array.from(
-    new Set([activeProfile.model, ...(activeProfile.models ?? [])].filter(Boolean)),
-  )
 
   const renderParams = (cols: string) => (
     <div className={`grid ${cols} gap-2 text-xs flex-1`}>
-      {modelOptionsForSelect.length > 0 && (
+      {globalModelOptions.length > 0 && (
         <label className="flex flex-col gap-0.5 col-span-2">
           <span className="text-gray-400 dark:text-gray-500 ml-1">模型</span>
           <Select
-            value={activeProfile.model}
-            onChange={(val) => handleActiveModelChange(String(val))}
-            options={modelOptionsForSelect.map((m) => ({ label: m, value: m }))}
+            value={currentModelValue}
+            onChange={(val) => handleGlobalModelPick(String(val))}
+            options={globalModelOptions.map((o) => ({
+              label: `${o.model} · ${o.profileName}`,
+              value: o.value,
+            }))}
             className={selectClass}
           />
         </label>
