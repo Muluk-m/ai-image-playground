@@ -1,7 +1,11 @@
-# Gemini 服务商集成设计
+# Gemini 服务商集成 + 内置 Profile 设计
 
 **日期**：2026-05-12
-**目标**：在 gpt-image-playground 中新增内建 Gemini 服务商，支持通过 Google Gemini 原生 `v1beta/generateContent` 接口调用 `gemini-3.1-flash-image` 等图像生成模型。保持现有 OpenAI / fal.ai / 自定义服务商行为不变。
+**目标**：
+1. 在 gpt-image-playground 中新增内建 Gemini 服务商，支持通过 Google Gemini 原生 `v1beta/generateContent` 接口调用 `gemini-3.1-flash-image` 等图像生成模型。
+2. 引入「内置 Profile」机制：一组在代码 / 部署期注入的预填 ApiProfile（含 baseUrl、apiKey、model），在 Profile 列表顶部以「内置」标签展示，只读、不可编辑、不可删除，且不会被持久化覆盖。
+
+保持现有 OpenAI / fal.ai / 自定义服务商行为不变。
 
 ---
 
@@ -23,6 +27,7 @@
 - 支持文本生图 + 多张参考图输入（inlineData）
 - 与现有 provider 切换、配置导入导出、历史任务回放保持兼容
 - 错误信息复用现有 `getApiErrorMessage` 解析
+- 引入「内置 Profile」：用户在 Profile 列表顶部看到带「内置」徽章的只读 profile，可激活使用但不可编辑/删除；其内容由代码常量或部署时环境变量提供
 
 **非目标**
 
@@ -31,6 +36,7 @@
 - 遮罩编辑（Gemini API 不支持，明确拒绝）
 - 改造 `http-image` 模板 DSL 兼容 Gemini 形态（成本高于新增独立 provider）
 - 改造 UI 品牌 / 名称 / 默认配置
+- 内置 Profile 的加密 / 混淆：apiKey 会进 bundle，公开部署可被读取，使用方自负
 
 ## 3. 关键决策
 
@@ -50,18 +56,29 @@
 
 `mask` 按钮禁用并 tooltip 提示「当前服务商不支持」；`quality`、`output_format`、`output_compression`、`moderation` 控件在 Gemini profile 激活时隐藏。`size` 控件保留（用于推断 aspectRatio），`n` 保留。
 
+**决策四：内置 Profile 通过「编译期常量 + 运行时合并」实现，不进持久化**
+
+- 配置源：`src/lib/builtinProfiles.ts` 导出 `BUILTIN_PROFILES: ApiProfile[]`，默认空数组；同时支持 `import.meta.env.VITE_BUILTIN_PROFILES`（JSON 字符串）覆盖，便于部署期注入而不污染仓库
+- 标识：每个内置 profile id 以 `builtin-` 前缀命名（如 `builtin-gemini-flash`），运行时通过前缀判断是否只读
+- 不持久化：写入 `localStorage` 前从 `profiles` 中剔除 `builtin-*`，启动时重新注入到列表顶部；用户的 `activeProfileId` 可以引用 `builtin-*`（解析时优先查内置列表）
+- 用户在内置 profile 上点「编辑」时弹出「该 Profile 为内置，请使用『复制为新配置』」提示，提供一键复制为可编辑 profile 的快捷入口
+
 ## 4. 改动范围
 
 | 文件 | 改动 |
 |---|---|
 | `src/types.ts` | `BuiltInApiProvider = 'openai' \| 'fal' \| 'gemini'` |
-| `src/lib/apiProfiles.ts` | 新增 `DEFAULT_GEMINI_BASE_URL='https://generativelanguage.googleapis.com/v1beta'`、`DEFAULT_GEMINI_MODEL='gemini-3.1-flash-image'`、`createDefaultGeminiProfile`；扩展 `BUILT_IN_PROVIDER_IDS`、`switchApiProfileProvider`、`normalizeApiProfile`、`normalizeProviderDraft`、`getApiProviderLabel`、`validateApiProfile` |
+| `src/lib/apiProfiles.ts` | 新增 `DEFAULT_GEMINI_BASE_URL='https://generativelanguage.googleapis.com/v1beta'`、`DEFAULT_GEMINI_MODEL='gemini-3.1-flash-image'`、`createDefaultGeminiProfile`；扩展 `BUILT_IN_PROVIDER_IDS`、`switchApiProfileProvider`、`normalizeApiProfile`、`normalizeProviderDraft`、`getApiProviderLabel`、`validateApiProfile`；新增 `BUILTIN_PROFILE_ID_PREFIX`、`isBuiltinProfile(profile)` |
+| `src/lib/builtinProfiles.ts` **(新)** | `BUILTIN_PROFILES: ApiProfile[]`：从 `VITE_BUILTIN_PROFILES` env JSON 读取（失败/空则回退到模块内常量数组，默认 `[]`）。模块只导出值，不依赖 React/store |
 | `src/lib/geminiImageApi.ts` **(新)** | `callGeminiImageApi(opts, profile): Promise<CallApiResult>` |
 | `src/lib/api.ts` | `if (profile.provider === 'gemini') return callGeminiImageApi(opts, profile)` |
-| `src/components/SettingsModal.tsx` | provider 下拉新增 `Gemini`；`defaultProviderOrder` 加入 `'gemini'`；选中 gemini 时强制 `codexCli=false`、`apiProxy=false`、`apiMode='images'`；切换 provider 时复用 `switchApiProfileProvider` 已扩展的 gemini 分支 |
+| `src/store.ts` | `normalizeSettings` 调用处把 `BUILTIN_PROFILES` 注入到 `profiles` 顶部；持久化写入前用 `stripBuiltinProfiles` 过滤；启动时若 `activeProfileId` 不存在则保持指向（解析时回退到第一个内置/用户 profile） |
+| `src/components/SettingsModal.tsx` | provider 下拉新增 `Gemini`；`defaultProviderOrder` 加入 `'gemini'`；Profile 列表项渲染时如 `isBuiltinProfile` 则显示「内置」徽章、隐藏删除按钮、表单字段 readonly；提供「复制为新配置」按钮 |
 | `src/components/InputBar.tsx` 等 | gemini 激活时隐藏 quality/output_format/output_compression/moderation 控件、禁用 mask 按钮（具体落点在实现期再定，原则：在控件渲染处增加 `provider === 'gemini'` guard） |
 | `src/lib/geminiImageApi.test.ts` **(新)** | 单元测试：请求体构造、响应解析、参数映射、mask 拒绝 |
-| `src/lib/apiProfiles.test.ts` | 补 gemini 切换 / normalize 用例 |
+| `src/lib/builtinProfiles.test.ts` **(新)** | env JSON 解析、空值回退、id 强制前缀校验 |
+| `src/lib/apiProfiles.test.ts` | 补 gemini 切换 / normalize 用例、`isBuiltinProfile` 判定 |
+| `.env.example` **(新或更新)** | 加 `VITE_BUILTIN_PROFILES` 注释和示例 |
 
 ## 5. Gemini 请求 / 响应映射
 
@@ -172,6 +189,37 @@ Body：
 
 DetailModal 中显示「实际生效参数」时，对 gemini 任务只展示 `size` + `n`。
 
+### 6.4 内置 Profile UI
+
+**列表项**（`SettingsModal` 中 profile 列表）：
+
+```
+┌─ Profile 列表 ─────────────────────────┐
+│ 🔒 内置 · Gemini Flash Image  [复制]   │  ← 内置项，灰底/特殊角标
+│ 🔒 内置 · Gemini 3 Pro Preview  [复制] │
+│ ─────────────────────────────────────  │
+│ 📝 我的 OpenAI               [编 ⋮]    │  ← 用户 profile，保持原交互
+│ 📝 fal.ai 默认                [编 ⋮]    │
+└────────────────────────────────────────┘
+```
+
+- 内置项徽章：复用 `Header.tsx` 风格的小标签，文案「内置」
+- 内置项无「⋮ 删除」菜单
+- 内置项点击「编辑」/双击：弹 Toast「该 Profile 为内置，已为你复制为新配置」，自动调用「复制为新配置」逻辑并切到新 profile（无破坏性）
+- 内置项可被激活（点选）；激活后所有字段在编辑面板里 readonly，只显示信息
+
+**默认激活**：
+
+- 首次启动且 `BUILTIN_PROFILES.length > 0`：`activeProfileId` 取第一个内置 profile id
+- 升级 / 已有用户：保持原 `activeProfileId`，不强制切换
+
+**复制为新配置**：
+
+- 生成新 `id`：`${profile.provider}-${ts}-${rand}`
+- 复制全部字段（含 apiKey）
+- 名称：`"<原名称> 副本"`
+- 添加到 `profiles` 列表，立即切换为 active
+
 ## 7. 数据流
 
 `store.submitTask` → `callImageApi(opts)` → `api.ts` 按 `profile.provider` 分发：
@@ -224,14 +272,23 @@ profile.provider:
 - 设置导出 JSON 中 gemini profile 与现有 profile 同构，导入时通过 `normalizeApiProfile` 接受 `'gemini'`
 - `providerOrder` 若存量没有 `'gemini'`，`SettingsModal` 渲染时按 `defaultProviderOrder` 末尾追加（已有逻辑）
 
+### 10.1 内置 Profile 迁移要点
+
+- 持久化兼容：升级前用户的 `profiles` 列表不含 `builtin-*`；升级后启动时 `normalizeSettings` 将 `BUILTIN_PROFILES` 注入到顶部；下次写回时 `stripBuiltinProfiles` 过滤，存储干净
+- 导入/导出：导出时仅导出用户的 profile（不含内置）；导入时若有 `builtin-*` id 冲突则改名为 `imported-builtin-*`
+- 任务回放：`TaskRecord.apiProfileId` 若指向 `builtin-*`，恢复时先查内置列表（保证 sub2api 升级 key 后旧任务仍可重放）
+- 「重置应用」清空 localStorage 后，内置 profile 仍存在于代码 / env，下一次启动自动出现
+
 ## 11. 构建顺序（实现期建议）
 
-1. `types.ts` + `apiProfiles.ts` 内建 provider 扩展 + 默认值 + `switchApiProfileProvider` + `normalizeApiProfile`
-2. `geminiImageApi.ts` 纯函数 `buildGeminiRequestBody` / `parseGeminiResponse` + 测试
-3. `geminiImageApi.ts` `callGeminiImageApi` + mock fetch 测试
-4. `api.ts` 接入
-5. `SettingsModal.tsx` 下拉 + 控件隐藏
-6. InputBar / DetailModal 中按 `provider === 'gemini'` 隐藏控件
-7. 手动跑通：用 sub2api baseUrl + `gemini-3.1-flash-image` 实际生图
+1. `types.ts` + `apiProfiles.ts` 内建 provider 扩展 + 默认值 + `switchApiProfileProvider` + `normalizeApiProfile` + `isBuiltinProfile`
+2. `builtinProfiles.ts` + 测试：env JSON 解析、id 前缀强制、Gemini 示例数据
+3. `store.ts`：`normalizeSettings` 调用处注入 / 写回前剥离内置 profile；测试覆盖 round-trip
+4. `geminiImageApi.ts` 纯函数 `buildGeminiRequestBody` / `parseGeminiResponse` + 测试
+5. `geminiImageApi.ts` `callGeminiImageApi` + mock fetch 测试
+6. `api.ts` 接入
+7. `SettingsModal.tsx` provider 下拉 + 内置徽章 + readonly 表单 + 复制按钮
+8. InputBar / DetailModal 中按 `provider === 'gemini'` 隐藏控件
+9. 手动跑通：env 注入一份 sub2api Gemini 内置 profile → 启动 → 看到「内置」徽章 → 激活 → 生图
 
 每步可独立提交并跑 `npm run test`。
