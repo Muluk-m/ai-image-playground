@@ -11,11 +11,14 @@ import {
   createDefaultFalProfile,
   createDefaultGeminiProfile,
   findEquivalentApiProfile,
+  getApiProviderLabel,
   importCustomProviderDefinitionFromJson,
   importCustomProviderSettingsFromJson,
   mergeImportedSettings,
+  normalizeApiProfile,
   normalizeSettings,
   switchApiProfileProvider,
+  validateApiProfile,
 } from './apiProfiles'
 
 describe('mergeImportedSettings', () => {
@@ -567,5 +570,37 @@ describe('createDefaultGeminiProfile', () => {
     expect(profile.name).toBe('My Gemini')
     expect(profile.apiKey).toBe('k')
     expect(profile.model).toBe('gemini-x')
+  })
+})
+
+describe('gemini provider integration', () => {
+  it('normalizeApiProfile accepts provider: gemini', () => {
+    const profile = normalizeApiProfile({
+      id: 'g1',
+      name: 'G',
+      provider: 'gemini',
+      baseUrl: 'https://example.com/v1beta',
+      apiKey: 'k',
+      model: 'gemini-3.1-flash-image',
+      timeout: 600,
+      apiMode: 'images',
+    })
+    expect(profile.provider).toBe('gemini')
+    expect(profile.baseUrl).toBe('https://example.com/v1beta')
+    expect(profile.model).toBe('gemini-3.1-flash-image')
+  })
+
+  it('getApiProviderLabel returns Gemini', () => {
+    expect(getApiProviderLabel(DEFAULT_SETTINGS, 'gemini')).toBe('Gemini')
+  })
+
+  it('validateApiProfile requires baseUrl for gemini', () => {
+    const profile = createDefaultGeminiProfile({ baseUrl: '', apiKey: 'k' })
+    expect(validateApiProfile(profile)).toMatch(/API URL/)
+  })
+
+  it('validateApiProfile passes for a complete gemini profile', () => {
+    const profile = createDefaultGeminiProfile({ apiKey: 'k' })
+    expect(validateApiProfile(profile)).toBeNull()
   })
 })

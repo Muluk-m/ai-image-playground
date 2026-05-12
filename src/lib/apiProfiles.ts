@@ -363,17 +363,23 @@ export function switchApiProfileProvider(profile: ApiProfile, provider: ApiProvi
 
 function normalizeProviderDraft(input: unknown, provider: ApiProvider, customProviderIds: Set<string>): ApiProfileProviderDraft {
   if (!isRecord(input)) return undefined
-  const fallback = provider === 'fal' ? createDefaultFalProfile() : createDefaultOpenAIProfile()
+  const fallback = provider === 'fal'
+    ? createDefaultFalProfile()
+    : provider === 'gemini'
+      ? createDefaultGeminiProfile()
+      : createDefaultOpenAIProfile()
   const baseUrl = typeof input.baseUrl === 'string' ? input.baseUrl : undefined
   const model = typeof input.model === 'string' && input.model.trim() ? input.model : undefined
   const apiMode = input.apiMode === 'responses' ? 'responses' : input.apiMode === 'images' ? 'images' : undefined
-  const knownProvider = provider === 'fal' || provider === 'openai' || customProviderIds.has(provider)
+  const knownProvider = provider === 'fal' || provider === 'openai' || provider === 'gemini' || customProviderIds.has(provider)
   if (!knownProvider) return undefined
 
   return {
     baseUrl: provider === 'fal'
       ? baseUrl?.trim().replace(/\/+$/, '') || DEFAULT_FAL_BASE_URL
-      : baseUrl,
+      : provider === 'gemini'
+        ? baseUrl?.trim().replace(/\/+$/, '') || DEFAULT_GEMINI_BASE_URL
+        : baseUrl,
     model,
     apiMode,
     codexCli: typeof input.codexCli === 'boolean' ? input.codexCli : fallback.codexCli,
@@ -394,8 +400,15 @@ function normalizeProviderDrafts(input: unknown, customProviderIds: Set<string>)
 export function normalizeApiProfile(input: unknown, fallback?: Partial<ApiProfile>, customProviderIds = new Set<string>()): ApiProfile {
   const record = input && typeof input === 'object' ? input as Record<string, unknown> : {}
   const rawProvider = typeof record.provider === 'string' ? record.provider : ''
-  const provider: ApiProvider = rawProvider === 'fal' || customProviderIds.has(rawProvider) ? rawProvider : 'openai'
-  const defaults = provider === 'fal' ? createDefaultFalProfile(fallback) : createDefaultOpenAIProfile(fallback)
+  const provider: ApiProvider =
+    rawProvider === 'fal' || rawProvider === 'gemini' || customProviderIds.has(rawProvider)
+      ? rawProvider
+      : 'openai'
+  const defaults = provider === 'fal'
+    ? createDefaultFalProfile(fallback)
+    : provider === 'gemini'
+      ? createDefaultGeminiProfile(fallback)
+      : createDefaultOpenAIProfile(fallback)
   const apiMode: ApiMode = record.apiMode === 'responses' ? 'responses' : 'images'
   const rawBaseUrl = typeof record.baseUrl === 'string' ? record.baseUrl : defaults.baseUrl
 
@@ -404,7 +417,11 @@ export function normalizeApiProfile(input: unknown, fallback?: Partial<ApiProfil
     id: typeof record.id === 'string' && record.id.trim() ? record.id : defaults.id,
     name: typeof record.name === 'string' && record.name.trim() ? record.name : defaults.name,
     provider,
-    baseUrl: provider === 'fal' ? rawBaseUrl.trim().replace(/\/+$/, '') || DEFAULT_FAL_BASE_URL : rawBaseUrl,
+    baseUrl: provider === 'fal'
+      ? rawBaseUrl.trim().replace(/\/+$/, '') || DEFAULT_FAL_BASE_URL
+      : provider === 'gemini'
+        ? rawBaseUrl.trim().replace(/\/+$/, '') || DEFAULT_GEMINI_BASE_URL
+        : rawBaseUrl,
     apiKey: typeof record.apiKey === 'string' ? record.apiKey : defaults.apiKey,
     model: typeof record.model === 'string' && record.model.trim() ? record.model : defaults.model,
     timeout: typeof record.timeout === 'number' && Number.isFinite(record.timeout) ? record.timeout : defaults.timeout,
@@ -479,6 +496,7 @@ export function getCustomProviderDefinition(settings: Partial<AppSettings> | unk
 export function getApiProviderLabel(settings: Partial<AppSettings> | unknown, provider: ApiProvider): string {
   if (provider === 'fal') return 'fal.ai'
   if (provider === 'openai') return 'OpenAI'
+  if (provider === 'gemini') return 'Gemini'
   return getCustomProviderDefinition(settings, provider)?.name ?? provider
 }
 
