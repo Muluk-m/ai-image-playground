@@ -12,6 +12,7 @@ import type {
   CustomProviderSubmitMapping,
   CustomProviderTemplate,
 } from '../types'
+import { getBuiltinProfiles } from './builtinProfiles'
 import { readRuntimeEnv } from './runtimeEnv'
 
 const DEFAULT_BASE_URL = readRuntimeEnv(import.meta.env.VITE_DEFAULT_API_URL) || 'https://api.openai.com/v1'
@@ -20,10 +21,17 @@ export const DEFAULT_IMAGES_MODEL = 'gpt-image-2'
 export const DEFAULT_RESPONSES_MODEL = 'gpt-5.5'
 export const DEFAULT_FAL_BASE_URL = 'https://fal.run'
 export const DEFAULT_FAL_MODEL = 'openai/gpt-image-2'
+export const DEFAULT_GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta'
+export const DEFAULT_GEMINI_MODEL = 'gemini-3.1-flash-image'
 export const DEFAULT_OPENAI_PROFILE_ID = 'default-openai'
 export const DEFAULT_API_TIMEOUT = 600
+export const BUILTIN_PROFILE_ID_PREFIX = 'builtin-'
 
-const BUILT_IN_PROVIDER_IDS = new Set<ApiProvider>(['openai', 'fal'])
+export function isBuiltinProfile(profile: { id?: string } | null | undefined): boolean {
+  return Boolean(profile?.id?.startsWith(BUILTIN_PROFILE_ID_PREFIX))
+}
+
+const BUILT_IN_PROVIDER_IDS = new Set<ApiProvider>(['openai', 'fal', 'gemini'])
 const DEFAULT_CUSTOM_PROVIDER_PATHS = {
   generationPath: 'images/generations',
   editPath: 'images/edits',
@@ -287,6 +295,22 @@ export function createDefaultFalProfile(overrides: Partial<ApiProfile> = {}): Ap
   }
 }
 
+export function createDefaultGeminiProfile(overrides: Partial<ApiProfile> = {}): ApiProfile {
+  return {
+    id: `gemini-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+    name: '新配置',
+    provider: 'gemini',
+    baseUrl: DEFAULT_GEMINI_BASE_URL,
+    apiKey: '',
+    model: DEFAULT_GEMINI_MODEL,
+    timeout: DEFAULT_API_TIMEOUT,
+    apiMode: 'images',
+    codexCli: false,
+    apiProxy: false,
+    ...overrides,
+  }
+}
+
 export function switchApiProfileProvider(profile: ApiProfile, provider: ApiProvider, customProvider?: CustomProviderDefinition): ApiProfile {
   const providerDrafts = {
     ...profile.providerDrafts,
@@ -311,6 +335,20 @@ export function switchApiProfileProvider(profile: ApiProfile, provider: ApiProvi
       codexCli: false,
       apiProxy: false,
       responseFormatB64Json: savedDraft?.responseFormatB64Json,
+      providerDrafts,
+    }
+  }
+
+  if (provider === 'gemini') {
+    return {
+      ...profile,
+      provider,
+      baseUrl: savedDraft?.baseUrl ?? DEFAULT_GEMINI_BASE_URL,
+      model: savedDraft?.model ?? DEFAULT_GEMINI_MODEL,
+      apiMode: 'images',
+      codexCli: false,
+      apiProxy: false,
+      responseFormatB64Json: undefined,
       providerDrafts,
     }
   }
@@ -345,17 +383,23 @@ export function switchApiProfileProvider(profile: ApiProfile, provider: ApiProvi
 
 function normalizeProviderDraft(input: unknown, provider: ApiProvider, customProviderIds: Set<string>): ApiProfileProviderDraft {
   if (!isRecord(input)) return undefined
-  const fallback = provider === 'fal' ? createDefaultFalProfile() : createDefaultOpenAIProfile()
+  const fallback = provider === 'fal'
+    ? createDefaultFalProfile()
+    : provider === 'gemini'
+      ? createDefaultGeminiProfile()
+      : createDefaultOpenAIProfile()
   const baseUrl = typeof input.baseUrl === 'string' ? input.baseUrl : undefined
   const model = typeof input.model === 'string' && input.model.trim() ? input.model : undefined
   const apiMode = input.apiMode === 'responses' ? 'responses' : input.apiMode === 'images' ? 'images' : undefined
-  const knownProvider = provider === 'fal' || provider === 'openai' || customProviderIds.has(provider)
+  const knownProvider = provider === 'fal' || provider === 'openai' || provider === 'gemini' || customProviderIds.has(provider)
   if (!knownProvider) return undefined
 
   return {
     baseUrl: provider === 'fal'
       ? baseUrl?.trim().replace(/\/+$/, '') || DEFAULT_FAL_BASE_URL
-      : baseUrl,
+      : provider === 'gemini'
+        ? baseUrl?.trim().replace(/\/+$/, '') || DEFAULT_GEMINI_BASE_URL
+        : baseUrl,
     model,
     apiMode,
     codexCli: typeof input.codexCli === 'boolean' ? input.codexCli : fallback.codexCli,
@@ -376,8 +420,15 @@ function normalizeProviderDrafts(input: unknown, customProviderIds: Set<string>)
 export function normalizeApiProfile(input: unknown, fallback?: Partial<ApiProfile>, customProviderIds = new Set<string>()): ApiProfile {
   const record = input && typeof input === 'object' ? input as Record<string, unknown> : {}
   const rawProvider = typeof record.provider === 'string' ? record.provider : ''
-  const provider: ApiProvider = rawProvider === 'fal' || customProviderIds.has(rawProvider) ? rawProvider : 'openai'
-  const defaults = provider === 'fal' ? createDefaultFalProfile(fallback) : createDefaultOpenAIProfile(fallback)
+  const provider: ApiProvider =
+    rawProvider === 'fal' || rawProvider === 'gemini' || customProviderIds.has(rawProvider)
+      ? rawProvider
+      : 'openai'
+  const defaults = provider === 'fal'
+    ? createDefaultFalProfile(fallback)
+    : provider === 'gemini'
+      ? createDefaultGeminiProfile(fallback)
+      : createDefaultOpenAIProfile(fallback)
   const apiMode: ApiMode = record.apiMode === 'responses' ? 'responses' : 'images'
   const rawBaseUrl = typeof record.baseUrl === 'string' ? record.baseUrl : defaults.baseUrl
 
@@ -386,7 +437,11 @@ export function normalizeApiProfile(input: unknown, fallback?: Partial<ApiProfil
     id: typeof record.id === 'string' && record.id.trim() ? record.id : defaults.id,
     name: typeof record.name === 'string' && record.name.trim() ? record.name : defaults.name,
     provider,
-    baseUrl: provider === 'fal' ? rawBaseUrl.trim().replace(/\/+$/, '') || DEFAULT_FAL_BASE_URL : rawBaseUrl,
+    baseUrl: provider === 'fal'
+      ? rawBaseUrl.trim().replace(/\/+$/, '') || DEFAULT_FAL_BASE_URL
+      : provider === 'gemini'
+        ? rawBaseUrl.trim().replace(/\/+$/, '') || DEFAULT_GEMINI_BASE_URL
+        : rawBaseUrl,
     apiKey: typeof record.apiKey === 'string' ? record.apiKey : defaults.apiKey,
     model: typeof record.model === 'string' && record.model.trim() ? record.model : defaults.model,
     timeout: typeof record.timeout === 'number' && Number.isFinite(record.timeout) ? record.timeout : defaults.timeout,
@@ -411,7 +466,11 @@ function validateImportedProfileRecord(input: unknown) {
   }
 }
 
-export function normalizeSettings(input: Partial<AppSettings> | unknown): AppSettings {
+export interface NormalizeSettingsOptions {
+  builtinProfiles?: ApiProfile[]
+}
+
+export function normalizeSettings(input: Partial<AppSettings> | unknown, options: NormalizeSettingsOptions = {}): AppSettings {
   const record = input && typeof input === 'object' ? input as Record<string, unknown> : {}
   const customProviders = normalizeCustomProviderDefinitions(record.customProviders)
   const customProviderIds = new Set(customProviders.map((provider) => provider.id))
@@ -425,13 +484,20 @@ export function normalizeSettings(input: Partial<AppSettings> | unknown): AppSet
     apiProxy: typeof record.apiProxy === 'boolean' ? record.apiProxy : DEFAULT_OPENAI_API_PROXY,
     responseFormatB64Json: record.responseFormatB64Json === true ? true : undefined,
   })
-  const profiles = Array.isArray(record.profiles) && record.profiles.length
+  const rawProfiles = Array.isArray(record.profiles) && record.profiles.length
     ? record.profiles.map((profile) => normalizeApiProfile(profile, undefined, customProviderIds))
     : [legacyProfile]
-  const activeProfileId = typeof record.activeProfileId === 'string' && profiles.some((p) => p.id === record.activeProfileId)
+
+  const builtins = options.builtinProfiles ?? getBuiltinProfiles()
+  const builtinIds = new Set(builtins.map((p) => p.id))
+  const userProfiles = rawProfiles.filter((p) => !builtinIds.has(p.id))
+  const profiles = builtins.length ? [...builtins, ...userProfiles] : userProfiles
+  const profilesWithFallback = profiles.length ? profiles : [legacyProfile]
+
+  const activeProfileId = typeof record.activeProfileId === 'string' && profilesWithFallback.some((p) => p.id === record.activeProfileId)
     ? record.activeProfileId
-    : profiles[0].id
-  const active = profiles.find((p) => p.id === activeProfileId) ?? profiles[0]
+    : profilesWithFallback[0].id
+  const active = profilesWithFallback.find((p) => p.id === activeProfileId) ?? profilesWithFallback[0]
 
   return {
     baseUrl: active.baseUrl,
@@ -448,7 +514,7 @@ export function normalizeSettings(input: Partial<AppSettings> | unknown): AppSet
     reuseTaskApiProfileTemporarily: typeof record.reuseTaskApiProfileTemporarily === 'boolean' ? record.reuseTaskApiProfileTemporarily : false,
     alwaysShowRetryButton: typeof record.alwaysShowRetryButton === 'boolean' ? record.alwaysShowRetryButton : false,
     enterSubmit: typeof record.enterSubmit === 'boolean' ? record.enterSubmit : false,
-    profiles,
+    profiles: profilesWithFallback,
     activeProfileId,
   }
 }
@@ -461,6 +527,7 @@ export function getCustomProviderDefinition(settings: Partial<AppSettings> | unk
 export function getApiProviderLabel(settings: Partial<AppSettings> | unknown, provider: ApiProvider): string {
   if (provider === 'fal') return 'fal.ai'
   if (provider === 'openai') return 'OpenAI'
+  if (provider === 'gemini') return 'Gemini'
   return getCustomProviderDefinition(settings, provider)?.name ?? provider
 }
 
@@ -724,4 +791,4 @@ export const DEFAULT_SETTINGS: AppSettings = normalizeSettings({
   reuseTaskApiProfileTemporarily: false,
   alwaysShowRetryButton: false,
   enterSubmit: false,
-})
+}, { builtinProfiles: [] })

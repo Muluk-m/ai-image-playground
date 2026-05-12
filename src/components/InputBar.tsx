@@ -465,6 +465,7 @@ export default function InputBar() {
   const canSubmit = Boolean(prompt.trim() && hasSubmitApiConfig)
   const activeProvider = activeProfile.provider
   const isFalProvider = activeProvider === 'fal'
+  const isGeminiProvider = activeProvider === 'gemini'
   const moderationDisabled = activeProfile.apiMode === 'responses' || isFalProvider
   const compressionDisabled = params.output_format === 'png' || isFalProvider
   const outputImageLimit = getOutputImageLimitForSettings(effectiveSettings)
@@ -1386,8 +1387,8 @@ export default function InputBar() {
           <span className="absolute bottom-1 left-1 flex h-4 w-4 items-center justify-center rounded-full bg-black/55 text-[9px] font-semibold text-white backdrop-blur-sm z-10 pointer-events-none">
             {idx + 1}
           </span>
-          {canEdit && (
-            <button 
+          {canEdit && !isGeminiProvider && (
+            <button
               className="absolute inset-0 w-full h-full bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center cursor-pointer z-20 focus:outline-none border-none"
               onClick={(e) => {
                 e.stopPropagation()
@@ -1484,104 +1485,108 @@ export default function InputBar() {
           text={<>fal.ai 的文生图模式不支持 <code className="rounded bg-white/10 px-1 py-0.5 font-mono">auto</code> 参数</>}
         />
       </label>
-      <label
-        className="relative flex flex-col gap-0.5"
-        onMouseEnter={showQualityHint}
-        onMouseLeave={hideQualityHint}
-        onTouchStart={startQualityHintTouch}
-        onTouchEnd={clearQualityHintTimer}
-        onTouchCancel={hideQualityHint}
-        onClick={showQualityHint}
-      >
-        <span className="text-gray-400 dark:text-gray-500 ml-1">质量</span>
-        <Select
-          value={settings.codexCli ? 'auto' : isFalProvider && params.quality === 'auto' ? 'high' : params.quality}
-          onChange={(val) => {
-            if (!settings.codexCli) setParams({ quality: val as any })
-          }}
-          options={qualityOptions}
-          disabled={settings.codexCli}
-          className={settings.codexCli
-            ? 'px-3 py-1.5 rounded-xl border border-gray-200/60 dark:border-white/[0.08] bg-gray-100/50 dark:bg-white/[0.05] opacity-50 cursor-not-allowed text-xs transition-all duration-200 shadow-sm'
-            : selectClass}
-        />
-        <ButtonTooltip
-          visible={(settings.codexCli || isFalProvider) && qualityHintVisible}
-          text={isFalProvider ? <>fal.ai 不支持 <code className="rounded bg-white/10 px-1 py-0.5 font-mono">auto</code> 质量参数</> : 'Codex CLI 不支持质量参数'}
-        />
-      </label>
-      <label className="flex flex-col gap-0.5">
-        <span className="text-gray-400 dark:text-gray-500 ml-1">格式</span>
-        <Select
-          value={params.output_format}
-          onChange={(val) => setParams({ output_format: val as any })}
-          options={[
-            { label: 'PNG', value: 'png' },
-            { label: 'JPEG', value: 'jpeg' },
-            { label: 'WebP', value: 'webp' },
-          ]}
-          className={selectClass}
-        />
-      </label>
-      <label
-        className="relative flex flex-col gap-0.5"
-        onMouseEnter={showCompressionHint}
-        onMouseLeave={hideCompressionHint}
-        onTouchStart={startCompressionHintTouch}
-        onTouchEnd={clearCompressionHintTimer}
-        onTouchCancel={hideCompressionHint}
-        onClick={showCompressionHint}
-      >
-        <span className="text-gray-400 dark:text-gray-500 ml-1">压缩率</span>
-        <input
-          value={outputCompressionInput}
-          onChange={(e) => setOutputCompressionInput(e.target.value)}
-          onBlur={commitOutputCompression}
-          disabled={compressionDisabled}
-          type="number"
-          min={0}
-          max={100}
-          placeholder="0-100"
-          className={`px-3 py-1.5 rounded-xl border border-gray-200/60 dark:border-white/[0.08] focus:outline-none text-xs transition-all duration-200 shadow-sm ${
-            compressionDisabled
-              ? 'bg-gray-100/50 dark:bg-white/[0.05] opacity-50 cursor-not-allowed'
-              : 'bg-white/50 dark:bg-white/[0.03]'
-            }`}
-        />
-        <ButtonTooltip
-          visible={compressionHintVisible}
-          text={isFalProvider ? 'fal.ai 不支持压缩率参数' : '仅 JPEG 和 WebP 支持压缩率'}
-        />
-      </label>
-      <label
-        className="relative flex flex-col gap-0.5"
-        onMouseEnter={showModerationHint}
-        onMouseLeave={hideModerationHint}
-        onTouchStart={startModerationHintTouch}
-        onTouchEnd={clearModerationHintTimer}
-        onTouchCancel={hideModerationHint}
-        onClick={showModerationHint}
-      >
-        <span className="text-gray-400 dark:text-gray-500 ml-1">审核</span>
-        <Select
-          value={moderationDisabled ? 'auto' : params.moderation}
-          onChange={(val) => {
-            if (!moderationDisabled) setParams({ moderation: val as any })
-          }}
-          options={[
-            { label: 'auto', value: 'auto' },
-            { label: 'low', value: 'low' },
-          ]}
-          disabled={moderationDisabled}
-          className={moderationDisabled
-            ? 'px-3 py-1.5 rounded-xl border border-gray-200/60 dark:border-white/[0.08] bg-gray-100/50 dark:bg-white/[0.05] opacity-50 cursor-not-allowed text-xs transition-all duration-200 shadow-sm'
-            : selectClass}
-        />
-        <ButtonTooltip
-          visible={moderationDisabled && moderationHintVisible}
-          text={isFalProvider ? 'fal.ai 不支持审核参数' : 'Responses API 不支持审核参数'}
-        />
-      </label>
+      {!isGeminiProvider && (
+        <>
+          <label
+            className="relative flex flex-col gap-0.5"
+            onMouseEnter={showQualityHint}
+            onMouseLeave={hideQualityHint}
+            onTouchStart={startQualityHintTouch}
+            onTouchEnd={clearQualityHintTimer}
+            onTouchCancel={hideQualityHint}
+            onClick={showQualityHint}
+          >
+            <span className="text-gray-400 dark:text-gray-500 ml-1">质量</span>
+            <Select
+              value={settings.codexCli ? 'auto' : isFalProvider && params.quality === 'auto' ? 'high' : params.quality}
+              onChange={(val) => {
+                if (!settings.codexCli) setParams({ quality: val as any })
+              }}
+              options={qualityOptions}
+              disabled={settings.codexCli}
+              className={settings.codexCli
+                ? 'px-3 py-1.5 rounded-xl border border-gray-200/60 dark:border-white/[0.08] bg-gray-100/50 dark:bg-white/[0.05] opacity-50 cursor-not-allowed text-xs transition-all duration-200 shadow-sm'
+                : selectClass}
+            />
+            <ButtonTooltip
+              visible={(settings.codexCli || isFalProvider) && qualityHintVisible}
+              text={isFalProvider ? <>fal.ai 不支持 <code className="rounded bg-white/10 px-1 py-0.5 font-mono">auto</code> 质量参数</> : 'Codex CLI 不支持质量参数'}
+            />
+          </label>
+          <label className="flex flex-col gap-0.5">
+            <span className="text-gray-400 dark:text-gray-500 ml-1">格式</span>
+            <Select
+              value={params.output_format}
+              onChange={(val) => setParams({ output_format: val as any })}
+              options={[
+                { label: 'PNG', value: 'png' },
+                { label: 'JPEG', value: 'jpeg' },
+                { label: 'WebP', value: 'webp' },
+              ]}
+              className={selectClass}
+            />
+          </label>
+          <label
+            className="relative flex flex-col gap-0.5"
+            onMouseEnter={showCompressionHint}
+            onMouseLeave={hideCompressionHint}
+            onTouchStart={startCompressionHintTouch}
+            onTouchEnd={clearCompressionHintTimer}
+            onTouchCancel={hideCompressionHint}
+            onClick={showCompressionHint}
+          >
+            <span className="text-gray-400 dark:text-gray-500 ml-1">压缩率</span>
+            <input
+              value={outputCompressionInput}
+              onChange={(e) => setOutputCompressionInput(e.target.value)}
+              onBlur={commitOutputCompression}
+              disabled={compressionDisabled}
+              type="number"
+              min={0}
+              max={100}
+              placeholder="0-100"
+              className={`px-3 py-1.5 rounded-xl border border-gray-200/60 dark:border-white/[0.08] focus:outline-none text-xs transition-all duration-200 shadow-sm ${
+                compressionDisabled
+                  ? 'bg-gray-100/50 dark:bg-white/[0.05] opacity-50 cursor-not-allowed'
+                  : 'bg-white/50 dark:bg-white/[0.03]'
+                }`}
+            />
+            <ButtonTooltip
+              visible={compressionHintVisible}
+              text={isFalProvider ? 'fal.ai 不支持压缩率参数' : '仅 JPEG 和 WebP 支持压缩率'}
+            />
+          </label>
+          <label
+            className="relative flex flex-col gap-0.5"
+            onMouseEnter={showModerationHint}
+            onMouseLeave={hideModerationHint}
+            onTouchStart={startModerationHintTouch}
+            onTouchEnd={clearModerationHintTimer}
+            onTouchCancel={hideModerationHint}
+            onClick={showModerationHint}
+          >
+            <span className="text-gray-400 dark:text-gray-500 ml-1">审核</span>
+            <Select
+              value={moderationDisabled ? 'auto' : params.moderation}
+              onChange={(val) => {
+                if (!moderationDisabled) setParams({ moderation: val as any })
+              }}
+              options={[
+                { label: 'auto', value: 'auto' },
+                { label: 'low', value: 'low' },
+              ]}
+              disabled={moderationDisabled}
+              className={moderationDisabled
+                ? 'px-3 py-1.5 rounded-xl border border-gray-200/60 dark:border-white/[0.08] bg-gray-100/50 dark:bg-white/[0.05] opacity-50 cursor-not-allowed text-xs transition-all duration-200 shadow-sm'
+                : selectClass}
+            />
+            <ButtonTooltip
+              visible={moderationDisabled && moderationHintVisible}
+              text={isFalProvider ? 'fal.ai 不支持审核参数' : 'Responses API 不支持审核参数'}
+            />
+          </label>
+        </>
+      )}
       <label className="relative flex flex-col gap-0.5">
         <span className="text-gray-400 dark:text-gray-500 ml-1">数量</span>
         <input

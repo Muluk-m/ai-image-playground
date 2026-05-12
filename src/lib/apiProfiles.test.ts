@@ -2,17 +2,25 @@ import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_FAL_BASE_URL,
   DEFAULT_FAL_MODEL,
+  DEFAULT_GEMINI_BASE_URL,
+  DEFAULT_GEMINI_MODEL,
   DEFAULT_IMAGES_MODEL,
   DEFAULT_OPENAI_PROFILE_ID,
   DEFAULT_SETTINGS,
   createDefaultOpenAIProfile,
   createDefaultFalProfile,
+  createDefaultGeminiProfile,
+  isBuiltinProfile,
+  BUILTIN_PROFILE_ID_PREFIX,
   findEquivalentApiProfile,
+  getApiProviderLabel,
   importCustomProviderDefinitionFromJson,
   importCustomProviderSettingsFromJson,
   mergeImportedSettings,
+  normalizeApiProfile,
   normalizeSettings,
   switchApiProfileProvider,
+  validateApiProfile,
 } from './apiProfiles'
 
 describe('mergeImportedSettings', () => {
@@ -543,5 +551,117 @@ describe('custom providers', () => {
     expect(restoredProfile.baseUrl).toBe('https://api.compat.example.com/v1')
     expect(restoredProfile.model).toBe('custom-openai-model')
     expect(restoredProfile.apiProxy).toBe(false)
+  })
+})
+
+describe('createDefaultGeminiProfile', () => {
+  it('returns a gemini profile with Google v1beta defaults', () => {
+    const profile = createDefaultGeminiProfile()
+    expect(profile.provider).toBe('gemini')
+    expect(profile.baseUrl).toBe('https://generativelanguage.googleapis.com/v1beta')
+    expect(profile.model).toBe('gemini-3.1-flash-image')
+    expect(profile.apiMode).toBe('images')
+    expect(profile.codexCli).toBe(false)
+    expect(profile.apiProxy).toBe(false)
+    expect(DEFAULT_GEMINI_BASE_URL).toBe('https://generativelanguage.googleapis.com/v1beta')
+    expect(DEFAULT_GEMINI_MODEL).toBe('gemini-3.1-flash-image')
+  })
+
+  it('applies overrides', () => {
+    const profile = createDefaultGeminiProfile({ name: 'My Gemini', apiKey: 'k', model: 'gemini-x' })
+    expect(profile.name).toBe('My Gemini')
+    expect(profile.apiKey).toBe('k')
+    expect(profile.model).toBe('gemini-x')
+  })
+})
+
+describe('gemini provider integration', () => {
+  it('normalizeApiProfile accepts provider: gemini', () => {
+    const profile = normalizeApiProfile({
+      id: 'g1',
+      name: 'G',
+      provider: 'gemini',
+      baseUrl: 'https://example.com/v1beta',
+      apiKey: 'k',
+      model: 'gemini-3.1-flash-image',
+      timeout: 600,
+      apiMode: 'images',
+    })
+    expect(profile.provider).toBe('gemini')
+    expect(profile.baseUrl).toBe('https://example.com/v1beta')
+    expect(profile.model).toBe('gemini-3.1-flash-image')
+  })
+
+  it('getApiProviderLabel returns Gemini', () => {
+    expect(getApiProviderLabel(DEFAULT_SETTINGS, 'gemini')).toBe('Gemini')
+  })
+
+  it('validateApiProfile requires baseUrl for gemini', () => {
+    const profile = createDefaultGeminiProfile({ baseUrl: '', apiKey: 'k' })
+    expect(validateApiProfile(profile)).toMatch(/API URL/)
+  })
+
+  it('validateApiProfile passes for a complete gemini profile', () => {
+    const profile = createDefaultGeminiProfile({ apiKey: 'k' })
+    expect(validateApiProfile(profile)).toBeNull()
+  })
+})
+
+describe('switchApiProfileProvider gemini branch', () => {
+  it('switches openai → gemini using gemini defaults', () => {
+    const base = createDefaultOpenAIProfile({ apiKey: 'sk-abc', baseUrl: 'https://api.openai.com/v1' })
+    const next = switchApiProfileProvider(base, 'gemini')
+    expect(next.provider).toBe('gemini')
+    expect(next.baseUrl).toBe(DEFAULT_GEMINI_BASE_URL)
+    expect(next.model).toBe(DEFAULT_GEMINI_MODEL)
+    expect(next.apiMode).toBe('images')
+    expect(next.codexCli).toBe(false)
+    expect(next.apiProxy).toBe(false)
+    expect(next.apiKey).toBe('sk-abc')
+  })
+
+  it('round-trips drafts: openai → gemini → openai retains openai baseUrl', () => {
+    const base = createDefaultOpenAIProfile({ baseUrl: 'https://x.example/v1', model: 'gpt-image-2', apiKey: 'k' })
+    const gem = switchApiProfileProvider(base, 'gemini')
+    const back = switchApiProfileProvider(gem, 'openai')
+    expect(back.baseUrl).toBe('https://x.example/v1')
+    expect(back.model).toBe('gpt-image-2')
+  })
+})
+
+describe('isBuiltinProfile', () => {
+  it('returns true for ids starting with builtin-', () => {
+    expect(isBuiltinProfile({ id: 'builtin-gemini-flash' })).toBe(true)
+    expect(BUILTIN_PROFILE_ID_PREFIX).toBe('builtin-')
+  })
+  it('returns false for user profile ids', () => {
+    expect(isBuiltinProfile({ id: 'default-openai' })).toBe(false)
+    expect(isBuiltinProfile({ id: 'gemini-abc123' })).toBe(false)
+    expect(isBuiltinProfile(null)).toBe(false)
+    expect(isBuiltinProfile(undefined)).toBe(false)
+  })
+})
+
+describe('normalizeSettings + builtin profiles', () => {
+  it('injects builtin profiles to the top of profiles list', () => {
+    const builtins = [
+      createDefaultGeminiProfile({ id: 'builtin-gemini-flash', name: 'Flash', apiKey: 'k' }),
+    ]
+    const settings = normalizeSettings({ profiles: [], activeProfileId: '' }, { builtinProfiles: builtins })
+    expect(settings.profiles[0].id).toBe('builtin-gemini-flash')
+  })
+
+  it('does not duplicate builtin profile when called twice', () => {
+    const builtins = [
+      createDefaultGeminiProfile({ id: 'builtin-gemini-flash', name: 'Flash', apiKey: 'k' }),
+    ]
+    const once = normalizeSettings({ profiles: [], activeProfileId: '' }, { builtinProfiles: builtins })
+    const twice = normalizeSettings(once, { builtinProfiles: builtins })
+    expect(twice.profiles.filter((p) => p.id === 'builtin-gemini-flash')).toHaveLength(1)
+  })
+
+  it('defaults to empty builtins when option omitted (no env)', () => {
+    const settings = normalizeSettings({ profiles: [], activeProfileId: '' })
+    expect(settings.profiles.filter((p) => p.id.startsWith('builtin-'))).toEqual([])
   })
 })
