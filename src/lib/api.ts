@@ -33,7 +33,12 @@ export async function callImageApi(opts: CallApiOptions): Promise<CallApiResult>
 
   // user-byok
   const byok = toByokAdapterProfile(profile)
-  if (profile.kind === 'gemini') return callGeminiImageApi(opts, byok)
-  // openai-compat 与 http-template（占位）目前都走 OpenAI 兼容路径
-  return callOpenAICompatibleImageApi(opts, byok, null)
+  switch (profile.kind) {
+    case 'gemini':
+      return callGeminiImageApi(opts, byok)
+    case 'openai-compat':
+    case 'http-template':
+      // http-template 暂走 OpenAI 兼容路径；未来若新增独立 adapter 在此分支替换。
+      return callOpenAICompatibleImageApi(opts, byok, null)
+  }
 }

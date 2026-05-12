@@ -4,6 +4,9 @@ import { normalizeBaseUrl } from '../lib/api'
 import { isApiProxyAvailable, isApiProxyLocked, readClientDevProxyConfig } from '../lib/devProxy'
 import { useStore, exportData, importData, clearData } from '../store'
 import {
+  type ApiProfile,
+  apiProfileToClientProfile,
+  clientProfileToApiProfile,
   createDefaultOpenAIByokProfile,
   createDefaultGeminiByokProfile,
   DEFAULT_API_TIMEOUT,
@@ -16,98 +19,21 @@ import {
   getApiProviderLabel,
   getActiveApiProfile,
   importCustomProviderSettingsFromJson,
+  isBuiltinProfile,
   mergeImportedSettings,
   normalizeCustomProviderDefinition,
   normalizeSettings,
   switchByokProfileKind,
 } from '../lib/apiProfiles'
 import { getPublicChannel } from '../lib/channels/publicChannels'
-import type { ClientProfile, ProviderKind, UserByokProfile, PublicChannel } from '../lib/channels/types'
+import type { ClientProfile, ProviderKind, UserByokProfile } from '../lib/channels/types'
 import { copyTextToClipboard, getClipboardFailureMessage } from '../lib/clipboard'
 import { getProviderModelOptions } from '../lib/providerModels'
 import { fetchProfileModels } from '../lib/fetchProfileModels'
 import type { AppSettings, CustomProviderDefinition } from '../types'
 
-// SettingsModal 过渡期：内部 draft 用扁平 ApiProfile 形态保持 UI 老逻辑不动；
-// 加载/提交时与 ClientProfile (storage) 之间做转换。下个版本 UI 改为按 source 分支后此 shim 删除。
-interface ApiProfile {
-  id: string
-  name: string
-  provider: string
-  baseUrl: string
-  apiKey: string
-  model: string
-  timeout: number
-  apiMode: 'images' | 'responses'
-  codexCli: boolean
-  apiProxy: boolean
-  responseFormatB64Json?: boolean
-  models?: string[]
-  // 标记 builtin-edge profile：UI 据此禁用 apiKey/baseUrl 编辑。
-  builtinChannelId?: string
-}
-
+// SettingsModal 内部 draft 仍以扁平 ApiProfile 形态承载表单。加载/提交两端做一次 ClientProfile ↔ ApiProfile 转换。
 type DraftSettings = Omit<AppSettings, 'profiles'> & { profiles: ApiProfile[] }
-
-function clientProfileToApiProfile(p: ClientProfile): ApiProfile {
-  if (p.source === 'builtin-edge') {
-    const channel = getPublicChannel(p.channelId)
-    return {
-      id: p.id,
-      name: channel?.label ?? p.channelId,
-      provider: channel?.kind === 'gemini' ? 'gemini' : 'openai',
-      baseUrl: `/api-proxy/${p.channelId}`,
-      apiKey: '',
-      model: p.selectedModelId,
-      timeout: channel?.defaults.timeout ?? DEFAULT_API_TIMEOUT,
-      apiMode: channel?.defaults.apiMode ?? 'images',
-      codexCli: channel?.defaults.codexCli ?? false,
-      apiProxy: false,
-      responseFormatB64Json: channel?.defaults.responseFormatB64Json,
-      models: channel?.models.map((m) => m.id),
-      builtinChannelId: p.channelId,
-    }
-  }
-  return {
-    id: p.id,
-    name: p.name,
-    provider: p.kind === 'gemini' ? 'gemini' : 'openai',
-    baseUrl: p.baseUrl,
-    apiKey: p.apiKey,
-    model: p.selectedModelId,
-    timeout: p.preferences.timeout,
-    apiMode: p.preferences.apiMode,
-    codexCli: p.preferences.codexCli,
-    apiProxy: p.preferences.apiProxy,
-    responseFormatB64Json: p.preferences.responseFormatB64Json,
-    models: p.models,
-  }
-}
-
-function apiProfileToClientProfile(p: ApiProfile): ClientProfile {
-  if (p.builtinChannelId) {
-    return { id: p.id, source: 'builtin-edge', channelId: p.builtinChannelId, selectedModelId: p.model }
-  }
-  const kind: ProviderKind = p.provider === 'gemini' ? 'gemini' : 'openai-compat'
-  const models = p.models?.length ? Array.from(new Set([...p.models, p.model].filter(Boolean))) : [p.model].filter(Boolean)
-  return {
-    id: p.id,
-    source: 'user-byok',
-    name: p.name,
-    kind,
-    baseUrl: p.baseUrl,
-    apiKey: p.apiKey,
-    models: models.length ? models : [DEFAULT_IMAGES_MODEL],
-    selectedModelId: p.model || models[0] || DEFAULT_IMAGES_MODEL,
-    preferences: {
-      apiMode: p.apiMode,
-      timeout: p.timeout,
-      codexCli: p.codexCli,
-      apiProxy: p.apiProxy,
-      responseFormatB64Json: p.responseFormatB64Json,
-    },
-  }
-}
 
 function toDraftSettings(s: AppSettings): DraftSettings {
   return { ...s, profiles: s.profiles.map((p) => clientProfileToApiProfile(p)) }
@@ -127,7 +53,7 @@ function getActiveDraftProfile(d: DraftSettings): ApiProfile {
 
 const DEFAULT_BYOK_BASEURL = createDefaultOpenAIByokProfile().baseUrl
 
-// 兼容旧名字
+// 仅在新建 profile 草稿时用：构造一个扁平的 ApiProfile 默认值。
 const createDefaultOpenAIProfile = (overrides?: Partial<ApiProfile>): ApiProfile =>
   clientProfileToApiProfile(createDefaultOpenAIByokProfile({
     id: overrides?.id,
@@ -144,10 +70,6 @@ const createDefaultOpenAIProfile = (overrides?: Partial<ApiProfile>): ApiProfile
       responseFormatB64Json: overrides.responseFormatB64Json,
     } : undefined,
   }))
-
-function isBuiltinProfile(profile: ApiProfile | { id?: string; builtinChannelId?: string } | null | undefined): boolean {
-  return Boolean(profile && 'builtinChannelId' in profile && profile.builtinChannelId)
-}
 
 function isOpenAICompatibleProvider(settings: Partial<AppSettings> | unknown, provider: string): boolean {
   if (provider === 'openai' || provider === 'openai-compat') return true
@@ -170,6 +92,11 @@ function switchApiProfileProvider(profile: ApiProfile, provider: string, _custom
   if (clientProfile.source !== 'user-byok') return profile
   const switched = switchByokProfileKind(clientProfile, kind)
   return clientProfileToApiProfile(switched)
+}
+
+// 通过 id 命中已知 channel 来判定 builtin（与 apiProfileToClientProfile 的判定一致）。
+function isBuiltinDraftProfile(p: ApiProfile): boolean {
+  return isBuiltinProfile(apiProfileToClientProfile(p))
 }
 import { useCloseOnEscape } from '../hooks/useCloseOnEscape'
 import { usePreventBackgroundScroll } from '../hooks/usePreventBackgroundScroll'
@@ -484,7 +411,7 @@ export default function SettingsModal() {
   const apiProxyEnabled = apiProxyAvailable && activeProfile.provider === 'openai' && apiProxyChecked
   const activeProviderIsOpenAICompatible = isOpenAICompatibleProvider(draft, activeProfile.provider)
   const activeProviderUsesApiUrl = activeProviderIsOpenAICompatible || activeProfile.provider === 'gemini'
-  const activeIsBuiltin = isBuiltinProfile(activeProfile)
+  const activeIsBuiltin = isBuiltinDraftProfile(activeProfile)
   const activeCustomProvider = draft.customProviders.find((provider) => provider.id === activeProfile.provider)
   const defaultProviderOrder = ['openai', 'gemini', ...draft.customProviders.map(p => p.id)]
   const providerOrder = draft.providerOrder || defaultProviderOrder
@@ -1476,7 +1403,7 @@ export default function SettingsModal() {
                                     <DragHandleIcon className="h-3.5 w-3.5" />
                                   </div>
                                   <span className="min-w-0 truncate">{profile.name}</span>
-                                  {isBuiltinProfile(profile) && (
+                                  {isBuiltinDraftProfile(profile) && (
                                     <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] shrink-0 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300">
                                       内置
                                     </span>
@@ -1487,7 +1414,7 @@ export default function SettingsModal() {
                                 </div>
                                 
                                 <div className="flex shrink-0 items-center gap-1">
-                                  {!isBuiltinProfile(profile) && (
+                                  {!isBuiltinDraftProfile(profile) && (
                                     <button
                                       type="button"
                                       onClick={(e) => {
@@ -1502,7 +1429,7 @@ export default function SettingsModal() {
                                       <LinkIcon className="h-3.5 w-3.5" />
                                     </button>
                                   )}
-                                  {draft.profiles.length > 1 && !isBuiltinProfile(profile) && (
+                                  {draft.profiles.length > 1 && !isBuiltinDraftProfile(profile) && (
                                     <button
                                       type="button"
                                       onClick={(e) => {

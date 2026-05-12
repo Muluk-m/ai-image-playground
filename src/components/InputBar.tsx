@@ -2,40 +2,9 @@ import { useRef, useEffect, useCallback, useState, useMemo, type ReactNode } fro
 import { createPortal } from 'react-dom'
 import { useStore, submitTask, addImageFromFile, updateTaskInStore, removeMultipleTasks, getCachedImage, ensureImageCached } from '../store'
 import { DEFAULT_PARAMS } from '../types'
-import { DEFAULT_API_TIMEOUT, getActiveApiProfile, normalizeSettings } from '../lib/apiProfiles'
-import { getPublicChannel } from '../lib/channels/publicChannels'
-import type { ClientProfile } from '../lib/channels/types'
-
-// 过渡期 helper：InputBar 仍按旧 ApiProfile 形态读 active profile 的 name/provider/model/apiKey/apiMode/codexCli。
-function profileView(p: ClientProfile) {
-  if (p.source === 'builtin-edge') {
-    const channel = getPublicChannel(p.channelId)
-    return {
-      id: p.id,
-      name: channel?.label ?? p.channelId,
-      provider: channel?.kind === 'gemini' ? 'gemini' : 'openai',
-      baseUrl: `/api-proxy/${p.channelId}`,
-      apiKey: '',
-      model: p.selectedModelId,
-      models: channel?.models.map((m) => m.id) ?? [],
-      timeout: channel?.defaults.timeout ?? DEFAULT_API_TIMEOUT,
-      apiMode: channel?.defaults.apiMode ?? 'images',
-      codexCli: channel?.defaults.codexCli ?? false,
-    }
-  }
-  return {
-    id: p.id,
-    name: p.name,
-    provider: p.kind === 'gemini' ? 'gemini' : 'openai',
-    baseUrl: p.baseUrl,
-    apiKey: p.apiKey,
-    model: p.selectedModelId,
-    models: p.models,
-    timeout: p.preferences.timeout,
-    apiMode: p.preferences.apiMode,
-    codexCli: p.preferences.codexCli,
-  }
-}
+import { clientProfileToApiProfile, getActiveApiProfile, normalizeSettings } from '../lib/apiProfiles'
+import { updateSelectedModel } from '../lib/channels/profileSelectors'
+import { getPublicChannels } from '../lib/channels/publicChannels'
 import { getChangedParams, getOutputImageLimitForSettings, normalizeParamsForSettings } from '../lib/paramCompatibility'
 import { getAtImageQuery, getImageMentionLabel, getPromptIndexFromVisibleIndex, getPromptMentionParts, getSelectedImageMentionLabel, imageMentionMatches, insertImageMentionAtVisibleRange, isCursorInSelectedImageMention, stripImageMentionMarkers } from '../lib/promptImageMentions'
 import { normalizeImageSize } from '../lib/size'
@@ -495,7 +464,7 @@ export default function InputBar() {
       ? settings
       : normalizeSettings({ ...settings, activeProfileId: activeProfile.id })
   ), [activeProfile.id, currentActiveProfile.id, settings])
-  const activeView = profileView(activeProfile)
+  const activeView = clientProfileToApiProfile(activeProfile)
   const hasSubmitApiConfig = activeProfile.source === 'builtin-edge' || Boolean(activeView.apiKey)
   const canSubmit = Boolean(prompt.trim() && hasSubmitApiConfig)
   const activeProvider = activeView.provider
@@ -1482,8 +1451,8 @@ export default function InputBar() {
   // 跨 profile 模型快选：每个 profile 的 (model + 上游拉取缓存) 扁平去重，
   // 切换时同时切换 activeProfileId 与该 profile 的 model。
   const profileModelCache = useStore((s) => s.profileModelCache)
-  const globalModelOptions = settings.profiles.flatMap((profile) => {
-    const view = profileView(profile)
+  const globalModelOptions = useMemo(() => settings.profiles.flatMap((profile) => {
+    const view = clientProfileToApiProfile(profile)
     const cached = profileModelCache[profile.id] ?? []
     const preset = view.models ?? []
     const combined = Array.from(
@@ -1495,23 +1464,16 @@ export default function InputBar() {
       model,
       value: `${profile.id}::${model}`,
     }))
-  })
+  }), [settings.profiles, profileModelCache])
   const currentModelValue = `${activeProfile.id}::${activeView.model}`
   const handleGlobalModelPick = (rawValue: string) => {
     const option = globalModelOptions.find((o) => o.value === rawValue)
     if (!option) return
     if (option.profileId === activeProfile.id && option.model === activeView.model) return
-    // 切换 active profile，同时把目标 profile 的 selectedModelId 更新为所选 model。
-    // builtin-edge profile 不允许更改 selectedModelId（受 channel.models 约束）；
-    // 此处假设 option.model 已是 channel.models 中合法项。
-    const nextProfiles = settings.profiles.map((profile) => {
-      if (profile.id !== option.profileId) return profile
-      if (profile.source === 'builtin-edge') {
-        return { ...profile, selectedModelId: option.model }
-      }
-      const nextModels = profile.models.includes(option.model) ? profile.models : [...profile.models, option.model]
-      return { ...profile, models: nextModels, selectedModelId: option.model }
-    })
+    const publicChannels = getPublicChannels()
+    const nextProfiles = settings.profiles.map((profile) =>
+      profile.id === option.profileId ? updateSelectedModel(profile, option.model, publicChannels) : profile,
+    )
     setSettings({ profiles: nextProfiles, activeProfileId: option.profileId })
   }
 

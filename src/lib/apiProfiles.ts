@@ -17,6 +17,7 @@ import type {
   UserByokPreferences,
   UserByokProfile,
 } from './channels/types'
+import { buildEdgeChannelBaseUrl } from './channels/edgeClient'
 import { getPublicChannel, getPublicChannels } from './channels/publicChannels'
 import { readRuntimeEnv } from './runtimeEnv'
 
@@ -303,11 +304,6 @@ export function createDefaultGeminiByokProfile(overrides: Partial<UserByokProfil
   }
 }
 
-/** @deprecated 兼容老测试名称，新代码请使用 createDefaultOpenAIByokProfile。 */
-export const createDefaultOpenAIProfile = createDefaultOpenAIByokProfile
-/** @deprecated 兼容老测试名称，新代码请使用 createDefaultGeminiByokProfile。 */
-export const createDefaultGeminiProfile = createDefaultGeminiByokProfile
-
 export function builtinEdgeProfileId(channelId: string): string {
   return channelId
 }
@@ -414,7 +410,13 @@ function injectBuiltinEdgeProfiles(userProfiles: ClientProfile[]): ClientProfile
 
 // ===== normalizeSettings =====
 
+// 已经经过 normalizeSettings 的对象短路返回自身，避免 store / UI / dispatch 路径上的重复正规化。
+const normalizedSettingsCache = new WeakSet<AppSettings>()
+
 export function normalizeSettings(input: Partial<AppSettings> | unknown): AppSettings {
+  if (input && typeof input === 'object' && normalizedSettingsCache.has(input as AppSettings)) {
+    return input as AppSettings
+  }
   const record = isRecord(input) ? input : {}
   const customProviders = normalizeCustomProviderDefinitions(record.customProviders)
 
@@ -430,7 +432,7 @@ export function normalizeSettings(input: Partial<AppSettings> | unknown): AppSet
     ? requestedActive
     : profilesWithFallback[0].id
 
-  return {
+  const result: AppSettings = {
     customProviders,
     providerOrder: Array.isArray(record.providerOrder) ? record.providerOrder.map(String) : undefined,
     clearInputAfterSubmit: typeof record.clearInputAfterSubmit === 'boolean' ? record.clearInputAfterSubmit : false,
@@ -441,6 +443,8 @@ export function normalizeSettings(input: Partial<AppSettings> | unknown): AppSet
     profiles: profilesWithFallback,
     activeProfileId,
   }
+  normalizedSettingsCache.add(result)
+  return result
 }
 
 // ===== Active profile / labels =====
@@ -756,12 +760,10 @@ export function importCustomProviderDefinitionFromJson(
   return result.customProviders[0]
 }
 
-// ===== Legacy ApiProfile 桥接 =====
-// 用于 store.ts 中尚未完全迁移的 task-matching / reuse-task 流程；新代码请直接使用 ClientProfile。
+// ===== Flat ApiProfile view =====
+// ClientProfile 的扁平视图，给以 dedup-key / task-match / settings 表单为代表的扁平场景使用。
+// builtin-edge profile 的 baseUrl 是 edge proxy 路径，apiKey 始终为空。
 
-/**
- * @deprecated 兼容旧扁平形态，仅在 store.ts task 匹配和迁移过渡期使用。新代码应直接操作 ClientProfile。
- */
 export interface ApiProfile {
   id: string
   name: string
@@ -794,7 +796,8 @@ export function clientProfileToApiProfile(profile: ClientProfile): ApiProfile {
       id: profile.id,
       name: channel?.label ?? profile.channelId,
       provider: channel?.kind === 'gemini' ? 'gemini' : 'openai',
-      baseUrl: '',
+      // 让 baseUrl 取边缘代理前缀，使 codexCli prompt key 等以 baseUrl 为身份的逻辑能区分不同 builtin channel。
+      baseUrl: buildEdgeChannelBaseUrl(profile.channelId),
       apiKey: '',
       model: profile.selectedModelId,
       timeout: channel?.defaults.timeout ?? DEFAULT_API_TIMEOUT,
@@ -854,12 +857,11 @@ export function apiProfileToClientProfile(profile: ApiProfile): ClientProfile {
   }
 }
 
-export function isBuiltinProfile(profile: ClientProfile | { source?: string } | null | undefined): boolean {
-  return Boolean(profile && (profile as { source?: string }).source === 'builtin-edge')
+export function isBuiltinProfile(
+  profile: ClientProfile | null | undefined,
+): profile is BuiltinEdgeProfile {
+  return profile?.source === 'builtin-edge'
 }
-
-/** @deprecated 别名，新代码请使用 validateClientProfile。 */
-export const validateApiProfile = validateClientProfile
 
 // ===== DEFAULT_SETTINGS =====
 

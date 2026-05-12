@@ -17,11 +17,14 @@ import {
 import type { ImageApiResponse } from '../../types'
 import type { BuiltinEdgeProfile, PublicChannel } from './types'
 
-const EDGE_PROXY_PREFIX = '/api-proxy'
+export const EDGE_PROXY_PREFIX = '/api-proxy'
+
+export function buildEdgeChannelBaseUrl(channelId: string): string {
+  return `${EDGE_PROXY_PREFIX}/${channelId}`
+}
 
 export function buildEdgeUrl(channelId: string, path: string): string {
-  const normalizedPath = path.replace(/^\/+/, '')
-  return `${EDGE_PROXY_PREFIX}/${channelId}/${normalizedPath}`
+  return `${buildEdgeChannelBaseUrl(channelId)}/${path.replace(/^\/+/, '')}`
 }
 
 /**
@@ -154,14 +157,14 @@ async function sendOpenAICompatEdit(
     formData.append('output_compression', String(opts.params.output_compression))
   }
   if (opts.params.n && opts.params.n > 1) formData.append('n', String(opts.params.n))
-  for (const dataUrl of opts.inputImageDataUrls) {
-    const blob = await imageDataUrlToPngBlob(dataUrl)
-    formData.append('image[]', blob, 'image.png')
-  }
-  if (opts.maskDataUrl) {
-    const maskBlob = await maskDataUrlToPngBlob(opts.maskDataUrl)
-    formData.append('mask', maskBlob, 'mask.png')
-  }
+
+  const [inputBlobs, maskBlob] = await Promise.all([
+    Promise.all(opts.inputImageDataUrls.map(imageDataUrlToPngBlob)),
+    opts.maskDataUrl ? maskDataUrlToPngBlob(opts.maskDataUrl) : Promise.resolve(null),
+  ])
+  for (const blob of inputBlobs) formData.append('image[]', blob, 'image.png')
+  if (maskBlob) formData.append('mask', maskBlob, 'mask.png')
+
   return fetch(url, { method: 'POST', body: formData, signal })
 }
 
@@ -177,26 +180,33 @@ async function parseOpenAICompatResponse(
     throw err
   }
 
-  const images: string[] = []
   const rawImageUrls = data.map((item) => item.url).filter(isHttpUrl)
-  const revisedPrompts: Array<string | undefined> = []
+  type Resolved = { image: string; revisedPrompt: string | undefined } | null
+  let resolved: Resolved[]
   try {
-    for (const item of data) {
+    resolved = await Promise.all(data.map(async (item): Promise<Resolved> => {
+      const revisedPrompt = typeof item.revised_prompt === 'string' ? item.revised_prompt : undefined
       if (typeof item.b64_json === 'string' && item.b64_json) {
-        images.push(normalizeBase64Image(item.b64_json, mime))
-        revisedPrompts.push(typeof item.revised_prompt === 'string' ? item.revised_prompt : undefined)
-        continue
+        return { image: normalizeBase64Image(item.b64_json, mime), revisedPrompt }
       }
       if (isHttpUrl(item.url) || isDataUrl(item.url)) {
-        images.push(await fetchImageUrlAsDataUrl(item.url, mime, signal))
-        revisedPrompts.push(typeof item.revised_prompt === 'string' ? item.revised_prompt : undefined)
+        return { image: await fetchImageUrlAsDataUrl(item.url, mime, signal), revisedPrompt }
       }
-    }
+      return null
+    }))
   } catch (err) {
     if (rawImageUrls.length > 0 && err instanceof Error) {
       ;(err as unknown as { rawImageUrls: string[] }).rawImageUrls = rawImageUrls
     }
     throw err
+  }
+
+  const images: string[] = []
+  const revisedPrompts: Array<string | undefined> = []
+  for (const entry of resolved) {
+    if (!entry) continue
+    images.push(entry.image)
+    revisedPrompts.push(entry.revisedPrompt)
   }
 
   if (!images.length) {

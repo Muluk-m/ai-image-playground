@@ -9,57 +9,12 @@ import type {
   ExportData,
 } from './types'
 import { DEFAULT_PARAMS } from './types'
-import { DEFAULT_SETTINGS, getActiveApiProfile, getCustomProviderDefinition, mergeImportedSettings, normalizeSettings, validateClientProfile } from './lib/apiProfiles'
-import { getPublicChannel } from './lib/channels/publicChannels'
+import { clientProfileToApiProfile, DEFAULT_SETTINGS, getActiveApiProfile, getCustomProviderDefinition, mergeImportedSettings, normalizeSettings, validateClientProfile } from './lib/apiProfiles'
 import type { ClientProfile } from './lib/channels/types'
 
-// 过渡期 helper：store 内多处仍按旧 ApiProfile 形态（name/provider/model/baseUrl/...）读
-// profile 用于"任务复用"等场景。把 ClientProfile 合成出旧 shape 让 store 不必逐行重写。
-// 下一步 store.ts UX 改造时此 helper 删除。
-interface LegacyProfileView {
-  id: string
-  name: string
-  provider: string
-  baseUrl: string
-  apiKey: string
-  model: string
-  timeout: number
-  apiMode: 'images' | 'responses'
-  codexCli: boolean
-  apiProxy: boolean
-  responseFormatB64Json?: boolean
-}
-
-function toLegacyView(p: ClientProfile): LegacyProfileView {
-  if (p.source === 'builtin-edge') {
-    const channel = getPublicChannel(p.channelId)
-    return {
-      id: p.id,
-      name: channel?.label ?? p.channelId,
-      provider: channel?.kind === 'gemini' ? 'gemini' : 'openai',
-      baseUrl: `/api-proxy/${p.channelId}`,
-      apiKey: '',
-      model: p.selectedModelId,
-      timeout: channel?.defaults.timeout ?? 600,
-      apiMode: channel?.defaults.apiMode ?? 'images',
-      codexCli: channel?.defaults.codexCli ?? false,
-      apiProxy: false,
-      responseFormatB64Json: channel?.defaults.responseFormatB64Json,
-    }
-  }
-  return {
-    id: p.id,
-    name: p.name,
-    provider: p.kind === 'gemini' ? 'gemini' : 'openai',
-    baseUrl: p.baseUrl,
-    apiKey: p.apiKey,
-    model: p.selectedModelId,
-    timeout: p.preferences.timeout,
-    apiMode: p.preferences.apiMode,
-    codexCli: p.preferences.codexCli,
-    apiProxy: p.preferences.apiProxy,
-    responseFormatB64Json: p.preferences.responseFormatB64Json,
-  }
+function filterUserProfileCache(cache: Record<string, string[]>, profiles: ClientProfile[]): Record<string, string[]> {
+  const builtinIds = new Set(profiles.filter((p) => p.source === 'builtin-edge').map((p) => p.id))
+  return Object.fromEntries(Object.entries(cache).filter(([id]) => !builtinIds.has(id)))
 }
 import { dismissAllTooltips } from './lib/tooltipDismiss'
 import { remapImageMentionsForOrder, replaceImageMentionsForApi } from './lib/promptImageMentions'
@@ -374,10 +329,9 @@ export function getPersistedState(state: AppState) {
     supportPromptDismissed: state.supportPromptDismissed,
     supportPromptOpen: state.supportPromptOpen,
     supportPromptSkippedForImportedData: state.supportPromptSkippedForImportedData,
-    // 内置 channel 的 model cache 不进 localStorage（避免敏感模型清单泄漏到导出）
-    profileModelCache: Object.fromEntries(
-      Object.entries(state.profileModelCache ?? {}).filter(([id]) => !id.startsWith('qlj-')),
-    ),
+    // 内置 channel 的 model cache 不进 localStorage（避免敏感模型清单泄漏到导出）。
+    // 通过 profile.source === 'builtin-edge' 判定，而不是字符串前缀。
+    profileModelCache: filterUserProfileCache(state.profileModelCache ?? {}, settings.profiles),
   }
 }
 
@@ -403,12 +357,7 @@ function mergePersistedState(persistedState: unknown, currentState: AppState): A
 interface AppState {
   // 设置
   settings: AppSettings
-  // 兼容旧 ApiProfile 顶层字段输入：legacy callers 仍可传 {apiKey: ..., codexCli: ...} 修改 active profile。
-  setSettings: (s: Partial<AppSettings> & {
-    baseUrl?: string; apiKey?: string; model?: string; timeout?: number;
-    apiMode?: 'images' | 'responses'; codexCli?: boolean; apiProxy?: boolean;
-    responseFormatB64Json?: boolean;
-  }) => void
+  setSettings: (s: Partial<AppSettings>) => void
   dismissedCodexCliPrompts: string[]
   dismissCodexCliPrompt: (key: string) => void
 
@@ -497,47 +446,7 @@ export const useStore = create<AppState>()(
       // Settings
       settings: { ...DEFAULT_SETTINGS },
       setSettings: (s) => set((st) => {
-        const previous = normalizeSettings(st.settings)
-        // 过渡期：调用方仍可能传入旧 ApiProfile 顶层字段（baseUrl/apiKey/model/...）作为对 active
-        // profile 的就地修改。本块识别后写到 active 的 user-byok profile 字段上；builtin-edge
-        // profile 不可被这种方式修改（凭据在边缘）。
-        const incoming = s as Partial<AppSettings> & Record<string, unknown>
-        const overrides: {
-          baseUrl?: string; apiKey?: string; model?: string; timeout?: number;
-          apiMode?: 'images' | 'responses'; codexCli?: boolean; apiProxy?: boolean;
-        } = {}
-        if (typeof incoming.baseUrl === 'string') overrides.baseUrl = incoming.baseUrl
-        if (typeof incoming.apiKey === 'string') overrides.apiKey = incoming.apiKey
-        if (typeof incoming.model === 'string') overrides.model = incoming.model
-        if (typeof incoming.timeout === 'number') overrides.timeout = incoming.timeout
-        if (incoming.apiMode === 'images' || incoming.apiMode === 'responses') overrides.apiMode = incoming.apiMode
-        if (typeof incoming.codexCli === 'boolean') overrides.codexCli = incoming.codexCli
-        if (typeof incoming.apiProxy === 'boolean') overrides.apiProxy = incoming.apiProxy
-        const hasLegacyOverrides = Object.keys(overrides).length > 0
-        const merged = normalizeSettings({ ...previous, ...incoming })
-        if (hasLegacyOverrides && incoming.profiles === undefined) {
-          merged.profiles = merged.profiles.map((profile) => {
-            if (profile.id !== merged.activeProfileId || profile.source !== 'user-byok') return profile
-            const models = overrides.model && !profile.models.includes(overrides.model)
-              ? [...profile.models, overrides.model]
-              : profile.models
-            return {
-              ...profile,
-              baseUrl: overrides.baseUrl ?? profile.baseUrl,
-              apiKey: overrides.apiKey ?? profile.apiKey,
-              models,
-              selectedModelId: overrides.model ?? profile.selectedModelId,
-              preferences: {
-                ...profile.preferences,
-                timeout: overrides.timeout ?? profile.preferences.timeout,
-                apiMode: overrides.apiMode ?? profile.preferences.apiMode,
-                codexCli: overrides.codexCli ?? profile.preferences.codexCli,
-                apiProxy: overrides.apiProxy ?? profile.preferences.apiProxy,
-              },
-            }
-          })
-        }
-        const settings = normalizeSettings(merged)
+        const settings = normalizeSettings({ ...st.settings, ...s })
         const shouldClearReusedProfile = st.reusedTaskApiProfileId && settings.activeProfileId === st.reusedTaskApiProfileId
         return {
           settings,
@@ -733,7 +642,7 @@ function genId(): string {
 }
 
 export function getCodexCliPromptKey(settings: AppSettings): string {
-  const view = toLegacyView(getActiveApiProfile(settings))
+  const view = clientProfileToApiProfile(getActiveApiProfile(settings))
   return `${view.baseUrl}\n${view.apiKey}`
 }
 
@@ -809,7 +718,7 @@ export function showCodexCliPrompt(force = false, reason = '接口返回的提�
   const state = useStore.getState()
   const settings = state.settings
   const promptKey = getCodexCliPromptKey(settings)
-  const activeForCheck = toLegacyView(getActiveApiProfile(settings))
+  const activeForCheck = clientProfileToApiProfile(getActiveApiProfile(settings))
   if (!force && (activeForCheck.codexCli || state.dismissedCodexCliPrompts.includes(promptKey))) return
 
   state.setConfirmDialog({
@@ -819,7 +728,13 @@ export function showCodexCliPrompt(force = false, reason = '接口返回的提�
     action: () => {
       const state = useStore.getState()
       state.dismissCodexCliPrompt(promptKey)
-      state.setSettings({ codexCli: true })
+      const current = normalizeSettings(state.settings)
+      const profiles = current.profiles.map((p) =>
+        p.id === current.activeProfileId && p.source === 'user-byok'
+          ? { ...p, preferences: { ...p.preferences, codexCli: true } }
+          : p,
+      )
+      state.setSettings({ profiles })
     },
     cancelAction: () => useStore.getState().dismissCodexCliPrompt(promptKey),
   })
@@ -829,12 +744,12 @@ function getCustomRecoveryProfile(settings: AppSettings, task: TaskRecord): Clie
   const provider = task.apiProvider
   if (!provider || provider === 'openai') return null
   const taskProfile = getTaskApiProfile(settings, task)
-  if (taskProfile && toLegacyView(taskProfile).provider === provider) return taskProfile
+  if (taskProfile && clientProfileToApiProfile(taskProfile).provider === provider) return taskProfile
 
   const normalized = normalizeSettings(settings)
   const active = getActiveApiProfile(normalized)
-  if (toLegacyView(active).provider === provider) return active
-  const profilesWithView = normalized.profiles.map((p) => ({ p, v: toLegacyView(p) }))
+  if (clientProfileToApiProfile(active).provider === provider) return active
+  const profilesWithView = normalized.profiles.map((p) => ({ p, v: clientProfileToApiProfile(p) }))
   return (
     profilesWithView.find(({ v }) =>
       v.provider === provider &&
@@ -848,7 +763,7 @@ function getCustomRecoveryProfile(settings: AppSettings, task: TaskRecord): Clie
 export function getTaskApiProfile(settings: AppSettings, task: TaskRecord): ClientProfile | null {
   const normalized = normalizeSettings(settings)
   const provider = task.apiProvider
-  const profilesWithView = normalized.profiles.map((p) => ({ p, v: toLegacyView(p) }))
+  const profilesWithView = normalized.profiles.map((p) => ({ p, v: clientProfileToApiProfile(p) }))
 
   if (task.apiProfileId) {
     const byId = profilesWithView.find(({ p }) => p.id === task.apiProfileId)
@@ -915,8 +830,8 @@ function getApiRequestNetworkErrorHint(err: unknown, task: TaskRecord, settings:
 
   const profile = getTaskApiProfile(settings, task)
   const elapsedSeconds = Math.max(0, (Date.now() - task.createdAt) / 1000)
-  const profileView = profile ? toLegacyView(profile) : null
-  const usesApiProxy = profileView?.apiProxy ?? toLegacyView(getActiveApiProfile(settings)).apiProxy
+  const profileView = profile ? clientProfileToApiProfile(profile) : null
+  const usesApiProxy = profileView?.apiProxy ?? clientProfileToApiProfile(getActiveApiProfile(settings)).apiProxy
 
   if (elapsedSeconds <= 15) {
     if (usesApiProxy) {
@@ -1094,7 +1009,7 @@ export async function submitTask(options: { allowFullMask?: boolean; useCurrentA
       } else {
         setConfirmDialog({
           title: '找不到 API 配置',
-      message: `找不到复用任务所使用的 API 配置「${reusedTaskApiProfileName || '未知配置'}」，要使用当前的 API 配置「${toLegacyView(activeProfile).name}」提交任务吗？`,
+      message: `找不到复用任务所使用的 API 配置「${reusedTaskApiProfileName || '未知配置'}」，要使用当前的 API 配置「${clientProfileToApiProfile(activeProfile).name}」提交任务吗？`,
       confirmText: '使用当前配置提交',
       cancelText: '放弃提交',
       action: () => {
@@ -1165,7 +1080,7 @@ export async function submitTask(options: { allowFullMask?: boolean; useCurrentA
   }
 
   const taskId = genId()
-  const submitView = toLegacyView(activeProfile)
+  const submitView = clientProfileToApiProfile(activeProfile)
   const task: TaskRecord = {
     id: taskId,
     prompt: prompt.trim(),
@@ -1215,7 +1130,7 @@ async function executeTask(taskId: string) {
     return
   }
   const activeProfile = taskProfile ?? getActiveApiProfile(settings)
-  const activeView = toLegacyView(activeProfile)
+  const activeView = clientProfileToApiProfile(activeProfile)
   const requestSettings = createSettingsForApiProfile(settings, activeProfile)
   const taskProvider = task.apiProvider ?? activeView.provider
   let customTaskInfo: { taskId: string } | null = task.customTaskId
@@ -1372,7 +1287,7 @@ export function updateTaskInStore(taskId: string, patch: Partial<TaskRecord>) {
 export async function retryTask(task: TaskRecord) {
   const { settings } = useStore.getState()
   const activeProfile = getActiveApiProfile(settings)
-  const activeView = toLegacyView(activeProfile)
+  const activeView = clientProfileToApiProfile(activeProfile)
   const normalizedParams = normalizeParamsForSettings(task.params, settings, { hasInputImages: task.inputImageIds.length > 0 })
   const taskId = genId()
   const newTask: TaskRecord = {
@@ -1406,9 +1321,9 @@ export async function reuseConfig(task: TaskRecord) {
   const { settings, setPrompt, setParams, setInputImages, setMaskDraft, clearMaskDraft, showToast, setConfirmDialog, setReusedTaskApiProfile } = useStore.getState()
   const normalizedSettings = normalizeSettings(settings)
   const currentProfile = getActiveApiProfile(settings)
-  const currentView = toLegacyView(currentProfile)
+  const currentView = clientProfileToApiProfile(currentProfile)
   const matchedProfile = normalizedSettings.reuseTaskApiProfileTemporarily ? getTaskApiProfile(normalizedSettings, task) : null
-  const matchedView = matchedProfile ? toLegacyView(matchedProfile) : null
+  const matchedView = matchedProfile ? clientProfileToApiProfile(matchedProfile) : null
   const shouldTemporarilyReuseProfile = Boolean(matchedProfile && matchedProfile.id !== currentProfile.id)
   const missingReusedProfile = normalizedSettings.reuseTaskApiProfileTemporarily && !matchedProfile
   const taskProfileName = matchedView?.name ?? getTaskApiProfileName(task)
@@ -1667,7 +1582,7 @@ async function recoverCustomTask(taskId: string) {
     scheduleCustomRecovery(taskId)
     return
   }
-  const view = toLegacyView(profile)
+  const view = clientProfileToApiProfile(profile)
   const byokAdapter = {
     baseUrl: view.baseUrl,
     apiKey: view.apiKey,

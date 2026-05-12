@@ -28,13 +28,6 @@ function appendQuery(path: string, query?: Record<string, string>): string {
   return `${path}${path.includes('?') ? '&' : '?'}${params.toString()}`
 }
 
-function createOpenAICompatiblePaths(customProvider?: CustomProviderDefinition | null) {
-  return {
-    generationPath: 'images/generations',
-    editPath: 'images/edits',
-  }
-}
-
 function getByPath(source: unknown, path: string | undefined): unknown {
   if (!path) return source
   return path.split('.').filter(Boolean).reduce<unknown>((current, key) => {
@@ -278,7 +271,6 @@ async function callImagesApiSingle(opts: CallApiOptions, profile: BYOKAdapterPro
   const proxyConfig = readClientDevProxyConfig()
   const useApiProxy = shouldUseApiProxy(profile.apiProxy, proxyConfig)
   const requestHeaders = createRequestHeaders(profile)
-  const paths = createOpenAICompatiblePaths(customProvider)
 
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), profile.timeout * 1000)
@@ -336,7 +328,7 @@ async function callImagesApiSingle(opts: CallApiOptions, profile: BYOKAdapterPro
         formData.append('mask', maskBlob, 'mask.png')
       }
 
-      response = await fetch(buildApiUrl(profile.baseUrl, paths.editPath, proxyConfig, useApiProxy), {
+      response = await fetch(buildApiUrl(profile.baseUrl, 'images/edits', proxyConfig, useApiProxy), {
         method: 'POST',
         headers: requestHeaders,
         cache: 'no-store',
@@ -366,7 +358,7 @@ async function callImagesApiSingle(opts: CallApiOptions, profile: BYOKAdapterPro
         body.response_format = 'b64_json'
       }
 
-      response = await fetch(buildApiUrl(profile.baseUrl, paths.generationPath, proxyConfig, useApiProxy), {
+      response = await fetch(buildApiUrl(profile.baseUrl, 'images/generations', proxyConfig, useApiProxy), {
         method: 'POST',
         headers: {
           ...requestHeaders,
