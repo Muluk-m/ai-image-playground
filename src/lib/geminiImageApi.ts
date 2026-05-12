@@ -78,9 +78,10 @@ export function buildGeminiRequestBody(opts: {
   }
 
   const generationConfig: GeminiRequestBody['generationConfig'] = {
-    responseModalities: ['IMAGE'],
-    candidateCount: Math.max(1, opts.params.n || 1),
+    responseModalities: ['TEXT', 'IMAGE'],
   }
+  const n = Math.max(1, opts.params.n || 1)
+  if (n > 1) generationConfig.candidateCount = n
   const aspect = nearestAspectRatio(opts.params.size)
   if (aspect) generationConfig.imageConfig = { aspectRatio: aspect }
 

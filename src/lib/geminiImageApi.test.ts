@@ -12,8 +12,8 @@ describe('buildGeminiRequestBody', () => {
     })
     expect(body.contents[0].parts).toEqual([{ text: 'a cat' }])
     expect(body.generationConfig?.imageConfig).toBeUndefined()
-    expect(body.generationConfig?.candidateCount).toBe(1)
-    expect(body.generationConfig?.responseModalities).toEqual(['IMAGE'])
+    expect(body.generationConfig?.candidateCount).toBeUndefined()
+    expect(body.generationConfig?.responseModalities).toEqual(['TEXT', 'IMAGE'])
   })
 
   it('attaches inlineData parts for reference images', () => {
@@ -58,13 +58,20 @@ describe('buildGeminiRequestBody', () => {
     expect(body.generationConfig?.imageConfig).toEqual({ aspectRatio: '16:9' })
   })
 
-  it('passes candidateCount from params.n', () => {
-    const body = buildGeminiRequestBody({
+  it('passes candidateCount only when n > 1', () => {
+    const single = buildGeminiRequestBody({
+      prompt: 'p',
+      inputImageDataUrls: [],
+      params: { ...DEFAULT_PARAMS, size: 'auto', n: 1 },
+    })
+    expect(single.generationConfig?.candidateCount).toBeUndefined()
+
+    const multi = buildGeminiRequestBody({
       prompt: 'p',
       inputImageDataUrls: [],
       params: { ...DEFAULT_PARAMS, size: 'auto', n: 3 },
     })
-    expect(body.generationConfig?.candidateCount).toBe(3)
+    expect(multi.generationConfig?.candidateCount).toBe(3)
   })
 })
 
