@@ -1223,32 +1223,34 @@ export default function SettingsModal() {
                         复制导入 URL
                       </ViewportTooltip>
                     </span>
-                    <span className="relative inline-flex">
-                      <button
-                        type="button"
-                        onClick={duplicateActiveProfile}
-                        onMouseEnter={() => setDuplicateProfileTooltipVisible(true)}
-                        onMouseLeave={() => setDuplicateProfileTooltipVisible(false)}
-                        onFocus={() => setDuplicateProfileTooltipVisible(true)}
-                        onBlur={() => setDuplicateProfileTooltipVisible(false)}
-                        onTouchStart={() => {
-                          clearDuplicateProfileTooltipTimer()
-                          duplicateProfileTooltipTimerRef.current = window.setTimeout(() => {
-                            setDuplicateProfileTooltipVisible(true)
-                            duplicateProfileTooltipTimerRef.current = null
-                          }, 450)
-                        }}
-                        onTouchEnd={clearDuplicateProfileTooltipTimer}
-                        onTouchCancel={clearDuplicateProfileTooltipTimer}
-                        className="flex h-5 w-5 items-center justify-center rounded-md text-gray-400 transition hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-white/[0.08] dark:hover:text-gray-200"
-                        aria-label={`复制一份配置「${activeProfile.name}」`}
-                      >
-                        <CopyIcon className="h-3.5 w-3.5" />
-                      </button>
-                      <ViewportTooltip visible={duplicateProfileTooltipVisible} className="whitespace-nowrap">
-                        复制当前配置
-                      </ViewportTooltip>
-                    </span>
+                    {!activeIsBuiltin && (
+                      <span className="relative inline-flex">
+                        <button
+                          type="button"
+                          onClick={duplicateActiveProfile}
+                          onMouseEnter={() => setDuplicateProfileTooltipVisible(true)}
+                          onMouseLeave={() => setDuplicateProfileTooltipVisible(false)}
+                          onFocus={() => setDuplicateProfileTooltipVisible(true)}
+                          onBlur={() => setDuplicateProfileTooltipVisible(false)}
+                          onTouchStart={() => {
+                            clearDuplicateProfileTooltipTimer()
+                            duplicateProfileTooltipTimerRef.current = window.setTimeout(() => {
+                              setDuplicateProfileTooltipVisible(true)
+                              duplicateProfileTooltipTimerRef.current = null
+                            }, 450)
+                          }}
+                          onTouchEnd={clearDuplicateProfileTooltipTimer}
+                          onTouchCancel={clearDuplicateProfileTooltipTimer}
+                          className="flex h-5 w-5 items-center justify-center rounded-md text-gray-400 transition hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-white/[0.08] dark:hover:text-gray-200"
+                          aria-label={`复制一份配置「${activeProfile.name}」`}
+                        >
+                          <CopyIcon className="h-3.5 w-3.5" />
+                        </button>
+                        <ViewportTooltip visible={duplicateProfileTooltipVisible} className="whitespace-nowrap">
+                          复制当前配置
+                        </ViewportTooltip>
+                      </span>
+                    )}
                   </div>
                   <div ref={profileMenuRef} className="relative">
                     <button
@@ -1339,19 +1341,21 @@ export default function SettingsModal() {
                                 </div>
                                 
                                 <div className="flex shrink-0 items-center gap-1">
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.preventDefault()
-                                      e.stopPropagation()
-                                      confirmCopyProfileImportUrl(profile)
-                                    }}
-                                    className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-gray-400 opacity-60 transition-all hover:bg-gray-100 hover:text-gray-600 hover:opacity-100 dark:hover:bg-white/[0.08] dark:hover:text-gray-200"
-                                    aria-label={`复制导入配置「${profile.name}」的 URL`}
-                                    title="复制导入 URL"
-                                  >
-                                    <LinkIcon className="h-3.5 w-3.5" />
-                                  </button>
+                                  {!isBuiltinProfile(profile) && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.preventDefault()
+                                        e.stopPropagation()
+                                        confirmCopyProfileImportUrl(profile)
+                                      }}
+                                      className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-gray-400 opacity-60 transition-all hover:bg-gray-100 hover:text-gray-600 hover:opacity-100 dark:hover:bg-white/[0.08] dark:hover:text-gray-200"
+                                      aria-label={`复制导入配置「${profile.name}」的 URL`}
+                                      title="复制导入 URL"
+                                    >
+                                      <LinkIcon className="h-3.5 w-3.5" />
+                                    </button>
+                                  )}
                                   {draft.profiles.length > 1 && !isBuiltinProfile(profile) && (
                                     <button
                                       type="button"
@@ -1380,12 +1384,15 @@ export default function SettingsModal() {
                   </div>
                 </div>
 
-              {activeIsBuiltin && (
-                <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
-                  此为内置配置，字段只读。点击右上角「复制当前配置」可生成可编辑副本。
+              {activeIsBuiltin ? (
+                <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-relaxed text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
+                  <div className="font-medium mb-1">内置配置 · 不可查看/编辑</div>
+                  <div className="text-xs">
+                    为防止 API Key 泄露，此配置的所有字段（含 API URL、API Key、模型 ID）均不在界面显示。
+                    可在主界面参数栏的「模型」下拉中切换模型；如需更换服务商或自定义参数，请新建配置。
+                  </div>
                 </div>
-              )}
-
+              ) : (<>
               <label className="block">
                 <span className="mb-1.5 block text-sm text-gray-600 dark:text-gray-300">配置名称</span>
                 <input
@@ -1611,11 +1618,11 @@ export default function SettingsModal() {
                     type="number"
                     min={10}
                     max={600}
-                    readOnly={activeIsBuiltin}
-                    className={`w-full rounded-xl border border-gray-200/70 bg-white/60 px-3 py-2.5 text-sm text-gray-700 outline-none transition focus:border-blue-300 dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-gray-200 dark:focus:border-blue-500/50 ${activeIsBuiltin ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    className="w-full rounded-xl border border-gray-200/70 bg-white/60 px-3 py-2.5 text-sm text-gray-700 outline-none transition focus:border-blue-300 dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-gray-200 dark:focus:border-blue-500/50"
                   />
                 </label>
               )}
+              </>)}
             </div>
             )}
             

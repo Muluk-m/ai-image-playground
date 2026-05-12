@@ -1809,7 +1809,13 @@ export async function exportData(options: ExportOptions = { exportConfig: true, 
       exportedAt: new Date(exportedAt).toISOString(),
     }
 
-    if (options.exportConfig) manifest.settings = settings
+    if (options.exportConfig) {
+      // 剥掉内置 profile，避免硬编码 apiKey 被导出
+      manifest.settings = {
+        ...settings,
+        profiles: settings.profiles.filter((p) => !isBuiltinProfile(p)),
+      }
+    }
     if (options.exportTasks) {
       manifest.tasks = tasks
       manifest.imageFiles = imageFiles

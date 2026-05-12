@@ -140,7 +140,10 @@ export async function callGeminiImageApi(opts: CallApiOptions, profile: ApiProfi
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'x-goog-api-key': profile.apiKey,
+      // 使用 x-api-key 而不是 x-goog-api-key：浏览器端 sub2api / 多数中转 CORS 白名单
+      // 通常允许 x-api-key 但不允许 x-goog-api-key（后者会被 preflight 拦截）。
+      // sub2api 后端同时接受这两种 header。
+      'x-api-key': profile.apiKey,
     },
     body: JSON.stringify(body),
   })

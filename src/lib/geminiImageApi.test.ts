@@ -129,7 +129,7 @@ describe('callGeminiImageApi', () => {
     fetchMock.mockReset()
   })
 
-  it('POSTs to {baseUrl}/models/{model}:generateContent with x-goog-api-key', async () => {
+  it('POSTs to {baseUrl}/models/{model}:generateContent with x-api-key', async () => {
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
       candidates: [{ content: { parts: [{ inlineData: { mimeType: 'image/png', data: 'AAA' } }] } }],
     }), { status: 200 }))
@@ -146,7 +146,8 @@ describe('callGeminiImageApi', () => {
     expect(url).toBe('https://gen.example/v1beta/models/gemini-3.1-flash-image:generateContent')
     expect((init as RequestInit).method).toBe('POST')
     const headers = (init as RequestInit).headers as Record<string, string>
-    expect(headers['x-goog-api-key']).toBe('gk')
+    expect(headers['x-api-key']).toBe('gk')
+    expect(headers['x-goog-api-key']).toBeUndefined()
     expect(headers['Content-Type']).toBe('application/json')
   })
 
