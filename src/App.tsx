@@ -15,6 +15,9 @@ import Toast from './components/Toast'
 import MaskEditorModal from './components/MaskEditorModal'
 import ImageContextMenu from './components/ImageContextMenu'
 import SupportPromptModal from './components/SupportPromptModal'
+import InspirationPanel from './features/inspiration/components/InspirationPanel'
+import { initInspirationStore } from './features/inspiration/store'
+import { initHashRoute } from './features/inspiration/lib/hashRoute'
 
 export default function App() {
   const setSettings = useStore((s) => s.setSettings)
@@ -35,6 +38,8 @@ export default function App() {
     }
 
     initStore()
+    initInspirationStore()
+    initHashRoute()
   }, [setSettings])
 
   useEffect(() => {
@@ -61,6 +66,7 @@ export default function App() {
       <DetailModal />
       <Lightbox />
       <SettingsModal />
+      <InspirationPanel />
       <ConfirmDialog />
       <SupportPromptModal />
       <Toast />
