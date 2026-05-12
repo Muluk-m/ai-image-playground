@@ -78,7 +78,7 @@ export function buildGeminiRequestBody(opts: {
   }
 
   const generationConfig: GeminiRequestBody['generationConfig'] = {
-    responseModalities: ['TEXT', 'IMAGE'],
+    responseModalities: ['IMAGE'],
   }
   const n = Math.max(1, opts.params.n || 1)
   if (n > 1) generationConfig.candidateCount = n
