@@ -3,7 +3,6 @@ import { createPortal } from 'react-dom'
 import { useStore, submitTask, addImageFromFile, updateTaskInStore, removeMultipleTasks, getCachedImage, ensureImageCached } from '../store'
 import { DEFAULT_PARAMS } from '../types'
 import { getActiveApiProfile, normalizeSettings } from '../lib/apiProfiles'
-import { getProviderModelOptions } from '../lib/providerModels'
 import { DEFAULT_FAL_IMAGE_SIZE, getChangedParams, getOutputImageLimitForSettings, normalizeParamsForSettings } from '../lib/paramCompatibility'
 import { getAtImageQuery, getImageMentionLabel, getPromptIndexFromVisibleIndex, getPromptMentionParts, getSelectedImageMentionLabel, imageMentionMatches, insertImageMentionAtVisibleRange, isCursorInSelectedImageMention, stripImageMentionMarkers } from '../lib/promptImageMentions'
 import { normalizeImageSize } from '../lib/size'
@@ -1470,9 +1469,7 @@ export default function InputBar() {
     setSettings({ profiles: nextProfiles })
   }
 
-  const modelQuickOptions = activeProfile.models?.length
-    ? activeProfile.models
-    : getProviderModelOptions(activeProfile.provider)
+  const modelQuickOptions = activeProfile.models ?? []
   const modelOptionsForSelect = modelQuickOptions.includes(activeProfile.model)
     ? modelQuickOptions
     : [activeProfile.model, ...modelQuickOptions]

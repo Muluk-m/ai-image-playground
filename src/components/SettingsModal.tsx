@@ -30,6 +30,7 @@ import { useCloseOnEscape } from '../hooks/useCloseOnEscape'
 import { usePreventBackgroundScroll } from '../hooks/usePreventBackgroundScroll'
 import { DEFAULT_DROPDOWN_MAX_HEIGHT, getDropdownMaxHeight } from '../lib/dropdown'
 import Select from './Select'
+import ModelCombobox from './ModelCombobox'
 import { Checkbox } from './Checkbox'
 import ViewportTooltip from './ViewportTooltip'
 import { ChevronDownIcon, CloseIcon, CopyIcon, PlusIcon, TrashIcon, GithubIcon, ExportIcon, ImportIcon, DragHandleIcon, LinkIcon } from './icons'
@@ -1567,22 +1568,13 @@ export default function SettingsModal() {
                   }
                   return (
                     <>
-                      <input
+                      <ModelCombobox
                         value={activeProfile.model}
-                        onChange={(e) => updateActiveProfile({ model: e.target.value })}
-                        onBlur={(e) => commitActiveProfilePatch({ model: e.target.value })}
-                        type="text"
-                        list={providerModelOptions.length ? `models-${activeProfile.id}` : undefined}
+                        onChange={(val) => updateActiveProfile({ model: val })}
+                        onCommit={(val) => commitActiveProfilePatch({ model: val })}
+                        options={providerModelOptions}
                         placeholder={activeProfile.provider === 'fal' ? DEFAULT_FAL_MODEL : getDefaultModelForMode(activeProfile.apiMode ?? DEFAULT_SETTINGS.apiMode)}
-                        className="w-full rounded-xl border border-gray-200/70 bg-white/60 px-3 py-2.5 text-sm text-gray-700 outline-none transition focus:border-blue-300 dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-gray-200 dark:focus:border-blue-500/50"
                       />
-                      {providerModelOptions.length ? (
-                        <datalist id={`models-${activeProfile.id}`}>
-                          {providerModelOptions.map((m) => (
-                            <option key={m} value={m} />
-                          ))}
-                        </datalist>
-                      ) : null}
                       {providerModelOptions.length > 0 && (
                         <div className="mt-2">
                           <div className="mb-1 text-xs text-gray-500 dark:text-gray-400">
