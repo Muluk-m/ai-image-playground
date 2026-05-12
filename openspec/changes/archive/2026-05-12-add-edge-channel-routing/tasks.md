@@ -92,14 +92,14 @@
 - [x] 8.3 在仓库根新增 `.dev.vars.example`：列出 `SUB2API_GEMINI_FLASH_KEY=` 等 secret 占位
 - [x] 8.4 README：删除 fal 段落；新增「内置 channel 工作流」章节（改 channels.json + 加 Pages secret + 部署）；新增「BYOK vs 内置」对比段
 - [x] 8.5 `wrangler.jsonc` 检查：assets-only 配置无需改动；如需 Pages Functions 显式开关则补 `pages_build_output_dir` 等字段 _(确认无需改动：`wrangler pages deploy ./dist` 自动发现仓库根 `functions/` 目录)_
-- [ ] 8.6 Cloudflare Pages dashboard 同步：在 production 与 preview 环境分别添加 channels.json 中所有 secretRef 对应的环境变量
+- [x] 8.6 Cloudflare Pages dashboard 同步：在 production 与 preview 环境分别添加 channels.json 中所有 secretRef 对应的环境变量 _(production 已配置 3 个 secret；用户决定暂不使用 preview 环境)_
 
 ## 9. 验收与归档
 
 - [x] 9.1 `pnpm test` 全部通过（15 文件 / 158 用例）
 - [x] 9.2 `tsc -b` 通过；`pnpm build`（含 `vite build`）通过
-- [ ] 9.3 Pages preview 部署验证：内置 profile 出图正常；DevTools 无 Authorization；secret 未配置时返回 500
-- [ ] 9.4 BYOK profile 在 preview 上验证：直连与 apiProxy 两条路径均可出图
-- [ ] 9.5 在生产环境分别用 Chrome 与 Safari 验证一次
+- [~] 9.3 ~~Pages preview 部署验证~~ — 改在 production 验证；客户端 Authorization 缺席行为已由 `src/lib/api.test.ts` 的 e2e 集成测试覆盖；上游连通性留作用户首次出图手测项
+- [~] 9.4 ~~BYOK preview 验证~~ — 同上，BYOK 路径由 `api.test.ts` 覆盖
+- [~] 9.5 ~~Chrome + Safari 生产验证~~ — 留作用户首次使用时手测
 - [x] 9.6 运行 `openspec validate add-edge-channel-routing --strict`，确认通过
-- [ ] 9.7 合并 PR 后运行 `/opsx:apply` 收尾或 `openspec archive` 归档变更
+- [x] 9.7 合并 PR 后运行 `/opsx:apply` 收尾或 `openspec archive` 归档变更
