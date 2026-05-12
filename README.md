@@ -63,7 +63,7 @@ pnpm install
 pnpm deploy:cf
 ```
 
-`deploy:cf` 等价于 `pnpm gen:channels && tsc -b && vite build && wrangler pages deploy ./dist --project-name=gpt-image-playground`，会构建静态产物并通过 [Wrangler](https://developers.cloudflare.com/workers/wrangler/) 上传到 Cloudflare Pages。`functions/` 目录会被 Pages 自动识别为 Pages Functions。
+`deploy:cf` 等价于 `pnpm gen:channels && tsc -b && vite build && wrangler pages deploy ./dist --project-name=image-playground`，会构建静态产物并通过 [Wrangler](https://developers.cloudflare.com/workers/wrangler/) 上传到 Cloudflare Pages。`functions/` 目录会被 Pages 自动识别为 Pages Functions。
 
 首次执行前需要 `wrangler login` 登录 Cloudflare 账号。
 

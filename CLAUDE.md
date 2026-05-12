@@ -16,7 +16,7 @@ React 19 · Vite 6 · TypeScript 5.8 · Zustand 5 · Vitest 4 · TailwindCSS 3�
 - `npm run build` —— `tsc -b && vite build`。**typecheck 的唯一入口**（没有独立 lint script）。
 - `npm run dev` —— 启 Vite dev server。
 - `npm run mock:api` —— `scripts/mock-image-api.mjs`，本地 mock OpenAI 图像 API。
-- `npm run deploy:cf` —— build + Cloudflare Pages 部署（项目名 `gpt-image-playground`）。
+- `npm run deploy:cf` —— build + Cloudflare Pages 部署（项目名 `image-playground`）。
 
 无 `npm run lint`。任何「lint 通过」断言都靠 `tsc -b`。
 

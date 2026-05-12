@@ -53,13 +53,13 @@
       ]
     },
     {
-      "id": "qlj-openai-gpt-image",
+      "id": "qlj-sub2api-openai-gpt-image",
       "kind": "openai-compat",
-      "label": "qlj · OpenAI gpt-image",
-      "baseUrl": "https://api.openai.com/v1",
+      "label": "qlj · sub2api OpenAI gpt-image",
+      "baseUrl": "https://sub2api.qiliangjia.one/v1",
       "auth": {
         "type": "bearer",
-        "secretRef": "OPENAI_API_KEY"
+        "secretRef": "SUB2API_OPENAI_KEY"
       },
       "models": [
         { "id": "gpt-image-2", "label": "GPT Image 2", "capabilities": ["generate", "edit"] },

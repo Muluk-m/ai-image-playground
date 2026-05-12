@@ -10,5 +10,5 @@ SUB2API_GEMINI_FLASH_KEY=
 # qlj · Gemini 3.1 Flash Image Preview (kind: gemini, auth: query-key)
 SUB2API_GEMINI_FLASH_IMAGE_PREVIEW_KEY=
 
-# qlj · OpenAI gpt-image (kind: openai-compat, auth: bearer)
-OPENAI_API_KEY=
+# qlj · sub2api OpenAI gpt-image (kind: openai-compat, auth: bearer)
+SUB2API_OPENAI_KEY=

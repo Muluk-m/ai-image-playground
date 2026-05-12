@@ -627,7 +627,7 @@ export const useStore = create<AppState>()(
       },
     }),
     {
-      name: 'gpt-image-playground',
+      name: 'image-playground',
       partialize: getPersistedState,
       merge: mergePersistedState,
     },
@@ -1711,7 +1711,7 @@ export async function exportData(options: ExportOptions = { exportConfig: true, 
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `gpt-image-playground-${formatExportFileTime(new Date(exportedAt))}.zip`
+    a.download = `image-playground-${formatExportFileTime(new Date(exportedAt))}.zip`
     a.click()
     URL.revokeObjectURL(url)
     useStore.getState().showToast('数据已导出', 'success')

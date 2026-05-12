@@ -1,5 +1,5 @@
 {
-  "name": "gpt-image-playground",
+  "name": "image-playground",
   "private": true,
   "version": "0.3.5",
   "type": "module",
@@ -9,7 +9,7 @@
     "mock:api": "node scripts/mock-image-api.mjs",
     "gen:channels": "node scripts/build-public-channels.mjs",
     "build": "pnpm gen:channels && tsc -b && vite build",
-    "deploy:cf": "pnpm build && wrangler pages deploy ./dist --project-name=gpt-image-playground",
+    "deploy:cf": "pnpm build && wrangler pages deploy ./dist --project-name=image-playground",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest"
