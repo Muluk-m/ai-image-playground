@@ -12,6 +12,21 @@ export function getProfileModels(
   return profile.models
 }
 
+/**
+ * 返回该 profile 的模型展示项（id + 人类可读 label）。
+ * builtin-edge 从 channel.models 取 label；user-byok 没有 label，用 id 兜底。
+ */
+export function getProfileModelOptions(
+  profile: ClientProfile,
+  publicChannels: PublicChannel[],
+): Array<{ id: string; label: string }> {
+  if (profile.source === 'builtin-edge') {
+    const channel = publicChannels.find((c) => c.id === profile.channelId)
+    return channel ? channel.models.map((m) => ({ id: m.id, label: m.label ?? m.id })) : []
+  }
+  return profile.models.map((id) => ({ id, label: id }))
+}
+
 /** 返回该 profile 当前激活的模型 id；若失效则回退到 models[0]，再失效返回空串。 */
 export function getSelectedModel(
   profile: ClientProfile,

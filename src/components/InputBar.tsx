@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { useStore, submitTask, addImageFromFile, updateTaskInStore, removeMultipleTasks, getCachedImage, ensureImageCached } from '../store'
 import { DEFAULT_PARAMS } from '../types'
 import { clientProfileToApiProfile, getActiveApiProfile, normalizeSettings } from '../lib/apiProfiles'
-import { updateSelectedModel } from '../lib/channels/profileSelectors'
+import { getProfileModelOptions, updateSelectedModel } from '../lib/channels/profileSelectors'
 import { getPublicChannels } from '../lib/channels/publicChannels'
 import { getChangedParams, getOutputImageLimitForSettings, normalizeParamsForSettings } from '../lib/paramCompatibility'
 import { getAtImageQuery, getImageMentionLabel, getPromptIndexFromVisibleIndex, getPromptMentionParts, getSelectedImageMentionLabel, imageMentionMatches, insertImageMentionAtVisibleRange, isCursorInSelectedImageMention, stripImageMentionMarkers } from '../lib/promptImageMentions'
@@ -1451,20 +1451,25 @@ export default function InputBar() {
   // 跨 profile 模型快选：每个 profile 的 (model + 上游拉取缓存) 扁平去重，
   // 切换时同时切换 activeProfileId 与该 profile 的 model。
   const profileModelCache = useStore((s) => s.profileModelCache)
-  const globalModelOptions = useMemo(() => settings.profiles.flatMap((profile) => {
-    const view = clientProfileToApiProfile(profile)
-    const cached = profileModelCache[profile.id] ?? []
-    const preset = view.models ?? []
-    const combined = Array.from(
-      new Set([view.model, ...cached, ...preset].filter((m): m is string => Boolean(m))),
-    )
-    return combined.map((model) => ({
-      profileId: profile.id,
-      profileName: view.name,
-      model,
-      value: `${profile.id}::${model}`,
-    }))
-  }), [settings.profiles, profileModelCache])
+  const globalModelOptions = useMemo(() => {
+    const publicChannels = getPublicChannels()
+    return settings.profiles.flatMap((profile) => {
+      const view = clientProfileToApiProfile(profile)
+      const presetOptions = getProfileModelOptions(profile, publicChannels)
+      const knownIds = new Set(presetOptions.map((o) => o.id))
+      const cachedExtras = (profileModelCache[profile.id] ?? [])
+        .filter((id) => !knownIds.has(id))
+        .map((id) => ({ id, label: id }))
+      const allOptions = [...presetOptions, ...cachedExtras]
+      return allOptions.map((option) => ({
+        profileId: profile.id,
+        profileName: view.name,
+        model: option.id,
+        modelLabel: option.label,
+        value: `${profile.id}::${option.id}`,
+      }))
+    })
+  }, [settings.profiles, profileModelCache])
   const currentModelValue = `${activeProfile.id}::${activeView.model}`
   const handleGlobalModelPick = (rawValue: string) => {
     const option = globalModelOptions.find((o) => o.value === rawValue)
@@ -1486,7 +1491,7 @@ export default function InputBar() {
             value={currentModelValue}
             onChange={(val) => handleGlobalModelPick(String(val))}
             options={globalModelOptions.map((o) => ({
-              label: `${o.model} · ${o.profileName}`,
+              label: `${o.modelLabel} · ${o.profileName}`,
               value: o.value,
             }))}
             className={selectClass}
