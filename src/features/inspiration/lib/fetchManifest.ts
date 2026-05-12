@@ -1,8 +1,12 @@
 import type { InspirationManifest } from '../types'
 import { getApiErrorMessage } from '../../../lib/imageApiShared'
 
-export const DEFAULT_REMOTE_MANIFEST_URL =
-  'https://raw.githubusercontent.com/qiliangjia/qlj-image-playground-inspirations/main/manifest.json'
+/**
+ * 默认走同源静态资源 `./inspiration-manifest.json`（部署时由 Vite 把 public/ 目录复制到 dist 根）。
+ * 跟 CF Pages 一起发版；改 manifest 不需要改源码，重新部署 dist 即可。
+ * 若团队希望脱离部署单独维护清单，可在 .env 设 `VITE_INSPIRATION_MANIFEST_URL` 指向 CDN / 公开 repo raw / gist。
+ */
+export const DEFAULT_REMOTE_MANIFEST_URL = './inspiration-manifest.json'
 
 /** 解析构建期注入的 URL；空字符串视为「禁用远程」。 */
 export function resolveRemoteManifestUrl(): string | null {
