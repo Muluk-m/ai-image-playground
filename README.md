@@ -39,6 +39,15 @@
 - 所有记录与图片只存浏览器 IndexedDB（SHA-256 去重压缩），不经任何第三方服务器
 - 一键导出 / 导入 ZIP 备份；内置 channel 自动从导出包中剥离
 
+### 💡 灵感库（只读 prompt 案例）
+- 顶栏 ✨ 图标进入「灵感库」全屏面板，浏览精选 prompt + 缩略图 + 推荐模型
+- 点开任意示例可看完整 prompt（自动检测 JSON 结构并美化），「使用此提示词」一键填入主输入框（含 size / quality / n / 推荐模型）
+- 当前输入框非空时会弹确认避免覆盖未提交内容
+- 数据源：内置 JSON（bundle 兜底）+ 同源 `public/inspiration-manifest.json`（跟 CF Pages 一起部署，按 `id` 去重远程胜出），5 分钟 localStorage 缓存
+- 改 prompt 不需要改源码：编辑 `public/inspiration-manifest.json` + `pnpm deploy:cf` 即可
+- 可通过 `VITE_INSPIRATION_MANIFEST_URL` 改成外部 CDN/gist；设为空字符串可禁用远程
+- URL `#inspirations` 直接进入面板，方便发链接给同事
+
 ---
 
 ## 🆚 BYOK vs 内置 Channel
@@ -84,6 +93,7 @@ pnpm deploy:cf
 |---|---|
 | `VITE_DEFAULT_API_URL` | OpenAI 兼容服务的默认 baseUrl（缺省 `https://api.openai.com/v1`） |
 | `VITE_API_PROXY_AVAILABLE` | 部署是否提供 `/api-proxy/` 同源代理（`true` / `false`，仅影响 BYOK 路径） |
+| `VITE_INSPIRATION_MANIFEST_URL` | 灵感库远程 manifest URL；缺省走同源 `./inspiration-manifest.json`；空串禁用远程 |
 
 ---
 

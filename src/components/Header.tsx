@@ -5,6 +5,8 @@ import { useTooltip } from '../hooks/useTooltip'
 import { dismissAllTooltips } from '../lib/tooltipDismiss'
 import ViewportTooltip from './ViewportTooltip'
 import HelpModal from './HelpModal'
+import { useInspirationStore } from '../features/inspiration/store'
+import { SparkleIcon } from './icons'
 
 type BeforeInstallPromptEvent = Event & {
   prompt: () => Promise<void>
@@ -24,7 +26,10 @@ export default function Header() {
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null)
   const [isPwaInstalled, setIsPwaInstalled] = useState(isInstalledPwa)
 
+  const openInspiration = useInspirationStore((s) => s.openPanel)
+
   const installTooltip = useTooltip()
+  const inspirationTooltip = useTooltip()
   const helpTooltip = useTooltip()
   const settingsTooltip = useTooltip()
 
@@ -153,6 +158,24 @@ export default function Header() {
                 </ViewportTooltip>
               </div>
             )}
+            <div
+              className="relative"
+              {...inspirationTooltip.handlers}
+            >
+              <button
+                onClick={() => {
+                  dismissAllTooltips()
+                  openInspiration()
+                }}
+                className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-900 transition-colors"
+                aria-label="灵感库"
+              >
+                <SparkleIcon className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+              </button>
+              <ViewportTooltip visible={inspirationTooltip.visible} className="whitespace-nowrap">
+                灵感库
+              </ViewportTooltip>
+            </div>
             <div
               className="relative"
               {...helpTooltip.handlers}
