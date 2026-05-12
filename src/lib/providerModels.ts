@@ -10,7 +10,9 @@ import type { ApiProvider } from '../types'
  * - profile.models（用户在编辑界面勾选的子集）决定主界面 InputBar 上的快选范围。
  */
 export const PROVIDER_MODEL_OPTIONS: Record<string, string[]> = {
-  openai: ['gpt-image-2', 'gpt-image-1', 'dall-e-3'],
+  // OpenAI 当前主推：gpt-image-2（含日期 snapshot）。DALL-E 2/3 已于 2026-05-12 退役，
+  // gpt-image-1 为旧版，本清单不再展示；用户仍可在输入框手输自定义模型 ID。
+  openai: ['gpt-image-2', 'gpt-image-2-2026-04-21'],
   fal: ['openai/gpt-image-2'],
   gemini: [
     'gemini-3.1-flash-image',

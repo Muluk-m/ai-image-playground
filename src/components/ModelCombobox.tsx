@@ -53,6 +53,8 @@ export default function ModelCombobox({
       <input
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        onFocus={() => { if (options.length > 0 && !disabled) setIsOpen(true) }}
+        onClick={() => { if (options.length > 0 && !disabled) setIsOpen(true) }}
         onBlur={(e) => onCommit?.(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === 'ArrowDown' && options.length > 0) {
