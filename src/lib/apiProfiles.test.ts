@@ -10,6 +10,8 @@ import {
   createDefaultOpenAIProfile,
   createDefaultFalProfile,
   createDefaultGeminiProfile,
+  isBuiltinProfile,
+  BUILTIN_PROFILE_ID_PREFIX,
   findEquivalentApiProfile,
   getApiProviderLabel,
   importCustomProviderDefinitionFromJson,
@@ -624,5 +626,18 @@ describe('switchApiProfileProvider gemini branch', () => {
     const back = switchApiProfileProvider(gem, 'openai')
     expect(back.baseUrl).toBe('https://x.example/v1')
     expect(back.model).toBe('gpt-image-2')
+  })
+})
+
+describe('isBuiltinProfile', () => {
+  it('returns true for ids starting with builtin-', () => {
+    expect(isBuiltinProfile({ id: 'builtin-gemini-flash' })).toBe(true)
+    expect(BUILTIN_PROFILE_ID_PREFIX).toBe('builtin-')
+  })
+  it('returns false for user profile ids', () => {
+    expect(isBuiltinProfile({ id: 'default-openai' })).toBe(false)
+    expect(isBuiltinProfile({ id: 'gemini-abc123' })).toBe(false)
+    expect(isBuiltinProfile(null)).toBe(false)
+    expect(isBuiltinProfile(undefined)).toBe(false)
   })
 })
