@@ -23,11 +23,6 @@ const openaiChannel: PublicChannel = {
 
 const publicChannels: PublicChannel[] = [geminiChannel, openaiChannel]
 
-function byok(id: string, kind: ClientProfile['source'] extends 'user-byok' ? never : never, ..._args: never[]): never {
-  throw _args as never
-}
-void byok
-
 function makeByok(opts: { id: string; kind: 'openai-compat' | 'gemini'; models: string[] }): ClientProfile {
   return {
     id: opts.id,

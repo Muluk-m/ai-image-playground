@@ -1,4 +1,5 @@
 import type { InspirationManifest } from '../types'
+import { getApiErrorMessage } from '../../../lib/imageApiShared'
 
 export const DEFAULT_REMOTE_MANIFEST_URL =
   'https://raw.githubusercontent.com/qiliangjia/qlj-image-playground-inspirations/main/manifest.json'
@@ -22,7 +23,7 @@ export function resolveRemoteManifestUrl(): string | null {
 export async function fetchRemoteManifest(url: string, signal?: AbortSignal): Promise<InspirationManifest> {
   const response = await fetch(url, { method: 'GET', signal })
   if (!response.ok) {
-    throw new Error(`远程灵感清单加载失败 (HTTP ${response.status})`)
+    throw new Error(`远程灵感清单加载失败：${await getApiErrorMessage(response)}`)
   }
   let payload: unknown
   try {
