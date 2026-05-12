@@ -12,6 +12,7 @@ import type {
   CustomProviderSubmitMapping,
   CustomProviderTemplate,
 } from '../types'
+import { getBuiltinProfiles } from './builtinProfiles'
 import { readRuntimeEnv } from './runtimeEnv'
 
 const DEFAULT_BASE_URL = readRuntimeEnv(import.meta.env.VITE_DEFAULT_API_URL) || 'https://api.openai.com/v1'
@@ -465,7 +466,11 @@ function validateImportedProfileRecord(input: unknown) {
   }
 }
 
-export function normalizeSettings(input: Partial<AppSettings> | unknown): AppSettings {
+export interface NormalizeSettingsOptions {
+  builtinProfiles?: ApiProfile[]
+}
+
+export function normalizeSettings(input: Partial<AppSettings> | unknown, options: NormalizeSettingsOptions = {}): AppSettings {
   const record = input && typeof input === 'object' ? input as Record<string, unknown> : {}
   const customProviders = normalizeCustomProviderDefinitions(record.customProviders)
   const customProviderIds = new Set(customProviders.map((provider) => provider.id))
@@ -479,13 +484,20 @@ export function normalizeSettings(input: Partial<AppSettings> | unknown): AppSet
     apiProxy: typeof record.apiProxy === 'boolean' ? record.apiProxy : DEFAULT_OPENAI_API_PROXY,
     responseFormatB64Json: record.responseFormatB64Json === true ? true : undefined,
   })
-  const profiles = Array.isArray(record.profiles) && record.profiles.length
+  const rawProfiles = Array.isArray(record.profiles) && record.profiles.length
     ? record.profiles.map((profile) => normalizeApiProfile(profile, undefined, customProviderIds))
     : [legacyProfile]
-  const activeProfileId = typeof record.activeProfileId === 'string' && profiles.some((p) => p.id === record.activeProfileId)
+
+  const builtins = options.builtinProfiles ?? getBuiltinProfiles()
+  const builtinIds = new Set(builtins.map((p) => p.id))
+  const userProfiles = rawProfiles.filter((p) => !builtinIds.has(p.id))
+  const profiles = builtins.length ? [...builtins, ...userProfiles] : userProfiles
+  const profilesWithFallback = profiles.length ? profiles : [legacyProfile]
+
+  const activeProfileId = typeof record.activeProfileId === 'string' && profilesWithFallback.some((p) => p.id === record.activeProfileId)
     ? record.activeProfileId
-    : profiles[0].id
-  const active = profiles.find((p) => p.id === activeProfileId) ?? profiles[0]
+    : profilesWithFallback[0].id
+  const active = profilesWithFallback.find((p) => p.id === activeProfileId) ?? profilesWithFallback[0]
 
   return {
     baseUrl: active.baseUrl,
@@ -502,7 +514,7 @@ export function normalizeSettings(input: Partial<AppSettings> | unknown): AppSet
     reuseTaskApiProfileTemporarily: typeof record.reuseTaskApiProfileTemporarily === 'boolean' ? record.reuseTaskApiProfileTemporarily : false,
     alwaysShowRetryButton: typeof record.alwaysShowRetryButton === 'boolean' ? record.alwaysShowRetryButton : false,
     enterSubmit: typeof record.enterSubmit === 'boolean' ? record.enterSubmit : false,
-    profiles,
+    profiles: profilesWithFallback,
     activeProfileId,
   }
 }
@@ -779,4 +791,4 @@ export const DEFAULT_SETTINGS: AppSettings = normalizeSettings({
   reuseTaskApiProfileTemporarily: false,
   alwaysShowRetryButton: false,
   enterSubmit: false,
-})
+}, { builtinProfiles: [] })

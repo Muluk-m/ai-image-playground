@@ -641,3 +641,27 @@ describe('isBuiltinProfile', () => {
     expect(isBuiltinProfile(undefined)).toBe(false)
   })
 })
+
+describe('normalizeSettings + builtin profiles', () => {
+  it('injects builtin profiles to the top of profiles list', () => {
+    const builtins = [
+      createDefaultGeminiProfile({ id: 'builtin-gemini-flash', name: 'Flash', apiKey: 'k' }),
+    ]
+    const settings = normalizeSettings({ profiles: [], activeProfileId: '' }, { builtinProfiles: builtins })
+    expect(settings.profiles[0].id).toBe('builtin-gemini-flash')
+  })
+
+  it('does not duplicate builtin profile when called twice', () => {
+    const builtins = [
+      createDefaultGeminiProfile({ id: 'builtin-gemini-flash', name: 'Flash', apiKey: 'k' }),
+    ]
+    const once = normalizeSettings({ profiles: [], activeProfileId: '' }, { builtinProfiles: builtins })
+    const twice = normalizeSettings(once, { builtinProfiles: builtins })
+    expect(twice.profiles.filter((p) => p.id === 'builtin-gemini-flash')).toHaveLength(1)
+  })
+
+  it('defaults to empty builtins when option omitted (no env)', () => {
+    const settings = normalizeSettings({ profiles: [], activeProfileId: '' })
+    expect(settings.profiles.filter((p) => p.id.startsWith('builtin-'))).toEqual([])
+  })
+})

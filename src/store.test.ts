@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { DEFAULT_PARAMS } from './types'
-import { createDefaultFalProfile, createDefaultOpenAIProfile, DEFAULT_SETTINGS, normalizeSettings } from './lib/apiProfiles'
+import { createDefaultFalProfile, createDefaultGeminiProfile, createDefaultOpenAIProfile, DEFAULT_SETTINGS, normalizeSettings } from './lib/apiProfiles'
 import type { StoredImage, StoredImageThumbnail, TaskRecord } from './types'
 import { getSelectedImageMentionLabel } from './lib/promptImageMentions'
 vi.mock('./lib/db', () => {
@@ -326,5 +326,32 @@ describe('reused task API profile', () => {
       cancelText: '放弃提交',
     }))
     expect(state.showSettings).toBe(false)
+  })
+})
+
+describe('getPersistedState builtin profile stripping', () => {
+  beforeEach(() => {
+    useStore.setState({
+      settings: { ...DEFAULT_SETTINGS },
+      prompt: '',
+      inputImages: [],
+      dismissedCodexCliPrompts: [],
+    })
+  })
+
+  it('removes builtin profiles before persisting', () => {
+    const builtin = createDefaultGeminiProfile({ id: 'builtin-gemini-flash', name: 'Flash', apiKey: 'k' })
+    const userProfile = createDefaultOpenAIProfile({ id: 'user-1', apiKey: 'user-key' })
+    useStore.setState({
+      settings: normalizeSettings(
+        { profiles: [userProfile], activeProfileId: userProfile.id },
+        { builtinProfiles: [builtin] },
+      ),
+    })
+
+    const persisted = getPersistedState(useStore.getState())
+
+    expect(persisted.settings.profiles.find((p) => p.id === 'builtin-gemini-flash')).toBeUndefined()
+    expect(persisted.settings.profiles.find((p) => p.id === 'user-1')).toBeDefined()
   })
 })

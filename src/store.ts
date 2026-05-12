@@ -10,7 +10,7 @@ import type {
   ExportData,
 } from './types'
 import { DEFAULT_PARAMS } from './types'
-import { DEFAULT_SETTINGS, getActiveApiProfile, getCustomProviderDefinition, mergeImportedSettings, normalizeSettings, validateApiProfile } from './lib/apiProfiles'
+import { DEFAULT_SETTINGS, getActiveApiProfile, getCustomProviderDefinition, isBuiltinProfile, mergeImportedSettings, normalizeSettings, validateApiProfile } from './lib/apiProfiles'
 import { dismissAllTooltips } from './lib/tooltipDismiss'
 import { remapImageMentionsForOrder, replaceImageMentionsForApi } from './lib/promptImageMentions'
 import {
@@ -307,7 +307,11 @@ function maybeOpenSupportPrompt(previousTasks: TaskRecord[], nextTasks: TaskReco
 }
 
 export function getPersistedState(state: AppState) {
-  const settings = normalizeSettings(state.settings)
+  const normalized = normalizeSettings(state.settings)
+  const settings: AppSettings = {
+    ...normalized,
+    profiles: normalized.profiles.filter((p) => !isBuiltinProfile(p)),
+  }
   return {
     settings,
     params: state.params,

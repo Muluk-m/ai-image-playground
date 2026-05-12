@@ -42,4 +42,10 @@ function readEnvJson(): string | undefined {
   return typeof value === 'string' ? value : undefined
 }
 
-export const BUILTIN_PROFILES: ApiProfile[] = parseBuiltinProfiles(readEnvJson())
+let cached: ApiProfile[] | null = null
+
+export function getBuiltinProfiles(): ApiProfile[] {
+  if (cached) return cached
+  cached = parseBuiltinProfiles(readEnvJson())
+  return cached
+}
