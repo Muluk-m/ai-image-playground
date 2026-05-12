@@ -55,7 +55,7 @@
     {
       "id": "qlj-sub2api-openai-gpt-image",
       "kind": "openai-compat",
-      "label": "qlj · sub2api OpenAI gpt-image",
+      "label": "qlj · OpenAI gpt-image",
       "baseUrl": "https://sub2api.qiliangjia.one/v1",
       "auth": {
         "type": "bearer",
