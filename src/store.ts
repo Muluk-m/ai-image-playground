@@ -332,6 +332,10 @@ export function getPersistedState(state: AppState) {
     supportPromptDismissed: state.supportPromptDismissed,
     supportPromptOpen: state.supportPromptOpen,
     supportPromptSkippedForImportedData: state.supportPromptSkippedForImportedData,
+    // 内置 profile 的 cache 不进 localStorage（避免敏感模型清单泄漏到导出）
+    profileModelCache: Object.fromEntries(
+      Object.entries(state.profileModelCache ?? {}).filter(([id]) => !id.startsWith('builtin-')),
+    ),
   }
 }
 
@@ -410,6 +414,9 @@ interface AppState {
   setLightboxImageId: (id: string | null, list?: string[]) => void
   showSettings: boolean
   setShowSettings: (v: boolean) => void
+  /** 按 profile.id 缓存上游 /models 拉取结果，仅用户 profile 持久化 */
+  profileModelCache: Record<string, string[]>
+  setProfileModelCache: (profileId: string, models: string[]) => void
   supportPromptOpen: boolean
   supportPromptDismissed: boolean
   supportPromptSkippedForImportedData: boolean
@@ -625,6 +632,10 @@ export const useStore = create<AppState>()(
         set({ showSettings })
       },
       supportPromptOpen: false,
+      profileModelCache: {},
+      setProfileModelCache: (profileId, models) => set((st) => ({
+        profileModelCache: { ...st.profileModelCache, [profileId]: models },
+      })),
       supportPromptDismissed: false,
       supportPromptSkippedForImportedData: false,
       setSupportPromptOpen: (supportPromptOpen) => set({ supportPromptOpen }),

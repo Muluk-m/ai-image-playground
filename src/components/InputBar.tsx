@@ -1461,11 +1461,14 @@ export default function InputBar() {
     )
   }
 
-  // 跨 profile 模型快选：展示所有 profile 中配置过的模型（profile.model + profile.models 去重），
+  // 跨 profile 模型快选：每个 profile 的 (model + 上游拉取缓存) 扁平去重，
   // 切换时同时切换 activeProfileId 与该 profile 的 model。
+  const profileModelCache = useStore((s) => s.profileModelCache)
   const globalModelOptions = settings.profiles.flatMap((profile) => {
+    const cached = profileModelCache[profile.id] ?? []
+    const preset = profile.models ?? []
     const combined = Array.from(
-      new Set([profile.model, ...(profile.models ?? [])].filter((m): m is string => Boolean(m))),
+      new Set([profile.model, ...cached, ...preset].filter((m): m is string => Boolean(m))),
     )
     return combined.map((model) => ({
       profileId: profile.id,

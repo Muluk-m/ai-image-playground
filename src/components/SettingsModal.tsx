@@ -25,6 +25,7 @@ import {
 } from '../lib/apiProfiles'
 import { copyTextToClipboard, getClipboardFailureMessage } from '../lib/clipboard'
 import { getProviderModelOptions } from '../lib/providerModels'
+import { fetchProfileModels } from '../lib/fetchProfileModels'
 import type { ApiProfile, AppSettings, CustomProviderDefinition } from '../types'
 import { useCloseOnEscape } from '../hooks/useCloseOnEscape'
 import { usePreventBackgroundScroll } from '../hooks/usePreventBackgroundScroll'
@@ -279,6 +280,9 @@ export default function SettingsModal() {
   const setReusedTaskApiProfile = useStore((s) => s.setReusedTaskApiProfile)
   const setConfirmDialog = useStore((s) => s.setConfirmDialog)
   const showToast = useStore((s) => s.showToast)
+  const profileModelCache = useStore((s) => s.profileModelCache)
+  const setProfileModelCache = useStore((s) => s.setProfileModelCache)
+  const [refreshingModels, setRefreshingModels] = useState(false)
   const importInputRef = useRef<HTMLInputElement>(null)
   const profileMenuRef = useRef<HTMLDivElement>(null)
   const profileMenuTriggerRef = useRef<HTMLButtonElement>(null)
@@ -1554,51 +1558,49 @@ export default function SettingsModal() {
                   模型 ID
                 </span>
                 {(() => {
-                  const providerModelOptions = getProviderModelOptions(activeProfile.provider)
-                  const checkedModels = activeProfile.models ?? []
-                  const toggleQuickModel = (model: string, checked: boolean) => {
-                    const next = checked
-                      ? Array.from(new Set([...checkedModels, model]))
-                      : checkedModels.filter((m) => m !== model)
-                    commitActiveProfilePatch({ models: next.length ? next : undefined })
+                  const fallbackOptions = getProviderModelOptions(activeProfile.provider)
+                  const cached = profileModelCache[activeProfile.id] ?? []
+                  const comboOptions = Array.from(new Set([...cached, ...fallbackOptions]))
+                  const handleRefresh = async () => {
+                    if (refreshingModels) return
+                    setRefreshingModels(true)
+                    try {
+                      const models = await fetchProfileModels(activeProfile)
+                      setProfileModelCache(activeProfile.id, models)
+                      showToast(`已拉取 ${models.length} 个模型`, 'success')
+                    } catch (err) {
+                      showToast(err instanceof Error ? err.message : '拉取模型失败', 'error')
+                    } finally {
+                      setRefreshingModels(false)
+                    }
                   }
                   return (
                     <>
-                      <ModelCombobox
-                        value={activeProfile.model}
-                        onChange={(val) => updateActiveProfile({ model: val })}
-                        onCommit={(val) => commitActiveProfilePatch({ model: val })}
-                        options={providerModelOptions}
-                        placeholder={activeProfile.provider === 'fal' ? DEFAULT_FAL_MODEL : getDefaultModelForMode(activeProfile.apiMode ?? DEFAULT_SETTINGS.apiMode)}
-                      />
-                      {providerModelOptions.length > 0 && (
-                        <div className="mt-2">
-                          <div className="mb-1 text-xs text-gray-500 dark:text-gray-400">
-                            主界面快选模型（勾选多个则在主界面参数栏显示模型下拉，留空则隐藏）
-                          </div>
-                          <div className="flex flex-wrap gap-2">
-                            {providerModelOptions.map((model) => {
-                              const checked = checkedModels.includes(model)
-                              return (
-                                <label
-                                  key={model}
-                                  className={`inline-flex items-center gap-1.5 rounded-lg border px-2 py-1 text-xs cursor-pointer transition ${
-                                    checked
-                                      ? 'border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-500/40 dark:bg-blue-500/10 dark:text-blue-300'
-                                      : 'border-gray-200/70 bg-white/60 text-gray-600 hover:border-gray-300 dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-gray-300'
-                                  }`}
-                                >
-                                  <input
-                                    type="checkbox"
-                                    checked={checked}
-                                    onChange={(e) => toggleQuickModel(model, e.target.checked)}
-                                    className="h-3 w-3"
-                                  />
-                                  <span className="font-mono">{model}</span>
-                                </label>
-                              )
-                            })}
-                          </div>
+                      <div className="flex items-center gap-2">
+                        <div className="flex-1">
+                          <ModelCombobox
+                            value={activeProfile.model}
+                            onChange={(val) => updateActiveProfile({ model: val })}
+                            onCommit={(val) => commitActiveProfilePatch({ model: val })}
+                            options={comboOptions}
+                            placeholder={activeProfile.provider === 'fal' ? DEFAULT_FAL_MODEL : getDefaultModelForMode(activeProfile.apiMode ?? DEFAULT_SETTINGS.apiMode)}
+                          />
+                        </div>
+                        {activeProfile.provider !== 'fal' && (
+                          <button
+                            type="button"
+                            onClick={handleRefresh}
+                            disabled={refreshingModels}
+                            className="shrink-0 rounded-xl border border-gray-200/70 bg-white/60 px-3 py-2.5 text-xs text-gray-600 transition hover:border-blue-300 hover:text-blue-600 disabled:opacity-50 disabled:cursor-not-allowed dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-gray-300"
+                            title="从上游 API /models 拉取模型列表"
+                          >
+                            {refreshingModels ? '拉取中…' : '拉取模型'}
+                          </button>
+                        )}
+                      </div>
+                      {cached.length > 0 && (
+                        <div className="mt-1 text-xs text-gray-500 dark:text-gray-500">
+                          上游接口共 {cached.length} 个模型
                         </div>
                       )}
                     </>
