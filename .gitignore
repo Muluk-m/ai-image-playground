@@ -3,3 +3,6 @@ dist/
 dev-proxy.config.json
 .wrangler/
 out.png
+.claude/
+src/generated/
+.dev.vars

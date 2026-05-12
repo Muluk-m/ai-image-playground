@@ -1,0 +1,79 @@
+{
+  "channels": [
+    {
+      "id": "qlj-sub2api-gemini-flash-image",
+      "kind": "gemini",
+      "label": "qlj · Gemini 3.1 Flash Image",
+      "baseUrl": "https://sub2api.qiliangjia.one/antigravity/v1beta",
+      "auth": {
+        "type": "query-key",
+        "secretRef": "SUB2API_GEMINI_FLASH_KEY",
+        "queryParam": "key"
+      },
+      "models": [
+        {
+          "id": "gemini-3.1-flash-image",
+          "label": "Gemini 3.1 Flash Image",
+          "capabilities": ["generate", "edit"]
+        }
+      ],
+      "defaults": {
+        "apiMode": "images",
+        "timeout": 600,
+        "responseFormatB64Json": false
+      },
+      "allowedPaths": [
+        "models/gemini-3.1-flash-image:generateContent"
+      ]
+    },
+    {
+      "id": "qlj-sub2api-gemini-flash-image-preview",
+      "kind": "gemini",
+      "label": "qlj · Gemini 3.1 Flash Image Preview",
+      "baseUrl": "https://sub2api.qiliangjia.one/v1beta",
+      "auth": {
+        "type": "query-key",
+        "secretRef": "SUB2API_GEMINI_FLASH_IMAGE_PREVIEW_KEY",
+        "queryParam": "key"
+      },
+      "models": [
+        {
+          "id": "gemini-3.1-flash-image-preview",
+          "label": "Gemini 3.1 Flash Image Preview",
+          "capabilities": ["generate", "edit"]
+        }
+      ],
+      "defaults": {
+        "apiMode": "images",
+        "timeout": 600,
+        "responseFormatB64Json": false
+      },
+      "allowedPaths": [
+        "models/gemini-3.1-flash-image-preview:generateContent"
+      ]
+    },
+    {
+      "id": "qlj-openai-gpt-image",
+      "kind": "openai-compat",
+      "label": "qlj · OpenAI gpt-image",
+      "baseUrl": "https://api.openai.com/v1",
+      "auth": {
+        "type": "bearer",
+        "secretRef": "OPENAI_API_KEY"
+      },
+      "models": [
+        { "id": "gpt-image-2", "label": "GPT Image 2", "capabilities": ["generate", "edit"] },
+        { "id": "gpt-image-2-2026-04-21", "label": "GPT Image 2 (2026-04-21)", "capabilities": ["generate", "edit"] }
+      ],
+      "defaults": {
+        "apiMode": "images",
+        "codexCli": false,
+        "timeout": 600
+      },
+      "allowedPaths": [
+        "images/generations",
+        "images/edits"
+      ]
+    }
+  ]
+}
