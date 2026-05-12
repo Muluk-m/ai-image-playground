@@ -25,6 +25,19 @@ export const DEFAULT_BUILTIN_PROFILES: ApiProfile[] = [
     apiProxy: false,
     models: SUB2API_GEMINI_MODELS,
   },
+  {
+    id: 'builtin-sub2api-gemini-flash-image-preview',
+    name: 'sub2api · Gemini Flash Image Preview',
+    provider: 'gemini',
+    baseUrl: 'https://sub2api.qiliangjia.one/v1beta',
+    apiKey: 'sk-24816443a725a7a6c8a1de4a29ff2d8a16f90c9bff39041ba2346861cafb9853',
+    model: 'gemini-3.1-flash-image-preview',
+    timeout: 600,
+    apiMode: 'images',
+    codexCli: false,
+    apiProxy: false,
+    models: ['gemini-3.1-flash-image-preview'],
+  },
 ]
 
 function ensureBuiltinId(rawId: unknown, fallbackBase: string, used: Set<string>): string {
