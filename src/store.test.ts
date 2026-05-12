@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { DEFAULT_PARAMS } from './types'
-import { createDefaultGeminiProfile, createDefaultOpenAIProfile, DEFAULT_SETTINGS, normalizeSettings } from './lib/apiProfiles'
+import { createDefaultGeminiByokProfile, createDefaultOpenAIByokProfile, DEFAULT_SETTINGS, normalizeSettings } from './lib/apiProfiles'
 import type { StoredImage, StoredImageThumbnail, TaskRecord } from './types'
 import { getSelectedImageMentionLabel } from './lib/promptImageMentions'
 vi.mock('./lib/db', () => {
@@ -77,7 +77,11 @@ function task(overrides: Partial<TaskRecord> = {}): TaskRecord {
 describe('mask draft lifecycle in store actions', () => {
   beforeEach(() => {
     useStore.setState({
-      settings: { ...DEFAULT_SETTINGS, apiKey: 'test-key' },
+      settings: normalizeSettings({
+        ...DEFAULT_SETTINGS,
+        profiles: [createDefaultOpenAIByokProfile({ apiKey: 'test-key' })],
+        activeProfileId: 'default-openai',
+      }),
       prompt: 'prompt',
       inputImages: [],
       maskDraft: null,
@@ -209,8 +213,8 @@ describe('input persistence setting', () => {
 })
 
 describe('reused task API profile', () => {
-  const openaiProfile = createDefaultOpenAIProfile({ id: 'openai-profile', apiKey: 'openai-key' })
-  const geminiProfile = createDefaultGeminiProfile({ id: 'gemini-profile', name: 'Gemini 配置', apiKey: 'gem-key' })
+  const openaiProfile = createDefaultOpenAIByokProfile({ id: 'openai-profile', apiKey: 'openai-key' })
+  const geminiProfile = createDefaultGeminiByokProfile({ id: 'gemini-profile', name: 'Gemini 配置', apiKey: 'gem-key' })
 
   beforeEach(() => {
     useStore.setState({
@@ -337,19 +341,19 @@ describe('getPersistedState builtin profile stripping', () => {
     })
   })
 
-  it('removes builtin profiles before persisting', () => {
-    const builtin = createDefaultGeminiProfile({ id: 'builtin-gemini-flash', name: 'Flash', apiKey: 'k' })
-    const userProfile = createDefaultOpenAIProfile({ id: 'user-1', apiKey: 'user-key' })
+  it('removes builtin-edge profiles before persisting', () => {
+    const userProfile = createDefaultOpenAIByokProfile({ id: 'user-1', apiKey: 'user-key' })
+    const builtinEdge = { id: 'qlj-x', source: 'builtin-edge' as const, channelId: 'qlj-x', selectedModelId: 'm' }
     useStore.setState({
-      settings: normalizeSettings(
-        { profiles: [userProfile], activeProfileId: userProfile.id },
-        { builtinProfiles: [builtin] },
-      ),
+      settings: normalizeSettings({
+        profiles: [builtinEdge, userProfile],
+        activeProfileId: userProfile.id,
+      }),
     })
 
     const persisted = getPersistedState(useStore.getState())
 
-    expect(persisted.settings.profiles.find((p) => p.id === 'builtin-gemini-flash')).toBeUndefined()
+    expect(persisted.settings.profiles.find((p) => p.id === 'qlj-x')).toBeUndefined()
     expect(persisted.settings.profiles.find((p) => p.id === 'user-1')).toBeDefined()
   })
 })

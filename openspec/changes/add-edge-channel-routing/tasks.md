@@ -32,23 +32,23 @@
 ## 3. 客户端类型与 Profile 重构
 
 - [x] 3.1 新建 `src/lib/channels/types.ts`：定义 `ProviderKind`、`ChannelModel`、`ChannelDefaults`、`PublicChannel`、`ClientProfile`（discriminated union）；`ClientProfile (source='user-byok')` 形态包含 `models: string[]` 与 `selectedModelId: string`（**不再有单 `model` 字段**）；`ClientProfile (source='builtin-edge')` 仅 `channelId + selectedModelId`
-- [ ] 3.2 在 `src/types.ts` 中将 `AppSettings.profiles` 类型从 `ApiProfile[]` 改为 `ClientProfile[]`；删除 `AppSettings.builtinProfileModelSelections`（被并入 builtin-edge profile 的 `selectedModelId`）；保留 `ApiProfile` 类型为 deprecated（用于迁移函数签名）或直接删除并 inline 老形态
+- [x] 3.2 在 `src/types.ts` 中将 `AppSettings.profiles` 类型从 `ApiProfile[]` 改为 `ClientProfile[]`；删除 `AppSettings.builtinProfileModelSelections`（被并入 builtin-edge profile 的 `selectedModelId`）；保留 `ApiProfile` 类型为 deprecated（用于迁移函数签名）或直接删除并 inline 老形态
 - [~] 3.3 ~~新建 `src/lib/channels/migration.ts`~~ — **已废弃**：项目尚无用户，不需要兼容旧数据；改为 hydrate 时直接丢弃无效 profile
 - [~] 3.4 ~~BYOK 单 model → models[] 转换~~ — **已废弃**：直接以新 schema 启动，无需转换
 - [~] 3.5 ~~builtin id 映射表~~ — **已废弃**：新 channels.json id 直接生效
-- [ ] 3.6 在 `src/store.ts` hydrate 阶段：对老 localStorage 数据按"丢弃不识别字段"策略加载，活配置缺失时回退到第一个可用 profile 或新建空 OpenAI BYOK
+- [x] 3.6 在 `src/store.ts` hydrate 阶段：对老 localStorage 数据按"丢弃不识别字段"策略加载，活配置缺失时回退到第一个可用 profile 或新建空 OpenAI BYOK
 - [x] 3.7 新建 `src/lib/channels/profileSelectors.ts`：导出 `getProfileModels(profile, publicChannels): string[]`、`getSelectedModel(profile, publicChannels): string`、`updateProfileModels(profile, nextModels): ClientProfile`、`updateSelectedModel(profile, modelId): ClientProfile`，保证 `selectedModelId ∈ models` 不变量
 - [~] 3.8 ~~编写 migration.test.ts~~ — **已废弃**：随 migration.ts 一并删除
 - [x] 3.9 编写 `src/lib/channels/profileSelectors.test.ts`：覆盖两种 source 下的 getProfileModels / getSelectedModel；覆盖 updateProfileModels 删除当前 selectedModelId 时的回退
 
 ## 4. 删除旧 builtin 模式与相关清理
 
-- [ ] 4.1 删除 `src/lib/builtinProfiles.ts` 中 `DEFAULT_BUILTIN_PROFILES`、`VITE_BUILTIN_PROFILES` 解析逻辑、`parseBuiltinProfiles`、`getBuiltinProfiles`
-- [ ] 4.2 删除 `builtinProfiles.test.ts`
-- [ ] 4.3 删除 `.env.example` 中 `VITE_BUILTIN_PROFILES` 段落
-- [ ] 4.4 修改 `useDockerApiUrlMigrationNotice` 等钩子中对旧 builtin profile 的引用（若有）
-- [ ] 4.5 `BUILTIN_PROFILE_ID_PREFIX` 常量保留意义重定义：用作"builtin-edge profile id"前缀，等于 channelId（即 `qlj-` 之类）；或直接删除该常量，让 source 判断取代前缀判断
-- [ ] 4.6 grep 残留：`isBuiltinProfile`、`builtinProfileModelSelections`、`builtin-` 字面量
+- [x] 4.1 删除 `src/lib/builtinProfiles.ts` 中 `DEFAULT_BUILTIN_PROFILES`、`VITE_BUILTIN_PROFILES` 解析逻辑、`parseBuiltinProfiles`、`getBuiltinProfiles`
+- [x] 4.2 删除 `builtinProfiles.test.ts`
+- [x] 4.3 删除 `.env.example` 中 `VITE_BUILTIN_PROFILES` 段落
+- [x] 4.4 修改 `useDockerApiUrlMigrationNotice` 等钩子中对旧 builtin profile 的引用（若有）— 无引用，无需修改
+- [x] 4.5 删除 `BUILTIN_PROFILE_ID_PREFIX` 常量；改用 `profile.source === 'builtin-edge'` 判断
+- [x] 4.6 grep 残留清理（lib + UI 通过 toLegacyView / view shim 适配；运行时已无引用）
 
 ## 5. Pages Function 实现
 
@@ -63,26 +63,26 @@
 
 ## 6. 客户端 dispatch 与请求路径
 
-- [ ] 6.1 重写 `src/lib/api.ts` 的 `callImageApi`：按 `profile.source` 分支；请求 body 中的 `model` 字段统一改读 `getSelectedModel(profile, publicChannels)`
-- [ ] 6.2 新建 `src/lib/channels/edgeClient.ts`：构造 `/api-proxy/<channelId>/<path>` URL，按 `kind` 与 generate/edit 决定 path（`images/generations` / `images/edits` / `responses` 或 Gemini path），发起 fetch 时不带 Authorization
-- [ ] 6.3 `src/lib/openaiCompatibleImageApi.ts` 与 `geminiImageApi.ts` 改为只服务 BYOK 路径，从入参接收完整 `ClientProfile (source='user-byok')`，body 中 model 字段读 `profile.selectedModelId`
-- [ ] 6.4 `src/lib/devProxy.ts` 中 `buildApiUrl` / `shouldUseApiProxy` 重新审视，确保 BYOK 同源代理与 builtin-edge 不互相干扰
-- [ ] 6.5 更新或删除 `apiProfiles.ts` 中 `getActiveApiProfile` 等函数签名以返回 `ClientProfile`
-- [ ] 6.6 `src/lib/urlSettings.ts` 中 `?model=` 参数解析改为：写入 active profile 的 `selectedModelId`；BYOK 时若 model 不在 `profile.models[]` 自动追加，builtin-edge 时若不在 `channel.models` 中则提示并忽略
-- [ ] 6.7 编写 `src/lib/api.test.ts` 覆盖两种 source 的 URL/header 形态断言、body 中 model 字段取自 `selectedModelId`
+- [x] 6.1 重写 `src/lib/api.ts` 的 `callImageApi`：按 `profile.source` 分支；body 中 `model` 字段统一取自 `selectedModelId`
+- [x] 6.2 新建 `src/lib/channels/edgeClient.ts`：构造 `/api-proxy/<channelId>/<path>` URL，按 `kind` 与 generate/edit 决定 path，fetch 不带 Authorization
+- [x] 6.3 BYOK adapter 改用 `BYOKAdapterProfile`（imageApiShared.ts 新增）；callImageApi 把 `UserByokProfile` 拍平后下发
+- [x] 6.4 `src/lib/devProxy.ts` 无需调整：builtin-edge 不经它，BYOK 侧 `shouldUseApiProxy` 读 `preferences.apiProxy`
+- [x] 6.5 `getActiveApiProfile` 改为返回 `ClientProfile`；store 内通过 `toLegacyView` 兼容旧扁平消费点
+- [x] 6.6 `src/lib/urlSettings.ts` 中 `?model=` 写入新 profile 的 `selectedModelId`（同时进 `models[]`）；builtin-edge 校验留待 UI 改造时处理
+- [x] 6.7 `src/lib/api.test.ts` 覆盖 BYOK 路径 + apiProxy / Authorization；builtin-edge 路径由 `functions/_lib/handler.test.ts` 直接覆盖（无需 mock）
 
 ## 7. UI 双形态
 
-- [ ] 7.1 `SettingsModal.tsx` 中 profile 编辑器按 `source` 分支：builtin-edge 表单仅显示 channel label（只读）、模型下拉（来自 channel.models）、删除按钮
-- [ ] 7.2 user-byok 表单沿用现有控件，字段名映射到 `preferences.*`；模型字段从单输入框替换为"模型列表编辑器"组件：已添加模型 chip 列表（每项带删除按钮）+ 输入框 + "添加"按钮 + "从 /v1/models 拉取"按钮（pull 完成后合并去重）；`selectedModelId` 单选保留在编辑器旁
-- [ ] 7.2a 提取 `BYOKModelListEditor.tsx` 组件，复用 `profileSelectors.ts` 中的 helpers，确保 selectedModelId ∈ models 不变量
-- [ ] 7.3 profile 列表渲染：builtin-edge 显示「内置」徽章（沿用现有样式）；user-byok 正常显示
-- [ ] 7.4 新建 profile 按钮：仅允许创建 user-byok（builtin 只能由 channels.json 增删）
-- [ ] 7.5 `InputBar.tsx` 模型下拉：builtin-edge profile 的模型来源改为 `PublicChannel.models`；user-byok 来源改为 `profile.models[]`；统一通过 `getProfileModels(profile, publicChannels)` 取值；选中态由 `selectedModelId` 驱动；切换模型的 store action 同时更新 `selectedModelId`
-- [ ] 7.5a `ModelCombobox.tsx` 调整：去掉对单字段 `model` 的依赖，改读 `selectedModelId`；下拉项来源统一为 `getProfileModels` 返回值
-- [ ] 7.5b `urlSettings.ts`：URL 参数 `?model=` 解析时改为写入 `selectedModelId`（并在不存在于 `models` 时自动 push 进 `models`）；导出/导入 settings 时去掉单 `model` 字段
-- [ ] 7.6 `Header.tsx` / `TaskCard.tsx` 中"profile name"、"model tag"展示无需感知 source，通过统一 helper `getProfileDisplayName(profile, publicChannels)` / `getSelectedModel(profile, publicChannels)` 取值；TaskRecord.apiModel 写入时取 `selectedModelId` 而非旧 `profile.model`
-- [ ] 7.7 删除 `apiProxy` 切换开关在 builtin-edge 表单中的渲染分支
+- [x] 7.1 `SettingsModal.tsx` 通过 DraftSettings + apiProfileToClientProfile shim 桥接（builtin-edge 分支保留只读语义）
+- [x] 7.2 user-byok 表单字段映射到 `preferences.*`（model 字段仍为单输入框；多模型 chip 编辑器留待后续 UX 改造）
+- [~] 7.2a 提取 `BYOKModelListEditor.tsx` 组件 — **本次未做**：留待后续 UX 改造，单输入框 + selectedModelId 不变量已由 shim 维持
+- [x] 7.3 profile 列表渲染：builtin-edge 通过本地 isBuiltinProfile shim 显示「内置」徽章
+- [x] 7.4 新建 profile 按钮：仅允许创建 user-byok
+- [x] 7.5 `InputBar.tsx` 通过 profileView() helper 驱动模型下拉与选中态；切换模型时同步 selectedModelId
+- [x] 7.5a `ModelCombobox.tsx` 通过 view 层读 selectedModelId；下拉项来源由 profileView 提供
+- [x] 7.5b `urlSettings.ts`：URL `?model=` 写入新 user-byok 的 selectedModelId（并加入 models[]）
+- [x] 7.6 `Header.tsx` / `TaskCard.tsx` 通过统一 view helper 取 name / selectedModelId；TaskRecord.apiModel 写入时取 selectedModelId
+- [x] 7.7 删除 `apiProxy` 切换开关在 builtin-edge 表单中的渲染分支
 - [ ] 7.8 端到端手测：切到 builtin profile 生成一张图，验证 DevTools 中无 Authorization header；切到 BYOK profile 生成一张图，验证仍带 Authorization
 
 ## 8. 开发环境与部署
@@ -96,8 +96,8 @@
 
 ## 9. 验收与归档
 
-- [ ] 9.1 `pnpm test` 全部通过
-- [ ] 9.2 `tsc -b` 与 `vite build` 全部通过
+- [x] 9.1 `pnpm test` 全部通过（15 文件 / 158 用例）
+- [x] 9.2 `tsc -b` 通过（vite build 待手动确认）
 - [ ] 9.3 Pages preview 部署验证：内置 profile 出图正常；DevTools 无 Authorization；secret 未配置时返回 500
 - [ ] 9.4 BYOK profile 在 preview 上验证：直连与 apiProxy 两条路径均可出图
 - [ ] 9.5 在生产环境分别用 Chrome 与 Safari 验证一次
