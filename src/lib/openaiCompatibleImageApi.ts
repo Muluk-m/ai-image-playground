@@ -1,9 +1,10 @@
-import type { ApiProfile, CustomProviderDefinition, CustomProviderPollMapping, CustomProviderResultMapping, CustomProviderSubmitMapping, ImageApiResponse, ResponsesApiResponse, TaskParams } from '../types'
+import type { CustomProviderDefinition, CustomProviderPollMapping, CustomProviderResultMapping, CustomProviderSubmitMapping, ImageApiResponse, ResponsesApiResponse, TaskParams } from '../types'
 import { dataUrlToBlob, imageDataUrlToPngBlob, maskDataUrlToPngBlob } from './canvasImage'
 import { buildApiUrl, readClientDevProxyConfig, shouldUseApiProxy } from './devProxy'
 import {
   assertImageInputPayloadSize,
   assertMaskEditFileSize,
+  type BYOKAdapterProfile,
   type CallApiOptions,
   type CallApiResult,
   fetchImageUrlAsDataUrl,
@@ -76,7 +77,7 @@ function normalizeImageApiPayload(value: unknown): ImageApiResponse {
   return { data: [] }
 }
 
-function createRequestHeaders(profile: ApiProfile): Record<string, string> {
+function createRequestHeaders(profile: BYOKAdapterProfile): Record<string, string> {
   return {
     Authorization: `Bearer ${profile.apiKey}`,
   }
@@ -85,7 +86,7 @@ function createRequestHeaders(profile: ApiProfile): Record<string, string> {
 function createResponsesImageTool(
   params: TaskParams,
   isEdit: boolean,
-  profile: ApiProfile,
+  profile: BYOKAdapterProfile,
   maskDataUrl?: string,
 ): Record<string, unknown> {
   const tool: Record<string, unknown> = {
@@ -216,7 +217,7 @@ async function parseImagesApiResponse(payload: ImageApiResponse, mime: string, s
   }
 }
 
-export async function callOpenAICompatibleImageApi(opts: CallApiOptions, profile: ApiProfile, customProvider?: CustomProviderDefinition | null): Promise<CallApiResult> {
+export async function callOpenAICompatibleImageApi(opts: CallApiOptions, profile: BYOKAdapterProfile, customProvider?: CustomProviderDefinition | null): Promise<CallApiResult> {
   if (customProvider) {
     return callCustomHttpImageApi(opts, profile, customProvider)
   }
@@ -226,7 +227,7 @@ export async function callOpenAICompatibleImageApi(opts: CallApiOptions, profile
     : callImagesApi(opts, profile)
 }
 
-async function callImagesApi(opts: CallApiOptions, profile: ApiProfile, customProvider?: CustomProviderDefinition | null): Promise<CallApiResult> {
+async function callImagesApi(opts: CallApiOptions, profile: BYOKAdapterProfile, customProvider?: CustomProviderDefinition | null): Promise<CallApiResult> {
   const n = opts.params.n > 0 ? opts.params.n : 1
   if (profile.codexCli && n > 1) {
     return callImagesApiConcurrent(opts, profile, n, customProvider)
@@ -235,7 +236,7 @@ async function callImagesApi(opts: CallApiOptions, profile: ApiProfile, customPr
   return callImagesApiSingle(opts, profile, customProvider)
 }
 
-async function callImagesApiConcurrent(opts: CallApiOptions, profile: ApiProfile, n: number, customProvider?: CustomProviderDefinition | null): Promise<CallApiResult> {
+async function callImagesApiConcurrent(opts: CallApiOptions, profile: BYOKAdapterProfile, n: number, customProvider?: CustomProviderDefinition | null): Promise<CallApiResult> {
   const singleOpts = { ...opts, params: { ...opts.params, n: 1, quality: 'auto' as const } }
   const results = await Promise.allSettled(
     Array.from({ length: n }).map(() => callImagesApiSingle(singleOpts, profile, customProvider)),
@@ -267,7 +268,7 @@ async function callImagesApiConcurrent(opts: CallApiOptions, profile: ApiProfile
   return { images, actualParams, actualParamsList, revisedPrompts, ...(rawImageUrls.length ? { rawImageUrls } : {}) }
 }
 
-async function callImagesApiSingle(opts: CallApiOptions, profile: ApiProfile, customProvider?: CustomProviderDefinition | null): Promise<CallApiResult> {
+async function callImagesApiSingle(opts: CallApiOptions, profile: BYOKAdapterProfile, customProvider?: CustomProviderDefinition | null): Promise<CallApiResult> {
   const { prompt: originalPrompt, params, inputImageDataUrls } = opts
   const prompt = profile.codexCli
     ? `${PROMPT_REWRITE_GUARD_PREFIX}\n${originalPrompt}`
@@ -441,7 +442,7 @@ function resolveTemplateValue(value: unknown, context: Record<string, unknown>):
   return value
 }
 
-function createCustomProviderContext(opts: CallApiOptions, profile: ApiProfile) {
+function createCustomProviderContext(opts: CallApiOptions, profile: BYOKAdapterProfile) {
   return {
     profile,
     prompt: opts.prompt,
@@ -541,7 +542,7 @@ async function extractCustomImages(payload: unknown, result: CustomProviderResul
   return { images, ...(rawImageUrls.length ? { rawImageUrls } : {}) }
 }
 
-async function submitCustomRequest(mapping: CustomProviderSubmitMapping, opts: CallApiOptions, profile: ApiProfile, controller: AbortController): Promise<unknown> {
+async function submitCustomRequest(mapping: CustomProviderSubmitMapping, opts: CallApiOptions, profile: BYOKAdapterProfile, controller: AbortController): Promise<unknown> {
   const proxyConfig = readClientDevProxyConfig()
   const requestHeaders = createRequestHeaders(profile)
   const context = createCustomProviderContext(opts, profile)
@@ -585,7 +586,7 @@ async function submitCustomRequest(mapping: CustomProviderSubmitMapping, opts: C
 }
 
 async function pollCustomTaskResult(
-  profile: ApiProfile,
+  profile: BYOKAdapterProfile,
   poll: CustomProviderPollMapping,
   taskId: string,
   mime: string,
@@ -642,7 +643,7 @@ async function pollCustomTaskResult(
 }
 
 export async function getCustomQueuedImageResult(
-  profile: ApiProfile,
+  profile: BYOKAdapterProfile,
   customProvider: CustomProviderDefinition,
   taskId: string,
   params: TaskParams,
@@ -652,7 +653,7 @@ export async function getCustomQueuedImageResult(
   return pollCustomTaskResult(profile, customProvider.poll, taskId, mime)
 }
 
-async function callCustomHttpImageApi(opts: CallApiOptions, profile: ApiProfile, customProvider: CustomProviderDefinition): Promise<CallApiResult> {
+async function callCustomHttpImageApi(opts: CallApiOptions, profile: BYOKAdapterProfile, customProvider: CustomProviderDefinition): Promise<CallApiResult> {
   const { params, inputImageDataUrls } = opts
   const isEdit = inputImageDataUrls.length > 0
   const mime = MIME_MAP[params.output_format] || 'image/png'
@@ -682,7 +683,7 @@ async function callCustomHttpImageApi(opts: CallApiOptions, profile: ApiProfile,
   }
 }
 
-async function callResponsesImageApi(opts: CallApiOptions, profile: ApiProfile): Promise<CallApiResult> {
+async function callResponsesImageApi(opts: CallApiOptions, profile: BYOKAdapterProfile): Promise<CallApiResult> {
   const n = opts.params.n > 0 ? opts.params.n : 1
   if (n === 1) {
     return callResponsesImageApiSingle(opts, profile)
@@ -717,7 +718,7 @@ async function callResponsesImageApi(opts: CallApiOptions, profile: ApiProfile):
   return { images, actualParams, actualParamsList, revisedPrompts, ...(rawImageUrls.length ? { rawImageUrls } : {}) }
 }
 
-async function callResponsesImageApiSingle(opts: CallApiOptions, profile: ApiProfile): Promise<CallApiResult> {
+async function callResponsesImageApiSingle(opts: CallApiOptions, profile: BYOKAdapterProfile): Promise<CallApiResult> {
   const { prompt, params, inputImageDataUrls } = opts
   const mime = MIME_MAP[params.output_format] || 'image/png'
   const proxyConfig = readClientDevProxyConfig()

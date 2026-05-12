@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { createDefaultGeminiProfile, createDefaultOpenAIProfile } from './apiProfiles'
 import { fetchProfileModels } from './fetchProfileModels'
 
 describe('fetchProfileModels', () => {
@@ -12,22 +11,19 @@ describe('fetchProfileModels', () => {
   })
 
   it('rejects when baseUrl is empty', async () => {
-    const profile = createDefaultOpenAIProfile({ apiKey: 'k', baseUrl: '   ' })
-    await expect(fetchProfileModels(profile)).rejects.toThrow(/API URL/)
+    await expect(fetchProfileModels({ baseUrl: '   ', apiKey: 'k', kind: 'openai-compat' })).rejects.toThrow(/API URL/)
   })
 
   it('rejects when apiKey is empty', async () => {
-    const profile = createDefaultOpenAIProfile({ apiKey: '', baseUrl: 'https://x.example/v1' })
-    await expect(fetchProfileModels(profile)).rejects.toThrow(/API Key/)
+    await expect(fetchProfileModels({ baseUrl: 'https://x.example/v1', apiKey: '', kind: 'openai-compat' })).rejects.toThrow(/API Key/)
   })
 
-  it('GETs {baseUrl}/models with Bearer auth for openai provider', async () => {
+  it('GETs {baseUrl}/models with Bearer auth for openai-compat kind', async () => {
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
       data: [{ id: 'gpt-image-2' }, { id: 'gpt-image-2-2026-04-21' }],
     }), { status: 200 }))
 
-    const profile = createDefaultOpenAIProfile({ apiKey: 'sk-x', baseUrl: 'https://x.example/v1' })
-    const result = await fetchProfileModels(profile)
+    const result = await fetchProfileModels({ baseUrl: 'https://x.example/v1', apiKey: 'sk-x', kind: 'openai-compat' })
 
     expect(fetchMock).toHaveBeenCalledTimes(1)
     const [url, init] = fetchMock.mock.calls[0]
@@ -37,7 +33,7 @@ describe('fetchProfileModels', () => {
     expect(result).toEqual(['gpt-image-2', 'gpt-image-2-2026-04-21'])
   })
 
-  it('GETs with x-api-key header for gemini provider, strips models/ prefix', async () => {
+  it('GETs with x-api-key header for gemini kind, strips models/ prefix', async () => {
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
       models: [
         { name: 'models/gemini-3.1-flash-image' },
@@ -45,8 +41,7 @@ describe('fetchProfileModels', () => {
       ],
     }), { status: 200 }))
 
-    const profile = createDefaultGeminiProfile({ apiKey: 'gk', baseUrl: 'https://gen.example/v1beta' })
-    const result = await fetchProfileModels(profile)
+    const result = await fetchProfileModels({ baseUrl: 'https://gen.example/v1beta', apiKey: 'gk', kind: 'gemini' })
 
     expect(fetchMock).toHaveBeenCalledTimes(1)
     const [url, init] = fetchMock.mock.calls[0]
@@ -61,13 +56,11 @@ describe('fetchProfileModels', () => {
       error: { message: 'Unauthorized', code: 401 },
     }), { status: 401 }))
 
-    const profile = createDefaultOpenAIProfile({ apiKey: 'bad', baseUrl: 'https://x.example/v1' })
-    await expect(fetchProfileModels(profile)).rejects.toThrow(/Unauthorized/)
+    await expect(fetchProfileModels({ baseUrl: 'https://x.example/v1', apiKey: 'bad', kind: 'openai-compat' })).rejects.toThrow(/Unauthorized/)
   })
 
   it('throws when response contains no recognizable model list', async () => {
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ ok: true }), { status: 200 }))
-    const profile = createDefaultOpenAIProfile({ apiKey: 'k', baseUrl: 'https://x.example/v1' })
-    await expect(fetchProfileModels(profile)).rejects.toThrow(/未找到/)
+    await expect(fetchProfileModels({ baseUrl: 'https://x.example/v1', apiKey: 'k', kind: 'openai-compat' })).rejects.toThrow(/未找到/)
   })
 })

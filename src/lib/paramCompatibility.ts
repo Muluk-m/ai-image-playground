@@ -21,7 +21,7 @@ export function normalizeParamsForSettings(
     n: Math.min(outputImageLimit, Math.max(1, params.n || DEFAULT_PARAMS.n)),
   }
 
-  if (activeProfile.provider === 'openai' && activeProfile.codexCli) {
+  if (activeProfile.source === 'user-byok' && activeProfile.kind === 'openai-compat' && activeProfile.preferences.codexCli) {
     nextParams.quality = DEFAULT_PARAMS.quality
   }
 

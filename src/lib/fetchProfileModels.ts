@@ -1,28 +1,34 @@
-import type { ApiProfile } from '../types'
+import type { ProviderKind } from './channels/types'
 import { getApiErrorMessage } from './imageApiShared'
+
+export interface FetchProfileModelsInput {
+  baseUrl: string
+  apiKey: string
+  kind: ProviderKind
+}
 
 /**
  * 从上游 API 拉取该 profile 支持的模型 ID 列表。
  *
  * 协议适配：
- * - openai / 自定义 OpenAI 兼容：GET {baseUrl}/models with Authorization: Bearer
+ * - openai-compat：GET {baseUrl}/models with Authorization: Bearer
  *   响应形如 { data: [{ id: '...' }] } 或 { data: ['...'] }
  * - gemini：GET {baseUrl}/models with x-api-key
  *   响应形如 { models: [{ name: 'models/gemini-...' }] }，需从 name 提取末段
  *
  * 失败抛 Error；成功返回去重排序后的 model id 列表。
  */
-export async function fetchProfileModels(profile: ApiProfile, signal?: AbortSignal): Promise<string[]> {
-  const baseUrl = profile.baseUrl.trim().replace(/\/+$/, '')
+export async function fetchProfileModels(input: FetchProfileModelsInput, signal?: AbortSignal): Promise<string[]> {
+  const baseUrl = input.baseUrl.trim().replace(/\/+$/, '')
   if (!baseUrl) throw new Error('请先填写 API URL')
-  if (!profile.apiKey.trim()) throw new Error('请先填写 API Key')
+  if (!input.apiKey.trim()) throw new Error('请先填写 API Key')
 
   const url = `${baseUrl}/models`
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-  if (profile.provider === 'gemini') {
-    headers['x-api-key'] = profile.apiKey
+  if (input.kind === 'gemini') {
+    headers['x-api-key'] = input.apiKey
   } else {
-    headers.Authorization = `Bearer ${profile.apiKey}`
+    headers.Authorization = `Bearer ${input.apiKey}`
   }
 
   const response = await fetch(url, { method: 'GET', headers, signal })
@@ -41,7 +47,6 @@ export async function fetchProfileModels(profile: ApiProfile, signal?: AbortSign
 function extractModelIds(payload: unknown): string[] {
   if (!payload || typeof payload !== 'object') return []
 
-  // OpenAI 兼容: { data: [{ id }] }
   const data = (payload as Record<string, unknown>).data
   if (Array.isArray(data)) {
     const ids = data
@@ -56,7 +61,6 @@ function extractModelIds(payload: unknown): string[] {
     if (ids.length) return uniqueSorted(ids)
   }
 
-  // Gemini: { models: [{ name: 'models/gemini-...' }] }
   const models = (payload as Record<string, unknown>).models
   if (Array.isArray(models)) {
     const ids = models

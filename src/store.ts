@@ -9,7 +9,58 @@ import type {
   ExportData,
 } from './types'
 import { DEFAULT_PARAMS } from './types'
-import { apiProfileToClientProfile, clientProfileToApiProfile, DEFAULT_SETTINGS, getActiveApiProfile, getCustomProviderDefinition, isBuiltinProfile, mergeImportedSettings, normalizeSettings, validateApiProfile, type ApiProfile } from './lib/apiProfiles'
+import { DEFAULT_SETTINGS, getActiveApiProfile, getCustomProviderDefinition, mergeImportedSettings, normalizeSettings, validateClientProfile } from './lib/apiProfiles'
+import { getPublicChannel } from './lib/channels/publicChannels'
+import type { ClientProfile } from './lib/channels/types'
+
+// 过渡期 helper：store 内多处仍按旧 ApiProfile 形态（name/provider/model/baseUrl/...）读
+// profile 用于"任务复用"等场景。把 ClientProfile 合成出旧 shape 让 store 不必逐行重写。
+// 下一步 store.ts UX 改造时此 helper 删除。
+interface LegacyProfileView {
+  id: string
+  name: string
+  provider: string
+  baseUrl: string
+  apiKey: string
+  model: string
+  timeout: number
+  apiMode: 'images' | 'responses'
+  codexCli: boolean
+  apiProxy: boolean
+  responseFormatB64Json?: boolean
+}
+
+function toLegacyView(p: ClientProfile): LegacyProfileView {
+  if (p.source === 'builtin-edge') {
+    const channel = getPublicChannel(p.channelId)
+    return {
+      id: p.id,
+      name: channel?.label ?? p.channelId,
+      provider: channel?.kind === 'gemini' ? 'gemini' : 'openai',
+      baseUrl: `/api-proxy/${p.channelId}`,
+      apiKey: '',
+      model: p.selectedModelId,
+      timeout: channel?.defaults.timeout ?? 600,
+      apiMode: channel?.defaults.apiMode ?? 'images',
+      codexCli: channel?.defaults.codexCli ?? false,
+      apiProxy: false,
+      responseFormatB64Json: channel?.defaults.responseFormatB64Json,
+    }
+  }
+  return {
+    id: p.id,
+    name: p.name,
+    provider: p.kind === 'gemini' ? 'gemini' : 'openai',
+    baseUrl: p.baseUrl,
+    apiKey: p.apiKey,
+    model: p.selectedModelId,
+    timeout: p.preferences.timeout,
+    apiMode: p.preferences.apiMode,
+    codexCli: p.preferences.codexCli,
+    apiProxy: p.preferences.apiProxy,
+    responseFormatB64Json: p.preferences.responseFormatB64Json,
+  }
+}
 import { dismissAllTooltips } from './lib/tooltipDismiss'
 import { remapImageMentionsForOrder, replaceImageMentionsForApi } from './lib/promptImageMentions'
 import {
@@ -682,8 +733,8 @@ function genId(): string {
 }
 
 export function getCodexCliPromptKey(settings: AppSettings): string {
-  const profile = getActiveApiProfile(settings)
-  return `${profile.baseUrl}\n${profile.apiKey}`
+  const view = toLegacyView(getActiveApiProfile(settings))
+  return `${view.baseUrl}\n${view.apiKey}`
 }
 
 function isOpenAITask(_task: TaskRecord) {
@@ -758,7 +809,7 @@ export function showCodexCliPrompt(force = false, reason = '接口返回的提�
   const state = useStore.getState()
   const settings = state.settings
   const promptKey = getCodexCliPromptKey(settings)
-  const activeForCheck = getActiveApiProfile(settings)
+  const activeForCheck = toLegacyView(getActiveApiProfile(settings))
   if (!force && (activeForCheck.codexCli || state.dismissedCodexCliPrompts.includes(promptKey))) return
 
   state.setConfirmDialog({
@@ -774,59 +825,61 @@ export function showCodexCliPrompt(force = false, reason = '接口返回的提�
   })
 }
 
-function getCustomRecoveryProfile(settings: AppSettings, task: TaskRecord) {
+function getCustomRecoveryProfile(settings: AppSettings, task: TaskRecord): ClientProfile | null {
   const provider = task.apiProvider
   if (!provider || provider === 'openai') return null
   const taskProfile = getTaskApiProfile(settings, task)
-  if (taskProfile?.provider === provider) return taskProfile
+  if (taskProfile && toLegacyView(taskProfile).provider === provider) return taskProfile
 
   const normalized = normalizeSettings(settings)
   const active = getActiveApiProfile(normalized)
-  if (active.provider === provider) return active
-  const candidates = normalized.profiles.map((p) => clientProfileToApiProfile(p))
-  return candidates.find((profile) =>
-    profile.provider === provider &&
-    (profile.name === task.apiProfileName || profile.model === task.apiModel),
-  ) ?? candidates.find((profile) => profile.provider === provider) ?? null
+  if (toLegacyView(active).provider === provider) return active
+  const profilesWithView = normalized.profiles.map((p) => ({ p, v: toLegacyView(p) }))
+  return (
+    profilesWithView.find(({ v }) =>
+      v.provider === provider &&
+      (v.name === task.apiProfileName || v.model === task.apiModel),
+    )?.p
+    ?? profilesWithView.find(({ v }) => v.provider === provider)?.p
+    ?? null
+  )
 }
 
-export function getTaskApiProfile(settings: AppSettings, task: TaskRecord): ApiProfile | null {
+export function getTaskApiProfile(settings: AppSettings, task: TaskRecord): ClientProfile | null {
   const normalized = normalizeSettings(settings)
   const provider = task.apiProvider
-  const allApi = normalized.profiles.map((p) => clientProfileToApiProfile(p))
+  const profilesWithView = normalized.profiles.map((p) => ({ p, v: toLegacyView(p) }))
 
   if (task.apiProfileId) {
-    const byId = allApi.find((profile) => profile.id === task.apiProfileId)
-    if (byId && (!provider || byId.provider === provider)) return byId
+    const byId = profilesWithView.find(({ p }) => p.id === task.apiProfileId)
+    if (byId && (!provider || byId.v.provider === provider)) return byId.p
     return null
   }
 
   if (!provider) return null
 
-  const candidates = allApi.filter((profile) => profile.provider === provider)
+  const candidates = profilesWithView.filter(({ v }) => v.provider === provider)
   if (!candidates.length) return null
 
   if (task.apiProfileName) {
-    const byName = candidates.find((profile) => profile.name === task.apiProfileName)
-    if (byName) return byName
+    const byName = candidates.find(({ v }) => v.name === task.apiProfileName)
+    if (byName) return byName.p
   }
 
   if (task.apiModel) {
-    const modelMatches = candidates.filter((profile) => profile.model === task.apiModel)
-    if (modelMatches.length === 1) return modelMatches[0]
+    const modelMatches = candidates.filter(({ v }) => v.model === task.apiModel)
+    if (modelMatches.length === 1) return modelMatches[0].p
   }
 
-  return candidates.length === 1 ? candidates[0] : null
+  return candidates.length === 1 ? candidates[0].p : null
 }
 
-function createSettingsForApiProfile(settings: AppSettings, profile: ApiProfile): AppSettings {
+function createSettingsForApiProfile(settings: AppSettings, profile: ClientProfile): AppSettings {
   const normalized = normalizeSettings(settings)
-  // 把 profile（ApiProfile shape）写回为 ClientProfile：替换同 id 项，未找到则追加。
-  const asClient = apiProfileToClientProfile(profile)
   const found = normalized.profiles.some((item) => item.id === profile.id)
   const nextProfiles = found
-    ? normalized.profiles.map((item) => item.id === profile.id ? asClient : item)
-    : [...normalized.profiles, asClient]
+    ? normalized.profiles.map((item) => item.id === profile.id ? profile : item)
+    : [...normalized.profiles, profile]
   return normalizeSettings({
     ...normalized,
     profiles: nextProfiles,
@@ -834,10 +887,9 @@ function createSettingsForApiProfile(settings: AppSettings, profile: ApiProfile)
   })
 }
 
-function getReusedTaskApiProfile(settings: AppSettings, profileId: string | null): ApiProfile | null {
+function getReusedTaskApiProfile(settings: AppSettings, profileId: string | null): ClientProfile | null {
   if (!profileId) return null
-  const found = normalizeSettings(settings).profiles.find((profile) => profile.id === profileId)
-  return found ? clientProfileToApiProfile(found) : null
+  return normalizeSettings(settings).profiles.find((profile) => profile.id === profileId) ?? null
 }
 
 function getTaskApiProfileName(task: TaskRecord) {
@@ -863,7 +915,8 @@ function getApiRequestNetworkErrorHint(err: unknown, task: TaskRecord, settings:
 
   const profile = getTaskApiProfile(settings, task)
   const elapsedSeconds = Math.max(0, (Date.now() - task.createdAt) / 1000)
-  const usesApiProxy = profile?.apiProxy ?? getActiveApiProfile(settings).apiProxy
+  const profileView = profile ? toLegacyView(profile) : null
+  const usesApiProxy = profileView?.apiProxy ?? toLegacyView(getActiveApiProfile(settings)).apiProxy
 
   if (elapsedSeconds <= 15) {
     if (usesApiProxy) {
@@ -1041,7 +1094,7 @@ export async function submitTask(options: { allowFullMask?: boolean; useCurrentA
       } else {
         setConfirmDialog({
           title: '找不到 API 配置',
-      message: `找不到复用任务所使用的 API 配置「${reusedTaskApiProfileName || '未知配置'}」，要使用当前的 API 配置「${activeProfile.name}」提交任务吗？`,
+      message: `找不到复用任务所使用的 API 配置「${reusedTaskApiProfileName || '未知配置'}」，要使用当前的 API 配置「${toLegacyView(activeProfile).name}」提交任务吗？`,
       confirmText: '使用当前配置提交',
       cancelText: '放弃提交',
       action: () => {
@@ -1056,8 +1109,9 @@ export async function submitTask(options: { allowFullMask?: boolean; useCurrentA
     }
   }
 
-  if (validateApiProfile(activeProfile)) {
-    showToast(`请先完善请求 API 配置：${validateApiProfile(activeProfile)}`, 'error')
+  const validationError = validateClientProfile(activeProfile)
+  if (validationError) {
+    showToast(`请先完善请求 API 配置：${validationError}`, 'error')
     useStore.getState().setShowSettings(true)
     return
   }
@@ -1111,14 +1165,15 @@ export async function submitTask(options: { allowFullMask?: boolean; useCurrentA
   }
 
   const taskId = genId()
+  const submitView = toLegacyView(activeProfile)
   const task: TaskRecord = {
     id: taskId,
     prompt: prompt.trim(),
     params: normalizedParams,
-    apiProvider: activeProfile.provider,
+    apiProvider: submitView.provider,
     apiProfileId: activeProfile.id,
-    apiProfileName: activeProfile.name,
-    apiModel: activeProfile.model,
+    apiProfileName: submitView.name,
+    apiModel: submitView.model,
     inputImageIds: orderedInputImages.map((i) => i.id),
     maskTargetImageId,
     maskImageId,
@@ -1160,14 +1215,15 @@ async function executeTask(taskId: string) {
     return
   }
   const activeProfile = taskProfile ?? getActiveApiProfile(settings)
+  const activeView = toLegacyView(activeProfile)
   const requestSettings = createSettingsForApiProfile(settings, activeProfile)
-  const taskProvider = task.apiProvider ?? activeProfile.provider
+  const taskProvider = task.apiProvider ?? activeView.provider
   let customTaskInfo: { taskId: string } | null = task.customTaskId
     ? { taskId: task.customTaskId }
     : null
 
   if (!isAsyncCustomProviderTask(requestSettings, taskProvider, task.inputImageIds.length > 0)) {
-    scheduleOpenAIWatchdog(taskId, activeProfile.timeout)
+    scheduleOpenAIWatchdog(taskId, activeView.timeout)
   }
 
   try {
@@ -1228,7 +1284,7 @@ async function executeTask(taskId: string) {
       (revisedPrompt) => revisedPrompt?.trim() && revisedPrompt.trim() !== task.prompt.trim(),
     )
     const hasRevisedPromptValue = shouldStoreRevisedPrompts && result.revisedPrompts?.some((revisedPrompt) => revisedPrompt?.trim())
-    if (taskProvider === 'openai' && !activeProfile.codexCli) {
+    if (taskProvider === 'openai' && !activeView.codexCli) {
       if (promptWasRevised) {
         showCodexCliPrompt()
       } else if (!hasRevisedPromptValue) {
@@ -1316,16 +1372,17 @@ export function updateTaskInStore(taskId: string, patch: Partial<TaskRecord>) {
 export async function retryTask(task: TaskRecord) {
   const { settings } = useStore.getState()
   const activeProfile = getActiveApiProfile(settings)
+  const activeView = toLegacyView(activeProfile)
   const normalizedParams = normalizeParamsForSettings(task.params, settings, { hasInputImages: task.inputImageIds.length > 0 })
   const taskId = genId()
   const newTask: TaskRecord = {
     id: taskId,
     prompt: task.prompt,
     params: normalizedParams,
-    apiProvider: activeProfile.provider,
+    apiProvider: activeView.provider,
     apiProfileId: activeProfile.id,
-    apiProfileName: activeProfile.name,
-    apiModel: activeProfile.model,
+    apiProfileName: activeView.name,
+    apiModel: activeView.model,
     inputImageIds: [...task.inputImageIds],
     maskTargetImageId: task.maskTargetImageId ?? null,
     maskImageId: task.maskImageId ?? null,
@@ -1349,10 +1406,12 @@ export async function reuseConfig(task: TaskRecord) {
   const { settings, setPrompt, setParams, setInputImages, setMaskDraft, clearMaskDraft, showToast, setConfirmDialog, setReusedTaskApiProfile } = useStore.getState()
   const normalizedSettings = normalizeSettings(settings)
   const currentProfile = getActiveApiProfile(settings)
+  const currentView = toLegacyView(currentProfile)
   const matchedProfile = normalizedSettings.reuseTaskApiProfileTemporarily ? getTaskApiProfile(normalizedSettings, task) : null
+  const matchedView = matchedProfile ? toLegacyView(matchedProfile) : null
   const shouldTemporarilyReuseProfile = Boolean(matchedProfile && matchedProfile.id !== currentProfile.id)
   const missingReusedProfile = normalizedSettings.reuseTaskApiProfileTemporarily && !matchedProfile
-  const taskProfileName = matchedProfile?.name ?? getTaskApiProfileName(task)
+  const taskProfileName = matchedView?.name ?? getTaskApiProfileName(task)
   const paramsSettings = shouldTemporarilyReuseProfile && matchedProfile ? createSettingsForApiProfile(normalizedSettings, matchedProfile) : normalizedSettings
 
   setParams(normalizeParamsForSettings(task.params, paramsSettings, { hasInputImages: task.inputImageIds.length > 0 }))
@@ -1391,7 +1450,7 @@ export async function reuseConfig(task: TaskRecord) {
   if (missingReusedProfile) {
     setConfirmDialog({
       title: '找不到 API 配置',
-      message: `找不到复用任务所使用的 API 配置「${taskProfileName}」，要使用当前的 API 配置「${currentProfile.name}」提交任务吗？`,
+      message: `找不到复用任务所使用的 API 配置「${taskProfileName}」，要使用当前的 API 配置「${currentView.name}」提交任务吗？`,
       confirmText: '使用当前配置提交',
       cancelText: '放弃提交',
       action: () => {
@@ -1402,8 +1461,8 @@ export async function reuseConfig(task: TaskRecord) {
   }
 
   showToast(
-    shouldTemporarilyReuseProfile && matchedProfile
-      ? `已临时复用该任务的 API 配置「${matchedProfile.name}」`
+    shouldTemporarilyReuseProfile && matchedView
+      ? `已临时复用该任务的 API 配置「${matchedView.name}」`
       : '已复用配置到输入框',
     'success',
   )
@@ -1604,8 +1663,23 @@ async function recoverCustomTask(taskId: string) {
     return
   }
 
+  if (profile.source !== 'user-byok') {
+    scheduleCustomRecovery(taskId)
+    return
+  }
+  const view = toLegacyView(profile)
+  const byokAdapter = {
+    baseUrl: view.baseUrl,
+    apiKey: view.apiKey,
+    model: view.model,
+    apiMode: view.apiMode,
+    timeout: view.timeout,
+    codexCli: view.codexCli,
+    apiProxy: view.apiProxy,
+    responseFormatB64Json: view.responseFormatB64Json,
+  }
   try {
-    const result = await getCustomQueuedImageResult(profile, customProvider, task.customTaskId, task.params)
+    const result = await getCustomQueuedImageResult(byokAdapter, customProvider, task.customTaskId, task.params)
     clearCustomRecoveryTimer(taskId)
     await completeRecoveredCustomTask(task, result)
   } catch (err) {
@@ -1706,7 +1780,7 @@ export async function exportData(options: ExportOptions = { exportConfig: true, 
       // 剥掉内置 profile，避免硬编码 apiKey 被导出
       manifest.settings = {
         ...settings,
-        profiles: settings.profiles.filter((p) => !isBuiltinProfile(p)),
+        profiles: settings.profiles.filter((p) => p.source !== 'builtin-edge'),
       }
     }
     if (options.exportTasks) {

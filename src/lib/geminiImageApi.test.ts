@@ -1,7 +1,21 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DEFAULT_PARAMS } from '../types'
-import { createDefaultGeminiProfile, DEFAULT_SETTINGS } from './apiProfiles'
+import { DEFAULT_SETTINGS } from './apiProfiles'
 import { buildGeminiRequestBody, callGeminiImageApi, parseGeminiResponse } from './geminiImageApi'
+import type { BYOKAdapterProfile } from './imageApiShared'
+
+function byokGemini(overrides: Partial<BYOKAdapterProfile> = {}): BYOKAdapterProfile {
+  return {
+    baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+    apiKey: 'gk',
+    model: 'gemini-3.1-flash-image',
+    apiMode: 'images',
+    timeout: 600,
+    codexCli: false,
+    apiProxy: false,
+    ...overrides,
+  }
+}
 
 describe('buildGeminiRequestBody', () => {
   it('builds text-only request', () => {
@@ -139,7 +153,7 @@ describe('callGeminiImageApi', () => {
       prompt: 'p',
       params: { ...DEFAULT_PARAMS, size: 'auto', n: 1 },
       inputImageDataUrls: [],
-    }, createDefaultGeminiProfile({ apiKey: 'gk', model: 'gemini-3.1-flash-image', baseUrl: 'https://gen.example/v1beta' }))
+    }, byokGemini({ model: 'gemini-3.1-flash-image', baseUrl: 'https://gen.example/v1beta' }))
 
     expect(fetchMock).toHaveBeenCalledTimes(1)
     const [url, init] = fetchMock.mock.calls[0]
@@ -161,7 +175,7 @@ describe('callGeminiImageApi', () => {
       prompt: 'p',
       params: { ...DEFAULT_PARAMS, n: 1 },
       inputImageDataUrls: [],
-    }, createDefaultGeminiProfile({ apiKey: 'gk' }))
+    }, byokGemini())
 
     expect(result.images).toEqual(['data:image/png;base64,AAA'])
   })
@@ -173,7 +187,7 @@ describe('callGeminiImageApi', () => {
       params: { ...DEFAULT_PARAMS },
       inputImageDataUrls: ['data:image/png;base64,AAA'],
       maskDataUrl: 'data:image/png;base64,MMM',
-    }, createDefaultGeminiProfile({ apiKey: 'gk' }))).rejects.toThrow(/不支持遮罩/)
+    }, byokGemini())).rejects.toThrow(/不支持遮罩/)
 
     expect(fetchMock).not.toHaveBeenCalled()
   })
@@ -188,6 +202,6 @@ describe('callGeminiImageApi', () => {
       prompt: 'p',
       params: { ...DEFAULT_PARAMS },
       inputImageDataUrls: [],
-    }, createDefaultGeminiProfile({ apiKey: 'gk' }))).rejects.toThrow(/Invalid argument/)
+    }, byokGemini())).rejects.toThrow(/Invalid argument/)
   })
 })

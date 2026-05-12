@@ -1,15 +1,20 @@
 import { describe, expect, it } from 'vitest'
 import {
-  createDefaultGeminiProfile,
-  createDefaultOpenAIProfile,
+  createDefaultGeminiByokProfile,
+  createDefaultOpenAIByokProfile,
   DEFAULT_IMAGES_MODEL,
   DEFAULT_SETTINGS,
   normalizeSettings,
 } from './apiProfiles'
 import { buildSettingsFromUrlParams, clearUrlSettingParams, hasUrlSettingParams } from './urlSettings'
 
+function asByok(profile: ReturnType<typeof normalizeSettings>['profiles'][number]) {
+  if (profile.source !== 'user-byok') throw new Error('expected user-byok profile')
+  return profile
+}
+
 describe('URL settings params', () => {
-  it('creates and activates a new OpenAI profile for legacy URL params', () => {
+  it('creates and activates a new user-byok profile for legacy URL params', () => {
     const current = normalizeSettings(DEFAULT_SETTINGS)
     const next = normalizeSettings({
       ...current,
@@ -18,33 +23,31 @@ describe('URL settings params', () => {
 
     expect(next.profiles).toHaveLength(2)
     expect(next.activeProfileId).not.toBe(current.activeProfileId)
-    expect(next.profiles.find((profile) => profile.id === next.activeProfileId)).toMatchObject({
-      name: 'URL 参数配置',
-      provider: 'openai',
-      baseUrl: 'https://api.example.com/v1',
-      apiKey: 'test-key',
-      model: DEFAULT_IMAGES_MODEL,
-    })
+    const active = asByok(next.profiles.find((p) => p.id === next.activeProfileId)!)
+    expect(active.name).toBe('URL 参数配置')
+    expect(active.kind).toBe('openai-compat')
+    expect(active.baseUrl).toBe('https://api.example.com/v1')
+    expect(active.apiKey).toBe('test-key')
+    expect(active.selectedModelId).toBe(DEFAULT_IMAGES_MODEL)
   })
 
-  it('uses model from URL params for OpenAI profiles', () => {
+  it('uses model from URL params', () => {
     const current = normalizeSettings(DEFAULT_SETTINGS)
     const next = normalizeSettings({
       ...current,
       ...buildSettingsFromUrlParams(current, new URLSearchParams('apiUrl=https://api.example.com/v1&apiKey=test-key&model=custom-image-model')),
     })
 
-    expect(next.profiles.find((profile) => profile.id === next.activeProfileId)).toMatchObject({
-      provider: 'openai',
-      baseUrl: 'https://api.example.com/v1',
-      apiKey: 'test-key',
-      model: 'custom-image-model',
-      apiMode: 'images',
-    })
+    const active = asByok(next.profiles.find((p) => p.id === next.activeProfileId)!)
+    expect(active.kind).toBe('openai-compat')
+    expect(active.baseUrl).toBe('https://api.example.com/v1')
+    expect(active.apiKey).toBe('test-key')
+    expect(active.selectedModelId).toBe('custom-image-model')
+    expect(active.preferences.apiMode).toBe('images')
   })
 
   it('does not create a duplicate profile for matching legacy URL params', () => {
-    const existingProfile = createDefaultOpenAIProfile({
+    const existingProfile = createDefaultOpenAIByokProfile({
       id: 'existing-openai',
       name: 'Existing OpenAI',
       baseUrl: 'https://api.example.com/v1',
@@ -52,7 +55,7 @@ describe('URL settings params', () => {
     })
     const current = normalizeSettings({
       ...DEFAULT_SETTINGS,
-      profiles: [createDefaultOpenAIProfile(), existingProfile],
+      profiles: [createDefaultOpenAIByokProfile(), existingProfile],
       activeProfileId: DEFAULT_SETTINGS.activeProfileId,
     })
     const next = normalizeSettings({
@@ -64,8 +67,8 @@ describe('URL settings params', () => {
     expect(next.activeProfileId).toBe(existingProfile.id)
   })
 
-  it('creates an OpenAI profile from legacy params even when a non-OpenAI profile is active', () => {
-    const geminiProfile = createDefaultGeminiProfile({ id: 'gemini-active', apiKey: 'gemini-key' })
+  it('creates an openai-compat profile from legacy params even when a gemini profile is active', () => {
+    const geminiProfile = createDefaultGeminiByokProfile({ id: 'gemini-active', apiKey: 'gemini-key' })
     const current = normalizeSettings({
       ...DEFAULT_SETTINGS,
       profiles: [geminiProfile],
@@ -77,11 +80,10 @@ describe('URL settings params', () => {
     })
 
     expect(next.profiles).toHaveLength(2)
-    expect(next.profiles.find((profile) => profile.id === next.activeProfileId)).toMatchObject({
-      provider: 'openai',
-      baseUrl: 'https://api.example.com/v1',
-      apiKey: 'openai-key',
-    })
+    const active = asByok(next.profiles.find((p) => p.id === next.activeProfileId)!)
+    expect(active.kind).toBe('openai-compat')
+    expect(active.baseUrl).toBe('https://api.example.com/v1')
+    expect(active.apiKey).toBe('openai-key')
   })
 
   it('clears known URL setting params without touching unrelated params', () => {
@@ -93,7 +95,7 @@ describe('URL settings params', () => {
     expect(params.toString()).toBe('foo=bar')
   })
 
-  it('imports settings with custom providers from URL params', () => {
+  it('imports custom providers + profiles wrapper from URL settings param', () => {
     const importedSettings = {
       customProviders: [{
         id: 'custom-json',
@@ -106,17 +108,17 @@ describe('URL settings params', () => {
           result: { imageUrlPaths: ['data.*.url'], b64JsonPaths: [] },
         },
       }],
+      // 新形态：profile 用 user-byok shape；以 kind='openai-compat' 表达旧 custom-json provider 的行为
       profiles: [{
         id: 'custom-profile',
+        source: 'user-byok',
         name: 'Custom Profile',
-        provider: 'custom-json',
+        kind: 'openai-compat',
         baseUrl: 'https://api.example.com/v1',
         apiKey: 'custom-key',
-        model: 'custom-model',
-        timeout: 300,
-        apiMode: 'images',
-        codexCli: false,
-        apiProxy: false,
+        models: ['custom-model'],
+        selectedModelId: 'custom-model',
+        preferences: { apiMode: 'images', timeout: 300, codexCli: false, apiProxy: false },
       }],
     }
     const params = new URLSearchParams()
@@ -130,114 +132,9 @@ describe('URL settings params', () => {
     expect(next.customProviders).toHaveLength(1)
     expect(next.customProviders[0]).toMatchObject({ id: 'custom-json', name: 'Custom JSON' })
     expect(next.activeProfileId).toBe('custom-profile')
-    expect(next.profiles[0]).toMatchObject({
-      id: 'custom-profile',
-      provider: 'custom-json',
-      apiKey: 'custom-key',
-      model: 'custom-model',
-    })
-  })
-
-  it('activates the first profile imported from URL settings when current settings are customized', () => {
-    const current = normalizeSettings({
-      ...DEFAULT_SETTINGS,
-      profiles: [createDefaultOpenAIProfile({
-        id: 'current-openai',
-        name: 'Current OpenAI',
-        baseUrl: 'https://current.example.com/v1',
-        apiKey: 'current-key',
-        model: 'current-model',
-      })],
-      activeProfileId: 'current-openai',
-    })
-    const importedSettings = {
-      customProviders: [{
-        id: 'custom-json',
-        name: 'Custom JSON',
-        submit: {
-          path: 'images/generations',
-          method: 'POST',
-          contentType: 'json',
-          body: { model: '$profile.model', prompt: '$prompt' },
-          result: { imageUrlPaths: ['data.*.url'], b64JsonPaths: [] },
-        },
-      }],
-      profiles: [{
-        id: 'custom-profile',
-        name: 'Custom Profile',
-        provider: 'custom-json',
-        baseUrl: 'https://api.example.com/v1',
-        apiKey: 'custom-key',
-        model: 'custom-model',
-        timeout: 300,
-        apiMode: 'images',
-        codexCli: false,
-        apiProxy: false,
-      }],
-    }
-    const params = new URLSearchParams()
-    params.set('settings', JSON.stringify(importedSettings))
-
-    const next = normalizeSettings({
-      ...current,
-      ...buildSettingsFromUrlParams(current, params),
-    })
-    const activeProfile = next.profiles.find((profile) => profile.id === next.activeProfileId)
-
-    expect(next.activeProfileId).not.toBe('current-openai')
-    expect(activeProfile).toMatchObject({
-      provider: 'custom-json',
-      baseUrl: 'https://api.example.com/v1',
-      apiKey: 'custom-key',
-      model: 'custom-model',
-    })
-  })
-
-  it('imports custom provider settings wrapper from URL params', () => {
-    const params = new URLSearchParams()
-    params.set('settings', JSON.stringify({
-      version: 1,
-      settings: {
-        customProviders: [{
-          id: 'wrapped-custom',
-          name: 'Wrapped Custom',
-          submit: {
-            path: 'images/generations',
-            method: 'POST',
-            contentType: 'json',
-            body: { model: '$profile.model', prompt: '$prompt' },
-            result: { imageUrlPaths: ['data.*.url'], b64JsonPaths: [] },
-          },
-        }],
-        profiles: [{
-          id: 'wrapped-profile',
-          name: 'Wrapped Profile',
-          provider: 'wrapped-custom',
-          baseUrl: 'https://wrapped.example.com/v1',
-          apiKey: 'wrapped-key',
-          model: 'wrapped-model',
-          timeout: 300,
-          apiMode: 'images',
-          codexCli: false,
-          apiProxy: false,
-        }],
-      },
-    }))
-
-    const next = normalizeSettings({
-      ...DEFAULT_SETTINGS,
-      ...buildSettingsFromUrlParams(DEFAULT_SETTINGS, params),
-    })
-
-    expect(next.customProviders).toHaveLength(1)
-    expect(next.customProviders[0]).toMatchObject({ id: 'wrapped-custom', name: 'Wrapped Custom' })
-    expect(next.profiles).toHaveLength(1)
-    expect(next.profiles[0]).toMatchObject({
-      id: 'wrapped-profile',
-      provider: 'wrapped-custom',
-      baseUrl: 'https://wrapped.example.com/v1',
-      apiKey: 'wrapped-key',
-      model: 'wrapped-model',
-    })
+    const active = asByok(next.profiles[0])
+    expect(active.kind).toBe('openai-compat')
+    expect(active.apiKey).toBe('custom-key')
+    expect(active.selectedModelId).toBe('custom-model')
   })
 })

@@ -2,7 +2,40 @@ import { useRef, useEffect, useCallback, useState, useMemo, type ReactNode } fro
 import { createPortal } from 'react-dom'
 import { useStore, submitTask, addImageFromFile, updateTaskInStore, removeMultipleTasks, getCachedImage, ensureImageCached } from '../store'
 import { DEFAULT_PARAMS } from '../types'
-import { getActiveApiProfile, normalizeSettings } from '../lib/apiProfiles'
+import { DEFAULT_API_TIMEOUT, getActiveApiProfile, normalizeSettings } from '../lib/apiProfiles'
+import { getPublicChannel } from '../lib/channels/publicChannels'
+import type { ClientProfile } from '../lib/channels/types'
+
+// 过渡期 helper：InputBar 仍按旧 ApiProfile 形态读 active profile 的 name/provider/model/apiKey/apiMode/codexCli。
+function profileView(p: ClientProfile) {
+  if (p.source === 'builtin-edge') {
+    const channel = getPublicChannel(p.channelId)
+    return {
+      id: p.id,
+      name: channel?.label ?? p.channelId,
+      provider: channel?.kind === 'gemini' ? 'gemini' : 'openai',
+      baseUrl: `/api-proxy/${p.channelId}`,
+      apiKey: '',
+      model: p.selectedModelId,
+      models: channel?.models.map((m) => m.id) ?? [],
+      timeout: channel?.defaults.timeout ?? DEFAULT_API_TIMEOUT,
+      apiMode: channel?.defaults.apiMode ?? 'images',
+      codexCli: channel?.defaults.codexCli ?? false,
+    }
+  }
+  return {
+    id: p.id,
+    name: p.name,
+    provider: p.kind === 'gemini' ? 'gemini' : 'openai',
+    baseUrl: p.baseUrl,
+    apiKey: p.apiKey,
+    model: p.selectedModelId,
+    models: p.models,
+    timeout: p.preferences.timeout,
+    apiMode: p.preferences.apiMode,
+    codexCli: p.preferences.codexCli,
+  }
+}
 import { getChangedParams, getOutputImageLimitForSettings, normalizeParamsForSettings } from '../lib/paramCompatibility'
 import { getAtImageQuery, getImageMentionLabel, getPromptIndexFromVisibleIndex, getPromptMentionParts, getSelectedImageMentionLabel, imageMentionMatches, insertImageMentionAtVisibleRange, isCursorInSelectedImageMention, stripImageMentionMarkers } from '../lib/promptImageMentions'
 import { normalizeImageSize } from '../lib/size'
@@ -462,11 +495,12 @@ export default function InputBar() {
       ? settings
       : normalizeSettings({ ...settings, activeProfileId: activeProfile.id })
   ), [activeProfile.id, currentActiveProfile.id, settings])
-  const hasSubmitApiConfig = Boolean(activeProfile.apiKey)
+  const activeView = profileView(activeProfile)
+  const hasSubmitApiConfig = activeProfile.source === 'builtin-edge' || Boolean(activeView.apiKey)
   const canSubmit = Boolean(prompt.trim() && hasSubmitApiConfig)
-  const activeProvider = activeProfile.provider
+  const activeProvider = activeView.provider
   const isGeminiProvider = activeProvider === 'gemini'
-  const moderationDisabled = activeProfile.apiMode === 'responses'
+  const moderationDisabled = activeView.apiMode === 'responses'
   const compressionDisabled = params.output_format === 'png'
   const outputImageLimit = getOutputImageLimitForSettings(effectiveSettings)
   const nLimitHintText = `OpenAI 最大请求数量为 ${outputImageLimit}`
@@ -712,7 +746,7 @@ export default function InputBar() {
   }
 
   const showQualityHint = () => {
-    if (settings.codexCli) setQualityHintVisible(true)
+    if (activeView.codexCli) setQualityHintVisible(true)
   }
 
   const showSizeHint = () => {
@@ -748,7 +782,7 @@ export default function InputBar() {
   }
 
   const startQualityHintTouch = () => {
-    if (!settings.codexCli) return
+    if (!activeView.codexCli) return
     qualityHintTimerRef.current = window.setTimeout(() => {
       setQualityHintVisible(true)
       qualityHintTimerRef.current = null
@@ -1449,26 +1483,35 @@ export default function InputBar() {
   // 切换时同时切换 activeProfileId 与该 profile 的 model。
   const profileModelCache = useStore((s) => s.profileModelCache)
   const globalModelOptions = settings.profiles.flatMap((profile) => {
+    const view = profileView(profile)
     const cached = profileModelCache[profile.id] ?? []
-    const preset = profile.models ?? []
+    const preset = view.models ?? []
     const combined = Array.from(
-      new Set([profile.model, ...cached, ...preset].filter((m): m is string => Boolean(m))),
+      new Set([view.model, ...cached, ...preset].filter((m): m is string => Boolean(m))),
     )
     return combined.map((model) => ({
       profileId: profile.id,
-      profileName: profile.name,
+      profileName: view.name,
       model,
       value: `${profile.id}::${model}`,
     }))
   })
-  const currentModelValue = `${activeProfile.id}::${activeProfile.model}`
+  const currentModelValue = `${activeProfile.id}::${activeView.model}`
   const handleGlobalModelPick = (rawValue: string) => {
     const option = globalModelOptions.find((o) => o.value === rawValue)
     if (!option) return
-    if (option.profileId === activeProfile.id && option.model === activeProfile.model) return
-    const nextProfiles = settings.profiles.map((profile) =>
-      profile.id === option.profileId ? { ...profile, model: option.model } : profile,
-    )
+    if (option.profileId === activeProfile.id && option.model === activeView.model) return
+    // 切换 active profile，同时把目标 profile 的 selectedModelId 更新为所选 model。
+    // builtin-edge profile 不允许更改 selectedModelId（受 channel.models 约束）；
+    // 此处假设 option.model 已是 channel.models 中合法项。
+    const nextProfiles = settings.profiles.map((profile) => {
+      if (profile.id !== option.profileId) return profile
+      if (profile.source === 'builtin-edge') {
+        return { ...profile, selectedModelId: option.model }
+      }
+      const nextModels = profile.models.includes(option.model) ? profile.models : [...profile.models, option.model]
+      return { ...profile, models: nextModels, selectedModelId: option.model }
+    })
     setSettings({ profiles: nextProfiles, activeProfileId: option.profileId })
   }
 
@@ -1521,18 +1564,18 @@ export default function InputBar() {
           >
             <span className="text-gray-400 dark:text-gray-500 ml-1">质量</span>
             <Select
-              value={settings.codexCli ? 'auto' : params.quality}
+              value={activeView.codexCli ? 'auto' : params.quality}
               onChange={(val) => {
-                if (!settings.codexCli) setParams({ quality: val as any })
+                if (!activeView.codexCli) setParams({ quality: val as any })
               }}
               options={qualityOptions}
-              disabled={settings.codexCli}
-              className={settings.codexCli
+              disabled={activeView.codexCli}
+              className={activeView.codexCli
                 ? 'px-3 py-1.5 rounded-xl border border-gray-200/60 dark:border-white/[0.08] bg-gray-100/50 dark:bg-white/[0.05] opacity-50 cursor-not-allowed text-xs transition-all duration-200 shadow-sm'
                 : selectClass}
             />
             <ButtonTooltip
-              visible={settings.codexCli && qualityHintVisible}
+              visible={activeView.codexCli && qualityHintVisible}
               text="Codex CLI 不支持质量参数"
             />
           </label>

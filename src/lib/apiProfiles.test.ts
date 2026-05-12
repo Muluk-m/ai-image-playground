@@ -1,670 +1,294 @@
 import { describe, expect, it } from 'vitest'
 import {
+  apiProfileToClientProfile,
+  clientProfileToApiProfile,
+  createBuiltinEdgeProfile,
+  createDefaultGeminiByokProfile,
+  createDefaultOpenAIByokProfile,
   DEFAULT_GEMINI_BASE_URL,
   DEFAULT_GEMINI_MODEL,
   DEFAULT_IMAGES_MODEL,
   DEFAULT_OPENAI_PROFILE_ID,
   DEFAULT_SETTINGS,
-  createDefaultOpenAIProfile,
-  createDefaultGeminiProfile,
-  isBuiltinProfile,
-  BUILTIN_PROFILE_ID_PREFIX,
-  findEquivalentApiProfile,
+  findEquivalentClientProfile,
   getApiProviderLabel,
   importCustomProviderDefinitionFromJson,
   importCustomProviderSettingsFromJson,
+  isBuiltinProfile,
   mergeImportedSettings,
-  normalizeApiProfile,
+  normalizeClientProfile,
   normalizeSettings,
-  switchApiProfileProvider,
-  validateApiProfile,
+  switchByokProfileKind,
+  validateClientProfile,
 } from './apiProfiles'
+import type { UserByokProfile } from './channels/types'
 
-describe('mergeImportedSettings', () => {
-  it('replaces the default OpenAI profile with legacy imported settings when current settings are untouched', () => {
-    const merged = mergeImportedSettings(DEFAULT_SETTINGS, {
-      baseUrl: 'https://api.example.com/v1',
-      apiKey: 'imported-key',
-      model: 'imported-model',
-      timeout: 120,
-      apiMode: 'responses',
-      codexCli: true,
-      apiProxy: true,
-    })
-
-    expect(merged.profiles).toHaveLength(1)
-    expect(merged.activeProfileId).toBe(DEFAULT_OPENAI_PROFILE_ID)
-    expect(merged.profiles[0]).toMatchObject({
-      id: DEFAULT_OPENAI_PROFILE_ID,
-      provider: 'openai',
-      baseUrl: 'https://api.example.com/v1',
-      apiKey: 'imported-key',
-      model: 'imported-model',
-      timeout: 120,
-      apiMode: 'responses',
-      codexCli: true,
-      apiProxy: true,
-    })
-  })
-
-  it('replaces the default provider list with imported profiles when current settings are untouched', () => {
-    const merged = mergeImportedSettings(DEFAULT_SETTINGS, {
-      profiles: [
-        {
-          id: 'imported-openai',
-          name: 'Imported OpenAI',
-          provider: 'openai',
-          baseUrl: 'https://api.example.com/v1',
-          apiKey: 'openai-key',
-          model: DEFAULT_IMAGES_MODEL,
-          timeout: 300,
-          apiMode: 'images',
-          codexCli: false,
-          apiProxy: false,
-        },
-        {
-          id: 'imported-gemini',
-          name: 'Imported Gemini',
-          provider: 'gemini',
-          baseUrl: DEFAULT_GEMINI_BASE_URL,
-          apiKey: 'gem-key',
-          model: DEFAULT_GEMINI_MODEL,
-          timeout: 300,
-          apiMode: 'images',
-          codexCli: false,
-          apiProxy: false,
-        },
-      ],
-      activeProfileId: 'imported-gemini',
-    })
-
-    expect(merged.profiles.map((profile) => profile.id)).toEqual(['imported-openai', 'imported-gemini'])
-    expect(merged.activeProfileId).toBe('imported-gemini')
-  })
-
-  it('deduplicates imported profiles when replacing untouched default settings', () => {
-    const merged = mergeImportedSettings(DEFAULT_SETTINGS, {
-      profiles: [
-        {
-          id: 'imported-openai-a',
-          name: 'Imported OpenAI A',
-          provider: 'openai',
-          baseUrl: 'https://api.example.com/v1',
-          apiKey: 'openai-key',
-          model: DEFAULT_IMAGES_MODEL,
-          timeout: 300,
-          apiMode: 'images',
-          codexCli: false,
-          apiProxy: false,
-        },
-        {
-          id: 'imported-openai-b',
-          name: 'Imported OpenAI B',
-          provider: 'openai',
-          baseUrl: 'https://api.example.com/v1/',
-          apiKey: 'openai-key',
-          model: DEFAULT_IMAGES_MODEL,
-          timeout: 600,
-          apiMode: 'images',
-          codexCli: true,
-          apiProxy: true,
-        },
-      ],
-      activeProfileId: 'imported-openai-b',
-    })
-
-    expect(merged.profiles).toHaveLength(1)
-    expect(merged.profiles[0].id).toBe('imported-openai-a')
-    expect(merged.activeProfileId).toBe('imported-openai-a')
-  })
-
-  it('appends imported legacy settings as a new profile when current settings are customized', () => {
-    const current = mergeImportedSettings(DEFAULT_SETTINGS, {
-      baseUrl: 'https://current.example.com/v1',
-      apiKey: 'current-key',
-      model: 'current-model',
-    })
-    const merged = mergeImportedSettings(current, {
-      baseUrl: 'https://imported.example.com/v1',
-      apiKey: 'imported-key',
-      model: 'imported-model',
-    })
-
-    expect(merged.profiles).toHaveLength(2)
-    expect(merged.activeProfileId).toBe(DEFAULT_OPENAI_PROFILE_ID)
-    expect(merged.profiles[0]).toMatchObject({ apiKey: 'current-key', model: 'current-model' })
-    expect(merged.profiles[1]).toMatchObject({
-      provider: 'openai',
-      baseUrl: 'https://imported.example.com/v1',
-      apiKey: 'imported-key',
-      model: 'imported-model',
-    })
-    expect(merged.profiles[1].id).not.toBe(DEFAULT_OPENAI_PROFILE_ID)
-  })
-
-  it('appends imported profiles as new profiles when current settings are customized', () => {
-    const current = mergeImportedSettings(DEFAULT_SETTINGS, {
-      baseUrl: 'https://current.example.com/v1',
-      apiKey: 'current-key',
-      model: 'current-model',
-    })
-    const merged = mergeImportedSettings(current, {
-      profiles: [
-        {
-          id: 'imported-openai',
-          name: 'Imported OpenAI',
-          provider: 'openai',
-          baseUrl: 'https://imported.example.com/v1',
-          apiKey: 'imported-key',
-          model: DEFAULT_IMAGES_MODEL,
-          timeout: 300,
-          apiMode: 'images',
-          codexCli: false,
-          apiProxy: false,
-        },
-        {
-          id: 'imported-gemini',
-          name: 'Imported Gemini',
-          provider: 'gemini',
-          baseUrl: DEFAULT_GEMINI_BASE_URL,
-          apiKey: 'gem-key',
-          model: DEFAULT_GEMINI_MODEL,
-          timeout: 300,
-          apiMode: 'images',
-          codexCli: false,
-          apiProxy: false,
-        },
-      ],
-      activeProfileId: 'imported-gemini',
-    })
-
-    expect(merged.profiles).toHaveLength(3)
-    expect(merged.activeProfileId).toBe(DEFAULT_OPENAI_PROFILE_ID)
-    expect(merged.profiles[0]).toMatchObject({ apiKey: 'current-key', model: 'current-model' })
-    expect(merged.profiles[1]).toMatchObject({ name: 'Imported OpenAI', provider: 'openai', apiKey: 'imported-key' })
-    expect(merged.profiles[2]).toMatchObject({ name: 'Imported Gemini', provider: 'gemini', apiKey: 'gem-key' })
-    expect(new Set(merged.profiles.map((profile) => profile.id)).size).toBe(3)
-  })
-
-  it('skips imported profiles that already exist in current customized settings', () => {
-    const current = mergeImportedSettings(DEFAULT_SETTINGS, {
-      baseUrl: 'https://current.example.com/v1',
-      apiKey: 'current-key',
-      model: 'current-model',
-    })
-    const merged = mergeImportedSettings(current, {
-      profiles: [
-        {
-          id: 'duplicate-openai',
-          name: 'Duplicate OpenAI',
-          provider: 'openai',
-          baseUrl: 'https://current.example.com/v1/',
-          apiKey: 'current-key',
-          model: 'current-model',
-          timeout: 600,
-          apiMode: 'images',
-          codexCli: true,
-          apiProxy: true,
-        },
-        {
-          id: 'new-gemini',
-          name: 'New Gemini',
-          provider: 'gemini',
-          baseUrl: DEFAULT_GEMINI_BASE_URL,
-          apiKey: 'gem-key',
-          model: DEFAULT_GEMINI_MODEL,
-          timeout: 300,
-          apiMode: 'images',
-          codexCli: false,
-          apiProxy: false,
-        },
-      ],
-    })
-
-    expect(merged.profiles).toHaveLength(2)
-    expect(merged.profiles[0]).toMatchObject({ apiKey: 'current-key', model: 'current-model' })
-    expect(merged.profiles[1]).toMatchObject({ provider: 'gemini', apiKey: 'gem-key', model: DEFAULT_GEMINI_MODEL })
-  })
-
-  it('reuses an existing keyed profile when importing the same custom profile without an API key', () => {
-    const current = mergeImportedSettings(DEFAULT_SETTINGS, {
-      customProviders: [{
-        id: 'custom-json',
-        name: 'Custom JSON',
-        submit: {
-          path: 'images/generations',
-          method: 'POST',
-          contentType: 'json',
-          body: { model: '$profile.model', prompt: '$prompt' },
-          result: { imageUrlPaths: ['data.*.url'], b64JsonPaths: [] },
-        },
-      }],
-      profiles: [{
-        id: 'existing-custom',
-        name: 'Existing Custom',
-        provider: 'custom-json',
-        baseUrl: 'https://custom.example.com/v1',
-        apiKey: 'existing-key',
-        model: 'custom-model',
-        timeout: 300,
-        apiMode: 'images',
-        codexCli: false,
-        apiProxy: false,
-      }],
-      activeProfileId: 'existing-custom',
-    })
-    const imported = normalizeSettings({
-      customProviders: [{
-        id: 'custom-json',
-        name: 'Custom JSON',
-        submit: {
-          path: 'images/generations',
-          method: 'POST',
-          contentType: 'json',
-          body: { model: '$profile.model', prompt: '$prompt' },
-          result: { imageUrlPaths: ['data.*.url'], b64JsonPaths: [] },
-        },
-      }],
-      profiles: [{
-        id: 'imported-custom',
-        name: 'Imported Custom',
-        provider: 'custom-json',
-        baseUrl: 'https://custom.example.com/v1',
-        apiKey: '',
-        model: 'custom-model',
-        timeout: 300,
-        apiMode: 'images',
-        codexCli: false,
-        apiProxy: false,
-      }],
-    })
-    const merged = mergeImportedSettings(current, imported)
-    const match = findEquivalentApiProfile(merged, imported.profiles[0], imported.customProviders)
-
-    expect(merged.profiles).toHaveLength(1)
-    expect(match?.id).toBe('existing-custom')
-  })
-
-  it('does not replace existing custom providers when only the default profile remains', () => {
-    const current = normalizeSettings({
-      ...DEFAULT_SETTINGS,
-      customProviders: [{
-        id: 'custom-existing',
-        name: 'Existing Provider',
-        submit: { path: 'images/generations' },
-      }],
-    })
-    const merged = mergeImportedSettings(current, {
-      customProviders: [{
-        id: 'custom-imported',
-        name: 'Imported Provider',
-        submit: { path: 'images/generations' },
-      }],
-      profiles: [{
-        id: 'imported-custom',
-        name: 'Imported Custom',
-        provider: 'custom-imported',
-        baseUrl: 'https://custom.example.com/v1',
-        apiKey: '',
-        model: 'custom-model',
-        timeout: 300,
-        apiMode: 'images',
-        codexCli: false,
-        apiProxy: false,
-      }],
-    })
-
-    expect(merged.customProviders.map((provider) => provider.id)).toEqual(['custom-existing', 'custom-imported'])
-    expect(merged.profiles).toHaveLength(2)
-  })
-
-  it('appends imported custom providers and keeps imported custom profile references', () => {
-    const current = mergeImportedSettings(DEFAULT_SETTINGS, {
-      baseUrl: 'https://current.example.com/v1',
-      apiKey: 'current-key',
-      model: 'current-model',
-    })
-    const merged = mergeImportedSettings(current, {
-      customProviders: [{
-        id: 'custom-json',
-        name: 'Custom JSON',
-        submit: {
-          path: 'images/generations',
-          method: 'POST',
-          contentType: 'json',
-          body: { model: '$profile.model', prompt: '$prompt' },
-          result: { imageUrlPaths: ['data.*.url'], b64JsonPaths: [] },
-        },
-      }],
-      profiles: [{
-        id: 'imported-custom',
-        name: 'Imported Custom',
-        provider: 'custom-json',
-        baseUrl: 'https://custom.example.com/v1',
-        apiKey: 'custom-key',
-        model: 'custom-model',
-        timeout: 300,
-        apiMode: 'images',
-        codexCli: false,
-        apiProxy: false,
-      }],
-    })
-
-    expect(merged.customProviders).toHaveLength(1)
-    expect(merged.customProviders[0]).toMatchObject({ id: 'custom-json', name: 'Custom JSON' })
-    expect(merged.profiles).toHaveLength(2)
-    expect(merged.profiles[1]).toMatchObject({
-      name: 'Imported Custom',
-      provider: 'custom-json',
-      apiKey: 'custom-key',
-      model: 'custom-model',
-    })
+describe('createDefaultOpenAIByokProfile', () => {
+  it('returns an openai-compat user-byok profile with defaults', () => {
+    const p = createDefaultOpenAIByokProfile()
+    expect(p.source).toBe('user-byok')
+    expect(p.kind).toBe('openai-compat')
+    expect(p.id).toBe(DEFAULT_OPENAI_PROFILE_ID)
+    expect(p.models).toEqual([DEFAULT_IMAGES_MODEL])
+    expect(p.selectedModelId).toBe(DEFAULT_IMAGES_MODEL)
+    expect(p.preferences.apiMode).toBe('images')
   })
 })
 
-describe('custom providers', () => {
-  it('normalizes custom provider definitions and keeps custom profiles', () => {
-    const settings = normalizeSettings({
-      customProviders: [{
-        id: 'custom-async',
-        name: 'Custom Async',
-        template: 'openai-compatible-async',
-        generationPath: '/v1/images/generations',
-        editPath: '/v1/images/edits',
-        taskPath: '/v1/images/tasks/{task_id}',
-      }],
-      profiles: [{
-        id: 'profile-custom',
-        name: 'Custom Profile',
-        provider: 'custom-async',
-        baseUrl: 'https://api.example.com/v1',
-        apiKey: 'key',
-        model: 'model',
-        timeout: 60,
-        apiMode: 'images',
-        codexCli: false,
-        apiProxy: false,
-      }],
-      activeProfileId: 'profile-custom',
-    })
+describe('createDefaultGeminiByokProfile', () => {
+  it('returns a gemini user-byok profile with v1beta defaults', () => {
+    const p = createDefaultGeminiByokProfile()
+    expect(p.source).toBe('user-byok')
+    expect(p.kind).toBe('gemini')
+    expect(p.baseUrl).toBe(DEFAULT_GEMINI_BASE_URL)
+    expect(p.models).toEqual([DEFAULT_GEMINI_MODEL])
+    expect(p.selectedModelId).toBe(DEFAULT_GEMINI_MODEL)
+    expect(p.preferences.apiProxy).toBe(false)
+    expect(p.preferences.codexCli).toBe(false)
+  })
+})
 
-    expect(settings.customProviders[0]).toMatchObject({
-      id: 'custom-async',
-      template: 'http-image',
-      submit: {
-        path: 'images/generations',
-        query: { async: 'true' },
-        taskIdPath: 'data',
-      },
-      editSubmit: {
-        path: 'images/edits',
-        query: { async: 'true' },
-        taskIdPath: 'data',
-      },
-      poll: {
-        path: 'images/tasks/{task_id}',
-      },
+describe('normalizeClientProfile', () => {
+  it('normalizes a builtin-edge profile preserving channelId + selectedModelId', () => {
+    const p = normalizeClientProfile({
+      source: 'builtin-edge',
+      id: 'qlj-x',
+      channelId: 'qlj-x',
+      selectedModelId: 'model-a',
     })
-    expect(settings.profiles[0].provider).toBe('custom-async')
+    expect(p).toEqual({ id: 'qlj-x', source: 'builtin-edge', channelId: 'qlj-x', selectedModelId: 'model-a' })
   })
 
-  it('normalizes an Apimart-style task manifest', () => {
-    const provider = importCustomProviderDefinitionFromJson(JSON.stringify({
+  it('rejects builtin-edge profile missing channelId', () => {
+    expect(normalizeClientProfile({ source: 'builtin-edge', selectedModelId: 'm' })).toBeNull()
+  })
+
+  it('normalizes user-byok profile, defaulting models from kind', () => {
+    const p = normalizeClientProfile({
+      source: 'user-byok',
+      id: 'b1',
+      name: 'B',
+      kind: 'gemini',
+      baseUrl: '',
+      apiKey: 'k',
+    }) as UserByokProfile
+    expect(p?.source).toBe('user-byok')
+    expect(p.kind).toBe('gemini')
+    expect(p.baseUrl).toBe(DEFAULT_GEMINI_BASE_URL)
+    expect(p.models).toEqual([DEFAULT_GEMINI_MODEL])
+    expect(p.selectedModelId).toBe(DEFAULT_GEMINI_MODEL)
+  })
+
+  it('falls back selectedModelId to models[0] when out of range', () => {
+    const p = normalizeClientProfile({
+      source: 'user-byok',
+      id: 'b1',
+      name: 'B',
+      kind: 'openai-compat',
+      models: ['m1', 'm2'],
+      selectedModelId: 'unknown',
+    }) as UserByokProfile
+    expect(p.selectedModelId).toBe('m1')
+  })
+
+  it('drops unrecognized source', () => {
+    expect(normalizeClientProfile({ source: 'unknown', id: 'x' })).toBeNull()
+  })
+})
+
+describe('isBuiltinProfile', () => {
+  it('returns true for builtin-edge source', () => {
+    expect(isBuiltinProfile(createBuiltinEdgeProfile('qlj-x', 'm'))).toBe(true)
+  })
+  it('returns false for user-byok source', () => {
+    expect(isBuiltinProfile(createDefaultOpenAIByokProfile())).toBe(false)
+    expect(isBuiltinProfile(null)).toBe(false)
+    expect(isBuiltinProfile(undefined)).toBe(false)
+  })
+})
+
+describe('normalizeSettings', () => {
+  it('returns default openai byok profile when input is empty', () => {
+    const s = normalizeSettings({})
+    expect(s.profiles).toHaveLength(1)
+    expect(s.profiles[0].source).toBe('user-byok')
+    expect(s.activeProfileId).toBe(DEFAULT_OPENAI_PROFILE_ID)
+  })
+
+  it('preserves user-byok profiles from input', () => {
+    const byok = createDefaultGeminiByokProfile({ id: 'g1', name: 'G', apiKey: 'k' })
+    const s = normalizeSettings({ profiles: [byok], activeProfileId: 'g1' })
+    expect(s.profiles).toHaveLength(1)
+    expect(s.profiles[0].id).toBe('g1')
+    expect(s.activeProfileId).toBe('g1')
+  })
+
+  it('drops invalid profile records', () => {
+    const s = normalizeSettings({ profiles: [{ source: 'unknown' }, { source: 'builtin-edge' }] })
+    expect(s.profiles).toHaveLength(1)
+    expect(s.profiles[0].source).toBe('user-byok')
+  })
+
+  it('falls back activeProfileId to first profile if invalid', () => {
+    const byok = createDefaultOpenAIByokProfile({ id: 'p1' })
+    const s = normalizeSettings({ profiles: [byok], activeProfileId: 'nonexistent' })
+    expect(s.activeProfileId).toBe('p1')
+  })
+})
+
+describe('switchByokProfileKind', () => {
+  it('switches openai → gemini using gemini defaults', () => {
+    const base = createDefaultOpenAIByokProfile({ apiKey: 'sk-abc', baseUrl: 'https://api.openai.com/v1' })
+    const next = switchByokProfileKind(base, 'gemini')
+    expect(next.kind).toBe('gemini')
+    expect(next.baseUrl).toBe(DEFAULT_GEMINI_BASE_URL)
+    expect(next.selectedModelId).toBe(DEFAULT_GEMINI_MODEL)
+    expect(next.apiKey).toBe('sk-abc')
+    expect(next.preferences.codexCli).toBe(false)
+    expect(next.preferences.apiProxy).toBe(false)
+  })
+
+  it('no-op if kind is unchanged', () => {
+    const base = createDefaultOpenAIByokProfile()
+    const next = switchByokProfileKind(base, 'openai-compat')
+    expect(next).toBe(base)
+  })
+})
+
+describe('validateClientProfile', () => {
+  it('returns error for byok missing apiKey', () => {
+    expect(validateClientProfile(createDefaultOpenAIByokProfile())).toMatch(/API Key/)
+  })
+  it('returns null for fully populated byok', () => {
+    expect(validateClientProfile(createDefaultOpenAIByokProfile({ apiKey: 'k' }))).toBeNull()
+  })
+  it('returns null for builtin-edge profile with selectedModelId', () => {
+    expect(validateClientProfile(createBuiltinEdgeProfile('qlj-x', 'm'))).toBeNull()
+  })
+})
+
+describe('findEquivalentClientProfile', () => {
+  it('matches user-byok by all key fields', () => {
+    const p = createDefaultGeminiByokProfile({ id: 'g1', apiKey: 'k' })
+    const settings = normalizeSettings({ profiles: [p], activeProfileId: 'g1' })
+    const same = createDefaultGeminiByokProfile({ id: 'other', apiKey: 'k' })
+    const found = findEquivalentClientProfile(settings, same)
+    expect(found?.id).toBe('g1')
+  })
+
+  it('matches keyless candidate to keyed existing by connection key', () => {
+    const stored = createDefaultGeminiByokProfile({ id: 'g1', apiKey: 'sk' })
+    const settings = normalizeSettings({ profiles: [stored], activeProfileId: 'g1' })
+    const candidate = createDefaultGeminiByokProfile({ id: 'imp', apiKey: '' })
+    const found = findEquivalentClientProfile(settings, candidate)
+    expect(found?.id).toBe('g1')
+  })
+
+  it('does not match builtin-edge to user-byok', () => {
+    const byok = createDefaultGeminiByokProfile({ id: 'g1', apiKey: 'k' })
+    const settings = normalizeSettings({ profiles: [byok], activeProfileId: 'g1' })
+    const edge = createBuiltinEdgeProfile('qlj-x', 'm')
+    expect(findEquivalentClientProfile(settings, edge)).toBeNull()
+  })
+})
+
+describe('mergeImportedSettings', () => {
+  it('replaces untouched default with imported settings', () => {
+    const importedByok = createDefaultGeminiByokProfile({ id: 'imp-g', name: 'Imp', apiKey: 'k' })
+    const merged = mergeImportedSettings(DEFAULT_SETTINGS, { profiles: [importedByok], activeProfileId: 'imp-g' })
+    expect(merged.profiles).toHaveLength(1)
+    expect(merged.profiles[0].id).toBe('imp-g')
+  })
+
+  it('appends new byok profiles when current is customized', () => {
+    const current = normalizeSettings({
+      profiles: [createDefaultOpenAIByokProfile({ id: 'p1', apiKey: 'sk-current' })],
+      activeProfileId: 'p1',
+    })
+    const importedByok = createDefaultGeminiByokProfile({ id: 'imp-g', name: 'Imp', apiKey: 'sk-imp' })
+    const merged = mergeImportedSettings(current, { profiles: [importedByok] })
+    expect(merged.profiles).toHaveLength(2)
+    const byIds = merged.profiles.map((p) => p.id).sort()
+    expect(byIds).toContain('p1')
+  })
+
+  it('deduplicates imported byok against existing same connection', () => {
+    const current = normalizeSettings({
+      profiles: [createDefaultOpenAIByokProfile({ id: 'p1', apiKey: 'sk', baseUrl: 'https://x.example/v1' })],
+      activeProfileId: 'p1',
+    })
+    const duplicate = createDefaultOpenAIByokProfile({ id: 'p2', apiKey: 'sk', baseUrl: 'https://x.example/v1' })
+    const merged = mergeImportedSettings(current, { profiles: [duplicate] })
+    expect(merged.profiles).toHaveLength(1)
+    expect(merged.profiles[0].id).toBe('p1')
+  })
+})
+
+describe('clientProfileToApiProfile / apiProfileToClientProfile', () => {
+  it('round-trips user-byok preserving fields', () => {
+    const byok = createDefaultGeminiByokProfile({ id: 'g1', name: 'G', apiKey: 'k' })
+    const api = clientProfileToApiProfile(byok)
+    expect(api.provider).toBe('gemini')
+    expect(api.apiKey).toBe('k')
+    expect(api.model).toBe(DEFAULT_GEMINI_MODEL)
+    const back = apiProfileToClientProfile(api)
+    expect(back.source).toBe('user-byok')
+    if (back.source === 'user-byok') {
+      expect(back.kind).toBe('gemini')
+      expect(back.selectedModelId).toBe(DEFAULT_GEMINI_MODEL)
+    }
+  })
+})
+
+describe('getApiProviderLabel', () => {
+  it('returns OpenAI / Gemini labels', () => {
+    expect(getApiProviderLabel(DEFAULT_SETTINGS, 'openai')).toBe('OpenAI')
+    expect(getApiProviderLabel(DEFAULT_SETTINGS, 'openai-compat')).toBe('OpenAI')
+    expect(getApiProviderLabel(DEFAULT_SETTINGS, 'gemini')).toBe('Gemini')
+  })
+})
+
+describe('custom provider import (data shape only)', () => {
+  it('imports a wrapped customProviders + profiles payload', () => {
+    const result = importCustomProviderSettingsFromJson(JSON.stringify({
+      customProviders: [{
+        id: 'custom-json',
+        name: 'Custom JSON',
+        submit: {
+          path: 'images/generations',
+          method: 'POST',
+          contentType: 'json',
+          body: { model: '$profile.model', prompt: '$prompt' },
+          result: { imageUrlPaths: ['data.*.url'], b64JsonPaths: [] },
+        },
+      }],
+      profiles: [{
+        // 旧 ApiProfile shape — 由 import 路径迁移成 user-byok
+        name: 'Custom JSON',
+        provider: 'custom-json',
+        baseUrl: 'https://custom.example.com/v1',
+        model: 'custom-model',
+        apiMode: 'images',
+      }],
+    }))
+    expect(result.customProviders).toHaveLength(1)
+    expect(result.profiles).toHaveLength(1)
+    expect(result.profiles[0].source).toBe('user-byok')
+  })
+
+  it('imports a single custom provider manifest', () => {
+    const p = importCustomProviderDefinitionFromJson(JSON.stringify({
       name: 'Apimart GPT-Image-2',
       template: 'http-image',
       submit: {
         path: '/v1/images/generations',
         method: 'POST',
         contentType: 'json',
-        body: {
-          model: '$profile.model',
-          prompt: '$prompt',
-          n: '$params.n',
-          size: '$params.size',
-          resolution: '2k',
-          image_urls: '$inputImages.dataUrls',
-        },
+        body: { model: '$profile.model', prompt: '$prompt' },
         taskIdPath: 'data.0.task_id',
       },
-      poll: {
-        path: '/v1/tasks/{task_id}',
-        method: 'GET',
-        query: { language: 'zh' },
-        statusPath: 'data.status',
-        successValues: ['completed'],
-        failureValues: ['failed', 'cancelled'],
-        result: {
-          imageUrlPaths: ['data.result.images.*.url.*'],
-        },
-      },
     }))
-
-    expect(provider).toMatchObject({
-      template: 'http-image',
-      submit: {
-        path: 'images/generations',
-        taskIdPath: 'data.0.task_id',
-      },
-      poll: {
-        path: 'tasks/{task_id}',
-        query: { language: 'zh' },
-        successValues: ['completed'],
-        result: {
-          imageUrlPaths: ['data.result.images.*.url.*'],
-        },
-      },
-    })
-  })
-
-  it('imports wrapped custom provider settings with profiles', () => {
-    const imported = importCustomProviderSettingsFromJson(JSON.stringify({
-      customProviders: [{
-        id: 'custom-json',
-        name: 'Custom JSON',
-        submit: {
-          path: 'images/generations',
-          method: 'POST',
-          contentType: 'json',
-          body: { model: '$profile.model', prompt: '$prompt' },
-          result: { imageUrlPaths: ['data.*.url'], b64JsonPaths: [] },
-        },
-      }],
-      profiles: [{
-        name: 'Custom JSON',
-        provider: 'custom-json',
-        baseUrl: 'https://custom.example.com/v1',
-        model: 'custom-model',
-        apiMode: 'images',
-      }],
-    }))
-
-    expect(imported.customProviders[0]).toMatchObject({ id: 'custom-json', name: 'Custom JSON' })
-    expect(imported.profiles[0]).toMatchObject({
-      name: 'Custom JSON',
-      provider: 'custom-json',
-      baseUrl: 'https://custom.example.com/v1',
-      apiKey: '',
-      model: 'custom-model',
-      apiMode: 'images',
-    })
-  })
-
-  it('imports wrapped custom provider settings from a json code block', () => {
-    const imported = importCustomProviderSettingsFromJson(`\`\`\`json
-{"customProviders":[{"id":"custom-json","name":"Custom JSON","submit":{"path":"images/generations","method":"POST","contentType":"json","body":{"model":"$profile.model","prompt":"$prompt"},"result":{"imageUrlPaths":["data.result.images.*.url.*"],"b64JsonPaths":[]}}}],"profiles":[{"name":"Custom JSON","provider":"custom-json","baseUrl":"https://custom.example.com/v1","model":"custom-model","apiMode":"images"}]}
-\`\`\``)
-
-    expect(imported.customProviders[0]).toMatchObject({ id: 'custom-json' })
-    expect(imported.customProviders[0].submit.result).toMatchObject({
-      imageUrlPaths: ['data.result.images.*.url.*'],
-    })
-    expect(imported.profiles[0]).toMatchObject({
-      provider: 'custom-json',
-      baseUrl: 'https://custom.example.com/v1',
-    })
-  })
-
-  it('rejects markdown-corrupted profile fields when importing wrapped settings', () => {
-    expect(() => importCustomProviderSettingsFromJson(JSON.stringify({
-      customProviders: [{
-        id: 'custom-apimart',
-        name: 'APIMart',
-        submit: { path: 'images/generations' },
-      }],
-      profiles: [{
-        name: 'APIMart',
-        provider: 'custom-apimart',
-        baseUrl: '[https://api.apimart.ai/v1',
-        model: 'gpt-image-2-official',
-        apiMode: 'images](https://api.apimart.ai/v1%22,%22model%22:%22gpt-image-2-official%22,%22apiMode%22:%22images)',
-      }],
-    }))).toThrow('JSON 包含 Markdown 链接')
-  })
-
-  it('keeps profile baseUrl when switching to a custom provider with no saved draft', () => {
-    const provider = importCustomProviderDefinitionFromJson(JSON.stringify({
-      name: 'Custom Provider',
-      template: 'http-image',
-      submit: { path: 'images/generations' },
-    }))
-    const profile = switchApiProfileProvider(createDefaultOpenAIProfile(), provider.id, provider)
-
-    expect(profile.provider).toBe(provider.id)
-    expect(profile.baseUrl).toBe(DEFAULT_SETTINGS.baseUrl)
-    expect(profile.model).toBe(DEFAULT_IMAGES_MODEL)
-  })
-})
-
-describe('createDefaultGeminiProfile', () => {
-  it('returns a gemini profile with Google v1beta defaults', () => {
-    const profile = createDefaultGeminiProfile()
-    expect(profile.provider).toBe('gemini')
-    expect(profile.baseUrl).toBe('https://generativelanguage.googleapis.com/v1beta')
-    expect(profile.model).toBe('gemini-3.1-flash-image')
-    expect(profile.apiMode).toBe('images')
-    expect(profile.codexCli).toBe(false)
-    expect(profile.apiProxy).toBe(false)
-    expect(DEFAULT_GEMINI_BASE_URL).toBe('https://generativelanguage.googleapis.com/v1beta')
-    expect(DEFAULT_GEMINI_MODEL).toBe('gemini-3.1-flash-image')
-  })
-
-  it('applies overrides', () => {
-    const profile = createDefaultGeminiProfile({ name: 'My Gemini', apiKey: 'k', model: 'gemini-x' })
-    expect(profile.name).toBe('My Gemini')
-    expect(profile.apiKey).toBe('k')
-    expect(profile.model).toBe('gemini-x')
-  })
-})
-
-describe('gemini provider integration', () => {
-  it('normalizeApiProfile accepts provider: gemini', () => {
-    const profile = normalizeApiProfile({
-      id: 'g1',
-      name: 'G',
-      provider: 'gemini',
-      baseUrl: 'https://example.com/v1beta',
-      apiKey: 'k',
-      model: 'gemini-3.1-flash-image',
-      timeout: 600,
-      apiMode: 'images',
-    })
-    expect(profile.provider).toBe('gemini')
-    expect(profile.baseUrl).toBe('https://example.com/v1beta')
-    expect(profile.model).toBe('gemini-3.1-flash-image')
-  })
-
-  it('getApiProviderLabel returns Gemini', () => {
-    expect(getApiProviderLabel(DEFAULT_SETTINGS, 'gemini')).toBe('Gemini')
-  })
-
-  it('validateApiProfile requires baseUrl for gemini', () => {
-    const profile = createDefaultGeminiProfile({ baseUrl: '', apiKey: 'k' })
-    expect(validateApiProfile(profile)).toMatch(/API URL/)
-  })
-
-  it('validateApiProfile passes for a complete gemini profile', () => {
-    const profile = createDefaultGeminiProfile({ apiKey: 'k' })
-    expect(validateApiProfile(profile)).toBeNull()
-  })
-})
-
-describe('switchApiProfileProvider gemini branch', () => {
-  it('switches openai → gemini using gemini defaults', () => {
-    const base = createDefaultOpenAIProfile({ apiKey: 'sk-abc', baseUrl: 'https://api.openai.com/v1' })
-    const next = switchApiProfileProvider(base, 'gemini')
-    expect(next.provider).toBe('gemini')
-    expect(next.baseUrl).toBe(DEFAULT_GEMINI_BASE_URL)
-    expect(next.model).toBe(DEFAULT_GEMINI_MODEL)
-    expect(next.apiMode).toBe('images')
-    expect(next.codexCli).toBe(false)
-    expect(next.apiProxy).toBe(false)
-    expect(next.apiKey).toBe('sk-abc')
-  })
-
-  it('round-trips drafts: openai → gemini → openai retains openai baseUrl', () => {
-    const base = createDefaultOpenAIProfile({ baseUrl: 'https://x.example/v1', model: 'gpt-image-2', apiKey: 'k' })
-    const gem = switchApiProfileProvider(base, 'gemini')
-    const back = switchApiProfileProvider(gem, 'openai')
-    expect(back.baseUrl).toBe('https://x.example/v1')
-    expect(back.model).toBe('gpt-image-2')
-  })
-})
-
-describe('isBuiltinProfile', () => {
-  it('returns true for ids starting with builtin-', () => {
-    expect(isBuiltinProfile({ id: 'builtin-gemini-flash' })).toBe(true)
-    expect(BUILTIN_PROFILE_ID_PREFIX).toBe('builtin-')
-  })
-  it('returns false for user profile ids', () => {
-    expect(isBuiltinProfile({ id: 'default-openai' })).toBe(false)
-    expect(isBuiltinProfile({ id: 'gemini-abc123' })).toBe(false)
-    expect(isBuiltinProfile(null)).toBe(false)
-    expect(isBuiltinProfile(undefined)).toBe(false)
-  })
-})
-
-describe('normalizeSettings + builtin profiles', () => {
-  it('injects builtin profiles to the top of profiles list', () => {
-    const builtins = [
-      createDefaultGeminiProfile({ id: 'builtin-gemini-flash', name: 'Flash', apiKey: 'k' }),
-    ]
-    const settings = normalizeSettings({ profiles: [], activeProfileId: '' }, { builtinProfiles: builtins })
-    expect(settings.profiles[0].id).toBe('builtin-gemini-flash')
-  })
-
-  it('does not duplicate builtin profile when called twice', () => {
-    const builtins = [
-      createDefaultGeminiProfile({ id: 'builtin-gemini-flash', name: 'Flash', apiKey: 'k' }),
-    ]
-    const once = normalizeSettings({ profiles: [], activeProfileId: '' }, { builtinProfiles: builtins })
-    const twice = normalizeSettings(once, { builtinProfiles: builtins })
-    expect(twice.profiles.filter((p) => p.id === 'builtin-gemini-flash')).toHaveLength(1)
-  })
-
-  it('defaults to empty builtins when option omitted (no env)', () => {
-    const settings = normalizeSettings({ profiles: [], activeProfileId: '' })
-    expect(settings.profiles.filter((p) => p.id.startsWith('builtin-'))).toEqual([])
-  })
-})
-
-describe('builtin profile model selections', () => {
-  it('persists user-changed model on a builtin profile', () => {
-    const builtin = createDefaultGeminiProfile({ id: 'builtin-x', name: 'X', apiKey: 'k', model: 'gemini-3.1-flash-image' })
-    const settings = normalizeSettings(
-      { profiles: [{ ...builtin, model: 'gemini-3-pro-preview' }], activeProfileId: 'builtin-x' },
-      { builtinProfiles: [builtin] },
-    )
-    expect(settings.profiles[0].id).toBe('builtin-x')
-    expect(settings.profiles[0].model).toBe('gemini-3-pro-preview')
-    expect(settings.builtinProfileModelSelections?.['builtin-x']).toBe('gemini-3-pro-preview')
-  })
-
-  it('restores model from selections when rawProfiles do not contain the builtin', () => {
-    const builtin = createDefaultGeminiProfile({ id: 'builtin-x', name: 'X', apiKey: 'k', model: 'gemini-3.1-flash-image' })
-    const settings = normalizeSettings(
-      { profiles: [], activeProfileId: '', builtinProfileModelSelections: { 'builtin-x': 'gemini-3.1-pro-preview' } },
-      { builtinProfiles: [builtin] },
-    )
-    expect(settings.profiles[0].model).toBe('gemini-3.1-pro-preview')
+    expect(p.template).toBe('http-image')
+    expect(p.submit.path).toBe('images/generations')
   })
 })

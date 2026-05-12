@@ -92,12 +92,19 @@ export default function Header() {
           <div className="flex-1 min-w-0 pr-2">
             <h1 className="inline-flex items-start relative">
               <a
-                href="https://github.com/CookSleep/gpt_image_playground"
+                href="https://github.com/qiliangjia/qlj-image-playground"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-[17px] sm:text-lg font-bold tracking-tight text-gray-800 dark:text-gray-100 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+                className="inline-flex items-center gap-2 text-[17px] sm:text-lg font-bold tracking-tight text-gray-800 dark:text-gray-100 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
               >
-                GPT Image Playground
+                <img
+                  src="./pwa-icon.svg"
+                  alt=""
+                  width="24"
+                  height="24"
+                  className="h-6 w-6 rounded-md shrink-0"
+                />
+                Image Playground
               </a>
               {hasUpdate && latestRelease && (
                 <a

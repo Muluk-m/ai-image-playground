@@ -1,4 +1,21 @@
-import type { AppSettings, TaskParams } from '../types'
+import type { ApiMode, AppSettings, TaskParams } from '../types'
+
+/**
+ * BYOK adapter 消费的扁平 profile shape。
+ *
+ * `callImageApi` 把 `UserByokProfile`（含嵌套 preferences）拍平成这个结构再交给
+ * OpenAI-compat / Gemini adapter，让 adapter 不必感知 `ClientProfile` 的 discriminated union。
+ */
+export interface BYOKAdapterProfile {
+  baseUrl: string
+  apiKey: string
+  model: string
+  apiMode: ApiMode
+  timeout: number
+  codexCli: boolean
+  apiProxy: boolean
+  responseFormatB64Json?: boolean
+}
 
 export const MIME_MAP: Record<string, string> = {
   png: 'image/png',
@@ -16,7 +33,6 @@ export interface CallApiOptions {
   /** 输入图片的 data URL 列表 */
   inputImageDataUrls: string[]
   maskDataUrl?: string
-  onFalRequestEnqueued?: (request: { requestId: string; endpoint: string }) => void
   onCustomTaskEnqueued?: (task: { taskId: string }) => void
 }
 

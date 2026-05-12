@@ -1,6 +1,7 @@
-import type { ApiProfile, TaskParams } from '../types'
+import type { TaskParams } from '../types'
 import {
   assertImageInputPayloadSize,
+  type BYOKAdapterProfile,
   type CallApiOptions,
   type CallApiResult,
   getApiErrorMessage,
@@ -120,7 +121,7 @@ function joinUrl(base: string, suffix: string): string {
   return `${base.replace(/\/+$/, '')}/${suffix.replace(/^\/+/, '')}`
 }
 
-export async function callGeminiImageApi(opts: CallApiOptions, profile: ApiProfile): Promise<CallApiResult> {
+export async function callGeminiImageApi(opts: CallApiOptions, profile: BYOKAdapterProfile): Promise<CallApiResult> {
   if (opts.maskDataUrl) {
     throw new Error('Gemini 服务商不支持遮罩编辑，请改用 OpenAI 服务商')
   }

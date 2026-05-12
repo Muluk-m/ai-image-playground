@@ -3,7 +3,11 @@ import type { PublicChannel } from './types'
 
 const RAW: { channels: PublicChannel[] } = publicChannelsJson as { channels: PublicChannel[] }
 
-const visibleChannels: PublicChannel[] = RAW.channels.filter((c) => c.disabled !== true)
+// 测试模式下不加载真实 channel，避免污染单测期望（注入 builtin-edge profile 等）。
+// 测试需要构造特定 channel 时，通过 vi.mock('./publicChannels', ...) 覆写。
+const IS_TEST = import.meta.env.MODE === 'test'
+
+const visibleChannels: PublicChannel[] = IS_TEST ? [] : RAW.channels.filter((c) => c.disabled !== true)
 const channelsById = new Map(visibleChannels.map((c) => [c.id, c]))
 
 export function getPublicChannels(): PublicChannel[] {

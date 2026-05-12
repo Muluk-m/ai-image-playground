@@ -54,10 +54,6 @@ export interface CustomProviderDefinition {
 
 import type { ClientProfile } from './lib/channels/types'
 
-// 过渡期 re-export：UI / store / 旧测试仍按 ApiProfile 平铺字段编写。
-// 实际类型定义在 apiProfiles.ts 中（合成视图）。下一个子轮 UI 迁到 ClientProfile 后此 re-export 删除。
-export type { ApiProfile } from './lib/apiProfiles'
-
 export interface AppSettings {
   customProviders: CustomProviderDefinition[]
   providerOrder?: string[]
