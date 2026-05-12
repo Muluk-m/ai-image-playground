@@ -1387,12 +1387,8 @@ export default function SettingsModal() {
                 </div>
 
               {activeIsBuiltin ? (
-                <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-relaxed text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
-                  <div className="font-medium mb-1">内置配置 · 不可查看/编辑</div>
-                  <div className="text-xs">
-                    为防止 API Key 泄露，此配置的所有字段（含 API URL、API Key、模型 ID）均不在界面显示。
-                    可在主界面参数栏的「模型」下拉中切换模型；如需更换服务商或自定义参数，请新建配置。
-                  </div>
+                <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
+                  内置模型
                 </div>
               ) : (<>
               <label className="block">
