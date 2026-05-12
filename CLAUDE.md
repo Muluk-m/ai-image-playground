@@ -27,7 +27,6 @@ React 19 · Vite 6 · TypeScript 5.8 · Zustand 5 · Vitest 4 · TailwindCSS 3�
 | provider | 实现文件 | 协议 |
 |---|---|---|
 | `openai` / `custom-*` | `openaiCompatibleImageApi.ts` | OpenAI 兼容 `/v1/images` 或 `/v1/responses` |
-| `fal` | `falAiImageApi.ts` | fal.ai 队列 SDK |
 | `gemini` | `geminiImageApi.ts` | Google 原生 `v1beta/models/{model}:generateContent` |
 
 **Gemini 请求 header 用 `x-api-key`，不是 `x-goog-api-key`**——因为浏览器 CORS preflight 对 sub2api 网关只放行前者；sub2api 后端两个 header 都接受。
