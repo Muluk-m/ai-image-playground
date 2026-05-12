@@ -24,6 +24,7 @@ import {
   switchApiProfileProvider,
 } from '../lib/apiProfiles'
 import { copyTextToClipboard, getClipboardFailureMessage } from '../lib/clipboard'
+import { getProviderModelOptions } from '../lib/providerModels'
 import type { ApiProfile, AppSettings, CustomProviderDefinition } from '../types'
 import { useCloseOnEscape } from '../hooks/useCloseOnEscape'
 import { usePreventBackgroundScroll } from '../hooks/usePreventBackgroundScroll'
@@ -1555,22 +1556,66 @@ export default function SettingsModal() {
                 <span className="mb-1.5 block text-sm text-gray-600 dark:text-gray-300">
                   模型 ID
                 </span>
-                <input
-                  value={activeProfile.model}
-                  onChange={(e) => updateActiveProfile({ model: e.target.value })}
-                  onBlur={(e) => commitActiveProfilePatch({ model: e.target.value })}
-                  type="text"
-                  list={activeProfile.models?.length ? `models-${activeProfile.id}` : undefined}
-                  placeholder={activeProfile.provider === 'fal' ? DEFAULT_FAL_MODEL : getDefaultModelForMode(activeProfile.apiMode ?? DEFAULT_SETTINGS.apiMode)}
-                  className="w-full rounded-xl border border-gray-200/70 bg-white/60 px-3 py-2.5 text-sm text-gray-700 outline-none transition focus:border-blue-300 dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-gray-200 dark:focus:border-blue-500/50"
-                />
-                {activeProfile.models?.length ? (
-                  <datalist id={`models-${activeProfile.id}`}>
-                    {activeProfile.models.map((m) => (
-                      <option key={m} value={m} />
-                    ))}
-                  </datalist>
-                ) : null}
+                {(() => {
+                  const providerModelOptions = getProviderModelOptions(activeProfile.provider)
+                  const checkedModels = activeProfile.models ?? []
+                  const toggleQuickModel = (model: string, checked: boolean) => {
+                    const next = checked
+                      ? Array.from(new Set([...checkedModels, model]))
+                      : checkedModels.filter((m) => m !== model)
+                    commitActiveProfilePatch({ models: next.length ? next : undefined })
+                  }
+                  return (
+                    <>
+                      <input
+                        value={activeProfile.model}
+                        onChange={(e) => updateActiveProfile({ model: e.target.value })}
+                        onBlur={(e) => commitActiveProfilePatch({ model: e.target.value })}
+                        type="text"
+                        list={providerModelOptions.length ? `models-${activeProfile.id}` : undefined}
+                        placeholder={activeProfile.provider === 'fal' ? DEFAULT_FAL_MODEL : getDefaultModelForMode(activeProfile.apiMode ?? DEFAULT_SETTINGS.apiMode)}
+                        className="w-full rounded-xl border border-gray-200/70 bg-white/60 px-3 py-2.5 text-sm text-gray-700 outline-none transition focus:border-blue-300 dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-gray-200 dark:focus:border-blue-500/50"
+                      />
+                      {providerModelOptions.length ? (
+                        <datalist id={`models-${activeProfile.id}`}>
+                          {providerModelOptions.map((m) => (
+                            <option key={m} value={m} />
+                          ))}
+                        </datalist>
+                      ) : null}
+                      {providerModelOptions.length > 0 && (
+                        <div className="mt-2">
+                          <div className="mb-1 text-xs text-gray-500 dark:text-gray-400">
+                            主界面快选模型（勾选多个则在主界面参数栏显示模型下拉，留空则隐藏）
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            {providerModelOptions.map((model) => {
+                              const checked = checkedModels.includes(model)
+                              return (
+                                <label
+                                  key={model}
+                                  className={`inline-flex items-center gap-1.5 rounded-lg border px-2 py-1 text-xs cursor-pointer transition ${
+                                    checked
+                                      ? 'border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-500/40 dark:bg-blue-500/10 dark:text-blue-300'
+                                      : 'border-gray-200/70 bg-white/60 text-gray-600 hover:border-gray-300 dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-gray-300'
+                                  }`}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    onChange={(e) => toggleQuickModel(model, e.target.checked)}
+                                    className="h-3 w-3"
+                                  />
+                                  <span className="font-mono">{model}</span>
+                                </label>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )
+                })()}
                 <div data-selectable-text className="mt-1.5 text-xs text-gray-500 dark:text-gray-500">
                   {activeProfile.provider === 'fal' ? (
                     <>当前适配 <code className="rounded bg-gray-100 px-1 py-0.5 dark:bg-white/[0.06]">{DEFAULT_FAL_MODEL}</code>。</>
