@@ -665,3 +665,25 @@ describe('normalizeSettings + builtin profiles', () => {
     expect(settings.profiles.filter((p) => p.id.startsWith('builtin-'))).toEqual([])
   })
 })
+
+describe('builtin profile model selections', () => {
+  it('persists user-changed model on a builtin profile', () => {
+    const builtin = createDefaultGeminiProfile({ id: 'builtin-x', name: 'X', apiKey: 'k', model: 'gemini-3.1-flash-image' })
+    const settings = normalizeSettings(
+      { profiles: [{ ...builtin, model: 'gemini-3-pro-preview' }], activeProfileId: 'builtin-x' },
+      { builtinProfiles: [builtin] },
+    )
+    expect(settings.profiles[0].id).toBe('builtin-x')
+    expect(settings.profiles[0].model).toBe('gemini-3-pro-preview')
+    expect(settings.builtinProfileModelSelections?.['builtin-x']).toBe('gemini-3-pro-preview')
+  })
+
+  it('restores model from selections when rawProfiles do not contain the builtin', () => {
+    const builtin = createDefaultGeminiProfile({ id: 'builtin-x', name: 'X', apiKey: 'k', model: 'gemini-3.1-flash-image' })
+    const settings = normalizeSettings(
+      { profiles: [], activeProfileId: '', builtinProfileModelSelections: { 'builtin-x': 'gemini-3.1-pro-preview' } },
+      { builtinProfiles: [builtin] },
+    )
+    expect(settings.profiles[0].model).toBe('gemini-3.1-pro-preview')
+  })
+})

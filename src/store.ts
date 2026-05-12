@@ -308,9 +308,16 @@ function maybeOpenSupportPrompt(previousTasks: TaskRecord[], nextTasks: TaskReco
 
 export function getPersistedState(state: AppState) {
   const normalized = normalizeSettings(state.settings)
+  const builtinSelections: Record<string, string> = { ...(normalized.builtinProfileModelSelections ?? {}) }
+  for (const profile of normalized.profiles) {
+    if (isBuiltinProfile(profile) && profile.model?.trim()) {
+      builtinSelections[profile.id] = profile.model
+    }
+  }
   const settings: AppSettings = {
     ...normalized,
     profiles: normalized.profiles.filter((p) => !isBuiltinProfile(p)),
+    builtinProfileModelSelections: Object.keys(builtinSelections).length ? builtinSelections : undefined,
   }
   return {
     settings,

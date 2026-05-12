@@ -277,6 +277,7 @@ export default function InputBar() {
   const clearInputImages = useStore((s) => s.clearInputImages)
   const params = useStore((s) => s.params)
   const setParams = useStore((s) => s.setParams)
+  const setSettings = useStore((s) => s.setSettings)
   const settings = useStore((s) => s.settings)
   const reusedTaskApiProfileId = useStore((s) => s.reusedTaskApiProfileId)
   const setShowSettings = useStore((s) => s.setShowSettings)
@@ -1460,8 +1461,27 @@ export default function InputBar() {
     )
   }
 
+  const handleActiveModelChange = (nextModel: string) => {
+    if (!nextModel || nextModel === activeProfile.model) return
+    const nextProfiles = settings.profiles.map((profile) =>
+      profile.id === activeProfile.id ? { ...profile, model: nextModel } : profile,
+    )
+    setSettings({ profiles: nextProfiles })
+  }
+
   const renderParams = (cols: string) => (
     <div className={`grid ${cols} gap-2 text-xs flex-1`}>
+      {activeProfile.models && activeProfile.models.length > 0 && (
+        <label className="flex flex-col gap-0.5 col-span-2">
+          <span className="text-gray-400 dark:text-gray-500 ml-1">模型</span>
+          <Select
+            value={activeProfile.model}
+            onChange={(val) => handleActiveModelChange(String(val))}
+            options={activeProfile.models.map((m) => ({ label: m, value: m }))}
+            className={selectClass}
+          />
+        </label>
+      )}
       <label
         className="relative flex flex-col gap-0.5"
         onMouseEnter={showSizeHint}

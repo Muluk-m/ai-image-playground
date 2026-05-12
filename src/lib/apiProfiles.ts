@@ -449,6 +449,9 @@ export function normalizeApiProfile(input: unknown, fallback?: Partial<ApiProfil
     codexCli: Boolean(record.codexCli),
     apiProxy: typeof record.apiProxy === 'boolean' ? record.apiProxy : defaults.apiProxy,
     responseFormatB64Json: record.responseFormatB64Json === true ? true : undefined,
+    models: Array.isArray(record.models)
+      ? record.models.filter((m): m is string => typeof m === 'string' && m.trim().length > 0)
+      : undefined,
     providerDrafts: normalizeProviderDrafts(record.providerDrafts, customProviderIds),
   }
 }
@@ -489,9 +492,23 @@ export function normalizeSettings(input: Partial<AppSettings> | unknown, options
     : [legacyProfile]
 
   const builtins = options.builtinProfiles ?? getBuiltinProfiles()
+  const rawSelections = isRecord(record.builtinProfileModelSelections) ? record.builtinProfileModelSelections : {}
+  const builtinModelSelections: Record<string, string> = {}
+  for (const [key, value] of Object.entries(rawSelections)) {
+    if (typeof value === 'string' && value.trim()) builtinModelSelections[key] = value
+  }
+  // 优先采纳 rawProfiles 中内置 profile 的 model（用户本次修改），其次用 stored selections
   const builtinIds = new Set(builtins.map((p) => p.id))
+  for (const profile of rawProfiles) {
+    if (builtinIds.has(profile.id) && profile.model?.trim()) {
+      builtinModelSelections[profile.id] = profile.model
+    }
+  }
+  const builtinsWithOverrides = builtins.map((p) =>
+    builtinModelSelections[p.id] ? { ...p, model: builtinModelSelections[p.id] } : p,
+  )
   const userProfiles = rawProfiles.filter((p) => !builtinIds.has(p.id))
-  const profiles = builtins.length ? [...builtins, ...userProfiles] : userProfiles
+  const profiles = builtinsWithOverrides.length ? [...builtinsWithOverrides, ...userProfiles] : userProfiles
   const profilesWithFallback = profiles.length ? profiles : [legacyProfile]
 
   const activeProfileId = typeof record.activeProfileId === 'string' && profilesWithFallback.some((p) => p.id === record.activeProfileId)
@@ -516,6 +533,7 @@ export function normalizeSettings(input: Partial<AppSettings> | unknown, options
     enterSubmit: typeof record.enterSubmit === 'boolean' ? record.enterSubmit : false,
     profiles: profilesWithFallback,
     activeProfileId,
+    builtinProfileModelSelections: Object.keys(builtinModelSelections).length ? builtinModelSelections : undefined,
   }
 }
 

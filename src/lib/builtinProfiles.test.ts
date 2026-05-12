@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseBuiltinProfiles } from './builtinProfiles'
+import { DEFAULT_BUILTIN_PROFILES, getBuiltinProfiles, parseBuiltinProfiles } from './builtinProfiles'
 
 describe('parseBuiltinProfiles', () => {
   it('returns empty array for undefined / empty / invalid JSON', () => {
@@ -36,5 +36,19 @@ describe('parseBuiltinProfiles', () => {
     const profiles = parseBuiltinProfiles(json)
     expect(profiles).toHaveLength(2)
     expect(profiles.map((p) => p.id)).toEqual(['builtin-a', 'builtin-a-2'])
+  })
+})
+
+describe('DEFAULT_BUILTIN_PROFILES', () => {
+  it('includes a sub2api Gemini profile with model candidates', () => {
+    const sub2api = DEFAULT_BUILTIN_PROFILES.find((p) => p.id === 'builtin-sub2api-gemini')
+    expect(sub2api).toBeDefined()
+    expect(sub2api?.provider).toBe('gemini')
+    expect(sub2api?.baseUrl).toBe('https://sub2api.qiliangjia.one/antigravity/v1beta')
+    expect(sub2api?.models?.includes('gemini-3.1-flash-image')).toBe(true)
+  })
+
+  it('getBuiltinProfiles returns empty array in test mode (no env override)', () => {
+    expect(getBuiltinProfiles()).toEqual([])
   })
 })

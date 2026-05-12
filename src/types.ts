@@ -64,6 +64,8 @@ export interface ApiProfile {
   codexCli: boolean
   apiProxy: boolean
   responseFormatB64Json?: boolean
+  /** 可选：声明该配置推荐的模型列表，用于 UI 快选。仅内置 profile 使用。 */
+  models?: string[]
   providerDrafts?: Partial<Record<ApiProvider, Partial<Pick<ApiProfile, 'baseUrl' | 'model' | 'apiMode' | 'codexCli' | 'apiProxy' | 'responseFormatB64Json'>>>>
 }
 
@@ -85,6 +87,8 @@ export interface AppSettings {
   enterSubmit: boolean
   profiles: ApiProfile[]
   activeProfileId: string
+  /** 内置 profile 的 model 用户选择记忆：id → model。允许内置 profile 的 model 字段被用户修改并持久化，但不存其它字段。 */
+  builtinProfileModelSelections?: Record<string, string>
 }
 
 // ===== 任务参数 =====
