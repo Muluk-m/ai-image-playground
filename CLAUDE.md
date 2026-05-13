@@ -30,7 +30,9 @@ monorepo，含：
 
 ## 部署流程
 
-线上跑在 mac mini 上：BFF（apps/bff）通过 launchd 常驻，**同时托管 apps/web 的静态产物 + 提供 api-proxy 与 queue 路由**。Claude 只负责把代码 push 到 `main`，**不要自动跑 `pnpm deploy:cf`**（CF Pages 路径已弃用），部署由用户在 mac mini 上手动触发：
+线上跑在 mac mini 上：BFF（apps/bff）通过 launchd 常驻，**同时托管 apps/web 的静态产物 + 提供 api-proxy 与 queue 路由**。CF Pages 路径已弃用，**不要再跑 `pnpm deploy:cf`**。
+
+push 完成后，Claude 默认通过 ssh 到 mac mini 执行下面一条命令完成部署（除非用户明确说「先不部署」）：
 
 ```sh
 ssh macmini "cd /Users/qiqian/workspace/repos/qlj-image-playground && \
@@ -42,7 +44,7 @@ ssh macmini "cd /Users/qiqian/workspace/repos/qlj-image-playground && \
   echo DONE"
 ```
 
-push 后**不要主动提醒**用户去跑这条；除非用户明确问「怎么部署」。
+只要看到末尾 `DONE` 就视为部署成功。stash pop 在没有本地未提交改动时会报 "No stash entries found"，**这不是错误**。
 
 ## 服务商架构（apps/web）
 
