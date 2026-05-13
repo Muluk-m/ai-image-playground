@@ -16,11 +16,29 @@ function isApiPath(pathname: string): boolean {
   return pathname.startsWith('/v1/') || pathname.startsWith('/api-proxy/') || pathname === '/health'
 }
 
-async function serveStatic(path: string): Promise<Response | null> {
+/**
+ * 给静态资源设 cache-control：
+ * - hash 资源（vite contenthash 的 assets/*.js / *.css / *.webp 等）→ 1 年 immutable
+ *   （文件名变化即 cache miss，安全）
+ * - sw.js / index.html / manifest.webmanifest → no-cache（每次 revalidate，
+ *   保证 deploy 后客户端立刻拿新版）
+ * - 其它（图标、ico）→ no-cache 兜底
+ */
+function cacheControlFor(pathname: string): string {
+  if (pathname.startsWith('/assets/')) return 'public, max-age=31536000, immutable'
+  if (pathname === '/sw.js' || pathname === '/index.html' || pathname === '/manifest.webmanifest') {
+    return 'no-cache'
+  }
+  return 'no-cache'
+}
+
+async function serveStatic(pathname: string): Promise<Response | null> {
   if (!STATIC_DIR) return null
-  const file = Bun.file(join(STATIC_DIR, path))
-  if (await file.exists()) return new Response(file)
-  return null
+  const file = Bun.file(join(STATIC_DIR, pathname))
+  if (!(await file.exists())) return null
+  return new Response(file, {
+    headers: { 'cache-control': cacheControlFor(pathname) },
+  })
 }
 
 const indexFile = STATIC_DIR ? Bun.file(join(STATIC_DIR, 'index.html')) : null
@@ -30,7 +48,9 @@ async function serveSpaFallback(): Promise<Response | null> {
   if (!indexFile) return null
   indexExists ??= await indexFile.exists()
   if (!indexExists) return null
-  return new Response(Bun.file(indexFile.name!))
+  return new Response(Bun.file(indexFile.name!), {
+    headers: { 'cache-control': 'no-cache' },
+  })
 }
 
 export const app = new Elysia()
