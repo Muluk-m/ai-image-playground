@@ -6,8 +6,7 @@
       "apps/**/*.ts",
       "apps/**/*.tsx",
       "apps/**/*.mjs",
-      "packages/**/*.ts",
-      "scripts/**/*.mjs"
+      "packages/**/*.ts"
     ],
     "experimentalScannerIgnores": [
       "**/dist/**",
