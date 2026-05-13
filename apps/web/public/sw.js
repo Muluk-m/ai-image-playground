@@ -1,4 +1,6 @@
-const CACHE_NAME = 'gpt-image-playground-v0.1.5'
+// __BUILD_VERSION__ 由 vite build 时 injectSwBuildVersion plugin 替换为
+// 每次构建唯一的 token；dev mode 下保持占位符（dev 不注册 SW）。
+const CACHE_NAME = 'image-playground-__BUILD_VERSION__'
 const APP_SHELL = ['./', './index.html', './manifest.webmanifest', './pwa-icon.svg']
 
 self.addEventListener('install', (event) => {

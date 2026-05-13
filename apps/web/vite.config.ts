@@ -1,6 +1,8 @@
-import { defineConfig } from 'vite'
+import { defineConfig, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
-import { readFileSync } from 'fs'
+import { readFileSync, writeFileSync } from 'fs'
+import { resolve } from 'path'
+import { randomBytes } from 'crypto'
 import { normalizeDevProxyConfig } from './src/lib/devProxy'
 
 const pkg = JSON.parse(readFileSync('./package.json', 'utf-8'))
@@ -18,6 +20,31 @@ function loadDevProxyConfig() {
 }
 
 const EDGE_PROXY_TARGET = process.env.EDGE_PROXY_TARGET ?? 'http://localhost:8788'
+
+/**
+ * 把 dist/sw.js 中的 __BUILD_VERSION__ 占位符替换为每次构建唯一的 token。
+ * SW 内 CACHE_NAME 用此 token，浏览器每次 fetch 到新 sw.js 时 byte 不同 →
+ * install 新 SW → activate → clients.claim → 前端 controllerchange 监听到
+ * → location.reload() 自动免强刷。
+ */
+function injectSwBuildVersion(): Plugin {
+  return {
+    name: 'inject-sw-build-version',
+    apply: 'build',
+    closeBundle() {
+      const swPath = resolve(__dirname, 'dist/sw.js')
+      try {
+        const content = readFileSync(swPath, 'utf-8')
+        const buildId = `${Date.now().toString(36)}-${randomBytes(3).toString('hex')}`
+        writeFileSync(swPath, content.replace(/__BUILD_VERSION__/g, buildId))
+      } catch (err) {
+        const e = err as NodeJS.ErrnoException
+        if (e.code === 'ENOENT') return // dist/sw.js 不存在（不应该），忽略
+        throw err
+      }
+    },
+  }
+}
 
 export default defineConfig(({ command }) => {
   const isServe = command === 'serve'
@@ -49,7 +76,7 @@ export default defineConfig(({ command }) => {
   }
 
   return {
-    plugins: [react()],
+    plugins: [react(), injectSwBuildVersion()],
     base: './',
     define: {
       __APP_VERSION__: JSON.stringify(pkg.version),
