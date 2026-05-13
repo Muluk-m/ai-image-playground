@@ -17,6 +17,12 @@ import type { BuiltinEdgeProfile, ProviderKind, PublicChannel } from './types'
 
 const POLL_BACKOFF_MS = [500, 1000, 2000, 3000, 5000]
 const POLL_MAX_MS = 30 * 60 * 1000
+/**
+ * 连续这么多次「网络错误 / 5xx」就放弃。设计目的：BFF 抖动（重启空窗、
+ * cf tunnel 重连）能容忍几次；但 BFF 真死了不会让前端傻等 30 分钟。
+ * 4xx（包括 404）走「快错」路径，不计入此计数，立即抛错。
+ */
+const POLL_MAX_CONSECUTIVE_FAILURES = 5
 
 /**
  * Queue 模式：submit → polling → fetch metadata → fetch each image binary。
@@ -151,13 +157,41 @@ async function submit(
 async function poll(base: string, requestId: string): Promise<void> {
   const url = `${base}/v1/queue/requests/${requestId}/status`
   const deadline = Date.now() + POLL_MAX_MS
+  let consecutiveFailures = 0
+  let lastTransientError: unknown = null
 
   for (let attempt = 0; Date.now() < deadline; attempt++) {
     await sleep(POLL_BACKOFF_MS[Math.min(attempt, POLL_BACKOFF_MS.length - 1)]!)
-    const res = await fetch(url)
+
+    let res: Response
+    try {
+      res = await fetch(url)
+    } catch (err) {
+      // 网络断 / DNS / CORS 都进这里。视为短暂故障，重试。
+      consecutiveFailures++
+      lastTransientError = err
+      if (consecutiveFailures >= POLL_MAX_CONSECUTIVE_FAILURES) {
+        throw new Error(`BFF 连续 ${POLL_MAX_CONSECUTIVE_FAILURES} 次连不上：${err instanceof Error ? err.message : String(err)}`)
+      }
+      continue
+    }
+
     if (!res.ok) {
+      if (res.status >= 500) {
+        // 5xx 视为 BFF 短暂故障，按 consecutive failure 计数；超过阈值再放弃。
+        consecutiveFailures++
+        lastTransientError = new Error(`BFF status ${res.status}`)
+        if (consecutiveFailures >= POLL_MAX_CONSECUTIVE_FAILURES) {
+          throw new Error(`BFF 连续 ${POLL_MAX_CONSECUTIVE_FAILURES} 次返 ${res.status}：${await getApiErrorMessage(res)}`)
+        }
+        continue
+      }
+      // 4xx 是确定性错误（请求 ID 不存在 / 参数错），立即放弃，不重试。
       throw new Error(`BFF status 查询失败：${await getApiErrorMessage(res)}`)
     }
+
+    consecutiveFailures = 0
+    lastTransientError = null
     const json = (await res.json()) as StatusResponse
     if (json.status === 'completed') return
     if (json.status === 'failed') {
@@ -167,6 +201,9 @@ async function poll(base: string, requestId: string): Promise<void> {
       throw new Error('BFF 任务被取消')
     }
     // queued / in_progress: 继续
+  }
+  if (lastTransientError) {
+    throw new Error(`BFF 任务超过 ${POLL_MAX_MS / 1000}s 未完成，最后一次错误：${lastTransientError instanceof Error ? lastTransientError.message : String(lastTransientError)}`)
   }
   throw new Error(`BFF 任务超过 ${POLL_MAX_MS / 1000}s 未完成`)
 }
