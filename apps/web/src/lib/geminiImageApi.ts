@@ -80,8 +80,10 @@ export function buildGeminiRequestBody(opts: {
     if (part) parts.push(part)
   }
 
+  // gemini-3-pro-image-preview 强制要求同时声明 TEXT + IMAGE，否则返回 INVALID_ARGUMENT；
+  // 2.5 Flash Image 对两种写法都接受。文档：https://ai.google.dev/gemini-api/docs/image-generation
   const generationConfig: GeminiRequestBody['generationConfig'] = {
-    responseModalities: ['IMAGE'],
+    responseModalities: ['TEXT', 'IMAGE'],
   }
   const n = Math.max(1, opts.params.n || 1)
   if (n > 1) generationConfig.candidateCount = n

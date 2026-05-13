@@ -27,7 +27,7 @@ describe('buildGeminiRequestBody', () => {
     expect(body.contents[0].parts).toEqual([{ text: 'a cat' }])
     expect(body.generationConfig?.imageConfig).toBeUndefined()
     expect(body.generationConfig?.candidateCount).toBeUndefined()
-    expect(body.generationConfig?.responseModalities).toEqual(['IMAGE'])
+    expect(body.generationConfig?.responseModalities).toEqual(['TEXT', 'IMAGE'])
   })
 
   it('attaches inlineData parts for reference images', () => {
