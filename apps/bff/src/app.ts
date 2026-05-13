@@ -26,9 +26,11 @@ function isApiPath(pathname: string): boolean {
  */
 function cacheControlFor(pathname: string): string {
   if (pathname.startsWith('/assets/')) return 'public, max-age=31536000, immutable'
-  if (pathname === '/sw.js' || pathname === '/index.html' || pathname === '/manifest.webmanifest') {
-    return 'no-cache'
-  }
+  // sw.js 必须每次 deploy 后客户端立刻拿到最新版；CF Edge 对 .js 默认会边缘缓存，
+  // no-cache 只是允许缓存但需要 revalidate。用 no-store 强制不缓存，叠加 private
+  // 阻止任何共享 cache 持有副本。
+  if (pathname === '/sw.js') return 'private, no-store, no-cache, must-revalidate, max-age=0'
+  if (pathname === '/index.html' || pathname === '/manifest.webmanifest') return 'no-cache'
   return 'no-cache'
 }
 
