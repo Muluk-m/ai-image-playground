@@ -8,10 +8,6 @@ export type ProviderKind =
   | 'openai-queue'
   | 'gemini-queue'
 
-export function isQueueKind(kind: ProviderKind): kind is 'openai-queue' | 'gemini-queue' {
-  return kind === 'openai-queue' || kind === 'gemini-queue'
-}
-
 export type ChannelCapability = 'generate' | 'edit' | 'mask'
 
 export interface ChannelModel {

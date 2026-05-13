@@ -1,4 +1,5 @@
 import type {
+  QueueProvider,
   ResultResponse,
   StatusResponse,
   SubmitResponse,
@@ -6,6 +7,7 @@ import type {
 import type { ImageApiResponse } from '../../types'
 import { parseGeminiResponse, type GeminiResponse } from '../geminiImageApi'
 import {
+  applyCodexCliPromptGuard,
   assertImageInputPayloadSize,
   getApiErrorMessage,
   getDataUrlEncodedByteSize,
@@ -14,41 +16,41 @@ import {
   type CallApiResult,
 } from '../imageApiShared'
 import { parseOpenAICompatResponse } from './edgeClient'
-import type { BuiltinEdgeProfile, PublicChannel } from './types'
+import type { BuiltinEdgeProfile, ProviderKind, PublicChannel } from './types'
 
 const POLL_BACKOFF_MS = [500, 1000, 2000, 3000, 5000]
-const POLL_MAX_MS = 30 * 60 * 1000 // 30 分钟硬上限
+const POLL_MAX_MS = 30 * 60 * 1000
 
 /**
- * Queue 模式：submit → polling → fetch result，把 BFF 转发的上游原始响应交给
- * 现有 OpenAI / Gemini parser 复用。
+ * Queue 模式：submit → polling → fetch result。
  *
  * 浏览器 ↔ BFF 全是 < 1s 短请求；BFF 在 mac mini 上用 localhost 调 sub2api，
  * 任务多久都不受 CF Edge 100s 限制。
+ *
+ * channel.bffBaseUrl 缺省 / 空字符串视为同源（前端跟 BFF 同 cf tunnel 域名，
+ * fetch 用相对路径走 BFF）。
  */
 export async function callQueueChannelApi(
   opts: CallApiOptions,
   profile: BuiltinEdgeProfile,
   channel: PublicChannel,
 ): Promise<CallApiResult> {
-  if (channel.kind !== 'openai-queue' && channel.kind !== 'gemini-queue') {
-    throw new Error(`Not a queue channel: ${channel.kind}`)
-  }
-  if (channel.bffBaseUrl == null) {
-    throw new Error(`queue channel ${channel.id} 缺少 bffBaseUrl`)
+  const provider = toQueueProvider(channel.kind)
+  if (!provider) {
+    throw new Error(`callQueueChannelApi: 不支持的 channel kind ${channel.kind}`)
   }
   if (opts.maskDataUrl) {
-    throw new Error('queue 模式暂不支持遮罩编辑（mask）')
+    throw new Error('queue 模式暂不支持遮罩编辑（mask），请改用其它 channel 或 BYOK profile')
   }
   assertImageInputPayloadSize(
     opts.inputImageDataUrls.reduce((sum, url) => sum + getDataUrlEncodedByteSize(url), 0),
   )
 
-  const provider = channel.kind === 'openai-queue' ? 'openai-compat' : 'gemini'
   const model = profile.selectedModelId
-  const base = channel.bffBaseUrl
+  const base = (channel.bffBaseUrl ?? '').replace(/\/+$/, '')
+  const codexCli = Boolean(channel.defaults.codexCli)
 
-  const requestId = await submit(base, provider, model, opts)
+  const requestId = await submit(base, provider, model, opts, codexCli)
   await poll(base, requestId)
   const payload = await fetchResult(base, requestId)
 
@@ -71,17 +73,27 @@ export async function callQueueChannelApi(
   }
 }
 
+/** 把 channel.kind 归一化到 BFF queue 协议的 provider 维度。 */
+export function toQueueProvider(kind: ProviderKind): QueueProvider | null {
+  if (kind === 'openai-compat' || kind === 'openai-queue') return 'openai-compat'
+  if (kind === 'gemini' || kind === 'gemini-queue') return 'gemini'
+  return null
+}
+
 async function submit(
   base: string,
-  provider: 'openai-compat' | 'gemini',
+  provider: QueueProvider,
   model: string,
   opts: CallApiOptions,
+  codexCli: boolean,
 ): Promise<string> {
+  // codex CLI 模式：prompt 加 guard 前缀 + quality 字段丢弃（codex 网关会拒绝）。
+  // 跟 edgeClient OpenAI 路径行为对齐，由前端在 submit body 里直接应用。
   const body: Record<string, unknown> = {
-    prompt: opts.prompt,
+    prompt: applyCodexCliPromptGuard(opts.prompt, codexCli),
   }
   if (opts.params.size && opts.params.size !== 'auto') body.size = opts.params.size
-  if (opts.params.quality && opts.params.quality !== 'auto') body.quality = opts.params.quality
+  if (!codexCli && opts.params.quality && opts.params.quality !== 'auto') body.quality = opts.params.quality
   if (opts.params.n && opts.params.n > 1) body.n = opts.params.n
   if (opts.inputImageDataUrls.length) body.input_images = opts.inputImageDataUrls
 
