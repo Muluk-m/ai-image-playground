@@ -288,4 +288,35 @@ describe('handleProxyRequest keep-alive streaming', () => {
     // JSON spec 允许任意 leading whitespace，下面这步等价于客户端 response.json()
     expect(JSON.parse(assembled)).toMatchObject({ ok: true })
   })
+
+  it('aborts upstream fetch when the client cancels the response stream', async () => {
+    let upstreamAborted = false
+    const fetchMock = vi.fn((_url: string, init: RequestInit) => {
+      return new Promise<Response>((_resolve, reject) => {
+        init.signal?.addEventListener('abort', () => {
+          upstreamAborted = true
+          const err = new Error('aborted')
+          err.name = 'AbortError'
+          reject(err)
+        })
+        // 永不主动 resolve；只能由 abort 中断
+      })
+    })
+
+    const res = await handleProxyRequest({
+      request: makeRequest('POST', 'http://localhost/api-proxy/x/images/generations'),
+      channel: bearerChannel,
+      path: 'images/generations',
+      env: { OPENAI_API_KEY: 'sk-real' },
+      fetchFn: fetchMock as unknown as typeof fetch,
+      heartbeatIntervalMs: 10,
+    })
+
+    // 立即取消客户端 stream，应触发 upstream fetch abort
+    await res.body!.cancel()
+
+    // cancel 是同步触发 controller.abort()，给 fetch mock 的 abort listener 一个 tick 走通
+    await new Promise((r) => setTimeout(r, 5))
+    expect(upstreamAborted).toBe(true)
+  })
 })
