@@ -4,25 +4,22 @@ import type {
   StatusResponse,
   SubmitResponse,
 } from '@image-playground/shared'
-import type { ImageApiResponse } from '../../types'
-import { parseGeminiResponse, type GeminiResponse } from '../geminiImageApi'
+import type { TaskParams } from '../../types'
 import {
   applyCodexCliPromptGuard,
   assertImageInputPayloadSize,
   getApiErrorMessage,
   getDataUrlEncodedByteSize,
-  MIME_MAP,
   type CallApiOptions,
   type CallApiResult,
 } from '../imageApiShared'
-import { parseOpenAICompatResponse } from './edgeClient'
 import type { BuiltinEdgeProfile, ProviderKind, PublicChannel } from './types'
 
 const POLL_BACKOFF_MS = [500, 1000, 2000, 3000, 5000]
 const POLL_MAX_MS = 30 * 60 * 1000
 
 /**
- * Queue 模式：submit → polling → fetch result。
+ * Queue 模式：submit → polling → fetch metadata → fetch each image binary。
  *
  * 浏览器 ↔ BFF 全是 < 1s 短请求；BFF 在 mac mini 上用 localhost 调 sub2api，
  * 任务多久都不受 CF Edge 100s 限制。
@@ -52,12 +49,11 @@ export async function callQueueChannelApi(
 
   const requestId = await submit(base, provider, model, opts, codexCli, opts.clientRequestId)
   opts.onQueueSubmitted?.(requestId)
-  return await pollAndParse(opts, channel, provider, base, requestId)
+  return await pollAndFetch(channel, base, requestId)
 }
 
 /**
- * 刷新页面恢复路径：跳过 submit，用持久化的 requestId 直接 poll+fetchResult。
- * 调用者需保证 channel.kind 是 queue 类型；不再次校验 maskDataUrl 等输入约束。
+ * 刷新页面恢复路径：跳过 submit，用持久化的 requestId 直接 poll+fetch。
  */
 export async function resumeQueueChannelApi(
   opts: CallApiOptions,
@@ -69,35 +65,44 @@ export async function resumeQueueChannelApi(
   if (!provider) {
     throw new Error(`resumeQueueChannelApi: 不支持的 channel kind ${channel.kind}`)
   }
+  void provider
+  void opts
   void profile
   const base = (channel.bffBaseUrl ?? '').replace(/\/+$/, '')
-  return await pollAndParse(opts, channel, provider, base, requestId)
+  return await pollAndFetch(channel, base, requestId)
 }
 
-async function pollAndParse(
-  opts: CallApiOptions,
+async function pollAndFetch(
   channel: PublicChannel,
-  provider: QueueProvider,
   base: string,
   requestId: string,
 ): Promise<CallApiResult> {
   await poll(base, requestId)
-  const payload = await fetchResult(base, requestId)
-
-  if (provider === 'gemini') {
-    const parsed = parseGeminiResponse(payload as GeminiResponse)
-    return {
-      images: parsed.images,
-      revisedPrompts: parsed.revisedPrompts,
-      actualParamsList: parsed.images.map(() => undefined),
-    }
+  const meta = await fetchResultMeta(base, requestId)
+  if (!meta.images?.length) {
+    throw new Error('BFF 返回 completed 但 images 列表为空')
   }
 
-  const mime = MIME_MAP[opts.params.output_format] ?? 'image/png'
+  // 并发拉所有图片二进制，转 data URL 给上游既有存储路径用。
+  // 单图慢的话仍是用户下行瓶颈，但绕开了 base64 33% 膨胀 + JSON 双重开销。
   const downloadController = new AbortController()
-  const timer = setTimeout(() => downloadController.abort(), (channel.defaults.timeout ?? 600) * 1000)
+  const timer = setTimeout(
+    () => downloadController.abort(),
+    (channel.defaults.timeout ?? 600) * 1000,
+  )
   try {
-    return await parseOpenAICompatResponse(payload as ImageApiResponse, mime, downloadController.signal)
+    const images = await Promise.all(
+      meta.images.map((m) => fetchImageDataUrl(base, requestId, m.index, m.mime, downloadController.signal)),
+    )
+    const revisedPrompts = meta.images.map((m) => m.revised_prompt)
+    const actualParams = narrowActualParams(meta.actual_params)
+    return {
+      images,
+      revisedPrompts,
+      actualParams,
+      actualParamsList: meta.images.map(() => actualParams),
+      ...(meta.raw_image_urls?.length ? { rawImageUrls: meta.raw_image_urls } : {}),
+    }
   } finally {
     clearTimeout(timer)
   }
@@ -166,17 +171,62 @@ async function poll(base: string, requestId: string): Promise<void> {
   throw new Error(`BFF 任务超过 ${POLL_MAX_MS / 1000}s 未完成`)
 }
 
-async function fetchResult(base: string, requestId: string): Promise<unknown> {
+async function fetchResultMeta(base: string, requestId: string): Promise<ResultResponse> {
   const url = `${base}/v1/queue/requests/${requestId}`
   const res = await fetch(url)
   if (!res.ok) {
-    throw new Error(`BFF result 拉取失败：${await getApiErrorMessage(res)}`)
+    throw new Error(`BFF result meta 拉取失败：${await getApiErrorMessage(res)}`)
   }
   const json = (await res.json()) as ResultResponse
-  if (!json.payload) {
-    throw new Error(json.error?.message ?? 'BFF 返回 completed 但缺少 payload')
+  if (json.status === 'failed') {
+    throw new Error(json.error?.message ?? 'BFF 任务执行失败')
   }
-  return json.payload
+  if (json.status !== 'completed') {
+    throw new Error(`BFF 返回非 completed 状态：${json.status}`)
+  }
+  return json
+}
+
+async function fetchImageDataUrl(
+  base: string,
+  requestId: string,
+  index: number,
+  fallbackMime: string,
+  signal: AbortSignal,
+): Promise<string> {
+  const url = `${base}/v1/queue/requests/${requestId}/image/${index}`
+  const res = await fetch(url, { signal })
+  if (!res.ok) {
+    throw new Error(`BFF image #${index} 拉取失败：${await getApiErrorMessage(res)}`)
+  }
+  const mime = res.headers.get('content-type') ?? fallbackMime
+  const buf = await res.arrayBuffer()
+  return arrayBufferToDataUrl(buf, mime)
+}
+
+function arrayBufferToDataUrl(buf: ArrayBuffer, mime: string): string {
+  // 不用 FileReader，避免 vitest 默认 node 环境缺 FileReader 失败；
+  // 浏览器侧表现一致。chunked 转 string 是因为 String.fromCharCode 超大字符数会爆栈。
+  const bytes = new Uint8Array(buf)
+  const CHUNK = 0x8000
+  let binary = ''
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK))
+  }
+  return `data:${mime};base64,${btoa(binary)}`
+}
+
+const QUALITY_LITERALS = new Set<TaskParams['quality']>(['auto', 'low', 'medium', 'high'])
+
+/** BFF 用 string 透传 quality；只保留 TaskParams.quality union 接受的值。 */
+function narrowActualParams(p: { size?: string; quality?: string } | undefined): Partial<TaskParams> | undefined {
+  if (!p) return undefined
+  const out: Partial<TaskParams> = {}
+  if (typeof p.size === 'string') out.size = p.size
+  if (typeof p.quality === 'string' && QUALITY_LITERALS.has(p.quality as TaskParams['quality'])) {
+    out.quality = p.quality as TaskParams['quality']
+  }
+  return Object.keys(out).length ? out : undefined
 }
 
 function sleep(ms: number): Promise<void> {
