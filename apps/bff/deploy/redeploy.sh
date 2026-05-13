@@ -57,6 +57,24 @@ echo "▶ apps/web pnpm build"
 
 # 5. 重启 BFF
 DOMAIN="gui/$(id -u)"
+
+# 5a. 先 kill 任何残留 BFF bun 进程（孤儿进程，launchctl kickstart -k 不会清理）。
+#     若历史上用 `pnpm start` 手动起过、随后 install.sh 又 load 了一份，会出现
+#     双实例。`pgrep -f` 模糊匹配防止漏网。kill 当前自身 / 父 shell 误伤的概率
+#     极低（关键词独特），但保留 || true 容错。
+echo "▶ 清理残留 bun BFF 进程"
+PIDS=$(pgrep -f 'bun run.*apps/bff/src/index\.ts' || true)
+if [[ -n "${PIDS}" ]]; then
+  echo "  发现：${PIDS}"
+  echo "${PIDS}" | xargs kill 2>/dev/null || true
+  sleep 1
+  STILL=$(pgrep -f 'bun run.*apps/bff/src/index\.ts' || true)
+  if [[ -n "${STILL}" ]]; then
+    echo "  TERM 后仍存活：${STILL}，发送 KILL"
+    echo "${STILL}" | xargs kill -9 2>/dev/null || true
+  fi
+fi
+
 echo "▶ launchctl kickstart -k ${DOMAIN}/${LABEL}"
 if launchctl print "${DOMAIN}/${LABEL}" >/dev/null 2>&1; then
   launchctl kickstart -k "${DOMAIN}/${LABEL}"
@@ -69,6 +87,14 @@ if launchctl print "${DOMAIN}/${LABEL}" >/dev/null 2>&1; then
   fi
 else
   echo "⚠ ${DOMAIN}/${LABEL} 未加载；先跑 apps/bff/deploy/install.sh"
+  exit 1
+fi
+
+# 5b. 校验只有一个 BFF 在跑
+RUNNING=$(pgrep -f 'bun run.*apps/bff/src/index\.ts' | wc -l | tr -d ' ')
+if [[ "${RUNNING}" != "1" ]]; then
+  echo "⚠ 检测到 ${RUNNING} 个 BFF 进程在跑（应为 1）"
+  pgrep -fl 'bun run.*apps/bff/src/index\.ts' || true
   exit 1
 fi
 
