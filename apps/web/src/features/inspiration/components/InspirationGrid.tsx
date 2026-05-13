@@ -18,7 +18,7 @@ export default function InspirationGrid() {
   }
 
   return (
-    <ul className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5">
+    <ul className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4">
       {filtered.map((item) => (
         <li key={item.id}>
           <InspirationCard item={item} onClick={() => showDetail(item.id)} />
