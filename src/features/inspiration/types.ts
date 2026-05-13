@@ -24,6 +24,8 @@ export interface InspirationItem {
   category: string
   tags?: string[]
   author?: string
+  /** 原 prompt 出处链接（如推文 URL）；仅用于致谢展示，不参与逻辑 */
+  sourceUrl?: string
 }
 
 export interface InspirationManifest {
