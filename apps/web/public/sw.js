@@ -23,6 +23,15 @@ self.addEventListener('activate', (event) => {
 // 才能看到新内容。这类路径走 network-first：网络优先、失败再兜底缓存。
 const NETWORK_FIRST_PATHS = ['/inspiration-manifest.json']
 
+// 只对 Vite 哈希过的静态资源走 cache-first：dist/assets/* + app shell。
+// 其它一律放行——尤其 /v1/* (队列 API) 与 /api-proxy/* (透传 API)，
+// 状态会随时间变化、绝不能被 SW 缓存。
+const APP_SHELL_PATHS = new Set(['/', '/index.html', '/manifest.webmanifest', '/pwa-icon.svg'])
+
+function isStaticAsset(url) {
+  return url.pathname.startsWith('/assets/') || APP_SHELL_PATHS.has(url.pathname)
+}
+
 self.addEventListener('fetch', (event) => {
   const { request } = event
 
@@ -58,6 +67,8 @@ self.addEventListener('fetch', (event) => {
     )
     return
   }
+
+  if (!isStaticAsset(url)) return
 
   event.respondWith(
     caches.match(request).then((cached) => {
