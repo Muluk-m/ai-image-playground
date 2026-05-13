@@ -29,7 +29,7 @@ export default function InspirationDetail() {
   }
 
   return (
-    <div className="absolute inset-0 z-10 flex flex-col overflow-hidden rounded-3xl bg-white/95 dark:bg-gray-900/95 animate-modal-in">
+    <div className="absolute inset-0 z-10 flex flex-col overflow-hidden rounded-3xl bg-white dark:bg-gray-900 animate-modal-in">
       {/* Header */}
       <div className="flex items-center justify-between shrink-0 border-b border-gray-100 p-5 dark:border-white/[0.08]">
         <button
@@ -43,22 +43,31 @@ export default function InspirationDetail() {
           返回列表
         </button>
         <div className="text-xs text-gray-400 dark:text-gray-500">
-          {item.source === 'remote' ? '远程' : '内置'} · {item.recommendedProvider}
+          {item.recommendedProvider}
         </div>
       </div>
 
       {/* Body */}
       <div className="flex-1 overflow-y-auto custom-scrollbar">
         <div className="grid grid-cols-1 gap-6 p-5 md:grid-cols-[minmax(0,420px)_minmax(0,1fr)]">
-          {/* 左：大图 */}
-          <div className="overflow-hidden rounded-2xl bg-gray-100 dark:bg-white/[0.04]">
+          {/* 左：大图 — 点击在新标签页打开原图 */}
+          <a
+            href={item.imageUrl ?? item.thumbnailUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="group relative block overflow-hidden rounded-2xl bg-gray-100 dark:bg-white/[0.04]"
+            title="点击在新标签查看原图"
+          >
             <img
               src={item.imageUrl ?? item.thumbnailUrl}
               alt={item.title}
-              className="w-full h-auto object-contain"
+              className="w-full h-auto object-contain transition-transform duration-200 group-hover:scale-[1.01]"
               loading="lazy"
             />
-          </div>
+            <span className="pointer-events-none absolute right-2 top-2 rounded-md bg-black/50 px-2 py-1 text-[10px] font-medium text-white opacity-0 transition-opacity group-hover:opacity-100">
+              查看原图 ↗
+            </span>
+          </a>
 
           {/* 右：信息 */}
           <div className="flex flex-col gap-4">

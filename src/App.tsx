@@ -16,7 +16,6 @@ import MaskEditorModal from './components/MaskEditorModal'
 import ImageContextMenu from './components/ImageContextMenu'
 import SupportPromptModal from './components/SupportPromptModal'
 import InspirationPanel from './features/inspiration/components/InspirationPanel'
-import { initInspirationStore } from './features/inspiration/store'
 import { initHashRoute } from './features/inspiration/lib/hashRoute'
 
 export default function App() {
@@ -38,7 +37,6 @@ export default function App() {
     }
 
     initStore()
-    initInspirationStore()
     initHashRoute()
   }, [setSettings])
 

@@ -34,7 +34,3 @@ export interface InspirationManifest {
   items: InspirationItem[]
   categories?: string[]
 }
-
-export type InspirationItemWithSource = InspirationItem & {
-  source: 'builtin' | 'remote'
-}

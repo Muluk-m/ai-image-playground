@@ -2,7 +2,7 @@ import { describe, expect, it, beforeEach } from 'vitest'
 import { useInspirationStore } from './store'
 import type { InspirationItem } from './types'
 
-function makeItem(id: string, title: string): InspirationItem {
+function makeItem(id: string, title: string, category = '头像'): InspirationItem {
   return {
     id,
     title,
@@ -11,13 +11,12 @@ function makeItem(id: string, title: string): InspirationItem {
     params: { size: '1024x1024' },
     recommendedModel: 'gpt-image-2',
     recommendedProvider: 'openai-compat',
-    category: '头像',
+    category,
   }
 }
 
-describe('useInspirationStore merge', () => {
+describe('useInspirationStore', () => {
   beforeEach(() => {
-    // 重置 store 到初始 + builtin
     useInspirationStore.setState({
       items: [],
       categories: [],
@@ -28,33 +27,24 @@ describe('useInspirationStore merge', () => {
       searchKeyword: '',
       detailItemId: null,
     })
-    useInspirationStore.getState().loadBuiltin()
   })
 
-  it('loadBuiltin populates items with source=builtin', () => {
-    const items = useInspirationStore.getState().items
-    expect(items.length).toBeGreaterThan(0)
-    expect(items.every((i) => i.source === 'builtin')).toBe(true)
-  })
-
-  it('setRemoteItems with new id appends and marks source=remote', () => {
-    const before = useInspirationStore.getState().items.length
-    useInspirationStore.getState().setRemoteItems([makeItem('remote-x', 'Remote X')])
-    const items = useInspirationStore.getState().items
-    expect(items.length).toBe(before + 1)
-    const remoteX = items.find((i) => i.id === 'remote-x')
-    expect(remoteX?.source).toBe('remote')
-  })
-
-  it('setRemoteItems with same id as builtin overrides and marks source=remote', () => {
-    const builtinId = useInspirationStore.getState().items[0].id
+  it('setRemoteItems replaces items and derives categories from data', () => {
     useInspirationStore.getState().setRemoteItems([
-      { ...makeItem(builtinId, 'Override Title'), id: builtinId, title: 'Override Title' },
+      makeItem('a', 'A', '头像'),
+      makeItem('b', 'B', '海报'),
     ])
-    const items = useInspirationStore.getState().items
-    const overridden = items.find((i) => i.id === builtinId)
-    expect(overridden?.title).toBe('Override Title')
-    expect(overridden?.source).toBe('remote')
+    const { items, categories } = useInspirationStore.getState()
+    expect(items.map((i) => i.id)).toEqual(['a', 'b'])
+    expect(categories).toEqual(['头像', '海报'].sort((x, y) => x.localeCompare(y, 'zh-CN')))
+  })
+
+  it('setRemoteItems prefers explicit categories over derived', () => {
+    useInspirationStore.getState().setRemoteItems(
+      [makeItem('a', 'A', '头像')],
+      ['Custom A', 'Custom B'],
+    )
+    expect(useInspirationStore.getState().categories).toEqual(['Custom A', 'Custom B'])
   })
 
   it('openPanel / closePanel toggles + closing clears detailItemId', () => {

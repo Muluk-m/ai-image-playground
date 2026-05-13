@@ -1,17 +1,14 @@
 import { create } from 'zustand'
-import type { InspirationItem, InspirationItemWithSource, InspirationManifest } from './types'
-import builtinManifestJson from './data/builtin.json'
+import type { InspirationItem } from './types'
 import { fetchRemoteManifest, resolveRemoteManifestUrl } from './lib/fetchManifest'
 import { readCache, writeCache } from './lib/cache'
-
-const builtinManifest = builtinManifestJson as unknown as InspirationManifest
 
 const REMOTE_TTL_MS = 5 * 60 * 1000
 
 export type InspirationLoadStatus = 'idle' | 'loading-remote' | 'ready' | 'error'
 
 export interface InspirationState {
-  items: InspirationItemWithSource[]
+  items: InspirationItem[]
   categories: string[]
   status: InspirationLoadStatus
   remoteError: string | null
@@ -21,9 +18,8 @@ export interface InspirationState {
   searchKeyword: string
   detailItemId: string | null
 
-  loadBuiltin: () => void
   loadRemote: (signal?: AbortSignal) => Promise<void>
-  setRemoteItems: (items: InspirationItem[]) => void
+  setRemoteItems: (items: InspirationItem[], categories?: string[]) => void
   setRemoteError: (msg: string | null) => void
   setStatus: (status: InspirationLoadStatus) => void
 
@@ -35,17 +31,13 @@ export interface InspirationState {
   closeDetail: () => void
 }
 
-function deriveCategories(items: InspirationItemWithSource[], explicit?: string[]): string[] {
+function deriveCategories(items: InspirationItem[], explicit?: string[]): string[] {
   if (explicit?.length) return explicit
   const set = new Set<string>()
   for (const item of items) {
     if (item.category) set.add(item.category)
   }
   return Array.from(set).sort((a, b) => a.localeCompare(b, 'zh-CN'))
-}
-
-function withSource<T extends InspirationItem>(items: T[], source: 'builtin' | 'remote'): InspirationItemWithSource[] {
-  return items.map((item) => ({ ...item, source }))
 }
 
 export const useInspirationStore = create<InspirationState>((set, get) => ({
@@ -59,54 +51,38 @@ export const useInspirationStore = create<InspirationState>((set, get) => ({
   searchKeyword: '',
   detailItemId: null,
 
-  loadBuiltin: () => {
-    const items = withSource(builtinManifest.items, 'builtin')
-    set({
-      items,
-      categories: deriveCategories(items, builtinManifest.categories),
-    })
-  },
-
   loadRemote: async (signal) => {
     const url = resolveRemoteManifestUrl()
     if (!url) {
-      // 远程被显式禁用（env 设为空串）
       set({ status: 'ready' })
       return
     }
 
-    // 缓存预热：若在 TTL 内，先用缓存合并，再后台刷新
     const cached = readCache()
     if (cached && Date.now() - cached.storedAt < REMOTE_TTL_MS) {
-      get().setRemoteItems(cached.manifest.items)
+      get().setRemoteItems(cached.manifest.items, cached.manifest.categories)
     }
 
     set({ status: 'loading-remote' })
     try {
       const manifest = await fetchRemoteManifest(url, signal)
       writeCache(manifest)
-      get().setRemoteItems(manifest.items)
+      get().setRemoteItems(manifest.items, manifest.categories)
       set({ status: 'ready', remoteError: null })
     } catch (err) {
       if (signal?.aborted) return
       const msg = err instanceof Error ? err.message : String(err)
-      // 失败时若仍有 cache，保留显示
       if (cached) {
-        get().setRemoteItems(cached.manifest.items)
+        get().setRemoteItems(cached.manifest.items, cached.manifest.categories)
       }
       set({ status: 'error', remoteError: msg })
     }
   },
 
-  setRemoteItems: (remoteItems) => {
-    const builtinItems = builtinManifest.items
-    const map = new Map<string, InspirationItemWithSource>()
-    for (const item of builtinItems) map.set(item.id, { ...item, source: 'builtin' })
-    for (const item of remoteItems) map.set(item.id, { ...item, source: 'remote' })
-    const merged = Array.from(map.values())
+  setRemoteItems: (items, categories) => {
     set({
-      items: merged,
-      categories: deriveCategories(merged, builtinManifest.categories),
+      items,
+      categories: deriveCategories(items, categories),
       remoteError: null,
     })
   },
@@ -126,14 +102,3 @@ export const useInspirationStore = create<InspirationState>((set, get) => ({
   showDetail: (detailItemId) => set({ detailItemId }),
   closeDetail: () => set({ detailItemId: null }),
 }))
-
-/**
- * 启动期只加载内置（同步、来自 bundle，几乎免费）。
- * 远程清单（872KB）延迟到用户首次开「灵感」面板时再拉，避免 90% 不开面板的会话白下载。
- */
-export function initInspirationStore() {
-  const state = useInspirationStore.getState()
-  if (state.items.length === 0) {
-    state.loadBuiltin()
-  }
-}
