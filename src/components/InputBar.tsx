@@ -1,7 +1,13 @@
 import { useRef, useEffect, useCallback, useState, useMemo, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useStore, submitTask, addImageFromFile, updateTaskInStore, removeMultipleTasks, getCachedImage, ensureImageCached } from '../store'
-import { DEFAULT_PARAMS, type GeminiAspectRatio, type GeminiImageSize, type GeminiThinkingLevel } from '../types'
+import {
+  DEFAULT_PARAMS,
+  GEMINI_ASPECT_RATIOS,
+  GEMINI_IMAGE_SIZES,
+  GEMINI_THINKING_LEVELS,
+  type TaskParams,
+} from '../types'
 import { clientProfileToApiProfile, getActiveApiProfile, normalizeSettings } from '../lib/apiProfiles'
 import { getProfileModelOptions, updateSelectedModel } from '../lib/channels/profileSelectors'
 import { getPublicChannels } from '../lib/channels/publicChannels'
@@ -257,6 +263,19 @@ function ButtonTooltip({ visible, text }: { visible: boolean; text: ReactNode })
     </ViewportTooltip>
   )
 }
+
+type GeminiSelectField = 'gemini_aspect_ratio' | 'gemini_image_size' | 'gemini_thinking_level'
+
+const buildAutoOptions = (values: readonly string[]) => [
+  { label: 'auto', value: 'auto' },
+  ...values.map((v) => ({ label: v, value: v })),
+]
+
+const GEMINI_FIELDS: ReadonlyArray<{ label: string; field: GeminiSelectField; options: ReadonlyArray<{ label: string; value: string }> }> = [
+  { label: '比例', field: 'gemini_aspect_ratio', options: buildAutoOptions(GEMINI_ASPECT_RATIOS) },
+  { label: '分辨率', field: 'gemini_image_size', options: buildAutoOptions(GEMINI_IMAGE_SIZES) },
+  { label: '思考', field: 'gemini_thinking_level', options: buildAutoOptions(GEMINI_THINKING_LEVELS) },
+]
 
 /** API 支持的最大参考图数量 */
 const API_MAX_IMAGES = 16
@@ -1520,65 +1539,19 @@ export default function InputBar() {
           <ButtonTooltip visible={sizeHintVisible} text="" />
         </label>
       )}
-      {isGeminiProvider && (
-        <>
-          <label className="flex flex-col gap-0.5">
-            <span className="text-gray-400 dark:text-gray-500 ml-1">比例</span>
-            <Select
-              value={params.gemini_aspect_ratio ?? 'auto'}
-              onChange={(val) => setParams({
-                gemini_aspect_ratio: val === 'auto' ? undefined : (val as GeminiAspectRatio),
-              })}
-              options={[
-                { label: 'auto', value: 'auto' },
-                { label: '1:1', value: '1:1' },
-                { label: '16:9', value: '16:9' },
-                { label: '9:16', value: '9:16' },
-                { label: '4:3', value: '4:3' },
-                { label: '3:4', value: '3:4' },
-                { label: '3:2', value: '3:2' },
-                { label: '2:3', value: '2:3' },
-                { label: '4:5', value: '4:5' },
-                { label: '5:4', value: '5:4' },
-                { label: '21:9', value: '21:9' },
-              ]}
-              className={selectClass}
-            />
-          </label>
-          <label className="flex flex-col gap-0.5">
-            <span className="text-gray-400 dark:text-gray-500 ml-1">分辨率</span>
-            <Select
-              value={params.gemini_image_size ?? 'auto'}
-              onChange={(val) => setParams({
-                gemini_image_size: val === 'auto' ? undefined : (val as GeminiImageSize),
-              })}
-              options={[
-                { label: 'auto', value: 'auto' },
-                { label: '512', value: '512' },
-                { label: '1K', value: '1K' },
-                { label: '2K', value: '2K' },
-                { label: '4K', value: '4K' },
-              ]}
-              className={selectClass}
-            />
-          </label>
-          <label className="flex flex-col gap-0.5">
-            <span className="text-gray-400 dark:text-gray-500 ml-1">思考</span>
-            <Select
-              value={params.gemini_thinking_level ?? 'auto'}
-              onChange={(val) => setParams({
-                gemini_thinking_level: val === 'auto' ? undefined : (val as GeminiThinkingLevel),
-              })}
-              options={[
-                { label: 'auto', value: 'auto' },
-                { label: 'minimal', value: 'minimal' },
-                { label: 'high', value: 'high' },
-              ]}
-              className={selectClass}
-            />
-          </label>
-        </>
-      )}
+      {isGeminiProvider && GEMINI_FIELDS.map(({ label, field, options }) => (
+        <label key={field} className="flex flex-col gap-0.5">
+          <span className="text-gray-400 dark:text-gray-500 ml-1">{label}</span>
+          <Select
+            value={(params[field] as string | undefined) ?? 'auto'}
+            onChange={(val) => setParams({
+              [field]: val === 'auto' ? undefined : val,
+            } as Partial<TaskParams>)}
+            options={[...options]}
+            className={selectClass}
+          />
+        </label>
+      ))}
       {!isGeminiProvider && (
         <>
           <label

@@ -114,7 +114,12 @@ export const useInspirationStore = create<InspirationState>((set, get) => ({
   setRemoteError: (remoteError) => set({ remoteError }),
   setStatus: (status) => set({ status }),
 
-  openPanel: () => set({ panelOpen: true }),
+  openPanel: () => {
+    set({ panelOpen: true })
+    // 首次开面板才拉远程清单（872KB）；之后 5 分钟内由 localStorage cache 兜底。
+    // 不开面板的会话完全免下载。
+    void get().loadRemote()
+  },
   closePanel: () => set({ panelOpen: false, detailItemId: null }),
   setCategory: (selectedCategory) => set({ selectedCategory }),
   setSearch: (searchKeyword) => set({ searchKeyword }),
@@ -122,12 +127,13 @@ export const useInspirationStore = create<InspirationState>((set, get) => ({
   closeDetail: () => set({ detailItemId: null }),
 }))
 
-/** 初始化：同步加载内置 + 后台异步刷新远程。 */
+/**
+ * 启动期只加载内置（同步、来自 bundle，几乎免费）。
+ * 远程清单（872KB）延迟到用户首次开「灵感」面板时再拉，避免 90% 不开面板的会话白下载。
+ */
 export function initInspirationStore() {
   const state = useInspirationStore.getState()
   if (state.items.length === 0) {
     state.loadBuiltin()
   }
-  // fire-and-forget；远程失败不阻塞 UI
-  void state.loadRemote()
 }

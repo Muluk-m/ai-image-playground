@@ -18,7 +18,7 @@ import {
   MIME_MAP,
   normalizeBase64Image,
   pickActualParams,
-  PROMPT_REWRITE_GUARD_PREFIX,
+  applyCodexCliPromptGuard,
 } from './imageApiShared'
 
 function appendQuery(path: string, query?: Record<string, string>): string {
@@ -107,7 +107,7 @@ function createResponsesImageTool(
 }
 
 function createResponsesInput(prompt: string, inputImageDataUrls: string[]): unknown {
-  const text = `${PROMPT_REWRITE_GUARD_PREFIX}\n${prompt}`
+  const text = applyCodexCliPromptGuard(prompt, true)
   if (!inputImageDataUrls.length) return text
 
   return [
@@ -263,9 +263,7 @@ async function callImagesApiConcurrent(opts: CallApiOptions, profile: BYOKAdapte
 
 async function callImagesApiSingle(opts: CallApiOptions, profile: BYOKAdapterProfile, customProvider?: CustomProviderDefinition | null): Promise<CallApiResult> {
   const { prompt: originalPrompt, params, inputImageDataUrls } = opts
-  const prompt = profile.codexCli
-    ? `${PROMPT_REWRITE_GUARD_PREFIX}\n${originalPrompt}`
-    : originalPrompt
+  const prompt = applyCodexCliPromptGuard(originalPrompt, profile.codexCli)
   const isEdit = inputImageDataUrls.length > 0
   const mime = MIME_MAP[params.output_format] || 'image/png'
   const proxyConfig = readClientDevProxyConfig()

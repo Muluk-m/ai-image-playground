@@ -68,10 +68,15 @@ export interface AppSettings {
 
 // ===== 任务参数 =====
 
-export type GeminiAspectRatio =
-  | '1:1' | '2:3' | '3:2' | '3:4' | '4:3' | '4:5' | '5:4' | '9:16' | '16:9' | '21:9'
-export type GeminiImageSize = '512' | '1K' | '2K' | '4K'
-export type GeminiThinkingLevel = 'minimal' | 'high'
+export const GEMINI_ASPECT_RATIOS = [
+  '1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '4:5', '5:4', '21:9',
+] as const
+export const GEMINI_IMAGE_SIZES = ['512', '1K', '2K', '4K'] as const
+export const GEMINI_THINKING_LEVELS = ['minimal', 'high'] as const
+
+export type GeminiAspectRatio = typeof GEMINI_ASPECT_RATIOS[number]
+export type GeminiImageSize = typeof GEMINI_IMAGE_SIZES[number]
+export type GeminiThinkingLevel = typeof GEMINI_THINKING_LEVELS[number]
 
 export interface TaskParams {
   size: string

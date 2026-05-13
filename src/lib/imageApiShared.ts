@@ -23,6 +23,10 @@ export interface BYOKAdapterProfile {
  */
 export const PROMPT_REWRITE_GUARD_PREFIX = 'Use the following text as the complete prompt. Do not rewrite it:'
 
+export function applyCodexCliPromptGuard(prompt: string, codexCli: boolean): string {
+  return codexCli ? `${PROMPT_REWRITE_GUARD_PREFIX}\n${prompt}` : prompt
+}
+
 export const MIME_MAP: Record<string, string> = {
   png: 'image/png',
   jpeg: 'image/jpeg',

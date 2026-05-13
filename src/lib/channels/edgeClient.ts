@@ -13,7 +13,7 @@ import {
   MIME_MAP,
   normalizeBase64Image,
   pickActualParams,
-  PROMPT_REWRITE_GUARD_PREFIX,
+  applyCodexCliPromptGuard,
 } from '../imageApiShared'
 import type { ImageApiResponse } from '../../types'
 import type { BuiltinEdgeProfile, PublicChannel } from './types'
@@ -102,14 +102,13 @@ async function callOpenAICompatEdge(
   const path = isEdit ? 'images/edits' : 'images/generations'
   const url = buildEdgeUrl(channelId, path)
   const mime = MIME_MAP[opts.params.output_format] ?? 'image/png'
-  const prompt = codexCli ? `${PROMPT_REWRITE_GUARD_PREFIX}\n${opts.prompt}` : opts.prompt
 
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
   try {
     const response = isEdit
-      ? await sendOpenAICompatEdit(url, model, prompt, opts, controller.signal, codexCli)
-      : await sendOpenAICompatGenerate(url, model, prompt, opts, controller.signal, codexCli)
+      ? await sendOpenAICompatEdit(url, model, opts, controller.signal, codexCli)
+      : await sendOpenAICompatGenerate(url, model, opts, controller.signal, codexCli)
     if (!response.ok) throw new Error(await getApiErrorMessage(response))
     const payload = (await response.json()) as ImageApiResponse
     return parseOpenAICompatResponse(payload, mime, controller.signal)
@@ -121,14 +120,13 @@ async function callOpenAICompatEdge(
 async function sendOpenAICompatGenerate(
   url: string,
   model: string,
-  prompt: string,
   opts: CallApiOptions,
   signal: AbortSignal,
   codexCli: boolean,
 ): Promise<Response> {
   const body: Record<string, unknown> = {
     model,
-    prompt,
+    prompt: applyCodexCliPromptGuard(opts.prompt, codexCli),
     size: opts.params.size,
     output_format: opts.params.output_format,
     moderation: opts.params.moderation,
@@ -148,14 +146,13 @@ async function sendOpenAICompatGenerate(
 async function sendOpenAICompatEdit(
   url: string,
   model: string,
-  prompt: string,
   opts: CallApiOptions,
   signal: AbortSignal,
   codexCli: boolean,
 ): Promise<Response> {
   const formData = new FormData()
   formData.append('model', model)
-  formData.append('prompt', prompt)
+  formData.append('prompt', applyCodexCliPromptGuard(opts.prompt, codexCli))
   formData.append('size', opts.params.size)
   formData.append('output_format', opts.params.output_format)
   formData.append('moderation', opts.params.moderation)

@@ -19,7 +19,9 @@ const REPO_OWNER = 'freestylefly'
 const REPO_NAME = 'awesome-gpt-image-2'
 const REPO_BRANCH = 'main'
 const SOURCE_URL = `https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/${REPO_BRANCH}/data/cases.json`
-const IMAGE_BASE = `https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/${REPO_BRANCH}/data`
+// 通过 jsDelivr CDN 取缩略图：raw.githubusercontent.com 限流 + 国内可访问性差，
+// jsDelivr 提供 GitHub 内容的全球 CDN + 国内镜像，免限流。
+const IMAGE_BASE = `https://cdn.jsdelivr.net/gh/${REPO_OWNER}/${REPO_NAME}@${REPO_BRANCH}/data`
 
 const ROOT = path.resolve(fileURLToPath(import.meta.url), '..', '..')
 const OUTPUT = path.join(ROOT, 'public', 'inspiration-manifest.json')
@@ -63,7 +65,7 @@ async function main() {
   const items = upstream.cases.map(transformCase).filter(Boolean)
   const skipped = upstream.cases.length - items.length
 
-  // 按 id 倒序（上游就是从最新 id 开始往下排）；保持上游顺序
+  // 保持上游顺序（上游本身就是从最新 id 开始往下排）
   const manifest = {
     version: 1,
     updatedAt: new Date().toISOString(),
