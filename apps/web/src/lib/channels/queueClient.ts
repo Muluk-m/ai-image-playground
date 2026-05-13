@@ -34,7 +34,7 @@ export async function callQueueChannelApi(
   if (channel.kind !== 'openai-queue' && channel.kind !== 'gemini-queue') {
     throw new Error(`Not a queue channel: ${channel.kind}`)
   }
-  if (!channel.bffBaseUrl) {
+  if (channel.bffBaseUrl == null) {
     throw new Error(`queue channel ${channel.id} 缺少 bffBaseUrl`)
   }
   if (opts.maskDataUrl) {

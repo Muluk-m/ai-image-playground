@@ -45,7 +45,7 @@ function normalizeOne(entry: unknown): PublicChannel | null {
   const models = normalizeModels(r.models)
   const defaults = normalizeDefaults(r.defaults)
 
-  if (!id || !bffBaseUrl) return null
+  if (!id || typeof r.bffBaseUrl !== 'string') return null
   if (kind !== 'openai-queue' && kind !== 'gemini-queue') return null
   if (!models.length) return null
 

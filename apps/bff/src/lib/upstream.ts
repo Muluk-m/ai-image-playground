@@ -1,5 +1,6 @@
 import type { QueueProvider, SubmitRequest } from '@image-playground/shared'
 import { config } from '../config'
+import { resolveApiKey } from './resolveApiKey'
 
 /**
  * 把 SubmitRequest 转换为 OpenAI Images / Gemini generateContent 请求体并发给 sub2api。
@@ -26,7 +27,6 @@ const UPSTREAM_HARD_TIMEOUT_MS = 10 * 60 * 1000
 export async function callUpstream(params: UpstreamCallParams): Promise<UpstreamCallResult> {
   const { provider, model, request, signal: externalSignal } = params
   const base = config.sub2api.baseUrl
-  const key = config.sub2api.apiKey
 
   const abort = new AbortController()
   const timer = setTimeout(() => abort.abort(), UPSTREAM_HARD_TIMEOUT_MS)
@@ -35,6 +35,7 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
 
   try {
     if (provider === 'openai-compat') {
+      const key = resolveApiKey(provider)
       const res = await fetch(`${base}/v1/images/generations`, {
         method: 'POST',
         headers: {
@@ -48,6 +49,7 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
     }
 
     if (provider === 'gemini') {
+      const key = resolveApiKey(provider)
       const res = await fetch(`${base}/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
         method: 'POST',
         headers: {

@@ -15,4 +15,5 @@ app.listen(config.port, () => {
   console.log(`[bff] listening on http://localhost:${config.port}`)
   console.log(`[bff] upstream sub2api: ${config.sub2api.baseUrl}`)
   console.log(`[bff] cors origins: ${config.corsOrigins}`)
+  if (config.staticDir) console.log(`[bff] serving static files from: ${config.staticDir}`)
 })
