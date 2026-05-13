@@ -44,6 +44,8 @@ export interface CallApiOptions {
   inputImageDataUrls: string[]
   maskDataUrl?: string
   onCustomTaskEnqueued?: (task: { taskId: string }) => void
+  /** BFF queue 模式 submit 成功后立刻回调，把 request_id 持久化以便刷新后恢复 */
+  onQueueSubmitted?: (requestId: string) => void
 }
 
 export interface CallApiResult {

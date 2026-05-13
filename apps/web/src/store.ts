@@ -35,7 +35,7 @@ import {
   clearImages,
   storeImage,
 } from './lib/db'
-import { callImageApi } from './lib/api'
+import { callImageApi, resumeQueueImageApi } from './lib/api'
 import { IMAGE_FETCH_CORS_HINT } from './lib/imageApiShared'
 import { getCustomQueuedImageResult } from './lib/openaiCompatibleImageApi'
 import { validateMaskMatchesImage } from './lib/canvasImage'
@@ -671,7 +671,7 @@ function isAsyncCustomProviderTask(settings: AppSettings, provider: string, hasI
 export function markInterruptedOpenAIRunningTasks(tasks: TaskRecord[], now = Date.now()) {
   const interruptedTasks: TaskRecord[] = []
   const updatedTasks = tasks.map((task) => {
-    if (!isRunningOpenAITask(task) || task.customTaskId) return task
+    if (!isRunningOpenAITask(task) || task.customTaskId || task.bffRequestId) return task
 
     const updated: TaskRecord = {
       ...task,
@@ -956,6 +956,12 @@ export async function initStore() {
     ) {
       scheduleCustomRecovery(task.id, 0)
     }
+    // BFF queue 任务：仍在 running 且持有 request_id → 重新接管轮询。
+    // markInterruptedOpenAIRunningTasks 已经放行这类 task，所以这里
+    // 看到的 status 还是 'running'。
+    if (task.bffRequestId && task.status === 'running') {
+      executeTask(task.id)
+    }
   }
 
   // 收集所有任务引用的图片 id
@@ -1144,38 +1150,58 @@ async function executeTask(taskId: string) {
     ? { taskId: task.customTaskId }
     : null
 
-  if (!isAsyncCustomProviderTask(requestSettings, taskProvider, task.inputImageIds.length > 0)) {
+  // 刷新页面后恢复 BFF queue 任务：跳过 submit / 输入图片加载 / OpenAI watchdog，
+  // 用持久化的 bffRequestId 直接 poll → fetchResult。BFF 自己有 30 min 轮询硬上限。
+  const isResume = task.status === 'running' && Boolean(task.bffRequestId)
+
+  if (!isResume && !isAsyncCustomProviderTask(requestSettings, taskProvider, task.inputImageIds.length > 0)) {
     scheduleOpenAIWatchdog(taskId, activeView.timeout)
   }
 
   try {
-    // 获取输入图片 data URLs
-    const inputDataUrls: string[] = []
-    for (const imgId of task.inputImageIds) {
-      const dataUrl = await ensureImageCached(imgId)
-      if (!dataUrl) throw new Error('输入图片已不存在')
-      inputDataUrls.push(dataUrl)
-    }
+    let result
     let maskDataUrl: string | undefined
-    if (task.maskImageId) {
-      maskDataUrl = await ensureImageCached(task.maskImageId)
-      if (!maskDataUrl) throw new Error('遮罩图片已不存在')
-    }
+    if (isResume) {
+      result = await resumeQueueImageApi(
+        {
+          settings: requestSettings,
+          prompt: task.prompt,
+          params: task.params,
+          inputImageDataUrls: [],
+        },
+        task.bffRequestId!,
+      )
+    } else {
+      // 获取输入图片 data URLs
+      const inputDataUrls: string[] = []
+      for (const imgId of task.inputImageIds) {
+        const dataUrl = await ensureImageCached(imgId)
+        if (!dataUrl) throw new Error('输入图片已不存在')
+        inputDataUrls.push(dataUrl)
+      }
+      if (task.maskImageId) {
+        maskDataUrl = await ensureImageCached(task.maskImageId)
+        if (!maskDataUrl) throw new Error('遮罩图片已不存在')
+      }
 
-    const result = await callImageApi({
-      settings: requestSettings,
-      prompt: replaceImageMentionsForApi(task.prompt, inputDataUrls.length),
-      params: task.params,
-      inputImageDataUrls: inputDataUrls,
-      maskDataUrl,
-      onCustomTaskEnqueued: (request) => {
-        customTaskInfo = request
-        updateTaskInStore(taskId, {
-          customTaskId: request.taskId,
-          customRecoverable: false,
-        })
-      },
-    })
+      result = await callImageApi({
+        settings: requestSettings,
+        prompt: replaceImageMentionsForApi(task.prompt, inputDataUrls.length),
+        params: task.params,
+        inputImageDataUrls: inputDataUrls,
+        maskDataUrl,
+        onCustomTaskEnqueued: (request) => {
+          customTaskInfo = request
+          updateTaskInStore(taskId, {
+            customTaskId: request.taskId,
+            customRecoverable: false,
+          })
+        },
+        onQueueSubmitted: (requestId) => {
+          updateTaskInStore(taskId, { bffRequestId: requestId })
+        },
+      })
+    }
 
     const latestBeforeSuccess = useStore.getState().tasks.find((t) => t.id === taskId)
     if (!latestBeforeSuccess || latestBeforeSuccess.status !== 'running') return
