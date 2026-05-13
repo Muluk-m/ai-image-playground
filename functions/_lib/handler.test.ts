@@ -28,7 +28,7 @@ function makeRequest(method: string, url: string, init: RequestInit = {}): Reque
   return new Request(url, { method, ...init })
 }
 
-describe('handleProxyRequest', () => {
+describe('handleProxyRequest validation', () => {
   it('returns 404 when channel is undefined', async () => {
     const res = await handleProxyRequest({
       request: makeRequest('POST', 'http://localhost/api-proxy/missing/anything'),
@@ -107,26 +107,28 @@ describe('handleProxyRequest', () => {
   it('handles OPTIONS preflight with CORS headers', async () => {
     const res = await handleProxyRequest({
       request: makeRequest('OPTIONS', 'http://localhost/api-proxy/x/anything'),
-      channel: undefined, // 不查 channel
+      channel: undefined,
       path: 'anything',
       env: {},
     })
     expect(res.status).toBe(204)
     expect(res.headers.get('Access-Control-Allow-Methods')).toContain('POST')
   })
+})
 
-  it('injects bearer Authorization and strips client-supplied Authorization', async () => {
+describe('handleProxyRequest keep-alive streaming', () => {
+  it('returns 200 + chunked stream for successful upstream and the body parses as JSON', async () => {
     const fetchMock = vi.fn(async (url: string, init: RequestInit) => {
       const headers = init.headers as Headers
       expect(headers.get('authorization')).toBe('Bearer sk-real')
       expect(url).toBe('https://api.example.com/v1/images/generations')
-      return new Response('{"ok":true}', { status: 200, headers: { 'content-type': 'application/json' } })
+      return new Response('{"ok":true,"data":[1,2]}', { status: 200, headers: { 'content-type': 'application/json' } })
     })
 
     const res = await handleProxyRequest({
       request: makeRequest('POST', 'http://localhost/api-proxy/x/images/generations', {
         headers: {
-          'authorization': 'Bearer attacker-supplied',
+          authorization: 'Bearer attacker-supplied',
           'content-type': 'application/json',
         },
         body: '{"prompt":"hi"}',
@@ -137,16 +139,21 @@ describe('handleProxyRequest', () => {
       fetchFn: fetchMock as unknown as typeof fetch,
     })
 
-    expect(fetchMock).toHaveBeenCalled()
     expect(res.status).toBe(200)
+    expect(res.headers.get('content-type')).toBe('application/json')
+    expect(res.headers.get('Access-Control-Allow-Origin')).toBe('*')
+
+    const json = await res.json()
+    expect(json).toMatchObject({ ok: true, data: [1, 2] })
+    expect(fetchMock).toHaveBeenCalled()
   })
 
-  it('injects query-key into upstream URL', async () => {
+  it('injects query-key auth into upstream URL on gemini channels', async () => {
     const fetchMock = vi.fn(async (url: string) => {
       const u = new URL(url)
       expect(u.searchParams.get('key')).toBe('AIza-real')
       expect(u.pathname).toBe('/v1beta/models/g1:generateContent')
-      return new Response('{}', { status: 200 })
+      return new Response('{"candidates":[]}', { status: 200, headers: { 'content-type': 'application/json' } })
     })
 
     const res = await handleProxyRequest({
@@ -158,11 +165,58 @@ describe('handleProxyRequest', () => {
     })
 
     expect(res.status).toBe(200)
+    await res.json()
   })
 
-  it('returns 504 on upstream timeout', async () => {
+  it('emits _proxyError envelope when upstream returns non-2xx, with OpenAI-style error.message extracted', async () => {
+    const fetchMock = vi.fn(async () => {
+      return new Response(JSON.stringify({ error: { message: 'invalid api key' } }), {
+        status: 401,
+        headers: { 'content-type': 'application/json' },
+      })
+    })
+
+    const res = await handleProxyRequest({
+      request: makeRequest('POST', 'http://localhost/api-proxy/x/images/generations'),
+      channel: bearerChannel,
+      path: 'images/generations',
+      env: { OPENAI_API_KEY: 'sk-real' },
+      fetchFn: fetchMock as unknown as typeof fetch,
+    })
+
+    expect(res.status).toBe(200) // 永远 200，错误走 body envelope
+    const body = await res.json()
+    expect(body).toMatchObject({
+      _proxyError: true,
+      error: { message: 'invalid api key', type: 'upstream_error', upstream_status: 401 },
+    })
+  })
+
+  it('falls back to raw upstream body when error JSON has no standard message field', async () => {
+    const fetchMock = vi.fn(async () => {
+      return new Response('plain text error from upstream', {
+        status: 500,
+      })
+    })
+
+    const res = await handleProxyRequest({
+      request: makeRequest('POST', 'http://localhost/api-proxy/x/images/generations'),
+      channel: bearerChannel,
+      path: 'images/generations',
+      env: { OPENAI_API_KEY: 'sk-real' },
+      fetchFn: fetchMock as unknown as typeof fetch,
+    })
+
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body).toMatchObject({
+      _proxyError: true,
+      error: { message: 'plain text error from upstream', upstream_status: 500 },
+    })
+  })
+
+  it('emits upstream_timeout envelope when upstream fetch is aborted', async () => {
     const fetchMock = vi.fn(async (_url: string, init: RequestInit) => {
-      // 模拟 AbortError
       await new Promise((resolve, reject) => {
         init.signal?.addEventListener('abort', () => {
           const err = new Error('aborted')
@@ -181,7 +235,57 @@ describe('handleProxyRequest', () => {
       fetchFn: fetchMock as unknown as typeof fetch,
     })
 
-    expect(res.status).toBe(504)
-    expect(await res.json()).toMatchObject({ error: 'upstream_timeout' })
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body).toMatchObject({
+      _proxyError: true,
+      error: { type: 'upstream_timeout' },
+    })
+  })
+
+  it('emits heartbeat whitespace bytes during slow upstream and JSON still parses', async () => {
+    // 模拟"慢上游"：fetch 等 80ms 才返回；心跳间隔 20ms。期间应该有 ≥ 3 个心跳字节先 flush。
+    let upstreamResolved = false
+    const fetchMock = vi.fn(async () => {
+      await new Promise((r) => setTimeout(r, 80))
+      upstreamResolved = true
+      return new Response('{"ok":true}', { status: 200, headers: { 'content-type': 'application/json' } })
+    })
+
+    const res = await handleProxyRequest({
+      request: makeRequest('POST', 'http://localhost/api-proxy/x/images/generations'),
+      channel: bearerChannel,
+      path: 'images/generations',
+      env: { OPENAI_API_KEY: 'sk-real' },
+      fetchFn: fetchMock as unknown as typeof fetch,
+      heartbeatIntervalMs: 20,
+    })
+
+    expect(res.status).toBe(200)
+
+    // 边读边检：在 upstream 返回前，前若干个 chunk 应该都是空格字节
+    const reader = res.body!.getReader()
+    const decoder = new TextDecoder()
+    let assembled = ''
+    let firstNonWhitespaceSeen = false
+    let preBodyHeartbeatBytes = 0
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      const chunk = decoder.decode(value, { stream: true })
+      if (!firstNonWhitespaceSeen) {
+        // 数 leading whitespace
+        for (const ch of chunk) {
+          if (ch === ' ') preBodyHeartbeatBytes++
+          else { firstNonWhitespaceSeen = true; break }
+        }
+      }
+      assembled += chunk
+    }
+
+    expect(upstreamResolved).toBe(true)
+    expect(preBodyHeartbeatBytes).toBeGreaterThanOrEqual(1) // 至少触发过 1 次心跳
+    // JSON spec 允许任意 leading whitespace，下面这步等价于客户端 response.json()
+    expect(JSON.parse(assembled)).toMatchObject({ ok: true })
   })
 })
