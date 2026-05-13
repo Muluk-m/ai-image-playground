@@ -17,6 +17,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@image-playground/shared": "workspace:*",
     "fflate": "^0.8.2",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",

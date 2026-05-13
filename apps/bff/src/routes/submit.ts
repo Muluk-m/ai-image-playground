@@ -12,13 +12,15 @@ const submitBodySchema = t.Object({
   extra: t.Optional(t.Record(t.String(), t.Any())),
 })
 
-const VALID_PROVIDERS: QueueProvider[] = ['openai-compat', 'gemini']
+function isQueueProvider(value: string): value is QueueProvider {
+  return value === 'openai-compat' || value === 'gemini'
+}
 
 export const submitRoutes = new Elysia().post(
   '/v1/queue/:provider/:model/submit',
   async ({ params, body, status }) => {
     const { provider, model } = params
-    if (!VALID_PROVIDERS.includes(provider as QueueProvider)) {
+    if (!isQueueProvider(provider)) {
       return status(400, { error: `unsupported provider: ${provider}` })
     }
 
@@ -26,7 +28,7 @@ export const submitRoutes = new Elysia().post(
     const now = Date.now()
     await db.insert(schema.tasks).values({
       id,
-      provider: provider as QueueProvider,
+      provider,
       model,
       status: 'queued',
       request_payload: body,

@@ -1,7 +1,13 @@
+import type {
+  ResultResponse,
+  StatusResponse,
+  SubmitResponse,
+} from '@image-playground/shared'
 import type { ImageApiResponse } from '../../types'
 import { parseGeminiResponse, type GeminiResponse } from '../geminiImageApi'
 import {
   assertImageInputPayloadSize,
+  getApiErrorMessage,
   getDataUrlEncodedByteSize,
   MIME_MAP,
   type CallApiOptions,
@@ -86,10 +92,9 @@ async function submit(
     body: JSON.stringify(body),
   })
   if (!res.ok) {
-    const text = await res.text().catch(() => '')
-    throw new Error(`BFF submit 失败 (HTTP ${res.status}): ${text.slice(0, 300) || res.statusText}`)
+    throw new Error(`BFF submit 失败：${await getApiErrorMessage(res)}`)
   }
-  const json = (await res.json()) as { request_id?: string }
+  const json = (await res.json()) as SubmitResponse
   if (!json.request_id) throw new Error('BFF submit 响应缺少 request_id')
   return json.request_id
 }
@@ -102,12 +107,9 @@ async function poll(base: string, requestId: string): Promise<void> {
     await sleep(POLL_BACKOFF_MS[Math.min(attempt, POLL_BACKOFF_MS.length - 1)]!)
     const res = await fetch(url)
     if (!res.ok) {
-      throw new Error(`BFF status 查询失败 (HTTP ${res.status})`)
+      throw new Error(`BFF status 查询失败：${await getApiErrorMessage(res)}`)
     }
-    const json = (await res.json()) as {
-      status: 'queued' | 'in_progress' | 'completed' | 'failed' | 'cancelled'
-      error?: { message?: string }
-    }
+    const json = (await res.json()) as StatusResponse
     if (json.status === 'completed') return
     if (json.status === 'failed') {
       throw new Error(json.error?.message ?? 'BFF 任务执行失败')
@@ -124,9 +126,9 @@ async function fetchResult(base: string, requestId: string): Promise<unknown> {
   const url = `${base}/v1/queue/requests/${requestId}`
   const res = await fetch(url)
   if (!res.ok) {
-    throw new Error(`BFF result 拉取失败 (HTTP ${res.status})`)
+    throw new Error(`BFF result 拉取失败：${await getApiErrorMessage(res)}`)
   }
-  const json = (await res.json()) as { payload?: unknown; error?: { message?: string } }
+  const json = (await res.json()) as ResultResponse
   if (!json.payload) {
     throw new Error(json.error?.message ?? 'BFF 返回 completed 但缺少 payload')
   }
