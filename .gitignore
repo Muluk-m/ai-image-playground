@@ -8,3 +8,5 @@ out.png
 artifacts/
 **/generated/
 .dev.vars
+.env.local
+.env
