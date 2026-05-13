@@ -51,6 +51,36 @@ export async function callQueueChannelApi(
   const codexCli = Boolean(channel.defaults.codexCli)
 
   const requestId = await submit(base, provider, model, opts, codexCli)
+  opts.onQueueSubmitted?.(requestId)
+  return await pollAndParse(opts, channel, provider, base, requestId)
+}
+
+/**
+ * 刷新页面恢复路径：跳过 submit，用持久化的 requestId 直接 poll+fetchResult。
+ * 调用者需保证 channel.kind 是 queue 类型；不再次校验 maskDataUrl 等输入约束。
+ */
+export async function resumeQueueChannelApi(
+  opts: CallApiOptions,
+  profile: BuiltinEdgeProfile,
+  channel: PublicChannel,
+  requestId: string,
+): Promise<CallApiResult> {
+  const provider = toQueueProvider(channel.kind)
+  if (!provider) {
+    throw new Error(`resumeQueueChannelApi: 不支持的 channel kind ${channel.kind}`)
+  }
+  void profile
+  const base = (channel.bffBaseUrl ?? '').replace(/\/+$/, '')
+  return await pollAndParse(opts, channel, provider, base, requestId)
+}
+
+async function pollAndParse(
+  opts: CallApiOptions,
+  channel: PublicChannel,
+  provider: QueueProvider,
+  base: string,
+  requestId: string,
+): Promise<CallApiResult> {
   await poll(base, requestId)
   const payload = await fetchResult(base, requestId)
 

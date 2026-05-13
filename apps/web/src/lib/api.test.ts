@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DEFAULT_PARAMS, type AppSettings } from '../types'
 import { DEFAULT_SETTINGS, normalizeSettings } from './apiProfiles'
 import type { BuiltinEdgeProfile, PublicChannel, UserByokProfile } from './channels/types'
-import { callImageApi } from './api'
+import { callImageApi, resumeQueueImageApi } from './api'
 
 const mockChannels = vi.hoisted(() => ({ list: [] as PublicChannel[] }))
 vi.mock('./channels/publicChannels', () => ({
@@ -362,6 +362,56 @@ describe('callImageApi', () => {
 
     const [url] = fetchMock.mock.calls[0]
     expect(url).toBe('/api-proxy/test-openai-mask/images/edits')
+  })
+
+  it('queue submit fires onQueueSubmitted callback with request_id', async () => {
+    const channel: PublicChannel = {
+      id: 'test-cb',
+      kind: 'openai-compat',
+      label: 'Callback',
+      models: [{ id: 'gpt-image-2', label: 'GPT Image 2' }],
+      defaults: { apiMode: 'images', timeout: 600 },
+    }
+    mockChannels.list = [channel]
+    mockQueueFlow('openai-compat', { data: [{ b64_json: 'aW1hZ2U=' }] })
+
+    const onQueueSubmitted = vi.fn()
+    await callImageApi({
+      settings: settingsWithBuiltin(channel),
+      prompt: 'p',
+      params: { ...DEFAULT_PARAMS },
+      inputImageDataUrls: [],
+      onQueueSubmitted,
+    })
+
+    expect(onQueueSubmitted).toHaveBeenCalledWith('rid-1')
+  })
+
+  it('resumeQueueImageApi skips /submit and goes straight to status + result', async () => {
+    const channel: PublicChannel = {
+      id: 'test-resume',
+      kind: 'openai-compat',
+      label: 'Resume',
+      models: [{ id: 'gpt-image-2', label: 'GPT Image 2' }],
+      defaults: { apiMode: 'images', timeout: 600 },
+    }
+    mockChannels.list = [channel]
+    const { fetchMock } = mockQueueFlow('openai-compat', { data: [{ b64_json: 'aW1hZ2U=' }] })
+
+    await resumeQueueImageApi(
+      {
+        settings: settingsWithBuiltin(channel),
+        prompt: 'p',
+        params: { ...DEFAULT_PARAMS },
+        inputImageDataUrls: [],
+      },
+      'persisted-request-id-42',
+    )
+
+    const urls: string[] = fetchMock.mock.calls.map(([u]: [unknown, unknown]) => String(u))
+    expect(urls.some((u: string) => u.endsWith('/submit'))).toBe(false)
+    expect(urls.some((u: string) => u.includes('persisted-request-id-42/status'))).toBe(true)
+    expect(urls.some((u: string) => u.endsWith('/v1/queue/requests/persisted-request-id-42'))).toBe(true)
   })
 
   it('user-byok dispatch always carries Authorization header', async () => {

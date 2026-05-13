@@ -1,6 +1,6 @@
 import type { UserByokProfile } from './channels/types'
 import { callEdgeChannelApi } from './channels/edgeClient'
-import { callQueueChannelApi, toQueueProvider } from './channels/queueClient'
+import { callQueueChannelApi, resumeQueueChannelApi, toQueueProvider } from './channels/queueClient'
 import { getPublicChannel } from './channels/publicChannels'
 import { getActiveApiProfile } from './apiProfiles'
 import { callGeminiImageApi } from './geminiImageApi'
@@ -54,4 +54,24 @@ export async function callImageApi(opts: CallApiOptions): Promise<CallApiResult>
     case 'gemini-queue':
       throw new Error(`queue kind ${profile.kind} 仅用于 builtin-edge profile，不应作为 user-byok kind`)
   }
+}
+
+/**
+ * 刷新页面后用持久化的 bffRequestId 继续轮询。仅适用于 builtin-edge queue 路径。
+ * 找不到对应 channel/profile 时抛错，由调用方写到 task.error。
+ */
+export async function resumeQueueImageApi(
+  opts: CallApiOptions,
+  requestId: string,
+): Promise<CallApiResult> {
+  const profile = getActiveApiProfile(opts.settings)
+  if (profile.source !== 'builtin-edge') {
+    throw new Error('恢复 BFF queue 任务时未找到对应内置 channel profile')
+  }
+  const channel = getPublicChannel(profile.channelId)
+  if (!channel) throw new Error(`找不到内置 channel：${profile.channelId}`)
+  if (toQueueProvider(channel.kind) === null) {
+    throw new Error(`channel kind ${channel.kind} 非 queue，无法恢复`)
+  }
+  return resumeQueueChannelApi(opts, profile, channel, requestId)
 }
