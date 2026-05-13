@@ -45,7 +45,8 @@ function normalizeOne(entry: unknown): PublicChannel | null {
   const models = normalizeModels(r.models)
   const defaults = normalizeDefaults(r.defaults)
 
-  if (!id || typeof r.bffBaseUrl !== 'string') return null
+  // bffBaseUrl 缺省 / 空串视为同源（fetch 用相对路径直接走 BFF same-origin）
+  if (!id) return null
   if (kind !== 'openai-queue' && kind !== 'gemini-queue') return null
   if (!models.length) return null
 

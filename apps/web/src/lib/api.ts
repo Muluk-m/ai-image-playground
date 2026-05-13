@@ -1,6 +1,6 @@
-import { isQueueKind, type UserByokProfile } from './channels/types'
+import type { UserByokProfile } from './channels/types'
 import { callEdgeChannelApi } from './channels/edgeClient'
-import { callQueueChannelApi } from './channels/queueClient'
+import { callQueueChannelApi, toQueueProvider } from './channels/queueClient'
 import { getPublicChannel } from './channels/publicChannels'
 import { getActiveApiProfile } from './apiProfiles'
 import { callGeminiImageApi } from './geminiImageApi'
@@ -29,7 +29,13 @@ export async function callImageApi(opts: CallApiOptions): Promise<CallApiResult>
   if (profile.source === 'builtin-edge') {
     const channel = getPublicChannel(profile.channelId)
     if (!channel) throw new Error(`找不到内置 channel：${profile.channelId}`)
-    if (isQueueKind(channel.kind)) {
+    // builtin-edge 默认全部走 queue（浏览器 → BFF 全是 < 1s 短请求，永远绕开
+    // CF Edge 100s）。OpenAI mask 编辑因为是 multipart FormData，queue 协议
+    // 还没覆盖，回退到 /api-proxy/ 同步路径（mask edit 通常 < 30s，少踩 100s）。
+    if (opts.maskDataUrl) {
+      return callEdgeChannelApi(opts, profile, channel)
+    }
+    if (toQueueProvider(channel.kind) !== null) {
       return callQueueChannelApi(opts, profile, channel)
     }
     return callEdgeChannelApi(opts, profile, channel)

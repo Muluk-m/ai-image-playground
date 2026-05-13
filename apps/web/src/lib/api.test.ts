@@ -10,6 +10,12 @@ vi.mock('./channels/publicChannels', () => ({
   getPublicChannel: (id: string) => mockChannels.list.find((c) => c.id === id),
 }))
 
+// canvasImage 依赖 DOM Image()，jsdom 不支持；只覆盖 dispatch 路径时 mock 掉
+vi.mock('./canvasImage', () => ({
+  imageDataUrlToPngBlob: vi.fn(async () => new Blob(['fake'], { type: 'image/png' })),
+  maskDataUrlToPngBlob: vi.fn(async () => new Blob(['fake'], { type: 'image/png' })),
+}))
+
 function expectNoAuthHeaders(headers: Record<string, string>): void {
   expect(headers.Authorization).toBeUndefined()
   expect(headers.authorization).toBeUndefined()
@@ -202,7 +208,35 @@ describe('callImageApi', () => {
     )
   })
 
-  it('builtin-edge openai-compat with codexCli prefixes prompt guard and drops quality', async () => {
+  // Helper: builtin-edge 走 queue 时 fetch 序列是 submit → status → result，分别用不同 payload mock
+  function mockQueueFlow(provider: 'openai-compat' | 'gemini', resultPayload: unknown): { fetchMock: ReturnType<typeof vi.spyOn> } {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = typeof input === 'string' ? input : (input as Request).url
+      if (url.includes('/v1/queue/') && url.endsWith('/submit')) {
+        return new Response(JSON.stringify({ request_id: 'rid-1', status: 'queued', submitted_at: 0 }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
+      if (url.endsWith('/status')) {
+        return new Response(JSON.stringify({ request_id: 'rid-1', status: 'completed', submitted_at: 0 }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
+      if (url.includes('/v1/queue/requests/')) {
+        return new Response(JSON.stringify({ request_id: 'rid-1', status: 'completed', payload: resultPayload }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
+      throw new Error(`Unexpected fetch URL in test: ${url}`)
+    })
+    void provider
+    return { fetchMock }
+  }
+
+  it('builtin-edge openai-compat with codexCli prefixes prompt guard and drops quality (queue submit body)', async () => {
     const channel: PublicChannel = {
       id: 'test-codex',
       kind: 'openai-compat',
@@ -212,24 +246,22 @@ describe('callImageApi', () => {
     }
     mockChannels.list = [channel]
 
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
-      data: [{ b64_json: 'aW1hZ2U=' }],
-    }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+    const { fetchMock } = mockQueueFlow('openai-compat', { data: [{ b64_json: 'aW1hZ2U=' }] })
 
     await callImageApi({
       settings: settingsWithBuiltin(channel),
       prompt: 'a red cat',
-      params: { ...DEFAULT_PARAMS },
+      params: { ...DEFAULT_PARAMS, quality: 'high' },
       inputImageDataUrls: [],
     })
 
-    const [, init] = fetchMock.mock.calls[0]
-    const body = JSON.parse(String((init as RequestInit).body))
+    const submitCall = fetchMock.mock.calls.find(([url]: [unknown, unknown]) => String(url).endsWith('/submit'))!
+    const body = JSON.parse(String((submitCall[1] as RequestInit).body))
     expect(body.prompt).toBe('Use the following text as the complete prompt. Do not rewrite it:\na red cat')
     expect(body).not.toHaveProperty('quality')
   })
 
-  it('builtin-edge openai-compat without codexCli sends raw prompt and quality', async () => {
+  it('builtin-edge openai-compat without codexCli sends raw prompt and quality (queue submit body)', async () => {
     const channel: PublicChannel = {
       id: 'test-plain',
       kind: 'openai-compat',
@@ -239,9 +271,7 @@ describe('callImageApi', () => {
     }
     mockChannels.list = [channel]
 
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
-      data: [{ b64_json: 'aW1hZ2U=' }],
-    }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+    const { fetchMock } = mockQueueFlow('openai-compat', { data: [{ b64_json: 'aW1hZ2U=' }] })
 
     await callImageApi({
       settings: settingsWithBuiltin(channel),
@@ -250,13 +280,13 @@ describe('callImageApi', () => {
       inputImageDataUrls: [],
     })
 
-    const [, init] = fetchMock.mock.calls[0]
-    const body = JSON.parse(String((init as RequestInit).body))
+    const submitCall = fetchMock.mock.calls.find(([url]: [unknown, unknown]) => String(url).endsWith('/submit'))!
+    const body = JSON.parse(String((submitCall[1] as RequestInit).body))
     expect(body.prompt).toBe('a red cat')
     expect(body.quality).toBe('high')
   })
 
-  it('builtin-edge openai-compat dispatch routes to /api-proxy/<channelId>/ without Authorization', async () => {
+  it('builtin-edge openai-compat dispatch routes to /v1/queue/openai-compat/... without Authorization', async () => {
     const channel: PublicChannel = {
       id: 'test-openai',
       kind: 'openai-compat',
@@ -266,12 +296,7 @@ describe('callImageApi', () => {
     }
     mockChannels.list = [channel]
 
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
-      data: [{ b64_json: 'aW1hZ2U=' }],
-    }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    }))
+    const { fetchMock } = mockQueueFlow('openai-compat', { data: [{ b64_json: 'aW1hZ2U=' }] })
 
     await callImageApi({
       settings: settingsWithBuiltin(channel),
@@ -280,12 +305,12 @@ describe('callImageApi', () => {
       inputImageDataUrls: [],
     })
 
-    const [url, init] = fetchMock.mock.calls[0]
-    expect(url).toBe('/api-proxy/test-openai/images/generations')
-    expectNoAuthHeaders(((init as RequestInit).headers ?? {}) as Record<string, string>)
+    const submitCall = fetchMock.mock.calls.find(([url]: [unknown, unknown]) => String(url).endsWith('/submit'))!
+    expect(submitCall[0]).toBe('/v1/queue/openai-compat/gpt-image-2/submit')
+    expectNoAuthHeaders(((submitCall[1] as RequestInit).headers ?? {}) as Record<string, string>)
   })
 
-  it('builtin-edge gemini dispatch routes to /api-proxy/<channelId>/ without Authorization', async () => {
+  it('builtin-edge gemini dispatch routes to /v1/queue/gemini/... without Authorization', async () => {
     const channel: PublicChannel = {
       id: 'test-gemini',
       kind: 'gemini',
@@ -295,14 +320,11 @@ describe('callImageApi', () => {
     }
     mockChannels.list = [channel]
 
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+    const { fetchMock } = mockQueueFlow('gemini', {
       candidates: [{
         content: { parts: [{ inlineData: { mimeType: 'image/png', data: 'aW1hZ2U=' } }] },
       }],
-    }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    }))
+    })
 
     await callImageApi({
       settings: settingsWithBuiltin(channel),
@@ -311,9 +333,35 @@ describe('callImageApi', () => {
       inputImageDataUrls: [],
     })
 
-    const [url, init] = fetchMock.mock.calls[0]
-    expect(url).toBe('/api-proxy/test-gemini/models/gemini-3.1-flash-image:generateContent')
-    expectNoAuthHeaders(((init as RequestInit).headers ?? {}) as Record<string, string>)
+    const submitCall = fetchMock.mock.calls.find(([url]: [unknown, unknown]) => String(url).endsWith('/submit'))!
+    expect(submitCall[0]).toBe('/v1/queue/gemini/gemini-3.1-flash-image/submit')
+    expectNoAuthHeaders(((submitCall[1] as RequestInit).headers ?? {}) as Record<string, string>)
+  })
+
+  it('builtin-edge with maskDataUrl falls back to /api-proxy/ edge path (queue does not handle FormData masks)', async () => {
+    const channel: PublicChannel = {
+      id: 'test-openai-mask',
+      kind: 'openai-compat',
+      label: 'Mask',
+      models: [{ id: 'gpt-image-2', label: 'GPT Image 2' }],
+      defaults: { apiMode: 'images', timeout: 600 },
+    }
+    mockChannels.list = [channel]
+
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      data: [{ b64_json: 'aW1hZ2U=' }],
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+
+    await callImageApi({
+      settings: settingsWithBuiltin(channel),
+      prompt: 'p',
+      params: { ...DEFAULT_PARAMS },
+      inputImageDataUrls: ['data:image/png;base64,aW1hZ2U='],
+      maskDataUrl: 'data:image/png;base64,bWFzaw==',
+    })
+
+    const [url] = fetchMock.mock.calls[0]
+    expect(url).toBe('/api-proxy/test-openai-mask/images/edits')
   })
 
   it('user-byok dispatch always carries Authorization header', async () => {
