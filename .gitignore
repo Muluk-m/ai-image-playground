@@ -1,8 +1,10 @@
 node_modules/
 dist/
+.turbo/
 dev-proxy.config.json
 .wrangler/
 out.png
 .claude/
-src/generated/
+artifacts/
+**/generated/
 .dev.vars
