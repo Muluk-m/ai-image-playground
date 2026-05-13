@@ -141,10 +141,10 @@ queued → in_progress → completed
 
 ## 鉴权
 
-**当前不鉴权**。BFF 公网域名拿到的任何请求都会执行（消耗 sub2api 配额）。
+**BFF 自身不做应用层鉴权**（不强制 API key）。实际安全靠以下组合形成防护链：
 
-加强方式（按推荐度排）：
+1. **CORS Origin 限制**（`CORS_ALLOWED_ORIGINS`）：默认只允许 `https://image-playground.qiliangjia.one` + `http://localhost:5173`，浏览器跨源 fetch 被 preflight 拦截
+2. **上游站点的 Cloudflare Access**：image-playground 域名挂了 CF Access policy（IP/邮箱白名单或 OAuth），不能登录的人拿不到前端页面，**无从触发对 BFF 的浏览器侧调用**
+3. **BFF URL 不公开**：cf tunnel 暴露的域名仅在前端 build env 里出现，不进源码仓库
 
-1. **cf tunnel + Cloudflare Access policy**：在边缘做 IP/邮箱白名单或 OAuth，BFF 0 改
-2. **API key middleware**：BFF 加 env `BFF_API_KEY`，请求必带 `Authorization: Bearer ...`；前端把它当成 BYOK profile 的 apiKey 填
-3. **基于域名的 sub2api 错位**：让 sub2api 不开公网，仅本机 BFF 可访问（已经是默认状态）
+> ⚠️ 这条链**不防** "拿到 BFF URL + curl 伪造 Origin" 的攻击者。如果需要硬防，可在 cf tunnel 上挂 Cloudflare Access policy（推荐，0 改 BFF）或 BFF 加 `Authorization: Bearer ...` middleware（前端改 BYOK profile apiKey 填）。
