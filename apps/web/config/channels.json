@@ -3,7 +3,7 @@
     {
       "id": "qlj-sub2api-gemini-flash-image",
       "kind": "gemini",
-      "label": "qlj · Gemini 3.1 Flash Image",
+      "label": "Gemini",
       "baseUrl": "https://sub2api.qiliangjia.one/antigravity/v1beta",
       "auth": {
         "type": "query-key",
@@ -14,7 +14,10 @@
         {
           "id": "gemini-3.1-flash-image",
           "label": "Gemini 3.1 Flash Image",
-          "capabilities": ["generate", "edit"]
+          "capabilities": [
+            "generate",
+            "edit"
+          ]
         }
       ],
       "defaults": {
@@ -29,7 +32,7 @@
     {
       "id": "qlj-sub2api-gemini-flash-image-preview",
       "kind": "gemini",
-      "label": "qlj · Gemini 3.1 Flash Image Preview",
+      "label": "Gemini",
       "baseUrl": "https://sub2api.qiliangjia.one/v1beta",
       "auth": {
         "type": "query-key",
@@ -40,7 +43,10 @@
         {
           "id": "gemini-3.1-flash-image-preview",
           "label": "Gemini 3.1 Flash Image Preview",
-          "capabilities": ["generate", "edit"]
+          "capabilities": [
+            "generate",
+            "edit"
+          ]
         }
       ],
       "defaults": {
@@ -55,15 +61,29 @@
     {
       "id": "qlj-sub2api-openai-gpt-image",
       "kind": "openai-compat",
-      "label": "qlj · OpenAI gpt-image",
+      "label": "GPT Image 2",
       "baseUrl": "https://sub2api.qiliangjia.one/v1",
       "auth": {
         "type": "bearer",
         "secretRef": "SUB2API_OPENAI_KEY"
       },
       "models": [
-        { "id": "gpt-image-2", "label": "GPT Image 2", "capabilities": ["generate", "edit"] },
-        { "id": "gpt-image-2-2026-04-21", "label": "GPT Image 2 (2026-04-21)", "capabilities": ["generate", "edit"] }
+        {
+          "id": "gpt-image-2",
+          "label": "GPT Image 2",
+          "capabilities": [
+            "generate",
+            "edit"
+          ]
+        },
+        {
+          "id": "gpt-image-2-2026-04-21",
+          "label": "GPT Image 2 (2026-04-21)",
+          "capabilities": [
+            "generate",
+            "edit"
+          ]
+        }
       ],
       "defaults": {
         "apiMode": "images",
