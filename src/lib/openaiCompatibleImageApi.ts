@@ -9,6 +9,7 @@ import {
   type CallApiResult,
   fetchImageUrlAsDataUrl,
   getApiErrorMessage,
+  throwIfProxyError,
   getDataUrlDecodedByteSize,
   getDataUrlEncodedByteSize,
   isDataUrl,
@@ -373,7 +374,9 @@ async function callImagesApiSingle(opts: CallApiOptions, profile: BYOKAdapterPro
       throw new Error(await getApiErrorMessage(response))
     }
 
-    return parseImagesApiResponse(await response.json() as ImageApiResponse, mime, controller.signal)
+    const payload = await response.json() as ImageApiResponse
+    throwIfProxyError(payload)
+    return parseImagesApiResponse(payload, mime, controller.signal)
   } finally {
     clearTimeout(timeoutId)
   }
@@ -751,6 +754,7 @@ async function callResponsesImageApiSingle(opts: CallApiOptions, profile: BYOKAd
     }
 
     const payload = await response.json() as ResponsesApiResponse
+    throwIfProxyError(payload)
     const imageResults = parseResponsesImageResults(payload, mime)
     const actualParams = mergeActualParams(
       imageResults[0]?.actualParams ?? {},

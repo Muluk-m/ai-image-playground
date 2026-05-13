@@ -6,6 +6,7 @@ import {
   type CallApiResult,
   getApiErrorMessage,
   getDataUrlEncodedByteSize,
+  throwIfProxyError,
 } from './imageApiShared'
 
 export interface GeminiPart {
@@ -166,6 +167,7 @@ export async function callGeminiImageApi(opts: CallApiOptions, profile: BYOKAdap
   }
 
   const payload = (await response.json()) as GeminiResponse
+  throwIfProxyError(payload)
   const parsed = parseGeminiResponse(payload)
 
   return {

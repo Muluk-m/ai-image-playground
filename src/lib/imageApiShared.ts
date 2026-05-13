@@ -165,6 +165,26 @@ export async function fetchImageUrlAsDataUrl(url: string, fallbackMime: string, 
   return blobToDataUrl(blob, fallbackMime)
 }
 
+/**
+ * 检测 builtin-edge proxy 返回的错误 envelope。
+ *
+ * 由于 keep-alive streaming 必须提前 send 200 OK status（status 一旦 flush 不能改），
+ * proxy 把所有 upstream 错误（含网络失败 / 超时 / non-2xx）封装为：
+ *   { error: { message, type, upstream_status? }, _proxyError: true, channelId }
+ * 通过 body 通知前端。直连 user-byok 不经 proxy，不会触发此 path。
+ *
+ * 调用时机：所有走 `callImageApi` 的 fetch 在 `await response.json()` 之后、
+ * 业务字段解析之前。
+ */
+export function throwIfProxyError(payload: unknown): void {
+  if (!payload || typeof payload !== 'object') return
+  const record = payload as Record<string, unknown>
+  if (record._proxyError !== true) return
+  const err = record.error as { message?: string } | undefined
+  const msg = err?.message ?? '上游 API 调用失败（代理层）'
+  throw new Error(msg)
+}
+
 export async function getApiErrorMessage(response: Response): Promise<string> {
   let errorMsg = `HTTP ${response.status}`
   try {
