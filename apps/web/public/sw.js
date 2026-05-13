@@ -1,86 +1,44 @@
+// Tombstone SW：项目已废弃 Service Worker（cache-first 误缓存 API 响应，
+// 且升级链路在 cf tunnel + 浏览器多层缓存下不可控）。
+//
+// 历史已注册 SW 的客户端 fetch 到此文件后：
+//   1. install 阶段 skipWaiting，立刻取代旧 SW
+//   2. activate 阶段清空本 origin 下所有 cache + 注销自己
+//   3. 注销后下一次刷新，页面就不再受任何 SW 控制
+//
 // __BUILD_VERSION__ 由 vite build 时 injectSwBuildVersion plugin 替换为
-// 每次构建唯一的 token；dev mode 下保持占位符（dev 不注册 SW）。
-const CACHE_NAME = 'image-playground-__BUILD_VERSION__'
-const APP_SHELL = ['./', './index.html', './manifest.webmanifest', './pwa-icon.svg']
-
+// 每次构建唯一的 token，确保浏览器一定 fetch 新版本而非用 HTTP 缓存的旧 SW。
 self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL)),
-  )
+  void event
   self.skipWaiting()
 })
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))),
-    ),
-  )
-  self.clients.claim()
-})
-
-// 灵感库 manifest 等数据型文件无 hash 后缀，cache-first 会导致用户必须强刷
-// 才能看到新内容。这类路径走 network-first：网络优先、失败再兜底缓存。
-const NETWORK_FIRST_PATHS = ['/inspiration-manifest.json']
-
-// 只对 Vite 哈希过的静态资源走 cache-first：dist/assets/* + app shell。
-// 其它一律放行——尤其 /v1/* (队列 API) 与 /api-proxy/* (透传 API)，
-// 状态会随时间变化、绝不能被 SW 缓存。
-const APP_SHELL_PATHS = new Set(['/', '/index.html', '/manifest.webmanifest', '/pwa-icon.svg'])
-
-function isStaticAsset(url) {
-  return url.pathname.startsWith('/assets/') || APP_SHELL_PATHS.has(url.pathname)
-}
-
-self.addEventListener('fetch', (event) => {
-  const { request } = event
-
-  if (request.method !== 'GET') return
-
-  const url = new URL(request.url)
-  if (url.origin !== self.location.origin) return
-
-  if (request.mode === 'navigate') {
-    event.respondWith(
-      fetch(request)
-        .then((response) => {
-          const copy = response.clone()
-          caches.open(CACHE_NAME).then((cache) => cache.put('./index.html', copy))
-          return response
-        })
-        .catch(() => caches.match('./index.html')),
-    )
-    return
-  }
-
-  if (NETWORK_FIRST_PATHS.some((path) => url.pathname.endsWith(path))) {
-    event.respondWith(
-      fetch(request)
-        .then((response) => {
-          if (response.ok) {
-            const copy = response.clone()
-            caches.open(CACHE_NAME).then((cache) => cache.put(request, copy))
-          }
-          return response
-        })
-        .catch(() => caches.match(request).then((cached) => cached || Response.error())),
-    )
-    return
-  }
-
-  if (!isStaticAsset(url)) return
-
-  event.respondWith(
-    caches.match(request).then((cached) => {
-      if (cached) return cached
-
-      return fetch(request).then((response) => {
-        if (response.ok) {
-          const copy = response.clone()
-          caches.open(CACHE_NAME).then((cache) => cache.put(request, copy))
+    (async () => {
+      try {
+        const keys = await caches.keys()
+        await Promise.all(keys.map((key) => caches.delete(key)))
+      } catch {
+        /* ignore */
+      }
+      try {
+        await self.registration.unregister()
+      } catch {
+        /* ignore */
+      }
+      // 让仍在前台的页面立刻刷新一下，确保后续请求脱离 SW 控制。
+      try {
+        const clients = await self.clients.matchAll({ type: 'window' })
+        for (const client of clients) {
+          if ('navigate' in client) client.navigate(client.url)
         }
-        return response
-      })
-    }),
+      } catch {
+        /* ignore */
+      }
+    })(),
   )
 })
+
+// fetch 事件不再 respondWith，所有请求直连网络。
+// build_token=__BUILD_VERSION__
