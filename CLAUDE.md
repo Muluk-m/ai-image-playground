@@ -4,56 +4,60 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目概况
 
-Fork 自 [CookSleep/gpt_image_playground](https://github.com/CookSleep/gpt_image_playground)，已扩展为自部署图片工作台：新增 `gemini` 服务商 + 内置 profile 机制。数据全部存在浏览器 IndexedDB，无后端。
+monorepo，含：
+
+- `apps/web/` — 图像工作台前端（React + Vite，可部署到 CF Pages）；Fork 自 [CookSleep/gpt_image_playground](https://github.com/CookSleep/gpt_image_playground) 扩展而来。数据全部存在浏览器 IndexedDB。
+- (规划) `apps/bff/` — 任务制 BFF（Elysia + Bun + Drizzle SQLite），跑在 mac mini 上为 image-playground 提供异步队列模式的图像生成入口。
+- (规划) `packages/shared/` — 跨 app 的协议类型。
 
 ## 技术栈
 
-React 19 · Vite 6 · TypeScript 5.8 · Zustand 5 · Vitest 4 · TailwindCSS 3。
+- **monorepo**：pnpm workspace + Turbo v2 + Biome
+- **前端 `apps/web`**：React 19 · Vite 6 · TypeScript 5.8 · Zustand 5 · Vitest 4 · TailwindCSS 3
+- **(规划) BFF `apps/bff`**：Bun · Elysia · Drizzle · SQLite
 
-## 常用命令
+## 常用命令（顶层 turbo 入口）
 
-- `npm test` —— Vitest 单跑全量。**修改逻辑/类型后必须跑**。
-- `npm run build` —— `tsc -b && vite build`。**typecheck 的唯一入口**（没有独立 lint script）。
-- `npm run dev` —— 启 Vite dev server。
-- `npm run mock:api` —— `scripts/mock-image-api.mjs`，本地 mock OpenAI 图像 API。
-- `pnpm deploy:cf` —— build + Cloudflare Pages 部署（项目名 `image-playground`）。
+- `pnpm test` —— 所有 app 跑测试。**修改逻辑/类型后必须跑**。
+- `pnpm build` —— 所有 app 构建（apps/web 内部含 `gen:channels && tsc -b && vite build`）。**typecheck 的唯一入口**。
+- `pnpm typecheck` —— 所有 app 单跑 `tsc -b`。
+- `pnpm dev` —— 起所有 app dev server。
+- `pnpm dev:web` —— 只起 `apps/web` 的 Vite dev server。
+- `pnpm deploy:cf` —— 转发到 `apps/web` 跑 `deploy:cf`（build + wrangler pages deploy，项目名 `image-playground`）。
+- `pnpm lint` / `pnpm format` —— Biome。
 
-无 `npm run lint`。任何「lint 通过」断言都靠 `tsc -b`。
+子包内还可以直接进目录跑（如 `cd apps/web && pnpm dev`）。
 
 ## 部署流程
 
-仓库**没有配置 CI 自动部署**：push 到 `main` 之后必须手动执行一次 `pnpm deploy:cf` 才能上线。完成 push 后默认执行这一步，除非用户明确说先不部署。
+仓库**没有 CI 自动部署**：push 到 `main` 之后必须手动 `pnpm deploy:cf` 才能上线。完成 push 后默认执行这一步，除非用户明确说先不部署。
 
-## 服务商架构
+## 服务商架构（apps/web）
 
-三个内建 provider，分发入口 `src/lib/api.ts` 的 `callImageApi`：
+三个内建 provider，分发入口 `apps/web/src/lib/api.ts` 的 `callImageApi`：
 
 | provider | 实现文件 | 协议 |
 |---|---|---|
 | `openai` / `custom-*` | `openaiCompatibleImageApi.ts` | OpenAI 兼容 `/v1/images` 或 `/v1/responses` |
 | `gemini` | `geminiImageApi.ts` | Google 原生 `v1beta/models/{model}:generateContent` |
 
-**Gemini 请求 header 用 `x-api-key`，不是 `x-goog-api-key`**——因为浏览器 CORS preflight 对 sub2api 网关只放行前者；sub2api 后端两个 header 都接受。
+**Gemini 请求 header 用 `x-api-key`，不是 `x-goog-api-key`**——浏览器 CORS preflight 对 sub2api 网关只放行前者；sub2api 后端两个 header 都接受。
 
-## 内置 Profile 机制
+## 内置 Channel 机制（apps/web）
 
-代码：`src/lib/builtinProfiles.ts`、`apiProfiles.ts` 的 `isBuiltinProfile` / `BUILTIN_PROFILE_ID_PREFIX`。
+代码：`apps/web/config/channels.json` + `apps/web/src/lib/channels/*` + `apps/web/functions/api-proxy/`。
 
-- id 强制 `builtin-` 前缀
-- 数据源：`VITE_BUILTIN_PROFILES`（JSON 字符串 env）优先，缺省时用 `DEFAULT_BUILTIN_PROFILES` 常量
-- **测试模式（`import.meta.env.MODE === 'test'`）下不加载兜底**，避免污染单测期望
-- 持久化时被剥离：`getPersistedState`（store.ts）和 `exportData` 都过滤 `builtin-*`
-- UI 上必须保持完全隐藏：编辑表单替换为「内置模型」提示框；复制 / 复制导入 URL 按钮 hidden；删除按钮 hidden
-- 当前的 sub2api apiKey 已硬编码进 git 历史，若仓库变成 public 必须先 revoke + filter-repo 清理
-
-## normalizeSettings 循环 import 陷阱
-
-`DEFAULT_SETTINGS` 在 `apiProfiles.ts` 模块顶层调用 `normalizeSettings(...)`，而后者默认会调用 `getBuiltinProfiles()`（来自 `builtinProfiles.ts`，循环依赖）。**必须显式传 `{ builtinProfiles: [] }`** 绕开 TDZ，否则会报 `Cannot access 'cached' before initialization`。
+- channel id 强制 kebab-case，`auth.secretRef` 指向环境变量名（不是真值）
+- `apps/web/scripts/build-public-channels.mjs` 派生 `apps/web/src/generated/channels.public.json`（客户端可见字段，不含 secret）
+- Secret 仅放 CF Pages env 变量；客户端永远不带 `Authorization`，强制经 `/api-proxy/<channelId>/<path>` 转发
+- UI 必须保持完全隐藏 baseUrl / apiKey；模型可下拉切换
+- Pages Function `functions/_lib/handler.ts` 用 ReadableStream + 20s 空格心跳保活，绕过 CF Edge 100s idle 超时；上游错误经 body envelope `_proxyError: true` 通知前端
 
 ## 提交规范
 
-- 不要 `git add -A`，工作区里常有未追踪的本地 deploy 配置（vercel.json / wrangler.jsonc 删改、`.env.local`、`out.png` 等），容易夹带。**只 add 明确改动的文件**。
+- 不要 `git add -A`，工作区常有未追踪的本地 deploy 配置（`.env.local`、`out.png` 等），容易夹带。**只 add 明确改动的文件**。
 - Commit message 用 Conventional Commits（`feat:` / `fix(scope):` / `docs:` …）。
+- 在 monorepo 内通常用 scope 指 app，如 `feat(web): ...` / `feat(bff): ...`。
 
 ## Spec / Plan 流程
 
@@ -64,8 +68,8 @@ React 19 · Vite 6 · TypeScript 5.8 · Zustand 5 · Vitest 4 · TailwindCSS 3�
 
 新功能建议先 spec → plan → 执行。
 
-## 其它要点
+## 其它要点（apps/web）
 
 - 用户优先看到「模型名」，profile name 次之（TaskCard、InputBar 下拉等顺序遵循该原则）
-- 上游 `/models` 拉取通过 `src/lib/fetchProfileModels.ts`，结果缓存在 store 的 `profileModelCache`
-- 内置 profile 的 model 可改（用户可在 InputBar 切换），变化通过 `builtinProfileModelSelections` 字段持久化
+- 上游 `/models` 拉取通过 `apps/web/src/lib/fetchProfileModels.ts`，结果缓存在 store 的 `profileModelCache`
+- builtin-edge channel 的 model 可改（用户可在 InputBar 切换），变化通过 `builtinChannelModelSelections` 字段持久化
