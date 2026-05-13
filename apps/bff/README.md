@@ -88,14 +88,37 @@ pnpm install
 # 3. 配置
 cd apps/bff
 cp .env.example .env
-vim .env    # 填入实际 sub2api 端口与 key
+vim .env    # 填入实际 SUB2API_BASE_URL / SUB2API_API_KEY
 
-# 4. 起 BFF
+# 4. 注册为 LaunchAgent 自启动（推荐）
+./deploy/install.sh
+
+# 4'. 或者前台跑（仅测试）
 pnpm start
 
 # 5. cf tunnel 把 :37377 暴露成公网域名（Cloudflare Zero Trust）
-#    或者用 launchd / pm2 / brew services 做自启动
 ```
+
+### LaunchAgent 管理
+
+`deploy/install.sh` 把 `deploy/launchd.plist.tpl` 占位符替换后写到
+`~/Library/LaunchAgents/qlj.image-playground.bff.plist`，并通过 `launchctl bootstrap`
+注册到当前 GUI session。开机自动起、崩溃自动重启（10s 节流）、stdout/stderr
+分别落到 `~/Library/Logs/qlj-bff.log` / `qlj-bff.err.log`。
+
+| 操作 | 命令 |
+|---|---|
+| 安装 / 更新（覆盖旧的） | `./deploy/install.sh` |
+| 卸载 | `./deploy/uninstall.sh` |
+| 查看状态 | `launchctl print gui/$(id -u)/qlj.image-playground.bff \| head -20` |
+| 重启 | `launchctl kickstart -k gui/$(id -u)/qlj.image-playground.bff` |
+| 实时日志 | `tail -f ~/Library/Logs/qlj-bff.log` |
+| 错误日志 | `tail -f ~/Library/Logs/qlj-bff.err.log` |
+| 临时停 | `launchctl bootout gui/$(id -u)/qlj.image-playground.bff` |
+
+> 修改 `.env` 后**必须** `kickstart` 才生效（plist 不变也要重新加载进程的 env）。
+> 修改源码后用 `kickstart -k` 强制重启即可（不需要重跑 install.sh，因为 plist 内容没变）。
+> 修改 plist 模板（端口、路径等结构性变化）后才需要重跑 `install.sh`（内部 bootout + bootstrap）。
 
 ### 前端接入
 
