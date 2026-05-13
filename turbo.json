@@ -32,7 +32,6 @@
         "src/**",
         "functions/**",
         "scripts/**",
-        "vitest.config.*",
         "tsconfig*.json",
         "package.json"
       ]
