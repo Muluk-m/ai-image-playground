@@ -19,17 +19,14 @@ const REPO_OWNER = 'freestylefly'
 const REPO_NAME = 'awesome-gpt-image-2'
 const REPO_BRANCH = 'main'
 const SOURCE_URL = `https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/${REPO_BRANCH}/data/cases.json`
-// 原图（详情页 + 「查看原图」）走 jsDelivr CDN：GitHub raw 限流 + 国内访问差。
+// 原图 + 缩略图统一走 jsDelivr CDN：GitHub raw 限流 + 国内访问差。
+// 之前缩略图绕 images.weserv.nl 做 400px WebP 压缩，单张 ~25KB，但 400+ 张
+// 一次性请求会触发 wsrv 免费版限流，浏览器报 net::ERR_BLOCKED_*。
+// 现在直接走 jsdelivr 原图（单张 ~150KB），CDN 稳定 + 浏览器 cache 命中后零流量。
 const IMAGE_BASE_FULL = `https://cdn.jsdelivr.net/gh/${REPO_OWNER}/${REPO_NAME}@${REPO_BRANCH}/data`
-// 缩略图（网格列表）经 images.weserv.nl 在线压缩到 400px WebP（q=75，免费图片代理 + CDN）。
-// 单张从 ~150KB JPEG 压到 ~25KB WebP，国内访问更稳定。
-const THUMBNAIL_PROXY = 'https://images.weserv.nl/'
 
 function buildThumbnailUrl(imagePath) {
-  // wsrv 要求 url 参数去掉 https:// 前缀
-  const upstream = `cdn.jsdelivr.net/gh/${REPO_OWNER}/${REPO_NAME}@${REPO_BRANCH}/data${imagePath}`
-  const params = new URLSearchParams({ url: upstream, w: '400', output: 'webp', q: '75' })
-  return `${THUMBNAIL_PROXY}?${params.toString()}`
+  return `${IMAGE_BASE_FULL}${imagePath}`
 }
 
 const ROOT = path.resolve(fileURLToPath(import.meta.url), '..', '..')
