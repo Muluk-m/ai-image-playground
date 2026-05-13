@@ -7,14 +7,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 monorepo，含：
 
 - `apps/web/` — 图像工作台前端（React + Vite，可部署到 CF Pages）；Fork 自 [CookSleep/gpt_image_playground](https://github.com/CookSleep/gpt_image_playground) 扩展而来。数据全部存在浏览器 IndexedDB。
-- (规划) `apps/bff/` — 任务制 BFF（Elysia + Bun + Drizzle SQLite），跑在 mac mini 上为 image-playground 提供异步队列模式的图像生成入口。
-- (规划) `packages/shared/` — 跨 app 的协议类型。
+- `apps/bff/` — 任务制 BFF（Elysia + Bun + Drizzle + SQLite），跑在 mac mini 上为 image-playground 提供异步队列模式的图像生成入口，绕开 CF Edge 100s 超时。
+- `packages/shared/` — 跨 app 的协议类型（queue submit/status/result schema）。
 
 ## 技术栈
 
 - **monorepo**：pnpm workspace + Turbo v2 + Biome
 - **前端 `apps/web`**：React 19 · Vite 6 · TypeScript 5.8 · Zustand 5 · Vitest 4 · TailwindCSS 3
-- **(规划) BFF `apps/bff`**：Bun · Elysia · Drizzle · SQLite
+- **BFF `apps/bff`**：Bun · Elysia · Drizzle · SQLite，端口 37377
 
 ## 常用命令（顶层 turbo 入口）
 
@@ -67,6 +67,18 @@ monorepo，含：
 - `docs/superpowers/plans/` —— 实现计划（writing-plans 阶段产出）
 
 新功能建议先 spec → plan → 执行。
+
+## Queue 模式（apps/web + apps/bff）
+
+为绕开 CF Edge 100s idle timeout（生图请求 > 100s 必触发 524），引入 BFF 队列模式：
+
+- 前端按 fal.ai-style 协议跟 BFF 交互：`submit → polling → fetch result`，三个端点都是 < 1s 快请求
+- BFF 跑在 mac mini，本机 localhost 调 sub2api，**不经过 CF Edge HTTP 层**，任务多久都不限
+- channel 在前端通过 `VITE_BFF_QUEUE_CHANNELS` 注入（JSON 数组），跟 builtin-edge channels 平行
+- channel.kind 为 `'openai-queue'` 或 `'gemini-queue'`，dispatch 走 `apps/web/src/lib/channels/queueClient.ts`
+- 协议 types 在 `packages/shared/src/queue-protocol.ts`
+
+部署：mac mini 上 `cd apps/bff && pnpm start`，cf tunnel 把 :37377 暴露成公网域名，前端 env 填该域名即可。详见 `apps/bff/README.md`。
 
 ## 其它要点（apps/web）
 
