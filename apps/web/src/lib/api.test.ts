@@ -208,8 +208,13 @@ describe('callImageApi', () => {
     )
   })
 
-  // Helper: builtin-edge 走 queue 时 fetch 序列是 submit → status → result，分别用不同 payload mock
-  function mockQueueFlow(provider: 'openai-compat' | 'gemini', resultPayload: unknown): { fetchMock: ReturnType<typeof vi.spyOn> } {
+  // Helper: builtin-edge queue 模式 fetch 序列：
+  //   submit → status → result-meta → image/0 (binary)
+  // result-meta 直接给 BFF 已抽好的 images 数组；image/N 走二进制端点。
+  function mockQueueFlow(
+    provider: 'openai-compat' | 'gemini',
+    imageBytesB64: string = 'aW1hZ2U=',
+  ): { fetchMock: ReturnType<typeof vi.spyOn> } {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
       const url = typeof input === 'string' ? input : (input as Request).url
       if (url.includes('/v1/queue/') && url.endsWith('/submit')) {
@@ -224,11 +229,24 @@ describe('callImageApi', () => {
           headers: { 'Content-Type': 'application/json' },
         })
       }
-      if (url.includes('/v1/queue/requests/')) {
-        return new Response(JSON.stringify({ request_id: 'rid-1', status: 'completed', payload: resultPayload }), {
+      // /v1/queue/requests/{id}/image/{idx} → 原始 PNG/Gemini 字节
+      const binMatch = /\/v1\/queue\/requests\/[^/]+\/image\/(\d+)/.exec(url)
+      if (binMatch) {
+        const bytes = Uint8Array.from(atob(imageBytesB64), (c) => c.charCodeAt(0))
+        return new Response(bytes, {
           status: 200,
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'image/png' },
         })
+      }
+      if (url.includes('/v1/queue/requests/')) {
+        return new Response(
+          JSON.stringify({
+            request_id: 'rid-1',
+            status: 'completed',
+            images: [{ index: 0, mime: 'image/png' }],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        )
       }
       throw new Error(`Unexpected fetch URL in test: ${url}`)
     })
@@ -246,7 +264,7 @@ describe('callImageApi', () => {
     }
     mockChannels.list = [channel]
 
-    const { fetchMock } = mockQueueFlow('openai-compat', { data: [{ b64_json: 'aW1hZ2U=' }] })
+    const { fetchMock } = mockQueueFlow('openai-compat')
 
     await callImageApi({
       settings: settingsWithBuiltin(channel),
@@ -271,7 +289,7 @@ describe('callImageApi', () => {
     }
     mockChannels.list = [channel]
 
-    const { fetchMock } = mockQueueFlow('openai-compat', { data: [{ b64_json: 'aW1hZ2U=' }] })
+    const { fetchMock } = mockQueueFlow('openai-compat')
 
     await callImageApi({
       settings: settingsWithBuiltin(channel),
@@ -296,7 +314,7 @@ describe('callImageApi', () => {
     }
     mockChannels.list = [channel]
 
-    const { fetchMock } = mockQueueFlow('openai-compat', { data: [{ b64_json: 'aW1hZ2U=' }] })
+    const { fetchMock } = mockQueueFlow('openai-compat')
 
     await callImageApi({
       settings: settingsWithBuiltin(channel),
@@ -320,11 +338,7 @@ describe('callImageApi', () => {
     }
     mockChannels.list = [channel]
 
-    const { fetchMock } = mockQueueFlow('gemini', {
-      candidates: [{
-        content: { parts: [{ inlineData: { mimeType: 'image/png', data: 'aW1hZ2U=' } }] },
-      }],
-    })
+    const { fetchMock } = mockQueueFlow('gemini')
 
     await callImageApi({
       settings: settingsWithBuiltin(channel),
@@ -373,7 +387,7 @@ describe('callImageApi', () => {
       defaults: { apiMode: 'images', timeout: 600 },
     }
     mockChannels.list = [channel]
-    mockQueueFlow('openai-compat', { data: [{ b64_json: 'aW1hZ2U=' }] })
+    mockQueueFlow('openai-compat')
 
     const onQueueSubmitted = vi.fn()
     await callImageApi({
@@ -396,7 +410,7 @@ describe('callImageApi', () => {
       defaults: { apiMode: 'images', timeout: 600 },
     }
     mockChannels.list = [channel]
-    const { fetchMock } = mockQueueFlow('openai-compat', { data: [{ b64_json: 'aW1hZ2U=' }] })
+    const { fetchMock } = mockQueueFlow('openai-compat')
 
     await resumeQueueImageApi(
       {

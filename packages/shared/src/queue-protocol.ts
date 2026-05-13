@@ -48,18 +48,52 @@ export interface StatusResponse {
 }
 
 /**
+ * 单张图片的元信息（不含像素字节）。
+ *
+ * 像素字节通过 `GET /v1/queue/requests/{id}/image/{index}` 单独拿，避免在 JSON
+ * 里塞 base64 走 cf tunnel 下行——base64 比原生 PNG/WebP 大 33%，且文本不便
+ * gzip 高效压缩。
+ */
+export interface ResultImageMeta {
+  index: number
+  mime: string
+  /** OpenAI revised_prompt 或 Gemini text part；可空 */
+  revised_prompt?: string
+  /** 像素尺寸（OpenAI 不一定返；Gemini 通过 BFF 自己解析） */
+  width?: number
+  height?: number
+}
+
+/**
  * GET /v1/queue/requests/{id}
  *
- * - completed: payload 是上游原始响应体 (OpenAI Images / Gemini generateContent JSON)
- * - failed: error 字段填，payload null
+ * - completed: 返回 images 元信息列表 + actual_params + raw_image_urls；
+ *   像素字节请通过 `GET /v1/queue/requests/{id}/image/{index}` 拉取
+ * - failed: error 字段填
  * - 其它状态: 425 Too Early
  */
 export interface ResultResponse {
   request_id: string
   status: TaskStatus
-  payload?: unknown
+  /** completed 时 BFF 已从原始上游响应中抽出 */
+  images?: ResultImageMeta[]
+  /** OpenAI 路径上游回填的实际生效参数（size 等） */
+  actual_params?: { size?: string; quality?: string }
+  /** OpenAI 的 response_format=url 时上游直接给的 http URL 列表 */
+  raw_image_urls?: string[]
   error?: { message: string; type: string }
 }
+
+/**
+ * GET /v1/queue/requests/{id}/image/{index}
+ *
+ * - completed: 返回原始 image/png|image/webp|image/jpeg 二进制，
+ *   Content-Type 来自 BFF 解析；强制 Cache-Control: public, max-age=31536000
+ *   （request_id + index 是稳定 key）
+ * - failed / cancelled / queued / in_progress: 404
+ *
+ * 这是一条纯字节响应，不走 JSON envelope。
+ */
 
 /** PUT /v1/queue/requests/{id}/cancel */
 export interface CancelResponse {

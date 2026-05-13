@@ -81,8 +81,18 @@ describe('BFF queue routes', () => {
       expect(result.status).toBe(200)
       expect(result.json).toMatchObject({
         status: 'completed',
-        payload: { data: [{ b64_json: 'fake' }] },
+        images: [{ index: 0, mime: 'image/png' }],
       })
+
+      // 二进制端点应返回 base64 解码后的原始字节
+      const binRes = await app.handle(
+        new Request(`http://localhost/v1/queue/requests/${id}/image/0`),
+      )
+      expect(binRes.status).toBe(200)
+      expect(binRes.headers.get('content-type')).toBe('image/png')
+      const bytes = new Uint8Array(await binRes.arrayBuffer())
+      // 'fake' base64 解码后的原始字节
+      expect(Buffer.from(bytes).toString('base64')).toBe('fake')
     } finally {
       globalThis.fetch = originalFetch
     }
