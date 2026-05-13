@@ -6,6 +6,7 @@ import { dismissAllTooltips } from '../lib/tooltipDismiss'
 import ViewportTooltip from './ViewportTooltip'
 import HelpModal from './HelpModal'
 import { useInspirationStore } from '../features/inspiration/store'
+import InspirationCoach from '../features/inspiration/components/InspirationCoach'
 import { SparkleIcon } from './icons'
 
 type BeforeInstallPromptEvent = Event & {
@@ -27,6 +28,10 @@ export default function Header() {
   const [isPwaInstalled, setIsPwaInstalled] = useState(isInstalledPwa)
 
   const openInspiration = useInspirationStore((s) => s.openPanel)
+  const dismissInspirationCoach = useStore((s) => s.dismissInspirationCoach)
+  const inspirationCoachActive = useStore(
+    (s) => !s.inspirationCoachDismissed && s.tasks.length === 0,
+  )
 
   const installTooltip = useTooltip()
   const inspirationTooltip = useTooltip()
@@ -165,16 +170,24 @@ export default function Header() {
               <button
                 onClick={() => {
                   dismissAllTooltips()
+                  dismissInspirationCoach()
                   openInspiration()
                 }}
-                className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-900 transition-colors"
+                className={`p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-900 transition-colors ${
+                  inspirationCoachActive ? 'animate-coach-pulse' : ''
+                }`}
                 aria-label="灵感库"
               >
-                <SparkleIcon className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+                <SparkleIcon
+                  className={`w-5 h-5 ${
+                    inspirationCoachActive ? 'text-blue-500' : 'text-gray-600 dark:text-gray-400'
+                  }`}
+                />
               </button>
               <ViewportTooltip visible={inspirationTooltip.visible} className="whitespace-nowrap">
                 灵感库
               </ViewportTooltip>
+              {inspirationCoachActive && <InspirationCoach />}
             </div>
             <div
               className="relative"

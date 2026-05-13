@@ -329,6 +329,7 @@ export function getPersistedState(state: AppState) {
     supportPromptDismissed: state.supportPromptDismissed,
     supportPromptOpen: state.supportPromptOpen,
     supportPromptSkippedForImportedData: state.supportPromptSkippedForImportedData,
+    inspirationCoachDismissed: state.inspirationCoachDismissed,
     // 内置 channel 的 model cache 不进 localStorage（避免敏感模型清单泄漏到导出）。
     // 通过 profile.source === 'builtin-edge' 判定，而不是字符串前缀。
     profileModelCache: filterUserProfileCache(state.profileModelCache ?? {}, settings.profiles),
@@ -347,6 +348,7 @@ function mergePersistedState(persistedState: unknown, currentState: AppState): A
     supportPromptDismissed: Boolean(persisted.supportPromptDismissed),
     supportPromptOpen: Boolean(persisted.supportPromptOpen),
     supportPromptSkippedForImportedData: Boolean(persisted.supportPromptSkippedForImportedData),
+    inspirationCoachDismissed: Boolean(persisted.inspirationCoachDismissed),
     prompt: settings.persistInputOnRestart && typeof persisted.prompt === 'string' ? persisted.prompt : '',
     inputImages: settings.persistInputOnRestart && Array.isArray(persisted.inputImages) ? persisted.inputImages : [],
   }
@@ -418,6 +420,9 @@ interface AppState {
   supportPromptSkippedForImportedData: boolean
   setSupportPromptOpen: (v: boolean) => void
   dismissSupportPrompt: () => void
+  /** 新人引导：第一次访问、还没生成过图时在 Header 灵感库按钮上引出气泡。 */
+  inspirationCoachDismissed: boolean
+  dismissInspirationCoach: () => void
 
   // Toast
   toast: { message: string; type: 'info' | 'success' | 'error' } | null
@@ -609,6 +614,8 @@ export const useStore = create<AppState>()(
       supportPromptSkippedForImportedData: false,
       setSupportPromptOpen: (supportPromptOpen) => set({ supportPromptOpen }),
       dismissSupportPrompt: () => set({ supportPromptOpen: false, supportPromptDismissed: true }),
+      inspirationCoachDismissed: false,
+      dismissInspirationCoach: () => set({ inspirationCoachDismissed: true }),
 
       // Toast
       toast: null,
