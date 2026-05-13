@@ -13,7 +13,7 @@
       "models": [
         {
           "id": "gemini-3.1-flash-image",
-          "label": "Gemini 3.1 Flash Image",
+          "label": "Nano Banana 2",
           "capabilities": [
             "generate",
             "edit"
@@ -42,7 +42,7 @@
       "models": [
         {
           "id": "gemini-3.1-flash-image-preview",
-          "label": "Gemini 3.1 Flash Image Preview",
+          "label": "Nano Banana 2 Preview",
           "capabilities": [
             "generate",
             "edit"
@@ -61,7 +61,7 @@
     {
       "id": "qlj-sub2api-openai-gpt-image",
       "kind": "openai-compat",
-      "label": "GPT Image 2",
+      "label": "OpenAI",
       "baseUrl": "https://sub2api.qiliangjia.one/v1",
       "auth": {
         "type": "bearer",
