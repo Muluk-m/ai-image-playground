@@ -32,19 +32,15 @@ monorepo，含：
 
 线上跑在 mac mini 上：BFF（apps/bff）通过 launchd 常驻，**同时托管 apps/web 的静态产物 + 提供 api-proxy 与 queue 路由**。CF Pages 路径已弃用，**不要再跑 `pnpm deploy:cf`**。
 
-push 完成后，Claude 默认通过 ssh 到 mac mini 执行下面一条命令完成部署（除非用户明确说「先不部署」）：
+部署本身由仓库根的 `pnpm deploy:local` 完成：构建 `apps/web` + `launchctl kickstart` 重启 BFF。Claude push 完成后默认通过 ssh 到 mac mini 跑下面这条（**先拉代码再部署**，除非用户明确说「先不部署」）：
 
 ```sh
 ssh macmini "cd /Users/qiqian/workspace/repos/qlj-image-playground && \
-  git stash push -u 2>&1 | tail -1 && \
-  git pull --rebase origin main && \
-  git stash pop && \
-  cd apps/web && pnpm build && \
-  launchctl kickstart -k gui/\$(id -u)/qlj.image-playground.bff && \
-  echo DONE"
+  git pull --rebase --autostash origin main && \
+  pnpm deploy:local"
 ```
 
-只要看到末尾 `DONE` 就视为部署成功。stash pop 在没有本地未提交改动时会报 "No stash entries found"，**这不是错误**。
+`--autostash` 让 mac mini 上偶尔的本地未提交改动不阻塞 rebase。命令链全用 `&&`，出现任何错误立即终止。看到 `launchctl kickstart` 那一步无报错即视为部署完成。
 
 ## 服务商架构（apps/web）
 
