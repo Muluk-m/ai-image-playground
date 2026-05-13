@@ -172,7 +172,7 @@ async function sendOpenAICompatEdit(
   return fetch(url, { method: 'POST', body: formData, signal })
 }
 
-async function parseOpenAICompatResponse(
+export async function parseOpenAICompatResponse(
   payload: ImageApiResponse,
   mime: string,
   signal: AbortSignal,

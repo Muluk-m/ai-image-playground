@@ -1,7 +1,16 @@
 // 客户端 Channel / Profile 类型定义。
 // 服务端真源在 config/channels.json；本文件只描述「客户端可见」的字段。
 
-export type ProviderKind = 'openai-compat' | 'gemini' | 'http-template'
+export type ProviderKind =
+  | 'openai-compat'
+  | 'gemini'
+  | 'http-template'
+  | 'openai-queue'
+  | 'gemini-queue'
+
+export function isQueueKind(kind: ProviderKind): kind is 'openai-queue' | 'gemini-queue' {
+  return kind === 'openai-queue' || kind === 'gemini-queue'
+}
 
 export type ChannelCapability = 'generate' | 'edit' | 'mask'
 
@@ -27,6 +36,8 @@ export interface PublicChannel {
   defaults: ChannelDefaults
   /** 内部下线开关；客户端读取时通过 getPublicChannels 过滤掉 */
   disabled?: boolean
+  /** 仅 queue kind 必填：BFF 公网 base URL（含协议、不带尾斜杠） */
+  bffBaseUrl?: string
 }
 
 /**

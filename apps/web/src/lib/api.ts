@@ -1,5 +1,6 @@
-import type { UserByokProfile } from './channels/types'
+import { isQueueKind, type UserByokProfile } from './channels/types'
 import { callEdgeChannelApi } from './channels/edgeClient'
+import { callQueueChannelApi } from './channels/queueClient'
 import { getPublicChannel } from './channels/publicChannels'
 import { getActiveApiProfile } from './apiProfiles'
 import { callGeminiImageApi } from './geminiImageApi'
@@ -28,6 +29,9 @@ export async function callImageApi(opts: CallApiOptions): Promise<CallApiResult>
   if (profile.source === 'builtin-edge') {
     const channel = getPublicChannel(profile.channelId)
     if (!channel) throw new Error(`找不到内置 channel：${profile.channelId}`)
+    if (isQueueKind(channel.kind)) {
+      return callQueueChannelApi(opts, profile, channel)
+    }
     return callEdgeChannelApi(opts, profile, channel)
   }
 
@@ -40,5 +44,8 @@ export async function callImageApi(opts: CallApiOptions): Promise<CallApiResult>
     case 'http-template':
       // http-template 暂走 OpenAI 兼容路径；未来若新增独立 adapter 在此分支替换。
       return callOpenAICompatibleImageApi(opts, byok, null)
+    case 'openai-queue':
+    case 'gemini-queue':
+      throw new Error(`queue kind ${profile.kind} 仅用于 builtin-edge profile，不应作为 user-byok kind`)
   }
 }
