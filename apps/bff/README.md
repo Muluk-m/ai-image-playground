@@ -109,6 +109,7 @@ pnpm start
 | 操作 | 命令 |
 |---|---|
 | 安装 / 更新（覆盖旧的） | `./deploy/install.sh` |
+| 一键 redeploy（git pull + web build + 重启 BFF） | `./deploy/redeploy.sh` |
 | 卸载 | `./deploy/uninstall.sh` |
 | 查看状态 | `launchctl print gui/$(id -u)/qlj.image-playground.bff \| head -20` |
 | 重启 | `launchctl kickstart -k gui/$(id -u)/qlj.image-playground.bff` |
@@ -119,6 +120,28 @@ pnpm start
 > 修改 `.env` 后**必须** `kickstart` 才生效（plist 不变也要重新加载进程的 env）。
 > 修改源码后用 `kickstart -k` 强制重启即可（不需要重跑 install.sh，因为 plist 内容没变）。
 > 修改 plist 模板（端口、路径等结构性变化）后才需要重跑 `install.sh`（内部 bootout + bootstrap）。
+
+### 一键 redeploy
+
+`deploy/redeploy.sh` 把日常部署 5 步合一：
+
+1. stash 本地未提交（如 `.env` / 部署侧 `.gitignore` tweak）
+2. `git pull --rebase origin main`
+3. 恢复 stash
+4. `apps/web` rebuild dist（BFF 直接 serve 新前端）
+5. `launchctl kickstart -k` 重启 BFF（加载新代码 + `.env`）
+
+```bash
+# 本地（在 mac mini 上）
+./deploy/redeploy.sh
+
+# 远程（从其它机器）
+ssh macmini "bash /Users/qiqian/workspace/repos/qlj-image-playground/apps/bff/deploy/redeploy.sh"
+```
+
+新前端 build 含 SW build-version token（vite plugin 注入），客户端浏览器
+拿到新 sw.js → install → activate → controllerchange → 自动 `location.reload()`，
+**无需强刷**就拿到新版本。
 
 ### 前端接入
 
