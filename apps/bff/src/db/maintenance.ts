@@ -1,32 +1,43 @@
 import { sqlite } from './client'
+import { runTask } from '../workers/task-runner'
 
 /** 30 天前的成品任务一律清掉。 */
 const TASK_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
 
 /**
- * BFF 启动时跑一次：把启动前残留的 `queued` / `in_progress` task 推到 `failed`。
+ * BFF 启动时跑一次：把启动前残留的 task 分两类处理。
  *
- * 这两种状态都是孤儿：
- * - `queued`：submit 写表后 fire-and-forget 调 runTask，BFF 这次进程没起来
- *   这次调用就丢了。新进程不重新 enqueue（重试上游可能产生重复消耗），直接
- *   标 failed，由用户决定是否重提。
- * - `in_progress`：worker 调上游中途被 kill。同上不重试。
+ * - **queued**：submit 写表后 fire-and-forget 调 runTask，但 BFF 这次进程没起
+ *   来这次调用就丢了。**上游没动过**，重新调 runTask 让它继续推进，前端 poll
+ *   感知不到（status 还是 queued/in_progress）。
+ * - **in_progress**：worker 已经把 status 推到 in_progress，**几乎只能是上游
+ *   fetch 已经发出后进程被外部 kill**——sub2api 那边可能在跑，再发一次会重
+ *   复消耗配额。所以一律标 failed，由用户决定是否手动重试。
  *
- * 前端 poll 看到 status='failed' 后会把 task 转 error；如果有 clientRequestId
- * 但提交期间被中断（task 卡 queued），下一次 reload 也会被这条清掉，前端可
- * 走「重新提交」按钮。
+ * 这种分法的副产品：用户在「提交瞬间正好碰上重启」时完全无感（最常见的窗口），
+ * 只有「BFF 在调上游过程中被 kill」会被标 failed 让用户重试。
  */
-export function recoverInterruptedTasks(): number {
-  const stmt = sqlite.prepare(
+export function recoverInterruptedTasks(): { retried: number; failed: number } {
+  const queuedRows = sqlite
+    .prepare("SELECT id FROM tasks WHERE status = 'queued'")
+    .all() as Array<{ id: string }>
+  for (const row of queuedRows) {
+    runTask(row.id).catch((err) =>
+      console.error(`[task-runner ${row.id}] crashed during startup recovery`, err),
+    )
+  }
+
+  const failedStmt = sqlite.prepare(
     `UPDATE tasks
        SET status = 'failed',
            error_message = ?,
            error_type = ?,
            completed_at = ?
-     WHERE status IN ('queued', 'in_progress')`,
+     WHERE status = 'in_progress'`,
   )
-  const result = stmt.run('BFF 重启时中断', 'interrupted', Date.now())
-  return result.changes
+  const failedResult = failedStmt.run('BFF 重启时中断', 'interrupted', Date.now())
+
+  return { retried: queuedRows.length, failed: failedResult.changes }
 }
 
 /**

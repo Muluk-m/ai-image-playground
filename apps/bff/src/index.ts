@@ -5,11 +5,15 @@ import { app } from './app'
 
 runMigrations()
 
-// 启动时把上次进程残留的 queued/in_progress 标 failed。这一行的存在感很关键：
-// 没有它，BFF 重启后前端会傻乎乎 poll 那些孤儿到 30 min 超时。
-const interruptedCount = recoverInterruptedTasks()
-if (interruptedCount > 0) {
-  console.log(`[bff] marked ${interruptedCount} interrupted task(s) as failed`)
+// 启动时收拾上次进程残留：queued 的重新跑 runTask（上游没动过，对用户无感），
+// in_progress 的标 failed（上游可能已经发起 fetch，不能盲目重试）。没有这一段，
+// BFF 重启后前端会傻乎乎 poll 那些孤儿到 30 min 超时。
+const recovery = recoverInterruptedTasks()
+if (recovery.retried > 0) {
+  console.log(`[bff] retried ${recovery.retried} queued task(s)`)
+}
+if (recovery.failed > 0) {
+  console.log(`[bff] marked ${recovery.failed} in-progress task(s) as failed`)
 }
 
 // 启动时清一次过期任务 + 每 6 小时跑一次。BFF 单实例，setInterval 不会重复。
