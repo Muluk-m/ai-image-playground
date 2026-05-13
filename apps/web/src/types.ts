@@ -139,6 +139,11 @@ export interface TaskRecord {
   customRecoverable?: boolean
   /** BFF queue 模式的 request_id，刷新页面后用于恢复轮询 */
   bffRequestId?: string
+  /**
+   * 客户端幂等键。submitTask 时为每个任务生成一次 UUID 并持久化；提交期间
+   * 页面刷新时重提带相同 ID，BFF 用它去重。仅 BFF queue 路径会带。
+   */
+  clientRequestId?: string
   /** API 返回的实际生效参数，用于标记与请求值不一致的情况 */
   actualParams?: Partial<TaskParams>
   /** 输出图片对应的实际生效参数，key 为 outputImages 中的图片 id */

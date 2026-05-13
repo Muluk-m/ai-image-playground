@@ -671,7 +671,16 @@ function isAsyncCustomProviderTask(settings: AppSettings, provider: string, hasI
 export function markInterruptedOpenAIRunningTasks(tasks: TaskRecord[], now = Date.now()) {
   const interruptedTasks: TaskRecord[] = []
   const updatedTasks = tasks.map((task) => {
-    if (!isRunningOpenAITask(task) || task.customTaskId || task.bffRequestId) return task
+    // 已有 request_id（customTaskId / bffRequestId）→ initStore 走恢复轮询，
+    // 有 clientRequestId → 走重提交（BFF 去重）。都不当中断。
+    if (
+      !isRunningOpenAITask(task) ||
+      task.customTaskId ||
+      task.bffRequestId ||
+      task.clientRequestId
+    ) {
+      return task
+    }
 
     const updated: TaskRecord = {
       ...task,
@@ -961,6 +970,16 @@ export async function initStore() {
     // 看到的 status 还是 'running'。
     if (task.bffRequestId && task.status === 'running') {
       executeTask(task.id)
+      continue
+    }
+    // 提交期间页面刷新：task 已落盘但 submit 还没返回 request_id。
+    // 用 clientRequestId 重提交，BFF 端去重，不会重复消耗上游配额。
+    if (
+      task.clientRequestId &&
+      !task.customTaskId &&
+      task.status === 'running'
+    ) {
+      executeTask(task.id)
     }
   }
 
@@ -1094,6 +1113,10 @@ export async function submitTask(options: { allowFullMask?: boolean; useCurrentA
 
   const taskId = genId()
   const submitView = clientProfileToApiProfile(activeProfile)
+  // 不区分 channel kind 一律分配 clientRequestId：成本仅 36 字节，但让所有
+  // 任务都可在提交期刷新后被「重提 + BFF 去重」恢复，无需让 submitTask 提前
+  // 知道走的是 queue 还是同步 edge。BYOK 路径不消费此字段，不影响行为。
+  const clientRequestId = crypto.randomUUID()
   const task: TaskRecord = {
     id: taskId,
     prompt: prompt.trim(),
@@ -1111,6 +1134,7 @@ export async function submitTask(options: { allowFullMask?: boolean; useCurrentA
     createdAt: Date.now(),
     finishedAt: null,
     elapsed: null,
+    clientRequestId,
   }
 
   const latestTasks = useStore.getState().tasks
@@ -1190,6 +1214,7 @@ async function executeTask(taskId: string) {
         params: task.params,
         inputImageDataUrls: inputDataUrls,
         maskDataUrl,
+        clientRequestId: task.clientRequestId,
         onCustomTaskEnqueued: (request) => {
           customTaskInfo = request
           updateTaskInStore(taskId, {

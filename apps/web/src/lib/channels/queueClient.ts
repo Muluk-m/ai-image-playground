@@ -50,7 +50,7 @@ export async function callQueueChannelApi(
   const base = (channel.bffBaseUrl ?? '').replace(/\/+$/, '')
   const codexCli = Boolean(channel.defaults.codexCli)
 
-  const requestId = await submit(base, provider, model, opts, codexCli)
+  const requestId = await submit(base, provider, model, opts, codexCli, opts.clientRequestId)
   opts.onQueueSubmitted?.(requestId)
   return await pollAndParse(opts, channel, provider, base, requestId)
 }
@@ -116,6 +116,7 @@ async function submit(
   model: string,
   opts: CallApiOptions,
   codexCli: boolean,
+  clientRequestId: string | undefined,
 ): Promise<string> {
   // codex CLI 模式：prompt 加 guard 前缀 + quality 字段丢弃（codex 网关会拒绝）。
   // 跟 edgeClient OpenAI 路径行为对齐，由前端在 submit body 里直接应用。
@@ -126,6 +127,7 @@ async function submit(
   if (!codexCli && opts.params.quality && opts.params.quality !== 'auto') body.quality = opts.params.quality
   if (opts.params.n && opts.params.n > 1) body.n = opts.params.n
   if (opts.inputImageDataUrls.length) body.input_images = opts.inputImageDataUrls
+  if (clientRequestId) body.client_request_id = clientRequestId
 
   const url = `${base}/v1/queue/${provider}/${encodeURIComponent(model)}/submit`
   const res = await fetch(url, {

@@ -29,6 +29,12 @@ export interface SubmitRequest {
   input_images?: string[]
   /** 额外原样转发给上游的请求体字段（如 OpenAI 的 mask / response_format 等） */
   extra?: Record<string, unknown>
+  /**
+   * 客户端生成的幂等键。前端 submitTask 时为每个任务分配 UUID 并持久化到
+   * IndexedDB；提交期间页面刷新后重提时带相同 ID，BFF 用它去重 → 返回已有
+   * request_id，避免重复消耗上游配额。
+   */
+  client_request_id?: string
 }
 
 export interface SubmitResponse {
