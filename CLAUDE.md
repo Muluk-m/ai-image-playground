@@ -30,7 +30,19 @@ monorepo，含：
 
 ## 部署流程
 
-仓库**没有 CI 自动部署**：push 到 `main` 之后必须手动 `pnpm deploy:cf` 才能上线。完成 push 后默认执行这一步，除非用户明确说先不部署。
+线上跑在 mac mini 上：BFF（apps/bff）通过 launchd 常驻，**同时托管 apps/web 的静态产物 + 提供 api-proxy 与 queue 路由**。Claude 只负责把代码 push 到 `main`，**不要自动跑 `pnpm deploy:cf`**（CF Pages 路径已弃用），部署由用户在 mac mini 上手动触发：
+
+```sh
+ssh macmini "cd /Users/qiqian/workspace/repos/qlj-image-playground && \
+  git stash push -u 2>&1 | tail -1 && \
+  git pull --rebase origin main && \
+  git stash pop && \
+  cd apps/web && pnpm build && \
+  launchctl kickstart -k gui/\$(id -u)/qlj.image-playground.bff && \
+  echo DONE"
+```
+
+push 后**不要主动提醒**用户去跑这条；除非用户明确问「怎么部署」。
 
 ## 服务商架构（apps/web）
 
