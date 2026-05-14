@@ -1,6 +1,6 @@
 import { SparkleIcon } from '../../../components/icons'
+import heroSeedData from '../../../generated/heroSeed.json'
 import { useStore } from '../../../store'
-import heroSeedData from '../data/heroSeed.json'
 import { applyInspiration } from '../lib/applyInspiration'
 import { useInspirationStore } from '../store'
 import type { InspirationItem } from '../types'
