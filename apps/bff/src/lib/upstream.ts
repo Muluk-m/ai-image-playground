@@ -1,4 +1,4 @@
-import type { QueueProvider, SubmitRequest } from '@image-playground/shared'
+import { QUEUE_TIMEOUTS, type QueueProvider, type SubmitRequest } from '@image-playground/shared'
 import { config } from '../config'
 import { resolveApiKey } from './resolveApiKey'
 
@@ -22,14 +22,12 @@ export interface UpstreamCallResult {
   payload: unknown
 }
 
-const UPSTREAM_HARD_TIMEOUT_MS = 10 * 60 * 1000
-
 export async function callUpstream(params: UpstreamCallParams): Promise<UpstreamCallResult> {
   const { provider, model, request, signal: externalSignal } = params
   const base = config.sub2api.baseUrl
 
   const abort = new AbortController()
-  const timer = setTimeout(() => abort.abort(), UPSTREAM_HARD_TIMEOUT_MS)
+  const timer = setTimeout(() => abort.abort(), QUEUE_TIMEOUTS.UPSTREAM_HARD_TIMEOUT_MS)
   const onExternalAbort = () => abort.abort()
   externalSignal?.addEventListener('abort', onExternalAbort)
 
@@ -112,8 +110,6 @@ function buildGeminiBody(request: SubmitRequest): Record<string, unknown> {
     [key: string]: unknown
   }
 
-  // Gemini image generation 硬限制 candidateCount=1；n>1 由 callUpstream 在外层
-  // fan-out 多次请求实现。这里不再设 candidateCount。
   return {
     contents: [{ role: 'user', parts }],
     generationConfig: {

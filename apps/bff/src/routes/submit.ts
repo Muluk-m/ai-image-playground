@@ -2,8 +2,7 @@ import { Elysia, t } from 'elysia'
 import { eq } from 'drizzle-orm'
 import type { QueueProvider } from '@image-playground/shared'
 import { db, schema } from '../db/client'
-import { runTask } from '../workers/task-runner'
-import { trackTask } from '../lib/inflight'
+import { spawnTask } from '../workers/task-runner'
 
 const submitBodySchema = t.Object({
   prompt: t.String({ minLength: 1 }),
@@ -31,38 +30,35 @@ export const submitRoutes = new Elysia().post(
       return status(400, { error: `unsupported provider: ${provider}` })
     }
 
-    // 幂等去重：同 client_request_id 直接返已有 request_id。worker 已经在跑
-    // （或已经跑完），不重复 enqueue。
-    if (body.client_request_id) {
-      const existing = await db
+    // 幂等去重靠 SQLite 唯一索引 + ON CONFLICT DO NOTHING 兜底，避免 SELECT-then-INSERT
+    // 在并发同 client_request_id 提交时的竞争（两个 INSERT 一个抛 500）。冲突时
+    // returning 为空，再 SELECT 回 existing 行返回原 request_id。
+    const id = crypto.randomUUID()
+    const now = Date.now()
+    const inserted = await db
+      .insert(schema.tasks)
+      .values({
+        id,
+        provider,
+        model,
+        status: 'queued',
+        request_payload: body,
+        submitted_at: now,
+        client_request_id: body.client_request_id ?? null,
+      })
+      .onConflictDoNothing()
+      .returning({ id: schema.tasks.id, submitted_at: schema.tasks.submitted_at })
+
+    if (inserted.length === 0 && body.client_request_id) {
+      const [existing] = await db
         .select({ id: schema.tasks.id, submitted_at: schema.tasks.submitted_at })
         .from(schema.tasks)
         .where(eq(schema.tasks.client_request_id, body.client_request_id))
         .limit(1)
-      if (existing.length > 0) {
-        const t0 = existing[0]
-        return { request_id: t0.id, status: 'queued', submitted_at: t0.submitted_at }
-      }
+      if (existing) return { request_id: existing.id, status: 'queued', submitted_at: existing.submitted_at }
     }
 
-    const id = crypto.randomUUID()
-    const now = Date.now()
-    await db.insert(schema.tasks).values({
-      id,
-      provider,
-      model,
-      status: 'queued',
-      request_payload: body,
-      submitted_at: now,
-      client_request_id: body.client_request_id ?? null,
-    })
-
-    // fire-and-forget；worker 写状态时 status 转换错时不抛。
-    // trackTask 让 SIGTERM 信号在退出前等这个 runTask 走完，避免部署中途
-    // 把任务卡在 in_progress 让用户感知失败。
-    trackTask(
-      runTask(id).catch((err) => console.error(`[task-runner ${id}] crashed`, err)),
-    )
+    spawnTask(id, 'submit')
 
     return { request_id: id, status: 'queued', submitted_at: now }
   },

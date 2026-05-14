@@ -1,8 +1,9 @@
-import type {
-  QueueProvider,
-  ResultResponse,
-  StatusResponse,
-  SubmitResponse,
+import {
+  QUEUE_TIMEOUTS,
+  type QueueProvider,
+  type ResultResponse,
+  type StatusResponse,
+  type SubmitResponse,
 } from '@image-playground/shared'
 import type { TaskParams } from '../../types'
 import {
@@ -15,14 +16,7 @@ import {
 } from '../imageApiShared'
 import type { BuiltinEdgeProfile, ProviderKind, PublicChannel } from './types'
 
-const POLL_BACKOFF_MS = [500, 1000, 2000, 3000, 5000]
-const POLL_MAX_MS = 30 * 60 * 1000
-/**
- * 连续这么多次「网络错误 / 5xx」就放弃。设计目的：BFF 抖动（重启空窗、
- * cf tunnel 重连）能容忍几次；但 BFF 真死了不会让前端傻等 30 分钟。
- * 4xx（包括 404）走「快错」路径，不计入此计数，立即抛错。
- */
-const POLL_MAX_CONSECUTIVE_FAILURES = 5
+const { POLL_BACKOFF_MS, POLL_MAX_MS, POLL_MAX_CONSECUTIVE_FAILURES } = QUEUE_TIMEOUTS
 
 /**
  * Queue 模式：submit → polling → fetch metadata → fetch each image binary。
@@ -154,6 +148,34 @@ async function submit(
   return json.request_id
 }
 
+type PollOutcome =
+  | { kind: 'done' }
+  | { kind: 'failed'; message: string }
+  | { kind: 'cancelled' }
+  | { kind: 'pending' }
+  /** 短暂错误（5xx / 网络抖动），按 consecutiveFailures 计数 */
+  | { kind: 'transient'; error: unknown }
+  /** 确定性错误（4xx），立即放弃 */
+  | { kind: 'fatal'; message: string }
+
+async function classifyPollResponse(url: string): Promise<PollOutcome> {
+  let res: Response
+  try {
+    res = await fetch(url)
+  } catch (err) {
+    return { kind: 'transient', error: err }
+  }
+  if (!res.ok) {
+    if (res.status >= 500) return { kind: 'transient', error: new Error(`BFF status ${res.status}`) }
+    return { kind: 'fatal', message: await getApiErrorMessage(res) }
+  }
+  const json = (await res.json()) as StatusResponse
+  if (json.status === 'completed') return { kind: 'done' }
+  if (json.status === 'failed') return { kind: 'failed', message: json.error?.message ?? 'BFF 任务执行失败' }
+  if (json.status === 'cancelled') return { kind: 'cancelled' }
+  return { kind: 'pending' }
+}
+
 async function poll(base: string, requestId: string): Promise<void> {
   const url = `${base}/v1/queue/requests/${requestId}/status`
   const deadline = Date.now() + POLL_MAX_MS
@@ -162,50 +184,37 @@ async function poll(base: string, requestId: string): Promise<void> {
 
   for (let attempt = 0; Date.now() < deadline; attempt++) {
     await sleep(POLL_BACKOFF_MS[Math.min(attempt, POLL_BACKOFF_MS.length - 1)]!)
+    const outcome = await classifyPollResponse(url)
 
-    let res: Response
-    try {
-      res = await fetch(url)
-    } catch (err) {
-      // 网络断 / DNS / CORS 都进这里。视为短暂故障，重试。
-      consecutiveFailures++
-      lastTransientError = err
-      if (consecutiveFailures >= POLL_MAX_CONSECUTIVE_FAILURES) {
-        throw new Error(`BFF 连续 ${POLL_MAX_CONSECUTIVE_FAILURES} 次连不上：${err instanceof Error ? err.message : String(err)}`)
-      }
-      continue
-    }
-
-    if (!res.ok) {
-      if (res.status >= 500) {
-        // 5xx 视为 BFF 短暂故障，按 consecutive failure 计数；超过阈值再放弃。
+    switch (outcome.kind) {
+      case 'done':
+        return
+      case 'failed':
+        throw new Error(outcome.message)
+      case 'cancelled':
+        throw new Error('BFF 任务被取消')
+      case 'fatal':
+        throw new Error(`BFF status 查询失败：${outcome.message}`)
+      case 'transient': {
         consecutiveFailures++
-        lastTransientError = new Error(`BFF status ${res.status}`)
+        lastTransientError = outcome.error
         if (consecutiveFailures >= POLL_MAX_CONSECUTIVE_FAILURES) {
-          throw new Error(`BFF 连续 ${POLL_MAX_CONSECUTIVE_FAILURES} 次返 ${res.status}：${await getApiErrorMessage(res)}`)
+          const msg = outcome.error instanceof Error ? outcome.error.message : String(outcome.error)
+          throw new Error(`BFF 连续 ${POLL_MAX_CONSECUTIVE_FAILURES} 次连不上：${msg}`)
         }
-        continue
+        break
       }
-      // 4xx 是确定性错误（请求 ID 不存在 / 参数错），立即放弃，不重试。
-      throw new Error(`BFF status 查询失败：${await getApiErrorMessage(res)}`)
+      case 'pending':
+        consecutiveFailures = 0
+        lastTransientError = null
+        break
     }
+  }
 
-    consecutiveFailures = 0
-    lastTransientError = null
-    const json = (await res.json()) as StatusResponse
-    if (json.status === 'completed') return
-    if (json.status === 'failed') {
-      throw new Error(json.error?.message ?? 'BFF 任务执行失败')
-    }
-    if (json.status === 'cancelled') {
-      throw new Error('BFF 任务被取消')
-    }
-    // queued / in_progress: 继续
-  }
-  if (lastTransientError) {
-    throw new Error(`BFF 任务超过 ${POLL_MAX_MS / 1000}s 未完成，最后一次错误：${lastTransientError instanceof Error ? lastTransientError.message : String(lastTransientError)}`)
-  }
-  throw new Error(`BFF 任务超过 ${POLL_MAX_MS / 1000}s 未完成`)
+  const trailing = lastTransientError
+    ? `，最后一次错误：${lastTransientError instanceof Error ? lastTransientError.message : String(lastTransientError)}`
+    : ''
+  throw new Error(`BFF 任务超过 ${POLL_MAX_MS / 1000}s 未完成${trailing}`)
 }
 
 async function fetchResultMeta(base: string, requestId: string): Promise<ResultResponse> {

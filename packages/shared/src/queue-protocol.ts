@@ -107,6 +107,33 @@ export interface CancelResponse {
   status: TaskStatus
 }
 
+/**
+ * 队列层各时间常量集中地。BFF / web / launchd 都引用同一份；之前散在各文件里
+ * 靠注释维系跨层不变量（如「前端 POLL_MAX > BFF 上游 timeout > BFF SHUTDOWN >
+ * launchd ExitTimeOut」）—— 注释稍不留神就跟代码漂移。集中后任意改一个值
+ * 都能就近看见相邻常量的关系。
+ *
+ * 不变量：
+ *   POLL_MAX_MS  >  UPSTREAM_HARD_TIMEOUT_MS  >  SHUTDOWN_HARD_TIMEOUT_MS
+ *   SHUTDOWN_HARD_TIMEOUT_MS  <  launchd ExitTimeOut (plist: 60s)
+ */
+export const QUEUE_TIMEOUTS = {
+  /** 前端单任务 poll 上限：30 min。需 > 上游硬超时，否则上游正常返回时前端已放弃。 */
+  POLL_MAX_MS: 30 * 60 * 1000,
+  /** poll 退避梯度，attempt index 取 min(idx, len-1)。 */
+  POLL_BACKOFF_MS: [500, 1000, 2000, 3000, 5000] as readonly number[],
+  /** 连续 5 次 5xx/网络错误才放弃 poll（容忍 BFF 重启、cf tunnel 抖动）。 */
+  POLL_MAX_CONSECUTIVE_FAILURES: 5,
+  /** BFF 单次上游 fetch 硬超时：10 min（AbortController）。 */
+  UPSTREAM_HARD_TIMEOUT_MS: 10 * 60 * 1000,
+  /** BFF SIGTERM 后等 inflight drain 的硬上限；留 5s 给 launchd ExitTimeOut。 */
+  SHUTDOWN_HARD_TIMEOUT_MS: 55 * 1000,
+  /** 后台清理过期任务的轮询间隔。 */
+  PURGE_INTERVAL_MS: 6 * 60 * 60 * 1000,
+  /** 已完成/失败/取消任务保留时长，超过即删。 */
+  TASK_RETENTION_MS: 30 * 24 * 60 * 60 * 1000,
+} as const
+
 /** Channel 配置里新增 queue 类型时的客户端可见字段。 */
 export interface QueueChannelView {
   id: string
