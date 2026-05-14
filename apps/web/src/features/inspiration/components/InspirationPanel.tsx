@@ -1,11 +1,11 @@
 import { useRef } from 'react'
-import { useInspirationStore } from '../store'
+import { CloseIcon, SparkleIcon } from '../../../components/icons'
 import { useCloseOnEscape } from '../../../hooks/useCloseOnEscape'
 import { usePreventBackgroundScroll } from '../../../hooks/usePreventBackgroundScroll'
-import { CloseIcon, SparkleIcon } from '../../../components/icons'
-import InspirationGrid from './InspirationGrid'
-import InspirationDetail from './InspirationDetail'
+import { useInspirationStore } from '../store'
 import InspirationCategoryFilter from './InspirationCategoryFilter'
+import InspirationDetail from './InspirationDetail'
+import InspirationGrid from './InspirationGrid'
 import InspirationProviderTabs from './InspirationProviderTabs'
 
 export default function InspirationPanel() {
@@ -45,8 +45,18 @@ export default function InspirationPanel() {
 
           <div className="flex items-center gap-3 flex-1 max-w-sm">
             <div className="relative w-full">
-              <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35M11 17a6 6 0 100-12 6 6 0 000 12z" />
+              <svg
+                className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+                strokeWidth={2}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M21 21l-4.35-4.35M11 17a6 6 0 100-12 6 6 0 000 12z"
+                />
               </svg>
               <input
                 type="search"

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -39,18 +39,26 @@ export function buildPublicChannels(rawJson) {
     else if (seenIds.has(id)) errors.push(`${ctx}.id="${id}": 与前面记录重复`)
     seenIds.add(id)
 
-    if (!KNOWN_KINDS.has(kind)) errors.push(`${ctx}.kind="${kind}": 必须是 ${[...KNOWN_KINDS].join(' | ')}`)
+    if (!KNOWN_KINDS.has(kind))
+      errors.push(`${ctx}.kind="${kind}": 必须是 ${[...KNOWN_KINDS].join(' | ')}`)
     if (typeof label !== 'string' || !label.trim()) errors.push(`${ctx}.label: 缺失或不是字符串`)
-    if (typeof baseUrl !== 'string' || !/^https?:\/\//.test(baseUrl)) errors.push(`${ctx}.baseUrl: 必须是 http(s) URL`)
+    if (typeof baseUrl !== 'string' || !/^https?:\/\//.test(baseUrl))
+      errors.push(`${ctx}.baseUrl: 必须是 http(s) URL`)
 
     if (!auth || typeof auth !== 'object') {
       errors.push(`${ctx}.auth: 缺失`)
     } else {
-      if (!KNOWN_AUTH_TYPES.has(auth.type)) errors.push(`${ctx}.auth.type="${auth.type}": 必须是 ${[...KNOWN_AUTH_TYPES].join(' | ')}`)
+      if (!KNOWN_AUTH_TYPES.has(auth.type))
+        errors.push(`${ctx}.auth.type="${auth.type}": 必须是 ${[...KNOWN_AUTH_TYPES].join(' | ')}`)
       if (typeof auth.secretRef !== 'string' || !auth.secretRef.trim()) {
         errors.push(`${ctx}.auth.secretRef: 缺失或不是字符串`)
-      } else if (SUSPICIOUS_SECRET_PATTERNS.some((re) => re.test(auth.secretRef)) && !/^[A-Z][A-Z0-9_]*$/.test(auth.secretRef)) {
-        errors.push(`${ctx}.auth.secretRef="${auth.secretRef.slice(0, 8)}...": 疑似真密钥而非环境变量名（环境变量名应为 UPPER_SNAKE_CASE）`)
+      } else if (
+        SUSPICIOUS_SECRET_PATTERNS.some((re) => re.test(auth.secretRef)) &&
+        !/^[A-Z][A-Z0-9_]*$/.test(auth.secretRef)
+      ) {
+        errors.push(
+          `${ctx}.auth.secretRef="${auth.secretRef.slice(0, 8)}...": 疑似真密钥而非环境变量名（环境变量名应为 UPPER_SNAKE_CASE）`,
+        )
       }
     }
 
@@ -65,7 +73,10 @@ export function buildPublicChannels(rawJson) {
           if (typeof m.label !== 'string' || !m.label.trim()) errors.push(`${mctx}.label: 缺失`)
           if (Array.isArray(m.capabilities)) {
             m.capabilities.forEach((c, ci) => {
-              if (!KNOWN_CAPABILITIES.has(c)) errors.push(`${mctx}.capabilities[${ci}]="${c}": 必须是 ${[...KNOWN_CAPABILITIES].join(' | ')}`)
+              if (!KNOWN_CAPABILITIES.has(c))
+                errors.push(
+                  `${mctx}.capabilities[${ci}]="${c}": 必须是 ${[...KNOWN_CAPABILITIES].join(' | ')}`,
+                )
             })
           }
         }
@@ -73,7 +84,8 @@ export function buildPublicChannels(rawJson) {
     }
 
     if (!defaults || typeof defaults !== 'object') errors.push(`${ctx}.defaults: 缺失`)
-    if (!Array.isArray(allowedPaths) || allowedPaths.length === 0) errors.push(`${ctx}.allowedPaths: 缺失或为空数组`)
+    if (!Array.isArray(allowedPaths) || allowedPaths.length === 0)
+      errors.push(`${ctx}.allowedPaths: 缺失或为空数组`)
 
     publicChannels.push({
       id,

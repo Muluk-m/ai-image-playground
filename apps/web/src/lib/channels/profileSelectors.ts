@@ -28,10 +28,7 @@ export function getProfileModelOptions(
 }
 
 /** 返回该 profile 当前激活的模型 id；若失效则回退到 models[0]，再失效返回空串。 */
-export function getSelectedModel(
-  profile: ClientProfile,
-  publicChannels: PublicChannel[],
-): string {
+export function getSelectedModel(profile: ClientProfile, publicChannels: PublicChannel[]): string {
   const models = getProfileModels(profile, publicChannels)
   if (models.includes(profile.selectedModelId)) return profile.selectedModelId
   return models[0] ?? ''
@@ -41,10 +38,7 @@ export function getSelectedModel(
  * 替换 BYOK profile 的 models[]，保证 selectedModelId 仍 ∈ models。
  * 仅对 user-byok 生效（builtin-edge 的 models 由 channel 决定，无法在客户端改）。
  */
-export function updateProfileModels(
-  profile: ClientProfile,
-  nextModels: string[],
-): ClientProfile {
+export function updateProfileModels(profile: ClientProfile, nextModels: string[]): ClientProfile {
   if (profile.source === 'builtin-edge') return profile
 
   const deduped = Array.from(new Set(nextModels.filter((m) => m.trim().length > 0)))
@@ -73,8 +67,6 @@ export function updateSelectedModel(
     return valid ? { ...profile, selectedModelId: modelId } : profile
   }
 
-  const models = profile.models.includes(modelId)
-    ? profile.models
-    : [...profile.models, modelId]
+  const models = profile.models.includes(modelId) ? profile.models : [...profile.models, modelId]
   return { ...profile, models, selectedModelId: modelId }
 }

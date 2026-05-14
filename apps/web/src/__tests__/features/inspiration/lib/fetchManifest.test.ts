@@ -1,5 +1,5 @@
-import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
-import { fetchRemoteManifest } from './fetchManifest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { fetchRemoteManifest } from '../../../../features/inspiration/lib/fetchManifest'
 
 const goodManifest = {
   version: 1,
@@ -50,7 +50,9 @@ describe('fetchRemoteManifest', () => {
   })
 
   it('throws on structurally invalid manifest', async () => {
-    mockFetch(() => Promise.resolve(new Response(JSON.stringify({ version: 'oops' }), { status: 200 })))
+    mockFetch(() =>
+      Promise.resolve(new Response(JSON.stringify({ version: 'oops' }), { status: 200 })),
+    )
     await expect(fetchRemoteManifest('https://x/manifest.json')).rejects.toThrow(/结构无效/)
   })
 

@@ -20,8 +20,8 @@ import {
   normalizeSettings,
   switchByokProfileKind,
   validateClientProfile,
-} from './apiProfiles'
-import type { UserByokProfile } from './channels/types'
+} from '../../lib/apiProfiles'
+import type { UserByokProfile } from '../../lib/channels/types'
 
 describe('createDefaultOpenAIByokProfile', () => {
   it('returns an openai-compat user-byok profile with defaults', () => {
@@ -56,7 +56,12 @@ describe('normalizeClientProfile', () => {
       channelId: 'qlj-x',
       selectedModelId: 'model-a',
     })
-    expect(p).toEqual({ id: 'qlj-x', source: 'builtin-edge', channelId: 'qlj-x', selectedModelId: 'model-a' })
+    expect(p).toEqual({
+      id: 'qlj-x',
+      source: 'builtin-edge',
+      channelId: 'qlj-x',
+      selectedModelId: 'model-a',
+    })
   })
 
   it('rejects builtin-edge profile missing channelId', () => {
@@ -138,7 +143,10 @@ describe('normalizeSettings', () => {
 
 describe('switchByokProfileKind', () => {
   it('switches openai → gemini using gemini defaults', () => {
-    const base = createDefaultOpenAIByokProfile({ apiKey: 'sk-abc', baseUrl: 'https://api.openai.com/v1' })
+    const base = createDefaultOpenAIByokProfile({
+      apiKey: 'sk-abc',
+      baseUrl: 'https://api.openai.com/v1',
+    })
     const next = switchByokProfileKind(base, 'gemini')
     expect(next.kind).toBe('gemini')
     expect(next.baseUrl).toBe(DEFAULT_GEMINI_BASE_URL)
@@ -195,7 +203,10 @@ describe('findEquivalentClientProfile', () => {
 describe('mergeImportedSettings', () => {
   it('replaces untouched default with imported settings', () => {
     const importedByok = createDefaultGeminiByokProfile({ id: 'imp-g', name: 'Imp', apiKey: 'k' })
-    const merged = mergeImportedSettings(DEFAULT_SETTINGS, { profiles: [importedByok], activeProfileId: 'imp-g' })
+    const merged = mergeImportedSettings(DEFAULT_SETTINGS, {
+      profiles: [importedByok],
+      activeProfileId: 'imp-g',
+    })
     expect(merged.profiles).toHaveLength(1)
     expect(merged.profiles[0].id).toBe('imp-g')
   })
@@ -205,7 +216,11 @@ describe('mergeImportedSettings', () => {
       profiles: [createDefaultOpenAIByokProfile({ id: 'p1', apiKey: 'sk-current' })],
       activeProfileId: 'p1',
     })
-    const importedByok = createDefaultGeminiByokProfile({ id: 'imp-g', name: 'Imp', apiKey: 'sk-imp' })
+    const importedByok = createDefaultGeminiByokProfile({
+      id: 'imp-g',
+      name: 'Imp',
+      apiKey: 'sk-imp',
+    })
     const merged = mergeImportedSettings(current, { profiles: [importedByok] })
     expect(merged.profiles).toHaveLength(2)
     const byIds = merged.profiles.map((p) => p.id).sort()
@@ -214,10 +229,16 @@ describe('mergeImportedSettings', () => {
 
   it('deduplicates imported byok against existing same connection', () => {
     const current = normalizeSettings({
-      profiles: [createDefaultOpenAIByokProfile({ id: 'p1', apiKey: 'sk', baseUrl: 'https://x.example/v1' })],
+      profiles: [
+        createDefaultOpenAIByokProfile({ id: 'p1', apiKey: 'sk', baseUrl: 'https://x.example/v1' }),
+      ],
       activeProfileId: 'p1',
     })
-    const duplicate = createDefaultOpenAIByokProfile({ id: 'p2', apiKey: 'sk', baseUrl: 'https://x.example/v1' })
+    const duplicate = createDefaultOpenAIByokProfile({
+      id: 'p2',
+      apiKey: 'sk',
+      baseUrl: 'https://x.example/v1',
+    })
     const merged = mergeImportedSettings(current, { profiles: [duplicate] })
     expect(merged.profiles).toHaveLength(1)
     expect(merged.profiles[0].id).toBe('p1')
@@ -250,44 +271,52 @@ describe('getApiProviderLabel', () => {
 
 describe('custom provider import (data shape only)', () => {
   it('imports a wrapped customProviders + profiles payload', () => {
-    const result = importCustomProviderSettingsFromJson(JSON.stringify({
-      customProviders: [{
-        id: 'custom-json',
-        name: 'Custom JSON',
-        submit: {
-          path: 'images/generations',
-          method: 'POST',
-          contentType: 'json',
-          body: { model: '$profile.model', prompt: '$prompt' },
-          result: { imageUrlPaths: ['data.*.url'], b64JsonPaths: [] },
-        },
-      }],
-      profiles: [{
-        // 旧 ApiProfile shape — 由 import 路径迁移成 user-byok
-        name: 'Custom JSON',
-        provider: 'custom-json',
-        baseUrl: 'https://custom.example.com/v1',
-        model: 'custom-model',
-        apiMode: 'images',
-      }],
-    }))
+    const result = importCustomProviderSettingsFromJson(
+      JSON.stringify({
+        customProviders: [
+          {
+            id: 'custom-json',
+            name: 'Custom JSON',
+            submit: {
+              path: 'images/generations',
+              method: 'POST',
+              contentType: 'json',
+              body: { model: '$profile.model', prompt: '$prompt' },
+              result: { imageUrlPaths: ['data.*.url'], b64JsonPaths: [] },
+            },
+          },
+        ],
+        profiles: [
+          {
+            // 旧 ApiProfile shape — 由 import 路径迁移成 user-byok
+            name: 'Custom JSON',
+            provider: 'custom-json',
+            baseUrl: 'https://custom.example.com/v1',
+            model: 'custom-model',
+            apiMode: 'images',
+          },
+        ],
+      }),
+    )
     expect(result.customProviders).toHaveLength(1)
     expect(result.profiles).toHaveLength(1)
     expect(result.profiles[0].source).toBe('user-byok')
   })
 
   it('imports a single custom provider manifest', () => {
-    const p = importCustomProviderDefinitionFromJson(JSON.stringify({
-      name: 'Apimart GPT-Image-2',
-      template: 'http-image',
-      submit: {
-        path: '/v1/images/generations',
-        method: 'POST',
-        contentType: 'json',
-        body: { model: '$profile.model', prompt: '$prompt' },
-        taskIdPath: 'data.0.task_id',
-      },
-    }))
+    const p = importCustomProviderDefinitionFromJson(
+      JSON.stringify({
+        name: 'Apimart GPT-Image-2',
+        template: 'http-image',
+        submit: {
+          path: '/v1/images/generations',
+          method: 'POST',
+          contentType: 'json',
+          body: { model: '$profile.model', prompt: '$prompt' },
+          taskIdPath: 'data.0.task_id',
+        },
+      }),
+    )
     expect(p.template).toBe('http-image')
     expect(p.submit.path).toBe('images/generations')
   })

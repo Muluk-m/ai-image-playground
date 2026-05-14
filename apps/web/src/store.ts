@@ -1,56 +1,74 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
+import {
+  clientProfileToApiProfile,
+  DEFAULT_SETTINGS,
+  getActiveApiProfile,
+  getCustomProviderDefinition,
+  mergeImportedSettings,
+  normalizeSettings,
+  validateClientProfile,
+} from './lib/apiProfiles'
+import type { ClientProfile } from './lib/channels/types'
 import type {
   AppSettings,
-  TaskParams,
+  ExportData,
   InputImage,
   MaskDraft,
+  TaskParams,
   TaskRecord,
-  ExportData,
 } from './types'
 import { DEFAULT_PARAMS } from './types'
-import { clientProfileToApiProfile, DEFAULT_SETTINGS, getActiveApiProfile, getCustomProviderDefinition, mergeImportedSettings, normalizeSettings, validateClientProfile } from './lib/apiProfiles'
-import type { ClientProfile } from './lib/channels/types'
 
-function filterUserProfileCache(cache: Record<string, string[]>, profiles: ClientProfile[]): Record<string, string[]> {
+function filterUserProfileCache(
+  cache: Record<string, string[]>,
+  profiles: ClientProfile[],
+): Record<string, string[]> {
   const builtinIds = new Set(profiles.filter((p) => p.source === 'builtin-edge').map((p) => p.id))
   return Object.fromEntries(Object.entries(cache).filter(([id]) => !builtinIds.has(id)))
 }
-import { dismissAllTooltips } from './lib/tooltipDismiss'
-import { remapImageMentionsForOrder, replaceImageMentionsForApi } from './lib/promptImageMentions'
+
+import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate'
+import { callImageApi, resumeQueueImageApi } from './lib/api'
+import { validateMaskMatchesImage } from './lib/canvasImage'
 import {
   CURRENT_THUMBNAIL_VERSION,
-  getAllTasks,
-  putTask,
-  deleteTask as dbDeleteTask,
+  clearImages,
   clearTasks as dbClearTasks,
+  deleteTask as dbDeleteTask,
+  deleteImage,
+  getAllImageIds,
+  getAllImages,
+  getAllTasks,
   getImage,
   getImageThumbnail,
   getStoredFreshImageThumbnail,
-  getAllImageIds,
-  getAllImages,
   putImage,
   putImageThumbnail,
-  deleteImage,
-  clearImages,
+  putTask,
   storeImage,
 } from './lib/db'
-import { callImageApi, resumeQueueImageApi } from './lib/api'
 import { IMAGE_FETCH_CORS_HINT, bytesToDataUrl as sharedBytesToDataUrl } from './lib/imageApiShared'
-import { getCustomQueuedImageResult } from './lib/openaiCompatibleImageApi'
-import { validateMaskMatchesImage } from './lib/canvasImage'
 import { orderInputImagesForMask } from './lib/mask'
+import { getCustomQueuedImageResult } from './lib/openaiCompatibleImageApi'
 import { getChangedParams, normalizeParamsForSettings } from './lib/paramCompatibility'
-import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate'
+import { remapImageMentionsForOrder, replaceImageMentionsForApi } from './lib/promptImageMentions'
+import { dismissAllTooltips } from './lib/tooltipDismiss'
 
 // ===== Image cache =====
 // 内存缓存，id → dataUrl。只保留少量最近使用图片，避免大量 4K data URL 常驻内存。
 
 const imageCache = new Map<string, string>()
-const thumbnailCache = new Map<string, { dataUrl: string; width?: number; height?: number; thumbnailVersion?: number }>()
+const thumbnailCache = new Map<
+  string,
+  { dataUrl: string; width?: number; height?: number; thumbnailVersion?: number }
+>()
 const thumbnailBackfillIds = new Map<string, 'visible' | 'background'>()
 const thumbnailBackfillRunningIds = new Set<string>()
-const thumbnailSubscribers = new Map<string, Set<(thumbnail: { dataUrl: string; width?: number; height?: number }) => void>>()
+const thumbnailSubscribers = new Map<
+  string,
+  Set<(thumbnail: { dataUrl: string; width?: number; height?: number }) => void>
+>()
 let thumbnailBackfillScheduled = false
 const MAX_IMAGE_CACHE_ENTRIES = 8
 const MAX_THUMBNAIL_CACHE_ENTRIES = 80
@@ -97,7 +115,10 @@ function getCachedThumbnail(id: string) {
   return undefined
 }
 
-function cacheThumbnail(id: string, thumbnail: { dataUrl: string; width?: number; height?: number; thumbnailVersion?: number }) {
+function cacheThumbnail(
+  id: string,
+  thumbnail: { dataUrl: string; width?: number; height?: number; thumbnailVersion?: number },
+) {
   if (thumbnail.thumbnailVersion !== CURRENT_THUMBNAIL_VERSION) return
   thumbnailCache.delete(id)
   thumbnailCache.set(id, thumbnail)
@@ -119,7 +140,9 @@ export async function ensureImageCached(id: string): Promise<string | undefined>
   return undefined
 }
 
-export async function ensureImageThumbnailCached(id: string): Promise<{ dataUrl: string; width?: number; height?: number } | undefined> {
+export async function ensureImageThumbnailCached(
+  id: string,
+): Promise<{ dataUrl: string; width?: number; height?: number } | undefined> {
   const cached = getCachedThumbnail(id)
   if (cached) return cached
 
@@ -139,7 +162,10 @@ export async function ensureImageThumbnailCached(id: string): Promise<{ dataUrl:
   return thumbnail
 }
 
-export function subscribeImageThumbnail(id: string, callback: (thumbnail: { dataUrl: string; width?: number; height?: number }) => void) {
+export function subscribeImageThumbnail(
+  id: string,
+  callback: (thumbnail: { dataUrl: string; width?: number; height?: number }) => void,
+) {
   let subscribers = thumbnailSubscribers.get(id)
   if (!subscribers) {
     subscribers = new Set()
@@ -152,11 +178,17 @@ export function subscribeImageThumbnail(id: string, callback: (thumbnail: { data
   }
 }
 
-function notifyImageThumbnail(id: string, thumbnail: { dataUrl: string; width?: number; height?: number }) {
+function notifyImageThumbnail(
+  id: string,
+  thumbnail: { dataUrl: string; width?: number; height?: number },
+) {
   thumbnailSubscribers.get(id)?.forEach((callback) => callback(thumbnail))
 }
 
-function scheduleThumbnailBackfill(ids: Iterable<string>, priority: 'visible' | 'background' = 'background') {
+function scheduleThumbnailBackfill(
+  ids: Iterable<string>,
+  priority: 'visible' | 'background' = 'background',
+) {
   for (const id of ids) {
     if (getCachedThumbnail(id) || thumbnailBackfillRunningIds.has(id)) continue
     const currentPriority = thumbnailBackfillIds.get(id)
@@ -194,10 +226,12 @@ async function getNextThumbnailBackfillBatch() {
   const candidates = getOrderedThumbnailBackfillIds().slice(0, MAX_THUMBNAIL_BACKFILL_CONCURRENT)
   if (candidates.length === 0) return []
 
-  const sizes = await Promise.all(candidates.map(async (id) => {
-    const image = await getImage(id)
-    return { width: image?.width, height: image?.height }
-  }))
+  const sizes = await Promise.all(
+    candidates.map(async (id) => {
+      const image = await getImage(id)
+      return { width: image?.width, height: image?.height }
+    }),
+  )
   const concurrency = getThumbnailConcurrencyForBatch(sizes)
   const selected = candidates.slice(0, concurrency)
   for (const id of selected) thumbnailBackfillIds.delete(id)
@@ -247,15 +281,20 @@ function startThumbnailBackfill(id: string) {
         height: thumbnail.height,
       })
     }
-  })().catch(() => {
-    // Keep thumbnail generation best-effort; cards remain on placeholders if it fails.
-  }).finally(() => {
-    thumbnailBackfillRunningIds.delete(id)
-    scheduleThumbnailBackfillTick()
-  })
+  })()
+    .catch(() => {
+      // Keep thumbnail generation best-effort; cards remain on placeholders if it fails.
+    })
+    .finally(() => {
+      thumbnailBackfillRunningIds.delete(id)
+      scheduleThumbnailBackfillTick()
+    })
 }
 
-function orderImagesWithMaskFirst(images: InputImage[], maskTargetImageId: string | null | undefined) {
+function orderImagesWithMaskFirst(
+  images: InputImage[],
+  maskTargetImageId: string | null | undefined,
+) {
   if (!maskTargetImageId) return images
   const maskIdx = images.findIndex((img) => img.id === maskTargetImageId)
   if (maskIdx <= 0) return images
@@ -266,7 +305,10 @@ function orderImagesWithMaskFirst(images: InputImage[], maskTargetImageId: strin
 }
 
 function countSuccessfulOutputImages(tasks: TaskRecord[]) {
-  return tasks.reduce((count, task) => count + (task.status === 'done' ? task.outputImages.length : 0), 0)
+  return tasks.reduce(
+    (count, task) => count + (task.status === 'done' ? task.outputImages.length : 0),
+    0,
+  )
 }
 
 function skipSupportPromptForImportedData(tasks: TaskRecord[]) {
@@ -293,17 +335,35 @@ function showSupportPromptForExistingLocalData(tasks: TaskRecord[]) {
   })
 }
 
-function maybeOpenSupportPrompt(previousTasks: TaskRecord[], nextTasks: TaskRecord[], taskId: string) {
+function maybeOpenSupportPrompt(
+  previousTasks: TaskRecord[],
+  nextTasks: TaskRecord[],
+  taskId: string,
+) {
   const state = useStore.getState()
-  if (state.supportPromptDismissed || state.supportPromptOpen || state.supportPromptSkippedForImportedData) return
+  if (
+    state.supportPromptDismissed ||
+    state.supportPromptOpen ||
+    state.supportPromptSkippedForImportedData
+  )
+    return
 
   const previousTask = previousTasks.find((task) => task.id === taskId)
   const nextTask = nextTasks.find((task) => task.id === taskId)
-  if (!nextTask || previousTask?.status === 'done' || nextTask.status !== 'done' || nextTask.outputImages.length === 0) return
+  if (
+    !nextTask ||
+    previousTask?.status === 'done' ||
+    nextTask.status !== 'done' ||
+    nextTask.outputImages.length === 0
+  )
+    return
 
   const previousCount = countSuccessfulOutputImages(previousTasks)
   const nextCount = countSuccessfulOutputImages(nextTasks)
-  if (previousCount <= SUPPORT_PROMPT_IMAGE_THRESHOLD && nextCount > SUPPORT_PROMPT_IMAGE_THRESHOLD) {
+  if (
+    previousCount <= SUPPORT_PROMPT_IMAGE_THRESHOLD &&
+    nextCount > SUPPORT_PROMPT_IMAGE_THRESHOLD
+  ) {
     useStore.setState({ supportPromptOpen: true })
   }
 }
@@ -353,8 +413,14 @@ function mergePersistedState(persistedState: unknown, currentState: AppState): A
     pinnedInspirationIds: Array.isArray(persisted.pinnedInspirationIds)
       ? persisted.pinnedInspirationIds.filter((x): x is string => typeof x === 'string')
       : [],
-    prompt: settings.persistInputOnRestart && typeof persisted.prompt === 'string' ? persisted.prompt : '',
-    inputImages: settings.persistInputOnRestart && Array.isArray(persisted.inputImages) ? persisted.inputImages : [],
+    prompt:
+      settings.persistInputOnRestart && typeof persisted.prompt === 'string'
+        ? persisted.prompt
+        : '',
+    inputImages:
+      settings.persistInputOnRestart && Array.isArray(persisted.inputImages)
+        ? persisted.inputImages
+        : [],
   }
 }
 
@@ -374,7 +440,10 @@ interface AppState {
   addInputImage: (img: InputImage) => void
   removeInputImage: (idx: number) => void
   clearInputImages: () => void
-  setInputImages: (imgs: InputImage[], options?: { equivalentImageIds?: Record<string, string> }) => void
+  setInputImages: (
+    imgs: InputImage[],
+    options?: { equivalentImageIds?: Record<string, string> },
+  ) => void
   moveInputImage: (fromIdx: number, toIdx: number) => void
   maskDraft: MaskDraft | null
   setMaskDraft: (draft: MaskDraft | null) => void
@@ -388,7 +457,11 @@ interface AppState {
   reusedTaskApiProfileId: string | null
   reusedTaskApiProfileName: string | null
   reusedTaskApiProfileMissing: boolean
-  setReusedTaskApiProfile: (profileId: string | null, missing?: boolean, profileName?: string | null) => void
+  setReusedTaskApiProfile: (
+    profileId: string | null,
+    missing?: boolean,
+    profileName?: string | null,
+  ) => void
 
   // 任务列表
   tasks: TaskRecord[]
@@ -458,22 +531,29 @@ export const useStore = create<AppState>()(
     (set, get) => ({
       // Settings
       settings: { ...DEFAULT_SETTINGS },
-      setSettings: (s) => set((st) => {
-        const settings = normalizeSettings({ ...st.settings, ...s })
-        const shouldClearReusedProfile = st.reusedTaskApiProfileId && settings.activeProfileId === st.reusedTaskApiProfileId
-        return {
-          settings,
-          ...(shouldClearReusedProfile
-            ? { reusedTaskApiProfileId: null, reusedTaskApiProfileName: null, reusedTaskApiProfileMissing: false }
-            : {}),
-        }
-      }),
+      setSettings: (s) =>
+        set((st) => {
+          const settings = normalizeSettings({ ...st.settings, ...s })
+          const shouldClearReusedProfile =
+            st.reusedTaskApiProfileId && settings.activeProfileId === st.reusedTaskApiProfileId
+          return {
+            settings,
+            ...(shouldClearReusedProfile
+              ? {
+                  reusedTaskApiProfileId: null,
+                  reusedTaskApiProfileName: null,
+                  reusedTaskApiProfileMissing: false,
+                }
+              : {}),
+          }
+        }),
       dismissedCodexCliPrompts: [],
-      dismissCodexCliPrompt: (key) => set((st) => ({
-        dismissedCodexCliPrompts: st.dismissedCodexCliPrompts.includes(key)
-          ? st.dismissedCodexCliPrompts
-          : [...st.dismissedCodexCliPrompts, key],
-      })),
+      dismissCodexCliPrompt: (key) =>
+        set((st) => ({
+          dismissedCodexCliPrompts: st.dismissedCodexCliPrompts.includes(key)
+            ? st.dismissedCodexCliPrompts
+            : [...st.dismissedCodexCliPrompts, key],
+        })),
 
       // Input
       prompt: '',
@@ -509,10 +589,16 @@ export const useStore = create<AppState>()(
         set((s) => {
           const inputImages = orderImagesWithMaskFirst(imgs, s.maskDraft?.targetImageId)
           const shouldClearMask =
-            Boolean(s.maskDraft) && !inputImages.some((img) => img.id === s.maskDraft?.targetImageId)
+            Boolean(s.maskDraft) &&
+            !inputImages.some((img) => img.id === s.maskDraft?.targetImageId)
           return {
             inputImages,
-            prompt: remapImageMentionsForOrder(s.prompt, s.inputImages, inputImages, options?.equivalentImageIds),
+            prompt: remapImageMentionsForOrder(
+              s.prompt,
+              s.inputImages,
+              inputImages,
+              options?.equivalentImageIds,
+            ),
             ...(shouldClearMask ? { maskDraft: null, maskEditorImageId: null } : {}),
           }
         }),
@@ -522,7 +608,8 @@ export const useStore = create<AppState>()(
           if (fromIdx < 0 || fromIdx >= images.length) return s
           const maskTargetImageId = s.maskDraft?.targetImageId
           if (maskTargetImageId && images[fromIdx]?.id === maskTargetImageId) return s
-          const minTargetIdx = maskTargetImageId && images.some((img) => img.id === maskTargetImageId) ? 1 : 0
+          const minTargetIdx =
+            maskTargetImageId && images.some((img) => img.id === maskTargetImageId) ? 1 : 0
           const targetIdx = Math.max(minTargetIdx, Math.min(images.length, toIdx))
           const insertIdx = fromIdx < targetIdx ? targetIdx - 1 : targetIdx
           if (insertIdx === fromIdx) return s
@@ -556,20 +643,22 @@ export const useStore = create<AppState>()(
       reusedTaskApiProfileId: null,
       reusedTaskApiProfileName: null,
       reusedTaskApiProfileMissing: false,
-      setReusedTaskApiProfile: (profileId, missing = false, profileName = null) => set({
-        reusedTaskApiProfileId: profileId,
-        reusedTaskApiProfileName: profileName,
-        reusedTaskApiProfileMissing: missing,
-      }),
+      setReusedTaskApiProfile: (profileId, missing = false, profileName = null) =>
+        set({
+          reusedTaskApiProfileId: profileId,
+          reusedTaskApiProfileName: profileName,
+          reusedTaskApiProfileMissing: missing,
+        }),
 
       // Tasks
       tasks: [],
-      setTasks: (tasks) => set(() => ({
-        tasks,
-        ...(countSuccessfulOutputImages(tasks) <= SUPPORT_PROMPT_IMAGE_THRESHOLD
-          ? { supportPromptSkippedForImportedData: false }
-          : {}),
-      })),
+      setTasks: (tasks) =>
+        set(() => ({
+          tasks,
+          ...(countSuccessfulOutputImages(tasks) <= SUPPORT_PROMPT_IMAGE_THRESHOLD
+            ? { supportPromptSkippedForImportedData: false }
+            : {}),
+        })),
 
       // Search & Filter
       searchQuery: '',
@@ -581,19 +670,21 @@ export const useStore = create<AppState>()(
 
       // Selection
       selectedTaskIds: [],
-      setSelectedTaskIds: (updater) => set((s) => ({
-        selectedTaskIds: typeof updater === 'function' ? updater(s.selectedTaskIds) : updater
-      })),
-      toggleTaskSelection: (id, force) => set((s) => {
-        const isSelected = s.selectedTaskIds.includes(id)
-        const shouldSelect = force !== undefined ? force : !isSelected
-        if (shouldSelect === isSelected) return s
-        return {
-          selectedTaskIds: shouldSelect
-            ? [...s.selectedTaskIds, id]
-            : s.selectedTaskIds.filter((x) => x !== id)
-        }
-      }),
+      setSelectedTaskIds: (updater) =>
+        set((s) => ({
+          selectedTaskIds: typeof updater === 'function' ? updater(s.selectedTaskIds) : updater,
+        })),
+      toggleTaskSelection: (id, force) =>
+        set((s) => {
+          const isSelected = s.selectedTaskIds.includes(id)
+          const shouldSelect = force !== undefined ? force : !isSelected
+          if (shouldSelect === isSelected) return s
+          return {
+            selectedTaskIds: shouldSelect
+              ? [...s.selectedTaskIds, id]
+              : s.selectedTaskIds.filter((x) => x !== id),
+          }
+        }),
       clearSelection: () => set({ selectedTaskIds: [] }),
 
       // UI
@@ -606,7 +697,10 @@ export const useStore = create<AppState>()(
       lightboxImageList: [],
       setLightboxImageId: (lightboxImageId, list) => {
         if (lightboxImageId) dismissAllTooltips()
-        set({ lightboxImageId, lightboxImageList: list ?? (lightboxImageId ? [lightboxImageId] : []) })
+        set({
+          lightboxImageId,
+          lightboxImageList: list ?? (lightboxImageId ? [lightboxImageId] : []),
+        })
       },
       showSettings: false,
       setShowSettings: (showSettings) => {
@@ -615,9 +709,10 @@ export const useStore = create<AppState>()(
       },
       supportPromptOpen: false,
       profileModelCache: {},
-      setProfileModelCache: (profileId, models) => set((st) => ({
-        profileModelCache: { ...st.profileModelCache, [profileId]: models },
-      })),
+      setProfileModelCache: (profileId, models) =>
+        set((st) => ({
+          profileModelCache: { ...st.profileModelCache, [profileId]: models },
+        })),
       supportPromptDismissed: false,
       supportPromptSkippedForImportedData: false,
       setSupportPromptOpen: (supportPromptOpen) => set({ supportPromptOpen }),
@@ -679,10 +774,15 @@ function isRunningOpenAITask(task: TaskRecord) {
   return task.status === 'running' && isOpenAITask(task)
 }
 
-function isAsyncCustomProviderTask(settings: AppSettings, provider: string, hasInputImages: boolean) {
+function isAsyncCustomProviderTask(
+  settings: AppSettings,
+  provider: string,
+  hasInputImages: boolean,
+) {
   const customProvider = getCustomProviderDefinition(settings, provider)
   if (!customProvider?.poll) return false
-  const submitMapping = hasInputImages && customProvider.editSubmit ? customProvider.editSubmit : customProvider.submit
+  const submitMapping =
+    hasInputImages && customProvider.editSubmit ? customProvider.editSubmit : customProvider.submit
   return Boolean(submitMapping.taskIdPath)
 }
 
@@ -753,7 +853,8 @@ export function showCodexCliPrompt(force = false, reason = '接口返回的提�
   const settings = state.settings
   const promptKey = getCodexCliPromptKey(settings)
   const activeForCheck = clientProfileToApiProfile(getActiveApiProfile(settings))
-  if (!force && (activeForCheck.codexCli || state.dismissedCodexCliPrompts.includes(promptKey))) return
+  if (!force && (activeForCheck.codexCli || state.dismissedCodexCliPrompts.includes(promptKey)))
+    return
 
   state.setConfirmDialog({
     title: '检测到 Codex CLI API',
@@ -778,19 +879,20 @@ function getCustomRecoveryProfile(settings: AppSettings, task: TaskRecord): Clie
   const provider = task.apiProvider
   if (!provider || provider === 'openai') return null
   const taskProfile = getTaskApiProfile(settings, task)
-  if (taskProfile && clientProfileToApiProfile(taskProfile).provider === provider) return taskProfile
+  if (taskProfile && clientProfileToApiProfile(taskProfile).provider === provider)
+    return taskProfile
 
   const normalized = normalizeSettings(settings)
   const active = getActiveApiProfile(normalized)
   if (clientProfileToApiProfile(active).provider === provider) return active
   const profilesWithView = normalized.profiles.map((p) => ({ p, v: clientProfileToApiProfile(p) }))
   return (
-    profilesWithView.find(({ v }) =>
-      v.provider === provider &&
-      (v.name === task.apiProfileName || v.model === task.apiModel),
-    )?.p
-    ?? profilesWithView.find(({ v }) => v.provider === provider)?.p
-    ?? null
+    profilesWithView.find(
+      ({ v }) =>
+        v.provider === provider && (v.name === task.apiProfileName || v.model === task.apiModel),
+    )?.p ??
+    profilesWithView.find(({ v }) => v.provider === provider)?.p ??
+    null
   )
 }
 
@@ -827,7 +929,7 @@ function createSettingsForApiProfile(settings: AppSettings, profile: ClientProfi
   const normalized = normalizeSettings(settings)
   const found = normalized.profiles.some((item) => item.id === profile.id)
   const nextProfiles = found
-    ? normalized.profiles.map((item) => item.id === profile.id ? profile : item)
+    ? normalized.profiles.map((item) => (item.id === profile.id ? profile : item))
     : [...normalized.profiles, profile]
   return normalizeSettings({
     ...normalized,
@@ -836,7 +938,10 @@ function createSettingsForApiProfile(settings: AppSettings, profile: ClientProfi
   })
 }
 
-function getReusedTaskApiProfile(settings: AppSettings, profileId: string | null): ClientProfile | null {
+function getReusedTaskApiProfile(
+  settings: AppSettings,
+  profileId: string | null,
+): ClientProfile | null {
   if (!profileId) return null
   return normalizeSettings(settings).profiles.find((profile) => profile.id === profileId) ?? null
 }
@@ -846,26 +951,40 @@ function getTaskApiProfileName(task: TaskRecord) {
 }
 
 function isConnectionRecoverableError(err: unknown) {
-  if (typeof DOMException !== 'undefined' && err instanceof DOMException && err.name === 'AbortError') return true
+  if (
+    typeof DOMException !== 'undefined' &&
+    err instanceof DOMException &&
+    err.name === 'AbortError'
+  )
+    return true
   const message = err instanceof Error ? err.message : String(err)
-  return /abort|network|failed to fetch|fetch failed|load failed|timeout|连接|断开|中断/i.test(message)
+  return /abort|network|failed to fetch|fetch failed|load failed|timeout|连接|断开|中断/i.test(
+    message,
+  )
 }
 
 function isApiRequestNetworkError(err: unknown): boolean {
   if (err instanceof TypeError) {
     const message = err.message.toLowerCase()
-    return /failed to fetch|fetch failed|load failed|networkerror|network request failed/i.test(message)
+    return /failed to fetch|fetch failed|load failed|networkerror|network request failed/i.test(
+      message,
+    )
   }
   return false
 }
 
-function getApiRequestNetworkErrorHint(err: unknown, task: TaskRecord, settings: AppSettings): string | null {
+function getApiRequestNetworkErrorHint(
+  err: unknown,
+  task: TaskRecord,
+  settings: AppSettings,
+): string | null {
   if (!isApiRequestNetworkError(err)) return null
 
   const profile = getTaskApiProfile(settings, task)
   const elapsedSeconds = Math.max(0, (Date.now() - task.createdAt) / 1000)
   const profileView = profile ? clientProfileToApiProfile(profile) : null
-  const usesApiProxy = profileView?.apiProxy ?? clientProfileToApiProfile(getActiveApiProfile(settings)).apiProxy
+  const usesApiProxy =
+    profileView?.apiProxy ?? clientProfileToApiProfile(getActiveApiProfile(settings)).apiProxy
 
   if (elapsedSeconds <= 15) {
     if (usesApiProxy) {
@@ -885,13 +1004,22 @@ function getApiRequestNetworkErrorHint(err: unknown, task: TaskRecord, settings:
   return '提示：请求等待较长时间后被断开，通常是反向代理或网关的超时限制，而非接口本身报错。可检查代理超时设置，或降低图片尺寸/质量后重试。'
 }
 
-function getRawErrorPayload(err: unknown): Pick<Partial<TaskRecord>, 'rawImageUrls' | 'rawResponsePayload'> {
+function getRawErrorPayload(
+  err: unknown,
+): Pick<Partial<TaskRecord>, 'rawImageUrls' | 'rawResponsePayload'> {
   if (!(err instanceof Error)) return {}
 
-  const rawImageUrls = 'rawImageUrls' in err ? (err as { rawImageUrls?: unknown }).rawImageUrls : undefined
-  const rawResponsePayload = 'rawResponsePayload' in err ? (err as { rawResponsePayload?: unknown }).rawResponsePayload : undefined
+  const rawImageUrls =
+    'rawImageUrls' in err ? (err as { rawImageUrls?: unknown }).rawImageUrls : undefined
+  const rawResponsePayload =
+    'rawResponsePayload' in err
+      ? (err as { rawResponsePayload?: unknown }).rawResponsePayload
+      : undefined
   return {
-    rawImageUrls: Array.isArray(rawImageUrls) && rawImageUrls.length ? rawImageUrls.filter((url): url is string => typeof url === 'string') : undefined,
+    rawImageUrls:
+      Array.isArray(rawImageUrls) && rawImageUrls.length
+        ? rawImageUrls.filter((url): url is string => typeof url === 'string')
+        : undefined,
     rawResponsePayload: typeof rawResponsePayload === 'string' ? rawResponsePayload : undefined,
   }
 }
@@ -915,11 +1043,16 @@ function hasActualParams(params: Partial<TaskParams> | undefined): params is Par
   return Boolean(params && Object.keys(params).length > 0)
 }
 
-function firstActualParams(paramsList: Array<Partial<TaskParams> | undefined> | undefined): Partial<TaskParams> | undefined {
+function firstActualParams(
+  paramsList: Array<Partial<TaskParams> | undefined> | undefined,
+): Partial<TaskParams> | undefined {
   return paramsList?.find(hasActualParams)
 }
 
-function mapActualParamsByImage(outputIds: string[], paramsList: Array<Partial<TaskParams> | undefined> | undefined) {
+function mapActualParamsByImage(
+  outputIds: string[],
+  paramsList: Array<Partial<TaskParams> | undefined> | undefined,
+) {
   const mapped = paramsList?.reduce<Record<string, Partial<TaskParams>>>((acc, params, index) => {
     const imgId = outputIds[index]
     if (imgId && hasActualParams(params)) acc[imgId] = params
@@ -956,7 +1089,9 @@ async function readImageSizeParam(dataUrl: string): Promise<Partial<TaskParams> 
   })
 }
 
-async function readImageSizeParamsList(images: string[]): Promise<Array<Partial<TaskParams> | undefined>> {
+async function readImageSizeParamsList(
+  images: string[],
+): Promise<Array<Partial<TaskParams> | undefined>> {
   return Promise.all(images.map((image) => readImageSizeParam(image)))
 }
 
@@ -966,7 +1101,9 @@ async function resolveImageSizeParamsList(
 ): Promise<Array<Partial<TaskParams> | undefined>> {
   if (preferred?.length === images.length && preferred.every(hasActualParams)) return preferred
   const fallback = await readImageSizeParamsList(images)
-  return images.map((_, index) => hasActualParams(preferred?.[index]) ? preferred?.[index] : fallback[index])
+  return images.map((_, index) =>
+    hasActualParams(preferred?.[index]) ? preferred?.[index] : fallback[index],
+  )
 }
 
 /** 初始化：从 IndexedDB 加载任务，按需恢复输入图片，并清理孤立图片 */
@@ -977,10 +1114,7 @@ export async function initStore() {
   useStore.getState().setTasks(tasks)
   showSupportPromptForExistingLocalData(tasks)
   for (const task of tasks) {
-    if (
-      task.customTaskId &&
-      (task.status === 'running' || task.customRecoverable)
-    ) {
+    if (task.customTaskId && (task.status === 'running' || task.customRecoverable)) {
       scheduleCustomRecovery(task.id, 0)
     }
     // BFF queue 任务：仍在 running 且持有 request_id → 重新接管轮询。
@@ -992,11 +1126,7 @@ export async function initStore() {
     }
     // 提交期间页面刷新：task 已落盘但 submit 还没返回 request_id。
     // 用 clientRequestId 重提交，BFF 端去重，不会重复消耗上游配额。
-    if (
-      task.clientRequestId &&
-      !task.customTaskId &&
-      task.status === 'running'
-    ) {
+    if (task.clientRequestId && !task.customTaskId && task.status === 'running') {
       executeTask(task.id)
     }
   }
@@ -1038,20 +1168,38 @@ export async function initStore() {
       cacheImage(img.id, storedImage.dataUrl)
     }
   }
-  if (restoredInputImages.length !== persistedInputImages.length || restoredInputImages.some((img, index) => img.dataUrl !== persistedInputImages[index]?.dataUrl)) {
+  if (
+    restoredInputImages.length !== persistedInputImages.length ||
+    restoredInputImages.some((img, index) => img.dataUrl !== persistedInputImages[index]?.dataUrl)
+  ) {
     useStore.getState().setInputImages(restoredInputImages)
   }
 }
 
 /** 提交新任务 */
-export async function submitTask(options: { allowFullMask?: boolean; useCurrentApiProfileWhenReusedMissing?: boolean } = {}) {
-  const { settings, prompt, inputImages, maskDraft, params, reusedTaskApiProfileId, reusedTaskApiProfileName, reusedTaskApiProfileMissing, showToast, setConfirmDialog } =
-    useStore.getState()
+export async function submitTask(
+  options: { allowFullMask?: boolean; useCurrentApiProfileWhenReusedMissing?: boolean } = {},
+) {
+  const {
+    settings,
+    prompt,
+    inputImages,
+    maskDraft,
+    params,
+    reusedTaskApiProfileId,
+    reusedTaskApiProfileName,
+    reusedTaskApiProfileMissing,
+    showToast,
+    setConfirmDialog,
+  } = useStore.getState()
 
   const normalizedSettings = normalizeSettings(settings)
   let activeProfile = getActiveApiProfile(settings)
   let requestSettings = createSettingsForApiProfile(normalizedSettings, activeProfile)
-  if (normalizedSettings.reuseTaskApiProfileTemporarily && (reusedTaskApiProfileId || reusedTaskApiProfileMissing)) {
+  if (
+    normalizedSettings.reuseTaskApiProfileTemporarily &&
+    (reusedTaskApiProfileId || reusedTaskApiProfileMissing)
+  ) {
     const reusedProfile = getReusedTaskApiProfile(normalizedSettings, reusedTaskApiProfileId)
     if (!reusedProfile) {
       if (options.useCurrentApiProfileWhenReusedMissing) {
@@ -1059,12 +1207,12 @@ export async function submitTask(options: { allowFullMask?: boolean; useCurrentA
       } else {
         setConfirmDialog({
           title: '找不到 API 配置',
-      message: `找不到复用任务所使用的 API 配置「${reusedTaskApiProfileName || '未知配置'}」，要使用当前的 API 配置「${clientProfileToApiProfile(activeProfile).name}」提交任务吗？`,
-      confirmText: '使用当前配置提交',
-      cancelText: '放弃提交',
-      action: () => {
-        void submitTask({ ...options, useCurrentApiProfileWhenReusedMissing: true })
-      },
+          message: `找不到复用任务所使用的 API 配置「${reusedTaskApiProfileName || '未知配置'}」，要使用当前的 API 配置「${clientProfileToApiProfile(activeProfile).name}」提交任务吗？`,
+          confirmText: '使用当前配置提交',
+          cancelText: '放弃提交',
+          action: () => {
+            void submitTask({ ...options, useCurrentApiProfileWhenReusedMissing: true })
+          },
         })
         return
       }
@@ -1093,7 +1241,10 @@ export async function submitTask(options: { allowFullMask?: boolean; useCurrentA
   if (maskDraft) {
     try {
       orderedInputImages = orderInputImagesForMask(inputImages, maskDraft.targetImageId)
-      const coverage = await validateMaskMatchesImage(maskDraft.maskDataUrl, orderedInputImages[0].dataUrl)
+      const coverage = await validateMaskMatchesImage(
+        maskDraft.maskDataUrl,
+        orderedInputImages[0].dataUrl,
+      )
       if (coverage === 'full' && !options.allowFullMask) {
         setConfirmDialog({
           title: '确认编辑整张图片？',
@@ -1123,7 +1274,9 @@ export async function submitTask(options: { allowFullMask?: boolean; useCurrentA
     await storeImage(img.dataUrl)
   }
 
-  const normalizedParams = normalizeParamsForSettings(params, requestSettings, { hasInputImages: orderedInputImages.length > 0 })
+  const normalizedParams = normalizeParamsForSettings(params, requestSettings, {
+    hasInputImages: orderedInputImages.length > 0,
+  })
   const normalizedParamPatch = getChangedParams(params, normalizedParams)
   if (Object.keys(normalizedParamPatch).length) {
     useStore.getState().setParams(normalizedParamPatch)
@@ -1196,7 +1349,10 @@ async function executeTask(taskId: string) {
   // 用持久化的 bffRequestId 直接 poll → fetchResult。BFF 自己有 30 min 轮询硬上限。
   const isResume = task.status === 'running' && Boolean(task.bffRequestId)
 
-  if (!isResume && !isAsyncCustomProviderTask(requestSettings, taskProvider, task.inputImageIds.length > 0)) {
+  if (
+    !isResume &&
+    !isAsyncCustomProviderTask(requestSettings, taskProvider, task.inputImageIds.length > 0)
+  ) {
     scheduleOpenAIWatchdog(taskId, activeView.timeout)
   }
 
@@ -1266,15 +1422,21 @@ async function executeTask(taskId: string) {
     })()
     const shouldStoreRevisedPrompts = !isAsyncCustomTask
     const actualParamsByImage = mapActualParamsByImage(outputIds, actualParamsList)
-    const revisedPromptByImage = shouldStoreRevisedPrompts ? result.revisedPrompts?.reduce<Record<string, string>>((acc, revisedPrompt, index) => {
-      const imgId = outputIds[index]
-      if (imgId && revisedPrompt && revisedPrompt.trim()) acc[imgId] = revisedPrompt
-      return acc
-    }, {}) : undefined
-    const promptWasRevised = shouldStoreRevisedPrompts && result.revisedPrompts?.some(
-      (revisedPrompt) => revisedPrompt?.trim() && revisedPrompt.trim() !== task.prompt.trim(),
-    )
-    const hasRevisedPromptValue = shouldStoreRevisedPrompts && result.revisedPrompts?.some((revisedPrompt) => revisedPrompt?.trim())
+    const revisedPromptByImage = shouldStoreRevisedPrompts
+      ? result.revisedPrompts?.reduce<Record<string, string>>((acc, revisedPrompt, index) => {
+          const imgId = outputIds[index]
+          if (imgId && revisedPrompt && revisedPrompt.trim()) acc[imgId] = revisedPrompt
+          return acc
+        }, {})
+      : undefined
+    const promptWasRevised =
+      shouldStoreRevisedPrompts &&
+      result.revisedPrompts?.some(
+        (revisedPrompt) => revisedPrompt?.trim() && revisedPrompt.trim() !== task.prompt.trim(),
+      )
+    const hasRevisedPromptValue =
+      shouldStoreRevisedPrompts &&
+      result.revisedPrompts?.some((revisedPrompt) => revisedPrompt?.trim())
     if (taskProvider === 'openai' && !activeView.codexCli) {
       if (promptWasRevised) {
         showCodexCliPrompt()
@@ -1292,7 +1454,10 @@ async function executeTask(taskId: string) {
       rawImageUrls: result.rawImageUrls?.length ? result.rawImageUrls : undefined,
       actualParams,
       actualParamsByImage,
-      revisedPromptByImage: revisedPromptByImage && Object.keys(revisedPromptByImage).length > 0 ? revisedPromptByImage : undefined,
+      revisedPromptByImage:
+        revisedPromptByImage && Object.keys(revisedPromptByImage).length > 0
+          ? revisedPromptByImage
+          : undefined,
       status: 'done',
       finishedAt: Date.now(),
       elapsed: Date.now() - task.createdAt,
@@ -1313,7 +1478,8 @@ async function executeTask(taskId: string) {
     clearOpenAIWatchdogTimer(taskId)
     const latestTask = useStore.getState().tasks.find((t) => t.id === taskId) ?? task
     if (latestTask.status !== 'running') return
-    const latestCustomTaskInfo = customTaskInfo ?? (latestTask.customTaskId ? { taskId: latestTask.customTaskId } : null)
+    const latestCustomTaskInfo =
+      customTaskInfo ?? (latestTask.customTaskId ? { taskId: latestTask.customTaskId } : null)
     if (latestCustomTaskInfo && isConnectionRecoverableError(err)) {
       updateTaskInStore(taskId, {
         status: 'error',
@@ -1326,7 +1492,11 @@ async function executeTask(taskId: string) {
       scheduleCustomRecovery(taskId)
     } else {
       let errorMessage = err instanceof Error ? err.message : String(err)
-      const networkErrorHint = getApiRequestNetworkErrorHint(err, latestTask, useStore.getState().settings)
+      const networkErrorHint = getApiRequestNetworkErrorHint(
+        err,
+        latestTask,
+        useStore.getState().settings,
+      )
       if (networkErrorHint && !errorMessage.includes(IMAGE_FETCH_CORS_HINT)) {
         errorMessage += `\n${networkErrorHint}`
       }
@@ -1350,9 +1520,7 @@ async function executeTask(taskId: string) {
 
 export function updateTaskInStore(taskId: string, patch: Partial<TaskRecord>) {
   const { tasks, setTasks } = useStore.getState()
-  const updated = tasks.map((t) =>
-    t.id === taskId ? { ...t, ...patch } : t,
-  )
+  const updated = tasks.map((t) => (t.id === taskId ? { ...t, ...patch } : t))
   setTasks(updated)
   maybeOpenSupportPrompt(tasks, updated, taskId)
   const task = updated.find((t) => t.id === taskId)
@@ -1364,7 +1532,9 @@ export async function retryTask(task: TaskRecord) {
   const { settings } = useStore.getState()
   const activeProfile = getActiveApiProfile(settings)
   const activeView = clientProfileToApiProfile(activeProfile)
-  const normalizedParams = normalizeParamsForSettings(task.params, settings, { hasInputImages: task.inputImageIds.length > 0 })
+  const normalizedParams = normalizeParamsForSettings(task.params, settings, {
+    hasInputImages: task.inputImageIds.length > 0,
+  })
   const taskId = genId()
   const newTask: TaskRecord = {
     id: taskId,
@@ -1394,18 +1564,39 @@ export async function retryTask(task: TaskRecord) {
 
 /** 复用配置 */
 export async function reuseConfig(task: TaskRecord) {
-  const { settings, setPrompt, setParams, setInputImages, setMaskDraft, clearMaskDraft, showToast, setConfirmDialog, setReusedTaskApiProfile } = useStore.getState()
+  const {
+    settings,
+    setPrompt,
+    setParams,
+    setInputImages,
+    setMaskDraft,
+    clearMaskDraft,
+    showToast,
+    setConfirmDialog,
+    setReusedTaskApiProfile,
+  } = useStore.getState()
   const normalizedSettings = normalizeSettings(settings)
   const currentProfile = getActiveApiProfile(settings)
   const currentView = clientProfileToApiProfile(currentProfile)
-  const matchedProfile = normalizedSettings.reuseTaskApiProfileTemporarily ? getTaskApiProfile(normalizedSettings, task) : null
+  const matchedProfile = normalizedSettings.reuseTaskApiProfileTemporarily
+    ? getTaskApiProfile(normalizedSettings, task)
+    : null
   const matchedView = matchedProfile ? clientProfileToApiProfile(matchedProfile) : null
-  const shouldTemporarilyReuseProfile = Boolean(matchedProfile && matchedProfile.id !== currentProfile.id)
+  const shouldTemporarilyReuseProfile = Boolean(
+    matchedProfile && matchedProfile.id !== currentProfile.id,
+  )
   const missingReusedProfile = normalizedSettings.reuseTaskApiProfileTemporarily && !matchedProfile
   const taskProfileName = matchedView?.name ?? getTaskApiProfileName(task)
-  const paramsSettings = shouldTemporarilyReuseProfile && matchedProfile ? createSettingsForApiProfile(normalizedSettings, matchedProfile) : normalizedSettings
+  const paramsSettings =
+    shouldTemporarilyReuseProfile && matchedProfile
+      ? createSettingsForApiProfile(normalizedSettings, matchedProfile)
+      : normalizedSettings
 
-  setParams(normalizeParamsForSettings(task.params, paramsSettings, { hasInputImages: task.inputImageIds.length > 0 }))
+  setParams(
+    normalizeParamsForSettings(task.params, paramsSettings, {
+      hasInputImages: task.inputImageIds.length > 0,
+    }),
+  )
   setReusedTaskApiProfile(
     shouldTemporarilyReuseProfile && matchedProfile ? matchedProfile.id : null,
     missingReusedProfile,
@@ -1423,7 +1614,8 @@ export async function reuseConfig(task: TaskRecord) {
   }
   setInputImages(imgs)
   setPrompt(task.prompt)
-  const maskTargetImageId = task.maskTargetImageId ?? (task.maskImageId ? task.inputImageIds[0] : null)
+  const maskTargetImageId =
+    task.maskTargetImageId ?? (task.maskImageId ? task.inputImageIds[0] : null)
   if (maskTargetImageId && task.maskImageId && imgs.some((img) => img.id === maskTargetImageId)) {
     const maskDataUrl = await ensureImageCached(task.maskImageId)
     if (maskDataUrl) {
@@ -1478,12 +1670,13 @@ export async function editOutputs(task: TaskRecord) {
 
 /** 删除多条任务 */
 export async function removeMultipleTasks(taskIds: string[]) {
-  const { tasks, setTasks, inputImages, showToast, clearSelection, selectedTaskIds } = useStore.getState()
-  
+  const { tasks, setTasks, inputImages, showToast, clearSelection, selectedTaskIds } =
+    useStore.getState()
+
   if (!taskIds.length) return
 
   const toDelete = new Set(taskIds)
-  const remaining = tasks.filter(t => !toDelete.has(t.id))
+  const remaining = tasks.filter((t) => !toDelete.has(t.id))
 
   // 收集所有被删除任务的关联图片
   const deletedImageIds = new Set<string>()
@@ -1519,7 +1712,7 @@ export async function removeMultipleTasks(taskIds: string[]) {
   }
 
   // 如果删除的任务在选中列表中，则移除
-  const newSelection = selectedTaskIds.filter(id => !toDelete.has(id))
+  const newSelection = selectedTaskIds.filter((id) => !toDelete.has(id))
   if (newSelection.length !== selectedTaskIds.length) {
     useStore.getState().setSelectedTaskIds(newSelection)
   }
@@ -1572,7 +1765,8 @@ export interface ClearOptions {
 
 /** 清空数据 */
 export async function clearData(options: ClearOptions = { clearConfig: true, clearTasks: true }) {
-  const { setTasks, clearInputImages, clearMaskDraft, setSettings, setParams, showToast } = useStore.getState()
+  const { setTasks, clearInputImages, clearMaskDraft, setSettings, setParams, showToast } =
+    useStore.getState()
 
   if (options.clearTasks) {
     await dbClearTasks()
@@ -1609,11 +1803,19 @@ function dataUrlToBytes(dataUrl: string): { ext: string; bytes: Uint8Array } {
 /** 将二进制数据还原为 dataUrl。chunked 编码委托 imageApiShared，防大图 stack overflow。 */
 function bytesToDataUrl(bytes: Uint8Array, filePath: string): string {
   const ext = filePath.split('.').pop()?.toLowerCase() ?? 'png'
-  const mimeMap: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp' }
+  const mimeMap: Record<string, string> = {
+    png: 'image/png',
+    jpg: 'image/jpeg',
+    jpeg: 'image/jpeg',
+    webp: 'image/webp',
+  }
   return sharedBytesToDataUrl(bytes, mimeMap[ext] ?? 'image/png')
 }
 
-async function completeRecoveredCustomTask(task: TaskRecord, result: Awaited<ReturnType<typeof getCustomQueuedImageResult>>) {
+async function completeRecoveredCustomTask(
+  task: TaskRecord,
+  result: Awaited<ReturnType<typeof getCustomQueuedImageResult>>,
+) {
   const latest = useStore.getState().tasks.find((item) => item.id === task.id)
   if (!latest || latest.status === 'done') return
 
@@ -1645,7 +1847,9 @@ async function recoverCustomTask(taskId: string) {
   if (!task || !task.customTaskId || task.status === 'done') return
 
   const profile = getCustomRecoveryProfile(settings, task)
-  const customProvider = task.apiProvider ? getCustomProviderDefinition(settings, task.apiProvider) : null
+  const customProvider = task.apiProvider
+    ? getCustomProviderDefinition(settings, task.apiProvider)
+    : null
   if (!profile || !customProvider?.poll) {
     scheduleCustomRecovery(taskId)
     return
@@ -1667,7 +1871,12 @@ async function recoverCustomTask(taskId: string) {
     responseFormatB64Json: view.responseFormatB64Json,
   }
   try {
-    const result = await getCustomQueuedImageResult(byokAdapter, customProvider, task.customTaskId, task.params)
+    const result = await getCustomQueuedImageResult(
+      byokAdapter,
+      customProvider,
+      task.customTaskId,
+      task.params,
+    )
     clearCustomRecoveryTimer(taskId)
     await completeRecoveredCustomTask(task, result)
   } catch (err) {
@@ -1695,7 +1904,9 @@ export interface ExportOptions {
 }
 
 /** 导出数据为 ZIP */
-export async function exportData(options: ExportOptions = { exportConfig: true, exportTasks: true }) {
+export async function exportData(
+  options: ExportOptions = { exportConfig: true, exportTasks: true },
+) {
   try {
     const tasks = options.exportTasks ? await getAllTasks() : []
     const images = options.exportTasks ? await getAllImages() : []
@@ -1738,7 +1949,9 @@ export async function exportData(options: ExportOptions = { exportConfig: true, 
 
         const thumbnail = await getImageThumbnail(img.id)
         if (thumbnail?.thumbnailDataUrl) {
-          const { ext: thumbnailExt, bytes: thumbnailBytes } = dataUrlToBytes(thumbnail.thumbnailDataUrl)
+          const { ext: thumbnailExt, bytes: thumbnailBytes } = dataUrlToBytes(
+            thumbnail.thumbnailDataUrl,
+          )
           const thumbnailPath = `thumbnails/${img.id}.${thumbnailExt}`
           imageFiles[img.id].width = imageFiles[img.id].width ?? thumbnail.width
           imageFiles[img.id].height = imageFiles[img.id].height ?? thumbnail.height
@@ -1777,7 +1990,10 @@ export async function exportData(options: ExportOptions = { exportConfig: true, 
       manifest.thumbnailFiles = thumbnailFiles
     }
 
-    zipFiles['manifest.json'] = [strToU8(JSON.stringify(manifest, null, 2)), { mtime: new Date(exportedAt) }]
+    zipFiles['manifest.json'] = [
+      strToU8(JSON.stringify(manifest, null, 2)),
+      { mtime: new Date(exportedAt) },
+    ]
 
     const zipped = zipSync(zipFiles, { level: 6 })
     const blob = new Blob([zipped.buffer as ArrayBuffer], { type: 'application/zip' })
@@ -1791,10 +2007,7 @@ export async function exportData(options: ExportOptions = { exportConfig: true, 
   } catch (e) {
     useStore
       .getState()
-      .showToast(
-        `导出失败：${e instanceof Error ? e.message : String(e)}`,
-        'error',
-      )
+      .showToast(`导出失败：${e instanceof Error ? e.message : String(e)}`, 'error')
   }
 }
 
@@ -1805,7 +2018,10 @@ export interface ImportOptions {
 }
 
 /** 导入 ZIP 数据 */
-export async function importData(file: File, options: ImportOptions = { importConfig: true, importTasks: true }): Promise<boolean> {
+export async function importData(
+  file: File,
+  options: ImportOptions = { importConfig: true, importTasks: true },
+): Promise<boolean> {
   try {
     const buffer = await file.arrayBuffer()
     const unzipped = unzipSync(new Uint8Array(buffer))
@@ -1880,10 +2096,7 @@ export async function importData(file: File, options: ImportOptions = { importCo
   } catch (e) {
     useStore
       .getState()
-      .showToast(
-        `导入失败：${e instanceof Error ? e.message : String(e)}`,
-        'error',
-      )
+      .showToast(`导入失败：${e instanceof Error ? e.message : String(e)}`, 'error')
     return false
   }
 }

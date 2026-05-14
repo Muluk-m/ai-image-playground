@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { onDismissTooltips } from '../lib/tooltipDismiss'
 
@@ -8,7 +8,11 @@ interface ViewportTooltipProps {
   className?: string
 }
 
-export default function ViewportTooltip({ visible, children, className = '' }: ViewportTooltipProps) {
+export default function ViewportTooltip({
+  visible,
+  children,
+  className = '',
+}: ViewportTooltipProps) {
   const anchorRef = useRef<HTMLSpanElement>(null)
   const tooltipRef = useRef<HTMLDivElement>(null)
   const [position, setPosition] = useState<{
@@ -80,28 +84,29 @@ export default function ViewportTooltip({ visible, children, className = '' }: V
   return (
     <>
       <span ref={anchorRef} className="hidden" aria-hidden />
-      {effectiveVisible && createPortal(
-        <div
-          ref={tooltipRef}
-          className={`fixed pointer-events-none rounded-lg bg-gray-800 px-3 py-2 text-xs font-normal text-white shadow-lg ${className}`}
-          style={{
-            left: position?.left ?? 0,
-            top: position?.top ?? 0,
-            visibility: position ? 'visible' : 'hidden',
-            zIndex: 120,
-          }}
-        >
-          {children}
+      {effectiveVisible &&
+        createPortal(
           <div
-            className={`absolute left-0 border-4 border-transparent ${position?.placement === 'bottom' ? 'bottom-full border-b-gray-800' : 'top-full border-t-gray-800'}`}
+            ref={tooltipRef}
+            className={`fixed pointer-events-none rounded-lg bg-gray-800 px-3 py-2 text-xs font-normal text-white shadow-lg ${className}`}
             style={{
-              left: position?.arrowLeft ?? 0,
-              transform: 'translateX(-50%)',
+              left: position?.left ?? 0,
+              top: position?.top ?? 0,
+              visibility: position ? 'visible' : 'hidden',
+              zIndex: 120,
             }}
-          />
-        </div>,
-        document.body,
-      )}
+          >
+            {children}
+            <div
+              className={`absolute left-0 border-4 border-transparent ${position?.placement === 'bottom' ? 'bottom-full border-b-gray-800' : 'top-full border-t-gray-800'}`}
+              style={{
+                left: position?.arrowLeft ?? 0,
+                transform: 'translateX(-50%)',
+              }}
+            />
+          </div>,
+          document.body,
+        )}
     </>
   )
 }

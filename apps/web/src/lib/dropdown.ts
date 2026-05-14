@@ -3,7 +3,10 @@ const OVERFLOW_BOUNDARY_RE = /(auto|scroll|hidden|clip)/
 
 export const DEFAULT_DROPDOWN_MAX_HEIGHT = 240
 
-export function getDropdownMaxHeight(trigger: HTMLElement, maxHeight = DEFAULT_DROPDOWN_MAX_HEIGHT) {
+export function getDropdownMaxHeight(
+  trigger: HTMLElement,
+  maxHeight = DEFAULT_DROPDOWN_MAX_HEIGHT,
+) {
   const rect = trigger.getBoundingClientRect()
   let availableHeight = window.innerHeight - rect.bottom - DROPDOWN_GAP_PX
   let parent = trigger.parentElement

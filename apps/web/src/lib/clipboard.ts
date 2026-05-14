@@ -20,9 +20,7 @@ export async function copyBlobToClipboard(blob: Blob) {
     throw new Error('Clipboard image API is not available')
   }
 
-  await navigator.clipboard.write([
-    new ClipboardItem({ [blob.type]: blob }),
-  ])
+  await navigator.clipboard.write([new ClipboardItem({ [blob.type]: blob })])
 }
 
 export function getClipboardFailureMessage(fallback: string, err: unknown) {

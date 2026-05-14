@@ -8,7 +8,10 @@ export function validateMaskTarget(inputImages: InputImage[], targetImageId: str
   return target
 }
 
-export function orderInputImagesForMask(inputImages: InputImage[], targetImageId: string): InputImage[] {
+export function orderInputImagesForMask(
+  inputImages: InputImage[],
+  targetImageId: string,
+): InputImage[] {
   const target = validateMaskTarget(inputImages, targetImageId)
   return [target, ...inputImages.filter((img) => img.id !== targetImageId)]
 }

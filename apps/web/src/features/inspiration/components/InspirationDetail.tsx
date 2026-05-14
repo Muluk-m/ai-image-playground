@@ -1,8 +1,8 @@
 import { useMemo } from 'react'
-import { useInspirationStore } from '../store'
-import { applyInspiration } from '../lib/applyInspiration'
-import { useStore } from '../../../store'
 import { CopyIcon, SparkleIcon } from '../../../components/icons'
+import { useStore } from '../../../store'
+import { applyInspiration } from '../lib/applyInspiration'
+import { useInspirationStore } from '../store'
 
 export default function InspirationDetail() {
   const detailItemId = useInspirationStore((s) => s.detailItemId)
@@ -37,14 +37,18 @@ export default function InspirationDetail() {
           onClick={closeDetail}
           className="flex items-center gap-1.5 text-sm text-gray-500 transition hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200"
         >
-          <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+          <svg
+            className="h-4 w-4"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+            strokeWidth={2}
+          >
             <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
           </svg>
           返回列表
         </button>
-        <div className="text-xs text-gray-400 dark:text-gray-500">
-          {item.recommendedProvider}
-        </div>
+        <div className="text-xs text-gray-400 dark:text-gray-500">{item.recommendedProvider}</div>
       </div>
 
       {/* Body */}
@@ -74,7 +78,9 @@ export default function InspirationDetail() {
             <div>
               <h4 className="text-xl font-bold text-gray-800 dark:text-gray-100">{item.title}</h4>
               {item.description && (
-                <p className="mt-1.5 text-sm text-gray-500 dark:text-gray-400">{item.description}</p>
+                <p className="mt-1.5 text-sm text-gray-500 dark:text-gray-400">
+                  {item.description}
+                </p>
               )}
             </div>
 
@@ -116,13 +122,18 @@ export default function InspirationDetail() {
               <pre
                 data-selectable-text
                 className="max-h-[40vh] overflow-auto rounded-xl border border-gray-200/60 bg-gray-50/80 p-3 text-xs leading-relaxed text-gray-800 dark:border-white/[0.06] dark:bg-white/[0.02] dark:text-gray-100"
-              ><code>{promptDisplay}</code></pre>
+              >
+                <code>{promptDisplay}</code>
+              </pre>
             </div>
 
             {item.tags && item.tags.length > 0 && (
               <div className="flex flex-wrap gap-1.5 text-[11px] text-gray-500 dark:text-gray-400">
                 {item.tags.map((tag) => (
-                  <span key={tag} className="rounded-full bg-gray-100 px-2 py-0.5 dark:bg-white/[0.06]">
+                  <span
+                    key={tag}
+                    className="rounded-full bg-gray-100 px-2 py-0.5 dark:bg-white/[0.06]"
+                  >
                     #{tag}
                   </span>
                 ))}

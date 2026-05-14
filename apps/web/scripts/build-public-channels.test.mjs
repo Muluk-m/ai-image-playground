@@ -40,19 +40,28 @@ describe('buildPublicChannels', () => {
   })
 
   it('rejects secretRef that looks like a real OpenAI key', () => {
-    const broken = { ...validChannel, auth: { type: 'bearer', secretRef: 'sk-1234567890abcdefghij' } }
+    const broken = {
+      ...validChannel,
+      auth: { type: 'bearer', secretRef: 'sk-1234567890abcdefghij' },
+    }
     const result = buildPublicChannels({ channels: [broken] })
     expect(result.errors.some((m) => m.includes('疑似真密钥'))).toBe(true)
   })
 
   it('rejects secretRef that looks like a real Google AIza key', () => {
-    const broken = { ...validChannel, auth: { type: 'query-key', secretRef: 'AIzaSyD-abcdefghijklmnopqrstuv', queryParam: 'key' } }
+    const broken = {
+      ...validChannel,
+      auth: { type: 'query-key', secretRef: 'AIzaSyD-abcdefghijklmnopqrstuv', queryParam: 'key' },
+    }
     const result = buildPublicChannels({ channels: [broken] })
     expect(result.errors.some((m) => m.includes('疑似真密钥'))).toBe(true)
   })
 
   it('passes UPPER_SNAKE_CASE env var names even when they look long', () => {
-    const ok = { ...validChannel, auth: { type: 'bearer', secretRef: 'SUB2API_GEMINI_FLASH_IMAGE_PREVIEW_KEY' } }
+    const ok = {
+      ...validChannel,
+      auth: { type: 'bearer', secretRef: 'SUB2API_GEMINI_FLASH_IMAGE_PREVIEW_KEY' },
+    }
     const result = buildPublicChannels({ channels: [ok] })
     expect(result.errors).toEqual([])
   })

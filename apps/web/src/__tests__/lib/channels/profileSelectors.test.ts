@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import type { ClientProfile, PublicChannel } from './types'
 import {
   getProfileModels,
   getSelectedModel,
   updateProfileModels,
   updateSelectedModel,
-} from './profileSelectors'
+} from '../../../lib/channels/profileSelectors'
+import type { ClientProfile, PublicChannel } from '../../../lib/channels/types'
 
 const builtinChannel: PublicChannel = {
   id: 'qlj-test',

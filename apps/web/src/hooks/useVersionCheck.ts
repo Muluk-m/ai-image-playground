@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useEffect, useState } from 'react'
 
 const REPO = 'CookSleep/gpt_image_playground'
 const API_URL = `https://api.github.com/repos/${REPO}/releases/latest`
@@ -29,8 +29,8 @@ export interface LatestRelease {
  */
 export function useVersionCheck() {
   const [latestRelease, setLatestRelease] = useState<LatestRelease | null>(null)
-  const [dismissed, setDismissed] = useState(() =>
-    sessionStorage.getItem('version-dismissed') === 'true',
+  const [dismissed, setDismissed] = useState(
+    () => sessionStorage.getItem('version-dismissed') === 'true',
   )
 
   useEffect(() => {

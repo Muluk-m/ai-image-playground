@@ -1,4 +1,4 @@
-import type { TaskRecord, StoredImage, StoredImageThumbnail } from '../types'
+import type { StoredImage, StoredImageThumbnail, TaskRecord } from '../types'
 
 const DB_NAME = 'image-playground'
 const DB_VERSION = 2
@@ -76,7 +76,9 @@ export function getStoredImageThumbnail(id: string): Promise<StoredImageThumbnai
   return dbTransaction(STORE_THUMBNAILS, 'readonly', (s) => s.get(id))
 }
 
-export async function getStoredFreshImageThumbnail(id: string): Promise<StoredImageThumbnail | undefined> {
+export async function getStoredFreshImageThumbnail(
+  id: string,
+): Promise<StoredImageThumbnail | undefined> {
   const thumbnail = await getStoredImageThumbnail(id)
   return thumbnail?.thumbnailVersion === THUMBNAIL_VERSION ? thumbnail : undefined
 }
@@ -89,7 +91,12 @@ export async function getImageThumbnail(id: string): Promise<StoredImageThumbnai
   const existingThumbnail = await getStoredImageThumbnail(id)
   if (existingThumbnail?.thumbnailVersion === THUMBNAIL_VERSION) {
     const image = await getImage(id)
-    if (image && (!image.width || !image.height) && existingThumbnail.width && existingThumbnail.height) {
+    if (
+      image &&
+      (!image.width || !image.height) &&
+      existingThumbnail.width &&
+      existingThumbnail.height
+    ) {
       await putImage({ ...image, width: existingThumbnail.width, height: existingThumbnail.height })
     }
     return existingThumbnail
@@ -123,7 +130,11 @@ export async function getImageThumbnail(id: string): Promise<StoredImageThumbnai
     thumbnailVersion: THUMBNAIL_VERSION,
   }
   await putImageThumbnail(thumbnail)
-  if (metadata.width && metadata.height && (image.width !== metadata.width || image.height !== metadata.height)) {
+  if (
+    metadata.width &&
+    metadata.height &&
+    (image.width !== metadata.width || image.height !== metadata.height)
+  ) {
     await putImage({ ...image, width: metadata.width, height: metadata.height })
   }
   return thumbnail
@@ -202,7 +213,10 @@ function hashDataUrlFallback(dataUrl: string): string {
  * 存储图片，若已存在（按 hash 去重）则跳过。
  * 返回 image id。
  */
-export async function storeImage(dataUrl: string, source: NonNullable<StoredImage['source']> = 'upload'): Promise<string> {
+export async function storeImage(
+  dataUrl: string,
+  source: NonNullable<StoredImage['source']> = 'upload',
+): Promise<string> {
   const id = await hashDataUrl(dataUrl)
   const existing = await getImage(id)
   if (!existing) {
@@ -226,7 +240,11 @@ export async function storeImage(dataUrl: string, source: NonNullable<StoredImag
     }
   } else if ((await getStoredImageThumbnail(id))?.thumbnailVersion !== THUMBNAIL_VERSION) {
     const thumbnail = await safeCreateImageThumbnail(existing.dataUrl)
-    if (thumbnail.width && thumbnail.height && (existing.width !== thumbnail.width || existing.height !== thumbnail.height)) {
+    if (
+      thumbnail.width &&
+      thumbnail.height &&
+      (existing.width !== thumbnail.width || existing.height !== thumbnail.height)
+    ) {
       await putImage({ ...existing, width: thumbnail.width, height: thumbnail.height })
     }
     if (thumbnail.thumbnailDataUrl) {
@@ -273,7 +291,9 @@ async function createImageThumbnail(dataUrl: string): Promise<Omit<StoredImageTh
   }
 }
 
-async function safeCreateImageThumbnail(dataUrl: string): Promise<Partial<Omit<StoredImageThumbnail, 'id'>>> {
+async function safeCreateImageThumbnail(
+  dataUrl: string,
+): Promise<Partial<Omit<StoredImageThumbnail, 'id'>>> {
   try {
     return await createImageThumbnail(dataUrl)
   } catch {

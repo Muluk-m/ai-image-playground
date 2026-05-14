@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { useStore } from '../../../store'
-import { useInspirationStore, type InspirationProviderFilter } from '../store'
+import { type InspirationProviderFilter, useInspirationStore } from '../store'
 import type { InspirationItem } from '../types'
 import InspirationCard from './InspirationCard'
 
@@ -13,7 +13,11 @@ export default function InspirationGrid() {
   const pinnedIds = useStore((s) => s.pinnedInspirationIds)
 
   const ordered = useMemo(
-    () => sortPinnedFirst(filterItems(items, selectedProvider, selectedCategory, searchKeyword), pinnedIds),
+    () =>
+      sortPinnedFirst(
+        filterItems(items, selectedProvider, selectedCategory, searchKeyword),
+        pinnedIds,
+      ),
     [items, selectedProvider, selectedCategory, searchKeyword, pinnedIds],
   )
   const pinnedSet = useMemo(() => new Set(pinnedIds), [pinnedIds])
@@ -30,7 +34,11 @@ export default function InspirationGrid() {
     <ul className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4">
       {ordered.map((item) => (
         <li key={item.id}>
-          <InspirationCard item={item} pinned={pinnedSet.has(item.id)} onClick={() => showDetail(item.id)} />
+          <InspirationCard
+            item={item}
+            pinned={pinnedSet.has(item.id)}
+            onClick={() => showDetail(item.id)}
+          />
         </li>
       ))}
     </ul>
@@ -48,12 +56,9 @@ function filterItems(
     if (provider !== 'all' && item.recommendedProvider !== provider) return false
     if (category && item.category !== category) return false
     if (!kw) return true
-    const haystack = [
-      item.title,
-      item.description ?? '',
-      item.prompt,
-      ...(item.tags ?? []),
-    ].join(' ').toLowerCase()
+    const haystack = [item.title, item.description ?? '', item.prompt, ...(item.tags ?? [])]
+      .join(' ')
+      .toLowerCase()
     return haystack.includes(kw)
   })
 }

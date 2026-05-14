@@ -91,7 +91,7 @@ export function formatImageRatio(width: number, height: number) {
     return ''
   }
 
-  const gcd = (a: number, b: number): number => b === 0 ? a : gcd(b, a % b)
+  const gcd = (a: number, b: number): number => (b === 0 ? a : gcd(b, a % b))
   const divisor = gcd(roundedWidth, roundedHeight)
   const simplifiedWidth = roundedWidth / divisor
   const simplifiedHeight = roundedHeight / divisor
@@ -161,21 +161,25 @@ export function calculateImageSize(tier: SizeTier, ratio: string) {
 
   if (tier === '1K') {
     const shortSide = 1024
-    const width = ratioWidth > ratioHeight
-      ? roundToMultiple(shortSide * ratioWidth / ratioHeight, SIZE_MULTIPLE)
-      : shortSide
-    const height = ratioWidth > ratioHeight
-      ? shortSide
-      : roundToMultiple(shortSide * ratioHeight / ratioWidth, SIZE_MULTIPLE)
+    const width =
+      ratioWidth > ratioHeight
+        ? roundToMultiple((shortSide * ratioWidth) / ratioHeight, SIZE_MULTIPLE)
+        : shortSide
+    const height =
+      ratioWidth > ratioHeight
+        ? shortSide
+        : roundToMultiple((shortSide * ratioHeight) / ratioWidth, SIZE_MULTIPLE)
     return `${width}x${height}`
   }
 
   const longSide = tier === '2K' ? 2048 : 3840
-  const width = ratioWidth > ratioHeight
-    ? longSide
-    : roundToMultiple(longSide * ratioWidth / ratioHeight, SIZE_MULTIPLE)
-  const height = ratioWidth > ratioHeight
-    ? roundToMultiple(longSide * ratioHeight / ratioWidth, SIZE_MULTIPLE)
-    : longSide
+  const width =
+    ratioWidth > ratioHeight
+      ? longSide
+      : roundToMultiple((longSide * ratioWidth) / ratioHeight, SIZE_MULTIPLE)
+  const height =
+    ratioWidth > ratioHeight
+      ? roundToMultiple((longSide * ratioHeight) / ratioWidth, SIZE_MULTIPLE)
+      : longSide
   return normalizeImageSize(`${width}x${height}`)
 }

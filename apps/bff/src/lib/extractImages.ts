@@ -97,7 +97,11 @@ function describeOpenAIEmpty(payload: unknown): string {
 }
 
 function extractOpenAI(payload: unknown): ExtractedResult {
-  const p = payload as { data?: Array<Record<string, unknown>>; size?: string; quality?: string } | null
+  const p = payload as {
+    data?: Array<Record<string, unknown>>
+    size?: string
+    quality?: string
+  } | null
   const data = Array.isArray(p?.data) ? p.data : []
   const images: ResultImageMeta[] = []
   const rawUrls: string[] = []
@@ -119,7 +123,9 @@ function extractOpenAI(payload: unknown): ExtractedResult {
   }
 }
 
-function pickActualOpenAI(p: { size?: string; quality?: string } | null): ExtractedResult['actual_params'] {
+function pickActualOpenAI(
+  p: { size?: string; quality?: string } | null,
+): ExtractedResult['actual_params'] {
   if (!p) return undefined
   const out: NonNullable<ExtractedResult['actual_params']> = {}
   if (typeof p.size === 'string') out.size = p.size
@@ -150,11 +156,12 @@ function extractGemini(payload: unknown): ExtractedResult {
   const images: ResultImageMeta[] = []
   for (const candidate of p?.candidates ?? []) {
     const parts = candidate.content?.parts ?? []
-    const text = parts
-      .map((part) => (typeof part.text === 'string' ? part.text : ''))
-      .filter(Boolean)
-      .join('\n')
-      .trim() || undefined
+    const text =
+      parts
+        .map((part) => (typeof part.text === 'string' ? part.text : ''))
+        .filter(Boolean)
+        .join('\n')
+        .trim() || undefined
     for (const part of parts) {
       if (!part.inlineData?.data) continue
       images.push({

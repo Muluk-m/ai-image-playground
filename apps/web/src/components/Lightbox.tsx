@@ -1,8 +1,8 @@
-import { useEffect, useState, useRef, useCallback } from 'react'
-import { useStore, getCachedImage, ensureImageCached } from '../store'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useCloseOnEscape } from '../hooks/useCloseOnEscape'
 import { usePreventBackgroundScroll } from '../hooks/usePreventBackgroundScroll'
 import { createMaskPreviewDataUrl } from '../lib/canvasImage'
+import { ensureImageCached, getCachedImage, useStore } from '../store'
 
 const MIN_SCALE = 1
 const MAX_SCALE = 10
@@ -114,21 +114,35 @@ export default function Lightbox() {
   const total = lightboxImageList.length
   const showNav = total > 1
 
-  const goTo = useCallback((idx: number) => {
-    if (lightboxImageList.length === 0) return
-    const wrapped = ((idx % lightboxImageList.length) + lightboxImageList.length) % lightboxImageList.length
-    setLightboxImageId(lightboxImageList[wrapped], lightboxImageList)
-  }, [lightboxImageList, setLightboxImageId])
+  const goTo = useCallback(
+    (idx: number) => {
+      if (lightboxImageList.length === 0) return
+      const wrapped =
+        ((idx % lightboxImageList.length) + lightboxImageList.length) % lightboxImageList.length
+      setLightboxImageId(lightboxImageList[wrapped], lightboxImageList)
+    },
+    [lightboxImageList, setLightboxImageId],
+  )
 
-  const goPrev = useCallback(() => { if (showNav) goTo(currentIndex - 1) }, [showNav, currentIndex, goTo])
-  const goNext = useCallback(() => { if (showNav) goTo(currentIndex + 1) }, [showNav, currentIndex, goTo])
+  const goPrev = useCallback(() => {
+    if (showNav) goTo(currentIndex - 1)
+  }, [showNav, currentIndex, goTo])
+  const goNext = useCallback(() => {
+    if (showNav) goTo(currentIndex + 1)
+  }, [showNav, currentIndex, goTo])
 
   // 键盘左右切换
   useEffect(() => {
     if (!lightboxImageId || !showNav) return
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'ArrowLeft') { e.preventDefault(); goPrev() }
-      if (e.key === 'ArrowRight') { e.preventDefault(); goNext() }
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault()
+        goPrev()
+      }
+      if (e.key === 'ArrowRight') {
+        e.preventDefault()
+        goNext()
+      }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -164,7 +178,17 @@ interface LightboxInnerProps {
 }
 
 /** 内部组件：保证挂载时 DOM 已经存在，所有 ref / effect 都可靠 */
-function LightboxInner({ src, imageId, maskPreviewSrc, onClose, showNav, currentIndex, total, onPrev, onNext }: LightboxInnerProps) {
+function LightboxInner({
+  src,
+  imageId,
+  maskPreviewSrc,
+  onClose,
+  showNav,
+  currentIndex,
+  total,
+  onPrev,
+  onNext,
+}: LightboxInnerProps) {
   const containerRef = useRef<HTMLDivElement>(null)
 
   // 用 ref 追踪最新变换，避免闭包过期
@@ -222,7 +246,8 @@ function LightboxInner({ src, imageId, maskPreviewSrc, onClose, showNav, current
     }
 
     window.addEventListener('image-context-menu-dismiss-lightbox-click', suppressClick)
-    return () => window.removeEventListener('image-context-menu-dismiss-lightbox-click', suppressClick)
+    return () =>
+      window.removeEventListener('image-context-menu-dismiss-lightbox-click', suppressClick)
   }, [])
 
   const getCenter = useCallback(() => {
@@ -231,24 +256,27 @@ function LightboxInner({ src, imageId, maskPreviewSrc, onClose, showNav, current
     return { cx: rect.left + rect.width / 2, cy: rect.top + rect.height / 2 }
   }, [])
 
-  const apply = useCallback((s: number, tx: number, ty: number) => {
-    const ns = clamp(s, MIN_SCALE, MAX_SCALE)
-    scaleRef.current = ns
-    txRef.current = ns <= 1 ? 0 : tx
-    tyRef.current = ns <= 1 ? 0 : ty
+  const apply = useCallback(
+    (s: number, tx: number, ty: number) => {
+      const ns = clamp(s, MIN_SCALE, MAX_SCALE)
+      scaleRef.current = ns
+      txRef.current = ns <= 1 ? 0 : tx
+      tyRef.current = ns <= 1 ? 0 : ty
 
-    // 显示缩放倍率并重置自动隐藏计时器
-    if (ns > 1) {
-      setShowZoomBadge(true)
-      if (zoomTimerRef.current) clearTimeout(zoomTimerRef.current)
-      zoomTimerRef.current = setTimeout(() => setShowZoomBadge(false), 1500)
-    } else {
-      setShowZoomBadge(false)
-      if (zoomTimerRef.current) clearTimeout(zoomTimerRef.current)
-    }
+      // 显示缩放倍率并重置自动隐藏计时器
+      if (ns > 1) {
+        setShowZoomBadge(true)
+        if (zoomTimerRef.current) clearTimeout(zoomTimerRef.current)
+        zoomTimerRef.current = setTimeout(() => setShowZoomBadge(false), 1500)
+      } else {
+        setShowZoomBadge(false)
+        if (zoomTimerRef.current) clearTimeout(zoomTimerRef.current)
+      }
 
-    rerender()
-  }, [rerender])
+      rerender()
+    },
+    [rerender],
+  )
 
   // ====== 滚轮缩放 ======
   useEffect(() => {
@@ -317,29 +345,35 @@ function LightboxInner({ src, imageId, maskPreviewSrc, onClose, showNav, current
   }, [apply])
 
   // ====== 单击关闭（仅未缩放且非拖拽） ======
-  const onClick = useCallback((e: React.MouseEvent) => {
-    if (suppressNextClickRef.current) {
-      suppressNextClickRef.current = false
-      e.stopPropagation()
-      return
-    }
-    if (didDragRef.current) return
-    if (scaleRef.current > 1 && e.target instanceof HTMLImageElement) return
-    onClose()
-  }, [onClose])
+  const onClick = useCallback(
+    (e: React.MouseEvent) => {
+      if (suppressNextClickRef.current) {
+        suppressNextClickRef.current = false
+        e.stopPropagation()
+        return
+      }
+      if (didDragRef.current) return
+      if (scaleRef.current > 1 && e.target instanceof HTMLImageElement) return
+      onClose()
+    },
+    [onClose],
+  )
 
   // ====== 鼠标双击缩放 ======
-  const onDoubleClick = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation()
-    if (scaleRef.current > 1) {
-      apply(1, 0, 0)
-    } else {
-      const { cx, cy } = getCenter()
-      const mx = e.clientX - cx
-      const my = e.clientY - cy
-      apply(3, -mx * 2, -my * 2)
-    }
-  }, [apply, getCenter])
+  const onDoubleClick = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation()
+      if (scaleRef.current > 1) {
+        apply(1, 0, 0)
+      } else {
+        const { cx, cy } = getCenter()
+        const mx = e.clientX - cx
+        const my = e.clientY - cy
+        apply(3, -mx * 2, -my * 2)
+      }
+    },
+    [apply, getCenter],
+  )
 
   // ====== 触控事件 ======
   useEffect(() => {
@@ -504,17 +538,38 @@ function LightboxInner({ src, imageId, maskPreviewSrc, onClose, showNav, current
         <>
           <button
             className={`${navBtnClass} left-3 sm:left-5`}
-            onClick={(e) => { e.stopPropagation(); goPrev() }}
+            onClick={(e) => {
+              e.stopPropagation()
+              goPrev()
+            }}
           >
-            <svg className="w-5 h-5 sm:w-6 sm:h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            <svg
+              className="w-5 h-5 sm:w-6 sm:h-6"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M15 19l-7-7 7-7"
+              />
             </svg>
           </button>
           <button
             className={`${navBtnClass} right-3 sm:right-5`}
-            onClick={(e) => { e.stopPropagation(); goNext() }}
+            onClick={(e) => {
+              e.stopPropagation()
+              goNext()
+            }}
           >
-            <svg className="w-5 h-5 sm:w-6 sm:h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg
+              className="w-5 h-5 sm:w-6 sm:h-6"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
             </svg>
           </button>
@@ -539,6 +594,10 @@ function LightboxInner({ src, imageId, maskPreviewSrc, onClose, showNav, current
     </div>
   )
 
-  function goPrev() { onPrev() }
-  function goNext() { onNext() }
+  function goPrev() {
+    onPrev()
+  }
+  function goNext() {
+    onNext()
+  }
 }

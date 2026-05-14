@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_PARAMS } from '../types'
-import { DEFAULT_SETTINGS, normalizeSettings } from './apiProfiles'
-import { getOutputImageLimitForSettings, normalizeParamsForSettings } from './paramCompatibility'
+import { DEFAULT_SETTINGS, normalizeSettings } from '../../lib/apiProfiles'
+import {
+  getOutputImageLimitForSettings,
+  normalizeParamsForSettings,
+} from '../../lib/paramCompatibility'
+import { DEFAULT_PARAMS } from '../../types'
 
 describe('parameter compatibility', () => {
   it('limits OpenAI output count to 10', () => {

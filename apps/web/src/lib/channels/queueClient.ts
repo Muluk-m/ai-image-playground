@@ -11,10 +11,10 @@ import {
   applyCodexCliPromptGuard,
   assertImageInputPayloadSize,
   bytesToDataUrl,
-  getApiErrorMessage,
-  getDataUrlEncodedByteSize,
   type CallApiOptions,
   type CallApiResult,
+  getApiErrorMessage,
+  getDataUrlEncodedByteSize,
 } from '../imageApiShared'
 import type { BuiltinEdgeProfile, ProviderKind, PublicChannel } from './types'
 
@@ -96,7 +96,9 @@ async function pollAndFetch(
   )
   try {
     const images = await Promise.all(
-      meta.images.map((m) => fetchImageDataUrl(base, requestId, m.index, m.mime, downloadController.signal)),
+      meta.images.map((m) =>
+        fetchImageDataUrl(base, requestId, m.index, m.mime, downloadController.signal),
+      ),
     )
     const revisedPrompts = meta.images.map((m) => m.revised_prompt)
     const actualParams = narrowActualParams(meta.actual_params)
@@ -133,7 +135,8 @@ async function submit(
     prompt: applyCodexCliPromptGuard(opts.prompt, codexCli),
   }
   if (opts.params.size && opts.params.size !== 'auto') body.size = opts.params.size
-  if (!codexCli && opts.params.quality && opts.params.quality !== 'auto') body.quality = opts.params.quality
+  if (!codexCli && opts.params.quality && opts.params.quality !== 'auto')
+    body.quality = opts.params.quality
   if (opts.params.n && opts.params.n > 1) body.n = opts.params.n
   if (opts.inputImageDataUrls.length) body.input_images = opts.inputImageDataUrls
   if (clientRequestId) body.client_request_id = clientRequestId
@@ -170,12 +173,14 @@ async function classifyPollResponse(url: string): Promise<PollOutcome> {
     return { kind: 'transient', error: err }
   }
   if (!res.ok) {
-    if (res.status >= 500) return { kind: 'transient', error: new Error(`BFF status ${res.status}`) }
+    if (res.status >= 500)
+      return { kind: 'transient', error: new Error(`BFF status ${res.status}`) }
     return { kind: 'fatal', message: await getApiErrorMessage(res) }
   }
   const json = (await res.json()) as StatusResponse
   if (json.status === 'completed') return { kind: 'done', result: json.result }
-  if (json.status === 'failed') return { kind: 'failed', message: json.error?.message ?? 'BFF 任务执行失败' }
+  if (json.status === 'failed')
+    return { kind: 'failed', message: json.error?.message ?? 'BFF 任务执行失败' }
   if (json.status === 'cancelled') return { kind: 'cancelled' }
   return { kind: 'pending' }
 }
@@ -260,7 +265,9 @@ async function fetchImageDataUrl(
 const QUALITY_LITERALS = new Set<TaskParams['quality']>(['auto', 'low', 'medium', 'high'])
 
 /** BFF 用 string 透传 quality；只保留 TaskParams.quality union 接受的值。 */
-function narrowActualParams(p: { size?: string; quality?: string } | undefined): Partial<TaskParams> | undefined {
+function narrowActualParams(
+  p: { size?: string; quality?: string } | undefined,
+): Partial<TaskParams> | undefined {
   if (!p) return undefined
   const out: Partial<TaskParams> = {}
   if (typeof p.size === 'string') out.size = p.size

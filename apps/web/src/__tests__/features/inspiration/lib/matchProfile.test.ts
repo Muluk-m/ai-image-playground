@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import type { ClientProfile, PublicChannel } from '../../../lib/channels/types'
-import { matchProfile } from './matchProfile'
+import { matchProfile } from '../../../../features/inspiration/lib/matchProfile'
+import type { ClientProfile, PublicChannel } from '../../../../lib/channels/types'
 
 const geminiChannel: PublicChannel = {
   id: 'qlj-gemini',
@@ -23,7 +23,11 @@ const openaiChannel: PublicChannel = {
 
 const publicChannels: PublicChannel[] = [geminiChannel, openaiChannel]
 
-function makeByok(opts: { id: string; kind: 'openai-compat' | 'gemini'; models: string[] }): ClientProfile {
+function makeByok(opts: {
+  id: string
+  kind: 'openai-compat' | 'gemini'
+  models: string[]
+}): ClientProfile {
   return {
     id: opts.id,
     source: 'user-byok',
@@ -37,7 +41,11 @@ function makeByok(opts: { id: string; kind: 'openai-compat' | 'gemini'; models: 
   }
 }
 
-function makeBuiltin(opts: { id: string; channelId: string; selectedModelId: string }): ClientProfile {
+function makeBuiltin(opts: {
+  id: string
+  channelId: string
+  selectedModelId: string
+}): ClientProfile {
   return {
     id: opts.id,
     source: 'builtin-edge',
@@ -61,7 +69,11 @@ describe('matchProfile', () => {
 
   it('prefers the currently active profile when it satisfies the constraint', () => {
     const byok1 = makeByok({ id: 'byok1', kind: 'gemini', models: ['gemini-3.1-flash-image'] })
-    const builtin = makeBuiltin({ id: 'b1', channelId: 'qlj-gemini', selectedModelId: 'gemini-3.1-flash-image' })
+    const builtin = makeBuiltin({
+      id: 'b1',
+      channelId: 'qlj-gemini',
+      selectedModelId: 'gemini-3.1-flash-image',
+    })
     const result = matchProfile({
       profiles: [byok1, builtin],
       publicChannels,
@@ -74,12 +86,16 @@ describe('matchProfile', () => {
 
   it('prefers builtin-edge over user-byok when active is unrelated', () => {
     const byok1 = makeByok({ id: 'byok1', kind: 'gemini', models: ['gemini-3.1-flash-image'] })
-    const builtin = makeBuiltin({ id: 'b1', channelId: 'qlj-gemini', selectedModelId: 'gemini-3.1-flash-image' })
+    const builtin = makeBuiltin({
+      id: 'b1',
+      channelId: 'qlj-gemini',
+      selectedModelId: 'gemini-3.1-flash-image',
+    })
     const openaiByok = makeByok({ id: 'byok2', kind: 'openai-compat', models: ['gpt-image-2'] })
     const result = matchProfile({
       profiles: [byok1, builtin, openaiByok],
       publicChannels,
-      activeProfileId: 'byok2',  // unrelated active
+      activeProfileId: 'byok2', // unrelated active
       provider: 'gemini',
       model: 'gemini-3.1-flash-image',
     })
@@ -100,7 +116,11 @@ describe('matchProfile', () => {
   })
 
   it('skips builtin-edge whose channel does not include the requested model', () => {
-    const builtin = makeBuiltin({ id: 'b1', channelId: 'qlj-gemini', selectedModelId: 'gemini-3.1-flash-image' })
+    const builtin = makeBuiltin({
+      id: 'b1',
+      channelId: 'qlj-gemini',
+      selectedModelId: 'gemini-3.1-flash-image',
+    })
     const result = matchProfile({
       profiles: [builtin],
       publicChannels,

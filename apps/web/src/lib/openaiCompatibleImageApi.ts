@@ -1,7 +1,16 @@
-import type { CustomProviderDefinition, CustomProviderPollMapping, CustomProviderResultMapping, CustomProviderSubmitMapping, ImageApiResponse, ResponsesApiResponse, TaskParams } from '../types'
+import type {
+  CustomProviderDefinition,
+  CustomProviderPollMapping,
+  CustomProviderResultMapping,
+  CustomProviderSubmitMapping,
+  ImageApiResponse,
+  ResponsesApiResponse,
+  TaskParams,
+} from '../types'
 import { dataUrlToBlob, imageDataUrlToPngBlob, maskDataUrlToPngBlob } from './canvasImage'
 import { buildApiUrl, readClientDevProxyConfig, shouldUseApiProxy } from './devProxy'
 import {
+  applyCodexCliPromptGuard,
   assertImageInputPayloadSize,
   assertMaskEditFileSize,
   type BYOKAdapterProfile,
@@ -9,16 +18,15 @@ import {
   type CallApiResult,
   fetchImageUrlAsDataUrl,
   getApiErrorMessage,
-  throwIfProxyError,
   getDataUrlDecodedByteSize,
   getDataUrlEncodedByteSize,
   isDataUrl,
   isHttpUrl,
-  mergeActualParams,
   MIME_MAP,
+  mergeActualParams,
   normalizeBase64Image,
   pickActualParams,
-  applyCodexCliPromptGuard,
+  throwIfProxyError,
 } from './imageApiShared'
 
 function appendQuery(path: string, query?: Record<string, string>): string {
@@ -30,12 +38,15 @@ function appendQuery(path: string, query?: Record<string, string>): string {
 
 function getByPath(source: unknown, path: string | undefined): unknown {
   if (!path) return source
-  return path.split('.').filter(Boolean).reduce<unknown>((current, key) => {
-    if (current == null) return undefined
-    if (/^\d+$/.test(key) && Array.isArray(current)) return current[Number(key)]
-    if (typeof current === 'object') return (current as Record<string, unknown>)[key]
-    return undefined
-  }, source)
+  return path
+    .split('.')
+    .filter(Boolean)
+    .reduce<unknown>((current, key) => {
+      if (current == null) return undefined
+      if (/^\d+$/.test(key) && Array.isArray(current)) return current[Number(key)]
+      if (typeof current === 'object') return (current as Record<string, unknown>)[key]
+      return undefined
+    }, source)
 }
 
 function getAllByPath(source: unknown, path: string | undefined): unknown[] {
@@ -49,7 +60,8 @@ function getAllByPath(source: unknown, path: string | undefined): unknown[] {
       if (item == null) continue
       if (key === '*') {
         if (Array.isArray(item)) next.push(...item)
-        else if (typeof item === 'object') next.push(...Object.values(item as Record<string, unknown>))
+        else if (typeof item === 'object')
+          next.push(...Object.values(item as Record<string, unknown>))
         continue
       }
       if (/^\d+$/.test(key) && Array.isArray(item)) {
@@ -61,7 +73,9 @@ function getAllByPath(source: unknown, path: string | undefined): unknown[] {
     current = next
   }
 
-  return current.flatMap((item) => Array.isArray(item) ? item : [item]).filter((item) => item != null)
+  return current
+    .flatMap((item) => (Array.isArray(item) ? item : [item]))
+    .filter((item) => item != null)
 }
 
 function normalizeImageApiPayload(value: unknown): ImageApiResponse {
@@ -124,7 +138,10 @@ function createResponsesInput(prompt: string, inputImageDataUrls: string[]): unk
   ]
 }
 
-function parseResponsesImageResults(payload: ResponsesApiResponse, fallbackMime: string): Array<{
+function parseResponsesImageResults(
+  payload: ResponsesApiResponse,
+  fallbackMime: string,
+): Array<{
   image: string
   actualParams?: Partial<TaskParams>
   revisedPrompt?: string
@@ -136,7 +153,11 @@ function parseResponsesImageResults(payload: ResponsesApiResponse, fallbackMime:
     throw err
   }
 
-  const results: Array<{ image: string; actualParams?: Partial<TaskParams>; revisedPrompt?: string }> = []
+  const results: Array<{
+    image: string
+    actualParams?: Partial<TaskParams>
+    revisedPrompt?: string
+  }> = []
 
   for (const item of output) {
     if (item?.type !== 'image_generation_call') continue
@@ -152,7 +173,9 @@ function parseResponsesImageResults(payload: ResponsesApiResponse, fallbackMime:
   }
 
   if (!results.length) {
-    const err = new Error('接口没有返回可识别的图片数据，请查看原始响应内容确认服务商实际返回的数据结构。如果使用的是中转或兼容接口，建议创建并使用「自定义服务商」配置。')
+    const err = new Error(
+      '接口没有返回可识别的图片数据，请查看原始响应内容确认服务商实际返回的数据结构。如果使用的是中转或兼容接口，建议创建并使用「自定义服务商」配置。',
+    )
     ;(err as any).rawResponsePayload = JSON.stringify(payload, null, 2)
     throw err
   }
@@ -160,10 +183,16 @@ function parseResponsesImageResults(payload: ResponsesApiResponse, fallbackMime:
   return results
 }
 
-async function parseImagesApiResponse(payload: ImageApiResponse, mime: string, signal?: AbortSignal): Promise<CallApiResult> {
+async function parseImagesApiResponse(
+  payload: ImageApiResponse,
+  mime: string,
+  signal?: AbortSignal,
+): Promise<CallApiResult> {
   const data = payload.data
   if (!Array.isArray(data) || !data.length) {
-    const err = new Error('接口没有返回图片数据，请查看原始响应内容确认服务商实际返回的数据结构。如果使用的是中转或兼容接口，建议创建并使用「自定义服务商」配置。')
+    const err = new Error(
+      '接口没有返回图片数据，请查看原始响应内容确认服务商实际返回的数据结构。如果使用的是中转或兼容接口，建议创建并使用「自定义服务商」配置。',
+    )
     ;(err as any).rawResponsePayload = JSON.stringify(payload, null, 2)
     throw err
   }
@@ -176,31 +205,35 @@ async function parseImagesApiResponse(payload: ImageApiResponse, mime: string, s
       const b64 = item.b64_json
       if (b64) {
         images.push(normalizeBase64Image(b64, mime))
-        revisedPrompts.push(typeof item.revised_prompt === 'string' ? item.revised_prompt : undefined)
+        revisedPrompts.push(
+          typeof item.revised_prompt === 'string' ? item.revised_prompt : undefined,
+        )
         continue
       }
 
       if (isHttpUrl(item.url) || isDataUrl(item.url)) {
         images.push(await fetchImageUrlAsDataUrl(item.url, mime, signal))
-        revisedPrompts.push(typeof item.revised_prompt === 'string' ? item.revised_prompt : undefined)
+        revisedPrompts.push(
+          typeof item.revised_prompt === 'string' ? item.revised_prompt : undefined,
+        )
       }
     }
   } catch (err) {
     if (rawImageUrls.length > 0 && err instanceof Error) {
-      (err as any).rawImageUrls = rawImageUrls
+      ;(err as any).rawImageUrls = rawImageUrls
     }
     throw err
   }
 
   if (!images.length) {
-    const err = new Error('接口没有返回可识别的图片数据，请查看原始响应内容确认服务商实际返回的数据结构。如果使用的是中转或兼容接口，建议创建并使用「自定义服务商」配置。')
+    const err = new Error(
+      '接口没有返回可识别的图片数据，请查看原始响应内容确认服务商实际返回的数据结构。如果使用的是中转或兼容接口，建议创建并使用「自定义服务商」配置。',
+    )
     ;(err as any).rawResponsePayload = JSON.stringify(payload, null, 2)
     throw err
   }
 
-  const actualParams = mergeActualParams(
-    pickActualParams(payload),
-  )
+  const actualParams = mergeActualParams(pickActualParams(payload))
   return {
     images,
     actualParams,
@@ -210,7 +243,11 @@ async function parseImagesApiResponse(payload: ImageApiResponse, mime: string, s
   }
 }
 
-export async function callOpenAICompatibleImageApi(opts: CallApiOptions, profile: BYOKAdapterProfile, customProvider?: CustomProviderDefinition | null): Promise<CallApiResult> {
+export async function callOpenAICompatibleImageApi(
+  opts: CallApiOptions,
+  profile: BYOKAdapterProfile,
+  customProvider?: CustomProviderDefinition | null,
+): Promise<CallApiResult> {
   if (customProvider) {
     return callCustomHttpImageApi(opts, profile, customProvider)
   }
@@ -220,7 +257,11 @@ export async function callOpenAICompatibleImageApi(opts: CallApiOptions, profile
     : callImagesApi(opts, profile)
 }
 
-async function callImagesApi(opts: CallApiOptions, profile: BYOKAdapterProfile, customProvider?: CustomProviderDefinition | null): Promise<CallApiResult> {
+async function callImagesApi(
+  opts: CallApiOptions,
+  profile: BYOKAdapterProfile,
+  customProvider?: CustomProviderDefinition | null,
+): Promise<CallApiResult> {
   const n = opts.params.n > 0 ? opts.params.n : 1
   if (profile.codexCli && n > 1) {
     return callImagesApiConcurrent(opts, profile, n, customProvider)
@@ -229,7 +270,12 @@ async function callImagesApi(opts: CallApiOptions, profile: BYOKAdapterProfile, 
   return callImagesApiSingle(opts, profile, customProvider)
 }
 
-async function callImagesApiConcurrent(opts: CallApiOptions, profile: BYOKAdapterProfile, n: number, customProvider?: CustomProviderDefinition | null): Promise<CallApiResult> {
+async function callImagesApiConcurrent(
+  opts: CallApiOptions,
+  profile: BYOKAdapterProfile,
+  n: number,
+  customProvider?: CustomProviderDefinition | null,
+): Promise<CallApiResult> {
   const singleOpts = { ...opts, params: { ...opts.params, n: 1, quality: 'auto' as const } }
   const results = await Promise.allSettled(
     Array.from({ length: n }).map(() => callImagesApiSingle(singleOpts, profile, customProvider)),
@@ -253,15 +299,24 @@ async function callImagesApiConcurrent(opts: CallApiOptions, profile: BYOKAdapte
     r.revisedPrompts?.length ? r.revisedPrompts : r.images.map(() => undefined),
   )
   const rawImageUrls = successfulResults.flatMap((r) => r.rawImageUrls ?? [])
-  const actualParams = mergeActualParams(
-    successfulResults[0]?.actualParams ?? {},
-    { n: images.length },
-  )
+  const actualParams = mergeActualParams(successfulResults[0]?.actualParams ?? {}, {
+    n: images.length,
+  })
 
-  return { images, actualParams, actualParamsList, revisedPrompts, ...(rawImageUrls.length ? { rawImageUrls } : {}) }
+  return {
+    images,
+    actualParams,
+    actualParamsList,
+    revisedPrompts,
+    ...(rawImageUrls.length ? { rawImageUrls } : {}),
+  }
 }
 
-async function callImagesApiSingle(opts: CallApiOptions, profile: BYOKAdapterProfile, customProvider?: CustomProviderDefinition | null): Promise<CallApiResult> {
+async function callImagesApiSingle(
+  opts: CallApiOptions,
+  profile: BYOKAdapterProfile,
+  customProvider?: CustomProviderDefinition | null,
+): Promise<CallApiResult> {
   const { prompt: originalPrompt, params, inputImageDataUrls } = opts
   const prompt = applyCodexCliPromptGuard(originalPrompt, profile.codexCli)
   const isEdit = inputImageDataUrls.length > 0
@@ -301,9 +356,10 @@ async function callImagesApiSingle(opts: CallApiOptions, profile: BYOKAdapterPro
       const imageBlobs: Blob[] = []
       for (let i = 0; i < inputImageDataUrls.length; i++) {
         const dataUrl = inputImageDataUrls[i]
-        const blob = opts.maskDataUrl && i === 0
-          ? await imageDataUrlToPngBlob(dataUrl)
-          : await dataUrlToBlob(dataUrl)
+        const blob =
+          opts.maskDataUrl && i === 0
+            ? await imageDataUrlToPngBlob(dataUrl)
+            : await dataUrlToBlob(dataUrl)
         imageBlobs.push(blob)
       }
 
@@ -326,13 +382,16 @@ async function callImagesApiSingle(opts: CallApiOptions, profile: BYOKAdapterPro
         formData.append('mask', maskBlob, 'mask.png')
       }
 
-      response = await fetch(buildApiUrl(profile.baseUrl, 'images/edits', proxyConfig, useApiProxy), {
-        method: 'POST',
-        headers: requestHeaders,
-        cache: 'no-store',
-        body: formData,
-        signal: controller.signal,
-      })
+      response = await fetch(
+        buildApiUrl(profile.baseUrl, 'images/edits', proxyConfig, useApiProxy),
+        {
+          method: 'POST',
+          headers: requestHeaders,
+          cache: 'no-store',
+          body: formData,
+          signal: controller.signal,
+        },
+      )
     } else {
       const body: Record<string, unknown> = {
         model: profile.model,
@@ -356,23 +415,26 @@ async function callImagesApiSingle(opts: CallApiOptions, profile: BYOKAdapterPro
         body.response_format = 'b64_json'
       }
 
-      response = await fetch(buildApiUrl(profile.baseUrl, 'images/generations', proxyConfig, useApiProxy), {
-        method: 'POST',
-        headers: {
-          ...requestHeaders,
-          'Content-Type': 'application/json',
+      response = await fetch(
+        buildApiUrl(profile.baseUrl, 'images/generations', proxyConfig, useApiProxy),
+        {
+          method: 'POST',
+          headers: {
+            ...requestHeaders,
+            'Content-Type': 'application/json',
+          },
+          cache: 'no-store',
+          body: JSON.stringify(body),
+          signal: controller.signal,
         },
-        cache: 'no-store',
-        body: JSON.stringify(body),
-        signal: controller.signal,
-      })
+      )
     }
 
     if (!response.ok) {
       throw new Error(await getApiErrorMessage(response))
     }
 
-    const payload = await response.json() as ImageApiResponse
+    const payload = (await response.json()) as ImageApiResponse
     throwIfProxyError(payload)
     return parseImagesApiResponse(payload, mime, controller.signal)
   } finally {
@@ -387,14 +449,21 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
       return
     }
     const timer = setTimeout(resolve, ms)
-    signal.addEventListener('abort', () => {
-      clearTimeout(timer)
-      reject(new DOMException('Aborted', 'AbortError'))
-    }, { once: true })
+    signal.addEventListener(
+      'abort',
+      () => {
+        clearTimeout(timer)
+        reject(new DOMException('Aborted', 'AbortError'))
+      },
+      { once: true },
+    )
   })
 }
 
-function getTaskState(payload: unknown, poll: CustomProviderPollMapping): 'success' | 'failure' | 'pending' {
+function getTaskState(
+  payload: unknown,
+  poll: CustomProviderPollMapping,
+): 'success' | 'failure' | 'pending' {
   const status = getByPath(payload, poll.statusPath)
   const statusText = typeof status === 'string' ? status : String(status ?? '')
   if (poll.successValues.includes(statusText)) return 'success'
@@ -403,9 +472,16 @@ function getTaskState(payload: unknown, poll: CustomProviderPollMapping): 'succe
 }
 
 function isRecoverablePollingError(err: unknown): boolean {
-  if (typeof DOMException !== 'undefined' && err instanceof DOMException && err.name === 'AbortError') return true
+  if (
+    typeof DOMException !== 'undefined' &&
+    err instanceof DOMException &&
+    err.name === 'AbortError'
+  )
+    return true
   const message = err instanceof Error ? err.message : String(err)
-  return /abort|network|failed to fetch|fetch failed|load failed|timeout|连接|断开|中断/i.test(message)
+  return /abort|network|failed to fetch|fetch failed|load failed|timeout|连接|断开|中断/i.test(
+    message,
+  )
 }
 
 function isRetryablePollingStatus(status: number): boolean {
@@ -423,12 +499,17 @@ function resolveTemplateValue(value: unknown, context: Record<string, unknown>):
     return getByPath(context, value.slice(1))
   }
   if (Array.isArray(value)) {
-    return value.map((item) => resolveTemplateValue(item, context)).filter((item) => item !== undefined && item !== null)
+    return value
+      .map((item) => resolveTemplateValue(item, context))
+      .filter((item) => item !== undefined && item !== null)
   }
   if (value && typeof value === 'object') {
     const entries = Object.entries(value as Record<string, unknown>)
       .map(([key, item]) => [key, resolveTemplateValue(item, context)] as const)
-      .filter(([, item]) => item !== undefined && item !== null && (!Array.isArray(item) || item.length > 0))
+      .filter(
+        ([, item]) =>
+          item !== undefined && item !== null && (!Array.isArray(item) || item.length > 0),
+      )
     return Object.fromEntries(entries)
   }
   return value
@@ -449,7 +530,10 @@ function createCustomProviderContext(opts: CallApiOptions, profile: BYOKAdapterP
   }
 }
 
-function renderQuery(query: Record<string, string> | undefined, context: Record<string, unknown>): Record<string, string> | undefined {
+function renderQuery(
+  query: Record<string, string> | undefined,
+  context: Record<string, unknown>,
+): Record<string, string> | undefined {
   if (!query) return undefined
   const entries = Object.entries(query)
     .map(([key, value]) => [key, resolveTemplateValue(value, context)] as const)
@@ -458,7 +542,11 @@ function renderQuery(query: Record<string, string> | undefined, context: Record<
   return entries.length ? Object.fromEntries(entries) : undefined
 }
 
-async function createCustomMultipartBody(mapping: CustomProviderSubmitMapping, opts: CallApiOptions, context: Record<string, unknown>): Promise<FormData> {
+async function createCustomMultipartBody(
+  mapping: CustomProviderSubmitMapping,
+  opts: CallApiOptions,
+  context: Record<string, unknown>,
+): Promise<FormData> {
   const formData = new FormData()
   const body = resolveTemplateValue(mapping.body ?? {}, context)
   if (body && typeof body === 'object' && !Array.isArray(body)) {
@@ -478,16 +566,22 @@ async function createCustomMultipartBody(mapping: CustomProviderSubmitMapping, o
   if (needsInputImages) {
     for (let i = 0; i < opts.inputImageDataUrls.length; i++) {
       const dataUrl = opts.inputImageDataUrls[i]
-      const blob = opts.maskDataUrl && i === 0 ? await imageDataUrlToPngBlob(dataUrl) : await dataUrlToBlob(dataUrl)
+      const blob =
+        opts.maskDataUrl && i === 0
+          ? await imageDataUrlToPngBlob(dataUrl)
+          : await dataUrlToBlob(dataUrl)
       imageBlobs.push(blob)
     }
   }
-  const maskBlob = needsMask && opts.maskDataUrl ? await maskDataUrlToPngBlob(opts.maskDataUrl) : null
+  const maskBlob =
+    needsMask && opts.maskDataUrl ? await maskDataUrlToPngBlob(opts.maskDataUrl) : null
   if (opts.maskDataUrl && (needsInputImages || needsMask)) {
     assertMaskEditFileSize('遮罩主图文件', imageBlobs[0]?.size ?? 0)
     assertMaskEditFileSize('遮罩文件', maskBlob?.size ?? 0)
   }
-  assertImageInputPayloadSize(imageBlobs.reduce((sum, blob) => sum + blob.size, 0) + (maskBlob?.size ?? 0))
+  assertImageInputPayloadSize(
+    imageBlobs.reduce((sum, blob) => sum + blob.size, 0) + (maskBlob?.size ?? 0),
+  )
 
   for (const file of mapping.files ?? []) {
     if (file.source === 'inputImages') {
@@ -504,16 +598,24 @@ async function createCustomMultipartBody(mapping: CustomProviderSubmitMapping, o
   return formData
 }
 
-async function extractCustomImages(payload: unknown, result: CustomProviderResultMapping, mime: string, signal?: AbortSignal): Promise<CallApiResult> {
+async function extractCustomImages(
+  payload: unknown,
+  result: CustomProviderResultMapping,
+  mime: string,
+  signal?: AbortSignal,
+): Promise<CallApiResult> {
   const images: string[] = []
   const imageUrls = (result.imageUrlPaths ?? []).flatMap((path) =>
-    getAllByPath(payload, path).filter((value): value is string => isHttpUrl(value) || isDataUrl(value)),
+    getAllByPath(payload, path).filter(
+      (value): value is string => isHttpUrl(value) || isDataUrl(value),
+    ),
   )
   const rawImageUrls = imageUrls.filter(isHttpUrl)
   try {
     for (const path of result.b64JsonPaths ?? []) {
       for (const value of getAllByPath(payload, path)) {
-        if (typeof value === 'string' && value.trim()) images.push(normalizeBase64Image(value, mime))
+        if (typeof value === 'string' && value.trim())
+          images.push(normalizeBase64Image(value, mime))
       }
     }
     for (const url of imageUrls) {
@@ -521,20 +623,27 @@ async function extractCustomImages(payload: unknown, result: CustomProviderResul
     }
   } catch (err) {
     if (rawImageUrls.length > 0 && err instanceof Error) {
-      (err as any).rawImageUrls = rawImageUrls
+      ;(err as any).rawImageUrls = rawImageUrls
     }
     throw err
   }
 
   if (!images.length) {
-    const err = new Error('接口没有返回可识别的图片数据，请查看原始响应内容确认接口实际返回的数据结构，并根据 API 文档调整「自定义服务商」配置中的结果提取路径。')
+    const err = new Error(
+      '接口没有返回可识别的图片数据，请查看原始响应内容确认接口实际返回的数据结构，并根据 API 文档调整「自定义服务商」配置中的结果提取路径。',
+    )
     ;(err as any).rawResponsePayload = JSON.stringify(payload, null, 2)
     throw err
   }
   return { images, ...(rawImageUrls.length ? { rawImageUrls } : {}) }
 }
 
-async function submitCustomRequest(mapping: CustomProviderSubmitMapping, opts: CallApiOptions, profile: BYOKAdapterProfile, controller: AbortController): Promise<unknown> {
+async function submitCustomRequest(
+  mapping: CustomProviderSubmitMapping,
+  opts: CallApiOptions,
+  profile: BYOKAdapterProfile,
+  controller: AbortController,
+): Promise<unknown> {
   const proxyConfig = readClientDevProxyConfig()
   const requestHeaders = createRequestHeaders(profile)
   const context = createCustomProviderContext(opts, profile)
@@ -553,13 +662,20 @@ async function submitCustomRequest(mapping: CustomProviderSubmitMapping, opts: C
       body = formData
     } else {
       assertImageInputPayloadSize(
-        opts.inputImageDataUrls.reduce((sum, dataUrl) => sum + getDataUrlEncodedByteSize(dataUrl), 0) +
-          (opts.maskDataUrl ? getDataUrlEncodedByteSize(opts.maskDataUrl) : 0),
+        opts.inputImageDataUrls.reduce(
+          (sum, dataUrl) => sum + getDataUrlEncodedByteSize(dataUrl),
+          0,
+        ) + (opts.maskDataUrl ? getDataUrlEncodedByteSize(opts.maskDataUrl) : 0),
       )
       headers['Content-Type'] = 'application/json'
       const resolved = resolveTemplateValue(mapping.body ?? {}, context)
-      if (profile.responseFormatB64Json && resolved && typeof resolved === 'object' && !Array.isArray(resolved)) {
-        (resolved as Record<string, unknown>).response_format = 'b64_json'
+      if (
+        profile.responseFormatB64Json &&
+        resolved &&
+        typeof resolved === 'object' &&
+        !Array.isArray(resolved)
+      ) {
+        ;(resolved as Record<string, unknown>).response_format = 'b64_json'
       }
       body = JSON.stringify(resolved)
     }
@@ -620,7 +736,11 @@ async function pollCustomTaskResult(
 
     const state = getTaskState(taskPayload, poll)
     if (state === 'failure') {
-      const message = getByPath(taskPayload, poll.errorPath) || getByPath(taskPayload, 'message') || getByPath(taskPayload, 'data.fail_reason') || getByPath(taskPayload, 'error.message')
+      const message =
+        getByPath(taskPayload, poll.errorPath) ||
+        getByPath(taskPayload, 'message') ||
+        getByPath(taskPayload, 'data.fail_reason') ||
+        getByPath(taskPayload, 'error.message')
       throw new Error(typeof message === 'string' && message.trim() ? message : '异步任务失败')
     }
     if (state === 'success') {
@@ -645,24 +765,38 @@ export async function getCustomQueuedImageResult(
   return pollCustomTaskResult(profile, customProvider.poll, taskId, mime)
 }
 
-async function callCustomHttpImageApi(opts: CallApiOptions, profile: BYOKAdapterProfile, customProvider: CustomProviderDefinition): Promise<CallApiResult> {
+async function callCustomHttpImageApi(
+  opts: CallApiOptions,
+  profile: BYOKAdapterProfile,
+  customProvider: CustomProviderDefinition,
+): Promise<CallApiResult> {
   const { params, inputImageDataUrls } = opts
   const isEdit = inputImageDataUrls.length > 0
   const mime = MIME_MAP[params.output_format] || 'image/png'
   const controller = new AbortController()
-  let timeoutId: ReturnType<typeof setTimeout> | null = setTimeout(() => controller.abort(), profile.timeout * 1000)
+  let timeoutId: ReturnType<typeof setTimeout> | null = setTimeout(
+    () => controller.abort(),
+    profile.timeout * 1000,
+  )
 
   try {
-    const submitMapping = isEdit && customProvider.editSubmit ? customProvider.editSubmit : customProvider.submit
+    const submitMapping =
+      isEdit && customProvider.editSubmit ? customProvider.editSubmit : customProvider.submit
     const submitPayload = await submitCustomRequest(submitMapping, opts, profile, controller)
-    const taskIdValue = submitMapping.taskIdPath ? getByPath(submitPayload, submitMapping.taskIdPath) : undefined
-    const taskId = typeof taskIdValue === 'string' ? taskIdValue.trim() : String(taskIdValue ?? '').trim()
+    const taskIdValue = submitMapping.taskIdPath
+      ? getByPath(submitPayload, submitMapping.taskIdPath)
+      : undefined
+    const taskId =
+      typeof taskIdValue === 'string' ? taskIdValue.trim() : String(taskIdValue ?? '').trim()
     if (submitMapping.taskIdPath && !taskId) {
-      const err = new Error('无法从响应中提取异步任务 ID，请查看原始响应内容确认接口实际返回的数据结构，并根据 API 文档调整「自定义服务商」配置中的 taskIdPath。')
+      const err = new Error(
+        '无法从响应中提取异步任务 ID，请查看原始响应内容确认接口实际返回的数据结构，并根据 API 文档调整「自定义服务商」配置中的 taskIdPath。',
+      )
       ;(err as any).rawResponsePayload = JSON.stringify(submitPayload, null, 2)
       throw err
     }
-    if (!taskId) return extractCustomImages(submitPayload, submitMapping.result ?? {}, mime, controller.signal)
+    if (!taskId)
+      return extractCustomImages(submitPayload, submitMapping.result ?? {}, mime, controller.signal)
     if (!customProvider.poll) throw new Error('异步接口返回了 task_id，但服务商配置缺少 poll')
     opts.onCustomTaskEnqueued?.({ taskId })
     if (timeoutId) {
@@ -675,7 +809,10 @@ async function callCustomHttpImageApi(opts: CallApiOptions, profile: BYOKAdapter
   }
 }
 
-async function callResponsesImageApi(opts: CallApiOptions, profile: BYOKAdapterProfile): Promise<CallApiResult> {
+async function callResponsesImageApi(
+  opts: CallApiOptions,
+  profile: BYOKAdapterProfile,
+): Promise<CallApiResult> {
   const n = opts.params.n > 0 ? opts.params.n : 1
   if (n === 1) {
     return callResponsesImageApiSingle(opts, profile)
@@ -683,7 +820,7 @@ async function callResponsesImageApi(opts: CallApiOptions, profile: BYOKAdapterP
 
   const promises = Array.from({ length: n }).map(() => callResponsesImageApiSingle(opts, profile))
   const results = await Promise.allSettled(promises)
-  
+
   const successfulResults = results
     .filter((r): r is PromiseFulfilledResult<CallApiResult> => r.status === 'fulfilled')
     .map((r) => r.value)
@@ -707,10 +844,19 @@ async function callResponsesImageApi(opts: CallApiOptions, profile: BYOKAdapterP
     images.length === opts.params.n ? { n: opts.params.n } : { n: images.length },
   )
 
-  return { images, actualParams, actualParamsList, revisedPrompts, ...(rawImageUrls.length ? { rawImageUrls } : {}) }
+  return {
+    images,
+    actualParams,
+    actualParamsList,
+    revisedPrompts,
+    ...(rawImageUrls.length ? { rawImageUrls } : {}),
+  }
 }
 
-async function callResponsesImageApiSingle(opts: CallApiOptions, profile: BYOKAdapterProfile): Promise<CallApiResult> {
+async function callResponsesImageApiSingle(
+  opts: CallApiOptions,
+  profile: BYOKAdapterProfile,
+): Promise<CallApiResult> {
   const { prompt, params, inputImageDataUrls } = opts
   const mime = MIME_MAP[params.output_format] || 'image/png'
   const proxyConfig = readClientDevProxyConfig()
@@ -732,37 +878,38 @@ async function callResponsesImageApiSingle(opts: CallApiOptions, profile: BYOKAd
     const body = {
       model: profile.model,
       input: createResponsesInput(prompt, inputImageDataUrls),
-      tools: [createResponsesImageTool(params, inputImageDataUrls.length > 0, profile, opts.maskDataUrl)],
+      tools: [
+        createResponsesImageTool(params, inputImageDataUrls.length > 0, profile, opts.maskDataUrl),
+      ],
       tool_choice: 'required',
     }
 
-    const response = await fetch(buildApiUrl(profile.baseUrl, 'responses', proxyConfig, useApiProxy), {
-      method: 'POST',
-      headers: {
-        ...requestHeaders,
-        'Content-Type': 'application/json',
+    const response = await fetch(
+      buildApiUrl(profile.baseUrl, 'responses', proxyConfig, useApiProxy),
+      {
+        method: 'POST',
+        headers: {
+          ...requestHeaders,
+          'Content-Type': 'application/json',
+        },
+        cache: 'no-store',
+        body: JSON.stringify(body),
+        signal: controller.signal,
       },
-      cache: 'no-store',
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    })
+    )
 
     if (!response.ok) {
       throw new Error(await getApiErrorMessage(response))
     }
 
-    const payload = await response.json() as ResponsesApiResponse
+    const payload = (await response.json()) as ResponsesApiResponse
     throwIfProxyError(payload)
     const imageResults = parseResponsesImageResults(payload, mime)
-    const actualParams = mergeActualParams(
-      imageResults[0]?.actualParams ?? {},
-    )
+    const actualParams = mergeActualParams(imageResults[0]?.actualParams ?? {})
     return {
       images: imageResults.map((result) => result.image),
       actualParams,
-      actualParamsList: imageResults.map((result) =>
-        mergeActualParams(result.actualParams ?? {}),
-      ),
+      actualParamsList: imageResults.map((result) => mergeActualParams(result.actualParams ?? {})),
       revisedPrompts: imageResults.map((result) => result.revisedPrompt),
     }
   } finally {

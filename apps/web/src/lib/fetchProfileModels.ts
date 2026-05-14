@@ -18,7 +18,10 @@ export interface FetchProfileModelsInput {
  *
  * 失败抛 Error；成功返回去重排序后的 model id 列表。
  */
-export async function fetchProfileModels(input: FetchProfileModelsInput, signal?: AbortSignal): Promise<string[]> {
+export async function fetchProfileModels(
+  input: FetchProfileModelsInput,
+  signal?: AbortSignal,
+): Promise<string[]> {
   const baseUrl = input.baseUrl.trim().replace(/\/+$/, '')
   if (!baseUrl) throw new Error('请先填写 API URL')
   if (!input.apiKey.trim()) throw new Error('请先填写 API Key')
@@ -52,7 +55,11 @@ function extractModelIds(payload: unknown): string[] {
     const ids = data
       .map((item) => {
         if (typeof item === 'string') return item
-        if (item && typeof item === 'object' && typeof (item as Record<string, unknown>).id === 'string') {
+        if (
+          item &&
+          typeof item === 'object' &&
+          typeof (item as Record<string, unknown>).id === 'string'
+        ) {
           return (item as Record<string, string>).id
         }
         return ''
@@ -66,7 +73,11 @@ function extractModelIds(payload: unknown): string[] {
     const ids = models
       .map((item) => {
         if (typeof item === 'string') return stripModelsPrefix(item)
-        if (item && typeof item === 'object' && typeof (item as Record<string, unknown>).name === 'string') {
+        if (
+          item &&
+          typeof item === 'object' &&
+          typeof (item as Record<string, unknown>).name === 'string'
+        ) {
           return stripModelsPrefix((item as Record<string, string>).name)
         }
         return ''

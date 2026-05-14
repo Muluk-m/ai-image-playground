@@ -1,5 +1,5 @@
-import { Elysia, t } from 'elysia'
 import { and, eq, inArray } from 'drizzle-orm'
+import { Elysia, t } from 'elysia'
 import { db, schema } from '../db/client'
 import { log } from '../lib/logger'
 import { abortRunningTask } from '../workers/task-runner'
@@ -22,7 +22,10 @@ export const cancelRoutes = new Elysia().put(
       .update(schema.tasks)
       .set({ status: 'cancelled', completed_at: Date.now() })
       .where(
-        and(eq(schema.tasks.id, params.id), inArray(schema.tasks.status, ['queued', 'in_progress'])),
+        and(
+          eq(schema.tasks.id, params.id),
+          inArray(schema.tasks.status, ['queued', 'in_progress']),
+        ),
       )
       .returning({ id: schema.tasks.id })
 

@@ -1,6 +1,6 @@
-import { Elysia, t } from 'elysia'
-import { eq } from 'drizzle-orm'
 import type { QueueProvider } from '@image-playground/shared'
+import { eq } from 'drizzle-orm'
+import { Elysia, t } from 'elysia'
 import { db, schema } from '../db/client'
 import { spawnTask } from '../workers/task-runner'
 
@@ -55,7 +55,8 @@ export const submitRoutes = new Elysia().post(
         .from(schema.tasks)
         .where(eq(schema.tasks.client_request_id, body.client_request_id))
         .limit(1)
-      if (existing) return { request_id: existing.id, status: 'queued', submitted_at: existing.submitted_at }
+      if (existing)
+        return { request_id: existing.id, status: 'queued', submitted_at: existing.submitted_at }
     }
 
     spawnTask(id, 'submit')

@@ -1,14 +1,29 @@
-import { useEffect, useState, useMemo, useRef } from 'react'
-import { useStore, getCachedImage, ensureImageCached, reuseConfig, editOutputs, removeTask, updateTaskInStore, showCodexCliPrompt, getCodexCliPromptKey, retryTask } from '../store'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useCloseOnEscape } from '../hooks/useCloseOnEscape'
 import { usePreventBackgroundScroll } from '../hooks/usePreventBackgroundScroll'
 import { useTooltip } from '../hooks/useTooltip'
-import { formatImageRatio } from '../lib/size'
-import { ActualValueBadge, DetailParamValue } from '../lib/paramDisplay'
-import { copyBlobToClipboard, copyTextToClipboard, getClipboardFailureMessage } from '../lib/clipboard'
-import { createMaskPreviewDataUrl } from '../lib/canvasImage'
-import { dismissAllTooltips } from '../lib/tooltipDismiss'
 import { getActiveApiProfile, getApiProviderLabel } from '../lib/apiProfiles'
+import { createMaskPreviewDataUrl } from '../lib/canvasImage'
+import {
+  copyBlobToClipboard,
+  copyTextToClipboard,
+  getClipboardFailureMessage,
+} from '../lib/clipboard'
+import { ActualValueBadge, DetailParamValue } from '../lib/paramDisplay'
+import { formatImageRatio } from '../lib/size'
+import { dismissAllTooltips } from '../lib/tooltipDismiss'
+import {
+  editOutputs,
+  ensureImageCached,
+  getCachedImage,
+  getCodexCliPromptKey,
+  removeTask,
+  retryTask,
+  reuseConfig,
+  showCodexCliPrompt,
+  updateTaskInStore,
+  useStore,
+} from '../store'
 import { CloseIcon, CodeIcon, CopyIcon, EditIcon, LinkIcon, TrashIcon } from './icons'
 
 import ViewportTooltip from './ViewportTooltip'
@@ -84,10 +99,9 @@ export default function DetailModal() {
     }
 
     let cancelled = false
-    const ids = [...new Set([
-      ...(task.inputImageIds || []),
-      ...(task.maskImageId ? [task.maskImageId] : []),
-    ])]
+    const ids = [
+      ...new Set([...(task.inputImageIds || []), ...(task.maskImageId ? [task.maskImageId] : [])]),
+    ]
     const initial: Record<string, string> = {}
     for (const id of ids) {
       const cached = getCachedImage(id)
@@ -107,7 +121,9 @@ export default function DetailModal() {
   }, [task])
 
   const currentOutputImageId = task?.outputImages?.[imageIndex] || ''
-  const currentOutputPreviewSrc = currentOutputImageId ? outputPreviewSrcs[currentOutputImageId] || '' : ''
+  const currentOutputPreviewSrc = currentOutputImageId
+    ? outputPreviewSrcs[currentOutputImageId] || ''
+    : ''
   const maskTargetId = task?.maskTargetImageId || null
   const maskTargetSrc = maskTargetId ? imageSrcs[maskTargetId] || '' : ''
   const maskSrc = task?.maskImageId ? imageSrcs[task.maskImageId] || '' : ''
@@ -181,19 +197,30 @@ export default function DetailModal() {
   const outputLen = task.outputImages?.length || 0
   const currentImageRatio = currentOutputImageId ? imageRatios[currentOutputImageId] : ''
   const currentImageSize = currentOutputImageId ? imageSizes[currentOutputImageId] : ''
-  const currentActualParams = currentOutputImageId ? task.actualParamsByImage?.[currentOutputImageId] : undefined
-  const currentRevisedPrompt = currentOutputImageId ? task.revisedPromptByImage?.[currentOutputImageId]?.trim() : ''
-  const showRevisedPrompt = Boolean(currentRevisedPrompt && currentRevisedPrompt !== task.prompt.trim())
+  const currentActualParams = currentOutputImageId
+    ? task.actualParamsByImage?.[currentOutputImageId]
+    : undefined
+  const currentRevisedPrompt = currentOutputImageId
+    ? task.revisedPromptByImage?.[currentOutputImageId]?.trim()
+    : ''
+  const showRevisedPrompt = Boolean(
+    currentRevisedPrompt && currentRevisedPrompt !== task.prompt.trim(),
+  )
   const codexCliPromptKey = getCodexCliPromptKey(settings)
   const activeProfileForCheck = getActiveApiProfile(settings)
-  const activeCodexCli = activeProfileForCheck.source === 'user-byok' && activeProfileForCheck.preferences.codexCli
-  const hasHandledPromptWarning = activeCodexCli || dismissedCodexCliPrompts.includes(codexCliPromptKey)
+  const activeCodexCli =
+    activeProfileForCheck.source === 'user-byok' && activeProfileForCheck.preferences.codexCli
+  const hasHandledPromptWarning =
+    activeCodexCli || dismissedCodexCliPrompts.includes(codexCliPromptKey)
   const taskProvider = task.apiProvider
   const isOpenAiTask = (taskProvider ?? 'openai') === 'openai'
-  const showPromptWarning = Boolean(isOpenAiTask && currentOutputImageId && (!currentRevisedPrompt || showRevisedPrompt) && !hasHandledPromptWarning)
-  const taskProviderName = taskProvider
-    ? getApiProviderLabel(settings, taskProvider)
-    : '未知'
+  const showPromptWarning = Boolean(
+    isOpenAiTask &&
+      currentOutputImageId &&
+      (!currentRevisedPrompt || showRevisedPrompt) &&
+      !hasHandledPromptWarning,
+  )
+  const taskProviderName = taskProvider ? getApiProviderLabel(settings, taskProvider) : '未知'
   const taskProfileName = task.apiProfileName || '未知'
   const taskModel = task.apiModel || '未知'
   const showSourceInfo = Boolean(task.apiProvider || task.apiProfileName || task.apiModel)
@@ -319,7 +346,10 @@ export default function DetailModal() {
         </div>
 
         {/* 左侧：图片 */}
-        <div ref={imagePanelRef} className="md:w-1/2 w-full h-64 md:h-auto bg-gray-100 dark:bg-black/20 relative flex items-center justify-center flex-shrink-0 min-h-[16rem]">
+        <div
+          ref={imagePanelRef}
+          className="md:w-1/2 w-full h-64 md:h-auto bg-gray-100 dark:bg-black/20 relative flex items-center justify-center flex-shrink-0 min-h-[16rem]"
+        >
           {task.status === 'done' && outputLen > 0 && currentOutputPreviewSrc && (
             <>
               <img
@@ -335,7 +365,10 @@ export default function DetailModal() {
                   if (currentOutputImageId && image.naturalWidth > 0 && image.naturalHeight > 0) {
                     setImageRatios((prev) => ({
                       ...prev,
-                      [currentOutputImageId]: formatImageRatio(image.naturalWidth, image.naturalHeight),
+                      [currentOutputImageId]: formatImageRatio(
+                        image.naturalWidth,
+                        image.naturalHeight,
+                      ),
                     }))
                     setImageSizes((prev) => ({
                       ...prev,
@@ -347,12 +380,14 @@ export default function DetailModal() {
                   const imageRect = image.getBoundingClientRect()
                   setImageLabelLeft(Math.max(8, imageRect.left - panelRect.left))
                 }}
-                onClick={() =>
-                  setLightboxImageId(task.outputImages[imageIndex], task.outputImages)
-                }
+                onClick={() => setLightboxImageId(task.outputImages[imageIndex], task.outputImages)}
                 alt=""
               />
-              <div data-selectable-text className="absolute top-[15px] flex items-center gap-1.5" style={{ left: imageLabelLeft }}>
+              <div
+                data-selectable-text
+                className="absolute top-[15px] flex items-center gap-1.5"
+                style={{ left: imageLabelLeft }}
+              >
                 {currentImageRatio && currentImageSize ? (
                   <>
                     <span className="bg-black/50 text-white text-xs px-2 py-0.5 rounded backdrop-blur-sm font-mono">
@@ -365,8 +400,18 @@ export default function DetailModal() {
                 ) : (
                   formatDuration() && (
                     <span className="flex items-center gap-1 bg-black/50 text-white text-xs px-2 py-0.5 rounded backdrop-blur-sm font-mono">
-                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      <svg
+                        className="w-3 h-3"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                        />
                       </svg>
                       {formatDuration()}
                     </span>
@@ -376,25 +421,29 @@ export default function DetailModal() {
               {outputLen > 1 && (
                 <>
                   <button
-                    onClick={() =>
-                      setImageIndex(
-                        (imageIndex - 1 + outputLen) % outputLen,
-                      )
-                    }
+                    onClick={() => setImageIndex((imageIndex - 1 + outputLen) % outputLen)}
                     className="absolute left-2 top-1/2 -translate-y-1/2 p-1.5 rounded-full bg-black/30 text-white hover:bg-black/50 transition"
                   >
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M15 19l-7-7 7-7"
+                      />
                     </svg>
                   </button>
                   <button
-                    onClick={() =>
-                      setImageIndex((imageIndex + 1) % outputLen)
-                    }
+                    onClick={() => setImageIndex((imageIndex + 1) % outputLen)}
                     className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-full bg-black/30 text-white hover:bg-black/50 transition"
                   >
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M9 5l7 7-7 7"
+                      />
                     </svg>
                   </button>
                   <span className="absolute bottom-2 left-1/2 -translate-x-1/2 bg-black/50 text-white text-xs px-2 py-0.5 rounded-full">
@@ -408,22 +457,52 @@ export default function DetailModal() {
             <>
               <div className="absolute left-4 top-4 flex items-center gap-1 bg-black/50 text-white text-xs px-2 py-0.5 rounded backdrop-blur-sm font-mono">
                 <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                  />
                 </svg>
                 {formatDuration()}
               </div>
               {task.status === 'running' && (
-                <svg className="w-10 h-10 text-blue-400 animate-spin" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                <svg
+                  className="w-10 h-10 text-blue-400 animate-spin"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                >
+                  <circle
+                    className="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    strokeWidth="4"
+                  />
+                  <path
+                    className="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                  />
                 </svg>
               )}
             </>
           )}
           {task.status === 'error' && (
             <div className="w-full max-w-md px-4 text-center">
-              <svg className="w-10 h-10 text-red-400 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              <svg
+                className="w-10 h-10 text-red-400 mx-auto mb-2"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                />
               </svg>
               <p
                 className="overflow-hidden whitespace-pre-line text-sm leading-6 text-red-500 break-words"
@@ -467,7 +546,10 @@ export default function DetailModal() {
                     >
                       <CodeIcon className="h-4 w-4" />
                     </button>
-                    <ViewportTooltip visible={viewRawResponseTooltip.visible} className="whitespace-nowrap">
+                    <ViewportTooltip
+                      visible={viewRawResponseTooltip.visible}
+                      className="whitespace-nowrap"
+                    >
                       查看原始响应
                     </ViewportTooltip>
                   </div>
@@ -496,7 +578,10 @@ export default function DetailModal() {
                     >
                       <LinkIcon className="h-4 w-4" />
                     </button>
-                    <ViewportTooltip visible={copyRawUrlsTooltip.visible} className="whitespace-nowrap">
+                    <ViewportTooltip
+                      visible={copyRawUrlsTooltip.visible}
+                      className="whitespace-nowrap"
+                    >
                       复制图片链接
                     </ViewportTooltip>
                   </div>
@@ -512,8 +597,21 @@ export default function DetailModal() {
                     className="inline-flex items-center justify-center rounded-full border border-blue-200/80 bg-white/80 px-3 py-1.5 text-blue-500 transition hover:bg-blue-50 dark:border-blue-400/20 dark:bg-white/[0.04] dark:hover:bg-blue-500/10"
                     aria-label="重试任务"
                   >
-                    <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    <svg
+                      className="h-4 w-4"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth={2}
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                      />
                     </svg>
                   </button>
                   <ViewportTooltip visible={retryTooltip.visible} className="whitespace-nowrap">
@@ -558,7 +656,12 @@ export default function DetailModal() {
                     aria-label="提示词已被改写"
                   >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v4m0 4h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M12 9v4m0 4h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"
+                      />
                     </svg>
                   </button>
                 </span>
@@ -594,12 +697,15 @@ export default function DetailModal() {
                 <div className="flex gap-2 flex-wrap">
                   {allInputImageIds.map((imgId) => {
                     const isMaskTarget = imgId === maskTargetId
-                    const displaySrc = (isMaskTarget && maskPreviewSrc) ? maskPreviewSrc : (imageSrcs[imgId] || '')
+                    const displaySrc =
+                      isMaskTarget && maskPreviewSrc ? maskPreviewSrc : imageSrcs[imgId] || ''
                     return (
                       <div key={imgId} className="relative group inline-block">
                         <div
                           className={`relative w-16 h-16 rounded-lg overflow-hidden border cursor-pointer hover:opacity-80 transition ${
-                            isMaskTarget ? 'border-blue-500 border-2 shadow-sm' : 'border-gray-200 dark:border-white/[0.08]'
+                            isMaskTarget
+                              ? 'border-blue-500 border-2 shadow-sm'
+                              : 'border-gray-200 dark:border-white/[0.08]'
                           }`}
                           onClick={() => setLightboxImageId(imgId, allInputImageIds)}
                         >
@@ -632,30 +738,55 @@ export default function DetailModal() {
               <div className="mb-2 rounded-lg bg-gray-50 px-3 py-2 text-xs dark:bg-white/[0.03]">
                 <span className="text-gray-400 dark:text-gray-500">来源</span>
                 <br />
-                <span className="font-medium text-gray-700 dark:text-gray-200">{taskProviderName}</span>
-                <span className="text-gray-400 dark:text-gray-500"> · {taskProfileName} · {taskModel}</span>
+                <span className="font-medium text-gray-700 dark:text-gray-200">
+                  {taskProviderName}
+                </span>
+                <span className="text-gray-400 dark:text-gray-500">
+                  {' '}
+                  · {taskProfileName} · {taskModel}
+                </span>
               </div>
             )}
             <div className="grid grid-cols-2 gap-2 text-xs mb-4">
               <div className="bg-gray-50 dark:bg-white/[0.03] rounded-lg px-3 py-2">
                 <span className="text-gray-400 dark:text-gray-500">尺寸</span>
                 <br />
-                <DetailParamValue task={task} paramKey="size" className="font-medium" actualParams={currentActualParams} />
+                <DetailParamValue
+                  task={task}
+                  paramKey="size"
+                  className="font-medium"
+                  actualParams={currentActualParams}
+                />
               </div>
               <div className="bg-gray-50 dark:bg-white/[0.03] rounded-lg px-3 py-2">
                 <span className="text-gray-400 dark:text-gray-500">质量</span>
                 <br />
-                <DetailParamValue task={task} paramKey="quality" className="font-medium" actualParams={currentActualParams} />
+                <DetailParamValue
+                  task={task}
+                  paramKey="quality"
+                  className="font-medium"
+                  actualParams={currentActualParams}
+                />
               </div>
               <div className="bg-gray-50 dark:bg-white/[0.03] rounded-lg px-3 py-2">
                 <span className="text-gray-400 dark:text-gray-500">格式</span>
                 <br />
-                <DetailParamValue task={task} paramKey="output_format" className="font-medium" actualParams={currentActualParams} />
+                <DetailParamValue
+                  task={task}
+                  paramKey="output_format"
+                  className="font-medium"
+                  actualParams={currentActualParams}
+                />
               </div>
               <div className="bg-gray-50 dark:bg-white/[0.03] rounded-lg px-3 py-2">
                 <span className="text-gray-400 dark:text-gray-500">审核</span>
                 <br />
-                <DetailParamValue task={task} paramKey="moderation" className="font-medium" actualParams={currentActualParams} />
+                <DetailParamValue
+                  task={task}
+                  paramKey="moderation"
+                  className="font-medium"
+                  actualParams={currentActualParams}
+                />
               </div>
               <div className="bg-gray-50 dark:bg-white/[0.03] rounded-lg px-3 py-2">
                 <span className="text-gray-400 dark:text-gray-500">数量</span>
@@ -666,7 +797,12 @@ export default function DetailModal() {
                 <div className="bg-gray-50 dark:bg-white/[0.03] rounded-lg px-3 py-2">
                   <span className="text-gray-400 dark:text-gray-500">压缩率</span>
                   <br />
-                  <DetailParamValue task={task} paramKey="output_compression" className="font-medium" actualParams={currentActualParams} />
+                  <DetailParamValue
+                    task={task}
+                    paramKey="output_compression"
+                    className="font-medium"
+                    actualParams={currentActualParams}
+                  />
                 </div>
               )}
             </div>
@@ -684,8 +820,18 @@ export default function DetailModal() {
               onClick={handleReuse}
               className="col-span-2 sm:flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-500/20 transition text-sm font-medium whitespace-nowrap"
             >
-              <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+              <svg
+                className="w-4 h-4 flex-shrink-0"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"
+                />
               </svg>
               复用配置
             </button>
@@ -713,8 +859,18 @@ export default function DetailModal() {
               }`}
               title={task.isFavorite ? '取消收藏' : '收藏记录'}
             >
-              <svg className="w-5 h-5" fill={task.isFavorite ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+              <svg
+                className="w-5 h-5"
+                fill={task.isFavorite ? 'currentColor' : 'none'}
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"
+                />
               </svg>
             </button>
           </div>
@@ -729,13 +885,20 @@ export default function DetailModal() {
           }}
           onClick={(e) => {
             e.stopPropagation()
-            if (rawUrlsBackdropPointerDownRef.current && e.target === e.currentTarget) setShowRawUrlsModal(false)
+            if (rawUrlsBackdropPointerDownRef.current && e.target === e.currentTarget)
+              setShowRawUrlsModal(false)
             rawUrlsBackdropPointerDownRef.current = false
           }}
         >
-          <div ref={rawUrlsModalRef} className="flex w-full max-w-2xl max-h-[90vh] flex-col overflow-hidden rounded-2xl bg-white shadow-xl dark:bg-[#1c1c1e]" onClick={(e) => e.stopPropagation()}>
+          <div
+            ref={rawUrlsModalRef}
+            className="flex w-full max-w-2xl max-h-[90vh] flex-col overflow-hidden rounded-2xl bg-white shadow-xl dark:bg-[#1c1c1e]"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4 dark:border-white/[0.08] shrink-0">
-              <h3 className="text-base font-semibold text-gray-900 dark:text-white">原始图片链接 ({rawImageUrls.length})</h3>
+              <h3 className="text-base font-semibold text-gray-900 dark:text-white">
+                原始图片链接 ({rawImageUrls.length})
+              </h3>
               <div className="flex items-center gap-2">
                 <button
                   type="button"
@@ -764,12 +927,18 @@ export default function DetailModal() {
             <div className="flex-1 min-h-0 overflow-y-auto p-3 sm:p-5 bg-gray-50/50 dark:bg-black/20 overscroll-contain">
               <div className="space-y-2.5">
                 {rawImageUrls.map((url, i) => (
-                  <div key={i} className="group flex items-center gap-3 p-3 sm:p-4 rounded-xl bg-white dark:bg-[#1c1c1e] border border-gray-100 dark:border-white/[0.06] shadow-sm hover:shadow-md transition-all">
+                  <div
+                    key={i}
+                    className="group flex items-center gap-3 p-3 sm:p-4 rounded-xl bg-white dark:bg-[#1c1c1e] border border-gray-100 dark:border-white/[0.06] shadow-sm hover:shadow-md transition-all"
+                  >
                     <div className="flex-1 min-w-0 flex flex-col gap-1">
                       <div className="text-xs font-medium text-gray-400 dark:text-gray-500">
                         图片 {i + 1}
                       </div>
-                      <div className="text-sm text-gray-700 dark:text-gray-300 truncate select-text" title={url}>
+                      <div
+                        className="text-sm text-gray-700 dark:text-gray-300 truncate select-text"
+                        title={url}
+                      >
                         {url}
                       </div>
                     </div>
@@ -805,7 +974,8 @@ export default function DetailModal() {
           }}
           onClick={(e) => {
             e.stopPropagation()
-            if (rawResponseBackdropPointerDownRef.current && e.target === e.currentTarget) setShowRawResponseModal(false)
+            if (rawResponseBackdropPointerDownRef.current && e.target === e.currentTarget)
+              setShowRawResponseModal(false)
             rawResponseBackdropPointerDownRef.current = false
           }}
         >
@@ -818,7 +988,9 @@ export default function DetailModal() {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4 dark:border-white/[0.08] shrink-0">
-              <h3 className="text-base font-semibold text-gray-900 dark:text-white">原始响应数据</h3>
+              <h3 className="text-base font-semibold text-gray-900 dark:text-white">
+                原始响应数据
+              </h3>
               <div className="flex items-center gap-2">
                 <button
                   type="button"
@@ -845,8 +1017,14 @@ export default function DetailModal() {
               </div>
             </div>
             <div className="flex-1 min-h-0 overflow-y-auto p-5 bg-gray-50/50 dark:bg-black/20 overscroll-contain">
-              <pre data-selectable-text className="text-[11px] sm:text-xs text-gray-600 dark:text-gray-300 font-mono whitespace-pre-wrap break-all select-text">
-                {task.rawResponsePayload.replace(/"(b64_json|base64|data)":\s*"[^"]+"/g, '"$1": "<base64_data>"')}
+              <pre
+                data-selectable-text
+                className="text-[11px] sm:text-xs text-gray-600 dark:text-gray-300 font-mono whitespace-pre-wrap break-all select-text"
+              >
+                {task.rawResponsePayload.replace(
+                  /"(b64_json|base64|data)":\s*"[^"]+"/g,
+                  '"$1": "<base64_data>"',
+                )}
               </pre>
             </div>
           </div>

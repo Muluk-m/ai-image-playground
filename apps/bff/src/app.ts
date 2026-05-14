@@ -1,14 +1,20 @@
-import { join, extname } from 'node:path'
-import { Elysia } from 'elysia'
+import { extname, join } from 'node:path'
 import { cors } from '@elysiajs/cors'
+import { Elysia } from 'elysia'
 import { config } from './config'
-import { submitRoutes } from './routes/submit'
-import { statusRoutes } from './routes/status'
-import { resultRoutes } from './routes/result'
 import { cancelRoutes } from './routes/cancel'
 import { proxyRoutes } from './routes/proxy'
+import { resultRoutes } from './routes/result'
+import { statusRoutes } from './routes/status'
+import { submitRoutes } from './routes/submit'
 
-const corsOrigin = config.corsOrigins === '*' ? true : config.corsOrigins.split(',').map((s) => s.trim()).filter(Boolean)
+const corsOrigin =
+  config.corsOrigins === '*'
+    ? true
+    : config.corsOrigins
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean)
 
 const STATIC_DIR = config.staticDir
 
@@ -30,12 +36,22 @@ function cacheControlFor(pathname: string): string {
   if (pathname.startsWith('/assets/')) return 'public, max-age=31536000, immutable'
   if (pathname === '/sw.js') return 'private, no-store, no-cache, must-revalidate, max-age=0'
   if (pathname === '/index.html' || pathname === '/manifest.webmanifest') return 'no-cache'
-  if (pathname === '/inspiration-manifest.json') return 'public, max-age=300, stale-while-revalidate=86400'
+  if (pathname === '/inspiration-manifest.json')
+    return 'public, max-age=300, stale-while-revalidate=86400'
   return 'no-cache'
 }
 
 // gzip 候选：基于扩展名而非 content-type 判断（避免误压已压缩的 png/webp）
-const COMPRESSIBLE_EXTS = new Set(['.html', '.js', '.css', '.json', '.svg', '.txt', '.webmanifest', '.map'])
+const COMPRESSIBLE_EXTS = new Set([
+  '.html',
+  '.js',
+  '.css',
+  '.json',
+  '.svg',
+  '.txt',
+  '.webmanifest',
+  '.map',
+])
 const MIME_BY_EXT: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'application/javascript; charset=utf-8',
@@ -70,7 +86,7 @@ async function serveStatic(pathname: string, request: Request): Promise<Response
       headers: {
         ...baseHeaders,
         'content-encoding': 'gzip',
-        'vary': 'accept-encoding',
+        vary: 'accept-encoding',
       },
     })
   }
@@ -101,13 +117,19 @@ export const app = new Elysia()
     const url = new URL(request.url)
     if (isApiPath(url.pathname)) return
     const res = await serveStatic(url.pathname, request)
-    if (res) { set.headers = {}; return res }
+    if (res) {
+      set.headers = {}
+      return res
+    }
   })
   .onError(async ({ request, set }) => {
     const url = new URL(request.url)
     if (isApiPath(url.pathname)) return
     if (!extname(url.pathname)) {
       const res = await serveSpaFallback()
-      if (res) { set.status = 200; return res }
+      if (res) {
+        set.status = 200
+        return res
+      }
     }
   })

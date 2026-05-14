@@ -10,6 +10,8 @@ import type {
   CustomProviderSubmitMapping,
   CustomProviderTemplate,
 } from '../types'
+import { buildEdgeChannelBaseUrl } from './channels/edgeClient'
+import { getPublicChannel, getPublicChannels } from './channels/publicChannels'
 import type {
   BuiltinEdgeProfile,
   ClientProfile,
@@ -17,13 +19,12 @@ import type {
   UserByokPreferences,
   UserByokProfile,
 } from './channels/types'
-import { buildEdgeChannelBaseUrl } from './channels/edgeClient'
-import { getPublicChannel, getPublicChannels } from './channels/publicChannels'
 import { readRuntimeEnv } from './runtimeEnv'
 
 // ===== 常量 =====
 
-const DEFAULT_BASE_URL = readRuntimeEnv(import.meta.env.VITE_DEFAULT_API_URL) || 'https://api.openai.com/v1'
+const DEFAULT_BASE_URL =
+  readRuntimeEnv(import.meta.env.VITE_DEFAULT_API_URL) || 'https://api.openai.com/v1'
 const DEFAULT_OPENAI_API_PROXY = readRuntimeEnv(import.meta.env.VITE_API_PROXY_AVAILABLE) === 'true'
 
 export const DEFAULT_IMAGES_MODEL = 'gpt-image-2'
@@ -71,14 +72,18 @@ function isCustomProviderTemplate(value: unknown): value is CustomProviderTempla
 }
 
 function normalizeProviderPath(value: unknown, fallback: string): string {
-  return (typeof value === 'string' && value.trim() ? value : fallback).trim().replace(/^\/+/, '').replace(/^v1\//, '')
+  return (typeof value === 'string' && value.trim() ? value : fallback)
+    .trim()
+    .replace(/^\/+/, '')
+    .replace(/^v1\//, '')
 }
 
 function normalizeStringRecord(value: unknown): Record<string, string> | undefined {
   if (!value || typeof value !== 'object') return undefined
   const entries = Object.entries(value as Record<string, unknown>)
-    .filter((entry): entry is [string, string | number | boolean] =>
-      typeof entry[0] === 'string' && ['string', 'number', 'boolean'].includes(typeof entry[1]),
+    .filter(
+      (entry): entry is [string, string | number | boolean] =>
+        typeof entry[0] === 'string' && ['string', 'number', 'boolean'].includes(typeof entry[1]),
     )
     .map(([key, item]) => [key, String(item)] as const)
   return entries.length ? Object.fromEntries(entries) : undefined
@@ -86,23 +91,37 @@ function normalizeStringRecord(value: unknown): Record<string, string> | undefin
 
 function normalizeStringArray(value: unknown, fallback: string[]): string[] {
   return Array.isArray(value)
-    ? value.filter((item): item is string => typeof item === 'string' && Boolean(item.trim())).map((item) => item.trim())
+    ? value
+        .filter((item): item is string => typeof item === 'string' && Boolean(item.trim()))
+        .map((item) => item.trim())
     : fallback
 }
 
-function normalizeRequestMethod(value: unknown, fallback: CustomProviderRequestMethod = 'POST'): CustomProviderRequestMethod {
+function normalizeRequestMethod(
+  value: unknown,
+  fallback: CustomProviderRequestMethod = 'POST',
+): CustomProviderRequestMethod {
   return value === 'GET' || value === 'POST' ? value : fallback
 }
 
-function normalizeContentType(value: unknown, fallback: CustomProviderContentType = 'json'): CustomProviderContentType {
+function normalizeContentType(
+  value: unknown,
+  fallback: CustomProviderContentType = 'json',
+): CustomProviderContentType {
   return value === 'multipart' ? 'multipart' : fallback
 }
 
-function normalizeBodyTemplate(value: unknown, fallback: Record<string, unknown>): Record<string, unknown> {
+function normalizeBodyTemplate(
+  value: unknown,
+  fallback: Record<string, unknown>,
+): Record<string, unknown> {
   return isRecord(value) ? value : fallback
 }
 
-function normalizeFileMappings(value: unknown, fallback: CustomProviderFileMapping[] = []): CustomProviderFileMapping[] {
+function normalizeFileMappings(
+  value: unknown,
+  fallback: CustomProviderFileMapping[] = [],
+): CustomProviderFileMapping[] {
   if (!Array.isArray(value)) return fallback
   const files = value
     .map((item): CustomProviderFileMapping | null => {
@@ -118,7 +137,10 @@ function normalizeFileMappings(value: unknown, fallback: CustomProviderFileMappi
   return files.length ? files : fallback
 }
 
-function normalizeResultMapping(value: unknown, fallback: CustomProviderResultMapping = DEFAULT_OPENAI_RESULT): CustomProviderResultMapping {
+function normalizeResultMapping(
+  value: unknown,
+  fallback: CustomProviderResultMapping = DEFAULT_OPENAI_RESULT,
+): CustomProviderResultMapping {
   const record = isRecord(value) ? value : {}
   return {
     imageUrlPaths: normalizeStringArray(record.imageUrlPaths, fallback.imageUrlPaths ?? []),
@@ -126,7 +148,10 @@ function normalizeResultMapping(value: unknown, fallback: CustomProviderResultMa
   }
 }
 
-function normalizeSubmitMapping(value: unknown, fallback: CustomProviderSubmitMapping): CustomProviderSubmitMapping {
+function normalizeSubmitMapping(
+  value: unknown,
+  fallback: CustomProviderSubmitMapping,
+): CustomProviderSubmitMapping {
   const record = isRecord(value) ? value : {}
   const contentType = normalizeContentType(record.contentType, fallback.contentType ?? 'json')
   return {
@@ -134,39 +159,71 @@ function normalizeSubmitMapping(value: unknown, fallback: CustomProviderSubmitMa
     method: normalizeRequestMethod(record.method, fallback.method ?? 'POST'),
     contentType,
     query: normalizeStringRecord(record.query) ?? fallback.query,
-    body: normalizeBodyTemplate(record.body, fallback.body ?? (contentType === 'multipart' ? DEFAULT_EDIT_BODY : DEFAULT_GENERATE_BODY)),
-    files: contentType === 'multipart' ? normalizeFileMappings(record.files, fallback.files) : undefined,
-    taskIdPath: typeof record.taskIdPath === 'string' && record.taskIdPath.trim() ? record.taskIdPath.trim() : fallback.taskIdPath,
+    body: normalizeBodyTemplate(
+      record.body,
+      fallback.body ?? (contentType === 'multipart' ? DEFAULT_EDIT_BODY : DEFAULT_GENERATE_BODY),
+    ),
+    files:
+      contentType === 'multipart' ? normalizeFileMappings(record.files, fallback.files) : undefined,
+    taskIdPath:
+      typeof record.taskIdPath === 'string' && record.taskIdPath.trim()
+        ? record.taskIdPath.trim()
+        : fallback.taskIdPath,
     result: normalizeResultMapping(record.result, fallback.result ?? DEFAULT_OPENAI_RESULT),
   }
 }
 
-function normalizePollMapping(value: unknown, fallback?: CustomProviderPollMapping): CustomProviderPollMapping | undefined {
+function normalizePollMapping(
+  value: unknown,
+  fallback?: CustomProviderPollMapping,
+): CustomProviderPollMapping | undefined {
   if (!isRecord(value) && !fallback) return undefined
   const record = isRecord(value) ? value : {}
-  const path = normalizeProviderPath(record.path, fallback?.path ?? DEFAULT_CUSTOM_PROVIDER_PATHS.taskPath)
-  const statusPath = typeof record.statusPath === 'string' && record.statusPath.trim() ? record.statusPath.trim() : fallback?.statusPath
+  const path = normalizeProviderPath(
+    record.path,
+    fallback?.path ?? DEFAULT_CUSTOM_PROVIDER_PATHS.taskPath,
+  )
+  const statusPath =
+    typeof record.statusPath === 'string' && record.statusPath.trim()
+      ? record.statusPath.trim()
+      : fallback?.statusPath
   if (!statusPath) return undefined
 
   return {
     path,
     method: normalizeRequestMethod(record.method, fallback?.method ?? 'GET'),
     query: normalizeStringRecord(record.query) ?? fallback?.query,
-    intervalSeconds: typeof record.intervalSeconds === 'number' && Number.isFinite(record.intervalSeconds)
-      ? Math.max(1, record.intervalSeconds)
-      : fallback?.intervalSeconds ?? 5,
+    intervalSeconds:
+      typeof record.intervalSeconds === 'number' && Number.isFinite(record.intervalSeconds)
+        ? Math.max(1, record.intervalSeconds)
+        : (fallback?.intervalSeconds ?? 5),
     statusPath,
-    successValues: normalizeStringArray(record.successValues, fallback?.successValues ?? ['SUCCESS', 'succeeded', 'completed', 'COMPLETED']),
-    failureValues: normalizeStringArray(record.failureValues, fallback?.failureValues ?? ['FAILURE', 'failed', 'error', 'FAILED', 'cancelled']),
-    errorPath: typeof record.errorPath === 'string' && record.errorPath.trim() ? record.errorPath.trim() : fallback?.errorPath,
+    successValues: normalizeStringArray(
+      record.successValues,
+      fallback?.successValues ?? ['SUCCESS', 'succeeded', 'completed', 'COMPLETED'],
+    ),
+    failureValues: normalizeStringArray(
+      record.failureValues,
+      fallback?.failureValues ?? ['FAILURE', 'failed', 'error', 'FAILED', 'cancelled'],
+    ),
+    errorPath:
+      typeof record.errorPath === 'string' && record.errorPath.trim()
+        ? record.errorPath.trim()
+        : fallback?.errorPath,
     result: normalizeResultMapping(record.result, fallback?.result ?? DEFAULT_OPENAI_RESULT),
   }
 }
 
-function legacyCustomProviderToManifest(record: Record<string, unknown>): Record<string, unknown> | null {
-  if (record.template !== 'openai-compatible' && record.template !== 'openai-compatible-async') return null
+function legacyCustomProviderToManifest(
+  record: Record<string, unknown>,
+): Record<string, unknown> | null {
+  if (record.template !== 'openai-compatible' && record.template !== 'openai-compatible-async')
+    return null
   const isAsync = record.template === 'openai-compatible-async'
-  const taskResultPath = typeof record.taskResultPath === 'string' && record.taskResultPath.trim() ? record.taskResultPath.trim() : 'data.data'
+  const taskResultPath =
+    typeof record.taskResultPath === 'string' && record.taskResultPath.trim()
+      ? record.taskResultPath.trim()
+      : 'data.data'
   return {
     id: record.id,
     name: record.name,
@@ -175,7 +232,7 @@ function legacyCustomProviderToManifest(record: Record<string, unknown>): Record
       path: record.generationPath ?? DEFAULT_CUSTOM_PROVIDER_PATHS.generationPath,
       method: 'POST',
       contentType: 'json',
-      query: isAsync ? normalizeStringRecord(record.submitQuery) ?? { async: 'true' } : undefined,
+      query: isAsync ? (normalizeStringRecord(record.submitQuery) ?? { async: 'true' }) : undefined,
       body: DEFAULT_GENERATE_BODY,
       taskIdPath: isAsync ? (record.taskIdPath ?? 'data') : undefined,
       result: DEFAULT_OPENAI_RESULT,
@@ -184,30 +241,48 @@ function legacyCustomProviderToManifest(record: Record<string, unknown>): Record
       path: record.editPath ?? DEFAULT_CUSTOM_PROVIDER_PATHS.editPath,
       method: 'POST',
       contentType: 'multipart',
-      query: isAsync ? normalizeStringRecord(record.submitQuery) ?? { async: 'true' } : undefined,
+      query: isAsync ? (normalizeStringRecord(record.submitQuery) ?? { async: 'true' }) : undefined,
       body: DEFAULT_EDIT_BODY,
       files: DEFAULT_EDIT_FILES,
       taskIdPath: isAsync ? (record.taskIdPath ?? 'data') : undefined,
       result: DEFAULT_OPENAI_RESULT,
     },
-    poll: isAsync ? {
-      path: record.taskPath ?? DEFAULT_CUSTOM_PROVIDER_PATHS.taskPath,
-      method: 'GET',
-      statusPath: record.taskStatusPath ?? 'data.status',
-      successValues: normalizeStringArray(record.taskSuccessValues, ['SUCCESS', 'succeeded', 'completed', 'COMPLETED']),
-      failureValues: normalizeStringArray(record.taskFailureValues, ['FAILURE', 'failed', 'error', 'FAILED']),
-      errorPath: 'data.fail_reason',
-      intervalSeconds: typeof record.pollIntervalSeconds === 'number' ? record.pollIntervalSeconds : 5,
-      result: {
-        imageUrlPaths: [`${taskResultPath}.data.*.url`],
-        b64JsonPaths: [`${taskResultPath}.data.*.b64_json`],
-      },
-    } : undefined,
+    poll: isAsync
+      ? {
+          path: record.taskPath ?? DEFAULT_CUSTOM_PROVIDER_PATHS.taskPath,
+          method: 'GET',
+          statusPath: record.taskStatusPath ?? 'data.status',
+          successValues: normalizeStringArray(record.taskSuccessValues, [
+            'SUCCESS',
+            'succeeded',
+            'completed',
+            'COMPLETED',
+          ]),
+          failureValues: normalizeStringArray(record.taskFailureValues, [
+            'FAILURE',
+            'failed',
+            'error',
+            'FAILED',
+          ]),
+          errorPath: 'data.fail_reason',
+          intervalSeconds:
+            typeof record.pollIntervalSeconds === 'number' ? record.pollIntervalSeconds : 5,
+          result: {
+            imageUrlPaths: [`${taskResultPath}.data.*.url`],
+            b64JsonPaths: [`${taskResultPath}.data.*.b64_json`],
+          },
+        }
+      : undefined,
   }
 }
 
 function createCustomProviderId(name: string, usedIds: Set<string>): string {
-  const slug = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'custom'
+  const slug =
+    name
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '') || 'custom'
   let id = `custom-${slug}`
   let index = 2
   while (usedIds.has(id) || BUILT_IN_PROVIDER_IDS.has(id)) {
@@ -218,17 +293,30 @@ function createCustomProviderId(name: string, usedIds: Set<string>): string {
   return id
 }
 
-export function normalizeCustomProviderDefinition(input: unknown, usedIds = new Set<string>()): CustomProviderDefinition | null {
+export function normalizeCustomProviderDefinition(
+  input: unknown,
+  usedIds = new Set<string>(),
+): CustomProviderDefinition | null {
   if (!input || typeof input !== 'object') return null
   const rawRecord = input as Record<string, unknown>
   const record = legacyCustomProviderToManifest(rawRecord) ?? rawRecord
-  const template = record.template == null ? 'http-image' : isCustomProviderTemplate(record.template) ? record.template : null
+  const template =
+    record.template == null
+      ? 'http-image'
+      : isCustomProviderTemplate(record.template)
+        ? record.template
+        : null
   if (!template || !isRecord(record.submit)) return null
 
-  const rawName = typeof record.name === 'string' && record.name.trim() ? record.name.trim() : '自定义服务商'
-  const id = typeof record.id === 'string' && record.id.trim() && !BUILT_IN_PROVIDER_IDS.has(record.id.trim()) && !usedIds.has(record.id.trim())
-    ? record.id.trim()
-    : createCustomProviderId(rawName, usedIds)
+  const rawName =
+    typeof record.name === 'string' && record.name.trim() ? record.name.trim() : '自定义服务商'
+  const id =
+    typeof record.id === 'string' &&
+    record.id.trim() &&
+    !BUILT_IN_PROVIDER_IDS.has(record.id.trim()) &&
+    !usedIds.has(record.id.trim())
+      ? record.id.trim()
+      : createCustomProviderId(rawName, usedIds)
   usedIds.add(id)
 
   return {
@@ -242,14 +330,16 @@ export function normalizeCustomProviderDefinition(input: unknown, usedIds = new 
       body: DEFAULT_GENERATE_BODY,
       result: DEFAULT_OPENAI_RESULT,
     }),
-    editSubmit: isRecord(record.editSubmit) ? normalizeSubmitMapping(record.editSubmit, {
-      path: DEFAULT_CUSTOM_PROVIDER_PATHS.editPath,
-      method: 'POST',
-      contentType: 'multipart',
-      body: DEFAULT_EDIT_BODY,
-      files: DEFAULT_EDIT_FILES,
-      result: DEFAULT_OPENAI_RESULT,
-    }) : undefined,
+    editSubmit: isRecord(record.editSubmit)
+      ? normalizeSubmitMapping(record.editSubmit, {
+          path: DEFAULT_CUSTOM_PROVIDER_PATHS.editPath,
+          method: 'POST',
+          contentType: 'multipart',
+          body: DEFAULT_EDIT_BODY,
+          files: DEFAULT_EDIT_FILES,
+          result: DEFAULT_OPENAI_RESULT,
+        })
+      : undefined,
     poll: normalizePollMapping(record.poll),
   }
 }
@@ -264,7 +354,9 @@ export function normalizeCustomProviderDefinitions(input: unknown): CustomProvid
 
 // ===== ClientProfile factories =====
 
-export function createDefaultByokPreferences(overrides: Partial<UserByokPreferences> = {}): UserByokPreferences {
+export function createDefaultByokPreferences(
+  overrides: Partial<UserByokPreferences> = {},
+): UserByokPreferences {
   return {
     apiMode: 'images',
     timeout: DEFAULT_API_TIMEOUT,
@@ -274,7 +366,9 @@ export function createDefaultByokPreferences(overrides: Partial<UserByokPreferen
   }
 }
 
-export function createDefaultOpenAIByokProfile(overrides: Partial<UserByokProfile> = {}): UserByokProfile {
+export function createDefaultOpenAIByokProfile(
+  overrides: Partial<UserByokProfile> = {},
+): UserByokProfile {
   return {
     id: DEFAULT_OPENAI_PROFILE_ID,
     source: 'user-byok',
@@ -289,7 +383,9 @@ export function createDefaultOpenAIByokProfile(overrides: Partial<UserByokProfil
   }
 }
 
-export function createDefaultGeminiByokProfile(overrides: Partial<UserByokProfile> = {}): UserByokProfile {
+export function createDefaultGeminiByokProfile(
+  overrides: Partial<UserByokProfile> = {},
+): UserByokProfile {
   return {
     id: `gemini-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
     source: 'user-byok',
@@ -308,18 +404,32 @@ export function builtinEdgeProfileId(channelId: string): string {
   return channelId
 }
 
-export function createBuiltinEdgeProfile(channelId: string, selectedModelId: string): BuiltinEdgeProfile {
+export function createBuiltinEdgeProfile(
+  channelId: string,
+  selectedModelId: string,
+): BuiltinEdgeProfile {
   return { id: builtinEdgeProfileId(channelId), source: 'builtin-edge', channelId, selectedModelId }
 }
 
 // ===== ClientProfile normalize =====
 
-function normalizeByokPreferences(record: Record<string, unknown>, kind: ProviderKind): UserByokPreferences {
+function normalizeByokPreferences(
+  record: Record<string, unknown>,
+  kind: ProviderKind,
+): UserByokPreferences {
   return {
     apiMode: record.apiMode === 'responses' ? 'responses' : 'images',
-    timeout: typeof record.timeout === 'number' && Number.isFinite(record.timeout) ? record.timeout : DEFAULT_API_TIMEOUT,
+    timeout:
+      typeof record.timeout === 'number' && Number.isFinite(record.timeout)
+        ? record.timeout
+        : DEFAULT_API_TIMEOUT,
     codexCli: kind === 'gemini' ? false : Boolean(record.codexCli),
-    apiProxy: kind === 'gemini' ? false : (typeof record.apiProxy === 'boolean' ? record.apiProxy : DEFAULT_OPENAI_API_PROXY),
+    apiProxy:
+      kind === 'gemini'
+        ? false
+        : typeof record.apiProxy === 'boolean'
+          ? record.apiProxy
+          : DEFAULT_OPENAI_API_PROXY,
     responseFormatB64Json: record.responseFormatB64Json === true ? true : undefined,
   }
 }
@@ -337,7 +447,10 @@ export function normalizeClientProfile(input: unknown): ClientProfile | null {
     if (typeof input.channelId !== 'string' || !input.channelId.trim()) return null
     if (typeof input.selectedModelId !== 'string' || !input.selectedModelId.trim()) return null
     return {
-      id: typeof input.id === 'string' && input.id.trim() ? input.id : builtinEdgeProfileId(input.channelId),
+      id:
+        typeof input.id === 'string' && input.id.trim()
+          ? input.id
+          : builtinEdgeProfileId(input.channelId),
       source: 'builtin-edge',
       channelId: input.channelId,
       selectedModelId: input.selectedModelId,
@@ -348,27 +461,37 @@ export function normalizeClientProfile(input: unknown): ClientProfile | null {
 
   const kind = normalizeProviderKind(input.kind)
   const name = typeof input.name === 'string' && input.name.trim() ? input.name : '新配置'
-  const id = typeof input.id === 'string' && input.id.trim()
-    ? input.id
-    : `byok-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
+  const id =
+    typeof input.id === 'string' && input.id.trim()
+      ? input.id
+      : `byok-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
 
-  const baseUrl = typeof input.baseUrl === 'string' && input.baseUrl
-    ? input.baseUrl
-    : (kind === 'gemini' ? DEFAULT_GEMINI_BASE_URL : DEFAULT_BASE_URL)
+  const baseUrl =
+    typeof input.baseUrl === 'string' && input.baseUrl
+      ? input.baseUrl
+      : kind === 'gemini'
+        ? DEFAULT_GEMINI_BASE_URL
+        : DEFAULT_BASE_URL
   const apiKey = typeof input.apiKey === 'string' ? input.apiKey : ''
 
   const rawModels = Array.isArray(input.models)
-    ? input.models.filter((m): m is string => typeof m === 'string' && m.trim().length > 0).map((m) => m.trim())
+    ? input.models
+        .filter((m): m is string => typeof m === 'string' && m.trim().length > 0)
+        .map((m) => m.trim())
     : []
   const defaultModel = kind === 'gemini' ? DEFAULT_GEMINI_MODEL : DEFAULT_IMAGES_MODEL
   const models = rawModels.length ? Array.from(new Set(rawModels)) : [defaultModel]
 
-  const rawSelected = typeof input.selectedModelId === 'string' && input.selectedModelId.trim()
-    ? input.selectedModelId.trim()
-    : ''
+  const rawSelected =
+    typeof input.selectedModelId === 'string' && input.selectedModelId.trim()
+      ? input.selectedModelId.trim()
+      : ''
   const selectedModelId = models.includes(rawSelected) ? rawSelected : models[0]
 
-  const preferences = normalizeByokPreferences(isRecord(input.preferences) ? input.preferences : {}, kind)
+  const preferences = normalizeByokPreferences(
+    isRecord(input.preferences) ? input.preferences : {},
+    kind,
+  )
 
   return {
     id,
@@ -404,7 +527,9 @@ function injectBuiltinEdgeProfiles(userProfiles: ClientProfile[]): ClientProfile
     }
   }
 
-  const userByokProfiles = userProfiles.filter((p): p is UserByokProfile => p.source === 'user-byok')
+  const userByokProfiles = userProfiles.filter(
+    (p): p is UserByokProfile => p.source === 'user-byok',
+  )
   return [...builtinProfiles, ...userByokProfiles]
 }
 
@@ -421,7 +546,9 @@ export function normalizeSettings(input: Partial<AppSettings> | unknown): AppSet
   const customProviders = normalizeCustomProviderDefinitions(record.customProviders)
 
   const rawProfiles = Array.isArray(record.profiles)
-    ? record.profiles.map((p) => normalizeClientProfile(p)).filter((p): p is ClientProfile => Boolean(p))
+    ? record.profiles
+        .map((p) => normalizeClientProfile(p))
+        .filter((p): p is ClientProfile => Boolean(p))
     : []
 
   const profiles = injectBuiltinEdgeProfiles(rawProfiles)
@@ -434,11 +561,19 @@ export function normalizeSettings(input: Partial<AppSettings> | unknown): AppSet
 
   const result: AppSettings = {
     customProviders,
-    providerOrder: Array.isArray(record.providerOrder) ? record.providerOrder.map(String) : undefined,
-    clearInputAfterSubmit: typeof record.clearInputAfterSubmit === 'boolean' ? record.clearInputAfterSubmit : false,
-    persistInputOnRestart: typeof record.persistInputOnRestart === 'boolean' ? record.persistInputOnRestart : true,
-    reuseTaskApiProfileTemporarily: typeof record.reuseTaskApiProfileTemporarily === 'boolean' ? record.reuseTaskApiProfileTemporarily : false,
-    alwaysShowRetryButton: typeof record.alwaysShowRetryButton === 'boolean' ? record.alwaysShowRetryButton : false,
+    providerOrder: Array.isArray(record.providerOrder)
+      ? record.providerOrder.map(String)
+      : undefined,
+    clearInputAfterSubmit:
+      typeof record.clearInputAfterSubmit === 'boolean' ? record.clearInputAfterSubmit : false,
+    persistInputOnRestart:
+      typeof record.persistInputOnRestart === 'boolean' ? record.persistInputOnRestart : true,
+    reuseTaskApiProfileTemporarily:
+      typeof record.reuseTaskApiProfileTemporarily === 'boolean'
+        ? record.reuseTaskApiProfileTemporarily
+        : false,
+    alwaysShowRetryButton:
+      typeof record.alwaysShowRetryButton === 'boolean' ? record.alwaysShowRetryButton : false,
     enterSubmit: typeof record.enterSubmit === 'boolean' ? record.enterSubmit : false,
     profiles: profilesWithFallback,
     activeProfileId,
@@ -451,7 +586,9 @@ export function normalizeSettings(input: Partial<AppSettings> | unknown): AppSet
 
 export function getActiveApiProfile(settings: Partial<AppSettings> | unknown): ClientProfile {
   const normalized = normalizeSettings(settings)
-  return normalized.profiles.find((p) => p.id === normalized.activeProfileId) ?? normalized.profiles[0]
+  return (
+    normalized.profiles.find((p) => p.id === normalized.activeProfileId) ?? normalized.profiles[0]
+  )
 }
 
 export function getCustomProviderDefinition(
@@ -468,7 +605,10 @@ export function getProviderKindLabel(kind: ProviderKind): string {
   return 'HTTP 模板'
 }
 
-export function getApiProviderLabel(settings: Partial<AppSettings> | unknown, kindOrCustomId: string): string {
+export function getApiProviderLabel(
+  settings: Partial<AppSettings> | unknown,
+  kindOrCustomId: string,
+): string {
   if (kindOrCustomId === 'gemini') return 'Gemini'
   if (kindOrCustomId === 'openai' || kindOrCustomId === 'openai-compat') return 'OpenAI'
   return getCustomProviderDefinition(settings, kindOrCustomId)?.name ?? kindOrCustomId
@@ -490,7 +630,10 @@ export function validateClientProfile(profile: ClientProfile): string | null {
 
 // ===== switch kind =====
 
-export function switchByokProfileKind(profile: UserByokProfile, kind: ProviderKind): UserByokProfile {
+export function switchByokProfileKind(
+  profile: UserByokProfile,
+  kind: ProviderKind,
+): UserByokProfile {
   if (profile.kind === kind) return profile
 
   if (kind === 'gemini') {
@@ -500,7 +643,13 @@ export function switchByokProfileKind(profile: UserByokProfile, kind: ProviderKi
       baseUrl: DEFAULT_GEMINI_BASE_URL,
       models: [DEFAULT_GEMINI_MODEL],
       selectedModelId: DEFAULT_GEMINI_MODEL,
-      preferences: { ...profile.preferences, apiMode: 'images', codexCli: false, apiProxy: false, responseFormatB64Json: undefined },
+      preferences: {
+        ...profile.preferences,
+        apiMode: 'images',
+        codexCli: false,
+        apiProxy: false,
+        responseFormatB64Json: undefined,
+      },
     }
   }
 
@@ -542,9 +691,12 @@ export function findEquivalentClientProfile(
 ): ClientProfile | null {
   const normalized = normalizeSettings(settings)
   if (candidate.source === 'builtin-edge') {
-    return normalized.profiles.find(
-      (p): p is BuiltinEdgeProfile => p.source === 'builtin-edge' && p.channelId === candidate.channelId,
-    ) ?? null
+    return (
+      normalized.profiles.find(
+        (p): p is BuiltinEdgeProfile =>
+          p.source === 'builtin-edge' && p.channelId === candidate.channelId,
+      ) ?? null
+    )
   }
   const dedupKey = getByokDedupKey(candidate)
   const exact = normalized.profiles.find(
@@ -553,9 +705,11 @@ export function findEquivalentClientProfile(
   if (exact) return exact
   if (candidate.apiKey.trim()) return null
   const connKey = getByokConnectionKey(candidate)
-  return normalized.profiles.find(
-    (p): p is UserByokProfile => p.source === 'user-byok' && getByokConnectionKey(p) === connKey,
-  ) ?? null
+  return (
+    normalized.profiles.find(
+      (p): p is UserByokProfile => p.source === 'user-byok' && getByokConnectionKey(p) === connKey,
+    ) ?? null
+  )
 }
 
 function hasOnlyDefaultProfile(settings: AppSettings): boolean {
@@ -563,11 +717,13 @@ function hasOnlyDefaultProfile(settings: AppSettings): boolean {
   if (byok.length !== 1) return false
   if (settings.customProviders.length) return false
   const only = byok[0]
-  return only.id === DEFAULT_OPENAI_PROFILE_ID
-    && only.apiKey === ''
-    && only.kind === 'openai-compat'
-    && only.baseUrl === DEFAULT_BASE_URL
-    && only.selectedModelId === DEFAULT_IMAGES_MODEL
+  return (
+    only.id === DEFAULT_OPENAI_PROFILE_ID &&
+    only.apiKey === '' &&
+    only.kind === 'openai-compat' &&
+    only.baseUrl === DEFAULT_BASE_URL &&
+    only.selectedModelId === DEFAULT_IMAGES_MODEL
+  )
 }
 
 function createImportedProfileId(kind: ProviderKind, usedIds: Set<string>): string {
@@ -628,10 +784,7 @@ export function mergeImportedSettings(
   )
   const imported: AppSettings = {
     ...importedRaw,
-    profiles: [
-      ...importedRaw.profiles.filter((p) => p.source === 'builtin-edge'),
-      ...importedByok,
-    ],
+    profiles: [...importedRaw.profiles.filter((p) => p.source === 'builtin-edge'), ...importedByok],
   }
 
   if (hasOnlyDefaultProfile(current)) {
@@ -642,7 +795,10 @@ export function mergeImportedSettings(
   const usedIds = new Set(current.profiles.map((p) => p.id))
   const existingKeys = new Set(currentByok.map(getByokDedupKey))
 
-  const customProviders = mergeImportedCustomProviders(current.customProviders, imported.customProviders)
+  const customProviders = mergeImportedCustomProviders(
+    current.customProviders,
+    imported.customProviders,
+  )
 
   const newByok = importedByok
     .filter((p) => !existingKeys.has(getByokDedupKey(p)))
@@ -681,7 +837,11 @@ function validateImportedProfileRecord(input: unknown) {
   if (baseUrl && (baseUrl.startsWith('[') || baseUrl.includes(']('))) {
     throw new Error('JSON 包含 Markdown 链接，请粘贴纯文本')
   }
-  if (typeof input.apiMode === 'string' && input.apiMode !== 'images' && input.apiMode !== 'responses') {
+  if (
+    typeof input.apiMode === 'string' &&
+    input.apiMode !== 'images' &&
+    input.apiMode !== 'responses'
+  ) {
     throw new Error('apiMode 格式无效，应为 images 或 responses')
   }
 }
@@ -689,17 +849,24 @@ function validateImportedProfileRecord(input: unknown) {
 /** 从旧 ApiProfile 形态（含 provider/model 字段）派生 UserByokProfile，专用于 import 路径。 */
 function legacyProfileRecordToByok(record: Record<string, unknown>): UserByokProfile | null {
   const kind: ProviderKind = record.provider === 'gemini' ? 'gemini' : 'openai-compat'
-  const baseUrl = typeof record.baseUrl === 'string' && record.baseUrl
-    ? record.baseUrl
-    : (kind === 'gemini' ? DEFAULT_GEMINI_BASE_URL : DEFAULT_BASE_URL)
+  const baseUrl =
+    typeof record.baseUrl === 'string' && record.baseUrl
+      ? record.baseUrl
+      : kind === 'gemini'
+        ? DEFAULT_GEMINI_BASE_URL
+        : DEFAULT_BASE_URL
   const apiKey = typeof record.apiKey === 'string' ? record.apiKey : ''
   const name = typeof record.name === 'string' && record.name.trim() ? record.name : '导入配置'
-  const model = typeof record.model === 'string' && record.model.trim()
-    ? record.model.trim()
-    : (kind === 'gemini' ? DEFAULT_GEMINI_MODEL : DEFAULT_IMAGES_MODEL)
-  const id = typeof record.id === 'string' && record.id.trim()
-    ? record.id
-    : `byok-import-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
+  const model =
+    typeof record.model === 'string' && record.model.trim()
+      ? record.model.trim()
+      : kind === 'gemini'
+        ? DEFAULT_GEMINI_MODEL
+        : DEFAULT_IMAGES_MODEL
+  const id =
+    typeof record.id === 'string' && record.id.trim()
+      ? record.id
+      : `byok-import-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
 
   return {
     id,
@@ -736,11 +903,18 @@ export function importCustomProviderSettingsFromJson(
     }
     const profiles: ClientProfile[] = Array.isArray(record.profiles)
       ? record.profiles
-        .map((item) => { validateImportedProfileRecord(item); return item })
-        .map((item) => (isRecord(item) && item.source === 'user-byok')
-          ? normalizeClientProfile(item)
-          : (isRecord(item) ? legacyProfileRecordToByok(item) : null))
-        .filter((p): p is ClientProfile => Boolean(p))
+          .map((item) => {
+            validateImportedProfileRecord(item)
+            return item
+          })
+          .map((item) =>
+            isRecord(item) && item.source === 'user-byok'
+              ? normalizeClientProfile(item)
+              : isRecord(item)
+                ? legacyProfileRecordToByok(item)
+                : null,
+          )
+          .filter((p): p is ClientProfile => Boolean(p))
       : []
     return { customProviders, profiles }
   }
@@ -828,7 +1002,9 @@ export function apiProfileToClientProfile(profile: ApiProfile): ClientProfile {
   // 如果 id 命中已知 channel，恢复为 builtin-edge 形态以保留 source 语义。
   const channel = getPublicChannel(profile.id)
   if (channel) {
-    const validModel = channel.models.some((m) => m.id === profile.model) ? profile.model : channel.models[0]?.id ?? profile.model
+    const validModel = channel.models.some((m) => m.id === profile.model)
+      ? profile.model
+      : (channel.models[0]?.id ?? profile.model)
     return {
       id: profile.id,
       source: 'builtin-edge',

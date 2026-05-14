@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { spawn } from 'node:child_process'
+import { existsSync, readFileSync } from 'node:fs'
 /**
  * 一键刷新灵感库：
  *   - 上游 freestylefly/awesome-gpt-image-2 (cases.json) → gpt 提示词
@@ -16,12 +18,10 @@
  *   - freestylefly/awesome-gpt-image-2 (MIT)
  *   - YouMind-OpenLab/awesome-nano-banana-pro-prompts (CC BY 4.0)
  */
-import { writeFile, mkdir, unlink, rm } from 'node:fs/promises'
-import { existsSync, readFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
-import { spawn } from 'node:child_process'
-import path from 'node:path'
+import { mkdir, rm, unlink, writeFile } from 'node:fs/promises'
 import os from 'node:os'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 const WEB_ROOT = path.resolve(fileURLToPath(import.meta.url), '..', '..')
 const MANIFEST_PATH = path.join(WEB_ROOT, 'public', 'inspiration-manifest.json')
@@ -47,7 +47,8 @@ function publicUrl(key, withResize) {
 }
 
 function existingR2Key(item) {
-  if (typeof item?.imageUrl !== 'string' || !item.imageUrl.startsWith(`${PUBLIC_BASE}/`)) return null
+  if (typeof item?.imageUrl !== 'string' || !item.imageUrl.startsWith(`${PUBLIC_BASE}/`))
+    return null
   try {
     return new URL(item.imageUrl).pathname.replace(/^\/+/, '')
   } catch {
@@ -64,7 +65,9 @@ async function run(cmd, args) {
     const p = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'] })
     let stderr = ''
     p.stdout.on('data', () => {})
-    p.stderr.on('data', (chunk) => { stderr += chunk })
+    p.stderr.on('data', (chunk) => {
+      stderr += chunk
+    })
     p.on('error', reject)
     p.on('close', (code) => {
       if (code === 0) resolve()
@@ -91,10 +94,14 @@ async function downloadAndUpload(upstreamUrl, key, tmpDir) {
   await writeFile(local, bytes)
   try {
     await run('wrangler', [
-      'r2', 'object', 'put',
+      'r2',
+      'object',
+      'put',
       `${R2_BUCKET}/${key}`,
-      '--file', local,
-      '--content-type', mimeFor(local),
+      '--file',
+      local,
+      '--content-type',
+      mimeFor(local),
       '--remote',
     ])
   } finally {
@@ -232,11 +239,13 @@ async function loadGptSource() {
 }
 
 function isValidGptCase(raw) {
-  return raw
-    && typeof raw.id === 'number'
-    && typeof raw.prompt === 'string'
-    && typeof raw.title === 'string'
-    && typeof raw.image === 'string'
+  return (
+    raw &&
+    typeof raw.id === 'number' &&
+    typeof raw.prompt === 'string' &&
+    typeof raw.title === 'string' &&
+    typeof raw.image === 'string'
+  )
 }
 
 function buildGptItem(raw, key) {
@@ -245,7 +254,8 @@ function buildGptItem(raw, key) {
     ...(Array.isArray(raw.scenes) ? raw.scenes : []),
   ]
   const tags = trList(GPT_TAG_ZH, rawTags)
-  const category = typeof raw.category === 'string' && raw.category ? raw.category : 'Other Use Cases'
+  const category =
+    typeof raw.category === 'string' && raw.category ? raw.category : 'Other Use Cases'
   const item = {
     id: `awesome-${raw.id}`,
     title: raw.title,
@@ -480,7 +490,9 @@ async function main() {
   await writeFile(MANIFEST_PATH, JSON.stringify(manifest, null, 2) + '\n', 'utf8')
 
   console.log(`\n✓ 刷新完成`)
-  console.log(`  manifest：${path.relative(WEB_ROOT, MANIFEST_PATH)}（${allItems.length} 条 / ${manifest.categories.length} 分类）`)
+  console.log(
+    `  manifest：${path.relative(WEB_ROOT, MANIFEST_PATH)}（${allItems.length} 条 / ${manifest.categories.length} 分类）`,
+  )
 }
 
 main().catch((err) => {

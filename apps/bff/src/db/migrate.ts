@@ -34,7 +34,7 @@ export function runMigrations(databaseUrl: string = config.databaseUrl) {
   sqlite.exec('PRAGMA journal_mode = WAL;')
   sqlite.exec(DDL_BASE)
   // 老库兼容：CREATE TABLE IF NOT EXISTS 不会给已存在的表加新列。
-  const cols = sqlite.query("PRAGMA table_info(tasks)").all() as Array<{ name: string }>
+  const cols = sqlite.query('PRAGMA table_info(tasks)').all() as Array<{ name: string }>
   if (!cols.some((c) => c.name === 'client_request_id')) {
     sqlite.exec(`ALTER TABLE tasks ADD COLUMN client_request_id TEXT;`)
   }

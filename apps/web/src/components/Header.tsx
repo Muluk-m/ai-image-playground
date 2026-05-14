@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react'
-import { useStore } from '../store'
-import { useVersionCheck } from '../hooks/useVersionCheck'
-import { useTooltip } from '../hooks/useTooltip'
-import { dismissAllTooltips } from '../lib/tooltipDismiss'
-import ViewportTooltip from './ViewportTooltip'
-import HelpModal from './HelpModal'
-import { useInspirationStore } from '../features/inspiration/store'
 import InspirationCoach from '../features/inspiration/components/InspirationCoach'
+import { useInspirationStore } from '../features/inspiration/store'
+import { useTooltip } from '../hooks/useTooltip'
+import { useVersionCheck } from '../hooks/useVersionCheck'
+import { dismissAllTooltips } from '../lib/tooltipDismiss'
+import { useStore } from '../store'
+import HelpModal from './HelpModal'
 import { SparkleIcon } from './icons'
+import ViewportTooltip from './ViewportTooltip'
 
 type BeforeInstallPromptEvent = Event & {
   prompt: () => Promise<void>
@@ -72,7 +72,9 @@ export default function Header() {
         setIsPwaInstalled(isInstalledPwa())
       }
     } else {
-      const isIos = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+      const isIos =
+        /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+        (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
       if (isIos) {
         setConfirmDialog({
           title: '安装为应用',
@@ -85,7 +87,8 @@ export default function Header() {
       } else {
         setConfirmDialog({
           title: '安装为应用',
-          message: '请在浏览器的菜单中选择「添加到主屏幕」或「安装应用」。\n\n（如果在微信等内置浏览器中，请先在外部浏览器打开）',
+          message:
+            '请在浏览器的菜单中选择「添加到主屏幕」或「安装应用」。\n\n（如果在微信等内置浏览器中，请先在外部浏览器打开）',
           showCancel: false,
           confirmText: '我知道了',
           icon: 'info',
@@ -97,7 +100,10 @@ export default function Header() {
 
   return (
     <>
-      <header data-no-drag-select className="safe-area-top fixed top-0 left-0 right-0 z-40 bg-white/80 dark:bg-gray-950/80 backdrop-blur border-b border-gray-200 dark:border-white/[0.08]">
+      <header
+        data-no-drag-select
+        className="safe-area-top fixed top-0 left-0 right-0 z-40 bg-white/80 dark:bg-gray-950/80 backdrop-blur border-b border-gray-200 dark:border-white/[0.08]"
+      >
         <div className="safe-area-x safe-header-inner max-w-7xl mx-auto flex items-center justify-between">
           <div className="flex-1 min-w-0 pr-2">
             <h1 className="inline-flex items-start relative">
@@ -132,10 +138,7 @@ export default function Header() {
           </div>
           <div className="flex items-center gap-1 shrink-0">
             {!isPwaInstalled && (
-              <div
-                className="relative"
-                {...installTooltip.handlers}
-              >
+              <div className="relative" {...installTooltip.handlers}>
                 <button
                   onClick={() => {
                     dismissAllTooltips()
@@ -163,10 +166,7 @@ export default function Header() {
                 </ViewportTooltip>
               </div>
             )}
-            <div
-              className="relative"
-              {...inspirationTooltip.handlers}
-            >
+            <div className="relative" {...inspirationTooltip.handlers}>
               <button
                 onClick={() => {
                   dismissAllTooltips()
@@ -189,10 +189,7 @@ export default function Header() {
               </ViewportTooltip>
               {inspirationCoachActive && <InspirationCoach />}
             </div>
-            <div
-              className="relative"
-              {...helpTooltip.handlers}
-            >
+            <div className="relative" {...helpTooltip.handlers}>
               <button
                 onClick={() => {
                   dismissAllTooltips()
@@ -219,10 +216,7 @@ export default function Header() {
                 操作指南
               </ViewportTooltip>
             </div>
-            <div
-              className="relative"
-              {...settingsTooltip.handlers}
-            >
+            <div className="relative" {...settingsTooltip.handlers}>
               <button
                 onClick={() => setShowSettings(true)}
                 className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-900 transition-colors"

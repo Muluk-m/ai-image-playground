@@ -53,8 +53,12 @@ export default function ModelCombobox({
       <input
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        onFocus={() => { if (options.length > 0 && !disabled) setIsOpen(true) }}
-        onClick={() => { if (options.length > 0 && !disabled) setIsOpen(true) }}
+        onFocus={() => {
+          if (options.length > 0 && !disabled) setIsOpen(true)
+        }}
+        onClick={() => {
+          if (options.length > 0 && !disabled) setIsOpen(true)
+        }}
         onBlur={(e) => onCommit?.(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === 'ArrowDown' && options.length > 0) {
@@ -81,7 +85,9 @@ export default function ModelCombobox({
           aria-label="展开模型候选"
           className="absolute right-2 top-1/2 -translate-y-1/2 flex h-6 w-6 items-center justify-center rounded text-gray-400 transition hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-white/[0.08] dark:hover:text-gray-200"
         >
-          <ChevronDownIcon className={`h-3.5 w-3.5 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+          <ChevronDownIcon
+            className={`h-3.5 w-3.5 transition-transform ${isOpen ? 'rotate-180' : ''}`}
+          />
         </button>
       )}
       {showDropdown && (

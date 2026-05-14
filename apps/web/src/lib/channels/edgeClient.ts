@@ -1,6 +1,8 @@
+import type { ImageApiResponse } from '../../types'
 import { imageDataUrlToPngBlob, maskDataUrlToPngBlob } from '../canvasImage'
-import { buildGeminiRequestBody, parseGeminiResponse, type GeminiResponse } from '../geminiImageApi'
+import { buildGeminiRequestBody, type GeminiResponse, parseGeminiResponse } from '../geminiImageApi'
 import {
+  applyCodexCliPromptGuard,
   assertImageInputPayloadSize,
   type CallApiOptions,
   type CallApiResult,
@@ -9,13 +11,11 @@ import {
   getDataUrlEncodedByteSize,
   isDataUrl,
   isHttpUrl,
-  mergeActualParams,
   MIME_MAP,
+  mergeActualParams,
   normalizeBase64Image,
   pickActualParams,
-  applyCodexCliPromptGuard,
 } from '../imageApiShared'
-import type { ImageApiResponse } from '../../types'
 import type { BuiltinEdgeProfile, PublicChannel } from './types'
 
 export const EDGE_PROXY_PREFIX = '/api-proxy'
@@ -48,7 +48,13 @@ export async function callEdgeChannelApi(
     return callGeminiEdge(opts, profile.channelId, model, timeoutMs)
   }
   if (channel.kind === 'openai-compat') {
-    return callOpenAICompatEdge(opts, profile.channelId, model, timeoutMs, Boolean(channel.defaults.codexCli))
+    return callOpenAICompatEdge(
+      opts,
+      profile.channelId,
+      model,
+      timeoutMs,
+      Boolean(channel.defaults.codexCli),
+    )
   }
   throw new Error(`不支持的 channel kind：${channel.kind}`)
 }
@@ -132,7 +138,8 @@ async function sendOpenAICompatGenerate(
     moderation: opts.params.moderation,
   }
   if (!codexCli) body.quality = opts.params.quality
-  if (opts.params.output_compression != null) body.output_compression = opts.params.output_compression
+  if (opts.params.output_compression != null)
+    body.output_compression = opts.params.output_compression
   if (opts.params.n && opts.params.n > 1) body.n = opts.params.n
 
   return fetch(url, {
@@ -180,7 +187,11 @@ export async function parseOpenAICompatResponse(
   const data = Array.isArray(payload?.data) ? payload.data : []
   if (!data.length) {
     const err = new Error('接口未返回图片数据')
-    ;(err as unknown as { rawResponsePayload: string }).rawResponsePayload = JSON.stringify(payload, null, 2)
+    ;(err as unknown as { rawResponsePayload: string }).rawResponsePayload = JSON.stringify(
+      payload,
+      null,
+      2,
+    )
     throw err
   }
 
@@ -188,16 +199,19 @@ export async function parseOpenAICompatResponse(
   type Resolved = { image: string; revisedPrompt: string | undefined } | null
   let resolved: Resolved[]
   try {
-    resolved = await Promise.all(data.map(async (item): Promise<Resolved> => {
-      const revisedPrompt = typeof item.revised_prompt === 'string' ? item.revised_prompt : undefined
-      if (typeof item.b64_json === 'string' && item.b64_json) {
-        return { image: normalizeBase64Image(item.b64_json, mime), revisedPrompt }
-      }
-      if (isHttpUrl(item.url) || isDataUrl(item.url)) {
-        return { image: await fetchImageUrlAsDataUrl(item.url, mime, signal), revisedPrompt }
-      }
-      return null
-    }))
+    resolved = await Promise.all(
+      data.map(async (item): Promise<Resolved> => {
+        const revisedPrompt =
+          typeof item.revised_prompt === 'string' ? item.revised_prompt : undefined
+        if (typeof item.b64_json === 'string' && item.b64_json) {
+          return { image: normalizeBase64Image(item.b64_json, mime), revisedPrompt }
+        }
+        if (isHttpUrl(item.url) || isDataUrl(item.url)) {
+          return { image: await fetchImageUrlAsDataUrl(item.url, mime, signal), revisedPrompt }
+        }
+        return null
+      }),
+    )
   } catch (err) {
     if (rawImageUrls.length > 0 && err instanceof Error) {
       ;(err as unknown as { rawImageUrls: string[] }).rawImageUrls = rawImageUrls
@@ -215,7 +229,11 @@ export async function parseOpenAICompatResponse(
 
   if (!images.length) {
     const err = new Error('接口未返回可识别的图片数据')
-    ;(err as unknown as { rawResponsePayload: string }).rawResponsePayload = JSON.stringify(payload, null, 2)
+    ;(err as unknown as { rawResponsePayload: string }).rawResponsePayload = JSON.stringify(
+      payload,
+      null,
+      2,
+    )
     throw err
   }
 

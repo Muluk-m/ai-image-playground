@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
-import { handleProxyRequest } from './handler'
-import type { ChannelConfig } from './types'
+import { handleProxyRequest } from '../../_lib/handler'
+import type { ChannelConfig } from '../../_lib/types'
 
 const bearerChannel: ChannelConfig = {
   id: 'test-openai',
@@ -122,7 +122,10 @@ describe('handleProxyRequest keep-alive streaming', () => {
       const headers = init.headers as Headers
       expect(headers.get('authorization')).toBe('Bearer sk-real')
       expect(url).toBe('https://api.example.com/v1/images/generations')
-      return new Response('{"ok":true,"data":[1,2]}', { status: 200, headers: { 'content-type': 'application/json' } })
+      return new Response('{"ok":true,"data":[1,2]}', {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
     })
 
     const res = await handleProxyRequest({
@@ -153,7 +156,10 @@ describe('handleProxyRequest keep-alive streaming', () => {
       const u = new URL(url)
       expect(u.searchParams.get('key')).toBe('AIza-real')
       expect(u.pathname).toBe('/v1beta/models/g1:generateContent')
-      return new Response('{"candidates":[]}', { status: 200, headers: { 'content-type': 'application/json' } })
+      return new Response('{"candidates":[]}', {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
     })
 
     const res = await handleProxyRequest({
@@ -249,7 +255,10 @@ describe('handleProxyRequest keep-alive streaming', () => {
     const fetchMock = vi.fn(async () => {
       await new Promise((r) => setTimeout(r, 80))
       upstreamResolved = true
-      return new Response('{"ok":true}', { status: 200, headers: { 'content-type': 'application/json' } })
+      return new Response('{"ok":true}', {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
     })
 
     const res = await handleProxyRequest({
@@ -277,7 +286,10 @@ describe('handleProxyRequest keep-alive streaming', () => {
         // 数 leading whitespace
         for (const ch of chunk) {
           if (ch === ' ') preBodyHeartbeatBytes++
-          else { firstNonWhitespaceSeen = true; break }
+          else {
+            firstNonWhitespaceSeen = true
+            break
+          }
         }
       }
       assembled += chunk

@@ -1,6 +1,4 @@
 import type { ApiMode, AppSettings } from '../types'
-import type { UserByokProfile } from './channels/types'
-import { normalizeBaseUrl } from './devProxy'
 import {
   createDefaultOpenAIByokProfile,
   DEFAULT_IMAGES_MODEL,
@@ -9,6 +7,8 @@ import {
   mergeImportedSettings,
   normalizeSettings,
 } from './apiProfiles'
+import type { UserByokProfile } from './channels/types'
+import { normalizeBaseUrl } from './devProxy'
 
 const URL_SETTING_KEYS = ['settings', 'apiUrl', 'apiKey', 'codexCli', 'apiMode', 'model']
 
@@ -43,8 +43,12 @@ function getUrlSettingsPayload(searchParams: URLSearchParams): unknown | null {
   }
 }
 
-function activateFirstImportedProfile(settings: AppSettings, importedSettings: unknown): AppSettings {
-  if (!importedSettings || typeof importedSettings !== 'object' || Array.isArray(importedSettings)) return settings
+function activateFirstImportedProfile(
+  settings: AppSettings,
+  importedSettings: unknown,
+): AppSettings {
+  if (!importedSettings || typeof importedSettings !== 'object' || Array.isArray(importedSettings))
+    return settings
   const record = importedSettings as Record<string, unknown>
   if (!Array.isArray(record.profiles) || record.profiles.length === 0) return settings
 
@@ -78,18 +82,28 @@ export function buildSettingsFromUrlParams(
   const codexCliParam = searchParams.get('codexCli')
   const apiModeParam = searchParams.get('apiMode')
   const modelParam = searchParams.get('model')
-  const apiMode: ApiMode | undefined = apiModeParam === 'images' || apiModeParam === 'responses' ? apiModeParam : undefined
+  const apiMode: ApiMode | undefined =
+    apiModeParam === 'images' || apiModeParam === 'responses' ? apiModeParam : undefined
 
   const hasLegacyOpenAIParams =
-    apiUrlParam !== null || apiKeyParam !== null || codexCliParam !== null || apiMode !== undefined || modelParam !== null
+    apiUrlParam !== null ||
+    apiKeyParam !== null ||
+    codexCliParam !== null ||
+    apiMode !== undefined ||
+    modelParam !== null
 
-  const settings = importedSettings == null
-    ? normalizeSettings(currentSettings)
-    : activateFirstImportedProfile(mergeImportedSettings(currentSettings, importedSettings), importedSettings)
+  const settings =
+    importedSettings == null
+      ? normalizeSettings(currentSettings)
+      : activateFirstImportedProfile(
+          mergeImportedSettings(currentSettings, importedSettings),
+          importedSettings,
+        )
 
   if (hasLegacyOpenAIParams) {
     const profileApiMode = apiMode ?? 'images'
-    const defaultModel = profileApiMode === 'responses' ? DEFAULT_RESPONSES_MODEL : DEFAULT_IMAGES_MODEL
+    const defaultModel =
+      profileApiMode === 'responses' ? DEFAULT_RESPONSES_MODEL : DEFAULT_IMAGES_MODEL
     const model = modelParam !== null && modelParam.trim() ? modelParam.trim() : defaultModel
     const baseUrl = apiUrlParam !== null ? normalizeBaseUrl(apiUrlParam.trim()) : undefined
     const apiKey = apiKeyParam !== null ? apiKeyParam.trim() : ''

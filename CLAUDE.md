@@ -18,15 +18,44 @@ monorepo，含：
 
 ## 常用命令（顶层 turbo 入口）
 
-- `pnpm test` —— 所有 app 跑测试。**修改逻辑/类型后必须跑**。
+- `pnpm test` —— 所有 app 跑测试。
 - `pnpm build` —— 所有 app 构建（apps/web 内部含 `gen:channels && tsc -b && vite build`）。**typecheck 的唯一入口**。
 - `pnpm typecheck` —— 所有 app 单跑 `tsc -b`。
 - `pnpm dev` —— 起所有 app dev server。
 - `pnpm dev:web` —— 只起 `apps/web` 的 Vite dev server。
-- `pnpm deploy:cf` —— 转发到 `apps/web` 跑 `deploy:cf`（build + wrangler pages deploy，项目名 `image-playground`）。
-- `pnpm lint` / `pnpm format` —— Biome。
+- `pnpm lint` —— `biome check .`（format + organize imports + 启用的 linter 检查；linter 在 `biome.json` 里目前禁用，所以主要查 format/import）。
+- `pnpm exec biome check --write .` —— **lint 自动修复**：同时修 format + organize imports。注意 `pnpm format` 只改 format 不动 import 顺序，**正经修 lint 错的入口是这条**，不是 `pnpm format`。
+- `pnpm format` —— `biome format --write .`（仅格式化，不动 import）。
 
 子包内还可以直接进目录跑（如 `cd apps/web && pnpm dev`）。
+
+## 完成任务的硬性检查清单
+
+**任何一次改完代码、提交前都要跑下面三件事**，缺一不可：
+
+1. `pnpm exec biome check --write .` — 自动修 format + import 排序；然后 `pnpm lint` 二次确认 0 errors（biome.json 自身的 schema deprecation warning/info 是已知 noise，可忽略）
+2. `pnpm typecheck` — TypeScript 跨包 build 检查
+3. **测试**：顶层 `pnpm test`，或在改动涉及的 app 目录里跑 `pnpm test`
+
+任一项不过就不要 push。本地是唯一关卡，没有 CI 兜底。
+
+## 测试约定
+
+- **测试库一律用 [Vitest](https://vitest.dev/)**（web 是 vitest 4；bff 现存 1 个 route 测试用 `bun:test`，因为依赖 `bun:sqlite` 等 Bun-only API；新加 bff 测试也优先 vitest，除非确实需要 Bun runtime）。新写测试 import 走：
+  ```ts
+  import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+  ```
+  Mock 用 `vi.fn()` / `vi.spyOn()` / `vi.mock(<module>, factory)`。不要混 jest 或 bun:test 的 API。
+- **测试文件统一放在 `<app>/src/__tests__/` 下**（functions 子树的测试放 `<app>/functions/__tests__/`），保留与被测代码相同的子目录结构。例：
+  - 源 `apps/web/src/lib/api.ts` → 测 `apps/web/src/__tests__/lib/api.test.ts`
+  - 源 `apps/web/src/features/inspiration/store.ts` → 测 `apps/web/src/__tests__/features/inspiration/store.test.ts`
+  - 源 `apps/bff/src/routes/submit.ts` → 测 `apps/bff/src/__tests__/routes/submit.test.ts`
+- 测试文件命名 `*.test.ts(x)`；Vitest 默认配置自动发现，不需要单独注册
+- 涉及外部 IO（network / fs / sub2api）必须 mock；测试不能依赖在线服务或真实文件系统
+- `vi.mock` 的字符串路径用相对路径从测试文件位置出发；测试位于 `__tests__/` 下时，到 source 的相对路径要回上若干层，例如 `apps/web/src/__tests__/lib/api.test.ts` 里 mock 源代码：
+  ```ts
+  vi.mock('../../lib/channels/publicChannels', () => ({ ... }))
+  ```
 
 ## 部署流程
 

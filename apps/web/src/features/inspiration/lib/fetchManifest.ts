@@ -1,5 +1,5 @@
-import type { InspirationManifest } from '../types'
 import { getApiErrorMessage } from '../../../lib/imageApiShared'
+import type { InspirationManifest } from '../types'
 
 /**
  * 默认走同源静态资源 `./inspiration-manifest.json`（部署时由 Vite 把 public/ 目录复制到 dist 根）。
@@ -24,7 +24,10 @@ export function resolveRemoteManifestUrl(): string | null {
  *
  * 协议：标准 fetch + JSON，错误归一化为 Error。
  */
-export async function fetchRemoteManifest(url: string, signal?: AbortSignal): Promise<InspirationManifest> {
+export async function fetchRemoteManifest(
+  url: string,
+  signal?: AbortSignal,
+): Promise<InspirationManifest> {
   const response = await fetch(url, { method: 'GET', signal })
   if (!response.ok) {
     throw new Error(`远程灵感清单加载失败：${await getApiErrorMessage(response)}`)
@@ -57,7 +60,8 @@ function validateManifest(payload: unknown): InspirationManifest | null {
       typeof r.title === 'string' &&
       typeof r.prompt === 'string' &&
       typeof r.thumbnailUrl === 'string' &&
-      r.params && typeof r.params === 'object' &&
+      r.params &&
+      typeof r.params === 'object' &&
       typeof (r.params as Record<string, unknown>).size === 'string' &&
       typeof r.recommendedModel === 'string' &&
       typeof r.recommendedProvider === 'string' &&

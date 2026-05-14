@@ -53,7 +53,10 @@ export async function runTask(id: string): Promise<void> {
 
   const ctrl = new AbortController()
   runningTasks.set(id, ctrl)
-  log.info({ event: 'task.started', taskId: id, provider: task.provider, model: task.model }, 'task started')
+  log.info(
+    { event: 'task.started', taskId: id, provider: task.provider, model: task.model },
+    'task started',
+  )
 
   try {
     const { payload } = await callUpstream({
@@ -74,7 +77,10 @@ export async function runTask(id: string): Promise<void> {
           completed_at: now(),
         })
         .where(and(eq(schema.tasks.id, id), eq(schema.tasks.status, 'in_progress')))
-      log.warn({ event: 'task.upstream_no_image', taskId: id, provider: task.provider }, 'upstream returned no image')
+      log.warn(
+        { event: 'task.upstream_no_image', taskId: id, provider: task.provider },
+        'upstream returned no image',
+      )
       return
     }
     await db
@@ -85,7 +91,10 @@ export async function runTask(id: string): Promise<void> {
         completed_at: now(),
       })
       .where(and(eq(schema.tasks.id, id), eq(schema.tasks.status, 'in_progress')))
-    log.info({ event: 'task.completed', taskId: id, imageCount: meta.images.length }, 'task completed')
+    log.info(
+      { event: 'task.completed', taskId: id, imageCount: meta.images.length },
+      'task completed',
+    )
   } catch (err) {
     // AbortError = cancel route 主动 abort。cancel.ts 已经写 status='cancelled'，
     // 下面 UPDATE 因 WHERE status='in_progress' 不匹配自然 no-op。
@@ -116,7 +125,12 @@ export function spawnTask(id: string, context = 'submit'): void {
   trackTask(
     runTask(id).catch((err) => {
       log.error(
-        { event: 'task.crashed', taskId: id, context, err: err instanceof Error ? err.message : String(err) },
+        {
+          event: 'task.crashed',
+          taskId: id,
+          context,
+          err: err instanceof Error ? err.message : String(err),
+        },
         'task-runner crashed',
       )
     }),

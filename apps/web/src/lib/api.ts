@@ -1,14 +1,14 @@
-import type { UserByokProfile } from './channels/types'
-import { callEdgeChannelApi } from './channels/edgeClient'
-import { callQueueChannelApi, resumeQueueChannelApi, toQueueProvider } from './channels/queueClient'
-import { getPublicChannel } from './channels/publicChannels'
 import { getActiveApiProfile } from './apiProfiles'
+import { callEdgeChannelApi } from './channels/edgeClient'
+import { getPublicChannel } from './channels/publicChannels'
+import { callQueueChannelApi, resumeQueueChannelApi, toQueueProvider } from './channels/queueClient'
+import type { UserByokProfile } from './channels/types'
 import { callGeminiImageApi } from './geminiImageApi'
-import { callOpenAICompatibleImageApi } from './openaiCompatibleImageApi'
 import type { BYOKAdapterProfile, CallApiOptions, CallApiResult } from './imageApiShared'
+import { callOpenAICompatibleImageApi } from './openaiCompatibleImageApi'
 
-export type { CallApiOptions, CallApiResult } from './imageApiShared'
 export { normalizeBaseUrl } from './devProxy'
+export type { CallApiOptions, CallApiResult } from './imageApiShared'
 
 function toByokAdapterProfile(profile: UserByokProfile): BYOKAdapterProfile {
   return {
@@ -52,7 +52,9 @@ export async function callImageApi(opts: CallApiOptions): Promise<CallApiResult>
       return callOpenAICompatibleImageApi(opts, byok, null)
     case 'openai-queue':
     case 'gemini-queue':
-      throw new Error(`queue kind ${profile.kind} 仅用于 builtin-edge profile，不应作为 user-byok kind`)
+      throw new Error(
+        `queue kind ${profile.kind} 仅用于 builtin-edge profile，不应作为 user-byok kind`,
+      )
   }
 }
 

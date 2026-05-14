@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { calculateMaskWorkingSize, replaceMaskTargetImage } from './maskPreprocess'
-import type { InputImage } from '../types'
+import { calculateMaskWorkingSize, replaceMaskTargetImage } from '../../lib/maskPreprocess'
+import type { InputImage } from '../../types'
 
 function image(id: string): InputImage {
   return { id, dataUrl: `data:image/png;base64,${id}` }
@@ -37,16 +37,18 @@ describe('calculateMaskWorkingSize', () => {
 
 describe('replaceMaskTargetImage', () => {
   it('replaces the selected mask target with the prepared working image', () => {
-    expect(replaceMaskTargetImage([image('original'), image('ref')], 'original', image('working'))).toEqual([
-      image('working'),
-      image('ref'),
-    ])
+    expect(
+      replaceMaskTargetImage([image('original'), image('ref')], 'original', image('working')),
+    ).toEqual([image('working'), image('ref')])
   })
 
   it('deduplicates when the prepared working image is already present', () => {
-    expect(replaceMaskTargetImage([image('original'), image('working'), image('ref')], 'original', image('working'))).toEqual([
-      image('working'),
-      image('ref'),
-    ])
+    expect(
+      replaceMaskTargetImage(
+        [image('original'), image('working'), image('ref')],
+        'original',
+        image('working'),
+      ),
+    ).toEqual([image('working'), image('ref')])
   })
 })

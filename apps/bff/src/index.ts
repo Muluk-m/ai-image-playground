@@ -14,8 +14,13 @@ runMigrations()
 // in_progress 的标 failed（上游可能已经发起 fetch，不能盲目重试）。没有这一段，
 // BFF 重启后前端会傻乎乎 poll 那些孤儿到 30 min 超时。
 const recovery = await recoverInterruptedTasks()
-if (recovery.retried > 0) log.info({ event: 'startup.retried', count: recovery.retried }, 'retried queued tasks')
-if (recovery.failed > 0) log.info({ event: 'startup.failed_interrupted', count: recovery.failed }, 'marked in-progress as failed')
+if (recovery.retried > 0)
+  log.info({ event: 'startup.retried', count: recovery.retried }, 'retried queued tasks')
+if (recovery.failed > 0)
+  log.info(
+    { event: 'startup.failed_interrupted', count: recovery.failed },
+    'marked in-progress as failed',
+  )
 
 const purgeStartup = await purgeOldTasks()
 if (purgeStartup > 0) log.info({ event: 'startup.purged', count: purgeStartup }, 'purged old tasks')
@@ -66,7 +71,10 @@ async function gracefulShutdown(signal: string): Promise<void> {
   try {
     await app.stop?.()
   } catch (err) {
-    log.error({ event: 'shutdown.stop_failed', err: err instanceof Error ? err.message : String(err) }, 'app.stop failed')
+    log.error(
+      { event: 'shutdown.stop_failed', err: err instanceof Error ? err.message : String(err) },
+      'app.stop failed',
+    )
   }
 
   // SIGTERM 真打断进行中 task：让上游 fetch 立刻 abort（worker AbortError 分支
@@ -77,7 +85,11 @@ async function gracefulShutdown(signal: string): Promise<void> {
 
   const hardTimer = setTimeout(() => {
     log.warn(
-      { event: 'shutdown.timeout', timeoutMs: QUEUE_TIMEOUTS.SHUTDOWN_HARD_TIMEOUT_MS, inflight: inflightCount() },
+      {
+        event: 'shutdown.timeout',
+        timeoutMs: QUEUE_TIMEOUTS.SHUTDOWN_HARD_TIMEOUT_MS,
+        inflight: inflightCount(),
+      },
       'drain timeout, forcing exit',
     )
     finalize()
@@ -85,7 +97,8 @@ async function gracefulShutdown(signal: string): Promise<void> {
 
   const progressTimer = setInterval(() => {
     const remaining = inflightCount()
-    if (remaining > 0) log.info({ event: 'shutdown.progress', inflight: remaining }, 'still draining')
+    if (remaining > 0)
+      log.info({ event: 'shutdown.progress', inflight: remaining }, 'still draining')
   }, 5_000)
 
   await Promise.allSettled(inflightSnapshot())

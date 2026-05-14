@@ -1,5 +1,5 @@
-import { useMemo, useRef, useState, useEffect } from 'react'
-import { useStore, reuseConfig, editOutputs, removeTask } from '../store'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { editOutputs, removeTask, reuseConfig, useStore } from '../store'
 import TaskCard from './TaskCard'
 
 export default function TaskGrid() {
@@ -14,7 +14,12 @@ export default function TaskGrid() {
   const clearSelection = useStore((s) => s.clearSelection)
   const rootRef = useRef<HTMLDivElement>(null)
   const gridRef = useRef<HTMLDivElement>(null)
-  const [selectionBox, setSelectionBox] = useState<{ startPageX: number; startPageY: number; currentPageX: number; currentPageY: number } | null>(null)
+  const [selectionBox, setSelectionBox] = useState<{
+    startPageX: number
+    startPageY: number
+    currentPageX: number
+    currentPageY: number
+  } | null>(null)
   const isDragging = useRef(false)
   const dragStart = useRef<{ pageX: number; pageY: number } | null>(null)
   const lastClientPoint = useRef<{ x: number; y: number } | null>(null)
@@ -31,12 +36,12 @@ export default function TaskGrid() {
   const filteredTasks = useMemo(() => {
     const sorted = [...tasks].sort((a, b) => b.createdAt - a.createdAt)
     const q = searchQuery.trim().toLowerCase()
-    
+
     return sorted.filter((t) => {
       if (filterFavorite && !t.isFavorite) return false
       const matchStatus = filterStatus === 'all' || t.status === filterStatus
       if (!matchStatus) return false
-      
+
       if (!q) return true
       const prompt = (t.prompt || '').toLowerCase()
       const paramStr = JSON.stringify(t.params).toLowerCase()
@@ -44,7 +49,7 @@ export default function TaskGrid() {
     })
   }, [tasks, searchQuery, filterStatus, filterFavorite])
 
-  const handleDelete = (task: typeof tasks[0]) => {
+  const handleDelete = (task: (typeof tasks)[0]) => {
     setConfirmDialog({
       title: '删除记录',
       message: '确定要删除这条记录吗？关联的图片资源也会被清理（如果没有其他任务引用）。',
@@ -57,7 +62,12 @@ export default function TaskGrid() {
     pageY: clientY + window.scrollY,
   })
 
-  const beginSelection = (target: HTMLElement, clientX: number, clientY: number, isCtrl: boolean) => {
+  const beginSelection = (
+    target: HTMLElement,
+    clientX: number,
+    clientY: number,
+    isCtrl: boolean,
+  ) => {
     const point = getPagePoint(clientX, clientY)
 
     startedOnCard.current = Boolean(target.closest('.task-card-wrapper'))
@@ -141,7 +151,13 @@ export default function TaskGrid() {
         document.body.classList.remove('select-none')
         document.body.classList.remove('drag-selecting')
       }
-      if (isDragging.current && clearEmptySurfaceClick && !hasDragged.current && !startedOnCard.current && !startedWithCtrl.current) {
+      if (
+        isDragging.current &&
+        clearEmptySurfaceClick &&
+        !hasDragged.current &&
+        !startedOnCard.current &&
+        !startedWithCtrl.current
+      ) {
         clearSelection()
       }
       if (isDragging.current && suppressClick && hasDragged.current) {
@@ -203,7 +219,13 @@ export default function TaskGrid() {
     }
 
     const handleDocumentScroll = () => {
-      if (!isDragging.current || !dragStart.current || !lastClientPoint.current || !hasDragged.current) return
+      if (
+        !isDragging.current ||
+        !dragStart.current ||
+        !lastClientPoint.current ||
+        !hasDragged.current
+      )
+        return
 
       const point = getPagePoint(lastClientPoint.current.x, lastClientPoint.current.y)
       const start = dragStart.current
@@ -281,11 +303,7 @@ export default function TaskGrid() {
   }
 
   return (
-    <div 
-      ref={rootRef}
-      data-task-grid-root
-      className="relative min-h-[50vh]"
-    >
+    <div ref={rootRef} data-task-grid-root className="relative min-h-[50vh]">
       <div ref={gridRef} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 pb-10">
         {filteredTasks.map((task) => (
           <div key={task.id} className="task-card-wrapper" data-task-id={task.id}>

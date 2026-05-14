@@ -36,7 +36,15 @@ export default function InspirationCategoryFilter() {
   )
 }
 
-function CategoryButton({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
+function CategoryButton({
+  label,
+  active,
+  onClick,
+}: {
+  label: string
+  active: boolean
+  onClick: () => void
+}) {
   return (
     <button
       type="button"

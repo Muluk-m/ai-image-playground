@@ -1,6 +1,6 @@
+import { SparkleIcon } from '../../../components/icons'
 import { useStore } from '../../../store'
 import { useInspirationStore } from '../store'
-import { SparkleIcon } from '../../../components/icons'
 
 /**
  * 新人引导气泡：第一次访问、尚未生成过任何图、且未主动 dismiss 时，在 Header

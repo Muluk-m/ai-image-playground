@@ -1,4 +1,4 @@
-import { DEFAULT_PARAMS, type AppSettings, type TaskParams } from '../types'
+import { type AppSettings, DEFAULT_PARAMS, type TaskParams } from '../types'
 import { getActiveApiProfile } from './apiProfiles'
 import { normalizeImageSize } from './size'
 
@@ -21,7 +21,11 @@ export function normalizeParamsForSettings(
     n: Math.min(outputImageLimit, Math.max(1, params.n || DEFAULT_PARAMS.n)),
   }
 
-  if (activeProfile.source === 'user-byok' && activeProfile.kind === 'openai-compat' && activeProfile.preferences.codexCli) {
+  if (
+    activeProfile.source === 'user-byok' &&
+    activeProfile.kind === 'openai-compat' &&
+    activeProfile.preferences.codexCli
+  ) {
     nextParams.quality = DEFAULT_PARAMS.quality
   }
 

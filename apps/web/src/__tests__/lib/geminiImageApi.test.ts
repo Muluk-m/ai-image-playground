@@ -1,8 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { DEFAULT_PARAMS } from '../types'
-import { DEFAULT_SETTINGS } from './apiProfiles'
-import { buildGeminiRequestBody, callGeminiImageApi, parseGeminiResponse } from './geminiImageApi'
-import type { BYOKAdapterProfile } from './imageApiShared'
+import { DEFAULT_SETTINGS } from '../../lib/apiProfiles'
+import {
+  buildGeminiRequestBody,
+  callGeminiImageApi,
+  parseGeminiResponse,
+} from '../../lib/geminiImageApi'
+import type { BYOKAdapterProfile } from '../../lib/imageApiShared'
+import { DEFAULT_PARAMS } from '../../types'
 
 function byokGemini(overrides: Partial<BYOKAdapterProfile> = {}): BYOKAdapterProfile {
   return {
@@ -141,14 +145,16 @@ describe('buildGeminiRequestBody', () => {
 describe('parseGeminiResponse', () => {
   it('extracts inline image and revised prompt from one candidate', () => {
     const result = parseGeminiResponse({
-      candidates: [{
-        content: {
-          parts: [
-            { text: 'here is the cat' },
-            { inlineData: { mimeType: 'image/png', data: 'AAA' } },
-          ],
+      candidates: [
+        {
+          content: {
+            parts: [
+              { text: 'here is the cat' },
+              { inlineData: { mimeType: 'image/png', data: 'AAA' } },
+            ],
+          },
         },
-      }],
+      ],
     })
     expect(result.images).toEqual(['data:image/png;base64,AAA'])
     expect(result.revisedPrompts).toEqual(['here is the cat'])
@@ -165,8 +171,9 @@ describe('parseGeminiResponse', () => {
   })
 
   it('throws when no candidates contain image parts', () => {
-    expect(() => parseGeminiResponse({ candidates: [{ content: { parts: [{ text: 'no image' }] } }] }))
-      .toThrow(/Gemini.*未返回可用图片/)
+    expect(() =>
+      parseGeminiResponse({ candidates: [{ content: { parts: [{ text: 'no image' }] } }] }),
+    ).toThrow(/Gemini.*未返回可用图片/)
   })
 
   it('throws on empty candidates array', () => {
@@ -193,16 +200,26 @@ describe('callGeminiImageApi', () => {
   })
 
   it('POSTs to {baseUrl}/models/{model}:generateContent with x-api-key', async () => {
-    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
-      candidates: [{ content: { parts: [{ inlineData: { mimeType: 'image/png', data: 'AAA' } }] } }],
-    }), { status: 200 }))
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          candidates: [
+            { content: { parts: [{ inlineData: { mimeType: 'image/png', data: 'AAA' } }] } },
+          ],
+        }),
+        { status: 200 },
+      ),
+    )
 
-    await callGeminiImageApi({
-      settings: DEFAULT_SETTINGS,
-      prompt: 'p',
-      params: { ...DEFAULT_PARAMS, size: 'auto', n: 1 },
-      inputImageDataUrls: [],
-    }, byokGemini({ model: 'gemini-3.1-flash-image', baseUrl: 'https://gen.example/v1beta' }))
+    await callGeminiImageApi(
+      {
+        settings: DEFAULT_SETTINGS,
+        prompt: 'p',
+        params: { ...DEFAULT_PARAMS, size: 'auto', n: 1 },
+        inputImageDataUrls: [],
+      },
+      byokGemini({ model: 'gemini-3.1-flash-image', baseUrl: 'https://gen.example/v1beta' }),
+    )
 
     expect(fetchMock).toHaveBeenCalledTimes(1)
     const [url, init] = fetchMock.mock.calls[0]
@@ -215,28 +232,43 @@ describe('callGeminiImageApi', () => {
   })
 
   it('returns images array via parseGeminiResponse', async () => {
-    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
-      candidates: [{ content: { parts: [{ inlineData: { mimeType: 'image/png', data: 'AAA' } }] } }],
-    }), { status: 200 }))
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          candidates: [
+            { content: { parts: [{ inlineData: { mimeType: 'image/png', data: 'AAA' } }] } },
+          ],
+        }),
+        { status: 200 },
+      ),
+    )
 
-    const result = await callGeminiImageApi({
-      settings: DEFAULT_SETTINGS,
-      prompt: 'p',
-      params: { ...DEFAULT_PARAMS, n: 1 },
-      inputImageDataUrls: [],
-    }, byokGemini())
+    const result = await callGeminiImageApi(
+      {
+        settings: DEFAULT_SETTINGS,
+        prompt: 'p',
+        params: { ...DEFAULT_PARAMS, n: 1 },
+        inputImageDataUrls: [],
+      },
+      byokGemini(),
+    )
 
     expect(result.images).toEqual(['data:image/png;base64,AAA'])
   })
 
   it('rejects mask input with explicit error', async () => {
-    await expect(callGeminiImageApi({
-      settings: DEFAULT_SETTINGS,
-      prompt: 'p',
-      params: { ...DEFAULT_PARAMS },
-      inputImageDataUrls: ['data:image/png;base64,AAA'],
-      maskDataUrl: 'data:image/png;base64,MMM',
-    }, byokGemini())).rejects.toThrow(/不支持遮罩/)
+    await expect(
+      callGeminiImageApi(
+        {
+          settings: DEFAULT_SETTINGS,
+          prompt: 'p',
+          params: { ...DEFAULT_PARAMS },
+          inputImageDataUrls: ['data:image/png;base64,AAA'],
+          maskDataUrl: 'data:image/png;base64,MMM',
+        },
+        byokGemini(),
+      ),
+    ).rejects.toThrow(/不支持遮罩/)
 
     expect(fetchMock).not.toHaveBeenCalled()
   })
@@ -280,15 +312,25 @@ describe('callGeminiImageApi', () => {
   })
 
   it('throws with API error message on HTTP 400', async () => {
-    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
-      error: { code: 400, message: 'Invalid argument', status: 'INVALID_ARGUMENT' },
-    }), { status: 400 }))
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          error: { code: 400, message: 'Invalid argument', status: 'INVALID_ARGUMENT' },
+        }),
+        { status: 400 },
+      ),
+    )
 
-    await expect(callGeminiImageApi({
-      settings: DEFAULT_SETTINGS,
-      prompt: 'p',
-      params: { ...DEFAULT_PARAMS },
-      inputImageDataUrls: [],
-    }, byokGemini())).rejects.toThrow(/Invalid argument/)
+    await expect(
+      callGeminiImageApi(
+        {
+          settings: DEFAULT_SETTINGS,
+          prompt: 'p',
+          params: { ...DEFAULT_PARAMS },
+          inputImageDataUrls: [],
+        },
+        byokGemini(),
+      ),
+    ).rejects.toThrow(/Invalid argument/)
   })
 })

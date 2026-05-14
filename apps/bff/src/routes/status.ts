@@ -1,6 +1,6 @@
-import { Elysia, t } from 'elysia'
-import { eq } from 'drizzle-orm'
 import type { StatusResponse, TaskErrorType } from '@image-playground/shared'
+import { eq } from 'drizzle-orm'
+import { Elysia, t } from 'elysia'
 import { db, schema } from '../db/client'
 import { extractMeta } from '../lib/extractImages'
 import { asQueueProvider } from '../lib/queueProvider'
@@ -32,7 +32,10 @@ export const statusRoutes = new Elysia().get(
     }
 
     if (task.status === 'failed' && task.error_message) {
-      base.error = { message: task.error_message, type: (task.error_type ?? 'unknown') as TaskErrorType }
+      base.error = {
+        message: task.error_message,
+        type: (task.error_type ?? 'unknown') as TaskErrorType,
+      }
     }
 
     if (task.status === 'completed') {

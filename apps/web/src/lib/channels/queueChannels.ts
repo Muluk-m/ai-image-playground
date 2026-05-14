@@ -32,7 +32,9 @@ function parseQueueChannels(raw: unknown): PublicChannel[] {
     console.warn('[queue-channels] VITE_BFF_QUEUE_CHANNELS 必须是数组，已忽略')
     return []
   }
-  return parsed.flatMap((entry) => normalizeOne(entry)).filter((c): c is PublicChannel => c !== null)
+  return parsed
+    .flatMap((entry) => normalizeOne(entry))
+    .filter((c): c is PublicChannel => c !== null)
 }
 
 function normalizeOne(entry: unknown): PublicChannel | null {
@@ -63,7 +65,9 @@ function normalizeModels(value: unknown): ChannelModel[] {
       return {
         id: r.id,
         label: typeof r.label === 'string' && r.label ? r.label : r.id,
-        ...(Array.isArray(r.capabilities) ? { capabilities: r.capabilities as ChannelModel['capabilities'] } : {}),
+        ...(Array.isArray(r.capabilities)
+          ? { capabilities: r.capabilities as ChannelModel['capabilities'] }
+          : {}),
       }
     })
     .filter((m): m is ChannelModel => m !== null)
@@ -75,7 +79,9 @@ function normalizeDefaults(value: unknown): ChannelDefaults {
     apiMode: r.apiMode === 'responses' ? 'responses' : 'images',
     timeout: typeof r.timeout === 'number' ? r.timeout : 600,
     ...(typeof r.codexCli === 'boolean' ? { codexCli: r.codexCli } : {}),
-    ...(typeof r.responseFormatB64Json === 'boolean' ? { responseFormatB64Json: r.responseFormatB64Json } : {}),
+    ...(typeof r.responseFormatB64Json === 'boolean'
+      ? { responseFormatB64Json: r.responseFormatB64Json }
+      : {}),
   }
 }
 

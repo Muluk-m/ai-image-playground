@@ -1,5 +1,5 @@
-import { sqliteTable, text, integer } from 'drizzle-orm/sqlite-core'
-import type { TaskStatus, QueueProvider, SubmitRequest } from '@image-playground/shared'
+import type { QueueProvider, SubmitRequest, TaskStatus } from '@image-playground/shared'
+import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
 export const tasks = sqliteTable('tasks', {
   id: text('id').primaryKey(),

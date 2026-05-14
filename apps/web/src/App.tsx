@@ -1,22 +1,25 @@
 import { useEffect } from 'react'
-import { initStore } from './store'
-import { useStore } from './store'
-import { buildSettingsFromUrlParams, clearUrlSettingParams, hasUrlSettingParams } from './lib/urlSettings'
-import { useDockerApiUrlMigrationNotice } from './hooks/useDockerApiUrlMigrationNotice'
-import Header from './components/Header'
-import SearchBar from './components/SearchBar'
-import TaskGrid from './components/TaskGrid'
-import InputBar from './components/InputBar'
-import DetailModal from './components/DetailModal'
-import Lightbox from './components/Lightbox'
-import SettingsModal from './components/SettingsModal'
 import ConfirmDialog from './components/ConfirmDialog'
-import Toast from './components/Toast'
-import MaskEditorModal from './components/MaskEditorModal'
+import DetailModal from './components/DetailModal'
+import Header from './components/Header'
 import ImageContextMenu from './components/ImageContextMenu'
+import InputBar from './components/InputBar'
+import Lightbox from './components/Lightbox'
+import MaskEditorModal from './components/MaskEditorModal'
+import SearchBar from './components/SearchBar'
+import SettingsModal from './components/SettingsModal'
 import SupportPromptModal from './components/SupportPromptModal'
+import TaskGrid from './components/TaskGrid'
+import Toast from './components/Toast'
 import InspirationPanel from './features/inspiration/components/InspirationPanel'
 import { initHashRoute } from './features/inspiration/lib/hashRoute'
+import { useDockerApiUrlMigrationNotice } from './hooks/useDockerApiUrlMigrationNotice'
+import {
+  buildSettingsFromUrlParams,
+  clearUrlSettingParams,
+  hasUrlSettingParams,
+} from './lib/urlSettings'
+import { initStore, useStore } from './store'
 
 export default function App() {
   const setSettings = useStore((s) => s.setSettings)

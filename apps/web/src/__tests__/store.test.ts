@@ -1,9 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { DEFAULT_PARAMS } from './types'
-import { createDefaultGeminiByokProfile, createDefaultOpenAIByokProfile, DEFAULT_SETTINGS, normalizeSettings } from './lib/apiProfiles'
-import type { StoredImage, StoredImageThumbnail, TaskRecord } from './types'
-import { getSelectedImageMentionLabel } from './lib/promptImageMentions'
-vi.mock('./lib/db', () => {
+import {
+  createDefaultGeminiByokProfile,
+  createDefaultOpenAIByokProfile,
+  DEFAULT_SETTINGS,
+  normalizeSettings,
+} from '../lib/apiProfiles'
+import { getSelectedImageMentionLabel } from '../lib/promptImageMentions'
+import type { StoredImage, StoredImageThumbnail, TaskRecord } from '../types'
+import { DEFAULT_PARAMS } from '../types'
+
+vi.mock('../lib/db', () => {
   const tasks = new Map<string, TaskRecord>()
   const images = new Map<string, StoredImage>()
   const thumbnails = new Map<string, StoredImageThumbnail>()
@@ -50,8 +56,17 @@ vi.mock('./lib/db', () => {
     },
   }
 })
-import { clearImages, putImage } from './lib/db'
-import { editOutputs, getPersistedState, getTaskApiProfile, markInterruptedOpenAIRunningTasks, reuseConfig, submitTask, useStore } from './store'
+
+import { clearImages, putImage } from '../lib/db'
+import {
+  editOutputs,
+  getPersistedState,
+  getTaskApiProfile,
+  markInterruptedOpenAIRunningTasks,
+  reuseConfig,
+  submitTask,
+  useStore,
+} from '../store'
 
 const imageA = { id: 'image-a', dataUrl: 'data:image/png;base64,a' }
 const imageB = { id: 'image-b', dataUrl: 'data:image/png;base64,b' }
@@ -151,14 +166,41 @@ describe('mask draft lifecycle in store actions', () => {
 describe('interrupted OpenAI running tasks', () => {
   it('marks legacy and OpenAI running tasks as interrupted', () => {
     const now = 10_000
-    const legacyRunning = task({ id: 'legacy-running', status: 'running', createdAt: 1_000, finishedAt: null, elapsed: null })
-    const openAIRunning = task({ id: 'openai-running', apiProvider: 'openai', status: 'running', createdAt: 2_000, finishedAt: null, elapsed: null })
-    const customAsyncRunning = task({ id: 'custom-running', apiProvider: 'custom-provider', customTaskId: 'task-1', status: 'running', createdAt: 4_000, finishedAt: null, elapsed: null })
+    const legacyRunning = task({
+      id: 'legacy-running',
+      status: 'running',
+      createdAt: 1_000,
+      finishedAt: null,
+      elapsed: null,
+    })
+    const openAIRunning = task({
+      id: 'openai-running',
+      apiProvider: 'openai',
+      status: 'running',
+      createdAt: 2_000,
+      finishedAt: null,
+      elapsed: null,
+    })
+    const customAsyncRunning = task({
+      id: 'custom-running',
+      apiProvider: 'custom-provider',
+      customTaskId: 'task-1',
+      status: 'running',
+      createdAt: 4_000,
+      finishedAt: null,
+      elapsed: null,
+    })
     const doneTask = task({ id: 'done-task', apiProvider: 'openai', status: 'done' })
 
-    const result = markInterruptedOpenAIRunningTasks([legacyRunning, openAIRunning, customAsyncRunning, doneTask], now)
+    const result = markInterruptedOpenAIRunningTasks(
+      [legacyRunning, openAIRunning, customAsyncRunning, doneTask],
+      now,
+    )
 
-    expect(result.interruptedTasks.map((item) => item.id)).toEqual(['legacy-running', 'openai-running'])
+    expect(result.interruptedTasks.map((item) => item.id)).toEqual([
+      'legacy-running',
+      'openai-running',
+    ])
     expect(result.tasks.find((item) => item.id === 'legacy-running')).toMatchObject({
       status: 'error',
       error: expect.stringContaining('请求中断'),
@@ -213,8 +255,15 @@ describe('input persistence setting', () => {
 })
 
 describe('reused task API profile', () => {
-  const openaiProfile = createDefaultOpenAIByokProfile({ id: 'openai-profile', apiKey: 'openai-key' })
-  const geminiProfile = createDefaultGeminiByokProfile({ id: 'gemini-profile', name: 'Gemini 配置', apiKey: 'gem-key' })
+  const openaiProfile = createDefaultOpenAIByokProfile({
+    id: 'openai-profile',
+    apiKey: 'openai-key',
+  })
+  const geminiProfile = createDefaultGeminiByokProfile({
+    id: 'gemini-profile',
+    name: 'Gemini 配置',
+    apiKey: 'gem-key',
+  })
 
   beforeEach(() => {
     useStore.setState({
@@ -240,23 +289,31 @@ describe('reused task API profile', () => {
   })
 
   it('resolves a task API profile by stored profile id', () => {
-    const resolved = getTaskApiProfile(useStore.getState().settings, task({ apiProvider: 'gemini', apiProfileId: geminiProfile.id }))
+    const resolved = getTaskApiProfile(
+      useStore.getState().settings,
+      task({ apiProvider: 'gemini', apiProfileId: geminiProfile.id }),
+    )
 
     expect(resolved?.id).toBe(geminiProfile.id)
   })
 
   it('reuses the task API profile temporarily without switching the active profile', async () => {
-    await reuseConfig(task({
-      apiProvider: 'gemini',
-      apiProfileId: geminiProfile.id,
-      params: { ...DEFAULT_PARAMS, n: 1, size: 'auto', quality: 'auto' },
-    }))
+    await reuseConfig(
+      task({
+        apiProvider: 'gemini',
+        apiProfileId: geminiProfile.id,
+        params: { ...DEFAULT_PARAMS, n: 1, size: 'auto', quality: 'auto' },
+      }),
+    )
 
     const state = useStore.getState()
     expect(state.settings.activeProfileId).toBe(openaiProfile.id)
     expect(state.reusedTaskApiProfileId).toBe(geminiProfile.id)
     expect(state.params).toMatchObject({ n: 1, size: 'auto', quality: 'auto' })
-    expect(state.showToast).toHaveBeenCalledWith('已临时复用该任务的 API 配置「Gemini 配置」', 'success')
+    expect(state.showToast).toHaveBeenCalledWith(
+      '已临时复用该任务的 API 配置「Gemini 配置」',
+      'success',
+    )
   })
 
   it('keeps selected image mentions when reusing a task with different current input images', async () => {
@@ -273,12 +330,14 @@ describe('reused task API profile', () => {
       ],
     })
 
-    await reuseConfig(task({
-      apiProvider: 'openai',
-      apiProfileId: openaiProfile.id,
-      prompt: taskPrompt,
-      inputImageIds: [imageA.id, imageB.id],
-    }))
+    await reuseConfig(
+      task({
+        apiProvider: 'openai',
+        apiProfileId: openaiProfile.id,
+        prompt: taskPrompt,
+        inputImageIds: [imageA.id, imageB.id],
+      }),
+    )
 
     const state = useStore.getState()
     expect(state.inputImages.map((img) => img.id)).toEqual([imageA.id, imageB.id])
@@ -304,11 +363,13 @@ describe('reused task API profile', () => {
       }),
     })
 
-    await reuseConfig(task({
-      apiProvider: 'gemini',
-      apiProfileId: geminiProfile.id,
-      params: { ...DEFAULT_PARAMS, n: 8, size: 'auto', quality: 'auto' },
-    }))
+    await reuseConfig(
+      task({
+        apiProvider: 'gemini',
+        apiProfileId: geminiProfile.id,
+        params: { ...DEFAULT_PARAMS, n: 8, size: 'auto', quality: 'auto' },
+      }),
+    )
 
     const state = useStore.getState()
     expect(state.settings.activeProfileId).toBe(openaiProfile.id)
@@ -321,12 +382,15 @@ describe('reused task API profile', () => {
 
     const state = useStore.getState()
     expect(state.tasks).toEqual([])
-    expect(state.setConfirmDialog).toHaveBeenCalledWith(expect.objectContaining({
-      title: '找不到 API 配置',
-      message: '找不到复用任务所使用的 API 配置「未知配置」，要使用当前的 API 配置「默认」提交任务吗？',
-      confirmText: '使用当前配置提交',
-      cancelText: '放弃提交',
-    }))
+    expect(state.setConfirmDialog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: '找不到 API 配置',
+        message:
+          '找不到复用任务所使用的 API 配置「未知配置」，要使用当前的 API 配置「默认」提交任务吗？',
+        confirmText: '使用当前配置提交',
+        cancelText: '放弃提交',
+      }),
+    )
     expect(state.showSettings).toBe(false)
   })
 })
@@ -343,7 +407,12 @@ describe('getPersistedState builtin profile stripping', () => {
 
   it('removes builtin-edge profiles before persisting', () => {
     const userProfile = createDefaultOpenAIByokProfile({ id: 'user-1', apiKey: 'user-key' })
-    const builtinEdge = { id: 'qlj-x', source: 'builtin-edge' as const, channelId: 'qlj-x', selectedModelId: 'm' }
+    const builtinEdge = {
+      id: 'qlj-x',
+      source: 'builtin-edge' as const,
+      channelId: 'qlj-x',
+      selectedModelId: 'm',
+    }
     useStore.setState({
       settings: normalizeSettings({
         profiles: [builtinEdge, userProfile],

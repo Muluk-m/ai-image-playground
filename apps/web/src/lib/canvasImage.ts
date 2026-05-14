@@ -44,18 +44,35 @@ export async function maskDataUrlToPngBlob(maskDataUrl: string): Promise<Blob> {
   return blob
 }
 
-export async function canvasToBlob(canvas: HTMLCanvasElement, type = 'image/png', quality?: number): Promise<Blob> {
+export async function canvasToBlob(
+  canvas: HTMLCanvasElement,
+  type = 'image/png',
+  quality?: number,
+): Promise<Blob> {
   return new Promise((resolve, reject) => {
-    canvas.toBlob((blob) => {
-      if (!blob) reject(new Error('图片导出失败'))
-      else resolve(blob)
-    }, type, quality)
+    canvas.toBlob(
+      (blob) => {
+        if (!blob) reject(new Error('图片导出失败'))
+        else resolve(blob)
+      },
+      type,
+      quality,
+    )
   })
 }
 
-export async function validateMaskMatchesImage(maskDataUrl: string, imageDataUrl: string): Promise<MaskCoverage> {
-  const [maskImage, sourceImage] = await Promise.all([loadImage(maskDataUrl), loadImage(imageDataUrl)])
-  if (maskImage.naturalWidth !== sourceImage.naturalWidth || maskImage.naturalHeight !== sourceImage.naturalHeight) {
+export async function validateMaskMatchesImage(
+  maskDataUrl: string,
+  imageDataUrl: string,
+): Promise<MaskCoverage> {
+  const [maskImage, sourceImage] = await Promise.all([
+    loadImage(maskDataUrl),
+    loadImage(imageDataUrl),
+  ])
+  if (
+    maskImage.naturalWidth !== sourceImage.naturalWidth ||
+    maskImage.naturalHeight !== sourceImage.naturalHeight
+  ) {
     throw new Error('遮罩尺寸与遮罩主图不一致，请重新绘制遮罩')
   }
 
@@ -70,7 +87,10 @@ export async function validateMaskMatchesImage(maskDataUrl: string, imageDataUrl
   return coverage
 }
 
-export async function createMaskPreviewDataUrl(imageDataUrl: string, maskDataUrl: string): Promise<string> {
+export async function createMaskPreviewDataUrl(
+  imageDataUrl: string,
+  maskDataUrl: string,
+): Promise<string> {
   const [image, mask] = await Promise.all([loadImage(imageDataUrl), loadImage(maskDataUrl)])
   if (image.naturalWidth !== mask.naturalWidth || image.naturalHeight !== mask.naturalHeight) {
     throw new Error('遮罩尺寸与遮罩主图不一致，请重新绘制遮罩')

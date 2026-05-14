@@ -1,10 +1,10 @@
+import { updateSelectedModel } from '../../../lib/channels/profileSelectors'
+import { getPublicChannels } from '../../../lib/channels/publicChannels'
+import type { ClientProfile } from '../../../lib/channels/types'
 import { useStore } from '../../../store'
 import { useInspirationStore } from '../store'
-import { getPublicChannels } from '../../../lib/channels/publicChannels'
-import { updateSelectedModel } from '../../../lib/channels/profileSelectors'
-import { matchProfile } from './matchProfile'
 import type { InspirationItem } from '../types'
-import type { ClientProfile } from '../../../lib/channels/types'
+import { matchProfile } from './matchProfile'
 
 /**
  * 把灵感库示例应用到主 InputBar：

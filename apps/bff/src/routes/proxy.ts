@@ -28,8 +28,9 @@ const rewrittenBaseUrls = new Map(
   }),
 )
 
-export const proxyRoutes = new Elysia()
-  .all('/api-proxy/:channelId/*', async ({ request, params }) => {
+export const proxyRoutes = new Elysia().all(
+  '/api-proxy/:channelId/*',
+  async ({ request, params }) => {
     const method = request.method.toUpperCase()
 
     if (method === 'OPTIONS') {
@@ -46,7 +47,10 @@ export const proxyRoutes = new Elysia()
 
     const path = (params as Record<string, string>)['*'] ?? ''
     if (!channel.allowedPaths.includes(path) || path.includes('..')) {
-      return Response.json({ error: 'path_not_allowed', channelId: channel.id, path }, { status: 403 })
+      return Response.json(
+        { error: 'path_not_allowed', channelId: channel.id, path },
+        { status: 403 },
+      )
     }
 
     const secret = resolveApiKey(channel.kind)
@@ -70,7 +74,10 @@ export const proxyRoutes = new Elysia()
     } else if (channel.auth.type === 'query-key' && channel.auth.headerName) {
       upstreamHeaders.set(channel.auth.headerName.toLowerCase(), secret)
     } else {
-      upstreamUrl.searchParams.set(channel.auth.type === 'query-key' ? (channel.auth.queryParam ?? 'key') : 'key', secret)
+      upstreamUrl.searchParams.set(
+        channel.auth.type === 'query-key' ? (channel.auth.queryParam ?? 'key') : 'key',
+        secret,
+      )
     }
 
     const timeoutMs = Math.max(1, channel.defaults.timeout ?? 600) * 1000
@@ -97,7 +104,10 @@ export const proxyRoutes = new Elysia()
       const isTimeout = abort.signal.aborted
       return Response.json(
         {
-          error: { message: err instanceof Error ? err.message : String(err), type: isTimeout ? 'upstream_timeout' : 'upstream_fetch_failed' },
+          error: {
+            message: err instanceof Error ? err.message : String(err),
+            type: isTimeout ? 'upstream_timeout' : 'upstream_fetch_failed',
+          },
           _proxyError: true,
           channelId: channel.id,
         },
@@ -106,4 +116,5 @@ export const proxyRoutes = new Elysia()
     } finally {
       clearTimeout(timer)
     }
-  })
+  },
+)

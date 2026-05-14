@@ -1,6 +1,6 @@
 import publicChannelsJson from '../../generated/channels.public.json'
-import type { PublicChannel } from './types'
 import { QUEUE_CHANNELS } from './queueChannels'
+import type { PublicChannel } from './types'
 
 const RAW: { channels: PublicChannel[] } = publicChannelsJson as { channels: PublicChannel[] }
 
@@ -8,7 +8,9 @@ const RAW: { channels: PublicChannel[] } = publicChannelsJson as { channels: Pub
 // 测试需要构造特定 channel 时，通过 vi.mock('./publicChannels', ...) 覆写。
 const IS_TEST = import.meta.env.MODE === 'test'
 
-const builtinVisible: PublicChannel[] = IS_TEST ? [] : RAW.channels.filter((c) => c.disabled !== true)
+const builtinVisible: PublicChannel[] = IS_TEST
+  ? []
+  : RAW.channels.filter((c) => c.disabled !== true)
 const visibleChannels: PublicChannel[] = [...builtinVisible, ...QUEUE_CHANNELS]
 const channelsById = new Map(visibleChannels.map((c) => [c.id, c]))
 

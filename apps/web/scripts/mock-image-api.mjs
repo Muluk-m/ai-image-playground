@@ -4,7 +4,8 @@ const port = Number(process.env.MOCK_IMAGE_API_PORT || 8787)
 const host = process.env.MOCK_IMAGE_API_HOST || '127.0.0.1'
 const defaultMode = process.env.MOCK_IMAGE_API_MODE || 'url-cors-block'
 
-const tinyPngBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII='
+const tinyPngBase64 =
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII='
 const tinyPng = Buffer.from(tinyPngBase64, 'base64')
 
 const pathModes = new Set([
@@ -39,7 +40,12 @@ function send(res, status, headers, body) {
 
 function sendJson(res, status, payload, options = {}) {
   const body = JSON.stringify(payload, null, options.pretty ? 2 : 0)
-  send(res, status, appendCors({ 'Content-Type': 'application/json; charset=utf-8' }, options.cors !== false), body)
+  send(
+    res,
+    status,
+    appendCors({ 'Content-Type': 'application/json; charset=utf-8' }, options.cors !== false),
+    body,
+  )
 }
 
 function readBody(req) {
@@ -114,25 +120,49 @@ function createOpenAIResponse(req, mode, n = 1) {
   if (mode === 'b64') {
     return {
       created,
-      data: Array.from({ length: n }, (_, i) => ({ b64_json: tinyPngBase64, revised_prompt: `mock b64 image ${i + 1}` })),
+      data: Array.from({ length: n }, (_, i) => ({
+        b64_json: tinyPngBase64,
+        revised_prompt: `mock b64 image ${i + 1}`,
+      })),
     }
   }
 
   if (mode === 'empty') return { created, data: [] }
   if (mode === 'wrong-shape') return createRandomShape(req, false)
-  if (mode === 'no-recognizable') return { created, data: Array.from({ length: n }, (_, i) => ({ id: 42 + i, name: `example-${i + 1}.jpg`, mime: 'image/png' })) }
+  if (mode === 'no-recognizable')
+    return {
+      created,
+      data: Array.from({ length: n }, (_, i) => ({
+        id: 42 + i,
+        name: `example-${i + 1}.jpg`,
+        mime: 'image/png',
+      })),
+    }
 
   if (mode === 'url-404') {
-    return { created, data: Array.from({ length: n }, (_, i) => ({ url: `${getBaseUrl(req)}/images/missing.png?cors=1&i=${i}` })) }
+    return {
+      created,
+      data: Array.from({ length: n }, (_, i) => ({
+        url: `${getBaseUrl(req)}/images/missing.png?cors=1&i=${i}`,
+      })),
+    }
   }
 
   if (mode === 'url-redirect-cors-block') {
-    return { created, data: Array.from({ length: n }, (_, i) => ({ url: `${getBaseUrl(req)}/images/redirect?cors=0&i=${i}` })) }
+    return {
+      created,
+      data: Array.from({ length: n }, (_, i) => ({
+        url: `${getBaseUrl(req)}/images/redirect?cors=0&i=${i}`,
+      })),
+    }
   }
 
   return {
     created,
-    data: Array.from({ length: n }, (_, i) => ({ url: getImageUrl(req, mode === 'url-ok', i), revised_prompt: `mock ${mode} ${i + 1}` })),
+    data: Array.from({ length: n }, (_, i) => ({
+      url: getImageUrl(req, mode === 'url-ok', i),
+      revised_prompt: `mock ${mode} ${i + 1}`,
+    })),
   }
 }
 
@@ -165,7 +195,12 @@ async function handleApi(req, res, url) {
   }
 
   if (mode === 'invalid-json') {
-    send(res, 200, appendCors({ 'Content-Type': 'application/json; charset=utf-8' }), '{ invalid json')
+    send(
+      res,
+      200,
+      appendCors({ 'Content-Type': 'application/json; charset=utf-8' }),
+      '{ invalid json',
+    )
     return
   }
 
@@ -183,7 +218,10 @@ async function handleCustom(req, res, url) {
   }
 
   if (mode === 'empty' || mode === 'no-recognizable') {
-    sendJson(res, 200, { status: 'success', data: { id: 42, name: 'example.jpg', mime: 'image/png' } })
+    sendJson(res, 200, {
+      status: 'success',
+      data: { id: 42, name: 'example.jpg', mime: 'image/png' },
+    })
     return
   }
 
@@ -191,7 +229,10 @@ async function handleCustom(req, res, url) {
     sendJson(res, 200, {
       status: 'success',
       data: {
-        images: Array.from({ length: n }, (_, i) => createRandomShape(req, mode === 'url-ok' || mode === 'b64', i).data),
+        images: Array.from(
+          { length: n },
+          (_, i) => createRandomShape(req, mode === 'url-ok' || mode === 'b64', i).data,
+        ),
       },
     })
     return
@@ -202,11 +243,14 @@ async function handleCustom(req, res, url) {
 
 function handleImage(req, res, url) {
   const cors = url.searchParams.get('cors') === '1'
-  const headers = appendCors({
-    'Cache-Control': 'no-store',
-    'Content-Type': 'image/png',
-    'Content-Length': String(tinyPng.length),
-  }, cors)
+  const headers = appendCors(
+    {
+      'Cache-Control': 'no-store',
+      'Content-Type': 'image/png',
+      'Content-Length': String(tinyPng.length),
+    },
+    cors,
+  )
 
   if (url.pathname === '/images/redirect') {
     send(res, 302, appendCors({ Location: `/images/mock.png?cors=${cors ? '1' : '0'}` }, cors), '')
@@ -214,7 +258,12 @@ function handleImage(req, res, url) {
   }
 
   if (url.pathname === '/images/missing.png') {
-    send(res, 404, appendCors({ 'Content-Type': 'text/plain; charset=utf-8' }, cors), 'mock image missing')
+    send(
+      res,
+      404,
+      appendCors({ 'Content-Type': 'text/plain; charset=utf-8' }, cors),
+      'mock image missing',
+    )
     return
   }
 
@@ -227,18 +276,23 @@ function handleImage(req, res, url) {
 }
 
 function handleIndex(req, res) {
-  sendJson(res, 200, {
-    name: 'image-playground mock image API',
-    openaiCompatibleBaseUrls: [
-      `${getBaseUrl(req)}/url-cors-block`,
-      `${getBaseUrl(req)}/url-ok`,
-      `${getBaseUrl(req)}/b64`,
-      `${getBaseUrl(req)}/wrong-shape`,
-      `${getBaseUrl(req)}/api-no-cors`,
-    ],
-    customEndpoint: `${getBaseUrl(req)}/custom/random-image`,
-    modes: [...pathModes].sort(),
-  }, { pretty: true })
+  sendJson(
+    res,
+    200,
+    {
+      name: 'image-playground mock image API',
+      openaiCompatibleBaseUrls: [
+        `${getBaseUrl(req)}/url-cors-block`,
+        `${getBaseUrl(req)}/url-ok`,
+        `${getBaseUrl(req)}/b64`,
+        `${getBaseUrl(req)}/wrong-shape`,
+        `${getBaseUrl(req)}/api-no-cors`,
+      ],
+      customEndpoint: `${getBaseUrl(req)}/custom/random-image`,
+      modes: [...pathModes].sort(),
+    },
+    { pretty: true },
+  )
 }
 
 const server = http.createServer(async (req, res) => {

@@ -4,8 +4,8 @@ import {
   classifyMaskAlpha,
   orderInputImagesForMask,
   validateMaskTarget,
-} from './mask'
-import type { InputImage } from '../types'
+} from '../../lib/mask'
+import type { InputImage } from '../../types'
 
 function img(id: string): InputImage {
   return { id, dataUrl: `data:image/png;base64,${id}` }

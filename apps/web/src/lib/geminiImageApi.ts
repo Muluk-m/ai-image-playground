@@ -111,7 +111,12 @@ export function parseGeminiResponse(payload: GeminiResponse): GeminiParseResult 
 
   for (const candidate of payload.candidates ?? []) {
     const parts = candidate.content?.parts ?? []
-    const text = parts.map((p) => (typeof p.text === 'string' ? p.text : '')).filter(Boolean).join('\n').trim() || undefined
+    const text =
+      parts
+        .map((p) => (typeof p.text === 'string' ? p.text : ''))
+        .filter(Boolean)
+        .join('\n')
+        .trim() || undefined
     for (const part of parts) {
       if (!part.inlineData) continue
       const { mimeType, data } = part.inlineData
@@ -123,7 +128,11 @@ export function parseGeminiResponse(payload: GeminiResponse): GeminiParseResult 
 
   if (!images.length) {
     const err = new Error('Gemini 未返回可用图片数据')
-    ;(err as unknown as { rawResponsePayload: string }).rawResponsePayload = JSON.stringify(payload, null, 2)
+    ;(err as unknown as { rawResponsePayload: string }).rawResponsePayload = JSON.stringify(
+      payload,
+      null,
+      2,
+    )
     throw err
   }
 
@@ -134,7 +143,10 @@ function joinUrl(base: string, suffix: string): string {
   return `${base.replace(/\/+$/, '')}/${suffix.replace(/^\/+/, '')}`
 }
 
-export async function callGeminiImageApi(opts: CallApiOptions, profile: BYOKAdapterProfile): Promise<CallApiResult> {
+export async function callGeminiImageApi(
+  opts: CallApiOptions,
+  profile: BYOKAdapterProfile,
+): Promise<CallApiResult> {
   if (opts.maskDataUrl) {
     throw new Error('Gemini 服务商不支持遮罩编辑，请改用 OpenAI 服务商')
   }
@@ -149,7 +161,10 @@ export async function callGeminiImageApi(opts: CallApiOptions, profile: BYOKAdap
     params: opts.params,
   })
 
-  const url = joinUrl(profile.baseUrl, `models/${encodeURIComponent(profile.model)}:generateContent`)
+  const url = joinUrl(
+    profile.baseUrl,
+    `models/${encodeURIComponent(profile.model)}:generateContent`,
+  )
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     // 使用 x-api-key 而不是 x-goog-api-key：浏览器端 sub2api / 多数中转 CORS 白名单

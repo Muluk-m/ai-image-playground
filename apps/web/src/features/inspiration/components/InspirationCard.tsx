@@ -1,6 +1,6 @@
 import type { KeyboardEvent, MouseEvent } from 'react'
-import { useStore } from '../../../store'
 import { StarIcon } from '../../../components/icons'
+import { useStore } from '../../../store'
 import type { InspirationItem } from '../types'
 
 interface Props {

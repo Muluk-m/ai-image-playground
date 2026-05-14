@@ -1,4 +1,4 @@
-import { useEffect, type RefObject } from 'react'
+import { type RefObject, useEffect } from 'react'
 
 type ScrollBoundaryRef = RefObject<HTMLElement | null>
 
@@ -7,7 +7,10 @@ let previousBodyOverflow = ''
 let previousBodyOverscrollBehavior = ''
 let previousDocumentOverscrollBehavior = ''
 
-function getScrollBoundary(target: EventTarget | null, allowRefs?: ScrollBoundaryRef | ScrollBoundaryRef[]) {
+function getScrollBoundary(
+  target: EventTarget | null,
+  allowRefs?: ScrollBoundaryRef | ScrollBoundaryRef[],
+) {
   if (!(target instanceof Node) || !allowRefs) return null
 
   const refs = Array.isArray(allowRefs) ? allowRefs : [allowRefs]
@@ -19,7 +22,10 @@ function getScrollBoundary(target: EventTarget | null, allowRefs?: ScrollBoundar
   return null
 }
 
-export function usePreventBackgroundScroll(active: boolean, allowRefs?: ScrollBoundaryRef | ScrollBoundaryRef[]) {
+export function usePreventBackgroundScroll(
+  active: boolean,
+  allowRefs?: ScrollBoundaryRef | ScrollBoundaryRef[],
+) {
   useEffect(() => {
     if (!active) return
 
@@ -54,4 +60,3 @@ export function usePreventBackgroundScroll(active: boolean, allowRefs?: ScrollBo
     }
   }, [active, allowRefs])
 }
-

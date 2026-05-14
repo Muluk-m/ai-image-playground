@@ -69,14 +69,23 @@ export interface AppSettings {
 // ===== 任务参数 =====
 
 export const GEMINI_ASPECT_RATIOS = [
-  '1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '4:5', '5:4', '21:9',
+  '1:1',
+  '16:9',
+  '9:16',
+  '4:3',
+  '3:4',
+  '3:2',
+  '2:3',
+  '4:5',
+  '5:4',
+  '21:9',
 ] as const
 export const GEMINI_IMAGE_SIZES = ['512', '1K', '2K', '4K'] as const
 export const GEMINI_THINKING_LEVELS = ['minimal', 'high'] as const
 
-export type GeminiAspectRatio = typeof GEMINI_ASPECT_RATIOS[number]
-export type GeminiImageSize = typeof GEMINI_IMAGE_SIZES[number]
-export type GeminiThinkingLevel = typeof GEMINI_THINKING_LEVELS[number]
+export type GeminiAspectRatio = (typeof GEMINI_ASPECT_RATIOS)[number]
+export type GeminiImageSize = (typeof GEMINI_IMAGE_SIZES)[number]
+export type GeminiThinkingLevel = (typeof GEMINI_THINKING_LEVELS)[number]
 
 export interface TaskParams {
   size: string
@@ -235,11 +244,13 @@ export interface ImageApiResponse {
 
 export interface ResponsesOutputItem {
   type?: string
-  result?: string | {
-    b64_json?: string
-    image?: string
-    data?: string
-  }
+  result?:
+    | string
+    | {
+        b64_json?: string
+        image?: string
+        data?: string
+      }
   size?: string
   quality?: string
   output_format?: string
@@ -270,18 +281,24 @@ export interface ExportData {
   settings?: AppSettings
   tasks?: TaskRecord[]
   /** imageId → 图片信息 */
-  imageFiles?: Record<string, {
-    path: string
-    createdAt?: number
-    source?: 'upload' | 'generated' | 'mask'
-    width?: number
-    height?: number
-  }>
+  imageFiles?: Record<
+    string,
+    {
+      path: string
+      createdAt?: number
+      source?: 'upload' | 'generated' | 'mask'
+      width?: number
+      height?: number
+    }
+  >
   /** imageId → 缩略图信息 */
-  thumbnailFiles?: Record<string, {
-    path: string
-    width?: number
-    height?: number
-    thumbnailVersion?: number
-  }>
+  thumbnailFiles?: Record<
+    string,
+    {
+      path: string
+      width?: number
+      height?: number
+      thumbnailVersion?: number
+    }
+  >
 }

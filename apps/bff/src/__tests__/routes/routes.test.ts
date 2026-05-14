@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach, mock, afterEach } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test'
 import { unlinkSync } from 'node:fs'
 
 const TEST_DB = './artifacts/test-routes.sqlite'
@@ -19,16 +19,20 @@ process.env.SUB2API_API_KEY = 'test'
 process.env.DATABASE_URL = TEST_DB
 process.env.CORS_ALLOWED_ORIGINS = '*'
 
-const { runMigrations } = await import('../db/migrate')
+const { runMigrations } = await import('../../db/migrate')
 runMigrations(TEST_DB)
-const { app } = await import('../app')
-const { db, schema } = await import('../db/client')
+const { app } = await import('../../app')
+const { db, schema } = await import('../../db/client')
 
 async function resetDb() {
   await db.delete(schema.tasks)
 }
 
-async function jsonReq(method: string, path: string, body?: unknown): Promise<{ status: number; json: unknown }> {
+async function jsonReq(
+  method: string,
+  path: string,
+  body?: unknown,
+): Promise<{ status: number; json: unknown }> {
   const res = await app.handle(
     new Request(`http://localhost${path}`, {
       method,
@@ -162,11 +166,9 @@ describe('BFF queue routes', () => {
   })
 
   it('POST submit rejects invalid provider', async () => {
-    const { status, json } = await jsonReq(
-      'POST',
-      '/v1/queue/unknown-provider/some-model/submit',
-      { prompt: 'x' },
-    )
+    const { status, json } = await jsonReq('POST', '/v1/queue/unknown-provider/some-model/submit', {
+      prompt: 'x',
+    })
     expect(status).toBe(400)
     expect(json).toMatchObject({ error: expect.stringContaining('unsupported provider') })
   })

@@ -21,7 +21,8 @@ export interface BYOKAdapterProfile {
  * Codex CLI 模式的 prompt 头部 guard：Codex 网关默认会改写用户 prompt，
  * 加这段前缀指示上游"原样使用 prompt 不要重写"。BYOK / edge 两条路径共用。
  */
-export const PROMPT_REWRITE_GUARD_PREFIX = 'Use the following text as the complete prompt. Do not rewrite it:'
+export const PROMPT_REWRITE_GUARD_PREFIX =
+  'Use the following text as the complete prompt. Do not rewrite it:'
 
 export function applyCodexCliPromptGuard(prompt: string, codexCli: boolean): string {
   return codexCli ? `${PROMPT_REWRITE_GUARD_PREFIX}\n${prompt}` : prompt
@@ -133,9 +134,13 @@ async function blobToDataUrl(blob: Blob, fallbackMime: string): Promise<string> 
   return bytesToDataUrl(await blob.arrayBuffer(), blob.type || fallbackMime)
 }
 
-export const IMAGE_FETCH_CORS_HINT = ' 可点链接按钮复制结果链接，或尝试开启「返回 Base64 图片数据」避免此问题。'
+export const IMAGE_FETCH_CORS_HINT =
+  ' 可点链接按钮复制结果链接，或尝试开启「返回 Base64 图片数据」避免此问题。'
 
-async function probeNoCorsReachability(url: string, timeoutMs = 8000): Promise<'opaque' | 'reachable' | 'failed'> {
+async function probeNoCorsReachability(
+  url: string,
+  timeoutMs = 8000,
+): Promise<'opaque' | 'reachable' | 'failed'> {
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
   try {
@@ -153,7 +158,11 @@ async function probeNoCorsReachability(url: string, timeoutMs = 8000): Promise<'
   }
 }
 
-export async function fetchImageUrlAsDataUrl(url: string, fallbackMime: string, signal?: AbortSignal): Promise<string> {
+export async function fetchImageUrlAsDataUrl(
+  url: string,
+  fallbackMime: string,
+  signal?: AbortSignal,
+): Promise<string> {
   if (isDataUrl(url)) return url
 
   let response: Response
@@ -166,12 +175,16 @@ export async function fetchImageUrlAsDataUrl(url: string, fallbackMime: string, 
     if (err instanceof TypeError) {
       const probe = await probeNoCorsReachability(url)
       if (probe === 'opaque') {
-        throw new Error(`图片已生成，但因服务商未允许跨域，图片链接下载失败。${IMAGE_FETCH_CORS_HINT}`)
+        throw new Error(
+          `图片已生成，但因服务商未允许跨域，图片链接下载失败。${IMAGE_FETCH_CORS_HINT}`,
+        )
       }
       if (typeof navigator !== 'undefined' && navigator.onLine === false) {
         throw new Error(`图片链接下载失败（网络不可用）。${IMAGE_FETCH_CORS_HINT}`)
       }
-      throw new Error(`图片链接下载失败（可能因跨域限制、链接过期或网络异常）。${IMAGE_FETCH_CORS_HINT}`)
+      throw new Error(
+        `图片链接下载失败（可能因跨域限制、链接过期或网络异常）。${IMAGE_FETCH_CORS_HINT}`,
+      )
     }
     throw err
   }
@@ -210,7 +223,10 @@ export async function getApiErrorMessage(response: Response): Promise<string> {
     const errJson = await response.json()
     if (errJson.error?.message) errorMsg = errJson.error.message
     else if (typeof errJson.detail === 'string') errorMsg = errJson.detail
-    else if (Array.isArray(errJson.detail)) errorMsg = errJson.detail.map((item: unknown) => typeof item === 'string' ? item : JSON.stringify(item)).join('\n')
+    else if (Array.isArray(errJson.detail))
+      errorMsg = errJson.detail
+        .map((item: unknown) => (typeof item === 'string' ? item : JSON.stringify(item)))
+        .join('\n')
     else if (typeof errJson.error === 'string') errorMsg = errJson.error
     else if (errJson.message) errorMsg = errJson.message
   } catch {
@@ -229,20 +245,36 @@ export function pickActualParams(source: unknown): Partial<TaskParams> {
   const actualParams: Partial<TaskParams> = {}
 
   if (typeof record.size === 'string') actualParams.size = record.size
-  if (record.quality === 'auto' || record.quality === 'low' || record.quality === 'medium' || record.quality === 'high') {
+  if (
+    record.quality === 'auto' ||
+    record.quality === 'low' ||
+    record.quality === 'medium' ||
+    record.quality === 'high'
+  ) {
     actualParams.quality = record.quality
   }
-  if (record.output_format === 'png' || record.output_format === 'jpeg' || record.output_format === 'webp') {
+  if (
+    record.output_format === 'png' ||
+    record.output_format === 'jpeg' ||
+    record.output_format === 'webp'
+  ) {
     actualParams.output_format = record.output_format
   }
-  if (typeof record.output_compression === 'number') actualParams.output_compression = record.output_compression
-  if (record.moderation === 'auto' || record.moderation === 'low') actualParams.moderation = record.moderation
+  if (typeof record.output_compression === 'number')
+    actualParams.output_compression = record.output_compression
+  if (record.moderation === 'auto' || record.moderation === 'low')
+    actualParams.moderation = record.moderation
   if (typeof record.n === 'number') actualParams.n = record.n
 
   return actualParams
 }
 
-export function mergeActualParams(...sources: Array<Partial<TaskParams> | undefined>): Partial<TaskParams> | undefined {
-  const merged = Object.assign({}, ...sources.filter((source) => source && Object.keys(source).length))
+export function mergeActualParams(
+  ...sources: Array<Partial<TaskParams> | undefined>
+): Partial<TaskParams> | undefined {
+  const merged = Object.assign(
+    {},
+    ...sources.filter((source) => source && Object.keys(source).length),
+  )
   return Object.keys(merged).length ? merged : undefined
 }

@@ -1,4 +1,4 @@
-import { useInspirationStore, type InspirationProviderFilter } from '../store'
+import { type InspirationProviderFilter, useInspirationStore } from '../store'
 
 const TABS: Array<{ value: InspirationProviderFilter; label: string }> = [
   { value: 'all', label: '全部' },

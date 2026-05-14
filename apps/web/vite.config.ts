@@ -1,8 +1,8 @@
-import { defineConfig, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
+import { randomBytes } from 'crypto'
 import { readFileSync, writeFileSync } from 'fs'
 import { resolve } from 'path'
-import { randomBytes } from 'crypto'
+import { defineConfig, type Plugin } from 'vite'
 import { normalizeDevProxyConfig } from './src/lib/devProxy'
 
 const pkg = JSON.parse(readFileSync('./package.json', 'utf-8'))

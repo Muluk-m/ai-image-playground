@@ -30,7 +30,14 @@ export interface HandleOptions {
 }
 
 export async function handleProxyRequest(opts: HandleOptions): Promise<Response> {
-  const { request, channel, path, env, fetchFn = fetch, heartbeatIntervalMs = HEARTBEAT_INTERVAL_MS } = opts
+  const {
+    request,
+    channel,
+    path,
+    env,
+    fetchFn = fetch,
+    heartbeatIntervalMs = HEARTBEAT_INTERVAL_MS,
+  } = opts
   const method = request.method.toUpperCase()
 
   if (method === 'OPTIONS') {
@@ -111,7 +118,12 @@ export async function handleProxyRequest(opts: HandleOptions): Promise<Response>
   })
 }
 
-function errorEnvelope(channelId: string, message: string, type: string, upstreamStatus?: number): Uint8Array {
+function errorEnvelope(
+  channelId: string,
+  message: string,
+  type: string,
+  upstreamStatus?: number,
+): Uint8Array {
   const errorPart: Record<string, unknown> = { message, type }
   if (upstreamStatus !== undefined) errorPart.upstream_status = upstreamStatus
   return ENCODER.encode(JSON.stringify({ error: errorPart, _proxyError: true, channelId }))
@@ -153,20 +165,25 @@ function makeKeepaliveStream(
           }
         } else {
           const rawBody = await upstream.text().catch(() => '')
-          controller.enqueue(errorEnvelope(
-            channelId,
-            extractUpstreamMessage(rawBody, upstream.status),
-            'upstream_error',
-            upstream.status,
-          ))
+          controller.enqueue(
+            errorEnvelope(
+              channelId,
+              extractUpstreamMessage(rawBody, upstream.status),
+              'upstream_error',
+              upstream.status,
+            ),
+          )
         }
       } catch (err) {
-        const aborted = upstreamAbort.signal.aborted || (err instanceof Error && err.name === 'AbortError')
-        controller.enqueue(errorEnvelope(
-          channelId,
-          err instanceof Error ? err.message : String(err),
-          aborted ? 'upstream_timeout' : 'upstream_fetch_failed',
-        ))
+        const aborted =
+          upstreamAbort.signal.aborted || (err instanceof Error && err.name === 'AbortError')
+        controller.enqueue(
+          errorEnvelope(
+            channelId,
+            err instanceof Error ? err.message : String(err),
+            aborted ? 'upstream_timeout' : 'upstream_fetch_failed',
+          ),
+        )
       } finally {
         upstreamDone = true
         clearInterval(heartbeat)
