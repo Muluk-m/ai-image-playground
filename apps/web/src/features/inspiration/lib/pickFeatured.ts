@@ -1,7 +1,16 @@
+import type { ProviderKind } from '../../../lib/channels/types'
 import type { InspirationItem } from '../types'
 
 const DEFAULT_COUNT = 3
 const DAY_MS = 86_400_000
+
+export interface PickFeaturedOptions {
+  /**
+   * 限定非 pinned 填补阶段从该 provider 池里挑。pinned 项不受此限制
+   * （用户显式置顶高于策略偏好）。不传时不限制。
+   */
+  preferredProvider?: ProviderKind
+}
 
 function hashString(s: string): number {
   let h = 0
@@ -39,6 +48,7 @@ export function pickFeaturedInspirations(
   pinnedIds: readonly string[],
   count = DEFAULT_COUNT,
   now: number = Date.now(),
+  options: PickFeaturedOptions = {},
 ): InspirationItem[] {
   if (items.length === 0 || count <= 0) return []
 
@@ -59,9 +69,14 @@ export function pickFeaturedInspirations(
   const dayBucket = Math.floor(now / DAY_MS)
   const rng = makeRng(hashString(`image-playground-featured-${dayBucket}`))
 
+  const { preferredProvider } = options
+  const matchesPreferred = (it: InspirationItem) =>
+    !preferredProvider || it.recommendedProvider === preferredProvider
+
   const remainingByCategory = new Map<string, InspirationItem[]>()
   for (const item of items) {
     if (usedIds.has(item.id)) continue
+    if (!matchesPreferred(item)) continue
     const list = remainingByCategory.get(item.category) ?? []
     list.push(item)
     remainingByCategory.set(item.category, list)
@@ -82,11 +97,23 @@ export function pickFeaturedInspirations(
     usedIds.add(pick.id)
   }
 
+  // 偏好池仍不够（小灵感库或 preferredProvider 池太小）：先从偏好池剩余里凑，
+  // 同 category 也允许；再不够才放宽到所有 provider，避免 hero 半空。
   if (result.length < count) {
-    const leftovers = items.filter((it) => !usedIds.has(it.id))
-    shuffleInPlace(leftovers, rng)
-    while (result.length < count && leftovers.length > 0) {
-      const next = leftovers.shift()
+    const preferredLeftovers = items.filter((it) => !usedIds.has(it.id) && matchesPreferred(it))
+    shuffleInPlace(preferredLeftovers, rng)
+    while (result.length < count && preferredLeftovers.length > 0) {
+      const next = preferredLeftovers.shift()
+      if (!next) break
+      result.push(next)
+      usedIds.add(next.id)
+    }
+  }
+  if (result.length < count && preferredProvider) {
+    const allLeftovers = items.filter((it) => !usedIds.has(it.id))
+    shuffleInPlace(allLeftovers, rng)
+    while (result.length < count && allLeftovers.length > 0) {
+      const next = allLeftovers.shift()
       if (!next) break
       result.push(next)
       usedIds.add(next.id)
