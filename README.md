@@ -179,7 +179,7 @@ pnpm dev:edge                                # wrangler pages dev at http://loca
 ## 🤝 致谢
 
 - Fork 自上游开源项目 [CookSleep/gpt_image_playground](https://github.com/CookSleep/gpt_image_playground)（MIT），在此基础上扩展为通用多服务商图像工作台。
-- 灵感库 prompt 数据来自 [freestylefly/awesome-gpt-image-2](https://github.com/freestylefly/awesome-gpt-image-2)（MIT），通过 `pnpm --filter @image-playground/web import:inspiration` 拉取上游 `data/cases.json` 派生 `public/inspiration-manifest.json`；缩略图镜像到 Cloudflare R2 (`cms-r2.deepclick.com`) 加速国内访问，刷新流程：`import:inspiration` → `mirror:r2`（前者更新数据 / 后者把新增图片同步到 R2，HEAD 探测已存在则跳过）。
+- 灵感库 prompt 数据来自 [freestylefly/awesome-gpt-image-2](https://github.com/freestylefly/awesome-gpt-image-2)（MIT），通过 `pnpm --filter @image-playground/web refresh:inspiration` 一键同步：拉取上游 `data/cases.json`、按需把新增图片镜像到 Cloudflare R2（`cms-r2.deepclick.com`）、上游永久 404 的 item 自动从 manifest 排除。已镜像的图片复用现有 URL，HEAD 探测幂等，每次刷新只为 diff 付出代价。需要本机 `wrangler login` 并具备写 `playload-cms` 桶的权限。
 
 ## 📄 License
 
