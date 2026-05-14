@@ -42,9 +42,18 @@ import {
   GEMINI_THINKING_LEVELS,
   type TaskParams,
 } from '../types'
+import { ChipIcons } from './chipIcons'
+import ParamChip from './ParamChip'
 import Select from './Select'
 import SizePickerModal from './SizePickerModal'
 import ViewportTooltip from './ViewportTooltip'
+
+/** chip 模式 Select trigger：让 trigger 充满 chip wrapper（由 wrapperClassName='absolute inset-0' 提供），chevron 靠右对齐。 */
+const CHIP_TRIGGER_CLASS = '!justify-end !bg-transparent !border-0 !shadow-none !px-3 !py-0 h-full'
+const CHIP_WRAPPER_CLASS = 'absolute inset-0'
+
+const TEXTAREA_CLASS =
+  'min-h-[42px] w-full whitespace-pre-wrap break-words bg-transparent px-1 py-1 text-sm leading-relaxed outline-none empty:before:pointer-events-none empty:before:text-gray-400 empty:before:content-[attr(data-placeholder)] dark:text-gray-100 dark:empty:before:text-gray-400'
 
 function getMentionTagTextLength(el: Element) {
   return el.textContent?.length ?? 0
@@ -1175,9 +1184,6 @@ export default function InputBar() {
     }
   }, [])
 
-  const selectClass =
-    'px-3 py-1.5 rounded-xl border border-gray-200/60 dark:border-white/[0.08] bg-white/50 dark:bg-white/[0.03] hover:bg-white dark:hover:bg-white/[0.06] text-xs transition-all duration-200 shadow-sm'
-
   const getTouchDropIndex = (touch: React.Touch) => {
     const target = document
       .elementFromPoint(touch.clientX, touch.clientY)
@@ -1595,195 +1601,166 @@ export default function InputBar() {
     setSettings({ profiles: nextProfiles, activeProfileId: option.profileId })
   }
 
-  const renderParams = (cols: string) => (
-    <div className={`grid ${cols} gap-2 text-xs flex-1`}>
-      {globalModelOptions.length > 0 && (
-        <label className="flex flex-col gap-0.5 col-span-2">
-          <span className="text-gray-400 dark:text-gray-500 ml-1">模型</span>
-          <Select
-            value={currentModelValue}
-            onChange={(val) => handleGlobalModelPick(String(val))}
-            options={globalModelOptions.map((o) => ({
-              label: `${o.modelLabel} · ${o.profileName}`,
-              value: o.value,
-            }))}
-            className={selectClass}
-          />
-        </label>
-      )}
-      {!isGeminiProvider && (
-        <label
-          className="relative flex flex-col gap-0.5"
-          onMouseEnter={showSizeHint}
-          onMouseLeave={hideSizeHint}
-          onTouchStart={startSizeHintTouch}
-          onTouchEnd={clearSizeHintTimer}
-          onTouchCancel={hideSizeHint}
-          onClick={showSizeHint}
-        >
-          <span className="text-gray-400 dark:text-gray-500 ml-1">尺寸</span>
-          <button
-            type="button"
+  /**
+   * 参数 chip 行：单行 flex-wrap，attach + generate 由调用方在外层拼接。
+   * 不适用的参数 chip（quality / compression / moderation）直接不渲染。
+   */
+  const renderChipParams = () => {
+    const selectedOpt = globalModelOptions.find((o) => o.value === currentModelValue)
+    // chip 模式只显示 modelLabel；profileName 在下拉里 + tooltip 里完整呈现，
+    // 这样 Model chip 宽度可控不挤掉其他 chip。
+    const modelLine = selectedOpt?.modelLabel ?? '未选择'
+    return (
+      <>
+        {globalModelOptions.length > 0 && (
+          <ParamChip
+            icon={ChipIcons.model}
+            label={modelLine}
+            className="min-w-[150px] max-w-[200px] flex-shrink"
+          >
+            <Select
+              value={currentModelValue}
+              onChange={(val) => handleGlobalModelPick(String(val))}
+              options={globalModelOptions.map((o) => ({
+                label: `${o.modelLabel} · ${o.profileName}`,
+                value: o.value,
+              }))}
+              className={CHIP_TRIGGER_CLASS}
+              wrapperClassName={CHIP_WRAPPER_CLASS}
+              hideSelectedLabel
+            />
+          </ParamChip>
+        )}
+        {!isGeminiProvider && (
+          <ParamChip
+            icon={ChipIcons.size}
+            label="尺寸"
+            value={displaySize}
             onClick={() => {
               dismissAllTooltips()
               setShowSizePicker(true)
             }}
-            className="px-3 py-1.5 rounded-xl border border-gray-200/60 dark:border-white/[0.08] bg-white/50 dark:bg-white/[0.03] hover:bg-white dark:hover:bg-white/[0.06] focus:outline-none text-xs text-left transition-all duration-200 shadow-sm font-mono"
-            title="选择尺寸"
-          >
-            {displaySize}
-          </button>
-          <ButtonTooltip visible={sizeHintVisible} text="" />
-        </label>
-      )}
-      {isGeminiProvider &&
-        GEMINI_FIELDS.map(({ label, field, options }) => (
-          <label key={field} className="flex flex-col gap-0.5">
-            <span className="text-gray-400 dark:text-gray-500 ml-1">{label}</span>
-            <Select
-              value={(params[field] as string | undefined) ?? 'auto'}
-              onChange={(val) =>
-                setParams({
-                  [field]: val === 'auto' ? undefined : val,
-                } as Partial<TaskParams>)
+          />
+        )}
+        {isGeminiProvider &&
+          GEMINI_FIELDS.map(({ label, field, options }) => {
+            const icon =
+              field === 'gemini_aspect_ratio'
+                ? ChipIcons.aspect
+                : field === 'gemini_image_size'
+                  ? ChipIcons.imageSize
+                  : ChipIcons.thinking
+            const currentValue = (params[field] as string | undefined) ?? 'auto'
+            return (
+              <ParamChip key={field} icon={icon} label={label} value={currentValue}>
+                <Select
+                  value={currentValue}
+                  onChange={(val) =>
+                    setParams({
+                      [field]: val === 'auto' ? undefined : val,
+                    } as Partial<TaskParams>)
+                  }
+                  options={[...options]}
+                  className={CHIP_TRIGGER_CLASS}
+                  wrapperClassName={CHIP_WRAPPER_CLASS}
+                  hideSelectedLabel
+                />
+              </ParamChip>
+            )
+          })}
+        {!isGeminiProvider && (
+          <>
+            {/* 质量 / 压缩 / 审核：仅在当前模式下确实可用时才渲染，避免单行 chip
+                被一堆"灰着但不能点"的占位挤到第二行。 */}
+            {!activeView.codexCli && (
+              <ParamChip icon={ChipIcons.quality} label="质量" value={params.quality}>
+                <Select
+                  value={params.quality}
+                  onChange={(val) => setParams({ quality: val as any })}
+                  options={qualityOptions}
+                  className={CHIP_TRIGGER_CLASS}
+                  wrapperClassName={CHIP_WRAPPER_CLASS}
+                  hideSelectedLabel
+                />
+              </ParamChip>
+            )}
+            <ParamChip
+              icon={ChipIcons.format}
+              label="格式"
+              value={params.output_format.toUpperCase()}
+            >
+              <Select
+                value={params.output_format}
+                onChange={(val) => setParams({ output_format: val as any })}
+                options={[
+                  { label: 'PNG', value: 'png' },
+                  { label: 'JPEG', value: 'jpeg' },
+                  { label: 'WebP', value: 'webp' },
+                ]}
+                className={CHIP_TRIGGER_CLASS}
+                wrapperClassName={CHIP_WRAPPER_CLASS}
+                hideSelectedLabel
+              />
+            </ParamChip>
+            {!compressionDisabled && (
+              <ParamChip icon={ChipIcons.compression} label="压缩">
+                <input
+                  value={outputCompressionInput}
+                  onChange={(e) => setOutputCompressionInput(e.target.value)}
+                  onBlur={commitOutputCompression}
+                  type="number"
+                  min={0}
+                  max={100}
+                  placeholder="0-100"
+                  className="w-12 bg-transparent text-xs font-medium text-gray-700 outline-none dark:text-gray-200"
+                />
+              </ParamChip>
+            )}
+            {!moderationDisabled && (
+              <ParamChip icon={ChipIcons.moderation} label="审核" value={params.moderation}>
+                <Select
+                  value={params.moderation}
+                  onChange={(val) => setParams({ moderation: val as any })}
+                  options={[
+                    { label: 'auto', value: 'auto' },
+                    { label: 'low', value: 'low' },
+                  ]}
+                  className={CHIP_TRIGGER_CLASS}
+                  wrapperClassName={CHIP_WRAPPER_CLASS}
+                  hideSelectedLabel
+                />
+              </ParamChip>
+            )}
+          </>
+        )}
+        <ParamChip icon={ChipIcons.count} label="数量">
+          <input
+            value={nInput}
+            onChange={(e) => handleNInputChange(e.target.value)}
+            onFocus={() => setNInputFocused(true)}
+            onBlur={() => {
+              setNInputFocused(false)
+              commitN()
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'ArrowUp') {
+                handleNLimitIncreaseAttempt(() => e.preventDefault())
               }
-              options={[...options]}
-              className={selectClass}
-            />
-          </label>
-        ))}
-      {!isGeminiProvider && (
-        <>
-          <label
-            className="relative flex flex-col gap-0.5"
-            onMouseEnter={showQualityHint}
-            onMouseLeave={hideQualityHint}
-            onTouchStart={startQualityHintTouch}
-            onTouchEnd={clearQualityHintTimer}
-            onTouchCancel={hideQualityHint}
-            onClick={showQualityHint}
-          >
-            <span className="text-gray-400 dark:text-gray-500 ml-1">质量</span>
-            <Select
-              value={activeView.codexCli ? 'auto' : params.quality}
-              onChange={(val) => {
-                if (!activeView.codexCli) setParams({ quality: val as any })
-              }}
-              options={qualityOptions}
-              disabled={activeView.codexCli}
-              className={
-                activeView.codexCli
-                  ? 'px-3 py-1.5 rounded-xl border border-gray-200/60 dark:border-white/[0.08] bg-gray-100/50 dark:bg-white/[0.05] opacity-50 cursor-not-allowed text-xs transition-all duration-200 shadow-sm'
-                  : selectClass
+            }}
+            onWheel={(e) => {
+              if (e.deltaY < 0) {
+                handleNLimitIncreaseAttempt(() => e.preventDefault())
               }
-            />
-            <ButtonTooltip
-              visible={activeView.codexCli && qualityHintVisible}
-              text="Codex CLI 不支持质量参数"
-            />
-          </label>
-          <label className="flex flex-col gap-0.5">
-            <span className="text-gray-400 dark:text-gray-500 ml-1">格式</span>
-            <Select
-              value={params.output_format}
-              onChange={(val) => setParams({ output_format: val as any })}
-              options={[
-                { label: 'PNG', value: 'png' },
-                { label: 'JPEG', value: 'jpeg' },
-                { label: 'WebP', value: 'webp' },
-              ]}
-              className={selectClass}
-            />
-          </label>
-          <label
-            className="relative flex flex-col gap-0.5"
-            onMouseEnter={showCompressionHint}
-            onMouseLeave={hideCompressionHint}
-            onTouchStart={startCompressionHintTouch}
-            onTouchEnd={clearCompressionHintTimer}
-            onTouchCancel={hideCompressionHint}
-            onClick={showCompressionHint}
-          >
-            <span className="text-gray-400 dark:text-gray-500 ml-1">压缩率</span>
-            <input
-              value={outputCompressionInput}
-              onChange={(e) => setOutputCompressionInput(e.target.value)}
-              onBlur={commitOutputCompression}
-              disabled={compressionDisabled}
-              type="number"
-              min={0}
-              max={100}
-              placeholder="0-100"
-              className={`px-3 py-1.5 rounded-xl border border-gray-200/60 dark:border-white/[0.08] focus:outline-none text-xs transition-all duration-200 shadow-sm ${
-                compressionDisabled
-                  ? 'bg-gray-100/50 dark:bg-white/[0.05] opacity-50 cursor-not-allowed'
-                  : 'bg-white/50 dark:bg-white/[0.03]'
-              }`}
-            />
-            <ButtonTooltip visible={compressionHintVisible} text="仅 JPEG 和 WebP 支持压缩率" />
-          </label>
-          <label
-            className="relative flex flex-col gap-0.5"
-            onMouseEnter={showModerationHint}
-            onMouseLeave={hideModerationHint}
-            onTouchStart={startModerationHintTouch}
-            onTouchEnd={clearModerationHintTimer}
-            onTouchCancel={hideModerationHint}
-            onClick={showModerationHint}
-          >
-            <span className="text-gray-400 dark:text-gray-500 ml-1">审核</span>
-            <Select
-              value={moderationDisabled ? 'auto' : params.moderation}
-              onChange={(val) => {
-                if (!moderationDisabled) setParams({ moderation: val as any })
-              }}
-              options={[
-                { label: 'auto', value: 'auto' },
-                { label: 'low', value: 'low' },
-              ]}
-              disabled={moderationDisabled}
-              className={
-                moderationDisabled
-                  ? 'px-3 py-1.5 rounded-xl border border-gray-200/60 dark:border-white/[0.08] bg-gray-100/50 dark:bg-white/[0.05] opacity-50 cursor-not-allowed text-xs transition-all duration-200 shadow-sm'
-                  : selectClass
-              }
-            />
-            <ButtonTooltip
-              visible={moderationDisabled && moderationHintVisible}
-              text="Responses API 不支持审核参数"
-            />
-          </label>
-        </>
-      )}
-      <label className="relative flex flex-col gap-0.5">
-        <span className="text-gray-400 dark:text-gray-500 ml-1">数量</span>
-        <input
-          value={nInput}
-          onChange={(e) => handleNInputChange(e.target.value)}
-          onFocus={() => setNInputFocused(true)}
-          onBlur={() => {
-            setNInputFocused(false)
-            commitN()
-          }}
-          onKeyDown={(e) => {
-            if (e.key === 'ArrowUp') {
-              handleNLimitIncreaseAttempt(() => e.preventDefault())
-            }
-          }}
-          onWheel={(e) => {
-            if (e.deltaY < 0) {
-              handleNLimitIncreaseAttempt(() => e.preventDefault())
-            }
-          }}
-          type="number"
-          min={1}
-          max={outputImageLimit}
-          className="px-3 py-1.5 rounded-xl border border-gray-200/60 dark:border-white/[0.08] bg-white/50 dark:bg-white/[0.03] focus:outline-none text-xs transition-all duration-200 shadow-sm"
-        />
-        <ButtonTooltip visible={nLimitHintVisible} text={nLimitHintText} />
-      </label>
-    </div>
-  )
+            }}
+            type="number"
+            min={1}
+            max={outputImageLimit}
+            className="w-7 bg-transparent text-xs font-medium text-gray-500 outline-none dark:text-gray-400"
+          />
+        </ParamChip>
+      </>
+    )
+  }
 
   return (
     <>
@@ -2053,6 +2030,11 @@ export default function InputBar() {
               onInput={(e) => {
                 isUserInputRef.current = true
                 const el = e.currentTarget
+                // contentEditable 删除最后一个字符后浏览器常留 <br> 或空 span，让
+                // :empty 不再匹配 → placeholder 消失。textContent 真为空就把残留 DOM 清干净。
+                if (!el.textContent && el.innerHTML) {
+                  el.innerHTML = ''
+                }
                 const range = getContentEditableSelection(el)
                 setCursorPos(range.start)
                 syncMentionTagSelection(el)
@@ -2091,91 +2073,89 @@ export default function InputBar() {
                 syncMentionTagSelection(el)
               }}
               data-placeholder="描述你想生成的图片，可输入 @ 指定当前参考图..."
-              className="min-h-[42px] w-full whitespace-pre-wrap break-words rounded-2xl border border-gray-200/60 bg-white/50 px-4 py-3 text-sm leading-relaxed shadow-sm outline-none transition-[border-color,box-shadow] duration-200 focus:ring-1 focus:ring-blue-300/40 empty:before:pointer-events-none empty:before:text-gray-400 empty:before:content-[attr(data-placeholder)] dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-gray-100 dark:focus:ring-blue-500/30 dark:empty:before:text-gray-500"
+              className={TEXTAREA_CLASS}
             />
           </div>
 
           {/* 参数 + 按钮 */}
           <div className="mt-3">
             {/* 桌面端布局 */}
-            <div className="hidden sm:flex items-end justify-between gap-3">
-              {renderParams('grid-cols-6')}
-
-              <div className="flex gap-2 flex-shrink-0 mb-0.5">
-                <div
-                  className="relative"
-                  onMouseEnter={() => setAttachHover(true)}
-                  onMouseLeave={() => setAttachHover(false)}
+            <div className="hidden sm:flex flex-wrap items-center gap-2">
+              <div
+                className="relative flex-shrink-0"
+                onMouseEnter={() => setAttachHover(true)}
+                onMouseLeave={() => setAttachHover(false)}
+              >
+                <ButtonTooltip
+                  visible={atImageLimit && attachHover}
+                  text={`参考图数量已达上限（${API_MAX_IMAGES} 张），无法继续添加`}
+                />
+                <button
+                  onClick={() => !atImageLimit && fileInputRef.current?.click()}
+                  className={`flex h-10 w-10 items-center justify-center rounded-xl border transition-colors duration-150 ${
+                    atImageLimit
+                      ? 'border-gray-200/60 bg-gray-100/60 text-gray-300 cursor-not-allowed dark:border-white/[0.08] dark:bg-white/[0.04] dark:text-gray-500'
+                      : 'border-gray-300/80 bg-white/70 text-gray-500 hover:border-gray-400/80 hover:bg-white dark:border-white/[0.12] dark:bg-white/[0.04] dark:text-gray-300 dark:hover:border-white/[0.20] dark:hover:bg-white/[0.07]'
+                  }`}
+                  title={atImageLimit ? `已达上限 ${API_MAX_IMAGES} 张` : '添加参考图'}
                 >
-                  <ButtonTooltip
-                    visible={atImageLimit && attachHover}
-                    text={`参考图数量已达上限（${API_MAX_IMAGES} 张），无法继续添加`}
-                  />
-                  <button
-                    onClick={() => !atImageLimit && fileInputRef.current?.click()}
-                    className={`p-2.5 rounded-xl transition-all shadow-sm ${
-                      atImageLimit
-                        ? 'bg-gray-200 dark:bg-white/[0.04] text-gray-300 dark:text-gray-500 cursor-not-allowed'
-                        : 'bg-gray-200 dark:bg-white/[0.06] hover:bg-gray-300 dark:hover:bg-white/[0.1] text-gray-500 dark:text-gray-300 hover:shadow'
-                    }`}
-                    title={atImageLimit ? `已达上限 ${API_MAX_IMAGES} 张` : '添加参考图'}
-                  >
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"
-                      />
-                    </svg>
-                  </button>
-                </div>
-                <div
-                  className="relative"
-                  onMouseEnter={() => setSubmitHover(true)}
-                  onMouseLeave={() => setSubmitHover(false)}
+                  {ChipIcons.imageAttach}
+                </button>
+              </div>
+              {renderChipParams()}
+              {/* Generate 视觉做大（h-12, px-5）拉出主次层级；ml-auto 推到当前行最右。
+                    chips 偶尔挤到 row 2 alone with Generate 时，大按钮的视觉权重能撑住留白。 */}
+              <div
+                className="relative ml-auto flex-shrink-0"
+                onMouseEnter={() => setSubmitHover(true)}
+                onMouseLeave={() => setSubmitHover(false)}
+              >
+                <ButtonTooltip
+                  visible={!hasSubmitApiConfig && submitHover}
+                  text="尚未完成 API 配置，请在右上角设置中进行"
+                />
+                <button
+                  onClick={() => (hasSubmitApiConfig ? submitTask() : setShowSettings(true))}
+                  disabled={hasSubmitApiConfig ? !canSubmit : false}
+                  className={`group/gen relative inline-flex h-12 items-center justify-center gap-1.5 overflow-hidden rounded-xl pl-3.5 pr-5 text-sm font-semibold leading-none transition-all duration-200 active:scale-[0.97] ${
+                    !hasSubmitApiConfig
+                      ? 'bg-gray-300 text-white dark:bg-white/[0.06]'
+                      : 'bg-gradient-to-b from-blue-400 to-blue-600 text-white shadow-lg shadow-blue-500/30 ring-1 ring-inset ring-white/20 hover:from-blue-400 hover:to-blue-500 hover:shadow-blue-500/40 hover:shadow-xl disabled:from-gray-300 disabled:to-gray-400 disabled:bg-none disabled:ring-0 disabled:shadow-none dark:disabled:from-white/[0.04] dark:disabled:to-white/[0.04] disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100'
+                  }`}
+                  title={
+                    hasSubmitApiConfig
+                      ? maskDraft
+                        ? '遮罩编辑 (Ctrl+Enter)'
+                        : '生成 (Ctrl+Enter)'
+                      : '请先配置 API'
+                  }
                 >
-                  <ButtonTooltip
-                    visible={!hasSubmitApiConfig && submitHover}
-                    text="尚未完成 API 配置，请在右上角设置中进行"
-                  />
-                  <button
-                    onClick={() => (hasSubmitApiConfig ? submitTask() : setShowSettings(true))}
-                    disabled={hasSubmitApiConfig ? !canSubmit : false}
-                    className={`p-2.5 rounded-xl transition-all shadow-sm hover:shadow active:scale-90 ${
-                      !hasSubmitApiConfig
-                        ? 'bg-gray-300 dark:bg-white/[0.06] text-white cursor-pointer'
-                        : 'bg-blue-500 text-white hover:bg-blue-600 disabled:bg-gray-300 dark:disabled:bg-white/[0.04] disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100'
-                    }`}
-                    title={
-                      hasSubmitApiConfig
-                        ? maskDraft
-                          ? '遮罩编辑 (Ctrl+Enter)'
-                          : '生成 (Ctrl+Enter)'
-                        : '请先配置 API'
-                    }
+                  {/* 顶部 1px 高光，模拟塑料光泽 */}
+                  {hasSubmitApiConfig && (
+                    <span className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/40 to-transparent" />
+                  )}
+                  <svg
+                    className="h-[18px] w-[18px] drop-shadow-[0_0_4px_rgba(255,255,255,0.4)]"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
                   >
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M13 7l5 5m0 0l-5 5m5-5H6"
-                      />
-                    </svg>
-                  </button>
-                </div>
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5L12 3zM19 14l.7 2.1L22 17l-2.3.9L19 20l-.7-2.1L16 17l2.3-.9L19 14z"
+                    />
+                  </svg>
+                  <span>{maskDraft ? '遮罩编辑' : '生成'}</span>
+                </button>
               </div>
             </div>
 
             {/* 移动端布局 */}
             <div className="sm:hidden flex flex-col gap-2">
-              <div className={`collapse-section${mobileCollapsed ? ' collapsed' : ''}`}>
-                <div className="collapse-inner">
-                  {renderParams('grid-cols-2')}
-                  <div className="h-2" />
-                </div>
-              </div>
+              {/* chip 已经够紧凑，无需折叠手柄；flex-wrap 让 chips 自然换行成 2-3 行 */}
+              <div className="flex flex-wrap items-center gap-2">{renderChipParams()}</div>
 
               <div className="flex items-center gap-2">
                 <div
@@ -2189,21 +2169,14 @@ export default function InputBar() {
                   />
                   <button
                     onClick={() => !atImageLimit && fileInputRef.current?.click()}
-                    className={`p-2.5 rounded-xl transition-all shadow-sm flex-shrink-0 ${
+                    className={`flex h-10 w-10 items-center justify-center rounded-xl border transition-colors duration-150 flex-shrink-0 ${
                       atImageLimit
-                        ? 'bg-gray-200 dark:bg-white/[0.04] text-gray-300 dark:text-gray-500 cursor-not-allowed'
-                        : 'bg-gray-200 dark:bg-white/[0.06] hover:bg-gray-300 dark:hover:bg-white/[0.1] text-gray-500 dark:text-gray-300'
+                        ? 'border-gray-200/60 bg-gray-100/60 text-gray-300 cursor-not-allowed dark:border-white/[0.08] dark:bg-white/[0.04] dark:text-gray-500'
+                        : 'border-gray-300/80 bg-white/70 text-gray-500 hover:border-gray-400/80 hover:bg-white dark:border-white/[0.12] dark:bg-white/[0.04] dark:text-gray-300 dark:hover:border-white/[0.20] dark:hover:bg-white/[0.07]'
                     }`}
                     title={atImageLimit ? `已达上限 ${API_MAX_IMAGES} 张` : '添加参考图'}
                   >
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"
-                      />
-                    </svg>
+                    {ChipIcons.imageAttach}
                   </button>
                 </div>
                 <div
@@ -2218,21 +2191,14 @@ export default function InputBar() {
                   <button
                     onClick={() => (hasSubmitApiConfig ? submitTask() : setShowSettings(true))}
                     disabled={hasSubmitApiConfig ? !canSubmit : false}
-                    className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium transition-all shadow-sm active:scale-[0.97] ${
+                    className={`w-full inline-flex h-10 items-center justify-center gap-1.5 rounded-xl px-3.5 text-xs font-medium shadow-sm transition-all duration-150 active:scale-[0.97] ${
                       !hasSubmitApiConfig
-                        ? 'bg-gray-300 dark:bg-white/[0.06] text-white cursor-pointer'
+                        ? 'bg-gray-300 text-white dark:bg-white/[0.06]'
                         : 'bg-blue-500 text-white hover:bg-blue-600 disabled:bg-gray-300 dark:disabled:bg-white/[0.04] disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100'
                     }`}
                   >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M13 7l5 5m0 0l-5 5m5-5H6"
-                      />
-                    </svg>
-                    {maskDraft ? '遮罩编辑' : '生成图像'}
+                    {ChipIcons.sparkles}
+                    <span>{maskDraft ? '遮罩编辑' : '生成图像'}</span>
                   </button>
                 </div>
               </div>

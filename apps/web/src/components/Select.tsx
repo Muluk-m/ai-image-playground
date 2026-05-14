@@ -26,6 +26,10 @@ interface SelectProps {
   options: Option[]
   disabled?: boolean
   className?: string
+  /** 自定义 trigger 容器 class，默认 `relative w-full`；chip 模式用 `absolute inset-0` 让 chip 整块可点。 */
+  wrapperClassName?: string
+  /** 隐藏选中值文本（chip 模式由外层 chip 自己渲染 value，只保留 chevron 触发）。 */
+  hideSelectedLabel?: boolean
 }
 
 export default function Select({
@@ -35,6 +39,8 @@ export default function Select({
   options,
   disabled,
   className,
+  wrapperClassName,
+  hideSelectedLabel,
 }: SelectProps) {
   const [isOpen, setIsOpen] = useState(false)
   const [menuMaxHeight, setMenuMaxHeight] = useState(DEFAULT_DROPDOWN_MAX_HEIGHT)
@@ -167,7 +173,7 @@ export default function Select({
   }
 
   return (
-    <div ref={containerRef} className="relative w-full">
+    <div ref={containerRef} className={wrapperClassName ?? 'relative w-full'}>
       <div
         ref={triggerRef}
         onClick={handleToggle}
@@ -175,7 +181,9 @@ export default function Select({
           disabled ? '!opacity-50 !cursor-not-allowed !bg-gray-100/50 dark:!bg-white/[0.05]' : ''
         }`}
       >
-        <span className="truncate">{selectedOption?.label ?? value}</span>
+        {!hideSelectedLabel && (
+          <span className="truncate">{selectedOption?.label ?? value}</span>
+        )}
         <ChevronDownIcon
           className={`w-3.5 h-3.5 flex-shrink-0 text-gray-400 dark:text-gray-500 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}
         />
