@@ -1318,6 +1318,13 @@ export async function submitTask(
   }
   useStore.getState().setReusedTaskApiProfile(null)
 
+  // 把新插入的卡片带进视野，避免「点了按钮没反应」的错觉。
+  // 仅当用户已经滚出顶部时才平滑滚回顶部；本来就在顶部时新卡片直接出现在视野内。
+  if (typeof window !== 'undefined' && window.scrollY > 80) {
+    const supportsSmooth = 'scrollBehavior' in document.documentElement.style
+    window.scrollTo({ top: 0, behavior: supportsSmooth ? 'smooth' : 'auto' })
+  }
+
   // 异步调用 API
   executeTask(taskId)
 }

@@ -89,6 +89,17 @@ input[type="number"] {
   0%, 100% { border-color: #3b82f6; }
   50% { border-color: #93c5fd; }
 }
+.generating {
+  animation: pulse-border 1.8s ease-in-out infinite;
+}
+
+@keyframes task-pop-in {
+  from { opacity: 0; transform: scale(0.94) translateY(-4px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+.animate-task-pop-in {
+  animation: task-pop-in 260ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
 
 @keyframes coach-pulse {
   0%   { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.55); }

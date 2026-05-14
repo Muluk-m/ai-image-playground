@@ -2176,10 +2176,10 @@ export default function InputBar() {
                   <button
                     onClick={() => (hasSubmitApiConfig ? submitTask() : setShowSettings(true))}
                     disabled={hasSubmitApiConfig ? !canSubmit : false}
-                    className={`p-2.5 rounded-xl transition-all shadow-sm hover:shadow ${
+                    className={`p-2.5 rounded-xl transition-all shadow-sm hover:shadow active:scale-90 ${
                       !hasSubmitApiConfig
                         ? 'bg-gray-300 dark:bg-white/[0.06] text-white cursor-pointer'
-                        : 'bg-blue-500 text-white hover:bg-blue-600 disabled:bg-gray-300 dark:disabled:bg-white/[0.04] disabled:opacity-50 disabled:cursor-not-allowed'
+                        : 'bg-blue-500 text-white hover:bg-blue-600 disabled:bg-gray-300 dark:disabled:bg-white/[0.04] disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100'
                     }`}
                     title={
                       hasSubmitApiConfig
@@ -2252,10 +2252,10 @@ export default function InputBar() {
                   <button
                     onClick={() => (hasSubmitApiConfig ? submitTask() : setShowSettings(true))}
                     disabled={hasSubmitApiConfig ? !canSubmit : false}
-                    className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium transition-all shadow-sm ${
+                    className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium transition-all shadow-sm active:scale-[0.97] ${
                       !hasSubmitApiConfig
                         ? 'bg-gray-300 dark:bg-white/[0.06] text-white cursor-pointer'
-                        : 'bg-blue-500 text-white hover:bg-blue-600 disabled:bg-gray-300 dark:disabled:bg-white/[0.04] disabled:opacity-50 disabled:cursor-not-allowed'
+                        : 'bg-blue-500 text-white hover:bg-blue-600 disabled:bg-gray-300 dark:disabled:bg-white/[0.04] disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100'
                     }`}
                   >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
