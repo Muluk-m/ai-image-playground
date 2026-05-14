@@ -8,7 +8,6 @@ import Lightbox from './components/Lightbox'
 import MaskEditorModal from './components/MaskEditorModal'
 import SearchBar from './components/SearchBar'
 import SettingsModal from './components/SettingsModal'
-import SupportPromptModal from './components/SupportPromptModal'
 import TaskGrid from './components/TaskGrid'
 import Toast from './components/Toast'
 import InspirationPanel from './features/inspiration/components/InspirationPanel'
@@ -69,7 +68,6 @@ export default function App() {
       <SettingsModal />
       <InspirationPanel />
       <ConfirmDialog />
-      <SupportPromptModal />
       <Toast />
       <MaskEditorModal />
       <ImageContextMenu />
