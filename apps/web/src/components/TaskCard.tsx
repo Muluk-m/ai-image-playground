@@ -32,6 +32,14 @@ export default function TaskCard({
   const [coverRatio, setCoverRatio] = useState<string>('')
   const [coverSize, setCoverSize] = useState<string>('')
   const [now, setNow] = useState(Date.now())
+  // 刚创建的 task 短暂播放入场动画，让用户清楚看到「卡片真的新冒出来了」。
+  const [isFresh, setIsFresh] = useState(() => Date.now() - task.createdAt < 600)
+  useEffect(() => {
+    if (!isFresh) return
+    const remaining = Math.max(0, 600 - (Date.now() - task.createdAt))
+    const timer = window.setTimeout(() => setIsFresh(false), remaining)
+    return () => window.clearTimeout(timer)
+  }, [isFresh, task.createdAt])
   const [swipeOffset, setSwipeOffset] = useState(0)
   const [isSwiping, setIsSwiping] = useState(false)
   const [swipeStartedSelected, setSwipeStartedSelected] = useState(false)
@@ -249,7 +257,7 @@ export default function TaskCard({
           !isSwiping
             ? 'transition-[box-shadow,border-color,background-color,transform]'
             : 'transition-[box-shadow,border-color,background-color]'
-        } ${
+        } ${isFresh ? 'animate-task-pop-in' : ''} ${
           task.status === 'running'
             ? 'border-blue-400 generating'
             : isSelected
