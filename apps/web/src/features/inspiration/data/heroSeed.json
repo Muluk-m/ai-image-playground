@@ -1,0 +1,128 @@
+[
+  {
+    "id": "awesome-3",
+    "title": "足球主题电影海报",
+    "prompt": "生成一张「足球主题电影海报」风格的高清写真海报：国际米兰后卫巴斯托尼站在圣西罗球场中央激情庆祝，双手高举并披着波黑国旗，神情热血、坚定、自信，现场灯光璀璨，球场看台座无虚席，背景有蓝黑色烟雾、聚光灯、飘扬的旗帜和飞舞的纸屑，营造欧冠之夜般的史诗氛围。人物为画面核心，半身到全身构图，突出脸部细节、肌肉张力与球衣质感。整体风格写实、震撼、富有戏剧性，海报级构图，电影感光影，高对比度，超清细节，8K，专业体育摄影，极具视觉冲击力。五根手指。",
+    "thumbnailUrl": "https://cms-r2.deepclick.com/image-playground/case3.jpg?w=320&q=85",
+    "imageUrl": "https://cms-r2.deepclick.com/image-playground/case3.jpg",
+    "params": {
+      "size": "auto",
+      "n": 1
+    },
+    "recommendedModel": "gpt-image-2",
+    "recommendedProvider": "openai-compat",
+    "category": "海报与字体",
+    "tags": [
+      "海报",
+      "写实",
+      "人物",
+      "时尚"
+    ],
+    "author": "未提供"
+  },
+  {
+    "id": "awesome-6",
+    "title": "插画艺术创作图",
+    "prompt": "参考图是角色人设图，为参考图的少女绘制一副日系唯美奇幻风格插画。\n【构图】这是一个宏大的中景日系奇幻插画构图，画面中心是完全保留了完整细节的可爱少女，她站立在无边的、如镜面般平滑的水面中心。天空呈现出高饱和度的粉紫与深蓝交织，一条耀眼的蓝色巨型流星划破天际，配合着边缘发光的瑰丽层云。女孩处于背光状态，形成一个暗调但依然清晰可辨其服装和紫色明亮眼眸的剪影，被流星和星空的边缘光细腻勾勒，她微微仰头，一只手轻轻张开。下方的水面完美、对称地反射出整个壮丽的星空、流星、云彩，以及女孩清晰的倒影，点缀着微小的发光点，营造出天人合一、空灵静谧的唯美梦境意境。\n【日系唯美奇幻风格说明】该风格以高饱和度的粉紫冷暖色调交织出浩瀚星空，并辅以壮丽的流星与边缘发光的层云作为视觉奇观；画面巧妙利用“天空之镜”般的完美水面反射，将宏大的宇宙背景与孤独静立的人物剪影相融合，通过极具电影感的光影渲染与高对比度的表现手法，营造出一种空灵、静谧且带有超现实宿命感的梦境氛围。\n【要求】生成图片的比例9:16，分辨率 4k。",
+    "thumbnailUrl": "https://cms-r2.deepclick.com/image-playground/case6.jpg?w=320&q=85",
+    "imageUrl": "https://cms-r2.deepclick.com/image-playground/case6.jpg",
+    "params": {
+      "size": "auto",
+      "n": 1
+    },
+    "recommendedModel": "gpt-image-2",
+    "recommendedProvider": "openai-compat",
+    "category": "插画与艺术",
+    "tags": [
+      "插画",
+      "人物",
+      "创意"
+    ],
+    "author": "小红书号yi_xiao_jiu"
+  },
+  {
+    "id": "awesome-11",
+    "title": "一张手绘风格的城市美食地图，以台州为主题",
+    "prompt": "一张手绘风格的城市美食地图，以台州为主题。画面以鸟瞰视角的手绘简化城市地图为底，标注椒江、路桥、黄岩等区域和灵江、台州湾等水系地标，不追求精确比例而是追求可爱的水彩手绘感。地图上分布着12个美食地点的精致手绘小插画：1. 椒江老粮坊的蛋清羊尾（金黄蓬松的蛋泡甜点撒着糖粉，筷子夹起拉丝）2. 临海紫阳古街的食饼筒（一个饱满的麦饼卷切开露出肉丝、蛋皮、米面等丰富馅料）3. 三门的青蟹（一只肥硕的青壳大蟹张着大钳子，旁边一小碟姜醋）4. 温岭石塘渔港的海鲜面（粗瓷大碗浓白鱼汤面铺满虾、蛏子、小黄鱼）5. 路桥的糟羹（一锅稠厚的五彩羹，芥菜、冬笋、香干、牡蛎粒粒可见）6. 玉环坎门的炊圆（三四个白胖糯米团子卧在笼屉里，旁边酱油碟滴着麻油）7. 黄岩的麦虾（陶锅里面疙瘩配蛤蜊、青菜翻滚冒泡）8. 仙居的八大碗（八只粗陶小碗围成一圈——土鸡、溪鱼、豆腐皮俱全）9. 天台的饺饼筒（几卷金黄酥脆的薄饼整齐码放，露出红烧肉和豆面馅）10. 临海的麦油脂（竹盘上摊着薄如蝉翼的饼皮卷着肉末、豆芽、鸡蛋丝）11. 温岭的嵌糕（厚实的年糕饼中间嵌着红烧肉和油条，正在铁板上滋滋作响）12. 椒江的姜汁调蛋（一只青花碗里琥珀色姜汤卧着嫩滑蛋花，撒几粒核桃碎）。每个插画约占地图5%面积，旁边用手写体标注店名和一句推荐语如“阿婆凌晨四点就起来和面”“本地人认准这口锅”。地图边缘用手绘藤蔓、杨梅枝和小海鲜（虾、蟹、贝壳）装饰形成边框。右下角有一个手绘指南针（标注“东海”方向）和图例说明。左上角标题“台州·山海食光地图”使用胖圆的手绘美术字，用杨梅和小黄鱼点缀装饰。整体画风为水彩+彩铅混合的手绘质感，颜色以杨梅红、姜黄、海蓝、翠绿为主，图片比例1:1。",
+    "thumbnailUrl": "https://cms-r2.deepclick.com/image-playground/case11.jpg?w=320&q=85",
+    "imageUrl": "https://cms-r2.deepclick.com/image-playground/case11.jpg",
+    "params": {
+      "size": "auto",
+      "n": 1
+    },
+    "recommendedModel": "gpt-image-2",
+    "recommendedProvider": "openai-compat",
+    "category": "建筑与空间",
+    "tags": [
+      "插画",
+      "旅行"
+    ],
+    "author": "小红书号510244722"
+  },
+  {
+    "id": "awesome-27",
+    "title": "人物角色设定图",
+    "prompt": "{\n  \"type\": \"collection of instant photos\",\n  \"setting\": \"laid out flat on a white fabric surface\",\n  \"character\": {\n    \"hair\": \"{argument name=\\\"hair color\\\" default=\\\"long pink hair with blue inner color\\\"}\",\n    \"outfit\": \"{argument name=\\\"outfit\\\" default=\\\"black and white maid uniform with frilly headband and black ribbons\\\"}\",\n    \"eyes\": \"reddish-pink\"\n  },\n  \"layout\": {\n    \"arrangement\": \"two rows of five polaroid photos\",\n    \"count\": 10,\n    \"photos\": [\n      { \"position\": \"top row 1\", \"description\": \"holding a pink heart cushion\" },\n      { \"position\": \"top row 2\", \"description\": \"winking, making a peace sign\" },\n      { \"position\": \"top row 3\", \"description\": \"making a hand heart, pink heart doodle on the bottom border\" },\n      { \"position\": \"top row 4\", \"description\": \"resting chin on hands, gentle smile\" },\n      { \"position\": \"top row 5\", \"description\": \"holding a red rose, winking\" },\n      { \"position\": \"bottom row 1\", \"description\": \"finger to lips, shy expression\" },\n      { \"position\": \"bottom row 2\", \"description\": \"holding a small pink cake\" },\n      { \"position\": \"bottom row 3\", \"description\": \"winking, hand near face, signature '{argument name=\\\"signature text\\\" default=\\\"Hanashi\\\"}' and heart doodle on border\" },\n      { \"position\": \"bottom row 4\", \"description\": \"holding a pink bunny plushie, sparkle doodles, signature '{argument name=\\\"signature text\\\" default=\\\"Hanashi\\\"}' and bunny doodle on border\" },\n      { \"position\": \"bottom row 5\", \"description\": \"winking, sparkle doodles, message '{argument name=\\\"message text\\\" default=\\\"いつも応援ありがとう！これからもよろしくね♪\\\"}' and signature '{argument name=\\\"signature text\\\" default=\\\"Hanashi\\\"}' on border\" }\n    ]\n  }\n}",
+    "thumbnailUrl": "https://cms-r2.deepclick.com/image-playground/case27.jpg?w=320&q=85",
+    "imageUrl": "https://cms-r2.deepclick.com/image-playground/case27.jpg",
+    "params": {
+      "size": "auto",
+      "n": 1
+    },
+    "recommendedModel": "gpt-image-2",
+    "recommendedProvider": "openai-compat",
+    "category": "人物与角色",
+    "tags": [
+      "写实",
+      "人物",
+      "科技",
+      "商业"
+    ],
+    "author": "@anemone_sd",
+    "sourceUrl": "https://x.com/anemone_sd"
+  },
+  {
+    "id": "awesome-182",
+    "title": "千禧年日系校园喜剧场景",
+    "prompt": "[中文]\n2000 年代面向中学生的日剧喜剧场景\n\n[English]\n2000s Japanese TV drama comedy scene aimed at middle school students",
+    "thumbnailUrl": "https://cms-r2.deepclick.com/image-playground/case182.jpg?w=320&q=85",
+    "imageUrl": "https://cms-r2.deepclick.com/image-playground/case182.jpg",
+    "params": {
+      "size": "auto",
+      "n": 1
+    },
+    "recommendedModel": "gpt-image-2",
+    "recommendedProvider": "openai-compat",
+    "category": "场景与叙事",
+    "tags": [
+      "场景",
+      "科技",
+      "故事"
+    ],
+    "author": "@UminekoStudio",
+    "sourceUrl": "https://x.com/UminekoStudio/status/2046488248256806981"
+  },
+  {
+    "id": "awesome-8",
+    "title": "科普百科图",
+    "prompt": "根据【主题】生成一张高质量竖版「科普百科图」。\n这张图不是普通海报，也不是单纯插画，而是一张兼具图鉴感、百科感、信息结构感和收藏感的模块化科普信息图。整体风格参考高级博物图鉴、现代百科书页、生活方式知识卡，以及社交媒体上更容易传播的信息图风格。\n让画面包含：\n一个清晰好看的主题主视觉\n若干局部特征放大细节\n多个圆角模块化信息分区\n清楚的标题层级与重点标签\n简洁但信息丰富的百科内容\n可视化评分、要点总结或 Top 5 模块\n内容栏目请根据主题自动适配，优先从这些方向里选择并合理组合：\n基础档案、分类信息、外观特征、习性生态、形成机制或结构组成、生长或使用条件、养护或维护建议、风险与注意事项、适合人群或适用场景、优缺点对比、快速评分卡。\n视觉要求：\n浅色干净背景，柔和配色，轻阴影，精致小图标，圆角信息框，整体排版整洁清爽。信息密度要丰富，但不能显得拥挤，阅读体验要舒服。最终效果要像真正可以发布、阅读、收藏、批量做成系列内容的科普百科卡，而不是广告感很重的宣传海报。\n不要做成普通商业宣传海报，要重点突出“知识整理”“模块信息”“图鉴式展示”这几个特征。",
+    "thumbnailUrl": "https://cms-r2.deepclick.com/image-playground/case8.jpg?w=320&q=85",
+    "imageUrl": "https://cms-r2.deepclick.com/image-playground/case8.jpg",
+    "params": {
+      "size": "auto",
+      "n": 1
+    },
+    "recommendedModel": "gpt-image-2",
+    "recommendedProvider": "openai-compat",
+    "category": "图表与信息图",
+    "tags": [
+      "信息图",
+      "海报",
+      "插画",
+      "商业",
+      "教育",
+      "故事"
+    ],
+    "author": "小红书号1055699679"
+  }
+]
