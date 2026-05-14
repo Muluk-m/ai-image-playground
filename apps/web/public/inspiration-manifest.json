@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-05-13T12:15:19.224Z",
+  "updatedAt": "2026-05-14T03:09:05.335Z",
   "categories": [
     "建筑与空间",
     "品牌与 Logo",
@@ -3435,6 +3435,29 @@
       "sourceUrl": "https://x.com/liyue_ai/status/2045332620352119274"
     },
     {
+      "id": "awesome-274",
+      "title": "成都吃货暴走手绘美食地图",
+      "prompt": "[中文]\n一张手绘风格的城市美食地图，以成都为主题。画面以鸟瞰视角的手绘简化城市地图为底，标注主要道路和地标但不追求精确比例而是追求可爱的手绘感。地图上分布着 12 个美食地点的精致手绘小插画：春熙路的串串香（一把竹签插着各种食材冒着热气）、宽窄巷子的三大炮（三个糯米团子飞向铜盘）、建设路的蛋烘糕（金黄酥脆正在翻面）、玉林路的火锅（九宫格锅翻滚冒泡）等，每个插画约占地图的 5% 面积，旁边用手写体标注店名和一句推荐语\"凌晨两点还在排队的那家\"。地图边缘用手绘藤蔓和辣椒装饰形成边框。右下角有一个手绘指南针和图例说明。左上角标题\"成都·吃货暴走地图\"使用胖圆的手绘美术字配辣椒装饰。整体画风为水彩+彩铅混合的手绘质感，颜色以暖色系（辣椒红、姜黄、翠绿）为主，图片比例 1:1。\n\n[English]\nA hand-drawn style city food map themed around Chengdu. The background is a bird's-eye view hand-drawn simplified city map, marking main roads and landmarks, not pursuing precise proportions but pursuing a cute hand-drawn feel. Distributed on the map are exquisite hand-drawn small illustrations of 12 food locations: Chuandu Chuanxiang skewers at Chunxi Road (a bunch of bamboo skewers with various ingredients emitting steam), Sandapao at Kuanzhai Alley (three glutinous rice balls flying towards a copper plate), Danhonggao at Jianshe Road (golden and crispy, being flipped), hotpot at Yulin Road (nine-grid pot rolling and bubbling), etc. Each illustration accounts for about 5% of the map area, with handwritten store names and a recommendation phrase \"the one with a queue even at 2 AM\" next to it. The edge of the map is decorated with hand-drawn vines and chili peppers to form a border. There is a hand-drawn compass and legend description in the bottom right corner. The title \"Chengdu · Foodie Walking Map\" in the top left corner uses chubby round hand-drawn artistic fonts decorated with chili peppers. The overall art style is a mixed hand-drawn texture of watercolor and colored pencils, with colors mainly in warm tones (chili red, ginger yellow, emerald green), image ratio 1:1.",
+      "thumbnailUrl": "https://cms-r2.deepclick.com/image-playground/case274.jpg?w=320&q=85",
+      "imageUrl": "https://cms-r2.deepclick.com/image-playground/case274.jpg",
+      "params": {
+        "size": "auto",
+        "n": 1
+      },
+      "recommendedModel": "gpt-image-2",
+      "recommendedProvider": "openai-compat",
+      "category": "建筑与空间",
+      "tags": [
+        "UI",
+        "插画",
+        "科技",
+        "商业",
+        "美食"
+      ],
+      "author": "@Panda20230902",
+      "sourceUrl": "https://x.com/Panda20230902/status/2045396918965285111"
+    },
+    {
       "id": "awesome-273",
       "title": "橙红渐变中的孤独剪影",
       "prompt": "[中文]\n生成一张电影级极简肖像，一个孤独的男人站在强烈的橙色到红色渐变环境中，强烈的剪影光，深邃的阴影对比，反光的光滑地面，对称构图，极简\n\n[English]\nGenerate a cinematic minimal portrait of a solitary man standing in an intense orange to red gradient environment, strong silhouette lighting, deep shadow contrast, reflective glossy floor, symmetrical composition, minimal",
@@ -4206,6 +4229,30 @@
       "sourceUrl": "https://x.com/old_pgmrs_will/status/2045852114673635507"
     },
     {
+      "id": "awesome-236",
+      "title": "粤超联赛国潮风邀请函海报",
+      "prompt": "[中文]\n广东省城市足球超级联赛（粤超）邀请函海报设计，比例9:16；\n\nS型流动构图，画面从下方向上延展，一条由足球运动轨迹形成的动态能量流贯穿画面， 中心为一颗发光的足球，带有动感轨迹与能量光效；\n\n沿S型动线融合广东城市地标与文化元素： 广州塔、深圳平安金融中心、珠海渔女雕像、岭南建筑与佛山武术剪影、中山孙中山文化象征、潮汕英歌舞动态人物轮廓、清远山水自然景观， 所有元素采用“线描 + 局部色块 + 留白”融合表现，层次递进、远近虚实结合；\n\n加入抽象足球运动员剪影，弱化人物细节，强化动势与竞技氛围，视觉重点仍为足球；\n\n风格：现代国潮高级海报，极简风格但富有设计感，高级、干净、统一， 融合东方美学与现代体育视觉；\n\n色彩方案：高饱和但克制，中国红为主视觉，青蓝色辅助，金色点缀高光， 高对比但不杂乱，具有品牌级视觉冲击力；\n\n顶部中央横版视觉主标题 「广东省城市足球超级联赛」：中字，宋体， 中央竖排文字排版： 「粤超」，大字，手写书法艺术字体， 「邀请函」：中字，宋体，纵向排列，间距较大， 底部中央第一排横排： 「2026年4月25日」，小字，宋体，第二排：「广州越秀山体育场」，小字，宋体， 预留文字排版空间；\n\n整体版式平衡、具有高级品牌海报质感，极致精细，构图简洁干净，无杂乱元素，电影级光影，8K 分辨率，高端设计感。融入源自中国传统祥云纹的雅致云纹与水波纹元素，浮动光效粒子，富有动感与生机。\n\n[English]\nGuangdong Provincial City Football Super League (Yuechao) invitation poster design, aspect ratio 9:16;\n\nS-shaped flowing composition, the picture extends from bottom to top, a dynamic energy flow formed by the trajectory of football movement runs through the picture, the center is a glowing football, with dynamic trajectory and energy light effects;\n\nAlong the S-shaped motion line, integrate Guangdong city landmarks and cultural elements: Canton Tower, Shenzhen Ping An Finance Centre, Zhuhai Fisher Girl statue, Lingnan architecture and Foshan martial arts silhouettes, Zhongshan Sun Yat-sen cultural symbols, Chaoshan Yingge dance dynamic character outlines, Qingyuan landscape natural scenery, all elements adopt the integrated expression of \"line drawing + partial color blocks + blank space\", progressive layers, combination of distance and virtual-real;\n\nAdd abstract football player silhouettes, weaken character details, strengthen momentum and competitive atmosphere, the visual focus remains on the football;\n\nStyle: modern Guochao high-end poster, minimalist style but rich in design sense, high-end, clean, unified, integrating oriental aesthetics and modern sports vision;\n\nColor scheme: high saturation but restrained, Chinese red as the main visual, cyan-blue as auxiliary, gold embellished highlights, high contrast but not cluttered, with brand-level visual impact;\n\nTop center horizontal visual main title \"Guangdong Provincial City Football Super League\": medium font, Song typeface, center vertical text layout: \"Yuechao\", large font, handwritten calligraphy art font, \"Invitation\": medium font, Song typeface, vertical arrangement, large spacing, bottom center first row horizontal: \"April 25, 2026\", small font, Song typeface, second row: \"Guangzhou Yuexiushan Stadium\", small font, Song typeface, reserve text layout space;\n\nThe overall layout is balanced, has a high-end brand poster texture, extremely detailed, the composition is simple and clean, no cluttered elements, cinematic light and shadow, 8K resolution, high-end design sense. Integrate elegant cloud patterns and water wave patterns derived from traditional Chinese auspicious clouds, floating light effect particles, full of dynamics and vitality.",
+      "thumbnailUrl": "https://cms-r2.deepclick.com/image-playground/case236.jpg?w=320&q=85",
+      "imageUrl": "https://cms-r2.deepclick.com/image-playground/case236.jpg",
+      "params": {
+        "size": "auto",
+        "n": 1
+      },
+      "recommendedModel": "gpt-image-2",
+      "recommendedProvider": "openai-compat",
+      "category": "海报与字体",
+      "tags": [
+        "海报",
+        "品牌",
+        "人物",
+        "科技",
+        "商业",
+        "旅行"
+      ],
+      "author": "@liyue_ai",
+      "sourceUrl": "https://x.com/liyue_ai/status/2045772039521542202"
+    },
+    {
       "id": "awesome-235",
       "title": "治愈系助眠指南九宫格",
       "prompt": "[中文]\n生成一张适合小红书发布的 3:4 竖版九宫格海报，整体为 3列 × 3行 排版，九个宫格边界清晰，方便后期直接切割成 9 张单图发布。整体风格干净、高级、统一，适合女性向健康生活方式内容，具有小红书爆款封面气质。画面要求 信息排版清晰、文字大、可读性强、留白舒服、配色温柔治愈。\n\n整体视觉风格：\n奶油白、浅米色、淡燕麦色、浅焦糖色为主色调，搭配少量深棕色文字，ins风、治愈感、睡眠疗愈主题，简约排版，轻拟物插画点缀，可加入枕头、月亮、星星、热牛奶、香薰、书本、眼罩、窗帘、床铺等元素。整体像专业新媒体设计图，字体工整，适合做知识科普类小红书九宫格。\n排版要求：\n\n整张图必须是标准九宫格构图，切分后每一格都能独立成图\n\n每个宫格内容完整居中，不要把标题或正文压在分割线附近\n每个格子之间保留明显间隔或细边框，保证裁切后不影响阅读\n所有文字使用中文，清晰易读，不要乱码，不要英文\n每个宫格都像独立的小红书图文卡片，但视觉风格保持统一\n画面精致、真实、自然，不要廉价营销感，不要过度花哨\n九宫格具体内容：\n\n第1格（封面）\n大标题：让你倒头就睡的8个 tips\n副标题：失眠党、熬夜党一定要收藏\n封面视觉最吸睛，适合做首图，加入柔软床铺、月亮、枕头、眼罩等治愈睡眠元素，标题突出，排版高级。\n\n第2格\n标题：1. 睡前1小时别玩手机\n正文：蓝光会让大脑更清醒，越刷越睡不着。\n配图元素：手机、月亮、困倦表情的小插画\n第3格\n标题：2. 睡前把灯光调暗\n正文：暖光环境能帮助身体进入“准备睡觉”的状态。\n配图元素：床头灯、暖黄色灯光、窗帘\n第4格\n标题：3. 房间温度别太高\n正文：稍微凉一点，更容易快速入睡。\n配图元素：空调、温度计、被子\n第5格\n标题：4. 晚上别喝浓茶咖啡\n正文：咖啡因会延迟困意，让你躺很久还睡不着。\n配图元素：咖啡杯、茶杯、禁止符号\n\n第6格\n标题：5. 睡前洗个热水澡\n正文：能让身体放松下来，入睡速度更快。\n配图元素：浴室蒸汽、毛巾、热水\n第7格\n标题：6. 脑子停不下来就写下来\n正文：把烦心事和待办清单写下，大脑会更容易放松。\n配图元素：笔记本、钢笔、小台灯\n第8格\n标题：7. 固定上床时间\n正文：每天差不多时间睡，生物钟会越来越稳定。\n配图元素：时钟、月亮、床\n第9格\n标题：8. 试试深呼吸放松法\n正文：吸气4秒，停4秒，呼气6秒，慢慢就有困意了。\n底部小字：收藏这组，今晚试试看\n配图元素：呼吸线条、闭眼人物、星星\n\n画质要求：\n高清，高级排版，杂志感，真实可发布，新媒体运营审美，小红书爆款图文风格，文字布局规整，适合直接切图。\n\n[English]\nGenerate a 3:4 vertical 9-grid poster suitable for publishing on Xiaohongshu, with an overall layout of 3 columns × 3 rows. The boundaries of the nine grids are clear, making it easy to directly cut into 9 single images for later publishing. The overall style is clean, premium, and unified, suitable for female-oriented healthy lifestyle content, possessing the vibe of a viral Xiaohongshu cover. Image requirements: clear information layout, large text, strong readability, comfortable white space, gentle and healing color palette.\n\nOverall visual style:\nCream white, light beige, light oat color, and light caramel color as the main color tones, paired with a small amount of dark brown text. Ins style, healing sense, sleep therapy theme, minimalist layout, light skeuomorphic illustration embellishments. Elements such as pillows, moons, stars, hot milk, aromatherapy, books, eye masks, curtains, and beds can be added. The overall look should be like a professional new media design graphic, with neat fonts, suitable for a knowledge-based popular science Xiaohongshu 9-grid.\n\nLayout requirements:\nThe entire image must be a standard 9-grid composition, and each grid can stand alone as an independent image after being cut.\nThe content of each grid should be completely centered; do not place titles or body text near the dividing lines.\nKeep obvious gaps or thin borders between each grid to ensure that reading is not affected after cropping.\nAll text must use Chinese, be clear and readable, no garbled characters, no English.\nEach grid should look like an independent Xiaohongshu image-and-text card, but the visual style must remain unified.\nThe image should be exquisite, realistic, and natural, without a cheap marketing feel, and not overly flashy.\n\nSpecific content of the 9-grid:\n\nGrid 1 (Cover)\nMain title: 8 tips to make you fall asleep instantly\nSubtitle: Insomniacs and night owls must save this\nThe cover visuals should be the most eye-catching, suitable for the first image. Add healing sleep elements such as soft beds, moons, pillows, and eye masks. The title should be prominent with a premium layout.\n\nGrid 2\nTitle: 1. Don't play with your phone 1 hour before bed\nBody text: Blue light makes the brain more awake; the more you scroll, the harder it is to fall asleep.\nImage elements: Mobile phone, moon, small illustration of a sleepy expression\n\nGrid 3\nTitle: 2. Dim the lights before bed\nBody text: A warm light environment can help the body enter a \"ready to sleep\" state.\nImage elements: Bedside lamp, warm yellow light, curtains\n\nGrid 4\nTitle: 3. Don't keep the room temperature too high\nBody text: Keeping it a bit cooler makes it easier to fall asleep quickly.\nImage elements: Air conditioner, thermometer, quilt\n\nGrid 5\nTitle: 4. Don't drink strong tea or coffee at night\nBody text: Caffeine delays sleepiness, making you lie in bed for a long time unable to sleep.\nImage elements: Coffee cup, teacup, prohibition sign\n\nGrid 6\nTitle: 5. Take a hot shower before bed\nBody text: It can relax the body and help you fall asleep faster.\nImage elements: Bathroom steam, towel, hot water\n\nGrid 7\nTitle: 6. Write it down if your brain won't stop\nBody text: Writing down your worries and to-do lists makes it easier for your brain to relax.\nImage elements: Notebook, fountain pen, small desk lamp\n\nGrid 8\nTitle: 7. Fix your bedtime\nBody text: Going to bed at about the same time every day will make your biological clock increasingly stable.\nImage elements: Clock, moon, bed\n\nGrid 9\nTitle: 8. Try deep breathing relaxation\nBody text: Inhale for 4 seconds, hold for 4 seconds, exhale for 6 seconds, and sleepiness will gradually come.\nBottom small text: Save this set and try it tonight\nImage elements: Breathing lines, person with closed eyes, stars\n\nImage quality requirements:\nHigh definition, premium layout, magazine feel, realistically publishable, new media operation aesthetics, Xiaohongshu viral image-and-text style, neat text layout, suitable for direct image cutting.",
@@ -4782,6 +4829,26 @@
       ],
       "author": "@op7418",
       "sourceUrl": "https://x.com/op7418/status/2046502136973001143"
+    },
+    {
+      "id": "awesome-209",
+      "title": "神话三国枪战世界",
+      "prompt": "[中文]\n模仿《无畏契约》的风格，生成一个三国神话的 FPS 游戏\n\n[English]\nImitating the style of Valorant, generate a Three Kingdoms mythological FPS game",
+      "thumbnailUrl": "https://cms-r2.deepclick.com/image-playground/case209.jpg?w=320&q=85",
+      "imageUrl": "https://cms-r2.deepclick.com/image-playground/case209.jpg",
+      "params": {
+        "size": "auto",
+        "n": 1
+      },
+      "recommendedModel": "gpt-image-2",
+      "recommendedProvider": "openai-compat",
+      "category": "UI 与界面",
+      "tags": [
+        "UI",
+        "创意"
+      ],
+      "author": "@op7418",
+      "sourceUrl": "https://x.com/op7418/status/2046519666047426967"
     },
     {
       "id": "awesome-208",
@@ -7181,6 +7248,27 @@
       "sourceUrl": "https://x.com/wtry1102"
     },
     {
+      "id": "awesome-97",
+      "title": "综合应用场景图",
+      "prompt": "Create a high-quality Japanese {argument name=\"thumbnail type\" default=\"webinar thumbnail\"}. {argument name=\"aspect ratio\" default=\"16:9 widescreen\"}. There is a lot of text, but the main copy stands out clearly.",
+      "thumbnailUrl": "https://cms-r2.deepclick.com/image-playground/case97.jpg?w=320&q=85",
+      "imageUrl": "https://cms-r2.deepclick.com/image-playground/case97.jpg",
+      "params": {
+        "size": "auto",
+        "n": 1
+      },
+      "recommendedModel": "gpt-image-2",
+      "recommendedProvider": "openai-compat",
+      "category": "海报与字体",
+      "tags": [
+        "海报",
+        "科技",
+        "故事"
+      ],
+      "author": "@kawai_design",
+      "sourceUrl": "https://x.com/kawai_design"
+    },
+    {
       "id": "awesome-96",
       "title": "主题海报版式设计",
       "prompt": "{\n  \"type\": \"VTuber stream thumbnail\",\n  \"character\": {\n    \"hair\": \"long blonde twin tails with pink gradient ends\",\n    \"eyes\": \"large pink anime eyes\",\n    \"expression\": \"cheerful smile with a small fang, making a peace sign near the eye\",\n    \"outfit\": \"black top with harness straps, black heart-ring choker, multiple ear piercings including a cross dangle, black nail polish\"\n  },\n  \"background\": \"vibrant neon pink and black leopard print with glowing yellow accents, sparkles, and floating hearts\",\n  \"typography_and_layout\": {\n    \"main_title\": {\n      \"position\": \"top left\",\n      \"style\": \"large, bold, 3D, pink and black with white outlines\",\n      \"text\": \"{argument name=\\\"main title\\\" default=\\\"雑談配信\\\"}\"\n    },\n    \"top_right_text\": {\n      \"style\": \"casual handwritten style with a heart\",\n      \"text\": \"{argument name=\\\"top right text\\\" default=\\\"まったり話そ〜♡\\\"}\"\n    },\n    \"bottom_left_banners\": {\n      \"count\": 3,\n      \"style\": \"glowing pill-shaped banners with heart icons on the left\",\n      \"colors\": [\"pink\", \"yellow\", \"purple\"],\n      \"labels\": [\n        \"{argument name=\\\"banner 1 text\\\" default=\\\"初見さん〇\\\"}\",\n        \"{argument name=\\\"banner 2 text\\\" default=\\\"ポイント回収〇\\\"}\",\n        \"{argument name=\\\"banner 3 text\\\" default=\\\"ROM〇\\\"}\"\n      ]\n    },\n    \"bottom_right_text\": {\n      \"style\": \"casual handwritten style with a heart, yellow text with pink outline\",\n      \"text\": \"気軽にコメントしてねっ♡\"\n    }\n  }\n}",
@@ -8567,6 +8655,28 @@
       ],
       "author": "@mirochill",
       "sourceUrl": "https://x.com/mirochill"
+    },
+    {
+      "id": "awesome-35",
+      "title": "人像写实摄影图",
+      "prompt": "A {argument name=\"photography style\" default=\"photorealistic portrait with shallow depth of field and soft bokeh\"} of a {argument name=\"subject\" default=\"young Japanese woman\"} looking back over her shoulder at the camera with a {argument name=\"expression\" default=\"gentle smile\"}. She is wearing a {argument name=\"attire\" default=\"light beige kimono with orange maple leaf patterns\"} and a gold obi. Her dark hair is styled in an elegant updo with loose strands framing her face, and she wears small pearl earrings. The background features an {argument name=\"setting\" default=\"autumn garden with vibrant red maple leaves\"}, with bright red foliage framing the top left and a heavily blurred, soft background creating a serene, cinematic atmosphere.",
+      "thumbnailUrl": "https://cms-r2.deepclick.com/image-playground/case35.jpg?w=320&q=85",
+      "imageUrl": "https://cms-r2.deepclick.com/image-playground/case35.jpg",
+      "params": {
+        "size": "auto",
+        "n": 1
+      },
+      "recommendedModel": "gpt-image-2",
+      "recommendedProvider": "openai-compat",
+      "category": "摄影与写实",
+      "tags": [
+        "写实",
+        "科技",
+        "时尚",
+        "旅行"
+      ],
+      "author": "@kazmaendo",
+      "sourceUrl": "https://x.com/kazmaendo"
     },
     {
       "id": "awesome-34",
