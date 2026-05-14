@@ -179,7 +179,7 @@ pnpm dev:edge                                # wrangler pages dev at http://loca
 
 ## 🤝 致谢
 
-- Fork 自上游开源项目 [CookSleep/gpt_image_playground](https://github.com/CookSleep/gpt_image_playground)（MIT），在此基础上扩展为通用多服务商图像工作台。
+- 基于一个 MIT 开源项目 fork 扩展为通用多服务商图像工作台（原作者署名见 `LICENSE`）。
 - 灵感库 prompt 数据来自两个上游：
   - [freestylefly/awesome-gpt-image-2](https://github.com/freestylefly/awesome-gpt-image-2)（MIT）→ GPT Image 2 提示词，来自 `data/cases.json`
   - [YouMind-OpenLab/awesome-nano-banana-pro-prompts](https://github.com/YouMind-OpenLab/awesome-nano-banana-pro-prompts)（CC BY 4.0）→ Nano Banana 2 提示词，从 `README_zh.md` 解析「精选 / 所有提示词」两段

@@ -74,7 +74,6 @@ const MAX_IMAGE_CACHE_ENTRIES = 8
 const MAX_THUMBNAIL_CACHE_ENTRIES = 80
 const MAX_THUMBNAIL_BACKFILL_CONCURRENT = 4
 const CUSTOM_RECOVERY_POLL_MS = 10_000
-const SUPPORT_PROMPT_IMAGE_THRESHOLD = 50
 /** submitTask 后若用户已滚出此高度（px），把视口平滑滚回顶部把新卡片带进视野。 */
 const SUBMIT_SCROLL_TO_TOP_THRESHOLD_PX = 80
 const customRecoveryTimers = new Map<string, ReturnType<typeof setTimeout>>()
@@ -306,70 +305,6 @@ function orderImagesWithMaskFirst(
   return next
 }
 
-function countSuccessfulOutputImages(tasks: TaskRecord[]) {
-  return tasks.reduce(
-    (count, task) => count + (task.status === 'done' ? task.outputImages.length : 0),
-    0,
-  )
-}
-
-function skipSupportPromptForImportedData(tasks: TaskRecord[]) {
-  const count = countSuccessfulOutputImages(tasks)
-  useStore.setState((state) => {
-    if (state.supportPromptDismissed) return {}
-    if (count <= SUPPORT_PROMPT_IMAGE_THRESHOLD) {
-      return { supportPromptSkippedForImportedData: false }
-    }
-    if (state.supportPromptOpen) return {}
-    return { supportPromptSkippedForImportedData: true }
-  })
-}
-
-function showSupportPromptForExistingLocalData(tasks: TaskRecord[]) {
-  const count = countSuccessfulOutputImages(tasks)
-  useStore.setState((state) => {
-    if (state.supportPromptDismissed || state.supportPromptOpen) return {}
-    if (count <= SUPPORT_PROMPT_IMAGE_THRESHOLD) {
-      return { supportPromptSkippedForImportedData: false }
-    }
-    if (state.supportPromptSkippedForImportedData) return {}
-    return { supportPromptOpen: true }
-  })
-}
-
-function maybeOpenSupportPrompt(
-  previousTasks: TaskRecord[],
-  nextTasks: TaskRecord[],
-  taskId: string,
-) {
-  const state = useStore.getState()
-  if (
-    state.supportPromptDismissed ||
-    state.supportPromptOpen ||
-    state.supportPromptSkippedForImportedData
-  )
-    return
-
-  const previousTask = previousTasks.find((task) => task.id === taskId)
-  const nextTask = nextTasks.find((task) => task.id === taskId)
-  if (
-    !nextTask ||
-    previousTask?.status === 'done' ||
-    nextTask.status !== 'done' ||
-    nextTask.outputImages.length === 0
-  )
-    return
-
-  const previousCount = countSuccessfulOutputImages(previousTasks)
-  const nextCount = countSuccessfulOutputImages(nextTasks)
-  if (
-    previousCount <= SUPPORT_PROMPT_IMAGE_THRESHOLD &&
-    nextCount > SUPPORT_PROMPT_IMAGE_THRESHOLD
-  ) {
-    useStore.setState({ supportPromptOpen: true })
-  }
-}
-
 export function getPersistedState(state: AppState) {
   const normalized = normalizeSettings(state.settings)
   // builtin-edge profile 不进 localStorage：其完整定义来自 config/channels.json + edge env。
@@ -388,9 +323,6 @@ export function getPersistedState(state: AppState) {
         }
       : {}),
     dismissedCodexCliPrompts: state.dismissedCodexCliPrompts,
-    supportPromptDismissed: state.supportPromptDismissed,
-    supportPromptOpen: state.supportPromptOpen,
-    supportPromptSkippedForImportedData: state.supportPromptSkippedForImportedData,
     inspirationCoachDismissed: state.inspirationCoachDismissed,
     pinnedInspirationIds: state.pinnedInspirationIds,
     // 内置 channel 的 model cache 不进 localStorage（避免敏感模型清单泄漏到导出）。
@@ -408,9 +340,6 @@ function mergePersistedState(persistedState: unknown, currentState: AppState): A
     ...currentState,
     ...persisted,
     settings,
-    supportPromptDismissed: Boolean(persisted.supportPromptDismissed),
-    supportPromptOpen: Boolean(persisted.supportPromptOpen),
-    supportPromptSkippedForImportedData: Boolean(persisted.supportPromptSkippedForImportedData),
     inspirationCoachDismissed: Boolean(persisted.inspirationCoachDismissed),
     pinnedInspirationIds: Array.isArray(persisted.pinnedInspirationIds)
       ? persisted.pinnedInspirationIds.filter((x): x is string => typeof x === 'string')
@@ -494,11 +423,6 @@ interface AppState {
   /** 按 profile.id 缓存上游 /models 拉取结果，仅用户 profile 持久化 */
   profileModelCache: Record<string, string[]>
   setProfileModelCache: (profileId: string, models: string[]) => void
-  supportPromptOpen: boolean
-  supportPromptDismissed: boolean
-  supportPromptSkippedForImportedData: boolean
-  setSupportPromptOpen: (v: boolean) => void
-  dismissSupportPrompt: () => void
   /** 新人引导：第一次访问、还没生成过图时在 Header 灵感库按钮上引出气泡。 */
   inspirationCoachDismissed: boolean
   dismissInspirationCoach: () => void
@@ -654,13 +578,7 @@ export const useStore = create<AppState>()(
 
       // Tasks
       tasks: [],
-      setTasks: (tasks) =>
-        set(() => ({
-          tasks,
-          ...(countSuccessfulOutputImages(tasks) <= SUPPORT_PROMPT_IMAGE_THRESHOLD
-            ? { supportPromptSkippedForImportedData: false }
-            : {}),
-        })),
+      setTasks: (tasks) => set(() => ({ tasks })),
 
       // Search & Filter
       searchQuery: '',
@@ -709,16 +627,11 @@ export const useStore = create<AppState>()(
         if (showSettings) dismissAllTooltips()
         set({ showSettings })
       },
-      supportPromptOpen: false,
       profileModelCache: {},
       setProfileModelCache: (profileId, models) =>
         set((st) => ({
           profileModelCache: { ...st.profileModelCache, [profileId]: models },
         })),
-      supportPromptDismissed: false,
-      supportPromptSkippedForImportedData: false,
-      setSupportPromptOpen: (supportPromptOpen) => set({ supportPromptOpen }),
-      dismissSupportPrompt: () => set({ supportPromptOpen: false, supportPromptDismissed: true }),
       inspirationCoachDismissed: false,
       dismissInspirationCoach: () => set({ inspirationCoachDismissed: true }),
       pinnedInspirationIds: [],
@@ -1114,7 +1027,6 @@ export async function initStore() {
   const { tasks, interruptedTasks } = markInterruptedOpenAIRunningTasks(storedTasks)
   await Promise.all(interruptedTasks.map((task) => putTask(task)))
   useStore.getState().setTasks(tasks)
-  showSupportPromptForExistingLocalData(tasks)
   for (const task of tasks) {
     if (task.customTaskId && (task.status === 'running' || task.customRecoverable)) {
       scheduleCustomRecovery(task.id, 0)
@@ -1529,7 +1441,6 @@ export function updateTaskInStore(taskId: string, patch: Partial<TaskRecord>) {
   const { tasks, setTasks } = useStore.getState()
   const updated = tasks.map((t) => (t.id === taskId ? { ...t, ...patch } : t))
   setTasks(updated)
-  maybeOpenSupportPrompt(tasks, updated, taskId)
   const task = updated.find((t) => t.id === taskId)
   if (task) putTask(task)
 }
@@ -1782,13 +1693,12 @@ export async function clearData(options: ClearOptions = { clearConfig: true, cle
     thumbnailCache.clear()
     thumbnailBackfillIds.clear()
     setTasks([])
-    useStore.setState({ supportPromptOpen: false, supportPromptSkippedForImportedData: false })
     clearInputImages()
     clearMaskDraft()
   }
 
   if (options.clearConfig) {
-    useStore.setState({ dismissedCodexCliPrompts: [], supportPromptDismissed: false })
+    useStore.setState({ dismissedCodexCliPrompts: [] })
     setSettings({ ...DEFAULT_SETTINGS })
     setParams({ ...DEFAULT_PARAMS })
   }
@@ -2082,7 +1992,6 @@ export async function importData(
 
       const tasks = await getAllTasks()
       useStore.getState().setTasks(tasks)
-      skipSupportPromptForImportedData(tasks)
       scheduleThumbnailBackfill(importedImageIds)
     }
 
