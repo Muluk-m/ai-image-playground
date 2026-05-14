@@ -1,35 +1,6 @@
 {
   "channels": [
     {
-      "id": "qlj-sub2api-gemini-flash-image",
-      "kind": "gemini",
-      "label": "Gemini",
-      "baseUrl": "https://sub2api.qiliangjia.one/antigravity/v1beta",
-      "auth": {
-        "type": "query-key",
-        "secretRef": "SUB2API_GEMINI_FLASH_KEY",
-        "queryParam": "key"
-      },
-      "models": [
-        {
-          "id": "gemini-3.1-flash-image",
-          "label": "Nano Banana 2",
-          "capabilities": [
-            "generate",
-            "edit"
-          ]
-        }
-      ],
-      "defaults": {
-        "apiMode": "images",
-        "timeout": 600,
-        "responseFormatB64Json": false
-      },
-      "allowedPaths": [
-        "models/gemini-3.1-flash-image:generateContent"
-      ]
-    },
-    {
       "id": "qlj-sub2api-gemini-flash-image-preview",
       "kind": "gemini",
       "label": "Gemini",
