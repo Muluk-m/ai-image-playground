@@ -11,6 +11,7 @@ export default {
       },
       fontFamily: {
         sans: ['var(--font-ui-sans)'],
+        display: ['var(--font-display)', 'var(--font-ui-sans)'],
         mono: ['var(--font-mono)'],
       },
     },

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import InspirationCoach from '../features/inspiration/components/InspirationCoach'
 import { useInspirationStore } from '../features/inspiration/store'
 import { useTooltip } from '../hooks/useTooltip'
@@ -9,23 +9,10 @@ import HelpModal from './HelpModal'
 import { SparkleIcon } from './icons'
 import ViewportTooltip from './ViewportTooltip'
 
-type BeforeInstallPromptEvent = Event & {
-  prompt: () => Promise<void>
-  userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>
-}
-
-function isInstalledPwa() {
-  const nav = window.navigator as Navigator & { standalone?: boolean }
-  return window.matchMedia('(display-mode: standalone)').matches || nav.standalone === true
-}
-
 export default function Header() {
   const setShowSettings = useStore((s) => s.setShowSettings)
-  const setConfirmDialog = useStore((s) => s.setConfirmDialog)
   const { hasUpdate, latestRelease, dismiss } = useVersionCheck()
   const [showHelp, setShowHelp] = useState(false)
-  const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null)
-  const [isPwaInstalled, setIsPwaInstalled] = useState(isInstalledPwa)
 
   const openInspiration = useInspirationStore((s) => s.openPanel)
   const dismissInspirationCoach = useStore((s) => s.dismissInspirationCoach)
@@ -33,70 +20,9 @@ export default function Header() {
     (s) => !s.inspirationCoachDismissed && s.tasks.length === 0,
   )
 
-  const installTooltip = useTooltip()
   const inspirationTooltip = useTooltip()
   const helpTooltip = useTooltip()
   const settingsTooltip = useTooltip()
-
-  useEffect(() => {
-    const handleBeforeInstallPrompt = (event: Event) => {
-      event.preventDefault()
-      setInstallPrompt(event as BeforeInstallPromptEvent)
-      setIsPwaInstalled(false)
-    }
-
-    const handleAppInstalled = () => {
-      setInstallPrompt(null)
-      setIsPwaInstalled(true)
-    }
-
-    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt)
-    window.addEventListener('appinstalled', handleAppInstalled)
-
-    return () => {
-      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt)
-      window.removeEventListener('appinstalled', handleAppInstalled)
-    }
-  }, [])
-
-  const handleInstallClick = async () => {
-    if (installPrompt) {
-      const promptEvent = installPrompt
-      setInstallPrompt(null)
-
-      try {
-        await promptEvent.prompt()
-        const choice = await promptEvent.userChoice
-        setIsPwaInstalled(choice.outcome === 'accepted')
-      } catch {
-        setIsPwaInstalled(isInstalledPwa())
-      }
-    } else {
-      const isIos =
-        /iPad|iPhone|iPod/.test(navigator.userAgent) ||
-        (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
-      if (isIos) {
-        setConfirmDialog({
-          title: '安装为应用',
-          message: '在 Safari 浏览器中，点击底部「分享」按钮，选择「添加到主屏幕」即可安装此应用。',
-          showCancel: false,
-          confirmText: '我知道了',
-          icon: 'info',
-          action: () => {},
-        })
-      } else {
-        setConfirmDialog({
-          title: '安装为应用',
-          message:
-            '请在浏览器的菜单中选择「添加到主屏幕」或「安装应用」。\n\n（如果在微信等内置浏览器中，请先在外部浏览器打开）',
-          showCancel: false,
-          confirmText: '我知道了',
-          icon: 'info',
-          action: () => {},
-        })
-      }
-    }
-  }
 
   return (
     <>
@@ -111,7 +37,7 @@ export default function Header() {
                 href="https://github.com/qiliangjia/qlj-image-playground"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 text-[17px] sm:text-lg font-bold tracking-tight text-gray-800 dark:text-gray-100 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+                className="inline-flex items-center gap-2 font-display text-[17px] sm:text-lg font-semibold text-gray-800 dark:text-gray-100 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
               >
                 <img
                   src="./pwa-icon.svg"
@@ -137,35 +63,6 @@ export default function Header() {
             </h1>
           </div>
           <div className="flex items-center gap-1 shrink-0">
-            {!isPwaInstalled && (
-              <div className="relative" {...installTooltip.handlers}>
-                <button
-                  onClick={() => {
-                    dismissAllTooltips()
-                    handleInstallClick()
-                  }}
-                  className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-900 transition-colors"
-                  aria-label="安装为应用"
-                >
-                  <svg
-                    className="w-5 h-5 text-gray-600 dark:text-gray-400"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth={2}
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    viewBox="0 0 24 24"
-                  >
-                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                    <polyline points="7 10 12 15 17 10" />
-                    <line x1="12" y1="15" x2="12" y2="3" />
-                  </svg>
-                </button>
-                <ViewportTooltip visible={installTooltip.visible} className="whitespace-nowrap">
-                  安装为应用
-                </ViewportTooltip>
-              </div>
-            )}
             <div className="relative" {...inspirationTooltip.handlers}>
               <button
                 onClick={() => {
