@@ -6,6 +6,7 @@ import { CloseIcon, SparkleIcon } from '../../../components/icons'
 import InspirationGrid from './InspirationGrid'
 import InspirationDetail from './InspirationDetail'
 import InspirationCategoryFilter from './InspirationCategoryFilter'
+import InspirationProviderTabs from './InspirationProviderTabs'
 
 export default function InspirationPanel() {
   const panelOpen = useInspirationStore((s) => s.panelOpen)
@@ -65,6 +66,11 @@ export default function InspirationPanel() {
           >
             <CloseIcon className="h-5 w-5" />
           </button>
+        </div>
+
+        {/* Provider tabs: GPT / Nano Banana / 全部 */}
+        <div className="shrink-0 px-5 pt-3 pb-2 border-b border-gray-100 dark:border-white/[0.08]">
+          <InspirationProviderTabs />
         </div>
 
         {/* Body: sidebar + grid */}

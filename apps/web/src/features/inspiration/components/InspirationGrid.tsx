@@ -1,13 +1,15 @@
-import { useInspirationStore } from '../store'
+import { useInspirationStore, type InspirationProviderFilter } from '../store'
+import type { InspirationItem } from '../types'
 import InspirationCard from './InspirationCard'
 
 export default function InspirationGrid() {
   const items = useInspirationStore((s) => s.items)
+  const selectedProvider = useInspirationStore((s) => s.selectedProvider)
   const selectedCategory = useInspirationStore((s) => s.selectedCategory)
   const searchKeyword = useInspirationStore((s) => s.searchKeyword)
   const showDetail = useInspirationStore((s) => s.showDetail)
 
-  const filtered = filterItems(items, selectedCategory, searchKeyword)
+  const filtered = filterItems(items, selectedProvider, selectedCategory, searchKeyword)
 
   if (filtered.length === 0) {
     return (
@@ -29,12 +31,14 @@ export default function InspirationGrid() {
 }
 
 function filterItems(
-  items: ReturnType<typeof useInspirationStore.getState>['items'],
+  items: InspirationItem[],
+  provider: InspirationProviderFilter,
   category: string | null,
   keyword: string,
 ) {
   const kw = keyword.trim().toLowerCase()
   return items.filter((item) => {
+    if (provider !== 'all' && item.recommendedProvider !== provider) return false
     if (category && item.category !== category) return false
     if (!kw) return true
     const haystack = [

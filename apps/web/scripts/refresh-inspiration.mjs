@@ -1,21 +1,20 @@
 #!/usr/bin/env node
 /**
- * 一键刷新灵感库：拉上游 cases.json、按需镜像新图到 R2、丢弃上游永久 404 的
- * item，写回 public/inspiration-manifest.json。幂等，可以频繁跑。
+ * 一键刷新灵感库：
+ *   - 上游 freestylefly/awesome-gpt-image-2 (cases.json) → gpt 提示词
+ *   - 上游 YouMind-OpenLab/awesome-nano-banana-pro-prompts (README_zh.md) → banana 提示词
+ *   - 两路图片按需镜像到 r2://playload-cms/{image-playground,image-playground-banana}/
+ *   - 上游永久 404 的 item 自动从 manifest 排除
+ *   - 写回 public/inspiration-manifest.json，幂等可频繁跑
  *
  * 用法：
  *   pnpm --filter @image-playground/web refresh:inspiration
  *
- * 依赖：
- *   - wrangler 已登录，账号能写 r2://playload-cms
+ * 依赖：wrangler 已登录，账号能写 r2://playload-cms
  *
- * 增量逻辑：
- *   - 已有 manifest 里 imageUrl 指向 cms-r2.deepclick.com 且 R2 key 跟上游
- *     basename 对得上 → 直接复用 URL，跳过 HEAD/下载/上传
- *   - 否则 HEAD 探测一下 R2，命中则只复用；缺则下载上游 + wrangler put
- *   - 上游图片 404（上游 repo 删除了文件）→ 该 item 从 manifest 排除
- *
- * 致谢：上游 freestylefly/awesome-gpt-image-2 (MIT)。
+ * 致谢：
+ *   - freestylefly/awesome-gpt-image-2 (MIT)
+ *   - YouMind-OpenLab/awesome-nano-banana-pro-prompts (CC BY 4.0)
  */
 import { writeFile, mkdir, unlink, rm } from 'node:fs/promises'
 import { existsSync, readFileSync } from 'node:fs'
@@ -27,70 +26,11 @@ import os from 'node:os'
 const WEB_ROOT = path.resolve(fileURLToPath(import.meta.url), '..', '..')
 const MANIFEST_PATH = path.join(WEB_ROOT, 'public', 'inspiration-manifest.json')
 
-const REPO_OWNER = 'freestylefly'
-const REPO_NAME = 'awesome-gpt-image-2'
-const REPO_BRANCH = 'main'
-const CASES_URL = `https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/${REPO_BRANCH}/data/cases.json`
-const UPSTREAM_IMAGE_BASE = `https://cdn.jsdelivr.net/gh/${REPO_OWNER}/${REPO_NAME}@${REPO_BRANCH}/data`
-
 const R2_BUCKET = 'playload-cms'
-const R2_PREFIX = 'image-playground'
 const PUBLIC_BASE = 'https://cms-r2.deepclick.com'
 const THUMB_QUERY = '?w=320&q=85'
 
-const DEFAULT_PARAMS = { size: 'auto', n: 1 }
-const RECOMMENDED_MODEL = 'gpt-image-2'
-const RECOMMENDED_PROVIDER = 'openai-compat'
-
 const CONCURRENCY = 8
-
-// 上游分类/风格/场景的中文映射；未命中保留英文原文
-const CATEGORY_ZH = {
-  'Architecture & Spaces': '建筑与空间',
-  'Brand & Logos': '品牌与 Logo',
-  'Characters & People': '人物与角色',
-  'Charts & Infographics': '图表与信息图',
-  'Documents & Publishing': '文档与排版',
-  'History & Classical Themes': '历史与古典',
-  'Illustration & Art': '插画与艺术',
-  'Other Use Cases': '其他场景',
-  'Photography & Realism': '摄影与写实',
-  'Posters & Typography': '海报与字体',
-  'Products & E-commerce': '产品与电商',
-  'Scenes & Storytelling': '场景与叙事',
-  'UI & Interfaces': 'UI 与界面',
-}
-
-const TAG_ZH = {
-  '3D': '3D',
-  Architecture: '建筑',
-  Brand: '品牌',
-  Character: '人物',
-  Characters: '人物',
-  Charts: '图表',
-  Classical: '古典',
-  Documents: '文档',
-  History: '历史',
-  Illustration: '插画',
-  Infographic: '信息图',
-  'Other Use Cases': '其他',
-  Photography: '摄影',
-  Poster: '海报',
-  Product: '产品',
-  Products: '产品',
-  Realistic: '写实',
-  Scenes: '场景',
-  UI: 'UI',
-  Commerce: '商业',
-  Creative: '创意',
-  Education: '教育',
-  Fashion: '时尚',
-  Food: '美食',
-  Social: '社交',
-  Story: '故事',
-  Tech: '科技',
-  Travel: '旅行',
-}
 
 const MIME_BY_EXT = {
   '.png': 'image/png',
@@ -100,12 +40,7 @@ const MIME_BY_EXT = {
   '.jpeg': 'image/jpeg',
 }
 
-const tr = (map, v) => map[v] ?? v
-const trList = (map, vs) => Array.from(new Set(vs.map((v) => tr(map, v))))
-
-function r2KeyFromUpstreamPath(upstreamImagePath) {
-  return `${R2_PREFIX}/${path.basename(upstreamImagePath)}`
-}
+// ─────────── 通用工具 ───────────
 
 function publicUrl(key, withResize) {
   return `${PUBLIC_BASE}/${key}${withResize ? THUMB_QUERY : ''}`
@@ -168,31 +103,135 @@ async function downloadAndUpload(upstreamUrl, key, tmpDir) {
   return { ok: true, bytes: bytes.length }
 }
 
-function buildItem(raw, key) {
-  const rawTags = [
-    ...(Array.isArray(raw.styles) ? raw.styles : []),
-    ...(Array.isArray(raw.scenes) ? raw.scenes : []),
-  ]
-  const tags = trList(TAG_ZH, rawTags)
-  const category = typeof raw.category === 'string' && raw.category ? raw.category : 'Other Use Cases'
-  const item = {
-    id: `awesome-${raw.id}`,
-    title: raw.title,
-    prompt: raw.prompt,
-    thumbnailUrl: publicUrl(key, true),
-    imageUrl: publicUrl(key, false),
-    params: { ...DEFAULT_PARAMS },
-    recommendedModel: RECOMMENDED_MODEL,
-    recommendedProvider: RECOMMENDED_PROVIDER,
-    category: tr(CATEGORY_ZH, category),
+/**
+ * 处理一条 raw item：决定复用 / 镜像 / 丢弃，返回最终 inspiration item（null = 丢）。
+ * raw 必须提供 { id, upstreamImageUrl, r2Key, buildItem(key) }。
+ */
+async function processOne(raw, existingById, tmpDir, stats) {
+  const existing = existingById.get(raw.id)
+  if (existing && existingR2Key(existing) === raw.r2Key) {
+    stats.reused++
+    return raw.buildItem(raw.r2Key)
   }
-  if (tags.length) item.tags = tags
-  if (typeof raw.sourceLabel === 'string' && raw.sourceLabel) item.author = raw.sourceLabel
-  if (typeof raw.sourceUrl === 'string' && raw.sourceUrl) item.sourceUrl = raw.sourceUrl
-  return item
+  if (await r2HasObject(raw.r2Key)) {
+    stats.adopted++
+    return raw.buildItem(raw.r2Key)
+  }
+  const result = await downloadAndUpload(raw.upstreamImageUrl, raw.r2Key, tmpDir)
+  if (!result.ok) {
+    stats.dropped++
+    console.warn(`  ⊘ ${raw.id} ${raw.upstreamImageUrl}：上游 404，丢弃`)
+    return null
+  }
+  stats.mirrored++
+  console.log(`  + ${raw.id} ${raw.r2Key} 上传 ${(result.bytes / 1024).toFixed(0)}KB`)
+  return raw.buildItem(raw.r2Key)
 }
 
-function isValidCase(raw) {
+async function pMap(items, concurrency, worker) {
+  const out = new Array(items.length)
+  let cursor = 0
+  async function loop() {
+    while (cursor < items.length) {
+      const i = cursor++
+      out[i] = await worker(items[i], i)
+    }
+  }
+  await Promise.all(Array.from({ length: concurrency }, () => loop()))
+  return out
+}
+
+// ─────────── Source: GPT (freestylefly/awesome-gpt-image-2) ───────────
+
+const GPT_REPO = 'freestylefly/awesome-gpt-image-2'
+const GPT_BRANCH = 'main'
+const GPT_CASES_URL = `https://raw.githubusercontent.com/${GPT_REPO}/${GPT_BRANCH}/data/cases.json`
+const GPT_IMAGE_BASE = `https://cdn.jsdelivr.net/gh/${GPT_REPO}@${GPT_BRANCH}/data`
+const GPT_R2_PREFIX = 'image-playground'
+
+const GPT_CATEGORY_ZH = {
+  'Architecture & Spaces': '建筑与空间',
+  'Brand & Logos': '品牌与 Logo',
+  'Characters & People': '人物与角色',
+  'Charts & Infographics': '图表与信息图',
+  'Documents & Publishing': '文档与排版',
+  'History & Classical Themes': '历史与古典',
+  'Illustration & Art': '插画与艺术',
+  'Other Use Cases': '其他场景',
+  'Photography & Realism': '摄影与写实',
+  'Posters & Typography': '海报与字体',
+  'Products & E-commerce': '产品与电商',
+  'Scenes & Storytelling': '场景与叙事',
+  'UI & Interfaces': 'UI 与界面',
+}
+
+const GPT_TAG_ZH = {
+  '3D': '3D',
+  Architecture: '建筑',
+  Brand: '品牌',
+  Character: '人物',
+  Characters: '人物',
+  Charts: '图表',
+  Classical: '古典',
+  Documents: '文档',
+  History: '历史',
+  Illustration: '插画',
+  Infographic: '信息图',
+  'Other Use Cases': '其他',
+  Photography: '摄影',
+  Poster: '海报',
+  Product: '产品',
+  Products: '产品',
+  Realistic: '写实',
+  Scenes: '场景',
+  UI: 'UI',
+  Commerce: '商业',
+  Creative: '创意',
+  Education: '教育',
+  Fashion: '时尚',
+  Food: '美食',
+  Social: '社交',
+  Story: '故事',
+  Tech: '科技',
+  Travel: '旅行',
+}
+
+const tr = (map, v) => map[v] ?? v
+const trList = (map, vs) => Array.from(new Set(vs.map((v) => tr(map, v))))
+
+async function loadGptSource() {
+  console.log(`↓ ${GPT_CASES_URL}`)
+  const res = await fetch(GPT_CASES_URL)
+  if (!res.ok) throw new Error(`HTTP ${res.status} 拉取 GPT cases.json 失败`)
+  const upstream = await res.json()
+  if (!upstream || !Array.isArray(upstream.cases)) {
+    throw new Error('GPT cases.json 结构异常（缺 cases 数组）')
+  }
+  const raws = []
+  let invalid = 0
+  for (const raw of upstream.cases) {
+    if (!isValidGptCase(raw)) {
+      invalid++
+      continue
+    }
+    raws.push({
+      id: `awesome-${raw.id}`,
+      upstreamImageUrl: `${GPT_IMAGE_BASE}${raw.image}`,
+      r2Key: `${GPT_R2_PREFIX}/${path.basename(raw.image)}`,
+      buildItem: (key) => buildGptItem(raw, key),
+    })
+  }
+  return {
+    name: 'gpt',
+    raws,
+    invalid,
+    categories: Array.isArray(upstream.categories)
+      ? trList(GPT_CATEGORY_ZH, upstream.categories)
+      : undefined,
+  }
+}
+
+function isValidGptCase(raw) {
   return raw
     && typeof raw.id === 'number'
     && typeof raw.prompt === 'string'
@@ -200,44 +239,188 @@ function isValidCase(raw) {
     && typeof raw.image === 'string'
 }
 
-/**
- * 单条 case 的处理：决定复用 / 镜像 / 丢弃，返回最终 item（null = 丢）。
- */
-async function processCase(raw, existingById, tmpDir, stats) {
-  if (!isValidCase(raw)) {
-    stats.invalid++
-    return null
+function buildGptItem(raw, key) {
+  const rawTags = [
+    ...(Array.isArray(raw.styles) ? raw.styles : []),
+    ...(Array.isArray(raw.scenes) ? raw.scenes : []),
+  ]
+  const tags = trList(GPT_TAG_ZH, rawTags)
+  const category = typeof raw.category === 'string' && raw.category ? raw.category : 'Other Use Cases'
+  const item = {
+    id: `awesome-${raw.id}`,
+    title: raw.title,
+    prompt: raw.prompt,
+    thumbnailUrl: publicUrl(key, true),
+    imageUrl: publicUrl(key, false),
+    params: { size: 'auto', n: 1 },
+    recommendedModel: 'gpt-image-2',
+    recommendedProvider: 'openai-compat',
+    category: tr(GPT_CATEGORY_ZH, category),
   }
-  const id = `awesome-${raw.id}`
-  const key = r2KeyFromUpstreamPath(raw.image)
-  const existing = existingById.get(id)
-
-  // 1. 已镜像 + key 没变 → 完全跳过远端调用，只更新元信息（title/prompt 等）
-  if (existing && existingR2Key(existing) === key) {
-    stats.reused++
-    return buildItem(raw, key)
-  }
-
-  // 2. HEAD 探测 R2（处理 manifest 丢了但 R2 还在的情况，或者刚换文件名）
-  if (await r2HasObject(key)) {
-    stats.adopted++
-    return buildItem(raw, key)
-  }
-
-  // 3. 真的需要镜像
-  const upstreamUrl = `${UPSTREAM_IMAGE_BASE}${raw.image}`
-  const result = await downloadAndUpload(upstreamUrl, key, tmpDir)
-  if (!result.ok) {
-    stats.dropped++
-    console.warn(`  ⊘ ${id} ${raw.image}：上游 404，丢弃`)
-    return null
-  }
-  stats.mirrored++
-  console.log(`  + ${id} ${key} 上传 ${(result.bytes / 1024).toFixed(0)}KB`)
-  return buildItem(raw, key)
+  if (tags.length) item.tags = tags
+  if (typeof raw.sourceLabel === 'string' && raw.sourceLabel) item.author = raw.sourceLabel
+  if (typeof raw.sourceUrl === 'string' && raw.sourceUrl) item.sourceUrl = raw.sourceUrl
+  return item
 }
 
-async function readExistingManifest() {
+// ─────────── Source: Banana (YouMind-OpenLab/awesome-nano-banana-pro-prompts) ───────────
+
+const BANANA_REPO = 'YouMind-OpenLab/awesome-nano-banana-pro-prompts'
+const BANANA_BRANCH = 'main'
+const BANANA_README_URL = `https://raw.githubusercontent.com/${BANANA_REPO}/${BANANA_BRANCH}/README_zh.md`
+const BANANA_R2_PREFIX = 'image-playground-banana'
+const BANANA_RECOMMENDED_MODEL = 'gemini-3.1-flash-image'
+const BANANA_RECOMMENDED_PROVIDER = 'gemini'
+const BANANA_FEATURED_CATEGORY = '精选'
+
+async function loadBananaSource() {
+  console.log(`↓ ${BANANA_README_URL}`)
+  const res = await fetch(BANANA_README_URL)
+  if (!res.ok) throw new Error(`HTTP ${res.status} 拉取 banana README 失败`)
+  const md = await res.text()
+  const parsed = parseBananaMarkdown(md)
+  if (!parsed.length) throw new Error('banana README 解析后 0 条，疑似格式变了')
+
+  // 同一 cms id 同时出现在 featured 和 all-prompts 时（理论上不会，但兜底），
+  // all-prompts 版本带 category，更优；保留它。
+  const byId = new Map()
+  for (const raw of parsed) {
+    const existing = byId.get(raw.id)
+    if (!existing || (raw.section === 'all' && existing.section === 'featured')) {
+      byId.set(raw.id, raw)
+    }
+  }
+
+  const raws = []
+  for (const raw of byId.values()) {
+    raws.push({
+      id: `banana-${raw.id}`,
+      upstreamImageUrl: raw.images[0],
+      r2Key: `${BANANA_R2_PREFIX}/${raw.id}${path.extname(new URL(raw.images[0]).pathname) || '.jpg'}`,
+      buildItem: (key) => buildBananaItem(raw, key),
+    })
+  }
+  return { name: 'banana', raws, invalid: 0, categories: undefined }
+}
+
+/**
+ * 把 README_zh.md 解析成 { id, title, category, section, description, prompt,
+ * images[], author, sourceUrl } 数组。
+ *
+ * 切片策略：先找 `## 🔥 精选提示词` / `## 📋 所有提示词` 两段，再在段内按
+ * `^### No\. \d+: ` 切块。featured 段 title 不含分类前缀；all-prompts 段
+ * title 形如 `<分类> - <名称>`。
+ */
+function parseBananaMarkdown(md) {
+  const featuredHeader = md.indexOf('\n## 🔥 ')
+  const allHeader = md.indexOf('\n## 📋 ')
+  if (featuredHeader < 0 || allHeader < 0) {
+    throw new Error('banana README 缺少「🔥 精选提示词」或「📋 所有提示词」章节')
+  }
+  // all-prompts 章节结束在下一个 `^## ` 处（贡献指南等）
+  const allEnd = md.indexOf('\n## ', allHeader + 1)
+
+  const featuredBlock = md.slice(featuredHeader, allHeader)
+  const allBlock = md.slice(allHeader, allEnd > 0 ? allEnd : md.length)
+
+  const items = []
+  for (const { text, section } of [
+    { text: featuredBlock, section: 'featured' },
+    { text: allBlock, section: 'all' },
+  ]) {
+    const blocks = splitByCaseHeader(text)
+    for (const block of blocks) {
+      const item = parseBananaBlock(block, section)
+      if (item) items.push(item)
+    }
+  }
+  return items
+}
+
+function splitByCaseHeader(text) {
+  // 按 `^### No\. N: ` 切片；返回去除标题行前缀但保留标题文本的块
+  const parts = text.split(/^### No\. \d+: /m)
+  return parts.slice(1)
+}
+
+function parseBananaBlock(block, section) {
+  const titleEnd = block.indexOf('\n')
+  if (titleEnd < 0) return null
+  const titleRaw = block.slice(0, titleEnd).trim()
+
+  let category = section === 'featured' ? BANANA_FEATURED_CATEGORY : null
+  let title = titleRaw
+  if (section === 'all') {
+    const sepIdx = titleRaw.indexOf(' - ')
+    if (sepIdx >= 0) {
+      category = titleRaw.slice(0, sepIdx).trim()
+      title = titleRaw.slice(sepIdx + 3).trim()
+    } else {
+      category = '其他'
+    }
+  }
+
+  const body = block.slice(titleEnd + 1)
+  const description = sliceSection(body, /^#### 📖 [^\n]*$/m, /^#### /m).trim() || null
+  const promptBody = sliceSection(body, /^#### 📝 [^\n]*$/m, /^#### /m)
+  const promptMatch = /```[a-zA-Z]*\n([\s\S]*?)\n```/.exec(promptBody)
+  const prompt = promptMatch ? promptMatch[1].trim() : null
+  const imgBody = sliceSection(body, /^#### 🖼️ [^\n]*$/m, /^#### /m)
+  const images = Array.from(imgBody.matchAll(/<img\s+[^>]*\bsrc="([^"]+)"/g)).map((m) => m[1])
+  const detailBody = sliceSection(body, /^#### 📌 [^\n]*$/m, /^---\s*$/m)
+  const author = firstCapture(detailBody, /\*\*作者:?\*\*\s*\[([^\]]+)\]/)
+  const sourceUrl = firstCapture(detailBody, /\*\*来源:?\*\*\s*\[[^\]]+\]\(([^)]+)\)/)
+  const cmsId = firstCapture(detailBody, /\?id=(\d+)/)
+
+  if (!cmsId || !prompt || !title || images.length === 0) return null
+  return {
+    id: cmsId,
+    title,
+    category,
+    section,
+    description,
+    prompt,
+    images,
+    author,
+    sourceUrl,
+  }
+}
+
+function sliceSection(text, startRe, endRe) {
+  const start = startRe.exec(text)
+  if (!start) return ''
+  const offset = start.index + start[0].length
+  const rest = text.slice(offset)
+  const end = endRe.exec(rest)
+  return end ? rest.slice(0, end.index) : rest
+}
+
+function firstCapture(text, re) {
+  const m = re.exec(text)
+  return m ? m[1] : null
+}
+
+function buildBananaItem(raw, key) {
+  const item = {
+    id: `banana-${raw.id}`,
+    title: raw.title,
+    prompt: raw.prompt,
+    thumbnailUrl: publicUrl(key, true),
+    imageUrl: publicUrl(key, false),
+    params: { size: 'auto', n: 1 },
+    recommendedModel: BANANA_RECOMMENDED_MODEL,
+    recommendedProvider: BANANA_RECOMMENDED_PROVIDER,
+    category: raw.category || '其他',
+  }
+  if (raw.description) item.description = raw.description
+  if (raw.author) item.author = raw.author
+  if (raw.sourceUrl) item.sourceUrl = raw.sourceUrl
+  return item
+}
+
+// ─────────── Main pipeline ───────────
+
+function readExistingManifest() {
   if (!existsSync(MANIFEST_PATH)) return { items: [] }
   try {
     return JSON.parse(readFileSync(MANIFEST_PATH, 'utf8'))
@@ -248,59 +431,56 @@ async function readExistingManifest() {
 }
 
 async function main() {
-  console.log(`↓ 拉取 ${CASES_URL}`)
-  const casesRes = await fetch(CASES_URL)
-  if (!casesRes.ok) throw new Error(`HTTP ${casesRes.status} 拉取 cases.json 失败`)
-  const upstream = await casesRes.json()
-  if (!upstream || !Array.isArray(upstream.cases)) {
-    throw new Error('cases.json 结构异常（缺 cases 数组）')
-  }
-
-  const existing = await readExistingManifest()
+  const sources = [await loadGptSource(), await loadBananaSource()]
+  const existing = readExistingManifest()
   const existingById = new Map((existing.items ?? []).map((i) => [i.id, i]))
 
   const tmpDir = path.join(os.tmpdir(), `inspiration-refresh-${Date.now()}`)
   await mkdir(tmpDir, { recursive: true })
 
-  const total = upstream.cases.length
-  const out = new Array(total)
-  const stats = { invalid: 0, reused: 0, adopted: 0, mirrored: 0, dropped: 0, failed: 0 }
-  let cursor = 0
+  let allItems = []
+  const categories = new Set()
 
-  console.log(`↻ 处理 ${total} 条上游 case，并发 ${CONCURRENCY}`)
   try {
-    async function worker() {
-      while (cursor < total) {
-        const i = cursor++
-        const raw = upstream.cases[i]
+    for (const source of sources) {
+      const stats = { reused: 0, adopted: 0, mirrored: 0, dropped: 0, failed: 0 }
+      console.log(`\n↻ 处理 ${source.name}：${source.raws.length} 条，并发 ${CONCURRENCY}`)
+      const items = await pMap(source.raws, CONCURRENCY, async (raw) => {
         try {
-          out[i] = await processCase(raw, existingById, tmpDir, stats)
+          return await processOne(raw, existingById, tmpDir, stats)
         } catch (err) {
           stats.failed++
-          out[i] = null
-          console.error(`  ✗ case ${raw?.id ?? i + 1}：${err.message}`)
+          console.error(`  ✗ ${raw.id}：${err.message}`)
+          // 失败时保留既有 manifest 条目，避免一次瞬时网络/限流就丢条目
+          return existingById.get(raw.id) ?? null
         }
-      }
+      })
+      const valid = items.filter((x) => x !== null)
+      allItems = allItems.concat(valid)
+      if (source.categories) source.categories.forEach((c) => categories.add(c))
+      console.log(
+        `  ${source.name}: total=${valid.length}  reused=${stats.reused}  adopted=${stats.adopted}  mirrored=${stats.mirrored}  dropped=${stats.dropped}  invalid=${source.invalid}  failed=${stats.failed}`,
+      )
     }
-    await Promise.all(Array.from({ length: CONCURRENCY }, () => worker()))
   } finally {
     await rm(tmpDir, { recursive: true, force: true }).catch(() => {})
   }
 
-  const items = out.filter((x) => x !== null)
-  const categories = Array.isArray(upstream.categories) ? trList(CATEGORY_ZH, upstream.categories) : undefined
+  // 从 items 派生剩余 categories（banana 没有外部 categories 列表）
+  for (const item of allItems) {
+    if (item.category) categories.add(item.category)
+  }
+
   const manifest = {
     version: 1,
     updatedAt: new Date().toISOString(),
-    ...(categories ? { categories } : {}),
-    items,
+    categories: Array.from(categories).sort((a, b) => a.localeCompare(b, 'zh-CN')),
+    items: allItems,
   }
   await writeFile(MANIFEST_PATH, JSON.stringify(manifest, null, 2) + '\n', 'utf8')
 
-  console.log('\n✓ 刷新完成')
-  console.log(`  manifest：${path.relative(WEB_ROOT, MANIFEST_PATH)}（${items.length} 条）`)
-  console.log(`  reused=${stats.reused}  adopted=${stats.adopted}  mirrored=${stats.mirrored}  dropped=${stats.dropped}  invalid=${stats.invalid}  failed=${stats.failed}`)
-  if (stats.failed) process.exitCode = 2
+  console.log(`\n✓ 刷新完成`)
+  console.log(`  manifest：${path.relative(WEB_ROOT, MANIFEST_PATH)}（${allItems.length} 条 / ${manifest.categories.length} 分类）`)
 }
 
 main().catch((err) => {

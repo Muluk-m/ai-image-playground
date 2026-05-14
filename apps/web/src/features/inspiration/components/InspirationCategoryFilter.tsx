@@ -1,9 +1,21 @@
+import { useMemo } from 'react'
 import { useInspirationStore } from '../store'
 
 export default function InspirationCategoryFilter() {
-  const categories = useInspirationStore((s) => s.categories)
+  const items = useInspirationStore((s) => s.items)
+  const selectedProvider = useInspirationStore((s) => s.selectedProvider)
   const selectedCategory = useInspirationStore((s) => s.selectedCategory)
   const setCategory = useInspirationStore((s) => s.setCategory)
+
+  // 分类列表跟随当前 provider 过滤——只看到对应模型下实际存在的分类
+  const visibleCategories = useMemo(() => {
+    const set = new Set<string>()
+    for (const item of items) {
+      if (selectedProvider !== 'all' && item.recommendedProvider !== selectedProvider) continue
+      if (item.category) set.add(item.category)
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'zh-CN'))
+  }, [items, selectedProvider])
 
   return (
     <nav className="flex flex-col gap-1 p-2">
@@ -12,7 +24,7 @@ export default function InspirationCategoryFilter() {
         active={selectedCategory === null}
         onClick={() => setCategory(null)}
       />
-      {categories.map((category) => (
+      {visibleCategories.map((category) => (
         <CategoryButton
           key={category}
           label={category}
