@@ -117,4 +117,64 @@ describe('pickFeaturedInspirations', () => {
     const result = pickFeaturedInspirations(items, [], 4, FIXED_NOW)
     expect(result).toHaveLength(4)
   })
+
+  describe('preferredProvider', () => {
+    const mixedItems: InspirationItem[] = [
+      makeItem({ id: 'g1', category: 'a', recommendedProvider: 'gemini' }),
+      makeItem({ id: 'g2', category: 'b', recommendedProvider: 'gemini' }),
+      makeItem({ id: 'g3', category: 'c', recommendedProvider: 'gemini' }),
+      makeItem({ id: 'o1', category: 'd', recommendedProvider: 'openai-compat' }),
+      makeItem({ id: 'o2', category: 'e', recommendedProvider: 'openai-compat' }),
+      makeItem({ id: 'o3', category: 'f', recommendedProvider: 'openai-compat' }),
+      makeItem({ id: 'o4', category: 'g', recommendedProvider: 'openai-compat' }),
+    ]
+
+    it('only picks from preferredProvider pool when filling', () => {
+      const result = pickFeaturedInspirations(mixedItems, [], 4, FIXED_NOW, {
+        preferredProvider: 'openai-compat',
+      })
+      expect(result).toHaveLength(4)
+      for (const item of result) {
+        expect(item.recommendedProvider).toBe('openai-compat')
+      }
+    })
+
+    it('honors pinned ids regardless of preferredProvider', () => {
+      const result = pickFeaturedInspirations(mixedItems, ['g1', 'g2'], 4, FIXED_NOW, {
+        preferredProvider: 'openai-compat',
+      })
+      expect(result[0].id).toBe('g1')
+      expect(result[1].id).toBe('g2')
+      const rest = result.slice(2)
+      for (const item of rest) {
+        expect(item.recommendedProvider).toBe('openai-compat')
+      }
+    })
+
+    it('falls back to other providers when preferred pool runs out', () => {
+      // 偏好池只有 2 张，要 4 张 → 应该补 2 张 gemini
+      const limited: InspirationItem[] = [
+        makeItem({ id: 'o1', category: 'a', recommendedProvider: 'openai-compat' }),
+        makeItem({ id: 'o2', category: 'b', recommendedProvider: 'openai-compat' }),
+        makeItem({ id: 'g1', category: 'c', recommendedProvider: 'gemini' }),
+        makeItem({ id: 'g2', category: 'd', recommendedProvider: 'gemini' }),
+      ]
+      const result = pickFeaturedInspirations(limited, [], 4, FIXED_NOW, {
+        preferredProvider: 'openai-compat',
+      })
+      expect(result).toHaveLength(4)
+      const providers = result.map((it) => it.recommendedProvider)
+      expect(providers.filter((p) => p === 'openai-compat')).toHaveLength(2)
+      expect(providers.filter((p) => p === 'gemini')).toHaveLength(2)
+    })
+
+    it('no-op when preferredProvider matches everyone', () => {
+      const onlyOpenai = mixedItems.filter((it) => it.recommendedProvider === 'openai-compat')
+      const a = pickFeaturedInspirations(onlyOpenai, [], 3, FIXED_NOW, {
+        preferredProvider: 'openai-compat',
+      })
+      const b = pickFeaturedInspirations(onlyOpenai, [], 3, FIXED_NOW)
+      expect(a.map((it) => it.id)).toEqual(b.map((it) => it.id))
+    })
+  })
 })
