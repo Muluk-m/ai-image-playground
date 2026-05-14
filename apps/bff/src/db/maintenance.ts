@@ -28,7 +28,7 @@ export async function recoverInterruptedTasks(): Promise<{ retried: number; fail
     .set({
       status: 'failed',
       error_message: 'BFF 重启时中断',
-      error_type: 'interrupted',
+      error_type: 'interrupted' as const,
       completed_at: Date.now(),
     })
     .where(eq(schema.tasks.status, 'in_progress'))

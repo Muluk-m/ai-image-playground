@@ -1,14 +1,10 @@
 import { Elysia, t } from 'elysia'
 import { eq } from 'drizzle-orm'
-import type { QueueProvider, ResultResponse } from '@image-playground/shared'
+import type { ResultResponse, TaskErrorType } from '@image-playground/shared'
 import { db, schema } from '../db/client'
 import { extractMeta, resolveImageBytesRef } from '../lib/extractImages'
 import { jsonResponse } from '../lib/gzipResponse'
-
-function asQueueProvider(provider: string): QueueProvider | null {
-  if (provider === 'openai-compat' || provider === 'gemini') return provider
-  return null
-}
+import { asQueueProvider } from '../lib/queueProvider'
 
 export const resultRoutes = new Elysia()
   // 1) 元信息端点：返回图片列表 + actual_params + raw_image_urls；不含像素字节
@@ -42,7 +38,7 @@ export const resultRoutes = new Elysia()
           status: 'failed',
           error: {
             message: task.error_message ?? 'unknown',
-            type: task.error_type ?? 'unknown',
+            type: (task.error_type ?? 'unknown') as TaskErrorType,
           },
         }
         return jsonResponse(body, request)

@@ -6,6 +6,7 @@ import { purgeOldTasks, recoverInterruptedTasks } from './db/maintenance'
 import { runMigrations } from './db/migrate'
 import { inflightCount, inflightSnapshot } from './lib/inflight'
 import { log } from './lib/logger'
+import { abortAllRunningTasks } from './workers/task-runner'
 
 runMigrations()
 
@@ -50,6 +51,13 @@ app.listen(config.port, () => {
  */
 let shuttingDown = false
 
+function finalize(exitCode = 0): never {
+  checkpointWal()
+  // pino async transport：log.flush() 同步刷盘，防 process.exit 吞最后几行。
+  log.flush()
+  process.exit(exitCode)
+}
+
 async function gracefulShutdown(signal: string): Promise<void> {
   if (shuttingDown) return
   shuttingDown = true
@@ -61,13 +69,18 @@ async function gracefulShutdown(signal: string): Promise<void> {
     log.error({ event: 'shutdown.stop_failed', err: err instanceof Error ? err.message : String(err) }, 'app.stop failed')
   }
 
+  // SIGTERM 真打断进行中 task：让上游 fetch 立刻 abort（worker AbortError 分支
+  // silent return；row 留在 in_progress 给下次启动 recovery 标 failed）。这样
+  // 短任务自然跑完 + 长任务不再让部署 stall 满 55s drain 窗口。
+  const aborted = abortAllRunningTasks()
+  if (aborted > 0) log.info({ event: 'shutdown.aborted', count: aborted }, 'aborted running tasks')
+
   const hardTimer = setTimeout(() => {
     log.warn(
       { event: 'shutdown.timeout', timeoutMs: QUEUE_TIMEOUTS.SHUTDOWN_HARD_TIMEOUT_MS, inflight: inflightCount() },
       'drain timeout, forcing exit',
     )
-    checkpointWal()
-    process.exit(0)
+    finalize()
   }, QUEUE_TIMEOUTS.SHUTDOWN_HARD_TIMEOUT_MS)
 
   const progressTimer = setInterval(() => {
@@ -79,9 +92,8 @@ async function gracefulShutdown(signal: string): Promise<void> {
 
   clearTimeout(hardTimer)
   clearInterval(progressTimer)
-  checkpointWal()
   log.info({ event: 'shutdown.done' }, 'all tasks drained, exiting cleanly')
-  process.exit(0)
+  finalize()
 }
 
 process.on('SIGTERM', () => {

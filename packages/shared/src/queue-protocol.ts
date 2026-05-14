@@ -11,6 +11,15 @@ export type QueueProvider = 'openai-compat' | 'gemini'
 export type TaskStatus = 'queued' | 'in_progress' | 'completed' | 'failed' | 'cancelled'
 
 /**
+ * 失败原因分类。集中定义避免分散字符串笔误。
+ * - `upstream_error`: 上游 fetch 抛错或返非 2xx
+ * - `upstream_no_image`: 上游 HTTP 200 但解析不出图（Gemini 安全策略 / OpenAI 异常 envelope）
+ * - `interrupted`: BFF 重启时被打断（startup recovery 标记）
+ * - `unknown`: 兜底（理论上不应出现）
+ */
+export type TaskErrorType = 'upstream_error' | 'upstream_no_image' | 'interrupted' | 'unknown'
+
+/**
  * POST /v1/queue/{provider}/{model}/submit
  *
  * payload 字段贴近 OpenAI Images / Gemini generateContent 的请求体子集；
@@ -61,7 +70,7 @@ export interface StatusResponse {
   started_at?: number
   completed_at?: number
   /** 失败时携带；其它状态 undefined */
-  error?: { message: string; type: string }
+  error?: { message: string; type: TaskErrorType }
   /** completed 时由 BFF 填入，避免前端二次 GET /result 拿元信息 */
   result?: StatusResultMeta
 }
@@ -100,7 +109,7 @@ export interface ResultResponse {
   actual_params?: { size?: string; quality?: string }
   /** OpenAI 的 response_format=url 时上游直接给的 http URL 列表 */
   raw_image_urls?: string[]
-  error?: { message: string; type: string }
+  error?: { message: string; type: TaskErrorType }
 }
 
 /**

@@ -3,6 +3,7 @@ import { db, schema } from '../db/client'
 import { describeEmptyResult, extractMeta } from '../lib/extractImages'
 import { trackTask } from '../lib/inflight'
 import { log } from '../lib/logger'
+import { isAbortError } from '../lib/queueProvider'
 import { callUpstream } from '../lib/upstream'
 
 /**
@@ -30,9 +31,11 @@ export function abortRunningTask(id: string): boolean {
   return true
 }
 
-function isAbortError(err: unknown): boolean {
-  if (typeof DOMException !== 'undefined' && err instanceof DOMException && err.name === 'AbortError') return true
-  return err instanceof Error && err.name === 'AbortError'
+/** SIGTERM 调用：abort 全部进行中任务，避免 drain 等满 55s 才退出。 */
+export function abortAllRunningTasks(): number {
+  const count = runningTasks.size
+  for (const ctrl of runningTasks.values()) ctrl.abort()
+  return count
 }
 
 export async function runTask(id: string): Promise<void> {
@@ -66,7 +69,7 @@ export async function runTask(id: string): Promise<void> {
         .set({
           status: 'failed',
           error_message: describeEmptyResult(task.provider, payload),
-          error_type: 'upstream_no_image',
+          error_type: 'upstream_no_image' as const,
           result_payload: payload as Record<string, unknown>,
           completed_at: now(),
         })
@@ -96,7 +99,7 @@ export async function runTask(id: string): Promise<void> {
       .set({
         status: 'failed',
         error_message: message,
-        error_type: 'upstream_error',
+        error_type: 'upstream_error' as const,
         completed_at: now(),
       })
       .where(and(eq(schema.tasks.id, id), eq(schema.tasks.status, 'in_progress')))

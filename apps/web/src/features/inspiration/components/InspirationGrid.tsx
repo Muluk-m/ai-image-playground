@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import { useStore } from '../../../store'
 import { useInspirationStore, type InspirationProviderFilter } from '../store'
 import type { InspirationItem } from '../types'
@@ -11,8 +12,11 @@ export default function InspirationGrid() {
   const showDetail = useInspirationStore((s) => s.showDetail)
   const pinnedIds = useStore((s) => s.pinnedInspirationIds)
 
-  const filtered = filterItems(items, selectedProvider, selectedCategory, searchKeyword)
-  const ordered = sortPinnedFirst(filtered, pinnedIds)
+  const ordered = useMemo(
+    () => sortPinnedFirst(filterItems(items, selectedProvider, selectedCategory, searchKeyword), pinnedIds),
+    [items, selectedProvider, selectedCategory, searchKeyword, pinnedIds],
+  )
+  const pinnedSet = useMemo(() => new Set(pinnedIds), [pinnedIds])
 
   if (ordered.length === 0) {
     return (
@@ -26,7 +30,7 @@ export default function InspirationGrid() {
     <ul className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4">
       {ordered.map((item) => (
         <li key={item.id}>
-          <InspirationCard item={item} onClick={() => showDetail(item.id)} />
+          <InspirationCard item={item} pinned={pinnedSet.has(item.id)} onClick={() => showDetail(item.id)} />
         </li>
       ))}
     </ul>
@@ -55,8 +59,7 @@ function filterItems(
 }
 
 /**
- * 把 pinned items 按 pin 顺序排在最前，其余保持原顺序。pinnedIds 是用户手动
- * 置顶顺序（最近 pin 的在前），未匹配到当前 filtered 列表的 id 自动跳过。
+ * pinnedIds 顺序 = 用户置顶顺序（最近 pin 的在前）；未匹配到当前 filtered 的 id 跳过。
  */
 function sortPinnedFirst(items: InspirationItem[], pinnedIds: string[]): InspirationItem[] {
   if (pinnedIds.length === 0) return items
