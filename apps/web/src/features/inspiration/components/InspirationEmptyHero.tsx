@@ -33,15 +33,26 @@ export default function InspirationEmptyHero() {
         </button>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-3.5 lg:grid-cols-6">
-        {HERO_SEED.map((item) => (
-          <InspirationCard
-            key={item.id}
-            item={item}
-            pinned={pinnedIds.includes(item.id)}
-            onClick={() => applyInspiration(item)}
-          />
-        ))}
+      {/*
+        移动端：6 张横向 snap 滚动，每张占 42% 宽度，第三张露一半提示可以继续滑。
+        -mx-4 + px-4 是反向出血到父容器 safe-area-x 边界，让滑动条贴边、
+        起止位置不被父 padding 切。sm 起切到 grid，wrapper 子 div 透明传递宽度。
+      */}
+      <div className="-mx-4 overflow-x-auto hide-scrollbar sm:mx-0 sm:overflow-x-visible">
+        <div className="flex snap-x snap-mandatory gap-3 px-4 sm:grid sm:snap-none sm:grid-cols-3 sm:gap-3.5 sm:px-0 lg:grid-cols-6">
+          {HERO_SEED.map((item) => (
+            <div
+              key={item.id}
+              className="w-[42%] flex-shrink-0 snap-start sm:w-auto sm:flex-shrink"
+            >
+              <InspirationCard
+                item={item}
+                pinned={pinnedIds.includes(item.id)}
+                onClick={() => applyInspiration(item)}
+              />
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   )
