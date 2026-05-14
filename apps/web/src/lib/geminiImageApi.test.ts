@@ -120,7 +120,8 @@ describe('buildGeminiRequestBody', () => {
     expect(high.generationConfig?.thinkingConfig).toEqual({ thinkingLevel: 'high' })
   })
 
-  it('passes candidateCount only when n > 1', () => {
+  it('never sets candidateCount (Gemini image gen forbids candidateCount>1)', () => {
+    // n>1 由 callGeminiImageApi 外层 fan-out 实现，body 永远是单 candidate。
     const single = buildGeminiRequestBody({
       prompt: 'p',
       inputImageDataUrls: [],
@@ -133,7 +134,7 @@ describe('buildGeminiRequestBody', () => {
       inputImageDataUrls: [],
       params: { ...DEFAULT_PARAMS, size: 'auto', n: 3 },
     })
-    expect(multi.generationConfig?.candidateCount).toBe(3)
+    expect(multi.generationConfig?.candidateCount).toBeUndefined()
   })
 })
 
@@ -238,6 +239,46 @@ describe('callGeminiImageApi', () => {
     }, byokGemini())).rejects.toThrow(/不支持遮罩/)
 
     expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('fans out into N parallel single-candidate requests when n>1', async () => {
+    const mkRes = (data: string) =>
+      new Response(
+        JSON.stringify({
+          candidates: [{ content: { parts: [{ inlineData: { mimeType: 'image/png', data } }] } }],
+        }),
+        { status: 200 },
+      )
+    fetchMock
+      .mockResolvedValueOnce(mkRes('AAA'))
+      .mockResolvedValueOnce(mkRes('BBB'))
+      .mockResolvedValueOnce(mkRes('CCC'))
+
+    const result = await callGeminiImageApi(
+      {
+        settings: DEFAULT_SETTINGS,
+        prompt: 'p',
+        params: { ...DEFAULT_PARAMS, n: 3 },
+        inputImageDataUrls: [],
+      },
+      byokGemini(),
+    )
+
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+    // 三次请求 body 应一致，且都不带 candidateCount。
+    const bodies = fetchMock.mock.calls.map((call) =>
+      JSON.parse((call[1] as RequestInit).body as string),
+    )
+    for (const b of bodies) {
+      expect(b.generationConfig?.candidateCount).toBeUndefined()
+    }
+    expect(bodies[0]).toEqual(bodies[1])
+    expect(bodies[1]).toEqual(bodies[2])
+    expect(result.images).toEqual([
+      'data:image/png;base64,AAA',
+      'data:image/png;base64,BBB',
+      'data:image/png;base64,CCC',
+    ])
   })
 
   it('throws with API error message on HTTP 400', async () => {

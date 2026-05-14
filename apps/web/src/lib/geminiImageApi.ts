@@ -82,11 +82,13 @@ export function buildGeminiRequestBody(opts: {
 
   // gemini-3-pro-image-preview 强制要求同时声明 TEXT + IMAGE，否则返回 INVALID_ARGUMENT；
   // 2.5 Flash Image 对两种写法都接受。文档：https://ai.google.dev/gemini-api/docs/image-generation
+  //
+  // 注意：Gemini image generation 硬限制 candidateCount=1（"Only one candidate is
+  // supported for audio or image response"），所以这里不设 candidateCount；n>1 由
+  // callGeminiImageApi 在外层 fan-out 成 N 次并发请求实现。
   const generationConfig: GeminiRequestBody['generationConfig'] = {
     responseModalities: ['TEXT', 'IMAGE'],
   }
-  const n = Math.max(1, opts.params.n || 1)
-  if (n > 1) generationConfig.candidateCount = n
 
   const aspect = opts.params.gemini_aspect_ratio ?? nearestAspectRatio(opts.params.size)
   const imageSize = opts.params.gemini_image_size
@@ -152,29 +154,42 @@ export async function callGeminiImageApi(opts: CallApiOptions, profile: BYOKAdap
   })
 
   const url = joinUrl(profile.baseUrl, `models/${encodeURIComponent(profile.model)}:generateContent`)
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      // 使用 x-api-key 而不是 x-goog-api-key：浏览器端 sub2api / 多数中转 CORS 白名单
-      // 通常允许 x-api-key 但不允许 x-goog-api-key（后者会被 preflight 拦截）。
-      // sub2api 后端同时接受这两种 header。
-      'x-api-key': profile.apiKey,
-    },
-    body: JSON.stringify(body),
-  })
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    // 使用 x-api-key 而不是 x-goog-api-key：浏览器端 sub2api / 多数中转 CORS 白名单
+    // 通常允许 x-api-key 但不允许 x-goog-api-key（后者会被 preflight 拦截）。
+    // sub2api 后端同时接受这两种 header。
+    'x-api-key': profile.apiKey,
+  }
+  const serialized = JSON.stringify(body)
 
+  // Gemini image generation 不支持 candidateCount>1，n>1 改为并发 N 次单 candidate
+  // 请求，最后合并图片。任一子请求失败整体失败（用户期望 n=N 就是 N 张图）。
+  const n = Math.max(1, opts.params.n || 1)
+
+  const parsedList = await Promise.all(
+    Array.from({ length: n }, () => fetchAndParse(url, headers, serialized)),
+  )
+
+  const images = parsedList.flatMap((r) => r.images)
+  const revisedPrompts = parsedList.flatMap((r) => r.revisedPrompts)
+  return {
+    images,
+    revisedPrompts,
+    actualParamsList: images.map(() => undefined),
+  }
+}
+
+async function fetchAndParse(
+  url: string,
+  headers: Record<string, string>,
+  body: string,
+): Promise<GeminiParseResult> {
+  const response = await fetch(url, { method: 'POST', headers, body })
   if (!response.ok) {
     throw new Error(await getApiErrorMessage(response))
   }
-
   const payload = (await response.json()) as GeminiResponse
   throwIfProxyError(payload)
-  const parsed = parseGeminiResponse(payload)
-
-  return {
-    images: parsed.images,
-    revisedPrompts: parsed.revisedPrompts,
-    actualParamsList: parsed.images.map(() => undefined),
-  }
+  return parseGeminiResponse(payload)
 }

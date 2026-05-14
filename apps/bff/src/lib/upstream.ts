@@ -50,16 +50,35 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
 
     if (provider === 'gemini') {
       const key = resolveApiKey(provider)
-      const res = await fetch(`${base}/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          ...(key ? { 'x-api-key': key } : {}),
-        },
-        body: JSON.stringify(buildGeminiBody(request)),
-        signal: abort.signal,
-      })
-      return parseUpstreamResponse(res)
+      const url = `${base}/v1beta/models/${encodeURIComponent(model)}:generateContent`
+      const headers = {
+        'content-type': 'application/json',
+        ...(key ? { 'x-api-key': key } : {}),
+      }
+      const body = JSON.stringify(buildGeminiBody(request))
+
+      // Gemini image generation 不支持 candidateCount>1（"Only one candidate is
+      // supported for audio or image response"），n>1 时本层 fan-out 成 N 次并发
+      // 请求并把 candidates 合并到一个 payload，对 task-runner / 前端透明。
+      const n = Math.max(1, request.n ?? 1)
+      if (n === 1) {
+        const res = await fetch(url, { method: 'POST', headers, body, signal: abort.signal })
+        return parseUpstreamResponse(res)
+      }
+
+      const results = await Promise.all(
+        Array.from({ length: n }, async () => {
+          const res = await fetch(url, { method: 'POST', headers, body, signal: abort.signal })
+          return parseUpstreamResponse(res)
+        }),
+      )
+      const merged = {
+        candidates: results.flatMap((r) => {
+          const p = r.payload as { candidates?: unknown[] } | null
+          return Array.isArray(p?.candidates) ? p.candidates : []
+        }),
+      }
+      return { payload: merged }
     }
 
     throw new Error(`Unsupported provider: ${provider satisfies never}`)
@@ -93,11 +112,12 @@ function buildGeminiBody(request: SubmitRequest): Record<string, unknown> {
     [key: string]: unknown
   }
 
+  // Gemini image generation 硬限制 candidateCount=1；n>1 由 callUpstream 在外层
+  // fan-out 多次请求实现。这里不再设 candidateCount。
   return {
     contents: [{ role: 'user', parts }],
     generationConfig: {
       responseModalities: ['IMAGE'],
-      ...(request.n && request.n > 1 ? { candidateCount: request.n } : {}),
       ...(extraGenerationConfig ?? {}),
     },
     ...extraTopLevel,
