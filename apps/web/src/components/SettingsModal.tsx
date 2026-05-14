@@ -44,6 +44,24 @@ function fromDraftSettings(d: DraftSettings): AppSettings {
 }
 
 function normalizeDraftSettings(input: unknown): DraftSettings {
+  // 调用方混传两种形态：来自 store 的 ClientProfile（有 source 字段）和基于
+  // draft 改完的 ApiProfile（扁平、无 source）。normalizeClientProfile 拒收
+  // 无 source 的输入，所以如果不在这里先归一化成 ClientProfile，所有 ApiProfile
+  // 形态的 profile 会被 normalize 静默吞掉，新建/复制配置就"没反应"。
+  if (input && typeof input === 'object') {
+    const record = input as Record<string, unknown>
+    if (Array.isArray(record.profiles)) {
+      const normalized = {
+        ...record,
+        profiles: record.profiles.map((p) =>
+          p && typeof p === 'object' && 'source' in p
+            ? p
+            : apiProfileToClientProfile(p as ApiProfile),
+        ),
+      }
+      return toDraftSettings(normalizeSettings(normalized))
+    }
+  }
   return toDraftSettings(normalizeSettings(input))
 }
 
@@ -579,11 +597,13 @@ export default function SettingsModal() {
     const activeId = effectiveProfiles.some((profile) => profile.id === nextDraft.activeProfileId)
       ? nextDraft.activeProfileId
       : effectiveProfiles[0].id
-    const persistedSettings = normalizeSettings({
-      ...nextDraft,
-      profiles: effectiveProfiles,
-      activeProfileId: activeId,
-    })
+    const persistedSettings = normalizeSettings(
+      fromDraftSettings({
+        ...nextDraft,
+        profiles: effectiveProfiles,
+        activeProfileId: activeId,
+      }),
+    )
     setDraft(toDraftSettings(persistedSettings))
     setSettings(persistedSettings)
   }
