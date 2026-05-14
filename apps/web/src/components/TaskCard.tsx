@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { downloadImagesByIds } from '../lib/downloadImages'
 import { ActualValueBadge, getParamDisplay } from '../lib/paramDisplay'
 import { formatImageRatio } from '../lib/size'
 import {
@@ -46,6 +47,26 @@ export default function TaskCard({
   const [swipeActionActive, setSwipeActionActive] = useState(false)
   const toggleTaskSelection = useStore((s) => s.toggleTaskSelection)
   const settings = useStore((s) => s.settings)
+  const showToast = useStore((s) => s.showToast)
+  const [isDownloading, setIsDownloading] = useState(false)
+
+  const handleDownload = async (e: React.MouseEvent) => {
+    e.stopPropagation()
+    const ids = task.outputImages ?? []
+    if (ids.length === 0 || isDownloading) return
+    setIsDownloading(true)
+    try {
+      if (ids.length > 1) showToast(`开始下载 ${ids.length} 张图片...`, 'info')
+      const { success, failed } = await downloadImagesByIds(ids)
+      if (failed > 0) {
+        showToast(`下载完成: 成功 ${success}，失败 ${failed}`, 'info')
+      } else if (ids.length > 1) {
+        showToast(`成功下载 ${success} 张图片`, 'success')
+      }
+    } finally {
+      setIsDownloading(false)
+    }
+  }
   const touchStartRef = useRef<{ x: number; y: number } | null>(null)
   const swipeResetTimerRef = useRef<number | null>(null)
   const suppressClickUntilRef = useRef(0)
@@ -589,6 +610,27 @@ export default function TaskCard({
                       strokeLinejoin="round"
                       strokeWidth={2}
                       d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+                    />
+                  </svg>
+                </button>
+                <button
+                  onClick={handleDownload}
+                  className="p-1.5 rounded-md hover:bg-indigo-50 dark:hover:bg-indigo-950/30 text-gray-400 hover:text-indigo-500 transition disabled:opacity-30 disabled:cursor-not-allowed"
+                  title={
+                    isDownloading
+                      ? '正在下载...'
+                      : (task.outputImages?.length ?? 0) > 1
+                        ? `下载 ${task.outputImages?.length} 张图片`
+                        : '下载图片'
+                  }
+                  disabled={!task.outputImages?.length || isDownloading}
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M12 4v12m0 0l-4-4m4 4l4-4"
                     />
                   </svg>
                 </button>

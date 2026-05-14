@@ -9,6 +9,7 @@ import { createMaskPreviewDataUrl } from '../lib/canvasImage'
 import { getProfileModelOptions, updateSelectedModel } from '../lib/channels/profileSelectors'
 import { getPublicChannels } from '../lib/channels/publicChannels'
 import { getSafeBoundingClientRect } from '../lib/domRect'
+import { downloadImagesByIds } from '../lib/downloadImages'
 import {
   getChangedParams,
   getOutputImageLimitForSettings,
@@ -29,8 +30,6 @@ import { normalizeImageSize } from '../lib/size'
 import { dismissAllTooltips } from '../lib/tooltipDismiss'
 import {
   addImageFromFile,
-  ensureImageCached,
-  getCachedImage,
   removeMultipleTasks,
   submitTask,
   updateTaskInStore,
@@ -422,44 +421,11 @@ export default function InputBar() {
     }
 
     showToast(`开始下载 ${imageIds.length} 张图片...`, 'info')
-    let successCount = 0
-    let failCount = 0
-
-    for (const id of imageIds) {
-      try {
-        let url = getCachedImage(id)
-        if (!url) {
-          url = await ensureImageCached(id)
-        }
-        if (!url) {
-          failCount++
-          continue
-        }
-
-        const res = await fetch(url)
-        const blob = await res.blob()
-        const objUrl = URL.createObjectURL(blob)
-        const a = document.createElement('a')
-        a.href = objUrl
-        const ext = blob.type.split('/')[1] || 'png'
-        a.download = `image-${Date.now()}-${successCount}.${ext}`
-        document.body.appendChild(a)
-        a.click()
-        document.body.removeChild(a)
-        URL.revokeObjectURL(objUrl)
-        successCount++
-
-        await new Promise((resolve) => setTimeout(resolve, 100))
-      } catch (err) {
-        console.error(err)
-        failCount++
-      }
-    }
-
-    if (failCount > 0) {
-      showToast(`下载完成: 成功 ${successCount}，失败 ${failCount}`, 'info')
+    const { success, failed } = await downloadImagesByIds(imageIds)
+    if (failed > 0) {
+      showToast(`下载完成: 成功 ${success}，失败 ${failed}`, 'info')
     } else {
-      showToast(`成功下载 ${successCount} 张图片`, 'success')
+      showToast(`成功下载 ${success} 张图片`, 'success')
     }
     clearSelection()
   }, [tasks, selectedTaskIds, showToast, clearSelection])
