@@ -63,6 +63,13 @@ export const useInspirationStore = create<InspirationState>((set, get) => ({
       return
     }
 
+    const current = get()
+    // 多个调用方（hero / coach / panel）可能同时触发：in-flight 时直接返回，
+    // 避免重复 fetch 872KB；已成功加载且 items 非空时也跳过（懒加载语义保留，
+    // 下次刷新由 5min cache TTL 驱动）。
+    if (current.status === 'loading-remote') return
+    if (current.status === 'ready' && current.items.length > 0) return
+
     const cached = readCache()
     if (cached && Date.now() - cached.storedAt < REMOTE_TTL_MS) {
       get().setRemoteItems(cached.manifest.items, cached.manifest.categories)
