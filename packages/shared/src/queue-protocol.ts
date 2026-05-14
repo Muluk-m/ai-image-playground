@@ -36,7 +36,12 @@ export interface SubmitRequest {
   n?: number
   /** 参考图 data URL 数组（base64），上游处理时 BFF 透传 */
   input_images?: string[]
-  /** 额外原样转发给上游的请求体字段（如 OpenAI 的 mask / response_format 等） */
+  /**
+   * OpenAI mask edit 的遮罩 data URL（base64）。BFF 转 multipart 字段 mask。
+   * 仅 OpenAI 走 /v1/images/edits 时生效；Gemini 路径忽略此字段。
+   */
+  mask?: string
+  /** 额外原样转发给上游的请求体字段（如 OpenAI 的 response_format 等） */
   extra?: Record<string, unknown>
   /**
    * 客户端生成的幂等键。前端 submitTask 时为每个任务分配 UUID 并持久化到

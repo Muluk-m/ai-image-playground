@@ -138,6 +138,37 @@ describe('BFF queue routes', () => {
     }
   })
 
+  it('POST submit with mask routes to /v1/images/edits with mask field', async () => {
+    const originalFetch = globalThis.fetch
+    const calls: Array<{ url: string; init: RequestInit | undefined }> = []
+    globalThis.fetch = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ url: typeof input === 'string' ? input : input.toString(), init })
+      return new Response(JSON.stringify({ data: [{ b64_json: 'fake' }] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    }) as unknown as typeof fetch
+
+    const TINY_PNG = `data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgAAIAAAUAAeImBZsAAAAASUVORK5CYII=`
+
+    try {
+      const { status } = await jsonReq('POST', '/v1/queue/openai-compat/gpt-image-2/submit', {
+        prompt: 'mask edit',
+        input_images: [TINY_PNG],
+        mask: TINY_PNG,
+      })
+      expect(status).toBe(200)
+      await new Promise((r) => setTimeout(r, 50))
+
+      expect(calls[0]!.url).toMatch(/\/v1\/images\/edits$/)
+      const form = calls[0]!.init?.body as FormData
+      expect(form.getAll('image[]')).toHaveLength(1)
+      expect(form.get('mask')).toBeInstanceOf(Blob)
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
   it('worker captures upstream non-2xx as failed task with error message', async () => {
     const originalFetch = globalThis.fetch
     globalThis.fetch = mock(async () => {
