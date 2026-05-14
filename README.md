@@ -46,10 +46,11 @@
 
 ### 💡 灵感库（只读 prompt 案例）
 - 顶栏 ✨ 图标进入「灵感库」全屏面板，浏览精选 prompt + 缩略图 + 推荐模型
-- 点开任意示例可看完整 prompt（自动检测 JSON 结构并美化），「使用此提示词」一键填入主输入框（含 size / quality / n / 推荐模型）
+- 顶部 tab 可在 **GPT Image 2 / Nano Banana 2 / 全部** 之间切换；分类侧栏跟随 provider 自动收敛
+- 点开任意示例可看完整 prompt（自动检测 JSON 结构并美化），「使用此提示词」一键填入主输入框（含 size / quality / n / 推荐模型，并自动切到对应 channel 上）
 - 当前输入框非空时会弹确认避免覆盖未提交内容
-- 数据源：同源 `public/inspiration-manifest.json`（跟 CF Pages 一起部署），首次开面板时拉取，5 分钟 localStorage 缓存
-- 改 prompt 不需要改源码：编辑 `public/inspiration-manifest.json` + `pnpm deploy:cf` 即可
+- 数据源：同源 `public/inspiration-manifest.json`，首次开面板时拉取，5 分钟 localStorage 缓存
+- 改 prompt 不需要改源码：编辑 `public/inspiration-manifest.json` 重新部署即可
 - 可通过 `VITE_INSPIRATION_MANIFEST_URL` 改成外部 CDN/gist；设为空字符串可禁用远程
 - URL `#inspirations` 直接进入面板，方便发链接给同事
 
@@ -179,7 +180,10 @@ pnpm dev:edge                                # wrangler pages dev at http://loca
 ## 🤝 致谢
 
 - Fork 自上游开源项目 [CookSleep/gpt_image_playground](https://github.com/CookSleep/gpt_image_playground)（MIT），在此基础上扩展为通用多服务商图像工作台。
-- 灵感库 prompt 数据来自 [freestylefly/awesome-gpt-image-2](https://github.com/freestylefly/awesome-gpt-image-2)（MIT），通过 `pnpm --filter @image-playground/web refresh:inspiration` 一键同步：拉取上游 `data/cases.json`、按需把新增图片镜像到 Cloudflare R2（`cms-r2.deepclick.com`）、上游永久 404 的 item 自动从 manifest 排除。已镜像的图片复用现有 URL，HEAD 探测幂等，每次刷新只为 diff 付出代价。需要本机 `wrangler login` 并具备写 `playload-cms` 桶的权限。
+- 灵感库 prompt 数据来自两个上游：
+  - [freestylefly/awesome-gpt-image-2](https://github.com/freestylefly/awesome-gpt-image-2)（MIT）→ GPT Image 2 提示词，来自 `data/cases.json`
+  - [YouMind-OpenLab/awesome-nano-banana-pro-prompts](https://github.com/YouMind-OpenLab/awesome-nano-banana-pro-prompts)（CC BY 4.0）→ Nano Banana 2 提示词，从 `README_zh.md` 解析「精选 / 所有提示词」两段
+  - 一条命令同步两路：`pnpm --filter @image-playground/web refresh:inspiration` —— 按需镜像新增图片到 Cloudflare R2（`cms-r2.deepclick.com`），上游永久 404 的 item 自动从 manifest 排除；已镜像的图片复用现有 URL，HEAD 探测幂等。需要本机 `wrangler login` 并具备写 `playload-cms` 桶的权限。
 
 ## 📄 License
 

@@ -6,6 +6,8 @@ import { readCache, writeCache } from './lib/cache'
 const REMOTE_TTL_MS = 5 * 60 * 1000
 
 export type InspirationLoadStatus = 'idle' | 'loading-remote' | 'ready' | 'error'
+/** UI 上的 provider 分组：all = 不过滤；openai-compat = GPT 系；gemini = Nano Banana 系 */
+export type InspirationProviderFilter = 'all' | 'openai-compat' | 'gemini'
 
 export interface InspirationState {
   items: InspirationItem[]
@@ -14,6 +16,7 @@ export interface InspirationState {
   remoteError: string | null
 
   panelOpen: boolean
+  selectedProvider: InspirationProviderFilter
   selectedCategory: string | null
   searchKeyword: string
   detailItemId: string | null
@@ -25,6 +28,7 @@ export interface InspirationState {
 
   openPanel: () => void
   closePanel: () => void
+  setProvider: (provider: InspirationProviderFilter) => void
   setCategory: (category: string | null) => void
   setSearch: (keyword: string) => void
   showDetail: (id: string) => void
@@ -47,6 +51,7 @@ export const useInspirationStore = create<InspirationState>((set, get) => ({
   remoteError: null,
 
   panelOpen: false,
+  selectedProvider: 'all',
   selectedCategory: null,
   searchKeyword: '',
   detailItemId: null,
@@ -97,6 +102,7 @@ export const useInspirationStore = create<InspirationState>((set, get) => ({
     void get().loadRemote()
   },
   closePanel: () => set({ panelOpen: false, detailItemId: null }),
+  setProvider: (selectedProvider) => set({ selectedProvider, selectedCategory: null }),
   setCategory: (selectedCategory) => set({ selectedCategory }),
   setSearch: (searchKeyword) => set({ searchKeyword }),
   showDetail: (detailItemId) => set({ detailItemId }),

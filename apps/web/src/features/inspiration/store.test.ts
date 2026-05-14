@@ -23,6 +23,7 @@ describe('useInspirationStore', () => {
       status: 'idle',
       remoteError: null,
       panelOpen: false,
+      selectedProvider: 'all',
       selectedCategory: null,
       searchKeyword: '',
       detailItemId: null,
@@ -45,6 +46,15 @@ describe('useInspirationStore', () => {
       ['Custom A', 'Custom B'],
     )
     expect(useInspirationStore.getState().categories).toEqual(['Custom A', 'Custom B'])
+  })
+
+  it('setProvider switches provider filter and resets selectedCategory', () => {
+    const s = useInspirationStore.getState()
+    s.setCategory('头像')
+    expect(useInspirationStore.getState().selectedCategory).toBe('头像')
+    s.setProvider('gemini')
+    expect(useInspirationStore.getState().selectedProvider).toBe('gemini')
+    expect(useInspirationStore.getState().selectedCategory).toBeNull()
   })
 
   it('openPanel / closePanel toggles + closing clears detailItemId', () => {
