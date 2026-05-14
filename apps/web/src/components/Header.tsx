@@ -30,7 +30,7 @@ export default function Header() {
       >
         <div className="safe-area-x safe-header-inner max-w-7xl mx-auto flex items-center justify-between">
           <div className="flex-1 min-w-0 pr-2">
-            <h1 className="inline-flex items-center gap-2 font-display text-[17px] sm:text-lg font-semibold text-gray-800 dark:text-gray-100">
+            <h1 className="inline-flex items-center gap-2.5 font-display text-[18px] sm:text-[19px] font-medium tracking-wide text-gray-900 dark:text-gray-50">
               <img
                 src="./pwa-icon.svg"
                 alt=""
