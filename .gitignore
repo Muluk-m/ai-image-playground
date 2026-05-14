@@ -10,3 +10,4 @@ artifacts/
 .dev.vars
 .env.local
 .env
+.gstack

@@ -1,3 +1,4 @@
+import { useStore } from '../../../store'
 import { useInspirationStore, type InspirationProviderFilter } from '../store'
 import type { InspirationItem } from '../types'
 import InspirationCard from './InspirationCard'
@@ -8,10 +9,12 @@ export default function InspirationGrid() {
   const selectedCategory = useInspirationStore((s) => s.selectedCategory)
   const searchKeyword = useInspirationStore((s) => s.searchKeyword)
   const showDetail = useInspirationStore((s) => s.showDetail)
+  const pinnedIds = useStore((s) => s.pinnedInspirationIds)
 
   const filtered = filterItems(items, selectedProvider, selectedCategory, searchKeyword)
+  const ordered = sortPinnedFirst(filtered, pinnedIds)
 
-  if (filtered.length === 0) {
+  if (ordered.length === 0) {
     return (
       <div className="flex h-64 items-center justify-center text-sm text-gray-400 dark:text-gray-500">
         {items.length === 0 ? '加载中…' : '没有符合条件的灵感'}
@@ -21,7 +24,7 @@ export default function InspirationGrid() {
 
   return (
     <ul className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4">
-      {filtered.map((item) => (
+      {ordered.map((item) => (
         <li key={item.id}>
           <InspirationCard item={item} onClick={() => showDetail(item.id)} />
         </li>
@@ -49,4 +52,21 @@ function filterItems(
     ].join(' ').toLowerCase()
     return haystack.includes(kw)
   })
+}
+
+/**
+ * 把 pinned items 按 pin 顺序排在最前，其余保持原顺序。pinnedIds 是用户手动
+ * 置顶顺序（最近 pin 的在前），未匹配到当前 filtered 列表的 id 自动跳过。
+ */
+function sortPinnedFirst(items: InspirationItem[], pinnedIds: string[]): InspirationItem[] {
+  if (pinnedIds.length === 0) return items
+  const pinnedSet = new Set(pinnedIds)
+  const byId = new Map(items.map((it) => [it.id, it] as const))
+  const pinned: InspirationItem[] = []
+  for (const id of pinnedIds) {
+    const hit = byId.get(id)
+    if (hit) pinned.push(hit)
+  }
+  const rest = items.filter((it) => !pinnedSet.has(it.id))
+  return [...pinned, ...rest]
 }

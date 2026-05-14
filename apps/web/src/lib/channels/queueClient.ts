@@ -3,12 +3,14 @@ import {
   type QueueProvider,
   type ResultResponse,
   type StatusResponse,
+  type StatusResultMeta,
   type SubmitResponse,
 } from '@image-playground/shared'
 import type { TaskParams } from '../../types'
 import {
   applyCodexCliPromptGuard,
   assertImageInputPayloadSize,
+  bytesToDataUrl,
   getApiErrorMessage,
   getDataUrlEncodedByteSize,
   type CallApiOptions,
@@ -77,8 +79,10 @@ async function pollAndFetch(
   base: string,
   requestId: string,
 ): Promise<CallApiResult> {
-  await poll(base, requestId)
-  const meta = await fetchResultMeta(base, requestId)
+  // poll 拿到 completed 时 status response 已经内联了 meta（BFF 新协议）；缺失时
+  // 才回退到 GET /result。少一次 RTT 是常态路径，fallback 走旧 BFF 版本。
+  const inlined = await poll(base, requestId)
+  const meta = inlined ?? (await fetchResultMeta(base, requestId))
   if (!meta.images?.length) {
     throw new Error('BFF 返回 completed 但 images 列表为空')
   }
@@ -149,7 +153,7 @@ async function submit(
 }
 
 type PollOutcome =
-  | { kind: 'done' }
+  | { kind: 'done'; result: StatusResultMeta | undefined }
   | { kind: 'failed'; message: string }
   | { kind: 'cancelled' }
   | { kind: 'pending' }
@@ -170,13 +174,17 @@ async function classifyPollResponse(url: string): Promise<PollOutcome> {
     return { kind: 'fatal', message: await getApiErrorMessage(res) }
   }
   const json = (await res.json()) as StatusResponse
-  if (json.status === 'completed') return { kind: 'done' }
+  if (json.status === 'completed') return { kind: 'done', result: json.result }
   if (json.status === 'failed') return { kind: 'failed', message: json.error?.message ?? 'BFF 任务执行失败' }
   if (json.status === 'cancelled') return { kind: 'cancelled' }
   return { kind: 'pending' }
 }
 
-async function poll(base: string, requestId: string): Promise<void> {
+/**
+ * 返回 completed 时附带的 result meta（新 BFF 内联），缺失则回 undefined 让调用方
+ * 回退 GET /result。
+ */
+async function poll(base: string, requestId: string): Promise<StatusResultMeta | undefined> {
   const url = `${base}/v1/queue/requests/${requestId}/status`
   const deadline = Date.now() + POLL_MAX_MS
   let consecutiveFailures = 0
@@ -188,7 +196,7 @@ async function poll(base: string, requestId: string): Promise<void> {
 
     switch (outcome.kind) {
       case 'done':
-        return
+        return outcome.result
       case 'failed':
         throw new Error(outcome.message)
       case 'cancelled':
@@ -246,20 +254,7 @@ async function fetchImageDataUrl(
     throw new Error(`BFF image #${index} 拉取失败：${await getApiErrorMessage(res)}`)
   }
   const mime = res.headers.get('content-type') ?? fallbackMime
-  const buf = await res.arrayBuffer()
-  return arrayBufferToDataUrl(buf, mime)
-}
-
-function arrayBufferToDataUrl(buf: ArrayBuffer, mime: string): string {
-  // 不用 FileReader，避免 vitest 默认 node 环境缺 FileReader 失败；
-  // 浏览器侧表现一致。chunked 转 string 是因为 String.fromCharCode 超大字符数会爆栈。
-  const bytes = new Uint8Array(buf)
-  const CHUNK = 0x8000
-  let binary = ''
-  for (let i = 0; i < bytes.length; i += CHUNK) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK))
-  }
-  return `data:${mime};base64,${btoa(binary)}`
+  return bytesToDataUrl(await res.arrayBuffer(), mime)
 }
 
 const QUALITY_LITERALS = new Set<TaskParams['quality']>(['auto', 'low', 'medium', 'high'])

@@ -86,5 +86,26 @@ export default defineConfig(({ command }) => {
       host: true,
       proxy: Object.keys(proxy).length ? proxy : undefined,
     },
+    build: {
+      rollupOptions: {
+        output: {
+          // 拆出第三方依赖，缓解 500KB chunk warning + 让缓存复用率更高（首屏 vendor
+          // 大概率不变，业务代码改动只 bust 业务 chunk）。用函数形式才能匹配
+          // deep imports（react/jsx-runtime、react-dom/client 等）。
+          manualChunks(id) {
+            if (!id.includes('node_modules')) return undefined
+            if (
+              id.includes('/react/') ||
+              id.includes('/react-dom/') ||
+              id.includes('/scheduler/')
+            ) {
+              return 'react-vendor'
+            }
+            if (id.includes('/zustand/')) return 'zustand'
+            return undefined
+          },
+        },
+      },
+    },
   }
 })

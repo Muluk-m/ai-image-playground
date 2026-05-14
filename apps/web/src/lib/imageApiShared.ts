@@ -113,16 +113,24 @@ export function assertMaskEditFileSize(label: string, bytes: number) {
   assertMaxBytes(label, bytes, MAX_MASK_EDIT_FILE_BYTES)
 }
 
-async function blobToDataUrl(blob: Blob, fallbackMime: string): Promise<string> {
-  const bytes = new Uint8Array(await blob.arrayBuffer())
+/**
+ * Uint8Array / ArrayBuffer → data URL。chunked btoa 避免 `String.fromCharCode(...bytes)`
+ * 在大图（几 MB+）触发 stack overflow（参数展开数量上限）。
+ *
+ * 不用 FileReader：vitest 默认 node 环境缺；浏览器侧表现一致。
+ */
+export function bytesToDataUrl(bytes: Uint8Array | ArrayBuffer, mime: string): string {
+  const u8 = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes)
+  const CHUNK = 0x8000
   let binary = ''
-
-  for (let i = 0; i < bytes.length; i += 0x8000) {
-    const chunk = bytes.subarray(i, i + 0x8000)
-    binary += String.fromCharCode(...chunk)
+  for (let i = 0; i < u8.length; i += CHUNK) {
+    binary += String.fromCharCode(...u8.subarray(i, i + CHUNK))
   }
+  return `data:${mime};base64,${btoa(binary)}`
+}
 
-  return `data:${blob.type || fallbackMime};base64,${btoa(binary)}`
+async function blobToDataUrl(blob: Blob, fallbackMime: string): Promise<string> {
+  return bytesToDataUrl(await blob.arrayBuffer(), blob.type || fallbackMime)
 }
 
 export const IMAGE_FETCH_CORS_HINT = ' 可点链接按钮复制结果链接，或尝试开启「返回 Base64 图片数据」避免此问题。'

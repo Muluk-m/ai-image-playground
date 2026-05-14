@@ -36,7 +36,7 @@ import {
   storeImage,
 } from './lib/db'
 import { callImageApi, resumeQueueImageApi } from './lib/api'
-import { IMAGE_FETCH_CORS_HINT } from './lib/imageApiShared'
+import { IMAGE_FETCH_CORS_HINT, bytesToDataUrl as sharedBytesToDataUrl } from './lib/imageApiShared'
 import { getCustomQueuedImageResult } from './lib/openaiCompatibleImageApi'
 import { validateMaskMatchesImage } from './lib/canvasImage'
 import { orderInputImagesForMask } from './lib/mask'
@@ -330,6 +330,7 @@ export function getPersistedState(state: AppState) {
     supportPromptOpen: state.supportPromptOpen,
     supportPromptSkippedForImportedData: state.supportPromptSkippedForImportedData,
     inspirationCoachDismissed: state.inspirationCoachDismissed,
+    pinnedInspirationIds: state.pinnedInspirationIds,
     // 内置 channel 的 model cache 不进 localStorage（避免敏感模型清单泄漏到导出）。
     // 通过 profile.source === 'builtin-edge' 判定，而不是字符串前缀。
     profileModelCache: filterUserProfileCache(state.profileModelCache ?? {}, settings.profiles),
@@ -349,6 +350,9 @@ function mergePersistedState(persistedState: unknown, currentState: AppState): A
     supportPromptOpen: Boolean(persisted.supportPromptOpen),
     supportPromptSkippedForImportedData: Boolean(persisted.supportPromptSkippedForImportedData),
     inspirationCoachDismissed: Boolean(persisted.inspirationCoachDismissed),
+    pinnedInspirationIds: Array.isArray(persisted.pinnedInspirationIds)
+      ? persisted.pinnedInspirationIds.filter((x): x is string => typeof x === 'string')
+      : [],
     prompt: settings.persistInputOnRestart && typeof persisted.prompt === 'string' ? persisted.prompt : '',
     inputImages: settings.persistInputOnRestart && Array.isArray(persisted.inputImages) ? persisted.inputImages : [],
   }
@@ -423,6 +427,10 @@ interface AppState {
   /** 新人引导：第一次访问、还没生成过图时在 Header 灵感库按钮上引出气泡。 */
   inspirationCoachDismissed: boolean
   dismissInspirationCoach: () => void
+  /** 用户手动置顶的灵感 id 列表；顺序 = pin 顺序（最近 pin 的在前）。 */
+  pinnedInspirationIds: string[]
+  /** toggle 置顶状态：未 pin → pin（插到最前）；已 pin → unpin。 */
+  toggleInspirationPin: (id: string) => void
 
   // Toast
   toast: { message: string; type: 'info' | 'success' | 'error' } | null
@@ -616,6 +624,16 @@ export const useStore = create<AppState>()(
       dismissSupportPrompt: () => set({ supportPromptOpen: false, supportPromptDismissed: true }),
       inspirationCoachDismissed: false,
       dismissInspirationCoach: () => set({ inspirationCoachDismissed: true }),
+      pinnedInspirationIds: [],
+      toggleInspirationPin: (id) =>
+        set((st) => {
+          const exists = st.pinnedInspirationIds.includes(id)
+          return {
+            pinnedInspirationIds: exists
+              ? st.pinnedInspirationIds.filter((x) => x !== id)
+              : [id, ...st.pinnedInspirationIds],
+          }
+        }),
 
       // Toast
       toast: null,
@@ -1588,14 +1606,11 @@ function dataUrlToBytes(dataUrl: string): { ext: string; bytes: Uint8Array } {
   return { ext, bytes }
 }
 
-/** 将二进制数据还原为 dataUrl */
+/** 将二进制数据还原为 dataUrl。chunked 编码委托 imageApiShared，防大图 stack overflow。 */
 function bytesToDataUrl(bytes: Uint8Array, filePath: string): string {
   const ext = filePath.split('.').pop()?.toLowerCase() ?? 'png'
   const mimeMap: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp' }
-  const mime = mimeMap[ext] ?? 'image/png'
-  let binary = ''
-  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i])
-  return `data:${mime};base64,${btoa(binary)}`
+  return sharedBytesToDataUrl(bytes, mimeMap[ext] ?? 'image/png')
 }
 
 async function completeRecoveredCustomTask(task: TaskRecord, result: Awaited<ReturnType<typeof getCustomQueuedImageResult>>) {

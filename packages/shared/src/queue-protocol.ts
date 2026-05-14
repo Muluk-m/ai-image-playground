@@ -43,6 +43,17 @@ export interface SubmitResponse {
   submitted_at: number
 }
 
+/**
+ * status='completed' 时直接内联到 StatusResponse 的结果元信息子集。让前端在
+ * poll 拿到完成状态的同一次响应里就拿到 images 列表，省一次 `GET /requests/{id}`。
+ * 与 ResultResponse 同名字段含义一致。
+ */
+export interface StatusResultMeta {
+  images: ResultImageMeta[]
+  actual_params?: { size?: string; quality?: string }
+  raw_image_urls?: string[]
+}
+
 export interface StatusResponse {
   request_id: string
   status: TaskStatus
@@ -51,6 +62,8 @@ export interface StatusResponse {
   completed_at?: number
   /** 失败时携带；其它状态 undefined */
   error?: { message: string; type: string }
+  /** completed 时由 BFF 填入，避免前端二次 GET /result 拿元信息 */
+  result?: StatusResultMeta
 }
 
 /**
