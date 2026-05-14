@@ -102,6 +102,42 @@ describe('BFF queue routes', () => {
     }
   })
 
+  it('POST submit with input_images routes to /v1/images/edits as multipart', async () => {
+    const originalFetch = globalThis.fetch
+    const calls: Array<{ url: string; init: RequestInit | undefined }> = []
+    globalThis.fetch = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ url: typeof input === 'string' ? input : input.toString(), init })
+      return new Response(JSON.stringify({ data: [{ b64_json: 'fake' }] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    }) as unknown as typeof fetch
+
+    // 1x1 透明 PNG 的 base64
+    const TINY_PNG = `data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgAAIAAAUAAeImBZsAAAAASUVORK5CYII=`
+
+    try {
+      const { status } = await jsonReq('POST', '/v1/queue/openai-compat/gpt-image-2/submit', {
+        prompt: 'turn cat into dog',
+        size: '1024x1024',
+        input_images: [TINY_PNG],
+      })
+      expect(status).toBe(200)
+      // 等 worker 触发 upstream fetch
+      await new Promise((r) => setTimeout(r, 50))
+
+      expect(calls).toHaveLength(1)
+      expect(calls[0]!.url).toMatch(/\/v1\/images\/edits$/)
+      const body = calls[0]!.init?.body
+      expect(body).toBeInstanceOf(FormData)
+      const form = body as FormData
+      expect(form.get('prompt')).toBe('turn cat into dog')
+      expect(form.getAll('image[]')).toHaveLength(1)
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
   it('worker captures upstream non-2xx as failed task with error message', async () => {
     const originalFetch = globalThis.fetch
     globalThis.fetch = mock(async () => {

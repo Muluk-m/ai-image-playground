@@ -5,8 +5,8 @@ import { resolveApiKey } from './resolveApiKey'
 /**
  * 把 SubmitRequest 转换为 OpenAI Images / Gemini generateContent 请求体并发给 sub2api。
  *
- * BFF 不做参数翻译；OpenAI 路径走 /v1/images/generations（或 /edits 等），
- * Gemini 路径走 /v1beta/models/{model}:generateContent。
+ * BFF 不做参数翻译；OpenAI 路径根据是否带 input_images 选 /v1/images/edits（multipart）
+ * 或 /v1/images/generations（JSON），Gemini 路径走 /v1beta/models/{model}:generateContent。
  *
  * sub2api 是本机 localhost，无 CF Edge / 跨网延迟。这里仍设 10 分钟硬超时，
  * 防止上游卡死时 BFF worker 永远 hang、task 永远停在 in_progress。
@@ -34,12 +34,21 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
   try {
     if (provider === 'openai-compat') {
       const key = resolveApiKey(provider)
+      const authHeader: Record<string, string> = key ? { authorization: `Bearer ${key}` } : {}
+      // 有参考图 → /v1/images/edits multipart；generations 是纯文生图，塞 input_images
+      // 字段上游会忽略（导致用户感知"AI 不参考附件"）。
+      if (request.input_images?.length) {
+        const res = await fetch(`${base}/v1/images/edits`, {
+          method: 'POST',
+          headers: authHeader,
+          body: buildOpenAIEditFormData(model, request),
+          signal: abort.signal,
+        })
+        return parseUpstreamResponse(res)
+      }
       const res = await fetch(`${base}/v1/images/generations`, {
         method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          ...(key ? { authorization: `Bearer ${key}` } : {}),
-        },
+        headers: { 'content-type': 'application/json', ...authHeader },
         body: JSON.stringify(buildOpenAIBody(model, request)),
         signal: abort.signal,
       })
@@ -93,9 +102,37 @@ function buildOpenAIBody(model: string, request: SubmitRequest): Record<string, 
     ...(request.size ? { size: request.size } : {}),
     ...(request.quality ? { quality: request.quality } : {}),
     ...(request.n ? { n: request.n } : {}),
-    ...(request.input_images?.length ? { input_images: request.input_images } : {}),
     ...(request.extra ?? {}),
   }
+}
+
+function buildOpenAIEditFormData(model: string, request: SubmitRequest): FormData {
+  const form = new FormData()
+  form.append('model', model)
+  form.append('prompt', request.prompt)
+  if (request.size) form.append('size', request.size)
+  if (request.quality) form.append('quality', request.quality)
+  if (request.n) form.append('n', String(request.n))
+  for (const dataUrl of request.input_images ?? []) {
+    const blob = dataUrlToBlob(dataUrl)
+    form.append('image[]', blob, 'image.png')
+  }
+  // request.extra 内的标量值原样以字段透传；image/mask 这类二进制不通过 extra 走。
+  for (const [k, v] of Object.entries(request.extra ?? {})) {
+    if (v == null) continue
+    form.append(k, typeof v === 'string' ? v : JSON.stringify(v))
+  }
+  return form
+}
+
+function dataUrlToBlob(dataUrl: string): Blob {
+  const m = dataUrl.match(/^data:([^;,]+);base64,(.*)$/i)
+  if (!m) throw new Error('input_images 中的数据 URL 格式无效，必须是 data:<mime>;base64,<...>')
+  const mime = m[1]!
+  const bin = atob(m[2]!)
+  const bytes = new Uint8Array(bin.length)
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+  return new Blob([bytes], { type: mime })
 }
 
 function buildGeminiBody(request: SubmitRequest): Record<string, unknown> {
