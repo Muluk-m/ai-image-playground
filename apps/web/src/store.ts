@@ -75,6 +75,8 @@ const MAX_THUMBNAIL_CACHE_ENTRIES = 80
 const MAX_THUMBNAIL_BACKFILL_CONCURRENT = 4
 const CUSTOM_RECOVERY_POLL_MS = 10_000
 const SUPPORT_PROMPT_IMAGE_THRESHOLD = 50
+/** submitTask 后若用户已滚出此高度（px），把视口平滑滚回顶部把新卡片带进视野。 */
+const SUBMIT_SCROLL_TO_TOP_THRESHOLD_PX = 80
 const customRecoveryTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const openAIWatchdogTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const OPENAI_INTERRUPTED_ERROR = '请求中断'
@@ -1318,11 +1320,9 @@ export async function submitTask(
   }
   useStore.getState().setReusedTaskApiProfile(null)
 
-  // 把新插入的卡片带进视野，避免「点了按钮没反应」的错觉。
-  // 仅当用户已经滚出顶部时才平滑滚回顶部；本来就在顶部时新卡片直接出现在视野内。
-  if (typeof window !== 'undefined' && window.scrollY > 80) {
-    const supportsSmooth = 'scrollBehavior' in document.documentElement.style
-    window.scrollTo({ top: 0, behavior: supportsSmooth ? 'smooth' : 'auto' })
+  // 滚出顶部时把视口平滑滚回，让新卡片即刻可见。已在顶部时无需动。
+  if (typeof window !== 'undefined' && window.scrollY > SUBMIT_SCROLL_TO_TOP_THRESHOLD_PX) {
+    window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
   // 异步调用 API

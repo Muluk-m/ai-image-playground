@@ -11,6 +11,9 @@ import {
 import type { TaskRecord } from '../types'
 import { CodeIcon } from './icons'
 
+/** task-pop-in 入场动画窗口；超过这个秒数后 mount 的 task 视作历史回放，不再播。 */
+const FRESH_POP_IN_WINDOW_MS = 600
+
 interface Props {
   task: TaskRecord
   onReuse: () => void
@@ -32,14 +35,11 @@ export default function TaskCard({
   const [coverRatio, setCoverRatio] = useState<string>('')
   const [coverSize, setCoverSize] = useState<string>('')
   const [now, setNow] = useState(Date.now())
-  // 刚创建的 task 短暂播放入场动画，让用户清楚看到「卡片真的新冒出来了」。
-  const [isFresh, setIsFresh] = useState(() => Date.now() - task.createdAt < 600)
-  useEffect(() => {
-    if (!isFresh) return
-    const remaining = Math.max(0, 600 - (Date.now() - task.createdAt))
-    const timer = window.setTimeout(() => setIsFresh(false), remaining)
-    return () => window.clearTimeout(timer)
-  }, [isFresh, task.createdAt])
+  // 仅给「页面运行期间刚提交的卡片」播放一次入场动画。CSS keyframes 本身只在
+  // mount 时播放一次，所以 useRef 锁定 mount 时刻的判定即可——不需要 state +
+  // timer 去摘除 className（即便保留也只是 DOM 节点上一个无副作用的 class）。
+  // 历史任务从 IndexedDB rehydrate 时 createdAt 通常远超窗口，不会触发动画。
+  const isFreshRef = useRef(Date.now() - task.createdAt < FRESH_POP_IN_WINDOW_MS)
   const [swipeOffset, setSwipeOffset] = useState(0)
   const [isSwiping, setIsSwiping] = useState(false)
   const [swipeStartedSelected, setSwipeStartedSelected] = useState(false)
@@ -257,7 +257,7 @@ export default function TaskCard({
           !isSwiping
             ? 'transition-[box-shadow,border-color,background-color,transform]'
             : 'transition-[box-shadow,border-color,background-color]'
-        } ${isFresh ? 'animate-task-pop-in' : ''} ${
+        } ${isFreshRef.current ? 'animate-task-pop-in' : ''} ${
           task.status === 'running'
             ? 'border-blue-400 generating'
             : isSelected
