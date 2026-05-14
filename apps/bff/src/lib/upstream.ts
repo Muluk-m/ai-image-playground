@@ -35,9 +35,9 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
     if (provider === 'openai-compat') {
       const key = resolveApiKey(provider)
       const authHeader: Record<string, string> = key ? { authorization: `Bearer ${key}` } : {}
-      // 有参考图 → /v1/images/edits multipart；generations 是纯文生图，塞 input_images
-      // 字段上游会忽略（导致用户感知"AI 不参考附件"）。
-      if (request.input_images?.length) {
+      // 有参考图 / 有遮罩 → /v1/images/edits multipart；generations 是纯文生图，
+      // 塞 input_images 字段上游会忽略（用户感知"AI 不参考附件"）。
+      if (request.input_images?.length || request.mask) {
         const res = await fetch(`${base}/v1/images/edits`, {
           method: 'POST',
           headers: authHeader,
@@ -114,8 +114,10 @@ function buildOpenAIEditFormData(model: string, request: SubmitRequest): FormDat
   if (request.quality) form.append('quality', request.quality)
   if (request.n) form.append('n', String(request.n))
   for (const dataUrl of request.input_images ?? []) {
-    const blob = dataUrlToBlob(dataUrl)
-    form.append('image[]', blob, 'image.png')
+    form.append('image[]', dataUrlToBlob(dataUrl), 'image.png')
+  }
+  if (request.mask) {
+    form.append('mask', dataUrlToBlob(request.mask), 'mask.png')
   }
   // request.extra 内的标量值原样以字段透传；image/mask 这类二进制不通过 extra 走。
   for (const [k, v] of Object.entries(request.extra ?? {})) {

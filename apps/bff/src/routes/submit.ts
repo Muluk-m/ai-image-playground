@@ -10,6 +10,7 @@ const submitBodySchema = t.Object({
   quality: t.Optional(t.String()),
   n: t.Optional(t.Number({ minimum: 1, maximum: 16 })),
   input_images: t.Optional(t.Array(t.String())),
+  mask: t.Optional(t.String()),
   extra: t.Optional(t.Record(t.String(), t.Any())),
   /**
    * 幂等键：前端在 submitTask 时为每个任务生成 UUID。同一 ID 二次 submit

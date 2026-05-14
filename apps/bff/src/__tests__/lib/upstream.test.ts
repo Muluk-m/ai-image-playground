@@ -105,6 +105,35 @@ describe('callUpstream OpenAI route', () => {
     expect(form.get('n')).toBe('3')
   })
 
+  it('with mask: appends mask Blob alongside image[] in FormData', async () => {
+    await callUpstream({
+      provider: 'openai-compat',
+      model: 'gpt-image-2',
+      request: {
+        prompt: 'mask edit',
+        input_images: [TINY_PNG_DATA_URL],
+        mask: TINY_PNG_DATA_URL,
+      },
+    })
+    expect(calls[0]!.url).toMatch(/\/v1\/images\/edits$/)
+    const form = calls[0]!.init?.body as FormData
+    expect(form.getAll('image[]')).toHaveLength(1)
+    const mask = form.get('mask')
+    expect(mask).toBeInstanceOf(Blob)
+    expect((mask as Blob).size).toBeGreaterThan(0)
+  })
+
+  it('with mask but no input_images: still hits /v1/images/edits', async () => {
+    await callUpstream({
+      provider: 'openai-compat',
+      model: 'gpt-image-2',
+      request: { prompt: 'edit', mask: TINY_PNG_DATA_URL },
+    })
+    expect(calls[0]!.url).toMatch(/\/v1\/images\/edits$/)
+    const form = calls[0]!.init?.body as FormData
+    expect(form.get('mask')).toBeInstanceOf(Blob)
+  })
+
   it('preserves Bearer authorization header on edits path', async () => {
     await callUpstream({
       provider: 'openai-compat',

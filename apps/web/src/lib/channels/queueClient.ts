@@ -38,9 +38,6 @@ export async function callQueueChannelApi(
   if (!provider) {
     throw new Error(`callQueueChannelApi: 不支持的 channel kind ${channel.kind}`)
   }
-  if (opts.maskDataUrl) {
-    throw new Error('queue 模式暂不支持遮罩编辑（mask），请改用其它 channel 或 BYOK profile')
-  }
   assertImageInputPayloadSize(
     opts.inputImageDataUrls.reduce((sum, url) => sum + getDataUrlEncodedByteSize(url), 0),
   )
@@ -139,6 +136,7 @@ async function submit(
     body.quality = opts.params.quality
   if (opts.params.n && opts.params.n > 1) body.n = opts.params.n
   if (opts.inputImageDataUrls.length) body.input_images = opts.inputImageDataUrls
+  if (opts.maskDataUrl) body.mask = opts.maskDataUrl
   if (clientRequestId) body.client_request_id = clientRequestId
 
   const url = `${base}/v1/queue/${provider}/${encodeURIComponent(model)}/submit`

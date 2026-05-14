@@ -1,5 +1,4 @@
 import { getActiveApiProfile } from './apiProfiles'
-import { callEdgeChannelApi } from './channels/edgeClient'
 import { getPublicChannel } from './channels/publicChannels'
 import { callQueueChannelApi, resumeQueueChannelApi, toQueueProvider } from './channels/queueClient'
 import type { UserByokProfile } from './channels/types'
@@ -29,16 +28,13 @@ export async function callImageApi(opts: CallApiOptions): Promise<CallApiResult>
   if (profile.source === 'builtin-edge') {
     const channel = getPublicChannel(profile.channelId)
     if (!channel) throw new Error(`找不到内置 channel：${profile.channelId}`)
-    // builtin-edge 默认全部走 queue（浏览器 → BFF 全是 < 1s 短请求，永远绕开
-    // CF Edge 100s）。OpenAI mask 编辑因为是 multipart FormData，queue 协议
-    // 还没覆盖，回退到 /api-proxy/ 同步路径（mask edit 通常 < 30s，少踩 100s）。
-    if (opts.maskDataUrl) {
-      return callEdgeChannelApi(opts, profile, channel)
+    // builtin-edge 全部走 queue：浏览器 → BFF 都是 < 1s 短请求，永远绕开 CF Edge
+    // ~60s 死线。生成 / 编辑 / mask 编辑都靠 BFF worker 调上游 /v1/images/edits
+    // 或 /v1/images/generations 区分。
+    if (toQueueProvider(channel.kind) === null) {
+      throw new Error(`不支持的内置 channel kind：${channel.kind}`)
     }
-    if (toQueueProvider(channel.kind) !== null) {
-      return callQueueChannelApi(opts, profile, channel)
-    }
-    return callEdgeChannelApi(opts, profile, channel)
+    return callQueueChannelApi(opts, profile, channel)
   }
 
   // user-byok

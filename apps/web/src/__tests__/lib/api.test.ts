@@ -402,7 +402,7 @@ describe('callImageApi', () => {
     expectNoAuthHeaders(((submitCall[1] as RequestInit).headers ?? {}) as Record<string, string>)
   })
 
-  it('builtin-edge with maskDataUrl falls back to /api-proxy/ edge path (queue does not handle FormData masks)', async () => {
+  it('builtin-edge with maskDataUrl routes through queue submit with mask + input_images in body', async () => {
     const channel: PublicChannel = {
       id: 'test-openai-mask',
       kind: 'openai-compat',
@@ -411,15 +411,7 @@ describe('callImageApi', () => {
       defaults: { apiMode: 'images', timeout: 600 },
     }
     mockChannels.list = [channel]
-
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          data: [{ b64_json: 'aW1hZ2U=' }],
-        }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } },
-      ),
-    )
+    const { fetchMock } = mockQueueFlow('openai-compat')
 
     await callImageApi({
       settings: settingsWithBuiltin(channel),
@@ -429,8 +421,14 @@ describe('callImageApi', () => {
       maskDataUrl: 'data:image/png;base64,bWFzaw==',
     })
 
-    const [url] = fetchMock.mock.calls[0]
-    expect(url).toBe('/api-proxy/test-openai-mask/images/edits')
+    const submitCall = fetchMock.mock.calls.find(([url]: [unknown, unknown]) =>
+      String(url).endsWith('/submit'),
+    )!
+    const [submitUrl, submitInit] = submitCall as [string, RequestInit]
+    expect(submitUrl).toMatch(/\/v1\/queue\/openai-compat\/gpt-image-2\/submit$/)
+    const body = JSON.parse(submitInit.body as string)
+    expect(body.input_images).toEqual(['data:image/png;base64,aW1hZ2U='])
+    expect(body.mask).toBe('data:image/png;base64,bWFzaw==')
   })
 
   it('queue submit fires onQueueSubmitted callback with request_id', async () => {
