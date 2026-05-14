@@ -82,10 +82,6 @@ export function buildGeminiRequestBody(opts: {
 
   // gemini-3-pro-image-preview 强制要求同时声明 TEXT + IMAGE，否则返回 INVALID_ARGUMENT；
   // 2.5 Flash Image 对两种写法都接受。文档：https://ai.google.dev/gemini-api/docs/image-generation
-  //
-  // 注意：Gemini image generation 硬限制 candidateCount=1（"Only one candidate is
-  // supported for audio or image response"），所以这里不设 candidateCount；n>1 由
-  // callGeminiImageApi 在外层 fan-out 成 N 次并发请求实现。
   const generationConfig: GeminiRequestBody['generationConfig'] = {
     responseModalities: ['TEXT', 'IMAGE'],
   }

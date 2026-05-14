@@ -265,15 +265,13 @@ describe('callGeminiImageApi', () => {
     )
 
     expect(fetchMock).toHaveBeenCalledTimes(3)
-    // 三次请求 body 应一致，且都不带 candidateCount。
     const bodies = fetchMock.mock.calls.map((call) =>
       JSON.parse((call[1] as RequestInit).body as string),
     )
     for (const b of bodies) {
       expect(b.generationConfig?.candidateCount).toBeUndefined()
+      expect(b).toEqual(bodies[0])
     }
-    expect(bodies[0]).toEqual(bodies[1])
-    expect(bodies[1]).toEqual(bodies[2])
     expect(result.images).toEqual([
       'data:image/png;base64,AAA',
       'data:image/png;base64,BBB',
