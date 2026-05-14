@@ -23,6 +23,16 @@
            └─────────────────────────────────────┘
 ```
 
+## 设计取舍
+
+写在前面，避免后续重复讨论：
+
+- **原生 `fetch`，不接 OpenAI / Gemini 官方 SDK**。BFF 是「协议透传层」——下游 sub2api 是私有代理（不是 OpenAI / Vertex 官方），会包错误 envelope、改路径前缀（如 `/antigravity/v1beta`），SDK 内置的 base URL / retry / 错误判定 / 流式协议都跟代理不兼容。手写 `buildOpenAIBody` / `buildGeminiBody` 让透传字段不失真，新模型字段（如 `finishMessage` / `imageConfig.imageSize`）也能立刻用上，不必等 SDK 跟进。
+- **校验用 TypeBox（`t.Object` / `t.String`），不用 Zod**。TypeBox 是 Elysia 的原生 schema，路由层自动接管 params / query / body 校验、错误响应、类型推断、OpenAPI 生成。换 Zod 要每个路由手动 `parse` 再组装错误响应，反而损失一层。Bun 上 TypeBox 产物更小、运行更快。
+- **task-runner 是 fire-and-forget 不是 worker pool**。`submit` 端点 `spawnTask(id)` 起一个 Promise 就返回；并发由 Bun runtime 调度，调 sub2api 是 localhost HTTP 没有真正阻塞 worker。引 worker pool 是过早抽象。
+- **状态机所有写入都带 WHERE predicate**（atomic claim + 终态守护）。`queued → in_progress` 要求当前 status 仍是 `queued`，防止 startup recovery 与遗留 runTask 并发双写；写 `completed` / `failed` 要求 status 仍是 `in_progress`，防止已被 cancel 的任务被 worker 反悔覆盖。
+- **不做应用层 auth**。安全靠 CORS Origin 白名单 + CF Access policy + BFF URL 不入仓 的三层防护链（见下文「鉴权」节）。
+
 ## 端点
 
 | Method | Path | 说明 |

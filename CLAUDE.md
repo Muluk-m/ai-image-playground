@@ -107,9 +107,20 @@ ssh macmini "cd /Users/qiqian/workspace/repos/qlj-image-playground && \
 
 新功能建议先 spec → plan → 执行。
 
+## BFF 定位
+
+BFF（`apps/bff/`）在整个 playground 里只做四件事：
+
+1. **任务队列代理**——绕 CF Edge 100s idle timeout（Gemini 3 Pro Image 单张能跑 30-300s）。前端发 `submit / status / fetch` 三段 <1s 快请求，BFF 在 mac mini 上跑长任务调 sub2api。
+2. **Secret 守门人**——sub2api 的 API key 只在 mac mini 上，浏览器永远拿不到；这是「内置配置」能让没 key 的用户也能用的前提。
+3. **持久化 + 幂等**——SQLite 存 task，浏览器刷新 / 关 tab 后用 `client_request_id` 幂等恢复，不重复扣额度。
+4. **托管前端静态产物**——apps/web 的 dist 直接由 BFF serve，跟 BFF 同源省 CORS preflight。
+
+**不做的事**：不做协议翻译（OpenAI / Gemini 字段透传到 sub2api），**BYOK profile 完全绕过 BFF**（前端直接 fetch 用户填的 baseUrl，BFF 看不到也存不了 BYOK 的 key）。
+
 ## Queue 模式（apps/web + apps/bff）
 
-为绕开 CF Edge 100s idle timeout（生图请求 > 100s 必触发 524），引入 BFF 队列模式：
+队列模式的协议接入细节：
 
 - 前端按 fal.ai-style 协议跟 BFF 交互：`submit → polling → fetch result`，三个端点都是 < 1s 快请求
 - BFF 跑在 mac mini，本机 localhost 调 sub2api，**不经过 CF Edge HTTP 层**，任务多久都不限
