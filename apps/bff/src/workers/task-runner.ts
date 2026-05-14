@@ -1,5 +1,6 @@
 import { and, eq } from 'drizzle-orm'
 import { db, schema } from '../db/client'
+import { describeEmptyResult, extractMeta } from '../lib/extractImages'
 import { trackTask } from '../lib/inflight'
 import { callUpstream } from '../lib/upstream'
 
@@ -36,6 +37,23 @@ export async function runTask(id: string): Promise<void> {
       model: task.model,
       request: task.request_payload,
     })
+    // 上游 HTTP 200 但实际没图（Gemini RECITATION/IMAGE_SAFETY、OpenAI body 里
+    // 夹错误 envelope 等），标 failed 并把 finishReason/finishMessage 透传到前端，
+    // 否则前端只看到 "BFF completed 但 images 列表为空" 这种没用的二阶信息。
+    const meta = extractMeta(task.provider, payload)
+    if (meta.images.length === 0) {
+      await db
+        .update(schema.tasks)
+        .set({
+          status: 'failed',
+          error_message: describeEmptyResult(task.provider, payload),
+          error_type: 'upstream_no_image',
+          result_payload: payload as Record<string, unknown>,
+          completed_at: now(),
+        })
+        .where(and(eq(schema.tasks.id, id), eq(schema.tasks.status, 'in_progress')))
+      return
+    }
     await db
       .update(schema.tasks)
       .set({

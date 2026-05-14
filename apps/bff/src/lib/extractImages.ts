@@ -39,6 +39,63 @@ export function resolveImageBytesRef(
   return null
 }
 
+/**
+ * 上游 HTTP 200 但 extractMeta 没解出图片的兜底解释，用于 task-runner 把
+ * "成功返回但没图" 翻译成 failed 状态。最常见原因：Gemini RECITATION /
+ * IMAGE_SAFETY 拒绝（candidates[0].finishReason + finishMessage），或 OpenAI
+ * 返回 body 里夹了 error envelope。
+ */
+export function describeEmptyResult(provider: QueueProvider, payload: unknown): string {
+  if (provider === 'gemini') return describeGeminiEmpty(payload)
+  if (provider === 'openai-compat') return describeOpenAIEmpty(payload)
+  return '上游未返回图像数据'
+}
+
+interface GeminiCandidate {
+  finishReason?: string
+  finishMessage?: string
+  content?: { parts?: GeminiPart[] }
+}
+
+function describeGeminiEmpty(payload: unknown): string {
+  const p = payload as {
+    candidates?: GeminiCandidate[]
+    promptFeedback?: { blockReason?: string; blockReasonMessage?: string }
+  } | null
+
+  const cand = p?.candidates?.[0]
+  if (cand?.finishReason) {
+    const msg = typeof cand.finishMessage === 'string' ? cand.finishMessage.trim() : ''
+    return msg ? `Gemini ${cand.finishReason}: ${msg}` : `Gemini ${cand.finishReason}`
+  }
+  if (p?.promptFeedback?.blockReason) {
+    const msg = p.promptFeedback.blockReasonMessage ?? ''
+    return msg
+      ? `Gemini prompt blocked (${p.promptFeedback.blockReason}): ${msg}`
+      : `Gemini prompt blocked: ${p.promptFeedback.blockReason}`
+  }
+  const text = (cand?.content?.parts ?? [])
+    .map((part) => (typeof part.text === 'string' ? part.text : ''))
+    .filter(Boolean)
+    .join('\n')
+    .trim()
+  if (text) {
+    const snippet = text.length > 300 ? `${text.slice(0, 300)}…` : text
+    return `Gemini 未返回图像，仅文本：${snippet}`
+  }
+  return 'Gemini 未返回图像数据'
+}
+
+function describeOpenAIEmpty(payload: unknown): string {
+  const p = payload as { error?: { message?: string } | string; message?: string } | null
+  if (typeof p?.error === 'string') return `OpenAI: ${p.error}`
+  if (p?.error && typeof p.error === 'object' && typeof p.error.message === 'string') {
+    return `OpenAI: ${p.error.message}`
+  }
+  if (typeof p?.message === 'string') return `OpenAI: ${p.message}`
+  return 'OpenAI 未返回图像数据'
+}
+
 function extractOpenAI(payload: unknown): ExtractedResult {
   const p = payload as { data?: Array<Record<string, unknown>>; size?: string; quality?: string } | null
   const data = Array.isArray(p?.data) ? p.data : []
