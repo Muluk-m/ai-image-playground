@@ -1,5 +1,6 @@
 import { sqlite } from './client'
 import { runTask } from '../workers/task-runner'
+import { trackTask } from '../lib/inflight'
 
 /** 30 天前的成品任务一律清掉。 */
 const TASK_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
@@ -22,8 +23,10 @@ export function recoverInterruptedTasks(): { retried: number; failed: number } {
     .prepare("SELECT id FROM tasks WHERE status = 'queued'")
     .all() as Array<{ id: string }>
   for (const row of queuedRows) {
-    runTask(row.id).catch((err) =>
-      console.error(`[task-runner ${row.id}] crashed during startup recovery`, err),
+    trackTask(
+      runTask(row.id).catch((err) =>
+        console.error(`[task-runner ${row.id}] crashed during startup recovery`, err),
+      ),
     )
   }
 

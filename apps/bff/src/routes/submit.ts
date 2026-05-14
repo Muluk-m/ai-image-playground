@@ -3,6 +3,7 @@ import { eq } from 'drizzle-orm'
 import type { QueueProvider } from '@image-playground/shared'
 import { db, schema } from '../db/client'
 import { runTask } from '../workers/task-runner'
+import { trackTask } from '../lib/inflight'
 
 const submitBodySchema = t.Object({
   prompt: t.String({ minLength: 1 }),
@@ -56,8 +57,12 @@ export const submitRoutes = new Elysia().post(
       client_request_id: body.client_request_id ?? null,
     })
 
-    // fire-and-forget；worker 写状态时 status 转换错时不抛
-    runTask(id).catch((err) => console.error(`[task-runner ${id}] crashed`, err))
+    // fire-and-forget；worker 写状态时 status 转换错时不抛。
+    // trackTask 让 SIGTERM 信号在退出前等这个 runTask 走完，避免部署中途
+    // 把任务卡在 in_progress 让用户感知失败。
+    trackTask(
+      runTask(id).catch((err) => console.error(`[task-runner ${id}] crashed`, err)),
+    )
 
     return { request_id: id, status: 'queued', submitted_at: now }
   },
