@@ -1,48 +1,18 @@
-import { useEffect, useMemo } from 'react'
 import { SparkleIcon } from '../../../components/icons'
 import { useStore } from '../../../store'
+import heroSeedData from '../data/heroSeed.json'
 import { applyInspiration } from '../lib/applyInspiration'
-import { pickFeaturedInspirations } from '../lib/pickFeatured'
 import { useInspirationStore } from '../store'
+import type { InspirationItem } from '../types'
 import InspirationCard from './InspirationCard'
 
-const FEATURED_COUNT = 6
-// hero 默认只从 GPT Image 2 池里挑：那 423 条来自 awesome-gpt-image-2，
-// 多数是设计参考级的高质量图，banana 池的手机截图风格不上首屏。
-// pinned 不受此限制（用户显式偏好优先）。
-const HERO_PREFERRED_PROVIDER = 'openai-compat' as const
+// build 期由 scripts/build-hero-seed.mjs 从 manifest 提取，硬编码到 bundle。
+// 首屏立即可见，不依赖 manifest fetch。
+const HERO_SEED = heroSeedData as InspirationItem[]
 
 export default function InspirationEmptyHero() {
-  const items = useInspirationStore((s) => s.items)
-  const status = useInspirationStore((s) => s.status)
-  const loadRemote = useInspirationStore((s) => s.loadRemote)
   const openPanel = useInspirationStore((s) => s.openPanel)
   const pinnedIds = useStore((s) => s.pinnedInspirationIds)
-
-  useEffect(() => {
-    // hero 进入即触发 manifest 加载；store 内部对 in-flight / 已加载做了幂等保护，
-    // 与 coach / openPanel 共享同一份请求，不会重复 fetch 872KB。
-    void loadRemote()
-  }, [loadRemote])
-
-  const featured = useMemo(
-    () =>
-      pickFeaturedInspirations(items, pinnedIds, FEATURED_COUNT, Date.now(), {
-        preferredProvider: HERO_PREFERRED_PROVIDER,
-      }),
-    [items, pinnedIds],
-  )
-
-  const ready = featured.length >= FEATURED_COUNT
-  const fetchFailed = status === 'error' && items.length === 0
-
-  if (fetchFailed) {
-    return (
-      <div className="text-center py-20 text-gray-400 dark:text-gray-500">
-        <p className="text-sm">输入提示词开始生成图片</p>
-      </div>
-    )
-  }
 
   return (
     <div className="py-8 sm:py-10">
@@ -64,32 +34,15 @@ export default function InspirationEmptyHero() {
       </div>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-3.5 lg:grid-cols-6">
-        {ready
-          ? featured.map((item) => (
-              <InspirationCard
-                key={item.id}
-                item={item}
-                pinned={pinnedIds.includes(item.id)}
-                onClick={() => applyInspiration(item)}
-              />
-            ))
-          : Array.from({ length: FEATURED_COUNT }).map((_, i) => (
-              // 顺序固定且数量固定，key=index 安全且稳定，没有重排场景。
-              // biome-ignore lint/suspicious/noArrayIndexKey: stable placeholder list
-              <HeroSkeletonCard key={i} />
-            ))}
+        {HERO_SEED.map((item) => (
+          <InspirationCard
+            key={item.id}
+            item={item}
+            pinned={pinnedIds.includes(item.id)}
+            onClick={() => applyInspiration(item)}
+          />
+        ))}
       </div>
-    </div>
-  )
-}
-
-function HeroSkeletonCard() {
-  return (
-    <div
-      aria-hidden
-      className="relative flex aspect-[3/4] w-full flex-col overflow-hidden rounded-2xl border border-gray-200/60 bg-gray-50/40 dark:border-white/[0.06] dark:bg-white/[0.02]"
-    >
-      <div className="h-full w-full animate-pulse bg-gradient-to-br from-gray-200/60 via-gray-200/40 to-gray-100/40 dark:from-white/[0.06] dark:via-white/[0.03] dark:to-white/[0.04]" />
     </div>
   )
 }
