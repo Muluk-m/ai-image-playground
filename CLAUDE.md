@@ -71,6 +71,8 @@ ssh macmini "cd /Users/qiqian/workspace/repos/qlj-image-playground && \
 
 `--autostash` 让 mac mini 上偶尔的本地未提交改动不阻塞 rebase。命令链全用 `&&`，出现任何错误立即终止。看到 `launchctl kickstart` 那一步无报错即视为部署完成。
 
+**坑：`deploy:local` 不带 `pnpm install`**。如果本次拉到的代码新增了内部 workspace 依赖（任一 `package.json` 的 `dependencies` / `devDependencies` 里出现新的 `@image-playground/*: workspace:*`，或第三方包），BFF 启动时会因 `Cannot find module ...` 直接 crash。检查 `git diff HEAD@{1} HEAD -- '**/package.json'`，若有变化先 `pnpm install --prefer-offline` 再 kickstart。
+
 ### 部署前必须先检查 BFF 任务队列空闲
 
 `launchctl kickstart -k` 给 BFF 发 SIGTERM 后，`gracefulShutdown` 只 drain 55s（`SHUTDOWN_HARD_TIMEOUT_MS`）就被 SIGKILL，inflight 的上游生图请求（可能跑 5-15min）会被打断，对应 task 在 sqlite 里挂成 interrupted，前端看到「任务被中断」。
