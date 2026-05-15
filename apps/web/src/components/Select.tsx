@@ -181,9 +181,7 @@ export default function Select({
           disabled ? '!opacity-50 !cursor-not-allowed !bg-gray-100/50 dark:!bg-white/[0.05]' : ''
         }`}
       >
-        {!hideSelectedLabel && (
-          <span className="truncate">{selectedOption?.label ?? value}</span>
-        )}
+        {!hideSelectedLabel && <span className="truncate">{selectedOption?.label ?? value}</span>}
         <ChevronDownIcon
           className={`w-3.5 h-3.5 flex-shrink-0 text-gray-400 dark:text-gray-500 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}
         />
