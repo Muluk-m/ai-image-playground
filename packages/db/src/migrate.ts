@@ -48,5 +48,19 @@ export function runMigrations(databaseUrl: string) {
   // 列确保存在后再建，避免对老库报 "no such column"。
   sqlite.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_client_request_id
                ON tasks(client_request_id) WHERE client_request_id IS NOT NULL;`)
+
+  // device_id VIRTUAL 列：admin 设备聚合 GROUP BY 需要索引，但 device_id 实际存
+  // 在 request_payload JSON 里。生成列 VIRTUAL 不占额外空间，索引让聚合 < 10ms。
+  // 老库兼容：PRAGMA table_xinfo 查询确认列存在与否，不存在才 ALTER。
+  // 注意：必须用 table_xinfo 而不是 table_info——后者会跳过 hidden=2 的 VIRTUAL
+  // 生成列，导致第二次启动时 ALTER 重复报「duplicate column name」。
+  const cols2 = sqlite.query('PRAGMA table_xinfo(tasks)').all() as Array<{ name: string }>
+  if (!cols2.some((c) => c.name === 'device_id')) {
+    sqlite.exec(`
+      ALTER TABLE tasks ADD COLUMN device_id TEXT
+        GENERATED ALWAYS AS (json_extract(request_payload, '$.device_id')) VIRTUAL;
+    `)
+  }
+  sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_tasks_device_id ON tasks(device_id);`)
   sqlite.close()
 }
