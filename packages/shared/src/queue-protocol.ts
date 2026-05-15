@@ -49,6 +49,13 @@ export interface SubmitRequest {
    * request_id，避免重复消耗上游配额。
    */
   client_request_id?: string
+  /**
+   * 浏览器持久化的设备 ID（localStorage UUID）。BFF 用于按设备每日配额计数。
+   * 前端 submitTask 时统一带；缺失或格式异常时 BFF 返 400（Elysia schema 层
+   * 运行时强制必填）。TS 层先标可选避免一次性 break 所有现存 callsite，下游
+   * task 把 BFF/web 全部传上 device_id 后可考虑切到必填。
+   */
+  device_id?: string
 }
 
 export interface SubmitResponse {
@@ -161,6 +168,12 @@ export const QUEUE_TIMEOUTS = {
   /** 已完成/失败/取消任务保留时长，超过即删。 */
   TASK_RETENTION_MS: 30 * 24 * 60 * 60 * 1000,
 } as const
+
+/**
+ * 单设备单日最大生图张数。计数粒度是输出图数 n（n=4 的 submit 扣 4 张）。
+ * 北京时间 8 点 / UTC 0 点重置。BYOK profile 不走 BFF，天然豁免。
+ */
+export const DAILY_QUOTA_LIMIT = 50
 
 /** Channel 配置里新增 queue 类型时的客户端可见字段。 */
 export interface QueueChannelView {
