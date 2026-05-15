@@ -1,6 +1,7 @@
 import { cors } from '@elysiajs/cors'
 import { Elysia } from 'elysia'
 import { config } from './config'
+import { authRoutes } from './routes/auth'
 
 const corsOrigin =
   config.corsOrigins === '*'
@@ -13,3 +14,4 @@ const corsOrigin =
 export const app = new Elysia()
   .use(cors({ origin: corsOrigin, credentials: true }))
   .get('/health', () => ({ ok: true }))
+  .use(authRoutes)
