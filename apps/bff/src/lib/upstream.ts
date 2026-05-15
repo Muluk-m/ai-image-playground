@@ -1,5 +1,6 @@
 import { QUEUE_TIMEOUTS, type QueueProvider, type SubmitRequest } from '@image-playground/shared'
 import { config } from '../config'
+import { log } from './logger'
 import { resolveApiKey } from './resolveApiKey'
 
 /**
@@ -210,6 +211,9 @@ function buildGeminiBody(request: SubmitRequest): Record<string, unknown> {
   }
 }
 
+/** 非 2xx 时打 log 落的 payload 截断上限，避免上游回 base64 巨长串吞内存。 */
+const UPSTREAM_ERROR_LOG_BYTES = 2000
+
 async function parseUpstreamResponse(res: Response): Promise<UpstreamCallResult> {
   const text = await res.text()
   let payload: unknown = text
@@ -220,6 +224,21 @@ async function parseUpstreamResponse(res: Response): Promise<UpstreamCallResult>
   }
   if (!res.ok) {
     const message = extractErrorMessage(payload, res.status)
+    // 上游 envelope 完整落 log（截断）：extractErrorMessage 可能把诊断信息提取
+    // 成兜底字符串（如 "Upstream request failed"），原始 body 里的 error.code /
+    // 上游真错因（"upstream did not return image output" 等）会丢，这里补回。
+    log.warn(
+      {
+        event: 'upstream.non_2xx',
+        upstreamStatus: res.status,
+        message,
+        payloadPreview:
+          typeof payload === 'object' && payload !== null
+            ? JSON.stringify(payload).slice(0, UPSTREAM_ERROR_LOG_BYTES)
+            : String(payload).slice(0, UPSTREAM_ERROR_LOG_BYTES),
+      },
+      'upstream returned non-2xx',
+    )
     const err = new Error(message) as Error & { upstreamStatus: number; upstreamPayload: unknown }
     err.upstreamStatus = res.status
     err.upstreamPayload = payload
