@@ -71,6 +71,31 @@ ssh macmini "cd /Users/qiqian/workspace/repos/qlj-image-playground && \
 
 `--autostash` 让 mac mini 上偶尔的本地未提交改动不阻塞 rebase。命令链全用 `&&`，出现任何错误立即终止。看到 `launchctl kickstart` 那一步无报错即视为部署完成。
 
+### 部署前必须先检查 BFF 任务队列空闲
+
+`launchctl kickstart -k` 给 BFF 发 SIGTERM 后，`gracefulShutdown` 只 drain 55s（`SHUTDOWN_HARD_TIMEOUT_MS`）就被 SIGKILL，inflight 的上游生图请求（可能跑 5-15min）会被打断，对应 task 在 sqlite 里挂成 interrupted，前端看到「任务被中断」。
+
+**所以 Claude 跑 `pnpm deploy:local` 之前必须先在 mac mini 查 sqlite 队列**：
+
+```sh
+ssh macmini "sqlite3 /Users/qiqian/workspace/repos/qlj-image-playground/artifacts/image-playground.sqlite \
+  \"SELECT COUNT(*) FROM tasks WHERE status IN ('queued','in_progress')\""
+```
+
+- 返回 `0` → 安全，可以直接走上面的部署命令。
+- 返回非 `0` → **停手**。把当前 inflight 任务数告诉用户，问「是等队列空了再部署，还是强行 kickstart（会打断正在跑的 N 个任务）？」由用户决定。
+- 紧急情况（线上 BFF 已挂、任务全在失败）才考虑强行部署牺牲 inflight。
+
+「等队列空」的轮询模板：
+
+```sh
+ssh macmini "while [ \$(sqlite3 /Users/qiqian/workspace/repos/qlj-image-playground/artifacts/image-playground.sqlite \
+  \"SELECT COUNT(*) FROM tasks WHERE status IN ('queued','in_progress')\") -ne 0 ]; do \
+    echo waiting; sleep 10; \
+  done && cd /Users/qiqian/workspace/repos/qlj-image-playground && \
+  git pull --rebase --autostash origin main && pnpm deploy:local"
+```
+
 ## 服务商架构（apps/web）
 
 三个内建 provider，分发入口 `apps/web/src/lib/api.ts` 的 `callImageApi`：

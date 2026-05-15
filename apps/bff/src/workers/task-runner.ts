@@ -1,10 +1,11 @@
+import { QUEUE_TIMEOUTS } from '@image-playground/shared'
 import { and, eq } from 'drizzle-orm'
 import { db, schema } from '../db/client'
 import { describeEmptyResult, extractMeta } from '../lib/extractImages'
 import { trackTask } from '../lib/inflight'
 import { log } from '../lib/logger'
 import { isAbortError } from '../lib/queueProvider'
-import { callUpstream } from '../lib/upstream'
+import { callUpstream, UpstreamTimeoutError } from '../lib/upstream'
 
 /**
  * 单 task 后台执行：把 status 推进到 in_progress → completed/failed/cancelled。
@@ -102,17 +103,30 @@ export async function runTask(id: string): Promise<void> {
       log.info({ event: 'task.cancelled', taskId: id }, 'task aborted by cancel')
       return
     }
-    const message = err instanceof Error ? err.message : String(err)
+    const isTimeout = err instanceof UpstreamTimeoutError
+    const message = isTimeout
+      ? `上游超时：BFF 等待超过 ${Math.round(QUEUE_TIMEOUTS.UPSTREAM_HARD_TIMEOUT_MS / 60000)} 分钟未拿到响应`
+      : err instanceof Error
+        ? err.message
+        : String(err)
     await db
       .update(schema.tasks)
       .set({
         status: 'failed',
         error_message: message,
-        error_type: 'upstream_error' as const,
+        error_type: isTimeout ? ('upstream_timeout' as const) : ('upstream_error' as const),
         completed_at: now(),
       })
       .where(and(eq(schema.tasks.id, id), eq(schema.tasks.status, 'in_progress')))
-    log.error({ event: 'task.failed', taskId: id, err: message }, 'task failed')
+    log.error(
+      {
+        event: 'task.failed',
+        taskId: id,
+        errorType: isTimeout ? 'upstream_timeout' : 'upstream_error',
+        err: message,
+      },
+      'task failed',
+    )
   } finally {
     runningTasks.delete(id)
   }

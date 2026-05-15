@@ -8,8 +8,9 @@ import { resolveApiKey } from './resolveApiKey'
  * BFF 不做参数翻译；OpenAI 路径根据是否带 input_images 选 /v1/images/edits（multipart）
  * 或 /v1/images/generations（JSON），Gemini 路径走 /v1beta/models/{model}:generateContent。
  *
- * sub2api 是本机 localhost，无 CF Edge / 跨网延迟。这里仍设 10 分钟硬超时，
- * 防止上游卡死时 BFF worker 永远 hang、task 永远停在 in_progress。
+ * sub2api 是本机 localhost，无 CF Edge / 跨网延迟。这里仍设硬超时
+ * (QUEUE_TIMEOUTS.UPSTREAM_HARD_TIMEOUT_MS)，防止上游卡死时 BFF worker
+ * 永远 hang、task 永远停在 in_progress。
  */
 export interface UpstreamCallParams {
   provider: QueueProvider
@@ -22,14 +23,54 @@ export interface UpstreamCallResult {
   payload: unknown
 }
 
+/**
+ * 自定义错误：BFF 自己的 UPSTREAM_HARD_TIMEOUT_MS 切的（vs sub2api 返 4xx/5xx
+ * 或 socket 异常关）。task-runner 用 instanceof 检查并落库 error_type=
+ * 'upstream_timeout'，便于前端给针对性文案。
+ */
+export class UpstreamTimeoutError extends Error {
+  constructor(message = 'Upstream call exceeded BFF hard timeout') {
+    super(message)
+    this.name = 'UpstreamTimeoutError'
+  }
+}
+
+/**
+ * Bun 的 client fetch 默认有约 5min 的 socket idleTimeout（非标准 RequestInit
+ * 扩展，未在公开 docs 列出但运行时识别）。生图请求 multipart 一次发完后等响应
+ * 期间 socket 零数据流动 → idle → Bun 自动关闭 → fetch 抛 "The operation
+ * timed out."。把它显式关掉（0），让我们自己的 AbortController 单独控时长。
+ */
+type FetchInitWithIdle = RequestInit & { idleTimeout?: number }
+const FETCH_NO_IDLE: { idleTimeout: number } = { idleTimeout: 0 }
+
 export async function callUpstream(params: UpstreamCallParams): Promise<UpstreamCallResult> {
   const { provider, model, request, signal: externalSignal } = params
   const base = config.sub2api.baseUrl
 
   const abort = new AbortController()
-  const timer = setTimeout(() => abort.abort(), QUEUE_TIMEOUTS.UPSTREAM_HARD_TIMEOUT_MS)
+  let timedOut = false
+  const timer = setTimeout(() => {
+    timedOut = true
+    abort.abort()
+  }, QUEUE_TIMEOUTS.UPSTREAM_HARD_TIMEOUT_MS)
   const onExternalAbort = () => abort.abort()
   externalSignal?.addEventListener('abort', onExternalAbort)
+
+  const fetchInit = (init: FetchInitWithIdle): FetchInitWithIdle => ({
+    ...init,
+    signal: abort.signal,
+    ...FETCH_NO_IDLE,
+  })
+
+  const wrapTimeout = async <T>(p: Promise<T>): Promise<T> => {
+    try {
+      return await p
+    } catch (err) {
+      if (timedOut) throw new UpstreamTimeoutError()
+      throw err
+    }
+  }
 
   try {
     if (provider === 'openai-compat') {
@@ -38,20 +79,28 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
       // 有参考图 / 有遮罩 → /v1/images/edits multipart；generations 是纯文生图，
       // 塞 input_images 字段上游会忽略（用户感知"AI 不参考附件"）。
       if (request.input_images?.length || request.mask) {
-        const res = await fetch(`${base}/v1/images/edits`, {
-          method: 'POST',
-          headers: authHeader,
-          body: buildOpenAIEditFormData(model, request),
-          signal: abort.signal,
-        })
+        const res = await wrapTimeout(
+          fetch(
+            `${base}/v1/images/edits`,
+            fetchInit({
+              method: 'POST',
+              headers: authHeader,
+              body: buildOpenAIEditFormData(model, request),
+            }),
+          ),
+        )
         return parseUpstreamResponse(res)
       }
-      const res = await fetch(`${base}/v1/images/generations`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', ...authHeader },
-        body: JSON.stringify(buildOpenAIBody(model, request)),
-        signal: abort.signal,
-      })
+      const res = await wrapTimeout(
+        fetch(
+          `${base}/v1/images/generations`,
+          fetchInit({
+            method: 'POST',
+            headers: { 'content-type': 'application/json', ...authHeader },
+            body: JSON.stringify(buildOpenAIBody(model, request)),
+          }),
+        ),
+      )
       return parseUpstreamResponse(res)
     }
 
@@ -69,15 +118,17 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
       // 请求并把 candidates 合并到一个 payload，对 task-runner / 前端透明。
       const n = Math.max(1, request.n ?? 1)
       if (n === 1) {
-        const res = await fetch(url, { method: 'POST', headers, body, signal: abort.signal })
+        const res = await wrapTimeout(fetch(url, fetchInit({ method: 'POST', headers, body })))
         return parseUpstreamResponse(res)
       }
 
-      const results = await Promise.all(
-        Array.from({ length: n }, async () => {
-          const res = await fetch(url, { method: 'POST', headers, body, signal: abort.signal })
-          return parseUpstreamResponse(res)
-        }),
+      const results = await wrapTimeout(
+        Promise.all(
+          Array.from({ length: n }, async () => {
+            const res = await fetch(url, fetchInit({ method: 'POST', headers, body }))
+            return parseUpstreamResponse(res)
+          }),
+        ),
       )
       const merged = {
         candidates: results.flatMap((r) => {
