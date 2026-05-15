@@ -10,9 +10,9 @@ import type { ChannelDefaults, ChannelModel, PublicChannel } from './types'
  * Schema（JSON 数组）示例：
  * [
  *   {
- *     "id": "qlj-bff-openai",
+ *     "id": "bff-openai",
  *     "kind": "openai-queue",
- *     "label": "qlj BFF · OpenAI",
+ *     "label": "BFF · OpenAI",
  *     "bffBaseUrl": "https://bff.example.com",
  *     "models": [{ "id": "gpt-image-2", "label": "GPT Image 2" }],
  *     "defaults": { "apiMode": "images", "timeout": 600 }

@@ -161,17 +161,17 @@ ssh macmini "bash /Users/qiqian/workspace/repos/qlj-image-playground/apps/bff/de
 # apps/web/.env.local
 VITE_BFF_QUEUE_CHANNELS='[
   {
-    "id": "qlj-bff-openai",
+    "id": "bff-openai",
     "kind": "openai-queue",
-    "label": "qlj BFF · OpenAI",
+    "label": "BFF · OpenAI",
     "bffBaseUrl": "https://bff.your-domain.com",
     "models": [{ "id": "gpt-image-2", "label": "GPT Image 2" }],
     "defaults": { "apiMode": "images", "timeout": 600 }
   },
   {
-    "id": "qlj-bff-gemini",
+    "id": "bff-gemini",
     "kind": "gemini-queue",
-    "label": "qlj BFF · Gemini",
+    "label": "BFF · Gemini",
     "bffBaseUrl": "https://bff.your-domain.com",
     "models": [{ "id": "gemini-3.1-flash-image", "label": "Gemini 3.1 Flash Image" }],
     "defaults": { "apiMode": "images", "timeout": 600 }

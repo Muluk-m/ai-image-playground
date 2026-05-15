@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🎨 Qlj Image Playground
+# 🎨 Image Playground
 
 **通用图像生成工作台 · 多服务商接入 · 纯本地存储**
 

@@ -408,9 +408,9 @@ describe('getPersistedState builtin profile stripping', () => {
   it('removes builtin-edge profiles before persisting', () => {
     const userProfile = createDefaultOpenAIByokProfile({ id: 'user-1', apiKey: 'user-key' })
     const builtinEdge = {
-      id: 'qlj-x',
+      id: 'test-x',
       source: 'builtin-edge' as const,
-      channelId: 'qlj-x',
+      channelId: 'test-x',
       selectedModelId: 'm',
     }
     useStore.setState({
@@ -422,7 +422,7 @@ describe('getPersistedState builtin profile stripping', () => {
 
     const persisted = getPersistedState(useStore.getState())
 
-    expect(persisted.settings.profiles.find((p) => p.id === 'qlj-x')).toBeUndefined()
+    expect(persisted.settings.profiles.find((p) => p.id === 'test-x')).toBeUndefined()
     expect(persisted.settings.profiles.find((p) => p.id === 'user-1')).toBeDefined()
   })
 })

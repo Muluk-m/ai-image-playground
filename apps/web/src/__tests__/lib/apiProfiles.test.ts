@@ -52,14 +52,14 @@ describe('normalizeClientProfile', () => {
   it('normalizes a builtin-edge profile preserving channelId + selectedModelId', () => {
     const p = normalizeClientProfile({
       source: 'builtin-edge',
-      id: 'qlj-x',
-      channelId: 'qlj-x',
+      id: 'test-x',
+      channelId: 'test-x',
       selectedModelId: 'model-a',
     })
     expect(p).toEqual({
-      id: 'qlj-x',
+      id: 'test-x',
       source: 'builtin-edge',
-      channelId: 'qlj-x',
+      channelId: 'test-x',
       selectedModelId: 'model-a',
     })
   })
@@ -103,7 +103,7 @@ describe('normalizeClientProfile', () => {
 
 describe('isBuiltinProfile', () => {
   it('returns true for builtin-edge source', () => {
-    expect(isBuiltinProfile(createBuiltinEdgeProfile('qlj-x', 'm'))).toBe(true)
+    expect(isBuiltinProfile(createBuiltinEdgeProfile('test-x', 'm'))).toBe(true)
   })
   it('returns false for user-byok source', () => {
     expect(isBuiltinProfile(createDefaultOpenAIByokProfile())).toBe(false)
@@ -171,7 +171,7 @@ describe('validateClientProfile', () => {
     expect(validateClientProfile(createDefaultOpenAIByokProfile({ apiKey: 'k' }))).toBeNull()
   })
   it('returns null for builtin-edge profile with selectedModelId', () => {
-    expect(validateClientProfile(createBuiltinEdgeProfile('qlj-x', 'm'))).toBeNull()
+    expect(validateClientProfile(createBuiltinEdgeProfile('test-x', 'm'))).toBeNull()
   })
 })
 
@@ -195,7 +195,7 @@ describe('findEquivalentClientProfile', () => {
   it('does not match builtin-edge to user-byok', () => {
     const byok = createDefaultGeminiByokProfile({ id: 'g1', apiKey: 'k' })
     const settings = normalizeSettings({ profiles: [byok], activeProfileId: 'g1' })
-    const edge = createBuiltinEdgeProfile('qlj-x', 'm')
+    const edge = createBuiltinEdgeProfile('test-x', 'm')
     expect(findEquivalentClientProfile(settings, edge)).toBeNull()
   })
 })

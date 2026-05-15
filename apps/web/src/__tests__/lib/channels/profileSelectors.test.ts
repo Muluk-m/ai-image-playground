@@ -8,7 +8,7 @@ import {
 import type { ClientProfile, PublicChannel } from '../../../lib/channels/types'
 
 const builtinChannel: PublicChannel = {
-  id: 'qlj-test',
+  id: 'test-channel',
   kind: 'gemini',
   label: 'Test Gemini',
   models: [
@@ -24,7 +24,7 @@ function makeBuiltin(selectedModelId = 'gemini-a'): ClientProfile {
   return {
     id: 'p1',
     source: 'builtin-edge',
-    channelId: 'qlj-test',
+    channelId: 'test-channel',
     selectedModelId,
   }
 }

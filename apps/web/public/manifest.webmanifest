@@ -1,7 +1,7 @@
 {
-  "name": "Qlj Image Playground",
-  "short_name": "Qlj Image",
-  "description": "Qlj Image Playground 图像生成工作台",
+  "name": "Image Playground",
+  "short_name": "Image",
+  "description": "Image Playground 图像生成工作台",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
