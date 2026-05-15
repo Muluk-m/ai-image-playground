@@ -26,6 +26,7 @@ const { db, schema } = await import('../../db/client')
 
 async function resetDb() {
   await db.delete(schema.tasks)
+  await db.delete(schema.daily_quota)
 }
 
 async function jsonReq(
@@ -42,6 +43,16 @@ async function jsonReq(
     }),
   )
   return { status: res.status, json: await res.json() }
+}
+
+function submitBody(overrides: Record<string, unknown> = {}) {
+  return {
+    prompt: 'a cat',
+    n: 1,
+    device_id: 'test-device-aaaa-bbbb-cccc',
+    client_request_id: crypto.randomUUID(),
+    ...overrides,
+  }
 }
 
 describe('BFF queue routes', () => {
@@ -70,10 +81,11 @@ describe('BFF queue routes', () => {
     }) as unknown as typeof fetch
 
     try {
-      const { status, json } = await jsonReq('POST', '/v1/queue/openai-compat/gpt-image-2/submit', {
-        prompt: 'a cat',
-        size: '1024x1024',
-      })
+      const { status, json } = await jsonReq(
+        'POST',
+        '/v1/queue/openai-compat/gpt-image-2/submit',
+        submitBody({ prompt: 'a cat', size: '1024x1024' }),
+      )
       expect(status).toBe(200)
       expect(json).toMatchObject({ status: 'queued' })
       const id = (json as { request_id: string }).request_id
@@ -117,11 +129,11 @@ describe('BFF queue routes', () => {
     const TINY_PNG = `data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgAAIAAAUAAeImBZsAAAAASUVORK5CYII=`
 
     try {
-      const { status } = await jsonReq('POST', '/v1/queue/openai-compat/gpt-image-2/submit', {
-        prompt: 'turn cat into dog',
-        size: '1024x1024',
-        input_images: [TINY_PNG],
-      })
+      const { status } = await jsonReq(
+        'POST',
+        '/v1/queue/openai-compat/gpt-image-2/submit',
+        submitBody({ prompt: 'turn cat into dog', size: '1024x1024', input_images: [TINY_PNG] }),
+      )
       expect(status).toBe(200)
       // 等 worker 触发 upstream fetch
       await new Promise((r) => setTimeout(r, 50))
@@ -152,11 +164,11 @@ describe('BFF queue routes', () => {
     const TINY_PNG = `data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgAAIAAAUAAeImBZsAAAAASUVORK5CYII=`
 
     try {
-      const { status } = await jsonReq('POST', '/v1/queue/openai-compat/gpt-image-2/submit', {
-        prompt: 'mask edit',
-        input_images: [TINY_PNG],
-        mask: TINY_PNG,
-      })
+      const { status } = await jsonReq(
+        'POST',
+        '/v1/queue/openai-compat/gpt-image-2/submit',
+        submitBody({ prompt: 'mask edit', input_images: [TINY_PNG], mask: TINY_PNG }),
+      )
       expect(status).toBe(200)
       await new Promise((r) => setTimeout(r, 50))
 
@@ -178,9 +190,11 @@ describe('BFF queue routes', () => {
     }) as unknown as typeof fetch
 
     try {
-      const { json } = await jsonReq('POST', '/v1/queue/openai-compat/gpt-image-2/submit', {
-        prompt: 'x',
-      })
+      const { json } = await jsonReq(
+        'POST',
+        '/v1/queue/openai-compat/gpt-image-2/submit',
+        submitBody({ prompt: 'x' }),
+      )
       const id = (json as { request_id: string }).request_id
       await new Promise((r) => setTimeout(r, 50))
 
@@ -233,10 +247,53 @@ describe('BFF queue routes', () => {
   })
 
   it('POST submit rejects invalid provider', async () => {
-    const { status, json } = await jsonReq('POST', '/v1/queue/unknown-provider/some-model/submit', {
-      prompt: 'x',
-    })
+    const { status, json } = await jsonReq(
+      'POST',
+      '/v1/queue/unknown-provider/some-model/submit',
+      submitBody({ prompt: 'x' }),
+    )
     expect(status).toBe(400)
     expect(json).toMatchObject({ error: expect.stringContaining('unsupported provider') })
+  })
+
+  it('submit 缺失 device_id 返回 400', async () => {
+    const { status } = await jsonReq('POST', '/v1/queue/openai-compat/gpt-image-1/submit', {
+      prompt: 'a cat',
+      n: 1,
+    })
+    expect(status).toBe(400)
+  })
+
+  it('submit device_id 太短返回 400', async () => {
+    const { status } = await jsonReq(
+      'POST',
+      '/v1/queue/openai-compat/gpt-image-1/submit',
+      submitBody({ device_id: 'short' }),
+    )
+    expect(status).toBe(400)
+  })
+
+  it('累计 5 次 n=10 后第 6 次返回 429 + daily_quota_exceeded', async () => {
+    const device_id = 'quota-dev-aaaa-bbbb-cccc'
+    for (let i = 0; i < 5; i++) {
+      const { status } = await jsonReq(
+        'POST',
+        '/v1/queue/openai-compat/gpt-image-1/submit',
+        submitBody({ device_id, n: 10, client_request_id: crypto.randomUUID() }),
+      )
+      expect(status).toBe(200)
+    }
+    const { status, json } = await jsonReq(
+      'POST',
+      '/v1/queue/openai-compat/gpt-image-1/submit',
+      submitBody({ device_id, n: 1, client_request_id: crypto.randomUUID() }),
+    )
+    expect(status).toBe(429)
+    expect(json).toMatchObject({
+      error: 'daily_quota_exceeded',
+      limit: 50,
+      used: 50,
+    })
+    expect((json as { reset_at: string }).reset_at).toMatch(/^\d{4}-\d{2}-\d{2}T00:00:00/)
   })
 })
