@@ -13,7 +13,7 @@
     "lint": "biome check .",
     "format": "biome format --write .",
     "deploy:cf": "pnpm --filter=@image-playground/web deploy:cf",
-    "deploy:local": "pnpm --filter=@image-playground/web build && launchctl kickstart -k gui/$(id -u)/qlj.image-playground.bff && (launchctl kickstart -k gui/$(id -u)/ai.openclaw.cloudflared-macmini || echo 'cloudflared-macmini agent not present; skipping tunnel restart')",
+    "deploy:local": "pnpm --filter=@image-playground/web build && launchctl kickstart -k gui/$(id -u)/qlj.image-playground.bff && (launchctl kickstart -k gui/$(id -u)/qlj.image-playground.admin || echo 'admin agent not loaded; skipping admin restart') && (launchctl kickstart -k gui/$(id -u)/ai.openclaw.cloudflared-macmini || echo 'cloudflared-macmini agent not present; skipping tunnel restart')",
     "gen:channels": "pnpm --filter=@image-playground/web gen:channels"
   },
   "devDependencies": {
