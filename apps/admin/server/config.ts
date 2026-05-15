@@ -1,0 +1,20 @@
+const env = (key: string, fallback?: string): string => {
+  const v = process.env[key]
+  if (v && v.trim()) return v.trim()
+  if (fallback !== undefined) return fallback
+  throw new Error(`Missing env: ${key}`)
+}
+
+const cookieSecret = env('ADMIN_COOKIE_SECRET')
+if (cookieSecret.length < 32) {
+  throw new Error('ADMIN_COOKIE_SECRET must be at least 32 chars')
+}
+
+export const config = {
+  port: Number(env('PORT', '37378')),
+  adminPassword: env('ADMIN_PASSWORD'),
+  cookieSecret,
+  bffInternalUrl: env('BFF_INTERNAL_URL', 'http://127.0.0.1:37377').replace(/\/+$/, ''),
+  databaseUrl: env('DATABASE_URL', '../../artifacts/image-playground.sqlite'),
+  corsOrigins: env('CORS_ALLOWED_ORIGINS', '*'),
+}

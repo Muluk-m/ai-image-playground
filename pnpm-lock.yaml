@@ -15,6 +15,31 @@ importers:
         specifier: ^2.5.0
         version: 2.9.12
 
+  apps/admin:
+    dependencies:
+      '@elysiajs/cors':
+        specifier: ^1.4.0
+        version: 1.4.2(elysia@1.4.28(@sinclair/typebox@0.34.49)(@types/bun@1.3.14)(exact-mirror@1.0.0)(file-type@22.0.1)(openapi-types@12.1.3)(typescript@5.9.3))
+      '@image-playground/db':
+        specifier: workspace:*
+        version: link:../../packages/db
+      '@image-playground/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
+      drizzle-orm:
+        specifier: ^0.45.2
+        version: 0.45.2(bun-types@1.3.14)
+      elysia:
+        specifier: ^1.4.0
+        version: 1.4.28(@sinclair/typebox@0.34.49)(@types/bun@1.3.14)(exact-mirror@1.0.0)(file-type@22.0.1)(openapi-types@12.1.3)(typescript@5.9.3)
+    devDependencies:
+      '@types/bun':
+        specifier: latest
+        version: 1.3.14
+      typescript:
+        specifier: ^5.8.3
+        version: 5.9.3
+
   apps/bff:
     dependencies:
       '@elysiajs/cors':

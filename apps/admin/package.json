@@ -1,0 +1,24 @@
+{
+  "name": "@image-playground/admin",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "server/index.ts",
+  "scripts": {
+    "dev:server": "bun run --watch server/index.ts",
+    "start": "bun run server/index.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@elysiajs/cors": "^1.4.0",
+    "@image-playground/db": "workspace:*",
+    "@image-playground/shared": "workspace:*",
+    "drizzle-orm": "^0.45.2",
+    "elysia": "^1.4.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.8.3"
+  }
+}
