@@ -11,16 +11,16 @@
       },
       "models": [
         {
-          "id": "gpt-image-2-2026-04-21",
-          "label": "GPT Image 2 (2026-04-21)",
+          "id": "gpt-image-2",
+          "label": "GPT Image 2",
           "capabilities": [
             "generate",
             "edit"
           ]
         },
         {
-          "id": "gpt-image-2",
-          "label": "GPT Image 2",
+          "id": "gpt-image-2-2026-04-21",
+          "label": "GPT Image 2 (2026-04-21)",
           "capabilities": [
             "generate",
             "edit"
