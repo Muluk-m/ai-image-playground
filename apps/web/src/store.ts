@@ -1196,16 +1196,17 @@ export async function submitTask(
     useStore.getState().setParams(normalizedParamPatch)
   }
 
-  const taskId = genId()
   const submitView = clientProfileToApiProfile(activeProfile)
-  // 不区分 channel kind 一律分配 clientRequestId：成本仅 36 字节，但让所有
-  // 任务都可在提交期刷新后被「重提 + BFF 去重」恢复，无需让 submitTask 提前
-  // 知道走的是 queue 还是同步 edge。BYOK 路径不消费此字段，不影响行为。
-  const clientRequestId = crypto.randomUUID()
-  const task: TaskRecord = {
-    id: taskId,
+  // n 张图一律拆成 n 条独立任务并行下发：gpt-image-2 / nano-banana 都不支持
+  // 上游 n 参数，统一前端 fan-out 比按 model 分支更简单；副作用是 quota 自然
+  // 按张数计数。每条 task 自带独立 clientRequestId 用于 BFF 幂等。
+  const fanOut = Math.max(1, normalizedParams.n)
+  const singleParams = fanOut === 1 ? normalizedParams : { ...normalizedParams, n: 1 }
+  const createdAt = Date.now()
+  const newTasks: TaskRecord[] = Array.from({ length: fanOut }, () => ({
+    id: genId(),
     prompt: prompt.trim(),
-    params: normalizedParams,
+    params: singleParams,
     apiProvider: submitView.provider,
     apiProfileId: activeProfile.id,
     apiProfileName: submitView.name,
@@ -1216,15 +1217,15 @@ export async function submitTask(
     outputImages: [],
     status: 'running',
     error: null,
-    createdAt: Date.now(),
+    createdAt,
     finishedAt: null,
     elapsed: null,
-    clientRequestId,
-  }
+    clientRequestId: crypto.randomUUID(),
+  }))
 
   const latestTasks = useStore.getState().tasks
-  useStore.getState().setTasks([task, ...latestTasks])
-  await putTask(task)
+  useStore.getState().setTasks([...newTasks, ...latestTasks])
+  await Promise.all(newTasks.map((t) => putTask(t)))
 
   if (settings.clearInputAfterSubmit) {
     useStore.getState().setPrompt('')
@@ -1237,8 +1238,9 @@ export async function submitTask(
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
-  // 异步调用 API
-  executeTask(taskId)
+  for (const t of newTasks) {
+    void executeTask(t.id)
+  }
 }
 
 async function executeTask(taskId: string) {
