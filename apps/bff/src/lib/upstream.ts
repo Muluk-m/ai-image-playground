@@ -37,13 +37,24 @@ export class UpstreamTimeoutError extends Error {
 }
 
 /**
- * Bun 的 client fetch 默认有约 5min 的 socket idleTimeout（非标准 RequestInit
- * 扩展，未在公开 docs 列出但运行时识别）。生图请求 multipart 一次发完后等响应
+ * Bun 1.3.8 的 client fetch 默认有约 5min 的 socket idleTimeout（非标准
+ * RequestInit 扩展，未在公开 docs 列出）。生图 multipart 一次发完后等响应
  * 期间 socket 零数据流动 → idle → Bun 自动关闭 → fetch 抛 "The operation
- * timed out."。把它显式关掉（0），让我们自己的 AbortController 单独控时长。
+ * timed out."。
+ *
+ * 之前试过 `idleTimeout: 0` 想关掉它，实测同一 BFF 进程同一份代码出现：275s
+ * 成功 / 252s 又被切，**Bun 不可靠地把 0 当成「禁用」**（很可能解析为
+ * fallback 到 default）。改成显式大值 16min = 比 UPSTREAM_HARD_TIMEOUT_MS
+ * (15min) 长 1min，确保 AbortController 总能先于 Bun socket idle 触发。
+ *
+ * 同时强制 `Connection: close`：Bun 默认走 HTTP/1.1 keepalive，pooled socket
+ * 可能仍带初次建连时的 5min 默认 idle；每次开新连接最稳妥。sub2api 是
+ * localhost，新连接成本可忽略。
  */
 type FetchInitWithIdle = RequestInit & { idleTimeout?: number }
-const FETCH_NO_IDLE: { idleTimeout: number } = { idleTimeout: 0 }
+const FETCH_IDLE_TIMEOUT_MS = 16 * 60 * 1000
+const FETCH_NO_IDLE: { idleTimeout: number } = { idleTimeout: FETCH_IDLE_TIMEOUT_MS }
+const NO_KEEPALIVE: Record<string, string> = { connection: 'close' }
 
 export async function callUpstream(params: UpstreamCallParams): Promise<UpstreamCallResult> {
   const { provider, model, request, signal: externalSignal } = params
@@ -85,7 +96,7 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
             `${base}/v1/images/edits`,
             fetchInit({
               method: 'POST',
-              headers: authHeader,
+              headers: { ...authHeader, ...NO_KEEPALIVE },
               body: buildOpenAIEditFormData(model, request),
             }),
           ),
@@ -97,7 +108,7 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
           `${base}/v1/images/generations`,
           fetchInit({
             method: 'POST',
-            headers: { 'content-type': 'application/json', ...authHeader },
+            headers: { 'content-type': 'application/json', ...authHeader, ...NO_KEEPALIVE },
             body: JSON.stringify(buildOpenAIBody(model, request)),
           }),
         ),
@@ -111,6 +122,7 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
       const headers = {
         'content-type': 'application/json',
         ...(key ? { 'x-api-key': key } : {}),
+        ...NO_KEEPALIVE,
       }
       const body = JSON.stringify(buildGeminiBody(request))
 
