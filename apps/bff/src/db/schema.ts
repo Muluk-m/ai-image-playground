@@ -1,5 +1,5 @@
 import type { QueueProvider, SubmitRequest, TaskStatus } from '@image-playground/shared'
-import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+import { integer, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
 export const tasks = sqliteTable('tasks', {
   id: text('id').primaryKey(),
@@ -16,6 +16,18 @@ export const tasks = sqliteTable('tasks', {
   /** 客户端幂等键。NULL 表示老任务或客户端没传；前端新提交一律会带。 */
   client_request_id: text('client_request_id'),
 })
+
+export const daily_quota = sqliteTable(
+  'daily_quota',
+  {
+    device_id: text('device_id').notNull(),
+    date: text('date').notNull(), // 'YYYY-MM-DD' UTC
+    count: integer('count').notNull().default(0),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.device_id, t.date] }),
+  }),
+)
 
 export type Task = typeof tasks.$inferSelect
 export type NewTask = typeof tasks.$inferInsert

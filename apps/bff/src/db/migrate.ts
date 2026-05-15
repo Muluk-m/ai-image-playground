@@ -27,6 +27,13 @@ const DDL_BASE = `
 
   CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
   CREATE INDEX IF NOT EXISTS idx_tasks_submitted_at ON tasks(submitted_at);
+
+  CREATE TABLE IF NOT EXISTS daily_quota (
+    device_id TEXT NOT NULL,
+    date      TEXT NOT NULL,
+    count     INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (device_id, date)
+  );
 `
 
 export function runMigrations(databaseUrl: string = config.databaseUrl) {
