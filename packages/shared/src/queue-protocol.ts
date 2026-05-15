@@ -151,8 +151,9 @@ export const QUEUE_TIMEOUTS = {
   POLL_BACKOFF_MS: [500, 1000, 2000, 3000, 5000] as readonly number[],
   /** 连续 5 次 5xx/网络错误才放弃 poll（容忍 BFF 重启、cf tunnel 抖动）。 */
   POLL_MAX_CONSECUTIVE_FAILURES: 5,
-  /** BFF 单次上游 fetch 硬超时：10 min（AbortController）。 */
-  UPSTREAM_HARD_TIMEOUT_MS: 10 * 60 * 1000,
+  /** BFF 单次上游 fetch 硬超时：15 min（AbortController）。gpt-image-2 系列在 sub2api
+   *  慢链路下偶尔会跑 4-5min；留 15min 给极端长尾。需 < POLL_MAX_MS（30min）。 */
+  UPSTREAM_HARD_TIMEOUT_MS: 15 * 60 * 1000,
   /** BFF SIGTERM 后等 inflight drain 的硬上限；留 5s 给 launchd ExitTimeOut。 */
   SHUTDOWN_HARD_TIMEOUT_MS: 55 * 1000,
   /** 后台清理过期任务的轮询间隔。 */
