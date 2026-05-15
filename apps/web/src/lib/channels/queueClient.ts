@@ -7,6 +7,7 @@ import {
   type SubmitResponse,
 } from '@image-playground/shared'
 import type { TaskParams } from '../../types'
+import { getDeviceId } from '../deviceId'
 import {
   applyCodexCliPromptGuard,
   assertImageInputPayloadSize,
@@ -130,6 +131,7 @@ async function submit(
   // 跟 edgeClient OpenAI 路径行为对齐，由前端在 submit body 里直接应用。
   const body: Record<string, unknown> = {
     prompt: applyCodexCliPromptGuard(opts.prompt, codexCli),
+    device_id: getDeviceId(),
   }
   if (opts.params.size && opts.params.size !== 'auto') body.size = opts.params.size
   if (!codexCli && opts.params.quality && opts.params.quality !== 'auto')
@@ -146,6 +148,21 @@ async function submit(
     body: JSON.stringify(body),
   })
   if (!res.ok) {
+    if (res.status === 429) {
+      const json = (await res.json().catch(() => null)) as {
+        error?: string
+        reset_at?: string
+      } | null
+      if (json?.error === 'daily_quota_exceeded') {
+        const err = new Error('今日 50 张已用完，UTC 0 点（北京 8 点）后重置') as Error & {
+          quotaExceeded: boolean
+          resetAt?: string
+        }
+        err.quotaExceeded = true
+        if (json.reset_at) err.resetAt = json.reset_at
+        throw err
+      }
+    }
     throw new Error(`BFF submit 失败：${await getApiErrorMessage(res)}`)
   }
   const json = (await res.json()) as SubmitResponse
