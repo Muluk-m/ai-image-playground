@@ -3,6 +3,7 @@ import { Elysia } from 'elysia'
 import { config } from './config'
 import { authRoutes } from './routes/auth'
 import { devicesRoutes } from './routes/devices'
+import { imagesRoutes } from './routes/images'
 import { tasksRoutes } from './routes/tasks'
 
 const corsOrigin =
@@ -19,3 +20,4 @@ export const app = new Elysia()
   .use(authRoutes)
   .use(devicesRoutes)
   .use(tasksRoutes)
+  .use(imagesRoutes)
