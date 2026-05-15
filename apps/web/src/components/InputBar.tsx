@@ -52,6 +52,24 @@ import ViewportTooltip from './ViewportTooltip'
 const CHIP_TRIGGER_CLASS = '!justify-end !bg-transparent !border-0 !shadow-none !px-3 !py-0 h-full'
 const CHIP_WRAPPER_CLASS = 'absolute inset-0'
 
+/** chip 模式 Select 的固定壳：trigger 隐藏自带 label（label/value 由 ParamChip 渲染），整个 chip 区域可点。 */
+function ChipSelect<T extends string>(props: {
+  value: T
+  onChange: (v: T) => void
+  options: ReadonlyArray<{ label: string; value: string }>
+}) {
+  return (
+    <Select
+      value={props.value}
+      onChange={(v) => props.onChange(v as T)}
+      options={[...props.options]}
+      className={CHIP_TRIGGER_CLASS}
+      wrapperClassName={CHIP_WRAPPER_CLASS}
+      hideSelectedLabel
+    />
+  )
+}
+
 const TEXTAREA_CLASS =
   'min-h-[42px] w-full whitespace-pre-wrap break-words bg-transparent px-1 py-1 text-sm leading-relaxed outline-none empty:before:pointer-events-none empty:before:text-gray-400 empty:before:content-[attr(data-placeholder)] dark:text-gray-100 dark:empty:before:text-gray-400'
 
@@ -321,13 +339,25 @@ const buildAutoOptions = (values: readonly string[]) => [
 const GEMINI_FIELDS: ReadonlyArray<{
   label: string
   field: GeminiSelectField
+  icon: ReactNode
   options: ReadonlyArray<{ label: string; value: string }>
 }> = [
-  { label: '比例', field: 'gemini_aspect_ratio', options: buildAutoOptions(GEMINI_ASPECT_RATIOS) },
-  { label: '分辨率', field: 'gemini_image_size', options: buildAutoOptions(GEMINI_IMAGE_SIZES) },
+  {
+    label: '比例',
+    field: 'gemini_aspect_ratio',
+    icon: ChipIcons.aspect,
+    options: buildAutoOptions(GEMINI_ASPECT_RATIOS),
+  },
+  {
+    label: '分辨率',
+    field: 'gemini_image_size',
+    icon: ChipIcons.imageSize,
+    options: buildAutoOptions(GEMINI_IMAGE_SIZES),
+  },
   {
     label: '思考',
     field: 'gemini_thinking_level',
+    icon: ChipIcons.thinking,
     options: buildAutoOptions(GEMINI_THINKING_LEVELS),
   },
 ]
@@ -1601,15 +1631,10 @@ export default function InputBar() {
     setSettings({ profiles: nextProfiles, activeProfileId: option.profileId })
   }
 
-  /**
-   * 参数 chip 行：单行 flex-wrap，attach + generate 由调用方在外层拼接。
-   * 不适用的参数 chip（quality / compression / moderation）直接不渲染。
-   */
   const renderChipParams = () => {
-    const selectedOpt = globalModelOptions.find((o) => o.value === currentModelValue)
-    // chip 模式只显示 modelLabel；profileName 在下拉里 + tooltip 里完整呈现，
-    // 这样 Model chip 宽度可控不挤掉其他 chip。
-    const modelLine = selectedOpt?.modelLabel ?? '未选择'
+    // Model chip 只显示 modelLabel；profileName 留在下拉里 + tooltip，控制 chip 宽度。
+    const modelLine =
+      globalModelOptions.find((o) => o.value === currentModelValue)?.modelLabel ?? '未选择'
     return (
       <>
         {globalModelOptions.length > 0 && (
@@ -1618,16 +1643,13 @@ export default function InputBar() {
             label={modelLine}
             className="min-w-[150px] max-w-[200px] flex-shrink"
           >
-            <Select
+            <ChipSelect
               value={currentModelValue}
-              onChange={(val) => handleGlobalModelPick(String(val))}
+              onChange={(val) => handleGlobalModelPick(val)}
               options={globalModelOptions.map((o) => ({
                 label: `${o.modelLabel} · ${o.profileName}`,
                 value: o.value,
               }))}
-              className={CHIP_TRIGGER_CLASS}
-              wrapperClassName={CHIP_WRAPPER_CLASS}
-              hideSelectedLabel
             />
           </ParamChip>
         )}
@@ -1643,44 +1665,32 @@ export default function InputBar() {
           />
         )}
         {isGeminiProvider &&
-          GEMINI_FIELDS.map(({ label, field, options }) => {
-            const icon =
-              field === 'gemini_aspect_ratio'
-                ? ChipIcons.aspect
-                : field === 'gemini_image_size'
-                  ? ChipIcons.imageSize
-                  : ChipIcons.thinking
+          GEMINI_FIELDS.map(({ label, field, icon, options }) => {
             const currentValue = (params[field] as string | undefined) ?? 'auto'
             return (
               <ParamChip key={field} icon={icon} label={label} value={currentValue}>
-                <Select
+                <ChipSelect
                   value={currentValue}
                   onChange={(val) =>
                     setParams({
                       [field]: val === 'auto' ? undefined : val,
                     } as Partial<TaskParams>)
                   }
-                  options={[...options]}
-                  className={CHIP_TRIGGER_CLASS}
-                  wrapperClassName={CHIP_WRAPPER_CLASS}
-                  hideSelectedLabel
+                  options={options}
                 />
               </ParamChip>
             )
           })}
         {!isGeminiProvider && (
           <>
-            {/* 质量 / 压缩 / 审核：仅在当前模式下确实可用时才渲染，避免单行 chip
-                被一堆"灰着但不能点"的占位挤到第二行。 */}
+            {/* 不可用的参数 chip（codexCli 下的质量；非 jpeg/webp 的压缩；Responses API 下的审核）
+                直接不渲染，避免「灰着但点不开」的占位挤掉单行布局。 */}
             {!activeView.codexCli && (
               <ParamChip icon={ChipIcons.quality} label="质量" value={params.quality}>
-                <Select
+                <ChipSelect
                   value={params.quality}
                   onChange={(val) => setParams({ quality: val as any })}
                   options={qualityOptions}
-                  className={CHIP_TRIGGER_CLASS}
-                  wrapperClassName={CHIP_WRAPPER_CLASS}
-                  hideSelectedLabel
                 />
               </ParamChip>
             )}
@@ -1689,7 +1699,7 @@ export default function InputBar() {
               label="格式"
               value={params.output_format.toUpperCase()}
             >
-              <Select
+              <ChipSelect
                 value={params.output_format}
                 onChange={(val) => setParams({ output_format: val as any })}
                 options={[
@@ -1697,9 +1707,6 @@ export default function InputBar() {
                   { label: 'JPEG', value: 'jpeg' },
                   { label: 'WebP', value: 'webp' },
                 ]}
-                className={CHIP_TRIGGER_CLASS}
-                wrapperClassName={CHIP_WRAPPER_CLASS}
-                hideSelectedLabel
               />
             </ParamChip>
             {!compressionDisabled && (
@@ -1718,16 +1725,13 @@ export default function InputBar() {
             )}
             {!moderationDisabled && (
               <ParamChip icon={ChipIcons.moderation} label="审核" value={params.moderation}>
-                <Select
+                <ChipSelect
                   value={params.moderation}
                   onChange={(val) => setParams({ moderation: val as any })}
                   options={[
                     { label: 'auto', value: 'auto' },
                     { label: 'low', value: 'low' },
                   ]}
-                  className={CHIP_TRIGGER_CLASS}
-                  wrapperClassName={CHIP_WRAPPER_CLASS}
-                  hideSelectedLabel
                 />
               </ParamChip>
             )}
@@ -2103,8 +2107,7 @@ export default function InputBar() {
                 </button>
               </div>
               {renderChipParams()}
-              {/* Generate 视觉做大（h-12, px-5）拉出主次层级；ml-auto 推到当前行最右。
-                    chips 偶尔挤到 row 2 alone with Generate 时，大按钮的视觉权重能撑住留白。 */}
+              {/* ml-auto 让 Generate 永远贴当前行右端，chips 偶尔挤到 row 2 时大按钮也能撑住空白。 */}
               <div
                 className="relative ml-auto flex-shrink-0"
                 onMouseEnter={() => setSubmitHover(true)}
@@ -2130,7 +2133,6 @@ export default function InputBar() {
                       : '请先配置 API'
                   }
                 >
-                  {/* 顶部 1px 高光，模拟塑料光泽 */}
                   {hasSubmitApiConfig && (
                     <span className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/40 to-transparent" />
                   )}
@@ -2154,8 +2156,13 @@ export default function InputBar() {
 
             {/* 移动端布局 */}
             <div className="sm:hidden flex flex-col gap-2">
-              {/* chip 已经够紧凑，无需折叠手柄；flex-wrap 让 chips 自然换行成 2-3 行 */}
-              <div className="flex flex-wrap items-center gap-2">{renderChipParams()}</div>
+              {/* 参数 chip 列：套 collapse-section 让顶部拖动条还能上下拖收起。
+                  attach + 生成按钮保持可见，方便折叠后还能立刻发请求。 */}
+              <div className={`collapse-section${mobileCollapsed ? ' collapsed' : ''}`}>
+                <div className="collapse-inner">
+                  <div className="flex flex-wrap items-center gap-2">{renderChipParams()}</div>
+                </div>
+              </div>
 
               <div className="flex items-center gap-2">
                 <div
