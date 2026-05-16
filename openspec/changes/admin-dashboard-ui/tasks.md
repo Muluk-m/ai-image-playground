@@ -91,8 +91,8 @@
 
 ## 11. 任务 deeplink redirect 路由
 
-- [ ] 11.1 创建 `apps/admin/src/routes/_authed.tasks.$taskId.tsx`：`beforeLoad` ensureQueryData `['task', taskId]` → `throw redirect({ to: '/devices/$deviceId', params: { deviceId: task.device_id }, search: { range: '7d', task: taskId } })`；`task.device_id === null` → 渲染错误页 "任务无关联设备"
-- [ ] 11.2 atomic commit: `feat(admin): /tasks/:id deeplink redirect`
+- [x] 11.1 创建 `apps/admin/src/routes/_authed.tasks.$taskId.tsx`：beforeLoad redirect 到 /devices/$deviceId?task=…，device_id null 走错误页
+- [x] 11.2 atomic commit: `feat(admin): /tasks/:id deeplink redirect`
 
 ## 12. admin server 接静态托管
 
