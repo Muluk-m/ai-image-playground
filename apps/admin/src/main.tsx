@@ -4,6 +4,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 
 import './index.css'
+import { setApiClientRefs } from './lib/api-client'
 import { routeTree } from './routeTree.gen'
 
 const queryClient = new QueryClient({
@@ -30,6 +31,8 @@ declare module '@tanstack/react-router' {
     router: typeof router
   }
 }
+
+setApiClientRefs({ router, queryClient })
 
 const rootEl = document.getElementById('root')
 if (!rootEl) throw new Error('#root not found')
