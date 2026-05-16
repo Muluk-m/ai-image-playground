@@ -12,38 +12,12 @@ import {
 } from '@/components/ui/table'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { duration, shortId } from '@/lib/format'
+import { extractN, extractPrompt } from '@/lib/request-helpers'
 import type { TaskListItem } from '@/lib/types'
 
 interface TaskTableProps {
   tasks: TaskListItem[]
   deviceId: string
-}
-
-function extractRequestField<T = unknown>(payload: unknown, key: string): T | undefined {
-  if (!payload || typeof payload !== 'object') return undefined
-  return (payload as Record<string, unknown>)[key] as T | undefined
-}
-
-function extractPrompt(payload: unknown): string {
-  const p = extractRequestField<unknown>(payload, 'prompt')
-  if (typeof p === 'string') return p
-  // gemini-style：contents[0].parts[].text 拼接
-  const contents = extractRequestField<unknown[]>(payload, 'contents')
-  if (Array.isArray(contents) && contents.length) {
-    const parts = (contents[0] as { parts?: unknown[] })?.parts
-    if (Array.isArray(parts)) {
-      return parts
-        .map((p) => (p as { text?: string })?.text)
-        .filter((t): t is string => typeof t === 'string')
-        .join(' ')
-    }
-  }
-  return ''
-}
-
-function extractN(payload: unknown): number | null {
-  const n = extractRequestField<number>(payload, 'n')
-  return typeof n === 'number' ? n : null
 }
 
 export function TaskTable({ tasks, deviceId: _deviceId }: TaskTableProps) {

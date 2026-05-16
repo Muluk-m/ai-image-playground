@@ -15,7 +15,6 @@ export const Route = createFileRoute('/_authed')({
     } catch {
       throw redirect({
         to: '/login',
-        // 登录成功后跳回原路径（Section 7 login 端兑现）
         search: { redirect: location.pathname + location.searchStr },
       })
     }

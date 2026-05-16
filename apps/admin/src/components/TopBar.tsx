@@ -27,6 +27,7 @@ export function TopBar() {
   const currentRange: Range = parseRange((location.search as { range?: unknown })?.range)
 
   function setRange(next: Range): void {
+    if (next === currentRange) return
     // navigate 在 root（pathname 未变）下，TanStack Router 会浅合并 search
     void navigate({
       to: location.pathname,

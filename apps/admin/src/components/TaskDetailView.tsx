@@ -6,6 +6,7 @@ import { ShortId } from '@/components/ShortId'
 import { StatusBadge } from '@/components/StatusBadge'
 import { duration, isoTime } from '@/lib/format'
 import { useTask } from '@/lib/queries'
+import { countInputImages, extractPrompt } from '@/lib/request-helpers'
 import type { TaskDetail } from '@/lib/types'
 
 interface TaskDetailViewProps {
@@ -190,41 +191,4 @@ function UnarchivedRef() {
       <span>参考图未存档（OpenAI multipart 直传未持久化）</span>
     </div>
   )
-}
-
-function extractPrompt(req: Record<string, unknown>): string {
-  if (typeof req.prompt === 'string') return req.prompt
-  const contents = req.contents as Array<{ parts?: Array<{ text?: string }> }> | undefined
-  if (Array.isArray(contents)) {
-    return contents
-      .flatMap((c) => c.parts ?? [])
-      .map((p) => p?.text ?? '')
-      .filter(Boolean)
-      .join('\n')
-  }
-  return ''
-}
-
-type InputImageCount =
-  | { kind: 'count'; count: number }
-  | { kind: 'not_archived' }
-  | { kind: 'none' }
-
-function countInputImages(provider: string, req: Record<string, unknown>): InputImageCount {
-  if (provider === 'gemini') {
-    const contents = req.contents as Array<{ parts?: Array<{ inlineData?: unknown }> }> | undefined
-    if (!Array.isArray(contents)) return { kind: 'none' }
-    let n = 0
-    for (const c of contents) {
-      for (const p of c.parts ?? []) {
-        if (p?.inlineData) n++
-      }
-    }
-    return n > 0 ? { kind: 'count', count: n } : { kind: 'none' }
-  }
-  // openai-compat：image/edits 路径有 image 字段（multipart 直传，BFF 未存档）
-  if (req.image !== undefined && req.image !== null) {
-    return { kind: 'not_archived' }
-  }
-  return { kind: 'none' }
 }

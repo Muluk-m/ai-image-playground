@@ -5,6 +5,18 @@
 export type Range = '1d' | '7d' | '30d'
 export type SortKey = 'last_seen' | 'today_count' | 'total_count'
 
+// admin server / BFF 已知的 task.status 值（status 列在 schema 里是 TEXT，
+// 这里枚举出 UI 已经匹配的全部分支；落到 server 端实际值的源在
+// `apps/bff/src/db/schema.ts` 与 `apps/admin/server/lib/queries.ts` 的 SUM CASE 分支）
+export type TaskStatus =
+  | 'queued'
+  | 'in_progress'
+  | 'running'
+  | 'completed'
+  | 'succeeded'
+  | 'failed'
+  | 'interrupted'
+
 export interface DeviceRow {
   device_id: string
   first_seen: number

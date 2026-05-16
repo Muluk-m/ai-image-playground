@@ -1,5 +1,5 @@
 import { Check, Copy } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { copyText, shortId } from '@/lib/format'
@@ -13,14 +13,22 @@ interface ShortIdProps {
 
 export function ShortId({ value, len = 8, className }: ShortIdProps) {
   const [copied, setCopied] = useState(false)
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(
+    () => () => {
+      if (timerRef.current) clearTimeout(timerRef.current)
+    },
+    [],
+  )
 
   async function onCopy(e: React.MouseEvent): Promise<void> {
     e.stopPropagation()
     const ok = await copyText(value)
-    if (ok) {
-      setCopied(true)
-      setTimeout(() => setCopied(false), 1200)
-    }
+    if (!ok) return
+    setCopied(true)
+    if (timerRef.current) clearTimeout(timerRef.current)
+    timerRef.current = setTimeout(() => setCopied(false), 1200)
   }
 
   return (

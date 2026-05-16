@@ -1,10 +1,11 @@
 import { useNavigate } from '@tanstack/react-router'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
-import { useEffect } from 'react'
+import { useCallback, useEffect } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { useTask } from '@/lib/queries'
+import { countInputImages, inputImageMaxIdx } from '@/lib/request-helpers'
 
 interface LightboxDialogProps {
   taskId: string | undefined
@@ -17,18 +18,11 @@ export function LightboxDialog({ taskId, imgIdx, imgKind, fullscreen }: Lightbox
   // 通过 useTask 拿 max index（自带 Query 去重，跟 Sheet 共享同一 ['task', id]
   // 缓存，不发额外请求）
   const q = useTask(taskId)
-  const maxIdx: number | undefined =
-    imgKind === 'output'
-      ? q.data?.result_meta.images.length
-        ? q.data.result_meta.images.length - 1
-        : undefined
-      : imgKind === 'input'
-        ? deriveInputMax(q.data?.provider, q.data?.request_payload)
-        : undefined
+  const maxIdx = computeMaxIdx(imgKind, q.data)
   const navigate = useNavigate()
   const open = fullscreen === '1' && !!taskId && imgKind !== undefined && imgIdx !== undefined
 
-  function close(): void {
+  const close = useCallback((): void => {
     void navigate({
       to: '.',
       search: (prev) => {
@@ -36,18 +30,22 @@ export function LightboxDialog({ taskId, imgIdx, imgKind, fullscreen }: Lightbox
         return rest
       },
     })
-  }
+  }, [navigate])
 
-  function step(delta: number): void {
-    if (imgIdx === undefined) return
-    const next = imgIdx + delta
-    if (next < 0) return
-    if (typeof maxIdx === 'number' && next > maxIdx) return
-    void navigate({
-      to: '.',
-      search: (prev) => ({ ...(prev ?? {}), imgIdx: next }),
-    })
-  }
+  const step = useCallback(
+    (delta: number): void => {
+      if (imgIdx === undefined) return
+      const next = imgIdx + delta
+      if (next === imgIdx) return
+      if (next < 0) return
+      if (typeof maxIdx === 'number' && next > maxIdx) return
+      void navigate({
+        to: '.',
+        search: (prev) => ({ ...(prev ?? {}), imgIdx: next }),
+      })
+    },
+    [imgIdx, maxIdx, navigate],
+  )
 
   // 左右箭头键翻页
   useEffect(() => {
@@ -58,8 +56,7 @@ export function LightboxDialog({ taskId, imgIdx, imgKind, fullscreen }: Lightbox
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, imgIdx, maxIdx])
+  }, [open, step])
 
   if (!open || imgIdx === undefined || imgKind === undefined || !taskId) return null
 
@@ -116,11 +113,19 @@ export function LightboxDialog({ taskId, imgIdx, imgKind, fullscreen }: Lightbox
   )
 }
 
-function deriveInputMax(provider: string | undefined, payload: unknown): number | undefined {
-  if (provider !== 'gemini') return undefined
-  const req = (payload ?? {}) as { contents?: Array<{ parts?: Array<{ inlineData?: unknown }> }> }
-  if (!Array.isArray(req.contents)) return undefined
-  let n = 0
-  for (const c of req.contents) for (const p of c.parts ?? []) if (p?.inlineData) n++
-  return n > 0 ? n - 1 : undefined
+function computeMaxIdx(
+  imgKind: 'output' | 'input' | undefined,
+  data:
+    | { result_meta: { images: unknown[] }; provider: string; request_payload: unknown }
+    | undefined,
+): number | undefined {
+  if (!data) return undefined
+  if (imgKind === 'output') {
+    const n = data.result_meta.images.length
+    return n > 0 ? n - 1 : undefined
+  }
+  if (imgKind === 'input') {
+    return inputImageMaxIdx(countInputImages(data.provider, data.request_payload))
+  }
+  return undefined
 }
