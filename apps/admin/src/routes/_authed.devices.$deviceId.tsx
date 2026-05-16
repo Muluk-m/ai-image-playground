@@ -2,6 +2,7 @@ import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { ChevronLeft, Loader2 } from 'lucide-react'
 
 import { DeviceMetaCard } from '@/components/DeviceMetaCard'
+import { LightboxDialog } from '@/components/LightboxDialog'
 import { TaskDetailSheet } from '@/components/TaskDetailSheet'
 import { TaskTable } from '@/components/TaskTable'
 import { Button } from '@/components/ui/button'
@@ -89,6 +90,12 @@ function DeviceDetailPage() {
         onOpenChange={(open) => {
           if (!open) closeTask()
         }}
+      />
+      <LightboxDialog
+        taskId={search.task}
+        imgIdx={search.imgIdx}
+        imgKind={search.imgKind}
+        fullscreen={search.fullscreen}
       />
     </div>
   )
