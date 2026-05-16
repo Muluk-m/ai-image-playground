@@ -44,62 +44,50 @@
 
 ## 5. URL search params 校验
 
-- [ ] 5.1 创建 `apps/admin/src/lib/search-params.ts`：
-  - `parseRange(v): '1d'|'7d'|'30d'` 默认 `'7d'`
-  - `parseSort(v): SortKey` 默认 `'last_seen'`
-  - `parseTaskId(v): string | undefined`
-  - `parseFullscreen(v): '1' | undefined`
-- [ ] 5.2 创建 `apps/admin/src/__tests__/lib/search-params.test.ts`：覆盖合法值通过 / 非法值兜底默认 / undefined 通过
-- [ ] 5.3 atomic commit: `feat(admin): URL search params 校验 helper`
+- [x] 5.1 创建 `apps/admin/src/lib/search-params.ts`：6 个 narrow helper + 2 组合 parser；额外加 imgIdx / imgKind（lightbox 用）
+- [x] 5.2 创建 `apps/admin/src/__tests__/lib/search-params.test.ts`：16 个 case 全过
+- [x] 5.3 atomic commit: `feat(admin): URL search params 校验 helper`
 
 ## 6. 顶栏 + 鉴权守卫
 
-- [ ] 6.1 创建 `apps/admin/src/components/TopBar.tsx`：
-  - logo 文案点回 `/devices`
-  - range segmented control（用 button 组组实现，无需新组件）—— `/devices` 与 `/devices/$deviceId` 都消费 `range`
-  - refresh 按钮 → invalidateQueries `['devices']` / `['device']` / `['task']`
-  - logout 按钮 → POST `/api/logout` → `queryClient.clear()` + `router.navigate('/login')`
-- [ ] 6.2 创建 `apps/admin/src/routes/_authed.tsx`：layout route，`beforeLoad` ensureQueryData `['me']` 失败 redirect `/login`
-- [ ] 6.3 在 `__root.tsx` 渲染 `<TopBar />`（顶部），下方 `<Outlet />`
-- [ ] 6.4 atomic commit: `feat(admin): 顶栏 + _authed layout 守卫`
+- [x] 6.1 创建 `apps/admin/src/components/TopBar.tsx`：logo / range segmented / refresh / logout
+- [x] 6.2 创建 `apps/admin/src/routes/_authed.tsx`：beforeLoad ensureQueryData ['me']，失败 redirect /login + 带 redirect=<原路径>
+- [x] 6.3 在 `__root.tsx` 渲染 `<TopBar />`（顶部），下方 `<Outlet />`，套 `<TooltipProvider />`
+- [x] 6.4 atomic commit: `feat(admin): 顶栏 + _authed layout 守卫`
 
 ## 7. 登录页
 
-- [ ] 7.1 创建 `apps/admin/src/routes/login.tsx`：单 password input + submit；提交 POST `/api/login`，成功 navigate `/devices`，错误显示 `error_code`（`invalid_password` → "密码错误"，`rate_limited` → "登录过于频繁，请稍后再试"）
-- [ ] 7.2 已登录访问 `/login` → `beforeLoad` 探 `/api/me`，200 → redirect `/devices`
-- [ ] 7.3 创建 `apps/admin/src/__tests__/routes/login.test.tsx`：jsdom + RTL，覆盖成功表单 → navigate / 401 → 错误文案 / 429 → 锁定文案
-- [ ] 7.4 atomic commit: `feat(admin): 登录页 + 测试`
+- [x] 7.1 创建 `apps/admin/src/routes/login.tsx` + 拆 `<LoginForm />` 组件；submit 后 navigate `/devices` 或 search 中的 redirect
+- [x] 7.2 已登录访问 `/login` → `beforeLoad` ensureQueryData /api/me，200 → redirect `/devices`
+- [x] 7.3 创建 `apps/admin/src/__tests__/components/LoginForm.test.tsx`：4 个 case 全过（成功 / 401 / 429 / 空密码 disabled）；setup.ts 加 RTL cleanup
+- [x] 7.4 atomic commit: `feat(admin): 登录页 + 测试`
 
 ## 8. 设备列表页
 
-- [ ] 8.1 创建 `apps/admin/src/lib/types.ts`：从 admin server `queries.ts` 复用 `DeviceRow` / `ListDevicesResult` / `TaskListItem` / `TaskDetail` 类型（手抄到 admin/src 而不是跨包 import server 代码，避免前端打包 server deps）
-- [ ] 8.2 创建 `apps/admin/src/lib/queries.ts`：导出 `useDevices(range, sort)`、`useDeviceDetail(deviceId, range)`、`useTask(taskId)`，包 `useQuery`
-- [ ] 8.3 创建 `apps/admin/src/components/ShortId.tsx`：8 字短码 + `Copy` 按钮 + Tooltip 全 id
-- [ ] 8.4 创建 `apps/admin/src/components/ModelChips.tsx`：从 `models_csv` 切分，最多 3 个 chip + `+N more`（鼠标 hover 展开）
-- [ ] 8.5 创建 `apps/admin/src/components/FuzzyTime.tsx`：相对时间 + hover ISO
-- [ ] 8.6 创建 `apps/admin/src/components/DeviceTable.tsx`：shadcn `<Table>`，列按 design spec 第 408 行表格
-- [ ] 8.7 创建 `apps/admin/src/routes/_authed.devices.index.tsx`：解析 search `{range, sort}` → useDevices → render `<DeviceTable />`；truncated 时顶部黄条 "仅显示前 500 条设备"
-- [ ] 8.8 列表行点击 → `navigate({ to: '/devices/$deviceId', params: { deviceId }, search: prev => ({ range: prev.range ?? '7d' }) })`
-- [ ] 8.9 atomic commit: `feat(admin): 设备列表页`
+- [x] 8.1 创建 `apps/admin/src/lib/types.ts`：复用 server 类型 + DAILY_QUOTA_LIMIT
+- [x] 8.2 创建 `apps/admin/src/lib/queries.ts`：useDevices / useDeviceDetail / useTask
+- [x] 8.3 创建 `apps/admin/src/components/ShortId.tsx`
+- [x] 8.4 创建 `apps/admin/src/components/ModelChips.tsx`
+- [x] 8.5 创建 `apps/admin/src/components/FuzzyTime.tsx`
+- [x] 8.6 创建 `apps/admin/src/components/DeviceTable.tsx`
+- [x] 8.7 创建 `apps/admin/src/routes/_authed.devices.index.tsx`：validateSearch + loading/error/empty/truncated 黄条 + DeviceTable
+- [x] 8.8 列表行用 `<Link to="/devices/$deviceId" params={...}>` 直接跳详情（保留当前 range 由 TanStack search 默认合并行为完成）
+- [x] 8.9 atomic commit: `feat(admin): 设备列表页`
 
 ## 9. 设备详情页
 
-- [ ] 9.1 创建 `apps/admin/src/components/DeviceMetaCard.tsx`：full UUID + copy / 今日 `X/50` Progress / 近 N 天累计 / 模型 chips
-- [ ] 9.2 创建 `apps/admin/src/components/StatusBadge.tsx`：4 种状态 badge（succeeded / failed / running / queued）
-- [ ] 9.3 创建 `apps/admin/src/components/TaskTable.tsx`：列按 design spec 第 429 行（图数列只显 `n=4` 占位文本，**不渲染缩略图**）；行点击 → `navigate({ search: prev => ({ ...prev, task: row.id }) })`
-- [ ] 9.4 创建 `apps/admin/src/routes/_authed.devices.$deviceId.tsx`：解析 search `{range, task, fullscreen}` → useDeviceDetail → 渲染 `<DeviceMetaCard />` + `<TaskTable />` + `<TaskDetailSheet />`（task 存在时打开）
-- [ ] 9.5 atomic commit: `feat(admin): 设备详情页`
+- [x] 9.1 创建 `apps/admin/src/components/DeviceMetaCard.tsx`
+- [x] 9.2 创建 `apps/admin/src/components/StatusBadge.tsx`：6 种 status
+- [x] 9.3 创建 `apps/admin/src/components/TaskTable.tsx`：列按 design spec 第 429 行（**不渲染缩略图**，n 显数字；行点击打开抽屉）
+- [x] 9.4 创建 `apps/admin/src/routes/_authed.devices.$deviceId.tsx`：装配 DeviceMetaCard + TaskTable + TaskDetailSheet stub
+- [x] 9.5 atomic commit: `feat(admin): 设备详情页`
 
 ## 10. 任务详情视图 + Lightbox
 
-- [ ] 10.1 创建 `apps/admin/src/components/TaskDetailView.tsx`：
-  - Request 区：provider / model / size / n / quality / prompt 全文
-  - Result 区：status / duration / 输出图（按 `result_meta.images[].index` 渲染 `<img src="/api/tasks/:id/image?idx=N" />`，loading="lazy"）
-  - 参考图区（图生图时）：渲染 `<img src="/api/tasks/:id/input-image?idx=N" onError={...} />`；404 / 422 → 灰条「参考图未存档」
-  - 点图 → `navigate({ search: prev => ({ ...prev, fullscreen: '1', imgIdx: idx, imgKind: 'output'|'input' }) })`
-- [ ] 10.2 创建 `apps/admin/src/components/TaskDetailSheet.tsx`：`<Sheet open={!!search.task}>` 包 `<TaskDetailView />`；close → `navigate({ search: prev => ({ ...prev, task: undefined, fullscreen: undefined }) })`
-- [ ] 10.3 创建 `apps/admin/src/components/LightboxDialog.tsx`：`<Dialog open={search.fullscreen === '1'}>` 全屏图 + 上下两侧导航 + ESC 关闭
-- [ ] 10.4 atomic commit: `feat(admin): TaskDetailView + 抽屉 + 全屏 lightbox`
+- [x] 10.1 创建 `apps/admin/src/components/TaskDetailView.tsx`：含参考图区按 provider 推断
+- [x] 10.2 创建 `apps/admin/src/components/TaskDetailSheet.tsx`
+- [x] 10.3 创建 `apps/admin/src/components/LightboxDialog.tsx`（含键盘 ArrowLeft/Right 翻页）
+- [x] 10.4 atomic commit: `feat(admin): TaskDetailView + 抽屉 + 全屏 lightbox`
 
 ## 11. 任务 deeplink redirect 路由
 
