@@ -29,23 +29,18 @@
 
 ## 3. Router + Query 装配
 
-- [ ] 3.1 创建 `apps/admin/src/main.tsx`：构造 `QueryClient`（staleTime: Infinity, gcTime: 5min, retry: false）+ `createRouter({ context: { queryClient } })` + `RouterProvider` + `QueryClientProvider`，挂到 `#root`
-- [ ] 3.2 创建 `apps/admin/src/routes/__root.tsx`：`createRootRouteWithContext<{ queryClient: QueryClient }>()`，渲染顶栏 + `<Outlet />`，404 fallback 简单文案
-- [ ] 3.3 创建 `apps/admin/src/routes/index.tsx`：`beforeLoad: () => throw redirect({ to: '/devices' })`
-- [ ] 3.4 让 `@tanstack/router-vite-plugin` 生成 `src/routeTree.gen.ts`（vite dev 启一次自动出文件；把它入 git）
-- [ ] 3.5 atomic commit: `feat(admin): TanStack Router + Query 装配`
+- [x] 3.1 创建 `apps/admin/src/main.tsx`：构造 `QueryClient`（staleTime: Infinity, gcTime: 5min, retry: false）+ `createRouter({ context: { queryClient } })` + `RouterProvider` + `QueryClientProvider`，挂到 `#root`
+- [x] 3.2 创建 `apps/admin/src/routes/__root.tsx`：`createRootRouteWithContext<{ queryClient: QueryClient }>()`，渲染 `<Outlet />`，404 fallback 简单文案 —— 顶栏延到 Section 6
+- [x] 3.3 创建 `apps/admin/src/routes/index.tsx`：`beforeLoad: () => throw redirect({ to: '/devices' })`
+- [x] 3.4 让 `@tanstack/router-vite-plugin` 生成 `src/routeTree.gen.ts`（vite build 触发，入 git）；同时落 login / _authed / _authed.devices.{index,$deviceId} / _authed.tasks.$taskId 五个 placeholder stub 让 routeTree 一次性完整
+- [x] 3.5 atomic commit: `feat(admin): TanStack Router + Query 装配`
 
 ## 4. fetch 封装 + 401 拦截
 
-- [ ] 4.1 创建 `apps/admin/src/lib/api-client.ts`：
-  - 内部维护 `let routerRef` / `let queryClientRef`（由 main.tsx 启动后回填，避免循环依赖）
-  - 导出 `apiClient.get(url) / .post(url, body)`，credentials: include
-  - 200 → `await res.json()`
-  - 401 → `queryClientRef.clear() + routerRef.navigate({ to: '/login' })`，throw redirect err
-  - 4xx/5xx → throw `ApiError(status, body)`
-- [ ] 4.2 main.tsx 启动后 `setApiClientRefs({ router, queryClient })`
-- [ ] 4.3 创建 `apps/admin/src/__tests__/lib/api-client.test.ts`：mock fetch，覆盖 200 / 401 / 500 三种 + 401 时 router.navigate 与 queryClient.clear 都被调
-- [ ] 4.4 atomic commit: `feat(admin): api-client 封装 + 401 拦截`
+- [x] 4.1 创建 `apps/admin/src/lib/api-client.ts`：apiClient.get/.post + setApiClientRefs + ApiError / UnauthorizedError 类型
+- [x] 4.2 main.tsx 启动后 `setApiClientRefs({ router, queryClient })`
+- [x] 4.3 创建 `apps/admin/src/__tests__/lib/api-client.test.ts`：4 个场景全过（200/401/500/post body）
+- [x] 4.4 atomic commit: `feat(admin): api-client 封装 + 401 拦截`
 
 ## 5. URL search params 校验
 
