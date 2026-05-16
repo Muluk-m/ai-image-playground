@@ -3,7 +3,7 @@ import { createFileRoute, redirect, useNavigate } from '@tanstack/react-router'
 import { LoginForm } from '@/components/LoginForm'
 import { apiClient } from '@/lib/api-client'
 
-interface LoginSearch {
+export interface LoginSearch {
   redirect?: string
 }
 

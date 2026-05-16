@@ -94,10 +94,10 @@ describe('search-params', () => {
         sort: 'today_count',
       })
     })
-    it('falls back on empty', () => {
-      expect(parseDevicesSearch({})).toEqual({ range: '7d', sort: 'last_seen' })
+    it('empty input → empty output (URL 缺字段时 useSearch 返 undefined，组件层 coalesce 默认)', () => {
+      expect(parseDevicesSearch({})).toEqual({})
     })
-    it('falls back on garbage values', () => {
+    it('garbage values → coerced to defaults (字段存在但非法时强制兜底)', () => {
       expect(parseDevicesSearch({ range: 'bogus', sort: 'bogus' })).toEqual({
         range: '7d',
         sort: 'last_seen',
@@ -123,14 +123,8 @@ describe('search-params', () => {
         imgKind: 'input',
       })
     })
-    it('default range, others undefined when absent', () => {
-      expect(parseDeviceDetailSearch({})).toEqual({
-        range: '7d',
-        task: undefined,
-        fullscreen: undefined,
-        imgIdx: undefined,
-        imgKind: undefined,
-      })
+    it('empty input → empty output', () => {
+      expect(parseDeviceDetailSearch({})).toEqual({})
     })
   })
 })

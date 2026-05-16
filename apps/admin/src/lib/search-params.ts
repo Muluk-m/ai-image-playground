@@ -45,22 +45,25 @@ export function parseImgKind(v: unknown): ImgKind | undefined {
   return v === 'output' || v === 'input' ? v : undefined
 }
 
-/** Devices 列表 search */
+/** Devices 列表 search —— 字段全部 optional：URL 缺省时 useSearch 返
+ *  undefined，路由组件自己 coalesce 默认值。这样 navigate({to:'/devices'}) 不强
+ *  制写 search 字段。
+ */
 export interface DevicesSearch {
-  range: Range
-  sort: SortKey
+  range?: Range
+  sort?: SortKey
 }
 
 export function parseDevicesSearch(input: Record<string, unknown>): DevicesSearch {
-  return {
-    range: parseRange(input.range),
-    sort: parseSort(input.sort),
-  }
+  const out: DevicesSearch = {}
+  if (input.range !== undefined) out.range = parseRange(input.range)
+  if (input.sort !== undefined) out.sort = parseSort(input.sort)
+  return out
 }
 
 /** Device 详情 search（task / fullscreen / imgIdx / imgKind 控抽屉 + lightbox） */
 export interface DeviceDetailSearch {
-  range: Range
+  range?: Range
   task?: string
   fullscreen?: '1'
   imgIdx?: number
@@ -68,11 +71,15 @@ export interface DeviceDetailSearch {
 }
 
 export function parseDeviceDetailSearch(input: Record<string, unknown>): DeviceDetailSearch {
-  return {
-    range: parseRange(input.range),
-    task: parseTaskId(input.task),
-    fullscreen: parseFullscreen(input.fullscreen),
-    imgIdx: parseImgIdx(input.imgIdx),
-    imgKind: parseImgKind(input.imgKind),
-  }
+  const out: DeviceDetailSearch = {}
+  if (input.range !== undefined) out.range = parseRange(input.range)
+  const task = parseTaskId(input.task)
+  if (task !== undefined) out.task = task
+  const fs = parseFullscreen(input.fullscreen)
+  if (fs !== undefined) out.fullscreen = fs
+  const idx = parseImgIdx(input.imgIdx)
+  if (idx !== undefined) out.imgIdx = idx
+  const kind = parseImgKind(input.imgKind)
+  if (kind !== undefined) out.imgKind = kind
+  return out
 }
