@@ -62,6 +62,8 @@ describe('GET /api/tasks/:id', () => {
     expect(body.result_payload).toBeUndefined()
     const meta = body.result_meta as { images: unknown[] }
     expect(meta.images.length).toBe(1)
+    // device_id 是 VIRTUAL 列：由 request_payload.device_id（'dev-T'）派生
+    expect(body.device_id).toBe('dev-T')
   })
 
   it('未知 task → 404', async () => {

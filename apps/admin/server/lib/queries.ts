@@ -187,11 +187,20 @@ export async function getDeviceDetail(deviceId: string, range: Range): Promise<D
 export interface TaskDetail extends TaskListItem {
   result_meta: { images: Array<{ index: number; mime: string }>; raw_image_urls?: string[] }
   error_message: string | null
+  /** VIRTUAL 生成列：json_extract(request_payload, '$.device_id')；schema 没声明，靠 raw sql 取。 */
+  device_id: string | null
 }
 
 export async function getTask(taskId: string): Promise<TaskDetail | null> {
   const { db, schema } = getHandle()
-  const rows = await db.select().from(schema.tasks).where(eq(schema.tasks.id, taskId)).limit(1)
+  // device_id 是 VIRTUAL 列，schema 没声明 → drizzle select 拿不到；用 raw sql 单独查一次。
+  // Promise.all 并发减少一次往返。
+  const [rows, deviceRows] = await Promise.all([
+    db.select().from(schema.tasks).where(eq(schema.tasks.id, taskId)).limit(1),
+    db.all(sql`SELECT device_id FROM tasks WHERE id = ${taskId} LIMIT 1`) as unknown as Promise<
+      Array<{ device_id: unknown }>
+    >,
+  ])
   const task = rows[0]
   if (!task) return null
 
@@ -200,10 +209,14 @@ export async function getTask(taskId: string): Promise<TaskDetail | null> {
 
   const { result_payload: _result_payload, ...rest } = task as unknown as Record<string, unknown>
   void _result_payload
+  const rawDevice = deviceRows[0]?.device_id
+  const device_id =
+    rawDevice === null || rawDevice === undefined || rawDevice === '' ? null : String(rawDevice)
   return {
     ...(rest as unknown as TaskListItem),
     error_message: (task as Record<string, unknown>).error_message as string | null,
     result_meta: { images },
+    device_id,
   }
 }
 
