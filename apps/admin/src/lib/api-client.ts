@@ -29,10 +29,7 @@ export class UnauthorizedError extends ApiError {
 let _router: AnyRouter | null = null
 let _queryClient: QueryClient | null = null
 
-export function setApiClientRefs(refs: {
-  router: AnyRouter
-  queryClient: QueryClient
-}): void {
+export function setApiClientRefs(refs: { router: AnyRouter; queryClient: QueryClient }): void {
   _router = refs.router
   _queryClient = refs.queryClient
 }

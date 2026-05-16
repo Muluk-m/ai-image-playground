@@ -2,7 +2,6 @@ import { useNavigate } from '@tanstack/react-router'
 
 import { FuzzyTime } from '@/components/FuzzyTime'
 import { StatusBadge } from '@/components/StatusBadge'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import {
   Table,
   TableBody,
@@ -11,6 +10,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { duration, shortId } from '@/lib/format'
 import type { TaskListItem } from '@/lib/types'
 
@@ -83,11 +83,7 @@ export function TaskTable({ tasks, deviceId: _deviceId }: TaskTableProps) {
             const prompt = extractPrompt(t.request_payload)
             const n = extractN(t.request_payload)
             return (
-              <TableRow
-                key={t.id}
-                className="cursor-pointer"
-                onClick={() => openTask(t.id)}
-              >
+              <TableRow key={t.id} className="cursor-pointer" onClick={() => openTask(t.id)}>
                 <TableCell>
                   <FuzzyTime ts={t.submitted_at} />
                 </TableCell>

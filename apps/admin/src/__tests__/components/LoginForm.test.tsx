@@ -34,10 +34,7 @@ describe('LoginForm', () => {
   })
 
   it('成功提交 → 调 onSuccess', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValueOnce(jsonResponse(200, { ok: true })),
-    )
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(jsonResponse(200, { ok: true })))
     const { onSuccess, user } = renderForm()
     await user.type(screen.getByLabelText('密码'), 'right-pw')
     await user.click(screen.getByRole('button', { name: '登录' }))

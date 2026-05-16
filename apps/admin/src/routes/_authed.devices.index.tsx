@@ -36,8 +36,7 @@ function DevicesIndex() {
       <div className="flex items-baseline justify-between">
         <h2 className="text-lg font-semibold">设备</h2>
         <span className="text-xs text-muted-foreground">
-          共 {q.data.devices.length} 个
-          {q.data.truncated ? '（仅显示前 500 条）' : ''}
+          共 {q.data.devices.length} 个{q.data.truncated ? '（仅显示前 500 条）' : ''}
         </span>
       </div>
       {q.data.truncated ? (

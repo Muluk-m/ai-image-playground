@@ -1,5 +1,5 @@
 import type { QueryClient } from '@tanstack/react-query'
-import { Outlet, createRootRouteWithContext } from '@tanstack/react-router'
+import { createRootRouteWithContext, Outlet } from '@tanstack/react-router'
 
 import { TopBar } from '@/components/TopBar'
 import { TooltipProvider } from '@/components/ui/tooltip'

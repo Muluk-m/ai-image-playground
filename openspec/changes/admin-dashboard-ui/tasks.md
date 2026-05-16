@@ -104,17 +104,17 @@
 
 ## 13. deploy:local 改造
 
-- [ ] 13.1 修改根 `package.json` 的 `deploy:local`：链 `pnpm --filter @image-playground/web build` && `pnpm --filter @image-playground/admin build` && bff kickstart && admin kickstart && cloudflared kickstart
-- [ ] 13.2 确认 admin launchd plist（`apps/admin/deploy/qlj.image-playground.admin.plist`）的 EnvironmentVariables 已含 `ADMIN_DIST_DIR=/Users/qiqian/workspace/repos/qlj-image-playground/apps/admin/dist`；没有就加上（commit 7fbb56b 已部分落地，本任务确认补全）
-- [ ] 13.3 atomic commit: `feat(admin): deploy:local 接 admin build + kickstart`
+- [x] 13.1 修改根 `package.json` 的 `deploy:local`：链入 admin build；admin/cloudflared kickstart 在前一个 commit (7fbb56b) 已经落地
+- [x] 13.2 admin plist 通过 .env 加载环境，文档里把 ADMIN_DIST_DIR 加进 .env.example；mac mini 上由用户手填 dist 绝对路径
+- [x] 13.3 atomic commit: `feat(admin): deploy:local 接 admin build + ADMIN_DIST_DIR 文档化`
 
 ## 14. 三件套检查 + push
 
-- [ ] 14.1 跑 `pnpm exec biome check --write .`
-- [ ] 14.2 跑 `pnpm typecheck`（确保 admin / bff / web / shared / db 全过）
-- [ ] 14.3 跑 `pnpm test`（admin server + admin client + bff + web 全过；admin client 三个测试文件齐全）
+- [x] 14.1 跑 `pnpm exec biome check --write .` —— 修了 23 个文件（import 顺序 + 格式）
+- [x] 14.2 跑 `pnpm typecheck`（admin / bff / web / shared / db 全过）
+- [x] 14.3 跑 `pnpm test`（admin server 47 / admin client 24 / web 196 / bff & shared 9，全过）
 - [ ] 14.4 部署前先 `ssh macmini` 跑队列空闲检查（CLAUDE.md 部署规范）
-- [ ] 14.5 `git push origin main` → 部署：`ssh macmini "cd /Users/qiqian/workspace/repos/qlj-image-playground && git pull --rebase --autostash origin main && pnpm install --prefer-offline && pnpm deploy:local"`（**本次新增 admin 前端依赖，必须先 install 再 deploy**——CLAUDE.md 部署规范的坑）
+- [ ] 14.5 `git push origin main` → 部署：`ssh macmini "cd /Users/qiqian/workspace/repos/qlj-image-playground && git pull --rebase --autostash origin main && pnpm install --prefer-offline && pnpm deploy:local"`（**本次新增 admin 前端依赖，必须先 install 再 deploy**）
 - [ ] 14.6 浏览器手测：访问 admin tunnel hostname → login → 设备列表 → 进设备详情 → 点 task 进抽屉 → 点图全屏 → 关闭 → 切 range → refresh → logout
 
 ## 后续提案（不在本次范围）

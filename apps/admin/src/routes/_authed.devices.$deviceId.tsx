@@ -65,8 +65,7 @@ function DeviceDetailPage() {
             device={q.data.device}
             range={range}
             runningCount={
-              q.data.tasks.filter((t) => t.status === 'in_progress' || t.status === 'queued')
-                .length
+              q.data.tasks.filter((t) => t.status === 'in_progress' || t.status === 'queued').length
             }
           />
           <div className="flex items-baseline justify-between pt-2">

@@ -56,11 +56,7 @@ function DeviceRowItem({ d }: { d: DeviceRow }) {
   return (
     <TableRow className="group">
       <TableCell>
-        <Link
-          to="/devices/$deviceId"
-          params={{ deviceId: d.device_id }}
-          className="block"
-        >
+        <Link to="/devices/$deviceId" params={{ deviceId: d.device_id }} className="block">
           <ShortId value={d.device_id} />
         </Link>
       </TableCell>

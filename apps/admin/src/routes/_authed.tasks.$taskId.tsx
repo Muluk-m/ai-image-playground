@@ -31,8 +31,8 @@ function TaskNotLinkedPage() {
     <div className="mx-auto max-w-md rounded-lg border bg-card p-6 text-center">
       <h2 className="text-base font-semibold">任务无关联设备</h2>
       <p className="mt-2 text-sm text-muted-foreground">
-        任务 <span className="font-mono">{taskId}</span>{' '}
-        的 request_payload 中没有 device_id 字段，无法定位归属设备。
+        任务 <span className="font-mono">{taskId}</span> 的 request_payload 中没有 device_id
+        字段，无法定位归属设备。
       </p>
     </div>
   )

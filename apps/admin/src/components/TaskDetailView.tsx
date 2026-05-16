@@ -4,8 +4,8 @@ import { ImageOff, Loader2 } from 'lucide-react'
 import { FuzzyTime } from '@/components/FuzzyTime'
 import { ShortId } from '@/components/ShortId'
 import { StatusBadge } from '@/components/StatusBadge'
-import { useTask } from '@/lib/queries'
 import { duration, isoTime } from '@/lib/format'
+import { useTask } from '@/lib/queries'
 import type { TaskDetail } from '@/lib/types'
 
 interface TaskDetailViewProps {
@@ -59,7 +59,8 @@ function TaskDetailContent({ task }: { task: TaskDetail }) {
         <ShortId value={task.id} len={12} className="text-sm" />
         <StatusBadge status={task.status} />
         <span className="text-xs text-muted-foreground">
-          提交：<FuzzyTime ts={task.submitted_at} />
+          提交：
+          <FuzzyTime ts={task.submitted_at} />
         </span>
         <span className="text-xs text-muted-foreground">
           耗时：{duration(task.started_at, task.completed_at)}
@@ -138,9 +139,7 @@ function TaskDetailContent({ task }: { task: TaskDetail }) {
           </h3>
           {task.error_message ? (
             <div className="rounded-md border border-destructive/50 bg-destructive/5 p-3 text-xs">
-              <div className="mb-1 font-medium text-destructive">
-                {task.error_type ?? 'error'}
-              </div>
+              <div className="mb-1 font-medium text-destructive">{task.error_type ?? 'error'}</div>
               <pre className="whitespace-pre-wrap break-words font-mono text-[11px] text-destructive/90">
                 {task.error_message}
               </pre>

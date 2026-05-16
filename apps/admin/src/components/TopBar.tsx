@@ -4,7 +4,7 @@ import { LogOut, RefreshCw } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { apiClient } from '@/lib/api-client'
-import { type Range, parseRange } from '@/lib/search-params'
+import { parseRange, type Range } from '@/lib/search-params'
 import { cn } from '@/lib/utils'
 
 const RANGE_OPTIONS: Array<{ value: Range; label: string }> = [
@@ -20,8 +20,7 @@ export function TopBar() {
 
   // 哪些路由消费 range —— /devices 列表 + /devices/:id 详情。其它路由（/login、/）
   // 不显示 range 控件。
-  const showRange =
-    location.pathname.startsWith('/devices') || location.pathname === '/'
+  const showRange = location.pathname.startsWith('/devices') || location.pathname === '/'
   const showAuthedActions = location.pathname !== '/login'
 
   // 从当前 URL search 解析 range；非法/缺省时回退 '7d'，跟 search-params helper 同语义。
@@ -92,12 +91,7 @@ export function TopBar() {
 
           {showAuthedActions ? (
             <>
-              <Button
-                size="icon"
-                variant="ghost"
-                aria-label="刷新"
-                onClick={refresh}
-              >
+              <Button size="icon" variant="ghost" aria-label="刷新" onClick={refresh}>
                 <RefreshCw />
               </Button>
               <Button

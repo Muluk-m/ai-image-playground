@@ -13,12 +13,7 @@ interface LightboxDialogProps {
   fullscreen: '1' | undefined
 }
 
-export function LightboxDialog({
-  taskId,
-  imgIdx,
-  imgKind,
-  fullscreen,
-}: LightboxDialogProps) {
+export function LightboxDialog({ taskId, imgIdx, imgKind, fullscreen }: LightboxDialogProps) {
   // 通过 useTask 拿 max index（自带 Query 去重，跟 Sheet 共享同一 ['task', id]
   // 缓存，不发额外请求）
   const q = useTask(taskId)

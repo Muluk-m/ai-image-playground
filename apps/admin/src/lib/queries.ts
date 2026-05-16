@@ -1,21 +1,12 @@
 import { useQuery } from '@tanstack/react-query'
 
 import { apiClient } from './api-client'
-import type {
-  DeviceDetailResult,
-  ListDevicesResult,
-  Range,
-  SortKey,
-  TaskDetail,
-} from './types'
+import type { DeviceDetailResult, ListDevicesResult, Range, SortKey, TaskDetail } from './types'
 
 export function useDevices(range: Range, sort: SortKey) {
   return useQuery({
     queryKey: ['devices', { range, sort }],
-    queryFn: () =>
-      apiClient.get<ListDevicesResult>(
-        `/api/devices?range=${range}&sort=${sort}`,
-      ),
+    queryFn: () => apiClient.get<ListDevicesResult>(`/api/devices?range=${range}&sort=${sort}`),
   })
 }
 

@@ -2,11 +2,11 @@ import { QueryClient } from '@tanstack/react-query'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
-  ApiError,
-  UnauthorizedError,
   _resetApiClientRefsForTest,
+  ApiError,
   apiClient,
   setApiClientRefs,
+  UnauthorizedError,
 } from '../../lib/api-client'
 
 function jsonResponse(status: number, body: unknown): Response {
@@ -56,10 +56,7 @@ describe('api-client', () => {
   })
 
   it('500 throws ApiError, does not navigate', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValueOnce(jsonResponse(500, { error: 'boom' })),
-    )
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(jsonResponse(500, { error: 'boom' })))
     const err = await apiClient.get('/api/foo').catch((e) => e)
     expect(err).toBeInstanceOf(ApiError)
     expect(err).not.toBeInstanceOf(UnauthorizedError)

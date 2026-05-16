@@ -54,10 +54,12 @@ export function DeviceMetaCard({ device, range, runningCount = 0 }: DeviceMetaCa
           </div>
           <div className="mt-1 flex items-center gap-3 text-xs text-muted-foreground">
             <span>
-              首次：<FuzzyTime ts={device.first_seen} />
+              首次：
+              <FuzzyTime ts={device.first_seen} />
             </span>
             <span>
-              最近：<FuzzyTime ts={device.last_seen} />
+              最近：
+              <FuzzyTime ts={device.last_seen} />
             </span>
           </div>
         </div>
@@ -67,7 +69,8 @@ export function DeviceMetaCard({ device, range, runningCount = 0 }: DeviceMetaCa
             今日配额
           </h3>
           <div className="mt-1 font-mono text-2xl tabular-nums">
-            {device.today_count} <span className="text-base text-muted-foreground">/ {DAILY_QUOTA_LIMIT}</span>
+            {device.today_count}{' '}
+            <span className="text-base text-muted-foreground">/ {DAILY_QUOTA_LIMIT}</span>
           </div>
           <Progress value={pct} className="mt-2 h-1.5" />
         </div>
@@ -75,16 +78,8 @@ export function DeviceMetaCard({ device, range, runningCount = 0 }: DeviceMetaCa
 
       <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
         <Stat label={`${RANGE_LABEL[range]} 累计`} value={device.total} />
-        <Stat
-          label="成功"
-          value={device.ok_count}
-          tone="text-emerald-700 dark:text-emerald-400"
-        />
-        <Stat
-          label="失败"
-          value={device.fail_count}
-          tone="text-rose-700 dark:text-rose-400"
-        />
+        <Stat label="成功" value={device.ok_count} tone="text-emerald-700 dark:text-emerald-400" />
+        <Stat label="失败" value={device.fail_count} tone="text-rose-700 dark:text-rose-400" />
         <Stat label="运行中" value={runningCount} />
       </div>
 
