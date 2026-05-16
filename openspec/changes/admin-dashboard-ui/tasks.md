@@ -3,29 +3,29 @@
 - [x] 0.1 在 `apps/admin/server/lib/queries.ts` 的 `getTask()` 里加 raw sql `SELECT device_id FROM tasks WHERE id = ?`，把结果合并进 `TaskDetail` 返回（新增字段 `device_id: string | null`）
 - [x] 0.2 更新 `apps/admin/server/lib/queries.ts` 的 `TaskDetail` 类型导出
 - [x] 0.3 跑 `pnpm --filter @image-playground/admin test` 确认 server tests 不挂；不挂就说明 task 详情既有覆盖（如有 mock 不齐再调）—— pre-existing `反代 BFF binary` 测试在 main 上也挂，与本次改动无关；新增 device_id 断言通过
-- [ ] 0.4 atomic commit: `feat(admin): /api/tasks/:id 返回 device_id 字段`
+- [x] 0.4 atomic commit: `feat(admin): /api/tasks/:id 返回 device_id 字段`
 
 ## 1. 前端工程脚手架
 
-- [ ] 1.1 `apps/admin/package.json` 加 dependencies：`react@^19.1.0` / `react-dom@^19.1.0` / `@tanstack/react-router@^1` / `@tanstack/react-query@^5` / `clsx` / `tailwind-merge` / `class-variance-authority` / `lucide-react` / `@radix-ui/react-slot` (shadcn 必备)
-- [ ] 1.2 `apps/admin/package.json` 加 devDependencies：`vite@^6` / `@vitejs/plugin-react@^4` / `@tanstack/router-vite-plugin@^1` / `typescript@^5.8` / `tailwindcss@^3.4.17` / `postcss` / `autoprefixer` / `vitest@^4` / `@testing-library/react` / `@testing-library/dom` / `jsdom` / `@types/react` / `@types/react-dom`
-- [ ] 1.3 `apps/admin/package.json` scripts：`dev` = `vite`，`build` = `tsc -b && vite build`，`typecheck` = `tsc -b`，`test` = `vitest run`；保留现有 `dev:server` / `start`（server）
-- [ ] 1.4 `pnpm install` 拉依赖
-- [ ] 1.5 创建 `apps/admin/index.html`（标题 `image-playground admin` + `<div id="root"></div>` + `<script src="/src/main.tsx" type="module">`）
-- [ ] 1.6 创建 `apps/admin/vite.config.ts`：`TanStackRouterVite() + react()` plugin，alias `@ → ./src`，dev `server.proxy['/api'] = 'http://localhost:37378'`
-- [ ] 1.7 创建 `apps/admin/tsconfig.json` 更新：`compilerOptions.paths` 加 `"@/*": ["./src/*"]`，include `["src", "vite.config.ts"]`
-- [ ] 1.8 创建 `apps/admin/tailwind.config.ts`（content + zinc 色板 + 字体）：直接抄 `apps/web/tailwind.config.ts`，去掉 web 专属内容
-- [ ] 1.9 创建 `apps/admin/postcss.config.js`（tailwindcss + autoprefixer）
-- [ ] 1.10 创建 `apps/admin/components.json`（shadcn config，style: new-york，base: zinc，tailwind v3，aliases utils=@/lib/utils, components=@/components）
-- [ ] 1.11 atomic commit: `feat(admin): 前端脚手架（Vite + React 19 + TS + Tailwind v3 + TanStack）`
+- [x] 1.1 `apps/admin/package.json` 加 dependencies：`react@^19.1.0` / `react-dom@^19.1.0` / `@tanstack/react-router@^1` / `@tanstack/react-query@^5` / `clsx` / `tailwind-merge` / `class-variance-authority` / `lucide-react` / `@radix-ui/react-slot` (shadcn 必备) — 额外加 @radix-ui/{dialog,progress,tooltip} 配合 shadcn 8 组件
+- [x] 1.2 `apps/admin/package.json` 加 devDependencies：`vite@^6` / `@vitejs/plugin-react@^4` / `@tanstack/router-vite-plugin@^1` / `typescript@^5.8` / `tailwindcss@^3.4.17` / `postcss` / `autoprefixer` / `vitest@^4` / `@testing-library/react` / `@testing-library/dom` / `jsdom` / `@types/react` / `@types/react-dom` — 额外加 @testing-library/{jest-dom,user-event}
+- [x] 1.3 `apps/admin/package.json` scripts：`dev` = `vite`，`build` = `tsc -b && vite build`，`typecheck` = `tsc -b`，`test` = `vitest run`；保留现有 `dev:server` / `start`（server）—— test 合成 `vitest run && bun test server` 双跑；额外暴露 test:server / test:client
+- [x] 1.4 `pnpm install` 拉依赖（+175 包）
+- [x] 1.5 创建 `apps/admin/index.html`（标题 `image-playground admin` + `<div id="root"></div>` + `<script src="/src/main.tsx" type="module">`）
+- [x] 1.6 创建 `apps/admin/vite.config.ts`：`TanStackRouterVite() + react()` plugin，alias `@ → ./src`，dev `server.proxy['/api'] = 'http://localhost:37378'` —— 同时配 vitest jsdom + setupFiles
+- [x] 1.7 创建 `apps/admin/tsconfig.json` 更新：拆 solution（tsconfig.json）+ tsconfig.app.json（DOM + react-jsx + `@/*` paths + composite）+ tsconfig.server.json（bun types + composite），`typecheck = tsc -b` 跑双 project
+- [x] 1.8 创建 `apps/admin/tailwind.config.js`（content + zinc 色板 + 字体 + shadcn HSL token）：抄 web 风格 + 加 shadcn cssVariables 所需 token
+- [x] 1.9 创建 `apps/admin/postcss.config.js`（tailwindcss + autoprefixer）
+- [x] 1.10 创建 `apps/admin/components.json`（shadcn config，style: new-york，base: zinc，tailwind v3，aliases utils=@/lib/utils, components=@/components）
+- [x] 1.11 atomic commit: `feat(admin): 前端脚手架（Vite + React 19 + TS + Tailwind v3 + TanStack）`
 
 ## 2. shadcn 组件与基础
 
-- [ ] 2.1 创建 `apps/admin/src/lib/utils.ts` 导出 `cn = (...inputs) => twMerge(clsx(inputs))`
-- [ ] 2.2 拉 8 个 shadcn 组件到 `apps/admin/src/components/ui/`：button / input / table / sheet / dialog / badge / progress / tooltip（用 `npx shadcn@latest add button input table sheet dialog badge progress tooltip` 或手 copy；选 new-york / zinc）
-- [ ] 2.3 创建 `apps/admin/src/index.css`：`@tailwind base; @tailwind components; @tailwind utilities;` + body 字体 fallback
-- [ ] 2.4 在 `index.html` 引用 `index.css`（通过 main.tsx import 即可）
-- [ ] 2.5 atomic commit: `feat(admin): shadcn UI primitives（8 个组件）`
+- [x] 2.1 创建 `apps/admin/src/lib/utils.ts` 导出 `cn = (...inputs) => twMerge(clsx(inputs))`
+- [x] 2.2 拉 8 个 shadcn 组件到 `apps/admin/src/components/ui/`：button / input / table / sheet / dialog / badge / progress / tooltip —— 手 copy（CLI 在 monorepo 配 alias 麻烦），new-york / zinc 风格；额外装 tailwindcss-animate 给动画类
+- [x] 2.3 创建 `apps/admin/src/index.css`：`@tailwind base; @tailwind components; @tailwind utilities;` + body 字体 fallback —— 含 shadcn HSL token 浅/深色
+- [x] 2.4 在 `index.html` 引用 `index.css`（通过 main.tsx import 即可，下个 section 落地 main.tsx）
+- [x] 2.5 atomic commit: `feat(admin): shadcn UI primitives（8 个组件）`
 
 ## 3. Router + Query 装配
 
