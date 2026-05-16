@@ -96,11 +96,11 @@
 
 ## 12. admin server 接静态托管
 
-- [ ] 12.1 创建 `apps/admin/server/static.ts`：从 `apps/bff/src/app.ts` 复制 `serveStatic` + `serveSpaFallback` + `cacheControlFor` + MIME 表 + gzip 探测；剔除 SW / hero-seed 等 BFF 专属分支；导出 `serveStatic({ root })` 与 `serveSpaFallback({ root })`
-- [ ] 12.2 修改 `apps/admin/server/app.ts`：从 `static.ts` import；在 `app` 末尾（所有 API 路由之后）`.use(serveStatic({ root: resolveDistRoot() })).use(serveSpaFallback({ root: resolveDistRoot() }))`
-- [ ] 12.3 `resolveDistRoot()`：优先 env `ADMIN_DIST_DIR`，回退 `path.join(process.cwd(), 'apps/admin/dist')`
-- [ ] 12.4 跑 admin 的 server tests 确保静态托管不破坏现有 API（404 路径在 API 之后 fallback 到 index.html，但 `/api/*` 命中 404 仍走 API 404）—— 测试覆盖：未匹配 `/foo` GET → 200 + html，未匹配 `/api/missing` GET → 404 + JSON
-- [ ] 12.5 atomic commit: `feat(admin): server 接 dist 静态托管 + SPA fallback`
+- [x] 12.1 创建 `apps/admin/server/static.ts`：复制 + 剔除 BFF 专属分支 + path-traversal 防御
+- [x] 12.2 修改 `apps/admin/server/app.ts`：onRequest 试静态 + onError 走 SPA fallback
+- [x] 12.3 `config.staticDir = env('ADMIN_DIST_DIR', '')`：空时整条 no-op（dev mode）
+- [x] 12.4 server tests 覆盖 6 个静态场景 + 既有 41 个 API 测试不回归
+- [x] 12.5 atomic commit: `feat(admin): server 接 dist 静态托管 + SPA fallback`
 
 ## 13. deploy:local 改造
 
