@@ -4,14 +4,16 @@
 
 # AI Image Playground
 
-浏览器里的图像生成工作台 — 自带 API key 即可用，历史与配置全部本地存储。
+A browser-based image generation workbench — bring your own API key, history and config stay fully local.
 
 [![License](https://img.shields.io/badge/License-MIT-10b981?style=flat-square)](./LICENSE)
 [![React](https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react&logoColor=white)](https://react.dev/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Bun](https://img.shields.io/badge/Bun-1.x-FBF0DF?style=flat-square&logo=bun&logoColor=black)](https://bun.sh/)
 
-[**在线试玩 · image.nainma.online**](https://image.nainma.online/)
+English | [中文](./README.zh.md)
+
+[**Try it live · image.nainma.online**](https://image.nainma.online/)
 
 </div>
 
@@ -21,41 +23,41 @@
   </a>
 </p>
 
-## ✨ 能干嘛
+## ✨ Features
 
-- **多个模型** — OpenAI、Gemini、自定义 HTTP，自带 API key 即用
-- **短任务直跑** — 浏览器直连上游，秒级出图
-- **长任务也能跑** — 可选「后端模式」处理 30s–5min 的长任务（Gemini 3 Pro 等），任务持久化，刷新页面也不丢
-- **不泄密** — 后端模式下 API key 只在服务器 env 里，浏览器永远拿不到
-- **纯本地** — 历史、配置、API key 全存浏览器 IndexedDB
-- **参考图 + 遮罩** — 最多 16 张参考图，OpenAI 路径支持可视化遮罩编辑器
-- **灵感库** — 几百个一键套用的高质量提示词
+- **Multiple models** — OpenAI, Gemini, custom HTTP endpoints; bring your own API key
+- **Fast jobs run inline** — browser calls the upstream directly, images in seconds
+- **Long jobs supported too** — optional "backend mode" for 30s–5min jobs (e.g. Gemini 3 Pro). Tasks are persisted; refreshing the page won't lose them
+- **No key leakage** — in backend mode, API keys stay in the server's env; the browser never sees them
+- **Fully local** — history, config, and BYOK keys live in the browser's IndexedDB
+- **Reference images + masks** — up to 16 reference images; the OpenAI path includes a visual mask editor
+- **Inspiration library** — hundreds of high-quality prompts you can apply with one click
 
-## 🚀 本地试一下
+## 🚀 Run locally
 
 ```bash
 git clone https://github.com/Muluk-m/ai-image-playground.git
 cd ai-image-playground
 pnpm install
-pnpm dev:web        # 起前端，打开 http://localhost:5173
+pnpm dev:web        # starts the frontend at http://localhost:5173
 ```
 
-在右上角设置里填一个 OpenAI 或 Gemini 的 API key（baseUrl 留默认）就能生图了。
+Open the settings panel (top-right), drop in an OpenAI or Gemini API key (leave baseUrl as default), and you're ready to generate.
 
-## 📦 部署
+## 📦 Deploy
 
-### 选项 1 · 纯静态（最简单）
+### Option 1 · Static-only (simplest)
 
-任意静态托管（Vercel / Netlify / Cloudflare Pages / nginx）：
+Any static host (Vercel / Netlify / Cloudflare Pages / nginx):
 
 ```bash
 pnpm install && pnpm build
-# 把 apps/web/dist/ 上传到你的静态托管
+# upload apps/web/dist/ to your static host
 ```
 
-用户自己在页面里填 API key，浏览器直连模型上游。**不支持 1 分钟以上的长任务**。
+Users plug in their own API key in the UI; the browser talks to the upstream directly. **Jobs longer than ~1 minute won't work** (edge timeouts).
 
-### 选项 2 · Docker（带后端，支持长任务 + 预置服务商）
+### Option 2 · Docker (with backend; long jobs + preset providers)
 
 ```bash
 docker build -t ai-image-playground .
@@ -66,29 +68,29 @@ docker run -p 37377:37377 \
   ai-image-playground
 ```
 
-打开 `http://localhost:37377` 即可用。`channels.json` 配置预置的服务商列表（默认含 OpenAI + Gemini，operator 改这里就能加新的）。
+Open `http://localhost:37377`. `channels.json` configures the list of preset providers (OpenAI + Gemini by default — operators edit this file to add more).
 
-详细配置（runtime-config / channels.json / 环境变量）见 [`apps/bff/README.md`](./apps/bff/README.md)。
+Full configuration reference (runtime-config / channels.json / env vars) is in [`apps/bff/README.md`](./apps/bff/README.md).
 
-## 🛠 开发
+## 🛠 Development
 
 ```bash
 pnpm install
-pnpm dev          # web + bff 同时起
+pnpm dev          # web + bff in parallel
 pnpm test         # vitest + bun:test
 pnpm typecheck
 pnpm lint
 ```
 
-技术栈：前端 React 19 + Vite · 后端 Bun + Elysia + SQLite · monorepo pnpm + Turbo。
+Stack: React 19 + Vite on the frontend · Bun + Elysia + SQLite on the backend · pnpm + Turbo monorepo.
 
-## 🙏 致谢
+## 🙏 Credits
 
-Fork 自 [CookSleep/gpt_image_playground](https://github.com/CookSleep/gpt_image_playground)（MIT），保留原项目核心 UX（参考图 + 遮罩、瀑布流历史、灵感库、模型快选、实际参数对比）。本 fork 扩展了 Gemini 原生协议、长任务队列模式、可选后端。
+Forked from [CookSleep/gpt_image_playground](https://github.com/CookSleep/gpt_image_playground) (MIT), keeping the original UX (reference images + mask editing, waterfall history, inspiration library, quick model picker, effective-parameter comparison). This fork adds native Gemini protocol support, a long-task queue mode, and an optional backend.
 
-灵感库提示词数据：
-- [freestylefly/awesome-gpt-image-2](https://github.com/freestylefly/awesome-gpt-image-2)（MIT）
-- [YouMind-OpenLab/awesome-nano-banana-pro-prompts](https://github.com/YouMind-OpenLab/awesome-nano-banana-pro-prompts)（CC BY 4.0）
+Inspiration library prompt data:
+- [freestylefly/awesome-gpt-image-2](https://github.com/freestylefly/awesome-gpt-image-2) (MIT)
+- [YouMind-OpenLab/awesome-nano-banana-pro-prompts](https://github.com/YouMind-OpenLab/awesome-nano-banana-pro-prompts) (CC BY 4.0)
 
 ## 📄 License
 
