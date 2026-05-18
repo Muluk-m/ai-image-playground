@@ -1,12 +1,12 @@
 const SIZE_PATTERN = /^\s*(\d+)\s*[xX×]\s*(\d+)\s*$/
 const RATIO_PATTERN = /^\s*(\d+(?:\.\d+)?)\s*[:xX×]\s*(\d+(?:\.\d+)?)\s*$/
 const SIZE_MULTIPLE = 16
-const MAX_EDGE = 3840
+const MAX_EDGE = 2048
 const MAX_ASPECT_RATIO = 3
 const MIN_PIXELS = 655_360
-const MAX_PIXELS = 8_294_400
+const MAX_PIXELS = 4_194_304
 
-export type SizeTier = '1K' | '2K' | '4K'
+export type SizeTier = '1K' | '2K'
 
 function roundToMultiple(value: number, multiple: number) {
   return Math.max(multiple, Math.round(value / multiple) * multiple)
@@ -155,7 +155,7 @@ export function calculateImageSize(tier: SizeTier, ratio: string) {
 
   const { width: ratioWidth, height: ratioHeight } = parsed
   if (ratioWidth === ratioHeight) {
-    const side = tier === '1K' ? 1024 : tier === '2K' ? 2048 : 3840
+    const side = tier === '1K' ? 1024 : 2048
     return normalizeImageSize(`${side}x${side}`)
   }
 
@@ -172,7 +172,7 @@ export function calculateImageSize(tier: SizeTier, ratio: string) {
     return `${width}x${height}`
   }
 
-  const longSide = tier === '2K' ? 2048 : 3840
+  const longSide = 2048
   const width =
     ratioWidth > ratioHeight
       ? longSide

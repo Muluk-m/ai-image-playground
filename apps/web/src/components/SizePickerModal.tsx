@@ -3,9 +3,9 @@ import { usePreventBackgroundScroll } from '../hooks/usePreventBackgroundScroll'
 import { calculateImageSize, normalizeImageSize, parseRatio, type SizeTier } from '../lib/size'
 import ViewportTooltip from './ViewportTooltip'
 
-const TIERS: SizeTier[] = ['1K', '2K', '4K']
+const TIERS: SizeTier[] = ['1K', '2K']
 const SIZE_LIMIT_TEXT =
-  '由于模型限制，最终输出会自动规整到合法尺寸：\n宽高均为 16 的倍数，最大边长 3840px，宽高比不超过 3:1，总像素限制为 655360-8294400。'
+  '由于模型限制，最终输出会自动规整到合法尺寸：\n宽高均为 16 的倍数，最大边长 2048px，宽高比不超过 3:1，总像素限制为 655360-4194304。'
 const RATIOS = [
   { label: '1:1', value: '1:1' },
   { label: '3:2', value: '3:2' },

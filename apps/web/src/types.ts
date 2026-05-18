@@ -80,7 +80,7 @@ export const GEMINI_ASPECT_RATIOS = [
   '5:4',
   '21:9',
 ] as const
-export const GEMINI_IMAGE_SIZES = ['512', '1K', '2K', '4K'] as const
+export const GEMINI_IMAGE_SIZES = ['512', '1K', '2K'] as const
 export const GEMINI_THINKING_LEVELS = ['minimal', 'high'] as const
 
 export type GeminiAspectRatio = (typeof GEMINI_ASPECT_RATIOS)[number]
