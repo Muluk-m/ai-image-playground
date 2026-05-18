@@ -102,10 +102,10 @@ describe('buildGeminiRequestBody', () => {
         ...DEFAULT_PARAMS,
         size: 'auto',
         gemini_aspect_ratio: '16:9',
-        gemini_image_size: '4K',
+        gemini_image_size: '2K',
       },
     })
-    expect(body.generationConfig?.imageConfig).toEqual({ aspectRatio: '16:9', imageSize: '4K' })
+    expect(body.generationConfig?.imageConfig).toEqual({ aspectRatio: '16:9', imageSize: '2K' })
   })
 
   it('emits thinkingConfig only when gemini_thinking_level set', () => {
