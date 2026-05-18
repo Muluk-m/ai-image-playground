@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.turbo/
+artifacts/
+**/generated/
+out.png
+dev-proxy.config.json
+.dev.vars
+.env
+.env.local
+.claude/
+.gstack

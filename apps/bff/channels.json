@@ -1,0 +1,54 @@
+{
+  "channels": [
+    {
+      "id": "openai-images",
+      "kind": "openai-queue",
+      "label": "OpenAI",
+      "baseUrl": "https://api.openai.com/v1",
+      "auth": {
+        "type": "bearer",
+        "secretRef": "OPENAI_API_KEY"
+      },
+      "models": [
+        {
+          "id": "gpt-image-2",
+          "label": "GPT Image 2",
+          "capabilities": ["generate", "edit"]
+        }
+      ],
+      "defaults": {
+        "apiMode": "images",
+        "timeout": 600
+      },
+      "allowedPaths": [
+        "images/generations",
+        "images/edits"
+      ]
+    },
+    {
+      "id": "gemini-flash-image",
+      "kind": "gemini-queue",
+      "label": "Gemini",
+      "baseUrl": "https://generativelanguage.googleapis.com/v1beta",
+      "auth": {
+        "type": "query-key",
+        "secretRef": "GEMINI_API_KEY",
+        "queryParam": "key"
+      },
+      "models": [
+        {
+          "id": "gemini-3.1-flash-image",
+          "label": "Gemini 3.1 Flash Image",
+          "capabilities": ["generate", "edit"]
+        }
+      ],
+      "defaults": {
+        "apiMode": "images",
+        "timeout": 600
+      },
+      "allowedPaths": [
+        "models/gemini-3.1-flash-image:generateContent"
+      ]
+    }
+  ]
+}
