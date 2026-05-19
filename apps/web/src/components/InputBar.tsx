@@ -72,7 +72,7 @@ function ChipSelect<T extends string>(props: {
 }
 
 const TEXTAREA_CLASS =
-  'min-h-[42px] w-full whitespace-pre-wrap break-words bg-transparent pl-1 py-1 text-sm leading-relaxed outline-none empty:before:pointer-events-none empty:before:text-gray-400 empty:before:content-[attr(data-placeholder)] dark:text-gray-100 dark:empty:before:text-gray-400'
+  'min-h-[42px] w-full whitespace-pre-wrap break-words bg-transparent px-1 py-1 text-sm leading-relaxed outline-none empty:before:pointer-events-none empty:before:text-gray-400 empty:before:content-[attr(data-placeholder)] dark:text-gray-100 dark:empty:before:text-gray-400'
 
 function getMentionTagTextLength(el: Element) {
   return el.textContent?.length ?? 0
@@ -1960,7 +1960,7 @@ export default function InputBar() {
         )}
         <div
           ref={cardRef}
-          className={`bg-white/70 dark:bg-gray-900/70 backdrop-blur-2xl border border-white/50 dark:border-white/[0.08] shadow-[0_8px_30px_rgb(0,0,0,0.08)] dark:shadow-[0_8px_30px_rgb(0,0,0,0.3)] rounded-2xl sm:rounded-3xl ring-1 ring-black/5 dark:ring-white/10 ${barCollapsed ? 'p-2' : 'p-3 sm:p-4'}`}
+          className={`relative bg-white/70 dark:bg-gray-900/70 backdrop-blur-2xl border border-white/50 dark:border-white/[0.08] shadow-[0_8px_30px_rgb(0,0,0,0.08)] dark:shadow-[0_8px_30px_rgb(0,0,0,0.3)] rounded-2xl sm:rounded-3xl ring-1 ring-black/5 dark:ring-white/10 ${barCollapsed ? 'p-2' : 'p-3 sm:p-4'}`}
         >
           {barCollapsed ? (
             <div className="flex items-center gap-2">
@@ -2023,6 +2023,22 @@ export default function InputBar() {
             </div>
           ) : (
             <>
+              <button
+                type="button"
+                onClick={() => setBarCollapsed(true)}
+                className="absolute right-2 top-2 z-20 flex h-6 w-6 items-center justify-center rounded-md bg-white/60 text-gray-400 backdrop-blur-sm hover:bg-gray-100/80 hover:text-gray-600 dark:bg-gray-900/40 dark:hover:bg-white/[0.06] dark:hover:text-gray-200"
+                title="收起输入框（折叠成 mini bar）"
+              >
+                <svg
+                  className="h-4 w-4"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                  viewBox="0 0 24 24"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
               {/* 移动端拖动条 */}
               <div
                 ref={handleRef}
@@ -2140,24 +2156,8 @@ export default function InputBar() {
                     syncMentionTagSelection(el)
                   }}
                   data-placeholder="描述你想生成的图片，可输入 @ 指定当前参考图..."
-                  className={`${TEXTAREA_CLASS} pr-7`}
+                  className={TEXTAREA_CLASS}
                 />
-                <button
-                  type="button"
-                  onClick={() => setBarCollapsed(true)}
-                  className="absolute right-0 top-0 z-10 flex h-6 w-6 items-center justify-center rounded-md text-gray-400 hover:bg-gray-100/80 hover:text-gray-600 dark:hover:bg-white/[0.06] dark:hover:text-gray-200"
-                  title="收起输入框（点击 mini bar 可展开）"
-                >
-                  <svg
-                    className="h-4 w-4"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth={2}
-                    viewBox="0 0 24 24"
-                  >
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-                  </svg>
-                </button>
               </div>
 
               {/* 参数 + 按钮 */}
