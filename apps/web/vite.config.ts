@@ -78,6 +78,10 @@ export default defineConfig(({ command }) => {
       proxy: Object.keys(proxy).length ? proxy : undefined,
     },
     build: {
+      // main.tsx 用 top-level await 启动 runtime/channel discovery；
+      // vite 默认 target='modules' (ES2020) 不支持 TLA，会构建失败。
+      // 'esnext' 与 TLA 的 baseline (Chrome 89+/Safari 15+) 对齐。
+      target: 'esnext',
       rollupOptions: {
         output: {
           // 拆出第三方依赖，缓解 500KB chunk warning + 让缓存复用率更高（首屏 vendor
