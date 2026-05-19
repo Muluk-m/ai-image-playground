@@ -48,14 +48,21 @@ pnpm dev:web        # 起前端，打开 http://localhost:5173
 
 ### 选项 1 · 纯静态（最简单）
 
-任意静态托管（Vercel / Netlify / Cloudflare Pages / nginx）：
+一键部署：
+
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/Muluk-m/ai-image-playground&project-name=ai-image-playground&repository-name=ai-image-playground)
+[![Deploy to Netlify](https://www.netlify.com/img/deploy/button.svg)](https://app.netlify.com/start/deploy?repository=https://github.com/Muluk-m/ai-image-playground)
+
+仓库已带上 `vercel.json` 和 `netlify.toml`，针对 monorepo 配好了构建命令和产物目录。点按钮跳过去登一下账号、确认下就能跑，零额外配置。
+
+其它静态托管（Cloudflare Pages / GitHub Pages / nginx / S3）也都能用：
 
 ```bash
 pnpm install && pnpm build
 # 把 apps/web/dist/ 上传到你的静态托管
 ```
 
-用户自己在页面里填 API key，浏览器直连模型上游。**不支持 1 分钟以上的长任务**。
+用户自己在页面里填 API key，浏览器直连模型上游。**不支持 1 分钟以上的长任务**（edge 平台超时）。
 
 ### 选项 2 · Docker（带后端，支持长任务 + 预置服务商）
 

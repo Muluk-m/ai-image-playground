@@ -48,7 +48,14 @@ Open the settings panel (top-right), drop in an OpenAI or Gemini API key (leave 
 
 ### Option 1 · Static-only (simplest)
 
-Any static host (Vercel / Netlify / Cloudflare Pages / nginx):
+One-click deploy:
+
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/Muluk-m/ai-image-playground&project-name=ai-image-playground&repository-name=ai-image-playground)
+[![Deploy to Netlify](https://www.netlify.com/img/deploy/button.svg)](https://app.netlify.com/start/deploy?repository=https://github.com/Muluk-m/ai-image-playground)
+
+The repo ships `vercel.json` and `netlify.toml` preconfigured for the monorepo — both buttons build `apps/web` and serve `apps/web/dist` with no extra setup.
+
+Or any other static host (Cloudflare Pages / GitHub Pages / nginx / S3):
 
 ```bash
 pnpm install && pnpm build
