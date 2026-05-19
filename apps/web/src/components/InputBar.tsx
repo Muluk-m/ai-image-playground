@@ -490,9 +490,8 @@ export default function InputBar() {
   const [qualityHintVisible, setQualityHintVisible] = useState(false)
   const [imageHintId, setImageHintId] = useState<string | null>(null)
   const [mobileCollapsed, setMobileCollapsed] = useState(false)
-  // 桌面端「只折叠 prompt 文本」用：内容溢出阈值时显示按钮，折叠时把 textarea 限高到 ~3 行。
-  const [promptCollapsed, setPromptCollapsed] = useState(false)
-  const [promptOverflowing, setPromptOverflowing] = useState(false)
+  // 整张输入卡片折叠：折叠后只剩 mini bar（prompt 摘要 + 生成 + 展开按钮），让背景任务卡片露出来。
+  const [barCollapsed, setBarCollapsed] = useState(false)
   const [showSizePicker, setShowSizePicker] = useState(false)
   const [maskPreviewUrl, setMaskPreviewUrl] = useState('')
   const [imageDragIndex, setImageDragIndex] = useState<number | null>(null)
@@ -1104,11 +1103,10 @@ export default function InputBar() {
     el.style.transition = 'none'
     el.style.height = '0'
     el.style.overflowY = 'hidden'
-    const { targetH, overflow, scroll } = computePromptHeight({
+    const { targetH, scroll } = computePromptHeight({
       scrollH: el.scrollHeight,
       innerHeight: window.innerHeight,
       fixedOverhead,
-      promptCollapsed,
     })
 
     // 2. 将高度设回上一次的实际高度，强制重绘，准备开始动画
@@ -1121,8 +1119,7 @@ export default function InputBar() {
     el.style.overflowY = scroll ? 'auto' : 'hidden'
 
     prevHeightRef.current = targetH
-    setPromptOverflowing(overflow)
-  }, [promptCollapsed])
+  }, [])
 
   // 将 prompt 同步渲染到 contentEditable（含胶囊 tag）
   useEffect(() => {
@@ -1963,178 +1960,38 @@ export default function InputBar() {
         )}
         <div
           ref={cardRef}
-          className="bg-white/70 dark:bg-gray-900/70 backdrop-blur-2xl border border-white/50 dark:border-white/[0.08] shadow-[0_8px_30px_rgb(0,0,0,0.08)] dark:shadow-[0_8px_30px_rgb(0,0,0,0.3)] rounded-2xl sm:rounded-3xl p-3 sm:p-4 ring-1 ring-black/5 dark:ring-white/10"
+          className={`bg-white/70 dark:bg-gray-900/70 backdrop-blur-2xl border border-white/50 dark:border-white/[0.08] shadow-[0_8px_30px_rgb(0,0,0,0.08)] dark:shadow-[0_8px_30px_rgb(0,0,0,0.3)] rounded-2xl sm:rounded-3xl ring-1 ring-black/5 dark:ring-white/10 ${barCollapsed ? 'p-2' : 'p-3 sm:p-4'}`}
         >
-          {/* 移动端拖动条 */}
-          <div
-            ref={handleRef}
-            className="sm:hidden flex justify-center pt-0.5 pb-2 -mt-1 cursor-pointer touch-none"
-            onClick={() => setMobileCollapsed((v) => !v)}
-          >
-            <div
-              className={`w-10 h-1 rounded-full bg-gray-300 dark:bg-white/[0.06] transition-transform duration-200 ${mobileCollapsed ? 'scale-x-75' : ''}`}
-            />
-          </div>
-
-          {/* 输入图片行（移动端可折叠） */}
-          {inputImages.length > 0 &&
-            (isMobile ? (
-              <>
-                <div className={`collapse-section${mobileCollapsed ? ' collapsed' : ''}`}>
-                  <div className="collapse-inner">{renderImageThumbs()}</div>
-                </div>
-                {mobileCollapsed && (
-                  <div className="text-xs text-gray-400 dark:text-gray-500 mb-2 ml-1">
-                    {maskDraft
-                      ? `1 张遮罩主图 · ${referenceImages.length} 张参考图`
-                      : `${inputImages.length} 张参考图`}
-                  </div>
-                )}
-              </>
-            ) : (
-              renderImageThumbs()
-            ))}
-
-          {/* 输入框 */}
-          <div className="relative">
-            {showAtImageMenu && (
-              <div
-                style={{ left: `${menuLeft}px` }}
-                className="absolute bottom-full z-50 mb-2 w-64 overflow-hidden rounded-2xl border border-gray-200/70 bg-white/95 p-1.5 shadow-xl ring-1 ring-black/5 backdrop-blur-xl dark:border-white/[0.08] dark:bg-gray-900/95 dark:ring-white/10"
-              >
-                <div className="px-2 pb-1 pt-0.5 text-[11px] text-gray-400 dark:text-gray-500">
-                  选择当前参考图
-                </div>
-                <div className="max-h-56 overflow-y-auto custom-scrollbar">
-                  {atImageOptions.map(({ img, index }, optionIndex) => (
-                    <button
-                      key={img.id}
-                      type="button"
-                      onMouseDown={(e) => {
-                        e.preventDefault()
-                        selectAtImageOption(index)
-                      }}
-                      onMouseEnter={() => setAtImageMenuIndex(optionIndex)}
-                      className={`flex w-full items-center gap-2 rounded-xl px-2 py-1.5 text-left text-xs transition-colors ${
-                        optionIndex === atImageMenuIndex
-                          ? 'bg-blue-50 text-blue-600 dark:bg-blue-500/10 dark:text-blue-300'
-                          : 'text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-white/[0.06]'
-                      }`}
-                    >
-                      <span className="h-9 w-9 shrink-0 overflow-hidden rounded-lg border border-gray-200/70 dark:border-white/[0.08]">
-                        <img src={img.dataUrl} className="h-full w-full object-cover" alt="" />
-                      </span>
-                      <span className="min-w-0 flex-1 truncate font-medium">
-                        {getImageMentionLabel(index)}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-            <div
-              ref={textareaRef}
-              contentEditable
-              suppressContentEditableWarning
-              onInput={(e) => {
-                isUserInputRef.current = true
-                const el = e.currentTarget
-                // contentEditable 删除最后一个字符后浏览器常留 <br> 或空 span，让
-                // :empty 不再匹配 → placeholder 消失。textContent 真为空就把残留 DOM 清干净。
-                if (!el.textContent && el.innerHTML) {
-                  el.innerHTML = ''
-                }
-                const range = getContentEditableSelection(el)
-                setCursorPos(range.start)
-                syncMentionTagSelection(el)
-                const text = getContentEditablePlainText(el)
-                setPrompt(text)
-                setAtImageMenuIndex(0)
-                setAtImageMenuDismissed(false)
-              }}
-              onSelect={(e) => {
-                const el = e.currentTarget
-                const range = getContentEditableSelection(el)
-                setCursorPos(range.start)
-                syncMentionTagSelection(el)
-                setAtImageMenuIndex(0)
-                setAtImageMenuDismissed(false)
-              }}
-              onKeyDown={handleKeyDown}
-              onPaste={handlePromptPaste}
-              onCopy={handlePromptCopy}
-              onClick={(e) => {
-                const el = textareaRef.current
-                if (!el) return
-                const target = e.target as HTMLElement
-                if (target.classList.contains('mention-tag')) {
-                  const sel = window.getSelection()
-                  if (sel) {
-                    const range = document.createRange()
-                    range.selectNode(target)
-                    sel.removeAllRanges()
-                    sel.addRange(range)
-                    syncMentionTagSelection(el)
-                  }
-                  return
-                }
-
-                syncMentionTagSelection(el)
-              }}
-              data-placeholder="描述你想生成的图片，可输入 @ 指定当前参考图..."
-              className={`${TEXTAREA_CLASS} ${promptOverflowing ? 'pr-7' : 'pr-1'}`}
-            />
-            {promptOverflowing && (
+          {barCollapsed ? (
+            <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={() => setPromptCollapsed((v) => !v)}
-                className="absolute right-0 top-0 z-10 flex h-6 w-6 items-center justify-center rounded-md text-gray-400 hover:bg-gray-100/80 hover:text-gray-600 dark:hover:bg-white/[0.06] dark:hover:text-gray-200"
-                title={
-                  promptCollapsed ? '展开输入框（显示全部文字）' : '折叠输入框（避免遮挡背景）'
-                }
+                onClick={() => setBarCollapsed(false)}
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-gray-500 hover:bg-gray-100/80 dark:text-gray-300 dark:hover:bg-white/[0.06]"
+                title="展开输入框"
               >
                 <svg
-                  className={`h-4 w-4 transition-transform ${promptCollapsed ? '' : 'rotate-180'}`}
+                  className="h-4 w-4"
                   fill="none"
                   stroke="currentColor"
                   strokeWidth={2}
                   viewBox="0 0 24 24"
                 >
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" />
                 </svg>
               </button>
-            )}
-          </div>
-
-          {/* 参数 + 按钮 */}
-          <div className="mt-3">
-            {/* 桌面端布局 */}
-            <div className="hidden sm:flex flex-wrap items-center gap-2">
-              <div
-                className="relative flex-shrink-0"
-                onMouseEnter={() => setAttachHover(true)}
-                onMouseLeave={() => setAttachHover(false)}
+              <button
+                type="button"
+                onClick={() => setBarCollapsed(false)}
+                className="min-w-0 flex-1 truncate rounded-xl bg-gray-100/60 px-3 py-2 text-left text-sm text-gray-600 hover:bg-gray-100 dark:bg-white/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.07]"
+                title="点击展开输入框"
               >
-                <ButtonTooltip
-                  visible={atImageLimit && attachHover}
-                  text={`参考图数量已达上限（${API_MAX_IMAGES} 张），无法继续添加`}
-                />
-                <button
-                  onClick={() => !atImageLimit && fileInputRef.current?.click()}
-                  className={`flex h-10 w-10 items-center justify-center rounded-xl border transition-colors duration-150 ${
-                    atImageLimit
-                      ? 'border-gray-200/60 bg-gray-100/60 text-gray-300 cursor-not-allowed dark:border-white/[0.08] dark:bg-white/[0.04] dark:text-gray-500'
-                      : 'border-gray-300/80 bg-white/70 text-gray-500 hover:border-gray-400/80 hover:bg-white dark:border-white/[0.12] dark:bg-white/[0.04] dark:text-gray-300 dark:hover:border-white/[0.20] dark:hover:bg-white/[0.07]'
-                  }`}
-                  title={atImageLimit ? `已达上限 ${API_MAX_IMAGES} 张` : '添加参考图'}
-                >
-                  {ChipIcons.imageAttach}
-                </button>
-              </div>
-              {renderChipParams()}
-              {/* ml-auto 让 Generate 永远贴当前行右端，chips 偶尔挤到 row 2 时大按钮也能撑住空白。 */}
+                {prompt.trim()
+                  ? stripImageMentionMarkers(prompt)
+                  : '点击展开输入框，输入新的 prompt...'}
+              </button>
               <div
-                className="relative ml-auto flex-shrink-0"
+                className="relative"
                 onMouseEnter={() => setSubmitHover(true)}
                 onMouseLeave={() => setSubmitHover(false)}
               >
@@ -2143,12 +2000,13 @@ export default function InputBar() {
                   text="尚未完成 API 配置，请在右上角设置中进行"
                 />
                 <button
+                  type="button"
                   onClick={() => (hasSubmitApiConfig ? submitTask() : setShowSettings(true))}
                   disabled={hasSubmitApiConfig ? !canSubmit : false}
-                  className={`group/gen relative inline-flex h-12 items-center justify-center gap-1.5 overflow-hidden rounded-xl pl-3.5 pr-5 text-sm font-semibold leading-none transition-all duration-200 active:scale-[0.97] ${
+                  className={`inline-flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-xl px-4 text-sm font-medium shadow-sm transition-all duration-150 active:scale-[0.97] ${
                     !hasSubmitApiConfig
                       ? 'bg-gray-300 text-white dark:bg-white/[0.06]'
-                      : 'bg-gradient-to-b from-blue-400 to-blue-600 text-white shadow-lg shadow-blue-500/30 ring-1 ring-inset ring-white/20 hover:from-blue-400 hover:to-blue-500 hover:shadow-blue-500/40 hover:shadow-xl disabled:from-gray-300 disabled:to-gray-400 disabled:bg-none disabled:ring-0 disabled:shadow-none dark:disabled:from-white/[0.04] dark:disabled:to-white/[0.04] disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100'
+                      : 'bg-blue-500 text-white hover:bg-blue-600 disabled:bg-gray-300 dark:disabled:bg-white/[0.04] disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100'
                   }`}
                   title={
                     hasSubmitApiConfig
@@ -2158,93 +2016,291 @@ export default function InputBar() {
                       : '请先配置 API'
                   }
                 >
-                  {hasSubmitApiConfig && (
-                    <span className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/40 to-transparent" />
-                  )}
-                  <svg
-                    className="h-[18px] w-[18px] drop-shadow-[0_0_4px_rgba(255,255,255,0.4)]"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5L12 3zM19 14l.7 2.1L22 17l-2.3.9L19 20l-.7-2.1L16 17l2.3-.9L19 14z"
-                    />
-                  </svg>
+                  {ChipIcons.sparkles}
                   <span>{maskDraft ? '遮罩编辑' : '生成'}</span>
                 </button>
               </div>
             </div>
+          ) : (
+            <>
+              {/* 移动端拖动条 */}
+              <div
+                ref={handleRef}
+                className="sm:hidden flex justify-center pt-0.5 pb-2 -mt-1 cursor-pointer touch-none"
+                onClick={() => setMobileCollapsed((v) => !v)}
+              >
+                <div
+                  className={`w-10 h-1 rounded-full bg-gray-300 dark:bg-white/[0.06] transition-transform duration-200 ${mobileCollapsed ? 'scale-x-75' : ''}`}
+                />
+              </div>
 
-            {/* 移动端布局 */}
-            <div className="sm:hidden flex flex-col gap-2">
-              {/* 参数 chip 列：套 collapse-section 让顶部拖动条还能上下拖收起。
+              {/* 输入图片行（移动端可折叠） */}
+              {inputImages.length > 0 &&
+                (isMobile ? (
+                  <>
+                    <div className={`collapse-section${mobileCollapsed ? ' collapsed' : ''}`}>
+                      <div className="collapse-inner">{renderImageThumbs()}</div>
+                    </div>
+                    {mobileCollapsed && (
+                      <div className="text-xs text-gray-400 dark:text-gray-500 mb-2 ml-1">
+                        {maskDraft
+                          ? `1 张遮罩主图 · ${referenceImages.length} 张参考图`
+                          : `${inputImages.length} 张参考图`}
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  renderImageThumbs()
+                ))}
+
+              {/* 输入框 */}
+              <div className="relative">
+                {showAtImageMenu && (
+                  <div
+                    style={{ left: `${menuLeft}px` }}
+                    className="absolute bottom-full z-50 mb-2 w-64 overflow-hidden rounded-2xl border border-gray-200/70 bg-white/95 p-1.5 shadow-xl ring-1 ring-black/5 backdrop-blur-xl dark:border-white/[0.08] dark:bg-gray-900/95 dark:ring-white/10"
+                  >
+                    <div className="px-2 pb-1 pt-0.5 text-[11px] text-gray-400 dark:text-gray-500">
+                      选择当前参考图
+                    </div>
+                    <div className="max-h-56 overflow-y-auto custom-scrollbar">
+                      {atImageOptions.map(({ img, index }, optionIndex) => (
+                        <button
+                          key={img.id}
+                          type="button"
+                          onMouseDown={(e) => {
+                            e.preventDefault()
+                            selectAtImageOption(index)
+                          }}
+                          onMouseEnter={() => setAtImageMenuIndex(optionIndex)}
+                          className={`flex w-full items-center gap-2 rounded-xl px-2 py-1.5 text-left text-xs transition-colors ${
+                            optionIndex === atImageMenuIndex
+                              ? 'bg-blue-50 text-blue-600 dark:bg-blue-500/10 dark:text-blue-300'
+                              : 'text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-white/[0.06]'
+                          }`}
+                        >
+                          <span className="h-9 w-9 shrink-0 overflow-hidden rounded-lg border border-gray-200/70 dark:border-white/[0.08]">
+                            <img src={img.dataUrl} className="h-full w-full object-cover" alt="" />
+                          </span>
+                          <span className="min-w-0 flex-1 truncate font-medium">
+                            {getImageMentionLabel(index)}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <div
+                  ref={textareaRef}
+                  contentEditable
+                  suppressContentEditableWarning
+                  onInput={(e) => {
+                    isUserInputRef.current = true
+                    const el = e.currentTarget
+                    // contentEditable 删除最后一个字符后浏览器常留 <br> 或空 span，让
+                    // :empty 不再匹配 → placeholder 消失。textContent 真为空就把残留 DOM 清干净。
+                    if (!el.textContent && el.innerHTML) {
+                      el.innerHTML = ''
+                    }
+                    const range = getContentEditableSelection(el)
+                    setCursorPos(range.start)
+                    syncMentionTagSelection(el)
+                    const text = getContentEditablePlainText(el)
+                    setPrompt(text)
+                    setAtImageMenuIndex(0)
+                    setAtImageMenuDismissed(false)
+                  }}
+                  onSelect={(e) => {
+                    const el = e.currentTarget
+                    const range = getContentEditableSelection(el)
+                    setCursorPos(range.start)
+                    syncMentionTagSelection(el)
+                    setAtImageMenuIndex(0)
+                    setAtImageMenuDismissed(false)
+                  }}
+                  onKeyDown={handleKeyDown}
+                  onPaste={handlePromptPaste}
+                  onCopy={handlePromptCopy}
+                  onClick={(e) => {
+                    const el = textareaRef.current
+                    if (!el) return
+                    const target = e.target as HTMLElement
+                    if (target.classList.contains('mention-tag')) {
+                      const sel = window.getSelection()
+                      if (sel) {
+                        const range = document.createRange()
+                        range.selectNode(target)
+                        sel.removeAllRanges()
+                        sel.addRange(range)
+                        syncMentionTagSelection(el)
+                      }
+                      return
+                    }
+
+                    syncMentionTagSelection(el)
+                  }}
+                  data-placeholder="描述你想生成的图片，可输入 @ 指定当前参考图..."
+                  className={`${TEXTAREA_CLASS} pr-7`}
+                />
+                <button
+                  type="button"
+                  onClick={() => setBarCollapsed(true)}
+                  className="absolute right-0 top-0 z-10 flex h-6 w-6 items-center justify-center rounded-md text-gray-400 hover:bg-gray-100/80 hover:text-gray-600 dark:hover:bg-white/[0.06] dark:hover:text-gray-200"
+                  title="收起输入框（点击 mini bar 可展开）"
+                >
+                  <svg
+                    className="h-4 w-4"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                    viewBox="0 0 24 24"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+              </div>
+
+              {/* 参数 + 按钮 */}
+              <div className="mt-3">
+                {/* 桌面端布局 */}
+                <div className="hidden sm:flex flex-wrap items-center gap-2">
+                  <div
+                    className="relative flex-shrink-0"
+                    onMouseEnter={() => setAttachHover(true)}
+                    onMouseLeave={() => setAttachHover(false)}
+                  >
+                    <ButtonTooltip
+                      visible={atImageLimit && attachHover}
+                      text={`参考图数量已达上限（${API_MAX_IMAGES} 张），无法继续添加`}
+                    />
+                    <button
+                      onClick={() => !atImageLimit && fileInputRef.current?.click()}
+                      className={`flex h-10 w-10 items-center justify-center rounded-xl border transition-colors duration-150 ${
+                        atImageLimit
+                          ? 'border-gray-200/60 bg-gray-100/60 text-gray-300 cursor-not-allowed dark:border-white/[0.08] dark:bg-white/[0.04] dark:text-gray-500'
+                          : 'border-gray-300/80 bg-white/70 text-gray-500 hover:border-gray-400/80 hover:bg-white dark:border-white/[0.12] dark:bg-white/[0.04] dark:text-gray-300 dark:hover:border-white/[0.20] dark:hover:bg-white/[0.07]'
+                      }`}
+                      title={atImageLimit ? `已达上限 ${API_MAX_IMAGES} 张` : '添加参考图'}
+                    >
+                      {ChipIcons.imageAttach}
+                    </button>
+                  </div>
+                  {renderChipParams()}
+                  {/* ml-auto 让 Generate 永远贴当前行右端，chips 偶尔挤到 row 2 时大按钮也能撑住空白。 */}
+                  <div
+                    className="relative ml-auto flex-shrink-0"
+                    onMouseEnter={() => setSubmitHover(true)}
+                    onMouseLeave={() => setSubmitHover(false)}
+                  >
+                    <ButtonTooltip
+                      visible={!hasSubmitApiConfig && submitHover}
+                      text="尚未完成 API 配置，请在右上角设置中进行"
+                    />
+                    <button
+                      onClick={() => (hasSubmitApiConfig ? submitTask() : setShowSettings(true))}
+                      disabled={hasSubmitApiConfig ? !canSubmit : false}
+                      className={`group/gen relative inline-flex h-12 items-center justify-center gap-1.5 overflow-hidden rounded-xl pl-3.5 pr-5 text-sm font-semibold leading-none transition-all duration-200 active:scale-[0.97] ${
+                        !hasSubmitApiConfig
+                          ? 'bg-gray-300 text-white dark:bg-white/[0.06]'
+                          : 'bg-gradient-to-b from-blue-400 to-blue-600 text-white shadow-lg shadow-blue-500/30 ring-1 ring-inset ring-white/20 hover:from-blue-400 hover:to-blue-500 hover:shadow-blue-500/40 hover:shadow-xl disabled:from-gray-300 disabled:to-gray-400 disabled:bg-none disabled:ring-0 disabled:shadow-none dark:disabled:from-white/[0.04] dark:disabled:to-white/[0.04] disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100'
+                      }`}
+                      title={
+                        hasSubmitApiConfig
+                          ? maskDraft
+                            ? '遮罩编辑 (Ctrl+Enter)'
+                            : '生成 (Ctrl+Enter)'
+                          : '请先配置 API'
+                      }
+                    >
+                      {hasSubmitApiConfig && (
+                        <span className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/40 to-transparent" />
+                      )}
+                      <svg
+                        className="h-[18px] w-[18px] drop-shadow-[0_0_4px_rgba(255,255,255,0.4)]"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5L12 3zM19 14l.7 2.1L22 17l-2.3.9L19 20l-.7-2.1L16 17l2.3-.9L19 14z"
+                        />
+                      </svg>
+                      <span>{maskDraft ? '遮罩编辑' : '生成'}</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* 移动端布局 */}
+                <div className="sm:hidden flex flex-col gap-2">
+                  {/* 参数 chip 列：套 collapse-section 让顶部拖动条还能上下拖收起。
                   attach + 生成按钮保持可见，方便折叠后还能立刻发请求。 */}
-              <div className={`collapse-section${mobileCollapsed ? ' collapsed' : ''}`}>
-                <div className="collapse-inner">
-                  <div className="flex flex-wrap items-center gap-2">{renderChipParams()}</div>
+                  <div className={`collapse-section${mobileCollapsed ? ' collapsed' : ''}`}>
+                    <div className="collapse-inner">
+                      <div className="flex flex-wrap items-center gap-2">{renderChipParams()}</div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <div
+                      className="relative"
+                      onMouseEnter={() => setAttachHover(true)}
+                      onMouseLeave={() => setAttachHover(false)}
+                    >
+                      <ButtonTooltip
+                        visible={atImageLimit && attachHover}
+                        text={`参考图数量已达上限（${API_MAX_IMAGES} 张），无法继续添加`}
+                      />
+                      <button
+                        onClick={() => !atImageLimit && fileInputRef.current?.click()}
+                        className={`flex h-10 w-10 items-center justify-center rounded-xl border transition-colors duration-150 flex-shrink-0 ${
+                          atImageLimit
+                            ? 'border-gray-200/60 bg-gray-100/60 text-gray-300 cursor-not-allowed dark:border-white/[0.08] dark:bg-white/[0.04] dark:text-gray-500'
+                            : 'border-gray-300/80 bg-white/70 text-gray-500 hover:border-gray-400/80 hover:bg-white dark:border-white/[0.12] dark:bg-white/[0.04] dark:text-gray-300 dark:hover:border-white/[0.20] dark:hover:bg-white/[0.07]'
+                        }`}
+                        title={atImageLimit ? `已达上限 ${API_MAX_IMAGES} 张` : '添加参考图'}
+                      >
+                        {ChipIcons.imageAttach}
+                      </button>
+                    </div>
+                    <div
+                      className="relative flex-1"
+                      onMouseEnter={() => setSubmitHover(true)}
+                      onMouseLeave={() => setSubmitHover(false)}
+                    >
+                      <ButtonTooltip
+                        visible={!hasSubmitApiConfig && submitHover}
+                        text="尚未完成 API 配置，请在右上角设置中进行"
+                      />
+                      <button
+                        onClick={() => (hasSubmitApiConfig ? submitTask() : setShowSettings(true))}
+                        disabled={hasSubmitApiConfig ? !canSubmit : false}
+                        className={`w-full inline-flex h-10 items-center justify-center gap-1.5 rounded-xl px-3.5 text-xs font-medium shadow-sm transition-all duration-150 active:scale-[0.97] ${
+                          !hasSubmitApiConfig
+                            ? 'bg-gray-300 text-white dark:bg-white/[0.06]'
+                            : 'bg-blue-500 text-white hover:bg-blue-600 disabled:bg-gray-300 dark:disabled:bg-white/[0.04] disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100'
+                        }`}
+                      >
+                        {ChipIcons.sparkles}
+                        <span>{maskDraft ? '遮罩编辑' : '生成图像'}</span>
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
 
-              <div className="flex items-center gap-2">
-                <div
-                  className="relative"
-                  onMouseEnter={() => setAttachHover(true)}
-                  onMouseLeave={() => setAttachHover(false)}
-                >
-                  <ButtonTooltip
-                    visible={atImageLimit && attachHover}
-                    text={`参考图数量已达上限（${API_MAX_IMAGES} 张），无法继续添加`}
-                  />
-                  <button
-                    onClick={() => !atImageLimit && fileInputRef.current?.click()}
-                    className={`flex h-10 w-10 items-center justify-center rounded-xl border transition-colors duration-150 flex-shrink-0 ${
-                      atImageLimit
-                        ? 'border-gray-200/60 bg-gray-100/60 text-gray-300 cursor-not-allowed dark:border-white/[0.08] dark:bg-white/[0.04] dark:text-gray-500'
-                        : 'border-gray-300/80 bg-white/70 text-gray-500 hover:border-gray-400/80 hover:bg-white dark:border-white/[0.12] dark:bg-white/[0.04] dark:text-gray-300 dark:hover:border-white/[0.20] dark:hover:bg-white/[0.07]'
-                    }`}
-                    title={atImageLimit ? `已达上限 ${API_MAX_IMAGES} 张` : '添加参考图'}
-                  >
-                    {ChipIcons.imageAttach}
-                  </button>
-                </div>
-                <div
-                  className="relative flex-1"
-                  onMouseEnter={() => setSubmitHover(true)}
-                  onMouseLeave={() => setSubmitHover(false)}
-                >
-                  <ButtonTooltip
-                    visible={!hasSubmitApiConfig && submitHover}
-                    text="尚未完成 API 配置，请在右上角设置中进行"
-                  />
-                  <button
-                    onClick={() => (hasSubmitApiConfig ? submitTask() : setShowSettings(true))}
-                    disabled={hasSubmitApiConfig ? !canSubmit : false}
-                    className={`w-full inline-flex h-10 items-center justify-center gap-1.5 rounded-xl px-3.5 text-xs font-medium shadow-sm transition-all duration-150 active:scale-[0.97] ${
-                      !hasSubmitApiConfig
-                        ? 'bg-gray-300 text-white dark:bg-white/[0.06]'
-                        : 'bg-blue-500 text-white hover:bg-blue-600 disabled:bg-gray-300 dark:disabled:bg-white/[0.04] disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100'
-                    }`}
-                  >
-                    {ChipIcons.sparkles}
-                    <span>{maskDraft ? '遮罩编辑' : '生成图像'}</span>
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            multiple
-            className="hidden"
-            onChange={handleFileUpload}
-          />
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                multiple
+                className="hidden"
+                onChange={handleFileUpload}
+              />
+            </>
+          )}
         </div>
       </div>
     </>
