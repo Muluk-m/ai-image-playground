@@ -1,0 +1,10 @@
+# Static-only deployment of apps/web.
+# Netlify auto-detects pnpm from the root package.json `packageManager` field
+# (corepack), and installs workspace deps via `pnpm install`.
+
+[build]
+  command = "pnpm turbo run build --filter=@image-playground/web..."
+  publish = "apps/web/dist"
+
+[build.environment]
+  NODE_VERSION = "20"
