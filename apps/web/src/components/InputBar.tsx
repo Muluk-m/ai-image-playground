@@ -15,6 +15,7 @@ import {
   getOutputImageLimitForSettings,
   normalizeParamsForSettings,
 } from '../lib/paramCompatibility'
+import { computePromptHeight } from '../lib/promptHeight'
 import {
   getAtImageQuery,
   getImageMentionLabel,
@@ -71,7 +72,7 @@ function ChipSelect<T extends string>(props: {
 }
 
 const TEXTAREA_CLASS =
-  'min-h-[42px] w-full whitespace-pre-wrap break-words bg-transparent px-1 py-1 text-sm leading-relaxed outline-none empty:before:pointer-events-none empty:before:text-gray-400 empty:before:content-[attr(data-placeholder)] dark:text-gray-100 dark:empty:before:text-gray-400'
+  'min-h-[42px] w-full whitespace-pre-wrap break-words bg-transparent pl-1 py-1 text-sm leading-relaxed outline-none empty:before:pointer-events-none empty:before:text-gray-400 empty:before:content-[attr(data-placeholder)] dark:text-gray-100 dark:empty:before:text-gray-400'
 
 function getMentionTagTextLength(el: Element) {
   return el.textContent?.length ?? 0
@@ -489,6 +490,9 @@ export default function InputBar() {
   const [qualityHintVisible, setQualityHintVisible] = useState(false)
   const [imageHintId, setImageHintId] = useState<string | null>(null)
   const [mobileCollapsed, setMobileCollapsed] = useState(false)
+  // 桌面端「只折叠 prompt 文本」用：内容溢出阈值时显示按钮，折叠时把 textarea 限高到 ~3 行。
+  const [promptCollapsed, setPromptCollapsed] = useState(false)
+  const [promptOverflowing, setPromptOverflowing] = useState(false)
   const [showSizePicker, setShowSizePicker] = useState(false)
   const [maskPreviewUrl, setMaskPreviewUrl] = useState('')
   const [imageDragIndex, setImageDragIndex] = useState<number | null>(null)
@@ -1091,21 +1095,21 @@ export default function InputBar() {
     const el = textareaRef.current
     if (!el) return
 
-    // 计算图片区域和其他固定元素占用的高度
+    // 卡片内除 textarea 外的固定占用（图片 thumbs + 参数行 + padding 等），用于把
+    // textarea 上限限制到「视口 40% 减开销」。
     const imagesHeight = imagesRef.current?.offsetHeight ?? 0
     const fixedOverhead = imagesHeight + 140
-
-    // textarea 最大高度 = 页面 40% 减去固定开销，至少保留 80px
-    const maxH = Math.max(window.innerHeight * 0.4 - fixedOverhead, 80)
 
     // 1. 关闭过渡动画，设高度为 0 以获取真实的文本内容高度
     el.style.transition = 'none'
     el.style.height = '0'
     el.style.overflowY = 'hidden'
-    const scrollH = el.scrollHeight
-    const minH = 42
-    const desired = Math.max(scrollH, minH)
-    const targetH = desired > maxH ? maxH : desired
+    const { targetH, overflow, scroll } = computePromptHeight({
+      scrollH: el.scrollHeight,
+      innerHeight: window.innerHeight,
+      fixedOverhead,
+      promptCollapsed,
+    })
 
     // 2. 将高度设回上一次的实际高度，强制重绘，准备开始动画
     el.style.height = prevHeightRef.current + 'px'
@@ -1114,10 +1118,11 @@ export default function InputBar() {
     // 3. 恢复平滑过渡，并设置目标高度
     el.style.transition = 'height 150ms ease, border-color 200ms, box-shadow 200ms'
     el.style.height = targetH + 'px'
-    el.style.overflowY = desired > maxH ? 'auto' : 'hidden'
+    el.style.overflowY = scroll ? 'auto' : 'hidden'
 
     prevHeightRef.current = targetH
-  }, [])
+    setPromptOverflowing(overflow)
+  }, [promptCollapsed])
 
   // 将 prompt 同步渲染到 contentEditable（含胶囊 tag）
   useEffect(() => {
@@ -2077,8 +2082,28 @@ export default function InputBar() {
                 syncMentionTagSelection(el)
               }}
               data-placeholder="描述你想生成的图片，可输入 @ 指定当前参考图..."
-              className={TEXTAREA_CLASS}
+              className={`${TEXTAREA_CLASS} ${promptOverflowing ? 'pr-7' : 'pr-1'}`}
             />
+            {promptOverflowing && (
+              <button
+                type="button"
+                onClick={() => setPromptCollapsed((v) => !v)}
+                className="absolute right-0 top-0 z-10 flex h-6 w-6 items-center justify-center rounded-md text-gray-400 hover:bg-gray-100/80 hover:text-gray-600 dark:hover:bg-white/[0.06] dark:hover:text-gray-200"
+                title={
+                  promptCollapsed ? '展开输入框（显示全部文字）' : '折叠输入框（避免遮挡背景）'
+                }
+              >
+                <svg
+                  className={`h-4 w-4 transition-transform ${promptCollapsed ? '' : 'rotate-180'}`}
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                  viewBox="0 0 24 24"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+            )}
           </div>
 
           {/* 参数 + 按钮 */}
