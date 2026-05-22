@@ -1,4 +1,5 @@
 import { useNavigate } from '@tanstack/react-router'
+import { RotateCcw } from 'lucide-react'
 
 import { FuzzyTime } from '@/components/FuzzyTime'
 import { StatusBadge } from '@/components/StatusBadge'
@@ -62,7 +63,22 @@ export function TaskTable({ tasks, deviceId: _deviceId }: TaskTableProps) {
                   <FuzzyTime ts={t.submitted_at} />
                 </TableCell>
                 <TableCell>
-                  <StatusBadge status={t.status} />
+                  <div className="flex items-center gap-1.5">
+                    <StatusBadge status={t.status} />
+                    {t.attempt_count > 1 ? (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className="inline-flex items-center gap-0.5 text-[10px] text-muted-foreground tabular-nums">
+                            <RotateCcw className="h-3 w-3" />
+                            {t.attempt_count}
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent className="text-xs">
+                          已尝试 {t.attempt_count} 次（含首次）
+                        </TooltipContent>
+                      </Tooltip>
+                    ) : null}
+                  </div>
                 </TableCell>
                 <TableCell className="font-mono text-xs">{t.model}</TableCell>
                 <TableCell className="max-w-md">

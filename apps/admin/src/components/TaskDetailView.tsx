@@ -86,6 +86,12 @@ function TaskDetailContent({ task }: { task: TaskDetail }) {
               <KV label="background" value={req.background} mono />
             ) : null}
             {task.device_id ? <KV label="device_id" value={task.device_id} mono /> : null}
+            {task.attempt_count > 1 ? (
+              <KV label="attempts" value={String(task.attempt_count)} mono />
+            ) : null}
+            {task.status === 'queued' && task.next_retry_at ? (
+              <KV label="next_retry_at" value={isoTime(task.next_retry_at)} mono />
+            ) : null}
             {task.started_at ? (
               <KV label="started_at" value={isoTime(task.started_at)} mono />
             ) : null}
