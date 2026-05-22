@@ -9,18 +9,25 @@ import { db, schema } from './client'
  * - **queued**：submit 写表后 fire-and-forget 调 runTask，但 BFF 这次进程没起
  *   来这次调用就丢了。上游没动过，重新 spawnTask 让它继续推进，前端 poll
  *   感知不到（status 仍是 queued/in_progress）。
+ *   queued 又分两类：next_retry_at 已到（含 NULL）→ 立刻 spawn；未到 → setTimeout
+ *   到点再 spawn，保留退避节奏避免对上游连环冲。
  * - **in_progress**：worker 几乎只能是上游 fetch 已经发出后进程被外部 kill；
  *   上游那边可能在跑，再发一次会重复消耗配额。一律标 failed，由用户决定
  *   是否手动重试。
  */
 export async function recoverInterruptedTasks(): Promise<{ retried: number; failed: number }> {
   const queuedRows = await db
-    .select({ id: schema.tasks.id })
+    .select({ id: schema.tasks.id, next_retry_at: schema.tasks.next_retry_at })
     .from(schema.tasks)
     .where(eq(schema.tasks.status, 'queued'))
 
+  const now = Date.now()
   for (const row of queuedRows) {
-    spawnTask(row.id, 'startup recovery')
+    if (row.next_retry_at == null || row.next_retry_at <= now) {
+      spawnTask(row.id, 'startup recovery')
+    } else {
+      setTimeout(() => spawnTask(row.id, 'startup recovery retry'), row.next_retry_at - now)
+    }
   }
 
   const failed = await db

@@ -23,11 +23,15 @@ const DDL_BASE = `
     submitted_at       INTEGER NOT NULL,
     started_at         INTEGER,
     completed_at       INTEGER,
-    client_request_id  TEXT
+    client_request_id  TEXT,
+    attempt_count      INTEGER NOT NULL DEFAULT 0,
+    next_retry_at      INTEGER
   );
 
   CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
   CREATE INDEX IF NOT EXISTS idx_tasks_submitted_at ON tasks(submitted_at);
+  CREATE INDEX IF NOT EXISTS idx_tasks_next_retry_at ON tasks(next_retry_at)
+    WHERE next_retry_at IS NOT NULL;
 
   CREATE TABLE IF NOT EXISTS daily_quota (
     device_id TEXT NOT NULL,
@@ -57,6 +61,17 @@ export function runMigrations(databaseUrl: string) {
   // 列确保存在后再建，避免对老库报 "no such column"。
   sqlite.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_client_request_id
                ON tasks(client_request_id) WHERE client_request_id IS NOT NULL;`)
+
+  // 自动重试相关：老库补列。ALTER ADD COLUMN 在 SQLite 里只支持常量/NULL 默认值；
+  // NOT NULL + DEFAULT 0 是常量，没问题。
+  if (!cols.some((c) => c.name === 'attempt_count')) {
+    sqlite.exec(`ALTER TABLE tasks ADD COLUMN attempt_count INTEGER NOT NULL DEFAULT 0;`)
+  }
+  if (!cols.some((c) => c.name === 'next_retry_at')) {
+    sqlite.exec(`ALTER TABLE tasks ADD COLUMN next_retry_at INTEGER;`)
+  }
+  sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_tasks_next_retry_at
+               ON tasks(next_retry_at) WHERE next_retry_at IS NOT NULL;`)
 
   // device_id VIRTUAL 列：admin 设备聚合 GROUP BY 需要索引，但 device_id 实际存
   // 在 request_payload JSON 里。生成列 VIRTUAL 不占额外空间，索引让聚合 < 10ms。

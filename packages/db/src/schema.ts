@@ -15,6 +15,17 @@ export const tasks = sqliteTable('tasks', {
   completed_at: integer('completed_at'),
   /** 客户端幂等键。NULL 表示老任务或客户端没传；前端新提交一律会带。 */
   client_request_id: text('client_request_id'),
+  /**
+   * 已尝试次数（含首次）。新任务=0；worker 失败决定重试时在已 in_progress
+   * 行上 +1（即将变成第 N 次重试时写 N，然后 status 回退到 'queued'）。
+   */
+  attempt_count: integer('attempt_count').notNull().default(0),
+  /**
+   * 下次允许重试的时间戳。仅在 status='queued' 且 attempt_count>0 时有值——
+   * 表示这条 queued 是「等待重试」状态而非「初次未起跑」。worker claim 必须
+   * `next_retry_at IS NULL OR next_retry_at <= now`，避免未到时被错误启动。
+   */
+  next_retry_at: integer('next_retry_at'),
 })
 
 export const daily_quota = sqliteTable(

@@ -1,10 +1,11 @@
-import { QUEUE_TIMEOUTS } from '@image-playground/shared'
-import { and, eq } from 'drizzle-orm'
+import { QUEUE_TIMEOUTS, type TaskErrorType } from '@image-playground/shared'
+import { and, eq, isNull, lte, or } from 'drizzle-orm'
 import { db, schema } from '../db/client'
 import { describeEmptyResult, extractMeta } from '../lib/extractImages'
 import { trackTask } from '../lib/inflight'
 import { log } from '../lib/logger'
 import { isAbortError } from '../lib/queueProvider'
+import { isRetryableError, planNextAttempt, type RetryPlan } from '../lib/retry'
 import { callUpstream, UpstreamTimeoutError } from '../lib/upstream'
 
 /**
@@ -41,11 +42,20 @@ export function abortAllRunningTasks(): number {
 
 export async function runTask(id: string): Promise<void> {
   const now = () => Date.now()
+  const claimAt = now()
 
+  // claim 时除了 status='queued' 守卫，还要确保 next_retry_at 已到——避免 setTimeout
+  // 早触发 / 外部误调 spawnTask 让等待中的重试任务提前起跑。
   const claimed = await db
     .update(schema.tasks)
-    .set({ status: 'in_progress', started_at: now() })
-    .where(and(eq(schema.tasks.id, id), eq(schema.tasks.status, 'queued')))
+    .set({ status: 'in_progress', started_at: claimAt })
+    .where(
+      and(
+        eq(schema.tasks.id, id),
+        eq(schema.tasks.status, 'queued'),
+        or(isNull(schema.tasks.next_retry_at), lte(schema.tasks.next_retry_at, claimAt)),
+      ),
+    )
     .returning({ id: schema.tasks.id })
   if (claimed.length === 0) return
 
@@ -109,12 +119,53 @@ export async function runTask(id: string): Promise<void> {
       : err instanceof Error
         ? err.message
         : String(err)
+    const errorType: TaskErrorType = isTimeout ? 'upstream_timeout' : 'upstream_error'
+
+    // 是否值得重试 + 是否还有 attempt 名额。两个 gate 都过才走 retry 路径，
+    // 否则落终态 failed（保留终态 error_message 便于前端展示）。
+    const attemptJustFailed = task.attempt_count + 1
+    const plan: RetryPlan = isRetryableError(err)
+      ? planNextAttempt(attemptJustFailed)
+      : { shouldRetry: false }
+
+    if (plan.shouldRetry) {
+      const updated = await db
+        .update(schema.tasks)
+        .set({
+          status: 'queued',
+          attempt_count: attemptJustFailed,
+          next_retry_at: plan.nextRetryAt,
+          // 清空临时 error 信息：retry 成功后这条 row 不该再带上一次的失败痕迹。
+          // started_at 保留首次启动时间，admin 查任务耗时分布时仍可用 submitted→completed。
+          error_message: null,
+          error_type: null,
+        })
+        .where(and(eq(schema.tasks.id, id), eq(schema.tasks.status, 'in_progress')))
+        .returning({ id: schema.tasks.id })
+      if (updated.length > 0) {
+        log.warn(
+          {
+            event: 'task.retry_scheduled',
+            taskId: id,
+            attempt: attemptJustFailed,
+            nextAttempt: attemptJustFailed + 1,
+            delayMs: plan.delayMs,
+            err: message,
+          },
+          'task transient failure, scheduling retry',
+        )
+        // 内存里 setTimeout 调度；进程崩了下次启动 recovery 看 next_retry_at 重建。
+        setTimeout(() => spawnTask(id, 'retry'), plan.delayMs)
+      }
+      return
+    }
+
     await db
       .update(schema.tasks)
       .set({
         status: 'failed',
         error_message: message,
-        error_type: isTimeout ? ('upstream_timeout' as const) : ('upstream_error' as const),
+        error_type: errorType,
         completed_at: now(),
       })
       .where(and(eq(schema.tasks.id, id), eq(schema.tasks.status, 'in_progress')))
@@ -122,7 +173,8 @@ export async function runTask(id: string): Promise<void> {
       {
         event: 'task.failed',
         taskId: id,
-        errorType: isTimeout ? 'upstream_timeout' : 'upstream_error',
+        errorType,
+        attempt: attemptJustFailed,
         err: message,
       },
       'task failed',
