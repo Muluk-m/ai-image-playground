@@ -5,7 +5,7 @@ import { describeEmptyResult, extractMeta } from '../lib/extractImages'
 import { trackTask } from '../lib/inflight'
 import { log } from '../lib/logger'
 import { isAbortError } from '../lib/queueProvider'
-import { isRetryableError, planNextAttempt, type RetryPlan } from '../lib/retry'
+import { isRetryableError, planNextAttempt, shouldRetryEmptyResult } from '../lib/retry'
 import { callUpstream, UpstreamTimeoutError } from '../lib/upstream'
 
 /**
@@ -38,6 +38,55 @@ export function abortAllRunningTasks(): number {
   const count = runningTasks.size
   for (const ctrl of runningTasks.values()) ctrl.abort()
   return count
+}
+
+/**
+ * 任务"失败 / 没图"分支共享的重试调度。返回 true 表示已安排重试（调用方应 return），
+ * false 表示该走终态 failed。调用方传 retryable 自己决定（按 err 还是按 payload 判）。
+ *
+ * 注意：状态回退 UPDATE 带 WHERE status='in_progress' 守卫——cancel route 已经把
+ * status 改成 'cancelled' 时这里 no-op，setTimeout 也不会安排。
+ */
+async function tryScheduleRetry(
+  id: string,
+  attemptJustFailed: number,
+  retryable: boolean,
+  errSummary: string,
+): Promise<boolean> {
+  if (!retryable) return false
+  const plan = planNextAttempt(attemptJustFailed)
+  if (!plan.shouldRetry) return false
+
+  const updated = await db
+    .update(schema.tasks)
+    .set({
+      status: 'queued',
+      attempt_count: attemptJustFailed,
+      next_retry_at: plan.nextRetryAt,
+      // 清空临时 error / result 痕迹：retry 成功后这条 row 不该带上一次失败信息。
+      // started_at 保留首次启动时间，admin 查耗时仍可用 submitted→completed。
+      error_message: null,
+      error_type: null,
+      result_payload: null,
+    })
+    .where(and(eq(schema.tasks.id, id), eq(schema.tasks.status, 'in_progress')))
+    .returning({ id: schema.tasks.id })
+  if (updated.length === 0) return false
+
+  log.warn(
+    {
+      event: 'task.retry_scheduled',
+      taskId: id,
+      attempt: attemptJustFailed,
+      nextAttempt: attemptJustFailed + 1,
+      delayMs: plan.delayMs,
+      err: errSummary,
+    },
+    'task transient failure, scheduling retry',
+  )
+  // 内存里 setTimeout 调度；进程崩了下次启动 recovery 看 next_retry_at 重建。
+  setTimeout(() => spawnTask(id, 'retry'), plan.delayMs)
+  return true
 }
 
 export async function runTask(id: string): Promise<void> {
@@ -78,19 +127,36 @@ export async function runTask(id: string): Promise<void> {
     })
     const meta = extractMeta(task.provider, payload)
     if (meta.images.length === 0) {
+      const message = describeEmptyResult(task.provider, payload)
+      const attemptJustFailed = task.attempt_count + 1
+      if (
+        await tryScheduleRetry(
+          id,
+          attemptJustFailed,
+          shouldRetryEmptyResult(task.provider, payload),
+          `no_image: ${message}`,
+        )
+      ) {
+        return
+      }
       await db
         .update(schema.tasks)
         .set({
           status: 'failed',
-          error_message: describeEmptyResult(task.provider, payload),
+          error_message: message,
           error_type: 'upstream_no_image' as const,
           result_payload: payload as Record<string, unknown>,
           completed_at: now(),
         })
         .where(and(eq(schema.tasks.id, id), eq(schema.tasks.status, 'in_progress')))
       log.warn(
-        { event: 'task.upstream_no_image', taskId: id, provider: task.provider },
-        'upstream returned no image',
+        {
+          event: 'task.upstream_no_image',
+          taskId: id,
+          provider: task.provider,
+          attempt: attemptJustFailed,
+        },
+        'upstream returned no image (terminal)',
       )
       return
     }
@@ -121,42 +187,8 @@ export async function runTask(id: string): Promise<void> {
         : String(err)
     const errorType: TaskErrorType = isTimeout ? 'upstream_timeout' : 'upstream_error'
 
-    // 是否值得重试 + 是否还有 attempt 名额。两个 gate 都过才走 retry 路径，
-    // 否则落终态 failed（保留终态 error_message 便于前端展示）。
     const attemptJustFailed = task.attempt_count + 1
-    const plan: RetryPlan = isRetryableError(err)
-      ? planNextAttempt(attemptJustFailed)
-      : { shouldRetry: false }
-
-    if (plan.shouldRetry) {
-      const updated = await db
-        .update(schema.tasks)
-        .set({
-          status: 'queued',
-          attempt_count: attemptJustFailed,
-          next_retry_at: plan.nextRetryAt,
-          // 清空临时 error 信息：retry 成功后这条 row 不该再带上一次的失败痕迹。
-          // started_at 保留首次启动时间，admin 查任务耗时分布时仍可用 submitted→completed。
-          error_message: null,
-          error_type: null,
-        })
-        .where(and(eq(schema.tasks.id, id), eq(schema.tasks.status, 'in_progress')))
-        .returning({ id: schema.tasks.id })
-      if (updated.length > 0) {
-        log.warn(
-          {
-            event: 'task.retry_scheduled',
-            taskId: id,
-            attempt: attemptJustFailed,
-            nextAttempt: attemptJustFailed + 1,
-            delayMs: plan.delayMs,
-            err: message,
-          },
-          'task transient failure, scheduling retry',
-        )
-        // 内存里 setTimeout 调度；进程崩了下次启动 recovery 看 next_retry_at 重建。
-        setTimeout(() => spawnTask(id, 'retry'), plan.delayMs)
-      }
+    if (await tryScheduleRetry(id, attemptJustFailed, isRetryableError(err), message)) {
       return
     }
 
