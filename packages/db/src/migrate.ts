@@ -30,8 +30,8 @@ const DDL_BASE = `
 
   CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
   CREATE INDEX IF NOT EXISTS idx_tasks_submitted_at ON tasks(submitted_at);
-  CREATE INDEX IF NOT EXISTS idx_tasks_next_retry_at ON tasks(next_retry_at)
-    WHERE next_retry_at IS NOT NULL;
+  -- idx_tasks_next_retry_at 走 ALTER 之后建（见下方），避免老库 CREATE TABLE
+  -- IF NOT EXISTS 跳过 → CREATE INDEX 引用还没 ADD 的列的 NULL 失败路径。
 
   CREATE TABLE IF NOT EXISTS daily_quota (
     device_id TEXT NOT NULL,
