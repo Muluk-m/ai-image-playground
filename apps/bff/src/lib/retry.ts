@@ -1,11 +1,13 @@
+import type { QueueProvider } from '@image-playground/shared'
+
 /**
- * 自动重试策略：上游 5xx / 429 / 网络异常 / BFF 自家硬超时算「瞬时」，重试。
- * 其它 4xx / no_image（内容策略）/ 用户 cancel 一律永久失败，避免空转烧配额。
+ * 自动重试策略：上游 5xx / 429 / 网络异常 / BFF 自家硬超时 + 「200 OK 但没图」算「瞬时」，重试。
+ * 4xx / 内容审核类 finishReason / 用户 cancel 一律永久失败，避免空转烧配额。
  *
  * **不重试**：
  * - HTTP 4xx 除 429（参数错 / 鉴权 / 内容策略 → 重试结果一致）
- * - upstream_no_image（Gemini 安全过滤会稳定复现；OpenAI 异常 envelope 罕见）
  * - AbortError（用户主动取消 / SIGTERM）
+ * - Gemini no_image 且 finishReason ∈ {SAFETY, IMAGE_SAFETY, RECITATION, ...}（审核显式拒绝）
  *
  * 故意不 import lib/upstream：retry 是纯策略层，避免触发 upstream.ts → config.ts
  * 的副作用链（config 模块顶层读 env，会污染 test 文件间的 env override 时机）。
@@ -47,4 +49,39 @@ export function planNextAttempt(attemptJustFailed: number, now: number = Date.no
   if (attemptJustFailed >= MAX_ATTEMPTS) return { shouldRetry: false }
   const delayMs = RETRY_BACKOFF_MS[attemptJustFailed - 1] ?? RETRY_BACKOFF_MS.at(-1) ?? 60_000
   return { shouldRetry: true, nextRetryAt: now + delayMs, delayMs }
+}
+
+/**
+ * Gemini finishReason 黑名单：这些都是显式审核 / 策略拒绝，重试结果稳定复现。
+ * 不在此集合内的 reason（含 STOP / MAX_TOKENS / 不明 / 未携带）视为模型抽风，
+ * 走重试——实测 Gemini 即便 finishReason=STOP 也常常二次请求就能出图。
+ */
+const NON_RETRYABLE_GEMINI_FINISH = new Set([
+  'SAFETY',
+  'IMAGE_SAFETY',
+  'RECITATION',
+  'PROHIBITED_CONTENT',
+  'BLOCKLIST',
+  'SPII',
+])
+
+/**
+ * 「上游 HTTP 200 但解析不出图」是否值得重试。task-runner 拿不到 Error 对象，
+ * 只能由 payload 上的 finishReason / blockReason 决定——审核显式拒绝不重试。
+ */
+export function shouldRetryEmptyResult(provider: QueueProvider, payload: unknown): boolean {
+  if (provider === 'gemini') {
+    const p = payload as {
+      candidates?: Array<{ finishReason?: string }>
+      promptFeedback?: { blockReason?: string }
+    } | null
+    // prompt 整体被拦：肯定是审核类，永久失败。
+    if (p?.promptFeedback?.blockReason) return false
+    const reason = p?.candidates?.[0]?.finishReason
+    if (typeof reason === 'string' && NON_RETRYABLE_GEMINI_FINISH.has(reason)) return false
+    return true
+  }
+  // OpenAI 200 OK no_image 罕见，通常是上游异常 envelope。视为瞬时重试。
+  if (provider === 'openai-compat') return true
+  return false
 }

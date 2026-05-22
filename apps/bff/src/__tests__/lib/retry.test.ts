@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'bun:test'
-import { isRetryableError, MAX_ATTEMPTS, planNextAttempt, RETRY_BACKOFF_MS } from '../../lib/retry'
+import {
+  isRetryableError,
+  MAX_ATTEMPTS,
+  planNextAttempt,
+  RETRY_BACKOFF_MS,
+  shouldRetryEmptyResult,
+} from '../../lib/retry'
 
 function upstreamError(status: number): Error {
   const err = new Error(`upstream ${status}`) as Error & { upstreamStatus: number }
@@ -71,5 +77,50 @@ describe('planNextAttempt', () => {
 
   it('attemptJustFailed 超过 MAX_ATTEMPTS 也不重试（防御性）', () => {
     expect(planNextAttempt(MAX_ATTEMPTS + 5, 1_000_000).shouldRetry).toBe(false)
+  })
+})
+
+describe('shouldRetryEmptyResult (Gemini)', () => {
+  const make = (finishReason?: string, blockReason?: string) => ({
+    candidates: finishReason ? [{ finishReason }] : [],
+    ...(blockReason ? { promptFeedback: { blockReason } } : {}),
+  })
+
+  it('finishReason=STOP（模型自然停止没出图）重试', () => {
+    expect(shouldRetryEmptyResult('gemini', make('STOP'))).toBe(true)
+  })
+
+  it('finishReason=MAX_TOKENS 重试', () => {
+    expect(shouldRetryEmptyResult('gemini', make('MAX_TOKENS'))).toBe(true)
+  })
+
+  it('SAFETY / IMAGE_SAFETY / RECITATION / PROHIBITED_CONTENT / BLOCKLIST / SPII 不重试', () => {
+    for (const reason of [
+      'SAFETY',
+      'IMAGE_SAFETY',
+      'RECITATION',
+      'PROHIBITED_CONTENT',
+      'BLOCKLIST',
+      'SPII',
+    ]) {
+      expect(shouldRetryEmptyResult('gemini', make(reason))).toBe(false)
+    }
+  })
+
+  it('promptFeedback.blockReason 命中即不重试（prompt 整体被拦）', () => {
+    expect(shouldRetryEmptyResult('gemini', make(undefined, 'SAFETY'))).toBe(false)
+  })
+
+  it('无 finishReason / 无 candidates 视为抽风，重试', () => {
+    expect(shouldRetryEmptyResult('gemini', {})).toBe(true)
+    expect(shouldRetryEmptyResult('gemini', null)).toBe(true)
+    expect(shouldRetryEmptyResult('gemini', { candidates: [] })).toBe(true)
+  })
+})
+
+describe('shouldRetryEmptyResult (OpenAI)', () => {
+  it('OpenAI no_image 默认重试（200 OK 但没图通常是异常 envelope）', () => {
+    expect(shouldRetryEmptyResult('openai-compat', {})).toBe(true)
+    expect(shouldRetryEmptyResult('openai-compat', { data: [] })).toBe(true)
   })
 })
