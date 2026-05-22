@@ -529,10 +529,26 @@ function injectBuiltinEdgeProfiles(userProfiles: ClientProfile[]): ClientProfile
     }
   }
 
-  const userByokProfiles = userProfiles.filter(
-    (p): p is UserByokProfile => p.source === 'user-byok',
-  )
+  let userByokProfiles = userProfiles.filter((p): p is UserByokProfile => p.source === 'user-byok')
+  // store hydrate 时 channelStore 还没装载，normalizeSettings 看到 profiles 全空
+  // 会 fallback 创建一个未配置的默认 OpenAI BYOK，等 channels 装载完它已经赖在
+  // state.profiles 里持久化下去。本次 normalize 时 channels 已就位，把这个
+  // synthetic fallback 清掉，避免「内置 channel 列表里夹一个空 BYOK 默认」。
+  if (builtinProfiles.length > 0) {
+    userByokProfiles = userByokProfiles.filter((p) => !isUntouchedDefaultOpenAIByok(p))
+  }
   return [...builtinProfiles, ...userByokProfiles]
+}
+
+/** hydrate 时机问题的特征：未编辑过的默认 OpenAI BYOK profile。 */
+function isUntouchedDefaultOpenAIByok(p: UserByokProfile): boolean {
+  return (
+    p.id === DEFAULT_OPENAI_PROFILE_ID &&
+    p.apiKey === '' &&
+    p.kind === 'openai-compat' &&
+    p.baseUrl === DEFAULT_BASE_URL &&
+    p.selectedModelId === DEFAULT_IMAGES_MODEL
+  )
 }
 
 // ===== normalizeSettings =====

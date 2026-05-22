@@ -141,6 +141,62 @@ describe('normalizeSettings', () => {
   })
 })
 
+describe('normalizeSettings + builtin channels (hydrate timing fix)', () => {
+  // 模拟：channelStore 装载后，normalize 时如果碰到「store hydrate 时机问题留下的
+  // 未编辑默认 BYOK」就把它清掉，避免内置 channel 列表里夹一个空 BYOK 默认。
+  it('drops the synthetic untouched default BYOK when builtin channels exist', async () => {
+    const { setChannels } = await import('../../lib/channels/channelStore')
+    setChannels([
+      {
+        id: 'test-openai',
+        kind: 'openai-queue',
+        label: 'Test OpenAI',
+        models: [{ id: 'gpt-image-2', label: 'GPT Image 2', capabilities: ['generate', 'edit'] }],
+        defaults: {},
+      },
+    ])
+    try {
+      const synthetic = createDefaultOpenAIByokProfile() // apiKey=''，是 hydrate fallback 状态
+      const s = normalizeSettings({ profiles: [synthetic], activeProfileId: synthetic.id })
+      // builtin 注入 + synthetic BYOK 被清掉
+      expect(s.profiles).toHaveLength(1)
+      expect(s.profiles[0].source).toBe('builtin-edge')
+      expect(s.profiles[0].id).toBe('test-openai')
+    } finally {
+      setChannels([])
+    }
+  })
+
+  it('keeps a user-configured default-id BYOK (apiKey filled) even when builtin exists', async () => {
+    const { setChannels } = await import('../../lib/channels/channelStore')
+    setChannels([
+      {
+        id: 'test-openai',
+        kind: 'openai-queue',
+        label: 'Test OpenAI',
+        models: [{ id: 'gpt-image-2', label: 'GPT Image 2', capabilities: ['generate', 'edit'] }],
+        defaults: {},
+      },
+    ])
+    try {
+      const configured = createDefaultOpenAIByokProfile({ apiKey: 'sk-real' })
+      const s = normalizeSettings({ profiles: [configured] })
+      // builtin + 用户配置过的 BYOK 都保留
+      expect(s.profiles.map((p) => p.source).sort()).toEqual(['builtin-edge', 'user-byok'])
+    } finally {
+      setChannels([])
+    }
+  })
+
+  it('still falls back to default BYOK when there are no channels and no profiles', () => {
+    // 旧行为不变：纯静态 BYOK 部署形态
+    const s = normalizeSettings({})
+    expect(s.profiles).toHaveLength(1)
+    expect(s.profiles[0].source).toBe('user-byok')
+    expect(s.profiles[0].id).toBe(DEFAULT_OPENAI_PROFILE_ID)
+  })
+})
+
 describe('switchByokProfileKind', () => {
   it('switches openai → gemini using gemini defaults', () => {
     const base = createDefaultOpenAIByokProfile({
