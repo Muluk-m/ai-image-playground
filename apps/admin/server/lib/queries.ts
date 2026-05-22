@@ -109,6 +109,8 @@ export interface TaskListItem {
   error_type: string | null
   /** request_payload JSON（含 prompt / device_id 等）；体积可控 */
   request_payload: unknown
+  /** 含首次的总尝试次数；>1 即发生过自动重试。详细见 apps/bff/src/lib/retry.ts */
+  attempt_count: number
 }
 
 export interface DeviceDetailResult {
@@ -153,6 +155,7 @@ export async function getDeviceDetail(deviceId: string, range: Range): Promise<D
         completed_at: schema.tasks.completed_at,
         error_type: schema.tasks.error_type,
         request_payload: schema.tasks.request_payload,
+        attempt_count: schema.tasks.attempt_count,
       })
       .from(schema.tasks)
       .where(sql`device_id = ${deviceId} AND submitted_at >= ${since}`)
@@ -189,6 +192,8 @@ export interface TaskDetail extends TaskListItem {
   error_message: string | null
   /** VIRTUAL 生成列：json_extract(request_payload, '$.device_id')；schema 没声明，靠 raw sql 取。 */
   device_id: string | null
+  /** 仅在 status='queued' 且 attempt_count>0 时有值——等待下一次重试的目标时间戳。 */
+  next_retry_at: number | null
 }
 
 export async function getTask(taskId: string): Promise<TaskDetail | null> {
@@ -217,6 +222,7 @@ export async function getTask(taskId: string): Promise<TaskDetail | null> {
     error_message: (task as Record<string, unknown>).error_message as string | null,
     result_meta: { images },
     device_id,
+    next_retry_at: (task as Record<string, unknown>).next_retry_at as number | null,
   }
 }
 

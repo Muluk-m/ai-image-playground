@@ -43,6 +43,8 @@ export interface TaskListItem {
   completed_at: number | null
   error_type: string | null
   request_payload: unknown
+  /** 含首次的总尝试次数；>1 表示发生过自动重试。 */
+  attempt_count: number
 }
 
 export interface DeviceDetailResult {
@@ -60,6 +62,8 @@ export interface TaskDetail extends TaskListItem {
   result_meta: { images: TaskImageMeta[]; raw_image_urls?: string[] }
   error_message: string | null
   device_id: string | null
+  /** 仅 status='queued' 且 attempt_count>0 时有值——下次自动重试的目标时间戳。 */
+  next_retry_at: number | null
 }
 
 // 配额上限（design.md 默认值，前端展示 "12 / 50" 用）；后续如改成 server 返
