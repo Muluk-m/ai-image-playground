@@ -51,33 +51,33 @@ describe('tryConsumeQuota', () => {
     expect(r.reset_at).toBe(nextResetISO())
   })
 
-  it('累计 5 次 n=10 到达 50', async () => {
-    for (let i = 1; i <= 5; i++) {
+  it('累计 8 次 n=10 到达 80', async () => {
+    for (let i = 1; i <= 8; i++) {
       const r = await tryConsumeQuota('dev-1', 10, db)
       expect(r.ok).toBe(true)
       expect(r.count).toBe(i * 10)
     }
   })
 
-  it('累计到 50 后第 51 次（n=1）返回 ok=false 且 count 保持 50', async () => {
-    for (let i = 0; i < 5; i++) await tryConsumeQuota('dev-1', 10, db)
+  it('累计到 80 后第 81 次（n=1）返回 ok=false 且 count 保持 80', async () => {
+    for (let i = 0; i < 8; i++) await tryConsumeQuota('dev-1', 10, db)
     const r = await tryConsumeQuota('dev-1', 1, db)
     expect(r.ok).toBe(false)
-    expect(r.count).toBe(50)
+    expect(r.count).toBe(80)
   })
 
-  it('单次 n 超出剩余额度（已 48，n=3）返回 ok=false 且 count 保持 48', async () => {
-    await tryConsumeQuota('dev-1', 48, db)
+  it('单次 n 超出剩余额度（已 78，n=3）返回 ok=false 且 count 保持 78', async () => {
+    await tryConsumeQuota('dev-1', 78, db)
     const r = await tryConsumeQuota('dev-1', 3, db)
     expect(r.ok).toBe(false)
-    expect(r.count).toBe(48)
+    expect(r.count).toBe(78)
   })
 
   it('不同 device_id 各自独立计数', async () => {
-    await tryConsumeQuota('dev-1', 50, db)
-    const r = await tryConsumeQuota('dev-2', 50, db)
+    await tryConsumeQuota('dev-1', 80, db)
+    const r = await tryConsumeQuota('dev-2', 80, db)
     expect(r.ok).toBe(true)
-    expect(r.count).toBe(50)
+    expect(r.count).toBe(80)
   })
 
   it('currentQuotaDate 返 YYYY-MM-DD UTC', () => {
