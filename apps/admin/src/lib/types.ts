@@ -68,4 +68,4 @@ export interface TaskDetail extends TaskListItem {
 
 // 配额上限（design.md 默认值，前端展示 "12 / 50" 用）；后续如改成 server 返
 // 当日配额上限，把这里移到 response 字段。
-export const DAILY_QUOTA_LIMIT = 50
+export const DAILY_QUOTA_LIMIT = 80

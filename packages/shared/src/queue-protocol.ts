@@ -181,7 +181,7 @@ export const QUEUE_TIMEOUTS = {
  * 单设备单日最大生图张数。计数粒度是输出图数 n（n=4 的 submit 扣 4 张）。
  * 北京时间 8 点 / UTC 0 点重置。BYOK profile 不走 BFF，天然豁免。
  */
-export const DAILY_QUOTA_LIMIT = 50
+export const DAILY_QUOTA_LIMIT = 80
 
 /** Channel 配置里新增 queue 类型时的客户端可见字段。 */
 export interface QueueChannelView {

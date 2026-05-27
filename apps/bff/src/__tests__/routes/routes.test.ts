@@ -273,9 +273,9 @@ describe('BFF queue routes', () => {
     expect(status).toBe(400)
   })
 
-  it('累计 5 次 n=10 后第 6 次返回 429 + daily_quota_exceeded', async () => {
+  it('累计 8 次 n=10 后第 9 次返回 429 + daily_quota_exceeded', async () => {
     const device_id = 'quota-dev-aaaa-bbbb-cccc'
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 8; i++) {
       const { status } = await jsonReq(
         'POST',
         '/v1/queue/openai-compat/gpt-image-1/submit',
@@ -291,8 +291,8 @@ describe('BFF queue routes', () => {
     expect(status).toBe(429)
     expect(json).toMatchObject({
       error: 'daily_quota_exceeded',
-      limit: 50,
-      used: 50,
+      limit: 80,
+      used: 80,
     })
     expect((json as { reset_at: string }).reset_at).toMatch(/^\d{4}-\d{2}-\d{2}T00:00:00/)
   })
