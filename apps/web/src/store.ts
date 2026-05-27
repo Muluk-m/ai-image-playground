@@ -1270,8 +1270,12 @@ async function executeTask(taskId: string) {
   // 用持久化的 bffRequestId 直接 poll → fetchResult。BFF 自己有 30 min 轮询硬上限。
   const isResume = task.status === 'running' && Boolean(task.bffRequestId)
 
+  // builtin-edge queue 路径由 queueClient.ts 的 POLL_MAX_MS (30 min) 兜底超时，
+  // 不走 watchdog；否则 BFF 端 retry（Bun socket idle ~300s × 2 + backoff > 600s）
+  // 会被 watchdog 提前在前端单方面标 failed，BFF 还在后台继续跑。
   if (
     !isResume &&
+    activeProfile.source !== 'builtin-edge' &&
     !isAsyncCustomProviderTask(requestSettings, taskProvider, task.inputImageIds.length > 0)
   ) {
     scheduleOpenAIWatchdog(taskId, activeView.timeout)
