@@ -156,7 +156,7 @@ async function submit(
         reset_at?: string
       } | null
       if (json?.error === 'daily_quota_exceeded') {
-        const err = new Error('今日 50 张已用完，UTC 0 点（北京 8 点）后重置') as Error & {
+        const err = new Error('今日 80 张已用完，UTC 0 点（北京 8 点）后重置') as Error & {
           quotaExceeded: boolean
           resetAt?: string
         }
