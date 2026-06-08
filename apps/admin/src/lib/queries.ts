@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query'
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 
 import { apiClient } from './api-client'
 import type { DeviceDetailResult, ListDevicesResult, Range, SortKey, TaskDetail } from './types'
@@ -10,13 +10,18 @@ export function useDevices(range: Range, sort: SortKey) {
   })
 }
 
+// cursor 分页：useInfiniteQuery 累积每页 tasks。设备聚合卡片只在首页（pages[0].device）返回。
 export function useDeviceDetail(deviceId: string, range: Range) {
-  return useQuery({
+  return useInfiniteQuery({
     queryKey: ['device', deviceId, { range }],
-    queryFn: () =>
+    queryFn: ({ pageParam }) =>
       apiClient.get<DeviceDetailResult>(
-        `/api/devices/${encodeURIComponent(deviceId)}?range=${range}`,
+        `/api/devices/${encodeURIComponent(deviceId)}?range=${range}${
+          pageParam ? `&cursor=${encodeURIComponent(pageParam)}` : ''
+        }`,
       ),
+    initialPageParam: '',
+    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
     enabled: deviceId.length > 0,
   })
 }

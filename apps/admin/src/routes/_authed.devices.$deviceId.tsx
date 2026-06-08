@@ -20,6 +20,10 @@ function DeviceDetailPage() {
   const range = search.range ?? '7d'
   const navigate = useNavigate()
   const q = useDeviceDetail(deviceId, range)
+  // useInfiniteQuery：设备聚合卡片只在首页返回；任务跨页累积。
+  const pages = q.data?.pages ?? []
+  const device = pages[0]?.device ?? null
+  const tasks = pages.flatMap((p) => p.tasks)
 
   function closeTask(): void {
     void navigate({
@@ -55,32 +59,34 @@ function DeviceDetailPage() {
         <div className="rounded-lg border border-destructive/50 bg-destructive/5 p-6 text-sm text-destructive">
           加载失败：{(q.error as Error).message}
         </div>
-      ) : !q.data.device ? (
+      ) : !device ? (
         <div className="rounded-lg border bg-card p-12 text-center text-sm text-muted-foreground">
           未找到设备 {deviceId}
         </div>
       ) : (
         <>
           <DeviceMetaCard
-            device={q.data.device}
+            device={device}
             range={range}
             runningCount={
-              q.data.tasks.filter((t) => t.status === 'in_progress' || t.status === 'queued').length
+              tasks.filter((t) => t.status === 'in_progress' || t.status === 'queued').length
             }
           />
           <div className="flex items-baseline justify-between pt-2">
             <h3 className="text-sm font-semibold">任务</h3>
             <span className="text-xs text-muted-foreground">
-              共 {q.data.tasks.length}
-              {q.data.truncated ? '（仅显示前 500 条）' : ''}
+              已加载 {tasks.length} / 共 {device.total}
             </span>
           </div>
-          {q.data.truncated ? (
-            <div className="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
-              任务列表已截断到前 500 条
-            </div>
-          ) : null}
-          <TaskTable tasks={q.data.tasks} deviceId={deviceId} />
+          <TaskTable
+            tasks={tasks}
+            deviceId={deviceId}
+            hasNextPage={q.hasNextPage}
+            isFetchingNextPage={q.isFetchingNextPage}
+            onLoadMore={() => {
+              void q.fetchNextPage()
+            }}
+          />
         </>
       )}
 

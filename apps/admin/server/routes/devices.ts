@@ -27,8 +27,11 @@ export const devicesRoutes = new Elysia()
     '/api/devices/:id',
     async ({ params, query, set }) => {
       const range = (VALID_RANGES.includes(query.range as Range) ? query.range : '7d') as Range
-      const detail = await getDeviceDetail(params.id, range)
-      if (!detail.device) {
+      const cursor = typeof query.cursor === 'string' && query.cursor ? query.cursor : undefined
+      const detail = await getDeviceDetail(params.id, range, cursor)
+      // 404 只在首页判定（首页无 cursor 时才查设备聚合）。翻页请求 device 恒为 null，
+      // 不能据此 404——否则第二页起永远 404。
+      if (!cursor && !detail.device) {
         set.status = 404
         return { error: 'device_not_found' }
       }
@@ -36,6 +39,6 @@ export const devicesRoutes = new Elysia()
     },
     {
       params: t.Object({ id: t.String() }),
-      query: t.Object({ range: t.Optional(t.String()) }),
+      query: t.Object({ range: t.Optional(t.String()), cursor: t.Optional(t.String()) }),
     },
   )

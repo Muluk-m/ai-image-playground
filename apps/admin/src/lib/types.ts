@@ -42,15 +42,21 @@ export interface TaskListItem {
   started_at: number | null
   completed_at: number | null
   error_type: string | null
-  request_payload: unknown
+  /** 服务端从 request_payload 预抽的 prompt 文本。列表不再回传整坨 request_payload，
+   *  避免 input_images base64 把响应撑爆（admin 卡死/拉取慢的根因）。 */
+  prompt: string
+  /** 请求张数 n（openai 风格 payload）；无则 null */
+  n: number | null
   /** 含首次的总尝试次数；>1 表示发生过自动重试。 */
   attempt_count: number
 }
 
 export interface DeviceDetailResult {
+  /** 仅首页（cursor 为空）返回设备聚合卡片；翻页时为 null。 */
   device: DeviceRow | null
   tasks: TaskListItem[]
-  truncated: boolean
+  /** 下一页游标；null 表示已到末页。 */
+  nextCursor: string | null
 }
 
 export interface TaskImageMeta {
@@ -59,6 +65,8 @@ export interface TaskImageMeta {
 }
 
 export interface TaskDetail extends TaskListItem {
+  /** 完整请求体：详情页 / 灯箱用它统计输入图数量、展示完整 prompt。列表项没有这个字段。 */
+  request_payload: unknown
   result_meta: { images: TaskImageMeta[]; raw_image_urls?: string[] }
   error_message: string | null
   device_id: string | null

@@ -29,6 +29,46 @@ function todayDate(): string {
   return new Date().toISOString().slice(0, 10)
 }
 
+// 任务详情页一页拉多少条。列表项已瘦身（只含 prompt+n，不含 input_images base64），
+// 单条几 KB，100/页在「响应体积」与「往返次数」之间折中。
+const PAGE_SIZE = 100
+
+// keyset 分页游标：编码 (submitted_at, id)。submitted_at 是数字（不含 '_'），
+// 取第一个 '_' 之前为 ts、之后为 id，避免 id 内含 '_' 时被拆错。
+function encodeCursor(ts: number, id: string): string {
+  return `${ts}_${id}`
+}
+function decodeCursor(raw: string | undefined): { ts: number; id: string } | null {
+  if (!raw) return null
+  const i = raw.indexOf('_')
+  if (i <= 0) return null
+  const ts = Number(raw.slice(0, i))
+  const id = raw.slice(i + 1)
+  if (!Number.isFinite(ts) || !id) return null
+  return { ts, id }
+}
+
+// 从 request_payload 抽列表需要的小字段。逻辑与前端 src/lib/request-helpers.ts 保持一致：
+// 列表只需要 prompt 文本 + 张数 n，绝不把整个 request_payload（含 input_images base64）回传给浏览器。
+function extractPrompt(payload: unknown): string {
+  if (!payload || typeof payload !== 'object') return ''
+  const req = payload as Record<string, unknown>
+  if (typeof req.prompt === 'string') return req.prompt
+  // gemini-style: contents[].parts[].text 顺序拼接
+  const contents = req.contents as Array<{ parts?: Array<{ text?: string }> }> | undefined
+  if (!Array.isArray(contents)) return ''
+  return contents
+    .flatMap((c) => c.parts ?? [])
+    .map((p) => p?.text ?? '')
+    .filter(Boolean)
+    .join('\n')
+}
+function extractN(payload: unknown): number | null {
+  if (!payload || typeof payload !== 'object') return null
+  const n = (payload as Record<string, unknown>).n
+  return typeof n === 'number' ? n : null
+}
+
 export interface DeviceRow {
   device_id: string
   first_seen: number
@@ -107,61 +147,79 @@ export interface TaskListItem {
   started_at: number | null
   completed_at: number | null
   error_type: string | null
-  /** request_payload JSON（含 prompt / device_id 等）；体积可控 */
-  request_payload: unknown
+  /** 服务端从 request_payload 预抽的 prompt 文本。列表不再回传整个 request_payload，
+   *  避免 input_images base64 把响应撑到几百 MB（这是 admin 卡死/拉取慢的根因）。 */
+  prompt: string
+  /** 请求张数 n（openai 风格 payload）；无则 null */
+  n: number | null
   /** 含首次的总尝试次数；>1 即发生过自动重试。详细见 apps/bff/src/lib/retry.ts */
   attempt_count: number
 }
 
 export interface DeviceDetailResult {
+  /** 仅首页（cursor 为空）返回设备聚合卡片；翻页时为 null（省一次聚合扫描）。 */
   device: DeviceRow | null
   tasks: TaskListItem[]
-  truncated: boolean
+  /** 下一页游标；null 表示已到末页。 */
+  nextCursor: string | null
 }
 
-export async function getDeviceDetail(deviceId: string, range: Range): Promise<DeviceDetailResult> {
+export async function getDeviceDetail(
+  deviceId: string,
+  range: Range,
+  cursor?: string,
+): Promise<DeviceDetailResult> {
   const { db, schema } = getHandle()
   const since = Date.now() - rangeMs(range)
   const today = todayDate()
+  const c = decodeCursor(cursor)
 
-  const [deviceRowsRaw, taskRows] = await Promise.all([
-    db.all(sql`
-      SELECT
-        t.device_id AS device_id,
-        MIN(t.submitted_at) AS first_seen,
-        MAX(t.submitted_at) AS last_seen,
-        COUNT(*) AS total,
-        SUM(CASE WHEN t.status='completed' THEN 1 ELSE 0 END) AS ok_count,
-        SUM(CASE WHEN t.status='failed' THEN 1 ELSE 0 END) AS fail_count,
-        GROUP_CONCAT(DISTINCT t.model) AS models_csv,
-        COALESCE(q.count, 0) AS today_count
-      FROM tasks t
-      LEFT JOIN daily_quota q ON q.device_id = t.device_id AND q.date = ${today}
-      WHERE t.device_id = ${deviceId} AND t.submitted_at >= ${since}
-      GROUP BY t.device_id
-    `) as unknown as Promise<Array<Record<string, unknown>>>,
-    // task 列表：select 字段白名单（**不取 result_payload**，5-10MB 字段）。
-    // where 子句用 raw sql 模板：device_id 是 VIRTUAL 列，drizzle schema 没声明，
-    // 不能用 schema.tasks.device_id 引用；但 raw sql 字面列名 + bind param 安全。
-    // Drizzle 仍负责 select 字段的 mode:'json' 解码（request_payload 自动 parse）。
-    db
-      .select({
-        id: schema.tasks.id,
-        provider: schema.tasks.provider,
-        model: schema.tasks.model,
-        status: schema.tasks.status,
-        submitted_at: schema.tasks.submitted_at,
-        started_at: schema.tasks.started_at,
-        completed_at: schema.tasks.completed_at,
-        error_type: schema.tasks.error_type,
-        request_payload: schema.tasks.request_payload,
-        attempt_count: schema.tasks.attempt_count,
-      })
-      .from(schema.tasks)
-      .where(sql`device_id = ${deviceId} AND submitted_at >= ${since}`)
-      .orderBy(sql`submitted_at DESC`)
-      .limit(LIST_LIMIT + 1),
-  ])
+  // keyset 分页：按 (submitted_at DESC, id DESC) 稳定排序。cursor 存在时取严格小于游标的下一页。
+  const keyset = c
+    ? sql`AND (submitted_at < ${c.ts} OR (submitted_at = ${c.ts} AND id < ${c.id}))`
+    : sql``
+
+  // 设备聚合卡片仅首页查；翻页时跳过，省一次全量聚合扫描。
+  const devicePromise: Promise<Array<Record<string, unknown>>> = c
+    ? Promise.resolve([])
+    : (db.all(sql`
+        SELECT
+          t.device_id AS device_id,
+          MIN(t.submitted_at) AS first_seen,
+          MAX(t.submitted_at) AS last_seen,
+          COUNT(*) AS total,
+          SUM(CASE WHEN t.status='completed' THEN 1 ELSE 0 END) AS ok_count,
+          SUM(CASE WHEN t.status='failed' THEN 1 ELSE 0 END) AS fail_count,
+          GROUP_CONCAT(DISTINCT t.model) AS models_csv,
+          COALESCE(q.count, 0) AS today_count
+        FROM tasks t
+        LEFT JOIN daily_quota q ON q.device_id = t.device_id AND q.date = ${today}
+        WHERE t.device_id = ${deviceId} AND t.submitted_at >= ${since}
+        GROUP BY t.device_id
+      `) as unknown as Promise<Array<Record<string, unknown>>>)
+
+  // task 列表：select 字段白名单。仍读 request_payload（本地 SQLite 读，开销远低于网络传输 +
+  // 浏览器 JSON.parse），但只在服务端抽出 prompt/n 后丢弃，不进入响应体。result_payload（5-10MB）不取。
+  // where 用 raw sql 模板：device_id 是 VIRTUAL 列，drizzle schema 没声明，不能用 schema.tasks.device_id。
+  const tasksPromise = db
+    .select({
+      id: schema.tasks.id,
+      provider: schema.tasks.provider,
+      model: schema.tasks.model,
+      status: schema.tasks.status,
+      submitted_at: schema.tasks.submitted_at,
+      started_at: schema.tasks.started_at,
+      completed_at: schema.tasks.completed_at,
+      error_type: schema.tasks.error_type,
+      request_payload: schema.tasks.request_payload,
+      attempt_count: schema.tasks.attempt_count,
+    })
+    .from(schema.tasks)
+    .where(sql`device_id = ${deviceId} AND submitted_at >= ${since} ${keyset}`)
+    .orderBy(sql`submitted_at DESC, id DESC`)
+    .limit(PAGE_SIZE + 1)
+
+  const [deviceRowsRaw, taskRowsRaw] = await Promise.all([devicePromise, tasksPromise])
 
   const drow = deviceRowsRaw[0]
   const device: DeviceRow | null = drow
@@ -179,15 +237,30 @@ export async function getDeviceDetail(deviceId: string, range: Range): Promise<D
       }
     : null
 
-  const truncated = taskRows.length > LIST_LIMIT
-  return {
-    device,
-    tasks: taskRows.slice(0, LIST_LIMIT) as TaskListItem[],
-    truncated,
-  }
+  const hasMore = taskRowsRaw.length > PAGE_SIZE
+  const pageRows = taskRowsRaw.slice(0, PAGE_SIZE)
+  const tasks: TaskListItem[] = pageRows.map((r) => ({
+    id: r.id,
+    provider: r.provider,
+    model: r.model,
+    status: r.status,
+    submitted_at: r.submitted_at,
+    started_at: r.started_at,
+    completed_at: r.completed_at,
+    error_type: r.error_type,
+    prompt: extractPrompt(r.request_payload),
+    n: extractN(r.request_payload),
+    attempt_count: r.attempt_count,
+  }))
+  const last = pageRows[pageRows.length - 1]
+  const nextCursor = hasMore && last ? encodeCursor(last.submitted_at, last.id) : null
+
+  return { device, tasks, nextCursor }
 }
 
 export interface TaskDetail extends TaskListItem {
+  /** 完整请求体：详情页 / 灯箱用它统计输入图数量、展示完整 prompt。列表项没有这个字段。 */
+  request_payload: unknown
   result_meta: { images: Array<{ index: number; mime: string }>; raw_image_urls?: string[] }
   error_message: string | null
   /** VIRTUAL 生成列：json_extract(request_payload, '$.device_id')；schema 没声明，靠 raw sql 取。 */
@@ -214,11 +287,15 @@ export async function getTask(taskId: string): Promise<TaskDetail | null> {
 
   const { result_payload: _result_payload, ...rest } = task as unknown as Record<string, unknown>
   void _result_payload
+  const request_payload = (rest as Record<string, unknown>).request_payload
   const rawDevice = deviceRows[0]?.device_id
   const device_id =
     rawDevice === null || rawDevice === undefined || rawDevice === '' ? null : String(rawDevice)
   return {
-    ...(rest as unknown as TaskListItem),
+    ...(rest as unknown as Omit<TaskListItem, 'prompt' | 'n'>),
+    prompt: extractPrompt(request_payload),
+    n: extractN(request_payload),
+    request_payload,
     error_message: (task as Record<string, unknown>).error_message as string | null,
     result_meta: { images },
     device_id,
