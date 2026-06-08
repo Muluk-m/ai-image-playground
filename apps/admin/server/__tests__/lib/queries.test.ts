@@ -87,6 +87,42 @@ seedTask({
   daysAgo: 30,
 })
 
+// dev-PAGE：150 个 task，验证 cursor 分页（PAGE_SIZE=100）。
+// submitted_at 逐条递减（pg-000 最新），排序 (submitted_at DESC, id DESC) 下 pg-000 在首。
+for (let i = 0; i < 150; i++) {
+  writer.db
+    .insert(writer.schema.tasks)
+    .values({
+      id: `pg-${String(i).padStart(3, '0')}`,
+      provider: 'openai-compat',
+      model: 'gpt-image-2',
+      status: 'completed',
+      request_payload: { prompt: `prompt-${i}`, n: 2, device_id: 'dev-PAGE-xx' } as never,
+      submitted_at: now - i * 1000,
+      completed_at: now - i * 1000 + 500,
+    })
+    .run()
+}
+
+// dev-BIG：一条带 ~120KB input_images base64 的 task，验证列表响应把它剔除（瘦身命门）。
+writer.db
+  .insert(writer.schema.tasks)
+  .values({
+    id: 'big-1',
+    provider: 'openai-compat',
+    model: 'gpt-image-2',
+    status: 'completed',
+    request_payload: {
+      prompt: 'a big one',
+      n: 1,
+      device_id: 'dev-BIG-xx',
+      input_images: [`data:image/png;base64,${'BIGIMAGEDATA'.repeat(10_000)}`],
+    } as never,
+    submitted_at: now,
+    completed_at: now + 1000,
+  })
+  .run()
+
 const { listDevices, getDeviceDetail, getTask } = await import('../../lib/queries')
 
 describe('listDevices', () => {
@@ -117,19 +153,60 @@ describe('listDevices', () => {
 })
 
 describe('getDeviceDetail', () => {
-  it('dev-A 详情 task 列表含 3 条 + 不含 result_payload 字段', async () => {
+  it('dev-A 详情 task 列表含 3 条；瘦身后含 prompt、不含 request_payload/result_payload', async () => {
     const detail = await getDeviceDetail('dev-A-aaaa', '7d')
     expect(detail.device!.device_id).toBe('dev-A-aaaa')
     expect(detail.tasks).toHaveLength(3)
-    expect(detail.truncated).toBe(false)
-    // 字段白名单：不含 result_payload
-    expect((detail.tasks[0] as unknown as Record<string, unknown>).result_payload).toBeUndefined()
+    expect(detail.nextCursor).toBeNull()
+    // 列表项预抽 prompt（seed 用 prompt:'p'）
+    expect(detail.tasks[0]?.prompt).toBe('p')
+    // 字段白名单：不再回传整坨 request_payload，也没有 result_payload
+    const first = detail.tasks[0] as unknown as Record<string, unknown>
+    expect(first.request_payload).toBeUndefined()
+    expect(first.result_payload).toBeUndefined()
   })
 
   it('不存在的设备返回空 tasks', async () => {
     const detail = await getDeviceDetail('dev-NOPE', '7d')
     expect(detail.device).toBeNull()
     expect(detail.tasks).toEqual([])
+    expect(detail.nextCursor).toBeNull()
+  })
+
+  it('列表项剔除 input_images base64：响应体积保持极小（拉取慢的根因修复）', async () => {
+    const detail = await getDeviceDetail('dev-BIG-xx', '30d')
+    expect(detail.tasks).toHaveLength(1)
+    const json = JSON.stringify(detail.tasks[0])
+    // 120KB 的 base64 绝不能出现在列表响应里
+    expect(json).not.toContain('BIGIMAGEDATA')
+    expect(json.length).toBeLessThan(2000)
+    // 但 prompt/n 正常预抽
+    expect(detail.tasks[0]?.prompt).toBe('a big one')
+    expect(detail.tasks[0]?.n).toBe(1)
+  })
+})
+
+describe('getDeviceDetail 分页', () => {
+  it('首页返回 PAGE_SIZE(100) 条 + nextCursor 非空 + 设备聚合 total=150', async () => {
+    const p1 = await getDeviceDetail('dev-PAGE-xx', '30d')
+    expect(p1.tasks).toHaveLength(100)
+    expect(p1.nextCursor).not.toBeNull()
+    expect(p1.tasks[0]?.id).toBe('pg-000')
+    expect(p1.device!.total).toBe(150)
+    // 瘦身后列表项含 prompt/n
+    expect(p1.tasks[0]?.prompt).toBe('prompt-0')
+    expect(p1.tasks[0]?.n).toBe(2)
+  })
+
+  it('第二页用 cursor 拿剩余 50 条、无重叠、device 为 null、nextCursor 收敛到 null', async () => {
+    const p1 = await getDeviceDetail('dev-PAGE-xx', '30d')
+    const p2 = await getDeviceDetail('dev-PAGE-xx', '30d', p1.nextCursor!)
+    expect(p2.tasks).toHaveLength(50)
+    expect(p2.nextCursor).toBeNull()
+    expect(p2.device).toBeNull()
+    expect(p2.tasks[0]?.id).toBe('pg-100')
+    const ids1 = new Set(p1.tasks.map((t) => t.id))
+    expect(p2.tasks.every((t) => !ids1.has(t.id))).toBe(true)
   })
 })
 

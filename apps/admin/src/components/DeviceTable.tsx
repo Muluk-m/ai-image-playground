@@ -1,17 +1,11 @@
 import { Link } from '@tanstack/react-router'
+import { useVirtualizer } from '@tanstack/react-virtual'
+import { useRef } from 'react'
 
 import { FuzzyTime } from '@/components/FuzzyTime'
 import { ModelChips } from '@/components/ModelChips'
 import { ShortId } from '@/components/ShortId'
 import { Progress } from '@/components/ui/progress'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
 import { DAILY_QUOTA_LIMIT, type DeviceRow, type Range } from '@/lib/types'
 
 interface DeviceTableProps {
@@ -19,7 +13,18 @@ interface DeviceTableProps {
   range: Range
 }
 
+// 固定行高（含 progress bar 比任务行略高），虚拟化无需逐行测量。
+const ROW_HEIGHT = 52
+
 export function DeviceTable({ devices, range }: DeviceTableProps) {
+  const parentRef = useRef<HTMLDivElement>(null)
+  const rowVirtualizer = useVirtualizer({
+    count: devices.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => ROW_HEIGHT,
+    overscan: 12,
+  })
+
   if (!devices.length) {
     return (
       <div className="rounded-lg border bg-card p-12 text-center text-sm text-muted-foreground">
@@ -27,66 +32,75 @@ export function DeviceTable({ devices, range }: DeviceTableProps) {
       </div>
     )
   }
+
+  const virtualItems = rowVirtualizer.getVirtualItems()
+
   return (
     <div className="rounded-lg border bg-card">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Device</TableHead>
-            <TableHead>首次出现</TableHead>
-            <TableHead>最近活跃</TableHead>
-            <TableHead>今日</TableHead>
-            <TableHead className="text-right">范围总数</TableHead>
-            <TableHead className="text-right">成功 / 失败</TableHead>
-            <TableHead>模型</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {devices.map((d) => (
-            <DeviceRowItem key={d.device_id} d={d} />
-          ))}
-        </TableBody>
-      </Table>
-    </div>
-  )
-}
+      {/* 表头：与行用同一套列宽 class 对齐 */}
+      <div className="flex items-center gap-3 border-b px-4 py-2 text-xs font-medium text-muted-foreground">
+        <div className="w-[150px] shrink-0">Device</div>
+        <div className="w-[120px] shrink-0">首次出现</div>
+        <div className="w-[120px] shrink-0">最近活跃</div>
+        <div className="w-[150px] shrink-0">今日</div>
+        <div className="w-[80px] shrink-0 text-right">范围总数</div>
+        <div className="w-[110px] shrink-0 text-right">成功 / 失败</div>
+        <div className="min-w-0 flex-1">模型</div>
+      </div>
 
-function DeviceRowItem({ d }: { d: DeviceRow }) {
-  const pct = Math.min(100, Math.round((d.today_count / DAILY_QUOTA_LIMIT) * 100))
-  return (
-    <TableRow className="group">
-      <TableCell>
-        <Link to="/devices/$deviceId" params={{ deviceId: d.device_id }} className="block">
-          <ShortId value={d.device_id} />
-        </Link>
-      </TableCell>
-      <TableCell>
-        <FuzzyTime ts={d.first_seen} />
-      </TableCell>
-      <TableCell>
-        <FuzzyTime ts={d.last_seen} />
-      </TableCell>
-      <TableCell>
-        <div className="flex w-32 items-center gap-2">
-          <span className="w-12 shrink-0 font-mono text-xs tabular-nums">
-            {d.today_count} / {DAILY_QUOTA_LIMIT}
-          </span>
-          <Progress value={pct} className="h-1.5 flex-1" />
+      <div ref={parentRef} className="max-h-[calc(100vh-260px)] min-h-[200px] overflow-auto">
+        <div style={{ height: rowVirtualizer.getTotalSize(), position: 'relative', width: '100%' }}>
+          {virtualItems.map((vi) => {
+            const d = devices[vi.index]
+            if (!d) return null
+            const pct = Math.min(100, Math.round((d.today_count / DAILY_QUOTA_LIMIT) * 100))
+            return (
+              <div
+                key={d.device_id}
+                className="group absolute left-0 top-0 flex w-full items-center gap-3 border-b px-4 text-sm hover:bg-muted/40"
+                style={{ height: ROW_HEIGHT, transform: `translateY(${vi.start}px)` }}
+              >
+                <div className="w-[150px] shrink-0">
+                  <Link
+                    to="/devices/$deviceId"
+                    params={{ deviceId: d.device_id }}
+                    className="block"
+                  >
+                    <ShortId value={d.device_id} />
+                  </Link>
+                </div>
+                <div className="w-[120px] shrink-0">
+                  <FuzzyTime ts={d.first_seen} />
+                </div>
+                <div className="w-[120px] shrink-0">
+                  <FuzzyTime ts={d.last_seen} />
+                </div>
+                <div className="w-[150px] shrink-0">
+                  <div className="flex items-center gap-2">
+                    <span className="w-12 shrink-0 font-mono text-xs tabular-nums">
+                      {d.today_count} / {DAILY_QUOTA_LIMIT}
+                    </span>
+                    <Progress value={pct} className="h-1.5 flex-1" />
+                  </div>
+                </div>
+                <div className="w-[80px] shrink-0 text-right font-mono tabular-nums">{d.total}</div>
+                <div className="w-[110px] shrink-0 text-right">
+                  <span className="font-mono tabular-nums text-emerald-700 dark:text-emerald-400">
+                    {d.ok_count}
+                  </span>
+                  <span className="px-1 text-muted-foreground">/</span>
+                  <span className="font-mono tabular-nums text-rose-700 dark:text-rose-400">
+                    {d.fail_count}
+                  </span>
+                </div>
+                <div className="min-w-0 flex-1 overflow-hidden">
+                  <ModelChips models={d.models} />
+                </div>
+              </div>
+            )
+          })}
         </div>
-      </TableCell>
-      <TableCell className="text-right font-mono tabular-nums">{d.total}</TableCell>
-      <TableCell className="text-right">
-        <span className="font-mono tabular-nums text-emerald-700 dark:text-emerald-400">
-          {d.ok_count}
-        </span>
-        <span className="px-1 text-muted-foreground">/</span>
-        <span className="font-mono tabular-nums text-rose-700 dark:text-rose-400">
-          {d.fail_count}
-        </span>
-      </TableCell>
-      <TableCell>
-        <ModelChips models={d.models} />
-      </TableCell>
-    </TableRow>
+      </div>
+    </div>
   )
 }
