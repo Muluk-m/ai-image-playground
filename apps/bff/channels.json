@@ -1,6 +1,30 @@
 {
   "channels": [
     {
+      "id": "agnes-images",
+      "kind": "openai-queue",
+      "label": "Agnes AI",
+      "baseUrl": "https://apihub.agnes-ai.com/v1",
+      "auth": {
+        "type": "bearer",
+        "secretRef": "AGNES_API_KEY"
+      },
+      "models": [
+        {
+          "id": "agnes-image-2.1-flash",
+          "label": "Agnes Image 2.1 Flash",
+          "capabilities": ["generate"]
+        }
+      ],
+      "defaults": {
+        "apiMode": "images",
+        "timeout": 600
+      },
+      "allowedPaths": [
+        "images/generations"
+      ]
+    },
+    {
       "id": "openai-images",
       "kind": "openai-queue",
       "label": "OpenAI",

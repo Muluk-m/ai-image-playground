@@ -17,6 +17,8 @@ export const config = {
     apiKey: env('UPSTREAM_API_KEY', ''),
     openaiApiKey: env('UPSTREAM_OPENAI_API_KEY', ''),
     geminiApiKey: env('UPSTREAM_GEMINI_API_KEY', ''),
+    agnesApiKey: env('AGNES_API_KEY', ''),
+    agnesBaseUrl: env('AGNES_BASE_URL', 'https://apihub.agnes-ai.com/v1').replace(/\/+$/, ''),
   },
   databaseUrl: env('DATABASE_URL', '../../artifacts/image-playground.sqlite'),
   corsOrigins: env('CORS_ALLOWED_ORIGINS', '*'),
