@@ -13,6 +13,25 @@ import { resolveApiKey } from './resolveApiKey'
  * (QUEUE_TIMEOUTS.UPSTREAM_HARD_TIMEOUT_MS)，防止上游卡死时 BFF worker
  * 永远 hang、task 永远停在 in_progress。
  */
+/** Agnes 模型需要走独立 baseUrl + key，这里集中做 provider → baseUrl/key 路由。 */
+function resolveUpstreamBaseUrlAndKey(
+  provider: QueueProvider,
+  model: string,
+): { baseUrl: string; authHeader: Record<string, string> } {
+  if (provider === 'openai-compat' && model === 'agnes-image-2.1-flash') {
+    const key = resolveApiKey('agnes')
+    return {
+      baseUrl: config.upstream.agnesBaseUrl,
+      authHeader: key ? { authorization: `Bearer ${key}` } : {},
+    }
+  }
+  const key = resolveApiKey(provider)
+  return {
+    baseUrl: config.upstream.baseUrl,
+    authHeader: key ? { authorization: `Bearer ${key}` } : {},
+  }
+}
+
 export interface UpstreamCallParams {
   provider: QueueProvider
   model: string
@@ -58,7 +77,7 @@ const NO_KEEPALIVE: Record<string, string> = { connection: 'close' }
 
 export async function callUpstream(params: UpstreamCallParams): Promise<UpstreamCallResult> {
   const { provider, model, request, signal: externalSignal } = params
-  const base = config.upstream.baseUrl
+  const { baseUrl: base, authHeader } = resolveUpstreamBaseUrlAndKey(provider, model)
 
   const abort = new AbortController()
   let timedOut = false
@@ -86,8 +105,6 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
 
   try {
     if (provider === 'openai-compat') {
-      const key = resolveApiKey(provider)
-      const authHeader: Record<string, string> = key ? { authorization: `Bearer ${key}` } : {}
       // 有参考图 / 有遮罩 → /v1/images/edits multipart；generations 是纯文生图，
       // 塞 input_images 字段上游会忽略（用户感知"AI 不参考附件"）。
       if (request.input_images?.length || request.mask) {

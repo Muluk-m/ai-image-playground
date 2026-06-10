@@ -8,6 +8,7 @@
 #   docker run -p 37377:37377 \
 #     -e BFF_ENABLED=true \
 #     -e OPENAI_API_KEY=sk-... \
+#     -e AGNES_API_KEY=sk-... \
 #     -v $(pwd)/apps/bff/channels.json:/app/apps/bff/channels.json \
 #     ai-image-playground
 #
