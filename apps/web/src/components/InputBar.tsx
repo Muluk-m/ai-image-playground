@@ -6,7 +6,12 @@ import {
   normalizeSettings,
 } from '../lib/apiProfiles'
 import { createMaskPreviewDataUrl } from '../lib/canvasImage'
-import { getProfileModelOptions, updateSelectedModel } from '../lib/channels/profileSelectors'
+import {
+  getModelCapabilities,
+  getProfileModelOptions,
+  NO_EDIT_SUPPORT_MESSAGE,
+  updateSelectedModel,
+} from '../lib/channels/profileSelectors'
 import { getPublicChannels } from '../lib/channels/publicChannels'
 import { getSafeBoundingClientRect } from '../lib/domRect'
 import { downloadImagesByIds } from '../lib/downloadImages'
@@ -557,6 +562,15 @@ export default function InputBar() {
   const canSubmit = Boolean(prompt.trim() && hasSubmitApiConfig)
   const activeProvider = activeView.provider
   const isGeminiProvider = activeProvider === 'gemini'
+  // 模型能力（仅 builtin-edge 有声明；BYOK 返回 null = 不限制，控件全开）。
+  // null → 旧行为；有声明时按 capability 显隐参考图 / 遮罩 / 质量控件，
+  // 避免「选了不支持的模型，控件还在，提交才在上游炸」。
+  const modelCaps = useMemo(
+    () => getModelCapabilities(activeProfile, getPublicChannels()),
+    [activeProfile],
+  )
+  const supportsEdit = !modelCaps || modelCaps.has('edit')
+  const supportsQuality = !modelCaps || modelCaps.has('quality')
   const moderationDisabled = activeView.apiMode === 'responses'
   const compressionDisabled = params.output_format === 'png'
   const outputImageLimit = getOutputImageLimitForSettings(effectiveSettings)
@@ -569,6 +583,12 @@ export default function InputBar() {
     { label: 'high', value: 'high' },
   ]
   const atImageLimit = inputImages.length >= API_MAX_IMAGES
+  // 参考图入口：模型不支持 edit（如 Agnes 之前只声明 generate）则禁用附图，
+  // 否则会让用户附了图提交、到上游才报错。达上限同样禁用。
+  const attachDisabled = atImageLimit || !supportsEdit
+  const attachDisabledReason = !supportsEdit
+    ? NO_EDIT_SUPPORT_MESSAGE
+    : `参考图数量已达上限（${API_MAX_IMAGES} 张），无法继续添加`
   const maskTargetImage = maskDraft
     ? (inputImages.find((img) => img.id === maskDraft.targetImageId) ?? null)
     : null
@@ -910,6 +930,10 @@ export default function InputBar() {
 
   const handleFiles = async (files: FileList | File[]) => {
     try {
+      if (!supportsEdit) {
+        useStore.getState().showToast(NO_EDIT_SUPPORT_MESSAGE, 'error')
+        return
+      }
       const currentCount = useStore.getState().inputImages.length
       if (currentCount >= API_MAX_IMAGES) {
         useStore
@@ -1499,7 +1523,9 @@ export default function InputBar() {
           <span className="absolute bottom-1 left-1 flex h-4 w-4 items-center justify-center rounded-full bg-black/55 text-[9px] font-semibold text-white backdrop-blur-sm z-10 pointer-events-none">
             {idx + 1}
           </span>
-          {canEdit && !isGeminiProvider && (
+          {/* 遮罩入口对所有支持 edit（图生图）的模型开放：原生 mask（gpt-image-2）走
+              images/edits inpaint；其余模型在 callImageApi 降级为「原图+高亮标注图」软遮罩 */}
+          {canEdit && supportsEdit && (
             <button
               className="absolute inset-0 w-full h-full bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center cursor-pointer z-20 focus:outline-none border-none"
               onClick={(e) => {
@@ -1685,9 +1711,9 @@ export default function InputBar() {
           })}
         {!isGeminiProvider && (
           <>
-            {/* 不可用的参数 chip（codexCli 下的质量；非 jpeg/webp 的压缩；Responses API 下的审核）
-                直接不渲染，避免「灰着但点不开」的占位挤掉单行布局。 */}
-            {!activeView.codexCli && (
+            {/* 不可用的参数 chip（codexCli / 模型不支持 quality；非 jpeg/webp 的压缩；
+                Responses API 下的审核）直接不渲染，避免「灰着但点不开」的占位挤掉单行布局。 */}
+            {!activeView.codexCli && supportsQuality && (
               <ParamChip icon={ChipIcons.quality} label="质量" value={params.quality}>
                 <ChipSelect
                   value={params.quality}
@@ -2170,17 +2196,17 @@ export default function InputBar() {
                     onMouseLeave={() => setAttachHover(false)}
                   >
                     <ButtonTooltip
-                      visible={atImageLimit && attachHover}
-                      text={`参考图数量已达上限（${API_MAX_IMAGES} 张），无法继续添加`}
+                      visible={attachDisabled && attachHover}
+                      text={attachDisabledReason}
                     />
                     <button
-                      onClick={() => !atImageLimit && fileInputRef.current?.click()}
+                      onClick={() => !attachDisabled && fileInputRef.current?.click()}
                       className={`flex h-10 w-10 items-center justify-center rounded-xl border transition-colors duration-150 ${
-                        atImageLimit
+                        attachDisabled
                           ? 'border-gray-200/60 bg-gray-100/60 text-gray-300 cursor-not-allowed dark:border-white/[0.08] dark:bg-white/[0.04] dark:text-gray-500'
                           : 'border-gray-300/80 bg-white/70 text-gray-500 hover:border-gray-400/80 hover:bg-white dark:border-white/[0.12] dark:bg-white/[0.04] dark:text-gray-300 dark:hover:border-white/[0.20] dark:hover:bg-white/[0.07]'
                       }`}
-                      title={atImageLimit ? `已达上限 ${API_MAX_IMAGES} 张` : '添加参考图'}
+                      title={attachDisabled ? attachDisabledReason : '添加参考图'}
                     >
                       {ChipIcons.imageAttach}
                     </button>
@@ -2250,17 +2276,17 @@ export default function InputBar() {
                       onMouseLeave={() => setAttachHover(false)}
                     >
                       <ButtonTooltip
-                        visible={atImageLimit && attachHover}
-                        text={`参考图数量已达上限（${API_MAX_IMAGES} 张），无法继续添加`}
+                        visible={attachDisabled && attachHover}
+                        text={attachDisabledReason}
                       />
                       <button
-                        onClick={() => !atImageLimit && fileInputRef.current?.click()}
+                        onClick={() => !attachDisabled && fileInputRef.current?.click()}
                         className={`flex h-10 w-10 items-center justify-center rounded-xl border transition-colors duration-150 flex-shrink-0 ${
-                          atImageLimit
+                          attachDisabled
                             ? 'border-gray-200/60 bg-gray-100/60 text-gray-300 cursor-not-allowed dark:border-white/[0.08] dark:bg-white/[0.04] dark:text-gray-500'
                             : 'border-gray-300/80 bg-white/70 text-gray-500 hover:border-gray-400/80 hover:bg-white dark:border-white/[0.12] dark:bg-white/[0.04] dark:text-gray-300 dark:hover:border-white/[0.20] dark:hover:bg-white/[0.07]'
                         }`}
-                        title={atImageLimit ? `已达上限 ${API_MAX_IMAGES} 张` : '添加参考图'}
+                        title={attachDisabled ? attachDisabledReason : '添加参考图'}
                       >
                         {ChipIcons.imageAttach}
                       </button>

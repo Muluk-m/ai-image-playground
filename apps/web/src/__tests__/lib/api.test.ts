@@ -14,6 +14,7 @@ vi.mock('../../lib/channels/publicChannels', () => ({
 vi.mock('../../lib/canvasImage', () => ({
   imageDataUrlToPngBlob: vi.fn(async () => new Blob(['fake'], { type: 'image/png' })),
   maskDataUrlToPngBlob: vi.fn(async () => new Blob(['fake'], { type: 'image/png' })),
+  createMaskPreviewDataUrl: vi.fn(async () => 'data:image/png;base64,YW5ub3RhdGVk'),
 }))
 
 function expectNoAuthHeaders(headers: Record<string, string>): void {
@@ -374,12 +375,14 @@ describe('callImageApi', () => {
     expectNoAuthHeaders(((submitCall[1] as RequestInit).headers ?? {}) as Record<string, string>)
   })
 
-  it('builtin-edge with maskDataUrl routes through queue submit with mask + input_images in body', async () => {
+  it('builtin-edge mask 模型（capability mask）原生透传 mask + input_images 到 queue submit', async () => {
     const channel: PublicChannel = {
       id: 'test-openai-mask',
       kind: 'openai-queue',
       label: 'Mask',
-      models: [{ id: 'gpt-image-2', label: 'GPT Image 2', capabilities: ['generate', 'edit'] }],
+      models: [
+        { id: 'gpt-image-2', label: 'GPT Image 2', capabilities: ['generate', 'edit', 'mask'] },
+      ],
       defaults: { apiMode: 'images', timeout: 600 },
     }
     mockChannels.list = [channel]
@@ -401,6 +404,40 @@ describe('callImageApi', () => {
     const body = JSON.parse(submitInit.body as string)
     expect(body.input_images).toEqual(['data:image/png;base64,aW1hZ2U='])
     expect(body.mask).toBe('data:image/png;base64,bWFzaw==')
+  })
+
+  it('builtin-edge 非 mask 模型（无 capability mask）走软遮罩降级：标注图入 input_images、prompt 注入、不带 mask', async () => {
+    const channel: PublicChannel = {
+      id: 'test-softmask',
+      kind: 'openai-queue',
+      label: 'SoftMask',
+      // Agnes 风格：支持 edit 但无原生 mask 能力
+      models: [{ id: 'agnes-image-2.1-flash', label: 'Agnes', capabilities: ['generate', 'edit'] }],
+      defaults: { apiMode: 'images', timeout: 600 },
+    }
+    mockChannels.list = [channel]
+    const { fetchMock } = mockQueueFlow('openai-compat')
+
+    await callImageApi({
+      settings: settingsWithBuiltin(channel),
+      prompt: '把高亮处换成猫',
+      params: { ...DEFAULT_PARAMS },
+      inputImageDataUrls: ['data:image/png;base64,aW1hZ2U='],
+      maskDataUrl: 'data:image/png;base64,bWFzaw==',
+    })
+
+    const submitCall = fetchMock.mock.calls.find(([url]: [unknown, unknown]) =>
+      String(url).endsWith('/submit'),
+    )!
+    const body = JSON.parse((submitCall[1] as RequestInit).body as string)
+    // 软遮罩：不透传 mask 字段；input_images = [原图, 标注图]；prompt 前注入区域指令
+    expect(body.mask).toBeUndefined()
+    expect(body.input_images).toEqual([
+      'data:image/png;base64,aW1hZ2U=',
+      'data:image/png;base64,YW5ub3RhdGVk',
+    ])
+    expect(body.prompt).toContain('marked region')
+    expect(body.prompt).toContain('把高亮处换成猫')
   })
 
   it('queue submit fires onQueueSubmitted callback with request_id', async () => {

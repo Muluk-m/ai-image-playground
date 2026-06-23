@@ -1,4 +1,31 @@
-import type { ClientProfile, PublicChannel } from './types'
+import type { ChannelCapability, ClientProfile, PublicChannel } from './types'
+
+/**
+ * 当前选中模型支持的能力集合（控制 UI 显隐参考图/遮罩/质量等控件）。
+ * - builtin-edge：从 channel.models 的 capabilities 读，是权威声明
+ * - user-byok：无声明，返回 null = 不限制（BYOK 用户自负其责，UI 全开）
+ */
+export function getModelCapabilities(
+  profile: ClientProfile,
+  publicChannels: PublicChannel[],
+): ReadonlySet<ChannelCapability> | null {
+  if (profile.source !== 'builtin-edge') return null
+  const channel = publicChannels.find((c) => c.id === profile.channelId)
+  const model = channel?.models.find((m) => m.id === profile.selectedModelId) ?? channel?.models[0]
+  return model ? new Set(model.capabilities) : null
+}
+
+/** 模型不支持参考图（图生图）时的统一提示文案，多处编辑入口复用。 */
+export const NO_EDIT_SUPPORT_MESSAGE = '当前模型不支持参考图（图生图），切换模型后可用'
+
+/** 当前模型是否支持 edit（参考图/图生图）。BYOK（capabilities=null）默认放开。 */
+export function modelSupportsEdit(
+  profile: ClientProfile,
+  publicChannels: PublicChannel[],
+): boolean {
+  const caps = getModelCapabilities(profile, publicChannels)
+  return !caps || caps.has('edit')
+}
 
 /** 返回该 profile 当前可选模型 id 列表。 */
 export function getProfileModels(

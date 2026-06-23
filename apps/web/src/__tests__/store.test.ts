@@ -59,7 +59,7 @@ vi.mock('../lib/db', () => {
 
 import { clearImages, putImage } from '../lib/db'
 import {
-  editOutputs,
+  editOutputImage,
   getPersistedState,
   getTaskApiProfile,
   markInterruptedOpenAIRunningTasks,
@@ -114,19 +114,21 @@ describe('mask draft lifecycle in store actions', () => {
     })
   })
 
-  it('preserves an existing mask when quick edit-output adds outputs as references', async () => {
+  it('editOutputImage 对输出图打开遮罩编辑器且不破坏已有 mask draft', async () => {
     const maskDraft = {
       targetImageId: imageA.id,
       maskDataUrl: 'data:image/png;base64,mask',
       updatedAt: 1,
     }
+    await putImage({ id: imageA.id, dataUrl: imageA.dataUrl, source: 'generated', createdAt: 1 })
     useStore.setState({
       inputImages: [imageA],
       maskDraft,
     })
 
-    await editOutputs(task({ outputImages: [imageA.id] }))
+    await editOutputImage(task({ outputImages: [imageA.id] }))
 
+    expect(useStore.getState().maskEditorImageId).toBe(imageA.id)
     expect(useStore.getState().maskDraft).toEqual(maskDraft)
   })
 

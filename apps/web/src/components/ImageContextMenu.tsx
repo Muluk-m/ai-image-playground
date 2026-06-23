@@ -1,4 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
+import { getActiveApiProfile } from '../lib/apiProfiles'
+import { modelSupportsEdit, NO_EDIT_SUPPORT_MESSAGE } from '../lib/channels/profileSelectors'
+import { getPublicChannels } from '../lib/channels/publicChannels'
 import { copyBlobToClipboard, getClipboardFailureMessage } from '../lib/clipboard'
 import { addImageFromUrl, ensureImageCached, useStore } from '../store'
 import { CopyIcon, DownloadIcon, EditIcon } from './icons'
@@ -12,6 +15,7 @@ export default function ImageContextMenu() {
   } | null>(null)
   const showToast = useStore((s) => s.showToast)
   const inputImages = useStore((s) => s.inputImages)
+  const settings = useStore((s) => s.settings)
   const setDetailTaskId = useStore((s) => s.setDetailTaskId)
   const setLightboxImageId = useStore((s) => s.setLightboxImageId)
   const setMaskEditorImageId = useStore((s) => s.setMaskEditorImageId)
@@ -125,6 +129,10 @@ export default function ImageContextMenu() {
   const handleEdit = async (e: React.MouseEvent) => {
     e.stopPropagation()
     setMenuInfo(null)
+    if (!modelSupportsEdit(getActiveApiProfile(settings), getPublicChannels())) {
+      showToast(NO_EDIT_SUPPORT_MESSAGE, 'error')
+      return
+    }
     if (inputImages.length >= 16) {
       showToast('参考图数量已达上限（16 张），无法继续添加', 'error')
       return
@@ -132,11 +140,11 @@ export default function ImageContextMenu() {
 
     try {
       const src = await getOriginalImageSrc()
-      await addImageFromUrl(src)
+      const id = await addImageFromUrl(src)
       setDetailTaskId(null)
       setLightboxImageId(null)
-      setMaskEditorImageId(null)
-      showToast('已加入参考图', 'success')
+      // 加入参考图后直接打开遮罩编辑器对这张图局部编辑
+      setMaskEditorImageId(id)
     } catch (err) {
       console.error(err)
       showToast(`加入参考图失败：${err instanceof Error ? err.message : String(err)}`, 'error')

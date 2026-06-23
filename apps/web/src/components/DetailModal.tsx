@@ -13,7 +13,7 @@ import { ActualValueBadge, DetailParamValue } from '../lib/paramDisplay'
 import { formatImageRatio } from '../lib/size'
 import { dismissAllTooltips } from '../lib/tooltipDismiss'
 import {
-  editOutputs,
+  editOutputImage,
   ensureImageCached,
   getCachedImage,
   getCodexCliPromptKey,
@@ -33,7 +33,6 @@ export default function DetailModal() {
   const detailTaskId = useStore((s) => s.detailTaskId)
   const setDetailTaskId = useStore((s) => s.setDetailTaskId)
   const setLightboxImageId = useStore((s) => s.setLightboxImageId)
-  const setMaskEditorImageId = useStore((s) => s.setMaskEditorImageId)
   const setConfirmDialog = useStore((s) => s.setConfirmDialog)
   const showToast = useStore((s) => s.showToast)
   const settings = useStore((s) => s.settings)
@@ -252,14 +251,7 @@ export default function DetailModal() {
   }
 
   const handleEdit = () => {
-    editOutputs(task)
-    setDetailTaskId(null)
-  }
-
-  const handleMaskEditCurrentOutput = () => {
-    const imgId = task.outputImages?.[imageIndex]
-    if (!imgId) return
-    setMaskEditorImageId(imgId)
+    void editOutputImage(task, task.outputImages?.[imageIndex])
     setDetailTaskId(null)
   }
 

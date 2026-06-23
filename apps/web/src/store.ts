@@ -9,6 +9,8 @@ import {
   normalizeSettings,
   validateClientProfile,
 } from './lib/apiProfiles'
+import { modelSupportsEdit, NO_EDIT_SUPPORT_MESSAGE } from './lib/channels/profileSelectors'
+import { getPublicChannels } from './lib/channels/publicChannels'
 import type { ClientProfile } from './lib/channels/types'
 import type {
   AppSettings,
@@ -1575,21 +1577,31 @@ export async function reuseConfig(task: TaskRecord) {
   )
 }
 
-/** 编辑输出：将输出图加入输入 */
-export async function editOutputs(task: TaskRecord) {
-  const { inputImages, addInputImage, showToast } = useStore.getState()
-  if (!task.outputImages?.length) return
+/**
+ * 对任务的某张输出图开启遮罩编辑（局部重绘）：先确保该图在参考图框里
+ * （遮罩编辑器保存时按 inputImages 替换 target，不在框里遮罩会丢），
+ * 再打开遮罩编辑器。不传 imageId 时默认取首张输出图。
+ */
+export async function editOutputImage(task: TaskRecord, imageId?: string) {
+  const { inputImages, addInputImage, setMaskEditorImageId, showToast, settings } =
+    useStore.getState()
+  const targetId = imageId ?? task.outputImages?.[0]
+  if (!targetId) return
 
-  let added = 0
-  for (const imgId of task.outputImages) {
-    if (inputImages.find((i) => i.id === imgId)) continue
-    const dataUrl = await ensureImageCached(imgId)
-    if (dataUrl) {
-      addInputImage({ id: imgId, dataUrl })
-      added++
-    }
+  if (!modelSupportsEdit(getActiveApiProfile(settings), getPublicChannels())) {
+    showToast(NO_EDIT_SUPPORT_MESSAGE, 'error')
+    return
   }
-  showToast(`已添加 ${added} 张输出图到输入`, 'success')
+
+  const dataUrl = await ensureImageCached(targetId)
+  if (!dataUrl) {
+    showToast('图片已不存在，无法编辑', 'error')
+    return
+  }
+  if (!inputImages.find((i) => i.id === targetId)) {
+    addInputImage({ id: targetId, dataUrl })
+  }
+  setMaskEditorImageId(targetId)
 }
 
 /** 删除多条任务 */
@@ -2033,7 +2045,7 @@ export async function addImageFromFile(file: File): Promise<void> {
 }
 
 /** 添加图片到输入（右键菜单）—— 支持 data/blob/http URL */
-export async function addImageFromUrl(src: string): Promise<void> {
+export async function addImageFromUrl(src: string): Promise<string> {
   const res = await fetch(src)
   const blob = await res.blob()
   if (!blob.type.startsWith('image/')) throw new Error('不是有效的图片')
@@ -2041,6 +2053,7 @@ export async function addImageFromUrl(src: string): Promise<void> {
   const id = await storeImage(dataUrl, 'upload')
   cacheImage(id, dataUrl)
   useStore.getState().addInputImage({ id, dataUrl })
+  return id
 }
 
 function fileToDataUrl(file: File): Promise<string> {
