@@ -1,7 +1,9 @@
 import { getActiveApiProfile } from './apiProfiles'
-import { getPublicChannel } from './channels/publicChannels'
+import { createMaskPreviewDataUrl } from './canvasImage'
+import { getModelCapabilities } from './channels/profileSelectors'
+import { getPublicChannel, getPublicChannels } from './channels/publicChannels'
 import { callQueueChannelApi, resumeQueueChannelApi, toQueueProvider } from './channels/queueClient'
-import type { UserByokProfile } from './channels/types'
+import type { ClientProfile, UserByokProfile } from './channels/types'
 import { callGeminiImageApi } from './geminiImageApi'
 import type { BYOKAdapterProfile, CallApiOptions, CallApiResult } from './imageApiShared'
 import { callOpenAICompatibleImageApi } from './openaiCompatibleImageApi'
@@ -22,8 +24,52 @@ function toByokAdapterProfile(profile: UserByokProfile): BYOKAdapterProfile {
   }
 }
 
+/**
+ * 模型是否“原生”支持遮罩（走 OpenAI images/edits 的真·inpainting）。
+ * - builtin-edge：按 channel 模型 capability 'mask'（当前仅 gpt-image-2 声明）
+ * - user-byok：仅 gemini kind 无原生 mask（geminiImageApi 不接受 mask）；
+ *   openai-compat / http-template 走 images/edits 原生支持
+ * 不支持的模型走软遮罩降级（见 applySoftMaskFallback）。
+ */
+function modelSupportsNativeMask(profile: ClientProfile): boolean {
+  // builtin-edge：capability 声明是权威；BYOK：仅 gemini kind 不接受原生 mask
+  if (profile.source === 'builtin-edge') {
+    return getModelCapabilities(profile, getPublicChannels())?.has('mask') ?? false
+  }
+  return profile.kind !== 'gemini'
+}
+
+const SOFT_MASK_INSTRUCTION =
+  'The second input image is a copy of the first image with a blue translucent overlay marking the region to edit. ' +
+  'Apply the requested change ONLY inside the marked region, and keep everything outside it identical to the first (original) image. ' +
+  'Do not render the blue overlay itself in the output. Instruction:'
+
+/**
+ * 软遮罩降级：模型不支持原生 mask 时，把遮罩转成「原图 + 高亮标注图」两张参考图
+ * 并在 prompt 前注入区域指令，清空 maskDataUrl。完全在分发层完成，下游 provider /
+ * BFF 无需感知 mask。注意效果是「软引导」而非像素级 inpaint，框外可能轻微漂移。
+ */
+async function applySoftMaskFallback(opts: CallApiOptions): Promise<CallApiOptions> {
+  const target = opts.inputImageDataUrls[0]
+  if (!opts.maskDataUrl || !target) return { ...opts, maskDataUrl: undefined }
+  const annotated = await createMaskPreviewDataUrl(target, opts.maskDataUrl)
+  return {
+    ...opts,
+    inputImageDataUrls: [target, annotated, ...opts.inputImageDataUrls.slice(1)],
+    prompt: `${SOFT_MASK_INSTRUCTION}\n${opts.prompt}`,
+    maskDataUrl: undefined,
+  }
+}
+
 export async function callImageApi(opts: CallApiOptions): Promise<CallApiResult> {
   const profile = getActiveApiProfile(opts.settings)
+
+  // 不支持原生 mask 的模型：把遮罩降级成「原图 + 高亮标注图 + prompt 指令」。
+  // n>1 时上层已 fan-out 成多条 task，各自合成同一张标注图（输入相同、开销可接受），
+  // 不做跨 task 缓存以避免缓存生命周期复杂度。
+  if (opts.maskDataUrl && !modelSupportsNativeMask(profile)) {
+    opts = await applySoftMaskFallback(opts)
+  }
 
   if (profile.source === 'builtin-edge') {
     const channel = getPublicChannel(profile.channelId)
