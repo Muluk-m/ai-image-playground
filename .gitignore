@@ -13,3 +13,5 @@ dev-proxy.config.json
 # operator 部署时按环境放进 public/ 的运行时配置（vite build 会自动复制进 dist）。
 # 内容随部署不同，不进版本库。其余 public/ 资源照常追踪。
 apps/web/public/runtime-config.json
+# 个人本地运维脚本（部署到自己机器等），含主机路径/私有约定，不进版本库。
+scripts/local/
