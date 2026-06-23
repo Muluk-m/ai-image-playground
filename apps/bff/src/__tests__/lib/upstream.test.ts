@@ -9,6 +9,8 @@ process.env.DATABASE_URL = './artifacts/test-routes.sqlite'
 process.env.PORT = '0'
 
 const { callUpstream } = await import('../../lib/upstream')
+const { _setChannelsForTesting } = await import('../../lib/channels')
+type InternalChannel = import('../../lib/channels').InternalChannel
 
 // 1x1 透明 PNG 的 base64
 const TINY_PNG_B64 =
@@ -145,5 +147,164 @@ describe('callUpstream OpenAI route', () => {
     // multipart Content-Type 必须由 fetch / FormData 自己生成（含 boundary），不能手填 application/json
     const ct = headers.get('content-type')
     expect(ct === null || ct.startsWith('multipart/form-data')).toBe(true)
+  })
+})
+
+describe('callUpstream direct channel 路由（DIRECT_CHANNEL_IDS）', () => {
+  const originalFetch = globalThis.fetch
+  let calls: FetchCall[] = []
+
+  const agnesChannel: InternalChannel = {
+    id: 'agnes-images',
+    kind: 'openai-queue',
+    label: 'Agnes AI',
+    baseUrl: 'https://apihub.agnes-ai.com/v1',
+    auth: { type: 'bearer', secretRef: 'AGNES_API_KEY', secret: 'agnes-test-key' },
+    allowedPaths: ['images/generations'],
+    models: [
+      { id: 'agnes-image-2.1-flash', label: 'Agnes Image 2.1 Flash', capabilities: ['generate'] },
+    ],
+    defaults: { apiMode: 'images', timeout: 600 },
+  }
+
+  beforeEach(() => {
+    calls = []
+    _setChannelsForTesting([agnesChannel])
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ url: typeof input === 'string' ? input : input.toString(), init })
+      return new Response(JSON.stringify({ data: [{ b64_json: 'ok' }] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    }) as typeof fetch
+  })
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch
+    _setChannelsForTesting([])
+  })
+
+  it('agnes 模型走 channel baseUrl + 相对路径，不再拼出 /v1/v1（双 /v1 事故回归）', async () => {
+    await callUpstream({
+      provider: 'openai-compat',
+      model: 'agnes-image-2.1-flash',
+      request: { prompt: 'a cat', size: '1024x1024' },
+    })
+    expect(calls).toHaveLength(1)
+    expect(calls[0]!.url).toBe('https://apihub.agnes-ai.com/v1/images/generations')
+    const headers = new Headers(calls[0]!.init?.headers)
+    expect(headers.get('authorization')).toBe('Bearer agnes-test-key')
+  })
+
+  it('非 direct 模型仍走 UPSTREAM_BASE_URL 网关（行为不变）', async () => {
+    await callUpstream({
+      provider: 'openai-compat',
+      model: 'gpt-image-2',
+      request: { prompt: 'a cat' },
+    })
+    expect(calls[0]!.url).toBe('http://localhost:9999/v1/images/generations')
+    const headers = new Headers(calls[0]!.init?.headers)
+    expect(headers.get('authorization')).toBe('Bearer test-key')
+  })
+
+  it('gemini 仍走网关 /v1beta 并带 x-api-key（不受 direct channel 影响）', async () => {
+    await callUpstream({
+      provider: 'gemini',
+      model: 'gemini-3.1-flash-image',
+      request: { prompt: 'a cat' },
+    })
+    expect(calls[0]!.url).toBe(
+      'http://localhost:9999/v1beta/models/gemini-3.1-flash-image:generateContent',
+    )
+    const headers = new Headers(calls[0]!.init?.headers)
+    expect(headers.get('x-api-key')).toBe('test-key')
+    expect(headers.get('authorization')).toBeNull()
+  })
+})
+
+describe('callUpstream direct channel 图生图（Agnes 风格 generations JSON）', () => {
+  const originalFetch = globalThis.fetch
+  let calls: FetchCall[] = []
+
+  const agnesChannel: InternalChannel = {
+    id: 'agnes-images',
+    kind: 'openai-queue',
+    label: 'Agnes AI',
+    baseUrl: 'https://apihub.agnes-ai.com/v1',
+    auth: { type: 'bearer', secretRef: 'AGNES_API_KEY', secret: 'agnes-test-key' },
+    allowedPaths: ['images/generations'],
+    models: [
+      {
+        id: 'agnes-image-2.1-flash',
+        label: 'Agnes Image 2.1 Flash',
+        capabilities: ['generate', 'edit'],
+      },
+    ],
+    defaults: { apiMode: 'images', timeout: 600 },
+  }
+
+  beforeEach(() => {
+    calls = []
+    _setChannelsForTesting([agnesChannel])
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ url: typeof input === 'string' ? input : input.toString(), init })
+      return new Response(JSON.stringify({ data: [{ url: 'https://img.example/x.png' }] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    }) as typeof fetch
+  })
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch
+    _setChannelsForTesting([])
+  })
+
+  it('带 input_images：仍走 generations JSON，图放 extra_body.image（无 edits multipart）', async () => {
+    await callUpstream({
+      provider: 'openai-compat',
+      model: 'agnes-image-2.1-flash',
+      request: { prompt: 'make it blue', size: '1024x1024', input_images: [TINY_PNG_DATA_URL] },
+    })
+    expect(calls).toHaveLength(1)
+    expect(calls[0]!.url).toBe('https://apihub.agnes-ai.com/v1/images/generations')
+    const body = JSON.parse(calls[0]!.init?.body as string)
+    expect(body.extra_body.image).toEqual([TINY_PNG_DATA_URL])
+    // 上游会静默忽略 top-level image / quality / n，确保没传
+    expect(body.image).toBeUndefined()
+    expect(body.quality).toBeUndefined()
+    expect(body.n).toBeUndefined()
+  })
+
+  it('带 mask：立即永久失败（upstreamStatus=400 不触发重试）', async () => {
+    let caught: (Error & { upstreamStatus?: number }) | null = null
+    try {
+      await callUpstream({
+        provider: 'openai-compat',
+        model: 'agnes-image-2.1-flash',
+        request: { prompt: 'edit', input_images: [TINY_PNG_DATA_URL], mask: TINY_PNG_DATA_URL },
+      })
+    } catch (err) {
+      caught = err as Error & { upstreamStatus?: number }
+    }
+    expect(caught).not.toBeNull()
+    expect(caught!.message).toContain('遮罩')
+    expect(caught!.upstreamStatus).toBe(400)
+    expect(calls).toHaveLength(0)
+  })
+
+  it('n=3：fan-out 3 次并发请求并合并 data（上游忽略 n 参数）', async () => {
+    const result = await callUpstream({
+      provider: 'openai-compat',
+      model: 'agnes-image-2.1-flash',
+      request: { prompt: 'a star', n: 3 },
+    })
+    expect(calls).toHaveLength(3)
+    for (const c of calls) {
+      const body = JSON.parse(c.init?.body as string)
+      expect(body.n).toBeUndefined()
+    }
+    const payload = result.payload as { data: unknown[] }
+    expect(payload.data).toHaveLength(3)
   })
 })
