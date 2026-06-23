@@ -10,3 +10,6 @@ dev-proxy.config.json
 .env.local
 .claude/
 .gstack
+# operator 部署时按环境放进 public/ 的运行时配置（vite build 会自动复制进 dist）。
+# 内容随部署不同，不进版本库。其余 public/ 资源照常追踪。
+apps/web/public/runtime-config.json
