@@ -1,34 +1,49 @@
 import { QUEUE_TIMEOUTS, type QueueProvider, type SubmitRequest } from '@image-playground/shared'
 import { config } from '../config'
+import { getChannels } from './channels'
 import { log } from './logger'
 import { resolveApiKey } from './resolveApiKey'
 
 /**
  * 把 SubmitRequest 转换为 OpenAI Images / Gemini generateContent 请求体并发给上游 API。
  *
- * BFF 不做参数翻译；OpenAI 路径根据是否带 input_images 选 /v1/images/edits（multipart）
- * 或 /v1/images/generations（JSON），Gemini 路径走 /v1beta/models/{model}:generateContent。
+ * BFF 不做参数翻译；OpenAI 路径根据是否带 input_images 选 images/edits（multipart）
+ * 或 images/generations（JSON），Gemini 路径走 models/{model}:generateContent。
  *
  * 同机部署时 upstream 是 localhost，无 Edge / 跨网延迟。这里仍设硬超时
  * (QUEUE_TIMEOUTS.UPSTREAM_HARD_TIMEOUT_MS)，防止上游卡死时 BFF worker
  * 永远 hang、task 永远停在 in_progress。
  */
-/** Agnes 模型需要走独立 baseUrl + key，这里集中做 provider → baseUrl/key 路由。 */
-function resolveUpstreamBaseUrlAndKey(
+/**
+ * 独立直连上游的 channel id。命中的 channel 用 channels.json 自带的
+ * baseUrl + auth.secret（单一事实源），不走 UPSTREAM_BASE_URL 通用网关。
+ *
+ * 不能按 model 盲查 channels：网关部署用 UPSTREAM_BASE_URL 故意把
+ * openai/gemini channel 指到同一中转上游，channels.json 里它们的 baseUrl
+ * 只是名义官方地址，盲查会把网关部署静默切成直连。
+ */
+const DIRECT_CHANNEL_IDS: ReadonlySet<string> = new Set(['agnes-images'])
+
+/**
+ * provider + model → 上游 baseUrl 与 API key。
+ * 返回的 baseUrl 统一**含版本段**（如 .../v1、.../v1beta），调用方拼相对路径，
+ * 杜绝 channel baseUrl（含版本段）与 env baseUrl（不含）两套约定打架拼出 /v1/v1。
+ * `direct=true` 表示命中独立直连 channel（Agnes 风格上游，见 callUpstream 内分支）。
+ */
+function resolveUpstream(
   provider: QueueProvider,
   model: string,
-): { baseUrl: string; authHeader: Record<string, string> } {
-  if (provider === 'openai-compat' && model === 'agnes-image-2.1-flash') {
-    const key = resolveApiKey('agnes')
-    return {
-      baseUrl: config.upstream.agnesBaseUrl,
-      authHeader: key ? { authorization: `Bearer ${key}` } : {},
-    }
-  }
-  const key = resolveApiKey(provider)
+): { baseUrl: string; key: string; direct: boolean } {
+  const kind = provider === 'gemini' ? 'gemini-queue' : 'openai-queue'
+  const channel = getChannels().find(
+    (c) => c.kind === kind && DIRECT_CHANNEL_IDS.has(c.id) && c.models.some((m) => m.id === model),
+  )
+  if (channel) return { baseUrl: channel.baseUrl, key: channel.auth.secret, direct: true }
+  const version = provider === 'gemini' ? 'v1beta' : 'v1'
   return {
-    baseUrl: config.upstream.baseUrl,
-    authHeader: key ? { authorization: `Bearer ${key}` } : {},
+    baseUrl: `${config.upstream.baseUrl}/${version}`,
+    key: resolveApiKey(provider),
+    direct: false,
   }
 }
 
@@ -77,7 +92,7 @@ const NO_KEEPALIVE: Record<string, string> = { connection: 'close' }
 
 export async function callUpstream(params: UpstreamCallParams): Promise<UpstreamCallResult> {
   const { provider, model, request, signal: externalSignal } = params
-  const { baseUrl: base, authHeader } = resolveUpstreamBaseUrlAndKey(provider, model)
+  const { baseUrl: base, key, direct } = resolveUpstream(provider, model)
 
   const abort = new AbortController()
   let timedOut = false
@@ -105,12 +120,52 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
 
   try {
     if (provider === 'openai-compat') {
-      // 有参考图 / 有遮罩 → /v1/images/edits multipart；generations 是纯文生图，
+      const authHeader: Record<string, string> = key ? { authorization: `Bearer ${key}` } : {}
+
+      // Direct channel（Agnes 风格上游）：没有 images/edits 端点，图生图与文生图
+      // 共用 images/generations JSON，输入图放 extra_body.image（data URI / URL）。
+      // 实测注意：文档"Important Notes"声称的 top-level image 数组会被上游**静默忽略**
+      // （跑成纯文生图），必须放 extra_body；n 同样被忽略，这里学 gemini 分支 fan-out。
+      if (direct) {
+        if (request.mask) {
+          // 挂 upstreamStatus=400 → retry.ts 判为永久失败，不浪费 3 次重试
+          const err = new Error(
+            '该模型不支持遮罩编辑（上游无 mask 能力），请换 GPT 模型或去掉遮罩',
+          ) as Error & { upstreamStatus: number }
+          err.upstreamStatus = 400
+          throw err
+        }
+        const url = `${base}/images/generations`
+        const body = JSON.stringify(buildDirectChannelBody(model, request))
+        const headers = { 'content-type': 'application/json', ...authHeader, ...NO_KEEPALIVE }
+        const n = Math.max(1, request.n ?? 1)
+        if (n === 1) {
+          const res = await wrapTimeout(fetch(url, fetchInit({ method: 'POST', headers, body })))
+          return parseUpstreamResponse(res)
+        }
+        const results = await wrapTimeout(
+          Promise.all(
+            Array.from({ length: n }, async () => {
+              const res = await fetch(url, fetchInit({ method: 'POST', headers, body }))
+              return parseUpstreamResponse(res)
+            }),
+          ),
+        )
+        const merged = {
+          data: results.flatMap((r) => {
+            const p = r.payload as { data?: unknown[] } | null
+            return Array.isArray(p?.data) ? p.data : []
+          }),
+        }
+        return { payload: merged }
+      }
+
+      // 有参考图 / 有遮罩 → images/edits multipart；generations 是纯文生图，
       // 塞 input_images 字段上游会忽略（用户感知"AI 不参考附件"）。
       if (request.input_images?.length || request.mask) {
         const res = await wrapTimeout(
           fetch(
-            `${base}/v1/images/edits`,
+            `${base}/images/edits`,
             fetchInit({
               method: 'POST',
               headers: { ...authHeader, ...NO_KEEPALIVE },
@@ -122,7 +177,7 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
       }
       const res = await wrapTimeout(
         fetch(
-          `${base}/v1/images/generations`,
+          `${base}/images/generations`,
           fetchInit({
             method: 'POST',
             headers: { 'content-type': 'application/json', ...authHeader, ...NO_KEEPALIVE },
@@ -134,8 +189,7 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
     }
 
     if (provider === 'gemini') {
-      const key = resolveApiKey(provider)
-      const url = `${base}/v1beta/models/${encodeURIComponent(model)}:generateContent`
+      const url = `${base}/models/${encodeURIComponent(model)}:generateContent`
       const headers = {
         'content-type': 'application/json',
         ...(key ? { 'x-api-key': key } : {}),
@@ -173,6 +227,27 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
   } finally {
     clearTimeout(timer)
     externalSignal?.removeEventListener('abort', onExternalAbort)
+  }
+}
+
+/**
+ * Direct channel（Agnes 风格）请求体：文生图与图生图同一端点同一 JSON 体，
+ * 输入图放 extra_body.image（实测 top-level image 会被上游静默忽略）。
+ * quality / n 上游不识别 → 不传（n 由 callUpstream fan-out 实现）。
+ */
+function buildDirectChannelBody(model: string, request: SubmitRequest): Record<string, unknown> {
+  const { extra_body: extraBody, ...extraTop } = (request.extra ?? {}) as {
+    extra_body?: Record<string, unknown>
+    [k: string]: unknown
+  }
+  const mergedExtraBody: Record<string, unknown> = { ...(extraBody ?? {}) }
+  if (request.input_images?.length) mergedExtraBody.image = request.input_images
+  return {
+    model,
+    prompt: request.prompt,
+    ...(request.size ? { size: request.size } : {}),
+    ...extraTop,
+    ...(Object.keys(mergedExtraBody).length ? { extra_body: mergedExtraBody } : {}),
   }
 }
 

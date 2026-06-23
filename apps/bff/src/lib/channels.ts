@@ -9,6 +9,11 @@
  *
  * `getChannels()` 返回内部全字段（含 baseUrl / auth / 已解析 secret），仅 BFF 内部使用。
  * `getDiscoveredChannels()` 返回 sanitized 字段，可安全经 /api/channels 发给前端。
+ *
+ * ⚠️ channels.json 的数组顺序是产品契约：前端按序注入 builtin profile，
+ * **channels[0] 会成为新访客的默认模型**（apps/web apiProfiles.ts 的
+ * injectBuiltinEdgeProfiles + activeProfileId 兜底取 profiles[0]）。
+ * 新增 channel 往后排，别随手插第一位。
  */
 
 import { readFileSync } from 'node:fs'
@@ -59,7 +64,7 @@ export class ChannelsLoadError extends Error {
 
 const VALID_KINDS: readonly ChannelKind[] = ['openai-queue', 'gemini-queue']
 const VALID_AUTH_TYPES: readonly ChannelAuthType[] = ['bearer', 'query-key']
-const VALID_CAPABILITIES: readonly ChannelCapability[] = ['generate', 'edit']
+const VALID_CAPABILITIES: readonly ChannelCapability[] = ['generate', 'edit', 'mask', 'quality']
 const ID_PATTERN = /^[a-z0-9][a-z0-9-]*$/
 
 function isObject(v: unknown): v is Record<string, unknown> {

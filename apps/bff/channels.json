@@ -1,30 +1,6 @@
 {
   "channels": [
     {
-      "id": "agnes-images",
-      "kind": "openai-queue",
-      "label": "Agnes AI",
-      "baseUrl": "https://apihub.agnes-ai.com/v1",
-      "auth": {
-        "type": "bearer",
-        "secretRef": "AGNES_API_KEY"
-      },
-      "models": [
-        {
-          "id": "agnes-image-2.1-flash",
-          "label": "Agnes Image 2.1 Flash",
-          "capabilities": ["generate"]
-        }
-      ],
-      "defaults": {
-        "apiMode": "images",
-        "timeout": 600
-      },
-      "allowedPaths": [
-        "images/generations"
-      ]
-    },
-    {
       "id": "openai-images",
       "kind": "openai-queue",
       "label": "OpenAI",
@@ -37,17 +13,14 @@
         {
           "id": "gpt-image-2",
           "label": "GPT Image 2",
-          "capabilities": ["generate", "edit"]
+          "capabilities": ["generate", "edit", "mask", "quality"]
         }
       ],
       "defaults": {
         "apiMode": "images",
         "timeout": 600
       },
-      "allowedPaths": [
-        "images/generations",
-        "images/edits"
-      ]
+      "allowedPaths": ["images/generations", "images/edits"]
     },
     {
       "id": "gemini-flash-image",
@@ -70,9 +43,29 @@
         "apiMode": "images",
         "timeout": 600
       },
-      "allowedPaths": [
-        "models/gemini-3.1-flash-image:generateContent"
-      ]
+      "allowedPaths": ["models/gemini-3.1-flash-image:generateContent"]
+    },
+    {
+      "id": "agnes-images",
+      "kind": "openai-queue",
+      "label": "Agnes AI",
+      "baseUrl": "https://apihub.agnes-ai.com/v1",
+      "auth": {
+        "type": "bearer",
+        "secretRef": "AGNES_API_KEY"
+      },
+      "models": [
+        {
+          "id": "agnes-image-2.1-flash",
+          "label": "Agnes Image 2.1 Flash",
+          "capabilities": ["generate", "edit"]
+        }
+      ],
+      "defaults": {
+        "apiMode": "images",
+        "timeout": 600
+      },
+      "allowedPaths": ["images/generations"]
     }
   ]
 }

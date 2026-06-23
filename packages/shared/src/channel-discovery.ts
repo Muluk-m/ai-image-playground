@@ -10,8 +10,12 @@
 /** Channel 在前端 UI / dispatch 层面的归类。决定走 OpenAI 兼容协议还是 Gemini 协议。 */
 export type ChannelKind = 'openai-queue' | 'gemini-queue'
 
-/** 模型的能力声明 — 前端用来决定能否走 edit / mask 等输入图路径。 */
-export type ChannelCapability = 'generate' | 'edit'
+/**
+ * 模型的能力/参数支持声明 — 前端据此显隐输入图入口、遮罩按钮、质量控件。
+ * 'edit' = 支持参考图（图生图）；'mask' = 支持遮罩编辑；'quality' = 支持 quality 参数。
+ * 数组里没有 = 不支持（UI 收起对应控件）。BYOK profile 无此信息，UI 不做限制。
+ */
+export type ChannelCapability = 'generate' | 'edit' | 'mask' | 'quality'
 
 export interface ChannelModel {
   id: string

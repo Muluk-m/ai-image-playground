@@ -9,16 +9,15 @@ export const config = {
   port: Number(env('PORT', '37377')),
   /**
    * 上游单 endpoint fallback：worker 默认走 `upstream.baseUrl + provider 派生路径`，
-   * 适合所有 channels 共用同一上游网关（如自建反代）的部署。多 channel + 多上游
-   * 的真正分发要等到 worker 切换成读 channels.json 里 channel.baseUrl/auth.secret。
+   * 适合所有 channels 共用同一上游网关（如自建反代）的部署。**不含版本段**
+   * （/v1、/v1beta 由 upstream.ts 拼）。独立直连上游的 channel（如 agnes）
+   * 不走这里，见 upstream.ts 的 DIRECT_CHANNEL_IDS（单源 channels.json）。
    */
   upstream: {
     baseUrl: env('UPSTREAM_BASE_URL', 'http://localhost:8080').replace(/\/+$/, ''),
     apiKey: env('UPSTREAM_API_KEY', ''),
     openaiApiKey: env('UPSTREAM_OPENAI_API_KEY', ''),
     geminiApiKey: env('UPSTREAM_GEMINI_API_KEY', ''),
-    agnesApiKey: env('AGNES_API_KEY', ''),
-    agnesBaseUrl: env('AGNES_BASE_URL', 'https://apihub.agnes-ai.com/v1').replace(/\/+$/, ''),
   },
   databaseUrl: env('DATABASE_URL', '../../artifacts/image-playground.sqlite'),
   corsOrigins: env('CORS_ALLOWED_ORIGINS', '*'),
