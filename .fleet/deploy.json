@@ -1,7 +1,6 @@
 {
   "version": 1,
   "build": [
-    "mkdir -p apps/web/public",
     "cp -f /Users/qiqian/.config/ai-image-playground/runtime-config.json apps/web/public/runtime-config.json",
     "pnpm install --frozen-lockfile",
     "pnpm --filter @image-playground/web build",
