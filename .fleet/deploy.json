@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "build": [
+    "mkdir -p apps/web/public",
+    "cp -f /Users/qiqian/.config/ai-image-playground/runtime-config.json apps/web/public/runtime-config.json",
+    "pnpm install --frozen-lockfile",
+    "pnpm --filter @image-playground/web build",
+    "pnpm --filter @image-playground/admin build"
+  ],
+  "services": [
+    {
+      "name": "image-playground-bff",
+      "targets": ["macmini"],
+      "run": {
+        "kind": "launchd",
+        "label": "qlj.image-playground.bff",
+        "cwd": "apps/bff",
+        "keepAlive": true,
+        "command": [
+          "bun",
+          "run",
+          "--env-file=/Users/qiqian/.config/ai-image-playground/secrets/bff.env",
+          "src/index.ts"
+        ]
+      },
+      "health": { "http": "http://localhost:37377/health", "timeoutSec": 30 }
+    },
+    {
+      "name": "image-playground-admin",
+      "targets": ["macmini"],
+      "run": {
+        "kind": "launchd",
+        "label": "qlj.image-playground.admin",
+        "cwd": "apps/admin",
+        "keepAlive": true,
+        "command": [
+          "bun",
+          "--env-file=/Users/qiqian/.config/ai-image-playground/secrets/admin.env",
+          "run",
+          "server/index.ts"
+        ]
+      },
+      "health": { "http": "http://localhost:37378/", "timeoutSec": 30 }
+    }
+  ]
+}
