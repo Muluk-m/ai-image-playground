@@ -1,5 +1,5 @@
 {
-  "$schema": "http://macmini2.local:8700/deploy.schema.json",
+  "$schema": "https://storage.sitepower.com/fleet/deploy.schema.json",
   "version": 1,
   "build": [
     "cp -f /Users/qiqian/.config/ai-image-playground/runtime-config.json apps/web/public/runtime-config.json",
