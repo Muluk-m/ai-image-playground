@@ -10,6 +10,8 @@ import ViewportTooltip from './ViewportTooltip'
 
 export default function Header() {
   const setShowSettings = useStore((s) => s.setShowSettings)
+  const appMode = useStore((s) => s.appMode)
+  const setAppMode = useStore((s) => s.setAppMode)
   const [showHelp, setShowHelp] = useState(false)
 
   const openInspiration = useInspirationStore((s) => s.openPanel)
@@ -42,6 +44,22 @@ export default function Header() {
             </h1>
           </div>
           <div className="flex items-center gap-1 shrink-0">
+            <div className="flex items-center gap-0.5 mr-1 p-0.5 rounded-lg bg-gray-100 dark:bg-gray-900">
+              {(['browse', 'create'] as const).map((mode) => (
+                <button
+                  key={mode}
+                  onClick={() => setAppMode(mode)}
+                  className={`px-2.5 py-1 text-[13px] font-medium rounded-md transition-colors ${
+                    appMode === mode
+                      ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-50 shadow-sm'
+                      : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+                  }`}
+                  aria-pressed={appMode === mode}
+                >
+                  {mode === 'browse' ? '工作台' : '创作'}
+                </button>
+              ))}
+            </div>
             <div className="relative" {...inspirationTooltip.handlers}>
               <button
                 onClick={() => {

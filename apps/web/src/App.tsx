@@ -10,6 +10,7 @@ import SearchBar from './components/SearchBar'
 import SettingsModal from './components/SettingsModal'
 import TaskGrid from './components/TaskGrid'
 import Toast from './components/Toast'
+import CanvasMode from './features/canvas/components/CanvasMode'
 import InspirationPanel from './features/inspiration/components/InspirationPanel'
 import { initHashRoute } from './features/inspiration/lib/hashRoute'
 import {
@@ -21,6 +22,7 @@ import { initStore, useStore } from './store'
 
 export default function App() {
   const setSettings = useStore((s) => s.setSettings)
+  const appMode = useStore((s) => s.appMode)
 
   useEffect(() => {
     const searchParams = new URLSearchParams(window.location.search)
@@ -54,13 +56,19 @@ export default function App() {
   return (
     <>
       <Header />
-      <main data-home-main data-drag-select-surface className="pb-48">
-        <div className="safe-area-x max-w-7xl mx-auto">
-          <SearchBar />
-          <TaskGrid />
-        </div>
-      </main>
-      <InputBar />
+      {appMode === 'create' ? (
+        <CanvasMode />
+      ) : (
+        <>
+          <main data-home-main data-drag-select-surface className="pb-48">
+            <div className="safe-area-x max-w-7xl mx-auto">
+              <SearchBar />
+              <TaskGrid />
+            </div>
+          </main>
+          <InputBar />
+        </>
+      )}
       <DetailModal />
       <Lightbox />
       <SettingsModal />
