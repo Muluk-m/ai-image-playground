@@ -15,3 +15,4 @@ dev-proxy.config.json
 apps/web/public/runtime-config.json
 # 个人本地运维脚本（部署到自己机器等），含主机路径/私有约定，不进版本库。
 scripts/local/
+openspec
