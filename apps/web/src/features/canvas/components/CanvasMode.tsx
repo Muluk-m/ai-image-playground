@@ -16,7 +16,7 @@ const CANVAS_PERSISTENCE_KEY = 'image-playground-canvas'
 /**
  * 创作模式：基于 tldraw 的无限画布。
  * - 持久化走 tldraw 自带 IndexedDB（persistenceKey）
- * - 深浅色由 tldraw user preference colorScheme 默认 'system' 跟随系统（与项目 darkMode: 'media' 一致）
+ * - 固定暗色背景 + 点阵网格（isGridMode，tldraw 默认网格即点阵）
  */
 export default function CanvasMode() {
   return (
@@ -25,6 +25,14 @@ export default function CanvasMode() {
         persistenceKey={CANVAS_PERSISTENCE_KEY}
         shapeUtils={customShapeUtils}
         onMount={(editor) => {
+          // 固定暗色主题（仅在非暗色时切，避免污染 undo/首帧闪烁）。
+          if (editor.user.getUserPreferences().colorScheme !== 'dark') {
+            editor.user.updateUserPreferences({ colorScheme: 'dark' })
+          }
+          // 打开点阵网格背景（tldraw 默认网格渲染为点阵）。
+          if (!editor.getInstanceState().isGridMode) {
+            editor.updateInstanceState({ isGridMode: true })
+          }
           // 画布加载完成后扫描运行态占位框，续接 / 失效未完成任务（决策 7）。
           recoverCanvasTasks(editor)
         }}
