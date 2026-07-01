@@ -17,6 +17,9 @@ const CANVAS_PERSISTENCE_KEY = 'image-playground-canvas'
  * tldraw license key（免费 watermark 版即可，https://tldraw.dev 申请）。
  * 生产域名（非 localhost 的 https）下缺此 key → tldraw 判定 unlicensed-production，
  * 渲染 5 秒后把整个编辑器 display:none（黑屏）。填上 key 即恢复。build 时注入 VITE_TLDRAW_LICENSE_KEY。
+ *
+ * TODO: 该 key 域名绑定 + 有期限，被回收/过期后画布会再次黑屏。计划换无 license 依赖的库自建，
+ * 迁移指引见 ../TODO.md。
  */
 const TLDRAW_LICENSE_KEY = import.meta.env.VITE_TLDRAW_LICENSE_KEY
 
