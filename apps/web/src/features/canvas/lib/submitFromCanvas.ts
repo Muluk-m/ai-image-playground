@@ -21,6 +21,15 @@ import { computePlaceholderTarget } from './placement'
 import { rasterizeSelection } from './rasterizeSelection'
 
 /**
+ * 标注模式的指令前缀：把「带手绘标注的参考图」翻译成「按标注改、输出干净新图」。
+ * 用户输入的具体修改要求（若有）拼在其后。
+ */
+const CANVAS_ANNOTATION_INSTRUCTION =
+  '输入图是一张带有手绘标注（圈选 / 箭头 / 文字等）的参考图。' +
+  '请按照标注表达的修改意图生成一张全新的、干净的图片：' +
+  '不要在输出中保留任何手绘标注线条或批注文字；未被标注的区域尽量与原图保持一致。'
+
+/**
  * 起一个画布生成任务：**同步**建 loading 占位框 + 登记内存运行态（第一个 await 之前完成，
  * 所以占位框立即出现、调用方 `void` 一下即返回），随后异步跑生成。submit / retry 共用此入口，
  * 保证占位 / 并发 / 恢复语义一致。底层复用 `callImageApi`（不改协议），全程不抛。
@@ -79,8 +88,15 @@ export async function submitFromCanvas(editor: Editor, userPrompt: string): Prom
     return
   }
 
+  // 标注模式：注入「按标注改、输出干净图」指令，用户的修改要求（若有）拼在其后。
+  const prompt = selection?.annotated
+    ? trimmed
+      ? `${CANVAS_ANNOTATION_INSTRUCTION}\n修改要求：${trimmed}`
+      : CANVAS_ANNOTATION_INSTRUCTION
+    : trimmed
+
   const target = computePlaceholderTarget(editor, selection?.bounds ?? null)
-  void launchCanvasTask(editor, { prompt: trimmed, inputImageDataUrls, target })
+  void launchCanvasTask(editor, { prompt, inputImageDataUrls, target })
 }
 
 /**
