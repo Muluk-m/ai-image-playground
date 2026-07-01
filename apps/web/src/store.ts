@@ -324,6 +324,7 @@ export function getPersistedState(state: AppState) {
           inputImages: state.inputImages.map((img) => ({ id: img.id, dataUrl: '' })),
         }
       : {}),
+    appMode: state.appMode,
     dismissedCodexCliPrompts: state.dismissedCodexCliPrompts,
     inspirationCoachDismissed: state.inspirationCoachDismissed,
     pinnedInspirationIds: state.pinnedInspirationIds,
@@ -415,6 +416,9 @@ interface AppState {
   clearSelection: () => void
 
   // UI
+  /** 顶层视图模式：browse = 历史任务网格；create = 无限画布创作模式 */
+  appMode: 'browse' | 'create'
+  setAppMode: (mode: AppState['appMode']) => void
   detailTaskId: string | null
   setDetailTaskId: (id: string | null) => void
   lightboxImageId: string | null
@@ -624,6 +628,8 @@ export const useStore = create<AppState>()(
           lightboxImageList: list ?? (lightboxImageId ? [lightboxImageId] : []),
         })
       },
+      appMode: 'browse',
+      setAppMode: (appMode) => set({ appMode }),
       showSettings: false,
       setShowSettings: (showSettings) => {
         if (showSettings) dismissAllTooltips()
