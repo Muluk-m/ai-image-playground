@@ -14,6 +14,13 @@ const HEADER_OFFSET = 'calc(var(--safe-area-top) + 3.5rem)'
 const CANVAS_PERSISTENCE_KEY = 'image-playground-canvas'
 
 /**
+ * tldraw license key（免费 watermark 版即可，https://tldraw.dev 申请）。
+ * 生产域名（非 localhost 的 https）下缺此 key → tldraw 判定 unlicensed-production，
+ * 渲染 5 秒后把整个编辑器 display:none（黑屏）。填上 key 即恢复。build 时注入 VITE_TLDRAW_LICENSE_KEY。
+ */
+const TLDRAW_LICENSE_KEY = import.meta.env.VITE_TLDRAW_LICENSE_KEY
+
+/**
  * 创作模式：基于 tldraw 的无限画布。
  * - 持久化走 tldraw 自带 IndexedDB（persistenceKey）
  * - 固定暗色背景 + 点阵网格（isGridMode，tldraw 默认网格即点阵）
@@ -22,6 +29,7 @@ export default function CanvasMode() {
   return (
     <div className="fixed inset-x-0 bottom-0 z-30" style={{ top: HEADER_OFFSET }}>
       <Tldraw
+        licenseKey={TLDRAW_LICENSE_KEY}
         persistenceKey={CANVAS_PERSISTENCE_KEY}
         shapeUtils={customShapeUtils}
         onMount={(editor) => {
