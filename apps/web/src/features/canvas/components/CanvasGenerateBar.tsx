@@ -49,9 +49,10 @@ export default function CanvasGenerateBar() {
       onPointerDown={(e) => e.stopPropagation()}
     >
       <div className="pointer-events-auto flex w-full max-w-2xl flex-col gap-2 rounded-2xl border border-gray-200 bg-white/95 p-2 shadow-lg backdrop-blur dark:border-white/10 dark:bg-gray-900/95">
-        {/* 参数控制条：与工作台共用同一份全局 params/settings，创作模式下也能选模型 / 尺寸 / 质量等。 */}
+        {/* 参数控制条：与工作台共用同一份全局 params/settings。数量 n>1 时 fan-out
+            成 n 个并行任务，占位框水平排开各自出图（变体对比）。 */}
         <div className="flex flex-wrap items-center gap-2">
-          <ParamControls />
+          <ParamControls showCount />
         </div>
         <div className="flex items-end gap-2">
           <div className="flex flex-1 flex-col">

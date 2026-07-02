@@ -1,4 +1,6 @@
 import { BaseBoxShapeUtil, HTMLContainer, type RecordProps, T, type TLShape } from 'tldraw'
+import type { CanvasProfileSnapshot } from '../../../store'
+import type { TaskParams } from '../../../types'
 import { retryCanvasTask } from '../lib/submitFromCanvas'
 
 /** 占位框的可视状态：运行中 / 失败 / 失效（不可恢复）。 */
@@ -35,8 +37,12 @@ export interface CanvasTaskMeta {
   bffRequestId?: string
   /** 发起时的 profile 来源，决定重开后能否恢复（仅 builtin-edge 可恢复）。 */
   source: 'builtin-edge' | 'user-byok'
-  /** 原始提示词，供失效 / 错误态「重试」复用。 */
+  /** 原始提示词，供失效 / 错误态「重试」与落历史复用。 */
   prompt: string
+  /** 发起时的参数快照（已折叠 n=1），供重试 / 恢复 / 落历史保真复用。 */
+  params?: TaskParams
+  /** 发起时的 profile 身份快照，恢复完成落历史保真（缺失兜底当前 active profile）。 */
+  profileView?: CanvasProfileSnapshot
 }
 
 /**
