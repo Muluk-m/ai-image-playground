@@ -246,6 +246,10 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
     const p = pagePoint()
     if (!p) return
 
+    // 绘制类工具阻断浏览器默认行为：mousedown 的默认动作会把焦点切走，
+    // 文字工具刚挂载的编辑框会被立即 blur（空文字 → 删除），表现为「点了没反应」。
+    if (tool === 'pen' || tool === 'arrow' || tool === 'text') e.evt.preventDefault()
+
     if (tool === 'pen') {
       doc.captureHistory()
       const el: FreedrawEl = {
