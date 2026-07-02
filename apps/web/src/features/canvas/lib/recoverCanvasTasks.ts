@@ -1,7 +1,8 @@
 import type { Editor } from 'tldraw'
 import { resumeQueueImageApi } from '../../../lib/api'
-import { useStore } from '../../../store'
+import { addCompletedCanvasTask, useStore } from '../../../store'
 import type { GenerationPlaceholderShape } from '../shapes/GenerationPlaceholderShapeUtil'
+import { snapshotParams } from './canvasTaskRuntime'
 import {
   errorMessage,
   markPlaceholderStatus,
@@ -16,18 +17,30 @@ async function resumeOne(
   shape: GenerationPlaceholderShape,
   bffRequestId: string,
 ): Promise<void> {
+  const meta = readTaskMeta(shape)
+  // 参数优先用发起时的快照（随 meta 持久化），跨会话恢复保真；旧占位框无快照则当前参数兜底。
+  const params = meta.params ?? snapshotParams()
   try {
     const result = await resumeQueueImageApi(
       {
         settings: useStore.getState().settings,
-        prompt: readTaskMeta(shape).prompt,
-        params: { ...useStore.getState().params, n: 1 },
+        prompt: meta.prompt,
+        params,
         // 恢复不重传输入图（决策 2 的关键支撑）。
         inputImageDataUrls: [],
       },
       bffRequestId,
     )
-    await settleGeneration(editor, shape.id, targetFromShape(shape), result)
+    const placed = await settleGeneration(editor, shape.id, targetFromShape(shape), result)
+    // 恢复完成的生成同样落工作台历史（best-effort，内部吞错告警）；profile 用发起时快照保真。
+    if (placed) {
+      void addCompletedCanvasTask({
+        prompt: meta.prompt,
+        params,
+        images: result.images,
+        profile: meta.profileView,
+      })
+    }
   } catch (err) {
     markPlaceholderStatus(editor, shape.id, 'error', errorMessage(err))
   }
