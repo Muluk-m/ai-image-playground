@@ -17,12 +17,23 @@ const SHORTCUT_ROWS: Array<{ label: string; keys: string[] }> = [
   { label: '发起生成 / 回画布', keys: [`${MOD}⏎`, 'Esc'] },
 ]
 
+/** 用户手动收起后记住选择，下次不再默认展开（引导只需一次）。 */
+const COLLAPSED_STORAGE_KEY = 'canvas-shortcuts-collapsed'
+
 /**
- * 画布右下角的快捷键引导：默认仅一颗 28px 圆形图标钮（不占空间），
- * 点开为紧凑单列速查面板。定位避开 tldraw 右下 watermark；桌面端专属（移动端无键盘）。
+ * 画布右下角的快捷键引导：**默认展开**做新手引导，可一键收起（收起后记住，
+ * 之后默认只剩一颗 28px 圆形图标钮）。定位避开 tldraw 右下 watermark；
+ * 桌面端专属（移动端无键盘）。
  */
 export default function CanvasShortcutsHint() {
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(() => localStorage.getItem(COLLAPSED_STORAGE_KEY) !== '1')
+
+  const toggle = () => {
+    setOpen((v) => {
+      localStorage.setItem(COLLAPSED_STORAGE_KEY, v ? '1' : '0')
+      return !v
+    })
+  }
 
   return (
     <div
@@ -50,7 +61,7 @@ export default function CanvasShortcutsHint() {
       )}
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={toggle}
         className={`pointer-events-auto flex h-7 w-7 items-center justify-center rounded-full border shadow-lg backdrop-blur transition-colors ${
           open
             ? 'border-blue-500/40 bg-blue-500/15 text-blue-300'
