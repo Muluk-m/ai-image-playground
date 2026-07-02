@@ -1,8 +1,6 @@
-import { createShapeId, type Editor } from 'tldraw'
 import { callImageApi } from '../../../lib/api'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/apiProfiles'
 import { addCompletedCanvasTask, useStore } from '../../../store'
-import type { GenerationPlaceholderShape } from '../shapes/GenerationPlaceholderShapeUtil'
 import {
   type CanvasTaskSpec,
   getCanvasTask,
@@ -10,14 +8,12 @@ import {
   removeCanvasTask,
   snapshotParams,
 } from './canvasTaskRuntime'
+import type { CanvasEditor, PlaceholderView } from './editor'
 import {
   errorMessage,
   markPlaceholderStatus,
-  patchTaskMeta,
-  readTaskMeta,
   settleGeneration,
   targetFromShape,
-  toShapeMeta,
 } from './placeholderShapeOps'
 import { computePlaceholderTarget, fanOutTargets } from './placement'
 import { analyzeSelection, rasterizeSelection } from './rasterizeSelection'
@@ -49,7 +45,7 @@ function buildApiPrompt(annotated: boolean, requirement: string): string {
  * 保证占位 / 并发 / 恢复语义一致。底层复用 `callImageApi`（不改协议），全程不抛。
  * 成功后把结果落进工作台历史（addCompletedCanvasTask），画布生成同样可收藏 / 检索 / 复用。
  */
-async function launchCanvasTask(editor: Editor, spec: CanvasTaskSpec): Promise<void> {
+async function launchCanvasTask(editor: CanvasEditor, spec: CanvasTaskSpec): Promise<void> {
   // 发起时快照 profile 身份：生成可长达数分钟，完成时用户可能已切 profile，
   // 落历史用快照保真（与 params 快照同一决策）。
   const profile = getActiveApiProfile(useStore.getState().settings)
@@ -62,26 +58,18 @@ async function launchCanvasTask(editor: Editor, spec: CanvasTaskSpec): Promise<v
   }
   const taskId = crypto.randomUUID()
   const clientRequestId = crypto.randomUUID()
-  const placeholderId = createShapeId()
   const startedAt = Date.now()
 
-  editor.createShape<GenerationPlaceholderShape>({
-    id: placeholderId,
-    type: 'generation-placeholder',
-    x: spec.target.x,
-    y: spec.target.y,
-    props: { w: spec.target.w, h: spec.target.h, status: 'loading', message: '' },
-    // 决策 2：恢复元数据（含参数 / profile 快照）存 shape.meta，随画布持久化；不含输入图。
-    meta: toShapeMeta({
-      taskId,
-      clientRequestId,
-      source: profile.source,
-      prompt: spec.prompt,
-      annotated: spec.annotated,
-      inputCount: spec.inputImageDataUrls.length,
-      params: spec.params,
-      profileView,
-    }),
+  // 决策 2：恢复元数据（含参数 / profile 快照）存元素 customData，随画布持久化；不含输入图。
+  const placeholderId = editor.createPlaceholder(spec.target, {
+    taskId,
+    clientRequestId,
+    source: profile.source,
+    prompt: spec.prompt,
+    annotated: spec.annotated,
+    inputCount: spec.inputImageDataUrls.length,
+    params: spec.params,
+    profileView,
   })
   registerCanvasTask(taskId, spec)
 
@@ -94,7 +82,7 @@ async function launchCanvasTask(editor: Editor, spec: CanvasTaskSpec): Promise<v
       clientRequestId,
       // submit 成功即回填 bffRequestId 到占位框 meta 并持久化，供刷新后 resume（决策 2 / 7）。
       onQueueSubmitted: (requestId) => {
-        patchTaskMeta(editor, placeholderId, { bffRequestId: requestId })
+        editor.updatePlaceholder(placeholderId, { meta: { bffRequestId: requestId } })
       },
     })
     const placed = await settleGeneration(editor, placeholderId, spec.target, result)
@@ -121,7 +109,7 @@ async function launchCanvasTask(editor: Editor, spec: CanvasTaskSpec): Promise<v
  * params.n > 1 时 fan-out 成 n 个独立任务（与工作台一致），占位框水平排开各自出图。
  * 全程通过占位框 + toast 反馈，不抛出。
  */
-export async function submitFromCanvas(editor: Editor, userPrompt: string): Promise<void> {
+export async function submitFromCanvas(editor: CanvasEditor, userPrompt: string): Promise<void> {
   const { showToast, params } = useStore.getState()
   const trimmed = userPrompt.trim()
 
@@ -161,8 +149,8 @@ export async function submitFromCanvas(editor: Editor, userPrompt: string): Prom
  * 同会话内输入图仍在内存运行态里（决策 2 的投影），可完整重发；
  * 刷新后运行态已清空 → 以空输入图（文生图）+ meta 参数快照尽力重发，诚实反映能力边界。
  */
-export function retryCanvasTask(editor: Editor, shape: GenerationPlaceholderShape): void {
-  const meta = readTaskMeta(shape)
+export function retryCanvasTask(editor: CanvasEditor, placeholder: PlaceholderView): void {
+  const meta = placeholder.meta
   const runtime = getCanvasTask(meta.taskId)
   const inputImageDataUrls = runtime?.inputImageDataUrls ?? []
 
@@ -175,7 +163,7 @@ export function retryCanvasTask(editor: Editor, shape: GenerationPlaceholderShap
     return
   }
 
-  editor.deleteShape(shape.id)
+  editor.deleteElement(placeholder.id)
   removeCanvasTask(meta.taskId)
   void launchCanvasTask(editor, {
     prompt: meta.prompt,
@@ -183,6 +171,6 @@ export function retryCanvasTask(editor: Editor, shape: GenerationPlaceholderShap
     inputImageDataUrls,
     // meta.params 与 runtime spec 同源（launch 时一并写入），持久化的 meta 是权威。
     params: meta.params ?? snapshotParams(),
-    target: runtime?.target ?? targetFromShape(shape),
+    target: runtime?.target ?? targetFromShape(placeholder),
   })
 }

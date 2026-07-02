@@ -91,7 +91,7 @@ input[type="number"] {
   50% { border-color: #93c5fd; }
 }
 
-/* 画布生成占位框的 loading spinner（GenerationPlaceholderShapeUtil 引用） */
+/* 画布生成占位框的 loading spinner（PlaceholderOverlay 引用） */
 @keyframes canvas-placeholder-spin {
   to { transform: rotate(360deg); }
 }

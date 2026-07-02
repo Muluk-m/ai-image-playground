@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { useEditor, useValue } from 'tldraw'
 import ParamControls from '../../../components/ParamControls'
+import type { CanvasEditor } from '../lib/editor'
 import { analyzeSelection, rasterizeEntry } from '../lib/rasterizeSelection'
 import { submitFromCanvas } from '../lib/submitFromCanvas'
 
@@ -9,6 +9,51 @@ const PREVIEW_SCALE = 0.25
 /** 选区变化后延迟生成预览，避免拖选过程中频繁栅格化。 */
 const PREVIEW_DEBOUNCE_MS = 250
 
+interface SelectionInfo {
+  imageCount: number
+  annotated: boolean
+  annotationText: string
+  /** 条目构成签名：驱动预览重算（图/标注构成不变时不重复栅格化）。 */
+  signature: string
+}
+
+const EMPTY_SELECTION: SelectionInfo = {
+  imageCount: 0,
+  annotated: false,
+  annotationText: '',
+  signature: '',
+}
+
+/** 订阅画布变更、维护当前选区分析结果（替代原 tldraw useValue 的响应式选择器）。 */
+function useSelectionInfo(editor: CanvasEditor): SelectionInfo {
+  const [info, setInfo] = useState(EMPTY_SELECTION)
+  useEffect(() => {
+    const update = () => {
+      const plan = analyzeSelection(editor)
+      const next = plan
+        ? {
+            imageCount: plan.entries.length,
+            annotated: plan.annotated,
+            annotationText: plan.annotationText,
+            signature: plan.entries.map((e) => `${e.imageId}:${e.graphicIds.join('+')}`).join('|'),
+          }
+        : EMPTY_SELECTION
+      // onChange 高频触发：内容不变时保留旧引用，跳过重渲染。
+      setInfo((prev) =>
+        prev.signature === next.signature &&
+        prev.annotationText === next.annotationText &&
+        prev.annotated === next.annotated &&
+        prev.imageCount === next.imageCount
+          ? prev
+          : next,
+      )
+    }
+    update()
+    return editor.onChange(update)
+  }, [editor])
+  return info
+}
+
 /**
  * 画布底部浮动的生成输入条：统一文生图 / 多图迭代 / 标注迭代入口。
  * - 无选区 → 文生图；选中 N 张图 → 各自栅格化为独立参考图迭代
@@ -16,28 +61,13 @@ const PREVIEW_DEBOUNCE_MS = 250
  * - 输入预览：每个将喂给模型的条目一张缩略图（含合成后的标注）+ 提取的文字标注，
  *   与提交共用同一套 analyzeSelection/rasterizeEntry，所见即所得
  * 发起即返回（无全局 busy 锁），任务由画布上的占位框反馈状态，支持并发。
- *
- * 定位在 tldraw 默认工具栏**上方**（bottom-24），不遮挡底部工具栏。
- * 渲染在 <Tldraw> children 内，因此可用 useEditor() 拿到编辑器实例。
  */
-export default function CanvasGenerateBar() {
-  const editor = useEditor()
+export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) {
   const [prompt, setPrompt] = useState('')
   const [previews, setPreviews] = useState<string[]>([])
 
   // 与提交同一套选区分析：标注自动跟随被标注的图，提示与实际提交一致。
-  const selectionInfo = useValue('canvasSelectionInfo', () => {
-    const plan = analyzeSelection(editor)
-    if (!plan) return { imageCount: 0, annotated: false, annotationText: '', signature: '' }
-    return {
-      imageCount: plan.entries.length,
-      annotated: plan.annotated,
-      annotationText: plan.annotationText,
-      // 条目构成签名：驱动预览重算（图/标注构成不变时不重复栅格化）。
-      signature: plan.entries.map((e) => `${e.imageId}:${e.graphicIds.join('+')}`).join('|'),
-    }
-  }, [editor])
-  const { imageCount, annotated, annotationText, signature } = selectionInfo
+  const { imageCount, annotated, annotationText, signature } = useSelectionInfo(editor)
 
   // 输入预览缩略图：防抖 + 过期丢弃。
   useEffect(() => {
@@ -77,7 +107,7 @@ export default function CanvasGenerateBar() {
 
   return (
     <div
-      className="pointer-events-none absolute inset-x-0 bottom-24 z-[400] flex justify-center px-4"
+      className="pointer-events-none absolute inset-x-0 bottom-24 z-[400] flex justify-center px-4 md:bottom-16"
       onPointerDown={(e) => e.stopPropagation()}
     >
       <div className="pointer-events-auto flex w-full max-w-2xl flex-col gap-2 rounded-2xl border border-gray-200 bg-white/95 p-2 shadow-lg backdrop-blur dark:border-white/10 dark:bg-gray-900/95">
