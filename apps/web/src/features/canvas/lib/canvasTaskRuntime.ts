@@ -11,11 +11,14 @@ export function snapshotParams(): TaskParams {
 }
 
 /**
- * 一次画布生成任务的完整描述：提示词 + 输入图 + 参数快照 + 放置目标。
+ * 一次画布生成任务的完整描述：人话需求 + 输入图 + 参数快照 + 放置目标。
  * 既是发起入口的参数，也是内存运行态里存的东西（两者本就同形）。
  */
 export interface CanvasTaskSpec {
+  /** 人话需求（画布文字标注 + 输入框合并）。标注指令样板在发起时才注入，不存这里。 */
   prompt: string
+  /** 是否标注模式：发起时决定是否注入「按标注改、输出干净图」指令前缀。 */
+  annotated: boolean
   inputImageDataUrls: string[]
   /** 发起时的参数快照（n 已折叠为 1，fan-out 在上层展开为多任务）。 */
   params: TaskParams
