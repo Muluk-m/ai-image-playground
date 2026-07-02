@@ -25,9 +25,20 @@ import { rasterizeSelection } from './rasterizeSelection'
  * 用户输入的具体修改要求（若有）拼在其后。
  */
 const CANVAS_ANNOTATION_INSTRUCTION =
-  '输入图是一张带有手绘标注（圈选 / 箭头 / 文字等）的参考图。' +
+  '输入图是一张带有手绘标注（圈选 / 箭头等）的参考图。' +
   '请按照标注表达的修改意图生成一张全新的、干净的图片：' +
-  '不要在输出中保留任何手绘标注线条或批注文字；未被标注的区域尽量与原图保持一致。'
+  '不要在输出中保留任何手绘标注线条；未被标注的区域尽量与原图保持一致。'
+
+/**
+ * 标注模式 prompt：指令前缀 + 修改要求（画布文字标注 annotationText 与输入框 userPrompt 合并）。
+ * 两者都可能为空（只画了圈没写字）——此时仅用指令前缀，让模型按图形标注推断意图。
+ */
+function buildAnnotatedPrompt(annotationText: string, userPrompt: string): string {
+  const requirement = [annotationText, userPrompt].filter(Boolean).join('\n')
+  return requirement
+    ? `${CANVAS_ANNOTATION_INSTRUCTION}\n修改要求：${requirement}`
+    : CANVAS_ANNOTATION_INSTRUCTION
+}
 
 /**
  * 起一个画布生成任务：**同步**建 loading 占位框 + 登记内存运行态（第一个 await 之前完成，
@@ -88,11 +99,9 @@ export async function submitFromCanvas(editor: Editor, userPrompt: string): Prom
     return
   }
 
-  // 标注模式：注入「按标注改、输出干净图」指令，用户的修改要求（若有）拼在其后。
+  // 标注模式：注入「按标注改、输出干净图」指令 + 合并画布文字标注与输入框的修改要求。
   const prompt = selection?.annotated
-    ? trimmed
-      ? `${CANVAS_ANNOTATION_INSTRUCTION}\n修改要求：${trimmed}`
-      : CANVAS_ANNOTATION_INSTRUCTION
+    ? buildAnnotatedPrompt(selection.annotationText, trimmed)
     : trimmed
 
   const target = computePlaceholderTarget(editor, selection?.bounds ?? null)
