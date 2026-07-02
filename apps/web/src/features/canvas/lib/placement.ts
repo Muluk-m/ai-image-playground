@@ -14,6 +14,17 @@ export interface PlacementTarget {
 }
 
 /**
+ * n>1 变体 fan-out 的占位目标：以 base 为首，沿水平方向依次排开，彼此留间距。
+ * 与工作台「n 张拆 n 条任务」语义一致，画布上表现为一排独立占位框。
+ */
+export function fanOutTargets(base: PlacementTarget, n: number): PlacementTarget[] {
+  return Array.from({ length: Math.max(1, n) }, (_, i) => ({
+    ...base,
+    x: base.x + i * (base.w + PLACEMENT_GAP),
+  }))
+}
+
+/**
  * 计算占位框目标位置（抽成独立函数，便于未来换动态寻空位）：
  * - 有选区：选区包围盒右侧、垂直居中于包围盒
  * - 无选区（文生图）：当前视口中心

@@ -15,6 +15,7 @@ const { resumeMock } = vi.hoisted(() => ({
 vi.mock('../../../../lib/api', () => ({ resumeQueueImageApi: resumeMock }))
 vi.mock('../../../../store', () => ({
   useStore: { getState: () => ({ settings: {}, params: {} }) },
+  addCompletedCanvasTask: vi.fn(async () => {}),
 }))
 
 import { recoverCanvasTasks } from '../../../../features/canvas/lib/recoverCanvasTasks'
@@ -54,7 +55,8 @@ beforeEach(() => {
 })
 
 describe('recoverCanvasTasks 恢复分支判定（决策 7）', () => {
-  it('builtin-edge + bffRequestId → resume 续 poll，不标失效', () => {
+  it('builtin-edge + bffRequestId → resume 续 poll（用 meta 参数快照），不标失效', () => {
+    const snapshot = { size: '1536x1024', n: 1 }
     const { editor, updateShape } = makeEditor([
       ph('shape:a', 'loading', {
         taskId: 't1',
@@ -62,6 +64,7 @@ describe('recoverCanvasTasks 恢复分支判定（决策 7）', () => {
         bffRequestId: 'req-1',
         source: 'builtin-edge',
         prompt: 'hi',
+        params: snapshot,
       }),
     ])
 
@@ -69,6 +72,8 @@ describe('recoverCanvasTasks 恢复分支判定（决策 7）', () => {
 
     expect(resumeMock).toHaveBeenCalledTimes(1)
     expect(resumeMock.mock.calls[0][1]).toBe('req-1')
+    // 恢复用发起时的参数快照，而非当前 store 参数
+    expect((resumeMock.mock.calls[0][0] as { params: unknown }).params).toEqual(snapshot)
     expect(updateShape).not.toHaveBeenCalled()
   })
 

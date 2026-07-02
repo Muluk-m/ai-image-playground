@@ -1,13 +1,14 @@
 import { createShapeId, type Editor } from 'tldraw'
 import { callImageApi } from '../../../lib/api'
-import { getActiveApiProfile } from '../../../lib/apiProfiles'
-import { useStore } from '../../../store'
+import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/apiProfiles'
+import { addCompletedCanvasTask, useStore } from '../../../store'
 import type { GenerationPlaceholderShape } from '../shapes/GenerationPlaceholderShapeUtil'
 import {
   type CanvasTaskSpec,
   getCanvasTask,
   registerCanvasTask,
   removeCanvasTask,
+  snapshotParams,
 } from './canvasTaskRuntime'
 import {
   errorMessage,
@@ -16,8 +17,9 @@ import {
   readTaskMeta,
   settleGeneration,
   targetFromShape,
+  toShapeMeta,
 } from './placeholderShapeOps'
-import { computePlaceholderTarget } from './placement'
+import { computePlaceholderTarget, fanOutTargets } from './placement'
 import { rasterizeSelection } from './rasterizeSelection'
 
 /**
@@ -44,12 +46,23 @@ function buildAnnotatedPrompt(annotationText: string, userPrompt: string): strin
  * 起一个画布生成任务：**同步**建 loading 占位框 + 登记内存运行态（第一个 await 之前完成，
  * 所以占位框立即出现、调用方 `void` 一下即返回），随后异步跑生成。submit / retry 共用此入口，
  * 保证占位 / 并发 / 恢复语义一致。底层复用 `callImageApi`（不改协议），全程不抛。
+ * 成功后把结果落进工作台历史（addCompletedCanvasTask），画布生成同样可收藏 / 检索 / 复用。
  */
 async function launchCanvasTask(editor: Editor, spec: CanvasTaskSpec): Promise<void> {
-  const source = getActiveApiProfile(useStore.getState().settings).source
+  // 发起时快照 profile 身份：生成可长达数分钟，完成时用户可能已切 profile，
+  // 落历史用快照保真（与 params 快照同一决策）。
+  const profile = getActiveApiProfile(useStore.getState().settings)
+  const view = clientProfileToApiProfile(profile)
+  const profileView = {
+    apiProvider: view.provider,
+    apiProfileId: view.id,
+    apiProfileName: view.name,
+    apiModel: view.model,
+  }
   const taskId = crypto.randomUUID()
   const clientRequestId = crypto.randomUUID()
   const placeholderId = createShapeId()
+  const startedAt = Date.now()
 
   editor.createShape<GenerationPlaceholderShape>({
     id: placeholderId,
@@ -57,8 +70,15 @@ async function launchCanvasTask(editor: Editor, spec: CanvasTaskSpec): Promise<v
     x: spec.target.x,
     y: spec.target.y,
     props: { w: spec.target.w, h: spec.target.h, status: 'loading', message: '' },
-    // 决策 2：恢复元数据存 shape.meta，随画布持久化；不含输入图。
-    meta: { taskId, clientRequestId, source, prompt: spec.prompt },
+    // 决策 2：恢复元数据（含参数 / profile 快照）存 shape.meta，随画布持久化；不含输入图。
+    meta: toShapeMeta({
+      taskId,
+      clientRequestId,
+      source: profile.source,
+      prompt: spec.prompt,
+      params: spec.params,
+      profileView,
+    }),
   })
   registerCanvasTask(taskId, spec)
 
@@ -66,8 +86,7 @@ async function launchCanvasTask(editor: Editor, spec: CanvasTaskSpec): Promise<v
     const result = await callImageApi({
       settings: useStore.getState().settings,
       prompt: spec.prompt,
-      // n 由上游拆分语义决定：queue 路径按 n=1 单张下发（与工作台 fan-out 一致）。
-      params: { ...useStore.getState().params, n: 1 },
+      params: spec.params,
       inputImageDataUrls: spec.inputImageDataUrls,
       clientRequestId,
       // submit 成功即回填 bffRequestId 到占位框 meta 并持久化，供刷新后 resume（决策 2 / 7）。
@@ -75,7 +94,17 @@ async function launchCanvasTask(editor: Editor, spec: CanvasTaskSpec): Promise<v
         patchTaskMeta(editor, placeholderId, { bffRequestId: requestId })
       },
     })
-    await settleGeneration(editor, placeholderId, spec.target, result)
+    const placed = await settleGeneration(editor, placeholderId, spec.target, result)
+    // 落工作台历史（best-effort，addCompletedCanvasTask 内部吞错告警）。
+    if (placed) {
+      void addCompletedCanvasTask({
+        prompt: spec.prompt,
+        params: spec.params,
+        images: result.images,
+        elapsed: Date.now() - startedAt,
+        profile: profileView,
+      })
+    }
   } catch (err) {
     markPlaceholderStatus(editor, placeholderId, 'error', errorMessage(err))
   } finally {
@@ -86,10 +115,11 @@ async function launchCanvasTask(editor: Editor, spec: CanvasTaskSpec): Promise<v
 /**
  * 创作模式统一生成入口（决策 4）：把选区内**每张图片各自**栅格化为独立参考图，
  * 凭数量决定文生图（空数组）或多图迭代（非空）——单一调用路径。发起即返回、支持并发。
+ * params.n > 1 时 fan-out 成 n 个独立任务（与工作台一致），占位框水平排开各自出图。
  * 全程通过占位框 + toast 反馈，不抛出。
  */
 export async function submitFromCanvas(editor: Editor, userPrompt: string): Promise<void> {
-  const { showToast } = useStore.getState()
+  const { showToast, params } = useStore.getState()
   const trimmed = userPrompt.trim()
 
   const selection = await rasterizeSelection(editor)
@@ -104,14 +134,18 @@ export async function submitFromCanvas(editor: Editor, userPrompt: string): Prom
     ? buildAnnotatedPrompt(selection.annotationText, trimmed)
     : trimmed
 
-  const target = computePlaceholderTarget(editor, selection?.bounds ?? null)
-  void launchCanvasTask(editor, { prompt, inputImageDataUrls, target })
+  // 参数快照：n 折叠为 1（上游不支持 n，前端 fan-out 拆任务，与工作台一致）。
+  const specParams = snapshotParams()
+  const base = computePlaceholderTarget(editor, selection?.bounds ?? null)
+  for (const target of fanOutTargets(base, params.n)) {
+    void launchCanvasTask(editor, { prompt, inputImageDataUrls, params: specParams, target })
+  }
 }
 
 /**
  * 失效 / 错误态占位框的「重试」：删旧占位框，用**同参数**重新发起一个任务。
  * 同会话内输入图仍在内存运行态里（决策 2 的投影），可完整重发；
- * 刷新后运行态已清空 → 以空输入图（文生图）尽力重发，诚实反映能力边界。
+ * 刷新后运行态已清空 → 以空输入图（文生图）+ meta 参数快照尽力重发，诚实反映能力边界。
  */
 export function retryCanvasTask(editor: Editor, shape: GenerationPlaceholderShape): void {
   const meta = readTaskMeta(shape)
@@ -121,6 +155,8 @@ export function retryCanvasTask(editor: Editor, shape: GenerationPlaceholderShap
   void launchCanvasTask(editor, {
     prompt: meta.prompt,
     inputImageDataUrls: runtime?.inputImageDataUrls ?? [],
+    // meta.params 与 runtime spec 同源（launch 时一并写入），持久化的 meta 是权威。
+    params: meta.params ?? snapshotParams(),
     target: runtime?.target ?? targetFromShape(shape),
   })
 }

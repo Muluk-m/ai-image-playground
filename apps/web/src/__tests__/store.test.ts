@@ -59,6 +59,7 @@ vi.mock('../lib/db', () => {
 
 import { clearImages, putImage } from '../lib/db'
 import {
+  addCompletedCanvasTask,
   editOutputImage,
   getPersistedState,
   getTaskApiProfile,
@@ -426,6 +427,31 @@ describe('getPersistedState builtin profile stripping', () => {
 
     expect(persisted.settings.profiles.find((p) => p.id === 'test-x')).toBeUndefined()
     expect(persisted.settings.profiles.find((p) => p.id === 'user-1')).toBeDefined()
+  })
+})
+
+describe('addCompletedCanvasTask', () => {
+  beforeEach(() => {
+    useStore.setState({ settings: { ...DEFAULT_SETTINGS }, tasks: [] })
+  })
+
+  it('输出图落 image store，任务以 done 状态插入历史', async () => {
+    await addCompletedCanvasTask({
+      prompt: 'canvas prompt',
+      params: { ...DEFAULT_PARAMS, n: 1 },
+      images: ['data:image/png;base64,one', 'data:image/png;base64,two'],
+      elapsed: 1234,
+    })
+
+    const tasks = useStore.getState().tasks
+    expect(tasks).toHaveLength(1)
+    const record = tasks[0]
+    expect(record.status).toBe('done')
+    expect(record.prompt).toBe('canvas prompt')
+    expect(record.outputImages).toHaveLength(2)
+    expect(record.inputImageIds).toEqual([])
+    expect(record.elapsed).toBe(1234)
+    expect(record.finishedAt).not.toBeNull()
   })
 })
 

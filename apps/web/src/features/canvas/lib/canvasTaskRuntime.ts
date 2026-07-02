@@ -1,12 +1,24 @@
+import { useStore } from '../../../store'
+import type { TaskParams } from '../../../types'
 import type { PlacementTarget } from './placement'
 
 /**
- * 一次画布生成任务的完整描述：提示词 + 输入图 + 放置目标。
+ * 当前全局参数的画布任务快照：n 折叠为 1（上游不支持 n，fan-out 在发起层拆成多任务）。
+ * spec 构造与重试 / 恢复的兜底统一用它。
+ */
+export function snapshotParams(): TaskParams {
+  return { ...useStore.getState().params, n: 1 }
+}
+
+/**
+ * 一次画布生成任务的完整描述：提示词 + 输入图 + 参数快照 + 放置目标。
  * 既是发起入口的参数，也是内存运行态里存的东西（两者本就同形）。
  */
 export interface CanvasTaskSpec {
   prompt: string
   inputImageDataUrls: string[]
+  /** 发起时的参数快照（n 已折叠为 1，fan-out 在上层展开为多任务）。 */
+  params: TaskParams
   target: PlacementTarget
 }
 

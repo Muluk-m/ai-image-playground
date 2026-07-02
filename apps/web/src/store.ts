@@ -105,6 +105,17 @@ function cacheImage(id: string, dataUrl: string) {
   }
 }
 
+/** 生成成功路径共用：输出图逐张写 image store 并回填内存缓存，返回 image id 列表。 */
+async function storeGeneratedImages(images: string[]): Promise<string[]> {
+  const outputIds: string[] = []
+  for (const dataUrl of images) {
+    const imgId = await storeImage(dataUrl, 'generated')
+    cacheImage(imgId, dataUrl)
+    outputIds.push(imgId)
+  }
+  return outputIds
+}
+
 function getCachedThumbnail(id: string) {
   const thumbnail = thumbnailCache.get(id)
   if (thumbnail?.thumbnailVersion === CURRENT_THUMBNAIL_VERSION) {
@@ -1354,12 +1365,7 @@ async function executeTask(taskId: string) {
     if (!latestBeforeSuccess || latestBeforeSuccess.status !== 'running') return
 
     // 存储输出图片
-    const outputIds: string[] = []
-    for (const dataUrl of result.images) {
-      const imgId = await storeImage(dataUrl, 'generated')
-      cacheImage(imgId, dataUrl)
-      outputIds.push(imgId)
-    }
+    const outputIds = await storeGeneratedImages(result.images)
     const isAsyncCustomTask = taskProvider !== 'openai' && Boolean(customTaskInfo)
     const actualParamsList = isAsyncCustomTask
       ? await readImageSizeParamsList(result.images)
@@ -1625,6 +1631,62 @@ export async function editOutputImage(task: TaskRecord, imageId?: string) {
   setMaskEditorImageId(targetId)
 }
 
+/** 画布任务发起时快照的 profile 身份（落历史保真，避免完成时用户已切 profile 而失真）。 */
+export type CanvasProfileSnapshot = Pick<
+  TaskRecord,
+  'apiProvider' | 'apiProfileId' | 'apiProfileName' | 'apiModel'
+>
+
+/**
+ * 画布生成完成后落一条已完成任务进工作台历史：输出图写 image store，可收藏 / 检索 /
+ * 下载 / 复用 prompt，与工作台任务同列展示。画布任务的输入图是选区栅格化的临时合成物，
+ * 刻意不落库（inputImageIds 恒空）。历史写入是 best-effort：失败仅告警，不抛、不影响画布结果。
+ * profile 身份优先用发起时快照（缺失兜底当前 active profile，如旧占位框恢复）。
+ */
+export async function addCompletedCanvasTask(args: {
+  prompt: string
+  params: TaskParams
+  images: string[]
+  elapsed?: number
+  profile?: CanvasProfileSnapshot
+}): Promise<void> {
+  try {
+    const profile =
+      args.profile ??
+      (() => {
+        const view = clientProfileToApiProfile(getActiveApiProfile(useStore.getState().settings))
+        return {
+          apiProvider: view.provider,
+          apiProfileId: view.id,
+          apiProfileName: view.name,
+          apiModel: view.model,
+        }
+      })()
+    const outputIds = await storeGeneratedImages(args.images)
+    const finishedAt = Date.now()
+    const elapsed = args.elapsed ?? null
+    const newTask: TaskRecord = {
+      id: genId(),
+      prompt: args.prompt,
+      params: args.params,
+      ...profile,
+      inputImageIds: [],
+      maskTargetImageId: null,
+      maskImageId: null,
+      outputImages: outputIds,
+      status: 'done',
+      error: null,
+      createdAt: elapsed != null ? finishedAt - elapsed : finishedAt,
+      finishedAt,
+      elapsed,
+    }
+    useStore.getState().setTasks([newTask, ...useStore.getState().tasks])
+    await putTask(newTask)
+  } catch (err) {
+    console.warn('canvas task history write failed:', err)
+  }
+}
+
 /**
  * 把一条任务的输出图送进创作模式画布：取全分辨率原图 → 入 handoff 队列 → 切到 create 模式，
  * 由画布 onMount 消费队列放图。默认送第一张输出图。
@@ -1794,12 +1856,7 @@ async function completeRecoveredCustomTask(
   if (!latest || latest.status === 'done') return
 
   const actualParamsList = await readImageSizeParamsList(result.images)
-  const outputIds: string[] = []
-  for (const dataUrl of result.images) {
-    const imgId = await storeImage(dataUrl, 'generated')
-    cacheImage(imgId, dataUrl)
-    outputIds.push(imgId)
-  }
+  const outputIds = await storeGeneratedImages(result.images)
 
   updateTaskInStore(task.id, {
     outputImages: outputIds,
