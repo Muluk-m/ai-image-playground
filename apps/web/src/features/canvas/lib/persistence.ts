@@ -1,24 +1,25 @@
-import { CaptureUpdateAction, restoreElements } from '@excalidraw/excalidraw'
-import type { ExcalidrawElement } from '@excalidraw/excalidraw/element/types'
-import type { BinaryFiles } from '@excalidraw/excalidraw/types'
+import type { Camera, CanvasEl } from './canvasDoc'
 import type { CanvasEditor } from './editor'
 
 /**
- * 画布场景的 IndexedDB 持久化（替代原 tldraw persistenceKey 内置持久化）。
- * 与项目 image-playground 主库隔离，独立 DB；单 key 存整个场景快照。
+ * 画布场景的 IndexedDB 持久化。与项目 image-playground 主库隔离，独立 DB；
+ * 单 key 存整个场景快照（自建文档模型，version 字段防旧格式串档）。
  */
 const DB_NAME = 'image-playground-canvas'
 const DB_VERSION = 1
 const STORE = 'scene'
 const SCENE_KEY = 'scene'
+const SCENE_FORMAT = 2
 
-/** onChange 高频触发（指针移动也算），落盘防抖窗口。 */
+/** 变更高频触发（拖拽 / 画笔每帧都算），落盘防抖窗口。 */
 export const PERSIST_DEBOUNCE_MS = 500
 
 interface PersistedScene {
-  elements: readonly ExcalidrawElement[]
-  files: BinaryFiles
-  appState: { scrollX: number; scrollY: number; zoomValue: number }
+  version: typeof SCENE_FORMAT
+  elements: readonly CanvasEl[]
+  /** fileId → dataUrl，只存仍被引用的。 */
+  files: Record<string, string>
+  camera: Camera
 }
 
 function openDB(): Promise<IDBDatabase> {
@@ -33,7 +34,7 @@ function openDB(): Promise<IDBDatabase> {
   })
 }
 
-function dbGet(): Promise<PersistedScene | undefined> {
+function dbGet(): Promise<unknown> {
   return openDB().then(
     (db) =>
       new Promise((resolve, reject) => {
@@ -56,26 +57,21 @@ function dbPut(scene: PersistedScene): Promise<void> {
 }
 
 /**
- * 把当前场景写入 IndexedDB。files 只保留仍被 image 元素引用的（删除图片后不积累孤儿大文件）。
+ * 把当前场景写入 IndexedDB。files 只保留仍被 image 元素引用的（删图后不积累孤儿大文件）。
  * best-effort：失败只告警，不打断画布操作。
  */
 export async function saveScene(editor: CanvasEditor): Promise<void> {
   try {
-    const elements = editor.getElements()
-    const allFiles = editor.api.getFiles()
-    const referenced = new Set(
-      elements.map((el) => (el.type === 'image' ? el.fileId : null)).filter(Boolean),
-    )
-    const files: BinaryFiles = {}
-    for (const [id, file] of Object.entries(allFiles)) {
-      if (referenced.has(id as never)) files[id] = file
+    const { elements, files, camera } = editor.doc
+    const kept: Record<string, string> = {}
+    for (const el of elements) {
+      if (el.type === 'image' && files[el.fileId]) kept[el.fileId] = files[el.fileId]
     }
-    const s = editor.api.getAppState()
     await dbPut({
-      // 结构化克隆要求纯数据；元素本就是 plain object，浅拷贝防御 readonly 数组
+      version: SCENE_FORMAT,
       elements: [...elements],
-      files,
-      appState: { scrollX: s.scrollX, scrollY: s.scrollY, zoomValue: s.zoom.value },
+      files: kept,
+      camera: { ...camera },
     })
   } catch (err) {
     console.warn('[canvas] 场景持久化失败', err)
@@ -83,25 +79,14 @@ export async function saveScene(editor: CanvasEditor): Promise<void> {
 }
 
 /**
- * 从 IndexedDB 恢复场景到编辑器（restore 归一化跨版本 schema 差异）。
- * 无存档 / 读取失败 → 保持空画布。返回是否恢复了内容。
+ * 从 IndexedDB 恢复场景。无存档 / 格式不匹配（含旧画布库遗留数据）/ 读取失败 → 保持空画布。
  */
 export async function loadScene(editor: CanvasEditor): Promise<boolean> {
   try {
-    const stored = await dbGet()
-    if (!stored || stored.elements.length === 0) return false
-    const elements = restoreElements(stored.elements, null, { repairBindings: true })
-    editor.api.addFiles(Object.values(stored.files ?? {}))
-    editor.api.updateScene({
-      elements,
-      // 恢复视口：回到上次离开的位置
-      appState: {
-        scrollX: stored.appState.scrollX,
-        scrollY: stored.appState.scrollY,
-        zoom: { value: stored.appState.zoomValue as never },
-      },
-      captureUpdate: CaptureUpdateAction.NEVER,
-    })
+    const stored = (await dbGet()) as Partial<PersistedScene> | undefined
+    if (!stored || stored.version !== SCENE_FORMAT || !Array.isArray(stored.elements)) return false
+    if (stored.elements.length === 0) return false
+    editor.doc.restore(stored.elements, stored.files ?? {}, stored.camera)
     return true
   } catch (err) {
     console.warn('[canvas] 场景恢复失败', err)

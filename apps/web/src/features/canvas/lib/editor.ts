@@ -1,19 +1,16 @@
-import {
-  CaptureUpdateAction,
-  convertToExcalidrawElements,
-  exportToCanvas,
-  getCommonBounds,
-  newElementWith,
-} from '@excalidraw/excalidraw'
-import type {
-  ExcalidrawElement,
-  FileId,
-  NonDeletedExcalidrawElement,
-} from '@excalidraw/excalidraw/element/types'
-import type { BinaryFileData, ExcalidrawImperativeAPI } from '@excalidraw/excalidraw/types'
+import Konva from 'konva'
 import type { CanvasProfileSnapshot } from '../../../store'
 import type { TaskParams } from '../../../types'
+import {
+  type CanvasDoc,
+  type CanvasEl,
+  type ImageEl,
+  newElementId,
+  type PlaceholderEl,
+} from './canvasDoc'
 import { Box } from './geometry'
+import { loadImage } from './imageCache'
+import { arrowProps, freedrawProps, imageProps, textProps } from './konvaShapes'
 
 /** 占位框的可视状态：运行中 / 失败 / 失效（不可恢复）。 */
 export type CanvasTaskStatus = 'loading' | 'error' | 'stale'
@@ -26,7 +23,7 @@ export const STATUS_ACCENT: Record<CanvasTaskStatus, string> = {
 }
 
 /**
- * 占位框的任务恢复元数据（决策 2）。存在元素 `customData` 上、随画布持久化，
+ * 占位框的任务恢复元数据（决策 2）。存在占位框元素上、随画布持久化，
  * 是任务状态的**单一持久真相源**——恢复时扫描运行态占位框的 meta 即可，
  * 不另设独立任务表。只存轻量 id / 标识，**绝不**把输入图塞进来（决策 2 / 决策 6）。
  */
@@ -49,16 +46,6 @@ export interface CanvasTaskMeta {
   profileView?: CanvasProfileSnapshot
 }
 
-const PLACEHOLDER_KIND = 'generation-placeholder'
-
-/** 占位框元素挂在 customData 上的完整载荷。 */
-interface PlaceholderData {
-  kind: typeof PLACEHOLDER_KIND
-  status: CanvasTaskStatus
-  message: string
-  meta: CanvasTaskMeta
-}
-
 /** 占位框的业务视图：几何 + 状态 + 恢复元数据（屏蔽底层元素结构）。 */
 export interface PlaceholderView {
   id: string
@@ -71,156 +58,184 @@ export interface PlaceholderView {
   meta: CanvasTaskMeta
 }
 
-function placeholderData(el: ExcalidrawElement): PlaceholderData | null {
-  const data = el.customData
-  return data?.kind === PLACEHOLDER_KIND ? (data as unknown as PlaceholderData) : null
-}
-
-function toView(el: ExcalidrawElement, data: PlaceholderData): PlaceholderView {
+function toView(el: PlaceholderEl): PlaceholderView {
   return {
     id: el.id,
     x: el.x,
     y: el.y,
     w: el.width,
     h: el.height,
-    status: data.status,
-    message: data.message,
-    meta: data.meta,
+    status: el.status,
+    message: el.message,
+    meta: el.meta,
   }
 }
 
-function dataUrlMimeType(dataUrl: string): BinaryFileData['mimeType'] {
-  const match = /^data:([^;,]+)/.exec(dataUrl)
-  return (match?.[1] ?? 'image/png') as BinaryFileData['mimeType']
+/** 元素的页面坐标 AABB（图片含旋转）。选区分析 / 导出 / marquee 共用。 */
+export function elementBounds(el: CanvasEl): Box {
+  switch (el.type) {
+    case 'image': {
+      if (!el.rotation) return new Box(el.x, el.y, el.width, el.height)
+      const rad = (el.rotation * Math.PI) / 180
+      const cos = Math.cos(rad)
+      const sin = Math.sin(rad)
+      // Konva rotation 绕节点原点（左上角）
+      const corners = [
+        [0, 0],
+        [el.width, 0],
+        [0, el.height],
+        [el.width, el.height],
+      ].map(([dx, dy]) => [el.x + dx * cos - dy * sin, el.y + dx * sin + dy * cos])
+      const xs = corners.map((c) => c[0])
+      const ys = corners.map((c) => c[1])
+      const minX = Math.min(...xs)
+      const minY = Math.min(...ys)
+      return new Box(minX, minY, Math.max(...xs) - minX, Math.max(...ys) - minY)
+    }
+    case 'freedraw':
+    case 'arrow': {
+      const pts = el.points
+      let minX = Number.POSITIVE_INFINITY
+      let minY = Number.POSITIVE_INFINITY
+      let maxX = Number.NEGATIVE_INFINITY
+      let maxY = Number.NEGATIVE_INFINITY
+      for (let i = 0; i < pts.length; i += 2) {
+        minX = Math.min(minX, pts[i])
+        maxX = Math.max(maxX, pts[i])
+        minY = Math.min(minY, pts[i + 1])
+        maxY = Math.max(maxY, pts[i + 1])
+      }
+      // 描边宽度 + 箭头头部的外扩余量
+      const pad = el.type === 'arrow' ? Math.max(el.strokeWidth, 12) : el.strokeWidth / 2 + 2
+      return new Box(minX - pad, minY - pad, maxX - minX + pad * 2, maxY - minY + pad * 2)
+    }
+    case 'text':
+      return new Box(el.x, el.y, el.width, el.height)
+    case 'placeholder':
+      return new Box(el.x, el.y, el.width, el.height)
+  }
 }
 
-const TO_IMAGE_APP_STATE = { exportBackground: true, viewBackgroundColor: '#ffffff' } as const
+/** 离屏导出用：元素 → imperative Konva 节点（与实时渲染共用同一份属性映射）。 */
+async function buildExportNode(
+  el: CanvasEl,
+  files: Readonly<Record<string, string>>,
+): Promise<Konva.Node | null> {
+  switch (el.type) {
+    case 'image': {
+      const dataUrl = files[el.fileId]
+      if (!dataUrl) return null
+      return new Konva.Image({ image: await loadImage(el.fileId, dataUrl), ...imageProps(el) })
+    }
+    case 'freedraw':
+      return new Konva.Line(freedrawProps(el))
+    case 'arrow':
+      return new Konva.Arrow(arrowProps(el))
+    case 'text':
+      return new Konva.Text(textProps(el))
+    case 'placeholder':
+      return null
+  }
+}
+
+/** 相机平滑动画时长（scrollToElements）。 */
+const CAMERA_ANIMATION_MS = 300
 
 /**
- * Excalidraw 适配层：业务逻辑（选区分析 / 占位框 / 放图 / 栅格化）只面向本类，
- * 不直接触碰 ExcalidrawImperativeAPI——这是换库时唯一需要重写的 editor 抽象。
+ * 画布编辑器适配层：业务逻辑（选区分析 / 占位框 / 放图 / 栅格化）只面向本类。
+ * 底层是自建 CanvasDoc + Konva 渲染——本类是换渲染引擎时唯一需要重写的抽象。
  */
 export class CanvasEditor {
-  constructor(readonly api: ExcalidrawImperativeAPI) {}
+  constructor(readonly doc: CanvasDoc) {}
 
   // ===== 只读查询 =====
 
-  getElements(): readonly NonDeletedExcalidrawElement[] {
-    return this.api.getSceneElements()
+  getElements(): readonly CanvasEl[] {
+    return this.doc.elements
   }
 
-  getElement(id: string): NonDeletedExcalidrawElement | undefined {
-    return this.getElements().find((el) => el.id === id)
+  getElement(id: string): CanvasEl | undefined {
+    return this.doc.getElement(id)
   }
 
-  /** 当前选中的元素 id（过滤掉 appState 里可能残留的已删除 id）。 */
   getSelectedIds(): string[] {
-    const selected = this.api.getAppState().selectedElementIds
-    return this.getElements()
-      .filter((el) => selected[el.id])
-      .map((el) => el.id)
+    return [...this.doc.selection]
   }
 
   /** 元素的页面坐标 AABB（含旋转）。元素不存在 → undefined。 */
   getElementPageBounds(id: string): Box | undefined {
-    const el = this.getElement(id)
-    if (!el) return undefined
-    const [x1, y1, x2, y2] = getCommonBounds([el])
-    return new Box(x1, y1, x2 - x1, y2 - y1)
+    const el = this.doc.getElement(id)
+    return el ? elementBounds(el) : undefined
   }
 
   /** 当前视口的页面坐标范围。 */
   getViewportPageBounds(): Box {
-    const s = this.api.getAppState()
-    const zoom = s.zoom.value
-    return new Box(-s.scrollX, -s.scrollY, s.width / zoom, s.height / zoom)
+    const { camera, viewport } = this.doc
+    return new Box(camera.x, camera.y, viewport.width / camera.zoom, viewport.height / camera.zoom)
   }
 
-  isPlaceholder(el: ExcalidrawElement): boolean {
-    return placeholderData(el) !== null
+  isPlaceholder(el: CanvasEl): boolean {
+    return el.type === 'placeholder'
   }
 
   getPlaceholder(id: string): PlaceholderView | undefined {
-    const el = this.getElement(id)
-    if (!el) return undefined
-    const data = placeholderData(el)
-    return data ? toView(el, data) : undefined
+    const el = this.doc.getElement(id)
+    return el?.type === 'placeholder' ? toView(el) : undefined
   }
 
   getPlaceholders(): PlaceholderView[] {
-    const views: PlaceholderView[] = []
-    for (const el of this.getElements()) {
-      const data = placeholderData(el)
-      if (data) views.push(toView(el, data))
-    }
-    return views
+    return this.doc.elements.filter((el) => el.type === 'placeholder').map(toView)
   }
 
-  /** 订阅画布任意变更（元素 / 选区 / 视口）。返回取消订阅函数。 */
+  /** 订阅画布任意变更（元素 / 选区 / 相机）。返回取消订阅函数。 */
   onChange(callback: () => void): () => void {
-    return this.api.onChange(() => callback())
+    return this.doc.subscribe(callback)
   }
 
   // ===== 变更 =====
 
-  private commit(elements: readonly ExcalidrawElement[]): void {
-    this.api.updateScene({ elements, captureUpdate: CaptureUpdateAction.IMMEDIATELY })
-  }
-
-  /** 创建 loading 占位框（虚线矩形 + customData 载荷），返回元素 id。 */
+  /** 创建 loading 占位框（虚线矩形），返回元素 id。 */
   createPlaceholder(
     target: { x: number; y: number; w: number; h: number },
     meta: CanvasTaskMeta,
   ): string {
-    const data: PlaceholderData = { kind: PLACEHOLDER_KIND, status: 'loading', message: '', meta }
-    const [el] = convertToExcalidrawElements([
-      {
-        type: 'rectangle',
-        x: target.x,
-        y: target.y,
-        width: target.w,
-        height: target.h,
-        strokeColor: STATUS_ACCENT.loading,
-        strokeStyle: 'dashed',
-        strokeWidth: 2,
-        roughness: 0,
-        backgroundColor: 'transparent',
-        customData: data as unknown as Record<string, unknown>,
-      },
-    ])
-    this.commit([...this.getElements(), el])
+    const el: PlaceholderEl = {
+      id: newElementId(),
+      type: 'placeholder',
+      x: target.x,
+      y: target.y,
+      width: target.w,
+      height: target.h,
+      status: 'loading',
+      message: '',
+      meta,
+    }
+    this.doc.addElements([el])
     return el.id
   }
 
-  /** 更新占位框状态 / 消息 / meta（合并写回 customData，描边色随状态同步）。不存在则 no-op。 */
+  /** 更新占位框状态 / 消息 / meta。状态流转不入 undo 历史（非用户操作）。 */
   updatePlaceholder(
     id: string,
     patch: { status?: CanvasTaskStatus; message?: string; meta?: Partial<CanvasTaskMeta> },
   ): void {
-    let changed = false
-    const next = this.getElements().map((el) => {
-      const data = placeholderData(el)
-      if (el.id !== id || !data) return el
-      changed = true
-      const merged: PlaceholderData = {
-        ...data,
-        status: patch.status ?? data.status,
-        message: patch.message ?? data.message,
-        meta: { ...data.meta, ...patch.meta },
-      }
-      return newElementWith(el, {
-        strokeColor: STATUS_ACCENT[merged.status],
-        customData: merged as unknown as Record<string, unknown>,
-      })
-    })
-    if (changed) this.commit(next)
+    const el = this.doc.getElement(id)
+    if (el?.type !== 'placeholder') return
+    this.doc.updateElements([
+      {
+        id,
+        patch: {
+          status: patch.status ?? el.status,
+          message: patch.message ?? el.message,
+          meta: { ...el.meta, ...patch.meta },
+        },
+      },
+    ])
   }
 
   /** 删除元素（占位框被替换 / 重试时删旧）。不存在则 no-op。 */
   deleteElement(id: string): void {
-    const elements = this.getElements()
-    const next = elements.filter((el) => el.id !== id)
-    if (next.length !== elements.length) this.commit(next)
+    this.doc.deleteElements([id])
   }
 
   /** 把一组 dataUrl 图片放到指定位置（文件 + image 元素一并创建），返回新元素 id 列表。 */
@@ -229,51 +244,73 @@ export class CanvasEditor {
     meta?: Record<string, string>,
   ): string[] {
     if (items.length === 0) return []
-    const files: BinaryFileData[] = []
-    const skeletons = items.map((item) => {
-      const fileId = crypto.randomUUID() as FileId
-      files.push({
-        id: fileId,
-        dataURL: item.dataUrl as BinaryFileData['dataURL'],
-        mimeType: dataUrlMimeType(item.dataUrl),
-        created: Date.now(),
-      })
+    const files: Record<string, string> = {}
+    const els: ImageEl[] = items.map((item) => {
+      const fileId = newElementId()
+      files[fileId] = item.dataUrl
       return {
-        type: 'image' as const,
-        fileId,
+        id: newElementId(),
+        type: 'image',
         x: item.x,
         y: item.y,
         width: item.width,
         height: item.height,
-        status: 'saved' as const,
-        customData: meta ? { ...meta } : undefined,
+        rotation: 0,
+        fileId,
+        ...(meta ? { meta: { ...meta } } : {}),
       }
     })
-    this.api.addFiles(files)
-    const els = convertToExcalidrawElements(skeletons)
-    this.commit([...this.getElements(), ...els])
+    this.doc.addElements(els, { files })
     return els.map((el) => el.id)
   }
 
   setSelectedElements(ids: string[]): void {
-    this.api.updateScene({
-      appState: { selectedElementIds: Object.fromEntries(ids.map((id) => [id, true as const])) },
-    })
+    this.doc.setSelection(ids)
   }
 
   /** 平滑移动镜头到一组元素（结果落在视口外时的反馈）。 */
   scrollToElements(ids: string[]): void {
     const idSet = new Set(ids)
-    const els = this.getElements().filter((el) => idSet.has(el.id))
+    const els = this.doc.elements.filter((el) => idSet.has(el.id))
     if (els.length === 0) return
-    this.api.scrollToContent(els, { fitToContent: true, animate: true, duration: 320 })
+    const bounds = Box.Common(els.map(elementBounds))
+    const { viewport } = this.doc
+    const padding = 96
+    const zoom = Math.min(
+      1.5,
+      (viewport.width - padding * 2) / bounds.w,
+      (viewport.height - padding * 2) / bounds.h,
+    )
+    const clamped = Math.max(0.05, Math.min(zoom, 1))
+    const target = {
+      x: bounds.midX - viewport.width / clamped / 2,
+      y: bounds.midY - viewport.height / clamped / 2,
+      zoom: clamped,
+    }
+    this.animateCamera(target)
+  }
+
+  private animateCamera(target: { x: number; y: number; zoom: number }): void {
+    const from = { ...this.doc.camera }
+    const start = performance.now()
+    const tick = (now: number) => {
+      const t = Math.min(1, (now - start) / CAMERA_ANIMATION_MS)
+      const ease = 1 - (1 - t) ** 3
+      this.doc.setCamera({
+        x: from.x + (target.x - from.x) * ease,
+        y: from.y + (target.y - from.y) * ease,
+        zoom: from.zoom + (target.zoom - from.zoom) * ease,
+      })
+      if (t < 1) requestAnimationFrame(tick)
+    }
+    requestAnimationFrame(tick)
   }
 
   /**
    * 把一组元素栅格化为 PNG dataUrl（白色不透明背景，避免上游模型收到透明通道）。
    * - `scale < 1` 用于低成本预览缩略图
-   * - `bounds` 提供时把导出结果裁剪到该页面坐标范围（标注可能溢出图片范围时裁回图内）
-   * - 被选元素若有绑定文字标签（容器 label），一并纳入渲染
+   * - `bounds` 提供时裁剪到该页面坐标范围（标注溢出图片时裁回图内）；缺省取元素联合包围盒
+   * 用离屏 Konva stage 渲染，与画布显示共用同一份属性映射，所见即所得。
    */
   async toImage(
     ids: string[],
@@ -281,35 +318,38 @@ export class CanvasEditor {
   ): Promise<string | null> {
     const scale = opts.scale ?? 1
     const idSet = new Set(ids)
-    const elements = this.getElements().filter(
-      (el) =>
-        idSet.has(el.id) || (el.type === 'text' && el.containerId && idSet.has(el.containerId)),
-    )
-    if (elements.length === 0) return null
+    const els = this.doc.elements.filter((el) => idSet.has(el.id) && el.type !== 'placeholder')
+    if (els.length === 0) return null
+    const bounds = opts.bounds ?? Box.Common(els.map(elementBounds))
 
-    const canvas = await exportToCanvas({
-      elements,
-      files: this.api.getFiles(),
-      exportPadding: 0,
-      appState: TO_IMAGE_APP_STATE,
-      getDimensions: (w: number, h: number) => ({
-        width: Math.max(1, Math.floor(w * scale)),
-        height: Math.max(1, Math.floor(h * scale)),
-        scale,
-      }),
+    const container = document.createElement('div')
+    const stage = new Konva.Stage({
+      container,
+      width: Math.max(1, Math.round(bounds.w * scale)),
+      height: Math.max(1, Math.round(bounds.h * scale)),
     })
-    if (!opts.bounds) return canvas.toDataURL('image/png')
-
-    // 导出画布覆盖 elements 的联合包围盒；把目标 bounds 映射回导出像素坐标裁剪。
-    const [x1, y1] = getCommonBounds(elements)
-    const cropped = document.createElement('canvas')
-    cropped.width = Math.max(1, Math.round(opts.bounds.w * scale))
-    cropped.height = Math.max(1, Math.round(opts.bounds.h * scale))
-    const ctx = cropped.getContext('2d')
-    if (!ctx) return null
-    ctx.fillStyle = '#ffffff'
-    ctx.fillRect(0, 0, cropped.width, cropped.height)
-    ctx.drawImage(canvas, (x1 - opts.bounds.x) * scale, (y1 - opts.bounds.y) * scale)
-    return cropped.toDataURL('image/png')
+    try {
+      const layer = new Konva.Layer()
+      stage.add(layer)
+      layer.add(
+        new Konva.Rect({
+          x: bounds.x,
+          y: bounds.y,
+          width: bounds.w,
+          height: bounds.h,
+          fill: '#ffffff',
+        }),
+      )
+      const nodes = await Promise.all(els.map((el) => buildExportNode(el, this.doc.files)))
+      for (const node of nodes) {
+        if (node) layer.add(node as Konva.Shape)
+      }
+      stage.scale({ x: scale, y: scale })
+      stage.position({ x: -bounds.x * scale, y: -bounds.y * scale })
+      layer.draw()
+      return stage.toDataURL({ mimeType: 'image/png', pixelRatio: 1 })
+    } finally {
+      stage.destroy()
+    }
   }
 }
