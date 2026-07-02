@@ -27,7 +27,7 @@ import { rasterizeSelection } from './rasterizeSelection'
  * 用户输入的具体修改要求（若有）拼在其后。
  */
 const CANVAS_ANNOTATION_INSTRUCTION =
-  '输入图是一张带有手绘标注（圈选 / 箭头等）的参考图。' +
+  '部分输入图带有手绘标注（圈选 / 箭头等）。' +
   '请按照标注表达的修改意图生成一张全新的、干净的图片：' +
   '不要在输出中保留任何手绘标注线条；未被标注的区域尽量与原图保持一致。'
 
