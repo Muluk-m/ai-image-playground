@@ -13,7 +13,7 @@ import type {
   CanvasTaskStatus,
   GenerationPlaceholderShape,
 } from '../shapes/GenerationPlaceholderShapeUtil'
-import { PLACEMENT_GAP, type PlacementTarget } from './placement'
+import { fitToTarget, PLACEMENT_GAP, type PlacementTarget } from './placement'
 
 /** 统一的错误消息提取（画布任务终局共用）。 */
 export function errorMessage(err: unknown): string {
@@ -94,8 +94,9 @@ export async function settleGeneration(
 /**
  * 把 dataUrl 列表作为新的 image shape 放到画布并选中；结果落在视口外时平滑移动镜头带到眼前
  * （在视口内则不动镜头，避免打断用户正在进行的操作）。
- * - 位置：以 target 左边界为起点、垂直居中于 target 中心
- * - 多张沿水平方向依次排布，彼此留 PLACEMENT_GAP 间距
+ * - 尺寸：按 target 框 contain 适配（asset 保留原始分辨率），不按原始像素落图
+ * - 位置：居中于 target 框；多张按 target 宽度分格沿水平排开（与 fanOutTargets 对齐），
+ *   彼此留 PLACEMENT_GAP 间距，各自在格内居中
  * - meta（可选）写到每个 image shape 上，承载生成溯源（prompt 等）
  * 供「占位框替换为结果」与「工作台图片送进画布」两处复用（都不依赖占位框存在）。
  */
@@ -109,9 +110,10 @@ export async function placeImagesOnCanvas(
   const sizes = await Promise.all(dataUrls.map(getImageDimensions))
 
   const shapeIds: TLShapeId[] = []
-  let x = target.x
   for (let i = 0; i < dataUrls.length; i++) {
     const { width, height } = sizes[i]
+    const fitted = fitToTarget(width, height, target)
+    const cellX = target.x + i * (target.w + PLACEMENT_GAP)
     const assetId = AssetRecordType.createId()
     editor.createAssets([
       {
@@ -133,13 +135,12 @@ export async function placeImagesOnCanvas(
     editor.createShape<TLImageShape>({
       id: shapeId,
       type: 'image',
-      x,
-      y: centerY - height / 2,
-      props: { assetId, w: width, h: height },
+      x: cellX + (target.w - fitted.w) / 2,
+      y: centerY - fitted.h / 2,
+      props: { assetId, w: fitted.w, h: fitted.h },
       meta: meta ?? {},
     })
     shapeIds.push(shapeId)
-    x += width + PLACEMENT_GAP
   }
   if (shapeIds.length === 0) return
   editor.setSelectedShapes(shapeIds)
