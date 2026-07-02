@@ -37,8 +37,12 @@ export interface CanvasTaskMeta {
   bffRequestId?: string
   /** 发起时的 profile 来源，决定重开后能否恢复（仅 builtin-edge 可恢复）。 */
   source: 'builtin-edge' | 'user-byok'
-  /** 原始提示词，供失效 / 错误态「重试」与落历史复用。 */
+  /** 人话需求（不含指令样板），供失效 / 错误态「重试」与落历史复用。 */
   prompt: string
+  /** 是否标注模式：重试时据此重新注入指令前缀。 */
+  annotated?: boolean
+  /** 发起时的输入图数量：重试时判定「输入图已丢失」，拒绝静默退化成文生图。 */
+  inputCount?: number
   /** 发起时的参数快照（已折叠 n=1），供重试 / 恢复 / 落历史保真复用。 */
   params?: TaskParams
   /** 发起时的 profile 身份快照，恢复完成落历史保真（缺失兜底当前 active profile）。 */

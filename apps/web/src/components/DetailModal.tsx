@@ -48,6 +48,8 @@ export default function DetailModal() {
   const [now, setNow] = useState(Date.now())
   const [showRawUrlsModal, setShowRawUrlsModal] = useState(false)
   const [showRawResponseModal, setShowRawResponseModal] = useState(false)
+  // 长提示词默认折叠（保证弹窗一屏展示不出滚动条），点击可展开。
+  const [promptExpanded, setPromptExpanded] = useState(false)
   const imagePanelRef = useRef<HTMLDivElement>(null)
   const mainImageRef = useRef<HTMLImageElement>(null)
   const modalRef = useRef<HTMLDivElement>(null)
@@ -79,6 +81,7 @@ export default function DetailModal() {
   // Reset index when task changes
   useEffect(() => {
     setImageIndex(0)
+    setPromptExpanded(false)
   }, [detailTaskId])
 
   useEffect(() => {
@@ -666,9 +669,22 @@ export default function DetailModal() {
                 </span>
               )}
             </div>
-            <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed whitespace-pre-wrap mb-4">
+            <p
+              className={`text-sm text-gray-700 dark:text-gray-300 leading-relaxed whitespace-pre-wrap ${
+                promptExpanded ? 'mb-1' : 'line-clamp-4 mb-1'
+              }`}
+            >
               {task.prompt || '(无提示词)'}
             </p>
+            {(task.prompt?.length ?? 0) > 120 && (
+              <button
+                onClick={() => setPromptExpanded((v) => !v)}
+                className="mb-3 text-xs text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300 transition"
+              >
+                {promptExpanded ? '收起' : '展开全部'}
+              </button>
+            )}
+            {(task.prompt?.length ?? 0) <= 120 && <span className="block mb-3" />}
             {showRevisedPrompt && currentRevisedPrompt && (
               <div className="mb-4">
                 <ActualValueBadge

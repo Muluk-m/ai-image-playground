@@ -20,7 +20,7 @@ import {
   toShapeMeta,
 } from './placeholderShapeOps'
 import { computePlaceholderTarget, fanOutTargets } from './placement'
-import { rasterizeSelection } from './rasterizeSelection'
+import { analyzeSelection, rasterizeSelection } from './rasterizeSelection'
 
 /**
  * 标注模式的指令前缀：把「带手绘标注的参考图」翻译成「按标注改、输出干净新图」。
@@ -32,11 +32,12 @@ const CANVAS_ANNOTATION_INSTRUCTION =
   '不要在输出中保留任何手绘标注线条；未被标注的区域尽量与原图保持一致。'
 
 /**
- * 标注模式 prompt：指令前缀 + 修改要求（画布文字标注 annotationText 与输入框 userPrompt 合并）。
- * 两者都可能为空（只画了圈没写字）——此时仅用指令前缀，让模型按图形标注推断意图。
+ * 发给上游的最终 prompt：标注模式注入指令前缀。**发起时才注入**——spec/meta/历史里
+ * 只存人话需求（requirement），指令样板是实现细节，不进历史（否则详情弹窗被样板撑爆、
+ * 「复用配置」也会把样板复制回输入框）。requirement 可为空（只画了圈没写字）。
  */
-function buildAnnotatedPrompt(annotationText: string, userPrompt: string): string {
-  const requirement = [annotationText, userPrompt].filter(Boolean).join('\n')
+function buildApiPrompt(annotated: boolean, requirement: string): string {
+  if (!annotated) return requirement
   return requirement
     ? `${CANVAS_ANNOTATION_INSTRUCTION}\n修改要求：${requirement}`
     : CANVAS_ANNOTATION_INSTRUCTION
@@ -76,6 +77,8 @@ async function launchCanvasTask(editor: Editor, spec: CanvasTaskSpec): Promise<v
       clientRequestId,
       source: profile.source,
       prompt: spec.prompt,
+      annotated: spec.annotated,
+      inputCount: spec.inputImageDataUrls.length,
       params: spec.params,
       profileView,
     }),
@@ -85,7 +88,7 @@ async function launchCanvasTask(editor: Editor, spec: CanvasTaskSpec): Promise<v
   try {
     const result = await callImageApi({
       settings: useStore.getState().settings,
-      prompt: spec.prompt,
+      prompt: buildApiPrompt(spec.annotated, spec.prompt),
       params: spec.params,
       inputImageDataUrls: spec.inputImageDataUrls,
       clientRequestId,
@@ -123,22 +126,33 @@ export async function submitFromCanvas(editor: Editor, userPrompt: string): Prom
   const trimmed = userPrompt.trim()
 
   const selection = await rasterizeSelection(editor)
+  // 守卫：选中了图片但栅格化全部失败 → 明确报错，绝不静默降级成文生图。
+  if (!selection && analyzeSelection(editor)) {
+    showToast('选中图片处理失败，请重试', 'error')
+    return
+  }
   const inputImageDataUrls = selection?.dataUrls ?? []
   if (!trimmed && inputImageDataUrls.length === 0) {
     showToast('请输入提示词，或先在画布上选中图片', 'error')
     return
   }
 
-  // 标注模式：注入「按标注改、输出干净图」指令 + 合并画布文字标注与输入框的修改要求。
+  // 人话需求：画布文字标注与输入框合并。指令样板在发起时才注入（buildApiPrompt），不进历史。
   const prompt = selection?.annotated
-    ? buildAnnotatedPrompt(selection.annotationText, trimmed)
+    ? [selection.annotationText, trimmed].filter(Boolean).join('\n')
     : trimmed
 
   // 参数快照：n 折叠为 1（上游不支持 n，前端 fan-out 拆任务，与工作台一致）。
   const specParams = snapshotParams()
   const base = computePlaceholderTarget(editor, selection?.bounds ?? null)
   for (const target of fanOutTargets(base, params.n)) {
-    void launchCanvasTask(editor, { prompt, inputImageDataUrls, params: specParams, target })
+    void launchCanvasTask(editor, {
+      prompt,
+      annotated: selection?.annotated ?? false,
+      inputImageDataUrls,
+      params: specParams,
+      target,
+    })
   }
 }
 
@@ -150,11 +164,23 @@ export async function submitFromCanvas(editor: Editor, userPrompt: string): Prom
 export function retryCanvasTask(editor: Editor, shape: GenerationPlaceholderShape): void {
   const meta = readTaskMeta(shape)
   const runtime = getCanvasTask(meta.taskId)
+  const inputImageDataUrls = runtime?.inputImageDataUrls ?? []
+
+  // 守卫：原任务带输入图但运行态已随页面关闭清空（输入图刻意不持久化，决策 2/6）——
+  // 此时静默重发会退化成文生图、产出与原意无关的垃圾结果。明确报错，让用户重新选图发起。
+  if ((meta.inputCount ?? 0) > 0 && inputImageDataUrls.length === 0) {
+    useStore
+      .getState()
+      .showToast('原任务的输入图已随页面关闭丢失，请重新选中图片后发起生成', 'error')
+    return
+  }
+
   editor.deleteShape(shape.id)
   removeCanvasTask(meta.taskId)
   void launchCanvasTask(editor, {
     prompt: meta.prompt,
-    inputImageDataUrls: runtime?.inputImageDataUrls ?? [],
+    annotated: meta.annotated ?? false,
+    inputImageDataUrls,
     // meta.params 与 runtime spec 同源（launch 时一并写入），持久化的 meta 是权威。
     params: meta.params ?? snapshotParams(),
     target: runtime?.target ?? targetFromShape(shape),
