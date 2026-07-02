@@ -67,10 +67,6 @@ export class GenerationPlaceholderShapeUtil extends BaseBoxShapeUtil<GenerationP
     return { w: 360, h: 360, status: 'loading', message: '' }
   }
 
-  override canResize() {
-    return false
-  }
-
   override canEdit() {
     return false
   }

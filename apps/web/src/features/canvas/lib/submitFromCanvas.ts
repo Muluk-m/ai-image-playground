@@ -183,6 +183,7 @@ export function retryCanvasTask(editor: Editor, shape: GenerationPlaceholderShap
     inputImageDataUrls,
     // meta.params 与 runtime spec 同源（launch 时一并写入），持久化的 meta 是权威。
     params: meta.params ?? snapshotParams(),
-    target: runtime?.target ?? targetFromShape(shape),
+    // 几何一律读活 shape：用户可能已拖动 / 拉伸过错误态占位框，submit 时的 runtime.target 已过期。
+    target: targetFromShape(shape),
   })
 }
