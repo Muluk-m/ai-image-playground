@@ -1,32 +1,40 @@
-import { Excalidraw } from '@excalidraw/excalidraw'
-import '@excalidraw/excalidraw/index.css'
 import { useEffect, useState } from 'react'
 import { useStore } from '../../../store'
+import { CanvasDoc } from '../lib/canvasDoc'
 import { CanvasEditor } from '../lib/editor'
 import { loadScene, PERSIST_DEBOUNCE_MS, saveScene } from '../lib/persistence'
 import { placeImagesOnCanvas } from '../lib/placeholderShapeOps'
 import { computePlaceholderTarget } from '../lib/placement'
 import { recoverCanvasTasks } from '../lib/recoverCanvasTasks'
 import CanvasGenerateBar from './CanvasGenerateBar'
+import CanvasToolbar from './CanvasToolbar'
+import KonvaCanvas from './KonvaCanvas'
 import PlaceholderOverlay from './PlaceholderOverlay'
 
 /** 画布顶部让出 Header（安全区 + 3.5rem，与 index.css 的 .safe-header-inner 对齐）。 */
 const HEADER_OFFSET = 'calc(var(--safe-area-top) + 3.5rem)'
 
 /**
- * 创作模式：基于 Excalidraw（MIT，无 license 闸）的无限画布。
- * - 持久化走自建 IndexedDB 场景快照（lib/persistence.ts），onChange 防抖落盘
- * - 固定暗色主题 + 网格背景
- * - 占位框状态 UI 由 PlaceholderOverlay 浮层渲染（元素本体只画虚线框）
+ * 创作模式：自建无限画布（Konva 渲染，MIT，无任何 license 依赖）。
+ * - 持久化走自建 IndexedDB 场景快照（lib/persistence.ts），变更防抖落盘
+ * - 暗色 + 点阵网格；占位框状态 UI 由 PlaceholderOverlay 浮层渲染
  */
 export default function CanvasMode() {
-  const [editor, setEditor] = useState<CanvasEditor | null>(null)
+  const [{ doc, editor }] = useState(() => {
+    const canvasDoc = new CanvasDoc()
+    return { doc: canvasDoc, editor: new CanvasEditor(canvasDoc) }
+  })
+
+  // DEV 调试出口：E2E / 排查用（生产构建剔除）。
+  useEffect(() => {
+    if (!import.meta.env.DEV) return
+    ;(window as unknown as { __canvasEditor?: CanvasEditor }).__canvasEditor = editor
+  }, [editor])
 
   // 挂载后按序：恢复持久化场景 → 续接 / 失效未完成任务（决策 7）→ 消费「工作台图片 →
   // 画布」handoff 队列 → 订阅变更防抖落盘。落盘订阅在恢复完成后才挂上，避免把
   // 「尚未加载完的空场景」写回覆盖存档。
   useEffect(() => {
-    if (!editor) return
     let disposed = false
     let loaded = false
     let timer: number | undefined
@@ -55,16 +63,12 @@ export default function CanvasMode() {
   }, [editor])
 
   return (
-    <div className="fixed inset-x-0 bottom-0 z-30" style={{ top: HEADER_OFFSET }}>
+    <div className="fixed inset-x-0 bottom-0 z-30 bg-[#101011]" style={{ top: HEADER_OFFSET }}>
       <div className="relative h-full w-full">
-        <Excalidraw
-          excalidrawAPI={(api) => setEditor(new CanvasEditor(api))}
-          theme="dark"
-          gridModeEnabled
-          langCode="zh-CN"
-        />
-        {editor && <PlaceholderOverlay editor={editor} />}
-        {editor && <CanvasGenerateBar editor={editor} />}
+        <KonvaCanvas editor={editor} />
+        <PlaceholderOverlay editor={editor} />
+        <CanvasToolbar doc={doc} />
+        <CanvasGenerateBar editor={editor} />
       </div>
     </div>
   )

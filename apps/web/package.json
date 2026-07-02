@@ -14,11 +14,12 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@excalidraw/excalidraw": "^0.18.1",
     "@image-playground/shared": "workspace:*",
     "fflate": "^0.8.2",
+    "konva": "^10.3.0",
     "react": "^19.2.1",
     "react-dom": "^19.2.1",
+    "react-konva": "^19.2.5",
     "zustand": "^5.0.5"
   },
   "devDependencies": {

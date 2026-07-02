@@ -1,57 +1,23 @@
-import { useEffect, useState } from 'react'
-import { type CanvasEditor, type PlaceholderView, STATUS_ACCENT } from '../lib/editor'
+import { useSyncExternalStore } from 'react'
+import { type CanvasEditor, STATUS_ACCENT } from '../lib/editor'
 import { retryCanvasTask } from '../lib/submitFromCanvas'
 
 /**
- * 占位框内容浮层：虚线边框由画布上的 rectangle 元素本体绘制（跟随选择 / 导出语义），
- * spinner / 错误文案 / 重试按钮走 DOM 浮层——Excalidraw 的 embeddable 自定义渲染在元素
- * 未「激活」前不接收指针事件（重试会变两步点击），浮层方案指针行为完全自控：
- * 容器保持指针穿透（悬停时滚轮缩放 / 拖拽平移不被吞掉），仅重试按钮开启指针事件。
- * 位置随画布 scroll / zoom 实时换算，内容用 scale(zoom) 与页面坐标系同步缩放。
+ * 占位框内容浮层：虚线边框由画布上的占位框元素本体绘制（Konva Rect），
+ * spinner / 错误文案 / 重试按钮走 DOM 浮层——容器保持指针穿透
+ * （悬停时滚轮缩放 / 拖拽平移不被吞掉），仅重试按钮开启指针事件。
+ * 位置随相机 scroll / zoom 实时换算，内容用 scale(zoom) 与页面坐标系同步缩放。
  */
-
-interface OverlayState {
-  placeholders: PlaceholderView[]
-  scrollX: number
-  scrollY: number
-  zoom: number
-}
-
-function snapshot(editor: CanvasEditor): OverlayState {
-  const s = editor.api.getAppState()
-  return {
-    placeholders: editor.getPlaceholders(),
-    scrollX: s.scrollX,
-    scrollY: s.scrollY,
-    zoom: s.zoom.value,
-  }
-}
-
-/** 渲染相关字段的浅签名：onChange 高频触发，无视觉变化时跳过 setState 重渲染。 */
-function renderSignature(state: OverlayState): string {
-  const items = state.placeholders
-    .map((p) => `${p.id}:${p.x}:${p.y}:${p.w}:${p.h}:${p.status}:${p.message}`)
-    .join('|')
-  return `${state.scrollX}:${state.scrollY}:${state.zoom}|${items}`
-}
-
 export default function PlaceholderOverlay({ editor }: { editor: CanvasEditor }) {
-  const [state, setState] = useState<OverlayState>(() => snapshot(editor))
+  useSyncExternalStore(editor.doc.subscribe, () => editor.doc.version)
+  const { camera } = editor.doc
+  const placeholders = editor.getPlaceholders()
 
-  useEffect(() => {
-    const update = () => {
-      const next = snapshot(editor)
-      setState((prev) => (renderSignature(prev) === renderSignature(next) ? prev : next))
-    }
-    update()
-    return editor.onChange(update)
-  }, [editor])
-
-  if (state.placeholders.length === 0) return null
+  if (placeholders.length === 0) return null
 
   return (
     <div className="pointer-events-none absolute inset-0 z-10 overflow-hidden">
-      {state.placeholders.map((p) => {
+      {placeholders.map((p) => {
         const accent = STATUS_ACCENT[p.status]
         const isLoading = p.status === 'loading'
         return (
@@ -59,11 +25,11 @@ export default function PlaceholderOverlay({ editor }: { editor: CanvasEditor })
             key={p.id}
             className="absolute"
             style={{
-              left: (p.x + state.scrollX) * state.zoom,
-              top: (p.y + state.scrollY) * state.zoom,
+              left: (p.x - camera.x) * camera.zoom,
+              top: (p.y - camera.y) * camera.zoom,
               width: p.w,
               height: p.h,
-              transform: `scale(${state.zoom})`,
+              transform: `scale(${camera.zoom})`,
               transformOrigin: 'top left',
             }}
           >

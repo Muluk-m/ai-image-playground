@@ -107,7 +107,7 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
 
   return (
     <div
-      className="pointer-events-none absolute inset-x-0 bottom-24 z-[400] flex justify-center px-4 md:bottom-16"
+      className="pointer-events-none absolute inset-x-0 bottom-20 z-[400] flex justify-center px-4"
       onPointerDown={(e) => e.stopPropagation()}
     >
       <div className="pointer-events-auto flex w-full max-w-2xl flex-col gap-2 rounded-2xl border border-gray-200 bg-white/95 p-2 shadow-lg backdrop-blur dark:border-white/10 dark:bg-gray-900/95">
