@@ -99,7 +99,9 @@ export class GenerationPlaceholderShapeUtil extends BaseBoxShapeUtil<GenerationP
           textAlign: 'center',
           fontSize: 13,
           lineHeight: 1.4,
-          pointerEvents: 'all',
+          // 容器保持指针穿透：否则悬停在占位框上时滚轮缩放 / 拖拽平移会被 HTML 层吞掉，
+          // 画布操作失灵。仅「重试」按钮单独开启指针事件。
+          pointerEvents: 'none',
         }}
       >
         {isLoading ? (
@@ -138,6 +140,7 @@ export class GenerationPlaceholderShapeUtil extends BaseBoxShapeUtil<GenerationP
                 border: 'none',
                 borderRadius: 8,
                 cursor: 'pointer',
+                pointerEvents: 'all',
               }}
             >
               重试
