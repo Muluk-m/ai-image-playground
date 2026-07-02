@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useEditor, useValue } from 'tldraw'
+import ParamControls from '../../../components/ParamControls'
 import { submitFromCanvas } from '../lib/submitFromCanvas'
 
 /**
@@ -47,31 +48,37 @@ export default function CanvasGenerateBar() {
       className="pointer-events-none absolute inset-x-0 bottom-24 z-[400] flex justify-center px-4"
       onPointerDown={(e) => e.stopPropagation()}
     >
-      <div className="pointer-events-auto flex w-full max-w-2xl items-end gap-2 rounded-2xl border border-gray-200 bg-white/95 p-2 shadow-lg backdrop-blur dark:border-white/10 dark:bg-gray-900/95">
-        <div className="flex flex-1 flex-col">
-          <span className="px-2 pt-1 text-[11px] text-gray-400 dark:text-gray-500">{hint}</span>
-          <textarea
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            onKeyDown={(e) => {
-              if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-                e.preventDefault()
-                run()
-              }
-            }}
-            placeholder="描述想生成 / 想怎么改…（⌘/Ctrl + Enter 生成）"
-            rows={1}
-            className="max-h-32 min-h-[2.25rem] resize-none bg-transparent px-2 py-1.5 text-sm text-gray-900 outline-none placeholder:text-gray-400 dark:text-gray-50"
-          />
+      <div className="pointer-events-auto flex w-full max-w-2xl flex-col gap-2 rounded-2xl border border-gray-200 bg-white/95 p-2 shadow-lg backdrop-blur dark:border-white/10 dark:bg-gray-900/95">
+        {/* 参数控制条：与工作台共用同一份全局 params/settings，创作模式下也能选模型 / 尺寸 / 质量等。 */}
+        <div className="flex flex-wrap items-center gap-2">
+          <ParamControls />
         </div>
-        <button
-          type="button"
-          onClick={run}
-          disabled={!canSubmit}
-          className="shrink-0 rounded-xl bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          生成
-        </button>
+        <div className="flex items-end gap-2">
+          <div className="flex flex-1 flex-col">
+            <span className="px-2 pt-1 text-[11px] text-gray-400 dark:text-gray-500">{hint}</span>
+            <textarea
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              onKeyDown={(e) => {
+                if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+                  e.preventDefault()
+                  run()
+                }
+              }}
+              placeholder="描述想生成 / 想怎么改…（⌘/Ctrl + Enter 生成）"
+              rows={1}
+              className="max-h-32 min-h-[2.25rem] resize-none bg-transparent px-2 py-1.5 text-sm text-gray-900 outline-none placeholder:text-gray-400 dark:text-gray-50"
+            />
+          </div>
+          <button
+            type="button"
+            onClick={run}
+            disabled={!canSubmit}
+            className="shrink-0 rounded-xl bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            生成
+          </button>
+        </div>
       </div>
     </div>
   )
