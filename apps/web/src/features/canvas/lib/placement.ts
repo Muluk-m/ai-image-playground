@@ -14,6 +14,19 @@ export interface PlacementTarget {
 }
 
 /**
+ * 把原始尺寸按 contain 适配进 target 框（保持宽高比，可放大可缩小）：
+ * 生成结果 / 送进画布的图以此落成与展位框一致的大小，而非原始像素尺寸。
+ */
+export function fitToTarget(
+  width: number,
+  height: number,
+  frame: { w: number; h: number },
+): { w: number; h: number } {
+  const scale = Math.min(frame.w / width, frame.h / height)
+  return { w: width * scale, h: height * scale }
+}
+
+/**
  * n>1 变体 fan-out 的占位目标：以 base 为首，沿水平方向依次排开，彼此留间距。
  * 与工作台「n 张拆 n 条任务」语义一致，画布上表现为一排独立占位框。
  */
