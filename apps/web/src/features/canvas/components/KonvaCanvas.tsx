@@ -17,6 +17,7 @@ import { newElementId, ZOOM_MAX, ZOOM_MIN } from '../lib/canvasDoc'
 import { type CanvasEditor, elementBounds } from '../lib/editor'
 import { Box } from '../lib/geometry'
 import { getLoadedImage } from '../lib/imageCache'
+import { importImageFiles } from '../lib/importImages'
 import {
   arrowProps,
   CANVAS_FONT_FAMILY,
@@ -194,6 +195,22 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
       window.removeEventListener('keyup', onKeyUp)
     }
   }, [doc])
+
+  // ===== 剪贴板粘贴图片 =====
+  useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      const t = e.target as HTMLElement | null
+      // 输入框里的粘贴（生成条 prompt / 文字编辑）不拦
+      if (t?.tagName === 'INPUT' || t?.tagName === 'TEXTAREA' || t?.isContentEditable) return
+      const files = [...(e.clipboardData?.files ?? [])].filter((f) => f.type.startsWith('image/'))
+      if (files.length === 0) return
+      e.preventDefault()
+      const vp = editor.getViewportPageBounds()
+      void importImageFiles(editor, files, { x: vp.midX, y: vp.midY })
+    }
+    window.addEventListener('paste', onPaste)
+    return () => window.removeEventListener('paste', onPaste)
+  }, [editor])
 
   // ===== Transformer 绑定选中的图片节点 =====
   // biome-ignore lint/correctness/useExhaustiveDependencies: doc.version 驱动（选区/元素变化后重绑节点）
@@ -478,7 +495,24 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
   )
 
   return (
-    <div ref={containerRef} className="absolute inset-0 overflow-hidden" style={{ cursor }}>
+    <div
+      ref={containerRef}
+      className="absolute inset-0 overflow-hidden"
+      style={{ cursor }}
+      onDragOver={(e) => {
+        if (e.dataTransfer.types.includes('Files')) e.preventDefault()
+      }}
+      onDrop={(e) => {
+        e.preventDefault()
+        const rect = containerRef.current?.getBoundingClientRect()
+        if (!rect) return
+        const drop = {
+          x: camera.x + (e.clientX - rect.left) / camera.zoom,
+          y: camera.y + (e.clientY - rect.top) / camera.zoom,
+        }
+        void importImageFiles(editor, [...e.dataTransfer.files], drop)
+      }}
+    >
       <Stage
         ref={stageRef}
         width={viewport.width}
