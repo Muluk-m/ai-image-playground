@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import InspirationEmptyHero from '../features/inspiration/components/InspirationEmptyHero'
-import { editOutputImage, removeTask, reuseConfig, useStore } from '../store'
+import { editOutputImage, removeTask, reuseConfig, sendTaskToCanvas, useStore } from '../store'
 import TaskCard from './TaskCard'
 
 export default function TaskGrid() {
@@ -312,6 +312,7 @@ export default function TaskGrid() {
               }}
               onReuse={() => reuseConfig(task)}
               onEditOutputs={() => editOutputImage(task)}
+              onSendToCanvas={() => sendTaskToCanvas(task)}
               onDelete={() => handleDelete(task)}
               isSelected={selectedTaskIds.includes(task.id)}
             />

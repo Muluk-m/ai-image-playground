@@ -428,3 +428,24 @@ describe('getPersistedState builtin profile stripping', () => {
     expect(persisted.settings.profiles.find((p) => p.id === 'user-1')).toBeDefined()
   })
 })
+
+describe('canvas image handoff queue', () => {
+  beforeEach(() => {
+    useStore.setState({ pendingCanvasImages: [] })
+  })
+
+  it('queue 追加、consume 返回并清空、二次 consume 为空', () => {
+    const { queueCanvasImages, consumeCanvasImages } = useStore.getState()
+    queueCanvasImages(['data:a', 'data:b'])
+    expect(useStore.getState().pendingCanvasImages).toEqual(['data:a', 'data:b'])
+    expect(consumeCanvasImages()).toEqual(['data:a', 'data:b'])
+    expect(useStore.getState().pendingCanvasImages).toEqual([])
+    expect(consumeCanvasImages()).toEqual([])
+  })
+
+  it('getPersistedState 不含 pendingCanvasImages（一次性 handoff 不持久化）', () => {
+    useStore.getState().queueCanvasImages(['data:x'])
+    const persisted = getPersistedState(useStore.getState())
+    expect('pendingCanvasImages' in persisted).toBe(false)
+  })
+})
