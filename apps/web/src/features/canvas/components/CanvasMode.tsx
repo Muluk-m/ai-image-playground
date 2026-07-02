@@ -1,5 +1,8 @@
 import { Tldraw } from 'tldraw'
 import 'tldraw/tldraw.css'
+import { useStore } from '../../../store'
+import { placeImagesOnCanvas } from '../lib/placeholderShapeOps'
+import { computePlaceholderTarget } from '../lib/placement'
 import { recoverCanvasTasks } from '../lib/recoverCanvasTasks'
 import { GenerationPlaceholderShapeUtil } from '../shapes/GenerationPlaceholderShapeUtil'
 import CanvasGenerateBar from './CanvasGenerateBar'
@@ -46,6 +49,11 @@ export default function CanvasMode() {
           }
           // 画布加载完成后扫描运行态占位框，续接 / 失效未完成任务（决策 7）。
           recoverCanvasTasks(editor)
+          // 消费「工作台图片 → 画布」handoff 队列，放到视口中心（与占位框恢复互不干扰）。
+          const pending = useStore.getState().consumeCanvasImages()
+          if (pending.length > 0) {
+            void placeImagesOnCanvas(editor, pending, computePlaceholderTarget(editor, null))
+          }
         }}
       >
         <CanvasGenerateBar />

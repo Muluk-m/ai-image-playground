@@ -81,27 +81,21 @@ export async function settleGeneration(
 }
 
 /**
- * 把生成结果作为新的 image shape 放到画布，并**删除**占位框。
- * - 位置：占位框左边界起、垂直居中于占位框中心（即选区右侧、垂直居中）
- * - 多张结果沿水平方向依次排布，彼此留 PLACEMENT_GAP 间距
- * - 占位框已被用户删除：按 target 原位新建，不抛错（决策 7 末行 / spec 占位框缺失）
+ * 把 dataUrl 列表作为新的 image shape 放到画布并选中。
+ * - 位置：以 target 左边界为起点、垂直居中于 target 中心
+ * - 多张沿水平方向依次排布，彼此留 PLACEMENT_GAP 间距
+ * 供「占位框替换为结果」与「工作台图片送进画布」两处复用（都不依赖占位框存在）。
  */
-async function placeResults(
+export async function placeImagesOnCanvas(
   editor: Editor,
-  placeholderId: TLShapeId,
-  target: PlacementTarget,
   dataUrls: string[],
+  target: PlacementTarget,
 ): Promise<void> {
-  const placeholder = getPlaceholder(editor, placeholderId)
-  const left = placeholder ? placeholder.x : target.x
-  const centerY = placeholder ? placeholder.y + placeholder.props.h / 2 : target.y + target.h / 2
-
+  const centerY = target.y + target.h / 2
   const sizes = await Promise.all(dataUrls.map(getImageDimensions))
 
-  if (placeholder) editor.deleteShape(placeholderId)
-
   const shapeIds: TLShapeId[] = []
-  let x = left
+  let x = target.x
   for (let i = 0; i < dataUrls.length; i++) {
     const { width, height } = sizes[i]
     const assetId = AssetRecordType.createId()
@@ -133,4 +127,20 @@ async function placeResults(
     x += width + PLACEMENT_GAP
   }
   if (shapeIds.length > 0) editor.setSelectedShapes(shapeIds)
+}
+
+/**
+ * 把生成结果放到画布并**删除**占位框：占位框还在就放在它的位置（选区右侧、垂直居中），
+ * 已被用户删除则按 target 兜底放置，不抛错（决策 7 末行 / spec 占位框缺失）。
+ */
+async function placeResults(
+  editor: Editor,
+  placeholderId: TLShapeId,
+  target: PlacementTarget,
+  dataUrls: string[],
+): Promise<void> {
+  const placeholder = getPlaceholder(editor, placeholderId)
+  const anchor = placeholder ? targetFromShape(placeholder) : target
+  if (placeholder) editor.deleteShape(placeholderId)
+  await placeImagesOnCanvas(editor, dataUrls, anchor)
 }
