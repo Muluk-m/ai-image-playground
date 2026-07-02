@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useEditor, useValue } from 'tldraw'
 import ParamControls from '../../../components/ParamControls'
 import { analyzeSelection, rasterizeEntry } from '../lib/rasterizeSelection'
@@ -24,6 +24,7 @@ export default function CanvasGenerateBar() {
   const editor = useEditor()
   const [prompt, setPrompt] = useState('')
   const [previews, setPreviews] = useState<string[]>([])
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   // 与提交同一套选区分析：标注自动跟随被标注的图，提示与实际提交一致。
   const selectionInfo = useValue('canvasSelectionInfo', () => {
@@ -73,6 +74,10 @@ export default function CanvasGenerateBar() {
     // 发起即返回：不 await，输入条立即恢复可交互（并发语义）。
     void submitFromCanvas(editor, prompt)
     setPrompt('')
+    // 焦点还给画布：焦点困在输入框时 tldraw 全部快捷键被禁用（editable 守卫），
+    // 生成发出后用户的下一步通常是画布操作（选图 / 删除 / 复制粘贴）。
+    textareaRef.current?.blur()
+    editor.focus()
   }
 
   return (
@@ -112,12 +117,18 @@ export default function CanvasGenerateBar() {
           <div className="flex flex-1 flex-col">
             <span className="px-2 pt-1 text-[11px] text-gray-400 dark:text-gray-500">{hint}</span>
             <textarea
+              ref={textareaRef}
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
               onKeyDown={(e) => {
                 if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
                   e.preventDefault()
                   run()
+                } else if (e.key === 'Escape') {
+                  // Esc 退出输入框、焦点还给画布（恢复 tldraw 快捷键）。
+                  e.preventDefault()
+                  e.currentTarget.blur()
+                  editor.focus()
                 }
               }}
               placeholder="描述想生成 / 想怎么改…（⌘/Ctrl + Enter 生成）"

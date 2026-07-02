@@ -1,4 +1,4 @@
-import { Tldraw } from 'tldraw'
+import { type TLUiOverrides, Tldraw } from 'tldraw'
 import 'tldraw/tldraw.css'
 import { useStore } from '../../../store'
 import { placeImagesOnCanvas } from '../lib/placeholderShapeOps'
@@ -9,6 +9,15 @@ import CanvasGenerateBar from './CanvasGenerateBar'
 
 /** 注册画布自定义 shape（生成占位框）。 */
 const customShapeUtils = [GenerationPlaceholderShapeUtil]
+
+/** 快捷键增强：Cmd/Ctrl+⌫ 作为删除别名（tldraw 默认仅 ⌫/del，习惯 Cmd+Delete 的用户按了没反应）。 */
+const uiOverrides: TLUiOverrides = {
+  actions(_editor, actions) {
+    const del = actions.delete
+    if (del?.kbd) del.kbd = `${del.kbd},cmd+⌫,ctrl+⌫`
+    return actions
+  },
+}
 
 /** 画布顶部让出 Header（安全区 + 3.5rem，与 index.css 的 .safe-header-inner 对齐）。 */
 const HEADER_OFFSET = 'calc(var(--safe-area-top) + 3.5rem)'
@@ -38,6 +47,7 @@ export default function CanvasMode() {
         licenseKey={TLDRAW_LICENSE_KEY}
         persistenceKey={CANVAS_PERSISTENCE_KEY}
         shapeUtils={customShapeUtils}
+        overrides={uiOverrides}
         onMount={(editor) => {
           // 固定暗色主题（仅在非暗色时切，避免污染 undo/首帧闪烁）。
           if (editor.user.getUserPreferences().colorScheme !== 'dark') {
