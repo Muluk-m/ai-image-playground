@@ -813,11 +813,11 @@ export default function DetailModal() {
             </div>
           </div>
 
-          {/* 操作按钮 */}
-          <div className="grid grid-cols-6 sm:flex gap-2 pt-4 border-t border-gray-100 dark:border-white/[0.08]">
+          {/* 操作按钮：三个主操作带文字均分；删除 / 收藏为图标小方钮，避免一行挤爆 */}
+          <div className="grid grid-cols-8 sm:flex gap-2 pt-4 border-t border-gray-100 dark:border-white/[0.08]">
             <button
               onClick={handleReuse}
-              className="col-span-3 sm:flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-500/20 transition text-sm font-medium whitespace-nowrap"
+              className="col-span-4 sm:flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-500/20 transition text-sm font-medium whitespace-nowrap"
             >
               <svg
                 className="w-4 h-4 flex-shrink-0"
@@ -837,7 +837,7 @@ export default function DetailModal() {
             <button
               onClick={handleEdit}
               disabled={!outputLen}
-              className="col-span-3 sm:flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-green-50 dark:bg-green-500/10 text-green-600 dark:text-green-400 hover:bg-green-100 dark:hover:bg-green-500/20 disabled:opacity-40 disabled:cursor-not-allowed transition text-sm font-medium whitespace-nowrap"
+              className="col-span-4 sm:flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-green-50 dark:bg-green-500/10 text-green-600 dark:text-green-400 hover:bg-green-100 dark:hover:bg-green-500/20 disabled:opacity-40 disabled:cursor-not-allowed transition text-sm font-medium whitespace-nowrap"
             >
               <EditIcon className="w-4 h-4 flex-shrink-0" />
               编辑输出
@@ -845,7 +845,7 @@ export default function DetailModal() {
             <button
               onClick={handleSendToCanvas}
               disabled={!outputLen}
-              className="col-span-2 sm:flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-purple-50 dark:bg-purple-500/10 text-purple-600 dark:text-purple-400 hover:bg-purple-100 dark:hover:bg-purple-500/20 disabled:opacity-40 disabled:cursor-not-allowed transition text-sm font-medium whitespace-nowrap"
+              className="col-span-4 sm:flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-purple-50 dark:bg-purple-500/10 text-purple-600 dark:text-purple-400 hover:bg-purple-100 dark:hover:bg-purple-500/20 disabled:opacity-40 disabled:cursor-not-allowed transition text-sm font-medium whitespace-nowrap"
             >
               <svg
                 className="w-4 h-4 flex-shrink-0"
@@ -864,10 +864,10 @@ export default function DetailModal() {
             </button>
             <button
               onClick={handleDelete}
-              className="col-span-2 sm:flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-red-50 dark:bg-red-500/10 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-500/20 transition text-sm font-medium whitespace-nowrap"
+              className="col-span-2 sm:flex-none sm:w-11 w-full flex items-center justify-center rounded-xl bg-red-50 dark:bg-red-500/10 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-500/20 transition"
+              title="删除记录"
             >
-              <TrashIcon className="w-4 h-4 flex-shrink-0" />
-              删除记录
+              <TrashIcon className="w-5 h-5" />
             </button>
             <button
               onClick={handleToggleFavorite}
