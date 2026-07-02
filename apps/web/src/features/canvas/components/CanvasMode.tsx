@@ -62,6 +62,13 @@ export default function CanvasMode() {
           // 标注的用途就是醒目指示修改意图，tldraw 默认的黑色小号在照片上几乎看不见。
           editor.setStyleForNextShapes(DefaultColorStyle, 'red')
           editor.setStyleForNextShapes(DefaultSizeStyle, 'xl')
+          // 文字工具新建的 text 再放大 2 倍（xl 上限仅 44px，大图上仍太小）。
+          // 仅对文字工具下的新建生效：复制 / 粘贴发生在 select 工具下，不会被重复放大。
+          editor.sideEffects.registerAfterCreateHandler('shape', (shape) => {
+            if (shape.type === 'text' && editor.getCurrentToolId() === 'text') {
+              editor.updateShape({ id: shape.id, type: 'text', props: { scale: 2 } })
+            }
+          })
           // 画布加载完成后扫描运行态占位框，续接 / 失效未完成任务（决策 7）。
           recoverCanvasTasks(editor)
           // 消费「工作台图片 → 画布」handoff 队列，放到视口中心（与占位框恢复互不干扰）。
