@@ -1,81 +1,59 @@
-import type { Editor, TLShapeId } from 'tldraw'
 import { describe, expect, it, vi } from 'vitest'
-
-// rasterizeSelection 从 'tldraw' 取运行时值 Box.Common / renderPlaintextFromRichText；
-// node 环境不加载真 tldraw，桩掉：Box.Common 返回首个 box，plaintext 直接取 richText.text。
-vi.mock('tldraw', () => ({
-  Box: { Common: (boxes: unknown[]) => boxes[0] },
-  renderPlaintextFromRichText: (_editor: unknown, richText: { text?: string }) =>
-    richText.text ?? '',
-}))
-
+import type { CanvasEditor } from '../../../../features/canvas/lib/editor'
+import { Box } from '../../../../features/canvas/lib/geometry'
 import { rasterizeSelection } from '../../../../features/canvas/lib/rasterizeSelection'
 
-/** AABB 碰撞的 Box 桩（真 Box.collides 的最小等价实现）。 */
-function box(x: number, y: number, w: number, h: number) {
-  return {
-    x,
-    y,
-    w,
-    h,
-    minX: x,
-    minY: y,
-    maxX: x + w,
-    maxY: y + h,
-    midX: x + w / 2,
-    midY: y + h / 2,
-    collides(b: { minX: number; minY: number; maxX: number; maxY: number }) {
-      return !(b.minX > x + w || b.maxX < x || b.minY > y + h || b.maxY < y)
-    },
-  }
+function box(x: number, y: number, w: number, h: number): Box {
+  return new Box(x, y, w, h)
 }
 
-interface ShapeSpec {
+interface ElementSpec {
   type: string
   /** 页面坐标包围盒 */
-  box: ReturnType<typeof box>
-  /** 文字标注内容；桩里映射为 props.richText.text */
+  box: Box
+  /** 文字标注内容（type 为 text 时生效） */
   text?: string
 }
 
+/**
+ * CanvasEditor 桩：rasterizeSelection 只用到查询接口 + toImage。
+ * 占位框用 type 'generation-placeholder' 标记，isPlaceholder 据此判定。
+ */
 function makeEditor(opts: {
   selected: string[]
-  shapes: Record<string, ShapeSpec>
+  elements: Record<string, ElementSpec>
   toImage?: ReturnType<typeof vi.fn>
-}): Editor {
+}): CanvasEditor {
+  const toElement = (id: string, spec: ElementSpec) => ({
+    id,
+    type: spec.type === 'generation-placeholder' ? 'rectangle' : spec.type,
+    text: spec.text ?? '',
+  })
+  const isPlaceholderId = (id: string) => opts.elements[id]?.type === 'generation-placeholder'
   return {
-    getSelectedShapeIds: () => opts.selected as TLShapeId[],
-    getShape: (id: string) => {
-      const spec = opts.shapes[id]
-      if (!spec) return undefined
-      return { id, type: spec.type, props: spec.text ? { richText: { text: spec.text } } : {} }
+    getSelectedIds: () => opts.selected,
+    getElement: (id: string) => {
+      const spec = opts.elements[id]
+      return spec ? toElement(id, spec) : undefined
     },
-    getShapePageBounds: (id: string) => opts.shapes[id]?.box,
-    getCurrentPageShapes: () =>
-      Object.entries(opts.shapes).map(([id, spec]) => ({
-        id,
-        type: spec.type,
-        props: spec.text ? { richText: { text: spec.text } } : {},
-      })),
+    getElementPageBounds: (id: string) => opts.elements[id]?.box,
+    getElements: () => Object.entries(opts.elements).map(([id, spec]) => toElement(id, spec)),
+    isPlaceholder: (el: { id: string }) => isPlaceholderId(el.id),
     toImage:
       opts.toImage ??
-      vi.fn(async (_ids: readonly string[], _opts?: unknown) => ({
-        blob: new Blob(['x'], { type: 'image/png' }),
-      })),
-  } as unknown as Editor
+      vi.fn(async (_ids: readonly string[], _opts?: unknown) => 'data:image/png;base64,x'),
+  } as unknown as CanvasEditor
 }
 
 const mockToImage = () =>
-  vi.fn(async (_ids: readonly string[], _opts?: unknown) => ({
-    blob: new Blob(['x'], { type: 'image/png' }),
-  }))
+  vi.fn(async (_ids: readonly string[], _opts?: unknown) => 'data:image/png;base64,x')
 
 describe('rasterizeSelection', () => {
   it('纯多图（无标注）：每张图片各自独立栅格化（决策 5，不拼合）', async () => {
     const toImage = mockToImage()
     const editor = makeEditor({
       selected: ['img1', 'img2'],
-      shapes: {
+      elements: {
         img1: { type: 'image', box: box(0, 0, 100, 100) },
         img2: { type: 'image', box: box(500, 0, 100, 100) },
       },
@@ -94,11 +72,11 @@ describe('rasterizeSelection', () => {
   it('标注自动跟随：只选中图片，画在图上的圈也被带上（合成裁到该图范围）', async () => {
     const toImage = mockToImage()
     const editor = makeEditor({
-      // 只选中图片，draw 未选中——但它压在图上，应自动纳入
+      // 只选中图片，freedraw 未选中——但它压在图上，应自动纳入
       selected: ['img1'],
-      shapes: {
+      elements: {
         img1: { type: 'image', box: box(0, 0, 100, 100) },
-        draw1: { type: 'draw', box: box(40, 40, 30, 30) },
+        draw1: { type: 'freedraw', box: box(40, 40, 30, 30) },
       },
       toImage,
     })
@@ -115,10 +93,10 @@ describe('rasterizeSelection', () => {
     const toImage = mockToImage()
     const editor = makeEditor({
       selected: ['img1'],
-      shapes: {
+      elements: {
         img1: { type: 'image', box: box(0, 0, 100, 100) },
         // 圈与图重叠 → 箭头与圈重叠（不碰图）→ 文字与箭头重叠（更远）
-        circle: { type: 'draw', box: box(80, 40, 40, 30) },
+        circle: { type: 'freedraw', box: box(80, 40, 40, 30) },
         arrow: { type: 'arrow', box: box(115, 45, 60, 10) },
         label: { type: 'text', box: box(170, 40, 80, 20), text: '变成钢笔' },
       },
@@ -137,10 +115,10 @@ describe('rasterizeSelection', () => {
     const toImage = mockToImage()
     const editor = makeEditor({
       selected: ['img1', 'img2'],
-      shapes: {
+      elements: {
         img1: { type: 'image', box: box(0, 0, 100, 100) },
         img2: { type: 'image', box: box(500, 0, 100, 100) },
-        draw1: { type: 'draw', box: box(40, 40, 30, 30) }, // 只压 img1
+        draw1: { type: 'freedraw', box: box(40, 40, 30, 30) }, // 只压 img1
       },
       toImage,
     })
@@ -157,7 +135,7 @@ describe('rasterizeSelection', () => {
     const toImage = mockToImage()
     const editor = makeEditor({
       selected: ['img1'],
-      shapes: {
+      elements: {
         img1: { type: 'image', box: box(0, 0, 100, 100) },
         ph1: { type: 'generation-placeholder', box: box(50, 50, 100, 100) },
       },
@@ -173,9 +151,9 @@ describe('rasterizeSelection', () => {
   it('远处无关的标注不被卷入', async () => {
     const editor = makeEditor({
       selected: ['img1'],
-      shapes: {
+      elements: {
         img1: { type: 'image', box: box(0, 0, 100, 100) },
-        far: { type: 'draw', box: box(900, 900, 30, 30) },
+        far: { type: 'freedraw', box: box(900, 900, 30, 30) },
       },
     })
 
@@ -184,13 +162,13 @@ describe('rasterizeSelection', () => {
     expect(result?.annotated).toBe(false)
   })
 
-  it('无选中 shape → null；纯标注无图片 → null', async () => {
-    expect(await rasterizeSelection(makeEditor({ selected: [], shapes: {} }))).toBeNull()
+  it('无选中元素 → null；纯标注无图片 → null', async () => {
+    expect(await rasterizeSelection(makeEditor({ selected: [], elements: {} }))).toBeNull()
     expect(
       await rasterizeSelection(
         makeEditor({
           selected: ['draw1'],
-          shapes: { draw1: { type: 'draw', box: box(0, 0, 10, 10) } },
+          elements: { draw1: { type: 'freedraw', box: box(0, 0, 10, 10) } },
         }),
       ),
     ).toBeNull()
