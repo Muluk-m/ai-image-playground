@@ -6,6 +6,7 @@ import { computePlaceholderTarget } from '../lib/placement'
 import { recoverCanvasTasks } from '../lib/recoverCanvasTasks'
 import { GenerationPlaceholderShapeUtil } from '../shapes/GenerationPlaceholderShapeUtil'
 import CanvasGenerateBar from './CanvasGenerateBar'
+import CanvasShortcutsHint from './CanvasShortcutsHint'
 
 /** 注册画布自定义 shape（生成占位框）。 */
 const customShapeUtils = [GenerationPlaceholderShapeUtil]
@@ -67,6 +68,7 @@ export default function CanvasMode() {
         }}
       >
         <CanvasGenerateBar />
+        <CanvasShortcutsHint />
       </Tldraw>
     </div>
   )
