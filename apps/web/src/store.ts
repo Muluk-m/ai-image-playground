@@ -419,6 +419,13 @@ interface AppState {
   /** 顶层视图模式：browse = 历史任务网格；create = 无限画布创作模式 */
   appMode: 'browse' | 'create'
   setAppMode: (mode: AppState['appMode']) => void
+  /**
+   * 「工作台图片 → 创作模式画布」一次性 handoff 队列（不持久化）：browse 卡片点「送入画布」
+   * 时暂存待放入的 dataUrl，切到 create 后由画布 onMount 消费。是内存传递，跨刷新不复现。
+   */
+  pendingCanvasImages: string[]
+  queueCanvasImages: (dataUrls: string[]) => void
+  consumeCanvasImages: () => string[]
   detailTaskId: string | null
   setDetailTaskId: (id: string | null) => void
   lightboxImageId: string | null
@@ -630,6 +637,14 @@ export const useStore = create<AppState>()(
       },
       appMode: 'browse',
       setAppMode: (appMode) => set({ appMode }),
+      pendingCanvasImages: [],
+      queueCanvasImages: (dataUrls) =>
+        set((s) => ({ pendingCanvasImages: [...s.pendingCanvasImages, ...dataUrls] })),
+      consumeCanvasImages: () => {
+        const pending = get().pendingCanvasImages
+        if (pending.length > 0) set({ pendingCanvasImages: [] })
+        return pending
+      },
       showSettings: false,
       setShowSettings: (showSettings) => {
         if (showSettings) dismissAllTooltips()
@@ -1608,6 +1623,24 @@ export async function editOutputImage(task: TaskRecord, imageId?: string) {
     addInputImage({ id: targetId, dataUrl })
   }
   setMaskEditorImageId(targetId)
+}
+
+/**
+ * 把一条任务的输出图送进创作模式画布：取全分辨率原图 → 入 handoff 队列 → 切到 create 模式，
+ * 由画布 onMount 消费队列放图。默认送第一张输出图。
+ */
+export async function sendTaskToCanvas(task: TaskRecord, imageId?: string) {
+  const { queueCanvasImages, setAppMode, showToast } = useStore.getState()
+  const targetId = imageId ?? task.outputImages?.[0]
+  if (!targetId) return
+
+  const dataUrl = await ensureImageCached(targetId)
+  if (!dataUrl) {
+    showToast('图片已不存在，无法送入画布', 'error')
+    return
+  }
+  queueCanvasImages([dataUrl])
+  setAppMode('create')
 }
 
 /** 删除多条任务 */

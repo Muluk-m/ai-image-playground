@@ -19,6 +19,7 @@ interface Props {
   task: TaskRecord
   onReuse: () => void
   onEditOutputs: () => void
+  onSendToCanvas: () => void
   onDelete: () => void
   onClick: (e: React.MouseEvent | React.TouchEvent) => void
   isSelected?: boolean
@@ -28,6 +29,7 @@ export default function TaskCard({
   task,
   onReuse,
   onEditOutputs,
+  onSendToCanvas,
   onDelete,
   onClick,
   isSelected,
@@ -610,6 +612,21 @@ export default function TaskCard({
                       strokeLinejoin="round"
                       strokeWidth={2}
                       d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+                    />
+                  </svg>
+                </button>
+                <button
+                  onClick={onSendToCanvas}
+                  className="p-1.5 rounded-md hover:bg-purple-50 dark:hover:bg-purple-950/30 text-gray-400 hover:text-purple-500 transition disabled:opacity-30"
+                  title="送入创作模式画布"
+                  disabled={!task.outputImages?.length}
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M4 5a1 1 0 011-1h14a1 1 0 011 1v14a1 1 0 01-1 1H5a1 1 0 01-1-1V5z M4 15l4-4a2 2 0 012.8 0l4 4 M14 13l1.5-1.5a2 2 0 012.8 0L20 13 M9 9a1 1 0 100-2 1 1 0 000 2z"
                     />
                   </svg>
                 </button>
