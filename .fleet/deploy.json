@@ -10,7 +10,9 @@
   "services": [
     {
       "name": "image-playground-bff",
-      "targets": ["macmini"],
+      "targets": [
+        "macmini"
+      ],
       "run": {
         "kind": "launchd",
         "label": "qlj.image-playground.bff",
@@ -23,11 +25,17 @@
           "src/index.ts"
         ]
       },
-      "health": { "http": "http://localhost:37377/health", "timeoutSec": 30 }
+      "health": {
+        "http": "http://localhost:37377/health",
+        "timeoutSec": 30,
+        "intervalSec": 60
+      }
     },
     {
       "name": "image-playground-admin",
-      "targets": ["macmini"],
+      "targets": [
+        "macmini"
+      ],
       "run": {
         "kind": "launchd",
         "label": "qlj.image-playground.admin",
@@ -40,7 +48,11 @@
           "server/index.ts"
         ]
       },
-      "health": { "http": "http://localhost:37378/", "timeoutSec": 30 }
+      "health": {
+        "http": "http://localhost:37378/",
+        "timeoutSec": 30,
+        "intervalSec": 60
+      }
     }
   ]
 }
