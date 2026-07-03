@@ -28,9 +28,19 @@ import {
   placeholderProps,
   textProps,
 } from '../lib/konvaShapes'
+import {
+  buildSnapTargets,
+  resolveSnap,
+  type SnapGuide,
+  type SnapTargets,
+  selectionBounds,
+} from '../lib/snapping'
 
 /** 手势里判定「有效箭头 / 笔画」的最小长度（页面单位），低于则丢弃。 */
 const MIN_GESTURE_LEN = 3
+
+/** 拖拽吸附判定距离（屏幕像素，换算回页面单位随缩放缩放）。 */
+const SNAP_THRESHOLD_PX = 8
 
 type Gesture =
   | { kind: 'pan'; lastX: number; lastY: number }
@@ -103,9 +113,14 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
   const trRef = useRef<Konva.Transformer>(null)
   const gestureRef = useRef<Gesture | null>(null)
   const dragOriginRef = useRef<Map<string, { x: number; y: number }> | null>(null)
+  const snapRef = useRef<{ targets: SnapTargets; bounds: Box } | null>(null)
+  const guideLayerRef = useRef<Konva.Layer>(null)
   const [spaceDown, setSpaceDown] = useState(false)
   const [panning, setPanning] = useState(false)
   const [marquee, setMarquee] = useState<Box | null>(null)
+  const [hoveredId, setHoveredId] = useState<string | null>(null)
+  // 拖拽中隐藏虚线选中框：它按模型位置画，而节点位移在 dragend 才落模型，中途会滞留原地
+  const [dragging, setDragging] = useState(false)
 
   const { camera, viewport, tool, selection, editingTextId } = doc
   const selectMode = tool === 'select' && !spaceDown
@@ -430,9 +445,29 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
     }
   }
 
+  /** 吸附参考线走命令式 Konva 层：拖拽逐帧更新，不触发 React 重渲染（重渲染会把其余选中节点的视觉位移重置回模型位置）。 */
+  const drawGuides = (guides: SnapGuide[]) => {
+    const layer = guideLayerRef.current
+    if (!layer) return
+    layer.destroyChildren()
+    for (const g of guides) {
+      layer.add(
+        new Konva.Line({
+          points:
+            g.axis === 'x' ? [g.value, g.from, g.value, g.to] : [g.from, g.value, g.to, g.value],
+          stroke: '#38bdf8',
+          strokeWidth: 1 / camera.zoom,
+        }),
+      )
+    }
+    layer.batchDraw()
+  }
+
   const onDragStart = (e: KonvaEventObject<DragEvent>, id: string) => {
     if (!doc.selection.has(id)) doc.setSelection([id])
     doc.captureHistory()
+    setHoveredId(null)
+    setDragging(true)
     const stage = stageRef.current
     const origins = new Map<string, { x: number; y: number }>()
     for (const selId of doc.selection) {
@@ -440,6 +475,10 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
       if (node) origins.set(selId, node.position())
     }
     dragOriginRef.current = origins
+    const bounds = selectionBounds(editor, doc.selection)
+    snapRef.current = bounds
+      ? { targets: buildSnapTargets(doc.elements, new Set(doc.selection)), bounds }
+      : null
     e.cancelBubble = true
   }
 
@@ -451,8 +490,24 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
     const origin = origins.get(id)
     if (!origin) return
     const node = e.target
-    const dx = node.x() - origin.x
-    const dy = node.y() - origin.y
+    let dx = node.x() - origin.x
+    let dy = node.y() - origin.y
+    // 吸附：选区包围盒贴近其他元素的边/中心时吸上去（按住 ⌥ 临时禁用）
+    const snap = snapRef.current
+    if (snap && !e.evt.altKey) {
+      const moved = new Box(snap.bounds.x + dx, snap.bounds.y + dy, snap.bounds.w, snap.bounds.h)
+      const { adjustX, adjustY, guides } = resolveSnap(
+        snap.targets,
+        moved,
+        SNAP_THRESHOLD_PX / camera.zoom,
+      )
+      dx += adjustX
+      dy += adjustY
+      node.position({ x: origin.x + dx, y: origin.y + dy })
+      drawGuides(guides)
+    } else {
+      drawGuides([])
+    }
     for (const [selId, from] of origins) {
       if (selId === id) continue
       stage.findOne(`#${selId}`)?.position({ x: from.x + dx, y: from.y + dy })
@@ -462,6 +517,9 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
   const onDragEnd = (e: KonvaEventObject<DragEvent>, id: string) => {
     const origins = dragOriginRef.current
     dragOriginRef.current = null
+    snapRef.current = null
+    drawGuides([])
+    setDragging(false)
     const stage = stageRef.current
     if (!origins || !stage) return
     const origin = origins.get(id)
@@ -529,6 +587,11 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
           ? 'text'
           : 'default'
 
+  // hover 高亮（未选中时的轻描边提示，仅选择工具下）
+  const hoveredEl =
+    selectMode && hoveredId && !selection.has(hoveredId) ? doc.getElement(hoveredId) : undefined
+  const hoverBox = hoveredEl ? elementBounds(hoveredEl) : null
+
   // 选中的非图片元素画虚线外框（图片走 Transformer 的框）
   const outlineBoxes = useMemo(
     () =>
@@ -584,6 +647,11 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
               onDragStart: (e: KonvaEventObject<DragEvent>) => onDragStart(e, el.id),
               onDragMove: (e: KonvaEventObject<DragEvent>) => onDragMove(e, el.id),
               onDragEnd: (e: KonvaEventObject<DragEvent>) => onDragEnd(e, el.id),
+              // 手势 / 拖拽期间不更新 hover：setState 触发的重渲染会干扰视觉层位移
+              onPointerEnter: () => {
+                if (selectMode && !gestureRef.current && !dragOriginRef.current) setHoveredId(el.id)
+              },
+              onPointerLeave: () => setHoveredId((prev) => (prev === el.id ? null : prev)),
             }
             switch (el.type) {
               case 'image': {
@@ -638,19 +706,32 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
             }
           })}
         </Layer>
+        {/* 吸附参考线：命令式绘制（drawGuides），React 不往里渲染子节点 */}
+        <Layer ref={guideLayerRef} listening={false} />
         <Layer listening={false}>
-          {outlineBoxes.map(({ id, box }) => (
+          {hoverBox && (
             <Rect
-              key={`outline-${id}`}
-              x={box.x}
-              y={box.y}
-              width={box.w}
-              height={box.h}
-              stroke="#3b82f6"
-              strokeWidth={1.5 / camera.zoom}
-              dash={[4 / camera.zoom, 4 / camera.zoom]}
+              x={hoverBox.x}
+              y={hoverBox.y}
+              width={hoverBox.w}
+              height={hoverBox.h}
+              stroke="rgba(96,165,250,0.55)"
+              strokeWidth={2 / camera.zoom}
             />
-          ))}
+          )}
+          {!dragging &&
+            outlineBoxes.map(({ id, box }) => (
+              <Rect
+                key={`outline-${id}`}
+                x={box.x}
+                y={box.y}
+                width={box.w}
+                height={box.h}
+                stroke="#3b82f6"
+                strokeWidth={1.5 / camera.zoom}
+                dash={[4 / camera.zoom, 4 / camera.zoom]}
+              />
+            ))}
           {marquee && (
             <Rect
               x={marquee.x}
