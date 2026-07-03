@@ -8,7 +8,7 @@ import type { CanvasTaskMeta, CanvasTaskStatus } from './editor'
  * - 所有变更走本类方法并 emit，React 侧 useSyncExternalStore 订阅 version
  */
 
-export type Tool = 'select' | 'hand' | 'pen' | 'arrow' | 'text'
+export type Tool = 'select' | 'hand' | 'pen' | 'eraser' | 'arrow' | 'text'
 
 export interface ImageEl {
   id: string
@@ -101,6 +101,10 @@ export class CanvasDoc {
   viewport = { width: 1, height: 1 }
   tool: Tool = 'select'
   penColor = '#ef4444'
+  /** 画笔 / 箭头线宽（页面单位）。 */
+  penWidth = 4
+  /** 新建文字的字号（页面单位）。 */
+  textFontSize = 28
   /** 正在内联编辑的 text 元素 id（编辑期间画布快捷键让位）。 */
   editingTextId: string | null = null
   /** 单调递增版本号，驱动 useSyncExternalStore。 */
@@ -253,6 +257,16 @@ export class CanvasDoc {
 
   setPenColor(color: string): void {
     this.penColor = color
+    this.emit()
+  }
+
+  setPenWidth(width: number): void {
+    this.penWidth = width
+    this.emit()
+  }
+
+  setTextFontSize(size: number): void {
+    this.textFontSize = size
     this.emit()
   }
 

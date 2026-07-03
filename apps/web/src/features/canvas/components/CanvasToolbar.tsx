@@ -1,8 +1,6 @@
-import { useSyncExternalStore } from 'react'
-import type { ArrowEl, CanvasDoc, FreedrawEl, TextEl, Tool } from '../lib/canvasDoc'
-
-/** 画笔 / 箭头可选颜色（标注红为默认）。 */
-const PEN_COLORS = ['#ef4444', '#f8fafc', '#3b82f6', '#f59e0b', '#22c55e']
+import { useState, useSyncExternalStore } from 'react'
+import { duplicateSelection } from '../lib/canvasClipboard'
+import type { CanvasDoc, Tool } from '../lib/canvasDoc'
 
 const TOOLS: Array<{ tool: Tool; label: string; hotkey: string; icon: React.ReactNode }> = [
   {
@@ -39,13 +37,29 @@ const TOOLS: Array<{ tool: Tool; label: string; hotkey: string; icon: React.Reac
   {
     tool: 'pen',
     label: '画笔',
-    hotkey: 'P',
+    hotkey: 'D',
     icon: (
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
         <path
           d="M4 20c.5-3 1-4.5 2.5-6L17 3.5a2.1 2.1 0 013 3L9.5 17c-1.5 1.5-3 2-5.5 3z"
           stroke="currentColor"
           strokeWidth="1.7"
+          strokeLinejoin="round"
+        />
+      </svg>
+    ),
+  },
+  {
+    tool: 'eraser',
+    label: '橡皮',
+    hotkey: 'E',
+    icon: (
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path
+          d="M8.5 19L4 14.5a2 2 0 010-2.8L12.7 3a2 2 0 012.8 0L20 7.5a2 2 0 010 2.8L11.3 19H20M8.5 19H11.3M8.5 19l-2-2M7 9.5l7.5 7.5"
+          stroke="currentColor"
+          strokeWidth="1.6"
+          strokeLinecap="round"
           strokeLinejoin="round"
         />
       </svg>
@@ -84,6 +98,21 @@ const TOOLS: Array<{ tool: Tool; label: string; hotkey: string; icon: React.Reac
   },
 ]
 
+/** 快捷键速查（对齐线上版的右下角面板）。 */
+const SHORTCUTS: Array<[string, string]> = [
+  ['复制 / 粘贴', '⌘C ⌘V'],
+  ['复制一份', '⌘D'],
+  ['全选', '⌘A'],
+  ['删除', '⌫'],
+  ['撤销 / 重做', '⌘Z ⇧⌘Z'],
+  ['选择 / 抓手', 'V H'],
+  ['画笔 / 橡皮', 'D E'],
+  ['箭头 / 文字', 'A T'],
+  ['平移 / 缩放', '滚轮 · ⌘滚轮'],
+  ['临时抓手', 'Space'],
+  ['发起生成', '⌘⏎'],
+]
+
 function ToolButton({
   active,
   title,
@@ -114,37 +143,14 @@ function ToolButton({
   )
 }
 
-/** 底部居中工具条 + 左下角缩放控件（一并渲染，共享 doc 订阅）。 */
+/** 底部居中工具条 + 左下角缩放控件 + 右下角快捷键速查。 */
 export default function CanvasToolbar({ doc }: { doc: CanvasDoc }) {
   useSyncExternalStore(doc.subscribe, () => doc.version)
+  const [showShortcuts, setShowShortcuts] = useState(false)
   const { tool, selection, camera, viewport } = doc
 
   const zoomStep = (dir: 1 | -1) => {
     doc.zoomAt(viewport.width / 2, viewport.height / 2, camera.zoom * (dir === 1 ? 1.25 : 0.8))
-  }
-
-  // 可换色的选中元素（画笔 / 箭头描边、文字填充）
-  const colorableSelected = [...selection]
-    .map((id) => doc.getElement(id))
-    .filter(
-      (el): el is FreedrawEl | ArrowEl | TextEl =>
-        el?.type === 'freedraw' || el?.type === 'arrow' || el?.type === 'text',
-    )
-  // 绘制类工具激活时或选中了可换色元素时展示颜色板
-  const showColors =
-    tool === 'pen' || tool === 'arrow' || tool === 'text' || colorableSelected.length > 0
-
-  /** 设为当前标注色；同时把选中的标注元素就地换色（入 undo 历史）。 */
-  const applyColor = (color: string) => {
-    doc.setPenColor(color)
-    if (colorableSelected.length === 0) return
-    doc.updateElements(
-      colorableSelected.map((el) => ({
-        id: el.id,
-        patch: el.type === 'text' ? { fill: color } : { stroke: color },
-      })),
-      { history: true },
-    )
   }
 
   return (
@@ -162,23 +168,6 @@ export default function CanvasToolbar({ doc }: { doc: CanvasDoc }) {
               {icon}
             </ToolButton>
           ))}
-          {showColors && (
-            <>
-              <div className="mx-1 h-6 w-px bg-white/10" />
-              {PEN_COLORS.map((color) => (
-                <button
-                  key={color}
-                  type="button"
-                  title="标注颜色"
-                  onClick={() => applyColor(color)}
-                  className={`h-6 w-6 rounded-full border-2 transition-transform ${
-                    doc.penColor === color ? 'scale-110 border-white' : 'border-transparent'
-                  }`}
-                  style={{ background: color }}
-                />
-              ))}
-            </>
-          )}
           <div className="mx-1 h-6 w-px bg-white/10" />
           <ToolButton title="撤销（⌘Z）" disabled={!doc.canUndo} onClick={() => doc.undo()}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -203,20 +192,41 @@ export default function CanvasToolbar({ doc }: { doc: CanvasDoc }) {
             </svg>
           </ToolButton>
           {selection.size > 0 && (
-            <ToolButton
-              title="删除所选（Del）"
-              onClick={() => doc.deleteElements([...doc.selection])}
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <path
-                  d="M5 7h14M9 7V5h6v2m-8 0l1 13h8l1-13"
-                  stroke="currentColor"
-                  strokeWidth="1.7"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-            </ToolButton>
+            <>
+              <ToolButton title="复制一份（⌘D）" onClick={() => duplicateSelection(doc)}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <rect
+                    x="8"
+                    y="8"
+                    width="12"
+                    height="12"
+                    rx="2"
+                    stroke="currentColor"
+                    strokeWidth="1.7"
+                  />
+                  <path
+                    d="M16 4H6a2 2 0 00-2 2v10"
+                    stroke="currentColor"
+                    strokeWidth="1.7"
+                    strokeLinecap="round"
+                  />
+                </svg>
+              </ToolButton>
+              <ToolButton
+                title="删除所选（Del）"
+                onClick={() => doc.deleteElements([...doc.selection])}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path
+                    d="M5 7h14M9 7V5h6v2m-8 0l1 13h8l1-13"
+                    stroke="currentColor"
+                    strokeWidth="1.7"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </ToolButton>
+            </>
           )}
         </div>
       </div>
@@ -248,6 +258,36 @@ export default function CanvasToolbar({ doc }: { doc: CanvasDoc }) {
             ＋
           </button>
         </div>
+      </div>
+      {/* 快捷键速查：右下角 */}
+      <div className="pointer-events-none absolute bottom-4 right-4 z-[400] flex flex-col items-end gap-2">
+        {showShortcuts && (
+          <div className="pointer-events-auto w-56 rounded-2xl border border-white/10 bg-gray-900/95 p-3 shadow-lg backdrop-blur">
+            {SHORTCUTS.map(([label, keys]) => (
+              <div
+                key={label}
+                className="flex items-center justify-between py-1 text-xs text-gray-300"
+              >
+                <span>{label}</span>
+                <span className="rounded bg-white/10 px-1.5 py-0.5 font-mono text-[10px] text-gray-400">
+                  {keys}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+        <button
+          type="button"
+          title="快捷键"
+          onClick={() => setShowShortcuts((v) => !v)}
+          className={`pointer-events-auto flex h-9 w-9 items-center justify-center rounded-full border border-white/10 shadow-lg backdrop-blur transition-colors ${
+            showShortcuts
+              ? 'bg-blue-600 text-white'
+              : 'bg-gray-900/95 text-gray-300 hover:bg-white/10'
+          }`}
+        >
+          ?
+        </button>
       </div>
     </>
   )

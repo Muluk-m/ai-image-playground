@@ -12,6 +12,7 @@ import {
   Text,
   Transformer,
 } from 'react-konva'
+import { copySelection, duplicateSelection, pasteClipboard } from '../lib/canvasClipboard'
 import type { ArrowEl, CanvasDoc, CanvasEl, FreedrawEl, TextEl } from '../lib/canvasDoc'
 import { newElementId, ZOOM_MAX, ZOOM_MIN } from '../lib/canvasDoc'
 import { type CanvasEditor, elementBounds } from '../lib/editor'
@@ -23,14 +24,11 @@ import {
   CANVAS_FONT_FAMILY,
   freedrawProps,
   imageProps,
+  measureText,
   placeholderProps,
   textProps,
 } from '../lib/konvaShapes'
 
-/** 画笔 / 箭头默认线宽（页面坐标单位）。 */
-const STROKE_WIDTH = 4
-/** 文字默认字号（页面坐标单位）。 */
-const TEXT_FONT_SIZE = 28
 /** 手势里判定「有效箭头 / 笔画」的最小长度（页面单位），低于则丢弃。 */
 const MIN_GESTURE_LEN = 3
 
@@ -39,16 +37,7 @@ type Gesture =
   | { kind: 'marquee'; startX: number; startY: number; additive: boolean }
   | { kind: 'draw'; id: string }
   | { kind: 'arrow'; id: string; startX: number; startY: number }
-
-function measureText(text: string, fontSize: number): { width: number; height: number } {
-  const node = new Konva.Text({
-    text: text || ' ',
-    fontSize,
-    fontFamily: CANVAS_FONT_FAMILY,
-    lineHeight: 1.3,
-  })
-  return { width: node.width(), height: node.height() }
-}
+  | { kind: 'erase'; captured: boolean }
 
 /**
  * 双层点阵网格（对齐 tldraw 暗色风格）：细点打底、每 4 格一个亮点。
@@ -99,9 +88,10 @@ function DotGrid({ doc }: { doc: CanvasDoc }) {
 
 /**
  * 自建无限画布（Konva 渲染）：
- * - 工具：选择（marquee / 拖动 / Transformer 缩放旋转图片）、抓手、画笔、箭头、文字
+ * - 工具：选择（marquee / 拖动 / Transformer 缩放旋转图片）、抓手、画笔、橡皮、箭头、文字
  * - 视口：滚轮平移、⌘/Ctrl+滚轮（触控板捏合）缩放、空格临时抓手
- * - 快捷键：V/H/P/A/T 切工具，Del 删除，⌘Z / ⌘⇧Z 撤销重做
+ * - 快捷键：V/H/D/E/A/T 切工具，Del 删除，⌘Z/⌘⇧Z 撤销重做，⌘A 全选，⌘C/⌘V/⌘D 复制粘贴
+ * - 外部图片：文件拖入落在指针处；系统剪贴板图片 ⌘V 落视口中心
  * 文档状态全部在 CanvasDoc；本组件是无状态渲染 + 手势翻译层。
  */
 export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
@@ -149,12 +139,26 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
         e.preventDefault()
         return
       }
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
-        e.preventDefault()
-        e.shiftKey ? doc.redo() : doc.undo()
+      if (e.metaKey || e.ctrlKey) {
+        switch (e.key.toLowerCase()) {
+          case 'z':
+            e.preventDefault()
+            e.shiftKey ? doc.redo() : doc.undo()
+            break
+          case 'a':
+            e.preventDefault()
+            doc.setSelection(doc.elements.map((el) => el.id))
+            break
+          case 'c':
+            copySelection(doc)
+            break
+          case 'd':
+            e.preventDefault()
+            duplicateSelection(doc)
+            break
+        }
         return
       }
-      if (e.metaKey || e.ctrlKey) return
       switch (e.key) {
         case 'v':
         case 'V':
@@ -164,9 +168,16 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
         case 'H':
           doc.setTool('hand')
           break
+        // D 对齐线上快捷键；P 兼容保留
         case 'p':
         case 'P':
+        case 'd':
+        case 'D':
           doc.setTool('pen')
+          break
+        case 'e':
+        case 'E':
+          doc.setTool('eraser')
           break
         case 'a':
         case 'A':
@@ -196,17 +207,20 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
     }
   }, [doc])
 
-  // ===== 剪贴板粘贴图片 =====
+  // ===== 粘贴：系统剪贴板图片优先，其次画布内部剪贴板（⌘C 复制的元素） =====
   useEffect(() => {
     const onPaste = (e: ClipboardEvent) => {
       const t = e.target as HTMLElement | null
       // 输入框里的粘贴（生成条 prompt / 文字编辑）不拦
       if (t?.tagName === 'INPUT' || t?.tagName === 'TEXTAREA' || t?.isContentEditable) return
       const files = [...(e.clipboardData?.files ?? [])].filter((f) => f.type.startsWith('image/'))
-      if (files.length === 0) return
-      e.preventDefault()
-      const vp = editor.getViewportPageBounds()
-      void importImageFiles(editor, files, { x: vp.midX, y: vp.midY })
+      if (files.length > 0) {
+        e.preventDefault()
+        const vp = editor.getViewportPageBounds()
+        void importImageFiles(editor, files, { x: vp.midX, y: vp.midY })
+        return
+      }
+      if (pasteClipboard(editor.doc).length > 0) e.preventDefault()
     }
     window.addEventListener('paste', onPaste)
     return () => window.removeEventListener('paste', onPaste)
@@ -248,7 +262,7 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
 
     // 绘制类工具阻断浏览器默认行为：mousedown 的默认动作会把焦点切走，
     // 文字工具刚挂载的编辑框会被立即 blur（空文字 → 删除），表现为「点了没反应」。
-    if (tool === 'pen' || tool === 'arrow' || tool === 'text') e.evt.preventDefault()
+    if (tool !== 'select') e.evt.preventDefault()
 
     if (tool === 'pen') {
       doc.captureHistory()
@@ -257,10 +271,17 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
         type: 'freedraw',
         points: [p.x, p.y],
         stroke: doc.penColor,
-        strokeWidth: STROKE_WIDTH,
+        strokeWidth: doc.penWidth,
       }
       doc.addElements([el], { history: false })
       gestureRef.current = { kind: 'draw', id: el.id }
+      return
+    }
+    if (tool === 'eraser') {
+      doc.setSelection([])
+      const g: Gesture = { kind: 'erase', captured: false }
+      gestureRef.current = g
+      eraseAtPointer(g)
       return
     }
     if (tool === 'arrow') {
@@ -270,7 +291,7 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
         type: 'arrow',
         points: [p.x, p.y, p.x, p.y],
         stroke: doc.penColor,
-        strokeWidth: STROKE_WIDTH,
+        strokeWidth: doc.penWidth,
       }
       doc.addElements([el], { history: false })
       gestureRef.current = { kind: 'arrow', id: el.id, startX: p.x, startY: p.y }
@@ -278,14 +299,14 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
     }
     if (tool === 'text') {
       doc.captureHistory()
-      const { width, height } = measureText('', TEXT_FONT_SIZE)
+      const { width, height } = measureText('', doc.textFontSize)
       const el: TextEl = {
         id: newElementId(),
         type: 'text',
         x: p.x,
         y: p.y - height / 2,
         text: '',
-        fontSize: TEXT_FONT_SIZE,
+        fontSize: doc.textFontSize,
         fill: doc.penColor,
         width,
         height,
@@ -303,9 +324,29 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
     }
   }
 
+  /** 橡皮：删除指针下的元素（占位框是任务状态，不给擦）。首次真正擦到才入 undo 栈。 */
+  const eraseAtPointer = (g: Extract<Gesture, { kind: 'erase' }>) => {
+    const stage = stageRef.current
+    const pos = stage?.getPointerPosition()
+    if (!stage || !pos) return
+    const node = stage.getIntersection(pos)
+    if (!node) return
+    const el = node.id() ? doc.getElement(node.id()) : undefined
+    if (!el || el.type === 'placeholder') return
+    if (!g.captured) {
+      doc.captureHistory()
+      g.captured = true
+    }
+    doc.deleteElements([el.id], { history: false })
+  }
+
   const onPointerMove = (e: KonvaEventObject<PointerEvent>) => {
     const g = gestureRef.current
     if (!g) return
+    if (g.kind === 'erase') {
+      eraseAtPointer(g)
+      return
+    }
     if (g.kind === 'pan') {
       const dx = e.evt.clientX - g.lastX
       const dy = e.evt.clientY - g.lastY
@@ -465,6 +506,7 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
 
   const commitText = (raw: string) => {
     const id = editingTextId
+    const fontSize = editingText?.fontSize ?? doc.textFontSize
     if (!id) return
     doc.setEditingText(null)
     const trimmed = raw.replace(/\s+$/, '')
@@ -473,7 +515,7 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
       doc.deleteElements([id], { history: false })
       return
     }
-    const { width, height } = measureText(trimmed, TEXT_FONT_SIZE)
+    const { width, height } = measureText(trimmed, fontSize)
     doc.updateElements([{ id, patch: { text: trimmed, width, height } }])
   }
 
@@ -481,7 +523,7 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
     ? 'grabbing'
     : spaceDown || tool === 'hand'
       ? 'grab'
-      : tool === 'pen' || tool === 'arrow'
+      : tool === 'pen' || tool === 'arrow' || tool === 'eraser'
         ? 'crosshair'
         : tool === 'text'
           ? 'text'
