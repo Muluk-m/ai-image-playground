@@ -17,6 +17,7 @@
     "@image-playground/shared": "workspace:*",
     "fflate": "^0.8.2",
     "konva": "^10.3.0",
+    "perfect-freehand": "^1.2.3",
     "react": "^19.2.1",
     "react-dom": "^19.2.1",
     "react-konva": "^19.2.5",
