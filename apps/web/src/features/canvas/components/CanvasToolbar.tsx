@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react'
-import type { CanvasDoc, Tool } from '../lib/canvasDoc'
+import type { ArrowEl, CanvasDoc, FreedrawEl, TextEl, Tool } from '../lib/canvasDoc'
 
 /** 画笔 / 箭头可选颜色（标注红为默认）。 */
 const PEN_COLORS = ['#ef4444', '#f8fafc', '#3b82f6', '#f59e0b', '#22c55e']
@@ -123,6 +123,30 @@ export default function CanvasToolbar({ doc }: { doc: CanvasDoc }) {
     doc.zoomAt(viewport.width / 2, viewport.height / 2, camera.zoom * (dir === 1 ? 1.25 : 0.8))
   }
 
+  // 可换色的选中元素（画笔 / 箭头描边、文字填充）
+  const colorableSelected = [...selection]
+    .map((id) => doc.getElement(id))
+    .filter(
+      (el): el is FreedrawEl | ArrowEl | TextEl =>
+        el?.type === 'freedraw' || el?.type === 'arrow' || el?.type === 'text',
+    )
+  // 绘制类工具激活时或选中了可换色元素时展示颜色板
+  const showColors =
+    tool === 'pen' || tool === 'arrow' || tool === 'text' || colorableSelected.length > 0
+
+  /** 设为当前标注色；同时把选中的标注元素就地换色（入 undo 历史）。 */
+  const applyColor = (color: string) => {
+    doc.setPenColor(color)
+    if (colorableSelected.length === 0) return
+    doc.updateElements(
+      colorableSelected.map((el) => ({
+        id: el.id,
+        patch: el.type === 'text' ? { fill: color } : { stroke: color },
+      })),
+      { history: true },
+    )
+  }
+
   return (
     <>
       {/* 工具条：底部居中 */}
@@ -138,7 +162,7 @@ export default function CanvasToolbar({ doc }: { doc: CanvasDoc }) {
               {icon}
             </ToolButton>
           ))}
-          {(tool === 'pen' || tool === 'arrow') && (
+          {showColors && (
             <>
               <div className="mx-1 h-6 w-px bg-white/10" />
               {PEN_COLORS.map((color) => (
@@ -146,7 +170,7 @@ export default function CanvasToolbar({ doc }: { doc: CanvasDoc }) {
                   key={color}
                   type="button"
                   title="标注颜色"
-                  onClick={() => doc.setPenColor(color)}
+                  onClick={() => applyColor(color)}
                   className={`h-6 w-6 rounded-full border-2 transition-transform ${
                     doc.penColor === color ? 'scale-110 border-white' : 'border-transparent'
                   }`}
