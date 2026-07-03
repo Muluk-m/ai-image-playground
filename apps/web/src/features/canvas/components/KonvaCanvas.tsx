@@ -286,7 +286,7 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
         y: p.y - height / 2,
         text: '',
         fontSize: TEXT_FONT_SIZE,
-        fill: '#f8fafc',
+        fill: doc.penColor,
         width,
         height,
       }
