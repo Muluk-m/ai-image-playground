@@ -10,6 +10,7 @@ import CanvasGenerateBar from './CanvasGenerateBar'
 import CanvasToolbar from './CanvasToolbar'
 import KonvaCanvas from './KonvaCanvas'
 import PlaceholderOverlay from './PlaceholderOverlay'
+import StylePanel from './StylePanel'
 
 /** 画布顶部让出 Header（安全区 + 3.5rem，与 index.css 的 .safe-header-inner 对齐）。 */
 const HEADER_OFFSET = 'calc(var(--safe-area-top) + 3.5rem)'
@@ -68,6 +69,7 @@ export default function CanvasMode() {
         <KonvaCanvas editor={editor} />
         <PlaceholderOverlay editor={editor} />
         <CanvasToolbar doc={doc} />
+        <StylePanel doc={doc} />
         <CanvasGenerateBar editor={editor} />
       </div>
     </div>

@@ -1,4 +1,4 @@
-import type Konva from 'konva'
+import Konva from 'konva'
 import type { ArrowEl, FreedrawEl, ImageEl, PlaceholderEl, TextEl } from './canvasDoc'
 import { STATUS_ACCENT } from './editor'
 
@@ -11,6 +11,17 @@ import { STATUS_ACCENT } from './editor'
 /** 画布文字与文字编辑浮层共用的字体栈（两边不一致会跳字）。 */
 export const CANVAS_FONT_FAMILY =
   "'HarmonyOS Sans SC', system-ui, -apple-system, 'Segoe UI', sans-serif"
+
+/** 文字包围盒测量（提交 / 改字号时同步 width/height，选区与导出依赖）。 */
+export function measureText(text: string, fontSize: number): { width: number; height: number } {
+  const node = new Konva.Text({
+    text: text || ' ',
+    fontSize,
+    fontFamily: CANVAS_FONT_FAMILY,
+    lineHeight: 1.3,
+  })
+  return { width: node.width(), height: node.height() }
+}
 
 export function freedrawProps(el: FreedrawEl): Konva.LineConfig {
   return {
