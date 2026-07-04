@@ -12,6 +12,7 @@ vi.mock('../../lib/channels/publicChannels', () => ({
 
 // canvasImage 依赖 DOM Image()，jsdom 不支持；只覆盖 dispatch 路径时 mock 掉
 vi.mock('../../lib/canvasImage', () => ({
+  dataUrlToBlob: vi.fn(async () => new Blob(['fake'], { type: 'image/png' })),
   imageDataUrlToPngBlob: vi.fn(async () => new Blob(['fake'], { type: 'image/png' })),
   maskDataUrlToPngBlob: vi.fn(async () => new Blob(['fake'], { type: 'image/png' })),
   createMaskPreviewDataUrl: vi.fn(async () => 'data:image/png;base64,YW5ub3RhdGVk'),
@@ -22,6 +23,24 @@ function expectNoAuthHeaders(headers: Record<string, string>): void {
   expect(headers.authorization).toBeUndefined()
   expect(headers['x-api-key']).toBeUndefined()
   expect(headers['x-goog-api-key']).toBeUndefined()
+}
+
+function sseResponse(events: Array<Record<string, unknown>>): Response {
+  const encoder = new TextEncoder()
+  return new Response(
+    new ReadableStream({
+      start(controller) {
+        for (const event of events) {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`))
+        }
+        controller.close()
+      },
+    }),
+    {
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream' },
+    },
+  )
 }
 
 function settingsWithBuiltin(
@@ -152,6 +171,53 @@ describe('callImageApi', () => {
       size: '1033x1522',
     })
     expect(result.revisedPrompts).toEqual(['移除靴子'])
+  })
+
+  it('parses Images API stream result events with final data payloads', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      sseResponse([
+        {
+          type: 'image.generation.result',
+          data: [{ b64_json: 'aW1hZ2U=', revised_prompt: 'stream prompt' }],
+          size: '1024x1024',
+        },
+      ]),
+    )
+
+    const result = await callImageApi({
+      settings: settingsWithByok({ apiKey: 'test-key' }),
+      prompt: 'prompt',
+      params: { ...DEFAULT_PARAMS },
+      inputImageDataUrls: [],
+    })
+
+    expect(result.images).toEqual(['data:image/png;base64,aW1hZ2U='])
+    expect(result.actualParams).toEqual({ size: '1024x1024' })
+    expect(result.revisedPrompts).toEqual(['stream prompt'])
+  })
+
+  it('parses Images API completed stream events with top-level image data', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      sseResponse([
+        {
+          type: 'image_edit.completed',
+          b64_json: 'ZWRpdA==',
+          revised_prompt: 'edited prompt',
+          quality: 'high',
+        },
+      ]),
+    )
+
+    const result = await callImageApi({
+      settings: settingsWithByok({ apiKey: 'test-key' }),
+      prompt: 'prompt',
+      params: { ...DEFAULT_PARAMS },
+      inputImageDataUrls: ['data:image/png;base64,aW1hZ2U='],
+    })
+
+    expect(result.images).toEqual(['data:image/png;base64,ZWRpdA=='])
+    expect(result.actualParams).toEqual({ quality: 'high' })
+    expect(result.revisedPrompts).toEqual(['edited prompt'])
   })
 
   it('does not add cache request headers that require extra CORS allow-list entries', async () => {

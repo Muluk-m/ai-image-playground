@@ -4,6 +4,7 @@ import type {
   CustomProviderResultMapping,
   CustomProviderSubmitMapping,
   ImageApiResponse,
+  ImageResponseItem,
   ResponsesApiResponse,
   TaskParams,
 } from '../types'
@@ -88,6 +89,102 @@ function createRequestHeaders(profile: BYOKAdapterProfile): Record<string, strin
   return {
     Authorization: `Bearer ${profile.apiKey}`,
   }
+}
+
+function isEventStreamResponse(response: Response): boolean {
+  return response.headers.get('Content-Type')?.toLowerCase().includes('text/event-stream') ?? false
+}
+
+function isRecordValue(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function getStringValue(source: Record<string, unknown>, key: string): string | undefined {
+  const value = source[key]
+  return typeof value === 'string' && value.trim() ? value : undefined
+}
+
+function getNumberValue(source: Record<string, unknown>, key: string): number | undefined {
+  const value = source[key]
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+}
+
+function getStreamEventErrorMessage(event: Record<string, unknown>): string | null {
+  const error = event.error
+  if (isRecordValue(error)) {
+    const message = getStringValue(error, 'message')
+    if (message) return message
+  }
+  if (typeof error === 'string' && error.trim()) return error
+
+  const type = getStringValue(event, 'type')
+  if (type?.endsWith('.failed')) {
+    return getStringValue(event, 'message') ?? '流式请求失败'
+  }
+  return null
+}
+
+function parseServerSentEventBlock(block: string): string | null {
+  const dataLines: string[] = []
+  for (const line of block.split(/\r?\n/)) {
+    if (!line || line.startsWith(':')) continue
+    if (!line.startsWith('data:')) continue
+    dataLines.push(line.slice(5).replace(/^ /, ''))
+  }
+
+  const data = dataLines.join('\n').trim()
+  if (!data || data === '[DONE]') return null
+  return data
+}
+
+async function readJsonServerSentEvents(
+  response: Response,
+  onEvent: (event: Record<string, unknown>) => void | Promise<void>,
+): Promise<void> {
+  if (!response.body) throw new Error('接口未返回可读取的流式响应')
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let hasDataLine = false
+
+  const processBlock = async (block: string) => {
+    if (block.split(/\r?\n/).some((line) => line.startsWith('data:'))) hasDataLine = true
+    const data = parseServerSentEventBlock(block)
+    if (!data) return
+
+    let event: unknown
+    try {
+      event = JSON.parse(data)
+    } catch {
+      throw new Error('流式接口返回了无法解析的 JSON 事件')
+    }
+    if (!isRecordValue(event)) return
+
+    const errorMessage = getStreamEventErrorMessage(event)
+    if (errorMessage) throw new Error(errorMessage)
+
+    await onEvent(event)
+  }
+
+  while (true) {
+    const { value, done } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+
+    let separatorIndex = buffer.search(/\r?\n\r?\n/)
+    while (separatorIndex >= 0) {
+      const block = buffer.slice(0, separatorIndex)
+      const separator = buffer.match(/\r?\n\r?\n/)?.[0] ?? '\n\n'
+      buffer = buffer.slice(separatorIndex + separator.length)
+      await processBlock(block)
+      separatorIndex = buffer.search(/\r?\n\r?\n/)
+    }
+  }
+
+  buffer += decoder.decode()
+  if (buffer.trim()) await processBlock(buffer)
+  if (!hasDataLine) throw new Error('未从流式响应中解析到有效的 data 事件')
 }
 
 function createResponsesImageTool(
@@ -240,6 +337,70 @@ async function parseImagesApiResponse(
     actualParamsList: images.map(() => actualParams),
     revisedPrompts,
     ...(rawImageUrls.length ? { rawImageUrls } : {}),
+  }
+}
+
+function eventToImageResponseItem(event: Record<string, unknown>): ImageResponseItem {
+  return {
+    b64_json: getStringValue(event, 'b64_json'),
+    revised_prompt: getStringValue(event, 'revised_prompt'),
+    size: getStringValue(event, 'size'),
+    quality: getStringValue(event, 'quality'),
+    output_format: getStringValue(event, 'output_format'),
+    output_compression: getNumberValue(event, 'output_compression'),
+    moderation: getStringValue(event, 'moderation'),
+  }
+}
+
+async function parseImagesApiStreamResponse(
+  response: Response,
+  mime: string,
+): Promise<CallApiResult> {
+  const completedItems: ImageResponseItem[] = []
+  let resultPayload: ImageApiResponse | null = null
+
+  await readJsonServerSentEvents(response, (event) => {
+    const type = getStringValue(event, 'type')
+    const object = getStringValue(event, 'object')
+    if (
+      type === 'image.generation.result' ||
+      type === 'image.edit.result' ||
+      object === 'image.generation.result' ||
+      object === 'image.edit.result'
+    ) {
+      resultPayload = normalizeImageApiPayload(event)
+      return
+    }
+
+    if (type === 'image_generation.completed' || type === 'image_edit.completed') {
+      completedItems.push(eventToImageResponseItem(event))
+    }
+  })
+
+  if (resultPayload) {
+    return parseImagesApiResponse(resultPayload, mime)
+  }
+
+  if (!completedItems.length) {
+    throw new Error('流式接口未返回最终图片数据')
+  }
+
+  const images = completedItems
+    .map((item) => item.b64_json)
+    .filter((b64): b64 is string => Boolean(b64))
+    .map((b64) => normalizeBase64Image(b64, mime))
+  if (!images.length) throw new Error('流式接口未返回可用图片数据')
+
+  const actualParamsList = completedItems.map((item) => mergeActualParams(pickActualParams(item)))
+  const actualParams = mergeActualParams(
+    actualParamsList[0],
+    images.length > 1 ? { n: images.length } : undefined,
+  )
+  return {
+    images,
+    actualParams,
+    actualParamsList,
+    revisedPrompts: completedItems.map((item) => item.revised_prompt),
   }
 }
 
@@ -432,6 +593,10 @@ async function callImagesApiSingle(
 
     if (!response.ok) {
       throw new Error(await getApiErrorMessage(response))
+    }
+
+    if (isEventStreamResponse(response)) {
+      return parseImagesApiStreamResponse(response, mime)
     }
 
     const payload = (await response.json()) as ImageApiResponse
