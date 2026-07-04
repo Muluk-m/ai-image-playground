@@ -57,7 +57,25 @@ vi.mock('../lib/db', () => {
   }
 })
 
-import { clearImages, putImage } from '../lib/db'
+vi.mock('../lib/api', () => ({
+  callImageApi: vi.fn(async () => ({
+    images: ['data:image/png;base64,generated'],
+    actualParamsList: [{ size: '1x1' }],
+  })),
+  resumeQueueImageApi: vi.fn(),
+}))
+
+vi.mock('../lib/transparentImage', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../lib/transparentImage')>()
+  return {
+    ...actual,
+    removeKeyedBackgroundFromDataUrl: vi.fn(async (dataUrl: string) => `transparent:${dataUrl}`),
+  }
+})
+
+import { callImageApi } from '../lib/api'
+import { clearImages, getImage, putImage } from '../lib/db'
+import { removeKeyedBackgroundFromDataUrl } from '../lib/transparentImage'
 import {
   addCompletedCanvasTask,
   editOutputImage,
@@ -71,6 +89,14 @@ import {
 
 const imageA = { id: 'image-a', dataUrl: 'data:image/png;base64,a' }
 const imageB = { id: 'image-b', dataUrl: 'data:image/png;base64,b' }
+
+async function waitUntil(predicate: () => boolean | undefined, message: string) {
+  for (let i = 0; i < 30; i++) {
+    if (predicate()) return
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  }
+  throw new Error(message)
+}
 
 function task(overrides: Partial<TaskRecord> = {}): TaskRecord {
   return {
@@ -92,6 +118,15 @@ function task(overrides: Partial<TaskRecord> = {}): TaskRecord {
 
 describe('mask draft lifecycle in store actions', () => {
   beforeEach(() => {
+    vi.mocked(callImageApi).mockClear()
+    vi.mocked(callImageApi).mockResolvedValue({
+      images: ['data:image/png;base64,generated'],
+      actualParamsList: [{ size: '1x1' }],
+    })
+    vi.mocked(removeKeyedBackgroundFromDataUrl).mockClear()
+    vi.mocked(removeKeyedBackgroundFromDataUrl).mockResolvedValue(
+      'transparent:data:image/png;base64,generated',
+    )
     useStore.setState({
       settings: normalizeSettings({
         ...DEFAULT_SETTINGS,
@@ -146,6 +181,48 @@ describe('mask draft lifecycle in store actions', () => {
     await submitTask()
 
     expect(useStore.getState().maskDraft).toBeNull()
+  })
+
+  it('stores transparent background output after local post-processing', async () => {
+    await clearImages()
+    useStore.setState({
+      prompt: 'single sticker',
+      params: { ...DEFAULT_PARAMS, transparent_output: true },
+    })
+
+    await submitTask()
+    await waitUntil(
+      () => useStore.getState().tasks[0]?.status === 'done',
+      'transparent task did not finish',
+    )
+
+    const generatedTask = useStore.getState().tasks[0]
+    expect(callImageApi).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: expect.stringContaining('#00FF00'),
+        params: expect.objectContaining({
+          output_format: 'png',
+          output_compression: null,
+          transparent_output: true,
+          n: 1,
+        }),
+      }),
+    )
+    expect(removeKeyedBackgroundFromDataUrl).toHaveBeenCalledWith('data:image/png;base64,generated')
+    expect(generatedTask).toMatchObject({
+      prompt: 'single sticker',
+      params: expect.objectContaining({ transparent_output: true }),
+      transparentOutput: true,
+      transparentPrompt: expect.stringContaining('#FF00FF'),
+      status: 'done',
+    })
+    expect(generatedTask.outputImages).toHaveLength(1)
+    expect(generatedTask.transparentOriginalImages).toHaveLength(1)
+
+    const outputImage = await getImage(generatedTask.outputImages[0])
+    const originalImage = await getImage(generatedTask.transparentOriginalImages![0])
+    expect(outputImage?.dataUrl).toBe('transparent:data:image/png;base64,generated')
+    expect(originalImage?.dataUrl).toBe('data:image/png;base64,generated')
   })
 
   it('preserves selected image mentions when replacing a mask target with an equivalent image id', () => {
