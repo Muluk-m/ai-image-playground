@@ -4,7 +4,7 @@ import { useState } from 'react'
 const IS_MAC = typeof navigator !== 'undefined' && /mac|iphone|ipad/i.test(navigator.platform ?? '')
 const MOD = IS_MAC ? '⌘' : 'Ctrl'
 
-/** 精选最常用的一屏速查，保持面板小巧；完整快捷键交给 tldraw 菜单。 */
+/** 精选最常用的一屏速查，保持面板小巧。 */
 const SHORTCUT_ROWS: Array<{ label: string; keys: string[] }> = [
   { label: '复制 / 粘贴', keys: [`${MOD}C`, `${MOD}V`] },
   { label: '删除', keys: ['⌫', `${MOD}⌫`] },
@@ -13,7 +13,9 @@ const SHORTCUT_ROWS: Array<{ label: string; keys: string[] }> = [
   { label: '撤销 / 重做', keys: [`${MOD}Z`, `⇧${MOD}Z`] },
   { label: '选择 / 抓手', keys: ['V', 'H'] },
   { label: '画笔 / 橡皮', keys: ['D', 'E'] },
-  { label: '缩放', keys: [`${MOD}滚轮`] },
+  { label: '箭头 / 文字', keys: ['A', 'T'] },
+  { label: '缩放 / 临时抓手', keys: [`${MOD}滚轮`, 'Space'] },
+  { label: '拖动禁用吸附', keys: ['⌥拖动'] },
   { label: '发起生成 / 回画布', keys: [`${MOD}⏎`, 'Esc'] },
 ]
 
@@ -22,8 +24,7 @@ const COLLAPSED_STORAGE_KEY = 'canvas-shortcuts-collapsed'
 
 /**
  * 画布右下角的快捷键引导：**默认展开**做新手引导，可一键收起（收起后记住，
- * 之后默认只剩一颗 28px 圆形图标钮）。定位避开 tldraw 右下 watermark；
- * 桌面端专属（移动端无键盘）。
+ * 之后默认只剩一颗 28px 圆形图标钮）。桌面端专属（移动端无键盘）。
  */
 export default function CanvasShortcutsHint() {
   const [open, setOpen] = useState(() => localStorage.getItem(COLLAPSED_STORAGE_KEY) !== '1')
@@ -37,7 +38,7 @@ export default function CanvasShortcutsHint() {
 
   return (
     <div
-      className="pointer-events-none absolute bottom-14 right-3 z-[400] hidden flex-col items-end gap-1.5 sm:flex"
+      className="pointer-events-none absolute bottom-4 right-4 z-[400] hidden flex-col items-end gap-1.5 sm:flex"
       onPointerDown={(e) => e.stopPropagation()}
     >
       {open && (

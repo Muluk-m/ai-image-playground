@@ -1,5 +1,6 @@
-import type { Box, Editor } from 'tldraw'
 import { describe, expect, it } from 'vitest'
+import type { CanvasEditor } from '../../../../features/canvas/lib/editor'
+import type { Box } from '../../../../features/canvas/lib/geometry'
 import {
   computePlaceholderTarget,
   fanOutTargets,
@@ -8,8 +9,8 @@ import {
 } from '../../../../features/canvas/lib/placement'
 
 /** placement 是纯函数，只读 editor.getViewportPageBounds / bounds 的几个字段。 */
-function makeEditor(viewport: { midX: number; midY: number }): Editor {
-  return { getViewportPageBounds: () => viewport } as unknown as Editor
+function makeEditor(viewport: { midX: number; midY: number }): CanvasEditor {
+  return { getViewportPageBounds: () => viewport } as unknown as CanvasEditor
 }
 
 function makeBounds(b: { maxX: number; midX: number; midY: number }): Box {

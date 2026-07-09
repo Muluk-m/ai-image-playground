@@ -1,4 +1,5 @@
-import type { Box, Editor } from 'tldraw'
+import type { CanvasEditor } from './editor'
+import type { Box } from './geometry'
 
 /** 结果 / 占位框与源选区之间、以及多张结果彼此之间的留白（页面坐标单位）。 */
 export const PLACEMENT_GAP = 48
@@ -43,7 +44,7 @@ export function fanOutTargets(base: PlacementTarget, n: number): PlacementTarget
  * - 无选区（文生图）：当前视口中心
  */
 export function computePlaceholderTarget(
-  editor: Editor,
+  editor: CanvasEditor,
   selectionBounds: Box | null,
 ): PlacementTarget {
   const size = DEFAULT_TARGET_SIZE

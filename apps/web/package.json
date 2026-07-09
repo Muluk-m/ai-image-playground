@@ -16,13 +16,14 @@
   "dependencies": {
     "@image-playground/shared": "workspace:*",
     "fflate": "^0.8.2",
+    "konva": "^10.3.0",
+    "perfect-freehand": "^1.2.3",
     "react": "^19.2.1",
     "react-dom": "^19.2.1",
-    "tldraw": "5.1.1",
+    "react-konva": "^19.2.5",
     "zustand": "^5.0.5"
   },
   "devDependencies": {
-    "@tldraw/tlschema": "5.1.1",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2",
     "@vitejs/plugin-react": "^4.4.1",

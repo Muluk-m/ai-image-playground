@@ -1,12 +1,9 @@
-import type { Editor } from 'tldraw'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-
-// placeholderShapeOps 会从 'tldraw' 取 AssetRecordType / createShapeId（运行时值）；
-// node 环境不加载真 tldraw，桩掉这两个即可（本用例不触发 placeResults）。
-vi.mock('tldraw', () => ({
-  AssetRecordType: { createId: () => 'asset:test' },
-  createShapeId: () => 'shape:test',
-}))
+import type {
+  CanvasEditor,
+  CanvasTaskMeta,
+  PlaceholderView,
+} from '../../../../features/canvas/lib/editor'
 
 // resume 用永不 resolve 的 promise：只断言「是否被调用」，不驱动后续异步。
 const { resumeMock } = vi.hoisted(() => ({
@@ -20,34 +17,18 @@ vi.mock('../../../../store', () => ({
 
 import { recoverCanvasTasks } from '../../../../features/canvas/lib/recoverCanvasTasks'
 
-interface PlaceholderShape {
-  id: string
-  type: string
-  x: number
-  y: number
-  props: { w: number; h: number; status: string; message: string }
-  meta: Record<string, unknown>
+function ph(id: string, status: PlaceholderView['status'], meta: CanvasTaskMeta): PlaceholderView {
+  return { id, x: 0, y: 0, w: 360, h: 360, status, message: '', meta }
 }
 
-function ph(id: string, status: string, meta: Record<string, unknown>): PlaceholderShape {
-  return {
-    id,
-    type: 'generation-placeholder',
-    x: 0,
-    y: 0,
-    props: { w: 360, h: 360, status, message: '' },
-    meta,
-  }
-}
-
-function makeEditor(shapes: PlaceholderShape[]) {
-  const updateShape = vi.fn()
+function makeEditor(placeholders: PlaceholderView[]) {
+  const updatePlaceholder = vi.fn()
   const editor = {
-    getCurrentPageShapes: () => shapes,
-    getShape: (id: string) => shapes.find((s) => s.id === id),
-    updateShape,
-  } as unknown as Editor
-  return { editor, updateShape }
+    getPlaceholders: () => placeholders,
+    getPlaceholder: (id: string) => placeholders.find((p) => p.id === id),
+    updatePlaceholder,
+  } as unknown as CanvasEditor
+  return { editor, updatePlaceholder }
 }
 
 beforeEach(() => {
@@ -56,9 +37,9 @@ beforeEach(() => {
 
 describe('recoverCanvasTasks 恢复分支判定（决策 7）', () => {
   it('builtin-edge + bffRequestId → resume 续 poll（用 meta 参数快照），不标失效', () => {
-    const snapshot = { size: '1536x1024', n: 1 }
-    const { editor, updateShape } = makeEditor([
-      ph('shape:a', 'loading', {
+    const snapshot = { size: '1536x1024', n: 1 } as CanvasTaskMeta['params']
+    const { editor, updatePlaceholder } = makeEditor([
+      ph('el:a', 'loading', {
         taskId: 't1',
         clientRequestId: 'c1',
         bffRequestId: 'req-1',
@@ -74,12 +55,12 @@ describe('recoverCanvasTasks 恢复分支判定（决策 7）', () => {
     expect(resumeMock.mock.calls[0][1]).toBe('req-1')
     // 恢复用发起时的参数快照，而非当前 store 参数
     expect((resumeMock.mock.calls[0][0] as { params: unknown }).params).toEqual(snapshot)
-    expect(updateShape).not.toHaveBeenCalled()
+    expect(updatePlaceholder).not.toHaveBeenCalled()
   })
 
   it('builtin-edge 仅 clientRequestId（未确认窗口）→ 标记手动重试，不自动重提交', () => {
-    const { editor, updateShape } = makeEditor([
-      ph('shape:b', 'loading', {
+    const { editor, updatePlaceholder } = makeEditor([
+      ph('el:b', 'loading', {
         taskId: 't2',
         clientRequestId: 'c2',
         source: 'builtin-edge',
@@ -90,15 +71,19 @@ describe('recoverCanvasTasks 恢复分支判定（决策 7）', () => {
     recoverCanvasTasks(editor)
 
     expect(resumeMock).not.toHaveBeenCalled()
-    expect(updateShape).toHaveBeenCalledTimes(1)
-    const patch = updateShape.mock.calls[0][0] as { props: { status: string; message: string } }
-    expect(patch.props.status).toBe('stale')
-    expect(patch.props.message).toContain('未确认')
+    expect(updatePlaceholder).toHaveBeenCalledTimes(1)
+    const [id, patch] = updatePlaceholder.mock.calls[0] as [
+      string,
+      { status: string; message: string },
+    ]
+    expect(id).toBe('el:b')
+    expect(patch.status).toBe('stale')
+    expect(patch.message).toContain('未确认')
   })
 
   it('user-byok（无恢复能力）→ 标记失效', () => {
-    const { editor, updateShape } = makeEditor([
-      ph('shape:c', 'loading', {
+    const { editor, updatePlaceholder } = makeEditor([
+      ph('el:c', 'loading', {
         taskId: 't3',
         clientRequestId: 'c3',
         source: 'user-byok',
@@ -109,15 +94,15 @@ describe('recoverCanvasTasks 恢复分支判定（决策 7）', () => {
     recoverCanvasTasks(editor)
 
     expect(resumeMock).not.toHaveBeenCalled()
-    expect(updateShape).toHaveBeenCalledTimes(1)
-    const patch = updateShape.mock.calls[0][0] as { props: { status: string; message: string } }
-    expect(patch.props.status).toBe('stale')
-    expect(patch.props.message).toContain('BYOK')
+    expect(updatePlaceholder).toHaveBeenCalledTimes(1)
+    const patch = updatePlaceholder.mock.calls[0][1] as { status: string; message: string }
+    expect(patch.status).toBe('stale')
+    expect(patch.message).toContain('BYOK')
   })
 
   it('非运行态占位框（error）→ 跳过，不动它', () => {
-    const { editor, updateShape } = makeEditor([
-      ph('shape:d', 'error', {
+    const { editor, updatePlaceholder } = makeEditor([
+      ph('el:d', 'error', {
         taskId: 't4',
         clientRequestId: 'c4',
         source: 'user-byok',
@@ -128,6 +113,6 @@ describe('recoverCanvasTasks 恢复分支判定（决策 7）', () => {
     recoverCanvasTasks(editor)
 
     expect(resumeMock).not.toHaveBeenCalled()
-    expect(updateShape).not.toHaveBeenCalled()
+    expect(updatePlaceholder).not.toHaveBeenCalled()
   })
 })
