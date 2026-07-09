@@ -1,23 +1,21 @@
-import type { Editor } from 'tldraw'
 import { resumeQueueImageApi } from '../../../lib/api'
 import { addCompletedCanvasTask, useStore } from '../../../store'
-import type { GenerationPlaceholderShape } from '../shapes/GenerationPlaceholderShapeUtil'
 import { snapshotParams } from './canvasTaskRuntime'
+import type { CanvasEditor, PlaceholderView } from './editor'
 import {
   errorMessage,
   markPlaceholderStatus,
-  readTaskMeta,
   settleGeneration,
   targetFromShape,
 } from './placeholderShapeOps'
 
 /** builtin-edge 且有 bffRequestId：用它续 poll（不重传输入图），完成替换占位框。 */
 async function resumeOne(
-  editor: Editor,
-  shape: GenerationPlaceholderShape,
+  editor: CanvasEditor,
+  placeholder: PlaceholderView,
   bffRequestId: string,
 ): Promise<void> {
-  const meta = readTaskMeta(shape)
+  const meta = placeholder.meta
   // 参数优先用发起时的快照（随 meta 持久化），跨会话恢复保真；旧占位框无快照则当前参数兜底。
   const params = meta.params ?? snapshotParams()
   try {
@@ -31,7 +29,12 @@ async function resumeOne(
       },
       bffRequestId,
     )
-    const placed = await settleGeneration(editor, shape.id, targetFromShape(shape), result)
+    const placed = await settleGeneration(
+      editor,
+      placeholder.id,
+      targetFromShape(placeholder),
+      result,
+    )
     // 恢复完成的生成同样落工作台历史（best-effort，内部吞错告警）；profile 用发起时快照保真。
     if (placed) {
       void addCompletedCanvasTask({
@@ -42,7 +45,7 @@ async function resumeOne(
       })
     }
   } catch (err) {
-    markPlaceholderStatus(editor, shape.id, 'error', errorMessage(err))
+    markPlaceholderStatus(editor, placeholder.id, 'error', errorMessage(err))
   }
 }
 
@@ -53,23 +56,19 @@ async function resumeOne(
  * | user-byok（无恢复能力）           | 标记失效 + 重试入口            |
  * 每个 loading 占位框要么被恢复继续，要么被转入 error/stale，绝不停在无对应任务的 loading。
  */
-export function recoverCanvasTasks(editor: Editor): void {
-  const placeholders = editor
-    .getCurrentPageShapes()
-    .filter((s): s is GenerationPlaceholderShape => s.type === 'generation-placeholder')
-
-  for (const shape of placeholders) {
-    if (shape.props.status !== 'loading') continue
-    const meta = readTaskMeta(shape)
+export function recoverCanvasTasks(editor: CanvasEditor): void {
+  for (const placeholder of editor.getPlaceholders()) {
+    if (placeholder.status !== 'loading') continue
+    const meta = placeholder.meta
 
     if (meta.source === 'builtin-edge' && meta.bffRequestId) {
-      void resumeOne(editor, shape, meta.bffRequestId)
+      void resumeOne(editor, placeholder, meta.bffRequestId)
     } else if (meta.source === 'builtin-edge') {
       // submit 未确认窗口：不自动重提交（决策 6），标记需手动重试。
-      markPlaceholderStatus(editor, shape.id, 'stale', '任务未确认，请手动重试')
+      markPlaceholderStatus(editor, placeholder.id, 'stale', '任务未确认，请手动重试')
     } else {
       // BYOK 不经 BFF、无跨会话恢复能力：诚实标失效并给重试，而非僵尸转圈。
-      markPlaceholderStatus(editor, shape.id, 'stale', 'BYOK 任务无法跨会话恢复，请重试')
+      markPlaceholderStatus(editor, placeholder.id, 'stale', 'BYOK 任务无法跨会话恢复，请重试')
     }
   }
 }
