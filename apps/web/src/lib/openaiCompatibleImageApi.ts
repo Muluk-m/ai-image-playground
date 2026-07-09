@@ -355,6 +355,7 @@ function eventToImageResponseItem(event: Record<string, unknown>): ImageResponse
 async function parseImagesApiStreamResponse(
   response: Response,
   mime: string,
+  signal?: AbortSignal,
 ): Promise<CallApiResult> {
   const completedItems: ImageResponseItem[] = []
   let resultPayload: ImageApiResponse | null = null
@@ -378,20 +379,21 @@ async function parseImagesApiStreamResponse(
   })
 
   if (resultPayload) {
-    return parseImagesApiResponse(resultPayload, mime)
+    return parseImagesApiResponse(resultPayload, mime, signal)
   }
 
   if (!completedItems.length) {
     throw new Error('流式接口未返回最终图片数据')
   }
 
-  const images = completedItems
-    .map((item) => item.b64_json)
-    .filter((b64): b64 is string => Boolean(b64))
-    .map((b64) => normalizeBase64Image(b64, mime))
-  if (!images.length) throw new Error('流式接口未返回可用图片数据')
+  // 只保留带 b64_json 的事件，保证 images / actualParamsList / revisedPrompts 三个数组逐图对齐
+  const imageItems = completedItems.filter(
+    (item): item is ImageResponseItem & { b64_json: string } => Boolean(item.b64_json),
+  )
+  if (!imageItems.length) throw new Error('流式接口未返回可用图片数据')
 
-  const actualParamsList = completedItems.map((item) => mergeActualParams(pickActualParams(item)))
+  const images = imageItems.map((item) => normalizeBase64Image(item.b64_json, mime))
+  const actualParamsList = imageItems.map((item) => mergeActualParams(pickActualParams(item)))
   const actualParams = mergeActualParams(
     actualParamsList[0],
     images.length > 1 ? { n: images.length } : undefined,
@@ -400,7 +402,7 @@ async function parseImagesApiStreamResponse(
     images,
     actualParams,
     actualParamsList,
-    revisedPrompts: completedItems.map((item) => item.revised_prompt),
+    revisedPrompts: imageItems.map((item) => item.revised_prompt),
   }
 }
 
@@ -596,12 +598,13 @@ async function callImagesApiSingle(
     }
 
     if (isEventStreamResponse(response)) {
-      return parseImagesApiStreamResponse(response, mime)
+      // return await：让 finally 的 clearTimeout 等流读完再执行，profile.timeout 才能约束整个流式读取
+      return await parseImagesApiStreamResponse(response, mime, controller.signal)
     }
 
     const payload = (await response.json()) as ImageApiResponse
     throwIfProxyError(payload)
-    return parseImagesApiResponse(payload, mime, controller.signal)
+    return await parseImagesApiResponse(payload, mime, controller.signal)
   } finally {
     clearTimeout(timeoutId)
   }

@@ -220,6 +220,31 @@ describe('callImageApi', () => {
     expect(result.revisedPrompts).toEqual(['edited prompt'])
   })
 
+  it('keeps per-image params aligned when some completed stream events carry no b64_json', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      sseResponse([
+        { type: 'image_generation.completed', revised_prompt: 'no image event' },
+        {
+          type: 'image_generation.completed',
+          b64_json: 'aW1hZ2U=',
+          revised_prompt: 'real prompt',
+          size: '512x512',
+        },
+      ]),
+    )
+
+    const result = await callImageApi({
+      settings: settingsWithByok({ apiKey: 'test-key' }),
+      prompt: 'prompt',
+      params: { ...DEFAULT_PARAMS },
+      inputImageDataUrls: [],
+    })
+
+    expect(result.images).toEqual(['data:image/png;base64,aW1hZ2U='])
+    expect(result.actualParamsList).toEqual([{ size: '512x512' }])
+    expect(result.revisedPrompts).toEqual(['real prompt'])
+  })
+
   it('does not add cache request headers that require extra CORS allow-list entries', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(
