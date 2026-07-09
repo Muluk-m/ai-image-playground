@@ -93,6 +93,7 @@ async function placeResults(
   const placeholder = editor.getPlaceholder(placeholderId)
   const anchor = placeholder ? targetFromShape(placeholder) : target
   const provenance = placeholder ? { prompt: placeholder.meta.prompt } : undefined
-  if (placeholder) editor.deleteElement(placeholderId)
+  // 放置成功后才删占位框：中途失败（如图片解码）时它得留着，错误态才有处可标
   await placeImagesOnCanvas(editor, dataUrls, anchor, provenance)
+  if (placeholder) editor.deleteElement(placeholderId)
 }

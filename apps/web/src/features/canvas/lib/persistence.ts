@@ -22,16 +22,30 @@ interface PersistedScene {
   camera: Camera
 }
 
+/** 连接缓存：防抖落盘高频调用，每次新开连接会积累未关闭句柄。失败/被关则下次重开。 */
+let dbPromise: Promise<IDBDatabase> | null = null
+
 function openDB(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, DB_VERSION)
-    req.onupgradeneeded = (e) => {
-      const db = (e.target as IDBOpenDBRequest).result
-      if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE)
-    }
-    req.onsuccess = () => resolve(req.result)
-    req.onerror = () => reject(req.error)
-  })
+  if (!dbPromise) {
+    dbPromise = new Promise((resolve, reject) => {
+      const req = indexedDB.open(DB_NAME, DB_VERSION)
+      req.onupgradeneeded = (e) => {
+        const db = (e.target as IDBOpenDBRequest).result
+        if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE)
+      }
+      req.onsuccess = () => {
+        req.result.onclose = () => {
+          dbPromise = null
+        }
+        resolve(req.result)
+      }
+      req.onerror = () => reject(req.error)
+    })
+    dbPromise.catch(() => {
+      dbPromise = null
+    })
+  }
+  return dbPromise
 }
 
 function dbGet(): Promise<unknown> {
@@ -85,7 +99,7 @@ export async function loadScene(editor: CanvasEditor): Promise<boolean> {
   try {
     const stored = (await dbGet()) as Partial<PersistedScene> | undefined
     if (!stored || stored.version !== SCENE_FORMAT || !Array.isArray(stored.elements)) return false
-    if (stored.elements.length === 0) return false
+    // 空场景也照常恢复：相机位置（用户清空画布后平移/缩放过）不该被丢弃
     editor.doc.restore(stored.elements, stored.files ?? {}, stored.camera)
     return true
   } catch (err) {

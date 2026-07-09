@@ -30,7 +30,8 @@ export async function importImageFiles(
   const imageFiles = files.filter((f) => f.type.startsWith('image/'))
   if (imageFiles.length === 0) return 0
 
-  const entries = await Promise.all(
+  // 逐个容错：一张损坏/解码失败的图不拖垮整批（其余照常导入）
+  const results = await Promise.allSettled(
     imageFiles.map(async (file) => {
       const dataUrl = await fileToDataUrl(file)
       const { width, height } = await getImageDimensions(dataUrl)
@@ -38,6 +39,16 @@ export async function importImageFiles(
       return { dataUrl, width: width * scale, height: height * scale }
     }),
   )
+  for (const r of results) {
+    if (r.status === 'rejected') console.warn('[canvas] 图片导入失败，已跳过', r.reason)
+  }
+  const entries = results
+    .filter(
+      (r): r is PromiseFulfilledResult<{ dataUrl: string; width: number; height: number }> =>
+        r.status === 'fulfilled',
+    )
+    .map((r) => r.value)
+  if (entries.length === 0) return 0
 
   const totalW = entries.reduce((sum, e) => sum + e.width, 0) + PLACEMENT_GAP * (entries.length - 1)
   let x = center.x - totalW / 2
