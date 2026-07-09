@@ -110,7 +110,6 @@ export function elementBounds(el: CanvasEl): Box {
       return new Box(minX - pad, minY - pad, maxX - minX + pad * 2, maxY - minY + pad * 2)
     }
     case 'text':
-      return new Box(el.x, el.y, el.width, el.height)
     case 'placeholder':
       return new Box(el.x, el.y, el.width, el.height)
   }
@@ -277,11 +276,11 @@ export class CanvasEditor {
     const { viewport } = this.doc
     const padding = 96
     const zoom = Math.min(
-      1.5,
+      1,
       (viewport.width - padding * 2) / bounds.w,
       (viewport.height - padding * 2) / bounds.h,
     )
-    const clamped = Math.max(0.05, Math.min(zoom, 1))
+    const clamped = Math.max(0.05, zoom)
     const target = {
       x: bounds.midX - viewport.width / clamped / 2,
       y: bounds.midY - viewport.height / clamped / 2,

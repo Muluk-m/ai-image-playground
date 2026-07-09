@@ -577,15 +577,11 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
     doc.updateElements([{ id, patch: { text: trimmed, width, height } }])
   }
 
-  const cursor = panning
-    ? 'grabbing'
-    : spaceDown || tool === 'hand'
-      ? 'grab'
-      : tool === 'pen' || tool === 'arrow' || tool === 'eraser'
-        ? 'crosshair'
-        : tool === 'text'
-          ? 'text'
-          : 'default'
+  let cursor = 'default'
+  if (panning) cursor = 'grabbing'
+  else if (spaceDown || tool === 'hand') cursor = 'grab'
+  else if (tool === 'pen' || tool === 'arrow' || tool === 'eraser') cursor = 'crosshair'
+  else if (tool === 'text') cursor = 'text'
 
   // hover 高亮（未选中时的轻描边提示，仅选择工具下）
   const hoveredEl =
