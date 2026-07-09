@@ -4,6 +4,7 @@ import type { Box } from '../../../../features/canvas/lib/geometry'
 import {
   computePlaceholderTarget,
   fanOutTargets,
+  fitToTarget,
   PLACEMENT_GAP,
 } from '../../../../features/canvas/lib/placement'
 
@@ -62,5 +63,24 @@ describe('fanOutTargets', () => {
   it('n<=1 时只有 base 一个目标', () => {
     expect(fanOutTargets(base, 1)).toEqual([base])
     expect(fanOutTargets(base, 0)).toEqual([base])
+  })
+})
+
+describe('fitToTarget', () => {
+  const frame = { w: 360, h: 360 }
+
+  it('大图缩小到框内，保持宽高比', () => {
+    // 2048×1024 横图：宽贴满 360，高按比例
+    expect(fitToTarget(2048, 1024, frame)).toEqual({ w: 360, h: 180 })
+    // 1024×2048 竖图：高贴满 360，宽按比例
+    expect(fitToTarget(1024, 2048, frame)).toEqual({ w: 180, h: 360 })
+  })
+
+  it('小图放大到框内（展示尺寸与展位框一致）', () => {
+    expect(fitToTarget(90, 90, frame)).toEqual({ w: 360, h: 360 })
+  })
+
+  it('非正方形框也按短边贴合', () => {
+    expect(fitToTarget(1000, 1000, { w: 400, h: 200 })).toEqual({ w: 200, h: 200 })
   })
 })

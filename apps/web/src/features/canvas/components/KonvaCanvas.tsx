@@ -147,6 +147,14 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
         t?.isContentEditable
       )
     }
+    // loading 占位框是进行中任务的身份，全选误删会丢结果；error/stale 可删（清除失败任务的入口）
+    const deleteSelection = () => {
+      const ids = [...doc.selection].filter((id) => {
+        const el = doc.getElement(id)
+        return !(el?.type === 'placeholder' && el.status === 'loading')
+      })
+      if (ids.length > 0) doc.deleteElements(ids)
+    }
     const onKeyDown = (e: KeyboardEvent) => {
       if (isTyping(e)) return
       if (e.key === ' ') {
@@ -170,6 +178,12 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
           case 'd':
             e.preventDefault()
             duplicateSelection(doc)
+            break
+          // ⌘⌫ 作为删除别名（习惯 Cmd+Delete 的用户按了没反应）
+          case 'backspace':
+          case 'delete':
+            e.preventDefault()
+            deleteSelection()
             break
         }
         return
@@ -203,15 +217,9 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
           doc.setTool('text')
           break
         case 'Delete':
-        case 'Backspace': {
-          // loading 占位框是进行中任务的身份，全选误删会丢结果；error/stale 可删（清除失败任务的入口）
-          const ids = [...doc.selection].filter((id) => {
-            const el = doc.getElement(id)
-            return !(el?.type === 'placeholder' && el.status === 'loading')
-          })
-          if (ids.length > 0) doc.deleteElements(ids)
+        case 'Backspace':
+          deleteSelection()
           break
-        }
         case 'Escape':
           doc.setSelection([])
           break
@@ -247,18 +255,24 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
     return () => window.removeEventListener('paste', onPaste)
   }, [editor])
 
-  // ===== Transformer 绑定选中的图片节点 =====
+  // ===== Transformer 绑定选中的图片 / 占位框节点 =====
+  // 占位框可拉伸（结果按框 contain 适配，框即构图意图）：自由比例、不旋转；图片锁比例、可旋转。
   // biome-ignore lint/correctness/useExhaustiveDependencies: doc.version 驱动（选区/元素变化后重绑节点）
   useEffect(() => {
     const tr = trRef.current
     const stage = stageRef.current
     if (!tr || !stage) return
     const nodes = [...selection]
-      .filter((id) => doc.getElement(id)?.type === 'image')
+      .filter((id) => {
+        const type = doc.getElement(id)?.type
+        return type === 'image' || type === 'placeholder'
+      })
       .map((id) => stage.findOne(`#${id}`))
       .filter((n): n is Konva.Node => Boolean(n))
     tr.nodes(nodes)
   }, [doc.version, selection, doc])
+
+  const transformImagesOnly = [...selection].every((id) => doc.getElement(id)?.type !== 'placeholder')
 
   // ===== 手势 =====
 
@@ -551,16 +565,30 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
   const onTransformEnd = (e: KonvaEventObject<Event>, id: string) => {
     const node = e.target
     const el = doc.getElement(id)
-    if (el?.type !== 'image') return
-    const patch = {
-      x: node.x(),
-      y: node.y(),
-      width: Math.max(4, el.width * node.scaleX()),
-      height: Math.max(4, el.height * node.scaleY()),
-      rotation: node.rotation(),
+    if (el?.type === 'image') {
+      const patch = {
+        x: node.x(),
+        y: node.y(),
+        width: Math.max(4, el.width * node.scaleX()),
+        height: Math.max(4, el.height * node.scaleY()),
+        rotation: node.rotation(),
+      }
+      node.scale({ x: 1, y: 1 })
+      doc.updateElements([{ id, patch }])
+      return
     }
-    node.scale({ x: 1, y: 1 })
-    doc.updateElements([{ id, patch }])
+    if (el?.type === 'placeholder') {
+      // 模型无 rotation 字段，缩放把手也不给旋转（transformImagesOnly 关掉了），归零兜底
+      const patch = {
+        x: node.x(),
+        y: node.y(),
+        width: Math.max(60, el.width * node.scaleX()),
+        height: Math.max(60, el.height * node.scaleY()),
+      }
+      node.scale({ x: 1, y: 1 })
+      node.rotation(0)
+      doc.updateElements([{ id, patch }])
+    }
   }
 
   // ===== 文字编辑浮层 =====
@@ -704,7 +732,14 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
                   />
                 )
               case 'placeholder':
-                return <Rect key={el.id} {...common} {...placeholderProps(el)} />
+                return (
+                  <Rect
+                    key={el.id}
+                    {...common}
+                    {...placeholderProps(el)}
+                    onTransformEnd={(e) => onTransformEnd(e, el.id)}
+                  />
+                )
             }
           })}
         </Layer>
@@ -749,10 +784,23 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
         <Layer>
           <Transformer
             ref={trRef}
-            keepRatio
-            rotateEnabled
+            keepRatio={transformImagesOnly}
+            rotateEnabled={transformImagesOnly}
             flipEnabled={false}
-            enabledAnchors={['top-left', 'top-right', 'bottom-left', 'bottom-right']}
+            enabledAnchors={
+              transformImagesOnly
+                ? ['top-left', 'top-right', 'bottom-left', 'bottom-right']
+                : [
+                    'top-left',
+                    'top-right',
+                    'bottom-left',
+                    'bottom-right',
+                    'middle-left',
+                    'middle-right',
+                    'top-center',
+                    'bottom-center',
+                  ]
+            }
             anchorSize={9}
             anchorCornerRadius={4}
             anchorStroke="#3b82f6"

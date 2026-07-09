@@ -4,7 +4,7 @@
 
 # AI Image Playground
 
-浏览器里的图像生成工作台 — 自带 API key 即可用，历史与配置全部本地存储。
+浏览器里的 AI 生图工作台，自带无限画布创作模式 — 填个 API key 即可用，历史与配置全部本地存储。
 
 [![License](https://img.shields.io/badge/License-MIT-10b981?style=flat-square)](./LICENSE)
 [![React](https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react&logoColor=white)](https://react.dev/)
@@ -19,19 +19,45 @@
 
 <p align="center">
   <a href="https://image.nainma.online/" target="_blank">
-    <img src="./docs/images/preview.png" alt="screenshot" width="900" />
+    <img src="./docs/images/canvas-hero.jpg" alt="创作模式 — 在图上手绘标注、描述修改意图，直接在无限画布上迭代" width="900" />
   </a>
 </p>
 
+<p align="center"><i>创作模式：圈出想改的地方、写下要求，标注 → 生成 → 合并素材，全在一张画布上完成。</i></p>
+
 ## ✨ 能干嘛
 
+两种工作方式，共享一份历史：
+
+### 🎨 创作模式 — 无限画布
+
+- **标注即迭代** — 选中图片，在上面画圈 / 箭头 / 写字，描述修改要求；模型按标注意图出一张干净新图，不带手绘痕迹
+- **合并素材** — 框选多张图一起发起，作为参考图合并生成（「把小猫放到小狗旁边」）
+- **原地生成** — 不选图时就是纯文生图，结果直接落在画布上、跟素材摆在一起
+- **并发不阻塞** — 每次生成都有实时占位框，多个任务并行跑、你继续操作画布，n>1 一次出多张变体
+- **刷新不丢** — 画布内容本地持久化；后端模式下进行中的生成刷新页面后自动续跑
+- **与工作台打通** — 画布生成同样落入共享历史（可收藏 / 检索 / 复用），工作台的图也能一键发到画布继续创作
+- **键盘友好** — 完整快捷键 + 内置速查面板（⌘⏎ 发起生成，V/H/D/E 切工具，撤销重做…）
+
+### 🛠 工作台模式
+
 - **多个模型** — OpenAI、Gemini、自定义 HTTP，自带 API key 即用
+- **参考图 + 遮罩** — 最多 16 张参考图，OpenAI 路径支持可视化遮罩编辑器
+- **瀑布流历史** — 每次生成连同实际参数本地保存，可收藏、可检索
+- **灵感库** — 几百个一键套用的高质量提示词
+
+### ⚙️ 哪都能跑
+
 - **短任务直跑** — 浏览器直连上游，秒级出图
 - **长任务也能跑** — 可选「后端模式」处理 30s–5min 的长任务（Gemini 3 Pro 等），任务持久化，刷新页面也不丢
 - **不泄密** — 后端模式下 API key 只在服务器 env 里，浏览器永远拿不到
 - **纯本地** — 历史、配置、API key 全存浏览器 IndexedDB
-- **参考图 + 遮罩** — 最多 16 张参考图，OpenAI 路径支持可视化遮罩编辑器
-- **灵感库** — 几百个一键套用的高质量提示词
+
+<p align="center">
+  <a href="https://image.nainma.online/" target="_blank">
+    <img src="./docs/images/preview.png" alt="工作台模式" width="900" />
+  </a>
+</p>
 
 ## 🚀 本地试一下
 
@@ -89,11 +115,11 @@ pnpm typecheck
 pnpm lint
 ```
 
-技术栈：前端 React 19 + Vite · 后端 Bun + Elysia + SQLite · monorepo pnpm + Turbo。
+技术栈：前端 React 19 + Vite · 画布 tldraw · 后端 Bun + Elysia + SQLite · monorepo pnpm + Turbo。
 
 ## 🙏 致谢
 
-Fork 自 [CookSleep/gpt_image_playground](https://github.com/CookSleep/gpt_image_playground)（MIT），保留原项目核心 UX（参考图 + 遮罩、瀑布流历史、灵感库、模型快选、实际参数对比）。本 fork 扩展了 Gemini 原生协议、长任务队列模式、可选后端。
+Fork 自 [CookSleep/gpt_image_playground](https://github.com/CookSleep/gpt_image_playground)（MIT），保留原项目核心 UX（参考图 + 遮罩、瀑布流历史、灵感库、模型快选、实际参数对比）。本 fork 扩展了 Gemini 原生协议、长任务队列模式、可选后端，以及无限画布创作模式。
 
 灵感库提示词数据：
 - [freestylefly/awesome-gpt-image-2](https://github.com/freestylefly/awesome-gpt-image-2)（MIT）

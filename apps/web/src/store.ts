@@ -56,6 +56,11 @@ import { getCustomQueuedImageResult } from './lib/openaiCompatibleImageApi'
 import { getChangedParams, normalizeParamsForSettings } from './lib/paramCompatibility'
 import { remapImageMentionsForOrder, replaceImageMentionsForApi } from './lib/promptImageMentions'
 import { dismissAllTooltips } from './lib/tooltipDismiss'
+import {
+  createTransparentOutputMeta,
+  getTransparentRequestParams,
+  removeKeyedBackgroundFromDataUrl,
+} from './lib/transparentImage'
 
 // ===== Image cache =====
 // 内存缓存，id → dataUrl。只保留少量最近使用图片，避免大量 4K data URL 常驻内存。
@@ -105,15 +110,52 @@ function cacheImage(id: string, dataUrl: string) {
   }
 }
 
-/** 生成成功路径共用：输出图逐张写 image store 并回填内存缓存，返回 image id 列表。 */
-async function storeGeneratedImages(images: string[]): Promise<string[]> {
+interface StoredGeneratedImagesResult {
+  outputIds: string[]
+  outputDataUrls: string[]
+  transparentOriginalImageIds?: string[]
+}
+
+/** 生成成功路径共用：输出图逐张写 image store 并回填内存缓存。 */
+async function storeGeneratedImages(
+  images: string[],
+  task?: Pick<TaskRecord, 'transparentOutput'>,
+): Promise<StoredGeneratedImagesResult> {
   const outputIds: string[] = []
+  const outputDataUrls: string[] = []
+  const transparentOriginalImageIds: string[] = []
+
   for (const dataUrl of images) {
-    const imgId = await storeImage(dataUrl, 'generated')
-    cacheImage(imgId, dataUrl)
+    let outputDataUrl = dataUrl
+
+    if (task?.transparentOutput) {
+      const originalId = await storeImage(dataUrl, 'generated')
+      cacheImage(originalId, dataUrl)
+      try {
+        outputDataUrl = await removeKeyedBackgroundFromDataUrl(dataUrl)
+        transparentOriginalImageIds.push(originalId)
+      } catch (err) {
+        console.warn('透明背景后处理失败，已回退为原始输出', err)
+        outputIds.push(originalId)
+        outputDataUrls.push(dataUrl)
+        transparentOriginalImageIds.push('')
+        continue
+      }
+    }
+
+    const imgId = await storeImage(outputDataUrl, 'generated')
+    cacheImage(imgId, outputDataUrl)
     outputIds.push(imgId)
+    outputDataUrls.push(outputDataUrl)
   }
-  return outputIds
+
+  return {
+    outputIds,
+    outputDataUrls,
+    transparentOriginalImageIds: transparentOriginalImageIds.length
+      ? transparentOriginalImageIds
+      : undefined,
+  }
 }
 
 function getCachedThumbnail(id: string) {
@@ -1089,6 +1131,9 @@ export async function initStore() {
     for (const id of t.outputImages || []) {
       referencedIds.add(id)
     }
+    for (const id of t.transparentOriginalImages || []) {
+      if (id) referencedIds.add(id)
+    }
   }
 
   // 只枚举 key 清理孤立图片，避免启动时把所有 4K 原图读进内存。
@@ -1225,7 +1270,15 @@ export async function submitTask(
   const normalizedParams = normalizeParamsForSettings(params, requestSettings, {
     hasInputImages: orderedInputImages.length > 0,
   })
-  const normalizedParamPatch = getChangedParams(params, normalizedParams)
+  const shouldUseTransparentOutput =
+    normalizedParams.output_format === 'png' && normalizedParams.transparent_output
+  const taskParams = shouldUseTransparentOutput
+    ? getTransparentRequestParams(normalizedParams)
+    : { ...normalizedParams, transparent_output: false }
+  const transparentMeta = taskParams.transparent_output
+    ? createTransparentOutputMeta(prompt.trim())
+    : null
+  const normalizedParamPatch = getChangedParams(params, taskParams)
   if (Object.keys(normalizedParamPatch).length) {
     useStore.getState().setParams(normalizedParamPatch)
   }
@@ -1234,8 +1287,8 @@ export async function submitTask(
   // n 张图一律拆成 n 条独立任务并行下发：gpt-image-2 / nano-banana 都不支持
   // 上游 n 参数，统一前端 fan-out 比按 model 分支更简单；副作用是 quota 自然
   // 按张数计数。每条 task 自带独立 clientRequestId 用于 BFF 幂等。
-  const fanOut = Math.max(1, normalizedParams.n)
-  const singleParams = fanOut === 1 ? normalizedParams : { ...normalizedParams, n: 1 }
+  const fanOut = Math.max(1, taskParams.n)
+  const singleParams = fanOut === 1 ? taskParams : { ...taskParams, n: 1 }
   const createdAt = Date.now()
   const newTasks: TaskRecord[] = Array.from({ length: fanOut }, () => ({
     id: genId(),
@@ -1248,6 +1301,8 @@ export async function submitTask(
     inputImageIds: orderedInputImages.map((i) => i.id),
     maskTargetImageId,
     maskImageId,
+    transparentOutput: transparentMeta?.transparentOutput,
+    transparentPrompt: transparentMeta?.effectivePrompt,
     outputImages: [],
     status: 'running',
     error: null,
@@ -1341,9 +1396,12 @@ async function executeTask(taskId: string) {
         if (!maskDataUrl) throw new Error('遮罩图片已不存在')
       }
 
+      const requestPrompt =
+        task.transparentOutput && task.transparentPrompt ? task.transparentPrompt : task.prompt
+
       result = await callImageApi({
         settings: requestSettings,
-        prompt: replaceImageMentionsForApi(task.prompt, inputDataUrls.length),
+        prompt: replaceImageMentionsForApi(requestPrompt, inputDataUrls.length),
         params: task.params,
         inputImageDataUrls: inputDataUrls,
         maskDataUrl,
@@ -1365,10 +1423,13 @@ async function executeTask(taskId: string) {
     if (!latestBeforeSuccess || latestBeforeSuccess.status !== 'running') return
 
     // 存储输出图片
-    const outputIds = await storeGeneratedImages(result.images)
+    const { outputIds, outputDataUrls, transparentOriginalImageIds } = await storeGeneratedImages(
+      result.images,
+      task,
+    )
     const isAsyncCustomTask = taskProvider !== 'openai' && Boolean(customTaskInfo)
     const actualParamsList = isAsyncCustomTask
-      ? await readImageSizeParamsList(result.images)
+      ? await readImageSizeParamsList(outputDataUrls)
       : result.actualParamsList
     const actualParams = (() => {
       if (isAsyncCustomTask) return firstActualParams(actualParamsList)
@@ -1405,6 +1466,7 @@ async function executeTask(taskId: string) {
     clearOpenAIWatchdogTimer(taskId)
     updateTaskInStore(taskId, {
       outputImages: outputIds,
+      transparentOriginalImages: transparentOriginalImageIds,
       rawImageUrls: result.rawImageUrls?.length ? result.rawImageUrls : undefined,
       actualParams,
       actualParamsByImage,
@@ -1488,11 +1550,19 @@ export async function retryTask(task: TaskRecord) {
   const normalizedParams = normalizeParamsForSettings(task.params, settings, {
     hasInputImages: task.inputImageIds.length > 0,
   })
+  const shouldUseTransparentOutput =
+    normalizedParams.output_format === 'png' && normalizedParams.transparent_output
+  const taskParams = shouldUseTransparentOutput
+    ? getTransparentRequestParams(normalizedParams)
+    : { ...normalizedParams, transparent_output: false }
+  const transparentMeta = taskParams.transparent_output
+    ? createTransparentOutputMeta(task.prompt.trim())
+    : null
   const taskId = genId()
   const newTask: TaskRecord = {
     id: taskId,
     prompt: task.prompt,
-    params: normalizedParams,
+    params: taskParams,
     apiProvider: activeView.provider,
     apiProfileId: activeProfile.id,
     apiProfileName: activeView.name,
@@ -1500,6 +1570,8 @@ export async function retryTask(task: TaskRecord) {
     inputImageIds: [...task.inputImageIds],
     maskTargetImageId: task.maskTargetImageId ?? null,
     maskImageId: task.maskImageId ?? null,
+    transparentOutput: transparentMeta?.transparentOutput,
+    transparentPrompt: transparentMeta?.effectivePrompt,
     outputImages: [],
     status: 'running',
     error: null,
@@ -1662,7 +1734,7 @@ export async function addCompletedCanvasTask(args: {
           apiModel: view.model,
         }
       })()
-    const outputIds = await storeGeneratedImages(args.images)
+    const { outputIds } = await storeGeneratedImages(args.images)
     const finishedAt = Date.now()
     const elapsed = args.elapsed ?? null
     const newTask: TaskRecord = {
@@ -1722,6 +1794,9 @@ export async function removeMultipleTasks(taskIds: string[]) {
       for (const id of t.inputImageIds || []) deletedImageIds.add(id)
       if (t.maskImageId) deletedImageIds.add(t.maskImageId)
       for (const id of t.outputImages || []) deletedImageIds.add(id)
+      for (const id of t.transparentOriginalImages || []) {
+        if (id) deletedImageIds.add(id)
+      }
     }
   }
 
@@ -1736,6 +1811,9 @@ export async function removeMultipleTasks(taskIds: string[]) {
     for (const id of t.inputImageIds || []) stillUsed.add(id)
     if (t.maskImageId) stillUsed.add(t.maskImageId)
     for (const id of t.outputImages || []) stillUsed.add(id)
+    for (const id of t.transparentOriginalImages || []) {
+      if (id) stillUsed.add(id)
+    }
   }
   for (const img of inputImages) stillUsed.add(img.id)
 
@@ -1766,6 +1844,7 @@ export async function removeTask(task: TaskRecord) {
     ...(task.inputImageIds || []),
     ...(task.maskImageId ? [task.maskImageId] : []),
     ...(task.outputImages || []),
+    ...(task.transparentOriginalImages || []).filter(Boolean),
   ])
 
   // 从列表移除
@@ -1779,6 +1858,9 @@ export async function removeTask(task: TaskRecord) {
     for (const id of t.inputImageIds || []) stillUsed.add(id)
     if (t.maskImageId) stillUsed.add(t.maskImageId)
     for (const id of t.outputImages || []) stillUsed.add(id)
+    for (const id of t.transparentOriginalImages || []) {
+      if (id) stillUsed.add(id)
+    }
   }
   for (const img of inputImages) stillUsed.add(img.id)
 
@@ -1855,11 +1937,15 @@ async function completeRecoveredCustomTask(
   const latest = useStore.getState().tasks.find((item) => item.id === task.id)
   if (!latest || latest.status === 'done') return
 
-  const actualParamsList = await readImageSizeParamsList(result.images)
-  const outputIds = await storeGeneratedImages(result.images)
+  const { outputIds, outputDataUrls, transparentOriginalImageIds } = await storeGeneratedImages(
+    result.images,
+    task,
+  )
+  const actualParamsList = await readImageSizeParamsList(outputDataUrls)
 
   updateTaskInStore(task.id, {
     outputImages: outputIds,
+    transparentOriginalImages: transparentOriginalImageIds,
     actualParams: firstActualParams(actualParamsList),
     actualParamsByImage: mapActualParamsByImage(outputIds, actualParamsList),
     revisedPromptByImage: undefined,
