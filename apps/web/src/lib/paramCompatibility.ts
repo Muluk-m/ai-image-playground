@@ -1,5 +1,5 @@
 import { type AppSettings, DEFAULT_PARAMS, type TaskParams } from '../types'
-import { getActiveApiProfile } from './apiProfiles'
+import { clientProfileToApiProfile, getActiveApiProfile } from './apiProfiles'
 import { normalizeImageSize } from './size'
 
 export const MAX_OPENAI_OUTPUT_IMAGES = 10
@@ -31,6 +31,14 @@ export function normalizeParamsForSettings(
 
   if (nextParams.output_format === 'png') {
     nextParams.output_compression = DEFAULT_PARAMS.output_compression
+  } else {
+    nextParams.transparent_output = DEFAULT_PARAMS.transparent_output
+  }
+
+  // Gemini profile 不展示透明输出开关（ParamControls 同判定），切换 profile 残留的
+  // transparent_output 必须重置，否则会静默注入绿幕 prompt 且用户无法关闭
+  if (clientProfileToApiProfile(activeProfile).provider === 'gemini') {
+    nextParams.transparent_output = DEFAULT_PARAMS.transparent_output
   }
 
   return nextParams
