@@ -272,7 +272,9 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
     tr.nodes(nodes)
   }, [doc.version, selection, doc])
 
-  const transformImagesOnly = [...selection].every((id) => doc.getElement(id)?.type !== 'placeholder')
+  const transformImagesOnly = [...selection].every(
+    (id) => doc.getElement(id)?.type !== 'placeholder',
+  )
 
   // ===== 手势 =====
 
