@@ -100,11 +100,13 @@ export class CanvasDoc {
   camera: Camera = { x: 0, y: 0, zoom: 1 }
   viewport = { width: 1, height: 1 }
   tool: Tool = 'select'
+  // 默认标注样式：红 + 最大号（样式面板 XL 档）。标注的用途是醒目指示修改意图，
+  // 细线小字在照片上几乎看不见（对齐线上 #19/#20 的产品决策）。
   penColor = '#ef4444'
   /** 画笔 / 箭头线宽（页面单位）。 */
-  penWidth = 4
+  penWidth = 12
   /** 新建文字的字号（页面单位）。 */
-  textFontSize = 28
+  textFontSize = 64
   /** 正在内联编辑的 text 元素 id（编辑期间画布快捷键让位）。 */
   editingTextId: string | null = null
   /** 单调递增版本号，驱动 useSyncExternalStore。 */

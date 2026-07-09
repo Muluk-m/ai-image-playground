@@ -1,4 +1,4 @@
-import { useState, useSyncExternalStore } from 'react'
+import { useSyncExternalStore } from 'react'
 import { duplicateSelection } from '../lib/canvasClipboard'
 import type { CanvasDoc, Tool } from '../lib/canvasDoc'
 
@@ -98,22 +98,6 @@ const TOOLS: Array<{ tool: Tool; label: string; hotkey: string; icon: React.Reac
   },
 ]
 
-/** 快捷键速查（对齐线上版的右下角面板）。 */
-const SHORTCUTS: Array<[string, string]> = [
-  ['复制 / 粘贴', '⌘C ⌘V'],
-  ['复制一份', '⌘D'],
-  ['全选', '⌘A'],
-  ['删除', '⌫'],
-  ['撤销 / 重做', '⌘Z ⇧⌘Z'],
-  ['选择 / 抓手', 'V H'],
-  ['画笔 / 橡皮', 'D E'],
-  ['箭头 / 文字', 'A T'],
-  ['平移 / 缩放', '滚轮 · ⌘滚轮'],
-  ['临时抓手', 'Space'],
-  ['拖动时禁用吸附', '⌥拖动'],
-  ['发起生成', '⌘⏎'],
-]
-
 function ToolButton({
   active,
   title,
@@ -145,10 +129,9 @@ function ToolButton({
   )
 }
 
-/** 底部居中工具条 + 左下角缩放控件 + 右下角快捷键速查。 */
+/** 底部居中工具条 + 左下角缩放控件（快捷键速查在 CanvasShortcutsHint）。 */
 export default function CanvasToolbar({ doc }: { doc: CanvasDoc }) {
   useSyncExternalStore(doc.subscribe, () => doc.version)
-  const [showShortcuts, setShowShortcuts] = useState(false)
   const { tool, selection, camera, viewport } = doc
 
   const zoomStep = (dir: 1 | -1) => {
@@ -260,36 +243,6 @@ export default function CanvasToolbar({ doc }: { doc: CanvasDoc }) {
             ＋
           </button>
         </div>
-      </div>
-      {/* 快捷键速查：右下角 */}
-      <div className="pointer-events-none absolute bottom-4 right-4 z-[400] flex flex-col items-end gap-2">
-        {showShortcuts && (
-          <div className="pointer-events-auto w-56 rounded-2xl border border-white/10 bg-gray-900/95 p-3 shadow-lg backdrop-blur">
-            {SHORTCUTS.map(([label, keys]) => (
-              <div
-                key={label}
-                className="flex items-center justify-between py-1 text-xs text-gray-300"
-              >
-                <span>{label}</span>
-                <span className="rounded bg-white/10 px-1.5 py-0.5 font-mono text-[10px] text-gray-400">
-                  {keys}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
-        <button
-          type="button"
-          title="快捷键"
-          onClick={() => setShowShortcuts((v) => !v)}
-          className={`pointer-events-auto flex h-9 w-9 items-center justify-center rounded-full border border-white/10 shadow-lg backdrop-blur transition-colors ${
-            showShortcuts
-              ? 'bg-blue-600 text-white'
-              : 'bg-gray-900/95 text-gray-300 hover:bg-white/10'
-          }`}
-        >
-          ?
-        </button>
       </div>
     </>
   )

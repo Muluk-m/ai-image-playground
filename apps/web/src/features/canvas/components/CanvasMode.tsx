@@ -7,6 +7,7 @@ import { placeImagesOnCanvas } from '../lib/placeholderShapeOps'
 import { computePlaceholderTarget } from '../lib/placement'
 import { recoverCanvasTasks } from '../lib/recoverCanvasTasks'
 import CanvasGenerateBar from './CanvasGenerateBar'
+import CanvasShortcutsHint from './CanvasShortcutsHint'
 import CanvasToolbar from './CanvasToolbar'
 import KonvaCanvas from './KonvaCanvas'
 import PlaceholderOverlay from './PlaceholderOverlay'
@@ -76,6 +77,7 @@ export default function CanvasMode() {
         <PlaceholderOverlay editor={editor} />
         <CanvasToolbar doc={doc} />
         <StylePanel doc={doc} />
+        <CanvasShortcutsHint />
         <CanvasGenerateBar editor={editor} />
       </div>
     </div>

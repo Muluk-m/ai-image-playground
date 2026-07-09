@@ -171,6 +171,7 @@ export function retryCanvasTask(editor: CanvasEditor, placeholder: PlaceholderVi
     inputImageDataUrls,
     // meta.params 与 runtime spec 同源（launch 时一并写入），持久化的 meta 是权威。
     params: meta.params ?? snapshotParams(),
-    target: runtime?.target ?? targetFromShape(placeholder),
+    // 几何一律读活占位框：用户可能已拖动 / 拉伸过错误态占位框，submit 时的 runtime.target 已过期。
+    target: targetFromShape(placeholder),
   })
 }

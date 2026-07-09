@@ -119,6 +119,7 @@ export default function ParamControls({ showCount = false }: { showCount?: boole
   const supportsQuality = !modelCaps || modelCaps.has('quality')
   const moderationDisabled = activeView.apiMode === 'responses'
   const compressionDisabled = params.output_format === 'png'
+  const showTransparentOutputControl = !isGeminiProvider && params.output_format === 'png'
   const outputImageLimit = getOutputImageLimitForSettings(effectiveSettings)
   const displaySize = normalizeImageSize(params.size) || DEFAULT_PARAMS.size
   const qualityOptions = [
@@ -338,7 +339,12 @@ export default function ParamControls({ showCount = false }: { showCount?: boole
           >
             <ChipSelect
               value={params.output_format}
-              onChange={(val) => setParams({ output_format: val as any })}
+              onChange={(val) =>
+                setParams({
+                  output_format: val as TaskParams['output_format'],
+                  ...(val === 'png' ? { output_compression: null } : { transparent_output: false }),
+                })
+              }
               options={[
                 { label: 'PNG', value: 'png' },
                 { label: 'JPEG', value: 'jpeg' },
@@ -346,6 +352,27 @@ export default function ParamControls({ showCount = false }: { showCount?: boole
               ]}
             />
           </ParamChip>
+          {showTransparentOutputControl && (
+            <ParamChip
+              icon={ChipIcons.format}
+              label="透明"
+              value={params.transparent_output ? 'on' : 'off'}
+            >
+              <ChipSelect
+                value={params.transparent_output ? 'on' : 'off'}
+                onChange={(val) =>
+                  setParams({
+                    transparent_output: val === 'on',
+                    output_compression: null,
+                  })
+                }
+                options={[
+                  { label: 'off', value: 'off' },
+                  { label: 'on', value: 'on' },
+                ]}
+              />
+            </ParamChip>
+          )}
           {!compressionDisabled && (
             <ParamChip icon={ChipIcons.compression} label="压缩">
               <input

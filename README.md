@@ -4,7 +4,7 @@
 
 # AI Image Playground
 
-A browser-based image generation workbench — bring your own API key, history and config stay fully local.
+A browser-based AI image workbench with an infinite creative canvas — bring your own API key, history and config stay fully local.
 
 [![License](https://img.shields.io/badge/License-MIT-10b981?style=flat-square)](./LICENSE)
 [![React](https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react&logoColor=white)](https://react.dev/)
@@ -19,19 +19,45 @@ English | [中文](./README.zh.md)
 
 <p align="center">
   <a href="https://image.nainma.online/" target="_blank">
-    <img src="./docs/images/preview.png" alt="screenshot" width="900" />
+    <img src="./docs/images/canvas-hero.jpg" alt="Create mode — draw an annotation on an image, describe the change, and iterate right on the infinite canvas" width="900" />
   </a>
 </p>
 
+<p align="center"><i>Create mode: circle what you want changed, type the instruction, and iterate — annotate → generate → merge, all on one canvas.</i></p>
+
 ## ✨ Features
 
+Two ways to work, one shared history:
+
+### 🎨 Create mode — infinite canvas
+
+- **Annotate to iterate** — select an image, draw circles / arrows / notes on it, describe the change; the model follows your markup and returns a clean image with annotations removed
+- **Merge images** — box-select multiple images and they're sent together as references ("put the kitten next to the puppy")
+- **Generate in place** — with nothing selected, your prompt is plain text-to-image; results land right on the canvas next to your material
+- **Fire-and-forget concurrency** — every generation gets a live placeholder frame; keep working while multiple tasks run in parallel, with n>1 fan-out for variants
+- **Refresh-safe** — the canvas persists locally; in backend mode, in-flight generations resume automatically after a page reload
+- **Connected to the workbench** — canvas results land in the shared history (favorite / search / reuse), and any workbench image can be sent onto the canvas to keep iterating
+- **Keyboard-first** — full shortcut support with a built-in cheat sheet (⌘⏎ to generate, V/H/D/E tool switching, undo/redo…)
+
+### 🛠 Workbench mode
+
 - **Multiple models** — OpenAI, Gemini, custom HTTP endpoints; bring your own API key
+- **Reference images + masks** — up to 16 reference images; the OpenAI path includes a visual mask editor
+- **Waterfall history** — every generation saved locally with its effective parameters, favoritable and searchable
+- **Inspiration library** — hundreds of high-quality prompts you can apply with one click
+
+### ⚙️ Runs anywhere
+
 - **Fast jobs run inline** — browser calls the upstream directly, images in seconds
 - **Long jobs supported too** — optional "backend mode" for 30s–5min jobs (e.g. Gemini 3 Pro). Tasks are persisted; refreshing the page won't lose them
 - **No key leakage** — in backend mode, API keys stay in the server's env; the browser never sees them
 - **Fully local** — history, config, and BYOK keys live in the browser's IndexedDB
-- **Reference images + masks** — up to 16 reference images; the OpenAI path includes a visual mask editor
-- **Inspiration library** — hundreds of high-quality prompts you can apply with one click
+
+<p align="center">
+  <a href="https://image.nainma.online/" target="_blank">
+    <img src="./docs/images/preview.png" alt="Workbench mode" width="900" />
+  </a>
+</p>
 
 ## 🚀 Run locally
 
@@ -89,11 +115,11 @@ pnpm typecheck
 pnpm lint
 ```
 
-Stack: React 19 + Vite on the frontend · Bun + Elysia + SQLite on the backend · pnpm + Turbo monorepo.
+Stack: React 19 + Vite on the frontend · tldraw for the canvas · Bun + Elysia + SQLite on the backend · pnpm + Turbo monorepo.
 
 ## 🙏 Credits
 
-Forked from [CookSleep/gpt_image_playground](https://github.com/CookSleep/gpt_image_playground) (MIT), keeping the original UX (reference images + mask editing, waterfall history, inspiration library, quick model picker, effective-parameter comparison). This fork adds native Gemini protocol support, a long-task queue mode, and an optional backend.
+Forked from [CookSleep/gpt_image_playground](https://github.com/CookSleep/gpt_image_playground) (MIT), keeping the original UX (reference images + mask editing, waterfall history, inspiration library, quick model picker, effective-parameter comparison). This fork adds native Gemini protocol support, a long-task queue mode, an optional backend, and the infinite-canvas create mode.
 
 Inspiration library prompt data:
 - [freestylefly/awesome-gpt-image-2](https://github.com/freestylefly/awesome-gpt-image-2) (MIT)
