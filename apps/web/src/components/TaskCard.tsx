@@ -246,6 +246,7 @@ export default function TaskCard({
   const nDisplay = getParamDisplay(task, 'n')
   const showN = task.params.n > 1 || nDisplay.isMismatch
 
+  const showTransparentOutput = Boolean(task.transparentOutput || task.params.transparent_output)
   const showModel = Boolean(task.apiModel)
 
   return (
@@ -481,6 +482,11 @@ export default function TaskCard({
                       />
                     </svg>
                     局部重绘
+                  </span>
+                )}
+                {showTransparentOutput && (
+                  <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-xs flex-shrink-0">
+                    透明背景
                   </span>
                 )}
                 {/* Params: only show if not default or mismatch */}
