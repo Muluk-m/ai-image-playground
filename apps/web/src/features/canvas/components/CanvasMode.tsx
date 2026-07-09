@@ -47,7 +47,13 @@ export default function CanvasMode() {
       recoverCanvasTasks(editor)
       const pending = useStore.getState().consumeCanvasImages()
       if (pending.length > 0) {
-        void placeImagesOnCanvas(editor, pending, computePlaceholderTarget(editor, null))
+        placeImagesOnCanvas(editor, pending, computePlaceholderTarget(editor, null)).then(
+          // 放置若在卸载后才完成，最终落盘已错过 → 补存一次
+          () => {
+            if (disposed) void saveScene(editor)
+          },
+          (err) => console.warn('[canvas] 工作台图片放置失败', err),
+        )
       }
       unsubscribe = editor.onChange(() => {
         window.clearTimeout(timer)

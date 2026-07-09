@@ -203,9 +203,15 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
           doc.setTool('text')
           break
         case 'Delete':
-        case 'Backspace':
-          if (doc.selection.size > 0) doc.deleteElements([...doc.selection])
+        case 'Backspace': {
+          // loading 占位框是进行中任务的身份，全选误删会丢结果；error/stale 可删（清除失败任务的入口）
+          const ids = [...doc.selection].filter((id) => {
+            const el = doc.getElement(id)
+            return !(el?.type === 'placeholder' && el.status === 'loading')
+          })
+          if (ids.length > 0) doc.deleteElements(ids)
           break
+        }
         case 'Escape':
           doc.setSelection([])
           break

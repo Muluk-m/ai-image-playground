@@ -116,7 +116,8 @@ export default function StylePanel({ doc }: { doc: CanvasDoc }) {
             <button
               key={color}
               type="button"
-              title="标注颜色"
+              title={`标注颜色 ${color}`}
+              aria-label={`标注颜色 ${color}`}
               onClick={() => applyColor(color)}
               className={`mx-auto h-6 w-6 rounded-full border-2 transition-transform ${
                 doc.penColor === color ? 'scale-110 border-white' : 'border-transparent'

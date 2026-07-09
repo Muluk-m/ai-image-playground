@@ -105,8 +105,8 @@ export function elementBounds(el: CanvasEl): Box {
         minY = Math.min(minY, pts[i + 1])
         maxY = Math.max(maxY, pts[i + 1])
       }
-      // 描边宽度 + 箭头头部的外扩余量
-      const pad = el.type === 'arrow' ? Math.max(el.strokeWidth, 12) : el.strokeWidth / 2 + 2
+      // 外扩余量：箭头含头部；freedraw 对齐 perfect-freehand 实际笔宽（size = strokeWidth * 1.8 → 半径 0.9x）
+      const pad = el.type === 'arrow' ? Math.max(el.strokeWidth, 12) : el.strokeWidth * 0.9 + 2
       return new Box(minX - pad, minY - pad, maxX - minX + pad * 2, maxY - minY + pad * 2)
     }
     case 'text':
@@ -289,7 +289,11 @@ export class CanvasEditor {
     this.animateCamera(target)
   }
 
+  private cameraAnimHandle = 0
+
   private animateCamera(target: { x: number; y: number; zoom: number }): void {
+    // 取消上一段未完成的动画：两个 tick 循环并发 setCamera 会来回抖
+    cancelAnimationFrame(this.cameraAnimHandle)
     const from = { ...this.doc.camera }
     const start = performance.now()
     const tick = (now: number) => {
@@ -300,9 +304,9 @@ export class CanvasEditor {
         y: from.y + (target.y - from.y) * ease,
         zoom: from.zoom + (target.zoom - from.zoom) * ease,
       })
-      if (t < 1) requestAnimationFrame(tick)
+      if (t < 1) this.cameraAnimHandle = requestAnimationFrame(tick)
     }
-    requestAnimationFrame(tick)
+    this.cameraAnimHandle = requestAnimationFrame(tick)
   }
 
   /**
