@@ -107,7 +107,7 @@ export async function rasterizeEntry(
   entry: CanvasInputEntry,
   scale = 1,
 ): Promise<string | null> {
-  const ids = entry.graphicIds.length === 0 ? [entry.imageId] : [entry.imageId, ...entry.graphicIds]
+  const ids = [entry.imageId, ...entry.graphicIds]
   return editor.toImage(ids, {
     scale,
     ...(entry.graphicIds.length > 0 ? { bounds: entry.box } : {}),

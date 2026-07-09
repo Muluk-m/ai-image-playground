@@ -16,10 +16,6 @@ interface ClipboardPayload {
 
 let clipboard: ClipboardPayload | null = null
 
-export function hasCanvasClipboard(): boolean {
-  return clipboard !== null && clipboard.elements.length > 0
-}
-
 /** 复制当前选区（深拷贝 + 收集引用的图片文件）。返回复制的元素数。 */
 export function copySelection(doc: CanvasDoc): number {
   const els = doc.elements.filter((el) => doc.selection.has(el.id) && el.type !== 'placeholder')
