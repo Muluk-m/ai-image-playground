@@ -31,11 +31,12 @@ import {
   useStore,
 } from '../store'
 import { ChipIcons } from './chipIcons'
+import { CloseIcon } from './icons'
 import ParamControls from './ParamControls'
 import ViewportTooltip from './ViewportTooltip'
 
 const TEXTAREA_CLASS =
-  'min-h-[42px] w-full whitespace-pre-wrap break-words bg-transparent px-1 py-1 text-sm leading-relaxed outline-none empty:before:pointer-events-none empty:before:text-gray-400 empty:before:content-[attr(data-placeholder)] dark:text-gray-100 dark:empty:before:text-gray-400'
+  'min-h-[42px] w-full whitespace-pre-wrap break-words bg-transparent px-1 py-1 pr-9 text-sm leading-relaxed outline-none empty:before:pointer-events-none empty:before:text-gray-400 empty:before:content-[attr(data-placeholder)] dark:text-gray-100 dark:empty:before:text-gray-400'
 
 function getMentionTagTextLength(el: Element) {
   return el.textContent?.length ?? 0
@@ -552,6 +553,23 @@ export default function InputBar() {
     },
     [prompt, setPrompt],
   )
+
+  const handleClearPrompt = useCallback(() => {
+    isUserInputRef.current = false
+    setPrompt('')
+    setCursorPos(0)
+    setAtImageMenuIndex(0)
+    setAtImageMenuDismissed(true)
+
+    window.setTimeout(() => {
+      const el = textareaRef.current
+      if (!el) return
+      el.innerHTML = ''
+      el.focus()
+      setContentEditableCursor(el, 0)
+      syncMentionTagSelection(el)
+    }, 0)
+  }, [setPrompt])
 
   useEffect(() => {
     const normalizedParams = normalizeParamsForSettings(params, effectiveSettings, {
@@ -1817,6 +1835,18 @@ export default function InputBar() {
                   data-placeholder="描述你想生成的图片，可输入 @ 指定当前参考图..."
                   className={TEXTAREA_CLASS}
                 />
+                {prompt.length > 0 && (
+                  <button
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={handleClearPrompt}
+                    className="absolute right-1 top-1 flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 dark:text-gray-500 dark:hover:bg-white/[0.06] dark:hover:text-gray-200"
+                    title="清空提示词"
+                    aria-label="清空提示词"
+                  >
+                    <CloseIcon className="h-4 w-4" />
+                  </button>
+                )}
               </div>
 
               {/* 参数 + 按钮 */}
