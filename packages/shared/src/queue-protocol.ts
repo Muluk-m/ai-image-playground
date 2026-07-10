@@ -13,6 +13,7 @@ export type TaskStatus = 'queued' | 'in_progress' | 'completed' | 'failed' | 'ca
 /**
  * 失败原因分类。集中定义避免分散字符串笔误。
  * - `upstream_timeout`: BFF 自己的 AbortController（UPSTREAM_HARD_TIMEOUT_MS）切的
+ * - `upstream_result_unknown`: 请求发出后连接中断或超时，无法确认上游是否已完成
  * - `upstream_error`: 上游 HTTP 4xx/5xx 或 socket 异常关闭等其它 fetch 抛错
  * - `upstream_no_image`: 上游 HTTP 200 但解析不出图（Gemini 安全策略 / OpenAI 异常 envelope）
  * - `interrupted`: BFF 重启时被打断（startup recovery 标记）
@@ -20,6 +21,7 @@ export type TaskStatus = 'queued' | 'in_progress' | 'completed' | 'failed' | 'ca
  */
 export type TaskErrorType =
   | 'upstream_timeout'
+  | 'upstream_result_unknown'
   | 'upstream_error'
   | 'upstream_no_image'
   | 'interrupted'

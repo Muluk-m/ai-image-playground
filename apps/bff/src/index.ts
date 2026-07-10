@@ -2,12 +2,10 @@ import { QUEUE_TIMEOUTS } from '@image-playground/shared'
 import { app } from './app'
 import { config } from './config'
 import { checkpointWal } from './db/client'
-import { purgeOldTasks, recoverInterruptedTasks } from './db/maintenance'
+import { purgeOldTasks } from './db/maintenance'
 import { runMigrations } from './db/migrate'
 import { initChannels } from './lib/channels'
-import { inflightCount, inflightSnapshot } from './lib/inflight'
 import { log } from './lib/logger'
-import { abortAllRunningTasks } from './workers/task-runner'
 
 runMigrations()
 
@@ -21,18 +19,6 @@ log.info(
     ? `loaded ${channelsResult.channels.length} channel(s)`
     : 'no channels loaded (BYOK-only deployment)',
 )
-
-// 启动时收拾上次进程残留：queued 的重新跑 runTask（上游没动过，对用户无感），
-// in_progress 的标 failed（上游可能已经发起 fetch，不能盲目重试）。没有这一段，
-// BFF 重启后前端会傻乎乎 poll 那些孤儿到 30 min 超时。
-const recovery = await recoverInterruptedTasks()
-if (recovery.retried > 0)
-  log.info({ event: 'startup.retried', count: recovery.retried }, 'retried queued tasks')
-if (recovery.failed > 0)
-  log.info(
-    { event: 'startup.failed_interrupted', count: recovery.failed },
-    'marked in-progress as failed',
-  )
 
 const purgeStartup = await purgeOldTasks()
 if (purgeStartup > 0) log.info({ event: 'startup.purged', count: purgeStartup }, 'purged old tasks')
@@ -61,11 +47,6 @@ app.listen(config.port, () => {
   )
 })
 
-/**
- * SIGTERM 优雅关闭：让在跑的 task 跑完写 'completed'，新进程起来时不留 in_progress 残留。
- * 进程管理器需要给至少 SHUTDOWN_HARD_TIMEOUT_MS (55s) + 缓冲的优雅退出时间，否则
- * inflight 上游 fetch 会被 SIGKILL 中断（任务在 sqlite 里挂成 interrupted）。
- */
 let shuttingDown = false
 
 function finalize(exitCode = 0): never {
@@ -78,7 +59,7 @@ function finalize(exitCode = 0): never {
 async function gracefulShutdown(signal: string): Promise<void> {
   if (shuttingDown) return
   shuttingDown = true
-  log.info({ event: 'shutdown.start', signal, inflight: inflightCount() }, 'draining')
+  log.info({ event: 'shutdown.start', signal }, 'stopping bff')
 
   try {
     await app.stop?.()
@@ -89,38 +70,14 @@ async function gracefulShutdown(signal: string): Promise<void> {
     )
   }
 
-  // SIGTERM 真打断进行中 task：让上游 fetch 立刻 abort（worker AbortError 分支
-  // silent return；row 留在 in_progress 给下次启动 recovery 标 failed）。这样
-  // 短任务自然跑完 + 长任务不再让部署 stall 满 55s drain 窗口。
-  const aborted = abortAllRunningTasks()
-  if (aborted > 0) log.info({ event: 'shutdown.aborted', count: aborted }, 'aborted running tasks')
-
-  const hardTimer = setTimeout(() => {
-    log.warn(
-      {
-        event: 'shutdown.timeout',
-        timeoutMs: QUEUE_TIMEOUTS.SHUTDOWN_HARD_TIMEOUT_MS,
-        inflight: inflightCount(),
-      },
-      'drain timeout, forcing exit',
-    )
-    finalize()
-  }, QUEUE_TIMEOUTS.SHUTDOWN_HARD_TIMEOUT_MS)
-
-  const progressTimer = setInterval(() => {
-    const remaining = inflightCount()
-    if (remaining > 0)
-      log.info({ event: 'shutdown.progress', inflight: remaining }, 'still draining')
-  }, 5_000)
-
-  await Promise.allSettled(inflightSnapshot())
-
-  clearTimeout(hardTimer)
-  clearInterval(progressTimer)
-  log.info({ event: 'shutdown.done' }, 'all tasks drained, exiting cleanly')
+  log.info({ event: 'shutdown.done' }, 'bff stopped')
   finalize()
 }
 
 process.on('SIGTERM', () => {
   void gracefulShutdown('SIGTERM')
+})
+
+process.on('SIGINT', () => {
+  void gracefulShutdown('SIGINT')
 })

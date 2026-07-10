@@ -1,52 +1,33 @@
 import { QUEUE_TIMEOUTS } from '@image-playground/shared'
 import { and, eq, inArray, isNotNull, lt } from 'drizzle-orm'
-import { spawnTask } from '../workers/task-runner'
 import { db, schema } from './client'
 
 /**
- * BFF 启动时跑一次：把启动前残留的 task 分两类处理。
+ * worker 启动时跑一次：把上次进程残留的 in_progress 标成终态。
  *
- * - **queued**：submit 写表后 fire-and-forget 调 runTask，但 BFF 这次进程没起
- *   来这次调用就丢了。上游没动过，重新 spawnTask 让它继续推进，前端 poll
- *   感知不到（status 仍是 queued/in_progress）。
- *   queued 又分两类：next_retry_at 已到（含 NULL）→ 立刻 spawn；未到 → setTimeout
- *   到点再 spawn，保留退避节奏避免对上游连环冲。
- * - **in_progress**：worker 几乎只能是上游 fetch 已经发出后进程被外部 kill；
+ * queued 任务由数据库轮询 scheduler 自动发现，future next_retry_at 也保留在库中，
+ * 不再创建进程内 setTimeout。in_progress 说明旧 worker 可能已经发出 fetch；
  *   上游那边可能在跑，再发一次会重复消耗配额。一律标 failed，由用户决定
  *   是否手动重试。
  */
-export async function recoverInterruptedTasks(): Promise<{ retried: number; failed: number }> {
-  const queuedRows = await db
-    .select({ id: schema.tasks.id, next_retry_at: schema.tasks.next_retry_at })
-    .from(schema.tasks)
-    .where(eq(schema.tasks.status, 'queued'))
-
-  const now = Date.now()
-  for (const row of queuedRows) {
-    if (row.next_retry_at == null || row.next_retry_at <= now) {
-      spawnTask(row.id, 'startup recovery')
-    } else {
-      setTimeout(() => spawnTask(row.id, 'startup recovery retry'), row.next_retry_at - now)
-    }
-  }
-
+export async function recoverInterruptedTasks(): Promise<{ failed: number }> {
   const failed = await db
     .update(schema.tasks)
     .set({
       status: 'failed',
-      error_message: 'BFF 重启时中断',
+      error_message: '任务 worker 重启时中断',
       error_type: 'interrupted' as const,
       completed_at: Date.now(),
     })
     .where(eq(schema.tasks.status, 'in_progress'))
     .returning({ id: schema.tasks.id })
 
-  return { retried: queuedRows.length, failed: failed.length }
+  return { failed: failed.length }
 }
 
 /**
  * 删除 30 天前完成的任务（成功 / 失败 / 取消）。不删 queued/in_progress，避免
- * 误清正在跑的；启动时的 recoverInterruptedTasks 已经把那两种状态归零。
+ * 误清正在跑的；worker 启动时的 recoverInterruptedTasks 会收拾 in_progress。
  */
 export async function purgeOldTasks(
   retentionMs = QUEUE_TIMEOUTS.TASK_RETENTION_MS,

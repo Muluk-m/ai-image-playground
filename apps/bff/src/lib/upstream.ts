@@ -1,4 +1,6 @@
+import { File } from 'node:buffer'
 import { QUEUE_TIMEOUTS, type QueueProvider, type SubmitRequest } from '@image-playground/shared'
+import { Agent, FormData, fetch as undiciFetch } from 'undici'
 import { config } from '../config'
 import { getChannels } from './channels'
 import { log } from './logger'
@@ -58,12 +60,39 @@ export interface UpstreamCallResult {
   payload: unknown
 }
 
+type UpstreamFetch = typeof undiciFetch
+type UpstreamFetchInit = Parameters<UpstreamFetch>[1]
+type UpstreamResponse = Awaited<ReturnType<UpstreamFetch>>
+
+export const UPSTREAM_CONNECT_TIMEOUT_MS = 10_000
+export const UPSTREAM_TRANSPORT_TIMEOUT_MS = QUEUE_TIMEOUTS.UPSTREAM_HARD_TIMEOUT_MS + 60_000
+
+const upstreamDispatcher = new Agent({
+  connectTimeout: UPSTREAM_CONNECT_TIMEOUT_MS,
+  headersTimeout: UPSTREAM_TRANSPORT_TIMEOUT_MS,
+  bodyTimeout: UPSTREAM_TRANSPORT_TIMEOUT_MS,
+})
+
+let upstreamFetch: UpstreamFetch = undiciFetch
+
+/** 测试注入点；undefined 恢复真实 Undici transport。 */
+export function setUpstreamFetchForTesting(fetchImpl?: UpstreamFetch): void {
+  upstreamFetch = fetchImpl ?? undiciFetch
+}
+
 /**
  * 自定义错误：BFF 自己的 UPSTREAM_HARD_TIMEOUT_MS 切的（vs 上游返 4xx/5xx
- * 或 socket 异常关）。task-runner 用 instanceof 检查并落库 error_type=
- * 'upstream_timeout'，便于前端给针对性文案。
+ * 或 socket 异常关）。task-runner 用 instanceof 检查并统一落库为
+ * `upstream_result_unknown`，避免自动重试重复执行。
  */
-export class UpstreamTimeoutError extends Error {
+export class UpstreamResultUnknownError extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options)
+    this.name = 'UpstreamResultUnknownError'
+  }
+}
+
+export class UpstreamTimeoutError extends UpstreamResultUnknownError {
   constructor(message = 'Upstream call exceeded BFF hard timeout') {
     super(message)
     this.name = 'UpstreamTimeoutError'
@@ -71,25 +100,10 @@ export class UpstreamTimeoutError extends Error {
 }
 
 /**
- * Bun 1.3.8 的 client fetch 默认有约 5min 的 socket idleTimeout（非标准
- * RequestInit 扩展，未在公开 docs 列出）。生图 multipart 一次发完后等响应
- * 期间 socket 零数据流动 → idle → Bun 自动关闭 → fetch 抛 "The operation
- * timed out."。
- *
- * 之前试过 `idleTimeout: 0` 想关掉它，实测同一 BFF 进程同一份代码出现：275s
- * 成功 / 252s 又被切，**Bun 不可靠地把 0 当成「禁用」**（很可能解析为
- * fallback 到 default）。改成显式大值 16min = 比 UPSTREAM_HARD_TIMEOUT_MS
- * (15min) 长 1min，确保 AbortController 总能先于 Bun socket idle 触发。
- *
- * 同时强制 `Connection: close`：Bun 默认走 HTTP/1.1 keepalive，pooled socket
- * 可能仍带初次建连时的 5min 默认 idle；每次开新连接最稳妥。同机部署 upstream
- * 是 localhost，新连接成本可忽略。
+ * Bun fetch 的 client timeout 无法可靠覆盖，改用 Undici Agent 的公开配置项。
+ * transport headers/body 都比应用硬超时长 1min，确保正常终止统一由下方
+ * AbortController 决定；不再依赖 undocumented idleTimeout 或强制 Connection: close。
  */
-type FetchInitWithIdle = RequestInit & { idleTimeout?: number }
-const FETCH_IDLE_TIMEOUT_MS = 16 * 60 * 1000
-const FETCH_NO_IDLE: { idleTimeout: number } = { idleTimeout: FETCH_IDLE_TIMEOUT_MS }
-const NO_KEEPALIVE: Record<string, string> = { connection: 'close' }
-
 export async function callUpstream(params: UpstreamCallParams): Promise<UpstreamCallResult> {
   const { provider, model, request, signal: externalSignal } = params
   const { baseUrl: base, key, direct } = resolveUpstream(provider, model)
@@ -101,20 +115,39 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
     abort.abort()
   }, QUEUE_TIMEOUTS.UPSTREAM_HARD_TIMEOUT_MS)
   const onExternalAbort = () => abort.abort()
-  externalSignal?.addEventListener('abort', onExternalAbort)
+  if (externalSignal?.aborted) abort.abort()
+  else externalSignal?.addEventListener('abort', onExternalAbort)
 
-  const fetchInit = (init: FetchInitWithIdle): FetchInitWithIdle => ({
+  const fetchInit = (init: UpstreamFetchInit): UpstreamFetchInit => ({
     ...init,
     signal: abort.signal,
-    ...FETCH_NO_IDLE,
+    dispatcher: upstreamDispatcher,
   })
 
-  const wrapTimeout = async <T>(p: Promise<T>): Promise<T> => {
+  const performFetch = async (url: string, init: UpstreamFetchInit): Promise<UpstreamResponse> => {
     try {
-      return await p
+      return await upstreamFetch(url, fetchInit(init))
     } catch (err) {
       if (timedOut) throw new UpstreamTimeoutError()
-      throw err
+      if (externalSignal?.aborted) throw err
+      const detail = err instanceof Error ? err.message : String(err)
+      throw new UpstreamResultUnknownError(`上游连接中断，执行结果未知：${detail}`, {
+        cause: err,
+      })
+    }
+  }
+
+  const parseResponse = async (res: UpstreamResponse): Promise<UpstreamCallResult> => {
+    try {
+      return await parseUpstreamResponse(res)
+    } catch (err) {
+      if (timedOut) throw new UpstreamTimeoutError()
+      if (externalSignal?.aborted) throw err
+      if (typeof (err as { upstreamStatus?: unknown })?.upstreamStatus === 'number') throw err
+      const detail = err instanceof Error ? err.message : String(err)
+      throw new UpstreamResultUnknownError(`上游响应中断，执行结果未知：${detail}`, {
+        cause: err,
+      })
     }
   }
 
@@ -137,19 +170,17 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
         }
         const url = `${base}/images/generations`
         const body = JSON.stringify(buildDirectChannelBody(model, request))
-        const headers = { 'content-type': 'application/json', ...authHeader, ...NO_KEEPALIVE }
+        const headers = { 'content-type': 'application/json', ...authHeader }
         const n = Math.max(1, request.n ?? 1)
         if (n === 1) {
-          const res = await wrapTimeout(fetch(url, fetchInit({ method: 'POST', headers, body })))
-          return parseUpstreamResponse(res)
+          const res = await performFetch(url, { method: 'POST', headers, body })
+          return parseResponse(res)
         }
-        const results = await wrapTimeout(
-          Promise.all(
-            Array.from({ length: n }, async () => {
-              const res = await fetch(url, fetchInit({ method: 'POST', headers, body }))
-              return parseUpstreamResponse(res)
-            }),
-          ),
+        const results = await Promise.all(
+          Array.from({ length: n }, async () => {
+            const res = await performFetch(url, { method: 'POST', headers, body })
+            return parseResponse(res)
+          }),
         )
         const merged = {
           data: results.flatMap((r) => {
@@ -163,29 +194,19 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
       // 有参考图 / 有遮罩 → images/edits multipart；generations 是纯文生图，
       // 塞 input_images 字段上游会忽略（用户感知"AI 不参考附件"）。
       if (request.input_images?.length || request.mask) {
-        const res = await wrapTimeout(
-          fetch(
-            `${base}/images/edits`,
-            fetchInit({
-              method: 'POST',
-              headers: { ...authHeader, ...NO_KEEPALIVE },
-              body: buildOpenAIEditFormData(model, request),
-            }),
-          ),
-        )
-        return parseUpstreamResponse(res)
+        const res = await performFetch(`${base}/images/edits`, {
+          method: 'POST',
+          headers: authHeader,
+          body: buildOpenAIEditFormData(model, request),
+        })
+        return parseResponse(res)
       }
-      const res = await wrapTimeout(
-        fetch(
-          `${base}/images/generations`,
-          fetchInit({
-            method: 'POST',
-            headers: { 'content-type': 'application/json', ...authHeader, ...NO_KEEPALIVE },
-            body: JSON.stringify(buildOpenAIBody(model, request)),
-          }),
-        ),
-      )
-      return parseUpstreamResponse(res)
+      const res = await performFetch(`${base}/images/generations`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...authHeader },
+        body: JSON.stringify(buildOpenAIBody(model, request)),
+      })
+      return parseResponse(res)
     }
 
     if (provider === 'gemini') {
@@ -193,7 +214,6 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
       const headers = {
         'content-type': 'application/json',
         ...(key ? { 'x-api-key': key } : {}),
-        ...NO_KEEPALIVE,
       }
       const body = JSON.stringify(buildGeminiBody(request))
 
@@ -202,17 +222,15 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
       // 请求并把 candidates 合并到一个 payload，对 task-runner / 前端透明。
       const n = Math.max(1, request.n ?? 1)
       if (n === 1) {
-        const res = await wrapTimeout(fetch(url, fetchInit({ method: 'POST', headers, body })))
-        return parseUpstreamResponse(res)
+        const res = await performFetch(url, { method: 'POST', headers, body })
+        return parseResponse(res)
       }
 
-      const results = await wrapTimeout(
-        Promise.all(
-          Array.from({ length: n }, async () => {
-            const res = await fetch(url, fetchInit({ method: 'POST', headers, body }))
-            return parseUpstreamResponse(res)
-          }),
-        ),
+      const results = await Promise.all(
+        Array.from({ length: n }, async () => {
+          const res = await performFetch(url, { method: 'POST', headers, body })
+          return parseResponse(res)
+        }),
       )
       const merged = {
         candidates: results.flatMap((r) => {
@@ -222,8 +240,11 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
       }
       return { payload: merged }
     }
-
     throw new Error(`Unsupported provider: ${provider satisfies never}`)
+  } catch (err) {
+    // fan-out 请求任一失败时取消其它同批请求，避免 callUpstream 已返回失败后仍在后台跑。
+    abort.abort()
+    throw err
   } finally {
     clearTimeout(timer)
     externalSignal?.removeEventListener('abort', onExternalAbort)
@@ -270,10 +291,10 @@ function buildOpenAIEditFormData(model: string, request: SubmitRequest): FormDat
   if (request.quality) form.append('quality', request.quality)
   if (request.n) form.append('n', String(request.n))
   for (const dataUrl of request.input_images ?? []) {
-    form.append('image[]', dataUrlToBlob(dataUrl), 'image.png')
+    form.append('image[]', dataUrlToFile(dataUrl, 'image.png'))
   }
   if (request.mask) {
-    form.append('mask', dataUrlToBlob(request.mask), 'mask.png')
+    form.append('mask', dataUrlToFile(request.mask, 'mask.png'))
   }
   // request.extra 内的标量值原样以字段透传；image/mask 这类二进制不通过 extra 走。
   for (const [k, v] of Object.entries(request.extra ?? {})) {
@@ -283,14 +304,14 @@ function buildOpenAIEditFormData(model: string, request: SubmitRequest): FormDat
   return form
 }
 
-function dataUrlToBlob(dataUrl: string): Blob {
+function dataUrlToFile(dataUrl: string, filename: string): File {
   const m = dataUrl.match(/^data:([^;,]+);base64,(.*)$/i)
   if (!m) throw new Error('input_images 中的数据 URL 格式无效，必须是 data:<mime>;base64,<...>')
   const mime = m[1]!
   const bin = atob(m[2]!)
   const bytes = new Uint8Array(bin.length)
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
-  return new Blob([bytes], { type: mime })
+  return new File([bytes], filename, { type: mime })
 }
 
 function buildGeminiBody(request: SubmitRequest): Record<string, unknown> {
@@ -318,7 +339,7 @@ function buildGeminiBody(request: SubmitRequest): Record<string, unknown> {
 /** 非 2xx 时打 log 落的 payload 截断上限，避免上游回 base64 巨长串吞内存。 */
 const UPSTREAM_ERROR_LOG_BYTES = 2000
 
-async function parseUpstreamResponse(res: Response): Promise<UpstreamCallResult> {
+async function parseUpstreamResponse(res: UpstreamResponse): Promise<UpstreamCallResult> {
   const text = await res.text()
   let payload: unknown = text
   try {

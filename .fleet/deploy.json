@@ -32,6 +32,24 @@
       }
     },
     {
+      "name": "image-playground-worker",
+      "targets": [
+        "macmini"
+      ],
+      "run": {
+        "kind": "launchd",
+        "label": "qlj.image-playground.worker",
+        "cwd": "apps/bff",
+        "keepAlive": true,
+        "command": [
+          "bun",
+          "run",
+          "--env-file=/Users/qiqian/.config/ai-image-playground/secrets/bff.env",
+          "src/worker-index.ts"
+        ]
+      }
+    },
+    {
       "name": "image-playground-admin",
       "targets": [
         "macmini"

@@ -4,7 +4,6 @@ import { eq } from 'drizzle-orm'
 import { Elysia, t } from 'elysia'
 import { db, schema } from '../db/client'
 import { tryConsumeQuota } from '../lib/quota'
-import { spawnTask } from '../workers/task-runner'
 
 const submitBodySchema = t.Object({
   prompt: t.String({ minLength: 1 }),
@@ -96,8 +95,6 @@ export const submitRoutes = new Elysia()
         if (existing)
           return { request_id: existing.id, status: 'queued', submitted_at: existing.submitted_at }
       }
-
-      spawnTask(id, 'submit')
 
       return { request_id: id, status: 'queued', submitted_at: now }
     },

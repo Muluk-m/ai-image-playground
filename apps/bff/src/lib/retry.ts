@@ -1,17 +1,20 @@
 import type { QueueProvider } from '@image-playground/shared'
 
 /**
- * 自动重试策略：上游 5xx / 429 / 网络异常 / BFF 自家硬超时 + 「200 OK 但没图」算「瞬时」，重试。
+ * 自动重试策略：只重试上游明确返回的 408 / 429 / 5xx，以及「200 OK 但没图」的瞬时分支。
+ * 网络中断 / socket reset / BFF 硬超时都可能发生在上游已开始执行之后，结果未知，
+ * 自动重试会重复生图和扣配额，因此一律不重试。
  * 4xx / 内容审核类 finishReason / 用户 cancel 一律永久失败，避免空转烧配额。
  *
  * **不重试**：
  * - HTTP 4xx 除 429（参数错 / 鉴权 / 内容策略 → 重试结果一致）
+ * - transport error / UpstreamTimeoutError（上游执行结果未知）
  * - AbortError（用户主动取消 / SIGTERM）
  * - Gemini no_image 且 finishReason ∈ {SAFETY, IMAGE_SAFETY, RECITATION, ...}（审核显式拒绝）
  *
  * 故意不 import lib/upstream：retry 是纯策略层，避免触发 upstream.ts → config.ts
  * 的副作用链（config 模块顶层读 env，会污染 test 文件间的 env override 时机）。
- * 用 name 标记 duck-typing 判 UpstreamTimeoutError。
+ * 所有无 upstreamStatus 的错误都保守视为不可重试。
  */
 const RETRYABLE_HTTP_STATUSES = new Set([408, 429, 500, 502, 503, 504])
 
@@ -27,13 +30,9 @@ export const MAX_ATTEMPTS = 3
  */
 export function isRetryableError(err: unknown): boolean {
   if (!(err instanceof Error)) return false
-  // duck-type 判 UpstreamTimeoutError：upstream.ts 给该 Error 的 name 打了固定标签，
-  // 这里走名字判断而不 import lib/upstream，避免 config 模块副作用污染测试 env 时机。
-  if (err.name === 'UpstreamTimeoutError') return true
   const status = (err as { upstreamStatus?: unknown }).upstreamStatus
   if (typeof status === 'number') return RETRYABLE_HTTP_STATUSES.has(status)
-  // 没带 upstreamStatus 的多是 fetch 自身抛错（网络中断、socket reset、DNS 失败），重试。
-  return true
+  return false
 }
 
 export type RetryPlan =
