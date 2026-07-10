@@ -1,17 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test'
-import { unlinkSync } from 'node:fs'
+import { eq } from 'drizzle-orm'
 
 const TEST_DB = './artifacts/test-routes.sqlite'
-
-// 测试 DB 必须在 client.ts 被 import 之前清空，否则模块顶层创建的 sqlite
-// handle 会指向旧 inode（即便我们 unlink 重建）。
-try {
-  unlinkSync(TEST_DB)
-  unlinkSync(`${TEST_DB}-wal`)
-  unlinkSync(`${TEST_DB}-shm`)
-} catch {
-  /* not exists */
-}
 
 process.env.PORT = '0'
 process.env.UPSTREAM_BASE_URL = 'http://localhost:9999'
@@ -23,6 +13,9 @@ const { runMigrations } = await import('../../db/migrate')
 runMigrations(TEST_DB)
 const { app } = await import('../../app')
 const { db, schema } = await import('../../db/client')
+const { runTask } = await import('../../workers/task-runner')
+const { setUpstreamFetchForTesting } = await import('../../lib/upstream')
+type TestFetch = NonNullable<Parameters<typeof setUpstreamFetchForTesting>[0]>
 
 async function resetDb() {
   await db.delete(schema.tasks)
@@ -61,6 +54,7 @@ describe('BFF queue routes', () => {
   })
 
   afterEach(() => {
+    setUpstreamFetchForTesting()
     mock.restore()
   })
 
@@ -70,142 +64,142 @@ describe('BFF queue routes', () => {
     expect(json).toMatchObject({ ok: true })
   })
 
-  it('POST submit creates a queued task and worker eventually marks completed when upstream returns 200', async () => {
-    // 替换 fetch 让 upstream worker 拿到稳定 ok 响应
-    const originalFetch = globalThis.fetch
-    globalThis.fetch = mock(async () => {
-      return new Response(JSON.stringify({ data: [{ b64_json: 'fake' }] }), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      })
-    }) as unknown as typeof fetch
+  it('POST submit only creates a queued task; worker execution stays outside the API process', async () => {
+    let upstreamCalls = 0
+    setUpstreamFetchForTesting(
+      mock(async () => {
+        upstreamCalls += 1
+        return new Response(JSON.stringify({ data: [{ b64_json: 'fake' }] }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      }) as unknown as TestFetch,
+    )
 
-    try {
-      const { status, json } = await jsonReq(
-        'POST',
-        '/v1/queue/openai-compat/gpt-image-2/submit',
-        submitBody({ prompt: 'a cat', size: '1024x1024' }),
-      )
-      expect(status).toBe(200)
-      expect(json).toMatchObject({ status: 'queued' })
-      const id = (json as { request_id: string }).request_id
+    const { status, json } = await jsonReq(
+      'POST',
+      '/v1/queue/openai-compat/gpt-image-2/submit',
+      submitBody({ prompt: 'a cat', size: '1024x1024' }),
+    )
+    expect(status).toBe(200)
+    expect(json).toMatchObject({ status: 'queued' })
+    const id = (json as { request_id: string }).request_id
 
-      // 等待 worker 写完成（fire-and-forget）
-      await new Promise((r) => setTimeout(r, 50))
-
-      const result = await jsonReq('GET', `/v1/queue/requests/${id}`)
-      expect(result.status).toBe(200)
-      expect(result.json).toMatchObject({
-        status: 'completed',
-        images: [{ index: 0, mime: 'image/png' }],
-      })
-
-      // 二进制端点应返回 base64 解码后的原始字节
-      const binRes = await app.handle(
-        new Request(`http://localhost/v1/queue/requests/${id}/image/0`),
-      )
-      expect(binRes.status).toBe(200)
-      expect(binRes.headers.get('content-type')).toBe('image/png')
-      const bytes = new Uint8Array(await binRes.arrayBuffer())
-      // 'fake' base64 解码后的原始字节
-      expect(Buffer.from(bytes).toString('base64')).toBe('fake')
-    } finally {
-      globalThis.fetch = originalFetch
-    }
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(upstreamCalls).toBe(0)
+    const taskStatus = await jsonReq('GET', `/v1/queue/requests/${id}/status`)
+    expect(taskStatus.json).toMatchObject({ status: 'queued' })
   })
 
   it('POST submit with input_images routes to /v1/images/edits as multipart', async () => {
-    const originalFetch = globalThis.fetch
-    const calls: Array<{ url: string; init: RequestInit | undefined }> = []
-    globalThis.fetch = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
-      calls.push({ url: typeof input === 'string' ? input : input.toString(), init })
-      return new Response(JSON.stringify({ data: [{ b64_json: 'fake' }] }), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      })
-    }) as unknown as typeof fetch
+    const calls: Array<{ url: string; init: Parameters<TestFetch>[1] }> = []
+    setUpstreamFetchForTesting(
+      mock(async (input, init) => {
+        calls.push({ url: typeof input === 'string' ? input : input.toString(), init })
+        return new Response(JSON.stringify({ data: [{ b64_json: 'fake' }] }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      }) as unknown as TestFetch,
+    )
 
     // 1x1 透明 PNG 的 base64
     const TINY_PNG = `data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgAAIAAAUAAeImBZsAAAAASUVORK5CYII=`
 
-    try {
-      const { status } = await jsonReq(
-        'POST',
-        '/v1/queue/openai-compat/gpt-image-2/submit',
-        submitBody({ prompt: 'turn cat into dog', size: '1024x1024', input_images: [TINY_PNG] }),
-      )
-      expect(status).toBe(200)
-      // 等 worker 触发 upstream fetch
-      await new Promise((r) => setTimeout(r, 50))
+    const { status, json } = await jsonReq(
+      'POST',
+      '/v1/queue/openai-compat/gpt-image-2/submit',
+      submitBody({ prompt: 'turn cat into dog', size: '1024x1024', input_images: [TINY_PNG] }),
+    )
+    expect(status).toBe(200)
+    await runTask((json as { request_id: string }).request_id)
 
-      expect(calls).toHaveLength(1)
-      expect(calls[0]!.url).toMatch(/\/v1\/images\/edits$/)
-      const body = calls[0]!.init?.body
-      expect(body).toBeInstanceOf(FormData)
-      const form = body as FormData
-      expect(form.get('prompt')).toBe('turn cat into dog')
-      expect(form.getAll('image[]')).toHaveLength(1)
-    } finally {
-      globalThis.fetch = originalFetch
+    expect(calls).toHaveLength(1)
+    expect(calls[0]!.url).toMatch(/\/v1\/images\/edits$/)
+    const form = calls[0]!.init?.body as {
+      get(name: string): unknown
+      getAll(name: string): unknown[]
     }
+    expect(form.get('prompt')).toBe('turn cat into dog')
+    expect(form.getAll('image[]')).toHaveLength(1)
   })
 
   it('POST submit with mask routes to /v1/images/edits with mask field', async () => {
-    const originalFetch = globalThis.fetch
-    const calls: Array<{ url: string; init: RequestInit | undefined }> = []
-    globalThis.fetch = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
-      calls.push({ url: typeof input === 'string' ? input : input.toString(), init })
-      return new Response(JSON.stringify({ data: [{ b64_json: 'fake' }] }), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      })
-    }) as unknown as typeof fetch
+    const calls: Array<{ url: string; init: Parameters<TestFetch>[1] }> = []
+    setUpstreamFetchForTesting(
+      mock(async (input, init) => {
+        calls.push({ url: typeof input === 'string' ? input : input.toString(), init })
+        return new Response(JSON.stringify({ data: [{ b64_json: 'fake' }] }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      }) as unknown as TestFetch,
+    )
 
     const TINY_PNG = `data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgAAIAAAUAAeImBZsAAAAASUVORK5CYII=`
 
-    try {
-      const { status } = await jsonReq(
-        'POST',
-        '/v1/queue/openai-compat/gpt-image-2/submit',
-        submitBody({ prompt: 'mask edit', input_images: [TINY_PNG], mask: TINY_PNG }),
-      )
-      expect(status).toBe(200)
-      await new Promise((r) => setTimeout(r, 50))
+    const { status, json } = await jsonReq(
+      'POST',
+      '/v1/queue/openai-compat/gpt-image-2/submit',
+      submitBody({ prompt: 'mask edit', input_images: [TINY_PNG], mask: TINY_PNG }),
+    )
+    expect(status).toBe(200)
+    await runTask((json as { request_id: string }).request_id)
 
-      expect(calls[0]!.url).toMatch(/\/v1\/images\/edits$/)
-      const form = calls[0]!.init?.body as FormData
-      expect(form.getAll('image[]')).toHaveLength(1)
-      expect(form.get('mask')).toBeInstanceOf(Blob)
-    } finally {
-      globalThis.fetch = originalFetch
+    expect(calls[0]!.url).toMatch(/\/v1\/images\/edits$/)
+    const form = calls[0]!.init?.body as {
+      get(name: string): unknown
+      getAll(name: string): unknown[]
     }
+    expect(form.getAll('image[]')).toHaveLength(1)
+    expect(form.get('mask')).toBeDefined()
   })
 
   it('worker captures upstream non-2xx as failed task with error message', async () => {
-    const originalFetch = globalThis.fetch
-    globalThis.fetch = mock(async () => {
-      return new Response(JSON.stringify({ error: { message: 'invalid api key' } }), {
-        status: 401,
-      })
-    }) as unknown as typeof fetch
+    setUpstreamFetchForTesting(
+      mock(async () => {
+        return new Response(JSON.stringify({ error: { message: 'invalid api key' } }), {
+          status: 401,
+        })
+      }) as unknown as TestFetch,
+    )
 
-    try {
-      const { json } = await jsonReq(
-        'POST',
-        '/v1/queue/openai-compat/gpt-image-2/submit',
-        submitBody({ prompt: 'x' }),
-      )
-      const id = (json as { request_id: string }).request_id
-      await new Promise((r) => setTimeout(r, 50))
+    const { json } = await jsonReq(
+      'POST',
+      '/v1/queue/openai-compat/gpt-image-2/submit',
+      submitBody({ prompt: 'x' }),
+    )
+    const id = (json as { request_id: string }).request_id
+    await runTask(id)
 
-      const status = await jsonReq('GET', `/v1/queue/requests/${id}/status`)
-      expect(status.json).toMatchObject({
-        status: 'failed',
-        error: { message: 'invalid api key' },
-      })
-    } finally {
-      globalThis.fetch = originalFetch
-    }
+    const status = await jsonReq('GET', `/v1/queue/requests/${id}/status`)
+    expect(status.json).toMatchObject({
+      status: 'failed',
+      error: { message: 'invalid api key' },
+    })
+  })
+
+  it('worker marks a transport disconnect as unknown and does not queue a retry', async () => {
+    setUpstreamFetchForTesting(
+      mock(async () => {
+        throw new Error('socket closed')
+      }) as unknown as TestFetch,
+    )
+
+    const { json } = await jsonReq(
+      'POST',
+      '/v1/queue/openai-compat/gpt-image-2/submit',
+      submitBody({ prompt: 'slow edit' }),
+    )
+    const id = (json as { request_id: string }).request_id
+    await runTask(id)
+
+    const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, id))
+    expect(task).toMatchObject({
+      status: 'failed',
+      error_type: 'upstream_result_unknown',
+      next_retry_at: null,
+    })
   })
 
   it('GET status returns 404 for unknown id', async () => {

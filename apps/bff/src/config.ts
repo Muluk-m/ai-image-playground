@@ -5,6 +5,14 @@ const env = (key: string, fallback?: string): string => {
   throw new Error(`Missing env: ${key}`)
 }
 
+const positiveIntEnv = (key: string, fallback: number): number => {
+  const value = Number(env(key, String(fallback)))
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new Error(`${key} must be a positive integer`)
+  }
+  return value
+}
+
 export const config = {
   port: Number(env('PORT', '37377')),
   /**
@@ -24,4 +32,11 @@ export const config = {
   staticDir: env('STATIC_DIR', '') || null,
   /** 可选 channels.json 路径覆盖；缺省走 lib/channels.ts 的 defaultChannelsPath()。 */
   channelsFile: env('CHANNELS_FILE', '') || null,
+  worker: {
+    pollIntervalMs: positiveIntEnv('WORKER_POLL_INTERVAL_MS', 1_000),
+    concurrency: {
+      openaiCompat: positiveIntEnv('WORKER_OPENAI_CONCURRENCY', 1),
+      gemini: positiveIntEnv('WORKER_GEMINI_CONCURRENCY', 2),
+    },
+  },
 }

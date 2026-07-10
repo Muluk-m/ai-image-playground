@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
+import { File } from 'node:buffer'
+import { FormData as UndiciFormData } from 'undici'
 
 // 注入测试环境变量，必须早于 config import。
 // DATABASE_URL 跟 routes.test.ts 用同一路径——config 是模块顶层捕获，
@@ -8,34 +10,42 @@ process.env.UPSTREAM_API_KEY = 'test-key'
 process.env.DATABASE_URL = './artifacts/test-routes.sqlite'
 process.env.PORT = '0'
 
-const { callUpstream } = await import('../../lib/upstream')
+const {
+  callUpstream,
+  setUpstreamFetchForTesting,
+  UPSTREAM_TRANSPORT_TIMEOUT_MS,
+  UpstreamResultUnknownError,
+} = await import('../../lib/upstream')
 const { _setChannelsForTesting } = await import('../../lib/channels')
 type InternalChannel = import('../../lib/channels').InternalChannel
+type TestFetch = NonNullable<Parameters<typeof setUpstreamFetchForTesting>[0]>
 
 // 1x1 透明 PNG 的 base64
 const TINY_PNG_B64 =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgAAIAAAUAAeImBZsAAAAASUVORK5CYII='
 const TINY_PNG_DATA_URL = `data:image/png;base64,${TINY_PNG_B64}`
 
-type FetchCall = { url: string; init: RequestInit | undefined }
+type FetchCall = { url: string; init: Parameters<TestFetch>[1] }
 
 describe('callUpstream OpenAI route', () => {
-  const originalFetch = globalThis.fetch
   let calls: FetchCall[] = []
 
   beforeEach(() => {
     calls = []
-    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    setUpstreamFetchForTesting((async (
+      input: Parameters<TestFetch>[0],
+      init: Parameters<TestFetch>[1],
+    ) => {
       calls.push({ url: typeof input === 'string' ? input : input.toString(), init })
       return new Response(JSON.stringify({ data: [{ b64_json: 'ok' }] }), {
         status: 200,
         headers: { 'content-type': 'application/json' },
       })
-    }) as typeof fetch
+    }) as unknown as TestFetch)
   })
 
   afterEach(() => {
-    globalThis.fetch = originalFetch
+    setUpstreamFetchForTesting()
   })
 
   it('without input_images: hits /v1/images/generations with JSON body', async () => {
@@ -66,8 +76,8 @@ describe('callUpstream OpenAI route', () => {
     expect(calls[0]!.url).toMatch(/\/v1\/images\/edits$/)
     const body = calls[0]!.init?.body
     // multipart FormData，不是 JSON
-    expect(body).toBeInstanceOf(FormData)
-    const form = body as FormData
+    expect(body).toBeInstanceOf(UndiciFormData)
+    const form = body as UndiciFormData
     expect(form.get('model')).toBe('gpt-image-2')
     expect(form.get('prompt')).toBe('turn this cat into a dog')
     expect(form.get('size')).toBe('1024x1024')
@@ -75,8 +85,8 @@ describe('callUpstream OpenAI route', () => {
     const images = form.getAll('image[]')
     expect(images).toHaveLength(1)
     const file = images[0]
-    expect(file).toBeInstanceOf(Blob)
-    expect((file as Blob).size).toBeGreaterThan(0)
+    expect(file).toBeInstanceOf(File)
+    expect((file as File).size).toBeGreaterThan(0)
   })
 
   it('with multiple input_images: appends one image[] entry per data URL', async () => {
@@ -89,7 +99,7 @@ describe('callUpstream OpenAI route', () => {
       },
     })
     expect(calls[0]!.url).toMatch(/\/v1\/images\/edits$/)
-    const form = calls[0]!.init?.body as FormData
+    const form = calls[0]!.init?.body as UndiciFormData
     expect(form.getAll('image[]')).toHaveLength(3)
   })
 
@@ -103,7 +113,7 @@ describe('callUpstream OpenAI route', () => {
         input_images: [TINY_PNG_DATA_URL],
       },
     })
-    const form = calls[0]!.init?.body as FormData
+    const form = calls[0]!.init?.body as UndiciFormData
     expect(form.get('n')).toBe('3')
   })
 
@@ -118,11 +128,11 @@ describe('callUpstream OpenAI route', () => {
       },
     })
     expect(calls[0]!.url).toMatch(/\/v1\/images\/edits$/)
-    const form = calls[0]!.init?.body as FormData
+    const form = calls[0]!.init?.body as UndiciFormData
     expect(form.getAll('image[]')).toHaveLength(1)
     const mask = form.get('mask')
-    expect(mask).toBeInstanceOf(Blob)
-    expect((mask as Blob).size).toBeGreaterThan(0)
+    expect(mask).toBeInstanceOf(File)
+    expect((mask as File).size).toBeGreaterThan(0)
   })
 
   it('with mask but no input_images: still hits /v1/images/edits', async () => {
@@ -132,8 +142,8 @@ describe('callUpstream OpenAI route', () => {
       request: { prompt: 'edit', mask: TINY_PNG_DATA_URL },
     })
     expect(calls[0]!.url).toMatch(/\/v1\/images\/edits$/)
-    const form = calls[0]!.init?.body as FormData
-    expect(form.get('mask')).toBeInstanceOf(Blob)
+    const form = calls[0]!.init?.body as UndiciFormData
+    expect(form.get('mask')).toBeInstanceOf(File)
   })
 
   it('preserves Bearer authorization header on edits path', async () => {
@@ -142,16 +152,50 @@ describe('callUpstream OpenAI route', () => {
       model: 'gpt-image-2',
       request: { prompt: 'edit', input_images: [TINY_PNG_DATA_URL] },
     })
-    const headers = new Headers(calls[0]!.init?.headers)
+    const headers = new Headers(calls[0]!.init?.headers as HeadersInit)
     expect(headers.get('authorization')).toBe('Bearer test-key')
     // multipart Content-Type 必须由 fetch / FormData 自己生成（含 boundary），不能手填 application/json
     const ct = headers.get('content-type')
     expect(ct === null || ct.startsWith('multipart/form-data')).toBe(true)
   })
+
+  it('uses an explicit dispatcher whose transport timeout exceeds the application deadline', async () => {
+    await callUpstream({
+      provider: 'openai-compat',
+      model: 'gpt-image-2',
+      request: { prompt: 'a cat' },
+    })
+    expect(calls[0]!.init?.dispatcher).toBeDefined()
+    expect(UPSTREAM_TRANSPORT_TIMEOUT_MS).toBeGreaterThan(15 * 60 * 1000)
+  })
+
+  it('classifies an interrupted response body as an unknown upstream result', async () => {
+    setUpstreamFetchForTesting((async () => {
+      return {
+        ok: true,
+        status: 200,
+        text: async () => {
+          throw new TypeError('terminated')
+        },
+      }
+    }) as unknown as TestFetch)
+
+    let caught: unknown
+    try {
+      await callUpstream({
+        provider: 'openai-compat',
+        model: 'gpt-image-2',
+        request: { prompt: 'a cat' },
+      })
+    } catch (err) {
+      caught = err
+    }
+    expect(caught).toBeInstanceOf(UpstreamResultUnknownError)
+    expect((caught as Error).message).toContain('上游响应中断')
+  })
 })
 
 describe('callUpstream direct channel 路由（DIRECT_CHANNEL_IDS）', () => {
-  const originalFetch = globalThis.fetch
   let calls: FetchCall[] = []
 
   const agnesChannel: InternalChannel = {
@@ -170,17 +214,20 @@ describe('callUpstream direct channel 路由（DIRECT_CHANNEL_IDS）', () => {
   beforeEach(() => {
     calls = []
     _setChannelsForTesting([agnesChannel])
-    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    setUpstreamFetchForTesting((async (
+      input: Parameters<TestFetch>[0],
+      init: Parameters<TestFetch>[1],
+    ) => {
       calls.push({ url: typeof input === 'string' ? input : input.toString(), init })
       return new Response(JSON.stringify({ data: [{ b64_json: 'ok' }] }), {
         status: 200,
         headers: { 'content-type': 'application/json' },
       })
-    }) as typeof fetch
+    }) as unknown as TestFetch)
   })
 
   afterEach(() => {
-    globalThis.fetch = originalFetch
+    setUpstreamFetchForTesting()
     _setChannelsForTesting([])
   })
 
@@ -192,7 +239,7 @@ describe('callUpstream direct channel 路由（DIRECT_CHANNEL_IDS）', () => {
     })
     expect(calls).toHaveLength(1)
     expect(calls[0]!.url).toBe('https://apihub.agnes-ai.com/v1/images/generations')
-    const headers = new Headers(calls[0]!.init?.headers)
+    const headers = new Headers(calls[0]!.init?.headers as HeadersInit)
     expect(headers.get('authorization')).toBe('Bearer agnes-test-key')
   })
 
@@ -203,7 +250,7 @@ describe('callUpstream direct channel 路由（DIRECT_CHANNEL_IDS）', () => {
       request: { prompt: 'a cat' },
     })
     expect(calls[0]!.url).toBe('http://localhost:9999/v1/images/generations')
-    const headers = new Headers(calls[0]!.init?.headers)
+    const headers = new Headers(calls[0]!.init?.headers as HeadersInit)
     expect(headers.get('authorization')).toBe('Bearer test-key')
   })
 
@@ -216,14 +263,13 @@ describe('callUpstream direct channel 路由（DIRECT_CHANNEL_IDS）', () => {
     expect(calls[0]!.url).toBe(
       'http://localhost:9999/v1beta/models/gemini-3.1-flash-image:generateContent',
     )
-    const headers = new Headers(calls[0]!.init?.headers)
+    const headers = new Headers(calls[0]!.init?.headers as HeadersInit)
     expect(headers.get('x-api-key')).toBe('test-key')
     expect(headers.get('authorization')).toBeNull()
   })
 })
 
 describe('callUpstream direct channel 图生图（Agnes 风格 generations JSON）', () => {
-  const originalFetch = globalThis.fetch
   let calls: FetchCall[] = []
 
   const agnesChannel: InternalChannel = {
@@ -246,17 +292,20 @@ describe('callUpstream direct channel 图生图（Agnes 风格 generations JSON�
   beforeEach(() => {
     calls = []
     _setChannelsForTesting([agnesChannel])
-    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    setUpstreamFetchForTesting((async (
+      input: Parameters<TestFetch>[0],
+      init: Parameters<TestFetch>[1],
+    ) => {
       calls.push({ url: typeof input === 'string' ? input : input.toString(), init })
       return new Response(JSON.stringify({ data: [{ url: 'https://img.example/x.png' }] }), {
         status: 200,
         headers: { 'content-type': 'application/json' },
       })
-    }) as typeof fetch
+    }) as unknown as TestFetch)
   })
 
   afterEach(() => {
-    globalThis.fetch = originalFetch
+    setUpstreamFetchForTesting()
     _setChannelsForTesting([])
   })
 

@@ -2,17 +2,15 @@ import { QUEUE_TIMEOUTS, type TaskErrorType } from '@image-playground/shared'
 import { and, eq, isNull, lte, or } from 'drizzle-orm'
 import { db, schema } from '../db/client'
 import { describeEmptyResult, extractMeta } from '../lib/extractImages'
-import { trackTask } from '../lib/inflight'
 import { log } from '../lib/logger'
 import { isAbortError } from '../lib/queueProvider'
 import { isRetryableError, planNextAttempt, shouldRetryEmptyResult } from '../lib/retry'
-import { callUpstream, UpstreamTimeoutError } from '../lib/upstream'
+import { callUpstream, UpstreamResultUnknownError, UpstreamTimeoutError } from '../lib/upstream'
 
 /**
  * 单 task 后台执行：把 status 推进到 in_progress → completed/failed/cancelled。
  *
- * fire-and-forget；submit 端点 + 启动 recovery 都通过 spawnTask 调用。简单单线程
- * async 模型，并发由 Bun runtime 调度，无需显式 worker pool。
+ * 只由独立 worker scheduler 调用；scheduler 负责 provider 并发与 durable retry。
  *
  * 状态写入都带 WHERE predicate（atomic claim + 终态守护）：
  * - claim：只有 status='queued' 才推到 in_progress
@@ -20,7 +18,7 @@ import { callUpstream, UpstreamTimeoutError } from '../lib/upstream'
  *   把 status 写 'cancelled' 时不会被 worker 反悔覆盖
  *
  * cancel 真打断：每个进行中的 task 在 runningTasks 里登记 AbortController；
- * cancel route 调 abortRunningTask(id) 让 callUpstream 的 fetch 立刻 abort。
+ * scheduler 观察到数据库取消状态后调 abortRunningTask(id) 中断 fetch。
  */
 
 const runningTasks = new Map<string, AbortController>()
@@ -40,12 +38,16 @@ export function abortAllRunningTasks(): number {
   return count
 }
 
+export function runningTaskIds(): string[] {
+  return Array.from(runningTasks.keys())
+}
+
 /**
  * 任务"失败 / 没图"分支共享的重试调度。返回 true 表示已安排重试（调用方应 return），
  * false 表示该走终态 failed。调用方传 retryable 自己决定（按 err 还是按 payload 判）。
  *
  * 注意：状态回退 UPDATE 带 WHERE status='in_progress' 守卫——cancel route 已经把
- * status 改成 'cancelled' 时这里 no-op，setTimeout 也不会安排。
+ * status 改成 'cancelled' 时这里 no-op。独立 scheduler 会在 next_retry_at 到期后发现它。
  */
 async function tryScheduleRetry(
   id: string,
@@ -84,8 +86,6 @@ async function tryScheduleRetry(
     },
     'task transient failure, scheduling retry',
   )
-  // 内存里 setTimeout 调度；进程崩了下次启动 recovery 看 next_retry_at 重建。
-  setTimeout(() => spawnTask(id, 'retry'), plan.delayMs)
   return true
 }
 
@@ -93,8 +93,8 @@ export async function runTask(id: string): Promise<void> {
   const now = () => Date.now()
   const claimAt = now()
 
-  // claim 时除了 status='queued' 守卫，还要确保 next_retry_at 已到——避免 setTimeout
-  // 早触发 / 外部误调 spawnTask 让等待中的重试任务提前起跑。
+  // claim 时除了 status='queued' 守卫，还要确保 next_retry_at 已到，避免 scheduler
+  // 或外部误调 runTask 让等待中的重试任务提前起跑。
   const claimed = await db
     .update(schema.tasks)
     .set({ status: 'in_progress', started_at: claimAt })
@@ -180,12 +180,13 @@ export async function runTask(id: string): Promise<void> {
       return
     }
     const isTimeout = err instanceof UpstreamTimeoutError
+    const isUnknownResult = err instanceof UpstreamResultUnknownError
     const message = isTimeout
       ? `上游超时：BFF 等待超过 ${Math.round(QUEUE_TIMEOUTS.UPSTREAM_HARD_TIMEOUT_MS / 60000)} 分钟未拿到响应`
       : err instanceof Error
         ? err.message
         : String(err)
-    const errorType: TaskErrorType = isTimeout ? 'upstream_timeout' : 'upstream_error'
+    const errorType: TaskErrorType = isUnknownResult ? 'upstream_result_unknown' : 'upstream_error'
 
     const attemptJustFailed = task.attempt_count + 1
     if (await tryScheduleRetry(id, attemptJustFailed, isRetryableError(err), message)) {
@@ -214,23 +215,4 @@ export async function runTask(id: string): Promise<void> {
   } finally {
     runningTasks.delete(id)
   }
-}
-
-/**
- * 标准 fire-and-forget 入口：注册到 inflight 让 SIGTERM 能 drain，统一日志格式。
- */
-export function spawnTask(id: string, context = 'submit'): void {
-  trackTask(
-    runTask(id).catch((err) => {
-      log.error(
-        {
-          event: 'task.crashed',
-          taskId: id,
-          context,
-          err: err instanceof Error ? err.message : String(err),
-        },
-        'task-runner crashed',
-      )
-    }),
-  )
 }

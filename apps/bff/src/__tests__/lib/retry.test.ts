@@ -39,13 +39,13 @@ describe('isRetryableError', () => {
     expect(isRetryableError(upstreamError(422))).toBe(false)
   })
 
-  it('BFF 自家硬超时 UpstreamTimeoutError 重试', () => {
-    expect(isRetryableError(fakeUpstreamTimeoutError())).toBe(true)
+  it('BFF 自家硬超时结果未知，不自动重试', () => {
+    expect(isRetryableError(fakeUpstreamTimeoutError())).toBe(false)
   })
 
-  it('未带 upstreamStatus 的 Error（fetch 抛错 / 网络中断）重试', () => {
-    expect(isRetryableError(new Error('fetch failed'))).toBe(true)
-    expect(isRetryableError(new TypeError('Failed to fetch'))).toBe(true)
+  it('未带 upstreamStatus 的 Error（fetch 抛错 / 网络中断）结果未知，不自动重试', () => {
+    expect(isRetryableError(new Error('fetch failed'))).toBe(false)
+    expect(isRetryableError(new TypeError('Failed to fetch'))).toBe(false)
   })
 
   it('非 Error 类型（字符串 / null / undefined）不重试，防御性', () => {
