@@ -27,7 +27,7 @@
       },
       "health": {
         "http": "http://localhost:37377/health",
-        "timeoutSec": 30,
+        "timeoutSec": 180,
         "intervalSec": 60
       }
     },
