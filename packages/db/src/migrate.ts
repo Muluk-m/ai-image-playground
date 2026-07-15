@@ -50,6 +50,9 @@ export function runMigrations(databaseUrl: string) {
     mkdirSync(dirname(abs), { recursive: true })
   }
   const sqlite = new Database(databaseUrl)
+  // BFF 与 worker 会在部署时并行启动并同时跑 migration。首次创建 admin 复合索引需要
+  // 扫描现有 tasks，给另一个进程等待锁的时间，避免瞬时 SQLITE_BUSY 启动失败。
+  sqlite.exec('PRAGMA busy_timeout = 60000;')
   sqlite.exec('PRAGMA journal_mode = WAL;')
   sqlite.exec(DDL_BASE)
   // 老库兼容：CREATE TABLE IF NOT EXISTS 不会给已存在的表加新列。
@@ -74,7 +77,7 @@ export function runMigrations(databaseUrl: string) {
                ON tasks(next_retry_at) WHERE next_retry_at IS NOT NULL;`)
 
   // device_id VIRTUAL 列：admin 设备聚合 GROUP BY 需要索引，但 device_id 实际存
-  // 在 request_payload JSON 里。生成列 VIRTUAL 不占额外空间，索引让聚合 < 10ms。
+  // 在 request_payload JSON 里。生成列 VIRTUAL 不占额外空间。
   // 老库兼容：PRAGMA table_xinfo 查询确认列存在与否，不存在才 ALTER。
   // 注意：必须用 table_xinfo 而不是 table_info——后者会跳过 hidden=2 的 VIRTUAL
   // 生成列，导致第二次启动时 ALTER 重复报「duplicate column name」。
@@ -85,6 +88,14 @@ export function runMigrations(databaseUrl: string) {
         GENERATED ALWAYS AS (json_extract(request_payload, '$.device_id')) VIRTUAL;
     `)
   }
-  sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_tasks_device_id ON tasks(device_id);`)
+  // tasks 的 request/result payload 会内联多 MB base64。单列 device_id 索引虽然能
+  // 满足 GROUP BY，却需要为 submitted_at/status/model 回表，生产库会随机读取数 GB
+  // 胖行并阻塞 admin 事件循环。这个索引把设备聚合所需的小字段放在一起，并让详情列表按
+  // (device_id, submitted_at DESC, id DESC) 直接做范围扫描与 keyset 排序。
+  sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_tasks_admin_device_time
+               ON tasks(device_id, submitted_at DESC, id DESC, status, model);`)
+  // 新索引左前缀完全覆盖旧索引用途。先建新索引再删旧索引，迁移期间查询始终有路可走，
+  // 同时杜绝 SQLite 再选回会触发胖行回表的旧执行计划。
+  sqlite.exec(`DROP INDEX IF EXISTS idx_tasks_device_id;`)
   sqlite.close()
 }
