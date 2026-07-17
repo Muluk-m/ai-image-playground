@@ -114,6 +114,20 @@ export const ChipIcons = {
       <path d="M9 4v3a2 2 0 01-2 2H4M15 4v3a2 2 0 002 2h3M9 20v-3a2 2 0 00-2-2H4M15 20v-3a2 2 0 012-2h3" />
     </svg>
   ),
+  noRewrite: (
+    <svg
+      className={CHIP_ICON_CLASS}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.6}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      viewBox="0 0 24 24"
+    >
+      <path d="M17 3l4 4-11 11H6v-4L17 3z" />
+      <line x1="4" y1="21" x2="21" y2="4" />
+    </svg>
+  ),
   moderation: (
     <svg
       className={CHIP_ICON_CLASS}
