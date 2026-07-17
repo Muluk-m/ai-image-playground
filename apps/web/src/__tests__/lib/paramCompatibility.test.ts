@@ -49,4 +49,10 @@ describe('parameter compatibility', () => {
       false,
     )
   })
+
+  it('resets leftover no_rewrite on gemini profiles where the toggle is hidden', () => {
+    const params = { ...DEFAULT_PARAMS, no_rewrite: true }
+
+    expect(normalizeParamsForSettings(params, settingsWithGeminiByok()).no_rewrite).toBe(false)
+  })
 })

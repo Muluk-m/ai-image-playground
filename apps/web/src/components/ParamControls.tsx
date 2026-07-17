@@ -55,6 +55,11 @@ const buildAutoOptions = (values: readonly string[]) => [
   ...values.map((v) => ({ label: v, value: v })),
 ]
 
+const ON_OFF_OPTIONS = [
+  { label: 'off', value: 'off' },
+  { label: 'on', value: 'on' },
+]
+
 const GEMINI_FIELDS: ReadonlyArray<{
   label: string
   field: GeminiSelectField
@@ -366,13 +371,22 @@ export default function ParamControls({ showCount = false }: { showCount?: boole
                     output_compression: null,
                   })
                 }
-                options={[
-                  { label: 'off', value: 'off' },
-                  { label: 'on', value: 'on' },
-                ]}
+                options={ON_OFF_OPTIONS}
               />
             </ParamChip>
           )}
+          {/* 防改写：prompt 前加 guard 前缀阻止 Codex 系网关重写提示词。默认关闭。 */}
+          <ParamChip
+            icon={ChipIcons.noRewrite}
+            label="防改写"
+            value={params.no_rewrite ? 'on' : 'off'}
+          >
+            <ChipSelect
+              value={params.no_rewrite ? 'on' : 'off'}
+              onChange={(val) => setParams({ no_rewrite: val === 'on' })}
+              options={ON_OFF_OPTIONS}
+            />
+          </ParamChip>
           {!compressionDisabled && (
             <ParamChip icon={ChipIcons.compression} label="压缩">
               <input

@@ -106,10 +106,7 @@ describe('callImageApi', () => {
     mockChannels.list = []
   })
 
-  it.each([
-    false,
-    true,
-  ])('adds the prompt rewrite guard on Responses API when Codex CLI mode is %s', async (codexCli) => {
+  it('sends raw prompt on Responses API by default', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(
         JSON.stringify({
@@ -128,7 +125,7 @@ describe('callImageApi', () => {
     )
 
     await callImageApi({
-      settings: settingsWithByok({ apiKey: 'test-key', apiMode: 'responses', codexCli }),
+      settings: settingsWithByok({ apiKey: 'test-key', apiMode: 'responses' }),
       prompt: 'prompt',
       params: { ...DEFAULT_PARAMS },
       inputImageDataUrls: [],
@@ -136,9 +133,7 @@ describe('callImageApi', () => {
 
     const [, init] = fetchMock.mock.calls[0]
     const body = JSON.parse(String((init as RequestInit).body))
-    expect(body.input).toBe(
-      'Use the following text as the complete prompt. Do not rewrite it:\nprompt',
-    )
+    expect(body.input).toBe('prompt')
   })
 
   it('records actual params returned on Images API responses in Codex CLI mode', async () => {
@@ -356,7 +351,7 @@ describe('callImageApi', () => {
     return { fetchMock }
   }
 
-  it('builtin-edge openai-compat with codexCli prefixes prompt guard and drops quality (queue submit body)', async () => {
+  it('builtin-edge openai-compat with codexCli sends raw prompt by default but drops quality (queue submit body)', async () => {
     const channel: PublicChannel = {
       id: 'test-codex',
       kind: 'openai-queue',
@@ -379,9 +374,7 @@ describe('callImageApi', () => {
       String(url).endsWith('/submit'),
     )!
     const body = JSON.parse(String((submitCall[1] as RequestInit).body))
-    expect(body.prompt).toBe(
-      'Use the following text as the complete prompt. Do not rewrite it:\na red cat',
-    )
+    expect(body.prompt).toBe('a red cat')
     expect(body).not.toHaveProperty('quality')
   })
 
@@ -410,6 +403,131 @@ describe('callImageApi', () => {
     const body = JSON.parse(String((submitCall[1] as RequestInit).body))
     expect(body.prompt).toBe('a red cat')
     expect(body.quality).toBe('high')
+  })
+
+  it('params.no_rewrite=true adds prompt guard on codexCli channel, quality still dropped', async () => {
+    const channel: PublicChannel = {
+      id: 'test-codex',
+      kind: 'openai-queue',
+      label: 'Codex',
+      models: [{ id: 'gpt-image-2', label: 'GPT Image 2', capabilities: ['generate', 'edit'] }],
+      defaults: { apiMode: 'images', timeout: 600, codexCli: true },
+    }
+    mockChannels.list = [channel]
+
+    const { fetchMock } = mockQueueFlow('openai-compat')
+
+    await callImageApi({
+      settings: settingsWithBuiltin(channel),
+      prompt: 'a red cat',
+      params: { ...DEFAULT_PARAMS, quality: 'high', no_rewrite: true },
+      inputImageDataUrls: [],
+    })
+
+    const submitCall = fetchMock.mock.calls.find(([url]: [unknown, unknown]) =>
+      String(url).endsWith('/submit'),
+    )!
+    const body = JSON.parse(String((submitCall[1] as RequestInit).body))
+    expect(body.prompt).toBe(
+      'Use the following text as the complete prompt. Do not rewrite it:\na red cat',
+    )
+    expect(body).not.toHaveProperty('quality')
+  })
+
+  it('params.no_rewrite=true adds prompt guard on plain builtin-edge channel, quality untouched', async () => {
+    const channel: PublicChannel = {
+      id: 'test-plain',
+      kind: 'openai-queue',
+      label: 'Plain',
+      models: [{ id: 'gpt-image-2', label: 'GPT Image 2', capabilities: ['generate', 'edit'] }],
+      defaults: { apiMode: 'images', timeout: 600 },
+    }
+    mockChannels.list = [channel]
+
+    const { fetchMock } = mockQueueFlow('openai-compat')
+
+    await callImageApi({
+      settings: settingsWithBuiltin(channel),
+      prompt: 'a red cat',
+      params: { ...DEFAULT_PARAMS, quality: 'high', no_rewrite: true },
+      inputImageDataUrls: [],
+    })
+
+    const submitCall = fetchMock.mock.calls.find(([url]: [unknown, unknown]) =>
+      String(url).endsWith('/submit'),
+    )!
+    const body = JSON.parse(String((submitCall[1] as RequestInit).body))
+    expect(body.prompt).toBe(
+      'Use the following text as the complete prompt. Do not rewrite it:\na red cat',
+    )
+    expect(body.quality).toBe('high')
+  })
+
+  it('params.no_rewrite=true adds prompt guard on BYOK Images API without codexCli', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ data: [{ b64_json: 'aW1hZ2U=' }] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    )
+
+    await callImageApi({
+      settings: settingsWithByok({ apiKey: 'test-key' }),
+      prompt: 'prompt',
+      params: { ...DEFAULT_PARAMS, no_rewrite: true },
+      inputImageDataUrls: [],
+    })
+
+    const [, init] = fetchMock.mock.calls[0]
+    const body = JSON.parse(String((init as RequestInit).body))
+    expect(body.prompt).toBe(
+      'Use the following text as the complete prompt. Do not rewrite it:\nprompt',
+    )
+  })
+
+  it('BYOK Images API with codexCli sends raw prompt by default and drops quality', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ data: [{ b64_json: 'aW1hZ2U=' }] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    )
+
+    await callImageApi({
+      settings: settingsWithByok({ apiKey: 'test-key', codexCli: true }),
+      prompt: 'prompt',
+      params: { ...DEFAULT_PARAMS },
+      inputImageDataUrls: [],
+    })
+
+    const [, init] = fetchMock.mock.calls[0]
+    const body = JSON.parse(String((init as RequestInit).body))
+    expect(body.prompt).toBe('prompt')
+    expect(body).not.toHaveProperty('quality')
+  })
+
+  it('params.no_rewrite=true adds prompt guard on Responses API', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          output: [{ type: 'image_generation_call', result: 'aW1hZ2U=' }],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+    )
+
+    await callImageApi({
+      settings: settingsWithByok({ apiKey: 'test-key', apiMode: 'responses' }),
+      prompt: 'prompt',
+      params: { ...DEFAULT_PARAMS, no_rewrite: true },
+      inputImageDataUrls: [],
+    })
+
+    const [, init] = fetchMock.mock.calls[0]
+    const body = JSON.parse(String((init as RequestInit).body))
+    expect(body.input).toBe(
+      'Use the following text as the complete prompt. Do not rewrite it:\nprompt',
+    )
   })
 
   it('builtin-edge openai-compat dispatch routes to /v1/queue/openai-compat/... without Authorization', async () => {

@@ -1,11 +1,16 @@
-import { getActiveApiProfile } from './apiProfiles'
+import { clientProfileToApiProfile, getActiveApiProfile } from './apiProfiles'
 import { createMaskPreviewDataUrl } from './canvasImage'
 import { getModelCapabilities } from './channels/profileSelectors'
 import { getPublicChannel, getPublicChannels } from './channels/publicChannels'
 import { callQueueChannelApi, resumeQueueChannelApi, toQueueProvider } from './channels/queueClient'
 import type { ClientProfile, UserByokProfile } from './channels/types'
 import { callGeminiImageApi } from './geminiImageApi'
-import type { BYOKAdapterProfile, CallApiOptions, CallApiResult } from './imageApiShared'
+import {
+  applyPromptRewriteGuard,
+  type BYOKAdapterProfile,
+  type CallApiOptions,
+  type CallApiResult,
+} from './imageApiShared'
 import { callOpenAICompatibleImageApi } from './openaiCompatibleImageApi'
 
 export { normalizeBaseUrl } from './devProxy'
@@ -69,6 +74,12 @@ export async function callImageApi(opts: CallApiOptions): Promise<CallApiResult>
   // 不做跨 task 缓存以避免缓存生命周期复杂度。
   if (opts.maskDataUrl && !modelSupportsNativeMask(profile)) {
     opts = await applySoftMaskFallback(opts)
+  }
+
+  // 防改写：与 soft mask 同样在分发层一次性改写 prompt，下游 adapter / BFF 无需感知。
+  // Gemini 没有 prompt rewriting 概念（UI 也不展示该开关），不注入。
+  if (opts.params.no_rewrite && clientProfileToApiProfile(profile).provider !== 'gemini') {
+    opts = { ...opts, prompt: applyPromptRewriteGuard(opts.prompt) }
   }
 
   if (profile.source === 'builtin-edge') {

@@ -18,14 +18,16 @@ export interface BYOKAdapterProfile {
 }
 
 /**
- * Codex CLI 模式的 prompt 头部 guard：Codex 网关默认会改写用户 prompt，
- * 加这段前缀指示上游"原样使用 prompt 不要重写"。BYOK / edge 两条路径共用。
+ * 防改写的 prompt 头部 guard：Codex 系网关默认会改写用户 prompt，
+ * 加这段前缀指示上游"原样使用 prompt 不要重写"。由 composer 的「防改写」开关
+ * （`params.no_rewrite`，默认关闭）控制，在 `callImageApi` 分发层统一应用，
+ * BYOK / edge 下游 adapter 无需感知。
  */
 export const PROMPT_REWRITE_GUARD_PREFIX =
   'Use the following text as the complete prompt. Do not rewrite it:'
 
-export function applyCodexCliPromptGuard(prompt: string, codexCli: boolean): string {
-  return codexCli ? `${PROMPT_REWRITE_GUARD_PREFIX}\n${prompt}` : prompt
+export function applyPromptRewriteGuard(prompt: string): string {
+  return `${PROMPT_REWRITE_GUARD_PREFIX}\n${prompt}`
 }
 
 export const MIME_MAP: Record<string, string> = {

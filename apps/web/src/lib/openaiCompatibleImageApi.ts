@@ -11,7 +11,6 @@ import type {
 import { dataUrlToBlob, imageDataUrlToPngBlob, maskDataUrlToPngBlob } from './canvasImage'
 import { buildApiUrl, readClientDevProxyConfig, shouldUseApiProxy } from './devProxy'
 import {
-  applyCodexCliPromptGuard,
   assertImageInputPayloadSize,
   assertMaskEditFileSize,
   type BYOKAdapterProfile,
@@ -218,14 +217,13 @@ function createResponsesImageTool(
 }
 
 function createResponsesInput(prompt: string, inputImageDataUrls: string[]): unknown {
-  const text = applyCodexCliPromptGuard(prompt, true)
-  if (!inputImageDataUrls.length) return text
+  if (!inputImageDataUrls.length) return prompt
 
   return [
     {
       role: 'user',
       content: [
-        { type: 'input_text', text },
+        { type: 'input_text', text: prompt },
         ...inputImageDataUrls.map((dataUrl) => ({
           type: 'input_image',
           image_url: dataUrl,
@@ -480,8 +478,7 @@ async function callImagesApiSingle(
   profile: BYOKAdapterProfile,
   customProvider?: CustomProviderDefinition | null,
 ): Promise<CallApiResult> {
-  const { prompt: originalPrompt, params, inputImageDataUrls } = opts
-  const prompt = applyCodexCliPromptGuard(originalPrompt, profile.codexCli)
+  const { prompt, params, inputImageDataUrls } = opts
   const isEdit = inputImageDataUrls.length > 0
   const mime = MIME_MAP[params.output_format] || 'image/png'
   const proxyConfig = readClientDevProxyConfig()
