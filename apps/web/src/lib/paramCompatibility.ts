@@ -35,11 +35,12 @@ export function normalizeParamsForSettings(
     nextParams.transparent_output = DEFAULT_PARAMS.transparent_output
   }
 
-  // Gemini profile 不展示透明输出 / 防改写开关（ParamControls 同判定），切换 profile
-  // 残留的值必须重置，否则会静默注入绿幕 prompt / guard 前缀且用户无法关闭
+  // Gemini profile 不展示透明输出开关（ParamControls 同判定），切换 profile 残留的
+  // transparent_output 必须重置，否则会静默注入绿幕 prompt 且用户无法关闭。
+  // no_rewrite 不用重置：guard 在 callImageApi 分发层已按 provider 排除 gemini，
+  // 保留值可以让用户切回 OpenAI 系 profile 时不丢失显式选择。
   if (clientProfileToApiProfile(activeProfile).provider === 'gemini') {
     nextParams.transparent_output = DEFAULT_PARAMS.transparent_output
-    nextParams.no_rewrite = DEFAULT_PARAMS.no_rewrite
   }
 
   return nextParams
