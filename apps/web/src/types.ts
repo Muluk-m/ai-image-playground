@@ -98,8 +98,8 @@ export interface TaskParams {
   transparent_output: boolean
   /**
    * 防改写：在 prompt 前加 guard 前缀，指示上游（Codex 系网关）原样使用提示词不要重写。
-   * 默认关闭；由 composer 的「防改写」chip 显式开启（旧持久化数据在 hydration 时
-   * 与 DEFAULT_PARAMS 合并补齐）。
+   * 默认开启；可在 composer 的「防改写」chip 关闭（旧持久化数据在 hydration 时
+   * 与 DEFAULT_PARAMS 合并补齐；已存过显式值的以用户选择为准）。
    */
   no_rewrite: boolean
   /** Gemini 专属：明确的画面比例（替代从 OpenAI size 字符串推测） */
@@ -118,7 +118,7 @@ export const DEFAULT_PARAMS: TaskParams = {
   moderation: 'auto',
   n: 1,
   transparent_output: false,
-  no_rewrite: false,
+  no_rewrite: true,
 }
 
 // ===== 输入图片（UI 层面） =====

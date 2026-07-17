@@ -375,7 +375,7 @@ export default function ParamControls({ showCount = false }: { showCount?: boole
               />
             </ParamChip>
           )}
-          {/* 防改写：prompt 前加 guard 前缀阻止 Codex 系网关重写提示词。默认关闭。 */}
+          {/* 防改写：prompt 前加 guard 前缀阻止 Codex 系网关重写提示词。默认开启。 */}
           <ParamChip
             icon={ChipIcons.noRewrite}
             label="防改写"

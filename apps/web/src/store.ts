@@ -741,6 +741,14 @@ export const useStore = create<AppState>()(
     }),
     {
       name: 'image-playground',
+      version: 1,
+      // v0 → v1：防改写默认值翻转为开启。v0 里 no_rewrite=false 是只上线过数小时的
+      // 旧默认值而非用户主动选择，一次性抬升为 true；之后的显式关闭会随 v1 持久化保留。
+      migrate: (persisted) => {
+        const p = persisted as { params?: TaskParams } | null
+        if (p?.params) p.params = { ...p.params, no_rewrite: true }
+        return p
+      },
       partialize: getPersistedState,
       merge: mergePersistedState,
     },
@@ -851,7 +859,7 @@ export function showCodexCliPrompt(force = false, reason = '接口返回的提�
 
   state.setConfirmDialog({
     title: '检测到 Codex CLI API',
-    message: `${reason}，当前 API 来源很可能是 Codex CLI。\n\n是否开启 Codex CLI 兼容模式？开启后会禁用在此处无效的质量参数，并在 Images API 多图生成时使用并发请求，解决该 API 数量参数无效的问题。若要避免模型重写提示词偏离原意，可在输入栏参数中开启「防改写」。`,
+    message: `${reason}，当前 API 来源很可能是 Codex CLI。\n\n是否开启 Codex CLI 兼容模式？开启后会禁用在此处无效的质量参数，并在 Images API 多图生成时使用并发请求，解决该 API 数量参数无效的问题。提示词防改写由输入栏参数中的「防改写」开关控制（默认开启）。`,
     confirmText: '开启',
     action: () => {
       const state = useStore.getState()

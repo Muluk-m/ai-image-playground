@@ -50,8 +50,8 @@ describe('parameter compatibility', () => {
     )
   })
 
-  it('resets leftover no_rewrite on gemini profiles where the toggle is hidden', () => {
-    const params = { ...DEFAULT_PARAMS, no_rewrite: true }
+  it('keeps explicit no_rewrite choice across gemini profiles (guard is provider-gated at dispatch)', () => {
+    const params = { ...DEFAULT_PARAMS, no_rewrite: false }
 
     expect(normalizeParamsForSettings(params, settingsWithGeminiByok()).no_rewrite).toBe(false)
   })
