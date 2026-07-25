@@ -1,7 +1,14 @@
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 
 import { apiClient } from './api-client'
-import type { DeviceDetailResult, ListDevicesResult, Range, SortKey, TaskDetail } from './types'
+import type {
+  DeviceDetailResult,
+  ListDevicesResult,
+  ListUsersResult,
+  Range,
+  SortKey,
+  TaskDetail,
+} from './types'
 
 export function useDevices(range: Range, sort: SortKey) {
   return useQuery({
@@ -31,5 +38,12 @@ export function useTask(taskId: string | undefined) {
     queryKey: ['task', taskId],
     queryFn: () => apiClient.get<TaskDetail>(`/api/tasks/${encodeURIComponent(taskId!)}`),
     enabled: typeof taskId === 'string' && taskId.length > 0,
+  })
+}
+
+export function useUsers() {
+  return useQuery({
+    queryKey: ['users'],
+    queryFn: () => apiClient.get<ListUsersResult>('/api/users'),
   })
 }

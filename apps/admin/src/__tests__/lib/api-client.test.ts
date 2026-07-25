@@ -78,4 +78,18 @@ describe('api-client', () => {
       }),
     )
   })
+
+  it('patch() sends JSON body with credentials', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse(200, { ok: true }))
+    vi.stubGlobal('fetch', fetchMock)
+    await apiClient.patch('/api/users/user-1', { status: 'disabled' })
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/users/user-1',
+      expect.objectContaining({
+        method: 'PATCH',
+        credentials: 'include',
+        body: JSON.stringify({ status: 'disabled' }),
+      }),
+    )
+  })
 })

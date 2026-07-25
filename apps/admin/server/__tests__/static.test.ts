@@ -21,7 +21,7 @@ writeFileSync(join(tmpDir, 'assets', 'index-abc123.js'), 'console.log(1);')
 process.env.ADMIN_PASSWORD = 'test-pass-1234'
 process.env.ADMIN_COOKIE_SECRET = 'test-cookie-secret-32-bytes-min!!'
 process.env.DATABASE_URL = TEST_DB
-process.env.BFF_INTERNAL_URL = 'http://localhost:9999'
+process.env.BFF_INTERNAL_URL = 'http://127.0.0.1:39999'
 process.env.PORT = '0'
 process.env.ADMIN_DIST_DIR = tmpDir
 
