@@ -10,11 +10,33 @@ set -e
 DIST_DIR="/app/apps/web/dist"
 CONFIG_FILE="${DIST_DIR}/runtime-config.json"
 
+BFF_ENABLED_VALUE="${BFF_ENABLED:-true}"
+AUTH_ENABLED_VALUE="${AUTH_ENABLED:-false}"
+
+case "${BFF_ENABLED_VALUE}" in
+  true|false) ;;
+  *)
+    echo "[entrypoint] BFF_ENABLED must be true or false" >&2
+    exit 1
+    ;;
+esac
+
+case "${AUTH_ENABLED_VALUE}" in
+  true|false) ;;
+  *)
+    echo "[entrypoint] AUTH_ENABLED must be true or false" >&2
+    exit 1
+    ;;
+esac
+
 cat > "${CONFIG_FILE}" <<EOF
 {
   "bff": {
-    "enabled": ${BFF_ENABLED:-true},
+    "enabled": ${BFF_ENABLED_VALUE},
     "baseUrl": "${BFF_BASE_URL:-}"
+  },
+  "auth": {
+    "enabled": ${AUTH_ENABLED_VALUE}
   },
   "defaults": {
     "openaiBaseUrl":          "${DEFAULT_OPENAI_BASE_URL:-https://api.openai.com/v1}",
@@ -24,6 +46,6 @@ cat > "${CONFIG_FILE}" <<EOF
 }
 EOF
 
-echo "[entrypoint] wrote runtime-config.json (bff.enabled=${BFF_ENABLED:-true}, bff.baseUrl='${BFF_BASE_URL:-}')"
+echo "[entrypoint] wrote runtime-config.json (bff.enabled=${BFF_ENABLED_VALUE}, auth.enabled=${AUTH_ENABLED_VALUE}, bff.baseUrl='${BFF_BASE_URL:-}')"
 
 exec "$@"
