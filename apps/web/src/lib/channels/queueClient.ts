@@ -7,6 +7,7 @@ import {
   type SubmitResponse,
 } from '@image-playground/shared'
 import type { TaskParams } from '../../types'
+import { authenticatedBffFetch } from '../authClient'
 import { getDeviceId } from '../deviceId'
 import {
   assertImageInputPayloadSize,
@@ -143,7 +144,7 @@ async function submit(
   if (clientRequestId) body.client_request_id = clientRequestId
 
   const url = `${base}/v1/queue/${provider}/${encodeURIComponent(model)}/submit`
-  const res = await fetch(url, {
+  const res = await authenticatedBffFetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -184,7 +185,7 @@ type PollOutcome =
 async function classifyPollResponse(url: string): Promise<PollOutcome> {
   let res: Response
   try {
-    res = await fetch(url)
+    res = await authenticatedBffFetch(url)
   } catch (err) {
     return { kind: 'transient', error: err }
   }
@@ -248,7 +249,7 @@ async function poll(base: string, requestId: string): Promise<StatusResultMeta |
 
 async function fetchResultMeta(base: string, requestId: string): Promise<ResultResponse> {
   const url = `${base}/v1/queue/requests/${requestId}`
-  const res = await fetch(url)
+  const res = await authenticatedBffFetch(url)
   if (!res.ok) {
     throw new Error(`BFF result meta 拉取失败：${await getApiErrorMessage(res)}`)
   }
@@ -270,7 +271,7 @@ async function fetchImageDataUrl(
   signal: AbortSignal,
 ): Promise<string> {
   const url = `${base}/v1/queue/requests/${requestId}/image/${index}`
-  const res = await fetch(url, { signal })
+  const res = await authenticatedBffFetch(url, { signal })
   if (!res.ok) {
     throw new Error(`BFF image #${index} 拉取失败：${await getApiErrorMessage(res)}`)
   }

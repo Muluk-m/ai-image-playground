@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useAuth } from '../auth/AuthContext'
 import InspirationCoach from '../features/inspiration/components/InspirationCoach'
 import { useInspirationStore } from '../features/inspiration/store'
 import { useTooltip } from '../hooks/useTooltip'
@@ -13,6 +14,8 @@ export default function Header() {
   const appMode = useStore((s) => s.appMode)
   const setAppMode = useStore((s) => s.setAppMode)
   const [showHelp, setShowHelp] = useState(false)
+  const [loggingOut, setLoggingOut] = useState(false)
+  const auth = useAuth()
 
   const openInspiration = useInspirationStore((s) => s.openPanel)
   const dismissInspirationCoach = useStore((s) => s.dismissInspirationCoach)
@@ -140,6 +143,27 @@ export default function Header() {
                 设置
               </ViewportTooltip>
             </div>
+            {auth.enabled && auth.user ? (
+              <div className="ml-1 flex items-center gap-2 border-l border-gray-200 pl-2 dark:border-white/[0.1]">
+                <span
+                  className="hidden max-w-28 truncate text-[12px] font-medium text-gray-600 sm:block dark:text-gray-300"
+                  title={auth.user.username}
+                >
+                  {auth.user.username}
+                </span>
+                <button
+                  type="button"
+                  disabled={loggingOut}
+                  onClick={() => {
+                    setLoggingOut(true)
+                    void auth.logout()
+                  }}
+                  className="rounded-lg px-2 py-1.5 text-[12px] font-medium text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-800 disabled:cursor-wait disabled:opacity-50 dark:text-gray-400 dark:hover:bg-gray-900 dark:hover:text-gray-100"
+                >
+                  {loggingOut ? '退出中' : '退出'}
+                </button>
+              </div>
+            ) : null}
           </div>
         </div>
       </header>

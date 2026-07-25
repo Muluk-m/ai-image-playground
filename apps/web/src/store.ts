@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
+import { createJSONStorage, persist } from 'zustand/middleware'
 import {
   clientProfileToApiProfile,
   DEFAULT_SETTINGS,
@@ -32,6 +32,7 @@ function filterUserProfileCache(
 
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate'
 import { callImageApi, resumeQueueImageApi } from './lib/api'
+import { scopedLocalStorage } from './lib/authScope'
 import { validateMaskMatchesImage } from './lib/canvasImage'
 import {
   CURRENT_THUMBNAIL_VERSION,
@@ -741,6 +742,7 @@ export const useStore = create<AppState>()(
     }),
     {
       name: 'image-playground',
+      storage: createJSONStorage(() => scopedLocalStorage),
       version: 1,
       // v0 → v1：防改写默认值翻转为开启。v0 里 no_rewrite=false 是只上线过数小时的
       // 旧默认值而非用户主动选择，一次性抬升为 true；之后的显式关闭会随 v1 持久化保留。

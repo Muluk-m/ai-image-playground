@@ -101,6 +101,7 @@ describe('callQueueChannelApi submit body', () => {
     expect(String(firstCall[0])).toContain('/v1/queue/openai-compat/gpt-image-1/submit')
     const body = JSON.parse(String((firstCall[1] as RequestInit).body))
     expect(body.device_id).toBe('dev-aaaa-bbbb-cccc')
+    expect((firstCall[1] as RequestInit).credentials).toBe('include')
   })
 
   it('429 daily_quota_exceeded 抛中文错误且 quotaExceeded=true', async () => {

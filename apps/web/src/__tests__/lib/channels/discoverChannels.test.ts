@@ -70,6 +70,16 @@ describe('fetchDiscoveredChannels', () => {
     expect(capturedSignal).toBe(signal)
   })
 
+  it('includes session cookies in channel discovery', async () => {
+    let captured: RequestInit | undefined
+    const fetcher = async (_input: string, init?: RequestInit) => {
+      captured = init
+      return new Response(JSON.stringify(SAMPLE), { status: 200 })
+    }
+    await fetchDiscoveredChannels('', { fetcher })
+    expect(captured?.credentials).toBe('include')
+  })
+
   it('throws on non-2xx', async () => {
     await expect(
       fetchDiscoveredChannels('https://bff.example.com', { fetcher: mockFetch(500, '') }),
