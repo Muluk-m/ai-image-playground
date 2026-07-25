@@ -87,11 +87,6 @@ export function runMigrations(databaseUrl: string) {
   if (!cols.some((c) => c.name === 'client_request_id')) {
     sqlite.exec(`ALTER TABLE tasks ADD COLUMN client_request_id TEXT;`)
   }
-  // partial unique 索引：NULL 不去重，老任务/未带 ID 的请求各自独立。
-  // 列确保存在后再建，避免对老库报 "no such column"。
-  sqlite.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_client_request_id
-               ON tasks(client_request_id) WHERE client_request_id IS NOT NULL;`)
-
   // 自动重试相关：老库补列。ALTER ADD COLUMN 在 SQLite 里只支持常量/NULL 默认值；
   // NOT NULL + DEFAULT 0 是常量，没问题。
   if (!cols.some((c) => c.name === 'attempt_count')) {
@@ -103,6 +98,16 @@ export function runMigrations(databaseUrl: string) {
   if (!cols.some((c) => c.name === 'user_id')) {
     sqlite.exec(`ALTER TABLE tasks ADD COLUMN user_id TEXT REFERENCES users(id);`)
   }
+  // 幂等键按账号隔离：共享浏览器切换账号后可能复用 IndexedDB 中的
+  // client_request_id。匿名部署仍保持全局去重。先删旧全局索引再建两条 partial
+  // 索引，既兼容老库，又不让一个账号撞到另一个账号的任务。
+  sqlite.exec(`DROP INDEX IF EXISTS idx_tasks_client_request_id;`)
+  sqlite.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_anonymous_client_request_id
+               ON tasks(client_request_id)
+               WHERE user_id IS NULL AND client_request_id IS NOT NULL;`)
+  sqlite.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_user_client_request_id
+               ON tasks(user_id, client_request_id)
+               WHERE user_id IS NOT NULL AND client_request_id IS NOT NULL;`)
   sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_tasks_next_retry_at
                ON tasks(next_retry_at) WHERE next_retry_at IS NOT NULL;`)
   sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_tasks_user_time

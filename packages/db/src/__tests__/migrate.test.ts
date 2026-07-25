@@ -90,6 +90,45 @@ describe('runMigrations', () => {
     sqlite.close()
   })
 
+  it('scopes idempotency keys per user while preserving anonymous uniqueness', () => {
+    try {
+      unlinkSync(TEST_DB)
+      unlinkSync(`${TEST_DB}-wal`)
+      unlinkSync(`${TEST_DB}-shm`)
+    } catch {}
+
+    runMigrations(TEST_DB)
+    const sqlite = new Database(TEST_DB)
+    sqlite.exec('PRAGMA foreign_keys = ON;')
+    sqlite.exec(`
+      INSERT INTO users (id, username, password_hash, status, created_at, updated_at)
+      VALUES
+        ('user-a', 'user-a', 'hash', 'active', 1, 1),
+        ('user-b', 'user-b', 'hash', 'active', 1, 1);
+      INSERT INTO tasks (
+        id, provider, model, status, request_payload, submitted_at, user_id, client_request_id
+      ) VALUES
+        ('task-a', 'openai-compat', 'm', 'queued', '{"prompt":"a"}', 1, 'user-a', 'same-key'),
+        ('task-b', 'openai-compat', 'm', 'queued', '{"prompt":"b"}', 1, 'user-b', 'same-key');
+      INSERT INTO tasks (
+        id, provider, model, status, request_payload, submitted_at, client_request_id
+      ) VALUES
+        ('task-anon-a', 'openai-compat', 'm', 'queued', '{"prompt":"a"}', 1, 'anon-key');
+    `)
+
+    expect(() =>
+      sqlite
+        .query(`
+        INSERT INTO tasks (
+          id, provider, model, status, request_payload, submitted_at, client_request_id
+        ) VALUES
+          ('task-anon-b', 'openai-compat', 'm', 'queued', '{"prompt":"b"}', 1, 'anon-key');
+      `)
+        .run(),
+    ).toThrow(/UNIQUE/)
+    sqlite.close()
+  })
+
   it('tasks 表有 device_id 生成列 + admin 复合索引', () => {
     try {
       unlinkSync(TEST_DB)

@@ -8,6 +8,7 @@ import { initChannels } from './lib/channels'
 import { log } from './lib/logger'
 
 runMigrations()
+const authEnabled = config.auth.enabled
 
 const channelsResult = initChannels(config.channelsFile ?? undefined)
 for (const warning of channelsResult.warnings) {
@@ -42,6 +43,7 @@ app.listen(config.port, () => {
       upstream: config.upstream.baseUrl,
       corsOrigins: config.corsOrigins,
       staticDir: config.staticDir,
+      authEnabled,
     },
     'bff listening',
   )

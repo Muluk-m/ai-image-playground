@@ -13,8 +13,21 @@ const positiveIntEnv = (key: string, fallback: number): number => {
   return value
 }
 
+const booleanEnv = (key: string, fallback: boolean): boolean => {
+  const value = env(key, String(fallback))
+  if (value === 'true') return true
+  if (value === 'false') return false
+  throw new Error(`${key} must be true or false`)
+}
+
 export const config = {
   port: Number(env('PORT', '37377')),
+  auth: {
+    // getter 让测试能在同一进程覆盖 env；生产环境仍是进程级静态配置。
+    get enabled(): boolean {
+      return booleanEnv('AUTH_ENABLED', false)
+    },
+  },
   /**
    * 上游单 endpoint fallback：worker 默认走 `upstream.baseUrl + provider 派生路径`，
    * 适合所有 channels 共用同一上游网关（如自建反代）的部署。**不含版本段**

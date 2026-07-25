@@ -2,6 +2,7 @@ import { extname, join } from 'node:path'
 import { cors } from '@elysiajs/cors'
 import { Elysia } from 'elysia'
 import { config } from './config'
+import { userAuthRoutes } from './routes/auth'
 import { cancelRoutes } from './routes/cancel'
 import { channelsRoutes } from './routes/channels'
 import { resultRoutes } from './routes/result'
@@ -106,8 +107,9 @@ async function serveSpaFallback(): Promise<Response | null> {
 }
 
 export const app = new Elysia()
-  .use(cors({ origin: corsOrigin }))
+  .use(cors({ origin: corsOrigin, credentials: true }))
   .get('/health', () => ({ ok: true }))
+  .use(userAuthRoutes)
   .use(channelsRoutes)
   .use(submitRoutes)
   .use(statusRoutes)

@@ -68,6 +68,12 @@ export const tasks = sqliteTable(
     next_retry_at: integer('next_retry_at'),
   },
   (t) => ({
+    anonymousRequestUnique: uniqueIndex('idx_tasks_anonymous_client_request_id')
+      .on(t.client_request_id)
+      .where(sql`${t.user_id} IS NULL AND ${t.client_request_id} IS NOT NULL`),
+    userRequestUnique: uniqueIndex('idx_tasks_user_client_request_id')
+      .on(t.user_id, t.client_request_id)
+      .where(sql`${t.user_id} IS NOT NULL AND ${t.client_request_id} IS NOT NULL`),
     userTimeIdx: index('idx_tasks_user_time')
       .on(t.user_id, desc(t.submitted_at))
       .where(sql`${t.user_id} IS NOT NULL`),
