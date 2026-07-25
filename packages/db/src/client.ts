@@ -14,6 +14,7 @@ export interface CreateDbOptions {
  */
 export function createDb(databaseUrl: string, options: CreateDbOptions = {}) {
   const sqlite = new Database(databaseUrl)
+  sqlite.exec('PRAGMA foreign_keys = ON;')
   sqlite.exec('PRAGMA journal_mode = WAL;')
   if (options.readonly) {
     sqlite.exec('PRAGMA query_only = ON;')

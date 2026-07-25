@@ -84,4 +84,37 @@ describe('createDb', () => {
     const rows = db.select().from(schema.tasks).all()
     expect(rows.length).toBeGreaterThanOrEqual(1)
   })
+
+  it('enables foreign keys so deleting a user revokes sessions', () => {
+    try {
+      unlinkSync(TEST_DB)
+      unlinkSync(`${TEST_DB}-wal`)
+      unlinkSync(`${TEST_DB}-shm`)
+    } catch {}
+    runMigrations(TEST_DB)
+
+    const { db, schema } = createDb(TEST_DB)
+    db.insert(schema.users)
+      .values({
+        id: 'user-fk',
+        username: 'foreign-key-user',
+        password_hash: 'hash',
+        status: 'active',
+        created_at: 1,
+        updated_at: 1,
+      })
+      .run()
+    db.insert(schema.user_sessions)
+      .values({
+        token_hash: 'session-fk',
+        user_id: 'user-fk',
+        created_at: 1,
+        expires_at: 2,
+      })
+      .run()
+
+    db.delete(schema.users).where(eq(schema.users.id, 'user-fk')).run()
+    const sessions = db.select().from(schema.user_sessions).all()
+    expect(sessions).toHaveLength(0)
+  })
 })
