@@ -3,7 +3,11 @@ import { fetchDiscoveredChannels } from './discoverChannels'
 
 const DISCOVERY_TIMEOUT_MS = 5000
 
-export async function bootstrapChannels(bffEnabled: boolean, bffBaseUrl: string): Promise<void> {
+export async function bootstrapChannels(
+  bffEnabled: boolean,
+  bffBaseUrl: string,
+  required = false,
+): Promise<void> {
   setChannels([])
   if (!bffEnabled) return
   try {
@@ -12,6 +16,7 @@ export async function bootstrapChannels(bffEnabled: boolean, bffBaseUrl: string)
     })
     setChannels(channels)
   } catch (err) {
+    if (required) throw err
     console.warn(
       '[channel-discovery] BFF unreachable; UI will only offer BYOK profiles.',
       err instanceof Error ? err.message : err,

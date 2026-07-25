@@ -83,7 +83,13 @@ describe('fetchDiscoveredChannels', () => {
   it('throws on non-2xx', async () => {
     await expect(
       fetchDiscoveredChannels('https://bff.example.com', { fetcher: mockFetch(500, '') }),
-    ).rejects.toThrow(/500/)
+    ).rejects.toMatchObject({ status: 500, code: 'channel_discovery_http_500' })
+  })
+
+  it('preserves 401 as an authentication error for the boot gate', async () => {
+    await expect(
+      fetchDiscoveredChannels('https://bff.example.com', { fetcher: mockFetch(401, '') }),
+    ).rejects.toMatchObject({ status: 401, code: 'unauthorized' })
   })
 
   it('throws on missing channels array', async () => {

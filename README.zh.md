@@ -95,8 +95,11 @@ pnpm install && pnpm build
 ```bash
 docker build -t ai-image-playground .
 docker run -p 37377:37377 \
+  -e AUTH_ENABLED=false \
   -e OPENAI_API_KEY=sk-... \
   -e GEMINI_API_KEY=... \
+  -e DATABASE_URL=/data/image-playground.sqlite \
+  -v image-playground-data:/data \
   -v $(pwd)/apps/bff/channels.json:/app/apps/bff/channels.json \
   ai-image-playground
 ```
@@ -104,6 +107,56 @@ docker run -p 37377:37377 \
 打开 `http://localhost:37377` 即可用。`channels.json` 配置预置的服务商列表（默认含 OpenAI + Gemini，operator 改这里就能加新的）。
 
 详细配置（runtime-config / channels.json / 环境变量）见 [`apps/bff/README.md`](./apps/bff/README.md)。
+
+### 两个域名：自用匿名 + 经营账号
+
+两个域名对应两个独立的 Web+BFF 容器时，开关直接放在各自实例的环境变量里：
+
+| 部署 | `AUTH_ENABLED` | 行为 |
+|---|---:|---|
+| 自用域名 | `false` | 保持现有匿名工作台，不出现登录页 |
+| 经营域名 | `true` | 必须登录；任务和浏览器本地数据按账号隔离 |
+
+建议两个实例使用不同的 SQLite volume，避免自用任务与经营账号混在一起：
+
+```bash
+# 自用实例
+docker volume create image-personal-data
+docker run -d --name image-personal -p 37377:37377 \
+  -e AUTH_ENABLED=false \
+  -e DATABASE_URL=/data/image-playground.sqlite \
+  -v image-personal-data:/data \
+  ai-image-playground
+
+# 经营实例
+docker network create image-commercial-net
+docker volume create image-commercial-data
+docker run -d --name image-commercial --network image-commercial-net -p 37379:37377 \
+  -e AUTH_ENABLED=true \
+  -e DATABASE_URL=/data/image-playground.sqlite \
+  -e CORS_ALLOWED_ORIGINS=https://你的经营域名 \
+  -v image-commercial-data:/data \
+  ai-image-playground
+```
+
+经营实例的账号由 Admin 后台创建。Admin 使用同一台 Docker 主机上的经营数据库
+volume，但应绑定独立后台域名并额外加 Cloudflare Access、VPN 或 IP 白名单：
+
+```bash
+docker build --target admin-runtime -t ai-image-playground-admin .
+docker run -d --name image-commercial-admin --network image-commercial-net -p 37378:37378 \
+  -e ADMIN_PASSWORD='后台管理密码' \
+  -e ADMIN_COOKIE_SECRET='至少32位随机字符串' \
+  -e DATABASE_URL=/data/image-playground.sqlite \
+  -e BFF_INTERNAL_URL=http://image-commercial:37377 \
+  -e CORS_ALLOWED_ORIGINS=https://你的后台域名 \
+  -v image-commercial-data:/data \
+  ai-image-playground-admin
+```
+
+打开 Admin 的“用户”页即可创建账号、启用/禁用账号、重置密码和强制退出全部
+会话。经营站点与 Admin 都必须走 HTTPS；第一次启用登录后，需要先在 Admin 创建
+至少一个账号。`ADMIN_PASSWORD` 只用于登录后台，不是经营站点的用户密码。
 
 ## 🛠 开发
 

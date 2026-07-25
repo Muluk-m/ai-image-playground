@@ -33,6 +33,12 @@ describe('UserFormDialog', () => {
     vi.restoreAllMocks()
   })
 
+  it('uses a username pattern accepted by modern browsers', () => {
+    renderDialog()
+    const input = screen.getByLabelText<HTMLInputElement>('账号')
+    expect(() => new RegExp(input.pattern, 'v')).not.toThrow()
+  })
+
   it('creates a user and closes after success', async () => {
     const fetchMock = vi.fn().mockResolvedValueOnce(
       jsonResponse(201, {

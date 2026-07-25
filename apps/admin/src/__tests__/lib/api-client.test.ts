@@ -55,6 +55,18 @@ describe('api-client', () => {
     expect(navigate).toHaveBeenCalledWith({ to: '/login' })
   })
 
+  it('can delegate 401 handling to the caller without clearing or navigating', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValueOnce(jsonResponse(401, { error: 'unauthorized' })),
+    )
+    await expect(
+      apiClient.get('/api/me', { redirectOnUnauthorized: false }),
+    ).rejects.toBeInstanceOf(UnauthorizedError)
+    expect(clearSpy).not.toHaveBeenCalled()
+    expect(navigate).not.toHaveBeenCalled()
+  })
+
   it('500 throws ApiError, does not navigate', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(jsonResponse(500, { error: 'boom' })))
     const err = await apiClient.get('/api/foo').catch((e) => e)

@@ -95,8 +95,11 @@ Users plug in their own API key in the UI; the browser talks to the upstream dir
 ```bash
 docker build -t ai-image-playground .
 docker run -p 37377:37377 \
+  -e AUTH_ENABLED=false \
   -e OPENAI_API_KEY=sk-... \
   -e GEMINI_API_KEY=... \
+  -e DATABASE_URL=/data/image-playground.sqlite \
+  -v image-playground-data:/data \
   -v $(pwd)/apps/bff/channels.json:/app/apps/bff/channels.json \
   ai-image-playground
 ```
@@ -104,6 +107,45 @@ docker run -p 37377:37377 \
 Open `http://localhost:37377`. `channels.json` configures the list of preset providers (OpenAI + Gemini by default — operators edit this file to add more).
 
 Full configuration reference (runtime-config / channels.json / env vars) is in [`apps/bff/README.md`](./apps/bff/README.md).
+
+### Two domains: personal + commercial
+
+For two independent Web+BFF deployments, configure the switch per instance:
+
+| Deployment | `AUTH_ENABLED` | Behavior |
+|---|---:|---|
+| Personal domain | `false` | Existing anonymous workbench; no login screen |
+| Commercial domain | `true` | Login required; tasks and browser-local data are isolated per account |
+
+Use separate SQLite volumes for the two instances. The commercial Admin service must share
+the commercial BFF's SQLite volume on the same Docker host:
+
+```bash
+# Commercial Web+BFF
+docker network create image-commercial-net
+docker volume create image-commercial-data
+docker run -d --name image-commercial --network image-commercial-net -p 37379:37377 \
+  -e AUTH_ENABLED=true \
+  -e DATABASE_URL=/data/image-playground.sqlite \
+  -e CORS_ALLOWED_ORIGINS=https://commercial.example.com \
+  -v image-commercial-data:/data \
+  ai-image-playground
+
+# Commercial Admin
+docker build --target admin-runtime -t ai-image-playground-admin .
+docker run -d --name image-commercial-admin --network image-commercial-net -p 37378:37378 \
+  -e ADMIN_PASSWORD='replace-with-a-strong-password' \
+  -e ADMIN_COOKIE_SECRET='replace-with-at-least-32-random-characters' \
+  -e DATABASE_URL=/data/image-playground.sqlite \
+  -e BFF_INTERNAL_URL=http://image-commercial:37377 \
+  -e CORS_ALLOWED_ORIGINS=https://admin.example.com \
+  -v image-commercial-data:/data \
+  ai-image-playground-admin
+```
+
+Create the first account from the Admin “Users” page. The Admin can create, enable/disable,
+reset passwords, and revoke all sessions. Put both sites behind HTTPS and add an additional
+access policy (Cloudflare Access, VPN, or an IP allowlist) in front of the Admin domain.
 
 ## 🛠 Development
 

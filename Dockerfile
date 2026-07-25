@@ -7,6 +7,7 @@
 #   docker build -t ai-image-playground .
 #   docker run -p 37377:37377 \
 #     -e BFF_ENABLED=true \
+#     -e AUTH_ENABLED=false \
 #     -e OPENAI_API_KEY=sk-... \
 #     -e AGNES_API_KEY=sk-... \
 #     -v $(pwd)/apps/bff/channels.json:/app/apps/bff/channels.json \
@@ -29,6 +30,7 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json ./
 COPY apps/web/package.json ./apps/web/
 COPY apps/bff/package.json ./apps/bff/
 COPY apps/admin/package.json ./apps/admin/
+COPY packages/db/package.json ./packages/db/
 COPY packages/shared/package.json ./packages/shared/
 
 RUN pnpm install --frozen-lockfile
@@ -39,17 +41,47 @@ WORKDIR /app
 COPY . .
 RUN pnpm --filter @image-playground/web build
 
-# ─── Stage 3: 运行时 ────────────────────────────────────────────────
+# ─── Stage 3: 构建 Admin ────────────────────────────────────────────
+FROM deps AS admin-build
+WORKDIR /app
+COPY . .
+RUN pnpm --filter @image-playground/admin build
+
+# ─── Stage 4: Admin 运行时（显式 --target admin-runtime）────────────
+FROM oven/bun:1 AS admin-runtime
+WORKDIR /app
+
+COPY --from=deps /app/node_modules ./node_modules
+COPY --from=deps /app/apps/admin/node_modules ./apps/admin/node_modules
+COPY --from=deps /app/packages/db/node_modules ./packages/db/node_modules
+COPY --from=deps /app/packages/shared/node_modules ./packages/shared/node_modules
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY apps/admin/package.json ./apps/admin/package.json
+COPY apps/admin/server ./apps/admin/server
+COPY packages/db ./packages/db
+COPY packages/shared ./packages/shared
+COPY --from=admin-build /app/apps/admin/dist ./apps/admin/dist
+
+ENV PORT=37378
+ENV ADMIN_DIST_DIR=/app/apps/admin/dist
+
+EXPOSE 37378
+
+CMD ["bun", "run", "/app/apps/admin/server/index.ts"]
+
+# ─── Stage 5: Web + BFF 运行时（默认最终 target）────────────────────
 FROM oven/bun:1 AS runtime
 WORKDIR /app
 
-# 只把跑 BFF 必需的东西复制过来：bff 源码、packages/shared、web/dist、
+# 只把跑 BFF 必需的东西复制过来：bff 源码、packages/db/shared、web/dist、
 # 顶层 lockfile + workspace manifest（让 bun 能解析 workspace 引用）
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/apps/bff/node_modules ./apps/bff/node_modules
+COPY --from=deps /app/packages/db/node_modules ./packages/db/node_modules
 COPY --from=deps /app/packages/shared/node_modules ./packages/shared/node_modules
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/bff ./apps/bff
+COPY packages/db ./packages/db
 COPY packages/shared ./packages/shared
 COPY --from=web-build /app/apps/web/dist ./apps/web/dist
 COPY scripts/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
@@ -59,6 +91,7 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 ENV STATIC_DIR=/app/apps/web/dist
 ENV PORT=37377
 ENV BFF_ENABLED=true
+ENV AUTH_ENABLED=false
 
 EXPOSE 37377
 

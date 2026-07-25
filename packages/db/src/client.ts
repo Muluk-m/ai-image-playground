@@ -15,6 +15,9 @@ export interface CreateDbOptions {
 export function createDb(databaseUrl: string, options: CreateDbOptions = {}) {
   const sqlite = new Database(databaseUrl)
   sqlite.exec('PRAGMA foreign_keys = ON;')
+  // BFF 与 Admin 可能共享同一宿主机 volume 并同时写 session/user/task。等待短暂
+  // 写锁释放，避免默认立即抛 SQLITE_BUSY。
+  sqlite.exec('PRAGMA busy_timeout = 60000;')
   sqlite.exec('PRAGMA journal_mode = WAL;')
   if (options.readonly) {
     sqlite.exec('PRAGMA query_only = ON;')

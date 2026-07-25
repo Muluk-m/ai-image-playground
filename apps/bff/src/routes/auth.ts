@@ -21,8 +21,17 @@ import {
 const DUMMY_PASSWORD_HASH =
   '$argon2id$v=19$m=65536,t=2,p=1$TTNDEQYYmWpQHJyMtmCCcw3/ju3Jwww0SB/ACmMN53U$9VqGN+Ud4kjOI2bzudleozWu49uFGhNeWn3lZCfSAdc'
 
-const limiter = createRateLimiter({
+const sourceLimiter = createRateLimiter({
   maxFailures: 5,
+  windowMs: 60_000,
+  lockMs: 10 * 60_000,
+  maxEntries: 2048,
+})
+
+// 来源 header 可能在未锁定反代入口时被伪造；账号维度的第二道限速防止攻击者
+// 轮换 IP/header 后继续对同一账号暴力尝试。
+const accountLimiter = createRateLimiter({
+  maxFailures: 10,
   windowMs: 60_000,
   lockMs: 10 * 60_000,
   maxEntries: 2048,
@@ -44,9 +53,10 @@ export const userAuthRoutes = new Elysia()
       if (!config.auth.enabled) return status(404, { error: 'auth_disabled' })
 
       const key = clientKey(request)
-      if (limiter.isLocked(key)) return status(429, { error: 'rate_limited' })
-
       const username = normalizeUsername(body.username)
+      if (sourceLimiter.isLocked(key) || accountLimiter.isLocked(username)) {
+        return status(429, { error: 'rate_limited' })
+      }
       const [user] = isValidUsername(username)
         ? await db.select().from(schema.users).where(eq(schema.users.username, username)).limit(1)
         : []
@@ -62,9 +72,11 @@ export const userAuthRoutes = new Elysia()
       }
 
       if (!user || user.status !== 'active' || !passwordMatches) {
-        const locked = limiter.recordFailure(key)
-        return status(locked ? 429 : 401, {
-          error: locked ? 'rate_limited' : 'invalid_credentials',
+        const sourceLocked = sourceLimiter.recordFailure(key)
+        const accountLocked = accountLimiter.recordFailure(username)
+        const rateLimited = sourceLocked || accountLocked
+        return status(rateLimited ? 429 : 401, {
+          error: rateLimited ? 'rate_limited' : 'invalid_credentials',
         })
       }
 
@@ -76,7 +88,8 @@ export const userAuthRoutes = new Elysia()
         .where(and(eq(schema.users.id, user.id), eq(schema.users.status, 'active')))
         .returning({ id: schema.users.id, username: schema.users.username })
       if (activated.length === 0) {
-        limiter.recordFailure(key)
+        sourceLimiter.recordFailure(key)
+        accountLimiter.recordFailure(username)
         return status(401, { error: 'invalid_credentials' })
       }
 
@@ -89,7 +102,8 @@ export const userAuthRoutes = new Elysia()
         path: '/',
         maxAge: USER_SESSION_TTL_MS / 1000,
       })
-      limiter.recordSuccess(key)
+      sourceLimiter.recordSuccess(key)
+      accountLimiter.recordSuccess(username)
       return { user: activated[0]! }
     },
     {

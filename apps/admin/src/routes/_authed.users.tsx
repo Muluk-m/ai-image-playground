@@ -40,7 +40,7 @@ function UsersPage() {
         <div>
           <h2 className="text-lg font-semibold">用户</h2>
           <p className="mt-1 text-xs text-muted-foreground">
-            管理经营站点登录账号；图片额度将在后续接入这里
+            共 {query.data.users.length} 个账号 · 管理经营站点登录；图片额度将在后续接入这里
           </p>
         </div>
         <Button onClick={() => setCreating(true)}>
@@ -49,6 +49,11 @@ function UsersPage() {
         </Button>
       </div>
 
+      {query.data.truncated ? (
+        <div className="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+          结果已截断到最新的 1000 个账号
+        </div>
+      ) : null}
       <UserTable users={query.data.users} onResetPassword={setResetting} />
 
       <UserFormDialog mode="create" open={creating} onOpenChange={setCreating} />

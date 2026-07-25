@@ -16,7 +16,7 @@ writeFileSync(join(tmpDir, 'index.html'), '<!doctype html><html><body>admin</bod
 // 模仿 vite 产物：assets/ 下 hash 化 js / css
 const fs = require('node:fs') as typeof import('node:fs')
 fs.mkdirSync(join(tmpDir, 'assets'))
-writeFileSync(join(tmpDir, 'assets', 'index-abc123.js'), 'console.log(1);')
+writeFileSync(join(tmpDir, 'assets', 'index-abc123.js'), 'console.log(1);'.repeat(200))
 
 process.env.ADMIN_PASSWORD = 'test-pass-1234'
 process.env.ADMIN_COOKIE_SECRET = 'test-cookie-secret-32-bytes-min!!'
@@ -50,6 +50,18 @@ describe('admin static serving', () => {
     expect(res.status).toBe(200)
     expect(res.headers.get('content-type')).toContain('application/javascript')
     expect(res.headers.get('cache-control')).toContain('immutable')
+  })
+
+  it('gzip 请求返回可解压的静态资源而不是运行时错误文本', async () => {
+    const res = await app.handle(
+      new Request('http://localhost/assets/index-abc123.js', {
+        headers: { 'accept-encoding': 'gzip' },
+      }),
+    )
+    expect(res.status).toBe(200)
+    expect(res.headers.get('content-encoding')).toBe('gzip')
+    const restored = Bun.gunzipSync(await res.arrayBuffer())
+    expect(new TextDecoder().decode(restored)).toContain('console.log(1)')
   })
 
   it('未匹配的 /api/* → 404 JSON（不走 fallback）', async () => {

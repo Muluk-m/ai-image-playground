@@ -19,7 +19,7 @@ export const Route = createFileRoute('/login')({
     try {
       await context.queryClient.ensureQueryData({
         queryKey: ['me'],
-        queryFn: () => apiClient.get<{ ok: true }>('/api/me'),
+        queryFn: () => apiClient.get<{ ok: true }>('/api/me', { redirectOnUnauthorized: false }),
         staleTime: 60_000,
       })
       throw redirect({ to: '/devices' })

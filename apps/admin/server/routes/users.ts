@@ -19,7 +19,7 @@ function mutationError(error: unknown, status: (code: number, body: unknown) => 
 
 export const usersRoutes = new Elysia({ prefix: '/api/users' })
   .use(requireAuth)
-  .get('/', async () => ({ users: await listUsers() }))
+  .get('/', async () => await listUsers())
   .post(
     '/',
     async ({ body, status }) => {

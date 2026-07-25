@@ -32,6 +32,13 @@ export interface AdminUserRow {
   task_count: number
 }
 
+export interface ListUsersResult {
+  users: AdminUserRow[]
+  truncated: boolean
+}
+
+const USER_LIST_LIMIT = 1000
+
 export type UserMutationErrorCode =
   | 'invalid_username'
   | 'invalid_password'
@@ -46,7 +53,48 @@ export class UserMutationError extends Error {
   }
 }
 
-export async function listUsers(): Promise<AdminUserRow[]> {
+function toAdminUserRow(row: Record<string, unknown>): AdminUserRow {
+  return {
+    id: String(row.id),
+    username: String(row.username),
+    status: row.status === 'disabled' ? 'disabled' : 'active',
+    created_at: Number(row.created_at),
+    updated_at: Number(row.updated_at),
+    last_login_at: row.last_login_at === null ? null : Number(row.last_login_at),
+    active_sessions: Number(row.active_sessions),
+    task_count: Number(row.task_count),
+  }
+}
+
+async function getUser(userId: string): Promise<AdminUserRow | null> {
+  const { db } = getHandle()
+  const now = Date.now()
+  const rows = (await db.all(sql`
+    SELECT
+      u.id,
+      u.username,
+      u.status,
+      u.created_at,
+      u.updated_at,
+      u.last_login_at,
+      (
+        SELECT COUNT(*)
+        FROM user_sessions s
+        WHERE s.user_id = u.id AND s.expires_at > ${now}
+      ) AS active_sessions,
+      (
+        SELECT COUNT(*)
+        FROM tasks t
+        WHERE t.user_id = u.id
+      ) AS task_count
+    FROM users u
+    WHERE u.id = ${userId}
+    LIMIT 1
+  `)) as unknown as Array<Record<string, unknown>>
+  return rows[0] ? toAdminUserRow(rows[0]) : null
+}
+
+export async function listUsers(): Promise<ListUsersResult> {
   const { db } = getHandle()
   const now = Date.now()
   const rows = (await db.all(sql`
@@ -69,18 +117,11 @@ export async function listUsers(): Promise<AdminUserRow[]> {
       ) AS task_count
     FROM users u
     ORDER BY u.created_at DESC, u.id DESC
+    LIMIT ${USER_LIST_LIMIT + 1}
   `)) as unknown as Array<Record<string, unknown>>
 
-  return rows.map((row) => ({
-    id: String(row.id),
-    username: String(row.username),
-    status: row.status === 'disabled' ? 'disabled' : 'active',
-    created_at: Number(row.created_at),
-    updated_at: Number(row.updated_at),
-    last_login_at: row.last_login_at === null ? null : Number(row.last_login_at),
-    active_sessions: Number(row.active_sessions),
-    task_count: Number(row.task_count),
-  }))
+  const users = rows.slice(0, USER_LIST_LIMIT).map(toAdminUserRow)
+  return { users, truncated: rows.length > USER_LIST_LIMIT }
 }
 
 export async function createUser(usernameInput: string, password: string): Promise<AdminUserRow> {
@@ -115,7 +156,7 @@ export async function createUser(usernameInput: string, password: string): Promi
     throw error
   }
 
-  const created = (await listUsers()).find((user) => user.id === id)
+  const created = await getUser(id)
   if (!created) throw new Error('created user missing')
   return created
 }
@@ -142,7 +183,7 @@ export async function setUserStatus(userId: string, status: string): Promise<Adm
   })
   if (!changed) throw new UserMutationError('user_not_found')
 
-  const updated = (await listUsers()).find((user) => user.id === userId)
+  const updated = await getUser(userId)
   if (!updated) throw new UserMutationError('user_not_found')
   return updated
 }

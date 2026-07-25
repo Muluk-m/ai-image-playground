@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto'
 import type { AuthUserView } from '@image-playground/shared'
-import { and, eq, gt, lte } from 'drizzle-orm'
+import { eq, lte } from 'drizzle-orm'
 import { db, schema } from '../db/client'
 
 export const USER_SESSION_COOKIE = 'image_playground_session'
@@ -32,21 +32,21 @@ export async function resolveUserSession(token: string): Promise<AuthUserView | 
     .select({
       id: schema.users.id,
       username: schema.users.username,
+      status: schema.users.status,
+      expires_at: schema.user_sessions.expires_at,
     })
     .from(schema.user_sessions)
     .innerJoin(schema.users, eq(schema.user_sessions.user_id, schema.users.id))
-    .where(
-      and(
-        eq(schema.user_sessions.token_hash, tokenHash),
-        gt(schema.user_sessions.expires_at, now),
-        eq(schema.users.status, 'active'),
-      ),
-    )
+    .where(eq(schema.user_sessions.token_hash, tokenHash))
     .limit(1)
 
-  if (row) return row
+  // 随机伪造 token 只走只读查询，避免攻击者用无效 Cookie 制造 SQLite 写锁。
+  if (!row) return null
+  if (row.status === 'active' && row.expires_at > now) {
+    return { id: row.id, username: row.username }
+  }
 
-  // 过期 session 或已禁用账号的 token 都立即失效。按 hash 定点删除，不做全表扫描。
+  // 仅真实存在但已过期/禁用的 session 才清理。
   await db.delete(schema.user_sessions).where(eq(schema.user_sessions.token_hash, tokenHash))
   return null
 }

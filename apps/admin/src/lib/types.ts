@@ -93,4 +93,5 @@ export interface AdminUserRow {
 
 export interface ListUsersResult {
   users: AdminUserRow[]
+  truncated: boolean
 }

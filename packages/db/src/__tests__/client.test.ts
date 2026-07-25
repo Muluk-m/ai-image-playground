@@ -117,4 +117,10 @@ describe('createDb', () => {
     const sessions = db.select().from(schema.user_sessions).all()
     expect(sessions).toHaveLength(0)
   })
+
+  it('waits for concurrent writers instead of failing immediately', () => {
+    const { sqlite } = createDb(TEST_DB)
+    const row = sqlite.query('PRAGMA busy_timeout').get() as { timeout: number }
+    expect(row.timeout).toBe(60_000)
+  })
 })

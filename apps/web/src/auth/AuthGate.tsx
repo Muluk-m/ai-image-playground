@@ -75,7 +75,9 @@ export function AuthGate() {
       try {
         const currentUser = await getCurrentUser()
         setClientStorageScope(currentUser.id)
-        await bootstrapChannels(runtime.bff.enabled, runtime.bff.baseUrl)
+        // 认证部署中 channel discovery 同样是受保护请求。这里不能静默降级：
+        // session 若恰好过期，应停在登录页，不能把 stale user 标成 ready。
+        await bootstrapChannels(runtime.bff.enabled, runtime.bff.baseUrl, true)
         if (!cancelled) {
           setUser(currentUser)
           setPhase('ready')

@@ -23,14 +23,19 @@ BFF 同时托管 `apps/web/dist` 静态产物（`STATIC_DIR` 指向 dist 即可�
 - **校验用 TypeBox（`t.Object` / `t.String`），不用 Zod**。TypeBox 是 Elysia 的原生 schema，路由层自动接管 params / query / body 校验、错误响应、类型推断、OpenAPI 生成。换 Zod 要每个路由手动 `parse` 再组装错误响应。Bun 上 TypeBox 产物更小、运行更快。
 - **task-runner 是 fire-and-forget 不是 worker pool**。`submit` 端点 `spawnTask(id)` 起一个 Promise 就返回；并发由 Bun runtime 调度，调上游是 localhost HTTP 没有真正阻塞 worker。worker pool 是过早抽象。
 - **状态机所有写入都带 WHERE predicate**（atomic claim + 终态守护）。`queued → in_progress` 要求当前 status 仍是 `queued`，防止 startup recovery 与遗留 runTask 并发双写；写 `completed` / `failed` 要求 status 仍是 `in_progress`，防止已被 cancel 的任务被 worker 反悔覆盖。
-- **不做应用层 auth**。运维场景下安全靠 CORS Origin 白名单 + 反向代理上的 access policy + BFF URL 不公开 的多层防护（见下文「鉴权」节）。
+- **应用层 auth 是部署级可选项**。`AUTH_ENABLED=false` 保留个人部署的匿名行为；
+  设为 `true` 后，channel 与全部 queue 端点要求有效账号会话，并按 `user_id`
+  隔离任务。CORS 与反向代理 access policy 仍是必要的外围防线。
 
 ## 端点
 
 | Method | Path | 说明 |
 |---|---|---|
 | `GET` | `/health` | liveness |
-| `GET` | `/api/channels` | 公开发现接口，返回 sanitized channel 列表（前端 boot 时拉） |
+| `POST` | `/api/auth/login` | 账号密码登录，签发 HttpOnly session cookie（仅 auth 开启时） |
+| `POST` | `/api/auth/logout` | 撤销当前 session |
+| `GET` | `/api/auth/me` | 查询当前账号 / auth 开关状态 |
+| `GET` | `/api/channels` | 返回 sanitized channel 列表；auth 开启时需登录 |
 | `POST` | `/v1/queue/{provider}/{model}/submit` | 入队，立即返回 `request_id` |
 | `GET` | `/v1/queue/requests/{id}/status` | 状态查询（含 queue_position / started_at 等）|
 | `GET` | `/v1/queue/requests/{id}` | 拿结果（`completed` 时含 `payload`；其它状态 425）|
@@ -88,6 +93,7 @@ channel kind `openai-queue` / `gemini-queue` 在前端层用，到 BFF URL 就�
 | `CORS_ALLOWED_ORIGINS` | `*` | CORS 允许的浏览器 origin，多个用逗号分隔；生产请收紧 |
 | `STATIC_DIR` | `(空)` | 设为 `apps/web/dist` 让 BFF 同进程托管前端 |
 | `CHANNELS_FILE` | `(空)` | 覆盖 `apps/bff/channels.json` 路径 |
+| `AUTH_ENABLED` | `false` | 是否启用账号登录与任务归属校验；必须是 `true` 或 `false` |
 | `<channel secretRef>` | — | 见 channels.json 里各 channel `auth.secretRef` 字段引用的 env 名 |
 
 ## 本地开发
@@ -118,6 +124,7 @@ pnpm typecheck  # tsc --noEmit
 docker build -t ai-image-playground .
 docker run -p 37377:37377 \
   -e BFF_ENABLED=true \
+  -e AUTH_ENABLED=false \
   -e MY_OPENAI_KEY=sk-... \
   -v $(pwd)/apps/bff/channels.json:/app/apps/bff/channels.json \
   ai-image-playground
@@ -154,10 +161,28 @@ queued → in_progress → completed
 
 ## 鉴权
 
-**BFF 自身不做应用层鉴权**（不强制 API key）。实际安全靠以下组合形成防护链，按部署形态选用：
+`AUTH_ENABLED=false`（默认）时，BFF 保持原来的匿名兼容模式。适用于自用、
+已经处于可信网络或另有统一认证墙的部署。
+
+`AUTH_ENABLED=true` 时：
+
+- `/api/channels` 与 `/v1/queue/*` 全部要求有效 session；
+- 登录 Cookie 使用 `HttpOnly`、`Secure`、`SameSite=Lax`，生产必须通过 HTTPS；
+- 数据库仅保存 session token 的 SHA-256，不保存原 token；
+- 任务在入队时绑定 `user_id`，状态、结果、图片和取消接口都校验归属；
+- 禁用账号、重置密码或后台“退出会话”会撤销该账号的现有 session；
+- 登录失败分别按来源 IP 和归一化账号限速，错误响应不区分“账号不存在”和“密码错误”。
+
+账号由 Admin 服务创建，不提供公开注册。Web 与 BFF 必须使用相同的
+`AUTH_ENABLED` 值；Docker entrypoint 会把它写入 Web 的
+`runtime-config.json.auth.enabled`，但真正的安全判断始终由 BFF 执行。
+
+应用层登录之外，实际部署仍应组合以下外围防线：
 
 1. **CORS Origin 限制**（`CORS_ALLOWED_ORIGINS`）：只允许指定 origin，浏览器跨源 fetch 被 preflight 拦截
-2. **反向代理 / tunnel 的 access policy**：如 Cloudflare Access、Authelia、nginx auth 等，把 BFF 放在认证墙后
-3. **BFF URL 不公开**：通过私有 tunnel 域名暴露，仅前端 `runtime-config.json` 里出现，不进公开仓库
+2. **HTTPS 与安全响应头**：由 Cloudflare / nginx / ingress 终止 TLS
+3. **Admin 单独保护**：Admin 域名不要公开暴露，至少再加 Cloudflare Access、VPN 或 IP allowlist
+4. **精确 CORS**：认证部署不要保留 `*`，填经营站点的实际 origin
 
-> ⚠️ 这条链**不防** "拿到 BFF URL + curl 伪造 Origin" 的攻击者。如果需要硬防，给反向代理加 Bearer / OAuth 中间件，或在 BFF 路由层加 auth middleware。
+> CORS 不是认证机制，curl 等非浏览器客户端不受它限制。是否有权调用最终由
+> session 与路由归属校验决定。

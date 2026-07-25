@@ -55,9 +55,9 @@ required by application logic for every new submission while auth is enabled.
    session, and sets a `Secure`, `HttpOnly`, `SameSite=Lax` cookie.
 6. After authentication, Web discovers channels and initializes the workspace.
 
-Login failures are rate-limited by client IP and always return the same
-`invalid_credentials` error for unknown usernames, wrong passwords, and disabled
-accounts.
+Login failures are rate-limited independently by source address and normalized
+username. They always return the same `invalid_credentials` error for unknown
+usernames, wrong passwords, and disabled accounts.
 
 ## Authorization boundaries
 
@@ -120,4 +120,3 @@ All new database fields are nullable or introduced in new tables. Existing task
 and device quota data migrate in place. The current device-based daily quota
 continues to apply in both deployments until the account quota feature is
 implemented.
-

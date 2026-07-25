@@ -384,6 +384,27 @@ describe('BFF optional user auth', () => {
     expect(stored.token_hash).toMatch(/^[a-f0-9]{64}$/)
   })
 
+  it('rate-limits one account even when the caller rotates source headers', async () => {
+    await createTestUser('brute-target', 'correct-horse')
+    for (let attempt = 0; attempt < 10; attempt++) {
+      const response = await jsonReq(
+        'POST',
+        '/api/auth/login',
+        { username: 'brute-target', password: 'wrong-password' },
+        { 'cf-connecting-ip': `10.20.0.${attempt + 1}` },
+      )
+      expect(response.status).toBe(401)
+    }
+    const locked = await jsonReq(
+      'POST',
+      '/api/auth/login',
+      { username: 'brute-target', password: 'wrong-password' },
+      { 'cf-connecting-ip': '10.20.0.99' },
+    )
+    expect(locked.status).toBe(429)
+    expect(locked.json).toEqual({ error: 'rate_limited' })
+  })
+
   it('stores user ownership and hides every task endpoint from other users', async () => {
     const alice = await createTestUser('alice', 'correct-horse')
     await createTestUser('bob', 'correct-horse')

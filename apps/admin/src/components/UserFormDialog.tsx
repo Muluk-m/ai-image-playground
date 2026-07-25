@@ -14,6 +14,8 @@ import { Input } from '@/components/ui/input'
 import { ApiError, apiClient } from '@/lib/api-client'
 import type { AdminUserRow } from '@/lib/types'
 
+const USERNAME_PATTERN = '[A-Za-z0-9._\\-]+'
+
 interface UserFormDialogProps {
   mode: 'create' | 'reset'
   user?: AdminUserRow
@@ -97,7 +99,7 @@ export function UserFormDialog({ mode, user, open, onOpenChange }: UserFormDialo
                 spellCheck={false}
                 minLength={3}
                 maxLength={32}
-                pattern="[A-Za-z0-9._-]+"
+                pattern={USERNAME_PATTERN}
                 placeholder="例如 designer-01"
                 autoFocus
                 disabled={mutation.isPending}

@@ -121,11 +121,13 @@ describe('admin user routes', () => {
     expect(response.status).toBe(200)
     const body = (await response.json()) as {
       users: Array<Record<string, unknown>>
+      truncated: boolean
     }
     expect(body.users.map((user) => user.username)).toContain('existing')
     expect(body.users[0]).toHaveProperty('active_sessions')
     expect(body.users[0]).toHaveProperty('task_count')
     expect(body.users.some((user) => 'password_hash' in user)).toBe(false)
+    expect(body.truncated).toBe(false)
   })
 
   it('creates an active user with a normalized username and Argon2id password', async () => {
