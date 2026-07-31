@@ -94,6 +94,8 @@ export interface TaskParams {
   output_compression: number | null
   moderation: 'auto' | 'low'
   n: number
+  /** 透明背景后处理：仅 Gallery 文生图 + PNG 生效 */
+  transparent_output: boolean
   /** Gemini 专属：明确的画面比例（替代从 OpenAI size 字符串推测） */
   gemini_aspect_ratio?: GeminiAspectRatio
   /** Gemini 专属：分辨率档位；缺省让模型自选 */
@@ -109,6 +111,7 @@ export const DEFAULT_PARAMS: TaskParams = {
   output_compression: null,
   moderation: 'auto',
   n: 1,
+  transparent_output: false,
 }
 
 // ===== 输入图片（UI 层面） =====
@@ -159,6 +162,12 @@ export interface TaskRecord {
   actualParamsByImage?: Record<string, Partial<TaskParams>>
   /** 输出图片对应的 API 改写提示词，key 为 outputImages 中的图片 id */
   revisedPromptByImage?: Record<string, string>
+  /** 是否启用透明背景后处理 */
+  transparentOutput?: boolean
+  /** 实际发送给 API 的透明背景辅助提示词 */
+  transparentPrompt?: string
+  /** 透明背景后处理前的原始输出图片 id，顺序对应 outputImages；空字符串表示后处理失败已回退 */
+  transparentOriginalImages?: string[]
   /** 输入图片的 image store id 列表 */
   inputImageIds: string[]
   maskTargetImageId?: string | null

@@ -54,6 +54,11 @@ import { getCustomQueuedImageResult } from './lib/openaiCompatibleImageApi'
 import { getChangedParams, normalizeParamsForSettings } from './lib/paramCompatibility'
 import { remapImageMentionsForOrder, replaceImageMentionsForApi } from './lib/promptImageMentions'
 import { dismissAllTooltips } from './lib/tooltipDismiss'
+import {
+  createTransparentOutputMeta,
+  getTransparentRequestParams,
+  removeKeyedBackgroundFromDataUrl,
+} from './lib/transparentImage'
 
 // ===== Image cache =====
 // 内存缓存，id → dataUrl。只保留少量最近使用图片，避免大量 4K data URL 常驻内存。
@@ -1021,6 +1026,52 @@ async function resolveImageSizeParamsList(
   )
 }
 
+async function storeTaskOutputImages(task: TaskRecord, images: string[]) {
+  const outputIds: string[] = []
+  const outputDataUrls: string[] = []
+  const transparentOriginalImageIds: string[] = []
+  const storedImageIds: string[] = []
+
+  try {
+    for (const dataUrl of images) {
+      let outputDataUrl = dataUrl
+      if (task.transparentOutput) {
+        const originalImgId = await storeImage(dataUrl, 'generated')
+        storedImageIds.push(originalImgId)
+        cacheImage(originalImgId, dataUrl)
+
+        try {
+          outputDataUrl = await removeKeyedBackgroundFromDataUrl(dataUrl)
+          transparentOriginalImageIds.push(originalImgId)
+        } catch (err) {
+          console.warn('透明背景后处理失败，已回退为原始输出', err)
+          outputIds.push(originalImgId)
+          outputDataUrls.push(dataUrl)
+          transparentOriginalImageIds.push('')
+          continue
+        }
+      }
+
+      const imgId = await storeImage(outputDataUrl, 'generated')
+      storedImageIds.push(imgId)
+      cacheImage(imgId, outputDataUrl)
+      outputIds.push(imgId)
+      outputDataUrls.push(outputDataUrl)
+    }
+
+    return {
+      outputIds,
+      outputDataUrls,
+      transparentOriginalImageIds: transparentOriginalImageIds.length
+        ? transparentOriginalImageIds
+        : undefined,
+    }
+  } catch (err) {
+    for (const imageId of storedImageIds) await deleteImage(imageId)
+    throw err
+  }
+}
+
 /** 初始化：从 IndexedDB 加载任务，按需恢复输入图片，并清理孤立图片 */
 export async function initStore() {
   const storedTasks = await getAllTasks()
@@ -1054,6 +1105,9 @@ export async function initStore() {
     if (t.maskImageId) referencedIds.add(t.maskImageId)
     for (const id of t.outputImages || []) {
       referencedIds.add(id)
+    }
+    for (const id of t.transparentOriginalImages || []) {
+      if (id) referencedIds.add(id)
     }
   }
 
@@ -1191,7 +1245,18 @@ export async function submitTask(
   const normalizedParams = normalizeParamsForSettings(params, requestSettings, {
     hasInputImages: orderedInputImages.length > 0,
   })
-  const normalizedParamPatch = getChangedParams(params, normalizedParams)
+  const shouldUseTransparentOutput =
+    normalizedParams.output_format === 'png' &&
+    normalizedParams.transparent_output &&
+    orderedInputImages.length === 0 &&
+    !maskImageId
+  const taskParams = shouldUseTransparentOutput
+    ? getTransparentRequestParams(normalizedParams)
+    : { ...normalizedParams, transparent_output: false }
+  const transparentMeta = taskParams.transparent_output
+    ? createTransparentOutputMeta(prompt.trim())
+    : null
+  const normalizedParamPatch = getChangedParams(params, taskParams)
   if (Object.keys(normalizedParamPatch).length) {
     useStore.getState().setParams(normalizedParamPatch)
   }
@@ -1200,8 +1265,8 @@ export async function submitTask(
   // n 张图一律拆成 n 条独立任务并行下发：gpt-image-2 / nano-banana 都不支持
   // 上游 n 参数，统一前端 fan-out 比按 model 分支更简单；副作用是 quota 自然
   // 按张数计数。每条 task 自带独立 clientRequestId 用于 BFF 幂等。
-  const fanOut = Math.max(1, normalizedParams.n)
-  const singleParams = fanOut === 1 ? normalizedParams : { ...normalizedParams, n: 1 }
+  const fanOut = Math.max(1, taskParams.n)
+  const singleParams = fanOut === 1 ? taskParams : { ...taskParams, n: 1 }
   const createdAt = Date.now()
   const newTasks: TaskRecord[] = Array.from({ length: fanOut }, () => ({
     id: genId(),
@@ -1214,6 +1279,8 @@ export async function submitTask(
     inputImageIds: orderedInputImages.map((i) => i.id),
     maskTargetImageId,
     maskImageId,
+    transparentOutput: transparentMeta?.transparentOutput,
+    transparentPrompt: transparentMeta?.effectivePrompt,
     outputImages: [],
     status: 'running',
     error: null,
@@ -1262,6 +1329,8 @@ async function executeTask(taskId: string) {
   const activeView = clientProfileToApiProfile(activeProfile)
   const requestSettings = createSettingsForApiProfile(settings, activeProfile)
   const taskProvider = task.apiProvider ?? activeView.provider
+  const taskRequestPrompt =
+    task.transparentOutput && task.transparentPrompt ? task.transparentPrompt : task.prompt
   let customTaskInfo: { taskId: string } | null = task.customTaskId
     ? { taskId: task.customTaskId }
     : null
@@ -1305,7 +1374,7 @@ async function executeTask(taskId: string) {
 
       result = await callImageApi({
         settings: requestSettings,
-        prompt: replaceImageMentionsForApi(task.prompt, inputDataUrls.length),
+        prompt: replaceImageMentionsForApi(taskRequestPrompt, inputDataUrls.length),
         params: task.params,
         inputImageDataUrls: inputDataUrls,
         maskDataUrl,
@@ -1327,15 +1396,13 @@ async function executeTask(taskId: string) {
     if (!latestBeforeSuccess || latestBeforeSuccess.status !== 'running') return
 
     // 存储输出图片
-    const outputIds: string[] = []
-    for (const dataUrl of result.images) {
-      const imgId = await storeImage(dataUrl, 'generated')
-      cacheImage(imgId, dataUrl)
-      outputIds.push(imgId)
-    }
+    const { outputIds, outputDataUrls, transparentOriginalImageIds } = await storeTaskOutputImages(
+      task,
+      result.images,
+    )
     const isAsyncCustomTask = taskProvider !== 'openai' && Boolean(customTaskInfo)
     const actualParamsList = isAsyncCustomTask
-      ? await readImageSizeParamsList(result.images)
+      ? await readImageSizeParamsList(outputDataUrls)
       : result.actualParamsList
     const actualParams = (() => {
       if (isAsyncCustomTask) return firstActualParams(actualParamsList)
@@ -1353,7 +1420,10 @@ async function executeTask(taskId: string) {
     const promptWasRevised =
       shouldStoreRevisedPrompts &&
       result.revisedPrompts?.some(
-        (revisedPrompt) => revisedPrompt?.trim() && revisedPrompt.trim() !== task.prompt.trim(),
+        (revisedPrompt) =>
+          revisedPrompt?.trim() &&
+          revisedPrompt.trim() !==
+            replaceImageMentionsForApi(taskRequestPrompt, task.inputImageIds.length).trim(),
       )
     const hasRevisedPromptValue =
       shouldStoreRevisedPrompts &&
@@ -1372,6 +1442,7 @@ async function executeTask(taskId: string) {
     clearOpenAIWatchdogTimer(taskId)
     updateTaskInStore(taskId, {
       outputImages: outputIds,
+      transparentOriginalImages: transparentOriginalImageIds,
       rawImageUrls: result.rawImageUrls?.length ? result.rawImageUrls : undefined,
       actualParams,
       actualParamsByImage,
@@ -1455,11 +1526,22 @@ export async function retryTask(task: TaskRecord) {
   const normalizedParams = normalizeParamsForSettings(task.params, settings, {
     hasInputImages: task.inputImageIds.length > 0,
   })
+  const shouldUseTransparentOutput =
+    normalizedParams.output_format === 'png' &&
+    normalizedParams.transparent_output &&
+    task.inputImageIds.length === 0 &&
+    !task.maskImageId
+  const taskParams = shouldUseTransparentOutput
+    ? getTransparentRequestParams(normalizedParams)
+    : { ...normalizedParams, transparent_output: false }
+  const transparentMeta = taskParams.transparent_output
+    ? createTransparentOutputMeta(task.prompt.trim())
+    : null
   const taskId = genId()
   const newTask: TaskRecord = {
     id: taskId,
     prompt: task.prompt,
-    params: normalizedParams,
+    params: taskParams,
     apiProvider: activeView.provider,
     apiProfileId: activeProfile.id,
     apiProfileName: activeView.name,
@@ -1467,6 +1549,8 @@ export async function retryTask(task: TaskRecord) {
     inputImageIds: [...task.inputImageIds],
     maskTargetImageId: task.maskTargetImageId ?? null,
     maskImageId: task.maskImageId ?? null,
+    transparentOutput: transparentMeta?.transparentOutput,
+    transparentPrompt: transparentMeta?.effectivePrompt,
     outputImages: [],
     status: 'running',
     error: null,
@@ -1605,6 +1689,9 @@ export async function removeMultipleTasks(taskIds: string[]) {
       for (const id of t.inputImageIds || []) deletedImageIds.add(id)
       if (t.maskImageId) deletedImageIds.add(t.maskImageId)
       for (const id of t.outputImages || []) deletedImageIds.add(id)
+      for (const id of t.transparentOriginalImages || []) {
+        if (id) deletedImageIds.add(id)
+      }
     }
   }
 
@@ -1619,6 +1706,9 @@ export async function removeMultipleTasks(taskIds: string[]) {
     for (const id of t.inputImageIds || []) stillUsed.add(id)
     if (t.maskImageId) stillUsed.add(t.maskImageId)
     for (const id of t.outputImages || []) stillUsed.add(id)
+    for (const id of t.transparentOriginalImages || []) {
+      if (id) stillUsed.add(id)
+    }
   }
   for (const img of inputImages) stillUsed.add(img.id)
 
@@ -1649,6 +1739,7 @@ export async function removeTask(task: TaskRecord) {
     ...(task.inputImageIds || []),
     ...(task.maskImageId ? [task.maskImageId] : []),
     ...(task.outputImages || []),
+    ...(task.transparentOriginalImages || []).filter(Boolean),
   ])
 
   // 从列表移除
@@ -1662,6 +1753,9 @@ export async function removeTask(task: TaskRecord) {
     for (const id of t.inputImageIds || []) stillUsed.add(id)
     if (t.maskImageId) stillUsed.add(t.maskImageId)
     for (const id of t.outputImages || []) stillUsed.add(id)
+    for (const id of t.transparentOriginalImages || []) {
+      if (id) stillUsed.add(id)
+    }
   }
   for (const img of inputImages) stillUsed.add(img.id)
 
@@ -1738,16 +1832,15 @@ async function completeRecoveredCustomTask(
   const latest = useStore.getState().tasks.find((item) => item.id === task.id)
   if (!latest || latest.status === 'done') return
 
-  const actualParamsList = await readImageSizeParamsList(result.images)
-  const outputIds: string[] = []
-  for (const dataUrl of result.images) {
-    const imgId = await storeImage(dataUrl, 'generated')
-    cacheImage(imgId, dataUrl)
-    outputIds.push(imgId)
-  }
+  const { outputIds, outputDataUrls, transparentOriginalImageIds } = await storeTaskOutputImages(
+    task,
+    result.images,
+  )
+  const actualParamsList = await readImageSizeParamsList(outputDataUrls)
 
   updateTaskInStore(task.id, {
     outputImages: outputIds,
+    transparentOriginalImages: transparentOriginalImageIds,
     actualParams: firstActualParams(actualParamsList),
     actualParamsByImage: mapActualParamsByImage(outputIds, actualParamsList),
     revisedPromptByImage: undefined,
@@ -1839,6 +1932,7 @@ export async function exportData(
           ...(task.inputImageIds || []),
           ...(task.maskImageId ? [task.maskImageId] : []),
           ...(task.outputImages || []),
+          ...(task.transparentOriginalImages || []).filter(Boolean),
         ]) {
           const prev = imageCreatedAtFallback.get(id)
           if (prev == null || task.createdAt < prev) {

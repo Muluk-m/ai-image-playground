@@ -559,6 +559,8 @@ export default function InputBar() {
   const isGeminiProvider = activeProvider === 'gemini'
   const moderationDisabled = activeView.apiMode === 'responses'
   const compressionDisabled = params.output_format === 'png'
+  const transparentOutputAvailable =
+    !isGeminiProvider && params.output_format === 'png' && inputImages.length === 0 && !maskDraft
   const outputImageLimit = getOutputImageLimitForSettings(effectiveSettings)
   const nLimitHintText = `OpenAI 最大请求数量为 ${outputImageLimit}`
   const displaySize = normalizeImageSize(params.size) || DEFAULT_PARAMS.size
@@ -1703,7 +1705,14 @@ export default function InputBar() {
             >
               <ChipSelect
                 value={params.output_format}
-                onChange={(val) => setParams({ output_format: val as any })}
+                onChange={(val) =>
+                  setParams({
+                    output_format: val as any,
+                    ...(val === 'png'
+                      ? { output_compression: null }
+                      : { transparent_output: false }),
+                  })
+                }
                 options={[
                   { label: 'PNG', value: 'png' },
                   { label: 'JPEG', value: 'jpeg' },
@@ -1711,6 +1720,24 @@ export default function InputBar() {
                 ]}
               />
             </ParamChip>
+            {transparentOutputAvailable && (
+              <ParamChip
+                icon={ChipIcons.format}
+                label="透明"
+                value={params.transparent_output ? 'true' : 'false'}
+              >
+                <ChipSelect
+                  value={params.transparent_output ? 'on' : 'off'}
+                  onChange={(val) =>
+                    setParams({ transparent_output: val === 'on', output_compression: null })
+                  }
+                  options={[
+                    { label: 'false', value: 'off' },
+                    { label: 'true', value: 'on' },
+                  ]}
+                />
+              </ParamChip>
+            )}
             {!compressionDisabled && (
               <ParamChip icon={ChipIcons.compression} label="压缩">
                 <input

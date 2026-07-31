@@ -31,6 +31,12 @@ export function normalizeParamsForSettings(
 
   if (nextParams.output_format === 'png') {
     nextParams.output_compression = DEFAULT_PARAMS.output_compression
+  } else {
+    nextParams.transparent_output = false
+  }
+
+  if (_options.hasInputImages) {
+    nextParams.transparent_output = false
   }
 
   return nextParams

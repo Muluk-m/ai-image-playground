@@ -9,6 +9,7 @@ import {
   copyTextToClipboard,
   getClipboardFailureMessage,
 } from '../lib/clipboard'
+import { downloadImagesByIds } from '../lib/downloadImages'
 import { ActualValueBadge, DetailParamValue } from '../lib/paramDisplay'
 import { formatImageRatio } from '../lib/size'
 import { dismissAllTooltips } from '../lib/tooltipDismiss'
@@ -24,7 +25,7 @@ import {
   updateTaskInStore,
   useStore,
 } from '../store'
-import { CloseIcon, CodeIcon, CopyIcon, EditIcon, LinkIcon, TrashIcon } from './icons'
+import { CloseIcon, CodeIcon, CopyIcon, DownloadIcon, EditIcon, LinkIcon, TrashIcon } from './icons'
 
 import ViewportTooltip from './ViewportTooltip'
 
@@ -61,6 +62,7 @@ export default function DetailModal() {
   const copyErrorTooltip = useTooltip()
   const copyRawUrlsTooltip = useTooltip()
   const viewRawResponseTooltip = useTooltip()
+  const downloadOriginalImageTooltip = useTooltip()
   const retryTooltip = useTooltip()
 
   const clearTextSelection = () => {
@@ -121,6 +123,7 @@ export default function DetailModal() {
   }, [task])
 
   const currentOutputImageId = task?.outputImages?.[imageIndex] || ''
+  const currentOriginalOutputImageId = task?.transparentOriginalImages?.[imageIndex] || ''
   const currentOutputPreviewSrc = currentOutputImageId
     ? outputPreviewSrcs[currentOutputImageId] || ''
     : ''
@@ -226,6 +229,13 @@ export default function DetailModal() {
   const showSourceInfo = Boolean(task.apiProvider || task.apiProfileName || task.apiModel)
   const isCustomReconnecting = task.status === 'error' && task.customRecoverable
   const rawImageUrls = task.rawImageUrls ?? []
+  const transparentOutputText =
+    task.transparentOutput || task.params.transparent_output ? 'true' : 'false'
+  const currentTransparentOutputFailed = Boolean(
+    currentOutputImageId &&
+      task.transparentOutput &&
+      task.transparentOriginalImages?.[imageIndex] === '',
+  )
 
   const formatTime = (ts: number | null) => {
     if (!ts) return ''
@@ -315,6 +325,25 @@ export default function DetailModal() {
     } catch (err) {
       console.error(err)
       showToast(getClipboardFailureMessage('复制参考图失败', err), 'error')
+    }
+  }
+
+  const handleDownloadCurrentOriginalOutput = async (event: React.MouseEvent) => {
+    event.stopPropagation()
+    if (!currentOriginalOutputImageId) return
+    try {
+      const result = await downloadImagesByIds(
+        [currentOriginalOutputImageId],
+        `task-${task.id}-orig`,
+      )
+      if (result.success === 0) {
+        showToast('下载失败', 'error')
+      } else {
+        showToast('原图下载成功', 'success')
+      }
+    } catch (err) {
+      console.error(err)
+      showToast('下载失败', 'error')
     }
   }
 
@@ -416,6 +445,31 @@ export default function DetailModal() {
                       {formatDuration()}
                     </span>
                   )
+                )}
+                {currentOriginalOutputImageId && (
+                  <div className="relative">
+                    <button
+                      type="button"
+                      {...downloadOriginalImageTooltip.handlers}
+                      onClick={(e) => {
+                        downloadOriginalImageTooltip.handlers.onClick()
+                        handleDownloadCurrentOriginalOutput(e)
+                      }}
+                      className="flex items-center justify-center gap-0.5 rounded bg-black/50 py-0.5 pl-1.5 pr-2 text-white backdrop-blur-sm transition hover:bg-black/70 focus:outline-none focus:ring-1 focus:ring-white/50"
+                      aria-label="下载原图"
+                    >
+                      <DownloadIcon className="h-4 w-4" />
+                      <span className="text-[9px] font-bold leading-none mt-[1px] uppercase">
+                        orig
+                      </span>
+                    </button>
+                    <ViewportTooltip
+                      visible={downloadOriginalImageTooltip.visible}
+                      className="whitespace-nowrap"
+                    >
+                      下载原图
+                    </ViewportTooltip>
+                  </div>
                 )}
               </div>
               {outputLen > 1 && (
@@ -778,6 +832,20 @@ export default function DetailModal() {
                   actualParams={currentActualParams}
                 />
               </div>
+              {task.params.output_format === 'png' && (
+                <div className="bg-gray-50 dark:bg-white/[0.03] rounded-lg px-3 py-2">
+                  <span className="text-gray-400 dark:text-gray-500">透明背景</span>
+                  <br />
+                  <span className="font-medium text-gray-700 dark:text-gray-300">
+                    {transparentOutputText}
+                  </span>
+                  {currentTransparentOutputFailed && (
+                    <span className="ml-1.5 rounded bg-red-50 px-1 py-0.5 text-[10px] font-medium uppercase leading-none text-red-600 dark:bg-red-500/10 dark:text-red-400">
+                      failed
+                    </span>
+                  )}
+                </div>
+              )}
               <div className="bg-gray-50 dark:bg-white/[0.03] rounded-lg px-3 py-2">
                 <span className="text-gray-400 dark:text-gray-500">审核</span>
                 <br />
