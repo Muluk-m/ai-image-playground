@@ -12,10 +12,12 @@ export type ChannelKind = 'openai-queue' | 'gemini-queue'
 
 /**
  * 模型的能力/参数支持声明 — 前端据此显隐输入图入口、遮罩按钮、质量控件。
- * 'edit' = 支持参考图（图生图）；'mask' = 支持遮罩编辑；'quality' = 支持 quality 参数。
+ * 'edit' = 支持参考图（图生图）；'mask' = 支持遮罩编辑；'quality' = 支持 quality 参数；
+ * 'size' = 上游真的认 size 请求参数（缺失时前端改用「把画幅比例写进 prompt」的兜底，
+ * 因为 Codex 系图像后端会静默丢掉 size，见 openai/codex#28723）。
  * 数组里没有 = 不支持（UI 收起对应控件）。BYOK profile 无此信息，UI 不做限制。
  */
-export type ChannelCapability = 'generate' | 'edit' | 'mask' | 'quality'
+export type ChannelCapability = 'generate' | 'edit' | 'mask' | 'quality' | 'size'
 
 export interface ChannelModel {
   id: string

@@ -90,6 +90,7 @@ describe('getParamCapabilities', () => {
   it('png on openai profile: transparent toggle on, compression off', () => {
     expect(getParamCapabilities(byokProfile(), 'png')).toEqual({
       quality: true,
+      size: true,
       transparentOutput: true,
       compression: false,
       moderation: true,
@@ -134,5 +135,49 @@ describe('getParamCapabilities', () => {
       activeProfileId: 'bp',
     })
     expect(getParamCapabilities(getActiveApiProfile(settings), 'png').quality).toBe(false)
+  })
+
+  it('builtin-edge channel without size capability: size off', () => {
+    mockChannels.list = [
+      {
+        id: 'c1',
+        kind: 'openai-queue',
+        label: 'C',
+        models: [{ id: 'm1', label: 'M', capabilities: ['generate', 'edit'] }],
+        defaults: { apiMode: 'images', timeout: 600 },
+      },
+    ]
+    const profile: ClientProfile = {
+      id: 'bp',
+      source: 'builtin-edge',
+      channelId: 'c1',
+      selectedModelId: 'm1',
+    }
+
+    expect(getParamCapabilities(profile, 'png').size).toBe(false)
+  })
+
+  it('builtin-edge channel with size capability: size on', () => {
+    mockChannels.list = [
+      {
+        id: 'c1',
+        kind: 'openai-queue',
+        label: 'C',
+        models: [{ id: 'm1', label: 'M', capabilities: ['generate', 'edit', 'size'] }],
+        defaults: { apiMode: 'images', timeout: 600 },
+      },
+    ]
+    const profile: ClientProfile = {
+      id: 'bp',
+      source: 'builtin-edge',
+      channelId: 'c1',
+      selectedModelId: 'm1',
+    }
+
+    expect(getParamCapabilities(profile, 'png').size).toBe(true)
+  })
+
+  it('BYOK profile without declared capabilities: size on', () => {
+    expect(getParamCapabilities(byokProfile(), 'png').size).toBe(true)
   })
 })
