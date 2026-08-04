@@ -17,7 +17,11 @@ export type ChannelKind = 'openai-queue' | 'gemini-queue'
  * 因为 Codex 系图像后端会静默丢掉 size，见 openai/codex#28723）。
  * 数组里没有 = 不支持（UI 收起对应控件）。BYOK profile 无此信息，UI 不做限制。
  */
-export type ChannelCapability = 'generate' | 'edit' | 'mask' | 'quality' | 'size'
+// 单一事实来源 — BFF 的 channels.json 校验器直接读这条 tuple。之前 BFF 侧另抄了一份运行时
+// 白名单，加 'size' 时漏改那份 → initChannels 抛「invalid capability」退出、launchd 反复
+// 重启拉起服务，所以能力 token 只允许在这里增删，禁止再复制一份。
+export const CHANNEL_CAPABILITIES = ['generate', 'edit', 'mask', 'quality', 'size'] as const
+export type ChannelCapability = (typeof CHANNEL_CAPABILITIES)[number]
 
 export interface ChannelModel {
   id: string
