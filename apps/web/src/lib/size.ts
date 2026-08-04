@@ -149,6 +149,25 @@ export function formatImageRatio(width: number, height: number) {
   return friendlyNearest && friendlyNearest.delta <= 0.04 ? `≈${friendlyNearest.label}` : simplified
 }
 
+/** 某些上游会丢弃 `size`，只服从 prompt 中明确写出的构图比例。 */
+export function buildAspectInstruction(size: string): string | null {
+  const match = size.match(SIZE_PATTERN)
+  if (!match) return null
+
+  const width = Number(match[1])
+  const height = Number(match[2])
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    return null
+  }
+
+  if (width === height) return 'Composition: a 1:1 square frame.'
+
+  const ratio = formatImageRatio(width, height).replace(/^≈/, '')
+  return width > height
+    ? `Composition: a wide ${ratio} landscape frame, horizontal orientation.`
+    : `Composition: a tall ${ratio} vertical frame, portrait orientation.`
+}
+
 const ASPECT_RATIOS: Array<{ label: string; value: number }> = [
   { label: '1:1', value: 1 },
   { label: '16:9', value: 16 / 9 },

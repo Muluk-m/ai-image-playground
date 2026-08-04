@@ -12,7 +12,8 @@ import {
   type CallApiResult,
 } from './imageApiShared'
 import { callOpenAICompatibleImageApi } from './openaiCompatibleImageApi'
-import { normalizeParamsForSettings } from './paramCompatibility'
+import { getParamCapabilities, normalizeParamsForSettings } from './paramCompatibility'
+import { buildAspectInstruction } from './size'
 
 export { normalizeBaseUrl } from './devProxy'
 export type { CallApiOptions, CallApiResult } from './imageApiShared'
@@ -97,6 +98,15 @@ export async function callImageApi(opts: CallApiOptions): Promise<CallApiResult>
   // Gemini 没有 prompt rewriting 概念（UI 也不展示该开关），不注入。
   if (opts.params.no_rewrite && clientProfileToApiProfile(profile).provider !== 'gemini') {
     opts = { ...opts, prompt: applyPromptRewriteGuard(opts.prompt) }
+  }
+
+  // sub2api 中继的 Codex 图片路径会丢弃 `size`，但模型会服从 prompt 中明确的构图；
+  // 生成与编辑路径均已验证。
+  if (!getParamCapabilities(profile, opts.params.output_format).size) {
+    const instruction = buildAspectInstruction(opts.params.size)
+    if (instruction) {
+      opts = { ...opts, prompt: `${opts.prompt}\n\n${instruction}` }
+    }
   }
 
   if (profile.source === 'builtin-edge') {

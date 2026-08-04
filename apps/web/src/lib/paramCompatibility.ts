@@ -13,6 +13,7 @@ export function getOutputImageLimitForSettings(_settings: AppSettings) {
 
 export interface ParamCapabilities {
   quality: boolean
+  size: boolean
   transparentOutput: boolean
   compression: boolean
   moderation: boolean
@@ -30,6 +31,7 @@ export function getParamCapabilities(
   const modelCaps = getModelCapabilities(profile, getPublicChannels())
   return {
     quality: !view.codexCli && (!modelCaps || modelCaps.has('quality')),
+    size: !modelCaps || modelCaps.has('size'),
     transparentOutput: view.provider !== 'gemini' && outputFormat === 'png',
     compression: outputFormat !== 'png',
     moderation: view.apiMode !== 'responses',

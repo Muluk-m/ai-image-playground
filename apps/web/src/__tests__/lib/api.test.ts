@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { callImageApi, resumeQueueImageApi } from '../../lib/api'
 import { DEFAULT_SETTINGS, normalizeSettings } from '../../lib/apiProfiles'
 import type { BuiltinEdgeProfile, PublicChannel, UserByokProfile } from '../../lib/channels/types'
+import { buildAspectInstruction } from '../../lib/size'
 import { type AppSettings, DEFAULT_PARAMS } from '../../types'
 
 const mockChannels = vi.hoisted(() => ({ list: [] as PublicChannel[] }))
@@ -97,6 +98,19 @@ function settingsWithByok(
     activeProfileId: profile.id,
   })
 }
+
+describe('buildAspectInstruction', () => {
+  it('builds a portrait composition sentence from a parseable size', () => {
+    const expected = 'Composition: a tall 9:16 vertical frame, portrait orientation.'
+
+    expect(buildAspectInstruction('1024x1824')).toBe(expected)
+    expect(buildAspectInstruction(' 1024 × 1824 ')).toBe(expected)
+  })
+
+  it('returns null for auto size', () => {
+    expect(buildAspectInstruction('auto')).toBeNull()
+  })
+})
 
 describe('callImageApi', () => {
   afterEach(() => {
@@ -352,6 +366,137 @@ describe('callImageApi', () => {
     void provider
     return { fetchMock }
   }
+
+  it('appends the requested portrait composition for builtin-edge models without size capability', async () => {
+    const channel: PublicChannel = {
+      id: 'test-no-size',
+      kind: 'openai-queue',
+      label: 'No Size',
+      models: [{ id: 'gpt-image-2', label: 'GPT Image 2', capabilities: ['generate', 'edit'] }],
+      defaults: { apiMode: 'images', timeout: 600 },
+    }
+    mockChannels.list = [channel]
+    const { fetchMock } = mockQueueFlow('openai-compat')
+
+    await callImageApi({
+      settings: settingsWithBuiltin(channel),
+      prompt: 'a red cat',
+      params: { ...DEFAULT_PARAMS, size: '1024x1824', no_rewrite: false },
+      inputImageDataUrls: [],
+    })
+
+    const submitCall = fetchMock.mock.calls.find(([url]: [unknown, unknown]) =>
+      String(url).endsWith('/submit'),
+    )!
+    const body = JSON.parse(String((submitCall[1] as RequestInit).body))
+    expect(body.prompt).toBe(
+      'a red cat\n\nComposition: a tall 9:16 vertical frame, portrait orientation.',
+    )
+  })
+
+  it('does not append a composition for auto size', async () => {
+    const channel: PublicChannel = {
+      id: 'test-auto-size',
+      kind: 'openai-queue',
+      label: 'Auto Size',
+      models: [{ id: 'gpt-image-2', label: 'GPT Image 2', capabilities: ['generate', 'edit'] }],
+      defaults: { apiMode: 'images', timeout: 600 },
+    }
+    mockChannels.list = [channel]
+    const { fetchMock } = mockQueueFlow('openai-compat')
+
+    await callImageApi({
+      settings: settingsWithBuiltin(channel),
+      prompt: 'a red cat',
+      params: { ...DEFAULT_PARAMS, size: 'auto', no_rewrite: false },
+      inputImageDataUrls: [],
+    })
+
+    const submitCall = fetchMock.mock.calls.find(([url]: [unknown, unknown]) =>
+      String(url).endsWith('/submit'),
+    )!
+    const body = JSON.parse(String((submitCall[1] as RequestInit).body))
+    expect(body.prompt).toBe('a red cat')
+  })
+
+  it('does not append a composition for builtin-edge models with size capability', async () => {
+    const channel: PublicChannel = {
+      id: 'test-with-size',
+      kind: 'openai-queue',
+      label: 'With Size',
+      models: [
+        {
+          id: 'agnes-image-2.1-flash',
+          label: 'Agnes Image 2.1 Flash',
+          capabilities: ['generate', 'edit', 'size'],
+        },
+      ],
+      defaults: { apiMode: 'images', timeout: 600 },
+    }
+    mockChannels.list = [channel]
+    const { fetchMock } = mockQueueFlow('openai-compat')
+
+    await callImageApi({
+      settings: settingsWithBuiltin(channel),
+      prompt: 'a red cat',
+      params: { ...DEFAULT_PARAMS, size: '1024x1824', no_rewrite: false },
+      inputImageDataUrls: [],
+    })
+
+    const submitCall = fetchMock.mock.calls.find(([url]: [unknown, unknown]) =>
+      String(url).endsWith('/submit'),
+    )!
+    const body = JSON.parse(String((submitCall[1] as RequestInit).body))
+    expect(body.prompt).toBe('a red cat')
+  })
+
+  it('does not append a composition for BYOK profiles without declared capabilities', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ data: [{ b64_json: 'aW1hZ2U=' }] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    )
+
+    await callImageApi({
+      settings: settingsWithByok({ apiKey: 'test-key' }),
+      prompt: 'a red cat',
+      params: { ...DEFAULT_PARAMS, size: '1024x1824', no_rewrite: false },
+      inputImageDataUrls: [],
+    })
+
+    const [, init] = fetchMock.mock.calls[0]
+    const body = JSON.parse(String((init as RequestInit).body))
+    expect(body.prompt).toBe('a red cat')
+  })
+
+  it('places the composition after the prompt-rewrite guard', async () => {
+    const channel: PublicChannel = {
+      id: 'test-no-size-guard',
+      kind: 'openai-queue',
+      label: 'No Size Guard',
+      models: [{ id: 'gpt-image-2', label: 'GPT Image 2', capabilities: ['generate', 'edit'] }],
+      defaults: { apiMode: 'images', timeout: 600 },
+    }
+    mockChannels.list = [channel]
+    const { fetchMock } = mockQueueFlow('openai-compat')
+
+    await callImageApi({
+      settings: settingsWithBuiltin(channel),
+      prompt: 'a red cat',
+      params: { ...DEFAULT_PARAMS, size: '1024x1824', no_rewrite: true },
+      inputImageDataUrls: [],
+    })
+
+    const submitCall = fetchMock.mock.calls.find(([url]: [unknown, unknown]) =>
+      String(url).endsWith('/submit'),
+    )!
+    const body = JSON.parse(String((submitCall[1] as RequestInit).body))
+    expect(body.prompt).toBe(
+      'Use the following text as the complete prompt. Do not rewrite it:\na red cat\n\n' +
+        'Composition: a tall 9:16 vertical frame, portrait orientation.',
+    )
+  })
 
   it('builtin-edge openai-compat with codexCli adds prompt guard by default and drops quality (queue submit body)', async () => {
     const channel: PublicChannel = {
