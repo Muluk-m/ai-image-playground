@@ -17,6 +17,7 @@ import {
   getDataUrlEncodedByteSize,
 } from '../imageApiShared'
 import { getRuntimeConfig } from '../runtimeConfig'
+import { nearestAspectRatio } from '../size'
 import type { BuiltinEdgeProfile, ProviderKind, PublicChannel } from './types'
 
 const { POLL_BACKOFF_MS, POLL_MAX_MS, POLL_MAX_CONSECUTIVE_FAILURES } = QUEUE_TIMEOUTS
@@ -137,6 +138,21 @@ async function submit(
   if (opts.params.size && opts.params.size !== 'auto') body.size = opts.params.size
   if (!codexCli && opts.params.quality && opts.params.quality !== 'auto')
     body.quality = opts.params.quality
+
+  // 这两支必须逐字对齐 BYOK adapter（openaiCompatibleImageApi / geminiImageApi），
+  // 否则同一组 chip 在自带 key 和队列两条路径下发出去的参数会不一致。
+  if (provider === 'openai-compat') {
+    body.output_format = opts.params.output_format
+    body.moderation = opts.params.moderation
+    if (opts.params.output_format !== 'png' && opts.params.output_compression != null) {
+      body.output_compression = opts.params.output_compression
+    }
+  } else if (provider === 'gemini') {
+    const aspectRatio = opts.params.gemini_aspect_ratio ?? nearestAspectRatio(opts.params.size)
+    if (aspectRatio) body.aspect_ratio = aspectRatio
+    if (opts.params.gemini_image_size) body.image_size = opts.params.gemini_image_size
+    if (opts.params.gemini_thinking_level) body.thinking_level = opts.params.gemini_thinking_level
+  }
   if (opts.params.n && opts.params.n > 1) body.n = opts.params.n
   if (opts.inputImageDataUrls.length) body.input_images = opts.inputImageDataUrls
   if (opts.maskDataUrl) body.mask = opts.maskDataUrl
@@ -278,18 +294,38 @@ async function fetchImageDataUrl(
   return bytesToDataUrl(await res.arrayBuffer(), mime)
 }
 
-const QUALITY_LITERALS = new Set<TaskParams['quality']>(['auto', 'low', 'medium', 'high'])
+const QUALITY_LITERALS: Record<TaskParams['quality'], true> = {
+  auto: true,
+  low: true,
+  medium: true,
+  high: true,
+}
+const OUTPUT_FORMAT_LITERALS: Record<TaskParams['output_format'], true> = {
+  png: true,
+  jpeg: true,
+  webp: true,
+}
 
-/** BFF 用 string 透传 quality；只保留 TaskParams.quality union 接受的值。 */
+/**
+ * 只保留查表命中的字面量。`=== true` 不能省：查表用的 key 来自上游 JSON，
+ * 'constructor' 这类原型链上的键会返回真值。
+ */
+function pickLiteral<T extends string>(value: unknown, literals: Record<T, true>): T | undefined {
+  if (typeof value !== 'string') return undefined
+  return literals[value as T] === true ? (value as T) : undefined
+}
+
+/** BFF 用 string 透传实际参数；只保留 TaskParams 对应 union 接受的值。 */
 function narrowActualParams(
-  p: { size?: string; quality?: string } | undefined,
+  p: { size?: string; quality?: string; output_format?: string } | undefined,
 ): Partial<TaskParams> | undefined {
   if (!p) return undefined
   const out: Partial<TaskParams> = {}
   if (typeof p.size === 'string') out.size = p.size
-  if (typeof p.quality === 'string' && QUALITY_LITERALS.has(p.quality as TaskParams['quality'])) {
-    out.quality = p.quality as TaskParams['quality']
-  }
+  const quality = pickLiteral(p.quality, QUALITY_LITERALS)
+  if (quality) out.quality = quality
+  const outputFormat = pickLiteral(p.output_format, OUTPUT_FORMAT_LITERALS)
+  if (outputFormat) out.output_format = outputFormat
   return Object.keys(out).length ? out : undefined
 }
 

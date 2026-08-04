@@ -255,6 +255,7 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
  * Direct channel（Agnes 风格）请求体：文生图与图生图同一端点同一 JSON 体，
  * 输入图放 extra_body.image（实测 top-level image 会被上游静默忽略）。
  * quality / n 上游不识别 → 不传（n 由 callUpstream fan-out 实现）。
+ * 新增的 OpenAI / Gemini 参数也不传，避免上游拒绝或静默忽略未知字段。
  */
 function buildDirectChannelBody(model: string, request: SubmitRequest): Record<string, unknown> {
   const { extra_body: extraBody, ...extraTop } = (request.extra ?? {}) as {
@@ -278,6 +279,11 @@ function buildOpenAIBody(model: string, request: SubmitRequest): Record<string, 
     prompt: request.prompt,
     ...(request.size ? { size: request.size } : {}),
     ...(request.quality ? { quality: request.quality } : {}),
+    ...(request.output_format ? { output_format: request.output_format } : {}),
+    ...(request.moderation ? { moderation: request.moderation } : {}),
+    ...(request.output_compression != null
+      ? { output_compression: request.output_compression }
+      : {}),
     ...(request.n ? { n: request.n } : {}),
     ...(request.extra ?? {}),
   }
@@ -289,6 +295,11 @@ function buildOpenAIEditFormData(model: string, request: SubmitRequest): FormDat
   form.append('prompt', request.prompt)
   if (request.size) form.append('size', request.size)
   if (request.quality) form.append('quality', request.quality)
+  if (request.output_format) form.append('output_format', request.output_format)
+  if (request.moderation) form.append('moderation', request.moderation)
+  if (request.output_compression != null) {
+    form.append('output_compression', String(request.output_compression))
+  }
   if (request.n) form.append('n', String(request.n))
   for (const dataUrl of request.input_images ?? []) {
     form.append('image[]', dataUrlToFile(dataUrl, 'image.png'))
@@ -325,13 +336,21 @@ function buildGeminiBody(request: SubmitRequest): Record<string, unknown> {
     generationConfig?: Record<string, unknown>
     [key: string]: unknown
   }
+  const generationConfig: Record<string, unknown> = { responseModalities: ['IMAGE'] }
+  if (request.aspect_ratio || request.image_size) {
+    generationConfig.imageConfig = {
+      ...(request.aspect_ratio ? { aspectRatio: request.aspect_ratio } : {}),
+      ...(request.image_size ? { imageSize: request.image_size } : {}),
+    }
+  }
+  if (request.thinking_level) {
+    generationConfig.thinkingConfig = { thinkingLevel: request.thinking_level }
+  }
 
   return {
     contents: [{ role: 'user', parts }],
-    generationConfig: {
-      responseModalities: ['IMAGE'],
-      ...(extraGenerationConfig ?? {}),
-    },
+    // extra.generationConfig 放最后：调用方显式给的配置压过这里从扁平参数推导的默认值。
+    generationConfig: { ...generationConfig, ...extraGenerationConfig },
     ...extraTopLevel,
   }
 }

@@ -41,6 +41,18 @@ export interface SubmitRequest {
    * 避免对 Elysia schema 编译器加 Union 验证压力 + 透传给上游本来就不做翻译。
    */
   quality?: string
+  /** OpenAI Images 使用的输出格式。 */
+  output_format?: string
+  /** OpenAI Images 使用的输出压缩率（0-100）。 */
+  output_compression?: number
+  /** OpenAI Images 使用的内容审核级别。 */
+  moderation?: string
+  /** Gemini imageConfig 使用的宽高比。 */
+  aspect_ratio?: string
+  /** Gemini imageConfig 使用的图片尺寸档位。 */
+  image_size?: string
+  /** Gemini thinkingConfig 使用的思考级别。 */
+  thinking_level?: string
   n?: number
   /** 参考图 data URL 数组（base64），上游处理时 BFF 透传 */
   input_images?: string[]
@@ -79,7 +91,7 @@ export interface SubmitResponse {
  */
 export interface StatusResultMeta {
   images: ResultImageMeta[]
-  actual_params?: { size?: string; quality?: string }
+  actual_params?: { size?: string; quality?: string; output_format?: string }
   raw_image_urls?: string[]
 }
 
@@ -126,7 +138,7 @@ export interface ResultResponse {
   /** completed 时 BFF 已从原始上游响应中抽出 */
   images?: ResultImageMeta[]
   /** OpenAI 路径上游回填的实际生效参数（size 等） */
-  actual_params?: { size?: string; quality?: string }
+  actual_params?: { size?: string; quality?: string; output_format?: string }
   /** OpenAI 的 response_format=url 时上游直接给的 http URL 列表 */
   raw_image_urls?: string[]
   error?: { message: string; type: TaskErrorType }
