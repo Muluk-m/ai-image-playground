@@ -8,6 +8,7 @@ import {
   getDataUrlEncodedByteSize,
   throwIfProxyError,
 } from './imageApiShared'
+import { nearestAspectRatio } from './size'
 
 export interface GeminiPart {
   text?: string
@@ -34,33 +35,6 @@ export interface GeminiResponse {
 export interface GeminiParseResult {
   images: string[]
   revisedPrompts: Array<string | undefined>
-}
-
-const ASPECT_RATIOS: Array<{ label: string; value: number }> = [
-  { label: '1:1', value: 1 },
-  { label: '16:9', value: 16 / 9 },
-  { label: '9:16', value: 9 / 16 },
-  { label: '4:3', value: 4 / 3 },
-  { label: '3:4', value: 3 / 4 },
-]
-
-function nearestAspectRatio(size: string): string | undefined {
-  const m = size.match(/^(\d+)x(\d+)$/i)
-  if (!m) return undefined
-  const w = Number(m[1])
-  const h = Number(m[2])
-  if (!w || !h) return undefined
-  const ratio = w / h
-  let best = ASPECT_RATIOS[0]
-  let bestDelta = Math.abs(best.value - ratio)
-  for (const candidate of ASPECT_RATIOS.slice(1)) {
-    const delta = Math.abs(candidate.value - ratio)
-    if (delta < bestDelta) {
-      best = candidate
-      bestDelta = delta
-    }
-  }
-  return best.label
 }
 
 function dataUrlToInlinePart(dataUrl: string): GeminiPart | null {

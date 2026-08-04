@@ -8,8 +8,8 @@ export interface ExtractedResult {
   images: ResultImageMeta[]
   /** OpenAI response_format=url 时上游给的 http URL 列表（前端做合规展示用） */
   raw_image_urls?: string[]
-  /** OpenAI 返回的实际 size 等 */
-  actual_params?: { size?: string; quality?: string }
+  /** OpenAI 返回的实际 size / quality / output_format 等 */
+  actual_params?: { size?: string; quality?: string; output_format?: string }
 }
 
 interface ImageBytesRef {
@@ -101,6 +101,7 @@ function extractOpenAI(payload: unknown): ExtractedResult {
     data?: Array<Record<string, unknown>>
     size?: string
     quality?: string
+    output_format?: string
   } | null
   const data = Array.isArray(p?.data) ? p.data : []
   const images: ResultImageMeta[] = []
@@ -124,12 +125,13 @@ function extractOpenAI(payload: unknown): ExtractedResult {
 }
 
 function pickActualOpenAI(
-  p: { size?: string; quality?: string } | null,
+  p: { size?: string; quality?: string; output_format?: string } | null,
 ): ExtractedResult['actual_params'] {
   if (!p) return undefined
   const out: NonNullable<ExtractedResult['actual_params']> = {}
   if (typeof p.size === 'string') out.size = p.size
   if (typeof p.quality === 'string') out.quality = p.quality
+  if (typeof p.output_format === 'string') out.output_format = p.output_format
   return Object.keys(out).length ? out : undefined
 }
 
