@@ -4,13 +4,9 @@ import {
   getActiveApiProfile,
   normalizeSettings,
 } from '../lib/apiProfiles'
-import {
-  getModelCapabilities,
-  getProfileModelOptions,
-  updateSelectedModel,
-} from '../lib/channels/profileSelectors'
+import { getProfileModelOptions, updateSelectedModel } from '../lib/channels/profileSelectors'
 import { getPublicChannels } from '../lib/channels/publicChannels'
-import { getOutputImageLimitForSettings } from '../lib/paramCompatibility'
+import { getOutputImageLimitForSettings, getParamCapabilities } from '../lib/paramCompatibility'
 import { normalizeImageSize } from '../lib/size'
 import { dismissAllTooltips } from '../lib/tooltipDismiss'
 import { useStore } from '../store'
@@ -117,14 +113,7 @@ export default function ParamControls({ showCount = false }: { showCount?: boole
   )
   const activeView = clientProfileToApiProfile(activeProfile)
   const isGeminiProvider = activeView.provider === 'gemini'
-  const modelCaps = useMemo(
-    () => getModelCapabilities(activeProfile, getPublicChannels()),
-    [activeProfile],
-  )
-  const supportsQuality = !modelCaps || modelCaps.has('quality')
-  const moderationDisabled = activeView.apiMode === 'responses'
-  const compressionDisabled = params.output_format === 'png'
-  const showTransparentOutputControl = !isGeminiProvider && params.output_format === 'png'
+  const capabilities = getParamCapabilities(activeProfile, params.output_format)
   const outputImageLimit = getOutputImageLimitForSettings(effectiveSettings)
   const displaySize = normalizeImageSize(params.size) || DEFAULT_PARAMS.size
   const qualityOptions = [
@@ -328,7 +317,7 @@ export default function ParamControls({ showCount = false }: { showCount?: boole
         <>
           {/* 不可用的参数 chip（codexCli / 模型不支持 quality；非 jpeg/webp 的压缩；
               Responses API 下的审核）直接不渲染，避免「灰着但点不开」的占位挤掉单行布局。 */}
-          {!activeView.codexCli && supportsQuality && (
+          {capabilities.quality && (
             <ParamChip icon={ChipIcons.quality} label="质量" value={params.quality}>
               <ChipSelect
                 value={params.quality}
@@ -357,7 +346,7 @@ export default function ParamControls({ showCount = false }: { showCount?: boole
               ]}
             />
           </ParamChip>
-          {showTransparentOutputControl && (
+          {capabilities.transparentOutput && (
             <ParamChip
               icon={ChipIcons.format}
               label="透明"
@@ -387,7 +376,7 @@ export default function ParamControls({ showCount = false }: { showCount?: boole
               options={ON_OFF_OPTIONS}
             />
           </ParamChip>
-          {!compressionDisabled && (
+          {capabilities.compression && (
             <ParamChip icon={ChipIcons.compression} label="压缩">
               <input
                 value={outputCompressionInput}
@@ -401,7 +390,7 @@ export default function ParamControls({ showCount = false }: { showCount?: boole
               />
             </ParamChip>
           )}
-          {!moderationDisabled && (
+          {capabilities.moderation && (
             <ParamChip icon={ChipIcons.moderation} label="审核" value={params.moderation}>
               <ChipSelect
                 value={params.moderation}

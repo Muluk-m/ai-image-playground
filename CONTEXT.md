@@ -17,3 +17,11 @@
 ## 测试
 
 - `apps/web` 有 jsdom 环境（按文件 `@vitest-environment jsdom` 启用），组件级冒烟测试的入口；Overlay 是首个有 DOM 锚点的模块。
+
+## 参数策略（paramCompatibility）
+
+「这个 profile 下哪些参数可用 / 合法」的唯一权威模块（`apps/web/src/lib/paramCompatibility.ts`）：
+
+- **`getParamCapabilities(profile, outputFormat)`** — 能力查询。UI chip 显隐（ParamControls / InputBar）与归一化共用同一判定，禁止在组件里重新推导（codexCli 或 channel 未声明 quality capability→无 quality、gemini/非 png→无透明输出、png→无压缩、responses→无审核）
+- **`normalizeParamsForSettings(params, settings)`** — 归一化，幂等。在分发层（`callImageApi` / `resumeQueueImageApi`）**强制执行**：任何提交路径（工作台 / canvas / 恢复 / 重试）到达 adapter 前必过，调用方不需要自觉
+- store 提交路径与 InputBar effect 里的归一化调用是另一层职责（任务记录保真 + UI 回写），不是第二套约定
