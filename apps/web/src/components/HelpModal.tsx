@@ -1,7 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
-import { useCloseOnEscape } from '../hooks/useCloseOnEscape'
-import { usePreventBackgroundScroll } from '../hooks/usePreventBackgroundScroll'
+import { useEffect, useState } from 'react'
+import Overlay from './Overlay'
 
 interface HelpModalProps {
   onClose: () => void
@@ -19,22 +17,10 @@ function useIsMobile() {
 
 export default function HelpModal({ onClose }: HelpModalProps) {
   const isMobile = useIsMobile()
-  const modalRef = useRef<HTMLDivElement>(null)
-  useCloseOnEscape(true, onClose)
-  usePreventBackgroundScroll(true, modalRef)
 
-  return createPortal(
-    <div
-      data-no-drag-select
-      className="fixed inset-0 z-[100] flex items-center justify-center p-4"
-      onClick={onClose}
-    >
-      <div className="absolute inset-0 bg-black/30 backdrop-blur-sm animate-overlay-in" />
-      <div
-        ref={modalRef}
-        className="relative z-10 w-full max-w-md rounded-3xl border border-white/50 bg-white/95 p-5 shadow-2xl ring-1 ring-black/5 animate-modal-in dark:border-white/[0.08] dark:bg-gray-900/95 dark:ring-white/10 flex flex-col max-h-[85vh] custom-scrollbar"
-        onClick={(e) => e.stopPropagation()}
-      >
+  return (
+    <Overlay onClose={onClose} tier="raised">
+      <div className="relative z-10 w-full max-w-md rounded-3xl border border-white/50 bg-white/95 p-5 shadow-2xl ring-1 ring-black/5 animate-modal-in dark:border-white/[0.08] dark:bg-gray-900/95 dark:ring-white/10 flex flex-col max-h-[85vh] custom-scrollbar">
         <div className="mb-5 flex items-center justify-between gap-4">
           <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-2">
             <svg
@@ -231,7 +217,6 @@ export default function HelpModal({ onClose }: HelpModalProps) {
           )}
         </div>
       </div>
-    </div>,
-    document.body,
+    </Overlay>
   )
 }
