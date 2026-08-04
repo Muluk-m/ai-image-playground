@@ -7,7 +7,7 @@ import {
 import { getProfileModelOptions, updateSelectedModel } from '../lib/channels/profileSelectors'
 import { getPublicChannels } from '../lib/channels/publicChannels'
 import { getOutputImageLimitForSettings, getParamCapabilities } from '../lib/paramCompatibility'
-import { normalizeImageSize } from '../lib/size'
+import { normalizeImageSize, sizeRatioLabel } from '../lib/size'
 import { dismissAllTooltips } from '../lib/tooltipDismiss'
 import { useStore } from '../store'
 import {
@@ -288,8 +288,8 @@ export default function ParamControls({ showCount = false }: { showCount?: boole
       {!isGeminiProvider && (
         <ParamChip
           icon={ChipIcons.size}
-          label="尺寸"
-          value={displaySize}
+          label={capabilities.size ? '尺寸' : '比例'}
+          value={capabilities.size ? displaySize : sizeRatioLabel(params.size)}
           onClick={() => {
             dismissAllTooltips()
             setShowSizePicker(true)
@@ -437,6 +437,7 @@ export default function ParamControls({ showCount = false }: { showCount?: boole
           onSelect={(size) => setParams({ size })}
           onClose={() => setShowSizePicker(false)}
           allowAuto={true}
+          ratioOnly={!capabilities.size}
         />
       )}
     </>
