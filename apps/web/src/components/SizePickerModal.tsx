@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
-import { usePreventBackgroundScroll } from '../hooks/usePreventBackgroundScroll'
 import { calculateImageSize, normalizeImageSize, parseRatio, type SizeTier } from '../lib/size'
+import Overlay from './Overlay'
 import ViewportTooltip from './ViewportTooltip'
 
 const TIERS: SizeTier[] = ['1K', '2K']
@@ -51,9 +50,6 @@ export default function SizePickerModal({
   onClose,
   allowAuto = true,
 }: Props) {
-  const modalRef = useRef<HTMLDivElement>(null)
-  usePreventBackgroundScroll(true, modalRef)
-
   const currentPreset = findPresetForSize(currentSize)
   const currentParsedSize = parseSize(currentSize)
   const [mode, setMode] = useState<Mode>(() => {
@@ -157,18 +153,9 @@ export default function SizePickerModal({
     }`
   }
 
-  return createPortal(
-    <div
-      data-no-drag-select
-      className="fixed inset-0 z-[70] flex items-center justify-center p-4"
-      onClick={onClose}
-    >
-      <div className="absolute inset-0 bg-black/30 backdrop-blur-sm animate-overlay-in" />
-      <div
-        ref={modalRef}
-        className="relative z-10 max-h-[calc(100vh-2rem)] w-full max-w-md overflow-y-auto rounded-3xl border border-white/50 bg-white/95 p-5 shadow-2xl ring-1 ring-black/5 animate-modal-in dark:border-white/[0.08] dark:bg-gray-900/95 dark:ring-white/10"
-        onClick={(e) => e.stopPropagation()}
-      >
+  return (
+    <Overlay onClose={onClose} tier="modal">
+      <div className="relative z-10 max-h-[calc(100vh-2rem)] w-full max-w-md overflow-y-auto rounded-3xl border border-white/50 bg-white/95 p-5 shadow-2xl ring-1 ring-black/5 animate-modal-in dark:border-white/[0.08] dark:bg-gray-900/95 dark:ring-white/10">
         <div className="mb-5 flex items-start justify-between gap-4">
           <div>
             <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100">
@@ -431,7 +418,6 @@ export default function SizePickerModal({
           </button>
         </div>
       </div>
-    </div>,
-    document.body,
+    </Overlay>
   )
 }
