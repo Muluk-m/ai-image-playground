@@ -25,6 +25,7 @@ import type {
   ChannelModel,
   DiscoveredChannel,
 } from '@image-playground/shared'
+import { CHANNEL_CAPABILITIES } from '@image-playground/shared'
 
 export type ChannelAuthType = 'bearer' | 'query-key'
 
@@ -64,7 +65,9 @@ export class ChannelsLoadError extends Error {
 
 const VALID_KINDS: readonly ChannelKind[] = ['openai-queue', 'gemini-queue']
 const VALID_AUTH_TYPES: readonly ChannelAuthType[] = ['bearer', 'query-key']
-const VALID_CAPABILITIES: readonly ChannelCapability[] = ['generate', 'edit', 'mask', 'quality']
+// 直接复用 shared 的 tuple，不再本地重列 — 手抄一份的后果见 CHANNEL_CAPABILITIES 上的注释：
+// 类型注解只约束成员合法，不保证列全，两边悄悄漂移后新 token 会在启动校验时炸掉整个 BFF。
+const VALID_CAPABILITIES: readonly ChannelCapability[] = CHANNEL_CAPABILITIES
 const ID_PATTERN = /^[a-z0-9][a-z0-9-]*$/
 
 function isObject(v: unknown): v is Record<string, unknown> {
