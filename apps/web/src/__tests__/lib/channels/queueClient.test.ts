@@ -113,9 +113,11 @@ async function captureSubmitBody(
   ).rejects.toThrow('test-stop')
 
   const firstCall = fetchSpy.mock.calls[0]!
+  const init = firstCall[1] as RequestInit
   return {
-    body: JSON.parse(String((firstCall[1] as RequestInit).body)) as Record<string, unknown>,
+    body: JSON.parse(String(init.body)) as Record<string, unknown>,
     url: String(firstCall[0]),
+    credentials: init.credentials,
   }
 }
 
@@ -132,10 +134,12 @@ describe('callQueueChannelApi submit body', () => {
   })
 
   it('submit body 包含 device_id 字段', async () => {
-    const { body, url } = await captureSubmitBody('openai-compat')
+    const { body, url, credentials } = await captureSubmitBody('openai-compat')
 
     expect(url).toContain('/v1/queue/openai-compat/gpt-image-1/submit')
     expect(body.device_id).toBe('dev-aaaa-bbbb-cccc')
+    // 认证部署下 session cookie 必须跟着 submit 走，否则 BFF 认不出账号。
+    expect(credentials).toBe('include')
   })
 
   it('openai-compat 透传非 PNG 输出参数', async () => {

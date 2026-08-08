@@ -1,9 +1,7 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
-import App from './App'
+import { AuthGate } from './auth/AuthGate'
 import './index.css'
-import { setChannels } from './lib/channels/channelStore'
-import { fetchDiscoveredChannels } from './lib/channels/discoverChannels'
 import { loadRuntimeConfig } from './lib/runtimeConfig'
 import { installMobileViewportGuards } from './lib/viewport'
 
@@ -24,32 +22,12 @@ if ('serviceWorker' in navigator) {
   })
 }
 
-// Boot 阻塞：runtime config 决定后端形态，channel 列表决定 UI 有没有「内置」
-// 选项 — 这两块必须在 React 渲染前定下来，否则首屏要么闪烁要么取错 baseUrl。
-// 同源 BFF 下两次 fetch 都是 ~ms 级，对首屏无感。runtime-config.json 缺失
-// （纯静态部署）走 BAKED_DEFAULTS = bff.enabled=false，下面 discovery 自然跳过。
-//
-// 跨域 BFF（cf tunnel）挂了的话，浏览器 fetch 默认要等几分钟才放弃 →
-// SPA 卡白屏。给 channel discovery 一个 5s 硬超时，超时即退化 BYOK-only。
-const BOOT_DISCOVERY_TIMEOUT_MS = 5000
-
-const runtime = await loadRuntimeConfig()
-if (runtime.bff.enabled) {
-  try {
-    const channels = await fetchDiscoveredChannels(runtime.bff.baseUrl, {
-      signal: AbortSignal.timeout(BOOT_DISCOVERY_TIMEOUT_MS),
-    })
-    setChannels(channels)
-  } catch (err) {
-    console.warn(
-      '[channel-discovery] BFF unreachable; UI will only offer BYOK profiles.',
-      err instanceof Error ? err.message : err,
-    )
-  }
-}
+// AuthGate 根据 runtime config 先确认 session，再动态加载 App。这样 store/db 模块
+// 首次求值前已经知道 user_id，可以为经营部署隔离每个账号的浏览器本地数据。
+await loadRuntimeConfig()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <App />
+    <AuthGate />
   </StrictMode>,
 )

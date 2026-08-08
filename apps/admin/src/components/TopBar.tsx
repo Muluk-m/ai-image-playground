@@ -1,6 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { Link, useLocation, useNavigate } from '@tanstack/react-router'
-import { LogOut, RefreshCw } from 'lucide-react'
+import { LogOut, RefreshCw, Users } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { apiClient } from '@/lib/api-client'
@@ -41,6 +41,7 @@ export function TopBar() {
     void queryClient.invalidateQueries({ queryKey: ['devices'] })
     void queryClient.invalidateQueries({ queryKey: ['device'] })
     void queryClient.invalidateQueries({ queryKey: ['task'] })
+    void queryClient.invalidateQueries({ queryKey: ['users'] })
   }
 
   async function logout(): Promise<void> {
@@ -56,12 +57,31 @@ export function TopBar() {
   return (
     <header className="sticky top-0 z-40 border-b bg-background/80 backdrop-blur">
       <div className="mx-auto flex h-12 max-w-7xl items-center justify-between px-4">
-        <Link
-          to="/devices"
-          className="text-sm font-semibold tracking-tight hover:text-foreground/80"
-        >
-          image-playground · admin
-        </Link>
+        <div className="flex items-center gap-5">
+          <Link
+            to="/devices"
+            className="text-sm font-semibold tracking-tight hover:text-foreground/80"
+          >
+            image-playground · admin
+          </Link>
+          {showAuthedActions ? (
+            <nav className="flex items-center gap-1" aria-label="后台导航">
+              <Link
+                to="/devices"
+                className="rounded-md px-2.5 py-1.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground [&.active]:bg-muted [&.active]:font-medium [&.active]:text-foreground"
+              >
+                设备
+              </Link>
+              <Link
+                to="/users"
+                className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground [&.active]:bg-muted [&.active]:font-medium [&.active]:text-foreground"
+              >
+                <Users className="h-3.5 w-3.5" />
+                用户
+              </Link>
+            </nav>
+          ) : null}
+        </div>
 
         <div className="flex items-center gap-2">
           {showRange ? (

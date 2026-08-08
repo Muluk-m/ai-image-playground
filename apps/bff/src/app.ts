@@ -2,6 +2,8 @@ import { extname, join } from 'node:path'
 import { cors } from '@elysiajs/cors'
 import { Elysia } from 'elysia'
 import { config } from './config'
+import { gzipBlob } from './lib/staticCompression'
+import { userAuthRoutes } from './routes/auth'
 import { cancelRoutes } from './routes/cancel'
 import { channelsRoutes } from './routes/channels'
 import { resultRoutes } from './routes/result'
@@ -81,8 +83,7 @@ async function serveStatic(pathname: string, request: Request): Promise<Response
   if (ext in MIME_BY_EXT) baseHeaders['content-type'] = MIME_BY_EXT[ext]!
 
   if (compressible && wantsGzip && size >= GZIP_MIN_BYTES) {
-    const stream = file.stream().pipeThrough(new CompressionStream('gzip'))
-    return new Response(stream, {
+    return new Response(await gzipBlob(file), {
       headers: {
         ...baseHeaders,
         'content-encoding': 'gzip',
@@ -106,8 +107,9 @@ async function serveSpaFallback(): Promise<Response | null> {
 }
 
 export const app = new Elysia()
-  .use(cors({ origin: corsOrigin }))
+  .use(cors({ origin: corsOrigin, credentials: true }))
   .get('/health', () => ({ ok: true }))
+  .use(userAuthRoutes)
   .use(channelsRoutes)
   .use(submitRoutes)
   .use(statusRoutes)
