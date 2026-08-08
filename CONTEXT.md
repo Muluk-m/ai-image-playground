@@ -14,6 +14,46 @@
 
 纪律：模态类浮层一律经 Overlay 渲染内容，不得自己写 `fixed inset-0` + portal。定位型浮层（Tooltip、Select 下拉、拖拽预览）不属于 Overlay，另是一类。
 
+## 部署与能力（deployment & capability）
+
+一套代码支撑多种部署，差异用能力表达，不用版本枚举表达。
+
+**能力（capability）**：
+`scope:name` 形状的布尔门禁原语，deny by default，由服务端求值。**唯一允许出现在调用点的门禁判据。**
+_Avoid_: feature flag、开关、feature、权限
+
+**配额（quota）**：
+数值上限。与能力分属两个命名空间——能力回答「有没有这件事」，配额回答「上限是多少」。
+_Avoid_: limit、限额开关
+
+**部署形态（deployment shape）**：
+一组能力取值的实际组合。是**观察结果，不是配置项**——没有任何地方存储或判断「这是哪种形态」。
+_Avoid_: 版本、edition、环境、SKU、双版本
+
+**预设（preset）**：
+展开成一组能力默认值的便利名字，仅在配置解析时存在，**展开后即消失**。不得被任何调用点判断。
+_Avoid_: EDITION、版本枚举、mode
+
+**私有树（private tree）**：
+存在性本身即开关的目录或包。「不在」是默认状态，「在」是例外。
+_Avoid_: ee 目录、企业版代码、付费模块
+
+## 身份（identity）
+
+三种身份互不隶属，不要合并。**设备不属于用户**——认证关闭的部署里只有设备、没有用户。
+
+**用户（user）**：
+有账号的使用者。只在 `accounts:login` 开启的部署里存在。
+_Avoid_: 账号、customer、会员
+
+**设备（device）**：
+匿名使用者的浏览器标识，是匿名配额的归属对象。与用户是两套平行身份，不存在从属关系。
+_Avoid_: 客户端、访客账号
+
+**运营者（operator）**：
+部署与运维这套系统的人，后台的唯一使用者。目前是单一口令，不是用户体系里的一个角色。
+_Avoid_: 管理员、admin 用户、超级用户
+
 ## 测试
 
 - `apps/web` 有 jsdom 环境（按文件 `@vitest-environment jsdom` 启用），组件级冒烟测试的入口；Overlay 是首个有 DOM 锚点的模块。
