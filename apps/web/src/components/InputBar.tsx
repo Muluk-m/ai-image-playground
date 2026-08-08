@@ -10,7 +10,11 @@ import { getModelCapabilities, NO_EDIT_SUPPORT_MESSAGE } from '../lib/channels/p
 import { getPublicChannels } from '../lib/channels/publicChannels'
 import { getSafeBoundingClientRect } from '../lib/domRect'
 import { downloadImagesByIds } from '../lib/downloadImages'
-import { getChangedParams, normalizeParamsForSettings } from '../lib/paramCompatibility'
+import {
+  getChangedParams,
+  getParamCapabilities,
+  normalizeParamsForSettings,
+} from '../lib/paramCompatibility'
 import { computePromptHeight } from '../lib/promptHeight'
 import {
   getAtImageQuery,
@@ -485,7 +489,7 @@ export default function InputBar() {
     [activeProfile],
   )
   const supportsEdit = !modelCaps || modelCaps.has('edit')
-  const moderationDisabled = activeView.apiMode === 'responses'
+  const moderationDisabled = !getParamCapabilities(activeProfile, params.output_format).moderation
   const atImageLimit = inputImages.length >= API_MAX_IMAGES
   // 参考图入口：模型不支持 edit（如 Agnes 之前只声明 generate）则禁用附图，
   // 否则会让用户附了图提交、到上游才报错。达上限同样禁用。

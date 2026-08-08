@@ -114,6 +114,9 @@ export function formatImageRatio(width: number, height: number) {
     }
   }
 
+  // 精确的小项分数已经是最友好的标签；继续寻找别名只会把 5:4 换成等值但更难读的 10:8。
+  if (simplifiedWidth <= 12 && simplifiedHeight <= 12) return simplified
+
   const actualRatio = roundedWidth / roundedHeight
   const squareDelta = Math.abs(actualRatio - 1)
   if (squareDelta <= 0.18) return '≈1:1'
@@ -128,7 +131,8 @@ export function formatImageRatio(width: number, height: number) {
     })
     .sort((a, b) => a.delta - b.delta)[0]
 
-  if (nearest && nearest.delta <= 0.01) return `≈${nearest.label}`
+  // 16 倍数与最大边长钳制会让派生尺寸漂移约 1.6%；此时保留用户选择的常用比例比显示 7:3 更准确。
+  if (nearest && nearest.delta <= 0.02) return `≈${nearest.label}`
 
   const friendlyNearest = Array.from({ length: 12 }, (_, widthIndex) => widthIndex + 1)
     .flatMap((friendlyWidth) =>
@@ -147,6 +151,82 @@ export function formatImageRatio(width: number, height: number) {
     .sort((a, b) => a.score - b.score)[0]
 
   return friendlyNearest && friendlyNearest.delta <= 0.04 ? `≈${friendlyNearest.label}` : simplified
+}
+
+export function sizeRatioLabel(size: string): string {
+  const match = size.match(SIZE_PATTERN)
+  if (!match) return 'auto'
+
+  const label = formatImageRatio(Number(match[1]), Number(match[2])).replace(/^≈/, '')
+  return label || 'auto'
+}
+
+export function sameAspectRatio(a: string, b: string): boolean {
+  const first = a.match(SIZE_PATTERN)
+  const second = b.match(SIZE_PATTERN)
+  if (!first || !second) return false
+
+  const firstWidth = Number(first[1])
+  const firstHeight = Number(first[2])
+  const secondWidth = Number(second[1])
+  const secondHeight = Number(second[2])
+  if (firstWidth <= 0 || firstHeight <= 0 || secondWidth <= 0 || secondHeight <= 0) {
+    return false
+  }
+
+  const firstRatio = firstWidth / firstHeight
+  const secondRatio = secondWidth / secondHeight
+  // 上游会重新量化像素数（如 1024x1824 变成 941x1672），但比例不变；只有构图比例变化才算不一致。
+  return Math.abs(firstRatio - secondRatio) / Math.max(firstRatio, secondRatio) <= 0.03
+}
+
+/** 某些上游会丢弃 `size`，只服从 prompt 中明确写出的构图比例。 */
+export function buildAspectInstruction(size: string): string | null {
+  const match = size.match(SIZE_PATTERN)
+  if (!match) return null
+
+  const width = Number(match[1])
+  const height = Number(match[2])
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    return null
+  }
+
+  if (width === height) return 'Composition: a 1:1 square frame.'
+
+  const ratio = formatImageRatio(width, height).replace(/^≈/, '')
+  return width > height
+    ? `Composition: a wide ${ratio} landscape frame, horizontal orientation.`
+    : `Composition: a tall ${ratio} vertical frame, portrait orientation.`
+}
+
+const ASPECT_RATIOS: Array<{ label: string; value: number }> = [
+  { label: '1:1', value: 1 },
+  { label: '16:9', value: 16 / 9 },
+  { label: '9:16', value: 9 / 16 },
+  { label: '4:3', value: 4 / 3 },
+  { label: '3:4', value: 3 / 4 },
+]
+
+/** Gemini 只接受固定几档 aspectRatio，这里把 OpenAI 的 `宽x高` size 归到最接近的一档。 */
+export function nearestAspectRatio(size: string): string | undefined {
+  const match = size.match(/^(\d+)x(\d+)$/i)
+  if (!match) return undefined
+
+  const width = Number(match[1])
+  const height = Number(match[2])
+  if (!width || !height) return undefined
+
+  const ratio = width / height
+  let best = ASPECT_RATIOS[0]
+  let bestDelta = Number.POSITIVE_INFINITY
+  for (const candidate of ASPECT_RATIOS) {
+    const delta = Math.abs(candidate.value - ratio)
+    if (delta < bestDelta) {
+      best = candidate
+      bestDelta = delta
+    }
+  }
+  return best.label
 }
 
 export function calculateImageSize(tier: SizeTier, ratio: string) {

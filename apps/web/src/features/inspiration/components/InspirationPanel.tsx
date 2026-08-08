@@ -1,7 +1,5 @@
-import { useRef } from 'react'
 import { CloseIcon, SparkleIcon } from '../../../components/icons'
-import { useCloseOnEscape } from '../../../hooks/useCloseOnEscape'
-import { usePreventBackgroundScroll } from '../../../hooks/usePreventBackgroundScroll'
+import Overlay from '../../../components/Overlay'
 import { useInspirationStore } from '../store'
 import InspirationCategoryFilter from './InspirationCategoryFilter'
 import InspirationDetail from './InspirationDetail'
@@ -16,23 +14,11 @@ export default function InspirationPanel() {
   const searchKeyword = useInspirationStore((s) => s.searchKeyword)
   const setSearch = useInspirationStore((s) => s.setSearch)
 
-  const scrollBoundaryRef = useRef<HTMLDivElement>(null)
-
-  useCloseOnEscape(panelOpen, closePanel)
-  usePreventBackgroundScroll(panelOpen, scrollBoundaryRef)
-
   if (!panelOpen) return null
 
   return (
-    <div data-no-drag-select className="fixed inset-0 z-[70] flex items-center justify-center p-4">
-      <div
-        className="absolute inset-0 bg-black/30 backdrop-blur-sm animate-overlay-in"
-        onClick={closePanel}
-      />
-      <div
-        ref={scrollBoundaryRef}
-        className="relative z-10 w-full max-w-6xl rounded-3xl border border-white/50 bg-white/95 shadow-2xl ring-1 ring-black/5 animate-modal-in dark:border-white/[0.08] dark:bg-gray-900/95 dark:ring-white/10 flex h-[90vh] sm:h-[720px] flex-col overflow-hidden"
-      >
+    <Overlay onClose={closePanel} tier="modal">
+      <div className="relative z-10 w-full max-w-6xl rounded-3xl border border-white/50 bg-white/95 shadow-2xl ring-1 ring-black/5 animate-modal-in dark:border-white/[0.08] dark:bg-gray-900/95 dark:ring-white/10 flex h-[90vh] sm:h-[720px] flex-col overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between gap-3 shrink-0 p-5 border-b border-gray-100 dark:border-white/[0.08]">
           <h3 className="text-lg font-bold text-gray-800 dark:text-gray-100 flex items-center gap-2 shrink-0">
@@ -99,6 +85,6 @@ export default function InspirationPanel() {
           {detailItemId && <InspirationDetail />}
         </div>
       </div>
-    </div>
+    </Overlay>
   )
 }

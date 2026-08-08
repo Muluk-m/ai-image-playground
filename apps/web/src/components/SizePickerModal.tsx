@@ -1,6 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { usePreventBackgroundScroll } from '../hooks/usePreventBackgroundScroll'
-import { calculateImageSize, normalizeImageSize, parseRatio, type SizeTier } from '../lib/size'
+import {
+  calculateImageSize,
+  normalizeImageSize,
+  parseRatio,
+  type SizeTier,
+  sameAspectRatio,
+  sizeRatioLabel,
+} from '../lib/size'
+import Overlay from './Overlay'
 import ViewportTooltip from './ViewportTooltip'
 
 const TIERS: SizeTier[] = ['1K', '2K']
@@ -22,6 +29,7 @@ interface Props {
   onSelect: (size: string) => void
   onClose: () => void
   allowAuto?: boolean
+  ratioOnly?: boolean
 }
 
 type Mode = 'auto' | 'ratio' | 'resolution'
@@ -32,7 +40,17 @@ function parseSize(size: string) {
   return { width: match[1], height: match[2] }
 }
 
-function findPresetForSize(size: string) {
+function findPresetForSize(size: string, ratioOnly = false) {
+  if (ratioOnly) {
+    for (const ratio of RATIOS) {
+      const presetSize = calculateImageSize('1K', ratio.value)
+      if (presetSize && sameAspectRatio(size, presetSize)) {
+        return { tier: '1K' as const, ratio: ratio.value }
+      }
+    }
+    return null
+  }
+
   const normalized = normalizeImageSize(size)
   for (const tier of TIERS) {
     for (const ratio of RATIOS) {
@@ -49,14 +67,14 @@ export default function SizePickerModal({
   onSelect,
   onClose,
   allowAuto = true,
+  ratioOnly = false,
 }: Props) {
-  usePreventBackgroundScroll(true)
-
-  const currentPreset = findPresetForSize(currentSize)
+  const currentPreset = findPresetForSize(currentSize, ratioOnly)
   const currentParsedSize = parseSize(currentSize)
   const [mode, setMode] = useState<Mode>(() => {
     if (!currentSize || currentSize === 'auto') return allowAuto ? 'auto' : 'ratio'
     if (currentPreset) return 'ratio'
+    if (ratioOnly) return 'ratio'
     return 'resolution'
   })
 
@@ -94,7 +112,7 @@ export default function SizePickerModal({
     if (mode === 'auto') return 'auto'
 
     if (mode === 'ratio') {
-      const size = calculateImageSize(tier, activeRatio)
+      const size = calculateImageSize(ratioOnly ? '1K' : tier, activeRatio)
       return size ? normalizeImageSize(size) : ''
     }
 
@@ -108,9 +126,10 @@ export default function SizePickerModal({
     }
 
     return ''
-  }, [mode, tier, activeRatio, customW, customH])
+  }, [mode, ratioOnly, tier, activeRatio, customW, customH])
 
   const isClamped = useMemo(() => {
+    if (ratioOnly) return false
     if (!previewSize || previewSize === 'auto') return false
     if (mode === 'ratio' && ratio === 'custom') return customRatioClamped
     if (mode === 'resolution') {
@@ -121,7 +140,7 @@ export default function SizePickerModal({
       }
     }
     return false
-  }, [mode, ratio, customRatioClamped, customW, customH, previewSize])
+  }, [ratioOnly, mode, ratio, customRatioClamped, customW, customH, previewSize])
 
   const showHint = () => setHintVisible(true)
   const hideHint = () => {
@@ -156,23 +175,15 @@ export default function SizePickerModal({
   }
 
   return (
-    <div
-      data-no-drag-select
-      className="fixed inset-0 z-[70] flex items-center justify-center p-4"
-      onClick={onClose}
-    >
-      <div className="absolute inset-0 bg-black/30 backdrop-blur-sm animate-overlay-in" />
-      <div
-        className="relative z-10 w-full max-w-md rounded-3xl border border-white/50 bg-white/95 p-5 shadow-2xl ring-1 ring-black/5 animate-modal-in dark:border-white/[0.08] dark:bg-gray-900/95 dark:ring-white/10"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <Overlay onClose={onClose} tier="modal">
+      <div className="relative z-10 max-h-[calc(100vh-2rem)] w-full max-w-md overflow-y-auto rounded-3xl border border-white/50 bg-white/95 p-5 shadow-2xl ring-1 ring-black/5 animate-modal-in dark:border-white/[0.08] dark:bg-gray-900/95 dark:ring-white/10">
         <div className="mb-5 flex items-start justify-between gap-4">
           <div>
             <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100">
-              设置图像尺寸
+              {ratioOnly ? '设置画面比例' : '设置图像尺寸'}
             </h3>
             <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
-              当前：{currentSize || 'auto'}
+              当前：{ratioOnly ? sizeRatioLabel(currentSize) : currentSize || 'auto'}
             </p>
           </div>
           <button
@@ -192,28 +203,32 @@ export default function SizePickerModal({
         </div>
 
         <div className="space-y-6">
-          <div className="flex rounded-xl bg-gray-100/80 p-1 dark:bg-white/[0.04]">
-            {allowAuto && (
+          {(!ratioOnly || allowAuto) && (
+            <div className="flex rounded-xl bg-gray-100/80 p-1 dark:bg-white/[0.04]">
+              {allowAuto && (
+                <button
+                  onClick={() => setMode('auto')}
+                  className={`flex-1 rounded-lg py-1.5 text-sm font-medium transition ${mode === 'auto' ? 'bg-white text-gray-800 shadow-sm dark:bg-gray-700 dark:text-gray-100' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}
+                >
+                  自动
+                </button>
+              )}
               <button
-                onClick={() => setMode('auto')}
-                className={`flex-1 rounded-lg py-1.5 text-sm font-medium transition ${mode === 'auto' ? 'bg-white text-gray-800 shadow-sm dark:bg-gray-700 dark:text-gray-100' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}
+                onClick={() => setMode('ratio')}
+                className={`flex-1 rounded-lg py-1.5 text-sm font-medium transition ${mode === 'ratio' ? 'bg-white text-gray-800 shadow-sm dark:bg-gray-700 dark:text-gray-100' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}
               >
-                自动
+                按比例
               </button>
-            )}
-            <button
-              onClick={() => setMode('ratio')}
-              className={`flex-1 rounded-lg py-1.5 text-sm font-medium transition ${mode === 'ratio' ? 'bg-white text-gray-800 shadow-sm dark:bg-gray-700 dark:text-gray-100' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}
-            >
-              按比例
-            </button>
-            <button
-              onClick={() => setMode('resolution')}
-              className={`flex-1 rounded-lg py-1.5 text-sm font-medium transition ${mode === 'resolution' ? 'bg-white text-gray-800 shadow-sm dark:bg-gray-700 dark:text-gray-100' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}
-            >
-              自定义宽高
-            </button>
-          </div>
+              {!ratioOnly && (
+                <button
+                  onClick={() => setMode('resolution')}
+                  className={`flex-1 rounded-lg py-1.5 text-sm font-medium transition ${mode === 'resolution' ? 'bg-white text-gray-800 shadow-sm dark:bg-gray-700 dark:text-gray-100' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}
+                >
+                  自定义宽高
+                </button>
+              )}
+            </div>
+          )}
 
           <div className="h-[320px] overflow-y-auto scrollbar-thin scrollbar-thumb-gray-200 dark:scrollbar-thumb-white/10 pr-1 -mr-1">
             {mode === 'auto' && (
@@ -241,22 +256,24 @@ export default function SizePickerModal({
 
             {mode === 'ratio' && (
               <div className="space-y-5 animate-fade-in">
-                <section>
-                  <div className="mb-2 text-xs font-medium text-gray-400 dark:text-gray-500">
-                    基准分辨率
-                  </div>
-                  <div className="grid grid-cols-3 gap-2">
-                    {TIERS.map((item) => (
-                      <button
-                        key={item}
-                        className={buttonClass(tier === item)}
-                        onClick={() => setTier(item)}
-                      >
-                        {item}
-                      </button>
-                    ))}
-                  </div>
-                </section>
+                {!ratioOnly && (
+                  <section>
+                    <div className="mb-2 text-xs font-medium text-gray-400 dark:text-gray-500">
+                      基准分辨率
+                    </div>
+                    <div className="grid grid-cols-3 gap-2">
+                      {TIERS.map((item) => (
+                        <button
+                          key={item}
+                          className={buttonClass(tier === item)}
+                          onClick={() => setTier(item)}
+                        >
+                          {item}
+                        </button>
+                      ))}
+                    </div>
+                  </section>
+                )}
 
                 <section>
                   <div className="mb-2 text-xs font-medium text-gray-400 dark:text-gray-500">
@@ -298,10 +315,16 @@ export default function SizePickerModal({
                     />
                   </label>
                 )}
+
+                {ratioOnly && (
+                  <p className="text-xs text-gray-400 dark:text-gray-500">
+                    最终像素数量由模型决定，仅保证所选宽高比例。
+                  </p>
+                )}
               </div>
             )}
 
-            {mode === 'resolution' && (
+            {!ratioOnly && mode === 'resolution' && (
               <div className="space-y-5 animate-fade-in">
                 <section>
                   <div className="mb-4 text-xs font-medium text-gray-400 dark:text-gray-500">
@@ -375,7 +398,7 @@ export default function SizePickerModal({
             <div className="text-xs text-gray-400 dark:text-gray-500">将使用</div>
             <div className="mt-1 flex items-center gap-2">
               <span className="font-mono text-lg font-semibold text-gray-800 dark:text-gray-100">
-                {previewSize || '尺寸无效'}
+                {previewSize ? (ratioOnly ? sizeRatioLabel(previewSize) : previewSize) : '尺寸无效'}
               </span>
               {isClamped && (
                 <div
@@ -428,6 +451,6 @@ export default function SizePickerModal({
           </button>
         </div>
       </div>
-    </div>
+    </Overlay>
   )
 }

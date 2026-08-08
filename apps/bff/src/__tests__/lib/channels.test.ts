@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test'
+import { CHANNEL_CAPABILITIES } from '@image-playground/shared'
 import {
   _setChannelsForTesting,
   ChannelsLoadError,
@@ -178,6 +179,25 @@ describe('parseChannelsConfig', () => {
         ENV_WITH_SECRETS,
       ),
     ).toThrow(/capability/)
+  })
+
+  // 回归 f4c79ca：shared 加了 'size'，BFF 本地那份白名单没跟上，initChannels 直接抛错、
+  // 服务被 launchd 反复重启。输入从 tuple 派生，以后新增 token 自动被这条用例覆盖。
+  it('accepts a model declaring every capability in CHANNEL_CAPABILITIES', () => {
+    const result = parseChannelsConfig(
+      {
+        channels: [
+          {
+            ...SAMPLE_CHANNEL,
+            models: [{ id: 'm', label: 'M', capabilities: [...CHANNEL_CAPABILITIES] }],
+          },
+        ],
+      },
+      ENV_WITH_SECRETS,
+    )
+    expect(result.channels).toHaveLength(1)
+    const [ch] = result.channels
+    expect(ch.models[0].capabilities).toEqual([...CHANNEL_CAPABILITIES])
   })
 
   it('rejects empty models array', () => {

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import ViewportTooltip from '../components/ViewportTooltip'
 import type { TaskParams, TaskRecord } from '../types'
+import { sameAspectRatio } from './size'
 
 type ParamKey = keyof TaskParams
 
@@ -81,7 +82,10 @@ export function getParamDisplay(
   const hasActualValue = actualValue !== undefined && actualValue !== null
   const displayValue = hasActualValue ? actualValue : requestedValue
   const isMismatch =
-    hasActualValue && requestedValue !== 'auto' && String(actualValue) !== String(requestedValue)
+    hasActualValue &&
+    requestedValue !== 'auto' &&
+    String(actualValue) !== String(requestedValue) &&
+    !(paramKey === 'size' && sameAspectRatio(String(requestedValue), String(actualValue)))
 
   return {
     displayValue: String(displayValue),

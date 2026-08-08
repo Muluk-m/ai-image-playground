@@ -12,6 +12,8 @@ import {
   type CallApiResult,
 } from './imageApiShared'
 import { callOpenAICompatibleImageApi } from './openaiCompatibleImageApi'
+import { getParamCapabilities, normalizeParamsForSettings } from './paramCompatibility'
+import { buildAspectInstruction } from './size'
 
 export { normalizeBaseUrl } from './devProxy'
 export type { CallApiOptions, CallApiResult } from './imageApiShared'
@@ -66,7 +68,23 @@ async function applySoftMaskFallback(opts: CallApiOptions): Promise<CallApiOptio
   }
 }
 
+/**
+ * 参数合法性的唯一强制执行点：任何提交路径（工作台 / canvas / 重试 / 恢复）到达
+ * adapter 之前都过这个归一化，调用方不需要自觉。与 soft-mask 降级、防改写 guard
+ * 同在分发层，同一模式。归一化幂等，上游已归一过的参数不受影响。
+ */
+function withNormalizedParams(opts: CallApiOptions): CallApiOptions {
+  return {
+    ...opts,
+    params: normalizeParamsForSettings(opts.params, opts.settings, {
+      hasInputImages: opts.inputImageDataUrls.length > 0,
+    }),
+  }
+}
+
 export async function callImageApi(opts: CallApiOptions): Promise<CallApiResult> {
+  opts = withNormalizedParams(opts)
+
   const profile = getActiveApiProfile(opts.settings)
 
   // 不支持原生 mask 的模型：把遮罩降级成「原图 + 高亮标注图 + prompt 指令」。
@@ -80,6 +98,15 @@ export async function callImageApi(opts: CallApiOptions): Promise<CallApiResult>
   // Gemini 没有 prompt rewriting 概念（UI 也不展示该开关），不注入。
   if (opts.params.no_rewrite && clientProfileToApiProfile(profile).provider !== 'gemini') {
     opts = { ...opts, prompt: applyPromptRewriteGuard(opts.prompt) }
+  }
+
+  // sub2api 中继的 Codex 图片路径会丢弃 `size`，但模型会服从 prompt 中明确的构图；
+  // 生成与编辑路径均已验证。
+  if (!getParamCapabilities(profile, opts.params.output_format).size) {
+    const instruction = buildAspectInstruction(opts.params.size)
+    if (instruction) {
+      opts = { ...opts, prompt: `${opts.prompt}\n\n${instruction}` }
+    }
   }
 
   if (profile.source === 'builtin-edge') {
@@ -119,6 +146,8 @@ export async function resumeQueueImageApi(
   opts: CallApiOptions,
   requestId: string,
 ): Promise<CallApiResult> {
+  opts = withNormalizedParams(opts)
+
   const profile = getActiveApiProfile(opts.settings)
   if (profile.source !== 'builtin-edge') {
     throw new Error('恢复 BFF queue 任务时未找到对应内置 channel profile')

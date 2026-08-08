@@ -62,6 +62,35 @@ describe('callUpstream OpenAI route', () => {
     expect(parsed).toMatchObject({ model: 'gpt-image-2', prompt: 'a cat', size: '1024x1024' })
   })
 
+  it('forwards OpenAI output controls in the generations JSON body', async () => {
+    await callUpstream({
+      provider: 'openai-compat',
+      model: 'gpt-image-2',
+      request: {
+        prompt: 'a cat',
+        output_format: 'webp',
+        moderation: 'low',
+        output_compression: 75,
+      },
+    })
+    const parsed = JSON.parse(calls[0]!.init?.body as string)
+    expect(parsed).toMatchObject({
+      output_format: 'webp',
+      moderation: 'low',
+      output_compression: 75,
+    })
+  })
+
+  it('preserves output_compression=0 in the generations JSON body', async () => {
+    await callUpstream({
+      provider: 'openai-compat',
+      model: 'gpt-image-2',
+      request: { prompt: 'a cat', output_format: 'webp', output_compression: 0 },
+    })
+    const parsed = JSON.parse(calls[0]!.init?.body as string)
+    expect(parsed.output_compression).toBe(0)
+  })
+
   it('with input_images: hits /v1/images/edits with multipart FormData containing image[]', async () => {
     await callUpstream({
       provider: 'openai-compat',
@@ -87,6 +116,24 @@ describe('callUpstream OpenAI route', () => {
     const file = images[0]
     expect(file).toBeInstanceOf(File)
     expect((file as File).size).toBeGreaterThan(0)
+  })
+
+  it('forwards OpenAI output controls in the edits multipart body', async () => {
+    await callUpstream({
+      provider: 'openai-compat',
+      model: 'gpt-image-2',
+      request: {
+        prompt: 'edit',
+        input_images: [TINY_PNG_DATA_URL],
+        output_format: 'jpeg',
+        moderation: 'auto',
+        output_compression: 0,
+      },
+    })
+    const form = calls[0]!.init?.body as UndiciFormData
+    expect(form.get('output_format')).toBe('jpeg')
+    expect(form.get('moderation')).toBe('auto')
+    expect(form.get('output_compression')).toBe('0')
   })
 
   it('with multiple input_images: appends one image[] entry per data URL', async () => {
@@ -267,6 +314,49 @@ describe('callUpstream direct channel 路由（DIRECT_CHANNEL_IDS）', () => {
     expect(headers.get('x-api-key')).toBe('test-key')
     expect(headers.get('authorization')).toBeNull()
   })
+
+  it('gemini 请求透传 imageConfig 与 thinkingConfig', async () => {
+    await callUpstream({
+      provider: 'gemini',
+      model: 'gemini-3.1-flash-image',
+      request: {
+        prompt: 'a cat',
+        aspect_ratio: '16:9',
+        image_size: '2K',
+        thinking_level: 'high',
+      },
+    })
+    const body = JSON.parse(calls[0]!.init?.body as string)
+    expect(body.generationConfig).toMatchObject({
+      imageConfig: { aspectRatio: '16:9', imageSize: '2K' },
+      thinkingConfig: { thinkingLevel: 'high' },
+    })
+  })
+
+  it('gemini extra.generationConfig 保持最终覆盖优先级', async () => {
+    await callUpstream({
+      provider: 'gemini',
+      model: 'gemini-3.1-flash-image',
+      request: {
+        prompt: 'a cat',
+        aspect_ratio: '16:9',
+        image_size: '2K',
+        thinking_level: 'high',
+        extra: {
+          generationConfig: {
+            imageConfig: { aspectRatio: '1:1', imageSize: '512' },
+            thinkingConfig: { thinkingLevel: 'minimal' },
+          },
+        },
+      },
+    })
+    const body = JSON.parse(calls[0]!.init?.body as string)
+    expect(body.generationConfig).toMatchObject({
+      responseModalities: ['IMAGE'],
+      imageConfig: { aspectRatio: '1:1', imageSize: '512' },
+      thinkingConfig: { thinkingLevel: 'minimal' },
+    })
+  })
 })
 
 describe('callUpstream direct channel 图生图（Agnes 风格 generations JSON）', () => {
@@ -313,7 +403,12 @@ describe('callUpstream direct channel 图生图（Agnes 风格 generations JSON�
     await callUpstream({
       provider: 'openai-compat',
       model: 'agnes-image-2.1-flash',
-      request: { prompt: 'make it blue', size: '1024x1024', input_images: [TINY_PNG_DATA_URL] },
+      request: {
+        prompt: 'make it blue',
+        size: '1024x1024',
+        input_images: [TINY_PNG_DATA_URL],
+        output_format: 'webp',
+      },
     })
     expect(calls).toHaveLength(1)
     expect(calls[0]!.url).toBe('https://apihub.agnes-ai.com/v1/images/generations')
@@ -322,6 +417,7 @@ describe('callUpstream direct channel 图生图（Agnes 风格 generations JSON�
     // 上游会静默忽略 top-level image / quality / n，确保没传
     expect(body.image).toBeUndefined()
     expect(body.quality).toBeUndefined()
+    expect(body.output_format).toBeUndefined()
     expect(body.n).toBeUndefined()
   })
 
