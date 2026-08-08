@@ -117,13 +117,17 @@ docker run -p 37377:37377 \
 | 自用域名 | `false` | 保持现有匿名工作台，不出现登录页 |
 | 经营域名 | `true` | 必须登录；任务和浏览器本地数据按账号隔离 |
 
-建议两个实例使用不同的 SQLite volume，避免自用任务与经营账号混在一起：
+建议两个实例使用不同的 SQLite volume，避免自用任务与经营账号混在一起。两个 BFF 都还需要注入
+各自 `channels.json` 里 `auth.secretRef` 指向的上游密钥（默认是 `OPENAI_API_KEY`、
+`GEMINI_API_KEY` 等）——缺密钥启动时只 warn，等到真正请求该 channel 时才失败：
 
 ```bash
 # 自用实例
 docker volume create image-personal-data
 docker run -d --name image-personal -p 37377:37377 \
   -e AUTH_ENABLED=false \
+  -e OPENAI_API_KEY=sk-... \
+  -e GEMINI_API_KEY=... \
   -e DATABASE_URL=/data/image-playground.sqlite \
   -v image-personal-data:/data \
   ai-image-playground
@@ -133,6 +137,8 @@ docker network create image-commercial-net
 docker volume create image-commercial-data
 docker run -d --name image-commercial --network image-commercial-net -p 37379:37377 \
   -e AUTH_ENABLED=true \
+  -e OPENAI_API_KEY=sk-... \
+  -e GEMINI_API_KEY=... \
   -e DATABASE_URL=/data/image-playground.sqlite \
   -e CORS_ALLOWED_ORIGINS=https://你的经营域名 \
   -v image-commercial-data:/data \

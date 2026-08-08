@@ -117,8 +117,11 @@ For two independent Web+BFF deployments, configure the switch per instance:
 | Personal domain | `false` | Existing anonymous workbench; no login screen |
 | Commercial domain | `true` | Login required; tasks and browser-local data are isolated per account |
 
-Use separate SQLite volumes for the two instances. The commercial Admin service must share
-the commercial BFF's SQLite volume on the same Docker host:
+Use separate SQLite volumes for the two instances. Each BFF also needs the provider secrets
+named by the `auth.secretRef` fields in its `channels.json` (`OPENAI_API_KEY`, `GEMINI_API_KEY`,
+… by default) — a missing secret only warns at startup, and requests to that channel fail
+later. The commercial Admin service must share the commercial BFF's SQLite volume on the same
+Docker host:
 
 ```bash
 # Commercial Web+BFF
@@ -126,6 +129,8 @@ docker network create image-commercial-net
 docker volume create image-commercial-data
 docker run -d --name image-commercial --network image-commercial-net -p 37379:37377 \
   -e AUTH_ENABLED=true \
+  -e OPENAI_API_KEY=sk-... \
+  -e GEMINI_API_KEY=... \
   -e DATABASE_URL=/data/image-playground.sqlite \
   -e CORS_ALLOWED_ORIGINS=https://commercial.example.com \
   -v image-commercial-data:/data \
