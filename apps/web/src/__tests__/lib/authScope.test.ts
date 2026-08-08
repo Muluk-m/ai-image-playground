@@ -20,9 +20,19 @@ describe('auth-scoped browser storage', () => {
     expect(scopedStorageName('image-playground')).toBe('image-playground:user-user-b')
   })
 
-  it('sanitizes ids before using them in a browser storage name', () => {
+  it('escapes ids before using them in a browser storage name', () => {
     setClientStorageScope('account/../../other')
-    expect(scopedStorageName('db')).toBe('db:user-account_______other')
+    expect(scopedStorageName('db')).toBe('db:user-account%2F..%2F..%2Fother')
+  })
+
+  it('never maps two different ids onto the same namespace', () => {
+    // 编码必须是单射的：有损替换会让 `a/b` 和 `a_b` 落进同一个命名空间，
+    // 两个账号就会共用 localStorage 设置、IndexedDB 图片与 BYOK 配置。
+    setClientStorageScope('a/b')
+    const slashed = scopedStorageName('db')
+    setClientStorageScope('a_b')
+    const underscored = scopedStorageName('db')
+    expect(slashed).not.toBe(underscored)
   })
 
   it('reads and writes only the active user namespace', () => {

@@ -8,7 +8,10 @@ let currentScope = ANONYMOUS_SCOPE
  * 配置；匿名部署保留旧 key/DB 名，做到无迁移兼容。
  */
 export function setClientStorageScope(userId: string | null): void {
-  currentScope = userId ? `user-${userId.replace(/[^a-zA-Z0-9_-]/g, '_')}` : ANONYMOUS_SCOPE
+  // 用 encodeURIComponent 而不是字符替换：替换是有损的，`a/b` 与 `a_b` 会映射到
+  // 同一个命名空间，两个账号就会共用 localStorage 设置、IndexedDB 图片与 BYOK
+  // 配置。当前 id 是服务端 randomUUID，撞不上，但编码是单射的，不留这个坑。
+  currentScope = userId ? `user-${encodeURIComponent(userId)}` : ANONYMOUS_SCOPE
 }
 
 export function scopedStorageName(baseName: string): string {
