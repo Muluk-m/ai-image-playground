@@ -1,20 +1,23 @@
 import type { ResultResponse, TaskErrorType } from '@image-playground/shared'
-import { eq } from 'drizzle-orm'
 import { Elysia, t } from 'elysia'
+import { config } from '../config'
 import { db, schema } from '../db/client'
 import { extractMeta, resolveImageBytesRef } from '../lib/extractImages'
 import { jsonResponse } from '../lib/gzipResponse'
 import { asQueueProvider } from '../lib/queueProvider'
+import { taskAccessWhere } from '../lib/task-access'
+import { requireUser } from '../lib/user-auth'
 
 export const resultRoutes = new Elysia()
+  .use(requireUser)
   // 1) 元信息端点：返回图片列表 + actual_params + raw_image_urls；不含像素字节
   .get(
     '/v1/queue/requests/:id',
-    async ({ params, status, request }) => {
+    async ({ params, status, request, authUser }) => {
       const [task] = await db
         .select()
         .from(schema.tasks)
-        .where(eq(schema.tasks.id, params.id))
+        .where(taskAccessWhere(params.id, authUser?.id ?? null))
         .limit(1)
 
       if (!task) return status(404, { error: 'task_not_found' })
@@ -53,11 +56,11 @@ export const resultRoutes = new Elysia()
   // 2) 二进制端点：按 index 返回原始像素字节，跳过 base64 + JSON 双重开销
   .get(
     '/v1/queue/requests/:id/image/:index',
-    async ({ params, status }) => {
+    async ({ params, status, authUser }) => {
       const [task] = await db
         .select()
         .from(schema.tasks)
-        .where(eq(schema.tasks.id, params.id))
+        .where(taskAccessWhere(params.id, authUser?.id ?? null))
         .limit(1)
       if (!task || task.status !== 'completed') return status(404, { error: 'not_ready' })
       const provider = asQueueProvider(task.provider)
@@ -71,7 +74,9 @@ export const resultRoutes = new Elysia()
       // request_id + index 是稳定 key，结果不可变 → 永久缓存
       const headers = {
         'content-type': ref.mime,
-        'cache-control': 'public, max-age=31536000, immutable',
+        'cache-control': `${
+          config.auth.enabled ? 'private' : 'public'
+        }, max-age=31536000, immutable`,
       } as const
 
       if (ref.kind === 'b64') {

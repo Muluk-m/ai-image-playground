@@ -8,6 +8,7 @@ import {
 
 const VALID_CONFIG: RuntimeConfig = {
   bff: { enabled: true, baseUrl: 'https://bff.example.com' },
+  auth: { enabled: true },
   defaults: {
     openaiBaseUrl: 'https://api.example.com/v1',
     geminiBaseUrl: 'https://gemini.example.com/v1beta',
@@ -74,6 +75,23 @@ describe('loadRuntimeConfig', () => {
       }),
     )
     expect(result.bff.baseUrl).toBe('https://bff.example.com')
+  })
+
+  it('defaults missing legacy auth config to disabled', async () => {
+    const { auth: _auth, ...legacyConfig } = VALID_CONFIG
+    void _auth
+    const result = await loadRuntimeConfig(mockFetch(200, legacyConfig))
+    expect(result.auth).toEqual({ enabled: false })
+  })
+
+  it('rejects non-boolean auth.enabled', async () => {
+    const result = await loadRuntimeConfig(
+      mockFetch(200, {
+        ...VALID_CONFIG,
+        auth: { enabled: 'true' },
+      }),
+    )
+    expect(result).toEqual(BAKED_DEFAULTS)
   })
 
   it('persists last loaded config across multiple calls', async () => {

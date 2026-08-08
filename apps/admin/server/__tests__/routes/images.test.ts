@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test'
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test'
 import { unlinkSync } from 'node:fs'
 
 const TEST_DB = './artifacts/test-admin-images.sqlite'
@@ -16,7 +16,7 @@ const fakeImageBytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47]) // PNG magic
 process.env.ADMIN_PASSWORD = 'test-pass-1234'
 process.env.ADMIN_COOKIE_SECRET = 'test-cookie-secret-32-bytes-min!!'
 process.env.DATABASE_URL = TEST_DB
-process.env.BFF_INTERNAL_URL = `http://localhost:${mockBffPort}`
+process.env.BFF_INTERNAL_URL = `http://127.0.0.1:${mockBffPort}`
 process.env.PORT = '0'
 
 const { runMigrations, createDb } = await import('@image-playground/db')
@@ -75,6 +75,11 @@ beforeAll(() => {
       return new Response('not found', { status: 404 })
     },
   })
+})
+
+beforeEach(() => {
+  // bun:test 会在同一进程加载多个 test 文件；其它文件会改同名 env。
+  process.env.BFF_INTERNAL_URL = `http://127.0.0.1:${mockBffPort}`
 })
 
 afterAll(() => {

@@ -7,6 +7,7 @@
  */
 export interface RuntimeConfig {
   bff: RuntimeBffConfig
+  auth: RuntimeAuthConfig
   defaults: RuntimeDefaults
 }
 
@@ -18,6 +19,14 @@ export interface RuntimeBffConfig {
    * 跨域部署（如 cf tunnel）时填具体 origin（不带尾斜杠）。
    */
   baseUrl: string
+}
+
+export interface RuntimeAuthConfig {
+  /**
+   * 是否要求经营站用户登录。只控制前端门禁；真正的安全边界是 BFF 自己的
+   * AUTH_ENABLED，不能依赖浏览器传来的这个值。
+   */
+  enabled: boolean
 }
 
 export interface RuntimeDefaults {
@@ -34,6 +43,7 @@ export interface RuntimeDefaults {
  */
 export const BAKED_DEFAULTS: RuntimeConfig = Object.freeze({
   bff: Object.freeze({ enabled: false, baseUrl: '' }) as RuntimeBffConfig,
+  auth: Object.freeze({ enabled: false }) as RuntimeAuthConfig,
   defaults: Object.freeze({
     openaiBaseUrl: 'https://api.openai.com/v1',
     geminiBaseUrl: 'https://generativelanguage.googleapis.com/v1beta',
@@ -57,6 +67,14 @@ export function parseRuntimeConfig(input: unknown): RuntimeConfig {
   if (typeof bffRaw.baseUrl !== 'string')
     throw new RuntimeConfigParseError('bff.baseUrl must be string')
 
+  // 兼容认证功能上线前 operator 手写的 runtime-config.json：缺 auth 等价于
+  // 显式关闭。字段一旦存在则严格校验，避免字符串 "false" 被当 truthy。
+  const authRaw = input.auth
+  if (authRaw !== undefined && !isObject(authRaw))
+    throw new RuntimeConfigParseError('auth must be an object')
+  if (isObject(authRaw) && typeof authRaw.enabled !== 'boolean')
+    throw new RuntimeConfigParseError('auth.enabled must be boolean')
+
   const defaultsRaw = input.defaults
   if (!isObject(defaultsRaw)) throw new RuntimeConfigParseError('defaults must be an object')
   for (const key of ['openaiBaseUrl', 'geminiBaseUrl', 'inspirationManifestUrl'] as const) {
@@ -68,6 +86,9 @@ export function parseRuntimeConfig(input: unknown): RuntimeConfig {
     bff: {
       enabled: bffRaw.enabled,
       baseUrl: bffRaw.baseUrl.replace(/\/+$/, ''),
+    },
+    auth: {
+      enabled: isObject(authRaw) ? (authRaw.enabled as boolean) : false,
     },
     defaults: {
       openaiBaseUrl: defaultsRaw.openaiBaseUrl as string,

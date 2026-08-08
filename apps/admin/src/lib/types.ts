@@ -77,3 +77,21 @@ export interface TaskDetail extends TaskListItem {
 // 配额上限（design.md 默认值，前端展示 "12 / 50" 用）；后续如改成 server 返
 // 当日配额上限，把这里移到 response 字段。
 export const DAILY_QUOTA_LIMIT = 80
+
+export type UserStatus = 'active' | 'disabled'
+
+export interface AdminUserRow {
+  id: string
+  username: string
+  status: UserStatus
+  created_at: number
+  updated_at: number
+  last_login_at: number | null
+  active_sessions: number
+  task_count: number
+}
+
+export interface ListUsersResult {
+  users: AdminUserRow[]
+  truncated: boolean
+}

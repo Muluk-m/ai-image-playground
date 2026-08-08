@@ -1,9 +1,10 @@
 import type { StatusResponse, TaskErrorType } from '@image-playground/shared'
-import { eq } from 'drizzle-orm'
 import { Elysia, t } from 'elysia'
 import { db, schema } from '../db/client'
 import { extractMeta } from '../lib/extractImages'
 import { asQueueProvider } from '../lib/queueProvider'
+import { taskAccessWhere } from '../lib/task-access'
+import { requireUser } from '../lib/user-auth'
 
 /**
  * GET /v1/queue/requests/:id/status
@@ -12,13 +13,13 @@ import { asQueueProvider } from '../lib/queueProvider'
  * 同一份响应。前端 poll 拿到 completed 就直接拿到图列表，省一次 GET /requests/:id。
  * 二进制还是 GET /image/{index} 单拉，不放进 JSON。
  */
-export const statusRoutes = new Elysia().get(
+export const statusRoutes = new Elysia().use(requireUser).get(
   '/v1/queue/requests/:id/status',
-  async ({ params, status }) => {
+  async ({ params, status, authUser }) => {
     const [task] = await db
       .select()
       .from(schema.tasks)
-      .where(eq(schema.tasks.id, params.id))
+      .where(taskAccessWhere(params.id, authUser?.id ?? null))
       .limit(1)
 
     if (!task) return status(404, { error: 'task_not_found' })

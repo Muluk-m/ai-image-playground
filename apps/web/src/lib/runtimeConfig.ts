@@ -17,9 +17,19 @@ let cached: RuntimeConfig = BAKED_DEFAULTS
 
 const RUNTIME_CONFIG_PATH = './runtime-config.json'
 
+/**
+ * main.tsx 在 render 之前 top-level await 这个函数，所以它必须保证会结束：
+ * 卡住的连接（tunnel / 代理挂起、不返回也不断开）会让 React 永远不 mount，
+ * 用户看到的是永久白屏。超时后退到 BAKED_DEFAULTS，至少能进 BYOK 形态。
+ */
+const RUNTIME_CONFIG_TIMEOUT_MS = 5000
+
 export async function loadRuntimeConfig(fetcher: Fetcher = fetch): Promise<RuntimeConfig> {
   try {
-    const res = await fetcher(RUNTIME_CONFIG_PATH, { cache: 'no-store' })
+    const res = await fetcher(RUNTIME_CONFIG_PATH, {
+      cache: 'no-store',
+      signal: AbortSignal.timeout(RUNTIME_CONFIG_TIMEOUT_MS),
+    })
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
     cached = parseRuntimeConfig(await res.json())
   } catch (err) {

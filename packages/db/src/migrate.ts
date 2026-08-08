@@ -11,6 +11,31 @@ import { dirname, isAbsolute, resolve } from 'node:path'
 // 避免老库走到「CREATE TABLE IF NOT EXISTS 跳过 → UNIQUE INDEX 引用不存在的列」
 // 的失败路径。
 const DDL_BASE = `
+  CREATE TABLE IF NOT EXISTS users (
+    id              TEXT PRIMARY KEY,
+    username        TEXT NOT NULL,
+    password_hash   TEXT NOT NULL,
+    status          TEXT NOT NULL DEFAULT 'active'
+                    CHECK (status IN ('active', 'disabled')),
+    created_at      INTEGER NOT NULL,
+    updated_at      INTEGER NOT NULL,
+    last_login_at   INTEGER
+  );
+
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users(username);
+
+  CREATE TABLE IF NOT EXISTS user_sessions (
+    token_hash  TEXT PRIMARY KEY,
+    user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at  INTEGER NOT NULL,
+    expires_at  INTEGER NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_user_sessions_user_id
+    ON user_sessions(user_id);
+  CREATE INDEX IF NOT EXISTS idx_user_sessions_expires_at
+    ON user_sessions(expires_at);
+
   CREATE TABLE IF NOT EXISTS tasks (
     id                 TEXT PRIMARY KEY,
     provider           TEXT NOT NULL,
@@ -23,6 +48,7 @@ const DDL_BASE = `
     submitted_at       INTEGER NOT NULL,
     started_at         INTEGER,
     completed_at       INTEGER,
+    user_id             TEXT REFERENCES users(id),
     client_request_id  TEXT,
     attempt_count      INTEGER NOT NULL DEFAULT 0,
     next_retry_at      INTEGER
@@ -52,6 +78,7 @@ export function runMigrations(databaseUrl: string) {
   const sqlite = new Database(databaseUrl)
   // BFF 与 worker 会在部署时并行启动并同时跑 migration。首次创建 admin 复合索引需要
   // 扫描现有 tasks，给另一个进程等待锁的时间，避免瞬时 SQLITE_BUSY 启动失败。
+  sqlite.exec('PRAGMA foreign_keys = ON;')
   sqlite.exec('PRAGMA busy_timeout = 60000;')
   sqlite.exec('PRAGMA journal_mode = WAL;')
   sqlite.exec(DDL_BASE)
@@ -60,11 +87,6 @@ export function runMigrations(databaseUrl: string) {
   if (!cols.some((c) => c.name === 'client_request_id')) {
     sqlite.exec(`ALTER TABLE tasks ADD COLUMN client_request_id TEXT;`)
   }
-  // partial unique 索引：NULL 不去重，老任务/未带 ID 的请求各自独立。
-  // 列确保存在后再建，避免对老库报 "no such column"。
-  sqlite.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_client_request_id
-               ON tasks(client_request_id) WHERE client_request_id IS NOT NULL;`)
-
   // 自动重试相关：老库补列。ALTER ADD COLUMN 在 SQLite 里只支持常量/NULL 默认值；
   // NOT NULL + DEFAULT 0 是常量，没问题。
   if (!cols.some((c) => c.name === 'attempt_count')) {
@@ -73,8 +95,23 @@ export function runMigrations(databaseUrl: string) {
   if (!cols.some((c) => c.name === 'next_retry_at')) {
     sqlite.exec(`ALTER TABLE tasks ADD COLUMN next_retry_at INTEGER;`)
   }
+  if (!cols.some((c) => c.name === 'user_id')) {
+    sqlite.exec(`ALTER TABLE tasks ADD COLUMN user_id TEXT REFERENCES users(id);`)
+  }
+  // 幂等键按账号隔离：共享浏览器切换账号后可能复用 IndexedDB 中的
+  // client_request_id。匿名部署仍保持全局去重。先删旧全局索引再建两条 partial
+  // 索引，既兼容老库，又不让一个账号撞到另一个账号的任务。
+  sqlite.exec(`DROP INDEX IF EXISTS idx_tasks_client_request_id;`)
+  sqlite.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_anonymous_client_request_id
+               ON tasks(client_request_id)
+               WHERE user_id IS NULL AND client_request_id IS NOT NULL;`)
+  sqlite.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_user_client_request_id
+               ON tasks(user_id, client_request_id)
+               WHERE user_id IS NOT NULL AND client_request_id IS NOT NULL;`)
   sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_tasks_next_retry_at
                ON tasks(next_retry_at) WHERE next_retry_at IS NOT NULL;`)
+  sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_tasks_user_time
+               ON tasks(user_id, submitted_at DESC) WHERE user_id IS NOT NULL;`)
 
   // device_id VIRTUAL 列：admin 设备聚合 GROUP BY 需要索引，但 device_id 实际存
   // 在 request_payload JSON 里。生成列 VIRTUAL 不占额外空间。

@@ -33,6 +33,102 @@ describe('runMigrations', () => {
     sqlite.close()
   })
 
+  it('creates users, sessions, and nullable task ownership', () => {
+    try {
+      unlinkSync(TEST_DB)
+      unlinkSync(`${TEST_DB}-wal`)
+      unlinkSync(`${TEST_DB}-shm`)
+    } catch {}
+
+    runMigrations(TEST_DB)
+
+    const sqlite = new Database(TEST_DB)
+    sqlite.exec('PRAGMA foreign_keys = ON;')
+    const userCols = sqlite.query('PRAGMA table_info(users)').all() as Array<{
+      name: string
+      notnull: number
+      pk: number
+    }>
+    expect(userCols.map((c) => c.name)).toEqual([
+      'id',
+      'username',
+      'password_hash',
+      'status',
+      'created_at',
+      'updated_at',
+      'last_login_at',
+    ])
+
+    const sessionCols = sqlite.query('PRAGMA table_info(user_sessions)').all() as Array<{
+      name: string
+    }>
+    expect(sessionCols.map((c) => c.name)).toEqual([
+      'token_hash',
+      'user_id',
+      'created_at',
+      'expires_at',
+    ])
+
+    const taskCols = sqlite.query('PRAGMA table_info(tasks)').all() as Array<{ name: string }>
+    expect(taskCols.some((c) => c.name === 'user_id')).toBe(true)
+
+    sqlite.exec(`
+      INSERT INTO users (
+        id, username, password_hash, status, created_at, updated_at
+      ) VALUES (
+        'user-1', 'alice', 'argon-hash', 'active', 1, 1
+      );
+      INSERT INTO user_sessions (
+        token_hash, user_id, created_at, expires_at
+      ) VALUES (
+        'token-hash', 'user-1', 1, 2
+      );
+      DELETE FROM users WHERE id = 'user-1';
+    `)
+    const sessions = sqlite.query('SELECT token_hash FROM user_sessions').all()
+    expect(sessions).toHaveLength(0)
+    sqlite.close()
+  })
+
+  it('scopes idempotency keys per user while preserving anonymous uniqueness', () => {
+    try {
+      unlinkSync(TEST_DB)
+      unlinkSync(`${TEST_DB}-wal`)
+      unlinkSync(`${TEST_DB}-shm`)
+    } catch {}
+
+    runMigrations(TEST_DB)
+    const sqlite = new Database(TEST_DB)
+    sqlite.exec('PRAGMA foreign_keys = ON;')
+    sqlite.exec(`
+      INSERT INTO users (id, username, password_hash, status, created_at, updated_at)
+      VALUES
+        ('user-a', 'user-a', 'hash', 'active', 1, 1),
+        ('user-b', 'user-b', 'hash', 'active', 1, 1);
+      INSERT INTO tasks (
+        id, provider, model, status, request_payload, submitted_at, user_id, client_request_id
+      ) VALUES
+        ('task-a', 'openai-compat', 'm', 'queued', '{"prompt":"a"}', 1, 'user-a', 'same-key'),
+        ('task-b', 'openai-compat', 'm', 'queued', '{"prompt":"b"}', 1, 'user-b', 'same-key');
+      INSERT INTO tasks (
+        id, provider, model, status, request_payload, submitted_at, client_request_id
+      ) VALUES
+        ('task-anon-a', 'openai-compat', 'm', 'queued', '{"prompt":"a"}', 1, 'anon-key');
+    `)
+
+    expect(() =>
+      sqlite
+        .query(`
+        INSERT INTO tasks (
+          id, provider, model, status, request_payload, submitted_at, client_request_id
+        ) VALUES
+          ('task-anon-b', 'openai-compat', 'm', 'queued', '{"prompt":"b"}', 1, 'anon-key');
+      `)
+        .run(),
+    ).toThrow(/UNIQUE/)
+    sqlite.close()
+  })
+
   it('tasks 表有 device_id 生成列 + admin 复合索引', () => {
     try {
       unlinkSync(TEST_DB)
@@ -185,6 +281,14 @@ describe('runMigrations', () => {
       .all() as Array<{ name: string }>
     expect(indexes.some((i) => i.name === 'idx_tasks_admin_device_time')).toBe(true)
     expect(indexes.some((i) => i.name === 'idx_tasks_device_id')).toBe(false)
+    const taskCols = migrated.query('PRAGMA table_info(tasks)').all() as Array<{ name: string }>
+    expect(taskCols.some((c) => c.name === 'user_id')).toBe(true)
+    const userTables = migrated
+      .query(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('users', 'user_sessions')",
+      )
+      .all() as Array<{ name: string }>
+    expect(userTables.map((t) => t.name).sort()).toEqual(['user_sessions', 'users'])
     const row = migrated.query("SELECT device_id FROM tasks WHERE id='legacy-1'").get() as {
       device_id: string
     }

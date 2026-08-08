@@ -9,7 +9,7 @@ export const Route = createFileRoute('/_authed')({
     try {
       await context.queryClient.ensureQueryData({
         queryKey: ['me'],
-        queryFn: () => apiClient.get<{ ok: true }>('/api/me'),
+        queryFn: () => apiClient.get<{ ok: true }>('/api/me', { redirectOnUnauthorized: false }),
         staleTime: 60_000, // 1 分钟内不重复探
       })
     } catch {

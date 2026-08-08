@@ -1,7 +1,9 @@
-import { and, eq, inArray } from 'drizzle-orm'
+import { and, inArray } from 'drizzle-orm'
 import { Elysia, t } from 'elysia'
 import { db, schema } from '../db/client'
 import { log } from '../lib/logger'
+import { taskAccessWhere } from '../lib/task-access'
+import { requireUser } from '../lib/user-auth'
 
 /**
  * PUT /v1/queue/requests/:id/cancel
@@ -14,18 +16,14 @@ import { log } from '../lib/logger'
  * 3. worker catch AbortError 后 UPDATE 'failed' 因 WHERE status='in_progress'
  *    不匹配自然 no-op，不会反悔覆盖 'cancelled'
  */
-export const cancelRoutes = new Elysia().put(
+export const cancelRoutes = new Elysia().use(requireUser).put(
   '/v1/queue/requests/:id/cancel',
-  async ({ params, status }) => {
+  async ({ params, status, authUser }) => {
+    const access = taskAccessWhere(params.id, authUser?.id ?? null)
     const cancelled = await db
       .update(schema.tasks)
       .set({ status: 'cancelled', completed_at: Date.now() })
-      .where(
-        and(
-          eq(schema.tasks.id, params.id),
-          inArray(schema.tasks.status, ['queued', 'in_progress']),
-        ),
-      )
+      .where(and(access, inArray(schema.tasks.status, ['queued', 'in_progress'])))
       .returning({ id: schema.tasks.id })
 
     if (cancelled.length > 0) {
@@ -36,7 +34,7 @@ export const cancelRoutes = new Elysia().put(
     const [existing] = await db
       .select({ id: schema.tasks.id, status: schema.tasks.status })
       .from(schema.tasks)
-      .where(eq(schema.tasks.id, params.id))
+      .where(access)
       .limit(1)
 
     if (!existing) return status(404, { error: 'task_not_found' })
