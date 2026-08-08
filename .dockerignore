@@ -1,9 +1,55 @@
-.git
-.DS_Store
-**/.DS_Store
-**/.env
-**/.turbo
-**/dist
+# 构建上下文过滤 —— allowlist：先全禁，再逐条放行。
+#
+# 为什么不是 denylist：Dockerfile 的 runtime stage 直接从上下文 `COPY apps/bff` /
+# `COPY packages/db` / `COPY packages/shared`，而本仓库是 public + MIT。denylist 漏一条
+# 就是把 operator 私钥烤进公开镜像，且**静默无声**；allowlist 漏一条只会让构建当场失败。
+# 两种漏法都会发生，选失败会喊出来的那一侧。
+#
+# 因此这里不再需要「往 .gitignore 加一条就同步加一条」的人工同步约定 —— gitignored
+# 文件默认就进不来。加新的构建期文件时，构建会因为找不到它而失败，那时来补一行。
+#
+# 注意：`*` 只匹配顶层；靠下面的 `!` 逐层放行。最后一条匹配的规则生效，所以文件末尾
+# 的 deny 会覆盖上面的 `!`。
+
+*
+
+# ── 根 manifest（deps stage 按文件名 COPY）─────────────────────────
+!package.json
+!pnpm-lock.yaml
+!pnpm-workspace.yaml
+!turbo.json
+!tsconfig.base.json
+# MIT 产物随镜像分发，许可证要跟着走
+!LICENSE
+
+# ── apps 构建输入 ─────────────────────────────────────────────────
+!apps/*/package.json
+!apps/*/tsconfig*.json
+!apps/*/src
+!apps/*/public
+!apps/*/scripts
+!apps/*/index.html
+!apps/*/vite.config.ts
+# tailwind.config.js / postcss.config.js
+!apps/*/*.config.js
+!apps/*/components.json
+!apps/*/drizzle.config.ts
+!apps/admin/server
+!apps/bff/channels.json
+
+# ── packages 构建输入 ─────────────────────────────────────────────
+!packages/*/package.json
+!packages/*/tsconfig*.json
+!packages/*/src
+!packages/*/drizzle.config.ts
+
+# ── entrypoint ────────────────────────────────────────────────────
+!scripts/docker-entrypoint.sh
+
+# ── 上面 `!` 放行的目录里仍有 gitignored 兄弟，重新排除 ────────────
+# operator 的部署配置：vite 会把 public/** 原样复制进 dist，绝不能从宿主机带进来
+apps/web/public/runtime-config.json
+# 构建期自己生成（apps/web/src/generated/heroSeed.json）
+**/generated
 **/node_modules
-artifacts
-apps/admin/artifacts
+**/dist
