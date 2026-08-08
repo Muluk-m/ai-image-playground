@@ -455,7 +455,8 @@
 @media (prefers-reduced-motion: reduce) {
   .auth-spinner,
   .auth-status-line span {
-    animation-duration: 2s;
+    /* 只放慢仍然是持续旋转/位移，对前庭敏感用户没有帮助，直接停掉。 */
+    animation: none;
   }
 }
 
