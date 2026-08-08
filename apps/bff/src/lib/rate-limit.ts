@@ -24,14 +24,38 @@ export function createRateLimiter(opts: RateLimiterOptions): RateLimiter {
   const entries = new Map<string, Entry>()
   const maxEntries = opts.maxEntries ?? 1024
 
-  function touch(key: string, entry: Entry): void {
+  /**
+   * 淘汰时优先挑未锁定的条目。纯按插入顺序淘汰会开一个后门：`isLocked` 是只读的、
+   * 不 touch 条目，锁定条目于是停在原插入位置慢慢变成「最老」，攻击者只要灌
+   * maxEntries 个伪造 key（不同用户名或轮换 source header）就能把目标已生效的
+   * lockedUntil 挤出 Map，锁定在 lockMs 到期前就失效。
+   */
+  function evict(now: number): void {
+    for (const [key, entry] of entries) {
+      if (entries.size <= maxEntries) return
+      if (entry.lockedUntil > now) continue
+      entries.delete(key)
+    }
+    // 退化路径：条目全部处于锁定态（需要 maxFailures × maxEntries 次真实失败才能
+    // 造出来）。淘汰最早解锁的那个，保证 Map 始终有界。
+    while (entries.size > maxEntries) {
+      let victim: string | undefined
+      let earliest = Number.POSITIVE_INFINITY
+      for (const [key, entry] of entries) {
+        if (entry.lockedUntil < earliest) {
+          earliest = entry.lockedUntil
+          victim = key
+        }
+      }
+      if (victim === undefined) return
+      entries.delete(victim)
+    }
+  }
+
+  function touch(key: string, entry: Entry, now: number): void {
     entries.delete(key)
     entries.set(key, entry)
-    while (entries.size > maxEntries) {
-      const oldest = entries.keys().next().value as string | undefined
-      if (!oldest) break
-      entries.delete(oldest)
-    }
+    evict(now)
   }
 
   return {
@@ -44,15 +68,16 @@ export function createRateLimiter(opts: RateLimiterOptions): RateLimiter {
       entry.failures += 1
       const locked = entry.failures > opts.maxFailures
       if (locked) entry.lockedUntil = now + opts.lockMs
-      touch(key, entry)
+      touch(key, entry, now)
       return locked
     },
     recordSuccess(key) {
       const entry = entries.get(key)
       if (!entry) return
+      const now = Date.now()
       entry.failures = 0
-      entry.windowStart = Date.now()
-      touch(key, entry)
+      entry.windowStart = now
+      touch(key, entry, now)
     },
     isLocked(key) {
       return (entries.get(key)?.lockedUntil ?? 0) > Date.now()
