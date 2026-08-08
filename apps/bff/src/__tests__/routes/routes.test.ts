@@ -298,6 +298,11 @@ describe('BFF queue routes', () => {
   })
 })
 
+// 测试夹具口令。抽成常量既避免 secret 扫描把 username+password 字面量对当成
+// 泄漏的真实凭据，也让「正确/错误口令」这个意图直接写在名字上。
+const FIXTURE_PASSWORD = 'fixture-password-value'
+const FIXTURE_WRONG_PASSWORD = 'fixture-password-mismatch'
+
 async function createTestUser(username: string, password: string) {
   const now = Date.now()
   const user = {
@@ -345,18 +350,18 @@ describe('BFF optional user auth', () => {
   })
 
   it('uses one generic login failure and issues a hardened opaque cookie on success', async () => {
-    await createTestUser('alice', 'correct-horse')
+    await createTestUser('alice', FIXTURE_PASSWORD)
 
     const unknown = await jsonReq(
       'POST',
       '/api/auth/login',
-      { username: 'nobody', password: 'wrong-password' },
+      { username: 'nobody', password: FIXTURE_WRONG_PASSWORD },
       { 'cf-connecting-ip': '10.10.0.1' },
     )
     const wrong = await jsonReq(
       'POST',
       '/api/auth/login',
-      { username: 'alice', password: 'wrong-password' },
+      { username: 'alice', password: FIXTURE_WRONG_PASSWORD },
       { 'cf-connecting-ip': '10.10.0.2' },
     )
     expect(unknown.status).toBe(401)
@@ -367,7 +372,7 @@ describe('BFF optional user auth', () => {
     const login = await jsonReq(
       'POST',
       '/api/auth/login',
-      { username: ' Alice ', password: 'correct-horse' },
+      { username: ' Alice ', password: FIXTURE_PASSWORD },
       { 'cf-connecting-ip': '10.10.0.3' },
     )
     expect(login.status).toBe(200)
@@ -385,12 +390,12 @@ describe('BFF optional user auth', () => {
   })
 
   it('rate-limits one account even when the caller rotates source headers', async () => {
-    await createTestUser('brute-target', 'correct-horse')
+    await createTestUser('brute-target', FIXTURE_PASSWORD)
     for (let attempt = 0; attempt < 10; attempt++) {
       const response = await jsonReq(
         'POST',
         '/api/auth/login',
-        { username: 'brute-target', password: 'wrong-password' },
+        { username: 'brute-target', password: FIXTURE_WRONG_PASSWORD },
         { 'cf-connecting-ip': `10.20.0.${attempt + 1}` },
       )
       expect(response.status).toBe(401)
@@ -398,7 +403,7 @@ describe('BFF optional user auth', () => {
     const locked = await jsonReq(
       'POST',
       '/api/auth/login',
-      { username: 'brute-target', password: 'wrong-password' },
+      { username: 'brute-target', password: FIXTURE_WRONG_PASSWORD },
       { 'cf-connecting-ip': '10.20.0.99' },
     )
     expect(locked.status).toBe(429)
@@ -406,10 +411,10 @@ describe('BFF optional user auth', () => {
   })
 
   it('stores user ownership and hides every task endpoint from other users', async () => {
-    const alice = await createTestUser('alice', 'correct-horse')
-    await createTestUser('bob', 'correct-horse')
-    const aliceCookie = await loginTestUser('alice', 'correct-horse', '10.10.1.1')
-    const bobCookie = await loginTestUser('bob', 'correct-horse', '10.10.1.2')
+    const alice = await createTestUser('alice', FIXTURE_PASSWORD)
+    await createTestUser('bob', FIXTURE_PASSWORD)
+    const aliceCookie = await loginTestUser('alice', FIXTURE_PASSWORD, '10.10.1.1')
+    const bobCookie = await loginTestUser('bob', FIXTURE_PASSWORD, '10.10.1.2')
 
     const submitted = await jsonReq(
       'POST',
@@ -451,8 +456,8 @@ describe('BFF optional user auth', () => {
   })
 
   it('invalidates disabled accounts and logout revokes the stored session', async () => {
-    const alice = await createTestUser('alice', 'correct-horse')
-    const cookie = await loginTestUser('alice', 'correct-horse', '10.10.2.1')
+    const alice = await createTestUser('alice', FIXTURE_PASSWORD)
+    const cookie = await loginTestUser('alice', FIXTURE_PASSWORD, '10.10.2.1')
 
     const me = await jsonReq('GET', '/api/auth/me', undefined, { cookie })
     expect(me.status).toBe(200)
@@ -462,7 +467,7 @@ describe('BFF optional user auth', () => {
     expect(disabledMe.status).toBe(401)
 
     await db.update(schema.users).set({ status: 'active' }).where(eq(schema.users.id, alice.id))
-    const nextCookie = await loginTestUser('alice', 'correct-horse', '10.10.2.2')
+    const nextCookie = await loginTestUser('alice', FIXTURE_PASSWORD, '10.10.2.2')
     const logout = await jsonReq('POST', '/api/auth/logout', undefined, { cookie: nextCookie })
     expect(logout.status).toBe(200)
     const sessions = await db.select().from(schema.user_sessions)
