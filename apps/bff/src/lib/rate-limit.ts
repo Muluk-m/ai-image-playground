@@ -31,25 +31,24 @@ export function createRateLimiter(opts: RateLimiterOptions): RateLimiter {
    * lockedUntil 挤出 Map，锁定在 lockMs 到期前就失效。
    */
   function evict(now: number): void {
+    // touch 每次最多让 size 超出 1，所以淘汰一个就够，不需要循环。
+    if (entries.size <= maxEntries) return
+
+    let victim: string | undefined
+    let earliestLock = Number.POSITIVE_INFINITY
     for (const [key, entry] of entries) {
-      if (entries.size <= maxEntries) return
-      if (entry.lockedUntil > now) continue
-      entries.delete(key)
-    }
-    // 退化路径：条目全部处于锁定态（需要 maxFailures × maxEntries 次真实失败才能
-    // 造出来）。淘汰最早解锁的那个，保证 Map 始终有界。
-    while (entries.size > maxEntries) {
-      let victim: string | undefined
-      let earliest = Number.POSITIVE_INFINITY
-      for (const [key, entry] of entries) {
-        if (entry.lockedUntil < earliest) {
-          earliest = entry.lockedUntil
-          victim = key
-        }
+      if (entry.lockedUntil <= now) {
+        victim = key // 插入顺序里最老的未锁定条目
+        break
       }
-      if (victim === undefined) return
-      entries.delete(victim)
+      // 退化路径：全部条目都锁着（需要 maxFailures × maxEntries 次真实失败才能
+      // 造出来）。退而淘汰最早解锁的那个，保证 Map 始终有界。
+      if (entry.lockedUntil < earliestLock) {
+        earliestLock = entry.lockedUntil
+        victim = key
+      }
     }
+    if (victim !== undefined) entries.delete(victim)
   }
 
   function touch(key: string, entry: Entry, now: number): void {
