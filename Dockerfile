@@ -20,11 +20,16 @@
 FROM oven/bun:1 AS deps
 WORKDIR /app
 
-# pnpm 通过 corepack 启用，跟项目根 packageManager 字段对齐
-RUN apt-get update -qq && apt-get install -y --no-install-recommends curl ca-certificates \
-  && rm -rf /var/lib/apt/lists/* \
-  && curl -fsSL https://get.pnpm.io/install.sh | env SHELL=/bin/bash PNPM_VERSION=10.33.3 bash - \
-  && ln -s /root/.local/share/pnpm/pnpm /usr/local/bin/pnpm
+# pnpm 版本从根 package.json 的 packageManager 字段现取，避免在这里再写死一份。
+#
+# 用 @pnpm/exe（内含原生 binary）而不是 get.pnpm.io 安装脚本：后者装出来的是个靠
+# `dirname "$0"` 自定位同级 .tools/pnpm-exe/<ver>/pnpm 的 shim，只要 symlink 进
+# PATH，$0 就变成链接路径、shim 去错目录找 binary 并报 not found。
+# base image 里没有 curl 也没有 corepack，bun 是唯一现成的安装器。
+ENV BUN_INSTALL=/usr/local
+RUN --mount=type=bind,source=package.json,target=/tmp/root-package.json \
+  bun install -g \
+  "@pnpm/exe@$(sed -n 's/.*"packageManager": *"pnpm@\([^"]*\)".*/\1/p' /tmp/root-package.json)"
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json ./
 COPY apps/web/package.json ./apps/web/
@@ -56,6 +61,8 @@ COPY --from=deps /app/apps/admin/node_modules ./apps/admin/node_modules
 COPY --from=deps /app/packages/db/node_modules ./packages/db/node_modules
 COPY --from=deps /app/packages/shared/node_modules ./packages/shared/node_modules
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+# MIT 产物随镜像分发，许可证要跟着走
+COPY LICENSE ./
 COPY apps/admin/package.json ./apps/admin/package.json
 COPY apps/admin/server ./apps/admin/server
 COPY packages/db ./packages/db
@@ -80,6 +87,8 @@ COPY --from=deps /app/apps/bff/node_modules ./apps/bff/node_modules
 COPY --from=deps /app/packages/db/node_modules ./packages/db/node_modules
 COPY --from=deps /app/packages/shared/node_modules ./packages/shared/node_modules
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+# MIT 产物随镜像分发，许可证要跟着走
+COPY LICENSE ./
 COPY apps/bff ./apps/bff
 COPY packages/db ./packages/db
 COPY packages/shared ./packages/shared
