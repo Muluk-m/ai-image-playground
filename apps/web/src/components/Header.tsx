@@ -156,7 +156,9 @@ export default function Header() {
                   disabled={loggingOut}
                   onClick={() => {
                     setLoggingOut(true)
-                    void auth.logout()
+                    // 失败时必须解锁按钮，否则 loggingOut 永远为 true，
+                    // 用户只能刷新页面才能再次尝试退出。
+                    void auth.logout().catch(() => setLoggingOut(false))
                   }}
                   className="rounded-lg px-2 py-1.5 text-[12px] font-medium text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-800 disabled:cursor-wait disabled:opacity-50 dark:text-gray-400 dark:hover:bg-gray-900 dark:hover:text-gray-100"
                 >
