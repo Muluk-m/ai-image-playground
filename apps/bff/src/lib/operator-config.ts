@@ -18,7 +18,7 @@ export interface ResolvedOperatorConfig {
   readonly capabilitySources: Readonly<Record<CapabilityKey, OperatorValueSource>>
   readonly quotas: QuotaValues
   readonly quotaSources: Readonly<Record<QuotaKey, OperatorValueSource>>
-  readonly config: Readonly<Record<string, unknown>>
+  readonly channelsFile: string | null
   readonly file: string | null
   readonly loaded: boolean
 }
@@ -35,7 +35,7 @@ interface ParsedOperatorConfig {
   readonly presets: Readonly<Record<string, ParsedPreset>>
   readonly capabilities: ParsedCapabilityValues
   readonly quotas: ParsedQuotaValues
-  readonly config: Readonly<Record<string, unknown>>
+  readonly channelsFile: string | null
 }
 
 const capabilityKeys = Object.keys(CAPABILITIES) as CapabilityKey[]
@@ -107,15 +107,18 @@ function parseOperatorConfig(value: unknown): ParsedOperatorConfig {
   if (!isObject(value)) throw new Error('operator config must be a JSON object')
   assertOnlyKeys(
     value,
-    ['preset', 'presets', 'capabilities', 'quotas', 'config'],
+    ['preset', 'presets', 'capabilities', 'quotas', 'channelsFile'],
     'operator config',
   )
 
   if (value.preset !== undefined && (typeof value.preset !== 'string' || !value.preset.trim())) {
     throw new Error('operator config preset must be a non-empty string')
   }
-  if (value.config !== undefined && !isObject(value.config)) {
-    throw new Error('operator config config must be an object')
+  if (
+    value.channelsFile !== undefined &&
+    (typeof value.channelsFile !== 'string' || !value.channelsFile.trim())
+  ) {
+    throw new Error('operator config channelsFile must be a non-empty string')
   }
 
   const presets = parsePresets(value.presets)
@@ -129,7 +132,7 @@ function parseOperatorConfig(value: unknown): ParsedOperatorConfig {
     presets,
     capabilities: parseCapabilities(value.capabilities, 'operator config capabilities'),
     quotas: parseQuotas(value.quotas),
-    config: (value.config as Record<string, unknown> | undefined) ?? {},
+    channelsFile: typeof value.channelsFile === 'string' ? value.channelsFile.trim() : null,
   }
 }
 
@@ -153,7 +156,7 @@ function defaults(file: string | null = null): ResolvedOperatorConfig {
     capabilitySources,
     quotas,
     quotaSources,
-    config: {},
+    channelsFile: null,
     file,
     loaded: false,
   }
@@ -186,7 +189,7 @@ function resolveParsedConfig(parsed: ParsedOperatorConfig, file: string): Resolv
     capabilitySources,
     quotas,
     quotaSources,
-    config: parsed.config,
+    channelsFile: parsed.channelsFile,
     file,
     loaded: true,
   }

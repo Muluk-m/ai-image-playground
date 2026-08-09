@@ -16,12 +16,5 @@
   "quotas": {
     "generation:daily-images": 0
   },
-  "config": {
-    "channelsFile": "/run/operator/channels.json",
-    "brandFile": "/run/operator/brand.json",
-    "contentFile": "/run/operator/content.json",
-    "secretRefs": {
-      "exampleChannel": "EXAMPLE_CHANNEL_API_KEY"
-    }
-  }
+  "channelsFile": "/run/operator/channels.json"
 }
