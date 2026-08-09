@@ -24,14 +24,15 @@ function parseManifest(input: unknown): ClientCapabilityManifest | null {
   }
   return manifest
 }
-
 let currentManifest = disabledManifest()
+let currentBffEnabled = false
 
 export async function bootstrapClientCapabilities(
   bffEnabled: boolean,
   bffBaseUrl: string,
 ): Promise<ClientCapabilityManifest> {
   currentManifest = disabledManifest()
+  currentBffEnabled = bffEnabled
   if (!bffEnabled) return currentManifest
 
   try {
@@ -55,4 +56,12 @@ export function isClientCapabilityEnabled(key: CapabilityKey): boolean {
   const definition = CAPABILITIES[key]
   if (!definition.clientExposed) return false
   return currentManifest[key as ClientCapabilityKey]
+}
+
+/**
+ * Static deployments remain BYOK workbenches. BFF deployments must opt in
+ * through the server capability manifest; a missing manifest therefore fails closed.
+ */
+export function isByokGenerationEnabled(): boolean {
+  return !currentBffEnabled || isClientCapabilityEnabled('generation:byok')
 }

@@ -45,6 +45,18 @@ describe('tryConsumeQuota', () => {
     expect(result.count).toBe(78)
   })
 
+  it('uses a deployment-specific limit and rejects an oversized first request', async () => {
+    const first = await tryConsumeQuota('dev-custom', 2, db, 3)
+    expect(first).toMatchObject({ ok: true, count: 2, limit: 3 })
+    const full = await tryConsumeQuota('dev-custom', 1, db, 3)
+    expect(full).toMatchObject({ ok: true, count: 3, limit: 3 })
+    const exceeded = await tryConsumeQuota('dev-custom', 1, db, 3)
+    expect(exceeded).toMatchObject({ ok: false, count: 3, limit: 3 })
+
+    const oversized = await tryConsumeQuota('dev-oversized', 4, db, 3)
+    expect(oversized).toMatchObject({ ok: false, count: 0, limit: 3 })
+  })
+
   it('不同 device_id 各自独立计数', async () => {
     await tryConsumeQuota('dev-1', 80, db)
     const result = await tryConsumeQuota('dev-2', 80, db)

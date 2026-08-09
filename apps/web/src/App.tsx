@@ -13,7 +13,7 @@ import Toast from './components/Toast'
 import CanvasMode from './features/canvas/components/CanvasMode'
 import InspirationPanel from './features/inspiration/components/InspirationPanel'
 import { initHashRoute } from './features/inspiration/lib/hashRoute'
-import { isClientCapabilityEnabled } from './lib/clientCapabilities'
+import { isByokGenerationEnabled } from './lib/clientCapabilities'
 import {
   buildSettingsFromUrlParams,
   clearUrlSettingParams,
@@ -28,7 +28,7 @@ export default function App() {
   useEffect(() => {
     const searchParams = new URLSearchParams(window.location.search)
     let nextSettings = buildSettingsFromUrlParams(useStore.getState().settings, searchParams)
-    if (isClientCapabilityEnabled('billing:credits')) {
+    if (!isByokGenerationEnabled()) {
       const builtin = nextSettings.profiles?.find((profile) => profile.source === 'builtin-edge')
       if (builtin) nextSettings = { ...nextSettings, activeProfileId: builtin.id }
     }

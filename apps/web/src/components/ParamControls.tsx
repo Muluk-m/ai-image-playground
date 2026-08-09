@@ -6,7 +6,7 @@ import {
 } from '../lib/apiProfiles'
 import { getProfileModelOptions, updateSelectedModel } from '../lib/channels/profileSelectors'
 import { getPublicChannels } from '../lib/channels/publicChannels'
-import { isClientCapabilityEnabled } from '../lib/clientCapabilities'
+import { isByokGenerationEnabled } from '../lib/clientCapabilities'
 import { getOutputImageLimitForSettings, getParamCapabilities } from '../lib/paramCompatibility'
 import { normalizeImageSize, sizeRatioLabel } from '../lib/size'
 import { dismissAllTooltips } from '../lib/tooltipDismiss'
@@ -233,9 +233,9 @@ export default function ParamControls({ showCount = false }: { showCount?: boole
   // 切换时同时切换 activeProfileId 与该 profile 的 model。
   const globalModelOptions = useMemo(() => {
     const publicChannels = getPublicChannels()
-    const billedDeployment = isClientCapabilityEnabled('billing:credits')
+    const byokEnabled = isByokGenerationEnabled()
     return settings.profiles
-      .filter((profile) => !billedDeployment || profile.source === 'builtin-edge')
+      .filter((profile) => byokEnabled || profile.source === 'builtin-edge')
       .flatMap((profile) => {
         const view = clientProfileToApiProfile(profile)
         const presetOptions = getProfileModelOptions(profile, publicChannels)

@@ -10,7 +10,6 @@ process.env.PORT = '0'
 
 const {
   callUpstream,
-  upstreamInvocationCount,
   setUpstreamFetchForTesting,
   UPSTREAM_TRANSPORT_TIMEOUT_MS,
   UpstreamResultUnknownError,
@@ -61,10 +60,17 @@ describe('callUpstream OpenAI route', () => {
     expect(parsed).toMatchObject({ model: 'gpt-image-2', prompt: 'a cat', size: '1024x1024' })
   })
 
-  it('counts one OpenAI HTTP invocation when n is forwarded in one request', () => {
-    expect(upstreamInvocationCount('openai-compat', 'gpt-image-2', { prompt: 'a cat', n: 4 })).toBe(
-      1,
-    )
+  it('records one dispatch when OpenAI forwards n in one request', async () => {
+    let dispatches = 0
+    await callUpstream({
+      provider: 'openai-compat',
+      model: 'gpt-image-2',
+      request: { prompt: 'a cat', n: 4 },
+      beforeRequest: async () => {
+        dispatches += 1
+      },
+    })
+    expect(dispatches).toBe(1)
   })
 
   it('forwards OpenAI output controls in the generations JSON body', async () => {
@@ -338,13 +344,17 @@ describe('callUpstream direct channel 路由（DIRECT_CHANNEL_IDS）', () => {
     })
   })
 
-  it('counts every Gemini fan-out request', () => {
-    expect(
-      upstreamInvocationCount('gemini', 'gemini-3.1-flash-image', {
-        prompt: 'a cat',
-        n: 4,
-      }),
-    ).toBe(4)
+  it('records every Gemini fan-out request at dispatch time', async () => {
+    let dispatches = 0
+    await callUpstream({
+      provider: 'gemini',
+      model: 'gemini-3.1-flash-image',
+      request: { prompt: 'a cat', n: 4 },
+      beforeRequest: async () => {
+        dispatches += 1
+      },
+    })
+    expect(dispatches).toBe(4)
   })
 
   it('gemini extra.generationConfig 保持最终覆盖优先级', async () => {
@@ -435,13 +445,17 @@ describe('callUpstream direct channel 图生图（Agnes 风格 generations JSON�
     expect(body.n).toBeUndefined()
   })
 
-  it('带 mask：立即永久失败（upstreamStatus=400 不触发重试）', async () => {
+  it('带 mask：在请求记账前立即永久失败（upstreamStatus=400 不触发重试）', async () => {
     let caught: (Error & { upstreamStatus?: number }) | null = null
+    let dispatches = 0
     try {
       await callUpstream({
         provider: 'openai-compat',
         model: 'agnes-image-2.1-flash',
         request: { prompt: 'edit', input_images: [TINY_PNG_DATA_URL], mask: TINY_PNG_DATA_URL },
+        beforeRequest: async () => {
+          dispatches += 1
+        },
       })
     } catch (err) {
       caught = err as Error & { upstreamStatus?: number }
@@ -449,22 +463,22 @@ describe('callUpstream direct channel 图生图（Agnes 风格 generations JSON�
     expect(caught).not.toBeNull()
     expect(caught!.message).toContain('遮罩')
     expect(caught!.upstreamStatus).toBe(400)
+    expect(dispatches).toBe(0)
     expect(calls).toHaveLength(0)
   })
 
   it('n=3：fan-out 3 次并发请求并合并 data（上游忽略 n 参数）', async () => {
+    let dispatches = 0
     const result = await callUpstream({
       provider: 'openai-compat',
       model: 'agnes-image-2.1-flash',
       request: { prompt: 'a star', n: 3 },
+      beforeRequest: async () => {
+        dispatches += 1
+      },
     })
     expect(calls).toHaveLength(3)
-    expect(
-      upstreamInvocationCount('openai-compat', 'agnes-image-2.1-flash', {
-        prompt: 'a star',
-        n: 3,
-      }),
-    ).toBe(3)
+    expect(dispatches).toBe(3)
     for (const c of calls) {
       const body = JSON.parse(c.init?.body as string)
       expect(body.n).toBeUndefined()

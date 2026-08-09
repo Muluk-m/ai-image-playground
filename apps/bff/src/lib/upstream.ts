@@ -49,26 +49,13 @@ function resolveUpstream(
     direct: false,
   }
 }
-/**
- * Number of HTTP requests that callUpstream starts for one task attempt.
- * Gemini and direct channels implement `n` as an internal concurrent fan-out;
- * regular OpenAI-compatible channels send one request with `n` in the body.
- */
-export function upstreamInvocationCount(
-  provider: QueueProvider,
-  model: string,
-  request: HydratedSubmitRequest,
-): number {
-  const quantity = Math.max(1, request.n ?? 1)
-  if (provider === 'gemini') return quantity
-  return resolveUpstream(provider, model).direct ? quantity : 1
-}
-
 export interface UpstreamCallParams {
   provider: QueueProvider
   model: string
   request: HydratedSubmitRequest
   signal?: AbortSignal
+  /** Runs immediately before each HTTP request is dispatched. */
+  beforeRequest?: () => Promise<void>
 }
 
 export interface UpstreamCallResult {
@@ -120,7 +107,7 @@ export class UpstreamTimeoutError extends UpstreamResultUnknownError {
  * AbortController 决定；不再依赖 undocumented idleTimeout 或强制 Connection: close。
  */
 export async function callUpstream(params: UpstreamCallParams): Promise<UpstreamCallResult> {
-  const { provider, model, request, signal: externalSignal } = params
+  const { provider, model, request, signal: externalSignal, beforeRequest } = params
   const { baseUrl: base, key, direct } = resolveUpstream(provider, model)
 
   const abort = new AbortController()
@@ -141,6 +128,9 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
 
   const performFetch = async (url: string, init: UpstreamFetchInit): Promise<UpstreamResponse> => {
     try {
+      if (abort.signal.aborted) throw new DOMException('Upstream request aborted', 'AbortError')
+      await beforeRequest?.()
+      if (abort.signal.aborted) throw new DOMException('Upstream request aborted', 'AbortError')
       return await upstreamFetch(url, fetchInit(init))
     } catch (err) {
       if (timedOut) throw new UpstreamTimeoutError()

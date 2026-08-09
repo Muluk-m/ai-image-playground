@@ -1,5 +1,6 @@
 import { QUEUE_TIMEOUTS, type TaskErrorType } from '@image-playground/shared'
-import { and, eq, isNull, lte, or, sql } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
+import { claimQueuedTask } from '../db/claim-task'
 import { db, schema } from '../db/client'
 import { describeEmptyResult, extractMeta } from '../lib/extractImages'
 import { archiveOutputImages, hydrateInputImages, ObjectStorageError } from '../lib/imageArchive'
@@ -7,12 +8,7 @@ import { log } from '../lib/logger'
 import { loadPrivateBffOverlay } from '../lib/private-overlay'
 import { isAbortError } from '../lib/queueProvider'
 import { isRetryableError, planNextAttempt, shouldRetryEmptyResult } from '../lib/retry'
-import {
-  callUpstream,
-  UpstreamResultUnknownError,
-  UpstreamTimeoutError,
-  upstreamInvocationCount,
-} from '../lib/upstream'
+import { callUpstream, UpstreamResultUnknownError, UpstreamTimeoutError } from '../lib/upstream'
 
 /**
  * 单 task 后台执行：把 status 推进到 in_progress → completed/failed/cancelled。
@@ -147,18 +143,7 @@ export async function runTask(id: string): Promise<void> {
 
   // claim 时除了 status='queued' 守卫，还要确保 next_retry_at 已到，避免 scheduler
   // 或外部误调 runTask 让等待中的重试任务提前起跑。
-  const claimed = await db
-    .update(schema.tasks)
-    .set({ status: 'in_progress', started_at: claimAt })
-    .where(
-      and(
-        eq(schema.tasks.id, id),
-        eq(schema.tasks.status, 'queued'),
-        or(isNull(schema.tasks.next_retry_at), lte(schema.tasks.next_retry_at, claimAt)),
-      ),
-    )
-    .returning({ id: schema.tasks.id })
-  if (claimed.length === 0) return
+  if (!(await claimQueuedTask(db, id, claimAt))) return
 
   const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, id)).limit(1)
   if (!task) return
@@ -172,13 +157,16 @@ export async function runTask(id: string): Promise<void> {
 
   try {
     const hydratedRequest = await hydrateInputImages(task.request_payload)
-    const invocationCount = upstreamInvocationCount(task.provider, task.model, hydratedRequest)
-    if (!(await recordUpstreamInvocation(id, invocationCount))) return
     const { payload } = await callUpstream({
       provider: task.provider,
       model: task.model,
       request: hydratedRequest,
       signal: ctrl.signal,
+      beforeRequest: async () => {
+        if (await recordUpstreamInvocation(id)) return
+        ctrl.abort()
+        throw new DOMException('Task is no longer running', 'AbortError')
+      },
     })
     const meta = extractMeta(task.provider, payload)
     if (meta.images.length === 0) {

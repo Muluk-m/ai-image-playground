@@ -1,4 +1,5 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it, mock } from 'bun:test'
+import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
 import { eq } from 'drizzle-orm'
 import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
@@ -11,6 +12,7 @@ process.env.UPSTREAM_API_KEY = 'test'
 process.env.DATABASE_URL = TEST_DB
 process.env.CORS_ALLOWED_ORIGINS = '*'
 process.env.INTERNAL_API_TOKEN = 'fixture-service-credential-alpha'
+process.env.OPERATOR_CONFIG_FILE = resolve(import.meta.dir, '../quota-operator-config.json')
 
 // Dynamic import keeps environment setup ahead of configuration module evaluation in this route test.
 const { app } = await import('../../app')
@@ -548,13 +550,13 @@ describe('BFF queue routes', () => {
     expect(status).toBe(400)
   })
 
-  it('累计 8 次 n=10 后第 9 次返回 429 + daily_quota_exceeded', async () => {
+  it('uses the configured quota limit instead of the historical constant', async () => {
     const device_id = 'quota-dev-aaaa-bbbb-cccc'
-    for (let i = 0; i < 8; i++) {
+    for (let i = 0; i < 3; i++) {
       const { status } = await jsonReq(
         'POST',
         '/v1/queue/openai-compat/gpt-image-1/submit',
-        submitBody({ device_id, n: 10, client_request_id: crypto.randomUUID() }),
+        submitBody({ device_id, n: 1, client_request_id: crypto.randomUUID() }),
       )
       expect(status).toBe(200)
     }
@@ -566,8 +568,8 @@ describe('BFF queue routes', () => {
     expect(status).toBe(429)
     expect(json).toMatchObject({
       error: 'daily_quota_exceeded',
-      limit: 80,
-      used: 80,
+      limit: 3,
+      used: 3,
     })
     expect((json as { reset_at: string }).reset_at).toMatch(/^\d{4}-\d{2}-\d{2}T00:00:00/)
   })

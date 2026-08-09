@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   bootstrapClientCapabilities,
   getClientCapabilityManifest,
+  isByokGenerationEnabled,
   isClientCapabilityEnabled,
 } from '../../lib/clientCapabilities'
 
@@ -53,5 +54,24 @@ describe('client capability bootstrap', () => {
     expect(Object.values(getClientCapabilityManifest()).every((value) => value === false)).toBe(
       true,
     )
+  })
+
+  it('keeps static BYOK enabled but fails closed for BFF deployments', async () => {
+    await bootstrapClientCapabilities(false, '')
+    expect(isByokGenerationEnabled()).toBe(true)
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        Response.json({
+          'accounts:login': false,
+          'billing:credits': false,
+          'generation:byok': false,
+          'quota:daily': false,
+        }),
+      ),
+    )
+    await bootstrapClientCapabilities(true, '')
+    expect(isByokGenerationEnabled()).toBe(false)
   })
 })

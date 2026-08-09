@@ -1,8 +1,4 @@
-import {
-  DAILY_QUOTA_LIMIT,
-  type PersistedSubmitRequest,
-  type QueueProvider,
-} from '@image-playground/shared'
+import type { PersistedSubmitRequest, QueueProvider } from '@image-playground/shared'
 import { and, eq, isNull } from 'drizzle-orm'
 import { Elysia, t } from 'elysia'
 import { config } from '../config'
@@ -99,6 +95,8 @@ export const submitRoutes = new Elysia()
       const n = body.n ?? 1
       const now = Date.now()
       const taskHooks = (await loadPrivateBffOverlay()).taskHooks
+      const dailyQuotaEnabled = isCapabilityEnabled('quota:daily')
+      const dailyQuotaLimit = config.operator.quotas['generation:daily-images']
       const outcome = await db.transaction(async (tx) => {
         const inserted = await tx
           .insert(schema.tasks)
@@ -133,8 +131,8 @@ export const submitRoutes = new Elysia()
             await tx.delete(schema.tasks).where(eq(schema.tasks.id, id))
             return reservation
           }
-        } else {
-          const quota = await tryConsumeQuotaInTransaction(tx, body.device_id, n)
+        } else if (dailyQuotaEnabled) {
+          const quota = await tryConsumeQuotaInTransaction(tx, body.device_id, n, dailyQuotaLimit)
           if (!quota.ok) {
             await tx.delete(schema.tasks).where(eq(schema.tasks.id, id))
             return { kind: 'quota_exceeded' as const, quota }
@@ -170,7 +168,7 @@ export const submitRoutes = new Elysia()
         const quota = outcome.quota
         return status(429, {
           error: 'daily_quota_exceeded',
-          limit: DAILY_QUOTA_LIMIT,
+          limit: quota.limit,
           used: quota.count,
           reset_at: quota.reset_at,
         })

@@ -25,7 +25,7 @@ import {
 } from '../lib/apiProfiles'
 import { getPublicChannel } from '../lib/channels/publicChannels'
 import type { ClientProfile, ProviderKind, UserByokProfile } from '../lib/channels/types'
-import { isClientCapabilityEnabled } from '../lib/clientCapabilities'
+import { isByokGenerationEnabled } from '../lib/clientCapabilities'
 import { copyTextToClipboard, getClipboardFailureMessage } from '../lib/clipboard'
 import { isApiProxyAvailable, readClientDevProxyConfig } from '../lib/devProxy'
 import { fetchProfileModels } from '../lib/fetchProfileModels'
@@ -1305,7 +1305,7 @@ export default function SettingsModal() {
                   </svg>
                   习惯配置
                 </button>
-                {!isClientCapabilityEnabled('billing:credits') && (
+                {isByokGenerationEnabled() && (
                   <button
                     onClick={() => setActiveTab('api')}
                     className={`whitespace-nowrap flex-shrink-0 flex items-center gap-2.5 px-3 py-2.5 text-sm rounded-xl transition-colors ${activeTab === 'api' ? 'bg-white dark:bg-white/[0.08] shadow-sm text-blue-600 dark:text-blue-400 font-medium' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100/80 dark:hover:bg-white/[0.04]'}`}

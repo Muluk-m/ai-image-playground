@@ -15,6 +15,7 @@ export interface PrivateWebOverlay {
   SubmissionStatus: ComponentType<PrivateSubmissionInput>
   useSubmissionGuard(input: PrivateSubmissionInput): PrivateSubmissionGuard
   onSubmissionError(error: unknown): void
+  onSubmissionAccepted(): void
 }
 
 const EmptyComponent = () => null
@@ -23,6 +24,7 @@ const EMPTY_OVERLAY: PrivateWebOverlay = Object.freeze({
   SubmissionStatus: EmptyComponent,
   useSubmissionGuard: () => ({ blocked: false }),
   onSubmissionError: () => {},
+  onSubmissionAccepted: () => {},
 })
 
 const privateModules = import.meta.glob('../../../../private/apps/web/index.tsx', { eager: true })
@@ -46,6 +48,8 @@ function resolveOverlay(): PrivateWebOverlay {
     typeof overlay.SubmissionStatus !== 'function' ||
     !('useSubmissionGuard' in overlay) ||
     typeof overlay.useSubmissionGuard !== 'function' ||
+    !('onSubmissionAccepted' in overlay) ||
+    typeof overlay.onSubmissionAccepted !== 'function' ||
     !('onSubmissionError' in overlay) ||
     typeof overlay.onSubmissionError !== 'function'
   ) {
@@ -61,6 +65,10 @@ export const PrivateSubmissionStatus = overlay.SubmissionStatus
 
 export function usePrivateSubmissionGuard(input: PrivateSubmissionInput): PrivateSubmissionGuard {
   return overlay.useSubmissionGuard(input)
+}
+
+export function notifyPrivateSubmissionAccepted(): void {
+  overlay.onSubmissionAccepted()
 }
 
 export function notifyPrivateSubmissionError(error: unknown): void {
