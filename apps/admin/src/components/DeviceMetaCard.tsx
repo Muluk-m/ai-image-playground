@@ -4,9 +4,8 @@ import { useState } from 'react'
 import { FuzzyTime } from '@/components/FuzzyTime'
 import { ModelChips } from '@/components/ModelChips'
 import { Button } from '@/components/ui/button'
-import { Progress } from '@/components/ui/progress'
 import { copyText } from '@/lib/format'
-import { DAILY_QUOTA_LIMIT, type DeviceRow, type Range } from '@/lib/types'
+import type { DeviceRow, Range } from '@/lib/types'
 
 interface DeviceMetaCardProps {
   device: DeviceRow
@@ -22,7 +21,6 @@ const RANGE_LABEL: Record<Range, string> = {
 
 export function DeviceMetaCard({ device, range, runningCount = 0 }: DeviceMetaCardProps) {
   const [copied, setCopied] = useState(false)
-  const pct = Math.min(100, Math.round((device.today_count / DAILY_QUOTA_LIMIT) * 100))
 
   async function onCopy(): Promise<void> {
     if (await copyText(device.device_id)) {
@@ -66,13 +64,9 @@ export function DeviceMetaCard({ device, range, runningCount = 0 }: DeviceMetaCa
 
         <div className="min-w-[180px]">
           <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            今日配额
+            今日任务
           </h3>
-          <div className="mt-1 font-mono text-2xl tabular-nums">
-            {device.today_count}{' '}
-            <span className="text-base text-muted-foreground">/ {DAILY_QUOTA_LIMIT}</span>
-          </div>
-          <Progress value={pct} className="mt-2 h-1.5" />
+          <div className="mt-1 font-mono text-2xl tabular-nums">{device.today_count}</div>
         </div>
       </div>
 

@@ -384,55 +384,6 @@ export async function getUserDetail(
   const statusCondition =
     statusFilter && statusFilter !== 'all' ? sql`AND status = ${statusFilter}` : sql``
 
-  const userRowsPromise = cursor
-    ? Promise.resolve([])
-    : db.execute(sql`
-        SELECT
-          u.id,
-          u.username,
-          u.status,
-          u.created_at,
-          u.updated_at,
-          u.last_login_at,
-          task_stats.last_task_at,
-          GREATEST(u.last_login_at, task_stats.last_task_at) AS last_activity_at,
-          COALESCE(session_stats.active_sessions, 0) AS active_sessions,
-          COALESCE(task_stats.task_count, 0) AS task_count
-        FROM users u
-        LEFT JOIN LATERAL (
-          SELECT COUNT(*) AS active_sessions
-          FROM user_sessions s
-          WHERE s.user_id = u.id AND s.expires_at > NOW()
-        ) session_stats ON TRUE
-        LEFT JOIN LATERAL (
-          SELECT COUNT(*) AS task_count, MAX(t.submitted_at) AS last_task_at
-          FROM tasks t
-          WHERE t.user_id = u.id
-        ) task_stats ON TRUE
-        WHERE u.id = ${userId}
-      `)
-
-  const taskRowsPromise = db
-    .select({
-      id: schema.tasks.id,
-      provider: schema.tasks.provider,
-      model: schema.tasks.model,
-      status: schema.tasks.status,
-      submitted_at: schema.tasks.submitted_at,
-      started_at: schema.tasks.started_at,
-      completed_at: schema.tasks.completed_at,
-      error_type: schema.tasks.error_type,
-      request_payload: schema.tasks.request_payload,
-      attempt_count: schema.tasks.attempt_count,
-    })
-    .from(schema.tasks)
-    .where(sql`user_id = ${userId}
-      AND submitted_at >= ${new Date(since)}
-      ${statusCondition}
-      ${keyset}`)
-    .orderBy(sql`submitted_at DESC, id DESC`)
-    .limit(PAGE_SIZE + 1)
-
   const bucketUnit = range === '1d' ? sql`'hour'` : sql`'day'`
   const bucketStep = range === '1d' ? sql`INTERVAL '1 hour'` : sql`INTERVAL '1 day'`
   const bucketStart =
@@ -441,6 +392,7 @@ export async function getUserDetail(
       : range === '7d'
         ? sql`DATE_TRUNC('day', NOW()) - INTERVAL '6 days'`
         : sql`DATE_TRUNC('day', NOW()) - INTERVAL '29 days'`
+
   const volumePromise = cursor
     ? Promise.resolve([])
     : db.execute(sql`
@@ -461,29 +413,124 @@ export async function getUserDetail(
         ORDER BY b.bucket
       `)
 
-  const [userRowsRaw, taskRows, volumeRowsRaw] = await Promise.all([
-    userRowsPromise,
-    taskRowsPromise,
-    volumePromise,
-  ])
-  const userRow = (userRowsRaw as unknown as Array<Record<string, unknown>>)[0]
-  if (!cursor && !userRow) return null
+  let userRow: Record<string, unknown> | undefined
+  let taskRows: Array<Record<string, unknown>>
+  if (cursor) {
+    taskRows = (await db
+      .select({
+        id: schema.tasks.id,
+        provider: schema.tasks.provider,
+        model: schema.tasks.model,
+        status: schema.tasks.status,
+        submitted_at: schema.tasks.submitted_at,
+        started_at: schema.tasks.started_at,
+        completed_at: schema.tasks.completed_at,
+        error_type: schema.tasks.error_type,
+        request_payload: schema.tasks.request_payload,
+        attempt_count: schema.tasks.attempt_count,
+      })
+      .from(schema.tasks)
+      .where(sql`user_id = ${userId}
+        AND submitted_at >= ${new Date(since)}
+        ${statusCondition}
+        ${keyset}`)
+      .orderBy(sql`submitted_at DESC, id DESC`)
+      .limit(PAGE_SIZE + 1)) as unknown as Array<Record<string, unknown>>
+  } else {
+    const detailRowsPromise = db.execute(sql`
+      WITH user_tasks AS MATERIALIZED (
+        SELECT
+          t.id,
+          t.provider,
+          t.model,
+          t.status,
+          t.submitted_at,
+          t.started_at,
+          t.completed_at,
+          t.error_type,
+          t.request_payload,
+          t.attempt_count,
+          COUNT(*) OVER () AS all_task_count,
+          MAX(t.submitted_at) OVER () AS last_task_at
+        FROM tasks t
+        WHERE t.user_id = ${userId}
+      ),
+      task_page AS (
+        SELECT *
+        FROM user_tasks
+        WHERE submitted_at >= ${new Date(since)}
+          ${statusCondition}
+        ORDER BY submitted_at DESC, id DESC
+        LIMIT ${PAGE_SIZE + 1}
+      )
+      SELECT
+        u.id,
+        u.username,
+        u.status,
+        u.created_at,
+        u.updated_at,
+        u.last_login_at,
+        (SELECT MAX(last_task_at) FROM user_tasks) AS last_task_at,
+        GREATEST(u.last_login_at, (SELECT MAX(last_task_at) FROM user_tasks)) AS last_activity_at,
+        COALESCE(session_stats.active_sessions, 0) AS active_sessions,
+        COALESCE((SELECT MAX(all_task_count) FROM user_tasks), 0) AS task_count,
+        p.id AS task_id,
+        p.provider AS task_provider,
+        p.model AS task_model,
+        p.status AS task_status,
+        p.submitted_at AS task_submitted_at,
+        p.started_at AS task_started_at,
+        p.completed_at AS task_completed_at,
+        p.error_type AS task_error_type,
+        p.request_payload AS task_request_payload,
+        p.attempt_count AS task_attempt_count
+      FROM users u
+      LEFT JOIN LATERAL (
+        SELECT COUNT(*) AS active_sessions
+        FROM user_sessions s
+        WHERE s.user_id = u.id AND s.expires_at > NOW()
+      ) session_stats ON TRUE
+      LEFT JOIN task_page p ON TRUE
+      WHERE u.id = ${userId}
+      ORDER BY p.submitted_at DESC NULLS LAST, p.id DESC NULLS LAST
+    `)
+    const [detailRowsRaw] = await Promise.all([detailRowsPromise, volumePromise])
+    const detailRows = detailRowsRaw as unknown as Array<Record<string, unknown>>
+    userRow = detailRows[0]
+    if (!userRow) return null
+    taskRows = detailRows
+      .filter((row) => row.task_id !== null && row.task_id !== undefined)
+      .map((row) => ({
+        id: row.task_id,
+        provider: row.task_provider,
+        model: row.task_model,
+        status: row.task_status,
+        submitted_at: row.task_submitted_at,
+        started_at: row.task_started_at,
+        completed_at: row.task_completed_at,
+        error_type: row.task_error_type,
+        request_payload: row.task_request_payload,
+        attempt_count: row.task_attempt_count,
+      }))
+  }
+
+  const volumeRowsRaw = await volumePromise
   const hasMore = taskRows.length > PAGE_SIZE
   const pageRows = taskRows.slice(0, PAGE_SIZE)
   const tasks = pageRows.map((row) => ({
-    id: row.id,
-    provider: row.provider,
-    model: row.model,
-    status: row.status,
-    submitted_at: row.submitted_at,
-    started_at: row.started_at,
-    completed_at: row.completed_at,
-    error_type: row.error_type,
+    id: String(row.id),
+    provider: String(row.provider),
+    model: String(row.model),
+    status: String(row.status),
+    submitted_at: toEpochMs(row.submitted_at),
+    started_at: nullableEpochMs(row.started_at),
+    completed_at: nullableEpochMs(row.completed_at),
+    error_type: row.error_type === null ? null : String(row.error_type),
     prompt: extractPrompt(row.request_payload),
     n: extractN(row.request_payload),
-    attempt_count: row.attempt_count,
+    attempt_count: Number(row.attempt_count),
   }))
-  const last = pageRows[pageRows.length - 1]
+  const last = tasks[tasks.length - 1]
   const volumeRows = volumeRowsRaw as unknown as Array<Record<string, unknown>>
   return {
     user: userRow ? mapAdminUser(userRow) : null,
