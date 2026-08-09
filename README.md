@@ -90,115 +90,131 @@ pnpm install && pnpm build
 
 Users plug in their own API key in the UI; the browser talks to the upstream directly. **Jobs longer than ~1 minute won't work** (edge timeouts).
 
-### Option 2 · Docker (with backend; long jobs + preset providers)
+### Option 2 · Containerized application
+
+The application release is one local image. The same image runs nginx, BFF, worker, and
+Admin, and both deployment projects use [`deploy/compose.app.yaml`](./deploy/compose.app.yaml).
+nginx serves the Web build and proxies `/api/*`, `/health`, and the unchanged `/v1/*` API
+namespace to BFF. BFF does not serve Web assets in this layout.
+
+Prepare the infrastructure and deployment files outside the repository:
 
 ```bash
-docker build -t ai-image-playground .
-docker run -p 37377:37377 \
-  -e AUTH_ENABLED=false \
-  -e OPENAI_API_KEY=sk-... \
-  -e GEMINI_API_KEY=... \
-  -e DATABASE_URL=/data/image-playground.sqlite \
-  -v image-playground-data:/data \
-  -v $(pwd)/apps/bff/channels.json:/app/apps/bff/channels.json \
-  ai-image-playground
+config_root="${XDG_CONFIG_HOME:-$HOME/.config}/ai-image-playground"
+mkdir -p \
+  "$config_root/apps/image-playground-personal" \
+  "$config_root/apps/image-playground-commercial"
+
+cp deploy/infra.env.example "$config_root/infra.env"
+cp deploy/app.personal.env.example \
+  "$config_root/apps/image-playground-personal/app.env"
+cp deploy/app.commercial.env.example \
+  "$config_root/apps/image-playground-commercial/app.env"
+chmod 600 \
+  "$config_root/infra.env" \
+  "$config_root/apps/image-playground-personal/app.env" \
+  "$config_root/apps/image-playground-commercial/app.env"
+
+# Replace every replace-* value before starting anything.
 ```
 
-Open `http://localhost:37377`. `channels.json` configures the list of preset providers (OpenAI + Gemini by default — operators edit this file to add more).
+The two application files must use different buckets, object-store credentials, internal
+service tokens, authentication settings, provider credentials, and CORS origins. Compose
+also creates a different SQLite volume for each project. Real secrets and operator
+configuration remain in these external directories; only safe examples are committed.
+`operator-config.json` is optional beside each `app.env`. Missing is valid, while a present
+but invalid file prevents BFF startup.
 
-Full configuration reference (runtime-config / channels.json / env vars) is in [`apps/bff/README.md`](./apps/bff/README.md).
-
-### Reproducible PostgreSQL and MinIO dependencies
-
-Wave 0 provides PostgreSQL and private MinIO as a separate Compose project. Prepare its
-environment file outside the repository once, replace every placeholder, then start both
-test dependencies with one command:
+Start the infrastructure, build the release image once, then start each project:
 
 ```bash
-config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/ai-image-playground"
-mkdir -p "$config_dir"
-cp deploy/infra.env.example "$config_dir/infra.env"
-chmod 600 "$config_dir/infra.env"
-# Edit "$config_dir/infra.env" before continuing.
+# One-time host network owned by the existing reverse proxy, not either app project.
+docker network create image-playground-edge
 
-pnpm test:deps:up
+scripts/infra-compose.sh up
+scripts/app-compose.sh build ai-image-playground:local
+scripts/app-compose.sh up image-playground-personal
+scripts/app-compose.sh up image-playground-commercial
 ```
 
-Set `INFRA_ENV_FILE=/absolute/path/to/infra.env` to use another repository-external file.
-`pnpm test:deps:up` waits for PostgreSQL and MinIO readiness, then creates every bucket in
-`MINIO_BUCKET_NAMES`, removes anonymous access, and installs a 45-day expiry rule. This is
-longer than the application's 30-day task retention. Data remains in project-scoped named
-volumes after `pnpm test:deps:down`.
+`infra-compose.sh` uses
+`$XDG_CONFIG_HOME/ai-image-playground/infra.env` by default. Set `INFRA_ENV_FILE` to
+override it. It waits for PostgreSQL and MinIO, creates the buckets in
+`MINIO_BUCKET_NAMES`, makes them private, and installs a 45-day expiry rule. Infrastructure
+ports bind to `127.0.0.1` by default; application Compose publishes no PostgreSQL or MinIO
+port.
 
-The required keys are:
+`app-compose.sh` defaults to
+`$XDG_CONFIG_HOME/ai-image-playground/apps/<project>/app.env`. It starts dependency checks,
+BFF, worker, and Admin first and activates nginx only after BFF is healthy. The nginx
+container remains available during later backend restarts. Each Web container writes its
+own `/usr/share/nginx/html/runtime-config.json` from its external environment, so both
+domains share the same Web build without sharing runtime configuration.
 
-| Key | Purpose |
+The host reverse proxy must be a container on `image-playground-edge`. Route the domains to
+the stable network aliases:
+
+| Target | Upstream |
 |---|---|
-| `INFRA_NETWORK_NAME` | Stable private Docker network that application projects join |
-| `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` | PostgreSQL bootstrap database and credentials |
-| `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD` | MinIO bootstrap credentials |
-| `MINIO_BUCKET_NAMES` | Comma-separated, unique bucket names, one per deployment |
+| Personal Web | `http://image-playground-personal-web:8080` |
+| Commercial Web | `http://image-playground-commercial-web:8080` |
+| Personal Admin | `http://image-playground-personal-admin:37378` |
+| Commercial Admin | `http://image-playground-commercial-admin:37378` |
 
-`INFRA_BIND_ADDRESS` defaults to `127.0.0.1`; the three optional host-port keys are
-`POSTGRES_HOST_PORT`, `MINIO_API_HOST_PORT`, and `MINIO_CONSOLE_HOST_PORT`. Keep the bind
-address loopback-only unless a host firewall provides an equivalent boundary. Applications
-use `postgres:5432` and `http://minio:9000` on the external network contract:
+Protect Admin with Cloudflare Access, a VPN, or an IP allowlist. The committed Compose file
+does not publish host ports because the domain proxy owns ingress. If the existing host
+proxy is not containerized, an operator-supplied Compose override must bind loopback-only
+Web/Admin ports.
 
-```yaml
-networks:
-  application-infra:
-    external: true
-    name: ${INFRA_NETWORK_NAME}
-```
-
-Use `pnpm test:deps:status` to inspect service health and `pnpm test:deps:down` to stop the
-project without deleting its volumes. The existing macmini PostgreSQL and MinIO installation
-has not been inspected because no SSH host is configured. Do not start this project there
-until ownership of existing data and the migration path have been verified.
-
-### Two domains: personal + commercial
-
-For two independent Web+BFF deployments, configure the switch per instance:
-
-| Deployment | `AUTH_ENABLED` | Behavior |
-|---|---:|---|
-| Personal domain | `false` | Existing anonymous workbench; no login screen |
-| Commercial domain | `true` | Login required; tasks and browser-local data are isolated per account |
-
-Use separate SQLite volumes for the two instances. Each BFF also needs the provider secrets
-named by the `auth.secretRef` fields in its `channels.json` (`OPENAI_API_KEY`, `GEMINI_API_KEY`,
-… by default) — a missing secret only warns at startup, and requests to that channel fail
-later. The commercial Admin service must share the commercial BFF's SQLite volume on the same
-Docker host:
+Inspect or stop projects independently:
 
 ```bash
-# Commercial Web+BFF
-docker network create image-commercial-net
-docker volume create image-commercial-data
-docker run -d --name image-commercial --network image-commercial-net -p 37379:37377 \
-  -e AUTH_ENABLED=true \
-  -e OPENAI_API_KEY=sk-... \
-  -e GEMINI_API_KEY=... \
-  -e DATABASE_URL=/data/image-playground.sqlite \
-  -e CORS_ALLOWED_ORIGINS=https://commercial.example.com \
-  -v image-commercial-data:/data \
-  ai-image-playground
-
-# Commercial Admin
-docker build --target admin-runtime -t ai-image-playground-admin .
-docker run -d --name image-commercial-admin --network image-commercial-net -p 37378:37378 \
-  -e ADMIN_PASSWORD='replace-with-a-strong-password' \
-  -e ADMIN_COOKIE_SECRET='replace-with-at-least-32-random-characters' \
-  -e DATABASE_URL=/data/image-playground.sqlite \
-  -e BFF_INTERNAL_URL=http://image-commercial:37377 \
-  -e CORS_ALLOWED_ORIGINS=https://admin.example.com \
-  -v image-commercial-data:/data \
-  ai-image-playground-admin
+scripts/app-compose.sh status image-playground-personal
+scripts/app-compose.sh stop image-playground-personal
+scripts/app-compose.sh stop image-playground-commercial
+scripts/infra-compose.sh down
 ```
 
-Create the first account from the Admin “Users” page. The Admin can create, enable/disable,
-reset passwords, and revoke all sessions. Put both sites behind HTTPS and add an additional
-access policy (Cloudflare Access, VPN, or an IP allowlist) in front of the Admin domain.
+Stopping an application project does not remove its data volume, the external
+infrastructure network, or the external edge network. Stop infrastructure only after both
+application projects are down.
+
+Rollback uses an already retained image tag. It preserves backend-first activation:
+
+```bash
+scripts/app-compose.sh rollback image-playground-personal ai-image-playground:previous
+scripts/app-compose.sh rollback image-playground-commercial ai-image-playground:previous
+```
+
+If the previous tag was not retained, build that tag from the previous source checkout
+first. One rollback image can then be reused by both projects.
+
+### Fleet deployment contract
+
+`.fleet/deploy.json` now contains three Compose services: the committed infrastructure
+project and two independent application projects. Fleet builds
+`ai-image-playground:local` once, waits for Compose health, and deploys infrastructure before
+either application through service dependencies.
+
+The current fleet Compose schema has no per-service `--env-file` field. The macmini fleet
+agent must therefore export
+`COMPOSE_ENV_FILES=/Users/qiqian/.config/ai-image-playground/infra.env`. Application
+containers load their project-specific files directly from:
+
+```text
+/Users/qiqian/.config/ai-image-playground/apps/image-playground-personal/app.env
+/Users/qiqian/.config/ai-image-playground/apps/image-playground-commercial/app.env
+```
+
+The following host facts remain operator prerequisites and are not changed automatically:
+
+- `/Users/qiqian` is the deployment account home used by fleet.
+- `image-playground-edge` exists and the domain proxy has joined it.
+- `INFRA_NETWORK_NAME` is identical in infra and application configuration.
+- MinIO has distinct application credentials for the two private buckets; the bootstrap
+  profile creates buckets and lifecycle rules but does not provision scoped MinIO users.
+- Existing macmini PostgreSQL and MinIO data ownership has been checked before the committed
+  infrastructure project is started.
 
 ## 🛠 Development
 

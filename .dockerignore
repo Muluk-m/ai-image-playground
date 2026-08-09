@@ -43,8 +43,10 @@
 !packages/*/src
 !packages/*/drizzle.config.ts
 
-# ── entrypoint ────────────────────────────────────────────────────
+# ── Runtime configuration and entrypoints ─────────────────────────
+!deploy/nginx.conf
 !scripts/docker-entrypoint.sh
+!scripts/check-dependencies.ts
 
 # ── 上面 `!` 放行的目录里仍有 gitignored 兄弟，重新排除 ────────────
 # operator 的部署配置：vite 会把 public/** 原样复制进 dist，绝不能从宿主机带进来

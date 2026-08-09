@@ -90,125 +90,128 @@ pnpm install && pnpm build
 
 用户自己在页面里填 API key，浏览器直连模型上游。**不支持 1 分钟以上的长任务**（edge 平台超时）。
 
-### 选项 2 · Docker（带后端，支持长任务 + 预置服务商）
+### 选项 2 · 容器化应用
+
+应用只构建一个本地镜像。nginx、BFF、worker 与 Admin 都从该镜像启动，两个部署
+project 共用 [`deploy/compose.app.yaml`](./deploy/compose.app.yaml)。nginx 提供 Web
+静态文件，并把 `/api/*`、`/health` 和保持不变的 `/v1/*` API 路径代理到 BFF。此部署
+形态下 BFF 不再提供 Web 静态文件。
+
+先在仓库外准备基础设施和两个部署的配置：
 
 ```bash
-docker build -t ai-image-playground .
-docker run -p 37377:37377 \
-  -e AUTH_ENABLED=false \
-  -e OPENAI_API_KEY=sk-... \
-  -e GEMINI_API_KEY=... \
-  -e DATABASE_URL=/data/image-playground.sqlite \
-  -v image-playground-data:/data \
-  -v $(pwd)/apps/bff/channels.json:/app/apps/bff/channels.json \
-  ai-image-playground
+config_root="${XDG_CONFIG_HOME:-$HOME/.config}/ai-image-playground"
+mkdir -p \
+  "$config_root/apps/image-playground-personal" \
+  "$config_root/apps/image-playground-commercial"
+
+cp deploy/infra.env.example "$config_root/infra.env"
+cp deploy/app.personal.env.example \
+  "$config_root/apps/image-playground-personal/app.env"
+cp deploy/app.commercial.env.example \
+  "$config_root/apps/image-playground-commercial/app.env"
+chmod 600 \
+  "$config_root/infra.env" \
+  "$config_root/apps/image-playground-personal/app.env" \
+  "$config_root/apps/image-playground-commercial/app.env"
+
+# 启动前替换所有 replace-* 占位值。
 ```
 
-打开 `http://localhost:37377` 即可用。`channels.json` 配置预置的服务商列表（默认含 OpenAI + Gemini，operator 改这里就能加新的）。
+两个应用配置必须使用不同的 bucket、对象存储凭证、服务间令牌、认证设置、上游凭证和
+CORS 来源。Compose 也会为两个 project 创建不同的 SQLite volume。真实密钥与 operator
+配置始终留在这些仓库外目录中，仓库只提交安全样例。每个 `app.env` 旁可选放置
+`operator-config.json`。文件缺失是合法状态；文件存在但内容无效时 BFF 拒绝启动。
 
-详细配置（runtime-config / channels.json / 环境变量）见 [`apps/bff/README.md`](./apps/bff/README.md)。
-
-### 可复现的 PostgreSQL 与 MinIO 依赖
-
-Wave 0 把 PostgreSQL 与非公开 MinIO 放在独立的 Compose project 中。先在仓库外准备一次
-环境文件并替换全部占位值，之后一条命令即可启动测试依赖：
+先启动基础设施，只构建一次镜像，再分别启动两个 project：
 
 ```bash
-config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/ai-image-playground"
-mkdir -p "$config_dir"
-cp deploy/infra.env.example "$config_dir/infra.env"
-chmod 600 "$config_dir/infra.env"
-# 继续前先编辑 "$config_dir/infra.env"。
+# 只需创建一次；该 network 由宿主机现有反向代理持有，不属于任何应用 project。
+docker network create image-playground-edge
 
-pnpm test:deps:up
+scripts/infra-compose.sh up
+scripts/app-compose.sh build ai-image-playground:local
+scripts/app-compose.sh up image-playground-personal
+scripts/app-compose.sh up image-playground-commercial
 ```
 
-如需使用其它仓库外文件，设置
-`INFRA_ENV_FILE=/absolute/path/to/infra.env`。`pnpm test:deps:up` 会等待 PostgreSQL 与
-MinIO 就绪，再创建 `MINIO_BUCKET_NAMES` 中的所有 bucket、关闭匿名访问并写入 45 天
-过期规则。该规则长于应用的 30 天任务保留期。执行 `pnpm test:deps:down` 后，数据仍
-保留在该 project 的具名 volume 中。
+`infra-compose.sh` 默认读取
+`$XDG_CONFIG_HOME/ai-image-playground/infra.env`，可用 `INFRA_ENV_FILE` 覆盖。它会等待
+PostgreSQL 与 MinIO 健康，创建 `MINIO_BUCKET_NAMES` 中的 bucket、关闭匿名访问，并配置
+45 天过期规则。基础设施端口默认只绑定 `127.0.0.1`；应用 Compose 不发布 PostgreSQL
+或 MinIO 端口。
 
-必填配置如下：
+`app-compose.sh` 默认读取
+`$XDG_CONFIG_HOME/ai-image-playground/apps/<project>/app.env`。它先启动依赖检查、BFF、
+worker 与 Admin，确认 BFF 健康后才激活 nginx。以后后端重启时 nginx 容器继续可用。
+每个 Web 容器根据自己的外部配置写入
+`/usr/share/nginx/html/runtime-config.json`，因此两个域名共用同一份 Web 构建产物，
+但运行时配置互不相同。
 
-| 配置 | 用途 |
+宿主机反向代理必须以容器运行并加入 `image-playground-edge`。域名应转发到以下稳定
+network alias：
+
+| 目标 | 上游 |
 |---|---|
-| `INFRA_NETWORK_NAME` | 供应用 project 接入的稳定私有 Docker network |
-| `POSTGRES_DB`、`POSTGRES_USER`、`POSTGRES_PASSWORD` | PostgreSQL 初始数据库与凭证 |
-| `MINIO_ROOT_USER`、`MINIO_ROOT_PASSWORD` | MinIO 初始凭证 |
-| `MINIO_BUCKET_NAMES` | 逗号分隔的唯一 bucket 名，每个部署一个 |
+| 自用 Web | `http://image-playground-personal-web:8080` |
+| 经营 Web | `http://image-playground-commercial-web:8080` |
+| 自用 Admin | `http://image-playground-personal-admin:37378` |
+| 经营 Admin | `http://image-playground-commercial-admin:37378` |
 
-`INFRA_BIND_ADDRESS` 默认是 `127.0.0.1`；三个可选宿主机端口配置是
-`POSTGRES_HOST_PORT`、`MINIO_API_HOST_PORT` 与 `MINIO_CONSOLE_HOST_PORT`。除非
-宿主机防火墙提供同等边界，否则不要把绑定地址改成非回环地址。应用通过下面的 external
-network 契约访问 `postgres:5432` 与 `http://minio:9000`：
+Admin 前必须再加 Cloudflare Access、VPN 或 IP 白名单。仓库中的 Compose 不发布宿主机
+端口，入口统一归域名代理管理。如果现有宿主机代理不是容器，operator 需要提供额外的
+Compose override，只把 Web/Admin 端口绑定到回环地址。
 
-```yaml
-networks:
-  application-infra:
-    external: true
-    name: ${INFRA_NETWORK_NAME}
-```
-
-用 `pnpm test:deps:status` 查看服务健康状态，用 `pnpm test:deps:down` 停止 project
-且不删除 volume。由于当前没有配置 SSH host，现有 macmini 上的 PostgreSQL 与 MinIO
-安装尚未检查。在核实已有数据的归属与迁移路径之前，不要在该机器上启动此 project。
-
-### 两个域名：自用匿名 + 经营账号
-
-两个域名对应两个独立的 Web+BFF 容器时，开关直接放在各自实例的环境变量里：
-
-| 部署 | `AUTH_ENABLED` | 行为 |
-|---|---:|---|
-| 自用域名 | `false` | 保持现有匿名工作台，不出现登录页 |
-| 经营域名 | `true` | 必须登录；任务和浏览器本地数据按账号隔离 |
-
-建议两个实例使用不同的 SQLite volume，避免自用任务与经营账号混在一起。两个 BFF 都还需要注入
-各自 `channels.json` 里 `auth.secretRef` 指向的上游密钥（默认是 `OPENAI_API_KEY`、
-`GEMINI_API_KEY` 等）——缺密钥启动时只 warn，等到真正请求该 channel 时才失败：
+查看状态或独立停止任一 project：
 
 ```bash
-# 自用实例
-docker volume create image-personal-data
-docker run -d --name image-personal -p 37377:37377 \
-  -e AUTH_ENABLED=false \
-  -e OPENAI_API_KEY=sk-... \
-  -e GEMINI_API_KEY=... \
-  -e DATABASE_URL=/data/image-playground.sqlite \
-  -v image-personal-data:/data \
-  ai-image-playground
-
-# 经营实例
-docker network create image-commercial-net
-docker volume create image-commercial-data
-docker run -d --name image-commercial --network image-commercial-net -p 37379:37377 \
-  -e AUTH_ENABLED=true \
-  -e OPENAI_API_KEY=sk-... \
-  -e GEMINI_API_KEY=... \
-  -e DATABASE_URL=/data/image-playground.sqlite \
-  -e CORS_ALLOWED_ORIGINS=https://你的经营域名 \
-  -v image-commercial-data:/data \
-  ai-image-playground
+scripts/app-compose.sh status image-playground-personal
+scripts/app-compose.sh stop image-playground-personal
+scripts/app-compose.sh stop image-playground-commercial
+scripts/infra-compose.sh down
 ```
 
-经营实例的账号由 Admin 后台创建。Admin 使用同一台 Docker 主机上的经营数据库
-volume，但应绑定独立后台域名并额外加 Cloudflare Access、VPN 或 IP 白名单：
+停止应用 project 不会删除其数据 volume，也不会删除外部基础设施或入口 network。
+只有两个应用 project 都已停止后，才停止基础设施。
+
+回滚使用宿主机上保留的旧镜像 tag，并保持先后端、后静态页面的激活顺序：
 
 ```bash
-docker build --target admin-runtime -t ai-image-playground-admin .
-docker run -d --name image-commercial-admin --network image-commercial-net -p 37378:37378 \
-  -e ADMIN_PASSWORD='后台管理密码' \
-  -e ADMIN_COOKIE_SECRET='至少32位随机字符串' \
-  -e DATABASE_URL=/data/image-playground.sqlite \
-  -e BFF_INTERNAL_URL=http://image-commercial:37377 \
-  -e CORS_ALLOWED_ORIGINS=https://你的后台域名 \
-  -v image-commercial-data:/data \
-  ai-image-playground-admin
+scripts/app-compose.sh rollback image-playground-personal ai-image-playground:previous
+scripts/app-compose.sh rollback image-playground-commercial ai-image-playground:previous
 ```
 
-打开 Admin 的“用户”页即可创建账号、启用/禁用账号、重置密码和强制退出全部
-会话。经营站点与 Admin 都必须走 HTTPS；第一次启用登录后，需要先在 Admin 创建
-至少一个账号。`ADMIN_PASSWORD` 只用于登录后台，不是经营站点的用户密码。
+如果旧 tag 未保留，先从旧代码检出重新构建该 tag。之后两个 project 可以复用同一个
+回滚镜像。
+
+### Fleet 部署契约
+
+`.fleet/deploy.json` 现在声明三个 Compose 服务：已提交的基础设施 project 和两个独立
+应用 project。Fleet 只构建一次 `ai-image-playground:local`，等待 Compose 健康检查，
+并通过 service dependency 保证先部署基础设施。
+
+当前 fleet Compose schema 没有逐服务 `--env-file` 字段，因此 macmini 上的 fleet agent
+必须导出：
+
+```text
+COMPOSE_ENV_FILES=/Users/qiqian/.config/ai-image-playground/infra.env
+```
+
+应用容器会直接加载以下 project 专用文件：
+
+```text
+/Users/qiqian/.config/ai-image-playground/apps/image-playground-personal/app.env
+/Users/qiqian/.config/ai-image-playground/apps/image-playground-commercial/app.env
+```
+
+以下宿主机事实仍需 operator 人工确认，本次改动不会自动处理：
+
+- fleet 使用的部署账号 home 是 `/Users/qiqian`。
+- `image-playground-edge` 已存在，域名代理也已加入。
+- 基础设施与应用配置中的 `INFRA_NETWORK_NAME` 完全一致。
+- MinIO 已为两个私有 bucket 分别创建应用凭证。bootstrap profile 只创建 bucket 和
+  生命周期规则，不创建限定作用域的 MinIO 用户。
+- 启动已提交的基础设施 project 前，已核实现有 macmini PostgreSQL 与 MinIO 数据归属。
 
 ## 🛠 开发
 
