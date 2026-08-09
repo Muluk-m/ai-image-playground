@@ -7,6 +7,7 @@ import { runMigrations } from './db/migrate'
 import { initChannels } from './lib/channels'
 import { log } from './lib/logger'
 
+config.assertValid()
 runMigrations()
 const authEnabled = config.auth.enabled
 

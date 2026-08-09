@@ -1,3 +1,4 @@
+import { timingSafeEqual } from 'node:crypto'
 import type { AuthUserView } from '@image-playground/shared'
 import { Elysia } from 'elysia'
 import { config } from '../config'
@@ -15,6 +16,47 @@ export const resolveAuthUser = new Elysia({ name: 'resolve-auth-user' }).derive(
     return { authUser: await resolveUserSession(token) }
   },
 )
+
+function hasInternalServiceIdentity(request: Request): boolean {
+  if (!config.auth.enabled) return false
+  const configured = config.auth.internalApiToken
+  const authorization = request.headers.get('authorization')
+  if (!configured || !authorization?.startsWith('Bearer ')) return false
+  const supplied = Buffer.from(authorization.slice('Bearer '.length))
+  const expected = Buffer.from(configured)
+  return supplied.length === expected.length && timingSafeEqual(supplied, expected)
+}
+
+/**
+ * Result and image reads also accept the Admin service credential. Other user routes keep using
+ * requireUser, so service identity cannot submit, cancel, or otherwise act as a user.
+ */
+export const requireUserOrService = new Elysia({ name: 'require-user-or-service' })
+  .derive({ as: 'scoped' }, async ({ cookie, request }) => {
+    if (!config.auth.enabled) {
+      return {
+        authUser: null as AuthUserView | null,
+        serviceIdentity: false,
+      }
+    }
+    if (hasInternalServiceIdentity(request)) {
+      return {
+        authUser: null as AuthUserView | null,
+        serviceIdentity: true,
+      }
+    }
+    const raw = cookie[USER_SESSION_COOKIE]?.value
+    const token = typeof raw === 'string' ? raw : ''
+    return {
+      authUser: await resolveUserSession(token),
+      serviceIdentity: false,
+    }
+  })
+  .onBeforeHandle({ as: 'scoped' }, ({ authUser, serviceIdentity, status }) => {
+    if (config.auth.enabled && !authUser && !serviceIdentity) {
+      return status(401, { error: 'unauthorized' })
+    }
+  })
 
 /**
  * 业务路由统一挂这个 plugin。AUTH_ENABLED=false 时保持匿名兼容；开启后无有效
