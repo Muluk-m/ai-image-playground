@@ -51,6 +51,7 @@
 !packages/*/tsconfig*.json
 !packages/*/src
 !packages/*/drizzle.config.ts
+!packages/*/drizzle
 
 # ── Runtime configuration and entrypoints ─────────────────────────
 !deploy/nginx.conf
