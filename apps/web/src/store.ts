@@ -56,7 +56,11 @@ import { IMAGE_FETCH_CORS_HINT, bytesToDataUrl as sharedBytesToDataUrl } from '.
 import { orderInputImagesForMask } from './lib/mask'
 import { getCustomQueuedImageResult } from './lib/openaiCompatibleImageApi'
 import { getChangedParams, normalizeParamsForSettings } from './lib/paramCompatibility'
-import { notifyPrivateSubmissionAccepted, notifyPrivateSubmissionError } from './lib/privateOverlay'
+import {
+  notifyPrivateSubmissionAccepted,
+  notifyPrivateSubmissionError,
+  notifyPrivateSubmissionSettled,
+} from './lib/privateOverlay'
 import { remapImageMentionsForOrder, replaceImageMentionsForApi } from './lib/promptImageMentions'
 import { dismissAllTooltips } from './lib/tooltipDismiss'
 import {
@@ -1551,6 +1555,7 @@ async function executeTask(taskId: string) {
       useStore.getState().setDetailTaskId(taskId)
     }
   } finally {
+    notifyPrivateSubmissionSettled()
     // 释放输入图片的内存缓存（已持久化到 IndexedDB，后续按需从 DB 加载）
     for (const imgId of task.inputImageIds) {
       imageCache.delete(imgId)
