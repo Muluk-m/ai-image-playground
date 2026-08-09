@@ -9,6 +9,14 @@ x-application-service: &application-service
   init: true
   restart: unless-stopped
 
+x-operator-config-volumes: &operator-config-volumes
+  - type: bind
+    source: ${APP_CONFIG_DIR:-/Users/qiqian/.config/ai-image-playground/apps/${COMPOSE_PROJECT_NAME}}
+    target: /run/operator
+    read_only: true
+    bind:
+      create_host_path: false
+
 services:
   dependency-check:
     <<: *application-service
@@ -23,8 +31,7 @@ services:
       - application-infra
 
   migrate:
-    image: ${APP_IMAGE:-ai-image-playground:local}
-    init: true
+    <<: *application-service
     env_file:
       - path: ${APP_ENV_FILE:-/Users/qiqian/.config/ai-image-playground/apps/${COMPOSE_PROJECT_NAME}/app.env}
         required: true
@@ -42,13 +49,7 @@ services:
         condition: service_completed_successfully
     networks:
       - application-infra
-    volumes:
-      - type: bind
-        source: ${APP_CONFIG_DIR:-/Users/qiqian/.config/ai-image-playground/apps/${COMPOSE_PROJECT_NAME}}
-        target: /run/operator
-        read_only: true
-        bind:
-          create_host_path: false
+    volumes: *operator-config-volumes
 
   bff:
     <<: *application-service
@@ -67,13 +68,7 @@ services:
     networks:
       - application
       - application-infra
-    volumes:
-      - type: bind
-        source: ${APP_CONFIG_DIR:-/Users/qiqian/.config/ai-image-playground/apps/${COMPOSE_PROJECT_NAME}}
-        target: /run/operator
-        read_only: true
-        bind:
-          create_host_path: false
+    volumes: *operator-config-volumes
     healthcheck:
       test:
         - CMD
@@ -100,13 +95,7 @@ services:
     networks:
       - application
       - application-infra
-    volumes:
-      - type: bind
-        source: ${APP_CONFIG_DIR:-/Users/qiqian/.config/ai-image-playground/apps/${COMPOSE_PROJECT_NAME}}
-        target: /run/operator
-        read_only: true
-        bind:
-          create_host_path: false
+    volumes: *operator-config-volumes
     healthcheck:
       test:
         - CMD

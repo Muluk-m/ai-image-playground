@@ -577,7 +577,7 @@ export async function getTask(taskId: string): Promise<TaskDetail | null> {
     error_message: (task as Record<string, unknown>).error_message as string | null,
     result_meta: { images },
     device_id,
-    upstream_invocation_count: Number(task.upstream_invocation_count ?? 0),
+    upstream_invocation_count: task.upstream_invocation_count,
     next_retry_at: (task as Record<string, unknown>).next_retry_at as number | null,
   }
 }
