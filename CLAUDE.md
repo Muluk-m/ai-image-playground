@@ -10,7 +10,7 @@ pnpm workspace + Turbo monorepo：
 
 - `apps/web/` — 前端工作台（React 19 + Vite 6 + TypeScript 5.8 + Zustand 5 + Tailwind 3 + Vitest 4）。历史 / 配置全存浏览器 IndexedDB。
 - `apps/bff/` — **可选**任务队列 BFF（Elysia + Bun + Drizzle + PostgreSQL）。监听 `:37377`，托管 web/dist 同源，跑长任务（绕浏览器 / Edge 长超时）。
-- `apps/admin/` — 可选运维面板（Bun + Elysia 服务端 + Vite + TanStack Router 前端 + shadcn）。HMAC cookie 鉴权，read-only 查任务和设备。
+- `apps/admin/` — 可选运维面板（Bun + Elysia 服务端 + Vite + TanStack Router 前端 + shadcn）。HMAC cookie 鉴权；数据库连接只读，用户与运营写操作一律代理到 BFF。
 - `packages/shared/` — 跨 app 协议类型（`runtime-config.ts` / `channel-discovery.ts` / `queue-protocol.ts`）。
 
 两种部署形态（详见仓库根 `README.md`）：
@@ -59,6 +59,7 @@ pnpm workspace + Turbo monorepo：
   - 源 `apps/web/src/lib/api.ts` → 测 `apps/web/src/__tests__/lib/api.test.ts`
   - 源 `apps/bff/src/routes/submit.ts` → 测 `apps/bff/src/__tests__/routes/submit.test.ts`
 - 测试文件命名 `*.test.ts(x)`；Vitest 默认配置自动发现，不需要单独注册
+- 私有树包不强制使用 `src/` 目录；其测试放在相邻模块的 `__tests__/` 下（例如 `private/apps/bff/billing/__tests__/`）。
 - 涉及外部 IO（network / fs / 上游 API）必须 mock；测试不能依赖在线服务或真实文件系统
 - `vi.mock` 的字符串路径用相对路径从测试文件位置出发；测试位于 `__tests__/` 下时，到 source 的相对路径要回上若干层，例如 `apps/web/src/__tests__/lib/api.test.ts` 里 mock 源代码：
   ```ts
@@ -96,6 +97,20 @@ pnpm workspace + Turbo monorepo：
 `/api/capabilities` 与 channel 列表，清单不可用时全部按关闭处理，禁止把能力写回 runtime
 配置。Docker entrypoint 从 env 生成 runtime 配置；裸跑或纯静态部署可自行生成。
 
+
+## 私有树接缝
+
+`private/apps/{bff,web,admin}` 是可选 overlay 工作区；目录缺席时公开树必须独立
+typecheck、测试和构建。公开树只允许以下三个审计接缝引用 `private/`：
+
+- `apps/bff/src/lib/private-overlay.ts`：任务事务 hook 与私有 BFF routes
+- `apps/web/src/lib/privateOverlay.tsx`：用户侧 header、提交门禁和状态 UI
+- `apps/admin/src/lib/private-overlay.tsx`：运营概览、用户摘要和用户详情 UI
+
+私有 Admin 的所有写操作经 `/api/private/*` 代理到 BFF 的
+`/internal/admin/private/*`；Admin 数据库角色保持 SELECT-only。添加私有模块后，
+必须同时跑公开包和对应私有包的 typecheck，并分别验证「目录存在」与「目录缺席」构建。
+
 ## 提交规范
 
 - 不要 `git add -A`，工作区常有未追踪的本地配置（`.env.local`、`out.png` 等），容易夹带。**只 add 明确改动的文件**。
@@ -114,14 +129,17 @@ pnpm workspace + Turbo monorepo：
 
 ## BFF 定位
 
-BFF（`apps/bff/`）在整个 playground 里只做四件事：
+BFF（`apps/bff/`）的公开核心只做四件事：
 
 1. **任务队列代理** — 绕浏览器 / Edge / CF Pages 这类平台的 100s idle timeout（Gemini 3 Pro Image 单张能跑 30-300s）。前端发 `submit / status / fetch` 三段 < 1s 快请求，BFF 内部跑长 fetch 调上游。
 2. **Secret 守门人** — 上游 API key 只在 BFF 进程 env 里，浏览器永远拿不到；这是「内置 channel」能让没 key 的用户也能用的前提。
 3. **持久化 + 幂等** — PostgreSQL 存 task，浏览器刷新 / 关 tab 后用 `client_request_id` 幂等恢复，不重复扣额度。
 4. **托管前端静态产物** — `apps/web/dist` 由 BFF serve（`STATIC_DIR` env），跟 BFF 同源省 CORS preflight。
 
-**BFF 不做**：协议翻译（OpenAI / Gemini 字段透传给上游）；**BYOK profile 完全绕过 BFF**（前端直接 fetch 用户填的 baseUrl，BFF 看不到也存不了 BYOK 的 key）。
+私有 BFF overlay 可以在这些接缝上增加计费等部署专属能力；它仍必须遵守 BFF
+是唯一写入者、提交与预扣同事务、worker 结算或退回的纪律。
+
+**BFF 不做**：协议翻译（OpenAI / Gemini 字段透传给上游）。普通部署的 BYOK profile 完全绕过 BFF（前端直接 fetch 用户填的 baseUrl，BFF 看不到也存不了 BYOK 的 key）；开启 `billing:credits` 的经营部署禁用 BYOK，只允许内置 channel。
 
 ## Queue 模式协议（apps/web ↔ apps/bff）
 
