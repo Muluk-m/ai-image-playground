@@ -58,6 +58,7 @@ export interface TaskDetail extends TaskListItem {
   device_id: string | null
   user_id: string | null
   next_retry_at: number | null
+  upstream_invocation_count: number
 }
 
 export type UserStatus = 'active' | 'disabled'
@@ -109,11 +110,17 @@ export interface OverviewSummary {
   success_rate: number
   p50_duration_ms: number | null
   p95_duration_ms: number | null
+  upstream_invocations: number
 }
 
 export interface OverviewResult {
   summary: OverviewSummary
   volume: TaskVolumeBucket[]
   failures: Array<{ error_type: string; count: number }>
-  models: Array<{ model: string; count: number }>
+  models: Array<{
+    model: string
+    count: number
+    upstream_invocations: number
+    average_multiplier: number | null
+  }>
 }

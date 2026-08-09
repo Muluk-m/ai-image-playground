@@ -81,11 +81,17 @@ function OverviewPage() {
         </span>
       </div>
 
-      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4" aria-label="关键指标">
+      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-5" aria-label="关键指标">
         <Metric
           label="任务总量"
           value={String(summary.total)}
           note="当前时间窗提交"
+          icon={Activity}
+        />
+        <Metric
+          label="上游调用"
+          value={String(summary.upstream_invocations)}
+          note="含自动重试的真实调用量"
           icon={Activity}
         />
         <Metric
@@ -131,7 +137,12 @@ function OverviewPage() {
                 <div key={model.model}>
                   <div className="flex items-center justify-between gap-3 text-xs">
                     <span className="truncate font-mono">{model.model}</span>
-                    <span className="tabular-nums text-muted-foreground">{model.count}</span>
+                    <span className="whitespace-nowrap tabular-nums text-muted-foreground">
+                      {model.count} tasks · {model.upstream_invocations} calls ·{' '}
+                      {model.average_multiplier === null
+                        ? '—'
+                        : `${model.average_multiplier.toFixed(2)}×`}
+                    </span>
                   </div>
                   <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-muted">
                     <div

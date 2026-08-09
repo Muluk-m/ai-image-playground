@@ -125,6 +125,7 @@ function TaskDetailContent({ task }: { task: TaskDetail }) {
             {task.attempt_count > 1 ? (
               <KV label="attempts" value={String(task.attempt_count)} mono />
             ) : null}
+            <KV label="upstream_calls" value={String(task.upstream_invocation_count)} mono />
             {task.status === 'queued' && task.next_retry_at ? (
               <KV label="next_retry_at" value={isoTime(task.next_retry_at)} mono />
             ) : null}
