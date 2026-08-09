@@ -188,9 +188,14 @@ async function submit(
       const json = (await res.json().catch(() => null)) as {
         error?: string
         reset_at?: string
+        limit?: number
       } | null
       if (json?.error === 'daily_quota_exceeded') {
-        const err = new Error('今日 80 张已用完，UTC 0 点（北京 8 点）后重置') as Error & {
+        const exhausted =
+          typeof json.limit === 'number' && Number.isSafeInteger(json.limit) && json.limit >= 0
+            ? `今日 ${json.limit} 张已用完`
+            : '今日生成额度已用完'
+        const err = new Error(`${exhausted}，UTC 0 点（北京 8 点）后重置`) as Error & {
           quotaExceeded: boolean
           resetAt?: string
         }
