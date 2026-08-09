@@ -36,7 +36,7 @@ export interface TaskListItem {
   completed_at: number | null
   error_type: string | null
   prompt: string
-  n: number | null
+  upstream_invocation_count: number
   attempt_count: number
 }
 
@@ -58,7 +58,6 @@ export interface TaskDetail extends TaskListItem {
   device_id: string | null
   user_id: string | null
   next_retry_at: number | null
-  upstream_invocation_count: number
 }
 
 export type UserStatus = 'active' | 'disabled'

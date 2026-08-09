@@ -44,6 +44,7 @@ await writer.db.insert(writer.schema.tasks).values([
     request_payload: { prompt: `prompt-${index}`, n: 2, device_id: 'dev-PAGE-xx' },
     submitted_at: now - index * 1000,
     completed_at: now - index * 1000 + 500,
+    upstream_invocation_count: 3,
   })),
   {
     id: 'big-1',
@@ -58,6 +59,7 @@ await writer.db.insert(writer.schema.tasks).values([
     },
     submitted_at: now,
     completed_at: now + 1000,
+    upstream_invocation_count: 4,
   },
 ])
 await writer.db.insert(writer.schema.users).values({
@@ -130,9 +132,9 @@ describe('getDeviceDetail', () => {
     // 120KB 的 base64 绝不能出现在列表响应里
     expect(json).not.toContain('BIGIMAGEDATA')
     expect(json.length).toBeLessThan(2000)
-    // 但 prompt/n 正常预抽
+    // prompt 与真实上游调用数正常预抽
     expect(detail.tasks[0]?.prompt).toBe('a big one')
-    expect(detail.tasks[0]?.n).toBe(1)
+    expect(detail.tasks[0]?.upstream_invocation_count).toBe(4)
   })
 })
 
@@ -143,9 +145,9 @@ describe('getDeviceDetail 分页', () => {
     expect(p1.nextCursor).not.toBeNull()
     expect(p1.tasks[0]?.id).toBe('pg-000')
     expect(p1.device!.total).toBe(150)
-    // 瘦身后列表项含 prompt/n
+    // 列表展示 prompt 与真实上游调用数，不复用请求 n
     expect(p1.tasks[0]?.prompt).toBe('prompt-0')
-    expect(p1.tasks[0]?.n).toBe(2)
+    expect(p1.tasks[0]?.upstream_invocation_count).toBe(3)
   })
 
   it('第二页用 cursor 拿剩余 50 条、无重叠、device 为 null、nextCursor 收敛到 null', async () => {

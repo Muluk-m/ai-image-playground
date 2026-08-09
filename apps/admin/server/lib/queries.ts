@@ -60,11 +60,6 @@ function extractPrompt(payload: unknown): string {
     .filter(Boolean)
     .join('\n')
 }
-function extractN(payload: unknown): number | null {
-  if (!payload || typeof payload !== 'object') return null
-  const n = (payload as Record<string, unknown>).n
-  return typeof n === 'number' ? n : null
-}
 function toEpochMs(value: unknown): number {
   if (value instanceof Date) return value.getTime()
   if (typeof value === 'number') return value
@@ -364,6 +359,7 @@ export async function getUserDetail(
         error_type: schema.tasks.error_type,
         request_payload: schema.tasks.request_payload,
         attempt_count: schema.tasks.attempt_count,
+        upstream_invocation_count: schema.tasks.upstream_invocation_count,
       })
       .from(schema.tasks)
       .where(sql`user_id = ${userId}
@@ -390,7 +386,8 @@ export async function getUserDetail(
           t.completed_at,
           t.error_type,
           t.request_payload,
-          t.attempt_count
+          t.attempt_count,
+          t.upstream_invocation_count
         FROM tasks t
         WHERE t.user_id = ${userId}
           AND t.submitted_at >= ${new Date(since)}
@@ -409,7 +406,8 @@ export async function getUserDetail(
         p.completed_at AS task_completed_at,
         p.error_type AS task_error_type,
         p.request_payload AS task_request_payload,
-        p.attempt_count AS task_attempt_count
+        p.attempt_count AS task_attempt_count,
+        p.upstream_invocation_count AS task_upstream_invocation_count
       FROM users u
       CROSS JOIN task_stats
       ${ACTIVE_SESSION_JOIN}
@@ -434,6 +432,7 @@ export async function getUserDetail(
         error_type: row.task_error_type,
         request_payload: row.task_request_payload,
         attempt_count: row.task_attempt_count,
+        upstream_invocation_count: row.task_upstream_invocation_count,
       }))
   }
 
@@ -450,7 +449,7 @@ export async function getUserDetail(
     completed_at: nullableEpochMs(row.completed_at),
     error_type: row.error_type === null ? null : String(row.error_type),
     prompt: extractPrompt(row.request_payload),
-    n: extractN(row.request_payload),
+    upstream_invocation_count: Number(row.upstream_invocation_count),
     attempt_count: Number(row.attempt_count),
   }))
   const last = tasks[tasks.length - 1]
@@ -510,6 +509,7 @@ export async function getDeviceDetail(
       error_type: schema.tasks.error_type,
       request_payload: schema.tasks.request_payload,
       attempt_count: schema.tasks.attempt_count,
+      upstream_invocation_count: schema.tasks.upstream_invocation_count,
     })
     .from(schema.tasks)
     .where(sql`device_id = ${deviceId} AND submitted_at >= ${new Date(since)} ${keyset}`)
@@ -544,7 +544,7 @@ export async function getDeviceDetail(
     completed_at: r.completed_at,
     error_type: r.error_type,
     prompt: extractPrompt(r.request_payload),
-    n: extractN(r.request_payload),
+    upstream_invocation_count: Number(r.upstream_invocation_count),
     attempt_count: r.attempt_count,
   }))
   const last = pageRows[pageRows.length - 1]
@@ -569,15 +569,14 @@ export async function getTask(taskId: string): Promise<TaskDetail | null> {
   const device_id =
     rawDevice === null || rawDevice === undefined || rawDevice === '' ? null : String(rawDevice)
   return {
-    ...(rest as unknown as Omit<TaskListItem, 'prompt' | 'n'>),
+    ...(rest as unknown as Omit<TaskListItem, 'prompt' | 'upstream_invocation_count'>),
     prompt: extractPrompt(request_payload),
-    n: extractN(request_payload),
+    upstream_invocation_count: Number(task.upstream_invocation_count),
     request_payload,
     user_id: task.user_id,
     error_message: (task as Record<string, unknown>).error_message as string | null,
     result_meta: { images },
     device_id,
-    upstream_invocation_count: task.upstream_invocation_count,
     next_retry_at: (task as Record<string, unknown>).next_retry_at as number | null,
   }
 }
