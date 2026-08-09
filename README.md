@@ -119,11 +119,12 @@ chmod 600 \
 ```
 
 The two application files must use different PostgreSQL databases and roles, buckets,
-object-store credentials, internal service tokens, authentication settings, provider
-credentials, and CORS origins. The Admin URL must use its deployment's SELECT-only database
-role. Real secrets and operator configuration remain in these external directories; only
-safe examples are committed. `operator-config.json` is optional beside each `app.env`.
-Missing is valid, while a present but invalid file prevents BFF startup.
+object-store credentials, internal service tokens, provider credentials, and CORS origins.
+The Admin URL must use its deployment's SELECT-only database role. Real secrets and operator
+configuration remain in these external directories; only safe examples are committed.
+`operator-config.json` is optional beside each `app.env`: missing means every capability is off;
+a present invalid file prevents BFF startup. The browser obtains its read-only capability list
+from the BFF and never evaluates operator settings itself.
 
 Start infrastructure, provision one database writer and one Admin reader for each
 deployment, build the release image once, then start each project:

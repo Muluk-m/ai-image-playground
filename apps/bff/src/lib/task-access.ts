@@ -1,13 +1,17 @@
-import { and, eq } from 'drizzle-orm'
-import { config } from '../config'
+import { and, eq, isNull, or } from 'drizzle-orm'
 import { schema } from '../db/client'
 
 /**
- * Account-authenticated reads require both task and user IDs. The Admin service identity can
- * bypass only that ownership predicate; callers still query the requested task and preserve 404s.
+ * Ownership is a row fact, not a deployment switch. Anonymous rows remain public; an owned row
+ * requires the matching user even if account login is later disabled. The Admin service identity
+ * bypasses only ownership and still preserves the task-ID predicate.
  */
 export function taskAccessWhere(taskId: string, userId: string | null, serviceIdentity = false) {
-  return config.auth.enabled && !serviceIdentity
-    ? and(eq(schema.tasks.id, taskId), eq(schema.tasks.user_id, userId ?? '__unauthenticated__'))
-    : eq(schema.tasks.id, taskId)
+  if (serviceIdentity) return eq(schema.tasks.id, taskId)
+  return and(
+    eq(schema.tasks.id, taskId),
+    userId === null
+      ? isNull(schema.tasks.user_id)
+      : or(isNull(schema.tasks.user_id), eq(schema.tasks.user_id, userId)),
+  )
 }

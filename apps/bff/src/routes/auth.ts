@@ -6,8 +6,8 @@ import {
 } from '@image-playground/shared'
 import { and, eq } from 'drizzle-orm'
 import { Elysia, t } from 'elysia'
-import { config } from '../config'
 import { db, schema } from '../db/client'
+import { capabilityUnavailable, isCapabilityEnabled } from '../lib/capabilities'
 import { createRateLimiter } from '../lib/rate-limit'
 import { resolveAuthUser } from '../lib/user-auth'
 import {
@@ -50,7 +50,7 @@ export const userAuthRoutes = new Elysia()
   .post(
     '/api/auth/login',
     async ({ body, cookie, request, status }) => {
-      if (!config.auth.enabled) return status(404, { error: 'auth_disabled' })
+      if (!isCapabilityEnabled('accounts:login')) return capabilityUnavailable('accounts:login')
 
       const key = clientKey(request)
       const username = normalizeUsername(body.username)
@@ -114,6 +114,7 @@ export const userAuthRoutes = new Elysia()
     },
   )
   .post('/api/auth/logout', async ({ cookie }) => {
+    if (!isCapabilityEnabled('accounts:login')) return capabilityUnavailable('accounts:login')
     const raw = cookie[USER_SESSION_COOKIE]?.value
     await revokeUserSession(typeof raw === 'string' ? raw : '')
     cookie[USER_SESSION_COOKIE].set({
@@ -127,7 +128,7 @@ export const userAuthRoutes = new Elysia()
     return { ok: true }
   })
   .get('/api/auth/me', ({ authUser, status }) => {
-    if (!config.auth.enabled) return { auth_enabled: false as const, user: null }
+    if (!isCapabilityEnabled('accounts:login')) return capabilityUnavailable('accounts:login')
     if (!authUser) return status(401, { error: 'unauthorized' })
-    return { auth_enabled: true as const, user: authUser }
+    return { user: authUser }
   })

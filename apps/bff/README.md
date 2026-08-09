@@ -23,12 +23,11 @@ BFF 同时托管 `apps/web/dist` 静态产物（`STATIC_DIR` 指向 dist 即可�
 - **校验用 TypeBox（`t.Object` / `t.String`），不用 Zod**。TypeBox 是 Elysia 的原生 schema，路由层自动接管 params / query / body 校验、错误响应、类型推断、OpenAPI 生成。换 Zod 要每个路由手动 `parse` 再组装错误响应。Bun 上 TypeBox 产物更小、运行更快。
 - **task-runner 是 fire-and-forget 不是 worker pool**。`submit` 端点 `spawnTask(id)` 起一个 Promise 就返回；并发由 Bun runtime 调度，调上游是 localhost HTTP 没有真正阻塞 worker。worker pool 是过早抽象。
 - **状态机所有写入都带 WHERE predicate**（atomic claim + 终态守护）。`queued → in_progress` 要求当前 status 仍是 `queued`，防止 startup recovery 与遗留 runTask 并发双写；写 `completed` / `failed` 要求 status 仍是 `in_progress`，防止已被 cancel 的任务被 worker 反悔覆盖。
-- **应用层 auth 是部署级可选项**。`AUTH_ENABLED=false` 保留个人部署的匿名行为；
-  设为 `true` 后，channel 与全部 queue 端点要求有效账号会话，并按 `user_id`
-  隔离任务。CORS 与反向代理 access policy 仍是必要的外围防线。
+- **账号登录是能力，不是部署开关**。`accounts:login` 由 operator 配置在启动时求值；
+  未配置时默认关闭。任务归属、幂等归属和图片缓存策略不读能力开关，而从任务行及当前
+  请求的用户身份推导，因此关闭账号能力不会公开已有的用户任务。
 - **能力配置 deny by default**。`OPERATOR_CONFIG_FILE` 不存在时全部能力关闭；文件存在但
   JSON 或 schema 无效时拒绝启动。预设只在解析时展开，运行时只保留求值结果与来源。
-  `AUTH_ENABLED` 的调用点暂时保留，后续按独立语义切换到能力。
 
 ## 端点
 
@@ -36,10 +35,10 @@ BFF 同时托管 `apps/web/dist` 静态产物（`STATIC_DIR` 指向 dist 即可�
 |---|---|---|
 | `GET` | `/health` | liveness |
 | `GET` | `/api/capabilities` | 公开只读清单；只返回注册表中显式允许下发给浏览器的能力 |
-| `POST` | `/api/auth/login` | 账号密码登录，签发 HttpOnly session cookie（仅 auth 开启时） |
-| `POST` | `/api/auth/logout` | 撤销当前 session |
-| `GET` | `/api/auth/me` | 查询当前账号 / auth 开关状态 |
-| `GET` | `/api/channels` | 返回 sanitized channel 列表；auth 开启时需登录 |
+| `POST` | `/api/auth/login` | 账号密码登录，签发 HttpOnly session cookie（需 `accounts:login`） |
+| `POST` | `/api/auth/logout` | 撤销当前 session（需 `accounts:login`） |
+| `GET` | `/api/auth/me` | 查询当前账号（需 `accounts:login`） |
+| `GET` | `/api/channels` | 返回 sanitized channel 列表；账号登录能力开启时需登录 |
 | `POST` | `/v1/queue/{provider}/{model}/submit` | 入队，立即返回 `request_id` |
 | `GET` | `/v1/queue/requests/{id}/status` | 状态查询（含 queue_position / started_at 等）|
 | `GET` | `/v1/queue/requests/{id}` | 拿结果（`completed` 时含 `payload`；其它状态 425）|
@@ -114,7 +113,6 @@ Biome 禁止其它公开代码静态或动态引用 `private/`。
 | `STATIC_DIR` | `(空)` | 设为 `apps/web/dist` 让 BFF 同进程托管前端 |
 | `CHANNELS_FILE` | `(空)` | 覆盖 `apps/bff/channels.json` 路径 |
 | `OPERATOR_CONFIG_FILE` | `(空)` | 仓库外 operator JSON；缺失使用关闭默认值，存在但无效则拒绝启动 |
-| `AUTH_ENABLED` | `false` | 是否启用账号登录与任务归属校验；必须是 `true` 或 `false` |
 | `<channel secretRef>` | — | 见 channels.json 里各 channel `auth.secretRef` 字段引用的 env 名 |
 
 ## 本地开发
@@ -145,7 +143,6 @@ pnpm typecheck  # tsc --noEmit
 docker build -t ai-image-playground .
 docker run -p 37377:37377 \
   -e BFF_ENABLED=true \
-  -e AUTH_ENABLED=false \
   -e MY_OPENAI_KEY=sk-... \
   -v $(pwd)/apps/bff/channels.json:/app/apps/bff/channels.json \
   ai-image-playground
@@ -180,12 +177,13 @@ queued → in_progress → completed
 - `cancelled`: 手动调 cancel
 - `interrupted`: 启动 recovery 标记的「上次未跑完且不能盲目重试」的任务
 
-## 鉴权
+## 鉴权与能力
 
-`AUTH_ENABLED=false`（默认）时，BFF 保持原来的匿名兼容模式。适用于自用、
-已经处于可信网络或另有统一认证墙的部署。
+`accounts:login` 默认关闭。要启用账号体系，在仓库外的 `operator-config.json` 中选择
+`authenticated-example` 预设或显式设置该能力，并通过 `OPERATOR_CONFIG_FILE` 指向它。
+前端只读取 BFF 的 `/api/capabilities` 清单；`runtime-config.json` 不包含能力开关。
 
-`AUTH_ENABLED=true` 时：
+能力开启时：
 
 - `/api/channels` 与 `/v1/queue/*` 全部要求有效 session；
 - 登录 Cookie 使用 `HttpOnly`、`Secure`、`SameSite=Lax`，生产必须通过 HTTPS；
@@ -194,9 +192,8 @@ queued → in_progress → completed
 - 禁用账号、重置密码或后台“退出会话”会撤销该账号的现有 session；
 - 登录失败分别按来源 IP 和归一化账号限速，错误响应不区分“账号不存在”和“密码错误”。
 
-账号由 Admin 服务创建，不提供公开注册。Web 与 BFF 必须使用相同的
-`AUTH_ENABLED` 值；Docker entrypoint 会把它写入 Web 的
-`runtime-config.json.auth.enabled`，但真正的安全判断始终由 BFF 执行。
+账号由 Admin 服务创建，不提供公开注册。带 `user_id` 的任务始终要求同一用户，即使以后
+关闭账号能力也不会退化为匿名可读；匿名任务仍可匿名访问。
 
 应用层登录之外，实际部署仍应组合以下外围防线：
 

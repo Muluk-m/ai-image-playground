@@ -61,8 +61,8 @@ export const submitRoutes = new Elysia()
 
       // 幂等命中（client_request_id 已存在）走优先返回，避免重复扣配额。
       if (body.client_request_id) {
-        const ownerCondition = config.auth.enabled
-          ? eq(schema.tasks.user_id, authUser!.id)
+        const ownerCondition = authUser
+          ? eq(schema.tasks.user_id, authUser.id)
           : isNull(schema.tasks.user_id)
         const [existing] = await db
           .select({ id: schema.tasks.id, submitted_at: schema.tasks.submitted_at })
@@ -142,8 +142,8 @@ export const submitRoutes = new Elysia()
 
       if (outcome.kind === 'idempotency_conflict') {
         if (body.client_request_id) {
-          const ownerCondition = config.auth.enabled
-            ? eq(schema.tasks.user_id, authUser!.id)
+          const ownerCondition = authUser
+            ? eq(schema.tasks.user_id, authUser.id)
             : isNull(schema.tasks.user_id)
           const [existing] = await db
             .select({ id: schema.tasks.id, submitted_at: schema.tasks.submitted_at })

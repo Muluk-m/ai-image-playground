@@ -5,6 +5,7 @@ import { close as closeDb } from './db/client'
 import { purgeOldTasks } from './db/maintenance'
 import { initChannels } from './lib/channels'
 import { log } from './lib/logger'
+import { isCapabilityEnabled } from './lib/capabilities'
 
 config.assertValid()
 log.info(
@@ -34,7 +35,7 @@ log.info(
   },
   'operator capabilities resolved',
 )
-const authEnabled = config.auth.enabled
+const accountsLoginEnabled = isCapabilityEnabled('accounts:login')
 
 const channelsResult = initChannels(config.channelsFile ?? undefined)
 for (const warning of channelsResult.warnings) {
@@ -69,7 +70,7 @@ app.listen(config.port, () => {
       upstream: config.upstream.baseUrl,
       corsOrigins: config.corsOrigins,
       staticDir: config.staticDir,
-      authEnabled,
+      accountsLoginEnabled,
     },
     'bff listening',
   )

@@ -26,7 +26,6 @@ process.env.ADMIN_PASSWORD = 'test-pass-1234'
 process.env.ADMIN_COOKIE_SECRET = 'test-cookie-secret-32-bytes-min!!'
 process.env.DATABASE_URL = databaseUrl
 process.env.BFF_INTERNAL_URL = `http://127.0.0.1:${mockBff.port}`
-process.env.AUTH_ENABLED = 'true'
 process.env.INTERNAL_API_TOKEN = 'fixture-service-credential-alpha'
 process.env.PORT = '0'
 

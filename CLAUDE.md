@@ -90,9 +90,11 @@ pnpm workspace + Turbo monorepo：
 
 ## Runtime 配置（apps/web）
 
-[`packages/shared/src/runtime-config.ts`](./packages/shared/src/runtime-config.ts) 定义 schema。前端 boot 时 fetch `./runtime-config.json`，schema 校验失败 / 文件不存在都 fallback 到 `BAKED_DEFAULTS`（`bff.enabled=false`）。
-
-operator 在部署时写这个文件 — Docker entrypoint (`scripts/docker-entrypoint.sh`) 把 env 模板化写出来；裸跑 / 纯静态部署 operator 自己手写或脚本生成。
+[`packages/shared/src/runtime-config.ts`](./packages/shared/src/runtime-config.ts) 定义 schema。
+`runtime-config.json` 只包含连接 BFF 前必须知道的 `bff.enabled` 与 `bff.baseUrl`；schema
+无效或文件不存在时回退到 `BAKED_DEFAULTS`。能力只能由 BFF 求值，前端并行读取
+`/api/capabilities` 与 channel 列表，清单不可用时全部按关闭处理，禁止把能力写回 runtime
+配置。Docker entrypoint 从 env 生成 runtime 配置；裸跑或纯静态部署可自行生成。
 
 ## 提交规范
 

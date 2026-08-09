@@ -23,18 +23,6 @@ case "$role" in
           enabled: parseBoolean("BFF_ENABLED", true),
           baseUrl: process.env.BFF_BASE_URL ?? "",
         },
-        auth: {
-          enabled: parseBoolean("AUTH_ENABLED", false),
-        },
-        defaults: {
-          openaiBaseUrl:
-            process.env.DEFAULT_OPENAI_BASE_URL ?? "https://api.openai.com/v1",
-          geminiBaseUrl:
-            process.env.DEFAULT_GEMINI_BASE_URL ??
-            "https://generativelanguage.googleapis.com/v1beta",
-          inspirationManifestUrl:
-            process.env.INSPIRATION_MANIFEST_URL ?? "./inspiration-manifest.json",
-        },
       }
 
       await Bun.write(
@@ -42,7 +30,7 @@ case "$role" in
         `${JSON.stringify(config, null, 2)}\n`,
       )
       console.log(
-        `[entrypoint] wrote runtime config (bff.enabled=${config.bff.enabled}, auth.enabled=${config.auth.enabled}, bff.baseUrl=${JSON.stringify(config.bff.baseUrl)})`,
+        `[entrypoint] wrote runtime config (bff.enabled=${config.bff.enabled}, bff.baseUrl=${JSON.stringify(config.bff.baseUrl)})`,
       )
     '
     ;;

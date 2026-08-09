@@ -13,7 +13,6 @@ process.env.ADMIN_PASSWORD = 'test-pass-1234'
 process.env.ADMIN_COOKIE_SECRET = 'test-cookie-secret-32-bytes-min!!'
 process.env.DATABASE_URL = TEST_DB
 process.env.BFF_INTERNAL_URL = `http://127.0.0.1:${mockBffPort}`
-process.env.AUTH_ENABLED = 'true'
 process.env.INTERNAL_API_TOKEN = 'fixture-service-credential-alpha'
 process.env.PORT = '0'
 
@@ -77,7 +76,6 @@ beforeAll(() => {
 beforeEach(() => {
   // bun:test 会在同一进程加载多个 test 文件；其它文件会改同名 env。
   process.env.BFF_INTERNAL_URL = `http://127.0.0.1:${mockBffPort}`
-  process.env.AUTH_ENABLED = 'true'
   process.env.INTERNAL_API_TOKEN = 'fixture-service-credential-alpha'
   requestedPaths.length = 0
 })

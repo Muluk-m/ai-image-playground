@@ -6,7 +6,6 @@ import { Elysia } from 'elysia'
 const bffRoot = resolve(import.meta.dir, '../../..')
 process.env.PORT = '0'
 process.env.DATABASE_URL = process.env.TEST_DATABASE_URL ?? ''
-process.env.AUTH_ENABLED = 'false'
 process.env.OPERATOR_CONFIG_FILE = resolve(bffRoot, 'operator-config.example.json')
 
 const { app } = await import('../../app')

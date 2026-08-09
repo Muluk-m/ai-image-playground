@@ -1,4 +1,4 @@
-import { loadOperatorConfig } from './lib/operator-config'
+import { hasCapability, loadOperatorConfig } from './lib/operator-config'
 
 const env = (key: string, fallback?: string): string => {
   const v = process.env[key]
@@ -15,26 +15,15 @@ const positiveIntEnv = (key: string, fallback: number): number => {
   return value
 }
 
-const booleanEnv = (key: string, fallback: boolean): boolean => {
-  const value = env(key, String(fallback))
-  if (value === 'true') return true
-  if (value === 'false') return false
-  throw new Error(`${key} must be true or false`)
-}
-
 export const config = {
   port: Number(env('PORT', '37377')),
   auth: {
-    // getters let route tests change process env without reloading the application module.
-    get enabled(): boolean {
-      return booleanEnv('AUTH_ENABLED', false)
-    },
     get internalApiToken(): string {
       return env('INTERNAL_API_TOKEN', '')
     },
   },
   assertValid(): void {
-    if (config.auth.enabled && !config.auth.internalApiToken) {
+    if (hasCapability(config.operator, 'accounts:login') && !config.auth.internalApiToken) {
       throw new Error('Missing env: INTERNAL_API_TOKEN')
     }
   },
