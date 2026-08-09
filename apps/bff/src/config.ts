@@ -50,7 +50,7 @@ export const config = {
     openaiApiKey: env('UPSTREAM_OPENAI_API_KEY', ''),
     geminiApiKey: env('UPSTREAM_GEMINI_API_KEY', ''),
   },
-  databaseUrl: env('DATABASE_URL', '../../artifacts/image-playground.sqlite'),
+  databaseUrl: env('DATABASE_URL'),
   corsOrigins: env('CORS_ALLOWED_ORIGINS', '*'),
   staticDir: env('STATIC_DIR', '') || null,
   /** 可选 channels.json 路径覆盖；缺省走 lib/channels.ts 的 defaultChannelsPath()。 */

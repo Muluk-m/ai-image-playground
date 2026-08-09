@@ -1,6 +1,6 @@
 # @image-playground/bff
 
-任务队列 BFF：Elysia + Bun + Drizzle + SQLite。为 `apps/web` 提供异步图像生成入口，绕开浏览器 / Edge / CF Pages 之类平台的 100s idle timeout，让 Gemini 3 Pro Image 这类 30s-15min 长任务可以稳定跑完。
+任务队列 BFF：Elysia + Bun + Drizzle + PostgreSQL。为 `apps/web` 提供异步图像生成入口，绕开浏览器 / Edge / CF Pages 之类平台的 100s idle timeout，让 Gemini 3 Pro Image 这类 30s-15min 长任务可以稳定跑完。
 
 ## 架构
 
@@ -105,7 +105,7 @@ Biome 禁止其它公开代码静态或动态引用 `private/`。
 | 变量 | 默认值 | 说明 |
 |---|---|---|
 | `PORT` | `37377` | BFF 监听端口 |
-| `DATABASE_URL` | `../../artifacts/image-playground.sqlite` | SQLite 文件路径 |
+| `DATABASE_URL` | — | PostgreSQL connection URL；BFF/worker 使用可写角色 |
 | `S3_ENDPOINT` | — | S3-compatible object storage endpoint, such as the internal MinIO URL |
 | `S3_BUCKET` | — | Deployment-specific image bucket |
 | `S3_ACCESS_KEY_ID` | — | Object storage access key; keep the real value outside git |
@@ -160,7 +160,7 @@ cd apps/bff
 STATIC_DIR=../web/dist MY_OPENAI_KEY=sk-... bun run src/index.ts
 ```
 
-进程管理器需要给至少 `SHUTDOWN_HARD_TIMEOUT_MS`（55s）+ 缓冲的优雅退出时间，否则 inflight 上游 fetch 会被 SIGKILL 中断（任务在 sqlite 里挂成 `interrupted`）。
+进程管理器需要给至少 `SHUTDOWN_HARD_TIMEOUT_MS`（55s）+ 缓冲的优雅退出时间，否则 inflight 上游 fetch 会被 SIGKILL 中断（任务在 PostgreSQL 里挂成 `interrupted`）。
 
 详细的部署形态（纯静态 vs 静态+BFF）见仓库根 `README.md`。
 

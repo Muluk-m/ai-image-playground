@@ -10,8 +10,8 @@
     "start": "bun run server/index.ts",
     "build": "tsc -b && vite build",
     "typecheck": "tsc -b",
-    "test": "vitest run && bun test server",
-    "test:server": "bun test server",
+    "test": "vitest run && bun run ../../scripts/run-bun-tests-isolated.ts server",
+    "test:server": "bun run ../../scripts/run-bun-tests-isolated.ts server",
     "test:client": "vitest run"
   },
   "dependencies": {

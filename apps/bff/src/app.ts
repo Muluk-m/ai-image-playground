@@ -8,6 +8,7 @@ import { userAuthRoutes } from './routes/auth'
 import { cancelRoutes } from './routes/cancel'
 import { capabilitiesRoutes } from './routes/capabilities'
 import { channelsRoutes } from './routes/channels'
+import { internalUserRoutes } from './routes/internal-users'
 import { resultRoutes } from './routes/result'
 import { statusRoutes } from './routes/status'
 import { submitRoutes } from './routes/submit'
@@ -25,7 +26,12 @@ const privateBffOverlay = await loadPrivateBffOverlay()
 const STATIC_DIR = config.staticDir
 
 function isApiPath(pathname: string): boolean {
-  return pathname.startsWith('/v1/') || pathname.startsWith('/api/') || pathname === '/health'
+  return (
+    pathname.startsWith('/v1/') ||
+    pathname.startsWith('/api/') ||
+    pathname.startsWith('/internal/') ||
+    pathname === '/health'
+  )
 }
 
 /**
@@ -120,6 +126,7 @@ export const app = new Elysia()
   .use(statusRoutes)
   .use(resultRoutes)
   .use(cancelRoutes)
+  .use(internalUserRoutes)
   .use(privateBffOverlay.routes)
   .onRequest(async ({ request, set }) => {
     const url = new URL(request.url)

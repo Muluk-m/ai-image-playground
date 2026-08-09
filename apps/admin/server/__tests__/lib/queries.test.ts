@@ -1,113 +1,50 @@
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test'
-import { unlinkSync } from 'node:fs'
+import { afterAll, describe, expect, it } from 'bun:test'
+import { createDb } from '@image-playground/db'
+import { resetTestDatabase } from '@image-playground/db/testing'
 
-const TEST_DB = './artifacts/test-admin-queries.sqlite'
-try {
-  unlinkSync(TEST_DB)
-  unlinkSync(`${TEST_DB}-wal`)
-  unlinkSync(`${TEST_DB}-shm`)
-} catch {}
-
+const TEST_DB = await resetTestDatabase('admin_queries')
 process.env.ADMIN_PASSWORD = 'test-pass-1234'
 process.env.ADMIN_COOKIE_SECRET = 'test-cookie-secret-32-bytes-min!!'
 process.env.DATABASE_URL = TEST_DB
 process.env.BFF_INTERNAL_URL = 'http://127.0.0.1:39999'
 process.env.PORT = '0'
 
-const { runMigrations, createDb } = await import('@image-playground/db')
-runMigrations(TEST_DB)
-
-// seed 写入数据
 const writer = createDb(TEST_DB)
 const now = Date.now()
 const dayMs = 24 * 60 * 60 * 1000
-function seedTask(args: {
-  id: string
-  device: string
-  provider: 'openai-compat' | 'gemini'
-  model: string
-  status: 'completed' | 'failed' | 'queued'
-  daysAgo: number
-}) {
-  writer.db
-    .insert(writer.schema.tasks)
-    .values({
-      id: args.id,
-      provider: args.provider,
-      model: args.model,
-      status: args.status,
-      request_payload: { prompt: 'p', device_id: args.device } as never,
-      submitted_at: now - args.daysAgo * dayMs,
-      ...(args.status === 'completed' ? { completed_at: now - args.daysAgo * dayMs + 1000 } : {}),
-    })
-    .run()
-}
-
-// dev-A 设备：今天 3 个 task（2 完成 1 失败）
-seedTask({
-  id: 't1',
-  device: 'dev-A-aaaa',
-  provider: 'openai-compat',
-  model: 'gpt-image-2',
-  status: 'completed',
-  daysAgo: 0,
-})
-seedTask({
-  id: 't2',
-  device: 'dev-A-aaaa',
-  provider: 'openai-compat',
-  model: 'gpt-image-2',
-  status: 'completed',
-  daysAgo: 0,
-})
-seedTask({
-  id: 't3',
-  device: 'dev-A-aaaa',
-  provider: 'gemini',
-  model: 'gemini-3-pro',
-  status: 'failed',
-  daysAgo: 0,
-})
-// dev-B 设备：5 天前 1 个 task
-seedTask({
-  id: 't4',
-  device: 'dev-B-bbbb',
-  provider: 'gemini',
-  model: 'gemini-3-pro',
-  status: 'completed',
-  daysAgo: 5,
-})
-// dev-OLD：30 天前 1 个 task（range=7d 不应包含）
-seedTask({
-  id: 't5',
-  device: 'dev-OLD-aa',
-  provider: 'openai-compat',
-  model: 'gpt-image-2',
-  status: 'completed',
-  daysAgo: 30,
+const seedTask = (
+  id: string,
+  device: string,
+  provider: 'openai-compat' | 'gemini',
+  model: string,
+  status: 'completed' | 'failed' | 'queued',
+  daysAgo: number,
+) => ({
+  id,
+  provider,
+  model,
+  status,
+  request_payload: { prompt: 'p', device_id: device },
+  submitted_at: now - daysAgo * dayMs,
+  ...(status === 'completed' ? { completed_at: now - daysAgo * dayMs + 1000 } : {}),
 })
 
-// dev-PAGE：150 个 task，验证 cursor 分页（PAGE_SIZE=100）。
-// submitted_at 逐条递减（pg-000 最新），排序 (submitted_at DESC, id DESC) 下 pg-000 在首。
-for (let i = 0; i < 150; i++) {
-  writer.db
-    .insert(writer.schema.tasks)
-    .values({
-      id: `pg-${String(i).padStart(3, '0')}`,
-      provider: 'openai-compat',
-      model: 'gpt-image-2',
-      status: 'completed',
-      request_payload: { prompt: `prompt-${i}`, n: 2, device_id: 'dev-PAGE-xx' } as never,
-      submitted_at: now - i * 1000,
-      completed_at: now - i * 1000 + 500,
-    })
-    .run()
-}
-
-// dev-BIG：一条带 ~120KB input_images base64 的 task，验证列表响应把它剔除（瘦身命门）。
-writer.db
-  .insert(writer.schema.tasks)
-  .values({
+await writer.db.insert(writer.schema.tasks).values([
+  seedTask('t1', 'dev-A-aaaa', 'openai-compat', 'gpt-image-2', 'completed', 0),
+  seedTask('t2', 'dev-A-aaaa', 'openai-compat', 'gpt-image-2', 'completed', 0),
+  seedTask('t3', 'dev-A-aaaa', 'gemini', 'gemini-3-pro', 'failed', 0),
+  seedTask('t4', 'dev-B-bbbb', 'gemini', 'gemini-3-pro', 'completed', 5),
+  seedTask('t5', 'dev-OLD-aa', 'openai-compat', 'gpt-image-2', 'completed', 30),
+  ...Array.from({ length: 150 }, (_, index) => ({
+    id: `pg-${String(index).padStart(3, '0')}`,
+    provider: 'openai-compat' as const,
+    model: 'gpt-image-2',
+    status: 'completed' as const,
+    request_payload: { prompt: `prompt-${index}`, n: 2, device_id: 'dev-PAGE-xx' },
+    submitted_at: now - index * 1000,
+    completed_at: now - index * 1000 + 500,
+  })),
+  {
     id: 'big-1',
     provider: 'openai-compat',
     model: 'gpt-image-2',
@@ -116,13 +53,14 @@ writer.db
       prompt: 'a big one',
       n: 1,
       device_id: 'dev-BIG-xx',
-      input_images: [`data:image/png;base64,${'BIGIMAGEDATA'.repeat(10_000)}`],
-    } as never,
+      extra: { blob: 'BIGIMAGEDATA'.repeat(10_000) },
+    },
     submitted_at: now,
     completed_at: now + 1000,
-  })
-  .run()
+  },
+])
 
+// Dynamic import keeps environment setup ahead of Admin configuration capture.
 const { listDevices, getDeviceDetail, getTask } = await import('../../lib/queries')
 
 describe('listDevices', () => {
@@ -225,4 +163,6 @@ describe('getTask', () => {
   })
 })
 
-afterAll(() => writer.sqlite.close())
+afterAll(async () => {
+  await writer.close()
+})

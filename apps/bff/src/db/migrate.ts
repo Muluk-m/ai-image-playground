@@ -6,6 +6,6 @@ export function runMigrations(databaseUrl: string = config.databaseUrl) {
 }
 
 if (import.meta.main) {
-  runMigrations()
-  console.log(`✓ migrations applied to ${config.databaseUrl}`)
+  await runMigrations()
+  console.log('✓ PostgreSQL migrations applied')
 }

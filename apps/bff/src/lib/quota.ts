@@ -32,9 +32,8 @@ export function nextResetISO(): string {
  * 不变量：setWhere 仅作用于 UPDATE 分支。首次 INSERT 不查 limit，依赖 submit
  * 路由的 n ∈ [1, 16] 保证首次插入必不超额（n ≤ DAILY_QUOTA_LIMIT）。
  *
- * 第三参 `dbInstance` 仅测试用，默认懒求值取 db/client 的全局 drizzle 单例；
- * 测试可注入一个绑定独立 sqlite 文件的 drizzle 实例，绕开 routes.test.ts 顶层
- * unlink 导致的 SQLITE_IOERR_VNODE 跨文件冲突。
+ * Third parameter is test-only. It injects a database bound to an isolated PostgreSQL test
+ * database and avoids initializing the process-global pool.
  */
 export async function tryConsumeQuota(
   device_id: string,
@@ -46,18 +45,22 @@ export async function tryConsumeQuota(
   return consumeQuota(db, device_id, n)
 }
 
-/** Synchronous variant for Bun SQLite's transaction callback. */
-export function tryConsumeQuotaInTransaction(
+/** Variant used by the submit transaction so task insertion and quota consumption stay atomic. */
+export async function tryConsumeQuotaInTransaction(
   db: QuotaTransaction,
   device_id: string,
   n: number,
-): QuotaConsumeResult {
+): Promise<QuotaConsumeResult> {
   return consumeQuota(db, device_id, n)
 }
 
-function consumeQuota(db: QuotaExecutor, device_id: string, n: number): QuotaConsumeResult {
+async function consumeQuota(
+  db: QuotaExecutor,
+  device_id: string,
+  n: number,
+): Promise<QuotaConsumeResult> {
   const date = currentQuotaDate()
-  const rows = db
+  const rows = await db
     .insert(schema.daily_quota)
     .values({ device_id, date, count: n })
     .onConflictDoUpdate({
@@ -66,18 +69,16 @@ function consumeQuota(db: QuotaExecutor, device_id: string, n: number): QuotaCon
       setWhere: sql`${schema.daily_quota.count} + ${n} <= ${DAILY_QUOTA_LIMIT}`,
     })
     .returning({ count: schema.daily_quota.count })
-    .all()
 
   if (rows.length > 0) {
     return { ok: true, count: rows[0]!.count, reset_at: nextResetISO() }
   }
 
-  const existing = db
+  const [existing] = await db
     .select({ count: schema.daily_quota.count })
     .from(schema.daily_quota)
     .where(and(eq(schema.daily_quota.device_id, device_id), eq(schema.daily_quota.date, date)))
     .limit(1)
-    .get()
   return {
     ok: false,
     count: existing?.count ?? DAILY_QUOTA_LIMIT,

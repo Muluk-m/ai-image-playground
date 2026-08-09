@@ -1,50 +1,47 @@
 import { PASSWORD_MAX_LENGTH, USERNAME_MAX_LENGTH } from '@image-playground/shared'
 import { Elysia, t } from 'elysia'
 import { requireAuth } from '../lib/middleware'
-import {
-  createUser,
-  listUsers,
-  resetUserPassword,
-  revokeUserSessions,
-  setUserStatus,
-  UserMutationError,
-} from '../lib/users'
+import { getUserDetail, listUsers, type Range } from '../lib/queries'
+import { forwardUserOperation } from '../lib/users'
 
-function mutationError(error: unknown, status: (code: number, body: unknown) => unknown) {
-  if (!(error instanceof UserMutationError)) throw error
-  const httpStatus =
-    error.code === 'username_taken' ? 409 : error.code === 'user_not_found' ? 404 : 400
-  return status(httpStatus, { error: error.code })
-}
+const VALID_RANGES: Range[] = ['1d', '7d', '30d']
+const VALID_STATUSES = ['all', 'queued', 'in_progress', 'completed', 'failed', 'cancelled']
 
 export const usersRoutes = new Elysia({ prefix: '/api/users' })
   .use(requireAuth)
-  .get('/', async () => await listUsers())
-  .post(
-    '/',
-    async ({ body, status }) => {
-      try {
-        return status(201, { user: await createUser(body.username, body.password) })
-      } catch (error) {
-        return mutationError(error, status)
-      }
+  .get('/', ({ query }) => listUsers(query.q ?? ''), {
+    query: t.Object({ q: t.Optional(t.String({ maxLength: 128 })) }),
+  })
+  .get(
+    '/:id',
+    async ({ params, query, status }) => {
+      const range = (VALID_RANGES.includes(query.range as Range) ? query.range : '7d') as Range
+      const requestedStatus = query.status ?? ''
+      const statusFilter = VALID_STATUSES.includes(requestedStatus) ? requestedStatus : 'all'
+      const cursor = query.cursor || undefined
+      const detail = await getUserDetail(params.id, range, statusFilter, cursor)
+      if (!detail) return status(404, { error: 'user_not_found' })
+      return detail
     },
     {
-      body: t.Object({
-        username: t.String({ minLength: 1, maxLength: USERNAME_MAX_LENGTH }),
-        password: t.String({ minLength: 1, maxLength: PASSWORD_MAX_LENGTH }),
+      params: t.Object({ id: t.String({ minLength: 1 }) }),
+      query: t.Object({
+        range: t.Optional(t.String()),
+        status: t.Optional(t.String()),
+        cursor: t.Optional(t.String()),
       }),
     },
   )
+  .post('/', ({ body }) => forwardUserOperation({ method: 'POST', path: '/', body }), {
+    body: t.Object({
+      username: t.String({ minLength: 1, maxLength: USERNAME_MAX_LENGTH }),
+      password: t.String({ minLength: 1, maxLength: PASSWORD_MAX_LENGTH }),
+    }),
+  })
   .patch(
     '/:id',
-    async ({ params, body, status }) => {
-      try {
-        return { user: await setUserStatus(params.id, body.status) }
-      } catch (error) {
-        return mutationError(error, status)
-      }
-    },
+    ({ params, body }) =>
+      forwardUserOperation({ method: 'PATCH', path: `/${encodeURIComponent(params.id)}`, body }),
     {
       params: t.Object({ id: t.String({ minLength: 1 }) }),
       body: t.Object({ status: t.String({ minLength: 1, maxLength: 16 }) }),
@@ -52,31 +49,23 @@ export const usersRoutes = new Elysia({ prefix: '/api/users' })
   )
   .post(
     '/:id/reset-password',
-    async ({ params, body, status }) => {
-      try {
-        await resetUserPassword(params.id, body.password)
-        return { ok: true }
-      } catch (error) {
-        return mutationError(error, status)
-      }
-    },
+    ({ params, body }) =>
+      forwardUserOperation({
+        method: 'POST',
+        path: `/${encodeURIComponent(params.id)}/reset-password`,
+        body,
+      }),
     {
       params: t.Object({ id: t.String({ minLength: 1 }) }),
-      body: t.Object({
-        password: t.String({ minLength: 1, maxLength: PASSWORD_MAX_LENGTH }),
-      }),
+      body: t.Object({ password: t.String({ minLength: 1, maxLength: PASSWORD_MAX_LENGTH }) }),
     },
   )
   .post(
     '/:id/revoke-sessions',
-    async ({ params, status }) => {
-      try {
-        return { ok: true, revoked: await revokeUserSessions(params.id) }
-      } catch (error) {
-        return mutationError(error, status)
-      }
-    },
-    {
-      params: t.Object({ id: t.String({ minLength: 1 }) }),
-    },
+    ({ params }) =>
+      forwardUserOperation({
+        method: 'POST',
+        path: `/${encodeURIComponent(params.id)}/revoke-sessions`,
+      }),
+    { params: t.Object({ id: t.String({ minLength: 1 }) }) },
   )

@@ -96,8 +96,8 @@ export const submitRoutes = new Elysia()
 
       const n = body.n ?? 1
       const now = Date.now()
-      const outcome = db.transaction((tx) => {
-        const inserted = tx
+      const outcome = await db.transaction(async (tx) => {
+        const inserted = await tx
           .insert(schema.tasks)
           .values({
             id,
@@ -111,13 +111,12 @@ export const submitRoutes = new Elysia()
           })
           .onConflictDoNothing()
           .returning({ id: schema.tasks.id, submitted_at: schema.tasks.submitted_at })
-          .all()
 
         if (inserted.length === 0) return { kind: 'idempotency_conflict' as const }
 
-        const quota = tryConsumeQuotaInTransaction(tx, body.device_id, n)
+        const quota = await tryConsumeQuotaInTransaction(tx, body.device_id, n)
         if (!quota.ok) {
-          tx.delete(schema.tasks).where(eq(schema.tasks.id, id)).run()
+          await tx.delete(schema.tasks).where(eq(schema.tasks.id, id))
           return { kind: 'quota_exceeded' as const, quota }
         }
         return { kind: 'inserted' as const, task: inserted[0]! }

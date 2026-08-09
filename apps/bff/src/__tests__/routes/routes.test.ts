@@ -1,8 +1,9 @@
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test'
+import { afterAll, afterEach, beforeEach, describe, expect, it, mock } from 'bun:test'
+import { resetTestDatabase } from '@image-playground/db/testing'
 import { eq } from 'drizzle-orm'
 import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
 
-const TEST_DB = './artifacts/test-routes.sqlite'
+const TEST_DB = await resetTestDatabase('bff_routes')
 
 process.env.PORT = '0'
 process.env.UPSTREAM_BASE_URL = 'http://localhost:9999'
@@ -12,12 +13,10 @@ process.env.CORS_ALLOWED_ORIGINS = '*'
 process.env.AUTH_ENABLED = 'false'
 process.env.INTERNAL_API_TOKEN = 'fixture-service-credential-alpha'
 
-const { runMigrations } = await import('../../db/migrate')
-runMigrations(TEST_DB)
 // Dynamic import keeps environment setup ahead of configuration module evaluation in this route test.
 const { config } = await import('../../config')
 const { app } = await import('../../app')
-const { db, schema } = await import('../../db/client')
+const { close: closeDb, db, schema } = await import('../../db/client')
 const { runTask } = await import('../../workers/task-runner')
 const { setUpstreamFetchForTesting } = await import('../../lib/upstream')
 const { setObjectStoreForTesting } = await import('../../lib/objectStore')
@@ -31,6 +30,9 @@ beforeEach(() => {
 
 afterEach(() => {
   setObjectStoreForTesting()
+})
+afterAll(async () => {
+  await closeDb()
 })
 
 async function resetDb() {

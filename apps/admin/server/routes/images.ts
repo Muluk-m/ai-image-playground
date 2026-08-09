@@ -1,29 +1,27 @@
-import { createDb } from '@image-playground/db'
+import { createDb, type DbHandle } from '@image-playground/db'
 import { eq } from 'drizzle-orm'
 import { Elysia, t } from 'elysia'
 import { config } from '../config'
 import { requireAuth } from '../lib/middleware'
-import { createTaskMetaCache } from '../lib/task-meta-cache'
+import { createTaskMetaCache, type TaskMetaCache } from '../lib/task-meta-cache'
 
 interface TaskMeta {
   id: string
 }
 
-// 懒初始化 readonly handle + cache：跟 queries.ts 的 getHandle 类似 pattern，
-// 避免 module 顶层 createDb 在 test setEnv 之前固化到错的 DATABASE_URL。
-type Handle = ReturnType<typeof createDb>
-const _handles = new Map<string, Handle>()
-function getHandle(): Handle {
+// Lazily initialize a pool so test environment setup can precede configuration capture.
+const _handles = new Map<string, DbHandle>()
+function getHandle(): DbHandle {
   const url = process.env.DATABASE_URL?.trim() || config.databaseUrl
   let h = _handles.get(url)
   if (!h) {
-    h = createDb(url, { readonly: true })
+    h = createDb(url)
     _handles.set(url, h)
   }
   return h
 }
 
-const _caches = new Map<string, ReturnType<typeof createTaskMetaCache<TaskMeta>>>()
+const _caches = new Map<string, TaskMetaCache<TaskMeta>>()
 function getTaskMetaCache() {
   const url = process.env.DATABASE_URL?.trim() || config.databaseUrl
   let c = _caches.get(url)

@@ -1,37 +1,30 @@
-import { describe, expect, it } from 'bun:test'
-import { unlinkSync } from 'node:fs'
+import { afterAll, describe, expect, it } from 'bun:test'
+import { createDb } from '@image-playground/db'
+import { resetTestDatabase } from '@image-playground/db/testing'
 
-const TEST_DB = './artifacts/test-admin-routes.sqlite'
-try {
-  unlinkSync(TEST_DB)
-  unlinkSync(`${TEST_DB}-wal`)
-  unlinkSync(`${TEST_DB}-shm`)
-} catch {}
-
+const TEST_DB = await resetTestDatabase('admin_devices_route')
 process.env.ADMIN_PASSWORD = 'test-pass-1234'
 process.env.ADMIN_COOKIE_SECRET = 'test-cookie-secret-32-bytes-min!!'
 process.env.DATABASE_URL = TEST_DB
 process.env.BFF_INTERNAL_URL = 'http://127.0.0.1:39999'
 process.env.PORT = '0'
 
-const { runMigrations, createDb } = await import('@image-playground/db')
-runMigrations(TEST_DB)
 const writer = createDb(TEST_DB)
 const now = Date.now()
-writer.db
-  .insert(writer.schema.tasks)
-  .values({
-    id: 'task-A1',
-    provider: 'openai-compat',
-    model: 'gpt-image-2',
-    status: 'completed',
-    request_payload: { prompt: 'p', device_id: 'dev-A-route' } as never,
-    submitted_at: now,
-    completed_at: now + 1000,
-  })
-  .run()
+await writer.db.insert(writer.schema.tasks).values({
+  id: 'task-A1',
+  provider: 'openai-compat',
+  model: 'gpt-image-2',
+  status: 'completed',
+  request_payload: { prompt: 'p', device_id: 'dev-A-route' } as never,
+  submitted_at: now,
+  completed_at: now + 1000,
+})
 
 const { app } = await import('../../app')
+afterAll(async () => {
+  await writer.close()
+})
 
 async function login() {
   const res = await app.handle(

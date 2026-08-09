@@ -1,14 +1,11 @@
 import { QUEUE_TIMEOUTS } from '@image-playground/shared'
 import { config } from './config'
-import { checkpointWal } from './db/client'
+import { close as closeDb } from './db/client'
 import { recoverInterruptedTasks } from './db/maintenance'
-import { runMigrations } from './db/migrate'
 import { initChannels } from './lib/channels'
 import { log } from './lib/logger'
 import { abortAllRunningTasks } from './workers/task-runner'
 import { TaskScheduler } from './workers/task-scheduler'
-
-runMigrations()
 
 const channelsResult = initChannels(config.channelsFile ?? undefined)
 for (const warning of channelsResult.warnings) {
@@ -37,8 +34,8 @@ log.info(
 
 let shuttingDown = false
 
-function finalize(exitCode = 0): never {
-  checkpointWal()
+async function finalize(exitCode = 0): Promise<never> {
+  await closeDb()
   log.flush()
   process.exit(exitCode)
 }
@@ -66,14 +63,14 @@ async function gracefulShutdown(signal: string): Promise<void> {
       },
       'worker drain timeout, forcing exit',
     )
-    finalize()
+    void finalize()
   }, QUEUE_TIMEOUTS.SHUTDOWN_HARD_TIMEOUT_MS)
 
   await scheduler.waitForIdle()
   await recoverInterruptedTasks()
   clearTimeout(hardTimer)
   log.info({ event: 'worker.shutdown_done' }, 'task worker stopped')
-  finalize()
+  await finalize()
 }
 
 process.on('SIGTERM', () => void gracefulShutdown('SIGTERM'))
