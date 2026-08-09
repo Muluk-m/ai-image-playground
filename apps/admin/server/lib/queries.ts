@@ -255,6 +255,41 @@ export interface TaskVolumeBucket {
   completed: number
   failed: number
 }
+async function getTaskVolume(range: Range, userId?: string): Promise<TaskVolumeBucket[]> {
+  const { db } = getHandle()
+  const bucketUnit = range === '1d' ? sql`'hour'` : sql`'day'`
+  const bucketStep = range === '1d' ? sql`INTERVAL '1 hour'` : sql`INTERVAL '1 day'`
+  const bucketStart =
+    range === '1d'
+      ? sql`DATE_TRUNC('hour', NOW()) - INTERVAL '23 hours'`
+      : range === '7d'
+        ? sql`DATE_TRUNC('day', NOW()) - INTERVAL '6 days'`
+        : sql`DATE_TRUNC('day', NOW()) - INTERVAL '29 days'`
+  const ownerCondition = userId ? sql`AND t.user_id = ${userId}` : sql``
+  const rows = await db.execute(sql`
+    WITH buckets AS (
+      SELECT GENERATE_SERIES(${bucketStart}, DATE_TRUNC(${bucketUnit}, NOW()), ${bucketStep}) AS bucket
+    )
+    SELECT
+      EXTRACT(EPOCH FROM b.bucket) * 1000 AS bucket_at,
+      COUNT(t.id) AS total,
+      COUNT(t.id) FILTER (WHERE t.status = 'completed') AS completed,
+      COUNT(t.id) FILTER (WHERE t.status = 'failed') AS failed
+    FROM buckets b
+    LEFT JOIN tasks t
+      ON t.submitted_at >= b.bucket
+     AND t.submitted_at < b.bucket + ${bucketStep}
+     ${ownerCondition}
+    GROUP BY b.bucket
+    ORDER BY b.bucket
+  `)
+  return (rows as unknown as Array<Record<string, unknown>>).map((row) => ({
+    bucket_at: Number(row.bucket_at),
+    total: Number(row.total),
+    completed: Number(row.completed),
+    failed: Number(row.failed),
+  }))
+}
 
 export interface OverviewSummary {
   total: number
@@ -275,16 +310,8 @@ export interface OverviewResult {
 export async function getOverview(range: Range): Promise<OverviewResult> {
   const { db } = getHandle()
   const since = new Date(Date.now() - rangeMs(range))
-  const bucketUnit = range === '1d' ? sql`'hour'` : sql`'day'`
-  const bucketStep = range === '1d' ? sql`INTERVAL '1 hour'` : sql`INTERVAL '1 day'`
-  const bucketStart =
-    range === '1d'
-      ? sql`DATE_TRUNC('hour', NOW()) - INTERVAL '23 hours'`
-      : range === '7d'
-        ? sql`DATE_TRUNC('day', NOW()) - INTERVAL '6 days'`
-        : sql`DATE_TRUNC('day', NOW()) - INTERVAL '29 days'`
 
-  const [summaryRowsRaw, volumeRowsRaw, failureRowsRaw, modelRowsRaw] = await Promise.all([
+  const [summaryRowsRaw, volume, failureRowsRaw, modelRowsRaw] = await Promise.all([
     db.execute(sql`
       SELECT
         COUNT(*) AS total,
@@ -299,22 +326,7 @@ export async function getOverview(range: Range): Promise<OverviewResult> {
       FROM tasks
       WHERE submitted_at >= ${since}
     `),
-    db.execute(sql`
-      WITH buckets AS (
-        SELECT GENERATE_SERIES(${bucketStart}, DATE_TRUNC(${bucketUnit}, NOW()), ${bucketStep}) AS bucket
-      )
-      SELECT
-        EXTRACT(EPOCH FROM b.bucket) * 1000 AS bucket_at,
-        COUNT(t.id) AS total,
-        COUNT(t.id) FILTER (WHERE t.status = 'completed') AS completed,
-        COUNT(t.id) FILTER (WHERE t.status = 'failed') AS failed
-      FROM buckets b
-      LEFT JOIN tasks t
-        ON t.submitted_at >= b.bucket
-       AND t.submitted_at < b.bucket + ${bucketStep}
-      GROUP BY b.bucket
-      ORDER BY b.bucket
-    `),
+    getTaskVolume(range),
     db.execute(sql`
       SELECT COALESCE(error_type, 'unknown') AS error_type, COUNT(*) AS count
       FROM tasks
@@ -344,12 +356,7 @@ export async function getOverview(range: Range): Promise<OverviewResult> {
       p50_duration_ms: nullableNumber(summary.p50_duration_ms),
       p95_duration_ms: nullableNumber(summary.p95_duration_ms),
     },
-    volume: (volumeRowsRaw as unknown as Array<Record<string, unknown>>).map((row) => ({
-      bucket_at: Number(row.bucket_at),
-      total: Number(row.total),
-      completed: Number(row.completed),
-      failed: Number(row.failed),
-    })),
+    volume,
     failures: (failureRowsRaw as unknown as Array<Record<string, unknown>>).map((row) => ({
       error_type: String(row.error_type),
       count: Number(row.count),
@@ -384,34 +391,7 @@ export async function getUserDetail(
   const statusCondition =
     statusFilter && statusFilter !== 'all' ? sql`AND status = ${statusFilter}` : sql``
 
-  const bucketUnit = range === '1d' ? sql`'hour'` : sql`'day'`
-  const bucketStep = range === '1d' ? sql`INTERVAL '1 hour'` : sql`INTERVAL '1 day'`
-  const bucketStart =
-    range === '1d'
-      ? sql`DATE_TRUNC('hour', NOW()) - INTERVAL '23 hours'`
-      : range === '7d'
-        ? sql`DATE_TRUNC('day', NOW()) - INTERVAL '6 days'`
-        : sql`DATE_TRUNC('day', NOW()) - INTERVAL '29 days'`
-
-  const volumePromise = cursor
-    ? Promise.resolve([])
-    : db.execute(sql`
-        WITH buckets AS (
-          SELECT GENERATE_SERIES(${bucketStart}, DATE_TRUNC(${bucketUnit}, NOW()), ${bucketStep}) AS bucket
-        )
-        SELECT
-          EXTRACT(EPOCH FROM b.bucket) * 1000 AS bucket_at,
-          COUNT(t.id) AS total,
-          COUNT(t.id) FILTER (WHERE t.status = 'completed') AS completed,
-          COUNT(t.id) FILTER (WHERE t.status = 'failed') AS failed
-        FROM buckets b
-        LEFT JOIN tasks t
-          ON t.user_id = ${userId}
-         AND t.submitted_at >= b.bucket
-         AND t.submitted_at < b.bucket + ${bucketStep}
-        GROUP BY b.bucket
-        ORDER BY b.bucket
-      `)
+  const volumePromise = cursor ? Promise.resolve(null) : getTaskVolume(range, userId)
 
   let userRow: Record<string, unknown> | undefined
   let taskRows: Array<Record<string, unknown>>
@@ -514,7 +494,7 @@ export async function getUserDetail(
       }))
   }
 
-  const volumeRowsRaw = await volumePromise
+  const volume = await volumePromise
   const hasMore = taskRows.length > PAGE_SIZE
   const pageRows = taskRows.slice(0, PAGE_SIZE)
   const tasks = pageRows.map((row) => ({
@@ -531,19 +511,11 @@ export async function getUserDetail(
     attempt_count: Number(row.attempt_count),
   }))
   const last = tasks[tasks.length - 1]
-  const volumeRows = volumeRowsRaw as unknown as Array<Record<string, unknown>>
   return {
     user: userRow ? mapAdminUser(userRow) : null,
     tasks,
     nextCursor: hasMore && last ? encodeCursor(last.submitted_at, last.id) : null,
-    volume: cursor
-      ? null
-      : volumeRows.map((row) => ({
-          bucket_at: Number(row.bucket_at),
-          total: Number(row.total),
-          completed: Number(row.completed),
-          failed: Number(row.failed),
-        })),
+    volume,
   }
 }
 
