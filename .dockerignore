@@ -35,6 +35,7 @@
 !apps/*/components.json
 !apps/*/drizzle.config.ts
 !apps/admin/server
+!apps/admin/contracts.ts
 !apps/bff/channels.json
 
 
