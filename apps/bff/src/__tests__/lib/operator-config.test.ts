@@ -60,13 +60,16 @@ describe('operator config', () => {
     expect(resolved.capabilitySources['billing:credits']).toBe('file')
     expect(resolved.quotas['generation:daily-images']).toBe(0)
     expect(resolved.quotaSources['generation:daily-images']).toBe('file')
+    expect(resolved.channelsFile).toBe('/run/operator/channels.json')
     expect(resolved).not.toHaveProperty('preset')
     expect(resolved).not.toHaveProperty('presets')
   })
 
   it('fails startup when a present file is malformed or schema-invalid', async () => {
     const malformed = temporaryFile('{')
-    const invalid = temporaryFile(JSON.stringify({ capabilities: { 'accounts:login': 'yes' } }))
+    const invalid = temporaryFile(
+      JSON.stringify({ config: { channelsFile: '/tmp/channels.json' } }),
+    )
 
     expect(() => loadOperatorConfig(malformed)).toThrow()
     expect(() => loadOperatorConfig(invalid)).toThrow()

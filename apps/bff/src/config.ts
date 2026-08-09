@@ -14,6 +14,7 @@ const positiveIntEnv = (key: string, fallback: number): number => {
   }
   return value
 }
+const operator = loadOperatorConfig(env('OPERATOR_CONFIG_FILE', '') || null)
 
 export const config = {
   port: Number(env('PORT', '37377')),
@@ -43,8 +44,8 @@ export const config = {
   corsOrigins: env('CORS_ALLOWED_ORIGINS', '*'),
   staticDir: env('STATIC_DIR', '') || null,
   /** 可选 channels.json 路径覆盖；缺省走 lib/channels.ts 的 defaultChannelsPath()。 */
-  channelsFile: env('CHANNELS_FILE', '') || null,
-  operator: loadOperatorConfig(env('OPERATOR_CONFIG_FILE', '') || null),
+  channelsFile: operator.channelsFile ?? (env('CHANNELS_FILE', '') || null),
+  operator,
   objectStore: {
     get endpoint(): string {
       return env('S3_ENDPOINT')
