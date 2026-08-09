@@ -2,6 +2,7 @@ import { clientProfileToApiProfile, getActiveApiProfile } from './apiProfiles'
 import { createMaskPreviewDataUrl } from './canvasImage'
 import { getModelCapabilities } from './channels/profileSelectors'
 import { getPublicChannel, getPublicChannels } from './channels/publicChannels'
+import { isClientCapabilityEnabled } from './clientCapabilities'
 import { callQueueChannelApi, resumeQueueChannelApi, toQueueProvider } from './channels/queueClient'
 import type { ClientProfile, UserByokProfile } from './channels/types'
 import { callGeminiImageApi } from './geminiImageApi'
@@ -86,6 +87,9 @@ export async function callImageApi(opts: CallApiOptions): Promise<CallApiResult>
   opts = withNormalizedParams(opts)
 
   const profile = getActiveApiProfile(opts.settings)
+  if (isClientCapabilityEnabled('billing:credits') && profile.source !== 'builtin-edge') {
+    throw new Error('当前部署只允许使用内置模型')
+  }
 
   // 不支持原生 mask 的模型：把遮罩降级成「原图 + 高亮标注图 + prompt 指令」。
   // n>1 时上层已 fan-out 成多条 task，各自合成同一张标注图（输入相同、开销可接受），

@@ -4,6 +4,7 @@ import InspirationCoach from '../features/inspiration/components/InspirationCoac
 import { useInspirationStore } from '../features/inspiration/store'
 import { useTooltip } from '../hooks/useTooltip'
 import { dismissAllTooltips } from '../lib/tooltipDismiss'
+import { PrivateWebHeaderActions } from '../lib/privateOverlay'
 import { useStore } from '../store'
 import HelpModal from './HelpModal'
 import { SparkleIcon } from './icons'
@@ -143,6 +144,7 @@ export default function Header() {
                 设置
               </ViewportTooltip>
             </div>
+            <PrivateWebHeaderActions />
             {auth.enabled && auth.user ? (
               <div className="ml-1 flex items-center gap-2 border-l border-gray-200 pl-2 dark:border-white/[0.1]">
                 <span

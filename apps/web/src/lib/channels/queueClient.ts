@@ -165,6 +165,24 @@ async function submit(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
+  if (res.status === 402) {
+    const json = (await res.json().catch(() => null)) as {
+      error?: string
+      required?: number
+      available?: number
+    } | null
+    if (json?.error === 'insufficient_credits') {
+      const err = new Error('积分不足，请充值或开通套餐后再生成') as Error & {
+        insufficientCredits: true
+        required?: number
+        available?: number
+      }
+      err.insufficientCredits = true
+      if (typeof json.required === 'number') err.required = json.required
+      if (typeof json.available === 'number') err.available = json.available
+      throw err
+    }
+  }
   if (!res.ok) {
     if (res.status === 429) {
       const json = (await res.json().catch(() => null)) as {

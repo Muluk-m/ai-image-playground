@@ -23,6 +23,7 @@ import {
   normalizeSettings,
   switchByokProfileKind,
 } from '../lib/apiProfiles'
+import { isClientCapabilityEnabled } from '../lib/clientCapabilities'
 import { getPublicChannel } from '../lib/channels/publicChannels'
 import type { ClientProfile, ProviderKind, UserByokProfile } from '../lib/channels/types'
 import { copyTextToClipboard, getClipboardFailureMessage } from '../lib/clipboard'
@@ -1304,6 +1305,7 @@ export default function SettingsModal() {
                   </svg>
                   习惯配置
                 </button>
+                {!isClientCapabilityEnabled('billing:credits') && (
                 <button
                   onClick={() => setActiveTab('api')}
                   className={`whitespace-nowrap flex-shrink-0 flex items-center gap-2.5 px-3 py-2.5 text-sm rounded-xl transition-colors ${activeTab === 'api' ? 'bg-white dark:bg-white/[0.08] shadow-sm text-blue-600 dark:text-blue-400 font-medium' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100/80 dark:hover:bg-white/[0.04]'}`}
@@ -1318,6 +1320,7 @@ export default function SettingsModal() {
                   </svg>
                   API 配置
                 </button>
+                )}
                 <button
                   onClick={() => setActiveTab('data')}
                   className={`whitespace-nowrap flex-shrink-0 flex items-center gap-2.5 px-3 py-2.5 text-sm rounded-xl transition-colors ${activeTab === 'data' ? 'bg-white dark:bg-white/[0.08] shadow-sm text-blue-600 dark:text-blue-400 font-medium' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100/80 dark:hover:bg-white/[0.04]'}`}

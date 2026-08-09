@@ -56,6 +56,7 @@ import { IMAGE_FETCH_CORS_HINT, bytesToDataUrl as sharedBytesToDataUrl } from '.
 import { orderInputImagesForMask } from './lib/mask'
 import { getCustomQueuedImageResult } from './lib/openaiCompatibleImageApi'
 import { getChangedParams, normalizeParamsForSettings } from './lib/paramCompatibility'
+import { notifyPrivateSubmissionError } from './lib/privateOverlay'
 import { remapImageMentionsForOrder, replaceImageMentionsForApi } from './lib/promptImageMentions'
 import { dismissAllTooltips } from './lib/tooltipDismiss'
 import {
@@ -1228,6 +1229,14 @@ export async function submitTask(
     }
   }
 
+  if (
+    isClientCapabilityEnabled('billing:credits') &&
+    activeProfile.source !== 'builtin-edge'
+  ) {
+    showToast('当前部署只允许使用内置模型', 'error')
+    return
+  }
+
   const validationError = validateClientProfile(activeProfile)
   if (validationError) {
     showToast(`请先完善请求 API 配置：${validationError}`, 'error')
@@ -1509,6 +1518,7 @@ async function executeTask(taskId: string) {
     }
   } catch (err) {
     clearOpenAIWatchdogTimer(taskId)
+    notifyPrivateSubmissionError(err)
     const latestTask = useStore.getState().tasks.find((t) => t.id === taskId) ?? task
     if (latestTask.status !== 'running') return
     const latestCustomTaskInfo =
