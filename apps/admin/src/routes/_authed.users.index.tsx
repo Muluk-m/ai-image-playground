@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input'
 import { useUsers } from '@/lib/queries'
 import { parseUsersSearch } from '@/lib/search-params'
 
-export const Route = createFileRoute('/_authed/users')({
+export const Route = createFileRoute('/_authed/users/')({
   validateSearch: parseUsersSearch,
   component: UsersPage,
 })
