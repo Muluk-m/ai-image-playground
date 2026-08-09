@@ -18,6 +18,7 @@ const { close: closeDb, db, schema } = await import('../../db/client')
 const authorization = { authorization: 'Bearer fixture-service-credential-alpha' }
 
 beforeEach(async () => {
+  await db.delete(schema.operator_audits)
   await db.delete(schema.tasks)
   await db.delete(schema.user_sessions)
   await db.delete(schema.users)
@@ -65,6 +66,14 @@ describe('internal user operations', () => {
       .where(eq(schema.users.id, body.user.id))
       .limit(1)
     expect(await Bun.password.verify('strong-password', stored!.password_hash)).toBe(true)
+    const [audit] = await db.select().from(schema.operator_audits)
+    expect(audit).toMatchObject({
+      operator_id: 'admin',
+      action: 'user.create',
+      target_type: 'user',
+      target_id: body.user.id,
+      details: { username: 'alice.user' },
+    })
   })
 
   it('disables a user and revokes sessions in one transaction', async () => {
@@ -90,5 +99,13 @@ describe('internal user operations', () => {
     expect(response.status).toBe(200)
     expect(await response.json()).toMatchObject({ user: { status: 'disabled' } })
     expect(await db.select().from(schema.user_sessions)).toHaveLength(0)
+    const [audit] = await db.select().from(schema.operator_audits)
+    expect(audit).toMatchObject({
+      operator_id: 'admin',
+      action: 'user.status.update',
+      target_type: 'user',
+      target_id: 'disable-me',
+      details: { status: 'disabled' },
+    })
   })
 })

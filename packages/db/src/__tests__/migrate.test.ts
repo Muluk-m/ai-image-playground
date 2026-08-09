@@ -25,8 +25,9 @@ describe('runMigrations', () => {
     const rows = await connection.client.unsafe(
       'SELECT id, hash, created_at FROM drizzle.__drizzle_migrations ORDER BY id',
     )
-    expect(rows).toHaveLength(1)
+    expect(rows).toHaveLength(2)
     expect(rows[0]).toMatchObject({ id: 1 })
+    expect(rows[1]).toMatchObject({ id: 2 })
   })
 
   it('creates PostgreSQL-native JSONB and timestamptz columns', async () => {
@@ -65,6 +66,6 @@ describe('runMigrations', () => {
     const rows = await connection.client.unsafe(
       'SELECT id FROM drizzle.__drizzle_migrations ORDER BY id',
     )
-    expect(rows).toHaveLength(1)
+    expect(rows).toHaveLength(2)
   })
 })

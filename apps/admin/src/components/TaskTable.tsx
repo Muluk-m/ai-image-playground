@@ -11,7 +11,6 @@ import type { TaskListItem } from '@/lib/types'
 
 interface TaskTableProps {
   tasks: TaskListItem[]
-  deviceId: string
   /** 还有下一页可加载（来自 useInfiniteQuery） */
   hasNextPage?: boolean
   /** 正在拉下一页 */

@@ -59,6 +59,7 @@ export function UserFormDialog({ mode, user, open, onOpenChange }: UserFormDialo
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['users'] })
+      if (user) await queryClient.invalidateQueries({ queryKey: ['user', user.id] })
       onOpenChange(false)
     },
     onError: (mutationError) => setError(messageForError(mutationError)),

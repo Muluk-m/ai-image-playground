@@ -13,7 +13,9 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as AuthedRouteImport } from './routes/_authed'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthedUsersRouteImport } from './routes/_authed.users'
+import { Route as AuthedOverviewRouteImport } from './routes/_authed.overview'
 import { Route as AuthedDevicesIndexRouteImport } from './routes/_authed.devices.index'
+import { Route as AuthedUsersUserIdRouteImport } from './routes/_authed.users.$userId'
 import { Route as AuthedTasksTaskIdRouteImport } from './routes/_authed.tasks.$taskId'
 import { Route as AuthedDevicesDeviceIdRouteImport } from './routes/_authed.devices.$deviceId'
 
@@ -36,10 +38,20 @@ const AuthedUsersRoute = AuthedUsersRouteImport.update({
   path: '/users',
   getParentRoute: () => AuthedRoute,
 } as any)
+const AuthedOverviewRoute = AuthedOverviewRouteImport.update({
+  id: '/overview',
+  path: '/overview',
+  getParentRoute: () => AuthedRoute,
+} as any)
 const AuthedDevicesIndexRoute = AuthedDevicesIndexRouteImport.update({
   id: '/devices/',
   path: '/devices/',
   getParentRoute: () => AuthedRoute,
+} as any)
+const AuthedUsersUserIdRoute = AuthedUsersUserIdRouteImport.update({
+  id: '/$userId',
+  path: '/$userId',
+  getParentRoute: () => AuthedUsersRoute,
 } as any)
 const AuthedTasksTaskIdRoute = AuthedTasksTaskIdRouteImport.update({
   id: '/tasks/$taskId',
@@ -55,17 +67,21 @@ const AuthedDevicesDeviceIdRoute = AuthedDevicesDeviceIdRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
-  '/users': typeof AuthedUsersRoute
+  '/overview': typeof AuthedOverviewRoute
+  '/users': typeof AuthedUsersRouteWithChildren
   '/devices/$deviceId': typeof AuthedDevicesDeviceIdRoute
   '/tasks/$taskId': typeof AuthedTasksTaskIdRoute
+  '/users/$userId': typeof AuthedUsersUserIdRoute
   '/devices/': typeof AuthedDevicesIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
-  '/users': typeof AuthedUsersRoute
+  '/overview': typeof AuthedOverviewRoute
+  '/users': typeof AuthedUsersRouteWithChildren
   '/devices/$deviceId': typeof AuthedDevicesDeviceIdRoute
   '/tasks/$taskId': typeof AuthedTasksTaskIdRoute
+  '/users/$userId': typeof AuthedUsersUserIdRoute
   '/devices': typeof AuthedDevicesIndexRoute
 }
 export interface FileRoutesById {
@@ -73,9 +89,11 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/_authed': typeof AuthedRouteWithChildren
   '/login': typeof LoginRoute
-  '/_authed/users': typeof AuthedUsersRoute
+  '/_authed/overview': typeof AuthedOverviewRoute
+  '/_authed/users': typeof AuthedUsersRouteWithChildren
   '/_authed/devices/$deviceId': typeof AuthedDevicesDeviceIdRoute
   '/_authed/tasks/$taskId': typeof AuthedTasksTaskIdRoute
+  '/_authed/users/$userId': typeof AuthedUsersUserIdRoute
   '/_authed/devices/': typeof AuthedDevicesIndexRoute
 }
 export interface FileRouteTypes {
@@ -83,26 +101,32 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/login'
+    | '/overview'
     | '/users'
     | '/devices/$deviceId'
     | '/tasks/$taskId'
+    | '/users/$userId'
     | '/devices/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/login'
+    | '/overview'
     | '/users'
     | '/devices/$deviceId'
     | '/tasks/$taskId'
+    | '/users/$userId'
     | '/devices'
   id:
     | '__root__'
     | '/'
     | '/_authed'
     | '/login'
+    | '/_authed/overview'
     | '/_authed/users'
     | '/_authed/devices/$deviceId'
     | '/_authed/tasks/$taskId'
+    | '/_authed/users/$userId'
     | '/_authed/devices/'
   fileRoutesById: FileRoutesById
 }
@@ -142,12 +166,26 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedUsersRouteImport
       parentRoute: typeof AuthedRoute
     }
+    '/_authed/overview': {
+      id: '/_authed/overview'
+      path: '/overview'
+      fullPath: '/overview'
+      preLoaderRoute: typeof AuthedOverviewRouteImport
+      parentRoute: typeof AuthedRoute
+    }
     '/_authed/devices/': {
       id: '/_authed/devices/'
       path: '/devices'
       fullPath: '/devices/'
       preLoaderRoute: typeof AuthedDevicesIndexRouteImport
       parentRoute: typeof AuthedRoute
+    }
+    '/_authed/users/$userId': {
+      id: '/_authed/users/$userId'
+      path: '/$userId'
+      fullPath: '/users/$userId'
+      preLoaderRoute: typeof AuthedUsersUserIdRouteImport
+      parentRoute: typeof AuthedUsersRoute
     }
     '/_authed/tasks/$taskId': {
       id: '/_authed/tasks/$taskId'
@@ -166,15 +204,29 @@ declare module '@tanstack/react-router' {
   }
 }
 
+interface AuthedUsersRouteChildren {
+  AuthedUsersUserIdRoute: typeof AuthedUsersUserIdRoute
+}
+
+const AuthedUsersRouteChildren: AuthedUsersRouteChildren = {
+  AuthedUsersUserIdRoute: AuthedUsersUserIdRoute,
+}
+
+const AuthedUsersRouteWithChildren = AuthedUsersRoute._addFileChildren(
+  AuthedUsersRouteChildren,
+)
+
 interface AuthedRouteChildren {
-  AuthedUsersRoute: typeof AuthedUsersRoute
+  AuthedOverviewRoute: typeof AuthedOverviewRoute
+  AuthedUsersRoute: typeof AuthedUsersRouteWithChildren
   AuthedDevicesDeviceIdRoute: typeof AuthedDevicesDeviceIdRoute
   AuthedTasksTaskIdRoute: typeof AuthedTasksTaskIdRoute
   AuthedDevicesIndexRoute: typeof AuthedDevicesIndexRoute
 }
 
 const AuthedRouteChildren: AuthedRouteChildren = {
-  AuthedUsersRoute: AuthedUsersRoute,
+  AuthedOverviewRoute: AuthedOverviewRoute,
+  AuthedUsersRoute: AuthedUsersRouteWithChildren,
   AuthedDevicesDeviceIdRoute: AuthedDevicesDeviceIdRoute,
   AuthedTasksTaskIdRoute: AuthedTasksTaskIdRoute,
   AuthedDevicesIndexRoute: AuthedDevicesIndexRoute,

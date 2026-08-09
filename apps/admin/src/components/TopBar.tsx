@@ -1,6 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { Link, useLocation, useNavigate } from '@tanstack/react-router'
-import { LogOut, RefreshCw, Users } from 'lucide-react'
+import { Activity, LogOut, MonitorSmartphone, RefreshCw, Users } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { apiClient } from '@/lib/api-client'
@@ -18,9 +18,11 @@ export function TopBar() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
 
-  // 哪些路由消费 range —— /devices 列表 + /devices/:id 详情。其它路由（/login、/）
-  // 不显示 range 控件。
-  const showRange = location.pathname.startsWith('/devices') || location.pathname === '/'
+  // 时间窗同时驱动系统概览、设备视图和用户详情趋势。
+  const showRange =
+    location.pathname === '/overview' ||
+    location.pathname.startsWith('/devices') ||
+    location.pathname.startsWith('/users/')
   const showAuthedActions = location.pathname !== '/login'
 
   // 从当前 URL search 解析 range；非法/缺省时回退 '7d'，跟 search-params helper 同语义。
@@ -42,6 +44,8 @@ export function TopBar() {
     void queryClient.invalidateQueries({ queryKey: ['device'] })
     void queryClient.invalidateQueries({ queryKey: ['task'] })
     void queryClient.invalidateQueries({ queryKey: ['users'] })
+    void queryClient.invalidateQueries({ queryKey: ['user'] })
+    void queryClient.invalidateQueries({ queryKey: ['overview'] })
   }
 
   async function logout(): Promise<void> {
@@ -59,7 +63,7 @@ export function TopBar() {
       <div className="mx-auto flex h-12 max-w-7xl items-center justify-between px-4">
         <div className="flex items-center gap-5">
           <Link
-            to="/devices"
+            to="/overview"
             className="text-sm font-semibold tracking-tight hover:text-foreground/80"
           >
             image-playground · admin
@@ -67,10 +71,11 @@ export function TopBar() {
           {showAuthedActions ? (
             <nav className="flex items-center gap-1" aria-label="后台导航">
               <Link
-                to="/devices"
-                className="rounded-md px-2.5 py-1.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground [&.active]:bg-muted [&.active]:font-medium [&.active]:text-foreground"
+                to="/overview"
+                className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground [&.active]:bg-muted [&.active]:font-medium [&.active]:text-foreground"
               >
-                设备
+                <Activity className="h-3.5 w-3.5" />
+                概览
               </Link>
               <Link
                 to="/users"
@@ -78,6 +83,13 @@ export function TopBar() {
               >
                 <Users className="h-3.5 w-3.5" />
                 用户
+              </Link>
+              <Link
+                to="/devices"
+                className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground [&.active]:bg-muted [&.active]:font-medium [&.active]:text-foreground"
+              >
+                <MonitorSmartphone className="h-3.5 w-3.5" />
+                设备
               </Link>
             </nav>
           ) : null}

@@ -85,7 +85,43 @@ function TaskDetailContent({ task }: { task: TaskDetail }) {
             {typeof req.background === 'string' ? (
               <KV label="background" value={req.background} mono />
             ) : null}
-            {task.device_id ? <KV label="device_id" value={task.device_id} mono /> : null}
+            {task.user_id ? (
+              <div className="grid grid-cols-[110px_1fr] gap-3">
+                <dt className="text-muted-foreground">user_id</dt>
+                <dd>
+                  <button
+                    type="button"
+                    className="break-all font-mono text-left text-primary underline-offset-2 hover:underline"
+                    onClick={() =>
+                      void navigate({
+                        to: '/users/$userId',
+                        params: { userId: task.user_id! },
+                      })
+                    }
+                  >
+                    {task.user_id}
+                  </button>
+                </dd>
+              </div>
+            ) : task.device_id ? (
+              <div className="grid grid-cols-[110px_1fr] gap-3">
+                <dt className="text-muted-foreground">device_id</dt>
+                <dd>
+                  <button
+                    type="button"
+                    className="break-all font-mono text-left text-primary underline-offset-2 hover:underline"
+                    onClick={() =>
+                      void navigate({
+                        to: '/devices/$deviceId',
+                        params: { deviceId: task.device_id! },
+                      })
+                    }
+                  >
+                    {task.device_id}
+                  </button>
+                </dd>
+              </div>
+            ) : null}
             {task.attempt_count > 1 ? (
               <KV label="attempts" value={String(task.attempt_count)} mono />
             ) : null}
