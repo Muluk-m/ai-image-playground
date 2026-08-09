@@ -5,14 +5,14 @@ const PRIVATE_ROUTE_SUFFIX = '.route.tsx'
 
 export function stagePrivateAdminRoutes(
   routesDirectory: string,
-  privateRoutesDirectory: string,
+  privateRoutesDirectory: string | null,
 ): string[] {
   for (const entry of readdirSync(routesDirectory, { withFileTypes: true })) {
     if (entry.isFile() && entry.name.endsWith(PRIVATE_ROUTE_SUFFIX)) {
       rmSync(join(routesDirectory, entry.name))
     }
   }
-  if (!existsSync(privateRoutesDirectory)) return []
+  if (!privateRoutesDirectory || !existsSync(privateRoutesDirectory)) return []
 
   const routeNames = readdirSync(privateRoutesDirectory, { withFileTypes: true })
     .filter((entry) => entry.isFile() && entry.name.endsWith(PRIVATE_ROUTE_SUFFIX))
