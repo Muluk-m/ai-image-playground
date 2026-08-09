@@ -171,12 +171,12 @@ Compose override，只把 Web/Admin 端口绑定到回环地址。
 
 从旧 SQLite 部署一次性切换时：
 
-1. 停止应用，为 SQLite 数据库制作文件系统备份。
-2. 按上文启动并 provision PostgreSQL。
-3. 执行 `SQLITE_DATABASE_PATH=/absolute/backup.sqlite DATABASE_URL='postgresql://…@127.0.0.1:5432/…' bun run scripts/migrate-sqlite-to-postgres.ts`。导入器先应用已提交的 schema，要求目标库为空，在一个事务中复制用户、session、任务、配额与 JSON payload，最后输出行数。
-4. 启动应用 project。解除维护窗口前，确认 `/health`、登录、任务历史与一次新生图都正常。
+1. 停止应用。
+2. 执行 `SQLITE_DATABASE_PATH=/absolute/image-playground.sqlite SQLITE_BACKUP_PATH=/absolute/image-playground.readonly.sqlite bun run scripts/prepare-postgres-cutover.ts`。命令会在仍有 `queued` 或 `in_progress` 任务时拒绝切换，写出一致的只读备份，并且不导入历史数据。
+3. 按上文启动并 provision 全新的 PostgreSQL 数据库。
+4. 启动应用 project。解除维护窗口前，确认 `/health`、登录、服务端任务历史为空，并完成一次新生图。
 
-验证失败时，停止新应用，使用未修改的 SQLite 备份恢复上一镜像与配置。生产环境不要执行
+验证失败时，停止新应用，使用只读 SQLite 备份恢复上一镜像与配置。生产环境不要执行
 `packages/db/drizzle/rollback/0000_daffy_the_enforcers.down.sql`；它只用于丢弃全新的空部署。
 
 查看状态或独立停止任一 project：
