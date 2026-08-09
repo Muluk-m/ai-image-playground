@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'bun:test'
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { loadPrivateBffOverlay } from '../../lib/private-overlay'
 
 const repositoryRoot = resolve(import.meta.dir, '../../../../..')
-const privateRoot = join(repositoryRoot, 'private')
 
 async function lintBoundaryViolation(
   source: string,
@@ -33,9 +33,7 @@ async function lintBoundaryViolation(
 }
 
 describe('private overlay boundary', () => {
-  it('builds and loads the useful empty overlay when private/ is absent', async () => {
-    expect(existsSync(privateRoot)).toBe(false)
-
+  it('returns the useful empty overlay when the private entry is absent', async () => {
     const outputDirectory = mkdtempSync(join(tmpdir(), 'image-playground-public-build-'))
     try {
       const build = await Bun.build({
@@ -48,7 +46,9 @@ describe('private overlay boundary', () => {
       rmSync(outputDirectory, { recursive: true, force: true })
     }
 
-    const overlay = await loadPrivateBffOverlay()
+    const overlay = await loadPrivateBffOverlay(
+      pathToFileURL(join(outputDirectory, 'missing-private-entry.ts')),
+    )
     expect(overlay.present).toBe(false)
     const response = await overlay.routes.handle(new Request('http://localhost/private-route'))
     expect(response.status).toBe(404)
