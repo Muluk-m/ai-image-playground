@@ -8,7 +8,6 @@ process.env.UPSTREAM_BASE_URL = 'http://localhost:9999'
 process.env.UPSTREAM_API_KEY = 'test'
 process.env.DATABASE_URL = await resetTestDatabase('bff_internal_users')
 process.env.CORS_ALLOWED_ORIGINS = '*'
-process.env.AUTH_ENABLED = 'true'
 process.env.INTERNAL_API_TOKEN = 'fixture-service-credential-alpha'
 process.env.OPERATOR_CONFIG_FILE = resolve(import.meta.dir, '../../../operator-config.example.json')
 

@@ -7,6 +7,7 @@ import {
   loginUser,
   logoutUser,
 } from '../../lib/authClient'
+import { bootstrapClientCapabilities } from '../../lib/clientCapabilities'
 import { _setRuntimeConfigForTesting } from '../../lib/runtimeConfig'
 
 const USER = {
@@ -16,18 +17,31 @@ const USER = {
 }
 
 describe('auth client', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     _setRuntimeConfigForTesting({
       ...BAKED_DEFAULTS,
       bff: { enabled: true, baseUrl: 'https://bff.example.com' },
-      auth: { enabled: true },
     })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        Response.json({
+          'accounts:login': true,
+          'billing:credits': false,
+          'generation:byok': true,
+          'quota:daily': false,
+        }),
+      ),
+    )
+    await bootstrapClientCapabilities(true, 'https://bff.example.com')
+    vi.unstubAllGlobals()
   })
 
-  afterEach(() => {
+  afterEach(async () => {
     vi.unstubAllGlobals()
     vi.restoreAllMocks()
     _setRuntimeConfigForTesting(BAKED_DEFAULTS)
+    await bootstrapClientCapabilities(false, '')
   })
 
   it('logs in with JSON and an included credential cookie', async () => {

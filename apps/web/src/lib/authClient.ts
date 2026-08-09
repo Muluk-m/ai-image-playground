@@ -1,6 +1,6 @@
 import type { AuthUserView } from '@image-playground/shared'
+import { isClientCapabilityEnabled } from './clientCapabilities'
 import { getRuntimeConfig } from './runtimeConfig'
-
 export const AUTH_SESSION_EXPIRED_EVENT = 'image-playground:auth-session-expired'
 
 export class AuthRequestError extends Error {
@@ -69,7 +69,11 @@ export async function authenticatedBffFetch(
   init: RequestInit = {},
 ): Promise<Response> {
   const res = await fetch(input, { ...init, credentials: 'include' })
-  if (res.status === 401 && getRuntimeConfig().auth.enabled && typeof window !== 'undefined') {
+  if (
+    res.status === 401 &&
+    isClientCapabilityEnabled('accounts:login') &&
+    typeof window !== 'undefined'
+  ) {
     window.dispatchEvent(new Event(AUTH_SESSION_EXPIRED_EVENT))
   }
   return res

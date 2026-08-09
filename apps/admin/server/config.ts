@@ -5,13 +5,6 @@ const env = (key: string, fallback?: string): string => {
   throw new Error(`Missing env: ${key}`)
 }
 
-const booleanEnv = (key: string, fallback: boolean): boolean => {
-  const value = env(key, String(fallback))
-  if (value === 'true') return true
-  if (value === 'false') return false
-  throw new Error(`${key} must be true or false`)
-}
-
 const cookieSecret = env('ADMIN_COOKIE_SECRET')
 if (cookieSecret.length < 32) {
   throw new Error('ADMIN_COOKIE_SECRET must be at least 32 chars')
@@ -23,15 +16,12 @@ export const config = {
   cookieSecret,
   bffInternalUrl: env('BFF_INTERNAL_URL', 'http://127.0.0.1:37377').replace(/\/+$/, ''),
   auth: {
-    get enabled(): boolean {
-      return booleanEnv('AUTH_ENABLED', false)
-    },
     get internalApiToken(): string {
       return env('INTERNAL_API_TOKEN', '')
     },
   },
   assertValid(): void {
-    if (config.auth.enabled && !config.auth.internalApiToken) {
+    if (!config.auth.internalApiToken) {
       throw new Error('Missing env: INTERNAL_API_TOKEN')
     }
   },

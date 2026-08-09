@@ -2,6 +2,8 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { AuthGate } from './auth/AuthGate'
 import './index.css'
+import { bootstrapChannels } from './lib/channels/bootstrapChannels'
+import { bootstrapClientCapabilities } from './lib/clientCapabilities'
 import { loadRuntimeConfig } from './lib/runtimeConfig'
 import { installMobileViewportGuards } from './lib/viewport'
 
@@ -22,9 +24,13 @@ if ('serviceWorker' in navigator) {
   })
 }
 
-// AuthGate 根据 runtime config 先确认 session，再动态加载 App。这样 store/db 模块
-// 首次求值前已经知道 user_id，可以为经营部署隔离每个账号的浏览器本地数据。
-await loadRuntimeConfig()
+// Capabilities and channel discovery share one startup round trip. The channel request can return
+// 401 before login; AuthGate retries it after establishing an authenticated session.
+const runtime = await loadRuntimeConfig()
+await Promise.all([
+  bootstrapClientCapabilities(runtime.bff.enabled, runtime.bff.baseUrl),
+  bootstrapChannels(runtime.bff.enabled, runtime.bff.baseUrl),
+])
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

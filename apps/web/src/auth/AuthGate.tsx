@@ -8,13 +8,14 @@ import {
 } from '../lib/authClient'
 import { setClientStorageScope } from '../lib/authScope'
 import { bootstrapChannels } from '../lib/channels/bootstrapChannels'
+import { isClientCapabilityEnabled } from '../lib/clientCapabilities'
 import { getRuntimeConfig } from '../lib/runtimeConfig'
 import { AuthContextProvider } from './AuthContext'
 import { LoginScreen } from './LoginScreen'
 
 const App = lazy(() => import('../App'))
 
-type Phase = 'checking' | 'ready' | 'login' | 'unavailable' | 'misconfigured'
+type Phase = 'checking' | 'ready' | 'login' | 'unavailable'
 
 function LoadingScreen() {
   return (
@@ -53,6 +54,7 @@ function ProblemScreen({
 
 export function AuthGate() {
   const runtime = getRuntimeConfig()
+  const accountsLoginEnabled = isClientCapabilityEnabled('accounts:login')
   const [phase, setPhase] = useState<Phase>('checking')
   const [user, setUser] = useState<AuthUserView | null>(null)
   const [attempt, setAttempt] = useState(0)
@@ -60,14 +62,8 @@ export function AuthGate() {
   useEffect(() => {
     let cancelled = false
     async function boot(): Promise<void> {
-      if (runtime.auth.enabled && !runtime.bff.enabled) {
-        setPhase('misconfigured')
-        return
-      }
-
-      if (!runtime.auth.enabled) {
+      if (!accountsLoginEnabled) {
         setClientStorageScope(null)
-        await bootstrapChannels(runtime.bff.enabled, runtime.bff.baseUrl)
         if (!cancelled) setPhase('ready')
         return
       }
@@ -95,7 +91,7 @@ export function AuthGate() {
     return () => {
       cancelled = true
     }
-  }, [attempt, runtime.auth.enabled, runtime.bff.baseUrl, runtime.bff.enabled])
+  }, [accountsLoginEnabled, attempt, runtime.bff.baseUrl, runtime.bff.enabled])
 
   useEffect(() => {
     const expired = () => {
@@ -116,14 +112,6 @@ export function AuthGate() {
 
   if (phase === 'checking') return <LoadingScreen />
   if (phase === 'login') return <LoginScreen />
-  if (phase === 'misconfigured') {
-    return (
-      <ProblemScreen
-        title="部署配置不完整"
-        description="登录已开启，但 BFF 未启用。请将 BFF_ENABLED 与 AUTH_ENABLED 同时设为 true。"
-      />
-    )
-  }
   if (phase === 'unavailable') {
     return (
       <ProblemScreen
@@ -138,7 +126,7 @@ export function AuthGate() {
   }
 
   return (
-    <AuthContextProvider value={{ enabled: runtime.auth.enabled, user, logout }}>
+    <AuthContextProvider value={{ enabled: accountsLoginEnabled, user, logout }}>
       <Suspense fallback={<LoadingScreen />}>
         <App />
       </Suspense>

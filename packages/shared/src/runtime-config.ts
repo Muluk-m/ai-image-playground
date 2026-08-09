@@ -7,8 +7,6 @@
  */
 export interface RuntimeConfig {
   bff: RuntimeBffConfig
-  auth: RuntimeAuthConfig
-  defaults: RuntimeDefaults
 }
 
 export interface RuntimeBffConfig {
@@ -21,34 +19,11 @@ export interface RuntimeBffConfig {
   baseUrl: string
 }
 
-export interface RuntimeAuthConfig {
-  /**
-   * 是否要求经营站用户登录。只控制前端门禁；真正的安全边界是 BFF 自己的
-   * AUTH_ENABLED，不能依赖浏览器传来的这个值。
-   */
-  enabled: boolean
-}
-
-export interface RuntimeDefaults {
-  /** BYOK profile 的 baseUrl 占位默认值（OpenAI 兼容）。 */
-  openaiBaseUrl: string
-  /** Gemini BYOK baseUrl 默认（v1beta endpoint）。 */
-  geminiBaseUrl: string
-  /** Inspiration manifest 远程 URL。空字符串 = 只用 bundled 资源不远程拉。 */
-  inspirationManifestUrl: string
-}
-
 /**
  * 没有 `/runtime-config.json` 时使用的内嵌默认值：纯 BYOK，不向 BFF 发任何请求。
  */
 export const BAKED_DEFAULTS: RuntimeConfig = Object.freeze({
   bff: Object.freeze({ enabled: false, baseUrl: '' }) as RuntimeBffConfig,
-  auth: Object.freeze({ enabled: false }) as RuntimeAuthConfig,
-  defaults: Object.freeze({
-    openaiBaseUrl: 'https://api.openai.com/v1',
-    geminiBaseUrl: 'https://generativelanguage.googleapis.com/v1beta',
-    inspirationManifestUrl: './inspiration-manifest.json',
-  }) as RuntimeDefaults,
 }) as RuntimeConfig
 
 /**
@@ -67,33 +42,10 @@ export function parseRuntimeConfig(input: unknown): RuntimeConfig {
   if (typeof bffRaw.baseUrl !== 'string')
     throw new RuntimeConfigParseError('bff.baseUrl must be string')
 
-  // 兼容认证功能上线前 operator 手写的 runtime-config.json：缺 auth 等价于
-  // 显式关闭。字段一旦存在则严格校验，避免字符串 "false" 被当 truthy。
-  const authRaw = input.auth
-  if (authRaw !== undefined && !isObject(authRaw))
-    throw new RuntimeConfigParseError('auth must be an object')
-  if (isObject(authRaw) && typeof authRaw.enabled !== 'boolean')
-    throw new RuntimeConfigParseError('auth.enabled must be boolean')
-
-  const defaultsRaw = input.defaults
-  if (!isObject(defaultsRaw)) throw new RuntimeConfigParseError('defaults must be an object')
-  for (const key of ['openaiBaseUrl', 'geminiBaseUrl', 'inspirationManifestUrl'] as const) {
-    if (typeof defaultsRaw[key] !== 'string')
-      throw new RuntimeConfigParseError(`defaults.${key} must be string`)
-  }
-
   return {
     bff: {
       enabled: bffRaw.enabled,
       baseUrl: bffRaw.baseUrl.replace(/\/+$/, ''),
-    },
-    auth: {
-      enabled: isObject(authRaw) ? (authRaw.enabled as boolean) : false,
-    },
-    defaults: {
-      openaiBaseUrl: defaultsRaw.openaiBaseUrl as string,
-      geminiBaseUrl: defaultsRaw.geminiBaseUrl as string,
-      inspirationManifestUrl: defaultsRaw.inspirationManifestUrl as string,
     },
   }
 }

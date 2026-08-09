@@ -1,6 +1,5 @@
 import type { ResultResponse, TaskErrorType } from '@image-playground/shared'
 import { Elysia, t } from 'elysia'
-import { config } from '../config'
 import { db, schema } from '../db/client'
 import { extractMeta, resolveImageBytesRef } from '../lib/extractImages'
 import { jsonResponse } from '../lib/gzipResponse'
@@ -73,12 +72,10 @@ export const resultRoutes = new Elysia()
       const ref = resolveImageBytesRef(provider, task.result_payload, idx)
       if (!ref) return status(404, { error: 'image_not_found' })
 
-      // request_id + index 是稳定 key，结果不可变 → 永久缓存
+      // Ownership is immutable. Owned bytes must not enter shared caches.
       const headers = {
         'content-type': ref.mime,
-        'cache-control': `${
-          config.auth.enabled ? 'private' : 'public'
-        }, max-age=31536000, immutable`,
+        'cache-control': `${task.user_id === null ? 'public' : 'private'}, max-age=31536000, immutable`,
       } as const
 
       if (ref.kind === 'b64') {
@@ -114,6 +111,7 @@ export const resultRoutes = new Elysia()
         .select({
           provider: schema.tasks.provider,
           request_payload: schema.tasks.request_payload,
+          user_id: schema.tasks.user_id,
         })
         .from(schema.tasks)
         .where(taskAccessWhere(params.id, authUser?.id ?? null, serviceIdentity))
@@ -127,7 +125,7 @@ export const resultRoutes = new Elysia()
 
       const headers = {
         'content-type': input.mime,
-        'cache-control': `${config.auth.enabled ? 'private' : 'public'}, max-age=31536000, immutable`,
+        'cache-control': `${task.user_id === null ? 'public' : 'private'}, max-age=31536000, immutable`,
       } as const
       if (input.kind === 'b64') {
         return new Response(Buffer.from(input.data, 'base64'), { headers })
