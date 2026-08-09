@@ -235,4 +235,29 @@ describe('callQueueChannelApi submit body', () => {
       expect(e.resetAt).toBe('2026-05-16T00:00:00.000Z')
     }
   })
+
+  it('402 insufficient_credits exposes the recharge recovery metadata', async () => {
+    const call = await loadCallQueueChannelApi()
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      Response.json(
+        { error: 'insufficient_credits', required: 400, available: 250 },
+        { status: 402 },
+      ),
+    )
+
+    try {
+      await call(mockOpts({ n: 4 }), mockProfile(), mockChannel())
+      throw new Error('did not throw')
+    } catch (error) {
+      const billingError = error as Error & {
+        insufficientCredits?: boolean
+        required?: number
+        available?: number
+      }
+      expect(billingError.message).toContain('积分不足')
+      expect(billingError.insufficientCredits).toBe(true)
+      expect(billingError.required).toBe(400)
+      expect(billingError.available).toBe(250)
+    }
+  })
 })

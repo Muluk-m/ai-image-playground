@@ -18,6 +18,7 @@ import {
   clearUrlSettingParams,
   hasUrlSettingParams,
 } from './lib/urlSettings'
+import { isClientCapabilityEnabled } from './lib/clientCapabilities'
 import { initStore, useStore } from './store'
 
 export default function App() {
@@ -26,7 +27,11 @@ export default function App() {
 
   useEffect(() => {
     const searchParams = new URLSearchParams(window.location.search)
-    const nextSettings = buildSettingsFromUrlParams(useStore.getState().settings, searchParams)
+    let nextSettings = buildSettingsFromUrlParams(useStore.getState().settings, searchParams)
+    if (isClientCapabilityEnabled('billing:credits')) {
+      const builtin = nextSettings.profiles?.find((profile) => profile.source === 'builtin-edge')
+      if (builtin) nextSettings = { ...nextSettings, activeProfileId: builtin.id }
+    }
 
     setSettings(nextSettings)
 
