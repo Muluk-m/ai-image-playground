@@ -5,10 +5,10 @@
   "type": "module",
   "main": "src/index.ts",
   "scripts": {
-    "dev": "bun run --watch src/index.ts",
-    "dev:worker": "bun run --watch src/worker-index.ts",
-    "start": "bun run src/index.ts",
-    "start:worker": "bun run src/worker-index.ts",
+    "dev": "bun run db:migrate && bun run --watch src/index.ts",
+    "dev:worker": "bun run db:migrate && bun run --watch src/worker-index.ts",
+    "start": "bun run db:migrate && bun run src/index.ts",
+    "start:worker": "bun run db:migrate && bun run src/worker-index.ts",
     "typecheck": "tsc --noEmit",
     "test": "bun run ../../scripts/run-bun-tests-isolated.ts src",
     "db:migrate": "bun run src/db/migrate.ts"

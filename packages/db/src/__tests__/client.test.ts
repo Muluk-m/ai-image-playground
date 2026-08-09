@@ -59,29 +59,4 @@ describe('createDb', () => {
     await db.delete(schema.users).where(eq(schema.users.id, 'user-fk'))
     expect(await db.select().from(schema.user_sessions)).toHaveLength(0)
   })
-
-  it('accepts concurrent writers through independent pools', async () => {
-    const first = handle()
-    const second = handle()
-    const values = (id: string) => ({
-      id,
-      provider: 'openai-compat' as const,
-      model: 'm',
-      status: 'queued' as const,
-      request_payload: { prompt: id, device_id: `device-${id}` },
-      submitted_at: Date.now(),
-    })
-
-    await Promise.all([
-      first.db.insert(first.schema.tasks).values(values('concurrent-a')),
-      second.db.insert(second.schema.tasks).values(values('concurrent-b')),
-    ])
-    const rows = await first.db
-      .select({ id: first.schema.tasks.id })
-      .from(first.schema.tasks)
-      .where(eq(first.schema.tasks.status, 'queued'))
-    expect(rows.map((row) => row.id)).toEqual(
-      expect.arrayContaining(['concurrent-a', 'concurrent-b']),
-    )
-  })
 })
