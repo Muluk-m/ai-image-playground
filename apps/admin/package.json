@@ -6,6 +6,7 @@
   "main": "server/index.ts",
   "scripts": {
     "dev": "vite",
+    "predev": "pnpm routes:generate",
     "dev:server": "bun run --watch server/index.ts",
     "start": "bun run server/index.ts",
     "routes:generate": "bun run scripts/generate-route-tree.ts",
@@ -13,6 +14,8 @@
     "build": "tsc -b && vite build",
     "pretypecheck": "pnpm routes:generate",
     "typecheck": "tsc -b",
+    "pretest": "pnpm routes:generate",
+    "pretest:client": "pnpm routes:generate",
     "test": "vitest run && bun run ../../scripts/run-bun-tests-isolated.ts src/__tests__/server",
     "test:server": "bun run ../../scripts/run-bun-tests-isolated.ts src/__tests__/server",
     "test:client": "vitest run"

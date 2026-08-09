@@ -13,6 +13,8 @@ dev-proxy.config.json
 private/
 # Admin route tree is generated at build time.
 apps/admin/src/routeTree.gen.ts
+# Private Admin routes are staged from the overlay before route generation.
+apps/admin/src/routes/*.route.tsx
 .gstack
 # operator 部署时按环境放进 public/ 的运行时配置（vite build 会自动复制进 dist）。
 # 内容随部署不同，不进版本库。其余 public/ 资源照常追踪。
