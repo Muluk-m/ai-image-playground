@@ -31,6 +31,7 @@ FROM deps AS web-build
 WORKDIR /app
 COPY . .
 COPY --from=private-overlay / /app/private
+ENV PRIVATE_WEB_OVERLAY_ENTRY=/app/private/apps/web/index.tsx
 RUN pnpm install --offline --frozen-lockfile
 RUN pnpm --filter @image-playground/web build
 
@@ -38,6 +39,7 @@ FROM deps AS admin-build
 WORKDIR /app
 COPY . .
 COPY --from=private-overlay / /app/private
+ENV PRIVATE_ADMIN_OVERLAY_ENTRY=/app/private/apps/admin/index.tsx
 RUN pnpm install --offline --frozen-lockfile
 RUN pnpm --filter @image-playground/admin build
 
@@ -60,6 +62,7 @@ COPY LICENSE ./
 COPY apps/bff ./apps/bff
 COPY apps/admin/package.json ./apps/admin/package.json
 COPY apps/admin/server ./apps/admin/server
+COPY apps/admin/contracts.ts ./apps/admin/contracts.ts
 COPY packages/db ./packages/db
 COPY packages/shared ./packages/shared
 COPY --from=admin-build /app/apps/admin/dist ./apps/admin/dist

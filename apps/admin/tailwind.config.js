@@ -4,7 +4,11 @@ import animate from 'tailwindcss-animate'
 /** @type {import('tailwindcss').Config} */
 export default {
   darkMode: 'media',
-  content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}', '../../*/apps/admin/**/*.{js,ts,jsx,tsx}'],
+  content: [
+    './index.html',
+    './src/**/*.{js,ts,jsx,tsx}',
+    process.env.PRIVATE_ADMIN_OVERLAY_ENTRY,
+  ].filter(Boolean),
   theme: {
     container: {
       center: true,
