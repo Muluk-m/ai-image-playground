@@ -1,8 +1,22 @@
+import type {
+  AdminUserRow,
+  DeviceDetailResult,
+  DeviceRow,
+  ListDevicesResult,
+  ListUsersResult,
+  OverviewResult,
+  Range,
+  SortKey,
+  TaskDetail,
+  TaskListItem,
+  TaskVolumeBucket,
+  UserDetailResult,
+} from '../../contracts'
+
+export type { Range, SortKey } from '../../contracts'
+
 import { eq, sql } from 'drizzle-orm'
 import { getDbHandle as getHandle } from './db'
-
-export type Range = '1d' | '7d' | '30d'
-export type SortKey = 'last_seen' | 'today_count' | 'total_count'
 
 function rangeMs(range: Range): number {
   return range === '1d' ? 24 * 3600_000 : range === '7d' ? 7 * 24 * 3600_000 : 30 * 24 * 3600_000
@@ -63,22 +77,6 @@ function nullableNumber(value: unknown): number | null {
   return Number.isFinite(number) ? number : null
 }
 
-export interface DeviceRow {
-  device_id: string
-  first_seen: number
-  last_seen: number
-  total: number
-  ok_count: number
-  fail_count: number
-  models: string[]
-  today_count: number
-}
-
-export interface ListDevicesResult {
-  devices: DeviceRow[]
-  truncated: boolean
-}
-
 const LIST_LIMIT = 500
 
 export async function listDevices(range: Range, sort: SortKey): Promise<ListDevicesResult> {
@@ -127,33 +125,6 @@ export async function listDevices(range: Range, sort: SortKey): Promise<ListDevi
   const truncated = list.length > LIST_LIMIT
   return { devices: list.slice(0, LIST_LIMIT), truncated }
 }
-export type UserStatus = 'active' | 'disabled'
-
-export interface AdminUserRow {
-  id: string
-  username: string
-  status: UserStatus
-  created_at: number
-  updated_at: number
-  last_login_at: number | null
-  last_task_at: number | null
-  last_activity_at: number | null
-  active_sessions: number
-  task_count: number
-}
-
-export interface UserKpis {
-  total_users: number
-  active_users_7d: number
-  submissions_24h: number
-  failure_rate_24h: number
-}
-
-export interface ListUsersResult {
-  users: AdminUserRow[]
-  truncated: boolean
-  kpis: UserKpis
-}
 
 function nullableEpochMs(value: unknown): number | null {
   return value === null || value === undefined ? null : toEpochMs(value)
@@ -173,6 +144,25 @@ function mapAdminUser(row: Record<string, unknown>): AdminUserRow {
     task_count: Number(row.task_count),
   }
 }
+const ADMIN_USER_PROJECTION = sql`
+  u.id,
+  u.username,
+  u.status,
+  u.created_at,
+  u.updated_at,
+  u.last_login_at,
+  task_stats.last_task_at,
+  GREATEST(u.last_login_at, task_stats.last_task_at) AS last_activity_at,
+  COALESCE(session_stats.active_sessions, 0) AS active_sessions,
+  COALESCE(task_stats.task_count, 0) AS task_count
+`
+const ACTIVE_SESSION_JOIN = sql`
+  LEFT JOIN LATERAL (
+    SELECT COUNT(*) AS active_sessions
+    FROM user_sessions s
+    WHERE s.user_id = u.id AND s.expires_at > NOW()
+  ) session_stats ON TRUE
+`
 
 const USER_LIST_LIMIT = 1000
 
@@ -180,23 +170,9 @@ export async function listUsers(search = ''): Promise<ListUsersResult> {
   const { db } = getHandle()
   const term = search.trim().toLowerCase()
   const userRowsPromise = db.execute(sql`
-    SELECT
-      u.id,
-      u.username,
-      u.status,
-      u.created_at,
-      u.updated_at,
-      u.last_login_at,
-      task_stats.last_task_at,
-      GREATEST(u.last_login_at, task_stats.last_task_at) AS last_activity_at,
-      COALESCE(session_stats.active_sessions, 0) AS active_sessions,
-      COALESCE(task_stats.task_count, 0) AS task_count
+    SELECT ${ADMIN_USER_PROJECTION}
     FROM users u
-    LEFT JOIN LATERAL (
-      SELECT COUNT(*) AS active_sessions
-      FROM user_sessions s
-      WHERE s.user_id = u.id AND s.expires_at > NOW()
-    ) session_stats ON TRUE
+    ${ACTIVE_SESSION_JOIN}
     LEFT JOIN LATERAL (
       SELECT COUNT(*) AS task_count, MAX(t.submitted_at) AS last_task_at
       FROM tasks t
@@ -249,12 +225,6 @@ export async function listUsers(search = ''): Promise<ListUsersResult> {
   }
 }
 
-export interface TaskVolumeBucket {
-  bucket_at: number
-  total: number
-  completed: number
-  failed: number
-}
 async function getTaskVolume(range: Range, userId?: string): Promise<TaskVolumeBucket[]> {
   const { db } = getHandle()
   const bucketUnit = range === '1d' ? sql`'hour'` : sql`'day'`
@@ -289,22 +259,6 @@ async function getTaskVolume(range: Range, userId?: string): Promise<TaskVolumeB
     completed: Number(row.completed),
     failed: Number(row.failed),
   }))
-}
-
-export interface OverviewSummary {
-  total: number
-  completed: number
-  failed: number
-  success_rate: number
-  p50_duration_ms: number | null
-  p95_duration_ms: number | null
-}
-
-export interface OverviewResult {
-  summary: OverviewSummary
-  volume: TaskVolumeBucket[]
-  failures: Array<{ error_type: string; count: number }>
-  models: Array<{ model: string; count: number }>
 }
 
 export async function getOverview(range: Range): Promise<OverviewResult> {
@@ -366,13 +320,6 @@ export async function getOverview(range: Range): Promise<OverviewResult> {
       count: Number(row.count),
     })),
   }
-}
-
-export interface UserDetailResult {
-  user: AdminUserRow | null
-  tasks: TaskListItem[]
-  nextCursor: string | null
-  volume: TaskVolumeBucket[] | null
 }
 
 export async function getUserDetail(
@@ -443,16 +390,7 @@ export async function getUserDetail(
         LIMIT ${PAGE_SIZE + 1}
       )
       SELECT
-        u.id,
-        u.username,
-        u.status,
-        u.created_at,
-        u.updated_at,
-        u.last_login_at,
-        task_stats.last_task_at,
-        GREATEST(u.last_login_at, task_stats.last_task_at) AS last_activity_at,
-        COALESCE(session_stats.active_sessions, 0) AS active_sessions,
-        task_stats.task_count,
+        ${ADMIN_USER_PROJECTION},
         p.id AS task_id,
         p.provider AS task_provider,
         p.model AS task_model,
@@ -465,11 +403,7 @@ export async function getUserDetail(
         p.attempt_count AS task_attempt_count
       FROM users u
       CROSS JOIN task_stats
-      LEFT JOIN LATERAL (
-        SELECT COUNT(*) AS active_sessions
-        FROM user_sessions s
-        WHERE s.user_id = u.id AND s.expires_at > NOW()
-      ) session_stats ON TRUE
+      ${ACTIVE_SESSION_JOIN}
       LEFT JOIN task_page p ON TRUE
       WHERE u.id = ${userId}
       ORDER BY p.submitted_at DESC NULLS LAST, p.id DESC NULLS LAST
@@ -517,32 +451,6 @@ export async function getUserDetail(
     nextCursor: hasMore && last ? encodeCursor(last.submitted_at, last.id) : null,
     volume,
   }
-}
-
-export interface TaskListItem {
-  id: string
-  provider: string
-  model: string
-  status: string
-  submitted_at: number
-  started_at: number | null
-  completed_at: number | null
-  error_type: string | null
-  /** 服务端从 request_payload 预抽的 prompt 文本。列表不再回传整个 request_payload，
-   *  避免 input_images base64 把响应撑到几百 MB（这是 admin 卡死/拉取慢的根因）。 */
-  prompt: string
-  /** 请求张数 n（openai 风格 payload）；无则 null */
-  n: number | null
-  /** 含首次的总尝试次数；>1 即发生过自动重试。详细见 apps/bff/src/lib/retry.ts */
-  attempt_count: number
-}
-
-export interface DeviceDetailResult {
-  /** 仅首页（cursor 为空）返回设备聚合卡片；翻页时为 null（省一次聚合扫描）。 */
-  device: DeviceRow | null
-  tasks: TaskListItem[]
-  /** 下一页游标；null 表示已到末页。 */
-  nextCursor: string | null
 }
 
 export async function getDeviceDetail(
@@ -634,18 +542,6 @@ export async function getDeviceDetail(
   const nextCursor = hasMore && last ? encodeCursor(last.submitted_at, last.id) : null
 
   return { device, tasks, nextCursor }
-}
-
-export interface TaskDetail extends TaskListItem {
-  /** 完整请求体：详情页 / 灯箱用它统计输入图数量、展示完整 prompt。列表项没有这个字段。 */
-  request_payload: unknown
-  result_meta: { images: Array<{ index: number; mime: string }>; raw_image_urls?: string[] }
-  user_id: string | null
-  error_message: string | null
-  /** Generated from request_payload.device_id by PostgreSQL. */
-  device_id: string | null
-  /** 仅在 status='queued' 且 attempt_count>0 时有值——等待下一次重试的目标时间戳。 */
-  next_retry_at: number | null
 }
 
 export async function getTask(taskId: string): Promise<TaskDetail | null> {
