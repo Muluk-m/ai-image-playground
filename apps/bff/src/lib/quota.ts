@@ -7,7 +7,7 @@ export interface QuotaConsumeResult {
   ok: boolean
   /** 成功时是更新后的值；失败时是消费前的累计值。 */
   count: number
-  limit: number
+  quota: number
   /** 下次配额重置时间（UTC 第二天 00:00:00 ISO 字符串）。 */
   reset_at: string
 }
@@ -27,21 +27,21 @@ export function nextResetISO(): string {
 }
 
 /**
- * Single atomic UPSERT. The configured limit is part of the statement so
+ * Single atomic UPSERT. The configured quota is part of the statement so
  * concurrent submissions cannot exceed it.
  *
- * The optional database and limit parameters support isolated tests without
+ * The optional database and quota parameters support isolated tests without
  * initializing the process-global pool.
  */
 export async function tryConsumeQuota(
   device_id: string,
   n: number,
   dbInstance?: QuotaDb,
-  limit = DAILY_QUOTA_LIMIT,
+  dailyImageQuota = DAILY_QUOTA_LIMIT,
 ): Promise<QuotaConsumeResult> {
   // Keep the default import lazy so tests with an injected database never initialize global storage.
   const db = dbInstance ?? (await import('../db/client')).db
-  return consumeQuota(db, device_id, n, limit)
+  return consumeQuota(db, device_id, n, dailyImageQuota)
 }
 
 /** Variant used by the submit transaction so task insertion and quota consumption stay atomic. */
@@ -49,33 +49,33 @@ export async function tryConsumeQuotaInTransaction(
   db: QuotaTransaction,
   device_id: string,
   n: number,
-  limit: number,
+  dailyImageQuota: number,
 ): Promise<QuotaConsumeResult> {
-  return consumeQuota(db, device_id, n, limit)
+  return consumeQuota(db, device_id, n, dailyImageQuota)
 }
 
 async function consumeQuota(
   db: QuotaExecutor,
   device_id: string,
   n: number,
-  limit: number,
+  dailyImageQuota: number,
 ): Promise<QuotaConsumeResult> {
-  if (!Number.isSafeInteger(limit) || limit < 0)
-    throw new RangeError('quota limit must be non-negative')
+  if (!Number.isSafeInteger(dailyImageQuota) || dailyImageQuota < 0)
+    throw new RangeError('daily image quota must be non-negative')
   const date = currentQuotaDate()
-  if (n <= limit) {
+  if (n <= dailyImageQuota) {
     const rows = await db
       .insert(schema.daily_quota)
       .values({ device_id, date, count: n })
       .onConflictDoUpdate({
         target: [schema.daily_quota.device_id, schema.daily_quota.date],
         set: { count: sql`${schema.daily_quota.count} + ${n}` },
-        setWhere: sql`${schema.daily_quota.count} + ${n} <= ${limit}`,
+        setWhere: sql`${schema.daily_quota.count} + ${n} <= ${dailyImageQuota}`,
       })
       .returning({ count: schema.daily_quota.count })
 
     if (rows.length > 0) {
-      return { ok: true, count: rows[0]!.count, limit, reset_at: nextResetISO() }
+      return { ok: true, count: rows[0]!.count, quota: dailyImageQuota, reset_at: nextResetISO() }
     }
   }
 
@@ -87,7 +87,7 @@ async function consumeQuota(
   return {
     ok: false,
     count: existing?.count ?? 0,
-    limit,
+    quota: dailyImageQuota,
     reset_at: nextResetISO(),
   }
 }
