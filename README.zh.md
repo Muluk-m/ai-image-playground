@@ -108,6 +108,52 @@ docker run -p 37377:37377 \
 
 详细配置（runtime-config / channels.json / 环境变量）见 [`apps/bff/README.md`](./apps/bff/README.md)。
 
+### 可复现的 PostgreSQL 与 MinIO 依赖
+
+Wave 0 把 PostgreSQL 与非公开 MinIO 放在独立的 Compose project 中。先在仓库外准备一次
+环境文件并替换全部占位值，之后一条命令即可启动测试依赖：
+
+```bash
+config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/ai-image-playground"
+mkdir -p "$config_dir"
+cp deploy/infra.env.example "$config_dir/infra.env"
+chmod 600 "$config_dir/infra.env"
+# 继续前先编辑 "$config_dir/infra.env"。
+
+pnpm test:deps:up
+```
+
+如需使用其它仓库外文件，设置
+`INFRA_ENV_FILE=/absolute/path/to/infra.env`。`pnpm test:deps:up` 会等待 PostgreSQL 与
+MinIO 就绪，再创建 `MINIO_BUCKET_NAMES` 中的所有 bucket、关闭匿名访问并写入 45 天
+过期规则。该规则长于应用的 30 天任务保留期。执行 `pnpm test:deps:down` 后，数据仍
+保留在该 project 的具名 volume 中。
+
+必填配置如下：
+
+| 配置 | 用途 |
+|---|---|
+| `INFRA_NETWORK_NAME` | 供应用 project 接入的稳定私有 Docker network |
+| `POSTGRES_DB`、`POSTGRES_USER`、`POSTGRES_PASSWORD` | PostgreSQL 初始数据库与凭证 |
+| `MINIO_ROOT_USER`、`MINIO_ROOT_PASSWORD` | MinIO 初始凭证 |
+| `MINIO_BUCKET_NAMES` | 逗号分隔的唯一 bucket 名，每个部署一个 |
+
+`INFRA_BIND_ADDRESS` 默认是 `127.0.0.1`；三个可选宿主机端口配置是
+`POSTGRES_HOST_PORT`、`MINIO_API_HOST_PORT` 与 `MINIO_CONSOLE_HOST_PORT`。除非
+宿主机防火墙提供同等边界，否则不要把绑定地址改成非回环地址。应用通过下面的 external
+network 契约访问 `postgres:5432` 与 `http://minio:9000`：
+
+```yaml
+networks:
+  application-infra:
+    external: true
+    name: ${INFRA_NETWORK_NAME}
+```
+
+用 `pnpm test:deps:status` 查看服务健康状态，用 `pnpm test:deps:down` 停止 project
+且不删除 volume。由于当前没有配置 SSH host，现有 macmini 上的 PostgreSQL 与 MinIO
+安装尚未检查。在核实已有数据的归属与迁移路径之前，不要在该机器上启动此 project。
+
 ### 两个域名：自用匿名 + 经营账号
 
 两个域名对应两个独立的 Web+BFF 容器时，开关直接放在各自实例的环境变量里：

@@ -108,6 +108,54 @@ Open `http://localhost:37377`. `channels.json` configures the list of preset pro
 
 Full configuration reference (runtime-config / channels.json / env vars) is in [`apps/bff/README.md`](./apps/bff/README.md).
 
+### Reproducible PostgreSQL and MinIO dependencies
+
+Wave 0 provides PostgreSQL and private MinIO as a separate Compose project. Prepare its
+environment file outside the repository once, replace every placeholder, then start both
+test dependencies with one command:
+
+```bash
+config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/ai-image-playground"
+mkdir -p "$config_dir"
+cp deploy/infra.env.example "$config_dir/infra.env"
+chmod 600 "$config_dir/infra.env"
+# Edit "$config_dir/infra.env" before continuing.
+
+pnpm test:deps:up
+```
+
+Set `INFRA_ENV_FILE=/absolute/path/to/infra.env` to use another repository-external file.
+`pnpm test:deps:up` waits for PostgreSQL and MinIO readiness, then creates every bucket in
+`MINIO_BUCKET_NAMES`, removes anonymous access, and installs a 45-day expiry rule. This is
+longer than the application's 30-day task retention. Data remains in project-scoped named
+volumes after `pnpm test:deps:down`.
+
+The required keys are:
+
+| Key | Purpose |
+|---|---|
+| `INFRA_NETWORK_NAME` | Stable private Docker network that application projects join |
+| `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` | PostgreSQL bootstrap database and credentials |
+| `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD` | MinIO bootstrap credentials |
+| `MINIO_BUCKET_NAMES` | Comma-separated, unique bucket names, one per deployment |
+
+`INFRA_BIND_ADDRESS` defaults to `127.0.0.1`; the three optional host-port keys are
+`POSTGRES_HOST_PORT`, `MINIO_API_HOST_PORT`, and `MINIO_CONSOLE_HOST_PORT`. Keep the bind
+address loopback-only unless a host firewall provides an equivalent boundary. Applications
+use `postgres:5432` and `http://minio:9000` on the external network contract:
+
+```yaml
+networks:
+  application-infra:
+    external: true
+    name: ${INFRA_NETWORK_NAME}
+```
+
+Use `pnpm test:deps:status` to inspect service health and `pnpm test:deps:down` to stop the
+project without deleting its volumes. The existing macmini PostgreSQL and MinIO installation
+has not been inspected because no SSH host is configured. Do not start this project there
+until ownership of existing data and the migration path have been verified.
+
 ### Two domains: personal + commercial
 
 For two independent Web+BFF deployments, configure the switch per instance:

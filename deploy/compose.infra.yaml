@@ -1,0 +1,112 @@
+services:
+  postgres:
+    image: postgres:17.6-alpine3.22
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB in the external environment file}
+      POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER in the external environment file}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in the external environment file}
+    ports:
+      - "${INFRA_BIND_ADDRESS:-127.0.0.1}:${POSTGRES_HOST_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - application-infra
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready --host=127.0.0.1 --username="$${POSTGRES_USER}" --dbname="$${POSTGRES_DB}"
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    stop_grace_period: 30s
+
+  minio:
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    restart: unless-stopped
+    command:
+      - server
+      - /data
+      - --address
+      - :9000
+      - --console-address
+      - :9001
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?Set MINIO_ROOT_USER in the external environment file}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in the external environment file}
+    ports:
+      - "${INFRA_BIND_ADDRESS:-127.0.0.1}:${MINIO_API_HOST_PORT:-9000}:9000"
+      - "${INFRA_BIND_ADDRESS:-127.0.0.1}:${MINIO_CONSOLE_HOST_PORT:-9001}:9001"
+    volumes:
+      - minio-data:/data
+    networks:
+      - application-infra
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - curl --fail --silent http://127.0.0.1:9000/minio/health/ready >/dev/null || exit 1
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    stop_grace_period: 30s
+
+  minio-bootstrap:
+    image: minio/mc:RELEASE.2025-04-16T18-13-26Z
+    restart: "no"
+    profiles:
+      - bootstrap
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?Set MINIO_ROOT_USER in the external environment file}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in the external environment file}
+      MINIO_BUCKET_NAMES: ${MINIO_BUCKET_NAMES:?Set at least two comma-separated deployment bucket names}
+    entrypoint:
+      - /bin/sh
+      - -ec
+    command:
+      - |
+        mc alias set infra http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}"
+
+        original_ifs="$${IFS}"
+        IFS=','
+        set -- $${MINIO_BUCKET_NAMES}
+        IFS="$${original_ifs}"
+        if [ "$$#" -lt 2 ]; then
+          echo "MINIO_BUCKET_NAMES must contain at least two deployment-specific bucket names" >&2
+          exit 1
+        fi
+
+        seen=','
+        for bucket do
+          if [ -z "$${bucket}" ]; then
+            echo "MINIO_BUCKET_NAMES contains an empty bucket name" >&2
+            exit 1
+          fi
+          case "$${seen}" in
+            *,"$${bucket}",*)
+              echo "MINIO_BUCKET_NAMES contains duplicate bucket '$${bucket}'" >&2
+              exit 1
+              ;;
+          esac
+          seen="$${seen}$${bucket},"
+
+          mc mb --ignore-existing "infra/$${bucket}"
+          mc anonymous set none "infra/$${bucket}"
+          mc ilm rule rm --all --force "infra/$${bucket}" >/dev/null 2>&1 || true
+          mc ilm rule add --expire-days 45 "infra/$${bucket}"
+        done
+    networks:
+      - application-infra
+
+volumes:
+  postgres-data:
+  minio-data:
+
+networks:
+  application-infra:
+    name: ${INFRA_NETWORK_NAME:?Set INFRA_NETWORK_NAME in the external environment file}
+    internal: true
