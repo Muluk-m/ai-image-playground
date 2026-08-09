@@ -1,5 +1,4 @@
 import { QUEUE_TIMEOUTS } from '@image-playground/shared'
-import { app } from './app'
 import { config } from './config'
 import { close as closeDb } from './db/client'
 import { purgeOldTasks, runPrivateMaintenance } from './db/maintenance'
@@ -47,6 +46,10 @@ log.info(
     ? `loaded ${channelsResult.channels.length} channel(s)`
     : 'no channels loaded (BYOK-only deployment)',
 )
+
+// Importing the app loads optional private routes. Public migrations and
+// channel discovery must be ready before that overlay initializes.
+const { app } = await import('./app')
 
 await runPrivateMaintenance()
 const purgeStartup = await purgeOldTasks()

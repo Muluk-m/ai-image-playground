@@ -7,6 +7,7 @@ import { log } from './lib/logger'
 import { abortAllRunningTasks } from './workers/task-runner'
 import { TaskScheduler } from './workers/task-scheduler'
 
+config.assertValid()
 const channelsResult = initChannels(config.channelsFile ?? undefined)
 for (const warning of channelsResult.warnings) {
   log.warn({ event: 'channels.warning' }, warning)

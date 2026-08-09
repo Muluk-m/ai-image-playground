@@ -14,7 +14,8 @@
     "format": "biome format --write .",
     "test:deps:up": "./scripts/infra-compose.sh up",
     "test:deps:down": "./scripts/infra-compose.sh down",
-    "test:deps:status": "./scripts/infra-compose.sh status"
+    "test:deps:status": "./scripts/infra-compose.sh status",
+    "db:verify": "bun run packages/db/src/verify-schema.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.0.0",

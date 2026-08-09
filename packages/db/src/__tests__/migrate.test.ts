@@ -69,4 +69,35 @@ describe('runMigrations', () => {
     )
     expect(rows).toHaveLength(3)
   })
+
+  it('applies every rollback in reverse order and can migrate forward again', async () => {
+    const rollbackDirectory = new URL('../../drizzle/rollback/', import.meta.url)
+    for (const file of [
+      '0002_careless_scrambler.down.sql',
+      '0001_blushing_liz_osborn.down.sql',
+      '0000_daffy_the_enforcers.down.sql',
+    ]) {
+      await connection.client.unsafe(await Bun.file(new URL(file, rollbackDirectory)).text())
+    }
+
+    const [rolledBack] = await connection.client<
+      {
+        tasks: string | null
+        audits: string | null
+        migrations: string | null
+      }[]
+    >`
+      SELECT
+        to_regclass('public.tasks')::text AS tasks,
+        to_regclass('public.operator_audits')::text AS audits,
+        to_regclass('drizzle.__drizzle_migrations')::text AS migrations
+    `
+    expect(rolledBack).toEqual({ tasks: null, audits: null, migrations: null })
+
+    await runMigrations(databaseUrl)
+    const restored = await connection.client.unsafe(
+      'SELECT id FROM drizzle.__drizzle_migrations ORDER BY id',
+    )
+    expect(restored).toHaveLength(3)
+  })
 })
