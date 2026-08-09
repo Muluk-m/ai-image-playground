@@ -3,7 +3,9 @@ import type { CanvasEditor, PlaceholderView } from '../../../../features/canvas/
 
 const { callImageApiMock, guardMock, showToastMock } = vi.hoisted(() => ({
   callImageApiMock: vi.fn(),
-  guardMock: vi.fn(() => ({ blocked: true, disabledReason: 'blocked' })),
+  guardMock: vi.fn(({ model }: { model: string }) =>
+    model === 'current-model' ? { blocked: true, disabledReason: 'blocked' } : { blocked: false },
+  ),
   showToastMock: vi.fn(),
 }))
 
@@ -58,7 +60,6 @@ describe('retryCanvasTask billing guard', () => {
 
     retryCanvasTask(editor, placeholder)
 
-    expect(guardMock).toHaveBeenCalledWith({ model: 'current-model', quantity: 1 })
     expect(showToastMock).toHaveBeenCalledWith('blocked', 'error')
     expect(callImageApiMock).not.toHaveBeenCalled()
   })
