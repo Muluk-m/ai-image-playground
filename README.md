@@ -110,24 +110,31 @@ cp deploy/app.personal.env.example \
   "$config_root/apps/image-playground-personal/app.env"
 cp deploy/app.commercial.env.example \
   "$config_root/apps/image-playground-commercial/app.env"
+cp deploy/migrate.env.example \
+  "$config_root/apps/image-playground-personal/migrate.env"
+cp deploy/migrate.env.example \
+  "$config_root/apps/image-playground-commercial/migrate.env"
 chmod 600 \
   "$config_root/infra.env" \
   "$config_root/apps/image-playground-personal/app.env" \
-  "$config_root/apps/image-playground-commercial/app.env"
+  "$config_root/apps/image-playground-personal/migrate.env" \
+  "$config_root/apps/image-playground-commercial/app.env" \
+  "$config_root/apps/image-playground-commercial/migrate.env"
 
 # Replace every replace-* value before starting anything.
 ```
 
-The two application files must use different PostgreSQL databases and roles, buckets,
-object-store credentials, internal service tokens, provider credentials, and CORS origins.
-The Admin URL must use its deployment's SELECT-only database role. Real secrets and operator
+Each deployment uses three PostgreSQL identities: a one-shot schema owner in `migrate.env`,
+a DML-only application writer in `app.env`, and an Admin SELECT-only reader in `app.env`.
+The two deployments must also use different databases, buckets, object-store credentials,
+internal service tokens, provider credentials, and CORS origins. Real secrets and operator
 configuration remain in these external directories; only safe examples are committed.
 `operator-config.json` is optional beside each `app.env`: missing means every capability is off;
 a present invalid file prevents BFF startup. The browser obtains its read-only capability list
 from the BFF and never evaluates operator settings itself.
 
-Start infrastructure, provision one database writer and one Admin reader for each
-deployment, build the release image once, then start each project:
+Start infrastructure, provision one migrator, one application writer, and one Admin reader for
+each deployment, build the release image once, then start each project:
 
 ```bash
 # One-time host network owned by the existing reverse proxy, not either app project.
@@ -135,11 +142,12 @@ docker network create image-playground-edge
 
 scripts/infra-compose.sh up
 
-# Set the five POSTGRES_APP_* / POSTGRES_ADMIN_* values in infra.env for the personal
-# deployment, provision it, then replace them with the commercial values and provision again.
+# Set the seven POSTGRES_MIGRATOR_* / POSTGRES_APP_* / POSTGRES_ADMIN_* values in
+# infra.env for the personal deployment, provision it, then replace them with the
+# commercial values and provision again.
 scripts/infra-compose.sh provision
 
-scripts/app-compose.sh build ai-image-playground:local
+scripts/app-compose.sh build-private ai-image-playground:local
 scripts/app-compose.sh up image-playground-personal
 scripts/app-compose.sh up image-playground-commercial
 ```
@@ -148,15 +156,16 @@ scripts/app-compose.sh up image-playground-commercial
 `$XDG_CONFIG_HOME/ai-image-playground/infra.env` by default. Set `INFRA_ENV_FILE` to
 override it. `up` waits for PostgreSQL and MinIO, creates the buckets in
 `MINIO_BUCKET_NAMES`, makes them private, and installs a 45-day expiry rule. `provision`
-idempotently creates one deployment database, its writer role, and its Admin SELECT-only
-role. Infrastructure ports bind to `127.0.0.1` by default; application Compose publishes no
-PostgreSQL or MinIO port.
+idempotently creates one deployment database, its schema-owner migrator, its DML-only
+application role, and its Admin SELECT-only role. Infrastructure ports bind to `127.0.0.1`
+by default; application Compose publishes no PostgreSQL or MinIO port.
 
 `app-compose.sh` defaults to
-`$XDG_CONFIG_HOME/ai-image-playground/apps/<project>/app.env`. It starts dependency checks,
-runs committed Drizzle migrations as a one-shot service, starts BFF, worker, and Admin, then
-activates nginx only after BFF is healthy. The nginx container remains available during
-later backend restarts. Each Web container writes its own
+`$XDG_CONFIG_HOME/ai-image-playground/apps/<project>/app.env` and requires a sibling
+`migrate.env`. Only the one-shot migration service receives the schema-owner credential.
+It starts dependency checks, applies public and present private Drizzle migrations, starts BFF,
+worker, and Admin, then activates nginx only after BFF is healthy. The nginx container remains
+available during later backend restarts. Each Web container writes its own
 `/usr/share/nginx/html/runtime-config.json` from its external environment, so both domains
 share the same Web build without sharing runtime configuration.
 
@@ -180,12 +189,12 @@ For a one-time cutover from the former SQLite deployment:
 1. Stop the application.
 2. Run `SQLITE_DATABASE_PATH=/absolute/image-playground.sqlite SQLITE_BACKUP_PATH=/absolute/image-playground.readonly.sqlite bun run scripts/prepare-postgres-cutover.ts`. The command refuses the cutover while any task is `queued` or `in_progress`, writes a consistent read-only backup, and does not import history.
 3. Start and provision a fresh PostgreSQL database as above.
-4. Start the application project. Confirm `/health`, login, an empty server-side task history, and one new generation before ending the maintenance window.
+4. Start the application project. Before ending the maintenance window, run `DATABASE_URL=postgresql://<migrator>@127.0.0.1:5432/deployment_database pnpm db:verify`, then confirm `/health`, login, an empty server-side task history, and one new generation.
 
 If validation fails, stop the new application and restore the previous image/configuration
-against the read-only SQLite backup. Do not use the destructive
-`packages/db/drizzle/rollback/0000_daffy_the_enforcers.down.sql` file on production; it is
-only for discarding a new empty deployment.
+against the read-only SQLite backup. Do not use the destructive public or private rollback SQL
+files on production; `packages/db/drizzle/rollback/` and
+`private/apps/bff/billing/rollback/` are only for discarding a new empty deployment.
 
 Inspect or stop projects independently:
 

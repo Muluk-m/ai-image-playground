@@ -116,6 +116,8 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER in the external environment file}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in the external environment file}
       POSTGRES_APP_DATABASE: ${POSTGRES_APP_DATABASE:-}
+      POSTGRES_MIGRATOR_USER: ${POSTGRES_MIGRATOR_USER:-}
+      POSTGRES_MIGRATOR_PASSWORD: ${POSTGRES_MIGRATOR_PASSWORD:-}
       POSTGRES_APP_USER: ${POSTGRES_APP_USER:-}
       POSTGRES_APP_PASSWORD: ${POSTGRES_APP_PASSWORD:-}
       POSTGRES_ADMIN_USER: ${POSTGRES_ADMIN_USER:-}
@@ -126,6 +128,8 @@ services:
     command:
       - |
         : "$${POSTGRES_APP_DATABASE:?Set POSTGRES_APP_DATABASE for provision}"
+        : "$${POSTGRES_MIGRATOR_USER:?Set POSTGRES_MIGRATOR_USER for provision}"
+        : "$${POSTGRES_MIGRATOR_PASSWORD:?Set POSTGRES_MIGRATOR_PASSWORD for provision}"
         : "$${POSTGRES_APP_USER:?Set POSTGRES_APP_USER for provision}"
         : "$${POSTGRES_APP_PASSWORD:?Set POSTGRES_APP_PASSWORD for provision}"
         : "$${POSTGRES_ADMIN_USER:?Set POSTGRES_ADMIN_USER for provision}"
@@ -134,27 +138,48 @@ services:
         psql --host=postgres --username="$${POSTGRES_USER}" --dbname=postgres \
           --set=ON_ERROR_STOP=1 \
           --set=app_database="$${POSTGRES_APP_DATABASE}" \
+          --set=migrator_user="$${POSTGRES_MIGRATOR_USER}" \
+          --set=migrator_password="$${POSTGRES_MIGRATOR_PASSWORD}" \
           --set=app_user="$${POSTGRES_APP_USER}" \
           --set=app_password="$${POSTGRES_APP_PASSWORD}" \
           --set=admin_user="$${POSTGRES_ADMIN_USER}" \
           --set=admin_password="$${POSTGRES_ADMIN_PASSWORD}" <<'SQL'
+        SELECT format('CREATE ROLE %I LOGIN PASSWORD %L', :'migrator_user', :'migrator_password')
+        WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = :'migrator_user') \gexec
+        SELECT format('ALTER ROLE %I LOGIN PASSWORD %L', :'migrator_user', :'migrator_password') \gexec
         SELECT format('CREATE ROLE %I LOGIN PASSWORD %L', :'app_user', :'app_password')
         WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = :'app_user') \gexec
         SELECT format('ALTER ROLE %I LOGIN PASSWORD %L', :'app_user', :'app_password') \gexec
         SELECT format('CREATE ROLE %I LOGIN PASSWORD %L', :'admin_user', :'admin_password')
         WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = :'admin_user') \gexec
         SELECT format('ALTER ROLE %I LOGIN PASSWORD %L', :'admin_user', :'admin_password') \gexec
-        SELECT format('CREATE DATABASE %I OWNER %I', :'app_database', :'app_user')
+        SELECT format('CREATE DATABASE %I OWNER %I', :'app_database', :'migrator_user')
         WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = :'app_database') \gexec
-        SELECT format('ALTER DATABASE %I OWNER TO %I', :'app_database', :'app_user') \gexec
+        SELECT format('ALTER DATABASE %I OWNER TO %I', :'app_database', :'migrator_user') \gexec
         \connect :"app_database"
+        SELECT format('REASSIGN OWNED BY %I TO %I', :'app_user', :'migrator_user') \gexec
         REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+        SELECT format('REVOKE CREATE ON SCHEMA public FROM %I', :'app_user') \gexec
+        SELECT format('GRANT CONNECT ON DATABASE %I TO %I', :'app_database', :'app_user') \gexec
         SELECT format('GRANT CONNECT ON DATABASE %I TO %I', :'app_database', :'admin_user') \gexec
+        SELECT format('GRANT USAGE ON SCHEMA public TO %I', :'app_user') \gexec
         SELECT format('GRANT USAGE ON SCHEMA public TO %I', :'admin_user') \gexec
+        SELECT format('GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO %I', :'app_user') \gexec
+        SELECT format('GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO %I', :'app_user') \gexec
         SELECT format('GRANT SELECT ON ALL TABLES IN SCHEMA public TO %I', :'admin_user') \gexec
         SELECT format(
+          'ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO %I',
+          :'migrator_user',
+          :'app_user'
+        ) \gexec
+        SELECT format(
+          'ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO %I',
+          :'migrator_user',
+          :'app_user'
+        ) \gexec
+        SELECT format(
           'ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA public GRANT SELECT ON TABLES TO %I',
-          :'app_user',
+          :'migrator_user',
           :'admin_user'
         ) \gexec
         SQL

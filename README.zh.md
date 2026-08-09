@@ -110,21 +110,27 @@ cp deploy/app.personal.env.example \
   "$config_root/apps/image-playground-personal/app.env"
 cp deploy/app.commercial.env.example \
   "$config_root/apps/image-playground-commercial/app.env"
+cp deploy/migrate.env.example \
+  "$config_root/apps/image-playground-personal/migrate.env"
+cp deploy/migrate.env.example \
+  "$config_root/apps/image-playground-commercial/migrate.env"
 chmod 600 \
   "$config_root/infra.env" \
   "$config_root/apps/image-playground-personal/app.env" \
-  "$config_root/apps/image-playground-commercial/app.env"
+  "$config_root/apps/image-playground-personal/migrate.env" \
+  "$config_root/apps/image-playground-commercial/app.env" \
+  "$config_root/apps/image-playground-commercial/migrate.env"
 
 # 启动前替换所有 replace-* 占位值。
 ```
 
-两个应用配置必须使用不同的 PostgreSQL 数据库与角色、bucket、对象存储凭证、服务间
-令牌、上游凭证和 CORS 来源。Admin URL 必须使用对应部署的只读数据库角色。真实密钥与
-operator 配置始终留在这些仓库外目录中，仓库只提交安全样例。每个 `app.env` 旁可选放置
-`operator-config.json`。文件缺失表示全部能力关闭；文件存在但内容无效时 BFF 拒绝启动。
-浏览器只读取 BFF 下发的只读能力清单，不自行求值 operator 配置。
+每个部署使用三个 PostgreSQL 身份。`migrate.env` 保存一次性 schema owner；
+`app.env` 保存只具备 DML 权限的应用写角色和 Admin SELECT-only 角色。两个部署还必须使用
+不同数据库、bucket、对象存储凭证、服务间令牌、上游凭证与 CORS 来源。真实密钥与
+operator 配置始终留在仓库外目录，仓库只提交安全样例。每个 `app.env` 旁可选放置
+`operator-config.json`。文件缺失表示全部能力关闭；文件无效时 BFF 拒绝启动。
 
-先启动基础设施，为每个部署分别创建一个数据库写角色和一个 Admin 只读角色，只构建一次
+先启动基础设施，为每个部署分别创建 migrator、应用写角色和 Admin 只读角色，只构建一次
 镜像，再分别启动两个 project：
 
 ```bash
@@ -133,11 +139,11 @@ docker network create image-playground-edge
 
 scripts/infra-compose.sh up
 
-# 先把 infra.env 中五个 POSTGRES_APP_* / POSTGRES_ADMIN_* 值设为自用站配置并执行，
-# 再替换成经营站配置并再次执行。
+# 先把 infra.env 中七个 POSTGRES_MIGRATOR_* / POSTGRES_APP_* /
+# POSTGRES_ADMIN_* 值设为自用站配置并执行，再替换成经营站配置并再次执行。
 scripts/infra-compose.sh provision
 
-scripts/app-compose.sh build ai-image-playground:local
+scripts/app-compose.sh build-private ai-image-playground:local
 scripts/app-compose.sh up image-playground-personal
 scripts/app-compose.sh up image-playground-commercial
 ```
@@ -145,15 +151,17 @@ scripts/app-compose.sh up image-playground-commercial
 `infra-compose.sh` 默认读取
 `$XDG_CONFIG_HOME/ai-image-playground/infra.env`，可用 `INFRA_ENV_FILE` 覆盖。`up` 会等待
 PostgreSQL 与 MinIO 健康，创建 `MINIO_BUCKET_NAMES` 中的 bucket、关闭匿名访问，并配置
-45 天过期规则。`provision` 会幂等创建一个部署数据库、写角色与 Admin 只读角色。
-基础设施端口默认只绑定 `127.0.0.1`；应用 Compose 不发布 PostgreSQL 或 MinIO 端口。
+45 天过期规则。`provision` 会幂等创建部署数据库、schema-owner migrator、DML-only
+应用角色与 Admin 只读角色。基础设施端口默认只绑定 `127.0.0.1`；应用 Compose 不发布
+PostgreSQL 或 MinIO 端口。
 
 `app-compose.sh` 默认读取
-`$XDG_CONFIG_HOME/ai-image-playground/apps/<project>/app.env`。它先完成依赖检查，以一次性
-服务执行已提交的 Drizzle migration，再启动 BFF、worker 与 Admin；确认 BFF 健康后才
-激活 nginx。以后后端重启时 nginx 容器继续可用。每个 Web 容器根据自己的外部配置写入
-`/usr/share/nginx/html/runtime-config.json`，因此两个域名共用同一份 Web 构建产物，但
-运行时配置互不相同。
+`$XDG_CONFIG_HOME/ai-image-playground/apps/<project>/app.env`，并要求同目录存在
+`migrate.env`。只有一次性 migration 服务能读取 schema-owner 凭据。它先完成依赖检查，
+执行公开与已存在的私有 Drizzle migration，再启动 BFF、worker 与 Admin；确认 BFF
+健康后才激活 nginx。以后后端重启时 nginx 容器继续可用。每个 Web 容器根据自己的外部
+配置写入 `/usr/share/nginx/html/runtime-config.json`，因此两个域名共用同一份 Web
+构建产物，但运行时配置互不相同。
 
 宿主机反向代理必须以容器运行并加入 `image-playground-edge`。域名应转发到以下稳定
 network alias：
@@ -174,10 +182,11 @@ Compose override，只把 Web/Admin 端口绑定到回环地址。
 1. 停止应用。
 2. 执行 `SQLITE_DATABASE_PATH=/absolute/image-playground.sqlite SQLITE_BACKUP_PATH=/absolute/image-playground.readonly.sqlite bun run scripts/prepare-postgres-cutover.ts`。命令会在仍有 `queued` 或 `in_progress` 任务时拒绝切换，写出一致的只读备份，并且不导入历史数据。
 3. 按上文启动并 provision 全新的 PostgreSQL 数据库。
-4. 启动应用 project。解除维护窗口前，确认 `/health`、登录、服务端任务历史为空，并完成一次新生图。
+4. 启动应用 project。解除维护窗口前，执行 `DATABASE_URL=postgresql://<migrator>@127.0.0.1:5432/deployment_database pnpm db:verify`，再确认 `/health`、登录、服务端任务历史为空，并完成一次新生图。
 
 验证失败时，停止新应用，使用只读 SQLite 备份恢复上一镜像与配置。生产环境不要执行
-`packages/db/drizzle/rollback/0000_daffy_the_enforcers.down.sql`；它只用于丢弃全新的空部署。
+公开或私有 rollback SQL；`packages/db/drizzle/rollback/` 与
+`private/apps/bff/billing/rollback/` 只用于丢弃全新的空部署。
 
 查看状态或独立停止任一 project：
 

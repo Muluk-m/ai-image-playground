@@ -23,7 +23,11 @@ services:
       - application-infra
 
   migrate:
-    <<: *application-service
+    image: ${APP_IMAGE:-ai-image-playground:local}
+    init: true
+    env_file:
+      - path: ${MIGRATOR_ENV_FILE:?Set MIGRATOR_ENV_FILE to the external migrator environment file}
+        required: true
     environment:
       APP_ROLE: migrate
     restart: "no"

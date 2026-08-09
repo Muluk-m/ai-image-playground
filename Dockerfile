@@ -1,5 +1,9 @@
 # syntax=docker/dockerfile:1.6
 
+# Public builds leave this stage empty. Paid release builds explicitly replace it with
+# `--build-context private-overlay=./private`; that context has its own source allowlist.
+FROM scratch AS private-overlay
+
 # One release image runs every application role. Compose selects nginx, BFF,
 # worker, or Admin with APP_ROLE and command; both deployment projects reuse the
 # same immutable image and the web role writes its runtime config at startup.
@@ -26,14 +30,14 @@ RUN pnpm install --frozen-lockfile
 FROM deps AS web-build
 WORKDIR /app
 COPY . .
-RUN mkdir -p /app/private
+COPY --from=private-overlay / /app/private
 RUN pnpm install --offline --frozen-lockfile
 RUN pnpm --filter @image-playground/web build
 
 FROM deps AS admin-build
 WORKDIR /app
 COPY . .
-RUN mkdir -p /app/private
+COPY --from=private-overlay / /app/private
 RUN pnpm install --offline --frozen-lockfile
 RUN pnpm --filter @image-playground/admin build
 
@@ -60,8 +64,7 @@ COPY packages/db ./packages/db
 COPY packages/shared ./packages/shared
 COPY --from=admin-build /app/apps/admin/dist ./apps/admin/dist
 COPY --from=web-build /app/apps/web/dist /usr/share/nginx/html
-# The web builder always creates this directory. Public builds copy an empty directory;
-# paid builds carry the audited overlay sources admitted by .dockerignore.
+# `private-overlay` is empty in public builds and populated only by the explicit paid build.
 COPY --from=web-build /app/private ./private
 
 COPY deploy/nginx.conf /etc/nginx/conf.d/default.conf

@@ -36,17 +36,23 @@ case "$role" in
     ;;
   dependency-check)
     ;;
-  migrate|bff|worker)
+  migrate)
+    : "${MIGRATOR_DATABASE_URL:?MIGRATOR_DATABASE_URL is required for migrate}"
+    DATABASE_URL="$MIGRATOR_DATABASE_URL"
+    export DATABASE_URL
+    unset MIGRATOR_DATABASE_URL APP_DATABASE_URL ADMIN_DATABASE_URL
+    ;;
+  bff|worker)
     : "${APP_DATABASE_URL:?APP_DATABASE_URL is required for ${role}}"
     DATABASE_URL="$APP_DATABASE_URL"
     export DATABASE_URL
-    unset APP_DATABASE_URL ADMIN_DATABASE_URL
+    unset MIGRATOR_DATABASE_URL APP_DATABASE_URL ADMIN_DATABASE_URL
     ;;
   admin)
     : "${ADMIN_DATABASE_URL:?ADMIN_DATABASE_URL is required for admin}"
     DATABASE_URL="$ADMIN_DATABASE_URL"
     export DATABASE_URL
-    unset APP_DATABASE_URL ADMIN_DATABASE_URL
+    unset MIGRATOR_DATABASE_URL APP_DATABASE_URL ADMIN_DATABASE_URL
     ;;
   *)
     echo "[entrypoint] unknown APP_ROLE: $role" >&2
