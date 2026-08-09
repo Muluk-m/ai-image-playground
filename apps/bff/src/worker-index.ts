@@ -2,8 +2,10 @@ import { QUEUE_TIMEOUTS } from '@image-playground/shared'
 import { config } from './config'
 import { close as closeDb } from './db/client'
 import { recoverInterruptedTasks } from './db/maintenance'
+import { isCapabilityEnabled } from './lib/capabilities'
 import { initChannels } from './lib/channels'
 import { log } from './lib/logger'
+import { assertPrivateBffOverlayPresent, loadPrivateBffOverlay } from './lib/private-overlay'
 import { abortAllRunningTasks } from './workers/task-runner'
 import { TaskScheduler } from './workers/task-scheduler'
 
@@ -11,6 +13,10 @@ config.assertValid()
 const channelsResult = initChannels(config.channelsFile ?? undefined)
 for (const warning of channelsResult.warnings) {
   log.warn({ event: 'channels.warning' }, warning)
+}
+
+if (isCapabilityEnabled('billing:credits')) {
+  assertPrivateBffOverlayPresent(await loadPrivateBffOverlay(), 'billing:credits')
 }
 
 const recovery = await recoverInterruptedTasks()
