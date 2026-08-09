@@ -5,15 +5,13 @@ import { useRef } from 'react'
 import { FuzzyTime } from '@/components/FuzzyTime'
 import { ModelChips } from '@/components/ModelChips'
 import { ShortId } from '@/components/ShortId'
-import { Progress } from '@/components/ui/progress'
-import { DAILY_QUOTA_LIMIT, type DeviceRow, type Range } from '@/lib/types'
+import type { DeviceRow, Range } from '@/lib/types'
 
 interface DeviceTableProps {
   devices: DeviceRow[]
   range: Range
 }
 
-// 固定行高（含 progress bar 比任务行略高），虚拟化无需逐行测量。
 const ROW_HEIGHT = 52
 
 export function DeviceTable({ devices, range }: DeviceTableProps) {
@@ -42,7 +40,7 @@ export function DeviceTable({ devices, range }: DeviceTableProps) {
         <div className="w-[150px] shrink-0">Device</div>
         <div className="w-[120px] shrink-0">首次出现</div>
         <div className="w-[120px] shrink-0">最近活跃</div>
-        <div className="w-[150px] shrink-0">今日</div>
+        <div className="w-[150px] shrink-0">今日任务</div>
         <div className="w-[80px] shrink-0 text-right">范围总数</div>
         <div className="w-[110px] shrink-0 text-right">成功 / 失败</div>
         <div className="min-w-0 flex-1">模型</div>
@@ -53,7 +51,6 @@ export function DeviceTable({ devices, range }: DeviceTableProps) {
           {virtualItems.map((vi) => {
             const d = devices[vi.index]
             if (!d) return null
-            const pct = Math.min(100, Math.round((d.today_count / DAILY_QUOTA_LIMIT) * 100))
             return (
               <div
                 key={d.device_id}
@@ -75,13 +72,8 @@ export function DeviceTable({ devices, range }: DeviceTableProps) {
                 <div className="w-[120px] shrink-0">
                   <FuzzyTime ts={d.last_seen} />
                 </div>
-                <div className="w-[150px] shrink-0">
-                  <div className="flex items-center gap-2">
-                    <span className="w-12 shrink-0 font-mono text-xs tabular-nums">
-                      {d.today_count} / {DAILY_QUOTA_LIMIT}
-                    </span>
-                    <Progress value={pct} className="h-1.5 flex-1" />
-                  </div>
+                <div className="w-[150px] shrink-0 font-mono text-xs tabular-nums">
+                  {d.today_count}
                 </div>
                 <div className="w-[80px] shrink-0 text-right font-mono tabular-nums">{d.total}</div>
                 <div className="w-[110px] shrink-0 text-right">

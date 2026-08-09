@@ -2,18 +2,16 @@ import { Link } from '@tanstack/react-router'
 import { ChevronRight } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
-import {
-  privateAdminOverlayPresent,
-  privateUserSummaryColumnTitle,
-  usePrivateAdminUserSummaries,
-} from '@/lib/private-overlay'
+import { privateUserSummaryColumnTitle, usePrivateAdminUserSummaries } from '@/lib/private-overlay'
 import type { AdminUserRow } from '@/lib/types'
 
 import { FuzzyTime } from './FuzzyTime'
 
 export function UserTable({ users }: { users: AdminUserRow[] }) {
-  const summaries = usePrivateAdminUserSummaries(users.map((user) => user.id))
-  const gridColumns = privateAdminOverlayPresent
+  const { enabled: privateAdminOverlayEnabled, summaries } = usePrivateAdminUserSummaries(
+    users.map((user) => user.id),
+  )
+  const gridColumns = privateAdminOverlayEnabled
     ? 'grid-cols-[minmax(220px,1.4fr)_110px_120px_140px_180px_36px]'
     : 'grid-cols-[minmax(220px,1.4fr)_110px_120px_140px_36px]'
   if (!users.length) {
@@ -33,7 +31,7 @@ export function UserTable({ users }: { users: AdminUserRow[] }) {
         <span>状态</span>
         <span className="text-right">任务 / 会话</span>
         <span className="text-right">最近活动</span>
-        {privateAdminOverlayPresent ? <span>{privateUserSummaryColumnTitle}</span> : null}
+        {privateAdminOverlayEnabled ? <span>{privateUserSummaryColumnTitle}</span> : null}
         <span />
       </div>
       <div className="divide-y">
@@ -63,7 +61,7 @@ export function UserTable({ users }: { users: AdminUserRow[] }) {
             <span className="text-right text-xs">
               <FuzzyTime ts={user.last_activity_at} />
             </span>
-            {privateAdminOverlayPresent ? (
+            {privateAdminOverlayEnabled ? (
               <span className="min-w-0 text-right">
                 <span
                   className={`block truncate font-mono text-xs font-semibold ${summaries[user.id]?.tone === 'warning' ? 'text-amber-600' : ''}`}
