@@ -77,6 +77,34 @@ describe('operator config', () => {
     expect(await configModuleExitCode(invalid)).not.toBe(0)
   })
 
+  it('rejects billing without login or with BYOK enabled', () => {
+    const withoutLogin = temporaryFile(
+      JSON.stringify({
+        capabilities: {
+          'accounts:login': false,
+          'billing:credits': true,
+          'generation:byok': false,
+        },
+      }),
+    )
+    const withByok = temporaryFile(
+      JSON.stringify({
+        capabilities: {
+          'accounts:login': true,
+          'billing:credits': true,
+          'generation:byok': true,
+        },
+      }),
+    )
+
+    expect(() => loadOperatorConfig(withoutLogin)).toThrow(
+      'billing:credits requires accounts:login',
+    )
+    expect(() => loadOperatorConfig(withByok)).toThrow(
+      'billing:credits requires generation:byok=false',
+    )
+  })
+
   it('keeps known keys typed while evaluating runtime unknown keys as false', () => {
     const known: CapabilityKey = 'accounts:login'
     const resolved = loadOperatorConfig(sampleFile)
