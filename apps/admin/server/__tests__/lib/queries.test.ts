@@ -59,9 +59,18 @@ await writer.db.insert(writer.schema.tasks).values([
     completed_at: now + 1000,
   },
 ])
+await writer.db.insert(writer.schema.users).values({
+  id: 'user-page',
+  username: 'page-user',
+  password_hash: 'argon-hash',
+  status: 'active',
+  created_at: now,
+  updated_at: now,
+})
+await writer.client`UPDATE tasks SET user_id = 'user-page' WHERE id LIKE 'pg-%'`
 
 // Dynamic import keeps environment setup ahead of Admin configuration capture.
-const { listDevices, getDeviceDetail, getTask } = await import('../../lib/queries')
+const { listDevices, getDeviceDetail, getTask, getUserDetail } = await import('../../lib/queries')
 
 describe('listDevices', () => {
   it('range=7d 不包含 30 天前的 dev-OLD', async () => {
@@ -145,6 +154,22 @@ describe('getDeviceDetail 分页', () => {
     expect(p2.tasks[0]?.id).toBe('pg-100')
     const ids1 = new Set(p1.tasks.map((t) => t.id))
     expect(p2.tasks.every((t) => !ids1.has(t.id))).toBe(true)
+  })
+})
+
+describe('getUserDetail pagination', () => {
+  it('returns user aggregates only on the first task page', async () => {
+    const first = await getUserDetail('user-page', '30d', 'all')
+    expect(first?.user?.username).toBe('page-user')
+    expect(first?.tasks).toHaveLength(100)
+    expect(first?.nextCursor).not.toBeNull()
+    expect(first?.volume).not.toBeNull()
+
+    const second = await getUserDetail('user-page', '30d', 'all', first!.nextCursor!)
+    expect(second?.user).toBeNull()
+    expect(second?.tasks).toHaveLength(50)
+    expect(second?.nextCursor).toBeNull()
+    expect(second?.volume).toBeNull()
   })
 })
 
