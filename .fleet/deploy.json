@@ -2,74 +2,86 @@
   "$schema": "https://storage.sitepower.com/fleet/deploy.schema.json",
   "version": 1,
   "build": [
-    "cp -f /Users/qiqian/.config/ai-image-playground/runtime-config.json apps/web/public/runtime-config.json",
-    "pnpm install --frozen-lockfile",
-    "pnpm --filter @image-playground/web build",
-    "pnpm --filter @image-playground/admin build"
+    "docker build --tag ai-image-playground:local ."
   ],
   "services": [
     {
-      "name": "image-playground-bff",
+      "name": "image-playground-infra",
       "targets": [
         "macmini"
       ],
+      "watch": [
+        "deploy/compose.infra.yaml",
+        "deploy/infra.env.example"
+      ],
       "run": {
-        "kind": "launchd",
-        "label": "qlj.image-playground.bff",
-        "cwd": "apps/bff",
-        "keepAlive": true,
-        "command": [
-          "bun",
-          "run",
-          "--env-file=/Users/qiqian/.config/ai-image-playground/secrets/bff.env",
-          "src/index.ts"
-        ]
-      },
-      "health": {
-        "http": "http://localhost:37377/health",
-        "timeoutSec": 180,
-        "intervalSec": 60
+        "kind": "compose",
+        "file": "deploy/compose.infra.yaml",
+        "project": "image-playground-infra",
+        "build": false,
+        "wait": true
       }
     },
     {
-      "name": "image-playground-worker",
+      "name": "image-playground-personal",
       "targets": [
         "macmini"
       ],
+      "watch": [
+        "Dockerfile",
+        ".dockerignore",
+        "deploy/compose.app.yaml",
+        "deploy/nginx.conf",
+        "scripts/docker-entrypoint.sh",
+        "scripts/check-dependencies.ts",
+        "apps/**",
+        "packages/**",
+        "package.json",
+        "pnpm-lock.yaml"
+      ],
+      "deps": [
+        {
+          "kind": "service",
+          "name": "image-playground-infra"
+        }
+      ],
       "run": {
-        "kind": "launchd",
-        "label": "qlj.image-playground.worker",
-        "cwd": "apps/bff",
-        "keepAlive": true,
-        "command": [
-          "bun",
-          "run",
-          "--env-file=/Users/qiqian/.config/ai-image-playground/secrets/bff.env",
-          "src/worker-index.ts"
-        ]
+        "kind": "compose",
+        "file": "deploy/compose.app.yaml",
+        "project": "image-playground-personal",
+        "build": false,
+        "wait": true
       }
     },
     {
-      "name": "image-playground-admin",
+      "name": "image-playground-commercial",
       "targets": [
         "macmini"
       ],
+      "watch": [
+        "Dockerfile",
+        ".dockerignore",
+        "deploy/compose.app.yaml",
+        "deploy/nginx.conf",
+        "scripts/docker-entrypoint.sh",
+        "scripts/check-dependencies.ts",
+        "apps/**",
+        "packages/**",
+        "package.json",
+        "pnpm-lock.yaml"
+      ],
+      "deps": [
+        {
+          "kind": "service",
+          "name": "image-playground-infra"
+        }
+      ],
       "run": {
-        "kind": "launchd",
-        "label": "qlj.image-playground.admin",
-        "cwd": "apps/admin",
-        "keepAlive": true,
-        "command": [
-          "bun",
-          "--env-file=/Users/qiqian/.config/ai-image-playground/secrets/admin.env",
-          "run",
-          "server/index.ts"
-        ]
-      },
-      "health": {
-        "http": "http://localhost:37378/",
-        "timeoutSec": 30,
-        "intervalSec": 60
+        "kind": "compose",
+        "file": "deploy/compose.app.yaml",
+        "project": "image-playground-commercial",
+        "build": false,
+        "wait": true
       }
     }
   ]
