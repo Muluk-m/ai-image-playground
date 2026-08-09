@@ -1,24 +1,12 @@
-import { createDb, type DbHandle } from '@image-playground/db'
 import { eq } from 'drizzle-orm'
 import { Elysia, t } from 'elysia'
 import { config } from '../config'
+import { getDbHandle as getHandle } from '../lib/db'
 import { requireAuth } from '../lib/middleware'
 import { createTaskMetaCache, type TaskMetaCache } from '../lib/task-meta-cache'
 
 interface TaskMeta {
   id: string
-}
-
-// Lazily initialize a pool so test environment setup can precede configuration capture.
-const _handles = new Map<string, DbHandle>()
-function getHandle(): DbHandle {
-  const url = process.env.DATABASE_URL?.trim() || config.databaseUrl
-  let h = _handles.get(url)
-  if (!h) {
-    h = createDb(url)
-    _handles.set(url, h)
-  }
-  return h
 }
 
 const _caches = new Map<string, TaskMetaCache<TaskMeta>>()

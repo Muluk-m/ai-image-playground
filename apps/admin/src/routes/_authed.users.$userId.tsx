@@ -1,14 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
-import {
-  ChevronLeft,
-  KeyRound,
-  Loader2,
-  LogOut,
-  ShieldCheck,
-  ShieldOff,
-} from 'lucide-react'
-import { useState, type ReactNode } from 'react'
+import { ChevronLeft, KeyRound, Loader2, LogOut, ShieldCheck, ShieldOff } from 'lucide-react'
+import { type ReactNode, useState } from 'react'
 
 import { FuzzyTime } from '@/components/FuzzyTime'
 import { LightboxDialog } from '@/components/LightboxDialog'
@@ -19,8 +12,8 @@ import { UserFormDialog } from '@/components/UserFormDialog'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { apiClient } from '@/lib/api-client'
-import { useUserDetail } from '@/lib/queries'
 import { PrivateAdminUserDetailPanel } from '@/lib/private-overlay'
+import { useUserDetail } from '@/lib/queries'
 import { parseUserDetailSearch } from '@/lib/search-params'
 import type { AdminUserRow } from '@/lib/types'
 
@@ -98,12 +91,7 @@ function UserOperations({ user }: { user: AdminUserRow }) {
       {mutation.isError ? (
         <span className="self-center text-xs text-destructive">操作失败，请重试</span>
       ) : null}
-      <UserFormDialog
-        mode="reset"
-        user={user}
-        open={resetting}
-        onOpenChange={setResetting}
-      />
+      <UserFormDialog mode="reset" user={user} open={resetting} onOpenChange={setResetting} />
     </div>
   )
 }
@@ -122,7 +110,10 @@ function UserDetailPage() {
   function updateStatus(nextStatus: string): void {
     void navigate({
       to: '.',
-      search: (previous) => ({ ...previous, status: nextStatus === 'all' ? undefined : nextStatus }),
+      search: (previous) => ({
+        ...previous,
+        status: nextStatus === 'all' ? undefined : nextStatus,
+      }),
       replace: true,
     })
   }
@@ -131,8 +122,13 @@ function UserDetailPage() {
     void navigate({
       to: '.',
       search: (previous) => {
-        const { task: _task, fullscreen: _fullscreen, imgIdx: _index, imgKind: _kind, ...rest } =
-          previous ?? {}
+        const {
+          task: _task,
+          fullscreen: _fullscreen,
+          imgIdx: _index,
+          imgKind: _kind,
+          ...rest
+        } = previous ?? {}
         return rest
       },
     })
@@ -152,7 +148,7 @@ function UserDetailPage() {
         <div className="rounded-lg border border-destructive/50 bg-destructive/5 p-6 text-sm text-destructive">
           加载失败：{(query.error as Error).message}
         </div>
-      ) : !detail ? (
+      ) : !detail || !detail.user ? (
         <div className="rounded-lg border bg-card p-12 text-center text-sm text-muted-foreground">
           未找到用户 {userId}
         </div>
@@ -193,10 +189,7 @@ function UserDetailPage() {
             </div>
           </section>
 
-          <PrivateAdminUserDetailPanel
-            userId={detail.user.id}
-            username={detail.user.username}
-          />
+          <PrivateAdminUserDetailPanel userId={detail.user.id} username={detail.user.username} />
 
           {detail.volume ? (
             <section className="rounded-xl border bg-card/40 p-4">

@@ -1,19 +1,5 @@
-import { createDb, type DbHandle } from '@image-playground/db'
 import { eq, sql } from 'drizzle-orm'
-import { config } from '../config'
-
-// Lazily initialize one pool per URL. Production Admin connects with a database role that has
-// SELECT-only grants; application code does not own a write-capable handle.
-const _handles = new Map<string, DbHandle>()
-function getHandle(): DbHandle {
-  const url = process.env.DATABASE_URL?.trim() || config.databaseUrl
-  let h = _handles.get(url)
-  if (!h) {
-    h = createDb(url)
-    _handles.set(url, h)
-  }
-  return h
-}
+import { getDbHandle as getHandle } from './db'
 
 export type Range = '1d' | '7d' | '30d'
 export type SortKey = 'last_seen' | 'today_count' | 'total_count'
@@ -376,7 +362,7 @@ export async function getOverview(range: Range): Promise<OverviewResult> {
 }
 
 export interface UserDetailResult {
-  user: AdminUserRow
+  user: AdminUserRow | null
   tasks: TaskListItem[]
   nextCursor: string | null
   volume: TaskVolumeBucket[] | null
@@ -398,31 +384,33 @@ export async function getUserDetail(
   const statusCondition =
     statusFilter && statusFilter !== 'all' ? sql`AND status = ${statusFilter}` : sql``
 
-  const userRowsPromise = db.execute(sql`
-    SELECT
-      u.id,
-      u.username,
-      u.status,
-      u.created_at,
-      u.updated_at,
-      u.last_login_at,
-      task_stats.last_task_at,
-      GREATEST(u.last_login_at, task_stats.last_task_at) AS last_activity_at,
-      COALESCE(session_stats.active_sessions, 0) AS active_sessions,
-      COALESCE(task_stats.task_count, 0) AS task_count
-    FROM users u
-    LEFT JOIN LATERAL (
-      SELECT COUNT(*) AS active_sessions
-      FROM user_sessions s
-      WHERE s.user_id = u.id AND s.expires_at > NOW()
-    ) session_stats ON TRUE
-    LEFT JOIN LATERAL (
-      SELECT COUNT(*) AS task_count, MAX(t.submitted_at) AS last_task_at
-      FROM tasks t
-      WHERE t.user_id = u.id
-    ) task_stats ON TRUE
-    WHERE u.id = ${userId}
-  `)
+  const userRowsPromise = cursor
+    ? Promise.resolve([])
+    : db.execute(sql`
+        SELECT
+          u.id,
+          u.username,
+          u.status,
+          u.created_at,
+          u.updated_at,
+          u.last_login_at,
+          task_stats.last_task_at,
+          GREATEST(u.last_login_at, task_stats.last_task_at) AS last_activity_at,
+          COALESCE(session_stats.active_sessions, 0) AS active_sessions,
+          COALESCE(task_stats.task_count, 0) AS task_count
+        FROM users u
+        LEFT JOIN LATERAL (
+          SELECT COUNT(*) AS active_sessions
+          FROM user_sessions s
+          WHERE s.user_id = u.id AND s.expires_at > NOW()
+        ) session_stats ON TRUE
+        LEFT JOIN LATERAL (
+          SELECT COUNT(*) AS task_count, MAX(t.submitted_at) AS last_task_at
+          FROM tasks t
+          WHERE t.user_id = u.id
+        ) task_stats ON TRUE
+        WHERE u.id = ${userId}
+      `)
 
   const taskRowsPromise = db
     .select({
@@ -479,8 +467,7 @@ export async function getUserDetail(
     volumePromise,
   ])
   const userRow = (userRowsRaw as unknown as Array<Record<string, unknown>>)[0]
-  if (!userRow) return null
-
+  if (!cursor && !userRow) return null
   const hasMore = taskRows.length > PAGE_SIZE
   const pageRows = taskRows.slice(0, PAGE_SIZE)
   const tasks = pageRows.map((row) => ({
@@ -499,7 +486,7 @@ export async function getUserDetail(
   const last = pageRows[pageRows.length - 1]
   const volumeRows = volumeRowsRaw as unknown as Array<Record<string, unknown>>
   return {
-    user: mapAdminUser(userRow),
+    user: userRow ? mapAdminUser(userRow) : null,
     tasks,
     nextCursor: hasMore && last ? encodeCursor(last.submitted_at, last.id) : null,
     volume: cursor

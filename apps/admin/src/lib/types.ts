@@ -115,7 +115,8 @@ export interface TaskVolumeBucket {
 }
 
 export interface UserDetailResult {
-  user: AdminUserRow
+  /** Only the first task page includes profile aggregates. */
+  user: AdminUserRow | null
   tasks: TaskListItem[]
   nextCursor: string | null
   volume: TaskVolumeBucket[] | null
