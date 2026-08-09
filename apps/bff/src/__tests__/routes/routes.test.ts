@@ -550,7 +550,7 @@ describe('BFF queue routes', () => {
     expect(status).toBe(400)
   })
 
-  it('uses the configured quota limit instead of the historical constant', async () => {
+  it('uses the configured quota instead of the historical constant', async () => {
     const device_id = 'quota-dev-aaaa-bbbb-cccc'
     for (let i = 0; i < 3; i++) {
       const { status } = await jsonReq(
