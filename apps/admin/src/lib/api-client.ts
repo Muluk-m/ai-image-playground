@@ -74,6 +74,23 @@ async function safeParseJson(res: Response): Promise<unknown> {
     return null
   }
 }
+async function sendJson<T>(
+  method: 'POST' | 'PUT' | 'PATCH',
+  url: string,
+  body?: unknown,
+  options?: RequestOptions,
+): Promise<T> {
+  const res = await fetch(url, {
+    method,
+    credentials: 'include',
+    headers: {
+      accept: 'application/json',
+      'content-type': 'application/json',
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  })
+  return handleResponse<T>(res, options)
+}
 
 export const apiClient = {
   async get<T>(url: string, options?: RequestOptions): Promise<T> {
@@ -84,40 +101,13 @@ export const apiClient = {
     })
     return handleResponse<T>(res, options)
   },
-  async post<T>(url: string, body?: unknown, options?: RequestOptions): Promise<T> {
-    const res = await fetch(url, {
-      method: 'POST',
-      credentials: 'include',
-      headers: {
-        accept: 'application/json',
-        'content-type': 'application/json',
-      },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    })
-    return handleResponse<T>(res, options)
+  post<T>(url: string, body?: unknown, options?: RequestOptions): Promise<T> {
+    return sendJson('POST', url, body, options)
   },
-  async put<T>(url: string, body: unknown): Promise<T> {
-    const res = await fetch(url, {
-      method: 'PUT',
-      credentials: 'include',
-      headers: {
-        accept: 'application/json',
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify(body),
-    })
-    return handleResponse<T>(res)
+  put<T>(url: string, body: unknown): Promise<T> {
+    return sendJson('PUT', url, body)
   },
-  async patch<T>(url: string, body: unknown): Promise<T> {
-    const res = await fetch(url, {
-      method: 'PATCH',
-      credentials: 'include',
-      headers: {
-        accept: 'application/json',
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify(body),
-    })
-    return handleResponse<T>(res)
+  patch<T>(url: string, body: unknown): Promise<T> {
+    return sendJson('PATCH', url, body)
   },
 }
