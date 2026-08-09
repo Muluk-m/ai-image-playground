@@ -21,6 +21,7 @@ await writer.db.insert(writer.schema.tasks).values([
     submitted_at: now - 2 * 3600_000,
     started_at: now - 2 * 3600_000 + 100,
     completed_at: now - 2 * 3600_000 + 1100,
+    upstream_invocation_count: 2,
   },
   {
     id: 'overview-failed',
@@ -32,6 +33,7 @@ await writer.db.insert(writer.schema.tasks).values([
     submitted_at: now - 3 * 3600_000,
     started_at: now - 3 * 3600_000 + 100,
     completed_at: now - 3 * 3600_000 + 5100,
+    upstream_invocation_count: 3,
   },
   {
     id: 'overview-older',
@@ -78,7 +80,12 @@ describe('GET /api/overview', () => {
       summary: Record<string, number>
       volume: Array<{ total: number }>
       failures: Array<{ error_type: string; count: number }>
-      models: Array<{ model: string; count: number }>
+      models: Array<{
+        model: string
+        count: number
+        upstream_invocations: number
+        average_multiplier: number | null
+      }>
     }
 
     expect(body.summary).toMatchObject({
@@ -88,13 +95,14 @@ describe('GET /api/overview', () => {
       success_rate: 0.5,
       p50_duration_ms: 1000,
       p95_duration_ms: 5000,
+      upstream_invocations: 5,
     })
     expect(body.volume).toHaveLength(24)
     expect(body.volume.reduce((sum, bucket) => sum + bucket.total, 0)).toBe(2)
     expect(body.failures).toEqual([{ error_type: 'upstream_error', count: 1 }])
     expect(body.models).toEqual([
-      { model: 'gemini-3-pro', count: 1 },
-      { model: 'gpt-image-2', count: 1 },
+      { model: 'gemini-3-pro', count: 1, upstream_invocations: 3, average_multiplier: 3 },
+      { model: 'gpt-image-2', count: 1, upstream_invocations: 2, average_multiplier: 2 },
     ])
   })
 

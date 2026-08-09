@@ -26,6 +26,7 @@ const seedTask = (
   status,
   request_payload: { prompt: 'p', device_id: device },
   submitted_at: now - daysAgo * dayMs,
+  upstream_invocation_count: id === 't1' ? 2 : 0,
   ...(status === 'completed' ? { completed_at: now - daysAgo * dayMs + 1000 } : {}),
 })
 
@@ -182,6 +183,7 @@ describe('getTask', () => {
     expect(task!.id).toBe('t1')
     expect((task as unknown as Record<string, unknown>).result_payload).toBeUndefined()
     expect(task!.result_meta).toBeDefined()
+    expect(task!.upstream_invocation_count).toBe(2)
   })
 
   it('不存在的 task → null', async () => {

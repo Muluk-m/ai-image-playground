@@ -276,7 +276,8 @@ export async function getOverview(range: Range): Promise<OverviewResult> {
         ) FILTER (WHERE started_at IS NOT NULL AND completed_at IS NOT NULL) AS p50_duration_ms,
         PERCENTILE_DISC(0.95) WITHIN GROUP (
           ORDER BY EXTRACT(EPOCH FROM (completed_at - started_at)) * 1000
-        ) FILTER (WHERE started_at IS NOT NULL AND completed_at IS NOT NULL) AS p95_duration_ms
+        ) FILTER (WHERE started_at IS NOT NULL AND completed_at IS NOT NULL) AS p95_duration_ms,
+        COALESCE(SUM(upstream_invocation_count), 0) AS upstream_invocations
       FROM tasks
       WHERE submitted_at >= ${since}
     `),
@@ -289,7 +290,12 @@ export async function getOverview(range: Range): Promise<OverviewResult> {
       ORDER BY count DESC, error_type
     `),
     db.execute(sql`
-      SELECT model, COUNT(*) AS count
+      SELECT
+        model,
+        COUNT(*) AS count,
+        COALESCE(SUM(upstream_invocation_count), 0) AS upstream_invocations,
+        AVG(upstream_invocation_count::double precision)
+          FILTER (WHERE status IN ('completed', 'failed', 'cancelled')) AS average_multiplier
       FROM tasks
       WHERE submitted_at >= ${since}
       GROUP BY model
@@ -309,6 +315,7 @@ export async function getOverview(range: Range): Promise<OverviewResult> {
       success_rate: terminal === 0 ? 0 : completed / terminal,
       p50_duration_ms: nullableNumber(summary.p50_duration_ms),
       p95_duration_ms: nullableNumber(summary.p95_duration_ms),
+      upstream_invocations: Number(summary.upstream_invocations ?? 0),
     },
     volume,
     failures: (failureRowsRaw as unknown as Array<Record<string, unknown>>).map((row) => ({
@@ -318,6 +325,8 @@ export async function getOverview(range: Range): Promise<OverviewResult> {
     models: (modelRowsRaw as unknown as Array<Record<string, unknown>>).map((row) => ({
       model: String(row.model),
       count: Number(row.count),
+      upstream_invocations: Number(row.upstream_invocations),
+      average_multiplier: nullableNumber(row.average_multiplier),
     })),
   }
 }
@@ -568,6 +577,7 @@ export async function getTask(taskId: string): Promise<TaskDetail | null> {
     error_message: (task as Record<string, unknown>).error_message as string | null,
     result_meta: { images },
     device_id,
+    upstream_invocation_count: Number(task.upstream_invocation_count ?? 0),
     next_retry_at: (task as Record<string, unknown>).next_retry_at as number | null,
   }
 }
