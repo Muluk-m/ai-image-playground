@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test'
 import { eq } from 'drizzle-orm'
+import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
 
 const TEST_DB = './artifacts/test-routes.sqlite'
 
@@ -19,7 +20,18 @@ const { app } = await import('../../app')
 const { db, schema } = await import('../../db/client')
 const { runTask } = await import('../../workers/task-runner')
 const { setUpstreamFetchForTesting } = await import('../../lib/upstream')
+const { setObjectStoreForTesting } = await import('../../lib/objectStore')
 type TestFetch = NonNullable<Parameters<typeof setUpstreamFetchForTesting>[0]>
+let storage: InMemoryObjectStore
+
+beforeEach(() => {
+  storage = new InMemoryObjectStore()
+  setObjectStoreForTesting(storage)
+})
+
+afterEach(() => {
+  setObjectStoreForTesting()
+})
 
 async function resetDb() {
   await db.delete(schema.tasks)
@@ -54,6 +66,18 @@ function submitBody(overrides: Record<string, unknown> = {}) {
     client_request_id: crypto.randomUUID(),
     ...overrides,
   }
+}
+
+function responseRequestId(value: unknown): string {
+  if (
+    !value ||
+    typeof value !== 'object' ||
+    !('request_id' in value) ||
+    typeof value.request_id !== 'string'
+  ) {
+    throw new Error('response did not contain request_id')
+  }
+  return value.request_id
 }
 
 describe('BFF queue routes', () => {
@@ -121,7 +145,22 @@ describe('BFF queue routes', () => {
       submitBody({ prompt: 'turn cat into dog', size: '1024x1024', input_images: [TINY_PNG] }),
     )
     expect(status).toBe(200)
-    await runTask((json as { request_id: string }).request_id)
+    const id = responseRequestId(json)
+    const [storedTask] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, id))
+    expect(storedTask?.request_payload.input_images).toEqual([
+      { object: `${id}/in/0`, mime: 'image/png' },
+    ])
+    expect(JSON.stringify(storedTask?.request_payload)).not.toContain('iVBORw0KGgo')
+    expect(storage.objects.has(`${id}/in/0`)).toBe(true)
+
+    const archivedInput = await app.handle(
+      new Request(`http://localhost/v1/queue/requests/${id}/input-image/0`),
+    )
+    expect(archivedInput.status).toBe(200)
+    expect(await archivedInput.arrayBuffer()).toEqual(
+      storage.objects.get(`${id}/in/0`)!.bytes.buffer,
+    )
+    await runTask(id)
 
     expect(calls).toHaveLength(1)
     expect(calls[0]!.url).toMatch(/\/v1\/images\/edits$/)
@@ -153,7 +192,14 @@ describe('BFF queue routes', () => {
       submitBody({ prompt: 'mask edit', input_images: [TINY_PNG], mask: TINY_PNG }),
     )
     expect(status).toBe(200)
-    await runTask((json as { request_id: string }).request_id)
+    const id = responseRequestId(json)
+    const [storedTask] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, id))
+    expect(storedTask?.request_payload.mask).toEqual({
+      object: `${id}/in/1`,
+      mime: 'image/png',
+    })
+    expect(storage.objects.has(`${id}/in/1`)).toBe(true)
+    await runTask(id)
 
     expect(calls[0]!.url).toMatch(/\/v1\/images\/edits$/)
     const form = calls[0]!.init?.body as {
@@ -162,6 +208,233 @@ describe('BFF queue routes', () => {
     }
     expect(form.getAll('image[]')).toHaveLength(1)
     expect(form.get('mask')).toBeDefined()
+  })
+
+  it('archives output bytes and serves object references without retaining base64', async () => {
+    setUpstreamFetchForTesting(
+      mock(async () => {
+        return new Response(
+          JSON.stringify({
+            data: [{ b64_json: Buffer.from('OUTPUT').toString('base64'), revised_prompt: 'done' }],
+            output_format: 'png',
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        )
+      }) as unknown as TestFetch,
+    )
+
+    const submitted = await jsonReq(
+      'POST',
+      '/v1/queue/openai-compat/gpt-image-2/submit',
+      submitBody(),
+    )
+    const id = responseRequestId(submitted.json)
+    await runTask(id)
+
+    const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, id))
+    expect(task?.status).toBe('completed')
+    expect(task?.result_payload).toMatchObject({
+      data: [{ object: `${id}/out/0`, mime: 'image/png', revised_prompt: 'done' }],
+    })
+    expect(JSON.stringify(task?.result_payload)).not.toContain('T1VUUFVU')
+    const image = await app.handle(new Request(`http://localhost/v1/queue/requests/${id}/image/0`))
+    expect(image.status).toBe(200)
+    expect(await image.text()).toBe('OUTPUT')
+    storage.readFailuresRemaining = 1
+    const failedRead = await jsonReq('GET', `/v1/queue/requests/${id}/image/0`)
+    expect(failedRead.status).toBe(502)
+    expect(failedRead.json).toEqual({ error: 'object_storage_error' })
+  })
+
+  it('archives Gemini inline output and preserves its MIME metadata', async () => {
+    const outputBase64 = Buffer.from('GEMINI-OUTPUT').toString('base64')
+    setUpstreamFetchForTesting(
+      mock(async () => {
+        return new Response(
+          JSON.stringify({
+            candidates: [
+              {
+                content: {
+                  parts: [
+                    {
+                      inlineData: {
+                        mimeType: 'image/jpeg',
+                        data: outputBase64,
+                      },
+                    },
+                  ],
+                },
+              },
+            ],
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        )
+      }) as unknown as TestFetch,
+    )
+    const submitted = await jsonReq('POST', '/v1/queue/gemini/gemini-3-pro/submit', submitBody())
+    const id = responseRequestId(submitted.json)
+    await runTask(id)
+
+    const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, id))
+    expect(task?.result_payload).toMatchObject({
+      candidates: [
+        {
+          content: {
+            parts: [{ inlineData: { mimeType: 'image/jpeg', object: `${id}/out/0` } }],
+          },
+        },
+      ],
+    })
+    expect(JSON.stringify(task?.result_payload)).not.toContain(outputBase64)
+    const image = await app.handle(new Request(`http://localhost/v1/queue/requests/${id}/image/0`))
+    expect(image.headers.get('content-type')).toBe('image/jpeg')
+    expect(await image.text()).toBe('GEMINI-OUTPUT')
+  })
+
+  it('archives URL outputs once and serves the stored copy', async () => {
+    const originalFetch = globalThis.fetch
+    let sourceReads = 0
+    globalThis.fetch = mock(async () => {
+      sourceReads++
+      return new Response('URL-OUTPUT', {
+        status: 200,
+        headers: { 'content-type': 'image/webp' },
+      })
+    }) as unknown as typeof fetch
+    try {
+      setUpstreamFetchForTesting(
+        mock(async () => {
+          return new Response(
+            JSON.stringify({ data: [{ url: 'https://images.example/result' }] }),
+            {
+              status: 200,
+              headers: { 'content-type': 'application/json' },
+            },
+          )
+        }) as unknown as TestFetch,
+      )
+      const submitted = await jsonReq(
+        'POST',
+        '/v1/queue/openai-compat/gpt-image-2/submit',
+        submitBody(),
+      )
+      const id = responseRequestId(submitted.json)
+      await runTask(id)
+
+      const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, id))
+      expect(task?.result_payload).toMatchObject({
+        data: [
+          {
+            object: `${id}/out/0`,
+            mime: 'image/webp',
+            source_url: 'https://images.example/result',
+          },
+        ],
+      })
+      const image = await app.handle(
+        new Request(`http://localhost/v1/queue/requests/${id}/image/0`),
+      )
+      expect(await image.text()).toBe('URL-OUTPUT')
+      expect(sourceReads).toBe(1)
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  it('hydrates the same archived input before every worker retry', async () => {
+    const input = `data:image/png;base64,${Buffer.from('INPUT').toString('base64')}`
+    let attempts = 0
+    setUpstreamFetchForTesting(
+      mock(async () => {
+        attempts++
+        if (attempts === 1) {
+          return new Response(JSON.stringify({ error: { message: 'temporary' } }), { status: 503 })
+        }
+        return new Response(
+          JSON.stringify({ data: [{ b64_json: Buffer.from('OUTPUT').toString('base64') }] }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        )
+      }) as unknown as TestFetch,
+    )
+    const submitted = await jsonReq(
+      'POST',
+      '/v1/queue/openai-compat/gpt-image-2/submit',
+      submitBody({ input_images: [input] }),
+    )
+    const id = responseRequestId(submitted.json)
+
+    await runTask(id)
+    await db
+      .update(schema.tasks)
+      .set({ next_retry_at: Date.now() - 1 })
+      .where(eq(schema.tasks.id, id))
+    await runTask(id)
+
+    expect(attempts).toBe(2)
+    expect(storage.events.filter((event) => event === `read:${id}/in/0`)).toHaveLength(2)
+    expect(storage.objects.has(`${id}/in/0`)).toBe(true)
+    const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, id))
+    expect(task).toMatchObject({ status: 'completed', attempt_count: 1 })
+  })
+
+  it('does not double-charge or retain losing objects during an idempotency race', async () => {
+    const body = submitBody({
+      client_request_id: 'same-request-race-alpha',
+      device_id: 'same-device-race-alpha',
+      input_images: [`data:image/png;base64,${Buffer.from('INPUT').toString('base64')}`],
+    })
+    const [first, second] = await Promise.all([
+      jsonReq('POST', '/v1/queue/openai-compat/gpt-image-2/submit', body),
+      jsonReq('POST', '/v1/queue/openai-compat/gpt-image-2/submit', body),
+    ])
+
+    expect(first.status).toBe(200)
+    expect(second.status).toBe(200)
+    expect(responseRequestId(first.json)).toBe(responseRequestId(second.json))
+    expect(await db.select().from(schema.tasks)).toHaveLength(1)
+    expect(await db.select().from(schema.daily_quota)).toMatchObject([{ count: 1 }])
+    expect(storage.objects.size).toBe(1)
+  })
+
+  it('returns observable storage failures without inserting or completing corrupt tasks', async () => {
+    storage.writeFailuresRemaining = 3
+    const failedSubmit = await jsonReq(
+      'POST',
+      '/v1/queue/openai-compat/gpt-image-2/submit',
+      submitBody({
+        input_images: [`data:image/png;base64,${Buffer.from('INPUT').toString('base64')}`],
+      }),
+    )
+    expect(failedSubmit.status).toBe(503)
+    expect(failedSubmit.json).toMatchObject({ error: 'object_storage_error' })
+    expect(await db.select().from(schema.tasks)).toHaveLength(0)
+    expect(storage.events.filter((event) => event.startsWith('write:'))).toHaveLength(3)
+
+    setUpstreamFetchForTesting(
+      mock(async () => {
+        return new Response(
+          JSON.stringify({ data: [{ b64_json: Buffer.from('OUTPUT').toString('base64') }] }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        )
+      }) as unknown as TestFetch,
+    )
+    const submitted = await jsonReq(
+      'POST',
+      '/v1/queue/openai-compat/gpt-image-2/submit',
+      submitBody(),
+    )
+    const id = responseRequestId(submitted.json)
+    storage.writeFailuresRemaining = 3
+    await runTask(id)
+    const status = await jsonReq('GET', `/v1/queue/requests/${id}/status`)
+    expect(status.json).toMatchObject({
+      status: 'failed',
+      error: {
+        type: 'object_storage_error',
+        message: expect.stringContaining('Object storage write failed'),
+      },
+    })
+    expect(storage.events.filter((event) => event.startsWith('write:'))).toHaveLength(6)
   })
 
   it('worker captures upstream non-2xx as failed task with error message', async () => {
@@ -392,6 +665,30 @@ describe('BFF optional user auth', () => {
       submitted_at: Date.now(),
       completed_at: Date.now(),
     })
+    await storage.write('service-object-task/in/0', Buffer.from('OBJECT-INPUT'), 'image/png')
+    await storage.write('service-object-task/out/0', Buffer.from('OBJECT-OUTPUT'), 'image/png')
+    await db.insert(schema.tasks).values({
+      id: 'service-object-task',
+      provider: 'openai-compat',
+      model: 'gpt-image-2',
+      status: 'completed',
+      user_id: owner.id,
+      request_payload: {
+        prompt: 'stored edit',
+        input_images: [{ object: 'service-object-task/in/0', mime: 'image/png' }],
+      } as never,
+      result_payload: {
+        data: [{ object: 'service-object-task/out/0', mime: 'image/png' }],
+      },
+      submitted_at: Date.now(),
+      completed_at: Date.now(),
+    })
+    const ownerCookie = await loginTestUser('image-owner', ACCEPTED_PHRASE, '10.30.0.1')
+    const ownerObjectOutput = await app.handle(
+      new Request('http://localhost/v1/queue/requests/service-object-task/image/0', {
+        headers: { cookie: ownerCookie },
+      }),
+    )
 
     const outputPath = '/v1/queue/requests/service-image-task/image/0'
     const inputPath = '/v1/queue/requests/service-image-task/input-image/0'
@@ -422,6 +719,21 @@ describe('BFF optional user auth', () => {
         headers: serviceHeaders,
       }),
     )
+    const geminiOutput = await app.handle(
+      new Request('http://localhost/v1/queue/requests/service-gemini-image-task/image/0', {
+        headers: serviceHeaders,
+      }),
+    )
+    const objectInput = await app.handle(
+      new Request('http://localhost/v1/queue/requests/service-object-task/input-image/0', {
+        headers: serviceHeaders,
+      }),
+    )
+    const objectOutput = await app.handle(
+      new Request('http://localhost/v1/queue/requests/service-object-task/image/0', {
+        headers: serviceHeaders,
+      }),
+    )
     const taskRead = await jsonReq(
       'GET',
       '/v1/queue/requests/service-image-task/status',
@@ -436,7 +748,13 @@ describe('BFF optional user auth', () => {
     expect(await mask.text()).toBe('MASK')
     expect(geminiInput.status).toBe(200)
     expect(await geminiInput.text()).toBe('GEMINI')
+    expect(geminiOutput.status).toBe(200)
+    expect(await geminiOutput.text()).toBe('OUTPUT')
+    expect(await objectInput.text()).toBe('OBJECT-INPUT')
+    expect(await objectOutput.text()).toBe('OBJECT-OUTPUT')
     expect(taskRead.status).toBe(200)
+    expect(ownerObjectOutput.status).toBe(200)
+    expect(await ownerObjectOutput.text()).toBe('OBJECT-OUTPUT')
 
     const forbiddenSubmit = await jsonReq(
       'POST',

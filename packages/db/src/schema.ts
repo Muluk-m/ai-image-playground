@@ -1,4 +1,4 @@
-import type { QueueProvider, SubmitRequest, TaskStatus } from '@image-playground/shared'
+import type { PersistedSubmitRequest, QueueProvider, TaskStatus } from '@image-playground/shared'
 import { desc, sql } from 'drizzle-orm'
 import { index, integer, primaryKey, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
 
@@ -44,7 +44,9 @@ export const tasks = sqliteTable(
     provider: text('provider').$type<QueueProvider>().notNull(),
     model: text('model').notNull(),
     status: text('status').$type<TaskStatus>().notNull(),
-    request_payload: text('request_payload', { mode: 'json' }).$type<SubmitRequest>().notNull(),
+    request_payload: text('request_payload', { mode: 'json' })
+      .$type<PersistedSubmitRequest>()
+      .notNull(),
     result_payload: text('result_payload', { mode: 'json' }),
     error_message: text('error_message'),
     error_type: text('error_type'),

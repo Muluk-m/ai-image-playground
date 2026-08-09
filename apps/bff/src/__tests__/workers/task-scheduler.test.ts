@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test'
 import { and, eq } from 'drizzle-orm'
+import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
 
 process.env.UPSTREAM_BASE_URL = 'http://localhost:9999'
 process.env.UPSTREAM_API_KEY = 'test-key'
@@ -9,10 +10,21 @@ process.env.PORT = '0'
 const { runMigrations } = await import('../../db/migrate')
 runMigrations()
 const { db, schema } = await import('../../db/client')
-const { recoverInterruptedTasks } = await import('../../db/maintenance')
+const { purgeOldTasks, recoverInterruptedTasks } = await import('../../db/maintenance')
 const { TaskScheduler } = await import('../../workers/task-scheduler')
 const { setUpstreamFetchForTesting } = await import('../../lib/upstream')
+const { setObjectStoreForTesting } = await import('../../lib/objectStore')
 type TestFetch = NonNullable<Parameters<typeof setUpstreamFetchForTesting>[0]>
+let storage: InMemoryObjectStore
+
+beforeEach(() => {
+  storage = new InMemoryObjectStore()
+  setObjectStoreForTesting(storage)
+})
+
+afterEach(() => {
+  setObjectStoreForTesting()
+})
 
 async function waitFor(predicate: () => boolean | Promise<boolean>, timeoutMs = 1_000) {
   const deadline = Date.now() + timeoutMs
@@ -169,5 +181,60 @@ describe('recoverInterruptedTasks', () => {
       next: expect.any(Number),
     })
     expect(rows.find((row) => row.id === 'stale-running')?.status).toBe('failed')
+  })
+})
+
+describe('purgeOldTasks', () => {
+  beforeEach(async () => {
+    await db.delete(schema.tasks)
+  })
+
+  it('deletes rows before their object prefixes', async () => {
+    await db.insert(schema.tasks).values({
+      id: 'expired-task',
+      provider: 'openai-compat',
+      model: 'test-model',
+      status: 'completed',
+      request_payload: { prompt: 'expired' },
+      result_payload: { data: [{ object: 'expired-task/out/0', mime: 'image/png' }] },
+      submitted_at: 1,
+      completed_at: Date.now() - 1_000,
+    })
+    await storage.write('expired-task/in/0', Buffer.from('input'), 'image/png')
+    await storage.write('expired-task/out/0', Buffer.from('output'), 'image/png')
+    storage.beforeDeletePrefix = async (prefix) => {
+      expect(prefix).toBe('expired-task/')
+      const rows = await db
+        .select({ id: schema.tasks.id })
+        .from(schema.tasks)
+        .where(eq(schema.tasks.id, 'expired-task'))
+      expect(rows).toHaveLength(0)
+    }
+
+    expect(await purgeOldTasks(1)).toBe(1)
+    expect(storage.objects.size).toBe(0)
+  })
+
+  it('leaves a harmless lifecycle orphan when prefix deletion is interrupted', async () => {
+    await db.insert(schema.tasks).values({
+      id: 'orphan-task',
+      provider: 'openai-compat',
+      model: 'test-model',
+      status: 'failed',
+      request_payload: { prompt: 'expired' },
+      submitted_at: 1,
+      completed_at: Date.now() - 1_000,
+    })
+    await storage.write('orphan-task/out/0', Buffer.from('orphan'), 'image/png')
+    storage.deleteFailuresRemaining = 1
+
+    expect(await purgeOldTasks(1)).toBe(1)
+    expect(
+      await db
+        .select({ id: schema.tasks.id })
+        .from(schema.tasks)
+        .where(eq(schema.tasks.id, 'orphan-task')),
+    ).toHaveLength(0)
+    expect(storage.objects.has('orphan-task/out/0')).toBe(true)
   })
 })

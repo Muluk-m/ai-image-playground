@@ -1,5 +1,7 @@
 import { QUEUE_TIMEOUTS } from '@image-playground/shared'
 import { and, eq, inArray, isNotNull, lt } from 'drizzle-orm'
+import { log } from '../lib/logger'
+import { objectStore } from '../lib/objectStore'
 import { db, schema } from './client'
 
 /**
@@ -43,5 +45,16 @@ export async function purgeOldTasks(
       ),
     )
     .returning({ id: schema.tasks.id })
+
+  for (const task of deleted) {
+    try {
+      await objectStore().deletePrefix(`${task.id}/`)
+    } catch (error) {
+      log.warn(
+        { event: 'object_store.cleanup_failed', taskId: task.id, err: String(error) },
+        'task row deleted; object prefix left for lifecycle cleanup',
+      )
+    }
+  }
   return deleted.length
 }

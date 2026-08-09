@@ -1,5 +1,6 @@
 import { DAILY_QUOTA_LIMIT } from '@image-playground/shared'
 import { and, eq, sql } from 'drizzle-orm'
+import type { db as globalDb } from '../db/client'
 import * as schema from '../db/schema'
 
 export interface QuotaConsumeResult {
@@ -10,9 +11,10 @@ export interface QuotaConsumeResult {
   reset_at: string
 }
 
-/** 注入式 db 类型，跟 db/client 的 drizzle 实例同构。仅测试用。 */
-type QuotaDb = typeof import('../db/client').db
-
+/** Drizzle client and transaction types used by the atomic submit path. */
+type QuotaDb = typeof globalDb
+type QuotaTransaction = Parameters<Parameters<QuotaDb['transaction']>[0]>[0]
+type QuotaExecutor = QuotaDb | QuotaTransaction
 export function currentQuotaDate(): string {
   return new Date().toISOString().slice(0, 10)
 }
@@ -39,12 +41,23 @@ export async function tryConsumeQuota(
   n: number,
   dbInstance?: QuotaDb,
 ): Promise<QuotaConsumeResult> {
-  const date = currentQuotaDate()
-  // 默认 db 懒求值：import db/client 在调用时（而非模块顶层）发生，让测试注入
-  // 自己的 db 时完全绕开全局单例。
+  // Keep the default import lazy so tests with an injected database never initialize global storage.
   const db = dbInstance ?? (await import('../db/client')).db
+  return consumeQuota(db, device_id, n)
+}
 
-  const rows = await db
+/** Synchronous variant for Bun SQLite's transaction callback. */
+export function tryConsumeQuotaInTransaction(
+  db: QuotaTransaction,
+  device_id: string,
+  n: number,
+): QuotaConsumeResult {
+  return consumeQuota(db, device_id, n)
+}
+
+function consumeQuota(db: QuotaExecutor, device_id: string, n: number): QuotaConsumeResult {
+  const date = currentQuotaDate()
+  const rows = db
     .insert(schema.daily_quota)
     .values({ device_id, date, count: n })
     .onConflictDoUpdate({
@@ -53,19 +66,21 @@ export async function tryConsumeQuota(
       setWhere: sql`${schema.daily_quota.count} + ${n} <= ${DAILY_QUOTA_LIMIT}`,
     })
     .returning({ count: schema.daily_quota.count })
+    .all()
 
-  if (rows.length === 0) {
-    const [existing] = await db
-      .select({ count: schema.daily_quota.count })
-      .from(schema.daily_quota)
-      .where(and(eq(schema.daily_quota.device_id, device_id), eq(schema.daily_quota.date, date)))
-      .limit(1)
-    return {
-      ok: false,
-      count: existing?.count ?? DAILY_QUOTA_LIMIT,
-      reset_at: nextResetISO(),
-    }
+  if (rows.length > 0) {
+    return { ok: true, count: rows[0]!.count, reset_at: nextResetISO() }
   }
 
-  return { ok: true, count: rows[0]!.count, reset_at: nextResetISO() }
+  const existing = db
+    .select({ count: schema.daily_quota.count })
+    .from(schema.daily_quota)
+    .where(and(eq(schema.daily_quota.device_id, device_id), eq(schema.daily_quota.date, date)))
+    .limit(1)
+    .get()
+  return {
+    ok: false,
+    count: existing?.count ?? DAILY_QUOTA_LIMIT,
+    reset_at: nextResetISO(),
+  }
 }

@@ -2,6 +2,7 @@ import { QUEUE_TIMEOUTS, type TaskErrorType } from '@image-playground/shared'
 import { and, eq, isNull, lte, or } from 'drizzle-orm'
 import { db, schema } from '../db/client'
 import { describeEmptyResult, extractMeta } from '../lib/extractImages'
+import { archiveOutputImages, hydrateInputImages, ObjectStorageError } from '../lib/imageArchive'
 import { log } from '../lib/logger'
 import { isAbortError } from '../lib/queueProvider'
 import { isRetryableError, planNextAttempt, shouldRetryEmptyResult } from '../lib/retry'
@@ -119,10 +120,11 @@ export async function runTask(id: string): Promise<void> {
   )
 
   try {
+    const hydratedRequest = await hydrateInputImages(task.request_payload)
     const { payload } = await callUpstream({
       provider: task.provider,
       model: task.model,
-      request: task.request_payload,
+      request: hydratedRequest,
       signal: ctrl.signal,
     })
     const meta = extractMeta(task.provider, payload)
@@ -160,11 +162,12 @@ export async function runTask(id: string): Promise<void> {
       )
       return
     }
+    const archivedPayload = await archiveOutputImages(id, task.provider, payload)
     await db
       .update(schema.tasks)
       .set({
         status: 'completed',
-        result_payload: payload as Record<string, unknown>,
+        result_payload: archivedPayload,
         completed_at: now(),
       })
       .where(and(eq(schema.tasks.id, id), eq(schema.tasks.status, 'in_progress')))
@@ -181,12 +184,17 @@ export async function runTask(id: string): Promise<void> {
     }
     const isTimeout = err instanceof UpstreamTimeoutError
     const isUnknownResult = err instanceof UpstreamResultUnknownError
+    const isStorageError = err instanceof ObjectStorageError
     const message = isTimeout
       ? `上游超时：BFF 等待超过 ${Math.round(QUEUE_TIMEOUTS.UPSTREAM_HARD_TIMEOUT_MS / 60000)} 分钟未拿到响应`
       : err instanceof Error
         ? err.message
         : String(err)
-    const errorType: TaskErrorType = isUnknownResult ? 'upstream_result_unknown' : 'upstream_error'
+    const errorType: TaskErrorType = isStorageError
+      ? 'object_storage_error'
+      : isUnknownResult
+        ? 'upstream_result_unknown'
+        : 'upstream_error'
 
     const attemptJustFailed = task.attempt_count + 1
     if (await tryScheduleRetry(id, attemptJustFailed, isRetryableError(err), message)) {
