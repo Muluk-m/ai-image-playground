@@ -8,6 +8,33 @@ import { initChannels } from './lib/channels'
 import { log } from './lib/logger'
 
 config.assertValid()
+log.info(
+  {
+    event: 'capabilities.resolved',
+    file: config.operator.file,
+    loaded: config.operator.loaded,
+    capabilities: Object.fromEntries(
+      Object.entries(config.operator.capabilities).map(([key, value]) => [
+        key,
+        {
+          value,
+          source:
+            config.operator.capabilitySources[key as keyof typeof config.operator.capabilities],
+        },
+      ]),
+    ),
+    quotas: Object.fromEntries(
+      Object.entries(config.operator.quotas).map(([key, value]) => [
+        key,
+        {
+          value,
+          source: config.operator.quotaSources[key as keyof typeof config.operator.quotas],
+        },
+      ]),
+    ),
+  },
+  'operator capabilities resolved',
+)
 runMigrations()
 const authEnabled = config.auth.enabled
 

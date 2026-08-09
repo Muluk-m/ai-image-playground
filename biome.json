@@ -28,5 +28,23 @@
       "arrowParentheses": "always"
     }
   },
-  "linter": { "enabled": false }
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": false,
+      "style": {
+        "noRestrictedImports": {
+          "level": "error",
+          "options": {
+            "patterns": [
+              {
+                "group": ["private/**", "**/private/**"],
+                "message": "Private-tree imports are only allowed at the audited BFF overlay seam."
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
 }
