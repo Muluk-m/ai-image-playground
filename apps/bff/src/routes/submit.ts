@@ -8,6 +8,8 @@ import { Elysia, t } from 'elysia'
 import { config } from '../config'
 import { db, schema } from '../db/client'
 import { archiveInputImages, ObjectStorageError } from '../lib/imageArchive'
+import { isCapabilityEnabled } from '../lib/capabilities'
+import { loadPrivateBffOverlay } from '../lib/private-overlay'
 import { objectStore } from '../lib/objectStore'
 import { tryConsumeQuotaInTransaction } from '../lib/quota'
 import { requireUser } from '../lib/user-auth'
@@ -22,7 +24,7 @@ const submitBodySchema = t.Object({
   aspect_ratio: t.Optional(t.String()),
   image_size: t.Optional(t.String()),
   thinking_level: t.Optional(t.String()),
-  n: t.Optional(t.Number({ minimum: 1, maximum: 16 })),
+  n: t.Optional(t.Number({ minimum: 1, maximum: 16, multipleOf: 1 })),
   input_images: t.Optional(t.Array(t.String())),
   mask: t.Optional(t.String()),
   extra: t.Optional(t.Record(t.String(), t.Any())),
@@ -96,6 +98,7 @@ export const submitRoutes = new Elysia()
 
       const n = body.n ?? 1
       const now = Date.now()
+      const taskHooks = (await loadPrivateBffOverlay()).taskHooks
       const outcome = await db.transaction(async (tx) => {
         const inserted = await tx
           .insert(schema.tasks)
@@ -114,10 +117,28 @@ export const submitRoutes = new Elysia()
 
         if (inserted.length === 0) return { kind: 'idempotency_conflict' as const }
 
-        const quota = await tryConsumeQuotaInTransaction(tx, body.device_id, n)
-        if (!quota.ok) {
-          await tx.delete(schema.tasks).where(eq(schema.tasks.id, id))
-          return { kind: 'quota_exceeded' as const, quota }
+        if (isCapabilityEnabled('billing:credits')) {
+          if (!authUser) {
+            await tx.delete(schema.tasks).where(eq(schema.tasks.id, id))
+            return { kind: 'authentication_required' as const }
+          }
+          const reservation = await taskHooks.reserveTask({
+            tx,
+            taskId: id,
+            userId: authUser.id,
+            model,
+            quantity: n,
+          })
+          if (reservation.kind !== 'reserved') {
+            await tx.delete(schema.tasks).where(eq(schema.tasks.id, id))
+            return reservation
+          }
+        } else {
+          const quota = await tryConsumeQuotaInTransaction(tx, body.device_id, n)
+          if (!quota.ok) {
+            await tx.delete(schema.tasks).where(eq(schema.tasks.id, id))
+            return { kind: 'quota_exceeded' as const, quota }
+          }
         }
         return { kind: 'inserted' as const, task: inserted[0]! }
       })
@@ -130,6 +151,21 @@ export const submitRoutes = new Elysia()
         }
       }
 
+      if (outcome.kind === 'insufficient_credits') {
+        return status(402, {
+          error: 'insufficient_credits',
+          required: outcome.required,
+          available: outcome.available,
+        })
+      }
+
+      if (outcome.kind === 'price_unavailable') {
+        return status(422, { error: 'model_price_unavailable', model: outcome.model })
+      }
+
+      if (outcome.kind === 'authentication_required') {
+        return status(401, { error: 'unauthorized' })
+      }
       if (outcome.kind === 'quota_exceeded') {
         const quota = outcome.quota
         return status(429, {

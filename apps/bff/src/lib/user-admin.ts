@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { isValidPassword, isValidUsername, normalizeUsername } from '@image-playground/shared'
 import { eq } from 'drizzle-orm'
 import { db, schema } from '../db/client'
+import { loadPrivateBffOverlay } from './private-overlay'
 
 export type UserOperationErrorCode =
   | 'invalid_username'
@@ -65,6 +66,7 @@ export async function createUser(
   const passwordHash = await Bun.password.hash(password, { algorithm: 'argon2id' })
   const now = Date.now()
   const id = randomUUID()
+  const taskHooks = (await loadPrivateBffOverlay()).taskHooks
   try {
     await db.transaction(async (tx) => {
       await tx.insert(schema.users).values({
@@ -78,6 +80,7 @@ export async function createUser(
       await tx
         .insert(schema.operator_audits)
         .values(operatorAudit('user.create', id, { username }))
+      await taskHooks.onUserCreated({ tx, userId: id })
     })
   } catch (error) {
     if (error !== null && typeof error === 'object' && 'code' in error && error.code === '23505') {

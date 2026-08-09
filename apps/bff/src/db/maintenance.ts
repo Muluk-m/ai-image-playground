@@ -1,6 +1,7 @@
 import { QUEUE_TIMEOUTS } from '@image-playground/shared'
 import { and, eq, inArray, isNotNull, lt } from 'drizzle-orm'
 import { log } from '../lib/logger'
+import { loadPrivateBffOverlay } from '../lib/private-overlay'
 import { objectStore } from '../lib/objectStore'
 import { db, schema } from './client'
 
@@ -13,19 +14,39 @@ import { db, schema } from './client'
  *   是否手动重试。
  */
 export async function recoverInterruptedTasks(): Promise<{ failed: number }> {
-  const failed = await db
-    .update(schema.tasks)
-    .set({
-      status: 'failed',
-      error_message: '任务 worker 重启时中断',
-      error_type: 'interrupted' as const,
-      completed_at: Date.now(),
-    })
-    .where(eq(schema.tasks.status, 'in_progress'))
-    .returning({ id: schema.tasks.id })
+  const taskHooks = (await loadPrivateBffOverlay()).taskHooks
+  const failed = await db.transaction(async (tx) => {
+    const rows = await tx
+      .update(schema.tasks)
+      .set({
+        status: 'failed',
+        error_message: '任务 worker 重启时中断',
+        error_type: 'interrupted' as const,
+        completed_at: Date.now(),
+      })
+      .where(eq(schema.tasks.status, 'in_progress'))
+      .returning({
+        id: schema.tasks.id,
+        upstreamInvocationCount: schema.tasks.upstream_invocation_count,
+      })
+    for (const row of rows) {
+      await taskHooks.finalizeTask({
+        tx,
+        taskId: row.id,
+        upstreamInvocationCount: row.upstreamInvocationCount,
+      })
+    }
+    return rows
+  })
 
   return { failed: failed.length }
 }
+/** Runs optional private-tree maintenance (for example, the billing fallback scan). */
+export async function runPrivateMaintenance(now = Date.now()): Promise<void> {
+  const taskHooks = (await loadPrivateBffOverlay()).taskHooks
+  await taskHooks.runMaintenance(now)
+}
+
 
 /**
  * 删除 30 天前完成的任务（成功 / 失败 / 取消）。不删 queued/in_progress，避免

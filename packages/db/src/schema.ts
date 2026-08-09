@@ -99,6 +99,7 @@ export const tasks = pgTable(
     user_id: text('user_id').references(() => users.id),
     client_request_id: text('client_request_id'),
     attempt_count: integer('attempt_count').notNull().default(0),
+    upstream_invocation_count: integer('upstream_invocation_count').notNull().default(0),
     next_retry_at: epochMs('next_retry_at'),
     device_id: text('device_id').generatedAlwaysAs(sql`request_payload ->> 'device_id'`),
   },

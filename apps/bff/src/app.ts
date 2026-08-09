@@ -3,6 +3,7 @@ import { cors } from '@elysiajs/cors'
 import { Elysia } from 'elysia'
 import { config } from './config'
 import { loadPrivateBffOverlay } from './lib/private-overlay'
+import { isCapabilityEnabled } from './lib/capabilities'
 import { gzipBlob } from './lib/staticCompression'
 import { userAuthRoutes } from './routes/auth'
 import { cancelRoutes } from './routes/cancel'
@@ -22,6 +23,9 @@ const corsOrigin =
         .filter(Boolean)
 
 const privateBffOverlay = await loadPrivateBffOverlay()
+if (isCapabilityEnabled('billing:credits') && !privateBffOverlay.present) {
+  throw new Error('billing:credits requires the private BFF overlay')
+}
 
 const STATIC_DIR = config.staticDir
 

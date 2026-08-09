@@ -49,6 +49,21 @@ function resolveUpstream(
     direct: false,
   }
 }
+/**
+ * Number of HTTP requests that callUpstream starts for one task attempt.
+ * Gemini and direct channels implement `n` as an internal concurrent fan-out;
+ * regular OpenAI-compatible channels send one request with `n` in the body.
+ */
+export function upstreamInvocationCount(
+  provider: QueueProvider,
+  model: string,
+  request: HydratedSubmitRequest,
+): number {
+  const quantity = Math.max(1, request.n ?? 1)
+  if (provider === 'gemini') return quantity
+  return resolveUpstream(provider, model).direct ? quantity : 1
+}
+
 
 export interface UpstreamCallParams {
   provider: QueueProvider
