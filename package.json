@@ -11,7 +11,10 @@
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
     "lint": "biome check .",
-    "format": "biome format --write ."
+    "format": "biome format --write .",
+    "test:deps:up": "./scripts/infra-compose.sh up",
+    "test:deps:down": "./scripts/infra-compose.sh down",
+    "test:deps:status": "./scripts/infra-compose.sh status"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.0.0",
