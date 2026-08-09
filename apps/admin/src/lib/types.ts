@@ -70,6 +70,7 @@ export interface TaskDetail extends TaskListItem {
   result_meta: { images: TaskImageMeta[]; raw_image_urls?: string[] }
   error_message: string | null
   device_id: string | null
+  user_id: string | null
   /** 仅 status='queued' 且 attempt_count>0 时有值——下次自动重试的目标时间戳。 */
   next_retry_at: number | null
 }
@@ -87,11 +88,49 @@ export interface AdminUserRow {
   created_at: number
   updated_at: number
   last_login_at: number | null
+  last_task_at: number | null
+  last_activity_at: number | null
   active_sessions: number
   task_count: number
+}
+
+export interface UserKpis {
+  total_users: number
+  active_users_7d: number
+  submissions_24h: number
+  failure_rate_24h: number
 }
 
 export interface ListUsersResult {
   users: AdminUserRow[]
   truncated: boolean
+  kpis: UserKpis
+}
+
+export interface TaskVolumeBucket {
+  bucket_at: number
+  total: number
+  completed: number
+  failed: number
+}
+
+export interface UserDetailResult {
+  user: AdminUserRow
+  tasks: TaskListItem[]
+  nextCursor: string | null
+  volume: TaskVolumeBucket[] | null
+}
+
+export interface OverviewResult {
+  summary: {
+    total: number
+    completed: number
+    failed: number
+    success_rate: number
+    p50_duration_ms: number | null
+    p95_duration_ms: number | null
+  }
+  volume: TaskVolumeBucket[]
+  failures: Array<{ error_type: string; count: number }>
+  models: Array<{ model: string; count: number }>
 }

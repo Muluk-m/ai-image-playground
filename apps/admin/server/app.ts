@@ -5,6 +5,7 @@ import { config } from './config'
 import { authRoutes } from './routes/auth'
 import { devicesRoutes } from './routes/devices'
 import { imagesRoutes } from './routes/images'
+import { overviewRoutes } from './routes/overview'
 import { tasksRoutes } from './routes/tasks'
 import { usersRoutes } from './routes/users'
 import { isApiPath, serveSpaFallback, serveStatic } from './static'
@@ -24,6 +25,7 @@ export const app = new Elysia()
   .get('/health', () => ({ ok: true }))
   .use(authRoutes)
   .use(devicesRoutes)
+  .use(overviewRoutes)
   .use(tasksRoutes)
   .use(imagesRoutes)
   .use(usersRoutes)

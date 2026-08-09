@@ -61,6 +61,24 @@ export function parseDevicesSearch(input: Record<string, unknown>): DevicesSearc
   return out
 }
 
+export interface OverviewSearch {
+  range?: Range
+}
+
+export function parseOverviewSearch(input: Record<string, unknown>): OverviewSearch {
+  return input.range === undefined ? {} : { range: parseRange(input.range) }
+}
+
+export interface UsersSearch {
+  q?: string
+}
+
+export function parseUsersSearch(input: Record<string, unknown>): UsersSearch {
+  if (typeof input.q !== 'string') return {}
+  const q = input.q.trim().slice(0, 128)
+  return q ? { q } : {}
+}
+
 /** Device 详情 search（task / fullscreen / imgIdx / imgKind 控抽屉 + lightbox） */
 export interface DeviceDetailSearch {
   range?: Range
@@ -81,5 +99,18 @@ export function parseDeviceDetailSearch(input: Record<string, unknown>): DeviceD
   if (idx !== undefined) out.imgIdx = idx
   const kind = parseImgKind(input.imgKind)
   if (kind !== undefined) out.imgKind = kind
+  return out
+}
+
+export interface UserDetailSearch extends DeviceDetailSearch {
+  status?: string
+}
+
+export function parseUserDetailSearch(input: Record<string, unknown>): UserDetailSearch {
+  const out: UserDetailSearch = parseDeviceDetailSearch(input)
+  if (typeof input.status === 'string') {
+    const status = input.status.trim().slice(0, 32)
+    if (status) out.status = status
+  }
   return out
 }

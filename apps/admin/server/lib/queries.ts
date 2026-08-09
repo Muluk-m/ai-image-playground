@@ -71,6 +71,11 @@ function toEpochMs(value: unknown): number {
   const parsed = Date.parse(String(value))
   return Number.isNaN(parsed) ? 0 : parsed
 }
+function nullableNumber(value: unknown): number | null {
+  if (value === null || value === undefined) return null
+  const number = Number(value)
+  return Number.isFinite(number) ? number : null
+}
 
 export interface DeviceRow {
   device_id: string
@@ -263,6 +268,111 @@ export interface TaskVolumeBucket {
   total: number
   completed: number
   failed: number
+}
+
+export interface OverviewSummary {
+  total: number
+  completed: number
+  failed: number
+  success_rate: number
+  p50_duration_ms: number | null
+  p95_duration_ms: number | null
+}
+
+export interface OverviewResult {
+  summary: OverviewSummary
+  volume: TaskVolumeBucket[]
+  failures: Array<{ error_type: string; count: number }>
+  models: Array<{ model: string; count: number }>
+}
+
+export async function getOverview(range: Range): Promise<OverviewResult> {
+  const { db } = getHandle()
+  const since = new Date(Date.now() - rangeMs(range))
+  const bucketUnit = range === '1d' ? sql`'hour'` : sql`'day'`
+  const bucketStep = range === '1d' ? sql`INTERVAL '1 hour'` : sql`INTERVAL '1 day'`
+  const bucketStart =
+    range === '1d'
+      ? sql`DATE_TRUNC('hour', NOW()) - INTERVAL '23 hours'`
+      : range === '7d'
+        ? sql`DATE_TRUNC('day', NOW()) - INTERVAL '6 days'`
+        : sql`DATE_TRUNC('day', NOW()) - INTERVAL '29 days'`
+
+  const [summaryRowsRaw, volumeRowsRaw, failureRowsRaw, modelRowsRaw] = await Promise.all([
+    db.execute(sql`
+      SELECT
+        COUNT(*) AS total,
+        COUNT(*) FILTER (WHERE status = 'completed') AS completed,
+        COUNT(*) FILTER (WHERE status = 'failed') AS failed,
+        PERCENTILE_DISC(0.5) WITHIN GROUP (
+          ORDER BY EXTRACT(EPOCH FROM (completed_at - started_at)) * 1000
+        ) FILTER (WHERE started_at IS NOT NULL AND completed_at IS NOT NULL) AS p50_duration_ms,
+        PERCENTILE_DISC(0.95) WITHIN GROUP (
+          ORDER BY EXTRACT(EPOCH FROM (completed_at - started_at)) * 1000
+        ) FILTER (WHERE started_at IS NOT NULL AND completed_at IS NOT NULL) AS p95_duration_ms
+      FROM tasks
+      WHERE submitted_at >= ${since}
+    `),
+    db.execute(sql`
+      WITH buckets AS (
+        SELECT GENERATE_SERIES(${bucketStart}, DATE_TRUNC(${bucketUnit}, NOW()), ${bucketStep}) AS bucket
+      )
+      SELECT
+        EXTRACT(EPOCH FROM b.bucket) * 1000 AS bucket_at,
+        COUNT(t.id) AS total,
+        COUNT(t.id) FILTER (WHERE t.status = 'completed') AS completed,
+        COUNT(t.id) FILTER (WHERE t.status = 'failed') AS failed
+      FROM buckets b
+      LEFT JOIN tasks t
+        ON t.submitted_at >= b.bucket
+       AND t.submitted_at < b.bucket + ${bucketStep}
+      GROUP BY b.bucket
+      ORDER BY b.bucket
+    `),
+    db.execute(sql`
+      SELECT COALESCE(error_type, 'unknown') AS error_type, COUNT(*) AS count
+      FROM tasks
+      WHERE submitted_at >= ${since} AND status = 'failed'
+      GROUP BY COALESCE(error_type, 'unknown')
+      ORDER BY count DESC, error_type
+    `),
+    db.execute(sql`
+      SELECT model, COUNT(*) AS count
+      FROM tasks
+      WHERE submitted_at >= ${since}
+      GROUP BY model
+      ORDER BY count DESC, model
+    `),
+  ])
+
+  const summary = (summaryRowsRaw as unknown as Array<Record<string, unknown>>)[0] ?? {}
+  const completed = Number(summary.completed ?? 0)
+  const failed = Number(summary.failed ?? 0)
+  const terminal = completed + failed
+  return {
+    summary: {
+      total: Number(summary.total ?? 0),
+      completed,
+      failed,
+      success_rate: terminal === 0 ? 0 : completed / terminal,
+      p50_duration_ms: nullableNumber(summary.p50_duration_ms),
+      p95_duration_ms: nullableNumber(summary.p95_duration_ms),
+    },
+    volume: (volumeRowsRaw as unknown as Array<Record<string, unknown>>).map((row) => ({
+      bucket_at: Number(row.bucket_at),
+      total: Number(row.total),
+      completed: Number(row.completed),
+      failed: Number(row.failed),
+    })),
+    failures: (failureRowsRaw as unknown as Array<Record<string, unknown>>).map((row) => ({
+      error_type: String(row.error_type),
+      count: Number(row.count),
+    })),
+    models: (modelRowsRaw as unknown as Array<Record<string, unknown>>).map((row) => ({
+      model: String(row.model),
+      count: Number(row.count),
+    })),
+  }
 }
 
 export interface UserDetailResult {
@@ -524,6 +634,7 @@ export interface TaskDetail extends TaskListItem {
   /** 完整请求体：详情页 / 灯箱用它统计输入图数量、展示完整 prompt。列表项没有这个字段。 */
   request_payload: unknown
   result_meta: { images: Array<{ index: number; mime: string }>; raw_image_urls?: string[] }
+  user_id: string | null
   error_message: string | null
   /** Generated from request_payload.device_id by PostgreSQL. */
   device_id: string | null
@@ -551,6 +662,7 @@ export async function getTask(taskId: string): Promise<TaskDetail | null> {
     prompt: extractPrompt(request_payload),
     n: extractN(request_payload),
     request_payload,
+    user_id: task.user_id,
     error_message: (task as Record<string, unknown>).error_message as string | null,
     result_meta: { images },
     device_id,

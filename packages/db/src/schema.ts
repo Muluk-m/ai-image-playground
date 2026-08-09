@@ -65,6 +65,23 @@ export const user_sessions = pgTable(
   ],
 )
 
+export const operator_audits = pgTable(
+  'operator_audits',
+  {
+    id: text('id').primaryKey(),
+    operator_id: text('operator_id').notNull(),
+    action: text('action').notNull(),
+    target_type: text('target_type').notNull(),
+    target_id: text('target_id').notNull(),
+    details: bunJsonb('details').$type<Record<string, unknown>>().notNull(),
+    created_at: epochMs('created_at').notNull(),
+  },
+  (t) => [
+    index('idx_operator_audits_target').on(t.target_type, t.target_id, t.created_at.desc()),
+    index('idx_operator_audits_created_at').on(t.created_at.desc()),
+  ],
+)
+
 export const tasks = pgTable(
   'tasks',
   {
@@ -123,3 +140,5 @@ export type NewTask = typeof tasks.$inferInsert
 export type User = typeof users.$inferSelect
 export type NewUser = typeof users.$inferInsert
 export type UserSession = typeof user_sessions.$inferSelect
+export type OperatorAudit = typeof operator_audits.$inferSelect
+export type NewOperatorAudit = typeof operator_audits.$inferInsert

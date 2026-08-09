@@ -26,6 +26,18 @@ interface OperationalUser {
   last_login_at: number | null
 }
 
+function operatorAudit(action: string, targetId: string, details: Record<string, unknown>) {
+  return {
+    id: randomUUID(),
+    operator_id: 'admin',
+    action,
+    target_type: 'user',
+    target_id: targetId,
+    details,
+    created_at: Date.now(),
+  }
+}
+
 async function findUser(userId: string): Promise<OperationalUser | null> {
   const [user] = await db
     .select({
@@ -54,13 +66,18 @@ export async function createUser(
   const now = Date.now()
   const id = randomUUID()
   try {
-    await db.insert(schema.users).values({
-      id,
-      username,
-      password_hash: passwordHash,
-      status: 'active',
-      created_at: now,
-      updated_at: now,
+    await db.transaction(async (tx) => {
+      await tx.insert(schema.users).values({
+        id,
+        username,
+        password_hash: passwordHash,
+        status: 'active',
+        created_at: now,
+        updated_at: now,
+      })
+      await tx
+        .insert(schema.operator_audits)
+        .values(operatorAudit('user.create', id, { username }))
     })
   } catch (error) {
     if (error !== null && typeof error === 'object' && 'code' in error && error.code === '23505') {
@@ -89,6 +106,9 @@ export async function setUserStatus(userId: string, status: string): Promise<Ope
     if (status === 'disabled') {
       await tx.delete(schema.user_sessions).where(eq(schema.user_sessions.user_id, userId))
     }
+    await tx
+      .insert(schema.operator_audits)
+      .values(operatorAudit('user.status.update', userId, { status }))
     return true
   })
   if (!changed) throw new UserOperationError('user_not_found')
@@ -109,18 +129,33 @@ export async function resetUserPassword(userId: string, password: string): Promi
       .where(eq(schema.users.id, userId))
       .returning({ id: schema.users.id })
     if (rows.length === 0) return false
-    await tx.delete(schema.user_sessions).where(eq(schema.user_sessions.user_id, userId))
+    const revoked = await tx
+      .delete(schema.user_sessions)
+      .where(eq(schema.user_sessions.user_id, userId))
+      .returning({ token_hash: schema.user_sessions.token_hash })
+    await tx
+      .insert(schema.operator_audits)
+      .values(operatorAudit('user.password.reset', userId, { sessions_revoked: revoked.length }))
     return true
   })
   if (!changed) throw new UserOperationError('user_not_found')
 }
 
 export async function revokeUserSessions(userId: string): Promise<number> {
-  const user = await findUser(userId)
-  if (!user) throw new UserOperationError('user_not_found')
-  const revoked = await db
-    .delete(schema.user_sessions)
-    .where(eq(schema.user_sessions.user_id, userId))
-    .returning({ token_hash: schema.user_sessions.token_hash })
-  return revoked.length
+  return db.transaction(async (tx) => {
+    const [user] = await tx
+      .select({ id: schema.users.id })
+      .from(schema.users)
+      .where(eq(schema.users.id, userId))
+      .limit(1)
+    if (!user) throw new UserOperationError('user_not_found')
+    const revoked = await tx
+      .delete(schema.user_sessions)
+      .where(eq(schema.user_sessions.user_id, userId))
+      .returning({ token_hash: schema.user_sessions.token_hash })
+    await tx
+      .insert(schema.operator_audits)
+      .values(operatorAudit('user.sessions.revoke', userId, { sessions_revoked: revoked.length }))
+    return revoked.length
+  })
 }
