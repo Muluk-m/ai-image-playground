@@ -10,7 +10,7 @@
     "build": "turbo run build",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
-    "lint": "biome check .",
+    "lint": "biome check . && bun run scripts/check-private-boundary.ts",
     "format": "biome format --write .",
     "test:deps:up": "./scripts/infra-compose.sh up",
     "test:deps:down": "./scripts/infra-compose.sh down",
