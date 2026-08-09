@@ -9,6 +9,7 @@ usage() {
   cat >&2 <<'EOF'
 Usage:
   scripts/app-compose.sh build [image]
+  scripts/app-compose.sh build-private [image]
   scripts/app-compose.sh up <project> [env-file]
   scripts/app-compose.sh stop <project> [env-file]
   scripts/app-compose.sh status <project> [env-file]
@@ -25,9 +26,13 @@ command=${1:-}
 [ -n "$command" ] || usage
 shift
 
-if [ "$command" = build ]; then
+if [ "$command" = build ] || [ "$command" = build-private ]; then
   image=${1:-ai-image-playground:local}
-  docker build --tag "$image" "$repo_root"
+  if [ "$command" = build-private ]; then
+    docker build --build-context private-overlay="$repo_root/private" --tag "$image" "$repo_root"
+  else
+    docker build --tag "$image" "$repo_root"
+  fi
   exit 0
 fi
 
@@ -54,6 +59,8 @@ fi
 APP_CONFIG_DIR=$(CDPATH= cd -- "$(dirname -- "$env_file")" && pwd)
 APP_ENV_FILE=$APP_CONFIG_DIR/$(basename -- "$env_file")
 env_file=$APP_ENV_FILE
+MIGRATOR_ENV_FILE=${MIGRATOR_ENV_FILE:-$APP_CONFIG_DIR/migrate.env}
+export MIGRATOR_ENV_FILE
 export APP_ENV_FILE APP_CONFIG_DIR
 
 compose() {
@@ -63,6 +70,13 @@ compose() {
     --file "$compose_file" \
     "$@"
 }
+require_migrator_env() {
+  if [ ! -f "$MIGRATOR_ENV_FILE" ]; then
+    echo "Migrator environment file not found: $MIGRATOR_ENV_FILE" >&2
+    echo "Copy deploy/migrate.env.example beside app.env and replace the placeholder." >&2
+    exit 1
+  fi
+}
 
 activate_backend_then_static() {
   compose up --detach --wait "$@" dependency-check bff worker admin
@@ -71,6 +85,7 @@ activate_backend_then_static() {
 
 case "$command" in
   up)
+    require_migrator_env
     activate_backend_then_static
     ;;
   stop|down)
@@ -80,6 +95,7 @@ case "$command" in
     compose ps
     ;;
   rollback)
+    require_migrator_env
     APP_IMAGE=$rollback_image
     export APP_IMAGE
     activate_backend_then_static --force-recreate
