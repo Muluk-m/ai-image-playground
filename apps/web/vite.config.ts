@@ -73,6 +73,9 @@ export default defineConfig(({ command }) => {
       __APP_VERSION__: JSON.stringify(pkg.version),
       __DEV_PROXY_CONFIG__: JSON.stringify(devProxyConfig),
     },
+    resolve: {
+      dedupe: ['react', 'react-dom'],
+    },
     server: {
       host: true,
       proxy: Object.keys(proxy).length ? proxy : undefined,
