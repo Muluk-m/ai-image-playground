@@ -2,13 +2,16 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, mock } from 'bun
 import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
 import { eq } from 'drizzle-orm'
-import { runPrivateMigrations } from '../../lib/private-overlay'
+import {
+  _setPrivateBffOverlayForTesting,
+  EMPTY_PRIVATE_BFF_OVERLAY,
+} from '../../lib/private-overlay'
 import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
 
 const TEST_DB = await resetTestDatabase('bff_routes')
-await runPrivateMigrations(TEST_DB)
 
 process.env.PORT = '0'
+_setPrivateBffOverlayForTesting(EMPTY_PRIVATE_BFF_OVERLAY)
 process.env.UPSTREAM_BASE_URL = 'http://localhost:9999'
 process.env.UPSTREAM_API_KEY = 'test'
 process.env.DATABASE_URL = TEST_DB

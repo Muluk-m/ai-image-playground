@@ -1,14 +1,17 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it, mock } from 'bun:test'
 import { resetTestDatabase } from '@image-playground/db/testing'
 import { and, eq } from 'drizzle-orm'
-import { runPrivateMigrations } from '../../lib/private-overlay'
+import {
+  _setPrivateBffOverlayForTesting,
+  EMPTY_PRIVATE_BFF_OVERLAY,
+} from '../../lib/private-overlay'
 import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
 
 process.env.UPSTREAM_BASE_URL = 'http://localhost:9999'
 process.env.UPSTREAM_API_KEY = 'test-key'
 const databaseUrl = await resetTestDatabase('bff_task_scheduler')
-await runPrivateMigrations(databaseUrl)
 process.env.DATABASE_URL = databaseUrl
+_setPrivateBffOverlayForTesting(EMPTY_PRIVATE_BFF_OVERLAY)
 process.env.PORT = '0'
 
 // Dynamic imports keep environment setup ahead of modules that capture configuration.
