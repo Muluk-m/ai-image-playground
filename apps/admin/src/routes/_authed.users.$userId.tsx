@@ -20,6 +20,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { apiClient } from '@/lib/api-client'
 import { useUserDetail } from '@/lib/queries'
+import { PrivateAdminUserDetailPanel } from '@/lib/private-overlay'
 import { parseUserDetailSearch } from '@/lib/search-params'
 import type { AdminUserRow } from '@/lib/types'
 
@@ -191,6 +192,11 @@ function UserDetailPage() {
               />
             </div>
           </section>
+
+          <PrivateAdminUserDetailPanel
+            userId={detail.user.id}
+            username={detail.user.username}
+          />
 
           {detail.volume ? (
             <section className="rounded-xl border bg-card/40 p-4">

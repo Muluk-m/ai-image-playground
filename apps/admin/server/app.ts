@@ -6,6 +6,7 @@ import { authRoutes } from './routes/auth'
 import { devicesRoutes } from './routes/devices'
 import { imagesRoutes } from './routes/images'
 import { overviewRoutes } from './routes/overview'
+import { privateRoutes } from './routes/private'
 import { tasksRoutes } from './routes/tasks'
 import { usersRoutes } from './routes/users'
 import { isApiPath, serveSpaFallback, serveStatic } from './static'
@@ -28,6 +29,7 @@ export const app = new Elysia()
   .use(overviewRoutes)
   .use(tasksRoutes)
   .use(imagesRoutes)
+  .use(privateRoutes)
   .use(usersRoutes)
   // 静态托管：API 路由之后再 hook。/api/* 与 /health 跳过；其它路径先试静态文件，
   // 命中即返；未命中走 onError 的 SPA fallback（让 client-side router 接管）。
