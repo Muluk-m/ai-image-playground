@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, it } from 'bun:test'
 import { createDb } from '@image-playground/db'
 import { resetTestDatabase } from '@image-playground/db/testing'
-import { claimQueuedTask } from '../db/claim-task'
+import { claimQueuedTask } from '../../db/claim-task'
 
 const databaseUrl = await resetTestDatabase('bff_claim_concurrency')
 const first = createDb(databaseUrl)
