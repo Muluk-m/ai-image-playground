@@ -39,6 +39,15 @@ const submitBodySchema = t.Object({
 function isQueueProvider(value: string): value is QueueProvider {
   return value === 'openai-compat' || value === 'gemini'
 }
+async function findTaskByIdempotencyKey(clientRequestId: string, userId: string | null) {
+  const ownerCondition = userId ? eq(schema.tasks.user_id, userId) : isNull(schema.tasks.user_id)
+  const [task] = await db
+    .select({ id: schema.tasks.id, submitted_at: schema.tasks.submitted_at })
+    .from(schema.tasks)
+    .where(and(eq(schema.tasks.client_request_id, clientRequestId), ownerCondition))
+    .limit(1)
+  return task
+}
 
 export const submitRoutes = new Elysia()
   .use(requireUser)
@@ -59,14 +68,10 @@ export const submitRoutes = new Elysia()
 
       // 幂等命中（client_request_id 已存在）走优先返回，避免重复扣配额。
       if (body.client_request_id) {
-        const ownerCondition = authUser
-          ? eq(schema.tasks.user_id, authUser.id)
-          : isNull(schema.tasks.user_id)
-        const [existing] = await db
-          .select({ id: schema.tasks.id, submitted_at: schema.tasks.submitted_at })
-          .from(schema.tasks)
-          .where(and(eq(schema.tasks.client_request_id, body.client_request_id), ownerCondition))
-          .limit(1)
+        const existing = await findTaskByIdempotencyKey(
+          body.client_request_id,
+          authUser?.id ?? null,
+        )
         if (existing) {
           return { request_id: existing.id, status: 'queued', submitted_at: existing.submitted_at }
         }
@@ -176,14 +181,10 @@ export const submitRoutes = new Elysia()
 
       if (outcome.kind === 'idempotency_conflict') {
         if (body.client_request_id) {
-          const ownerCondition = authUser
-            ? eq(schema.tasks.user_id, authUser.id)
-            : isNull(schema.tasks.user_id)
-          const [existing] = await db
-            .select({ id: schema.tasks.id, submitted_at: schema.tasks.submitted_at })
-            .from(schema.tasks)
-            .where(and(eq(schema.tasks.client_request_id, body.client_request_id), ownerCondition))
-            .limit(1)
+          const existing = await findTaskByIdempotencyKey(
+            body.client_request_id,
+            authUser?.id ?? null,
+          )
           if (existing) {
             return {
               request_id: existing.id,

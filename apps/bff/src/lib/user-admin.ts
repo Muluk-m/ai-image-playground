@@ -39,20 +39,13 @@ function operatorAudit(action: string, targetId: string, details: Record<string,
   }
 }
 
-async function findUser(userId: string): Promise<OperationalUser | null> {
-  const [user] = await db
-    .select({
-      id: schema.users.id,
-      username: schema.users.username,
-      status: schema.users.status,
-      created_at: schema.users.created_at,
-      updated_at: schema.users.updated_at,
-      last_login_at: schema.users.last_login_at,
-    })
-    .from(schema.users)
-    .where(eq(schema.users.id, userId))
-    .limit(1)
-  return user ?? null
+const operationalUserColumns = {
+  id: schema.users.id,
+  username: schema.users.username,
+  status: schema.users.status,
+  created_at: schema.users.created_at,
+  updated_at: schema.users.updated_at,
+  last_login_at: schema.users.last_login_at,
 }
 
 export async function createUser(
@@ -67,18 +60,24 @@ export async function createUser(
   const now = Date.now()
   const id = randomUUID()
   const taskHooks = (await loadPrivateBffOverlay()).taskHooks
+  let user: OperationalUser
   try {
-    await db.transaction(async (tx) => {
-      await tx.insert(schema.users).values({
-        id,
-        username,
-        password_hash: passwordHash,
-        status: 'active',
-        created_at: now,
-        updated_at: now,
-      })
+    user = await db.transaction(async (tx) => {
+      const [created] = await tx
+        .insert(schema.users)
+        .values({
+          id,
+          username,
+          password_hash: passwordHash,
+          status: 'active',
+          created_at: now,
+          updated_at: now,
+        })
+        .returning(operationalUserColumns)
+      if (!created) throw new Error('created user missing')
       await tx.insert(schema.operator_audits).values(operatorAudit('user.create', id, { username }))
       await taskHooks.onUserCreated({ tx, userId: id })
+      return created
     })
   } catch (error) {
     if (error !== null && typeof error === 'object' && 'code' in error && error.code === '23505') {
@@ -87,8 +86,6 @@ export async function createUser(
     throw error
   }
 
-  const user = await findUser(id)
-  if (!user) throw new Error('created user missing')
   return user
 }
 
@@ -98,25 +95,22 @@ export async function setUserStatus(userId: string, status: string): Promise<Ope
   }
 
   const changed = await db.transaction(async (tx) => {
-    const rows = await tx
+    const [user] = await tx
       .update(schema.users)
       .set({ status, updated_at: Date.now() })
       .where(eq(schema.users.id, userId))
-      .returning({ id: schema.users.id })
-    if (rows.length === 0) return false
+      .returning(operationalUserColumns)
+    if (!user) return null
     if (status === 'disabled') {
       await tx.delete(schema.user_sessions).where(eq(schema.user_sessions.user_id, userId))
     }
     await tx
       .insert(schema.operator_audits)
       .values(operatorAudit('user.status.update', userId, { status }))
-    return true
+    return user
   })
   if (!changed) throw new UserOperationError('user_not_found')
-
-  const user = await findUser(userId)
-  if (!user) throw new UserOperationError('user_not_found')
-  return user
+  return changed
 }
 
 export async function resetUserPassword(userId: string, password: string): Promise<void> {
