@@ -4,6 +4,8 @@ import { config } from '../config'
 import { db, schema } from '../db/client'
 import { extractMeta, resolveImageBytesRef } from '../lib/extractImages'
 import { jsonResponse } from '../lib/gzipResponse'
+import { isStoredImageRef } from '../lib/imageArchive'
+import { objectStore } from '../lib/objectStore'
 import { asQueueProvider } from '../lib/queueProvider'
 import { taskAccessWhere } from '../lib/task-access'
 import { requireUserOrService } from '../lib/user-auth'
@@ -83,6 +85,13 @@ export const resultRoutes = new Elysia()
         const bytes = Buffer.from(ref.data, 'base64')
         return new Response(bytes, { headers })
       }
+      if (ref.kind === 'object') {
+        try {
+          return new Response(await objectStore().read(ref.data), { headers })
+        } catch {
+          return status(502, { error: 'object_storage_error' })
+        }
+      }
       // kind === 'url'：上游返回了 http 地址，BFF 现拉回来透传给客户端
       const upstream = await fetch(ref.data)
       if (!upstream.ok || !upstream.body) {
@@ -116,12 +125,18 @@ export const resultRoutes = new Elysia()
       const input = resolveInputImage(task.provider, task.request_payload, idx)
       if (!input) return status(404, { error: 'image_not_found' })
 
-      return new Response(Buffer.from(input.base64, 'base64'), {
-        headers: {
-          'content-type': input.mime,
-          'cache-control': `${config.auth.enabled ? 'private' : 'public'}, max-age=31536000, immutable`,
-        },
-      })
+      const headers = {
+        'content-type': input.mime,
+        'cache-control': `${config.auth.enabled ? 'private' : 'public'}, max-age=31536000, immutable`,
+      } as const
+      if (input.kind === 'b64') {
+        return new Response(Buffer.from(input.data, 'base64'), { headers })
+      }
+      try {
+        return new Response(await objectStore().read(input.data), { headers })
+      } catch {
+        return status(502, { error: 'object_storage_error' })
+      }
     },
     {
       params: t.Object({
@@ -131,20 +146,22 @@ export const resultRoutes = new Elysia()
     },
   )
 
-interface InputImage {
-  base64: string
-  mime: string
-}
+type InputImage =
+  | { kind: 'b64'; data: string; mime: string }
+  | { kind: 'object'; data: string; mime: string }
 
 function resolveInputImage(provider: string, payload: unknown, index: number): InputImage | null {
   if (!payload || typeof payload !== 'object') return null
   const request = payload as Record<string, unknown>
-  const archived: string[] = Array.isArray(request.input_images)
-    ? request.input_images.filter((value): value is string => typeof value === 'string')
-    : []
-  if (typeof request.mask === 'string') archived.push(request.mask)
-  if (archived.length > 0) return parseDataUrl(archived[index])
-
+  const archived: unknown[] = Array.isArray(request.input_images) ? [...request.input_images] : []
+  if (request.mask !== undefined) archived.push(request.mask)
+  if (archived.length > 0) {
+    const value = archived[index]
+    if (isStoredImageRef(value)) {
+      return { kind: 'object', data: value.object, mime: value.mime }
+    }
+    return typeof value === 'string' ? parseDataUrl(value) : null
+  }
   if (provider !== 'gemini' || !Array.isArray(request.contents)) return null
   const inlineImages: InputImage[] = []
   for (const content of request.contents) {
@@ -164,7 +181,7 @@ function resolveInputImage(provider: string, payload: unknown, index: number): I
             ? inline.mime_type
             : undefined
       if (typeof encoded === 'string' && typeof mime === 'string') {
-        inlineImages.push({ base64: encoded, mime })
+        inlineImages.push({ kind: 'b64', data: encoded, mime })
       }
     }
   }
@@ -176,7 +193,8 @@ function parseDataUrl(dataUrl: string | undefined): InputImage | null {
   const match = /^data:([^;,]+);base64,(.+)$/i.exec(dataUrl)
   if (!match) return null
   return {
-    base64: match[2]!,
+    kind: 'b64',
+    data: match[2]!,
     mime: match[1]!,
   }
 }

@@ -1,8 +1,9 @@
 import { File } from 'node:buffer'
-import { QUEUE_TIMEOUTS, type QueueProvider, type SubmitRequest } from '@image-playground/shared'
+import { QUEUE_TIMEOUTS, type QueueProvider } from '@image-playground/shared'
 import { Agent, FormData, fetch as undiciFetch } from 'undici'
 import { config } from '../config'
 import { getChannels } from './channels'
+import type { HydratedSubmitRequest } from './imageArchive'
 import { log } from './logger'
 import { resolveApiKey } from './resolveApiKey'
 
@@ -52,7 +53,7 @@ function resolveUpstream(
 export interface UpstreamCallParams {
   provider: QueueProvider
   model: string
-  request: SubmitRequest
+  request: HydratedSubmitRequest
   signal?: AbortSignal
 }
 
@@ -257,7 +258,10 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
  * quality / n 上游不识别 → 不传（n 由 callUpstream fan-out 实现）。
  * 新增的 OpenAI / Gemini 参数也不传，避免上游拒绝或静默忽略未知字段。
  */
-function buildDirectChannelBody(model: string, request: SubmitRequest): Record<string, unknown> {
+function buildDirectChannelBody(
+  model: string,
+  request: HydratedSubmitRequest,
+): Record<string, unknown> {
   const { extra_body: extraBody, ...extraTop } = (request.extra ?? {}) as {
     extra_body?: Record<string, unknown>
     [k: string]: unknown
@@ -273,7 +277,7 @@ function buildDirectChannelBody(model: string, request: SubmitRequest): Record<s
   }
 }
 
-function buildOpenAIBody(model: string, request: SubmitRequest): Record<string, unknown> {
+function buildOpenAIBody(model: string, request: HydratedSubmitRequest): Record<string, unknown> {
   return {
     model,
     prompt: request.prompt,
@@ -289,7 +293,7 @@ function buildOpenAIBody(model: string, request: SubmitRequest): Record<string, 
   }
 }
 
-function buildOpenAIEditFormData(model: string, request: SubmitRequest): FormData {
+function buildOpenAIEditFormData(model: string, request: HydratedSubmitRequest): FormData {
   const form = new FormData()
   form.append('model', model)
   form.append('prompt', request.prompt)
@@ -325,7 +329,7 @@ function dataUrlToFile(dataUrl: string, filename: string): File {
   return new File([bytes], filename, { type: mime })
 }
 
-function buildGeminiBody(request: SubmitRequest): Record<string, unknown> {
+function buildGeminiBody(request: HydratedSubmitRequest): Record<string, unknown> {
   const parts: Array<Record<string, unknown>> = [{ text: request.prompt }]
   for (const dataUrl of request.input_images ?? []) {
     const m = dataUrl.match(/^data:([^;,]+);base64,(.*)$/i)

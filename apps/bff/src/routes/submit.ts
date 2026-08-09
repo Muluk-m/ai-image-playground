@@ -1,10 +1,15 @@
-import type { QueueProvider } from '@image-playground/shared'
-import { DAILY_QUOTA_LIMIT } from '@image-playground/shared'
+import {
+  DAILY_QUOTA_LIMIT,
+  type PersistedSubmitRequest,
+  type QueueProvider,
+} from '@image-playground/shared'
 import { and, eq, isNull } from 'drizzle-orm'
 import { Elysia, t } from 'elysia'
 import { config } from '../config'
 import { db, schema } from '../db/client'
-import { tryConsumeQuota } from '../lib/quota'
+import { archiveInputImages, ObjectStorageError } from '../lib/imageArchive'
+import { objectStore } from '../lib/objectStore'
+import { tryConsumeQuotaInTransaction } from '../lib/quota'
 import { requireUser } from '../lib/user-auth'
 
 const submitBodySchema = t.Object({
@@ -69,10 +74,65 @@ export const submitRoutes = new Elysia()
         }
       }
 
-      // 配额扣减：先扣后建。失败 → 429，不写 tasks。
+      const id = crypto.randomUUID()
+      let requestPayload: PersistedSubmitRequest
+      try {
+        requestPayload = await archiveInputImages(id, body)
+      } catch (error) {
+        try {
+          await objectStore().deletePrefix(`${id}/in/`)
+        } catch {
+          // No task row references this prefix. Bucket lifecycle cleanup removes any orphan.
+        }
+        if (error instanceof TypeError) {
+          return status(400, { error: 'invalid_input_image', message: error.message })
+        }
+        const message =
+          error instanceof ObjectStorageError
+            ? error.message
+            : 'Object storage input archive failed'
+        return status(503, { error: 'object_storage_error', message })
+      }
+
       const n = body.n ?? 1
-      const quota = await tryConsumeQuota(body.device_id, n)
-      if (!quota.ok) {
+      const now = Date.now()
+      const outcome = db.transaction((tx) => {
+        const inserted = tx
+          .insert(schema.tasks)
+          .values({
+            id,
+            provider,
+            model,
+            status: 'queued',
+            request_payload: requestPayload,
+            submitted_at: now,
+            user_id: authUser?.id ?? null,
+            client_request_id: body.client_request_id ?? null,
+          })
+          .onConflictDoNothing()
+          .returning({ id: schema.tasks.id, submitted_at: schema.tasks.submitted_at })
+          .all()
+
+        if (inserted.length === 0) return { kind: 'idempotency_conflict' as const }
+
+        const quota = tryConsumeQuotaInTransaction(tx, body.device_id, n)
+        if (!quota.ok) {
+          tx.delete(schema.tasks).where(eq(schema.tasks.id, id)).run()
+          return { kind: 'quota_exceeded' as const, quota }
+        }
+        return { kind: 'inserted' as const, task: inserted[0]! }
+      })
+
+      if (outcome.kind !== 'inserted') {
+        try {
+          await objectStore().deletePrefix(`${id}/in/`)
+        } catch {
+          // The losing task has no row. Any undeleted prefix is a harmless lifecycle orphan.
+        }
+      }
+
+      if (outcome.kind === 'quota_exceeded') {
+        const quota = outcome.quota
         return status(429, {
           error: 'daily_quota_exceeded',
           limit: DAILY_QUOTA_LIMIT,
@@ -81,39 +141,32 @@ export const submitRoutes = new Elysia()
         })
       }
 
-      const id = crypto.randomUUID()
-      const now = Date.now()
-      const inserted = await db
-        .insert(schema.tasks)
-        .values({
-          id,
-          provider,
-          model,
-          status: 'queued',
-          request_payload: body,
-          submitted_at: now,
-          user_id: authUser?.id ?? null,
-          client_request_id: body.client_request_id ?? null,
-        })
-        .onConflictDoNothing()
-        .returning({ id: schema.tasks.id, submitted_at: schema.tasks.submitted_at })
-
-      if (inserted.length === 0 && body.client_request_id) {
-        // 极端并发：上面 SELECT 没命中但 INSERT 冲突——重查兜底
-        const ownerCondition = config.auth.enabled
-          ? eq(schema.tasks.user_id, authUser!.id)
-          : isNull(schema.tasks.user_id)
-        const [existing] = await db
-          .select({ id: schema.tasks.id, submitted_at: schema.tasks.submitted_at })
-          .from(schema.tasks)
-          .where(and(eq(schema.tasks.client_request_id, body.client_request_id), ownerCondition))
-          .limit(1)
-        if (existing)
-          return { request_id: existing.id, status: 'queued', submitted_at: existing.submitted_at }
+      if (outcome.kind === 'idempotency_conflict') {
+        if (body.client_request_id) {
+          const ownerCondition = config.auth.enabled
+            ? eq(schema.tasks.user_id, authUser!.id)
+            : isNull(schema.tasks.user_id)
+          const [existing] = await db
+            .select({ id: schema.tasks.id, submitted_at: schema.tasks.submitted_at })
+            .from(schema.tasks)
+            .where(and(eq(schema.tasks.client_request_id, body.client_request_id), ownerCondition))
+            .limit(1)
+          if (existing) {
+            return {
+              request_id: existing.id,
+              status: 'queued',
+              submitted_at: existing.submitted_at,
+            }
+          }
+        }
         return status(409, { error: 'idempotency_key_conflict' })
       }
 
-      return { request_id: id, status: 'queued', submitted_at: now }
+      return {
+        request_id: outcome.task.id,
+        status: 'queued',
+        submitted_at: outcome.task.submitted_at,
+      }
     },
     {
       params: t.Object({

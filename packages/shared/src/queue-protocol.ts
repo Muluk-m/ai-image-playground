@@ -10,6 +10,12 @@ export type QueueProvider = 'openai-compat' | 'gemini'
 
 export type TaskStatus = 'queued' | 'in_progress' | 'completed' | 'failed' | 'cancelled'
 
+/** Server-side persisted image reference. Queue clients continue to submit data URL strings. */
+export interface StoredImageRef {
+  object: string
+  mime: string
+}
+
 /**
  * 失败原因分类。集中定义避免分散字符串笔误。
  * - `upstream_timeout`: BFF 自己的 AbortController（UPSTREAM_HARD_TIMEOUT_MS）切的
@@ -17,6 +23,7 @@ export type TaskStatus = 'queued' | 'in_progress' | 'completed' | 'failed' | 'ca
  * - `upstream_error`: 上游 HTTP 4xx/5xx 或 socket 异常关闭等其它 fetch 抛错
  * - `upstream_no_image`: 上游 HTTP 200 但解析不出图（Gemini 安全策略 / OpenAI 异常 envelope）
  * - `interrupted`: BFF 重启时被打断（startup recovery 标记）
+ * - `object_storage_error`: object storage read/write failed after bounded local retries
  * - `unknown`: 兜底（理论上不应出现）
  */
 export type TaskErrorType =
@@ -25,6 +32,7 @@ export type TaskErrorType =
   | 'upstream_error'
   | 'upstream_no_image'
   | 'interrupted'
+  | 'object_storage_error'
   | 'unknown'
 
 /**
@@ -54,11 +62,10 @@ export interface SubmitRequest {
   /** Gemini thinkingConfig 使用的思考级别。 */
   thinking_level?: string
   n?: number
-  /** 参考图 data URL 数组（base64），上游处理时 BFF 透传 */
+  /** Reference image data URLs submitted by queue clients. */
   input_images?: string[]
   /**
-   * OpenAI mask edit 的遮罩 data URL（base64）。BFF 转 multipart 字段 mask。
-   * 仅 OpenAI 走 /v1/images/edits 时生效；Gemini 路径忽略此字段。
+   * OpenAI mask edit data URL. Only the server's persisted representation uses an object ref.
    */
   mask?: string
   /** 额外原样转发给上游的请求体字段（如 OpenAI 的 response_format 等） */
@@ -76,6 +83,12 @@ export interface SubmitRequest {
    * task 把 BFF/web 全部传上 device_id 后可考虑切到必填。
    */
   device_id?: string
+}
+
+/** BFF-only database representation after input pixel bytes move to object storage. */
+export type PersistedSubmitRequest = Omit<SubmitRequest, 'input_images' | 'mask'> & {
+  input_images?: StoredImageRef[]
+  mask?: StoredImageRef
 }
 
 export interface SubmitResponse {

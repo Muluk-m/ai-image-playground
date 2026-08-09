@@ -1,9 +1,6 @@
 import type { QueueProvider, ResultImageMeta } from '@image-playground/shared'
 
-/**
- * 从上游原始响应 payload 抽出图片元数据，不解码 base64 像素字节。
- * `b64ProviderRef` 返回一个 closure，提供给 binary endpoint 按 index 提取字节。
- */
+/** Extract image metadata without decoding pixel bytes. */
 export interface ExtractedResult {
   images: ResultImageMeta[]
   /** OpenAI response_format=url 时上游给的 http URL 列表（前端做合规展示用） */
@@ -12,10 +9,9 @@ export interface ExtractedResult {
   actual_params?: { size?: string; quality?: string; output_format?: string }
 }
 
-interface ImageBytesRef {
-  /** 'b64' = base64 in payload；'url' = 上游 http url，BFF 需现拉 */
-  kind: 'b64' | 'url'
-  /** kind=b64 时是 base64 字符串；kind=url 时是 url */
+export interface ImageBytesRef {
+  kind: 'b64' | 'url' | 'object'
+  /** Base64 data, an upstream URL, or an object-store key according to kind. */
   data: string
   mime: string
 }
@@ -109,12 +105,18 @@ function extractOpenAI(payload: unknown): ExtractedResult {
   for (let i = 0; i < data.length; i++) {
     const item = data[i]!
     const revised = typeof item.revised_prompt === 'string' ? item.revised_prompt : undefined
-    const url = typeof item.url === 'string' ? item.url : undefined
-    if (url && /^https?:\/\//i.test(url)) rawUrls.push(url)
-    if (typeof item.b64_json === 'string' && item.b64_json) {
-      images.push({ index: images.length, mime: 'image/png', revised_prompt: revised })
-    } else if (url) {
-      images.push({ index: images.length, mime: 'image/png', revised_prompt: revised })
+    const url =
+      typeof item.url === 'string'
+        ? item.url
+        : typeof item.source_url === 'string'
+          ? item.source_url
+          : undefined
+    const validUrl = url && /^https?:\/\//i.test(url) ? url : undefined
+    if (validUrl) rawUrls.push(validUrl)
+    const object = typeof item.object === 'string' ? item.object : undefined
+    const mime = typeof item.mime === 'string' ? item.mime : 'image/png'
+    if ((typeof item.b64_json === 'string' && item.b64_json) || object || validUrl) {
+      images.push({ index: images.length, mime, revised_prompt: revised })
     }
   }
   return {
@@ -137,20 +139,30 @@ function pickActualOpenAI(
 
 function resolveOpenAIBytes(payload: unknown, index: number): ImageBytesRef | null {
   const p = payload as { data?: Array<Record<string, unknown>> } | null
-  const item = p?.data?.[index]
-  if (!item) return null
-  if (typeof item.b64_json === 'string' && item.b64_json) {
-    return { kind: 'b64', data: item.b64_json, mime: 'image/png' }
-  }
-  if (typeof item.url === 'string' && /^https?:\/\//i.test(item.url)) {
-    return { kind: 'url', data: item.url, mime: 'image/png' }
+  let count = 0
+  for (const item of p?.data ?? []) {
+    let ref: ImageBytesRef | null = null
+    if (typeof item.object === 'string' && item.object) {
+      ref = {
+        kind: 'object',
+        data: item.object,
+        mime: typeof item.mime === 'string' ? item.mime : 'image/png',
+      }
+    } else if (typeof item.b64_json === 'string' && item.b64_json) {
+      ref = { kind: 'b64', data: item.b64_json, mime: 'image/png' }
+    } else if (typeof item.url === 'string' && /^https?:\/\//i.test(item.url)) {
+      ref = { kind: 'url', data: item.url, mime: 'image/png' }
+    }
+    if (!ref) continue
+    if (count === index) return ref
+    count++
   }
   return null
 }
 
 interface GeminiPart {
   text?: string
-  inlineData?: { mimeType?: string; data?: string }
+  inlineData?: { mimeType?: string; data?: string; object?: string }
 }
 
 function extractGemini(payload: unknown): ExtractedResult {
@@ -165,7 +177,7 @@ function extractGemini(payload: unknown): ExtractedResult {
         .join('\n')
         .trim() || undefined
     for (const part of parts) {
-      if (!part.inlineData?.data) continue
+      if (!part.inlineData?.data && !part.inlineData?.object) continue
       images.push({
         index: images.length,
         mime: part.inlineData.mimeType || 'image/png',
@@ -181,12 +193,22 @@ function resolveGeminiBytes(payload: unknown, index: number): ImageBytesRef | nu
   let count = 0
   for (const candidate of p?.candidates ?? []) {
     for (const part of candidate.content?.parts ?? []) {
-      if (!part.inlineData?.data) continue
+      const inlineData = part.inlineData
+      if (!inlineData?.data && !inlineData?.object) continue
       if (count === index) {
+        if (inlineData.object) {
+          return {
+            kind: 'object',
+            data: inlineData.object,
+            mime: inlineData.mimeType || 'image/png',
+          }
+        }
+        const data = inlineData.data
+        if (!data) continue
         return {
           kind: 'b64',
-          data: part.inlineData.data,
-          mime: part.inlineData.mimeType || 'image/png',
+          data,
+          mime: inlineData.mimeType || 'image/png',
         }
       }
       count++
