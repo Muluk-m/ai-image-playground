@@ -58,9 +58,9 @@ export const EMPTY_PRIVATE_BFF_OVERLAY: PrivateBffOverlay = Object.freeze({
 const privateEntryUrl = new URL('../../../../private/apps/bff/index.ts', import.meta.url)
 let overlayPromise: Promise<PrivateBffOverlay> | null = null
 
-async function loadOverlay(): Promise<PrivateBffOverlay> {
-  if (!(await Bun.file(privateEntryUrl).exists())) return EMPTY_PRIVATE_BFF_OVERLAY
-  const privateModule: PrivateBffModule = await import(privateEntryUrl.href)
+async function loadOverlay(entryUrl: URL): Promise<PrivateBffOverlay> {
+  if (!(await Bun.file(entryUrl).exists())) return EMPTY_PRIVATE_BFF_OVERLAY
+  const privateModule: PrivateBffModule = await import(entryUrl.href)
 
   if (!(privateModule.privateBffRoutes instanceof Elysia)) {
     throw new Error('private/apps/bff/index.ts must export privateBffRoutes as an Elysia plugin')
@@ -81,7 +81,8 @@ async function loadOverlay(): Promise<PrivateBffOverlay> {
   })
 }
 
-export function loadPrivateBffOverlay(): Promise<PrivateBffOverlay> {
-  overlayPromise ??= loadOverlay()
+export function loadPrivateBffOverlay(entryUrl?: URL): Promise<PrivateBffOverlay> {
+  if (entryUrl) return loadOverlay(entryUrl)
+  overlayPromise ??= loadOverlay(privateEntryUrl)
   return overlayPromise
 }
