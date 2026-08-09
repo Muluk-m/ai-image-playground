@@ -10,7 +10,7 @@ describe('verifySchema', () => {
     await expect(verifySchema(databaseUrl)).resolves.toEqual({
       tables: EXPECTED_TABLES.length,
       indexes: EXPECTED_INDEXES.length,
-      migrations: 3,
+      migrations: 4,
     })
   })
 

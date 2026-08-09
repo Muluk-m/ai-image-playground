@@ -3,6 +3,7 @@ import { sql } from 'drizzle-orm'
 import {
   check,
   customType,
+  date,
   index,
   integer,
   pgTable,
@@ -130,7 +131,7 @@ export const daily_quota = pgTable(
   'daily_quota',
   {
     device_id: text('device_id').notNull(),
-    date: text('date').notNull(),
+    date: date('date', { mode: 'string' }).notNull(),
     count: integer('count').notNull().default(0),
   },
   (t) => [primaryKey({ columns: [t.device_id, t.date] })],
