@@ -8,7 +8,10 @@
     "dev": "vite",
     "dev:server": "bun run --watch server/index.ts",
     "start": "bun run server/index.ts",
+    "routes:generate": "bun run scripts/generate-route-tree.ts",
+    "prebuild": "pnpm routes:generate",
     "build": "tsc -b && vite build",
+    "pretypecheck": "pnpm routes:generate",
     "typecheck": "tsc -b",
     "test": "vitest run && bun run ../../scripts/run-bun-tests-isolated.ts server",
     "test:server": "bun run ../../scripts/run-bun-tests-isolated.ts server",
@@ -35,6 +38,7 @@
     "tailwind-merge": "^2.6.0"
   },
   "devDependencies": {
+    "@tanstack/router-generator": "^1.167.1",
     "@tanstack/router-vite-plugin": "^1.95.1",
     "@testing-library/dom": "^10.4.0",
     "@testing-library/jest-dom": "^6.6.3",
