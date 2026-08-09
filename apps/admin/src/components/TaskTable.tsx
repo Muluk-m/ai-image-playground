@@ -66,7 +66,7 @@ export function TaskTable({ tasks, hasNextPage, isFetchingNextPage, onLoadMore }
         <div className="w-[110px] shrink-0">状态</div>
         <div className="w-[140px] shrink-0">模型</div>
         <div className="min-w-0 flex-1">Prompt</div>
-        <div className="w-[48px] shrink-0 text-right">n</div>
+        <div className="w-[48px] shrink-0 text-right">调用</div>
         <div className="w-[72px] shrink-0 text-right">耗时</div>
         <div className="w-[96px] shrink-0">ID</div>
       </div>
@@ -110,7 +110,7 @@ export function TaskTable({ tasks, hasNextPage, isFetchingNextPage, onLoadMore }
                   <PromptCell text={t.prompt} />
                 </div>
                 <div className="w-[48px] shrink-0 text-right font-mono text-xs tabular-nums">
-                  {t.n ?? '—'}
+                  {t.upstream_invocation_count}
                 </div>
                 <div className="w-[72px] shrink-0 text-right font-mono text-xs tabular-nums">
                   {duration(t.started_at, t.completed_at)}

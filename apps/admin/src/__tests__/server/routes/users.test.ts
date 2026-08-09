@@ -72,6 +72,7 @@ await writer.db.insert(writer.schema.tasks).values([
     submitted_at: now - 30 * 60_000,
     completed_at: now - 29 * 60_000,
     user_id: 'user-existing',
+    upstream_invocation_count: 1,
   },
   {
     id: 'user-task-failed',
@@ -82,6 +83,7 @@ await writer.db.insert(writer.schema.tasks).values([
     submitted_at: now - 20 * 60_000,
     completed_at: now - 19 * 60_000,
     user_id: 'user-existing',
+    upstream_invocation_count: 3,
   },
 ])
 
@@ -163,7 +165,7 @@ describe('admin user routes', () => {
         completed_at: expect.any(Number),
         error_type: null,
         prompt: 'failed image',
-        n: null,
+        upstream_invocation_count: 3,
         attempt_count: 0,
       },
     ])
