@@ -6,7 +6,7 @@ process.env.BFF_INTERNAL_URL = 'http://bff.test:37377'
 process.env.DATABASE_URL = process.env.TEST_DATABASE_URL ?? ''
 process.env.INTERNAL_API_TOKEN = 'fixture-service-credential-alpha'
 
-const { assertOperatorConsoleEnabled } = await import('../config')
+const { assertOperatorConsoleEnabled } = await import('../../../server/config')
 
 describe('assertOperatorConsoleEnabled', () => {
   it('requires an explicit operator:console grant from the BFF', async () => {

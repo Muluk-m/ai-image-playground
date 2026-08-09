@@ -5,7 +5,7 @@ process.env.ADMIN_COOKIE_SECRET = 'test-cookie-secret-32-bytes-min!!'
 process.env.DATABASE_URL = process.env.TEST_DATABASE_URL ?? ''
 process.env.PORT = '0'
 
-const { createTaskMetaCache } = await import('../../lib/task-meta-cache')
+const { createTaskMetaCache } = await import('../../../../server/lib/task-meta-cache')
 
 describe('createTaskMetaCache', () => {
   it('miss 时调 loader；命中后再调不触发 loader', async () => {

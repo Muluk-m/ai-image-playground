@@ -45,7 +45,7 @@ await writer.db.insert(writer.schema.tasks).values([
   },
 ])
 
-const { app } = await import('../../app')
+const { app } = await import('../../../../server/app')
 
 afterAll(async () => {
   await writer.close()

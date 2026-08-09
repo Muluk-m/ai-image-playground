@@ -18,7 +18,7 @@ process.env.PORT = '0'
 process.env.ADMIN_DIST_DIR = tmpDir
 
 // Dynamic import keeps environment setup ahead of Admin configuration capture.
-const { app } = await import('../app')
+const { app } = await import('../../../server/app')
 
 describe('admin static serving', () => {
   it('未匹配的 GET / → 200 + index.html (SPA fallback)', async () => {

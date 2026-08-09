@@ -6,7 +6,7 @@ process.env.DATABASE_URL = process.env.TEST_DATABASE_URL ?? ''
 process.env.BFF_INTERNAL_URL = 'http://127.0.0.1:39999'
 process.env.PORT = '0'
 
-const { app } = await import('../../app')
+const { app } = await import('../../../../server/app')
 
 async function post(path: string, body?: unknown, cookieHeader?: string, ip?: string) {
   const headers: Record<string, string> = {}
