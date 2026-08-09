@@ -91,6 +91,15 @@ export function loadPrivateBffOverlay(entryUrl?: URL): Promise<PrivateBffOverlay
   return overlayPromise
 }
 
+export function assertPrivateBffOverlayPresent(
+  overlay: PrivateBffOverlay,
+  requiredCapability: string,
+): void {
+  if (!overlay.present) {
+    throw new Error(`${requiredCapability} requires the private BFF overlay`)
+  }
+}
+
 export async function runPrivateMigrations(
   databaseUrl: string,
   entryUrl: URL = privateMigrationEntryUrl,

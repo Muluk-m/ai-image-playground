@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { loadPrivateBffOverlay } from '../../lib/private-overlay'
+import { assertPrivateBffOverlayPresent, loadPrivateBffOverlay } from '../../lib/private-overlay'
 
 const repositoryRoot = resolve(import.meta.dir, '../../../../..')
 
@@ -52,6 +52,16 @@ describe('private overlay boundary', () => {
     expect(overlay.present).toBe(false)
     const response = await overlay.routes.handle(new Request('http://localhost/private-route'))
     expect(response.status).toBe(404)
+  })
+
+  it('rejects a required private overlay when its entry is absent', async () => {
+    const overlay = await loadPrivateBffOverlay(
+      pathToFileURL(join(tmpdir(), 'missing-private-entry.ts')),
+    )
+
+    expect(() => assertPrivateBffOverlayPresent(overlay, 'billing:credits')).toThrow(
+      'billing:credits requires the private BFF overlay',
+    )
   })
 
   it('makes Biome reject static and dynamic private-tree imports', async () => {
