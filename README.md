@@ -177,13 +177,13 @@ Web/Admin ports.
 
 For a one-time cutover from the former SQLite deployment:
 
-1. Stop the application and make a filesystem backup of the SQLite database.
-2. Start and provision PostgreSQL as above.
-3. Run `SQLITE_DATABASE_PATH=/absolute/backup.sqlite DATABASE_URL='postgresql://…@127.0.0.1:5432/…' bun run scripts/migrate-sqlite-to-postgres.ts`. The importer applies the committed schema, requires an empty target, copies users, sessions, tasks, quotas, and JSON payloads in one transaction, then prints row counts.
-4. Start the application project. Confirm `/health`, login, task history, and one new generation before removing the maintenance window.
+1. Stop the application.
+2. Run `SQLITE_DATABASE_PATH=/absolute/image-playground.sqlite SQLITE_BACKUP_PATH=/absolute/image-playground.readonly.sqlite bun run scripts/prepare-postgres-cutover.ts`. The command refuses the cutover while any task is `queued` or `in_progress`, writes a consistent read-only backup, and does not import history.
+3. Start and provision a fresh PostgreSQL database as above.
+4. Start the application project. Confirm `/health`, login, an empty server-side task history, and one new generation before ending the maintenance window.
 
 If validation fails, stop the new application and restore the previous image/configuration
-against the untouched SQLite backup. Do not use the destructive
+against the read-only SQLite backup. Do not use the destructive
 `packages/db/drizzle/rollback/0000_daffy_the_enforcers.down.sql` file on production; it is
 only for discarding a new empty deployment.
 
