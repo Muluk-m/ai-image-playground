@@ -125,7 +125,6 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
           <div className="flex flex-wrap items-center gap-2 px-2">
             {previews.map((src, i) => (
               <img
-                // biome-ignore lint/suspicious/noArrayIndexKey: 预览列表随签名整体重建，无重排语义
                 key={i}
                 src={src}
                 alt={`输入 ${i + 1}`}

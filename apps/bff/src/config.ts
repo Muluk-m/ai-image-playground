@@ -1,3 +1,5 @@
+import { loadOperatorConfig } from './lib/operator-config'
+
 const env = (key: string, fallback?: string): string => {
   const v = process.env[key]
   if (v && v.trim()) return v.trim()
@@ -53,6 +55,21 @@ export const config = {
   staticDir: env('STATIC_DIR', '') || null,
   /** 可选 channels.json 路径覆盖；缺省走 lib/channels.ts 的 defaultChannelsPath()。 */
   channelsFile: env('CHANNELS_FILE', '') || null,
+  operator: loadOperatorConfig(env('OPERATOR_CONFIG_FILE', '') || null),
+  objectStore: {
+    get endpoint(): string {
+      return env('S3_ENDPOINT')
+    },
+    get bucket(): string {
+      return env('S3_BUCKET')
+    },
+    get accessKeyId(): string {
+      return env('S3_ACCESS_KEY_ID')
+    },
+    get secretAccessKey(): string {
+      return env('S3_SECRET_ACCESS_KEY')
+    },
+  },
   worker: {
     pollIntervalMs: positiveIntEnv('WORKER_POLL_INTERVAL_MS', 1_000),
     concurrency: {

@@ -2,9 +2,11 @@ import { extname, join } from 'node:path'
 import { cors } from '@elysiajs/cors'
 import { Elysia } from 'elysia'
 import { config } from './config'
+import { loadPrivateBffOverlay } from './lib/private-overlay'
 import { gzipBlob } from './lib/staticCompression'
 import { userAuthRoutes } from './routes/auth'
 import { cancelRoutes } from './routes/cancel'
+import { capabilitiesRoutes } from './routes/capabilities'
 import { channelsRoutes } from './routes/channels'
 import { resultRoutes } from './routes/result'
 import { statusRoutes } from './routes/status'
@@ -17,6 +19,8 @@ const corsOrigin =
         .split(',')
         .map((s) => s.trim())
         .filter(Boolean)
+
+const privateBffOverlay = await loadPrivateBffOverlay()
 
 const STATIC_DIR = config.staticDir
 
@@ -110,11 +114,13 @@ export const app = new Elysia()
   .use(cors({ origin: corsOrigin, credentials: true }))
   .get('/health', () => ({ ok: true }))
   .use(userAuthRoutes)
+  .use(capabilitiesRoutes)
   .use(channelsRoutes)
   .use(submitRoutes)
   .use(statusRoutes)
   .use(resultRoutes)
   .use(cancelRoutes)
+  .use(privateBffOverlay.routes)
   .onRequest(async ({ request, set }) => {
     const url = new URL(request.url)
     if (isApiPath(url.pathname)) return

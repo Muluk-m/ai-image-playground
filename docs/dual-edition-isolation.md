@@ -222,31 +222,38 @@ Metabase 在宏的 docstring 里对「不指定具体 feature」直接写警告�
 ```ts
 // packages/shared/src/capabilities.ts
 export const CAPABILITIES = {
-  'accounts:login':   { ossDefault: false, client: true  },
-  'channels:builtin': { ossDefault: false, client: true  },
-  'quota:daily':      { ossDefault: false, client: true  },
-  'brand:custom':     { ossDefault: false, client: true  },
-  'admin:console':    { ossDefault: false, client: false },
+  'accounts:login':   { defaultValue: false, clientExposed: true  },
+  'billing:credits':  { defaultValue: false, clientExposed: true  },
+  'generation:byok':  { defaultValue: false, clientExposed: true  },
+  'operator:console': { defaultValue: false, clientExposed: false },
+  'quota:daily':      { defaultValue: false, clientExposed: true  },
+} as const
+
+export const QUOTAS = {
+  'generation:daily-images': { defaultValue: 0 },
 } as const
 
 export type CapabilityKey = keyof typeof CAPABILITIES
+export type QuotaKey = keyof typeof QUOTAS
 ```
 
 设计要点，每条都有先例：
 
 - **`scope:name` 冒号命名** —— Sentry / n8n 同款。
-- **每 key 一个 `ossDefault`，一律 deny by default** —— Sentry `manager.add(..., default=…)`；
+- **每 key 一个 `defaultValue`，一律 deny by default** —— Sentry `manager.add(..., default=…)`；
   OWASP「Deny by Default」；本仓库 `BAKED_DEFAULTS`（`runtime-config.ts:44-52`）已是这个姿势。
-- **`client: boolean` 显式 opt-in 才下发给浏览器** —— Sentry 的 `api_expose` 默认 `False`，
+- **`clientExposed: boolean` 显式 opt-in 才下发给浏览器** —— Sentry 的 `api_expose` 默认 `False`，
   只有 `exposed_features` 会进序列化器；理由是官方自己写的：暴露 flag「add latency and bloat」。
 - **`as const` + 派生 union type** —— n8n `BooleanLicenseFeature`、Plausible 编译期生成的 `@type t()`。
   在 TS 里这能把「拼错 key 静默返回 false」变成编译错误。
 - **布尔能力和数值配额分开命名空间** —— n8n `LICENSE_FEATURES` vs `LICENSE_QUOTAS`；
   「是否限额」和「限额是多少（`DAILY_QUOTA_LIMIT = 80`）」是两件事。
-- **求值函数必须是全函数且不抛** —— 配置缺失/损坏时回落到 `ossDefault`，
-  与 `loadRuntimeConfig` 回落 `BAKED_DEFAULTS` 同姿势，也与 n8n `?? false` 一致。
-- **拒绝时给独立状态码**。Metabase 用 **HTTP 402** + `error-premium-feature-not-available`；
-  本仓库现在 `apps/bff/src/routes/auth.ts:53` 返回 `404 auth_disabled`，把「没编译进来」和「没授权」混在一起了。
+- **内置 channel 可用性不进能力表** —— `/api/channels` 的列表是唯一真相源，避免能力值与
+  空列表互相矛盾。
+- **求值函数必须是全函数且不抛** —— 运行时未知 key 返回 `false`。配置文件缺失回落默认值；
+  文件存在但损坏或 schema 无效时在启动解析阶段拒绝启动，不进入求值阶段。
+- **拒绝时统一返回 HTTP 404** + `{ error: 'capability_unavailable', capability }`。
+  「当前部署不存在这项能力」与自部署语义一致，不使用付费专属状态码。
 
 ### 前端那份是 UX，不是边界（有出处）
 
@@ -496,7 +503,7 @@ Loose 模式的官方示例几乎就是本场景的剧本：
    —— 不做这步，后面所有隔离都可能被缓存绕过。
 2. **修 §7.2**：`.dockerignore` 补上私有配置路径。
 3. **落 capability registry**（`packages/shared/src/capabilities.ts`），只有表，无行为。
-4. **落服务端求值器**（`apps/bff/src/lib/capabilities.ts`），读 gitignored operator 配置，缺失回落 `ossDefault`，不抛异常，启动打一行 reason 汇总。
+4. **落服务端解析器与求值器**（`apps/bff/src/lib/operator-config.ts`），读 gitignored operator 配置，缺失回落默认值、存在但无效则拒绝启动，求值不抛异常，启动打一行来源汇总。
 5. **拆 `config.auth.enabled` 的四个调用点**，一次一个语义：
    登录要求 → capability；行归属 / 去重归属 → 取决于「有没有 userId」这个本地事实，不该经过版本 flag；
    cache-control → 取决于响应是否 user-scoped。

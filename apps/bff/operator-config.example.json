@@ -1,0 +1,27 @@
+{
+  "preset": "authenticated-example",
+  "presets": {
+    "authenticated-example": {
+      "capabilities": {
+        "accounts:login": true
+      }
+    }
+  },
+  "capabilities": {
+    "billing:credits": false,
+    "generation:byok": false,
+    "operator:console": false,
+    "quota:daily": false
+  },
+  "quotas": {
+    "generation:daily-images": 0
+  },
+  "config": {
+    "channelsFile": "/run/operator/channels.json",
+    "brandFile": "/run/operator/brand.json",
+    "contentFile": "/run/operator/content.json",
+    "secretRefs": {
+      "exampleChannel": "EXAMPLE_CHANNEL_API_KEY"
+    }
+  }
+}
