@@ -418,7 +418,12 @@ export async function getUserDetail(
       .limit(PAGE_SIZE + 1)) as unknown as Array<Record<string, unknown>>
   } else {
     const detailRowsPromise = db.execute(sql`
-      WITH user_tasks AS MATERIALIZED (
+      WITH task_stats AS (
+        SELECT COUNT(*) AS task_count, MAX(t.submitted_at) AS last_task_at
+        FROM tasks t
+        WHERE t.user_id = ${userId}
+      ),
+      task_page AS (
         SELECT
           t.id,
           t.provider,
@@ -429,18 +434,12 @@ export async function getUserDetail(
           t.completed_at,
           t.error_type,
           t.request_payload,
-          t.attempt_count,
-          COUNT(*) OVER () AS all_task_count,
-          MAX(t.submitted_at) OVER () AS last_task_at
+          t.attempt_count
         FROM tasks t
         WHERE t.user_id = ${userId}
-      ),
-      task_page AS (
-        SELECT *
-        FROM user_tasks
-        WHERE submitted_at >= ${new Date(since)}
+          AND t.submitted_at >= ${new Date(since)}
           ${statusCondition}
-        ORDER BY submitted_at DESC, id DESC
+        ORDER BY t.submitted_at DESC, t.id DESC
         LIMIT ${PAGE_SIZE + 1}
       )
       SELECT
@@ -450,10 +449,10 @@ export async function getUserDetail(
         u.created_at,
         u.updated_at,
         u.last_login_at,
-        (SELECT MAX(last_task_at) FROM user_tasks) AS last_task_at,
-        GREATEST(u.last_login_at, (SELECT MAX(last_task_at) FROM user_tasks)) AS last_activity_at,
+        task_stats.last_task_at,
+        GREATEST(u.last_login_at, task_stats.last_task_at) AS last_activity_at,
         COALESCE(session_stats.active_sessions, 0) AS active_sessions,
-        COALESCE((SELECT MAX(all_task_count) FROM user_tasks), 0) AS task_count,
+        task_stats.task_count,
         p.id AS task_id,
         p.provider AS task_provider,
         p.model AS task_model,
@@ -465,6 +464,7 @@ export async function getUserDetail(
         p.request_payload AS task_request_payload,
         p.attempt_count AS task_attempt_count
       FROM users u
+      CROSS JOIN task_stats
       LEFT JOIN LATERAL (
         SELECT COUNT(*) AS active_sessions
         FROM user_sessions s
