@@ -12,6 +12,7 @@ services:
       - postgres-data:/var/lib/postgresql/data
     networks:
       - application-infra
+      - host-published
     healthcheck:
       test:
         - CMD-SHELL
@@ -42,6 +43,7 @@ services:
       - minio-data:/data
     networks:
       - application-infra
+      - host-published
     healthcheck:
       test:
         - CMD-SHELL
@@ -110,3 +112,5 @@ networks:
   application-infra:
     name: ${INFRA_NETWORK_NAME:?Set INFRA_NETWORK_NAME in the external environment file}
     internal: true
+  host-published:
+    name: ${INFRA_NETWORK_NAME:?Set INFRA_NETWORK_NAME in the external environment file}-host-published
