@@ -171,7 +171,7 @@ export function retryCanvasTask(editor: CanvasEditor, placeholder: PlaceholderVi
   const meta = placeholder.meta
   const activeProfile = getActiveApiProfile(useStore.getState().settings)
   const submissionGuard = getPrivateSubmissionGuard({
-    model: meta.profileView?.apiModel ?? clientProfileToApiProfile(activeProfile).model,
+    model: clientProfileToApiProfile(activeProfile).model,
     quantity: 1,
   })
   if (submissionGuard.blocked) {
