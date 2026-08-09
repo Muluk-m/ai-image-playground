@@ -46,3 +46,22 @@ async function forwardPrivateOperation(request: Request): Promise<Response> {
 export const privateRoutes = new Elysia({ prefix: PRIVATE_API_PREFIX })
   .use(requireAuth)
   .all('/*', ({ request }) => forwardPrivateOperation(request))
+
+export const extensionRoutes = new Elysia({ prefix: '/api' })
+  .use(requireAuth)
+  .get('/extensions', async () => {
+    const token = config.auth.internalApiToken
+    if (!token) {
+      return Response.json({ error: 'internal_service_unconfigured' }, { status: 503 })
+    }
+    const response = await fetch(`${config.bffInternalUrl}/internal/admin/extensions`, {
+      headers: {
+        accept: 'application/json',
+        authorization: `Bearer ${token}`,
+      },
+    })
+    return new Response(response.body, {
+      status: response.status,
+      headers: { 'content-type': response.headers.get('content-type') ?? 'application/json' },
+    })
+  })
