@@ -230,7 +230,7 @@ describe('callQueueChannelApi submit body', () => {
       throw new Error('did not throw')
     } catch (err) {
       const e = err as Error & { quotaExceeded?: boolean; resetAt?: string }
-      expect(e.message).toContain('今日 80 张已用完')
+      expect(e.message).toContain('今日 50 张已用完')
       expect(e.quotaExceeded).toBe(true)
       expect(e.resetAt).toBe('2026-05-16T00:00:00.000Z')
     }
