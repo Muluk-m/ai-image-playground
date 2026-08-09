@@ -78,12 +78,6 @@ services:
       - |
         mc alias set infra http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}"
 
-        : "$${MINIO_PERSONAL_BUCKET:?Set MINIO_PERSONAL_BUCKET}"
-        : "$${MINIO_PERSONAL_ACCESS_KEY:?Set MINIO_PERSONAL_ACCESS_KEY}"
-        : "$${MINIO_PERSONAL_SECRET_KEY:?Set MINIO_PERSONAL_SECRET_KEY}"
-        : "$${MINIO_COMMERCIAL_BUCKET:?Set MINIO_COMMERCIAL_BUCKET}"
-        : "$${MINIO_COMMERCIAL_ACCESS_KEY:?Set MINIO_COMMERCIAL_ACCESS_KEY}"
-        : "$${MINIO_COMMERCIAL_SECRET_KEY:?Set MINIO_COMMERCIAL_SECRET_KEY}"
         if [ "$${MINIO_PERSONAL_BUCKET}" = "$${MINIO_COMMERCIAL_BUCKET}" ]; then
           echo "Personal and commercial deployments must use different MinIO buckets" >&2
           exit 1
