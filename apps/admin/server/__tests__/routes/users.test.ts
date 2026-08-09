@@ -3,7 +3,12 @@ import { createDb } from '@image-playground/db'
 import { resetTestDatabase } from '@image-playground/db/testing'
 
 const databaseUrl = await resetTestDatabase('admin_users_route')
-const forwarded: Array<{ method: string; path: string; authorization: string | null }> = []
+const forwarded: Array<{
+  method: string
+  path: string
+  search: string
+  authorization: string | null
+}> = []
 const mockBff = Bun.serve({
   port: 0,
   fetch(request) {
@@ -11,6 +16,7 @@ const mockBff = Bun.serve({
     forwarded.push({
       method: request.method,
       path: url.pathname,
+      search: url.search,
       authorization: request.headers.get('authorization'),
     })
     return Response.json(
@@ -182,8 +188,22 @@ describe('admin user routes', () => {
       method: 'POST',
       path: '/internal/admin/users/',
       authorization: 'Bearer fixture-service-credential-alpha',
+      search: '',
     })
     const stored = await writer.db.select().from(writer.schema.users)
     expect(stored.map((user) => user.id)).not.toContain('created-by-bff')
+  })
+
+  it('forwards private operator APIs through the authenticated Admin server', async () => {
+    const response = await call('/api/private/billing/users?ids=user-existing', {
+      method: 'GET',
+    })
+    expect(response.status).toBe(200)
+    expect(forwarded.at(-1)).toEqual({
+      method: 'GET',
+      path: '/internal/admin/private/billing/users',
+      search: '?ids=user-existing',
+      authorization: 'Bearer fixture-service-credential-alpha',
+    })
   })
 })

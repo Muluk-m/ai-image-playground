@@ -96,6 +96,18 @@ export const apiClient = {
     })
     return handleResponse<T>(res, options)
   },
+  async put<T>(url: string, body: unknown): Promise<T> {
+    const res = await fetch(url, {
+      method: 'PUT',
+      credentials: 'include',
+      headers: {
+        accept: 'application/json',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    })
+    return handleResponse<T>(res)
+  },
   async patch<T>(url: string, body: unknown): Promise<T> {
     const res = await fetch(url, {
       method: 'PATCH',

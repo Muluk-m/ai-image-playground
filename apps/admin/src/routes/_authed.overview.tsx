@@ -3,6 +3,7 @@ import { Activity, CircleCheck, Clock3, Loader2, TriangleAlert } from 'lucide-re
 
 import { TaskVolumeChart } from '@/components/TaskVolumeChart'
 import { useOverview } from '@/lib/queries'
+import { PrivateAdminOverviewPanel } from '@/lib/private-overlay'
 import { parseOverviewSearch } from '@/lib/search-params'
 
 export const Route = createFileRoute('/_authed/overview')({
@@ -99,6 +100,8 @@ function OverviewPage() {
           icon={TriangleAlert}
         />
       </section>
+
+      <PrivateAdminOverviewPanel />
 
       <section className="grid gap-4 xl:grid-cols-[minmax(0,1.8fr)_minmax(280px,1fr)]">
         <div className="rounded-xl border bg-card/40 p-4">
