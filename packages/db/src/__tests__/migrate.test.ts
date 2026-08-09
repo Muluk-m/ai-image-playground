@@ -25,10 +25,11 @@ describe('runMigrations', () => {
     const rows = await connection.client.unsafe(
       'SELECT id, hash, created_at FROM drizzle.__drizzle_migrations ORDER BY id',
     )
-    expect(rows).toHaveLength(3)
+    expect(rows).toHaveLength(4)
     expect(rows[0]).toMatchObject({ id: 1 })
     expect(rows[1]).toMatchObject({ id: 2 })
     expect(rows[2]).toMatchObject({ id: 3 })
+    expect(rows[3]).toMatchObject({ id: 4 })
   })
 
   it('creates PostgreSQL-native JSONB and timestamptz columns', async () => {
@@ -41,6 +42,15 @@ describe('runMigrations', () => {
     expect(byName.request_payload?.data_type).toBe('jsonb')
     expect(byName.submitted_at?.data_type).toBe('timestamp with time zone')
     expect(byName.device_id?.is_generated).toBe('ALWAYS')
+  })
+
+  it('stores quota dates as PostgreSQL dates', async () => {
+    const [quotaDate] = (await connection.client.unsafe(`
+      SELECT data_type
+      FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'daily_quota' AND column_name = 'date'
+    `)) as ColumnMetadata[]
+    expect(quotaDate?.data_type).toBe('date')
   })
 
   it('creates the idempotency and operational indexes', async () => {
@@ -67,12 +77,13 @@ describe('runMigrations', () => {
     const rows = await connection.client.unsafe(
       'SELECT id FROM drizzle.__drizzle_migrations ORDER BY id',
     )
-    expect(rows).toHaveLength(3)
+    expect(rows).toHaveLength(4)
   })
 
   it('applies every rollback in reverse order and can migrate forward again', async () => {
     const rollbackDirectory = new URL('../../drizzle/rollback/', import.meta.url)
     for (const file of [
+      '0003_perfect_night_nurse.down.sql',
       '0002_careless_scrambler.down.sql',
       '0001_blushing_liz_osborn.down.sql',
       '0000_daffy_the_enforcers.down.sql',
@@ -98,6 +109,6 @@ describe('runMigrations', () => {
     const restored = await connection.client.unsafe(
       'SELECT id FROM drizzle.__drizzle_migrations ORDER BY id',
     )
-    expect(restored).toHaveLength(3)
+    expect(restored).toHaveLength(4)
   })
 })
