@@ -5,7 +5,7 @@ process.env.ADMIN_COOKIE_SECRET = 'test-cookie-secret-32-bytes-min!!'
 process.env.DATABASE_URL = process.env.TEST_DATABASE_URL ?? ''
 process.env.PORT = '0'
 
-const { signSession, verifySession } = await import('../../lib/session')
+const { signSession, verifySession } = await import('../../../../server/lib/session')
 
 describe('signSession / verifySession', () => {
   it('签发的 cookie 立即能验证', () => {

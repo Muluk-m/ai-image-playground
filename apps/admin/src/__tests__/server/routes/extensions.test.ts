@@ -26,7 +26,7 @@ mockBff = Bun.serve({
 })
 process.env.BFF_INTERNAL_URL = `http://127.0.0.1:${mockBff.port}`
 
-const { app } = await import('../../app')
+const { app } = await import('../../../../server/app')
 
 afterAll(() => {
   mockBff.stop()

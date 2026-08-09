@@ -70,7 +70,9 @@ await writer.db.insert(writer.schema.users).values({
 await writer.client`UPDATE tasks SET user_id = 'user-page' WHERE id LIKE 'pg-%'`
 
 // Dynamic import keeps environment setup ahead of Admin configuration capture.
-const { listDevices, getDeviceDetail, getTask, getUserDetail } = await import('../../lib/queries')
+const { listDevices, getDeviceDetail, getTask, getUserDetail } = await import(
+  '../../../../server/lib/queries'
+)
 
 describe('listDevices', () => {
   it('range=7d 不包含 30 天前的 dev-OLD', async () => {

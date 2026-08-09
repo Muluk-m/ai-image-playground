@@ -85,9 +85,9 @@ afterAll(async () => {
   await writer.close()
 })
 
-const { app } = await import('../../app')
+const { app } = await import('../../../../server/app')
 // Dynamic imports are required because config reads the test environment during module loading.
-const { config } = await import('../../config')
+const { config } = await import('../../../../server/config')
 
 async function login() {
   const res = await app.handle(

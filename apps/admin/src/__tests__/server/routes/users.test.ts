@@ -86,7 +86,7 @@ await writer.db.insert(writer.schema.tasks).values([
 ])
 
 // Dynamic import keeps environment setup ahead of Admin configuration capture.
-const { app } = await import('../../app')
+const { app } = await import('../../../../server/app')
 
 async function login(): Promise<string> {
   const response = await app.handle(

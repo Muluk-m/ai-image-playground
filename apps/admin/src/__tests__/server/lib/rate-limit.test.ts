@@ -5,7 +5,7 @@ process.env.ADMIN_COOKIE_SECRET = 'test-cookie-secret-32-bytes-min!!'
 process.env.DATABASE_URL = process.env.TEST_DATABASE_URL ?? ''
 process.env.PORT = '0'
 
-const { createRateLimiter } = await import('../../lib/rate-limit')
+const { createRateLimiter } = await import('../../../../server/lib/rate-limit')
 
 describe('createRateLimiter', () => {
   it('前 5 次失败不锁；第 6 次 returnLocked', () => {

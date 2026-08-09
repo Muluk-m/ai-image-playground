@@ -13,8 +13,8 @@
     "build": "tsc -b && vite build",
     "pretypecheck": "pnpm routes:generate",
     "typecheck": "tsc -b",
-    "test": "vitest run && bun run ../../scripts/run-bun-tests-isolated.ts server",
-    "test:server": "bun run ../../scripts/run-bun-tests-isolated.ts server",
+    "test": "vitest run && bun run ../../scripts/run-bun-tests-isolated.ts src/__tests__/server",
+    "test:server": "bun run ../../scripts/run-bun-tests-isolated.ts src/__tests__/server",
     "test:client": "vitest run"
   },
   "dependencies": {
