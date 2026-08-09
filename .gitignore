@@ -11,9 +11,8 @@ dev-proxy.config.json
 .claude/
 # Optional private overlay checkout. The public tree must work when it is absent.
 private/
-# Admin routes, including private overlay routes, are discovered at build time.
+# Admin route tree is generated at build time.
 apps/admin/src/routeTree.gen.ts
-apps/admin/src/routes/_authed.billing.settings.tsx
 .gstack
 # operator 部署时按环境放进 public/ 的运行时配置（vite build 会自动复制进 dist）。
 # 内容随部署不同，不进版本库。其余 public/ 资源照常追踪。

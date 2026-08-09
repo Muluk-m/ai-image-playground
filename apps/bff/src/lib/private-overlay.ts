@@ -33,6 +33,9 @@ type PrivateBffModule = {
   readonly privateBffRoutes: AnyElysia
   readonly privateTaskHooks: PrivateTaskHooks
 }
+type PrivateMigrationModule = {
+  runPrivateMigrations(databaseUrl: string): Promise<void>
+}
 
 export interface PrivateBffOverlay {
   readonly present: boolean
@@ -56,6 +59,7 @@ export const EMPTY_PRIVATE_BFF_OVERLAY: PrivateBffOverlay = Object.freeze({
 })
 
 const privateEntryUrl = new URL('../../../../private/apps/bff/index.ts', import.meta.url)
+const privateMigrationEntryUrl = new URL('../../../../private/apps/bff/migrate.ts', import.meta.url)
 let overlayPromise: Promise<PrivateBffOverlay> | null = null
 
 async function loadOverlay(entryUrl: URL): Promise<PrivateBffOverlay> {
@@ -85,4 +89,16 @@ export function loadPrivateBffOverlay(entryUrl?: URL): Promise<PrivateBffOverlay
   if (entryUrl) return loadOverlay(entryUrl)
   overlayPromise ??= loadOverlay(privateEntryUrl)
   return overlayPromise
+}
+
+export async function runPrivateMigrations(
+  databaseUrl: string,
+  entryUrl: URL = privateMigrationEntryUrl,
+): Promise<void> {
+  if (!(await Bun.file(entryUrl).exists())) return
+  const privateModule: Partial<PrivateMigrationModule> = await import(entryUrl.href)
+  if (typeof privateModule.runPrivateMigrations !== 'function') {
+    throw new Error('private/apps/bff/migrate.ts must export runPrivateMigrations')
+  }
+  await privateModule.runPrivateMigrations(databaseUrl)
 }
