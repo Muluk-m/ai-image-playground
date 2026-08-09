@@ -37,6 +37,15 @@
 !apps/admin/server
 !apps/bff/channels.json
 
+
+# ── Optional private overlay ──────────────────────────────────────
+# The directory is absent in public checkouts. A paid build may add only these audited sources.
+!private/apps/*/package.json
+!private/apps/bff/index.ts
+!private/apps/bff/billing/*.ts
+!private/apps/bff/billing/migrations/**
+!private/apps/web/index.tsx
+!private/apps/admin/index.tsx
 # ── packages 构建输入 ─────────────────────────────────────────────
 !packages/*/package.json
 !packages/*/tsconfig*.json
