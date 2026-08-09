@@ -90,6 +90,9 @@ export function loadPrivateBffOverlay(entryUrl?: URL): Promise<PrivateBffOverlay
   overlayPromise ??= loadOverlay(privateEntryUrl)
   return overlayPromise
 }
+export function _setPrivateBffOverlayForTesting(overlay?: PrivateBffOverlay): void {
+  overlayPromise = overlay ? Promise.resolve(overlay) : null
+}
 
 export function assertPrivateBffOverlayPresent(
   overlay: PrivateBffOverlay,
