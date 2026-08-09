@@ -1,4 +1,8 @@
+import { useQuery } from '@tanstack/react-query'
+import { notFound } from '@tanstack/react-router'
+import { Settings } from 'lucide-react'
 import type { ComponentType } from 'react'
+import { apiClient } from './api-client'
 
 export interface PrivateAdminUserSummary {
   primary: string
@@ -9,8 +13,12 @@ export interface PrivateAdminUserSummary {
 export interface PrivateAdminOverlay {
   present: boolean
   userSummaryColumnTitle: string
-  useUserSummaries(userIds: readonly string[]): Readonly<Record<string, PrivateAdminUserSummary>>
+  useUserSummaries(
+    userIds: readonly string[],
+    enabled: boolean,
+  ): Readonly<Record<string, PrivateAdminUserSummary>>
   OverviewPanel: ComponentType
+  SettingsPanel: ComponentType
   UserDetailPanel: ComponentType<{ userId: string; username: string }>
 }
 
@@ -21,6 +29,7 @@ const EMPTY_OVERLAY: PrivateAdminOverlay = Object.freeze({
   userSummaryColumnTitle: '',
   useUserSummaries: () => EMPTY_SUMMARIES,
   OverviewPanel: EmptyComponent,
+  SettingsPanel: EmptyComponent,
   UserDetailPanel: EmptyComponent,
 })
 
@@ -47,6 +56,8 @@ function resolveOverlay(): PrivateAdminOverlay {
     typeof overlay.useUserSummaries !== 'function' ||
     !('OverviewPanel' in overlay) ||
     typeof overlay.OverviewPanel !== 'function' ||
+    !('SettingsPanel' in overlay) ||
+    typeof overlay.SettingsPanel !== 'function' ||
     !('UserDetailPanel' in overlay) ||
     typeof overlay.UserDetailPanel !== 'function'
   ) {
@@ -57,13 +68,79 @@ function resolveOverlay(): PrivateAdminOverlay {
 
 const overlay = resolveOverlay()
 
-export const privateAdminOverlayPresent = overlay.present
-export const privateUserSummaryColumnTitle = overlay.userSummaryColumnTitle
-export const PrivateAdminOverviewPanel = overlay.OverviewPanel
-export const PrivateAdminUserDetailPanel = overlay.UserDetailPanel
+interface AdminExtensionManifest {
+  navigation: Array<{ label: string; href: string }>
+  user_links: Array<{ label: string; href_template: string }>
+}
 
-export function usePrivateAdminUserSummaries(
-  userIds: readonly string[],
-): Readonly<Record<string, PrivateAdminUserSummary>> {
-  return overlay.useUserSummaries(userIds)
+function useAdminExtensionManifest() {
+  return useQuery({
+    queryKey: ['admin-extensions'],
+    queryFn: () => apiClient.get<AdminExtensionManifest>('/api/extensions'),
+    enabled: overlay.present,
+    staleTime: Number.POSITIVE_INFINITY,
+    retry: false,
+  })
+}
+
+function usePrivateAdminOverlayEnabled(): boolean {
+  const query = useAdminExtensionManifest()
+  return (
+    overlay.present &&
+    (query.data?.navigation.length ?? 0) + (query.data?.user_links.length ?? 0) > 0
+  )
+}
+
+export const privateUserSummaryColumnTitle = overlay.userSummaryColumnTitle
+export async function requirePrivateAdminRoute(path: string): Promise<void> {
+  if (!overlay.present) throw notFound()
+  try {
+    const manifest = await apiClient.get<AdminExtensionManifest>('/api/extensions')
+    if (!manifest.navigation.some((entry) => entry.href === path)) throw notFound()
+  } catch {
+    throw notFound()
+  }
+}
+
+export function PrivateAdminNavigation() {
+  const query = useAdminExtensionManifest()
+  if (!overlay.present || !query.data) return null
+  return query.data.navigation.map((entry) => (
+    <a
+      key={entry.href}
+      href={entry.href}
+      className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
+    >
+      <Settings className="h-3.5 w-3.5" />
+      {entry.label}
+    </a>
+  ))
+}
+
+export function PrivateAdminOverviewPanel() {
+  const enabled = usePrivateAdminOverlayEnabled()
+  const Component = overlay.OverviewPanel
+  return enabled ? <Component /> : null
+}
+export function PrivateAdminSettingsPanel() {
+  const enabled = usePrivateAdminOverlayEnabled()
+  const Component = overlay.SettingsPanel
+  return enabled ? <Component /> : null
+}
+
+export function PrivateAdminUserDetailPanel(props: { userId: string; username: string }) {
+  const enabled = usePrivateAdminOverlayEnabled()
+  const Component = overlay.UserDetailPanel
+  return enabled ? <Component {...props} /> : null
+}
+
+export function usePrivateAdminUserSummaries(userIds: readonly string[]): {
+  enabled: boolean
+  summaries: Readonly<Record<string, PrivateAdminUserSummary>>
+} {
+  const enabled = usePrivateAdminOverlayEnabled()
+  return {
+    enabled,
+    summaries: overlay.useUserSummaries(userIds, enabled),
+  }
 }

@@ -30,3 +30,22 @@ export const config = {
   // admin 前端 dist 目录；为空时 server 不挂静态托管（dev 模式由 vite 跑前端）
   staticDir: env('ADMIN_DIST_DIR', ''),
 }
+
+export async function assertOperatorConsoleEnabled(
+  fetchImpl: (input: string | URL | Request, init?: RequestInit) => Promise<Response> = fetch,
+): Promise<void> {
+  const response = await fetchImpl(`${config.bffInternalUrl}/internal/admin/capabilities`, {
+    headers: {
+      accept: 'application/json',
+      authorization: `Bearer ${config.auth.internalApiToken}`,
+    },
+    signal: AbortSignal.timeout(10_000),
+  })
+  if (!response.ok) {
+    throw new Error(`Cannot resolve operator:console capability: HTTP ${response.status}`)
+  }
+  const body = (await response.json()) as { operator_console?: unknown }
+  if (body.operator_console !== true) {
+    throw new Error('operator:console capability is disabled')
+  }
+}

@@ -18,6 +18,9 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': resolve(__dirname, './src'),
+      react: resolve(__dirname, 'node_modules/react'),
+      'react-dom': resolve(__dirname, 'node_modules/react-dom'),
+      '@tanstack/react-query': resolve(__dirname, 'node_modules/@tanstack/react-query'),
     },
     dedupe: ['react', 'react-dom', '@tanstack/react-query'],
   },

@@ -4,6 +4,7 @@ import { Activity, LogOut, MonitorSmartphone, RefreshCw, Users } from 'lucide-re
 
 import { Button } from '@/components/ui/button'
 import { apiClient } from '@/lib/api-client'
+import { PrivateAdminNavigation } from '@/lib/private-overlay'
 import { parseRange, type Range } from '@/lib/search-params'
 import { cn } from '@/lib/utils'
 
@@ -91,6 +92,7 @@ export function TopBar() {
                 <MonitorSmartphone className="h-3.5 w-3.5" />
                 设备
               </Link>
+              <PrivateAdminNavigation />
             </nav>
           ) : null}
         </div>
