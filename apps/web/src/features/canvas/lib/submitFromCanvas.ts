@@ -1,5 +1,11 @@
 import { callImageApi } from '../../../lib/api'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/apiProfiles'
+import {
+  getPrivateSubmissionGuard,
+  notifyPrivateSubmissionAccepted,
+  notifyPrivateSubmissionError,
+  notifyPrivateSubmissionSettled,
+} from '../../../lib/privateOverlay'
 import { addCompletedCanvasTask, useStore } from '../../../store'
 import {
   type CanvasTaskSpec,
@@ -83,6 +89,7 @@ async function launchCanvasTask(editor: CanvasEditor, spec: CanvasTaskSpec): Pro
       // submit 成功即回填 bffRequestId 到占位框 meta 并持久化，供刷新后 resume（决策 2 / 7）。
       onQueueSubmitted: (requestId) => {
         editor.updatePlaceholder(placeholderId, { meta: { bffRequestId: requestId } })
+        notifyPrivateSubmissionAccepted()
       },
     })
     const placed = await settleGeneration(editor, placeholderId, spec.target, result)
@@ -97,8 +104,10 @@ async function launchCanvasTask(editor: CanvasEditor, spec: CanvasTaskSpec): Pro
       })
     }
   } catch (err) {
+    notifyPrivateSubmissionError(err)
     markPlaceholderStatus(editor, placeholderId, 'error', errorMessage(err))
   } finally {
+    notifyPrivateSubmissionSettled()
     removeCanvasTask(taskId)
   }
 }
@@ -111,6 +120,15 @@ async function launchCanvasTask(editor: CanvasEditor, spec: CanvasTaskSpec): Pro
  */
 export async function submitFromCanvas(editor: CanvasEditor, userPrompt: string): Promise<void> {
   const { showToast, params } = useStore.getState()
+  const profile = getActiveApiProfile(useStore.getState().settings)
+  const submissionGuard = getPrivateSubmissionGuard({
+    model: clientProfileToApiProfile(profile).model,
+    quantity: Math.max(1, params.n),
+  })
+  if (submissionGuard.blocked) {
+    showToast(submissionGuard.disabledReason ?? '当前无法生成', 'error')
+    return
+  }
   const trimmed = userPrompt.trim()
 
   const selection = await rasterizeSelection(editor)
@@ -151,6 +169,15 @@ export async function submitFromCanvas(editor: CanvasEditor, userPrompt: string)
  */
 export function retryCanvasTask(editor: CanvasEditor, placeholder: PlaceholderView): void {
   const meta = placeholder.meta
+  const activeProfile = getActiveApiProfile(useStore.getState().settings)
+  const submissionGuard = getPrivateSubmissionGuard({
+    model: meta.profileView?.apiModel ?? clientProfileToApiProfile(activeProfile).model,
+    quantity: 1,
+  })
+  if (submissionGuard.blocked) {
+    useStore.getState().showToast(submissionGuard.disabledReason ?? '当前无法生成', 'error')
+    return
+  }
   const runtime = getCanvasTask(meta.taskId)
   const inputImageDataUrls = runtime?.inputImageDataUrls ?? []
 

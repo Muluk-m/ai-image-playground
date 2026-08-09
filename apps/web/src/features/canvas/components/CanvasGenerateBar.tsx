@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import ParamControls from '../../../components/ParamControls'
+import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/apiProfiles'
+import { PrivateSubmissionStatus, usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
+import { useStore } from '../../../store'
 import type { CanvasEditor } from '../lib/editor'
 import { analyzeSelection, rasterizeEntry } from '../lib/rasterizeSelection'
 import { submitFromCanvas } from '../lib/submitFromCanvas'
@@ -66,6 +69,8 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
   const [prompt, setPrompt] = useState('')
   const [previews, setPreviews] = useState<string[]>([])
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const params = useStore((state) => state.params)
+  const settings = useStore((state) => state.settings)
 
   // 与提交同一套选区分析：标注自动跟随被标注的图，提示与实际提交一致。
   const { imageCount, annotated, annotationText, signature } = useSelectionInfo(editor)
@@ -91,7 +96,13 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
     }
   }, [signature, editor])
 
-  const canSubmit = prompt.trim().length > 0 || imageCount > 0
+  const activeProfile = getActiveApiProfile(settings)
+  const submissionInput = {
+    model: clientProfileToApiProfile(activeProfile).model,
+    quantity: Math.max(1, params.n),
+  }
+  const submissionGuard = usePrivateSubmissionGuard(submissionInput)
+  const canSubmit = (prompt.trim().length > 0 || imageCount > 0) && !submissionGuard.blocked
 
   const hint = annotated
     ? `已选中 ${imageCount} 张图片 + 手绘标注 · 将按标注迭代（输出不含标注线条）`
@@ -119,6 +130,9 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
             成 n 个并行任务，占位框水平排开各自出图（变体对比）。 */}
         <div className="flex flex-wrap items-center gap-2">
           <ParamControls showCount />
+          <span className="ml-auto text-xs">
+            <PrivateSubmissionStatus {...submissionInput} />
+          </span>
         </div>
         {/* 输入预览：模型将收到的每个参考图条目（含合成后的标注）+ 提取的文字标注。 */}
         {imageCount > 0 && (
@@ -144,6 +158,11 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
         <div className="flex items-end gap-2">
           <div className="flex flex-1 flex-col">
             <span className="px-2 pt-1 text-[11px] text-gray-400 dark:text-gray-500">{hint}</span>
+            {submissionGuard.blocked && submissionGuard.disabledReason ? (
+              <span className="px-2 text-[11px] text-red-600 dark:text-red-400">
+                {submissionGuard.disabledReason}
+              </span>
+            ) : null}
             <textarea
               ref={textareaRef}
               value={prompt}
@@ -167,6 +186,7 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
             type="button"
             onClick={run}
             disabled={!canSubmit}
+            title={submissionGuard.disabledReason}
             className="shrink-0 rounded-xl bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-40"
           >
             生成

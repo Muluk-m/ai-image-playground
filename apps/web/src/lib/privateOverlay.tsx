@@ -14,8 +14,10 @@ export interface PrivateWebOverlay {
   HeaderActions: ComponentType
   SubmissionStatus: ComponentType<PrivateSubmissionInput>
   useSubmissionGuard(input: PrivateSubmissionInput): PrivateSubmissionGuard
+  getSubmissionGuard(input: PrivateSubmissionInput): PrivateSubmissionGuard
   onSubmissionError(error: unknown): void
   onSubmissionAccepted(): void
+  onSubmissionSettled(): void
 }
 
 const EmptyComponent = () => null
@@ -23,8 +25,10 @@ const EMPTY_OVERLAY: PrivateWebOverlay = Object.freeze({
   HeaderActions: EmptyComponent,
   SubmissionStatus: EmptyComponent,
   useSubmissionGuard: () => ({ blocked: false }),
+  getSubmissionGuard: () => ({ blocked: false }),
   onSubmissionError: () => {},
   onSubmissionAccepted: () => {},
+  onSubmissionSettled: () => {},
 })
 
 const privateModules = import.meta.glob('../../../../private/apps/web/index.tsx', { eager: true })
@@ -47,9 +51,13 @@ function resolveOverlay(): PrivateWebOverlay {
     !('SubmissionStatus' in overlay) ||
     typeof overlay.SubmissionStatus !== 'function' ||
     !('useSubmissionGuard' in overlay) ||
+    !('getSubmissionGuard' in overlay) ||
+    typeof overlay.getSubmissionGuard !== 'function' ||
     typeof overlay.useSubmissionGuard !== 'function' ||
     !('onSubmissionAccepted' in overlay) ||
     typeof overlay.onSubmissionAccepted !== 'function' ||
+    !('onSubmissionSettled' in overlay) ||
+    typeof overlay.onSubmissionSettled !== 'function' ||
     !('onSubmissionError' in overlay) ||
     typeof overlay.onSubmissionError !== 'function'
   ) {
@@ -67,10 +75,18 @@ export function usePrivateSubmissionGuard(input: PrivateSubmissionInput): Privat
   return overlay.useSubmissionGuard(input)
 }
 
+export function getPrivateSubmissionGuard(input: PrivateSubmissionInput): PrivateSubmissionGuard {
+  return overlay.getSubmissionGuard(input)
+}
+
 export function notifyPrivateSubmissionAccepted(): void {
   overlay.onSubmissionAccepted()
 }
 
 export function notifyPrivateSubmissionError(error: unknown): void {
   overlay.onSubmissionError(error)
+}
+
+export function notifyPrivateSubmissionSettled(): void {
+  overlay.onSubmissionSettled()
 }
