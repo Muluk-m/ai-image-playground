@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { callImageApi, resumeQueueImageApi } from '../../lib/api'
 import { DEFAULT_SETTINGS, normalizeSettings } from '../../lib/apiProfiles'
 import type { BuiltinEdgeProfile, PublicChannel, UserByokProfile } from '../../lib/channels/types'
+import { bootstrapClientCapabilities } from '../../lib/clientCapabilities'
 import { buildAspectInstruction } from '../../lib/size'
 import { type AppSettings, DEFAULT_PARAMS } from '../../types'
 
@@ -113,11 +114,12 @@ describe('buildAspectInstruction', () => {
 })
 
 describe('callImageApi', () => {
-  afterEach(() => {
+  afterEach(async () => {
     vi.restoreAllMocks()
     vi.unstubAllEnvs()
     vi.useRealTimers()
     mockChannels.list = []
+    await bootstrapClientCapabilities(false, '')
   })
 
   it('adds prompt guard on Responses API by default', async () => {
@@ -844,6 +846,27 @@ describe('callImageApi', () => {
     expect(urls.some((u: string) => u.endsWith('/v1/queue/requests/persisted-request-id-42'))).toBe(
       true,
     )
+  })
+
+  it('rejects BYOK dispatch when the BFF capability is disabled', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      Response.json({
+        'accounts:login': true,
+        'billing:credits': false,
+        'generation:byok': false,
+        'quota:daily': false,
+      }),
+    )
+    await bootstrapClientCapabilities(true, 'https://bff.example')
+
+    await expect(
+      callImageApi({
+        settings: settingsWithByok({ apiKey: 'sk-test' }),
+        prompt: 'prompt',
+        params: { ...DEFAULT_PARAMS },
+        inputImageDataUrls: [],
+      }),
+    ).rejects.toThrow('当前部署只允许使用内置模型')
   })
 
   it('user-byok dispatch always carries Authorization header', async () => {

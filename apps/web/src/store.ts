@@ -34,7 +34,7 @@ import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate'
 import { callImageApi, resumeQueueImageApi } from './lib/api'
 import { scopedLocalStorage } from './lib/authScope'
 import { validateMaskMatchesImage } from './lib/canvasImage'
-import { isClientCapabilityEnabled } from './lib/clientCapabilities'
+import { isByokGenerationEnabled, isClientCapabilityEnabled } from './lib/clientCapabilities'
 import {
   CURRENT_THUMBNAIL_VERSION,
   clearImages,
@@ -56,7 +56,7 @@ import { IMAGE_FETCH_CORS_HINT, bytesToDataUrl as sharedBytesToDataUrl } from '.
 import { orderInputImagesForMask } from './lib/mask'
 import { getCustomQueuedImageResult } from './lib/openaiCompatibleImageApi'
 import { getChangedParams, normalizeParamsForSettings } from './lib/paramCompatibility'
-import { notifyPrivateSubmissionError } from './lib/privateOverlay'
+import { notifyPrivateSubmissionAccepted, notifyPrivateSubmissionError } from './lib/privateOverlay'
 import { remapImageMentionsForOrder, replaceImageMentionsForApi } from './lib/promptImageMentions'
 import { dismissAllTooltips } from './lib/tooltipDismiss'
 import {
@@ -1229,7 +1229,7 @@ export async function submitTask(
     }
   }
 
-  if (isClientCapabilityEnabled('billing:credits') && activeProfile.source !== 'builtin-edge') {
+  if (!isByokGenerationEnabled() && activeProfile.source !== 'builtin-edge') {
     showToast('当前部署只允许使用内置模型', 'error')
     return
   }
@@ -1437,6 +1437,7 @@ async function executeTask(taskId: string) {
         },
         onQueueSubmitted: (requestId) => {
           updateTaskInStore(taskId, { bffRequestId: requestId })
+          notifyPrivateSubmissionAccepted()
         },
       })
     }

@@ -4,7 +4,7 @@ import { getModelCapabilities } from './channels/profileSelectors'
 import { getPublicChannel, getPublicChannels } from './channels/publicChannels'
 import { callQueueChannelApi, resumeQueueChannelApi, toQueueProvider } from './channels/queueClient'
 import type { ClientProfile, UserByokProfile } from './channels/types'
-import { isClientCapabilityEnabled } from './clientCapabilities'
+import { isByokGenerationEnabled } from './clientCapabilities'
 import { callGeminiImageApi } from './geminiImageApi'
 import {
   applyPromptRewriteGuard,
@@ -87,7 +87,7 @@ export async function callImageApi(opts: CallApiOptions): Promise<CallApiResult>
   opts = withNormalizedParams(opts)
 
   const profile = getActiveApiProfile(opts.settings)
-  if (isClientCapabilityEnabled('billing:credits') && profile.source !== 'builtin-edge') {
+  if (!isByokGenerationEnabled() && profile.source !== 'builtin-edge') {
     throw new Error('当前部署只允许使用内置模型')
   }
 

@@ -7,6 +7,7 @@ export interface QuotaConsumeResult {
   ok: boolean
   /** 成功时是更新后的值；失败时是消费前的累计值。 */
   count: number
+  limit: number
   /** 下次配额重置时间（UTC 第二天 00:00:00 ISO 字符串）。 */
   reset_at: string
 }
@@ -26,23 +27,21 @@ export function nextResetISO(): string {
 }
 
 /**
- * 单条原子 UPSERT：INSERT 命中或 ON CONFLICT UPDATE 命中 setWhere 都返回新 count；
- * 仅在 UPDATE 分支因 setWhere 不满足而不命中时返 0 行 → ok=false。
+ * Single atomic UPSERT. The configured limit is part of the statement so
+ * concurrent submissions cannot exceed it.
  *
- * 不变量：setWhere 仅作用于 UPDATE 分支。首次 INSERT 不查 limit，依赖 submit
- * 路由的 n ∈ [1, 16] 保证首次插入必不超额（n ≤ DAILY_QUOTA_LIMIT）。
- *
- * Third parameter is test-only. It injects a database bound to an isolated PostgreSQL test
- * database and avoids initializing the process-global pool.
+ * The optional database and limit parameters support isolated tests without
+ * initializing the process-global pool.
  */
 export async function tryConsumeQuota(
   device_id: string,
   n: number,
   dbInstance?: QuotaDb,
+  limit = DAILY_QUOTA_LIMIT,
 ): Promise<QuotaConsumeResult> {
   // Keep the default import lazy so tests with an injected database never initialize global storage.
   const db = dbInstance ?? (await import('../db/client')).db
-  return consumeQuota(db, device_id, n)
+  return consumeQuota(db, device_id, n, limit)
 }
 
 /** Variant used by the submit transaction so task insertion and quota consumption stay atomic. */
@@ -50,28 +49,34 @@ export async function tryConsumeQuotaInTransaction(
   db: QuotaTransaction,
   device_id: string,
   n: number,
+  limit: number,
 ): Promise<QuotaConsumeResult> {
-  return consumeQuota(db, device_id, n)
+  return consumeQuota(db, device_id, n, limit)
 }
 
 async function consumeQuota(
   db: QuotaExecutor,
   device_id: string,
   n: number,
+  limit: number,
 ): Promise<QuotaConsumeResult> {
+  if (!Number.isSafeInteger(limit) || limit < 0)
+    throw new RangeError('quota limit must be non-negative')
   const date = currentQuotaDate()
-  const rows = await db
-    .insert(schema.daily_quota)
-    .values({ device_id, date, count: n })
-    .onConflictDoUpdate({
-      target: [schema.daily_quota.device_id, schema.daily_quota.date],
-      set: { count: sql`${schema.daily_quota.count} + ${n}` },
-      setWhere: sql`${schema.daily_quota.count} + ${n} <= ${DAILY_QUOTA_LIMIT}`,
-    })
-    .returning({ count: schema.daily_quota.count })
+  if (n <= limit) {
+    const rows = await db
+      .insert(schema.daily_quota)
+      .values({ device_id, date, count: n })
+      .onConflictDoUpdate({
+        target: [schema.daily_quota.device_id, schema.daily_quota.date],
+        set: { count: sql`${schema.daily_quota.count} + ${n}` },
+        setWhere: sql`${schema.daily_quota.count} + ${n} <= ${limit}`,
+      })
+      .returning({ count: schema.daily_quota.count })
 
-  if (rows.length > 0) {
-    return { ok: true, count: rows[0]!.count, reset_at: nextResetISO() }
+    if (rows.length > 0) {
+      return { ok: true, count: rows[0]!.count, limit, reset_at: nextResetISO() }
+    }
   }
 
   const [existing] = await db
@@ -81,7 +86,8 @@ async function consumeQuota(
     .limit(1)
   return {
     ok: false,
-    count: existing?.count ?? DAILY_QUOTA_LIMIT,
+    count: existing?.count ?? 0,
+    limit,
     reset_at: nextResetISO(),
   }
 }

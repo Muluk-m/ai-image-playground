@@ -74,6 +74,10 @@ export default defineConfig(({ command }) => {
       __DEV_PROXY_CONFIG__: JSON.stringify(devProxyConfig),
     },
     resolve: {
+      alias: {
+        react: resolve(__dirname, 'node_modules/react'),
+        'react-dom': resolve(__dirname, 'node_modules/react-dom'),
+      },
       dedupe: ['react', 'react-dom'],
     },
     server: {

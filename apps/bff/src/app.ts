@@ -7,7 +7,7 @@ import { loadPrivateBffOverlay } from './lib/private-overlay'
 import { gzipBlob } from './lib/staticCompression'
 import { userAuthRoutes } from './routes/auth'
 import { cancelRoutes } from './routes/cancel'
-import { capabilitiesRoutes } from './routes/capabilities'
+import { capabilitiesRoutes, internalCapabilitiesRoutes } from './routes/capabilities'
 import { channelsRoutes } from './routes/channels'
 import { internalUserRoutes } from './routes/internal-users'
 import { resultRoutes } from './routes/result'
@@ -131,6 +131,7 @@ export const app = new Elysia()
   .use(resultRoutes)
   .use(cancelRoutes)
   .use(internalUserRoutes)
+  .use(internalCapabilitiesRoutes)
   .use(privateBffOverlay.routes)
   .onRequest(async ({ request, set }) => {
     const url = new URL(request.url)
