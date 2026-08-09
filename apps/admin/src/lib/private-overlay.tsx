@@ -24,7 +24,6 @@ const EMPTY_OVERLAY: PrivateAdminOverlay = Object.freeze({
   UserDetailPanel: EmptyComponent,
 })
 
-// biome-ignore lint/style/noRestrictedImports: This audited seam is the only public-tree import of private/.
 const privateModules = import.meta.glob('../../../../private/apps/admin/index.tsx', { eager: true })
 
 function resolveOverlay(): PrivateAdminOverlay {

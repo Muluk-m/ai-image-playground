@@ -77,9 +77,7 @@ export async function createUser(
         created_at: now,
         updated_at: now,
       })
-      await tx
-        .insert(schema.operator_audits)
-        .values(operatorAudit('user.create', id, { username }))
+      await tx.insert(schema.operator_audits).values(operatorAudit('user.create', id, { username }))
       await taskHooks.onUserCreated({ tx, userId: id })
     })
   } catch (error) {

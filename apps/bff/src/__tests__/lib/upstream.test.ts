@@ -62,9 +62,9 @@ describe('callUpstream OpenAI route', () => {
   })
 
   it('counts one OpenAI HTTP invocation when n is forwarded in one request', () => {
-    expect(
-      upstreamInvocationCount('openai-compat', 'gpt-image-2', { prompt: 'a cat', n: 4 }),
-    ).toBe(1)
+    expect(upstreamInvocationCount('openai-compat', 'gpt-image-2', { prompt: 'a cat', n: 4 })).toBe(
+      1,
+    )
   })
 
   it('forwards OpenAI output controls in the generations JSON body', async () => {

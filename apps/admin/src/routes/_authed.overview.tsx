@@ -2,8 +2,8 @@ import { createFileRoute } from '@tanstack/react-router'
 import { Activity, CircleCheck, Clock3, Loader2, TriangleAlert } from 'lucide-react'
 
 import { TaskVolumeChart } from '@/components/TaskVolumeChart'
-import { useOverview } from '@/lib/queries'
 import { PrivateAdminOverviewPanel } from '@/lib/private-overlay'
+import { useOverview } from '@/lib/queries'
 import { parseOverviewSearch } from '@/lib/search-params'
 
 export const Route = createFileRoute('/_authed/overview')({
@@ -34,7 +34,9 @@ function Metric({
         {label}
         <Icon className="h-4 w-4 text-foreground/60" />
       </div>
-      <div className="mt-5 font-mono text-3xl font-semibold tabular-nums tracking-tight">{value}</div>
+      <div className="mt-5 font-mono text-3xl font-semibold tabular-nums tracking-tight">
+        {value}
+      </div>
       <p className="mt-1.5 text-xs text-muted-foreground">{note}</p>
     </article>
   )
@@ -80,7 +82,12 @@ function OverviewPage() {
       </div>
 
       <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4" aria-label="关键指标">
-        <Metric label="任务总量" value={String(summary.total)} note="当前时间窗提交" icon={Activity} />
+        <Metric
+          label="任务总量"
+          value={String(summary.total)}
+          note="当前时间窗提交"
+          icon={Activity}
+        />
         <Metric
           label="成功率"
           value={`${successPercent}%`}
@@ -129,7 +136,9 @@ function OverviewPage() {
                   <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-muted">
                     <div
                       className="h-full rounded-full bg-foreground/70"
-                      style={{ width: `${topModelCount ? (model.count / topModelCount) * 100 : 0}%` }}
+                      style={{
+                        width: `${topModelCount ? (model.count / topModelCount) * 100 : 0}%`,
+                      }}
                     />
                   </div>
                 </div>
@@ -157,7 +166,9 @@ function OverviewPage() {
                 className="flex items-center justify-between rounded-md border border-rose-500/15 bg-rose-500/[0.035] px-3 py-2"
               >
                 <code className="text-xs">{failure.error_type}</code>
-                <span className="font-mono text-sm font-semibold tabular-nums">{failure.count}</span>
+                <span className="font-mono text-sm font-semibold tabular-nums">
+                  {failure.count}
+                </span>
               </div>
             ))}
           </div>

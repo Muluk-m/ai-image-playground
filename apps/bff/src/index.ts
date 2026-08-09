@@ -3,9 +3,9 @@ import { app } from './app'
 import { config } from './config'
 import { close as closeDb } from './db/client'
 import { purgeOldTasks, runPrivateMaintenance } from './db/maintenance'
+import { isCapabilityEnabled } from './lib/capabilities'
 import { initChannels } from './lib/channels'
 import { log } from './lib/logger'
-import { isCapabilityEnabled } from './lib/capabilities'
 
 config.assertValid()
 log.info(

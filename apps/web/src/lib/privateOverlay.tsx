@@ -25,7 +25,6 @@ const EMPTY_OVERLAY: PrivateWebOverlay = Object.freeze({
   onSubmissionError: () => {},
 })
 
-// biome-ignore lint/style/noRestrictedImports: This audited seam is the only public-tree import of private/.
 const privateModules = import.meta.glob('../../../../private/apps/web/index.tsx', { eager: true })
 
 function resolveOverlay(): PrivateWebOverlay {
@@ -60,9 +59,7 @@ const overlay = resolveOverlay()
 export const PrivateWebHeaderActions = overlay.HeaderActions
 export const PrivateSubmissionStatus = overlay.SubmissionStatus
 
-export function usePrivateSubmissionGuard(
-  input: PrivateSubmissionInput,
-): PrivateSubmissionGuard {
+export function usePrivateSubmissionGuard(input: PrivateSubmissionInput): PrivateSubmissionGuard {
   return overlay.useSubmissionGuard(input)
 }
 
