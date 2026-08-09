@@ -14,6 +14,8 @@ const privateReferencePatterns = [
   /\bimport\.meta\.glob\s*\(\s*['"][^'"]*private\//,
   /\bnew URL\s*\(\s*['"][^'"]*private\//,
   /\brequire\s*\(\s*['"][^'"]*private\//,
+  /\bdeclare\s+module\s*['"][^'"]*private\//,
+  /['"][^'"]*(?:\.\.\/){2,}\*\/apps\/(?:admin|bff|web)\//,
 ]
 const sourceGlob = new Bun.Glob('**/*.{ts,tsx,js,mjs,cjs}')
 const violations: string[] = []
