@@ -1,8 +1,8 @@
 import { QUEUE_TIMEOUTS } from '@image-playground/shared'
 import { and, eq, inArray, isNotNull, lt } from 'drizzle-orm'
 import { log } from '../lib/logger'
-import { loadPrivateBffOverlay } from '../lib/private-overlay'
 import { objectStore } from '../lib/objectStore'
+import { loadPrivateBffOverlay } from '../lib/private-overlay'
 import { db, schema } from './client'
 
 /**
@@ -46,7 +46,6 @@ export async function runPrivateMaintenance(now = Date.now()): Promise<void> {
   const taskHooks = (await loadPrivateBffOverlay()).taskHooks
   await taskHooks.runMaintenance(now)
 }
-
 
 /**
  * 删除 30 天前完成的任务（成功 / 失败 / 取消）。不删 queued/in_progress，避免

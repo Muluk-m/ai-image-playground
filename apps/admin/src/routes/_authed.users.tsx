@@ -112,8 +112,7 @@ function UsersPage() {
 
       {term ? (
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <Search className="h-3.5 w-3.5" />
-          “{term}” 匹配 {query.data.users.length} 个用户
+          <Search className="h-3.5 w-3.5" />“{term}” 匹配 {query.data.users.length} 个用户
         </div>
       ) : (
         <div className="flex items-center gap-2 text-xs text-muted-foreground">

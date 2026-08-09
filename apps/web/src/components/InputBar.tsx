@@ -15,10 +15,7 @@ import {
   getParamCapabilities,
   normalizeParamsForSettings,
 } from '../lib/paramCompatibility'
-import {
-  PrivateSubmissionStatus,
-  usePrivateSubmissionGuard,
-} from '../lib/privateOverlay'
+import { PrivateSubmissionStatus, usePrivateSubmissionGuard } from '../lib/privateOverlay'
 import { computePromptHeight } from '../lib/promptHeight'
 import {
   getAtImageQuery,
@@ -486,9 +483,7 @@ export default function InputBar() {
   const hasSubmitApiConfig = activeProfile.source === 'builtin-edge' || Boolean(activeView.apiKey)
   const submissionInput = { model: activeView.model, quantity: Math.max(1, params.n) }
   const submissionGuard = usePrivateSubmissionGuard(submissionInput)
-  const canSubmit = Boolean(
-    prompt.trim() && hasSubmitApiConfig && !submissionGuard.blocked,
-  )
+  const canSubmit = Boolean(prompt.trim() && hasSubmitApiConfig && !submissionGuard.blocked)
   // null → 旧行为；有声明时按 capability 显隐参考图 / 遮罩 / 质量控件，
   // 避免「选了不支持的模型，控件还在，提交才在上游炸」。
   const modelCaps = useMemo(
@@ -1685,10 +1680,7 @@ export default function InputBar() {
               >
                 <ButtonTooltip
                   visible={(!hasSubmitApiConfig || submissionGuard.blocked) && submitHover}
-                  text={
-                    submissionGuard.disabledReason ??
-                    '尚未完成 API 配置，请在右上角设置中进行'
-                  }
+                  text={submissionGuard.disabledReason ?? '尚未完成 API 配置，请在右上角设置中进行'}
                 />
                 <button
                   type="button"
@@ -1900,8 +1892,7 @@ export default function InputBar() {
                     <ButtonTooltip
                       visible={(!hasSubmitApiConfig || submissionGuard.blocked) && submitHover}
                       text={
-                        submissionGuard.disabledReason ??
-                        '尚未完成 API 配置，请在右上角设置中进行'
+                        submissionGuard.disabledReason ?? '尚未完成 API 配置，请在右上角设置中进行'
                       }
                     />
                     <button

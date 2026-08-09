@@ -58,7 +58,11 @@ export function TaskVolumeChart({ buckets, label }: TaskVolumeChartProps) {
             <i className="h-1.5 w-1.5 rounded-full bg-rose-500" /> 失败
           </span>
         </span>
-        <span>{buckets.length ? new Date(buckets[buckets.length - 1]!.bucket_at).toLocaleDateString() : '—'}</span>
+        <span>
+          {buckets.length
+            ? new Date(buckets[buckets.length - 1]!.bucket_at).toLocaleDateString()
+            : '—'}
+        </span>
       </div>
     </div>
   )

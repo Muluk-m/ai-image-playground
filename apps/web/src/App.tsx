@@ -13,12 +13,12 @@ import Toast from './components/Toast'
 import CanvasMode from './features/canvas/components/CanvasMode'
 import InspirationPanel from './features/inspiration/components/InspirationPanel'
 import { initHashRoute } from './features/inspiration/lib/hashRoute'
+import { isClientCapabilityEnabled } from './lib/clientCapabilities'
 import {
   buildSettingsFromUrlParams,
   clearUrlSettingParams,
   hasUrlSettingParams,
 } from './lib/urlSettings'
-import { isClientCapabilityEnabled } from './lib/clientCapabilities'
 import { initStore, useStore } from './store'
 
 export default function App() {

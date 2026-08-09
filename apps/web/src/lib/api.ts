@@ -2,9 +2,9 @@ import { clientProfileToApiProfile, getActiveApiProfile } from './apiProfiles'
 import { createMaskPreviewDataUrl } from './canvasImage'
 import { getModelCapabilities } from './channels/profileSelectors'
 import { getPublicChannel, getPublicChannels } from './channels/publicChannels'
-import { isClientCapabilityEnabled } from './clientCapabilities'
 import { callQueueChannelApi, resumeQueueChannelApi, toQueueProvider } from './channels/queueClient'
 import type { ClientProfile, UserByokProfile } from './channels/types'
+import { isClientCapabilityEnabled } from './clientCapabilities'
 import { callGeminiImageApi } from './geminiImageApi'
 import {
   applyPromptRewriteGuard,

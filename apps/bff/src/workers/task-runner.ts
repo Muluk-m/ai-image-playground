@@ -4,15 +4,15 @@ import { db, schema } from '../db/client'
 import { describeEmptyResult, extractMeta } from '../lib/extractImages'
 import { archiveOutputImages, hydrateInputImages, ObjectStorageError } from '../lib/imageArchive'
 import { log } from '../lib/logger'
-import {
-  callUpstream,
-  upstreamInvocationCount,
-  UpstreamResultUnknownError,
-  UpstreamTimeoutError,
-} from '../lib/upstream'
 import { loadPrivateBffOverlay } from '../lib/private-overlay'
 import { isAbortError } from '../lib/queueProvider'
 import { isRetryableError, planNextAttempt, shouldRetryEmptyResult } from '../lib/retry'
+import {
+  callUpstream,
+  UpstreamResultUnknownError,
+  UpstreamTimeoutError,
+  upstreamInvocationCount,
+} from '../lib/upstream'
 
 /**
  * 单 task 后台执行：把 status 推进到 in_progress → completed/failed/cancelled。
@@ -140,7 +140,6 @@ async function finishTask(id: string, update: TerminalTaskUpdate): Promise<boole
     return true
   })
 }
-
 
 export async function runTask(id: string): Promise<void> {
   const now = () => Date.now()

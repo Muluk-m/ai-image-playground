@@ -5,9 +5,9 @@ import {
   DEFAULT_SETTINGS,
   normalizeSettings,
 } from '../lib/apiProfiles'
-import { bootstrapClientCapabilities } from '../lib/clientCapabilities'
 import { setChannels } from '../lib/channels/channelStore'
 import type { PublicChannel } from '../lib/channels/types'
+import { bootstrapClientCapabilities } from '../lib/clientCapabilities'
 import { getSelectedImageMentionLabel } from '../lib/promptImageMentions'
 import type { StoredImage, StoredImageThumbnail, TaskRecord } from '../types'
 import { DEFAULT_PARAMS } from '../types'

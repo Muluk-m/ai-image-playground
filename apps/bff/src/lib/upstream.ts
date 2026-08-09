@@ -64,7 +64,6 @@ export function upstreamInvocationCount(
   return resolveUpstream(provider, model).direct ? quantity : 1
 }
 
-
 export interface UpstreamCallParams {
   provider: QueueProvider
   model: string

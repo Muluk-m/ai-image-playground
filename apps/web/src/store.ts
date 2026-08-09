@@ -33,8 +33,8 @@ function filterUserProfileCache(
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate'
 import { callImageApi, resumeQueueImageApi } from './lib/api'
 import { scopedLocalStorage } from './lib/authScope'
-import { isClientCapabilityEnabled } from './lib/clientCapabilities'
 import { validateMaskMatchesImage } from './lib/canvasImage'
+import { isClientCapabilityEnabled } from './lib/clientCapabilities'
 import {
   CURRENT_THUMBNAIL_VERSION,
   clearImages,
@@ -1229,10 +1229,7 @@ export async function submitTask(
     }
   }
 
-  if (
-    isClientCapabilityEnabled('billing:credits') &&
-    activeProfile.source !== 'builtin-edge'
-  ) {
+  if (isClientCapabilityEnabled('billing:credits') && activeProfile.source !== 'builtin-edge') {
     showToast('当前部署只允许使用内置模型', 'error')
     return
   }
@@ -1310,8 +1307,7 @@ export async function submitTask(
   // `price × quantity` atomically. BYOK and non-billed deployments keep the
   // established one-card-per-image fan-out behavior.
   const billedBuiltinSubmission =
-    activeProfile.source === 'builtin-edge' &&
-    isClientCapabilityEnabled('billing:credits')
+    activeProfile.source === 'builtin-edge' && isClientCapabilityEnabled('billing:credits')
   const fanOut = billedBuiltinSubmission ? 1 : Math.max(1, taskParams.n)
   const singleParams =
     billedBuiltinSubmission || fanOut === 1 ? taskParams : { ...taskParams, n: 1 }
