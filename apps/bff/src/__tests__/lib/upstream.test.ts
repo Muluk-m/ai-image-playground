@@ -2,12 +2,10 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { File } from 'node:buffer'
 import { FormData as UndiciFormData } from 'undici'
 
-// 注入测试环境变量，必须早于 config import。
-// DATABASE_URL 跟 routes.test.ts 用同一路径——config 是模块顶层捕获，
-// 测试间共享 process，路径不一致会让 routes.test.ts 的 db client 指错文件。
+// Inject before importing config, which captures process environment at module initialization.
 process.env.UPSTREAM_BASE_URL = 'http://localhost:9999'
 process.env.UPSTREAM_API_KEY = 'test-key'
-process.env.DATABASE_URL = './artifacts/test-routes.sqlite'
+process.env.DATABASE_URL = process.env.TEST_DATABASE_URL ?? ''
 process.env.PORT = '0'
 
 const {

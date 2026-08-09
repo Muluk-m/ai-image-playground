@@ -1,33 +1,23 @@
 import { describe, expect, it } from 'bun:test'
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-
-const TEST_DB = './artifacts/test-admin-static.sqlite'
-try {
-  require('node:fs').unlinkSync(TEST_DB)
-  require('node:fs').unlinkSync(`${TEST_DB}-wal`)
-  require('node:fs').unlinkSync(`${TEST_DB}-shm`)
-} catch {}
 
 const tmpDir = mkdtempSync(join(tmpdir(), 'admin-static-'))
 writeFileSync(join(tmpDir, 'index.html'), '<!doctype html><html><body>admin</body></html>')
 
-// 模仿 vite 产物：assets/ 下 hash 化 js / css
-const fs = require('node:fs') as typeof import('node:fs')
-fs.mkdirSync(join(tmpDir, 'assets'))
+// Mimic Vite's hashed JS/CSS output.
+mkdirSync(join(tmpDir, 'assets'))
 writeFileSync(join(tmpDir, 'assets', 'index-abc123.js'), 'console.log(1);'.repeat(200))
 
 process.env.ADMIN_PASSWORD = 'test-pass-1234'
 process.env.ADMIN_COOKIE_SECRET = 'test-cookie-secret-32-bytes-min!!'
-process.env.DATABASE_URL = TEST_DB
+process.env.DATABASE_URL = process.env.TEST_DATABASE_URL ?? ''
 process.env.BFF_INTERNAL_URL = 'http://127.0.0.1:39999'
 process.env.PORT = '0'
 process.env.ADMIN_DIST_DIR = tmpDir
 
-const { runMigrations } = await import('@image-playground/db')
-runMigrations(TEST_DB)
-
+// Dynamic import keeps environment setup ahead of Admin configuration capture.
 const { app } = await import('../app')
 
 describe('admin static serving', () => {

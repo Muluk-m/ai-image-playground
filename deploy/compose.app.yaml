@@ -22,6 +22,21 @@ services:
     networks:
       - application-infra
 
+  migrate:
+    <<: *application-service
+    environment:
+      APP_ROLE: migrate
+    restart: "no"
+    command:
+      - bun
+      - run
+      - /app/apps/bff/src/db/migrate.ts
+    depends_on:
+      dependency-check:
+        condition: service_completed_successfully
+    networks:
+      - application-infra
+
   bff:
     <<: *application-service
     environment:
@@ -33,14 +48,13 @@ services:
       - run
       - /app/apps/bff/src/index.ts
     depends_on:
-      dependency-check:
+      migrate:
         condition: service_completed_successfully
     stop_grace_period: 75s
     networks:
       - application
       - application-infra
     volumes:
-      - application-data:/data
       - type: bind
         source: ${APP_CONFIG_DIR:-/Users/qiqian/.config/ai-image-playground/apps/${COMPOSE_PROJECT_NAME}}
         target: /run/operator
@@ -67,14 +81,13 @@ services:
       - run
       - /app/apps/bff/src/worker-index.ts
     depends_on:
-      dependency-check:
+      migrate:
         condition: service_completed_successfully
     stop_grace_period: 75s
     networks:
       - application
       - application-infra
     volumes:
-      - application-data:/data
       - type: bind
         source: ${APP_CONFIG_DIR:-/Users/qiqian/.config/ai-image-playground/apps/${COMPOSE_PROJECT_NAME}}
         target: /run/operator
@@ -115,8 +128,6 @@ services:
       edge:
         aliases:
           - ${COMPOSE_PROJECT_NAME}-admin
-    volumes:
-      - application-data:/data
     healthcheck:
       test:
         - CMD
@@ -157,8 +168,6 @@ services:
       retries: 12
       start_period: 5s
 
-volumes:
-  application-data:
 
 networks:
   application:

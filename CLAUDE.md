@@ -9,7 +9,7 @@
 pnpm workspace + Turbo monorepo：
 
 - `apps/web/` — 前端工作台（React 19 + Vite 6 + TypeScript 5.8 + Zustand 5 + Tailwind 3 + Vitest 4）。历史 / 配置全存浏览器 IndexedDB。
-- `apps/bff/` — **可选** 任务队列 BFF（Elysia + Bun + Drizzle + SQLite）。监听 `:37377`，托管 web/dist 同源，跑长任务（绕浏览器 / Edge 长超时）。
+- `apps/bff/` — **可选**任务队列 BFF（Elysia + Bun + Drizzle + PostgreSQL）。监听 `:37377`，托管 web/dist 同源，跑长任务（绕浏览器 / Edge 长超时）。
 - `apps/admin/` — 可选运维面板（Bun + Elysia 服务端 + Vite + TanStack Router 前端 + shadcn）。HMAC cookie 鉴权，read-only 查任务和设备。
 - `packages/shared/` — 跨 app 协议类型（`runtime-config.ts` / `channel-discovery.ts` / `queue-protocol.ts`）。
 
@@ -24,7 +24,7 @@ pnpm workspace + Turbo monorepo：
 
 - **monorepo**：pnpm workspace + Turbo v2 + Biome
 - **前端 `apps/web`**：React 19 · Vite 6 · TypeScript 5.8 · Zustand 5 · Vitest 4 · TailwindCSS 3
-- **BFF `apps/bff`**：Bun · Elysia · Drizzle ORM · SQLite (`bun:sqlite`)，端口 37377
+- **BFF `apps/bff`**：Bun · Elysia · Drizzle ORM · PostgreSQL (`bun:sql`)，端口 37377
 - **admin `apps/admin`**：服务端 Bun + Elysia (端口 37378)；前端 Vite + TanStack Router + shadcn
 
 ## 常用命令
@@ -54,11 +54,7 @@ pnpm workspace + Turbo monorepo：
 
 ## 测试约定
 
-- **测试库一律用 [Vitest](https://vitest.dev/)**（web 是 vitest 4；bff 现存测试用 `bun:test`，因为依赖 `bun:sqlite` 等 Bun-only API；新加 bff 测试也优先 vitest，除非确实需要 Bun runtime）。新写测试 import 走：
-  ```ts
-  import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-  ```
-  Mock 用 `vi.fn()` / `vi.spyOn()` / `vi.mock(<module>, factory)`。不要混 jest 或 bun:test 的 API。
+- **BFF / Admin 后端测试使用 `bun:test`**：数据库与对象存储客户端依赖 Bun runtime，不要换成 Vitest。前端测试继续使用 [Vitest](https://vitest.dev/) 4。不要在同一测试文件混用两套 API。
 - **测试文件统一放在 `<app>/src/__tests__/` 下**，保留与被测代码相同的子目录结构。例：
   - 源 `apps/web/src/lib/api.ts` → 测 `apps/web/src/__tests__/lib/api.test.ts`
   - 源 `apps/bff/src/routes/submit.ts` → 测 `apps/bff/src/__tests__/routes/submit.test.ts`
@@ -120,7 +116,7 @@ BFF（`apps/bff/`）在整个 playground 里只做四件事：
 
 1. **任务队列代理** — 绕浏览器 / Edge / CF Pages 这类平台的 100s idle timeout（Gemini 3 Pro Image 单张能跑 30-300s）。前端发 `submit / status / fetch` 三段 < 1s 快请求，BFF 内部跑长 fetch 调上游。
 2. **Secret 守门人** — 上游 API key 只在 BFF 进程 env 里，浏览器永远拿不到；这是「内置 channel」能让没 key 的用户也能用的前提。
-3. **持久化 + 幂等** — SQLite 存 task，浏览器刷新 / 关 tab 后用 `client_request_id` 幂等恢复，不重复扣额度。
+3. **持久化 + 幂等** — PostgreSQL 存 task，浏览器刷新 / 关 tab 后用 `client_request_id` 幂等恢复，不重复扣额度。
 4. **托管前端静态产物** — `apps/web/dist` 由 BFF serve（`STATIC_DIR` env），跟 BFF 同源省 CORS preflight。
 
 **BFF 不做**：协议翻译（OpenAI / Gemini 字段透传给上游）；**BYOK profile 完全绕过 BFF**（前端直接 fetch 用户填的 baseUrl，BFF 看不到也存不了 BYOK 的 key）。

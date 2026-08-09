@@ -35,7 +35,7 @@ export const config = {
       throw new Error('Missing env: INTERNAL_API_TOKEN')
     }
   },
-  databaseUrl: env('DATABASE_URL', '../../artifacts/image-playground.sqlite'),
+  databaseUrl: env('DATABASE_URL'),
   corsOrigins: env('CORS_ALLOWED_ORIGINS', '*'),
   // admin 前端 dist 目录；为空时 server 不挂静态托管（dev 模式由 vite 跑前端）
   staticDir: env('ADMIN_DIST_DIR', ''),

@@ -118,20 +118,26 @@ chmod 600 \
 # Replace every replace-* value before starting anything.
 ```
 
-The two application files must use different buckets, object-store credentials, internal
-service tokens, authentication settings, provider credentials, and CORS origins. Compose
-also creates a different SQLite volume for each project. Real secrets and operator
-configuration remain in these external directories; only safe examples are committed.
-`operator-config.json` is optional beside each `app.env`. Missing is valid, while a present
-but invalid file prevents BFF startup.
+The two application files must use different PostgreSQL databases and roles, buckets,
+object-store credentials, internal service tokens, authentication settings, provider
+credentials, and CORS origins. The Admin URL must use its deployment's SELECT-only database
+role. Real secrets and operator configuration remain in these external directories; only
+safe examples are committed. `operator-config.json` is optional beside each `app.env`.
+Missing is valid, while a present but invalid file prevents BFF startup.
 
-Start the infrastructure, build the release image once, then start each project:
+Start infrastructure, provision one database writer and one Admin reader for each
+deployment, build the release image once, then start each project:
 
 ```bash
 # One-time host network owned by the existing reverse proxy, not either app project.
 docker network create image-playground-edge
 
 scripts/infra-compose.sh up
+
+# Set the five POSTGRES_APP_* / POSTGRES_ADMIN_* values in infra.env for the personal
+# deployment, provision it, then replace them with the commercial values and provision again.
+scripts/infra-compose.sh provision
+
 scripts/app-compose.sh build ai-image-playground:local
 scripts/app-compose.sh up image-playground-personal
 scripts/app-compose.sh up image-playground-commercial
@@ -139,17 +145,19 @@ scripts/app-compose.sh up image-playground-commercial
 
 `infra-compose.sh` uses
 `$XDG_CONFIG_HOME/ai-image-playground/infra.env` by default. Set `INFRA_ENV_FILE` to
-override it. It waits for PostgreSQL and MinIO, creates the buckets in
-`MINIO_BUCKET_NAMES`, makes them private, and installs a 45-day expiry rule. Infrastructure
-ports bind to `127.0.0.1` by default; application Compose publishes no PostgreSQL or MinIO
-port.
+override it. `up` waits for PostgreSQL and MinIO, creates the buckets in
+`MINIO_BUCKET_NAMES`, makes them private, and installs a 45-day expiry rule. `provision`
+idempotently creates one deployment database, its writer role, and its Admin SELECT-only
+role. Infrastructure ports bind to `127.0.0.1` by default; application Compose publishes no
+PostgreSQL or MinIO port.
 
 `app-compose.sh` defaults to
 `$XDG_CONFIG_HOME/ai-image-playground/apps/<project>/app.env`. It starts dependency checks,
-BFF, worker, and Admin first and activates nginx only after BFF is healthy. The nginx
-container remains available during later backend restarts. Each Web container writes its
-own `/usr/share/nginx/html/runtime-config.json` from its external environment, so both
-domains share the same Web build without sharing runtime configuration.
+runs committed Drizzle migrations as a one-shot service, starts BFF, worker, and Admin, then
+activates nginx only after BFF is healthy. The nginx container remains available during
+later backend restarts. Each Web container writes its own
+`/usr/share/nginx/html/runtime-config.json` from its external environment, so both domains
+share the same Web build without sharing runtime configuration.
 
 The host reverse proxy must be a container on `image-playground-edge`. Route the domains to
 the stable network aliases:
@@ -166,6 +174,18 @@ does not publish host ports because the domain proxy owns ingress. If the existi
 proxy is not containerized, an operator-supplied Compose override must bind loopback-only
 Web/Admin ports.
 
+For a one-time cutover from the former SQLite deployment:
+
+1. Stop the application and make a filesystem backup of the SQLite database.
+2. Start and provision PostgreSQL as above.
+3. Run `SQLITE_DATABASE_PATH=/absolute/backup.sqlite DATABASE_URL='postgresql://…@127.0.0.1:5432/…' bun run scripts/migrate-sqlite-to-postgres.ts`. The importer applies the committed schema, requires an empty target, copies users, sessions, tasks, quotas, and JSON payloads in one transaction, then prints row counts.
+4. Start the application project. Confirm `/health`, login, task history, and one new generation before removing the maintenance window.
+
+If validation fails, stop the new application and restore the previous image/configuration
+against the untouched SQLite backup. Do not use the destructive
+`packages/db/drizzle/rollback/0000_daffy_the_enforcers.down.sql` file on production; it is
+only for discarding a new empty deployment.
+
 Inspect or stop projects independently:
 
 ```bash
@@ -175,7 +195,7 @@ scripts/app-compose.sh stop image-playground-commercial
 scripts/infra-compose.sh down
 ```
 
-Stopping an application project does not remove its data volume, the external
+Stopping an application project does not remove PostgreSQL or MinIO data, the external
 infrastructure network, or the external edge network. Stop infrastructure only after both
 application projects are down.
 
@@ -213,6 +233,8 @@ The following host facts remain operator prerequisites and are not changed autom
 - `INFRA_NETWORK_NAME` is identical in infra and application configuration.
 - MinIO has distinct application credentials for the two private buckets; the bootstrap
   profile creates buckets and lifecycle rules but does not provision scoped MinIO users.
+- PostgreSQL has a separate database writer and Admin SELECT-only role for each deployment;
+  `scripts/infra-compose.sh provision` creates these roles but does not migrate legacy data.
 - Existing macmini PostgreSQL and MinIO data ownership has been checked before the committed
   infrastructure project is started.
 
@@ -226,7 +248,7 @@ pnpm typecheck
 pnpm lint
 ```
 
-Stack: React 19 + Vite on the frontend · tldraw for the canvas · Bun + Elysia + SQLite on the backend · pnpm + Turbo monorepo.
+Stack: React 19 + Vite on the frontend · tldraw for the canvas · Bun + Elysia + PostgreSQL on the backend · pnpm + Turbo monorepo.
 
 ## 🙏 Credits
 

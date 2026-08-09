@@ -20,7 +20,11 @@ function temporaryFile(contents: string): string {
 async function configModuleExitCode(operatorConfigFile: string): Promise<number> {
   const child = Bun.spawn([process.execPath, '--eval', "await import('./src/config.ts')"], {
     cwd: appRoot,
-    env: { ...process.env, OPERATOR_CONFIG_FILE: operatorConfigFile },
+    env: {
+      ...process.env,
+      DATABASE_URL: process.env.TEST_DATABASE_URL ?? 'postgresql://localhost/image_playground_test',
+      OPERATOR_CONFIG_FILE: operatorConfigFile,
+    },
     stdout: 'ignore',
     stderr: 'ignore',
   })

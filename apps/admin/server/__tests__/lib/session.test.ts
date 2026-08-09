@@ -2,7 +2,7 @@ import { describe, expect, it } from 'bun:test'
 
 process.env.ADMIN_PASSWORD = 'test-pass-1234'
 process.env.ADMIN_COOKIE_SECRET = 'test-cookie-secret-32-bytes-min!!'
-process.env.DATABASE_URL = './artifacts/test-admin-session.sqlite'
+process.env.DATABASE_URL = process.env.TEST_DATABASE_URL ?? ''
 process.env.PORT = '0'
 
 const { signSession, verifySession } = await import('../../lib/session')

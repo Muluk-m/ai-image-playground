@@ -1,18 +1,15 @@
-import { createDb } from '@image-playground/db'
+import { createDb, type DbHandle } from '@image-playground/db'
 import { eq, sql } from 'drizzle-orm'
 import { config } from '../config'
 
-// 懒初始化 readonly 句柄：第一次调用时根据当时的 DATABASE_URL 打开。
-// 不在 module 顶层 createDb，避免「import 链路上 config 先于 test setEnv 被 evaluate」
-// 导致多个测试文件共享同一指向首次 DB 的句柄（bun:test 同进程 module cache 单例）。
-// 同时按 url 缓存，让不同 test 文件切换 DATABASE_URL 时也能重开新 handle。
-type Handle = ReturnType<typeof createDb>
-const _handles = new Map<string, Handle>()
-function getHandle(): Handle {
+// Lazily initialize one pool per URL. Production Admin connects with a database role that has
+// SELECT-only grants; application code does not own a write-capable handle.
+const _handles = new Map<string, DbHandle>()
+function getHandle(): DbHandle {
   const url = process.env.DATABASE_URL?.trim() || config.databaseUrl
   let h = _handles.get(url)
   if (!h) {
-    h = createDb(url, { readonly: true })
+    h = createDb(url)
     _handles.set(url, h)
   }
   return h
@@ -68,6 +65,12 @@ function extractN(payload: unknown): number | null {
   const n = (payload as Record<string, unknown>).n
   return typeof n === 'number' ? n : null
 }
+function toEpochMs(value: unknown): number {
+  if (value instanceof Date) return value.getTime()
+  if (typeof value === 'number') return value
+  const parsed = Date.parse(String(value))
+  return Number.isNaN(parsed) ? 0 : parsed
+}
 
 export interface DeviceRow {
   device_id: string
@@ -98,10 +101,8 @@ export async function listDevices(range: Range, sort: SortKey): Promise<ListDevi
         ? sql`COUNT(*) DESC`
         : sql`today_count DESC`
 
-  // 单条聚合 SQL：避免 N+1。LEFT JOIN daily_quota 拿今日 count；GROUP_CONCAT 模型 chip。
-  // 注意：device_id 是 VIRTUAL 生成列，drizzle schema 没声明，只能 raw sql 访问。
-  // db.all(sql`...`) 返回 unknown[]（每行一个 plain object，列名 = property key）
-  const rows = (await db.all(sql`
+  // One aggregate query avoids N+1. PostgreSQL returns distinct models as a native array.
+  const rows = (await db.execute(sql`
     SELECT
       t.device_id AS device_id,
       MIN(t.submitted_at) AS first_seen,
@@ -109,12 +110,12 @@ export async function listDevices(range: Range, sort: SortKey): Promise<ListDevi
       COUNT(*) AS total,
       SUM(CASE WHEN t.status='completed' THEN 1 ELSE 0 END) AS ok_count,
       SUM(CASE WHEN t.status='failed' THEN 1 ELSE 0 END) AS fail_count,
-      GROUP_CONCAT(DISTINCT t.model) AS models_csv,
+      ARRAY_AGG(DISTINCT t.model) AS models,
       COALESCE(q.count, 0) AS today_count
     FROM tasks t
     LEFT JOIN daily_quota q ON q.device_id = t.device_id AND q.date = ${today}
-    WHERE t.submitted_at >= ${since} AND t.device_id IS NOT NULL
-    GROUP BY t.device_id
+    WHERE t.submitted_at >= ${new Date(since)} AND t.device_id IS NOT NULL
+    GROUP BY t.device_id, q.count
     ORDER BY ${orderBy}
     LIMIT ${LIST_LIMIT + 1}
   `)) as unknown as Array<Record<string, unknown>>
@@ -122,20 +123,284 @@ export async function listDevices(range: Range, sort: SortKey): Promise<ListDevi
   const list = rows.map(
     (r): DeviceRow => ({
       device_id: String(r.device_id),
-      first_seen: Number(r.first_seen),
-      last_seen: Number(r.last_seen),
+      first_seen: toEpochMs(r.first_seen),
+      last_seen: toEpochMs(r.last_seen),
       total: Number(r.total),
       ok_count: Number(r.ok_count),
       fail_count: Number(r.fail_count),
-      models: String(r.models_csv ?? '')
-        .split(',')
-        .filter(Boolean),
+      models: Array.isArray(r.models) ? r.models.map(String) : [],
       today_count: Number(r.today_count),
     }),
   )
 
   const truncated = list.length > LIST_LIMIT
   return { devices: list.slice(0, LIST_LIMIT), truncated }
+}
+export type UserStatus = 'active' | 'disabled'
+
+export interface AdminUserRow {
+  id: string
+  username: string
+  status: UserStatus
+  created_at: number
+  updated_at: number
+  last_login_at: number | null
+  last_task_at: number | null
+  last_activity_at: number | null
+  active_sessions: number
+  task_count: number
+}
+
+export interface UserKpis {
+  total_users: number
+  active_users_7d: number
+  submissions_24h: number
+  failure_rate_24h: number
+}
+
+export interface ListUsersResult {
+  users: AdminUserRow[]
+  truncated: boolean
+  kpis: UserKpis
+}
+
+function nullableEpochMs(value: unknown): number | null {
+  return value === null || value === undefined ? null : toEpochMs(value)
+}
+
+function mapAdminUser(row: Record<string, unknown>): AdminUserRow {
+  return {
+    id: String(row.id),
+    username: String(row.username),
+    status: row.status === 'disabled' ? 'disabled' : 'active',
+    created_at: toEpochMs(row.created_at),
+    updated_at: toEpochMs(row.updated_at),
+    last_login_at: nullableEpochMs(row.last_login_at),
+    last_task_at: nullableEpochMs(row.last_task_at),
+    last_activity_at: nullableEpochMs(row.last_activity_at),
+    active_sessions: Number(row.active_sessions),
+    task_count: Number(row.task_count),
+  }
+}
+
+const USER_LIST_LIMIT = 1000
+
+export async function listUsers(search = ''): Promise<ListUsersResult> {
+  const { db } = getHandle()
+  const term = search.trim().toLowerCase()
+  const userRowsPromise = db.execute(sql`
+    SELECT
+      u.id,
+      u.username,
+      u.status,
+      u.created_at,
+      u.updated_at,
+      u.last_login_at,
+      task_stats.last_task_at,
+      GREATEST(u.last_login_at, task_stats.last_task_at) AS last_activity_at,
+      COALESCE(session_stats.active_sessions, 0) AS active_sessions,
+      COALESCE(task_stats.task_count, 0) AS task_count
+    FROM users u
+    LEFT JOIN LATERAL (
+      SELECT COUNT(*) AS active_sessions
+      FROM user_sessions s
+      WHERE s.user_id = u.id AND s.expires_at > NOW()
+    ) session_stats ON TRUE
+    LEFT JOIN LATERAL (
+      SELECT COUNT(*) AS task_count, MAX(t.submitted_at) AS last_task_at
+      FROM tasks t
+      WHERE t.user_id = u.id
+    ) task_stats ON TRUE
+    WHERE ${term} = ''
+       OR POSITION(${term} IN LOWER(u.username)) > 0
+       OR POSITION(${term} IN LOWER(u.id)) > 0
+    ORDER BY last_activity_at DESC NULLS LAST, u.created_at DESC, u.id DESC
+    LIMIT ${USER_LIST_LIMIT + 1}
+  `)
+  const kpiRowsPromise = db.execute(sql`
+    WITH user_activity AS (
+      SELECT u.id, GREATEST(u.last_login_at, MAX(t.submitted_at)) AS last_activity_at
+      FROM users u
+      LEFT JOIN tasks t ON t.user_id = u.id
+      GROUP BY u.id
+    ),
+    recent_tasks AS (
+      SELECT
+        COUNT(*) AS submissions,
+        COUNT(*) FILTER (WHERE status = 'failed') AS failures
+      FROM tasks
+      WHERE submitted_at >= NOW() - INTERVAL '24 hours'
+    )
+    SELECT
+      (SELECT COUNT(*) FROM users) AS total_users,
+      (SELECT COUNT(*) FROM user_activity
+       WHERE last_activity_at >= NOW() - INTERVAL '7 days') AS active_users_7d,
+      recent_tasks.submissions AS submissions_24h,
+      CASE
+        WHEN recent_tasks.submissions = 0 THEN 0
+        ELSE recent_tasks.failures::double precision / recent_tasks.submissions::double precision
+      END AS failure_rate_24h
+    FROM recent_tasks
+  `)
+
+  const [userRowsRaw, kpiRowsRaw] = await Promise.all([userRowsPromise, kpiRowsPromise])
+  const userRows = userRowsRaw as unknown as Array<Record<string, unknown>>
+  const kpi = (kpiRowsRaw as unknown as Array<Record<string, unknown>>)[0] ?? {}
+  return {
+    users: userRows.slice(0, USER_LIST_LIMIT).map(mapAdminUser),
+    truncated: userRows.length > USER_LIST_LIMIT,
+    kpis: {
+      total_users: Number(kpi.total_users ?? 0),
+      active_users_7d: Number(kpi.active_users_7d ?? 0),
+      submissions_24h: Number(kpi.submissions_24h ?? 0),
+      failure_rate_24h: Number(kpi.failure_rate_24h ?? 0),
+    },
+  }
+}
+
+export interface TaskVolumeBucket {
+  bucket_at: number
+  total: number
+  completed: number
+  failed: number
+}
+
+export interface UserDetailResult {
+  user: AdminUserRow
+  tasks: TaskListItem[]
+  nextCursor: string | null
+  volume: TaskVolumeBucket[] | null
+}
+
+export async function getUserDetail(
+  userId: string,
+  range: Range,
+  statusFilter: string,
+  cursor?: string,
+): Promise<UserDetailResult | null> {
+  const { db, schema } = getHandle()
+  const since = Date.now() - rangeMs(range)
+  const cursorValue = decodeCursor(cursor)
+  const keyset = cursorValue
+    ? sql`AND (submitted_at < ${new Date(cursorValue.ts)}
+        OR (submitted_at = ${new Date(cursorValue.ts)} AND id < ${cursorValue.id}))`
+    : sql``
+  const statusCondition =
+    statusFilter && statusFilter !== 'all' ? sql`AND status = ${statusFilter}` : sql``
+
+  const userRowsPromise = db.execute(sql`
+    SELECT
+      u.id,
+      u.username,
+      u.status,
+      u.created_at,
+      u.updated_at,
+      u.last_login_at,
+      task_stats.last_task_at,
+      GREATEST(u.last_login_at, task_stats.last_task_at) AS last_activity_at,
+      COALESCE(session_stats.active_sessions, 0) AS active_sessions,
+      COALESCE(task_stats.task_count, 0) AS task_count
+    FROM users u
+    LEFT JOIN LATERAL (
+      SELECT COUNT(*) AS active_sessions
+      FROM user_sessions s
+      WHERE s.user_id = u.id AND s.expires_at > NOW()
+    ) session_stats ON TRUE
+    LEFT JOIN LATERAL (
+      SELECT COUNT(*) AS task_count, MAX(t.submitted_at) AS last_task_at
+      FROM tasks t
+      WHERE t.user_id = u.id
+    ) task_stats ON TRUE
+    WHERE u.id = ${userId}
+  `)
+
+  const taskRowsPromise = db
+    .select({
+      id: schema.tasks.id,
+      provider: schema.tasks.provider,
+      model: schema.tasks.model,
+      status: schema.tasks.status,
+      submitted_at: schema.tasks.submitted_at,
+      started_at: schema.tasks.started_at,
+      completed_at: schema.tasks.completed_at,
+      error_type: schema.tasks.error_type,
+      request_payload: schema.tasks.request_payload,
+      attempt_count: schema.tasks.attempt_count,
+    })
+    .from(schema.tasks)
+    .where(sql`user_id = ${userId}
+      AND submitted_at >= ${new Date(since)}
+      ${statusCondition}
+      ${keyset}`)
+    .orderBy(sql`submitted_at DESC, id DESC`)
+    .limit(PAGE_SIZE + 1)
+
+  const bucketUnit = range === '1d' ? sql`'hour'` : sql`'day'`
+  const bucketStep = range === '1d' ? sql`INTERVAL '1 hour'` : sql`INTERVAL '1 day'`
+  const bucketStart =
+    range === '1d'
+      ? sql`DATE_TRUNC('hour', NOW()) - INTERVAL '23 hours'`
+      : range === '7d'
+        ? sql`DATE_TRUNC('day', NOW()) - INTERVAL '6 days'`
+        : sql`DATE_TRUNC('day', NOW()) - INTERVAL '29 days'`
+  const volumePromise = cursor
+    ? Promise.resolve([])
+    : db.execute(sql`
+        WITH buckets AS (
+          SELECT GENERATE_SERIES(${bucketStart}, DATE_TRUNC(${bucketUnit}, NOW()), ${bucketStep}) AS bucket
+        )
+        SELECT
+          EXTRACT(EPOCH FROM b.bucket) * 1000 AS bucket_at,
+          COUNT(t.id) AS total,
+          COUNT(t.id) FILTER (WHERE t.status = 'completed') AS completed,
+          COUNT(t.id) FILTER (WHERE t.status = 'failed') AS failed
+        FROM buckets b
+        LEFT JOIN tasks t
+          ON t.user_id = ${userId}
+         AND t.submitted_at >= b.bucket
+         AND t.submitted_at < b.bucket + ${bucketStep}
+        GROUP BY b.bucket
+        ORDER BY b.bucket
+      `)
+
+  const [userRowsRaw, taskRows, volumeRowsRaw] = await Promise.all([
+    userRowsPromise,
+    taskRowsPromise,
+    volumePromise,
+  ])
+  const userRow = (userRowsRaw as unknown as Array<Record<string, unknown>>)[0]
+  if (!userRow) return null
+
+  const hasMore = taskRows.length > PAGE_SIZE
+  const pageRows = taskRows.slice(0, PAGE_SIZE)
+  const tasks = pageRows.map((row) => ({
+    id: row.id,
+    provider: row.provider,
+    model: row.model,
+    status: row.status,
+    submitted_at: row.submitted_at,
+    started_at: row.started_at,
+    completed_at: row.completed_at,
+    error_type: row.error_type,
+    prompt: extractPrompt(row.request_payload),
+    n: extractN(row.request_payload),
+    attempt_count: row.attempt_count,
+  }))
+  const last = pageRows[pageRows.length - 1]
+  const volumeRows = volumeRowsRaw as unknown as Array<Record<string, unknown>>
+  return {
+    user: mapAdminUser(userRow),
+    tasks,
+    nextCursor: hasMore && last ? encodeCursor(last.submitted_at, last.id) : null,
+    volume: cursor
+      ? null
+      : volumeRows.map((row) => ({
+          bucket_at: Number(row.bucket_at),
+          total: Number(row.total),
+          completed: Number(row.completed),
+          failed: Number(row.failed),
+        })),
+  }
 }
 
 export interface TaskListItem {
@@ -176,13 +441,13 @@ export async function getDeviceDetail(
 
   // keyset 分页：按 (submitted_at DESC, id DESC) 稳定排序。cursor 存在时取严格小于游标的下一页。
   const keyset = c
-    ? sql`AND (submitted_at < ${c.ts} OR (submitted_at = ${c.ts} AND id < ${c.id}))`
+    ? sql`AND (submitted_at < ${new Date(c.ts)} OR (submitted_at = ${new Date(c.ts)} AND id < ${c.id}))`
     : sql``
 
   // 设备聚合卡片仅首页查；翻页时跳过，省一次全量聚合扫描。
   const devicePromise: Promise<Array<Record<string, unknown>>> = c
     ? Promise.resolve([])
-    : (db.all(sql`
+    : (db.execute(sql`
         SELECT
           t.device_id AS device_id,
           MIN(t.submitted_at) AS first_seen,
@@ -190,17 +455,16 @@ export async function getDeviceDetail(
           COUNT(*) AS total,
           SUM(CASE WHEN t.status='completed' THEN 1 ELSE 0 END) AS ok_count,
           SUM(CASE WHEN t.status='failed' THEN 1 ELSE 0 END) AS fail_count,
-          GROUP_CONCAT(DISTINCT t.model) AS models_csv,
+          ARRAY_AGG(DISTINCT t.model) AS models,
           COALESCE(q.count, 0) AS today_count
         FROM tasks t
         LEFT JOIN daily_quota q ON q.device_id = t.device_id AND q.date = ${today}
-        WHERE t.device_id = ${deviceId} AND t.submitted_at >= ${since}
-        GROUP BY t.device_id
+        WHERE t.device_id = ${deviceId} AND t.submitted_at >= ${new Date(since)}
+        GROUP BY t.device_id, q.count
       `) as unknown as Promise<Array<Record<string, unknown>>>)
 
-  // task 列表：select 字段白名单。仍读 request_payload（本地 SQLite 读，开销远低于网络传输 +
-  // 浏览器 JSON.parse），但只在服务端抽出 prompt/n 后丢弃，不进入响应体。result_payload（5-10MB）不取。
-  // where 用 raw sql 模板：device_id 是 VIRTUAL 列，drizzle schema 没声明，不能用 schema.tasks.device_id。
+  // Select only list fields. request_payload is read to derive prompt/n and is discarded before
+  // the response; result_payload is never selected.
   const tasksPromise = db
     .select({
       id: schema.tasks.id,
@@ -215,7 +479,7 @@ export async function getDeviceDetail(
       attempt_count: schema.tasks.attempt_count,
     })
     .from(schema.tasks)
-    .where(sql`device_id = ${deviceId} AND submitted_at >= ${since} ${keyset}`)
+    .where(sql`device_id = ${deviceId} AND submitted_at >= ${new Date(since)} ${keyset}`)
     .orderBy(sql`submitted_at DESC, id DESC`)
     .limit(PAGE_SIZE + 1)
 
@@ -225,14 +489,12 @@ export async function getDeviceDetail(
   const device: DeviceRow | null = drow
     ? {
         device_id: String(drow.device_id),
-        first_seen: Number(drow.first_seen),
-        last_seen: Number(drow.last_seen),
+        first_seen: toEpochMs(drow.first_seen),
+        last_seen: toEpochMs(drow.last_seen),
         total: Number(drow.total),
         ok_count: Number(drow.ok_count),
         fail_count: Number(drow.fail_count),
-        models: String(drow.models_csv ?? '')
-          .split(',')
-          .filter(Boolean),
+        models: Array.isArray(drow.models) ? drow.models.map(String) : [],
         today_count: Number(drow.today_count),
       }
     : null
@@ -263,7 +525,7 @@ export interface TaskDetail extends TaskListItem {
   request_payload: unknown
   result_meta: { images: Array<{ index: number; mime: string }>; raw_image_urls?: string[] }
   error_message: string | null
-  /** VIRTUAL 生成列：json_extract(request_payload, '$.device_id')；schema 没声明，靠 raw sql 取。 */
+  /** Generated from request_payload.device_id by PostgreSQL. */
   device_id: string | null
   /** 仅在 status='queued' 且 attempt_count>0 时有值——等待下一次重试的目标时间戳。 */
   next_retry_at: number | null
@@ -271,14 +533,7 @@ export interface TaskDetail extends TaskListItem {
 
 export async function getTask(taskId: string): Promise<TaskDetail | null> {
   const { db, schema } = getHandle()
-  // device_id 是 VIRTUAL 列，schema 没声明 → drizzle select 拿不到；用 raw sql 单独查一次。
-  // Promise.all 并发减少一次往返。
-  const [rows, deviceRows] = await Promise.all([
-    db.select().from(schema.tasks).where(eq(schema.tasks.id, taskId)).limit(1),
-    db.all(sql`SELECT device_id FROM tasks WHERE id = ${taskId} LIMIT 1`) as unknown as Promise<
-      Array<{ device_id: unknown }>
-    >,
-  ])
+  const rows = await db.select().from(schema.tasks).where(eq(schema.tasks.id, taskId)).limit(1)
   const task = rows[0]
   if (!task) return null
 
@@ -288,7 +543,7 @@ export async function getTask(taskId: string): Promise<TaskDetail | null> {
   const { result_payload: _result_payload, ...rest } = task as unknown as Record<string, unknown>
   void _result_payload
   const request_payload = (rest as Record<string, unknown>).request_payload
-  const rawDevice = deviceRows[0]?.device_id
+  const rawDevice = task.device_id
   const device_id =
     rawDevice === null || rawDevice === undefined || rawDevice === '' ? null : String(rawDevice)
   return {

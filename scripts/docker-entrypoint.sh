@@ -48,7 +48,7 @@ case "$role" in
     ;;
   dependency-check)
     ;;
-  bff|worker)
+  migrate|bff|worker)
     : "${APP_DATABASE_URL:?APP_DATABASE_URL is required for ${role}}"
     DATABASE_URL="$APP_DATABASE_URL"
     export DATABASE_URL

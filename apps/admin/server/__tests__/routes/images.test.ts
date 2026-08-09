@@ -1,13 +1,8 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test'
-import { unlinkSync } from 'node:fs'
+import { createDb } from '@image-playground/db'
+import { resetTestDatabase } from '@image-playground/db/testing'
 
-const TEST_DB = './artifacts/test-admin-images.sqlite'
-try {
-  unlinkSync(TEST_DB)
-  unlinkSync(`${TEST_DB}-wal`)
-  unlinkSync(`${TEST_DB}-shm`)
-} catch {}
-
+const TEST_DB = await resetTestDatabase('admin_images_route')
 // 启一个 mock BFF 服务器在 random port
 const mockBffPort = 39999
 let mockBff: { stop: () => void }
@@ -22,50 +17,42 @@ process.env.AUTH_ENABLED = 'true'
 process.env.INTERNAL_API_TOKEN = 'fixture-service-credential-alpha'
 process.env.PORT = '0'
 
-const { runMigrations, createDb } = await import('@image-playground/db')
-runMigrations(TEST_DB)
 const writer = createDb(TEST_DB)
 const now = Date.now()
 // task with openai result + has 1 image
-writer.db
-  .insert(writer.schema.tasks)
-  .values({
-    id: 'img-task-1',
-    provider: 'openai-compat',
-    model: 'gpt-image-2',
-    status: 'completed',
-    request_payload: {
-      prompt: 'p',
-      device_id: 'dev-img',
-      input_images: ['data:image/png;base64,T1BFTkFJ'],
-    } as never,
-    result_payload: { data: [{ b64_json: 'AAAA' }] } as never,
-    submitted_at: now,
-    completed_at: now + 1000,
-  })
-  .run()
+await writer.db.insert(writer.schema.tasks).values({
+  id: 'img-task-1',
+  provider: 'openai-compat',
+  model: 'gpt-image-2',
+  status: 'completed',
+  request_payload: {
+    prompt: 'p',
+    device_id: 'dev-img',
+    input_images: ['data:image/png;base64,T1BFTkFJ'],
+  } as never,
+  result_payload: { data: [{ b64_json: 'AAAA' }] } as never,
+  submitted_at: now,
+  completed_at: now + 1000,
+})
 // task with gemini that has inlineData (used by input-image test)
-writer.db
-  .insert(writer.schema.tasks)
-  .values({
-    id: 'img-task-gem',
-    provider: 'gemini',
-    model: 'gemini-3-pro',
-    status: 'completed',
-    request_payload: {
-      prompt: 'p',
-      device_id: 'dev-img',
-      input_images: ['data:image/png;base64,QkFTRTY0'],
-    } as never,
-    result_payload: {
-      candidates: [
-        { content: { parts: [{ inlineData: { mimeType: 'image/png', data: 'QkFTRTY0' } }] } },
-      ],
-    } as never,
-    submitted_at: now,
-    completed_at: now + 1000,
-  })
-  .run()
+await writer.db.insert(writer.schema.tasks).values({
+  id: 'img-task-gem',
+  provider: 'gemini',
+  model: 'gemini-3-pro',
+  status: 'completed',
+  request_payload: {
+    prompt: 'p',
+    device_id: 'dev-img',
+    input_images: ['data:image/png;base64,QkFTRTY0'],
+  } as never,
+  result_payload: {
+    candidates: [
+      { content: { parts: [{ inlineData: { mimeType: 'image/png', data: 'QkFTRTY0' } }] } },
+    ],
+  } as never,
+  submitted_at: now,
+  completed_at: now + 1000,
+})
 
 beforeAll(() => {
   mockBff = Bun.serve({
@@ -95,8 +82,9 @@ beforeEach(() => {
   requestedPaths.length = 0
 })
 
-afterAll(() => {
+afterAll(async () => {
   mockBff?.stop()
+  await writer.close()
 })
 
 const { app } = await import('../../app')

@@ -1,9 +1,8 @@
 import { QUEUE_TIMEOUTS } from '@image-playground/shared'
 import { app } from './app'
 import { config } from './config'
-import { checkpointWal } from './db/client'
+import { close as closeDb } from './db/client'
 import { purgeOldTasks } from './db/maintenance'
-import { runMigrations } from './db/migrate'
 import { initChannels } from './lib/channels'
 import { log } from './lib/logger'
 
@@ -35,7 +34,6 @@ log.info(
   },
   'operator capabilities resolved',
 )
-runMigrations()
 const authEnabled = config.auth.enabled
 
 const channelsResult = initChannels(config.channelsFile ?? undefined)
@@ -79,8 +77,8 @@ app.listen(config.port, () => {
 
 let shuttingDown = false
 
-function finalize(exitCode = 0): never {
-  checkpointWal()
+async function finalize(exitCode = 0): Promise<never> {
+  await closeDb()
   // pino async transport：log.flush() 同步刷盘，防 process.exit 吞最后几行。
   log.flush()
   process.exit(exitCode)
@@ -101,7 +99,7 @@ async function gracefulShutdown(signal: string): Promise<void> {
   }
 
   log.info({ event: 'shutdown.done' }, 'bff stopped')
-  finalize()
+  await finalize()
 }
 
 process.on('SIGTERM', () => {

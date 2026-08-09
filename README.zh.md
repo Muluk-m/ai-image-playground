@@ -118,35 +118,41 @@ chmod 600 \
 # 启动前替换所有 replace-* 占位值。
 ```
 
-两个应用配置必须使用不同的 bucket、对象存储凭证、服务间令牌、认证设置、上游凭证和
-CORS 来源。Compose 也会为两个 project 创建不同的 SQLite volume。真实密钥与 operator
-配置始终留在这些仓库外目录中，仓库只提交安全样例。每个 `app.env` 旁可选放置
-`operator-config.json`。文件缺失是合法状态；文件存在但内容无效时 BFF 拒绝启动。
+两个应用配置必须使用不同的 PostgreSQL 数据库与角色、bucket、对象存储凭证、服务间
+令牌、认证设置、上游凭证和 CORS 来源。Admin URL 必须使用对应部署的只读数据库角色。
+真实密钥与 operator 配置始终留在这些仓库外目录中，仓库只提交安全样例。每个
+`app.env` 旁可选放置 `operator-config.json`。文件缺失是合法状态；文件存在但内容无效时 BFF 拒绝启动。
 
-先启动基础设施，只构建一次镜像，再分别启动两个 project：
+先启动基础设施，为每个部署分别创建一个数据库写角色和一个 Admin 只读角色，只构建一次
+镜像，再分别启动两个 project：
 
 ```bash
 # 只需创建一次；该 network 由宿主机现有反向代理持有，不属于任何应用 project。
 docker network create image-playground-edge
 
 scripts/infra-compose.sh up
+
+# 先把 infra.env 中五个 POSTGRES_APP_* / POSTGRES_ADMIN_* 值设为自用站配置并执行，
+# 再替换成经营站配置并再次执行。
+scripts/infra-compose.sh provision
+
 scripts/app-compose.sh build ai-image-playground:local
 scripts/app-compose.sh up image-playground-personal
 scripts/app-compose.sh up image-playground-commercial
 ```
 
 `infra-compose.sh` 默认读取
-`$XDG_CONFIG_HOME/ai-image-playground/infra.env`，可用 `INFRA_ENV_FILE` 覆盖。它会等待
+`$XDG_CONFIG_HOME/ai-image-playground/infra.env`，可用 `INFRA_ENV_FILE` 覆盖。`up` 会等待
 PostgreSQL 与 MinIO 健康，创建 `MINIO_BUCKET_NAMES` 中的 bucket、关闭匿名访问，并配置
-45 天过期规则。基础设施端口默认只绑定 `127.0.0.1`；应用 Compose 不发布 PostgreSQL
-或 MinIO 端口。
+45 天过期规则。`provision` 会幂等创建一个部署数据库、写角色与 Admin 只读角色。
+基础设施端口默认只绑定 `127.0.0.1`；应用 Compose 不发布 PostgreSQL 或 MinIO 端口。
 
 `app-compose.sh` 默认读取
-`$XDG_CONFIG_HOME/ai-image-playground/apps/<project>/app.env`。它先启动依赖检查、BFF、
-worker 与 Admin，确认 BFF 健康后才激活 nginx。以后后端重启时 nginx 容器继续可用。
-每个 Web 容器根据自己的外部配置写入
-`/usr/share/nginx/html/runtime-config.json`，因此两个域名共用同一份 Web 构建产物，
-但运行时配置互不相同。
+`$XDG_CONFIG_HOME/ai-image-playground/apps/<project>/app.env`。它先完成依赖检查，以一次性
+服务执行已提交的 Drizzle migration，再启动 BFF、worker 与 Admin；确认 BFF 健康后才
+激活 nginx。以后后端重启时 nginx 容器继续可用。每个 Web 容器根据自己的外部配置写入
+`/usr/share/nginx/html/runtime-config.json`，因此两个域名共用同一份 Web 构建产物，但
+运行时配置互不相同。
 
 宿主机反向代理必须以容器运行并加入 `image-playground-edge`。域名应转发到以下稳定
 network alias：
@@ -162,6 +168,16 @@ Admin 前必须再加 Cloudflare Access、VPN 或 IP 白名单。仓库中的 Co
 端口，入口统一归域名代理管理。如果现有宿主机代理不是容器，operator 需要提供额外的
 Compose override，只把 Web/Admin 端口绑定到回环地址。
 
+从旧 SQLite 部署一次性切换时：
+
+1. 停止应用，为 SQLite 数据库制作文件系统备份。
+2. 按上文启动并 provision PostgreSQL。
+3. 执行 `SQLITE_DATABASE_PATH=/absolute/backup.sqlite DATABASE_URL='postgresql://…@127.0.0.1:5432/…' bun run scripts/migrate-sqlite-to-postgres.ts`。导入器先应用已提交的 schema，要求目标库为空，在一个事务中复制用户、session、任务、配额与 JSON payload，最后输出行数。
+4. 启动应用 project。解除维护窗口前，确认 `/health`、登录、任务历史与一次新生图都正常。
+
+验证失败时，停止新应用，使用未修改的 SQLite 备份恢复上一镜像与配置。生产环境不要执行
+`packages/db/drizzle/rollback/0000_daffy_the_enforcers.down.sql`；它只用于丢弃全新的空部署。
+
 查看状态或独立停止任一 project：
 
 ```bash
@@ -171,8 +187,8 @@ scripts/app-compose.sh stop image-playground-commercial
 scripts/infra-compose.sh down
 ```
 
-停止应用 project 不会删除其数据 volume，也不会删除外部基础设施或入口 network。
-只有两个应用 project 都已停止后，才停止基础设施。
+停止应用 project 不会删除 PostgreSQL 或 MinIO 数据，也不会删除外部基础设施或入口
+network。只有两个应用 project 都已停止后，才停止基础设施。
 
 回滚使用宿主机上保留的旧镜像 tag，并保持先后端、后静态页面的激活顺序：
 
@@ -211,6 +227,8 @@ COMPOSE_ENV_FILES=/Users/qiqian/.config/ai-image-playground/infra.env
 - 基础设施与应用配置中的 `INFRA_NETWORK_NAME` 完全一致。
 - MinIO 已为两个私有 bucket 分别创建应用凭证。bootstrap profile 只创建 bucket 和
   生命周期规则，不创建限定作用域的 MinIO 用户。
+- PostgreSQL 已为每个部署分别创建数据库写角色与 Admin 只读角色；
+  `scripts/infra-compose.sh provision` 只创建角色，不迁移旧数据。
 - 启动已提交的基础设施 project 前，已核实现有 macmini PostgreSQL 与 MinIO 数据归属。
 
 ## 🛠 开发
@@ -223,7 +241,7 @@ pnpm typecheck
 pnpm lint
 ```
 
-技术栈：前端 React 19 + Vite · 画布 tldraw · 后端 Bun + Elysia + SQLite · monorepo pnpm + Turbo。
+技术栈：前端 React 19 + Vite · 画布 tldraw · 后端 Bun + Elysia + PostgreSQL · monorepo pnpm + Turbo。
 
 ## 🙏 致谢
 

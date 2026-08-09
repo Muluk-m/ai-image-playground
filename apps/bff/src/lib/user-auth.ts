@@ -18,7 +18,6 @@ export const resolveAuthUser = new Elysia({ name: 'resolve-auth-user' }).derive(
 )
 
 function hasInternalServiceIdentity(request: Request): boolean {
-  if (!config.auth.enabled) return false
   const configured = config.auth.internalApiToken
   const authorization = request.headers.get('authorization')
   if (!configured || !authorization?.startsWith('Bearer ')) return false
@@ -26,6 +25,12 @@ function hasInternalServiceIdentity(request: Request): boolean {
   const expected = Buffer.from(configured)
   return supplied.length === expected.length && timingSafeEqual(supplied, expected)
 }
+/** Internal operational routes always require the configured service credential. */
+export const requireInternalService = new Elysia({
+  name: 'require-internal-service',
+}).onBeforeHandle({ as: 'scoped' }, ({ request, status }) => {
+  if (!hasInternalServiceIdentity(request)) return status(401, { error: 'unauthorized' })
+})
 
 /**
  * Result and image reads also accept the Admin service credential. Other user routes keep using

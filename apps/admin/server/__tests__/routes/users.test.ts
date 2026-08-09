@@ -1,86 +1,86 @@
-import { describe, expect, it } from 'bun:test'
-import { unlinkSync } from 'node:fs'
-import { eq } from 'drizzle-orm'
+import { afterAll, describe, expect, it } from 'bun:test'
+import { createDb } from '@image-playground/db'
+import { resetTestDatabase } from '@image-playground/db/testing'
 
-const TEST_DB = './artifacts/test-admin-users.sqlite'
-for (const suffix of ['', '-wal', '-shm']) {
-  try {
-    unlinkSync(`${TEST_DB}${suffix}`)
-  } catch {}
-}
+const databaseUrl = await resetTestDatabase('admin_users_route')
+const forwarded: Array<{ method: string; path: string; authorization: string | null }> = []
+const mockBff = Bun.serve({
+  port: 0,
+  fetch(request) {
+    const url = new URL(request.url)
+    forwarded.push({
+      method: request.method,
+      path: url.pathname,
+      authorization: request.headers.get('authorization'),
+    })
+    return Response.json(
+      request.method === 'POST' && url.pathname.endsWith('/users/')
+        ? { user: { id: 'created-by-bff', username: 'new.user', status: 'active' } }
+        : { ok: true },
+      { status: request.method === 'POST' && url.pathname.endsWith('/users/') ? 201 : 200 },
+    )
+  },
+})
 
 process.env.ADMIN_PASSWORD = 'test-pass-1234'
 process.env.ADMIN_COOKIE_SECRET = 'test-cookie-secret-32-bytes-min!!'
-process.env.DATABASE_URL = TEST_DB
-process.env.BFF_INTERNAL_URL = 'http://127.0.0.1:39999'
+process.env.DATABASE_URL = databaseUrl
+process.env.BFF_INTERNAL_URL = `http://127.0.0.1:${mockBff.port}`
+process.env.AUTH_ENABLED = 'true'
+process.env.INTERNAL_API_TOKEN = 'fixture-service-credential-alpha'
 process.env.PORT = '0'
 
-const { createDb, runMigrations } = await import('@image-playground/db')
-runMigrations(TEST_DB)
-const writer = createDb(TEST_DB)
+const writer = createDb(databaseUrl)
 const now = Date.now()
-const passwordHash = await Bun.password.hash('initial-password', { algorithm: 'argon2id' })
 await writer.db.insert(writer.schema.users).values([
   {
     id: 'user-existing',
     username: 'existing',
-    password_hash: passwordHash,
+    password_hash: 'hash',
     status: 'active',
-    created_at: now,
+    created_at: now - 8 * 24 * 3600_000,
     updated_at: now,
+    last_login_at: now - 3600_000,
   },
   {
-    id: 'user-status',
-    username: 'status-user',
-    password_hash: passwordHash,
-    status: 'active',
-    created_at: now + 1,
-    updated_at: now + 1,
-  },
-  {
-    id: 'user-reset',
-    username: 'reset-user',
-    password_hash: passwordHash,
-    status: 'active',
-    created_at: now + 2,
-    updated_at: now + 2,
-  },
-  {
-    id: 'user-revoke',
-    username: 'revoke-user',
-    password_hash: passwordHash,
-    status: 'active',
-    created_at: now + 3,
-    updated_at: now + 3,
+    id: 'user-idle',
+    username: 'idle-user',
+    password_hash: 'hash',
+    status: 'disabled',
+    created_at: now - 40 * 24 * 3600_000,
+    updated_at: now - 30 * 24 * 3600_000,
   },
 ])
-await writer.db.insert(writer.schema.user_sessions).values([
+await writer.db.insert(writer.schema.user_sessions).values({
+  token_hash: 'active-session',
+  user_id: 'user-existing',
+  created_at: now - 1000,
+  expires_at: now + 3600_000,
+})
+await writer.db.insert(writer.schema.tasks).values([
   {
-    token_hash: 'status-session',
-    user_id: 'user-status',
-    created_at: now,
-    expires_at: now + 3600_000,
+    id: 'user-task-completed',
+    provider: 'openai-compat',
+    model: 'gpt-image-2',
+    status: 'completed',
+    request_payload: { prompt: 'finished image', device_id: 'device-user-1' },
+    submitted_at: now - 30 * 60_000,
+    completed_at: now - 29 * 60_000,
+    user_id: 'user-existing',
   },
   {
-    token_hash: 'reset-session',
-    user_id: 'user-reset',
-    created_at: now,
-    expires_at: now + 3600_000,
-  },
-  {
-    token_hash: 'revoke-session-1',
-    user_id: 'user-revoke',
-    created_at: now,
-    expires_at: now + 3600_000,
-  },
-  {
-    token_hash: 'revoke-session-2',
-    user_id: 'user-revoke',
-    created_at: now,
-    expires_at: now + 3600_000,
+    id: 'user-task-failed',
+    provider: 'gemini',
+    model: 'gemini-3-pro',
+    status: 'failed',
+    request_payload: { prompt: 'failed image', device_id: 'device-user-1' },
+    submitted_at: now - 20 * 60_000,
+    completed_at: now - 19 * 60_000,
+    user_id: 'user-existing',
   },
 ])
 
+// Dynamic import keeps environment setup ahead of Admin configuration capture.
 const { app } = await import('../../app')
 
 async function login(): Promise<string> {
@@ -110,108 +110,81 @@ async function call(
   )
 }
 
+afterAll(async () => {
+  mockBff.stop()
+  await writer.close()
+})
+
 describe('admin user routes', () => {
   it('requires the admin session', async () => {
     const response = await call('/api/users', { authenticated: false })
     expect(response.status).toBe(401)
   })
 
-  it('lists users without password hashes', async () => {
-    const response = await call('/api/users')
+  it('lists searchable users with operational KPIs and no password hashes', async () => {
+    const response = await call('/api/users?q=exist')
     expect(response.status).toBe(200)
     const body = (await response.json()) as {
       users: Array<Record<string, unknown>>
+      kpis: Record<string, number>
       truncated: boolean
     }
-    expect(body.users.map((user) => user.username)).toContain('existing')
-    expect(body.users[0]).toHaveProperty('active_sessions')
-    expect(body.users[0]).toHaveProperty('task_count')
-    expect(body.users.some((user) => 'password_hash' in user)).toBe(false)
+    expect(body.users).toHaveLength(1)
+    expect(body.users[0]?.username).toBe('existing')
+    expect(body.users[0]).toMatchObject({ active_sessions: 1, task_count: 2 })
+    expect(body.users[0]).not.toHaveProperty('password_hash')
+    expect(body.kpis).toMatchObject({ total_users: 2, active_users_7d: 1, submissions_24h: 2 })
+    expect(body.kpis.failure_rate_24h).toBe(0.5)
     expect(body.truncated).toBe(false)
   })
 
-  it('creates an active user with a normalized username and Argon2id password', async () => {
-    const response = await call('/api/users', {
-      method: 'POST',
-      body: { username: '  New.User  ', password: 'strong-password' },
-    })
-    expect(response.status).toBe(201)
+  it('returns a filtered user task timeline and complete 24-hour buckets', async () => {
+    const response = await call('/api/users/user-existing?range=1d&status=failed')
+    expect(response.status).toBe(200)
     const body = (await response.json()) as {
-      user: { id: string; username: string; status: string }
+      user: { id: string }
+      tasks: Array<Record<string, unknown>>
+      volume: Array<{ total: number }>
     }
-    expect(body.user).toMatchObject({ username: 'new.user', status: 'active' })
-
-    const [stored] = await writer.db
-      .select()
-      .from(writer.schema.users)
-      .where(eq(writer.schema.users.id, body.user.id))
-      .limit(1)
-    expect(stored).toBeDefined()
-    expect(await Bun.password.verify('strong-password', stored!.password_hash)).toBe(true)
+    expect(body.user.id).toBe('user-existing')
+    expect(body.tasks).toEqual([
+      {
+        id: 'user-task-failed',
+        status: 'failed',
+        provider: 'gemini',
+        model: 'gemini-3-pro',
+        submitted_at: expect.any(Number),
+        started_at: null,
+        completed_at: expect.any(Number),
+        error_type: null,
+        prompt: 'failed image',
+        n: null,
+        attempt_count: 0,
+      },
+    ])
+    expect(body.volume).toHaveLength(24)
+    expect(body.volume.reduce((sum, bucket) => sum + bucket.total, 0)).toBe(2)
   })
 
-  it('rejects duplicate usernames and weak credentials safely', async () => {
-    const duplicate = await call('/api/users', {
-      method: 'POST',
-      body: { username: 'EXISTING', password: 'another-password' },
-    })
-    expect(duplicate.status).toBe(409)
-    expect(await duplicate.json()).toEqual({ error: 'username_taken' })
-
-    const invalid = await call('/api/users', {
-      method: 'POST',
-      body: { username: 'bad account', password: 'short' },
-    })
-    expect(invalid.status).toBe(400)
-    expect(await invalid.json()).toEqual({ error: 'invalid_username' })
-  })
-
-  it('disables a user and revokes all active sessions atomically', async () => {
-    const response = await call('/api/users/user-status', {
-      method: 'PATCH',
-      body: { status: 'disabled' },
-    })
-    expect(response.status).toBe(200)
-    expect(await response.json()).toMatchObject({
-      user: { id: 'user-status', status: 'disabled', active_sessions: 0 },
-    })
-
-    const sessions = await writer.db
-      .select()
-      .from(writer.schema.user_sessions)
-      .where(eq(writer.schema.user_sessions.user_id, 'user-status'))
-    expect(sessions).toHaveLength(0)
-  })
-
-  it('resets a password and revokes existing sessions', async () => {
-    const response = await call('/api/users/user-reset/reset-password', {
-      method: 'POST',
-      body: { password: 'replacement-password' },
-    })
-    expect(response.status).toBe(200)
-
-    const [stored] = await writer.db
-      .select()
-      .from(writer.schema.users)
-      .where(eq(writer.schema.users.id, 'user-reset'))
-      .limit(1)
-    expect(await Bun.password.verify('replacement-password', stored!.password_hash)).toBe(true)
-    const sessions = await writer.db
-      .select()
-      .from(writer.schema.user_sessions)
-      .where(eq(writer.schema.user_sessions.user_id, 'user-reset'))
-    expect(sessions).toHaveLength(0)
-  })
-
-  it('revokes sessions on demand and reports the count', async () => {
-    const response = await call('/api/users/user-revoke/revoke-sessions', { method: 'POST' })
-    expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({ ok: true, revoked: 2 })
-  })
-
-  it('returns 404 for an unknown user', async () => {
-    const response = await call('/api/users/missing/revoke-sessions', { method: 'POST' })
+  it('returns 404 for an unknown user detail', async () => {
+    const response = await call('/api/users/missing?range=7d')
     expect(response.status).toBe(404)
     expect(await response.json()).toEqual({ error: 'user_not_found' })
+  })
+
+  it('forwards mutations to BFF with service authentication', async () => {
+    const response = await call('/api/users', {
+      method: 'POST',
+      body: { username: 'New.User', password: 'strong-password' },
+    })
+    expect(response.status).toBe(201)
+    expect(await response.json()).toMatchObject({ user: { id: 'created-by-bff' } })
+    expect(forwarded.at(-1)).toEqual({
+      method: 'POST',
+      path: '/internal/admin/users/',
+      authorization: 'Bearer fixture-service-credential-alpha',
+    })
+    const stored = await writer.db.select().from(writer.schema.users)
+    expect(stored.map((user) => user.id)).not.toContain('created-by-bff')
   })
 })

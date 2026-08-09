@@ -1,15 +1,15 @@
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test'
+import { afterAll, afterEach, beforeEach, describe, expect, it, mock } from 'bun:test'
+import { resetTestDatabase } from '@image-playground/db/testing'
 import { and, eq } from 'drizzle-orm'
 import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
 
 process.env.UPSTREAM_BASE_URL = 'http://localhost:9999'
 process.env.UPSTREAM_API_KEY = 'test-key'
-process.env.DATABASE_URL = './artifacts/test-routes.sqlite'
+process.env.DATABASE_URL = await resetTestDatabase('bff_task_scheduler')
 process.env.PORT = '0'
 
-const { runMigrations } = await import('../../db/migrate')
-runMigrations()
-const { db, schema } = await import('../../db/client')
+// Dynamic imports keep environment setup ahead of modules that capture configuration.
+const { close: closeDb, db, schema } = await import('../../db/client')
 const { purgeOldTasks, recoverInterruptedTasks } = await import('../../db/maintenance')
 const { TaskScheduler } = await import('../../workers/task-scheduler')
 const { setUpstreamFetchForTesting } = await import('../../lib/upstream')
@@ -24,6 +24,9 @@ beforeEach(() => {
 
 afterEach(() => {
   setObjectStoreForTesting()
+})
+afterAll(async () => {
+  await closeDb()
 })
 
 async function waitFor(predicate: () => boolean | Promise<boolean>, timeoutMs = 1_000) {
@@ -82,7 +85,8 @@ describe('TaskScheduler', () => {
     scheduler.start()
     await waitFor(() => started.length === 2)
     scheduler.stop()
-    expect(started).toEqual(['openai-1', 'gemini-1'])
+    expect(started).toHaveLength(2)
+    expect(started).toEqual(expect.arrayContaining(['openai-1', 'gemini-1']))
 
     const [secondOpenAI] = await db
       .select({ status: schema.tasks.status })

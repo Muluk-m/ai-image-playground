@@ -35,6 +35,13 @@ case "$command" in
     compose up --detach --wait postgres minio
     compose run --rm --no-deps minio-bootstrap
     ;;
+  provision)
+    if [ "$#" -ne 0 ]; then
+      echo "Usage: $0 provision" >&2
+      exit 2
+    fi
+    compose --profile provision run --rm postgres-provision
+    ;;
   down)
     compose down "$@"
     ;;
@@ -48,7 +55,7 @@ case "$command" in
     compose "$@"
     ;;
   *)
-    echo "Usage: $0 {up|down|status|logs|compose}" >&2
+    echo "Usage: $0 {up|provision|down|status|logs|compose}" >&2
     exit 2
     ;;
 esac
