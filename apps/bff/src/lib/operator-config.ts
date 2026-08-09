@@ -162,6 +162,16 @@ function defaults(file: string | null = null): ResolvedOperatorConfig {
   }
 }
 
+function assertCapabilityCompatibility(capabilities: CapabilityValues): void {
+  if (!capabilities['billing:credits']) return
+  if (!capabilities['accounts:login']) {
+    throw new Error('billing:credits requires accounts:login')
+  }
+  if (capabilities['generation:byok']) {
+    throw new Error('billing:credits requires generation:byok=false')
+  }
+}
+
 function resolveParsedConfig(parsed: ParsedOperatorConfig, file: string): ResolvedOperatorConfig {
   const resolved = defaults(file)
   const capabilities = { ...resolved.capabilities }
@@ -184,6 +194,7 @@ function resolveParsedConfig(parsed: ParsedOperatorConfig, file: string): Resolv
     quotaSources[key as QuotaKey] = 'file'
   }
 
+  assertCapabilityCompatibility(capabilities)
   return {
     capabilities,
     capabilitySources,
@@ -216,7 +227,8 @@ export function loadOperatorConfig(file: string | null): ResolvedOperatorConfig 
   try {
     return resolveParsedConfig(parseOperatorConfig(value), file)
   } catch (error) {
-    throw new Error(`Operator config ${file} is invalid`, { cause: error })
+    const reason = error instanceof Error ? `: ${error.message}` : ''
+    throw new Error(`Operator config ${file} is invalid${reason}`, { cause: error })
   }
 }
 
