@@ -29,7 +29,11 @@ shift
 if [ "$command" = build ] || [ "$command" = build-private ]; then
   image=${1:-ai-image-playground:local}
   if [ "$command" = build-private ]; then
-    docker build --build-context private-overlay="$repo_root/private" --tag "$image" "$repo_root"
+    docker build \
+      --build-context private-overlay="$repo_root/private" \
+      --build-arg PRIVATE_OVERLAY_PRESENT=true \
+      --tag "$image" \
+      "$repo_root"
   else
     docker build --tag "$image" "$repo_root"
   fi

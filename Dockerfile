@@ -1,7 +1,8 @@
 # syntax=docker/dockerfile:1.6
 
-# Public builds leave this stage empty. Paid release builds explicitly replace it with
-# `--build-context private-overlay=./private`; that context has its own source allowlist.
+# Public builds use the default false marker and scrub any cached private context.
+# Paid builds must pass both `--build-context private-overlay=./private` and
+# `--build-arg PRIVATE_OVERLAY_PRESENT=true`.
 FROM scratch AS private-overlay
 
 # One release image runs every application role. Compose selects nginx, BFF,
@@ -31,6 +32,8 @@ FROM deps AS web-build
 WORKDIR /app
 COPY . .
 COPY --from=private-overlay / /app/private
+ARG PRIVATE_OVERLAY_PRESENT=false
+RUN if [ "$PRIVATE_OVERLAY_PRESENT" != "true" ]; then rm -rf /app/private && mkdir /app/private; fi
 ENV PRIVATE_WEB_OVERLAY_ENTRY=/app/private/apps/web/index.tsx
 RUN pnpm install --offline --frozen-lockfile
 RUN pnpm --filter @image-playground/web build
@@ -40,6 +43,8 @@ WORKDIR /app
 COPY . .
 COPY --from=private-overlay / /app/private
 ENV PRIVATE_ADMIN_OVERLAY_ENTRY=/app/private/apps/admin/index.tsx
+ARG PRIVATE_OVERLAY_PRESENT=false
+RUN if [ "$PRIVATE_OVERLAY_PRESENT" != "true" ]; then rm -rf /app/private && mkdir /app/private; fi
 RUN pnpm install --offline --frozen-lockfile
 RUN pnpm --filter @image-playground/admin build
 
