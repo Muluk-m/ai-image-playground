@@ -1,10 +1,11 @@
 import { runMigrations as runPublicMigrations } from '@image-playground/db'
 import { config } from '../config'
+import { isCapabilityEnabled } from '../lib/capabilities'
 import { runPrivateMigrations } from '../lib/private-overlay'
 
 export async function runMigrations(databaseUrl: string = config.databaseUrl): Promise<void> {
   await runPublicMigrations(databaseUrl)
-  await runPrivateMigrations(databaseUrl)
+  if (isCapabilityEnabled('billing:credits')) await runPrivateMigrations(databaseUrl)
 }
 
 if (import.meta.main) {
