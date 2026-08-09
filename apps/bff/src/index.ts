@@ -2,7 +2,7 @@ import { QUEUE_TIMEOUTS } from '@image-playground/shared'
 import { app } from './app'
 import { config } from './config'
 import { close as closeDb } from './db/client'
-import { purgeOldTasks } from './db/maintenance'
+import { purgeOldTasks, runPrivateMaintenance } from './db/maintenance'
 import { initChannels } from './lib/channels'
 import { log } from './lib/logger'
 import { isCapabilityEnabled } from './lib/capabilities'
@@ -48,10 +48,12 @@ log.info(
     : 'no channels loaded (BYOK-only deployment)',
 )
 
+await runPrivateMaintenance()
 const purgeStartup = await purgeOldTasks()
 if (purgeStartup > 0) log.info({ event: 'startup.purged', count: purgeStartup }, 'purged old tasks')
 setInterval(async () => {
   const removed = await purgeOldTasks()
+  await runPrivateMaintenance()
   if (removed > 0) log.info({ event: 'periodic.purged', count: removed }, 'purged old tasks')
 }, QUEUE_TIMEOUTS.PURGE_INTERVAL_MS)
 

@@ -5,6 +5,9 @@ import {
   DEFAULT_SETTINGS,
   normalizeSettings,
 } from '../lib/apiProfiles'
+import { bootstrapClientCapabilities } from '../lib/clientCapabilities'
+import { setChannels } from '../lib/channels/channelStore'
+import type { PublicChannel } from '../lib/channels/types'
 import { getSelectedImageMentionLabel } from '../lib/promptImageMentions'
 import type { StoredImage, StoredImageThumbnail, TaskRecord } from '../types'
 import { DEFAULT_PARAMS } from '../types'
@@ -117,7 +120,9 @@ function task(overrides: Partial<TaskRecord> = {}): TaskRecord {
 }
 
 describe('mask draft lifecycle in store actions', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await bootstrapClientCapabilities(false, '')
+    setChannels([])
     vi.mocked(callImageApi).mockClear()
     vi.mocked(callImageApi).mockResolvedValue({
       images: ['data:image/png;base64,generated'],
@@ -223,6 +228,64 @@ describe('mask draft lifecycle in store actions', () => {
     const originalImage = await getImage(generatedTask.transparentOriginalImages![0])
     expect(outputImage?.dataUrl).toBe('transparent:data:image/png;base64,generated')
     expect(originalImage?.dataUrl).toBe('data:image/png;base64,generated')
+  })
+
+  it('submits a billed multi-image request as one atomic BFF task', async () => {
+    const channel: PublicChannel = {
+      id: 'paid-openai',
+      kind: 'openai-queue',
+      label: 'Paid OpenAI',
+      models: [{ id: 'gpt-image-2', label: 'GPT Image 2', capabilities: ['generate'] }],
+      defaults: { apiMode: 'images', timeout: 600 },
+    }
+    setChannels([channel])
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      Response.json({
+        'accounts:login': true,
+        'billing:credits': true,
+        'generation:byok': false,
+        'quota:daily': false,
+      }),
+    )
+    await bootstrapClientCapabilities(true, '')
+    fetchMock.mockRestore()
+    vi.mocked(callImageApi).mockResolvedValue({
+      images: [
+        'data:image/png;base64,one',
+        'data:image/png;base64,two',
+        'data:image/png;base64,three',
+      ],
+      actualParamsList: [{ size: '1x1' }, { size: '1x1' }, { size: '1x1' }],
+    })
+    useStore.setState({
+      settings: normalizeSettings({
+        ...DEFAULT_SETTINGS,
+        profiles: [
+          {
+            id: channel.id,
+            source: 'builtin-edge',
+            channelId: channel.id,
+            selectedModelId: 'gpt-image-2',
+          },
+        ],
+        activeProfileId: channel.id,
+      }),
+      prompt: 'three images',
+      params: { ...DEFAULT_PARAMS, n: 3 },
+    })
+
+    await submitTask()
+    await waitUntil(
+      () => useStore.getState().tasks[0]?.status === 'done',
+      'billed multi-image task did not finish',
+    )
+
+    expect(callImageApi).toHaveBeenCalledTimes(1)
+    expect(callImageApi).toHaveBeenCalledWith(
+      expect.objectContaining({ params: expect.objectContaining({ n: 3 }) }),
+    )
+    expect(useStore.getState().tasks).toHaveLength(1)
+    expect(useStore.getState().tasks[0]?.outputImages).toHaveLength(3)
   })
 
   it('preserves selected image mentions when replacing a mask target with an equivalent image id', () => {

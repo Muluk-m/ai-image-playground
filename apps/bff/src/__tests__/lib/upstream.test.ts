@@ -10,6 +10,7 @@ process.env.PORT = '0'
 
 const {
   callUpstream,
+  upstreamInvocationCount,
   setUpstreamFetchForTesting,
   UPSTREAM_TRANSPORT_TIMEOUT_MS,
   UpstreamResultUnknownError,
@@ -58,6 +59,12 @@ describe('callUpstream OpenAI route', () => {
     expect(typeof body).toBe('string')
     const parsed = JSON.parse(body as string)
     expect(parsed).toMatchObject({ model: 'gpt-image-2', prompt: 'a cat', size: '1024x1024' })
+  })
+
+  it('counts one OpenAI HTTP invocation when n is forwarded in one request', () => {
+    expect(
+      upstreamInvocationCount('openai-compat', 'gpt-image-2', { prompt: 'a cat', n: 4 }),
+    ).toBe(1)
   })
 
   it('forwards OpenAI output controls in the generations JSON body', async () => {
@@ -331,6 +338,15 @@ describe('callUpstream direct channel 路由（DIRECT_CHANNEL_IDS）', () => {
     })
   })
 
+  it('counts every Gemini fan-out request', () => {
+    expect(
+      upstreamInvocationCount('gemini', 'gemini-3.1-flash-image', {
+        prompt: 'a cat',
+        n: 4,
+      }),
+    ).toBe(4)
+  })
+
   it('gemini extra.generationConfig 保持最终覆盖优先级', async () => {
     await callUpstream({
       provider: 'gemini',
@@ -443,6 +459,12 @@ describe('callUpstream direct channel 图生图（Agnes 风格 generations JSON�
       request: { prompt: 'a star', n: 3 },
     })
     expect(calls).toHaveLength(3)
+    expect(
+      upstreamInvocationCount('openai-compat', 'agnes-image-2.1-flash', {
+        prompt: 'a star',
+        n: 3,
+      }),
+    ).toBe(3)
     for (const c of calls) {
       const body = JSON.parse(c.init?.body as string)
       expect(body.n).toBeUndefined()

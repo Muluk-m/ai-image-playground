@@ -33,6 +33,7 @@ function filterUserProfileCache(
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate'
 import { callImageApi, resumeQueueImageApi } from './lib/api'
 import { scopedLocalStorage } from './lib/authScope'
+import { isClientCapabilityEnabled } from './lib/clientCapabilities'
 import { validateMaskMatchesImage } from './lib/canvasImage'
 import {
   CURRENT_THUMBNAIL_VERSION,
@@ -1296,11 +1297,15 @@ export async function submitTask(
   }
 
   const submitView = clientProfileToApiProfile(activeProfile)
-  // n 张图一律拆成 n 条独立任务并行下发：gpt-image-2 / nano-banana 都不支持
-  // 上游 n 参数，统一前端 fan-out 比按 model 分支更简单；副作用是 quota 自然
-  // 按张数计数。每条 task 自带独立 clientRequestId 用于 BFF 幂等。
-  const fanOut = Math.max(1, taskParams.n)
-  const singleParams = fanOut === 1 ? taskParams : { ...taskParams, n: 1 }
+  // A billed submission must reach the BFF as one task so the server can reserve
+  // `price × quantity` atomically. BYOK and non-billed deployments keep the
+  // established one-card-per-image fan-out behavior.
+  const billedBuiltinSubmission =
+    activeProfile.source === 'builtin-edge' &&
+    isClientCapabilityEnabled('billing:credits')
+  const fanOut = billedBuiltinSubmission ? 1 : Math.max(1, taskParams.n)
+  const singleParams =
+    billedBuiltinSubmission || fanOut === 1 ? taskParams : { ...taskParams, n: 1 }
   const createdAt = Date.now()
   const newTasks: TaskRecord[] = Array.from({ length: fanOut }, () => ({
     id: genId(),

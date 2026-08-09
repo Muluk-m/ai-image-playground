@@ -15,6 +15,13 @@
       "when": 1786267527730,
       "tag": "0001_blushing_liz_osborn",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1786268592028,
+      "tag": "0002_careless_scrambler",
+      "breakpoints": true
     }
   ]
 }

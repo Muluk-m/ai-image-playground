@@ -1,12 +1,18 @@
 import { QUEUE_TIMEOUTS, type TaskErrorType } from '@image-playground/shared'
-import { and, eq, isNull, lte, or } from 'drizzle-orm'
+import { and, eq, isNull, lte, or, sql } from 'drizzle-orm'
 import { db, schema } from '../db/client'
 import { describeEmptyResult, extractMeta } from '../lib/extractImages'
 import { archiveOutputImages, hydrateInputImages, ObjectStorageError } from '../lib/imageArchive'
 import { log } from '../lib/logger'
+import {
+  callUpstream,
+  upstreamInvocationCount,
+  UpstreamResultUnknownError,
+  UpstreamTimeoutError,
+} from '../lib/upstream'
+import { loadPrivateBffOverlay } from '../lib/private-overlay'
 import { isAbortError } from '../lib/queueProvider'
 import { isRetryableError, planNextAttempt, shouldRetryEmptyResult } from '../lib/retry'
-import { callUpstream, UpstreamResultUnknownError, UpstreamTimeoutError } from '../lib/upstream'
 
 /**
  * 单 task 后台执行：把 status 推进到 in_progress → completed/failed/cancelled。
@@ -89,6 +95,52 @@ async function tryScheduleRetry(
   )
   return true
 }
+type TerminalTaskUpdate = {
+  status: 'completed' | 'failed'
+  completedAt: number
+  resultPayload?: (typeof schema.tasks.$inferInsert)['result_payload']
+  errorMessage?: string
+  errorType?: TaskErrorType
+}
+
+async function recordUpstreamInvocation(id: string, count = 1): Promise<boolean> {
+  const updated = await db
+    .update(schema.tasks)
+    .set({
+      upstream_invocation_count: sql`${schema.tasks.upstream_invocation_count} + ${count}`,
+    })
+    .where(and(eq(schema.tasks.id, id), eq(schema.tasks.status, 'in_progress')))
+    .returning({ id: schema.tasks.id })
+  return updated.length > 0
+}
+
+async function finishTask(id: string, update: TerminalTaskUpdate): Promise<boolean> {
+  const taskHooks = (await loadPrivateBffOverlay()).taskHooks
+  return db.transaction(async (tx) => {
+    const [finished] = await tx
+      .update(schema.tasks)
+      .set({
+        status: update.status,
+        result_payload: update.resultPayload,
+        error_message: update.errorMessage,
+        error_type: update.errorType,
+        completed_at: update.completedAt,
+      })
+      .where(and(eq(schema.tasks.id, id), eq(schema.tasks.status, 'in_progress')))
+      .returning({
+        id: schema.tasks.id,
+        upstreamInvocationCount: schema.tasks.upstream_invocation_count,
+      })
+    if (!finished) return false
+    await taskHooks.finalizeTask({
+      tx,
+      taskId: finished.id,
+      upstreamInvocationCount: finished.upstreamInvocationCount,
+    })
+    return true
+  })
+}
+
 
 export async function runTask(id: string): Promise<void> {
   const now = () => Date.now()
@@ -121,6 +173,8 @@ export async function runTask(id: string): Promise<void> {
 
   try {
     const hydratedRequest = await hydrateInputImages(task.request_payload)
+    const invocationCount = upstreamInvocationCount(task.provider, task.model, hydratedRequest)
+    if (!(await recordUpstreamInvocation(id, invocationCount))) return
     const { payload } = await callUpstream({
       provider: task.provider,
       model: task.model,
@@ -141,16 +195,13 @@ export async function runTask(id: string): Promise<void> {
       ) {
         return
       }
-      await db
-        .update(schema.tasks)
-        .set({
-          status: 'failed',
-          error_message: message,
-          error_type: 'upstream_no_image' as const,
-          result_payload: payload as Record<string, unknown>,
-          completed_at: now(),
-        })
-        .where(and(eq(schema.tasks.id, id), eq(schema.tasks.status, 'in_progress')))
+      await finishTask(id, {
+        status: 'failed',
+        errorMessage: message,
+        errorType: 'upstream_no_image',
+        resultPayload: payload as Record<string, unknown>,
+        completedAt: now(),
+      })
       log.warn(
         {
           event: 'task.upstream_no_image',
@@ -163,14 +214,11 @@ export async function runTask(id: string): Promise<void> {
       return
     }
     const archivedPayload = await archiveOutputImages(id, task.provider, payload)
-    await db
-      .update(schema.tasks)
-      .set({
-        status: 'completed',
-        result_payload: archivedPayload,
-        completed_at: now(),
-      })
-      .where(and(eq(schema.tasks.id, id), eq(schema.tasks.status, 'in_progress')))
+    await finishTask(id, {
+      status: 'completed',
+      resultPayload: archivedPayload,
+      completedAt: now(),
+    })
     log.info(
       { event: 'task.completed', taskId: id, imageCount: meta.images.length },
       'task completed',
@@ -201,15 +249,12 @@ export async function runTask(id: string): Promise<void> {
       return
     }
 
-    await db
-      .update(schema.tasks)
-      .set({
-        status: 'failed',
-        error_message: message,
-        error_type: errorType,
-        completed_at: now(),
-      })
-      .where(and(eq(schema.tasks.id, id), eq(schema.tasks.status, 'in_progress')))
+    await finishTask(id, {
+      status: 'failed',
+      errorMessage: message,
+      errorType,
+      completedAt: now(),
+    })
     log.error(
       {
         event: 'task.failed',
