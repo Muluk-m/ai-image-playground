@@ -23,10 +23,18 @@ const booleanEnv = (key: string, fallback: boolean): boolean => {
 export const config = {
   port: Number(env('PORT', '37377')),
   auth: {
-    // getter 让测试能在同一进程覆盖 env；生产环境仍是进程级静态配置。
+    // getters let route tests change process env without reloading the application module.
     get enabled(): boolean {
       return booleanEnv('AUTH_ENABLED', false)
     },
+    get internalApiToken(): string {
+      return env('INTERNAL_API_TOKEN', '')
+    },
+  },
+  assertValid(): void {
+    if (config.auth.enabled && !config.auth.internalApiToken) {
+      throw new Error('Missing env: INTERNAL_API_TOKEN')
+    }
   },
   /**
    * 上游单 endpoint fallback：worker 默认走 `upstream.baseUrl + provider 派生路径`，

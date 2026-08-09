@@ -9,9 +9,12 @@ process.env.UPSTREAM_API_KEY = 'test'
 process.env.DATABASE_URL = TEST_DB
 process.env.CORS_ALLOWED_ORIGINS = '*'
 process.env.AUTH_ENABLED = 'false'
+process.env.INTERNAL_API_TOKEN = 'fixture-service-credential-alpha'
 
 const { runMigrations } = await import('../../db/migrate')
 runMigrations(TEST_DB)
+// Dynamic import keeps environment setup ahead of configuration module evaluation in this route test.
+const { config } = await import('../../config')
 const { app } = await import('../../app')
 const { db, schema } = await import('../../db/client')
 const { runTask } = await import('../../workers/task-runner')
@@ -332,6 +335,7 @@ describe('BFF optional user auth', () => {
   beforeEach(async () => {
     process.env.AUTH_ENABLED = 'true'
     await resetDb()
+    process.env.INTERNAL_API_TOKEN = 'fixture-service-credential-alpha'
   })
 
   afterEach(() => {
@@ -347,6 +351,122 @@ describe('BFF optional user auth', () => {
     expect(submit.status).toBe(401)
     const tasks = await db.select({ id: schema.tasks.id }).from(schema.tasks)
     expect(tasks).toHaveLength(0)
+  })
+
+  it('lets the configured service identity fetch task and image reads only', async () => {
+    const owner = await createTestUser('image-owner', ACCEPTED_PHRASE)
+    await db.insert(schema.tasks).values({
+      id: 'service-image-task',
+      provider: 'openai-compat',
+      model: 'gpt-image-2',
+      status: 'completed',
+      user_id: owner.id,
+      request_payload: {
+        prompt: 'edit',
+        device_id: 'service-image-device',
+        input_images: ['data:image/png;base64,SU5QVVQ='],
+        mask: 'data:image/png;base64,TUFTSw==',
+      } as never,
+      result_payload: { data: [{ b64_json: 'T1VUUFVU' }] },
+      submitted_at: Date.now(),
+      completed_at: Date.now(),
+    })
+    await db.insert(schema.tasks).values({
+      id: 'service-gemini-image-task',
+      provider: 'gemini',
+      model: 'gemini-3-pro',
+      status: 'completed',
+      user_id: owner.id,
+      request_payload: {
+        contents: [
+          {
+            parts: [{ text: 'edit' }, { inlineData: { mimeType: 'image/jpeg', data: 'R0VNSU5J' } }],
+          },
+        ],
+      } as never,
+      result_payload: {
+        candidates: [
+          { content: { parts: [{ inlineData: { mimeType: 'image/jpeg', data: 'T1VUUFVU' } }] } },
+        ],
+      },
+      submitted_at: Date.now(),
+      completed_at: Date.now(),
+    })
+
+    const outputPath = '/v1/queue/requests/service-image-task/image/0'
+    const inputPath = '/v1/queue/requests/service-image-task/input-image/0'
+    const missing = await app.handle(new Request(`http://localhost${outputPath}`))
+    const invalid = await app.handle(
+      new Request(`http://localhost${outputPath}`, {
+        headers: { authorization: 'Bearer fixture-service-credential-beta' },
+      }),
+    )
+    expect([missing.status, invalid.status]).toEqual([401, 401])
+
+    const serviceHeaders = {
+      authorization: 'Bearer fixture-service-credential-alpha',
+    }
+    const output = await app.handle(
+      new Request(`http://localhost${outputPath}`, { headers: serviceHeaders }),
+    )
+    const input = await app.handle(
+      new Request(`http://localhost${inputPath}`, { headers: serviceHeaders }),
+    )
+    const mask = await app.handle(
+      new Request('http://localhost/v1/queue/requests/service-image-task/input-image/1', {
+        headers: serviceHeaders,
+      }),
+    )
+    const geminiInput = await app.handle(
+      new Request('http://localhost/v1/queue/requests/service-gemini-image-task/input-image/0', {
+        headers: serviceHeaders,
+      }),
+    )
+    const taskRead = await jsonReq(
+      'GET',
+      '/v1/queue/requests/service-image-task/status',
+      undefined,
+      serviceHeaders,
+    )
+    expect(output.status).toBe(200)
+    expect(await output.text()).toBe('OUTPUT')
+    expect(input.status).toBe(200)
+    expect(await input.text()).toBe('INPUT')
+    expect(mask.status).toBe(200)
+    expect(await mask.text()).toBe('MASK')
+    expect(geminiInput.status).toBe(200)
+    expect(await geminiInput.text()).toBe('GEMINI')
+    expect(taskRead.status).toBe(200)
+
+    const forbiddenSubmit = await jsonReq(
+      'POST',
+      '/v1/queue/openai-compat/gpt-image-2/submit',
+      submitBody(),
+      serviceHeaders,
+    )
+    const forbiddenCancel = await jsonReq(
+      'PUT',
+      '/v1/queue/requests/service-image-task/cancel',
+      undefined,
+      serviceHeaders,
+    )
+    expect([forbiddenSubmit.status, forbiddenCancel.status]).toEqual([401, 401])
+
+    const absent = await app.handle(
+      new Request('http://localhost/v1/queue/requests/no-such-task/image/0', {
+        headers: serviceHeaders,
+      }),
+    )
+    expect(absent.status).toBe(404)
+  })
+
+  it('fails configuration validation when account authentication has no service credential', () => {
+    delete process.env.INTERNAL_API_TOKEN
+    try {
+      expect(() => config.assertValid()).toThrow('Missing env: INTERNAL_API_TOKEN')
+    } finally {
+      process.env.INTERNAL_API_TOKEN = 'fixture-service-credential-alpha'
+    }
   })
 
   it('uses one generic login failure and issues a hardened opaque cookie on success', async () => {

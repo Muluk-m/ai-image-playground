@@ -12,11 +12,14 @@ try {
 const mockBffPort = 39999
 let mockBff: { stop: () => void }
 const fakeImageBytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47]) // PNG magic
+const requestedPaths: string[] = []
 
 process.env.ADMIN_PASSWORD = 'test-pass-1234'
 process.env.ADMIN_COOKIE_SECRET = 'test-cookie-secret-32-bytes-min!!'
 process.env.DATABASE_URL = TEST_DB
 process.env.BFF_INTERNAL_URL = `http://127.0.0.1:${mockBffPort}`
+process.env.AUTH_ENABLED = 'true'
+process.env.INTERNAL_API_TOKEN = 'fixture-service-credential-alpha'
 process.env.PORT = '0'
 
 const { runMigrations, createDb } = await import('@image-playground/db')
@@ -31,7 +34,11 @@ writer.db
     provider: 'openai-compat',
     model: 'gpt-image-2',
     status: 'completed',
-    request_payload: { prompt: 'p', device_id: 'dev-img' } as never,
+    request_payload: {
+      prompt: 'p',
+      device_id: 'dev-img',
+      input_images: ['data:image/png;base64,T1BFTkFJ'],
+    } as never,
     result_payload: { data: [{ b64_json: 'AAAA' }] } as never,
     submitted_at: now,
     completed_at: now + 1000,
@@ -61,12 +68,15 @@ writer.db
   .run()
 
 beforeAll(() => {
-  // 极简 mock BFF：任何 /v1/queue/.../binary 都返 fake bytes
   mockBff = Bun.serve({
     port: mockBffPort,
     fetch(req) {
       const url = new URL(req.url)
-      if (url.pathname.includes('/binary') || url.pathname.includes('/image/')) {
+      requestedPaths.push(url.pathname)
+      if (req.headers.get('authorization') !== 'Bearer fixture-service-credential-alpha') {
+        return new Response('unauthorized', { status: 401 })
+      }
+      if (url.pathname.includes('/image/') || url.pathname.includes('/input-image/')) {
         return new Response(fakeImageBytes, {
           status: 200,
           headers: { 'content-type': 'image/png', 'content-length': String(fakeImageBytes.length) },
@@ -80,6 +90,9 @@ beforeAll(() => {
 beforeEach(() => {
   // bun:test 会在同一进程加载多个 test 文件；其它文件会改同名 env。
   process.env.BFF_INTERNAL_URL = `http://127.0.0.1:${mockBffPort}`
+  process.env.AUTH_ENABLED = 'true'
+  process.env.INTERNAL_API_TOKEN = 'fixture-service-credential-alpha'
+  requestedPaths.length = 0
 })
 
 afterAll(() => {
@@ -87,6 +100,8 @@ afterAll(() => {
 })
 
 const { app } = await import('../../app')
+// Dynamic imports are required because config reads the test environment during module loading.
+const { config } = await import('../../config')
 
 async function login() {
   const res = await app.handle(
@@ -115,6 +130,7 @@ describe('GET /api/tasks/:id/image', () => {
     const bytes = new Uint8Array(await res.arrayBuffer())
     expect(bytes[0]).toBe(0x89)
     expect(bytes[1]).toBe(0x50)
+    expect(requestedPaths).toEqual(['/v1/queue/requests/img-task-1/image/0'])
   })
 
   it('未知 task → 404', async () => {
@@ -127,7 +143,7 @@ describe('GET /api/tasks/:id/image', () => {
 })
 
 describe('GET /api/tasks/:id/input-image', () => {
-  it('Gemini task 抽出 inlineData 返 image bytes', async () => {
+  it('proxies Gemini input bytes through the authenticated BFF image channel', async () => {
     const cookie = await login()
     const res = await app.handle(
       new Request('http://localhost/api/tasks/img-task-gem/input-image?idx=0', {
@@ -136,27 +152,36 @@ describe('GET /api/tasks/:id/input-image', () => {
     )
     expect(res.status).toBe(200)
     expect(res.headers.get('content-type')).toContain('image/png')
+    expect(requestedPaths).toEqual(['/v1/queue/requests/img-task-gem/input-image/0'])
   })
 
-  it('OpenAI task → 422 + input_image_not_archived', async () => {
+  it('proxies OpenAI input bytes through the same authenticated BFF image channel', async () => {
     const cookie = await login()
     const res = await app.handle(
       new Request('http://localhost/api/tasks/img-task-1/input-image?idx=0', {
         headers: { cookie },
       }),
     )
-    expect(res.status).toBe(422)
-    const body = (await res.json()) as { error_code: string }
-    expect(body.error_code).toBe('input_image_not_archived')
+    expect(res.status).toBe(200)
+    expect(res.headers.get('content-type')).toContain('image/png')
+    expect(requestedPaths).toEqual(['/v1/queue/requests/img-task-1/input-image/0'])
   })
 
-  it('未知 task → 404 + task_not_found', async () => {
+  it('keeps unknown tasks hidden before proxying', async () => {
     const cookie = await login()
     const res = await app.handle(
       new Request('http://localhost/api/tasks/nope/input-image?idx=0', { headers: { cookie } }),
     )
     expect(res.status).toBe(404)
-    const body = (await res.json()) as { error_code: string }
-    expect(body.error_code).toBe('task_not_found')
+    expect(requestedPaths).toEqual([])
+  })
+
+  it('fails configuration validation when account authentication has no service credential', () => {
+    delete process.env.INTERNAL_API_TOKEN
+    try {
+      expect(() => config.assertValid()).toThrow('Missing env: INTERNAL_API_TOKEN')
+    } finally {
+      process.env.INTERNAL_API_TOKEN = 'fixture-service-credential-alpha'
+    }
   })
 })

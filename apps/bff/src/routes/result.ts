@@ -6,18 +6,18 @@ import { extractMeta, resolveImageBytesRef } from '../lib/extractImages'
 import { jsonResponse } from '../lib/gzipResponse'
 import { asQueueProvider } from '../lib/queueProvider'
 import { taskAccessWhere } from '../lib/task-access'
-import { requireUser } from '../lib/user-auth'
+import { requireUserOrService } from '../lib/user-auth'
 
 export const resultRoutes = new Elysia()
-  .use(requireUser)
+  .use(requireUserOrService)
   // 1) 元信息端点：返回图片列表 + actual_params + raw_image_urls；不含像素字节
   .get(
     '/v1/queue/requests/:id',
-    async ({ params, status, request, authUser }) => {
+    async ({ params, status, request, authUser, serviceIdentity }) => {
       const [task] = await db
         .select()
         .from(schema.tasks)
-        .where(taskAccessWhere(params.id, authUser?.id ?? null))
+        .where(taskAccessWhere(params.id, authUser?.id ?? null, serviceIdentity))
         .limit(1)
 
       if (!task) return status(404, { error: 'task_not_found' })
@@ -56,11 +56,11 @@ export const resultRoutes = new Elysia()
   // 2) 二进制端点：按 index 返回原始像素字节，跳过 base64 + JSON 双重开销
   .get(
     '/v1/queue/requests/:id/image/:index',
-    async ({ params, status, authUser }) => {
+    async ({ params, status, authUser, serviceIdentity }) => {
       const [task] = await db
         .select()
         .from(schema.tasks)
-        .where(taskAccessWhere(params.id, authUser?.id ?? null))
+        .where(taskAccessWhere(params.id, authUser?.id ?? null, serviceIdentity))
         .limit(1)
       if (!task || task.status !== 'completed') return status(404, { error: 'not_ready' })
       const provider = asQueueProvider(task.provider)
@@ -98,3 +98,85 @@ export const resultRoutes = new Elysia()
       }),
     },
   )
+  .get(
+    '/v1/queue/requests/:id/input-image/:index',
+    async ({ params, status, authUser, serviceIdentity }) => {
+      const [task] = await db
+        .select({
+          provider: schema.tasks.provider,
+          request_payload: schema.tasks.request_payload,
+        })
+        .from(schema.tasks)
+        .where(taskAccessWhere(params.id, authUser?.id ?? null, serviceIdentity))
+        .limit(1)
+      if (!task) return status(404, { error: 'task_not_found' })
+
+      const idx = Number(params.index)
+      if (!Number.isInteger(idx) || idx < 0) return status(400, { error: 'bad_index' })
+      const input = resolveInputImage(task.provider, task.request_payload, idx)
+      if (!input) return status(404, { error: 'image_not_found' })
+
+      return new Response(Buffer.from(input.base64, 'base64'), {
+        headers: {
+          'content-type': input.mime,
+          'cache-control': `${config.auth.enabled ? 'private' : 'public'}, max-age=31536000, immutable`,
+        },
+      })
+    },
+    {
+      params: t.Object({
+        id: t.String(),
+        index: t.String(),
+      }),
+    },
+  )
+
+interface InputImage {
+  base64: string
+  mime: string
+}
+
+function resolveInputImage(provider: string, payload: unknown, index: number): InputImage | null {
+  if (!payload || typeof payload !== 'object') return null
+  const request = payload as Record<string, unknown>
+  const archived: string[] = Array.isArray(request.input_images)
+    ? request.input_images.filter((value): value is string => typeof value === 'string')
+    : []
+  if (typeof request.mask === 'string') archived.push(request.mask)
+  if (archived.length > 0) return parseDataUrl(archived[index])
+
+  if (provider !== 'gemini' || !Array.isArray(request.contents)) return null
+  const inlineImages: InputImage[] = []
+  for (const content of request.contents) {
+    if (!content || typeof content !== 'object' || !('parts' in content)) continue
+    const parts = content.parts
+    if (!Array.isArray(parts)) continue
+    for (const part of parts) {
+      if (!part || typeof part !== 'object') continue
+      const inline =
+        'inlineData' in part ? part.inlineData : 'inline_data' in part ? part.inline_data : null
+      if (!inline || typeof inline !== 'object') continue
+      const encoded = 'data' in inline ? inline.data : undefined
+      const mime =
+        'mimeType' in inline
+          ? inline.mimeType
+          : 'mime_type' in inline
+            ? inline.mime_type
+            : undefined
+      if (typeof encoded === 'string' && typeof mime === 'string') {
+        inlineImages.push({ base64: encoded, mime })
+      }
+    }
+  }
+  return inlineImages[index] ?? null
+}
+
+function parseDataUrl(dataUrl: string | undefined): InputImage | null {
+  if (!dataUrl) return null
+  const match = /^data:([^;,]+);base64,(.+)$/i.exec(dataUrl)
+  if (!match) return null
+  return {
+    base64: match[2]!,
+    mime: match[1]!,
+  }
+}
