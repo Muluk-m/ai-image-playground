@@ -200,15 +200,16 @@ scripts/infra-compose.sh down
 停止应用 project 不会删除 PostgreSQL 或 MinIO 数据，也不会删除外部基础设施或入口
 network。只有两个应用 project 都已停止后，才停止基础设施。
 
-回滚使用宿主机上保留的旧镜像 tag，并保持先后端、后静态页面的激活顺序：
+`app-compose.sh rollback` 只在符合当前分角色 Compose 契约的镜像之间切换，并保持先后端、
+后静态页面的激活顺序：
 
 ```bash
 scripts/app-compose.sh rollback image-playground-personal ai-image-playground:previous
 scripts/app-compose.sh rollback image-playground-commercial ai-image-playground:previous
 ```
 
-如果旧 tag 未保留，先从旧代码检出重新构建该 tag。之后两个 project 可以复用同一个
-回滚镜像。
+如果兼容的旧 tag 未保留，先从对应代码检出重新构建。首次从 SQLite 切换到 PostgreSQL
+不使用这个 helper；应从旧代码检出与旧配置恢复原部署，并挂回只读 SQLite 备份。
 
 ### Fleet 部署契约
 
