@@ -3,6 +3,9 @@ import type { AuthUserView } from '@image-playground/shared'
 import { eq, lte } from 'drizzle-orm'
 import { db, schema } from '../db/client'
 
+type SessionTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0]
+type SessionExecutor = typeof db | SessionTransaction
+
 export const USER_SESSION_COOKIE = 'image_playground_session'
 export const USER_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000
 
@@ -10,12 +13,15 @@ export function hashSessionToken(token: string): string {
   return createHash('sha256').update(token).digest('hex')
 }
 
-export async function createUserSession(userId: string): Promise<string> {
+export async function createUserSession(
+  userId: string,
+  executor: SessionExecutor = db,
+): Promise<string> {
   const token = randomBytes(32).toString('base64url')
   const now = Date.now()
   // 成功登录时顺手清理全局过期 session，避免长期不再访问的旧 cookie 留在库里。
-  await db.delete(schema.user_sessions).where(lte(schema.user_sessions.expires_at, now))
-  await db.insert(schema.user_sessions).values({
+  await executor.delete(schema.user_sessions).where(lte(schema.user_sessions.expires_at, now))
+  await executor.insert(schema.user_sessions).values({
     token_hash: hashSessionToken(token),
     user_id: userId,
     created_at: now,

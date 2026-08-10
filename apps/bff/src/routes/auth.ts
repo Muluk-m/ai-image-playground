@@ -4,7 +4,7 @@ import {
   PASSWORD_MAX_LENGTH,
   USERNAME_MAX_LENGTH,
 } from '@image-playground/shared'
-import { and, eq } from 'drizzle-orm'
+import { eq } from 'drizzle-orm'
 import { Elysia, t } from 'elysia'
 import { db, schema } from '../db/client'
 import { capabilityUnavailable, isCapabilityEnabled } from '../lib/capabilities'
@@ -80,22 +80,44 @@ export const userAuthRoutes = new Elysia()
         })
       }
 
-      // 密码校验和写 session 之间再确认一次 active，关闭竞态窗口。
-      const now = Date.now()
-      const activated = await db
-        .update(schema.users)
-        .set({ last_login_at: now, updated_at: now })
-        .where(and(eq(schema.users.id, user.id), eq(schema.users.status, 'active')))
-        .returning({ id: schema.users.id, username: schema.users.username })
-      if (activated.length === 0) {
+      const authenticated = await db.transaction(async (tx) => {
+        const [current] = await tx
+          .select({
+            id: schema.users.id,
+            password_hash: schema.users.password_hash,
+            status: schema.users.status,
+            username: schema.users.username,
+          })
+          .from(schema.users)
+          .where(eq(schema.users.id, user.id))
+          .for('update')
+        if (
+          !current ||
+          current.status !== 'active' ||
+          current.password_hash !== user.password_hash
+        ) {
+          return null
+        }
+
+        const now = Date.now()
+        const [activated] = await tx
+          .update(schema.users)
+          .set({ last_login_at: now, updated_at: now })
+          .where(eq(schema.users.id, user.id))
+          .returning({ id: schema.users.id, username: schema.users.username })
+        if (!activated) return null
+
+        const token = await createUserSession(user.id, tx)
+        return { token, user: activated }
+      })
+      if (!authenticated) {
         sourceLimiter.recordFailure(key)
         accountLimiter.recordFailure(username)
         return status(401, { error: 'invalid_credentials' })
       }
 
-      const token = await createUserSession(user.id)
       cookie[USER_SESSION_COOKIE].set({
-        value: token,
+        value: authenticated.token,
         httpOnly: true,
         secure: true,
         sameSite: 'lax',
@@ -104,7 +126,7 @@ export const userAuthRoutes = new Elysia()
       })
       sourceLimiter.recordSuccess(key)
       accountLimiter.recordSuccess(username)
-      return { user: activated[0]! }
+      return { user: authenticated.user }
     },
     {
       body: t.Object({
