@@ -8,6 +8,7 @@ import { log } from './lib/logger'
 import { assertPrivateBffOverlayPresent, loadPrivateBffOverlay } from './lib/private-overlay'
 import { abortAllRunningTasks } from './workers/task-runner'
 import { TaskScheduler } from './workers/task-scheduler'
+import { startWorkerHealthServer } from './workers/worker-health'
 
 config.assertValid()
 const channelsResult = initChannels(config.channelsFile ?? undefined)
@@ -29,10 +30,17 @@ if (recovery.failed > 0) {
 
 const scheduler = new TaskScheduler()
 scheduler.start()
+const workerHealthServer = startWorkerHealthServer({
+  port: config.worker.healthPort,
+  staleAfterMs: config.worker.healthStaleAfterMs,
+  lastSuccessfulPollAt: () => scheduler.lastSuccessfulPollAt(),
+})
 log.info(
   {
     event: 'worker.started',
     pollIntervalMs: config.worker.pollIntervalMs,
+    healthPort: config.worker.healthPort,
+    healthStaleAfterMs: config.worker.healthStaleAfterMs,
     openaiConcurrency: config.worker.concurrency.openaiCompat,
     geminiConcurrency: config.worker.concurrency.gemini,
   },
@@ -51,6 +59,7 @@ async function gracefulShutdown(signal: string): Promise<void> {
   if (shuttingDown) return
   shuttingDown = true
   scheduler.stop()
+  await workerHealthServer.stop()
   log.info(
     { event: 'worker.shutdown_start', signal, inflight: scheduler.activeCount() },
     'stopping task worker',

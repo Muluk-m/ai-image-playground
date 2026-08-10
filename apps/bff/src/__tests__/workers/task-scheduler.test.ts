@@ -64,6 +64,22 @@ describe('TaskScheduler', () => {
     mock.restore()
   })
 
+  it('records the completion time of a successful queue poll', async () => {
+    let now = 123_456
+    const scheduler = new TaskScheduler({
+      pollIntervalMs: 10_000,
+      clock: () => now,
+    })
+
+    expect(scheduler.lastSuccessfulPollAt()).toBeNull()
+    scheduler.start()
+    await waitFor(() => scheduler.lastSuccessfulPollAt() === now)
+    scheduler.stop()
+
+    now += 1
+    expect(scheduler.lastSuccessfulPollAt()).toBe(123_456)
+  })
+
   it('bounds providers independently and keeps the second OpenAI task queued', async () => {
     await insertTask('openai-1', 'openai-compat', 1)
     await insertTask('openai-2', 'openai-compat', 2)

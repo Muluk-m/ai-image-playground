@@ -86,7 +86,7 @@ ENV STATIC_DIR=
 ENV BFF_ENABLED=true
 ENV ADMIN_DIST_DIR=/app/apps/admin/dist
 
-EXPOSE 8080 37377 37378
+EXPOSE 8080 37377 37378 37379
 
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 CMD ["bun", "run", "/app/apps/bff/src/index.ts"]

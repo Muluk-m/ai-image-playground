@@ -15,6 +15,11 @@ const positiveIntEnv = (key: string, fallback: number): number => {
   return value
 }
 const operator = loadOperatorConfig(env('OPERATOR_CONFIG_FILE', '') || null)
+const workerPollIntervalMs = positiveIntEnv('WORKER_POLL_INTERVAL_MS', 1_000)
+const workerHealthStaleAfterMs = positiveIntEnv(
+  'WORKER_HEALTH_STALE_AFTER_MS',
+  Math.max(10_000, workerPollIntervalMs * 5),
+)
 
 export const config = {
   port: Number(env('PORT', '37377')),
@@ -26,6 +31,9 @@ export const config = {
   assertValid(): void {
     if (hasCapability(config.operator, 'accounts:login') && !config.auth.internalApiToken) {
       throw new Error('Missing env: INTERNAL_API_TOKEN')
+    }
+    if (config.worker.healthStaleAfterMs < config.worker.pollIntervalMs * 3) {
+      throw new Error('WORKER_HEALTH_STALE_AFTER_MS must be at least three poll intervals')
     }
   },
   /**
@@ -61,7 +69,9 @@ export const config = {
     },
   },
   worker: {
-    pollIntervalMs: positiveIntEnv('WORKER_POLL_INTERVAL_MS', 1_000),
+    pollIntervalMs: workerPollIntervalMs,
+    healthPort: positiveIntEnv('WORKER_HEALTH_PORT', 37_379),
+    healthStaleAfterMs: workerHealthStaleAfterMs,
     concurrency: {
       openaiCompat: positiveIntEnv('WORKER_OPENAI_CONCURRENCY', 1),
       gemini: positiveIntEnv('WORKER_GEMINI_CONCURRENCY', 2),
