@@ -49,4 +49,3 @@ deleted so task ownership and audit history remain intact.
 Every authenticated submission stores `tasks.user_id`. This change does not yet
 replace the current device quota, but it creates the stable identity required by
 the future quota implementation.
-
