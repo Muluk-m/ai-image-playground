@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { createFileRoute, useNavigate } from '@tanstack/react-router'
+import { createFileRoute, notFound, useNavigate } from '@tanstack/react-router'
 import { ChevronLeft, KeyRound, Loader2, LogOut, ShieldCheck, ShieldOff } from 'lucide-react'
 import { type ReactNode, useState } from 'react'
 
@@ -19,6 +19,9 @@ import type { AdminUserRow } from '@/lib/types'
 
 export const Route = createFileRoute('/_authed/users/$userId')({
   validateSearch: parseUserDetailSearch,
+  beforeLoad: ({ context }) => {
+    if (!context.adminSession.accounts_login) throw notFound()
+  },
   component: UserDetailPage,
 })
 

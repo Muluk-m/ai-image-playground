@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate } from '@tanstack/react-router'
+import { createFileRoute, notFound, useNavigate } from '@tanstack/react-router'
 import { Loader2, Plus, Search, UsersRound } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
@@ -11,6 +11,9 @@ import { parseUsersSearch } from '@/lib/search-params'
 
 export const Route = createFileRoute('/_authed/users/')({
   validateSearch: parseUsersSearch,
+  beforeLoad: ({ context }) => {
+    if (!context.adminSession.accounts_login) throw notFound()
+  },
   component: UsersPage,
 })
 

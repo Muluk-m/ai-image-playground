@@ -87,6 +87,9 @@ await writer.db.insert(writer.schema.tasks).values([
   },
 ])
 
+const { setAdminCapabilitiesForTesting } = await import('../../../../server/config')
+setAdminCapabilitiesForTesting({ accountsLogin: true })
+
 // Dynamic import keeps environment setup ahead of Admin configuration capture.
 const { app } = await import('../../../../server/app')
 

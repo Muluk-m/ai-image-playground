@@ -1,7 +1,7 @@
 import { createFileRoute, redirect, useNavigate } from '@tanstack/react-router'
 
 import { LoginForm } from '@/components/LoginForm'
-import { apiClient } from '@/lib/api-client'
+import { adminSessionQueryOptions } from '@/lib/admin-session'
 
 export interface LoginSearch {
   redirect?: string
@@ -17,11 +17,7 @@ export const Route = createFileRoute('/login')({
   beforeLoad: async ({ context }) => {
     // 已登录访问 /login → 跳 /devices；未登录则继续渲染表单。
     try {
-      await context.queryClient.ensureQueryData({
-        queryKey: ['me'],
-        queryFn: () => apiClient.get<{ ok: true }>('/api/me', { redirectOnUnauthorized: false }),
-        staleTime: 60_000,
-      })
+      await context.queryClient.ensureQueryData(adminSessionQueryOptions)
       throw redirect({ to: '/devices' })
     } catch (err) {
       // 区分鉴权失败（继续渲染）与 router redirect（继续抛出）。
