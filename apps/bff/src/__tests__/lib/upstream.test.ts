@@ -73,6 +73,23 @@ describe('callUpstream OpenAI route', () => {
     expect(dispatches).toBe(1)
   })
 
+  it('starts the accounted request before applying a concurrent cancellation', async () => {
+    const controller = new AbortController()
+
+    await callUpstream({
+      provider: 'openai-compat',
+      model: 'gpt-image-2',
+      request: { prompt: 'a cat' },
+      signal: controller.signal,
+      beforeRequest: async () => {
+        controller.abort()
+      },
+    }).catch(() => undefined)
+
+    expect(calls).toHaveLength(1)
+    expect(calls[0]!.init?.signal?.aborted).toBe(true)
+  })
+
   it('forwards OpenAI output controls in the generations JSON body', async () => {
     await callUpstream({
       provider: 'openai-compat',

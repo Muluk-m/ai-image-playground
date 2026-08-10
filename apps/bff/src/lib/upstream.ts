@@ -130,8 +130,23 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
     try {
       if (abort.signal.aborted) throw new DOMException('Upstream request aborted', 'AbortError')
       await beforeRequest?.()
-      if (abort.signal.aborted) throw new DOMException('Upstream request aborted', 'AbortError')
-      return await upstreamFetch(url, fetchInit(init))
+
+      // The accounting callback is the dispatch commit point. Start the transport with a fresh
+      // signal before relaying cancellation so a cancellation that loses the database race cannot
+      // create a charged task without a corresponding upstream invocation.
+      const requestAbort = new AbortController()
+      const relayAbort = () => requestAbort.abort()
+      const responsePromise = upstreamFetch(url, {
+        ...fetchInit(init),
+        signal: requestAbort.signal,
+      })
+      abort.signal.addEventListener('abort', relayAbort, { once: true })
+      if (abort.signal.aborted) relayAbort()
+      try {
+        return await responsePromise
+      } finally {
+        abort.signal.removeEventListener('abort', relayAbort)
+      }
     } catch (err) {
       if (timedOut) throw new UpstreamTimeoutError()
       if (externalSignal?.aborted) throw err
