@@ -122,6 +122,7 @@ async function archiveOpenAIOutput(taskId: string, payload: object): Promise<voi
       bytes = new Uint8Array(await source.arrayBuffer())
       mime = source.headers.get('content-type') ?? mime
     }
+    mime = detectImageMime(bytes) ?? mime
 
     const key = `${taskId}/out/${index}`
     await writeWithRetry(key, bytes, mime)
@@ -145,10 +146,13 @@ async function archiveGeminiOutput(taskId: string, payload: object): Promise<voi
     for (const part of candidate.content?.parts ?? []) {
       const inline = part.inlineData
       if (!inline || typeof inline.data !== 'string' || !inline.data) continue
-      const mime = typeof inline.mimeType === 'string' ? inline.mimeType : 'image/png'
+      const bytes = Buffer.from(inline.data, 'base64')
+      const declaredMime = typeof inline.mimeType === 'string' ? inline.mimeType : 'image/png'
+      const mime = detectImageMime(bytes) ?? declaredMime
       const key = `${taskId}/out/${index}`
-      await writeWithRetry(key, Buffer.from(inline.data, 'base64'), mime)
+      await writeWithRetry(key, bytes, mime)
       inline.object = key
+      inline.mimeType = mime
       delete inline.data
       index++
     }
@@ -194,4 +198,37 @@ function openAIOutputMime(format: string | undefined): string {
   if (format === 'jpeg' || format === 'jpg') return 'image/jpeg'
   if (format === 'webp') return 'image/webp'
   return 'image/png'
+}
+
+function detectImageMime(bytes: Uint8Array): string | undefined {
+  if (
+    bytes.length >= 8 &&
+    bytes[0] === 0x89 &&
+    bytes[1] === 0x50 &&
+    bytes[2] === 0x4e &&
+    bytes[3] === 0x47 &&
+    bytes[4] === 0x0d &&
+    bytes[5] === 0x0a &&
+    bytes[6] === 0x1a &&
+    bytes[7] === 0x0a
+  ) {
+    return 'image/png'
+  }
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+    return 'image/jpeg'
+  }
+  if (
+    bytes.length >= 12 &&
+    bytes[0] === 0x52 &&
+    bytes[1] === 0x49 &&
+    bytes[2] === 0x46 &&
+    bytes[3] === 0x46 &&
+    bytes[8] === 0x57 &&
+    bytes[9] === 0x45 &&
+    bytes[10] === 0x42 &&
+    bytes[11] === 0x50
+  ) {
+    return 'image/webp'
+  }
+  return undefined
 }
