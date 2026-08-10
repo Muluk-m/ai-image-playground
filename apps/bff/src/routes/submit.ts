@@ -173,7 +173,7 @@ export const submitRoutes = new Elysia()
         const quota = outcome.quota
         return status(429, {
           error: 'daily_quota_exceeded',
-          limit: quota.quota,
+          quota: quota.quota,
           used: quota.count,
           reset_at: quota.reset_at,
         })

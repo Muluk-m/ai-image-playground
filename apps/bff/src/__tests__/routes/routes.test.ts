@@ -573,7 +573,7 @@ describe('BFF queue routes', () => {
     expect(status).toBe(429)
     expect(json).toMatchObject({
       error: 'daily_quota_exceeded',
-      limit: 3,
+      quota: 3,
       used: 3,
     })
     expect((json as { reset_at: string }).reset_at).toMatch(/^\d{4}-\d{2}-\d{2}T00:00:00/)

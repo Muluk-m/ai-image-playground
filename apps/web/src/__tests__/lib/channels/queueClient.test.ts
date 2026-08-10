@@ -217,7 +217,7 @@ describe('callQueueChannelApi submit body', () => {
         new Response(
           JSON.stringify({
             error: 'daily_quota_exceeded',
-            limit: 50,
+            quota: 50,
             used: 50,
             reset_at: '2026-05-16T00:00:00.000Z',
           }),
