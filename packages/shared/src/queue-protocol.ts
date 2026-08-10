@@ -192,6 +192,22 @@ export const QUEUE_TIMEOUTS = {
 } as const
 
 /**
+ * Bun HTTP server 的 `idleTimeout`（秒）。BFF (:37377) 与 admin (:37378) 共用。
+ *
+ * 不变量：**源站的空闲超时必须大于它前面每一层反代的 keep-alive 空闲超时**。
+ * 反代复用连接池里到源站的 TCP 连接；连接被源站先关掉时，反代仍会挑中它往上写
+ * 请求，然后拿到 `use of closed network connection` —— 对用户就是「空闲一阵之后
+ * 第一发请求偶发 502、重试就好」（2026-08-10 线上 submit 502 即此）。
+ *
+ * 不写这个值时生效的是 Elysia Bun adapter 的默认 30s（不是 Bun 自己的 10s，
+ * adapter 已经覆盖过一次），跟本仓库 tunnel 配置里 cloudflared 显式写的
+ * `keepAliveTimeout` 30s 撞平，两端同时到期就是最坏情况。取 Bun 允许的上限
+ * 255s，压过所有反代默认值（cloudflared 默认 1m30s），不必再跟机器本地的
+ * tunnel 配置对表。
+ */
+export const SERVER_IDLE_TIMEOUT_SEC = 255
+
+/**
  * 单设备单日最大生图张数。计数粒度是输出图数 n（n=4 的 submit 扣 4 张）。
  * 北京时间 8 点 / UTC 0 点重置。BYOK profile 不走 BFF，天然豁免。
  */

@@ -1,4 +1,4 @@
-import { QUEUE_TIMEOUTS } from '@image-playground/shared'
+import { QUEUE_TIMEOUTS, SERVER_IDLE_TIMEOUT_SEC } from '@image-playground/shared'
 import { app } from './app'
 import { config } from './config'
 import { checkpointWal } from './db/client'
@@ -34,7 +34,7 @@ if (config.corsOrigins === '*') {
   )
 }
 
-app.listen(config.port, () => {
+app.listen({ port: config.port, idleTimeout: SERVER_IDLE_TIMEOUT_SEC }, () => {
   log.info(
     {
       event: 'listen',
