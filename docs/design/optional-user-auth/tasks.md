@@ -1,5 +1,12 @@
 # Tasks
 
+> [!IMPORTANT]
+> **Superseded historical checklist. Do not repeat these tasks.** The checked items describe the
+> temporary issue #26 implementation. Issues #29–#31 replaced its deployment switch, SQLite
+> persistence, runtime capability publication, and direct Admin writes. Current contracts:
+> [`CONTEXT.md`](../../../CONTEXT.md) and
+> [ADR 0001](../../adr/0001-capability-config-fails-closed.md).
+
 ## 1. Runtime contract
 
 - [x] Add `auth.enabled` to the shared runtime schema and baked defaults.
