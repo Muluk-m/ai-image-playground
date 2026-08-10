@@ -1,8 +1,9 @@
-import { useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useLocation, useNavigate } from '@tanstack/react-router'
 import { Activity, LogOut, MonitorSmartphone, RefreshCw, Users } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
+import { adminSessionQueryOptions } from '@/lib/admin-session'
 import { apiClient } from '@/lib/api-client'
 import { PrivateAdminNavigation } from '@/lib/private-overlay'
 import { parseRange, type Range } from '@/lib/search-params'
@@ -18,6 +19,10 @@ export function TopBar() {
   const location = useLocation()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const { data: adminSession } = useQuery({
+    ...adminSessionQueryOptions,
+    enabled: location.pathname !== '/login',
+  })
 
   // 时间窗同时驱动系统概览、设备视图和用户详情趋势。
   const showRange =
@@ -78,13 +83,15 @@ export function TopBar() {
                 <Activity className="h-3.5 w-3.5" />
                 概览
               </Link>
-              <Link
-                to="/users"
-                className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground [&.active]:bg-muted [&.active]:font-medium [&.active]:text-foreground"
-              >
-                <Users className="h-3.5 w-3.5" />
-                用户
-              </Link>
+              {adminSession?.accounts_login ? (
+                <Link
+                  to="/users"
+                  className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground [&.active]:bg-muted [&.active]:font-medium [&.active]:text-foreground"
+                >
+                  <Users className="h-3.5 w-3.5" />
+                  用户
+                </Link>
+              ) : null}
               <Link
                 to="/devices"
                 className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground [&.active]:bg-muted [&.active]:font-medium [&.active]:text-foreground"

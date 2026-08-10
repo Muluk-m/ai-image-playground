@@ -6,13 +6,13 @@ process.env.BFF_INTERNAL_URL = 'http://bff.test:37377'
 process.env.DATABASE_URL = process.env.TEST_DATABASE_URL ?? ''
 process.env.INTERNAL_API_TOKEN = 'fixture-service-credential-alpha'
 
-const { assertOperatorConsoleEnabled } = await import('../../../server/config')
+const { getAdminCapabilities, loadAdminCapabilities } = await import('../../../server/config')
 
-describe('assertOperatorConsoleEnabled', () => {
+describe('loadAdminCapabilities', () => {
   it('requires an explicit operator:console grant from the BFF', async () => {
     const disabledFetch = async () => Response.json({ operator_console: false })
 
-    await expect(assertOperatorConsoleEnabled(disabledFetch)).rejects.toThrow(
+    await expect(loadAdminCapabilities(disabledFetch)).rejects.toThrow(
       'operator:console capability is disabled',
     )
   })
@@ -21,10 +21,11 @@ describe('assertOperatorConsoleEnabled', () => {
     const authorizations: Array<string | null> = []
     const enabledFetch = async (_input: string | URL | Request, init?: RequestInit) => {
       authorizations.push(new Headers(init?.headers).get('authorization'))
-      return Response.json({ operator_console: true })
+      return Response.json({ accounts_login: false, operator_console: true })
     }
 
-    await assertOperatorConsoleEnabled(enabledFetch)
+    await loadAdminCapabilities(enabledFetch)
     expect(authorizations).toEqual(['Bearer fixture-service-credential-alpha'])
+    expect(getAdminCapabilities()).toEqual({ accountsLogin: false })
   })
 })

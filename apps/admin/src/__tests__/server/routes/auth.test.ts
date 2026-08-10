@@ -82,12 +82,14 @@ describe('GET /api/me', () => {
     expect(res.status).toBe(401)
   })
 
-  it('登录后 → 200 ok', async () => {
+  it('returns fail-closed deployment capabilities after login', async () => {
     const loginRes = await post('/api/login', { password: 'test-pass-1234' }, undefined, '10.0.0.6')
     const sessionCookie = loginRes.headers.get('set-cookie')!.split(';')[0]!
     const meRes = await get('/api/me', sessionCookie, '10.0.0.6')
     expect(meRes.status).toBe(200)
-    const body = (await meRes.json()) as { ok: boolean }
-    expect(body.ok).toBe(true)
+    expect(await meRes.json()).toEqual({ accounts_login: false, ok: true })
+
+    const usersRes = await get('/api/users', sessionCookie, '10.0.0.6')
+    expect(usersRes.status).toBe(404)
   })
 })

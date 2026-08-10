@@ -39,7 +39,10 @@ describe('GET /api/capabilities', () => {
       }),
     )
     expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({ operator_console: false })
+    expect(await response.json()).toEqual({
+      accounts_login: true,
+      operator_console: false,
+    })
   })
 
   it('standardizes unavailable capability responses', async () => {

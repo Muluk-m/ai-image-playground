@@ -19,6 +19,10 @@ export type ClientCapabilityKey = {
 
 export type CapabilityValues = { readonly [Key in CapabilityKey]: boolean }
 export type ClientCapabilityManifest = { readonly [Key in ClientCapabilityKey]: boolean }
+export interface AdminCapabilityManifest {
+  readonly accounts_login: boolean
+  readonly operator_console: boolean
+}
 
 export const QUOTAS = {
   'generation:daily-images': { defaultValue: 0 },

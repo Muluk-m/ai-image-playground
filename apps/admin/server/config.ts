@@ -1,3 +1,5 @@
+import type { AdminCapabilityManifest } from '@image-playground/shared'
+
 const env = (key: string, fallback?: string): string => {
   const v = process.env[key]
   if (v && v.trim()) return v.trim()
@@ -30,8 +32,23 @@ export const config = {
   // admin 前端 dist 目录；为空时 server 不挂静态托管（dev 模式由 vite 跑前端）
   staticDir: env('ADMIN_DIST_DIR', ''),
 }
+export interface ResolvedAdminCapabilities {
+  readonly accountsLogin: boolean
+}
 
-export async function assertOperatorConsoleEnabled(
+let resolvedAdminCapabilities: ResolvedAdminCapabilities = Object.freeze({
+  accountsLogin: false,
+})
+
+export function getAdminCapabilities(): ResolvedAdminCapabilities {
+  return resolvedAdminCapabilities
+}
+
+export function setAdminCapabilitiesForTesting(capabilities: ResolvedAdminCapabilities): void {
+  resolvedAdminCapabilities = Object.freeze({ ...capabilities })
+}
+
+export async function loadAdminCapabilities(
   fetchImpl: (input: string | URL | Request, init?: RequestInit) => Promise<Response> = fetch,
 ): Promise<void> {
   const response = await fetchImpl(`${config.bffInternalUrl}/internal/admin/capabilities`, {
@@ -44,8 +61,11 @@ export async function assertOperatorConsoleEnabled(
   if (!response.ok) {
     throw new Error(`Cannot resolve operator:console capability: HTTP ${response.status}`)
   }
-  const body = (await response.json()) as { operator_console?: unknown }
+  const body = (await response.json()) as Partial<AdminCapabilityManifest>
   if (body.operator_console !== true) {
     throw new Error('operator:console capability is disabled')
   }
+  resolvedAdminCapabilities = Object.freeze({
+    accountsLogin: body.accounts_login === true,
+  })
 }

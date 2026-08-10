@@ -1,5 +1,9 @@
 export type Range = '1d' | '7d' | '30d'
 export type SortKey = 'last_seen' | 'today_count' | 'total_count'
+export interface AdminSession {
+  readonly accounts_login: boolean
+  readonly ok: true
+}
 
 export type TaskStatus =
   | 'queued'
