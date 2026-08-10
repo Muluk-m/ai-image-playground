@@ -81,7 +81,7 @@ export default function Overlay({
       }}
     >
       {backdrop === 'dim' && (
-        <div className="absolute inset-0 bg-black/30 backdrop-blur-sm animate-overlay-in pointer-events-none" />
+        <div className="absolute inset-0 -z-10 bg-black/30 backdrop-blur-sm animate-overlay-in pointer-events-none" />
       )}
       <div ref={boundaryRef} className="contents">
         {children}
