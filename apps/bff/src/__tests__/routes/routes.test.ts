@@ -252,6 +252,40 @@ describe('BFF queue routes', () => {
     expect(failedRead.json).toEqual({ error: 'object_storage_error' })
   })
 
+  it('serves detected WebP bytes as WebP when upstream labels them as PNG', async () => {
+    const webpBytes = Buffer.from([
+      0x52, 0x49, 0x46, 0x46, 0x04, 0x00, 0x00, 0x00, 0x57, 0x45, 0x42, 0x50,
+    ])
+    setUpstreamFetchForTesting(
+      mock(async () => {
+        return new Response(
+          JSON.stringify({
+            data: [{ b64_json: webpBytes.toString('base64') }],
+            output_format: 'png',
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        )
+      }) as unknown as TestFetch,
+    )
+
+    const submitted = await jsonReq(
+      'POST',
+      '/v1/queue/openai-compat/gpt-image-2/submit',
+      submitBody(),
+    )
+    const id = responseRequestId(submitted.json)
+    await runTask(id)
+
+    const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, id))
+    expect(task?.result_payload).toMatchObject({
+      data: [{ object: `${id}/out/0`, mime: 'image/webp' }],
+    })
+    const image = await app.handle(new Request(`http://localhost/v1/queue/requests/${id}/image/0`))
+    expect(image.status).toBe(200)
+    expect(image.headers.get('content-type')).toBe('image/webp')
+    expect(Buffer.from(await image.arrayBuffer()).equals(webpBytes)).toBe(true)
+  })
+
   it('archives Gemini inline output and preserves its MIME metadata', async () => {
     const outputBase64 = Buffer.from('GEMINI-OUTPUT').toString('base64')
     setUpstreamFetchForTesting(
