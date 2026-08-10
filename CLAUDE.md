@@ -36,7 +36,7 @@ pnpm workspace + Turbo monorepo：
 - `pnpm typecheck` — 所有 app 单跑 `tsc -b`
 - `pnpm dev` — 起所有 app 的 dev server
 - `pnpm dev:web` — 只起 `apps/web` 的 Vite dev server
-- `pnpm lint` — `biome check .`（format + organize imports + 启用的 linter 检查；linter 在 `biome.json` 里目前禁用，主要查 format/import）
+- `pnpm lint` — `biome check .`（format + organize imports + linter；受限引用规则会强制私有树边界）
 - `pnpm exec biome check --write .` — **lint 自动修复**：同时修 format + organize imports。注意 `pnpm format` 只改 format 不动 import 顺序，**正经修 lint 错的入口是这条**。
 - `pnpm format` — `biome format --write .`（仅格式化，不动 import）
 

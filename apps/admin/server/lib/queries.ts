@@ -1,3 +1,5 @@
+import { TASK_STATUSES } from '@image-playground/shared'
+
 import type {
   AdminUserRow,
   DeviceDetailResult,
@@ -9,6 +11,7 @@ import type {
   SortKey,
   TaskDetail,
   TaskListItem,
+  TaskStatus,
   TaskVolumeBucket,
   UserDetailResult,
 } from '../../contracts'
@@ -70,6 +73,12 @@ function nullableNumber(value: unknown): number | null {
   if (value === null || value === undefined) return null
   const number = Number(value)
   return Number.isFinite(number) ? number : null
+}
+function taskStatus(value: unknown): TaskStatus {
+  if (typeof value === 'string' && (TASK_STATUSES as readonly string[]).includes(value)) {
+    return value as TaskStatus
+  }
+  throw new Error(`Unknown task status: ${String(value)}`)
 }
 
 const LIST_LIMIT = 500
@@ -443,7 +452,7 @@ export async function getUserDetail(
     id: String(row.id),
     provider: String(row.provider),
     model: String(row.model),
-    status: String(row.status),
+    status: taskStatus(row.status),
     submitted_at: toEpochMs(row.submitted_at),
     started_at: nullableEpochMs(row.started_at),
     completed_at: nullableEpochMs(row.completed_at),

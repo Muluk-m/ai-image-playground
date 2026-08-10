@@ -8,7 +8,8 @@
 
 export type QueueProvider = 'openai-compat' | 'gemini'
 
-export type TaskStatus = 'queued' | 'in_progress' | 'completed' | 'failed' | 'cancelled'
+export const TASK_STATUSES = ['queued', 'in_progress', 'completed', 'failed', 'cancelled'] as const
+export type TaskStatus = (typeof TASK_STATUSES)[number]
 
 /** Server-side persisted image reference. Queue clients continue to submit data URL strings. */
 export interface StoredImageRef {
