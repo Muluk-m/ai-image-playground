@@ -209,15 +209,17 @@ Stopping an application project does not remove PostgreSQL or MinIO data, the ex
 infrastructure network, or the external edge network. Stop infrastructure only after both
 application projects are down.
 
-Rollback uses an already retained image tag. It preserves backend-first activation:
+`app-compose.sh rollback` only switches between images that implement the current role-based
+Compose contract. It preserves backend-first activation:
 
 ```bash
 scripts/app-compose.sh rollback image-playground-personal ai-image-playground:previous
 scripts/app-compose.sh rollback image-playground-commercial ai-image-playground:previous
 ```
 
-If the previous tag was not retained, build that tag from the previous source checkout
-first. One rollback image can then be reused by both projects.
+If the compatible previous tag was not retained, build it from its source checkout first. The
+first SQLite-to-PostgreSQL cutover is different: restore the former deployment from its previous
+source checkout and configuration, with the read-only SQLite backup, instead of using this helper.
 
 ### Fleet deployment contract
 
