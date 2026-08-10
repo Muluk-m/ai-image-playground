@@ -2,16 +2,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { CanvasEditor, PlaceholderView } from '../../../../features/canvas/lib/editor'
 import { DEFAULT_PARAMS } from '../../../../types'
 
-const { callImageApiMock, clientCapabilityMock, createPlaceholderMock, guardMock, showToastMock } =
-  vi.hoisted(() => ({
-    callImageApiMock: vi.fn(),
-    clientCapabilityMock: vi.fn(() => true),
-    createPlaceholderMock: vi.fn(() => 'placeholder-1'),
-    guardMock: vi.fn(({ model }: { model: string }) =>
-      model === 'current-model' ? { blocked: true, disabledReason: 'blocked' } : { blocked: false },
-    ),
-    showToastMock: vi.fn(),
-  }))
+const { callImageApiMock, createPlaceholderMock, guardMock, showToastMock } = vi.hoisted(() => ({
+  callImageApiMock: vi.fn(),
+  createPlaceholderMock: vi.fn(() => 'placeholder-1'),
+  guardMock: vi.fn(({ model }: { model: string }) =>
+    model === 'current-model' ? { blocked: true, disabledReason: 'blocked' } : { blocked: false },
+  ),
+  showToastMock: vi.fn(),
+}))
 
 vi.mock('../../../../lib/api', () => ({ callImageApi: callImageApiMock }))
 vi.mock('../../../../lib/apiProfiles', () => ({
@@ -24,7 +22,7 @@ vi.mock('../../../../lib/apiProfiles', () => ({
   }),
 }))
 vi.mock('../../../../lib/clientCapabilities', () => ({
-  isClientCapabilityEnabled: clientCapabilityMock,
+  isClientCapabilityEnabled: () => true,
 }))
 vi.mock('../../../../lib/privateOverlay', () => ({
   getPrivateSubmissionGuard: guardMock,

@@ -100,15 +100,13 @@ export const userAuthRoutes = new Elysia()
         }
 
         const now = Date.now()
-        const [activated] = await tx
+        await tx
           .update(schema.users)
           .set({ last_login_at: now, updated_at: now })
-          .where(eq(schema.users.id, user.id))
-          .returning({ id: schema.users.id, username: schema.users.username })
-        if (!activated) return null
+          .where(eq(schema.users.id, current.id))
 
-        const token = await createUserSession(user.id, tx)
-        return { token, user: activated }
+        const token = await createUserSession(current.id, tx)
+        return { token, user: { id: current.id, username: current.username } }
       })
       if (!authenticated) {
         sourceLimiter.recordFailure(key)
