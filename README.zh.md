@@ -233,6 +233,8 @@ COMPOSE_ENV_FILES=/Users/qiqian/.config/ai-image-playground/infra.env
 以下宿主机事实仍需 operator 人工确认，本次改动不会自动处理：
 
 - fleet 使用的部署账号 home 是 `/Users/qiqian`。
+- 已评审的私有 overlay 仓库检出在 Fleet 工作副本的 `./private`；该检出缺失时
+  `.fleet/deploy.json` 会按设计让私有构建失败。
 - `image-playground-edge` 已存在，域名代理也已加入。
 - 基础设施与应用配置中的 `INFRA_NETWORK_NAME` 完全一致。
 - MinIO 已为两个私有 bucket 分别创建应用凭证。bootstrap profile 只创建 bucket 和

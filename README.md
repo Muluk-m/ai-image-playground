@@ -239,6 +239,8 @@ containers load their project-specific files directly from:
 The following host facts remain operator prerequisites and are not changed automatically:
 
 - `/Users/qiqian` is the deployment account home used by fleet.
+- The reviewed private overlay repository is checked out at `./private` in the Fleet worktree;
+  `.fleet/deploy.json` intentionally fails the private build when that checkout is absent.
 - `image-playground-edge` exists and the domain proxy has joined it.
 - `INFRA_NETWORK_NAME` is identical in infra and application configuration.
 - MinIO has distinct application credentials for the two private buckets; the bootstrap
