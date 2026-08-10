@@ -1,5 +1,13 @@
 # Design
 
+> [!IMPORTANT]
+> **Superseded historical design. Do not use this document as an operations or implementation
+> contract.** Issue #30 replaced `AUTH_ENABLED` and client-published authentication switches with
+> the fail-closed `accounts:login` capability. Issue #29 replaced SQLite with PostgreSQL, and issue
+> #31 moved every operator write through authenticated BFF endpoints. Current contracts:
+> [`CONTEXT.md`](../../../CONTEXT.md) and
+> [ADR 0001](../../adr/0001-capability-config-fails-closed.md).
+
 ## Deployment contract
 
 `AUTH_ENABLED` is evaluated independently by each BFF deployment:
