@@ -73,8 +73,13 @@ services:
       test:
         - CMD
         - bun
-        - -e
-        - "const response = await fetch('http://127.0.0.1:37377/health'); process.exit(response.ok ? 0 : 1)"
+        - run
+        - /app/apps/bff/src/container-healthcheck.ts
+        - http://127.0.0.1:37377/health
+        - /tmp/bff-health.json
+        - "12"
+        - "3"
+        - "60000"
       interval: 10s
       timeout: 5s
       retries: 12
@@ -84,6 +89,7 @@ services:
     <<: *application-service
     environment:
       APP_ROLE: worker
+      WORKER_HEALTH_PORT: "37379"
     command:
       - bun
       - run
@@ -100,8 +106,13 @@ services:
       test:
         - CMD
         - bun
-        - -e
-        - process.kill(1, 0)
+        - run
+        - /app/apps/bff/src/container-healthcheck.ts
+        - http://127.0.0.1:37379/health
+        - /tmp/worker-health.json
+        - "1"
+        - "3"
+        - "60000"
       interval: 30s
       timeout: 5s
       retries: 3
@@ -134,8 +145,13 @@ services:
       test:
         - CMD
         - bun
-        - -e
-        - "const response = await fetch('http://127.0.0.1:37378/health'); process.exit(response.ok ? 0 : 1)"
+        - run
+        - /app/apps/bff/src/container-healthcheck.ts
+        - http://127.0.0.1:37378/health
+        - /tmp/admin-health.json
+        - "12"
+        - "3"
+        - "60000"
       interval: 10s
       timeout: 5s
       retries: 12
