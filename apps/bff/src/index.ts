@@ -6,6 +6,8 @@ import { isCapabilityEnabled } from './lib/capabilities'
 import { initChannels } from './lib/channels'
 import { log } from './lib/logger'
 
+const MAX_REQUEST_BODY_SIZE_BYTES = 600 * 1024 * 1024
+
 config.assertValid()
 log.info(
   {
@@ -67,7 +69,7 @@ if (config.corsOrigins === '*') {
   )
 }
 
-app.listen(config.port, () => {
+app.listen({ port: config.port, maxRequestBodySize: MAX_REQUEST_BODY_SIZE_BYTES }, () => {
   log.info(
     {
       event: 'listen',
