@@ -101,7 +101,7 @@ export const submitRoutes = new Elysia()
       const now = Date.now()
       const taskHooks = (await loadPrivateBffOverlay()).taskHooks
       const dailyQuotaEnabled = isCapabilityEnabled('quota:daily')
-      const dailyQuotaLimit = config.operator.quotas['generation:daily-images']
+      const dailyImageQuota = config.operator.quotas['generation:daily-images']
       const outcome = await db.transaction(async (tx) => {
         const inserted = await tx
           .insert(schema.tasks)
@@ -137,7 +137,7 @@ export const submitRoutes = new Elysia()
             return reservation
           }
         } else if (dailyQuotaEnabled) {
-          const quota = await tryConsumeQuotaInTransaction(tx, body.device_id, n, dailyQuotaLimit)
+          const quota = await tryConsumeQuotaInTransaction(tx, body.device_id, n, dailyImageQuota)
           if (!quota.ok) {
             await tx.delete(schema.tasks).where(eq(schema.tasks.id, id))
             return { kind: 'quota_exceeded' as const, quota }

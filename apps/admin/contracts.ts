@@ -1,18 +1,31 @@
-export type Range = '1d' | '7d' | '30d'
-export type SortKey = 'last_seen' | 'today_count' | 'total_count'
+import type { TaskStatus } from '@image-playground/shared'
+
+export const RANGES = ['1d', '7d', '30d'] as const
+export type Range = (typeof RANGES)[number]
+export const DEFAULT_RANGE: Range = '7d'
+
+export const SORTS = ['last_seen', 'today_count', 'total_count'] as const
+export type SortKey = (typeof SORTS)[number]
+export const DEFAULT_SORT: SortKey = 'last_seen'
+
+export function parseRange(value: unknown): Range {
+  return typeof value === 'string' && (RANGES as readonly string[]).includes(value)
+    ? (value as Range)
+    : DEFAULT_RANGE
+}
+
+export function parseSort(value: unknown): SortKey {
+  return typeof value === 'string' && (SORTS as readonly string[]).includes(value)
+    ? (value as SortKey)
+    : DEFAULT_SORT
+}
+
 export interface AdminSession {
   readonly accounts_login: boolean
   readonly ok: true
 }
 
-export type TaskStatus =
-  | 'queued'
-  | 'in_progress'
-  | 'running'
-  | 'completed'
-  | 'succeeded'
-  | 'failed'
-  | 'interrupted'
+export type { TaskStatus }
 
 export interface DeviceRow {
   device_id: string
@@ -34,7 +47,7 @@ export interface TaskListItem {
   id: string
   provider: string
   model: string
-  status: string
+  status: TaskStatus
   submitted_at: number
   started_at: number | null
   completed_at: number | null

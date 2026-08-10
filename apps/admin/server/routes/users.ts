@@ -1,11 +1,11 @@
-import { PASSWORD_MAX_LENGTH, USERNAME_MAX_LENGTH } from '@image-playground/shared'
+import { PASSWORD_MAX_LENGTH, TASK_STATUSES, USERNAME_MAX_LENGTH } from '@image-playground/shared'
 import { Elysia, t } from 'elysia'
+import { parseRange } from '../../contracts'
 import { requireAuth } from '../lib/middleware'
-import { getUserDetail, listUsers, type Range } from '../lib/queries'
+import { getUserDetail, listUsers } from '../lib/queries'
 import { forwardUserOperation } from '../lib/users'
 
-const VALID_RANGES: Range[] = ['1d', '7d', '30d']
-const VALID_STATUSES = ['all', 'queued', 'in_progress', 'completed', 'failed', 'cancelled']
+const VALID_STATUSES = ['all', ...TASK_STATUSES]
 
 export const usersRoutes = new Elysia({ prefix: '/api/users' })
   .use(requireAuth)
@@ -15,7 +15,7 @@ export const usersRoutes = new Elysia({ prefix: '/api/users' })
   .get(
     '/:id',
     async ({ params, query, status }) => {
-      const range = (VALID_RANGES.includes(query.range as Range) ? query.range : '7d') as Range
+      const range = parseRange(query.range)
       const requestedStatus = query.status ?? ''
       const statusFilter = VALID_STATUSES.includes(requestedStatus) ? requestedStatus : 'all'
       const cursor = query.cursor || undefined
