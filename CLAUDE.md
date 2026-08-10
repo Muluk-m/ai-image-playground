@@ -139,7 +139,7 @@ BFF（`apps/bff/`）的公开核心只做四件事：
 私有 BFF overlay 可以在这些接缝上增加计费等部署专属能力；它仍必须遵守 BFF
 是唯一写入者、提交与预扣同事务、worker 结算或退回的纪律。
 
-**BFF 不做**：协议翻译（OpenAI / Gemini 字段透传给上游）。普通部署的 BYOK profile 完全绕过 BFF（前端直接 fetch 用户填的 baseUrl，BFF 看不到也存不了 BYOK 的 key）；开启 `billing:credits` 的经营部署禁用 BYOK，只允许内置 channel。
+**BFF 不做**：通用协议翻译。`upstream.ts` 只允许已验证的 channel 兼容性适配（端点 / body 形状选择，以及上游不支持多图数量时的 `n` fan-out + 结果合并）；不要把它扩成任意 OpenAI / Gemini 字段转换代理。普通部署的 BYOK profile 完全绕过 BFF（前端直接 fetch 用户填的 baseUrl，BFF 看不到也存不了 BYOK 的 key）；开启 `billing:credits` 的经营部署禁用 BYOK，只允许内置 channel。
 
 ## Queue 模式协议（apps/web ↔ apps/bff）
 
