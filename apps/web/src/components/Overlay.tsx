@@ -2,9 +2,10 @@ import { type ReactNode, type RefObject, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { useCloseOnEscape } from '../hooks/useCloseOnEscape'
 import { usePreventBackgroundScroll } from '../hooks/usePreventBackgroundScroll'
+import { dismissAllTooltips } from '../lib/tooltipDismiss'
 
 /**
- * Overlay — 所有模态浮层的唯一外壳。拥有五条纪律：
+ * Overlay — 所有模态浮层的唯一外壳。拥有六条纪律：
  *
  * 1. portal 到 document.body —— 不受祖先 transform/filter/backdrop-filter 包含块影响
  * 2. scroll-lock —— usePreventBackgroundScroll，内容自动作为滚动边界（display:contents 包裹，
@@ -13,6 +14,7 @@ import { usePreventBackgroundScroll } from '../hooks/usePreventBackgroundScroll'
  * 4. backdrop 关闭 —— pointerdown-guard：pointerdown 必须落在表面上，click 才关闭（防划词误关）；
  *    backdrop 必须 pointer-events-none，否则它盖在表面之上、命中的是 backdrop 而非表面，永不关闭
  * 5. z 层三档 —— modal(50) / raised(100) / alert(110)
+ * 6. 打开任意 Overlay 时统一收起 Tooltip —— 定位型浮层不得越过模态 backdrop
  *
  * 定位型浮层（Tooltip、Select 下拉、拖拽预览）不属于这里。
  */
@@ -51,6 +53,7 @@ export default function Overlay({
 }: OverlayProps) {
   const boundaryRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
+    dismissAllTooltips()
     openBoundaries.push(boundaryRef)
     return () => {
       openBoundaries.splice(openBoundaries.indexOf(boundaryRef), 1)
