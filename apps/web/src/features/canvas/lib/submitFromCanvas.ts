@@ -1,5 +1,6 @@
 import { callImageApi } from '../../../lib/api'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/apiProfiles'
+import { isClientCapabilityEnabled } from '../../../lib/clientCapabilities'
 import {
   getPrivateSubmissionGuard,
   notifyPrivateSubmissionAccepted,
@@ -115,15 +116,16 @@ async function launchCanvasTask(editor: CanvasEditor, spec: CanvasTaskSpec): Pro
 /**
  * 创作模式统一生成入口（决策 4）：把选区内**每张图片各自**栅格化为独立参考图，
  * 凭数量决定文生图（空数组）或多图迭代（非空）——单一调用路径。发起即返回、支持并发。
- * params.n > 1 时 fan-out 成 n 个独立任务（与工作台一致），占位框水平排开各自出图。
+ * BYOK 按图片 fan-out；计费内置渠道把完整数量作为一个 BFF 任务提交，确保服务端原子预留。
  * 全程通过占位框 + toast 反馈，不抛出。
  */
 export async function submitFromCanvas(editor: CanvasEditor, userPrompt: string): Promise<void> {
   const { showToast, params } = useStore.getState()
   const profile = getActiveApiProfile(useStore.getState().settings)
+  const quantity = Math.max(1, params.n)
   const submissionGuard = getPrivateSubmissionGuard({
     model: clientProfileToApiProfile(profile).model,
-    quantity: Math.max(1, params.n),
+    quantity,
   })
   if (submissionGuard.blocked) {
     showToast(submissionGuard.disabledReason ?? '当前无法生成', 'error')
@@ -148,10 +150,25 @@ export async function submitFromCanvas(editor: CanvasEditor, userPrompt: string)
     ? [selection.annotationText, trimmed].filter(Boolean).join('\n')
     : trimmed
 
-  // 参数快照：n 折叠为 1（上游不支持 n，前端 fan-out 拆任务，与工作台一致）。
+  // BYOK 保持一图一任务。计费内置渠道必须用一个 n=N 的 BFF 任务，让积分预留覆盖整批。
   const specParams = snapshotParams()
   const base = computePlaceholderTarget(editor, selection?.bounds ?? null)
-  for (const target of fanOutTargets(base, params.n)) {
+  if (
+    profile.source === 'builtin-edge' &&
+    isClientCapabilityEnabled('billing:credits') &&
+    quantity > 1
+  ) {
+    void launchCanvasTask(editor, {
+      prompt,
+      annotated: selection?.annotated ?? false,
+      inputImageDataUrls,
+      params: { ...specParams, n: quantity },
+      target: base,
+    })
+    return
+  }
+
+  for (const target of fanOutTargets(base, quantity)) {
     void launchCanvasTask(editor, {
       prompt,
       annotated: selection?.annotated ?? false,
@@ -170,9 +187,10 @@ export async function submitFromCanvas(editor: CanvasEditor, userPrompt: string)
 export function retryCanvasTask(editor: CanvasEditor, placeholder: PlaceholderView): void {
   const meta = placeholder.meta
   const activeProfile = getActiveApiProfile(useStore.getState().settings)
+  const retryQuantity = Math.max(1, meta.params?.n ?? 1)
   const submissionGuard = getPrivateSubmissionGuard({
     model: clientProfileToApiProfile(activeProfile).model,
-    quantity: 1,
+    quantity: retryQuantity,
   })
   if (submissionGuard.blocked) {
     useStore.getState().showToast(submissionGuard.disabledReason ?? '当前无法生成', 'error')
