@@ -1,6 +1,7 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
+import { SQL } from 'bun'
 import { eq } from 'drizzle-orm'
 import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
 
@@ -57,6 +58,21 @@ async function jsonReq(
     }),
   )
   return { status: res.status, json: await res.json(), headers: res.headers }
+}
+async function waitForBlockedUserAuthQuery(observer: SQL): Promise<void> {
+  for (let attempt = 0; attempt < 5_000; attempt++) {
+    const [state] = await observer`
+      SELECT EXISTS (
+        SELECT 1
+        FROM pg_stat_activity
+        WHERE datname = current_database()
+          AND wait_event_type = 'Lock'
+          AND query ILIKE '%users%'
+      ) AS blocked
+    `
+    if (state?.blocked === true) return
+  }
+  throw new Error('login did not reach the blocked user persistence query')
 }
 
 function submitBody(overrides: Record<string, unknown> = {}) {
@@ -316,6 +332,34 @@ describe('BFF optional user auth', () => {
     const [stored] = await db.select().from(schema.user_sessions)
     expect(stored.token_hash).not.toBe(rawCookieValue)
     expect(stored.token_hash).toMatch(/^[a-f0-9]{64}$/)
+  })
+  it('does not issue a session when a password reset wins before login persistence', async () => {
+    const user = await createTestUser('reset-race', ACCEPTED_PHRASE)
+    const replacementHash = await Bun.password.hash('fixture-phrase-replacement')
+    const blocker = new SQL(TEST_DB, { max: 1 })
+    const observer = new SQL(TEST_DB, { max: 1 })
+    let loginPromise: ReturnType<typeof jsonReq> | undefined
+
+    try {
+      await blocker.begin(async (tx) => {
+        await tx`SELECT id FROM users WHERE id = ${user.id} FOR UPDATE`
+        loginPromise = jsonReq(
+          'POST',
+          '/api/auth/login',
+          { username: user.username, password: ACCEPTED_PHRASE },
+          { 'cf-connecting-ip': '10.10.0.30' },
+        )
+        await waitForBlockedUserAuthQuery(observer)
+        await tx`UPDATE users SET password_hash = ${replacementHash} WHERE id = ${user.id}`
+        await tx`DELETE FROM user_sessions WHERE user_id = ${user.id}`
+      })
+
+      const login = await loginPromise
+      expect(login?.status).toBe(401)
+      expect(await db.select().from(schema.user_sessions)).toHaveLength(0)
+    } finally {
+      await Promise.all([blocker.close(), observer.close()])
+    }
   })
 
   it('rate-limits one account even when the caller rotates source headers', async () => {
