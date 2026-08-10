@@ -191,35 +191,33 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
         const url = `${base}/images/generations`
         const body = JSON.stringify(buildDirectChannelBody(model, request))
         const headers = { 'content-type': 'application/json', ...authHeader }
-        const n = Math.max(1, request.n ?? 1)
-        if (n === 1) {
-          const res = await performFetch(url, { method: 'POST', headers, body })
-          return parseResponse(res)
-        }
-        const results = await Promise.all(
-          Array.from({ length: n }, async () => {
+        return fanOutRequests(
+          request.n,
+          async () => {
             const res = await performFetch(url, { method: 'POST', headers, body })
             return parseResponse(res)
-          }),
+          },
+          mergeOpenAIDataResults,
         )
-        const merged = {
-          data: results.flatMap((r) => {
-            const p = r.payload as { data?: unknown[] } | null
-            return Array.isArray(p?.data) ? p.data : []
-          }),
-        }
-        return { payload: merged }
       }
 
       // 有参考图 / 有遮罩 → images/edits multipart；generations 是纯文生图，
       // 塞 input_images 字段上游会忽略（用户感知"AI 不参考附件"）。
       if (request.input_images?.length || request.mask) {
-        const res = await performFetch(`${base}/images/edits`, {
-          method: 'POST',
-          headers: authHeader,
-          body: buildOpenAIEditFormData(model, request),
-        })
-        return parseResponse(res)
+        const url = `${base}/images/edits`
+        const files = prepareOpenAIEditFiles(request)
+        return fanOutRequests(
+          request.n,
+          async () => {
+            const res = await performFetch(url, {
+              method: 'POST',
+              headers: authHeader,
+              body: buildOpenAIEditFormData(model, request, files),
+            })
+            return parseResponse(res)
+          },
+          mergeOpenAIDataResults,
+        )
       }
       const res = await performFetch(`${base}/images/generations`, {
         method: 'POST',
@@ -240,25 +238,14 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
       // Gemini image generation 不支持 candidateCount>1（"Only one candidate is
       // supported for audio or image response"），n>1 时本层 fan-out 成 N 次并发
       // 请求并把 candidates 合并到一个 payload，对 task-runner / 前端透明。
-      const n = Math.max(1, request.n ?? 1)
-      if (n === 1) {
-        const res = await performFetch(url, { method: 'POST', headers, body })
-        return parseResponse(res)
-      }
-
-      const results = await Promise.all(
-        Array.from({ length: n }, async () => {
+      return fanOutRequests(
+        request.n,
+        async () => {
           const res = await performFetch(url, { method: 'POST', headers, body })
           return parseResponse(res)
-        }),
+        },
+        mergeGeminiCandidateResults,
       )
-      const merged = {
-        candidates: results.flatMap((r) => {
-          const p = r.payload as { candidates?: unknown[] } | null
-          return Array.isArray(p?.candidates) ? p.candidates : []
-        }),
-      }
-      return { payload: merged }
     }
     throw new Error(`Unsupported provider: ${provider satisfies never}`)
   } catch (err) {
@@ -268,6 +255,44 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
   } finally {
     clearTimeout(timer)
     externalSignal?.removeEventListener('abort', onExternalAbort)
+  }
+}
+
+async function fanOutRequests(
+  requestedCount: number | undefined,
+  run: () => Promise<UpstreamCallResult>,
+  merge: (results: UpstreamCallResult[]) => UpstreamCallResult,
+): Promise<UpstreamCallResult> {
+  const count = Math.max(1, requestedCount ?? 1)
+  if (count === 1) return run()
+  return merge(await Promise.all(Array.from({ length: count }, run)))
+}
+
+function mergeGeminiCandidateResults(results: UpstreamCallResult[]): UpstreamCallResult {
+  return {
+    payload: {
+      candidates: results.flatMap((result) => {
+        const payload = result.payload as { candidates?: unknown[] } | null
+        return Array.isArray(payload?.candidates) ? payload.candidates : []
+      }),
+    },
+  }
+}
+
+function mergeOpenAIDataResults(results: UpstreamCallResult[]): UpstreamCallResult {
+  const first = results[0]?.payload
+  const firstPayload =
+    first && typeof first === 'object' && !Array.isArray(first)
+      ? (first as Record<string, unknown>)
+      : {}
+  return {
+    payload: {
+      ...firstPayload,
+      data: results.flatMap((result) => {
+        const payload = result.payload as { data?: unknown[] } | null
+        return Array.isArray(payload?.data) ? payload.data : []
+      }),
+    },
   }
 }
 
@@ -312,7 +337,23 @@ function buildOpenAIBody(model: string, request: HydratedSubmitRequest): Record<
   }
 }
 
-function buildOpenAIEditFormData(model: string, request: HydratedSubmitRequest): FormData {
+interface OpenAIEditFiles {
+  inputs: File[]
+  mask?: File
+}
+
+function prepareOpenAIEditFiles(request: HydratedSubmitRequest): OpenAIEditFiles {
+  return {
+    inputs: (request.input_images ?? []).map((dataUrl) => dataUrlToFile(dataUrl, 'image.png')),
+    ...(request.mask ? { mask: dataUrlToFile(request.mask, 'mask.png') } : {}),
+  }
+}
+
+function buildOpenAIEditFormData(
+  model: string,
+  request: HydratedSubmitRequest,
+  files: OpenAIEditFiles,
+): FormData {
   const form = new FormData()
   form.append('model', model)
   form.append('prompt', request.prompt)
@@ -323,16 +364,11 @@ function buildOpenAIEditFormData(model: string, request: HydratedSubmitRequest):
   if (request.output_compression != null) {
     form.append('output_compression', String(request.output_compression))
   }
-  if (request.n) form.append('n', String(request.n))
-  for (const dataUrl of request.input_images ?? []) {
-    form.append('image[]', dataUrlToFile(dataUrl, 'image.png'))
-  }
-  if (request.mask) {
-    form.append('mask', dataUrlToFile(request.mask, 'mask.png'))
-  }
-  // request.extra 内的标量值原样以字段透传；image/mask 这类二进制不通过 extra 走。
+  for (const input of files.inputs) form.append('image[]', input)
+  if (files.mask) form.append('mask', files.mask)
+  // edits 不接受 n；数量由本地 fan-out 实现。其余 extra 标量字段原样透传。
   for (const [k, v] of Object.entries(request.extra ?? {})) {
-    if (v == null) continue
+    if (k === 'n' || v == null) continue
     form.append(k, typeof v === 'string' ? v : JSON.stringify(v))
   }
   return form

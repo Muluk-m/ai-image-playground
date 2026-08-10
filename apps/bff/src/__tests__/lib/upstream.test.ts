@@ -178,18 +178,51 @@ describe('callUpstream OpenAI route', () => {
     expect(form.getAll('image[]')).toHaveLength(3)
   })
 
-  it('with input_images and n>1: forwards n via FormData field', async () => {
-    await callUpstream({
+  it('fans out OpenAI edits without forwarding n into the upstream image tool', async () => {
+    setUpstreamFetchForTesting((async (
+      input: Parameters<TestFetch>[0],
+      init: Parameters<TestFetch>[1],
+    ) => {
+      calls.push({ url: typeof input === 'string' ? input : input.toString(), init })
+      const form = init?.body as UndiciFormData
+      if (form.get('n') !== null) {
+        return new Response(
+          JSON.stringify({
+            error: {
+              message: "Unknown parameter: 'tools[0].n'.",
+              param: 'tools[0].n',
+              type: 'invalid_request_error',
+            },
+          }),
+          { status: 400, headers: { 'content-type': 'application/json' } },
+        )
+      }
+      return new Response(JSON.stringify({ data: [{ b64_json: `ok-${calls.length}` }] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    }) as unknown as TestFetch)
+
+    const result = await callUpstream({
       provider: 'openai-compat',
       model: 'gpt-image-2',
       request: {
         prompt: 'edit',
         n: 3,
         input_images: [TINY_PNG_DATA_URL],
+        extra: { n: 99, strength: 0.5 },
       },
     })
-    const form = calls[0]!.init?.body as UndiciFormData
-    expect(form.get('n')).toBe('3')
+
+    expect(calls).toHaveLength(3)
+    for (const call of calls) {
+      const form = call.init?.body as UndiciFormData
+      expect(form.get('n')).toBeNull()
+      expect(form.get('strength')).toBe('0.5')
+    }
+    expect(result.payload).toMatchObject({
+      data: [{ b64_json: 'ok-1' }, { b64_json: 'ok-2' }, { b64_json: 'ok-3' }],
+    })
   })
 
   it('with mask: appends mask Blob alongside image[] in FormData', async () => {
