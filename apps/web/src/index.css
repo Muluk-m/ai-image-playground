@@ -442,6 +442,11 @@
 }
 
 @media (max-height: 800px) and (min-width: 541px) {
+  .auth-shell {
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
   .auth-entry {
     padding-top: 72px;
     padding-bottom: 78px;
