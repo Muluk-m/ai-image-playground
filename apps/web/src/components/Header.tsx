@@ -3,7 +3,11 @@ import { useAuth } from '../auth/AuthContext'
 import InspirationCoach from '../features/inspiration/components/InspirationCoach'
 import { useInspirationStore } from '../features/inspiration/store'
 import { useTooltip } from '../hooks/useTooltip'
-import { PrivateWebHeaderActions, PrivateWebReplacesAuthActions } from '../lib/privateOverlay'
+import {
+  PrivateWebHeaderAccountActions,
+  PrivateWebHeaderCreditAction,
+  PrivateWebReplacesAuthActions,
+} from '../lib/privateOverlay'
 import { dismissAllTooltips } from '../lib/tooltipDismiss'
 import { useStore } from '../store'
 import HelpModal from './HelpModal'
@@ -87,33 +91,6 @@ export default function Header() {
               </ViewportTooltip>
               {inspirationCoachActive && <InspirationCoach />}
             </div>
-            <div className="relative" {...helpTooltip.handlers}>
-              <button
-                onClick={() => {
-                  dismissAllTooltips()
-                  setShowHelp(true)
-                }}
-                className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-900 transition-colors"
-                aria-label="操作指南"
-              >
-                <svg
-                  className="w-5 h-5 text-gray-600 dark:text-gray-400"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth={2}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  viewBox="0 0 24 24"
-                >
-                  <circle cx="12" cy="12" r="10" />
-                  <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
-                  <path d="M12 17h.01" />
-                </svg>
-              </button>
-              <ViewportTooltip visible={helpTooltip.visible} className="whitespace-nowrap">
-                操作指南
-              </ViewportTooltip>
-            </div>
             <div className="relative" {...settingsTooltip.handlers}>
               <button
                 onClick={() => setShowSettings(true)}
@@ -144,7 +121,35 @@ export default function Header() {
                 设置
               </ViewportTooltip>
             </div>
-            <PrivateWebHeaderActions
+            <PrivateWebHeaderCreditAction />
+            <div className="relative" {...helpTooltip.handlers}>
+              <button
+                onClick={() => {
+                  dismissAllTooltips()
+                  setShowHelp(true)
+                }}
+                className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-900 transition-colors"
+                aria-label="操作指南"
+              >
+                <svg
+                  className="w-5 h-5 text-gray-600 dark:text-gray-400"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  viewBox="0 0 24 24"
+                >
+                  <circle cx="12" cy="12" r="10" />
+                  <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+                  <path d="M12 17h.01" />
+                </svg>
+              </button>
+              <ViewportTooltip visible={helpTooltip.visible} className="whitespace-nowrap">
+                操作指南
+              </ViewportTooltip>
+            </div>
+            <PrivateWebHeaderAccountActions
               username={auth.user?.username ?? null}
               loggingOut={loggingOut}
               onLogout={() => {
