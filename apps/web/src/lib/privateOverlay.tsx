@@ -17,7 +17,8 @@ export interface PrivateHeaderActionsProps {
 }
 
 export interface PrivateWebOverlay {
-  HeaderActions: ComponentType<PrivateHeaderActionsProps>
+  HeaderCreditAction: ComponentType
+  HeaderAccountActions: ComponentType<PrivateHeaderActionsProps>
   replacesAuthActions: boolean
   SubmissionStatus: ComponentType<PrivateSubmissionInput>
   useSubmissionGuard(input: PrivateSubmissionInput): PrivateSubmissionGuard
@@ -29,7 +30,8 @@ export interface PrivateWebOverlay {
 
 const EmptyComponent = () => null
 const EMPTY_OVERLAY: PrivateWebOverlay = Object.freeze({
-  HeaderActions: EmptyComponent,
+  HeaderCreditAction: EmptyComponent,
+  HeaderAccountActions: EmptyComponent,
   replacesAuthActions: false,
   SubmissionStatus: EmptyComponent,
   useSubmissionGuard: () => ({ blocked: false }),
@@ -54,8 +56,10 @@ function resolveOverlay(): PrivateWebOverlay {
   if (
     !overlay ||
     typeof overlay !== 'object' ||
-    !('HeaderActions' in overlay) ||
-    typeof overlay.HeaderActions !== 'function' ||
+    !('HeaderCreditAction' in overlay) ||
+    typeof overlay.HeaderCreditAction !== 'function' ||
+    !('HeaderAccountActions' in overlay) ||
+    typeof overlay.HeaderAccountActions !== 'function' ||
     !('replacesAuthActions' in overlay) ||
     typeof overlay.replacesAuthActions !== 'boolean' ||
     !('SubmissionStatus' in overlay) ||
@@ -78,7 +82,8 @@ function resolveOverlay(): PrivateWebOverlay {
 
 const overlay = resolveOverlay()
 
-export const PrivateWebHeaderActions = overlay.HeaderActions
+export const PrivateWebHeaderCreditAction = overlay.HeaderCreditAction
+export const PrivateWebHeaderAccountActions = overlay.HeaderAccountActions
 export const PrivateWebReplacesAuthActions = overlay.replacesAuthActions
 export const PrivateSubmissionStatus = overlay.SubmissionStatus
 
