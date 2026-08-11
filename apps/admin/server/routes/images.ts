@@ -1,5 +1,5 @@
 import { createDb } from '@image-playground/db'
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { Elysia, t } from 'elysia'
 import { config } from '../config'
 import { requireAuth } from '../lib/middleware'
@@ -89,10 +89,7 @@ export const imagesRoutes = new Elysia()
     async ({ params, query, set }) => {
       const { db, schema } = getHandle()
       const rows = await db
-        .select({
-          provider: schema.tasks.provider,
-          request_payload: schema.tasks.request_payload,
-        })
+        .select({ request_payload: schema.tasks.request_payload })
         .from(schema.tasks)
         .where(eq(schema.tasks.id, params.id))
         .limit(1)
@@ -101,23 +98,33 @@ export const imagesRoutes = new Elysia()
         set.status = 404
         return { error_code: 'task_not_found' }
       }
-      if (task.provider !== 'gemini') {
-        set.status = 422
-        return { error_code: 'input_image_not_archived' }
-      }
+
       const idx = Number(query.idx ?? '0')
-      const bytes = extractGeminiInputImage(task.request_payload, idx)
-      if (!bytes) {
-        set.status = 422
-        return { error_code: 'input_image_not_archived' }
+      const entry = extractInputImageEntry(task.request_payload, idx)
+      const legacyImage = typeof entry === 'string' ? parseDataUrl(entry) : null
+      if (legacyImage) {
+        return imageResponse(legacyImage.data, legacyImage.mime)
       }
-      return new Response(bytes.data as BlobPart, {
-        status: 200,
-        headers: {
-          'content-type': bytes.mime,
-          'cache-control': 'private, max-age=3600',
-        },
-      })
+
+      const blobIdx = extractBlobIndex(entry)
+      if (blobIdx !== null) {
+        const blobRows = await db
+          .select({ data: schema.task_blobs.data, mime: schema.task_blobs.mime })
+          .from(schema.task_blobs)
+          .where(
+            and(
+              eq(schema.task_blobs.task_id, params.id),
+              eq(schema.task_blobs.kind, 'input'),
+              eq(schema.task_blobs.idx, blobIdx),
+            ),
+          )
+          .limit(1)
+        const blob = blobRows[0]
+        if (blob) return imageResponse(blob.data, blob.mime)
+      }
+
+      set.status = 422
+      return { error_code: 'input_image_not_archived' }
     },
     {
       params: t.Object({ id: t.String() }),
@@ -125,18 +132,16 @@ export const imagesRoutes = new Elysia()
     },
   )
 
-function extractGeminiInputImage(
-  payload: unknown,
-  idx: number,
-): { data: Uint8Array; mime: string } | null {
-  // 前端是把 input_images 作为 data URL 数组发给 BFF；BFF 转 Gemini 格式发给上游。
-  // tasks.request_payload 存的是前端原始 SubmitRequest，所以 input_images: string[]
-  // 优先尝试，元素是 'data:image/png;base64,...' 形式。
+function extractInputImageEntry(payload: unknown, idx: number): unknown {
+  if (!Number.isInteger(idx) || idx < 0) return undefined
   const inputImages = (payload as { input_images?: unknown } | undefined)?.input_images
-  if (Array.isArray(inputImages) && typeof inputImages[idx] === 'string') {
-    return parseDataUrl(inputImages[idx] as string)
-  }
-  return null
+  return Array.isArray(inputImages) ? inputImages[idx] : undefined
+}
+
+function extractBlobIndex(value: unknown): number | null {
+  if (!value || typeof value !== 'object') return null
+  const idx = (value as Record<string, unknown>).$blob
+  return typeof idx === 'number' && Number.isInteger(idx) && idx >= 0 ? idx : null
 }
 
 function parseDataUrl(dataUrl: string): { data: Uint8Array; mime: string } | null {
@@ -152,4 +157,14 @@ function parseDataUrl(dataUrl: string): { data: Uint8Array; mime: string } | nul
   } catch {
     return null
   }
+}
+
+function imageResponse(data: Uint8Array, mime: string): Response {
+  return new Response(data as BlobPart, {
+    status: 200,
+    headers: {
+      'content-type': mime,
+      'cache-control': 'private, max-age=3600',
+    },
+  })
 }

@@ -28,6 +28,7 @@ function seedTask(args: {
   model: string
   status: 'completed' | 'failed' | 'queued'
   daysAgo: number
+  resultPayload?: unknown
 }) {
   writer.db
     .insert(writer.schema.tasks)
@@ -37,6 +38,7 @@ function seedTask(args: {
       model: args.model,
       status: args.status,
       request_payload: { prompt: 'p', device_id: args.device } as never,
+      result_payload: args.resultPayload as never,
       submitted_at: now - args.daysAgo * dayMs,
       ...(args.status === 'completed' ? { completed_at: now - args.daysAgo * dayMs + 1000 } : {}),
     })
@@ -51,6 +53,10 @@ seedTask({
   model: 'gpt-image-2',
   status: 'completed',
   daysAgo: 0,
+  resultPayload: {
+    data: [{}],
+    _image_meta: [{ index: 0, mime: 'image/webp' }],
+  },
 })
 seedTask({
   id: 't2',
@@ -211,12 +217,15 @@ describe('getDeviceDetail 分页', () => {
 })
 
 describe('getTask', () => {
-  it('返回 task 全字段（含 result_meta）剔除 result_payload', async () => {
+  it('returns the detail whitelist with result_meta and without unrelated task columns', async () => {
     const task = await getTask('t1')
     expect(task).not.toBeNull()
     expect(task!.id).toBe('t1')
-    expect((task as unknown as Record<string, unknown>).result_payload).toBeUndefined()
-    expect(task!.result_meta).toBeDefined()
+    const response = task as unknown as Record<string, unknown>
+    expect(response.result_payload).toBeUndefined()
+    expect(response.client_request_id).toBeUndefined()
+    expect(task!.request_payload).toEqual({ prompt: 'p', device_id: 'dev-A-aaaa' })
+    expect(task!.result_meta).toEqual({ images: [{ index: 0, mime: 'image/webp' }] })
   })
 
   it('不存在的 task → null', async () => {
