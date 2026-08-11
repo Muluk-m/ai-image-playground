@@ -1,12 +1,21 @@
-import type { QueueProvider, SubmitRequest, TaskStatus } from '@image-playground/shared'
+import type {
+  QueueProvider,
+  SubmitRequest,
+  TaskBlobRef,
+  TaskStatus,
+} from '@image-playground/shared'
 import { blob, integer, primaryKey, sqliteTable, text, unique } from 'drizzle-orm/sqlite-core'
+
+export type StoredSubmitRequest = Omit<SubmitRequest, 'input_images'> & {
+  input_images?: Array<string | TaskBlobRef>
+}
 
 export const tasks = sqliteTable('tasks', {
   id: text('id').primaryKey(),
   provider: text('provider').$type<QueueProvider>().notNull(),
   model: text('model').notNull(),
   status: text('status').$type<TaskStatus>().notNull(),
-  request_payload: text('request_payload', { mode: 'json' }).$type<SubmitRequest>().notNull(),
+  request_payload: text('request_payload', { mode: 'json' }).$type<StoredSubmitRequest>().notNull(),
   result_payload: text('result_payload', { mode: 'json' }),
   error_message: text('error_message'),
   error_type: text('error_type'),

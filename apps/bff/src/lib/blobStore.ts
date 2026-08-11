@@ -1,16 +1,24 @@
 import { Buffer } from 'node:buffer'
 import { randomUUID } from 'node:crypto'
-import { type createDb, type TaskBlob, task_blobs } from '@image-playground/db'
+import {
+  type ImagePlaygroundDatabase,
+  type NewTask,
+  type NewTaskBlob,
+  type TaskBlob,
+  task_blobs,
+  tasks,
+} from '@image-playground/db'
+import type { TaskBlobRef } from '@image-playground/shared'
 import { and, asc, eq, lt } from 'drizzle-orm'
 import sharp from 'sharp'
 import { log } from './logger'
 
+/** 输出像素的保留期：过期后只清 task_blobs，任务元信息保留。 */
+export const OUTPUT_BLOB_RETENTION_MS = 7 * 24 * 60 * 60 * 1000
+
 export type TaskBlobKind = 'input' | 'output'
 
-export interface BlobRef {
-  $blob: number
-}
-
+export type BlobRef = TaskBlobRef
 export type InputImageRef = string | BlobRef
 
 export interface TaskBlobInput {
@@ -36,10 +44,7 @@ export interface InputTranscodeResult {
   failed: number
 }
 
-export type BlobDatabase = Pick<
-  ReturnType<typeof createDb>['db'],
-  'delete' | 'insert' | 'select' | 'update'
->
+export type BlobDatabase = Pick<ImagePlaygroundDatabase, 'delete' | 'insert' | 'select' | 'update'>
 
 export interface BlobStoreLogger {
   error(details: Record<string, unknown>, message: string): void
@@ -93,24 +98,68 @@ export function rewriteInputDataUrls(inputImages: readonly unknown[]): Rewritten
   return { refs, blobs }
 }
 
-export async function insertTaskBlobs(
+function taskBlobRows(taskId: string, blobs: readonly TaskBlobInput[]): NewTaskBlob[] {
+  const now = Date.now()
+  return blobs.map((blob) => ({
+    id: randomUUID(),
+    task_id: taskId,
+    kind: blob.kind,
+    idx: blob.idx,
+    mime: blob.mime,
+    data: blob.data,
+    created_at: blob.createdAt ?? now,
+  }))
+}
+
+/** 同步写入：Bun SQLite 的 `.run()` 是同步的，因此本函数可在 transaction 回调里直接调用。 */
+export function insertTaskBlobs(
   taskId: string,
   blobs: readonly TaskBlobInput[],
   database: BlobDatabase,
-): Promise<void> {
+): void {
   if (blobs.length === 0) return
-  const now = Date.now()
-  await database.insert(task_blobs).values(
-    blobs.map((blob) => ({
-      id: randomUUID(),
-      task_id: taskId,
-      kind: blob.kind,
-      idx: blob.idx,
-      mime: blob.mime,
-      data: blob.data,
-      created_at: blob.createdAt ?? now,
-    })),
-  )
+  database.insert(task_blobs).values(taskBlobRows(taskId, blobs)).run()
+}
+
+export async function createTaskWithBlobs(
+  task: NewTask,
+  blobs: readonly TaskBlobInput[],
+  database: ImagePlaygroundDatabase,
+): Promise<Array<{ id: string; submitted_at: number }>> {
+  return database.transaction((tx) => {
+    const inserted = tx
+      .insert(tasks)
+      .values(task)
+      .onConflictDoNothing()
+      .returning({ id: tasks.id, submitted_at: tasks.submitted_at })
+      .all()
+    if (inserted.length > 0) insertTaskBlobs(task.id, blobs, tx)
+    return inserted
+  })
+}
+
+export async function completeTaskWithBlobs(
+  taskId: string,
+  blobs: readonly TaskBlobInput[],
+  resultPayload: unknown,
+  completedAt: number,
+  database: ImagePlaygroundDatabase,
+): Promise<boolean> {
+  return database.transaction((tx) => {
+    const completed = tx
+      .update(tasks)
+      .set({
+        status: 'completed',
+        result_payload: resultPayload,
+        completed_at: completedAt,
+      })
+      .where(and(eq(tasks.id, taskId), eq(tasks.status, 'in_progress')))
+      .returning({ id: tasks.id })
+      .all()
+    if (completed.length === 0) return false
+    insertTaskBlobs(taskId, blobs, tx)
+    return true
+  })
 }
 
 export async function getTaskBlob(

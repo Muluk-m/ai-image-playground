@@ -27,6 +27,11 @@ export type TaskErrorType =
   | 'interrupted'
   | 'unknown'
 
+/** 任务落库后用此引用定位 task_blobs 中的输入图；不属于 submit wire payload。 */
+export interface TaskBlobRef {
+  $blob: number
+}
+
 /**
  * POST /v1/queue/{provider}/{model}/submit
  *

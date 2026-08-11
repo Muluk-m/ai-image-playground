@@ -2,9 +2,13 @@ import type { ResultResponse, TaskErrorType } from '@image-playground/shared'
 import { eq } from 'drizzle-orm'
 import { Elysia, t } from 'elysia'
 import { db, schema } from '../db/client'
+import { getTaskBlob } from '../lib/blobStore'
 import { extractMeta, resolveImageBytesRef } from '../lib/extractImages'
 import { jsonResponse } from '../lib/gzipResponse'
 import { asQueueProvider } from '../lib/queueProvider'
+
+// request_id + index 是稳定 key，结果不可变 → 永久缓存
+const IMAGE_CACHE_CONTROL = 'public, max-age=31536000, immutable'
 
 export const resultRoutes = new Elysia()
   // 1) 元信息端点：返回图片列表 + actual_params + raw_image_urls；不含像素字节
@@ -12,7 +16,14 @@ export const resultRoutes = new Elysia()
     '/v1/queue/requests/:id',
     async ({ params, status, request }) => {
       const [task] = await db
-        .select()
+        .select({
+          id: schema.tasks.id,
+          status: schema.tasks.status,
+          provider: schema.tasks.provider,
+          result_payload: schema.tasks.result_payload,
+          error_message: schema.tasks.error_message,
+          error_type: schema.tasks.error_type,
+        })
         .from(schema.tasks)
         .where(eq(schema.tasks.id, params.id))
         .limit(1)
@@ -55,7 +66,11 @@ export const resultRoutes = new Elysia()
     '/v1/queue/requests/:id/image/:index',
     async ({ params, status }) => {
       const [task] = await db
-        .select()
+        .select({
+          status: schema.tasks.status,
+          provider: schema.tasks.provider,
+          result_payload: schema.tasks.result_payload,
+        })
         .from(schema.tasks)
         .where(eq(schema.tasks.id, params.id))
         .limit(1)
@@ -66,12 +81,18 @@ export const resultRoutes = new Elysia()
       if (!Number.isInteger(idx) || idx < 0) return status(400, { error: 'bad_index' })
 
       const ref = resolveImageBytesRef(provider, task.result_payload, idx)
-      if (!ref) return status(404, { error: 'image_not_found' })
+      if (!ref) {
+        // 像素已外置到 task_blobs，payload 里只剩 _image_meta
+        const blob = await getTaskBlob(params.id, 'output', idx, db)
+        if (!blob) return status(404, { error: 'image_not_found' })
+        return new Response(new Uint8Array(blob.data), {
+          headers: { 'content-type': blob.mime, 'cache-control': IMAGE_CACHE_CONTROL },
+        })
+      }
 
-      // request_id + index 是稳定 key，结果不可变 → 永久缓存
       const headers = {
         'content-type': ref.mime,
-        'cache-control': 'public, max-age=31536000, immutable',
+        'cache-control': IMAGE_CACHE_CONTROL,
       } as const
 
       if (ref.kind === 'b64') {

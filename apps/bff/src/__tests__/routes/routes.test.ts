@@ -1,5 +1,7 @@
+import { Database } from 'bun:sqlite'
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test'
 import { eq } from 'drizzle-orm'
+import sharp from 'sharp'
 
 const TEST_DB = './artifacts/test-routes.sqlite'
 
@@ -46,6 +48,13 @@ function submitBody(overrides: Record<string, unknown> = {}) {
     client_request_id: crypto.randomUUID(),
     ...overrides,
   }
+}
+function requestIdFrom(json: unknown): string {
+  if (!json || typeof json !== 'object' || !('request_id' in json)) {
+    throw new Error('response is missing request_id')
+  }
+  if (typeof json.request_id !== 'string') throw new Error('request_id is not a string')
+  return json.request_id
 }
 
 describe('BFF queue routes', () => {
@@ -112,7 +121,23 @@ describe('BFF queue routes', () => {
       submitBody({ prompt: 'turn cat into dog', size: '1024x1024', input_images: [TINY_PNG] }),
     )
     expect(status).toBe(200)
-    await runTask((json as { request_id: string }).request_id)
+    const taskId = requestIdFrom(json)
+    const [storedTask] = await db
+      .select({ request_payload: schema.tasks.request_payload })
+      .from(schema.tasks)
+      .where(eq(schema.tasks.id, taskId))
+      .limit(1)
+    expect(storedTask?.request_payload.input_images).toEqual([{ $blob: 0 }])
+    const [storedBlob] = await db
+      .select()
+      .from(schema.task_blobs)
+      .where(eq(schema.task_blobs.task_id, taskId))
+      .limit(1)
+    const originalBytes = Buffer.from(TINY_PNG.split(',')[1]!, 'base64')
+    expect(storedBlob).toMatchObject({ kind: 'input', idx: 0, mime: 'image/png' })
+    expect(storedBlob?.data).toEqual(originalBytes)
+
+    await runTask(taskId)
 
     expect(calls).toHaveLength(1)
     expect(calls[0]!.url).toMatch(/\/v1\/images\/edits$/)
@@ -122,6 +147,51 @@ describe('BFF queue routes', () => {
     }
     expect(form.get('prompt')).toBe('turn cat into dog')
     expect(form.getAll('image[]')).toHaveLength(1)
+    const uploaded = form.getAll('image[]')[0]
+    if (!(uploaded instanceof Blob)) throw new Error('multipart image is not a Blob')
+    expect(Buffer.from(await uploaded.arrayBuffer())).toEqual(originalBytes)
+  })
+
+  it('duplicate submit returns the existing task without orphaning input blobs', async () => {
+    const input = 'data:image/png;base64,AQID'
+    const request = submitBody({
+      client_request_id: 'duplicate-input-request',
+      input_images: [input],
+    })
+
+    const first = await jsonReq('POST', '/v1/queue/openai-compat/gpt-image-2/submit', request)
+    const second = await jsonReq('POST', '/v1/queue/openai-compat/gpt-image-2/submit', request)
+
+    expect(second.json).toMatchObject({ request_id: requestIdFrom(first.json) })
+    expect(await db.select().from(schema.task_blobs)).toHaveLength(1)
+  })
+
+  it('rolls back the task when input blob storage fails', async () => {
+    const sqlite = new Database(TEST_DB)
+    sqlite.exec(`
+      CREATE TRIGGER reject_input_blob
+      BEFORE INSERT ON task_blobs
+      WHEN NEW.kind = 'input'
+      BEGIN
+        SELECT RAISE(ABORT, 'input archive unavailable');
+      END;
+    `)
+    try {
+      const response = await app.handle(
+        new Request('http://localhost/v1/queue/openai-compat/gpt-image-2/submit', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(submitBody({ input_images: ['data:image/png;base64,AQID'] })),
+        }),
+      )
+      expect(response.status).toBe(500)
+    } finally {
+      sqlite.exec('DROP TRIGGER reject_input_blob')
+      sqlite.close()
+    }
+
+    expect(await db.select().from(schema.tasks)).toEqual([])
+    expect(await db.select().from(schema.task_blobs)).toEqual([])
   })
 
   it('POST submit with mask routes to /v1/images/edits with mask field', async () => {
@@ -223,6 +293,111 @@ describe('BFF queue routes', () => {
     const { status } = await jsonReq('GET', `/v1/queue/requests/${id}`)
     expect(status).toBe(425)
   })
+  it('GET result metadata and binary image resolve externalized output blobs', async () => {
+    const id = 'externalized-result'
+    const bytes = Buffer.from('stored-output')
+    await db.insert(schema.tasks).values({
+      id,
+      provider: 'openai-compat',
+      model: 'x',
+      status: 'completed',
+      request_payload: { prompt: 'x' },
+      result_payload: {
+        data: [{}],
+        _image_meta: [{ index: 0, mime: 'image/webp' }],
+      },
+      submitted_at: Date.now(),
+      completed_at: Date.now(),
+    })
+    await db.insert(schema.task_blobs).values({
+      id: crypto.randomUUID(),
+      task_id: id,
+      kind: 'output',
+      idx: 0,
+      mime: 'image/webp',
+      data: bytes,
+      created_at: Date.now(),
+    })
+
+    const meta = await jsonReq('GET', `/v1/queue/requests/${id}`)
+    expect(meta.json).toMatchObject({
+      status: 'completed',
+      images: [{ index: 0, mime: 'image/webp' }],
+    })
+    const image = await app.handle(new Request(`http://localhost/v1/queue/requests/${id}/image/0`))
+    expect(image.status).toBe(200)
+    expect(image.headers.get('content-type')).toBe('image/webp')
+    expect(Buffer.from(await image.arrayBuffer())).toEqual(bytes)
+  })
+
+  it('completes without images when output blob archival fails', async () => {
+    const id = 'output-archive-failure'
+    await db.insert(schema.tasks).values({
+      id,
+      provider: 'openai-compat',
+      model: 'x',
+      status: 'queued',
+      request_payload: { prompt: 'x' },
+      submitted_at: Date.now(),
+    })
+    setUpstreamFetchForTesting(async () => {
+      return new Response(
+        JSON.stringify({ data: [{ b64_json: Buffer.from('pixel').toString('base64') }] }),
+        { headers: { 'content-type': 'application/json' } },
+      )
+    })
+    const sqlite = new Database(TEST_DB)
+    sqlite.exec(`
+      CREATE TRIGGER reject_output_blob
+      BEFORE INSERT ON task_blobs
+      WHEN NEW.kind = 'output'
+      BEGIN
+        SELECT RAISE(ABORT, 'output archive unavailable');
+      END;
+    `)
+    try {
+      await runTask(id)
+    } finally {
+      sqlite.exec('DROP TRIGGER reject_output_blob')
+      sqlite.close()
+    }
+
+    const [task] = await db
+      .select({
+        status: schema.tasks.status,
+        resultPayload: schema.tasks.result_payload,
+      })
+      .from(schema.tasks)
+      .where(eq(schema.tasks.id, id))
+    expect(task).toMatchObject({
+      status: 'completed',
+      resultPayload: { _images_dropped: true },
+    })
+    expect(
+      await db.select().from(schema.task_blobs).where(eq(schema.task_blobs.task_id, id)),
+    ).toEqual([])
+    const meta = await jsonReq('GET', `/v1/queue/requests/${id}`)
+    expect(meta.json).toMatchObject({ status: 'completed', images: [] })
+  })
+
+  it('GET binary image keeps serving legacy payload bytes', async () => {
+    const id = 'legacy-result'
+    const bytes = Buffer.from('legacy-output')
+    await db.insert(schema.tasks).values({
+      id,
+      provider: 'openai-compat',
+      model: 'x',
+      status: 'completed',
+      request_payload: { prompt: 'x' },
+      result_payload: { data: [{ b64_json: bytes.toString('base64') }] },
+      submitted_at: Date.now(),
+      completed_at: Date.now(),
+    })
+
+    const image = await app.handle(new Request(`http://localhost/v1/queue/requests/${id}/image/0`))
+    expect(image.status).toBe(200)
+    expect(Buffer.from(await image.arrayBuffer())).toEqual(bytes)
+  })
 
   it('PUT cancel marks queued task as cancelled', async () => {
     const id = 'cancel-test-id'
@@ -238,6 +413,39 @@ describe('BFF queue routes', () => {
     const { status, json } = await jsonReq('PUT', `/v1/queue/requests/${id}/cancel`)
     expect(status).toBe(200)
     expect(json).toMatchObject({ status: 'cancelled' })
+  })
+
+  it('PUT cancel archives queued input blobs as WebP', async () => {
+    const id = 'cancel-input-archive'
+    const png = await sharp({
+      create: { width: 2, height: 2, channels: 4, background: '#336699' },
+    })
+      .png()
+      .toBuffer()
+    await db.insert(schema.tasks).values({
+      id,
+      provider: 'openai-compat',
+      model: 'x',
+      status: 'queued',
+      request_payload: { prompt: 'x', input_images: [{ $blob: 0 }] },
+      submitted_at: Date.now(),
+    })
+    await db.insert(schema.task_blobs).values({
+      id: crypto.randomUUID(),
+      task_id: id,
+      kind: 'input',
+      idx: 0,
+      mime: 'image/png',
+      data: png,
+      created_at: Date.now(),
+    })
+
+    expect((await jsonReq('PUT', `/v1/queue/requests/${id}/cancel`)).status).toBe(200)
+    const [blob] = await db
+      .select({ mime: schema.task_blobs.mime })
+      .from(schema.task_blobs)
+      .where(eq(schema.task_blobs.task_id, id))
+    expect(blob?.mime).toBe('image/webp')
   })
 
   it('POST submit rejects invalid provider', async () => {

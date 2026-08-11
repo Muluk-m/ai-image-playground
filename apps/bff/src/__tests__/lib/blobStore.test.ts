@@ -66,9 +66,7 @@ describe('blobStore', () => {
     const rewritten = rewriteInputDataUrls([first, second])
 
     expect(rewritten.refs).toEqual([{ $blob: 0 }, { $blob: 1 }])
-    await db.transaction(async (tx) => {
-      await insertTaskBlobs('input-round-trip', rewritten.blobs, tx)
-    })
+    insertTaskBlobs('input-round-trip', rewritten.blobs, db)
 
     expect(await resolveInputDataUrls('input-round-trip', [rewritten.refs[0], second], db)).toEqual(
       [first, second],
@@ -86,11 +84,7 @@ describe('blobStore', () => {
     })
       .png()
       .toBuffer()
-    await insertTaskBlobs(
-      'transcode',
-      [{ kind: 'input', idx: 0, mime: 'image/png', data: png }],
-      db,
-    )
+    insertTaskBlobs('transcode', [{ kind: 'input', idx: 0, mime: 'image/png', data: png }], db)
     const expected = await sharp(png).webp({ quality: 90 }).toBuffer()
 
     expect(await transcodeInputBlobsToWebp('transcode', db)).toEqual({ transcoded: 1, failed: 0 })
@@ -118,7 +112,7 @@ describe('blobStore', () => {
       .png()
       .toBuffer()
     const invalid = Buffer.from('not-an-image')
-    await insertTaskBlobs(
+    insertTaskBlobs(
       'partial-transcode',
       [
         { kind: 'input', idx: 0, mime: 'image/png', data: valid },
@@ -146,7 +140,7 @@ describe('blobStore', () => {
   it('deletes only output blobs strictly older than the retention cutoff', async () => {
     await insertTask('retention')
     const cutoff = 10_000
-    await insertTaskBlobs(
+    insertTaskBlobs(
       'retention',
       [
         {
@@ -176,7 +170,7 @@ describe('blobStore', () => {
 
   it('cascades blob deletion when task metadata is purged', async () => {
     await insertTask('cascade')
-    await insertTaskBlobs(
+    insertTaskBlobs(
       'cascade',
       [{ kind: 'input', idx: 0, mime: 'image/png', data: Buffer.from('input') }],
       db,

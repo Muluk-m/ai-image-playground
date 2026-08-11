@@ -1,4 +1,6 @@
+import { Buffer } from 'node:buffer'
 import type { QueueProvider, ResultImageMeta } from '@image-playground/shared'
+import type { TaskBlobInput } from './blobStore'
 
 /**
  * 从上游原始响应 payload 抽出图片元数据，不解码 base64 像素字节。
@@ -21,12 +23,10 @@ interface ImageBytesRef {
 }
 
 export function extractMeta(provider: QueueProvider, payload: unknown): ExtractedResult {
-  if (provider === 'openai-compat') return extractOpenAI(payload)
-  if (provider === 'gemini') return extractGemini(payload)
-  // exhaustiveness guard
-  const _exhaustive: never = provider
-  void _exhaustive
-  return { images: [] }
+  const providerMeta =
+    provider === 'openai-compat' ? extractOpenAI(payload) : extractGemini(payload)
+  const archivedImages = extractArchivedImageMeta(payload)
+  return archivedImages ? { ...providerMeta, images: archivedImages } : providerMeta
 }
 
 export function resolveImageBytesRef(
@@ -37,6 +37,118 @@ export function resolveImageBytesRef(
   if (provider === 'openai-compat') return resolveOpenAIBytes(payload, index)
   if (provider === 'gemini') return resolveGeminiBytes(payload, index)
   return null
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null
+}
+
+function payloadRecord(payload: unknown): Record<string, unknown> {
+  return asRecord(payload) ?? {}
+}
+
+/**
+ * 像素已外置的 payload 只留标记：`_image_meta` 是归档后的图片列表，
+ * `_images_dropped` 表示归档失败、这次结果没有图。返回 null = 不是归档 payload，
+ * 交回 provider 解析器按原始响应抽取。
+ */
+function extractArchivedImageMeta(payload: unknown): ResultImageMeta[] | null {
+  const record = asRecord(payload)
+  if (!record) return null
+  if (record._images_dropped === true) return []
+  const marker = record._image_meta
+  if (!Array.isArray(marker)) return null
+
+  const images: ResultImageMeta[] = []
+  for (const value of marker) {
+    const image = asRecord(value)
+    if (!image) return null
+    if (!Number.isInteger(image.index) || typeof image.mime !== 'string') return null
+    const result: ResultImageMeta = { index: Number(image.index), mime: image.mime }
+    if (typeof image.revised_prompt === 'string') result.revised_prompt = image.revised_prompt
+    if (typeof image.width === 'number') result.width = image.width
+    if (typeof image.height === 'number') result.height = image.height
+    images.push(result)
+  }
+  return images
+}
+
+function stripOpenAIB64(
+  payload: Record<string, unknown>,
+  blobs?: TaskBlobInput[],
+): Record<string, unknown> {
+  if (!Array.isArray(payload.data)) return payload
+  // 与 extractMeta 的 images[].index 对齐：b64 与 url 条目都参与编号，只有 b64 需要外置。
+  let normalizedIndex = 0
+  const data = payload.data.map((value) => {
+    const item = asRecord(value)
+    if (!item) return value
+    const b64 = typeof item.b64_json === 'string' && item.b64_json ? item.b64_json : null
+    const hasUrl = typeof item.url === 'string' && item.url !== ''
+    if (!b64 && !hasUrl) return value
+
+    const index = normalizedIndex++
+    if (!b64) return value
+    blobs?.push({ kind: 'output', idx: index, mime: 'image/png', data: Buffer.from(b64, 'base64') })
+    const { b64_json: _pixelBytes, ...rest } = item
+    return rest
+  })
+  return { ...payload, data }
+}
+
+function stripGeminiB64(
+  payload: Record<string, unknown>,
+  blobs?: TaskBlobInput[],
+): Record<string, unknown> {
+  if (!Array.isArray(payload.candidates)) return payload
+  let normalizedIndex = 0
+  const candidates = payload.candidates.map((candidateValue) => {
+    const candidate = asRecord(candidateValue)
+    const content = candidate && asRecord(candidate.content)
+    const parts = content?.parts
+    if (!candidate || !content || !Array.isArray(parts)) return candidateValue
+
+    const strippedParts = parts.map((partValue) => {
+      const part = asRecord(partValue)
+      const inlineData = part && asRecord(part.inlineData)
+      if (!part || !inlineData) return partValue
+      if (typeof inlineData.data !== 'string' || !inlineData.data) return partValue
+
+      const index = normalizedIndex++
+      blobs?.push({
+        kind: 'output',
+        idx: index,
+        mime: typeof inlineData.mimeType === 'string' ? inlineData.mimeType : 'image/png',
+        data: Buffer.from(inlineData.data, 'base64'),
+      })
+      const { data: _pixelBytes, ...restInlineData } = inlineData
+      return { ...part, inlineData: restInlineData }
+    })
+    return { ...candidate, content: { ...content, parts: strippedParts } }
+  })
+  return { ...payload, candidates }
+}
+
+export function externalizeResultImages(
+  provider: QueueProvider,
+  payload: unknown,
+): { payload: Record<string, unknown>; blobs: TaskBlobInput[] } {
+  const source = payloadRecord(payload)
+  const images = extractMeta(provider, source).images
+  const blobs: TaskBlobInput[] = []
+  const stripped =
+    provider === 'openai-compat' ? stripOpenAIB64(source, blobs) : stripGeminiB64(source, blobs)
+  return { payload: { ...stripped, _image_meta: images }, blobs }
+}
+
+export function markResultImagesDropped(payload: unknown): Record<string, unknown> {
+  const source = payloadRecord(payload)
+  return {
+    ...stripGeminiB64(stripOpenAIB64(source)),
+    _images_dropped: true,
+  }
 }
 
 /**
