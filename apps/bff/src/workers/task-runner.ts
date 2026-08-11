@@ -1,7 +1,23 @@
-import { QUEUE_TIMEOUTS, type TaskErrorType } from '@image-playground/shared'
+import type { StoredSubmitRequest } from '@image-playground/db'
+import {
+  QUEUE_TIMEOUTS,
+  type QueueProvider,
+  type SubmitRequest,
+  type TaskErrorType,
+} from '@image-playground/shared'
 import { and, eq, isNull, lte, or } from 'drizzle-orm'
 import { db, schema } from '../db/client'
-import { describeEmptyResult, extractMeta } from '../lib/extractImages'
+import {
+  completeTaskWithBlobs,
+  resolveInputDataUrls,
+  transcodeInputBlobsToWebp,
+} from '../lib/blobStore'
+import {
+  describeEmptyResult,
+  externalizeResultImages,
+  extractMeta,
+  markResultImagesDropped,
+} from '../lib/extractImages'
 import { log } from '../lib/logger'
 import { isAbortError } from '../lib/queueProvider'
 import { isRetryableError, planNextAttempt, shouldRetryEmptyResult } from '../lib/retry'
@@ -89,6 +105,81 @@ async function tryScheduleRetry(
   return true
 }
 
+async function resolveOriginalInputImages(
+  taskId: string,
+  request: StoredSubmitRequest,
+): Promise<SubmitRequest> {
+  const { input_images: inputImages, ...rest } = request
+  if (!Array.isArray(inputImages)) return rest
+  const resolvedImages = await resolveInputDataUrls(taskId, inputImages, db)
+  return { ...rest, input_images: resolvedImages }
+}
+
+/** 终态收尾：把输入原图归档成 WebP。归档失败只记日志，不影响任务终态。 */
+async function transcodeTerminalInputs(taskId: string): Promise<void> {
+  try {
+    await transcodeInputBlobsToWebp(taskId, db)
+  } catch (error) {
+    log.error(
+      { event: 'task.input_archive_failed', taskId, error },
+      'failed to archive terminal input images; retaining original bytes',
+    )
+  }
+}
+
+/**
+ * 写 completed 终态。返回归档的图片数；返回 null 表示这条 row 已经不是
+ * in_progress（cancel 抢先），调用方不该记 completed 日志。
+ *
+ * 输出 blob 与 result_payload 同事务写入；事务失败时降级成「完成但没有图」，
+ * 让用户看到明确终态而不是卡在 in_progress。
+ */
+async function completeTask(
+  taskId: string,
+  provider: QueueProvider,
+  upstreamPayload: unknown,
+  completedAt: number,
+): Promise<number | null> {
+  const { payload, blobs } = externalizeResultImages(provider, upstreamPayload)
+  try {
+    const completed = await completeTaskWithBlobs(taskId, blobs, payload, completedAt, db)
+    return completed ? extractMeta(provider, payload).images.length : null
+  } catch (error) {
+    log.error(
+      { event: 'task.output_archive_failed', taskId, error },
+      'failed to archive output images; completing with images dropped',
+    )
+    const updated = await db
+      .update(schema.tasks)
+      .set({
+        status: 'completed',
+        result_payload: markResultImagesDropped(payload),
+        completed_at: completedAt,
+      })
+      .where(and(eq(schema.tasks.id, taskId), eq(schema.tasks.status, 'in_progress')))
+      .returning({ id: schema.tasks.id })
+    return updated.length === 0 ? null : 0
+  }
+}
+
+/** 写 failed 终态。返回 false 表示这条 row 已经不是 in_progress（cancel 抢先）。 */
+async function failTask(
+  taskId: string,
+  values: {
+    error_message: string
+    error_type: TaskErrorType
+    result_payload?: Record<string, unknown>
+    completed_at: number
+  },
+): Promise<boolean> {
+  const updated = await db
+    .update(schema.tasks)
+    .set({ status: 'failed', ...values })
+    .where(and(eq(schema.tasks.id, taskId), eq(schema.tasks.status, 'in_progress')))
+    .returning({ id: schema.tasks.id })
+  return updated.length > 0
+}
+
 export async function runTask(id: string): Promise<void> {
   const now = () => Date.now()
   const claimAt = now()
@@ -108,7 +199,16 @@ export async function runTask(id: string): Promise<void> {
     .returning({ id: schema.tasks.id })
   if (claimed.length === 0) return
 
-  const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, id)).limit(1)
+  const [task] = await db
+    .select({
+      provider: schema.tasks.provider,
+      model: schema.tasks.model,
+      request_payload: schema.tasks.request_payload,
+      attempt_count: schema.tasks.attempt_count,
+    })
+    .from(schema.tasks)
+    .where(eq(schema.tasks.id, id))
+    .limit(1)
   if (!task) return
 
   const ctrl = new AbortController()
@@ -119,10 +219,11 @@ export async function runTask(id: string): Promise<void> {
   )
 
   try {
+    const request = await resolveOriginalInputImages(id, task.request_payload)
     const { payload } = await callUpstream({
       provider: task.provider,
       model: task.model,
-      request: task.request_payload,
+      request,
       signal: ctrl.signal,
     })
     const meta = extractMeta(task.provider, payload)
@@ -139,44 +240,41 @@ export async function runTask(id: string): Promise<void> {
       ) {
         return
       }
-      await db
-        .update(schema.tasks)
-        .set({
-          status: 'failed',
-          error_message: message,
-          error_type: 'upstream_no_image' as const,
-          result_payload: payload as Record<string, unknown>,
-          completed_at: now(),
-        })
-        .where(and(eq(schema.tasks.id, id), eq(schema.tasks.status, 'in_progress')))
-      log.warn(
-        {
-          event: 'task.upstream_no_image',
-          taskId: id,
-          provider: task.provider,
-          attempt: attemptJustFailed,
-        },
-        'upstream returned no image (terminal)',
-      )
-      return
-    }
-    await db
-      .update(schema.tasks)
-      .set({
-        status: 'completed',
+      const failed = await failTask(id, {
+        error_message: message,
+        error_type: 'upstream_no_image',
         result_payload: payload as Record<string, unknown>,
         completed_at: now(),
       })
-      .where(and(eq(schema.tasks.id, id), eq(schema.tasks.status, 'in_progress')))
-    log.info(
-      { event: 'task.completed', taskId: id, imageCount: meta.images.length },
-      'task completed',
-    )
+      if (failed) {
+        log.warn(
+          {
+            event: 'task.upstream_no_image',
+            taskId: id,
+            provider: task.provider,
+            attempt: attemptJustFailed,
+          },
+          'upstream returned no image (terminal)',
+        )
+      }
+      await transcodeTerminalInputs(id)
+      return
+    }
+
+    const completedImageCount = await completeTask(id, task.provider, payload, now())
+    if (completedImageCount !== null) {
+      log.info(
+        { event: 'task.completed', taskId: id, imageCount: completedImageCount },
+        'task completed',
+      )
+    }
+    await transcodeTerminalInputs(id)
   } catch (err) {
     // AbortError = cancel route 主动 abort。cancel.ts 已经写 status='cancelled'，
     // 下面 UPDATE 因 WHERE status='in_progress' 不匹配自然 no-op。
     if (isAbortError(err)) {
       log.info({ event: 'task.cancelled', taskId: id }, 'task aborted by cancel')
+      await transcodeTerminalInputs(id)
       return
     }
     const isTimeout = err instanceof UpstreamTimeoutError
@@ -193,25 +291,24 @@ export async function runTask(id: string): Promise<void> {
       return
     }
 
-    await db
-      .update(schema.tasks)
-      .set({
-        status: 'failed',
-        error_message: message,
-        error_type: errorType,
-        completed_at: now(),
-      })
-      .where(and(eq(schema.tasks.id, id), eq(schema.tasks.status, 'in_progress')))
-    log.error(
-      {
-        event: 'task.failed',
-        taskId: id,
-        errorType,
-        attempt: attemptJustFailed,
-        err: message,
-      },
-      'task failed',
-    )
+    const failed = await failTask(id, {
+      error_message: message,
+      error_type: errorType,
+      completed_at: now(),
+    })
+    if (failed) {
+      log.error(
+        {
+          event: 'task.failed',
+          taskId: id,
+          errorType,
+          attempt: attemptJustFailed,
+          err: message,
+        },
+        'task failed',
+      )
+    }
+    await transcodeTerminalInputs(id)
   } finally {
     runningTasks.delete(id)
   }

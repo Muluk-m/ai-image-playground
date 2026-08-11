@@ -12,7 +12,8 @@
     "typecheck": "tsc --noEmit",
     "test": "bun test",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "bun run src/db/migrate.ts"
+    "db:migrate": "bun run src/db/migrate.ts",
+    "migrate:blobs": "bun run scripts/migrate-blobs.ts"
   },
   "dependencies": {
     "@elysiajs/cors": "^1.4.0",
@@ -21,6 +22,7 @@
     "drizzle-orm": "^0.45.2",
     "elysia": "^1.4.0",
     "pino": "^10.3.1",
+    "sharp": "^0.35.3",
     "undici": "^7.28.0"
   },
   "devDependencies": {

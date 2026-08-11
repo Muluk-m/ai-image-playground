@@ -3,6 +3,7 @@ import { DAILY_QUOTA_LIMIT } from '@image-playground/shared'
 import { eq } from 'drizzle-orm'
 import { Elysia, t } from 'elysia'
 import { db, schema } from '../db/client'
+import { createTaskWithBlobs, rewriteInputDataUrls } from '../lib/blobStore'
 import { tryConsumeQuota } from '../lib/quota'
 
 const submitBodySchema = t.Object({
@@ -62,6 +63,10 @@ export const submitRoutes = new Elysia()
           return { request_id: existing.id, status: 'queued', submitted_at: existing.submitted_at }
         }
       }
+      const rewrittenImages = rewriteInputDataUrls(body.input_images ?? [])
+      const requestPayload = body.input_images
+        ? { ...body, input_images: rewrittenImages.refs }
+        : body
 
       // 配额扣减：先扣后建。失败 → 429，不写 tasks。
       const n = body.n ?? 1
@@ -77,19 +82,19 @@ export const submitRoutes = new Elysia()
 
       const id = crypto.randomUUID()
       const now = Date.now()
-      const inserted = await db
-        .insert(schema.tasks)
-        .values({
+      const inserted = await createTaskWithBlobs(
+        {
           id,
           provider,
           model,
           status: 'queued',
-          request_payload: body,
+          request_payload: requestPayload,
           submitted_at: now,
           client_request_id: body.client_request_id ?? null,
-        })
-        .onConflictDoNothing()
-        .returning({ id: schema.tasks.id, submitted_at: schema.tasks.submitted_at })
+        },
+        rewrittenImages.blobs,
+        db,
+      )
 
       if (inserted.length === 0 && body.client_request_id) {
         // 极端并发：上面 SELECT 没命中但 INSERT 冲突——重查兜底

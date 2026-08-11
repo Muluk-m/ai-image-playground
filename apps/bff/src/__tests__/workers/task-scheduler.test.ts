@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test'
+import { Buffer } from 'node:buffer'
 import { and, eq } from 'drizzle-orm'
+import sharp from 'sharp'
+import { getTaskBlob, insertTaskBlobs, listTaskBlobs } from '../../lib/blobStore'
 
 process.env.UPSTREAM_BASE_URL = 'http://localhost:9999'
 process.env.UPSTREAM_API_KEY = 'test-key'
@@ -9,8 +12,9 @@ process.env.PORT = '0'
 const { runMigrations } = await import('../../db/migrate')
 runMigrations()
 const { db, schema } = await import('../../db/client')
-const { recoverInterruptedTasks } = await import('../../db/maintenance')
+const { purgeOldOutputBlobs, recoverInterruptedTasks } = await import('../../db/maintenance')
 const { TaskScheduler } = await import('../../workers/task-scheduler')
+const { runTask } = await import('../../workers/task-runner')
 const { setUpstreamFetchForTesting } = await import('../../lib/upstream')
 type TestFetch = NonNullable<Parameters<typeof setUpstreamFetchForTesting>[0]>
 
@@ -169,5 +173,126 @@ describe('recoverInterruptedTasks', () => {
       next: expect.any(Number),
     })
     expect(rows.find((row) => row.id === 'stale-running')?.status).toBe('failed')
+  })
+})
+
+describe('task blob lifecycle', () => {
+  beforeEach(async () => {
+    await db.delete(schema.tasks)
+  })
+
+  afterEach(() => {
+    setUpstreamFetchForTesting()
+    mock.restore()
+  })
+
+  it('rolls back output blobs when cancellation wins the completion race', async () => {
+    await insertTask('cancel-completion-race', 'openai-compat', Date.now())
+    let releaseResponse: (response: Response) => void = () => {}
+    let markStarted: () => void = () => {}
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve
+    })
+    const upstreamResponse = new Promise<Response>((resolve) => {
+      releaseResponse = resolve
+    })
+    setUpstreamFetchForTesting(async () => {
+      markStarted()
+      return upstreamResponse
+    })
+
+    const running = runTask('cancel-completion-race')
+    await started
+    await db
+      .update(schema.tasks)
+      .set({ status: 'cancelled', completed_at: Date.now() })
+      .where(eq(schema.tasks.id, 'cancel-completion-race'))
+    releaseResponse(
+      new Response(
+        JSON.stringify({ data: [{ b64_json: Buffer.from('pixel').toString('base64') }] }),
+        { headers: { 'content-type': 'application/json' } },
+      ),
+    )
+    await running
+
+    const [task] = await db
+      .select({ status: schema.tasks.status })
+      .from(schema.tasks)
+      .where(eq(schema.tasks.id, 'cancel-completion-race'))
+    expect(task?.status).toBe('cancelled')
+    expect(await listTaskBlobs('cancel-completion-race', 'output', db)).toEqual([])
+  })
+
+  it('archives original inputs left by a cancelled worker during startup recovery', async () => {
+    const png = await sharp({
+      create: { width: 2, height: 2, channels: 4, background: '#336699' },
+    })
+      .png()
+      .toBuffer()
+    await db.insert(schema.tasks).values({
+      id: 'cancelled-original-input',
+      provider: 'openai-compat',
+      model: 'test-model',
+      status: 'cancelled',
+      request_payload: { prompt: 'cancelled', input_images: [{ $blob: 0 }] },
+      submitted_at: Date.now(),
+      completed_at: Date.now(),
+    })
+    insertTaskBlobs(
+      'cancelled-original-input',
+      [{ kind: 'input', idx: 0, mime: 'image/png', data: png }],
+      db,
+    )
+
+    expect(await recoverInterruptedTasks()).toEqual({ failed: 0 })
+    expect(await getTaskBlob('cancelled-original-input', 'input', 0, db)).toMatchObject({
+      mime: 'image/webp',
+    })
+  })
+
+  it('purges only expired output blobs', async () => {
+    await db.insert(schema.tasks).values({
+      id: 'output-retention',
+      provider: 'openai-compat',
+      model: 'test-model',
+      status: 'completed',
+      request_payload: { prompt: 'retention' },
+      submitted_at: Date.now(),
+      completed_at: Date.now(),
+    })
+    const now = Date.now()
+    insertTaskBlobs(
+      'output-retention',
+      [
+        {
+          kind: 'output',
+          idx: 0,
+          mime: 'image/png',
+          data: Buffer.from('expired'),
+          createdAt: now - 200_000,
+        },
+        {
+          kind: 'output',
+          idx: 1,
+          mime: 'image/png',
+          data: Buffer.from('fresh'),
+          createdAt: now,
+        },
+        {
+          kind: 'input',
+          idx: 0,
+          mime: 'image/webp',
+          data: Buffer.from('input'),
+          createdAt: now - 200_000,
+        },
+      ],
+      db,
+    )
+
+    expect(await purgeOldOutputBlobs(100_000)).toBe(1)
+    expect((await listTaskBlobs('output-retention', 'output', db)).map((blob) => blob.idx)).toEqual(
+      [1],
+    )
+    expect(await getTaskBlob('output-retention', 'input', 0, db)).toBeDefined()
   })
 })
