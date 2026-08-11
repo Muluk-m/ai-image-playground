@@ -60,9 +60,17 @@ export interface UpstreamCallResult {
   payload: unknown
 }
 
-type UpstreamFetch = typeof undiciFetch
+interface UpstreamResponse {
+  readonly ok: boolean
+  readonly status: number
+  text(): Promise<string>
+}
+
+type UpstreamFetch = (
+  input: Parameters<typeof undiciFetch>[0],
+  init?: Parameters<typeof undiciFetch>[1],
+) => Promise<UpstreamResponse>
 type UpstreamFetchInit = Parameters<UpstreamFetch>[1]
-type UpstreamResponse = Awaited<ReturnType<UpstreamFetch>>
 
 export const UPSTREAM_CONNECT_TIMEOUT_MS = 10_000
 export const UPSTREAM_TRANSPORT_TIMEOUT_MS = QUEUE_TIMEOUTS.UPSTREAM_HARD_TIMEOUT_MS + 60_000

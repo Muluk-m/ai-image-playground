@@ -1,11 +1,13 @@
 import { Database } from 'bun:sqlite'
-import { drizzle } from 'drizzle-orm/bun-sqlite'
+import { type BunSQLiteDatabase, drizzle } from 'drizzle-orm/bun-sqlite'
 import * as schema from './schema'
 
 export interface CreateDbOptions {
   /** 设 true 时打开 PRAGMA query_only=ON，所有 INSERT/UPDATE/DELETE 抛错。 */
   readonly?: boolean
 }
+
+export type ImagePlaygroundDatabase = BunSQLiteDatabase<typeof schema> & { $client: Database }
 
 /**
  * Drizzle client 工厂。
@@ -21,7 +23,7 @@ export function createDb(databaseUrl: string, options: CreateDbOptions = {}) {
   if (options.readonly) {
     sqlite.exec('PRAGMA query_only = ON;')
   }
-  const db = drizzle(sqlite, { schema })
+  const db: ImagePlaygroundDatabase = drizzle(sqlite, { schema })
   const checkpointWal = () => {
     try {
       sqlite.exec('PRAGMA wal_checkpoint(TRUNCATE);')
