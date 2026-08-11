@@ -33,6 +33,17 @@ const DDL_BASE = `
   -- idx_tasks_next_retry_at 走 ALTER 之后建（见下方），避免老库 CREATE TABLE
   -- IF NOT EXISTS 跳过 → CREATE INDEX 引用还没 ADD 的列的 NULL 失败路径。
 
+  CREATE TABLE IF NOT EXISTS task_blobs (
+    id         TEXT PRIMARY KEY,
+    task_id    TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    kind       TEXT NOT NULL,
+    idx        INTEGER NOT NULL,
+    mime       TEXT NOT NULL,
+    data       BLOB NOT NULL,
+    created_at INTEGER NOT NULL,
+    UNIQUE(task_id, kind, idx)
+  );
+
   CREATE TABLE IF NOT EXISTS daily_quota (
     device_id TEXT NOT NULL,
     date      TEXT NOT NULL,

@@ -1,5 +1,5 @@
 import type { QueueProvider, SubmitRequest, TaskStatus } from '@image-playground/shared'
-import { integer, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+import { blob, integer, primaryKey, sqliteTable, text, unique } from 'drizzle-orm/sqlite-core'
 
 export const tasks = sqliteTable('tasks', {
   id: text('id').primaryKey(),
@@ -28,6 +28,22 @@ export const tasks = sqliteTable('tasks', {
   next_retry_at: integer('next_retry_at'),
 })
 
+export const task_blobs = sqliteTable(
+  'task_blobs',
+  {
+    id: text('id').primaryKey(),
+    task_id: text('task_id')
+      .notNull()
+      .references(() => tasks.id, { onDelete: 'cascade' }),
+    kind: text('kind').$type<'input' | 'output'>().notNull(),
+    idx: integer('idx').notNull(),
+    mime: text('mime').notNull(),
+    data: blob('data', { mode: 'buffer' }).notNull(),
+    created_at: integer('created_at').notNull(),
+  },
+  (t) => [unique().on(t.task_id, t.kind, t.idx)],
+)
+
 export const daily_quota = sqliteTable(
   'daily_quota',
   {
@@ -42,3 +58,5 @@ export const daily_quota = sqliteTable(
 
 export type Task = typeof tasks.$inferSelect
 export type NewTask = typeof tasks.$inferInsert
+export type TaskBlob = typeof task_blobs.$inferSelect
+export type NewTaskBlob = typeof task_blobs.$inferInsert
