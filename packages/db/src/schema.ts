@@ -1,12 +1,21 @@
-import type { QueueProvider, SubmitRequest, TaskStatus } from '@image-playground/shared'
-import { integer, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+import type {
+  QueueProvider,
+  SubmitRequest,
+  TaskBlobRef,
+  TaskStatus,
+} from '@image-playground/shared'
+import { blob, integer, primaryKey, sqliteTable, text, unique } from 'drizzle-orm/sqlite-core'
+
+export type StoredSubmitRequest = Omit<SubmitRequest, 'input_images'> & {
+  input_images?: Array<string | TaskBlobRef>
+}
 
 export const tasks = sqliteTable('tasks', {
   id: text('id').primaryKey(),
   provider: text('provider').$type<QueueProvider>().notNull(),
   model: text('model').notNull(),
   status: text('status').$type<TaskStatus>().notNull(),
-  request_payload: text('request_payload', { mode: 'json' }).$type<SubmitRequest>().notNull(),
+  request_payload: text('request_payload', { mode: 'json' }).$type<StoredSubmitRequest>().notNull(),
   result_payload: text('result_payload', { mode: 'json' }),
   error_message: text('error_message'),
   error_type: text('error_type'),
@@ -28,6 +37,22 @@ export const tasks = sqliteTable('tasks', {
   next_retry_at: integer('next_retry_at'),
 })
 
+export const task_blobs = sqliteTable(
+  'task_blobs',
+  {
+    id: text('id').primaryKey(),
+    task_id: text('task_id')
+      .notNull()
+      .references(() => tasks.id, { onDelete: 'cascade' }),
+    kind: text('kind').$type<'input' | 'output'>().notNull(),
+    idx: integer('idx').notNull(),
+    mime: text('mime').notNull(),
+    data: blob('data', { mode: 'buffer' }).notNull(),
+    created_at: integer('created_at').notNull(),
+  },
+  (t) => [unique().on(t.task_id, t.kind, t.idx)],
+)
+
 export const daily_quota = sqliteTable(
   'daily_quota',
   {
@@ -42,3 +67,5 @@ export const daily_quota = sqliteTable(
 
 export type Task = typeof tasks.$inferSelect
 export type NewTask = typeof tasks.$inferInsert
+export type TaskBlob = typeof task_blobs.$inferSelect
+export type NewTaskBlob = typeof task_blobs.$inferInsert

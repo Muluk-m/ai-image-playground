@@ -2,7 +2,7 @@ import { QUEUE_TIMEOUTS, SERVER_IDLE_TIMEOUT_SEC } from '@image-playground/share
 import { app } from './app'
 import { config } from './config'
 import { checkpointWal } from './db/client'
-import { purgeOldTasks } from './db/maintenance'
+import { purgeOldOutputBlobs, purgeOldTasks } from './db/maintenance'
 import { runMigrations } from './db/migrate'
 import { initChannels } from './lib/channels'
 import { log } from './lib/logger'
@@ -22,9 +22,23 @@ log.info(
 
 const purgeStartup = await purgeOldTasks()
 if (purgeStartup > 0) log.info({ event: 'startup.purged', count: purgeStartup }, 'purged old tasks')
+const outputPurgeStartup = await purgeOldOutputBlobs()
+if (outputPurgeStartup > 0) {
+  log.info(
+    { event: 'startup.output_blobs_purged', count: outputPurgeStartup },
+    'purged expired output blobs',
+  )
+}
 setInterval(async () => {
   const removed = await purgeOldTasks()
   if (removed > 0) log.info({ event: 'periodic.purged', count: removed }, 'purged old tasks')
+  const removedOutputBlobs = await purgeOldOutputBlobs()
+  if (removedOutputBlobs > 0) {
+    log.info(
+      { event: 'periodic.output_blobs_purged', count: removedOutputBlobs },
+      'purged expired output blobs',
+    )
+  }
 }, QUEUE_TIMEOUTS.PURGE_INTERVAL_MS)
 
 if (config.corsOrigins === '*') {

@@ -274,7 +274,25 @@ export async function getTask(taskId: string): Promise<TaskDetail | null> {
   // device_id 是 VIRTUAL 列，schema 没声明 → drizzle select 拿不到；用 raw sql 单独查一次。
   // Promise.all 并发减少一次往返。
   const [rows, deviceRows] = await Promise.all([
-    db.select().from(schema.tasks).where(eq(schema.tasks.id, taskId)).limit(1),
+    db
+      .select({
+        id: schema.tasks.id,
+        provider: schema.tasks.provider,
+        model: schema.tasks.model,
+        status: schema.tasks.status,
+        submitted_at: schema.tasks.submitted_at,
+        started_at: schema.tasks.started_at,
+        completed_at: schema.tasks.completed_at,
+        error_type: schema.tasks.error_type,
+        request_payload: schema.tasks.request_payload,
+        result_payload: schema.tasks.result_payload,
+        error_message: schema.tasks.error_message,
+        attempt_count: schema.tasks.attempt_count,
+        next_retry_at: schema.tasks.next_retry_at,
+      })
+      .from(schema.tasks)
+      .where(eq(schema.tasks.id, taskId))
+      .limit(1),
     db.all(sql`SELECT device_id FROM tasks WHERE id = ${taskId} LIMIT 1`) as unknown as Promise<
       Array<{ device_id: unknown }>
     >,
@@ -284,22 +302,26 @@ export async function getTask(taskId: string): Promise<TaskDetail | null> {
 
   // 最小实现：从原始 result_payload 抽 image meta（index + mime），不解 base64
   const images = extractImagesMeta(task.provider, task.result_payload)
-
-  const { result_payload: _result_payload, ...rest } = task as unknown as Record<string, unknown>
-  void _result_payload
-  const request_payload = (rest as Record<string, unknown>).request_payload
   const rawDevice = deviceRows[0]?.device_id
   const device_id =
     rawDevice === null || rawDevice === undefined || rawDevice === '' ? null : String(rawDevice)
   return {
-    ...(rest as unknown as Omit<TaskListItem, 'prompt' | 'n'>),
-    prompt: extractPrompt(request_payload),
-    n: extractN(request_payload),
-    request_payload,
-    error_message: (task as Record<string, unknown>).error_message as string | null,
+    id: task.id,
+    provider: task.provider,
+    model: task.model,
+    status: task.status,
+    submitted_at: task.submitted_at,
+    started_at: task.started_at,
+    completed_at: task.completed_at,
+    error_type: task.error_type,
+    prompt: extractPrompt(task.request_payload),
+    n: extractN(task.request_payload),
+    attempt_count: task.attempt_count,
+    request_payload: task.request_payload,
     result_meta: { images },
+    error_message: task.error_message,
     device_id,
-    next_retry_at: (task as Record<string, unknown>).next_retry_at as number | null,
+    next_retry_at: task.next_retry_at,
   }
 }
 
@@ -309,6 +331,22 @@ function extractImagesMeta(
   payload: unknown,
 ): Array<{ index: number; mime: string }> {
   if (!payload || typeof payload !== 'object') return []
+
+  // Externalized result payloads carry authoritative image metadata because their
+  // provider-specific base64 pixel fields have been stripped.
+  const externalizedMeta = (payload as { _image_meta?: unknown })._image_meta
+  if (Array.isArray(externalizedMeta)) {
+    const images: Array<{ index: number; mime: string }> = []
+    for (const item of externalizedMeta) {
+      if (!item || typeof item !== 'object') continue
+      const { index, mime } = item as { index?: unknown; mime?: unknown }
+      if (typeof index !== 'number' || !Number.isInteger(index) || index < 0) continue
+      if (typeof mime !== 'string' || mime.length === 0) continue
+      images.push({ index, mime })
+    }
+    return images
+  }
+
   if (provider === 'openai-compat') {
     const data = (payload as { data?: unknown[] }).data
     if (!Array.isArray(data)) return []
