@@ -3,7 +3,7 @@ import { useAuth } from '../auth/AuthContext'
 import InspirationCoach from '../features/inspiration/components/InspirationCoach'
 import { useInspirationStore } from '../features/inspiration/store'
 import { useTooltip } from '../hooks/useTooltip'
-import { PrivateWebHeaderActions } from '../lib/privateOverlay'
+import { PrivateWebHeaderActions, PrivateWebReplacesAuthActions } from '../lib/privateOverlay'
 import { dismissAllTooltips } from '../lib/tooltipDismiss'
 import { useStore } from '../store'
 import HelpModal from './HelpModal'
@@ -144,8 +144,15 @@ export default function Header() {
                 设置
               </ViewportTooltip>
             </div>
-            <PrivateWebHeaderActions />
-            {auth.enabled && auth.user ? (
+            <PrivateWebHeaderActions
+              username={auth.user?.username ?? null}
+              loggingOut={loggingOut}
+              onLogout={() => {
+                setLoggingOut(true)
+                void auth.logout()
+              }}
+            />
+            {auth.enabled && auth.user && !PrivateWebReplacesAuthActions ? (
               <div className="ml-1 flex items-center gap-2 border-l border-gray-200 pl-2 dark:border-white/[0.1]">
                 <span
                   className="hidden max-w-28 truncate text-[12px] font-medium text-gray-600 sm:block dark:text-gray-300"

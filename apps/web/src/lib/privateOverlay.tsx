@@ -10,8 +10,15 @@ export interface PrivateSubmissionGuard {
   disabledReason?: string
 }
 
+export interface PrivateHeaderActionsProps {
+  username: string | null
+  loggingOut: boolean
+  onLogout(): void
+}
+
 export interface PrivateWebOverlay {
-  HeaderActions: ComponentType
+  HeaderActions: ComponentType<PrivateHeaderActionsProps>
+  replacesAuthActions: boolean
   SubmissionStatus: ComponentType<PrivateSubmissionInput>
   useSubmissionGuard(input: PrivateSubmissionInput): PrivateSubmissionGuard
   getSubmissionGuard(input: PrivateSubmissionInput): PrivateSubmissionGuard
@@ -23,6 +30,7 @@ export interface PrivateWebOverlay {
 const EmptyComponent = () => null
 const EMPTY_OVERLAY: PrivateWebOverlay = Object.freeze({
   HeaderActions: EmptyComponent,
+  replacesAuthActions: false,
   SubmissionStatus: EmptyComponent,
   useSubmissionGuard: () => ({ blocked: false }),
   getSubmissionGuard: () => ({ blocked: false }),
@@ -48,6 +56,8 @@ function resolveOverlay(): PrivateWebOverlay {
     typeof overlay !== 'object' ||
     !('HeaderActions' in overlay) ||
     typeof overlay.HeaderActions !== 'function' ||
+    !('replacesAuthActions' in overlay) ||
+    typeof overlay.replacesAuthActions !== 'boolean' ||
     !('SubmissionStatus' in overlay) ||
     typeof overlay.SubmissionStatus !== 'function' ||
     !('useSubmissionGuard' in overlay) ||
@@ -69,6 +79,7 @@ function resolveOverlay(): PrivateWebOverlay {
 const overlay = resolveOverlay()
 
 export const PrivateWebHeaderActions = overlay.HeaderActions
+export const PrivateWebReplacesAuthActions = overlay.replacesAuthActions
 export const PrivateSubmissionStatus = overlay.SubmissionStatus
 
 export function usePrivateSubmissionGuard(input: PrivateSubmissionInput): PrivateSubmissionGuard {
