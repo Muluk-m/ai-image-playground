@@ -14,6 +14,9 @@ export interface CreateDbOptions {
  */
 export function createDb(databaseUrl: string, options: CreateDbOptions = {}) {
   const sqlite = new Database(databaseUrl)
+  sqlite.exec('PRAGMA busy_timeout = 5000;')
+  // task_blobs.task_id relies on ON DELETE CASCADE when the 30-day task purge runs.
+  sqlite.exec('PRAGMA foreign_keys = ON;')
   sqlite.exec('PRAGMA journal_mode = WAL;')
   if (options.readonly) {
     sqlite.exec('PRAGMA query_only = ON;')
