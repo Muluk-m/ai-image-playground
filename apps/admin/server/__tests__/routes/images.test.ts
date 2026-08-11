@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test'
+import { Buffer } from 'node:buffer'
 import { unlinkSync } from 'node:fs'
 
 const TEST_DB = './artifacts/test-admin-images.sqlite'
@@ -37,27 +38,97 @@ writer.db
     completed_at: now + 1000,
   })
   .run()
-// task with gemini that has inlineData (used by input-image test)
+// legacy tasks keep data URLs directly in request_payload.input_images
 writer.db
   .insert(writer.schema.tasks)
-  .values({
-    id: 'img-task-gem',
-    provider: 'gemini',
-    model: 'gemini-3-pro',
-    status: 'completed',
-    request_payload: {
-      prompt: 'p',
-      device_id: 'dev-img',
-      input_images: ['data:image/png;base64,QkFTRTY0'],
-    } as never,
-    result_payload: {
-      candidates: [
-        { content: { parts: [{ inlineData: { mimeType: 'image/png', data: 'QkFTRTY0' } }] } },
-      ],
-    } as never,
-    submitted_at: now,
-    completed_at: now + 1000,
-  })
+  .values([
+    {
+      id: 'img-task-gem-legacy',
+      provider: 'gemini',
+      model: 'gemini-3-pro',
+      status: 'completed',
+      request_payload: {
+        prompt: 'p',
+        device_id: 'dev-img',
+        input_images: ['data:image/png;base64,QkFTRTY0'],
+      } as never,
+      result_payload: {
+        candidates: [
+          { content: { parts: [{ inlineData: { mimeType: 'image/png', data: 'QkFTRTY0' } }] } },
+        ],
+      } as never,
+      submitted_at: now,
+      completed_at: now + 1000,
+    },
+    {
+      id: 'img-task-openai-legacy',
+      provider: 'openai-compat',
+      model: 'gpt-image-2',
+      status: 'completed',
+      request_payload: {
+        prompt: 'p',
+        device_id: 'dev-img',
+        input_images: ['data:image/jpeg;base64,T1BFTkFJ'],
+      } as never,
+      submitted_at: now,
+      completed_at: now + 1000,
+    },
+  ])
+  .run()
+// externalized tasks keep refs in request_payload and bytes in task_blobs
+writer.db
+  .insert(writer.schema.tasks)
+  .values([
+    {
+      id: 'img-task-openai-blob',
+      provider: 'openai-compat',
+      model: 'gpt-image-2',
+      status: 'completed',
+      request_payload: {
+        prompt: 'p',
+        device_id: 'dev-img',
+        input_images: [{ $blob: 0 }],
+      } as never,
+      submitted_at: now,
+      completed_at: now + 1000,
+    },
+    {
+      id: 'img-task-gem-blob',
+      provider: 'gemini',
+      model: 'gemini-3-pro',
+      status: 'completed',
+      request_payload: {
+        prompt: 'p',
+        device_id: 'dev-img',
+        input_images: [{ $blob: 7 }],
+      } as never,
+      submitted_at: now,
+      completed_at: now + 1000,
+    },
+  ])
+  .run()
+writer.db
+  .insert(writer.schema.task_blobs)
+  .values([
+    {
+      id: 'blob-openai-input-0',
+      task_id: 'img-task-openai-blob',
+      kind: 'input',
+      idx: 0,
+      mime: 'image/webp',
+      data: Buffer.from([0x52, 0x49, 0x46, 0x46]),
+      created_at: now,
+    },
+    {
+      id: 'blob-gemini-input-7',
+      task_id: 'img-task-gem-blob',
+      kind: 'input',
+      idx: 7,
+      mime: 'image/webp',
+      data: Buffer.from([0x57, 0x45, 0x42, 0x50]),
+      created_at: now,
+    },
+  ])
   .run()
 
 beforeAll(() => {
@@ -122,18 +193,70 @@ describe('GET /api/tasks/:id/image', () => {
 })
 
 describe('GET /api/tasks/:id/input-image', () => {
-  it('Gemini task 抽出 inlineData 返 image bytes', async () => {
+  it('未登录 → 401', async () => {
+    const res = await app.handle(
+      new Request('http://localhost/api/tasks/img-task-openai-blob/input-image?idx=0'),
+    )
+    expect(res.status).toBe(401)
+  })
+
+  it('serves an externalized OpenAI input blob', async () => {
     const cookie = await login()
     const res = await app.handle(
-      new Request('http://localhost/api/tasks/img-task-gem/input-image?idx=0', {
+      new Request('http://localhost/api/tasks/img-task-openai-blob/input-image?idx=0', {
         headers: { cookie },
       }),
     )
+
     expect(res.status).toBe(200)
-    expect(res.headers.get('content-type')).toContain('image/png')
+    expect(res.headers.get('content-type')).toContain('image/webp')
+    expect(new Uint8Array(await res.arrayBuffer())).toEqual(
+      new Uint8Array([0x52, 0x49, 0x46, 0x46]),
+    )
   })
 
-  it('OpenAI task → 422 + input_image_not_archived', async () => {
+  it('serves an externalized Gemini input blob using the ref index', async () => {
+    const cookie = await login()
+    const res = await app.handle(
+      new Request('http://localhost/api/tasks/img-task-gem-blob/input-image?idx=0', {
+        headers: { cookie },
+      }),
+    )
+
+    expect(res.status).toBe(200)
+    expect(res.headers.get('content-type')).toContain('image/webp')
+    expect(new Uint8Array(await res.arrayBuffer())).toEqual(
+      new Uint8Array([0x57, 0x45, 0x42, 0x50]),
+    )
+  })
+
+  it('serves a legacy Gemini data URL', async () => {
+    const cookie = await login()
+    const res = await app.handle(
+      new Request('http://localhost/api/tasks/img-task-gem-legacy/input-image?idx=0', {
+        headers: { cookie },
+      }),
+    )
+
+    expect(res.status).toBe(200)
+    expect(res.headers.get('content-type')).toContain('image/png')
+    expect(Buffer.from(await res.arrayBuffer()).toString()).toBe('BASE64')
+  })
+
+  it('serves a legacy OpenAI data URL', async () => {
+    const cookie = await login()
+    const res = await app.handle(
+      new Request('http://localhost/api/tasks/img-task-openai-legacy/input-image?idx=0', {
+        headers: { cookie },
+      }),
+    )
+
+    expect(res.status).toBe(200)
+    expect(res.headers.get('content-type')).toContain('image/jpeg')
+    expect(Buffer.from(await res.arrayBuffer()).toString()).toBe('OPENAI')
+  })
+
+  it('missing archive → 422 + input_image_not_archived', async () => {
     const cookie = await login()
     const res = await app.handle(
       new Request('http://localhost/api/tasks/img-task-1/input-image?idx=0', {
