@@ -498,4 +498,28 @@ describe('BFF queue routes', () => {
     })
     expect((json as { reset_at: string }).reset_at).toMatch(/^\d{4}-\d{2}-\d{2}T00:00:00/)
   })
+
+  it('单次 submit 携带 n=4 按 4 张计配额；同 client_request_id 重放不重复扣', async () => {
+    const device_id = 'quota-dev-native-n-0001'
+    const request = submitBody({ device_id, n: 4, client_request_id: 'native-n-quota-replay' })
+
+    const first = await jsonReq('POST', '/v1/queue/openai-compat/gpt-image-2/submit', request)
+    expect(first.status).toBe(200)
+
+    const [row] = await db
+      .select({ count: schema.daily_quota.count })
+      .from(schema.daily_quota)
+      .where(eq(schema.daily_quota.device_id, device_id))
+    expect(row?.count).toBe(4)
+
+    // 页面刷新窗口期的幂等重放：返回同一 request_id，不再次扣减 n 张配额。
+    const replay = await jsonReq('POST', '/v1/queue/openai-compat/gpt-image-2/submit', request)
+    expect(replay.status).toBe(200)
+    expect(replay.json).toMatchObject({ request_id: requestIdFrom(first.json) })
+    const [afterReplay] = await db
+      .select({ count: schema.daily_quota.count })
+      .from(schema.daily_quota)
+      .where(eq(schema.daily_quota.device_id, device_id))
+    expect(afterReplay?.count).toBe(4)
+  })
 })

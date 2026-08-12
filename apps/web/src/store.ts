@@ -9,7 +9,11 @@ import {
   normalizeSettings,
   validateClientProfile,
 } from './lib/apiProfiles'
-import { modelSupportsEdit, NO_EDIT_SUPPORT_MESSAGE } from './lib/channels/profileSelectors'
+import {
+  getModelCapabilities,
+  modelSupportsEdit,
+  NO_EDIT_SUPPORT_MESSAGE,
+} from './lib/channels/profileSelectors'
 import { getPublicChannels } from './lib/channels/publicChannels'
 import type { ClientProfile } from './lib/channels/types'
 import type {
@@ -1294,10 +1298,14 @@ export async function submitTask(
   }
 
   const submitView = clientProfileToApiProfile(activeProfile)
-  // n 张图一律拆成 n 条独立任务并行下发：gpt-image-2 / nano-banana 都不支持
-  // 上游 n 参数，统一前端 fan-out 比按 model 分支更简单；副作用是 quota 自然
-  // 按张数计数。每条 task 自带独立 clientRequestId 用于 BFF 幂等。
-  const fanOut = Math.max(1, taskParams.n)
+  // 数量分发的唯一判定（禁止按 provider / 模型名推断）：模型在 channel capabilities 里
+  // 显式声明 'n' → 一条任务携带归一化后的 n 一次下发，返回的多张图全部落在这条任务的
+  // outputImages 上，BFF quota 按 n 计张；未声明、channel 未知、或 BYOK 无声明
+  // （getModelCapabilities 返回 null）→ 维持逐条 fan-out：n 条独立任务、每条 n=1、
+  // 各自带独立 clientRequestId 用于 BFF 幂等，quota 同样自然按张数计数。
+  const supportsNativeCount =
+    getModelCapabilities(activeProfile, getPublicChannels())?.has('n') === true
+  const fanOut = supportsNativeCount ? 1 : Math.max(1, taskParams.n)
   const singleParams = fanOut === 1 ? taskParams : { ...taskParams, n: 1 }
   const createdAt = Date.now()
   const newTasks: TaskRecord[] = Array.from({ length: fanOut }, () => ({
