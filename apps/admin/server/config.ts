@@ -1,4 +1,4 @@
-import type { AdminCapabilityManifest } from '@image-playground/shared'
+import type { ClientCapabilityManifest } from '@image-playground/shared'
 
 const env = (key: string, fallback?: string): string => {
   const v = process.env[key]
@@ -23,7 +23,7 @@ export const config = {
     },
   },
   assertValid(): void {
-    if (!config.auth.internalApiToken) {
+    if (resolvedAdminCapabilities.accountsLogin && !config.auth.internalApiToken) {
       throw new Error('Missing env: INTERNAL_API_TOKEN')
     }
   },
@@ -51,21 +51,18 @@ export function setAdminCapabilitiesForTesting(capabilities: ResolvedAdminCapabi
 export async function loadAdminCapabilities(
   fetchImpl: (input: string | URL | Request, init?: RequestInit) => Promise<Response> = fetch,
 ): Promise<void> {
-  const response = await fetchImpl(`${config.bffInternalUrl}/internal/admin/capabilities`, {
-    headers: {
-      accept: 'application/json',
-      authorization: `Bearer ${config.auth.internalApiToken}`,
-    },
+  const response = await fetchImpl(`${config.bffInternalUrl}/api/capabilities`, {
+    headers: { accept: 'application/json' },
     signal: AbortSignal.timeout(10_000),
   })
   if (!response.ok) {
-    throw new Error(`Cannot resolve operator:console capability: HTTP ${response.status}`)
+    throw new Error(`Cannot resolve Admin capabilities: HTTP ${response.status}`)
   }
-  const body = (await response.json()) as Partial<AdminCapabilityManifest>
-  if (body.operator_console !== true) {
-    throw new Error('operator:console capability is disabled')
+  const body = (await response.json()) as Partial<ClientCapabilityManifest>
+  if (typeof body['accounts:login'] !== 'boolean') {
+    throw new Error('Cannot resolve Admin capabilities: invalid manifest')
   }
   resolvedAdminCapabilities = Object.freeze({
-    accountsLogin: body.accounts_login === true,
+    accountsLogin: body['accounts:login'],
   })
 }
