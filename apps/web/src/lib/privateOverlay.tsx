@@ -5,9 +5,16 @@ export interface PrivateSubmissionInput {
   quantity: number
 }
 
+export interface PrivateSubmissionBlockedAction {
+  label: string
+  run(): void
+}
+
 export interface PrivateSubmissionGuard {
   blocked: boolean
   disabledReason?: string
+  estimatedCredits?: number
+  blockedAction?: PrivateSubmissionBlockedAction
 }
 
 export interface PrivateHeaderActionsProps {

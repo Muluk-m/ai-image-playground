@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import ParamControls from '../../../components/ParamControls'
+import SubmissionCostEstimate from '../../../components/SubmissionCostEstimate'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/apiProfiles'
 import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
 import { useStore } from '../../../store'
@@ -155,6 +156,11 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
         <div className="flex items-end gap-2">
           <div className="flex flex-1 flex-col">
             <span className="px-2 pt-1 text-[11px] text-gray-400 dark:text-gray-500">{hint}</span>
+            <SubmissionCostEstimate
+              credits={submissionGuard.estimatedCredits}
+              blockedAction={submissionGuard.blockedAction}
+              className="px-2 text-[11px] font-medium text-gray-500 dark:text-gray-400"
+            />
             {submissionGuard.blocked && submissionGuard.disabledReason ? (
               <span className="px-2 text-[11px] text-red-600 dark:text-red-400">
                 {submissionGuard.disabledReason}
