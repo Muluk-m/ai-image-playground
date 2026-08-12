@@ -13,7 +13,7 @@
         {
           "id": "gpt-image-2",
           "label": "GPT Image 2",
-          "capabilities": ["generate", "edit", "mask", "quality", "n"]
+          "capabilities": ["generate", "edit", "mask", "quality"]
         }
       ],
       "defaults": {
