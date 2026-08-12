@@ -57,6 +57,8 @@ services:
       APP_ROLE: bff
       PORT: "37377"
       STATIC_DIR: ""
+      # The co-deployed nginx overwrites this header; BFF never trusts caller-supplied chains.
+      CLIENT_IP_SOURCE: x-forwarded-for
     command:
       - bun
       - run

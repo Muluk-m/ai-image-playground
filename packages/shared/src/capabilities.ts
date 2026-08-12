@@ -1,5 +1,6 @@
 export const CAPABILITIES = {
   'accounts:login': { defaultValue: false, clientExposed: true },
+  'accounts:self-register': { defaultValue: false, clientExposed: true },
   'billing:credits': { defaultValue: false, clientExposed: true },
   'generation:byok': { defaultValue: false, clientExposed: true },
   'operator:console': { defaultValue: false, clientExposed: false },

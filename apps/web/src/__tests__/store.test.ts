@@ -242,6 +242,7 @@ describe('mask draft lifecycle in store actions', () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       Response.json({
         'accounts:login': true,
+        'accounts:self-register': true,
         'billing:credits': true,
         'generation:byok': false,
         'quota:daily': false,

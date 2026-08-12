@@ -56,6 +56,15 @@ export async function loginUser(username: string, password: string): Promise<Aut
   return result.user
 }
 
+export async function registerUser(username: string, password: string): Promise<AuthUserView> {
+  const result = await authJson<{ user: AuthUserView }>('/api/auth/register', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ username, password }),
+  })
+  return result.user
+}
+
 export async function logoutUser(): Promise<void> {
   await authJson<{ ok: true }>('/api/auth/logout', { method: 'POST' })
 }

@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
 import { SQL } from 'bun'
-import { eq } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
 
 const TEST_DB = await resetTestDatabase('bff_authenticated_routes')
@@ -14,6 +14,7 @@ process.env.DATABASE_URL = TEST_DB
 process.env.CORS_ALLOWED_ORIGINS = '*'
 process.env.INTERNAL_API_TOKEN = 'fixture-service-credential-alpha'
 process.env.OPERATOR_CONFIG_FILE = resolve(import.meta.dir, '../../../operator-config.example.json')
+process.env.CLIENT_IP_SOURCE = 'cf-connecting-ip'
 
 // Dynamic imports keep environment setup ahead of configuration capture.
 const { config } = await import('../../config')
@@ -39,6 +40,7 @@ async function resetDb() {
   await db.delete(schema.tasks)
   await db.delete(schema.daily_quota)
   await db.delete(schema.user_sessions)
+  await db.delete(schema.operator_audits)
   await db.delete(schema.users)
 }
 
@@ -73,6 +75,19 @@ async function waitForBlockedUserAuthQuery(observer: SQL): Promise<void> {
     if (state?.blocked === true) return
   }
   throw new Error('login did not reach the blocked user persistence query')
+}
+async function waitForBlockedUserInserts(observer: SQL, expectedCount: number): Promise<void> {
+  for (let attempt = 0; attempt < 5_000; attempt++) {
+    const [state] = await observer`
+      SELECT COUNT(*)::int AS blocked
+      FROM pg_stat_activity
+      WHERE datname = current_database()
+        AND wait_event_type = 'Lock'
+        AND query ILIKE '%insert into "users"%'
+    `
+    if ((state?.blocked ?? 0) >= expectedCount) return
+  }
+  throw new Error('registrations did not reach the blocked user inserts')
 }
 
 function submitBody(overrides: Record<string, unknown> = {}) {
@@ -333,6 +348,167 @@ describe('BFF optional user auth', () => {
     expect(stored.token_hash).not.toBe(rawCookieValue)
     expect(stored.token_hash).toMatch(/^[a-f0-9]{64}$/)
   })
+
+  it('self-registers one normalized account and issues an authenticated session', async () => {
+    const registered = await jsonReq(
+      'POST',
+      '/api/auth/register',
+      { username: ' New.User ', password: ACCEPTED_PHRASE },
+      { 'cf-connecting-ip': '10.10.1.1' },
+    )
+
+    expect(registered.status).toBe(201)
+    expect(registered.json).toMatchObject({ user: { username: 'new.user' } })
+    const cookie = registered.headers.get('set-cookie')?.split(';')[0]
+    expect(cookie).toStartWith('image_playground_session=')
+    expect((await jsonReq('GET', '/api/auth/me', undefined, { cookie: cookie! })).status).toBe(200)
+
+    const [created] = await db
+      .select()
+      .from(schema.users)
+      .where(eq(schema.users.username, 'new.user'))
+      .limit(1)
+    expect(created).toBeDefined()
+    expect(await Bun.password.verify(ACCEPTED_PHRASE, created!.password_hash)).toBe(true)
+    const [audit] = await db
+      .select()
+      .from(schema.operator_audits)
+      .where(eq(schema.operator_audits.target_id, created!.id))
+      .limit(1)
+    expect(audit).toMatchObject({
+      operator_id: created!.id,
+      action: 'user.register',
+      target_type: 'user',
+    })
+
+    const duplicate = await jsonReq(
+      'POST',
+      '/api/auth/register',
+      { username: 'new.user', password: ACCEPTED_PHRASE },
+      { 'cf-connecting-ip': '10.10.1.2' },
+    )
+    expect(duplicate.status).toBe(409)
+    expect(duplicate.json).toEqual({ error: 'username_taken' })
+  })
+
+  it('rolls back the account when session persistence fails', async () => {
+    await db.execute(
+      sql.raw(`
+        CREATE OR REPLACE FUNCTION reject_fixture_registration_session()
+        RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN
+          RAISE EXCEPTION 'fixture session failure';
+        END
+        $$;
+        CREATE TRIGGER reject_fixture_registration_session
+        BEFORE INSERT ON user_sessions
+        FOR EACH ROW EXECUTE FUNCTION reject_fixture_registration_session();
+      `),
+    )
+    try {
+      const response = await app.handle(
+        new Request('http://localhost/api/auth/register', {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'cf-connecting-ip': '10.10.1.3',
+          },
+          body: JSON.stringify({
+            username: 'session-failure',
+            password: ACCEPTED_PHRASE,
+          }),
+        }),
+      )
+      expect(response.status).toBe(500)
+    } finally {
+      await db.execute(
+        sql.raw(`
+          DROP TRIGGER IF EXISTS reject_fixture_registration_session ON user_sessions;
+          DROP FUNCTION IF EXISTS reject_fixture_registration_session();
+        `),
+      )
+    }
+
+    expect(await db.select().from(schema.users)).toHaveLength(0)
+    expect(await db.select().from(schema.operator_audits)).toHaveLength(0)
+    expect(await db.select().from(schema.user_sessions)).toHaveLength(0)
+  })
+
+  it('rejects usernames and passwords outside the registration boundaries', async () => {
+    const cases = [
+      {
+        body: { username: 'ab', password: ACCEPTED_PHRASE },
+        error: 'invalid_username',
+      },
+      {
+        body: { username: 'invalid user', password: ACCEPTED_PHRASE },
+        error: 'invalid_username',
+      },
+      {
+        body: { username: 'valid-user', password: 'short' },
+        error: 'invalid_password',
+      },
+    ]
+
+    for (const [index, testCase] of cases.entries()) {
+      const response = await jsonReq('POST', '/api/auth/register', testCase.body, {
+        'cf-connecting-ip': `10.10.2.${index + 1}`,
+      })
+      expect(response.status).toBe(400)
+      expect(response.json).toEqual({ error: testCase.error })
+    }
+    expect(await db.select().from(schema.users)).toHaveLength(0)
+  })
+
+  it('commits only one account when duplicate registrations race', async () => {
+    const blocker = new SQL(TEST_DB, { max: 1 })
+    const observer = new SQL(TEST_DB, { max: 1 })
+    let registrations: Array<ReturnType<typeof jsonReq>> = []
+
+    try {
+      await blocker.begin(async (tx) => {
+        await tx`LOCK TABLE users IN SHARE MODE`
+        registrations = [
+          jsonReq(
+            'POST',
+            '/api/auth/register',
+            { username: 'registration-race', password: ACCEPTED_PHRASE },
+            { 'cf-connecting-ip': '10.10.3.1' },
+          ),
+          jsonReq(
+            'POST',
+            '/api/auth/register',
+            { username: 'registration-race', password: ACCEPTED_PHRASE },
+            { 'cf-connecting-ip': '10.10.3.2' },
+          ),
+        ]
+        await waitForBlockedUserInserts(observer, registrations.length)
+      })
+
+      const results = await Promise.all(registrations)
+      expect(results.map(({ status }) => status).sort()).toEqual([201, 409])
+      const users = await db
+        .select()
+        .from(schema.users)
+        .where(eq(schema.users.username, 'registration-race'))
+      expect(users).toHaveLength(1)
+      expect(
+        await db
+          .select()
+          .from(schema.operator_audits)
+          .where(eq(schema.operator_audits.target_id, users[0]!.id)),
+      ).toHaveLength(1)
+      expect(
+        await db
+          .select()
+          .from(schema.user_sessions)
+          .where(eq(schema.user_sessions.user_id, users[0]!.id)),
+      ).toHaveLength(1)
+    } finally {
+      await Promise.all([blocker.close(), observer.close()])
+    }
+  })
+
   it('does not issue a session when a password reset wins before login persistence', async () => {
     const user = await createTestUser('reset-race', ACCEPTED_PHRASE)
     const replacementHash = await Bun.password.hash('fixture-phrase-replacement')

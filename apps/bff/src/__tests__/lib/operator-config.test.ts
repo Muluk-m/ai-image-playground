@@ -96,7 +96,18 @@ describe('operator config', () => {
         },
       }),
     )
+    const registrationWithoutLogin = temporaryFile(
+      JSON.stringify({
+        capabilities: {
+          'accounts:login': false,
+          'accounts:self-register': true,
+        },
+      }),
+    )
 
+    expect(() => loadOperatorConfig(registrationWithoutLogin)).toThrow(
+      'accounts:self-register requires accounts:login',
+    )
     expect(() => loadOperatorConfig(withoutLogin)).toThrow(
       'billing:credits requires accounts:login',
     )
