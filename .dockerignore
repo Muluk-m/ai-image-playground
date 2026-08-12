@@ -40,7 +40,7 @@
 
 
 # ── Optional private overlay ──────────────────────────────────────
-# Deliberately excluded here. Paid releases must pass the nested repository through
+# Deliberately excluded here. Private-overlay builds pass the nested repository through
 # Docker's explicit `private-overlay` named context; see `scripts/app-compose.sh build-private`.
 # ── packages 构建输入 ─────────────────────────────────────────────
 !packages/*/package.json

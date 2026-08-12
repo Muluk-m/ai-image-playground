@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.6
 
 # Public builds use the default false marker and scrub any cached private context.
-# Paid builds must pass both `--build-context private-overlay=./private` and
+# Private-overlay builds must pass both `--build-context private-overlay=./private` and
 # `--build-arg PRIVATE_OVERLAY_PRESENT=true`.
 FROM scratch AS private-overlay
 
@@ -72,7 +72,7 @@ COPY packages/db ./packages/db
 COPY packages/shared ./packages/shared
 COPY --from=admin-build /app/apps/admin/dist ./apps/admin/dist
 COPY --from=web-build /app/apps/web/dist /usr/share/nginx/html
-# `private-overlay` is empty in public builds and populated only by the explicit paid build.
+# `private-overlay` is empty by default and populated only by an explicit private-overlay build.
 COPY --from=web-build /app/private ./private
 
 COPY deploy/nginx.conf /etc/nginx/conf.d/default.conf
