@@ -150,8 +150,8 @@ describe('callUpstream OpenAI route', () => {
     expect(form.getAll('image[]')).toHaveLength(3)
   })
 
-  it('with input_images and n>1: forwards n via FormData field', async () => {
-    await callUpstream({
+  it('with input_images and n>1: sends one edit request per image and omits n', async () => {
+    const result = await callUpstream({
       provider: 'openai-compat',
       model: 'gpt-image-2',
       request: {
@@ -160,8 +160,30 @@ describe('callUpstream OpenAI route', () => {
         input_images: [TINY_PNG_DATA_URL],
       },
     })
-    const form = calls[0]!.init?.body as UndiciFormData
-    expect(form.get('n')).toBe('3')
+    const payload = result.payload as { data: unknown[] }
+    expect(payload.data).toHaveLength(3)
+    expect(calls).toHaveLength(3)
+    for (const call of calls) {
+      expect(call.url).toMatch(/\/v1\/images\/edits$/)
+      const form = call.init?.body as UndiciFormData
+      expect(form.get('n')).toBeNull()
+      expect(form.getAll('image[]')).toHaveLength(1)
+    }
+  })
+
+  it('without input_images and n>1: sends one generation request per image and omits n', async () => {
+    const result = await callUpstream({
+      provider: 'openai-compat',
+      model: 'gpt-image-2',
+      request: { prompt: 'generate', n: 2 },
+    })
+    const payload = result.payload as { data: unknown[] }
+    expect(payload.data).toHaveLength(2)
+    expect(calls).toHaveLength(2)
+    for (const call of calls) {
+      expect(call.url).toMatch(/\/v1\/images\/generations$/)
+      expect(JSON.parse(call.init?.body as string).n).toBeUndefined()
+    }
   })
 
   it('with mask: appends mask Blob alongside image[] in FormData', async () => {
