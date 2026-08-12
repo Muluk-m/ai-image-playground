@@ -6,26 +6,44 @@ process.env.BFF_INTERNAL_URL = 'http://bff.test:37377'
 process.env.DATABASE_URL = process.env.TEST_DATABASE_URL ?? ''
 process.env.INTERNAL_API_TOKEN = 'fixture-service-credential-alpha'
 
-const { getAdminCapabilities, loadAdminCapabilities } = await import('../../../server/config')
+const { config, getAdminCapabilities, loadAdminCapabilities } = await import(
+  '../../../server/config'
+)
 
 describe('loadAdminCapabilities', () => {
-  it('requires an explicit operator:console grant from the BFF', async () => {
-    const disabledFetch = async () => Response.json({ operator_console: false })
-
-    await expect(loadAdminCapabilities(disabledFetch)).rejects.toThrow(
-      'operator:console capability is disabled',
-    )
-  })
-
-  it('sends the service credential when resolving the capability', async () => {
-    const authorizations: Array<string | null> = []
-    const enabledFetch = async (_input: string | URL | Request, init?: RequestInit) => {
-      authorizations.push(new Headers(init?.headers).get('authorization'))
-      return Response.json({ accounts_login: false, operator_console: true })
+  it('starts the read-only skeleton without a service credential when login is disabled', async () => {
+    const requests: Array<{ url: string; authorization: string | null }> = []
+    const disabledFetch = async (input: string | URL | Request, init?: RequestInit) => {
+      requests.push({
+        url: String(input),
+        authorization: new Headers(init?.headers).get('authorization'),
+      })
+      return Response.json({ 'accounts:login': false })
     }
 
+    delete process.env.INTERNAL_API_TOKEN
+    try {
+      await loadAdminCapabilities(disabledFetch)
+      expect(getAdminCapabilities()).toEqual({ accountsLogin: false })
+      expect(() => config.assertValid()).not.toThrow()
+      expect(requests).toEqual([
+        { url: 'http://bff.test:37377/api/capabilities', authorization: null },
+      ])
+    } finally {
+      process.env.INTERNAL_API_TOKEN = 'fixture-service-credential-alpha'
+    }
+  })
+
+  it('requires the service credential when login is enabled', async () => {
+    const enabledFetch = async () => Response.json({ 'accounts:login': true })
+
     await loadAdminCapabilities(enabledFetch)
-    expect(authorizations).toEqual(['Bearer fixture-service-credential-alpha'])
-    expect(getAdminCapabilities()).toEqual({ accountsLogin: false })
+    delete process.env.INTERNAL_API_TOKEN
+    try {
+      expect(getAdminCapabilities()).toEqual({ accountsLogin: true })
+      expect(() => config.assertValid()).toThrow('Missing env: INTERNAL_API_TOKEN')
+    } finally {
+      process.env.INTERNAL_API_TOKEN = 'fixture-service-credential-alpha'
+    }
   })
 })

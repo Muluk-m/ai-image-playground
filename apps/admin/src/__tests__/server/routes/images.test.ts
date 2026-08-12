@@ -87,7 +87,7 @@ afterAll(async () => {
 
 const { app } = await import('../../../../server/app')
 // Dynamic imports are required because config reads the test environment during module loading.
-const { config } = await import('../../../../server/config')
+const { config, setAdminCapabilitiesForTesting } = await import('../../../../server/config')
 
 async function login() {
   const res = await app.handle(
@@ -163,11 +163,13 @@ describe('GET /api/tasks/:id/input-image', () => {
   })
 
   it('fails configuration validation when account authentication has no service credential', () => {
+    setAdminCapabilitiesForTesting({ accountsLogin: true })
     delete process.env.INTERNAL_API_TOKEN
     try {
       expect(() => config.assertValid()).toThrow('Missing env: INTERNAL_API_TOKEN')
     } finally {
       process.env.INTERNAL_API_TOKEN = 'fixture-service-credential-alpha'
+      setAdminCapabilitiesForTesting({ accountsLogin: false })
     }
   })
 })
