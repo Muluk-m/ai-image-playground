@@ -166,6 +166,28 @@ describe('BFF queue routes', () => {
     expect(await db.select().from(schema.task_blobs)).toHaveLength(1)
   })
 
+  it('concurrent duplicate submits create one task and consume quota once', async () => {
+    const request = submitBody({
+      client_request_id: 'concurrent-duplicate-request',
+      n: 4,
+      input_images: ['data:image/png;base64,AQID'],
+    })
+
+    const [first, second] = await Promise.all([
+      jsonReq('POST', '/v1/queue/openai-compat/gpt-image-2/submit', request),
+      jsonReq('POST', '/v1/queue/openai-compat/gpt-image-2/submit', request),
+    ])
+
+    expect(first.status).toBe(200)
+    expect(second.status).toBe(200)
+    expect(requestIdFrom(second.json)).toBe(requestIdFrom(first.json))
+    expect(await db.select().from(schema.tasks)).toHaveLength(1)
+    expect(await db.select().from(schema.task_blobs)).toHaveLength(1)
+    expect(await db.select().from(schema.daily_quota)).toEqual([
+      expect.objectContaining({ count: 4 }),
+    ])
+  })
+
   it('rolls back the task when input blob storage fails', async () => {
     const sqlite = new Database(TEST_DB)
     sqlite.exec(`
@@ -192,6 +214,7 @@ describe('BFF queue routes', () => {
 
     expect(await db.select().from(schema.tasks)).toEqual([])
     expect(await db.select().from(schema.task_blobs)).toEqual([])
+    expect(await db.select().from(schema.daily_quota)).toEqual([])
   })
 
   it('POST submit with mask routes to /v1/images/edits with mask field', async () => {
@@ -497,5 +520,29 @@ describe('BFF queue routes', () => {
       used: 80,
     })
     expect((json as { reset_at: string }).reset_at).toMatch(/^\d{4}-\d{2}-\d{2}T00:00:00/)
+  })
+
+  it('单次 submit 携带 n=4 按 4 张计配额；同 client_request_id 重放不重复扣', async () => {
+    const device_id = 'quota-dev-native-n-0001'
+    const request = submitBody({ device_id, n: 4, client_request_id: 'native-n-quota-replay' })
+
+    const first = await jsonReq('POST', '/v1/queue/openai-compat/gpt-image-2/submit', request)
+    expect(first.status).toBe(200)
+
+    const [row] = await db
+      .select({ count: schema.daily_quota.count })
+      .from(schema.daily_quota)
+      .where(eq(schema.daily_quota.device_id, device_id))
+    expect(row?.count).toBe(4)
+
+    // 页面刷新窗口期的幂等重放：返回同一 request_id，不再次扣减 n 张配额。
+    const replay = await jsonReq('POST', '/v1/queue/openai-compat/gpt-image-2/submit', request)
+    expect(replay.status).toBe(200)
+    expect(replay.json).toMatchObject({ request_id: requestIdFrom(first.json) })
+    const [afterReplay] = await db
+      .select({ count: schema.daily_quota.count })
+      .from(schema.daily_quota)
+      .where(eq(schema.daily_quota.device_id, device_id))
+    expect(afterReplay?.count).toBe(4)
   })
 })

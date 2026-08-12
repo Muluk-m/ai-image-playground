@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   calculateImageSize,
   formatImageRatio,
+  normalizeCodexCliImageSize,
   sameAspectRatio,
   sizeRatioLabel,
 } from '../../lib/size'
@@ -52,6 +53,13 @@ describe('size ratio helpers', () => {
     expect(sizeRatioLabel(size!)).toBe(ratio)
   })
 
+  it.each([
+    ['4:1', '2160x720'],
+    ['1:4', '720x2160'],
+  ])('clamps custom ratio %s to the legal 3:1 boundary', (ratio, expected) => {
+    expect(calculateImageSize('1K', ratio)).toBe(expected)
+  })
+
   it('accepts re-quantized pixels with the same aspect ratio', () => {
     expect(sameAspectRatio('1024x1824', '941x1672')).toBe(true)
   })
@@ -62,5 +70,19 @@ describe('size ratio helpers', () => {
 
   it('rejects non-pixel sizes', () => {
     expect(sameAspectRatio('auto', '941x1672')).toBe(false)
+  })
+
+  describe('1K-limited normalization', () => {
+    it.each([
+      ['2048x2048', '1024x1024'],
+      ['2560x1440', '1280x720'],
+      ['1024x768', '1024x768'],
+    ])('normalizes %s to %s', (size, expected) => {
+      expect(normalizeCodexCliImageSize(size)).toBe(expected)
+    })
+
+    it('preserves non-pixel size values', () => {
+      expect(normalizeCodexCliImageSize('auto')).toBe('auto')
+    })
   })
 })

@@ -2,7 +2,6 @@ import { Buffer } from 'node:buffer'
 import { randomUUID } from 'node:crypto'
 import {
   type ImagePlaygroundDatabase,
-  type NewTask,
   type NewTaskBlob,
   type TaskBlob,
   task_blobs,
@@ -119,23 +118,6 @@ export function insertTaskBlobs(
 ): void {
   if (blobs.length === 0) return
   database.insert(task_blobs).values(taskBlobRows(taskId, blobs)).run()
-}
-
-export async function createTaskWithBlobs(
-  task: NewTask,
-  blobs: readonly TaskBlobInput[],
-  database: ImagePlaygroundDatabase,
-): Promise<Array<{ id: string; submitted_at: number }>> {
-  return database.transaction((tx) => {
-    const inserted = tx
-      .insert(tasks)
-      .values(task)
-      .onConflictDoNothing()
-      .returning({ id: tasks.id, submitted_at: tasks.submitted_at })
-      .all()
-    if (inserted.length > 0) insertTaskBlobs(task.id, blobs, tx)
-    return inserted
-  })
 }
 
 export async function completeTaskWithBlobs(
