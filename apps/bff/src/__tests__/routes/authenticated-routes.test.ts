@@ -349,16 +349,16 @@ describe('BFF optional user auth', () => {
     expect(stored.token_hash).toMatch(/^[a-f0-9]{64}$/)
   })
 
-  it('self-registers one normalized account and issues an authenticated session', async () => {
+  it('self-registers one normalized email account and issues an authenticated session', async () => {
     const registered = await jsonReq(
       'POST',
       '/api/auth/register',
-      { username: ' New.User ', password: ACCEPTED_PHRASE },
+      { username: ' New.User@Example.com ', password: ACCEPTED_PHRASE },
       { 'cf-connecting-ip': '10.10.1.1' },
     )
 
     expect(registered.status).toBe(201)
-    expect(registered.json).toMatchObject({ user: { username: 'new.user' } })
+    expect(registered.json).toMatchObject({ user: { username: 'new.user@example.com' } })
     const cookie = registered.headers.get('set-cookie')?.split(';')[0]
     expect(cookie).toStartWith('image_playground_session=')
     expect((await jsonReq('GET', '/api/auth/me', undefined, { cookie: cookie! })).status).toBe(200)
@@ -366,7 +366,7 @@ describe('BFF optional user auth', () => {
     const [created] = await db
       .select()
       .from(schema.users)
-      .where(eq(schema.users.username, 'new.user'))
+      .where(eq(schema.users.username, 'new.user@example.com'))
       .limit(1)
     expect(created).toBeDefined()
     expect(await Bun.password.verify(ACCEPTED_PHRASE, created!.password_hash)).toBe(true)
@@ -384,7 +384,7 @@ describe('BFF optional user auth', () => {
     const duplicate = await jsonReq(
       'POST',
       '/api/auth/register',
-      { username: 'new.user', password: ACCEPTED_PHRASE },
+      { username: 'new.user@example.com', password: ACCEPTED_PHRASE },
       { 'cf-connecting-ip': '10.10.1.2' },
     )
     expect(duplicate.status).toBe(409)
@@ -442,6 +442,22 @@ describe('BFF optional user auth', () => {
       },
       {
         body: { username: 'invalid user', password: ACCEPTED_PHRASE },
+        error: 'invalid_username',
+      },
+      {
+        body: { username: '.creator@example.com', password: ACCEPTED_PHRASE },
+        error: 'invalid_username',
+      },
+      {
+        body: { username: 'creator.@example.com', password: ACCEPTED_PHRASE },
+        error: 'invalid_username',
+      },
+      {
+        body: { username: 'creator..name@example.com', password: ACCEPTED_PHRASE },
+        error: 'invalid_username',
+      },
+      {
+        body: { username: 'a'.repeat(33), password: ACCEPTED_PHRASE },
         error: 'invalid_username',
       },
       {

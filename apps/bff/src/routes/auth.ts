@@ -1,4 +1,5 @@
 import {
+  EMAIL_MAX_LENGTH,
   isValidUsername,
   normalizeUsername,
   PASSWORD_MAX_LENGTH,
@@ -96,7 +97,7 @@ export const userAuthRoutes = new Elysia()
     },
     {
       body: t.Object({
-        username: t.String({ minLength: 1, maxLength: USERNAME_MAX_LENGTH }),
+        username: t.String({ minLength: 1, maxLength: EMAIL_MAX_LENGTH }),
         password: t.String({ minLength: 1, maxLength: PASSWORD_MAX_LENGTH }),
       }),
     },
@@ -178,7 +179,7 @@ export const userAuthRoutes = new Elysia()
     },
     {
       body: t.Object({
-        username: t.String({ minLength: 1, maxLength: USERNAME_MAX_LENGTH }),
+        username: t.String({ minLength: 1, maxLength: EMAIL_MAX_LENGTH }),
         password: t.String({ minLength: 1, maxLength: PASSWORD_MAX_LENGTH }),
       }),
     },
