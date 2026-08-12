@@ -583,10 +583,10 @@ export async function getTask(taskId: string): Promise<TaskDetail | null> {
     upstream_invocation_count: Number(task.upstream_invocation_count),
     request_payload,
     user_id: task.user_id,
-    error_message: (task as Record<string, unknown>).error_message as string | null,
     result_meta: { images },
+    error_message: task.error_message,
     device_id,
-    next_retry_at: (task as Record<string, unknown>).next_retry_at as number | null,
+    next_retry_at: task.next_retry_at,
   }
 }
 
@@ -596,6 +596,22 @@ function extractImagesMeta(
   payload: unknown,
 ): Array<{ index: number; mime: string }> {
   if (!payload || typeof payload !== 'object') return []
+
+  // Externalized result payloads carry authoritative image metadata because their
+  // provider-specific base64 pixel fields have been stripped.
+  const externalizedMeta = (payload as { _image_meta?: unknown })._image_meta
+  if (Array.isArray(externalizedMeta)) {
+    const images: Array<{ index: number; mime: string }> = []
+    for (const item of externalizedMeta) {
+      if (!item || typeof item !== 'object') continue
+      const { index, mime } = item as { index?: unknown; mime?: unknown }
+      if (typeof index !== 'number' || !Number.isInteger(index) || index < 0) continue
+      if (typeof mime !== 'string' || mime.length === 0) continue
+      images.push({ index, mime })
+    }
+    return images
+  }
+
   if (provider === 'openai-compat') {
     const data = (payload as { data?: unknown[] }).data
     if (!Array.isArray(data)) return []

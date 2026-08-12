@@ -1,5 +1,6 @@
-import { File } from 'node:buffer'
+import { Buffer, File } from 'node:buffer'
 import { QUEUE_TIMEOUTS, type QueueProvider } from '@image-playground/shared'
+import sharp from 'sharp'
 import { Agent, FormData, fetch as undiciFetch } from 'undici'
 import { config } from '../config'
 import { getChannels } from './channels'
@@ -8,45 +9,63 @@ import { log } from './logger'
 import { resolveApiKey } from './resolveApiKey'
 
 /**
- * 把 SubmitRequest 转换为 OpenAI Images / Gemini generateContent 请求体并发给上游 API。
+ * Convert queued requests into OpenAI Images or Gemini generateContent calls.
  *
- * BFF 不做参数翻译；OpenAI 路径根据是否带 input_images 选 images/edits（multipart）
- * 或 images/generations（JSON），Gemini 路径走 models/{model}:generateContent。
- *
- * 同机部署时 upstream 是 localhost，无 Edge / 跨网延迟。这里仍设硬超时
- * (QUEUE_TIMEOUTS.UPSTREAM_HARD_TIMEOUT_MS)，防止上游卡死时 BFF worker
- * 永远 hang、task 永远停在 in_progress。
+ * The BFF does not translate model parameters. OpenAI requests use multipart edits when input
+ * images are present and JSON generations otherwise. Gemini requests use generateContent.
  */
+
 /**
- * 独立直连上游的 channel id。命中的 channel 用 channels.json 自带的
- * baseUrl + auth.secret（单一事实源），不走 UPSTREAM_BASE_URL 通用网关。
+ * 每 channel 的上游路由风格。命中映射的 channel 用 channels.json 自带的
+ * baseUrl + auth.secret（单一事实源），不走 UPSTREAM_BASE_URL 通用网关；
+ * value 决定 callUpstream 走哪套上游协议。
  *
  * 不能按 model 盲查 channels：网关部署用 UPSTREAM_BASE_URL 故意把
  * openai/gemini channel 指到同一中转上游，channels.json 里它们的 baseUrl
  * 只是名义官方地址，盲查会把网关部署静默切成直连。
  */
-const DIRECT_CHANNEL_IDS: ReadonlySet<string> = new Set(['agnes-images'])
+type ChannelRouteStyle =
+  /**
+   * Agnes 风格上游：没有 images/edits 端点，文生图与图生图共用
+   * images/generations JSON，输入图放 extra_body.image。
+   */
+  | 'agnes-generations-json'
+  /** 标准 OpenAI Images 语义：generations JSON / edits multipart / n>1 fan-out。 */
+  | 'openai-images'
+  /** Grok 只接受一张编辑输入图；多张参考图先合成带序号标签的 contact sheet。 */
+  | 'grok-openai-images'
+
+const CHANNEL_ROUTE_STYLES: Readonly<Record<string, ChannelRouteStyle | undefined>> = {
+  'agnes-images': 'agnes-generations-json',
+  'grok-images': 'grok-openai-images',
+}
+
+interface UpstreamRoute {
+  baseUrl: string
+  key: string
+  /** openai-compat 分支的协议风格（gemini 分支不看这个字段）。 */
+  style: ChannelRouteStyle
+}
 
 /**
- * provider + model → 上游 baseUrl 与 API key。
+ * provider + model → 上游 baseUrl、API key 与协议风格。
  * 返回的 baseUrl 统一**含版本段**（如 .../v1、.../v1beta），调用方拼相对路径，
  * 杜绝 channel baseUrl（含版本段）与 env baseUrl（不含）两套约定打架拼出 /v1/v1。
- * `direct=true` 表示命中独立直连 channel（Agnes 风格上游，见 callUpstream 内分支）。
+ * 未命中 CHANNEL_ROUTE_STYLES 的走 UPSTREAM_BASE_URL 通用网关 + 标准 OpenAI 协议。
  */
-function resolveUpstream(
-  provider: QueueProvider,
-  model: string,
-): { baseUrl: string; key: string; direct: boolean } {
+function resolveUpstream(provider: QueueProvider, model: string): UpstreamRoute {
   const kind = provider === 'gemini' ? 'gemini-queue' : 'openai-queue'
-  const channel = getChannels().find(
-    (c) => c.kind === kind && DIRECT_CHANNEL_IDS.has(c.id) && c.models.some((m) => m.id === model),
-  )
-  if (channel) return { baseUrl: channel.baseUrl, key: channel.auth.secret, direct: true }
+  for (const channel of getChannels()) {
+    const style = CHANNEL_ROUTE_STYLES[channel.id]
+    if (!style || channel.kind !== kind) continue
+    if (!channel.models.some((m) => m.id === model)) continue
+    return { baseUrl: channel.baseUrl, key: channel.auth.secret, style }
+  }
   const version = provider === 'gemini' ? 'v1beta' : 'v1'
   return {
     baseUrl: `${config.upstream.baseUrl}/${version}`,
     key: resolveApiKey(provider),
-    direct: false,
+    style: 'openai-images',
   }
 }
 export interface UpstreamCallParams {
@@ -62,9 +81,17 @@ export interface UpstreamCallResult {
   payload: unknown
 }
 
-type UpstreamFetch = typeof undiciFetch
+interface UpstreamResponse {
+  readonly ok: boolean
+  readonly status: number
+  text(): Promise<string>
+}
+
+type UpstreamFetch = (
+  input: Parameters<typeof undiciFetch>[0],
+  init?: Parameters<typeof undiciFetch>[1],
+) => Promise<UpstreamResponse>
 type UpstreamFetchInit = Parameters<UpstreamFetch>[1]
-type UpstreamResponse = Awaited<ReturnType<UpstreamFetch>>
 
 export const UPSTREAM_CONNECT_TIMEOUT_MS = 10_000
 export const UPSTREAM_TRANSPORT_TIMEOUT_MS = QUEUE_TIMEOUTS.UPSTREAM_HARD_TIMEOUT_MS + 60_000
@@ -108,7 +135,7 @@ export class UpstreamTimeoutError extends UpstreamResultUnknownError {
  */
 export async function callUpstream(params: UpstreamCallParams): Promise<UpstreamCallResult> {
   const { provider, model, request, signal: externalSignal, beforeRequest } = params
-  const { baseUrl: base, key, direct } = resolveUpstream(provider, model)
+  const { baseUrl: base, key, style } = resolveUpstream(provider, model)
 
   const abort = new AbortController()
   let timedOut = false
@@ -175,11 +202,11 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
     if (provider === 'openai-compat') {
       const authHeader: Record<string, string> = key ? { authorization: `Bearer ${key}` } : {}
 
-      // Direct channel（Agnes 风格上游）：没有 images/edits 端点，图生图与文生图
+      // Agnes 风格上游：没有 images/edits 端点，图生图与文生图
       // 共用 images/generations JSON，输入图放 extra_body.image（data URI / URL）。
       // 实测注意：文档"Important Notes"声称的 top-level image 数组会被上游**静默忽略**
       // （跑成纯文生图），必须放 extra_body；n 同样被忽略，这里学 gemini 分支 fan-out。
-      if (direct) {
+      if (style === 'agnes-generations-json') {
         if (request.mask) {
           // 挂 upstreamStatus=400 → retry.ts 判为永久失败，不浪费 3 次重试
           const err = new Error(
@@ -189,7 +216,7 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
           throw err
         }
         const url = `${base}/images/generations`
-        const body = JSON.stringify(buildDirectChannelBody(model, request))
+        const body = JSON.stringify(buildAgnesGenerationsBody(model, request))
         const headers = { 'content-type': 'application/json', ...authHeader }
         return fanOutRequests(
           request.n,
@@ -203,28 +230,64 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
 
       // 有参考图 / 有遮罩 → images/edits multipart；generations 是纯文生图，
       // 塞 input_images 字段上游会忽略（用户感知"AI 不参考附件"）。
+      //
+      // 两个端点都同一套 n 策略：n===1 直接透传，n>1 时本层 fan-out 成 n 次并发
+      // 单图请求（每次不带 n，上游各回一张），再把各次的 data 合并成一个 payload，
+      // 对 task-runner / 前端透明。
       if (request.input_images?.length || request.mask) {
         const url = `${base}/images/edits`
-        const files = prepareOpenAIEditFiles(request)
-        return fanOutRequests(
-          request.n,
-          async () => {
+        // Grok edits 的 multipart 只接受一个 image：多张参考图先合成 contact sheet。
+        // 单图（以及普通 OpenAI channel）仍走原文件透传，判定收在 normalizeGrokEditInputs 里。
+        // 必须在 fan-out 前做一次，避免 n>1 时重复解码和合图。
+        const editRequest =
+          style === 'grok-openai-images'
+            ? await normalizeGrokEditInputs(request, abort.signal)
+            : request
+        const n = Math.max(1, editRequest.n ?? 1)
+        if (n === 1) {
+          const res = await performFetch(url, {
+            method: 'POST',
+            headers: authHeader,
+            body: buildOpenAIEditFormData(model, editRequest),
+          })
+          return parseResponse(res)
+        }
+
+        const singleRequest = withoutImageCount(editRequest)
+        const results = await Promise.all(
+          // multipart body 含 File 流，不能跨请求复用 → 每次重新构造。
+          Array.from({ length: n }, async () => {
             const res = await performFetch(url, {
               method: 'POST',
               headers: authHeader,
-              body: buildOpenAIEditFormData(model, request, files),
+              body: buildOpenAIEditFormData(model, singleRequest),
             })
             return parseResponse(res)
-          },
-          mergeOpenAIDataResults,
+          }),
         )
+        return mergeOpenAIImageResults(results)
       }
-      const res = await performFetch(`${base}/images/generations`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', ...authHeader },
-        body: JSON.stringify(buildOpenAIBody(model, request)),
-      })
-      return parseResponse(res)
+
+      const url = `${base}/images/generations`
+      const headers = { 'content-type': 'application/json', ...authHeader }
+      const n = Math.max(1, request.n ?? 1)
+      if (n === 1) {
+        const res = await performFetch(url, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(buildOpenAIBody(model, request)),
+        })
+        return parseResponse(res)
+      }
+
+      const body = JSON.stringify(buildOpenAIBody(model, withoutImageCount(request)))
+      const results = await Promise.all(
+        Array.from({ length: n }, async () => {
+          const res = await performFetch(url, { method: 'POST', headers, body })
+          return parseResponse(res)
+        }),
+      )
+      return mergeOpenAIImageResults(results)
     }
 
     if (provider === 'gemini') {
@@ -296,13 +359,35 @@ function mergeOpenAIDataResults(results: UpstreamCallResult[]): UpstreamCallResu
   }
 }
 
+/** fan-out 的单次请求体用：去掉 n，让上游按默认的一张返回。 */
+function withoutImageCount(request: HydratedSubmitRequest): HydratedSubmitRequest {
+  const { n: _n, ...singleRequest } = request
+  return singleRequest
+}
+
 /**
- * Direct channel（Agnes 风格）请求体：文生图与图生图同一端点同一 JSON 体，
+ * 把 fan-out 的多次单图响应合并成一个 OpenAI 风格 payload。
+ * 只保留 data；单次响应的顶层字段（created / usage / size / quality / output_format）丢弃，
+ * 即 fan-out 结果没有 extractImages 的 actual_params。
+ */
+function mergeOpenAIImageResults(results: readonly UpstreamCallResult[]): UpstreamCallResult {
+  return {
+    payload: {
+      data: results.flatMap((result) => {
+        const payload = result.payload as { data?: unknown[] } | null
+        return Array.isArray(payload?.data) ? payload.data : []
+      }),
+    },
+  }
+}
+
+/**
+ * Agnes 风格（agnes-generations-json）请求体：文生图与图生图同一端点同一 JSON 体，
  * 输入图放 extra_body.image（实测 top-level image 会被上游静默忽略）。
  * quality / n 上游不识别 → 不传（n 由 callUpstream fan-out 实现）。
  * 新增的 OpenAI / Gemini 参数也不传，避免上游拒绝或静默忽略未知字段。
  */
-function buildDirectChannelBody(
+function buildAgnesGenerationsBody(
   model: string,
   request: HydratedSubmitRequest,
 ): Record<string, unknown> {
@@ -337,6 +422,108 @@ function buildOpenAIBody(model: string, request: HydratedSubmitRequest): Record<
   }
 }
 
+const GROK_CONTACT_SHEET_MAX_SIDE = 2048
+const GROK_CONTACT_SHEET_MAX_INPUTS = 16
+const GROK_CONTACT_SHEET_GAP = 16
+const GROK_CONTACT_SHEET_LABEL_HEIGHT = 64
+
+/**
+ * Grok edits only accept one image. Combine multiple inputs into a numbered contact sheet.
+ */
+async function normalizeGrokEditInputs(
+  request: HydratedSubmitRequest,
+  signal: AbortSignal,
+): Promise<HydratedSubmitRequest> {
+  signal.throwIfAborted()
+  const inputImages = request.input_images ?? []
+  if (inputImages.length > GROK_CONTACT_SHEET_MAX_INPUTS) {
+    throw new Error(
+      `Grok contact sheet 最多支持 ${GROK_CONTACT_SHEET_MAX_INPUTS} 张参考图，当前收到 ${inputImages.length} 张`,
+    )
+  }
+  if (inputImages.length > 1 && request.mask) {
+    throw new Error(
+      'Grok 编辑不支持“多张参考图 + 遮罩”：原始遮罩坐标无法映射到 contact sheet，请只保留一张参考图或移除遮罩',
+    )
+  }
+  if (inputImages.length <= 1) return request
+
+  const columns = Math.ceil(Math.sqrt(inputImages.length))
+  const rows = Math.ceil(inputImages.length / columns)
+  const gap = Math.min(
+    GROK_CONTACT_SHEET_GAP,
+    Math.floor(GROK_CONTACT_SHEET_MAX_SIDE / (Math.max(columns, rows) * 8)),
+  )
+  const cellWidth = Math.max(
+    1,
+    Math.floor((GROK_CONTACT_SHEET_MAX_SIDE - gap * (columns - 1)) / columns),
+  )
+  const rowHeight = Math.max(2, Math.floor((GROK_CONTACT_SHEET_MAX_SIDE - gap * (rows - 1)) / rows))
+  const labelHeight = Math.min(
+    GROK_CONTACT_SHEET_LABEL_HEIGHT,
+    Math.max(1, Math.floor(rowHeight / 5)),
+  )
+  const imageSide = Math.max(1, Math.min(cellWidth, rowHeight - labelHeight))
+  const sheetWidth = columns * imageSide + gap * (columns - 1)
+  const sheetHeight = rows * (imageSide + labelHeight) + gap * (rows - 1)
+
+  const tiles: Array<{ image: Buffer; label: Buffer }> = []
+  for (const [index, dataUrl] of inputImages.entries()) {
+    const { bytes } = decodeDataUrl(dataUrl)
+    signal.throwIfAborted()
+    const image = await sharp(bytes)
+      .rotate()
+      .resize(imageSide, imageSide, {
+        fit: 'contain',
+        background: { r: 245, g: 245, b: 245, alpha: 1 },
+      })
+      .png()
+      .toBuffer()
+    signal.throwIfAborted()
+    tiles.push({ image, label: buildTileLabelSvg(index, imageSide, labelHeight) })
+  }
+
+  const overlays = tiles.flatMap(({ image, label }, index) => {
+    const column = index % columns
+    const row = Math.floor(index / columns)
+    const left = column * (imageSide + gap)
+    const top = row * (imageSide + labelHeight + gap)
+    return [
+      { input: image, left, top },
+      { input: label, left, top: top + imageSide },
+    ]
+  })
+  signal.throwIfAborted()
+  const sheet = await sharp({
+    create: {
+      width: sheetWidth,
+      height: sheetHeight,
+      channels: 4,
+      background: { r: 255, g: 255, b: 255, alpha: 1 },
+    },
+  })
+    .composite(overlays)
+    .png()
+    .toBuffer()
+  signal.throwIfAborted()
+
+  return {
+    ...request,
+    input_images: [`data:image/png;base64,${sheet.toString('base64')}`],
+  }
+}
+
+function buildTileLabelSvg(index: number, width: number, height: number): Buffer {
+  const fontSize = Math.max(12, Math.min(28, Math.floor(height * 0.44)))
+  return Buffer.from(
+    `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">` +
+      '<rect width="100%" height="100%" fill="#111827"/>' +
+      '<text x="24" y="50%" dy="0.35em" fill="#ffffff" font-family="sans-serif" ' +
+      `font-size="${fontSize}" font-weight="700">Image ${index + 1}</text>` +
+      '</svg>',
+  )
+}
+
 interface OpenAIEditFiles {
   inputs: File[]
   mask?: File
@@ -349,11 +536,8 @@ function prepareOpenAIEditFiles(request: HydratedSubmitRequest): OpenAIEditFiles
   }
 }
 
-function buildOpenAIEditFormData(
-  model: string,
-  request: HydratedSubmitRequest,
-  files: OpenAIEditFiles,
-): FormData {
+function buildOpenAIEditFormData(model: string, request: HydratedSubmitRequest): FormData {
+  const files = prepareOpenAIEditFiles(request)
   const form = new FormData()
   form.append('model', model)
   form.append('prompt', request.prompt)
@@ -375,13 +559,18 @@ function buildOpenAIEditFormData(
 }
 
 function dataUrlToFile(dataUrl: string, filename: string): File {
+  const { mime, bytes } = decodeDataUrl(dataUrl)
+  return new File([Buffer.from(bytes)], filename, { type: mime })
+}
+
+function decodeDataUrl(dataUrl: string): { mime: string; bytes: Uint8Array } {
   const m = dataUrl.match(/^data:([^;,]+);base64,(.*)$/i)
   if (!m) throw new Error('input_images 中的数据 URL 格式无效，必须是 data:<mime>;base64,<...>')
   const mime = m[1]!
   const bin = atob(m[2]!)
   const bytes = new Uint8Array(bin.length)
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
-  return new File([bytes], filename, { type: mime })
+  return { mime, bytes }
 }
 
 function buildGeminiBody(request: HydratedSubmitRequest): Record<string, unknown> {
