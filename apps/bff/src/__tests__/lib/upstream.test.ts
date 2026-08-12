@@ -264,7 +264,7 @@ describe('callUpstream OpenAI route', () => {
   })
 })
 
-describe('callUpstream direct channel 路由（DIRECT_CHANNEL_IDS）', () => {
+describe('callUpstream 独立直连 channel 路由（CHANNEL_ROUTE_STYLES）', () => {
   let calls: FetchCall[] = []
 
   const agnesChannel: InternalChannel = {
@@ -473,5 +473,110 @@ describe('callUpstream direct channel 图生图（Agnes 风格 generations JSON�
     }
     const payload = result.payload as { data: unknown[] }
     expect(payload.data).toHaveLength(3)
+  })
+})
+
+describe('callUpstream grok-images channel（channel base/key + 标准 OpenAI 协议）', () => {
+  let calls: FetchCall[] = []
+
+  const grokChannel: InternalChannel = {
+    id: 'grok-images',
+    kind: 'openai-queue',
+    label: 'Grok Imagine Image',
+    baseUrl: 'https://sub2api.qiliangjia.org/v1',
+    auth: { type: 'bearer', secretRef: 'GROK_API_KEY', secret: 'grok-test-key' },
+    allowedPaths: ['images/generations', 'images/edits'],
+    models: [
+      {
+        id: 'grok-imagine-image',
+        label: 'Grok Imagine Image',
+        capabilities: ['generate', 'edit', 'n'],
+      },
+    ],
+    defaults: { apiMode: 'images', timeout: 600 },
+  }
+
+  beforeEach(() => {
+    calls = []
+    _setChannelsForTesting([grokChannel])
+    setUpstreamFetchForTesting((async (
+      input: Parameters<TestFetch>[0],
+      init: Parameters<TestFetch>[1],
+    ) => {
+      calls.push({ url: typeof input === 'string' ? input : input.toString(), init })
+      return new Response(JSON.stringify({ data: [{ b64_json: 'ok' }] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    }) as unknown as TestFetch)
+  })
+
+  afterEach(() => {
+    setUpstreamFetchForTesting()
+    _setChannelsForTesting([])
+  })
+
+  it('generations：走 channel baseUrl + Bearer channel key + 标准 JSON 体', async () => {
+    await callUpstream({
+      provider: 'openai-compat',
+      model: 'grok-imagine-image',
+      request: { prompt: 'a cat', size: '1024x1024' },
+    })
+    expect(calls).toHaveLength(1)
+    expect(calls[0]!.url).toBe('https://sub2api.qiliangjia.org/v1/images/generations')
+    const headers = new Headers(calls[0]!.init?.headers as HeadersInit)
+    expect(headers.get('authorization')).toBe('Bearer grok-test-key')
+    expect(headers.get('content-type')).toContain('application/json')
+    const body = JSON.parse(calls[0]!.init?.body as string)
+    expect(body).toMatchObject({
+      model: 'grok-imagine-image',
+      prompt: 'a cat',
+      size: '1024x1024',
+    })
+    // 标准 OpenAI 语义：不走 Agnes 私有的 extra_body.image 协议
+    expect(body.extra_body).toBeUndefined()
+  })
+
+  it('edits：input_images 走 multipart image[]，同一 channel base/key', async () => {
+    await callUpstream({
+      provider: 'openai-compat',
+      model: 'grok-imagine-image',
+      request: {
+        prompt: 'make it blue',
+        size: '1024x1024',
+        input_images: [TINY_PNG_DATA_URL],
+      },
+    })
+    expect(calls).toHaveLength(1)
+    expect(calls[0]!.url).toBe('https://sub2api.qiliangjia.org/v1/images/edits')
+    const headers = new Headers(calls[0]!.init?.headers as HeadersInit)
+    expect(headers.get('authorization')).toBe('Bearer grok-test-key')
+    const body = calls[0]!.init?.body
+    expect(body).toBeInstanceOf(UndiciFormData)
+    const form = body as UndiciFormData
+    expect(form.get('model')).toBe('grok-imagine-image')
+    expect(form.get('prompt')).toBe('make it blue')
+    expect(form.get('size')).toBe('1024x1024')
+    const images = form.getAll('image[]')
+    expect(images).toHaveLength(1)
+    expect(images[0]).toBeInstanceOf(File)
+    expect((images[0] as File).size).toBeGreaterThan(0)
+  })
+
+  it('n=2：fan-out 两次 generations 请求（体不带 n）并合并 data 成长度 2', async () => {
+    const result = await callUpstream({
+      provider: 'openai-compat',
+      model: 'grok-imagine-image',
+      request: { prompt: 'a star', n: 2 },
+    })
+    expect(calls).toHaveLength(2)
+    for (const c of calls) {
+      expect(c.url).toBe('https://sub2api.qiliangjia.org/v1/images/generations')
+      const headers = new Headers(c.init?.headers as HeadersInit)
+      expect(headers.get('authorization')).toBe('Bearer grok-test-key')
+      expect(JSON.parse(c.init?.body as string).n).toBeUndefined()
+    }
+    const payload = result.payload as { data: unknown[] }
+    expect(payload.data).toHaveLength(2)
   })
 })
