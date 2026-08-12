@@ -15,7 +15,7 @@ import {
   getParamCapabilities,
   normalizeParamsForSettings,
 } from '../lib/paramCompatibility'
-import { PrivateSubmissionStatus, usePrivateSubmissionGuard } from '../lib/privateOverlay'
+import { usePrivateSubmissionGuard } from '../lib/privateOverlay'
 import { computePromptHeight } from '../lib/promptHeight'
 import {
   getAtImageQuery,
@@ -1883,7 +1883,6 @@ export default function InputBar() {
                   </div>
                   <ParamControls showCount />
                   {/* ml-auto 让 Generate 永远贴当前行右端，chips 偶尔挤到 row 2 时大按钮也能撑住空白。 */}
-                  <PrivateSubmissionStatus {...submissionInput} />
                   <div
                     className="relative ml-auto flex-shrink-0"
                     onMouseEnter={() => setSubmitHover(true)}
@@ -1945,7 +1944,6 @@ export default function InputBar() {
                     </div>
                   </div>
 
-                  <PrivateSubmissionStatus {...submissionInput} />
                   <div className="flex items-center gap-2">
                     <div
                       className="relative"

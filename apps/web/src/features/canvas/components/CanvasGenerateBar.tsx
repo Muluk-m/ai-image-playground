@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import ParamControls from '../../../components/ParamControls'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/apiProfiles'
-import { PrivateSubmissionStatus, usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
+import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
 import { useStore } from '../../../store'
 import type { CanvasEditor } from '../lib/editor'
 import { analyzeSelection, rasterizeEntry } from '../lib/rasterizeSelection'
@@ -130,9 +130,6 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
             成 n 个并行任务，占位框水平排开各自出图（变体对比）。 */}
         <div className="flex flex-wrap items-center gap-2">
           <ParamControls showCount />
-          <span className="ml-auto text-xs">
-            <PrivateSubmissionStatus {...submissionInput} />
-          </span>
         </div>
         {/* 输入预览：模型将收到的每个参考图条目（含合成后的标注）+ 提取的文字标注。 */}
         {imageCount > 0 && (
