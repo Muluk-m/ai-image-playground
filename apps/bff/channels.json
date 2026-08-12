@@ -66,6 +66,28 @@
         "timeout": 600
       },
       "allowedPaths": ["images/generations"]
+    },
+    {
+      "id": "grok-images",
+      "kind": "openai-queue",
+      "label": "Grok Imagine Image",
+      "baseUrl": "https://sub2api.qiliangjia.org/v1",
+      "auth": {
+        "type": "bearer",
+        "secretRef": "GROK_API_KEY"
+      },
+      "models": [
+        {
+          "id": "grok-imagine-image",
+          "label": "Grok Imagine Image",
+          "capabilities": ["generate", "edit", "n"]
+        }
+      ],
+      "defaults": {
+        "apiMode": "images",
+        "timeout": 600
+      },
+      "allowedPaths": ["images/generations", "images/edits"]
     }
   ]
 }
