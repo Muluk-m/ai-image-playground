@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   createDefaultGeminiByokProfile,
   createDefaultOpenAIByokProfile,
@@ -74,6 +74,8 @@ vi.mock('../lib/transparentImage', async (importOriginal) => {
 })
 
 import { callImageApi } from '../lib/api'
+import { setChannels } from '../lib/channels/channelStore'
+import type { BuiltinEdgeProfile, ClientProfile, PublicChannel } from '../lib/channels/types'
 import { clearImages, getImage, putImage } from '../lib/db'
 import { removeKeyedBackgroundFromDataUrl } from '../lib/transparentImage'
 import {
@@ -82,6 +84,7 @@ import {
   getPersistedState,
   getTaskApiProfile,
   markInterruptedOpenAIRunningTasks,
+  retryTask,
   reuseConfig,
   submitTask,
   useStore,
@@ -550,5 +553,179 @@ describe('canvas image handoff queue', () => {
     useStore.getState().queueCanvasImages(['data:x'])
     const persisted = getPersistedState(useStore.getState())
     expect('pendingCanvasImages' in persisted).toBe(false)
+  })
+})
+
+describe('submitTask 数量分发（capability n 门控）', () => {
+  const gptImageChannel: PublicChannel = {
+    id: 'openai-images',
+    kind: 'openai-queue',
+    label: 'OpenAI',
+    models: [
+      {
+        id: 'gpt-image-2',
+        label: 'GPT Image 2',
+        capabilities: ['generate', 'edit', 'mask', 'quality', 'n'],
+      },
+    ],
+    defaults: { apiMode: 'images', timeout: 600 },
+  }
+  const geminiChannel: PublicChannel = {
+    id: 'gemini-flash-image',
+    kind: 'gemini-queue',
+    label: 'Gemini',
+    models: [
+      {
+        id: 'gemini-3.1-flash-image',
+        label: 'Gemini 3.1 Flash Image',
+        capabilities: ['generate', 'edit', 'size'],
+      },
+    ],
+    defaults: { apiMode: 'images', timeout: 600 },
+  }
+
+  function builtinProfile(channelId: string, modelId: string): BuiltinEdgeProfile {
+    return {
+      id: `builtin-${channelId}`,
+      source: 'builtin-edge',
+      channelId,
+      selectedModelId: modelId,
+    }
+  }
+
+  function setupCountState(profile: ClientProfile) {
+    useStore.setState({
+      settings: normalizeSettings({
+        ...DEFAULT_SETTINGS,
+        profiles: [profile],
+        activeProfileId: profile.id,
+      }),
+      prompt: 'prompt',
+      inputImages: [],
+      maskDraft: null,
+      params: { ...DEFAULT_PARAMS, n: 4 },
+      tasks: [],
+      detailTaskId: null,
+      showSettings: false,
+      toast: null,
+      confirmDialog: null,
+      showToast: vi.fn(),
+      setConfirmDialog: vi.fn(),
+    })
+  }
+
+  function expectFanOutFour() {
+    const tasks = useStore.getState().tasks
+    expect(tasks).toHaveLength(4)
+    expect(tasks.every((t) => t.params.n === 1)).toBe(true)
+    expect(new Set(tasks.map((t) => t.clientRequestId)).size).toBe(4)
+    const calls = vi.mocked(callImageApi).mock.calls
+    expect(calls).toHaveLength(4)
+    expect(calls.every((c) => c[0].params.n === 1)).toBe(true)
+  }
+
+  beforeEach(() => {
+    vi.mocked(callImageApi).mockClear()
+    vi.mocked(callImageApi).mockResolvedValue({
+      images: ['data:image/png;base64,generated'],
+      actualParamsList: [{ size: '1x1' }],
+    })
+    setChannels([])
+  })
+
+  afterEach(() => {
+    setChannels([])
+  })
+
+  it('声明 n 的内置模型：count=4 合并为一条任务、一次 submit 携带 n=4，多图全部落在这条任务上', async () => {
+    setChannels([gptImageChannel])
+    setupCountState(builtinProfile('openai-images', 'gpt-image-2'))
+    vi.mocked(callImageApi).mockResolvedValue({
+      images: [
+        'data:image/png;base64,g1',
+        'data:image/png;base64,g2',
+        'data:image/png;base64,g3',
+        'data:image/png;base64,g4',
+      ],
+      actualParamsList: [
+        { size: '1024x1024' },
+        { size: '1024x1024' },
+        { size: '1024x1024' },
+        { size: '1024x1024' },
+      ],
+    })
+
+    await submitTask()
+    await waitUntil(
+      () => useStore.getState().tasks[0]?.status === 'done',
+      'native count task did not finish',
+    )
+
+    const tasks = useStore.getState().tasks
+    expect(tasks).toHaveLength(1)
+    expect(tasks[0].params.n).toBe(4)
+    expect(tasks[0].clientRequestId).toBeTruthy()
+    const calls = vi.mocked(callImageApi).mock.calls
+    expect(calls).toHaveLength(1)
+    expect(calls[0][0].params.n).toBe(4)
+    expect(tasks[0].outputImages).toHaveLength(4)
+    expect(new Set(tasks[0].outputImages).size).toBe(4)
+    expect(tasks[0].actualParams).toMatchObject({ n: 4 })
+  })
+
+  it('原生 n 任务重试仍是一条任务携带 n=4（native task 粒度）', async () => {
+    setChannels([gptImageChannel])
+    setupCountState(builtinProfile('openai-images', 'gpt-image-2'))
+    const failed = task({
+      id: 'native-failed',
+      status: 'error',
+      params: { ...DEFAULT_PARAMS, n: 4 },
+      apiProvider: 'openai',
+      apiProfileId: 'builtin-openai-images',
+    })
+    useStore.setState({ tasks: [failed] })
+
+    await retryTask(failed)
+    await waitUntil(
+      () => useStore.getState().tasks[0]?.status === 'done',
+      'retried native task did not finish',
+    )
+
+    const tasks = useStore.getState().tasks
+    expect(tasks).toHaveLength(2)
+    expect(tasks[0].params.n).toBe(4)
+    const calls = vi.mocked(callImageApi).mock.calls
+    expect(calls).toHaveLength(1)
+    expect(calls[0][0].params.n).toBe(4)
+  })
+
+  it('未声明 n 的内置模型（Gemini）：count=4 保持四条任务、各自 n=1 且 clientRequestId 唯一', async () => {
+    setChannels([geminiChannel])
+    setupCountState(builtinProfile('gemini-flash-image', 'gemini-3.1-flash-image'))
+
+    await submitTask()
+    await waitUntil(
+      () =>
+        useStore.getState().tasks.length === 4 &&
+        useStore.getState().tasks.every((t) => t.status === 'done'),
+      'fan-out tasks did not finish',
+    )
+
+    expectFanOutFour()
+  })
+
+  it('BYOK profile（无能力声明，模型名与内置相同也不推断）：count=4 仍是四条 n=1 任务', async () => {
+    setChannels([gptImageChannel])
+    setupCountState(createDefaultOpenAIByokProfile({ apiKey: 'test-key' }))
+
+    await submitTask()
+    await waitUntil(
+      () =>
+        useStore.getState().tasks.length === 4 &&
+        useStore.getState().tasks.every((t) => t.status === 'done'),
+      'fan-out tasks did not finish',
+    )
+
+    expectFanOutFour()
   })
 })
