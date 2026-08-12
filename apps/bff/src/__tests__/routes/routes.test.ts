@@ -166,6 +166,28 @@ describe('BFF queue routes', () => {
     expect(await db.select().from(schema.task_blobs)).toHaveLength(1)
   })
 
+  it('concurrent duplicate submits create one task and consume quota once', async () => {
+    const request = submitBody({
+      client_request_id: 'concurrent-duplicate-request',
+      n: 4,
+      input_images: ['data:image/png;base64,AQID'],
+    })
+
+    const [first, second] = await Promise.all([
+      jsonReq('POST', '/v1/queue/openai-compat/gpt-image-2/submit', request),
+      jsonReq('POST', '/v1/queue/openai-compat/gpt-image-2/submit', request),
+    ])
+
+    expect(first.status).toBe(200)
+    expect(second.status).toBe(200)
+    expect(requestIdFrom(second.json)).toBe(requestIdFrom(first.json))
+    expect(await db.select().from(schema.tasks)).toHaveLength(1)
+    expect(await db.select().from(schema.task_blobs)).toHaveLength(1)
+    expect(await db.select().from(schema.daily_quota)).toEqual([
+      expect.objectContaining({ count: 4 }),
+    ])
+  })
+
   it('rolls back the task when input blob storage fails', async () => {
     const sqlite = new Database(TEST_DB)
     sqlite.exec(`
@@ -192,6 +214,7 @@ describe('BFF queue routes', () => {
 
     expect(await db.select().from(schema.tasks)).toEqual([])
     expect(await db.select().from(schema.task_blobs)).toEqual([])
+    expect(await db.select().from(schema.daily_quota)).toEqual([])
   })
 
   it('POST submit with mask routes to /v1/images/edits with mask field', async () => {

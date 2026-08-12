@@ -3,8 +3,8 @@ import { DAILY_QUOTA_LIMIT } from '@image-playground/shared'
 import { eq } from 'drizzle-orm'
 import { Elysia, t } from 'elysia'
 import { db, schema } from '../db/client'
-import { createTaskWithBlobs, rewriteInputDataUrls } from '../lib/blobStore'
-import { tryConsumeQuota } from '../lib/quota'
+import { insertTaskBlobs, rewriteInputDataUrls } from '../lib/blobStore'
+import { tryConsumeQuotaSync } from '../lib/quota'
 
 const submitBodySchema = t.Object({
   prompt: t.String({ minLength: 1 }),
@@ -52,62 +52,67 @@ export const submitRoutes = new Elysia()
         return status(400, { error: `unsupported provider: ${provider}` })
       }
 
-      // 幂等命中（client_request_id 已存在）走优先返回，避免重复扣配额。
-      if (body.client_request_id) {
-        const [existing] = await db
-          .select({ id: schema.tasks.id, submitted_at: schema.tasks.submitted_at })
-          .from(schema.tasks)
-          .where(eq(schema.tasks.client_request_id, body.client_request_id))
-          .limit(1)
-        if (existing) {
-          return { request_id: existing.id, status: 'queued', submitted_at: existing.submitted_at }
-        }
-      }
       const rewrittenImages = rewriteInputDataUrls(body.input_images ?? [])
       const requestPayload = body.input_images
         ? { ...body, input_images: rewrittenImages.refs }
         : body
-
-      // 配额扣减：先扣后建。失败 → 429，不写 tasks。
       const n = body.n ?? 1
-      const quota = await tryConsumeQuota(body.device_id, n)
-      if (!quota.ok) {
+
+      type SubmitOutcome =
+        | { kind: 'replay'; id: string; submitted_at: number }
+        | { kind: 'quota_rejected'; count: number; reset_at: string }
+        | { kind: 'created'; id: string; submitted_at: number }
+
+      const outcome = db.transaction(
+        (tx): SubmitOutcome => {
+          if (body.client_request_id) {
+            const existing = tx
+              .select({ id: schema.tasks.id, submitted_at: schema.tasks.submitted_at })
+              .from(schema.tasks)
+              .where(eq(schema.tasks.client_request_id, body.client_request_id))
+              .limit(1)
+              .get()
+            if (existing) return { kind: 'replay', ...existing }
+          }
+
+          const quota = tryConsumeQuotaSync(body.device_id, n, tx)
+          if (!quota.ok) {
+            return { kind: 'quota_rejected', count: quota.count, reset_at: quota.reset_at }
+          }
+
+          const id = crypto.randomUUID()
+          const submitted_at = Date.now()
+          tx.insert(schema.tasks)
+            .values({
+              id,
+              provider,
+              model,
+              status: 'queued',
+              request_payload: requestPayload,
+              submitted_at,
+              client_request_id: body.client_request_id ?? null,
+            })
+            .run()
+          insertTaskBlobs(id, rewrittenImages.blobs, tx)
+          return { kind: 'created', id, submitted_at }
+        },
+        { behavior: 'immediate' },
+      )
+
+      if (outcome.kind === 'quota_rejected') {
         return status(429, {
           error: 'daily_quota_exceeded',
           limit: DAILY_QUOTA_LIMIT,
-          used: quota.count,
-          reset_at: quota.reset_at,
+          used: outcome.count,
+          reset_at: outcome.reset_at,
         })
       }
 
-      const id = crypto.randomUUID()
-      const now = Date.now()
-      const inserted = await createTaskWithBlobs(
-        {
-          id,
-          provider,
-          model,
-          status: 'queued',
-          request_payload: requestPayload,
-          submitted_at: now,
-          client_request_id: body.client_request_id ?? null,
-        },
-        rewrittenImages.blobs,
-        db,
-      )
-
-      if (inserted.length === 0 && body.client_request_id) {
-        // 极端并发：上面 SELECT 没命中但 INSERT 冲突——重查兜底
-        const [existing] = await db
-          .select({ id: schema.tasks.id, submitted_at: schema.tasks.submitted_at })
-          .from(schema.tasks)
-          .where(eq(schema.tasks.client_request_id, body.client_request_id))
-          .limit(1)
-        if (existing)
-          return { request_id: existing.id, status: 'queued', submitted_at: existing.submitted_at }
+      return {
+        request_id: outcome.id,
+        status: 'queued',
+        submitted_at: outcome.submitted_at,
       }
-
-      return { request_id: id, status: 'queued', submitted_at: now }
     },
     {
       params: t.Object({
