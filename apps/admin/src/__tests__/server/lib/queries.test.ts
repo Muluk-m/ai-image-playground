@@ -47,6 +47,26 @@ await writer.db.insert(writer.schema.tasks).values([
     upstream_invocation_count: 3,
   })),
   {
+    id: 'multiplier-4',
+    provider: 'openai-compat',
+    model: 'normalized-multiplier',
+    status: 'completed',
+    request_payload: { prompt: 'four images', n: 4, device_id: 'dev-MULTIPLIER' },
+    submitted_at: now,
+    completed_at: now + 1000,
+    upstream_invocation_count: 4,
+  },
+  {
+    id: 'multiplier-1',
+    provider: 'openai-compat',
+    model: 'normalized-multiplier',
+    status: 'completed',
+    request_payload: { prompt: 'one image', n: 1, device_id: 'dev-MULTIPLIER' },
+    submitted_at: now,
+    completed_at: now + 1000,
+    upstream_invocation_count: 1,
+  },
+  {
     id: 'big-1',
     provider: 'openai-compat',
     model: 'gpt-image-2',
@@ -73,7 +93,7 @@ await writer.db.insert(writer.schema.users).values({
 await writer.client`UPDATE tasks SET user_id = 'user-page' WHERE id LIKE 'pg-%'`
 
 // Dynamic import keeps environment setup ahead of Admin configuration capture.
-const { listDevices, getDeviceDetail, getTask, getUserDetail } = await import(
+const { listDevices, getDeviceDetail, getOverview, getTask, getUserDetail } = await import(
   '../../../../server/lib/queries'
 )
 
@@ -101,6 +121,17 @@ describe('listDevices', () => {
     expect(devA.ok_count).toBe(2)
     expect(devA.fail_count).toBe(1)
     expect(devA.models).toEqual(expect.arrayContaining(['gpt-image-2', 'gemini-3-pro']))
+  })
+})
+
+describe('getOverview', () => {
+  it('reports upstream invocation multiplier per requested image', async () => {
+    const result = await getOverview('7d')
+    const model = result.models.find((entry) => entry.model === 'normalized-multiplier')
+
+    expect(model?.count).toBe(2)
+    expect(model?.upstream_invocations).toBe(5)
+    expect(model?.average_multiplier).toBe(1)
   })
 })
 

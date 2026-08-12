@@ -298,8 +298,10 @@ export async function getOverview(range: Range): Promise<OverviewResult> {
         model,
         COUNT(*) AS count,
         COALESCE(SUM(upstream_invocation_count), 0) AS upstream_invocations,
-        AVG(upstream_invocation_count::double precision)
-          FILTER (WHERE status IN ('completed', 'failed', 'cancelled')) AS average_multiplier
+        AVG(
+          upstream_invocation_count::double precision
+            / GREATEST(COALESCE((request_payload->>'n')::integer, 1), 1)
+        ) FILTER (WHERE status IN ('completed', 'failed', 'cancelled')) AS average_multiplier
       FROM tasks
       WHERE submitted_at >= ${since}
       GROUP BY model
