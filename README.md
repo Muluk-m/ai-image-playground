@@ -183,6 +183,10 @@ the stable network aliases:
 | Personal Admin | `http://image-playground-personal-admin:37378` |
 | Commercial Admin | `http://image-playground-commercial-admin:37378` |
 
+It must overwrite `X-Forwarded-For` with one canonical client address rather than append a
+caller-supplied chain. The Web nginx forwards that value to BFF for login and registration
+rate limits; multi-value chains fall back to the immediate proxy address.
+
 Protect Admin with Cloudflare Access, a VPN, or an IP allowlist. The committed Compose file
 does not publish host ports because the domain proxy owns ingress. If the existing host
 proxy is not containerized, an operator-supplied Compose override must bind loopback-only
