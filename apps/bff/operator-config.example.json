@@ -4,7 +4,7 @@
     "authenticated-example": {
       "capabilities": {
         "accounts:login": true,
-        "accounts:self-register": true
+        "accounts:self-register": false
       }
     }
   },

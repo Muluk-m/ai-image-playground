@@ -2,9 +2,9 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { bootstrapClientCapabilities } from '../lib/clientCapabilities'
-import { LoginScreen } from './LoginScreen'
-import { RegistrationPanel } from './RegistrationPanel'
+import { LoginScreen } from '../../auth/LoginScreen'
+import { RegistrationPanel } from '../../auth/RegistrationPanel'
+import { bootstrapClientCapabilities } from '../../lib/clientCapabilities'
 
 declare global {
   var IS_REACT_ACT_ENVIRONMENT: boolean

@@ -179,7 +179,7 @@ queued → in_progress → completed
 
 ## 鉴权与能力
 
-`accounts:login` 默认关闭。要启用账号体系，在仓库外的 `operator-config.json` 中选择
+`accounts:login` 默认关闭。要启用用户登录，在仓库外的 `operator-config.json` 中选择
 `authenticated-example` 预设或显式设置该能力，并通过 `OPERATOR_CONFIG_FILE` 指向它。
 前端只读取 BFF 的 `/api/capabilities` 清单；`runtime-config.json` 不包含能力开关。
 
@@ -189,11 +189,12 @@ queued → in_progress → completed
 - 登录 Cookie 使用 `HttpOnly`、`Secure`、`SameSite=Lax`，生产必须通过 HTTPS；
 - 数据库仅保存 session token 的 SHA-256，不保存原 token；
 - 任务在入队时绑定 `user_id`，状态、结果、图片和取消接口都校验归属；
-- 禁用账号、重置密码或后台“退出会话”会撤销该账号的现有 session；
-- 登录失败分别按来源 IP 和归一化账号限速，错误响应不区分“账号不存在”和“密码错误”。
+- 禁用用户、重置密码或后台“退出会话”会撤销该用户的现有 session；
+- 登录失败分别按来源 IP 和归一化用户名限速，错误响应不区分“用户不存在”和“密码错误”。
 
-账号由 Admin 服务创建，不提供公开注册。带 `user_id` 的任务始终要求同一用户，即使以后
-关闭账号能力也不会退化为匿名可读；匿名任务仍可匿名访问。
+运营者可以通过 Admin 创建用户。若同时启用 `accounts:self-register`，前端还会显示注册入口，
+并开放 `POST /api/auth/register`；自助注册不能脱离 `accounts:login` 单独启用。带 `user_id`
+的任务始终要求同一用户，即使以后关闭登录能力也不会退化为匿名可读；匿名任务仍可匿名访问。
 
 应用层登录之外，实际部署仍应组合以下外围防线：
 
