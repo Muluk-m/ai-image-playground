@@ -132,6 +132,10 @@ configuration remain in these external directories; only safe examples are commi
 `operator-config.json` is optional beside each `app.env`: missing means every capability is off;
 a present invalid file prevents BFF startup. The browser obtains its read-only capability list
 from the BFF and never evaluates operator settings itself.
+Set `accounts:login=true` and `accounts:self-register=true` to expose the registration entry and
+`POST /api/auth/register`; self-registration cannot be enabled without login. When the private
+billing overlay also enables `billing:credits`, account creation grants welcome credits in the
+same database transaction.
 
 Start infrastructure, provision one migrator, one application writer, and one Admin reader for
 each deployment, build the release image once, then start each project:

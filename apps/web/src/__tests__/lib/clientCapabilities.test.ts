@@ -17,6 +17,7 @@ describe('client capability bootstrap', () => {
     const fetchSpy = vi.fn(async () =>
       Response.json({
         'accounts:login': true,
+        'accounts:self-register': true,
         'billing:credits': false,
         'generation:byok': true,
         'quota:daily': false,
@@ -31,6 +32,7 @@ describe('client capability bootstrap', () => {
       expect.objectContaining({ cache: 'no-store' }),
     )
     expect(isClientCapabilityEnabled('accounts:login')).toBe(true)
+    expect(isClientCapabilityEnabled('accounts:self-register')).toBe(true)
     expect(isClientCapabilityEnabled('generation:byok')).toBe(true)
     expect(getClientCapabilityManifest()).not.toHaveProperty('operator:console')
   })
@@ -65,6 +67,7 @@ describe('client capability bootstrap', () => {
       vi.fn(async () =>
         Response.json({
           'accounts:login': false,
+          'accounts:self-register': false,
           'billing:credits': false,
           'generation:byok': false,
           'quota:daily': false,

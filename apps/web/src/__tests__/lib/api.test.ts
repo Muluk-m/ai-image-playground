@@ -852,6 +852,7 @@ describe('callImageApi', () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
       Response.json({
         'accounts:login': true,
+        'accounts:self-register': false,
         'billing:credits': false,
         'generation:byok': false,
         'quota:daily': false,

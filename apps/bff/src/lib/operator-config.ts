@@ -163,6 +163,9 @@ function defaults(file: string | null = null): ResolvedOperatorConfig {
 }
 
 function assertCapabilityCompatibility(capabilities: CapabilityValues): void {
+  if (capabilities['accounts:self-register'] && !capabilities['accounts:login']) {
+    throw new Error('accounts:self-register requires accounts:login')
+  }
   if (!capabilities['billing:credits']) return
   if (!capabilities['accounts:login']) {
     throw new Error('billing:credits requires accounts:login')

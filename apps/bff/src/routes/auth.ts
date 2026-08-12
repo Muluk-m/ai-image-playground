@@ -6,9 +6,11 @@ import {
 } from '@image-playground/shared'
 import { eq } from 'drizzle-orm'
 import { Elysia, t } from 'elysia'
+import { config } from '../config'
 import { db, schema } from '../db/client'
 import { capabilityUnavailable, isCapabilityEnabled } from '../lib/capabilities'
 import { createRateLimiter } from '../lib/rate-limit'
+import { registerUser, UserOperationError } from '../lib/user-admin'
 import { resolveAuthUser } from '../lib/user-auth'
 import {
   createUserSession,
@@ -20,6 +22,13 @@ import {
 // 固定的无效账号 hash 仅用于等时校验，不是凭证或 secret。
 const DUMMY_PASSWORD_HASH =
   '$argon2id$v=19$m=65536,t=2,p=1$TTNDEQYYmWpQHJyMtmCCcw3/ju3Jwww0SB/ACmMN53U$9VqGN+Ud4kjOI2bzudleozWu49uFGhNeWn3lZCfSAdc'
+const SESSION_COOKIE_OPTIONS = {
+  httpOnly: true,
+  secure: true,
+  sameSite: 'lax',
+  path: '/',
+  maxAge: USER_SESSION_TTL_MS / 1000,
+} as const
 
 const sourceLimiter = createRateLimiter({
   maxFailures: 5,
@@ -37,22 +46,67 @@ const accountLimiter = createRateLimiter({
   maxEntries: 2048,
 })
 
-function clientKey(request: Request): string {
-  const cf = request.headers.get('cf-connecting-ip')
-  if (cf) return cf
-  const xff = request.headers.get('x-forwarded-for')
-  if (xff) return xff.split(',')[0]!.trim()
-  return 'unknown'
+const registrationLimiter = createRateLimiter({
+  maxFailures: 5,
+  windowMs: 60 * 60_000,
+  lockMs: 60 * 60_000,
+  maxEntries: 2048,
+})
+
+function clientKey(request: Request, peerAddress: string | null): string {
+  if (config.network.clientIpSource === 'peer') return peerAddress ?? 'unknown'
+  const forwardedAddress = request.headers.get(config.network.clientIpSource)?.trim()
+  if (!forwardedAddress || forwardedAddress.includes(',')) return 'unknown'
+  return forwardedAddress
 }
 
 export const userAuthRoutes = new Elysia()
   .use(resolveAuthUser)
   .post(
+    '/api/auth/register',
+    async ({ body, cookie, request, server, status }) => {
+      if (!isCapabilityEnabled('accounts:self-register')) {
+        return capabilityUnavailable('accounts:self-register')
+      }
+
+      const key = clientKey(request, server?.requestIP(request)?.address ?? null)
+      if (registrationLimiter.isLocked(key) || registrationLimiter.recordFailure(key)) {
+        return status(429, { error: 'rate_limited' })
+      }
+
+      let registration: Awaited<ReturnType<typeof registerUser>>
+      try {
+        registration = await registerUser(body.username, body.password)
+      } catch (error) {
+        if (error instanceof UserOperationError) {
+          if (error.code === 'username_taken') return status(409, { error: error.code })
+          if (error.code === 'invalid_username' || error.code === 'invalid_password') {
+            return status(400, { error: error.code })
+          }
+        }
+        throw error
+      }
+
+      const { sessionToken, user } = registration
+      cookie[USER_SESSION_COOKIE].set({
+        ...SESSION_COOKIE_OPTIONS,
+        value: sessionToken,
+      })
+      return status(201, { user: { id: user.id, username: user.username } })
+    },
+    {
+      body: t.Object({
+        username: t.String({ minLength: 1, maxLength: USERNAME_MAX_LENGTH }),
+        password: t.String({ minLength: 1, maxLength: PASSWORD_MAX_LENGTH }),
+      }),
+    },
+  )
+  .post(
     '/api/auth/login',
-    async ({ body, cookie, request, status }) => {
+    async ({ body, cookie, request, server, status }) => {
       if (!isCapabilityEnabled('accounts:login')) return capabilityUnavailable('accounts:login')
 
-      const key = clientKey(request)
+      const key = clientKey(request, server?.requestIP(request)?.address ?? null)
       const username = normalizeUsername(body.username)
       if (sourceLimiter.isLocked(key) || accountLimiter.isLocked(username)) {
         return status(429, { error: 'rate_limited' })
@@ -115,12 +169,8 @@ export const userAuthRoutes = new Elysia()
       }
 
       cookie[USER_SESSION_COOKIE].set({
+        ...SESSION_COOKIE_OPTIONS,
         value: authenticated.token,
-        httpOnly: true,
-        secure: true,
-        sameSite: 'lax',
-        path: '/',
-        maxAge: USER_SESSION_TTL_MS / 1000,
       })
       sourceLimiter.recordSuccess(key)
       accountLimiter.recordSuccess(username)
@@ -138,11 +188,8 @@ export const userAuthRoutes = new Elysia()
     const raw = cookie[USER_SESSION_COOKIE]?.value
     await revokeUserSession(typeof raw === 'string' ? raw : '')
     cookie[USER_SESSION_COOKIE].set({
+      ...SESSION_COOKIE_OPTIONS,
       value: '',
-      httpOnly: true,
-      secure: true,
-      sameSite: 'lax',
-      path: '/',
       maxAge: 0,
     })
     return { ok: true }

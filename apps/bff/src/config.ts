@@ -14,6 +14,14 @@ const positiveIntEnv = (key: string, fallback: number): number => {
   }
   return value
 }
+const clientIpSource = env('CLIENT_IP_SOURCE', 'peer')
+if (
+  clientIpSource !== 'peer' &&
+  clientIpSource !== 'x-forwarded-for' &&
+  clientIpSource !== 'cf-connecting-ip'
+) {
+  throw new Error('CLIENT_IP_SOURCE must be peer, x-forwarded-for, or cf-connecting-ip')
+}
 const operator = loadOperatorConfig(env('OPERATOR_CONFIG_FILE', '') || null)
 const workerPollIntervalMs = positiveIntEnv('WORKER_POLL_INTERVAL_MS', 1_000)
 const workerHealthStaleAfterMs = positiveIntEnv(
@@ -51,6 +59,9 @@ export const config = {
   databaseUrl: env('DATABASE_URL'),
   corsOrigins: env('CORS_ALLOWED_ORIGINS', '*'),
   staticDir: env('STATIC_DIR', '') || null,
+  network: {
+    clientIpSource,
+  },
   /** 可选 channels.json 路径覆盖；缺省走 lib/channels.ts 的 defaultChannelsPath()。 */
   channelsFile: operator.channelsFile ?? (env('CHANNELS_FILE', '') || null),
   operator,

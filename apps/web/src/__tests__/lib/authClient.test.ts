@@ -6,6 +6,7 @@ import {
   getCurrentUser,
   loginUser,
   logoutUser,
+  registerUser,
 } from '../../lib/authClient'
 import { bootstrapClientCapabilities } from '../../lib/clientCapabilities'
 import { _setRuntimeConfigForTesting } from '../../lib/runtimeConfig'
@@ -27,6 +28,7 @@ describe('auth client', () => {
       vi.fn(async () =>
         Response.json({
           'accounts:login': true,
+          'accounts:self-register': true,
           'billing:credits': false,
           'generation:byok': true,
           'quota:daily': false,
@@ -57,6 +59,22 @@ describe('auth client', () => {
       method: 'POST',
       credentials: 'include',
       body: JSON.stringify({ username: ' alice ', password: 'secret' }),
+    })
+  })
+
+  it('registers with JSON and an included credential cookie', async () => {
+    const fetchSpy = vi.fn(async (_input: string, _init?: RequestInit) =>
+      Response.json({ user: USER }, { status: 201 }),
+    )
+    vi.stubGlobal('fetch', fetchSpy)
+
+    await expect(registerUser(' new-user ', 'fixture-phrase')).resolves.toEqual(USER)
+    expect(fetchSpy).toHaveBeenCalledOnce()
+    expect(fetchSpy.mock.calls[0]?.[0]).toBe('https://bff.example.com/api/auth/register')
+    expect(fetchSpy.mock.calls[0]?.[1]).toMatchObject({
+      method: 'POST',
+      credentials: 'include',
+      body: JSON.stringify({ username: ' new-user ', password: 'fixture-phrase' }),
     })
   })
 

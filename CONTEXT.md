@@ -46,6 +46,10 @@ _Avoid_: ee 目录、企业版代码、付费模块
 有账号的使用者。只在 `accounts:login` 开启的部署里存在。
 _Avoid_: 账号、customer、会员
 
+**自助注册（self-registration）**：
+用户自行创建登录账号的能力，由 `accounts:self-register` 单独控制；必须依赖
+`accounts:login`，默认关闭。注册后的开户、赠送积分与审计在同一事务内完成。
+
 **设备（device）**：
 匿名使用者的浏览器标识，是匿名配额的归属对象。与用户是两套平行身份，不存在从属关系。
 _Avoid_: 客户端、访客账号

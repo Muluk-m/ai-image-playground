@@ -3,6 +3,7 @@ import { isValidPassword, isValidUsername, normalizeUsername } from '@image-play
 import { eq } from 'drizzle-orm'
 import { db, schema } from '../db/client'
 import { loadPrivateBffOverlay } from './private-overlay'
+import { createUserSession } from './user-session'
 
 export type UserOperationErrorCode =
   | 'invalid_username'
@@ -48,21 +49,27 @@ const operationalUserColumns = {
   last_login_at: schema.users.last_login_at,
 }
 
-export async function createUser(
+async function provisionUser(
   usernameInput: string,
   password: string,
-): Promise<OperationalUser> {
+  source: 'operator' | 'self-registration',
+): Promise<{ user: OperationalUser; sessionToken: string | null }> {
   const username = normalizeUsername(usernameInput)
   if (!isValidUsername(username)) throw new UserOperationError('invalid_username')
   if (!isValidPassword(password)) throw new UserOperationError('invalid_password')
+  const [existing] = await db
+    .select({ id: schema.users.id })
+    .from(schema.users)
+    .where(eq(schema.users.username, username))
+    .limit(1)
+  if (existing) throw new UserOperationError('username_taken')
 
   const passwordHash = await Bun.password.hash(password, { algorithm: 'argon2id' })
   const now = Date.now()
   const id = randomUUID()
   const taskHooks = (await loadPrivateBffOverlay()).taskHooks
-  let user: OperationalUser
   try {
-    user = await db.transaction(async (tx) => {
+    return await db.transaction(async (tx) => {
       const [created] = await tx
         .insert(schema.users)
         .values({
@@ -75,18 +82,48 @@ export async function createUser(
         })
         .returning(operationalUserColumns)
       if (!created) throw new Error('created user missing')
-      await tx.insert(schema.operator_audits).values(operatorAudit('user.create', id, { username }))
+      await tx.insert(schema.operator_audits).values(
+        source === 'operator'
+          ? operatorAudit('user.create', id, { username })
+          : {
+              ...operatorAudit('user.register', id, { username }),
+              operator_id: id,
+            },
+      )
       await taskHooks.onUserCreated({ tx, userId: id })
-      return created
+      const sessionToken = source === 'self-registration' ? await createUserSession(id, tx) : null
+      return { user: created, sessionToken }
     })
   } catch (error) {
-    if (error !== null && typeof error === 'object' && 'code' in error && error.code === '23505') {
-      throw new UserOperationError('username_taken')
-    }
+    const databaseError =
+      error !== null && typeof error === 'object' && 'cause' in error ? error.cause : error
+    const databaseErrorCode =
+      databaseError !== null && typeof databaseError === 'object'
+        ? 'errno' in databaseError
+          ? databaseError.errno
+          : 'code' in databaseError
+            ? databaseError.code
+            : null
+        : null
+    if (databaseErrorCode === '23505') throw new UserOperationError('username_taken')
     throw error
   }
+}
 
-  return user
+export async function createUser(
+  usernameInput: string,
+  password: string,
+): Promise<OperationalUser> {
+  return (await provisionUser(usernameInput, password, 'operator')).user
+}
+
+export async function registerUser(
+  usernameInput: string,
+  password: string,
+): Promise<{ user: OperationalUser; sessionToken: string }> {
+  const result = await provisionUser(usernameInput, password, 'self-registration')
+  if (!result.sessionToken) throw new Error('registered user session missing')
+  return { user: result.user, sessionToken: result.sessionToken }
 }
 
 export async function setUserStatus(userId: string, status: string): Promise<OperationalUser> {

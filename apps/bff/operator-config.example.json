@@ -3,7 +3,8 @@
   "presets": {
     "authenticated-example": {
       "capabilities": {
-        "accounts:login": true
+        "accounts:login": true,
+        "accounts:self-register": true
       }
     }
   },
