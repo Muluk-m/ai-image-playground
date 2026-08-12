@@ -13,7 +13,7 @@ process.env.UPSTREAM_API_KEY = 'test'
 process.env.DATABASE_URL = TEST_DB
 process.env.CORS_ALLOWED_ORIGINS = '*'
 process.env.INTERNAL_API_TOKEN = 'fixture-service-credential-alpha'
-process.env.OPERATOR_CONFIG_FILE = resolve(import.meta.dir, '../../../operator-config.example.json')
+process.env.OPERATOR_CONFIG_FILE = resolve(import.meta.dir, '../authenticated-operator-config.json')
 process.env.CLIENT_IP_SOURCE = 'cf-connecting-ip'
 
 // Dynamic imports keep environment setup ahead of configuration capture.
