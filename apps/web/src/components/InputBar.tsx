@@ -38,6 +38,7 @@ import {
 import { ChipIcons } from './chipIcons'
 import { CloseIcon } from './icons'
 import ParamControls from './ParamControls'
+import SubmissionCostEstimate from './SubmissionCostEstimate'
 import ViewportTooltip from './ViewportTooltip'
 
 const TEXTAREA_CLASS =
@@ -1674,10 +1675,15 @@ export default function InputBar() {
                   : '点击展开输入框，输入新的 prompt...'}
               </button>
               <div
-                className="relative"
+                className="relative flex items-center gap-2"
                 onMouseEnter={() => setSubmitHover(true)}
                 onMouseLeave={() => setSubmitHover(false)}
               >
+                <SubmissionCostEstimate
+                  credits={submissionGuard.estimatedCredits}
+                  blockedAction={submissionGuard.blockedAction}
+                  className="shrink-0 text-[11px] text-gray-500 dark:text-gray-400"
+                />
                 <ButtonTooltip
                   visible={(!hasSubmitApiConfig || submissionGuard.blocked) && submitHover}
                   text={submissionGuard.disabledReason ?? '尚未完成 API 配置，请在右上角设置中进行'}
@@ -1884,10 +1890,15 @@ export default function InputBar() {
                   <ParamControls showCount />
                   {/* ml-auto 让 Generate 永远贴当前行右端，chips 偶尔挤到 row 2 时大按钮也能撑住空白。 */}
                   <div
-                    className="relative ml-auto flex-shrink-0"
+                    className="relative ml-auto flex flex-shrink-0 items-center gap-2"
                     onMouseEnter={() => setSubmitHover(true)}
                     onMouseLeave={() => setSubmitHover(false)}
                   >
+                    <SubmissionCostEstimate
+                      credits={submissionGuard.estimatedCredits}
+                      blockedAction={submissionGuard.blockedAction}
+                      className="shrink-0 text-xs font-medium text-gray-500 dark:text-gray-400"
+                    />
                     <ButtonTooltip
                       visible={(!hasSubmitApiConfig || submissionGuard.blocked) && submitHover}
                       text={
@@ -1967,10 +1978,15 @@ export default function InputBar() {
                       </button>
                     </div>
                     <div
-                      className="relative flex-1"
+                      className="relative flex flex-1 items-center gap-2"
                       onMouseEnter={() => setSubmitHover(true)}
                       onMouseLeave={() => setSubmitHover(false)}
                     >
+                      <SubmissionCostEstimate
+                        credits={submissionGuard.estimatedCredits}
+                        blockedAction={submissionGuard.blockedAction}
+                        className="shrink-0 text-[11px] text-gray-500 dark:text-gray-400"
+                      />
                       <ButtonTooltip
                         visible={(!hasSubmitApiConfig || submissionGuard.blocked) && submitHover}
                         text={
