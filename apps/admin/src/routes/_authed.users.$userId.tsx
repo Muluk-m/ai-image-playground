@@ -89,7 +89,7 @@ function UserOperations({ user }: { user: AdminUserRow }) {
         }}
       >
         {user.status === 'active' ? <ShieldOff /> : <ShieldCheck />}
-        {user.status === 'active' ? '停用账号' : '启用账号'}
+        {user.status === 'active' ? '停用用户' : '启用用户'}
       </Button>
       {mutation.isError ? (
         <span className="self-center text-xs text-destructive">操作失败，请重试</span>
@@ -173,7 +173,7 @@ function UserDetailPage() {
               <UserOperations user={detail.user} />
             </div>
             <div className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-4">
-              <Stat label="任务" value={String(detail.user.task_count)} note="账号全部历史" />
+              <Stat label="任务" value={String(detail.user.task_count)} note="用户全部历史" />
               <Stat
                 label="活跃会话"
                 value={String(detail.user.active_sessions)}
