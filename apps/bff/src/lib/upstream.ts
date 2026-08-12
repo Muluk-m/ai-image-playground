@@ -1,11 +1,3 @@
-import { File } from 'node:buffer'
-import { QUEUE_TIMEOUTS, type QueueProvider, type SubmitRequest } from '@image-playground/shared'
-import { Agent, FormData, fetch as undiciFetch } from 'undici'
-import { config } from '../config'
-import { getChannels } from './channels'
-import { log } from './logger'
-import { resolveApiKey } from './resolveApiKey'
-
 /**
  * 把 SubmitRequest 转换为 OpenAI Images / Gemini generateContent 请求体并发给上游 API。
  *
@@ -16,36 +8,64 @@ import { resolveApiKey } from './resolveApiKey'
  * (QUEUE_TIMEOUTS.UPSTREAM_HARD_TIMEOUT_MS)，防止上游卡死时 BFF worker
  * 永远 hang、task 永远停在 in_progress。
  */
+import { File } from 'node:buffer'
+import { QUEUE_TIMEOUTS, type QueueProvider, type SubmitRequest } from '@image-playground/shared'
+import { Agent, FormData, fetch as undiciFetch } from 'undici'
+import { config } from '../config'
+import { getChannels } from './channels'
+import { log } from './logger'
+import { resolveApiKey } from './resolveApiKey'
+
 /**
- * 独立直连上游的 channel id。命中的 channel 用 channels.json 自带的
- * baseUrl + auth.secret（单一事实源），不走 UPSTREAM_BASE_URL 通用网关。
+ * 每 channel 的上游路由风格。命中映射的 channel 用 channels.json 自带的
+ * baseUrl + auth.secret（单一事实源），不走 UPSTREAM_BASE_URL 通用网关；
+ * value 决定 callUpstream 走哪套上游协议。
  *
  * 不能按 model 盲查 channels：网关部署用 UPSTREAM_BASE_URL 故意把
  * openai/gemini channel 指到同一中转上游，channels.json 里它们的 baseUrl
  * 只是名义官方地址，盲查会把网关部署静默切成直连。
  */
-const DIRECT_CHANNEL_IDS: ReadonlySet<string> = new Set(['agnes-images'])
+type ChannelRouteStyle =
+  /**
+   * Agnes 风格上游：没有 images/edits 端点，文生图与图生图共用
+   * images/generations JSON，输入图放 extra_body.image。
+   */
+  | 'agnes-generations-json'
+  /** 标准 OpenAI Images 语义：generations JSON / edits multipart / n>1 fan-out。 */
+  | 'openai-images'
+
+const CHANNEL_ROUTE_STYLES: Readonly<Record<string, ChannelRouteStyle | undefined>> = {
+  'agnes-images': 'agnes-generations-json',
+  // Grok 用 channel 自己的 base/key，协议与网关 OpenAI 完全一致。
+  'grok-images': 'openai-images',
+}
+
+interface UpstreamRoute {
+  baseUrl: string
+  key: string
+  /** openai-compat 分支的协议风格（gemini 分支不看这个字段）。 */
+  style: ChannelRouteStyle
+}
 
 /**
- * provider + model → 上游 baseUrl 与 API key。
+ * provider + model → 上游 baseUrl、API key 与协议风格。
  * 返回的 baseUrl 统一**含版本段**（如 .../v1、.../v1beta），调用方拼相对路径，
  * 杜绝 channel baseUrl（含版本段）与 env baseUrl（不含）两套约定打架拼出 /v1/v1。
- * `direct=true` 表示命中独立直连 channel（Agnes 风格上游，见 callUpstream 内分支）。
+ * 未命中 CHANNEL_ROUTE_STYLES 的走 UPSTREAM_BASE_URL 通用网关 + 标准 OpenAI 协议。
  */
-function resolveUpstream(
-  provider: QueueProvider,
-  model: string,
-): { baseUrl: string; key: string; direct: boolean } {
+function resolveUpstream(provider: QueueProvider, model: string): UpstreamRoute {
   const kind = provider === 'gemini' ? 'gemini-queue' : 'openai-queue'
-  const channel = getChannels().find(
-    (c) => c.kind === kind && DIRECT_CHANNEL_IDS.has(c.id) && c.models.some((m) => m.id === model),
-  )
-  if (channel) return { baseUrl: channel.baseUrl, key: channel.auth.secret, direct: true }
+  for (const channel of getChannels()) {
+    const style = CHANNEL_ROUTE_STYLES[channel.id]
+    if (!style || channel.kind !== kind) continue
+    if (!channel.models.some((m) => m.id === model)) continue
+    return { baseUrl: channel.baseUrl, key: channel.auth.secret, style }
+  }
   const version = provider === 'gemini' ? 'v1beta' : 'v1'
   return {
     baseUrl: `${config.upstream.baseUrl}/${version}`,
     key: resolveApiKey(provider),
-    direct: false,
+    style: 'openai-images',
   }
 }
 
@@ -114,7 +134,7 @@ export class UpstreamTimeoutError extends UpstreamResultUnknownError {
  */
 export async function callUpstream(params: UpstreamCallParams): Promise<UpstreamCallResult> {
   const { provider, model, request, signal: externalSignal } = params
-  const { baseUrl: base, key, direct } = resolveUpstream(provider, model)
+  const { baseUrl: base, key, style } = resolveUpstream(provider, model)
 
   const abort = new AbortController()
   let timedOut = false
@@ -163,11 +183,11 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
     if (provider === 'openai-compat') {
       const authHeader: Record<string, string> = key ? { authorization: `Bearer ${key}` } : {}
 
-      // Direct channel（Agnes 风格上游）：没有 images/edits 端点，图生图与文生图
+      // Agnes 风格上游：没有 images/edits 端点，图生图与文生图
       // 共用 images/generations JSON，输入图放 extra_body.image（data URI / URL）。
       // 实测注意：文档"Important Notes"声称的 top-level image 数组会被上游**静默忽略**
       // （跑成纯文生图），必须放 extra_body；n 同样被忽略，这里学 gemini 分支 fan-out。
-      if (direct) {
+      if (style === 'agnes-generations-json') {
         if (request.mask) {
           // 挂 upstreamStatus=400 → retry.ts 判为永久失败，不浪费 3 次重试
           const err = new Error(
@@ -177,7 +197,7 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
           throw err
         }
         const url = `${base}/images/generations`
-        const body = JSON.stringify(buildDirectChannelBody(model, request))
+        const body = JSON.stringify(buildAgnesGenerationsBody(model, request))
         const headers = { 'content-type': 'application/json', ...authHeader }
         const n = Math.max(1, request.n ?? 1)
         if (n === 1) {
@@ -313,12 +333,12 @@ function mergeOpenAIImageResults(results: readonly UpstreamCallResult[]): Upstre
 }
 
 /**
- * Direct channel（Agnes 风格）请求体：文生图与图生图同一端点同一 JSON 体，
+ * Agnes 风格（agnes-generations-json）请求体：文生图与图生图同一端点同一 JSON 体，
  * 输入图放 extra_body.image（实测 top-level image 会被上游静默忽略）。
  * quality / n 上游不识别 → 不传（n 由 callUpstream fan-out 实现）。
  * 新增的 OpenAI / Gemini 参数也不传，避免上游拒绝或静默忽略未知字段。
  */
-function buildDirectChannelBody(model: string, request: SubmitRequest): Record<string, unknown> {
+function buildAgnesGenerationsBody(model: string, request: SubmitRequest): Record<string, unknown> {
   const { extra_body: extraBody, ...extraTop } = (request.extra ?? {}) as {
     extra_body?: Record<string, unknown>
     [k: string]: unknown
