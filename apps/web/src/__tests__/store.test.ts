@@ -228,6 +228,42 @@ describe('mask draft lifecycle in store actions', () => {
     expect(originalImage?.dataUrl).toBe('data:image/png;base64,generated')
   })
 
+  it('completes an OpenAI generation without auto-opening the Codex CLI dialog when revisedPrompts are missing', async () => {
+    useStore.setState({ dismissedCodexCliPrompts: [] })
+
+    await submitTask()
+    await waitUntil(
+      () => useStore.getState().tasks[0]?.status === 'done',
+      'generation task did not finish',
+    )
+
+    const state = useStore.getState()
+    expect(state.tasks[0]).toMatchObject({ status: 'done', error: null })
+    expect(state.setConfirmDialog).not.toHaveBeenCalled()
+  })
+
+  it('stores changed revisedPrompts without auto-opening the Codex CLI dialog', async () => {
+    vi.mocked(callImageApi).mockResolvedValueOnce({
+      images: ['data:image/png;base64,generated'],
+      actualParamsList: [{ size: '1x1' }],
+      revisedPrompts: ['changed prompt'],
+    })
+
+    await submitTask()
+    await waitUntil(
+      () => useStore.getState().tasks[0]?.status === 'done',
+      'generation task did not finish',
+    )
+
+    const state = useStore.getState()
+    const generatedTask = state.tasks[0]
+    const outputImageId = generatedTask.outputImages[0]
+    expect(state.setConfirmDialog).not.toHaveBeenCalled()
+    expect(generatedTask.revisedPromptByImage).toEqual({
+      [outputImageId]: 'changed prompt',
+    })
+  })
+
   it('preserves selected image mentions when replacing a mask target with an equivalent image id', () => {
     const replacement = { id: 'image-a-replacement', dataUrl: imageA.dataUrl }
     const prompt = `参考 ${getSelectedImageMentionLabel(0)} 生成`

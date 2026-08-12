@@ -290,7 +290,6 @@ export default function DetailModal() {
 
   const handleShowPromptWarning = () => {
     showCodexCliPrompt(
-      true,
       currentRevisedPrompt ? '接口返回的提示词已被改写' : '接口没有返回官方 API 会返回的部分信息',
     )
   }

@@ -853,13 +853,10 @@ function scheduleOpenAIWatchdog(taskId: string, timeoutSeconds: number) {
   openAIWatchdogTimers.set(taskId, timer)
 }
 
-export function showCodexCliPrompt(force = false, reason = '接口返回的提示词已被改写') {
+export function showCodexCliPrompt(reason: string) {
   const state = useStore.getState()
   const settings = state.settings
   const promptKey = getCodexCliPromptKey(settings)
-  const activeForCheck = clientProfileToApiProfile(getActiveApiProfile(settings))
-  if (!force && (activeForCheck.codexCli || state.dismissedCodexCliPrompts.includes(promptKey)))
-    return
 
   state.setConfirmDialog({
     title: '检测到 Codex CLI API',
@@ -1453,30 +1450,14 @@ async function executeTask(taskId: string) {
       if (isAsyncCustomTask) return firstActualParams(actualParamsList)
       return { ...result.actualParams, n: outputIds.length }
     })()
-    const shouldStoreRevisedPrompts = !isAsyncCustomTask
     const actualParamsByImage = mapActualParamsByImage(outputIds, actualParamsList)
-    const revisedPromptByImage = shouldStoreRevisedPrompts
-      ? result.revisedPrompts?.reduce<Record<string, string>>((acc, revisedPrompt, index) => {
+    const revisedPromptByImage = isAsyncCustomTask
+      ? undefined
+      : result.revisedPrompts?.reduce<Record<string, string>>((acc, revisedPrompt, index) => {
           const imgId = outputIds[index]
           if (imgId && revisedPrompt && revisedPrompt.trim()) acc[imgId] = revisedPrompt
           return acc
         }, {})
-      : undefined
-    const promptWasRevised =
-      shouldStoreRevisedPrompts &&
-      result.revisedPrompts?.some(
-        (revisedPrompt) => revisedPrompt?.trim() && revisedPrompt.trim() !== task.prompt.trim(),
-      )
-    const hasRevisedPromptValue =
-      shouldStoreRevisedPrompts &&
-      result.revisedPrompts?.some((revisedPrompt) => revisedPrompt?.trim())
-    if (taskProvider === 'openai' && !activeView.codexCli) {
-      if (promptWasRevised) {
-        showCodexCliPrompt()
-      } else if (!hasRevisedPromptValue) {
-        showCodexCliPrompt(false, '接口没有返回官方 API 会返回的部分信息')
-      }
-    }
 
     // 更新任务
     const latestBeforeUpdate = useStore.getState().tasks.find((t) => t.id === taskId)
