@@ -387,7 +387,7 @@
 }
 
 .auth-field input::placeholder {
-  color: #686a74;
+  color: #858791;
 }
 
 .auth-field input:hover:not(:disabled) {
