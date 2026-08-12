@@ -10,8 +10,8 @@ import { db, schema } from './client'
  *
  * queued 任务由数据库轮询 scheduler 自动发现，future next_retry_at 也保留在库中，
  * 不再创建进程内 setTimeout。in_progress 说明旧 worker 可能已经发出 fetch；
- *   上游那边可能在跑，再发一次会重复消耗配额。一律标 failed，由用户决定
- *   是否手动重试。
+ * 上游那边可能在跑，再发一次会重复消耗配额。一律标 failed，由用户决定
+ * 是否手动重试。
  */
 export async function recoverInterruptedTasks(): Promise<{ failed: number }> {
   const taskHooks = (await loadPrivateBffOverlay()).taskHooks
@@ -38,7 +38,6 @@ export async function recoverInterruptedTasks(): Promise<{ failed: number }> {
     }
     return rows
   })
-
   return { failed: failed.length }
 }
 /** Runs optional private-tree maintenance (for example, the billing fallback scan). */

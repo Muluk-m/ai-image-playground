@@ -17,7 +17,17 @@ export const statusRoutes = new Elysia().use(requireUserOrService).get(
   '/v1/queue/requests/:id/status',
   async ({ params, status, authUser, serviceIdentity }) => {
     const [task] = await db
-      .select()
+      .select({
+        id: schema.tasks.id,
+        status: schema.tasks.status,
+        submitted_at: schema.tasks.submitted_at,
+        started_at: schema.tasks.started_at,
+        completed_at: schema.tasks.completed_at,
+        error_message: schema.tasks.error_message,
+        error_type: schema.tasks.error_type,
+        provider: schema.tasks.provider,
+        result_payload: schema.tasks.result_payload,
+      })
       .from(schema.tasks)
       .where(taskAccessWhere(params.id, authUser?.id ?? null, serviceIdentity))
       .limit(1)

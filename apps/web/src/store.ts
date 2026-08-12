@@ -9,7 +9,11 @@ import {
   normalizeSettings,
   validateClientProfile,
 } from './lib/apiProfiles'
-import { modelSupportsEdit, NO_EDIT_SUPPORT_MESSAGE } from './lib/channels/profileSelectors'
+import {
+  getModelCapabilities,
+  modelSupportsEdit,
+  NO_EDIT_SUPPORT_MESSAGE,
+} from './lib/channels/profileSelectors'
 import { getPublicChannels } from './lib/channels/publicChannels'
 import type { ClientProfile } from './lib/channels/types'
 import type {
@@ -857,13 +861,10 @@ function scheduleOpenAIWatchdog(taskId: string, timeoutSeconds: number) {
   openAIWatchdogTimers.set(taskId, timer)
 }
 
-export function showCodexCliPrompt(force = false, reason = '接口返回的提示词已被改写') {
+export function showCodexCliPrompt(reason: string) {
   const state = useStore.getState()
   const settings = state.settings
   const promptKey = getCodexCliPromptKey(settings)
-  const activeForCheck = clientProfileToApiProfile(getActiveApiProfile(settings))
-  if (!force && (activeForCheck.codexCli || state.dismissedCodexCliPrompts.includes(promptKey)))
-    return
 
   state.setConfirmDialog({
     title: '检测到 Codex CLI API',
@@ -1307,14 +1308,14 @@ export async function submitTask(
   }
 
   const submitView = clientProfileToApiProfile(activeProfile)
-  // A billed submission must reach the BFF as one task so the server can reserve
-  // `price × quantity` atomically. BYOK and non-billed deployments keep the
-  // established one-card-per-image fan-out behavior.
+  // Billed submissions must stay in one BFF task so credit reservation is atomic. Otherwise,
+  // only channels that explicitly declare native count support receive n in one request.
   const billedBuiltinSubmission =
     activeProfile.source === 'builtin-edge' && isClientCapabilityEnabled('billing:credits')
-  const fanOut = billedBuiltinSubmission ? 1 : Math.max(1, taskParams.n)
-  const singleParams =
-    billedBuiltinSubmission || fanOut === 1 ? taskParams : { ...taskParams, n: 1 }
+  const supportsNativeCount =
+    getModelCapabilities(activeProfile, getPublicChannels())?.has('n') === true
+  const fanOut = billedBuiltinSubmission || supportsNativeCount ? 1 : Math.max(1, taskParams.n)
+  const singleParams = fanOut === 1 ? taskParams : { ...taskParams, n: 1 }
   const createdAt = Date.now()
   const newTasks: TaskRecord[] = Array.from({ length: fanOut }, () => ({
     id: genId(),
@@ -1462,30 +1463,14 @@ async function executeTask(taskId: string) {
       if (isAsyncCustomTask) return firstActualParams(actualParamsList)
       return { ...result.actualParams, n: outputIds.length }
     })()
-    const shouldStoreRevisedPrompts = !isAsyncCustomTask
     const actualParamsByImage = mapActualParamsByImage(outputIds, actualParamsList)
-    const revisedPromptByImage = shouldStoreRevisedPrompts
-      ? result.revisedPrompts?.reduce<Record<string, string>>((acc, revisedPrompt, index) => {
+    const revisedPromptByImage = isAsyncCustomTask
+      ? undefined
+      : result.revisedPrompts?.reduce<Record<string, string>>((acc, revisedPrompt, index) => {
           const imgId = outputIds[index]
           if (imgId && revisedPrompt && revisedPrompt.trim()) acc[imgId] = revisedPrompt
           return acc
         }, {})
-      : undefined
-    const promptWasRevised =
-      shouldStoreRevisedPrompts &&
-      result.revisedPrompts?.some(
-        (revisedPrompt) => revisedPrompt?.trim() && revisedPrompt.trim() !== task.prompt.trim(),
-      )
-    const hasRevisedPromptValue =
-      shouldStoreRevisedPrompts &&
-      result.revisedPrompts?.some((revisedPrompt) => revisedPrompt?.trim())
-    if (taskProvider === 'openai' && !activeView.codexCli) {
-      if (promptWasRevised) {
-        showCodexCliPrompt()
-      } else if (!hasRevisedPromptValue) {
-        showCodexCliPrompt(false, '接口没有返回官方 API 会返回的部分信息')
-      }
-    }
 
     // 更新任务
     const latestBeforeUpdate = useStore.getState().tasks.find((t) => t.id === taskId)

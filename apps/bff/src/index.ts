@@ -1,4 +1,4 @@
-import { QUEUE_TIMEOUTS } from '@image-playground/shared'
+import { QUEUE_TIMEOUTS, SERVER_IDLE_TIMEOUT_SEC } from '@image-playground/shared'
 import { config } from './config'
 import { close as closeDb } from './db/client'
 import { purgeOldTasks, runPrivateMaintenance } from './db/maintenance'
@@ -69,19 +69,26 @@ if (config.corsOrigins === '*') {
   )
 }
 
-app.listen({ port: config.port, maxRequestBodySize: MAX_REQUEST_BODY_SIZE_BYTES }, () => {
-  log.info(
-    {
-      event: 'listen',
-      port: config.port,
-      upstream: config.upstream.baseUrl,
-      corsOrigins: config.corsOrigins,
-      staticDir: config.staticDir,
-      accountsLoginEnabled,
-    },
-    'bff listening',
-  )
-})
+app.listen(
+  {
+    port: config.port,
+    idleTimeout: SERVER_IDLE_TIMEOUT_SEC,
+    maxRequestBodySize: MAX_REQUEST_BODY_SIZE_BYTES,
+  },
+  () => {
+    log.info(
+      {
+        event: 'listen',
+        port: config.port,
+        upstream: config.upstream.baseUrl,
+        corsOrigins: config.corsOrigins,
+        staticDir: config.staticDir,
+        accountsLoginEnabled,
+      },
+      'bff listening',
+    )
+  },
+)
 
 let shuttingDown = false
 

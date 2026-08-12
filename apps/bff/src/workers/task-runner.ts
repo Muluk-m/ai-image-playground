@@ -145,7 +145,16 @@ export async function runTask(id: string): Promise<void> {
   // 或外部误调 runTask 让等待中的重试任务提前起跑。
   if (!(await claimQueuedTask(db, id, claimAt))) return
 
-  const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, id)).limit(1)
+  const [task] = await db
+    .select({
+      provider: schema.tasks.provider,
+      model: schema.tasks.model,
+      request_payload: schema.tasks.request_payload,
+      attempt_count: schema.tasks.attempt_count,
+    })
+    .from(schema.tasks)
+    .where(eq(schema.tasks.id, id))
+    .limit(1)
   if (!task) return
 
   const ctrl = new AbortController()

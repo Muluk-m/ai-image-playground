@@ -179,7 +179,7 @@ describe('getUserDetail pagination', () => {
 })
 
 describe('getTask', () => {
-  it('返回 task 全字段（含 result_meta）剔除 result_payload', async () => {
+  it('returns the detail whitelist with result_meta and without unrelated task columns', async () => {
     const task = await getTask('t1')
     expect(task).not.toBeNull()
     expect(task!.id).toBe('t1')
