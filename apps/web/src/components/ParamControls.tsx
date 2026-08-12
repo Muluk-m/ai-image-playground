@@ -438,6 +438,7 @@ export default function ParamControls({ showCount = false }: { showCount?: boole
           onClose={() => setShowSizePicker(false)}
           allowAuto={true}
           ratioOnly={!capabilities.size}
+          limitTo1K={activeView.codexCli}
         />
       )}
     </>
