@@ -8,8 +8,9 @@
  * (QUEUE_TIMEOUTS.UPSTREAM_HARD_TIMEOUT_MS)，防止上游卡死时 BFF worker
  * 永远 hang、task 永远停在 in_progress。
  */
-import { File } from 'node:buffer'
+import { Buffer, File } from 'node:buffer'
 import { QUEUE_TIMEOUTS, type QueueProvider, type SubmitRequest } from '@image-playground/shared'
+import sharp from 'sharp'
 import { Agent, FormData, fetch as undiciFetch } from 'undici'
 import { config } from '../config'
 import { getChannels } from './channels'
@@ -33,11 +34,12 @@ type ChannelRouteStyle =
   | 'agnes-generations-json'
   /** 标准 OpenAI Images 语义：generations JSON / edits multipart / n>1 fan-out。 */
   | 'openai-images'
+  /** Grok 只接受一张编辑输入图；多张参考图先合成带序号标签的 contact sheet。 */
+  | 'grok-openai-images'
 
 const CHANNEL_ROUTE_STYLES: Readonly<Record<string, ChannelRouteStyle | undefined>> = {
   'agnes-images': 'agnes-generations-json',
-  // Grok 用 channel 自己的 base/key，协议与网关 OpenAI 完全一致。
-  'grok-images': 'openai-images',
+  'grok-images': 'grok-openai-images',
 }
 
 interface UpstreamRoute {
@@ -221,17 +223,24 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
       // 对 task-runner / 前端透明。
       if (request.input_images?.length || request.mask) {
         const url = `${base}/images/edits`
-        const n = Math.max(1, request.n ?? 1)
+        // Grok edits 的 multipart 只接受一个 image：多张参考图先合成 contact sheet。
+        // 单图（以及普通 OpenAI channel）仍走原文件透传，判定收在 normalizeGrokEditInputs 里。
+        // 必须在 fan-out 前做一次，避免 n>1 时重复解码和合图。
+        const editRequest =
+          style === 'grok-openai-images'
+            ? await normalizeGrokEditInputs(request, abort.signal)
+            : request
+        const n = Math.max(1, editRequest.n ?? 1)
         if (n === 1) {
           const res = await performFetch(url, {
             method: 'POST',
             headers: authHeader,
-            body: buildOpenAIEditFormData(model, request),
+            body: buildOpenAIEditFormData(model, editRequest),
           })
           return parseResponse(res)
         }
 
-        const singleRequest = withoutImageCount(request)
+        const singleRequest = withoutImageCount(editRequest)
         const results = await Promise.all(
           // multipart body 含 File 流，不能跨请求复用 → 每次重新构造。
           Array.from({ length: n }, async () => {
@@ -370,6 +379,118 @@ function buildOpenAIBody(model: string, request: SubmitRequest): Record<string, 
   }
 }
 
+const GROK_CONTACT_SHEET_MAX_SIDE = 2048
+const GROK_CONTACT_SHEET_MAX_INPUTS = 16
+const GROK_CONTACT_SHEET_GAP = 16
+const GROK_CONTACT_SHEET_LABEL_HEIGHT = 64
+
+/**
+ * Grok edits 的单图输入兼容层。返回新的 SubmitRequest，保留所有非 input_images 字段，
+ * 并把多张参考图按读取顺序排进一个有序号标签的 PNG contact sheet。
+ * 0 或 1 张参考图时原样返回 request，原始文件字节不重新编码。
+ * 超过 GROK_CONTACT_SHEET_MAX_INPUTS 张、或多图叠加 mask 时直接抛错，不静默降级。
+ */
+async function normalizeGrokEditInputs(
+  request: SubmitRequest,
+  signal: AbortSignal,
+): Promise<SubmitRequest> {
+  signal.throwIfAborted()
+  const inputImages = request.input_images ?? []
+  if (inputImages.length > GROK_CONTACT_SHEET_MAX_INPUTS) {
+    throw new Error(
+      `Grok contact sheet 最多支持 ${GROK_CONTACT_SHEET_MAX_INPUTS} 张参考图，当前收到 ${inputImages.length} 张`,
+    )
+  }
+  if (inputImages.length > 1 && request.mask) {
+    throw new Error(
+      'Grok 编辑不支持“多张参考图 + 遮罩”：原始遮罩坐标无法映射到 contact sheet，请只保留一张参考图或移除遮罩',
+    )
+  }
+  if (inputImages.length <= 1) return request
+
+  // 网格几何：columns × rows 个单元，每个单元是「正方形图片 + 底部序号条」。
+  // 先按 MAX_SIDE 上限算出单元可用的宽和高，取较小者作正方形边长，
+  // 保证 sheet 的宽高都不超过 MAX_SIDE。columns >= 2、rows >= 1 由上面的提前返回保证。
+  const columns = Math.ceil(Math.sqrt(inputImages.length))
+  const rows = Math.ceil(inputImages.length / columns)
+  const gap = Math.min(
+    GROK_CONTACT_SHEET_GAP,
+    Math.floor(GROK_CONTACT_SHEET_MAX_SIDE / (Math.max(columns, rows) * 8)),
+  )
+  const cellWidth = Math.max(
+    1,
+    Math.floor((GROK_CONTACT_SHEET_MAX_SIDE - gap * (columns - 1)) / columns),
+  )
+  const rowHeight = Math.max(2, Math.floor((GROK_CONTACT_SHEET_MAX_SIDE - gap * (rows - 1)) / rows))
+  const labelHeight = Math.min(
+    GROK_CONTACT_SHEET_LABEL_HEIGHT,
+    Math.max(1, Math.floor(rowHeight / 5)),
+  )
+  const imageSide = Math.max(1, Math.min(cellWidth, rowHeight - labelHeight))
+  const sheetWidth = columns * imageSide + gap * (columns - 1)
+  const sheetHeight = rows * (imageSide + labelHeight) + gap * (rows - 1)
+
+  const tiles: Array<{ image: Buffer; label: Buffer }> = []
+  for (const [index, dataUrl] of inputImages.entries()) {
+    const { bytes } = decodeDataUrl(dataUrl)
+    signal.throwIfAborted()
+    const image = await sharp(bytes)
+      .rotate()
+      .resize(imageSide, imageSide, {
+        fit: 'contain',
+        background: { r: 245, g: 245, b: 245, alpha: 1 },
+      })
+      .png()
+      .toBuffer()
+    signal.throwIfAborted()
+    tiles.push({ image, label: buildTileLabelSvg(index, imageSide, labelHeight) })
+  }
+
+  const overlays = tiles.flatMap(({ image, label }, index) => {
+    const column = index % columns
+    const row = Math.floor(index / columns)
+    const left = column * (imageSide + gap)
+    const top = row * (imageSide + labelHeight + gap)
+    return [
+      { input: image, left, top },
+      { input: label, left, top: top + imageSide },
+    ]
+  })
+  signal.throwIfAborted()
+  const sheet = await sharp({
+    create: {
+      width: sheetWidth,
+      height: sheetHeight,
+      channels: 4,
+      background: { r: 255, g: 255, b: 255, alpha: 1 },
+    },
+  })
+    .composite(overlays)
+    .png()
+    .toBuffer()
+  signal.throwIfAborted()
+
+  return {
+    ...request,
+    input_images: [`data:image/png;base64,${sheet.toString('base64')}`],
+  }
+}
+
+/**
+ * contact sheet 单元底部的序号条：深底白字，序号与 input_images 顺序一致，
+ * 让 prompt 能用 "Image 1" / "Image 2" 指认具体某张参考图。
+ */
+function buildTileLabelSvg(index: number, width: number, height: number): Buffer {
+  const fontSize = Math.max(12, Math.min(28, Math.floor(height * 0.44)))
+  return Buffer.from(
+    `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">` +
+      '<rect width="100%" height="100%" fill="#111827"/>' +
+      '<text x="24" y="50%" dy="0.35em" fill="#ffffff" font-family="sans-serif" ' +
+      `font-size="${fontSize}" font-weight="700">Image ${index + 1}</text>` +
+      '</svg>',
+  )
+}
+
 function buildOpenAIEditFormData(model: string, request: SubmitRequest): FormData {
   const form = new FormData()
   form.append('model', model)
@@ -397,13 +518,18 @@ function buildOpenAIEditFormData(model: string, request: SubmitRequest): FormDat
 }
 
 function dataUrlToFile(dataUrl: string, filename: string): File {
+  const { mime, bytes } = decodeDataUrl(dataUrl)
+  return new File([Buffer.from(bytes)], filename, { type: mime })
+}
+
+function decodeDataUrl(dataUrl: string): { mime: string; bytes: Uint8Array } {
   const m = dataUrl.match(/^data:([^;,]+);base64,(.*)$/i)
   if (!m) throw new Error('input_images 中的数据 URL 格式无效，必须是 data:<mime>;base64,<...>')
   const mime = m[1]!
   const bin = atob(m[2]!)
   const bytes = new Uint8Array(bin.length)
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
-  return new File([bytes], filename, { type: mime })
+  return { mime, bytes }
 }
 
 function buildGeminiBody(request: SubmitRequest): Record<string, unknown> {
