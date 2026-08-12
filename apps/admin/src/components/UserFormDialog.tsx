@@ -26,10 +26,10 @@ interface UserFormDialogProps {
 function messageForError(error: unknown): string {
   if (error instanceof ApiError && error.body && typeof error.body === 'object') {
     const code = (error.body as { error?: unknown }).error
-    if (code === 'username_taken') return '该账号已存在'
-    if (code === 'invalid_username') return '账号仅支持 3–32 位小写字母、数字、点、横线和下划线'
+    if (code === 'username_taken') return '该用户名已存在'
+    if (code === 'invalid_username') return '用户名仅支持 3–32 位小写字母、数字、点、横线和下划线'
     if (code === 'invalid_password') return '密码长度需为 8–128 位'
-    if (code === 'user_not_found') return '账号不存在或已被删除'
+    if (code === 'user_not_found') return '用户不存在或已被删除'
   }
   return '操作失败，请稍后重试'
 }
@@ -65,11 +65,11 @@ export function UserFormDialog({ mode, user, open, onOpenChange }: UserFormDialo
     onError: (mutationError) => setError(messageForError(mutationError)),
   })
 
-  const title = mode === 'create' ? '创建账号' : `重置 ${user?.username ?? ''} 的密码`
+  const title = mode === 'create' ? '创建用户' : `重置 ${user?.username ?? ''} 的密码`
   const description =
     mode === 'create'
-      ? '账号创建后立即可用于经营站点登录。'
-      : '保存后该账号的所有现有登录会话会立即失效。'
+      ? '用户创建后立即可用于经营站点登录。'
+      : '保存后该用户的所有现有登录会话会立即失效。'
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -89,7 +89,7 @@ export function UserFormDialog({ mode, user, open, onOpenChange }: UserFormDialo
           {mode === 'create' ? (
             <div className="space-y-1.5 text-sm">
               <label htmlFor="managed-user-username" className="block font-medium">
-                账号
+                用户名
               </label>
               <Input
                 id="managed-user-username"
@@ -147,7 +147,7 @@ export function UserFormDialog({ mode, user, open, onOpenChange }: UserFormDialo
                 (mode === 'create' && username.trim().length < 3)
               }
             >
-              {mutation.isPending ? '保存中…' : mode === 'create' ? '创建账号' : '保存新密码'}
+              {mutation.isPending ? '保存中…' : mode === 'create' ? '创建用户' : '保存新密码'}
             </Button>
           </DialogFooter>
         </form>

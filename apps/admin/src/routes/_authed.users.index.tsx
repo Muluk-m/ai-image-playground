@@ -66,7 +66,7 @@ function UsersPage() {
           </p>
           <h1 className="mt-1 text-2xl font-semibold tracking-tight">用户中心</h1>
           <p className="mt-1 text-xs text-muted-foreground">
-            从账号开始处理开通、投诉、会话与任务追踪
+            从用户开始处理开通、投诉、会话与任务追踪
           </p>
         </div>
         <Button onClick={() => setCreating(true)}>
@@ -76,7 +76,7 @@ function UsersPage() {
       </div>
 
       <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4" aria-label="用户指标">
-        <Kpi label="用户总数" value={String(kpis.total_users)} note="所有账号" />
+        <Kpi label="用户总数" value={String(kpis.total_users)} note="所有用户" />
         <Kpi label="7 日活跃" value={String(kpis.active_users_7d)} note="登录或提交过任务" />
         <Kpi label="24h 提交" value={String(kpis.submissions_24h)} note="全部用户任务" />
         <Kpi

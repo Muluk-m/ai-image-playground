@@ -35,7 +35,7 @@ describe('UserFormDialog', () => {
 
   it('uses a username pattern accepted by modern browsers', () => {
     renderDialog()
-    const input = screen.getByLabelText<HTMLInputElement>('账号')
+    const input = screen.getByLabelText<HTMLInputElement>('用户名')
     expect(() => new RegExp(input.pattern, 'v')).not.toThrow()
   })
 
@@ -48,9 +48,9 @@ describe('UserFormDialog', () => {
     vi.stubGlobal('fetch', fetchMock)
     const { onOpenChange, user } = renderDialog()
 
-    await user.type(screen.getByLabelText('账号'), 'Designer-01')
+    await user.type(screen.getByLabelText('用户名'), 'Designer-01')
     await user.type(screen.getByLabelText('初始密码'), 'strong-password')
-    await user.click(screen.getByRole('button', { name: '创建账号' }))
+    await user.click(screen.getByRole('button', { name: '创建用户' }))
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
@@ -71,12 +71,12 @@ describe('UserFormDialog', () => {
     )
     const { onOpenChange, user } = renderDialog()
 
-    await user.type(screen.getByLabelText('账号'), 'existing')
+    await user.type(screen.getByLabelText('用户名'), 'existing')
     await user.type(screen.getByLabelText('初始密码'), 'strong-password')
-    await user.click(screen.getByRole('button', { name: '创建账号' }))
+    await user.click(screen.getByRole('button', { name: '创建用户' }))
 
     await waitFor(() => {
-      expect(screen.getByRole('alert')).toHaveTextContent('该账号已存在')
+      expect(screen.getByRole('alert')).toHaveTextContent('该用户名已存在')
     })
     expect(onOpenChange).not.toHaveBeenCalledWith(false)
   })
