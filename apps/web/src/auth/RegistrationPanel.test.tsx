@@ -48,8 +48,8 @@ describe('RegistrationPanel', () => {
       )
     })
 
-    expect(host.textContent).toContain('注册账户')
-    expect(input('username').autocomplete).toBe('username')
+    expect(host.textContent).toContain('创建账户')
+    expect(input('username').autocomplete).toBe('email')
     expect(input('password').autocomplete).toBe('new-password')
     expect(input('confirmPassword').autocomplete).toBe('new-password')
 
@@ -60,7 +60,7 @@ describe('RegistrationPanel', () => {
     expect(onBack).toHaveBeenCalledOnce()
   })
 
-  it('submits matching credentials and rejects a mismatched confirmation', () => {
+  it('submits an email identity with matching credentials and rejects a mismatched confirmation', () => {
     const onRegister = vi.fn()
     act(() => {
       root.render(
@@ -69,7 +69,7 @@ describe('RegistrationPanel', () => {
     })
 
     act(() => {
-      setInput(input('username'), 'new-user')
+      setInput(input('username'), 'Creator@Example.com')
       setInput(input('password'), 'fixture-phrase')
       setInput(input('confirmPassword'), 'different-phrase')
     })
@@ -80,7 +80,7 @@ describe('RegistrationPanel', () => {
     act(() => setInput(input('confirmPassword'), 'fixture-phrase'))
     act(() => host.querySelector('form')?.dispatchEvent(new Event('submit', { bubbles: true })))
     expect(onRegister).toHaveBeenCalledWith({
-      username: 'new-user',
+      username: 'Creator@Example.com',
       password: 'fixture-phrase',
     })
   })
@@ -121,13 +121,18 @@ describe('LoginScreen registration entry', () => {
     await bootstrapClientCapabilities(true, '')
     act(() => root.render(<LoginScreen />))
 
+    expect(host.querySelector('.auth-showcase')).toBeDefined()
+    expect(host.querySelector('.auth-panel')).toBeDefined()
+    expect(host.textContent).toContain('释放创意，让想象成真')
+    expect(host.textContent).toContain('邮箱地址')
+
     const registrationEntry = Array.from(host.querySelectorAll('button')).find(
-      (button) => button.textContent?.trim() === '注册账户',
+      (button) => button.textContent?.trim() === '立即注册',
     )
     expect(registrationEntry).toBeDefined()
     act(() => registrationEntry?.click())
 
-    expect(host.querySelector('h1')?.textContent).toBe('注册账户')
+    expect(host.querySelector('h1')?.textContent).toBe('创建账户')
     expect(input('confirmPassword')).toBeDefined()
   })
 })
