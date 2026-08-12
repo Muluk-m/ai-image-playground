@@ -190,31 +190,62 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
             return parseResponse(res)
           }),
         )
-        const merged = {
-          data: results.flatMap((r) => {
-            const p = r.payload as { data?: unknown[] } | null
-            return Array.isArray(p?.data) ? p.data : []
-          }),
-        }
-        return { payload: merged }
+        return mergeOpenAIImageResults(results)
       }
 
       // 有参考图 / 有遮罩 → images/edits multipart；generations 是纯文生图，
       // 塞 input_images 字段上游会忽略（用户感知"AI 不参考附件"）。
+      //
+      // 两个端点都同一套 n 策略：n===1 直接透传，n>1 时本层 fan-out 成 n 次并发
+      // 单图请求（每次不带 n，上游各回一张），再把各次的 data 合并成一个 payload，
+      // 对 task-runner / 前端透明。
       if (request.input_images?.length || request.mask) {
-        const res = await performFetch(`${base}/images/edits`, {
+        const url = `${base}/images/edits`
+        const n = Math.max(1, request.n ?? 1)
+        if (n === 1) {
+          const res = await performFetch(url, {
+            method: 'POST',
+            headers: authHeader,
+            body: buildOpenAIEditFormData(model, request),
+          })
+          return parseResponse(res)
+        }
+
+        const singleRequest = withoutImageCount(request)
+        const results = await Promise.all(
+          // multipart body 含 File 流，不能跨请求复用 → 每次重新构造。
+          Array.from({ length: n }, async () => {
+            const res = await performFetch(url, {
+              method: 'POST',
+              headers: authHeader,
+              body: buildOpenAIEditFormData(model, singleRequest),
+            })
+            return parseResponse(res)
+          }),
+        )
+        return mergeOpenAIImageResults(results)
+      }
+
+      const url = `${base}/images/generations`
+      const headers = { 'content-type': 'application/json', ...authHeader }
+      const n = Math.max(1, request.n ?? 1)
+      if (n === 1) {
+        const res = await performFetch(url, {
           method: 'POST',
-          headers: authHeader,
-          body: buildOpenAIEditFormData(model, request),
+          headers,
+          body: JSON.stringify(buildOpenAIBody(model, request)),
         })
         return parseResponse(res)
       }
-      const res = await performFetch(`${base}/images/generations`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', ...authHeader },
-        body: JSON.stringify(buildOpenAIBody(model, request)),
-      })
-      return parseResponse(res)
+
+      const body = JSON.stringify(buildOpenAIBody(model, withoutImageCount(request)))
+      const results = await Promise.all(
+        Array.from({ length: n }, async () => {
+          const res = await performFetch(url, { method: 'POST', headers, body })
+          return parseResponse(res)
+        }),
+      )
+      return mergeOpenAIImageResults(results)
     }
 
     if (provider === 'gemini') {
@@ -256,6 +287,28 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
   } finally {
     clearTimeout(timer)
     externalSignal?.removeEventListener('abort', onExternalAbort)
+  }
+}
+
+/** fan-out 的单次请求体用：去掉 n，让上游按默认的一张返回。 */
+function withoutImageCount(request: SubmitRequest): SubmitRequest {
+  const { n: _n, ...singleRequest } = request
+  return singleRequest
+}
+
+/**
+ * 把 fan-out 的多次单图响应合并成一个 OpenAI 风格 payload。
+ * 只保留 data；单次响应的顶层字段（created / usage / size / quality / output_format）丢弃，
+ * 即 fan-out 结果没有 extractImages 的 actual_params。
+ */
+function mergeOpenAIImageResults(results: readonly UpstreamCallResult[]): UpstreamCallResult {
+  return {
+    payload: {
+      data: results.flatMap((result) => {
+        const payload = result.payload as { data?: unknown[] } | null
+        return Array.isArray(payload?.data) ? payload.data : []
+      }),
+    },
   }
 }
 
