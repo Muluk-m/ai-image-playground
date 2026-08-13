@@ -21,7 +21,12 @@ import {
 import { log } from '../lib/logger'
 import { isAbortError } from '../lib/queueProvider'
 import { isRetryableError, planNextAttempt, shouldRetryEmptyResult } from '../lib/retry'
-import { callUpstream, UpstreamResultUnknownError, UpstreamTimeoutError } from '../lib/upstream'
+import {
+  callUpstream,
+  extractUpstreamFailure,
+  UpstreamResultUnknownError,
+  UpstreamTimeoutError,
+} from '../lib/upstream'
 
 /**
  * 单 task 后台执行：把 status 推进到 in_progress → completed/failed/cancelled。
@@ -86,6 +91,8 @@ async function tryScheduleRetry(
       error_message: null,
       error_type: null,
       result_payload: null,
+      upstream_status: null,
+      upstream_body: null,
     })
     .where(and(eq(schema.tasks.id, id), eq(schema.tasks.status, 'in_progress')))
     .returning({ id: schema.tasks.id })
@@ -168,6 +175,9 @@ async function failTask(
   values: {
     error_message: string
     error_type: TaskErrorType
+    /** 上游 HTTP 状态与错误响应体；非 HTTP 层失败（transport / 超时）传 null。 */
+    upstream_status?: number | null
+    upstream_body?: string | null
     result_payload?: Record<string, unknown>
     completed_at: number
   },
@@ -291,9 +301,12 @@ export async function runTask(id: string): Promise<void> {
       return
     }
 
+    const upstream = extractUpstreamFailure(err)
     const failed = await failTask(id, {
       error_message: message,
       error_type: errorType,
+      upstream_status: upstream.status,
+      upstream_body: upstream.body,
       completed_at: now(),
     })
     if (failed) {
@@ -303,6 +316,7 @@ export async function runTask(id: string): Promise<void> {
           taskId: id,
           errorType,
           attempt: attemptJustFailed,
+          upstreamStatus: upstream.status,
           err: message,
         },
         'task failed',

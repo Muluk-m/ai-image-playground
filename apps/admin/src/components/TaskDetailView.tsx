@@ -146,10 +146,27 @@ function TaskDetailContent({ task }: { task: TaskDetail }) {
           </h3>
           {task.error_message ? (
             <div className="rounded-md border border-destructive/50 bg-destructive/5 p-3 text-xs">
-              <div className="mb-1 font-medium text-destructive">{task.error_type ?? 'error'}</div>
+              <div className="mb-1 flex items-center gap-2">
+                <span className="font-medium text-destructive">{task.error_type ?? 'error'}</span>
+                {task.upstream_status ? (
+                  <span className="rounded bg-destructive/10 px-1.5 py-0.5 font-mono text-[10px] text-destructive">
+                    上游 HTTP {task.upstream_status}
+                  </span>
+                ) : null}
+              </div>
               <pre className="whitespace-pre-wrap break-words font-mono text-[11px] text-destructive/90">
                 {task.error_message}
               </pre>
+              {task.upstream_body ? (
+                <details className="mt-2">
+                  <summary className="cursor-pointer text-[11px] text-destructive/80">
+                    上游原始响应
+                  </summary>
+                  <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded bg-destructive/5 p-2 font-mono text-[11px] text-destructive/90">
+                    {task.upstream_body}
+                  </pre>
+                </details>
+              ) : null}
             </div>
           ) : outputImages.length === 0 ? (
             <div className="rounded border border-dashed p-6 text-center text-xs text-muted-foreground">
