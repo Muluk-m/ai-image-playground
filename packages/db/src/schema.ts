@@ -19,6 +19,17 @@ export const tasks = sqliteTable('tasks', {
   result_payload: text('result_payload', { mode: 'json' }),
   error_message: text('error_message'),
   error_type: text('error_type'),
+  /**
+   * 终态失败时上游返回的 HTTP 状态码。仅 HTTP 层错误有值；transport 中断 / BFF 硬超时
+   * 为 NULL（此时 error_type='upstream_result_unknown' 已足够区分）。admin 靠它一眼分辨
+   * 「上游挂了（5xx）」和「请求本身不合法（4xx）」，不必去翻网关进程日志。
+   */
+  upstream_status: integer('upstream_status'),
+  /**
+   * 上游错误响应体原文，写入前由 BFF 截断（避免 base64 巨串撑爆行）。网关兜底 envelope
+   * 里常带 error.code / error.type，是 error_message 提取不出来的那部分诊断信息。
+   */
+  upstream_body: text('upstream_body'),
   submitted_at: integer('submitted_at').notNull(),
   started_at: integer('started_at'),
   completed_at: integer('completed_at'),

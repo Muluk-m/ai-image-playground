@@ -191,4 +191,54 @@ describe('runMigrations', () => {
     expect(row.device_id).toBe('legacy-device')
     migrated.close()
   })
+
+  it('老库补齐 upstream_status / upstream_body 列', () => {
+    try {
+      unlinkSync(TEST_DB)
+      unlinkSync(`${TEST_DB}-wal`)
+      unlinkSync(`${TEST_DB}-shm`)
+    } catch {}
+
+    // 生产库就是这个形状：建于 upstream_* 两列之前，CREATE TABLE IF NOT EXISTS
+    // 不会补列，必须靠 ALTER 分支。
+    const legacy = new Database(TEST_DB)
+    legacy.exec(`
+      CREATE TABLE tasks (
+        id TEXT PRIMARY KEY,
+        provider TEXT NOT NULL,
+        model TEXT NOT NULL,
+        status TEXT NOT NULL,
+        request_payload TEXT NOT NULL,
+        result_payload TEXT,
+        error_message TEXT,
+        error_type TEXT,
+        submitted_at INTEGER NOT NULL,
+        started_at INTEGER,
+        completed_at INTEGER,
+        client_request_id TEXT,
+        attempt_count INTEGER NOT NULL DEFAULT 0,
+        next_retry_at INTEGER
+      );
+      INSERT INTO tasks (id, provider, model, status, request_payload, submitted_at)
+      VALUES ('legacy-2', 'openai-compat', 'm', 'failed', '{"prompt":"x"}', ${Date.now()});
+    `)
+    legacy.close()
+
+    runMigrations(TEST_DB)
+
+    const migrated = new Database(TEST_DB)
+    const cols = migrated.query('PRAGMA table_info(tasks)').all() as Array<{
+      name: string
+      type: string
+    }>
+    const byName = Object.fromEntries(cols.map((c) => [c.name, c]))
+    expect(byName.upstream_status).toMatchObject({ type: 'INTEGER' })
+    expect(byName.upstream_body).toMatchObject({ type: 'TEXT' })
+    // 老行补列后为 NULL，不影响既有数据
+    const row = migrated
+      .query("SELECT upstream_status, upstream_body FROM tasks WHERE id='legacy-2'")
+      .get() as { upstream_status: number | null; upstream_body: string | null }
+    expect(row).toEqual({ upstream_status: null, upstream_body: null })
+    migrated.close()
+  })
 })

@@ -270,6 +270,14 @@ describe('BFF queue routes', () => {
       status: 'failed',
       error: { message: 'invalid api key' },
     })
+
+    // admin 排查要的是「上游到底回了什么」：状态码 + 原始 envelope 一并落库，
+    // 否则只剩 extractErrorMessage 抽出来的那一句，error.code 之类全丢。
+    const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, id))
+    expect(task).toMatchObject({
+      upstream_status: 401,
+      upstream_body: '{"error":{"message":"invalid api key"}}',
+    })
   })
 
   it('worker marks a transport disconnect as unknown and does not queue a retry', async () => {
@@ -292,6 +300,9 @@ describe('BFF queue routes', () => {
       status: 'failed',
       error_type: 'upstream_result_unknown',
       next_retry_at: null,
+      // 压根没拿到 HTTP 响应，两个诊断列必须留空而不是瞎猜一个状态码
+      upstream_status: null,
+      upstream_body: null,
     })
   })
 

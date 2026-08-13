@@ -20,6 +20,8 @@ const DDL_BASE = `
     result_payload     TEXT,
     error_message      TEXT,
     error_type         TEXT,
+    upstream_status    INTEGER,
+    upstream_body      TEXT,
     submitted_at       INTEGER NOT NULL,
     started_at         INTEGER,
     completed_at       INTEGER,
@@ -86,6 +88,14 @@ export function runMigrations(databaseUrl: string) {
   }
   sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_tasks_next_retry_at
                ON tasks(next_retry_at) WHERE next_retry_at IS NOT NULL;`)
+
+  // 上游失败诊断：admin 详情页展示上游 HTTP 状态 + 错误响应体原文。老库补列。
+  if (!cols.some((c) => c.name === 'upstream_status')) {
+    sqlite.exec(`ALTER TABLE tasks ADD COLUMN upstream_status INTEGER;`)
+  }
+  if (!cols.some((c) => c.name === 'upstream_body')) {
+    sqlite.exec(`ALTER TABLE tasks ADD COLUMN upstream_body TEXT;`)
+  }
 
   // device_id VIRTUAL 列：admin 设备聚合 GROUP BY 需要索引，但 device_id 实际存
   // 在 request_payload JSON 里。生成列 VIRTUAL 不占额外空间。

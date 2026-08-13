@@ -147,6 +147,8 @@ export interface TaskListItem {
   started_at: number | null
   completed_at: number | null
   error_type: string | null
+  /** 上游 HTTP 状态码；仅 HTTP 层失败有值。5xx = 上游挂了，4xx = 请求本身有问题。 */
+  upstream_status: number | null
   /** 服务端从 request_payload 预抽的 prompt 文本。列表不再回传整个 request_payload，
    *  避免 input_images base64 把响应撑到几百 MB（这是 admin 卡死/拉取慢的根因）。 */
   prompt: string
@@ -211,6 +213,7 @@ export async function getDeviceDetail(
       started_at: schema.tasks.started_at,
       completed_at: schema.tasks.completed_at,
       error_type: schema.tasks.error_type,
+      upstream_status: schema.tasks.upstream_status,
       request_payload: schema.tasks.request_payload,
       attempt_count: schema.tasks.attempt_count,
     })
@@ -248,6 +251,7 @@ export async function getDeviceDetail(
     started_at: r.started_at,
     completed_at: r.completed_at,
     error_type: r.error_type,
+    upstream_status: r.upstream_status,
     prompt: extractPrompt(r.request_payload),
     n: extractN(r.request_payload),
     attempt_count: r.attempt_count,
@@ -263,6 +267,8 @@ export interface TaskDetail extends TaskListItem {
   request_payload: unknown
   result_meta: { images: Array<{ index: number; mime: string }>; raw_image_urls?: string[] }
   error_message: string | null
+  /** 上游错误响应体原文（BFF 侧已截断）。error_message 提取不到的 error.code 在这里。 */
+  upstream_body: string | null
   /** VIRTUAL 生成列：json_extract(request_payload, '$.device_id')；schema 没声明，靠 raw sql 取。 */
   device_id: string | null
   /** 仅在 status='queued' 且 attempt_count>0 时有值——等待下一次重试的目标时间戳。 */
@@ -287,6 +293,8 @@ export async function getTask(taskId: string): Promise<TaskDetail | null> {
         request_payload: schema.tasks.request_payload,
         result_payload: schema.tasks.result_payload,
         error_message: schema.tasks.error_message,
+        upstream_status: schema.tasks.upstream_status,
+        upstream_body: schema.tasks.upstream_body,
         attempt_count: schema.tasks.attempt_count,
         next_retry_at: schema.tasks.next_retry_at,
       })
@@ -320,6 +328,8 @@ export async function getTask(taskId: string): Promise<TaskDetail | null> {
     request_payload: task.request_payload,
     result_meta: { images },
     error_message: task.error_message,
+    upstream_status: task.upstream_status,
+    upstream_body: task.upstream_body,
     device_id,
     next_retry_at: task.next_retry_at,
   }

@@ -29,6 +29,9 @@ function seedTask(args: {
   status: 'completed' | 'failed' | 'queued'
   daysAgo: number
   resultPayload?: unknown
+  errorMessage?: string
+  upstreamStatus?: number
+  upstreamBody?: string
 }) {
   writer.db
     .insert(writer.schema.tasks)
@@ -39,6 +42,9 @@ function seedTask(args: {
       status: args.status,
       request_payload: { prompt: 'p', device_id: args.device } as never,
       result_payload: args.resultPayload as never,
+      error_message: args.errorMessage ?? null,
+      upstream_status: args.upstreamStatus ?? null,
+      upstream_body: args.upstreamBody ?? null,
       submitted_at: now - args.daysAgo * dayMs,
       ...(args.status === 'completed' ? { completed_at: now - args.daysAgo * dayMs + 1000 } : {}),
     })
@@ -73,6 +79,9 @@ seedTask({
   model: 'gemini-3-pro',
   status: 'failed',
   daysAgo: 0,
+  errorMessage: 'Upstream request failed',
+  upstreamStatus: 502,
+  upstreamBody: '{"error":{"message":"Upstream request failed","type":"upstream_error"}}',
 })
 // dev-B 设备：5 天前 1 个 task
 seedTask({
@@ -172,6 +181,14 @@ describe('getDeviceDetail', () => {
     expect(first.result_payload).toBeUndefined()
   })
 
+  it('失败任务的列表项带 upstream_status，供列表直接分辨 5xx / 4xx', async () => {
+    const detail = await getDeviceDetail('dev-A-aaaa', '7d')
+    const failed = detail.tasks.find((t) => t.id === 't3')
+    expect(failed?.upstream_status).toBe(502)
+    // 成功任务没有上游错误，保持 null
+    expect(detail.tasks.find((t) => t.id === 't1')?.upstream_status).toBeNull()
+  })
+
   it('不存在的设备返回空 tasks', async () => {
     const detail = await getDeviceDetail('dev-NOPE', '7d')
     expect(detail.device).toBeNull()
@@ -226,6 +243,15 @@ describe('getTask', () => {
     expect(response.client_request_id).toBeUndefined()
     expect(task!.request_payload).toEqual({ prompt: 'p', device_id: 'dev-A-aaaa' })
     expect(task!.result_meta).toEqual({ images: [{ index: 0, mime: 'image/webp' }] })
+  })
+
+  it('失败任务详情带上游 HTTP 状态与原始响应体', async () => {
+    const task = await getTask('t3')
+    expect(task).not.toBeNull()
+    expect(task!.upstream_status).toBe(502)
+    expect(task!.upstream_body).toBe(
+      '{"error":{"message":"Upstream request failed","type":"upstream_error"}}',
+    )
   })
 
   it('不存在的 task → null', async () => {

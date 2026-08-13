@@ -42,6 +42,8 @@ export interface TaskListItem {
   started_at: number | null
   completed_at: number | null
   error_type: string | null
+  /** 上游 HTTP 状态码；仅 HTTP 层失败有值。5xx = 上游挂了，4xx = 请求本身有问题。 */
+  upstream_status: number | null
   /** 服务端从 request_payload 预抽的 prompt 文本。列表不再回传整坨 request_payload，
    *  避免 input_images base64 把响应撑爆（admin 卡死/拉取慢的根因）。 */
   prompt: string
@@ -69,6 +71,8 @@ export interface TaskDetail extends TaskListItem {
   request_payload: unknown
   result_meta: { images: TaskImageMeta[]; raw_image_urls?: string[] }
   error_message: string | null
+  /** 上游错误响应体原文（BFF 侧已截断）。error_message 提取不到的 error.code 在这里。 */
+  upstream_body: string | null
   device_id: string | null
   /** 仅 status='queued' 且 attempt_count>0 时有值——下次自动重试的目标时间戳。 */
   next_retry_at: number | null
