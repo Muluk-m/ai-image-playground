@@ -38,7 +38,7 @@ import {
 import { ChipIcons } from './chipIcons'
 import { CloseIcon } from './icons'
 import ParamControls from './ParamControls'
-import SubmissionCostEstimate from './SubmissionCostEstimate'
+import SubmissionBillingAction from './SubmissionBillingAction'
 import ViewportTooltip from './ViewportTooltip'
 
 const TEXTAREA_CLASS =
@@ -1679,10 +1679,9 @@ export default function InputBar() {
                 onMouseEnter={() => setSubmitHover(true)}
                 onMouseLeave={() => setSubmitHover(false)}
               >
-                <SubmissionCostEstimate
-                  credits={submissionGuard.estimatedCredits}
+                <SubmissionBillingAction
                   blockedAction={submissionGuard.blockedAction}
-                  className="shrink-0 text-[11px] text-gray-500 dark:text-gray-400"
+                  className="text-[11px]"
                 />
                 <ButtonTooltip
                   visible={(!hasSubmitApiConfig || submissionGuard.blocked) && submitHover}
@@ -1894,10 +1893,9 @@ export default function InputBar() {
                     onMouseEnter={() => setSubmitHover(true)}
                     onMouseLeave={() => setSubmitHover(false)}
                   >
-                    <SubmissionCostEstimate
-                      credits={submissionGuard.estimatedCredits}
+                    <SubmissionBillingAction
                       blockedAction={submissionGuard.blockedAction}
-                      className="shrink-0 text-xs font-medium text-gray-500 dark:text-gray-400"
+                      className="text-xs"
                     />
                     <ButtonTooltip
                       visible={(!hasSubmitApiConfig || submissionGuard.blocked) && submitHover}
@@ -1982,10 +1980,9 @@ export default function InputBar() {
                       onMouseEnter={() => setSubmitHover(true)}
                       onMouseLeave={() => setSubmitHover(false)}
                     >
-                      <SubmissionCostEstimate
-                        credits={submissionGuard.estimatedCredits}
+                      <SubmissionBillingAction
                         blockedAction={submissionGuard.blockedAction}
-                        className="shrink-0 text-[11px] text-gray-500 dark:text-gray-400"
+                        className="text-[11px]"
                       />
                       <ButtonTooltip
                         visible={(!hasSubmitApiConfig || submissionGuard.blocked) && submitHover}
