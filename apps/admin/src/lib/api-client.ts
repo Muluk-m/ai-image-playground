@@ -3,8 +3,7 @@ import type { AnyRouter } from '@tanstack/react-router'
 
 // admin api client: 同源 fetch，自动带 cookie（HttpOnly session）。
 // - 200 → 解 JSON 返回
-// - 401 → 默认清 query cache + navigate /login，throw UnauthorizedError
-// - 登录态探测可关闭全局跳转，由 route 自己决定如何处理 401
+// - 401 → 全局拦截：清 query cache + navigate /login，throw UnauthorizedError
 // - 其它 4xx/5xx → throw ApiError，调用方按需 catch
 
 export class ApiError extends Error {
@@ -41,19 +40,13 @@ export function _resetApiClientRefsForTest(): void {
   _queryClient = null
 }
 
-interface RequestOptions {
-  redirectOnUnauthorized?: boolean
-}
-
-async function handleResponse<T>(res: Response, options?: RequestOptions): Promise<T> {
+async function handleResponse<T>(res: Response): Promise<T> {
   if (res.status === 401) {
     const body = await safeParseJson(res)
-    if (options?.redirectOnUnauthorized !== false) {
-      _queryClient?.clear()
-      if (_router) {
-        // 不 await：navigate 可能在 promise 链里触发渲染递归
-        void _router.navigate({ to: '/login' })
-      }
+    _queryClient?.clear()
+    if (_router) {
+      // 不 await：navigate 可能在 promise 链里触发渲染递归
+      void _router.navigate({ to: '/login' })
     }
     throw new UnauthorizedError(body)
   }
@@ -74,40 +67,26 @@ async function safeParseJson(res: Response): Promise<unknown> {
     return null
   }
 }
-async function sendJson<T>(
-  method: 'POST' | 'PUT' | 'PATCH',
-  url: string,
-  body?: unknown,
-  options?: RequestOptions,
-): Promise<T> {
-  const res = await fetch(url, {
-    method,
-    credentials: 'include',
-    headers: {
-      accept: 'application/json',
-      'content-type': 'application/json',
-    },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  })
-  return handleResponse<T>(res, options)
-}
 
 export const apiClient = {
-  async get<T>(url: string, options?: RequestOptions): Promise<T> {
+  async get<T>(url: string): Promise<T> {
     const res = await fetch(url, {
       method: 'GET',
       credentials: 'include',
       headers: { accept: 'application/json' },
     })
-    return handleResponse<T>(res, options)
+    return handleResponse<T>(res)
   },
-  post<T>(url: string, body?: unknown, options?: RequestOptions): Promise<T> {
-    return sendJson('POST', url, body, options)
-  },
-  put<T>(url: string, body: unknown): Promise<T> {
-    return sendJson('PUT', url, body)
-  },
-  patch<T>(url: string, body: unknown): Promise<T> {
-    return sendJson('PATCH', url, body)
+  async post<T>(url: string, body?: unknown): Promise<T> {
+    const res = await fetch(url, {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        accept: 'application/json',
+        'content-type': 'application/json',
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    })
+    return handleResponse<T>(res)
   },
 }

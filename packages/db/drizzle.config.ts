@@ -1,12 +1,10 @@
 import { defineConfig } from 'drizzle-kit'
 
 export default defineConfig({
-  dialect: 'postgresql',
+  dialect: 'sqlite',
   schema: './src/schema.ts',
-  out: './drizzle',
+  out: './drizzle/migrations',
   dbCredentials: {
-    url:
-      process.env.DATABASE_URL ??
-      'postgresql://image_playground:change-me@127.0.0.1:5432/image_playground',
+    url: process.env.DATABASE_URL ?? '../../artifacts/image-playground.sqlite',
   },
 })

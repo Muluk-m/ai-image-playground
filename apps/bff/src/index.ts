@@ -1,42 +1,13 @@
 import { QUEUE_TIMEOUTS, SERVER_IDLE_TIMEOUT_SEC } from '@image-playground/shared'
+import { app } from './app'
 import { config } from './config'
-import { close as closeDb } from './db/client'
-import { purgeOldTasks, runPrivateMaintenance } from './db/maintenance'
-import { isCapabilityEnabled } from './lib/capabilities'
+import { checkpointWal } from './db/client'
+import { purgeOldOutputBlobs, purgeOldTasks } from './db/maintenance'
+import { runMigrations } from './db/migrate'
 import { initChannels } from './lib/channels'
 import { log } from './lib/logger'
 
-const MAX_REQUEST_BODY_SIZE_BYTES = 600 * 1024 * 1024
-
-config.assertValid()
-log.info(
-  {
-    event: 'capabilities.resolved',
-    file: config.operator.file,
-    loaded: config.operator.loaded,
-    capabilities: Object.fromEntries(
-      Object.entries(config.operator.capabilities).map(([key, value]) => [
-        key,
-        {
-          value,
-          source:
-            config.operator.capabilitySources[key as keyof typeof config.operator.capabilities],
-        },
-      ]),
-    ),
-    quotas: Object.fromEntries(
-      Object.entries(config.operator.quotas).map(([key, value]) => [
-        key,
-        {
-          value,
-          source: config.operator.quotaSources[key as keyof typeof config.operator.quotas],
-        },
-      ]),
-    ),
-  },
-  'operator capabilities resolved',
-)
-const accountsLoginEnabled = isCapabilityEnabled('accounts:login')
+runMigrations()
 
 const channelsResult = initChannels(config.channelsFile ?? undefined)
 for (const warning of channelsResult.warnings) {
@@ -49,17 +20,25 @@ log.info(
     : 'no channels loaded (BYOK-only deployment)',
 )
 
-// Importing the app loads optional private routes. Public migrations and
-// channel discovery must be ready before that overlay initializes.
-const { app } = await import('./app')
-
-await runPrivateMaintenance()
 const purgeStartup = await purgeOldTasks()
 if (purgeStartup > 0) log.info({ event: 'startup.purged', count: purgeStartup }, 'purged old tasks')
+const outputPurgeStartup = await purgeOldOutputBlobs()
+if (outputPurgeStartup > 0) {
+  log.info(
+    { event: 'startup.output_blobs_purged', count: outputPurgeStartup },
+    'purged expired output blobs',
+  )
+}
 setInterval(async () => {
   const removed = await purgeOldTasks()
-  await runPrivateMaintenance()
   if (removed > 0) log.info({ event: 'periodic.purged', count: removed }, 'purged old tasks')
+  const removedOutputBlobs = await purgeOldOutputBlobs()
+  if (removedOutputBlobs > 0) {
+    log.info(
+      { event: 'periodic.output_blobs_purged', count: removedOutputBlobs },
+      'purged expired output blobs',
+    )
+  }
 }, QUEUE_TIMEOUTS.PURGE_INTERVAL_MS)
 
 if (config.corsOrigins === '*') {
@@ -69,31 +48,23 @@ if (config.corsOrigins === '*') {
   )
 }
 
-app.listen(
-  {
-    port: config.port,
-    idleTimeout: SERVER_IDLE_TIMEOUT_SEC,
-    maxRequestBodySize: MAX_REQUEST_BODY_SIZE_BYTES,
-  },
-  () => {
-    log.info(
-      {
-        event: 'listen',
-        port: config.port,
-        upstream: config.upstream.baseUrl,
-        corsOrigins: config.corsOrigins,
-        staticDir: config.staticDir,
-        accountsLoginEnabled,
-      },
-      'bff listening',
-    )
-  },
-)
+app.listen({ port: config.port, idleTimeout: SERVER_IDLE_TIMEOUT_SEC }, () => {
+  log.info(
+    {
+      event: 'listen',
+      port: config.port,
+      upstream: config.upstream.baseUrl,
+      corsOrigins: config.corsOrigins,
+      staticDir: config.staticDir,
+    },
+    'bff listening',
+  )
+})
 
 let shuttingDown = false
 
-async function finalize(exitCode = 0): Promise<never> {
-  await closeDb()
+function finalize(exitCode = 0): never {
+  checkpointWal()
   // pino async transport：log.flush() 同步刷盘，防 process.exit 吞最后几行。
   log.flush()
   process.exit(exitCode)
@@ -114,7 +85,7 @@ async function gracefulShutdown(signal: string): Promise<void> {
   }
 
   log.info({ event: 'shutdown.done' }, 'bff stopped')
-  await finalize()
+  finalize()
 }
 
 process.on('SIGTERM', () => {

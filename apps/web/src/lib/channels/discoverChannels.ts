@@ -9,7 +9,6 @@
  * 让浏览器吊着 default ~5min 才放弃，否则 SPA 卡在白屏。
  */
 import type { ChannelDiscoveryResponse, DiscoveredChannel } from '@image-playground/shared'
-import { AuthRequestError, authenticatedBffFetch } from '../authClient'
 
 type Fetcher = (input: string, init?: RequestInit) => Promise<Response>
 
@@ -17,16 +16,11 @@ export async function fetchDiscoveredChannels(
   bffBaseUrl: string,
   options: { fetcher?: Fetcher; signal?: AbortSignal } = {},
 ): Promise<DiscoveredChannel[]> {
-  const { fetcher = authenticatedBffFetch, signal } = options
+  const { fetcher = fetch, signal } = options
   const base = bffBaseUrl.replace(/\/+$/, '')
   const url = `${base}/api/channels`
-  const res = await fetcher(url, { cache: 'no-store', credentials: 'include', signal })
-  if (!res.ok) {
-    throw new AuthRequestError(
-      res.status,
-      res.status === 401 ? 'unauthorized' : `channel_discovery_http_${res.status}`,
-    )
-  }
+  const res = await fetcher(url, { cache: 'no-store', signal })
+  if (!res.ok) throw new Error(`${url} returned ${res.status}`)
   const json = (await res.json()) as ChannelDiscoveryResponse
   if (!json || !Array.isArray(json.channels))
     throw new Error(`${url} response missing 'channels' array`)

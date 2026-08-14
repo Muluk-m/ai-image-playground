@@ -1,26 +1,37 @@
-import { SQL } from 'bun'
-import { type BunSQLDatabase, drizzle } from 'drizzle-orm/bun-sql'
+import { Database } from 'bun:sqlite'
+import { type BunSQLiteDatabase, drizzle } from 'drizzle-orm/bun-sqlite'
 import * as schema from './schema'
-export interface DbHandle {
-  db: BunSQLDatabase<typeof schema> & { $client: SQL }
-  schema: typeof schema
-  client: SQL
-  close(): Promise<void>
+
+export interface CreateDbOptions {
+  /** 设 true 时打开 PRAGMA query_only=ON，所有 INSERT/UPDATE/DELETE 抛错。 */
+  readonly?: boolean
 }
 
+export type ImagePlaygroundDatabase = BunSQLiteDatabase<typeof schema> & { $client: Database }
+
 /**
- * Creates a PostgreSQL pool and its typed Drizzle client. Call close() during process shutdown or
- * after short-lived test/administrative use.
+ * Drizzle client 工厂。
+ * - 任何模式都开 WAL（多进程读 + 单进程写安全）
+ * - readonly 模式额外 query_only=ON，admin 进程用此模式确保不会误写
  */
-export function createDb(databaseUrl: string): DbHandle {
-  const client = new SQL(databaseUrl)
-  const db = drizzle(client, { schema })
-  return {
-    db,
-    schema,
-    client,
-    close: () => client.close(),
+export function createDb(databaseUrl: string, options: CreateDbOptions = {}) {
+  const sqlite = new Database(databaseUrl)
+  sqlite.exec('PRAGMA busy_timeout = 5000;')
+  // task_blobs.task_id relies on ON DELETE CASCADE when the 30-day task purge runs.
+  sqlite.exec('PRAGMA foreign_keys = ON;')
+  sqlite.exec('PRAGMA journal_mode = WAL;')
+  if (options.readonly) {
+    sqlite.exec('PRAGMA query_only = ON;')
   }
+  const db: ImagePlaygroundDatabase = drizzle(sqlite, { schema })
+  const checkpointWal = () => {
+    try {
+      sqlite.exec('PRAGMA wal_checkpoint(TRUNCATE);')
+    } catch {
+      /* ignore */
+    }
+  }
+  return { db, schema, checkpointWal, sqlite }
 }
 
 export { schema }

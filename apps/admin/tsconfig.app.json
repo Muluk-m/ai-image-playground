@@ -24,6 +24,5 @@
     },
     "baseUrl": "."
   },
-  "include": ["src", "contracts.ts", "vite.config.ts", "scripts/private-routes.ts"],
-  "exclude": ["src/__tests__/server"]
+  "include": ["src", "vite.config.ts"]
 }

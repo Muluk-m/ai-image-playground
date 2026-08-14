@@ -1,5 +1,4 @@
 import { afterAll, describe, expect, it } from 'bun:test'
-import { resetTestDatabase } from '@image-playground/db/testing'
 import { SERVER_IDLE_TIMEOUT_SEC } from '@image-playground/shared'
 
 /**
@@ -15,7 +14,7 @@ import { SERVER_IDLE_TIMEOUT_SEC } from '@image-playground/shared'
  * 的信号能替代——服务端「没关连接」这件事只能靠真的等过阈值来观察。
  */
 
-const TEST_DB = await resetTestDatabase('bff_idle_timeout')
+const TEST_DB = './artifacts/test-idle-timeout.sqlite'
 /** 未修复时生效的空闲超时（Elysia Bun adapter 默认值）。 */
 const ELYSIA_DEFAULT_IDLE_SEC = 30
 /** 必须越过未修复时的阈值，否则测不出「服务端提前关连接」。 */

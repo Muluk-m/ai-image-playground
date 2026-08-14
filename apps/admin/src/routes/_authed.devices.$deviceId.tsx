@@ -80,6 +80,7 @@ function DeviceDetailPage() {
           </div>
           <TaskTable
             tasks={tasks}
+            deviceId={deviceId}
             hasNextPage={q.hasNextPage}
             isFetchingNextPage={q.isFetchingNextPage}
             onLoadMore={() => {

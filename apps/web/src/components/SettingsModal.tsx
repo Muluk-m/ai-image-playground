@@ -25,7 +25,6 @@ import {
 } from '../lib/apiProfiles'
 import { getPublicChannel } from '../lib/channels/publicChannels'
 import type { ClientProfile, ProviderKind, UserByokProfile } from '../lib/channels/types'
-import { isByokGenerationEnabled } from '../lib/clientCapabilities'
 import { copyTextToClipboard, getClipboardFailureMessage } from '../lib/clipboard'
 import { isApiProxyAvailable, readClientDevProxyConfig } from '../lib/devProxy'
 import { fetchProfileModels } from '../lib/fetchProfileModels'
@@ -1305,22 +1304,20 @@ export default function SettingsModal() {
                   </svg>
                   习惯配置
                 </button>
-                {isByokGenerationEnabled() && (
-                  <button
-                    onClick={() => setActiveTab('api')}
-                    className={`whitespace-nowrap flex-shrink-0 flex items-center gap-2.5 px-3 py-2.5 text-sm rounded-xl transition-colors ${activeTab === 'api' ? 'bg-white dark:bg-white/[0.08] shadow-sm text-blue-600 dark:text-blue-400 font-medium' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100/80 dark:hover:bg-white/[0.04]'}`}
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"
-                      />
-                    </svg>
-                    API 配置
-                  </button>
-                )}
+                <button
+                  onClick={() => setActiveTab('api')}
+                  className={`whitespace-nowrap flex-shrink-0 flex items-center gap-2.5 px-3 py-2.5 text-sm rounded-xl transition-colors ${activeTab === 'api' ? 'bg-white dark:bg-white/[0.08] shadow-sm text-blue-600 dark:text-blue-400 font-medium' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100/80 dark:hover:bg-white/[0.04]'}`}
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"
+                    />
+                  </svg>
+                  API 配置
+                </button>
                 <button
                   onClick={() => setActiveTab('data')}
                   className={`whitespace-nowrap flex-shrink-0 flex items-center gap-2.5 px-3 py-2.5 text-sm rounded-xl transition-colors ${activeTab === 'data' ? 'bg-white dark:bg-white/[0.08] shadow-sm text-blue-600 dark:text-blue-400 font-medium' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100/80 dark:hover:bg-white/[0.04]'}`}

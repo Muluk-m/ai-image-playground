@@ -1,156 +1,82 @@
-import type { PersistedSubmitRequest, QueueProvider, TaskStatus } from '@image-playground/shared'
-import { sql } from 'drizzle-orm'
-import {
-  check,
-  customType,
-  date,
-  index,
-  integer,
-  pgTable,
-  primaryKey,
-  text,
-  uniqueIndex,
-} from 'drizzle-orm/pg-core'
+import type {
+  QueueProvider,
+  SubmitRequest,
+  TaskBlobRef,
+  TaskStatus,
+} from '@image-playground/shared'
+import { blob, integer, primaryKey, sqliteTable, text, unique } from 'drizzle-orm/sqlite-core'
 
-export type UserStatus = 'active' | 'disabled'
+export type StoredSubmitRequest = Omit<SubmitRequest, 'input_images'> & {
+  input_images?: Array<string | TaskBlobRef>
+}
 
-/**
- * HTTP and queue contracts use Unix epoch milliseconds. PostgreSQL stores timestamptz so expiry,
- * retention, and operational queries remain timezone-safe.
- */
-const epochMs = customType<{ data: number; driverData: string }>({
-  dataType: () => 'timestamp with time zone',
-  toDriver: (value) => new Date(value).toISOString(),
-  fromDriver: (value) => new Date(value).getTime(),
+export const tasks = sqliteTable('tasks', {
+  id: text('id').primaryKey(),
+  provider: text('provider').$type<QueueProvider>().notNull(),
+  model: text('model').notNull(),
+  status: text('status').$type<TaskStatus>().notNull(),
+  request_payload: text('request_payload', { mode: 'json' }).$type<StoredSubmitRequest>().notNull(),
+  result_payload: text('result_payload', { mode: 'json' }),
+  error_message: text('error_message'),
+  error_type: text('error_type'),
+  /**
+   * 终态失败时上游返回的 HTTP 状态码。仅 HTTP 层错误有值；transport 中断 / BFF 硬超时
+   * 为 NULL（此时 error_type='upstream_result_unknown' 已足够区分）。admin 靠它一眼分辨
+   * 「上游挂了（5xx）」和「请求本身不合法（4xx）」，不必去翻网关进程日志。
+   */
+  upstream_status: integer('upstream_status'),
+  /**
+   * 上游错误响应体原文，写入前由 BFF 截断（避免 base64 巨串撑爆行）。网关兜底 envelope
+   * 里常带 error.code / error.type，是 error_message 提取不出来的那部分诊断信息。
+   */
+  upstream_body: text('upstream_body'),
+  submitted_at: integer('submitted_at').notNull(),
+  started_at: integer('started_at'),
+  completed_at: integer('completed_at'),
+  /** 客户端幂等键。NULL 表示老任务或客户端没传；前端新提交一律会带。 */
+  client_request_id: text('client_request_id'),
+  /**
+   * 已尝试次数（含首次）。新任务=0；worker 失败决定重试时在已 in_progress
+   * 行上 +1（即将变成第 N 次重试时写 N，然后 status 回退到 'queued'）。
+   */
+  attempt_count: integer('attempt_count').notNull().default(0),
+  /**
+   * 下次允许重试的时间戳。仅在 status='queued' 且 attempt_count>0 时有值——
+   * 表示这条 queued 是「等待重试」状态而非「初次未起跑」。worker claim 必须
+   * `next_retry_at IS NULL OR next_retry_at <= now`，避免未到时被错误启动。
+   */
+  next_retry_at: integer('next_retry_at'),
 })
-/**
- * Bun SQL accepts and returns JSON values as objects. Drizzle's built-in pg jsonb mapper serializes
- * values first, which would store a JSON string instead of a JSON object with this driver.
- */
-const bunJsonb = customType<{ data: unknown; driverData: unknown }>({
-  dataType: () => 'jsonb',
-  toDriver: (value) => value,
-  fromDriver: (value) => value,
-})
 
-export const users = pgTable(
-  'users',
+export const task_blobs = sqliteTable(
+  'task_blobs',
   {
     id: text('id').primaryKey(),
-    username: text('username').notNull(),
-    password_hash: text('password_hash').notNull(),
-    status: text('status').$type<UserStatus>().notNull().default('active'),
-    created_at: epochMs('created_at').notNull(),
-    updated_at: epochMs('updated_at').notNull(),
-    last_login_at: epochMs('last_login_at'),
-  },
-  (t) => [
-    uniqueIndex('idx_users_username').on(t.username),
-    check('users_status_check', sql`${t.status} IN ('active', 'disabled')`),
-  ],
-)
-
-export const user_sessions = pgTable(
-  'user_sessions',
-  {
-    token_hash: text('token_hash').primaryKey(),
-    user_id: text('user_id')
+    task_id: text('task_id')
       .notNull()
-      .references(() => users.id, { onDelete: 'cascade' }),
-    created_at: epochMs('created_at').notNull(),
-    expires_at: epochMs('expires_at').notNull(),
+      .references(() => tasks.id, { onDelete: 'cascade' }),
+    kind: text('kind').$type<'input' | 'output'>().notNull(),
+    idx: integer('idx').notNull(),
+    mime: text('mime').notNull(),
+    data: blob('data', { mode: 'buffer' }).notNull(),
+    created_at: integer('created_at').notNull(),
   },
-  (t) => [
-    index('idx_user_sessions_user_id').on(t.user_id),
-    index('idx_user_sessions_expires_at').on(t.expires_at),
-  ],
+  (t) => [unique().on(t.task_id, t.kind, t.idx)],
 )
 
-export const operator_audits = pgTable(
-  'operator_audits',
-  {
-    id: text('id').primaryKey(),
-    operator_id: text('operator_id').notNull(),
-    action: text('action').notNull(),
-    target_type: text('target_type').notNull(),
-    target_id: text('target_id').notNull(),
-    details: bunJsonb('details').$type<Record<string, unknown>>().notNull(),
-    created_at: epochMs('created_at').notNull(),
-  },
-  (t) => [
-    index('idx_operator_audits_target').on(t.target_type, t.target_id, t.created_at.desc()),
-    index('idx_operator_audits_created_at').on(t.created_at.desc()),
-  ],
-)
-
-export const tasks = pgTable(
-  'tasks',
-  {
-    id: text('id').primaryKey(),
-    provider: text('provider').$type<QueueProvider>().notNull(),
-    model: text('model').notNull(),
-    status: text('status').$type<TaskStatus>().notNull(),
-    request_payload: bunJsonb('request_payload').$type<PersistedSubmitRequest>().notNull(),
-    result_payload: bunJsonb('result_payload'),
-    error_message: text('error_message'),
-    error_type: text('error_type'),
-    /**
-     * Terminal upstream HTTP failures keep their status for operator triage. Transport failures and
-     * application timeouts have no HTTP response and therefore remain null.
-     */
-    upstream_status: integer('upstream_status'),
-    /**
-     * Truncated upstream error response body. This preserves diagnostic codes that are not present
-     * in the normalized error message without allowing unbounded responses into the task row.
-     */
-    upstream_body: text('upstream_body'),
-    submitted_at: epochMs('submitted_at').notNull(),
-    started_at: epochMs('started_at'),
-    completed_at: epochMs('completed_at'),
-    user_id: text('user_id').references(() => users.id),
-    client_request_id: text('client_request_id'),
-    attempt_count: integer('attempt_count').notNull().default(0),
-    upstream_invocation_count: integer('upstream_invocation_count').notNull().default(0),
-    next_retry_at: epochMs('next_retry_at'),
-    device_id: text('device_id').generatedAlwaysAs(sql`request_payload ->> 'device_id'`),
-  },
-  (t) => [
-    index('idx_tasks_status').on(t.status),
-    index('idx_tasks_submitted_at').on(t.submitted_at),
-    index('idx_tasks_next_retry_at').on(t.next_retry_at).where(sql`${t.next_retry_at} IS NOT NULL`),
-    uniqueIndex('idx_tasks_anonymous_client_request_id')
-      .on(t.client_request_id)
-      .where(sql`${t.user_id} IS NULL AND ${t.client_request_id} IS NOT NULL`),
-    uniqueIndex('idx_tasks_user_client_request_id')
-      .on(t.user_id, t.client_request_id)
-      .where(sql`${t.user_id} IS NOT NULL AND ${t.client_request_id} IS NOT NULL`),
-    index('idx_tasks_user_time')
-      .on(t.user_id, t.submitted_at.desc())
-      .where(sql`${t.user_id} IS NOT NULL`),
-    index('idx_tasks_admin_device_time').on(
-      t.device_id,
-      t.submitted_at.desc(),
-      t.id.desc(),
-      t.status,
-      t.model,
-    ),
-  ],
-)
-
-export const daily_quota = pgTable(
+export const daily_quota = sqliteTable(
   'daily_quota',
   {
     device_id: text('device_id').notNull(),
-    date: date('date', { mode: 'string' }).notNull(),
+    date: text('date').notNull(), // 'YYYY-MM-DD' UTC
     count: integer('count').notNull().default(0),
   },
-  (t) => [primaryKey({ columns: [t.device_id, t.date] })],
+  (t) => ({
+    pk: primaryKey({ columns: [t.device_id, t.date] }),
+  }),
 )
 
 export type Task = typeof tasks.$inferSelect
 export type NewTask = typeof tasks.$inferInsert
-export type User = typeof users.$inferSelect
-export type NewUser = typeof users.$inferInsert
-export type UserSession = typeof user_sessions.$inferSelect
-export type OperatorAudit = typeof operator_audits.$inferSelect
-export type NewOperatorAudit = typeof operator_audits.$inferInsert
+export type TaskBlob = typeof task_blobs.$inferSelect
+export type NewTaskBlob = typeof task_blobs.$inferInsert

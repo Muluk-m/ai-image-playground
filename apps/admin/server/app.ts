@@ -1,14 +1,11 @@
 import { extname } from 'node:path'
 import { cors } from '@elysiajs/cors'
 import { Elysia } from 'elysia'
-import { config, getAdminCapabilities } from './config'
+import { config } from './config'
 import { authRoutes } from './routes/auth'
 import { devicesRoutes } from './routes/devices'
 import { imagesRoutes } from './routes/images'
-import { overviewRoutes } from './routes/overview'
-import { extensionRoutes, privateRoutes } from './routes/private'
 import { tasksRoutes } from './routes/tasks'
-import { usersRoutes } from './routes/users'
 import { isApiPath, serveSpaFallback, serveStatic } from './static'
 
 const corsOrigin =
@@ -21,20 +18,14 @@ const corsOrigin =
 
 const STATIC_DIR = config.staticDir
 
-const apiApp = new Elysia()
+export const app = new Elysia()
   .use(cors({ origin: corsOrigin, credentials: true }))
   .get('/health', () => ({ ok: true }))
   .use(authRoutes)
   .use(devicesRoutes)
-  .use(overviewRoutes)
   .use(tasksRoutes)
   .use(imagesRoutes)
-  .use(extensionRoutes)
-  .use(privateRoutes)
-
-if (getAdminCapabilities().accountsLogin) apiApp.use(usersRoutes)
-
-export const app = apiApp
+  // 静态托管：API 路由之后再 hook。/api/* 与 /health 跳过；其它路径先试静态文件，
   // 命中即返；未命中走 onError 的 SPA fallback（让 client-side router 接管）。
   // STATIC_DIR 为空（dev 模式，vite 自己跑前端）时整条链 no-op。
   .onRequest(async ({ request, set }) => {

@@ -1,14 +1,10 @@
-import type { PersistedSubmitRequest, QueueProvider } from '@image-playground/shared'
-import { and, eq, isNull } from 'drizzle-orm'
+import type { QueueProvider } from '@image-playground/shared'
+import { DAILY_QUOTA_LIMIT } from '@image-playground/shared'
+import { eq } from 'drizzle-orm'
 import { Elysia, t } from 'elysia'
-import { config } from '../config'
 import { db, schema } from '../db/client'
-import { isCapabilityEnabled } from '../lib/capabilities'
-import { archiveInputImages, ObjectStorageError } from '../lib/imageArchive'
-import { objectStore } from '../lib/objectStore'
-import { loadPrivateBffOverlay } from '../lib/private-overlay'
-import { tryConsumeQuotaInTransaction } from '../lib/quota'
-import { requireUser } from '../lib/user-auth'
+import { insertTaskBlobs, rewriteInputDataUrls } from '../lib/blobStore'
+import { tryConsumeQuotaSync } from '../lib/quota'
 
 const submitBodySchema = t.Object({
   prompt: t.String({ minLength: 1 }),
@@ -20,7 +16,7 @@ const submitBodySchema = t.Object({
   aspect_ratio: t.Optional(t.String()),
   image_size: t.Optional(t.String()),
   thinking_level: t.Optional(t.String()),
-  n: t.Optional(t.Number({ minimum: 1, maximum: 16, multipleOf: 1 })),
+  n: t.Optional(t.Number({ minimum: 1, maximum: 16 })),
   input_images: t.Optional(t.Array(t.String())),
   mask: t.Optional(t.String()),
   extra: t.Optional(t.Record(t.String(), t.Any())),
@@ -39,18 +35,8 @@ const submitBodySchema = t.Object({
 function isQueueProvider(value: string): value is QueueProvider {
   return value === 'openai-compat' || value === 'gemini'
 }
-async function findTaskByIdempotencyKey(clientRequestId: string, userId: string | null) {
-  const ownerCondition = userId ? eq(schema.tasks.user_id, userId) : isNull(schema.tasks.user_id)
-  const [task] = await db
-    .select({ id: schema.tasks.id, submitted_at: schema.tasks.submitted_at })
-    .from(schema.tasks)
-    .where(and(eq(schema.tasks.client_request_id, clientRequestId), ownerCondition))
-    .limit(1)
-  return task
-}
 
 export const submitRoutes = new Elysia()
-  .use(requireUser)
   // Elysia 默认对 body schema 校验失败返 422；规范要求 400，统一在路由作用域拦截。
   .onError({ as: 'scoped' }, ({ code, error, set }) => {
     if (code === 'VALIDATION') {
@@ -60,146 +46,72 @@ export const submitRoutes = new Elysia()
   })
   .post(
     '/v1/queue/:provider/:model/submit',
-    async ({ params, body, status, authUser }) => {
+    async ({ params, body, status }) => {
       const { provider, model } = params
       if (!isQueueProvider(provider)) {
         return status(400, { error: `unsupported provider: ${provider}` })
       }
 
-      // 幂等命中（client_request_id 已存在）走优先返回，避免重复扣配额。
-      if (body.client_request_id) {
-        const existing = await findTaskByIdempotencyKey(
-          body.client_request_id,
-          authUser?.id ?? null,
-        )
-        if (existing) {
-          return { request_id: existing.id, status: 'queued', submitted_at: existing.submitted_at }
-        }
-      }
-
-      const id = crypto.randomUUID()
-      let requestPayload: PersistedSubmitRequest
-      try {
-        requestPayload = await archiveInputImages(id, body)
-      } catch (error) {
-        try {
-          await objectStore().deletePrefix(`${id}/in/`)
-        } catch {
-          // No task row references this prefix. Bucket lifecycle cleanup removes any orphan.
-        }
-        if (error instanceof TypeError) {
-          return status(400, { error: 'invalid_input_image', message: error.message })
-        }
-        const message =
-          error instanceof ObjectStorageError
-            ? error.message
-            : 'Object storage input archive failed'
-        return status(503, { error: 'object_storage_error', message })
-      }
-
+      const rewrittenImages = rewriteInputDataUrls(body.input_images ?? [])
+      const requestPayload = body.input_images
+        ? { ...body, input_images: rewrittenImages.refs }
+        : body
       const n = body.n ?? 1
-      const now = Date.now()
-      const taskHooks = (await loadPrivateBffOverlay()).taskHooks
-      const dailyQuotaEnabled = isCapabilityEnabled('quota:daily')
-      const dailyImageQuota = config.operator.quotas['generation:daily-images']
-      const outcome = await db.transaction(async (tx) => {
-        const inserted = await tx
-          .insert(schema.tasks)
-          .values({
-            id,
-            provider,
-            model,
-            status: 'queued',
-            request_payload: requestPayload,
-            submitted_at: now,
-            user_id: authUser?.id ?? null,
-            client_request_id: body.client_request_id ?? null,
-          })
-          .onConflictDoNothing()
-          .returning({ id: schema.tasks.id, submitted_at: schema.tasks.submitted_at })
 
-        if (inserted.length === 0) return { kind: 'idempotency_conflict' as const }
+      type SubmitOutcome =
+        | { kind: 'replay'; id: string; submitted_at: number }
+        | { kind: 'quota_rejected'; count: number; reset_at: string }
+        | { kind: 'created'; id: string; submitted_at: number }
 
-        if (isCapabilityEnabled('billing:credits')) {
-          if (!authUser) {
-            await tx.delete(schema.tasks).where(eq(schema.tasks.id, id))
-            return { kind: 'authentication_required' as const }
+      const outcome = db.transaction(
+        (tx): SubmitOutcome => {
+          if (body.client_request_id) {
+            const existing = tx
+              .select({ id: schema.tasks.id, submitted_at: schema.tasks.submitted_at })
+              .from(schema.tasks)
+              .where(eq(schema.tasks.client_request_id, body.client_request_id))
+              .limit(1)
+              .get()
+            if (existing) return { kind: 'replay', ...existing }
           }
-          const reservation = await taskHooks.reserveTask({
-            tx,
-            taskId: id,
-            userId: authUser.id,
-            model,
-            quantity: n,
-          })
-          if (reservation.kind !== 'reserved') {
-            await tx.delete(schema.tasks).where(eq(schema.tasks.id, id))
-            return reservation
-          }
-        } else if (dailyQuotaEnabled) {
-          const quota = await tryConsumeQuotaInTransaction(tx, body.device_id, n, dailyImageQuota)
+
+          const quota = tryConsumeQuotaSync(body.device_id, n, tx)
           if (!quota.ok) {
-            await tx.delete(schema.tasks).where(eq(schema.tasks.id, id))
-            return { kind: 'quota_exceeded' as const, quota }
+            return { kind: 'quota_rejected', count: quota.count, reset_at: quota.reset_at }
           }
-        }
-        return { kind: 'inserted' as const, task: inserted[0]! }
-      })
 
-      if (outcome.kind !== 'inserted') {
-        try {
-          await objectStore().deletePrefix(`${id}/in/`)
-        } catch {
-          // The losing task has no row. Any undeleted prefix is a harmless lifecycle orphan.
-        }
-      }
+          const id = crypto.randomUUID()
+          const submitted_at = Date.now()
+          tx.insert(schema.tasks)
+            .values({
+              id,
+              provider,
+              model,
+              status: 'queued',
+              request_payload: requestPayload,
+              submitted_at,
+              client_request_id: body.client_request_id ?? null,
+            })
+            .run()
+          insertTaskBlobs(id, rewrittenImages.blobs, tx)
+          return { kind: 'created', id, submitted_at }
+        },
+        { behavior: 'immediate' },
+      )
 
-      if (outcome.kind === 'insufficient_credits') {
-        return status(402, {
-          error: 'insufficient_credits',
-          required: outcome.required,
-          available: outcome.available,
-        })
-      }
-
-      if (outcome.kind === 'price_unavailable') {
-        return status(422, { error: 'model_price_unavailable', model: outcome.model })
-      }
-
-      if (outcome.kind === 'authentication_required') {
-        return status(401, { error: 'unauthorized' })
-      }
-      if (outcome.kind === 'quota_exceeded') {
-        const quota = outcome.quota
+      if (outcome.kind === 'quota_rejected') {
         return status(429, {
           error: 'daily_quota_exceeded',
-          quota: quota.quota,
-          used: quota.count,
-          reset_at: quota.reset_at,
+          limit: DAILY_QUOTA_LIMIT,
+          used: outcome.count,
+          reset_at: outcome.reset_at,
         })
-      }
-
-      if (outcome.kind === 'idempotency_conflict') {
-        if (body.client_request_id) {
-          const existing = await findTaskByIdempotencyKey(
-            body.client_request_id,
-            authUser?.id ?? null,
-          )
-          if (existing) {
-            return {
-              request_id: existing.id,
-              status: 'queued',
-              submitted_at: existing.submitted_at,
-            }
-          }
-        }
-        return status(409, { error: 'idempotency_key_conflict' })
       }
 
       return {
-        request_id: outcome.task.id,
+        request_id: outcome.id,
         status: 'queued',
-        submitted_at: outcome.task.submitted_at,
+        submitted_at: outcome.submitted_at,
       }
     },
     {
