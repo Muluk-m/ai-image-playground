@@ -1,9 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
 import ParamControls from '../../../components/ParamControls'
-import SubmissionCostEstimate from '../../../components/SubmissionCostEstimate'
-import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/apiProfiles'
-import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
-import { useStore } from '../../../store'
 import type { CanvasEditor } from '../lib/editor'
 import { analyzeSelection, rasterizeEntry } from '../lib/rasterizeSelection'
 import { submitFromCanvas } from '../lib/submitFromCanvas'
@@ -70,8 +66,6 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
   const [prompt, setPrompt] = useState('')
   const [previews, setPreviews] = useState<string[]>([])
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const params = useStore((state) => state.params)
-  const settings = useStore((state) => state.settings)
 
   // 与提交同一套选区分析：标注自动跟随被标注的图，提示与实际提交一致。
   const { imageCount, annotated, annotationText, signature } = useSelectionInfo(editor)
@@ -97,13 +91,7 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
     }
   }, [signature, editor])
 
-  const activeProfile = getActiveApiProfile(settings)
-  const submissionInput = {
-    model: clientProfileToApiProfile(activeProfile).model,
-    quantity: Math.max(1, params.n),
-  }
-  const submissionGuard = usePrivateSubmissionGuard(submissionInput)
-  const canSubmit = (prompt.trim().length > 0 || imageCount > 0) && !submissionGuard.blocked
+  const canSubmit = prompt.trim().length > 0 || imageCount > 0
 
   const hint = annotated
     ? `已选中 ${imageCount} 张图片 + 手绘标注 · 将按标注迭代（输出不含标注线条）`
@@ -137,6 +125,7 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
           <div className="flex flex-wrap items-center gap-2 px-2">
             {previews.map((src, i) => (
               <img
+                // biome-ignore lint/suspicious/noArrayIndexKey: 预览列表随签名整体重建，无重排语义
                 key={i}
                 src={src}
                 alt={`输入 ${i + 1}`}
@@ -156,16 +145,6 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
         <div className="flex items-end gap-2">
           <div className="flex flex-1 flex-col">
             <span className="px-2 pt-1 text-[11px] text-gray-400 dark:text-gray-500">{hint}</span>
-            <SubmissionCostEstimate
-              credits={submissionGuard.estimatedCredits}
-              blockedAction={submissionGuard.blockedAction}
-              className="px-2 text-[11px] font-medium text-gray-500 dark:text-gray-400"
-            />
-            {submissionGuard.blocked && submissionGuard.disabledReason ? (
-              <span className="px-2 text-[11px] text-red-600 dark:text-red-400">
-                {submissionGuard.disabledReason}
-              </span>
-            ) : null}
             <textarea
               ref={textareaRef}
               value={prompt}
@@ -189,7 +168,6 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
             type="button"
             onClick={run}
             disabled={!canSubmit}
-            title={submissionGuard.disabledReason}
             className="shrink-0 rounded-xl bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-40"
           >
             生成

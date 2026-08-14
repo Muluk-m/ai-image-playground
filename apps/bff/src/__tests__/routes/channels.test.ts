@@ -1,7 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
+import { unlinkSync } from 'node:fs'
 
-const TEST_DB = process.env.TEST_DATABASE_URL
-if (!TEST_DB) throw new Error('TEST_DATABASE_URL is required for PostgreSQL tests')
+const TEST_DB = './artifacts/test-channels-route.sqlite'
+
+// 必须在 db/client 模块被加载前清掉旧测试 db；同 routes.test.ts 一样的模式。
+try {
+  unlinkSync(TEST_DB)
+  unlinkSync(`${TEST_DB}-wal`)
+  unlinkSync(`${TEST_DB}-shm`)
+} catch {
+  /* not exists */
+}
 
 process.env.PORT = '0'
 process.env.UPSTREAM_BASE_URL = 'http://localhost:9999'
@@ -9,6 +18,8 @@ process.env.UPSTREAM_API_KEY = 'test'
 process.env.DATABASE_URL = TEST_DB
 process.env.CORS_ALLOWED_ORIGINS = '*'
 
+const { runMigrations } = await import('../../db/migrate')
+runMigrations(TEST_DB)
 const { app } = await import('../../app')
 const { _setChannelsForTesting, parseChannelsConfig } = await import('../../lib/channels')
 

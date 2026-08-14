@@ -1,16 +1,7 @@
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 
 import { apiClient } from './api-client'
-import type {
-  DeviceDetailResult,
-  ListDevicesResult,
-  ListUsersResult,
-  OverviewResult,
-  Range,
-  SortKey,
-  TaskDetail,
-  UserDetailResult,
-} from './types'
+import type { DeviceDetailResult, ListDevicesResult, Range, SortKey, TaskDetail } from './types'
 
 export function useDevices(range: Range, sort: SortKey) {
   return useQuery({
@@ -40,37 +31,5 @@ export function useTask(taskId: string | undefined) {
     queryKey: ['task', taskId],
     queryFn: () => apiClient.get<TaskDetail>(`/api/tasks/${encodeURIComponent(taskId!)}`),
     enabled: typeof taskId === 'string' && taskId.length > 0,
-  })
-}
-
-export function useUsers(search: string) {
-  return useQuery({
-    queryKey: ['users', { search }],
-    queryFn: () =>
-      apiClient.get<ListUsersResult>(
-        `/api/users${search ? `?q=${encodeURIComponent(search)}` : ''}`,
-      ),
-  })
-}
-
-export function useUserDetail(userId: string, range: Range, status: string) {
-  return useInfiniteQuery({
-    queryKey: ['user', userId, { range, status }],
-    queryFn: ({ pageParam }) =>
-      apiClient.get<UserDetailResult>(
-        `/api/users/${encodeURIComponent(userId)}?range=${range}&status=${status}${
-          pageParam ? `&cursor=${encodeURIComponent(pageParam)}` : ''
-        }`,
-      ),
-    initialPageParam: '',
-    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
-    enabled: userId.length > 0,
-  })
-}
-
-export function useOverview(range: Range) {
-  return useQuery({
-    queryKey: ['overview', { range }],
-    queryFn: () => apiClient.get<OverviewResult>(`/api/overview?range=${range}`),
   })
 }

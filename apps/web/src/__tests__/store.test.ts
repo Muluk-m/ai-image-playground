@@ -5,7 +5,6 @@ import {
   DEFAULT_SETTINGS,
   normalizeSettings,
 } from '../lib/apiProfiles'
-import { bootstrapClientCapabilities } from '../lib/clientCapabilities'
 import { getSelectedImageMentionLabel } from '../lib/promptImageMentions'
 import type { StoredImage, StoredImageThumbnail, TaskRecord } from '../types'
 import { DEFAULT_PARAMS } from '../types'
@@ -121,9 +120,7 @@ function task(overrides: Partial<TaskRecord> = {}): TaskRecord {
 }
 
 describe('mask draft lifecycle in store actions', () => {
-  beforeEach(async () => {
-    await bootstrapClientCapabilities(false, '')
-    setChannels([])
+  beforeEach(() => {
     vi.mocked(callImageApi).mockClear()
     vi.mocked(callImageApi).mockResolvedValue({
       images: ['data:image/png;base64,generated'],
@@ -231,63 +228,40 @@ describe('mask draft lifecycle in store actions', () => {
     expect(originalImage?.dataUrl).toBe('data:image/png;base64,generated')
   })
 
-  it('submits a billed multi-image request as one atomic BFF task', async () => {
-    const channel: PublicChannel = {
-      id: 'paid-openai',
-      kind: 'openai-queue',
-      label: 'Paid OpenAI',
-      models: [{ id: 'gpt-image-2', label: 'GPT Image 2', capabilities: ['generate'] }],
-      defaults: { apiMode: 'images', timeout: 600 },
-    }
-    setChannels([channel])
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      Response.json({
-        'accounts:login': true,
-        'accounts:self-register': true,
-        'billing:credits': true,
-        'generation:byok': false,
-        'quota:daily': false,
-      }),
+  it('completes an OpenAI generation without auto-opening the Codex CLI dialog when revisedPrompts are missing', async () => {
+    useStore.setState({ dismissedCodexCliPrompts: [] })
+
+    await submitTask()
+    await waitUntil(
+      () => useStore.getState().tasks[0]?.status === 'done',
+      'generation task did not finish',
     )
-    await bootstrapClientCapabilities(true, '')
-    fetchMock.mockRestore()
-    vi.mocked(callImageApi).mockResolvedValue({
-      images: [
-        'data:image/png;base64,one',
-        'data:image/png;base64,two',
-        'data:image/png;base64,three',
-      ],
-      actualParamsList: [{ size: '1x1' }, { size: '1x1' }, { size: '1x1' }],
-    })
-    useStore.setState({
-      settings: normalizeSettings({
-        ...DEFAULT_SETTINGS,
-        profiles: [
-          {
-            id: channel.id,
-            source: 'builtin-edge',
-            channelId: channel.id,
-            selectedModelId: 'gpt-image-2',
-          },
-        ],
-        activeProfileId: channel.id,
-      }),
-      prompt: 'three images',
-      params: { ...DEFAULT_PARAMS, n: 3 },
+
+    const state = useStore.getState()
+    expect(state.tasks[0]).toMatchObject({ status: 'done', error: null })
+    expect(state.setConfirmDialog).not.toHaveBeenCalled()
+  })
+
+  it('stores changed revisedPrompts without auto-opening the Codex CLI dialog', async () => {
+    vi.mocked(callImageApi).mockResolvedValueOnce({
+      images: ['data:image/png;base64,generated'],
+      actualParamsList: [{ size: '1x1' }],
+      revisedPrompts: ['changed prompt'],
     })
 
     await submitTask()
     await waitUntil(
       () => useStore.getState().tasks[0]?.status === 'done',
-      'billed multi-image task did not finish',
+      'generation task did not finish',
     )
 
-    expect(callImageApi).toHaveBeenCalledTimes(1)
-    expect(callImageApi).toHaveBeenCalledWith(
-      expect.objectContaining({ params: expect.objectContaining({ n: 3 }) }),
-    )
-    expect(useStore.getState().tasks).toHaveLength(1)
-    expect(useStore.getState().tasks[0]?.outputImages).toHaveLength(3)
+    const state = useStore.getState()
+    const generatedTask = state.tasks[0]
+    const outputImageId = generatedTask.outputImages[0]
+    expect(state.setConfirmDialog).not.toHaveBeenCalled()
+    expect(generatedTask.revisedPromptByImage).toEqual({
+      [outputImageId]: 'changed prompt',
+    })
   })
 
   it('preserves selected image mentions when replacing a mask target with an equivalent image id', () => {
