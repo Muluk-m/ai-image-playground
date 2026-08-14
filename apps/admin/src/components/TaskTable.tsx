@@ -63,7 +63,7 @@ export function TaskTable({ tasks, hasNextPage, isFetchingNextPage, onLoadMore }
       {/* 表头：与行用同一套列宽 class 对齐 */}
       <div className="flex items-center gap-3 border-b px-4 py-2 text-xs font-medium text-muted-foreground">
         <div className="w-[140px] shrink-0">提交时间</div>
-        <div className="w-[110px] shrink-0">状态</div>
+        <div className="w-[140px] shrink-0">状态</div>
         <div className="w-[140px] shrink-0">模型</div>
         <div className="min-w-0 flex-1">Prompt</div>
         <div className="w-[48px] shrink-0 text-right">调用</div>
@@ -87,7 +87,7 @@ export function TaskTable({ tasks, hasNextPage, isFetchingNextPage, onLoadMore }
                 <div className="w-[140px] shrink-0">
                   <FuzzyTime ts={t.submitted_at} />
                 </div>
-                <div className="w-[110px] shrink-0">
+                <div className="w-[140px] shrink-0">
                   <div className="flex items-center gap-1.5">
                     <StatusBadge status={t.status} />
                     {t.attempt_count > 1 ? (
@@ -100,6 +100,18 @@ export function TaskTable({ tasks, hasNextPage, isFetchingNextPage, onLoadMore }
                         </TooltipTrigger>
                         <TooltipContent className="text-xs">
                           已尝试 {t.attempt_count} 次（含首次）
+                        </TooltipContent>
+                      </Tooltip>
+                    ) : null}
+                    {t.upstream_status ? (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className="rounded bg-destructive/10 px-1 font-mono text-[10px] text-destructive tabular-nums">
+                            {t.upstream_status}
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent className="text-xs">
+                          上游返回 HTTP {t.upstream_status}
                         </TooltipContent>
                       </Tooltip>
                     ) : null}

@@ -25,11 +25,12 @@ describe('runMigrations', () => {
     const rows = await connection.client.unsafe(
       'SELECT id, hash, created_at FROM drizzle.__drizzle_migrations ORDER BY id',
     )
-    expect(rows).toHaveLength(4)
+    expect(rows).toHaveLength(5)
     expect(rows[0]).toMatchObject({ id: 1 })
     expect(rows[1]).toMatchObject({ id: 2 })
     expect(rows[2]).toMatchObject({ id: 3 })
     expect(rows[3]).toMatchObject({ id: 4 })
+    expect(rows[4]).toMatchObject({ id: 5 })
   })
 
   it('creates PostgreSQL-native JSONB and timestamptz columns', async () => {
@@ -42,6 +43,8 @@ describe('runMigrations', () => {
     expect(byName.request_payload?.data_type).toBe('jsonb')
     expect(byName.submitted_at?.data_type).toBe('timestamp with time zone')
     expect(byName.device_id?.is_generated).toBe('ALWAYS')
+    expect(byName.upstream_status?.data_type).toBe('integer')
+    expect(byName.upstream_body?.data_type).toBe('text')
   })
 
   it('stores quota dates as PostgreSQL dates', async () => {
@@ -77,12 +80,13 @@ describe('runMigrations', () => {
     const rows = await connection.client.unsafe(
       'SELECT id FROM drizzle.__drizzle_migrations ORDER BY id',
     )
-    expect(rows).toHaveLength(4)
+    expect(rows).toHaveLength(5)
   })
 
   it('applies every rollback in reverse order and can migrate forward again', async () => {
     const rollbackDirectory = new URL('../../drizzle/rollback/', import.meta.url)
     for (const file of [
+      '0004_damp_tony_stark.down.sql',
       '0003_perfect_night_nurse.down.sql',
       '0002_careless_scrambler.down.sql',
       '0001_blushing_liz_osborn.down.sql',
@@ -109,6 +113,6 @@ describe('runMigrations', () => {
     const restored = await connection.client.unsafe(
       'SELECT id FROM drizzle.__drizzle_migrations ORDER BY id',
     )
-    expect(restored).toHaveLength(4)
+    expect(restored).toHaveLength(5)
   })
 })
