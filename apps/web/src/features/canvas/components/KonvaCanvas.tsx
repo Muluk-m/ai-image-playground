@@ -257,6 +257,7 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
 
   // ===== Transformer 绑定选中的图片 / 占位框节点 =====
   // 占位框可拉伸（结果按框 contain 适配，框即构图意图）：自由比例、不旋转；图片锁比例、可旋转。
+  // biome-ignore lint/correctness/useExhaustiveDependencies: doc.version 驱动（选区/元素变化后重绑节点）
   useEffect(() => {
     const tr = trRef.current
     const stage = stageRef.current
@@ -630,6 +631,7 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
         .map((id) => doc.getElement(id))
         .filter((el): el is CanvasEl => Boolean(el) && el?.type !== 'image')
         .map((el) => ({ id: el.id, box: elementBounds(el) })),
+    // biome-ignore lint/correctness/useExhaustiveDependencies: doc.version 驱动
     [selection, doc.version, doc],
   )
 

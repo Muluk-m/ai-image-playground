@@ -1,96 +1,70 @@
 # syntax=docker/dockerfile:1.6
+#
+# ai-image-playground — 单镜像 BFF + 静态前端。Entrypoint 把 env 模板化写到
+# /app/apps/web/dist/runtime-config.json，前端 boot 时拉到运行时配置。
+#
+# 用法：
+#   docker build -t ai-image-playground .
+#   docker run -p 37377:37377 \
+#     -e BFF_ENABLED=true \
+#     -e OPENAI_API_KEY=sk-... \
+#     -e AGNES_API_KEY=sk-... \
+#     -v $(pwd)/apps/bff/channels.json:/app/apps/bff/channels.json \
+#     ai-image-playground
+#
+# 纯静态部署不需要这个 Dockerfile — `pnpm build` 后把 apps/web/dist 扔任意
+# 静态托管即可（详见仓库根 README.md Tier 1）。
 
-# Public builds use the default false marker and scrub any cached private context.
-# Private-overlay builds must pass both `--build-context private-overlay=./private` and
-# `--build-arg PRIVATE_OVERLAY_PRESENT=true`.
-FROM scratch AS private-overlay
-
-# One release image runs every application role. Compose selects nginx, BFF,
-# worker, or Admin with APP_ROLE and command; both deployment projects reuse the
-# same immutable image and the web role writes its runtime config at startup.
-
+# ─── Stage 1: 安装依赖 ────────────────────────────────────────────────
 FROM oven/bun:1 AS deps
 WORKDIR /app
 
-# packageManager is the source of truth for pnpm. @pnpm/exe supplies a native
-# binary; the installer shim from get.pnpm.io breaks when symlinked into PATH.
-ENV BUN_INSTALL=/usr/local
-RUN --mount=type=bind,source=package.json,target=/tmp/root-package.json \
-  bun install -g \
-  "@pnpm/exe@$(sed -n 's/.*"packageManager": *"pnpm@\([^"]*\)".*/\1/p' /tmp/root-package.json)"
+# pnpm 通过 corepack 启用，跟项目根 packageManager 字段对齐
+RUN apt-get update -qq && apt-get install -y --no-install-recommends curl ca-certificates \
+  && rm -rf /var/lib/apt/lists/* \
+  && curl -fsSL https://get.pnpm.io/install.sh | env SHELL=/bin/bash PNPM_VERSION=10.33.3 bash - \
+  && ln -s /root/.local/share/pnpm/pnpm /usr/local/bin/pnpm
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json ./
 COPY apps/web/package.json ./apps/web/
 COPY apps/bff/package.json ./apps/bff/
 COPY apps/admin/package.json ./apps/admin/
-COPY packages/db/package.json ./packages/db/
 COPY packages/shared/package.json ./packages/shared/
 
 RUN pnpm install --frozen-lockfile
 
+# ─── Stage 2: 构建前端 ────────────────────────────────────────────────
 FROM deps AS web-build
 WORKDIR /app
 COPY . .
-COPY --from=private-overlay / /app/private
-ARG PRIVATE_OVERLAY_PRESENT=false
-RUN if [ "$PRIVATE_OVERLAY_PRESENT" != "true" ]; then rm -rf /app/private && mkdir /app/private; fi
-ENV PRIVATE_WEB_OVERLAY_ENTRY=/app/private/apps/web/index.tsx
-RUN pnpm install --offline --frozen-lockfile
 RUN pnpm --filter @image-playground/web build
 
-FROM deps AS admin-build
-WORKDIR /app
-COPY . .
-COPY --from=private-overlay / /app/private
-ENV PRIVATE_ADMIN_OVERLAY_ENTRY=/app/private/apps/admin/index.tsx
-ARG PRIVATE_OVERLAY_PRESENT=false
-RUN if [ "$PRIVATE_OVERLAY_PRESENT" != "true" ]; then rm -rf /app/private && mkdir /app/private; fi
-RUN pnpm install --offline --frozen-lockfile
-RUN pnpm --filter @image-playground/admin build
-
+# ─── Stage 3: 运行时 ────────────────────────────────────────────────
 FROM oven/bun:1 AS runtime
 WORKDIR /app
 
-RUN apt-get update \
-  && apt-get install --yes --no-install-recommends nginx \
-  && rm -rf /var/lib/apt/lists/* /usr/share/nginx/html/* \
-  && rm -f /etc/nginx/sites-enabled/default
-
+# 只把跑 BFF 必需的东西复制过来：bff 源码、packages/shared、web/dist、
+# 顶层 lockfile + workspace manifest（让 bun 能解析 workspace 引用）
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/apps/bff/node_modules ./apps/bff/node_modules
-COPY --from=deps /app/apps/admin/node_modules ./apps/admin/node_modules
-COPY --from=deps /app/packages/db/node_modules ./packages/db/node_modules
 COPY --from=deps /app/packages/shared/node_modules ./packages/shared/node_modules
-
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-COPY LICENSE ./
 COPY apps/bff ./apps/bff
-COPY apps/admin/package.json ./apps/admin/package.json
-COPY apps/admin/server ./apps/admin/server
-COPY apps/admin/contracts.ts ./apps/admin/contracts.ts
-COPY packages/db ./packages/db
 COPY packages/shared ./packages/shared
-COPY --from=admin-build /app/apps/admin/dist ./apps/admin/dist
-COPY --from=web-build /app/apps/web/dist /usr/share/nginx/html
-# `private-overlay` is empty by default and populated only by an explicit private-overlay build.
-COPY --from=web-build /app/private ./private
-
-COPY deploy/nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=web-build /app/apps/web/dist ./apps/web/dist
 COPY scripts/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
-COPY scripts/check-dependencies.ts ./scripts/check-dependencies.ts
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
-ENV APP_ROLE=bff
+# BFF 默认接 web/dist，跟 BFF 同进程托管前端
+ENV STATIC_DIR=/app/apps/web/dist
 ENV PORT=37377
-ENV STATIC_DIR=
 ENV BFF_ENABLED=true
-ENV ADMIN_DIST_DIR=/app/apps/admin/dist
 
-EXPOSE 8080 37377 37378 37379
+EXPOSE 37377
 
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 CMD ["bun", "run", "/app/apps/bff/src/index.ts"]
 
-# The worker may drain for 55 seconds after SIGTERM. Compose grants BFF and
-# worker 75 seconds before SIGKILL.
+# 长任务 (Gemini 3 Pro Image ~5min) 需要给 BFF 足够 graceful 期限；
+# `--stop-timeout` 应 >= 60s 才能让 SHUTDOWN_HARD_TIMEOUT_MS (55s) 顺利 drain。
 STOPSIGNAL SIGTERM

@@ -9,8 +9,8 @@
 pnpm workspace + Turbo monorepo：
 
 - `apps/web/` — 前端工作台（React 19 + Vite 6 + TypeScript 5.8 + Zustand 5 + Tailwind 3 + Vitest 4）。历史 / 配置全存浏览器 IndexedDB。
-- `apps/bff/` — **可选**任务队列 BFF（Elysia + Bun + Drizzle + PostgreSQL）。监听 `:37377`，托管 web/dist 同源，跑长任务（绕浏览器 / Edge 长超时）。
-- `apps/admin/` — 可选运维面板（Bun + Elysia 服务端 + Vite + TanStack Router 前端 + shadcn）。HMAC cookie 鉴权；数据库连接只读，用户与运营写操作一律代理到 BFF。
+- `apps/bff/` — **可选** 任务队列 BFF（Elysia + Bun + Drizzle + SQLite）。监听 `:37377`，托管 web/dist 同源，跑长任务（绕浏览器 / Edge 长超时）。
+- `apps/admin/` — 可选运维面板（Bun + Elysia 服务端 + Vite + TanStack Router 前端 + shadcn）。HMAC cookie 鉴权，read-only 查任务和设备。
 - `packages/shared/` — 跨 app 协议类型（`runtime-config.ts` / `channel-discovery.ts` / `queue-protocol.ts`）。
 
 两种部署形态（详见仓库根 `README.md`）：
@@ -24,7 +24,7 @@ pnpm workspace + Turbo monorepo：
 
 - **monorepo**：pnpm workspace + Turbo v2 + Biome
 - **前端 `apps/web`**：React 19 · Vite 6 · TypeScript 5.8 · Zustand 5 · Vitest 4 · TailwindCSS 3
-- **BFF `apps/bff`**：Bun · Elysia · Drizzle ORM · PostgreSQL (`bun:sql`)，端口 37377
+- **BFF `apps/bff`**：Bun · Elysia · Drizzle ORM · SQLite (`bun:sqlite`)，端口 37377
 - **admin `apps/admin`**：服务端 Bun + Elysia (端口 37378)；前端 Vite + TanStack Router + shadcn
 
 ## 常用命令
@@ -36,7 +36,7 @@ pnpm workspace + Turbo monorepo：
 - `pnpm typecheck` — 所有 app 单跑 `tsc -b`
 - `pnpm dev` — 起所有 app 的 dev server
 - `pnpm dev:web` — 只起 `apps/web` 的 Vite dev server
-- `pnpm lint` — `biome check .`（format + organize imports + linter；受限引用规则会强制私有树边界）
+- `pnpm lint` — `biome check .`（format + organize imports + 启用的 linter 检查；linter 在 `biome.json` 里目前禁用，主要查 format/import）
 - `pnpm exec biome check --write .` — **lint 自动修复**：同时修 format + organize imports。注意 `pnpm format` 只改 format 不动 import 顺序，**正经修 lint 错的入口是这条**。
 - `pnpm format` — `biome format --write .`（仅格式化，不动 import）
 
@@ -54,13 +54,16 @@ pnpm workspace + Turbo monorepo：
 
 ## 测试约定
 
-- **BFF / Admin 后端测试使用 `bun:test`**：数据库与对象存储客户端依赖 Bun runtime，不要换成 Vitest。前端测试继续使用 [Vitest](https://vitest.dev/) 4。不要在同一测试文件混用两套 API。
+- **测试库一律用 [Vitest](https://vitest.dev/)**（web 是 vitest 4；bff 现存测试用 `bun:test`，因为依赖 `bun:sqlite` 等 Bun-only API；新加 bff 测试也优先 vitest，除非确实需要 Bun runtime）。新写测试 import 走：
+  ```ts
+  import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+  ```
+  Mock 用 `vi.fn()` / `vi.spyOn()` / `vi.mock(<module>, factory)`。不要混 jest 或 bun:test 的 API。
 - **测试文件统一放在 `<app>/src/__tests__/` 下**，保留与被测代码相同的子目录结构。例：
   - 源 `apps/web/src/lib/api.ts` → 测 `apps/web/src/__tests__/lib/api.test.ts`
   - 源 `apps/bff/src/routes/submit.ts` → 测 `apps/bff/src/__tests__/routes/submit.test.ts`
 - 测试文件命名 `*.test.ts(x)`；Vitest 默认配置自动发现，不需要单独注册
-- 私有树包不强制使用 `src/` 目录；其测试放在相邻模块的 `__tests__/` 下（例如 `private/apps/bff/billing/__tests__/`）。
-- 外部网络 / 上游 API 必须 mock，测试不能依赖在线服务或宿主机固定文件。PostgreSQL 集成测试可通过 `TEST_DATABASE_URL` 创建并清理独立测试库；文件存在性接缝测试可使用测试进程创建并清理的临时目录。
+- 涉及外部 IO（network / fs / 上游 API）必须 mock；测试不能依赖在线服务或真实文件系统
 - `vi.mock` 的字符串路径用相对路径从测试文件位置出发；测试位于 `__tests__/` 下时，到 source 的相对路径要回上若干层，例如 `apps/web/src/__tests__/lib/api.test.ts` 里 mock 源代码：
   ```ts
   vi.mock('../../lib/channels/publicChannels', () => ({ ... }))
@@ -91,25 +94,9 @@ pnpm workspace + Turbo monorepo：
 
 ## Runtime 配置（apps/web）
 
-[`packages/shared/src/runtime-config.ts`](./packages/shared/src/runtime-config.ts) 定义 schema。
-`runtime-config.json` 只包含连接 BFF 前必须知道的 `bff.enabled` 与 `bff.baseUrl`；schema
-无效或文件不存在时回退到 `BAKED_DEFAULTS`。能力只能由 BFF 求值，前端并行读取
-`/api/capabilities` 与 channel 列表，清单不可用时全部按关闭处理，禁止把能力写回 runtime
-配置。Docker entrypoint 从 env 生成 runtime 配置；裸跑或纯静态部署可自行生成。
+[`packages/shared/src/runtime-config.ts`](./packages/shared/src/runtime-config.ts) 定义 schema。前端 boot 时 fetch `./runtime-config.json`，schema 校验失败 / 文件不存在都 fallback 到 `BAKED_DEFAULTS`（`bff.enabled=false`）。
 
-
-## 私有树接缝
-
-`private/apps/{bff,web,admin}` 是可选 overlay 工作区；目录缺席时公开树必须独立
-typecheck、测试和构建。公开树只允许以下三个审计接缝引用 `private/`：
-
-- `apps/bff/src/lib/private-overlay.ts`：任务事务 hook 与私有 BFF routes
-- `apps/web/src/lib/privateOverlay.tsx`：用户侧 header、提交门禁和状态 UI
-- `apps/admin/src/lib/private-overlay.tsx`：运营概览、用户摘要和用户详情 UI
-
-私有 Admin 的所有写操作经 `/api/private/*` 代理到 BFF 的
-`/internal/admin/private/*`；Admin 数据库角色保持 SELECT-only。添加私有模块后，
-必须同时跑公开包和对应私有包的 typecheck，并分别验证「目录存在」与「目录缺席」构建。
+operator 在部署时写这个文件 — Docker entrypoint (`scripts/docker-entrypoint.sh`) 把 env 模板化写出来；裸跑 / 纯静态部署 operator 自己手写或脚本生成。
 
 ## 提交规范
 
@@ -129,17 +116,14 @@ typecheck、测试和构建。公开树只允许以下三个审计接缝引用 `
 
 ## BFF 定位
 
-BFF（`apps/bff/`）的公开核心只做四件事：
+BFF（`apps/bff/`）在整个 playground 里只做四件事：
 
 1. **任务队列代理** — 绕浏览器 / Edge / CF Pages 这类平台的 100s idle timeout（Gemini 3 Pro Image 单张能跑 30-300s）。前端发 `submit / status / fetch` 三段 < 1s 快请求，BFF 内部跑长 fetch 调上游。
 2. **Secret 守门人** — 上游 API key 只在 BFF 进程 env 里，浏览器永远拿不到；这是「内置 channel」能让没 key 的用户也能用的前提。
-3. **持久化 + 幂等** — PostgreSQL 存 task，浏览器刷新 / 关 tab 后用 `client_request_id` 幂等恢复，不重复扣额度。
+3. **持久化 + 幂等** — SQLite 存 task，浏览器刷新 / 关 tab 后用 `client_request_id` 幂等恢复，不重复扣额度。
 4. **托管前端静态产物** — `apps/web/dist` 由 BFF serve（`STATIC_DIR` env），跟 BFF 同源省 CORS preflight。
 
-私有 BFF overlay 可以在这些接缝上增加计费等部署专属能力；它仍必须遵守 BFF
-是唯一写入者、提交与预扣同事务、worker 结算或退回的纪律。
-
-**BFF 不做**：通用协议翻译。`upstream.ts` 只允许已验证的 channel 兼容性适配（端点 / body 形状选择，以及上游不支持多图数量时的 `n` fan-out + 结果合并）；不要把它扩成任意 OpenAI / Gemini 字段转换代理。普通部署的 BYOK profile 完全绕过 BFF（前端直接 fetch 用户填的 baseUrl，BFF 看不到也存不了 BYOK 的 key）；开启 `billing:credits` 的经营部署禁用 BYOK，只允许内置 channel。
+**BFF 不做**：协议翻译（OpenAI / Gemini 字段透传给上游）；**BYOK profile 完全绕过 BFF**（前端直接 fetch 用户填的 baseUrl，BFF 看不到也存不了 BYOK 的 key）。
 
 ## Queue 模式协议（apps/web ↔ apps/bff）
 

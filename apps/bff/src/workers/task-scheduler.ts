@@ -11,7 +11,6 @@ export interface TaskSchedulerOptions {
   pollIntervalMs?: number
   concurrency?: Partial<Record<QueueProvider, number>>
   executeTask?: ExecuteTask
-  clock?: () => number
 }
 
 const PROVIDERS: readonly QueueProvider[] = ['openai-compat', 'gemini']
@@ -20,14 +19,12 @@ export class TaskScheduler {
   private readonly pollIntervalMs: number
   private readonly concurrency: Record<QueueProvider, number>
   private readonly executeTask: ExecuteTask
-  private readonly clock: () => number
   private readonly active = new Map<QueueProvider, Map<string, Promise<void>>>(
     PROVIDERS.map((provider) => [provider, new Map()]),
   )
   private timer: ReturnType<typeof setInterval> | null = null
   private ticking = false
   private stopped = true
-  private lastSuccessfulPollTimestamp: number | null = null
 
   constructor(options: TaskSchedulerOptions = {}) {
     this.pollIntervalMs = options.pollIntervalMs ?? config.worker.pollIntervalMs
@@ -37,7 +34,6 @@ export class TaskScheduler {
       gemini: options.concurrency?.gemini ?? config.worker.concurrency.gemini,
     }
     this.executeTask = options.executeTask ?? runTask
-    this.clock = options.clock ?? Date.now
   }
 
   start(): void {
@@ -59,16 +55,12 @@ export class TaskScheduler {
     return count
   }
 
-  lastSuccessfulPollAt(): number | null {
-    return this.lastSuccessfulPollTimestamp
-  }
-
   async waitForIdle(): Promise<void> {
     const promises = Array.from(this.active.values()).flatMap((tasks) => Array.from(tasks.values()))
     await Promise.allSettled(promises)
   }
 
-  async tick(now = this.clock()): Promise<void> {
+  async tick(now = Date.now()): Promise<void> {
     if (this.stopped || this.ticking) return
     this.ticking = true
     try {
@@ -95,7 +87,6 @@ export class TaskScheduler {
         if (this.stopped) return
         for (const task of due) this.launch(provider, task.id)
       }
-      this.lastSuccessfulPollTimestamp = this.clock()
     } catch (err) {
       log.error(
         { event: 'worker.tick_failed', err: err instanceof Error ? err.message : String(err) },

@@ -55,18 +55,6 @@ describe('api-client', () => {
     expect(navigate).toHaveBeenCalledWith({ to: '/login' })
   })
 
-  it('can delegate 401 handling to the caller without clearing or navigating', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValueOnce(jsonResponse(401, { error: 'unauthorized' })),
-    )
-    await expect(
-      apiClient.get('/api/me', { redirectOnUnauthorized: false }),
-    ).rejects.toBeInstanceOf(UnauthorizedError)
-    expect(clearSpy).not.toHaveBeenCalled()
-    expect(navigate).not.toHaveBeenCalled()
-  })
-
   it('500 throws ApiError, does not navigate', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(jsonResponse(500, { error: 'boom' })))
     const err = await apiClient.get('/api/foo').catch((e) => e)
@@ -87,20 +75,6 @@ describe('api-client', () => {
         method: 'POST',
         credentials: 'include',
         body: JSON.stringify({ password: 'secret' }),
-      }),
-    )
-  })
-
-  it('patch() sends JSON body with credentials', async () => {
-    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse(200, { ok: true }))
-    vi.stubGlobal('fetch', fetchMock)
-    await apiClient.patch('/api/users/user-1', { status: 'disabled' })
-    expect(fetchMock).toHaveBeenCalledWith(
-      '/api/users/user-1',
-      expect.objectContaining({
-        method: 'PATCH',
-        credentials: 'include',
-        body: JSON.stringify({ status: 'disabled' }),
       }),
     )
   })

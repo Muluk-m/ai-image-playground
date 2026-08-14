@@ -8,6 +8,11 @@ import {
 
 const VALID_CONFIG: RuntimeConfig = {
   bff: { enabled: true, baseUrl: 'https://bff.example.com' },
+  defaults: {
+    openaiBaseUrl: 'https://api.example.com/v1',
+    geminiBaseUrl: 'https://gemini.example.com/v1beta',
+    inspirationManifestUrl: 'https://cdn.example.com/manifest.json',
+  },
 }
 
 function mockFetch(
@@ -69,17 +74,6 @@ describe('loadRuntimeConfig', () => {
       }),
     )
     expect(result.bff.baseUrl).toBe('https://bff.example.com')
-  })
-
-  it('discards legacy feature and default fields instead of creating a second feature source', async () => {
-    const result = await loadRuntimeConfig(
-      mockFetch(200, {
-        ...VALID_CONFIG,
-        auth: { enabled: true },
-        defaults: { openaiBaseUrl: 'https://example.com' },
-      }),
-    )
-    expect(result).toEqual(VALID_CONFIG)
   })
 
   it('persists last loaded config across multiple calls', async () => {

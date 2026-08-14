@@ -28,10 +28,10 @@ export type InputImageCount =
 
 export function countInputImages(provider: string, payload: unknown): InputImageCount {
   const req = (payload ?? {}) as Record<string, unknown>
-  const archivedCount =
-    (Array.isArray(req.input_images) ? req.input_images.length : 0) +
-    (req.mask !== undefined && req.mask !== null ? 1 : 0)
-  if (archivedCount > 0) return { kind: 'count', count: archivedCount }
+  const inputImages = req.input_images
+  if (Array.isArray(inputImages) && inputImages.length > 0) {
+    return { kind: 'count', count: inputImages.length }
+  }
   if (provider === 'gemini') {
     const contents = req.contents as Array<{ parts?: Array<{ inlineData?: unknown }> }> | undefined
     if (!Array.isArray(contents)) return { kind: 'none' }

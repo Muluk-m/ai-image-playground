@@ -1,18 +1,25 @@
 // admin URL 状态约定 —— 详见 design.md "URL 状态约定"。
 // 解析手写，不引 zod（admin 跟 BFF 一样保持轻量）。
-import {
-  DEFAULT_RANGE,
-  DEFAULT_SORT,
-  parseRange,
-  parseSort,
-  RANGES,
-  type Range,
-  SORTS,
-  type SortKey,
-} from '../../contracts'
 
-export type { Range, SortKey }
-export { DEFAULT_RANGE, DEFAULT_SORT, parseRange, parseSort, RANGES, SORTS }
+export const RANGES = ['1d', '7d', '30d'] as const
+export type Range = (typeof RANGES)[number]
+export const DEFAULT_RANGE: Range = '7d'
+
+export const SORTS = ['last_seen', 'today_count', 'total_count'] as const
+export type SortKey = (typeof SORTS)[number]
+export const DEFAULT_SORT: SortKey = 'last_seen'
+
+export function parseRange(v: unknown): Range {
+  return typeof v === 'string' && (RANGES as readonly string[]).includes(v)
+    ? (v as Range)
+    : DEFAULT_RANGE
+}
+
+export function parseSort(v: unknown): SortKey {
+  return typeof v === 'string' && (SORTS as readonly string[]).includes(v)
+    ? (v as SortKey)
+    : DEFAULT_SORT
+}
 
 export function parseTaskId(v: unknown): string | undefined {
   if (typeof v !== 'string') return undefined
@@ -54,24 +61,6 @@ export function parseDevicesSearch(input: Record<string, unknown>): DevicesSearc
   return out
 }
 
-export interface OverviewSearch {
-  range?: Range
-}
-
-export function parseOverviewSearch(input: Record<string, unknown>): OverviewSearch {
-  return input.range === undefined ? {} : { range: parseRange(input.range) }
-}
-
-export interface UsersSearch {
-  q?: string
-}
-
-export function parseUsersSearch(input: Record<string, unknown>): UsersSearch {
-  if (typeof input.q !== 'string') return {}
-  const q = input.q.trim().slice(0, 128)
-  return q ? { q } : {}
-}
-
 /** Device 详情 search（task / fullscreen / imgIdx / imgKind 控抽屉 + lightbox） */
 export interface DeviceDetailSearch {
   range?: Range
@@ -92,18 +81,5 @@ export function parseDeviceDetailSearch(input: Record<string, unknown>): DeviceD
   if (idx !== undefined) out.imgIdx = idx
   const kind = parseImgKind(input.imgKind)
   if (kind !== undefined) out.imgKind = kind
-  return out
-}
-
-export interface UserDetailSearch extends DeviceDetailSearch {
-  status?: string
-}
-
-export function parseUserDetailSearch(input: Record<string, unknown>): UserDetailSearch {
-  const out: UserDetailSearch = parseDeviceDetailSearch(input)
-  if (typeof input.status === 'string') {
-    const status = input.status.trim().slice(0, 32)
-    if (status) out.status = status
-  }
   return out
 }
