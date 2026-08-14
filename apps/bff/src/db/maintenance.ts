@@ -1,9 +1,27 @@
 import { QUEUE_TIMEOUTS } from '@image-playground/shared'
-import { and, eq, inArray, isNotNull, lt } from 'drizzle-orm'
-import { log } from '../lib/logger'
-import { objectStore } from '../lib/objectStore'
-import { loadPrivateBffOverlay } from '../lib/private-overlay'
+import { and, eq, inArray, isNotNull, lt, ne } from 'drizzle-orm'
+import {
+  deleteOutputBlobsOlderThan,
+  OUTPUT_BLOB_RETENTION_MS,
+  transcodeInputBlobsToWebp,
+} from '../lib/blobStore'
 import { db, schema } from './client'
+
+/** 找出终态任务里还没归档成 WebP 的输入 blob，逐个补做转码。 */
+async function archiveTerminalInputBlobs(): Promise<void> {
+  const pending = await db
+    .selectDistinct({ id: schema.tasks.id })
+    .from(schema.tasks)
+    .innerJoin(schema.task_blobs, eq(schema.task_blobs.task_id, schema.tasks.id))
+    .where(
+      and(
+        inArray(schema.tasks.status, ['completed', 'failed', 'cancelled']),
+        eq(schema.task_blobs.kind, 'input'),
+        ne(schema.task_blobs.mime, 'image/webp'),
+      ),
+    )
+  for (const task of pending) await transcodeInputBlobsToWebp(task.id, db)
+}
 
 /**
  * worker 启动时跑一次：把上次进程残留的 in_progress 标成终态。
@@ -14,36 +32,21 @@ import { db, schema } from './client'
  * 是否手动重试。
  */
 export async function recoverInterruptedTasks(): Promise<{ failed: number }> {
-  const taskHooks = (await loadPrivateBffOverlay()).taskHooks
-  const failed = await db.transaction(async (tx) => {
-    const rows = await tx
-      .update(schema.tasks)
-      .set({
-        status: 'failed',
-        error_message: '任务 worker 重启时中断',
-        error_type: 'interrupted' as const,
-        completed_at: Date.now(),
-      })
-      .where(eq(schema.tasks.status, 'in_progress'))
-      .returning({
-        id: schema.tasks.id,
-        upstreamInvocationCount: schema.tasks.upstream_invocation_count,
-      })
-    for (const row of rows) {
-      await taskHooks.finalizeTask({
-        tx,
-        taskId: row.id,
-        upstreamInvocationCount: row.upstreamInvocationCount,
-      })
-    }
-    return rows
-  })
+  const failed = await db
+    .update(schema.tasks)
+    .set({
+      status: 'failed',
+      error_message: '任务 worker 重启时中断',
+      error_type: 'interrupted' as const,
+      completed_at: Date.now(),
+    })
+    .where(eq(schema.tasks.status, 'in_progress'))
+    .returning({ id: schema.tasks.id })
+
+  // 也覆盖「已写 cancelled 后 worker 进程立刻退出」的窗口：这类行不再是
+  // in_progress，但输入 blob 仍可能是上游所需的原始字节。
+  await archiveTerminalInputBlobs()
   return { failed: failed.length }
-}
-/** Runs optional private-tree maintenance (for example, the billing fallback scan). */
-export async function runPrivateMaintenance(now = Date.now()): Promise<void> {
-  const taskHooks = (await loadPrivateBffOverlay()).taskHooks
-  await taskHooks.runMaintenance(now)
 }
 
 /**
@@ -64,16 +67,10 @@ export async function purgeOldTasks(
       ),
     )
     .returning({ id: schema.tasks.id })
-
-  for (const task of deleted) {
-    try {
-      await objectStore().deletePrefix(`${task.id}/`)
-    } catch (error) {
-      log.warn(
-        { event: 'object_store.cleanup_failed', taskId: task.id, err: String(error) },
-        'task row deleted; object prefix left for lifecycle cleanup',
-      )
-    }
-  }
   return deleted.length
+}
+
+/** Purge archived output pixels after seven days while retaining task metadata. */
+export async function purgeOldOutputBlobs(retentionMs = OUTPUT_BLOB_RETENTION_MS): Promise<number> {
+  return deleteOutputBlobsOlderThan(Date.now() - retentionMs, db)
 }

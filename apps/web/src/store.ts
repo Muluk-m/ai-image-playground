@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { createJSONStorage, persist } from 'zustand/middleware'
+import { persist } from 'zustand/middleware'
 import {
   clientProfileToApiProfile,
   DEFAULT_SETTINGS,
@@ -36,9 +36,7 @@ function filterUserProfileCache(
 
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate'
 import { callImageApi, resumeQueueImageApi } from './lib/api'
-import { scopedLocalStorage } from './lib/authScope'
 import { validateMaskMatchesImage } from './lib/canvasImage'
-import { isByokGenerationEnabled, isClientCapabilityEnabled } from './lib/clientCapabilities'
 import {
   CURRENT_THUMBNAIL_VERSION,
   clearImages,
@@ -60,11 +58,6 @@ import { IMAGE_FETCH_CORS_HINT, bytesToDataUrl as sharedBytesToDataUrl } from '.
 import { orderInputImagesForMask } from './lib/mask'
 import { getCustomQueuedImageResult } from './lib/openaiCompatibleImageApi'
 import { getChangedParams, normalizeParamsForSettings } from './lib/paramCompatibility'
-import {
-  notifyPrivateSubmissionAccepted,
-  notifyPrivateSubmissionError,
-  notifyPrivateSubmissionSettled,
-} from './lib/privateOverlay'
 import { remapImageMentionsForOrder, replaceImageMentionsForApi } from './lib/promptImageMentions'
 import { dismissAllTooltips } from './lib/tooltipDismiss'
 import {
@@ -752,7 +745,6 @@ export const useStore = create<AppState>()(
     }),
     {
       name: 'image-playground',
-      storage: createJSONStorage(() => scopedLocalStorage),
       version: 1,
       // v0 → v1：防改写默认值翻转为开启。v0 里 no_rewrite=false 是只上线过数小时的
       // 旧默认值而非用户主动选择，一次性抬升为 true；之后的显式关闭会随 v1 持久化保留。
@@ -1234,11 +1226,6 @@ export async function submitTask(
     }
   }
 
-  if (!isByokGenerationEnabled() && activeProfile.source !== 'builtin-edge') {
-    showToast('当前部署只允许使用内置模型', 'error')
-    return
-  }
-
   const validationError = validateClientProfile(activeProfile)
   if (validationError) {
     showToast(`请先完善请求 API 配置：${validationError}`, 'error')
@@ -1308,13 +1295,14 @@ export async function submitTask(
   }
 
   const submitView = clientProfileToApiProfile(activeProfile)
-  // Billed submissions must stay in one BFF task so credit reservation is atomic. Otherwise,
-  // only channels that explicitly declare native count support receive n in one request.
-  const billedBuiltinSubmission =
-    activeProfile.source === 'builtin-edge' && isClientCapabilityEnabled('billing:credits')
+  // 数量分发的唯一判定（禁止按 provider / 模型名推断）：模型在 channel capabilities 里
+  // 显式声明 'n' → 一条任务携带归一化后的 n 一次下发，返回的多张图全部落在这条任务的
+  // outputImages 上，BFF quota 按 n 计张；未声明、channel 未知、或 BYOK 无声明
+  // （getModelCapabilities 返回 null）→ 维持逐条 fan-out：n 条独立任务、每条 n=1、
+  // 各自带独立 clientRequestId 用于 BFF 幂等，quota 同样自然按张数计数。
   const supportsNativeCount =
     getModelCapabilities(activeProfile, getPublicChannels())?.has('n') === true
-  const fanOut = billedBuiltinSubmission || supportsNativeCount ? 1 : Math.max(1, taskParams.n)
+  const fanOut = supportsNativeCount ? 1 : Math.max(1, taskParams.n)
   const singleParams = fanOut === 1 ? taskParams : { ...taskParams, n: 1 }
   const createdAt = Date.now()
   const newTasks: TaskRecord[] = Array.from({ length: fanOut }, () => ({
@@ -1442,7 +1430,6 @@ async function executeTask(taskId: string) {
         },
         onQueueSubmitted: (requestId) => {
           updateTaskInStore(taskId, { bffRequestId: requestId })
-          notifyPrivateSubmissionAccepted()
         },
       })
     }
@@ -1504,7 +1491,6 @@ async function executeTask(taskId: string) {
     }
   } catch (err) {
     clearOpenAIWatchdogTimer(taskId)
-    notifyPrivateSubmissionError(err)
     const latestTask = useStore.getState().tasks.find((t) => t.id === taskId) ?? task
     if (latestTask.status !== 'running') return
     const latestCustomTaskInfo =
@@ -1540,7 +1526,6 @@ async function executeTask(taskId: string) {
       useStore.getState().setDetailTaskId(taskId)
     }
   } finally {
-    notifyPrivateSubmissionSettled()
     // 释放输入图片的内存缓存（已持久化到 IndexedDB，后续按需从 DB 加载）
     for (const imgId of task.inputImageIds) {
       imageCache.delete(imgId)

@@ -1,22 +1,10 @@
-import path from 'node:path'
-
 import colors from 'tailwindcss/colors'
 import animate from 'tailwindcss-animate'
-
-const privateOverlayEntry = process.env.PRIVATE_ADMIN_OVERLAY_ENTRY
 
 /** @type {import('tailwindcss').Config} */
 export default {
   darkMode: 'media',
-  content: [
-    './index.html',
-    './src/**/*.{js,ts,jsx,tsx}',
-    privateOverlayEntry,
-    privateOverlayEntry ? path.join(path.dirname(privateOverlayEntry), '*.{js,ts,jsx,tsx}') : null,
-    privateOverlayEntry
-      ? path.join(path.dirname(privateOverlayEntry), 'routes/*.{js,ts,jsx,tsx}')
-      : null,
-  ].filter(Boolean),
+  content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
   theme: {
     container: {
       center: true,

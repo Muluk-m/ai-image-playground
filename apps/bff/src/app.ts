@@ -2,14 +2,8 @@ import { extname, join } from 'node:path'
 import { cors } from '@elysiajs/cors'
 import { Elysia } from 'elysia'
 import { config } from './config'
-import { isCapabilityEnabled } from './lib/capabilities'
-import { assertPrivateBffOverlayPresent, loadPrivateBffOverlay } from './lib/private-overlay'
-import { gzipBlob } from './lib/staticCompression'
-import { userAuthRoutes } from './routes/auth'
 import { cancelRoutes } from './routes/cancel'
-import { capabilitiesRoutes, internalCapabilitiesRoutes } from './routes/capabilities'
 import { channelsRoutes } from './routes/channels'
-import { internalUserRoutes } from './routes/internal-users'
 import { resultRoutes } from './routes/result'
 import { statusRoutes } from './routes/status'
 import { submitRoutes } from './routes/submit'
@@ -22,20 +16,10 @@ const corsOrigin =
         .map((s) => s.trim())
         .filter(Boolean)
 
-const privateBffOverlay = await loadPrivateBffOverlay()
-if (isCapabilityEnabled('billing:credits')) {
-  assertPrivateBffOverlayPresent(privateBffOverlay, 'billing:credits')
-}
-
 const STATIC_DIR = config.staticDir
 
 function isApiPath(pathname: string): boolean {
-  return (
-    pathname.startsWith('/v1/') ||
-    pathname.startsWith('/api/') ||
-    pathname.startsWith('/internal/') ||
-    pathname === '/health'
-  )
+  return pathname.startsWith('/v1/') || pathname.startsWith('/api/') || pathname === '/health'
 }
 
 /**
@@ -97,7 +81,8 @@ async function serveStatic(pathname: string, request: Request): Promise<Response
   if (ext in MIME_BY_EXT) baseHeaders['content-type'] = MIME_BY_EXT[ext]!
 
   if (compressible && wantsGzip && size >= GZIP_MIN_BYTES) {
-    return new Response(await gzipBlob(file), {
+    const stream = file.stream().pipeThrough(new CompressionStream('gzip'))
+    return new Response(stream, {
       headers: {
         ...baseHeaders,
         'content-encoding': 'gzip',
@@ -121,18 +106,13 @@ async function serveSpaFallback(): Promise<Response | null> {
 }
 
 export const app = new Elysia()
-  .use(cors({ origin: corsOrigin, credentials: true }))
+  .use(cors({ origin: corsOrigin }))
   .get('/health', () => ({ ok: true }))
-  .use(userAuthRoutes)
-  .use(capabilitiesRoutes)
   .use(channelsRoutes)
   .use(submitRoutes)
   .use(statusRoutes)
   .use(resultRoutes)
   .use(cancelRoutes)
-  .use(internalUserRoutes)
-  .use(internalCapabilitiesRoutes)
-  .use(privateBffOverlay.routes)
   .onRequest(async ({ request, set }) => {
     const url = new URL(request.url)
     if (isApiPath(url.pathname)) return

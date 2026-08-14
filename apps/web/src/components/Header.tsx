@@ -1,13 +1,7 @@
 import { useState } from 'react'
-import { useAuth } from '../auth/AuthContext'
 import InspirationCoach from '../features/inspiration/components/InspirationCoach'
 import { useInspirationStore } from '../features/inspiration/store'
 import { useTooltip } from '../hooks/useTooltip'
-import {
-  PrivateWebHeaderAccountActions,
-  PrivateWebHeaderCreditAction,
-  PrivateWebReplacesAuthActions,
-} from '../lib/privateOverlay'
 import { dismissAllTooltips } from '../lib/tooltipDismiss'
 import { useStore } from '../store'
 import HelpModal from './HelpModal'
@@ -19,8 +13,6 @@ export default function Header() {
   const appMode = useStore((s) => s.appMode)
   const setAppMode = useStore((s) => s.setAppMode)
   const [showHelp, setShowHelp] = useState(false)
-  const [loggingOut, setLoggingOut] = useState(false)
-  const auth = useAuth()
 
   const openInspiration = useInspirationStore((s) => s.openPanel)
   const dismissInspirationCoach = useStore((s) => s.dismissInspirationCoach)
@@ -91,6 +83,33 @@ export default function Header() {
               </ViewportTooltip>
               {inspirationCoachActive && <InspirationCoach />}
             </div>
+            <div className="relative" {...helpTooltip.handlers}>
+              <button
+                onClick={() => {
+                  dismissAllTooltips()
+                  setShowHelp(true)
+                }}
+                className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-900 transition-colors"
+                aria-label="操作指南"
+              >
+                <svg
+                  className="w-5 h-5 text-gray-600 dark:text-gray-400"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  viewBox="0 0 24 24"
+                >
+                  <circle cx="12" cy="12" r="10" />
+                  <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+                  <path d="M12 17h.01" />
+                </svg>
+              </button>
+              <ViewportTooltip visible={helpTooltip.visible} className="whitespace-nowrap">
+                操作指南
+              </ViewportTooltip>
+            </div>
             <div className="relative" {...settingsTooltip.handlers}>
               <button
                 onClick={() => setShowSettings(true)}
@@ -121,63 +140,6 @@ export default function Header() {
                 设置
               </ViewportTooltip>
             </div>
-            <PrivateWebHeaderCreditAction />
-            <div className="relative" {...helpTooltip.handlers}>
-              <button
-                onClick={() => {
-                  dismissAllTooltips()
-                  setShowHelp(true)
-                }}
-                className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-900 transition-colors"
-                aria-label="操作指南"
-              >
-                <svg
-                  className="w-5 h-5 text-gray-600 dark:text-gray-400"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth={2}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  viewBox="0 0 24 24"
-                >
-                  <circle cx="12" cy="12" r="10" />
-                  <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
-                  <path d="M12 17h.01" />
-                </svg>
-              </button>
-              <ViewportTooltip visible={helpTooltip.visible} className="whitespace-nowrap">
-                操作指南
-              </ViewportTooltip>
-            </div>
-            <PrivateWebHeaderAccountActions
-              username={auth.user?.username ?? null}
-              loggingOut={loggingOut}
-              onLogout={() => {
-                setLoggingOut(true)
-                void auth.logout()
-              }}
-            />
-            {auth.enabled && auth.user && !PrivateWebReplacesAuthActions ? (
-              <div className="ml-1 flex items-center gap-2 border-l border-gray-200 pl-2 dark:border-white/[0.1]">
-                <span
-                  className="hidden max-w-28 truncate text-[12px] font-medium text-gray-600 sm:block dark:text-gray-300"
-                  title={auth.user.username}
-                >
-                  {auth.user.username}
-                </span>
-                <button
-                  type="button"
-                  disabled={loggingOut}
-                  onClick={() => {
-                    setLoggingOut(true)
-                    void auth.logout()
-                  }}
-                  className="rounded-lg px-2 py-1.5 text-[12px] font-medium text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-800 disabled:cursor-wait disabled:opacity-50 dark:text-gray-400 dark:hover:bg-gray-900 dark:hover:text-gray-100"
-                >
-                  {loggingOut ? '退出中' : '退出'}
-                </button>
-              </div>
-            ) : null}
           </div>
         </div>
       </header>
