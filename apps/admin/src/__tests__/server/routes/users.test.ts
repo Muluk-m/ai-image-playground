@@ -167,6 +167,7 @@ describe('admin user routes', () => {
         started_at: null,
         completed_at: expect.any(Number),
         error_type: null,
+        upstream_status: null,
         prompt: 'failed image',
         upstream_invocation_count: 3,
         attempt_count: 0,

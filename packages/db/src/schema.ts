@@ -94,6 +94,16 @@ export const tasks = pgTable(
     result_payload: bunJsonb('result_payload'),
     error_message: text('error_message'),
     error_type: text('error_type'),
+    /**
+     * Terminal upstream HTTP failures keep their status for operator triage. Transport failures and
+     * application timeouts have no HTTP response and therefore remain null.
+     */
+    upstream_status: integer('upstream_status'),
+    /**
+     * Truncated upstream error response body. This preserves diagnostic codes that are not present
+     * in the normalized error message without allowing unbounded responses into the task row.
+     */
+    upstream_body: text('upstream_body'),
     submitted_at: epochMs('submitted_at').notNull(),
     started_at: epochMs('started_at'),
     completed_at: epochMs('completed_at'),

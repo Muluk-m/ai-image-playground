@@ -603,8 +603,11 @@ function buildGeminiBody(request: HydratedSubmitRequest): Record<string, unknown
   }
 }
 
-/** 非 2xx 时打 log 落的 payload 截断上限，避免上游回 base64 巨长串吞内存。 */
-const UPSTREAM_ERROR_LOG_BYTES = 2000
+/**
+ * 非 2xx 时上游响应体的截断上限，避免上游回 base64 巨长串吞内存。log preview 与
+ * 落库的 tasks.upstream_body 共用同一上限，两处看到的内容一致。
+ */
+const UPSTREAM_ERROR_BODY_MAX_CHARS = 2000
 
 async function parseUpstreamResponse(res: UpstreamResponse): Promise<UpstreamCallResult> {
   const text = await res.text()
@@ -624,10 +627,7 @@ async function parseUpstreamResponse(res: UpstreamResponse): Promise<UpstreamCal
         event: 'upstream.non_2xx',
         upstreamStatus: res.status,
         message,
-        payloadPreview:
-          typeof payload === 'object' && payload !== null
-            ? JSON.stringify(payload).slice(0, UPSTREAM_ERROR_LOG_BYTES)
-            : String(payload).slice(0, UPSTREAM_ERROR_LOG_BYTES),
+        payloadPreview: stringifyUpstreamPayload(payload),
       },
       'upstream returned non-2xx',
     )
@@ -637,6 +637,34 @@ async function parseUpstreamResponse(res: UpstreamResponse): Promise<UpstreamCal
     throw err
   }
   return { payload }
+}
+
+/** 上游错误响应体转可存储字符串（截断）。空体返回 null，避免落库一个空串。 */
+function stringifyUpstreamPayload(payload: unknown): string | null {
+  if (payload === null || payload === undefined) return null
+  const text = typeof payload === 'object' ? JSON.stringify(payload) : String(payload)
+  if (!text) return null
+  return text.slice(0, UPSTREAM_ERROR_BODY_MAX_CHARS)
+}
+
+/**
+ * 从 catch 到的错误里抽上游 HTTP 层诊断信息，供 task-runner 落库、admin 直接展示。
+ * transport 中断 / BFF 硬超时压根没拿到 HTTP 响应，两个字段都是 null——此时
+ * error_type='upstream_result_unknown' 已经表达了「结果未知」。
+ */
+export function extractUpstreamFailure(err: unknown): {
+  status: number | null
+  body: string | null
+} {
+  // 用 in / typeof 运行时窄化，不做 `err as { upstreamStatus?: unknown }` 这种
+  // 断言式访问：err 来自 catch，形状没有任何保证，断言只会把错读伪装成合法读。
+  if (!err || typeof err !== 'object' || !('upstreamStatus' in err)) {
+    return { status: null, body: null }
+  }
+  const status = err.upstreamStatus
+  if (typeof status !== 'number') return { status: null, body: null }
+  const body = 'upstreamPayload' in err ? stringifyUpstreamPayload(err.upstreamPayload) : null
+  return { status, body }
 }
 
 function extractErrorMessage(payload: unknown, status: number): string {

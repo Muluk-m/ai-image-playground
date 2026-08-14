@@ -8,7 +8,12 @@ import { log } from '../lib/logger'
 import { loadPrivateBffOverlay } from '../lib/private-overlay'
 import { isAbortError } from '../lib/queueProvider'
 import { isRetryableError, planNextAttempt, shouldRetryEmptyResult } from '../lib/retry'
-import { callUpstream, UpstreamResultUnknownError, UpstreamTimeoutError } from '../lib/upstream'
+import {
+  callUpstream,
+  extractUpstreamFailure,
+  UpstreamResultUnknownError,
+  UpstreamTimeoutError,
+} from '../lib/upstream'
 
 /**
  * 单 task 后台执行：把 status 推进到 in_progress → completed/failed/cancelled。
@@ -73,6 +78,8 @@ async function tryScheduleRetry(
       error_message: null,
       error_type: null,
       result_payload: null,
+      upstream_status: null,
+      upstream_body: null,
     })
     .where(and(eq(schema.tasks.id, id), eq(schema.tasks.status, 'in_progress')))
     .returning({ id: schema.tasks.id })
@@ -97,6 +104,8 @@ type TerminalTaskUpdate = {
   resultPayload?: (typeof schema.tasks.$inferInsert)['result_payload']
   errorMessage?: string
   errorType?: TaskErrorType
+  upstreamStatus?: number | null
+  upstreamBody?: string | null
 }
 
 async function recordUpstreamInvocation(id: string, count = 1): Promise<boolean> {
@@ -120,6 +129,8 @@ async function finishTask(id: string, update: TerminalTaskUpdate): Promise<boole
         result_payload: update.resultPayload,
         error_message: update.errorMessage,
         error_type: update.errorType,
+        upstream_status: update.upstreamStatus,
+        upstream_body: update.upstreamBody,
         completed_at: update.completedAt,
       })
       .where(and(eq(schema.tasks.id, id), eq(schema.tasks.status, 'in_progress')))
@@ -245,22 +256,28 @@ export async function runTask(id: string): Promise<void> {
       return
     }
 
-    await finishTask(id, {
+    const upstream = extractUpstreamFailure(err)
+    const failed = await finishTask(id, {
       status: 'failed',
       errorMessage: message,
       errorType,
+      upstreamStatus: upstream.status,
+      upstreamBody: upstream.body,
       completedAt: now(),
     })
-    log.error(
-      {
-        event: 'task.failed',
-        taskId: id,
-        errorType,
-        attempt: attemptJustFailed,
-        err: message,
-      },
-      'task failed',
-    )
+    if (failed) {
+      log.error(
+        {
+          event: 'task.failed',
+          taskId: id,
+          errorType,
+          attempt: attemptJustFailed,
+          upstreamStatus: upstream.status,
+          err: message,
+        },
+        'task failed',
+      )
+    }
   } finally {
     runningTasks.delete(id)
   }

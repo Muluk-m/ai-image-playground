@@ -33,7 +33,12 @@ const seedTask = (
 await writer.db.insert(writer.schema.tasks).values([
   seedTask('t1', 'dev-A-aaaa', 'openai-compat', 'gpt-image-2', 'completed', 0),
   seedTask('t2', 'dev-A-aaaa', 'openai-compat', 'gpt-image-2', 'completed', 0),
-  seedTask('t3', 'dev-A-aaaa', 'gemini', 'gemini-3-pro', 'failed', 0),
+  {
+    ...seedTask('t3', 'dev-A-aaaa', 'gemini', 'gemini-3-pro', 'failed', 0),
+    error_message: 'Upstream request failed',
+    upstream_status: 502,
+    upstream_body: '{"error":{"message":"Upstream request failed","type":"upstream_error"}}',
+  },
   seedTask('t4', 'dev-B-bbbb', 'gemini', 'gemini-3-pro', 'completed', 5),
   seedTask('t5', 'dev-OLD-aa', 'openai-compat', 'gpt-image-2', 'completed', 30),
   ...Array.from({ length: 150 }, (_, index) => ({
@@ -90,7 +95,7 @@ await writer.db.insert(writer.schema.users).values({
   created_at: now,
   updated_at: now,
 })
-await writer.client`UPDATE tasks SET user_id = 'user-page' WHERE id LIKE 'pg-%'`
+await writer.client`UPDATE tasks SET user_id = 'user-page' WHERE id LIKE 'pg-%' OR id = 't3'`
 
 // Dynamic import keeps environment setup ahead of Admin configuration capture.
 const { listDevices, getDeviceDetail, getOverview, getTask, getUserDetail } = await import(
@@ -149,6 +154,14 @@ describe('getDeviceDetail', () => {
     expect(first.result_payload).toBeUndefined()
   })
 
+  it('失败任务的列表项带 upstream_status，供列表直接分辨 5xx / 4xx', async () => {
+    const detail = await getDeviceDetail('dev-A-aaaa', '7d')
+    const failed = detail.tasks.find((t) => t.id === 't3')
+    expect(failed?.upstream_status).toBe(502)
+    // 成功任务没有上游错误，保持 null
+    expect(detail.tasks.find((t) => t.id === 't1')?.upstream_status).toBeNull()
+  })
+
   it('不存在的设备返回空 tasks', async () => {
     const detail = await getDeviceDetail('dev-NOPE', '7d')
     expect(detail.device).toBeNull()
@@ -203,8 +216,8 @@ describe('getUserDetail pagination', () => {
 
     const second = await getUserDetail('user-page', '30d', 'all', first!.nextCursor!)
     expect(second?.user).toBeNull()
-    expect(second?.tasks).toHaveLength(50)
-    expect(second?.nextCursor).toBeNull()
+    expect(first?.tasks.find((task) => task.id === 't3')?.upstream_status).toBe(502)
+    expect(second?.tasks).toHaveLength(51)
     expect(second?.volume).toBeNull()
   })
 })
@@ -217,6 +230,15 @@ describe('getTask', () => {
     expect((task as unknown as Record<string, unknown>).result_payload).toBeUndefined()
     expect(task!.result_meta).toBeDefined()
     expect(task!.upstream_invocation_count).toBe(2)
+  })
+
+  it('失败任务详情带上游 HTTP 状态与原始响应体', async () => {
+    const task = await getTask('t3')
+    expect(task).not.toBeNull()
+    expect(task!.upstream_status).toBe(502)
+    expect(task!.upstream_body).toBe(
+      '{"error":{"message":"Upstream request failed","type":"upstream_error"}}',
+    )
   })
 
   it('不存在的 task → null', async () => {

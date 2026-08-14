@@ -52,6 +52,7 @@ export interface TaskListItem {
   started_at: number | null
   completed_at: number | null
   error_type: string | null
+  upstream_status: number | null
   prompt: string
   upstream_invocation_count: number
   attempt_count: number
@@ -72,6 +73,7 @@ export interface TaskDetail extends TaskListItem {
   request_payload: unknown
   result_meta: { images: TaskImageMeta[]; raw_image_urls?: string[] }
   error_message: string | null
+  upstream_body: string | null
   device_id: string | null
   user_id: string | null
   next_retry_at: number | null
