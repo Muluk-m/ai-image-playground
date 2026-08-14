@@ -1,43 +1,68 @@
-import { Database } from 'bun:sqlite'
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test'
+import { afterAll, afterEach, beforeEach, describe, expect, it, mock } from 'bun:test'
+import { resolve } from 'node:path'
+import { resetTestDatabase } from '@image-playground/db/testing'
 import { eq } from 'drizzle-orm'
-import sharp from 'sharp'
+import {
+  _setPrivateBffOverlayForTesting,
+  EMPTY_PRIVATE_BFF_OVERLAY,
+} from '../../lib/private-overlay'
+import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
 
-const TEST_DB = './artifacts/test-routes.sqlite'
+const TEST_DB = await resetTestDatabase('bff_routes')
 
 process.env.PORT = '0'
+_setPrivateBffOverlayForTesting(EMPTY_PRIVATE_BFF_OVERLAY)
 process.env.UPSTREAM_BASE_URL = 'http://localhost:9999'
 process.env.UPSTREAM_API_KEY = 'test'
 process.env.DATABASE_URL = TEST_DB
 process.env.CORS_ALLOWED_ORIGINS = '*'
+process.env.INTERNAL_API_TOKEN = 'fixture-service-credential-alpha'
+process.env.OPERATOR_CONFIG_FILE = resolve(import.meta.dir, '../quota-operator-config.json')
 
-const { runMigrations } = await import('../../db/migrate')
-runMigrations(TEST_DB)
+// Dynamic import keeps environment setup ahead of configuration module evaluation in this route test.
 const { app } = await import('../../app')
-const { db, schema } = await import('../../db/client')
+const { close: closeDb, db, schema } = await import('../../db/client')
 const { runTask } = await import('../../workers/task-runner')
 const { setUpstreamFetchForTesting } = await import('../../lib/upstream')
+const { setObjectStoreForTesting } = await import('../../lib/objectStore')
 type TestFetch = NonNullable<Parameters<typeof setUpstreamFetchForTesting>[0]>
+let storage: InMemoryObjectStore
+
+beforeEach(() => {
+  storage = new InMemoryObjectStore()
+  setObjectStoreForTesting(storage)
+})
+
+afterEach(() => {
+  setObjectStoreForTesting()
+})
+afterAll(async () => {
+  await closeDb()
+})
 
 async function resetDb() {
   await db.delete(schema.tasks)
   await db.delete(schema.daily_quota)
+  await db.delete(schema.user_sessions)
+  await db.delete(schema.users)
 }
 
 async function jsonReq(
   method: string,
   path: string,
   body?: unknown,
-): Promise<{ status: number; json: unknown }> {
+  requestHeaders: Record<string, string> = {},
+): Promise<{ status: number; json: unknown; headers: Headers }> {
+  const headers = { ...requestHeaders }
+  if (body !== undefined) headers['content-type'] = 'application/json'
   const res = await app.handle(
     new Request(`http://localhost${path}`, {
       method,
-      ...(body !== undefined
-        ? { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }
-        : {}),
+      headers,
+      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
     }),
   )
-  return { status: res.status, json: await res.json() }
+  return { status: res.status, json: await res.json(), headers: res.headers }
 }
 
 function submitBody(overrides: Record<string, unknown> = {}) {
@@ -49,12 +74,17 @@ function submitBody(overrides: Record<string, unknown> = {}) {
     ...overrides,
   }
 }
-function requestIdFrom(json: unknown): string {
-  if (!json || typeof json !== 'object' || !('request_id' in json)) {
-    throw new Error('response is missing request_id')
+
+function responseRequestId(value: unknown): string {
+  if (
+    !value ||
+    typeof value !== 'object' ||
+    !('request_id' in value) ||
+    typeof value.request_id !== 'string'
+  ) {
+    throw new Error('response did not contain request_id')
   }
-  if (typeof json.request_id !== 'string') throw new Error('request_id is not a string')
-  return json.request_id
+  return value.request_id
 }
 
 describe('BFF queue routes', () => {
@@ -121,23 +151,22 @@ describe('BFF queue routes', () => {
       submitBody({ prompt: 'turn cat into dog', size: '1024x1024', input_images: [TINY_PNG] }),
     )
     expect(status).toBe(200)
-    const taskId = requestIdFrom(json)
-    const [storedTask] = await db
-      .select({ request_payload: schema.tasks.request_payload })
-      .from(schema.tasks)
-      .where(eq(schema.tasks.id, taskId))
-      .limit(1)
-    expect(storedTask?.request_payload.input_images).toEqual([{ $blob: 0 }])
-    const [storedBlob] = await db
-      .select()
-      .from(schema.task_blobs)
-      .where(eq(schema.task_blobs.task_id, taskId))
-      .limit(1)
-    const originalBytes = Buffer.from(TINY_PNG.split(',')[1]!, 'base64')
-    expect(storedBlob).toMatchObject({ kind: 'input', idx: 0, mime: 'image/png' })
-    expect(storedBlob?.data).toEqual(originalBytes)
+    const id = responseRequestId(json)
+    const [storedTask] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, id))
+    expect(storedTask?.request_payload.input_images).toEqual([
+      { object: `${id}/in/0`, mime: 'image/png' },
+    ])
+    expect(JSON.stringify(storedTask?.request_payload)).not.toContain('iVBORw0KGgo')
+    expect(storage.objects.has(`${id}/in/0`)).toBe(true)
 
-    await runTask(taskId)
+    const archivedInput = await app.handle(
+      new Request(`http://localhost/v1/queue/requests/${id}/input-image/0`),
+    )
+    expect(archivedInput.status).toBe(200)
+    expect(await archivedInput.arrayBuffer()).toEqual(
+      storage.objects.get(`${id}/in/0`)!.bytes.buffer,
+    )
+    await runTask(id)
 
     expect(calls).toHaveLength(1)
     expect(calls[0]!.url).toMatch(/\/v1\/images\/edits$/)
@@ -147,74 +176,6 @@ describe('BFF queue routes', () => {
     }
     expect(form.get('prompt')).toBe('turn cat into dog')
     expect(form.getAll('image[]')).toHaveLength(1)
-    const uploaded = form.getAll('image[]')[0]
-    if (!(uploaded instanceof Blob)) throw new Error('multipart image is not a Blob')
-    expect(Buffer.from(await uploaded.arrayBuffer())).toEqual(originalBytes)
-  })
-
-  it('duplicate submit returns the existing task without orphaning input blobs', async () => {
-    const input = 'data:image/png;base64,AQID'
-    const request = submitBody({
-      client_request_id: 'duplicate-input-request',
-      input_images: [input],
-    })
-
-    const first = await jsonReq('POST', '/v1/queue/openai-compat/gpt-image-2/submit', request)
-    const second = await jsonReq('POST', '/v1/queue/openai-compat/gpt-image-2/submit', request)
-
-    expect(second.json).toMatchObject({ request_id: requestIdFrom(first.json) })
-    expect(await db.select().from(schema.task_blobs)).toHaveLength(1)
-  })
-
-  it('concurrent duplicate submits create one task and consume quota once', async () => {
-    const request = submitBody({
-      client_request_id: 'concurrent-duplicate-request',
-      n: 4,
-      input_images: ['data:image/png;base64,AQID'],
-    })
-
-    const [first, second] = await Promise.all([
-      jsonReq('POST', '/v1/queue/openai-compat/gpt-image-2/submit', request),
-      jsonReq('POST', '/v1/queue/openai-compat/gpt-image-2/submit', request),
-    ])
-
-    expect(first.status).toBe(200)
-    expect(second.status).toBe(200)
-    expect(requestIdFrom(second.json)).toBe(requestIdFrom(first.json))
-    expect(await db.select().from(schema.tasks)).toHaveLength(1)
-    expect(await db.select().from(schema.task_blobs)).toHaveLength(1)
-    expect(await db.select().from(schema.daily_quota)).toEqual([
-      expect.objectContaining({ count: 4 }),
-    ])
-  })
-
-  it('rolls back the task when input blob storage fails', async () => {
-    const sqlite = new Database(TEST_DB)
-    sqlite.exec(`
-      CREATE TRIGGER reject_input_blob
-      BEFORE INSERT ON task_blobs
-      WHEN NEW.kind = 'input'
-      BEGIN
-        SELECT RAISE(ABORT, 'input archive unavailable');
-      END;
-    `)
-    try {
-      const response = await app.handle(
-        new Request('http://localhost/v1/queue/openai-compat/gpt-image-2/submit', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(submitBody({ input_images: ['data:image/png;base64,AQID'] })),
-        }),
-      )
-      expect(response.status).toBe(500)
-    } finally {
-      sqlite.exec('DROP TRIGGER reject_input_blob')
-      sqlite.close()
-    }
-
-    expect(await db.select().from(schema.tasks)).toEqual([])
-    expect(await db.select().from(schema.task_blobs)).toEqual([])
-    expect(await db.select().from(schema.daily_quota)).toEqual([])
   })
 
   it('POST submit with mask routes to /v1/images/edits with mask field', async () => {
@@ -237,7 +198,14 @@ describe('BFF queue routes', () => {
       submitBody({ prompt: 'mask edit', input_images: [TINY_PNG], mask: TINY_PNG }),
     )
     expect(status).toBe(200)
-    await runTask((json as { request_id: string }).request_id)
+    const id = responseRequestId(json)
+    const [storedTask] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, id))
+    expect(storedTask?.request_payload.mask).toEqual({
+      object: `${id}/in/1`,
+      mime: 'image/png',
+    })
+    expect(storage.objects.has(`${id}/in/1`)).toBe(true)
+    await runTask(id)
 
     expect(calls[0]!.url).toMatch(/\/v1\/images\/edits$/)
     const form = calls[0]!.init?.body as {
@@ -246,6 +214,267 @@ describe('BFF queue routes', () => {
     }
     expect(form.getAll('image[]')).toHaveLength(1)
     expect(form.get('mask')).toBeDefined()
+  })
+
+  it('archives output bytes and serves object references without retaining base64', async () => {
+    setUpstreamFetchForTesting(
+      mock(async () => {
+        return new Response(
+          JSON.stringify({
+            data: [{ b64_json: Buffer.from('OUTPUT').toString('base64'), revised_prompt: 'done' }],
+            output_format: 'png',
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        )
+      }) as unknown as TestFetch,
+    )
+
+    const submitted = await jsonReq(
+      'POST',
+      '/v1/queue/openai-compat/gpt-image-2/submit',
+      submitBody(),
+    )
+    const id = responseRequestId(submitted.json)
+    await runTask(id)
+
+    const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, id))
+    expect(task?.status).toBe('completed')
+    expect(task?.result_payload).toMatchObject({
+      data: [{ object: `${id}/out/0`, mime: 'image/png', revised_prompt: 'done' }],
+    })
+    expect(JSON.stringify(task?.result_payload)).not.toContain('T1VUUFVU')
+    const image = await app.handle(new Request(`http://localhost/v1/queue/requests/${id}/image/0`))
+    expect(image.status).toBe(200)
+    expect(await image.text()).toBe('OUTPUT')
+    storage.readFailuresRemaining = 1
+    const failedRead = await jsonReq('GET', `/v1/queue/requests/${id}/image/0`)
+    expect(failedRead.status).toBe(502)
+    expect(failedRead.json).toEqual({ error: 'object_storage_error' })
+  })
+
+  it('serves detected WebP bytes as WebP when upstream labels them as PNG', async () => {
+    const webpBytes = Buffer.from([
+      0x52, 0x49, 0x46, 0x46, 0x04, 0x00, 0x00, 0x00, 0x57, 0x45, 0x42, 0x50,
+    ])
+    setUpstreamFetchForTesting(
+      mock(async () => {
+        return new Response(
+          JSON.stringify({
+            data: [{ b64_json: webpBytes.toString('base64') }],
+            output_format: 'png',
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        )
+      }) as unknown as TestFetch,
+    )
+
+    const submitted = await jsonReq(
+      'POST',
+      '/v1/queue/openai-compat/gpt-image-2/submit',
+      submitBody(),
+    )
+    const id = responseRequestId(submitted.json)
+    await runTask(id)
+
+    const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, id))
+    expect(task?.result_payload).toMatchObject({
+      data: [{ object: `${id}/out/0`, mime: 'image/webp' }],
+    })
+    const image = await app.handle(new Request(`http://localhost/v1/queue/requests/${id}/image/0`))
+    expect(image.status).toBe(200)
+    expect(image.headers.get('content-type')).toBe('image/webp')
+    expect(Buffer.from(await image.arrayBuffer()).equals(webpBytes)).toBe(true)
+  })
+
+  it('archives Gemini inline output and preserves its MIME metadata', async () => {
+    const outputBase64 = Buffer.from('GEMINI-OUTPUT').toString('base64')
+    setUpstreamFetchForTesting(
+      mock(async () => {
+        return new Response(
+          JSON.stringify({
+            candidates: [
+              {
+                content: {
+                  parts: [
+                    {
+                      inlineData: {
+                        mimeType: 'image/jpeg',
+                        data: outputBase64,
+                      },
+                    },
+                  ],
+                },
+              },
+            ],
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        )
+      }) as unknown as TestFetch,
+    )
+    const submitted = await jsonReq('POST', '/v1/queue/gemini/gemini-3-pro/submit', submitBody())
+    const id = responseRequestId(submitted.json)
+    await runTask(id)
+
+    const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, id))
+    expect(task?.result_payload).toMatchObject({
+      candidates: [
+        {
+          content: {
+            parts: [{ inlineData: { mimeType: 'image/jpeg', object: `${id}/out/0` } }],
+          },
+        },
+      ],
+    })
+    expect(JSON.stringify(task?.result_payload)).not.toContain(outputBase64)
+    const image = await app.handle(new Request(`http://localhost/v1/queue/requests/${id}/image/0`))
+    expect(image.headers.get('content-type')).toBe('image/jpeg')
+    expect(await image.text()).toBe('GEMINI-OUTPUT')
+  })
+
+  it('archives URL outputs once and serves the stored copy', async () => {
+    const originalFetch = globalThis.fetch
+    let sourceReads = 0
+    globalThis.fetch = mock(async () => {
+      sourceReads++
+      return new Response('URL-OUTPUT', {
+        status: 200,
+        headers: { 'content-type': 'image/webp' },
+      })
+    }) as unknown as typeof fetch
+    try {
+      setUpstreamFetchForTesting(
+        mock(async () => {
+          return new Response(
+            JSON.stringify({ data: [{ url: 'https://images.example/result' }] }),
+            {
+              status: 200,
+              headers: { 'content-type': 'application/json' },
+            },
+          )
+        }) as unknown as TestFetch,
+      )
+      const submitted = await jsonReq(
+        'POST',
+        '/v1/queue/openai-compat/gpt-image-2/submit',
+        submitBody(),
+      )
+      const id = responseRequestId(submitted.json)
+      await runTask(id)
+
+      const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, id))
+      expect(task?.result_payload).toMatchObject({
+        data: [
+          {
+            object: `${id}/out/0`,
+            mime: 'image/webp',
+            source_url: 'https://images.example/result',
+          },
+        ],
+      })
+      const image = await app.handle(
+        new Request(`http://localhost/v1/queue/requests/${id}/image/0`),
+      )
+      expect(await image.text()).toBe('URL-OUTPUT')
+      expect(sourceReads).toBe(1)
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  it('hydrates the same archived input before every worker retry', async () => {
+    const input = `data:image/png;base64,${Buffer.from('INPUT').toString('base64')}`
+    let attempts = 0
+    setUpstreamFetchForTesting(
+      mock(async () => {
+        attempts++
+        if (attempts === 1) {
+          return new Response(JSON.stringify({ error: { message: 'temporary' } }), { status: 503 })
+        }
+        return new Response(
+          JSON.stringify({ data: [{ b64_json: Buffer.from('OUTPUT').toString('base64') }] }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        )
+      }) as unknown as TestFetch,
+    )
+    const submitted = await jsonReq(
+      'POST',
+      '/v1/queue/openai-compat/gpt-image-2/submit',
+      submitBody({ input_images: [input] }),
+    )
+    const id = responseRequestId(submitted.json)
+
+    await runTask(id)
+    await db
+      .update(schema.tasks)
+      .set({ next_retry_at: Date.now() - 1 })
+      .where(eq(schema.tasks.id, id))
+    await runTask(id)
+
+    expect(attempts).toBe(2)
+    expect(storage.events.filter((event) => event === `read:${id}/in/0`)).toHaveLength(2)
+    expect(storage.objects.has(`${id}/in/0`)).toBe(true)
+    const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, id))
+    expect(task).toMatchObject({ status: 'completed', attempt_count: 1 })
+  })
+
+  it('does not double-charge or retain losing objects during an idempotency race', async () => {
+    const body = submitBody({
+      client_request_id: 'same-request-race-alpha',
+      device_id: 'same-device-race-alpha',
+      input_images: [`data:image/png;base64,${Buffer.from('INPUT').toString('base64')}`],
+    })
+    const [first, second] = await Promise.all([
+      jsonReq('POST', '/v1/queue/openai-compat/gpt-image-2/submit', body),
+      jsonReq('POST', '/v1/queue/openai-compat/gpt-image-2/submit', body),
+    ])
+
+    expect(first.status).toBe(200)
+    expect(second.status).toBe(200)
+    expect(responseRequestId(first.json)).toBe(responseRequestId(second.json))
+    expect(await db.select().from(schema.tasks)).toHaveLength(1)
+    expect(await db.select().from(schema.daily_quota)).toMatchObject([{ count: 1 }])
+    expect(storage.objects.size).toBe(1)
+  })
+
+  it('returns observable storage failures without inserting or completing corrupt tasks', async () => {
+    storage.writeFailuresRemaining = 3
+    const failedSubmit = await jsonReq(
+      'POST',
+      '/v1/queue/openai-compat/gpt-image-2/submit',
+      submitBody({
+        input_images: [`data:image/png;base64,${Buffer.from('INPUT').toString('base64')}`],
+      }),
+    )
+    expect(failedSubmit.status).toBe(503)
+    expect(failedSubmit.json).toMatchObject({ error: 'object_storage_error' })
+    expect(await db.select().from(schema.tasks)).toHaveLength(0)
+    expect(storage.events.filter((event) => event.startsWith('write:'))).toHaveLength(3)
+
+    setUpstreamFetchForTesting(
+      mock(async () => {
+        return new Response(
+          JSON.stringify({ data: [{ b64_json: Buffer.from('OUTPUT').toString('base64') }] }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        )
+      }) as unknown as TestFetch,
+    )
+    const submitted = await jsonReq(
+      'POST',
+      '/v1/queue/openai-compat/gpt-image-2/submit',
+      submitBody(),
+    )
+    const id = responseRequestId(submitted.json)
+    storage.writeFailuresRemaining = 3
+    await runTask(id)
+    const status = await jsonReq('GET', `/v1/queue/requests/${id}/status`)
+    expect(status.json).toMatchObject({
+      status: 'failed',
+      error: {
+        type: 'object_storage_error',
+        message: expect.stringContaining('Object storage write failed'),
+      },
+    })
+    expect(storage.events.filter((event) => event.startsWith('write:'))).toHaveLength(6)
   })
 
   it('worker captures upstream non-2xx as failed task with error message', async () => {
@@ -327,111 +556,6 @@ describe('BFF queue routes', () => {
     const { status } = await jsonReq('GET', `/v1/queue/requests/${id}`)
     expect(status).toBe(425)
   })
-  it('GET result metadata and binary image resolve externalized output blobs', async () => {
-    const id = 'externalized-result'
-    const bytes = Buffer.from('stored-output')
-    await db.insert(schema.tasks).values({
-      id,
-      provider: 'openai-compat',
-      model: 'x',
-      status: 'completed',
-      request_payload: { prompt: 'x' },
-      result_payload: {
-        data: [{}],
-        _image_meta: [{ index: 0, mime: 'image/webp' }],
-      },
-      submitted_at: Date.now(),
-      completed_at: Date.now(),
-    })
-    await db.insert(schema.task_blobs).values({
-      id: crypto.randomUUID(),
-      task_id: id,
-      kind: 'output',
-      idx: 0,
-      mime: 'image/webp',
-      data: bytes,
-      created_at: Date.now(),
-    })
-
-    const meta = await jsonReq('GET', `/v1/queue/requests/${id}`)
-    expect(meta.json).toMatchObject({
-      status: 'completed',
-      images: [{ index: 0, mime: 'image/webp' }],
-    })
-    const image = await app.handle(new Request(`http://localhost/v1/queue/requests/${id}/image/0`))
-    expect(image.status).toBe(200)
-    expect(image.headers.get('content-type')).toBe('image/webp')
-    expect(Buffer.from(await image.arrayBuffer())).toEqual(bytes)
-  })
-
-  it('completes without images when output blob archival fails', async () => {
-    const id = 'output-archive-failure'
-    await db.insert(schema.tasks).values({
-      id,
-      provider: 'openai-compat',
-      model: 'x',
-      status: 'queued',
-      request_payload: { prompt: 'x' },
-      submitted_at: Date.now(),
-    })
-    setUpstreamFetchForTesting(async () => {
-      return new Response(
-        JSON.stringify({ data: [{ b64_json: Buffer.from('pixel').toString('base64') }] }),
-        { headers: { 'content-type': 'application/json' } },
-      )
-    })
-    const sqlite = new Database(TEST_DB)
-    sqlite.exec(`
-      CREATE TRIGGER reject_output_blob
-      BEFORE INSERT ON task_blobs
-      WHEN NEW.kind = 'output'
-      BEGIN
-        SELECT RAISE(ABORT, 'output archive unavailable');
-      END;
-    `)
-    try {
-      await runTask(id)
-    } finally {
-      sqlite.exec('DROP TRIGGER reject_output_blob')
-      sqlite.close()
-    }
-
-    const [task] = await db
-      .select({
-        status: schema.tasks.status,
-        resultPayload: schema.tasks.result_payload,
-      })
-      .from(schema.tasks)
-      .where(eq(schema.tasks.id, id))
-    expect(task).toMatchObject({
-      status: 'completed',
-      resultPayload: { _images_dropped: true },
-    })
-    expect(
-      await db.select().from(schema.task_blobs).where(eq(schema.task_blobs.task_id, id)),
-    ).toEqual([])
-    const meta = await jsonReq('GET', `/v1/queue/requests/${id}`)
-    expect(meta.json).toMatchObject({ status: 'completed', images: [] })
-  })
-
-  it('GET binary image keeps serving legacy payload bytes', async () => {
-    const id = 'legacy-result'
-    const bytes = Buffer.from('legacy-output')
-    await db.insert(schema.tasks).values({
-      id,
-      provider: 'openai-compat',
-      model: 'x',
-      status: 'completed',
-      request_payload: { prompt: 'x' },
-      result_payload: { data: [{ b64_json: bytes.toString('base64') }] },
-      submitted_at: Date.now(),
-      completed_at: Date.now(),
-    })
-
-    const image = await app.handle(new Request(`http://localhost/v1/queue/requests/${id}/image/0`))
-    expect(image.status).toBe(200)
-    expect(Buffer.from(await image.arrayBuffer())).toEqual(bytes)
-  })
 
   it('PUT cancel marks queued task as cancelled', async () => {
     const id = 'cancel-test-id'
@@ -447,39 +571,6 @@ describe('BFF queue routes', () => {
     const { status, json } = await jsonReq('PUT', `/v1/queue/requests/${id}/cancel`)
     expect(status).toBe(200)
     expect(json).toMatchObject({ status: 'cancelled' })
-  })
-
-  it('PUT cancel archives queued input blobs as WebP', async () => {
-    const id = 'cancel-input-archive'
-    const png = await sharp({
-      create: { width: 2, height: 2, channels: 4, background: '#336699' },
-    })
-      .png()
-      .toBuffer()
-    await db.insert(schema.tasks).values({
-      id,
-      provider: 'openai-compat',
-      model: 'x',
-      status: 'queued',
-      request_payload: { prompt: 'x', input_images: [{ $blob: 0 }] },
-      submitted_at: Date.now(),
-    })
-    await db.insert(schema.task_blobs).values({
-      id: crypto.randomUUID(),
-      task_id: id,
-      kind: 'input',
-      idx: 0,
-      mime: 'image/png',
-      data: png,
-      created_at: Date.now(),
-    })
-
-    expect((await jsonReq('PUT', `/v1/queue/requests/${id}/cancel`)).status).toBe(200)
-    const [blob] = await db
-      .select({ mime: schema.task_blobs.mime })
-      .from(schema.task_blobs)
-      .where(eq(schema.task_blobs.task_id, id))
-    expect(blob?.mime).toBe('image/webp')
   })
 
   it('POST submit rejects invalid provider', async () => {
@@ -509,13 +600,13 @@ describe('BFF queue routes', () => {
     expect(status).toBe(400)
   })
 
-  it('累计 8 次 n=10 后第 9 次返回 429 + daily_quota_exceeded', async () => {
+  it('uses the configured quota instead of the historical constant', async () => {
     const device_id = 'quota-dev-aaaa-bbbb-cccc'
-    for (let i = 0; i < 8; i++) {
+    for (let i = 0; i < 3; i++) {
       const { status } = await jsonReq(
         'POST',
         '/v1/queue/openai-compat/gpt-image-1/submit',
-        submitBody({ device_id, n: 10, client_request_id: crypto.randomUUID() }),
+        submitBody({ device_id, n: 1, client_request_id: crypto.randomUUID() }),
       )
       expect(status).toBe(200)
     }
@@ -527,33 +618,64 @@ describe('BFF queue routes', () => {
     expect(status).toBe(429)
     expect(json).toMatchObject({
       error: 'daily_quota_exceeded',
-      limit: 80,
-      used: 80,
+      quota: 3,
+      used: 3,
     })
     expect((json as { reset_at: string }).reset_at).toMatch(/^\d{4}-\d{2}-\d{2}T00:00:00/)
   })
+  it('keeps user-owned history private when the login capability is disabled', async () => {
+    const now = Date.now()
+    await db.insert(schema.users).values({
+      id: 'historic-owner',
+      username: 'historic-owner',
+      password_hash: 'not-used',
+      status: 'active',
+      created_at: now,
+      updated_at: now,
+    })
+    await db.insert(schema.tasks).values([
+      {
+        id: 'historic-owned-task',
+        provider: 'openai-compat',
+        model: 'gpt-image-2',
+        status: 'completed',
+        user_id: 'historic-owner',
+        request_payload: { prompt: 'private', device_id: 'historic-device' },
+        result_payload: { data: [{ b64_json: 'UFJJVkFURQ==' }] },
+        submitted_at: now,
+        completed_at: now,
+      },
+      {
+        id: 'anonymous-task',
+        provider: 'openai-compat',
+        model: 'gpt-image-2',
+        status: 'completed',
+        request_payload: { prompt: 'public', device_id: 'anonymous-device' },
+        result_payload: { data: [{ b64_json: 'UFVCTElD' }] },
+        submitted_at: now,
+        completed_at: now,
+      },
+    ])
 
-  it('单次 submit 携带 n=4 按 4 张计配额；同 client_request_id 重放不重复扣', async () => {
-    const device_id = 'quota-dev-native-n-0001'
-    const request = submitBody({ device_id, n: 4, client_request_id: 'native-n-quota-replay' })
+    const owned = await jsonReq('GET', '/v1/queue/requests/historic-owned-task/status')
+    const anonymous = await app.handle(
+      new Request('http://localhost/v1/queue/requests/anonymous-task/image/0'),
+    )
 
-    const first = await jsonReq('POST', '/v1/queue/openai-compat/gpt-image-2/submit', request)
-    expect(first.status).toBe(200)
+    expect(owned.status).toBe(404)
+    expect(anonymous.status).toBe(200)
+    expect(anonymous.headers.get('cache-control')).toBe('public, max-age=31536000, immutable')
+  })
 
-    const [row] = await db
-      .select({ count: schema.daily_quota.count })
-      .from(schema.daily_quota)
-      .where(eq(schema.daily_quota.device_id, device_id))
-    expect(row?.count).toBe(4)
-
-    // 页面刷新窗口期的幂等重放：返回同一 request_id，不再次扣减 n 张配额。
-    const replay = await jsonReq('POST', '/v1/queue/openai-compat/gpt-image-2/submit', request)
-    expect(replay.status).toBe(200)
-    expect(replay.json).toMatchObject({ request_id: requestIdFrom(first.json) })
-    const [afterReplay] = await db
-      .select({ count: schema.daily_quota.count })
-      .from(schema.daily_quota)
-      .where(eq(schema.daily_quota.device_id, device_id))
-    expect(afterReplay?.count).toBe(4)
+  it('returns the standard unavailable response for disabled account routes', async () => {
+    const response = await jsonReq('POST', '/api/auth/login', {
+      username: 'nobody',
+      password: 'not-used',
+    })
+    expect(response.status).toBe(404)
+    expect(response.json).toEqual({
+      error: 'capability_unavailable',
+      capability: 'accounts:login',
+    })
   })
 })

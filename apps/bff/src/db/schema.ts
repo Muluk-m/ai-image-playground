@@ -1,2 +1,2 @@
-export type { NewTask, NewTaskBlob, Task, TaskBlob } from '@image-playground/db'
-export { daily_quota, task_blobs, tasks } from '@image-playground/db'
+export type { NewTask, NewUser, Task, User, UserSession, UserStatus } from '@image-playground/db'
+export { daily_quota, tasks, user_sessions, users } from '@image-playground/db'

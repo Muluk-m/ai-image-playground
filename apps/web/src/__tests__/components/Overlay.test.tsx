@@ -3,6 +3,7 @@ import { act, useState } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import Overlay from '../../components/Overlay'
+import ViewportTooltip from '../../components/ViewportTooltip'
 
 declare global {
   // eslint-disable-next-line no-var
@@ -155,5 +156,26 @@ describe('Overlay', () => {
     // 背景页仍然锁死
     expect(wheel(document.body)).toBe(true)
     expect(document.body.style.overflow).toBe('hidden')
+  })
+  it('dismisses viewport tooltips when an overlay opens', () => {
+    render(
+      <div>
+        <ViewportTooltip visible>layer tooltip</ViewportTooltip>
+      </div>,
+    )
+    expect(document.body.textContent).toContain('layer tooltip')
+
+    render(
+      <>
+        <div>
+          <ViewportTooltip visible>layer tooltip</ViewportTooltip>
+        </div>
+        <Overlay onClose={() => {}}>
+          <div>modal content</div>
+        </Overlay>
+      </>,
+    )
+
+    expect(document.body.textContent).not.toContain('layer tooltip')
   })
 })

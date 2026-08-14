@@ -1,29 +1,63 @@
 #!/bin/sh
-set -e
+set -eu
 
-# 把 env 模板化为前端运行时配置文件。前端在 boot 时 fetch ./runtime-config.json
-# 决定是否启用 BFF queue 路径与「内置」channel 显示。schema 见
-# packages/shared/src/runtime-config.ts。
-#
-# 任何变更需要重启容器才生效（dist/runtime-config.json 只在启动时写一次）。
+role="${APP_ROLE:-bff}"
 
-DIST_DIR="/app/apps/web/dist"
-CONFIG_FILE="${DIST_DIR}/runtime-config.json"
+case "$role" in
+  web)
+    config_file="${RUNTIME_CONFIG_FILE:-/usr/share/nginx/html/runtime-config.json}"
+    export RUNTIME_CONFIG_FILE="$config_file"
+    mkdir -p "$(dirname "$config_file")"
 
-cat > "${CONFIG_FILE}" <<EOF
-{
-  "bff": {
-    "enabled": ${BFF_ENABLED:-true},
-    "baseUrl": "${BFF_BASE_URL:-}"
-  },
-  "defaults": {
-    "openaiBaseUrl":          "${DEFAULT_OPENAI_BASE_URL:-https://api.openai.com/v1}",
-    "geminiBaseUrl":          "${DEFAULT_GEMINI_BASE_URL:-https://generativelanguage.googleapis.com/v1beta}",
-    "inspirationManifestUrl": "${INSPIRATION_MANIFEST_URL:-./inspiration-manifest.json}"
-  }
-}
-EOF
+    bun -e '
+      const parseBoolean = (name, fallback) => {
+        const raw = process.env[name]
+        if (raw === undefined || raw === "") return fallback
+        if (raw === "true") return true
+        if (raw === "false") return false
+        throw new Error(`${name} must be true or false`)
+      }
 
-echo "[entrypoint] wrote runtime-config.json (bff.enabled=${BFF_ENABLED:-true}, bff.baseUrl='${BFF_BASE_URL:-}')"
+      const config = {
+        bff: {
+          enabled: parseBoolean("BFF_ENABLED", true),
+          baseUrl: process.env.BFF_BASE_URL ?? "",
+        },
+      }
+
+      await Bun.write(
+        process.env.RUNTIME_CONFIG_FILE,
+        `${JSON.stringify(config, null, 2)}\n`,
+      )
+      console.log(
+        `[entrypoint] wrote runtime config (bff.enabled=${config.bff.enabled}, bff.baseUrl=${JSON.stringify(config.bff.baseUrl)})`,
+      )
+    '
+    ;;
+  dependency-check)
+    ;;
+  migrate)
+    : "${MIGRATOR_DATABASE_URL:?MIGRATOR_DATABASE_URL is required for migrate}"
+    DATABASE_URL="$MIGRATOR_DATABASE_URL"
+    export DATABASE_URL
+    unset MIGRATOR_DATABASE_URL APP_DATABASE_URL ADMIN_DATABASE_URL
+    ;;
+  bff|worker)
+    : "${APP_DATABASE_URL:?APP_DATABASE_URL is required for ${role}}"
+    DATABASE_URL="$APP_DATABASE_URL"
+    export DATABASE_URL
+    unset MIGRATOR_DATABASE_URL APP_DATABASE_URL ADMIN_DATABASE_URL
+    ;;
+  admin)
+    : "${ADMIN_DATABASE_URL:?ADMIN_DATABASE_URL is required for admin}"
+    DATABASE_URL="$ADMIN_DATABASE_URL"
+    export DATABASE_URL
+    unset MIGRATOR_DATABASE_URL APP_DATABASE_URL ADMIN_DATABASE_URL
+    ;;
+  *)
+    echo "[entrypoint] unknown APP_ROLE: $role" >&2
+    exit 1
+    ;;
+esac
 
 exec "$@"

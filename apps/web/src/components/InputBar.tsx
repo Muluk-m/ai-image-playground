@@ -15,6 +15,7 @@ import {
   getParamCapabilities,
   normalizeParamsForSettings,
 } from '../lib/paramCompatibility'
+import { usePrivateSubmissionGuard } from '../lib/privateOverlay'
 import { computePromptHeight } from '../lib/promptHeight'
 import {
   getAtImageQuery,
@@ -37,6 +38,7 @@ import {
 import { ChipIcons } from './chipIcons'
 import { CloseIcon } from './icons'
 import ParamControls from './ParamControls'
+import SubmissionCostEstimate from './SubmissionCostEstimate'
 import ViewportTooltip from './ViewportTooltip'
 
 const TEXTAREA_CLASS =
@@ -480,8 +482,9 @@ export default function InputBar() {
   )
   const activeView = clientProfileToApiProfile(activeProfile)
   const hasSubmitApiConfig = activeProfile.source === 'builtin-edge' || Boolean(activeView.apiKey)
-  const canSubmit = Boolean(prompt.trim() && hasSubmitApiConfig)
-  // 模型能力（仅 builtin-edge 有声明；BYOK 返回 null = 不限制，控件全开）。
+  const submissionInput = { model: activeView.model, quantity: Math.max(1, params.n) }
+  const submissionGuard = usePrivateSubmissionGuard(submissionInput)
+  const canSubmit = Boolean(prompt.trim() && hasSubmitApiConfig && !submissionGuard.blocked)
   // null → 旧行为；有声明时按 capability 显隐参考图 / 遮罩 / 质量控件，
   // 避免「选了不支持的模型，控件还在，提交才在上游炸」。
   const modelCaps = useMemo(
@@ -1672,13 +1675,18 @@ export default function InputBar() {
                   : '点击展开输入框，输入新的 prompt...'}
               </button>
               <div
-                className="relative"
+                className="relative flex items-center gap-2"
                 onMouseEnter={() => setSubmitHover(true)}
                 onMouseLeave={() => setSubmitHover(false)}
               >
+                <SubmissionCostEstimate
+                  credits={submissionGuard.estimatedCredits}
+                  blockedAction={submissionGuard.blockedAction}
+                  className="shrink-0 text-[11px] text-gray-500 dark:text-gray-400"
+                />
                 <ButtonTooltip
-                  visible={!hasSubmitApiConfig && submitHover}
-                  text="尚未完成 API 配置，请在右上角设置中进行"
+                  visible={(!hasSubmitApiConfig || submissionGuard.blocked) && submitHover}
+                  text={submissionGuard.disabledReason ?? '尚未完成 API 配置，请在右上角设置中进行'}
                 />
                 <button
                   type="button"
@@ -1690,11 +1698,12 @@ export default function InputBar() {
                       : 'bg-blue-500 text-white hover:bg-blue-600 disabled:bg-gray-300 dark:disabled:bg-white/[0.04] disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100'
                   }`}
                   title={
-                    hasSubmitApiConfig
+                    submissionGuard.disabledReason ??
+                    (hasSubmitApiConfig
                       ? maskDraft
                         ? '遮罩编辑 (Ctrl+Enter)'
                         : '生成 (Ctrl+Enter)'
-                      : '请先配置 API'
+                      : '请先配置 API')
                   }
                 >
                   {ChipIcons.sparkles}
@@ -1881,13 +1890,20 @@ export default function InputBar() {
                   <ParamControls showCount />
                   {/* ml-auto 让 Generate 永远贴当前行右端，chips 偶尔挤到 row 2 时大按钮也能撑住空白。 */}
                   <div
-                    className="relative ml-auto flex-shrink-0"
+                    className="relative ml-auto flex flex-shrink-0 items-center gap-2"
                     onMouseEnter={() => setSubmitHover(true)}
                     onMouseLeave={() => setSubmitHover(false)}
                   >
+                    <SubmissionCostEstimate
+                      credits={submissionGuard.estimatedCredits}
+                      blockedAction={submissionGuard.blockedAction}
+                      className="shrink-0 text-xs font-medium text-gray-500 dark:text-gray-400"
+                    />
                     <ButtonTooltip
-                      visible={!hasSubmitApiConfig && submitHover}
-                      text="尚未完成 API 配置，请在右上角设置中进行"
+                      visible={(!hasSubmitApiConfig || submissionGuard.blocked) && submitHover}
+                      text={
+                        submissionGuard.disabledReason ?? '尚未完成 API 配置，请在右上角设置中进行'
+                      }
                     />
                     <button
                       onClick={() => (hasSubmitApiConfig ? submitTask() : setShowSettings(true))}
@@ -1898,11 +1914,12 @@ export default function InputBar() {
                           : 'bg-gradient-to-b from-blue-400 to-blue-600 text-white shadow-lg shadow-blue-500/30 ring-1 ring-inset ring-white/20 hover:from-blue-400 hover:to-blue-500 hover:shadow-blue-500/40 hover:shadow-xl disabled:from-gray-300 disabled:to-gray-400 disabled:bg-none disabled:ring-0 disabled:shadow-none dark:disabled:from-white/[0.04] dark:disabled:to-white/[0.04] disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100'
                       }`}
                       title={
-                        hasSubmitApiConfig
+                        submissionGuard.disabledReason ??
+                        (hasSubmitApiConfig
                           ? maskDraft
                             ? '遮罩编辑 (Ctrl+Enter)'
                             : '生成 (Ctrl+Enter)'
-                          : '请先配置 API'
+                          : '请先配置 API')
                       }
                     >
                       {hasSubmitApiConfig && (
@@ -1961,13 +1978,21 @@ export default function InputBar() {
                       </button>
                     </div>
                     <div
-                      className="relative flex-1"
+                      className="relative flex flex-1 items-center gap-2"
                       onMouseEnter={() => setSubmitHover(true)}
                       onMouseLeave={() => setSubmitHover(false)}
                     >
+                      <SubmissionCostEstimate
+                        credits={submissionGuard.estimatedCredits}
+                        blockedAction={submissionGuard.blockedAction}
+                        className="shrink-0 text-[11px] text-gray-500 dark:text-gray-400"
+                      />
                       <ButtonTooltip
-                        visible={!hasSubmitApiConfig && submitHover}
-                        text="尚未完成 API 配置，请在右上角设置中进行"
+                        visible={(!hasSubmitApiConfig || submissionGuard.blocked) && submitHover}
+                        text={
+                          submissionGuard.disabledReason ??
+                          '尚未完成 API 配置，请在右上角设置中进行'
+                        }
                       />
                       <button
                         onClick={() => (hasSubmitApiConfig ? submitTask() : setShowSettings(true))}
