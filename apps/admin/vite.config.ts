@@ -18,7 +18,11 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': resolve(__dirname, './src'),
+      react: resolve(__dirname, 'node_modules/react'),
+      'react-dom': resolve(__dirname, 'node_modules/react-dom'),
+      '@tanstack/react-query': resolve(__dirname, 'node_modules/@tanstack/react-query'),
     },
+    dedupe: ['react', 'react-dom', '@tanstack/react-query'],
   },
   server: {
     port: 5174,
@@ -38,5 +42,6 @@ export default defineConfig({
     globals: false,
     setupFiles: ['./src/__tests__/setup.ts'],
     include: ['src/**/__tests__/**/*.test.{ts,tsx}'],
+    exclude: ['src/__tests__/server/**'],
   },
 })

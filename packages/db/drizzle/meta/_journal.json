@@ -1,0 +1,41 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1786264059331,
+      "tag": "0000_daffy_the_enforcers",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1786267527730,
+      "tag": "0001_blushing_liz_osborn",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1786268592028,
+      "tag": "0002_careless_scrambler",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1786289565492,
+      "tag": "0003_perfect_night_nurse",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1786723660985,
+      "tag": "0004_damp_tony_stark",
+      "breakpoints": true
+    }
+  ]
+}

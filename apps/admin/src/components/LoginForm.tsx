@@ -14,7 +14,12 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
   const [password, setPassword] = useState('')
 
   const mutation = useMutation({
-    mutationFn: (pw: string) => apiClient.post<{ ok: true }>('/api/login', { password: pw }),
+    mutationFn: (pw: string) =>
+      apiClient.post<{ ok: true }>(
+        '/api/login',
+        { password: pw },
+        { redirectOnUnauthorized: false },
+      ),
     onSuccess,
   })
 

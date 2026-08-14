@@ -1,18 +1,23 @@
 import { QUEUE_TIMEOUTS } from '@image-playground/shared'
 import { config } from './config'
-import { checkpointWal } from './db/client'
+import { close as closeDb } from './db/client'
 import { recoverInterruptedTasks } from './db/maintenance'
-import { runMigrations } from './db/migrate'
+import { isCapabilityEnabled } from './lib/capabilities'
 import { initChannels } from './lib/channels'
 import { log } from './lib/logger'
+import { assertPrivateBffOverlayPresent, loadPrivateBffOverlay } from './lib/private-overlay'
 import { abortAllRunningTasks } from './workers/task-runner'
 import { TaskScheduler } from './workers/task-scheduler'
+import { startWorkerHealthServer } from './workers/worker-health'
 
-runMigrations()
-
+config.assertValid()
 const channelsResult = initChannels(config.channelsFile ?? undefined)
 for (const warning of channelsResult.warnings) {
   log.warn({ event: 'channels.warning' }, warning)
+}
+
+if (isCapabilityEnabled('billing:credits')) {
+  assertPrivateBffOverlayPresent(await loadPrivateBffOverlay(), 'billing:credits')
 }
 
 const recovery = await recoverInterruptedTasks()
@@ -25,10 +30,17 @@ if (recovery.failed > 0) {
 
 const scheduler = new TaskScheduler()
 scheduler.start()
+const workerHealthServer = startWorkerHealthServer({
+  port: config.worker.healthPort,
+  staleAfterMs: config.worker.healthStaleAfterMs,
+  lastSuccessfulPollAt: () => scheduler.lastSuccessfulPollAt(),
+})
 log.info(
   {
     event: 'worker.started',
     pollIntervalMs: config.worker.pollIntervalMs,
+    healthPort: config.worker.healthPort,
+    healthStaleAfterMs: config.worker.healthStaleAfterMs,
     openaiConcurrency: config.worker.concurrency.openaiCompat,
     geminiConcurrency: config.worker.concurrency.gemini,
   },
@@ -37,8 +49,8 @@ log.info(
 
 let shuttingDown = false
 
-function finalize(exitCode = 0): never {
-  checkpointWal()
+async function finalize(exitCode = 0): Promise<never> {
+  await closeDb()
   log.flush()
   process.exit(exitCode)
 }
@@ -47,6 +59,7 @@ async function gracefulShutdown(signal: string): Promise<void> {
   if (shuttingDown) return
   shuttingDown = true
   scheduler.stop()
+  await workerHealthServer.stop()
   log.info(
     { event: 'worker.shutdown_start', signal, inflight: scheduler.activeCount() },
     'stopping task worker',
@@ -66,14 +79,14 @@ async function gracefulShutdown(signal: string): Promise<void> {
       },
       'worker drain timeout, forcing exit',
     )
-    finalize()
+    void finalize()
   }, QUEUE_TIMEOUTS.SHUTDOWN_HARD_TIMEOUT_MS)
 
   await scheduler.waitForIdle()
   await recoverInterruptedTasks()
   clearTimeout(hardTimer)
   log.info({ event: 'worker.shutdown_done' }, 'task worker stopped')
-  finalize()
+  await finalize()
 }
 
 process.on('SIGTERM', () => void gracefulShutdown('SIGTERM'))

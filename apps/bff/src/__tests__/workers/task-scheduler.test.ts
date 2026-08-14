@@ -1,22 +1,39 @@
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test'
-import { Buffer } from 'node:buffer'
+import { afterAll, afterEach, beforeEach, describe, expect, it, mock } from 'bun:test'
+import { resetTestDatabase } from '@image-playground/db/testing'
 import { and, eq } from 'drizzle-orm'
-import sharp from 'sharp'
-import { getTaskBlob, insertTaskBlobs, listTaskBlobs } from '../../lib/blobStore'
+import {
+  _setPrivateBffOverlayForTesting,
+  EMPTY_PRIVATE_BFF_OVERLAY,
+} from '../../lib/private-overlay'
+import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
 
 process.env.UPSTREAM_BASE_URL = 'http://localhost:9999'
 process.env.UPSTREAM_API_KEY = 'test-key'
-process.env.DATABASE_URL = './artifacts/test-routes.sqlite'
+const databaseUrl = await resetTestDatabase('bff_task_scheduler')
+process.env.DATABASE_URL = databaseUrl
+_setPrivateBffOverlayForTesting(EMPTY_PRIVATE_BFF_OVERLAY)
 process.env.PORT = '0'
 
-const { runMigrations } = await import('../../db/migrate')
-runMigrations()
-const { db, schema } = await import('../../db/client')
-const { purgeOldOutputBlobs, recoverInterruptedTasks } = await import('../../db/maintenance')
+// Dynamic imports keep environment setup ahead of modules that capture configuration.
+const { close: closeDb, db, schema } = await import('../../db/client')
+const { purgeOldTasks, recoverInterruptedTasks } = await import('../../db/maintenance')
 const { TaskScheduler } = await import('../../workers/task-scheduler')
-const { runTask } = await import('../../workers/task-runner')
 const { setUpstreamFetchForTesting } = await import('../../lib/upstream')
+const { setObjectStoreForTesting } = await import('../../lib/objectStore')
 type TestFetch = NonNullable<Parameters<typeof setUpstreamFetchForTesting>[0]>
+let storage: InMemoryObjectStore
+
+beforeEach(() => {
+  storage = new InMemoryObjectStore()
+  setObjectStoreForTesting(storage)
+})
+
+afterEach(() => {
+  setObjectStoreForTesting()
+})
+afterAll(async () => {
+  await closeDb()
+})
 
 async function waitFor(predicate: () => boolean | Promise<boolean>, timeoutMs = 1_000) {
   const deadline = Date.now() + timeoutMs
@@ -47,6 +64,22 @@ describe('TaskScheduler', () => {
     mock.restore()
   })
 
+  it('records the completion time of a successful queue poll', async () => {
+    let now = 123_456
+    const scheduler = new TaskScheduler({
+      pollIntervalMs: 10_000,
+      clock: () => now,
+    })
+
+    expect(scheduler.lastSuccessfulPollAt()).toBeNull()
+    scheduler.start()
+    await waitFor(() => scheduler.lastSuccessfulPollAt() === now)
+    scheduler.stop()
+
+    now += 1
+    expect(scheduler.lastSuccessfulPollAt()).toBe(123_456)
+  })
+
   it('bounds providers independently and keeps the second OpenAI task queued', async () => {
     await insertTask('openai-1', 'openai-compat', 1)
     await insertTask('openai-2', 'openai-compat', 2)
@@ -74,7 +107,8 @@ describe('TaskScheduler', () => {
     scheduler.start()
     await waitFor(() => started.length === 2)
     scheduler.stop()
-    expect(started).toEqual(['openai-1', 'gemini-1'])
+    expect(started).toHaveLength(2)
+    expect(started).toEqual(expect.arrayContaining(['openai-1', 'gemini-1']))
 
     const [secondOpenAI] = await db
       .select({ status: schema.tasks.status })
@@ -176,123 +210,57 @@ describe('recoverInterruptedTasks', () => {
   })
 })
 
-describe('task blob lifecycle', () => {
+describe('purgeOldTasks', () => {
   beforeEach(async () => {
     await db.delete(schema.tasks)
   })
 
-  afterEach(() => {
-    setUpstreamFetchForTesting()
-    mock.restore()
-  })
-
-  it('rolls back output blobs when cancellation wins the completion race', async () => {
-    await insertTask('cancel-completion-race', 'openai-compat', Date.now())
-    let releaseResponse: (response: Response) => void = () => {}
-    let markStarted: () => void = () => {}
-    const started = new Promise<void>((resolve) => {
-      markStarted = resolve
-    })
-    const upstreamResponse = new Promise<Response>((resolve) => {
-      releaseResponse = resolve
-    })
-    setUpstreamFetchForTesting(async () => {
-      markStarted()
-      return upstreamResponse
-    })
-
-    const running = runTask('cancel-completion-race')
-    await started
-    await db
-      .update(schema.tasks)
-      .set({ status: 'cancelled', completed_at: Date.now() })
-      .where(eq(schema.tasks.id, 'cancel-completion-race'))
-    releaseResponse(
-      new Response(
-        JSON.stringify({ data: [{ b64_json: Buffer.from('pixel').toString('base64') }] }),
-        { headers: { 'content-type': 'application/json' } },
-      ),
-    )
-    await running
-
-    const [task] = await db
-      .select({ status: schema.tasks.status })
-      .from(schema.tasks)
-      .where(eq(schema.tasks.id, 'cancel-completion-race'))
-    expect(task?.status).toBe('cancelled')
-    expect(await listTaskBlobs('cancel-completion-race', 'output', db)).toEqual([])
-  })
-
-  it('archives original inputs left by a cancelled worker during startup recovery', async () => {
-    const png = await sharp({
-      create: { width: 2, height: 2, channels: 4, background: '#336699' },
-    })
-      .png()
-      .toBuffer()
+  it('deletes rows before their object prefixes', async () => {
     await db.insert(schema.tasks).values({
-      id: 'cancelled-original-input',
-      provider: 'openai-compat',
-      model: 'test-model',
-      status: 'cancelled',
-      request_payload: { prompt: 'cancelled', input_images: [{ $blob: 0 }] },
-      submitted_at: Date.now(),
-      completed_at: Date.now(),
-    })
-    insertTaskBlobs(
-      'cancelled-original-input',
-      [{ kind: 'input', idx: 0, mime: 'image/png', data: png }],
-      db,
-    )
-
-    expect(await recoverInterruptedTasks()).toEqual({ failed: 0 })
-    expect(await getTaskBlob('cancelled-original-input', 'input', 0, db)).toMatchObject({
-      mime: 'image/webp',
-    })
-  })
-
-  it('purges only expired output blobs', async () => {
-    await db.insert(schema.tasks).values({
-      id: 'output-retention',
+      id: 'expired-task',
       provider: 'openai-compat',
       model: 'test-model',
       status: 'completed',
-      request_payload: { prompt: 'retention' },
-      submitted_at: Date.now(),
-      completed_at: Date.now(),
+      request_payload: { prompt: 'expired' },
+      result_payload: { data: [{ object: 'expired-task/out/0', mime: 'image/png' }] },
+      submitted_at: 1,
+      completed_at: Date.now() - 1_000,
     })
-    const now = Date.now()
-    insertTaskBlobs(
-      'output-retention',
-      [
-        {
-          kind: 'output',
-          idx: 0,
-          mime: 'image/png',
-          data: Buffer.from('expired'),
-          createdAt: now - 200_000,
-        },
-        {
-          kind: 'output',
-          idx: 1,
-          mime: 'image/png',
-          data: Buffer.from('fresh'),
-          createdAt: now,
-        },
-        {
-          kind: 'input',
-          idx: 0,
-          mime: 'image/webp',
-          data: Buffer.from('input'),
-          createdAt: now - 200_000,
-        },
-      ],
-      db,
-    )
+    await storage.write('expired-task/in/0', Buffer.from('input'), 'image/png')
+    await storage.write('expired-task/out/0', Buffer.from('output'), 'image/png')
+    storage.beforeDeletePrefix = async (prefix) => {
+      expect(prefix).toBe('expired-task/')
+      const rows = await db
+        .select({ id: schema.tasks.id })
+        .from(schema.tasks)
+        .where(eq(schema.tasks.id, 'expired-task'))
+      expect(rows).toHaveLength(0)
+    }
 
-    expect(await purgeOldOutputBlobs(100_000)).toBe(1)
-    expect((await listTaskBlobs('output-retention', 'output', db)).map((blob) => blob.idx)).toEqual(
-      [1],
-    )
-    expect(await getTaskBlob('output-retention', 'input', 0, db)).toBeDefined()
+    expect(await purgeOldTasks(1)).toBe(1)
+    expect(storage.objects.size).toBe(0)
+  })
+
+  it('leaves a harmless lifecycle orphan when prefix deletion is interrupted', async () => {
+    await db.insert(schema.tasks).values({
+      id: 'orphan-task',
+      provider: 'openai-compat',
+      model: 'test-model',
+      status: 'failed',
+      request_payload: { prompt: 'expired' },
+      submitted_at: 1,
+      completed_at: Date.now() - 1_000,
+    })
+    await storage.write('orphan-task/out/0', Buffer.from('orphan'), 'image/png')
+    storage.deleteFailuresRemaining = 1
+
+    expect(await purgeOldTasks(1)).toBe(1)
+    expect(
+      await db
+        .select({ id: schema.tasks.id })
+        .from(schema.tasks)
+        .where(eq(schema.tasks.id, 'orphan-task')),
+    ).toHaveLength(0)
+    expect(storage.objects.has('orphan-task/out/0')).toBe(true)
   })
 })

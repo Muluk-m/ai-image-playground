@@ -6,5 +6,5 @@
     "noEmit": true,
     "composite": true
   },
-  "include": ["server/**/*"]
+  "include": ["contracts.ts", "server/**/*", "src/__tests__/server/**/*"]
 }
