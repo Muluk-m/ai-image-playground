@@ -189,7 +189,7 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
             onClick={run}
             disabled={!canSubmit}
             title={submissionGuard.disabledReason}
-            className="shrink-0 rounded-xl bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-40"
+            className="shrink-0 rounded-xl bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:bg-gray-200 disabled:text-gray-400 dark:disabled:bg-white/10 dark:disabled:text-gray-500"
           >
             生成
           </button>

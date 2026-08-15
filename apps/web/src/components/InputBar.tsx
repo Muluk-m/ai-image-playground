@@ -1693,8 +1693,8 @@ export default function InputBar() {
                   disabled={hasSubmitApiConfig ? !canSubmit : false}
                   className={`inline-flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-xl px-4 text-sm font-medium shadow-sm transition-all duration-150 active:scale-[0.97] ${
                     !hasSubmitApiConfig
-                      ? 'bg-gray-300 text-white dark:bg-white/[0.06]'
-                      : 'bg-blue-500 text-white hover:bg-blue-600 disabled:bg-gray-300 dark:disabled:bg-white/[0.04] disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100'
+                      ? 'bg-gray-200 text-gray-500 dark:bg-white/10 dark:text-gray-400'
+                      : 'bg-blue-500 text-white hover:bg-blue-600 disabled:cursor-not-allowed disabled:bg-gray-200 disabled:text-gray-400 disabled:shadow-none disabled:active:scale-100 dark:disabled:bg-white/10 dark:disabled:text-gray-500'
                   }`}
                   title={
                     submissionGuard.disabledReason ??
@@ -1908,8 +1908,8 @@ export default function InputBar() {
                       disabled={hasSubmitApiConfig ? !canSubmit : false}
                       className={`group/gen relative inline-flex h-12 items-center justify-center gap-1.5 overflow-hidden rounded-xl pl-3.5 pr-5 text-sm font-semibold leading-none transition-all duration-200 active:scale-[0.97] ${
                         !hasSubmitApiConfig
-                          ? 'bg-gray-300 text-white dark:bg-white/[0.06]'
-                          : 'bg-gradient-to-b from-blue-400 to-blue-600 text-white shadow-lg shadow-blue-500/30 ring-1 ring-inset ring-white/20 hover:from-blue-400 hover:to-blue-500 hover:shadow-blue-500/40 hover:shadow-xl disabled:from-gray-300 disabled:to-gray-400 disabled:bg-none disabled:ring-0 disabled:shadow-none dark:disabled:from-white/[0.04] dark:disabled:to-white/[0.04] disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100'
+                          ? 'bg-gray-200 text-gray-500 dark:bg-white/10 dark:text-gray-400'
+                          : 'bg-gradient-to-b from-blue-400 to-blue-600 text-white shadow-lg shadow-blue-500/30 ring-1 ring-inset ring-white/20 hover:from-blue-400 hover:to-blue-500 hover:shadow-blue-500/40 hover:shadow-xl disabled:cursor-not-allowed disabled:bg-gray-200 disabled:bg-none disabled:text-gray-400 disabled:shadow-none disabled:ring-0 disabled:active:scale-100 dark:disabled:bg-white/10 dark:disabled:text-gray-500'
                       }`}
                       title={
                         submissionGuard.disabledReason ??
@@ -1996,8 +1996,8 @@ export default function InputBar() {
                         disabled={hasSubmitApiConfig ? !canSubmit : false}
                         className={`w-full inline-flex h-10 items-center justify-center gap-1.5 rounded-xl px-3.5 text-xs font-medium shadow-sm transition-all duration-150 active:scale-[0.97] ${
                           !hasSubmitApiConfig
-                            ? 'bg-gray-300 text-white dark:bg-white/[0.06]'
-                            : 'bg-blue-500 text-white hover:bg-blue-600 disabled:bg-gray-300 dark:disabled:bg-white/[0.04] disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100'
+                            ? 'bg-gray-200 text-gray-500 dark:bg-white/10 dark:text-gray-400'
+                            : 'bg-blue-500 text-white hover:bg-blue-600 disabled:cursor-not-allowed disabled:bg-gray-200 disabled:text-gray-400 disabled:shadow-none disabled:active:scale-100 dark:disabled:bg-white/10 dark:disabled:text-gray-500'
                         }`}
                       >
                         {ChipIcons.sparkles}
