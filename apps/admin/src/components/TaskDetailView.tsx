@@ -4,6 +4,7 @@ import { ImageOff, Loader2 } from 'lucide-react'
 import { FuzzyTime } from '@/components/FuzzyTime'
 import { ShortId } from '@/components/ShortId'
 import { StatusBadge } from '@/components/StatusBadge'
+import { Button } from '@/components/ui/button'
 import { duration, isoTime } from '@/lib/format'
 import { useTask } from '@/lib/queries'
 import { countInputImages, extractPrompt } from '@/lib/request-helpers'
@@ -89,9 +90,10 @@ function TaskDetailContent({ task }: { task: TaskDetail }) {
               <div className="grid grid-cols-[110px_1fr] gap-3">
                 <dt className="text-muted-foreground">user_id</dt>
                 <dd>
-                  <button
+                  <Button
                     type="button"
-                    className="break-all font-mono text-left text-primary underline-offset-2 hover:underline"
+                    variant="link"
+                    className="h-auto justify-start whitespace-normal break-all p-0 text-left font-mono underline-offset-2"
                     onClick={() =>
                       void navigate({
                         to: '/users/$userId',
@@ -100,16 +102,17 @@ function TaskDetailContent({ task }: { task: TaskDetail }) {
                     }
                   >
                     {task.user_id}
-                  </button>
+                  </Button>
                 </dd>
               </div>
             ) : task.device_id ? (
               <div className="grid grid-cols-[110px_1fr] gap-3">
                 <dt className="text-muted-foreground">device_id</dt>
                 <dd>
-                  <button
+                  <Button
                     type="button"
-                    className="break-all font-mono text-left text-primary underline-offset-2 hover:underline"
+                    variant="link"
+                    className="h-auto justify-start whitespace-normal break-all p-0 text-left font-mono underline-offset-2"
                     onClick={() =>
                       void navigate({
                         to: '/devices/$deviceId',
@@ -118,7 +121,7 @@ function TaskDetailContent({ task }: { task: TaskDetail }) {
                     }
                   >
                     {task.device_id}
-                  </button>
+                  </Button>
                 </dd>
               </div>
             ) : null}
@@ -153,11 +156,12 @@ function TaskDetailContent({ task }: { task: TaskDetail }) {
             {inputImages.kind === 'count' && inputImages.count > 0 ? (
               <div className="grid grid-cols-4 gap-2">
                 {Array.from({ length: inputImages.count }).map((_, i) => (
-                  <button
+                  <Button
                     key={i}
                     type="button"
+                    variant="ghost"
                     onClick={() => openLightbox('input', i)}
-                    className="block aspect-square overflow-hidden rounded border bg-muted"
+                    className="block aspect-square h-auto w-full overflow-hidden rounded border bg-muted p-0 hover:bg-muted"
                   >
                     <img
                       src={`/api/tasks/${encodeURIComponent(task.id)}/input-image?idx=${i}`}
@@ -165,7 +169,7 @@ function TaskDetailContent({ task }: { task: TaskDetail }) {
                       loading="lazy"
                       className="h-full w-full object-cover"
                     />
-                  </button>
+                  </Button>
                 ))}
               </div>
             ) : inputImages.kind === 'not_archived' ? (
@@ -213,11 +217,12 @@ function TaskDetailContent({ task }: { task: TaskDetail }) {
           ) : (
             <div className="grid grid-cols-2 gap-2">
               {outputImages.map((img) => (
-                <button
+                <Button
                   key={img.index}
                   type="button"
+                  variant="ghost"
                   onClick={() => openLightbox('output', img.index)}
-                  className="block aspect-square overflow-hidden rounded border bg-muted"
+                  className="block aspect-square h-auto w-full overflow-hidden rounded border bg-muted p-0 hover:bg-muted"
                 >
                   <img
                     src={`/api/tasks/${encodeURIComponent(task.id)}/image?idx=${img.index}`}
@@ -225,7 +230,7 @@ function TaskDetailContent({ task }: { task: TaskDetail }) {
                     loading="lazy"
                     className="h-full w-full object-cover"
                   />
-                </button>
+                </Button>
               ))}
             </div>
           )}
