@@ -229,6 +229,40 @@ If the compatible previous tag was not retained, build it from its source checko
 first SQLite-to-PostgreSQL cutover is different: restore the former deployment from its previous
 source checkout and configuration, with the read-only SQLite backup, instead of using this helper.
 
+### Option 3 · Separate frontend host (static host + API subdomain)
+
+The frontend ships as a plain static bundle on a host such as Cloudflare Pages. The backend
+still runs the Option 2 image for BFF / worker / Admin; nginx just stops serving the frontend.
+
+Build command and environment:
+
+```bash
+BFF_ENABLED=true BFF_BASE_URL=https://api.example.com \
+  pnpm --filter @image-playground/web build:static-host
+```
+
+`build:static-host` writes `dist/runtime-config.json` after the normal build. Incomplete
+configuration fails the build instead of publishing a site that cannot reach its backend.
+Caching and SPA fallback come from [`apps/web/public/_headers`](./apps/web/public/_headers)
+and [`apps/web/public/_redirects`](./apps/web/public/_redirects), which mirror the matching
+rules in [`deploy/nginx.conf`](./deploy/nginx.conf).
+
+Three backend conditions apply:
+
+- `CORS_ALLOWED_ORIGINS` must list the frontend origin exactly. Credentialed requests cannot
+  use `*`.
+- The frontend and the API must share one registrable domain (for example `app.example.com`
+  and `api.example.com`). The session cookie is `Secure; SameSite=Lax` and is not sent across
+  registrable domains, so a host-assigned default domain such as `*.pages.dev` requires a
+  different cookie policy.
+- Mind the submit request body ceiling. Input images and the mask travel base64-inlined in the
+  submit JSON: 512 MiB on the client, 600 MB in BFF and nginx. If the API domain sits behind a
+  proxy that caps request bodies (Cloudflare's proxy allows 100 MB on Free and Pro), large
+  multi-image submits are rejected at the edge.
+
+A paid deployment also needs the private overlay: a static host's Git build cannot read the
+private repository, so build locally or in CI and upload the artifact.
+
 ### Fleet deployment contract
 
 `.fleet/deploy.json` now contains three Compose services: the committed infrastructure
