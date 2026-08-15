@@ -111,6 +111,24 @@ typecheck、测试和构建。公开树只允许以下三个审计接缝引用 `
 `/internal/admin/private/*`；Admin 数据库角色保持 SELECT-only。添加私有模块后，
 必须同时跑公开包和对应私有包的 typecheck，并分别验证「目录存在」与「目录缺席」构建。
 
+## 版本模型与分支
+
+**服务端只有一套。** `apps/bff`、`apps/admin` 服务端、`packages/db` 同时兼容收费与免费部署：
+能力注册表 deny by default，由运营配置 `operator-config.json` 决定开哪些能力，代码不分版本。
+
+**收费与免费的区别只在前端构建参数。** 构建时带上私有 overlay 就是收费形态，不带就是免费形态：
+
+- 免费：`./scripts/app-compose.sh build <image>`
+- 收费：`./scripts/app-compose.sh build-private <image>`（`--build-arg PRIVATE_OVERLAY_PRESENT=true` + `--build-context private-overlay=private/`）
+
+**分支：**
+
+- `main`：长期免费主干。服务端、公开前端、基建、能力注册表全部落这里；免费部署直接从 main 构建。
+- `test`：合入 main 前的集成与验收分支。
+- `commercial`：长期收费分支。只放**付费专属且无法用能力开关表达**的公共改动（收费部署配置、品牌资源、私有 overlay 的版本 pin）。计费业务代码不在这里，在 private 仓库。
+
+`commercial` 定期 merge `main` 前进；禁止把付费专属改动反向带回 `main`。
+
 ## 提交规范
 
 - 不要 `git add -A`，工作区常有未追踪的本地配置（`.env.local`、`out.png` 等），容易夹带。**只 add 明确改动的文件**。
