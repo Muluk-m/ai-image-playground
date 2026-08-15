@@ -1,1 +1,3 @@
-/*    /index.html   200
+# SPA 回退，对齐 deploy/nginx.conf 的 `try_files $uri $uri/ /index.html`。
+# 静态资源命中在前，未命中的路径一律交给前端路由。
+/*  /index.html  200

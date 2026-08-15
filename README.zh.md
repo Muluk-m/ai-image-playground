@@ -211,6 +211,37 @@ scripts/app-compose.sh rollback image-playground-commercial ai-image-playground:
 如果兼容的旧 tag 未保留，先从对应代码检出重新构建。首次从 SQLite 切换到 PostgreSQL
 不使用这个 helper；应从旧代码检出与旧配置恢复原部署，并挂回只读 SQLite 备份。
 
+### 选项 3 · 前后端分离（静态宿主 + API 子域）
+
+前端作为纯静态产物托管在 Cloudflare Pages 一类的宿主上，后端仍用选项 2 的镜像跑
+BFF / worker / Admin，只是不再由 nginx 托管前端。
+
+构建命令与环境变量：
+
+```bash
+BFF_ENABLED=true BFF_BASE_URL=https://api.example.com \
+  pnpm --filter @image-playground/web build:static-host
+```
+
+`build:static-host` 在普通构建之后写出 `dist/runtime-config.json`。配置不完整时构建
+直接失败，不会部署出一个连不上后端的站点。缓存策略与 SPA 回退由随产物一起发布的
+[`apps/web/public/_headers`](./apps/web/public/_headers) 与
+[`apps/web/public/_redirects`](./apps/web/public/_redirects) 提供，对齐
+[`deploy/nginx.conf`](./deploy/nginx.conf) 的同名规则。
+
+后端侧必须满足三个条件：
+
+- `CORS_ALLOWED_ORIGINS` 精确写出前端 origin。凭据请求下不能用 `*`。
+- 前端域与 API 域**同一注册域**（如 `app.example.com` 与 `api.example.com`）。会话
+  cookie 是 `Secure; SameSite=Lax`，跨注册域不会被发送。用宿主分配的默认域名
+  （`*.pages.dev` 等）就必须改 cookie 策略。
+- 提交路由的请求体上限。输入图与遮罩以 base64 内联在 submit 的 JSON 里，客户端上限
+  512 MiB、BFF 与 nginx 上限 600 MB。如果 API 域经过带请求体上限的代理（Cloudflare
+  橙云在 Free / Pro 是 100 MB），大图多图的提交会在边缘被拒。
+
+收费形态额外需要私有 overlay：静态宿主的 Git 构建拿不到私有仓库，用本地或 CI 构建后
+上传产物。
+
 ### Fleet 部署契约
 
 `.fleet/deploy.json` 现在声明三个 Compose 服务：已提交的基础设施 project 和两个独立
