@@ -1,6 +1,7 @@
 import { Check, Copy } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 
+import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { copyText, shortId } from '@/lib/format'
 import { cn } from '@/lib/utils'
@@ -41,14 +42,16 @@ export function ShortId({ value, len = 8, className }: ShortIdProps) {
           )}
         >
           <span>{shortId(value, len)}</span>
-          <button
+          <Button
             type="button"
+            variant="ghost"
+            size="icon"
             onClick={onCopy}
             aria-label="复制"
-            className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+            className="h-auto w-auto rounded p-0.5 text-muted-foreground hover:text-foreground [&_svg]:size-3"
           >
             {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
-          </button>
+          </Button>
         </span>
       </TooltipTrigger>
       <TooltipContent>
