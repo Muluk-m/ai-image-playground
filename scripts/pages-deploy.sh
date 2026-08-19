@@ -65,4 +65,4 @@ cd "$repo_root"
 pnpm --filter @image-playground/web build:static-host
 
 cd "$repo_root/apps/web"
-wrangler pages deploy --branch "$branch"
+pnpm exec wrangler pages deploy --branch "$branch"
