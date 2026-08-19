@@ -234,11 +234,17 @@ source checkout and configuration, with the read-only SQLite backup, instead of 
 The frontend ships as a plain static bundle on a host such as Cloudflare Pages. The backend
 still runs the Option 2 image for BFF / worker / Admin; nginx just stops serving the frontend.
 
-Build command and environment:
+Free BYOK preview:
+
+```bash
+scripts/pages-deploy.sh free preview-branch
+```
+
+Paid shape (the working copy must contain the reviewed `./private` overlay):
 
 ```bash
 BFF_ENABLED=true BFF_BASE_URL=https://api.example.com \
-  pnpm --filter @image-playground/web build:static-host
+  scripts/pages-deploy.sh commercial main
 ```
 
 `build:static-host` writes `dist/runtime-config.json` after the normal build. Incomplete
@@ -247,7 +253,9 @@ Caching and SPA fallback come from [`apps/web/public/_headers`](./apps/web/publi
 and [`apps/web/public/_redirects`](./apps/web/public/_redirects), which mirror the matching
 rules in [`deploy/nginx.conf`](./deploy/nginx.conf).
 
-Three backend conditions apply:
+Set `APP_INGRESS_MODE=api-only` in the backend `app.env`. The same nginx container then
+proxies only the API and returns 404 for every other path instead of serving a second frontend.
+The backend must also meet these conditions:
 
 - `CORS_ALLOWED_ORIGINS` must list the frontend origin exactly. Credentialed requests cannot
   use `*`.
