@@ -57,7 +57,7 @@ function AuthShowcase() {
   return (
     <section className="auth-showcase">
       <header className="auth-brand">
-        <img src="./pwa-icon.svg" alt="" width="30" height="30" />
+        <img src="/pwa-icon.svg" alt="" width="30" height="30" />
         <span>Image Playground</span>
       </header>
 

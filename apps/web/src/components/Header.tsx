@@ -42,7 +42,7 @@ export default function Header() {
           <div className="flex-1 min-w-0 pr-2">
             <h1 className="inline-flex items-center gap-2.5 font-display text-[18px] sm:text-[19px] font-medium tracking-wide text-gray-900 dark:text-gray-50">
               <img
-                src="./pwa-icon.svg"
+                src="/pwa-icon.svg"
                 alt=""
                 width="24"
                 height="24"
