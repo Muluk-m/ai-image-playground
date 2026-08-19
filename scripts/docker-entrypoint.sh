@@ -5,10 +5,26 @@ role="${APP_ROLE:-bff}"
 
 case "$role" in
   web)
+    ingress_mode="${APP_INGRESS_MODE:-full}"
+    case "$ingress_mode" in
+      full) ingress_conf=/app/deploy/nginx.conf ;;
+      api-only) ingress_conf=/app/deploy/nginx.api-only.conf ;;
+      *)
+        echo "[entrypoint] APP_INGRESS_MODE must be full or api-only" >&2
+        exit 1
+        ;;
+    esac
+    cp "$ingress_conf" /etc/nginx/conf.d/default.conf
+    echo "[entrypoint] installed nginx ingress (mode=$ingress_mode)"
+
+    # api-only serves no document root, so there is no runtime config to write.
+    if [ "$ingress_mode" = api-only ]; then
+      exec "$@"
+    fi
+
     config_file="${RUNTIME_CONFIG_FILE:-/usr/share/nginx/html/runtime-config.json}"
     export RUNTIME_CONFIG_FILE="$config_file"
     mkdir -p "$(dirname "$config_file")"
-
     bun -e '
       const parseBoolean = (name, fallback) => {
         const raw = process.env[name]

@@ -216,11 +216,17 @@ scripts/app-compose.sh rollback image-playground-commercial ai-image-playground:
 前端作为纯静态产物托管在 Cloudflare Pages 一类的宿主上，后端仍用选项 2 的镜像跑
 BFF / worker / Admin，只是不再由 nginx 托管前端。
 
-构建命令与环境变量：
+免费 BYOK 预览：
+
+```bash
+scripts/pages-deploy.sh free preview-branch
+```
+
+收费形态（工作副本必须存在已评审的 `./private` overlay）：
 
 ```bash
 BFF_ENABLED=true BFF_BASE_URL=https://api.example.com \
-  pnpm --filter @image-playground/web build:static-host
+  scripts/pages-deploy.sh commercial main
 ```
 
 `build:static-host` 在普通构建之后写出 `dist/runtime-config.json`。配置不完整时构建
@@ -229,7 +235,8 @@ BFF_ENABLED=true BFF_BASE_URL=https://api.example.com \
 [`apps/web/public/_redirects`](./apps/web/public/_redirects) 提供，对齐
 [`deploy/nginx.conf`](./deploy/nginx.conf) 的同名规则。
 
-后端侧必须满足三个条件：
+后端的 `app.env` 设 `APP_INGRESS_MODE=api-only`，同一个 nginx 容器只反代 API，
+所有非 API 路径直接返回 404，不再带出第二份前端。后端侧还必须满足：
 
 - `CORS_ALLOWED_ORIGINS` 精确写出前端 origin。凭据请求下不能用 `*`。
 - 前端域与 API 域**同一注册域**（如 `app.example.com` 与 `api.example.com`）。会话
