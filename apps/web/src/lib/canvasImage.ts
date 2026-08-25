@@ -5,6 +5,29 @@ export interface ImageDimensions {
   height: number
 }
 
+export interface FitSize {
+  width: number
+  height: number
+  scale: number
+  wasResized: boolean
+}
+
+/** `multiple` 对齐是给需要整块尺寸的消费者用的（遮罩工作图要 16 的倍数）。 */
+export function calculateFitSize(
+  width: number,
+  height: number,
+  maxEdge: number,
+  multiple = 1,
+): FitSize {
+  const longestEdge = Math.max(width, height)
+  if (longestEdge <= maxEdge) return { width, height, scale: 1, wasResized: false }
+
+  const scale = maxEdge / longestEdge
+  const fit = (value: number) =>
+    Math.max(multiple, Math.floor((value * scale) / multiple) * multiple)
+  return { width: fit(width), height: fit(height), scale, wasResized: true }
+}
+
 export async function loadImage(dataUrl: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const image = new Image()
