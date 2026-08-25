@@ -4,6 +4,7 @@ import { getModelCapabilities } from './channels/profileSelectors'
 import { getPublicChannel, getPublicChannels } from './channels/publicChannels'
 import { callQueueChannelApi, resumeQueueChannelApi, toQueueProvider } from './channels/queueClient'
 import type { ClientProfile, UserByokProfile } from './channels/types'
+import { compressInputImageDataUrls } from './compressInputImage'
 import { callGeminiImageApi } from './geminiImageApi'
 import {
   applyPromptRewriteGuard,
@@ -106,6 +107,14 @@ export async function callImageApi(opts: CallApiOptions): Promise<CallApiResult>
     const instruction = buildAspectInstruction(opts.params.size)
     if (instruction) {
       opts = { ...opts, prompt: `${opts.prompt}\n\n${instruction}` }
+    }
+  }
+
+  // 原生 mask 要求遮罩与主图同尺寸，缩放会破坏这个约定。
+  if (!opts.maskDataUrl && opts.inputImageDataUrls.length) {
+    opts = {
+      ...opts,
+      inputImageDataUrls: await compressInputImageDataUrls(opts.inputImageDataUrls),
     }
   }
 
