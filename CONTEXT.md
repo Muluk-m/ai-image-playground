@@ -2,6 +2,20 @@
 
 项目领域与架构词汇表。架构讨论使用的术语（module / interface / depth / seam / adapter / leverage / locality）定义见 `/codebase-design` skill。
 
+## 队列任务（Task）
+
+服务端持久化的一次生图作业，有 `request_id` 和状态机（queued / in_progress / completed / failed / cancelled / interrupted）。
+_Avoid_: 浏览器历史卡片、画布占位框（那是客户端本地状态）
+
+## 像素对象（Pixel object）
+
+某次队列任务的输入或输出图像字节。短生命周期，给生成中、刚完成、刷新恢复、admin 看图用。
+_Avoid_: IndexedDB 里的用户历史图（那是长期资产，不随服务端过期）
+
+## 日配额（Quota）
+
+按 `device_id` + UTC 日计数的限额。跟队列任务住在同一份任务库，不跟像素对象走。
+
 ## Overlay（浮层）
 
 所有模态浮层共享的深化模块（`apps/web/src/components/Overlay.tsx`）。接口 = 包装组件 `<Overlay onClose tier>{children}</Overlay>`，实现拥有五条纪律：
