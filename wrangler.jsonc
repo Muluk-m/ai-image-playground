@@ -1,0 +1,13 @@
+{
+  // Public web on Cloudflare Pages. Do not attach image.nainma.online until DNS cutover.
+  // Independent soak: pages.dev (or a new hostname) → TKE BFF origin in runtime-config.
+  //
+  //   pnpm --filter @image-playground/web build
+  //   cp apps/web/cf/runtime-config.json apps/web/dist/runtime-config.json
+  //   npx wrangler pages deploy ./apps/web/dist --project-name ai-image-playground
+  //
+  // Edit apps/web/cf/runtime-config.json bff.baseUrl to the TKE BFF origin before deploy.
+  "name": "ai-image-playground",
+  "compatibility_date": "2026-08-27",
+  "pages_build_output_dir": "./apps/web/dist"
+}

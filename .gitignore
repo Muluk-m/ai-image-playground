@@ -6,6 +6,7 @@ artifacts/
 out.png
 dev-proxy.config.json
 .dev.vars
+.wrangler
 .env
 .env.local
 .claude/

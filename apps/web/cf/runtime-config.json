@@ -1,0 +1,11 @@
+{
+  "bff": {
+    "enabled": true,
+    "baseUrl": "https://image-k8s.nainma.online"
+  },
+  "defaults": {
+    "openaiBaseUrl": "https://api.openai.com/v1",
+    "geminiBaseUrl": "https://generativelanguage.googleapis.com/v1beta",
+    "inspirationManifestUrl": "./inspiration-manifest.json"
+  }
+}
