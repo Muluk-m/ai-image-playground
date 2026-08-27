@@ -1,6 +1,7 @@
 import { createDb } from '@image-playground/db'
 import { eq, sql } from 'drizzle-orm'
 import { config } from '../config'
+import { modelsAggregateSql } from './sql-dialect'
 
 // 懒初始化 readonly 句柄：第一次调用时根据当时的 DATABASE_URL 打开。
 // 不在 module 顶层 createDb，避免「import 链路上 config 先于 test setEnv 被 evaluate」
@@ -109,7 +110,7 @@ export async function listDevices(range: Range, sort: SortKey): Promise<ListDevi
       COUNT(*) AS total,
       SUM(CASE WHEN t.status='completed' THEN 1 ELSE 0 END) AS ok_count,
       SUM(CASE WHEN t.status='failed' THEN 1 ELSE 0 END) AS fail_count,
-      GROUP_CONCAT(DISTINCT t.model) AS models_csv,
+      ${modelsAggregateSql()} AS models_csv,
       COALESCE(q.count, 0) AS today_count
     FROM tasks t
     LEFT JOIN daily_quota q ON q.device_id = t.device_id AND q.date = ${today}
@@ -192,7 +193,7 @@ export async function getDeviceDetail(
           COUNT(*) AS total,
           SUM(CASE WHEN t.status='completed' THEN 1 ELSE 0 END) AS ok_count,
           SUM(CASE WHEN t.status='failed' THEN 1 ELSE 0 END) AS fail_count,
-          GROUP_CONCAT(DISTINCT t.model) AS models_csv,
+          ${modelsAggregateSql()} AS models_csv,
           COALESCE(q.count, 0) AS today_count
         FROM tasks t
         LEFT JOIN daily_quota q ON q.device_id = t.device_id AND q.date = ${today}
