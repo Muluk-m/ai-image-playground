@@ -1,4 +1,6 @@
 export { createDb, type ImagePlaygroundDatabase } from './client'
+export { composeQueuePersistence } from './compose-persistence'
+export { MemoryPixelStore } from './memory-pixels'
 export { runMigrations } from './migrate'
 export { isPostgresUrl, openPersistence } from './open-persistence'
 export { runPgMigrations } from './pg-migrate'
@@ -9,6 +11,13 @@ export {
   type QuotaConsumeResult,
   tryConsumeQuotaSync,
 } from './quota'
+export {
+  MemoryObjectBucket,
+  type ObjectBucket,
+  ObjectPixelStore,
+  PIXEL_KEY_PREFIX,
+  pixelObjectKey,
+} from './r2-pixels'
 export * from './schema'
 export { createSqlitePersistence, persistenceFromDb } from './sqlite-persistence'
 export type {

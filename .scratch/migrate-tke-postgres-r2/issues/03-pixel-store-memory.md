@@ -4,10 +4,10 @@
 
 **Blocked by:** 02 — 队列元数据上 Postgres
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] 带输入图的 submit 能完成，输出图可按 index 拉取，content-type 正确
-- [ ] worker 跑任务前能从 Pixel store 还原输入图再交给上游
-- [ ] 缺对象时 image 端点 404；写对象失败时任务可 completed 且无图
-- [ ] 任务元信息里没有图像字节列
-- [ ] Queue HTTP 路径不变；测试 Pixel store 用内存 adapter
+- [x] 带输入图的 submit 能完成，输出图可按 index 拉取，content-type 正确
+- [x] worker 跑任务前能从 Pixel store 还原输入图再交给上游
+- [x] 缺对象时 image 端点 404；写对象失败时任务可 completed 且无图
+- [x] 任务元信息里没有图像字节列
+- [x] Queue HTTP 路径不变；测试 Pixel store 用内存 adapter
