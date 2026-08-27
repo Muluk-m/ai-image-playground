@@ -364,6 +364,39 @@ describe('BFF queue routes', () => {
     expect(Buffer.from(await image.arrayBuffer())).toEqual(bytes)
   })
 
+  it('GET input image bytes from the pixel store', async () => {
+    const id = 'externalized-input'
+    const bytes = Buffer.from('stored-input')
+    await db.insert(schema.tasks).values({
+      id,
+      provider: 'openai-compat',
+      model: 'x',
+      status: 'completed',
+      request_payload: { prompt: 'x', input_images: [{ $blob: 0 }] },
+      submitted_at: Date.now(),
+      completed_at: Date.now(),
+    })
+    await db.insert(schema.task_blobs).values({
+      id: crypto.randomUUID(),
+      task_id: id,
+      kind: 'input',
+      idx: 0,
+      mime: 'image/png',
+      data: bytes,
+      created_at: Date.now(),
+    })
+
+    const image = await app.handle(new Request(`http://localhost/v1/queue/requests/${id}/input/0`))
+    expect(image.status).toBe(200)
+    expect(image.headers.get('content-type')).toBe('image/png')
+    expect(Buffer.from(await image.arrayBuffer())).toEqual(bytes)
+
+    const missing = await app.handle(
+      new Request(`http://localhost/v1/queue/requests/${id}/input/9`),
+    )
+    expect(missing.status).toBe(404)
+  })
+
   it('completes without images when output blob archival fails', async () => {
     const id = 'output-archive-failure'
     await db.insert(schema.tasks).values({

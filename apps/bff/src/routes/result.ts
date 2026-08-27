@@ -94,3 +94,23 @@ export const resultRoutes = new Elysia()
       }),
     },
   )
+  .get(
+    '/v1/queue/requests/:id/input/:index',
+    async ({ params, status }) => {
+      const task = await taskStore.getById(params.id)
+      if (!task) return status(404, { error: 'not_found' })
+      const idx = Number(params.index)
+      if (!Number.isInteger(idx) || idx < 0) return status(400, { error: 'bad_index' })
+      const blob = await getTaskBlob(params.id, 'input', idx, pixelStore)
+      if (!blob) return status(404, { error: 'image_not_found' })
+      return new Response(new Uint8Array(blob.data), {
+        headers: { 'content-type': blob.mime, 'cache-control': IMAGE_CACHE_CONTROL },
+      })
+    },
+    {
+      params: t.Object({
+        id: t.String(),
+        index: t.String(),
+      }),
+    },
+  )

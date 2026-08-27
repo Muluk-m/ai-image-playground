@@ -1,23 +1,6 @@
-import { createDb } from '@image-playground/db'
-import { eq, sql } from 'drizzle-orm'
-import { config } from '../config'
+import { sql } from 'drizzle-orm'
+import { getAdminRead } from './handle'
 import { modelsAggregateSql } from './sql-dialect'
-
-// 懒初始化 readonly 句柄：第一次调用时根据当时的 DATABASE_URL 打开。
-// 不在 module 顶层 createDb，避免「import 链路上 config 先于 test setEnv 被 evaluate」
-// 导致多个测试文件共享同一指向首次 DB 的句柄（bun:test 同进程 module cache 单例）。
-// 同时按 url 缓存，让不同 test 文件切换 DATABASE_URL 时也能重开新 handle。
-type Handle = ReturnType<typeof createDb>
-const _handles = new Map<string, Handle>()
-function getHandle(): Handle {
-  const url = process.env.DATABASE_URL?.trim() || config.databaseUrl
-  let h = _handles.get(url)
-  if (!h) {
-    h = createDb(url, { readonly: true })
-    _handles.set(url, h)
-  }
-  return h
-}
 
 export type Range = '1d' | '7d' | '30d'
 export type SortKey = 'last_seen' | 'today_count' | 'total_count'
@@ -51,9 +34,26 @@ function decodeCursor(raw: string | undefined): { ts: number; id: string } | nul
 
 // 从 request_payload 抽列表需要的小字段。逻辑与前端 src/lib/request-helpers.ts 保持一致：
 // 列表只需要 prompt 文本 + 张数 n，绝不把整个 request_payload（含 input_images base64）回传给浏览器。
+function asPayload(payload: unknown): Record<string, unknown> | null {
+  if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+    return payload as Record<string, unknown>
+  }
+  if (typeof payload === 'string') {
+    try {
+      const parsed = JSON.parse(payload) as unknown
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return parsed as Record<string, unknown>
+      }
+    } catch {
+      return null
+    }
+  }
+  return null
+}
+
 function extractPrompt(payload: unknown): string {
-  if (!payload || typeof payload !== 'object') return ''
-  const req = payload as Record<string, unknown>
+  const req = asPayload(payload)
+  if (!req) return ''
   if (typeof req.prompt === 'string') return req.prompt
   // gemini-style: contents[].parts[].text 顺序拼接
   const contents = req.contents as Array<{ parts?: Array<{ text?: string }> }> | undefined
@@ -65,8 +65,7 @@ function extractPrompt(payload: unknown): string {
     .join('\n')
 }
 function extractN(payload: unknown): number | null {
-  if (!payload || typeof payload !== 'object') return null
-  const n = (payload as Record<string, unknown>).n
+  const n = asPayload(payload)?.n
   return typeof n === 'number' ? n : null
 }
 
@@ -89,7 +88,7 @@ export interface ListDevicesResult {
 const LIST_LIMIT = 500
 
 export async function listDevices(range: Range, sort: SortKey): Promise<ListDevicesResult> {
-  const { db } = getHandle()
+  const db = await getAdminRead()
   const since = Date.now() - rangeMs(range)
   const today = todayDate()
   const orderBy =
@@ -172,20 +171,18 @@ export async function getDeviceDetail(
   range: Range,
   cursor?: string,
 ): Promise<DeviceDetailResult> {
-  const { db, schema } = getHandle()
+  const db = await getAdminRead()
   const since = Date.now() - rangeMs(range)
   const today = todayDate()
   const c = decodeCursor(cursor)
 
-  // keyset 分页：按 (submitted_at DESC, id DESC) 稳定排序。cursor 存在时取严格小于游标的下一页。
   const keyset = c
     ? sql`AND (submitted_at < ${c.ts} OR (submitted_at = ${c.ts} AND id < ${c.id}))`
     : sql``
 
-  // 设备聚合卡片仅首页查；翻页时跳过，省一次全量聚合扫描。
   const devicePromise: Promise<Array<Record<string, unknown>>> = c
     ? Promise.resolve([])
-    : (db.all(sql`
+    : db.all(sql`
         SELECT
           t.device_id AS device_id,
           MIN(t.submitted_at) AS first_seen,
@@ -199,29 +196,17 @@ export async function getDeviceDetail(
         LEFT JOIN daily_quota q ON q.device_id = t.device_id AND q.date = ${today}
         WHERE t.device_id = ${deviceId} AND t.submitted_at >= ${since}
         GROUP BY t.device_id
-      `) as unknown as Promise<Array<Record<string, unknown>>>)
+      `)
 
-  // task 列表：select 字段白名单。仍读 request_payload（本地 SQLite 读，开销远低于网络传输 +
-  // 浏览器 JSON.parse），但只在服务端抽出 prompt/n 后丢弃，不进入响应体。result_payload（5-10MB）不取。
-  // where 用 raw sql 模板：device_id 是 VIRTUAL 列，drizzle schema 没声明，不能用 schema.tasks.device_id。
-  const tasksPromise = db
-    .select({
-      id: schema.tasks.id,
-      provider: schema.tasks.provider,
-      model: schema.tasks.model,
-      status: schema.tasks.status,
-      submitted_at: schema.tasks.submitted_at,
-      started_at: schema.tasks.started_at,
-      completed_at: schema.tasks.completed_at,
-      error_type: schema.tasks.error_type,
-      upstream_status: schema.tasks.upstream_status,
-      request_payload: schema.tasks.request_payload,
-      attempt_count: schema.tasks.attempt_count,
-    })
-    .from(schema.tasks)
-    .where(sql`device_id = ${deviceId} AND submitted_at >= ${since} ${keyset}`)
-    .orderBy(sql`submitted_at DESC, id DESC`)
-    .limit(PAGE_SIZE + 1)
+  const tasksPromise = db.all(sql`
+    SELECT
+      id, provider, model, status, submitted_at, started_at, completed_at,
+      error_type, upstream_status, request_payload, attempt_count
+    FROM tasks
+    WHERE device_id = ${deviceId} AND submitted_at >= ${since} ${keyset}
+    ORDER BY submitted_at DESC, id DESC
+    LIMIT ${PAGE_SIZE + 1}
+  `)
 
   const [deviceRowsRaw, taskRowsRaw] = await Promise.all([devicePromise, tasksPromise])
 
@@ -244,21 +229,22 @@ export async function getDeviceDetail(
   const hasMore = taskRowsRaw.length > PAGE_SIZE
   const pageRows = taskRowsRaw.slice(0, PAGE_SIZE)
   const tasks: TaskListItem[] = pageRows.map((r) => ({
-    id: r.id,
-    provider: r.provider,
-    model: r.model,
-    status: r.status,
-    submitted_at: r.submitted_at,
-    started_at: r.started_at,
-    completed_at: r.completed_at,
-    error_type: r.error_type,
-    upstream_status: r.upstream_status,
+    id: String(r.id),
+    provider: String(r.provider),
+    model: String(r.model),
+    status: String(r.status),
+    submitted_at: Number(r.submitted_at),
+    started_at: r.started_at == null ? null : Number(r.started_at),
+    completed_at: r.completed_at == null ? null : Number(r.completed_at),
+    error_type: r.error_type == null ? null : String(r.error_type),
+    upstream_status: r.upstream_status == null ? null : Number(r.upstream_status),
     prompt: extractPrompt(r.request_payload),
     n: extractN(r.request_payload),
-    attempt_count: r.attempt_count,
+    attempt_count: Number(r.attempt_count ?? 0),
   }))
   const last = pageRows[pageRows.length - 1]
-  const nextCursor = hasMore && last ? encodeCursor(last.submitted_at, last.id) : null
+  const nextCursor =
+    hasMore && last ? encodeCursor(Number(last.submitted_at), String(last.id)) : null
 
   return { device, tasks, nextCursor }
 }
@@ -277,62 +263,45 @@ export interface TaskDetail extends TaskListItem {
 }
 
 export async function getTask(taskId: string): Promise<TaskDetail | null> {
-  const { db, schema } = getHandle()
-  // device_id 是 VIRTUAL 列，schema 没声明 → drizzle select 拿不到；用 raw sql 单独查一次。
-  // Promise.all 并发减少一次往返。
-  const [rows, deviceRows] = await Promise.all([
-    db
-      .select({
-        id: schema.tasks.id,
-        provider: schema.tasks.provider,
-        model: schema.tasks.model,
-        status: schema.tasks.status,
-        submitted_at: schema.tasks.submitted_at,
-        started_at: schema.tasks.started_at,
-        completed_at: schema.tasks.completed_at,
-        error_type: schema.tasks.error_type,
-        request_payload: schema.tasks.request_payload,
-        result_payload: schema.tasks.result_payload,
-        error_message: schema.tasks.error_message,
-        upstream_status: schema.tasks.upstream_status,
-        upstream_body: schema.tasks.upstream_body,
-        attempt_count: schema.tasks.attempt_count,
-        next_retry_at: schema.tasks.next_retry_at,
-      })
-      .from(schema.tasks)
-      .where(eq(schema.tasks.id, taskId))
-      .limit(1),
-    db.all(sql`SELECT device_id FROM tasks WHERE id = ${taskId} LIMIT 1`) as unknown as Promise<
-      Array<{ device_id: unknown }>
-    >,
-  ])
+  const db = await getAdminRead()
+  const rows = await db.all(sql`
+    SELECT
+      id, provider, model, status, submitted_at, started_at, completed_at,
+      error_type, request_payload, result_payload, error_message,
+      upstream_status, upstream_body, attempt_count, next_retry_at, device_id
+    FROM tasks
+    WHERE id = ${taskId}
+    LIMIT 1
+  `)
   const task = rows[0]
   if (!task) return null
 
-  // 最小实现：从原始 result_payload 抽 image meta（index + mime），不解 base64
-  const images = extractImagesMeta(task.provider, task.result_payload)
-  const rawDevice = deviceRows[0]?.device_id
+  const images = extractImagesMeta(
+    String(task.provider),
+    asPayload(task.result_payload) ?? task.result_payload,
+  )
+  const rawDevice = task.device_id
   const device_id =
     rawDevice === null || rawDevice === undefined || rawDevice === '' ? null : String(rawDevice)
   return {
-    id: task.id,
-    provider: task.provider,
-    model: task.model,
-    status: task.status,
-    submitted_at: task.submitted_at,
-    started_at: task.started_at,
-    completed_at: task.completed_at,
-    error_type: task.error_type,
+    id: String(task.id),
+    provider: String(task.provider),
+    model: String(task.model),
+    status: String(task.status),
+    submitted_at: Number(task.submitted_at),
+    started_at: task.started_at == null ? null : Number(task.started_at),
+    completed_at: task.completed_at == null ? null : Number(task.completed_at),
+    error_type: task.error_type == null ? null : String(task.error_type),
     prompt: extractPrompt(task.request_payload),
     n: extractN(task.request_payload),
-    attempt_count: task.attempt_count,
-    request_payload: task.request_payload,
+    attempt_count: Number(task.attempt_count ?? 0),
+    request_payload: asPayload(task.request_payload) ?? task.request_payload,
     result_meta: { images },
-    error_message: task.error_message,
-    upstream_status: task.upstream_status,
-    upstream_body: task.upstream_body,
+    error_message: task.error_message == null ? null : String(task.error_message),
+    upstream_status: task.upstream_status == null ? null : Number(task.upstream_status),
+    upstream_body: task.upstream_body == null ? null : String(task.upstream_body),
     device_id,
-    next_retry_at: task.next_retry_at,
+    next_retry_at: task.next_retry_at == null ? null : Number(task.next_retry_at),
   }
 }
 

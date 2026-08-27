@@ -137,6 +137,21 @@ beforeAll(() => {
     port: mockBffPort,
     fetch(req) {
       const url = new URL(req.url)
+      if (url.pathname.includes('/input/')) {
+        if (url.pathname.includes('img-task-openai-blob') && url.pathname.endsWith('/0')) {
+          return new Response(new Uint8Array([0x52, 0x49, 0x46, 0x46]), {
+            status: 200,
+            headers: { 'content-type': 'image/webp' },
+          })
+        }
+        if (url.pathname.includes('img-task-gem-blob') && url.pathname.endsWith('/7')) {
+          return new Response(new Uint8Array([0x57, 0x45, 0x42, 0x50]), {
+            status: 200,
+            headers: { 'content-type': 'image/webp' },
+          })
+        }
+        return new Response('not found', { status: 404 })
+      }
       if (url.pathname.includes('/binary') || url.pathname.includes('/image/')) {
         return new Response(fakeImageBytes, {
           status: 200,

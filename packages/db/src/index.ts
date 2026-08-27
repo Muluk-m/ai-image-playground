@@ -1,3 +1,4 @@
+export { type AdminRead, adminReadFromExecute, openAdminRead } from './admin-read'
 export { createDb, type ImagePlaygroundDatabase } from './client'
 export { composeQueuePersistence } from './compose-persistence'
 export { MemoryPixelStore } from './memory-pixels'

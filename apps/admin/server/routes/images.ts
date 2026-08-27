@@ -1,27 +1,13 @@
-import { createDb } from '@image-playground/db'
-import { and, eq } from 'drizzle-orm'
+import { sql } from 'drizzle-orm'
 import { Elysia, t } from 'elysia'
 import { config } from '../config'
+import { getAdminRead } from '../lib/handle'
 import { requireAuth } from '../lib/middleware'
 import { createTaskMetaCache } from '../lib/task-meta-cache'
 
 interface TaskMeta {
   provider: string
   model: string
-}
-
-// 懒初始化 readonly handle + cache：跟 queries.ts 的 getHandle 类似 pattern，
-// 避免 module 顶层 createDb 在 test setEnv 之前固化到错的 DATABASE_URL。
-type Handle = ReturnType<typeof createDb>
-const _handles = new Map<string, Handle>()
-function getHandle(): Handle {
-  const url = process.env.DATABASE_URL?.trim() || config.databaseUrl
-  let h = _handles.get(url)
-  if (!h) {
-    h = createDb(url, { readonly: true })
-    _handles.set(url, h)
-  }
-  return h
 }
 
 const _caches = new Map<string, ReturnType<typeof createTaskMetaCache<TaskMeta>>>()
@@ -33,18 +19,38 @@ function getTaskMetaCache() {
       maxEntries: 200,
       ttlMs: 30_000,
       load: async (taskId) => {
-        const { db, schema } = getHandle()
-        const rows = await db
-          .select({ provider: schema.tasks.provider, model: schema.tasks.model })
-          .from(schema.tasks)
-          .where(eq(schema.tasks.id, taskId))
-          .limit(1)
-        return rows[0] ?? null
+        const db = await getAdminRead()
+        const rows = await db.all(sql`
+          SELECT provider, model FROM tasks WHERE id = ${taskId} LIMIT 1
+        `)
+        const row = rows[0]
+        if (!row) return null
+        return { provider: String(row.provider), model: String(row.model) }
       },
     })
     _caches.set(url, c)
   }
   return c
+}
+
+function bffBase(): string {
+  return (process.env.BFF_INTERNAL_URL?.trim() || config.bffInternalUrl).replace(/\/+$/, '')
+}
+
+async function proxyBff(path: string, set: { status?: number | string }) {
+  const res = await fetch(`${bffBase()}${path}`)
+  if (!res.ok) {
+    set.status = res.status
+    return { error_code: 'upstream_failed', upstream_status: res.status }
+  }
+  const contentType = res.headers.get('content-type') ?? 'application/octet-stream'
+  return new Response(res.body, {
+    status: 200,
+    headers: {
+      'content-type': contentType,
+      'cache-control': 'private, max-age=600',
+    },
+  })
 }
 
 export const imagesRoutes = new Elysia()
@@ -58,26 +64,7 @@ export const imagesRoutes = new Elysia()
         return { error_code: 'task_not_found' }
       }
       const idx = query.idx ?? '0'
-      // 读 env 而非 config 单例：tests 间会 setEnv 切换 BFF_INTERNAL_URL，config 在 import
-      // 时固化、跟随首个 import 它的 module。改为运行时读环境，保持线上行为不变（线上启动后 env 不变）。
-      const bffBase = (process.env.BFF_INTERNAL_URL?.trim() || config.bffInternalUrl).replace(
-        /\/+$/,
-        '',
-      )
-      const upstream = `${bffBase}/v1/queue/requests/${params.id}/image/${idx}`
-      const res = await fetch(upstream)
-      if (!res.ok) {
-        set.status = res.status
-        return { error_code: 'upstream_failed', upstream_status: res.status }
-      }
-      const contentType = res.headers.get('content-type') ?? 'application/octet-stream'
-      return new Response(res.body, {
-        status: 200,
-        headers: {
-          'content-type': contentType,
-          'cache-control': 'private, max-age=600',
-        },
-      })
+      return proxyBff(`/v1/queue/requests/${params.id}/image/${idx}`, set)
     },
     {
       params: t.Object({ id: t.String() }),
@@ -87,12 +74,10 @@ export const imagesRoutes = new Elysia()
   .get(
     '/api/tasks/:id/input-image',
     async ({ params, query, set }) => {
-      const { db, schema } = getHandle()
-      const rows = await db
-        .select({ request_payload: schema.tasks.request_payload })
-        .from(schema.tasks)
-        .where(eq(schema.tasks.id, params.id))
-        .limit(1)
+      const db = await getAdminRead()
+      const rows = await db.all(sql`
+        SELECT request_payload FROM tasks WHERE id = ${params.id} LIMIT 1
+      `)
       const task = rows[0]
       if (!task) {
         set.status = 404
@@ -108,19 +93,17 @@ export const imagesRoutes = new Elysia()
 
       const blobIdx = extractBlobIndex(entry)
       if (blobIdx !== null) {
-        const blobRows = await db
-          .select({ data: schema.task_blobs.data, mime: schema.task_blobs.mime })
-          .from(schema.task_blobs)
-          .where(
-            and(
-              eq(schema.task_blobs.task_id, params.id),
-              eq(schema.task_blobs.kind, 'input'),
-              eq(schema.task_blobs.idx, blobIdx),
-            ),
-          )
-          .limit(1)
-        const blob = blobRows[0]
-        if (blob) return imageResponse(blob.data, blob.mime)
+        const res = await fetch(`${bffBase()}/v1/queue/requests/${params.id}/input/${blobIdx}`)
+        if (res.ok) {
+          const contentType = res.headers.get('content-type') ?? 'application/octet-stream'
+          return new Response(res.body, {
+            status: 200,
+            headers: {
+              'content-type': contentType,
+              'cache-control': 'private, max-age=3600',
+            },
+          })
+        }
       }
 
       set.status = 422
@@ -134,8 +117,17 @@ export const imagesRoutes = new Elysia()
 
 function extractInputImageEntry(payload: unknown, idx: number): unknown {
   if (!Number.isInteger(idx) || idx < 0) return undefined
-  const inputImages = (payload as { input_images?: unknown } | undefined)?.input_images
+  const parsed = typeof payload === 'string' ? safeJson(payload) : payload
+  const inputImages = (parsed as { input_images?: unknown } | undefined)?.input_images
   return Array.isArray(inputImages) ? inputImages[idx] : undefined
+}
+
+function safeJson(value: string): unknown {
+  try {
+    return JSON.parse(value)
+  } catch {
+    return null
+  }
 }
 
 function extractBlobIndex(value: unknown): number | null {
