@@ -1,0 +1,15 @@
+.git
+.gstack
+.claude
+.agents
+.scratch
+.turbo
+.wrangler
+**/node_modules
+**/dist
+**/artifacts
+**/*.sqlite
+**/*.sqlite-shm
+**/*.sqlite-wal
+openspec
+out.png

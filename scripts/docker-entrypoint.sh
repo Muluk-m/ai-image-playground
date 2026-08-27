@@ -10,7 +10,8 @@ set -e
 DIST_DIR="/app/apps/web/dist"
 CONFIG_FILE="${DIST_DIR}/runtime-config.json"
 
-cat > "${CONFIG_FILE}" <<EOF
+if [ -d "${DIST_DIR}" ]; then
+  cat > "${CONFIG_FILE}" <<EOF
 {
   "bff": {
     "enabled": ${BFF_ENABLED:-true},
@@ -23,8 +24,10 @@ cat > "${CONFIG_FILE}" <<EOF
   }
 }
 EOF
-
-echo "[entrypoint] wrote runtime-config.json (bff.enabled=${BFF_ENABLED:-true}, bff.baseUrl='${BFF_BASE_URL:-}')"
+  echo "[entrypoint] wrote runtime-config.json (bff.enabled=${BFF_ENABLED:-true}, bff.baseUrl='${BFF_BASE_URL:-}')"
+else
+  echo "[entrypoint] no ${DIST_DIR}; skip runtime-config (public web is not in this image)"
+fi
 
 if [ "$#" -eq 0 ]; then
   case "${APP_ROLE:-bff}" in
