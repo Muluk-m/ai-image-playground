@@ -79,29 +79,35 @@ pnpm dev:web        # 起前端，打开 http://localhost:5173
 [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/Muluk-m/ai-image-playground&project-name=ai-image-playground&repository-name=ai-image-playground)
 [![Deploy to Netlify](https://www.netlify.com/img/deploy/button.svg)](https://app.netlify.com/start/deploy?repository=https://github.com/Muluk-m/ai-image-playground)
 
-仓库已带上 `vercel.json` 和 `netlify.toml`，针对 monorepo 配好了构建命令和产物目录。点按钮跳过去登一下账号、确认下就能跑，零额外配置。
-
-其它静态托管（Cloudflare Pages / GitHub Pages / nginx / S3）也都能用：
+仓库已带上 `vercel.json`、`netlify.toml` 和 `wrangler.jsonc`。Cloudflare Pages：
 
 ```bash
-pnpm install && pnpm build
+pnpm install
+# 先把 apps/web/cf/runtime-config.json 的 bff.baseUrl 改成 TKE BFF 地址
+./scripts/deploy-cloudflare.sh
+```
+
+其它静态托管（GitHub Pages / nginx / S3）也都能用：
+
+```bash
+pnpm install && pnpm --filter @image-playground/web build
 # 把 apps/web/dist/ 上传到你的静态托管
 ```
 
 用户自己在页面里填 API key，浏览器直连模型上游。**不支持 1 分钟以上的长任务**（edge 平台超时）。
 
-### 选项 2 · Docker（带后端，支持长任务 + 预置服务商）
+### 选项 2 · Docker（API / worker / admin；长任务 + 预置服务商）
+
+镜像不再带公开前端。把 Cloudflare Pages 的 `bff.baseUrl` 指到这套 BFF。
 
 ```bash
 docker build -t ai-image-playground .
-docker run -p 37377:37377 \
-  -e OPENAI_API_KEY=sk-... \
-  -e GEMINI_API_KEY=... \
-  -v $(pwd)/apps/bff/channels.json:/app/apps/bff/channels.json \
+docker run -p 37377:37377 -e APP_ROLE=bff -e DATABASE_URL=postgres://… \
+  -e OPENAI_API_KEY=sk-... -e GEMINI_API_KEY=... \
   ai-image-playground
 ```
 
-打开 `http://localhost:37377` 即可用。`channels.json` 配置预置的服务商列表（默认含 OpenAI + Gemini，operator 改这里就能加新的）。
+`APP_ROLE` 为 `bff`、`worker` 或 `admin`。镜像内 `channels.json` 是预置服务商列表。
 
 详细配置（runtime-config / channels.json / 环境变量）见 [`apps/bff/README.md`](./apps/bff/README.md)。
 
