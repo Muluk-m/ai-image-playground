@@ -1,10 +1,8 @@
 import type { QueueProvider } from '@image-playground/shared'
 import { DAILY_QUOTA_LIMIT } from '@image-playground/shared'
-import { eq } from 'drizzle-orm'
 import { Elysia, t } from 'elysia'
-import { db, schema } from '../db/client'
-import { insertTaskBlobs, rewriteInputDataUrls } from '../lib/blobStore'
-import { tryConsumeQuotaSync } from '../lib/quota'
+import { persistence } from '../db/client'
+import { rewriteInputDataUrls } from '../lib/blobStore'
 
 const submitBodySchema = t.Object({
   prompt: t.String({ minLength: 1 }),
@@ -58,46 +56,15 @@ export const submitRoutes = new Elysia()
         : body
       const n = body.n ?? 1
 
-      type SubmitOutcome =
-        | { kind: 'replay'; id: string; submitted_at: number }
-        | { kind: 'quota_rejected'; count: number; reset_at: string }
-        | { kind: 'created'; id: string; submitted_at: number }
-
-      const outcome = db.transaction(
-        (tx): SubmitOutcome => {
-          if (body.client_request_id) {
-            const existing = tx
-              .select({ id: schema.tasks.id, submitted_at: schema.tasks.submitted_at })
-              .from(schema.tasks)
-              .where(eq(schema.tasks.client_request_id, body.client_request_id))
-              .limit(1)
-              .get()
-            if (existing) return { kind: 'replay', ...existing }
-          }
-
-          const quota = tryConsumeQuotaSync(body.device_id, n, tx)
-          if (!quota.ok) {
-            return { kind: 'quota_rejected', count: quota.count, reset_at: quota.reset_at }
-          }
-
-          const id = crypto.randomUUID()
-          const submitted_at = Date.now()
-          tx.insert(schema.tasks)
-            .values({
-              id,
-              provider,
-              model,
-              status: 'queued',
-              request_payload: requestPayload,
-              submitted_at,
-              client_request_id: body.client_request_id ?? null,
-            })
-            .run()
-          insertTaskBlobs(id, rewrittenImages.blobs, tx)
-          return { kind: 'created', id, submitted_at }
-        },
-        { behavior: 'immediate' },
-      )
+      const outcome = await persistence.submit({
+        provider,
+        model,
+        request: requestPayload,
+        clientRequestId: body.client_request_id ?? null,
+        deviceId: body.device_id,
+        n,
+        pixels: rewrittenImages.blobs,
+      })
 
       if (outcome.kind === 'quota_rejected') {
         return status(429, {

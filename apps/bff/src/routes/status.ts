@@ -1,7 +1,6 @@
 import type { StatusResponse, TaskErrorType } from '@image-playground/shared'
-import { eq } from 'drizzle-orm'
 import { Elysia, t } from 'elysia'
-import { db, schema } from '../db/client'
+import { taskStore } from '../db/client'
 import { extractMeta } from '../lib/extractImages'
 import { asQueueProvider } from '../lib/queueProvider'
 
@@ -15,21 +14,7 @@ import { asQueueProvider } from '../lib/queueProvider'
 export const statusRoutes = new Elysia().get(
   '/v1/queue/requests/:id/status',
   async ({ params, status }) => {
-    const [task] = await db
-      .select({
-        id: schema.tasks.id,
-        status: schema.tasks.status,
-        submitted_at: schema.tasks.submitted_at,
-        started_at: schema.tasks.started_at,
-        completed_at: schema.tasks.completed_at,
-        error_message: schema.tasks.error_message,
-        error_type: schema.tasks.error_type,
-        provider: schema.tasks.provider,
-        result_payload: schema.tasks.result_payload,
-      })
-      .from(schema.tasks)
-      .where(eq(schema.tasks.id, params.id))
-      .limit(1)
+    const task = await taskStore.getById(params.id)
 
     if (!task) return status(404, { error: 'task_not_found' })
 

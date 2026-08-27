@@ -5,8 +5,7 @@ import {
   type SubmitRequest,
   type TaskErrorType,
 } from '@image-playground/shared'
-import { and, eq, isNull, lte, or } from 'drizzle-orm'
-import { db, schema } from '../db/client'
+import { persistence, pixelStore, taskStore } from '../db/client'
 import {
   completeTaskWithBlobs,
   resolveInputDataUrls,
@@ -80,23 +79,8 @@ async function tryScheduleRetry(
   const plan = planNextAttempt(attemptJustFailed)
   if (!plan.shouldRetry) return false
 
-  const updated = await db
-    .update(schema.tasks)
-    .set({
-      status: 'queued',
-      attempt_count: attemptJustFailed,
-      next_retry_at: plan.nextRetryAt,
-      // 清空临时 error / result 痕迹：retry 成功后这条 row 不该带上一次失败信息。
-      // started_at 保留首次启动时间，admin 查耗时仍可用 submitted→completed。
-      error_message: null,
-      error_type: null,
-      result_payload: null,
-      upstream_status: null,
-      upstream_body: null,
-    })
-    .where(and(eq(schema.tasks.id, id), eq(schema.tasks.status, 'in_progress')))
-    .returning({ id: schema.tasks.id })
-  if (updated.length === 0) return false
+  const updated = await taskStore.scheduleRetry(id, attemptJustFailed, plan.nextRetryAt)
+  if (!updated) return false
 
   log.warn(
     {
@@ -118,14 +102,14 @@ async function resolveOriginalInputImages(
 ): Promise<SubmitRequest> {
   const { input_images: inputImages, ...rest } = request
   if (!Array.isArray(inputImages)) return rest
-  const resolvedImages = await resolveInputDataUrls(taskId, inputImages, db)
+  const resolvedImages = await resolveInputDataUrls(taskId, inputImages, pixelStore)
   return { ...rest, input_images: resolvedImages }
 }
 
 /** 终态收尾：把输入原图归档成 WebP。归档失败只记日志，不影响任务终态。 */
 async function transcodeTerminalInputs(taskId: string): Promise<void> {
   try {
-    await transcodeInputBlobsToWebp(taskId, db)
+    await transcodeInputBlobsToWebp(taskId, pixelStore)
   } catch (error) {
     log.error(
       { event: 'task.input_archive_failed', taskId, error },
@@ -149,23 +133,15 @@ async function completeTask(
 ): Promise<number | null> {
   const { payload, blobs } = externalizeResultImages(provider, upstreamPayload)
   try {
-    const completed = await completeTaskWithBlobs(taskId, blobs, payload, completedAt, db)
+    const completed = await completeTaskWithBlobs(taskId, blobs, payload, completedAt, persistence)
     return completed ? extractMeta(provider, payload).images.length : null
   } catch (error) {
     log.error(
       { event: 'task.output_archive_failed', taskId, error },
       'failed to archive output images; completing with images dropped',
     )
-    const updated = await db
-      .update(schema.tasks)
-      .set({
-        status: 'completed',
-        result_payload: markResultImagesDropped(payload),
-        completed_at: completedAt,
-      })
-      .where(and(eq(schema.tasks.id, taskId), eq(schema.tasks.status, 'in_progress')))
-      .returning({ id: schema.tasks.id })
-    return updated.length === 0 ? null : 0
+    const updated = await taskStore.complete(taskId, markResultImagesDropped(payload), completedAt)
+    return updated ? 0 : null
   }
 }
 
@@ -182,12 +158,7 @@ async function failTask(
     completed_at: number
   },
 ): Promise<boolean> {
-  const updated = await db
-    .update(schema.tasks)
-    .set({ status: 'failed', ...values })
-    .where(and(eq(schema.tasks.id, taskId), eq(schema.tasks.status, 'in_progress')))
-    .returning({ id: schema.tasks.id })
-  return updated.length > 0
+  return taskStore.fail(taskId, values)
 }
 
 export async function runTask(id: string): Promise<void> {
@@ -196,29 +167,10 @@ export async function runTask(id: string): Promise<void> {
 
   // claim 时除了 status='queued' 守卫，还要确保 next_retry_at 已到，避免 scheduler
   // 或外部误调 runTask 让等待中的重试任务提前起跑。
-  const claimed = await db
-    .update(schema.tasks)
-    .set({ status: 'in_progress', started_at: claimAt })
-    .where(
-      and(
-        eq(schema.tasks.id, id),
-        eq(schema.tasks.status, 'queued'),
-        or(isNull(schema.tasks.next_retry_at), lte(schema.tasks.next_retry_at, claimAt)),
-      ),
-    )
-    .returning({ id: schema.tasks.id })
-  if (claimed.length === 0) return
+  const claimed = await taskStore.claim(id, claimAt)
+  if (!claimed) return
 
-  const [task] = await db
-    .select({
-      provider: schema.tasks.provider,
-      model: schema.tasks.model,
-      request_payload: schema.tasks.request_payload,
-      attempt_count: schema.tasks.attempt_count,
-    })
-    .from(schema.tasks)
-    .where(eq(schema.tasks.id, id))
-    .limit(1)
+  const task = await taskStore.getById(id)
   if (!task) return
 
   const ctrl = new AbortController()

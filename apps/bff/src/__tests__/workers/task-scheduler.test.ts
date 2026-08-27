@@ -11,7 +11,7 @@ process.env.PORT = '0'
 
 const { runMigrations } = await import('../../db/migrate')
 runMigrations()
-const { db, schema } = await import('../../db/client')
+const { db, pixelStore, schema } = await import('../../db/client')
 const { purgeOldOutputBlobs, recoverInterruptedTasks } = await import('../../db/maintenance')
 const { TaskScheduler } = await import('../../workers/task-scheduler')
 const { runTask } = await import('../../workers/task-runner')
@@ -220,7 +220,7 @@ describe('task blob lifecycle', () => {
       .from(schema.tasks)
       .where(eq(schema.tasks.id, 'cancel-completion-race'))
     expect(task?.status).toBe('cancelled')
-    expect(await listTaskBlobs('cancel-completion-race', 'output', db)).toEqual([])
+    expect(await listTaskBlobs('cancel-completion-race', 'output', pixelStore)).toEqual([])
   })
 
   it('archives original inputs left by a cancelled worker during startup recovery', async () => {
@@ -238,14 +238,14 @@ describe('task blob lifecycle', () => {
       submitted_at: Date.now(),
       completed_at: Date.now(),
     })
-    insertTaskBlobs(
+    await insertTaskBlobs(
       'cancelled-original-input',
       [{ kind: 'input', idx: 0, mime: 'image/png', data: png }],
-      db,
+      pixelStore,
     )
 
     expect(await recoverInterruptedTasks()).toEqual({ failed: 0 })
-    expect(await getTaskBlob('cancelled-original-input', 'input', 0, db)).toMatchObject({
+    expect(await getTaskBlob('cancelled-original-input', 'input', 0, pixelStore)).toMatchObject({
       mime: 'image/webp',
     })
   })
@@ -261,7 +261,7 @@ describe('task blob lifecycle', () => {
       completed_at: Date.now(),
     })
     const now = Date.now()
-    insertTaskBlobs(
+    await insertTaskBlobs(
       'output-retention',
       [
         {
@@ -286,13 +286,13 @@ describe('task blob lifecycle', () => {
           createdAt: now - 200_000,
         },
       ],
-      db,
+      pixelStore,
     )
 
     expect(await purgeOldOutputBlobs(100_000)).toBe(1)
-    expect((await listTaskBlobs('output-retention', 'output', db)).map((blob) => blob.idx)).toEqual(
-      [1],
-    )
-    expect(await getTaskBlob('output-retention', 'input', 0, db)).toBeDefined()
+    expect(
+      (await listTaskBlobs('output-retention', 'output', pixelStore)).map((blob) => blob.idx),
+    ).toEqual([1])
+    expect(await getTaskBlob('output-retention', 'input', 0, pixelStore)).toBeDefined()
   })
 })

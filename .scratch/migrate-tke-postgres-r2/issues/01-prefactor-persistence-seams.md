@@ -4,9 +4,9 @@
 
 **Blocked by:** None — can start immediately
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Queue HTTP 现有场景（submit、幂等、配额、出图、取消、claim、重启 interrupted）全部仍绿
-- [ ] 任务元数据只通过 Task store 读写；像素对象只通过 Pixel store 读写
-- [ ] Task store 与 Pixel store 的接口是异步的；测试仍可注入当前 sqlite adapter
-- [ ] 浏览器契约不变：同一组路径和状态码
+- [x] Queue HTTP 现有场景（submit、幂等、配额、出图、取消、claim、重启 interrupted）全部仍绿
+- [x] 任务元数据只通过 Task store 读写；像素对象只通过 Pixel store 读写
+- [x] Task store 与 Pixel store 的接口是异步的；测试仍可注入当前 sqlite adapter
+- [x] 浏览器契约不变：同一组路径和状态码

@@ -1,26 +1,14 @@
 import { QUEUE_TIMEOUTS } from '@image-playground/shared'
-import { and, eq, inArray, isNotNull, lt, ne } from 'drizzle-orm'
 import {
   deleteOutputBlobsOlderThan,
   OUTPUT_BLOB_RETENTION_MS,
   transcodeInputBlobsToWebp,
 } from '../lib/blobStore'
-import { db, schema } from './client'
+import { pixelStore, taskStore } from './client'
 
-/** 找出终态任务里还没归档成 WebP 的输入 blob，逐个补做转码。 */
 async function archiveTerminalInputBlobs(): Promise<void> {
-  const pending = await db
-    .selectDistinct({ id: schema.tasks.id })
-    .from(schema.tasks)
-    .innerJoin(schema.task_blobs, eq(schema.task_blobs.task_id, schema.tasks.id))
-    .where(
-      and(
-        inArray(schema.tasks.status, ['completed', 'failed', 'cancelled']),
-        eq(schema.task_blobs.kind, 'input'),
-        ne(schema.task_blobs.mime, 'image/webp'),
-      ),
-    )
-  for (const task of pending) await transcodeInputBlobsToWebp(task.id, db)
+  const pending = await taskStore.listTerminalIdsWithNonWebpInputs()
+  for (const id of pending) await transcodeInputBlobsToWebp(id, pixelStore)
 }
 
 /**
@@ -32,21 +20,10 @@ async function archiveTerminalInputBlobs(): Promise<void> {
  * 是否手动重试。
  */
 export async function recoverInterruptedTasks(): Promise<{ failed: number }> {
-  const failed = await db
-    .update(schema.tasks)
-    .set({
-      status: 'failed',
-      error_message: '任务 worker 重启时中断',
-      error_type: 'interrupted' as const,
-      completed_at: Date.now(),
-    })
-    .where(eq(schema.tasks.status, 'in_progress'))
-    .returning({ id: schema.tasks.id })
+  const failed = await taskStore.recoverInterrupted(Date.now())
 
-  // 也覆盖「已写 cancelled 后 worker 进程立刻退出」的窗口：这类行不再是
-  // in_progress，但输入 blob 仍可能是上游所需的原始字节。
   await archiveTerminalInputBlobs()
-  return { failed: failed.length }
+  return { failed }
 }
 
 /**
@@ -56,21 +33,10 @@ export async function recoverInterruptedTasks(): Promise<{ failed: number }> {
 export async function purgeOldTasks(
   retentionMs = QUEUE_TIMEOUTS.TASK_RETENTION_MS,
 ): Promise<number> {
-  const threshold = Date.now() - retentionMs
-  const deleted = await db
-    .delete(schema.tasks)
-    .where(
-      and(
-        inArray(schema.tasks.status, ['completed', 'failed', 'cancelled']),
-        isNotNull(schema.tasks.completed_at),
-        lt(schema.tasks.completed_at, threshold),
-      ),
-    )
-    .returning({ id: schema.tasks.id })
-  return deleted.length
+  return taskStore.purgeOldTasks(Date.now() - retentionMs)
 }
 
 /** Purge archived output pixels after seven days while retaining task metadata. */
 export async function purgeOldOutputBlobs(retentionMs = OUTPUT_BLOB_RETENTION_MS): Promise<number> {
-  return deleteOutputBlobsOlderThan(Date.now() - retentionMs, db)
+  return deleteOutputBlobsOlderThan(Date.now() - retentionMs, pixelStore)
 }

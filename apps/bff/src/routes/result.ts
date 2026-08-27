@@ -1,7 +1,6 @@
 import type { ResultResponse, TaskErrorType } from '@image-playground/shared'
-import { eq } from 'drizzle-orm'
 import { Elysia, t } from 'elysia'
-import { db, schema } from '../db/client'
+import { pixelStore, taskStore } from '../db/client'
 import { getTaskBlob } from '../lib/blobStore'
 import { extractMeta, resolveImageBytesRef } from '../lib/extractImages'
 import { jsonResponse } from '../lib/gzipResponse'
@@ -15,18 +14,7 @@ export const resultRoutes = new Elysia()
   .get(
     '/v1/queue/requests/:id',
     async ({ params, status, request }) => {
-      const [task] = await db
-        .select({
-          id: schema.tasks.id,
-          status: schema.tasks.status,
-          provider: schema.tasks.provider,
-          result_payload: schema.tasks.result_payload,
-          error_message: schema.tasks.error_message,
-          error_type: schema.tasks.error_type,
-        })
-        .from(schema.tasks)
-        .where(eq(schema.tasks.id, params.id))
-        .limit(1)
+      const task = await taskStore.getById(params.id)
 
       if (!task) return status(404, { error: 'task_not_found' })
 
@@ -65,15 +53,7 @@ export const resultRoutes = new Elysia()
   .get(
     '/v1/queue/requests/:id/image/:index',
     async ({ params, status }) => {
-      const [task] = await db
-        .select({
-          status: schema.tasks.status,
-          provider: schema.tasks.provider,
-          result_payload: schema.tasks.result_payload,
-        })
-        .from(schema.tasks)
-        .where(eq(schema.tasks.id, params.id))
-        .limit(1)
+      const task = await taskStore.getById(params.id)
       if (!task || task.status !== 'completed') return status(404, { error: 'not_ready' })
       const provider = asQueueProvider(task.provider)
       if (!provider) return status(500, { error: `unknown_provider:${task.provider}` })
@@ -83,7 +63,7 @@ export const resultRoutes = new Elysia()
       const ref = resolveImageBytesRef(provider, task.result_payload, idx)
       if (!ref) {
         // 像素已外置到 task_blobs，payload 里只剩 _image_meta
-        const blob = await getTaskBlob(params.id, 'output', idx, db)
+        const blob = await getTaskBlob(params.id, 'output', idx, pixelStore)
         if (!blob) return status(404, { error: 'image_not_found' })
         return new Response(new Uint8Array(blob.data), {
           headers: { 'content-type': blob.mime, 'cache-control': IMAGE_CACHE_CONTROL },

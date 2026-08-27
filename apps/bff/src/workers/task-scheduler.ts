@@ -1,7 +1,6 @@
 import { type QueueProvider, type TaskStatus } from '@image-playground/shared'
-import { and, asc, eq, inArray, isNull, lte, or } from 'drizzle-orm'
 import { config } from '../config'
-import { db, schema } from '../db/client'
+import { taskStore } from '../db/client'
 import { log } from '../lib/logger'
 import { abortRunningTask, runningTaskIds, runTask } from './task-runner'
 
@@ -71,21 +70,10 @@ export class TaskScheduler {
         const available = this.concurrency[provider] - active.size
         if (available <= 0) continue
 
-        const due = await db
-          .select({ id: schema.tasks.id })
-          .from(schema.tasks)
-          .where(
-            and(
-              eq(schema.tasks.provider, provider),
-              eq(schema.tasks.status, 'queued'),
-              or(isNull(schema.tasks.next_retry_at), lte(schema.tasks.next_retry_at, now)),
-            ),
-          )
-          .orderBy(asc(schema.tasks.submitted_at))
-          .limit(available)
+        const due = await taskStore.listDueIds(provider, now, available)
 
         if (this.stopped) return
-        for (const task of due) this.launch(provider, task.id)
+        for (const id of due) this.launch(provider, id)
       }
     } catch (err) {
       log.error(
@@ -106,15 +94,11 @@ export class TaskScheduler {
       .catch(async (err) => {
         const message = err instanceof Error ? err.message : String(err)
         log.error({ event: 'task.crashed', taskId: id, err: message }, 'task-runner crashed')
-        await db
-          .update(schema.tasks)
-          .set({
-            status: 'failed',
-            error_message: `Worker 执行异常：${message}`,
-            error_type: 'interrupted',
-            completed_at: Date.now(),
-          })
-          .where(and(eq(schema.tasks.id, id), eq(schema.tasks.status, 'in_progress')))
+        await taskStore.fail(id, {
+          error_message: `Worker 执行异常：${message}`,
+          error_type: 'interrupted',
+          completed_at: Date.now(),
+        })
       })
       .finally(() => active.delete(id))
     active.set(id, promise)
@@ -124,10 +108,7 @@ export class TaskScheduler {
     const ids = runningTaskIds()
     if (ids.length === 0) return
 
-    const rows = await db
-      .select({ id: schema.tasks.id, status: schema.tasks.status })
-      .from(schema.tasks)
-      .where(inArray(schema.tasks.id, ids))
+    const rows = await taskStore.getStatuses(ids)
     const statuses = new Map<string, TaskStatus>(rows.map((row) => [row.id, row.status]))
 
     for (const id of ids) {

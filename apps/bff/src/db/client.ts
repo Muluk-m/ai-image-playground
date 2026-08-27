@@ -1,6 +1,7 @@
-import { createDb } from '@image-playground/db'
+import { createSqlitePersistence } from '@image-playground/db'
 import { config } from '../config'
 
-const { db, schema, checkpointWal } = createDb(config.databaseUrl)
-
-export { checkpointWal, db, schema }
+export const persistence = createSqlitePersistence(config.databaseUrl)
+export const taskStore = persistence.tasks
+export const pixelStore = persistence.pixels
+export const { checkpointWal, db, schema } = persistence

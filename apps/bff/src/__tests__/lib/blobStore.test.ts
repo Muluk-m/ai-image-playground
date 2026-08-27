@@ -3,7 +3,7 @@ import { afterAll, beforeEach, describe, expect, it } from 'bun:test'
 import { Buffer } from 'node:buffer'
 import { rmSync } from 'node:fs'
 import * as schema from '@image-playground/db'
-import { runMigrations, tasks } from '@image-playground/db'
+import { persistenceFromDb, runMigrations, tasks } from '@image-playground/db'
 import { drizzle } from 'drizzle-orm/bun-sqlite'
 import sharp from 'sharp'
 import {
@@ -26,6 +26,7 @@ runMigrations(TEST_DB)
 const sqlite = new Database(TEST_DB)
 sqlite.exec('PRAGMA foreign_keys = ON;')
 const db = drizzle(sqlite, { schema })
+const pixels = persistenceFromDb(db).pixels
 
 async function insertTask(id: string) {
   await db.insert(tasks).values({
@@ -66,15 +67,15 @@ describe('blobStore', () => {
     const rewritten = rewriteInputDataUrls([first, second])
 
     expect(rewritten.refs).toEqual([{ $blob: 0 }, { $blob: 1 }])
-    insertTaskBlobs('input-round-trip', rewritten.blobs, db)
+    await insertTaskBlobs('input-round-trip', rewritten.blobs, pixels)
 
-    expect(await resolveInputDataUrls('input-round-trip', [rewritten.refs[0], second], db)).toEqual(
-      [first, second],
-    )
-    expect((await getTaskBlob('input-round-trip', 'input', 1, db))?.mime).toBe('image/jpeg')
-    expect((await listTaskBlobs('input-round-trip', 'input', db)).map((blob) => blob.idx)).toEqual([
-      0, 1,
-    ])
+    expect(
+      await resolveInputDataUrls('input-round-trip', [rewritten.refs[0], second], pixels),
+    ).toEqual([first, second])
+    expect((await getTaskBlob('input-round-trip', 'input', 1, pixels))?.mime).toBe('image/jpeg')
+    expect(
+      (await listTaskBlobs('input-round-trip', 'input', pixels)).map((blob) => blob.idx),
+    ).toEqual([0, 1])
   })
 
   it('transcodes input bytes to WebP q90 without resizing', async () => {
@@ -84,11 +85,18 @@ describe('blobStore', () => {
     })
       .png()
       .toBuffer()
-    insertTaskBlobs('transcode', [{ kind: 'input', idx: 0, mime: 'image/png', data: png }], db)
+    await insertTaskBlobs(
+      'transcode',
+      [{ kind: 'input', idx: 0, mime: 'image/png', data: png }],
+      pixels,
+    )
     const expected = await sharp(png).webp({ quality: 90 }).toBuffer()
 
-    expect(await transcodeInputBlobsToWebp('transcode', db)).toEqual({ transcoded: 1, failed: 0 })
-    const blob = await getTaskBlob('transcode', 'input', 0, db)
+    expect(await transcodeInputBlobsToWebp('transcode', pixels)).toEqual({
+      transcoded: 1,
+      failed: 0,
+    })
+    const blob = await getTaskBlob('transcode', 'input', 0, pixels)
     expect(blob?.mime).toBe('image/webp')
     expect(blob?.data).toEqual(expected)
     expect(await sharp(blob?.data).metadata()).toMatchObject({
@@ -97,11 +105,11 @@ describe('blobStore', () => {
       height: 8,
     })
 
-    expect(await transcodeInputBlobsToWebp('transcode', db)).toEqual({
+    expect(await transcodeInputBlobsToWebp('transcode', pixels)).toEqual({
       transcoded: 0,
       failed: 0,
     })
-    expect((await getTaskBlob('transcode', 'input', 0, db))?.data).toEqual(blob?.data)
+    expect((await getTaskBlob('transcode', 'input', 0, pixels))?.data).toEqual(blob?.data)
   })
 
   it('retains each original blob when its transcode fails and continues with the others', async () => {
@@ -112,25 +120,25 @@ describe('blobStore', () => {
       .png()
       .toBuffer()
     const invalid = Buffer.from('not-an-image')
-    insertTaskBlobs(
+    await insertTaskBlobs(
       'partial-transcode',
       [
         { kind: 'input', idx: 0, mime: 'image/png', data: valid },
         { kind: 'input', idx: 1, mime: 'image/original', data: invalid },
       ],
-      db,
+      pixels,
     )
     const errors: Record<string, unknown>[] = []
 
     expect(
-      await transcodeInputBlobsToWebp('partial-transcode', db, {
+      await transcodeInputBlobsToWebp('partial-transcode', pixels, {
         error(details) {
           errors.push(details)
         },
       }),
     ).toEqual({ transcoded: 1, failed: 1 })
 
-    const blobs = await listTaskBlobs('partial-transcode', 'input', db)
+    const blobs = await listTaskBlobs('partial-transcode', 'input', pixels)
     expect(blobs[0]?.mime).toBe('image/webp')
     expect(blobs[1]?.mime).toBe('image/original')
     expect(blobs[1]?.data).toEqual(invalid)
@@ -140,7 +148,7 @@ describe('blobStore', () => {
   it('deletes only output blobs strictly older than the retention cutoff', async () => {
     await insertTask('retention')
     const cutoff = 10_000
-    insertTaskBlobs(
+    await insertTaskBlobs(
       'retention',
       [
         {
@@ -160,24 +168,26 @@ describe('blobStore', () => {
         },
         { kind: 'input', idx: 0, mime: 'image/png', data: Buffer.from('input'), createdAt: 1 },
       ],
-      db,
+      pixels,
     )
 
-    expect(await deleteOutputBlobsOlderThan(cutoff, db)).toBe(1)
-    expect((await listTaskBlobs('retention', 'output', db)).map((blob) => blob.idx)).toEqual([1, 2])
-    expect(await getTaskBlob('retention', 'input', 0, db)).toBeDefined()
+    expect(await deleteOutputBlobsOlderThan(cutoff, pixels)).toBe(1)
+    expect((await listTaskBlobs('retention', 'output', pixels)).map((blob) => blob.idx)).toEqual([
+      1, 2,
+    ])
+    expect(await getTaskBlob('retention', 'input', 0, pixels)).toBeDefined()
   })
 
   it('cascades blob deletion when task metadata is purged', async () => {
     await insertTask('cascade')
-    insertTaskBlobs(
+    await insertTaskBlobs(
       'cascade',
       [{ kind: 'input', idx: 0, mime: 'image/png', data: Buffer.from('input') }],
-      db,
+      pixels,
     )
 
     await db.delete(tasks)
 
-    expect(await listTaskBlobs('cascade', 'input', db)).toEqual([])
+    expect(await listTaskBlobs('cascade', 'input', pixels)).toEqual([])
   })
 })

@@ -1,14 +1,6 @@
 import { Buffer } from 'node:buffer'
-import { randomUUID } from 'node:crypto'
-import {
-  type ImagePlaygroundDatabase,
-  type NewTaskBlob,
-  type TaskBlob,
-  task_blobs,
-  tasks,
-} from '@image-playground/db'
+import type { NewPixelObject, PixelStore, QueuePersistence } from '@image-playground/db'
 import type { TaskBlobRef } from '@image-playground/shared'
-import { and, asc, eq, lt } from 'drizzle-orm'
 import sharp from 'sharp'
 import { log } from './logger'
 
@@ -42,8 +34,6 @@ export interface InputTranscodeResult {
   transcoded: number
   failed: number
 }
-
-export type BlobDatabase = Pick<ImagePlaygroundDatabase, 'delete' | 'insert' | 'select' | 'update'>
 
 export interface BlobStoreLogger {
   error(details: Record<string, unknown>, message: string): void
@@ -97,27 +87,22 @@ export function rewriteInputDataUrls(inputImages: readonly unknown[]): Rewritten
   return { refs, blobs }
 }
 
-function taskBlobRows(taskId: string, blobs: readonly TaskBlobInput[]): NewTaskBlob[] {
-  const now = Date.now()
+function asPixels(blobs: readonly TaskBlobInput[]): NewPixelObject[] {
   return blobs.map((blob) => ({
-    id: randomUUID(),
-    task_id: taskId,
     kind: blob.kind,
     idx: blob.idx,
     mime: blob.mime,
     data: blob.data,
-    created_at: blob.createdAt ?? now,
+    createdAt: blob.createdAt,
   }))
 }
 
-/** 同步写入：Bun SQLite 的 `.run()` 是同步的，因此本函数可在 transaction 回调里直接调用。 */
-export function insertTaskBlobs(
+export async function insertTaskBlobs(
   taskId: string,
   blobs: readonly TaskBlobInput[],
-  database: BlobDatabase,
-): void {
-  if (blobs.length === 0) return
-  database.insert(task_blobs).values(taskBlobRows(taskId, blobs)).run()
+  pixels: PixelStore,
+): Promise<void> {
+  await pixels.putMany(taskId, asPixels(blobs))
 }
 
 export async function completeTaskWithBlobs(
@@ -125,55 +110,28 @@ export async function completeTaskWithBlobs(
   blobs: readonly TaskBlobInput[],
   resultPayload: unknown,
   completedAt: number,
-  database: ImagePlaygroundDatabase,
+  queue: QueuePersistence,
 ): Promise<boolean> {
-  return database.transaction((tx) => {
-    const completed = tx
-      .update(tasks)
-      .set({
-        status: 'completed',
-        result_payload: resultPayload,
-        completed_at: completedAt,
-      })
-      .where(and(eq(tasks.id, taskId), eq(tasks.status, 'in_progress')))
-      .returning({ id: tasks.id })
-      .all()
-    if (completed.length === 0) return false
-    insertTaskBlobs(taskId, blobs, tx)
-    return true
-  })
+  return queue.completeWithPixels(taskId, resultPayload, asPixels(blobs), completedAt)
 }
 
 export async function getTaskBlob(
   taskId: string,
   kind: TaskBlobKind,
   idx: number,
-  database: BlobDatabase,
-): Promise<TaskBlob | undefined> {
-  const [blob] = await database
-    .select()
-    .from(task_blobs)
-    .where(and(eq(task_blobs.task_id, taskId), eq(task_blobs.kind, kind), eq(task_blobs.idx, idx)))
-    .limit(1)
-  return blob
+  pixels: PixelStore,
+) {
+  return pixels.get(taskId, kind, idx)
 }
 
-export async function listTaskBlobs(
-  taskId: string,
-  kind: TaskBlobKind,
-  database: BlobDatabase,
-): Promise<TaskBlob[]> {
-  return database
-    .select()
-    .from(task_blobs)
-    .where(and(eq(task_blobs.task_id, taskId), eq(task_blobs.kind, kind)))
-    .orderBy(asc(task_blobs.idx))
+export async function listTaskBlobs(taskId: string, kind: TaskBlobKind, pixels: PixelStore) {
+  return pixels.list(taskId, kind)
 }
 
 export async function resolveInputDataUrls(
   taskId: string,
   inputImages: readonly unknown[],
-  database: BlobDatabase,
+  pixels: PixelStore,
 ): Promise<string[]> {
   if (!inputImages.some(isBlobRef)) {
     return inputImages.map((inputImage, idx) => {
@@ -185,7 +143,7 @@ export async function resolveInputDataUrls(
   }
 
   const blobsByIndex = new Map(
-    (await listTaskBlobs(taskId, 'input', database)).map((blob) => [blob.idx, blob]),
+    (await listTaskBlobs(taskId, 'input', pixels)).map((blob) => [blob.idx, blob]),
   )
   return inputImages.map((inputImage, idx) => {
     if (typeof inputImage === 'string') return inputImage
@@ -202,10 +160,10 @@ export async function resolveInputDataUrls(
 
 export async function transcodeInputBlobsToWebp(
   taskId: string,
-  database: BlobDatabase,
+  pixels: PixelStore,
   logger: BlobStoreLogger = log,
 ): Promise<InputTranscodeResult> {
-  const blobs = await listTaskBlobs(taskId, 'input', database)
+  const blobs = await listTaskBlobs(taskId, 'input', pixels)
   let transcoded = 0
   let failed = 0
 
@@ -214,15 +172,12 @@ export async function transcodeInputBlobsToWebp(
 
     try {
       const data = await sharp(blob.data).webp({ quality: 90 }).toBuffer()
-      await database
-        .update(task_blobs)
-        .set({ mime: 'image/webp', data })
-        .where(eq(task_blobs.id, blob.id))
+      await pixels.replaceBytes(taskId, 'input', blob.idx, 'image/webp', data)
       transcoded += 1
     } catch (error) {
       failed += 1
       logger.error(
-        { event: 'task_blob.input_transcode_failed', taskId, blobId: blob.id, error },
+        { event: 'task_blob.input_transcode_failed', taskId, idx: blob.idx, error },
         'failed to transcode input blob; retaining original bytes',
       )
     }
@@ -233,11 +188,7 @@ export async function transcodeInputBlobsToWebp(
 
 export async function deleteOutputBlobsOlderThan(
   cutoff: number,
-  database: BlobDatabase,
+  pixels: PixelStore,
 ): Promise<number> {
-  const deleted = await database
-    .delete(task_blobs)
-    .where(and(eq(task_blobs.kind, 'output'), lt(task_blobs.created_at, cutoff)))
-    .returning({ id: task_blobs.id })
-  return deleted.length
+  return pixels.deleteOutputsOlderThan(cutoff)
 }
