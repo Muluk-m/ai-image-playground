@@ -1,5 +1,8 @@
 export { createDb, type ImagePlaygroundDatabase } from './client'
 export { runMigrations } from './migrate'
+export { isPostgresUrl, openPersistence } from './open-persistence'
+export { runPgMigrations } from './pg-migrate'
+export { createPostgresPersistence, PgQueuePersistence } from './pg-persistence'
 export {
   currentQuotaDate,
   nextResetISO,
