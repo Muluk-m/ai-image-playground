@@ -9,6 +9,6 @@
 - [ ] 验证域名上：内置模型 submit → 完成 → 拉图成功
 - [ ] TKE 与 Postgres、R2、上游网络可达；不再依赖 macmini localhost 网关
 - [ ] 切正式 DNS 前旧 worker 队列已抽干；新旧不同时写一份库
-- [ ] 回滚口径写明：未双写的前提下可将 DNS 指回 macmini
-- [ ] 源站 idle 超时仍大于入口 keep-alive，避免切 CLB 后偶发 502
-- [ ] `/wizard` 覆盖：R2 前缀生命周期、集群 Secret、验证域名、正式 DNS 切换
+- [x] 回滚口径写明：未双写的前提下可将 DNS 指回 macmini
+- [x] 源站 idle 超时仍大于入口 keep-alive，避免切 CLB 后偶发 502
+- [x] `/wizard` 覆盖：R2 前缀生命周期、集群 Secret、验证域名、正式 DNS 切换
