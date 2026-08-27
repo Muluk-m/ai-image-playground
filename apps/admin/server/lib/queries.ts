@@ -99,7 +99,7 @@ export async function listDevices(range: Range, sort: SortKey): Promise<ListDevi
         ? sql`COUNT(*) DESC`
         : sql`today_count DESC`
 
-  // 单条聚合 SQL：避免 N+1。LEFT JOIN daily_quota 拿今日 count；GROUP_CONCAT 模型 chip。
+  // 单条聚合 SQL：避免 N+1。LEFT JOIN daily_quota 拿今日 count；模型 chip 走 modelsAggregateSql。
   // 注意：device_id 是 VIRTUAL 生成列，drizzle schema 没声明，只能 raw sql 访问。
   // db.all(sql`...`) 返回 unknown[]（每行一个 plain object，列名 = property key）
   const rows = (await db.all(sql`

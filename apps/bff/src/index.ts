@@ -1,3 +1,4 @@
+import { isPostgresUrl } from '@image-playground/db'
 import { QUEUE_TIMEOUTS, SERVER_IDLE_TIMEOUT_SEC } from '@image-playground/shared'
 import { app } from './app'
 import { config } from './config'
@@ -7,7 +8,7 @@ import { runMigrations } from './db/migrate'
 import { initChannels } from './lib/channels'
 import { log } from './lib/logger'
 
-runMigrations()
+if (!isPostgresUrl(config.databaseUrl)) runMigrations()
 
 const channelsResult = initChannels(config.channelsFile ?? undefined)
 for (const warning of channelsResult.warnings) {

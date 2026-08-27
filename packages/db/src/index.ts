@@ -12,6 +12,7 @@ export {
   tryConsumeQuotaSync,
 } from './quota'
 export {
+  createR2ObjectBucket,
   MemoryObjectBucket,
   type ObjectBucket,
   ObjectPixelStore,

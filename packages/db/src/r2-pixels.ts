@@ -34,6 +34,42 @@ export class MemoryObjectBucket implements ObjectBucket {
   }
 }
 
+export function createR2ObjectBucket(env: {
+  accountId: string
+  accessKeyId: string
+  secretAccessKey: string
+  bucket: string
+}): ObjectBucket {
+  const s3 = new Bun.S3Client({
+    accessKeyId: env.accessKeyId,
+    secretAccessKey: env.secretAccessKey,
+    bucket: env.bucket,
+    endpoint: `https://${env.accountId}.r2.cloudflarestorage.com`,
+  })
+  return {
+    async put(key, data, mime) {
+      await s3.write(key, data, { type: mime })
+    },
+    async get(key) {
+      const file = s3.file(key)
+      if (!(await file.exists())) return undefined
+      return {
+        mime: file.type || 'application/octet-stream',
+        data: Buffer.from(await file.arrayBuffer()),
+      }
+    },
+    async list(prefix) {
+      const result = await s3.list({ prefix })
+      return (result.contents ?? [])
+        .map((entry) => entry.key)
+        .filter((key): key is string => Boolean(key))
+    },
+    async delete(key) {
+      await s3.delete(key)
+    },
+  }
+}
+
 export class ObjectPixelStore implements PixelStore {
   constructor(private readonly bucket: ObjectBucket) {}
 

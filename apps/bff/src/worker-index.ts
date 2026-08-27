@@ -1,3 +1,4 @@
+import { isPostgresUrl } from '@image-playground/db'
 import { QUEUE_TIMEOUTS } from '@image-playground/shared'
 import { config } from './config'
 import { checkpointWal } from './db/client'
@@ -8,7 +9,7 @@ import { log } from './lib/logger'
 import { abortAllRunningTasks } from './workers/task-runner'
 import { TaskScheduler } from './workers/task-scheduler'
 
-runMigrations()
+if (!isPostgresUrl(config.databaseUrl)) runMigrations()
 
 const channelsResult = initChannels(config.channelsFile ?? undefined)
 for (const warning of channelsResult.warnings) {
