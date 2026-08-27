@@ -26,4 +26,16 @@ EOF
 
 echo "[entrypoint] wrote runtime-config.json (bff.enabled=${BFF_ENABLED:-true}, bff.baseUrl='${BFF_BASE_URL:-}')"
 
+if [ "$#" -eq 0 ]; then
+  case "${APP_ROLE:-bff}" in
+    bff) set -- bun run /app/apps/bff/src/index.ts ;;
+    worker) set -- bun run /app/apps/bff/src/worker-index.ts ;;
+    admin) set -- bun run /app/apps/admin/server/index.ts ;;
+    *)
+      echo "[entrypoint] unknown APP_ROLE=${APP_ROLE}" >&2
+      exit 1
+      ;;
+  esac
+fi
+
 exec "$@"

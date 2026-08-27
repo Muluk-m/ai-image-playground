@@ -4,10 +4,10 @@
 
 **Blocked by:** 03 — 像素对象经 Pixel store（内存 adapter）
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] 生产 Pixel store adapter 按 `image-playground/{taskId}/input|output/{idx}` 读写
-- [ ] Queue HTTP 出图契约不变；浏览器拿不到公开 R2 URL
-- [ ] 行为测试仍注入内存 adapter，不打真实 R2
-- [ ] 文档/运行说明写明：生命周期规则必须绑此前缀、禁止整桶过期
-- [ ] 孤儿对象依赖 7 天过期回收，应用不再靠扫库删像素字节来保证正确性
+- [x] 生产 Pixel store adapter 按 `image-playground/{taskId}/input|output/{idx}` 读写
+- [x] Queue HTTP 出图契约不变；浏览器拿不到公开 R2 URL
+- [x] 行为测试仍注入内存 adapter，不打真实 R2
+- [x] 文档/运行说明写明：生命周期规则必须绑此前缀、禁止整桶过期
+- [x] 孤儿对象依赖 7 天过期回收，应用不再靠扫库删像素字节来保证正确性

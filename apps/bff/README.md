@@ -84,7 +84,8 @@ channel kind `openai-queue` / `gemini-queue` 在前端层用，到 BFF URL 就�
 | 变量 | 默认值 | 说明 |
 |---|---|---|
 | `PORT` | `37377` | BFF 监听端口 |
-| `DATABASE_URL` | `../../artifacts/image-playground.sqlite` | SQLite 文件路径 |
+| `DATABASE_URL` | sqlite file locally; `postgres://…` in TKE | Task store. Production must be Postgres. |
+| `R2_ACCOUNT_ID` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / `R2_BUCKET` | — | Pixel store. Bucket `ai-images`, prefix `image-playground/` only. Lifecycle 7 days on that prefix — never the whole bucket. |
 | `CORS_ALLOWED_ORIGINS` | `*` | CORS 允许的浏览器 origin，多个用逗号分隔；生产请收紧 |
 | `STATIC_DIR` | `(空)` | 设为 `apps/web/dist` 让 BFF 同进程托管前端 |
 | `CHANNELS_FILE` | `(空)` | 覆盖 `apps/bff/channels.json` 路径 |

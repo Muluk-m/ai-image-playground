@@ -30,6 +30,7 @@ COPY apps/web/package.json ./apps/web/
 COPY apps/bff/package.json ./apps/bff/
 COPY apps/admin/package.json ./apps/admin/
 COPY packages/shared/package.json ./packages/shared/
+COPY packages/db/package.json ./packages/db/
 
 RUN pnpm install --frozen-lockfile
 
@@ -37,7 +38,8 @@ RUN pnpm install --frozen-lockfile
 FROM deps AS web-build
 WORKDIR /app
 COPY . .
-RUN pnpm --filter @image-playground/web build
+RUN pnpm --filter @image-playground/web build \
+  && pnpm --filter @image-playground/admin build
 
 # ─── Stage 3: 运行时 ────────────────────────────────────────────────
 FROM oven/bun:1 AS runtime
@@ -47,18 +49,26 @@ WORKDIR /app
 # 顶层 lockfile + workspace manifest（让 bun 能解析 workspace 引用）
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/apps/bff/node_modules ./apps/bff/node_modules
+COPY --from=deps /app/apps/admin/node_modules ./apps/admin/node_modules
 COPY --from=deps /app/packages/shared/node_modules ./packages/shared/node_modules
+COPY --from=deps /app/packages/db/node_modules ./packages/db/node_modules
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/bff ./apps/bff
+COPY apps/admin/server ./apps/admin/server
+COPY apps/admin/package.json ./apps/admin/package.json
 COPY packages/shared ./packages/shared
+COPY packages/db ./packages/db
 COPY --from=web-build /app/apps/web/dist ./apps/web/dist
+COPY --from=web-build /app/apps/admin/dist ./apps/admin/dist
 COPY scripts/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 # BFF 默认接 web/dist，跟 BFF 同进程托管前端
 ENV STATIC_DIR=/app/apps/web/dist
+ENV ADMIN_DIST_DIR=/app/apps/admin/dist
 ENV PORT=37377
 ENV BFF_ENABLED=true
+ENV APP_ROLE=bff
 
 EXPOSE 37377
 

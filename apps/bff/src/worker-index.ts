@@ -25,12 +25,22 @@ if (recovery.failed > 0) {
 
 const scheduler = new TaskScheduler()
 scheduler.start()
+
+const healthPort = Number(process.env.WORKER_HEALTH_PORT ?? 0)
+if (healthPort > 0) {
+  Bun.serve({
+    port: healthPort,
+    fetch: () => Response.json({ ok: true }),
+  })
+}
+
 log.info(
   {
     event: 'worker.started',
     pollIntervalMs: config.worker.pollIntervalMs,
     openaiConcurrency: config.worker.concurrency.openaiCompat,
     geminiConcurrency: config.worker.concurrency.gemini,
+    healthPort: healthPort || undefined,
   },
   'task worker started',
 )
