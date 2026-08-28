@@ -1,11 +1,9 @@
 # syntax=docker/dockerfile:1.6
 #
-# TKE image for bff / worker / admin (APP_ROLE). Public web is Cloudflare Pages.
+# Single-VPS image for bff / worker / admin (APP_ROLE). Public web is Cloudflare Pages.
 #
-#   docker build -t ai-image-playground .
-#   docker run -p 37377:37377 -e APP_ROLE=bff -e DATABASE_URL=postgres://… ai-image-playground
-#   docker run -e APP_ROLE=worker -e DATABASE_URL=postgres://… ai-image-playground
-#   docker run -p 37378:37378 -e APP_ROLE=admin -e DATABASE_URL=postgres://… ai-image-playground
+#   docker compose up -d --build
+#   # or: docker build -t ai-image-playground .
 
 FROM oven/bun:1 AS deps
 WORKDIR /app

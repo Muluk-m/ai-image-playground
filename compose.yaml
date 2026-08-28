@@ -1,0 +1,113 @@
+# Single VPS: Postgres + BFF + worker + admin. Public web is Cloudflare Pages.
+# Do not scale worker. Do not cut image.nainma.online DNS.
+#
+#   cp .env.example .env   # fill secrets
+#   docker compose up -d --build
+
+name: ai-image-playground
+
+x-app: &app
+  image: ai-image-playground:local
+  build: .
+  restart: unless-stopped
+  init: true
+  env_file:
+    - path: .env
+      required: false
+  stop_grace_period: 60s
+  logging:
+    driver: json-file
+    options:
+      max-size: 10m
+      max-file: "3"
+  depends_on:
+    postgres:
+      condition: service_healthy
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: playground
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: playground
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U playground -d playground"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+  bff:
+    <<: *app
+    environment:
+      APP_ROLE: bff
+      PORT: "37377"
+      STATIC_DIR: ""
+      DATABASE_URL: postgres://playground:${POSTGRES_PASSWORD}@postgres:5432/playground
+    ports:
+      - "37377:37377"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "bun",
+          "-e",
+          "fetch('http://127.0.0.1:37377/health').then((r)=>process.exit(r.ok?0:1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  worker:
+    <<: *app
+    environment:
+      APP_ROLE: worker
+      DATABASE_URL: postgres://playground:${POSTGRES_PASSWORD}@postgres:5432/playground
+      WORKER_HEALTH_PORT: "37379"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "bun",
+          "-e",
+          "fetch('http://127.0.0.1:37379/').then((r)=>process.exit(r.ok?0:1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  admin:
+    <<: *app
+    environment:
+      APP_ROLE: admin
+      PORT: "37378"
+      DATABASE_URL: postgres://playground:${POSTGRES_PASSWORD}@postgres:5432/playground
+      BFF_INTERNAL_URL: http://bff:37377
+      ADMIN_DIST_DIR: /app/apps/admin/dist
+    ports:
+      - "127.0.0.1:37378:37378"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "bun",
+          "-e",
+          "fetch('http://127.0.0.1:37378/health').then((r)=>process.exit(r.ok?0:1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+volumes:
+  pgdata:
