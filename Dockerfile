@@ -8,10 +8,12 @@
 FROM oven/bun:1 AS deps
 WORKDIR /app
 
+ARG PNPM_VERSION=10.33.3
 RUN apt-get update -qq && apt-get install -y --no-install-recommends curl ca-certificates \
   && rm -rf /var/lib/apt/lists/* \
-  && curl -fsSL https://get.pnpm.io/install.sh | env SHELL=/bin/bash PNPM_VERSION=10.33.3 bash - \
-  && ln -s /root/.local/share/pnpm/pnpm /usr/local/bin/pnpm
+  && curl -fsSL https://get.pnpm.io/install.sh | env SHELL=/bin/bash PNPM_VERSION=${PNPM_VERSION} bash - \
+  && ln -sf /root/.local/share/pnpm/.tools/pnpm-exe/${PNPM_VERSION}/pnpm /usr/local/bin/pnpm \
+  && pnpm --version
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json ./
 COPY apps/web/package.json ./apps/web/
