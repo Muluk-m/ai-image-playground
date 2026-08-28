@@ -47,6 +47,7 @@ services:
 
   bff:
     <<: *app
+    command: ["bun", "run", "/app/apps/bff/src/index.ts"]
     environment:
       APP_ROLE: bff
       PORT: "37377"
@@ -69,6 +70,7 @@ services:
 
   worker:
     <<: *app
+    command: ["bun", "run", "/app/apps/bff/src/worker-index.ts"]
     environment:
       APP_ROLE: worker
       DATABASE_URL: postgres://playground:${POSTGRES_PASSWORD}@postgres:5432/playground
@@ -88,6 +90,7 @@ services:
 
   admin:
     <<: *app
+    command: ["bun", "run", "/app/apps/admin/server/index.ts"]
     environment:
       APP_ROLE: admin
       PORT: "37378"

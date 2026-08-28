@@ -29,7 +29,7 @@ else
   echo "[entrypoint] no ${DIST_DIR}; skip runtime-config (public web is not in this image)"
 fi
 
-if [ "$#" -eq 0 ]; then
+if [ "$#" -eq 0 ] || [ "$1" = "bun" ]; then
   case "${APP_ROLE:-bff}" in
     bff) set -- bun run /app/apps/bff/src/index.ts ;;
     worker) set -- bun run /app/apps/bff/src/worker-index.ts ;;
