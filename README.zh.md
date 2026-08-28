@@ -83,7 +83,7 @@ pnpm dev:web        # 起前端，打开 http://localhost:5173
 
 ```bash
 pnpm install
-# 先把 apps/web/cf/runtime-config.json 的 bff.baseUrl 改成 TKE BFF 地址
+# 先把 apps/web/cf/runtime-config.json 的 bff.baseUrl 改成 VPS BFF 地址
 ./scripts/deploy-cloudflare.sh
 ```
 
@@ -96,18 +96,16 @@ pnpm install && pnpm --filter @image-playground/web build
 
 用户自己在页面里填 API key，浏览器直连模型上游。**不支持 1 分钟以上的长任务**（edge 平台超时）。
 
-### 选项 2 · Docker（API / worker / admin；长任务 + 预置服务商）
+### 选项 2 · 单机 VPS（API / worker / admin + Postgres）
 
-镜像不再带公开前端。把 Cloudflare Pages 的 `bff.baseUrl` 指到这套 BFF。
+镜像不再带公开前端。把 Cloudflare Pages 的 `bff.baseUrl` 指到这套 BFF。不要扩 `worker` 副本。
 
 ```bash
-docker build -t ai-image-playground .
-docker run -p 37377:37377 -e APP_ROLE=bff -e DATABASE_URL=postgres://… \
-  -e OPENAI_API_KEY=sk-... -e GEMINI_API_KEY=... \
-  ai-image-playground
+cp .env.example .env   # 填密钥
+docker compose up -d --build
 ```
 
-`APP_ROLE` 为 `bff`、`worker` 或 `admin`。镜像内 `channels.json` 是预置服务商列表。
+BFF 听 `:37377`。Admin 绑 `127.0.0.1:37378`（SSH 隧道）。`APP_ROLE` 为 `bff`、`worker` 或 `admin`。
 
 详细配置（runtime-config / channels.json / 环境变量）见 [`apps/bff/README.md`](./apps/bff/README.md)。
 

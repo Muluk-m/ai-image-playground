@@ -83,7 +83,7 @@ The repo ships `vercel.json`, `netlify.toml`, and `wrangler.jsonc` for the monor
 
 ```bash
 pnpm install
-# set bff.baseUrl in apps/web/cf/runtime-config.json to the TKE BFF origin
+# set bff.baseUrl in apps/web/cf/runtime-config.json to the VPS BFF origin
 ./scripts/deploy-cloudflare.sh
 ```
 
@@ -96,18 +96,16 @@ pnpm install && pnpm --filter @image-playground/web build
 
 Users plug in their own API key in the UI; the browser talks to the upstream directly. **Jobs longer than ~1 minute won't work** (edge timeouts).
 
-### Option 2 · Docker (API / worker / admin; long jobs + preset providers)
+### Option 2 · Single VPS (API / worker / admin + Postgres)
 
-The image does not ship the public web UI. Point Cloudflare Pages `bff.baseUrl` at this BFF.
+The image does not ship the public web UI. Point Cloudflare Pages `bff.baseUrl` at this BFF. Do not scale `worker`.
 
 ```bash
-docker build -t ai-image-playground .
-docker run -p 37377:37377 -e APP_ROLE=bff -e DATABASE_URL=postgres://… \
-  -e OPENAI_API_KEY=sk-... -e GEMINI_API_KEY=... \
-  ai-image-playground
+cp .env.example .env   # fill keys
+docker compose up -d --build
 ```
 
-`APP_ROLE` is `bff`, `worker`, or `admin`. `channels.json` in the image lists preset providers.
+BFF listens on `:37377`. Admin binds `127.0.0.1:37378` (SSH tunnel). `APP_ROLE` is `bff`, `worker`, or `admin`.
 
 Full configuration reference (runtime-config / channels.json / env vars) is in [`apps/bff/README.md`](./apps/bff/README.md).
 
