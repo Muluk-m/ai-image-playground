@@ -79,7 +79,6 @@ export const config = {
     get secretAccessKey(): string {
       return env('S3_SECRET_ACCESS_KEY')
     },
-    /** Shared-bucket deployments confine their objects to one prefix. */
     get keyPrefix(): string {
       return normalizeKeyPrefix(process.env.S3_KEY_PREFIX)
     },

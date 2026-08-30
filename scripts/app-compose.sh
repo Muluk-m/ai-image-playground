@@ -97,7 +97,6 @@ require_tunnel_credentials() {
   fi
 }
 
-# The public frontend is hosted separately, so this project starts no nginx.
 activate_backend_then_ingress() {
   compose up --detach --wait "$@" dependency-check bff worker admin
   compose up --detach --wait "$@" cloudflared pg-backup
