@@ -7,6 +7,7 @@ import {
   type SubmitResponse,
 } from '@image-playground/shared'
 import type { TaskParams } from '../../types'
+import { authenticatedBffFetch } from '../authClient'
 import { getDeviceId } from '../deviceId'
 import {
   assertImageInputPayloadSize,
@@ -159,19 +160,42 @@ async function submit(
   if (clientRequestId) body.client_request_id = clientRequestId
 
   const url = `${base}/v1/queue/${provider}/${encodeURIComponent(model)}/submit`
-  const res = await fetch(url, {
+  const res = await authenticatedBffFetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
+  if (res.status === 402) {
+    const json = (await res.json().catch(() => null)) as {
+      error?: string
+      required?: number
+      available?: number
+    } | null
+    if (json?.error === 'insufficient_credits') {
+      const err = new Error('积分不足，请充值或开通套餐后再生成') as Error & {
+        insufficientCredits: true
+        required?: number
+        available?: number
+      }
+      err.insufficientCredits = true
+      if (typeof json.required === 'number') err.required = json.required
+      if (typeof json.available === 'number') err.available = json.available
+      throw err
+    }
+  }
   if (!res.ok) {
     if (res.status === 429) {
       const json = (await res.json().catch(() => null)) as {
         error?: string
         reset_at?: string
+        quota?: number
       } | null
       if (json?.error === 'daily_quota_exceeded') {
-        const err = new Error('今日 80 张已用完，UTC 0 点（北京 8 点）后重置') as Error & {
+        const exhausted =
+          typeof json.quota === 'number' && Number.isSafeInteger(json.quota) && json.quota >= 0
+            ? `今日 ${json.quota} 张已用完`
+            : '今日生成额度已用完'
+        const err = new Error(`${exhausted}，UTC 0 点（北京 8 点）后重置`) as Error & {
           quotaExceeded: boolean
           resetAt?: string
         }
@@ -200,7 +224,7 @@ type PollOutcome =
 async function classifyPollResponse(url: string): Promise<PollOutcome> {
   let res: Response
   try {
-    res = await fetch(url)
+    res = await authenticatedBffFetch(url)
   } catch (err) {
     return { kind: 'transient', error: err }
   }
@@ -264,7 +288,7 @@ async function poll(base: string, requestId: string): Promise<StatusResultMeta |
 
 async function fetchResultMeta(base: string, requestId: string): Promise<ResultResponse> {
   const url = `${base}/v1/queue/requests/${requestId}`
-  const res = await fetch(url)
+  const res = await authenticatedBffFetch(url)
   if (!res.ok) {
     throw new Error(`BFF result meta 拉取失败：${await getApiErrorMessage(res)}`)
   }
@@ -286,7 +310,7 @@ async function fetchImageDataUrl(
   signal: AbortSignal,
 ): Promise<string> {
   const url = `${base}/v1/queue/requests/${requestId}/image/${index}`
-  const res = await fetch(url, { signal })
+  const res = await authenticatedBffFetch(url, { signal })
   if (!res.ok) {
     throw new Error(`BFF image #${index} 拉取失败：${await getApiErrorMessage(res)}`)
   }

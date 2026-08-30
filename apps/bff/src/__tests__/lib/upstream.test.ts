@@ -3,12 +3,10 @@ import { Buffer, File } from 'node:buffer'
 import sharp from 'sharp'
 import { FormData as UndiciFormData } from 'undici'
 
-// 注入测试环境变量，必须早于 config import。
-// DATABASE_URL 跟 routes.test.ts 用同一路径——config 是模块顶层捕获，
-// 测试间共享 process，路径不一致会让 routes.test.ts 的 db client 指错文件。
+// Inject before importing config, which captures process environment at module initialization.
 process.env.UPSTREAM_BASE_URL = 'http://localhost:9999'
 process.env.UPSTREAM_API_KEY = 'test-key'
-process.env.DATABASE_URL = './artifacts/test-routes.sqlite'
+process.env.DATABASE_URL = process.env.TEST_DATABASE_URL ?? ''
 process.env.PORT = '0'
 
 const {
@@ -73,6 +71,36 @@ describe('callUpstream OpenAI route', () => {
     expect(typeof body).toBe('string')
     const parsed = JSON.parse(body as string)
     expect(parsed).toMatchObject({ model: 'gpt-image-2', prompt: 'a cat', size: '1024x1024' })
+  })
+
+  it('records every dispatch when OpenAI fans out the requested image count', async () => {
+    let dispatches = 0
+    await callUpstream({
+      provider: 'openai-compat',
+      model: 'gpt-image-2',
+      request: { prompt: 'a cat', n: 4 },
+      beforeRequest: async () => {
+        dispatches += 1
+      },
+    })
+    expect(dispatches).toBe(4)
+  })
+
+  it('starts the accounted request before applying a concurrent cancellation', async () => {
+    const controller = new AbortController()
+
+    await callUpstream({
+      provider: 'openai-compat',
+      model: 'gpt-image-2',
+      request: { prompt: 'a cat' },
+      signal: controller.signal,
+      beforeRequest: async () => {
+        controller.abort()
+      },
+    }).catch(() => undefined)
+
+    expect(calls).toHaveLength(1)
+    expect(calls[0]!.init?.signal?.aborted).toBe(true)
   })
 
   it('forwards OpenAI output controls in the generations JSON body', async () => {
@@ -186,7 +214,30 @@ describe('callUpstream OpenAI route', () => {
     expect(calls).toHaveLength(0)
   })
 
-  it('with input_images and n>1: sends one edit request per image and omits n', async () => {
+  it('fans out OpenAI edits without forwarding n into the upstream image tool', async () => {
+    setUpstreamFetchForTesting((async (
+      input: Parameters<TestFetch>[0],
+      init: Parameters<TestFetch>[1],
+    ) => {
+      calls.push({ url: typeof input === 'string' ? input : input.toString(), init })
+      const form = init?.body as UndiciFormData
+      if (form.get('n') !== null) {
+        return new Response(
+          JSON.stringify({
+            error: {
+              message: "Unknown parameter: 'tools[0].n'.",
+              param: 'tools[0].n',
+              type: 'invalid_request_error',
+            },
+          }),
+          { status: 400, headers: { 'content-type': 'application/json' } },
+        )
+      }
+      return new Response(JSON.stringify({ data: [{ b64_json: `ok-${calls.length}` }] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    }) as unknown as TestFetch)
     const result = await callUpstream({
       provider: 'openai-compat',
       model: 'gpt-image-2',
@@ -194,17 +245,19 @@ describe('callUpstream OpenAI route', () => {
         prompt: 'edit',
         n: 3,
         input_images: [TINY_PNG_DATA_URL],
+        extra: { n: 99, strength: 0.5 },
       },
     })
-    const payload = result.payload as { data: unknown[] }
-    expect(payload.data).toHaveLength(3)
+
     expect(calls).toHaveLength(3)
     for (const call of calls) {
-      expect(call.url).toMatch(/\/v1\/images\/edits$/)
       const form = call.init?.body as UndiciFormData
       expect(form.get('n')).toBeNull()
-      expect(form.getAll('image[]')).toHaveLength(1)
+      expect(form.get('strength')).toBe('0.5')
     }
+    expect(result.payload).toMatchObject({
+      data: [{ b64_json: 'ok-1' }, { b64_json: 'ok-2' }, { b64_json: 'ok-3' }],
+    })
   })
 
   it('without input_images and n>1: sends one generation request per image and omits n', async () => {
@@ -391,6 +444,19 @@ describe('callUpstream 独立直连 channel 路由（CHANNEL_ROUTE_STYLES）', (
     })
   })
 
+  it('records every Gemini fan-out request at dispatch time', async () => {
+    let dispatches = 0
+    await callUpstream({
+      provider: 'gemini',
+      model: 'gemini-3.1-flash-image',
+      request: { prompt: 'a cat', n: 4 },
+      beforeRequest: async () => {
+        dispatches += 1
+      },
+    })
+    expect(dispatches).toBe(4)
+  })
+
   it('gemini extra.generationConfig 保持最终覆盖优先级', async () => {
     await callUpstream({
       provider: 'gemini',
@@ -479,13 +545,17 @@ describe('callUpstream direct channel 图生图（Agnes 风格 generations JSON�
     expect(body.n).toBeUndefined()
   })
 
-  it('带 mask：立即永久失败（upstreamStatus=400 不触发重试）', async () => {
+  it('带 mask：在请求记账前立即永久失败（upstreamStatus=400 不触发重试）', async () => {
     let caught: (Error & { upstreamStatus?: number }) | null = null
+    let dispatches = 0
     try {
       await callUpstream({
         provider: 'openai-compat',
         model: 'agnes-image-2.1-flash',
         request: { prompt: 'edit', input_images: [TINY_PNG_DATA_URL], mask: TINY_PNG_DATA_URL },
+        beforeRequest: async () => {
+          dispatches += 1
+        },
       })
     } catch (err) {
       caught = err as Error & { upstreamStatus?: number }
@@ -493,16 +563,22 @@ describe('callUpstream direct channel 图生图（Agnes 风格 generations JSON�
     expect(caught).not.toBeNull()
     expect(caught!.message).toContain('遮罩')
     expect(caught!.upstreamStatus).toBe(400)
+    expect(dispatches).toBe(0)
     expect(calls).toHaveLength(0)
   })
 
   it('n=3：fan-out 3 次并发请求并合并 data（上游忽略 n 参数）', async () => {
+    let dispatches = 0
     const result = await callUpstream({
       provider: 'openai-compat',
       model: 'agnes-image-2.1-flash',
       request: { prompt: 'a star', n: 3 },
+      beforeRequest: async () => {
+        dispatches += 1
+      },
     })
     expect(calls).toHaveLength(3)
+    expect(dispatches).toBe(3)
     for (const c of calls) {
       const body = JSON.parse(c.init?.body as string)
       expect(body.n).toBeUndefined()

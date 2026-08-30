@@ -1,0 +1,199 @@
+x-application-environment: &application-environment
+  env_file:
+    - path: ${APP_ENV_FILE:-/Users/qiqian/.config/ai-image-playground/apps/${COMPOSE_PROJECT_NAME}/app.env}
+      required: true
+
+x-application-service: &application-service
+  <<: *application-environment
+  image: ${APP_IMAGE:-ai-image-playground:local}
+  init: true
+  restart: unless-stopped
+
+x-operator-config-volumes: &operator-config-volumes
+  - type: bind
+    source: ${APP_CONFIG_DIR:-/Users/qiqian/.config/ai-image-playground/apps/${COMPOSE_PROJECT_NAME}}
+    target: /run/operator
+    read_only: true
+    bind:
+      create_host_path: false
+
+services:
+  dependency-check:
+    <<: *application-service
+    environment:
+      APP_ROLE: dependency-check
+    restart: on-failure:12
+    command:
+      - bun
+      - run
+      - /app/scripts/check-dependencies.ts
+    networks:
+      - application-infra
+
+  migrate:
+    <<: *application-service
+    env_file:
+      - path: ${APP_ENV_FILE:-/Users/qiqian/.config/ai-image-playground/apps/${COMPOSE_PROJECT_NAME}/app.env}
+        required: true
+      - path: ${MIGRATOR_ENV_FILE:?Set MIGRATOR_ENV_FILE to the external migrator environment file}
+        required: true
+    environment:
+      APP_ROLE: migrate
+    restart: "no"
+    command:
+      - bun
+      - run
+      - /app/apps/bff/src/db/migrate.ts
+    depends_on:
+      dependency-check:
+        condition: service_completed_successfully
+    networks:
+      - application-infra
+    volumes: *operator-config-volumes
+
+  bff:
+    <<: *application-service
+    environment:
+      APP_ROLE: bff
+      PORT: "37377"
+      STATIC_DIR: ""
+      # The trusted domain proxy overwrites one canonical address; nginx forwards only that value.
+      CLIENT_IP_SOURCE: x-forwarded-for
+    command:
+      - bun
+      - run
+      - /app/apps/bff/src/index.ts
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    stop_grace_period: 75s
+    networks:
+      - application
+      - application-infra
+    volumes: *operator-config-volumes
+    healthcheck:
+      test:
+        - CMD
+        - bun
+        - run
+        - /app/apps/bff/src/container-healthcheck.ts
+        - http://127.0.0.1:37377/health
+        - /tmp/bff-health.json
+        - "12"
+        - "3"
+        - "60000"
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+
+  worker:
+    <<: *application-service
+    environment:
+      APP_ROLE: worker
+      WORKER_HEALTH_PORT: "37379"
+    command:
+      - bun
+      - run
+      - /app/apps/bff/src/worker-index.ts
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    stop_grace_period: 75s
+    networks:
+      - application
+      - application-infra
+    volumes: *operator-config-volumes
+    healthcheck:
+      test:
+        - CMD
+        - bun
+        - run
+        - /app/apps/bff/src/container-healthcheck.ts
+        - http://127.0.0.1:37379/health
+        - /tmp/worker-health.json
+        - "1"
+        - "3"
+        - "60000"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  admin:
+    <<: *application-service
+    environment:
+      APP_ROLE: admin
+      PORT: "37378"
+      ADMIN_DIST_DIR: /app/apps/admin/dist
+      BFF_INTERNAL_URL: http://bff:37377
+    command:
+      - bun
+      - run
+      - /app/apps/admin/server/index.ts
+    depends_on:
+      bff:
+        condition: service_healthy
+      dependency-check:
+        condition: service_completed_successfully
+    stop_grace_period: 30s
+    networks:
+      application:
+      application-infra:
+      edge:
+        aliases:
+          - ${COMPOSE_PROJECT_NAME}-admin
+    healthcheck:
+      test:
+        - CMD
+        - bun
+        - run
+        - /app/apps/bff/src/container-healthcheck.ts
+        - http://127.0.0.1:37378/health
+        - /tmp/admin-health.json
+        - "12"
+        - "3"
+        - "60000"
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+
+  web:
+    <<: *application-service
+    environment:
+      APP_ROLE: web
+      RUNTIME_CONFIG_FILE: /usr/share/nginx/html/runtime-config.json
+    command:
+      - nginx
+      - -g
+      - daemon off;
+    depends_on:
+      bff:
+        condition: service_healthy
+    stop_grace_period: 15s
+    networks:
+      application:
+      edge:
+        aliases:
+          - ${COMPOSE_PROJECT_NAME}-web
+    healthcheck:
+      test:
+        - CMD
+        - bun
+        - -e
+        - "const response = await fetch('http://127.0.0.1:8080/nginx-health'); process.exit(response.ok ? 0 : 1)"
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+
+
+networks:
+  application:
+  application-infra:
+    external: true
+    name: ${INFRA_NETWORK_NAME:-image-playground-infra}
+  edge:
+    external: true
+    name: ${EDGE_NETWORK_NAME:-image-playground-edge}

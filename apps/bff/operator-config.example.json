@@ -1,0 +1,21 @@
+{
+  "preset": "authenticated-example",
+  "presets": {
+    "authenticated-example": {
+      "capabilities": {
+        "accounts:login": true,
+        "accounts:self-register": false
+      }
+    }
+  },
+  "capabilities": {
+    "billing:credits": false,
+    "generation:byok": false,
+    "operator:console": false,
+    "quota:daily": false
+  },
+  "quotas": {
+    "generation:daily-images": 0
+  },
+  "channelsFile": "/run/operator/channels.json"
+}

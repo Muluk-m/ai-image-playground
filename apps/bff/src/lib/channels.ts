@@ -26,6 +26,7 @@ import type {
   DiscoveredChannel,
 } from '@image-playground/shared'
 import { CHANNEL_CAPABILITIES } from '@image-playground/shared'
+import { isObject } from './type-guards'
 
 export type ChannelAuthType = 'bearer' | 'query-key'
 
@@ -69,10 +70,6 @@ const VALID_AUTH_TYPES: readonly ChannelAuthType[] = ['bearer', 'query-key']
 // 类型注解只约束成员合法，不保证列全，两边悄悄漂移后新 token 会在启动校验时炸掉整个 BFF。
 const VALID_CAPABILITIES: readonly ChannelCapability[] = CHANNEL_CAPABILITIES
 const ID_PATTERN = /^[a-z0-9][a-z0-9-]*$/
-
-function isObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v)
-}
 
 function isStringArray(v: unknown): v is string[] {
   return Array.isArray(v) && v.every((x) => typeof x === 'string')

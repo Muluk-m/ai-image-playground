@@ -1,44 +1,29 @@
 import { describe, expect, it } from 'vitest'
-
 import { countInputImages, inputImageMaxIdx } from '../../lib/request-helpers'
 
 describe('countInputImages', () => {
-  it('counts OpenAI input_images with legacy data URLs and blob refs', () => {
-    const result = countInputImages('openai-compat', {
-      input_images: ['data:image/png;base64,AAAA', { $blob: 1 }],
+  it('counts archived input references and a mask in BFF resolver order', () => {
+    const count = countInputImages('openai-compat', {
+      input_images: [
+        { object: 'task-1/in/0', mime: 'image/png' },
+        { object: 'task-1/in/1', mime: 'image/jpeg' },
+      ],
+      mask: { object: 'task-1/in/2', mime: 'image/png' },
     })
 
-    expect(result).toEqual({ kind: 'count', count: 2 })
-    expect(inputImageMaxIdx(result)).toBe(1)
+    expect(count).toEqual({ kind: 'count', count: 3 })
+    expect(inputImageMaxIdx(count)).toBe(2)
   })
 
-  it('counts Gemini input_images with legacy data URLs and blob refs', () => {
-    const result = countInputImages('gemini', {
-      input_images: [{ $blob: 0 }, 'data:image/jpeg;base64,AAAA', { $blob: 2 }],
-    })
-
-    expect(result).toEqual({ kind: 'count', count: 3 })
-  })
-
-  it('preserves the legacy Gemini contents inlineData fallback', () => {
+  it('prefers archived references over legacy Gemini inline data', () => {
     expect(
       countInputImages('gemini', {
+        input_images: [{ object: 'task-2/in/0', mime: 'image/png' }],
         contents: [
-          { parts: [{ text: 'prompt' }, { inlineData: { mimeType: 'image/png' } }] },
-          { parts: [{ inlineData: { mimeType: 'image/jpeg' } }] },
+          { parts: [{ inlineData: { mimeType: 'image/png', data: 'legacy-1' } }] },
+          { parts: [{ inlineData: { mimeType: 'image/png', data: 'legacy-2' } }] },
         ],
       }),
-    ).toEqual({ kind: 'count', count: 2 })
-  })
-
-  it('preserves OpenAI multipart image as not archived when input_images is absent', () => {
-    expect(countInputImages('openai-compat', { image: 'multipart-file' })).toEqual({
-      kind: 'not_archived',
-    })
-  })
-
-  it('returns none when no stored input images exist', () => {
-    expect(countInputImages('openai-compat', {})).toEqual({ kind: 'none' })
-    expect(countInputImages('gemini', { contents: [] })).toEqual({ kind: 'none' })
+    ).toEqual({ kind: 'count', count: 1 })
   })
 })

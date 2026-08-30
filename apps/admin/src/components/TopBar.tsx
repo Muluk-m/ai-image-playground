@@ -1,9 +1,11 @@
-import { useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useLocation, useNavigate } from '@tanstack/react-router'
-import { LogOut, RefreshCw } from 'lucide-react'
+import { Activity, LogOut, MonitorSmartphone, RefreshCw, Users } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
+import { adminSessionQueryOptions } from '@/lib/admin-session'
 import { apiClient } from '@/lib/api-client'
+import { PrivateAdminNavigation } from '@/lib/private-overlay'
 import { parseRange, type Range } from '@/lib/search-params'
 import { cn } from '@/lib/utils'
 
@@ -17,10 +19,16 @@ export function TopBar() {
   const location = useLocation()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const { data: adminSession } = useQuery({
+    ...adminSessionQueryOptions,
+    enabled: location.pathname !== '/login',
+  })
 
-  // 哪些路由消费 range —— /devices 列表 + /devices/:id 详情。其它路由（/login、/）
-  // 不显示 range 控件。
-  const showRange = location.pathname.startsWith('/devices') || location.pathname === '/'
+  // 时间窗同时驱动系统概览、设备视图和用户详情趋势。
+  const showRange =
+    location.pathname === '/overview' ||
+    location.pathname.startsWith('/devices') ||
+    location.pathname.startsWith('/users/')
   const showAuthedActions = location.pathname !== '/login'
 
   // 从当前 URL search 解析 range；非法/缺省时回退 '7d'，跟 search-params helper 同语义。
@@ -41,6 +49,9 @@ export function TopBar() {
     void queryClient.invalidateQueries({ queryKey: ['devices'] })
     void queryClient.invalidateQueries({ queryKey: ['device'] })
     void queryClient.invalidateQueries({ queryKey: ['task'] })
+    void queryClient.invalidateQueries({ queryKey: ['users'] })
+    void queryClient.invalidateQueries({ queryKey: ['user'] })
+    void queryClient.invalidateQueries({ queryKey: ['overview'] })
   }
 
   async function logout(): Promise<void> {
@@ -56,12 +67,42 @@ export function TopBar() {
   return (
     <header className="sticky top-0 z-40 border-b bg-background/80 backdrop-blur">
       <div className="mx-auto flex h-12 max-w-7xl items-center justify-between px-4">
-        <Link
-          to="/devices"
-          className="text-sm font-semibold tracking-tight hover:text-foreground/80"
-        >
-          image-playground · admin
-        </Link>
+        <div className="flex items-center gap-5">
+          <Link
+            to="/overview"
+            className="text-sm font-semibold tracking-tight hover:text-foreground/80"
+          >
+            image-playground · admin
+          </Link>
+          {showAuthedActions ? (
+            <nav className="flex items-center gap-1" aria-label="后台导航">
+              <Link
+                to="/overview"
+                className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground [&.active]:bg-muted [&.active]:font-medium [&.active]:text-foreground"
+              >
+                <Activity className="h-3.5 w-3.5" />
+                概览
+              </Link>
+              {adminSession?.accounts_login ? (
+                <Link
+                  to="/users"
+                  className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground [&.active]:bg-muted [&.active]:font-medium [&.active]:text-foreground"
+                >
+                  <Users className="h-3.5 w-3.5" />
+                  用户
+                </Link>
+              ) : null}
+              <Link
+                to="/devices"
+                className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground [&.active]:bg-muted [&.active]:font-medium [&.active]:text-foreground"
+              >
+                <MonitorSmartphone className="h-3.5 w-3.5" />
+                设备
+              </Link>
+              <PrivateAdminNavigation />
+            </nav>
+          ) : null}
+        </div>
 
         <div className="flex items-center gap-2">
           {showRange ? (

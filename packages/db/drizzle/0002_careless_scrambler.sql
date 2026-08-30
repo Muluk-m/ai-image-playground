@@ -1,0 +1,1 @@
+ALTER TABLE "tasks" ADD COLUMN "upstream_invocation_count" integer DEFAULT 0 NOT NULL;

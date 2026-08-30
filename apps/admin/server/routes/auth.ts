@@ -1,6 +1,6 @@
 import { timingSafeEqual } from 'node:crypto'
 import { Elysia, t } from 'elysia'
-import { config } from '../config'
+import { config, getAdminCapabilities } from '../config'
 import { SESSION_COOKIE_NAME, SESSION_TTL_MS } from '../lib/constants'
 import { requireAuth } from '../lib/middleware'
 import { createRateLimiter } from '../lib/rate-limit'
@@ -75,4 +75,7 @@ export const authRoutes = new Elysia()
     })
     return { ok: true }
   })
-  .get('/api/me', () => ({ ok: true }))
+  .get('/api/me', () => ({
+    accounts_login: getAdminCapabilities().accountsLogin,
+    ok: true as const,
+  }))
