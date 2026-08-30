@@ -3,11 +3,11 @@ import { Link, useLocation, useNavigate } from '@tanstack/react-router'
 import { Activity, LogOut, MonitorSmartphone, RefreshCw, Users } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { adminSessionQueryOptions } from '@/lib/admin-session'
 import { apiClient } from '@/lib/api-client'
 import { PrivateAdminNavigation } from '@/lib/private-overlay'
 import { parseRange, type Range } from '@/lib/search-params'
-import { cn } from '@/lib/utils'
 
 const RANGE_OPTIONS: Array<{ value: Range; label: string }> = [
   { value: '1d', label: '1 天' },
@@ -106,29 +106,26 @@ export function TopBar() {
 
         <div className="flex items-center gap-2">
           {showRange ? (
-            <div
-              role="radiogroup"
+            <ToggleGroup
+              type="single"
               aria-label="时间范围"
-              className="inline-flex h-8 items-center rounded-md border border-input bg-background p-0.5 text-xs"
+              value={currentRange}
+              onValueChange={(next) => {
+                // Radix 允许再次点击当前项取消选择，这里忽略空值以保证时间窗始终有效。
+                if (next) setRange(next as Range)
+              }}
+              className="inline-flex h-8 items-center gap-0 rounded-md border border-input bg-background p-0.5 text-xs"
             >
               {RANGE_OPTIONS.map((opt) => (
-                <button
+                <ToggleGroupItem
                   key={opt.value}
-                  type="button"
-                  role="radio"
-                  aria-checked={currentRange === opt.value}
-                  onClick={() => setRange(opt.value)}
-                  className={cn(
-                    'rounded px-2.5 py-1 transition-colors',
-                    currentRange === opt.value
-                      ? 'bg-primary text-primary-foreground'
-                      : 'text-muted-foreground hover:text-foreground',
-                  )}
+                  value={opt.value}
+                  className="h-auto min-w-0 rounded px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-transparent hover:text-foreground data-[state=on]:bg-primary data-[state=on]:text-primary-foreground"
                 >
                   {opt.label}
-                </button>
+                </ToggleGroupItem>
               ))}
-            </div>
+            </ToggleGroup>
           ) : null}
 
           {showAuthedActions ? (
