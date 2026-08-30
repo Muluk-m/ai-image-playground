@@ -1,0 +1,9 @@
+{
+  // Cloudflare Pages project for the standalone frontend (see README option 3).
+  // The bundle is plain static output; `runtime-config.json` is written at build time by
+  // scripts/write-runtime-config.mjs, so this project needs no Functions and no bindings.
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "ai-image-playground",
+  "compatibility_date": "2026-08-15",
+  "pages_build_output_dir": "dist"
+}
