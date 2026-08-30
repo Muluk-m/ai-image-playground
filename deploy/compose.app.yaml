@@ -28,6 +28,8 @@ services:
       - run
       - /app/scripts/check-dependencies.ts
     networks:
+      # application-infra is internal, and the object store probe reaches a public endpoint.
+      - application
       - application-infra
 
   migrate:
