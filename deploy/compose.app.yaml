@@ -1,6 +1,6 @@
 x-application-environment: &application-environment
   env_file:
-    - path: ${APP_ENV_FILE:-/Users/qiqian/.config/ai-image-playground/apps/${COMPOSE_PROJECT_NAME}/app.env}
+    - path: ${APP_ENV_FILE:?Set APP_ENV_FILE, or drive this file through scripts/app-compose.sh}
       required: true
 
 x-application-service: &application-service
@@ -11,7 +11,7 @@ x-application-service: &application-service
 
 x-operator-config-volumes: &operator-config-volumes
   - type: bind
-    source: ${APP_CONFIG_DIR:-/Users/qiqian/.config/ai-image-playground/apps/${COMPOSE_PROJECT_NAME}}
+    source: ${APP_CONFIG_DIR:?Set APP_CONFIG_DIR, or drive this file through scripts/app-compose.sh}
     target: /run/operator
     read_only: true
     bind:
@@ -35,7 +35,7 @@ services:
   migrate:
     <<: *application-service
     env_file:
-      - path: ${APP_ENV_FILE:-/Users/qiqian/.config/ai-image-playground/apps/${COMPOSE_PROJECT_NAME}/app.env}
+      - path: ${APP_ENV_FILE:?Set APP_ENV_FILE, or drive this file through scripts/app-compose.sh}
         required: true
       - path: ${MIGRATOR_ENV_FILE:?Set MIGRATOR_ENV_FILE to the external migrator environment file}
         required: true
@@ -195,7 +195,7 @@ services:
     command: tunnel --no-autoupdate --config /etc/cloudflared/config.yml run
     volumes:
       - type: bind
-        source: ${APP_CONFIG_DIR:-/Users/qiqian/.config/ai-image-playground/apps/${COMPOSE_PROJECT_NAME}}/cloudflared
+        source: ${APP_CONFIG_DIR:?Set APP_CONFIG_DIR, or drive this file through scripts/app-compose.sh}/cloudflared
         target: /etc/cloudflared
         read_only: true
         bind:
