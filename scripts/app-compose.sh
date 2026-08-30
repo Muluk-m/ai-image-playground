@@ -13,6 +13,7 @@ Usage:
   scripts/app-compose.sh up <project> [env-file]
   scripts/app-compose.sh stop <project> [env-file]
   scripts/app-compose.sh status <project> [env-file]
+  scripts/app-compose.sh compose <project> <docker compose args...>
   scripts/app-compose.sh rollback <project> <image> [env-file]
 
 The default env file is:
@@ -51,8 +52,13 @@ if [ "$command" = rollback ]; then
   shift
 fi
 
-env_file=${1:-$config_root/$project/app.env}
-[ "$#" -le 1 ] || usage
+if [ "$command" = compose ]; then
+  env_file=${APP_ENV_FILE:-$config_root/$project/app.env}
+else
+  env_file=${1:-$config_root/$project/app.env}
+  [ "$#" -le 1 ] || usage
+  [ "$#" -eq 0 ] || shift
+fi
 
 if [ ! -f "$env_file" ]; then
   echo "Application environment file not found: $env_file" >&2
@@ -82,15 +88,25 @@ require_migrator_env() {
   fi
 }
 
-activate_backend_then_static() {
+require_tunnel_credentials() {
+  if [ ! -f "$APP_CONFIG_DIR/cloudflared/config.yml" ] ||
+    [ ! -f "$APP_CONFIG_DIR/cloudflared/credentials.json" ]; then
+    echo "Tunnel files not found in $APP_CONFIG_DIR/cloudflared" >&2
+    echo "Copy deploy/cloudflared/config.yml.example there and place the credentials.json written by \`cloudflared tunnel create\`." >&2
+    exit 1
+  fi
+}
+
+activate_backend_then_ingress() {
   compose up --detach --wait "$@" dependency-check bff worker admin
-  compose up --detach --wait "$@" web
+  compose up --detach --wait "$@" cloudflared pg-backup
 }
 
 case "$command" in
   up)
     require_migrator_env
-    activate_backend_then_static
+    require_tunnel_credentials
+    activate_backend_then_ingress
     ;;
   stop|down)
     compose down --remove-orphans
@@ -98,11 +114,15 @@ case "$command" in
   status)
     compose ps
     ;;
+  compose)
+    compose "$@"
+    ;;
   rollback)
     require_migrator_env
+    require_tunnel_credentials
     APP_IMAGE=$rollback_image
     export APP_IMAGE
-    activate_backend_then_static --force-recreate
+    activate_backend_then_ingress --force-recreate
     ;;
   *)
     usage

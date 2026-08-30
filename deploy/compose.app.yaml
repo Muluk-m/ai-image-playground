@@ -1,6 +1,6 @@
 x-application-environment: &application-environment
   env_file:
-    - path: ${APP_ENV_FILE:-/Users/qiqian/.config/ai-image-playground/apps/${COMPOSE_PROJECT_NAME}/app.env}
+    - path: ${APP_ENV_FILE:?Set APP_ENV_FILE, or drive this file through scripts/app-compose.sh}
       required: true
 
 x-application-service: &application-service
@@ -11,7 +11,7 @@ x-application-service: &application-service
 
 x-operator-config-volumes: &operator-config-volumes
   - type: bind
-    source: ${APP_CONFIG_DIR:-/Users/qiqian/.config/ai-image-playground/apps/${COMPOSE_PROJECT_NAME}}
+    source: ${APP_CONFIG_DIR:?Set APP_CONFIG_DIR, or drive this file through scripts/app-compose.sh}
     target: /run/operator
     read_only: true
     bind:
@@ -28,12 +28,14 @@ services:
       - run
       - /app/scripts/check-dependencies.ts
     networks:
+      # application-infra is internal, and the object store probe reaches a public endpoint.
+      - application
       - application-infra
 
   migrate:
     <<: *application-service
     env_file:
-      - path: ${APP_ENV_FILE:-/Users/qiqian/.config/ai-image-playground/apps/${COMPOSE_PROJECT_NAME}/app.env}
+      - path: ${APP_ENV_FILE:?Set APP_ENV_FILE, or drive this file through scripts/app-compose.sh}
         required: true
       - path: ${MIGRATOR_ENV_FILE:?Set MIGRATOR_ENV_FILE to the external migrator environment file}
         required: true
@@ -57,8 +59,8 @@ services:
       APP_ROLE: bff
       PORT: "37377"
       STATIC_DIR: ""
-      # The trusted domain proxy overwrites one canonical address; nginx forwards only that value.
-      CLIENT_IP_SOURCE: x-forwarded-for
+      # Override in app.env when something other than cloudflared terminates the ingress.
+      CLIENT_IP_SOURCE: ${CLIENT_IP_SOURCE:-cf-connecting-ip}
     command:
       - bun
       - run
@@ -139,10 +141,9 @@ services:
     stop_grace_period: 30s
     networks:
       application:
-      application-infra:
-      edge:
         aliases:
           - ${COMPOSE_PROJECT_NAME}-admin
+      application-infra:
     healthcheck:
       test:
         - CMD
@@ -174,7 +175,6 @@ services:
     stop_grace_period: 15s
     networks:
       application:
-      edge:
         aliases:
           - ${COMPOSE_PROJECT_NAME}-web
     healthcheck:
@@ -188,12 +188,52 @@ services:
       retries: 12
       start_period: 5s
 
+  cloudflared:
+    image: cloudflare/cloudflared:2026.8.2
+    init: true
+    restart: unless-stopped
+    command: tunnel --no-autoupdate --config /etc/cloudflared/config.yml run
+    volumes:
+      - type: bind
+        source: ${APP_CONFIG_DIR:?Set APP_CONFIG_DIR, or drive this file through scripts/app-compose.sh}/cloudflared
+        target: /etc/cloudflared
+        read_only: true
+        bind:
+          create_host_path: false
+    depends_on:
+      bff:
+        condition: service_healthy
+    networks:
+      - application
+
+  pg-backup:
+    build: ./backup
+    image: ${BACKUP_IMAGE:-ai-image-playground-pg-backup:local}
+    init: true
+    restart: unless-stopped
+    # Named one by one rather than through app.env: this container must not hold provider
+    # credentials, and its cron shim writes whatever it receives to a file.
+    environment:
+      ADMIN_DATABASE_URL: ${ADMIN_DATABASE_URL:?Set ADMIN_DATABASE_URL in the application environment file}
+      S3_ENDPOINT: ${S3_ENDPOINT:?Set S3_ENDPOINT in the application environment file}
+      S3_BUCKET: ${S3_BUCKET:?Set S3_BUCKET in the application environment file}
+      S3_KEY_PREFIX: ${S3_KEY_PREFIX:-}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:?Set S3_ACCESS_KEY_ID in the application environment file}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:?Set S3_SECRET_ACCESS_KEY in the application environment file}
+    networks:
+      - application
+      - application-infra
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - test -n "$$(find /var/lib/pg-backup/last-success -mmin -1560)"
+      interval: 1h
+      timeout: 10s
+      retries: 1
+      start_period: 30s
 
 networks:
   application:
   application-infra:
     external: true
     name: ${INFRA_NETWORK_NAME:-image-playground-infra}
-  edge:
-    external: true
-    name: ${EDGE_NETWORK_NAME:-image-playground-edge}

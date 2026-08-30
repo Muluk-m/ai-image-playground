@@ -102,32 +102,32 @@ Prepare the infrastructure and deployment files outside the repository:
 ```bash
 config_root="${XDG_CONFIG_HOME:-$HOME/.config}/ai-image-playground"
 mkdir -p \
-  "$config_root/apps/image-playground-personal" \
-  "$config_root/apps/image-playground-commercial"
+  "$config_root/apps/image-playground-internal" \
+  "$config_root/apps/image-playground-paid"
 
 cp deploy/infra.env.example "$config_root/infra.env"
-cp deploy/app.personal.env.example \
-  "$config_root/apps/image-playground-personal/app.env"
-cp deploy/app.commercial.env.example \
-  "$config_root/apps/image-playground-commercial/app.env"
+cp deploy/app.internal.env.example \
+  "$config_root/apps/image-playground-internal/app.env"
+cp deploy/app.paid.env.example \
+  "$config_root/apps/image-playground-paid/app.env"
 cp deploy/migrate.env.example \
-  "$config_root/apps/image-playground-personal/migrate.env"
+  "$config_root/apps/image-playground-internal/migrate.env"
 cp deploy/migrate.env.example \
-  "$config_root/apps/image-playground-commercial/migrate.env"
+  "$config_root/apps/image-playground-paid/migrate.env"
 chmod 600 \
   "$config_root/infra.env" \
-  "$config_root/apps/image-playground-personal/app.env" \
-  "$config_root/apps/image-playground-personal/migrate.env" \
-  "$config_root/apps/image-playground-commercial/app.env" \
-  "$config_root/apps/image-playground-commercial/migrate.env"
+  "$config_root/apps/image-playground-internal/app.env" \
+  "$config_root/apps/image-playground-internal/migrate.env" \
+  "$config_root/apps/image-playground-paid/app.env" \
+  "$config_root/apps/image-playground-paid/migrate.env"
 
 # Replace every replace-* value before starting anything.
 ```
 
 Each deployment uses three PostgreSQL identities: a one-shot schema owner in `migrate.env`,
 a DML-only application writer in `app.env`, and an Admin SELECT-only reader in `app.env`.
-The two deployments must also use different databases, buckets, object-store credentials,
-internal service tokens, provider credentials, and CORS origins. Real secrets and operator
+The two deployments must also use different databases, object-store locations, object-store
+credentials, internal service tokens, provider credentials, and CORS origins. Real secrets and operator
 configuration remain in these external directories; only safe examples are committed.
 `operator-config.json` is optional beside each `app.env`: missing means every capability is off;
 a present invalid file prevents BFF startup. The browser obtains its read-only capability list
@@ -141,51 +141,55 @@ Start infrastructure, provision one migrator, one application writer, and one Ad
 each deployment, build the release image once, then start each project:
 
 ```bash
-# One-time host network owned by the existing reverse proxy, not either app project.
-docker network create image-playground-edge
-
 scripts/infra-compose.sh up
 
 # Set the seven POSTGRES_MIGRATOR_* / POSTGRES_APP_* / POSTGRES_ADMIN_* values in
-# infra.env for the personal deployment, provision it, then replace them with the
-# commercial values and provision again.
+# infra.env for the internal deployment, provision it, then replace them with the
+# paid values and provision again.
 scripts/infra-compose.sh provision
 
 scripts/app-compose.sh build-private ai-image-playground:local
-scripts/app-compose.sh up image-playground-personal
-scripts/app-compose.sh up image-playground-commercial
+scripts/app-compose.sh up image-playground-internal
+scripts/app-compose.sh up image-playground-paid
 ```
 
 `infra-compose.sh` uses
 `$XDG_CONFIG_HOME/ai-image-playground/infra.env` by default. Set `INFRA_ENV_FILE` to
-override it. `up` waits for PostgreSQL and MinIO, creates the buckets in
-`MINIO_BUCKET_NAMES`, makes them private, and installs a 45-day expiry rule. `provision`
-idempotently creates one deployment database, its schema-owner migrator, its DML-only
-application role, and its Admin SELECT-only role. Infrastructure ports bind to `127.0.0.1`
-by default; application Compose publishes no PostgreSQL or MinIO port.
+override it. `up` waits for PostgreSQL. `provision` idempotently creates one deployment
+database, its schema-owner migrator, its DML-only application role, and its Admin SELECT-only
+role. No Compose file publishes a PostgreSQL port; use `docker compose exec` to inspect it.
+
+Object storage is any S3-compatible service. Both deployment examples point at Cloudflare R2;
+`S3_KEY_PREFIX` confines a deployment to one prefix when its bucket is shared with other
+workloads. Each project also runs a `pg-backup` sidecar that uploads a daily `pg_dump` of its
+own database to `<S3_KEY_PREFIX>pg/<UTC date>.dump`. Retention belongs to a bucket lifecycle
+rule, not to the sidecar.
 
 `app-compose.sh` defaults to
 `$XDG_CONFIG_HOME/ai-image-playground/apps/<project>/app.env` and requires a sibling
 `migrate.env`. Only the one-shot migration service receives the schema-owner credential.
 It starts dependency checks, applies public and present private Drizzle migrations, starts BFF,
-worker, and Admin, then activates nginx only after BFF is healthy. The nginx container remains
-available during later backend restarts. Each Web container writes its own
+worker, Admin, and the backup sidecar, then activates the tunnel only after BFF is healthy. Each Web container writes its own
 `/usr/share/nginx/html/runtime-config.json` from its external environment, so both domains
 share the same Web build without sharing runtime configuration.
 
-The host reverse proxy must be a container on `image-playground-edge`. Route the domains to
-the stable network aliases:
+Option 4 below routes the domains through Cloudflare Tunnel and starts no nginx. To front the
+projects with an existing reverse proxy instead, connect that proxy container to each project's
+`application` network and start the `web` service with
+`scripts/app-compose.sh compose <project> up --detach --wait web`. Route the domains to the
+stable per-project aliases:
 
 | Target | Upstream |
 |---|---|
-| Personal Web | `http://image-playground-personal-web:8080` |
-| Commercial Web | `http://image-playground-commercial-web:8080` |
-| Personal Admin | `http://image-playground-personal-admin:37378` |
-| Commercial Admin | `http://image-playground-commercial-admin:37378` |
+| Internal Web | `http://image-playground-internal-web:8080` |
+| Paid Web | `http://image-playground-paid-web:8080` |
+| Internal Admin | `http://image-playground-internal-admin:37378` |
+| Paid Admin | `http://image-playground-paid-admin:37378` |
 
-It must overwrite `X-Forwarded-For` with one canonical client address rather than append a
-caller-supplied chain. The Web nginx forwards that value to BFF for login and registration
-rate limits; multi-value chains fall back to the immediate proxy address.
+Such a proxy must overwrite `X-Forwarded-For` with one canonical client address rather than
+append a caller-supplied chain, and `app.env` must then set `CLIENT_IP_SOURCE=x-forwarded-for`
+instead of the default `cf-connecting-ip`. That value drives login and registration rate
+limits; multi-value chains fall back to the immediate proxy address.
 
 Protect Admin with Cloudflare Access, a VPN, or an IP allowlist. The committed Compose file
 does not publish host ports because the domain proxy owns ingress. If the existing host
@@ -207,22 +211,21 @@ files on production; `packages/db/drizzle/rollback/` and
 Inspect or stop projects independently:
 
 ```bash
-scripts/app-compose.sh status image-playground-personal
-scripts/app-compose.sh stop image-playground-personal
-scripts/app-compose.sh stop image-playground-commercial
+scripts/app-compose.sh status image-playground-internal
+scripts/app-compose.sh stop image-playground-internal
+scripts/app-compose.sh stop image-playground-paid
 scripts/infra-compose.sh down
 ```
 
-Stopping an application project does not remove PostgreSQL or MinIO data, the external
-infrastructure network, or the external edge network. Stop infrastructure only after both
-application projects are down.
+Stopping an application project removes neither the PostgreSQL volume nor the external
+infrastructure network. Stop infrastructure only after both application projects are down.
 
 `app-compose.sh rollback` only switches between images that implement the current role-based
 Compose contract. It preserves backend-first activation:
 
 ```bash
-scripts/app-compose.sh rollback image-playground-personal ai-image-playground:previous
-scripts/app-compose.sh rollback image-playground-commercial ai-image-playground:previous
+scripts/app-compose.sh rollback image-playground-internal ai-image-playground:previous
+scripts/app-compose.sh rollback image-playground-paid ai-image-playground:previous
 ```
 
 If the compatible previous tag was not retained, build it from its source checkout first. The
@@ -234,18 +237,23 @@ source checkout and configuration, with the read-only SQLite backup, instead of 
 The frontend ships as a plain static bundle on a host such as Cloudflare Pages. The backend
 still runs the Option 2 image for BFF / worker / Admin; nginx just stops serving the frontend.
 
-Free BYOK preview:
+Public BYOK bundle:
 
 ```bash
-scripts/pages-deploy.sh free preview-branch
+scripts/pages-deploy.sh public ai-image-playground preview-branch
 ```
 
-Paid shape (the working copy must contain the reviewed `./private` overlay):
+Private bundle (the working copy must contain the reviewed `./private` overlay):
 
 ```bash
 BFF_ENABLED=true BFF_BASE_URL=https://api.example.com \
-  scripts/pages-deploy.sh commercial main
+  scripts/pages-deploy.sh private ai-image-playground-paid main
 ```
+
+The edition asserts the presence of the overlay; the backend switch is independent of it. A
+public bundle may set `BFF_ENABLED=true` and a private one may stay BYOK-only. wrangler reads
+`CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` from the environment, which is how two
+projects in two Cloudflare accounts are published from one checkout.
 
 `build:static-host` writes `dist/runtime-config.json` after the normal build. Incomplete
 configuration fails the build instead of publishing a site that cannot reach its backend.
@@ -253,8 +261,9 @@ Caching and SPA fallback come from [`apps/web/public/_headers`](./apps/web/publi
 and [`apps/web/public/_redirects`](./apps/web/public/_redirects), which mirror the matching
 rules in [`deploy/nginx.conf`](./deploy/nginx.conf).
 
-Set `APP_INGRESS_MODE=api-only` in the backend `app.env`. The same nginx container then
-proxies only the API and returns 404 for every other path instead of serving a second frontend.
+Without a tunnel, set `APP_INGRESS_MODE=api-only` in the backend `app.env` and start the `web`
+service: the same nginx container then proxies only the API and returns 404 for every other
+path instead of serving a second frontend. Option 4 replaces that container with cloudflared.
 The backend must also meet these conditions:
 
 - `CORS_ALLOWED_ORIGINS` must list the frontend origin exactly. Credentialed requests cannot
@@ -271,36 +280,80 @@ The backend must also meet these conditions:
 A paid deployment also needs the private overlay: a static host's Git build cannot read the
 private repository, so build locally or in CI and upload the artifact.
 
-### Fleet deployment contract
+### Option 4 · Single VPS + Cloudflare Tunnel + Pages
 
-`.fleet/deploy.json` now contains three Compose services: the committed infrastructure
-project and two independent application projects. Fleet builds
-`ai-image-playground:local` once, waits for Compose health, and deploys infrastructure before
-either application through service dependencies.
-
-The current fleet Compose schema has no per-service `--env-file` field. The macmini fleet
-agent must therefore export
-`COMPOSE_ENV_FILES=/Users/qiqian/.config/ai-image-playground/infra.env`. Application
-containers load their project-specific files directly from:
+This is the layout the committed Compose files are written for. One host runs PostgreSQL and
+one application project per deployment; each project runs its own cloudflared, so the host
+publishes no port and needs no inbound firewall rule. The frontend is a Cloudflare Pages
+project per deployment, and object storage is R2.
 
 ```text
-/Users/qiqian/.config/ai-image-playground/apps/image-playground-personal/app.env
-/Users/qiqian/.config/ai-image-playground/apps/image-playground-commercial/app.env
+Pages  image-playground.example.com ─┐
+                                     ├─ Cloudflare ─ tunnel ─ VPS ─ bff ─ postgres
+API    image-api.example.com ────────┘                             ├─ worker ─ R2
+Admin  image-admin.example.com ──────────────────────────────────  └─ admin
 ```
 
-The following host facts remain operator prerequisites and are not changed automatically:
+Prepare the external configuration exactly as in option 2, then add the tunnel files. Create
+one tunnel per deployment in its own Cloudflare account and place the credentials beside
+`app.env`:
 
-- `/Users/qiqian` is the deployment account home used by fleet.
-- The reviewed private overlay repository is checked out at `./private` in the Fleet worktree;
-  `.fleet/deploy.json` intentionally fails the private build when that checkout is absent.
-- `image-playground-edge` exists and the domain proxy has joined it.
-- `INFRA_NETWORK_NAME` is identical in infra and application configuration.
-- MinIO has distinct application credentials for the two private buckets; the bootstrap
-  profile creates buckets and lifecycle rules but does not provision scoped MinIO users.
-- PostgreSQL has a separate database writer and Admin SELECT-only role for each deployment;
-  `scripts/infra-compose.sh provision` creates these roles but does not migrate legacy data.
-- Existing macmini PostgreSQL and MinIO data ownership has been checked before the committed
-  infrastructure project is started.
+```bash
+config_root="${XDG_CONFIG_HOME:-$HOME/.config}/ai-image-playground"
+app_dir="$config_root/apps/image-playground-internal"
+mkdir -p "$app_dir/cloudflared"
+
+cloudflared tunnel create image-playground-internal
+cp ~/.cloudflared/<tunnel-uuid>.json "$app_dir/cloudflared/credentials.json"
+cp deploy/cloudflared/config.yml.example "$app_dir/cloudflared/config.yml"
+# Replace the tunnel UUID and both hostnames in that file.
+chmod 600 "$app_dir/cloudflared/credentials.json"
+```
+
+Copy `deploy/operator-config.internal.example.json` to `$app_dir/operator-config.json` and
+adjust it. Then bring the host up:
+
+```bash
+scripts/infra-compose.sh up
+scripts/infra-compose.sh provision                    # once per deployment database
+scripts/app-compose.sh build ai-image-playground:local
+scripts/app-compose.sh up image-playground-internal
+```
+
+Point the hostnames at the tunnel, from the account that owns them:
+
+```bash
+cloudflared tunnel route dns image-playground-internal image-api.example.com
+cloudflared tunnel route dns image-playground-internal image-admin.example.com
+```
+
+Set the two R2 lifecycle rules on the bucket, where `<prefix>` is this deployment's
+`S3_KEY_PREFIX` (empty for a dedicated bucket). Nothing in this repository creates them, and on
+a shared bucket a rule without the prefix would expire objects that belong to other workloads:
+
+```bash
+wrangler r2 bucket lifecycle list <bucket>
+wrangler r2 bucket lifecycle add <bucket> --name pixels \
+  --prefix '<prefix>' --expire-days 45
+wrangler r2 bucket lifecycle add <bucket> --name pg-dumps \
+  --prefix '<prefix>pg/' --expire-days 14
+```
+
+The dumps sit inside the pixel prefix, so both rules match them and the shorter one decides.
+
+Publish the frontend and only then move its DNS record to Pages:
+
+```bash
+BFF_ENABLED=true BFF_BASE_URL=https://image-api.example.com \
+  scripts/pages-deploy.sh public <pages-project> main
+```
+
+The frontend and the API must share one registrable domain, as in option 3: the Admin session
+cookie is `Secure; SameSite=Lax`.
+
+Repeat every step with `image-playground-paid` to run a second, fully separate deployment on
+the same host. It gets its own database, R2 location, tunnel, Pages project, and Cloudflare
+account; the two share only PostgreSQL's process and the host.
 
 ## 🛠 Development
 
