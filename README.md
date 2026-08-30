@@ -162,7 +162,7 @@ role. No Compose file publishes a PostgreSQL port; use `docker compose exec` to 
 Object storage is any S3-compatible service. Both deployment examples point at Cloudflare R2;
 `S3_KEY_PREFIX` confines a deployment to one prefix when its bucket is shared with other
 workloads. Each project also runs a `pg-backup` sidecar that uploads a daily `pg_dump` of its
-own database to `pg/<UTC date>.dump` in that bucket. Retention belongs to a bucket lifecycle
+own database to `<S3_KEY_PREFIX>pg/<UTC date>.dump`. Retention belongs to a bucket lifecycle
 rule, not to the sidecar.
 
 `app-compose.sh` defaults to
