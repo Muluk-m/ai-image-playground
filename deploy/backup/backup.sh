@@ -1,0 +1,25 @@
+#!/bin/sh
+set -eu
+
+: "${ADMIN_DATABASE_URL:?ADMIN_DATABASE_URL is required}"
+: "${S3_ENDPOINT:?S3_ENDPOINT is required}"
+: "${S3_BUCKET:?S3_BUCKET is required}"
+: "${S3_ACCESS_KEY_ID:?S3_ACCESS_KEY_ID is required}"
+: "${S3_SECRET_ACCESS_KEY:?S3_SECRET_ACCESS_KEY is required}"
+
+AWS_ACCESS_KEY_ID=$S3_ACCESS_KEY_ID
+AWS_SECRET_ACCESS_KEY=$S3_SECRET_ACCESS_KEY
+# R2 accepts no other region name.
+AWS_DEFAULT_REGION=auto
+export AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_DEFAULT_REGION
+
+stamp=$(date -u +%Y-%m-%d)
+dump=/tmp/pg-$stamp.dump
+target="s3://$S3_BUCKET/pg/$stamp.dump"
+trap 'rm -f "$dump"' EXIT
+
+# The SELECT-only Admin role is enough for pg_dump and keeps write credentials out of this
+# container. Retention is an R2 lifecycle rule on the pg/ prefix, not a delete from here.
+pg_dump --format=custom --file="$dump" "$ADMIN_DATABASE_URL"
+aws --endpoint-url "$S3_ENDPOINT" s3 cp "$dump" "$target"
+echo "pg-backup: uploaded $target"
