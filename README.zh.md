@@ -249,39 +249,6 @@ BFF_ENABLED=true BFF_BASE_URL=https://api.example.com \
 收费形态额外需要私有 overlay：静态宿主的 Git 构建拿不到私有仓库，用本地或 CI 构建后
 上传产物。
 
-### Fleet 部署契约
-
-`.fleet/deploy.json` 现在声明三个 Compose 服务：已提交的基础设施 project 和两个独立
-应用 project。Fleet 只构建一次 `ai-image-playground:local`，等待 Compose 健康检查，
-并通过 service dependency 保证先部署基础设施。
-
-当前 fleet Compose schema 没有逐服务 `--env-file` 字段，因此 macmini 上的 fleet agent
-必须导出：
-
-```text
-COMPOSE_ENV_FILES=/Users/qiqian/.config/ai-image-playground/infra.env
-```
-
-应用容器会直接加载以下 project 专用文件：
-
-```text
-/Users/qiqian/.config/ai-image-playground/apps/image-playground-personal/app.env
-/Users/qiqian/.config/ai-image-playground/apps/image-playground-commercial/app.env
-```
-
-以下宿主机事实仍需 operator 人工确认，本次改动不会自动处理：
-
-- fleet 使用的部署账号 home 是 `/Users/qiqian`。
-- 已评审的私有 overlay 仓库检出在 Fleet 工作副本的 `./private`；该检出缺失时
-  `.fleet/deploy.json` 会按设计让私有构建失败。
-- `image-playground-edge` 已存在，域名代理也已加入。
-- 基础设施与应用配置中的 `INFRA_NETWORK_NAME` 完全一致。
-- MinIO 已为两个私有 bucket 分别创建应用凭证。bootstrap profile 只创建 bucket 和
-  生命周期规则，不创建限定作用域的 MinIO 用户。
-- PostgreSQL 已为每个部署分别创建数据库写角色与 Admin 只读角色；
-  `scripts/infra-compose.sh provision` 只创建角色，不迁移旧数据。
-- 启动已提交的基础设施 project 前，已核实现有 macmini PostgreSQL 与 MinIO 数据归属。
-
 ## 🛠 开发
 
 ```bash
