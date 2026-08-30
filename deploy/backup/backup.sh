@@ -11,7 +11,10 @@ AWS_ACCESS_KEY_ID=$S3_ACCESS_KEY_ID
 AWS_SECRET_ACCESS_KEY=$S3_SECRET_ACCESS_KEY
 # R2 accepts no other region name.
 AWS_DEFAULT_REGION=auto
+# aws-cli v2 attaches a checksum to every upload by default; S3-compatible stores reject some.
+AWS_REQUEST_CHECKSUM_CALCULATION=when_required
 export AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_DEFAULT_REGION
+export AWS_REQUEST_CHECKSUM_CALCULATION
 
 stamp=$(date -u +%Y-%m-%d)
 dump=/tmp/pg-$stamp.dump
