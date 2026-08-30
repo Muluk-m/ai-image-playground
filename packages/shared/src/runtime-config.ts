@@ -7,7 +7,6 @@
  */
 export interface RuntimeConfig {
   bff: RuntimeBffConfig
-  defaults: RuntimeDefaults
 }
 
 export interface RuntimeBffConfig {
@@ -20,25 +19,11 @@ export interface RuntimeBffConfig {
   baseUrl: string
 }
 
-export interface RuntimeDefaults {
-  /** BYOK profile 的 baseUrl 占位默认值（OpenAI 兼容）。 */
-  openaiBaseUrl: string
-  /** Gemini BYOK baseUrl 默认（v1beta endpoint）。 */
-  geminiBaseUrl: string
-  /** Inspiration manifest 远程 URL。空字符串 = 只用 bundled 资源不远程拉。 */
-  inspirationManifestUrl: string
-}
-
 /**
  * 没有 `/runtime-config.json` 时使用的内嵌默认值：纯 BYOK，不向 BFF 发任何请求。
  */
 export const BAKED_DEFAULTS: RuntimeConfig = Object.freeze({
   bff: Object.freeze({ enabled: false, baseUrl: '' }) as RuntimeBffConfig,
-  defaults: Object.freeze({
-    openaiBaseUrl: 'https://api.openai.com/v1',
-    geminiBaseUrl: 'https://generativelanguage.googleapis.com/v1beta',
-    inspirationManifestUrl: './inspiration-manifest.json',
-  }) as RuntimeDefaults,
 }) as RuntimeConfig
 
 /**
@@ -57,22 +42,10 @@ export function parseRuntimeConfig(input: unknown): RuntimeConfig {
   if (typeof bffRaw.baseUrl !== 'string')
     throw new RuntimeConfigParseError('bff.baseUrl must be string')
 
-  const defaultsRaw = input.defaults
-  if (!isObject(defaultsRaw)) throw new RuntimeConfigParseError('defaults must be an object')
-  for (const key of ['openaiBaseUrl', 'geminiBaseUrl', 'inspirationManifestUrl'] as const) {
-    if (typeof defaultsRaw[key] !== 'string')
-      throw new RuntimeConfigParseError(`defaults.${key} must be string`)
-  }
-
   return {
     bff: {
       enabled: bffRaw.enabled,
       baseUrl: bffRaw.baseUrl.replace(/\/+$/, ''),
-    },
-    defaults: {
-      openaiBaseUrl: defaultsRaw.openaiBaseUrl as string,
-      geminiBaseUrl: defaultsRaw.geminiBaseUrl as string,
-      inspirationManifestUrl: defaultsRaw.inspirationManifestUrl as string,
     },
   }
 }

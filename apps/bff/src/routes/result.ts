@@ -1,31 +1,24 @@
 import type { ResultResponse, TaskErrorType } from '@image-playground/shared'
-import { eq } from 'drizzle-orm'
 import { Elysia, t } from 'elysia'
 import { db, schema } from '../db/client'
-import { getTaskBlob } from '../lib/blobStore'
 import { extractMeta, resolveImageBytesRef } from '../lib/extractImages'
 import { jsonResponse } from '../lib/gzipResponse'
+import { isStoredImageRef } from '../lib/imageArchive'
+import { objectStore } from '../lib/objectStore'
 import { asQueueProvider } from '../lib/queueProvider'
-
-// request_id + index 是稳定 key，结果不可变 → 永久缓存
-const IMAGE_CACHE_CONTROL = 'public, max-age=31536000, immutable'
+import { taskAccessWhere } from '../lib/task-access'
+import { requireUserOrService } from '../lib/user-auth'
 
 export const resultRoutes = new Elysia()
+  .use(requireUserOrService)
   // 1) 元信息端点：返回图片列表 + actual_params + raw_image_urls；不含像素字节
   .get(
     '/v1/queue/requests/:id',
-    async ({ params, status, request }) => {
+    async ({ params, status, request, authUser, serviceIdentity }) => {
       const [task] = await db
-        .select({
-          id: schema.tasks.id,
-          status: schema.tasks.status,
-          provider: schema.tasks.provider,
-          result_payload: schema.tasks.result_payload,
-          error_message: schema.tasks.error_message,
-          error_type: schema.tasks.error_type,
-        })
+        .select()
         .from(schema.tasks)
-        .where(eq(schema.tasks.id, params.id))
+        .where(taskAccessWhere(params.id, authUser?.id ?? null, serviceIdentity))
         .limit(1)
 
       if (!task) return status(404, { error: 'task_not_found' })
@@ -64,15 +57,11 @@ export const resultRoutes = new Elysia()
   // 2) 二进制端点：按 index 返回原始像素字节，跳过 base64 + JSON 双重开销
   .get(
     '/v1/queue/requests/:id/image/:index',
-    async ({ params, status }) => {
+    async ({ params, status, authUser, serviceIdentity }) => {
       const [task] = await db
-        .select({
-          status: schema.tasks.status,
-          provider: schema.tasks.provider,
-          result_payload: schema.tasks.result_payload,
-        })
+        .select()
         .from(schema.tasks)
-        .where(eq(schema.tasks.id, params.id))
+        .where(taskAccessWhere(params.id, authUser?.id ?? null, serviceIdentity))
         .limit(1)
       if (!task || task.status !== 'completed') return status(404, { error: 'not_ready' })
       const provider = asQueueProvider(task.provider)
@@ -81,23 +70,24 @@ export const resultRoutes = new Elysia()
       if (!Number.isInteger(idx) || idx < 0) return status(400, { error: 'bad_index' })
 
       const ref = resolveImageBytesRef(provider, task.result_payload, idx)
-      if (!ref) {
-        // 像素已外置到 task_blobs，payload 里只剩 _image_meta
-        const blob = await getTaskBlob(params.id, 'output', idx, db)
-        if (!blob) return status(404, { error: 'image_not_found' })
-        return new Response(new Uint8Array(blob.data), {
-          headers: { 'content-type': blob.mime, 'cache-control': IMAGE_CACHE_CONTROL },
-        })
-      }
+      if (!ref) return status(404, { error: 'image_not_found' })
 
+      // Ownership is immutable. Owned bytes must not enter shared caches.
       const headers = {
         'content-type': ref.mime,
-        'cache-control': IMAGE_CACHE_CONTROL,
+        'cache-control': `${task.user_id === null ? 'public' : 'private'}, max-age=31536000, immutable`,
       } as const
 
       if (ref.kind === 'b64') {
         const bytes = Buffer.from(ref.data, 'base64')
         return new Response(bytes, { headers })
+      }
+      if (ref.kind === 'object') {
+        try {
+          return new Response(await objectStore().read(ref.data), { headers })
+        } catch {
+          return status(502, { error: 'object_storage_error' })
+        }
       }
       // kind === 'url'：上游返回了 http 地址，BFF 现拉回来透传给客户端
       const upstream = await fetch(ref.data)
@@ -114,3 +104,95 @@ export const resultRoutes = new Elysia()
       }),
     },
   )
+  .get(
+    '/v1/queue/requests/:id/input-image/:index',
+    async ({ params, status, authUser, serviceIdentity }) => {
+      const [task] = await db
+        .select({
+          provider: schema.tasks.provider,
+          request_payload: schema.tasks.request_payload,
+          user_id: schema.tasks.user_id,
+        })
+        .from(schema.tasks)
+        .where(taskAccessWhere(params.id, authUser?.id ?? null, serviceIdentity))
+        .limit(1)
+      if (!task) return status(404, { error: 'task_not_found' })
+
+      const idx = Number(params.index)
+      if (!Number.isInteger(idx) || idx < 0) return status(400, { error: 'bad_index' })
+      const input = resolveInputImage(task.provider, task.request_payload, idx)
+      if (!input) return status(404, { error: 'image_not_found' })
+
+      const headers = {
+        'content-type': input.mime,
+        'cache-control': `${task.user_id === null ? 'public' : 'private'}, max-age=31536000, immutable`,
+      } as const
+      if (input.kind === 'b64') {
+        return new Response(Buffer.from(input.data, 'base64'), { headers })
+      }
+      try {
+        return new Response(await objectStore().read(input.data), { headers })
+      } catch {
+        return status(502, { error: 'object_storage_error' })
+      }
+    },
+    {
+      params: t.Object({
+        id: t.String(),
+        index: t.String(),
+      }),
+    },
+  )
+
+type InputImage =
+  | { kind: 'b64'; data: string; mime: string }
+  | { kind: 'object'; data: string; mime: string }
+
+function resolveInputImage(provider: string, payload: unknown, index: number): InputImage | null {
+  if (!payload || typeof payload !== 'object') return null
+  const request = payload as Record<string, unknown>
+  const archived: unknown[] = Array.isArray(request.input_images) ? [...request.input_images] : []
+  if (request.mask !== undefined) archived.push(request.mask)
+  if (archived.length > 0) {
+    const value = archived[index]
+    if (isStoredImageRef(value)) {
+      return { kind: 'object', data: value.object, mime: value.mime }
+    }
+    return typeof value === 'string' ? parseDataUrl(value) : null
+  }
+  if (provider !== 'gemini' || !Array.isArray(request.contents)) return null
+  const inlineImages: InputImage[] = []
+  for (const content of request.contents) {
+    if (!content || typeof content !== 'object' || !('parts' in content)) continue
+    const parts = content.parts
+    if (!Array.isArray(parts)) continue
+    for (const part of parts) {
+      if (!part || typeof part !== 'object') continue
+      const inline =
+        'inlineData' in part ? part.inlineData : 'inline_data' in part ? part.inline_data : null
+      if (!inline || typeof inline !== 'object') continue
+      const encoded = 'data' in inline ? inline.data : undefined
+      const mime =
+        'mimeType' in inline
+          ? inline.mimeType
+          : 'mime_type' in inline
+            ? inline.mime_type
+            : undefined
+      if (typeof encoded === 'string' && typeof mime === 'string') {
+        inlineImages.push({ kind: 'b64', data: encoded, mime })
+      }
+    }
+  }
+  return inlineImages[index] ?? null
+}
+
+function parseDataUrl(dataUrl: string | undefined): InputImage | null {
+  if (!dataUrl) return null
+  const match = /^data:([^;,]+);base64,(.+)$/i.exec(dataUrl)
+  if (!match) return null
+  return {
+    kind: 'b64',
+    data: match[2]!,
+    mime: match[1]!,
+  }
+}

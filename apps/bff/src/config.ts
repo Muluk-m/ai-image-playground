@@ -1,3 +1,5 @@
+import { hasCapability, loadOperatorConfig } from './lib/operator-config'
+
 const env = (key: string, fallback?: string): string => {
   const v = process.env[key]
   if (v && v.trim()) return v.trim()
@@ -12,9 +14,36 @@ const positiveIntEnv = (key: string, fallback: number): number => {
   }
   return value
 }
+const clientIpSource = env('CLIENT_IP_SOURCE', 'peer')
+if (
+  clientIpSource !== 'peer' &&
+  clientIpSource !== 'x-forwarded-for' &&
+  clientIpSource !== 'cf-connecting-ip'
+) {
+  throw new Error('CLIENT_IP_SOURCE must be peer, x-forwarded-for, or cf-connecting-ip')
+}
+const operator = loadOperatorConfig(env('OPERATOR_CONFIG_FILE', '') || null)
+const workerPollIntervalMs = positiveIntEnv('WORKER_POLL_INTERVAL_MS', 1_000)
+const workerHealthStaleAfterMs = positiveIntEnv(
+  'WORKER_HEALTH_STALE_AFTER_MS',
+  Math.max(10_000, workerPollIntervalMs * 5),
+)
 
 export const config = {
   port: Number(env('PORT', '37377')),
+  auth: {
+    get internalApiToken(): string {
+      return env('INTERNAL_API_TOKEN', '')
+    },
+  },
+  assertValid(): void {
+    if (hasCapability(config.operator, 'accounts:login') && !config.auth.internalApiToken) {
+      throw new Error('Missing env: INTERNAL_API_TOKEN')
+    }
+    if (config.worker.healthStaleAfterMs < config.worker.pollIntervalMs * 3) {
+      throw new Error('WORKER_HEALTH_STALE_AFTER_MS must be at least three poll intervals')
+    }
+  },
   /**
    * 上游单 endpoint fallback：worker 默认走 `upstream.baseUrl + provider 派生路径`，
    * 适合所有 channels 共用同一上游网关（如自建反代）的部署。**不含版本段**
@@ -27,13 +56,33 @@ export const config = {
     openaiApiKey: env('UPSTREAM_OPENAI_API_KEY', ''),
     geminiApiKey: env('UPSTREAM_GEMINI_API_KEY', ''),
   },
-  databaseUrl: env('DATABASE_URL', '../../artifacts/image-playground.sqlite'),
+  databaseUrl: env('DATABASE_URL'),
   corsOrigins: env('CORS_ALLOWED_ORIGINS', '*'),
   staticDir: env('STATIC_DIR', '') || null,
+  network: {
+    clientIpSource,
+  },
   /** 可选 channels.json 路径覆盖；缺省走 lib/channels.ts 的 defaultChannelsPath()。 */
-  channelsFile: env('CHANNELS_FILE', '') || null,
+  channelsFile: operator.channelsFile ?? (env('CHANNELS_FILE', '') || null),
+  operator,
+  objectStore: {
+    get endpoint(): string {
+      return env('S3_ENDPOINT')
+    },
+    get bucket(): string {
+      return env('S3_BUCKET')
+    },
+    get accessKeyId(): string {
+      return env('S3_ACCESS_KEY_ID')
+    },
+    get secretAccessKey(): string {
+      return env('S3_SECRET_ACCESS_KEY')
+    },
+  },
   worker: {
-    pollIntervalMs: positiveIntEnv('WORKER_POLL_INTERVAL_MS', 1_000),
+    pollIntervalMs: workerPollIntervalMs,
+    healthPort: positiveIntEnv('WORKER_HEALTH_PORT', 37_379),
+    healthStaleAfterMs: workerHealthStaleAfterMs,
     concurrency: {
       openaiCompat: positiveIntEnv('WORKER_OPENAI_CONCURRENCY', 1),
       gemini: positiveIntEnv('WORKER_GEMINI_CONCURRENCY', 2),
