@@ -28,4 +28,8 @@ trap 'rm -f "$dump"' EXIT
 # Retention is an R2 lifecycle rule on that prefix, not a delete from here.
 pg_dump --format=custom --file="$dump" "$ADMIN_DATABASE_URL"
 aws --endpoint-url "$S3_ENDPOINT" s3 cp "$dump" "$target"
+
+# The container healthcheck reads this mtime; without it a failing backup is silent.
+mkdir -p /var/lib/pg-backup
+touch /var/lib/pg-backup/last-success
 echo "pg-backup: uploaded $target"

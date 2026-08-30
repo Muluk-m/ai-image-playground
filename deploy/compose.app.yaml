@@ -223,6 +223,14 @@ services:
     networks:
       - application
       - application-infra
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - test -n "$$(find /var/lib/pg-backup/last-success -mmin -1560)"
+      interval: 1h
+      timeout: 10s
+      retries: 1
+      start_period: 30s
 
 networks:
   application:
