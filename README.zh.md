@@ -153,8 +153,8 @@ PostgreSQL 健康。`provision` 会幂等创建部署数据库、schema-owner mi
 
 对象存储用任意 S3 兼容服务，两份部署样例都指向 Cloudflare R2。bucket 与其他业务共用时，
 `S3_KEY_PREFIX` 把该部署的对象限制在一个前缀下。每个 project 另跑一个 `pg-backup`
-sidecar，每天把本组数据库的 `pg_dump` 传到同 bucket 的 `pg/<UTC 日期>.dump`。保留期由
-bucket 的 lifecycle 规则负责，sidecar 不删任何对象。
+sidecar，每天把本组数据库的 `pg_dump` 传到同 bucket 的 `<S3_KEY_PREFIX>pg/<UTC 日期>.dump`。
+保留期由 bucket 的 lifecycle 规则负责，sidecar 不删任何对象。
 
 `app-compose.sh` 默认读取
 `$XDG_CONFIG_HOME/ai-image-playground/apps/<project>/app.env`，并要求同目录存在
