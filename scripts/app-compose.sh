@@ -82,15 +82,26 @@ require_migrator_env() {
   fi
 }
 
-activate_backend_then_static() {
-  compose up --detach --wait "$@" dependency-check bff worker admin
-  compose up --detach --wait "$@" web
+require_tunnel_credentials() {
+  if [ ! -f "$APP_CONFIG_DIR/cloudflared/config.yml" ] ||
+    [ ! -f "$APP_CONFIG_DIR/cloudflared/credentials.json" ]; then
+    echo "Tunnel files not found in $APP_CONFIG_DIR/cloudflared" >&2
+    echo "Copy deploy/cloudflared/config.yml.example there and place the credentials.json written by \`cloudflared tunnel create\`." >&2
+    exit 1
+  fi
+}
+
+# The public frontend is hosted separately, so this project starts no nginx.
+activate_backend_then_ingress() {
+  compose up --detach --wait "$@" dependency-check bff worker admin pg-backup
+  compose up --detach --wait "$@" cloudflared
 }
 
 case "$command" in
   up)
     require_migrator_env
-    activate_backend_then_static
+    require_tunnel_credentials
+    activate_backend_then_ingress
     ;;
   stop|down)
     compose down --remove-orphans
@@ -100,9 +111,10 @@ case "$command" in
     ;;
   rollback)
     require_migrator_env
+    require_tunnel_credentials
     APP_IMAGE=$rollback_image
     export APP_IMAGE
-    activate_backend_then_static --force-recreate
+    activate_backend_then_ingress --force-recreate
     ;;
   *)
     usage
