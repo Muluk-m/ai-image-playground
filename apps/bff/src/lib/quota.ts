@@ -1,21 +1,21 @@
 import { DAILY_QUOTA_LIMIT } from '@image-playground/shared'
 import { and, eq, sql } from 'drizzle-orm'
+import type { db as globalDb } from '../db/client'
 import * as schema from '../db/schema'
 
 export interface QuotaConsumeResult {
   ok: boolean
   /** 成功时是更新后的值；失败时是消费前的累计值。 */
   count: number
+  quota: number
   /** 下次配额重置时间（UTC 第二天 00:00:00 ISO 字符串）。 */
   reset_at: string
 }
 
-/** 可注入的 db 形状：db/client 的全局 drizzle 单例与 transaction 回调的 tx 句柄都满足。 */
-type QuotaDatabase = Pick<
-  import('@image-playground/db').ImagePlaygroundDatabase,
-  'insert' | 'select'
->
-
+/** Drizzle client and transaction types used by the atomic submit path. */
+type QuotaDb = typeof globalDb
+type QuotaTransaction = Parameters<Parameters<QuotaDb['transaction']>[0]>[0]
+type QuotaExecutor = QuotaDb | QuotaTransaction
 export function currentQuotaDate(): string {
   return new Date().toISOString().slice(0, 10)
 }
@@ -27,59 +27,67 @@ export function nextResetISO(): string {
 }
 
 /**
- * 单条原子 UPSERT：INSERT 命中或 ON CONFLICT UPDATE 命中 setWhere 都返回新 count；
- * 仅在 UPDATE 分支因 setWhere 不满足而不命中时返 0 行 → ok=false。
+ * Single atomic UPSERT. The configured quota is part of the statement so
+ * concurrent submissions cannot exceed it.
  *
- * 不变量：setWhere 仅作用于 UPDATE 分支。首次 INSERT 不查 limit，依赖 submit
- * 路由的 n ∈ [1, 16] 保证首次插入必不超额（n ≤ DAILY_QUOTA_LIMIT）。
- *
- * `db` 由调用方给定：submit 路由传 BEGIN IMMEDIATE 事务的 tx，让扣配额与建任务
- * 同属一个事务；不持有事务的调用方走下面的 tryConsumeQuota 包装。
- */
-export function tryConsumeQuotaSync(
-  device_id: string,
-  n: number,
-  db: QuotaDatabase,
-): QuotaConsumeResult {
-  const date = currentQuotaDate()
-  const rows = db
-    .insert(schema.daily_quota)
-    .values({ device_id, date, count: n })
-    .onConflictDoUpdate({
-      target: [schema.daily_quota.device_id, schema.daily_quota.date],
-      set: { count: sql`${schema.daily_quota.count} + ${n}` },
-      setWhere: sql`${schema.daily_quota.count} + ${n} <= ${DAILY_QUOTA_LIMIT}`,
-    })
-    .returning({ count: schema.daily_quota.count })
-    .all()
-
-  if (rows.length === 0) {
-    const [existing] = db
-      .select({ count: schema.daily_quota.count })
-      .from(schema.daily_quota)
-      .where(and(eq(schema.daily_quota.device_id, device_id), eq(schema.daily_quota.date, date)))
-      .limit(1)
-      .all()
-    return {
-      ok: false,
-      count: existing?.count ?? DAILY_QUOTA_LIMIT,
-      reset_at: nextResetISO(),
-    }
-  }
-
-  return { ok: true, count: rows[0]!.count, reset_at: nextResetISO() }
-}
-
-/**
- * 异步包装：给不持有 SQLite 事务的调用方用，默认懒求值取 db/client 的全局 drizzle
- * 单例。测试可注入一个绑定独立 sqlite 文件的 drizzle 实例，绕开 routes.test.ts 顶层
- * unlink 导致的 SQLITE_IOERR_VNODE 跨文件冲突。
+ * The optional database and quota parameters support isolated tests without
+ * initializing the process-global pool.
  */
 export async function tryConsumeQuota(
   device_id: string,
   n: number,
-  dbInstance?: QuotaDatabase,
+  dbInstance?: QuotaDb,
+  dailyImageQuota = DAILY_QUOTA_LIMIT,
 ): Promise<QuotaConsumeResult> {
-  const database = dbInstance ?? (await import('../db/client')).db
-  return tryConsumeQuotaSync(device_id, n, database)
+  // Keep the default import lazy so tests with an injected database never initialize global storage.
+  const db = dbInstance ?? (await import('../db/client')).db
+  return consumeQuota(db, device_id, n, dailyImageQuota)
+}
+
+/** Variant used by the submit transaction so task insertion and quota consumption stay atomic. */
+export async function tryConsumeQuotaInTransaction(
+  db: QuotaTransaction,
+  device_id: string,
+  n: number,
+  dailyImageQuota: number,
+): Promise<QuotaConsumeResult> {
+  return consumeQuota(db, device_id, n, dailyImageQuota)
+}
+
+async function consumeQuota(
+  db: QuotaExecutor,
+  device_id: string,
+  n: number,
+  dailyImageQuota: number,
+): Promise<QuotaConsumeResult> {
+  if (!Number.isSafeInteger(dailyImageQuota) || dailyImageQuota < 0)
+    throw new RangeError('daily image quota must be non-negative')
+  const date = currentQuotaDate()
+  if (n <= dailyImageQuota) {
+    const rows = await db
+      .insert(schema.daily_quota)
+      .values({ device_id, date, count: n })
+      .onConflictDoUpdate({
+        target: [schema.daily_quota.device_id, schema.daily_quota.date],
+        set: { count: sql`${schema.daily_quota.count} + ${n}` },
+        setWhere: sql`${schema.daily_quota.count} + ${n} <= ${dailyImageQuota}`,
+      })
+      .returning({ count: schema.daily_quota.count })
+
+    if (rows.length > 0) {
+      return { ok: true, count: rows[0]!.count, quota: dailyImageQuota, reset_at: nextResetISO() }
+    }
+  }
+
+  const [existing] = await db
+    .select({ count: schema.daily_quota.count })
+    .from(schema.daily_quota)
+    .where(and(eq(schema.daily_quota.device_id, device_id), eq(schema.daily_quota.date, date)))
+    .limit(1)
+  return {
+    ok: false,
+    count: existing?.count ?? 0,
+    quota: dailyImageQuota,
+    reset_at: nextResetISO(),
+  }
 }

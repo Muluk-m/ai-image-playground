@@ -29,6 +29,13 @@ const MIME_BY_EXT: Record<string, string> = {
 
 const GZIP_MIN_BYTES = 1024
 
+async function gzipBlob(blob: Blob): Promise<ArrayBuffer> {
+  const compressed = Bun.gzipSync(new Uint8Array(await blob.arrayBuffer()))
+  const output = new ArrayBuffer(compressed.byteLength)
+  new Uint8Array(output).set(compressed)
+  return output
+}
+
 function cacheControlFor(pathname: string): string {
   if (pathname.startsWith('/assets/')) return 'public, max-age=31536000, immutable'
   if (pathname === '/index.html' || pathname === '/manifest.webmanifest') return 'no-cache'
@@ -63,8 +70,7 @@ export async function serveStatic(
   if (ext in MIME_BY_EXT) baseHeaders['content-type'] = MIME_BY_EXT[ext]!
 
   if (compressible && wantsGzip && size >= GZIP_MIN_BYTES) {
-    const stream = file.stream().pipeThrough(new CompressionStream('gzip'))
-    return new Response(stream, {
+    return new Response(await gzipBlob(file), {
       headers: {
         ...baseHeaders,
         'content-encoding': 'gzip',

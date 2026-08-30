@@ -1,4 +1,5 @@
 import type { StoredImage, StoredImageThumbnail, TaskRecord } from '../types'
+import { scopedStorageName } from './authScope'
 
 const DB_NAME = 'image-playground'
 const DB_VERSION = 2
@@ -13,7 +14,7 @@ export const CURRENT_THUMBNAIL_VERSION = THUMBNAIL_VERSION
 
 function openDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, DB_VERSION)
+    const req = indexedDB.open(scopedStorageName(DB_NAME), DB_VERSION)
     req.onupgradeneeded = (e) => {
       const db = (e.target as IDBOpenDBRequest).result
       if (!db.objectStoreNames.contains(STORE_TASKS)) {

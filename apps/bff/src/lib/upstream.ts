@@ -1,21 +1,19 @@
-/**
- * 把 SubmitRequest 转换为 OpenAI Images / Gemini generateContent 请求体并发给上游 API。
- *
- * BFF 不做参数翻译；OpenAI 路径根据是否带 input_images 选 images/edits（multipart）
- * 或 images/generations（JSON），Gemini 路径走 models/{model}:generateContent。
- *
- * 同机部署时 upstream 是 localhost，无 Edge / 跨网延迟。这里仍设硬超时
- * (QUEUE_TIMEOUTS.UPSTREAM_HARD_TIMEOUT_MS)，防止上游卡死时 BFF worker
- * 永远 hang、task 永远停在 in_progress。
- */
 import { Buffer, File } from 'node:buffer'
-import { QUEUE_TIMEOUTS, type QueueProvider, type SubmitRequest } from '@image-playground/shared'
+import { QUEUE_TIMEOUTS, type QueueProvider } from '@image-playground/shared'
 import sharp from 'sharp'
 import { Agent, FormData, fetch as undiciFetch } from 'undici'
 import { config } from '../config'
 import { getChannels } from './channels'
+import type { HydratedSubmitRequest } from './imageArchive'
 import { log } from './logger'
 import { resolveApiKey } from './resolveApiKey'
+
+/**
+ * Convert queued requests into OpenAI Images or Gemini generateContent calls.
+ *
+ * The BFF does not translate model parameters. OpenAI requests use multipart edits when input
+ * images are present and JSON generations otherwise. Gemini requests use generateContent.
+ */
 
 /**
  * 每 channel 的上游路由风格。命中映射的 channel 用 channels.json 自带的
@@ -70,12 +68,13 @@ function resolveUpstream(provider: QueueProvider, model: string): UpstreamRoute 
     style: 'openai-images',
   }
 }
-
 export interface UpstreamCallParams {
   provider: QueueProvider
   model: string
-  request: SubmitRequest
+  request: HydratedSubmitRequest
   signal?: AbortSignal
+  /** Runs immediately before each HTTP request is dispatched. */
+  beforeRequest?: () => Promise<void>
 }
 
 export interface UpstreamCallResult {
@@ -135,7 +134,7 @@ export class UpstreamTimeoutError extends UpstreamResultUnknownError {
  * AbortController 决定；不再依赖 undocumented idleTimeout 或强制 Connection: close。
  */
 export async function callUpstream(params: UpstreamCallParams): Promise<UpstreamCallResult> {
-  const { provider, model, request, signal: externalSignal } = params
+  const { provider, model, request, signal: externalSignal, beforeRequest } = params
   const { baseUrl: base, key, style } = resolveUpstream(provider, model)
 
   const abort = new AbortController()
@@ -156,7 +155,25 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
 
   const performFetch = async (url: string, init: UpstreamFetchInit): Promise<UpstreamResponse> => {
     try {
-      return await upstreamFetch(url, fetchInit(init))
+      if (abort.signal.aborted) throw new DOMException('Upstream request aborted', 'AbortError')
+      await beforeRequest?.()
+
+      // The accounting callback is the dispatch commit point. Start the transport with a fresh
+      // signal before relaying cancellation so a cancellation that loses the database race cannot
+      // create a charged task without a corresponding upstream invocation.
+      const requestAbort = new AbortController()
+      const relayAbort = () => requestAbort.abort()
+      const responsePromise = upstreamFetch(url, {
+        ...fetchInit(init),
+        signal: requestAbort.signal,
+      })
+      abort.signal.addEventListener('abort', relayAbort, { once: true })
+      if (abort.signal.aborted) relayAbort()
+      try {
+        return await responsePromise
+      } finally {
+        abort.signal.removeEventListener('abort', relayAbort)
+      }
     } catch (err) {
       if (timedOut) throw new UpstreamTimeoutError()
       if (externalSignal?.aborted) throw err
@@ -201,18 +218,14 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
         const url = `${base}/images/generations`
         const body = JSON.stringify(buildAgnesGenerationsBody(model, request))
         const headers = { 'content-type': 'application/json', ...authHeader }
-        const n = Math.max(1, request.n ?? 1)
-        if (n === 1) {
-          const res = await performFetch(url, { method: 'POST', headers, body })
-          return parseResponse(res)
-        }
-        const results = await Promise.all(
-          Array.from({ length: n }, async () => {
+        return fanOutRequests(
+          request.n,
+          async () => {
             const res = await performFetch(url, { method: 'POST', headers, body })
             return parseResponse(res)
-          }),
+          },
+          mergeOpenAIDataResults,
         )
-        return mergeOpenAIImageResults(results)
       }
 
       // 有参考图 / 有遮罩 → images/edits multipart；generations 是纯文生图，
@@ -288,25 +301,14 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
       // Gemini image generation 不支持 candidateCount>1（"Only one candidate is
       // supported for audio or image response"），n>1 时本层 fan-out 成 N 次并发
       // 请求并把 candidates 合并到一个 payload，对 task-runner / 前端透明。
-      const n = Math.max(1, request.n ?? 1)
-      if (n === 1) {
-        const res = await performFetch(url, { method: 'POST', headers, body })
-        return parseResponse(res)
-      }
-
-      const results = await Promise.all(
-        Array.from({ length: n }, async () => {
+      return fanOutRequests(
+        request.n,
+        async () => {
           const res = await performFetch(url, { method: 'POST', headers, body })
           return parseResponse(res)
-        }),
+        },
+        mergeGeminiCandidateResults,
       )
-      const merged = {
-        candidates: results.flatMap((r) => {
-          const p = r.payload as { candidates?: unknown[] } | null
-          return Array.isArray(p?.candidates) ? p.candidates : []
-        }),
-      }
-      return { payload: merged }
     }
     throw new Error(`Unsupported provider: ${provider satisfies never}`)
   } catch (err) {
@@ -319,8 +321,46 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
   }
 }
 
+async function fanOutRequests(
+  requestedCount: number | undefined,
+  run: () => Promise<UpstreamCallResult>,
+  merge: (results: UpstreamCallResult[]) => UpstreamCallResult,
+): Promise<UpstreamCallResult> {
+  const count = Math.max(1, requestedCount ?? 1)
+  if (count === 1) return run()
+  return merge(await Promise.all(Array.from({ length: count }, run)))
+}
+
+function mergeGeminiCandidateResults(results: UpstreamCallResult[]): UpstreamCallResult {
+  return {
+    payload: {
+      candidates: results.flatMap((result) => {
+        const payload = result.payload as { candidates?: unknown[] } | null
+        return Array.isArray(payload?.candidates) ? payload.candidates : []
+      }),
+    },
+  }
+}
+
+function mergeOpenAIDataResults(results: UpstreamCallResult[]): UpstreamCallResult {
+  const first = results[0]?.payload
+  const firstPayload =
+    first && typeof first === 'object' && !Array.isArray(first)
+      ? (first as Record<string, unknown>)
+      : {}
+  return {
+    payload: {
+      ...firstPayload,
+      data: results.flatMap((result) => {
+        const payload = result.payload as { data?: unknown[] } | null
+        return Array.isArray(payload?.data) ? payload.data : []
+      }),
+    },
+  }
+}
+
 /** fan-out 的单次请求体用：去掉 n，让上游按默认的一张返回。 */
-function withoutImageCount(request: SubmitRequest): SubmitRequest {
+function withoutImageCount(request: HydratedSubmitRequest): HydratedSubmitRequest {
   const { n: _n, ...singleRequest } = request
   return singleRequest
 }
@@ -347,7 +387,10 @@ function mergeOpenAIImageResults(results: readonly UpstreamCallResult[]): Upstre
  * quality / n 上游不识别 → 不传（n 由 callUpstream fan-out 实现）。
  * 新增的 OpenAI / Gemini 参数也不传，避免上游拒绝或静默忽略未知字段。
  */
-function buildAgnesGenerationsBody(model: string, request: SubmitRequest): Record<string, unknown> {
+function buildAgnesGenerationsBody(
+  model: string,
+  request: HydratedSubmitRequest,
+): Record<string, unknown> {
   const { extra_body: extraBody, ...extraTop } = (request.extra ?? {}) as {
     extra_body?: Record<string, unknown>
     [k: string]: unknown
@@ -363,7 +406,7 @@ function buildAgnesGenerationsBody(model: string, request: SubmitRequest): Recor
   }
 }
 
-function buildOpenAIBody(model: string, request: SubmitRequest): Record<string, unknown> {
+function buildOpenAIBody(model: string, request: HydratedSubmitRequest): Record<string, unknown> {
   return {
     model,
     prompt: request.prompt,
@@ -385,15 +428,12 @@ const GROK_CONTACT_SHEET_GAP = 16
 const GROK_CONTACT_SHEET_LABEL_HEIGHT = 64
 
 /**
- * Grok edits 的单图输入兼容层。返回新的 SubmitRequest，保留所有非 input_images 字段，
- * 并把多张参考图按读取顺序排进一个有序号标签的 PNG contact sheet。
- * 0 或 1 张参考图时原样返回 request，原始文件字节不重新编码。
- * 超过 GROK_CONTACT_SHEET_MAX_INPUTS 张、或多图叠加 mask 时直接抛错，不静默降级。
+ * Grok edits only accept one image. Combine multiple inputs into a numbered contact sheet.
  */
 async function normalizeGrokEditInputs(
-  request: SubmitRequest,
+  request: HydratedSubmitRequest,
   signal: AbortSignal,
-): Promise<SubmitRequest> {
+): Promise<HydratedSubmitRequest> {
   signal.throwIfAborted()
   const inputImages = request.input_images ?? []
   if (inputImages.length > GROK_CONTACT_SHEET_MAX_INPUTS) {
@@ -408,9 +448,6 @@ async function normalizeGrokEditInputs(
   }
   if (inputImages.length <= 1) return request
 
-  // 网格几何：columns × rows 个单元，每个单元是「正方形图片 + 底部序号条」。
-  // 先按 MAX_SIDE 上限算出单元可用的宽和高，取较小者作正方形边长，
-  // 保证 sheet 的宽高都不超过 MAX_SIDE。columns >= 2、rows >= 1 由上面的提前返回保证。
   const columns = Math.ceil(Math.sqrt(inputImages.length))
   const rows = Math.ceil(inputImages.length / columns)
   const gap = Math.min(
@@ -476,10 +513,6 @@ async function normalizeGrokEditInputs(
   }
 }
 
-/**
- * contact sheet 单元底部的序号条：深底白字，序号与 input_images 顺序一致，
- * 让 prompt 能用 "Image 1" / "Image 2" 指认具体某张参考图。
- */
 function buildTileLabelSvg(index: number, width: number, height: number): Buffer {
   const fontSize = Math.max(12, Math.min(28, Math.floor(height * 0.44)))
   return Buffer.from(
@@ -491,7 +524,20 @@ function buildTileLabelSvg(index: number, width: number, height: number): Buffer
   )
 }
 
-function buildOpenAIEditFormData(model: string, request: SubmitRequest): FormData {
+interface OpenAIEditFiles {
+  inputs: File[]
+  mask?: File
+}
+
+function prepareOpenAIEditFiles(request: HydratedSubmitRequest): OpenAIEditFiles {
+  return {
+    inputs: (request.input_images ?? []).map((dataUrl) => dataUrlToFile(dataUrl, 'image.png')),
+    ...(request.mask ? { mask: dataUrlToFile(request.mask, 'mask.png') } : {}),
+  }
+}
+
+function buildOpenAIEditFormData(model: string, request: HydratedSubmitRequest): FormData {
+  const files = prepareOpenAIEditFiles(request)
   const form = new FormData()
   form.append('model', model)
   form.append('prompt', request.prompt)
@@ -502,16 +548,11 @@ function buildOpenAIEditFormData(model: string, request: SubmitRequest): FormDat
   if (request.output_compression != null) {
     form.append('output_compression', String(request.output_compression))
   }
-  if (request.n) form.append('n', String(request.n))
-  for (const dataUrl of request.input_images ?? []) {
-    form.append('image[]', dataUrlToFile(dataUrl, 'image.png'))
-  }
-  if (request.mask) {
-    form.append('mask', dataUrlToFile(request.mask, 'mask.png'))
-  }
-  // request.extra 内的标量值原样以字段透传；image/mask 这类二进制不通过 extra 走。
+  for (const input of files.inputs) form.append('image[]', input)
+  if (files.mask) form.append('mask', files.mask)
+  // edits 不接受 n；数量由本地 fan-out 实现。其余 extra 标量字段原样透传。
   for (const [k, v] of Object.entries(request.extra ?? {})) {
-    if (v == null) continue
+    if (k === 'n' || v == null) continue
     form.append(k, typeof v === 'string' ? v : JSON.stringify(v))
   }
   return form
@@ -532,7 +573,7 @@ function decodeDataUrl(dataUrl: string): { mime: string; bytes: Uint8Array } {
   return { mime, bytes }
 }
 
-function buildGeminiBody(request: SubmitRequest): Record<string, unknown> {
+function buildGeminiBody(request: HydratedSubmitRequest): Record<string, unknown> {
   const parts: Array<Record<string, unknown>> = [{ text: request.prompt }]
   for (const dataUrl of request.input_images ?? []) {
     const m = dataUrl.match(/^data:([^;,]+);base64,(.*)$/i)
