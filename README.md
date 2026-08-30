@@ -271,37 +271,6 @@ The backend must also meet these conditions:
 A paid deployment also needs the private overlay: a static host's Git build cannot read the
 private repository, so build locally or in CI and upload the artifact.
 
-### Fleet deployment contract
-
-`.fleet/deploy.json` now contains three Compose services: the committed infrastructure
-project and two independent application projects. Fleet builds
-`ai-image-playground:local` once, waits for Compose health, and deploys infrastructure before
-either application through service dependencies.
-
-The current fleet Compose schema has no per-service `--env-file` field. The macmini fleet
-agent must therefore export
-`COMPOSE_ENV_FILES=/Users/qiqian/.config/ai-image-playground/infra.env`. Application
-containers load their project-specific files directly from:
-
-```text
-/Users/qiqian/.config/ai-image-playground/apps/image-playground-personal/app.env
-/Users/qiqian/.config/ai-image-playground/apps/image-playground-commercial/app.env
-```
-
-The following host facts remain operator prerequisites and are not changed automatically:
-
-- `/Users/qiqian` is the deployment account home used by fleet.
-- The reviewed private overlay repository is checked out at `./private` in the Fleet worktree;
-  `.fleet/deploy.json` intentionally fails the private build when that checkout is absent.
-- `image-playground-edge` exists and the domain proxy has joined it.
-- `INFRA_NETWORK_NAME` is identical in infra and application configuration.
-- MinIO has distinct application credentials for the two private buckets; the bootstrap
-  profile creates buckets and lifecycle rules but does not provision scoped MinIO users.
-- PostgreSQL has a separate database writer and Admin SELECT-only role for each deployment;
-  `scripts/infra-compose.sh provision` creates these roles but does not migrate legacy data.
-- Existing macmini PostgreSQL and MinIO data ownership has been checked before the committed
-  infrastructure project is started.
-
 ## 🛠 Development
 
 ```bash
