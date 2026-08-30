@@ -302,16 +302,18 @@ cloudflared tunnel route dns image-playground-internal image-api.example.com
 cloudflared tunnel route dns image-playground-internal image-admin.example.com
 ```
 
-给 bucket 配两条 lifecycle 规则。仓库里没有任何代码会创建它们；不带前缀的规则会误删
-其他业务的对象：
+给 bucket 配两条 lifecycle 规则，`<prefix>` 取本部署的 `S3_KEY_PREFIX`（独占桶时为空）。
+仓库里没有任何代码会创建它们；共用桶上不带前缀的规则会误删其他业务的对象：
 
 ```bash
 wrangler r2 bucket lifecycle list <bucket>
 wrangler r2 bucket lifecycle add <bucket> --name pixels \
-  --prefix image-playground/ --expire-days 45
+  --prefix '<prefix>' --expire-days 45
 wrangler r2 bucket lifecycle add <bucket> --name pg-dumps \
-  --prefix pg/ --expire-days 14
+  --prefix '<prefix>pg/' --expire-days 14
 ```
+
+备份就落在像素前缀内，两条规则都会命中它，按较短的那条过期。
 
 先发布前端，确认可用后再把它的 DNS 记录切到 Pages：
 

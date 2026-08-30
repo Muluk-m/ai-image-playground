@@ -215,6 +215,7 @@ services:
       ADMIN_DATABASE_URL: ${ADMIN_DATABASE_URL:?Set ADMIN_DATABASE_URL in the application environment file}
       S3_ENDPOINT: ${S3_ENDPOINT:?Set S3_ENDPOINT in the application environment file}
       S3_BUCKET: ${S3_BUCKET:?Set S3_BUCKET in the application environment file}
+      S3_KEY_PREFIX: ${S3_KEY_PREFIX:-}
       S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:?Set S3_ACCESS_KEY_ID in the application environment file}
       S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:?Set S3_SECRET_ACCESS_KEY in the application environment file}
     networks:
