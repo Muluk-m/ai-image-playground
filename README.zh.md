@@ -102,31 +102,31 @@ project 共用 [`deploy/compose.app.yaml`](./deploy/compose.app.yaml)。nginx �
 ```bash
 config_root="${XDG_CONFIG_HOME:-$HOME/.config}/ai-image-playground"
 mkdir -p \
-  "$config_root/apps/image-playground-personal" \
-  "$config_root/apps/image-playground-commercial"
+  "$config_root/apps/image-playground-internal" \
+  "$config_root/apps/image-playground-paid"
 
 cp deploy/infra.env.example "$config_root/infra.env"
-cp deploy/app.personal.env.example \
-  "$config_root/apps/image-playground-personal/app.env"
-cp deploy/app.commercial.env.example \
-  "$config_root/apps/image-playground-commercial/app.env"
+cp deploy/app.internal.env.example \
+  "$config_root/apps/image-playground-internal/app.env"
+cp deploy/app.paid.env.example \
+  "$config_root/apps/image-playground-paid/app.env"
 cp deploy/migrate.env.example \
-  "$config_root/apps/image-playground-personal/migrate.env"
+  "$config_root/apps/image-playground-internal/migrate.env"
 cp deploy/migrate.env.example \
-  "$config_root/apps/image-playground-commercial/migrate.env"
+  "$config_root/apps/image-playground-paid/migrate.env"
 chmod 600 \
   "$config_root/infra.env" \
-  "$config_root/apps/image-playground-personal/app.env" \
-  "$config_root/apps/image-playground-personal/migrate.env" \
-  "$config_root/apps/image-playground-commercial/app.env" \
-  "$config_root/apps/image-playground-commercial/migrate.env"
+  "$config_root/apps/image-playground-internal/app.env" \
+  "$config_root/apps/image-playground-internal/migrate.env" \
+  "$config_root/apps/image-playground-paid/app.env" \
+  "$config_root/apps/image-playground-paid/migrate.env"
 
 # 启动前替换所有 replace-* 占位值。
 ```
 
 每个部署使用三个 PostgreSQL 身份。`migrate.env` 保存一次性 schema owner；
 `app.env` 保存只具备 DML 权限的应用写角色和 Admin SELECT-only 角色。两个部署还必须使用
-不同数据库、bucket、对象存储凭证、服务间令牌、上游凭证与 CORS 来源。真实密钥与
+不同数据库、对象存储位置、对象存储凭证、服务间令牌、上游凭证与 CORS 来源。真实密钥与
 operator 配置始终留在仓库外目录，仓库只提交安全样例。每个 `app.env` 旁可选放置
 `operator-config.json`。文件缺失表示全部能力关闭；文件无效时 BFF 拒绝启动。
 
@@ -134,48 +134,51 @@ operator 配置始终留在仓库外目录，仓库只提交安全样例。每�
 镜像，再分别启动两个 project：
 
 ```bash
-# 只需创建一次；该 network 由宿主机现有反向代理持有，不属于任何应用 project。
-docker network create image-playground-edge
-
 scripts/infra-compose.sh up
 
 # 先把 infra.env 中七个 POSTGRES_MIGRATOR_* / POSTGRES_APP_* /
-# POSTGRES_ADMIN_* 值设为自用站配置并执行，再替换成经营站配置并再次执行。
+# POSTGRES_ADMIN_* 值设为内部站配置并执行，再替换成收费站配置并再次执行。
 scripts/infra-compose.sh provision
 
 scripts/app-compose.sh build-private ai-image-playground:local
-scripts/app-compose.sh up image-playground-personal
-scripts/app-compose.sh up image-playground-commercial
+scripts/app-compose.sh up image-playground-internal
+scripts/app-compose.sh up image-playground-paid
 ```
 
 `infra-compose.sh` 默认读取
-`$XDG_CONFIG_HOME/ai-image-playground/infra.env`，可用 `INFRA_ENV_FILE` 覆盖。`up` 会等待
-PostgreSQL 与 MinIO 健康，创建 `MINIO_BUCKET_NAMES` 中的 bucket、关闭匿名访问，并配置
-45 天过期规则。`provision` 会幂等创建部署数据库、schema-owner migrator、DML-only
-应用角色与 Admin 只读角色。基础设施端口默认只绑定 `127.0.0.1`；应用 Compose 不发布
-PostgreSQL 或 MinIO 端口。
+`$XDG_CONFIG_HOME/ai-image-playground/infra.env`，可用 `INFRA_ENV_FILE` 覆盖。`up` 只等
+PostgreSQL 健康。`provision` 会幂等创建部署数据库、schema-owner migrator、DML-only
+应用角色与 Admin 只读角色。没有任何 Compose 文件发布 PostgreSQL 端口，排查用
+`docker compose exec`。
+
+对象存储用任意 S3 兼容服务，两份部署样例都指向 Cloudflare R2。bucket 与其他业务共用时，
+`S3_KEY_PREFIX` 把该部署的对象限制在一个前缀下。每个 project 另跑一个 `pg-backup`
+sidecar，每天把本组数据库的 `pg_dump` 传到同 bucket 的 `pg/<UTC 日期>.dump`。保留期由
+bucket 的 lifecycle 规则负责，sidecar 不删任何对象。
 
 `app-compose.sh` 默认读取
 `$XDG_CONFIG_HOME/ai-image-playground/apps/<project>/app.env`，并要求同目录存在
 `migrate.env`。只有一次性 migration 服务能读取 schema-owner 凭据。它先完成依赖检查，
-执行公开与已存在的私有 Drizzle migration，再启动 BFF、worker 与 Admin；确认 BFF
-健康后才激活 nginx。以后后端重启时 nginx 容器继续可用。每个 Web 容器根据自己的外部
-配置写入 `/usr/share/nginx/html/runtime-config.json`，因此两个域名共用同一份 Web
-构建产物，但运行时配置互不相同。
+执行公开与已存在的私有 Drizzle migration，再启动 BFF、worker、Admin 与备份 sidecar；
+确认 BFF 健康后才激活隧道。
 
-宿主机反向代理必须以容器运行并加入 `image-playground-edge`。域名应转发到以下稳定
+下面的选项 4 用 Cloudflare Tunnel 接入域名，不起 nginx。若要改用现有反向代理，把该代理
+容器加入每个 project 的 `application` network，并显式启动 `web` 服务，域名转发到以下稳定
 network alias：
 
 | 目标 | 上游 |
 |---|---|
-| 自用 Web | `http://image-playground-personal-web:8080` |
-| 经营 Web | `http://image-playground-commercial-web:8080` |
-| 自用 Admin | `http://image-playground-personal-admin:37378` |
-| 经营 Admin | `http://image-playground-commercial-admin:37378` |
+| 内部 Web | `http://image-playground-internal-web:8080` |
+| 收费 Web | `http://image-playground-paid-web:8080` |
+| 内部 Admin | `http://image-playground-internal-admin:37378` |
+| 收费 Admin | `http://image-playground-paid-admin:37378` |
+
+这种代理必须把 `X-Forwarded-For` 覆写成唯一的客户端地址，而不是追加调用方传来的链；
+同时 BFF 要改用 `CLIENT_IP_SOURCE=x-forwarded-for`，而不是仓库里默认的
+`cf-connecting-ip`。该值用于登录与注册限流，多值链会回退到直连代理地址。
 
 Admin 前必须再加 Cloudflare Access、VPN 或 IP 白名单。仓库中的 Compose 不发布宿主机
-端口，入口统一归域名代理管理。如果现有宿主机代理不是容器，operator 需要提供额外的
-Compose override，只把 Web/Admin 端口绑定到回环地址。
+端口。
 
 从旧 SQLite 部署一次性切换时：
 
@@ -191,21 +194,21 @@ Compose override，只把 Web/Admin 端口绑定到回环地址。
 查看状态或独立停止任一 project：
 
 ```bash
-scripts/app-compose.sh status image-playground-personal
-scripts/app-compose.sh stop image-playground-personal
-scripts/app-compose.sh stop image-playground-commercial
+scripts/app-compose.sh status image-playground-internal
+scripts/app-compose.sh stop image-playground-internal
+scripts/app-compose.sh stop image-playground-paid
 scripts/infra-compose.sh down
 ```
 
-停止应用 project 不会删除 PostgreSQL 或 MinIO 数据，也不会删除外部基础设施或入口
-network。只有两个应用 project 都已停止后，才停止基础设施。
+停止应用 project 既不会删除 PostgreSQL 卷，也不会删除外部基础设施 network。只有两个
+应用 project 都已停止后，才停止基础设施。
 
 `app-compose.sh rollback` 只在符合当前分角色 Compose 契约的镜像之间切换，并保持先后端、
 后静态页面的激活顺序：
 
 ```bash
-scripts/app-compose.sh rollback image-playground-personal ai-image-playground:previous
-scripts/app-compose.sh rollback image-playground-commercial ai-image-playground:previous
+scripts/app-compose.sh rollback image-playground-internal ai-image-playground:previous
+scripts/app-compose.sh rollback image-playground-paid ai-image-playground:previous
 ```
 
 如果兼容的旧 tag 未保留，先从对应代码检出重新构建。首次从 SQLite 切换到 PostgreSQL
@@ -216,18 +219,22 @@ scripts/app-compose.sh rollback image-playground-commercial ai-image-playground:
 前端作为纯静态产物托管在 Cloudflare Pages 一类的宿主上，后端仍用选项 2 的镜像跑
 BFF / worker / Admin，只是不再由 nginx 托管前端。
 
-免费 BYOK 预览：
+公开版 BYOK 产物：
 
 ```bash
-scripts/pages-deploy.sh free preview-branch
+scripts/pages-deploy.sh public ai-image-playground preview-branch
 ```
 
-收费形态（工作副本必须存在已评审的 `./private` overlay）：
+私有版产物（工作副本必须存在已评审的 `./private` overlay）：
 
 ```bash
 BFF_ENABLED=true BFF_BASE_URL=https://api.example.com \
-  scripts/pages-deploy.sh commercial main
+  scripts/pages-deploy.sh private ai-image-playground-paid main
 ```
+
+edition 只断言 overlay 在不在，后端开关与它无关：公开版产物可以设 `BFF_ENABLED=true`，
+私有版产物也可以只走 BYOK。wrangler 从环境读 `CLOUDFLARE_ACCOUNT_ID` 与
+`CLOUDFLARE_API_TOKEN`，同一份检出因此能发布到两个 Cloudflare 账号下的两个项目。
 
 `build:static-host` 在普通构建之后写出 `dist/runtime-config.json`。配置不完整时构建
 直接失败，不会部署出一个连不上后端的站点。缓存策略与 SPA 回退由随产物一起发布的
@@ -235,8 +242,9 @@ BFF_ENABLED=true BFF_BASE_URL=https://api.example.com \
 [`apps/web/public/_redirects`](./apps/web/public/_redirects) 提供，对齐
 [`deploy/nginx.conf`](./deploy/nginx.conf) 的同名规则。
 
-后端的 `app.env` 设 `APP_INGRESS_MODE=api-only`，同一个 nginx 容器只反代 API，
-所有非 API 路径直接返回 404，不再带出第二份前端。后端侧还必须满足：
+不用隧道时，在后端 `app.env` 设 `APP_INGRESS_MODE=api-only` 并启动 `web` 服务：同一个
+nginx 容器只反代 API，所有非 API 路径直接返回 404，不再带出第二份前端。选项 4 用
+cloudflared 取代这个容器。后端侧还必须满足：
 
 - `CORS_ALLOWED_ORIGINS` 精确写出前端 origin。凭据请求下不能用 `*`。
 - 前端域与 API 域**同一注册域**（如 `app.example.com` 与 `api.example.com`）。会话
@@ -248,6 +256,76 @@ BFF_ENABLED=true BFF_BASE_URL=https://api.example.com \
 
 收费形态额外需要私有 overlay：静态宿主的 Git 构建拿不到私有仓库，用本地或 CI 构建后
 上传产物。
+
+### 选项 4 · 单台 VPS + Cloudflare Tunnel + Pages
+
+仓库里的 Compose 文件就是按这个形态写的。一台机器跑 PostgreSQL 和每个部署一个应用
+project，每个 project 自带一个 cloudflared，因此宿主机不发布任何端口，也不需要放通入站。
+前端是每个部署一个 Cloudflare Pages 项目，对象存储是 R2。
+
+```text
+Pages  image-playground.example.com ─┐
+                                     ├─ Cloudflare ─ tunnel ─ VPS ─ bff ─ postgres
+API    image-api.example.com ────────┘                             ├─ worker ─ R2
+Admin  image-admin.example.com ──────────────────────────────────  └─ admin
+```
+
+仓库外配置照选项 2 准备，再加隧道文件。每个部署在自己的 Cloudflare 账号下建一个隧道，
+凭据放到 `app.env` 旁边：
+
+```bash
+config_root="${XDG_CONFIG_HOME:-$HOME/.config}/ai-image-playground"
+app_dir="$config_root/apps/image-playground-internal"
+mkdir -p "$app_dir/cloudflared"
+
+cloudflared tunnel create image-playground-internal
+cp ~/.cloudflared/<tunnel-uuid>.json "$app_dir/cloudflared/credentials.json"
+cp deploy/cloudflared/config.yml.example "$app_dir/cloudflared/config.yml"
+# 替换该文件里的隧道 UUID 与两个 hostname。
+chmod 600 "$app_dir/cloudflared/credentials.json"
+```
+
+把 `deploy/operator-config.internal.example.json` 复制成 `$app_dir/operator-config.json`
+并按需调整，然后拉起：
+
+```bash
+scripts/infra-compose.sh up
+scripts/infra-compose.sh provision                    # 每个部署数据库跑一次
+scripts/app-compose.sh build ai-image-playground:local
+scripts/app-compose.sh up image-playground-internal
+```
+
+在持有域名的那个账号下把 hostname 指到隧道：
+
+```bash
+cloudflared tunnel route dns image-playground-internal image-api.example.com
+cloudflared tunnel route dns image-playground-internal image-admin.example.com
+```
+
+给 bucket 配两条 lifecycle 规则。仓库里没有任何代码会创建它们；不带前缀的规则会误删
+其他业务的对象：
+
+```bash
+wrangler r2 bucket lifecycle list <bucket>
+wrangler r2 bucket lifecycle add <bucket> --name pixels \
+  --prefix image-playground/ --expire-days 45
+wrangler r2 bucket lifecycle add <bucket> --name pg-dumps \
+  --prefix pg/ --expire-days 14
+```
+
+先发布前端，确认可用后再把它的 DNS 记录切到 Pages：
+
+```bash
+BFF_ENABLED=true BFF_BASE_URL=https://image-api.example.com \
+  scripts/pages-deploy.sh public <pages-project> main
+```
+
+前端域与 API 域同选项 3 一样必须是同一注册域：Admin 会话 cookie 是
+`Secure; SameSite=Lax`。
+
+把每一步换成 `image-playground-paid` 再做一遍，就能在同一台机器上跑第二套完全独立的
+部署：各自的数据库、R2 位置、隧道、Pages 项目与 Cloudflare 账号，只共用 PostgreSQL
+进程和这台机器。
 
 ## 🛠 开发
 
