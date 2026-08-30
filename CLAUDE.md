@@ -110,6 +110,8 @@ typecheck、测试和构建。公开树只允许以下三个审计接缝引用 `
 私有 Admin 的所有写操作经 `/api/private/*` 代理到 BFF 的
 `/internal/admin/private/*`；Admin 数据库角色保持 SELECT-only。添加私有模块后，
 必须同时跑公开包和对应私有包的 typecheck，并分别验证「目录存在」与「目录缺席」构建。
+验证 overlay 构建一律 `pnpm build --force`：turbo 的输入哈希看不见 gitignored 的 `private/`，
+不加 `--force` 会命中不带 overlay 的缓存产物。
 
 ## 版本模型与分支
 
