@@ -51,6 +51,8 @@
 
 # ── Runtime configuration and entrypoints ─────────────────────────
 !deploy/nginx.conf
+!deploy/nginx.api-only.conf
+!deploy/nginx.proxy.conf
 !scripts/docker-entrypoint.sh
 !scripts/check-dependencies.ts
 
