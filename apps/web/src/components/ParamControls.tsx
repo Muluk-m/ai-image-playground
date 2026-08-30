@@ -6,6 +6,7 @@ import {
 } from '../lib/apiProfiles'
 import { getProfileModelOptions, updateSelectedModel } from '../lib/channels/profileSelectors'
 import { getPublicChannels } from '../lib/channels/publicChannels'
+import { isByokGenerationEnabled } from '../lib/clientCapabilities'
 import { getOutputImageLimitForSettings, getParamCapabilities } from '../lib/paramCompatibility'
 import { normalizeImageSize, sizeRatioLabel } from '../lib/size'
 import { dismissAllTooltips } from '../lib/tooltipDismiss'
@@ -232,22 +233,25 @@ export default function ParamControls({ showCount = false }: { showCount?: boole
   // 切换时同时切换 activeProfileId 与该 profile 的 model。
   const globalModelOptions = useMemo(() => {
     const publicChannels = getPublicChannels()
-    return settings.profiles.flatMap((profile) => {
-      const view = clientProfileToApiProfile(profile)
-      const presetOptions = getProfileModelOptions(profile, publicChannels)
-      const knownIds = new Set(presetOptions.map((o) => o.id))
-      const cachedExtras = (profileModelCache[profile.id] ?? [])
-        .filter((id) => !knownIds.has(id))
-        .map((id) => ({ id, label: id }))
-      const allOptions = [...presetOptions, ...cachedExtras]
-      return allOptions.map((option) => ({
-        profileId: profile.id,
-        profileName: view.name,
-        model: option.id,
-        modelLabel: option.label,
-        value: `${profile.id}::${option.id}`,
-      }))
-    })
+    const byokEnabled = isByokGenerationEnabled()
+    return settings.profiles
+      .filter((profile) => byokEnabled || profile.source === 'builtin-edge')
+      .flatMap((profile) => {
+        const view = clientProfileToApiProfile(profile)
+        const presetOptions = getProfileModelOptions(profile, publicChannels)
+        const knownIds = new Set(presetOptions.map((o) => o.id))
+        const cachedExtras = (profileModelCache[profile.id] ?? [])
+          .filter((id) => !knownIds.has(id))
+          .map((id) => ({ id, label: id }))
+        return [...presetOptions, ...cachedExtras].map((option) => ({
+          value: `${profile.id}::${option.id}`,
+          model: option.id,
+          modelLabel: option.label,
+          profileId: profile.id,
+          profileName: view.name,
+          provider: view.provider,
+        }))
+      })
   }, [settings.profiles, profileModelCache])
   const currentModelValue = `${activeProfile.id}::${activeView.model}`
   const handleGlobalModelPick = (rawValue: string) => {

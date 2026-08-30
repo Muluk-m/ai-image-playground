@@ -1,11 +1,14 @@
-import { runMigrations as runMigrationsBase } from '@image-playground/db'
+import { runMigrations as runPublicMigrations } from '@image-playground/db'
 import { config } from '../config'
+import { isCapabilityEnabled } from '../lib/capabilities'
+import { runPrivateMigrations } from '../lib/private-overlay'
 
-export function runMigrations(databaseUrl: string = config.databaseUrl) {
-  return runMigrationsBase(databaseUrl)
+export async function runMigrations(databaseUrl: string = config.databaseUrl): Promise<void> {
+  await runPublicMigrations(databaseUrl)
+  if (isCapabilityEnabled('billing:credits')) await runPrivateMigrations(databaseUrl)
 }
 
 if (import.meta.main) {
-  runMigrations()
-  console.log(`✓ migrations applied to ${config.databaseUrl}`)
+  await runMigrations()
+  console.log('✓ PostgreSQL migrations applied')
 }

@@ -113,9 +113,11 @@ async function captureSubmitBody(
   ).rejects.toThrow('test-stop')
 
   const firstCall = fetchSpy.mock.calls[0]!
+  const init = firstCall[1] as RequestInit
   return {
-    body: JSON.parse(String((firstCall[1] as RequestInit).body)) as Record<string, unknown>,
+    body: JSON.parse(String(init.body)) as Record<string, unknown>,
     url: String(firstCall[0]),
+    credentials: init.credentials,
   }
 }
 
@@ -132,10 +134,12 @@ describe('callQueueChannelApi submit body', () => {
   })
 
   it('submit body 包含 device_id 字段', async () => {
-    const { body, url } = await captureSubmitBody('openai-compat')
+    const { body, url, credentials } = await captureSubmitBody('openai-compat')
 
     expect(url).toContain('/v1/queue/openai-compat/gpt-image-1/submit')
     expect(body.device_id).toBe('dev-aaaa-bbbb-cccc')
+    // 认证部署下 session cookie 必须跟着 submit 走，否则 BFF 认不出账号。
+    expect(credentials).toBe('include')
   })
 
   it('openai-compat 透传非 PNG 输出参数', async () => {
@@ -213,7 +217,7 @@ describe('callQueueChannelApi submit body', () => {
         new Response(
           JSON.stringify({
             error: 'daily_quota_exceeded',
-            limit: 50,
+            quota: 50,
             used: 50,
             reset_at: '2026-05-16T00:00:00.000Z',
           }),
@@ -226,9 +230,34 @@ describe('callQueueChannelApi submit body', () => {
       throw new Error('did not throw')
     } catch (err) {
       const e = err as Error & { quotaExceeded?: boolean; resetAt?: string }
-      expect(e.message).toContain('今日 80 张已用完')
+      expect(e.message).toContain('今日 50 张已用完')
       expect(e.quotaExceeded).toBe(true)
       expect(e.resetAt).toBe('2026-05-16T00:00:00.000Z')
+    }
+  })
+
+  it('402 insufficient_credits exposes the recharge recovery metadata', async () => {
+    const call = await loadCallQueueChannelApi()
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      Response.json(
+        { error: 'insufficient_credits', required: 400, available: 250 },
+        { status: 402 },
+      ),
+    )
+
+    try {
+      await call(mockOpts({ n: 4 }), mockProfile(), mockChannel())
+      throw new Error('did not throw')
+    } catch (error) {
+      const billingError = error as Error & {
+        insufficientCredits?: boolean
+        required?: number
+        available?: number
+      }
+      expect(billingError.message).toContain('积分不足')
+      expect(billingError.insufficientCredits).toBe(true)
+      expect(billingError.required).toBe(400)
+      expect(billingError.available).toBe(250)
     }
   })
 })

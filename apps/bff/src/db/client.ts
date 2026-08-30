@@ -1,6 +1,6 @@
 import { createDb } from '@image-playground/db'
 import { config } from '../config'
 
-const { db, schema, checkpointWal } = createDb(config.databaseUrl)
+const { db, schema, close } = createDb(config.databaseUrl)
 
-export { checkpointWal, db, schema }
+export { close, db, schema }

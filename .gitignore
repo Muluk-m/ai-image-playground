@@ -9,6 +9,12 @@ dev-proxy.config.json
 .env
 .env.local
 .claude/
+# Optional private overlay checkout. The public tree must work when it is absent.
+private/
+# Admin route tree is generated at build time.
+apps/admin/src/routeTree.gen.ts
+# Private Admin routes are staged from the overlay before route generation.
+apps/admin/src/routes/*.route.tsx
 .gstack
 # operator 部署时按环境放进 public/ 的运行时配置（vite build 会自动复制进 dist）。
 # 内容随部署不同，不进版本库。其余 public/ 资源照常追踪。
@@ -16,3 +22,4 @@ apps/web/public/runtime-config.json
 # 个人本地运维脚本（部署到自己机器等），含主机路径/私有约定，不进版本库。
 scripts/local/
 openspec
+.DS_Store
