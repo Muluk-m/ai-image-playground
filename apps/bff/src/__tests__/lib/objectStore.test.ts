@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test'
+import { normalizeKeyPrefix } from '../../lib/objectKeyPrefix'
 
 process.env.DATABASE_URL ??= 'postgresql://unused:unused@127.0.0.1:5432/unused'
 const { S3ObjectStore } = await import('../../lib/objectStore')
@@ -103,5 +104,21 @@ describe('S3ObjectStore key prefix', () => {
       'task-1/out/4',
     ])
     expect(client.listCalls.length).toBe(3)
+  })
+})
+
+describe('normalizeKeyPrefix', () => {
+  it('缺省与空串归一成空前缀', () => {
+    expect(normalizeKeyPrefix(undefined)).toBe('')
+    expect(normalizeKeyPrefix('   ')).toBe('')
+  })
+
+  it('剥掉首尾多余的斜杠，补一个尾斜杠', () => {
+    expect(normalizeKeyPrefix('/image-playground//')).toBe('image-playground/')
+    expect(normalizeKeyPrefix('image-playground')).toBe('image-playground/')
+  })
+
+  it('中间的斜杠原样保留', () => {
+    expect(normalizeKeyPrefix('team/image-playground')).toBe('team/image-playground/')
   })
 })
