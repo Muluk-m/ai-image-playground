@@ -1,3 +1,4 @@
+import { normalizeKeyPrefix } from './lib/objectKeyPrefix'
 import { hasCapability, loadOperatorConfig } from './lib/operator-config'
 
 const env = (key: string, fallback?: string): string => {
@@ -80,8 +81,7 @@ export const config = {
     },
     /** Shared-bucket deployments confine their objects to one prefix. */
     get keyPrefix(): string {
-      const raw = env('S3_KEY_PREFIX', '').replace(/^\/+/, '').replace(/\/+$/, '')
-      return raw ? `${raw}/` : ''
+      return normalizeKeyPrefix(process.env.S3_KEY_PREFIX)
     },
   },
   worker: {

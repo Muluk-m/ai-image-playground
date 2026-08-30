@@ -175,8 +175,9 @@ share the same Web build without sharing runtime configuration.
 
 Option 4 below routes the domains through Cloudflare Tunnel and starts no nginx. To front the
 projects with an existing reverse proxy instead, connect that proxy container to each project's
-`application` network and start the `web` service explicitly. Route the domains to the stable
-per-project aliases:
+`application` network and start the `web` service with
+`scripts/app-compose.sh compose <project> up --detach --wait web`. Route the domains to the
+stable per-project aliases:
 
 | Target | Upstream |
 |---|---|
@@ -186,8 +187,8 @@ per-project aliases:
 | Paid Admin | `http://image-playground-paid-admin:37378` |
 
 Such a proxy must overwrite `X-Forwarded-For` with one canonical client address rather than
-append a caller-supplied chain, and BFF must then run with `CLIENT_IP_SOURCE=x-forwarded-for`
-instead of the committed `cf-connecting-ip`. That value drives login and registration rate
+append a caller-supplied chain, and `app.env` must then set `CLIENT_IP_SOURCE=x-forwarded-for`
+instead of the default `cf-connecting-ip`. That value drives login and registration rate
 limits; multi-value chains fall back to the immediate proxy address.
 
 Protect Admin with Cloudflare Access, a VPN, or an IP allowlist. The committed Compose file
