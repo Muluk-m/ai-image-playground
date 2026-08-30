@@ -1,0 +1,19 @@
+# Copy to <app config dir>/cloudflared/config.yml on the host, next to the credentials.json
+# written by `cloudflared tunnel create`. One tunnel per application project.
+tunnel: 00000000-0000-0000-0000-000000000000
+credentials-file: /etc/cloudflared/credentials.json
+
+ingress:
+  - hostname: replace-with-api-hostname
+    service: http://bff:37377
+    originRequest:
+      connectTimeout: 30s
+      keepAliveTimeout: 90s
+      keepAliveConnections: 100
+  - hostname: replace-with-admin-hostname
+    service: http://admin:37378
+    originRequest:
+      connectTimeout: 30s
+      keepAliveTimeout: 90s
+      keepAliveConnections: 100
+  - service: http_status:404

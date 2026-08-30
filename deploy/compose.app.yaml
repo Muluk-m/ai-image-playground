@@ -57,8 +57,8 @@ services:
       APP_ROLE: bff
       PORT: "37377"
       STATIC_DIR: ""
-      # The trusted domain proxy overwrites one canonical address; nginx forwards only that value.
-      CLIENT_IP_SOURCE: x-forwarded-for
+      # cloudflared is the only ingress, and CF-Connecting-IP is the one header it sets itself.
+      CLIENT_IP_SOURCE: cf-connecting-ip
     command:
       - bun
       - run
@@ -139,10 +139,9 @@ services:
     stop_grace_period: 30s
     networks:
       application:
-      application-infra:
-      edge:
         aliases:
           - ${COMPOSE_PROJECT_NAME}-admin
+      application-infra:
     healthcheck:
       test:
         - CMD
@@ -174,7 +173,6 @@ services:
     stop_grace_period: 15s
     networks:
       application:
-      edge:
         aliases:
           - ${COMPOSE_PROJECT_NAME}-web
     healthcheck:
@@ -188,12 +186,26 @@ services:
       retries: 12
       start_period: 5s
 
+  cloudflared:
+    image: cloudflare/cloudflared:2026.8.2
+    init: true
+    restart: unless-stopped
+    command: tunnel --no-autoupdate --config /etc/cloudflared/config.yml run
+    volumes:
+      - type: bind
+        source: ${APP_CONFIG_DIR:-/Users/qiqian/.config/ai-image-playground/apps/${COMPOSE_PROJECT_NAME}}/cloudflared
+        target: /etc/cloudflared
+        read_only: true
+        bind:
+          create_host_path: false
+    depends_on:
+      bff:
+        condition: service_healthy
+    networks:
+      - application
 
 networks:
   application:
   application-infra:
     external: true
     name: ${INFRA_NETWORK_NAME:-image-playground-infra}
-  edge:
-    external: true
-    name: ${EDGE_NETWORK_NAME:-image-playground-edge}
