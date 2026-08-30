@@ -204,6 +204,16 @@ services:
     networks:
       - application
 
+  pg-backup:
+    <<: *application-environment
+    build: ./backup
+    image: ${BACKUP_IMAGE:-ai-image-playground-pg-backup:local}
+    init: true
+    restart: unless-stopped
+    networks:
+      - application
+      - application-infra
+
 networks:
   application:
   application-infra:
