@@ -2,6 +2,7 @@ import { describe, expect, it } from 'bun:test'
 
 process.env.DATABASE_URL ??= 'postgresql://unused:unused@127.0.0.1:5432/unused'
 const { S3ObjectStore } = await import('../../lib/objectStore')
+type S3ClientLike = import('../../lib/objectStore').S3ClientLike
 
 interface ListCall {
   prefix?: string
@@ -50,7 +51,7 @@ class FakeS3Client {
 }
 
 function store(client: FakeS3Client, prefix: string) {
-  return new S3ObjectStore(client as unknown as Bun.S3Client, prefix)
+  return new S3ObjectStore(client as unknown as S3ClientLike, prefix)
 }
 
 describe('S3ObjectStore key prefix', () => {

@@ -7,7 +7,7 @@ export interface ObjectStore {
   deletePrefix(prefix: string): Promise<void>
 }
 
-type S3ClientLike = Pick<Bun.S3Client, 'write' | 'file' | 'list' | 'delete'>
+export type S3ClientLike = Pick<Bun.S3Client, 'write' | 'file' | 'list' | 'delete'>
 
 /** Keys stored in the database carry no prefix; it is added and stripped only here. */
 export class S3ObjectStore implements ObjectStore {
@@ -25,6 +25,17 @@ export class S3ObjectStore implements ObjectStore {
   }
 
   async listPrefix(prefix: string): Promise<string[]> {
+    const keys = await this.listBucketKeys(prefix)
+    return keys.map((key) => key.slice(this.keyPrefix.length))
+  }
+
+  async deletePrefix(prefix: string): Promise<void> {
+    for (const key of await this.listBucketKeys(prefix)) {
+      await this.client.delete(key)
+    }
+  }
+
+  private async listBucketKeys(prefix: string): Promise<string[]> {
     const keys: string[] = []
     let continuationToken: string | undefined
     do {
@@ -33,17 +44,11 @@ export class S3ObjectStore implements ObjectStore {
         continuationToken,
       })
       for (const entry of page.contents ?? []) {
-        if (entry.key) keys.push(entry.key.slice(this.keyPrefix.length))
+        if (entry.key) keys.push(entry.key)
       }
       continuationToken = page.isTruncated ? page.nextContinuationToken : undefined
     } while (continuationToken)
     return keys
-  }
-
-  async deletePrefix(prefix: string): Promise<void> {
-    for (const key of await this.listPrefix(prefix)) {
-      await this.client.delete(this.keyPrefix + key)
-    }
   }
 }
 

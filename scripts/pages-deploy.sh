@@ -8,16 +8,9 @@ set -eu
 #   scripts/pages-deploy.sh public <pages-project> [branch]
 #   scripts/pages-deploy.sh private <pages-project> [branch]
 #
-# The edition is asserted against the working copy instead of inferred: a public bundle must
-# not pick up the private overlay, and the overlay is included by mere file presence
-# (apps/web/src/lib/privateOverlay.tsx globs ../../private/apps/web/index.tsx).
-#
-# The backend switch is independent of the edition: a public bundle can talk to a BFF and a
-# private one can be BYOK-only. Set BFF_ENABLED=true with BFF_BASE_URL=<api origin> to point
-# the bundle at a backend.
-#
-# wrangler reads CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN from the environment. Set both
-# when the target project lives in another Cloudflare account than the logged-in one.
+# The edition is asserted against the working copy instead of inferred, because the overlay is
+# included by mere file presence (apps/web/src/lib/privateOverlay.tsx globs
+# ../../private/apps/web/index.tsx).
 
 usage() {
   echo "Usage: $0 <public|private> <pages-project> [branch]" >&2
@@ -64,8 +57,6 @@ cd "$repo_root"
 pnpm --filter @image-playground/web build:static-host
 
 cd "$repo_root/apps/web"
-if [ -n "$branch" ]; then
-  pnpm exec wrangler pages deploy --project-name "$project" --branch "$branch"
-else
-  pnpm exec wrangler pages deploy --project-name "$project"
-fi
+set -- --project-name "$project"
+[ -z "$branch" ] || set -- "$@" --branch "$branch"
+pnpm exec wrangler pages deploy "$@"

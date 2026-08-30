@@ -13,6 +13,7 @@ Usage:
   scripts/app-compose.sh up <project> [env-file]
   scripts/app-compose.sh stop <project> [env-file]
   scripts/app-compose.sh status <project> [env-file]
+  scripts/app-compose.sh compose <project> <docker compose args...>
   scripts/app-compose.sh rollback <project> <image> [env-file]
 
 The default env file is:
@@ -51,8 +52,13 @@ if [ "$command" = rollback ]; then
   shift
 fi
 
-env_file=${1:-$config_root/$project/app.env}
-[ "$#" -le 1 ] || usage
+if [ "$command" = compose ]; then
+  env_file=${APP_ENV_FILE:-$config_root/$project/app.env}
+else
+  env_file=${1:-$config_root/$project/app.env}
+  [ "$#" -le 1 ] || usage
+  [ "$#" -eq 0 ] || shift
+fi
 
 if [ ! -f "$env_file" ]; then
   echo "Application environment file not found: $env_file" >&2
@@ -93,8 +99,8 @@ require_tunnel_credentials() {
 
 # The public frontend is hosted separately, so this project starts no nginx.
 activate_backend_then_ingress() {
-  compose up --detach --wait "$@" dependency-check bff worker admin pg-backup
-  compose up --detach --wait "$@" cloudflared
+  compose up --detach --wait "$@" dependency-check bff worker admin
+  compose up --detach --wait "$@" cloudflared pg-backup
 }
 
 case "$command" in
@@ -108,6 +114,9 @@ case "$command" in
     ;;
   status)
     compose ps
+    ;;
+  compose)
+    compose "$@"
     ;;
   rollback)
     require_migrator_env

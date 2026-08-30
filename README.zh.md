@@ -163,8 +163,9 @@ bucket 的 lifecycle 规则负责，sidecar 不删任何对象。
 确认 BFF 健康后才激活隧道。
 
 下面的选项 4 用 Cloudflare Tunnel 接入域名，不起 nginx。若要改用现有反向代理，把该代理
-容器加入每个 project 的 `application` network，并显式启动 `web` 服务，域名转发到以下稳定
-network alias：
+容器加入每个 project 的 `application` network，再用
+`scripts/app-compose.sh compose <project> up --detach --wait web` 启动 `web` 服务，
+域名转发到以下稳定 network alias：
 
 | 目标 | 上游 |
 |---|---|
@@ -174,8 +175,7 @@ network alias：
 | 收费 Admin | `http://image-playground-paid-admin:37378` |
 
 这种代理必须把 `X-Forwarded-For` 覆写成唯一的客户端地址，而不是追加调用方传来的链；
-同时 BFF 要改用 `CLIENT_IP_SOURCE=x-forwarded-for`，而不是仓库里默认的
-`cf-connecting-ip`。该值用于登录与注册限流，多值链会回退到直连代理地址。
+同时 `app.env` 要设 `CLIENT_IP_SOURCE=x-forwarded-for`，覆盖默认的 `cf-connecting-ip`。该值用于登录与注册限流，多值链会回退到直连代理地址。
 
 Admin 前必须再加 Cloudflare Access、VPN 或 IP 白名单。仓库中的 Compose 不发布宿主机
 端口。
