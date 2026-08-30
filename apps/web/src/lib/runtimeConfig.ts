@@ -15,7 +15,7 @@ type Fetcher = (input: string, init?: RequestInit) => Promise<Response>
 
 let cached: RuntimeConfig = BAKED_DEFAULTS
 
-const RUNTIME_CONFIG_PATH = './runtime-config.json'
+const RUNTIME_CONFIG_PATH = '/runtime-config.json'
 
 /**
  * main.tsx 在 render 之前 top-level await 这个函数，所以它必须保证会结束：

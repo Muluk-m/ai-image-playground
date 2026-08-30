@@ -68,7 +68,7 @@ export default defineConfig(({ command }) => {
 
   return {
     plugins: [react(), injectSwBuildVersion()],
-    base: './',
+    base: '/',
     define: {
       __APP_VERSION__: JSON.stringify(pkg.version),
       __DEV_PROXY_CONFIG__: JSON.stringify(devProxyConfig),

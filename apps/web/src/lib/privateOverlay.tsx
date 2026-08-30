@@ -13,7 +13,6 @@ export interface PrivateSubmissionBlockedAction {
 export interface PrivateSubmissionGuard {
   blocked: boolean
   disabledReason?: string
-  estimatedCredits?: number
   blockedAction?: PrivateSubmissionBlockedAction
 }
 

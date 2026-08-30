@@ -1,0 +1,17 @@
+# 纯静态宿主（Cloudflare Pages 等）的缓存策略，对齐 deploy/nginx.conf 的同名规则。
+# 容器形态由 nginx 决定响应头，这个文件在那里只是一个未被读取的静态文件。
+#
+# 故意不写 /* 兜底规则：Pages 对多条命中规则的合并顺序没有明确契约，交叠会带来
+# 不确定的 Cache-Control。HTML 沿用宿主默认的「每次回源校验」。
+
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/sw.js
+  Cache-Control: private, no-store, no-cache, must-revalidate, max-age=0
+
+/runtime-config.json
+  Cache-Control: private, no-store, no-cache, must-revalidate, max-age=0
+
+/inspiration-manifest.json
+  Cache-Control: public, max-age=300, stale-while-revalidate=86400

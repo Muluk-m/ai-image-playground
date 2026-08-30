@@ -75,7 +75,8 @@ COPY --from=web-build /app/apps/web/dist /usr/share/nginx/html
 # `private-overlay` is empty by default and populated only by an explicit private-overlay build.
 COPY --from=web-build /app/private ./private
 
-COPY deploy/nginx.conf /etc/nginx/conf.d/default.conf
+# Both ingress shapes ship in the image; the entrypoint installs the one APP_INGRESS_MODE selects.
+COPY deploy/nginx.conf deploy/nginx.api-only.conf deploy/nginx.proxy.conf ./deploy/
 COPY scripts/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 COPY scripts/check-dependencies.ts ./scripts/check-dependencies.ts
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh

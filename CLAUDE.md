@@ -48,7 +48,7 @@ pnpm workspace + Turbo monorepo：
 
 1. `pnpm exec biome check --write .` — 自动修 format + import 排序；然后 `pnpm lint` 二次确认 0 errors（biome.json 自身的 schema deprecation warning/info 是已知 noise，可忽略）
 2. `pnpm typecheck` — TypeScript 跨包 build 检查
-3. **测试**：顶层 `pnpm test`，或在改动涉及的 app 目录里跑 `pnpm test`
+3. **测试**：顶层 `pnpm test`，或在改动涉及的 app 目录里跑 `pnpm test`。PostgreSQL 集成测试需要 `TEST_DATABASE_URL`（本机例：`TEST_DATABASE_URL=postgres://qiqian@127.0.0.1:5432/aip_test`），未设置会直接报错失败。
 
 任一项不过就不要 push。本地是唯一关卡，没有 CI 兜底。
 
@@ -110,6 +110,23 @@ typecheck、测试和构建。公开树只允许以下三个审计接缝引用 `
 私有 Admin 的所有写操作经 `/api/private/*` 代理到 BFF 的
 `/internal/admin/private/*`；Admin 数据库角色保持 SELECT-only。添加私有模块后，
 必须同时跑公开包和对应私有包的 typecheck，并分别验证「目录存在」与「目录缺席」构建。
+
+## 版本模型与分支
+
+**服务端只有一套。** `apps/bff`、`apps/admin` 服务端、`packages/db` 同时兼容收费与免费部署：
+能力注册表 deny by default，由运营配置 `operator-config.json` 决定开哪些能力，代码不分版本。
+
+**收费与免费的区别只在前端构建参数。** 构建时带上私有 overlay 就是收费形态，不带就是免费形态：
+
+- 免费：`./scripts/app-compose.sh build <image>`
+- 收费：`./scripts/app-compose.sh build-private <image>`（`--build-arg PRIVATE_OVERLAY_PRESENT=true` + `--build-context private-overlay=private/`）
+
+**分支：** `main` 是唯一长期分支，所有改动开 PR 直合 main，没有其他长期分支。
+
+**形态由构建输入决定，不由分支决定：**
+
+- 收费 = `main` + 仓库根 `private/` overlay（来源 `Muluk-m/ai-image-playground-private`，clone 到 `private/`）+ 仓库外 env 文件
+- 免费 = `main` 不带 overlay
 
 ## 提交规范
 
