@@ -105,10 +105,11 @@ Biome 禁止其它公开代码静态或动态引用 `private/`。
 |---|---|---|
 | `PORT` | `37377` | BFF 监听端口 |
 | `DATABASE_URL` | — | PostgreSQL connection URL；BFF/worker 使用可写角色 |
-| `S3_ENDPOINT` | — | S3-compatible object storage endpoint, such as the internal MinIO URL |
+| `S3_ENDPOINT` | — | S3-compatible object storage endpoint, such as the Cloudflare R2 account URL |
 | `S3_BUCKET` | — | Deployment-specific image bucket |
 | `S3_ACCESS_KEY_ID` | — | Object storage access key; keep the real value outside git |
 | `S3_SECRET_ACCESS_KEY` | — | Object storage secret key; keep the real value outside git |
+| `S3_KEY_PREFIX` | `(空)` | 对象 key 前缀；bucket 与其他业务共用时用它隔离，DB 里存的 ref 不含前缀 |
 | `CORS_ALLOWED_ORIGINS` | `*` | CORS 允许的浏览器 origin，多个用逗号分隔；生产请收紧 |
 | `STATIC_DIR` | `(空)` | 设为 `apps/web/dist` 让 BFF 同进程托管前端 |
 | `CHANNELS_FILE` | `(空)` | 覆盖 `apps/bff/channels.json` 路径 |
