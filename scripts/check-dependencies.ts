@@ -1,10 +1,12 @@
 import { connect } from 'node:net'
+import { normalizeKeyPrefix } from '../apps/bff/src/lib/objectKeyPrefix'
 
 const databaseUrl = process.env.APP_DATABASE_URL
 const objectStoreEndpoint = process.env.S3_ENDPOINT
 const objectStoreBucket = process.env.S3_BUCKET
 const objectStoreAccessKey = process.env.S3_ACCESS_KEY_ID
 const objectStoreSecretKey = process.env.S3_SECRET_ACCESS_KEY
+const objectStoreKeyPrefix = normalizeKeyPrefix(process.env.S3_KEY_PREFIX)
 
 if (!databaseUrl) throw new Error('APP_DATABASE_URL is required')
 if (!objectStoreEndpoint) throw new Error('S3_ENDPOINT is required')
@@ -35,14 +37,11 @@ if (databaseUrl.startsWith('postgres://') || databaseUrl.startsWith('postgresql:
   })
 }
 
-const readinessUrl = new URL('/minio/health/ready', objectStoreEndpoint)
-const response = await fetch(readinessUrl, { signal: AbortSignal.timeout(5_000) })
-if (!response.ok) throw new Error(`object storage readiness returned HTTP ${response.status}`)
-
+// Do not add a vendor readiness endpoint here: R2 has none.
 const objectStore = new Bun.S3Client({
   endpoint: objectStoreEndpoint,
   bucket: objectStoreBucket,
   accessKeyId: objectStoreAccessKey,
   secretAccessKey: objectStoreSecretKey,
 })
-await objectStore.list({ prefix: '__deployment_health__/' })
+await objectStore.list({ prefix: `${objectStoreKeyPrefix}__deployment_health__/` })

@@ -32,8 +32,7 @@ case "$command" in
       echo "Usage: $0 up" >&2
       exit 2
     fi
-    compose up --detach --wait postgres minio
-    compose run --rm --no-deps minio-bootstrap
+    compose up --detach --wait postgres
     ;;
   provision)
     if [ "$#" -ne 0 ]; then

@@ -36,7 +36,7 @@
 | entrypoint 把同一个值模板化写进前端配置 | `scripts/docker-entrypoint.sh:14,38-40` |
 | 前端只拿它当门禁 UX | `packages/shared/src/runtime-config.ts:26-28`（注释已写明「真正的安全边界是 BFF 自己的 AUTH_ENABLED」） |
 | Dockerfile 已有 5 个 stage，且已经在用 `--target` 出第二个产物 | `Dockerfile:50` `AS admin-runtime` |
-| 部署已经在用外部私有配置 | `.fleet/deploy.json:5,24` — 从 `~/.config/ai-image-playground/` 拷 runtime-config、`--env-file` 读 secrets |
+| 部署已经在用外部私有配置 | `scripts/app-compose.sh` — env 文件与 operator 配置都取自 `~/.config/ai-image-playground/`，仓库外 |
 | `.gitignore` 已有 operator 覆盖文件的先例 | `.gitignore:15,17` — `apps/web/public/runtime-config.json`、`scripts/local/` |
 | `CHANNELS_FILE` 已可把 channels.json 指到仓库外 | `apps/bff/src/config.ts:47` |
 | channels.json 缺失时优雅降级为 BYOK-only | `apps/bff/src/routes/channels.ts` 返回 `{ channels: [] }` → 前端不渲染「内置」分组 |

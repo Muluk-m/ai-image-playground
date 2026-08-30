@@ -1,3 +1,4 @@
+import { normalizeKeyPrefix } from './lib/objectKeyPrefix'
 import { hasCapability, loadOperatorConfig } from './lib/operator-config'
 
 const env = (key: string, fallback?: string): string => {
@@ -77,6 +78,9 @@ export const config = {
     },
     get secretAccessKey(): string {
       return env('S3_SECRET_ACCESS_KEY')
+    },
+    get keyPrefix(): string {
+      return normalizeKeyPrefix(process.env.S3_KEY_PREFIX)
     },
   },
   worker: {
