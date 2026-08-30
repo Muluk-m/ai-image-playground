@@ -16,12 +16,16 @@ AWS_REQUEST_CHECKSUM_CALCULATION=when_required
 export AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_DEFAULT_REGION
 export AWS_REQUEST_CHECKSUM_CALCULATION
 
+# Same confinement as the application objects: the dump must not escape S3_KEY_PREFIX.
+prefix=$(printf '%s' "${S3_KEY_PREFIX:-}" | sed 's#^/*##; s#/*$##')
+[ -z "$prefix" ] || prefix="$prefix/"
+
 stamp=$(date -u +%Y-%m-%d)
 dump=/tmp/pg-$stamp.dump
-target="s3://$S3_BUCKET/pg/$stamp.dump"
+target="s3://$S3_BUCKET/${prefix}pg/$stamp.dump"
 trap 'rm -f "$dump"' EXIT
 
-# Retention is an R2 lifecycle rule on the pg/ prefix, not a delete from here.
+# Retention is an R2 lifecycle rule on that prefix, not a delete from here.
 pg_dump --format=custom --file="$dump" "$ADMIN_DATABASE_URL"
 aws --endpoint-url "$S3_ENDPOINT" s3 cp "$dump" "$target"
 echo "pg-backup: uploaded $target"

@@ -327,16 +327,19 @@ cloudflared tunnel route dns image-playground-internal image-api.example.com
 cloudflared tunnel route dns image-playground-internal image-admin.example.com
 ```
 
-Set the two R2 lifecycle rules on the bucket. Nothing in this repository creates them, and a
-rule without a prefix would expire objects that belong to other workloads:
+Set the two R2 lifecycle rules on the bucket, where `<prefix>` is this deployment's
+`S3_KEY_PREFIX` (empty for a dedicated bucket). Nothing in this repository creates them, and on
+a shared bucket a rule without the prefix would expire objects that belong to other workloads:
 
 ```bash
 wrangler r2 bucket lifecycle list <bucket>
 wrangler r2 bucket lifecycle add <bucket> --name pixels \
-  --prefix image-playground/ --expire-days 45
+  --prefix '<prefix>' --expire-days 45
 wrangler r2 bucket lifecycle add <bucket> --name pg-dumps \
-  --prefix pg/ --expire-days 14
+  --prefix '<prefix>pg/' --expire-days 14
 ```
+
+The dumps sit inside the pixel prefix, so both rules match them and the shorter one decides.
 
 Publish the frontend and only then move its DNS record to Pages:
 
