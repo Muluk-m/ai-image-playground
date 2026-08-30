@@ -48,7 +48,7 @@ pnpm workspace + Turbo monorepo：
 
 1. `pnpm exec biome check --write .` — 自动修 format + import 排序；然后 `pnpm lint` 二次确认 0 errors（biome.json 自身的 schema deprecation warning/info 是已知 noise，可忽略）
 2. `pnpm typecheck` — TypeScript 跨包 build 检查
-3. **测试**：顶层 `pnpm test`，或在改动涉及的 app 目录里跑 `pnpm test`
+3. **测试**：顶层 `pnpm test`，或在改动涉及的 app 目录里跑 `pnpm test`。PostgreSQL 集成测试需要 `TEST_DATABASE_URL`（本机例：`TEST_DATABASE_URL=postgres://qiqian@127.0.0.1:5432/aip_test`），未设置会直接报错失败。
 
 任一项不过就不要 push。本地是唯一关卡，没有 CI 兜底。
 
@@ -121,13 +121,12 @@ typecheck、测试和构建。公开树只允许以下三个审计接缝引用 `
 - 免费：`./scripts/app-compose.sh build <image>`
 - 收费：`./scripts/app-compose.sh build-private <image>`（`--build-arg PRIVATE_OVERLAY_PRESENT=true` + `--build-context private-overlay=private/`）
 
-**分支：**
+**分支：** `main` 是唯一长期分支，所有改动开 PR 直合 main，没有其他长期分支。
 
-- `main`：长期免费主干。服务端、公开前端、基建、能力注册表全部落这里；免费部署直接从 main 构建。
-- `test`：合入 main 前的集成与验收分支。
-- `commercial`：长期收费分支。只放**付费专属且无法用能力开关表达**的公共改动（收费部署配置、品牌资源、私有 overlay 的版本 pin）。计费业务代码不在这里，在 private 仓库。
+**形态由构建输入决定，不由分支决定：**
 
-`commercial` 定期 merge `main` 前进；禁止把付费专属改动反向带回 `main`。
+- 收费 = `main` + 仓库根 `private/` overlay（来源 `Muluk-m/ai-image-playground-private`，clone 到 `private/`）+ 仓库外 env 文件
+- 免费 = `main` 不带 overlay
 
 ## 提交规范
 
