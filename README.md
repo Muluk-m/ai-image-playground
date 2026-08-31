@@ -312,10 +312,15 @@ cp deploy/cloudflared/config.yml.example "$app_dir/cloudflared/config.yml"
 # unreadable to it and the container restart-loops.
 sudo chown 65532:65532 "$app_dir/cloudflared/config.yml" "$app_dir/cloudflared/credentials.json"
 sudo chmod 400 "$app_dir/cloudflared/config.yml" "$app_dir/cloudflared/credentials.json"
+
+# That uid must also be able to reach them. o+x is traverse-only: these directories stay
+# unlistable, and nothing above needs o+r.
+chmod o+x "$HOME" "$(dirname "$config_root")" "$config_root" "$config_root/apps" "$app_dir"
+chmod 711 "$app_dir/cloudflared"
 ```
 
-Every directory above that mount needs `o+x` for uid 65532 to traverse it. It does not need
-`o+r`: the container reads the two files by name and never lists the directory.
+A `open /etc/cloudflared/config.yml: permission denied` in the cloudflared log, with the
+container restarting, means one of those two steps was skipped.
 
 Copy `deploy/operator-config.internal.example.json` to `$app_dir/operator-config.json` and
 adjust it. Then bring the host up:
