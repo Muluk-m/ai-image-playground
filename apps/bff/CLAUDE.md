@@ -1,0 +1,26 @@
+# apps/bff
+
+BFF 内部约定。仓库级约定见根 `CLAUDE.md`。
+
+## BFF 定位
+
+BFF 在整个 playground 里只做四件事：
+
+1. **任务队列代理** — 绕浏览器 / Edge / CF Pages 这类平台的 100s idle timeout（Gemini 3 Pro Image 单张能跑 30-300s）。前端发 `submit / status / fetch` 三段 < 1s 快请求，BFF 内部跑长 fetch 调上游。
+2. **Secret 守门人** — 上游 API key 只在 BFF 进程 env 里，浏览器永远拿不到；这是「内置 channel」能让没 key 的用户也能用的前提。
+3. **持久化 + 幂等** — SQLite 存 task，浏览器刷新 / 关 tab 后用 `client_request_id` 幂等恢复，不重复扣额度。
+4. **托管前端静态产物** — `apps/web/dist` 由 BFF serve（`STATIC_DIR` env），跟 BFF 同源省 CORS preflight。
+
+**BFF 不做**：协议翻译（OpenAI / Gemini 字段透传给上游）；**BYOK profile 完全绕过 BFF**（前端直接 fetch 用户填的 baseUrl，BFF 看不到也存不了 BYOK 的 key）。
+
+## 内置 channel 机制
+
+代码：[`channels.json`](./channels.json) + [`src/lib/channels.ts`](./src/lib/channels.ts) + [`src/routes/channels.ts`](./src/routes/channels.ts)。
+
+- channel id 强制 kebab-case，`auth.secretRef` 指向环境变量名（**UPPER_SNAKE_CASE，不是真值** — 校验器会拒绝长得像 `sk-...` / `AIza...` 的字符串）
+- 真实 API key 只在 BFF 进程的 env 里；客户端永远不带 `Authorization`
+- BFF 启动时 `initChannels()` 解析 channels.json + 解析 `process.env[secretRef]`；缺 secret 只 warn 不 fatal
+- `GET /api/channels` 暴露 sanitized channel 列表（不含 `baseUrl` / `auth` / `allowedPaths`）给前端 boot 时拉
+- UI 必须保持完全隐藏 baseUrl / apiKey；模型可下拉切换
+- **channels.json 数组顺序是产品契约**：`channels[0]` 是新访客的默认模型（前端按序注入 profile 并兜底选第一个）。新增 channel 往后排
+- worker 调上游默认走 `UPSTREAM_BASE_URL` 通用网关（env 约定 baseUrl **不含**版本段）；独立直连上游的 channel 要加进 `upstream.ts` 的 `DIRECT_CHANNEL_IDS`，baseUrl/key 单源 channels.json（约定 baseUrl **含**版本段，如 `.../v1`）
