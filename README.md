@@ -363,6 +363,16 @@ BFF_ENABLED=true BFF_BASE_URL=https://image-api.example.com \
 The frontend and the API must share one registrable domain, as in option 3: the Admin session
 cookie is `Secure; SameSite=Lax`.
 
+The submit body ceiling here is the edge's: over 100 MB it is rejected with a 413. The 512 MiB
+client and 600 MB BFF limits from option 3 only bind on the same-origin and nginx layouts, where
+nothing sits in front.
+
+The committed `protocol: http2` is deliberate. cloudflared defaults to QUIC, which hangs
+MB-sized uploads on hosts whose network throttles sustained UDP — measured on Tencent Cloud,
+where the client sees an h2 `PROTOCOL_ERROR` or a 524 and BFF never receives the request at all.
+Raising `net.core.rmem_max` and `wmem_max` silences quic-go's warning but does not fix it. Try
+`protocol: http2` first whenever large uploads hang through a tunnel.
+
 Repeat every step with `image-playground-paid` to run a second, fully separate deployment on
 the same host. It gets its own database, R2 location, tunnel, Pages project, and Cloudflare
 account; the two share only PostgreSQL's process and the host.

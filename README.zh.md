@@ -335,6 +335,14 @@ BFF_ENABLED=true BFF_BASE_URL=https://image-api.example.com \
 前端域与 API 域同选项 3 一样必须是同一注册域：Admin 会话 cookie 是
 `Secure; SameSite=Lax`。
 
+这条链路上的 submit 请求体上限归边缘管：超过 100 MB 直接 413。选项 3 里客户端 512 MiB 与
+BFF 600 MB 那两条只在同源与 nginx 形态下才是约束，那里前面没有别人。
+
+配置里写死 `protocol: http2` 是有意的。cloudflared 默认走 QUIC，在网络对持续 UDP 不友好的
+宿主上会把 MB 级上传挂死——腾讯云实测，客户端看到 h2 `PROTOCOL_ERROR` 或 524，而 BFF 根本
+收不到请求。把 `net.core.rmem_max` / `wmem_max` 调大只能消掉 quic-go 的告警，解决不了问题。
+隧道下大上传挂住，先试 `protocol: http2`。
+
 把每一步换成 `image-playground-paid` 再做一遍，就能在同一台机器上跑第二套完全独立的
 部署：各自的数据库、R2 位置、隧道、Pages 项目与 Cloudflare 账号，只共用 PostgreSQL
 进程和这台机器。
