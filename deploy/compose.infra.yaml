@@ -104,6 +104,22 @@ services:
           :'migrator_user',
           :'admin_user'
         ) \gexec
+        -- drizzle-kit creates this schema itself on first migrate. Creating it here first is
+        -- what lets the migrator own it and the grants below exist before any table does.
+        SELECT format('CREATE SCHEMA IF NOT EXISTS drizzle AUTHORIZATION %I', :'migrator_user') \gexec
+        SELECT format('GRANT USAGE ON SCHEMA drizzle TO %I', :'admin_user') \gexec
+        SELECT format('GRANT SELECT ON ALL TABLES IN SCHEMA drizzle TO %I', :'admin_user') \gexec
+        SELECT format('GRANT SELECT ON ALL SEQUENCES IN SCHEMA drizzle TO %I', :'admin_user') \gexec
+        SELECT format(
+          'ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA drizzle GRANT SELECT ON TABLES TO %I',
+          :'migrator_user',
+          :'admin_user'
+        ) \gexec
+        SELECT format(
+          'ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA drizzle GRANT SELECT ON SEQUENCES TO %I',
+          :'migrator_user',
+          :'admin_user'
+        ) \gexec
         SQL
     networks:
       - application-infra
