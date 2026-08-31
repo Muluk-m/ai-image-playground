@@ -307,8 +307,15 @@ cloudflared tunnel create image-playground-internal
 cp ~/.cloudflared/<tunnel-uuid>.json "$app_dir/cloudflared/credentials.json"
 cp deploy/cloudflared/config.yml.example "$app_dir/cloudflared/config.yml"
 # Replace the tunnel UUID and both hostnames in that file.
-chmod 600 "$app_dir/cloudflared/credentials.json"
+
+# The cloudflared image runs as uid 65532, so files owned by your account at mode 600 are
+# unreadable to it and the container restart-loops.
+sudo chown 65532:65532 "$app_dir/cloudflared/config.yml" "$app_dir/cloudflared/credentials.json"
+sudo chmod 400 "$app_dir/cloudflared/config.yml" "$app_dir/cloudflared/credentials.json"
 ```
+
+Every directory above that mount needs `o+x` for uid 65532 to traverse it. It does not need
+`o+r`: the container reads the two files by name and never lists the directory.
 
 Copy `deploy/operator-config.internal.example.json` to `$app_dir/operator-config.json` and
 adjust it. Then bring the host up:
