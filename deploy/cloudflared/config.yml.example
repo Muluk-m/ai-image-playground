@@ -3,6 +3,10 @@
 tunnel: 00000000-0000-0000-0000-000000000000
 credentials-file: /etc/cloudflared/credentials.json
 
+# Do not drop back to the QUIC default: on hosts whose network throttles sustained UDP
+# (measured on Tencent Cloud) it hangs MB-sized request bodies instead of failing fast.
+protocol: http2
+
 ingress:
   - hostname: replace-with-api-hostname
     service: http://bff:37377
