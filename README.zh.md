@@ -286,10 +286,14 @@ cp deploy/cloudflared/config.yml.example "$app_dir/cloudflared/config.yml"
 # cloudflared 镜像以 uid 65532 运行，属主是你、权限 600 的文件它读不到，容器会重启循环。
 sudo chown 65532:65532 "$app_dir/cloudflared/config.yml" "$app_dir/cloudflared/credentials.json"
 sudo chmod 400 "$app_dir/cloudflared/config.yml" "$app_dir/cloudflared/credentials.json"
+
+# 这个 uid 还要能走到文件。o+x 只给穿越权：目录仍不可列，上面各级也不需要 o+r。
+chmod o+x "$HOME" "$(dirname "$config_root")" "$config_root" "$config_root/apps" "$app_dir"
+chmod 711 "$app_dir/cloudflared"
 ```
 
-挂载点之上的每一级目录都要有 `o+x` 供 uid 65532 穿过；不需要 `o+r`——容器按文件名读这两个
-文件，不列目录。
+cloudflared 日志出现 `open /etc/cloudflared/config.yml: permission denied` 并反复重启，
+就是上面两步漏了其中一步。
 
 把 `deploy/operator-config.internal.example.json` 复制成 `$app_dir/operator-config.json`
 并按需调整，然后拉起：
