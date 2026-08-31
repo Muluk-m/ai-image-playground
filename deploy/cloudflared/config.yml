@@ -1,0 +1,11 @@
+tunnel: b5b898d0-a7d0-48eb-a191-01648aeda4e1
+credentials-file: /etc/cloudflared/credentials.json
+
+ingress:
+  - hostname: image-k8s.qiliangjia.one
+    service: http://bff:37377
+    originRequest:
+      connectTimeout: 30s
+      keepAliveTimeout: 90s
+      keepAliveConnections: 100
+  - service: http_status:404

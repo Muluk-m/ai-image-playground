@@ -55,7 +55,7 @@ services:
       DATABASE_URL: postgres://playground:${POSTGRES_PASSWORD}@postgres:5432/playground
     ports:
       - "37377:37377"
-      # Tencent default SG allows 443 and drops 37377.
+      # Tencent default SG allows 443 and drops 37377. Keep until tunnel is verified.
       - "443:37377"
     healthcheck:
       test:
@@ -113,6 +113,22 @@ services:
       timeout: 5s
       retries: 10
       start_period: 20s
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate --config /etc/cloudflared/config.yml run
+    volumes:
+      - ./deploy/cloudflared/config.yml:/etc/cloudflared/config.yml:ro
+      - ./deploy/cloudflared/credentials.json:/etc/cloudflared/credentials.json:ro
+    depends_on:
+      bff:
+        condition: service_healthy
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
 
 volumes:
   pgdata:

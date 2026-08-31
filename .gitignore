@@ -9,6 +9,8 @@ dev-proxy.config.json
 .wrangler
 .env
 .env.local
+deploy/cloudflared/credentials.json
+deploy/cloudflared/cert.pem
 .claude/
 .gstack
 # operator 部署时按环境放进 public/ 的运行时配置（vite build 会自动复制进 dist）。
