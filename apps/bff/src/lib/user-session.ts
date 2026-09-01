@@ -8,6 +8,27 @@ type SessionTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0]
 export const USER_SESSION_COOKIE = 'image_playground_session'
 export const USER_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000
 
+const SESSION_COOKIE_OPTIONS = {
+  httpOnly: true,
+  secure: true,
+  sameSite: 'lax',
+  path: '/',
+  maxAge: USER_SESSION_TTL_MS / 1000,
+} as const
+
+interface MutableCookie {
+  set(options: Record<string, unknown> & { value: string }): void
+}
+
+/** Every route that signs a user in must issue the identical cookie scope. */
+export function setUserSessionCookie(jar: Record<string, MutableCookie>, token: string): void {
+  jar[USER_SESSION_COOKIE]?.set({ ...SESSION_COOKIE_OPTIONS, value: token })
+}
+
+export function clearUserSessionCookie(jar: Record<string, MutableCookie>): void {
+  jar[USER_SESSION_COOKIE]?.set({ ...SESSION_COOKIE_OPTIONS, value: '', maxAge: 0 })
+}
+
 export function hashSessionToken(token: string): string {
   return createHash('sha256').update(token).digest('hex')
 }

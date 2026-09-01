@@ -14,23 +14,16 @@ import { createRateLimiter } from '../lib/rate-limit'
 import { registerUser, UserOperationError } from '../lib/user-admin'
 import { resolveAuthUser } from '../lib/user-auth'
 import {
+  clearUserSessionCookie,
   createUserSession,
   revokeUserSession,
+  setUserSessionCookie,
   USER_SESSION_COOKIE,
-  USER_SESSION_TTL_MS,
 } from '../lib/user-session'
 
 // 固定的无效账号 hash 仅用于等时校验，不是凭证或 secret。
 const DUMMY_PASSWORD_HASH =
   '$argon2id$v=19$m=65536,t=2,p=1$TTNDEQYYmWpQHJyMtmCCcw3/ju3Jwww0SB/ACmMN53U$9VqGN+Ud4kjOI2bzudleozWu49uFGhNeWn3lZCfSAdc'
-const SESSION_COOKIE_OPTIONS = {
-  httpOnly: true,
-  secure: true,
-  sameSite: 'lax',
-  path: '/',
-  maxAge: USER_SESSION_TTL_MS / 1000,
-} as const
-
 const sourceLimiter = createRateLimiter({
   maxFailures: 5,
   windowMs: 60_000,
@@ -89,10 +82,7 @@ export const userAuthRoutes = new Elysia()
       }
 
       const { sessionToken, user } = registration
-      cookie[USER_SESSION_COOKIE].set({
-        ...SESSION_COOKIE_OPTIONS,
-        value: sessionToken,
-      })
+      setUserSessionCookie(cookie, sessionToken)
       return status(201, { user: { id: user.id, username: user.username } })
     },
     {
@@ -169,10 +159,7 @@ export const userAuthRoutes = new Elysia()
         return status(401, { error: 'invalid_credentials' })
       }
 
-      cookie[USER_SESSION_COOKIE].set({
-        ...SESSION_COOKIE_OPTIONS,
-        value: authenticated.token,
-      })
+      setUserSessionCookie(cookie, authenticated.token)
       sourceLimiter.recordSuccess(key)
       accountLimiter.recordSuccess(username)
       return { user: authenticated.user }
@@ -188,11 +175,7 @@ export const userAuthRoutes = new Elysia()
     if (!isCapabilityEnabled('accounts:login')) return capabilityUnavailable('accounts:login')
     const raw = cookie[USER_SESSION_COOKIE]?.value
     await revokeUserSession(typeof raw === 'string' ? raw : '')
-    cookie[USER_SESSION_COOKIE].set({
-      ...SESSION_COOKIE_OPTIONS,
-      value: '',
-      maxAge: 0,
-    })
+    clearUserSessionCookie(cookie)
     return { ok: true }
   })
   .get('/api/auth/me', ({ authUser, status }) => {

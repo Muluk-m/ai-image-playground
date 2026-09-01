@@ -4,6 +4,7 @@ export const EXPECTED_TABLES = [
   'daily_quota',
   'operator_audits',
   'tasks',
+  'user_identities',
   'user_sessions',
   'users',
 ] as const
@@ -19,16 +20,19 @@ export const EXPECTED_INDEXES = [
   'idx_tasks_submitted_at',
   'idx_tasks_user_client_request_id',
   'idx_tasks_user_time',
+  'idx_user_identities_provider_subject',
+  'idx_user_identities_user_id',
   'idx_user_sessions_expires_at',
   'idx_user_sessions_user_id',
   'idx_users_username',
   'operator_audits_pkey',
   'tasks_pkey',
+  'user_identities_pkey',
   'user_sessions_pkey',
   'users_pkey',
 ] as const
 
-const EXPECTED_MIGRATION_COUNT = 4
+const EXPECTED_MIGRATION_COUNT = 6
 
 export interface SchemaVerificationResult {
   tables: number
