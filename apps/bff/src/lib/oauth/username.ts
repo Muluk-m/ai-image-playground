@@ -11,10 +11,7 @@ function sanitize(value: string): string {
     .slice(0, MAX_BASE_LENGTH)
 }
 
-/**
- * Ordered username candidates for a new OAuth account. A taken email address falls back to
- * suffixed local-part handles because `local-2@host` is not a valid address.
- */
+/** A taken address falls back to suffixed local-part handles: `local-2@host` is not an address. */
 export function oauthUsernameCandidates(input: {
   provider: string
   subject: string
@@ -24,12 +21,8 @@ export function oauthUsernameCandidates(input: {
   const email = input.email ? normalizeUsername(input.email) : null
   if (email && isValidUsername(email)) candidates.push(email)
 
-  const localPart = email?.split('@')[0] ?? ''
-  const base =
-    sanitize(localPart).length >= 3
-      ? sanitize(localPart)
-      : sanitize(`${input.provider}-${input.subject}`)
-  const seed = base.length >= 3 ? base : `${input.provider}-user`
+  const localPart = sanitize(email?.split('@')[0] ?? '')
+  const seed = localPart.length >= 3 ? localPart : sanitize(`${input.provider}-${input.subject}`)
 
   candidates.push(seed)
   for (let suffix = 2; suffix <= 9; suffix++) candidates.push(`${seed}-${suffix}`)
