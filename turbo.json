@@ -16,15 +16,20 @@
       //   public/runtime-config.json  —— vite 把 public/** 原样复制进 dist，
       //                                  operator 换版本时靠它区分部署形态
       //
-      // 不需要 "env" 键：VITE_* 由 turbo 的 vite framework inference 自动进哈希，
-      // 而 envMode 是 strict —— 未声明的变量会被从构建环境里剥掉，因此不可能出现
-      // 「某个变量悄悄改变了产物却没进哈希」。真要读非 VITE_ 变量，在这里加 "env"。
-      "inputs": ["$TURBO_DEFAULT$", ".env*", "public/runtime-config.json"]
+      // VITE_* 由 turbo 的 vite framework inference 自动进哈希；其余读到的变量必须在
+      // "env" 里逐条声明——envMode 是 strict，未声明的会被从构建环境里直接剥掉。
+      // 两个 overlay entry 就踩过这个坑：tailwind.config.js 靠它拼私有树 content glob，
+      // 被剥掉后 overlay 构建的 CSS 从不含私有树 class。
+      "inputs": ["$TURBO_DEFAULT$", ".env*", "public/runtime-config.json"],
+      "env": ["PRIVATE_WEB_OVERLAY_ENTRY", "PRIVATE_ADMIN_OVERLAY_ENTRY"]
     },
     "typecheck": {
       "dependsOn": ["^typecheck"],
       "inputs": ["$TURBO_DEFAULT$"],
-      "outputs": []
+      "outputs": [],
+      // admin 的 pretypecheck 跑 routes:generate，读它决定私有路由是否 stage 进
+      // src/routes——被剥掉不只是少检查，而是会把已 stage 的私有路由删掉。
+      "env": ["PRIVATE_ADMIN_OVERLAY_ENTRY"]
     },
     "dev": {
       "cache": false,
@@ -32,7 +37,8 @@
     },
     "test": {
       "cache": false,
-      "env": ["TEST_DATABASE_URL"]
+      // PRIVATE_ADMIN_OVERLAY_ENTRY 同 typecheck：pretest 也跑 routes:generate。
+      "env": ["TEST_DATABASE_URL", "PRIVATE_ADMIN_OVERLAY_ENTRY"]
     }
   }
 }
