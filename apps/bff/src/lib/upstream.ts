@@ -45,6 +45,8 @@ interface UpstreamRoute {
   key: string
   /** openai-compat 分支的协议风格（gemini 分支不看这个字段）。 */
   style: ChannelRouteStyle
+  /** channel 声明只接受 base64 结果（gemini 分支不看这个字段）。 */
+  forceB64Json: boolean
 }
 
 /**
@@ -59,13 +61,19 @@ function resolveUpstream(provider: QueueProvider, model: string): UpstreamRoute 
     const style = CHANNEL_ROUTE_STYLES[channel.id]
     if (!style || channel.kind !== kind) continue
     if (!channel.models.some((m) => m.id === model)) continue
-    return { baseUrl: channel.baseUrl, key: channel.auth.secret, style }
+    return {
+      baseUrl: channel.baseUrl,
+      key: channel.auth.secret,
+      style,
+      forceB64Json: provider === 'openai-compat' && channel.defaults.responseFormatB64Json === true,
+    }
   }
   const version = provider === 'gemini' ? 'v1beta' : 'v1'
   return {
     baseUrl: `${config.upstream.baseUrl}/${version}`,
     key: resolveApiKey(provider),
     style: 'openai-images',
+    forceB64Json: false,
   }
 }
 export interface UpstreamCallParams {
@@ -134,8 +142,12 @@ export class UpstreamTimeoutError extends UpstreamResultUnknownError {
  * AbortController 决定；不再依赖 undocumented idleTimeout 或强制 Connection: close。
  */
 export async function callUpstream(params: UpstreamCallParams): Promise<UpstreamCallResult> {
-  const { provider, model, request, signal: externalSignal, beforeRequest } = params
-  const { baseUrl: base, key, style } = resolveUpstream(provider, model)
+  const { provider, model, signal: externalSignal, beforeRequest } = params
+  const { baseUrl: base, key, style, forceB64Json } = resolveUpstream(provider, model)
+  // Grok 回的 imgen.x.ai URL 对服务器出口 IP 一律 403（带 Bearer 也 403），归档取不到图。
+  const request = forceB64Json
+    ? { ...params.request, extra: { ...params.request.extra, response_format: 'b64_json' } }
+    : params.request
 
   const abort = new AbortController()
   let timedOut = false
@@ -248,7 +260,7 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
           const res = await performFetch(url, {
             method: 'POST',
             headers: authHeader,
-            body: buildOpenAIEditFormData(model, editRequest, style),
+            body: buildOpenAIEditFormData(model, editRequest),
           })
           return parseResponse(res)
         }
@@ -260,7 +272,7 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
             const res = await performFetch(url, {
               method: 'POST',
               headers: authHeader,
-              body: buildOpenAIEditFormData(model, singleRequest, style),
+              body: buildOpenAIEditFormData(model, singleRequest),
             })
             return parseResponse(res)
           }),
@@ -275,12 +287,12 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
         const res = await performFetch(url, {
           method: 'POST',
           headers,
-          body: JSON.stringify(buildOpenAIBody(model, request, style)),
+          body: JSON.stringify(buildOpenAIBody(model, request)),
         })
         return parseResponse(res)
       }
 
-      const body = JSON.stringify(buildOpenAIBody(model, withoutImageCount(request), style))
+      const body = JSON.stringify(buildOpenAIBody(model, withoutImageCount(request)))
       const results = await Promise.all(
         Array.from({ length: n }, async () => {
           const res = await performFetch(url, { method: 'POST', headers, body })
@@ -406,19 +418,7 @@ function buildAgnesGenerationsBody(
   }
 }
 
-/**
- * Grok 默认回 imgen.x.ai 的 URL，该 CDN 对服务器出口 IP 一律 403（带 Bearer 也 403），
- * 归档步骤必败 → 强制要 base64。放在 extra 之后，调用方覆盖不了。
- */
-function forcedResponseFormat(style: ChannelRouteStyle): { response_format?: string } {
-  return style === 'grok-openai-images' ? { response_format: 'b64_json' } : {}
-}
-
-function buildOpenAIBody(
-  model: string,
-  request: HydratedSubmitRequest,
-  style: ChannelRouteStyle,
-): Record<string, unknown> {
+function buildOpenAIBody(model: string, request: HydratedSubmitRequest): Record<string, unknown> {
   return {
     model,
     prompt: request.prompt,
@@ -431,7 +431,6 @@ function buildOpenAIBody(
       : {}),
     ...(request.n ? { n: request.n } : {}),
     ...(request.extra ?? {}),
-    ...forcedResponseFormat(style),
   }
 }
 
@@ -549,11 +548,7 @@ function prepareOpenAIEditFiles(request: HydratedSubmitRequest): OpenAIEditFiles
   }
 }
 
-function buildOpenAIEditFormData(
-  model: string,
-  request: HydratedSubmitRequest,
-  style: ChannelRouteStyle,
-): FormData {
+function buildOpenAIEditFormData(model: string, request: HydratedSubmitRequest): FormData {
   const files = prepareOpenAIEditFiles(request)
   const form = new FormData()
   form.append('model', model)
@@ -572,9 +567,6 @@ function buildOpenAIEditFormData(
     if (k === 'n' || v == null) continue
     form.append(k, typeof v === 'string' ? v : JSON.stringify(v))
   }
-  const forced = forcedResponseFormat(style)
-  // set 而非 append：extra 里若也带了 response_format，这里要盖掉而不是留两份同名字段。
-  if (forced.response_format) form.set('response_format', forced.response_format)
   return form
 }
 

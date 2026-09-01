@@ -71,7 +71,6 @@ describe('callUpstream OpenAI route', () => {
     expect(typeof body).toBe('string')
     const parsed = JSON.parse(body as string)
     expect(parsed).toMatchObject({ model: 'gpt-image-2', prompt: 'a cat', size: '1024x1024' })
-    // gpt-image-* 不认 response_format，只有 Grok 路径强制 b64_json。
     expect(parsed.response_format).toBeUndefined()
   })
 
@@ -608,7 +607,7 @@ describe('callUpstream grok-images channel（channel base/key + 标准 OpenAI �
         capabilities: ['generate', 'edit', 'n'],
       },
     ],
-    defaults: { apiMode: 'images', timeout: 600 },
+    defaults: { apiMode: 'images', timeout: 600, responseFormatB64Json: true },
   }
 
   beforeEach(() => {
@@ -653,7 +652,7 @@ describe('callUpstream grok-images channel（channel base/key + 标准 OpenAI �
     expect(body.extra_body).toBeUndefined()
   })
 
-  it('generations：extra 里的 response_format 被 b64_json 覆盖', async () => {
+  it('generations：channel 声明 responseFormatB64Json 时压过 extra 的 response_format', async () => {
     await callUpstream({
       provider: 'openai-compat',
       model: 'grok-imagine-image',
@@ -663,7 +662,7 @@ describe('callUpstream grok-images channel（channel base/key + 标准 OpenAI �
     expect(body.response_format).toBe('b64_json')
   })
 
-  it('edits：multipart 带 response_format=b64_json，且 extra 的同名字段不留残余', async () => {
+  it('edits：multipart 只带一个 response_format=b64_json，不留 extra 的同名残余', async () => {
     const original = await solidImageDataUrl('#cc5500', 'jpeg')
     await callUpstream({
       provider: 'openai-compat',
