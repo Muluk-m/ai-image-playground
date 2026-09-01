@@ -1,8 +1,4 @@
-import {
-  OAUTH_ERROR_QUERY_PARAM,
-  type OAuthProviderId,
-  type OAuthProviderView,
-} from '@image-playground/shared'
+import { OAUTH_ERROR_QUERY_PARAM, type OAuthProviderView } from '@image-playground/shared'
 import { type FormEvent, useEffect, useState } from 'react'
 import {
   AuthRequestError,
@@ -24,9 +20,10 @@ function EyeIcon({ crossed = false }: { crossed?: boolean }) {
   )
 }
 
-function ProviderMark({ provider }: { provider: OAuthProviderId }) {
-  if (provider === 'google') return <span className="auth-provider-google">G</span>
-  return <span className="auth-provider-feishu">飞</span>
+function ProviderMark({ provider }: { provider: OAuthProviderView }) {
+  if (provider.id === 'google') return <span className="auth-provider-google">G</span>
+  if (provider.id === 'feishu') return <span className="auth-provider-feishu">飞</span>
+  return <span className="auth-provider-generic">{provider.label.slice(0, 1)}</span>
 }
 
 function FeatureIcon({ kind }: { kind: 'model' | 'speed' | 'security' }) {
@@ -271,7 +268,7 @@ export function LoginScreen() {
                             window.location.href = oauthStartUrl(provider.id)
                           }}
                         >
-                          <ProviderMark provider={provider.id} />
+                          <ProviderMark provider={provider} />
                           <span>{provider.label}</span>
                         </button>
                       ))}

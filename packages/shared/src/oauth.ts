@@ -12,7 +12,7 @@ export interface OAuthProvidersResponse {
   readonly providers: readonly OAuthProviderView[]
 }
 
-/** Callback failures redirect to the frontend with this query parameter instead of rendering a 500. */
+/** Callback failures redirect to the frontend carrying this query parameter. */
 export const OAUTH_ERROR_QUERY_PARAM = 'auth_error'
 
 export function isOAuthProviderId(value: string): value is OAuthProviderId {

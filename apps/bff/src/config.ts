@@ -47,19 +47,12 @@ export const config = {
     },
   },
   oauth: {
-    credentials(provider: OAuthProviderId): { clientId: string; clientSecret: string } {
-      return provider === 'google'
-        ? {
-            clientId: env('OAUTH_GOOGLE_CLIENT_ID', ''),
-            clientSecret: env('OAUTH_GOOGLE_CLIENT_SECRET', ''),
-          }
-        : {
-            clientId: env('OAUTH_FEISHU_APP_ID', ''),
-            clientSecret: env('OAUTH_FEISHU_APP_SECRET', ''),
-          }
+    /** Provider secrets and scopes are read lazily so an operator can rotate them with a restart. */
+    secret(name: string): string {
+      return env(name, '')
     },
-    get feishuScope(): string {
-      return env('OAUTH_FEISHU_SCOPE', '')
+    scope(provider: OAuthProviderId, fallback: string): string {
+      return env(`OAUTH_${provider.toUpperCase()}_SCOPE`, '') || fallback
     },
   },
   assertValid(): void {
@@ -84,6 +77,14 @@ export const config = {
   },
   databaseUrl: env('DATABASE_URL'),
   corsOrigins: env('CORS_ALLOWED_ORIGINS', '*'),
+  /** Explicit origins from CORS_ALLOWED_ORIGINS; empty when the deployment allows any origin. */
+  get corsOriginList(): string[] {
+    if (config.corsOrigins === '*') return []
+    return config.corsOrigins
+      .split(',')
+      .map((origin) => origin.trim())
+      .filter((origin) => origin && origin !== '*')
+  },
   staticDir: env('STATIC_DIR', '') || null,
   network: {
     clientIpSource,

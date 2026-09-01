@@ -9,7 +9,7 @@ import { feishuProvider } from './feishu'
 import { googleProvider } from './google'
 import type { OAuthCredentials, OAuthProviderDefinition } from './provider'
 
-export type { OAuthCredentials, OAuthIdentity, OAuthProviderDefinition } from './provider'
+export type { OAuthIdentity } from './provider'
 export { OAuthExchangeError } from './provider'
 
 const DEFINITIONS: Readonly<Record<OAuthProviderId, OAuthProviderDefinition>> = {
@@ -20,14 +20,22 @@ const DEFINITIONS: Readonly<Record<OAuthProviderId, OAuthProviderDefinition>> = 
 export interface EnabledOAuthProvider {
   readonly definition: OAuthProviderDefinition
   readonly credentials: OAuthCredentials
+  readonly scope: string
 }
 
-/** A provider is enabled only when both of its secrets are present. */
 export function resolveOAuthProvider(provider: string): EnabledOAuthProvider | null {
   if (!isOAuthProviderId(provider)) return null
-  const credentials = config.oauth.credentials(provider)
+  const definition = DEFINITIONS[provider]
+  const credentials = {
+    clientId: config.oauth.secret(definition.credentialEnv.clientId),
+    clientSecret: config.oauth.secret(definition.credentialEnv.clientSecret),
+  }
   if (!credentials.clientId || !credentials.clientSecret) return null
-  return { definition: DEFINITIONS[provider], credentials }
+  return {
+    definition,
+    credentials,
+    scope: config.oauth.scope(provider, definition.defaultScope),
+  }
 }
 
 export function enabledOAuthProviders(): OAuthProviderView[] {

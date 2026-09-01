@@ -294,7 +294,6 @@
 
 .auth-providers {
   display: grid;
-  /* Column count follows however many providers the deployment enabled. */
   grid-auto-flow: column;
   grid-auto-columns: minmax(0, 1fr);
   gap: 14px;
@@ -327,7 +326,8 @@
 }
 
 .auth-provider-google,
-.auth-provider-feishu {
+.auth-provider-feishu,
+.auth-provider-generic {
   font-size: 19px;
   font-weight: 800;
   line-height: 1;
@@ -339,6 +339,11 @@
 
 .auth-provider-feishu {
   color: #3370ff;
+  font-size: 16px;
+}
+
+.auth-provider-generic {
+  color: #9899a3;
   font-size: 16px;
 }
 

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { isValidPassword, isValidUsername, normalizeUsername } from '@image-playground/shared'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, inArray } from 'drizzle-orm'
 import { db, schema } from '../db/client'
 import { oauthUsernameCandidates } from './oauth/username'
 import { loadPrivateBffOverlay } from './private-overlay'
@@ -40,6 +40,15 @@ function operatorAudit(action: string, targetId: string, details: Record<string,
     details,
     created_at: Date.now(),
   }
+}
+
+// Bun's SQL driver reports the PostgreSQL SQLSTATE in `errno`; `code` holds its own transport code.
+function isUniqueViolation(error: unknown): boolean {
+  const databaseError =
+    error !== null && typeof error === 'object' && 'cause' in error ? error.cause : error
+  if (databaseError === null || typeof databaseError !== 'object') return false
+  const sqlState = 'errno' in databaseError ? databaseError.errno : null
+  return String(sqlState) === '23505'
 }
 
 const operationalUserColumns = {
@@ -97,17 +106,7 @@ async function provisionUser(
       return { user: created, sessionToken }
     })
   } catch (error) {
-    const databaseError =
-      error !== null && typeof error === 'object' && 'cause' in error ? error.cause : error
-    const databaseErrorCode =
-      databaseError !== null && typeof databaseError === 'object'
-        ? 'errno' in databaseError
-          ? databaseError.errno
-          : 'code' in databaseError
-            ? databaseError.code
-            : null
-        : null
-    if (databaseErrorCode === '23505') throw new UserOperationError('username_taken')
+    if (isUniqueViolation(error)) throw new UserOperationError('username_taken')
     throw error
   }
 }
@@ -144,18 +143,11 @@ export interface OAuthIdentityInput {
 export interface OAuthLoginResult {
   readonly user: { id: string; username: string }
   readonly sessionToken: string
-  readonly created: boolean
 }
 
-// Bun's SQL driver reports the PostgreSQL SQLSTATE in `errno`; `code` holds its own transport code.
-function isUniqueViolation(error: unknown): boolean {
-  const databaseError =
-    error !== null && typeof error === 'object' && 'cause' in error ? error.cause : error
-  if (databaseError === null || typeof databaseError !== 'object') return false
-  return 'errno' in databaseError && String(databaseError.errno) === '23505'
-}
+export type OAuthLoginOutcome = OAuthLoginResult | { readonly registrationClosed: true }
 
-async function loginExistingIdentity(userId: string): Promise<OAuthLoginResult | null> {
+async function loginExistingIdentity(userId: string): Promise<OAuthLoginResult> {
   return db.transaction(async (tx) => {
     const [current] = await tx
       .select({
@@ -166,7 +158,7 @@ async function loginExistingIdentity(userId: string): Promise<OAuthLoginResult |
       .from(schema.users)
       .where(eq(schema.users.id, userId))
       .for('update')
-    if (!current) return null
+    if (!current) throw new UserOperationError('user_not_found')
     if (current.status !== 'active') throw new UserOperationError('account_disabled')
 
     const now = Date.now()
@@ -177,7 +169,6 @@ async function loginExistingIdentity(userId: string): Promise<OAuthLoginResult |
     return {
       user: { id: current.id, username: current.username },
       sessionToken: await createUserSession(current.id, tx),
-      created: false,
     }
   })
 }
@@ -196,24 +187,30 @@ async function findIdentityUserId(identity: OAuthIdentityInput): Promise<string 
   return row?.user_id ?? null
 }
 
-/**
- * Signs in a third-party subject, provisioning an account on first sight. Registration shares the
- * `onUserCreated` hook with password signup so a paid deployment still grants the signup credits.
- */
+/** Candidates already claimed are dropped up front so a collision does not abort a transaction. */
+async function firstFreeUsernames(candidates: string[]): Promise<string[]> {
+  const taken = await db
+    .select({ username: schema.users.username })
+    .from(schema.users)
+    .where(inArray(schema.users.username, candidates))
+  const claimed = new Set(taken.map((row) => row.username))
+  const free = candidates.filter((candidate) => !claimed.has(candidate))
+  return free.length > 0 ? free : candidates.slice(-1)
+}
+
+/** Signs in a third-party subject, provisioning an account on first sight. */
 export async function loginWithOAuthIdentity(
   identity: OAuthIdentityInput,
   options: { allowRegistration: boolean },
-): Promise<OAuthLoginResult | { readonly registrationClosed: true }> {
+): Promise<OAuthLoginOutcome> {
   const email = identity.email ? normalizeUsername(identity.email) : null
   const existingUserId = await findIdentityUserId(identity)
-  if (existingUserId) {
-    const result = await loginExistingIdentity(existingUserId)
-    if (result) return result
-  }
+  if (existingUserId) return loginExistingIdentity(existingUserId)
   if (!options.allowRegistration) return { registrationClosed: true }
 
   const taskHooks = (await loadPrivateBffOverlay()).taskHooks
-  for (const username of oauthUsernameCandidates({ ...identity, email })) {
+  const candidates = await firstFreeUsernames(oauthUsernameCandidates({ ...identity, email }))
+  for (const username of candidates) {
     const now = Date.now()
     const userId = randomUUID()
     try {
@@ -247,21 +244,15 @@ export async function loginWithOAuthIdentity(
           }),
           operator_id: created.id,
         })
+        // Shares the password-signup hook so a paid deployment still grants the signup credits.
         await taskHooks.onUserCreated({ tx, userId: created.id })
-        return {
-          user: created,
-          sessionToken: await createUserSession(created.id, tx),
-          created: true,
-        }
+        return { user: created, sessionToken: await createUserSession(created.id, tx) }
       })
     } catch (error) {
       if (!isUniqueViolation(error)) throw error
       // A concurrent callback for the same subject wins the identity index; join its account.
       const raced = await findIdentityUserId(identity)
-      if (raced) {
-        const result = await loginExistingIdentity(raced)
-        if (result) return result
-      }
+      if (raced) return loginExistingIdentity(raced)
     }
   }
   throw new UserOperationError('username_taken')

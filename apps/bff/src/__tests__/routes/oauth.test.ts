@@ -375,12 +375,11 @@ describe('oauth callback', () => {
     const { state, cookie } = await startFlow('google')
     await callback('google', { code: 'code-alpha', state }, cookie)
 
+    const [identity] = await db.select().from(schema.user_identities)
     const [created] = await db
       .select()
       .from(schema.users)
-      .where(
-        eq(schema.users.id, (await db.select().from(schema.user_identities))[0]?.user_id ?? ''),
-      )
+      .where(eq(schema.users.id, identity?.user_id ?? ''))
     expect(created?.username).toBe('creator')
     expect(created?.id).not.toBe('existing-user')
   })

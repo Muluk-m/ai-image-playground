@@ -15,13 +15,7 @@ import { resultRoutes } from './routes/result'
 import { statusRoutes } from './routes/status'
 import { submitRoutes } from './routes/submit'
 
-const corsOrigin =
-  config.corsOrigins === '*'
-    ? true
-    : config.corsOrigins
-        .split(',')
-        .map((s) => s.trim())
-        .filter(Boolean)
+const corsOrigin = config.corsOrigins === '*' ? true : config.corsOriginList
 
 const privateBffOverlay = await loadPrivateBffOverlay()
 if (isCapabilityEnabled('billing:credits')) {

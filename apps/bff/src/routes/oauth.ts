@@ -6,11 +6,16 @@ import { capabilityUnavailable, isCapabilityEnabled } from '../lib/capabilities'
 import {
   enabledOAuthProviders,
   OAuthExchangeError,
+  type OAuthIdentity,
   oauthFetch,
   resolveOAuthProvider,
 } from '../lib/oauth'
-import { loginWithOAuthIdentity, UserOperationError } from '../lib/user-admin'
-import { USER_SESSION_COOKIE, USER_SESSION_TTL_MS } from '../lib/user-session'
+import {
+  loginWithOAuthIdentity,
+  type OAuthLoginOutcome,
+  UserOperationError,
+} from '../lib/user-admin'
+import { setUserSessionCookie } from '../lib/user-session'
 
 const STATE_COOKIE = 'image_playground_oauth_state'
 const STATE_TTL_SECONDS = 600
@@ -21,14 +26,6 @@ const STATE_COOKIE_OPTIONS = {
   sameSite: 'lax',
   path: '/api/auth/oauth',
   maxAge: STATE_TTL_SECONDS,
-} as const
-
-const SESSION_COOKIE_OPTIONS = {
-  httpOnly: true,
-  secure: true,
-  sameSite: 'lax',
-  path: '/',
-  maxAge: USER_SESSION_TTL_MS / 1000,
 } as const
 
 type CallbackErrorCode =
@@ -51,12 +48,8 @@ function bffOrigin(request: Request): string {
 
 function frontendOrigin(request: Request): string {
   if (config.auth.frontendOrigin) return config.auth.frontendOrigin
-  const first = config.corsOrigins
-    .split(',')
-    .map((origin) => origin.trim())
-    .find((origin) => origin && origin !== '*')
   // A wildcard CORS deployment serves the SPA from the BFF itself.
-  return (first ?? bffOrigin(request)).replace(/\/+$/, '')
+  return (config.corsOriginList[0] ?? bffOrigin(request)).replace(/\/+$/, '')
 }
 
 function redirectUri(request: Request, provider: string): string {
@@ -97,6 +90,7 @@ export const oauthRoutes = new Elysia()
           credentials: resolved.credentials,
           redirectUri: redirectUri(request, resolved.definition.id),
           state,
+          scope: resolved.scope,
         }),
       )
     },
@@ -123,7 +117,7 @@ export const oauthRoutes = new Elysia()
         return failureRedirect(request, 'access_denied')
       }
 
-      let identity: Awaited<ReturnType<typeof resolved.definition.resolveIdentity>>
+      let identity: OAuthIdentity
       try {
         identity = await resolved.definition.resolveIdentity({
           credentials: resolved.credentials,
@@ -136,7 +130,7 @@ export const oauthRoutes = new Elysia()
         return failureRedirect(request, code)
       }
 
-      let result: Awaited<ReturnType<typeof loginWithOAuthIdentity>>
+      let result: OAuthLoginOutcome
       try {
         result = await loginWithOAuthIdentity(
           {
@@ -157,10 +151,7 @@ export const oauthRoutes = new Elysia()
         return failureRedirect(request, 'registration_closed')
       }
 
-      cookie[USER_SESSION_COOKIE].set({
-        ...SESSION_COOKIE_OPTIONS,
-        value: result.sessionToken,
-      })
+      setUserSessionCookie(cookie, result.sessionToken)
       return redirectTo(`${frontendOrigin(request)}/`)
     },
     {

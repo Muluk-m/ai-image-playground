@@ -1,8 +1,4 @@
-import {
-  type AuthUserView,
-  isOAuthProviderId,
-  type OAuthProviderView,
-} from '@image-playground/shared'
+import type { AuthUserView, OAuthProviderView } from '@image-playground/shared'
 import { isClientCapabilityEnabled } from './clientCapabilities'
 import { getRuntimeConfig } from './runtimeConfig'
 export const AUTH_SESSION_EXPIRED_EVENT = 'image-playground:auth-session-expired'
@@ -69,19 +65,18 @@ export async function registerUser(username: string, password: string): Promise<
   return result.user
 }
 
-/** Returns the providers this deployment has configured. Any malformed answer disables the block. */
+/**
+ * The BFF is the authority on which providers exist, so this validates the wire shape only —
+ * an id this bundle predates must still reach the login page.
+ */
 export async function fetchOAuthProviders(): Promise<OAuthProviderView[]> {
   try {
     const body = await authJson<{ providers?: unknown }>('/api/auth/oauth/providers')
     if (!Array.isArray(body.providers)) return []
-    return body.providers.filter(
-      (provider): provider is OAuthProviderView =>
-        typeof provider === 'object' &&
-        provider !== null &&
-        typeof (provider as OAuthProviderView).id === 'string' &&
-        isOAuthProviderId((provider as OAuthProviderView).id) &&
-        typeof (provider as OAuthProviderView).label === 'string',
-    )
+    return body.providers.filter((provider): provider is OAuthProviderView => {
+      const view = provider as Partial<OAuthProviderView> | null
+      return typeof view?.id === 'string' && typeof view.label === 'string'
+    })
   } catch {
     return []
   }

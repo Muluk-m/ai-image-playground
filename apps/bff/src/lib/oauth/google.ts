@@ -1,5 +1,5 @@
 import {
-  OAuthExchangeError,
+  exchangeCodeForProfile,
   type OAuthProviderDefinition,
   optionalString,
   requireString,
@@ -13,40 +13,34 @@ const USERINFO_ENDPOINT = 'https://openidconnect.googleapis.com/v1/userinfo'
 export const googleProvider: OAuthProviderDefinition = {
   id: 'google',
   label: 'Google',
-  authorizeUrl({ credentials, redirectUri, state }) {
+  credentialEnv: { clientId: 'OAUTH_GOOGLE_CLIENT_ID', clientSecret: 'OAUTH_GOOGLE_CLIENT_SECRET' },
+  defaultScope: 'openid email profile',
+  authorizeUrl({ credentials, redirectUri, state, scope }) {
     const url = new URL(AUTHORIZE_ENDPOINT)
     url.searchParams.set('client_id', credentials.clientId)
     url.searchParams.set('redirect_uri', redirectUri)
     url.searchParams.set('response_type', 'code')
-    url.searchParams.set('scope', 'openid email profile')
     url.searchParams.set('state', state)
+    if (scope) url.searchParams.set('scope', scope)
     return url.toString()
   },
   async resolveIdentity({ credentials, code, redirectUri, fetchImpl }) {
-    const tokenResponse = await fetchImpl(TOKEN_ENDPOINT, {
-      method: 'POST',
-      headers: { 'content-type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        grant_type: 'authorization_code',
-        code,
-        client_id: credentials.clientId,
-        client_secret: credentials.clientSecret,
-        redirect_uri: redirectUri,
-      }).toString(),
+    const profile = await exchangeCodeForProfile({
+      fetchImpl,
+      tokenEndpoint: TOKEN_ENDPOINT,
+      tokenRequest: {
+        method: 'POST',
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          grant_type: 'authorization_code',
+          code,
+          client_id: credentials.clientId,
+          client_secret: credentials.clientSecret,
+          redirect_uri: redirectUri,
+        }).toString(),
+      },
+      userinfoEndpoint: USERINFO_ENDPOINT,
     })
-    if (!tokenResponse.ok) {
-      throw new OAuthExchangeError('exchange_failed', `token HTTP ${tokenResponse.status}`)
-    }
-    const token = (await tokenResponse.json()) as Record<string, unknown>
-    const accessToken = requireString(token.access_token, 'exchange_failed', 'access_token')
-
-    const userResponse = await fetchImpl(USERINFO_ENDPOINT, {
-      headers: { authorization: `Bearer ${accessToken}`, accept: 'application/json' },
-    })
-    if (!userResponse.ok) {
-      throw new OAuthExchangeError('identity_failed', `userinfo HTTP ${userResponse.status}`)
-    }
-    const profile = (await userResponse.json()) as Record<string, unknown>
     return {
       subject: requireString(profile.sub, 'identity_failed', 'sub'),
       // An unverified address must not seed an account username that looks owned.

@@ -73,11 +73,11 @@ describe('LoginScreen third-party providers', () => {
     expect(host.querySelector('input[name="username"]')).not.toBeNull()
   })
 
-  it('drops entries the client does not recognise', async () => {
+  it('drops malformed entries but still renders an id this bundle predates', async () => {
     stubProviders({ providers: [{ id: 'myspace', label: 'MySpace' }, { label: 'no id' }, 'nope'] })
     await render()
 
-    expect(host.querySelector('.auth-providers')).toBeNull()
+    expect(providerButtons().map((button) => button.textContent)).toEqual(['MMySpace'])
   })
 
   it('hides the block when the providers endpoint is unavailable', async () => {
