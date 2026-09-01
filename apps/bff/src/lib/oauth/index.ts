@@ -29,11 +29,7 @@ export function resolveOAuthProvider(provider: string): EnabledOAuthProvider | n
     clientSecret: config.oauth.secret(definition.credentialEnv.clientSecret),
   }
   if (!credentials.clientId || !credentials.clientSecret) return null
-  return {
-    definition,
-    credentials,
-    scope: config.oauth.scope(provider, definition.defaultScope),
-  }
+  return { definition, credentials, scope: definition.defaultScope }
 }
 
 export function enabledOAuthProviders(): OAuthProviderView[] {

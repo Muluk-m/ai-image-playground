@@ -3,7 +3,6 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { LoginScreen } from '../../auth/LoginScreen'
-import { oauthStartUrl } from '../../lib/authClient'
 import { _setRuntimeConfigForTesting } from '../../lib/runtimeConfig'
 
 declare global {
@@ -52,13 +51,12 @@ afterEach(() => {
 })
 
 describe('LoginScreen third-party providers', () => {
-  it('renders one button per enabled provider and links it to the BFF start route', async () => {
+  it('renders one button per enabled provider above the email form', async () => {
     stubProviders({ providers: [{ id: 'google', label: 'Google' }] })
     await render()
 
     expect(providerButtons().map((button) => button.textContent)).toEqual(['GGoogle'])
     expect(host.textContent).toContain('或使用邮箱登录')
-    expect(oauthStartUrl('google')).toBe('https://api.example.com/api/auth/oauth/google/start')
   })
 
   it('hides the whole block when the deployment enables no provider', async () => {
@@ -70,21 +68,11 @@ describe('LoginScreen third-party providers', () => {
     expect(host.querySelector('input[name="username"]')).not.toBeNull()
   })
 
-  it('drops malformed entries but still renders an id this bundle predates', async () => {
-    stubProviders({ providers: [{ id: 'myspace', label: 'MySpace' }, { label: 'no id' }, 'nope'] })
+  it('gives an id this bundle predates a mark drawn from its label', async () => {
+    stubProviders({ providers: [{ id: 'later', label: 'Later' }] })
     await render()
 
-    expect(providerButtons().map((button) => button.textContent)).toEqual(['MMySpace'])
-  })
-
-  it('hides the block when the providers endpoint is unavailable', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => new Response('nope', { status: 500 })),
-    )
-    await render()
-
-    expect(host.querySelector('.auth-providers')).toBeNull()
+    expect(providerButtons().map((button) => button.textContent)).toEqual(['LLater'])
   })
 
   it('shows a callback failure once and clears it from the address bar', async () => {

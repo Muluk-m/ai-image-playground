@@ -21,7 +21,7 @@ export const googleProvider: OAuthProviderDefinition = {
     url.searchParams.set('redirect_uri', redirectUri)
     url.searchParams.set('response_type', 'code')
     url.searchParams.set('state', state)
-    if (scope) url.searchParams.set('scope', scope)
+    url.searchParams.set('scope', scope)
     return url.toString()
   },
   async resolveIdentity({ credentials, code, redirectUri, fetchImpl }) {

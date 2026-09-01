@@ -327,13 +327,13 @@
 
 .auth-provider-google,
 .auth-provider-generic {
-  font-size: 19px;
   font-weight: 800;
   line-height: 1;
 }
 
 .auth-provider-google {
   color: #4285f4;
+  font-size: 19px;
 }
 
 .auth-provider-generic {
