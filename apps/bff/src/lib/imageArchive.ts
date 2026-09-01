@@ -18,6 +18,19 @@ export class ObjectStorageError extends Error {
   }
 }
 
+/**
+ * 归档时回源拉上游结果 URL 失败。`retryable` 让 task-runner 重跑整个 task——赌的是
+ * 换一个上游账户返回 b64 而非 URL，代价是重新生一次图，不是重拉一次这个 URL。
+ */
+export class SourceImageFetchError extends ObjectStorageError {
+  readonly retryable = true
+
+  constructor(detail: string, options?: ErrorOptions) {
+    super(`Object storage output archive failed: ${detail}`, options)
+    this.name = 'SourceImageFetchError'
+  }
+}
+
 export function isStoredImageRef(value: unknown): value is StoredImageRef {
   if (!value || typeof value !== 'object') return false
   const ref = value as Partial<StoredImageRef>
@@ -91,6 +104,7 @@ export async function archiveOutputImages(
     } catch {
       // The database has no references to these objects. Lifecycle cleanup removes any orphan.
     }
+    // 必须原样重抛：包一层 ObjectStorageError 会丢掉 SourceImageFetchError 的 retryable。
     if (error instanceof ObjectStorageError) throw error
     throw new ObjectStorageError('Object storage output archive failed', { cause: error })
   }
@@ -108,30 +122,35 @@ async function archiveOpenAIOutput(taskId: string, payload: object): Promise<voi
       typeof item.url === 'string' && /^https?:\/\//i.test(item.url) ? item.url : undefined
     if (!encoded && !sourceUrl) continue
 
-    let bytes: Uint8Array
-    let mime = openAIOutputMime(response.output_format)
-    if (encoded) {
-      bytes = Buffer.from(encoded, 'base64')
-    } else {
-      const source = await fetch(sourceUrl!)
-      if (!source.ok) {
-        throw new ObjectStorageError(
-          `Object storage output archive failed: source image HTTP ${source.status}`,
-        )
-      }
-      bytes = new Uint8Array(await source.arrayBuffer())
-      mime = source.headers.get('content-type') ?? mime
-    }
-    mime = detectImageMime(bytes) ?? mime
+    const source: { bytes: Uint8Array; mime?: string } = encoded
+      ? { bytes: Buffer.from(encoded, 'base64') }
+      : await fetchSourceImage(sourceUrl!)
+    const mime =
+      detectImageMime(source.bytes) ?? source.mime ?? openAIOutputMime(response.output_format)
 
     const key = `${taskId}/out/${index}`
-    await writeWithRetry(key, bytes, mime)
+    await writeWithRetry(key, source.bytes, mime)
     item.object = key
     item.mime = mime
     if (sourceUrl) item.source_url = sourceUrl
     delete item.b64_json
     delete item.url
     index++
+  }
+}
+
+async function fetchSourceImage(url: string): Promise<{ bytes: Uint8Array; mime?: string }> {
+  try {
+    const source = await fetch(url)
+    if (!source.ok) throw new SourceImageFetchError(`source image HTTP ${source.status}`)
+    return {
+      bytes: new Uint8Array(await source.arrayBuffer()),
+      mime: source.headers.get('content-type') ?? undefined,
+    }
+  } catch (error) {
+    // 连接失败与读 body 中断都在这里落网；!ok 已经是目标类型，包第二层会丢 status。
+    if (error instanceof SourceImageFetchError) throw error
+    throw new SourceImageFetchError('source image fetch failed', { cause: error })
   }
 }
 

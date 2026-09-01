@@ -24,7 +24,8 @@ export interface StoredImageRef {
  * - `upstream_error`: 上游 HTTP 4xx/5xx 或 socket 异常关闭等其它 fetch 抛错
  * - `upstream_no_image`: 上游 HTTP 200 但解析不出图（Gemini 安全策略 / OpenAI 异常 envelope）
  * - `interrupted`: BFF 重启时被打断（startup recovery 标记）
- * - `object_storage_error`: object storage read/write failed after bounded local retries
+ * - `object_storage_error`: object storage read/write failed, or archiving could not fetch the
+ *   upstream result URL, after the retry budget was spent
  * - `unknown`: 兜底（理论上不应出现）
  */
 export type TaskErrorType =
