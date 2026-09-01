@@ -248,7 +248,7 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
           const res = await performFetch(url, {
             method: 'POST',
             headers: authHeader,
-            body: buildOpenAIEditFormData(model, editRequest),
+            body: buildOpenAIEditFormData(model, editRequest, style),
           })
           return parseResponse(res)
         }
@@ -260,7 +260,7 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
             const res = await performFetch(url, {
               method: 'POST',
               headers: authHeader,
-              body: buildOpenAIEditFormData(model, singleRequest),
+              body: buildOpenAIEditFormData(model, singleRequest, style),
             })
             return parseResponse(res)
           }),
@@ -275,12 +275,12 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
         const res = await performFetch(url, {
           method: 'POST',
           headers,
-          body: JSON.stringify(buildOpenAIBody(model, request)),
+          body: JSON.stringify(buildOpenAIBody(model, request, style)),
         })
         return parseResponse(res)
       }
 
-      const body = JSON.stringify(buildOpenAIBody(model, withoutImageCount(request)))
+      const body = JSON.stringify(buildOpenAIBody(model, withoutImageCount(request), style))
       const results = await Promise.all(
         Array.from({ length: n }, async () => {
           const res = await performFetch(url, { method: 'POST', headers, body })
@@ -406,7 +406,19 @@ function buildAgnesGenerationsBody(
   }
 }
 
-function buildOpenAIBody(model: string, request: HydratedSubmitRequest): Record<string, unknown> {
+/**
+ * Grok 默认回 imgen.x.ai 的 URL，该 CDN 对服务器出口 IP 一律 403（带 Bearer 也 403），
+ * 归档步骤必败 → 强制要 base64。放在 extra 之后，调用方覆盖不了。
+ */
+function forcedResponseFormat(style: ChannelRouteStyle): { response_format?: string } {
+  return style === 'grok-openai-images' ? { response_format: 'b64_json' } : {}
+}
+
+function buildOpenAIBody(
+  model: string,
+  request: HydratedSubmitRequest,
+  style: ChannelRouteStyle,
+): Record<string, unknown> {
   return {
     model,
     prompt: request.prompt,
@@ -419,6 +431,7 @@ function buildOpenAIBody(model: string, request: HydratedSubmitRequest): Record<
       : {}),
     ...(request.n ? { n: request.n } : {}),
     ...(request.extra ?? {}),
+    ...forcedResponseFormat(style),
   }
 }
 
@@ -536,7 +549,11 @@ function prepareOpenAIEditFiles(request: HydratedSubmitRequest): OpenAIEditFiles
   }
 }
 
-function buildOpenAIEditFormData(model: string, request: HydratedSubmitRequest): FormData {
+function buildOpenAIEditFormData(
+  model: string,
+  request: HydratedSubmitRequest,
+  style: ChannelRouteStyle,
+): FormData {
   const files = prepareOpenAIEditFiles(request)
   const form = new FormData()
   form.append('model', model)
@@ -555,6 +572,9 @@ function buildOpenAIEditFormData(model: string, request: HydratedSubmitRequest):
     if (k === 'n' || v == null) continue
     form.append(k, typeof v === 'string' ? v : JSON.stringify(v))
   }
+  const forced = forcedResponseFormat(style)
+  // set 而非 append：extra 里若也带了 response_format，这里要盖掉而不是留两份同名字段。
+  if (forced.response_format) form.set('response_format', forced.response_format)
   return form
 }
 
