@@ -27,9 +27,18 @@ import {
  *
  * cancel 真打断：每个进行中的 task 在 runningTasks 里登记 AbortController；
  * scheduler 观察到数据库取消状态后调 abortRunningTask(id) 中断 fetch。
+ *
+ * abort 有两个来源，终态归属不同：cancel route 已自行写 'cancelled'，worker 不再插手；
+ * 停机 drain 超时的 abort 则由 worker 自己写回可重试，否则没人收拾。
  */
 
 const runningTasks = new Map<string, AbortController>()
+
+/**
+ * 停机 drain 超时被 abort 的 task。AbortError 本身分不出「用户取消」和「停机打断」，
+ * 前者已由 cancel route 写好终态，后者没人写——不区分就会永久卡在 in_progress。
+ */
+const shutdownAbortedTasks = new Set<string>()
 
 /** cancel route 调用：触发对应 task 的 upstream fetch abort。返回是否找到。 */
 export function abortRunningTask(id: string): boolean {
@@ -39,11 +48,13 @@ export function abortRunningTask(id: string): boolean {
   return true
 }
 
-/** SIGTERM 调用：abort 全部进行中任务，避免 drain 等满 55s 才退出。 */
-export function abortAllRunningTasks(): number {
-  const count = runningTasks.size
-  for (const ctrl of runningTasks.values()) ctrl.abort()
-  return count
+/** drain 窗口耗尽时调用：abort 剩余任务，它们的 catch 会把自己写回可重试。 */
+export function abortRunningTasksForShutdown(): number {
+  for (const [id, ctrl] of runningTasks) {
+    shutdownAbortedTasks.add(id)
+    ctrl.abort()
+  }
+  return shutdownAbortedTasks.size
 }
 
 export function runningTaskIds(): string[] {
@@ -234,6 +245,10 @@ export async function runTask(id: string): Promise<void> {
     // AbortError = cancel route 主动 abort。cancel.ts 已经写 status='cancelled'，
     // 下面 UPDATE 因 WHERE status='in_progress' 不匹配自然 no-op。
     if (isAbortError(err)) {
+      if (shutdownAbortedTasks.has(id)) {
+        await recoverAbortedOnShutdown(id, task.attempt_count + 1, now())
+        return
+      }
       log.info({ event: 'task.cancelled', taskId: id }, 'task aborted by cancel')
       return
     }
@@ -280,5 +295,33 @@ export async function runTask(id: string): Promise<void> {
     }
   } finally {
     runningTasks.delete(id)
+    shutdownAbortedTasks.delete(id)
+  }
+}
+
+/**
+ * 停机 abort 的收尾：走跟瞬时失败同一套重试预算，超上限才落终态 failed
+ * （终态是计费 reversal 的触发点，不能省）。
+ */
+async function recoverAbortedOnShutdown(
+  id: string,
+  attemptJustFailed: number,
+  completedAt: number,
+): Promise<void> {
+  if (await tryScheduleRetry(id, attemptJustFailed, true, 'worker shutdown drain timeout')) {
+    log.info({ event: 'task.shutdown_requeued', taskId: id }, 'task requeued for the next worker')
+    return
+  }
+  const failed = await finishTask(id, {
+    status: 'failed',
+    errorMessage: '任务 worker 停机时中断，重试次数已用尽',
+    errorType: 'interrupted',
+    completedAt,
+  })
+  if (failed) {
+    log.error(
+      { event: 'task.shutdown_failed', taskId: id, attempt: attemptJustFailed },
+      'task aborted on shutdown with no retry budget left',
+    )
   }
 }

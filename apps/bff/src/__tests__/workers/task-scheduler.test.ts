@@ -1,5 +1,6 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it, mock } from 'bun:test'
 import { resetTestDatabase } from '@image-playground/db/testing'
+import { QUEUE_TIMEOUTS } from '@image-playground/shared'
 import { and, eq } from 'drizzle-orm'
 import {
   _setPrivateBffOverlayForTesting,
@@ -20,6 +21,7 @@ const { purgeOldTasks, recoverInterruptedTasks } = await import('../../db/mainte
 const { TaskScheduler } = await import('../../workers/task-scheduler')
 const { setUpstreamFetchForTesting } = await import('../../lib/upstream')
 const { setObjectStoreForTesting } = await import('../../lib/objectStore')
+const { MAX_ATTEMPTS, RETRY_BACKOFF_MS } = await import('../../lib/retry')
 type TestFetch = NonNullable<Parameters<typeof setUpstreamFetchForTesting>[0]>
 let storage: InMemoryObjectStore
 
@@ -127,6 +129,23 @@ describe('TaskScheduler', () => {
     await scheduler.waitForIdle()
   })
 
+  it('gives up on waitForIdle once the drain window expires', async () => {
+    await insertTask('slow-drain', 'openai-compat', 1)
+    let release: (() => void) | undefined
+    const scheduler = new TaskScheduler({
+      pollIntervalMs: 10_000,
+      executeTask: () => new Promise<void>((resolve) => (release = resolve)),
+    })
+
+    scheduler.start()
+    await waitFor(() => scheduler.activeCount() === 1)
+    scheduler.stop()
+
+    expect(await scheduler.waitForIdle(20)).toBe(false)
+    release?.()
+    expect(await scheduler.waitForIdle(1_000)).toBe(true)
+  })
+
   it('observes a database cancellation and aborts the active request', async () => {
     await insertTask('cancel-active', 'openai-compat', 1)
     setUpstreamFetchForTesting(
@@ -167,11 +186,28 @@ describe('TaskScheduler', () => {
 })
 
 describe('recoverInterruptedTasks', () => {
+  const now = 1_000_000
+
   beforeEach(async () => {
     await db.delete(schema.tasks)
   })
 
-  it('fails stale in-progress rows but leaves queued retry schedules untouched', async () => {
+  async function insertInProgress(id: string, startedAt: number, attemptCount = 0) {
+    await db.insert(schema.tasks).values({
+      id,
+      provider: 'openai-compat',
+      model: 'test-model',
+      status: 'in_progress',
+      request_payload: { prompt: id },
+      submitted_at: startedAt,
+      started_at: startedAt,
+      attempt_count: attemptCount,
+      error_message: 'stale error text',
+      error_type: 'upstream_error',
+    })
+  }
+
+  it('requeues abandoned rows and leaves queued schedules untouched', async () => {
     await insertTask('queued-due', 'openai-compat', 1)
     await db.insert(schema.tasks).values({
       id: 'queued-future',
@@ -181,32 +217,97 @@ describe('recoverInterruptedTasks', () => {
       request_payload: { prompt: 'future' },
       submitted_at: 2,
       attempt_count: 1,
-      next_retry_at: Date.now() + 60_000,
+      next_retry_at: now + 60_000,
     })
-    await db.insert(schema.tasks).values({
-      id: 'stale-running',
-      provider: 'openai-compat',
-      model: 'test-model',
-      status: 'in_progress',
-      request_payload: { prompt: 'stale' },
-      submitted_at: 3,
-      started_at: 4,
-    })
+    await insertInProgress('abandoned', now - QUEUE_TIMEOUTS.STALE_IN_PROGRESS_MS - 1)
 
-    expect(await recoverInterruptedTasks()).toEqual({ failed: 1 })
+    expect(
+      await recoverInterruptedTasks(
+        { startedBefore: now - QUEUE_TIMEOUTS.STALE_IN_PROGRESS_MS },
+        now,
+      ),
+    ).toEqual({ requeued: 1, failed: 0 })
+
     const rows = await db
       .select({
         id: schema.tasks.id,
         status: schema.tasks.status,
+        attempt: schema.tasks.attempt_count,
         next: schema.tasks.next_retry_at,
+        errorMessage: schema.tasks.error_message,
       })
       .from(schema.tasks)
-    expect(rows.find((row) => row.id === 'queued-due')?.status).toBe('queued')
+    expect(rows.find((row) => row.id === 'queued-due')).toMatchObject({
+      status: 'queued',
+      attempt: 0,
+    })
     expect(rows.find((row) => row.id === 'queued-future')).toMatchObject({
       status: 'queued',
-      next: expect.any(Number),
+      attempt: 1,
+      next: now + 60_000,
     })
-    expect(rows.find((row) => row.id === 'stale-running')?.status).toBe('failed')
+    expect(rows.find((row) => row.id === 'abandoned')).toMatchObject({
+      status: 'queued',
+      attempt: 1,
+      next: now + RETRY_BACKOFF_MS[0],
+      errorMessage: null,
+    })
+  })
+
+  it('skips rows that are still young or still owned by this process', async () => {
+    await insertInProgress('recent', now - 1_000)
+    await insertInProgress('owned', now - QUEUE_TIMEOUTS.STALE_IN_PROGRESS_MS - 1)
+
+    expect(
+      await recoverInterruptedTasks(
+        { startedBefore: now - QUEUE_TIMEOUTS.STALE_IN_PROGRESS_MS, excludeIds: ['owned'] },
+        now,
+      ),
+    ).toEqual({ requeued: 0, failed: 0 })
+
+    const rows = await db.select({ status: schema.tasks.status }).from(schema.tasks)
+    expect(rows.every((row) => row.status === 'in_progress')).toBe(true)
+  })
+
+  it('fails a row whose retry budget is spent so billing reversal still runs', async () => {
+    await insertInProgress('spent', now - QUEUE_TIMEOUTS.STALE_IN_PROGRESS_MS - 1, MAX_ATTEMPTS - 1)
+
+    expect(
+      await recoverInterruptedTasks(
+        { startedBefore: now - QUEUE_TIMEOUTS.STALE_IN_PROGRESS_MS },
+        now,
+      ),
+    ).toEqual({ requeued: 0, failed: 1 })
+
+    const [row] = await db
+      .select({
+        status: schema.tasks.status,
+        errorType: schema.tasks.error_type,
+        completedAt: schema.tasks.completed_at,
+      })
+      .from(schema.tasks)
+      .where(eq(schema.tasks.id, 'spent'))
+    expect(row).toMatchObject({
+      status: 'failed',
+      errorType: 'interrupted',
+      completedAt: now,
+    })
+  })
+
+  it('recovers a named row regardless of age and ignores an empty id list', async () => {
+    await insertInProgress('named', now - 1_000)
+
+    expect(await recoverInterruptedTasks({ ids: [] }, now)).toEqual({ requeued: 0, failed: 0 })
+    expect(await recoverInterruptedTasks({ ids: ['named'] }, now)).toEqual({
+      requeued: 1,
+      failed: 0,
+    })
+
+    const [row] = await db
+      .select({ status: schema.tasks.status })
+      .from(schema.tasks)
+      .where(eq(schema.tasks.id, 'named'))
+    expect(row?.status).toBe('queued')
   })
 })
 
