@@ -10,6 +10,9 @@ set -eu
 #
 # EXTRA_ASSETS_DIR=<dir> copies untracked deployment files into dist/op/ before the upload.
 #
+# NOTIFY_UPDATE=true makes open tabs show the update banner for this release. The default is a
+# silent release: the manifest still ships, but running tabs migrate on their next natural reload.
+#
 # The edition is asserted against the working copy instead of inferred, because the overlay is
 # included by mere file presence (apps/web/src/lib/privateOverlay.tsx globs
 # ../../private/apps/web/index.tsx).
@@ -55,6 +58,14 @@ if [ "${BFF_ENABLED:-false}" = true ] && [ -z "${BFF_BASE_URL:-}" ]; then
   exit 1
 fi
 
+case "${NOTIFY_UPDATE:-false}" in
+  true | false) ;;
+  *)
+    echo "NOTIFY_UPDATE must be true or false, got ${NOTIFY_UPDATE}." >&2
+    exit 1
+    ;;
+esac
+
 # Checked before the build so a typo does not cost a full build first.
 if [ -n "${EXTRA_ASSETS_DIR:-}" ] && [ ! -d "$EXTRA_ASSETS_DIR" ]; then
   echo "EXTRA_ASSETS_DIR=$EXTRA_ASSETS_DIR is not a directory." >&2
@@ -63,6 +74,14 @@ fi
 
 cd "$repo_root"
 pnpm --filter @image-playground/web build:static-host
+
+version_id=$(git -C "$repo_root" rev-parse --short HEAD)
+private_sha=$(git -C "$repo_root/private" rev-parse --short HEAD 2>/dev/null || true)
+[ -z "$private_sha" ] || version_id="$version_id+$private_sha"
+printf '{\n  "version": "%s-%s",\n  "notify": %s\n}\n' \
+  "$version_id" "$(date -u '+%Y%m%dT%H%M%SZ')" "${NOTIFY_UPDATE:-false}" \
+  > "$repo_root/apps/web/dist/version.json"
+echo "Wrote dist/version.json (notify=${NOTIFY_UPDATE:-false})."
 
 if [ -n "${EXTRA_ASSETS_DIR:-}" ]; then
   mkdir -p "$repo_root/apps/web/dist/op"
