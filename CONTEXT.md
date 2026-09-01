@@ -10,7 +10,7 @@
 - **scroll-lock** — 组合 `usePreventBackgroundScroll`，内容 ref 自动作为滚动边界
 - **ESC 栈** — 组合 `useCloseOnEscape`，一次只关最顶层
 - **backdrop 关闭** — 内置 pointerdown-guard（pointerdown 与 click 都必须命中表面本身，才关闭，防划词误关）；暗化层 `pointer-events-none`，否则它盖在表面之上、命中的永远是它，点击永不关闭。需要自定义表面交互（如 Lightbox 的缩放感知点击）的调用方用 `backdrop="none"`，在自己的内容根上挂 handler
-- **z 层三档** — `modal`（z-50 基底模态）/ `raised`（z-100 嵌套子弹窗、需压过其它模态的）/ `alert`（z-110 ConfirmDialog 类）
+- **z 层三档** — `modal`（z-50 基底模态）/ `raised`（z-100 嵌套子弹窗、需压过其它模态的）/ `alert`（z-110 最顶层：ConfirmDialog，以及需要压过 raised 的嵌套浮层）
 
 纪律：模态类浮层一律经 Overlay 渲染内容，不得自己写 `fixed inset-0` + portal。定位型浮层（Tooltip、Select 下拉、拖拽预览）不属于 Overlay，另是一类。
 
