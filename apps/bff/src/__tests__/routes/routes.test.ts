@@ -678,4 +678,19 @@ describe('BFF queue routes', () => {
       capability: 'accounts:login',
     })
   })
+
+  it('hides the OAuth routes while account login is disabled', async () => {
+    for (const path of [
+      '/api/auth/oauth/providers',
+      '/api/auth/oauth/google/start',
+      '/api/auth/oauth/google/callback?code=c&state=s',
+    ]) {
+      const response = await jsonReq('GET', path)
+      expect(response.status).toBe(404)
+      expect(response.json).toEqual({
+        error: 'capability_unavailable',
+        capability: 'accounts:login',
+      })
+    }
+  })
 })

@@ -10,17 +10,12 @@ import { cancelRoutes } from './routes/cancel'
 import { capabilitiesRoutes, internalCapabilitiesRoutes } from './routes/capabilities'
 import { channelsRoutes } from './routes/channels'
 import { internalUserRoutes } from './routes/internal-users'
+import { oauthRoutes } from './routes/oauth'
 import { resultRoutes } from './routes/result'
 import { statusRoutes } from './routes/status'
 import { submitRoutes } from './routes/submit'
 
-const corsOrigin =
-  config.corsOrigins === '*'
-    ? true
-    : config.corsOrigins
-        .split(',')
-        .map((s) => s.trim())
-        .filter(Boolean)
+const corsOrigin = config.corsOrigins === '*' ? true : config.corsOriginList
 
 const privateBffOverlay = await loadPrivateBffOverlay()
 if (isCapabilityEnabled('billing:credits')) {
@@ -124,6 +119,7 @@ export const app = new Elysia()
   .use(cors({ origin: corsOrigin, credentials: true }))
   .get('/health', () => ({ ok: true }))
   .use(userAuthRoutes)
+  .use(oauthRoutes)
   .use(capabilitiesRoutes)
   .use(channelsRoutes)
   .use(submitRoutes)

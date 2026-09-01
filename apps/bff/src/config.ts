@@ -36,6 +36,20 @@ export const config = {
     get internalApiToken(): string {
       return env('INTERNAL_API_TOKEN', '')
     },
+    /** Origin the OAuth provider redirects back to. Empty means derive it from the request. */
+    get publicOrigin(): string {
+      return env('AUTH_PUBLIC_ORIGIN', '').replace(/\/+$/, '')
+    },
+    /** Origin the OAuth callback finally lands on. Empty falls back to the first CORS origin. */
+    get frontendOrigin(): string {
+      return env('AUTH_FRONTEND_ORIGIN', '').replace(/\/+$/, '')
+    },
+  },
+  oauth: {
+    /** Provider secrets are read lazily so an operator can rotate them with a restart. */
+    secret(name: string): string {
+      return env(name, '')
+    },
   },
   assertValid(): void {
     if (hasCapability(config.operator, 'accounts:login') && !config.auth.internalApiToken) {
@@ -59,6 +73,14 @@ export const config = {
   },
   databaseUrl: env('DATABASE_URL'),
   corsOrigins: env('CORS_ALLOWED_ORIGINS', '*'),
+  /** Explicit origins from CORS_ALLOWED_ORIGINS; empty when the deployment allows any origin. */
+  get corsOriginList(): string[] {
+    if (config.corsOrigins === '*') return []
+    return config.corsOrigins
+      .split(',')
+      .map((origin) => origin.trim())
+      .filter((origin) => origin && origin !== '*')
+  },
   staticDir: env('STATIC_DIR', '') || null,
   network: {
     clientIpSource,
