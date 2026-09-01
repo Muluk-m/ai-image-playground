@@ -254,7 +254,7 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
         )
       }
 
-      // 有参考图 / 有遮罩 → images/edits multipart；generations 是纯文生图，
+      // 有参考图 / 有遮罩 → images/edits；generations 是纯文生图，
       // 塞 input_images 字段上游会忽略（用户感知"AI 不参考附件"）。
       //
       // 两个端点都同一套 n 策略：n===1 直接透传，n>1 时本层 fan-out 成 n 次并发
@@ -270,6 +270,8 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
         const performEdit = async (
           singleRequest: HydratedSubmitRequest,
         ): Promise<UpstreamCallResult> => {
+          // Grok edits 必须 application/json：改回 multipart 会被 sub2api 转换丢掉
+          // response_format，上游退回 URL 结果，归档取图一律 403。
           const init: UpstreamFetchInit =
             style === 'grok-openai-images'
               ? {
@@ -463,8 +465,8 @@ function buildOpenAIBody(model: string, request: HydratedSubmitRequest): Record<
 }
 
 function buildGrokEditBody(model: string, request: HydratedSubmitRequest): Record<string, unknown> {
-  const body = buildOpenAIBody(model, withoutImageCount(request))
-  delete body.n
+  // n 由上层 fan-out 承担；extra 最后 spread 进 body，所以 extra.n 也要一起剥。
+  const { n: _n, ...body } = buildOpenAIBody(model, request)
   const image = request.input_images?.[0]
   return {
     ...body,
