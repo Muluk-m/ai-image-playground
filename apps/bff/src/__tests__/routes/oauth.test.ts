@@ -27,8 +27,6 @@ const { USER_SESSION_COOKIE } = await import('../../lib/user-session')
 
 const GOOGLE_TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token'
 const GOOGLE_USERINFO_ENDPOINT = 'https://openidconnect.googleapis.com/v1/userinfo'
-const FEISHU_TOKEN_ENDPOINT = 'https://open.feishu.cn/open-apis/authen/v2/oauth/token'
-const FEISHU_USERINFO_ENDPOINT = 'https://open.feishu.cn/open-apis/authen/v1/user_info'
 
 interface RecordedCall {
   url: string
@@ -103,17 +101,10 @@ function enableGoogle(): void {
   process.env.OAUTH_GOOGLE_CLIENT_SECRET = 'google-secret-fixture'
 }
 
-function enableFeishu(): void {
-  process.env.OAUTH_FEISHU_APP_ID = 'cli_fixture'
-  process.env.OAUTH_FEISHU_APP_SECRET = 'feishu-secret-fixture'
-}
-
 function disableAllProviders(): void {
   process.env.OAUTH_GOOGLE_CLIENT_ID = ''
   process.env.OAUTH_GOOGLE_CLIENT_SECRET = ''
-  process.env.OAUTH_FEISHU_APP_ID = ''
-  process.env.OAUTH_FEISHU_APP_SECRET = ''
-  process.env.OAUTH_FEISHU_SCOPE = ''
+  process.env.OAUTH_GOOGLE_SCOPE = ''
 }
 
 let createdUserIds: string[]
@@ -158,13 +149,9 @@ describe('oauth provider discovery', () => {
 
   it('lists every fully configured provider without leaking secrets', async () => {
     enableGoogle()
-    enableFeishu()
     const response = await request('/api/auth/oauth/providers')
     const body = (await response.json()) as { providers: unknown[] }
-    expect(body.providers).toEqual([
-      { id: 'google', label: 'Google' },
-      { id: 'feishu', label: '飞书' },
-    ])
+    expect(body.providers).toEqual([{ id: 'google', label: 'Google' }])
     expect(JSON.stringify(body)).not.toContain('secret')
   })
 })
@@ -194,23 +181,6 @@ describe('oauth start', () => {
     const cookie = readCookie(response, 'image_playground_oauth_state')
     expect(cookie).toBe(`google:${location.searchParams.get('state')}`)
   })
-
-  it('omits the Feishu scope until an operator opts in', async () => {
-    enableFeishu()
-    const withoutScope = new URL(
-      (await request('/api/auth/oauth/feishu/start')).headers.get('location') ?? '',
-    )
-    expect(`${withoutScope.origin}${withoutScope.pathname}`).toBe(
-      'https://accounts.feishu.cn/open-apis/authen/v1/authorize',
-    )
-    expect(withoutScope.searchParams.has('scope')).toBe(false)
-
-    process.env.OAUTH_FEISHU_SCOPE = 'contact:user.email:readonly'
-    const withScope = new URL(
-      (await request('/api/auth/oauth/feishu/start')).headers.get('location') ?? '',
-    )
-    expect(withScope.searchParams.get('scope')).toBe('contact:user.email:readonly')
-  })
 })
 
 describe('oauth callback', () => {
@@ -218,14 +188,12 @@ describe('oauth callback', () => {
     expect((await callback('google', { code: 'x', state: 'y' })).status).toBe(404)
   })
 
-  it('rejects a missing, foreign, or cross-provider state', async () => {
+  it('rejects a missing or forged state', async () => {
     enableGoogle()
-    enableFeishu()
     const { state, cookie } = await startFlow('google')
 
     expect((await callback('google', { code: 'c', state })).status).toBe(403)
     expect((await callback('google', { code: 'c', state: 'forged' }, cookie)).status).toBe(403)
-    expect((await callback('feishu', { code: 'c', state }, cookie)).status).toBe(403)
   })
 
   it('redirects with auth_error when the provider reports a denial', async () => {
@@ -382,56 +350,6 @@ describe('oauth callback', () => {
       .where(eq(schema.users.id, identity?.user_id ?? ''))
     expect(created?.username).toBe('creator')
     expect(created?.id).not.toBe('existing-user')
-  })
-
-  it('signs in a Feishu subject by union_id and stores the profile email', async () => {
-    enableFeishu()
-    const calls = stubUpstream({
-      [FEISHU_TOKEN_ENDPOINT]: () =>
-        Response.json({ code: 0, access_token: 'u-feishu-grant', token_type: 'Bearer' }),
-      [FEISHU_USERINFO_ENDPOINT]: () =>
-        Response.json({
-          code: 0,
-          data: {
-            open_id: 'ou_open_1',
-            union_id: 'on_union_1',
-            email: 'staff@qiliangjia.com',
-            name: '张三',
-          },
-        }),
-    })
-    const { state, cookie } = await startFlow('feishu')
-    const response = await callback('feishu', { code: 'feishu-code', state }, cookie)
-
-    expect(response.headers.get('location')).toBe('https://app.example.com/')
-    expect(JSON.parse(calls[0]?.body ?? '{}')).toMatchObject({
-      grant_type: 'authorization_code',
-      client_id: 'cli_fixture',
-      client_secret: 'feishu-secret-fixture',
-      code: 'feishu-code',
-      redirect_uri: 'https://api.example.com/api/auth/oauth/feishu/callback',
-    })
-    expect(calls[1]?.authorization).toBe('Bearer u-feishu-grant')
-
-    const [identity] = await db.select().from(schema.user_identities)
-    expect(identity?.subject).toBe('on_union_1')
-    expect(identity?.email).toBe('staff@qiliangjia.com')
-    expect(identity?.display_name).toBe('张三')
-    const [user] = await db.select().from(schema.users)
-    expect(user?.username).toBe('staff@qiliangjia.com')
-  })
-
-  it('treats a non-zero Feishu business code as a failed exchange', async () => {
-    enableFeishu()
-    stubUpstream({
-      [FEISHU_TOKEN_ENDPOINT]: () =>
-        Response.json({ code: 20037, error: 'invalid_grant', error_description: 'expired' }),
-    })
-    const { state, cookie } = await startFlow('feishu')
-    const response = await callback('feishu', { code: 'stale', state }, cookie)
-    expect(response.headers.get('location')).toBe(
-      'https://app.example.com/?auth_error=exchange_failed',
-    )
   })
 
   it('refuses a disabled account without issuing a session', async () => {

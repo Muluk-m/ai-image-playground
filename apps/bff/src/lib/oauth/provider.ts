@@ -52,35 +52,27 @@ async function readJson(
   return (await response.json()) as JsonRecord
 }
 
-/**
- * Both providers exchange the code and then read the profile with the resulting bearer token;
- * only the request encoding, the extra body check, and the profile shape differ.
- */
+/** Exchange the code, then read the profile with the resulting bearer token. */
 export async function exchangeCodeForProfile(input: {
   fetchImpl: typeof fetch
   tokenEndpoint: string
   tokenRequest: RequestInit
   userinfoEndpoint: string
-  /** Providers that signal failure inside a 200 response body check it here. */
-  assertBody?: (body: JsonRecord, code: OAuthExchangeError['code']) => void
 }): Promise<JsonRecord> {
   const token = await readJson(
     await input.fetchImpl(input.tokenEndpoint, input.tokenRequest),
     'exchange_failed',
     'token',
   )
-  input.assertBody?.(token, 'exchange_failed')
   const accessToken = requireString(token.access_token, 'exchange_failed', 'access_token')
 
-  const profile = await readJson(
+  return readJson(
     await input.fetchImpl(input.userinfoEndpoint, {
       headers: { authorization: `Bearer ${accessToken}`, accept: 'application/json' },
     }),
     'identity_failed',
     'userinfo',
   )
-  input.assertBody?.(profile, 'identity_failed')
-  return profile
 }
 
 export function requireString(
