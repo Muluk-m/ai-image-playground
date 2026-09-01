@@ -1,3 +1,4 @@
+import type { OAuthProviderId } from '@image-playground/shared'
 import { normalizeKeyPrefix } from './lib/objectKeyPrefix'
 import { hasCapability, loadOperatorConfig } from './lib/operator-config'
 
@@ -35,6 +36,30 @@ export const config = {
   auth: {
     get internalApiToken(): string {
       return env('INTERNAL_API_TOKEN', '')
+    },
+    /** Origin the OAuth provider redirects back to. Empty means derive it from the request. */
+    get publicOrigin(): string {
+      return env('AUTH_PUBLIC_ORIGIN', '').replace(/\/+$/, '')
+    },
+    /** Origin the OAuth callback finally lands on. Empty falls back to the first CORS origin. */
+    get frontendOrigin(): string {
+      return env('AUTH_FRONTEND_ORIGIN', '').replace(/\/+$/, '')
+    },
+  },
+  oauth: {
+    credentials(provider: OAuthProviderId): { clientId: string; clientSecret: string } {
+      return provider === 'google'
+        ? {
+            clientId: env('OAUTH_GOOGLE_CLIENT_ID', ''),
+            clientSecret: env('OAUTH_GOOGLE_CLIENT_SECRET', ''),
+          }
+        : {
+            clientId: env('OAUTH_FEISHU_APP_ID', ''),
+            clientSecret: env('OAUTH_FEISHU_APP_SECRET', ''),
+          }
+    },
+    get feishuScope(): string {
+      return env('OAUTH_FEISHU_SCOPE', '')
     },
   },
   assertValid(): void {

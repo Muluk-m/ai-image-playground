@@ -10,6 +10,7 @@ import { cancelRoutes } from './routes/cancel'
 import { capabilitiesRoutes, internalCapabilitiesRoutes } from './routes/capabilities'
 import { channelsRoutes } from './routes/channels'
 import { internalUserRoutes } from './routes/internal-users'
+import { oauthRoutes } from './routes/oauth'
 import { resultRoutes } from './routes/result'
 import { statusRoutes } from './routes/status'
 import { submitRoutes } from './routes/submit'
@@ -124,6 +125,7 @@ export const app = new Elysia()
   .use(cors({ origin: corsOrigin, credentials: true }))
   .get('/health', () => ({ ok: true }))
   .use(userAuthRoutes)
+  .use(oauthRoutes)
   .use(capabilitiesRoutes)
   .use(channelsRoutes)
   .use(submitRoutes)
