@@ -13,5 +13,8 @@
 /runtime-config.json
   Cache-Control: private, no-store, no-cache, must-revalidate, max-age=0
 
+/version.json
+  Cache-Control: private, no-store, no-cache, must-revalidate, max-age=0
+
 /inspiration-manifest.json
   Cache-Control: public, max-age=300, stale-while-revalidate=86400

@@ -242,6 +242,11 @@ edition 只断言 overlay 在不在，后端开关与它无关：公开版产物
 [`apps/web/public/_redirects`](./apps/web/public/_redirects) 提供，对齐
 [`deploy/nginx.conf`](./deploy/nginx.conf) 的同名规则。
 
+`build:static-host`同时写出 `dist/version.json`，即已打开的页面用来发现新部署的版本清单。
+发布默认静默：页面下次刷新自然用上新产物。`NOTIFY_UPDATE=true` 把某次发布标记为值得打扰，
+页面才会弹出角落提示条，提供刷新入口。选项 2 的镜像不走 `build:static-host`，不带清单，
+也就不会提示。
+
 `EXTRA_ASSETS_DIR=<目录>` 在构建之后、上传之前把该目录拷进 `dist/op/`，用于放不进仓库的
 按部署文件，例如运营者的收款码图。文件随后在前端 origin 上以 `/op/<文件名>` 提供，前端用
 同源相对路径即可引用。目录不存在时脚本直接失败，不会漏发。这些文件是公开的：知道 URL

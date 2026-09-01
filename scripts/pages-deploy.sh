@@ -10,6 +10,10 @@ set -eu
 #
 # EXTRA_ASSETS_DIR=<dir> copies untracked deployment files into dist/op/ before the upload.
 #
+# NOTIFY_UPDATE=true makes open tabs show the update banner for this release. The default is a
+# silent release: the manifest still ships, but running tabs migrate on their next natural reload.
+# The manifest itself is written by build:static-host, not here.
+#
 # The edition is asserted against the working copy instead of inferred, because the overlay is
 # included by mere file presence (apps/web/src/lib/privateOverlay.tsx globs
 # ../../private/apps/web/index.tsx).
