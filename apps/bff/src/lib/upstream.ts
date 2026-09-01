@@ -45,6 +45,8 @@ interface UpstreamRoute {
   key: string
   /** openai-compat 分支的协议风格（gemini 分支不看这个字段）。 */
   style: ChannelRouteStyle
+  /** channel 声明只接受 base64 结果（gemini 分支不看这个字段）。 */
+  forceB64Json: boolean
 }
 
 /**
@@ -59,13 +61,19 @@ function resolveUpstream(provider: QueueProvider, model: string): UpstreamRoute 
     const style = CHANNEL_ROUTE_STYLES[channel.id]
     if (!style || channel.kind !== kind) continue
     if (!channel.models.some((m) => m.id === model)) continue
-    return { baseUrl: channel.baseUrl, key: channel.auth.secret, style }
+    return {
+      baseUrl: channel.baseUrl,
+      key: channel.auth.secret,
+      style,
+      forceB64Json: provider === 'openai-compat' && channel.defaults.responseFormatB64Json === true,
+    }
   }
   const version = provider === 'gemini' ? 'v1beta' : 'v1'
   return {
     baseUrl: `${config.upstream.baseUrl}/${version}`,
     key: resolveApiKey(provider),
     style: 'openai-images',
+    forceB64Json: false,
   }
 }
 export interface UpstreamCallParams {
@@ -134,8 +142,12 @@ export class UpstreamTimeoutError extends UpstreamResultUnknownError {
  * AbortController 决定；不再依赖 undocumented idleTimeout 或强制 Connection: close。
  */
 export async function callUpstream(params: UpstreamCallParams): Promise<UpstreamCallResult> {
-  const { provider, model, request, signal: externalSignal, beforeRequest } = params
-  const { baseUrl: base, key, style } = resolveUpstream(provider, model)
+  const { provider, model, signal: externalSignal, beforeRequest } = params
+  const { baseUrl: base, key, style, forceB64Json } = resolveUpstream(provider, model)
+  // Grok 回的 imgen.x.ai URL 对服务器出口 IP 一律 403（带 Bearer 也 403），归档取不到图。
+  const request = forceB64Json
+    ? { ...params.request, extra: { ...params.request.extra, response_format: 'b64_json' } }
+    : params.request
 
   const abort = new AbortController()
   let timedOut = false
