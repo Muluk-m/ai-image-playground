@@ -1,7 +1,8 @@
 import type { QueueProvider } from '@image-playground/shared'
 
 /**
- * 自动重试策略：只重试上游明确返回的 408 / 429 / 5xx，以及「200 OK 但没图」的瞬时分支。
+ * 自动重试策略：只重试上游明确返回的 408 / 429 / 5xx、「200 OK 但没图」，以及归档阶段
+ * 回源拉结果 URL 失败这三类瞬时分支。
  * 网络中断 / socket reset / BFF 硬超时都可能发生在上游已开始执行之后，结果未知，
  * 自动重试会重复生图和扣配额，因此一律不重试。
  * 4xx / 内容审核类 finishReason / 用户 cancel 一律永久失败，避免空转烧配额。
@@ -12,9 +13,10 @@ import type { QueueProvider } from '@image-playground/shared'
  * - AbortError（用户主动取消 / SIGTERM）
  * - Gemini no_image 且 finishReason ∈ {SAFETY, IMAGE_SAFETY, RECITATION, ...}（审核显式拒绝）
  *
- * 故意不 import lib/upstream：retry 是纯策略层，避免触发 upstream.ts → config.ts
- * 的副作用链（config 模块顶层读 env，会污染 test 文件间的 env override 时机）。
- * 所有无 upstreamStatus 的错误都保守视为不可重试。
+ * 故意不 import lib/upstream / lib/imageArchive：retry 是纯策略层，避免触发
+ * upstream.ts → config.ts 的副作用链（config 模块顶层读 env，会污染 test 文件间的
+ * env override 时机）。错误类型一律按结构字段识别，不用 instanceof。
+ * 既无 upstreamStatus 也无 retryable 标记的错误都保守视为不可重试。
  */
 const RETRYABLE_HTTP_STATUSES = new Set([408, 429, 500, 502, 503, 504])
 
@@ -30,6 +32,9 @@ export const MAX_ATTEMPTS = 3
  */
 export function isRetryableError(err: unknown): boolean {
   if (!(err instanceof Error)) return false
+  // 错误自带 retryable：抛错方已知这一步是瞬时的（如归档回源取图失败，见
+  // SourceImageFetchError），无需在这里按 HTTP 状态再判一次。
+  if ((err as { retryable?: unknown }).retryable === true) return true
   const status = (err as { upstreamStatus?: unknown }).upstreamStatus
   if (typeof status === 'number') return RETRYABLE_HTTP_STATUSES.has(status)
   return false

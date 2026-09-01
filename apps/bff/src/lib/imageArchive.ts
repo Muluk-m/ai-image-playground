@@ -18,6 +18,19 @@ export class ObjectStorageError extends Error {
   }
 }
 
+/**
+ * 归档时回源拉上游结果 URL 失败。图已经在上游生成过，换一次尝试常常就能拉通，
+ * 所以带 `retryable` 标记让 task-runner 走重试预算——区别于 R2 写入失败。
+ */
+export class SourceImageFetchError extends ObjectStorageError {
+  readonly retryable = true
+
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options)
+    this.name = 'SourceImageFetchError'
+  }
+}
+
 export function isStoredImageRef(value: unknown): value is StoredImageRef {
   if (!value || typeof value !== 'object') return false
   const ref = value as Partial<StoredImageRef>
@@ -113,14 +126,9 @@ async function archiveOpenAIOutput(taskId: string, payload: object): Promise<voi
     if (encoded) {
       bytes = Buffer.from(encoded, 'base64')
     } else {
-      const source = await fetch(sourceUrl!)
-      if (!source.ok) {
-        throw new ObjectStorageError(
-          `Object storage output archive failed: source image HTTP ${source.status}`,
-        )
-      }
-      bytes = new Uint8Array(await source.arrayBuffer())
-      mime = source.headers.get('content-type') ?? mime
+      const source = await fetchSourceImage(sourceUrl!)
+      bytes = source.bytes
+      mime = source.mime ?? mime
     }
     mime = detectImageMime(bytes) ?? mime
 
@@ -132,6 +140,35 @@ async function archiveOpenAIOutput(taskId: string, payload: object): Promise<voi
     delete item.b64_json
     delete item.url
     index++
+  }
+}
+
+/** 上游把图放自家 CDN 时的回源取字节。任何一种失败都归 SourceImageFetchError。 */
+async function fetchSourceImage(url: string): Promise<{ bytes: Uint8Array; mime?: string }> {
+  let source: Response
+  try {
+    source = await fetch(url)
+  } catch (error) {
+    throw new SourceImageFetchError(
+      'Object storage output archive failed: source image fetch failed',
+      { cause: error },
+    )
+  }
+  if (!source.ok) {
+    throw new SourceImageFetchError(
+      `Object storage output archive failed: source image HTTP ${source.status}`,
+    )
+  }
+  try {
+    return {
+      bytes: new Uint8Array(await source.arrayBuffer()),
+      mime: source.headers.get('content-type') ?? undefined,
+    }
+  } catch (error) {
+    throw new SourceImageFetchError(
+      'Object storage output archive failed: source image body read failed',
+      { cause: error },
+    )
   }
 }
 
