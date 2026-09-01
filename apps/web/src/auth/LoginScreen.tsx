@@ -324,16 +324,6 @@ export function LoginScreen() {
                     </div>
                   </label>
 
-                  <div className="auth-login-options">
-                    <label title="登录状态默认安全保留 30 天">
-                      <input type="checkbox" disabled />
-                      <span>记住我</span>
-                    </label>
-                    <span className="auth-forgot" title="暂未开放">
-                      忘记密码？
-                    </span>
-                  </div>
-
                   <div className="auth-message-slot" aria-live="polite">
                     {error ? (
                       <p role="alert" className="auth-error">
