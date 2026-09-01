@@ -32,10 +32,7 @@ type ChannelRouteStyle =
   | 'agnes-generations-json'
   /** 标准 OpenAI Images 语义：generations JSON / edits multipart / n>1 fan-out。 */
   | 'openai-images'
-  /**
-   * Grok 只接受一张编辑输入图；多张参考图先合成带序号标签的 contact sheet。
-   * moderation 上游不识别 → 不传（带上必 403，且报文伪装成内容被审核拦截）。
-   */
+  /** Grok 只接受一张编辑输入图；多张参考图先合成带序号标签的 contact sheet。 */
   | 'grok-openai-images'
 
 const CHANNEL_ROUTE_STYLES: Readonly<Record<string, ChannelRouteStyle | undefined>> = {
@@ -50,6 +47,8 @@ interface UpstreamRoute {
   style: ChannelRouteStyle
   /** channel 声明只接受 base64 结果（gemini 分支不看这个字段）。 */
   forceB64Json: boolean
+  /** 模型声明了 moderation 能力；未声明的剥掉再发，别赌上游会忽略未知字段。 */
+  supportsModeration: boolean
 }
 
 /**
@@ -63,12 +62,14 @@ function resolveUpstream(provider: QueueProvider, model: string): UpstreamRoute 
   for (const channel of getChannels()) {
     const style = CHANNEL_ROUTE_STYLES[channel.id]
     if (!style || channel.kind !== kind) continue
-    if (!channel.models.some((m) => m.id === model)) continue
+    const declared = channel.models.find((m) => m.id === model)
+    if (!declared) continue
     return {
       baseUrl: channel.baseUrl,
       key: channel.auth.secret,
       style,
       forceB64Json: provider === 'openai-compat' && channel.defaults.responseFormatB64Json === true,
+      supportsModeration: declared.capabilities.includes('moderation'),
     }
   }
   const version = provider === 'gemini' ? 'v1beta' : 'v1'
@@ -77,6 +78,8 @@ function resolveUpstream(provider: QueueProvider, model: string): UpstreamRoute 
     key: resolveApiKey(provider),
     style: 'openai-images',
     forceB64Json: false,
+    // 通用网关没有 capability 声明，按老行为原样透传。
+    supportsModeration: true,
   }
 }
 export interface UpstreamCallParams {
@@ -146,12 +149,19 @@ export class UpstreamTimeoutError extends UpstreamResultUnknownError {
  */
 export async function callUpstream(params: UpstreamCallParams): Promise<UpstreamCallResult> {
   const { provider, model, signal: externalSignal, beforeRequest } = params
-  const { baseUrl: base, key, style, forceB64Json } = resolveUpstream(provider, model)
+  const {
+    baseUrl: base,
+    key,
+    style,
+    forceB64Json,
+    supportsModeration,
+  } = resolveUpstream(provider, model)
+  let request = params.request
   // Grok 回的 imgen.x.ai URL 对服务器出口 IP 一律 403（带 Bearer 也 403），归档取不到图。
-  const b64Request = forceB64Json
-    ? { ...params.request, extra: { ...params.request.extra, response_format: 'b64_json' } }
-    : params.request
-  const request = style === 'grok-openai-images' ? withoutModeration(b64Request) : b64Request
+  if (forceB64Json) {
+    request = { ...request, extra: { ...request.extra, response_format: 'b64_json' } }
+  }
+  if (!supportsModeration) request = withoutModeration(request)
 
   const abort = new AbortController()
   let timedOut = false
@@ -383,11 +393,14 @@ function withoutImageCount(request: HydratedSubmitRequest): HydratedSubmitReques
 
 /**
  * Grok 网关对请求体里的 moderation 一律 403 `Request blocked by upstream content policy`，
- * 与内容是否违规无关。旧任务重放时前端仍可能带上，所以剥离收在 worker 侧。
+ * 与内容是否违规无关。前端 chip 隐藏后 params.moderation 仍保留默认值并照发，
+ * 这里是唯一的拦截点。extra 也要清：它最后 spread 进 body，绕过顶层字段。
  */
 function withoutModeration(request: HydratedSubmitRequest): HydratedSubmitRequest {
   const { moderation: _moderation, ...rest } = request
-  return rest
+  if (!rest.extra || !('moderation' in rest.extra)) return rest
+  const { moderation: _fromExtra, ...extra } = rest.extra
+  return { ...rest, extra }
 }
 
 /**
