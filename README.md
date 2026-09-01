@@ -261,6 +261,12 @@ Caching and SPA fallback come from [`apps/web/public/_headers`](./apps/web/publi
 and [`apps/web/public/_redirects`](./apps/web/public/_redirects), which mirror the matching
 rules in [`deploy/nginx.conf`](./deploy/nginx.conf).
 
+`EXTRA_ASSETS_DIR=<dir>` copies that directory into `dist/op/` between the build and the
+upload, for per-deployment files that are not in the repository — an operator's payment QR
+image, for example. Each file is then served at `/op/<file>` on the frontend origin, so a
+same-origin relative URL reaches it. The script fails if the directory is missing rather than
+publishing without it. These files are public: anyone who knows the URL can read them.
+
 Without a tunnel, set `APP_INGRESS_MODE=api-only` in the backend `app.env` and start the `web`
 service: the same nginx container then proxies only the API and returns 404 for every other
 path instead of serving a second frontend. Option 4 replaces that container with cloudflared.
