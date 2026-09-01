@@ -3,7 +3,12 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useUpdateAvailable } from '../../hooks/useUpdateAvailable'
-import type { UpdateChecker } from '../../lib/appUpdate'
+import { checkForUpdate, writeSkippedVersion } from '../../lib/appUpdate'
+
+vi.mock('../../lib/appUpdate', () => ({
+  checkForUpdate: vi.fn(async () => null),
+  writeSkippedVersion: vi.fn(),
+}))
 
 declare global {
   // eslint-disable-next-line no-var
@@ -14,11 +19,14 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true
 const POLL_INTERVAL_MS = 10 * 60 * 1000
 const REFOCUS_MIN_GAP_MS = 60 * 1000
 
+const check = vi.mocked(checkForUpdate)
+const skipped = vi.mocked(writeSkippedVersion)
+
 let host: HTMLDivElement
 let root: Root
 
-function Probe({ checker }: { checker: UpdateChecker }) {
-  const { availableVersion, skip } = useUpdateAvailable(checker)
+function Probe() {
+  const { availableVersion, skip } = useUpdateAvailable()
   return (
     <button type="button" data-testid="skip" onClick={skip}>
       {availableVersion ?? ''}
@@ -32,8 +40,9 @@ function probe(): HTMLButtonElement {
   return el
 }
 
-/** 让 effect 里已 resolve 的 checker promise 落到 state 上。 */
-async function settle() {
+/** 挂载 + 等 effect 里已 resolve 的 promise 落到 state 上。 */
+async function mount() {
+  act(() => root.render(<Probe />))
   await act(async () => {
     await Promise.resolve()
   })
@@ -46,6 +55,10 @@ function setVisibility(state: 'visible' | 'hidden') {
 
 beforeEach(() => {
   vi.useFakeTimers()
+  check.mockClear()
+  check.mockResolvedValue(null)
+  skipped.mockClear()
+  setVisibility('visible')
   host = document.createElement('div')
   document.body.appendChild(host)
   root = createRoot(host)
@@ -59,75 +72,70 @@ afterEach(() => {
 })
 
 describe('useUpdateAvailable', () => {
-  it('checks once on mount and again on every poll interval', async () => {
-    const checker = vi.fn<UpdateChecker>(async () => null)
-    act(() => root.render(<Probe checker={checker} />))
-    await settle()
-    expect(checker).toHaveBeenCalledTimes(1)
+  it('checks on mount and again on the poll interval', async () => {
+    await mount()
+    expect(check).toHaveBeenCalledTimes(1)
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
     })
-    expect(checker).toHaveBeenCalledTimes(2)
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
-    })
-    expect(checker).toHaveBeenCalledTimes(3)
+    expect(check).toHaveBeenCalledTimes(2)
   })
 
   it('surfaces the version the checker reports', async () => {
-    const checker = vi.fn<UpdateChecker>(async () => 'abc-2')
-    act(() => root.render(<Probe checker={checker} />))
-    await settle()
+    check.mockResolvedValue('abc-2')
+    await mount()
     expect(probe().textContent).toBe('abc-2')
   })
 
+  it('does not poll a hidden tab', async () => {
+    await mount()
+    setVisibility('hidden')
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS * 3)
+    })
+    expect(check).toHaveBeenCalledTimes(1)
+  })
+
   it('re-checks when the window becomes visible again, debounced', async () => {
-    const checker = vi.fn<UpdateChecker>(async () => null)
-    act(() => root.render(<Probe checker={checker} />))
-    await settle()
-    expect(checker).toHaveBeenCalledTimes(1)
+    await mount()
+    expect(check).toHaveBeenCalledTimes(1)
 
     // 刚查过，重新聚焦不重复拉。
     await act(async () => {
       setVisibility('hidden')
       setVisibility('visible')
     })
-    expect(checker).toHaveBeenCalledTimes(1)
+    expect(check).toHaveBeenCalledTimes(1)
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(REFOCUS_MIN_GAP_MS)
+      setVisibility('hidden')
       setVisibility('visible')
     })
-    expect(checker).toHaveBeenCalledTimes(2)
+    expect(check).toHaveBeenCalledTimes(2)
   })
 
   it('stops polling after unmount', async () => {
-    const checker = vi.fn<UpdateChecker>(async () => null)
-    act(() => root.render(<Probe checker={checker} />))
-    await settle()
+    await mount()
     act(() => root.unmount())
+    root = createRoot(host)
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS * 3)
     })
-    expect(checker).toHaveBeenCalledTimes(1)
-
-    root = createRoot(host)
+    expect(check).toHaveBeenCalledTimes(1)
   })
 
   it('persists the skipped version and hides the prompt', async () => {
-    const setItem = vi.fn()
-    vi.stubGlobal('localStorage', { getItem: () => null, setItem, removeItem: () => {} })
-    const checker = vi.fn<UpdateChecker>(async () => 'abc-2')
-    act(() => root.render(<Probe checker={checker} />))
-    await settle()
+    check.mockResolvedValue('abc-2')
+    await mount()
 
     await act(async () => {
       probe().click()
     })
-    expect(setItem).toHaveBeenCalledWith('update-skipped-version', 'abc-2')
+    expect(skipped).toHaveBeenCalledWith('abc-2')
     expect(probe().textContent).toBe('')
   })
 })

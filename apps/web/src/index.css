@@ -922,6 +922,7 @@
   --safe-area-right: env(safe-area-inset-right, 0px);
   --safe-area-bottom: env(safe-area-inset-bottom, 0px);
   --safe-area-left: env(safe-area-inset-left, 0px);
+  --header-height: 3.5rem;
   scrollbar-gutter: stable;
 }
 
@@ -1158,7 +1159,7 @@ input[type="number"] {
 }
 
 .safe-header-inner {
-  min-height: 3.5rem;
+  min-height: var(--header-height);
 }
 
 @media (max-width: 640px) {

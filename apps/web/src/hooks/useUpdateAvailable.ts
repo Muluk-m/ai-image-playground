@@ -1,12 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
-import { type UpdateChecker, writeSkippedVersion } from '../lib/appUpdate'
+import { checkForUpdate, writeSkippedVersion } from '../lib/appUpdate'
 
 const POLL_INTERVAL_MS = 10 * 60 * 1000
-
-/** 窗口频繁切来切去时不重复拉清单。 */
 const REFOCUS_MIN_GAP_MS = 60 * 1000
 
-export function useUpdateAvailable(checker: UpdateChecker): {
+export function useUpdateAvailable(): {
   availableVersion: string | null
   skip: () => void
 } {
@@ -18,13 +16,17 @@ export function useUpdateAvailable(checker: UpdateChecker): {
 
     const check = () => {
       lastCheckedAt = Date.now()
-      void checker().then((version) => {
+      void checkForUpdate().then((version) => {
         if (!cancelled && version) setAvailableVersion(version)
       })
     }
 
     check()
-    const timer = setInterval(check, POLL_INTERVAL_MS)
+    // 后台标签页不轮询：清单是 no-store，每次 tick 都是一次真实回源，而看不见的
+    // 页面上提示条也没人看。重新可见时 REFOCUS_MIN_GAP_MS 已过，立刻补一次。
+    const timer = setInterval(() => {
+      if (document.visibilityState === 'visible') check()
+    }, POLL_INTERVAL_MS)
 
     const onVisibilityChange = () => {
       if (document.visibilityState !== 'visible') return
@@ -38,7 +40,7 @@ export function useUpdateAvailable(checker: UpdateChecker): {
       clearInterval(timer)
       document.removeEventListener('visibilitychange', onVisibilityChange)
     }
-  }, [checker])
+  }, [])
 
   const skip = useCallback(() => {
     if (availableVersion) writeSkippedVersion(availableVersion)

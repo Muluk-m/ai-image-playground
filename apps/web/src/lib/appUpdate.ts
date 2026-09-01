@@ -1,23 +1,27 @@
 /**
  * 部署产物版本清单（`/version.json`）的读取与「有新版本」判定。
  *
- * 只有 notify=true 的版本才提示；静默版本靠用户自然刷新迁移。清单缺失或格式不对
- * （纯静态形态没写、SPA fallback 返回 HTML）一律当作「无新版本」，不打扰用户。
+ * 清单缺失或格式不对（未产出清单的部署形态、SPA fallback 回了 index.html）一律
+ * 当作「无新版本」，不打扰用户。
  */
+import { safeLocalStorage } from './authScope'
 
 export interface VersionManifest {
   version: string
   notify: boolean
 }
 
-/** 返回「应当提示的新版本号」，没有则 null。 */
-export type UpdateChecker = () => Promise<string | null>
-
 type Fetcher = (input: string, init?: RequestInit) => Promise<Response>
 
 const VERSION_MANIFEST_PATH = '/version.json'
 const SKIPPED_VERSION_KEY = 'update-skipped-version'
 const FETCH_TIMEOUT_MS = 5000
+
+/**
+ * 自身版本 = 首次成功拉取到的版本，跟 runtimeConfig 的 `cached` 一样是 boot 到刷新
+ * 之间的常量。放模块级而不是组件里：重挂载会重新锚定到刚发布的版本，从此不再提示。
+ */
+let bootVersion: string | null = null
 
 export function parseVersionManifest(raw: unknown): VersionManifest | null {
   if (typeof raw !== 'object' || raw === null) return null
@@ -27,49 +31,39 @@ export function parseVersionManifest(raw: unknown): VersionManifest | null {
 }
 
 export function readSkippedVersion(): string | null {
-  try {
-    return globalThis.localStorage?.getItem(SKIPPED_VERSION_KEY) ?? null
-  } catch {
-    return null
-  }
+  return safeLocalStorage.getItem(SKIPPED_VERSION_KEY)
 }
 
 export function writeSkippedVersion(version: string): void {
-  try {
-    globalThis.localStorage?.setItem(SKIPPED_VERSION_KEY, version)
-  } catch {
-    // 隐私模式下存不住：本次会话内不再提示已经够了。
-  }
+  safeLocalStorage.setItem(SKIPPED_VERSION_KEY, version)
 }
 
-/**
- * 自身版本取自**首次成功拉取**的清单，不走构建期注入——注入要穿过 turbo/vite 的
- * env 传递，且纯静态与容器两种形态的构建入口不同，容易只有一边带上版本号。
- */
-export function createUpdateChecker(fetcher: Fetcher = fetch): UpdateChecker {
-  let bootVersion: string | null = null
-
-  return async () => {
-    let manifest: VersionManifest | null
-    try {
-      const res = await fetcher(VERSION_MANIFEST_PATH, {
-        cache: 'no-store',
-        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-      })
-      if (!res.ok) return null
-      manifest = parseVersionManifest(await res.json())
-    } catch {
-      return null
-    }
-    if (!manifest) return null
-
-    if (bootVersion === null) {
-      bootVersion = manifest.version
-      return null
-    }
-    if (manifest.version === bootVersion) return null
-    if (!manifest.notify) return null
-    if (manifest.version === readSkippedVersion()) return null
-    return manifest.version
+/** 返回「应当提示的新版本号」，没有则 null。 */
+export async function checkForUpdate(fetcher: Fetcher = fetch): Promise<string | null> {
+  let manifest: VersionManifest | null
+  try {
+    const res = await fetcher(VERSION_MANIFEST_PATH, {
+      cache: 'no-store',
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    })
+    if (!res.ok) return null
+    manifest = parseVersionManifest(await res.json())
+  } catch {
+    return null
   }
+  if (!manifest) return null
+
+  if (bootVersion === null) {
+    bootVersion = manifest.version
+    return null
+  }
+  if (manifest.version === bootVersion) return null
+  if (!manifest.notify) return null
+  if (manifest.version === readSkippedVersion()) return null
+  return manifest.version
+}
+
+/** 仅供测试：丢掉已锚定的自身版本。 */
+export function _resetBootVersionForTesting(): void {
+  bootVersion = null
 }
