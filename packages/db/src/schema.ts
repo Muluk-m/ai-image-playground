@@ -66,6 +66,29 @@ export const user_sessions = pgTable(
   ],
 )
 
+/**
+ * OAuth identities are additive: a subject never merges into an existing password account,
+ * so a leaked provider email cannot take over one.
+ */
+export const user_identities = pgTable(
+  'user_identities',
+  {
+    id: text('id').primaryKey(),
+    user_id: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    provider: text('provider').notNull(),
+    subject: text('subject').notNull(),
+    email: text('email'),
+    display_name: text('display_name'),
+    created_at: epochMs('created_at').notNull(),
+  },
+  (t) => [
+    uniqueIndex('idx_user_identities_provider_subject').on(t.provider, t.subject),
+    index('idx_user_identities_user_id').on(t.user_id),
+  ],
+)
+
 export const operator_audits = pgTable(
   'operator_audits',
   {
@@ -152,5 +175,7 @@ export type NewTask = typeof tasks.$inferInsert
 export type User = typeof users.$inferSelect
 export type NewUser = typeof users.$inferInsert
 export type UserSession = typeof user_sessions.$inferSelect
+export type UserIdentity = typeof user_identities.$inferSelect
+export type NewUserIdentity = typeof user_identities.$inferInsert
 export type OperatorAudit = typeof operator_audits.$inferSelect
 export type NewOperatorAudit = typeof operator_audits.$inferInsert
