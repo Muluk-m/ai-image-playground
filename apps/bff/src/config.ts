@@ -1,4 +1,3 @@
-import type { OAuthProviderId } from '@image-playground/shared'
 import { normalizeKeyPrefix } from './lib/objectKeyPrefix'
 import { hasCapability, loadOperatorConfig } from './lib/operator-config'
 
@@ -47,12 +46,9 @@ export const config = {
     },
   },
   oauth: {
-    /** Provider secrets and scopes are read lazily so an operator can rotate them with a restart. */
+    /** Provider secrets are read lazily so an operator can rotate them with a restart. */
     secret(name: string): string {
       return env(name, '')
-    },
-    scope(provider: OAuthProviderId, fallback: string): string {
-      return env(`OAUTH_${provider.toUpperCase()}_SCOPE`, '') || fallback
     },
   },
   assertValid(): void {

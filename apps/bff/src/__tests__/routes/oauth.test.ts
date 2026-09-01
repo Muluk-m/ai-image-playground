@@ -104,7 +104,6 @@ function enableGoogle(): void {
 function disableAllProviders(): void {
   process.env.OAUTH_GOOGLE_CLIENT_ID = ''
   process.env.OAUTH_GOOGLE_CLIENT_SECRET = ''
-  process.env.OAUTH_GOOGLE_SCOPE = ''
 }
 
 let createdUserIds: string[]
@@ -188,12 +187,15 @@ describe('oauth callback', () => {
     expect((await callback('google', { code: 'x', state: 'y' })).status).toBe(404)
   })
 
-  it('rejects a missing or forged state', async () => {
+  it('rejects a missing, forged, or provider-unbound state', async () => {
     enableGoogle()
     const { state, cookie } = await startFlow('google')
 
     expect((await callback('google', { code: 'c', state })).status).toBe(403)
     expect((await callback('google', { code: 'c', state: 'forged' }, cookie)).status).toBe(403)
+    // The cookie carries `<provider>:<state>`; a bare state must not authorize the callback,
+    // or a state issued for one provider could be replayed against another.
+    expect((await callback('google', { code: 'c', state }, state)).status).toBe(403)
   })
 
   it('redirects with auth_error when the provider reports a denial', async () => {
@@ -215,6 +217,28 @@ describe('oauth callback', () => {
     const response = await callback('google', { code: 'bad-code', state }, cookie)
     expect(response.headers.get('location')).toBe(
       'https://app.example.com/?auth_error=exchange_failed',
+    )
+  })
+
+  it('redirects with auth_error when the token response carries no grant', async () => {
+    enableGoogle()
+    stubUpstream({
+      [GOOGLE_TOKEN_ENDPOINT]: () => Response.json({ error: 'invalid_grant' }),
+    })
+    const { state, cookie } = await startFlow('google')
+    const response = await callback('google', { code: 'stale', state }, cookie)
+    expect(response.headers.get('location')).toBe(
+      'https://app.example.com/?auth_error=exchange_failed',
+    )
+  })
+
+  it('redirects with auth_error when the profile carries no subject', async () => {
+    enableGoogle()
+    stubUpstream(googleRoutes({ email: 'nobody@example.com', email_verified: true }))
+    const { state, cookie } = await startFlow('google')
+    const response = await callback('google', { code: 'code-alpha', state }, cookie)
+    expect(response.headers.get('location')).toBe(
+      'https://app.example.com/?auth_error=identity_failed',
     )
   })
 

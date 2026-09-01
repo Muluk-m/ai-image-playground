@@ -3,9 +3,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   AUTH_SESSION_EXPIRED_EVENT,
   authenticatedBffFetch,
+  fetchOAuthProviders,
   getCurrentUser,
   loginUser,
   logoutUser,
+  oauthStartUrl,
   registerUser,
 } from '../../lib/authClient'
 import { bootstrapClientCapabilities } from '../../lib/clientCapabilities'
@@ -126,5 +128,45 @@ describe('auth client', () => {
       credentials: 'include',
     })
     expect(expired).toHaveBeenCalledOnce()
+  })
+
+  it('points the OAuth start route at the configured BFF origin', () => {
+    expect(oauthStartUrl('google')).toBe('https://bff.example.com/api/auth/oauth/google/start')
+  })
+
+  it('keeps well-formed providers and drops malformed ones', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        Response.json({
+          providers: [
+            { id: 'google', label: 'Google' },
+            { id: 'later', label: 'Later' },
+            { label: 'no id' },
+            'nope',
+          ],
+        }),
+      ),
+    )
+
+    // An id this bundle predates still reaches the login page: the BFF decides what exists.
+    await expect(fetchOAuthProviders()).resolves.toEqual([
+      { id: 'google', label: 'Google' },
+      { id: 'later', label: 'Later' },
+    ])
+  })
+
+  it('reports no providers when the endpoint fails or answers with the wrong shape', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('nope', { status: 500 })),
+    )
+    await expect(fetchOAuthProviders()).resolves.toEqual([])
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({ providers: 'all of them' })),
+    )
+    await expect(fetchOAuthProviders()).resolves.toEqual([])
   })
 })
