@@ -294,7 +294,9 @@
 
 .auth-providers {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  /* Column count follows however many providers the deployment enabled. */
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
   gap: 14px;
 }
 
@@ -311,22 +313,33 @@
   background: #202126;
   font-family: inherit;
   font-size: 13px;
-  opacity: 1;
+  cursor: pointer;
 }
 
-.auth-providers button svg {
-  width: 19px;
-  height: 19px;
+.auth-providers button:hover:not(:disabled) {
+  border-color: #43454f;
+  background: #26272d;
 }
 
-.auth-providers button:last-child svg {
-  color: #7c83ff;
+.auth-providers button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.auth-provider-google,
+.auth-provider-feishu {
+  font-size: 19px;
+  font-weight: 800;
+  line-height: 1;
 }
 
 .auth-provider-google {
   color: #4285f4;
-  font-size: 19px;
-  font-weight: 800;
+}
+
+.auth-provider-feishu {
+  color: #3370ff;
+  font-size: 16px;
 }
 
 .auth-divider {

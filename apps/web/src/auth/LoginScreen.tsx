@@ -1,5 +1,16 @@
-import { type FormEvent, useState } from 'react'
-import { AuthRequestError, loginUser, registerUser } from '../lib/authClient'
+import {
+  OAUTH_ERROR_QUERY_PARAM,
+  type OAuthProviderId,
+  type OAuthProviderView,
+} from '@image-playground/shared'
+import { type FormEvent, useEffect, useState } from 'react'
+import {
+  AuthRequestError,
+  fetchOAuthProviders,
+  loginUser,
+  oauthStartUrl,
+  registerUser,
+} from '../lib/authClient'
 import { isClientCapabilityEnabled } from '../lib/clientCapabilities'
 import { type RegistrationCredentials, RegistrationPanel } from './RegistrationPanel'
 
@@ -13,20 +24,9 @@ function EyeIcon({ crossed = false }: { crossed?: boolean }) {
   )
 }
 
-function ProviderMark({ provider }: { provider: 'google' | 'github' | 'discord' }) {
+function ProviderMark({ provider }: { provider: OAuthProviderId }) {
   if (provider === 'google') return <span className="auth-provider-google">G</span>
-  if (provider === 'github') {
-    return (
-      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-        <path d="M12 2C6.48 2 2 6.58 2 12.23c0 4.52 2.87 8.35 6.84 9.71.5.1.68-.22.68-.49v-1.91c-2.78.62-3.37-1.21-3.37-1.21-.45-1.19-1.11-1.5-1.11-1.5-.91-.64.07-.62.07-.62 1 .07 1.53 1.06 1.53 1.06.9 1.56 2.35 1.11 2.92.85.09-.66.35-1.11.64-1.37-2.22-.26-4.56-1.14-4.56-5.06 0-1.12.39-2.03 1.03-2.75-.1-.26-.45-1.3.1-2.71 0 0 .84-.28 2.75 1.05A9.3 9.3 0 0 1 12 6.94a9.3 9.3 0 0 1 2.5.35c1.91-1.33 2.75-1.05 2.75-1.05.55 1.41.2 2.45.1 2.71.64.72 1.03 1.63 1.03 2.75 0 3.93-2.34 4.8-4.57 5.06.36.32.68.94.68 1.9v2.79c0 .27.18.59.69.49A10.24 10.24 0 0 0 22 12.23C22 6.58 17.52 2 12 2Z" />
-      </svg>
-    )
-  }
-  return (
-    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-      <path d="M19.5 5.34A17.6 17.6 0 0 0 15.2 4l-.53 1.08a15.7 15.7 0 0 0-5.31 0L8.8 4a17.7 17.7 0 0 0-4.3 1.34C1.78 9.43 1.04 13.42 1.4 17.35a17.2 17.2 0 0 0 5.28 2.68l1.28-1.76a10.8 10.8 0 0 1-2.01-.98l.5-.39c3.88 1.82 8.1 1.82 11.94 0l.51.39c-.64.39-1.32.72-2.02.98l1.28 1.76a17.2 17.2 0 0 0 5.28-2.68c.42-4.56-.72-8.51-3.94-12.01ZM8.67 14.93c-1.17 0-2.12-1.1-2.12-2.45s.93-2.45 2.12-2.45 2.14 1.11 2.12 2.45c0 1.35-.93 2.45-2.12 2.45Zm6.66 0c-1.17 0-2.12-1.1-2.12-2.45s.93-2.45 2.12-2.45 2.14 1.11 2.12 2.45c0 1.35-.93 2.45-2.12 2.45Z" />
-    </svg>
-  )
+  return <span className="auth-provider-feishu">飞</span>
 }
 
 function FeatureIcon({ kind }: { kind: 'model' | 'speed' | 'security' }) {
@@ -145,6 +145,13 @@ function errorMessage(error: unknown): string {
   return '暂时无法登录，请检查网络后重试'
 }
 
+function oauthErrorMessage(code: string): string {
+  if (code === 'registration_closed') return '注册暂未开放，请联系管理员开通账户'
+  if (code === 'account_disabled') return '该账户已被停用'
+  if (code === 'access_denied') return '你取消了第三方授权'
+  return '第三方登录失败，请重试或改用邮箱登录'
+}
+
 function registrationErrorMessage(error: unknown): string {
   if (error instanceof AuthRequestError) {
     if (error.code === 'username_taken') return '该邮箱地址已注册'
@@ -162,7 +169,28 @@ export function LoginScreen() {
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [view, setView] = useState<'login' | 'registration'>('login')
+  const [providers, setProviders] = useState<OAuthProviderView[]>([])
   const registrationEnabled = isClientCapabilityEnabled('accounts:self-register')
+
+  useEffect(() => {
+    let cancelled = false
+    void fetchOAuthProviders().then((available) => {
+      if (!cancelled) setProviders(available)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    const url = new URL(window.location.href)
+    const code = url.searchParams.get(OAUTH_ERROR_QUERY_PARAM)
+    if (!code) return
+    setError(oauthErrorMessage(code))
+    // Strip the parameter so a reload does not resurface a failure the user already saw.
+    url.searchParams.delete(OAUTH_ERROR_QUERY_PARAM)
+    window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`)
+  }, [])
 
   async function submit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault()
@@ -231,29 +259,29 @@ export function LoginScreen() {
                   <p>登录你的账户，继续创作</p>
                 </div>
 
-                <div className="auth-providers" aria-label="第三方登录暂未开放">
-                  {(['google', 'github', 'discord'] as const).map((provider) => (
-                    <button
-                      key={provider}
-                      type="button"
-                      disabled
-                      aria-label={`${provider} 登录暂未开放`}
-                    >
-                      <ProviderMark provider={provider} />
-                      <span>
-                        {provider === 'google'
-                          ? 'Google'
-                          : provider === 'github'
-                            ? 'GitHub'
-                            : 'Discord'}
-                      </span>
-                    </button>
-                  ))}
-                </div>
+                {providers.length > 0 ? (
+                  <>
+                    <div className="auth-providers">
+                      {providers.map((provider) => (
+                        <button
+                          key={provider.id}
+                          type="button"
+                          disabled={pending}
+                          onClick={() => {
+                            window.location.href = oauthStartUrl(provider.id)
+                          }}
+                        >
+                          <ProviderMark provider={provider.id} />
+                          <span>{provider.label}</span>
+                        </button>
+                      ))}
+                    </div>
 
-                <div className="auth-divider">
-                  <span>或使用邮箱登录</span>
-                </div>
+                    <div className="auth-divider">
+                      <span>或使用邮箱登录</span>
+                    </div>
+                  </>
+                ) : null}
 
                 <form
                   className="auth-form"

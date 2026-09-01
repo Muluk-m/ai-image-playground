@@ -1,4 +1,8 @@
-import type { AuthUserView } from '@image-playground/shared'
+import {
+  type AuthUserView,
+  isOAuthProviderId,
+  type OAuthProviderView,
+} from '@image-playground/shared'
 import { isClientCapabilityEnabled } from './clientCapabilities'
 import { getRuntimeConfig } from './runtimeConfig'
 export const AUTH_SESSION_EXPIRED_EVENT = 'image-playground:auth-session-expired'
@@ -63,6 +67,28 @@ export async function registerUser(username: string, password: string): Promise<
     body: JSON.stringify({ username, password }),
   })
   return result.user
+}
+
+/** Returns the providers this deployment has configured. Any malformed answer disables the block. */
+export async function fetchOAuthProviders(): Promise<OAuthProviderView[]> {
+  try {
+    const body = await authJson<{ providers?: unknown }>('/api/auth/oauth/providers')
+    if (!Array.isArray(body.providers)) return []
+    return body.providers.filter(
+      (provider): provider is OAuthProviderView =>
+        typeof provider === 'object' &&
+        provider !== null &&
+        typeof (provider as OAuthProviderView).id === 'string' &&
+        isOAuthProviderId((provider as OAuthProviderView).id) &&
+        typeof (provider as OAuthProviderView).label === 'string',
+    )
+  } catch {
+    return []
+  }
+}
+
+export function oauthStartUrl(provider: string): string {
+  return bffUrl(`/api/auth/oauth/${provider}/start`)
 }
 
 export async function logoutUser(): Promise<void> {
