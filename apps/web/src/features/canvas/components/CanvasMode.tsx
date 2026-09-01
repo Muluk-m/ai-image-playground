@@ -13,8 +13,7 @@ import KonvaCanvas from './KonvaCanvas'
 import PlaceholderOverlay from './PlaceholderOverlay'
 import StylePanel from './StylePanel'
 
-/** 画布顶部让出 Header（安全区 + 3.5rem，与 index.css 的 .safe-header-inner 对齐）。 */
-const HEADER_OFFSET = 'calc(var(--safe-area-top) + 3.5rem)'
+const HEADER_OFFSET = 'calc(var(--safe-area-top) + var(--header-height))'
 
 /**
  * 创作模式：自建无限画布（Konva 渲染，MIT，无任何 license 依赖）。

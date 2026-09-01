@@ -18,26 +18,39 @@ export function scopedStorageName(baseName: string): string {
   return currentScope === ANONYMOUS_SCOPE ? baseName : `${baseName}:${currentScope}`
 }
 
-export const scopedLocalStorage: StateStorage = {
+interface SyncStorage {
+  getItem(name: string): string | null
+  setItem(name: string, value: string): void
+  removeItem(name: string): void
+}
+
+/** 隐私模式、存储已满、被策略禁用时 localStorage 的每次访问都可能抛，一律吞掉退到内存态。 */
+export const safeLocalStorage: SyncStorage = {
   getItem(name) {
     try {
-      return globalThis.localStorage?.getItem(scopedStorageName(name)) ?? null
+      return globalThis.localStorage?.getItem(name) ?? null
     } catch {
       return null
     }
   },
   setItem(name, value) {
     try {
-      globalThis.localStorage?.setItem(scopedStorageName(name), value)
-    } catch {
-      // 隐私模式或存储已满时保持内存态，跟 Zustand 默认 fallback 一致。
-    }
-  },
-  removeItem(name) {
-    try {
-      globalThis.localStorage?.removeItem(scopedStorageName(name))
+      globalThis.localStorage?.setItem(name, value)
     } catch {
       // best effort
     }
   },
+  removeItem(name) {
+    try {
+      globalThis.localStorage?.removeItem(name)
+    } catch {
+      // best effort
+    }
+  },
+}
+
+export const scopedLocalStorage: StateStorage = {
+  getItem: (name) => safeLocalStorage.getItem(scopedStorageName(name)),
+  setItem: (name, value) => safeLocalStorage.setItem(scopedStorageName(name), value),
+  removeItem: (name) => safeLocalStorage.removeItem(scopedStorageName(name)),
 }
