@@ -32,8 +32,6 @@ export const MAX_ATTEMPTS = 3
  */
 export function isRetryableError(err: unknown): boolean {
   if (!(err instanceof Error)) return false
-  // 错误自带 retryable：抛错方已知这一步是瞬时的（如归档回源取图失败，见
-  // SourceImageFetchError），无需在这里按 HTTP 状态再判一次。
   if ((err as { retryable?: unknown }).retryable === true) return true
   const status = (err as { upstreamStatus?: unknown }).upstreamStatus
   if (typeof status === 'number') return RETRYABLE_HTTP_STATUSES.has(status)

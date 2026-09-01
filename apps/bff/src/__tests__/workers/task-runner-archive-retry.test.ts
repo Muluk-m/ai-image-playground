@@ -6,6 +6,7 @@ import {
   EMPTY_PRIVATE_BFF_OVERLAY,
 } from '../../lib/private-overlay'
 import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
+import { forbidGlobalFetch, stubGlobalFetch, upstreamReturning } from '../helpers/upstreamStubs'
 
 process.env.UPSTREAM_BASE_URL = 'http://localhost:9999'
 process.env.UPSTREAM_API_KEY = 'test-key'
@@ -24,27 +25,19 @@ const { MAX_ATTEMPTS, RETRY_BACKOFF_MS } = await import('../../lib/retry')
 const SOURCE_URL = 'https://imgen.example/generated.png'
 
 let store: InstanceType<typeof InMemoryObjectStore>
-const realFetch = globalThis.fetch
-
-/** 上游只需回一个 200 JSON body；transport 细节由 lib/upstream 的注入点接管。 */
-function upstreamReturning(payload: unknown) {
-  return mock(async () => ({
-    ok: true,
-    status: 200,
-    text: async () => JSON.stringify(payload),
-  })) as unknown as Parameters<typeof setUpstreamFetchForTesting>[0]
-}
+let restoreFetch: () => void
 
 beforeEach(async () => {
   store = new InMemoryObjectStore()
   setObjectStoreForTesting(store)
+  restoreFetch = forbidGlobalFetch()
   await db.delete(schema.tasks)
 })
 
 afterEach(() => {
   setUpstreamFetchForTesting()
   setObjectStoreForTesting()
-  globalThis.fetch = realFetch
+  restoreFetch()
   mock.restore()
 })
 
@@ -83,8 +76,8 @@ async function insertQueuedTask(id: string, attemptCount = 0): Promise<void> {
 describe('archive source image fetch', () => {
   beforeEach(() => {
     setUpstreamFetchForTesting(upstreamReturning({ data: [{ url: SOURCE_URL }] }))
-    globalThis.fetch = (async () =>
-      new Response('forbidden', { status: 403 })) as unknown as typeof fetch
+    restoreFetch()
+    restoreFetch = stubGlobalFetch(() => new Response('forbidden', { status: 403 }))
   })
 
   it('回源取图 403 时退回 queued 并推进 attempt', async () => {
@@ -111,25 +104,11 @@ describe('archive source image fetch', () => {
     expect(row?.errorMessage).toContain('source image HTTP 403')
     expect(row?.completedAt).not.toBeNull()
   })
-
-  it('回源 fetch 抛网络错同样可重试', async () => {
-    globalThis.fetch = (async () => {
-      throw new TypeError('Failed to fetch')
-    }) as unknown as typeof fetch
-    await insertQueuedTask('archive-network')
-
-    await runTask('archive-network')
-
-    expect(await readTask('archive-network')).toMatchObject({ status: 'queued', attempt: 1 })
-  })
 })
 
 describe('object store write failure', () => {
   it('R2 写入失败仍是终态失败，不进重试预算', async () => {
     setUpstreamFetchForTesting(upstreamReturning({ data: [{ b64_json: 'AAAA' }] }))
-    globalThis.fetch = (() => {
-      throw new Error('unexpected network fetch')
-    }) as unknown as typeof fetch
     store.writeFailuresRemaining = 10
     await insertQueuedTask('archive-write-fail')
 

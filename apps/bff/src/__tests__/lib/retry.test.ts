@@ -49,7 +49,7 @@ describe('isRetryableError', () => {
   })
 
   it('带 retryable 标记的错误直接重试（归档回源取图失败）', () => {
-    const err = new Error('source image HTTP 403') as Error & { retryable: boolean }
+    const err = new Error('transient step failure') as Error & { retryable: boolean }
     err.retryable = true
     expect(isRetryableError(err)).toBe(true)
   })
