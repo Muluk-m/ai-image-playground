@@ -1,0 +1,13 @@
+{
+  "capabilities": {
+    "accounts:login": true,
+    "accounts:self-register": false,
+    "billing:credits": false,
+    "generation:byok": false,
+    "operator:console": false,
+    "quota:daily": false
+  },
+  "quotas": {
+    "generation:daily-images": 0
+  }
+}

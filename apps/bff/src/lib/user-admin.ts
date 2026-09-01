@@ -147,11 +147,12 @@ export interface OAuthLoginResult {
   readonly created: boolean
 }
 
+// Bun's SQL driver reports the PostgreSQL SQLSTATE in `errno`; `code` holds its own transport code.
 function isUniqueViolation(error: unknown): boolean {
   const databaseError =
     error !== null && typeof error === 'object' && 'cause' in error ? error.cause : error
   if (databaseError === null || typeof databaseError !== 'object') return false
-  return 'code' in databaseError && databaseError.code === '23505'
+  return 'errno' in databaseError && String(databaseError.errno) === '23505'
 }
 
 async function loginExistingIdentity(userId: string): Promise<OAuthLoginResult | null> {
@@ -203,6 +204,7 @@ export async function loginWithOAuthIdentity(
   identity: OAuthIdentityInput,
   options: { allowRegistration: boolean },
 ): Promise<OAuthLoginResult | { readonly registrationClosed: true }> {
+  const email = identity.email ? normalizeUsername(identity.email) : null
   const existingUserId = await findIdentityUserId(identity)
   if (existingUserId) {
     const result = await loginExistingIdentity(existingUserId)
@@ -211,7 +213,7 @@ export async function loginWithOAuthIdentity(
   if (!options.allowRegistration) return { registrationClosed: true }
 
   const taskHooks = (await loadPrivateBffOverlay()).taskHooks
-  for (const username of oauthUsernameCandidates(identity)) {
+  for (const username of oauthUsernameCandidates({ ...identity, email })) {
     const now = Date.now()
     const userId = randomUUID()
     try {
@@ -234,7 +236,7 @@ export async function loginWithOAuthIdentity(
           user_id: created.id,
           provider: identity.provider,
           subject: identity.subject,
-          email: identity.email,
+          email,
           display_name: identity.displayName,
           created_at: now,
         })
