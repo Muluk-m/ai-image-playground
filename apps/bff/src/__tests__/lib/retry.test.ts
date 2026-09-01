@@ -48,6 +48,12 @@ describe('isRetryableError', () => {
     expect(isRetryableError(new TypeError('Failed to fetch'))).toBe(false)
   })
 
+  it('带 retryable 标记的错误直接重试（归档回源取图失败）', () => {
+    const err = new Error('transient step failure') as Error & { retryable: boolean }
+    err.retryable = true
+    expect(isRetryableError(err)).toBe(true)
+  })
+
   it('非 Error 类型（字符串 / null / undefined）不重试，防御性', () => {
     expect(isRetryableError('something')).toBe(false)
     expect(isRetryableError(null)).toBe(false)

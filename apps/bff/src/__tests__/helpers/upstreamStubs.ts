@@ -25,3 +25,26 @@ export async function waitFor(
     await Bun.sleep(5)
   }
 }
+
+/** 上游只需回一个 200 JSON body；transport 细节由 lib/upstream 的注入点接管。 */
+export function upstreamReturning(payload: unknown): TestFetch {
+  return mock(
+    async () => new Response(JSON.stringify(payload), { status: 200 }),
+  ) as unknown as TestFetch
+}
+
+/** 换掉 globalThis.fetch，返回还原函数。归档回源取图走的是它，不是 upstream 注入点。 */
+export function stubGlobalFetch(handler: () => Response | Promise<Response>): () => void {
+  const real = globalThis.fetch
+  globalThis.fetch = handler as unknown as typeof fetch
+  return () => {
+    globalThis.fetch = real
+  }
+}
+
+/** 断言这条路径不该发起任何网络请求。 */
+export function forbidGlobalFetch(): () => void {
+  return stubGlobalFetch(() => {
+    throw new Error('unexpected network fetch')
+  })
+}
