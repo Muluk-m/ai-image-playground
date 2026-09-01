@@ -6,6 +6,7 @@ import {
   EMPTY_PRIVATE_BFF_OVERLAY,
 } from '../../lib/private-overlay'
 import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
+import { abortableUpstreamFetch, waitFor } from '../helpers/upstreamStubs'
 
 process.env.UPSTREAM_BASE_URL = 'http://localhost:9999'
 process.env.UPSTREAM_API_KEY = 'test-key'
@@ -16,28 +17,18 @@ process.env.PORT = '0'
 
 // Dynamic imports keep environment setup ahead of modules that capture configuration.
 const { close: closeDb, db, schema } = await import('../../db/client')
-const { abortRunningTask, abortRunningTasksForShutdown, runningTaskIds, runTask } = await import(
+const { abortAllRunningTasks, abortRunningTask, runningTaskIds, runTask } = await import(
   '../../workers/task-runner'
 )
+const { recoverTasksByIds } = await import('../../db/maintenance')
 const { setUpstreamFetchForTesting } = await import('../../lib/upstream')
 const { setObjectStoreForTesting } = await import('../../lib/objectStore')
 const { MAX_ATTEMPTS, RETRY_BACKOFF_MS } = await import('../../lib/retry')
-type TestFetch = NonNullable<Parameters<typeof setUpstreamFetchForTesting>[0]>
 
 beforeEach(async () => {
   setObjectStoreForTesting(new InMemoryObjectStore())
   await db.delete(schema.tasks)
-  // Never resolves on its own: every case below decides how the request is aborted.
-  setUpstreamFetchForTesting(
-    mock(async (_input, init) => {
-      return new Promise((_resolve, reject) => {
-        const signal = init?.signal
-        const rejectAbort = () => reject(new DOMException('Aborted', 'AbortError'))
-        if (signal?.aborted) return rejectAbort()
-        signal?.addEventListener('abort', rejectAbort, { once: true })
-      })
-    }) as unknown as TestFetch,
-  )
+  setUpstreamFetchForTesting(abortableUpstreamFetch())
 })
 
 afterEach(() => {
@@ -65,8 +56,8 @@ async function readTask(id: string) {
 }
 
 /**
- * Starts runTask and resolves once the row is claimed, so the abort lands mid-flight.
- * The pending run is wrapped because an async return would await it instead.
+ * Starts runTask and resolves once its abort controller is registered, so the abort
+ * lands mid-flight. The pending run is wrapped because an async return would await it.
  */
 async function startInflightTask(
   id: string,
@@ -82,21 +73,24 @@ async function startInflightTask(
     attempt_count: attemptCount,
   })
   const running = runTask(id)
-  // The abort controller is registered after the claim, so waiting on the row status alone races.
-  const deadline = Date.now() + 2_000
-  while (!runningTaskIds().includes(id)) {
-    if (Date.now() >= deadline) throw new Error('task never registered an abort controller')
-    await Bun.sleep(5)
-  }
+  // The controller is registered after the claim, so waiting on the row status alone races.
+  await waitFor(() => runningTaskIds().includes(id), 2_000)
   return { running }
+}
+
+/** The shutdown sequence from worker-index: snapshot ids, abort, settle, recover. */
+async function abortForShutdown(running: Promise<void>): Promise<void> {
+  const aborted = runningTaskIds()
+  abortAllRunningTasks()
+  await running
+  await recoverTasksByIds(aborted)
 }
 
 describe('shutdown abort', () => {
   it('requeues the task with the next retry attempt', async () => {
     const { running } = await startInflightTask('drain-requeue')
 
-    expect(abortRunningTasksForShutdown()).toBe(1)
-    await running
+    await abortForShutdown(running)
 
     const row = await readTask('drain-requeue')
     expect(row).toMatchObject({ status: 'queued', attempt: 1, errorType: null })
@@ -107,12 +101,12 @@ describe('shutdown abort', () => {
   it('fails the task once the retry budget is spent', async () => {
     const { running } = await startInflightTask('drain-exhausted', MAX_ATTEMPTS - 1)
 
-    abortRunningTasksForShutdown()
-    await running
+    await abortForShutdown(running)
 
     expect(await readTask('drain-exhausted')).toMatchObject({
       status: 'failed',
       errorType: 'interrupted',
+      attempt: MAX_ATTEMPTS,
     })
   })
 
@@ -123,8 +117,7 @@ describe('shutdown abort', () => {
       .set({ status: 'cancelled', completed_at: 42 })
       .where(eq(schema.tasks.id, 'drain-after-cancel'))
 
-    abortRunningTasksForShutdown()
-    await running
+    await abortForShutdown(running)
 
     expect(await readTask('drain-after-cancel')).toMatchObject({
       status: 'cancelled',
@@ -152,13 +145,12 @@ describe('cancel abort', () => {
     })
   })
 
-  it('never requeues an in-progress row it aborted', async () => {
+  it('never requeues a row on its own, unlike the shutdown path', async () => {
     const { running } = await startInflightTask('cancel-inflight')
 
     expect(abortRunningTask('cancel-inflight')).toBe(true)
     await running
 
-    // The cancel route owns the terminal write; the runner must not turn this into a retry.
     expect(await readTask('cancel-inflight')).toMatchObject({ status: 'in_progress', attempt: 0 })
   })
 })

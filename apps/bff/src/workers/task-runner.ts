@@ -2,6 +2,7 @@ import { QUEUE_TIMEOUTS, type TaskErrorType } from '@image-playground/shared'
 import { and, eq, sql } from 'drizzle-orm'
 import { claimQueuedTask } from '../db/claim-task'
 import { db, schema } from '../db/client'
+import { finishTask, requeueTask } from '../db/task-transitions'
 import { describeEmptyResult, extractMeta } from '../lib/extractImages'
 import { archiveOutputImages, hydrateInputImages, ObjectStorageError } from '../lib/imageArchive'
 import { log } from '../lib/logger'
@@ -28,17 +29,11 @@ import {
  * cancel 真打断：每个进行中的 task 在 runningTasks 里登记 AbortController；
  * scheduler 观察到数据库取消状态后调 abortRunningTask(id) 中断 fetch。
  *
- * abort 有两个来源，终态归属不同：cancel route 已自行写 'cancelled'，worker 不再插手；
- * 停机 drain 超时的 abort 则由 worker 自己写回可重试，否则没人收拾。
+ * abort 之后 runTask 不写任何终态：cancel route 已经自己写了 'cancelled'，停机 abort
+ * 则由 worker-index 按 id 交给 recoverTasksByIds 写回可重试。
  */
 
 const runningTasks = new Map<string, AbortController>()
-
-/**
- * 停机 drain 超时被 abort 的 task。AbortError 本身分不出「用户取消」和「停机打断」，
- * 前者已由 cancel route 写好终态，后者没人写——不区分就会永久卡在 in_progress。
- */
-const shutdownAbortedTasks = new Set<string>()
 
 /** cancel route 调用：触发对应 task 的 upstream fetch abort。返回是否找到。 */
 export function abortRunningTask(id: string): boolean {
@@ -48,13 +43,11 @@ export function abortRunningTask(id: string): boolean {
   return true
 }
 
-/** drain 窗口耗尽时调用：abort 剩余任务，它们的 catch 会把自己写回可重试。 */
-export function abortRunningTasksForShutdown(): number {
-  for (const [id, ctrl] of runningTasks) {
-    shutdownAbortedTasks.add(id)
-    ctrl.abort()
-  }
-  return shutdownAbortedTasks.size
+/** drain 窗口耗尽时调用：abort 剩余任务。回收交给调用方，见 worker-index。 */
+export function abortAllRunningTasks(): number {
+  const count = runningTasks.size
+  for (const ctrl of runningTasks.values()) ctrl.abort()
+  return count
 }
 
 export function runningTaskIds(): string[] {
@@ -62,11 +55,8 @@ export function runningTaskIds(): string[] {
 }
 
 /**
- * 任务"失败 / 没图"分支共享的重试调度。返回 true 表示已安排重试（调用方应 return），
+ * 任务「失败 / 没图」分支共享的重试调度。返回 true 表示已安排重试（调用方应 return），
  * false 表示该走终态 failed。调用方传 retryable 自己决定（按 err 还是按 payload 判）。
- *
- * 注意：状态回退 UPDATE 带 WHERE status='in_progress' 守卫——cancel route 已经把
- * status 改成 'cancelled' 时这里 no-op。独立 scheduler 会在 next_retry_at 到期后发现它。
  */
 async function tryScheduleRetry(
   id: string,
@@ -77,24 +67,7 @@ async function tryScheduleRetry(
   if (!retryable) return false
   const plan = planNextAttempt(attemptJustFailed)
   if (!plan.shouldRetry) return false
-
-  const updated = await db
-    .update(schema.tasks)
-    .set({
-      status: 'queued',
-      attempt_count: attemptJustFailed,
-      next_retry_at: plan.nextRetryAt,
-      // 清空临时 error / result 痕迹：retry 成功后这条 row 不该带上一次失败信息。
-      // started_at 保留首次启动时间，admin 查耗时仍可用 submitted→completed。
-      error_message: null,
-      error_type: null,
-      result_payload: null,
-      upstream_status: null,
-      upstream_body: null,
-    })
-    .where(and(eq(schema.tasks.id, id), eq(schema.tasks.status, 'in_progress')))
-    .returning({ id: schema.tasks.id })
-  if (updated.length === 0) return false
+  if (!(await requeueTask(id, attemptJustFailed, plan.nextRetryAt))) return false
 
   log.warn(
     {
@@ -109,16 +82,8 @@ async function tryScheduleRetry(
   )
   return true
 }
-type TerminalTaskUpdate = {
-  status: 'completed' | 'failed'
-  completedAt: number
-  resultPayload?: (typeof schema.tasks.$inferInsert)['result_payload']
-  errorMessage?: string
-  errorType?: TaskErrorType
-  upstreamStatus?: number | null
-  upstreamBody?: string | null
-}
 
+/** 记账：上游真的被调用过。终态守卫同样带 in_progress 判断。 */
 async function recordUpstreamInvocation(id: string, count = 1): Promise<boolean> {
   const updated = await db
     .update(schema.tasks)
@@ -128,35 +93,6 @@ async function recordUpstreamInvocation(id: string, count = 1): Promise<boolean>
     .where(and(eq(schema.tasks.id, id), eq(schema.tasks.status, 'in_progress')))
     .returning({ id: schema.tasks.id })
   return updated.length > 0
-}
-
-async function finishTask(id: string, update: TerminalTaskUpdate): Promise<boolean> {
-  const taskHooks = (await loadPrivateBffOverlay()).taskHooks
-  return db.transaction(async (tx) => {
-    const [finished] = await tx
-      .update(schema.tasks)
-      .set({
-        status: update.status,
-        result_payload: update.resultPayload,
-        error_message: update.errorMessage,
-        error_type: update.errorType,
-        upstream_status: update.upstreamStatus,
-        upstream_body: update.upstreamBody,
-        completed_at: update.completedAt,
-      })
-      .where(and(eq(schema.tasks.id, id), eq(schema.tasks.status, 'in_progress')))
-      .returning({
-        id: schema.tasks.id,
-        upstreamInvocationCount: schema.tasks.upstream_invocation_count,
-      })
-    if (!finished) return false
-    await taskHooks.finalizeTask({
-      tx,
-      taskId: finished.id,
-      upstreamInvocationCount: finished.upstreamInvocationCount,
-    })
-    return true
-  })
 }
 
 export async function runTask(id: string): Promise<void> {
@@ -244,12 +180,9 @@ export async function runTask(id: string): Promise<void> {
   } catch (err) {
     // AbortError = cancel route 主动 abort。cancel.ts 已经写 status='cancelled'，
     // 下面 UPDATE 因 WHERE status='in_progress' 不匹配自然 no-op。
+    // cancel route 已经写好 'cancelled'；停机 abort 由 worker-index 按 id 回收。
     if (isAbortError(err)) {
-      if (shutdownAbortedTasks.has(id)) {
-        await recoverAbortedOnShutdown(id, task.attempt_count + 1, now())
-        return
-      }
-      log.info({ event: 'task.cancelled', taskId: id }, 'task aborted by cancel')
+      log.info({ event: 'task.aborted', taskId: id }, 'task aborted')
       return
     }
     const isTimeout = err instanceof UpstreamTimeoutError
@@ -295,33 +228,5 @@ export async function runTask(id: string): Promise<void> {
     }
   } finally {
     runningTasks.delete(id)
-    shutdownAbortedTasks.delete(id)
-  }
-}
-
-/**
- * 停机 abort 的收尾：走跟瞬时失败同一套重试预算，超上限才落终态 failed
- * （终态是计费 reversal 的触发点，不能省）。
- */
-async function recoverAbortedOnShutdown(
-  id: string,
-  attemptJustFailed: number,
-  completedAt: number,
-): Promise<void> {
-  if (await tryScheduleRetry(id, attemptJustFailed, true, 'worker shutdown drain timeout')) {
-    log.info({ event: 'task.shutdown_requeued', taskId: id }, 'task requeued for the next worker')
-    return
-  }
-  const failed = await finishTask(id, {
-    status: 'failed',
-    errorMessage: '任务 worker 停机时中断，重试次数已用尽',
-    errorType: 'interrupted',
-    completedAt,
-  })
-  if (failed) {
-    log.error(
-      { event: 'task.shutdown_failed', taskId: id, attempt: attemptJustFailed },
-      'task aborted on shutdown with no retry budget left',
-    )
   }
 }

@@ -184,12 +184,12 @@ SIGTERM 之后 worker 分三段收尾，目的是「部署不打断在途生成�
 
 1. scheduler 立刻停止领新任务（含 `next_retry_at` 已到期的重试）；
 2. 在途任务继续跑满 `WORKER_DRAIN_TIMEOUT_MS`（默认 55s），窗口内跑完的正常写终态；
-3. 窗口耗尽才 abort 剩余任务，它们按 `lib/retry.ts` 的重试预算写回 `queued`
+3. 窗口耗尽才 abort 剩余任务，随后按 `lib/retry.ts` 的重试预算把它们写回 `queued`
    （`attempt_count + 1`、`next_retry_at` 按退避梯度），下一个 worker 接着跑；
    预算用尽的才落终态 `failed`，让计费 reversal 正常发生。
 
-两条 abort 路径终态不同，别混：cancel route 的 abort 由 cancel route 自己写
-`cancelled`，worker 不插手；停机 abort 没有别人写终态，必须由 worker 写回可重试。
+`runTask` 自己对 abort 一律不写终态，终态归属由调用方决定：cancel route 的 abort
+由 cancel route 写 `cancelled`；停机 abort 由 worker 入口点名交给 `recoverTasksByIds`。
 
 `WORKER_DRAIN_TIMEOUT_MS` 调大能少一些重试（生图上游能跑 30-300s），代价是每次部署
 停机时间同步变长。**改它必须连带调大进程管理器的停机宽限**（`deploy/compose.app.yaml`
@@ -197,8 +197,8 @@ SIGTERM 之后 worker 分三段收尾，目的是「部署不打断在途生成�
 SIGKILL，代码层 drain 无从谈起。
 
 SIGKILL 没有 drain 的机会，行会留在 `in_progress`。worker 启动时扫一次、之后每 5 分钟
-再扫：`started_at` 超过 16 分钟（> 上游硬超时，活着的 runner 早该写终态了）且不在本进程
-在跑的行，按同一套重试语义回收。
+再扫（`recoverAbandonedTasks`）：`started_at` 超过 16 分钟（> 上游硬超时，活着的 runner
+早该写终态了）且不在本进程在跑的行，按同一套重试语义回收。
 
 ## 鉴权与能力
 

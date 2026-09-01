@@ -63,14 +63,10 @@ export class TaskScheduler {
     return this.lastSuccessfulPollTimestamp
   }
 
-  /** 等 inflight 跑完。给了 timeoutMs 则最多等这么久，返回是否真的等空了。 */
-  async waitForIdle(timeoutMs?: number): Promise<boolean> {
+  /** 最多等 timeoutMs 让 inflight 跑完，返回是否真的等空了。 */
+  async waitForIdle(timeoutMs: number): Promise<boolean> {
     const promises = Array.from(this.active.values()).flatMap((tasks) => Array.from(tasks.values()))
     const settled = Promise.allSettled(promises)
-    if (timeoutMs === undefined) {
-      await settled
-      return true
-    }
     let timer: ReturnType<typeof setTimeout> | undefined
     try {
       return await Promise.race([
