@@ -182,10 +182,11 @@ export interface CancelResponse {
  * 都能就近看见相邻常量的关系。
  *
  * 不变量：
- *   POLL_MAX_MS  >  UPSTREAM_HARD_TIMEOUT_MS  >  SHUTDOWN_HARD_TIMEOUT_MS
- *   SHUTDOWN_HARD_TIMEOUT_MS  <  进程管理器给 SIGTERM 的 graceful 期限
- *   （Docker `--stop-timeout` / systemd `TimeoutStopSec` / pm2 `kill_timeout`
- *    任一，至少要给 60s 才能让 BFF 顺利 drain 55s 后自己退出）
+ *   POLL_MAX_MS  >  UPSTREAM_HARD_TIMEOUT_MS  >  SHUTDOWN_DRAIN_TIMEOUT_MS
+ *   SHUTDOWN_DRAIN_TIMEOUT_MS + SHUTDOWN_ABORT_SETTLE_MS  <  进程管理器给 SIGTERM 的 graceful 期限
+ *   （Docker `stop_grace_period` / systemd `TimeoutStopSec` / pm2 `kill_timeout`
+ *    任一，至少要给 60s 才能让进程顺利 drain 55s 后自己退出）
+ *   STALE_IN_PROGRESS_MS  >  UPSTREAM_HARD_TIMEOUT_MS
  */
 export const QUEUE_TIMEOUTS = {
   /** 前端单任务 poll 上限：30 min。需 > 上游硬超时，否则上游正常返回时前端已放弃。 */
@@ -197,8 +198,18 @@ export const QUEUE_TIMEOUTS = {
   /** BFF 单次上游 fetch 硬超时：15 min（AbortController）。gpt-image-2 系列在慢链路
    *  下偶尔会跑 4-5min；留 15min 给极端长尾。需 < POLL_MAX_MS（30min）。 */
   UPSTREAM_HARD_TIMEOUT_MS: 15 * 60 * 1000,
-  /** BFF SIGTERM 后等 inflight drain 的硬上限；进程管理器至少要给 60s graceful 期限。 */
-  SHUTDOWN_HARD_TIMEOUT_MS: 55 * 1000,
+  /** SIGTERM 后等 inflight drain 的默认上限；worker 可用 WORKER_DRAIN_TIMEOUT_MS 覆盖。 */
+  SHUTDOWN_DRAIN_TIMEOUT_MS: 55 * 1000,
+  /** drain 超时 abort 之后，等各 runner 从 fetch 里退出来再统一回收的窗口。 */
+  SHUTDOWN_ABORT_SETTLE_MS: 5 * 1000,
+  /**
+   * in_progress 超过这个时长即视为无主：任何还活着的 runner 都会先撞上自己的
+   * UPSTREAM_HARD_TIMEOUT_MS 写终态，所以更老的行只可能是 SIGKILL 遗留。
+   * 前提是单 worker 进程；要跑多副本得改成 row lease（locked_by + heartbeat_at）。
+   */
+  STALE_IN_PROGRESS_MS: 16 * 60 * 1000,
+  /** worker 扫描无主 in_progress 的间隔。 */
+  STALE_SCAN_INTERVAL_MS: 5 * 60 * 1000,
   /** 后台清理过期任务的轮询间隔。 */
   PURGE_INTERVAL_MS: 6 * 60 * 60 * 1000,
   /** 已完成/失败/取消任务保留时长，超过即删。 */

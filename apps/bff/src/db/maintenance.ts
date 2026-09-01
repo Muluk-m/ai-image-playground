@@ -1,45 +1,82 @@
 import { QUEUE_TIMEOUTS } from '@image-playground/shared'
-import { and, eq, inArray, isNotNull, lt } from 'drizzle-orm'
+import { and, eq, inArray, isNotNull, lt, notInArray, type SQL } from 'drizzle-orm'
 import { log } from '../lib/logger'
 import { objectStore } from '../lib/objectStore'
 import { loadPrivateBffOverlay } from '../lib/private-overlay'
+import { planNextAttempt } from '../lib/retry'
 import { db, schema } from './client'
+import { finishTask, requeueTask } from './task-transitions'
+
+export interface RecoveredTasks {
+  requeued: number
+  failed: number
+}
 
 /**
- * worker 启动时跑一次：把上次进程残留的 in_progress 标成终态。
- *
- * queued 任务由数据库轮询 scheduler 自动发现，future next_retry_at 也保留在库中，
- * 不再创建进程内 setTimeout。in_progress 说明旧 worker 可能已经发出 fetch；
- * 上游那边可能在跑，再发一次会重复消耗配额。一律标 failed，由用户决定
- * 是否手动重试。
+ * 停机 abort 之后点名回收：这些 task 的 fetch 已经断了，但没人写终态。
+ * id 必须在 abort **之前**取，settle 期间自己跑完的行由 status 守卫挡住。
  */
-export async function recoverInterruptedTasks(): Promise<{ failed: number }> {
-  const taskHooks = (await loadPrivateBffOverlay()).taskHooks
-  const failed = await db.transaction(async (tx) => {
-    const rows = await tx
-      .update(schema.tasks)
-      .set({
-        status: 'failed',
-        error_message: '任务 worker 重启时中断',
-        error_type: 'interrupted' as const,
-        completed_at: Date.now(),
-      })
-      .where(eq(schema.tasks.status, 'in_progress'))
-      .returning({
-        id: schema.tasks.id,
-        upstreamInvocationCount: schema.tasks.upstream_invocation_count,
-      })
-    for (const row of rows) {
-      await taskHooks.finalizeTask({
-        tx,
-        taskId: row.id,
-        upstreamInvocationCount: row.upstreamInvocationCount,
-      })
-    }
-    return rows
-  })
-  return { failed: failed.length }
+export function recoverTasksByIds(
+  ids: readonly string[],
+  now = Date.now(),
+): Promise<RecoveredTasks> {
+  if (ids.length === 0) return Promise.resolve({ requeued: 0, failed: 0 })
+  return recoverTasks(inArray(schema.tasks.id, [...ids]), now)
 }
+
+/**
+ * 扫描无主 in_progress（SIGKILL 遗留、历史残行）。`ownedIds` 是本进程正在跑的 task，
+ * 上传产物可能让活着的行超过年龄阈值，必须排除。
+ */
+export function recoverAbandonedTasks(
+  ownedIds: readonly string[] = [],
+  now = Date.now(),
+): Promise<RecoveredTasks> {
+  const stale = lt(schema.tasks.started_at, now - QUEUE_TIMEOUTS.STALE_IN_PROGRESS_MS)
+  const scope =
+    ownedIds.length === 0 ? stale : and(stale, notInArray(schema.tasks.id, [...ownedIds]))
+  return recoverTasks(scope as SQL, now)
+}
+
+/**
+ * 按 task-runner 同一套重试预算回收中断的 in_progress：写回 queued（attempt+1），
+ * 预算用尽才落终态 failed。明知重试可能重复消耗上游配额也要做——卡在 in_progress
+ * 的行没有任何东西会回收它，预扣的额度会永久悬挂。
+ */
+async function recoverTasks(scope: SQL, now: number): Promise<RecoveredTasks> {
+  const candidates = await db
+    .select({ id: schema.tasks.id, attemptCount: schema.tasks.attempt_count })
+    .from(schema.tasks)
+    .where(and(eq(schema.tasks.status, 'in_progress'), scope))
+
+  let requeued = 0
+  let failed = 0
+  for (const candidate of candidates) {
+    const attemptJustFailed = candidate.attemptCount + 1
+    const plan = planNextAttempt(attemptJustFailed, now)
+    const written = plan.shouldRetry
+      ? await requeueTask(candidate.id, attemptJustFailed, plan.nextRetryAt)
+      : await finishTask(candidate.id, {
+          status: 'failed',
+          attemptCount: attemptJustFailed,
+          errorMessage: '任务 worker 中断，重试次数已用尽',
+          errorType: 'interrupted',
+          completedAt: now,
+        })
+    if (!written) continue
+    if (plan.shouldRetry) requeued += 1
+    else failed += 1
+  }
+
+  if (requeued > 0 || failed > 0) {
+    log.info(
+      { event: 'task.interrupted_recovered', requeued, failed },
+      'recovered interrupted in-progress tasks',
+    )
+  }
+  return { requeued, failed }
+}
+
 /** Runs optional private-tree maintenance (for example, the billing fallback scan). */
 export async function runPrivateMaintenance(now = Date.now()): Promise<void> {
   const taskHooks = (await loadPrivateBffOverlay()).taskHooks
@@ -48,7 +85,7 @@ export async function runPrivateMaintenance(now = Date.now()): Promise<void> {
 
 /**
  * 删除 30 天前完成的任务（成功 / 失败 / 取消）。不删 queued/in_progress，避免
- * 误清正在跑的；worker 启动时的 recoverInterruptedTasks 会收拾 in_progress。
+ * 误清正在跑的；worker 的 recoverAbandonedTasks 会收拾无主 in_progress。
  */
 export async function purgeOldTasks(
   retentionMs = QUEUE_TIMEOUTS.TASK_RETENTION_MS,

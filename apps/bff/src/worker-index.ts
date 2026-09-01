@@ -1,12 +1,12 @@
 import { QUEUE_TIMEOUTS } from '@image-playground/shared'
 import { config } from './config'
 import { close as closeDb } from './db/client'
-import { recoverInterruptedTasks } from './db/maintenance'
+import { recoverAbandonedTasks, recoverTasksByIds } from './db/maintenance'
 import { isCapabilityEnabled } from './lib/capabilities'
 import { initChannels } from './lib/channels'
 import { log } from './lib/logger'
 import { assertPrivateBffOverlayPresent, loadPrivateBffOverlay } from './lib/private-overlay'
-import { abortAllRunningTasks } from './workers/task-runner'
+import { abortAllRunningTasks, runningTaskIds } from './workers/task-runner'
 import { TaskScheduler } from './workers/task-scheduler'
 import { startWorkerHealthServer } from './workers/worker-health'
 
@@ -20,16 +20,19 @@ if (isCapabilityEnabled('billing:credits')) {
   assertPrivateBffOverlayPresent(await loadPrivateBffOverlay(), 'billing:credits')
 }
 
-const recovery = await recoverInterruptedTasks()
-if (recovery.failed > 0) {
-  log.info(
-    { event: 'worker.startup_failed_interrupted', count: recovery.failed },
-    'marked stale in-progress tasks as failed',
-  )
-}
+// 启动扫一次只覆盖「重启之后」那一瞬间，SIGKILL 随时可能再留下无主行，所以要持续扫。
+await recoverAbandonedTasks()
 
 const scheduler = new TaskScheduler()
 scheduler.start()
+const staleScanTimer = setInterval(() => {
+  recoverAbandonedTasks(runningTaskIds()).catch((err) => {
+    log.error(
+      { event: 'worker.stale_scan_failed', err: err instanceof Error ? err.message : String(err) },
+      'abandoned in-progress scan failed',
+    )
+  })
+}, QUEUE_TIMEOUTS.STALE_SCAN_INTERVAL_MS)
 const workerHealthServer = startWorkerHealthServer({
   port: config.worker.healthPort,
   staleAfterMs: config.worker.healthStaleAfterMs,
@@ -59,32 +62,26 @@ async function gracefulShutdown(signal: string): Promise<void> {
   if (shuttingDown) return
   shuttingDown = true
   scheduler.stop()
+  clearInterval(staleScanTimer)
   await workerHealthServer.stop()
+  const drainTimeoutMs = config.worker.drainTimeoutMs
   log.info(
-    { event: 'worker.shutdown_start', signal, inflight: scheduler.activeCount() },
+    { event: 'worker.shutdown_start', signal, inflight: scheduler.activeCount(), drainTimeoutMs },
     'stopping task worker',
   )
 
-  const aborted = abortAllRunningTasks()
-  if (aborted > 0) {
-    log.info({ event: 'worker.shutdown_aborted', count: aborted }, 'aborted running tasks')
+  if (!(await scheduler.waitForIdle(drainTimeoutMs))) {
+    // id 必须在 abort 之前取：runner settle 之后会把自己从 runningTasks 摘掉。
+    const aborted = runningTaskIds()
+    abortAllRunningTasks()
+    log.warn(
+      { event: 'worker.shutdown_drain_timeout', drainTimeoutMs, aborted: aborted.length },
+      'drain window expired, aborting inflight tasks for requeue',
+    )
+    await scheduler.waitForIdle(QUEUE_TIMEOUTS.SHUTDOWN_ABORT_SETTLE_MS)
+    await recoverTasksByIds(aborted)
   }
 
-  const hardTimer = setTimeout(() => {
-    log.warn(
-      {
-        event: 'worker.shutdown_timeout',
-        timeoutMs: QUEUE_TIMEOUTS.SHUTDOWN_HARD_TIMEOUT_MS,
-        inflight: scheduler.activeCount(),
-      },
-      'worker drain timeout, forcing exit',
-    )
-    void finalize()
-  }, QUEUE_TIMEOUTS.SHUTDOWN_HARD_TIMEOUT_MS)
-
-  await scheduler.waitForIdle()
-  await recoverInterruptedTasks()
-  clearTimeout(hardTimer)
   log.info({ event: 'worker.shutdown_done' }, 'task worker stopped')
   await finalize()
 }

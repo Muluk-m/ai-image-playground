@@ -1,3 +1,4 @@
+import { QUEUE_TIMEOUTS } from '@image-playground/shared'
 import { normalizeKeyPrefix } from './lib/objectKeyPrefix'
 import { hasCapability, loadOperatorConfig } from './lib/operator-config'
 
@@ -107,6 +108,11 @@ export const config = {
   },
   worker: {
     pollIntervalMs: workerPollIntervalMs,
+    /** 调大要连带调大进程管理器的停机宽限（deploy/compose.app.yaml），否则先挨 SIGKILL。 */
+    drainTimeoutMs: positiveIntEnv(
+      'WORKER_DRAIN_TIMEOUT_MS',
+      QUEUE_TIMEOUTS.SHUTDOWN_DRAIN_TIMEOUT_MS,
+    ),
     healthPort: positiveIntEnv('WORKER_HEALTH_PORT', 37_379),
     healthStaleAfterMs: workerHealthStaleAfterMs,
     concurrency: {
