@@ -101,6 +101,8 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
+    # Must exceed WORKER_DRAIN_TIMEOUT_MS (default 55s) plus the abort settle window, or Docker
+    # sends SIGKILL mid-drain and the inflight tasks are recovered only by the stale scan.
     stop_grace_period: 75s
     networks:
       - application

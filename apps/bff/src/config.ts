@@ -1,3 +1,4 @@
+import { QUEUE_TIMEOUTS } from '@image-playground/shared'
 import { normalizeKeyPrefix } from './lib/objectKeyPrefix'
 import { hasCapability, loadOperatorConfig } from './lib/operator-config'
 
@@ -107,6 +108,15 @@ export const config = {
   },
   worker: {
     pollIntervalMs: workerPollIntervalMs,
+    /**
+     * SIGTERM 后让在途任务跑完的窗口。生图上游能跑 30-300s，调大能少一些重试；
+     * 但每次部署的停机时间同步变长，且必须连带调大进程管理器的 stop_grace_period
+     * （deploy/compose.app.yaml），否则先挨 SIGKILL，代码层 drain 无从谈起。
+     */
+    drainTimeoutMs: positiveIntEnv(
+      'WORKER_DRAIN_TIMEOUT_MS',
+      QUEUE_TIMEOUTS.SHUTDOWN_DRAIN_TIMEOUT_MS,
+    ),
     healthPort: positiveIntEnv('WORKER_HEALTH_PORT', 37_379),
     healthStaleAfterMs: workerHealthStaleAfterMs,
     concurrency: {
