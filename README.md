@@ -261,6 +261,12 @@ Caching and SPA fallback come from [`apps/web/public/_headers`](./apps/web/publi
 and [`apps/web/public/_redirects`](./apps/web/public/_redirects), which mirror the matching
 rules in [`deploy/nginx.conf`](./deploy/nginx.conf).
 
+`build:static-host` also writes `dist/version.json`, the manifest open tabs poll to notice a
+new deployment. Releases are silent by default: running tabs pick the new bundle up on their
+next reload. `NOTIFY_UPDATE=true` marks one release as worth interrupting for, and tabs then
+show a corner prompt offering a reload. The Option 2 image does not build through
+`build:static-host`, so it ships no manifest and never prompts.
+
 `EXTRA_ASSETS_DIR=<dir>` copies that directory into `dist/op/` between the build and the
 upload, for per-deployment files that are not in the repository — an operator's payment QR
 image, for example. Each file is then served at `/op/<file>` on the frontend origin, so a

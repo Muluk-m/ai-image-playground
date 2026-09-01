@@ -10,6 +10,7 @@ import SearchBar from './components/SearchBar'
 import SettingsModal from './components/SettingsModal'
 import TaskGrid from './components/TaskGrid'
 import Toast from './components/Toast'
+import UpdateBanner from './components/UpdateBanner'
 import CanvasMode from './features/canvas/components/CanvasMode'
 import InspirationPanel from './features/inspiration/components/InspirationPanel'
 import { initHashRoute } from './features/inspiration/lib/hashRoute'
@@ -80,6 +81,7 @@ export default function App() {
       <InspirationPanel />
       <ConfirmDialog />
       <Toast />
+      <UpdateBanner />
       <MaskEditorModal />
       <ImageContextMenu />
     </>
