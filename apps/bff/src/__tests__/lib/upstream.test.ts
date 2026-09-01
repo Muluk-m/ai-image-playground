@@ -71,6 +71,7 @@ describe('callUpstream OpenAI route', () => {
     expect(typeof body).toBe('string')
     const parsed = JSON.parse(body as string)
     expect(parsed).toMatchObject({ model: 'gpt-image-2', prompt: 'a cat', size: '1024x1024' })
+    expect(parsed.response_format).toBeUndefined()
   })
 
   it('records every dispatch when OpenAI fans out the requested image count', async () => {
@@ -157,6 +158,7 @@ describe('callUpstream OpenAI route', () => {
     const file = images[0]
     expect(file).toBeInstanceOf(File)
     expect((file as File).size).toBeGreaterThan(0)
+    expect(form.get('response_format')).toBeNull()
   })
 
   it('forwards OpenAI output controls in the edits multipart body', async () => {
@@ -605,7 +607,7 @@ describe('callUpstream grok-images channel（channel base/key + 标准 OpenAI �
         capabilities: ['generate', 'edit', 'n'],
       },
     ],
-    defaults: { apiMode: 'images', timeout: 600 },
+    defaults: { apiMode: 'images', timeout: 600, responseFormatB64Json: true },
   }
 
   beforeEach(() => {
@@ -644,9 +646,35 @@ describe('callUpstream grok-images channel（channel base/key + 标准 OpenAI �
       model: 'grok-imagine-image',
       prompt: 'a cat',
       size: '1024x1024',
+      response_format: 'b64_json',
     })
     // 标准 OpenAI 语义：不走 Agnes 私有的 extra_body.image 协议
     expect(body.extra_body).toBeUndefined()
+  })
+
+  it('generations：channel 声明 responseFormatB64Json 时压过 extra 的 response_format', async () => {
+    await callUpstream({
+      provider: 'openai-compat',
+      model: 'grok-imagine-image',
+      request: { prompt: 'a cat', extra: { response_format: 'url' } },
+    })
+    const body = JSON.parse(calls[0]!.init?.body as string)
+    expect(body.response_format).toBe('b64_json')
+  })
+
+  it('edits：multipart 只带一个 response_format=b64_json，不留 extra 的同名残余', async () => {
+    const original = await solidImageDataUrl('#cc5500', 'jpeg')
+    await callUpstream({
+      provider: 'openai-compat',
+      model: 'grok-imagine-image',
+      request: {
+        prompt: 'make it blue',
+        input_images: [original.dataUrl],
+        extra: { response_format: 'url' },
+      },
+    })
+    const form = calls[0]!.init?.body as UndiciFormData
+    expect(form.getAll('response_format')).toEqual(['b64_json'])
   })
 
   it('edits：单张 input image 作为一个原始 multipart 文件透传', async () => {
