@@ -8,6 +8,8 @@ set -eu
 #   scripts/pages-deploy.sh public <pages-project> [branch]
 #   scripts/pages-deploy.sh private <pages-project> [branch]
 #
+# EXTRA_ASSETS_DIR=<dir> copies untracked deployment files into dist/op/ before the upload.
+#
 # The edition is asserted against the working copy instead of inferred, because the overlay is
 # included by mere file presence (apps/web/src/lib/privateOverlay.tsx globs
 # ../../private/apps/web/index.tsx).
@@ -53,8 +55,20 @@ if [ "${BFF_ENABLED:-false}" = true ] && [ -z "${BFF_BASE_URL:-}" ]; then
   exit 1
 fi
 
+# Checked before the build so a typo does not cost a full build first.
+if [ -n "${EXTRA_ASSETS_DIR:-}" ] && [ ! -d "$EXTRA_ASSETS_DIR" ]; then
+  echo "EXTRA_ASSETS_DIR=$EXTRA_ASSETS_DIR is not a directory." >&2
+  exit 1
+fi
+
 cd "$repo_root"
 pnpm --filter @image-playground/web build:static-host
+
+if [ -n "${EXTRA_ASSETS_DIR:-}" ]; then
+  mkdir -p "$repo_root/apps/web/dist/op"
+  cp -R "$EXTRA_ASSETS_DIR"/. "$repo_root/apps/web/dist/op/"
+  echo "Copied $EXTRA_ASSETS_DIR into dist/op/ (published at /op/<file>)."
+fi
 
 cd "$repo_root/apps/web"
 set -- --project-name "$project"

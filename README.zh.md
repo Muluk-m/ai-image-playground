@@ -242,6 +242,11 @@ edition 只断言 overlay 在不在，后端开关与它无关：公开版产物
 [`apps/web/public/_redirects`](./apps/web/public/_redirects) 提供，对齐
 [`deploy/nginx.conf`](./deploy/nginx.conf) 的同名规则。
 
+`EXTRA_ASSETS_DIR=<目录>` 在构建之后、上传之前把该目录拷进 `dist/op/`，用于放不进仓库的
+按部署文件，例如运营者的收款码图。文件随后在前端 origin 上以 `/op/<文件名>` 提供，前端用
+同源相对路径即可引用。目录不存在时脚本直接失败，不会漏发。这些文件是公开的：知道 URL
+的人都能读到。
+
 不用隧道时，在后端 `app.env` 设 `APP_INGRESS_MODE=api-only` 并启动 `web` 服务：同一个
 nginx 容器只反代 API，所有非 API 路径直接返回 404，不再带出第二份前端。选项 4 用
 cloudflared 取代这个容器。后端侧还必须满足：
