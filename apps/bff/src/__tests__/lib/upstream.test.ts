@@ -652,6 +652,64 @@ describe('callUpstream grok-images channel（channel base/key + 标准 OpenAI �
     expect(body.extra_body).toBeUndefined()
   })
 
+  it('generations：模型未声明 moderation 能力时剥掉该字段（上游带上必 403）', async () => {
+    await callUpstream({
+      provider: 'openai-compat',
+      model: 'grok-imagine-image',
+      request: { prompt: 'a cat', moderation: 'auto', output_format: 'png' },
+    })
+    const body = JSON.parse(calls[0]!.init?.body as string)
+    expect(body).not.toHaveProperty('moderation')
+    expect(body.output_format).toBe('png')
+  })
+
+  it('generations：extra 里的 moderation 同样剥掉（它最后 spread 进 body）', async () => {
+    await callUpstream({
+      provider: 'openai-compat',
+      model: 'grok-imagine-image',
+      request: { prompt: 'a cat', extra: { moderation: 'auto', seed: 7 } },
+    })
+    const body = JSON.parse(calls[0]!.init?.body as string)
+    expect(body).not.toHaveProperty('moderation')
+    expect(body.seed).toBe(7)
+  })
+
+  it('edits：模型未声明 moderation 能力时 multipart 不带该字段', async () => {
+    const original = await solidImageDataUrl('#cc5500', 'jpeg')
+    await callUpstream({
+      provider: 'openai-compat',
+      model: 'grok-imagine-image',
+      request: {
+        prompt: 'make it blue',
+        input_images: [original.dataUrl],
+        moderation: 'low',
+        extra: { moderation: 'low' },
+        output_format: 'png',
+      },
+    })
+    const form = calls[0]!.init?.body as UndiciFormData
+    expect(form.get('moderation')).toBeNull()
+    expect(form.get('output_format')).toBe('png')
+  })
+
+  // 剥离由 capability 声明驱动，不是按 channel id 特判：同一 channel 声明了就照发。
+  it('generations：模型声明 moderation 能力时原样透传', async () => {
+    _setChannelsForTesting([
+      {
+        ...grokChannel,
+        models: [
+          { ...grokChannel.models[0]!, capabilities: ['generate', 'edit', 'n', 'moderation'] },
+        ],
+      },
+    ])
+    await callUpstream({
+      provider: 'openai-compat',
+      model: 'grok-imagine-image',
+      request: { prompt: 'a cat', moderation: 'auto' },
+    })
+    expect(JSON.parse(calls[0]!.init?.body as string).moderation).toBe('auto')
+  })
+
   it('generations：channel 声明 responseFormatB64Json 时压过 extra 的 response_format', async () => {
     await callUpstream({
       provider: 'openai-compat',
