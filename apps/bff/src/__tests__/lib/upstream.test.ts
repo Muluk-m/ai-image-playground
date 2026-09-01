@@ -590,7 +590,7 @@ describe('callUpstream direct channel 图生图（Agnes 风格 generations JSON�
   })
 })
 
-describe('callUpstream grok-images channel（channel base/key + 标准 OpenAI 协议）', () => {
+describe('callUpstream grok-images channel（channel base/key + Grok 编辑协议）', () => {
   let calls: FetchCall[] = []
 
   const grokChannel: InternalChannel = {
@@ -674,7 +674,7 @@ describe('callUpstream grok-images channel（channel base/key + 标准 OpenAI �
     expect(body.seed).toBe(7)
   })
 
-  it('edits：模型未声明 moderation 能力时 multipart 不带该字段', async () => {
+  it('edits：模型未声明 moderation 能力时 JSON 不带该字段', async () => {
     const original = await solidImageDataUrl('#cc5500', 'jpeg')
     await callUpstream({
       provider: 'openai-compat',
@@ -687,9 +687,9 @@ describe('callUpstream grok-images channel（channel base/key + 标准 OpenAI �
         output_format: 'png',
       },
     })
-    const form = calls[0]!.init?.body as UndiciFormData
-    expect(form.get('moderation')).toBeNull()
-    expect(form.get('output_format')).toBe('png')
+    const body = JSON.parse(calls[0]!.init?.body as string)
+    expect(body).not.toHaveProperty('moderation')
+    expect(body.output_format).toBe('png')
   })
 
   // 剥离由 capability 声明驱动，不是按 channel id 特判：同一 channel 声明了就照发。
@@ -720,7 +720,7 @@ describe('callUpstream grok-images channel（channel base/key + 标准 OpenAI �
     expect(body.response_format).toBe('b64_json')
   })
 
-  it('edits：multipart 只带一个 response_format=b64_json，不留 extra 的同名残余', async () => {
+  it('edits：JSON 体强制 response_format=b64_json，压过 extra 同名值', async () => {
     const original = await solidImageDataUrl('#cc5500', 'jpeg')
     await callUpstream({
       provider: 'openai-compat',
@@ -731,11 +731,11 @@ describe('callUpstream grok-images channel（channel base/key + 标准 OpenAI �
         extra: { response_format: 'url' },
       },
     })
-    const form = calls[0]!.init?.body as UndiciFormData
-    expect(form.getAll('response_format')).toEqual(['b64_json'])
+    const body = JSON.parse(calls[0]!.init?.body as string)
+    expect(body.response_format).toBe('b64_json')
   })
 
-  it('edits：单张 input image 作为一个原始 multipart 文件透传', async () => {
+  it('edits：单张 input image 作为 data URL 放进 JSON image', async () => {
     const original = await solidImageDataUrl('#cc5500', 'jpeg')
     await callUpstream({
       provider: 'openai-compat',
@@ -750,18 +750,15 @@ describe('callUpstream grok-images channel（channel base/key + 标准 OpenAI �
     expect(calls[0]!.url).toBe('https://sub2api.qiliangjia.org/v1/images/edits')
     const headers = new Headers(calls[0]!.init?.headers as HeadersInit)
     expect(headers.get('authorization')).toBe('Bearer grok-test-key')
-    const body = calls[0]!.init?.body
-    expect(body).toBeInstanceOf(UndiciFormData)
-    const form = body as UndiciFormData
-    expect(form.get('model')).toBe('grok-imagine-image')
-    expect(form.get('prompt')).toBe('make it blue')
-    expect(form.get('size')).toBe('1024x1024')
-    const images = form.getAll('image[]')
-    expect(images).toHaveLength(1)
-    expect(images[0]).toBeInstanceOf(File)
-    const passthrough = images[0] as File
-    expect(passthrough.type).toBe('image/jpeg')
-    expect(Buffer.from(await passthrough.arrayBuffer()).equals(original.bytes)).toBe(true)
+    expect(headers.get('content-type')).toContain('application/json')
+    const body = JSON.parse(calls[0]!.init?.body as string)
+    expect(body).toMatchObject({
+      model: 'grok-imagine-image',
+      prompt: 'make it blue',
+      size: '1024x1024',
+      response_format: 'b64_json',
+      image: { type: 'image_url', url: original.dataUrl },
+    })
   })
 
   it('edits：两张 input image 合成一个有序标签、尺寸有界的 PNG contact sheet', async () => {
@@ -782,12 +779,10 @@ describe('callUpstream grok-images channel（channel base/key + 标准 OpenAI �
 
     expect(calls).toHaveLength(1)
     expect(calls[0]!.url).toBe('https://sub2api.qiliangjia.org/v1/images/edits')
-    const form = calls[0]!.init?.body as UndiciFormData
-    const images = form.getAll('image[]')
-    expect(images).toHaveLength(1)
-    const contactSheetFile = images[0] as File
-    expect(contactSheetFile.type).toBe('image/png')
-    const contactSheet = Buffer.from(await contactSheetFile.arrayBuffer())
+    const body = JSON.parse(calls[0]!.init?.body as string)
+    expect(body.image.type).toBe('image_url')
+    expect(body.image.url).toStartWith('data:image/png;base64,')
+    const contactSheet = Buffer.from(body.image.url.split(',', 2)[1]!, 'base64')
     const metadata = await sharp(contactSheet).metadata()
     expect(metadata.format).toBe('png')
     expect(metadata.width).toBeGreaterThan(0)
@@ -919,7 +914,7 @@ describe('callUpstream grok-images channel（channel base/key + 标准 OpenAI �
     expect(payload.data).toHaveLength(2)
   })
 
-  it('n=2 + 两张编辑输入：fan-out 两次 multipart，每次只有一张 contact sheet', async () => {
+  it('n=2 + 两张编辑输入：fan-out 两次 JSON，每次只有一张 contact sheet', async () => {
     const red = await solidImageDataUrl('#ff0000')
     const blue = await solidImageDataUrl('#0000ff')
     const result = await callUpstream({
@@ -935,14 +930,14 @@ describe('callUpstream grok-images channel（channel base/key + 标准 OpenAI �
     expect(calls).toHaveLength(2)
     for (const call of calls) {
       expect(call.url).toBe('https://sub2api.qiliangjia.org/v1/images/edits')
-      const form = call.init?.body as UndiciFormData
-      expect(form.get('n')).toBeNull()
-      const images = form.getAll('image[]')
-      expect(images).toHaveLength(1)
-      expect(images[0]).toBeInstanceOf(File)
-      const contactSheet = images[0] as File
-      expect(contactSheet.type).toBe('image/png')
-      const metadata = await sharp(Buffer.from(await contactSheet.arrayBuffer())).metadata()
+      const headers = new Headers(call.init?.headers as HeadersInit)
+      expect(headers.get('content-type')).toContain('application/json')
+      const body = JSON.parse(call.init?.body as string)
+      expect(body.n).toBeUndefined()
+      expect(body.image.type).toBe('image_url')
+      expect(body.image.url).toStartWith('data:image/png;base64,')
+      const contactSheet = Buffer.from(body.image.url.split(',', 2)[1]!, 'base64')
+      const metadata = await sharp(contactSheet).metadata()
       expect(metadata.format).toBe('png')
     }
     expect((result.payload as { data: unknown[] }).data).toHaveLength(2)

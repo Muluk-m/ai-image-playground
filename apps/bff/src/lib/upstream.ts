@@ -262,34 +262,36 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
       // 对 task-runner / 前端透明。
       if (request.input_images?.length || request.mask) {
         const url = `${base}/images/edits`
-        // Grok edits 的 multipart 只接受一个 image：多张参考图先合成 contact sheet。
-        // 单图（以及普通 OpenAI channel）仍走原文件透传，判定收在 normalizeGrokEditInputs 里。
-        // 必须在 fan-out 前做一次，避免 n>1 时重复解码和合图。
+        // Grok edits 的多张参考图先合成 contact sheet，确保发给上游的 image 始终只有一张。
         const editRequest =
           style === 'grok-openai-images'
             ? await normalizeGrokEditInputs(request, abort.signal)
             : request
-        const n = Math.max(1, editRequest.n ?? 1)
-        if (n === 1) {
-          const res = await performFetch(url, {
-            method: 'POST',
-            headers: authHeader,
-            body: buildOpenAIEditFormData(model, editRequest),
-          })
+        const performEdit = async (
+          singleRequest: HydratedSubmitRequest,
+        ): Promise<UpstreamCallResult> => {
+          const init: UpstreamFetchInit =
+            style === 'grok-openai-images'
+              ? {
+                  method: 'POST',
+                  headers: { 'content-type': 'application/json', ...authHeader },
+                  body: JSON.stringify(buildGrokEditBody(model, singleRequest)),
+                }
+              : {
+                  method: 'POST',
+                  headers: authHeader,
+                  body: buildOpenAIEditFormData(model, singleRequest),
+                }
+          const res = await performFetch(url, init)
           return parseResponse(res)
         }
 
+        const n = Math.max(1, editRequest.n ?? 1)
+        if (n === 1) return performEdit(editRequest)
+
         const singleRequest = withoutImageCount(editRequest)
         const results = await Promise.all(
-          // multipart body 含 File 流，不能跨请求复用 → 每次重新构造。
-          Array.from({ length: n }, async () => {
-            const res = await performFetch(url, {
-              method: 'POST',
-              headers: authHeader,
-              body: buildOpenAIEditFormData(model, singleRequest),
-            })
-            return parseResponse(res)
-          }),
+          Array.from({ length: n }, () => performEdit(singleRequest)),
         )
         return mergeOpenAIImageResults(results)
       }
@@ -457,6 +459,17 @@ function buildOpenAIBody(model: string, request: HydratedSubmitRequest): Record<
       : {}),
     ...(request.n ? { n: request.n } : {}),
     ...(request.extra ?? {}),
+  }
+}
+
+function buildGrokEditBody(model: string, request: HydratedSubmitRequest): Record<string, unknown> {
+  const body = buildOpenAIBody(model, withoutImageCount(request))
+  delete body.n
+  const image = request.input_images?.[0]
+  return {
+    ...body,
+    ...(image ? { image: { type: 'image_url', url: image } } : {}),
+    ...(request.mask ? { mask: { type: 'image_url', url: request.mask } } : {}),
   }
 }
 
