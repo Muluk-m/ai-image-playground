@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { DEFAULT_SETTINGS, getActiveApiProfile, normalizeSettings } from '../../lib/apiProfiles'
 import type {
+  ChannelCapability,
   ClientProfile,
   PublicChannel,
   UserByokPreferences,
@@ -48,6 +49,20 @@ function byokSettings(overrides: ByokOverrides = {}): AppSettings {
 
 function byokProfile(overrides: ByokOverrides = {}): ClientProfile {
   return getActiveApiProfile(byokSettings(overrides))
+}
+
+/** 注册一条只声明 capabilities 的 builtin-edge channel，返回选中它的 profile。 */
+function builtinProfile(capabilities: ChannelCapability[]): ClientProfile {
+  mockChannels.list = [
+    {
+      id: 'c1',
+      kind: 'openai-queue',
+      label: 'C',
+      models: [{ id: 'm1', label: 'M', capabilities }],
+      defaults: { apiMode: 'images', timeout: 600 },
+    },
+  ]
+  return { id: 'bp', source: 'builtin-edge', channelId: 'c1', selectedModelId: 'm1' }
 }
 
 describe('parameter compatibility', () => {
@@ -138,43 +153,28 @@ describe('getParamCapabilities', () => {
   })
 
   it('builtin-edge channel without size capability: size off', () => {
-    mockChannels.list = [
-      {
-        id: 'c1',
-        kind: 'openai-queue',
-        label: 'C',
-        models: [{ id: 'm1', label: 'M', capabilities: ['generate', 'edit'] }],
-        defaults: { apiMode: 'images', timeout: 600 },
-      },
-    ]
-    const profile: ClientProfile = {
-      id: 'bp',
-      source: 'builtin-edge',
-      channelId: 'c1',
-      selectedModelId: 'm1',
-    }
+    const profile = builtinProfile(['generate', 'edit'])
 
     expect(getParamCapabilities(profile, 'png').size).toBe(false)
   })
 
   it('builtin-edge channel with size capability: size on', () => {
-    mockChannels.list = [
-      {
-        id: 'c1',
-        kind: 'openai-queue',
-        label: 'C',
-        models: [{ id: 'm1', label: 'M', capabilities: ['generate', 'edit', 'size'] }],
-        defaults: { apiMode: 'images', timeout: 600 },
-      },
-    ]
-    const profile: ClientProfile = {
-      id: 'bp',
-      source: 'builtin-edge',
-      channelId: 'c1',
-      selectedModelId: 'm1',
-    }
+    const profile = builtinProfile(['generate', 'edit', 'size'])
 
     expect(getParamCapabilities(profile, 'png').size).toBe(true)
+  })
+
+  // grok-imagine-image 的真实声明形状：没有 moderation，带上提交上游必 403。
+  it('builtin-edge channel without moderation capability: moderation off', () => {
+    const profile = builtinProfile(['generate', 'edit', 'n'])
+
+    expect(getParamCapabilities(profile, 'png').moderation).toBe(false)
+  })
+
+  it('builtin-edge channel with moderation capability: moderation on', () => {
+    const profile = builtinProfile(['generate', 'edit', 'moderation'])
+
+    expect(getParamCapabilities(profile, 'png').moderation).toBe(true)
   })
 
   it('BYOK profile without declared capabilities: size on', () => {

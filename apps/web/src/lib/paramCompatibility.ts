@@ -34,7 +34,7 @@ export function getParamCapabilities(
     size: !modelCaps || modelCaps.has('size'),
     transparentOutput: view.provider !== 'gemini' && outputFormat === 'png',
     compression: outputFormat !== 'png',
-    moderation: view.apiMode !== 'responses',
+    moderation: view.apiMode !== 'responses' && (!modelCaps || modelCaps.has('moderation')),
   }
 }
 
