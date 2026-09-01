@@ -22,7 +22,6 @@ function EyeIcon({ crossed = false }: { crossed?: boolean }) {
 
 function ProviderMark({ provider }: { provider: OAuthProviderView }) {
   if (provider.id === 'google') return <span className="auth-provider-google">G</span>
-  if (provider.id === 'feishu') return <span className="auth-provider-feishu">飞</span>
   return <span className="auth-provider-generic">{provider.label.slice(0, 1)}</span>
 }
 

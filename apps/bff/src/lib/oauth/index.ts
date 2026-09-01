@@ -5,7 +5,6 @@ import {
   type OAuthProviderView,
 } from '@image-playground/shared'
 import { config } from '../../config'
-import { feishuProvider } from './feishu'
 import { googleProvider } from './google'
 import type { OAuthCredentials, OAuthProviderDefinition } from './provider'
 
@@ -14,7 +13,6 @@ export { OAuthExchangeError } from './provider'
 
 const DEFINITIONS: Readonly<Record<OAuthProviderId, OAuthProviderDefinition>> = {
   google: googleProvider,
-  feishu: feishuProvider,
 }
 
 export interface EnabledOAuthProvider {

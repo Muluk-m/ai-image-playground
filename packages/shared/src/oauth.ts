@@ -1,4 +1,4 @@
-export const OAUTH_PROVIDER_IDS = ['google', 'feishu'] as const
+export const OAUTH_PROVIDER_IDS = ['google'] as const
 
 export type OAuthProviderId = (typeof OAUTH_PROVIDER_IDS)[number]
 

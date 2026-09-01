@@ -3,6 +3,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { LoginScreen } from '../../auth/LoginScreen'
+import { oauthStartUrl } from '../../lib/authClient'
 import { _setRuntimeConfigForTesting } from '../../lib/runtimeConfig'
 
 declare global {
@@ -52,16 +53,12 @@ afterEach(() => {
 
 describe('LoginScreen third-party providers', () => {
   it('renders one button per enabled provider and links it to the BFF start route', async () => {
-    stubProviders({
-      providers: [
-        { id: 'google', label: 'Google' },
-        { id: 'feishu', label: '飞书' },
-      ],
-    })
+    stubProviders({ providers: [{ id: 'google', label: 'Google' }] })
     await render()
 
-    expect(providerButtons().map((button) => button.textContent)).toEqual(['GGoogle', '飞飞书'])
+    expect(providerButtons().map((button) => button.textContent)).toEqual(['GGoogle'])
     expect(host.textContent).toContain('或使用邮箱登录')
+    expect(oauthStartUrl('google')).toBe('https://api.example.com/api/auth/oauth/google/start')
   })
 
   it('hides the whole block when the deployment enables no provider', async () => {
