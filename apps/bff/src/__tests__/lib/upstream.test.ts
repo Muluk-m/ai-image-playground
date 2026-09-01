@@ -652,6 +652,34 @@ describe('callUpstream grok-images channel（channel base/key + 标准 OpenAI �
     expect(body.extra_body).toBeUndefined()
   })
 
+  it('generations：剥掉 moderation（上游带上必 403）', async () => {
+    await callUpstream({
+      provider: 'openai-compat',
+      model: 'grok-imagine-image',
+      request: { prompt: 'a cat', moderation: 'auto', output_format: 'png' },
+    })
+    const body = JSON.parse(calls[0]!.init?.body as string)
+    expect(body).not.toHaveProperty('moderation')
+    expect(body.output_format).toBe('png')
+  })
+
+  it('edits：剥掉 moderation（上游带上必 403）', async () => {
+    const original = await solidImageDataUrl('#cc5500', 'jpeg')
+    await callUpstream({
+      provider: 'openai-compat',
+      model: 'grok-imagine-image',
+      request: {
+        prompt: 'make it blue',
+        input_images: [original.dataUrl],
+        moderation: 'low',
+        output_format: 'png',
+      },
+    })
+    const form = calls[0]!.init?.body as UndiciFormData
+    expect(form.get('moderation')).toBeNull()
+    expect(form.get('output_format')).toBe('png')
+  })
+
   it('generations：channel 声明 responseFormatB64Json 时压过 extra 的 response_format', async () => {
     await callUpstream({
       provider: 'openai-compat',

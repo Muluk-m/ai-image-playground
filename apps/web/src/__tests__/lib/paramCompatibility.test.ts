@@ -177,7 +177,58 @@ describe('getParamCapabilities', () => {
     expect(getParamCapabilities(profile, 'png').size).toBe(true)
   })
 
+  // grok-imagine-image 的真实能力声明：带 moderation 提交上游必 403。
+  it('builtin-edge channel without moderation capability: moderation off', () => {
+    mockChannels.list = [
+      {
+        id: 'grok-images',
+        kind: 'openai-queue',
+        label: 'Grok Imagine Image',
+        models: [
+          {
+            id: 'grok-imagine-image',
+            label: 'Grok Imagine Image',
+            capabilities: ['generate', 'edit', 'n'],
+          },
+        ],
+        defaults: { apiMode: 'images', timeout: 600 },
+      },
+    ]
+    const profile: ClientProfile = {
+      id: 'bp',
+      source: 'builtin-edge',
+      channelId: 'grok-images',
+      selectedModelId: 'grok-imagine-image',
+    }
+
+    expect(getParamCapabilities(profile, 'png').moderation).toBe(false)
+  })
+
+  it('builtin-edge channel with moderation capability: moderation on', () => {
+    mockChannels.list = [
+      {
+        id: 'c1',
+        kind: 'openai-queue',
+        label: 'C',
+        models: [{ id: 'm1', label: 'M', capabilities: ['generate', 'edit', 'moderation'] }],
+        defaults: { apiMode: 'images', timeout: 600 },
+      },
+    ]
+    const profile: ClientProfile = {
+      id: 'bp',
+      source: 'builtin-edge',
+      channelId: 'c1',
+      selectedModelId: 'm1',
+    }
+
+    expect(getParamCapabilities(profile, 'png').moderation).toBe(true)
+  })
+
   it('BYOK profile without declared capabilities: size on', () => {
     expect(getParamCapabilities(byokProfile(), 'png').size).toBe(true)
+  })
+
+  it('BYOK profile without declared capabilities: moderation on', () => {
+    expect(getParamCapabilities(byokProfile(), 'png').moderation).toBe(true)
   })
 })

@@ -32,7 +32,10 @@ type ChannelRouteStyle =
   | 'agnes-generations-json'
   /** 标准 OpenAI Images 语义：generations JSON / edits multipart / n>1 fan-out。 */
   | 'openai-images'
-  /** Grok 只接受一张编辑输入图；多张参考图先合成带序号标签的 contact sheet。 */
+  /**
+   * Grok 只接受一张编辑输入图；多张参考图先合成带序号标签的 contact sheet。
+   * moderation 上游不识别 → 不传（带上必 403，且报文伪装成内容被审核拦截）。
+   */
   | 'grok-openai-images'
 
 const CHANNEL_ROUTE_STYLES: Readonly<Record<string, ChannelRouteStyle | undefined>> = {
@@ -145,9 +148,10 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
   const { provider, model, signal: externalSignal, beforeRequest } = params
   const { baseUrl: base, key, style, forceB64Json } = resolveUpstream(provider, model)
   // Grok 回的 imgen.x.ai URL 对服务器出口 IP 一律 403（带 Bearer 也 403），归档取不到图。
-  const request = forceB64Json
+  const b64Request = forceB64Json
     ? { ...params.request, extra: { ...params.request.extra, response_format: 'b64_json' } }
     : params.request
+  const request = style === 'grok-openai-images' ? withoutModeration(b64Request) : b64Request
 
   const abort = new AbortController()
   let timedOut = false
@@ -375,6 +379,15 @@ function mergeOpenAIDataResults(results: UpstreamCallResult[]): UpstreamCallResu
 function withoutImageCount(request: HydratedSubmitRequest): HydratedSubmitRequest {
   const { n: _n, ...singleRequest } = request
   return singleRequest
+}
+
+/**
+ * Grok 网关对请求体里的 moderation 一律 403 `Request blocked by upstream content policy`，
+ * 与内容是否违规无关。旧任务重放时前端仍可能带上，所以剥离收在 worker 侧。
+ */
+function withoutModeration(request: HydratedSubmitRequest): HydratedSubmitRequest {
+  const { moderation: _moderation, ...rest } = request
+  return rest
 }
 
 /**

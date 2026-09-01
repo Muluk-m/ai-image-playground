@@ -18,12 +18,22 @@ export type ChannelKind = 'openai-queue' | 'gemini-queue'
  * 'n' = 上游认 OpenAI 风格的多图参数 n：声明后前端把多图合并为一条任务、一次 submit
  * 携带归一化后的 n（BFF quota 按 n 计张）；未声明时前端保持逐条 fan-out（n 条任务、
  * 每条 n=1）。是否走原生 n 只看此 membership，禁止按 provider / 模型名推断。
+ * 'moderation' = 上游认 OpenAI 的 moderation 参数。未声明的模型别显示「审核」chip：
+ * Grok 网关收到 moderation 直接 403（报文长得像内容被拦，实际只是不认这个字段）。
  * 数组里没有 = 不支持（UI 收起对应控件）。BYOK profile 无此信息，UI 不做限制。
  */
 // 单一事实来源 — BFF 的 channels.json 校验器直接读这条 tuple。之前 BFF 侧另抄了一份运行时
 // 白名单，加 'size' 时漏改那份 → initChannels 抛「invalid capability」退出、launchd 反复
 // 重启拉起服务，所以能力 token 只允许在这里增删，禁止再复制一份。
-export const CHANNEL_CAPABILITIES = ['generate', 'edit', 'mask', 'quality', 'size', 'n'] as const
+export const CHANNEL_CAPABILITIES = [
+  'generate',
+  'edit',
+  'mask',
+  'quality',
+  'size',
+  'n',
+  'moderation',
+] as const
 export type ChannelCapability = (typeof CHANNEL_CAPABILITIES)[number]
 
 export interface ChannelModel {
