@@ -7,6 +7,7 @@ import {
   EMPTY_PRIVATE_BFF_OVERLAY,
 } from '../../lib/private-overlay'
 import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
+import { abortableUpstreamFetch, waitFor } from '../helpers/upstreamStubs'
 
 process.env.UPSTREAM_BASE_URL = 'http://localhost:9999'
 process.env.UPSTREAM_API_KEY = 'test-key'
@@ -17,12 +18,13 @@ process.env.PORT = '0'
 
 // Dynamic imports keep environment setup ahead of modules that capture configuration.
 const { close: closeDb, db, schema } = await import('../../db/client')
-const { purgeOldTasks, recoverInterruptedTasks } = await import('../../db/maintenance')
+const { purgeOldTasks, recoverAbandonedTasks, recoverTasksByIds } = await import(
+  '../../db/maintenance'
+)
 const { TaskScheduler } = await import('../../workers/task-scheduler')
 const { setUpstreamFetchForTesting } = await import('../../lib/upstream')
 const { setObjectStoreForTesting } = await import('../../lib/objectStore')
 const { MAX_ATTEMPTS, RETRY_BACKOFF_MS } = await import('../../lib/retry')
-type TestFetch = NonNullable<Parameters<typeof setUpstreamFetchForTesting>[0]>
 let storage: InMemoryObjectStore
 
 beforeEach(() => {
@@ -36,14 +38,6 @@ afterEach(() => {
 afterAll(async () => {
   await closeDb()
 })
-
-async function waitFor(predicate: () => boolean | Promise<boolean>, timeoutMs = 1_000) {
-  const deadline = Date.now() + timeoutMs
-  while (!(await predicate())) {
-    if (Date.now() >= deadline) throw new Error('condition timed out')
-    await Bun.sleep(5)
-  }
-}
 
 async function insertTask(id: string, provider: 'openai-compat' | 'gemini', submittedAt: number) {
   await db.insert(schema.tasks).values({
@@ -120,13 +114,13 @@ describe('TaskScheduler', () => {
 
     resolveTask.get('openai-1')?.()
     resolveTask.get('gemini-1')?.()
-    await scheduler.waitForIdle()
+    await scheduler.waitForIdle(5_000)
 
     scheduler.start()
     await waitFor(() => started.includes('openai-2'))
     scheduler.stop()
     resolveTask.get('openai-2')?.()
-    await scheduler.waitForIdle()
+    await scheduler.waitForIdle(5_000)
   })
 
   it('gives up on waitForIdle once the drain window expires', async () => {
@@ -148,16 +142,7 @@ describe('TaskScheduler', () => {
 
   it('observes a database cancellation and aborts the active request', async () => {
     await insertTask('cancel-active', 'openai-compat', 1)
-    setUpstreamFetchForTesting(
-      mock(async (_input, init) => {
-        return new Promise((_resolve, reject) => {
-          const signal = init?.signal
-          const rejectAbort = () => reject(new DOMException('Aborted', 'AbortError'))
-          if (signal?.aborted) return rejectAbort()
-          signal?.addEventListener('abort', rejectAbort, { once: true })
-        })
-      }) as unknown as TestFetch,
-    )
+    setUpstreamFetchForTesting(abortableUpstreamFetch())
 
     const scheduler = new TaskScheduler({ pollIntervalMs: 10_000 })
     scheduler.start()
@@ -185,7 +170,7 @@ describe('TaskScheduler', () => {
   })
 })
 
-describe('recoverInterruptedTasks', () => {
+describe('recoverAbandonedTasks', () => {
   const now = 1_000_000
 
   beforeEach(async () => {
@@ -221,12 +206,7 @@ describe('recoverInterruptedTasks', () => {
     })
     await insertInProgress('abandoned', now - QUEUE_TIMEOUTS.STALE_IN_PROGRESS_MS - 1)
 
-    expect(
-      await recoverInterruptedTasks(
-        { startedBefore: now - QUEUE_TIMEOUTS.STALE_IN_PROGRESS_MS },
-        now,
-      ),
-    ).toEqual({ requeued: 1, failed: 0 })
+    expect(await recoverAbandonedTasks([], now)).toEqual({ requeued: 1, failed: 0 })
 
     const rows = await db
       .select({
@@ -258,12 +238,7 @@ describe('recoverInterruptedTasks', () => {
     await insertInProgress('recent', now - 1_000)
     await insertInProgress('owned', now - QUEUE_TIMEOUTS.STALE_IN_PROGRESS_MS - 1)
 
-    expect(
-      await recoverInterruptedTasks(
-        { startedBefore: now - QUEUE_TIMEOUTS.STALE_IN_PROGRESS_MS, excludeIds: ['owned'] },
-        now,
-      ),
-    ).toEqual({ requeued: 0, failed: 0 })
+    expect(await recoverAbandonedTasks(['owned'], now)).toEqual({ requeued: 0, failed: 0 })
 
     const rows = await db.select({ status: schema.tasks.status }).from(schema.tasks)
     expect(rows.every((row) => row.status === 'in_progress')).toBe(true)
@@ -272,12 +247,7 @@ describe('recoverInterruptedTasks', () => {
   it('fails a row whose retry budget is spent so billing reversal still runs', async () => {
     await insertInProgress('spent', now - QUEUE_TIMEOUTS.STALE_IN_PROGRESS_MS - 1, MAX_ATTEMPTS - 1)
 
-    expect(
-      await recoverInterruptedTasks(
-        { startedBefore: now - QUEUE_TIMEOUTS.STALE_IN_PROGRESS_MS },
-        now,
-      ),
-    ).toEqual({ requeued: 0, failed: 1 })
+    expect(await recoverAbandonedTasks([], now)).toEqual({ requeued: 0, failed: 1 })
 
     const [row] = await db
       .select({
@@ -297,11 +267,8 @@ describe('recoverInterruptedTasks', () => {
   it('recovers a named row regardless of age and ignores an empty id list', async () => {
     await insertInProgress('named', now - 1_000)
 
-    expect(await recoverInterruptedTasks({ ids: [] }, now)).toEqual({ requeued: 0, failed: 0 })
-    expect(await recoverInterruptedTasks({ ids: ['named'] }, now)).toEqual({
-      requeued: 1,
-      failed: 0,
-    })
+    expect(await recoverTasksByIds([], now)).toEqual({ requeued: 0, failed: 0 })
+    expect(await recoverTasksByIds(['named'], now)).toEqual({ requeued: 1, failed: 0 })
 
     const [row] = await db
       .select({ status: schema.tasks.status })

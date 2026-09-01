@@ -200,11 +200,12 @@ export const QUEUE_TIMEOUTS = {
   UPSTREAM_HARD_TIMEOUT_MS: 15 * 60 * 1000,
   /** SIGTERM 后等 inflight drain 的默认上限；worker 可用 WORKER_DRAIN_TIMEOUT_MS 覆盖。 */
   SHUTDOWN_DRAIN_TIMEOUT_MS: 55 * 1000,
-  /** drain 超时 abort 之后，再等各 runner 把重试状态落盘的窗口。 */
+  /** drain 超时 abort 之后，等各 runner 从 fetch 里退出来再统一回收的窗口。 */
   SHUTDOWN_ABORT_SETTLE_MS: 5 * 1000,
   /**
    * in_progress 超过这个时长即视为无主：任何还活着的 runner 都会先撞上自己的
    * UPSTREAM_HARD_TIMEOUT_MS 写终态，所以更老的行只可能是 SIGKILL 遗留。
+   * 前提是单 worker 进程；要跑多副本得改成 row lease（locked_by + heartbeat_at）。
    */
   STALE_IN_PROGRESS_MS: 16 * 60 * 1000,
   /** worker 扫描无主 in_progress 的间隔。 */

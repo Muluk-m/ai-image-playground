@@ -108,11 +108,7 @@ export const config = {
   },
   worker: {
     pollIntervalMs: workerPollIntervalMs,
-    /**
-     * SIGTERM 后让在途任务跑完的窗口。生图上游能跑 30-300s，调大能少一些重试；
-     * 但每次部署的停机时间同步变长，且必须连带调大进程管理器的 stop_grace_period
-     * （deploy/compose.app.yaml），否则先挨 SIGKILL，代码层 drain 无从谈起。
-     */
+    /** 调大要连带调大进程管理器的停机宽限（deploy/compose.app.yaml），否则先挨 SIGKILL。 */
     drainTimeoutMs: positiveIntEnv(
       'WORKER_DRAIN_TIMEOUT_MS',
       QUEUE_TIMEOUTS.SHUTDOWN_DRAIN_TIMEOUT_MS,
