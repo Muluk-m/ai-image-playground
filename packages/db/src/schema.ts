@@ -127,6 +127,14 @@ export const tasks = pgTable(
      * in the normalized error message without allowing unbounded responses into the task row.
      */
     upstream_body: text('upstream_body'),
+    /**
+     * Upstream async image task ids. A single task row owns several when the requested image
+     * count is fanned out. Non-null means the upstream work is already paid for: recovery must
+     * resume polling instead of resubmitting.
+     */
+    upstream_task_ids: bunJsonb('upstream_task_ids').$type<string[]>(),
+    /** Anchor for the polling deadline, so a restart cannot grant a fresh timeout budget. */
+    upstream_submitted_at: epochMs('upstream_submitted_at'),
     submitted_at: epochMs('submitted_at').notNull(),
     started_at: epochMs('started_at'),
     completed_at: epochMs('completed_at'),

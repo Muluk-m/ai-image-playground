@@ -49,6 +49,8 @@ interface UpstreamRoute {
   forceB64Json: boolean
   /** 模型声明了 moderation 能力；未声明的剥掉再发，别赌上游会忽略未知字段。 */
   supportsModeration: boolean
+  /** 上游提供 sub2api 风格的异步图片任务端点。 */
+  asyncTasks: boolean
 }
 
 /**
@@ -70,6 +72,7 @@ function resolveUpstream(provider: QueueProvider, model: string): UpstreamRoute 
       style,
       forceB64Json: provider === 'openai-compat' && channel.defaults.responseFormatB64Json === true,
       supportsModeration: declared.capabilities.includes('moderation'),
+      asyncTasks: provider === 'openai-compat' && channel.defaults.asyncTasks === true,
     }
   }
   const version = provider === 'gemini' ? 'v1beta' : 'v1'
@@ -80,6 +83,7 @@ function resolveUpstream(provider: QueueProvider, model: string): UpstreamRoute 
     forceB64Json: false,
     // 通用网关没有 capability 声明，按老行为原样透传。
     supportsModeration: true,
+    asyncTasks: provider === 'openai-compat' && config.upstream.asyncImageTasks,
   }
 }
 export interface UpstreamCallParams {
@@ -87,8 +91,18 @@ export interface UpstreamCallParams {
   model: string
   request: HydratedSubmitRequest
   signal?: AbortSignal
-  /** Runs immediately before each HTTP request is dispatched. */
+  /** Runs immediately before each upstream invocation is dispatched. Polling does not count. */
   beforeRequest?: () => Promise<void>
+  /** 异步提交拿到 id 后、开始轮询**之前**调用；必须在这一步之内把 id 持久化。 */
+  onUpstreamTaskIds?: (taskIds: readonly string[]) => Promise<void>
+  /** 本任务已提交过的上游异步任务：这些 id 只轮询，永不重提。 */
+  resume?: UpstreamResume
+}
+
+export interface UpstreamResume {
+  readonly taskIds: readonly string[]
+  /** 首次提交时刻，超时预算的锚点；重启不能重新发一份完整预算。 */
+  readonly submittedAt: number
 }
 
 export interface UpstreamCallResult {
@@ -148,13 +162,21 @@ export class UpstreamTimeoutError extends UpstreamResultUnknownError {
  * AbortController 决定；不再依赖 undocumented idleTimeout 或强制 Connection: close。
  */
 export async function callUpstream(params: UpstreamCallParams): Promise<UpstreamCallResult> {
-  const { provider, model, signal: externalSignal, beforeRequest } = params
+  const {
+    provider,
+    model,
+    signal: externalSignal,
+    beforeRequest,
+    onUpstreamTaskIds,
+    resume,
+  } = params
   const {
     baseUrl: base,
     key,
     style,
     forceB64Json,
     supportsModeration,
+    asyncTasks,
   } = resolveUpstream(provider, model)
   let request = params.request
   // Grok 回的 imgen.x.ai URL 对服务器出口 IP 一律 403（带 Bearer 也 403），归档取不到图。
@@ -165,10 +187,14 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
 
   const abort = new AbortController()
   let timedOut = false
-  const timer = setTimeout(() => {
-    timedOut = true
-    abort.abort()
-  }, QUEUE_TIMEOUTS.UPSTREAM_HARD_TIMEOUT_MS)
+  const deadlineAt = (resume?.submittedAt ?? Date.now()) + QUEUE_TIMEOUTS.UPSTREAM_HARD_TIMEOUT_MS
+  const timer = setTimeout(
+    () => {
+      timedOut = true
+      abort.abort()
+    },
+    Math.max(0, deadlineAt - Date.now()),
+  )
   const onExternalAbort = () => abort.abort()
   if (externalSignal?.aborted) abort.abort()
   else externalSignal?.addEventListener('abort', onExternalAbort)
@@ -179,10 +205,18 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
     dispatcher: upstreamDispatcher,
   })
 
-  const performFetch = async (url: string, init: UpstreamFetchInit): Promise<UpstreamResponse> => {
+  /**
+   * `counted` 区分「一次上游调用」与「一次轮询」：只有前者过记账回调。异步模式下
+   * 轮询次数与计费无关，混进去会让 upstream_invocation_count 失去意义。
+   */
+  const performFetch = async (
+    url: string,
+    init: UpstreamFetchInit,
+    counted = true,
+  ): Promise<UpstreamResponse> => {
     try {
       if (abort.signal.aborted) throw new DOMException('Upstream request aborted', 'AbortError')
-      await beforeRequest?.()
+      if (counted) await beforeRequest?.()
 
       // The accounting callback is the dispatch commit point. Start the transport with a fresh
       // signal before relaying cancellation so a cancellation that loses the database race cannot
@@ -224,9 +258,100 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
     }
   }
 
+  // 这个 try 里每个 return 都必须 `return await`：裸 return 一个 promise 会让下面的
+  // finally 立刻跑，在请求还在飞的时候摘掉 external abort 监听并清掉超时定时器 ——
+  // 取消与硬超时都会静默失效。
   try {
     if (provider === 'openai-compat') {
       const authHeader: Record<string, string> = key ? { authorization: `Bearer ${key}` } : {}
+      const resumeIds = resume?.taskIds ?? []
+      const useAsyncTasks = asyncTasks || resumeIds.length > 0
+
+      /**
+       * 补齐到 count 个上游任务：已有 id 原样带出，只为缺口发提交请求。上游没有幂等键，
+       * 重提已落库的 id 就是第二次计费，所以缺口是唯一可以提交的份额。
+       */
+      const collectTaskIds = async (
+        url: string,
+        count: number,
+        makeInit: () => UpstreamFetchInit,
+      ): Promise<string[]> => {
+        const missing = count - resumeIds.length
+        if (missing <= 0) return [...resumeIds]
+        const settled = await Promise.allSettled(
+          Array.from({ length: missing }, async () =>
+            extractAsyncTaskId((await parseResponse(await performFetch(url, makeInit()))).payload),
+          ),
+        )
+        const taskIds = [
+          ...resumeIds,
+          ...settled.flatMap((one) => (one.status === 'fulfilled' ? [one.value] : [])),
+        ]
+        // 先落库再抛：部分失败时成功那几个已经计费，丢了 id 就没人收。
+        if (taskIds.length > resumeIds.length) await onUpstreamTaskIds?.(taskIds)
+        const failure = settled.find((one) => one.status === 'rejected')
+        if (failure) {
+          warnIfAsyncTasksDisabled(failure.reason)
+          throw failure.reason
+        }
+        return taskIds
+      }
+
+      /** 硬超时会 abort 掉轮询的 sleep；不映射的话裸 AbortError 会被当成用户取消，行没有终态。 */
+      const pollDelay = async (attempt: number): Promise<void> => {
+        try {
+          await abortableSleep(asyncPollDelayMs(attempt), abort.signal)
+        } catch (err) {
+          if (timedOut) throw new UpstreamTimeoutError()
+          throw err
+        }
+      }
+
+      /** 轮询单个上游任务到终态。判定与提交侧方向相反：瞬时错误一律继续轮。 */
+      const pollAsyncTask = async (taskId: string): Promise<UpstreamCallResult> => {
+        const pollUrl = `${base}/images/tasks/${encodeURIComponent(taskId)}`
+        for (let attempt = 0; ; attempt++) {
+          if (Date.now() >= deadlineAt) throw new UpstreamTimeoutError()
+          let payload: unknown
+          try {
+            payload = (
+              await parseResponse(
+                await performFetch(pollUrl, { method: 'GET', headers: authHeader }, false),
+              )
+            ).payload
+          } catch (err) {
+            if (timedOut || externalSignal?.aborted || !isRecoverablePollFailure(err)) throw err
+            // 留 payload 为 undefined，下面按 pending 走同一条退避路径。
+          }
+          const state = readAsyncTaskState(payload)
+          if (state.kind === 'completed') return { payload: state.payload }
+          if (state.kind === 'failed') throw asyncTaskFailure(state.status, payload)
+          await pollDelay(attempt)
+        }
+      }
+
+      /**
+       * 一次逻辑调用 → count 个上游请求 → 合并。同步模式直接发；异步模式提交后转轮询。
+       * n 策略两个端点共用：n===1 直接透传，n>1 fan-out 成 count 次单图请求（每次不带 n）
+       * 再合并 data，对 task-runner / 前端透明。
+       */
+      const dispatch = async (
+        url: string,
+        count: number,
+        makeInit: () => UpstreamFetchInit,
+        merge: (results: UpstreamCallResult[]) => UpstreamCallResult,
+      ): Promise<UpstreamCallResult> => {
+        if (!useAsyncTasks) {
+          return fanOutRequests(
+            count,
+            async () => parseResponse(await performFetch(url, makeInit())),
+            merge,
+          )
+        }
+        const taskIds = await collectTaskIds(`${url}/async`, count, makeInit)
+        const results = await Promise.all(taskIds.map(pollAsyncTask))
+        return results.length === 1 ? results[0]! : merge(results)
+      }
 
       // Agnes 风格上游：没有 images/edits 端点，图生图与文生图
       // 共用 images/generations JSON，输入图放 extra_body.image（data URI / URL）。
@@ -241,83 +366,59 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
           err.upstreamStatus = 400
           throw err
         }
-        const url = `${base}/images/generations`
         const body = JSON.stringify(buildAgnesGenerationsBody(model, request))
         const headers = { 'content-type': 'application/json', ...authHeader }
-        return fanOutRequests(
-          request.n,
-          async () => {
-            const res = await performFetch(url, { method: 'POST', headers, body })
-            return parseResponse(res)
-          },
+        return await dispatch(
+          `${base}/images/generations`,
+          Math.max(1, request.n ?? 1),
+          () => ({ method: 'POST', headers, body }),
           mergeOpenAIDataResults,
         )
       }
 
       // 有参考图 / 有遮罩 → images/edits；generations 是纯文生图，
       // 塞 input_images 字段上游会忽略（用户感知"AI 不参考附件"）。
-      //
-      // 两个端点都同一套 n 策略：n===1 直接透传，n>1 时本层 fan-out 成 n 次并发
-      // 单图请求（每次不带 n，上游各回一张），再把各次的 data 合并成一个 payload，
-      // 对 task-runner / 前端透明。
       if (request.input_images?.length || request.mask) {
-        const url = `${base}/images/edits`
         // Grok edits 的多张参考图先合成 contact sheet，确保发给上游的 image 始终只有一张。
         const editRequest =
           style === 'grok-openai-images'
             ? await normalizeGrokEditInputs(request, abort.signal)
             : request
-        const performEdit = async (
-          singleRequest: HydratedSubmitRequest,
-        ): Promise<UpstreamCallResult> => {
-          // Grok edits 必须 application/json：改回 multipart 会被 sub2api 转换丢掉
-          // response_format，上游退回 URL 结果，归档取图一律 403。
-          const init: UpstreamFetchInit =
-            style === 'grok-openai-images'
-              ? {
-                  method: 'POST',
-                  headers: { 'content-type': 'application/json', ...authHeader },
-                  body: JSON.stringify(buildGrokEditBody(model, singleRequest)),
-                }
-              : {
-                  method: 'POST',
-                  headers: authHeader,
-                  body: buildOpenAIEditFormData(model, singleRequest),
-                }
-          const res = await performFetch(url, init)
-          return parseResponse(res)
-        }
-
         const n = Math.max(1, editRequest.n ?? 1)
-        if (n === 1) return performEdit(editRequest)
-
-        const singleRequest = withoutImageCount(editRequest)
-        const results = await Promise.all(
-          Array.from({ length: n }, () => performEdit(singleRequest)),
-        )
-        return mergeOpenAIImageResults(results)
+        const unitRequest = n === 1 ? editRequest : withoutImageCount(editRequest)
+        // Grok edits 必须 application/json：改回 multipart 会被 sub2api 转换丢掉
+        // response_format，上游退回 URL 结果，归档取图一律 403。
+        // FormData 会被请求消费掉，所以只有 JSON 体能在 fan-out 之间复用。
+        const grokBody =
+          style === 'grok-openai-images'
+            ? JSON.stringify(buildGrokEditBody(model, unitRequest))
+            : null
+        const makeInit = (): UpstreamFetchInit =>
+          grokBody !== null
+            ? {
+                method: 'POST',
+                headers: { 'content-type': 'application/json', ...authHeader },
+                body: grokBody,
+              }
+            : {
+                method: 'POST',
+                headers: authHeader,
+                body: buildOpenAIEditFormData(model, unitRequest),
+              }
+        return await dispatch(`${base}/images/edits`, n, makeInit, mergeOpenAIImageResults)
       }
 
-      const url = `${base}/images/generations`
       const headers = { 'content-type': 'application/json', ...authHeader }
       const n = Math.max(1, request.n ?? 1)
-      if (n === 1) {
-        const res = await performFetch(url, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify(buildOpenAIBody(model, request)),
-        })
-        return parseResponse(res)
-      }
-
-      const body = JSON.stringify(buildOpenAIBody(model, withoutImageCount(request)))
-      const results = await Promise.all(
-        Array.from({ length: n }, async () => {
-          const res = await performFetch(url, { method: 'POST', headers, body })
-          return parseResponse(res)
-        }),
+      const body = JSON.stringify(
+        buildOpenAIBody(model, n === 1 ? request : withoutImageCount(request)),
       )
-      return mergeOpenAIImageResults(results)
+      return await dispatch(
+        `${base}/images/generations`,
+        n,
+        () => ({ method: 'POST', headers, body }),
+        mergeOpenAIImageResults,
+      )
     }
 
     if (provider === 'gemini') {
@@ -331,7 +432,7 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
       // Gemini image generation 不支持 candidateCount>1（"Only one candidate is
       // supported for audio or image response"），n>1 时本层 fan-out 成 N 次并发
       // 请求并把 candidates 合并到一个 payload，对 task-runner / 前端透明。
-      return fanOutRequests(
+      return await fanOutRequests(
         request.n,
         async () => {
           const res = await performFetch(url, { method: 'POST', headers, body })
@@ -349,6 +450,91 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
     clearTimeout(timer)
     externalSignal?.removeEventListener('abort', onExternalAbort)
   }
+}
+
+/** 轮询退避（ms），index 超出取末位。上游 202 响应的 `Retry-After` 也是 3。 */
+const ASYNC_POLL_BACKOFF_MS: readonly number[] = [3_000, 3_000, 5_000, 5_000, 10_000]
+
+let asyncPollBackoffMs = ASYNC_POLL_BACKOFF_MS
+
+/** 测试注入点；undefined 恢复真实退避（否则一次重试就要真睡 3 秒）。 */
+export function setAsyncPollBackoffForTesting(backoffMs?: readonly number[]): void {
+  asyncPollBackoffMs = backoffMs ?? ASYNC_POLL_BACKOFF_MS
+}
+
+function asyncPollDelayMs(attempt: number): number {
+  return asyncPollBackoffMs[Math.min(attempt, asyncPollBackoffMs.length - 1)]!
+}
+
+function abortableSleep(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    signal.throwIfAborted()
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort)
+      resolve()
+    }, ms)
+    const onAbort = () => {
+      clearTimeout(timer)
+      reject(new DOMException('Upstream polling aborted', 'AbortError'))
+    }
+    signal.addEventListener('abort', onAbort, { once: true })
+  })
+}
+
+/**
+ * 轮询专用的可恢复判定，**与 retry.ts 的提交侧判定方向相反**，不要合并：提交没有幂等键，
+ * 重来一次就是重复计费；轮询只是再读一次同一个任务，代价为零。
+ */
+function isRecoverablePollFailure(err: unknown): boolean {
+  const { status } = extractUpstreamFailure(err)
+  if (status === null) return err instanceof UpstreamResultUnknownError
+  return status === 408 || status === 429 || status >= 500
+}
+
+function extractAsyncTaskId(payload: unknown): string {
+  const taskId = (payload as { task_id?: unknown } | null)?.task_id
+  if (typeof taskId === 'string' && taskId.length > 0) return taskId
+  // 任务可能已经建起来在烧钱，但我们拿不到 id 去轮询它 —— 按结果未知处理，绝不自动重提。
+  throw new UpstreamResultUnknownError('上游异步任务提交未返回 task_id，执行结果未知')
+}
+
+/** 上游把异步开关关掉时提交一律 404。单独一条 event，别混在通用 upstream 失败里。 */
+function warnIfAsyncTasksDisabled(err: unknown): void {
+  const { status, body } = extractUpstreamFailure(err)
+  if (status !== 404 || !body?.includes('async image tasks are not enabled')) return
+  log.error(
+    { event: 'upstream.async_disabled', upstreamStatus: status },
+    'upstream async image tasks are disabled; turn off the asyncTasks declaration on our side',
+  )
+}
+
+type AsyncTaskState =
+  | { kind: 'pending' }
+  | { kind: 'completed'; payload: unknown }
+  | { kind: 'failed'; status: number | null }
+
+/** 未知 status 一律当 pending 继续轮：上游加新中间态时不该把任务判死。 */
+function readAsyncTaskState(payload: unknown): AsyncTaskState {
+  if (!payload || typeof payload !== 'object') return { kind: 'pending' }
+  const body = payload as { status?: unknown; result?: unknown; http_status?: unknown }
+  if (body.status === 'completed') {
+    // 结果在 result 里；上游也可能直接把 OpenAI envelope 平铺在根级。
+    const result = body.result
+    return { kind: 'completed', payload: result && typeof result === 'object' ? result : payload }
+  }
+  if (body.status !== 'failed') return { kind: 'pending' }
+  return { kind: 'failed', status: typeof body.http_status === 'number' ? body.http_status : null }
+}
+
+/** 上游任务终态失败 → 复用 HTTP 失败的错误形状，retry.ts 与 admin 才认得出来。 */
+function asyncTaskFailure(status: number | null, payload: unknown): Error {
+  const err = new Error(extractErrorMessage(payload, status ?? 502)) as Error & {
+    upstreamStatus?: number
+    upstreamPayload: unknown
+  }
+  if (status !== null) err.upstreamStatus = status
+  err.upstreamPayload = payload
+  return err
 }
 
 async function fanOutRequests(

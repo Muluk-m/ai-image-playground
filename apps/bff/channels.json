@@ -86,7 +86,8 @@
       "defaults": {
         "apiMode": "images",
         "timeout": 600,
-        "responseFormatB64Json": true
+        "responseFormatB64Json": true,
+        "asyncTasks": true
       },
       "allowedPaths": ["images/generations", "images/edits"]
     }

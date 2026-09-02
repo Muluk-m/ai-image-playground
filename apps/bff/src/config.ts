@@ -16,6 +16,11 @@ const positiveIntEnv = (key: string, fallback: number): number => {
   }
   return value
 }
+const booleanEnv = (key: string, fallback: boolean): boolean => {
+  const value = env(key, String(fallback)).toLowerCase()
+  if (value !== 'true' && value !== 'false') throw new Error(`${key} must be true or false`)
+  return value === 'true'
+}
 const clientIpSource = env('CLIENT_IP_SOURCE', 'peer')
 if (
   clientIpSource !== 'peer' &&
@@ -71,6 +76,11 @@ export const config = {
     apiKey: env('UPSTREAM_API_KEY', ''),
     openaiApiKey: env('UPSTREAM_OPENAI_API_KEY', ''),
     geminiApiKey: env('UPSTREAM_GEMINI_API_KEY', ''),
+    /**
+     * 通用网关提供 sub2api 风格的异步图片任务端点。不能写进 channels.json：网关部署里
+     * 那些 channel 的 baseUrl 只是名义地址，网关是哪一家只有 env 知道（见 apps/bff/CLAUDE.md）。
+     */
+    asyncImageTasks: booleanEnv('UPSTREAM_ASYNC_IMAGE_TASKS', false),
   },
   databaseUrl: env('DATABASE_URL'),
   corsOrigins: env('CORS_ALLOWED_ORIGINS', '*'),
