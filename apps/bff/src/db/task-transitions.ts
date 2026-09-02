@@ -28,6 +28,31 @@ export async function requeueTask(
       result_payload: null,
       upstream_status: null,
       upstream_body: null,
+      // 必须清：下一次尝试是一个全新的上游任务，留着旧 id 会让它去轮一个已经终态的任务，
+      // 永远出不来。
+      upstream_task_ids: null,
+      upstream_submitted_at: null,
+    })
+    .where(stillRunning(id))
+    .returning({ id: schema.tasks.id })
+  return updated.length > 0
+}
+
+/**
+ * 把中断的异步任务退回 queued 以**继续轮询**：保留 upstream_task_ids 与 attempt_count。
+ * 上游任务还活着且已计费，这不是一次失败的尝试，不进重试预算。
+ */
+export async function requeueTaskForPolling(id: string): Promise<boolean> {
+  const updated = await db
+    .update(schema.tasks)
+    .set({
+      status: 'queued',
+      next_retry_at: null,
+      error_message: null,
+      error_type: null,
+      result_payload: null,
+      upstream_status: null,
+      upstream_body: null,
     })
     .where(stillRunning(id))
     .returning({ id: schema.tasks.id })
