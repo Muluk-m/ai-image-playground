@@ -64,6 +64,15 @@ trap on_exit EXIT
 update_private() {
   set --
   if [ -f "$private_token_file" ]; then
+    private_remote=$(git -C "$private_root" remote get-url origin)
+    case "$private_remote" in
+      https://github.com/*) ;;
+      *)
+        echo "Refusing to send the token in $private_token_file to $private_remote." >&2
+        echo "The overlay origin must be an https://github.com/ remote." >&2
+        exit 1
+        ;;
+    esac
     T=$(cat "$private_token_file")
     export T
     # The token must never become a command-line argument; git's helper shell expands $T.
@@ -112,6 +121,7 @@ stage "Build the images"
 for edition in $editions; do
   prefix=$(printf '%s' "$edition" | tr '[:lower:]' '[:upper:]')
   tag=$(edition_tag "$edition")
+  current_edition=$edition
   case "$edition" in
     internal) "$repo_root/scripts/app-compose.sh" build "$tag" ;;
     *) "$repo_root/scripts/app-compose.sh" build-private "$tag" ;;
@@ -119,6 +129,7 @@ for edition in $editions; do
   moving_alias=$(edition_var "$prefix" IMAGE)
   docker tag "$tag" "$moving_alias"
   echo "built $tag, aliased to $moving_alias"
+  current_edition=
 done
 
 for edition in $editions; do

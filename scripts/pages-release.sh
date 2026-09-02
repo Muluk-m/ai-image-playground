@@ -65,6 +65,13 @@ public_origin=$(need PUBLIC_ORIGIN)
 CLOUDFLARE_ACCOUNT_ID=$(need CLOUDFLARE_ACCOUNT_ID)
 token_file=$(edition_var "$prefix" CLOUDFLARE_TOKEN_FILE)
 public_origin=${public_origin%/}
+case "$public_origin" in
+  https://*) ;;
+  *)
+    echo "${prefix}_PUBLIC_ORIGIN must be an https:// origin, got $public_origin." >&2
+    exit 1
+    ;;
+esac
 
 BFF_ENABLED=true
 export BFF_ENABLED BFF_BASE_URL CLOUDFLARE_ACCOUNT_ID
