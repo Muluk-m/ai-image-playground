@@ -157,7 +157,10 @@ scripts/app-compose.sh up image-playground-paid
 `$XDG_CONFIG_HOME/ai-image-playground/infra.env` by default. Set `INFRA_ENV_FILE` to
 override it. `up` waits for PostgreSQL. `provision` idempotently creates one deployment
 database, its schema-owner migrator, its DML-only application role, and its Admin SELECT-only
-role. No Compose file publishes a PostgreSQL port; use `docker compose exec` to inspect it.
+role. Set `POSTGRES_EXTRA_SCHEMAS` when a deployment's migrations create schemas beyond `public`
+and `drizzle`, so the Admin role can read them and the daily `pg_dump` succeeds; provision names
+any schema it still cannot read before it exits. No Compose file publishes a PostgreSQL port; use
+`docker compose exec` to inspect it.
 
 Object storage is any S3-compatible service. Both deployment examples point at Cloudflare R2;
 `S3_KEY_PREFIX` confines a deployment to one prefix when its bucket is shared with other
