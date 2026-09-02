@@ -1,6 +1,8 @@
 import { createFileRoute, Outlet, redirect } from '@tanstack/react-router'
 
 import { AppSidebar } from '@/components/AppSidebar'
+import { NotFound } from '@/components/NotFound'
+import { Page } from '@/components/Page'
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar'
 import { adminSessionQueryOptions } from '@/lib/admin-session'
 
@@ -20,10 +22,9 @@ export const Route = createFileRoute('/_authed')({
   },
   component: AuthedLayout,
   notFoundComponent: () => (
-    <div className="flex min-h-[60vh] flex-col items-center justify-center">
-      <h2 className="text-lg font-semibold">页面不存在</h2>
-      <p className="mt-1 text-sm text-muted-foreground">该功能未开启或链接已失效</p>
-    </div>
+    <Page crumbs={[{ label: '页面不存在' }]}>
+      <NotFound hint="该功能未开启或链接已失效" />
+    </Page>
   ),
 })
 

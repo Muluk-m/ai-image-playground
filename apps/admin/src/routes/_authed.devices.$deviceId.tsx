@@ -1,14 +1,16 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
+import { useMemo } from 'react'
 
 import { DeviceMetaCard } from '@/components/DeviceMetaCard'
 import { LightboxDialog } from '@/components/LightboxDialog'
-import { ErrorState, Page, PendingState } from '@/components/Page'
+import { EmptyState, ErrorState, Page, PendingState } from '@/components/Page'
 import { RangeToggle } from '@/components/RangeToggle'
 import { TaskDetailSheet } from '@/components/TaskDetailSheet'
 import { TaskTable } from '@/components/TaskTable'
 import { shortId } from '@/lib/format'
 import { useDeviceDetail } from '@/lib/queries'
-import { DEFAULT_RANGE, parseDeviceDetailSearch, type Range } from '@/lib/search-params'
+import { clearTaskView, parseDeviceDetailSearch } from '@/lib/search-params'
+import { useRangeSearch } from '@/lib/useRangeSearch'
 
 export const Route = createFileRoute('/_authed/devices/$deviceId')({
   validateSearch: parseDeviceDetailSearch,
@@ -18,30 +20,20 @@ export const Route = createFileRoute('/_authed/devices/$deviceId')({
 function DeviceDetailPage() {
   const { deviceId } = Route.useParams()
   const search = Route.useSearch()
-  const range = search.range ?? DEFAULT_RANGE
   const navigate = useNavigate()
+  const [range, setRange] = useRangeSearch()
   const q = useDeviceDetail(deviceId, range)
   // useInfiniteQuery：设备聚合卡片只在首页返回；任务跨页累积。
   const pages = q.data?.pages ?? []
   const device = pages[0]?.device ?? null
-  const tasks = pages.flatMap((p) => p.tasks)
-
-  function setRange(next: Range): void {
-    void navigate({
-      to: '.',
-      search: (previous) => ({ ...previous, range: next }),
-      replace: true,
-    })
-  }
+  const tasks = useMemo(() => pages.flatMap((page) => page.tasks), [pages])
+  const runningCount = useMemo(
+    () => tasks.filter((task) => task.status === 'in_progress' || task.status === 'queued').length,
+    [tasks],
+  )
 
   function closeTask(): void {
-    void navigate({
-      to: '.',
-      search: (prev) => {
-        const { task: _task, fullscreen: _fs, imgIdx: _i, imgKind: _k, ...rest } = prev ?? {}
-        return rest
-      },
-    })
+    void navigate({ to: '.', search: clearTaskView })
   }
 
   return (
@@ -56,18 +48,10 @@ function DeviceDetailPage() {
         ) : q.isError ? (
           <ErrorState label="加载失败" error={q.error} />
         ) : !device ? (
-          <div className="rounded-lg border bg-card p-12 text-center text-sm text-muted-foreground">
-            未找到设备 {deviceId}
-          </div>
+          <EmptyState label={`未找到设备 ${deviceId}`} />
         ) : (
           <>
-            <DeviceMetaCard
-              device={device}
-              range={range}
-              runningCount={
-                tasks.filter((t) => t.status === 'in_progress' || t.status === 'queued').length
-              }
-            />
+            <DeviceMetaCard device={device} range={range} runningCount={runningCount} />
             <div className="flex flex-wrap items-center justify-between gap-3">
               <h2 className="text-sm font-semibold">
                 任务

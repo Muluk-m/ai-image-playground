@@ -1,3 +1,5 @@
+import type { VolumeBucketUnit } from './types'
+
 /** 8 字短码（取首 8 char），如 'aa11-22bb' → 'aa11-22b' */
 export function shortId(id: string, len = 8): string {
   return id.length <= len ? id : id.slice(0, len)
@@ -34,6 +36,18 @@ export function duration(startedAt: number | null, completedAt: number | null): 
   const m = Math.floor(s / 60)
   const rs = s % 60
   return rs === 0 ? `${m}m` : `${m}m ${rs}s`
+}
+
+function pad(value: number): string {
+  return String(value).padStart(2, '0')
+}
+
+/** 图表时间轴刻度：按小时聚合走 HH:00，按天聚合走 MM-DD */
+export function volumeTick(ts: number, unit: VolumeBucketUnit): string {
+  const date = new Date(ts)
+  return unit === 'hour'
+    ? `${pad(date.getHours())}:00`
+    : `${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
 }
 
 /** copy to clipboard with a small fallback for non-secure contexts */

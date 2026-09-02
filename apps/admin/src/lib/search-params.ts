@@ -5,14 +5,25 @@ import {
   DEFAULT_SORT,
   parseRange,
   parseSort,
+  RANGE_LABEL,
   RANGES,
   type Range,
+  SORT_LABEL,
   SORTS,
   type SortKey,
 } from '../../contracts'
 
 export type { Range, SortKey }
-export { DEFAULT_RANGE, DEFAULT_SORT, parseRange, parseSort, RANGES, SORTS }
+export {
+  DEFAULT_RANGE,
+  DEFAULT_SORT,
+  parseRange,
+  parseSort,
+  RANGE_LABEL,
+  RANGES,
+  SORT_LABEL,
+  SORTS,
+}
 
 export function parseTaskId(v: unknown): string | undefined {
   if (typeof v !== 'string') return undefined
@@ -103,7 +114,6 @@ export function parseDeviceDetailSearch(input: Record<string, unknown>): DeviceD
   return out
 }
 
-/** 用户详情按全量历史展示，不接受时间窗。 */
 export interface UserDetailSearch extends TaskViewSearch {
   status?: string
 }
@@ -115,4 +125,18 @@ export function parseUserDetailSearch(input: Record<string, unknown>): UserDetai
     if (status) out.status = status
   }
   return out
+}
+
+/** 关抽屉 / lightbox：把这四个字段从 search 里摘掉，其余原样保留。 */
+export function clearTaskView<T extends TaskViewSearch>(
+  previous: T | undefined,
+): Omit<T, keyof TaskViewSearch> {
+  const {
+    task: _task,
+    fullscreen: _fullscreen,
+    imgIdx: _index,
+    imgKind: _kind,
+    ...rest
+  } = previous ?? ({} as T)
+  return rest
 }

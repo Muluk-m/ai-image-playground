@@ -2,15 +2,12 @@ import '@testing-library/jest-dom/vitest'
 import { cleanup } from '@testing-library/react'
 import { afterEach } from 'vitest'
 
-// jsdom 不实现 scrollIntoView，滚动到当前项的组件在测试环境会直接抛错
+// jsdom 缺的浏览器 API：缺一个组件就抛一个，全部补成静默的空实现。
 if (!Element.prototype.scrollIntoView) {
   Element.prototype.scrollIntoView = () => {}
 }
-
-// jsdom 没有 scrollTo，router 的滚动恢复每次导航都会往 stderr 抛 not-implemented
+// scrollTo 例外：jsdom 定义了它但调用即抛 not-implemented，所以要无条件覆盖。
 window.scrollTo = () => {}
-
-// jsdom 没有 matchMedia / ResizeObserver：sidebar 的断点判断与 recharts 的容器测量都要用
 if (!window.matchMedia) {
   window.matchMedia = ((query: string) => ({
     matches: false,

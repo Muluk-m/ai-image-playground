@@ -1,6 +1,7 @@
 import { Link } from '@tanstack/react-router'
 import { ChevronRight } from 'lucide-react'
 
+import { EmptyState } from '@/components/Page'
 import { Badge } from '@/components/ui/badge'
 import { privateUserSummaryColumnTitle, usePrivateAdminUserSummaries } from '@/lib/private-overlay'
 import type { AdminUserRow } from '@/lib/types'
@@ -14,13 +15,7 @@ export function UserTable({ users }: { users: AdminUserRow[] }) {
   const gridColumns = privateAdminOverlayEnabled
     ? 'grid-cols-[minmax(220px,1.4fr)_110px_120px_140px_180px_36px]'
     : 'grid-cols-[minmax(220px,1.4fr)_110px_120px_140px_36px]'
-  if (!users.length) {
-    return (
-      <div className="rounded-lg border border-dashed bg-card/40 p-12 text-center text-sm text-muted-foreground">
-        没有匹配的用户
-      </div>
-    )
-  }
+  if (!users.length) return <EmptyState label="没有匹配的用户" />
 
   return (
     <div className="overflow-hidden rounded-xl border bg-card/70 shadow-sm">

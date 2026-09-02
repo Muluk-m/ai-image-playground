@@ -1,15 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { notFound } from '@tanstack/react-router'
-import { Settings } from 'lucide-react'
 import type { ComponentType } from 'react'
-import {
-  SidebarGroup,
-  SidebarGroupContent,
-  SidebarGroupLabel,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
-} from '@/components/ui/sidebar'
 import { apiClient } from './api-client'
 
 export interface PrivateAdminUserSummary {
@@ -110,28 +101,12 @@ export async function requirePrivateAdminRoute(path: string): Promise<void> {
   }
 }
 
-export function PrivateAdminNavigation() {
+const NO_NAVIGATION: ReadonlyArray<{ label: string; href: string }> = Object.freeze([])
+
+export function usePrivateAdminNavigation(): ReadonlyArray<{ label: string; href: string }> {
   const query = useAdminExtensionManifest()
-  if (!overlay.present || !query.data?.navigation.length) return null
-  return (
-    <SidebarGroup>
-      <SidebarGroupLabel>配置</SidebarGroupLabel>
-      <SidebarGroupContent>
-        <SidebarMenu>
-          {query.data.navigation.map((entry) => (
-            <SidebarMenuItem key={entry.href}>
-              <SidebarMenuButton asChild tooltip={entry.label}>
-                <a href={entry.href}>
-                  <Settings />
-                  <span>{entry.label}</span>
-                </a>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          ))}
-        </SidebarMenu>
-      </SidebarGroupContent>
-    </SidebarGroup>
-  )
+  if (!overlay.present) return NO_NAVIGATION
+  return query.data?.navigation ?? NO_NAVIGATION
 }
 
 export function PrivateAdminOverviewPanel() {

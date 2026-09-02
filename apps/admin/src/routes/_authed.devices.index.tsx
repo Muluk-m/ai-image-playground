@@ -12,42 +12,36 @@ import {
 } from '@/components/ui/select'
 import { useDevices } from '@/lib/queries'
 import {
-  DEFAULT_RANGE,
   DEFAULT_SORT,
   parseDevicesSearch,
-  type Range,
+  SORT_LABEL,
   SORTS,
   type SortKey,
 } from '@/lib/search-params'
+import { useRangeSearch } from '@/lib/useRangeSearch'
 
 export const Route = createFileRoute('/_authed/devices/')({
   validateSearch: parseDevicesSearch,
   component: DevicesIndex,
 })
 
-const SORT_LABEL: Record<SortKey, string> = {
-  last_seen: '最近活跃',
-  today_count: '今日任务',
-  total_count: '范围总数',
-}
-
 function DevicesIndex() {
   const search = Route.useSearch()
   const navigate = useNavigate()
-  const range = search.range ?? DEFAULT_RANGE
+  const [range, setRange] = useRangeSearch()
   const sort = search.sort ?? DEFAULT_SORT
   const q = useDevices(range, sort)
 
-  function update(next: { range?: Range; sort?: SortKey }): void {
+  function setSort(next: SortKey): void {
     void navigate({
       to: '.',
-      search: (previous) => ({ ...previous, ...next }),
+      search: (previous) => ({ ...previous, sort: next }),
       replace: true,
     })
   }
 
   return (
-    <Page crumbs={[{ label: '设备' }]} title="设备" description="按设备聚合的任务活动">
+    <Page crumbs={[{ label: '设备' }]} description="按设备聚合的任务活动">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-xs text-muted-foreground">
           {q.isSuccess
@@ -55,7 +49,7 @@ function DevicesIndex() {
             : null}
         </p>
         <div className="flex items-center gap-2">
-          <Select value={sort} onValueChange={(next) => update({ sort: next as SortKey })}>
+          <Select value={sort} onValueChange={(next) => setSort(next as SortKey)}>
             <SelectTrigger className="h-8 w-[132px] text-xs" aria-label="排序">
               <SelectValue />
             </SelectTrigger>
@@ -67,7 +61,7 @@ function DevicesIndex() {
               ))}
             </SelectContent>
           </Select>
-          <RangeToggle value={range} onChange={(next) => update({ range: next })} />
+          <RangeToggle value={range} onChange={setRange} />
         </div>
       </div>
 

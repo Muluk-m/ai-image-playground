@@ -1,9 +1,9 @@
-import { createFileRoute, useNavigate } from '@tanstack/react-router'
+import { createFileRoute } from '@tanstack/react-router'
 
 import { Kpi } from '@/components/Kpi'
-import { ErrorState, Page, PendingState } from '@/components/Page'
-import { RANGE_LABEL, RangeToggle } from '@/components/RangeToggle'
-import { TaskVolumeChart } from '@/components/TaskVolumeChart'
+import { LazyTaskVolumeChart } from '@/components/LazyTaskVolumeChart'
+import { EmptyState, ErrorState, Page, PendingState } from '@/components/Page'
+import { RangeToggle } from '@/components/RangeToggle'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   Table,
@@ -15,8 +15,9 @@ import {
 } from '@/components/ui/table'
 import { PrivateAdminOverviewPanel } from '@/lib/private-overlay'
 import { useOverview } from '@/lib/queries'
-import { DEFAULT_RANGE, parseOverviewSearch, type Range } from '@/lib/search-params'
+import { parseOverviewSearch, RANGE_LABEL, type Range } from '@/lib/search-params'
 import type { OverviewResult } from '@/lib/types'
+import { useRangeSearch } from '@/lib/useRangeSearch'
 
 export const Route = createFileRoute('/_authed/overview')({
   validateSearch: parseOverviewSearch,
@@ -29,23 +30,12 @@ function formatDuration(value: number | null): string {
 }
 
 function OverviewPage() {
-  const search = Route.useSearch()
-  const navigate = useNavigate()
-  const range = search.range ?? DEFAULT_RANGE
+  const [range, setRange] = useRangeSearch()
   const query = useOverview(range)
-
-  function setRange(next: Range): void {
-    void navigate({
-      to: '.',
-      search: (previous) => ({ ...previous, range: next }),
-      replace: true,
-    })
-  }
 
   return (
     <Page
       crumbs={[{ label: '概览' }]}
-      title="概览"
       description="运行状态与任务趋势"
       actions={
         <span className="inline-flex items-center gap-2 rounded-full border bg-card px-3 py-1 text-xs text-muted-foreground">
@@ -74,18 +64,14 @@ function OverviewContent({
   range: Range
   onRangeChange: (next: Range) => void
 }) {
-  const { summary, volume, failures, models } = data
+  const { summary, volume, volume_bucket, failures, models } = data
   const successPercent = Math.round(summary.success_rate * 1000) / 10
   const multiplier = summary.total === 0 ? null : summary.upstream_invocations / summary.total
 
   return (
     <>
       <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-5" aria-label="关键指标">
-        <Kpi
-          label={`任务总量 · ${RANGE_LABEL[range]}`}
-          value={String(summary.total)}
-          note={`${volume.length} 个时间桶`}
-        />
+        <Kpi label={`任务总量 · ${RANGE_LABEL[range]}`} value={String(summary.total)} />
         <Kpi
           label="上游调用"
           value={String(summary.upstream_invocations)}
@@ -116,7 +102,7 @@ function OverviewContent({
           <RangeToggle value={range} onChange={onRangeChange} />
         </CardHeader>
         <CardContent className="p-4 pt-0">
-          <TaskVolumeChart buckets={volume} label="系统任务量" />
+          <LazyTaskVolumeChart buckets={volume} bucketUnit={volume_bucket} label="系统任务量" />
         </CardContent>
       </Card>
 
@@ -158,7 +144,9 @@ function OverviewContent({
                 </TableBody>
               </Table>
             ) : (
-              <p className="p-10 text-center text-sm text-muted-foreground">当前范围内无任务</p>
+              <div className="p-4">
+                <EmptyState label="当前范围内无任务" />
+              </div>
             )}
           </CardContent>
         </Card>

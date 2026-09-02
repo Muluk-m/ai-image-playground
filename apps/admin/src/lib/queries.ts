@@ -10,10 +10,8 @@ import type {
   SortKey,
   TaskDetail,
   UserDetailResult,
+  UserTasksResult,
 } from './types'
-
-/** 手动刷新要 invalidate 的 query key 根；新增数据 hook 时同步补进来。 */
-export const DATA_QUERY_KEYS = ['devices', 'device', 'task', 'users', 'user', 'overview'] as const
 
 export function useDevices(range: Range, sort: SortKey) {
   return useQuery({
@@ -56,12 +54,21 @@ export function useUsers(search: string) {
   })
 }
 
-export function useUserDetail(userId: string, status: string) {
+// 档案（聚合 + 趋势）与任务列表分开取：切状态页签只重拉任务，不重算聚合与 30 天趋势。
+export function useUserDetail(userId: string) {
+  return useQuery({
+    queryKey: ['user', userId],
+    queryFn: () => apiClient.get<UserDetailResult>(`/api/users/${encodeURIComponent(userId)}`),
+    enabled: userId.length > 0,
+  })
+}
+
+export function useUserTasks(userId: string, status: string) {
   return useInfiniteQuery({
-    queryKey: ['user', userId, { status }],
+    queryKey: ['user', userId, 'tasks', { status }],
     queryFn: ({ pageParam }) =>
-      apiClient.get<UserDetailResult>(
-        `/api/users/${encodeURIComponent(userId)}?status=${status}${
+      apiClient.get<UserTasksResult>(
+        `/api/users/${encodeURIComponent(userId)}/tasks?status=${status}${
           pageParam ? `&cursor=${encodeURIComponent(pageParam)}` : ''
         }`,
       ),
