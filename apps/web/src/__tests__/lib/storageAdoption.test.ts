@@ -1,4 +1,4 @@
-import { IDBFactory } from 'fake-indexeddb'
+import { IDBFactory, IDBObjectStore } from 'fake-indexeddb'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { STORE_PERSIST_KEY } from '../../lib/authScope'
 import { BASE_DB_NAME, DB_STORE_NAMES, type DbStoreName, openNamedDb } from '../../lib/db'
@@ -69,6 +69,33 @@ async function readAll(name: string, store: DbStoreName): Promise<Array<Record<s
 
 async function databaseNames(): Promise<string[]> {
   return (await indexedDB.databases()).map((database) => database.name ?? '')
+}
+
+/**
+ * 让每次 add 以指定错误失败。真库只会异步抛 ConstraintError 与 QuotaExceededError，
+ * 后者没法在 fake-indexeddb 里触发，所以照规范手工模拟：错误没被 preventDefault
+ * 就中止事务。借一个真请求把事务撑到 handler 跑完。
+ */
+function failEveryAddWith(name: string): void {
+  vi.spyOn(IDBObjectStore.prototype, 'add').mockImplementation(function (this: IDBObjectStore) {
+    const request = { onsuccess: null, onerror: null, error: new DOMException(name, name) } as {
+      onsuccess: (() => void) | null
+      onerror: ((event: Event) => void) | null
+      error: DOMException
+    }
+    const alive = this.getAllKeys()
+    alive.onsuccess = () => {
+      let prevented = false
+      request.onerror?.({
+        preventDefault: () => {
+          prevented = true
+        },
+        stopPropagation: () => {},
+      } as Event)
+      if (!prevented) this.transaction.abort()
+    }
+    return request as unknown as IDBRequest<IDBValidKey>
+  })
 }
 
 /** 每个用例重新加载模块：认领按启动一次做记忆化，scope 也是模块级状态。 */
@@ -191,6 +218,31 @@ describe('adopting anonymous storage after login', () => {
   it('never creates an empty database when there is nothing to adopt', async () => {
     expect(await adopt(USER_ID)).toBe(0)
     expect(await databaseNames()).not.toContain(BASE_DB_NAME)
+  })
+
+  it('keeps the anonymous data when a write fails for anything but a duplicate', async () => {
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+    await seed(BASE_DB_NAME, { tasks: [{ id: 't1' }] })
+    storage.set(STORE_PERSIST_KEY, '{"settings":"anonymous"}')
+    failEveryAddWith('QuotaExceededError')
+
+    expect(await adopt(USER_ID)).toBe(0)
+
+    expect(await databaseNames()).toContain(BASE_DB_NAME)
+    expect(await readAll(BASE_DB_NAME, 'tasks')).toHaveLength(1)
+    expect(storage.get(STORE_PERSIST_KEY)).toBe('{"settings":"anonymous"}')
+    expect(storage.has(ADOPTION_DONE_KEY)).toBe(false)
+    expect(logged).toHaveBeenCalled()
+  })
+
+  it('rides through a duplicate that another tab wrote first', async () => {
+    await seed(BASE_DB_NAME, { tasks: [{ id: 't1' }] })
+    failEveryAddWith('ConstraintError')
+
+    expect(await adopt(USER_ID)).toBe(0)
+
+    expect(await databaseNames()).not.toContain(BASE_DB_NAME)
+    expect(storage.get(ADOPTION_DONE_KEY)).toBe('1')
   })
 
   it('keeps the anonymous data when the copy fails', async () => {

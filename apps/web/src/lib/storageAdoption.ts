@@ -122,8 +122,10 @@ function addRecords(db: IDBDatabase, storeName: string, records: unknown[]): Pro
       request.onsuccess = () => {
         written += 1
       }
-      // 目标已有同 id：跳过而不是让整个事务连带回滚。
       request.onerror = (event) => {
+        // 目标已有同 id：跳过而不是让整个事务连带回滚。其余错误（配额耗尽等）
+        // 必须放行去中止事务，否则会漏记录提交，随后源库就被删了。
+        if (request.error?.name !== 'ConstraintError') return
         event.preventDefault()
         event.stopPropagation()
       }
