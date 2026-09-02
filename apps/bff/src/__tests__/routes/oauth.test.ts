@@ -178,7 +178,7 @@ describe('oauth start', () => {
     expect(location.searchParams.get('scope')).toBe('openid email profile')
 
     const cookie = readCookie(response, 'image_playground_oauth_state')
-    expect(cookie).toBe(`google:${location.searchParams.get('state')}`)
+    expect(cookie).toBe(`google:login:${location.searchParams.get('state')}`)
   })
 })
 
@@ -193,8 +193,8 @@ describe('oauth callback', () => {
 
     expect((await callback('google', { code: 'c', state })).status).toBe(403)
     expect((await callback('google', { code: 'c', state: 'forged' }, cookie)).status).toBe(403)
-    // The cookie carries `<provider>:<state>`; a bare state must not authorize the callback,
-    // or a state issued for one provider could be replayed against another.
+    // The cookie carries `<provider>:<mode>:<state>`; a bare state must not authorize the
+    // callback, or a state issued for one provider could be replayed against another.
     expect((await callback('google', { code: 'c', state }, state)).status).toBe(403)
   })
 
