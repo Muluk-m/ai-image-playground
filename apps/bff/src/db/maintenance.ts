@@ -41,13 +41,8 @@ export function recoverAbandonedTasks(
 }
 
 /**
- * 回收中断的 in_progress，按有没有上游异步 task id 分两条路：
- *
- * - **有 id**：上游任务还在跑、已经计费，回队接着轮询即可 —— 不重提交、不 attempt+1。
- *   轮询阶段自己按首次提交时刻判超时，所以不会无限回队。
- * - **无 id**：只能按 task-runner 同一套重试预算重跑（attempt+1），预算用尽才落 failed。
- *   明知重试可能重复消耗上游配额也要做——卡在 in_progress 的行没有任何东西会回收它，
- *   预扣的额度会永久悬挂。
+ * 回收中断的 in_progress。有上游 task id 的回队接着轮（不 attempt+1，轮询阶段自己按
+ * 首次提交时刻判超时，不会无限回队）；没有的只能按重试预算重跑，预算用尽才落 failed。
  */
 async function recoverTasks(scope: SQL, now: number): Promise<RecoveredTasks> {
   const candidates = await db
