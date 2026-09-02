@@ -83,6 +83,14 @@ _Avoid_: 管理员、admin 用户、超级用户
 定义每月积分和 1 / 3 / 12 个月价格。生效订阅记录起止时间与下一次月度发放时间；月度发放
 由读路径惰性核对和后台维护扫描共同保证幂等。
 
+## 素材库（library）
+
+**素材（asset）**：
+给一张已存图片起的名字，记录 `{ id, name, imageId, createdAt, lastUsedAt }`，存在主 IndexedDB 的
+`assets` 表里，跟随 scope 隔离与匿名库领养。图片本体与缩略图仍归 image store，同一个 `imageId`
+可以有多条素材记录，删素材不动图片。
+_Avoid_: 图库、收藏夹、素材图
+
 ## 测试
 
 - `apps/web` 有 jsdom 环境（按文件 `@vitest-environment jsdom` 启用），组件级冒烟测试的入口；Overlay 是首个有 DOM 锚点的模块。
