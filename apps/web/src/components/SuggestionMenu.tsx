@@ -63,10 +63,7 @@ export default function SuggestionMenu<T>({
   )
 }
 
-/**
- * 弹层的高亮与开合状态机。`handleKeyDown` 返回是否已消费按键，未消费的按键
- * （含 Shift+Enter）必须继续走调用方原本的输入框逻辑。
- */
+/** `handleKeyDown` 返回是否已消费按键；未消费的（含 Shift+Enter）仍要走调用方自己的输入框逻辑。 */
 export function useSuggestionMenu<T>({
   options,
   onSelect,

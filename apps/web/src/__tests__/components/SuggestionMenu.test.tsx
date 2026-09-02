@@ -127,7 +127,7 @@ describe('SuggestionMenu', () => {
     expect(optionButtons()).toHaveLength(0)
   })
 
-  it('leaves Shift+Enter to the editor and closes on Escape', () => {
+  it('leaves Shift+Enter to the editor and hands Escape back to the caller', () => {
     const onSelect = vi.fn()
     const onClose = vi.fn()
     act(() => root.render(<Harness onSelect={onSelect} onClose={onClose} />))
