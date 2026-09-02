@@ -19,6 +19,7 @@ export const EXPECTED_INDEXES = [
   'idx_tasks_status',
   'idx_tasks_submitted_at',
   'idx_tasks_user_client_request_id',
+  'idx_tasks_user_status_time',
   'idx_tasks_user_time',
   'idx_user_identities_provider_subject',
   'idx_user_identities_user_id',
@@ -32,7 +33,7 @@ export const EXPECTED_INDEXES = [
   'users_pkey',
 ] as const
 
-const EXPECTED_MIGRATION_COUNT = 7
+const EXPECTED_MIGRATION_COUNT = 8
 
 export interface SchemaVerificationResult {
   tables: number
