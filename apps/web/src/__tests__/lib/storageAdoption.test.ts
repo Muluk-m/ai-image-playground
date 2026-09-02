@@ -1,19 +1,17 @@
 import { IDBFactory } from 'fake-indexeddb'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { STORE_PERSIST_KEY } from '../../lib/authScope'
+import { BASE_DB_NAME, DB_STORE_NAMES, type DbStoreName, openNamedDb } from '../../lib/db'
 
-const ANONYMOUS_DB = 'image-playground'
 const USER_ID = 'u1'
-const USER_DB = `${ANONYMOUS_DB}:user-${USER_ID}`
-const PERSIST_KEY = 'image-playground'
-const SCOPED_PERSIST_KEY = `${PERSIST_KEY}:user-${USER_ID}`
+const USER_DB = `${BASE_DB_NAME}:user-${USER_ID}`
+const SCOPED_PERSIST_KEY = `${STORE_PERSIST_KEY}:user-${USER_ID}`
+const ADOPTION_DONE_KEY = `${BASE_DB_NAME}:adopted`
 
-const STORES = ['tasks', 'images', 'thumbnails'] as const
-type StoreName = (typeof STORES)[number]
-type Seed = Partial<Record<StoreName, Array<Record<string, unknown>>>>
+type Seed = Partial<Record<DbStoreName, Array<Record<string, unknown>>>>
 
-function installLocalStorage(): Map<string, string> {
-  const values = new Map<string, string>()
-  globalThis.localStorage = {
+function makeLocalStorage(values: Map<string, string>): Storage {
+  return {
     get length() {
       return values.size
     },
@@ -27,16 +25,17 @@ function installLocalStorage(): Map<string, string> {
       values.set(key, value)
     },
   }
-  return values
 }
 
-function openRaw(name: string, version = 2): Promise<IDBDatabase> {
+/** 只给「目标库停在更高版本」那一个用例用，其余走 db.ts 的真实 open。 */
+function openAtVersion(name: string, version: number): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(name, version)
     request.onupgradeneeded = () => {
-      const db = request.result
-      for (const store of STORES) {
-        if (!db.objectStoreNames.contains(store)) db.createObjectStore(store, { keyPath: 'id' })
+      for (const store of DB_STORE_NAMES) {
+        if (!request.result.objectStoreNames.contains(store)) {
+          request.result.createObjectStore(store, { keyPath: 'id' })
+        }
       }
     }
     request.onsuccess = () => resolve(request.result)
@@ -44,11 +43,11 @@ function openRaw(name: string, version = 2): Promise<IDBDatabase> {
   })
 }
 
-async function seed(name: string, records: Seed, version = 2): Promise<void> {
-  const db = await openRaw(name, version)
+async function seed(name: string, records: Seed, version?: number): Promise<void> {
+  const db = version === undefined ? await openNamedDb(name) : await openAtVersion(name, version)
   await new Promise<void>((resolve, reject) => {
-    const tx = db.transaction([...STORES], 'readwrite')
-    for (const store of STORES) {
+    const tx = db.transaction([...DB_STORE_NAMES], 'readwrite')
+    for (const store of DB_STORE_NAMES) {
       for (const record of records[store] ?? []) tx.objectStore(store).put(record)
     }
     tx.oncomplete = () => resolve()
@@ -57,8 +56,8 @@ async function seed(name: string, records: Seed, version = 2): Promise<void> {
   db.close()
 }
 
-async function readAll(name: string, store: StoreName): Promise<Array<Record<string, unknown>>> {
-  const db = await openRaw(name)
+async function readAll(name: string, store: DbStoreName): Promise<Array<Record<string, unknown>>> {
+  const db = await openNamedDb(name)
   const records = await new Promise<Array<Record<string, unknown>>>((resolve, reject) => {
     const request = db.transaction(store, 'readonly').objectStore(store).getAll()
     request.onsuccess = () => resolve(request.result)
@@ -69,11 +68,10 @@ async function readAll(name: string, store: StoreName): Promise<Array<Record<str
 }
 
 async function databaseNames(): Promise<string[]> {
-  const databases = await indexedDB.databases()
-  return databases.map((database) => database.name ?? '')
+  return (await indexedDB.databases()).map((database) => database.name ?? '')
 }
 
-/** 每个用例重新加载模块：认领本身按启动一次做记忆化，scope 也是模块级状态。 */
+/** 每个用例重新加载模块：认领按启动一次做记忆化，scope 也是模块级状态。 */
 async function adopt(userId: string | null): Promise<number> {
   vi.resetModules()
   const { setClientStorageScope } = await import('../../lib/authScope')
@@ -85,22 +83,24 @@ async function adopt(userId: string | null): Promise<number> {
 let storage: Map<string, string>
 
 beforeEach(() => {
-  globalThis.indexedDB = new IDBFactory()
-  storage = installLocalStorage()
+  storage = new Map()
+  vi.stubGlobal('indexedDB', new IDBFactory())
+  vi.stubGlobal('localStorage', makeLocalStorage(storage))
 })
 
 afterEach(() => {
+  vi.unstubAllGlobals()
   vi.restoreAllMocks()
 })
 
 describe('adopting anonymous storage after login', () => {
   it('moves every store and the persist key into the user namespace on a first login', async () => {
-    await seed(ANONYMOUS_DB, {
+    await seed(BASE_DB_NAME, {
       tasks: [{ id: 't1', prompt: 'one' }, { id: 't2' }],
       images: [{ id: 'i1', dataUrl: 'data:,a' }],
       thumbnails: [{ id: 'i1', thumbnailDataUrl: 'data:,b' }],
     })
-    storage.set(PERSIST_KEY, '{"settings":"anonymous"}')
+    storage.set(STORE_PERSIST_KEY, '{"settings":"anonymous"}')
 
     expect(await adopt(USER_ID)).toBe(2)
 
@@ -108,27 +108,12 @@ describe('adopting anonymous storage after login', () => {
     expect(await readAll(USER_DB, 'images')).toHaveLength(1)
     expect(await readAll(USER_DB, 'thumbnails')).toHaveLength(1)
     expect(storage.get(SCOPED_PERSIST_KEY)).toBe('{"settings":"anonymous"}')
-    expect(storage.has(PERSIST_KEY)).toBe(false)
-    expect(await databaseNames()).not.toContain(ANONYMOUS_DB)
-  })
-
-  it('reports the adopted task count once', async () => {
-    await seed(ANONYMOUS_DB, { tasks: [{ id: 't1' }, { id: 't2' }, { id: 't3' }] })
-
-    vi.resetModules()
-    const { setClientStorageScope } = await import('../../lib/authScope')
-    const { adoptAnonymousStorage, takeAdoptedTaskCount } = await import(
-      '../../lib/storageAdoption'
-    )
-    setClientStorageScope(USER_ID)
-    await adoptAnonymousStorage()
-
-    expect(takeAdoptedTaskCount()).toBe(3)
-    expect(takeAdoptedTaskCount()).toBe(0)
+    expect(storage.has(STORE_PERSIST_KEY)).toBe(false)
+    expect(await databaseNames()).not.toContain(BASE_DB_NAME)
   })
 
   it('merges into an existing user database without overwriting its records', async () => {
-    await seed(ANONYMOUS_DB, {
+    await seed(BASE_DB_NAME, {
       tasks: [
         { id: 't1', prompt: 'anonymous' },
         { id: 't2', prompt: 'anonymous' },
@@ -149,61 +134,78 @@ describe('adopting anonymous storage after login', () => {
     expect((await readAll(USER_DB, 'images'))[0]?.dataUrl).toBe('data:,already logged in')
   })
 
-  it('does nothing on a later boot once the anonymous database is gone', async () => {
-    await seed(ANONYMOUS_DB, { tasks: [{ id: 't1' }] })
+  it('copies a history larger than one batch', async () => {
+    const images = Array.from({ length: 25 }, (_, index) => ({
+      id: `i${index}`,
+      dataUrl: `data:,${index}`,
+    }))
+    await seed(BASE_DB_NAME, { tasks: [{ id: 't1' }], images })
+
     await adopt(USER_ID)
 
+    expect(await readAll(USER_DB, 'images')).toHaveLength(25)
+  })
+
+  it('does nothing on a later boot once the anonymous database is gone', async () => {
+    await seed(BASE_DB_NAME, { tasks: [{ id: 't1' }] })
+    await adopt(USER_ID)
+
+    expect(storage.get(ADOPTION_DONE_KEY)).toBe('1')
+    expect(await adopt(USER_ID)).toBe(0)
+
+    // 标记之外还有第二道保险：源库已经不在了。
+    storage.delete(ADOPTION_DONE_KEY)
     expect(await adopt(USER_ID)).toBe(0)
     expect(await readAll(USER_DB, 'tasks')).toHaveLength(1)
-    expect(await databaseNames()).not.toContain(ANONYMOUS_DB)
   })
 
   it('leaves a second account on the same browser with nothing to adopt', async () => {
-    await seed(ANONYMOUS_DB, { tasks: [{ id: 't1' }] })
+    await seed(BASE_DB_NAME, { tasks: [{ id: 't1' }] })
     await adopt(USER_ID)
 
     expect(await adopt('u2')).toBe(0)
-    expect(await readAll(`${ANONYMOUS_DB}:user-u2`, 'tasks')).toHaveLength(0)
+    expect(await readAll(`${BASE_DB_NAME}:user-u2`, 'tasks')).toHaveLength(0)
   })
 
   it('keeps the settings of a user who already has a persist key', async () => {
-    await seed(ANONYMOUS_DB, { tasks: [{ id: 't1' }] })
-    storage.set(PERSIST_KEY, '{"settings":"anonymous"}')
+    await seed(BASE_DB_NAME, { tasks: [{ id: 't1' }] })
+    storage.set(STORE_PERSIST_KEY, '{"settings":"anonymous"}')
     storage.set(SCOPED_PERSIST_KEY, '{"settings":"mine"}')
 
     await adopt(USER_ID)
 
     expect(storage.get(SCOPED_PERSIST_KEY)).toBe('{"settings":"mine"}')
-    expect(storage.has(PERSIST_KEY)).toBe(false)
+    expect(storage.has(STORE_PERSIST_KEY)).toBe(false)
   })
 
   it('stays out of the way when accounts:login is off', async () => {
-    await seed(ANONYMOUS_DB, { tasks: [{ id: 't1' }] })
-    storage.set(PERSIST_KEY, '{"settings":"anonymous"}')
+    await seed(BASE_DB_NAME, { tasks: [{ id: 't1' }] })
+    storage.set(STORE_PERSIST_KEY, '{"settings":"anonymous"}')
 
     expect(await adopt(null)).toBe(0)
 
-    expect(await readAll(ANONYMOUS_DB, 'tasks')).toHaveLength(1)
-    expect(storage.get(PERSIST_KEY)).toBe('{"settings":"anonymous"}')
+    expect(await readAll(BASE_DB_NAME, 'tasks')).toHaveLength(1)
+    expect(storage.get(STORE_PERSIST_KEY)).toBe('{"settings":"anonymous"}')
   })
 
   it('never creates an empty database when there is nothing to adopt', async () => {
     expect(await adopt(USER_ID)).toBe(0)
-    expect(await databaseNames()).not.toContain(ANONYMOUS_DB)
+    expect(await databaseNames()).not.toContain(BASE_DB_NAME)
   })
 
   it('keeps the anonymous data when the copy fails', async () => {
     const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
-    await seed(ANONYMOUS_DB, { tasks: [{ id: 't1' }] })
-    storage.set(PERSIST_KEY, '{"settings":"anonymous"}')
+    await seed(BASE_DB_NAME, { tasks: [{ id: 't1' }] })
+    storage.set(STORE_PERSIST_KEY, '{"settings":"anonymous"}')
     // 目标库停在更高的版本，认领时的 open 直接抛 VersionError。
     await seed(USER_DB, {}, 5)
 
     expect(await adopt(USER_ID)).toBe(0)
 
-    expect(await databaseNames()).toContain(ANONYMOUS_DB)
-    expect(await readAll(ANONYMOUS_DB, 'tasks')).toHaveLength(1)
-    expect(storage.get(PERSIST_KEY)).toBe('{"settings":"anonymous"}')
+    expect(await databaseNames()).toContain(BASE_DB_NAME)
+    expect(await readAll(BASE_DB_NAME, 'tasks')).toHaveLength(1)
+    expect(storage.get(STORE_PERSIST_KEY)).toBe('{"settings":"anonymous"}')
+    expect(storage.has(ADOPTION_DONE_KEY)).toBe(false)
     expect(logged).toHaveBeenCalled()
   })
 })

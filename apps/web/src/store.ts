@@ -36,7 +36,7 @@ function filterUserProfileCache(
 
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate'
 import { callImageApi, resumeQueueImageApi } from './lib/api'
-import { scopedLocalStorage } from './lib/authScope'
+import { STORE_PERSIST_KEY, scopedLocalStorage } from './lib/authScope'
 import { validateMaskMatchesImage } from './lib/canvasImage'
 import { isByokGenerationEnabled, isClientCapabilityEnabled } from './lib/clientCapabilities'
 import {
@@ -751,7 +751,7 @@ export const useStore = create<AppState>()(
       },
     }),
     {
-      name: 'image-playground',
+      name: STORE_PERSIST_KEY,
       storage: createJSONStorage(() => scopedLocalStorage),
       version: 1,
       // v0 → v1：防改写默认值翻转为开启。v0 里 no_rewrite=false 是只上线过数小时的

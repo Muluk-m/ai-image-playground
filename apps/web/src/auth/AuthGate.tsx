@@ -59,6 +59,7 @@ export function AuthGate() {
   const [phase, setPhase] = useState<Phase>('checking')
   const [user, setUser] = useState<AuthUserView | null>(null)
   const [attempt, setAttempt] = useState(0)
+  const [adoptedTaskCount, setAdoptedTaskCount] = useState(0)
 
   useEffect(() => {
     let cancelled = false
@@ -72,13 +73,15 @@ export function AuthGate() {
       try {
         const currentUser = await getCurrentUser()
         setClientStorageScope(currentUser.id)
-        // 必须在 <App/> 之前 await：store 是 lazy 加载的，一旦求值就读走
-        // IndexedDB 与 persist key，之后再搬历史就晚了。
-        await adoptAnonymousStorage()
-        // 认证部署中 channel discovery 同样是受保护请求。这里不能静默降级：
-        // session 若恰好过期，应停在登录页，不能把 stale user 标成 ready。
-        await bootstrapChannels(runtime.bff.enabled, runtime.bff.baseUrl, true)
+        const [adopted] = await Promise.all([
+          // 必须跑在 <App/> 之前：store 是 lazy 加载的，一旦求值就读走 IndexedDB 与 persist key。
+          adoptAnonymousStorage(),
+          // 认证部署中 channel discovery 同样是受保护请求。这里不能静默降级：
+          // session 若恰好过期，应停在登录页，不能把 stale user 标成 ready。
+          bootstrapChannels(runtime.bff.enabled, runtime.bff.baseUrl, true),
+        ])
         if (!cancelled) {
+          setAdoptedTaskCount(adopted)
           setUser(currentUser)
           setPhase('ready')
         }
@@ -132,7 +135,7 @@ export function AuthGate() {
   return (
     <AuthContextProvider value={{ enabled: accountsLoginEnabled, user, logout }}>
       <Suspense fallback={<LoadingScreen />}>
-        <App />
+        <App adoptedTaskCount={adoptedTaskCount} />
       </Suspense>
     </AuthContextProvider>
   )

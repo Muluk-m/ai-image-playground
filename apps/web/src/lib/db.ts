@@ -1,14 +1,14 @@
 import type { StoredImage, StoredImageThumbnail, TaskRecord } from '../types'
 import { scopedStorageName } from './authScope'
 
-const DB_NAME = 'image-playground'
+/** 匿名 scope 下的 DB 名，其它 scope 由 scopedStorageName 派生。 */
+export const BASE_DB_NAME = 'image-playground'
 const DB_VERSION = 2
 const STORE_TASKS = 'tasks'
 const STORE_IMAGES = 'images'
 const STORE_THUMBNAILS = 'thumbnails'
-/** 匿名部署的 DB 名，也是登录后认领旧历史时要读的源库名。 */
-export const BASE_DB_NAME = DB_NAME
 export const DB_STORE_NAMES = [STORE_TASKS, STORE_IMAGES, STORE_THUMBNAILS] as const
+export type DbStoreName = (typeof DB_STORE_NAMES)[number]
 const THUMBNAIL_MAX_SIZE = 720
 const THUMBNAIL_QUALITY = 0.9
 const THUMBNAIL_VERSION = 2
@@ -20,14 +20,10 @@ export function openNamedDb(name: string): Promise<IDBDatabase> {
     const req = indexedDB.open(name, DB_VERSION)
     req.onupgradeneeded = (e) => {
       const db = (e.target as IDBOpenDBRequest).result
-      if (!db.objectStoreNames.contains(STORE_TASKS)) {
-        db.createObjectStore(STORE_TASKS, { keyPath: 'id' })
-      }
-      if (!db.objectStoreNames.contains(STORE_IMAGES)) {
-        db.createObjectStore(STORE_IMAGES, { keyPath: 'id' })
-      }
-      if (!db.objectStoreNames.contains(STORE_THUMBNAILS)) {
-        db.createObjectStore(STORE_THUMBNAILS, { keyPath: 'id' })
+      for (const storeName of DB_STORE_NAMES) {
+        if (!db.objectStoreNames.contains(storeName)) {
+          db.createObjectStore(storeName, { keyPath: 'id' })
+        }
       }
     }
     req.onsuccess = () => resolve(req.result)
@@ -36,7 +32,7 @@ export function openNamedDb(name: string): Promise<IDBDatabase> {
 }
 
 function openDB(): Promise<IDBDatabase> {
-  return openNamedDb(scopedStorageName(DB_NAME))
+  return openNamedDb(scopedStorageName(BASE_DB_NAME))
 }
 
 function dbTransaction<T>(
