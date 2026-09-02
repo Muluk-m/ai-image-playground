@@ -8,33 +8,32 @@ import {
   ChartTooltip,
   ChartTooltipContent,
 } from '@/components/ui/chart'
+import type { TaskVolumeBucket } from '@/lib/types'
 
 interface TaskVolumeChartProps {
-  buckets: Array<{ bucket_at: number; total: number; completed: number; failed: number }>
+  buckets: TaskVolumeBucket[]
   label: string
-  /** 'hour' 时轴标签走 HH:00，否则 MM-DD */
-  bucketUnit?: 'hour' | 'day'
   className?: string
 }
 
 const CHART_CONFIG = {
-  completed: { label: '成功', color: 'hsl(160 84% 39%)' },
-  failed: { label: '失败', color: 'hsl(350 89% 60%)' },
+  completed: { label: '成功', color: 'hsl(var(--chart-ok))' },
+  failed: { label: '失败', color: 'hsl(var(--chart-fail))' },
 } satisfies ChartConfig
+
+const HOUR_MS = 3600_000
 
 function pad(value: number): string {
   return String(value).padStart(2, '0')
 }
 
-export function TaskVolumeChart({
-  buckets,
-  label,
-  bucketUnit = 'day',
-  className,
-}: TaskVolumeChartProps) {
+export function TaskVolumeChart({ buckets, label, className }: TaskVolumeChartProps) {
+  // 桶间距决定轴标签粒度，避免在调用点重复服务端的 range → bucket 规则
+  const hourly = buckets.length > 1 && buckets[1]!.bucket_at - buckets[0]!.bucket_at <= HOUR_MS
+
   const formatTick = (value: number): string => {
     const date = new Date(value)
-    return bucketUnit === 'hour'
+    return hourly
       ? `${pad(date.getHours())}:00`
       : `${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
   }
@@ -43,7 +42,7 @@ export function TaskVolumeChart({
   return (
     <div role="img" aria-label={`${label}，峰值每个时间段 ${peak} 个任务`}>
       <ChartContainer config={CHART_CONFIG} className={className ?? 'aspect-auto h-52 w-full'}>
-        <BarChart accessibilityLayer data={buckets} margin={{ left: 4, right: 4, top: 4 }}>
+        <BarChart data={buckets} margin={{ left: 4, right: 4, top: 4 }}>
           <CartesianGrid vertical={false} strokeDasharray="3 3" />
           <XAxis
             dataKey="bucket_at"

@@ -17,8 +17,7 @@ import {
 import { adminSessionQueryOptions } from '@/lib/admin-session'
 import { apiClient } from '@/lib/api-client'
 import { PrivateAdminNavigation } from '@/lib/private-overlay'
-
-const DATA_QUERY_KEYS = ['devices', 'device', 'task', 'users', 'user', 'overview'] as const
+import { DATA_QUERY_KEYS } from '@/lib/queries'
 
 export function AppSidebar() {
   const navigate = useNavigate()

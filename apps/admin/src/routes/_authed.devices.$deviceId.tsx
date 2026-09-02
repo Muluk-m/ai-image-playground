@@ -1,15 +1,14 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
-import { Loader2 } from 'lucide-react'
 
 import { DeviceMetaCard } from '@/components/DeviceMetaCard'
 import { LightboxDialog } from '@/components/LightboxDialog'
-import { PageHeader } from '@/components/PageHeader'
+import { ErrorState, Page, PendingState } from '@/components/Page'
 import { RangeToggle } from '@/components/RangeToggle'
 import { TaskDetailSheet } from '@/components/TaskDetailSheet'
 import { TaskTable } from '@/components/TaskTable'
 import { shortId } from '@/lib/format'
 import { useDeviceDetail } from '@/lib/queries'
-import { parseDeviceDetailSearch, type Range } from '@/lib/search-params'
+import { DEFAULT_RANGE, parseDeviceDetailSearch, type Range } from '@/lib/search-params'
 
 export const Route = createFileRoute('/_authed/devices/$deviceId')({
   validateSearch: parseDeviceDetailSearch,
@@ -19,7 +18,7 @@ export const Route = createFileRoute('/_authed/devices/$deviceId')({
 function DeviceDetailPage() {
   const { deviceId } = Route.useParams()
   const search = Route.useSearch()
-  const range = search.range ?? '7d'
+  const range = search.range ?? DEFAULT_RANGE
   const navigate = useNavigate()
   const q = useDeviceDetail(deviceId, range)
   // useInfiniteQuery：设备聚合卡片只在首页返回；任务跨页累积。
@@ -47,22 +46,15 @@ function DeviceDetailPage() {
 
   return (
     <>
-      <PageHeader
+      <Page
         crumbs={[{ label: '设备', to: '/devices' }, { label: shortId(deviceId) }]}
         title="设备详情"
         description={deviceId}
-      />
-
-      <div className="flex-1 space-y-4 px-4 py-5 md:px-6">
+      >
         {q.isPending ? (
-          <div className="flex h-32 items-center justify-center text-muted-foreground">
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            加载中
-          </div>
+          <PendingState label="加载设备详情" />
         ) : q.isError ? (
-          <div className="rounded-lg border border-destructive/50 bg-destructive/5 p-6 text-sm text-destructive">
-            加载失败：{(q.error as Error).message}
-          </div>
+          <ErrorState label="加载失败" error={q.error} />
         ) : !device ? (
           <div className="rounded-lg border bg-card p-12 text-center text-sm text-muted-foreground">
             未找到设备 {deviceId}
@@ -95,7 +87,7 @@ function DeviceDetailPage() {
             />
           </>
         )}
-      </div>
+      </Page>
 
       <TaskDetailSheet
         taskId={search.task}
