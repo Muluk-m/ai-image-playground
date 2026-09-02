@@ -42,11 +42,15 @@ export default function ContextMenu({
     })
   }, [x, y])
 
+  // 回调走 ref：调用方传的是内联箭头函数，进依赖数组会让每次父组件重渲染都重挂 5 个监听。
+  const handlersRef = useRef({ onClose, onOutsidePointer })
+  handlersRef.current = { onClose, onOutsidePointer }
+
   useEffect(() => {
     const close = (e: Event) => {
       if (menuRef.current && e.target instanceof Node && menuRef.current.contains(e.target)) return
-      onOutsidePointer?.(e.target)
-      onClose()
+      handlersRef.current.onOutsidePointer?.(e.target)
+      handlersRef.current.onClose()
     }
     const options = { capture: true } as const
     window.addEventListener('mousedown', close, options)
@@ -61,7 +65,7 @@ export default function ContextMenu({
       window.removeEventListener('scroll', close, options)
       window.removeEventListener('resize', close)
     }
-  }, [onClose, onOutsidePointer])
+  }, [])
 
   return createPortal(
     <div
