@@ -95,6 +95,17 @@ async function recordUpstreamInvocation(id: string, count = 1): Promise<boolean>
   return updated.length > 0
 }
 
+/**
+ * 落上游异步任务 id。这一条 UPDATE 是「已计费但我们不知道」窗口的全部宽度，
+ * 所以它必须在第一次轮询之前完成 —— 调用方 await 它。
+ */
+async function recordUpstreamTaskIds(id: string, taskIds: readonly string[]): Promise<void> {
+  await db
+    .update(schema.tasks)
+    .set({ upstream_task_ids: [...taskIds], upstream_submitted_at: Date.now() })
+    .where(and(eq(schema.tasks.id, id), eq(schema.tasks.status, 'in_progress')))
+}
+
 export async function runTask(id: string): Promise<void> {
   const now = () => Date.now()
   const claimAt = now()
@@ -109,6 +120,8 @@ export async function runTask(id: string): Promise<void> {
       model: schema.tasks.model,
       request_payload: schema.tasks.request_payload,
       attempt_count: schema.tasks.attempt_count,
+      upstream_task_ids: schema.tasks.upstream_task_ids,
+      upstream_submitted_at: schema.tasks.upstream_submitted_at,
     })
     .from(schema.tasks)
     .where(eq(schema.tasks.id, id))
@@ -122,6 +135,14 @@ export async function runTask(id: string): Promise<void> {
     'task started',
   )
 
+  // 已提交过的上游异步任务：接着轮，不重提交也不重计费。超时预算从**首次提交**
+  // 起算，重启不能续命，否则回收器会把正在正常轮询的行当成无主行收走。
+  const resumeTaskIds = task.upstream_task_ids ?? undefined
+  const deadlineAt =
+    resumeTaskIds && task.upstream_submitted_at !== null
+      ? task.upstream_submitted_at + QUEUE_TIMEOUTS.UPSTREAM_HARD_TIMEOUT_MS
+      : undefined
+
   try {
     const hydratedRequest = await hydrateInputImages(task.request_payload)
     const { payload } = await callUpstream({
@@ -129,6 +150,9 @@ export async function runTask(id: string): Promise<void> {
       model: task.model,
       request: hydratedRequest,
       signal: ctrl.signal,
+      resumeUpstreamTaskIds: resumeTaskIds,
+      deadlineAt,
+      onUpstreamTaskIds: (taskIds) => recordUpstreamTaskIds(id, taskIds),
       beforeRequest: async () => {
         if (await recordUpstreamInvocation(id)) return
         ctrl.abort()
