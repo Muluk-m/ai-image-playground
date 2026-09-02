@@ -1,5 +1,7 @@
-import { useState } from 'react'
+import { OAUTH_LINK_ERROR_QUERY_PARAM, OAUTH_LINK_QUERY_PARAM } from '@image-playground/shared'
+import { useEffect, useState } from 'react'
 import { useAuth } from '../auth/AuthContext'
+import { LoginMethodsPanel } from '../auth/LoginMethodsPanel'
 import InspirationCoach from '../features/inspiration/components/InspirationCoach'
 import { useInspirationStore } from '../features/inspiration/store'
 import { useTooltip } from '../hooks/useTooltip'
@@ -20,6 +22,7 @@ export default function Header() {
   const setAppMode = useStore((s) => s.setAppMode)
   const [showHelp, setShowHelp] = useState(false)
   const [loggingOut, setLoggingOut] = useState(false)
+  const [loginMethodsOpen, setLoginMethodsOpen] = useState(false)
   const auth = useAuth()
 
   const openInspiration = useInspirationStore((s) => s.openPanel)
@@ -31,6 +34,15 @@ export default function Header() {
   const inspirationTooltip = useTooltip()
   const helpTooltip = useTooltip()
   const settingsTooltip = useTooltip()
+
+  // 绑定回跳只回到工作台，面板得靠回跳参数自己重开。
+  useEffect(() => {
+    if (PrivateWebReplacesAuthActions || !auth.enabled || !auth.user) return
+    const params = new URL(window.location.href).searchParams
+    if (params.has(OAUTH_LINK_QUERY_PARAM) || params.has(OAUTH_LINK_ERROR_QUERY_PARAM)) {
+      setLoginMethodsOpen(true)
+    }
+  }, [auth.enabled, auth.user])
 
   return (
     <>
@@ -167,6 +179,13 @@ export default function Header() {
                 </span>
                 <button
                   type="button"
+                  onClick={() => setLoginMethodsOpen(true)}
+                  className="rounded-lg px-2 py-1.5 text-[12px] font-medium text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-800 dark:text-gray-400 dark:hover:bg-gray-900 dark:hover:text-gray-100"
+                >
+                  登录方式
+                </button>
+                <button
+                  type="button"
                   disabled={loggingOut}
                   onClick={() => {
                     setLoggingOut(true)
@@ -185,6 +204,7 @@ export default function Header() {
         <div className="safe-header-inner" />
       </div>
       {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
+      {loginMethodsOpen && <LoginMethodsPanel onClose={() => setLoginMethodsOpen(false)} />}
     </>
   )
 }

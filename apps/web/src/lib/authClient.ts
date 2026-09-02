@@ -1,4 +1,4 @@
-import type { AuthUserView, OAuthProviderView } from '@image-playground/shared'
+import type { AuthUserView, LoginMethodsView, OAuthProviderView } from '@image-playground/shared'
 import { isClientCapabilityEnabled } from './clientCapabilities'
 import { getRuntimeConfig } from './runtimeConfig'
 export const AUTH_SESSION_EXPIRED_EVENT = 'image-playground:auth-session-expired'
@@ -88,6 +88,32 @@ export function oauthStartUrl(provider: string): string {
 
 export async function logoutUser(): Promise<void> {
   await authJson<{ ok: true }>('/api/auth/logout', { method: 'POST' })
+}
+
+export async function fetchLoginMethods(): Promise<LoginMethodsView> {
+  return authJson<LoginMethodsView>('/api/auth/login-methods')
+}
+
+export async function updateOwnPassword(input: {
+  currentPassword?: string
+  newPassword: string
+}): Promise<void> {
+  await authJson<{ ok: true }>('/api/auth/password', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      ...(input.currentPassword ? { current_password: input.currentPassword } : {}),
+      new_password: input.newPassword,
+    }),
+  })
+}
+
+export function oauthLinkUrl(provider: string): string {
+  return bffUrl(`/api/auth/oauth/${provider}/link`)
+}
+
+export async function unlinkOAuthProvider(provider: string): Promise<void> {
+  await authJson<{ ok: true }>(`/api/auth/oauth/${provider}/link`, { method: 'DELETE' })
 }
 
 /**
