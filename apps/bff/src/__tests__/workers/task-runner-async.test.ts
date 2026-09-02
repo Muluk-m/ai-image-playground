@@ -7,7 +7,12 @@ import {
   EMPTY_PRIVATE_BFF_OVERLAY,
 } from '../../lib/private-overlay'
 import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
-import { stubGlobalFetch } from '../helpers/upstreamStubs'
+import {
+  jsonResponse as json,
+  type RecordingUpstream,
+  recordingUpstreamFetch,
+  stubGlobalFetch,
+} from '../helpers/upstreamStubs'
 
 process.env.UPSTREAM_BASE_URL = 'http://localhost:9999'
 process.env.UPSTREAM_API_KEY = 'test-key'
@@ -23,21 +28,12 @@ const { runTask } = await import('../../workers/task-runner')
 const { recoverTasksByIds } = await import('../../db/maintenance')
 const { setUpstreamFetchForTesting } = await import('../../lib/upstream')
 const { setObjectStoreForTesting } = await import('../../lib/objectStore')
-type TestFetch = NonNullable<Parameters<typeof setUpstreamFetchForTesting>[0]>
 
 const RESULT_URL = 'https://bucket.example/a.png'
 const PNG_BYTES = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
 
-let calls: string[] = []
-let handler: (url: string) => Response
+let upstream: RecordingUpstream
 let restoreFetch: () => void
-
-function json(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { 'content-type': 'application/json' },
-  })
-}
 
 function submitThenComplete(url: string): Response {
   return url.endsWith('/async')
@@ -48,13 +44,9 @@ function submitThenComplete(url: string): Response {
 beforeEach(async () => {
   setObjectStoreForTesting(new InMemoryObjectStore())
   await db.delete(schema.tasks)
-  calls = []
-  handler = submitThenComplete
-  setUpstreamFetchForTesting((async (input: Parameters<TestFetch>[0]) => {
-    const url = typeof input === 'string' ? input : input.toString()
-    calls.push(url)
-    return handler(url)
-  }) as unknown as TestFetch)
+  upstream = recordingUpstreamFetch()
+  upstream.handler = submitThenComplete
+  setUpstreamFetchForTesting(upstream.fetch)
   // 归档回源取结果 URL 走 globalThis.fetch，不是上游注入点。
   restoreFetch = stubGlobalFetch(() => new Response(PNG_BYTES, { status: 200 }))
 })
@@ -106,16 +98,13 @@ describe('async submit phase', () => {
 
     await runTask('async-ok')
 
-    expect(await readTask('async-ok')).toMatchObject({
-      status: 'completed',
-      invocations: 1,
-      taskIds: ['imgtask_1'],
-    })
-    expect((await readTask('async-ok'))?.submittedAt).toBeGreaterThan(0)
+    const row = await readTask('async-ok')
+    expect(row).toMatchObject({ status: 'completed', invocations: 1, taskIds: ['imgtask_1'] })
+    expect(row?.submittedAt).toBeGreaterThan(0)
   })
 
   it('leaves no task id behind when the submit never reached the upstream', async () => {
-    handler = () => {
+    upstream.handler = () => {
       throw new Error('socket hang up')
     }
     await insertTask('async-transport')
@@ -132,7 +121,7 @@ describe('async submit phase', () => {
   })
 
   it('keeps a terminal upstream task failure terminal instead of resubmitting', async () => {
-    handler = (url) =>
+    upstream.handler = (url) =>
       url.endsWith('/async')
         ? json({ task_id: 'imgtask_1' }, 202)
         : json({ status: 'failed', http_status: 400, error: { message: 'blocked' } })
@@ -145,11 +134,11 @@ describe('async submit phase', () => {
       errorType: 'upstream_error',
       invocations: 1,
     })
-    expect(calls.filter((url) => url.endsWith('/async'))).toHaveLength(1)
+    expect(upstream.calls.filter((url) => url.endsWith('/async'))).toHaveLength(1)
   })
 
   it('clears the stored id when a retryable upstream failure sends the task back to the queue', async () => {
-    handler = (url) =>
+    upstream.handler = (url) =>
       url.endsWith('/async')
         ? json({ task_id: 'imgtask_1' }, 202)
         : json({ status: 'failed', http_status: 500, error: { message: 'upstream exploded' } })
@@ -195,7 +184,7 @@ describe('restart recovery', () => {
       attempt: 0,
       invocations: 1,
     })
-    expect(calls).toEqual(['http://localhost:9999/v1/images/tasks/imgtask_7'])
+    expect(upstream.calls).toEqual(['http://localhost:9999/v1/images/tasks/imgtask_7'])
   })
 
   it('fails a resumed task whose original submit is already past the polling deadline', async () => {
@@ -214,7 +203,7 @@ describe('restart recovery', () => {
       status: 'failed',
       errorType: 'upstream_result_unknown',
     })
-    expect(calls).toEqual([])
+    expect(upstream.calls).toEqual([])
   })
 
   it('still requeues a task that never got a task id through the retry budget', async () => {

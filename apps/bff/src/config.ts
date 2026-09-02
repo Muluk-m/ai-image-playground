@@ -77,9 +77,9 @@ export const config = {
     openaiApiKey: env('UPSTREAM_OPENAI_API_KEY', ''),
     geminiApiKey: env('UPSTREAM_GEMINI_API_KEY', ''),
     /**
-     * 通用网关提供 sub2api 风格的异步图片任务端点。这是部署事实（网关是哪一家由
-     * UPSTREAM_BASE_URL 决定），不能写进 channels.json —— 那里的 baseUrl 对网关部署
-     * 只是名义地址。直连 channel 的同名开关在 channels.json 的 defaults.asyncTasks。
+     * 通用网关提供 sub2api 风格的异步图片任务端点。不能写进 channels.json：
+     * 网关部署里那些 channel 的 baseUrl 只是名义地址，网关是哪一家只有 env 知道。
+     * 直连 channel 的同名开关在 channels.json 的 defaults.asyncTasks。
      */
     asyncImageTasks: booleanEnv('UPSTREAM_ASYNC_IMAGE_TASKS', false),
   },

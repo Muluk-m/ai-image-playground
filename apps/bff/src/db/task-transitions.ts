@@ -1,5 +1,5 @@
 import type { TaskErrorType } from '@image-playground/shared'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, inArray } from 'drizzle-orm'
 import { loadPrivateBffOverlay } from '../lib/private-overlay'
 import { db, schema } from './client'
 
@@ -10,6 +10,20 @@ import { db, schema } from './client'
 const stillRunning = (id: string) =>
   and(eq(schema.tasks.id, id), eq(schema.tasks.status, 'in_progress'))
 
+/**
+ * 回队时一律抹掉的上一次尝试痕迹。新增「每次尝试」列时改这里，不要往下面某一个
+ * requeue 里单独加 —— 只加一处正是留下脏值的那类 bug。
+ * started_at 保留首次启动时间，admin 查耗时仍可用 submitted→completed。
+ */
+const CLEARED_ON_REQUEUE = {
+  status: 'queued',
+  error_message: null,
+  error_type: null,
+  result_payload: null,
+  upstream_status: null,
+  upstream_body: null,
+} as const satisfies Partial<typeof schema.tasks.$inferInsert>
+
 /** 把在跑的任务退回 queued 等下一次尝试。返回是否真的改到了行。 */
 export async function requeueTask(
   id: string,
@@ -19,17 +33,10 @@ export async function requeueTask(
   const updated = await db
     .update(schema.tasks)
     .set({
-      status: 'queued',
+      ...CLEARED_ON_REQUEUE,
       attempt_count: attemptJustFailed,
       next_retry_at: nextRetryAt,
-      // 清空上一次尝试的痕迹；started_at 保留首次启动时间，admin 查耗时仍可用 submitted→completed。
-      error_message: null,
-      error_type: null,
-      result_payload: null,
-      upstream_status: null,
-      upstream_body: null,
-      // 必须清：下一次尝试是一个全新的上游任务，留着旧 id 会让它去轮一个已经终态的任务，
-      // 永远出不来。
+      // 下一次尝试是一个全新的上游任务，留着旧 id 会让它去轮一个已经终态的任务，永远出不来。
       upstream_task_ids: null,
       upstream_submitted_at: null,
     })
@@ -40,23 +47,16 @@ export async function requeueTask(
 
 /**
  * 把中断的异步任务退回 queued 以**继续轮询**：保留 upstream_task_ids 与 attempt_count。
- * 上游任务还活着且已计费，这不是一次失败的尝试，不进重试预算。
+ * 上游任务还活着且已计费，这不是一次失败的尝试，不进重试预算。返回真的改到的行数。
  */
-export async function requeueTaskForPolling(id: string): Promise<boolean> {
+export async function requeueTasksForPolling(ids: readonly string[]): Promise<number> {
+  if (ids.length === 0) return 0
   const updated = await db
     .update(schema.tasks)
-    .set({
-      status: 'queued',
-      next_retry_at: null,
-      error_message: null,
-      error_type: null,
-      result_payload: null,
-      upstream_status: null,
-      upstream_body: null,
-    })
-    .where(stillRunning(id))
+    .set({ ...CLEARED_ON_REQUEUE, next_retry_at: null })
+    .where(and(inArray(schema.tasks.id, [...ids]), eq(schema.tasks.status, 'in_progress')))
     .returning({ id: schema.tasks.id })
-  return updated.length > 0
+  return updated.length
 }
 
 export type TerminalTaskUpdate = {
