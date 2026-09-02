@@ -1242,3 +1242,49 @@ input[type="number"] {
     box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.35);
   }
 }
+
+/* 槽位胶囊：×k 只能走 ::after，进 DOM 文本会让光标偏移换算错位 */
+.slot-tag {
+  background: #f5f3ff;
+  color: #7c3aed;
+  border-color: #ede9fe;
+  cursor: pointer;
+}
+
+.slot-tag[data-slot-count]::after {
+  content: attr(data-slot-count);
+  margin-left: 4px;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  opacity: 0.75;
+}
+
+.slot-tag:hover {
+  background: #ede9fe;
+}
+
+.slot-tag.selected {
+  background: #7c3aed;
+  color: #ffffff;
+  border-color: #6d28d9;
+  box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.25);
+}
+
+@media (prefers-color-scheme: dark) {
+  .slot-tag {
+    background: rgba(139, 92, 246, 0.12);
+    color: #c4b5fd;
+    border-color: rgba(139, 92, 246, 0.2);
+  }
+
+  .slot-tag:hover {
+    background: rgba(139, 92, 246, 0.2);
+  }
+
+  .slot-tag.selected {
+    background: #8b5cf6;
+    color: #ffffff;
+    border-color: #a78bfa;
+    box-shadow: 0 0 0 2px rgba(139, 92, 246, 0.35);
+  }
+}
