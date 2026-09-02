@@ -531,14 +531,9 @@ export default function InputBar() {
         .filter((option) => imageMentionMatches(atImageQuery.query, option.value))
     : []
   const blurPrompt = useCallback(() => textareaRef.current?.blur(), [])
-  const selectAtImageOption = useCallback(
-    (imageIndex: number) => {
-      const el = textareaRef.current
-      const cursor = el ? getContentEditableCursor(el) : prompt.length
-      const query = getAtImageQuery(stripImageMentionMarkers(prompt), cursor, inputImages)
-      if (!query) return
-
-      const next = insertImageMentionAtVisibleRange(prompt, query.start, cursor, imageIndex)
+  const replaceRangeWithImageMention = useCallback(
+    (start: number, end: number, imageIndex: number) => {
+      const next = insertImageMentionAtVisibleRange(prompt, start, end, imageIndex)
       isUserInputRef.current = false
       setPrompt(next.prompt)
       window.setTimeout(() => {
@@ -548,7 +543,25 @@ export default function InputBar() {
         }
       }, 0)
     },
-    [inputImages, prompt, setPrompt],
+    [prompt, setPrompt],
+  )
+  const insertImageMentionAtCursor = useCallback(
+    (imageIndex: number) => {
+      const el = textareaRef.current
+      const cursor = el ? getContentEditableCursor(el) : prompt.length
+      replaceRangeWithImageMention(cursor, cursor, imageIndex)
+    },
+    [prompt, replaceRangeWithImageMention],
+  )
+  const selectAtImageOption = useCallback(
+    (imageIndex: number) => {
+      const el = textareaRef.current
+      const cursor = el ? getContentEditableCursor(el) : prompt.length
+      const query = getAtImageQuery(stripImageMentionMarkers(prompt), cursor, inputImages)
+      if (!query) return
+      replaceRangeWithImageMention(query.start, cursor, imageIndex)
+    },
+    [inputImages, prompt, replaceRangeWithImageMention],
   )
 
   const atImageMenu = useSuggestionMenu({
@@ -1152,20 +1165,6 @@ export default function InputBar() {
     setImageDragOverIndex(nextIdx)
   }
 
-  const insertImageMention = (index: number) => {
-    const el = textareaRef.current
-    const cursor = el ? getContentEditableCursor(el) : prompt.length
-    const next = insertImageMentionAtVisibleRange(prompt, cursor, cursor, index)
-    isUserInputRef.current = false
-    setPrompt(next.prompt)
-    window.setTimeout(() => {
-      if (textareaRef.current) {
-        textareaRef.current.focus()
-        setContentEditableCursor(textareaRef.current, next.cursor)
-      }
-    }, 0)
-  }
-
   const renderImageThumb = (img: (typeof inputImages)[number], idx: number) => {
     const isMaskTarget = maskDraft?.targetImageId === img.id
     const canEdit = !maskTargetImage || isMaskTarget
@@ -1461,7 +1460,7 @@ export default function InputBar() {
               icon={<LinkIcon className="h-4 w-4 flex-shrink-0" />}
               label="插入引用"
               onClick={() => {
-                insertImageMention(thumbMenu.index)
+                insertImageMentionAtCursor(thumbMenu.index)
                 setThumbMenu(null)
               }}
             />
