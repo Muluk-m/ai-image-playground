@@ -3,6 +3,7 @@ import {
   expandPromptSlots,
   getPromptSlotBatchSize,
   getPromptSlotNames,
+  getSubmissionImageCount,
   getUnfilledPromptSlots,
   parseSlotValueLines,
   splitTextIntoSlotParts,
@@ -62,5 +63,16 @@ describe('prompt slots expansion', () => {
     expect(getUnfilledPromptSlots('{场景}-{角度}', { 场景: ['浴室'] })).toEqual(['角度'])
     expect(getPromptSlotBatchSize('{场景}-{角度}', { 场景: ['浴室'] })).toBe(0)
     expect(expandPromptSlots('{场景}-{角度}', { 场景: ['浴室'] })).toEqual([])
+  })
+})
+
+describe('submission image count', () => {
+  it('multiplies the expansion size by the per-prompt count', () => {
+    expect(getSubmissionImageCount('{场景}-{角度}', { 场景: ['a', 'b'], 角度: ['c'] }, 3)).toBe(6)
+  })
+
+  it('falls back to the per-prompt count when there is no slot or a slot is unfilled', () => {
+    expect(getSubmissionImageCount('一只猫', {}, 4)).toBe(4)
+    expect(getSubmissionImageCount('{场景}', {}, 4)).toBe(4)
   })
 })

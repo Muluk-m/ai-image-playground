@@ -52,6 +52,11 @@ export function getPromptSlotBatchSize(prompt: string, slotValues: SlotValues): 
   )
 }
 
+/** 一次提交的总出图数：展开条数 × 每条的数量。门禁 quantity 与上限判定共用此定义。 */
+export function getSubmissionImageCount(prompt: string, slotValues: SlotValues, n: number): number {
+  return Math.max(1, getPromptSlotBatchSize(prompt, slotValues)) * Math.max(1, n)
+}
+
 /** 按笛卡尔积展开为多条已替换的提示词；任一槽位无值时返回空数组。 */
 export function expandPromptSlots(prompt: string, slotValues: SlotValues): string[] {
   const names = getPromptSlotNames(prompt)

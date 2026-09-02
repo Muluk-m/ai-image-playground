@@ -68,7 +68,7 @@ import {
 import { remapImageMentionsForOrder, replaceImageMentionsForApi } from './lib/promptImageMentions'
 import {
   expandPromptSlots,
-  getPromptSlotBatchSize,
+  getSubmissionImageCount,
   getUnfilledPromptSlots,
   MAX_BATCH_IMAGES,
   type SlotValues,
@@ -1335,7 +1335,7 @@ export async function submitTask(
   const fanOut = billedBuiltinSubmission || supportsNativeCount ? 1 : Math.max(1, taskParams.n)
   const singleParams = fanOut === 1 ? taskParams : { ...taskParams, n: 1 }
   const trimmedPrompt = prompt.trim()
-  if (getPromptSlotBatchSize(trimmedPrompt, slotValues) * taskParams.n > MAX_BATCH_IMAGES) {
+  if (getSubmissionImageCount(trimmedPrompt, slotValues, taskParams.n) > MAX_BATCH_IMAGES) {
     showToast(`单次最多 ${MAX_BATCH_IMAGES} 张`, 'error')
     return
   }
