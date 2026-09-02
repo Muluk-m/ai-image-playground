@@ -308,14 +308,23 @@ cloudflared 日志出现 `open /etc/cloudflared/config.yml: permission denied` �
 就是上面两步漏了其中一步。
 
 把 `deploy/operator-config.internal.example.json` 复制成 `$app_dir/operator-config.json`
-并按需调整，然后拉起：
+并按需调整。本机若不用默认的项目名与镜像 tag，再把 `deploy/deploy.env.example` 复制成
+`$config_root/deploy.env`；那里的键全部可选。然后拉起：
 
 ```bash
 scripts/infra-compose.sh up
 scripts/infra-compose.sh provision                    # 每个部署数据库跑一次
-scripts/app-compose.sh build ai-image-playground:local
-scripts/app-compose.sh up image-playground-internal
+scripts/vps-deploy.sh internal                        # 之后每次部署都走这一条
 ```
+
+`vps-deploy.sh <internal|paid|all> [git-ref]` 是一次上线的唯一入口。它在检出有未提交的
+已跟踪改动时拒绝执行，fetch 后 detach 到指定 ref（默认 `origin/main`），paid 形态会
+fast-forward `./private`，然后构建、经 `app-compose.sh up` 滚动，最后往
+`$config_root/deployments.log` 追加一行。把一个对私有仓库有读权限的 GitHub token 放进
+`$config_root/secrets/private-repo-token`，`./private` 就能无交互地 fast-forward。
+
+每次构建都按来源提交打 tag，那正是 `app-compose.sh rollback` 的回滚目标。底下的构件仍是
+`app-compose.sh` 与 `infra-compose.sh`：回滚、停项目、临时 compose 命令都走它们。
 
 在持有域名的那个账号下把 hostname 指到隧道：
 
@@ -337,12 +346,21 @@ wrangler r2 bucket lifecycle add <bucket> --name pg-dumps \
 
 备份就落在像素前缀内，两条规则都会命中它，按较短的那条过期。
 
-先发布前端，确认可用后再把它的 DNS 记录切到 Pages：
+先发布前端，确认可用后再把它的 DNS 记录切到 Pages。在负责发前端的那台机器上，把
+`deploy/pages.env.example` 复制成 `$config_root/pages.env`，填好 `INTERNAL_` 那组键，然后：
 
 ```bash
-BFF_ENABLED=true BFF_BASE_URL=https://image-api.example.com \
-  scripts/pages-deploy.sh public <pages-project> main
+scripts/pages-release.sh internal
 ```
+
+`pages-release.sh <internal|paid>` 是一次前端发布的唯一入口。它从该文件读取一个形态的配置，
+上传产物，然后轮询 `<PUBLIC_ORIGIN>/version.json`，最多 60 秒，直到线上清单与刚构建出来的
+那份一致。每次发布往 VPS 用的同一个 `deployments.log` 追加一行。
+
+把 `<EDITION>_CLOUDFLARE_TOKEN_FILE` 指到一个设置了 `CLOUDFLARE_API_TOKEN` 的 env 文件，
+或者干脆不设、走 wrangler 自己的 OAuth 登录：两条路都不会让另一个账号的 token 从 shell 漏
+进来，所以一台机器可以同时发两个账号。手工设环境变量的一次性上传仍然直接用
+`pages-deploy.sh`。
 
 前端域与 API 域同选项 3 一样必须是同一注册域：Admin 会话 cookie 是
 `Secure; SameSite=Lax`。
@@ -355,9 +373,14 @@ BFF 600 MB 那两条只在同源与 nginx 形态下才是约束，那里前面�
 收不到请求。把 `net.core.rmem_max` / `wmem_max` 调大只能消掉 quic-go 的告警，解决不了问题。
 隧道下大上传挂住，先试 `protocol: http2`。
 
-把每一步换成 `image-playground-paid` 再做一遍，就能在同一台机器上跑第二套完全独立的
-部署：各自的数据库、R2 位置、隧道、Pages 项目与 Cloudflare 账号，只共用 PostgreSQL
-进程和这台机器。
+把每一步换成 `image-playground-paid` 再做一遍，然后用 `scripts/vps-deploy.sh paid` 与
+`scripts/pages-release.sh paid` 部署，就能在同一台机器上跑第二套完全独立的部署：各自的
+数据库、R2 位置、隧道、Pages 项目与 Cloudflare 账号，只共用 PostgreSQL 进程和这台机器。
+两套都配好之后，`scripts/vps-deploy.sh all` 一条命令滚完整台机器。
+
+paid 形态两边都需要那份经过评审的 `./private` overlay：VPS 上检出旁边一份，发它 Pages
+项目的那台机器的检出里也要一份。internal 形态恰好相反——它的 Pages 发布必须在没有这棵树的
+检出里跑，因为 overlay 只凭文件存在就会被编译进去。
 
 ## 🛠 开发
 
