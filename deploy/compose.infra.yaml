@@ -38,6 +38,7 @@ services:
       POSTGRES_APP_PASSWORD: ${POSTGRES_APP_PASSWORD:-}
       POSTGRES_ADMIN_USER: ${POSTGRES_ADMIN_USER:-}
       POSTGRES_ADMIN_PASSWORD: ${POSTGRES_ADMIN_PASSWORD:-}
+      POSTGRES_EXTRA_SCHEMAS: ${POSTGRES_EXTRA_SCHEMAS:-}
     entrypoint:
       - /bin/sh
       - -ec
@@ -104,22 +105,72 @@ services:
           :'migrator_user',
           :'admin_user'
         ) \gexec
-        -- drizzle-kit creates this schema itself on first migrate. Creating it here first is
-        -- what lets the migrator own it and the grants below exist before any table does.
-        SELECT format('CREATE SCHEMA IF NOT EXISTS drizzle AUTHORIZATION %I', :'migrator_user') \gexec
-        SELECT format('GRANT USAGE ON SCHEMA drizzle TO %I', :'admin_user') \gexec
-        SELECT format('GRANT SELECT ON ALL TABLES IN SCHEMA drizzle TO %I', :'admin_user') \gexec
-        SELECT format('GRANT SELECT ON ALL SEQUENCES IN SCHEMA drizzle TO %I', :'admin_user') \gexec
+        SQL
+        set -f
+        IFS=','
+        for schema in $${POSTGRES_EXTRA_SCHEMAS}; do
+          [ -n "$${schema}" ] || continue
+          case "$${schema}" in
+            [!a-z_]* | *[!a-z0-9_]*)
+              echo "POSTGRES_EXTRA_SCHEMAS: '$${schema}' is not a valid schema name" >&2
+              exit 1
+              ;;
+          esac
+        done
+        # The migrations create these schemas themselves on first run. Creating them here first is
+        # what lets the migrator own them and the grants exist before any table does. The Admin
+        # role must read them because pg_dump locks every table; the application role gets nothing.
+        for schema in drizzle $${POSTGRES_EXTRA_SCHEMAS}; do
+          [ -n "$${schema}" ] || continue
+          psql --host=postgres --username="$${POSTGRES_USER}" --dbname="$${POSTGRES_APP_DATABASE}" \
+            --set=ON_ERROR_STOP=1 \
+            --set=migrator_user="$${POSTGRES_MIGRATOR_USER}" \
+            --set=admin_user="$${POSTGRES_ADMIN_USER}" \
+            --set=schema="$${schema}" <<'SQL'
+        SELECT format('CREATE SCHEMA IF NOT EXISTS %I AUTHORIZATION %I', :'schema', :'migrator_user') \gexec
+        SELECT format('GRANT USAGE ON SCHEMA %I TO %I', :'schema', :'admin_user') \gexec
+        SELECT format('GRANT SELECT ON ALL TABLES IN SCHEMA %I TO %I', :'schema', :'admin_user') \gexec
+        SELECT format('GRANT SELECT ON ALL SEQUENCES IN SCHEMA %I TO %I', :'schema', :'admin_user') \gexec
         SELECT format(
-          'ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA drizzle GRANT SELECT ON TABLES TO %I',
+          'ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA %I GRANT SELECT ON TABLES TO %I',
           :'migrator_user',
+          :'schema',
           :'admin_user'
         ) \gexec
         SELECT format(
-          'ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA drizzle GRANT SELECT ON SEQUENCES TO %I',
+          'ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA %I GRANT SELECT ON SEQUENCES TO %I',
           :'migrator_user',
+          :'schema',
           :'admin_user'
         ) \gexec
+        SQL
+        done
+        unset IFS
+        set +f
+        # One unreadable object fails the whole nightly pg_dump, and nothing reports it until the
+        # backup does, a day later. Name it here instead.
+        psql --host=postgres --username="$${POSTGRES_USER}" --dbname="$${POSTGRES_APP_DATABASE}" \
+          --set=ON_ERROR_STOP=1 \
+          --set=admin_user="$${POSTGRES_ADMIN_USER}" <<'SQL'
+        WITH unreadable AS (
+          SELECT quote_ident(nspname) AS name
+          FROM pg_namespace
+          WHERE nspname NOT LIKE 'pg\_%'
+            AND nspname <> 'information_schema'
+            AND NOT has_schema_privilege(:'admin_user', nspname, 'USAGE')
+          UNION
+          SELECT format('%I.%I', schemaname, tablename)
+          FROM pg_tables
+          WHERE schemaname NOT LIKE 'pg\_%'
+            AND schemaname <> 'information_schema'
+            AND NOT has_table_privilege(:'admin_user', format('%I.%I', schemaname, tablename), 'SELECT')
+        )
+        SELECT format(
+          'DO $$do$$ BEGIN RAISE EXCEPTION ''the Admin role cannot read %%. Add the schema to POSTGRES_EXTRA_SCHEMAS and rerun provision, or the daily pg_dump fails.'', %L; END $$do$$',
+          string_agg(name, ', ' ORDER BY name)
+        )
+        FROM unreadable
+        HAVING count(*) > 0 \gexec
         SQL
     networks:
       - application-infra
