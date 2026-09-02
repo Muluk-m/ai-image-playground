@@ -39,7 +39,7 @@ function OverviewPage() {
       description="运行状态与任务趋势"
       actions={
         <span className="inline-flex items-center gap-2 rounded-full border bg-card px-3 py-1 text-xs text-muted-foreground">
-          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 shadow-[0_0_0_3px_rgba(16,185,129,0.12)]" />
+          <span className="h-1.5 w-1.5 rounded-full bg-success ring-4 ring-success/15" />
           数据库在线
         </span>
       }
