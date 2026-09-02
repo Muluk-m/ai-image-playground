@@ -117,3 +117,17 @@ provision，否则 SELECT-only 的备份角色读不到它，每日 `pg_dump` �
 - `openspec/changes/<name>/tasks.md` — 可执行任务清单
 
 新功能建议先 proposal → design → tasks → 执行。简单 bug fix 可以直接动手。
+
+## Agent skills
+
+### Issue tracker
+
+Issues and specs live in GitHub Issues of `Muluk-m/ai-image-playground` (`gh` CLI). See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default five-role vocabulary (`needs-triage` / `needs-info` / `ready-for-agent` / `ready-for-human` / `wontfix`). See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: root `CONTEXT.md` + `docs/adr/`. See `docs/agents/domain.md`.
