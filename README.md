@@ -350,18 +350,14 @@ scripts/vps-deploy.sh internal                        # every deploy from here o
 
 `vps-deploy.sh <internal|paid|all> [git-ref]` is the single entry point for a rollout. It
 refuses a checkout with modified tracked files, fetches and detaches onto the ref (`origin/main`
-by default), fast-forwards `./private` for the paid edition, builds, tags the image with the
-commits it came from, rolls out through `app-compose.sh up`, verifies that every container is
-healthy or exited 0, and appends one line to `$config_root/deployments.log`.
+by default), fast-forwards `./private` for the paid edition, builds, rolls out through
+`app-compose.sh up`, and appends one line to `$config_root/deployments.log`. Put a GitHub token
+with read access to the private repository in `$config_root/secrets/private-repo-token` to
+fast-forward `./private` without a prompt.
 
-To fast-forward `./private` without an interactive prompt, put a GitHub token with read access
-to the private repository in `$config_root/secrets/private-repo-token` and `chmod 600` it. The
-script passes it through a one-shot credential helper, never on a command line.
-
-`app-compose.sh` and `infra-compose.sh` remain the building blocks underneath, for rollback,
-stopping a project, and ad-hoc Compose commands. The commit-qualified tag each build leaves
-behind (`ai-image-playground:vps-main-<sha7>`, `ai-image-playground:paid-<sha7>-<sha7>`) is what
-`app-compose.sh rollback` rolls back to.
+Each build is tagged with the commits it came from, which is what `app-compose.sh rollback`
+rolls back to. `app-compose.sh` and `infra-compose.sh` remain the building blocks underneath,
+for rollback, stopping a project, and ad-hoc Compose commands.
 
 Point the hostnames at the tunnel, from the account that owns them:
 
@@ -393,17 +389,14 @@ scripts/pages-release.sh internal
 ```
 
 `pages-release.sh <internal|paid>` is the single entry point for a frontend release. It reads
-one edition's keys from that file, deploys to the `main` branch of the Pages project, and then
-polls `<PUBLIC_ORIGIN>/version.json` for up to 60 seconds until the manifest reports the commit
-just built. The branch argument matters: from a detached HEAD wrangler otherwise infers the
-branch name `head` and publishes a preview alias instead of production. Each release appends a
-line to the same `deployments.log` the VPS writes.
+one edition's keys from that file, uploads the bundle, and then polls
+`<PUBLIC_ORIGIN>/version.json` for up to 60 seconds until the live manifest matches the one just
+built. Each release appends a line to the same `deployments.log` the VPS writes.
 
-Set `<EDITION>_CLOUDFLARE_TOKEN_FILE` to an env file holding `CLOUDFLARE_API_TOKEN` for an
-account released with an API token. Leave it unset to release with wrangler's own OAuth login;
-the script then clears any `CLOUDFLARE_API_TOKEN` inherited from the shell, so one workstation
-can release both accounts. `pages-deploy.sh` remains the building block for a one-off upload
-with hand-set environment variables.
+Set `<EDITION>_CLOUDFLARE_TOKEN_FILE` to an env file holding `CLOUDFLARE_API_TOKEN`, or leave it
+unset to release with wrangler's own OAuth login; either way the other account's token cannot
+leak in from the shell, so one workstation can release both. `pages-deploy.sh` remains the
+building block for a one-off upload with hand-set environment variables.
 
 The frontend and the API must share one registrable domain, as in option 3: the Admin session
 cookie is `Secure; SameSite=Lax`.

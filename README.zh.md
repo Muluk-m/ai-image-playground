@@ -319,16 +319,12 @@ scripts/vps-deploy.sh internal                        # 之后每次部署都走
 
 `vps-deploy.sh <internal|paid|all> [git-ref]` 是一次上线的唯一入口。它在检出有未提交的
 已跟踪改动时拒绝执行，fetch 后 detach 到指定 ref（默认 `origin/main`），paid 形态会
-fast-forward `./private`，然后构建、按来源提交打 tag、经 `app-compose.sh up` 滚动、校验
-每个容器 healthy 或 exited 0，最后往 `$config_root/deployments.log` 追加一行。
+fast-forward `./private`，然后构建、经 `app-compose.sh up` 滚动，最后往
+`$config_root/deployments.log` 追加一行。把一个对私有仓库有读权限的 GitHub token 放进
+`$config_root/secrets/private-repo-token`，`./private` 就能无交互地 fast-forward。
 
-要让 `./private` 无交互地 fast-forward，把一个对私有仓库有读权限的 GitHub token 放进
-`$config_root/secrets/private-repo-token` 并 `chmod 600`。脚本用一次性 credential helper
-传它，不会出现在命令行上。
-
-底下的构件仍是 `app-compose.sh` 与 `infra-compose.sh`：回滚、停项目、临时 compose 命令都走
-它们。每次构建留下的带提交 tag（`ai-image-playground:vps-main-<sha7>`、
-`ai-image-playground:paid-<sha7>-<sha7>`）正是 `app-compose.sh rollback` 的回滚目标。
+每次构建都按来源提交打 tag，那正是 `app-compose.sh rollback` 的回滚目标。底下的构件仍是
+`app-compose.sh` 与 `infra-compose.sh`：回滚、停项目、临时 compose 命令都走它们。
 
 在持有域名的那个账号下把 hostname 指到隧道：
 
@@ -358,14 +354,13 @@ scripts/pages-release.sh internal
 ```
 
 `pages-release.sh <internal|paid>` 是一次前端发布的唯一入口。它从该文件读取一个形态的配置，
-发布到 Pages 项目的 `main` 分支，然后轮询 `<PUBLIC_ORIGIN>/version.json`，最多 60 秒，直到
-清单报出刚构建的那个提交。分支参数是要紧的：detached HEAD 下 wrangler 会推断出分支名
-`head`，发成 preview 别名而不是生产。每次发布往 VPS 用的同一个 `deployments.log` 追加一行。
+上传产物，然后轮询 `<PUBLIC_ORIGIN>/version.json`，最多 60 秒，直到线上清单与刚构建出来的
+那份一致。每次发布往 VPS 用的同一个 `deployments.log` 追加一行。
 
-用 API token 发布的账号，把 `<EDITION>_CLOUDFLARE_TOKEN_FILE` 指到一个设置了
-`CLOUDFLARE_API_TOKEN` 的 env 文件。不设它就走 wrangler 自己的 OAuth 登录：脚本会清掉从
-shell 继承来的 `CLOUDFLARE_API_TOKEN`，所以一台机器可以同时发两个账号。手工设环境变量的
-一次性上传仍然直接用 `pages-deploy.sh`。
+把 `<EDITION>_CLOUDFLARE_TOKEN_FILE` 指到一个设置了 `CLOUDFLARE_API_TOKEN` 的 env 文件，
+或者干脆不设、走 wrangler 自己的 OAuth 登录：两条路都不会让另一个账号的 token 从 shell 漏
+进来，所以一台机器可以同时发两个账号。手工设环境变量的一次性上传仍然直接用
+`pages-deploy.sh`。
 
 前端域与 API 域同选项 3 一样必须是同一注册域：Admin 会话 cookie 是
 `Secure; SameSite=Lax`。
