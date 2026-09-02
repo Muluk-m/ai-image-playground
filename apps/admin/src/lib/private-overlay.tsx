@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
-import { notFound } from '@tanstack/react-router'
+import { notFound, useLocation } from '@tanstack/react-router'
 import type { ComponentType } from 'react'
+import { Page } from '@/components/Page'
 import { apiClient } from './api-client'
 
 export interface PrivateAdminUserSummary {
@@ -116,8 +117,17 @@ export function PrivateAdminOverviewPanel() {
 }
 export function PrivateAdminSettingsPanel() {
   const enabled = usePrivateAdminOverlayEnabled()
+  const navigation = usePrivateAdminNavigation()
+  const pathname = useLocation({ select: (location) => location.pathname })
   const Component = overlay.SettingsPanel
-  return enabled ? <Component /> : null
+  if (!enabled) return null
+  // 私有路由自己只渲染面板，页头由公开侧补上，标题取 /api/extensions 里对应的导航项。
+  const label = navigation.find((entry) => entry.href === pathname)?.label ?? '设置'
+  return (
+    <Page crumbs={[{ label }]}>
+      <Component />
+    </Page>
+  )
 }
 
 export function PrivateAdminUserDetailPanel(props: { userId: string; username: string }) {
