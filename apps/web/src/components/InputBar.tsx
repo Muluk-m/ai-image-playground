@@ -16,18 +16,18 @@ import {
   normalizeParamsForSettings,
 } from '../lib/paramCompatibility'
 import { usePrivateSubmissionGuard } from '../lib/privateOverlay'
+import { buildPromptEditorHtml } from '../lib/promptEditorHtml'
 import { computePromptHeight } from '../lib/promptHeight'
 import {
   getAtImageQuery,
   getImageMentionLabel,
   getPromptIndexFromVisibleIndex,
-  getPromptMentionParts,
-  getSelectedImageMentionLabel,
   imageMentionMatches,
   insertImageMentionAtVisibleRange,
   isCursorInSelectedImageMention,
   stripImageMentionMarkers,
 } from '../lib/promptImageMentions'
+import { getPromptSlotNames, getSubmissionImageCount } from '../lib/promptSlots'
 import {
   addImageFromFile,
   removeMultipleTasks,
@@ -38,6 +38,7 @@ import {
 import { ChipIcons } from './chipIcons'
 import { CloseIcon } from './icons'
 import ParamControls from './ParamControls'
+import SlotValuePopover from './SlotValuePopover'
 import SubmissionBillingAction from './SubmissionBillingAction'
 import SuggestionMenu, { useSuggestionMenu } from './SuggestionMenu'
 import ViewportTooltip from './ViewportTooltip'
@@ -407,6 +408,8 @@ export default function InputBar() {
     clearSelection()
   }, [tasks, selectedTaskIds, showToast, clearSelection])
 
+  const slotValues = useStore((s) => s.slotValues)
+  const setSlotValues = useStore((s) => s.setSlotValues)
   const maskDraft = useStore((s) => s.maskDraft)
   const clearMaskDraft = useStore((s) => s.clearMaskDraft)
   const setMaskEditorImageId = useStore((s) => s.setMaskEditorImageId)
@@ -453,6 +456,7 @@ export default function InputBar() {
   const imageHintLockedRef = useRef(false)
   const imageHintReleaseRef = useRef<(() => void) | null>(null)
   const [cursorPos, setCursorPos] = useState(0)
+  const [openSlot, setOpenSlot] = useState<{ name: string; left: number } | null>(null)
   const [menuLeft, setMenuLeft] = useState(0)
   const maskConflictNoticeShownRef = useRef(false)
   const compressionHintTimerRef = useRef<number | null>(null)
@@ -481,7 +485,9 @@ export default function InputBar() {
   )
   const activeView = clientProfileToApiProfile(activeProfile)
   const hasSubmitApiConfig = activeProfile.source === 'builtin-edge' || Boolean(activeView.apiKey)
-  const submissionInput = { model: activeView.model, quantity: Math.max(1, params.n) }
+  const submitImageCount = getSubmissionImageCount(prompt, slotValues, params.n)
+  const generateLabel = submitImageCount > 1 ? `生成 ${submitImageCount} 张` : '生成'
+  const submissionInput = { model: activeView.model, quantity: submitImageCount }
   const submissionGuard = usePrivateSubmissionGuard(submissionInput)
   const canSubmit = Boolean(prompt.trim() && hasSubmitApiConfig && !submissionGuard.blocked)
   // null → 旧行为；有声明时按 capability 显隐参考图 / 遮罩 / 质量控件，
@@ -976,24 +982,19 @@ export default function InputBar() {
       isUserInputRef.current = false
       return
     }
-    const parts = getPromptMentionParts(prompt, inputImages)
-    const html = prompt
-      ? parts
-          .map((part) =>
-            part.type === 'mention'
-              ? `<span contenteditable="false" class="mention-tag" data-mention-text="${getSelectedImageMentionLabel(part.imageIndex)}">${part.text}</span>`
-              : part.text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'),
-          )
-          .join('')
-      : ''
+    const html = buildPromptEditorHtml(prompt, inputImages, slotValues)
     if (el.innerHTML !== html) {
       el.innerHTML = html
     }
-  }, [prompt, inputImages])
+  }, [prompt, inputImages, slotValues])
 
   useEffect(() => {
     adjustTextareaHeight()
   }, [prompt, inputImages, adjustTextareaHeight])
+
+  useEffect(() => {
+    setOpenSlot((slot) => (slot && !getPromptSlotNames(prompt).includes(slot.name) ? null : slot))
+  }, [prompt])
 
   // 监听 selectionchange 以在光标移动时更新位置（contentEditable 的 onSelect 不可靠）
   useEffect(() => {
@@ -1690,7 +1691,7 @@ export default function InputBar() {
                   }
                 >
                   {ChipIcons.sparkles}
-                  <span>{maskDraft ? '遮罩编辑' : '生成'}</span>
+                  <span>{maskDraft ? '遮罩编辑' : generateLabel}</span>
                 </button>
               </div>
             </div>
@@ -1744,6 +1745,16 @@ export default function InputBar() {
 
               {/* 输入框 */}
               <div className="relative">
+                {openSlot && (
+                  <SlotValuePopover
+                    key={openSlot.name}
+                    name={openSlot.name}
+                    values={slotValues[openSlot.name] ?? []}
+                    offsetLeft={openSlot.left}
+                    onChange={(values) => setSlotValues(openSlot.name, values)}
+                    onClose={() => setOpenSlot(null)}
+                  />
+                )}
                 {atImageMenu.visible && (
                   <SuggestionMenu
                     heading="选择当前参考图"
@@ -1759,7 +1770,6 @@ export default function InputBar() {
                   contentEditable
                   suppressContentEditableWarning
                   onInput={(e) => {
-                    isUserInputRef.current = true
                     const el = e.currentTarget
                     // contentEditable 删除最后一个字符后浏览器常留 <br> 或空 span，让
                     // :empty 不再匹配 → placeholder 消失。textContent 真为空就把残留 DOM 清干净。
@@ -1770,7 +1780,19 @@ export default function InputBar() {
                     setCursorPos(range.start)
                     syncMentionTagSelection(el)
                     const text = getContentEditablePlainText(el)
+                    // 手打出一个完整槽位时必须让渲染 effect 跑一次，否则它永远不会变成 chip。
+                    const slotsChanged =
+                      getPromptSlotNames(text).join('\u0000') !==
+                      getPromptSlotNames(prompt).join('\u0000')
+                    isUserInputRef.current = !slotsChanged
                     setPrompt(text)
+                    if (slotsChanged) {
+                      window.setTimeout(() => {
+                        if (textareaRef.current) {
+                          setContentEditableCursor(textareaRef.current, range.start)
+                        }
+                      }, 0)
+                    }
                     atImageMenu.open()
                   }}
                   onSelect={(e) => {
@@ -1787,6 +1809,18 @@ export default function InputBar() {
                     const el = textareaRef.current
                     if (!el) return
                     const target = e.target as HTMLElement
+                    const slotTag = target.closest<HTMLElement>('.slot-tag')
+                    if (slotTag?.dataset.slotName) {
+                      const name = slotTag.dataset.slotName
+                      const chipRect = getSafeBoundingClientRect(slotTag)
+                      const editorRect = getSafeBoundingClientRect(el)
+                      setOpenSlot(
+                        openSlot?.name === name || !chipRect || !editorRect
+                          ? null
+                          : { name, left: chipRect.left - editorRect.left },
+                      )
+                      return
+                    }
                     if (target.classList.contains('mention-tag')) {
                       const sel = window.getSelection()
                       if (sel) {
@@ -1801,7 +1835,7 @@ export default function InputBar() {
 
                     syncMentionTagSelection(el)
                   }}
-                  data-placeholder="描述你想生成的图片，可输入 @ 指定当前参考图..."
+                  data-placeholder="描述你想生成的图片，@ 指定参考图，{槽位} 批量生成..."
                   className={TEXTAREA_CLASS}
                 />
                 {prompt.length > 0 && (
@@ -1893,7 +1927,7 @@ export default function InputBar() {
                           d="M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5L12 3zM19 14l.7 2.1L22 17l-2.3.9L19 20l-.7-2.1L16 17l2.3-.9L19 14z"
                         />
                       </svg>
-                      <span>{maskDraft ? '遮罩编辑' : '生成'}</span>
+                      <span>{maskDraft ? '遮罩编辑' : generateLabel}</span>
                     </button>
                   </div>
                 </div>
@@ -1958,7 +1992,13 @@ export default function InputBar() {
                         }`}
                       >
                         {ChipIcons.sparkles}
-                        <span>{maskDraft ? '遮罩编辑' : '生成图像'}</span>
+                        <span>
+                          {maskDraft
+                            ? '遮罩编辑'
+                            : submitImageCount > 1
+                              ? generateLabel
+                              : '生成图像'}
+                        </span>
                       </button>
                     </div>
                   </div>
