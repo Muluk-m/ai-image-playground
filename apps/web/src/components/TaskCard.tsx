@@ -1,14 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
+import { useImageThumbnail } from '../hooks/useImageThumbnail'
 import { downloadImagesByIds } from '../lib/downloadImages'
 import { ActualValueBadge, getParamDisplay } from '../lib/paramDisplay'
 import { formatImageRatio } from '../lib/size'
-import {
-  ensureImageThumbnailCached,
-  retryTask,
-  subscribeImageThumbnail,
-  updateTaskInStore,
-  useStore,
-} from '../store'
+import { retryTask, updateTaskInStore, useStore } from '../store'
 import type { TaskRecord } from '../types'
 import { CodeIcon } from './icons'
 
@@ -34,9 +29,12 @@ export default function TaskCard({
   onClick,
   isSelected,
 }: Props) {
-  const [thumbSrc, setThumbSrc] = useState<string>('')
-  const [coverRatio, setCoverRatio] = useState<string>('')
-  const [coverSize, setCoverSize] = useState<string>('')
+  const thumbnail = useImageThumbnail(task.outputImages?.[0])
+  const thumbSrc = thumbnail?.dataUrl ?? ''
+  const coverRatio =
+    thumbnail?.width && thumbnail.height ? formatImageRatio(thumbnail.width, thumbnail.height) : ''
+  const coverSize =
+    thumbnail?.width && thumbnail.height ? `${thumbnail.width}×${thumbnail.height}` : ''
   const [now, setNow] = useState(Date.now())
   // 仅给「页面运行期间刚提交的卡片」播放一次入场动画。CSS keyframes 本身只在
   // mount 时播放一次，所以 useRef 锁定 mount 时刻的判定即可——不需要 state +
@@ -173,43 +171,6 @@ export default function TaskCard({
     setNow(Date.now())
     return () => clearInterval(id)
   }, [task.customRecoverable, task.status])
-
-  // 加载缩略图
-  useEffect(() => {
-    setCoverRatio('')
-    setCoverSize('')
-    setThumbSrc('')
-
-    let cancelled = false
-    const imageId = task.outputImages?.[0]
-    let unsubscribe: (() => void) | undefined
-
-    const applyThumbnail = (thumbnail: { dataUrl: string; width?: number; height?: number }) => {
-      if (cancelled) return
-      setThumbSrc(thumbnail.dataUrl)
-      if (thumbnail.width && thumbnail.height) {
-        setCoverRatio(formatImageRatio(thumbnail.width, thumbnail.height))
-        setCoverSize(`${thumbnail.width}×${thumbnail.height}`)
-      }
-    }
-
-    if (imageId) {
-      unsubscribe = subscribeImageThumbnail(imageId, applyThumbnail)
-      ensureImageThumbnailCached(imageId)
-        .then((thumbnail) => {
-          if (cancelled || !thumbnail) return
-          applyThumbnail(thumbnail)
-        })
-        .catch(() => {
-          if (!cancelled) setThumbSrc('')
-        })
-    }
-
-    return () => {
-      cancelled = true
-      unsubscribe?.()
-    }
-  }, [task.outputImages])
 
   const duration = (() => {
     let seconds: number
