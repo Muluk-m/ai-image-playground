@@ -2,6 +2,14 @@ import { useQuery } from '@tanstack/react-query'
 import { notFound } from '@tanstack/react-router'
 import { Settings } from 'lucide-react'
 import type { ComponentType } from 'react'
+import {
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarGroupLabel,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+} from '@/components/ui/sidebar'
 import { apiClient } from './api-client'
 
 export interface PrivateAdminUserSummary {
@@ -104,17 +112,26 @@ export async function requirePrivateAdminRoute(path: string): Promise<void> {
 
 export function PrivateAdminNavigation() {
   const query = useAdminExtensionManifest()
-  if (!overlay.present || !query.data) return null
-  return query.data.navigation.map((entry) => (
-    <a
-      key={entry.href}
-      href={entry.href}
-      className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
-    >
-      <Settings className="h-3.5 w-3.5" />
-      {entry.label}
-    </a>
-  ))
+  if (!overlay.present || !query.data?.navigation.length) return null
+  return (
+    <SidebarGroup>
+      <SidebarGroupLabel>配置</SidebarGroupLabel>
+      <SidebarGroupContent>
+        <SidebarMenu>
+          {query.data.navigation.map((entry) => (
+            <SidebarMenuItem key={entry.href}>
+              <SidebarMenuButton asChild tooltip={entry.label}>
+                <a href={entry.href}>
+                  <Settings />
+                  <span>{entry.label}</span>
+                </a>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          ))}
+        </SidebarMenu>
+      </SidebarGroupContent>
+    </SidebarGroup>
+  )
 }
 
 export function PrivateAdminOverviewPanel() {
