@@ -82,6 +82,9 @@ typecheck、测试和构建。公开树只允许以下三个审计接缝引用 `
 验证 overlay 构建一律 `pnpm build --force`：turbo 的输入哈希看不见 gitignored 的 `private/`，
 不加 `--force` 会命中不带 overlay 的缓存产物。
 
+私有迁移新建 schema 时，必须把 schema 名登记到部署的 `POSTGRES_EXTRA_SCHEMAS` 并重跑
+provision，否则 SELECT-only 的备份角色读不到它，每日 `pg_dump` 全库失败。
+
 ## 版本模型与分支
 
 **服务端只有一套。** `apps/bff`、`apps/admin` 服务端、`packages/db` 同时兼容收费与免费部署：
