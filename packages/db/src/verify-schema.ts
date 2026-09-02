@@ -32,7 +32,7 @@ export const EXPECTED_INDEXES = [
   'users_pkey',
 ] as const
 
-const EXPECTED_MIGRATION_COUNT = 6
+const EXPECTED_MIGRATION_COUNT = 7
 
 export interface SchemaVerificationResult {
   tables: number
