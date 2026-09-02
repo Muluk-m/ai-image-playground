@@ -72,11 +72,7 @@ function resolveUpstream(provider: QueueProvider, model: string): UpstreamRoute 
       style,
       forceB64Json: provider === 'openai-compat' && channel.defaults.responseFormatB64Json === true,
       supportsModeration: declared.capabilities.includes('moderation'),
-      // agnes 风格上游没有 async 端点，声明位在那儿是误配置，不认。
-      asyncTasks:
-        provider === 'openai-compat' &&
-        style !== 'agnes-generations-json' &&
-        channel.defaults.asyncTasks === true,
+      asyncTasks: provider === 'openai-compat' && channel.defaults.asyncTasks === true,
     }
   }
   const version = provider === 'gemini' ? 'v1beta' : 'v1'
@@ -108,10 +104,10 @@ export interface UpstreamCallParams {
    */
   resumeUpstreamTaskIds?: readonly string[]
   /**
-   * 整通调用的绝对截止时刻。恢复轮询时由调用方按**首次提交时刻**算出，重启不能
-   * 重新发一份完整超时预算，否则 STALE_IN_PROGRESS_MS 会误杀正在正常轮询的行。
+   * 超时预算的起点，恢复轮询时传**首次提交时刻**。重启不能重新发一份完整预算，
+   * 否则 STALE_IN_PROGRESS_MS 会误杀正在正常轮询的行。缺省即本次调用开始时刻。
    */
-  deadlineAt?: number
+  budgetAnchorAt?: number
 }
 
 export interface UpstreamCallResult {
@@ -196,7 +192,7 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
 
   const abort = new AbortController()
   let timedOut = false
-  const deadlineAt = params.deadlineAt ?? Date.now() + QUEUE_TIMEOUTS.UPSTREAM_HARD_TIMEOUT_MS
+  const deadlineAt = (params.budgetAnchorAt ?? Date.now()) + QUEUE_TIMEOUTS.UPSTREAM_HARD_TIMEOUT_MS
   const timer = setTimeout(
     () => {
       timedOut = true
@@ -309,12 +305,11 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
             ).payload
           } catch (err) {
             if (timedOut || externalSignal?.aborted || !isRecoverablePollFailure(err)) throw err
-            await abortableSleep(asyncPollDelayMs(attempt), abort.signal)
-            continue
+            // 留 payload 为 undefined，下面按 pending 走同一条退避路径。
           }
           const state = readAsyncTaskState(payload)
           if (state.kind === 'completed') return { payload: state.payload }
-          if (state.kind === 'failed') throw asyncTaskFailure(state, payload)
+          if (state.kind === 'failed') throw asyncTaskFailure(state.status, payload)
           await abortableSleep(asyncPollDelayMs(attempt), abort.signal)
         }
       }
@@ -330,18 +325,16 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
         makeInit: () => UpstreamFetchInit,
         merge: (results: UpstreamCallResult[]) => UpstreamCallResult,
       ): Promise<UpstreamCallResult> => {
-        const results = useAsyncTasks
-          ? await Promise.all(
-              (resumeIds.length > 0
-                ? [...resumeIds]
-                : await submitAsyncTasks(`${url}/async`, count, makeInit)
-              ).map(pollAsyncTask),
-            )
-          : await Promise.all(
-              Array.from({ length: count }, async () =>
-                parseResponse(await performFetch(url, makeInit())),
-              ),
-            )
+        if (!useAsyncTasks) {
+          return fanOutRequests(
+            count,
+            async () => parseResponse(await performFetch(url, makeInit())),
+            merge,
+          )
+        }
+        const taskIds =
+          resumeIds.length > 0 ? resumeIds : await submitAsyncTasks(`${url}/async`, count, makeInit)
+        const results = await Promise.all(taskIds.map(pollAsyncTask))
         return results.length === 1 ? results[0]! : merge(results)
       }
 
@@ -380,12 +373,17 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
         const unitRequest = n === 1 ? editRequest : withoutImageCount(editRequest)
         // Grok edits 必须 application/json：改回 multipart 会被 sub2api 转换丢掉
         // response_format，上游退回 URL 结果，归档取图一律 403。
-        const makeInit = (): UpstreamFetchInit =>
+        // FormData 会被请求消费掉，所以只有 JSON 体能在 fan-out 之间复用。
+        const grokBody =
           style === 'grok-openai-images'
+            ? JSON.stringify(buildGrokEditBody(model, unitRequest))
+            : null
+        const makeInit = (): UpstreamFetchInit =>
+          grokBody !== null
             ? {
                 method: 'POST',
                 headers: { 'content-type': 'application/json', ...authHeader },
-                body: JSON.stringify(buildGrokEditBody(model, unitRequest)),
+                body: grokBody,
               }
             : {
                 method: 'POST',
@@ -442,8 +440,15 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
 /** 轮询退避（ms），index 超出取末位。上游 202 响应的 `Retry-After` 也是 3。 */
 const ASYNC_POLL_BACKOFF_MS: readonly number[] = [3_000, 3_000, 5_000, 5_000, 10_000]
 
+let asyncPollBackoffMs = ASYNC_POLL_BACKOFF_MS
+
+/** 测试注入点；undefined 恢复真实退避（否则一次重试就要真睡 3 秒）。 */
+export function setAsyncPollBackoffForTesting(backoffMs?: readonly number[]): void {
+  asyncPollBackoffMs = backoffMs ?? ASYNC_POLL_BACKOFF_MS
+}
+
 function asyncPollDelayMs(attempt: number): number {
-  return ASYNC_POLL_BACKOFF_MS[Math.min(attempt, ASYNC_POLL_BACKOFF_MS.length - 1)]!
+  return asyncPollBackoffMs[Math.min(attempt, asyncPollBackoffMs.length - 1)]!
 }
 
 function abortableSleep(ms: number, signal: AbortSignal): Promise<void> {
@@ -466,11 +471,9 @@ function abortableSleep(ms: number, signal: AbortSignal): Promise<void> {
  * 重来一次就是重复计费；轮询只是再读一次同一个任务，代价为零。
  */
 function isRecoverablePollFailure(err: unknown): boolean {
-  if (err && typeof err === 'object' && 'upstreamStatus' in err) {
-    const status = (err as { upstreamStatus: unknown }).upstreamStatus
-    return typeof status === 'number' && (status === 408 || status === 429 || status >= 500)
-  }
-  return err instanceof UpstreamResultUnknownError
+  const { status } = extractUpstreamFailure(err)
+  if (status === null) return err instanceof UpstreamResultUnknownError
+  return status === 408 || status === 429 || status >= 500
 }
 
 /** 提交响应的 task id。文档同时给 `id` 与 `task_id`，两个都认。 */
@@ -488,7 +491,7 @@ function extractAsyncTaskId(payload: unknown): string {
 type AsyncTaskState =
   | { kind: 'pending' }
   | { kind: 'completed'; payload: unknown }
-  | { kind: 'failed'; message: string; status: number | null }
+  | { kind: 'failed'; status: number | null }
 
 /** 未知 status 一律当 pending 继续轮：上游加新中间态时不该把任务判死。 */
 function readAsyncTaskState(payload: unknown): AsyncTaskState {
@@ -500,24 +503,16 @@ function readAsyncTaskState(payload: unknown): AsyncTaskState {
     return { kind: 'completed', payload: result && typeof result === 'object' ? result : payload }
   }
   if (body.status !== 'failed') return { kind: 'pending' }
-  const status = typeof body.http_status === 'number' ? body.http_status : null
-  return {
-    kind: 'failed',
-    message: extractErrorMessage(payload, status ?? 502),
-    status,
-  }
+  return { kind: 'failed', status: typeof body.http_status === 'number' ? body.http_status : null }
 }
 
 /** 上游任务终态失败 → 复用 HTTP 失败的错误形状，retry.ts 与 admin 才认得出来。 */
-function asyncTaskFailure(
-  state: Extract<AsyncTaskState, { kind: 'failed' }>,
-  payload: unknown,
-): Error {
-  const err = new Error(state.message) as Error & {
+function asyncTaskFailure(status: number | null, payload: unknown): Error {
+  const err = new Error(extractErrorMessage(payload, status ?? 502)) as Error & {
     upstreamStatus?: number
     upstreamPayload: unknown
   }
-  if (state.status !== null) err.upstreamStatus = state.status
+  if (status !== null) err.upstreamStatus = status
   err.upstreamPayload = payload
   return err
 }

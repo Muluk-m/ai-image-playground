@@ -5,7 +5,7 @@ import { objectStore } from '../lib/objectStore'
 import { loadPrivateBffOverlay } from '../lib/private-overlay'
 import { planNextAttempt } from '../lib/retry'
 import { db, schema } from './client'
-import { finishTask, requeueTask, requeueTaskForPolling } from './task-transitions'
+import { finishTask, requeueTask, requeueTasksForPolling } from './task-transitions'
 
 export interface RecoveredTasks {
   requeued: number
@@ -47,7 +47,7 @@ export function recoverAbandonedTasks(
  *   轮询阶段自己按首次提交时刻判超时，所以不会无限回队。
  * - **无 id**：只能按 task-runner 同一套重试预算重跑（attempt+1），预算用尽才落 failed。
  *   明知重试可能重复消耗上游配额也要做——卡在 in_progress 的行没有任何东西会回收它，
- *   预扣的额度会永久悬挂。这正是异步接入要消灭的那道选择题。
+ *   预扣的额度会永久悬挂。
  */
 async function recoverTasks(scope: SQL, now: number): Promise<RecoveredTasks> {
   const candidates = await db
@@ -59,14 +59,15 @@ async function recoverTasks(scope: SQL, now: number): Promise<RecoveredTasks> {
     .from(schema.tasks)
     .where(and(eq(schema.tasks.status, 'in_progress'), scope))
 
+  // 轮询恢复没有 per-row 计算，一条 UPDATE 收掉；启动与 SIGTERM drain 都在等这个结果。
+  const resumedPolling = await requeueTasksForPolling(
+    candidates.filter((c) => c.upstreamTaskIds?.length).map((c) => c.id),
+  )
+
   let requeued = 0
   let failed = 0
-  let resumedPolling = 0
   for (const candidate of candidates) {
-    if (candidate.upstreamTaskIds && candidate.upstreamTaskIds.length > 0) {
-      if (await requeueTaskForPolling(candidate.id)) resumedPolling += 1
-      continue
-    }
+    if (candidate.upstreamTaskIds?.length) continue
     const attemptJustFailed = candidate.attemptCount + 1
     const plan = planNextAttempt(attemptJustFailed, now)
     const written = plan.shouldRetry
