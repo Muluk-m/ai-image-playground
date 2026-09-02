@@ -13,6 +13,18 @@ export interface AuthUserView {
   username: string
 }
 
+export interface LoginIdentityView {
+  readonly provider: string
+  readonly email: string | null
+  readonly linked_at: number
+}
+
+/** Every way the signed-in account can authenticate; drives the account panel. */
+export interface LoginMethodsView {
+  readonly password: boolean
+  readonly identities: readonly LoginIdentityView[]
+}
+
 export function normalizeUsername(value: string): string {
   return value.trim().toLowerCase()
 }
