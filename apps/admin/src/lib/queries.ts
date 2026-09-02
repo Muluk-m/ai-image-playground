@@ -68,7 +68,7 @@ export function useUserTasks(userId: string, status: string) {
     queryKey: ['user', userId, 'tasks', { status }],
     queryFn: ({ pageParam }) =>
       apiClient.get<UserTasksResult>(
-        `/api/users/${encodeURIComponent(userId)}/tasks?status=${status}${
+        `/api/users/${encodeURIComponent(userId)}/tasks?status=${encodeURIComponent(status)}${
           pageParam ? `&cursor=${encodeURIComponent(pageParam)}` : ''
         }`,
       ),

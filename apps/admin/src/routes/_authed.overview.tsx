@@ -34,16 +34,7 @@ function OverviewPage() {
   const query = useOverview(range)
 
   return (
-    <Page
-      crumbs={[{ label: '概览' }]}
-      description="运行状态与任务趋势"
-      actions={
-        <span className="inline-flex items-center gap-2 rounded-full border bg-card px-3 py-1 text-xs text-muted-foreground">
-          <span className="h-1.5 w-1.5 rounded-full bg-success ring-4 ring-success/15" />
-          数据库在线
-        </span>
-      }
-    >
+    <Page crumbs={[{ label: '概览' }]} description="运行状态与任务趋势">
       {query.isPending ? (
         <PendingState label="正在汇总任务数据" />
       ) : query.isError ? (

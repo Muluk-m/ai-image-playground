@@ -28,9 +28,15 @@ export const Route = createFileRoute('/_authed')({
   ),
 })
 
+// SidebarProvider 只写 sidebar_state，不读；不回读的话每次刷新侧栏都弹回展开。
+function sidebarDefaultOpen(): boolean {
+  if (typeof document === 'undefined') return true
+  return !/(?:^|;\s*)sidebar_state=false(?:;|$)/.test(document.cookie)
+}
+
 function AuthedLayout() {
   return (
-    <SidebarProvider>
+    <SidebarProvider defaultOpen={sidebarDefaultOpen()}>
       <AppSidebar />
       <SidebarInset className="min-w-0">
         <Outlet />

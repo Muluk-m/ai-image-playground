@@ -81,6 +81,7 @@ function renderAt(path: string): void {
 
 beforeEach(() => {
   session.accountsLogin = true
+  document.cookie = 'sidebar_state=; path=/; max-age=0'
 })
 
 async function sidebarNav() {
@@ -108,6 +109,19 @@ describe('sidebar navigation', () => {
     renderAt('/overview')
     expect(await screen.findByRole('button', { name: '刷新' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '退出登录' })).toBeInTheDocument()
+  })
+
+  it('restores the collapsed state from the sidebar cookie', async () => {
+    document.cookie = 'sidebar_state=false; path=/'
+    renderAt('/overview')
+    await screen.findByRole('list', { name: '后台导航' })
+    expect(document.querySelector('[data-state="collapsed"]')).not.toBeNull()
+  })
+
+  it('defaults to an expanded sidebar without a cookie', async () => {
+    renderAt('/overview')
+    await screen.findByRole('list', { name: '后台导航' })
+    expect(document.querySelector('[data-state="collapsed"]')).toBeNull()
   })
 })
 
