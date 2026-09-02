@@ -1,6 +1,5 @@
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { RANGES, type Range } from '@/lib/search-params'
-import { cn } from '@/lib/utils'
 
 export const RANGE_LABEL: Record<Range, string> = {
   '1d': '1 天',
@@ -8,13 +7,13 @@ export const RANGE_LABEL: Record<Range, string> = {
   '30d': '30 天',
 }
 
-interface RangeToggleProps {
+export function RangeToggle({
+  value,
+  onChange,
+}: {
   value: Range
   onChange: (next: Range) => void
-  className?: string
-}
-
-export function RangeToggle({ value, onChange, className }: RangeToggleProps) {
+}) {
   return (
     <ToggleGroup
       type="single"
@@ -24,10 +23,7 @@ export function RangeToggle({ value, onChange, className }: RangeToggleProps) {
         // Radix 允许再次点击当前项取消选择，这里忽略空值以保证时间窗始终有效。
         if (next) onChange(next as Range)
       }}
-      className={cn(
-        'inline-flex h-8 items-center gap-0 rounded-md border border-input bg-background p-0.5 text-xs',
-        className,
-      )}
+      className="inline-flex h-8 items-center gap-0 rounded-md border border-input bg-background p-0.5 text-xs"
     >
       {RANGES.map((range) => (
         <ToggleGroupItem

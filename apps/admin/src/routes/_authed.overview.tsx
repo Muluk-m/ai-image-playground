@@ -1,7 +1,7 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
-import { Loader2 } from 'lucide-react'
 
-import { PageHeader } from '@/components/PageHeader'
+import { Kpi } from '@/components/Kpi'
+import { ErrorState, Page, PendingState } from '@/components/Page'
 import { RANGE_LABEL, RangeToggle } from '@/components/RangeToggle'
 import { TaskVolumeChart } from '@/components/TaskVolumeChart'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -15,7 +15,8 @@ import {
 } from '@/components/ui/table'
 import { PrivateAdminOverviewPanel } from '@/lib/private-overlay'
 import { useOverview } from '@/lib/queries'
-import { parseOverviewSearch, type Range } from '@/lib/search-params'
+import { DEFAULT_RANGE, parseOverviewSearch, type Range } from '@/lib/search-params'
+import type { OverviewResult } from '@/lib/types'
 
 export const Route = createFileRoute('/_authed/overview')({
   validateSearch: parseOverviewSearch,
@@ -27,24 +28,10 @@ function formatDuration(value: number | null): string {
   return value < 1000 ? `${Math.round(value)} ms` : `${(value / 1000).toFixed(1)} s`
 }
 
-function Kpi({ label, value, note }: { label: string; value: string; note: string }) {
-  return (
-    <Card>
-      <CardContent className="p-4">
-        <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
-          {label}
-        </p>
-        <p className="mt-3 font-mono text-2xl font-semibold tabular-nums tracking-tight">{value}</p>
-        <p className="mt-1 truncate text-xs text-muted-foreground">{note}</p>
-      </CardContent>
-    </Card>
-  )
-}
-
 function OverviewPage() {
   const search = Route.useSearch()
   const navigate = useNavigate()
-  const range = search.range ?? '7d'
+  const range = search.range ?? DEFAULT_RANGE
   const query = useOverview(range)
 
   function setRange(next: Range): void {
@@ -56,33 +43,25 @@ function OverviewPage() {
   }
 
   return (
-    <>
-      <PageHeader
-        crumbs={[{ label: '概览' }]}
-        title="概览"
-        description="运行状态与任务趋势"
-        actions={
-          <span className="inline-flex items-center gap-2 rounded-full border bg-card px-3 py-1 text-xs text-muted-foreground">
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 shadow-[0_0_0_3px_rgba(16,185,129,0.12)]" />
-            数据库在线
-          </span>
-        }
-      />
-
-      <div className="flex-1 space-y-4 px-4 py-5 md:px-6">
-        {query.isPending ? (
-          <div className="flex h-48 items-center justify-center text-muted-foreground">
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" /> 正在汇总任务数据
-          </div>
-        ) : query.isError ? (
-          <div className="rounded-lg border border-destructive/50 bg-destructive/5 p-6 text-sm text-destructive">
-            概览加载失败：{(query.error as Error).message}
-          </div>
-        ) : (
-          <OverviewContent data={query.data} range={range} onRangeChange={setRange} />
-        )}
-      </div>
-    </>
+    <Page
+      crumbs={[{ label: '概览' }]}
+      title="概览"
+      description="运行状态与任务趋势"
+      actions={
+        <span className="inline-flex items-center gap-2 rounded-full border bg-card px-3 py-1 text-xs text-muted-foreground">
+          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 shadow-[0_0_0_3px_rgba(16,185,129,0.12)]" />
+          数据库在线
+        </span>
+      }
+    >
+      {query.isPending ? (
+        <PendingState label="正在汇总任务数据" />
+      ) : query.isError ? (
+        <ErrorState label="概览加载失败" error={query.error} />
+      ) : (
+        <OverviewContent data={query.data} range={range} onRangeChange={setRange} />
+      )}
+    </Page>
   )
 }
 
@@ -91,7 +70,7 @@ function OverviewContent({
   range,
   onRangeChange,
 }: {
-  data: NonNullable<ReturnType<typeof useOverview>['data']>
+  data: OverviewResult
   range: Range
   onRangeChange: (next: Range) => void
 }) {
@@ -137,11 +116,7 @@ function OverviewContent({
           <RangeToggle value={range} onChange={onRangeChange} />
         </CardHeader>
         <CardContent className="p-4 pt-0">
-          <TaskVolumeChart
-            buckets={volume}
-            label="系统任务量"
-            bucketUnit={range === '1d' ? 'hour' : 'day'}
-          />
+          <TaskVolumeChart buckets={volume} label="系统任务量" />
         </CardContent>
       </Card>
 

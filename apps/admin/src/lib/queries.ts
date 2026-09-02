@@ -12,6 +12,9 @@ import type {
   UserDetailResult,
 } from './types'
 
+/** 手动刷新要 invalidate 的 query key 根；新增数据 hook 时同步补进来。 */
+export const DATA_QUERY_KEYS = ['devices', 'device', 'task', 'users', 'user', 'overview'] as const
+
 export function useDevices(range: Range, sort: SortKey) {
   return useQuery({
     queryKey: ['devices', { range, sort }],

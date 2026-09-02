@@ -72,8 +72,8 @@ export function parseUsersSearch(input: Record<string, unknown>): UsersSearch {
   return q ? { q } : {}
 }
 
-/** task / fullscreen / imgIdx / imgKind 控抽屉 + lightbox，详情页共用 */
-export interface TaskViewSearch {
+/** 抽屉 + lightbox 的 URL 状态，设备详情与用户详情共用 */
+interface TaskViewSearch {
   task?: string
   fullscreen?: '1'
   imgIdx?: number

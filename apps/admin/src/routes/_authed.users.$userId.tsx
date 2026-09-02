@@ -1,11 +1,11 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { createFileRoute, notFound, useNavigate } from '@tanstack/react-router'
-import { KeyRound, Loader2, LogOut, ShieldCheck, ShieldOff } from 'lucide-react'
+import { KeyRound, LogOut, ShieldCheck, ShieldOff } from 'lucide-react'
 import { type ReactNode, useState } from 'react'
 
 import { FuzzyTime } from '@/components/FuzzyTime'
 import { LightboxDialog } from '@/components/LightboxDialog'
-import { PageHeader } from '@/components/PageHeader'
+import { ErrorState, Page, PendingState } from '@/components/Page'
 import { TaskDetailSheet } from '@/components/TaskDetailSheet'
 import { TaskTable } from '@/components/TaskTable'
 import { TaskVolumeChart } from '@/components/TaskVolumeChart'
@@ -138,21 +138,15 @@ function UserDetailPage() {
 
   return (
     <>
-      <PageHeader
+      <Page
         crumbs={[{ label: '用户', to: '/users' }, { label: detail?.user?.username ?? userId }]}
         title={detail?.user?.username ?? '用户详情'}
         description="全部历史任务与账户操作"
-      />
-
-      <div className="flex-1 space-y-4 px-4 py-5 md:px-6">
+      >
         {query.isPending ? (
-          <div className="flex h-40 items-center justify-center text-muted-foreground">
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" /> 加载用户档案
-          </div>
+          <PendingState label="加载用户档案" />
         ) : query.isError ? (
-          <div className="rounded-lg border border-destructive/50 bg-destructive/5 p-6 text-sm text-destructive">
-            加载失败：{(query.error as Error).message}
-          </div>
+          <ErrorState label="加载失败" error={query.error} />
         ) : !detail || !detail.user ? (
           <div className="rounded-lg border bg-card p-12 text-center text-sm text-muted-foreground">
             未找到用户 {userId}
@@ -250,7 +244,7 @@ function UserDetailPage() {
             </div>
           </>
         )}
-      </div>
+      </Page>
 
       <TaskDetailSheet
         taskId={search.task}
