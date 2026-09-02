@@ -27,6 +27,12 @@ BFF 的公开核心只做四件事：
 - UI 必须保持完全隐藏 baseUrl / apiKey；模型可下拉切换
 - **channels.json 数组顺序是产品契约**：`channels[0]` 是新访客的默认模型（前端按序注入 profile 并兜底选第一个）。新增 channel 往后排
 - worker 调上游默认走 `UPSTREAM_BASE_URL` 通用网关（env 约定 baseUrl **不含**版本段）；独立直连上游的 channel 要加进 `upstream.ts` 的 `DIRECT_CHANNEL_IDS`，baseUrl/key 单源 channels.json（约定 baseUrl **含**版本段，如 `.../v1`）
+- **上游能力声明跟着它描述的那个 baseUrl 走**，这是异步图片任务开关落两处的原因：
+  - 直连 channel → `channels.json` 的 `defaults.asyncTasks`（与 baseUrl 同处，如 `grok-images`）
+  - 通用网关 → env `UPSTREAM_ASYNC_IMAGE_TASKS`（与 `UPSTREAM_BASE_URL` 同处，覆盖 `gpt-image-2` 这类未命中 `CHANNEL_ROUTE_STYLES` 的 channel）
+
+  网关部署里 `openai-images` 那条 channel 的 `baseUrl: https://api.openai.com/v1` 只是名义地址，`resolveUpstream` 压根不读它；在那儿写 `asyncTasks: true` 字面含义是「api.openai.com 有 /async 端点」，是假的。网关是不是 sub2api 只有 env 知道。
+- 打开异步后 worker 提交拿 `imgtask_…` 落库再轮询，重启按 id 接着轮，不重提交、不重计费。**上游没有幂等键**：已落库的 id 一律只轮不重提，重试只补提交缺口。要关上游的异步开关，先关我们这边的声明位——否则提交一律 404（日志 event `upstream.async_disabled`），没有静默回落同步。
 
 ## Queue 模式协议（apps/web ↔ apps/bff）
 
