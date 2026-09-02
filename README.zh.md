@@ -148,7 +148,9 @@ scripts/app-compose.sh up image-playground-paid
 `infra-compose.sh` 默认读取
 `$XDG_CONFIG_HOME/ai-image-playground/infra.env`，可用 `INFRA_ENV_FILE` 覆盖。`up` 只等
 PostgreSQL 健康。`provision` 会幂等创建部署数据库、schema-owner migrator、DML-only
-应用角色与 Admin 只读角色。没有任何 Compose 文件发布 PostgreSQL 端口，排查用
+应用角色与 Admin 只读角色。部署的 migration 若创建了 `public` 与 `drizzle` 以外的 schema，
+要把名字填进 `POSTGRES_EXTRA_SCHEMAS`，否则 Admin 角色读不到它，每日 `pg_dump` 会失败；
+provision 结束前会检查并列出这类 schema。没有任何 Compose 文件发布 PostgreSQL 端口，排查用
 `docker compose exec`。
 
 对象存储用任意 S3 兼容服务，两份部署样例都指向 Cloudflare R2。bucket 与其他业务共用时，
