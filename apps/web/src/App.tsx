@@ -22,7 +22,7 @@ import {
 } from './lib/urlSettings'
 import { initStore, useStore } from './store'
 
-export default function App() {
+export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: number }) {
   const setSettings = useStore((s) => s.setSettings)
   const appMode = useStore((s) => s.appMode)
 
@@ -46,7 +46,11 @@ export default function App() {
 
     initStore()
     initHashRoute()
-  }, [setSettings])
+
+    if (adoptedTaskCount > 0) {
+      useStore.getState().showToast(`已找回登录前的 ${adoptedTaskCount} 条历史`, 'success')
+    }
+  }, [setSettings, adoptedTaskCount])
 
   useEffect(() => {
     const preventPageImageDrag = (e: DragEvent) => {
