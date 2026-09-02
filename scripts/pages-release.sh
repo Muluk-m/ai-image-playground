@@ -124,19 +124,30 @@ case "$shas" in
   *+*) private_sha=${shas##*+} ;;
 esac
 
-stage "Wait for $public_origin/version.json to report $built_version"
-deadline=$(($(date +%s) + 60))
+# A custom domain has taken 2-3 minutes to serve a new manifest, so a short window reports a
+# successful release as failed.
+poll_timeout=300
+stage "Wait up to ${poll_timeout}s for $public_origin/version.json to report $built_version"
+started=$(date +%s)
+deadline=$((started + poll_timeout))
+next_report=$((started + 30))
 while :; do
   # The query string defeats any edge cache in front of the manifest.
   body=$(curl -fsS --max-time 10 "$public_origin/version.json?release-check=$(date +%s)" 2>/dev/null || printf '')
   if [ "$(printf '%s' "$body" | version_of)" = "$built_version" ]; then
     break
   fi
-  if [ "$(date +%s)" -ge "$deadline" ]; then
-    echo "Timed out after 60s: $public_origin/version.json does not report $built_version." >&2
+  now=$(date +%s)
+  if [ "$now" -ge "$deadline" ]; then
+    echo "Timed out after ${poll_timeout}s: $public_origin/version.json does not report $built_version." >&2
+    echo "The upload succeeded; only propagation to the custom domain is unconfirmed. Check the origin before releasing again." >&2
     exit 1
   fi
-  sleep 3
+  if [ "$now" -ge "$next_report" ]; then
+    echo "still waiting, $((now - started))s elapsed"
+    next_report=$((now + 30))
+  fi
+  sleep 5
 done
 
 released=true
