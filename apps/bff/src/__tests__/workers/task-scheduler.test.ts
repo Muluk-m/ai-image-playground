@@ -206,7 +206,11 @@ describe('recoverAbandonedTasks', () => {
     })
     await insertInProgress('abandoned', now - QUEUE_TIMEOUTS.STALE_IN_PROGRESS_MS - 1)
 
-    expect(await recoverAbandonedTasks([], now)).toEqual({ requeued: 1, failed: 0 })
+    expect(await recoverAbandonedTasks([], now)).toEqual({
+      requeued: 1,
+      failed: 0,
+      resumedPolling: 0,
+    })
 
     const rows = await db
       .select({
@@ -238,7 +242,11 @@ describe('recoverAbandonedTasks', () => {
     await insertInProgress('recent', now - 1_000)
     await insertInProgress('owned', now - QUEUE_TIMEOUTS.STALE_IN_PROGRESS_MS - 1)
 
-    expect(await recoverAbandonedTasks(['owned'], now)).toEqual({ requeued: 0, failed: 0 })
+    expect(await recoverAbandonedTasks(['owned'], now)).toEqual({
+      requeued: 0,
+      failed: 0,
+      resumedPolling: 0,
+    })
 
     const rows = await db.select({ status: schema.tasks.status }).from(schema.tasks)
     expect(rows.every((row) => row.status === 'in_progress')).toBe(true)
@@ -247,7 +255,11 @@ describe('recoverAbandonedTasks', () => {
   it('fails a row whose retry budget is spent so billing reversal still runs', async () => {
     await insertInProgress('spent', now - QUEUE_TIMEOUTS.STALE_IN_PROGRESS_MS - 1, MAX_ATTEMPTS - 1)
 
-    expect(await recoverAbandonedTasks([], now)).toEqual({ requeued: 0, failed: 1 })
+    expect(await recoverAbandonedTasks([], now)).toEqual({
+      requeued: 0,
+      failed: 1,
+      resumedPolling: 0,
+    })
 
     const [row] = await db
       .select({
@@ -267,8 +279,12 @@ describe('recoverAbandonedTasks', () => {
   it('recovers a named row regardless of age and ignores an empty id list', async () => {
     await insertInProgress('named', now - 1_000)
 
-    expect(await recoverTasksByIds([], now)).toEqual({ requeued: 0, failed: 0 })
-    expect(await recoverTasksByIds(['named'], now)).toEqual({ requeued: 1, failed: 0 })
+    expect(await recoverTasksByIds([], now)).toEqual({ requeued: 0, failed: 0, resumedPolling: 0 })
+    expect(await recoverTasksByIds(['named'], now)).toEqual({
+      requeued: 1,
+      failed: 0,
+      resumedPolling: 0,
+    })
 
     const [row] = await db
       .select({ status: schema.tasks.status })

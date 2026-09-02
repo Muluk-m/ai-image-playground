@@ -130,6 +130,11 @@ function parseDefaults(v: unknown, ctx: string): ChannelDefaults {
       throw new ChannelsLoadError(`${ctx}.defaults.responseFormatB64Json must be boolean`)
     out.responseFormatB64Json = v.responseFormatB64Json
   }
+  if (v.asyncTasks !== undefined) {
+    if (typeof v.asyncTasks !== 'boolean')
+      throw new ChannelsLoadError(`${ctx}.defaults.asyncTasks must be boolean`)
+    out.asyncTasks = v.asyncTasks
+  }
   return out
 }
 

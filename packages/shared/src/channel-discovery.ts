@@ -55,6 +55,8 @@ export interface ChannelDefaults {
   timeout?: number
   /** Gemini 路径下是否要求 response_format=b64_json（某些代理需要）。 */
   responseFormatB64Json?: boolean
+  /** 直连 channel 的上游提供 sub2api 风格的异步图片任务端点。 */
+  asyncTasks?: boolean
 }
 
 /**

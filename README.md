@@ -401,6 +401,8 @@ pnpm lint
 
 Stack: React 19 + Vite on the frontend · tldraw for the canvas · Bun + Elysia + PostgreSQL on the backend · pnpm + Turbo monorepo.
 
+When the upstream is a sub2api gateway with async image tasks enabled, set `UPSTREAM_ASYNC_IMAGE_TASKS=true` (or `defaults.asyncTasks` on a direct channel) so the worker submits and polls instead of holding a long connection — a restart then resumes polling rather than paying for the image twice. There is no silent fallback: **turn our declaration off before disabling the switch upstream**, or every submit fails with a 404.
+
 ## 🙏 Credits
 
 Forked from [CookSleep/gpt_image_playground](https://github.com/CookSleep/gpt_image_playground) (MIT), keeping the original UX (reference images + mask editing, waterfall history, inspiration library, quick model picker, effective-parameter comparison). This fork adds native Gemini protocol support, a long-task queue mode, an optional backend, and the infinite-canvas create mode.

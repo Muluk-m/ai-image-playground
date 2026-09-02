@@ -5,11 +5,13 @@ import { objectStore } from '../lib/objectStore'
 import { loadPrivateBffOverlay } from '../lib/private-overlay'
 import { planNextAttempt } from '../lib/retry'
 import { db, schema } from './client'
-import { finishTask, requeueTask } from './task-transitions'
+import { finishTask, requeueTask, requeueTasksForPolling } from './task-transitions'
 
 export interface RecoveredTasks {
   requeued: number
   failed: number
+  /** 有上游异步 task id、回队接着轮询的行；这些既没重提交也没进重试预算。 */
+  resumedPolling: number
 }
 
 /**
@@ -20,7 +22,7 @@ export function recoverTasksByIds(
   ids: readonly string[],
   now = Date.now(),
 ): Promise<RecoveredTasks> {
-  if (ids.length === 0) return Promise.resolve({ requeued: 0, failed: 0 })
+  if (ids.length === 0) return Promise.resolve({ requeued: 0, failed: 0, resumedPolling: 0 })
   return recoverTasks(inArray(schema.tasks.id, [...ids]), now)
 }
 
@@ -39,19 +41,28 @@ export function recoverAbandonedTasks(
 }
 
 /**
- * 按 task-runner 同一套重试预算回收中断的 in_progress：写回 queued（attempt+1），
- * 预算用尽才落终态 failed。明知重试可能重复消耗上游配额也要做——卡在 in_progress
- * 的行没有任何东西会回收它，预扣的额度会永久悬挂。
+ * 回收中断的 in_progress。有上游 task id 的回队接着轮（不 attempt+1，轮询阶段自己按
+ * 首次提交时刻判超时，不会无限回队）；没有的只能按重试预算重跑，预算用尽才落 failed。
  */
 async function recoverTasks(scope: SQL, now: number): Promise<RecoveredTasks> {
   const candidates = await db
-    .select({ id: schema.tasks.id, attemptCount: schema.tasks.attempt_count })
+    .select({
+      id: schema.tasks.id,
+      attemptCount: schema.tasks.attempt_count,
+      upstreamTaskIds: schema.tasks.upstream_task_ids,
+    })
     .from(schema.tasks)
     .where(and(eq(schema.tasks.status, 'in_progress'), scope))
+
+  // 轮询恢复没有 per-row 计算，一条 UPDATE 收掉；启动与 SIGTERM drain 都在等这个结果。
+  const resumedPolling = await requeueTasksForPolling(
+    candidates.filter((c) => c.upstreamTaskIds?.length).map((c) => c.id),
+  )
 
   let requeued = 0
   let failed = 0
   for (const candidate of candidates) {
+    if (candidate.upstreamTaskIds?.length) continue
     const attemptJustFailed = candidate.attemptCount + 1
     const plan = planNextAttempt(attemptJustFailed, now)
     const written = plan.shouldRetry
@@ -68,13 +79,13 @@ async function recoverTasks(scope: SQL, now: number): Promise<RecoveredTasks> {
     else failed += 1
   }
 
-  if (requeued > 0 || failed > 0) {
+  if (requeued > 0 || failed > 0 || resumedPolling > 0) {
     log.info(
-      { event: 'task.interrupted_recovered', requeued, failed },
+      { event: 'task.interrupted_recovered', requeued, failed, resumedPolling },
       'recovered interrupted in-progress tasks',
     )
   }
-  return { requeued, failed }
+  return { requeued, failed, resumedPolling }
 }
 
 /** Runs optional private-tree maintenance (for example, the billing fallback scan). */

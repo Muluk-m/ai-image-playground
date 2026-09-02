@@ -43,6 +43,13 @@
       "when": 1788231024249,
       "tag": "0005_left_annihilus",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1788319528149,
+      "tag": "0006_romantic_hiroim",
+      "breakpoints": true
     }
   ]
 }
