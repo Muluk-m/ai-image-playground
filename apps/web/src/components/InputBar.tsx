@@ -510,21 +510,19 @@ export default function InputBar() {
   const atImageQuery = isCursorInSelectedImageMention(prompt, cursorPosition)
     ? null
     : getAtImageQuery(visiblePrompt, cursorPosition, inputImages)
-  const atImageOptions = atImageQuery
+  const atImageMenuOptions = atImageQuery
     ? inputImages
-        .map((img, index) => ({ img, index }))
-        .filter(({ index }) => imageMentionMatches(atImageQuery.query, index))
+        .map((img, index) => ({
+          key: img.id,
+          label: getImageMentionLabel(index),
+          thumbnailUrl: img.dataUrl,
+          value: index,
+        }))
+        .filter((option) => imageMentionMatches(atImageQuery.query, option.value))
     : []
-  const atImageMenuOptions = atImageOptions.map(({ img, index }) => ({
-    key: img.id,
-    label: getImageMentionLabel(index),
-    thumbnailUrl: img.dataUrl,
-  }))
+  const blurPrompt = useCallback(() => textareaRef.current?.blur(), [])
   const selectAtImageOption = useCallback(
-    (optionIndex: number) => {
-      const imageIndex = atImageOptions[optionIndex]?.index
-      if (imageIndex == null) return
-
+    (imageIndex: number) => {
       const el = textareaRef.current
       const cursor = el ? getContentEditableCursor(el) : prompt.length
       const query = getAtImageQuery(stripImageMentionMarkers(prompt), cursor, inputImages)
@@ -540,13 +538,13 @@ export default function InputBar() {
         }
       }, 0)
     },
-    [atImageOptions, inputImages, prompt, setPrompt],
+    [inputImages, prompt, setPrompt],
   )
 
   const atImageMenu = useSuggestionMenu({
     options: atImageMenuOptions,
     onSelect: selectAtImageOption,
-    onClose: () => textareaRef.current?.blur(),
+    onClose: blurPrompt,
   })
 
   const insertPromptTextAtSelection = useCallback(
