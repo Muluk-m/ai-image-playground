@@ -1,10 +1,13 @@
-import React, { useEffect, useRef, useState } from 'react'
+import type React from 'react'
+import { useEffect, useState } from 'react'
+import { useLibraryStore } from '../features/library/store'
 import { getActiveApiProfile } from '../lib/apiProfiles'
 import { modelSupportsEdit, NO_EDIT_SUPPORT_MESSAGE } from '../lib/channels/profileSelectors'
 import { getPublicChannels } from '../lib/channels/publicChannels'
 import { copyBlobToClipboard, getClipboardFailureMessage } from '../lib/clipboard'
-import { addImageFromUrl, ensureImageCached, useStore } from '../store'
-import { CopyIcon, DownloadIcon, EditIcon } from './icons'
+import { addImageFromUrl, ensureImageCached, storeImageFromUrl, useStore } from '../store'
+import ContextMenu, { ContextMenuItem } from './ContextMenu'
+import { CopyIcon, DownloadIcon, EditIcon, LibraryIcon } from './icons'
 
 export default function ImageContextMenu() {
   const [menuInfo, setMenuInfo] = useState<{
@@ -19,7 +22,7 @@ export default function ImageContextMenu() {
   const setDetailTaskId = useStore((s) => s.setDetailTaskId)
   const setLightboxImageId = useStore((s) => s.setLightboxImageId)
   const setMaskEditorImageId = useStore((s) => s.setMaskEditorImageId)
-  const menuRef = useRef<HTMLDivElement>(null)
+  const startNamingAsset = useLibraryStore((s) => s.startNaming)
 
   useEffect(() => {
     if (isEmbeddedPage()) return
@@ -54,32 +57,6 @@ export default function ImageContextMenu() {
       window.removeEventListener('contextmenu', onContextMenu)
     }
   }, [])
-
-  // 点击其他地方、滚动或缩放时关闭菜单
-  useEffect(() => {
-    if (!menuInfo) return
-    const close = (e: Event) => {
-      if (menuRef.current && e.target instanceof Node && menuRef.current.contains(e.target)) {
-        return
-      }
-      if (e.target instanceof Element && e.target.closest('[data-lightbox-root]')) {
-        window.dispatchEvent(new Event('image-context-menu-dismiss-lightbox-click'))
-      }
-      setMenuInfo(null)
-    }
-    window.addEventListener('mousedown', close, { capture: true })
-    window.addEventListener('touchstart', close, { capture: true })
-    window.addEventListener('wheel', close, { capture: true })
-    window.addEventListener('scroll', close, { capture: true })
-    window.addEventListener('resize', close)
-    return () => {
-      window.removeEventListener('mousedown', close, { capture: true })
-      window.removeEventListener('touchstart', close, { capture: true })
-      window.removeEventListener('wheel', close, { capture: true })
-      window.removeEventListener('scroll', close, { capture: true })
-      window.removeEventListener('resize', close)
-    }
-  }, [menuInfo])
 
   if (!menuInfo) return null
 
@@ -151,48 +128,50 @@ export default function ImageContextMenu() {
     }
   }
 
-  // 保证菜单在视口内
-  let left = menuInfo.x
-  let top = menuInfo.y
-  const MENU_WIDTH = 120
-  const MENU_HEIGHT = 128 // 三个按钮高度加 padding
-
-  if (left + MENU_WIDTH > window.innerWidth) {
-    left -= MENU_WIDTH
-  }
-  if (top + MENU_HEIGHT > window.innerHeight) {
-    top -= MENU_HEIGHT
+  const handleSaveAsset = async (e: React.MouseEvent) => {
+    e.stopPropagation()
+    const { imageId, src } = menuInfo
+    setMenuInfo(null)
+    try {
+      startNamingAsset(imageId ?? (await storeImageFromUrl(src)).id)
+    } catch (err) {
+      console.error(err)
+      showToast(`存为素材失败：${err instanceof Error ? err.message : String(err)}`, 'error')
+    }
   }
 
   return (
-    <div
-      ref={menuRef}
-      className="fixed z-[9999] bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-100 dark:border-gray-700 py-1 w-[120px] overflow-hidden animate-fade-in"
-      style={{ left, top }}
-      onContextMenu={(e) => e.preventDefault()}
+    <ContextMenu
+      x={menuInfo.x}
+      y={menuInfo.y}
+      onClose={() => setMenuInfo(null)}
+      onOutsidePointer={(target) => {
+        if (target instanceof Element && target.closest('[data-lightbox-root]')) {
+          window.dispatchEvent(new Event('image-context-menu-dismiss-lightbox-click'))
+        }
+      }}
     >
-      <button
+      <ContextMenuItem
+        icon={<CopyIcon className="w-4 h-4 flex-shrink-0" />}
+        label="复制"
         onClick={handleCopy}
-        className="w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700/50 flex items-center gap-2 transition-colors"
-      >
-        <CopyIcon className="w-4 h-4 flex-shrink-0" />
-        复制
-      </button>
-      <button
+      />
+      <ContextMenuItem
+        icon={<DownloadIcon className="w-4 h-4 flex-shrink-0" />}
+        label="下载"
         onClick={handleDownload}
-        className="w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700/50 flex items-center gap-2 transition-colors"
-      >
-        <DownloadIcon className="w-4 h-4 flex-shrink-0" />
-        下载
-      </button>
-      <button
+      />
+      <ContextMenuItem
+        icon={<EditIcon className="w-4 h-4 flex-shrink-0" />}
+        label="编辑"
         onClick={handleEdit}
-        className="w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700/50 flex items-center gap-2 transition-colors"
-      >
-        <EditIcon className="w-4 h-4 flex-shrink-0" />
-        编辑
-      </button>
-    </div>
+      />
+      <ContextMenuItem
+        icon={<LibraryIcon className="w-4 h-4 flex-shrink-0" />}
+        label="存为素材"
+        onClick={handleSaveAsset}
+      />
+    </ContextMenu>
   )
 }
 

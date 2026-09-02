@@ -1,5 +1,6 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { useLibraryStore } from '../features/library/store'
 import {
   clientProfileToApiProfile,
   getActiveApiProfile,
@@ -35,8 +36,9 @@ import {
   updateTaskInStore,
   useStore,
 } from '../store'
+import ContextMenu, { ContextMenuItem } from './ContextMenu'
 import { ChipIcons } from './chipIcons'
-import { CloseIcon } from './icons'
+import { CloseIcon, LibraryIcon, LinkIcon } from './icons'
 import ParamControls from './ParamControls'
 import SubmissionBillingAction from './SubmissionBillingAction'
 import SuggestionMenu, { useSuggestionMenu } from './SuggestionMenu'
@@ -328,6 +330,8 @@ export default function InputBar() {
   const setLightboxImageId = useStore((s) => s.setLightboxImageId)
   const showToast = useStore((s) => s.showToast)
   const setConfirmDialog = useStore((s) => s.setConfirmDialog)
+  const openLibrary = useLibraryStore((s) => s.openPanel)
+  const startNamingAsset = useLibraryStore((s) => s.startNaming)
   const selectedTaskIds = useStore((s) => s.selectedTaskIds)
   const setSelectedTaskIds = useStore((s) => s.setSelectedTaskIds)
   const clearSelection = useStore((s) => s.clearSelection)
@@ -430,6 +434,12 @@ export default function InputBar() {
   // 整张输入卡片折叠：折叠后只剩 mini bar（prompt 摘要 + 生成 + 展开按钮），让背景任务卡片露出来。
   const [barCollapsed, setBarCollapsed] = useState(false)
   const [maskPreviewUrl, setMaskPreviewUrl] = useState('')
+  const [thumbMenu, setThumbMenu] = useState<{
+    index: number
+    imageId: string
+    x: number
+    y: number
+  } | null>(null)
   const [imageDragIndex, setImageDragIndex] = useState<number | null>(null)
   const [imageDragOverIndex, setImageDragOverIndex] = useState<number | null>(null)
   const [touchDragPreview, setTouchDragPreview] = useState<{
@@ -1142,6 +1152,20 @@ export default function InputBar() {
     setImageDragOverIndex(nextIdx)
   }
 
+  const insertImageMention = (index: number) => {
+    const el = textareaRef.current
+    const cursor = el ? getContentEditableCursor(el) : prompt.length
+    const next = insertImageMentionAtVisibleRange(prompt, cursor, cursor, index)
+    isUserInputRef.current = false
+    setPrompt(next.prompt)
+    window.setTimeout(() => {
+      if (textareaRef.current) {
+        textareaRef.current.focus()
+        setContentEditableCursor(textareaRef.current, next.cursor)
+      }
+    }, 0)
+  }
+
   const renderImageThumb = (img: (typeof inputImages)[number], idx: number) => {
     const isMaskTarget = maskDraft?.targetImageId === img.id
     const canEdit = !maskTargetImage || isMaskTarget
@@ -1283,17 +1307,7 @@ export default function InputBar() {
         onTouchCancel={handleTouchCancel}
         onContextMenu={(e) => {
           e.preventDefault()
-          const el = textareaRef.current
-          const cursor = el ? getContentEditableCursor(el) : prompt.length
-          const next = insertImageMentionAtVisibleRange(prompt, cursor, cursor, idx)
-          isUserInputRef.current = false
-          setPrompt(next.prompt)
-          window.setTimeout(() => {
-            if (textareaRef.current) {
-              textareaRef.current.focus()
-              setContentEditableCursor(textareaRef.current, next.cursor)
-            }
-          }, 0)
+          setThumbMenu({ index: idx, imageId: img.id, x: e.clientX, y: e.clientY })
         }}
       >
         <ButtonTooltip
@@ -1441,6 +1455,26 @@ export default function InputBar() {
             </div>,
             document.body,
           )}
+        {thumbMenu && (
+          <ContextMenu x={thumbMenu.x} y={thumbMenu.y} onClose={() => setThumbMenu(null)}>
+            <ContextMenuItem
+              icon={<LinkIcon className="h-4 w-4 flex-shrink-0" />}
+              label="插入引用"
+              onClick={() => {
+                insertImageMention(thumbMenu.index)
+                setThumbMenu(null)
+              }}
+            />
+            <ContextMenuItem
+              icon={<LibraryIcon className="h-4 w-4 flex-shrink-0" />}
+              label="存为素材"
+              onClick={() => {
+                startNamingAsset(thumbMenu.imageId)
+                setThumbMenu(null)
+              }}
+            />
+          </ContextMenu>
+        )}
       </div>
     )
   }
@@ -1843,6 +1877,14 @@ export default function InputBar() {
                       {ChipIcons.imageAttach}
                     </button>
                   </div>
+                  <button
+                    type="button"
+                    onClick={openLibrary}
+                    className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl border border-gray-300/80 bg-white/70 text-gray-500 transition-colors duration-150 hover:border-gray-400/80 hover:bg-white dark:border-white/[0.12] dark:bg-white/[0.04] dark:text-gray-300 dark:hover:border-white/[0.20] dark:hover:bg-white/[0.07]"
+                    title="素材与模板"
+                  >
+                    <LibraryIcon className="h-5 w-5" />
+                  </button>
                   <ParamControls showCount />
                   {/* ml-auto 让 Generate 永远贴当前行右端，chips 偶尔挤到 row 2 时大按钮也能撑住空白。 */}
                   <div
@@ -1932,6 +1974,14 @@ export default function InputBar() {
                         {ChipIcons.imageAttach}
                       </button>
                     </div>
+                    <button
+                      type="button"
+                      onClick={openLibrary}
+                      className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl border border-gray-300/80 bg-white/70 text-gray-500 transition-colors duration-150 dark:border-white/[0.12] dark:bg-white/[0.04] dark:text-gray-300"
+                      title="素材与模板"
+                    >
+                      <LibraryIcon className="h-5 w-5" />
+                    </button>
                     <div
                       className="relative flex flex-1 items-center gap-2"
                       onMouseEnter={() => setSubmitHover(true)}

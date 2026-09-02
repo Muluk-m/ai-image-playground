@@ -4,6 +4,7 @@ import { useAuth } from '../auth/AuthContext'
 import { LoginMethodsPanel } from '../auth/LoginMethodsPanel'
 import InspirationCoach from '../features/inspiration/components/InspirationCoach'
 import { useInspirationStore } from '../features/inspiration/store'
+import { useLibraryStore } from '../features/library/store'
 import { useTooltip } from '../hooks/useTooltip'
 import {
   PrivateWebHeaderAccountActions,
@@ -13,7 +14,7 @@ import {
 import { dismissAllTooltips } from '../lib/tooltipDismiss'
 import { useStore } from '../store'
 import HelpModal from './HelpModal'
-import { SparkleIcon } from './icons'
+import { LibraryIcon, SparkleIcon } from './icons'
 import ViewportTooltip from './ViewportTooltip'
 
 export default function Header() {
@@ -26,12 +27,14 @@ export default function Header() {
   const auth = useAuth()
 
   const openInspiration = useInspirationStore((s) => s.openPanel)
+  const openLibrary = useLibraryStore((s) => s.openPanel)
   const dismissInspirationCoach = useStore((s) => s.dismissInspirationCoach)
   const inspirationCoachActive = useStore(
     (s) => !s.inspirationCoachDismissed && s.tasks.length === 0,
   )
 
   const inspirationTooltip = useTooltip()
+  const libraryTooltip = useTooltip()
   const helpTooltip = useTooltip()
   const settingsTooltip = useTooltip()
 
@@ -102,6 +105,21 @@ export default function Header() {
                 灵感库
               </ViewportTooltip>
               {inspirationCoachActive && <InspirationCoach />}
+            </div>
+            <div className="relative" {...libraryTooltip.handlers}>
+              <button
+                onClick={() => {
+                  dismissAllTooltips()
+                  openLibrary()
+                }}
+                className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-900 transition-colors"
+                aria-label="素材与模板"
+              >
+                <LibraryIcon className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+              </button>
+              <ViewportTooltip visible={libraryTooltip.visible} className="whitespace-nowrap">
+                素材与模板
+              </ViewportTooltip>
             </div>
             <div className="relative" {...settingsTooltip.handlers}>
               <button
