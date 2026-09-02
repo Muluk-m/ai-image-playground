@@ -1,0 +1,297 @@
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
+
+// Inject before importing config, which captures process environment at module initialization.
+process.env.UPSTREAM_BASE_URL = 'http://localhost:9999'
+process.env.UPSTREAM_API_KEY = 'test-key'
+process.env.UPSTREAM_ASYNC_IMAGE_TASKS = 'true'
+process.env.DATABASE_URL = process.env.TEST_DATABASE_URL ?? ''
+process.env.PORT = '0'
+
+const {
+  callUpstream,
+  setUpstreamFetchForTesting,
+  UpstreamResultUnknownError,
+  UpstreamTimeoutError,
+} = await import('../../lib/upstream')
+const { _setChannelsForTesting } = await import('../../lib/channels')
+type InternalChannel = import('../../lib/channels').InternalChannel
+type TestFetch = NonNullable<Parameters<typeof setUpstreamFetchForTesting>[0]>
+
+const grokChannel = (asyncTasks: boolean): InternalChannel => ({
+  id: 'grok-images',
+  kind: 'openai-queue',
+  label: 'Grok Imagine Image',
+  baseUrl: 'https://gateway.example/v1',
+  auth: { type: 'bearer', secretRef: 'GROK_API_KEY', secret: 'grok-test-key' },
+  allowedPaths: ['images/generations', 'images/edits'],
+  models: [{ id: 'grok-imagine-image', label: 'Grok', capabilities: ['generate', 'n'] }],
+  defaults: { apiMode: 'images', timeout: 600, asyncTasks },
+})
+
+const COMPLETED_BODY = {
+  task_id: 'imgtask_1',
+  status: 'completed',
+  result: { created: 1, data: [{ url: 'https://bucket.example/a.png' }] },
+}
+
+let calls: string[] = []
+let handler: (url: string) => Response
+
+function stubUpstream(): void {
+  calls = []
+  setUpstreamFetchForTesting((async (input: Parameters<TestFetch>[0]) => {
+    const url = typeof input === 'string' ? input : input.toString()
+    calls.push(url)
+    return handler(url)
+  }) as unknown as TestFetch)
+}
+
+function json(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'content-type': 'application/json' },
+  })
+}
+
+/** Answers a submit with the given task id and every poll with a terminal completion. */
+function submitThenComplete(taskId = 'imgtask_1'): (url: string) => Response {
+  return (url) =>
+    url.endsWith('/async')
+      ? json({ id: taskId, status: 'processing', poll_url: `/v1/images/tasks/${taskId}` }, 202)
+      : json({ ...COMPLETED_BODY, task_id: taskId })
+}
+
+const grokRequest = { provider: 'openai-compat', model: 'grok-imagine-image' } as const
+
+beforeEach(() => {
+  _setChannelsForTesting([grokChannel(true)])
+  stubUpstream()
+  handler = submitThenComplete()
+})
+
+afterEach(() => {
+  setUpstreamFetchForTesting()
+  _setChannelsForTesting([])
+})
+
+describe('async submit', () => {
+  it('submits to the async endpoint and polls the task until it completes', async () => {
+    const result = await callUpstream({ ...grokRequest, request: { prompt: 'a cat' } })
+
+    expect(calls).toEqual([
+      'https://gateway.example/v1/images/generations/async',
+      'https://gateway.example/v1/images/tasks/imgtask_1',
+    ])
+    expect(result.payload).toEqual(COMPLETED_BODY.result)
+  })
+
+  it('edits go to the async edits endpoint', async () => {
+    await callUpstream({
+      ...grokRequest,
+      request: { prompt: 'a cat', input_images: ['data:image/png;base64,AAAA'] },
+    })
+
+    expect(calls[0]).toBe('https://gateway.example/v1/images/edits/async')
+  })
+
+  it('persists the task id before the first poll', async () => {
+    const order: string[] = []
+    handler = (url) => {
+      order.push(url.endsWith('/async') ? 'submit' : 'poll')
+      return submitThenComplete()(url)
+    }
+
+    await callUpstream({
+      ...grokRequest,
+      request: { prompt: 'a cat' },
+      onUpstreamTaskIds: async (taskIds) => {
+        order.push(`persist:${taskIds.join(',')}`)
+      },
+    })
+
+    expect(order).toEqual(['submit', 'persist:imgtask_1', 'poll'])
+  })
+
+  it('does not resubmit after a failed submit: an unpaid retry is the caller decision', async () => {
+    handler = () => json({ error: { message: 'gateway exploded' } }, 500)
+
+    await expect(
+      callUpstream({ ...grokRequest, request: { prompt: 'a cat' } }),
+    ).rejects.toMatchObject({ upstreamStatus: 500 })
+    expect(calls).toHaveLength(1)
+  })
+
+  it('treats a 202 without a task id as an unknown result rather than a retryable failure', async () => {
+    handler = () => json({ status: 'processing' }, 202)
+
+    await expect(
+      callUpstream({ ...grokRequest, request: { prompt: 'a cat' } }),
+    ).rejects.toBeInstanceOf(UpstreamResultUnknownError)
+  })
+
+  it('fans out the requested image count into one upstream task each', async () => {
+    let submitted = 0
+    handler = (url) =>
+      url.endsWith('/async')
+        ? json({ task_id: `imgtask_${++submitted}` }, 202)
+        : json({
+            status: 'completed',
+            result: { data: [{ url: `https://bucket.example/${url.split('/').pop()}.png` }] },
+          })
+
+    const persisted: string[][] = []
+    const result = await callUpstream({
+      ...grokRequest,
+      request: { prompt: 'a cat', n: 2 },
+      onUpstreamTaskIds: async (taskIds) => {
+        persisted.push([...taskIds])
+      },
+    })
+
+    expect(persisted).toEqual([['imgtask_1', 'imgtask_2']])
+    expect((result.payload as { data: unknown[] }).data).toHaveLength(2)
+  })
+
+  it('persists the ids it did get when only part of the fan-out submits', async () => {
+    let submitted = 0
+    handler = (url) => {
+      if (!url.endsWith('/async')) return json(COMPLETED_BODY)
+      return ++submitted === 1
+        ? json({ task_id: 'imgtask_1' }, 202)
+        : json({ error: { message: 'nope' } }, 500)
+    }
+
+    const persisted: string[][] = []
+    await expect(
+      callUpstream({
+        ...grokRequest,
+        request: { prompt: 'a cat', n: 2 },
+        onUpstreamTaskIds: async (taskIds) => {
+          persisted.push([...taskIds])
+        },
+      }),
+    ).rejects.toMatchObject({ upstreamStatus: 500 })
+
+    expect(persisted).toEqual([['imgtask_1']])
+  })
+})
+
+describe('async polling', () => {
+  it('keeps polling through a 5xx and through a status it does not recognise', async () => {
+    const bodies: Array<() => Response> = [
+      () => json({ task_id: 'imgtask_1' }, 202),
+      () => json({ error: { message: 'busy' } }, 503),
+      () => json({ status: 'queued_upstream' }),
+      () => json(COMPLETED_BODY),
+    ]
+    handler = () => bodies.shift()!()
+
+    const result = await callUpstream({ ...grokRequest, request: { prompt: 'a cat' } })
+
+    expect(calls).toHaveLength(4)
+    expect(result.payload).toEqual(COMPLETED_BODY.result)
+  }, 15_000)
+
+  it('surfaces a terminal upstream failure with its http status so retry policy can judge it', async () => {
+    handler = (url) =>
+      url.endsWith('/async')
+        ? json({ task_id: 'imgtask_1' }, 202)
+        : json({
+            status: 'failed',
+            http_status: 400,
+            error: { message: 'Request blocked by upstream content policy' },
+          })
+
+    await expect(
+      callUpstream({ ...grokRequest, request: { prompt: 'a cat' } }),
+    ).rejects.toMatchObject({
+      upstreamStatus: 400,
+      message: 'Request blocked by upstream content policy',
+    })
+  })
+
+  it('reads a completed result that is flattened onto the response root', async () => {
+    handler = (url) =>
+      url.endsWith('/async')
+        ? json({ task_id: 'imgtask_1' }, 202)
+        : json({ status: 'completed', data: [{ url: 'https://bucket.example/a.png' }] })
+
+    const result = await callUpstream({ ...grokRequest, request: { prompt: 'a cat' } })
+
+    expect((result.payload as { data: unknown[] }).data).toHaveLength(1)
+  })
+})
+
+describe('resume', () => {
+  it('polls the stored task ids without submitting again', async () => {
+    const result = await callUpstream({
+      ...grokRequest,
+      request: { prompt: 'a cat' },
+      resumeUpstreamTaskIds: ['imgtask_9'],
+    })
+
+    expect(calls).toEqual(['https://gateway.example/v1/images/tasks/imgtask_9'])
+    expect(result.payload).toEqual(COMPLETED_BODY.result)
+  })
+
+  it('still polls stored ids after the channel switched async off', async () => {
+    _setChannelsForTesting([grokChannel(false)])
+
+    await callUpstream({
+      ...grokRequest,
+      request: { prompt: 'a cat' },
+      resumeUpstreamTaskIds: ['imgtask_9'],
+    })
+
+    expect(calls).toEqual(['https://gateway.example/v1/images/tasks/imgtask_9'])
+  })
+
+  it('gives up without any request once the deadline anchored at submit time has passed', async () => {
+    await expect(
+      callUpstream({
+        ...grokRequest,
+        request: { prompt: 'a cat' },
+        resumeUpstreamTaskIds: ['imgtask_9'],
+        deadlineAt: Date.now() - 1,
+      }),
+    ).rejects.toBeInstanceOf(UpstreamTimeoutError)
+    expect(calls).toEqual([])
+  })
+
+  it('never counts a poll as an upstream invocation', async () => {
+    let invocations = 0
+    await callUpstream({
+      ...grokRequest,
+      request: { prompt: 'a cat' },
+      resumeUpstreamTaskIds: ['imgtask_9'],
+      beforeRequest: async () => {
+        invocations += 1
+      },
+    })
+
+    expect(invocations).toBe(0)
+  })
+})
+
+describe('declaration', () => {
+  it('keeps a channel that did not declare async on the synchronous endpoint', async () => {
+    _setChannelsForTesting([grokChannel(false)])
+    handler = () => json({ data: [{ b64_json: 'ok' }] })
+
+    await callUpstream({ ...grokRequest, request: { prompt: 'a cat' } })
+
+    expect(calls).toEqual(['https://gateway.example/v1/images/generations'])
+  })
+
+  it('routes the shared gateway through async when the deployment env declares it', async () => {
+    _setChannelsForTesting([])
+
+    await callUpstream({
+      provider: 'openai-compat',
+      model: 'gpt-image-2',
+      request: { prompt: 'a cat' },
+    })
+
+    expect(calls[0]).toBe('http://localhost:9999/v1/images/generations/async')
+  })
+})
