@@ -1,24 +1,17 @@
-import { safeLocalStorage, scopedStorageName } from './authScope'
-import { BASE_DB_NAME, DB_STORE_NAMES, openNamedDb } from './db'
+import { SCOPED_LOCAL_STORAGE_KEYS, safeLocalStorage, scopedStorageName } from './authScope'
+import { BASE_DB_NAME, DB_STORE_NAMES, type DbStoreName, openNamedDb } from './db'
 
-/**
- * 打开 `accounts:login` 之前，历史存在匿名命名空间下；打开之后 scope 变成
- * `:user-<id>`，旧历史就此不可见。每次启动认领一次匿名命名空间：合并而非覆盖，
- * 完整搬完才删源，所以中断后下次启动能接着来。
- */
+/** 认领完成的标记，跨 scope 共用。不支持 indexedDB.databases() 的浏览器靠它避免每次启动重扫。 */
+const ADOPTION_DONE_KEY = `${BASE_DB_NAME}:adopted`
 
-/** scopedLocalStorage 作用到的全部 key，目前只有 store 的 persist name（store.ts）。 */
-const SCOPED_LOCAL_STORAGE_KEYS = ['image-playground']
-
-// 图片是整张 data URL，一次全读进内存会在大库上炸掉标签页，按批搬。
-const COPY_BATCH_SIZE = 10
+// 图片是整张 data URL，一次全读进内存会在大库上炸掉标签页；任务行小得多，不必切这么碎。
+const BATCH_SIZE: Record<DbStoreName, number> = { tasks: 200, images: 10, thumbnails: 50 }
 
 let adoption: Promise<number> | null = null
-let pendingAdoptedTaskCount = 0
 
 /**
- * 把匿名命名空间的历史合并进当前登录用户的命名空间。返回新认领的任务条数。
- * 必须在 store 首次加载（读 IndexedDB 与 persist key）之前 await。
+ * 把匿名 scope 的历史合并进当前登录用户的 scope，返回新认领的任务条数。
+ * 合并不覆盖，整体搬完才删源，所以中断后下次启动能接着来。
  */
 export function adoptAnonymousStorage(): Promise<number> {
   adoption ??= runAdoption().catch((error) => {
@@ -28,50 +21,38 @@ export function adoptAnonymousStorage(): Promise<number> {
   return adoption
 }
 
-/** 认领的任务条数，取走即清零；由 App 挂载后弹一次 toast。 */
-export function takeAdoptedTaskCount(): number {
-  const count = pendingAdoptedTaskCount
-  pendingAdoptedTaskCount = 0
-  return count
-}
-
 async function runAdoption(): Promise<number> {
   const scopedDbName = scopedStorageName(BASE_DB_NAME)
   // 匿名 scope 下源库就是活动库，没有可认领的东西。
   if (scopedDbName === BASE_DB_NAME) return 0
   if (typeof indexedDB === 'undefined') return 0
+  if (safeLocalStorage.getItem(ADOPTION_DONE_KEY) !== null) return 0
   if (!(await anonymousDbMayExist())) return 0
 
   const source = await openNamedDb(BASE_DB_NAME)
+  let target: IDBDatabase | null = null
   let adoptedTasks = 0
   try {
-    const target = await openNamedDb(scopedDbName)
-    try {
-      for (const storeName of DB_STORE_NAMES) {
-        const copied = await copyStore(source, target, storeName)
-        if (storeName === 'tasks') adoptedTasks = copied
-      }
-    } finally {
-      target.close()
+    target = await openNamedDb(scopedDbName)
+    for (const storeName of DB_STORE_NAMES) {
+      const copied = await copyStore(source, target, storeName)
+      if (storeName === 'tasks') adoptedTasks = copied
     }
     adoptLocalStorage()
   } finally {
+    target?.close()
     source.close()
   }
 
-  // 搬完才删：删除被别的标签页 block 时留着源库，下次启动重跑（跳过已存在的 key，幂等）。
+  // 删除被其它标签页 block 时留着源库，下次启动重跑：跳过已存在的 key，幂等。
   if (await deleteAnonymousDb()) {
+    safeLocalStorage.setItem(ADOPTION_DONE_KEY, '1')
     for (const key of SCOPED_LOCAL_STORAGE_KEYS) safeLocalStorage.removeItem(key)
   }
-
-  pendingAdoptedTaskCount += adoptedTasks
   return adoptedTasks
 }
 
-/**
- * `indexedDB.databases()` 不可用时返回 true：由调用方打开源库数记录，
- * 顺手建出来的空库会在结尾被删掉。
- */
+/** databases() 缺席时返回 true：调用方打开源库去数，顺手建出来的空库会在结尾被删掉。 */
 async function anonymousDbMayExist(): Promise<boolean> {
   if (typeof indexedDB.databases !== 'function') return true
   try {
@@ -85,52 +66,56 @@ async function anonymousDbMayExist(): Promise<boolean> {
 async function copyStore(
   source: IDBDatabase,
   target: IDBDatabase,
-  storeName: string,
+  storeName: DbStoreName,
 ): Promise<number> {
   const sourceKeys = await getAllKeys(source, storeName)
   if (sourceKeys.length === 0) return 0
 
+  // 先按 key 排掉重复，免得把目标已有的图片（整张 data URL）白读一遍进内存。
   const existing = new Set((await getAllKeys(target, storeName)).map(String))
   const missing = sourceKeys.filter((key) => !existing.has(String(key)))
 
+  const batchSize = BATCH_SIZE[storeName]
   let copied = 0
-  for (let index = 0; index < missing.length; index += COPY_BATCH_SIZE) {
-    const batch = missing.slice(index, index + COPY_BATCH_SIZE)
+  for (let index = 0; index < missing.length; index += batchSize) {
+    const batch = missing.slice(index, index + batchSize)
     copied += await addRecords(target, storeName, await readRecords(source, storeName, batch))
   }
   return copied
 }
 
-function getAllKeys(db: IDBDatabase, storeName: string): Promise<IDBValidKey[]> {
+/** body 返回一个取值函数：request.result 要等事务 complete 之后再读。 */
+function runTransaction<T>(
+  db: IDBDatabase,
+  storeName: string,
+  mode: IDBTransactionMode,
+  body: (store: IDBObjectStore) => () => T,
+): Promise<T> {
   return new Promise((resolve, reject) => {
-    const request = db.transaction(storeName, 'readonly').objectStore(storeName).getAllKeys()
-    request.onsuccess = () => resolve(request.result)
-    request.onerror = () => reject(request.error)
+    const tx = db.transaction(storeName, mode)
+    const read = body(tx.objectStore(storeName))
+    tx.oncomplete = () => resolve(read())
+    tx.onerror = () => reject(tx.error)
+    tx.onabort = () => reject(tx.error ?? new Error(`认领历史的 ${storeName} 事务被中止`))
+  })
+}
+
+function getAllKeys(db: IDBDatabase, storeName: string): Promise<IDBValidKey[]> {
+  return runTransaction(db, storeName, 'readonly', (store) => {
+    const request = store.getAllKeys()
+    return () => request.result
   })
 }
 
 function readRecords(db: IDBDatabase, storeName: string, keys: IDBValidKey[]): Promise<unknown[]> {
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(storeName, 'readonly')
-    const store = tx.objectStore(storeName)
-    const records: unknown[] = []
-    for (const key of keys) {
-      const request = store.get(key)
-      request.onsuccess = () => {
-        if (request.result !== undefined) records.push(request.result)
-      }
-    }
-    tx.oncomplete = () => resolve(records)
-    tx.onerror = () => reject(tx.error)
-    tx.onabort = () => reject(tx.error ?? new Error('读取匿名历史的事务被中止'))
+  return runTransaction(db, storeName, 'readonly', (store) => {
+    const requests = keys.map((key) => store.get(key))
+    return () => requests.map((request) => request.result).filter((record) => record !== undefined)
   })
 }
 
 function addRecords(db: IDBDatabase, storeName: string, records: unknown[]): Promise<number> {
-  if (records.length === 0) return Promise.resolve(0)
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(storeName, 'readwrite')
-    const store = tx.objectStore(storeName)
+  return runTransaction(db, storeName, 'readwrite', (store) => {
     let written = 0
     for (const record of records) {
       const request = store.add(record)
@@ -143,9 +128,7 @@ function addRecords(db: IDBDatabase, storeName: string, records: unknown[]): Pro
         event.stopPropagation()
       }
     }
-    tx.oncomplete = () => resolve(written)
-    tx.onerror = () => reject(tx.error)
-    tx.onabort = () => reject(tx.error ?? new Error('写入认领历史的事务被中止'))
+    return () => written
   })
 }
 

@@ -15,7 +15,6 @@ import CanvasMode from './features/canvas/components/CanvasMode'
 import InspirationPanel from './features/inspiration/components/InspirationPanel'
 import { initHashRoute } from './features/inspiration/lib/hashRoute'
 import { isByokGenerationEnabled } from './lib/clientCapabilities'
-import { takeAdoptedTaskCount } from './lib/storageAdoption'
 import {
   buildSettingsFromUrlParams,
   clearUrlSettingParams,
@@ -23,7 +22,7 @@ import {
 } from './lib/urlSettings'
 import { initStore, useStore } from './store'
 
-export default function App() {
+export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: number }) {
   const setSettings = useStore((s) => s.setSettings)
   const appMode = useStore((s) => s.appMode)
 
@@ -48,11 +47,10 @@ export default function App() {
     initStore()
     initHashRoute()
 
-    const adopted = takeAdoptedTaskCount()
-    if (adopted > 0) {
-      useStore.getState().showToast(`已找回登录前的 ${adopted} 条历史`, 'success')
+    if (adoptedTaskCount > 0) {
+      useStore.getState().showToast(`已找回登录前的 ${adoptedTaskCount} 条历史`, 'success')
     }
-  }, [setSettings])
+  }, [setSettings, adoptedTaskCount])
 
   useEffect(() => {
     const preventPageImageDrag = (e: DragEvent) => {
