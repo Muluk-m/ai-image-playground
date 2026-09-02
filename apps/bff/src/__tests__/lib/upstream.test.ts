@@ -943,3 +943,36 @@ describe('callUpstream grok-images channel（channel base/key + Grok 编辑协�
     expect((result.payload as { data: unknown[] }).data).toHaveLength(2)
   })
 })
+
+describe('callUpstream 取消传播', () => {
+  afterEach(() => {
+    setUpstreamFetchForTesting()
+  })
+
+  // 回归：try 里裸 `return promise` 会让 finally 提前摘掉 external abort 监听，
+  // 取消与硬超时都静默失效，fan-out 路径尤其容易踩。
+  it.each([
+    ['openai-compat', 'gpt-image-2'],
+    ['gemini', 'gemini-3.1-flash-image'],
+  ] as const)('%s 的 fan-out 请求会被外部 signal 中断', async (provider, model) => {
+    setUpstreamFetchForTesting((async (_input: unknown, init: Parameters<TestFetch>[1]) => {
+      return new Promise((_resolve, reject) => {
+        const signal = (init as { signal?: AbortSignal } | undefined)?.signal
+        signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), {
+          once: true,
+        })
+      })
+    }) as unknown as TestFetch)
+
+    const controller = new AbortController()
+    const pending = callUpstream({
+      provider,
+      model,
+      request: { prompt: 'a cat', n: 2 },
+      signal: controller.signal,
+    })
+    controller.abort()
+
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' })
+  })
+})

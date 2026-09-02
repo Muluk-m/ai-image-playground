@@ -267,6 +267,9 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
     }
   }
 
+  // 这个 try 里每个 return 都必须 `return await`：裸 return 一个 promise 会让下面的
+  // finally 立刻跑，在请求还在飞的时候摘掉 external abort 监听并清掉超时定时器 ——
+  // 取消与硬超时都会静默失效。
   try {
     if (provider === 'openai-compat') {
       const authHeader: Record<string, string> = key ? { authorization: `Bearer ${key}` } : {}
@@ -357,7 +360,7 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
         }
         const body = JSON.stringify(buildAgnesGenerationsBody(model, request))
         const headers = { 'content-type': 'application/json', ...authHeader }
-        return dispatch(
+        return await dispatch(
           `${base}/images/generations`,
           Math.max(1, request.n ?? 1),
           () => ({ method: 'POST', headers, body }),
@@ -389,7 +392,7 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
                 headers: authHeader,
                 body: buildOpenAIEditFormData(model, unitRequest),
               }
-        return dispatch(`${base}/images/edits`, n, makeInit, mergeOpenAIImageResults)
+        return await dispatch(`${base}/images/edits`, n, makeInit, mergeOpenAIImageResults)
       }
 
       const headers = { 'content-type': 'application/json', ...authHeader }
@@ -397,7 +400,7 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
       const body = JSON.stringify(
         buildOpenAIBody(model, n === 1 ? request : withoutImageCount(request)),
       )
-      return dispatch(
+      return await dispatch(
         `${base}/images/generations`,
         n,
         () => ({ method: 'POST', headers, body }),
@@ -416,7 +419,7 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
       // Gemini image generation 不支持 candidateCount>1（"Only one candidate is
       // supported for audio or image response"），n>1 时本层 fan-out 成 N 次并发
       // 请求并把 candidates 合并到一个 payload，对 task-runner / 前端透明。
-      return fanOutRequests(
+      return await fanOutRequests(
         request.n,
         async () => {
           const res = await performFetch(url, { method: 'POST', headers, body })
