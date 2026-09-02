@@ -5,7 +5,7 @@ set -eu
 # (README options 3 and 4).
 #
 # Usage:
-#   scripts/pages-deploy.sh public <pages-project> [branch]
+#   scripts/pages-deploy.sh public <pages-project> [branch]     # branch defaults to main
 #   scripts/pages-deploy.sh private <pages-project> [branch]
 #
 # EXTRA_ASSETS_DIR=<dir> copies untracked deployment files into dist/op/ before the upload.
@@ -25,7 +25,9 @@ usage() {
 
 edition=${1:-}
 project=${2:-}
-branch=${3:-}
+# From a detached HEAD wrangler infers the branch name `head` and publishes a preview alias
+# instead of production, so this defaults rather than being left empty.
+branch=${3:-main}
 [ -n "$edition" ] || usage
 [ -n "$project" ] || usage
 [ "$#" -le 3 ] || usage
@@ -75,6 +77,4 @@ if [ -n "${EXTRA_ASSETS_DIR:-}" ]; then
 fi
 
 cd "$repo_root/apps/web"
-set -- --project-name "$project"
-[ -z "$branch" ] || set -- "$@" --branch "$branch"
-pnpm exec wrangler pages deploy "$@"
+pnpm exec wrangler pages deploy --project-name "$project" --branch "$branch"
