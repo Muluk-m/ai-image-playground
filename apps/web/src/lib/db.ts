@@ -6,15 +6,18 @@ const DB_VERSION = 2
 const STORE_TASKS = 'tasks'
 const STORE_IMAGES = 'images'
 const STORE_THUMBNAILS = 'thumbnails'
+/** 匿名部署的 DB 名，也是登录后认领旧历史时要读的源库名。 */
+export const BASE_DB_NAME = DB_NAME
+export const DB_STORE_NAMES = [STORE_TASKS, STORE_IMAGES, STORE_THUMBNAILS] as const
 const THUMBNAIL_MAX_SIZE = 720
 const THUMBNAIL_QUALITY = 0.9
 const THUMBNAIL_VERSION = 2
 
 export const CURRENT_THUMBNAIL_VERSION = THUMBNAIL_VERSION
 
-function openDB(): Promise<IDBDatabase> {
+export function openNamedDb(name: string): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open(scopedStorageName(DB_NAME), DB_VERSION)
+    const req = indexedDB.open(name, DB_VERSION)
     req.onupgradeneeded = (e) => {
       const db = (e.target as IDBOpenDBRequest).result
       if (!db.objectStoreNames.contains(STORE_TASKS)) {
@@ -30,6 +33,10 @@ function openDB(): Promise<IDBDatabase> {
     req.onsuccess = () => resolve(req.result)
     req.onerror = () => reject(req.error)
   })
+}
+
+function openDB(): Promise<IDBDatabase> {
+  return openNamedDb(scopedStorageName(DB_NAME))
 }
 
 function dbTransaction<T>(
