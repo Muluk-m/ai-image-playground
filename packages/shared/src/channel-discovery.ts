@@ -55,6 +55,12 @@ export interface ChannelDefaults {
   timeout?: number
   /** Gemini 路径下是否要求 response_format=b64_json（某些代理需要）。 */
   responseFormatB64Json?: boolean
+  /**
+   * 上游提供 sub2api 风格的异步图片任务端点（`images/*​/async` + `images/tasks/{id}`）。
+   * 只对 channels.json 自带 baseUrl 的直连 channel 有意义；走 UPSTREAM_BASE_URL
+   * 通用网关的 channel 由 env UPSTREAM_ASYNC_IMAGE_TASKS 声明，见 upstream.ts。
+   */
+  asyncTasks?: boolean
 }
 
 /**
