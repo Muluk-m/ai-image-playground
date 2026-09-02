@@ -19,6 +19,8 @@ Usage:
 The default env file is:
   $XDG_CONFIG_HOME/ai-image-playground/apps/<project>/app.env
 or $HOME/.config/ai-image-playground/apps/<project>/app.env.
+
+APP_IMAGE=<tag> in the environment overrides the image named in that env file.
 EOF
   exit 2
 }
@@ -112,7 +114,8 @@ case "$command" in
     compose down --remove-orphans
     ;;
   status)
-    compose ps
+    # --all, or the one-shot migrate and dependency-check containers are invisible.
+    compose ps --all
     ;;
   compose)
     compose "$@"
