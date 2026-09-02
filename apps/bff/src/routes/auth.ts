@@ -11,7 +11,12 @@ import { config } from '../config'
 import { db, schema } from '../db/client'
 import { capabilityUnavailable, isCapabilityEnabled } from '../lib/capabilities'
 import { createRateLimiter } from '../lib/rate-limit'
-import { registerUser, UserOperationError } from '../lib/user-admin'
+import {
+  listLoginMethods,
+  registerUser,
+  setOwnPassword,
+  UserOperationError,
+} from '../lib/user-admin'
 import { resolveAuthUser } from '../lib/user-auth'
 import {
   clearUserSessionCookie,
@@ -44,6 +49,13 @@ const registrationLimiter = createRateLimiter({
   maxFailures: 5,
   windowMs: 60 * 60_000,
   lockMs: 60 * 60_000,
+  maxEntries: 2048,
+})
+
+const passwordChangeLimiter = createRateLimiter({
+  maxFailures: 10,
+  windowMs: 60_000,
+  lockMs: 10 * 60_000,
   maxEntries: 2048,
 })
 
@@ -183,3 +195,44 @@ export const userAuthRoutes = new Elysia()
     if (!authUser) return status(401, { error: 'unauthorized' })
     return { user: authUser }
   })
+  .get('/api/auth/login-methods', async ({ authUser, status }) => {
+    if (!isCapabilityEnabled('accounts:login')) return capabilityUnavailable('accounts:login')
+    if (!authUser) return status(401, { error: 'unauthorized' })
+    return listLoginMethods(authUser.id)
+  })
+  .post(
+    '/api/auth/password',
+    async ({ authUser, body, cookie, status }) => {
+      if (!isCapabilityEnabled('accounts:login')) return capabilityUnavailable('accounts:login')
+      if (!authUser) return status(401, { error: 'unauthorized' })
+      if (passwordChangeLimiter.isLocked(authUser.id)) return status(429, { error: 'rate_limited' })
+
+      const raw = cookie[USER_SESSION_COOKIE]?.value
+      try {
+        await setOwnPassword(authUser.id, {
+          currentPassword: body.current_password,
+          newPassword: body.new_password,
+          keepSessionToken: typeof raw === 'string' ? raw : '',
+        })
+      } catch (error) {
+        if (error instanceof UserOperationError) {
+          if (error.code === 'invalid_credentials') {
+            const locked = passwordChangeLimiter.recordFailure(authUser.id)
+            return status(locked ? 429 : 401, { error: locked ? 'rate_limited' : error.code })
+          }
+          if (error.code === 'current_password_required' || error.code === 'invalid_password') {
+            return status(400, { error: error.code })
+          }
+        }
+        throw error
+      }
+      passwordChangeLimiter.recordSuccess(authUser.id)
+      return { ok: true }
+    },
+    {
+      body: t.Object({
+        current_password: t.Optional(t.String({ maxLength: PASSWORD_MAX_LENGTH })),
+        new_password: t.String({ minLength: 1, maxLength: PASSWORD_MAX_LENGTH }),
+      }),
+    },
+  )
