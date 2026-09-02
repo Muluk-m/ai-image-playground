@@ -4,6 +4,7 @@ import { Loader2, RotateCcw } from 'lucide-react'
 import { useEffect, useRef } from 'react'
 
 import { FuzzyTime } from '@/components/FuzzyTime'
+import { EmptyState } from '@/components/Page'
 import { StatusBadge } from '@/components/StatusBadge'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { duration, shortId } from '@/lib/format'
@@ -50,13 +51,7 @@ export function TaskTable({ tasks, hasNextPage, isFetchingNextPage, onLoadMore }
     })
   }
 
-  if (!tasks.length) {
-    return (
-      <div className="rounded-lg border bg-card p-12 text-center text-sm text-muted-foreground">
-        当前范围内无任务
-      </div>
-    )
-  }
+  if (!tasks.length) return <EmptyState label="没有匹配的任务" />
 
   return (
     <div className="rounded-lg border bg-card">

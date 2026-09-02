@@ -148,15 +148,32 @@ describe('admin user routes', () => {
     expect(body.truncated).toBe(false)
   })
 
-  it('returns a filtered user task timeline and complete 24-hour buckets', async () => {
-    const response = await call('/api/users/user-existing?range=1d&status=failed')
+  it('returns the profile with a fixed 30-day trend and no task page', async () => {
+    const response = await call('/api/users/user-existing')
     expect(response.status).toBe(200)
     const body = (await response.json()) as {
-      user: { id: string }
-      tasks: Array<Record<string, unknown>>
+      user: { id: string; task_count: number }
       volume: Array<{ total: number }>
+      volume_bucket: string
+      volume_range: string
     }
     expect(body.user.id).toBe('user-existing')
+    expect(body.user.task_count).toBe(2)
+    expect(body).not.toHaveProperty('tasks')
+    expect(body.volume).toHaveLength(30)
+    expect(body.volume.reduce((sum, bucket) => sum + bucket.total, 0)).toBe(2)
+    expect(body.volume_bucket).toBe('day')
+    expect(body.volume_range).toBe('30d')
+  })
+
+  it('serves the task timeline from its own endpoint, filtered by status', async () => {
+    const response = await call('/api/users/user-existing/tasks?status=failed')
+    expect(response.status).toBe(200)
+    const body = (await response.json()) as {
+      tasks: Array<Record<string, unknown>>
+      nextCursor: string | null
+    }
+    expect(body.nextCursor).toBeNull()
     expect(body.tasks).toEqual([
       {
         id: 'user-task-failed',
@@ -173,12 +190,17 @@ describe('admin user routes', () => {
         attempt_count: 0,
       },
     ])
-    expect(body.volume).toHaveLength(24)
-    expect(body.volume.reduce((sum, bucket) => sum + bucket.total, 0)).toBe(2)
+  })
+
+  it('lists the full history when no status filter is given', async () => {
+    const response = await call('/api/users/user-existing/tasks')
+    expect(response.status).toBe(200)
+    const body = (await response.json()) as { tasks: Array<{ id: string }> }
+    expect(body.tasks.map((task) => task.id)).toEqual(['user-task-failed', 'user-task-completed'])
   })
 
   it('returns 404 for an unknown user detail', async () => {
-    const response = await call('/api/users/missing?range=7d')
+    const response = await call('/api/users/missing')
     expect(response.status).toBe(404)
     expect(await response.json()).toEqual({ error: 'user_not_found' })
   })

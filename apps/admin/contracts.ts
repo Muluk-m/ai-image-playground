@@ -14,6 +14,18 @@ export function parseRange(value: unknown): Range {
     : DEFAULT_RANGE
 }
 
+export const RANGE_LABEL: Record<Range, string> = {
+  '1d': '1 天',
+  '7d': '7 天',
+  '30d': '30 天',
+}
+
+export const SORT_LABEL: Record<SortKey, string> = {
+  last_seen: '最近活跃',
+  today_count: '今日任务',
+  total_count: '范围总数',
+}
+
 export function parseSort(value: unknown): SortKey {
   return typeof value === 'string' && (SORTS as readonly string[]).includes(value)
     ? (value as SortKey)
@@ -114,11 +126,19 @@ export interface TaskVolumeBucket {
   failed: number
 }
 
+/** 桶粒度由服务端决定并随数据返回，前端不再从 range 反推。 */
+export type VolumeBucketUnit = 'hour' | 'day'
+
 export interface UserDetailResult {
   user: AdminUserRow | null
+  volume: TaskVolumeBucket[]
+  volume_bucket: VolumeBucketUnit
+  volume_range: Range
+}
+
+export interface UserTasksResult {
   tasks: TaskListItem[]
   nextCursor: string | null
-  volume: TaskVolumeBucket[] | null
 }
 
 export interface OverviewSummary {
@@ -134,6 +154,7 @@ export interface OverviewSummary {
 export interface OverviewResult {
   summary: OverviewSummary
   volume: TaskVolumeBucket[]
+  volume_bucket: VolumeBucketUnit
   failures: Array<{ error_type: string; count: number }>
   models: Array<{
     model: string

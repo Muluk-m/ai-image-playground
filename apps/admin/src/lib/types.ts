@@ -16,4 +16,6 @@ export type {
   UserDetailResult,
   UserKpis,
   UserStatus,
+  UserTasksResult,
+  VolumeBucketUnit,
 } from '../../contracts'

@@ -1,8 +1,7 @@
 import { PASSWORD_MAX_LENGTH, TASK_STATUSES, USERNAME_MAX_LENGTH } from '@image-playground/shared'
 import { Elysia, t } from 'elysia'
-import { parseRange } from '../../contracts'
 import { requireAuth } from '../lib/middleware'
-import { getUserDetail, listUsers } from '../lib/queries'
+import { getUserDetail, getUserTasks, listUsers } from '../lib/queries'
 import { forwardUserOperation } from '../lib/users'
 
 const VALID_STATUSES = ['all', ...TASK_STATUSES]
@@ -14,19 +13,23 @@ export const usersRoutes = new Elysia({ prefix: '/api/users' })
   })
   .get(
     '/:id',
-    async ({ params, query, status }) => {
-      const range = parseRange(query.range)
-      const requestedStatus = query.status ?? ''
-      const statusFilter = VALID_STATUSES.includes(requestedStatus) ? requestedStatus : 'all'
-      const cursor = query.cursor || undefined
-      const detail = await getUserDetail(params.id, range, statusFilter, cursor)
+    async ({ params, status }) => {
+      const detail = await getUserDetail(params.id)
       if (!detail) return status(404, { error: 'user_not_found' })
       return detail
+    },
+    { params: t.Object({ id: t.String({ minLength: 1 }) }) },
+  )
+  .get(
+    '/:id/tasks',
+    ({ params, query }) => {
+      const requestedStatus = query.status ?? ''
+      const statusFilter = VALID_STATUSES.includes(requestedStatus) ? requestedStatus : 'all'
+      return getUserTasks(params.id, statusFilter, query.cursor || undefined)
     },
     {
       params: t.Object({ id: t.String({ minLength: 1 }) }),
       query: t.Object({
-        range: t.Optional(t.String()),
         status: t.Optional(t.String()),
         cursor: t.Optional(t.String()),
       }),
