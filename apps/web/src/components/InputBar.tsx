@@ -39,6 +39,7 @@ import { ChipIcons } from './chipIcons'
 import { CloseIcon } from './icons'
 import ParamControls from './ParamControls'
 import SubmissionBillingAction from './SubmissionBillingAction'
+import SuggestionMenu, { useSuggestionMenu } from './SuggestionMenu'
 import ViewportTooltip from './ViewportTooltip'
 
 const TEXTAREA_CLASS =
@@ -431,8 +432,6 @@ export default function InputBar() {
   const [maskPreviewUrl, setMaskPreviewUrl] = useState('')
   const [imageDragIndex, setImageDragIndex] = useState<number | null>(null)
   const [imageDragOverIndex, setImageDragOverIndex] = useState<number | null>(null)
-  const [atImageMenuIndex, setAtImageMenuIndex] = useState(0)
-  const [atImageMenuDismissed, setAtImageMenuDismissed] = useState(false)
   const [touchDragPreview, setTouchDragPreview] = useState<{
     src: string
     x: number
@@ -511,20 +510,22 @@ export default function InputBar() {
   const atImageQuery = isCursorInSelectedImageMention(prompt, cursorPosition)
     ? null
     : getAtImageQuery(visiblePrompt, cursorPosition, inputImages)
-  const atImageOptions = atImageQuery
+  const atImageMenuOptions = atImageQuery
     ? inputImages
-        .map((img, index) => ({ img, index }))
-        .filter(({ index }) => imageMentionMatches(atImageQuery.query, index))
+        .map((img, index) => ({
+          key: img.id,
+          label: getImageMentionLabel(index),
+          thumbnailUrl: img.dataUrl,
+          value: index,
+        }))
+        .filter((option) => imageMentionMatches(atImageQuery.query, option.value))
     : []
-  const showAtImageMenu = !atImageMenuDismissed && atImageOptions.length > 0
-
+  const blurPrompt = useCallback(() => textareaRef.current?.blur(), [])
   const selectAtImageOption = useCallback(
     (imageIndex: number) => {
       const el = textareaRef.current
       const cursor = el ? getContentEditableCursor(el) : prompt.length
       const query = getAtImageQuery(stripImageMentionMarkers(prompt), cursor, inputImages)
-      setAtImageMenuDismissed(true)
-      setAtImageMenuIndex(0)
       if (!query) return
 
       const next = insertImageMentionAtVisibleRange(prompt, query.start, cursor, imageIndex)
@@ -539,6 +540,12 @@ export default function InputBar() {
     },
     [inputImages, prompt, setPrompt],
   )
+
+  const atImageMenu = useSuggestionMenu({
+    options: atImageMenuOptions,
+    onSelect: selectAtImageOption,
+    onClose: blurPrompt,
+  })
 
   const insertPromptTextAtSelection = useCallback(
     (text: string) => {
@@ -565,8 +572,7 @@ export default function InputBar() {
     isUserInputRef.current = false
     setPrompt('')
     setCursorPos(0)
-    setAtImageMenuIndex(0)
-    setAtImageMenuDismissed(true)
+    atImageMenu.dismiss()
 
     window.setTimeout(() => {
       const el = textareaRef.current
@@ -576,7 +582,7 @@ export default function InputBar() {
       setContentEditableCursor(el, 0)
       syncMentionTagSelection(el)
     }, 0)
-  }, [setPrompt])
+  }, [atImageMenu.dismiss, setPrompt])
 
   useEffect(() => {
     const normalizedParams = normalizeParamsForSettings(params, effectiveSettings, {
@@ -810,29 +816,7 @@ export default function InputBar() {
   }
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
-    if (showAtImageMenu) {
-      if (e.key === 'ArrowDown') {
-        e.preventDefault()
-        setAtImageMenuIndex((idx) => (idx + 1) % atImageOptions.length)
-        return
-      }
-      if (e.key === 'ArrowUp') {
-        e.preventDefault()
-        setAtImageMenuIndex((idx) => (idx - 1 + atImageOptions.length) % atImageOptions.length)
-        return
-      }
-      if ((e.key === 'Enter' && !e.shiftKey) || e.key === 'Tab') {
-        e.preventDefault()
-        selectAtImageOption(atImageOptions[atImageMenuIndex]?.index ?? atImageOptions[0].index)
-        return
-      }
-      if (e.key === 'Escape') {
-        e.preventDefault()
-        setAtImageMenuIndex(0)
-        textareaRef.current?.blur()
-        return
-      }
-    }
+    if (atImageMenu.handleKeyDown(e)) return
 
     // 阻止 contentEditable 默认换行
     if (e.key === 'Enter') {
@@ -1760,40 +1744,15 @@ export default function InputBar() {
 
               {/* 输入框 */}
               <div className="relative">
-                {showAtImageMenu && (
-                  <div
-                    style={{ left: `${menuLeft}px` }}
-                    className="absolute bottom-full z-50 mb-2 w-64 overflow-hidden rounded-2xl border border-gray-200/70 bg-white/95 p-1.5 shadow-xl ring-1 ring-black/5 backdrop-blur-xl dark:border-white/[0.08] dark:bg-gray-900/95 dark:ring-white/10"
-                  >
-                    <div className="px-2 pb-1 pt-0.5 text-[11px] text-gray-400 dark:text-gray-500">
-                      选择当前参考图
-                    </div>
-                    <div className="max-h-56 overflow-y-auto custom-scrollbar">
-                      {atImageOptions.map(({ img, index }, optionIndex) => (
-                        <button
-                          key={img.id}
-                          type="button"
-                          onMouseDown={(e) => {
-                            e.preventDefault()
-                            selectAtImageOption(index)
-                          }}
-                          onMouseEnter={() => setAtImageMenuIndex(optionIndex)}
-                          className={`flex w-full items-center gap-2 rounded-xl px-2 py-1.5 text-left text-xs transition-colors ${
-                            optionIndex === atImageMenuIndex
-                              ? 'bg-blue-50 text-blue-600 dark:bg-blue-500/10 dark:text-blue-300'
-                              : 'text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-white/[0.06]'
-                          }`}
-                        >
-                          <span className="h-9 w-9 shrink-0 overflow-hidden rounded-lg border border-gray-200/70 dark:border-white/[0.08]">
-                            <img src={img.dataUrl} className="h-full w-full object-cover" alt="" />
-                          </span>
-                          <span className="min-w-0 flex-1 truncate font-medium">
-                            {getImageMentionLabel(index)}
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
+                {atImageMenu.visible && (
+                  <SuggestionMenu
+                    heading="选择当前参考图"
+                    options={atImageMenuOptions}
+                    activeIndex={atImageMenu.activeIndex}
+                    offsetLeft={menuLeft}
+                    onActiveIndexChange={atImageMenu.setActiveIndex}
+                    onSelect={atImageMenu.select}
+                  />
                 )}
                 <div
                   ref={textareaRef}
@@ -1812,16 +1771,14 @@ export default function InputBar() {
                     syncMentionTagSelection(el)
                     const text = getContentEditablePlainText(el)
                     setPrompt(text)
-                    setAtImageMenuIndex(0)
-                    setAtImageMenuDismissed(false)
+                    atImageMenu.open()
                   }}
                   onSelect={(e) => {
                     const el = e.currentTarget
                     const range = getContentEditableSelection(el)
                     setCursorPos(range.start)
                     syncMentionTagSelection(el)
-                    setAtImageMenuIndex(0)
-                    setAtImageMenuDismissed(false)
+                    atImageMenu.open()
                   }}
                   onKeyDown={handleKeyDown}
                   onPaste={handlePromptPaste}
