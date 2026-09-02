@@ -46,7 +46,7 @@ let upstream: RecordingUpstream
 function submitThenComplete(taskId = 'imgtask_1'): (url: string) => Response {
   return (url) =>
     url.endsWith('/async')
-      ? json({ id: taskId, status: 'processing', poll_url: `/v1/images/tasks/${taskId}` }, 202)
+      ? json({ task_id: taskId, status: 'processing', poll_url: `/v1/images/tasks/${taskId}` }, 202)
       : json({ ...COMPLETED_BODY, task_id: taskId })
 }
 
@@ -114,12 +114,26 @@ describe('async submit', () => {
     expect(upstream.calls).toHaveLength(1)
   })
 
-  it('treats a 202 without a task id as an unknown result rather than a retryable failure', async () => {
-    upstream.handler = () => json({ status: 'processing' }, 202)
+  it('treats a 202 without a task_id as an unknown result rather than a retryable failure', async () => {
+    upstream.handler = () => json({ id: 'imgtask_1', status: 'processing' }, 202)
 
     await expect(
       callUpstream({ ...grokRequest, request: { prompt: 'a cat' } }),
     ).rejects.toBeInstanceOf(UpstreamResultUnknownError)
+  })
+
+  it('flags a gateway with async tasks switched off instead of falling back', async () => {
+    upstream.handler = () =>
+      json(
+        { error: { code: 'not_found_error', message: 'async image tasks are not enabled' } },
+        404,
+      )
+
+    await expect(
+      callUpstream({ ...grokRequest, request: { prompt: 'a cat' } }),
+    ).rejects.toMatchObject({ upstreamStatus: 404 })
+    // 只发了提交那一次：没有静默回落到同步端点。
+    expect(upstream.calls).toEqual(['https://gateway.example/v1/images/generations/async'])
   })
 
   it('fans out the requested image count into one upstream task each', async () => {
@@ -169,6 +183,39 @@ describe('async submit', () => {
   })
 })
 
+describe('shortfall resubmit', () => {
+  it('submits only the ids it never got and polls the ones it already has', async () => {
+    upstream.handler = (url) =>
+      url.endsWith('/async') ? json({ task_id: 'imgtask_2' }, 202) : json(COMPLETED_BODY)
+
+    const persisted: string[][] = []
+    const result = await callUpstream({
+      ...grokRequest,
+      request: { prompt: 'a cat', n: 2 },
+      resume: { taskIds: ['imgtask_1'], submittedAt: Date.now() },
+      onUpstreamTaskIds: async (taskIds) => {
+        persisted.push([...taskIds])
+      },
+    })
+
+    expect(upstream.calls.filter((url) => url.endsWith('/async'))).toHaveLength(1)
+    expect(persisted).toEqual([['imgtask_1', 'imgtask_2']])
+    expect(upstream.calls).toContain('https://gateway.example/v1/images/tasks/imgtask_1')
+    expect(upstream.calls).toContain('https://gateway.example/v1/images/tasks/imgtask_2')
+    expect((result.payload as { data: unknown[] }).data).toHaveLength(2)
+  })
+
+  it('submits nothing when every id is already stored', async () => {
+    await callUpstream({
+      ...grokRequest,
+      request: { prompt: 'a cat', n: 2 },
+      resume: { taskIds: ['imgtask_1', 'imgtask_2'], submittedAt: Date.now() },
+    })
+
+    expect(upstream.calls.filter((url) => url.endsWith('/async'))).toHaveLength(0)
+  })
+})
+
 describe('async polling', () => {
   it('keeps polling through a 5xx and through a status it does not recognise', async () => {
     const bodies: Array<() => Response> = [
@@ -203,6 +250,21 @@ describe('async polling', () => {
     })
   })
 
+  it('maps a hard timeout that lands during the backoff sleep to UpstreamTimeoutError', async () => {
+    // 真实退避下轮询大部分时间在 sleep，所以这是硬超时的主路径。
+    setAsyncPollBackoffForTesting([200])
+    const submittedAt = Date.now() - QUEUE_TIMEOUTS.UPSTREAM_HARD_TIMEOUT_MS + 60
+    upstream.handler = () => json({ status: 'processing' })
+
+    await expect(
+      callUpstream({
+        ...grokRequest,
+        request: { prompt: 'a cat' },
+        resume: { taskIds: ['imgtask_9'], submittedAt },
+      }),
+    ).rejects.toBeInstanceOf(UpstreamTimeoutError)
+  })
+
   it('reads a completed result that is flattened onto the response root', async () => {
     upstream.handler = (url) =>
       url.endsWith('/async')
@@ -222,7 +284,7 @@ describe('resume', () => {
     const result = await callUpstream({
       ...grokRequest,
       request: { prompt: 'a cat' },
-      resumeUpstreamTaskIds: ['imgtask_9'],
+      resume: { taskIds: ['imgtask_9'], submittedAt: Date.now() },
     })
 
     expect(upstream.calls).toEqual(['https://gateway.example/v1/images/tasks/imgtask_9'])
@@ -234,8 +296,10 @@ describe('resume', () => {
       callUpstream({
         ...grokRequest,
         request: { prompt: 'a cat' },
-        resumeUpstreamTaskIds: ['imgtask_9'],
-        budgetAnchorAt: Date.now() - QUEUE_TIMEOUTS.UPSTREAM_HARD_TIMEOUT_MS - 1,
+        resume: {
+          taskIds: ['imgtask_9'],
+          submittedAt: Date.now() - QUEUE_TIMEOUTS.UPSTREAM_HARD_TIMEOUT_MS - 1,
+        },
       }),
     ).rejects.toBeInstanceOf(UpstreamTimeoutError)
     expect(upstream.calls).toEqual([])
@@ -246,7 +310,7 @@ describe('resume', () => {
     await callUpstream({
       ...grokRequest,
       request: { prompt: 'a cat' },
-      resumeUpstreamTaskIds: ['imgtask_9'],
+      resume: { taskIds: ['imgtask_9'], submittedAt: Date.now() },
       beforeRequest: async () => {
         invocations += 1
       },

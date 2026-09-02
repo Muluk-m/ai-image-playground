@@ -93,21 +93,16 @@ export interface UpstreamCallParams {
   signal?: AbortSignal
   /** Runs immediately before each upstream invocation is dispatched. Polling does not count. */
   beforeRequest?: () => Promise<void>
-  /**
-   * 异步模式下提交成功、开始轮询**之前**调用，必须把 id 持久化。这一步 await 完成前
-   * 崩溃 = 上游已计费但我们不知道，窗口就靠它收缩到一条 UPDATE 的长度。
-   */
+  /** 异步提交拿到 id 后、开始轮询**之前**调用；必须在这一步之内把 id 持久化。 */
   onUpstreamTaskIds?: (taskIds: readonly string[]) => Promise<void>
-  /**
-   * 已经提交过的上游任务 id：跳过提交直接轮询。有 id 就一定轮询，即使 channel 的
-   * 异步声明位后来被关掉 —— 否则这些已计费的任务没人收，额度永久悬挂。
-   */
-  resumeUpstreamTaskIds?: readonly string[]
-  /**
-   * 超时预算的起点，恢复轮询时传**首次提交时刻**。重启不能重新发一份完整预算，
-   * 否则 STALE_IN_PROGRESS_MS 会误杀正在正常轮询的行。缺省即本次调用开始时刻。
-   */
-  budgetAnchorAt?: number
+  /** 本任务已提交过的上游异步任务：这些 id 只轮询，永不重提。 */
+  resume?: UpstreamResume
+}
+
+export interface UpstreamResume {
+  readonly taskIds: readonly string[]
+  /** 首次提交时刻，超时预算的锚点；重启不能重新发一份完整预算。 */
+  readonly submittedAt: number
 }
 
 export interface UpstreamCallResult {
@@ -173,7 +168,7 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
     signal: externalSignal,
     beforeRequest,
     onUpstreamTaskIds,
-    resumeUpstreamTaskIds,
+    resume,
   } = params
   const {
     baseUrl: base,
@@ -192,7 +187,7 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
 
   const abort = new AbortController()
   let timedOut = false
-  const deadlineAt = (params.budgetAnchorAt ?? Date.now()) + QUEUE_TIMEOUTS.UPSTREAM_HARD_TIMEOUT_MS
+  const deadlineAt = (resume?.submittedAt ?? Date.now()) + QUEUE_TIMEOUTS.UPSTREAM_HARD_TIMEOUT_MS
   const timer = setTimeout(
     () => {
       timedOut = true
@@ -269,26 +264,47 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
   try {
     if (provider === 'openai-compat') {
       const authHeader: Record<string, string> = key ? { authorization: `Bearer ${key}` } : {}
-      const resumeIds = resumeUpstreamTaskIds ?? []
+      const resumeIds = resume?.taskIds ?? []
       const useAsyncTasks = asyncTasks || resumeIds.length > 0
 
-      /** 提交 N 个异步任务，把拿到的 id 交给调用方持久化，再返回。 */
-      const submitAsyncTasks = async (
+      /**
+       * 补齐到 count 个上游任务：已有 id 原样带出，只为缺口发提交请求。上游没有幂等键，
+       * 重提已落库的 id 就是第二次计费，所以缺口是唯一可以提交的份额。
+       */
+      const collectTaskIds = async (
         url: string,
         count: number,
         makeInit: () => UpstreamFetchInit,
       ): Promise<string[]> => {
+        const missing = count - resumeIds.length
+        if (missing <= 0) return [...resumeIds]
         const settled = await Promise.allSettled(
-          Array.from({ length: count }, async () =>
+          Array.from({ length: missing }, async () =>
             extractAsyncTaskId((await parseResponse(await performFetch(url, makeInit()))).payload),
           ),
         )
-        const taskIds = settled.flatMap((one) => (one.status === 'fulfilled' ? [one.value] : []))
-        // 先落库再抛：fan-out 部分失败时，成功那几个任务已经计费，丢了 id 就没人回收。
-        if (taskIds.length > 0) await onUpstreamTaskIds?.(taskIds)
+        const taskIds = [
+          ...resumeIds,
+          ...settled.flatMap((one) => (one.status === 'fulfilled' ? [one.value] : [])),
+        ]
+        // 先落库再抛：部分失败时成功那几个已经计费，丢了 id 就没人收。
+        if (taskIds.length > resumeIds.length) await onUpstreamTaskIds?.(taskIds)
         const failure = settled.find((one) => one.status === 'rejected')
-        if (failure) throw failure.reason
+        if (failure) {
+          warnIfAsyncTasksDisabled(failure.reason)
+          throw failure.reason
+        }
         return taskIds
+      }
+
+      /** 硬超时会 abort 掉轮询的 sleep；不映射的话裸 AbortError 会被当成用户取消，行没有终态。 */
+      const pollDelay = async (attempt: number): Promise<void> => {
+        try {
+          await abortableSleep(asyncPollDelayMs(attempt), abort.signal)
+        } catch (err) {
+          if (timedOut) throw new UpstreamTimeoutError()
+          throw err
+        }
       }
 
       /** 轮询单个上游任务到终态。判定与提交侧方向相反：瞬时错误一律继续轮。 */
@@ -310,7 +326,7 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
           const state = readAsyncTaskState(payload)
           if (state.kind === 'completed') return { payload: state.payload }
           if (state.kind === 'failed') throw asyncTaskFailure(state.status, payload)
-          await abortableSleep(asyncPollDelayMs(attempt), abort.signal)
+          await pollDelay(attempt)
         }
       }
 
@@ -332,8 +348,7 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
             merge,
           )
         }
-        const taskIds =
-          resumeIds.length > 0 ? resumeIds : await submitAsyncTasks(`${url}/async`, count, makeInit)
+        const taskIds = await collectTaskIds(`${url}/async`, count, makeInit)
         const results = await Promise.all(taskIds.map(pollAsyncTask))
         return results.length === 1 ? results[0]! : merge(results)
       }
@@ -476,16 +491,21 @@ function isRecoverablePollFailure(err: unknown): boolean {
   return status === 408 || status === 429 || status >= 500
 }
 
-/** 提交响应的 task id。文档同时给 `id` 与 `task_id`，两个都认。 */
 function extractAsyncTaskId(payload: unknown): string {
-  if (payload && typeof payload === 'object') {
-    const body = payload as { task_id?: unknown; id?: unknown }
-    for (const candidate of [body.task_id, body.id]) {
-      if (typeof candidate === 'string' && candidate.length > 0) return candidate
-    }
-  }
+  const taskId = (payload as { task_id?: unknown } | null)?.task_id
+  if (typeof taskId === 'string' && taskId.length > 0) return taskId
   // 任务可能已经建起来在烧钱，但我们拿不到 id 去轮询它 —— 按结果未知处理，绝不自动重提。
-  throw new UpstreamResultUnknownError('上游异步任务提交未返回 task id，执行结果未知')
+  throw new UpstreamResultUnknownError('上游异步任务提交未返回 task_id，执行结果未知')
+}
+
+/** 上游把异步开关关掉时提交一律 404。单独一条 event，别混在通用 upstream 失败里。 */
+function warnIfAsyncTasksDisabled(err: unknown): void {
+  const { status, body } = extractUpstreamFailure(err)
+  if (status !== 404 || !body?.includes('async image tasks are not enabled')) return
+  log.error(
+    { event: 'upstream.async_disabled', upstreamStatus: status },
+    'upstream async image tasks are disabled; turn off the asyncTasks declaration on our side',
+  )
 }
 
 type AsyncTaskState =

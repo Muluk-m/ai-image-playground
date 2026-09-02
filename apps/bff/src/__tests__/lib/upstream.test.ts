@@ -945,16 +945,19 @@ describe('callUpstream grok-images channel（channel base/key + Grok 编辑协�
 })
 
 describe('callUpstream 取消传播', () => {
-  afterEach(() => {
-    setUpstreamFetchForTesting()
-  })
+  const agnesChannel: InternalChannel = {
+    id: 'agnes-images',
+    kind: 'openai-queue',
+    label: 'Agnes AI',
+    baseUrl: 'https://apihub.agnes-ai.com/v1',
+    auth: { type: 'bearer', secretRef: 'AGNES_API_KEY', secret: 'agnes-test-key' },
+    allowedPaths: ['images/generations'],
+    models: [{ id: 'agnes-image-2.1-flash', label: 'Agnes', capabilities: ['generate'] }],
+    defaults: { apiMode: 'images' },
+  }
 
-  // 回归：try 里裸 `return promise` 会让 finally 提前摘掉 external abort 监听，
-  // 取消与硬超时都静默失效，fan-out 路径尤其容易踩。
-  it.each([
-    ['openai-compat', 'gpt-image-2'],
-    ['gemini', 'gemini-3.1-flash-image'],
-  ] as const)('%s 的 fan-out 请求会被外部 signal 中断', async (provider, model) => {
+  beforeEach(() => {
+    _setChannelsForTesting([agnesChannel])
     setUpstreamFetchForTesting((async (_input: unknown, init: Parameters<TestFetch>[1]) => {
       return new Promise((_resolve, reject) => {
         const signal = (init as { signal?: AbortSignal } | undefined)?.signal
@@ -963,14 +966,41 @@ describe('callUpstream 取消传播', () => {
         })
       })
     }) as unknown as TestFetch)
+  })
 
+  afterEach(() => {
+    setUpstreamFetchForTesting()
+    _setChannelsForTesting([])
+  })
+
+  // 回归：try 里裸 `return promise` 会让 finally 提前摘掉 external abort 监听，
+  // 取消与硬超时都静默失效。每条 return 分支都要盖到。
+  const cancelCases: Array<[string, Parameters<typeof callUpstream>[0]]> = [
+    [
+      'openai generations fan-out',
+      { provider: 'openai-compat', model: 'gpt-image-2', request: { prompt: 'a cat', n: 2 } },
+    ],
+    [
+      'openai edits',
+      {
+        provider: 'openai-compat',
+        model: 'gpt-image-2',
+        request: { prompt: 'a cat', input_images: [TINY_PNG_DATA_URL] },
+      },
+    ],
+    [
+      'agnes generations',
+      { provider: 'openai-compat', model: 'agnes-image-2.1-flash', request: { prompt: 'a cat' } },
+    ],
+    [
+      'gemini fan-out',
+      { provider: 'gemini', model: 'gemini-3.1-flash-image', request: { prompt: 'a cat', n: 2 } },
+    ],
+  ]
+
+  it.each(cancelCases)('%s 会被外部 signal 中断', async (_name, params) => {
     const controller = new AbortController()
-    const pending = callUpstream({
-      provider,
-      model,
-      request: { prompt: 'a cat', n: 2 },
-      signal: controller.signal,
-    })
+    const pending = callUpstream({ ...params, signal: controller.signal })
     controller.abort()
 
     await expect(pending).rejects.toMatchObject({ name: 'AbortError' })

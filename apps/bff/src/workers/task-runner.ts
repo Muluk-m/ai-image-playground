@@ -95,10 +95,18 @@ async function recordUpstreamInvocation(id: string, count = 1): Promise<boolean>
   return updated.length > 0
 }
 
-async function recordUpstreamTaskIds(id: string, taskIds: readonly string[]): Promise<void> {
+async function recordUpstreamTaskIds(
+  id: string,
+  taskIds: readonly string[],
+  anchorAlreadySet: boolean,
+): Promise<void> {
   await db
     .update(schema.tasks)
-    .set({ upstream_task_ids: [...taskIds], upstream_submitted_at: Date.now() })
+    .set({
+      upstream_task_ids: [...taskIds],
+      // 补提交缺口时不能把锚点往后推，否则重试等于领了一份新的超时预算。
+      ...(anchorAlreadySet ? {} : { upstream_submitted_at: Date.now() }),
+    })
     .where(and(eq(schema.tasks.id, id), eq(schema.tasks.status, 'in_progress')))
 }
 
@@ -131,8 +139,11 @@ export async function runTask(id: string): Promise<void> {
     'task started',
   )
 
-  // 已提交过的上游异步任务：接着轮，不重提交也不重计费。
-  const resumeTaskIds = task.upstream_task_ids ?? undefined
+  // 已提交过的上游异步任务：接着轮，只补提交缺口，已有 id 永不重提。
+  const resume =
+    task.upstream_task_ids?.length && task.upstream_submitted_at !== null
+      ? { taskIds: task.upstream_task_ids, submittedAt: task.upstream_submitted_at }
+      : undefined
 
   try {
     const hydratedRequest = await hydrateInputImages(task.request_payload)
@@ -141,9 +152,8 @@ export async function runTask(id: string): Promise<void> {
       model: task.model,
       request: hydratedRequest,
       signal: ctrl.signal,
-      resumeUpstreamTaskIds: resumeTaskIds,
-      budgetAnchorAt: resumeTaskIds ? (task.upstream_submitted_at ?? undefined) : undefined,
-      onUpstreamTaskIds: (taskIds) => recordUpstreamTaskIds(id, taskIds),
+      resume,
+      onUpstreamTaskIds: (taskIds) => recordUpstreamTaskIds(id, taskIds, resume !== undefined),
       beforeRequest: async () => {
         if (await recordUpstreamInvocation(id)) return
         ctrl.abort()

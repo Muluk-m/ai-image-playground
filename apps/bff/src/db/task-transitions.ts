@@ -10,11 +10,7 @@ import { db, schema } from './client'
 const stillRunning = (id: string) =>
   and(eq(schema.tasks.id, id), eq(schema.tasks.status, 'in_progress'))
 
-/**
- * 回队时一律抹掉的上一次尝试痕迹。新增「每次尝试」列时改这里，不要往下面某一个
- * requeue 里单独加 —— 只加一处正是留下脏值的那类 bug。
- * started_at 保留首次启动时间，admin 查耗时仍可用 submitted→completed。
- */
+/** 回队时一律抹掉的上一次尝试痕迹。新增「每次尝试」列时改这里，别只加进某一个 requeue。 */
 const CLEARED_ON_REQUEUE = {
   status: 'queued',
   error_message: null,
@@ -24,7 +20,11 @@ const CLEARED_ON_REQUEUE = {
   upstream_body: null,
 } as const satisfies Partial<typeof schema.tasks.$inferInsert>
 
-/** 把在跑的任务退回 queued 等下一次尝试。返回是否真的改到了行。 */
+/**
+ * 把在跑的任务退回 queued 等下一次尝试。返回是否真的改到了行。
+ * upstream_task_ids 故意不清：上游没有幂等键，已落库的 id 重提一次就是重复计费，
+ * 所以下一次尝试只能轮它们、只补提交缺口。
+ */
 export async function requeueTask(
   id: string,
   attemptJustFailed: number,
@@ -32,14 +32,7 @@ export async function requeueTask(
 ): Promise<boolean> {
   const updated = await db
     .update(schema.tasks)
-    .set({
-      ...CLEARED_ON_REQUEUE,
-      attempt_count: attemptJustFailed,
-      next_retry_at: nextRetryAt,
-      // 下一次尝试是一个全新的上游任务，留着旧 id 会让它去轮一个已经终态的任务，永远出不来。
-      upstream_task_ids: null,
-      upstream_submitted_at: null,
-    })
+    .set({ ...CLEARED_ON_REQUEUE, attempt_count: attemptJustFailed, next_retry_at: nextRetryAt })
     .where(stillRunning(id))
     .returning({ id: schema.tasks.id })
   return updated.length > 0
