@@ -1,5 +1,6 @@
 import { createFileRoute, redirect } from '@tanstack/react-router'
 
+import { Page } from '@/components/Page'
 import { apiClient } from '@/lib/api-client'
 import type { TaskDetail } from '@/lib/types'
 
@@ -28,12 +29,10 @@ export const Route = createFileRoute('/_authed/tasks/$taskId')({
 function TaskNotLinkedPage() {
   const { taskId } = Route.useParams()
   return (
-    <div className="mx-auto max-w-md rounded-lg border bg-card p-6 text-center">
-      <h2 className="text-base font-semibold">任务无关联设备</h2>
-      <p className="mt-2 text-sm text-muted-foreground">
-        任务 <span className="font-mono">{taskId}</span> 的 request_payload 中没有 device_id
-        字段，无法定位归属设备。
-      </p>
-    </div>
+    <Page crumbs={[{ label: '任务' }]} title="任务无关联设备" description={taskId}>
+      <div className="rounded-lg border bg-card p-6 text-sm text-muted-foreground">
+        该任务的 request_payload 中没有 device_id 字段，无法定位归属设备。
+      </div>
+    </Page>
   )
 }

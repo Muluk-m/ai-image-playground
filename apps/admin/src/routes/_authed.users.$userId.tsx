@@ -1,23 +1,25 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { createFileRoute, notFound, useNavigate } from '@tanstack/react-router'
 import { KeyRound, LogOut, ShieldCheck, ShieldOff } from 'lucide-react'
-import { type ReactNode, useState } from 'react'
+import { useMemo, useState } from 'react'
 
 import { FuzzyTime } from '@/components/FuzzyTime'
+import { Kpi } from '@/components/Kpi'
+import { LazyTaskVolumeChart } from '@/components/LazyTaskVolumeChart'
 import { LightboxDialog } from '@/components/LightboxDialog'
-import { ErrorState, Page, PendingState } from '@/components/Page'
+import { EmptyState, ErrorState, Page, PendingState } from '@/components/Page'
+import { SegmentedControl } from '@/components/SegmentedControl'
 import { TaskDetailSheet } from '@/components/TaskDetailSheet'
 import { TaskTable } from '@/components/TaskTable'
-import { TaskVolumeChart } from '@/components/TaskVolumeChart'
 import { UserFormDialog } from '@/components/UserFormDialog'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { apiClient } from '@/lib/api-client'
 import { PrivateAdminUserDetailPanel } from '@/lib/private-overlay'
-import { useUserDetail } from '@/lib/queries'
-import { parseUserDetailSearch } from '@/lib/search-params'
-import type { AdminUserRow } from '@/lib/types'
+import { useUserDetail, useUserTasks } from '@/lib/queries'
+import { clearTaskView, parseUserDetailSearch, RANGE_LABEL } from '@/lib/search-params'
+import type { AdminUserRow, UserDetailResult } from '@/lib/types'
 
 export const Route = createFileRoute('/_authed/users/$userId')({
   validateSearch: parseUserDetailSearch,
@@ -34,18 +36,6 @@ const TASK_FILTERS = [
   { value: 'in_progress', label: '执行中' },
   { value: 'queued', label: '排队中' },
 ] as const
-
-function Fact({ label, value, note }: { label: string; value: string; note?: ReactNode }) {
-  return (
-    <div>
-      <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-        {label}
-      </p>
-      <p className="mt-1 font-mono text-sm font-semibold tabular-nums">{value}</p>
-      {note ? <div className="text-[11px] text-muted-foreground">{note}</div> : null}
-    </div>
-  )
-}
 
 function UserOperations({ user }: { user: AdminUserRow }) {
   const queryClient = useQueryClient()
@@ -102,147 +92,33 @@ function UserOperations({ user }: { user: AdminUserRow }) {
 function UserDetailPage() {
   const { userId } = Route.useParams()
   const search = Route.useSearch()
-  const status = search.status ?? 'all'
   const navigate = useNavigate()
-  const query = useUserDetail(userId, status)
-  const pages = query.data?.pages ?? []
-  const detail = pages[0] ?? null
-  const tasks = pages.flatMap((page) => page.tasks)
-
-  function updateStatus(nextStatus: string): void {
-    void navigate({
-      to: '.',
-      search: (previous) => ({
-        ...previous,
-        status: nextStatus === 'all' ? undefined : nextStatus,
-      }),
-      replace: true,
-    })
-  }
+  const query = useUserDetail(userId)
+  const user = query.data?.user ?? null
 
   function closeTask(): void {
-    void navigate({
-      to: '.',
-      search: (previous) => {
-        const {
-          task: _task,
-          fullscreen: _fullscreen,
-          imgIdx: _index,
-          imgKind: _kind,
-          ...rest
-        } = previous ?? {}
-        return rest
-      },
-    })
+    void navigate({ to: '.', search: clearTaskView })
   }
 
   return (
     <>
       <Page
-        crumbs={[{ label: '用户', to: '/users' }, { label: detail?.user?.username ?? userId }]}
-        title={detail?.user?.username ?? '用户详情'}
+        crumbs={[{ label: '用户', to: '/users' }, { label: user?.username ?? userId }]}
         description="全部历史任务与账户操作"
       >
         {query.isPending ? (
           <PendingState label="加载用户档案" />
         ) : query.isError ? (
           <ErrorState label="加载失败" error={query.error} />
-        ) : !detail || !detail.user ? (
-          <div className="rounded-lg border bg-card p-12 text-center text-sm text-muted-foreground">
-            未找到用户 {userId}
-          </div>
+        ) : !query.data || !user ? (
+          <EmptyState label={`未找到用户 ${userId}`} />
         ) : (
-          <>
-            <Card>
-              <CardContent className="p-5">
-                <div className="flex flex-wrap items-start justify-between gap-4">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <h2 className="truncate text-lg font-semibold tracking-tight">
-                        {detail.user.username}
-                      </h2>
-                      <Badge variant={detail.user.status === 'active' ? 'success' : 'secondary'}>
-                        {detail.user.status === 'active' ? '正常' : '已停用'}
-                      </Badge>
-                    </div>
-                    <p className="mt-1 truncate font-mono text-xs text-muted-foreground">
-                      {detail.user.id}
-                    </p>
-                  </div>
-                  <UserOperations user={detail.user} />
-                </div>
-
-                <div className="mt-5 grid gap-4 border-t pt-4 sm:grid-cols-2 xl:grid-cols-4">
-                  <Fact
-                    label="创建"
-                    value={new Date(detail.user.created_at).toLocaleDateString()}
-                    note={new Date(detail.user.created_at).toLocaleTimeString()}
-                  />
-                  <Fact
-                    label="最近活动"
-                    value={detail.user.last_activity_at ? '已活动' : '无记录'}
-                    note={<FuzzyTime ts={detail.user.last_activity_at} />}
-                  />
-                  <Fact label="活跃会话" value={String(detail.user.active_sessions)} />
-                  <Fact label="历史任务" value={String(detail.user.task_count)} />
-                </div>
-              </CardContent>
-            </Card>
-
-            <div className="grid gap-4 xl:grid-cols-[340px_minmax(0,1fr)]">
-              <div className="min-w-0">
-                <PrivateAdminUserDetailPanel
-                  userId={detail.user.id}
-                  username={detail.user.username}
-                />
-              </div>
-
-              <Card className="min-w-0">
-                <CardHeader className="flex-row flex-wrap items-center justify-between gap-3 space-y-0 p-4">
-                  <CardTitle className="text-sm">
-                    任务
-                    <span className="ml-2 text-xs font-normal text-muted-foreground">
-                      已加载 {tasks.length} 条 · 从新到旧
-                    </span>
-                  </CardTitle>
-                  <div
-                    className="flex rounded-md border bg-muted/25 p-0.5"
-                    aria-label="任务状态筛选"
-                  >
-                    {TASK_FILTERS.map((filter) => (
-                      <Button
-                        key={filter.value}
-                        size="sm"
-                        variant={status === filter.value ? 'secondary' : 'ghost'}
-                        className="h-7 px-2.5 text-xs"
-                        onClick={() => updateStatus(filter.value)}
-                      >
-                        {filter.label}
-                      </Button>
-                    ))}
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-3 p-4 pt-0">
-                  {detail.volume ? (
-                    <>
-                      <p className="text-[11px] text-muted-foreground">任务趋势 · 近 30 天</p>
-                      <TaskVolumeChart
-                        buckets={detail.volume}
-                        label={`${detail.user.username} 的任务量`}
-                        className="aspect-auto h-32 w-full"
-                      />
-                    </>
-                  ) : null}
-                  <TaskTable
-                    tasks={tasks}
-                    hasNextPage={query.hasNextPage}
-                    isFetchingNextPage={query.isFetchingNextPage}
-                    onLoadMore={() => void query.fetchNextPage()}
-                  />
-                </CardContent>
-              </Card>
-            </div>
-          </>
+          <UserDetailContent
+            detail={query.data}
+            user={user}
+            status={search.status ?? 'all'}
+            userId={userId}
+          />
         )}
       </Page>
 
@@ -258,6 +134,120 @@ function UserDetailPage() {
         imgKind={search.imgKind}
         fullscreen={search.fullscreen}
       />
+    </>
+  )
+}
+
+function UserDetailContent({
+  detail,
+  user,
+  status,
+  userId,
+}: {
+  detail: UserDetailResult
+  user: AdminUserRow
+  status: string
+  userId: string
+}) {
+  const navigate = useNavigate()
+  const tasksQuery = useUserTasks(userId, status)
+  const tasks = useMemo(
+    () => (tasksQuery.data?.pages ?? []).flatMap((page) => page.tasks),
+    [tasksQuery.data],
+  )
+  const createdAt = new Date(user.created_at)
+
+  function updateStatus(nextStatus: string): void {
+    void navigate({
+      to: '.',
+      search: (previous) => ({
+        ...previous,
+        status: nextStatus === 'all' ? undefined : nextStatus,
+      }),
+      replace: true,
+    })
+  }
+
+  return (
+    <>
+      <Card>
+        <CardContent className="p-5">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <h2 className="truncate text-lg font-semibold tracking-tight">{user.username}</h2>
+                <Badge variant={user.status === 'active' ? 'success' : 'secondary'}>
+                  {user.status === 'active' ? '正常' : '已停用'}
+                </Badge>
+              </div>
+              <p className="mt-1 truncate font-mono text-xs text-muted-foreground">{user.id}</p>
+            </div>
+            <UserOperations user={user} />
+          </div>
+
+          <div className="mt-5 grid gap-4 border-t pt-4 sm:grid-cols-2 xl:grid-cols-4">
+            <Kpi
+              variant="inline"
+              label="创建"
+              value={createdAt.toLocaleDateString()}
+              note={createdAt.toLocaleTimeString()}
+            />
+            <Kpi
+              variant="inline"
+              label="最近活动"
+              value={<FuzzyTime ts={user.last_activity_at} />}
+            />
+            <Kpi variant="inline" label="活跃会话" value={String(user.active_sessions)} />
+            <Kpi variant="inline" label="历史任务" value={String(user.task_count)} />
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="grid gap-4 xl:grid-cols-[340px_minmax(0,1fr)]">
+        <div className="min-w-0">
+          <PrivateAdminUserDetailPanel userId={user.id} username={user.username} />
+        </div>
+
+        <Card className="min-w-0">
+          <CardHeader className="flex-row flex-wrap items-center justify-between gap-3 space-y-0 p-4">
+            <CardTitle className="text-sm">
+              任务
+              <span className="ml-2 text-xs font-normal text-muted-foreground">
+                已加载 {tasks.length} 条 · 从新到旧
+              </span>
+            </CardTitle>
+            <SegmentedControl
+              options={TASK_FILTERS}
+              value={status}
+              onChange={updateStatus}
+              label="任务状态筛选"
+            />
+          </CardHeader>
+          <CardContent className="space-y-3 p-4 pt-0">
+            <p className="text-[11px] text-muted-foreground">
+              任务趋势 · 近 {RANGE_LABEL[detail.volume_range]}
+            </p>
+            <LazyTaskVolumeChart
+              buckets={detail.volume}
+              bucketUnit={detail.volume_bucket}
+              label={`${user.username} 的任务量`}
+              className="h-32"
+            />
+            {tasksQuery.isPending ? (
+              <PendingState label="加载任务" />
+            ) : tasksQuery.isError ? (
+              <ErrorState label="加载任务失败" error={tasksQuery.error} />
+            ) : (
+              <TaskTable
+                tasks={tasks}
+                hasNextPage={tasksQuery.hasNextPage}
+                isFetchingNextPage={tasksQuery.isFetchingNextPage}
+                onLoadMore={() => void tasksQuery.fetchNextPage()}
+              />
+            )}
+          </CardContent>
+        </Card>
+      </div>
     </>
   )
 }

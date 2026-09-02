@@ -1,6 +1,14 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useLocation, useNavigate } from '@tanstack/react-router'
-import { Activity, LogOut, MonitorSmartphone, RefreshCw, Users } from 'lucide-react'
+import {
+  Activity,
+  LogOut,
+  type LucideIcon,
+  MonitorSmartphone,
+  RefreshCw,
+  Settings,
+  Users,
+} from 'lucide-react'
 
 import {
   Sidebar,
@@ -8,6 +16,7 @@ import {
   SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
+  SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
   SidebarMenuButton,
@@ -16,21 +25,32 @@ import {
 } from '@/components/ui/sidebar'
 import { adminSessionQueryOptions } from '@/lib/admin-session'
 import { apiClient } from '@/lib/api-client'
-import { PrivateAdminNavigation } from '@/lib/private-overlay'
-import { DATA_QUERY_KEYS } from '@/lib/queries'
+import { usePrivateAdminNavigation } from '@/lib/private-overlay'
+
+interface NavEntry {
+  to: '/overview' | '/users' | '/devices'
+  icon: LucideIcon
+  label: string
+  /** 只有开了 accounts:login 才出现 */
+  gated?: boolean
+}
+
+const NAV: readonly NavEntry[] = [
+  { to: '/overview', icon: Activity, label: '概览' },
+  { to: '/users', icon: Users, label: '用户', gated: true },
+  { to: '/devices', icon: MonitorSmartphone, label: '设备' },
+]
 
 export function AppSidebar() {
   const navigate = useNavigate()
-  const location = useLocation()
+  const pathname = useLocation({ select: (location) => location.pathname })
   const queryClient = useQueryClient()
   const { data: adminSession } = useQuery(adminSessionQueryOptions)
-  const isActive = (prefix: string): boolean => location.pathname.startsWith(prefix)
+  const privateNavigation = usePrivateAdminNavigation()
 
   function refresh(): void {
-    // 只 invalidate 数据 query，不动 me（避免 refresh 触发登录态重检）
-    for (const key of DATA_QUERY_KEYS) {
-      void queryClient.invalidateQueries({ queryKey: [key] })
-    }
+    // 刷新只重拉数据，'me' 留着：动它会把登录态重检也拖进来。
+    void queryClient.invalidateQueries({ predicate: (query) => query.queryKey[0] !== 'me' })
   }
 
   async function logout(): Promise<void> {
@@ -67,37 +87,43 @@ export function AppSidebar() {
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu aria-label="后台导航">
-              <SidebarMenuItem>
-                <SidebarMenuButton asChild tooltip="概览" isActive={isActive('/overview')}>
-                  <Link to="/overview">
-                    <Activity />
-                    <span>概览</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              {adminSession?.accounts_login ? (
-                <SidebarMenuItem>
-                  <SidebarMenuButton asChild tooltip="用户" isActive={isActive('/users')}>
-                    <Link to="/users">
-                      <Users />
-                      <span>用户</span>
+              {NAV.filter((entry) => !entry.gated || adminSession?.accounts_login).map((entry) => (
+                <SidebarMenuItem key={entry.to}>
+                  <SidebarMenuButton
+                    asChild
+                    tooltip={entry.label}
+                    isActive={pathname.startsWith(entry.to)}
+                  >
+                    <Link to={entry.to}>
+                      <entry.icon />
+                      <span>{entry.label}</span>
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
-              ) : null}
-              <SidebarMenuItem>
-                <SidebarMenuButton asChild tooltip="设备" isActive={isActive('/devices')}>
-                  <Link to="/devices">
-                    <MonitorSmartphone />
-                    <span>设备</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
+              ))}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
 
-        <PrivateAdminNavigation />
+        {privateNavigation.length ? (
+          <SidebarGroup>
+            <SidebarGroupLabel>配置</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {privateNavigation.map((entry) => (
+                  <SidebarMenuItem key={entry.href}>
+                    <SidebarMenuButton asChild tooltip={entry.label}>
+                      <a href={entry.href}>
+                        <Settings />
+                        <span>{entry.label}</span>
+                      </a>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        ) : null}
       </SidebarContent>
 
       <SidebarFooter>

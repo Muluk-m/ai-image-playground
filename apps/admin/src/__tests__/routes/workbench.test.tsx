@@ -19,6 +19,7 @@ vi.mock('../../lib/api-client', () => {
       upstream_invocations: 4,
     },
     volume: [{ bucket_at: Date.now(), total: 3, completed: 2, failed: 1 }],
+    volume_bucket: 'day',
     failures: [{ error_type: 'upstream_timeout', count: 1 }],
     models: [{ model: 'gpt-image-2', count: 3, upstream_invocations: 4, average_multiplier: 1.33 }],
   }
@@ -39,8 +40,9 @@ vi.mock('../../lib/api-client', () => {
     if (url === '/api/me') return { ok: true, accounts_login: session.accountsLogin }
     if (url === '/api/extensions') return { navigation: [], user_links: [] }
     if (url.startsWith('/api/overview')) return overview
+    if (url.includes('/tasks')) return { tasks: [], nextCursor: null }
     if (url.startsWith('/api/users/')) {
-      return { user, tasks: [], nextCursor: null, volume: [] }
+      return { user, volume: [], volume_bucket: 'day', volume_range: '30d' }
     }
     if (url.startsWith('/api/users')) {
       return {
@@ -58,18 +60,7 @@ vi.mock('../../lib/api-client', () => {
     throw new Error(`unexpected request: ${url}`)
   }
 
-  class ApiError extends Error {}
-  return {
-    apiClient: {
-      get,
-      post: async () => ({ ok: true }),
-      patch: async () => ({ ok: true }),
-    },
-    ApiError,
-    UnauthorizedError: class extends ApiError {},
-    setApiClientRefs: () => {},
-    _resetApiClientRefsForTest: () => {},
-  }
+  return { apiClient: { get }, ApiError: class extends Error {} }
 })
 
 const { routeTree } = await import('../../routeTree.gen')

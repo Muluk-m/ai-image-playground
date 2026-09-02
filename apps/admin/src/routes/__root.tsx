@@ -1,6 +1,7 @@
 import type { QueryClient } from '@tanstack/react-query'
 import { createRootRouteWithContext, Outlet } from '@tanstack/react-router'
 
+import { NotFound } from '@/components/NotFound'
 import { TooltipProvider } from '@/components/ui/tooltip'
 
 export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
@@ -19,12 +20,5 @@ function RootComponent() {
 }
 
 function NotFoundComponent() {
-  return (
-    <div className="flex min-h-screen items-center justify-center">
-      <div className="text-center">
-        <h1 className="text-2xl font-semibold">404</h1>
-        <p className="mt-2 text-muted-foreground">页面不存在</p>
-      </div>
-    </div>
-  )
+  return <NotFound />
 }

@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/breadcrumb'
 import { Separator } from '@/components/ui/separator'
 import { SidebarTrigger } from '@/components/ui/sidebar'
+import { cn } from '@/lib/utils'
 
 export interface Crumb {
   label: string
@@ -20,13 +21,15 @@ export interface Crumb {
 
 interface PageProps {
   crumbs: Crumb[]
-  title: string
+  /** 默认取末级面包屑，只有标题需要跟面包屑不同时才传。 */
+  title?: string
   description?: string
   actions?: ReactNode
   children: ReactNode
 }
 
 export function Page({ crumbs, title, description, actions, children }: PageProps) {
+  const heading = title ?? crumbs[crumbs.length - 1]?.label ?? ''
   return (
     <>
       <header className="sticky top-0 z-30 border-b bg-background/85 px-4 py-3 backdrop-blur md:px-6">
@@ -55,7 +58,7 @@ export function Page({ crumbs, title, description, actions, children }: PageProp
 
         <div className="mt-2 flex flex-wrap items-end justify-between gap-3">
           <div className="min-w-0">
-            <h1 className="truncate text-xl font-semibold tracking-tight">{title}</h1>
+            <h1 className="truncate text-xl font-semibold tracking-tight">{heading}</h1>
             {description ? (
               <p className="mt-0.5 truncate text-xs text-muted-foreground">{description}</p>
             ) : null}
@@ -69,9 +72,14 @@ export function Page({ crumbs, title, description, actions, children }: PageProp
   )
 }
 
-export function PendingState({ label }: { label: string }) {
+export function PendingState({ label, className }: { label: string; className?: string }) {
   return (
-    <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">
+    <div
+      className={cn(
+        'flex h-40 items-center justify-center text-sm text-muted-foreground',
+        className,
+      )}
+    >
       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
       {label}
     </div>
@@ -82,6 +90,14 @@ export function ErrorState({ label, error }: { label: string; error: unknown }) 
   return (
     <div className="rounded-lg border border-destructive/50 bg-destructive/5 p-6 text-sm text-destructive">
       {label}：{(error as Error).message}
+    </div>
+  )
+}
+
+export function EmptyState({ label }: { label: string }) {
+  return (
+    <div className="rounded-lg border border-dashed bg-card/40 p-12 text-center text-sm text-muted-foreground">
+      {label}
     </div>
   )
 }
