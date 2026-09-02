@@ -53,12 +53,12 @@ export function useUsers(search: string) {
   })
 }
 
-export function useUserDetail(userId: string, range: Range, status: string) {
+export function useUserDetail(userId: string, status: string) {
   return useInfiniteQuery({
-    queryKey: ['user', userId, { range, status }],
+    queryKey: ['user', userId, { status }],
     queryFn: ({ pageParam }) =>
       apiClient.get<UserDetailResult>(
-        `/api/users/${encodeURIComponent(userId)}?range=${range}&status=${status}${
+        `/api/users/${encodeURIComponent(userId)}?status=${status}${
           pageParam ? `&cursor=${encodeURIComponent(pageParam)}` : ''
         }`,
       ),
