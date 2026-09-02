@@ -1,29 +1,31 @@
 import { type KeyboardEvent, type ReactNode, useCallback, useState } from 'react'
 
-export interface SuggestionMenuOption {
+export interface SuggestionMenuOption<T> {
   key: string
   label: string
   thumbnailUrl?: string
+  /** 选中时交还给调用方的候选身份，弹层自己不解释它 */
+  value: T
 }
 
-interface SuggestionMenuProps {
-  options: SuggestionMenuOption[]
+interface SuggestionMenuProps<T> {
+  options: SuggestionMenuOption<T>[]
   heading: ReactNode
   activeIndex: number
   /** 相对输入框左边缘的像素偏移，让弹层跟随光标 */
   offsetLeft: number
   onActiveIndexChange: (index: number) => void
-  onSelect: (index: number) => void
+  onSelect: (value: T) => void
 }
 
-export default function SuggestionMenu({
+export default function SuggestionMenu<T>({
   options,
   heading,
   activeIndex,
   offsetLeft,
   onActiveIndexChange,
   onSelect,
-}: SuggestionMenuProps) {
+}: SuggestionMenuProps<T>) {
   return (
     <div
       style={{ left: `${offsetLeft}px` }}
@@ -39,7 +41,7 @@ export default function SuggestionMenu({
             aria-selected={index === activeIndex}
             onMouseDown={(e) => {
               e.preventDefault()
-              onSelect(index)
+              onSelect(option.value)
             }}
             onMouseEnter={() => onActiveIndexChange(index)}
             className={`flex w-full items-center gap-2 rounded-xl px-2 py-1.5 text-left text-xs transition-colors ${
@@ -65,13 +67,13 @@ export default function SuggestionMenu({
  * 弹层的高亮与开合状态机。`handleKeyDown` 返回是否已消费按键，未消费的按键
  * （含 Shift+Enter）必须继续走调用方原本的输入框逻辑。
  */
-export function useSuggestionMenu({
+export function useSuggestionMenu<T>({
   options,
   onSelect,
   onClose,
 }: {
-  options: SuggestionMenuOption[]
-  onSelect: (index: number) => void
+  options: SuggestionMenuOption<T>[]
+  onSelect: (value: T) => void
   onClose: () => void
 }) {
   const [activeIndex, setActiveIndex] = useState(0)
@@ -90,9 +92,9 @@ export function useSuggestionMenu({
   }, [])
 
   const select = useCallback(
-    (index: number) => {
+    (value: T) => {
       dismiss()
-      onSelect(index)
+      onSelect(value)
     },
     [dismiss, onSelect],
   )
@@ -113,7 +115,7 @@ export function useSuggestionMenu({
       }
       if ((e.key === 'Enter' && !e.shiftKey) || e.key === 'Tab') {
         e.preventDefault()
-        select(activeIndex < count ? activeIndex : 0)
+        select(options[activeIndex]?.value ?? options[0].value)
         return true
       }
       if (e.key === 'Escape') {
@@ -124,7 +126,7 @@ export function useSuggestionMenu({
       }
       return false
     },
-    [activeIndex, count, onClose, select, visible],
+    [activeIndex, count, onClose, options, select, visible],
   )
 
   return { visible, activeIndex, setActiveIndex, open, dismiss, select, handleKeyDown }

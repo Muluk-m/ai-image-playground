@@ -28,10 +28,10 @@ afterEach(() => {
   document.body.innerHTML = ''
 })
 
-const OPTIONS: SuggestionMenuOption[] = [
-  { key: 'a', label: '@图1', thumbnailUrl: 'data:image/png;base64,a' },
-  { key: 'b', label: '@图2', thumbnailUrl: 'data:image/png;base64,b' },
-  { key: 'c', label: '@图3', thumbnailUrl: 'data:image/png;base64,c' },
+const OPTIONS: SuggestionMenuOption<number>[] = [
+  { key: 'a', label: '@图1', thumbnailUrl: 'data:image/png;base64,a', value: 0 },
+  { key: 'b', label: '@图2', thumbnailUrl: 'data:image/png;base64,b', value: 1 },
+  { key: 'c', label: '@图3', thumbnailUrl: 'data:image/png;base64,c', value: 2 },
 ]
 
 function Harness({
@@ -39,8 +39,8 @@ function Harness({
   onSelect,
   onClose = () => {},
 }: {
-  options?: SuggestionMenuOption[]
-  onSelect: (index: number) => void
+  options?: SuggestionMenuOption<number>[]
+  onSelect: (value: number) => void
   onClose?: () => void
 }) {
   const menu = useSuggestionMenu({ options, onSelect, onClose })
