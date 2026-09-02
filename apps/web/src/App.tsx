@@ -15,6 +15,7 @@ import CanvasMode from './features/canvas/components/CanvasMode'
 import InspirationPanel from './features/inspiration/components/InspirationPanel'
 import { initHashRoute } from './features/inspiration/lib/hashRoute'
 import { isByokGenerationEnabled } from './lib/clientCapabilities'
+import { takeAdoptedTaskCount } from './lib/storageAdoption'
 import {
   buildSettingsFromUrlParams,
   clearUrlSettingParams,
@@ -46,6 +47,11 @@ export default function App() {
 
     initStore()
     initHashRoute()
+
+    const adopted = takeAdoptedTaskCount()
+    if (adopted > 0) {
+      useStore.getState().showToast(`已找回登录前的 ${adopted} 条历史`, 'success')
+    }
   }, [setSettings])
 
   useEffect(() => {
