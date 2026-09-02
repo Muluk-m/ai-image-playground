@@ -1,0 +1,1 @@
+CREATE INDEX "idx_tasks_user_status_time" ON "tasks" USING btree ("user_id","status","submitted_at" DESC NULLS LAST,"id" DESC NULLS LAST) WHERE "tasks"."user_id" IS NOT NULL;

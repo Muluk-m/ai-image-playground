@@ -14,6 +14,8 @@ import type {
   TaskStatus,
   TaskVolumeBucket,
   UserDetailResult,
+  UserTasksResult,
+  VolumeBucketUnit,
 } from '../../contracts'
 
 export type { Range, SortKey } from '../../contracts'
@@ -229,6 +231,10 @@ export async function listUsers(search = ''): Promise<ListUsersResult> {
   }
 }
 
+export function volumeBucketUnit(range: Range): VolumeBucketUnit {
+  return range === '1d' ? 'hour' : 'day'
+}
+
 async function getTaskVolume(range: Range, userId?: string): Promise<TaskVolumeBucket[]> {
   const { db } = getHandle()
   const bucketUnit = range === '1d' ? sql`'hour'` : sql`'day'`
@@ -324,6 +330,7 @@ export async function getOverview(range: Range): Promise<OverviewResult> {
       upstream_invocations: Number(summary.upstream_invocations ?? 0),
     },
     volume,
+    volume_bucket: volumeBucketUnit(range),
     failures: (failureRowsRaw as unknown as Array<Record<string, unknown>>).map((row) => ({
       error_type: String(row.error_type),
       count: Number(row.count),
@@ -337,124 +344,26 @@ export async function getOverview(range: Range): Promise<OverviewResult> {
   }
 }
 
-export async function getUserDetail(
-  userId: string,
-  range: Range,
-  statusFilter: string,
-  cursor?: string,
-): Promise<UserDetailResult | null> {
-  const { db, schema } = getHandle()
-  const since = Date.now() - rangeMs(range)
-  const cursorValue = decodeCursor(cursor)
-  const keyset = cursorValue
-    ? sql`AND (submitted_at < ${new Date(cursorValue.ts)}
-        OR (submitted_at = ${new Date(cursorValue.ts)} AND id < ${cursorValue.id}))`
-    : sql``
-  const statusCondition =
-    statusFilter && statusFilter !== 'all' ? sql`AND status = ${statusFilter}` : sql``
+// 用户详情按全量历史统计；只有趋势图固定看近 30 天，不由调用方决定。
+const USER_VOLUME_RANGE: Range = '30d'
 
-  const volumePromise = cursor ? Promise.resolve(null) : getTaskVolume(range, userId)
+const TASK_LIST_COLUMNS = sql`
+  t.id,
+  t.provider,
+  t.model,
+  t.status,
+  t.submitted_at,
+  t.started_at,
+  t.completed_at,
+  t.error_type,
+  t.upstream_status,
+  t.request_payload,
+  t.attempt_count,
+  t.upstream_invocation_count
+`
 
-  let userRow: Record<string, unknown> | undefined
-  let taskRows: Array<Record<string, unknown>>
-  if (cursor) {
-    taskRows = (await db
-      .select({
-        id: schema.tasks.id,
-        provider: schema.tasks.provider,
-        model: schema.tasks.model,
-        status: schema.tasks.status,
-        submitted_at: schema.tasks.submitted_at,
-        started_at: schema.tasks.started_at,
-        completed_at: schema.tasks.completed_at,
-        error_type: schema.tasks.error_type,
-        upstream_status: schema.tasks.upstream_status,
-        request_payload: schema.tasks.request_payload,
-        attempt_count: schema.tasks.attempt_count,
-        upstream_invocation_count: schema.tasks.upstream_invocation_count,
-      })
-      .from(schema.tasks)
-      .where(sql`user_id = ${userId}
-        AND submitted_at >= ${new Date(since)}
-        ${statusCondition}
-        ${keyset}`)
-      .orderBy(sql`submitted_at DESC, id DESC`)
-      .limit(PAGE_SIZE + 1)) as unknown as Array<Record<string, unknown>>
-  } else {
-    const detailRowsPromise = db.execute(sql`
-      WITH task_stats AS (
-        SELECT COUNT(*) AS task_count, MAX(t.submitted_at) AS last_task_at
-        FROM tasks t
-        WHERE t.user_id = ${userId}
-      ),
-      task_page AS (
-        SELECT
-          t.id,
-          t.provider,
-          t.model,
-          t.status,
-          t.submitted_at,
-          t.started_at,
-          t.completed_at,
-          t.error_type,
-          t.upstream_status,
-          t.request_payload,
-          t.attempt_count,
-          t.upstream_invocation_count
-        FROM tasks t
-        WHERE t.user_id = ${userId}
-          AND t.submitted_at >= ${new Date(since)}
-          ${statusCondition}
-        ORDER BY t.submitted_at DESC, t.id DESC
-        LIMIT ${PAGE_SIZE + 1}
-      )
-      SELECT
-        ${ADMIN_USER_PROJECTION},
-        p.id AS task_id,
-        p.provider AS task_provider,
-        p.model AS task_model,
-        p.status AS task_status,
-        p.submitted_at AS task_submitted_at,
-        p.started_at AS task_started_at,
-        p.completed_at AS task_completed_at,
-        p.error_type AS task_error_type,
-        p.upstream_status AS task_upstream_status,
-        p.request_payload AS task_request_payload,
-        p.attempt_count AS task_attempt_count,
-        p.upstream_invocation_count AS task_upstream_invocation_count
-      FROM users u
-      CROSS JOIN task_stats
-      ${ACTIVE_SESSION_JOIN}
-      LEFT JOIN task_page p ON TRUE
-      WHERE u.id = ${userId}
-      ORDER BY p.submitted_at DESC NULLS LAST, p.id DESC NULLS LAST
-    `)
-    const [detailRowsRaw] = await Promise.all([detailRowsPromise, volumePromise])
-    const detailRows = detailRowsRaw as unknown as Array<Record<string, unknown>>
-    userRow = detailRows[0]
-    if (!userRow) return null
-    taskRows = detailRows
-      .filter((row) => row.task_id !== null && row.task_id !== undefined)
-      .map((row) => ({
-        id: row.task_id,
-        provider: row.task_provider,
-        model: row.task_model,
-        status: row.task_status,
-        submitted_at: row.task_submitted_at,
-        started_at: row.task_started_at,
-        completed_at: row.task_completed_at,
-        error_type: row.task_error_type,
-        upstream_status: row.task_upstream_status,
-        request_payload: row.task_request_payload,
-        attempt_count: row.task_attempt_count,
-        upstream_invocation_count: row.task_upstream_invocation_count,
-      }))
-  }
-
-  const volume = await volumePromise
-  const hasMore = taskRows.length > PAGE_SIZE
-  const pageRows = taskRows.slice(0, PAGE_SIZE)
-  const tasks = pageRows.map((row) => ({
+function mapTaskListItem(row: Record<string, unknown>): TaskListItem {
+  return {
     id: String(row.id),
     provider: String(row.provider),
     model: String(row.model),
@@ -467,13 +376,65 @@ export async function getUserDetail(
     prompt: extractPrompt(row.request_payload),
     upstream_invocation_count: Number(row.upstream_invocation_count),
     attempt_count: Number(row.attempt_count),
-  }))
+  }
+}
+
+export async function getUserDetail(userId: string): Promise<UserDetailResult | null> {
+  const { db } = getHandle()
+  const [userRowsRaw, volume] = await Promise.all([
+    db.execute(sql`
+      SELECT ${ADMIN_USER_PROJECTION}
+      FROM users u
+      CROSS JOIN LATERAL (
+        SELECT COUNT(*) AS task_count, MAX(t.submitted_at) AS last_task_at
+        FROM tasks t
+        WHERE t.user_id = u.id
+      ) task_stats
+      ${ACTIVE_SESSION_JOIN}
+      WHERE u.id = ${userId}
+    `),
+    getTaskVolume(USER_VOLUME_RANGE, userId),
+  ])
+  const userRow = (userRowsRaw as unknown as Array<Record<string, unknown>>)[0]
+  if (!userRow) return null
+  return {
+    user: mapAdminUser(userRow),
+    volume,
+    volume_bucket: volumeBucketUnit(USER_VOLUME_RANGE),
+    volume_range: USER_VOLUME_RANGE,
+  }
+}
+
+export async function getUserTasks(
+  userId: string,
+  statusFilter: string,
+  cursor?: string,
+): Promise<UserTasksResult> {
+  const { db } = getHandle()
+  const cursorValue = decodeCursor(cursor)
+  const keyset = cursorValue
+    ? sql`AND (t.submitted_at < ${new Date(cursorValue.ts)}
+        OR (t.submitted_at = ${new Date(cursorValue.ts)} AND t.id < ${cursorValue.id}))`
+    : sql``
+  const statusCondition =
+    statusFilter && statusFilter !== 'all' ? sql`AND t.status = ${statusFilter}` : sql``
+
+  const rows = (await db.execute(sql`
+    SELECT ${TASK_LIST_COLUMNS}
+    FROM tasks t
+    WHERE t.user_id = ${userId}
+      ${statusCondition}
+      ${keyset}
+    ORDER BY t.submitted_at DESC, t.id DESC
+    LIMIT ${PAGE_SIZE + 1}
+  `)) as unknown as Array<Record<string, unknown>>
+
+  const hasMore = rows.length > PAGE_SIZE
+  const tasks = rows.slice(0, PAGE_SIZE).map(mapTaskListItem)
   const last = tasks[tasks.length - 1]
   return {
-    user: userRow ? mapAdminUser(userRow) : null,
     tasks,
     nextCursor: hasMore && last ? encodeCursor(last.submitted_at, last.id) : null,
-    volume,
   }
 }
 

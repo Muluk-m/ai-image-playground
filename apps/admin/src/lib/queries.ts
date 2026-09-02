@@ -10,6 +10,7 @@ import type {
   SortKey,
   TaskDetail,
   UserDetailResult,
+  UserTasksResult,
 } from './types'
 
 export function useDevices(range: Range, sort: SortKey) {
@@ -53,12 +54,21 @@ export function useUsers(search: string) {
   })
 }
 
-export function useUserDetail(userId: string, range: Range, status: string) {
+// 档案（聚合 + 趋势）与任务列表分开取：切状态页签只重拉任务，不重算聚合与 30 天趋势。
+export function useUserDetail(userId: string) {
+  return useQuery({
+    queryKey: ['user', userId],
+    queryFn: () => apiClient.get<UserDetailResult>(`/api/users/${encodeURIComponent(userId)}`),
+    enabled: userId.length > 0,
+  })
+}
+
+export function useUserTasks(userId: string, status: string) {
   return useInfiniteQuery({
-    queryKey: ['user', userId, { range, status }],
+    queryKey: ['user', userId, 'tasks', { status }],
     queryFn: ({ pageParam }) =>
-      apiClient.get<UserDetailResult>(
-        `/api/users/${encodeURIComponent(userId)}?range=${range}&status=${status}${
+      apiClient.get<UserTasksResult>(
+        `/api/users/${encodeURIComponent(userId)}/tasks?status=${encodeURIComponent(status)}${
           pageParam ? `&cursor=${encodeURIComponent(pageParam)}` : ''
         }`,
       ),

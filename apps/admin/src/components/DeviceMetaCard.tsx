@@ -2,21 +2,17 @@ import { Check, Copy } from 'lucide-react'
 import { useState } from 'react'
 
 import { FuzzyTime } from '@/components/FuzzyTime'
+import { Kpi } from '@/components/Kpi'
 import { ModelChips } from '@/components/ModelChips'
 import { Button } from '@/components/ui/button'
 import { copyText } from '@/lib/format'
+import { RANGE_LABEL } from '@/lib/search-params'
 import type { DeviceRow, Range } from '@/lib/types'
 
 interface DeviceMetaCardProps {
   device: DeviceRow
   range: Range
   runningCount?: number
-}
-
-const RANGE_LABEL: Record<Range, string> = {
-  '1d': '近 1 天',
-  '7d': '近 7 天',
-  '30d': '近 30 天',
 }
 
 export function DeviceMetaCard({ device, range, runningCount = 0 }: DeviceMetaCardProps) {
@@ -71,10 +67,10 @@ export function DeviceMetaCard({ device, range, runningCount = 0 }: DeviceMetaCa
       </div>
 
       <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
-        <Stat label={`${RANGE_LABEL[range]} 累计`} value={device.total} />
-        <Stat label="成功" value={device.ok_count} tone="text-emerald-700 dark:text-emerald-400" />
-        <Stat label="失败" value={device.fail_count} tone="text-rose-700 dark:text-rose-400" />
-        <Stat label="运行中" value={runningCount} />
+        <Kpi variant="inline" label={`近 ${RANGE_LABEL[range]} 累计`} value={device.total} />
+        <Kpi variant="inline" label="成功" value={device.ok_count} tone="success" />
+        <Kpi variant="inline" label="失败" value={device.fail_count} tone="danger" />
+        <Kpi variant="inline" label="运行中" value={runningCount} />
       </div>
 
       <div className="mt-6">
@@ -83,15 +79,6 @@ export function DeviceMetaCard({ device, range, runningCount = 0 }: DeviceMetaCa
         </h3>
         <ModelChips models={device.models} max={20} />
       </div>
-    </div>
-  )
-}
-
-function Stat({ label, value, tone }: { label: string; value: number; tone?: string }) {
-  return (
-    <div>
-      <div className="text-xs text-muted-foreground">{label}</div>
-      <div className={`mt-1 font-mono text-xl tabular-nums ${tone ?? ''}`}>{value}</div>
     </div>
   )
 }

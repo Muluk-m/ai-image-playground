@@ -1,7 +1,8 @@
 import { useNavigate } from '@tanstack/react-router'
-import { ImageOff, Loader2 } from 'lucide-react'
+import { ImageOff } from 'lucide-react'
 
 import { FuzzyTime } from '@/components/FuzzyTime'
+import { ErrorState, PendingState } from '@/components/Page'
 import { ShortId } from '@/components/ShortId'
 import { StatusBadge } from '@/components/StatusBadge'
 import { Button } from '@/components/ui/button'
@@ -17,21 +18,8 @@ interface TaskDetailViewProps {
 export function TaskDetailView({ taskId }: TaskDetailViewProps) {
   const q = useTask(taskId)
 
-  if (q.isPending) {
-    return (
-      <div className="flex h-32 items-center justify-center text-muted-foreground">
-        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-        加载中
-      </div>
-    )
-  }
-  if (q.isError || !q.data) {
-    return (
-      <div className="rounded-md border border-destructive/50 bg-destructive/5 p-4 text-sm text-destructive">
-        {q.error instanceof Error ? q.error.message : '加载失败'}
-      </div>
-    )
-  }
+  if (q.isPending) return <PendingState label="加载任务详情" />
+  if (q.isError || !q.data) return <ErrorState label="加载失败" error={q.error} />
 
   return <TaskDetailContent task={q.data} />
 }

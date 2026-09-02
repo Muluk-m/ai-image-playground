@@ -9,6 +9,7 @@ import {
   parseRange,
   parseSort,
   parseTaskId,
+  parseUserDetailSearch,
 } from '../../lib/search-params'
 
 describe('search-params', () => {
@@ -125,6 +126,20 @@ describe('search-params', () => {
     })
     it('empty input → empty output', () => {
       expect(parseDeviceDetailSearch({})).toEqual({})
+    })
+  })
+
+  describe('parseUserDetailSearch', () => {
+    it('keeps the task drawer state and the status filter', () => {
+      expect(parseUserDetailSearch({ task: 'task-1', status: 'failed' })).toEqual({
+        task: 'task-1',
+        status: 'failed',
+      })
+    })
+    it('drops range: 用户详情看全量历史，没有时间窗', () => {
+      expect(parseUserDetailSearch({ range: '1d', status: 'failed' })).toEqual({
+        status: 'failed',
+      })
     })
   })
 })

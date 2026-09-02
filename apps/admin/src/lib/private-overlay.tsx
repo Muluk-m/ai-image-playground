@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
-import { notFound } from '@tanstack/react-router'
-import { Settings } from 'lucide-react'
+import { notFound, useLocation } from '@tanstack/react-router'
 import type { ComponentType } from 'react'
+import { Page } from '@/components/Page'
 import { apiClient } from './api-client'
 
 export interface PrivateAdminUserSummary {
@@ -102,19 +102,12 @@ export async function requirePrivateAdminRoute(path: string): Promise<void> {
   }
 }
 
-export function PrivateAdminNavigation() {
+const NO_NAVIGATION: ReadonlyArray<{ label: string; href: string }> = Object.freeze([])
+
+export function usePrivateAdminNavigation(): ReadonlyArray<{ label: string; href: string }> {
   const query = useAdminExtensionManifest()
-  if (!overlay.present || !query.data) return null
-  return query.data.navigation.map((entry) => (
-    <a
-      key={entry.href}
-      href={entry.href}
-      className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
-    >
-      <Settings className="h-3.5 w-3.5" />
-      {entry.label}
-    </a>
-  ))
+  if (!overlay.present) return NO_NAVIGATION
+  return query.data?.navigation ?? NO_NAVIGATION
 }
 
 export function PrivateAdminOverviewPanel() {
@@ -124,8 +117,17 @@ export function PrivateAdminOverviewPanel() {
 }
 export function PrivateAdminSettingsPanel() {
   const enabled = usePrivateAdminOverlayEnabled()
+  const navigation = usePrivateAdminNavigation()
+  const pathname = useLocation({ select: (location) => location.pathname })
   const Component = overlay.SettingsPanel
-  return enabled ? <Component /> : null
+  if (!enabled) return null
+  // 私有路由自己只渲染面板，页头由公开侧补上，标题取 /api/extensions 里对应的导航项。
+  const label = navigation.find((entry) => entry.href === pathname)?.label ?? '设置'
+  return (
+    <Page crumbs={[{ label }]}>
+      <Component />
+    </Page>
+  )
 }
 
 export function PrivateAdminUserDetailPanel(props: { userId: string; username: string }) {

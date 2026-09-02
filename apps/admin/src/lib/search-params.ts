@@ -5,14 +5,25 @@ import {
   DEFAULT_SORT,
   parseRange,
   parseSort,
+  RANGE_LABEL,
   RANGES,
   type Range,
+  SORT_LABEL,
   SORTS,
   type SortKey,
 } from '../../contracts'
 
 export type { Range, SortKey }
-export { DEFAULT_RANGE, DEFAULT_SORT, parseRange, parseSort, RANGES, SORTS }
+export {
+  DEFAULT_RANGE,
+  DEFAULT_SORT,
+  parseRange,
+  parseSort,
+  RANGE_LABEL,
+  RANGES,
+  SORT_LABEL,
+  SORTS,
+}
 
 export function parseTaskId(v: unknown): string | undefined {
   if (typeof v !== 'string') return undefined
@@ -72,18 +83,16 @@ export function parseUsersSearch(input: Record<string, unknown>): UsersSearch {
   return q ? { q } : {}
 }
 
-/** Device 详情 search（task / fullscreen / imgIdx / imgKind 控抽屉 + lightbox） */
-export interface DeviceDetailSearch {
-  range?: Range
+/** 抽屉 + lightbox 的 URL 状态，设备详情与用户详情共用 */
+interface TaskViewSearch {
   task?: string
   fullscreen?: '1'
   imgIdx?: number
   imgKind?: ImgKind
 }
 
-export function parseDeviceDetailSearch(input: Record<string, unknown>): DeviceDetailSearch {
-  const out: DeviceDetailSearch = {}
-  if (input.range !== undefined) out.range = parseRange(input.range)
+function parseTaskViewSearch(input: Record<string, unknown>): TaskViewSearch {
+  const out: TaskViewSearch = {}
   const task = parseTaskId(input.task)
   if (task !== undefined) out.task = task
   const fs = parseFullscreen(input.fullscreen)
@@ -95,15 +104,39 @@ export function parseDeviceDetailSearch(input: Record<string, unknown>): DeviceD
   return out
 }
 
-export interface UserDetailSearch extends DeviceDetailSearch {
+export interface DeviceDetailSearch extends TaskViewSearch {
+  range?: Range
+}
+
+export function parseDeviceDetailSearch(input: Record<string, unknown>): DeviceDetailSearch {
+  const out: DeviceDetailSearch = parseTaskViewSearch(input)
+  if (input.range !== undefined) out.range = parseRange(input.range)
+  return out
+}
+
+export interface UserDetailSearch extends TaskViewSearch {
   status?: string
 }
 
 export function parseUserDetailSearch(input: Record<string, unknown>): UserDetailSearch {
-  const out: UserDetailSearch = parseDeviceDetailSearch(input)
+  const out: UserDetailSearch = parseTaskViewSearch(input)
   if (typeof input.status === 'string') {
     const status = input.status.trim().slice(0, 32)
     if (status) out.status = status
   }
   return out
+}
+
+/** 关抽屉 / lightbox：把这四个字段从 search 里摘掉，其余原样保留。 */
+export function clearTaskView<T extends TaskViewSearch>(
+  previous: T | undefined,
+): Omit<T, keyof TaskViewSearch> {
+  const {
+    task: _task,
+    fullscreen: _fullscreen,
+    imgIdx: _index,
+    imgKind: _kind,
+    ...rest
+  } = previous ?? ({} as T)
+  return rest
 }

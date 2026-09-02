@@ -158,6 +158,10 @@ export const tasks = pgTable(
     index('idx_tasks_user_time')
       .on(t.user_id, t.submitted_at.desc())
       .where(sql`${t.user_id} IS NOT NULL`),
+    // Admin 用户详情按状态筛选时看全量历史，没有时间窗兜底；缺这条索引会退化成扫该用户全部任务。
+    index('idx_tasks_user_status_time')
+      .on(t.user_id, t.status, t.submitted_at.desc(), t.id.desc())
+      .where(sql`${t.user_id} IS NOT NULL`),
     index('idx_tasks_admin_device_time').on(
       t.device_id,
       t.submitted_at.desc(),
