@@ -148,8 +148,8 @@ describe('admin user routes', () => {
     expect(body.truncated).toBe(false)
   })
 
-  it('returns a filtered user task timeline and complete 24-hour buckets', async () => {
-    const response = await call('/api/users/user-existing?range=1d&status=failed')
+  it('returns a filtered user task timeline and a fixed 30-day trend', async () => {
+    const response = await call('/api/users/user-existing?status=failed')
     expect(response.status).toBe(200)
     const body = (await response.json()) as {
       user: { id: string }
@@ -173,12 +173,19 @@ describe('admin user routes', () => {
         attempt_count: 0,
       },
     ])
-    expect(body.volume).toHaveLength(24)
+    expect(body.volume).toHaveLength(30)
     expect(body.volume.reduce((sum, bucket) => sum + bucket.total, 0)).toBe(2)
   })
 
+  it('ignores a legacy range query parameter', async () => {
+    const response = await call('/api/users/user-existing?range=1d')
+    expect(response.status).toBe(200)
+    const body = (await response.json()) as { tasks: Array<{ id: string }> }
+    expect(body.tasks.map((task) => task.id)).toEqual(['user-task-failed', 'user-task-completed'])
+  })
+
   it('returns 404 for an unknown user detail', async () => {
-    const response = await call('/api/users/missing?range=7d')
+    const response = await call('/api/users/missing')
     expect(response.status).toBe(404)
     expect(await response.json()).toEqual({ error: 'user_not_found' })
   })

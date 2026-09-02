@@ -337,14 +337,15 @@ export async function getOverview(range: Range): Promise<OverviewResult> {
   }
 }
 
+// 用户详情按全量历史统计；只有趋势图固定看近 30 天，不由调用方决定。
+const USER_VOLUME_RANGE: Range = '30d'
+
 export async function getUserDetail(
   userId: string,
-  range: Range,
   statusFilter: string,
   cursor?: string,
 ): Promise<UserDetailResult | null> {
   const { db, schema } = getHandle()
-  const since = Date.now() - rangeMs(range)
   const cursorValue = decodeCursor(cursor)
   const keyset = cursorValue
     ? sql`AND (submitted_at < ${new Date(cursorValue.ts)}
@@ -353,7 +354,7 @@ export async function getUserDetail(
   const statusCondition =
     statusFilter && statusFilter !== 'all' ? sql`AND status = ${statusFilter}` : sql``
 
-  const volumePromise = cursor ? Promise.resolve(null) : getTaskVolume(range, userId)
+  const volumePromise = cursor ? Promise.resolve(null) : getTaskVolume(USER_VOLUME_RANGE, userId)
 
   let userRow: Record<string, unknown> | undefined
   let taskRows: Array<Record<string, unknown>>
@@ -375,7 +376,6 @@ export async function getUserDetail(
       })
       .from(schema.tasks)
       .where(sql`user_id = ${userId}
-        AND submitted_at >= ${new Date(since)}
         ${statusCondition}
         ${keyset}`)
       .orderBy(sql`submitted_at DESC, id DESC`)
@@ -403,7 +403,6 @@ export async function getUserDetail(
           t.upstream_invocation_count
         FROM tasks t
         WHERE t.user_id = ${userId}
-          AND t.submitted_at >= ${new Date(since)}
           ${statusCondition}
         ORDER BY t.submitted_at DESC, t.id DESC
         LIMIT ${PAGE_SIZE + 1}

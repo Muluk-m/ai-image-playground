@@ -72,18 +72,16 @@ export function parseUsersSearch(input: Record<string, unknown>): UsersSearch {
   return q ? { q } : {}
 }
 
-/** Device 详情 search（task / fullscreen / imgIdx / imgKind 控抽屉 + lightbox） */
-export interface DeviceDetailSearch {
-  range?: Range
+/** task / fullscreen / imgIdx / imgKind 控抽屉 + lightbox，详情页共用 */
+export interface TaskViewSearch {
   task?: string
   fullscreen?: '1'
   imgIdx?: number
   imgKind?: ImgKind
 }
 
-export function parseDeviceDetailSearch(input: Record<string, unknown>): DeviceDetailSearch {
-  const out: DeviceDetailSearch = {}
-  if (input.range !== undefined) out.range = parseRange(input.range)
+function parseTaskViewSearch(input: Record<string, unknown>): TaskViewSearch {
+  const out: TaskViewSearch = {}
   const task = parseTaskId(input.task)
   if (task !== undefined) out.task = task
   const fs = parseFullscreen(input.fullscreen)
@@ -95,12 +93,23 @@ export function parseDeviceDetailSearch(input: Record<string, unknown>): DeviceD
   return out
 }
 
-export interface UserDetailSearch extends DeviceDetailSearch {
+export interface DeviceDetailSearch extends TaskViewSearch {
+  range?: Range
+}
+
+export function parseDeviceDetailSearch(input: Record<string, unknown>): DeviceDetailSearch {
+  const out: DeviceDetailSearch = parseTaskViewSearch(input)
+  if (input.range !== undefined) out.range = parseRange(input.range)
+  return out
+}
+
+/** 用户详情按全量历史展示，不接受时间窗。 */
+export interface UserDetailSearch extends TaskViewSearch {
   status?: string
 }
 
 export function parseUserDetailSearch(input: Record<string, unknown>): UserDetailSearch {
-  const out: UserDetailSearch = parseDeviceDetailSearch(input)
+  const out: UserDetailSearch = parseTaskViewSearch(input)
   if (typeof input.status === 'string') {
     const status = input.status.trim().slice(0, 32)
     if (status) out.status = status

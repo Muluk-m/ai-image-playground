@@ -72,6 +72,17 @@ await writer.db.insert(writer.schema.tasks).values([
     upstream_invocation_count: 1,
   },
   {
+    // 60 天前：任何时间窗都覆盖不到，用来钉住「用户详情看全量历史」
+    id: 'hist-60d',
+    provider: 'openai-compat',
+    model: 'gpt-image-2',
+    status: 'completed',
+    request_payload: { prompt: 'ancient history', n: 1, device_id: 'dev-HIST-xx' },
+    submitted_at: now - 60 * dayMs,
+    completed_at: now - 60 * dayMs + 1000,
+    upstream_invocation_count: 1,
+  },
+  {
     id: 'big-1',
     provider: 'openai-compat',
     model: 'gpt-image-2',
@@ -87,15 +98,26 @@ await writer.db.insert(writer.schema.tasks).values([
     upstream_invocation_count: 4,
   },
 ])
-await writer.db.insert(writer.schema.users).values({
-  id: 'user-page',
-  username: 'page-user',
-  password_hash: 'argon-hash',
-  status: 'active',
-  created_at: now,
-  updated_at: now,
-})
+await writer.db.insert(writer.schema.users).values([
+  {
+    id: 'user-page',
+    username: 'page-user',
+    password_hash: 'argon-hash',
+    status: 'active',
+    created_at: now,
+    updated_at: now,
+  },
+  {
+    id: 'user-history',
+    username: 'history-user',
+    password_hash: 'argon-hash',
+    status: 'active',
+    created_at: now - 90 * dayMs,
+    updated_at: now - 90 * dayMs,
+  },
+])
 await writer.client`UPDATE tasks SET user_id = 'user-page' WHERE id LIKE 'pg-%' OR id = 't3'`
+await writer.client`UPDATE tasks SET user_id = 'user-history' WHERE id = 'hist-60d'`
 
 // Dynamic import keeps environment setup ahead of Admin configuration capture.
 const { listDevices, getDeviceDetail, getOverview, getTask, getUserDetail } = await import(
@@ -208,17 +230,33 @@ describe('getDeviceDetail 分页', () => {
 
 describe('getUserDetail pagination', () => {
   it('returns user aggregates only on the first task page', async () => {
-    const first = await getUserDetail('user-page', '30d', 'all')
+    const first = await getUserDetail('user-page', 'all')
     expect(first?.user?.username).toBe('page-user')
     expect(first?.tasks).toHaveLength(100)
     expect(first?.nextCursor).not.toBeNull()
     expect(first?.volume).not.toBeNull()
 
-    const second = await getUserDetail('user-page', '30d', 'all', first!.nextCursor!)
+    const second = await getUserDetail('user-page', 'all', first!.nextCursor!)
     expect(second?.user).toBeNull()
     expect(first?.tasks.find((task) => task.id === 't3')?.upstream_status).toBe(502)
     expect(second?.tasks).toHaveLength(51)
     expect(second?.volume).toBeNull()
+  })
+})
+
+describe('getUserDetail history window', () => {
+  it('lists tasks older than any time range and keeps the trend at 30 days', async () => {
+    const detail = await getUserDetail('user-history', 'all')
+    expect(detail?.user?.task_count).toBe(1)
+    expect(detail?.tasks.map((task) => task.id)).toEqual(['hist-60d'])
+    // 趋势图固定 30 天：60 天前的任务不进任何桶，但仍出现在任务列表里
+    expect(detail?.volume).toHaveLength(30)
+    expect(detail?.volume?.reduce((sum, bucket) => sum + bucket.total, 0)).toBe(0)
+  })
+
+  it('still honours the status filter', async () => {
+    const failedOnly = await getUserDetail('user-history', 'failed')
+    expect(failedOnly?.tasks).toEqual([])
   })
 })
 

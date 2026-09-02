@@ -1,16 +1,18 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { createFileRoute, notFound, useNavigate } from '@tanstack/react-router'
-import { ChevronLeft, KeyRound, Loader2, LogOut, ShieldCheck, ShieldOff } from 'lucide-react'
+import { KeyRound, Loader2, LogOut, ShieldCheck, ShieldOff } from 'lucide-react'
 import { type ReactNode, useState } from 'react'
 
 import { FuzzyTime } from '@/components/FuzzyTime'
 import { LightboxDialog } from '@/components/LightboxDialog'
+import { PageHeader } from '@/components/PageHeader'
 import { TaskDetailSheet } from '@/components/TaskDetailSheet'
 import { TaskTable } from '@/components/TaskTable'
 import { TaskVolumeChart } from '@/components/TaskVolumeChart'
 import { UserFormDialog } from '@/components/UserFormDialog'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { apiClient } from '@/lib/api-client'
 import { PrivateAdminUserDetailPanel } from '@/lib/private-overlay'
 import { useUserDetail } from '@/lib/queries'
@@ -33,14 +35,14 @@ const TASK_FILTERS = [
   { value: 'queued', label: '排队中' },
 ] as const
 
-function Stat({ label, value, note }: { label: string; value: string; note: ReactNode }) {
+function Fact({ label, value, note }: { label: string; value: string; note?: ReactNode }) {
   return (
-    <div className="rounded-lg border bg-background/55 p-3">
-      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+    <div>
+      <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
         {label}
       </p>
-      <p className="mt-2 font-mono text-xl font-semibold tabular-nums">{value}</p>
-      <div className="mt-0.5 text-[11px] text-muted-foreground">{note}</div>
+      <p className="mt-1 font-mono text-sm font-semibold tabular-nums">{value}</p>
+      {note ? <div className="text-[11px] text-muted-foreground">{note}</div> : null}
     </div>
   )
 }
@@ -65,7 +67,7 @@ function UserOperations({ user }: { user: AdminUserRow }) {
   })
 
   return (
-    <div className="flex flex-wrap gap-2">
+    <div className="flex flex-wrap items-center gap-2">
       <Button variant="outline" size="sm" onClick={() => setResetting(true)}>
         <KeyRound /> 重置密码
       </Button>
@@ -80,7 +82,7 @@ function UserOperations({ user }: { user: AdminUserRow }) {
         <LogOut /> 撤销会话
       </Button>
       <Button
-        variant={user.status === 'active' ? 'destructive' : 'default'}
+        variant={user.status === 'active' ? 'destructive' : 'outline'}
         size="sm"
         disabled={mutation.isPending}
         onClick={() => {
@@ -89,11 +91,9 @@ function UserOperations({ user }: { user: AdminUserRow }) {
         }}
       >
         {user.status === 'active' ? <ShieldOff /> : <ShieldCheck />}
-        {user.status === 'active' ? '停用用户' : '启用用户'}
+        {user.status === 'active' ? '停用' : '启用'}
       </Button>
-      {mutation.isError ? (
-        <span className="self-center text-xs text-destructive">操作失败，请重试</span>
-      ) : null}
+      {mutation.isError ? <span className="text-xs text-destructive">操作失败，请重试</span> : null}
       <UserFormDialog mode="reset" user={user} open={resetting} onOpenChange={setResetting} />
     </div>
   )
@@ -102,10 +102,9 @@ function UserOperations({ user }: { user: AdminUserRow }) {
 function UserDetailPage() {
   const { userId } = Route.useParams()
   const search = Route.useSearch()
-  const range = search.range ?? '7d'
   const status = search.status ?? 'all'
   const navigate = useNavigate()
-  const query = useUserDetail(userId, range, status)
+  const query = useUserDetail(userId, status)
   const pages = query.data?.pages ?? []
   const detail = pages[0] ?? null
   const tasks = pages.flatMap((page) => page.tasks)
@@ -138,108 +137,120 @@ function UserDetailPage() {
   }
 
   return (
-    <div className="space-y-5">
-      <Button variant="ghost" size="sm" onClick={() => void navigate({ to: '/users' })}>
-        <ChevronLeft /> 返回用户中心
-      </Button>
+    <>
+      <PageHeader
+        crumbs={[{ label: '用户', to: '/users' }, { label: detail?.user?.username ?? userId }]}
+        title={detail?.user?.username ?? '用户详情'}
+        description="全部历史任务与账户操作"
+      />
 
-      {query.isPending ? (
-        <div className="flex h-40 items-center justify-center text-muted-foreground">
-          <Loader2 className="mr-2 h-4 w-4 animate-spin" /> 加载用户档案
-        </div>
-      ) : query.isError ? (
-        <div className="rounded-lg border border-destructive/50 bg-destructive/5 p-6 text-sm text-destructive">
-          加载失败：{(query.error as Error).message}
-        </div>
-      ) : !detail || !detail.user ? (
-        <div className="rounded-lg border bg-card p-12 text-center text-sm text-muted-foreground">
-          未找到用户 {userId}
-        </div>
-      ) : (
-        <>
-          <section className="overflow-hidden rounded-xl border bg-card/60 shadow-sm">
-            <div className="flex items-start justify-between gap-5 border-b bg-muted/25 p-5">
+      <div className="flex-1 space-y-4 px-4 py-5 md:px-6">
+        {query.isPending ? (
+          <div className="flex h-40 items-center justify-center text-muted-foreground">
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" /> 加载用户档案
+          </div>
+        ) : query.isError ? (
+          <div className="rounded-lg border border-destructive/50 bg-destructive/5 p-6 text-sm text-destructive">
+            加载失败：{(query.error as Error).message}
+          </div>
+        ) : !detail || !detail.user ? (
+          <div className="rounded-lg border bg-card p-12 text-center text-sm text-muted-foreground">
+            未找到用户 {userId}
+          </div>
+        ) : (
+          <>
+            <Card>
+              <CardContent className="p-5">
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <h2 className="truncate text-lg font-semibold tracking-tight">
+                        {detail.user.username}
+                      </h2>
+                      <Badge variant={detail.user.status === 'active' ? 'success' : 'secondary'}>
+                        {detail.user.status === 'active' ? '正常' : '已停用'}
+                      </Badge>
+                    </div>
+                    <p className="mt-1 truncate font-mono text-xs text-muted-foreground">
+                      {detail.user.id}
+                    </p>
+                  </div>
+                  <UserOperations user={detail.user} />
+                </div>
+
+                <div className="mt-5 grid gap-4 border-t pt-4 sm:grid-cols-2 xl:grid-cols-4">
+                  <Fact
+                    label="创建"
+                    value={new Date(detail.user.created_at).toLocaleDateString()}
+                    note={new Date(detail.user.created_at).toLocaleTimeString()}
+                  />
+                  <Fact
+                    label="最近活动"
+                    value={detail.user.last_activity_at ? '已活动' : '无记录'}
+                    note={<FuzzyTime ts={detail.user.last_activity_at} />}
+                  />
+                  <Fact label="活跃会话" value={String(detail.user.active_sessions)} />
+                  <Fact label="历史任务" value={String(detail.user.task_count)} />
+                </div>
+              </CardContent>
+            </Card>
+
+            <div className="grid gap-4 xl:grid-cols-[340px_minmax(0,1fr)]">
               <div className="min-w-0">
-                <div className="flex items-center gap-3">
-                  <h1 className="truncate text-2xl font-semibold tracking-tight">
-                    {detail.user.username}
-                  </h1>
-                  <Badge variant={detail.user.status === 'active' ? 'success' : 'secondary'}>
-                    {detail.user.status === 'active' ? '正常' : '已停用'}
-                  </Badge>
-                </div>
-                <p className="mt-1 font-mono text-xs text-muted-foreground">{detail.user.id}</p>
+                <PrivateAdminUserDetailPanel
+                  userId={detail.user.id}
+                  username={detail.user.username}
+                />
               </div>
-              <UserOperations user={detail.user} />
-            </div>
-            <div className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-4">
-              <Stat label="任务" value={String(detail.user.task_count)} note="用户全部历史" />
-              <Stat
-                label="活跃会话"
-                value={String(detail.user.active_sessions)}
-                note="当前未过期会话"
-              />
-              <Stat
-                label="最近活动"
-                value={detail.user.last_activity_at ? '已活动' : '无记录'}
-                note={<FuzzyTime ts={detail.user.last_activity_at} />}
-              />
-              <Stat
-                label="创建时间"
-                value={new Date(detail.user.created_at).toLocaleDateString()}
-                note={new Date(detail.user.created_at).toLocaleString()}
-              />
-            </div>
-          </section>
 
-          <PrivateAdminUserDetailPanel userId={detail.user.id} username={detail.user.username} />
-
-          {detail.volume ? (
-            <section className="rounded-xl border bg-card/40 p-4">
-              <div className="mb-4 flex items-baseline justify-between">
-                <div>
-                  <h2 className="text-sm font-semibold">该用户的任务趋势</h2>
-                  <p className="mt-1 text-xs text-muted-foreground">{range} 时间窗内的提交与失败</p>
-                </div>
-                <span className="font-mono text-xs text-muted-foreground">
-                  {detail.volume.reduce((sum, bucket) => sum + bucket.total, 0)} tasks
-                </span>
-              </div>
-              <TaskVolumeChart buckets={detail.volume} label={`${detail.user.username} 的任务量`} />
-            </section>
-          ) : null}
-
-          <section className="space-y-3">
-            <div className="flex flex-wrap items-end justify-between gap-3 border-b pb-3">
-              <div>
-                <h2 className="text-sm font-semibold">任务时间线</h2>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  已加载 {tasks.length} 条 · 从新到旧
-                </p>
-              </div>
-              <div className="flex rounded-md border bg-muted/25 p-0.5" aria-label="任务状态筛选">
-                {TASK_FILTERS.map((filter) => (
-                  <Button
-                    key={filter.value}
-                    size="sm"
-                    variant={status === filter.value ? 'secondary' : 'ghost'}
-                    className="h-7 px-2.5 text-xs"
-                    onClick={() => updateStatus(filter.value)}
+              <Card className="min-w-0">
+                <CardHeader className="flex-row flex-wrap items-center justify-between gap-3 space-y-0 p-4">
+                  <CardTitle className="text-sm">
+                    任务
+                    <span className="ml-2 text-xs font-normal text-muted-foreground">
+                      已加载 {tasks.length} 条 · 从新到旧
+                    </span>
+                  </CardTitle>
+                  <div
+                    className="flex rounded-md border bg-muted/25 p-0.5"
+                    aria-label="任务状态筛选"
                   >
-                    {filter.label}
-                  </Button>
-                ))}
-              </div>
+                    {TASK_FILTERS.map((filter) => (
+                      <Button
+                        key={filter.value}
+                        size="sm"
+                        variant={status === filter.value ? 'secondary' : 'ghost'}
+                        className="h-7 px-2.5 text-xs"
+                        onClick={() => updateStatus(filter.value)}
+                      >
+                        {filter.label}
+                      </Button>
+                    ))}
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-3 p-4 pt-0">
+                  {detail.volume ? (
+                    <>
+                      <p className="text-[11px] text-muted-foreground">任务趋势 · 近 30 天</p>
+                      <TaskVolumeChart
+                        buckets={detail.volume}
+                        label={`${detail.user.username} 的任务量`}
+                        className="aspect-auto h-32 w-full"
+                      />
+                    </>
+                  ) : null}
+                  <TaskTable
+                    tasks={tasks}
+                    hasNextPage={query.hasNextPage}
+                    isFetchingNextPage={query.isFetchingNextPage}
+                    onLoadMore={() => void query.fetchNextPage()}
+                  />
+                </CardContent>
+              </Card>
             </div>
-            <TaskTable
-              tasks={tasks}
-              hasNextPage={query.hasNextPage}
-              isFetchingNextPage={query.isFetchingNextPage}
-              onLoadMore={() => void query.fetchNextPage()}
-            />
-          </section>
-        </>
-      )}
+          </>
+        )}
+      </div>
 
       <TaskDetailSheet
         taskId={search.task}
@@ -253,6 +264,6 @@ function UserDetailPage() {
         imgKind={search.imgKind}
         fullscreen={search.fullscreen}
       />
-    </div>
+    </>
   )
 }
