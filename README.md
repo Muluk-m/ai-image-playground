@@ -390,8 +390,9 @@ scripts/pages-release.sh internal
 
 `pages-release.sh <internal|paid>` is the single entry point for a frontend release. It reads
 one edition's keys from that file, uploads the bundle, and then polls
-`<PUBLIC_ORIGIN>/version.json` for up to 60 seconds until the live manifest matches the one just
-built. Each release appends a line to the same `deployments.log` the VPS writes.
+`<PUBLIC_ORIGIN>/version.json` for up to 5 minutes until the live manifest matches the one just
+built, which is how long a custom domain can take to serve it. Each release appends a line to
+the same `deployments.log` the VPS writes.
 
 Set `<EDITION>_CLOUDFLARE_TOKEN_FILE` to an env file holding `CLOUDFLARE_API_TOKEN`, or leave it
 unset to release with wrangler's own OAuth login; either way the other account's token cannot

@@ -354,8 +354,9 @@ scripts/pages-release.sh internal
 ```
 
 `pages-release.sh <internal|paid>` 是一次前端发布的唯一入口。它从该文件读取一个形态的配置，
-上传产物，然后轮询 `<PUBLIC_ORIGIN>/version.json`，最多 60 秒，直到线上清单与刚构建出来的
-那份一致。每次发布往 VPS 用的同一个 `deployments.log` 追加一行。
+上传产物，然后轮询 `<PUBLIC_ORIGIN>/version.json`，最多 5 分钟，直到线上清单与刚构建出来的
+那份一致——自定义域名把新清单发出来就要这么久。每次发布往 VPS 用的同一个 `deployments.log`
+追加一行。
 
 把 `<EDITION>_CLOUDFLARE_TOKEN_FILE` 指到一个设置了 `CLOUDFLARE_API_TOKEN` 的 env 文件，
 或者干脆不设、走 wrangler 自己的 OAuth 登录：两条路都不会让另一个账号的 token 从 shell 漏
