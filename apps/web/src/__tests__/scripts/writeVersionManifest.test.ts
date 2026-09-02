@@ -22,9 +22,10 @@ describe('buildVersionManifest', () => {
     )
   })
 
-  it('stamps the build time and the commit it was built from', () => {
+  // 带 private overlay 的检出会多出 `+<sha>` 段，构建期两种形态都要认。
+  it('stamps the build time and the commits it was built from', () => {
     expect(buildVersionManifest({}, REPO_ROOT, AT).version).toMatch(
-      /^[0-9a-f]{7,}-20260901T072921Z$/,
+      /^[0-9a-f]{7,}(\+[0-9a-f]{7,})?-20260901T072921Z$/,
     )
   })
 

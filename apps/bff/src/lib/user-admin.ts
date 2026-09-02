@@ -1,10 +1,15 @@
 import { randomUUID } from 'node:crypto'
-import { isValidPassword, isValidUsername, normalizeUsername } from '@image-playground/shared'
-import { and, eq, inArray } from 'drizzle-orm'
+import {
+  isValidPassword,
+  isValidUsername,
+  type LoginMethodsView,
+  normalizeUsername,
+} from '@image-playground/shared'
+import { and, asc, eq, inArray, ne } from 'drizzle-orm'
 import { db, schema } from '../db/client'
 import { oauthUsernameCandidates } from './oauth/username'
 import { loadPrivateBffOverlay } from './private-overlay'
-import { createUserSession } from './user-session'
+import { createUserSession, hashSessionToken } from './user-session'
 
 export type UserOperationErrorCode =
   | 'invalid_username'
@@ -13,6 +18,8 @@ export type UserOperationErrorCode =
   | 'user_not_found'
   | 'invalid_status'
   | 'account_disabled'
+  | 'current_password_required'
+  | 'invalid_credentials'
 
 export class UserOperationError extends Error {
   constructor(readonly code: UserOperationErrorCode) {
@@ -256,6 +263,146 @@ export async function loginWithOAuthIdentity(
     }
   }
   throw new UserOperationError('username_taken')
+}
+
+export async function listLoginMethods(userId: string): Promise<LoginMethodsView> {
+  const [user] = await db
+    .select({ password_hash: schema.users.password_hash })
+    .from(schema.users)
+    .where(eq(schema.users.id, userId))
+    .limit(1)
+  if (!user) throw new UserOperationError('user_not_found')
+
+  const identities = await db
+    .select({
+      provider: schema.user_identities.provider,
+      email: schema.user_identities.email,
+      linked_at: schema.user_identities.created_at,
+    })
+    .from(schema.user_identities)
+    .where(eq(schema.user_identities.user_id, userId))
+    .orderBy(asc(schema.user_identities.created_at))
+
+  return { password: user.password_hash !== OAUTH_PASSWORD_SENTINEL, identities }
+}
+
+/** Self-service counterpart of resetUserPassword: the caller's own session must survive. */
+export async function setOwnPassword(
+  userId: string,
+  input: { currentPassword?: string; newPassword: string; keepSessionToken: string },
+): Promise<void> {
+  if (!isValidPassword(input.newPassword)) throw new UserOperationError('invalid_password')
+
+  const [user] = await db
+    .select({ password_hash: schema.users.password_hash })
+    .from(schema.users)
+    .where(eq(schema.users.id, userId))
+    .limit(1)
+  if (!user) throw new UserOperationError('user_not_found')
+
+  if (user.password_hash !== OAUTH_PASSWORD_SENTINEL) {
+    if (!input.currentPassword) throw new UserOperationError('current_password_required')
+    const matches = await Bun.password
+      .verify(input.currentPassword, user.password_hash)
+      .catch(() => false)
+    if (!matches) throw new UserOperationError('invalid_credentials')
+  }
+
+  const passwordHash = await Bun.password.hash(input.newPassword, { algorithm: 'argon2id' })
+  const keptTokenHash = hashSessionToken(input.keepSessionToken)
+  await db.transaction(async (tx) => {
+    const [current] = await tx
+      .select({ password_hash: schema.users.password_hash })
+      .from(schema.users)
+      .where(eq(schema.users.id, userId))
+      .for('update')
+    if (!current) throw new UserOperationError('user_not_found')
+    // 两次并发改密时，后一次拿的旧密码已经作废，不能再放它通过。
+    if (current.password_hash !== user.password_hash) {
+      throw new UserOperationError('invalid_credentials')
+    }
+
+    await tx
+      .update(schema.users)
+      .set({ password_hash: passwordHash, updated_at: Date.now() })
+      .where(eq(schema.users.id, userId))
+    const revoked = await tx
+      .delete(schema.user_sessions)
+      .where(
+        and(
+          eq(schema.user_sessions.user_id, userId),
+          ne(schema.user_sessions.token_hash, keptTokenHash),
+        ),
+      )
+      .returning({ token_hash: schema.user_sessions.token_hash })
+    await tx.insert(schema.operator_audits).values({
+      ...operatorAudit('user.password.self-update', userId, { sessions_revoked: revoked.length }),
+      operator_id: userId,
+    })
+  })
+}
+
+/** Attaches a third-party subject to an account that is already signed in. Never provisions. */
+export async function linkOAuthIdentity(
+  userId: string,
+  identity: OAuthIdentityInput,
+): Promise<'linked' | 'identity_taken'> {
+  const owner = await findIdentityUserId(identity)
+  if (owner) return owner === userId ? 'linked' : 'identity_taken'
+
+  try {
+    await db.transaction(async (tx) => {
+      await tx.insert(schema.user_identities).values({
+        id: randomUUID(),
+        user_id: userId,
+        provider: identity.provider,
+        subject: identity.subject,
+        email: identity.email ? normalizeUsername(identity.email) : null,
+        display_name: identity.displayName,
+        created_at: Date.now(),
+      })
+      await tx.insert(schema.operator_audits).values({
+        ...operatorAudit('user.identity.link', userId, { provider: identity.provider }),
+        operator_id: userId,
+      })
+    })
+  } catch (error) {
+    if (!isUniqueViolation(error)) throw error
+    return (await findIdentityUserId(identity)) === userId ? 'linked' : 'identity_taken'
+  }
+  return 'linked'
+}
+
+export async function unlinkOAuthIdentity(
+  userId: string,
+  provider: string,
+): Promise<'unlinked' | 'not_linked' | 'last_login_method'> {
+  return db.transaction(async (tx) => {
+    // 锁 users 行让并发解绑串行化，否则两个 provider 可以各自看到「还有另一个」而全被解掉。
+    const [user] = await tx
+      .select({ password_hash: schema.users.password_hash })
+      .from(schema.users)
+      .where(eq(schema.users.id, userId))
+      .for('update')
+    if (!user) throw new UserOperationError('user_not_found')
+
+    const identities = await tx
+      .select({ id: schema.user_identities.id, provider: schema.user_identities.provider })
+      .from(schema.user_identities)
+      .where(eq(schema.user_identities.user_id, userId))
+    const target = identities.find((row) => row.provider === provider)
+    if (!target) return 'not_linked'
+    if (user.password_hash === OAUTH_PASSWORD_SENTINEL && identities.length === 1) {
+      return 'last_login_method'
+    }
+
+    await tx.delete(schema.user_identities).where(eq(schema.user_identities.id, target.id))
+    await tx.insert(schema.operator_audits).values({
+      ...operatorAudit('user.identity.unlink', userId, { provider }),
+      operator_id: userId,
+    })
+    return 'unlinked'
+  })
 }
 
 export async function setUserStatus(userId: string, status: string): Promise<OperationalUser> {
