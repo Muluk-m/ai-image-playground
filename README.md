@@ -338,14 +338,30 @@ A `open /etc/cloudflared/config.yml: permission denied` in the cloudflared log, 
 container restarting, means one of those two steps was skipped.
 
 Copy `deploy/operator-config.internal.example.json` to `$app_dir/operator-config.json` and
-adjust it. Then bring the host up:
+adjust it. Copy `deploy/deploy.env.example` to `$config_root/deploy.env` if this host uses
+other project names or image tags than the defaults; every key there is optional. Then bring
+the host up:
 
 ```bash
 scripts/infra-compose.sh up
 scripts/infra-compose.sh provision                    # once per deployment database
-scripts/app-compose.sh build ai-image-playground:local
-scripts/app-compose.sh up image-playground-internal
+scripts/vps-deploy.sh internal                        # every deploy from here on
 ```
+
+`vps-deploy.sh <internal|paid|all> [git-ref]` is the single entry point for a rollout. It
+refuses a checkout with modified tracked files, fetches and detaches onto the ref (`origin/main`
+by default), fast-forwards `./private` for the paid edition, builds, tags the image with the
+commits it came from, rolls out through `app-compose.sh up`, verifies that every container is
+healthy or exited 0, and appends one line to `$config_root/deployments.log`.
+
+To fast-forward `./private` without an interactive prompt, put a GitHub token with read access
+to the private repository in `$config_root/secrets/private-repo-token` and `chmod 600` it. The
+script passes it through a one-shot credential helper, never on a command line.
+
+`app-compose.sh` and `infra-compose.sh` remain the building blocks underneath, for rollback,
+stopping a project, and ad-hoc Compose commands. The commit-qualified tag each build leaves
+behind (`ai-image-playground:vps-main-<sha7>`, `ai-image-playground:paid-<sha7>-<sha7>`) is what
+`app-compose.sh rollback` rolls back to.
 
 Point the hostnames at the tunnel, from the account that owns them:
 
@@ -368,12 +384,26 @@ wrangler r2 bucket lifecycle add <bucket> --name pg-dumps \
 
 The dumps sit inside the pixel prefix, so both rules match them and the shorter one decides.
 
-Publish the frontend and only then move its DNS record to Pages:
+Publish the frontend and only then move its DNS record to Pages. Copy
+`deploy/pages.env.example` to `$config_root/pages.env` on the workstation that releases the
+frontend, fill in the `INTERNAL_` keys, and run:
 
 ```bash
-BFF_ENABLED=true BFF_BASE_URL=https://image-api.example.com \
-  scripts/pages-deploy.sh public <pages-project> main
+scripts/pages-release.sh internal
 ```
+
+`pages-release.sh <internal|paid>` is the single entry point for a frontend release. It reads
+one edition's keys from that file, deploys to the `main` branch of the Pages project, and then
+polls `<PUBLIC_ORIGIN>/version.json` for up to 60 seconds until the manifest reports the commit
+just built. The branch argument matters: from a detached HEAD wrangler otherwise infers the
+branch name `head` and publishes a preview alias instead of production. Each release appends a
+line to the same `deployments.log` the VPS writes.
+
+Set `<EDITION>_CLOUDFLARE_TOKEN_FILE` to an env file holding `CLOUDFLARE_API_TOKEN` for an
+account released with an API token. Leave it unset to release with wrangler's own OAuth login;
+the script then clears any `CLOUDFLARE_API_TOKEN` inherited from the shell, so one workstation
+can release both accounts. `pages-deploy.sh` remains the building block for a one-off upload
+with hand-set environment variables.
 
 The frontend and the API must share one registrable domain, as in option 3: the Admin session
 cookie is `Secure; SameSite=Lax`.
@@ -389,8 +419,15 @@ Raising `net.core.rmem_max` and `wmem_max` silences quic-go's warning but does n
 `protocol: http2` first whenever large uploads hang through a tunnel.
 
 Repeat every step with `image-playground-paid` to run a second, fully separate deployment on
-the same host. It gets its own database, R2 location, tunnel, Pages project, and Cloudflare
-account; the two share only PostgreSQL's process and the host.
+the same host, then deploy it with `scripts/vps-deploy.sh paid` and
+`scripts/pages-release.sh paid`. It gets its own database, R2 location, tunnel, Pages project,
+and Cloudflare account; the two share only PostgreSQL's process and the host. Once both are
+configured, `scripts/vps-deploy.sh all` rolls out the host in one command.
+
+The paid edition needs the reviewed `./private` overlay in both places: a clone beside the
+checkout on the VPS, and a clone in the workstation checkout that releases its Pages project.
+The internal edition needs the opposite — its Pages release must run from a checkout without
+that tree, because the overlay is compiled in by mere file presence.
 
 ## 🛠 Development
 
