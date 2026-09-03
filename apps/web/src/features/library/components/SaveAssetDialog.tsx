@@ -3,20 +3,23 @@ import AssetThumb from './AssetThumb'
 import NamingDialog from './NamingDialog'
 
 export default function SaveAssetDialog() {
-  const imageId = useLibraryStore((s) => s.namingImageId)
+  const pending = useLibraryStore((s) => s.pendingAssetNames[0] ?? null)
+  const remaining = useLibraryStore((s) => s.pendingAssetNames.length)
   const cancelNaming = useLibraryStore((s) => s.cancelNaming)
   const saveAsset = useLibraryStore((s) => s.saveAsset)
 
-  if (!imageId) return null
+  if (!pending) return null
 
   return (
     <NamingDialog
-      key={imageId}
+      key={`${pending.imageId}:${remaining}`}
       title="存为素材"
+      description={remaining > 1 ? `还剩 ${remaining} 张` : undefined}
       placeholder="素材名"
-      preview={<AssetThumb imageId={imageId} alt="" />}
+      defaultName={pending.defaultName}
+      preview={<AssetThumb imageId={pending.imageId} alt="" />}
       onCancel={cancelNaming}
-      onSave={(name) => void saveAsset(imageId, name)}
+      onSave={(name) => void saveAsset(pending.imageId, name)}
     />
   )
 }

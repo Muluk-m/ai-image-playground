@@ -65,7 +65,7 @@ export function getTemplatePromptParts(
   return getPromptMentionParts(
     template.prompt,
     createTemplateMentionLabels(template, assets),
-  ).flatMap((part) =>
+  ).flatMap<TemplatePromptPart>((part) =>
     part.type === 'mention'
       ? [{ type: 'mention' as const, text: part.text }]
       : splitTextIntoSlotParts(part.text),

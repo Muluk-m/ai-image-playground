@@ -29,6 +29,8 @@ beforeEach(() => {
     searchKeyword: '',
     panelOpen: false,
     tab: 'assets',
+    detailTemplateId: null,
+    pendingAssetNames: [],
   })
 })
 
@@ -113,6 +115,30 @@ describe('attaching an asset', () => {
     await useLibraryStore.getState().attachAsset(useLibraryStore.getState().assets[0].id)
 
     expect(useLibraryStore.getState().assets[0].lastUsedAt).toBe(5000)
+  })
+
+  it('closes the panel and reports the attachment', async () => {
+    const imageId = await storeImage(IMAGE_A)
+    await useLibraryStore.getState().saveAsset(imageId, '白底图')
+    useLibraryStore.setState({ panelOpen: true })
+
+    await useLibraryStore.getState().attachAsset(useLibraryStore.getState().assets[0].id)
+
+    expect(useLibraryStore.getState().panelOpen).toBe(false)
+    expect(useStore.getState().showToast).toHaveBeenCalledWith('已加入参考图', 'success')
+  })
+
+  it('reports an image that is already in the strip', async () => {
+    const imageId = await storeImage(IMAGE_A)
+    await useLibraryStore.getState().saveAsset(imageId, '白底图')
+    const [asset] = useLibraryStore.getState().assets
+    await useLibraryStore.getState().attachAsset(asset.id)
+    useLibraryStore.setState({ panelOpen: true })
+
+    await useLibraryStore.getState().attachAsset(asset.id)
+
+    expect(useStore.getState().inputImages).toHaveLength(1)
+    expect(useStore.getState().showToast).toHaveBeenLastCalledWith('已在参考图中', 'info')
   })
 
   it('refuses once the reference strip is full', async () => {
@@ -300,6 +326,16 @@ describe('applying a template', () => {
 
     expect(useLibraryStore.getState().templates[0].lastUsedAt).toBe(9000)
   })
+
+  it('leaves the panel and the detail behind', async () => {
+    const { template } = await saveTemplateReferencingAsset()
+    useLibraryStore.setState({ panelOpen: true, detailTemplateId: template.id })
+
+    await useLibraryStore.getState().applyTemplate(template.id)
+
+    expect(useLibraryStore.getState().panelOpen).toBe(false)
+    expect(useLibraryStore.getState().detailTemplateId).toBeNull()
+  })
 })
 
 describe('managing templates', () => {
@@ -315,10 +351,13 @@ describe('managing templates', () => {
     expect(useLibraryStore.getState().templates[0].name).toBe('新名字')
   })
 
-  it('deletes one', async () => {
+  it('deletes one and closes its detail', async () => {
     const { template } = await saveTemplateReferencingAsset()
+    useLibraryStore.setState({ detailTemplateId: template.id })
 
     await useLibraryStore.getState().deleteTemplate(template.id)
+
+    expect(useLibraryStore.getState().detailTemplateId).toBeNull()
 
     useLibraryStore.setState({ templates: [] })
     await useLibraryStore.getState().loadTemplates()
