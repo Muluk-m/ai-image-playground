@@ -1,5 +1,6 @@
+import { useRef } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { CloseIcon, LibraryIcon } from '../../../components/icons'
+import { CloseIcon, LibraryIcon, PlusIcon } from '../../../components/icons'
 import Overlay from '../../../components/Overlay'
 import {
   type LibraryTab,
@@ -9,6 +10,7 @@ import {
 } from '../store'
 import AssetCard from './AssetCard'
 import TemplateCard from './TemplateCard'
+import TemplateDetail from './TemplateDetail'
 
 const TABS: Array<{ id: LibraryTab; label: string }> = [
   { id: 'assets', label: '素材' },
@@ -26,6 +28,8 @@ export default function LibraryPanel() {
   const assetCount = useLibraryStore((s) => s.assets.length)
   const templates = useLibraryStore(useShallow(selectVisibleTemplates))
   const templateCount = useLibraryStore((s) => s.templates.length)
+  const importAssetFiles = useLibraryStore((s) => s.importAssetFiles)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   if (!panelOpen) return null
 
@@ -60,7 +64,7 @@ export default function LibraryPanel() {
           </button>
         </div>
 
-        <div className="flex shrink-0 gap-1 border-b border-gray-100 px-5 py-2 dark:border-white/[0.08]">
+        <div className="flex shrink-0 items-center gap-1 border-b border-gray-100 px-5 py-2 dark:border-white/[0.08]">
           {TABS.map(({ id, label }) => (
             <button
               key={id}
@@ -81,6 +85,30 @@ export default function LibraryPanel() {
               )}
             </button>
           ))}
+
+          {tab === 'assets' && (
+            <>
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => {
+                  void importAssetFiles([...(e.target.files ?? [])])
+                  e.target.value = ''
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="ml-auto flex items-center gap-1 rounded-lg bg-blue-500/10 px-3 py-1.5 text-sm font-medium text-blue-700 transition hover:bg-blue-500/20 dark:bg-blue-500/15 dark:text-blue-300 dark:hover:bg-blue-500/25"
+              >
+                <PlusIcon className="h-4 w-4" />
+                新建素材
+              </button>
+            </>
+          )}
         </div>
 
         <div className="custom-scrollbar min-h-0 flex-1 overflow-y-auto p-5">
@@ -100,7 +128,7 @@ export default function LibraryPanel() {
             )
           ) : assets.length === 0 ? (
             <p className="pt-16 text-center text-sm text-gray-400 dark:text-gray-500">
-              {assetCount === 0 ? '还没有素材，右键图片可存为素材' : '没有匹配的素材'}
+              {assetCount === 0 ? '还没有素材，点「新建素材」或右键图片存为素材' : '没有匹配的素材'}
             </p>
           ) : (
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-5">
@@ -111,6 +139,8 @@ export default function LibraryPanel() {
           )}
         </div>
       </div>
+
+      <TemplateDetail />
     </Overlay>
   )
 }
