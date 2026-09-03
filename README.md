@@ -423,35 +423,6 @@ checkout on the VPS, and a clone in the workstation checkout that releases its P
 The internal edition needs the opposite — its Pages release must run from a checkout without
 that tree, because the overlay is compiled in by mere file presence.
 
-### Automatic releases
-
-`.github/workflows/ci.yml` gates every pull request and every push to `main` with lint,
-typecheck, tests against a PostgreSQL service, a build, and shellcheck. When that gate goes
-green on `main`, `.github/workflows/release-internal.yml` runs `scripts/pages-release.sh
-internal` and then dispatches `public-main-updated` to the private repository, which rebuilds
-the paid frontend from this same commit plus its overlay. The paid bundle is never built here:
-a public build log would expose the overlay's paths.
-
-VPS backend rollouts stay manual. Nothing in CI touches the host; run `scripts/vps-deploy.sh`
-there as before.
-
-Configure these in this repository's Actions settings:
-
-| Name | Kind | Purpose |
-| --- | --- | --- |
-| `INTERNAL_PAGES_PROJECT` | variable | Cloudflare Pages project name |
-| `INTERNAL_BFF_BASE_URL` | variable | API origin baked into `runtime-config.json` |
-| `INTERNAL_PUBLIC_ORIGIN` | variable | Live frontend origin, polled for `/version.json` |
-| `INTERNAL_CLOUDFLARE_ACCOUNT_ID` | variable | Cloudflare account that owns the Pages project |
-| `INTERNAL_NOTIFY_UPDATE` | variable, optional | `true` prompts open tabs to reload; unset releases silently |
-| `PRIVATE_REPO` | variable, optional | Defaults to `Muluk-m/ai-image-playground-private` |
-| `CLOUDFLARE_API_TOKEN_INTERNAL` | secret | Pages token for that account |
-| `PRIVATE_REPO_DISPATCH_TOKEN` | secret | Token with `contents: write` on the private repository |
-
-Without `PRIVATE_REPO_DISPATCH_TOKEN` the internal release still runs and the paid rebuild is
-skipped with a warning. The private repository's own variables and secrets are documented in
-its README.
-
 ## 🛠 Development
 
 ```bash
