@@ -3,7 +3,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import SuggestionMenu, {
-  type SuggestionMenuOption,
+  type SuggestionMenuGroup,
   useSuggestionMenu,
 } from '../../components/SuggestionMenu'
 
@@ -28,28 +28,33 @@ afterEach(() => {
   document.body.innerHTML = ''
 })
 
-const OPTIONS: SuggestionMenuOption<number>[] = [
-  { key: 'a', label: '@图1', thumbnailUrl: 'data:image/png;base64,a', value: 0 },
-  { key: 'b', label: '@图2', thumbnailUrl: 'data:image/png;base64,b', value: 1 },
-  { key: 'c', label: '@图3', thumbnailUrl: 'data:image/png;base64,c', value: 2 },
+const GROUPS: SuggestionMenuGroup<number>[] = [
+  {
+    key: 'images',
+    heading: '本次参考图',
+    options: [
+      { key: 'a', label: '@图1', value: 0 },
+      { key: 'b', label: '@图2', value: 1 },
+      { key: 'c', label: '@图3', value: 2 },
+    ],
+  },
 ]
 
 function Harness({
-  options = OPTIONS,
+  groups = GROUPS,
   onSelect,
   onClose = () => {},
 }: {
-  options?: SuggestionMenuOption<number>[]
+  groups?: SuggestionMenuGroup<number>[]
   onSelect: (value: number) => void
   onClose?: () => void
 }) {
-  const menu = useSuggestionMenu({ options, onSelect, onClose })
+  const menu = useSuggestionMenu({ groups, onSelect, onClose })
   return (
     <div data-testid="editor" onKeyDown={menu.handleKeyDown}>
       {menu.visible && (
         <SuggestionMenu
-          heading="选择当前参考图"
-          options={options}
+          groups={groups}
           activeIndex={menu.activeIndex}
           offsetLeft={0}
           onActiveIndexChange={menu.setActiveIndex}
@@ -140,7 +145,7 @@ describe('SuggestionMenu', () => {
   })
 
   it('stays hidden when there is no candidate', () => {
-    act(() => root.render(<Harness options={[]} onSelect={() => {}} />))
+    act(() => root.render(<Harness groups={[]} onSelect={() => {}} />))
 
     expect(optionButtons()).toHaveLength(0)
   })

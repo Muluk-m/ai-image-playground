@@ -62,16 +62,26 @@ describe('attaching an asset', () => {
     expect(useStore.getState().inputImages).toEqual([{ id: imageId, dataUrl: IMAGE_A }])
   })
 
-  it('does not add the same image twice', async () => {
+  it('does not add the same image twice and reuses its position', async () => {
     const imageId = await storeImage(IMAGE_A)
     await useLibraryStore.getState().saveAsset(imageId, '白底图')
     await useLibraryStore.getState().saveAsset(imageId, '主图')
     const [first, second] = useLibraryStore.getState().assets
 
-    await useLibraryStore.getState().attachAsset(first.id)
-    await useLibraryStore.getState().attachAsset(second.id)
-
+    expect(await useLibraryStore.getState().attachAsset(first.id)).toBe(0)
+    expect(await useLibraryStore.getState().attachAsset(second.id)).toBe(0)
     expect(useStore.getState().inputImages).toHaveLength(1)
+  })
+
+  it('returns the position it landed at behind existing reference images', async () => {
+    const idA = await storeImage(IMAGE_A)
+    const idB = await storeImage(IMAGE_B)
+    useStore.getState().addInputImage({ id: idA, dataUrl: IMAGE_A })
+    await useLibraryStore.getState().saveAsset(idB, '场景图')
+
+    expect(
+      await useLibraryStore.getState().attachAsset(useLibraryStore.getState().assets[0].id),
+    ).toBe(1)
   })
 
   it('records the last use', async () => {
@@ -120,7 +130,7 @@ describe('managing assets', () => {
     useLibraryStore.setState({ assets: [] })
     await useLibraryStore.getState().loadAssets()
     expect(useLibraryStore.getState().assets).toEqual([])
-    await expect(useLibraryStore.getState().attachAsset(asset.id)).resolves.toBeUndefined()
+    await expect(useLibraryStore.getState().attachAsset(asset.id)).resolves.toBeNull()
     expect(useStore.getState().inputImages).toEqual([])
   })
 })

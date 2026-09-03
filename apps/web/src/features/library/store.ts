@@ -24,7 +24,8 @@ export interface LibraryState {
   saveAsset: (imageId: string, name: string) => Promise<void>
   renameAsset: (id: string, name: string) => Promise<void>
   deleteAsset: (id: string) => Promise<void>
-  attachAsset: (id: string) => Promise<void>
+  /** 返回该素材图在参考图条里的序号；已在条里则复用原序号，附加失败返回 null。 */
+  attachAsset: (id: string) => Promise<number | null>
 }
 
 export const useLibraryStore = create<LibraryState>((set, get) => ({
@@ -78,15 +79,17 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
 
   attachAsset: async (id) => {
     const asset = get().assets.find((a) => a.id === id)
-    if (!asset) return
+    if (!asset) return null
     const main = useStore.getState()
     const dataUrl = await ensureImageCached(asset.imageId)
     if (!dataUrl) {
       main.showToast('素材图片已丢失', 'error')
-      return
+      return null
     }
     main.addInputImage({ id: asset.imageId, dataUrl })
     await writeAsset(set, { ...asset, lastUsedAt: Date.now() })
+    const index = useStore.getState().inputImages.findIndex((img) => img.id === asset.imageId)
+    return index >= 0 ? index : null
   },
 }))
 
