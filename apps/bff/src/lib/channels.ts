@@ -6,7 +6,7 @@
  *   - JSON 损坏 / schema 不匹配 → 抛 ChannelsLoadError，由 startup 拦截决定退出还是降级
  *   - secretRef 指向的 env 不存在 → 该 channel 进 warnings，但仍保留在列表里
  *     （sanitize 输出给前端，调用上游时再失败，比启动期 fail-fast 更宽容）
- *   - baseUrlRef 指向的 env 不存在 / 不是 http(s) → 该 channel 进 warnings 并被整条丢弃。
+ *   - baseUrlRef 指向的 env 不存在 / 不是合法 https URL → 该 channel 进 warnings 并被整条丢弃。
  *     跟缺 secret 不同：没有上游地址就没有「调用上游时再失败」这一步，留着只会拼出非法 URL。
  *
  * `getChannels()` 返回内部全字段（含 baseUrl / auth / 已解析 secret），仅 BFF 内部使用。
@@ -223,7 +223,15 @@ function parseChannel(raw: unknown, idx: number): ParsedChannel {
   }
 }
 
-/** 解析成功返回 baseUrl；env 缺失或值非法返回 warning 文案，由调用方丢弃该 channel。 */
+/** `new URL` 把 IPv6 主机名还原成带方括号的形式，所以这里也带。 */
+const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]'])
+
+/**
+ * 解析成功返回 baseUrl；env 缺失或值非法返回 warning 文案，由调用方丢弃该 channel。
+ *
+ * 只认 https —— channel 的 API key 是随请求发出去的，明文 http 会把它送上网络。
+ * 回环地址例外，本机 dev 反代没法给自己签证书。
+ */
 function resolveBaseUrl(
   ch: ParsedChannel,
   envLookup: (key: string) => string | undefined,
@@ -231,14 +239,25 @@ function resolveBaseUrl(
   if (ch.baseUrl !== undefined) return { baseUrl: ch.baseUrl }
   const ref = ch.baseUrlRef as string
   const value = envLookup(ref)?.trim() ?? ''
-  if (!value)
-    return {
-      warning: `channel '${ch.id}': env '${ref}' is empty or unset; the channel is disabled and will not be advertised`,
-    }
-  if (!HTTP_URL_PATTERN.test(value))
-    return {
-      warning: `channel '${ch.id}': env '${ref}' must start with http:// or https://; the channel is disabled and will not be advertised`,
-    }
+  const disabled = (reason: string): { warning: string } => ({
+    warning: `channel '${ch.id}': env '${ref}' ${reason}; the channel is disabled and will not be advertised`,
+  })
+
+  if (!value) return disabled('is empty or unset')
+
+  // 前缀正则挡不住 'https://' 与 'https://?x'：它们过得了正则，却没有主机名。
+  let parsed: URL
+  try {
+    parsed = new URL(value)
+  } catch {
+    return disabled('is not a valid absolute https:// URL')
+  }
+  if (!parsed.hostname) return disabled('is not a valid absolute https:// URL')
+
+  const loopbackHttp = parsed.protocol === 'http:' && LOOPBACK_HOSTS.has(parsed.hostname)
+  if (parsed.protocol !== 'https:' && !loopbackHttp)
+    return disabled('must use https:// (http:// is accepted only for loopback hosts)')
+
   return { baseUrl: normalizeBaseUrl(value) }
 }
 

@@ -125,15 +125,44 @@ describe('parseChannelsConfig', () => {
     expect(result.warnings).toHaveLength(1)
   })
 
-  it('drops the channel with a warning when baseUrlRef env is not http(s)', () => {
+  const resolveRef = (envValue: string) => {
     const { baseUrl: _dropped, ...withRef } = SAMPLE_CHANNEL
-    const result = parseChannelsConfig(
+    return parseChannelsConfig(
       { channels: [{ ...withRef, baseUrlRef: 'SAMPLE_BASE_URL' }] },
-      (k) => (k === 'SAMPLE_BASE_URL' ? 'gateway.example.com' : ENV_WITH_SECRETS(k)),
+      (k) => (k === 'SAMPLE_BASE_URL' ? envValue : ENV_WITH_SECRETS(k)),
     )
-    expect(result.channels).toEqual([])
-    expect(result.warnings[0]).toContain('http')
-  })
+  }
+
+  for (const bad of ['gateway.example.com', 'https://', 'https://?x', '/v1']) {
+    it(`drops the channel when baseUrlRef env has no parseable host: ${bad}`, () => {
+      const result = resolveRef(bad)
+      expect(result.channels).toEqual([])
+      expect(result.warnings).toHaveLength(1)
+      expect(result.warnings[0]).toContain('not a valid absolute https:// URL')
+    })
+  }
+
+  for (const scheme of ['http://gateway.example.com/v1', 'ftp://gateway.example.com/v1']) {
+    it(`drops the channel when baseUrlRef env is not https: ${scheme}`, () => {
+      const result = resolveRef(scheme)
+      expect(result.channels).toEqual([])
+      expect(result.warnings).toHaveLength(1)
+      expect(result.warnings[0]).toContain('must use https://')
+    })
+  }
+
+  for (const loopback of [
+    'http://localhost:8080/v1',
+    'http://127.0.0.1:8080/v1',
+    'http://[::1]:8080/v1',
+  ]) {
+    it(`accepts plaintext http for the loopback host: ${loopback}`, () => {
+      const result = resolveRef(loopback)
+      expect(result.channels).toHaveLength(1)
+      expect(result.channels[0].baseUrl).toBe(loopback)
+      expect(result.warnings).toEqual([])
+    })
+  }
 
   it('rejects a channel that sets both baseUrl and baseUrlRef', () => {
     expect(() =>
