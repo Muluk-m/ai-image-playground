@@ -66,6 +66,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
 
   openPanel: () => {
     set({ panelOpen: true })
+    useStore.getState().markLibraryPanelOpened()
     void get().loadAssets()
     void get().loadTemplates()
   },

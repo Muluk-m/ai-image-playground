@@ -400,6 +400,9 @@ export function getPersistedState(state: AppState) {
     appMode: state.appMode,
     dismissedCodexCliPrompts: state.dismissedCodexCliPrompts,
     inspirationCoachDismissed: state.inspirationCoachDismissed,
+    libraryCoachDismissed: state.libraryCoachDismissed,
+    libraryPanelOpened: state.libraryPanelOpened,
+    assetHintShown: state.assetHintShown,
     pinnedInspirationIds: state.pinnedInspirationIds,
     // 内置 channel 的 model cache 不进 localStorage（避免敏感模型清单泄漏到导出）。
     // 通过 profile.source === 'builtin-edge' 判定，而不是字符串前缀。
@@ -430,6 +433,9 @@ function mergePersistedState(persistedState: unknown, currentState: AppState): A
     // 旧版本持久化的 params 可能缺新增字段，与 DEFAULT_PARAMS 合并补齐
     params: { ...DEFAULT_PARAMS, ...persisted.params },
     inspirationCoachDismissed: Boolean(persisted.inspirationCoachDismissed),
+    libraryCoachDismissed: Boolean(persisted.libraryCoachDismissed),
+    libraryPanelOpened: Boolean(persisted.libraryPanelOpened),
+    assetHintShown: Boolean(persisted.assetHintShown),
     pinnedInspirationIds: Array.isArray(persisted.pinnedInspirationIds)
       ? persisted.pinnedInspirationIds.filter((x): x is string => typeof x === 'string')
       : [],
@@ -528,6 +534,14 @@ interface AppState {
   /** 新人引导：第一次访问、还没生成过图时在 Header 灵感库按钮上引出气泡。 */
   inspirationCoachDismissed: boolean
   dismissInspirationCoach: () => void
+  /** 素材与模板引导卡：灵感库引导让位后才出，dismiss 或打开过面板即永久收起。 */
+  libraryCoachDismissed: boolean
+  dismissLibraryCoach: () => void
+  libraryPanelOpened: boolean
+  markLibraryPanelOpened: () => void
+  /** 参考图缩略图上方的一次性提示，出现过就不再出现。 */
+  assetHintShown: boolean
+  markAssetHintShown: () => void
   /** 用户手动置顶的灵感 id 列表；顺序 = pin 顺序（最近 pin 的在前）。 */
   pinnedInspirationIds: string[]
   /** toggle 置顶状态：未 pin → pin（插到最前）；已 pin → unpin。 */
@@ -749,6 +763,12 @@ export const useStore = create<AppState>()(
         })),
       inspirationCoachDismissed: false,
       dismissInspirationCoach: () => set({ inspirationCoachDismissed: true }),
+      libraryCoachDismissed: false,
+      dismissLibraryCoach: () => set({ libraryCoachDismissed: true }),
+      libraryPanelOpened: false,
+      markLibraryPanelOpened: () => set({ libraryPanelOpened: true }),
+      assetHintShown: false,
+      markAssetHintShown: () => set({ assetHintShown: true }),
       pinnedInspirationIds: [],
       toggleInspirationPin: (id) =>
         set((st) => {
