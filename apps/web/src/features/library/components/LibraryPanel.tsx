@@ -1,6 +1,6 @@
 import { useRef } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { CloseIcon, LibraryIcon, PlusIcon } from '../../../components/icons'
+import { CloseIcon, LibraryIcon } from '../../../components/icons'
 import Overlay from '../../../components/Overlay'
 import {
   type LibraryTab,
@@ -9,7 +9,8 @@ import {
   useLibraryStore,
 } from '../store'
 import AssetCard from './AssetCard'
-import { AssetsEmpty, TemplatesEmpty } from './LibraryEmpty'
+import { AssetsEmpty, NoMatch, TemplatesEmpty } from './LibraryEmpty'
+import NewAssetButton from './NewAssetButton'
 import TemplateCard from './TemplateCard'
 import TemplateDetail from './TemplateDetail'
 
@@ -35,6 +36,35 @@ export default function LibraryPanel() {
   if (!panelOpen) return null
 
   const counts: Record<LibraryTab, number> = { assets: assetCount, templates: templateCount }
+  const openFilePicker = () => fileInputRef.current?.click()
+
+  const renderAssets = () => {
+    if (assets.length > 0) {
+      return (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-5">
+          {assets.map((asset) => (
+            <AssetCard key={asset.id} asset={asset} />
+          ))}
+        </div>
+      )
+    }
+    if (assetCount > 0) return <NoMatch label="没有匹配的素材" />
+    return <AssetsEmpty onImport={openFilePicker} />
+  }
+
+  const renderTemplates = () => {
+    if (templates.length > 0) {
+      return (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {templates.map((template) => (
+            <TemplateCard key={template.id} template={template} />
+          ))}
+        </div>
+      )
+    }
+    if (templateCount > 0) return <NoMatch label="没有匹配的模板" />
+    return <TemplatesEmpty />
+  }
 
   return (
     <Overlay onClose={closePanel} tier="modal">
@@ -100,50 +130,13 @@ export default function LibraryPanel() {
                   e.target.value = ''
                 }}
               />
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className="ml-auto flex items-center gap-1 rounded-lg bg-blue-500/10 px-3 py-1.5 text-sm font-medium text-blue-700 transition hover:bg-blue-500/20 dark:bg-blue-500/15 dark:text-blue-300 dark:hover:bg-blue-500/25"
-              >
-                <PlusIcon className="h-4 w-4" />
-                新建素材
-              </button>
+              <NewAssetButton onClick={openFilePicker} className="ml-auto" />
             </>
           )}
         </div>
 
         <div className="custom-scrollbar min-h-0 flex-1 overflow-y-auto p-5">
-          {tab === 'templates' ? (
-            templates.length === 0 ? (
-              templateCount === 0 ? (
-                <TemplatesEmpty />
-              ) : (
-                <p className="pt-16 text-center text-sm text-gray-400 dark:text-gray-500">
-                  没有匹配的模板
-                </p>
-              )
-            ) : (
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {templates.map((template) => (
-                  <TemplateCard key={template.id} template={template} />
-                ))}
-              </div>
-            )
-          ) : assets.length === 0 ? (
-            assetCount === 0 ? (
-              <AssetsEmpty onImport={() => fileInputRef.current?.click()} />
-            ) : (
-              <p className="pt-16 text-center text-sm text-gray-400 dark:text-gray-500">
-                没有匹配的素材
-              </p>
-            )
-          ) : (
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-5">
-              {assets.map((asset) => (
-                <AssetCard key={asset.id} asset={asset} />
-              ))}
-            </div>
-          )}
+          {tab === 'templates' ? renderTemplates() : renderAssets()}
         </div>
       </div>
 
