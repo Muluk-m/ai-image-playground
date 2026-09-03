@@ -90,6 +90,75 @@ describe('parseChannelsConfig', () => {
     expect(result.channels[0].baseUrl).toBe('https://example.com/v1')
   })
 
+  it('resolves baseUrlRef from env and strips trailing slashes', () => {
+    const { baseUrl: _dropped, ...withRef } = SAMPLE_CHANNEL
+    const result = parseChannelsConfig(
+      { channels: [{ ...withRef, baseUrlRef: 'SAMPLE_BASE_URL' }] },
+      (k) => (k === 'SAMPLE_BASE_URL' ? 'https://gateway.example.com/v1//' : ENV_WITH_SECRETS(k)),
+    )
+    expect(result.channels).toHaveLength(1)
+    expect(result.channels[0].baseUrl).toBe('https://gateway.example.com/v1')
+    expect(result.channels[0]).not.toHaveProperty('baseUrlRef')
+    expect(result.warnings).toEqual([])
+  })
+
+  it('drops the channel with a warning when baseUrlRef env is unset', () => {
+    const { baseUrl: _dropped, ...withRef } = SAMPLE_CHANNEL
+    const result = parseChannelsConfig(
+      { channels: [SAMPLE_GEMINI, { ...withRef, baseUrlRef: 'SAMPLE_BASE_URL' }] },
+      ENV_WITH_SECRETS,
+    )
+    expect(result.channels.map((c) => c.id)).toEqual(['sample-gemini'])
+    expect(result.warnings).toHaveLength(1)
+    expect(result.warnings[0]).toContain('sample-openai')
+    expect(result.warnings[0]).toContain('SAMPLE_BASE_URL')
+    expect(result.warnings[0]).toContain('disabled')
+  })
+
+  it('drops the channel with a warning when baseUrlRef env is whitespace only', () => {
+    const { baseUrl: _dropped, ...withRef } = SAMPLE_CHANNEL
+    const result = parseChannelsConfig(
+      { channels: [{ ...withRef, baseUrlRef: 'SAMPLE_BASE_URL' }] },
+      (k) => (k === 'SAMPLE_BASE_URL' ? '   ' : ENV_WITH_SECRETS(k)),
+    )
+    expect(result.channels).toEqual([])
+    expect(result.warnings).toHaveLength(1)
+  })
+
+  it('drops the channel with a warning when baseUrlRef env is not http(s)', () => {
+    const { baseUrl: _dropped, ...withRef } = SAMPLE_CHANNEL
+    const result = parseChannelsConfig(
+      { channels: [{ ...withRef, baseUrlRef: 'SAMPLE_BASE_URL' }] },
+      (k) => (k === 'SAMPLE_BASE_URL' ? 'gateway.example.com' : ENV_WITH_SECRETS(k)),
+    )
+    expect(result.channels).toEqual([])
+    expect(result.warnings[0]).toContain('http')
+  })
+
+  it('rejects a channel that sets both baseUrl and baseUrlRef', () => {
+    expect(() =>
+      parseChannelsConfig(
+        { channels: [{ ...SAMPLE_CHANNEL, baseUrlRef: 'SAMPLE_BASE_URL' }] },
+        ENV_WITH_SECRETS,
+      ),
+    ).toThrow(/exactly one of baseUrl or baseUrlRef/)
+  })
+
+  it('rejects a channel that sets neither baseUrl nor baseUrlRef', () => {
+    const { baseUrl: _dropped, ...withoutBase } = SAMPLE_CHANNEL
+    expect(() => parseChannelsConfig({ channels: [withoutBase] }, ENV_WITH_SECRETS)).toThrow(/http/)
+  })
+
+  it('rejects baseUrlRef that is not UPPER_SNAKE_CASE', () => {
+    const { baseUrl: _dropped, ...withRef } = SAMPLE_CHANNEL
+    expect(() =>
+      parseChannelsConfig(
+        { channels: [{ ...withRef, baseUrlRef: 'https://gateway.example.com/v1' }] },
+        ENV_WITH_SECRETS,
+      ),
+    ).toThrow(/UPPER_SNAKE_CASE/)
+  })
+
   it('rejects invalid kind', () => {
     expect(() =>
       parseChannelsConfig(
