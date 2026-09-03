@@ -1,0 +1,119 @@
+name: Release internal frontend
+
+# Chained off CI rather than off push, so a red gate never reaches Cloudflare Pages.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: release-internal
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: Build and upload the public bundle
+    # The branches filter above matches the triggering run's head branch, so a pull request
+    # from a branch named main would satisfy it. Requiring event == 'push' is what actually
+    # confines the automatic path to a commit that landed on main.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      RELEASE_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+      # A step-level `if` cannot read the secrets context, so mirror it into env.
+      PRIVATE_REPO_DISPATCH_TOKEN: ${{ secrets.PRIVATE_REPO_DISPATCH_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      # The version manifest stamps this sha, and the paid edition is built elsewhere.
+      - name: Assert the private overlay is absent
+        run: test ! -e private
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Write the Pages release configuration
+        env:
+          PAGES_PROJECT: ${{ vars.INTERNAL_PAGES_PROJECT }}
+          BFF_BASE_URL: ${{ vars.INTERNAL_BFF_BASE_URL }}
+          PUBLIC_ORIGIN: ${{ vars.INTERNAL_PUBLIC_ORIGIN }}
+          ACCOUNT_ID: ${{ vars.INTERNAL_CLOUDFLARE_ACCOUNT_ID }}
+          NOTIFY_UPDATE: ${{ vars.INTERNAL_NOTIFY_UPDATE }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN_INTERNAL }}
+        run: |
+          set -eu
+          missing=
+          [ -n "$PAGES_PROJECT" ] || missing="$missing INTERNAL_PAGES_PROJECT"
+          [ -n "$BFF_BASE_URL" ] || missing="$missing INTERNAL_BFF_BASE_URL"
+          [ -n "$PUBLIC_ORIGIN" ] || missing="$missing INTERNAL_PUBLIC_ORIGIN"
+          [ -n "$ACCOUNT_ID" ] || missing="$missing INTERNAL_CLOUDFLARE_ACCOUNT_ID"
+          [ -n "$CLOUDFLARE_API_TOKEN" ] || missing="$missing CLOUDFLARE_API_TOKEN_INTERNAL"
+          if [ -n "$missing" ]; then
+            echo "Set these repository variables and secrets before releasing:$missing" >&2
+            exit 1
+          fi
+          config_dir=$HOME/.config/ai-image-playground
+          mkdir -p "$config_dir/secrets"
+          token_file=$config_dir/secrets/cf-internal.env
+          ( umask 077; printf 'CLOUDFLARE_API_TOKEN=%s\n' "$CLOUDFLARE_API_TOKEN" >"$token_file" )
+          # pages-release.sh sources this file, so every value is single-quoted.
+          {
+            printf "INTERNAL_PAGES_PROJECT='%s'\n" "$PAGES_PROJECT"
+            printf "INTERNAL_BFF_BASE_URL='%s'\n" "$BFF_BASE_URL"
+            printf "INTERNAL_PUBLIC_ORIGIN='%s'\n" "$PUBLIC_ORIGIN"
+            printf "INTERNAL_CLOUDFLARE_ACCOUNT_ID='%s'\n" "$ACCOUNT_ID"
+            printf "INTERNAL_CLOUDFLARE_TOKEN_FILE='%s'\n" "$token_file"
+            [ -z "$NOTIFY_UPDATE" ] || printf "INTERNAL_NOTIFY_UPDATE='%s'\n" "$NOTIFY_UPDATE"
+          } >"$config_dir/pages.env"
+
+      - name: Release to Cloudflare Pages
+        run: scripts/pages-release.sh internal
+
+      - name: Summarize the release
+        if: always()
+        run: |
+          set -eu
+          log=$HOME/.config/ai-image-playground/deployments.log
+          {
+            echo '### Internal frontend release'
+            echo
+            echo '```'
+            if [ -f "$log" ]; then tail -n 1 "$log"; else echo 'no deployments.log line was written'; fi
+            echo '```'
+          } >>"$GITHUB_STEP_SUMMARY"
+
+      # The paid site is built from this same public tree, so it has to follow main.
+      - name: Ask the private repository to rebuild the paid frontend
+        if: env.PRIVATE_REPO_DISPATCH_TOKEN != ''
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_DISPATCH_TOKEN }}
+          PRIVATE_REPO: ${{ vars.PRIVATE_REPO || 'Muluk-m/ai-image-playground-private' }}
+        run: |
+          set -eu
+          jq -n --arg sha "$RELEASE_SHA" \
+            '{event_type: "public-main-updated", client_payload: {public_sha: $sha}}' \
+            | gh api --method POST "repos/$PRIVATE_REPO/dispatches" --input -
+          echo "Dispatched public-main-updated to $PRIVATE_REPO for $RELEASE_SHA."
+
+      - name: Report a skipped paid rebuild
+        if: env.PRIVATE_REPO_DISPATCH_TOKEN == ''
+        run: echo '::warning::PRIVATE_REPO_DISPATCH_TOKEN is unset; the paid frontend was not rebuilt.'
