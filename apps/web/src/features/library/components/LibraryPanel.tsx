@@ -9,6 +9,7 @@ import {
   useLibraryStore,
 } from '../store'
 import AssetCard from './AssetCard'
+import { AssetsEmpty, TemplatesEmpty } from './LibraryEmpty'
 import TemplateCard from './TemplateCard'
 import TemplateDetail from './TemplateDetail'
 
@@ -114,11 +115,13 @@ export default function LibraryPanel() {
         <div className="custom-scrollbar min-h-0 flex-1 overflow-y-auto p-5">
           {tab === 'templates' ? (
             templates.length === 0 ? (
-              <p className="pt-16 text-center text-sm text-gray-400 dark:text-gray-500">
-                {templateCount === 0
-                  ? '还没有模板，在输入框旁点书签图标可存为模板'
-                  : '没有匹配的模板'}
-              </p>
+              templateCount === 0 ? (
+                <TemplatesEmpty />
+              ) : (
+                <p className="pt-16 text-center text-sm text-gray-400 dark:text-gray-500">
+                  没有匹配的模板
+                </p>
+              )
             ) : (
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 {templates.map((template) => (
@@ -127,9 +130,13 @@ export default function LibraryPanel() {
               </div>
             )
           ) : assets.length === 0 ? (
-            <p className="pt-16 text-center text-sm text-gray-400 dark:text-gray-500">
-              {assetCount === 0 ? '还没有素材，点「新建素材」或右键图片存为素材' : '没有匹配的素材'}
-            </p>
+            assetCount === 0 ? (
+              <AssetsEmpty onImport={() => fileInputRef.current?.click()} />
+            ) : (
+              <p className="pt-16 text-center text-sm text-gray-400 dark:text-gray-500">
+                没有匹配的素材
+              </p>
+            )
           ) : (
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-5">
               {assets.map((asset) => (
