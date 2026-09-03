@@ -5,6 +5,7 @@ import {
   buildAtMentionGroups,
   getAssetNamesByImageId,
 } from '../features/library/lib/assetMentions'
+import { buildTemplateMenuGroups, getSlashTemplateQuery } from '../features/library/lib/templates'
 import { useLibraryStore } from '../features/library/store'
 import {
   clientProfileToApiProfile,
@@ -46,7 +47,7 @@ import {
 } from '../store'
 import ContextMenu, { ContextMenuItem } from './ContextMenu'
 import { ChipIcons } from './chipIcons'
-import { CloseIcon, LibraryIcon, LinkIcon } from './icons'
+import { BookmarkIcon, CloseIcon, LibraryIcon, LinkIcon } from './icons'
 import ParamControls from './ParamControls'
 import SlotValuePopover from './SlotValuePopover'
 import SubmissionBillingAction from './SubmissionBillingAction'
@@ -312,6 +313,9 @@ function ButtonTooltip({ visible, text }: { visible: boolean; text: ReactNode })
   )
 }
 
+const SAVE_TEMPLATE_BUTTON_CLASS =
+  'flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl border border-gray-300/80 bg-white/70 text-gray-500 transition-colors duration-150 hover:border-gray-400/80 hover:bg-white disabled:cursor-not-allowed disabled:border-gray-200/60 disabled:bg-gray-100/60 disabled:text-gray-300 dark:border-white/[0.12] dark:bg-white/[0.04] dark:text-gray-300 dark:hover:border-white/[0.20] dark:hover:bg-white/[0.07] dark:disabled:border-white/[0.08] dark:disabled:bg-white/[0.04] dark:disabled:text-gray-500'
+
 function useIsMobile() {
   const [isMobile, setIsMobile] = useState(window.innerWidth < 640)
   useEffect(() => {
@@ -338,9 +342,13 @@ export default function InputBar() {
   const setConfirmDialog = useStore((s) => s.setConfirmDialog)
   const openLibrary = useLibraryStore((s) => s.openPanel)
   const startNamingAsset = useLibraryStore((s) => s.startNaming)
+  const startNamingTemplate = useLibraryStore((s) => s.startNamingTemplate)
   const assets = useLibraryStore((s) => s.assets)
   const loadAssets = useLibraryStore((s) => s.loadAssets)
   const attachAsset = useLibraryStore((s) => s.attachAsset)
+  const templates = useLibraryStore((s) => s.templates)
+  const loadTemplates = useLibraryStore((s) => s.loadTemplates)
+  const applyTemplate = useLibraryStore((s) => s.applyTemplate)
   const selectedTaskIds = useStore((s) => s.selectedTaskIds)
   const setSelectedTaskIds = useStore((s) => s.setSelectedTaskIds)
   const clearSelection = useStore((s) => s.clearSelection)
@@ -556,6 +564,13 @@ export default function InputBar() {
         canAttachAssets: supportsEdit,
       })
     : []
+  const slashQuery = isCursorInSelectedImageMention(prompt, cursorPosition, mentionLabels)
+    ? null
+    : getSlashTemplateQuery(visiblePrompt, cursorPosition)
+  const templateMenuGroups =
+    slashQuery && atMentionGroups.length === 0
+      ? buildTemplateMenuGroups({ query: slashQuery.query, templates })
+      : []
   const blurPrompt = useCallback(() => textareaRef.current?.blur(), [])
   const replaceRangeWithImageMention = useCallback(
     (start: number, end: number, imageIndex: number, nextLabelFor?: MentionLabelResolver) => {
@@ -616,6 +631,29 @@ export default function InputBar() {
     onClose: blurPrompt,
   })
 
+  const selectTemplateOption = useCallback(
+    (id: string) => {
+      const el = textareaRef.current
+      const cursor = el ? getContentEditableCursor(el) : prompt.length
+      const query = getSlashTemplateQuery(getVisiblePrompt(prompt, mentionLabels), cursor)
+      if (!query) return
+
+      // 先抹掉 `/关键词`，否则套用会把它当成未保存的输入而弹覆盖确认框。
+      const promptStart = getPromptIndexFromVisibleIndex(prompt, query.start, mentionLabels)
+      const promptEnd = getPromptIndexFromVisibleIndex(prompt, cursor, mentionLabels)
+      isUserInputRef.current = false
+      setPrompt(`${prompt.slice(0, promptStart)}${prompt.slice(promptEnd)}`)
+      void applyTemplate(id)
+    },
+    [applyTemplate, mentionLabels, prompt, setPrompt],
+  )
+
+  const templateMenu = useSuggestionMenu({
+    groups: templateMenuGroups,
+    onSelect: selectTemplateOption,
+    onClose: blurPrompt,
+  })
+
   const insertPromptTextAtSelection = useCallback(
     (text: string) => {
       const el = textareaRef.current
@@ -642,6 +680,7 @@ export default function InputBar() {
     setPrompt('')
     setCursorPos(0)
     atImageMenu.dismiss()
+    templateMenu.dismiss()
 
     window.setTimeout(() => {
       const el = textareaRef.current
@@ -651,7 +690,7 @@ export default function InputBar() {
       setContentEditableCursor(el, 0)
       syncMentionTagSelection(el)
     }, 0)
-  }, [atImageMenu.dismiss, setPrompt])
+  }, [atImageMenu.dismiss, templateMenu.dismiss, setPrompt])
 
   useEffect(() => {
     const normalizedParams = normalizeParamsForSettings(params, effectiveSettings, {
@@ -883,7 +922,7 @@ export default function InputBar() {
   }
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
-    if (atImageMenu.handleKeyDown(e)) return
+    if (atImageMenu.handleKeyDown(e) || templateMenu.handleKeyDown(e)) return
 
     // 阻止 contentEditable 默认换行
     if (e.key === 'Enter') {
@@ -1061,10 +1100,11 @@ export default function InputBar() {
     setOpenSlot((slot) => (slot && !getPromptSlotNames(prompt).includes(slot.name) ? null : slot))
   }, [prompt])
 
-  // 素材名要参与 `@` 候选与胶囊标签，不能等到用户打开素材面板才读。
+  // 素材名要参与 `@` 候选与胶囊标签、模板名要参与 `/` 候选，不能等到用户打开面板才读。
   useEffect(() => {
     void loadAssets()
-  }, [loadAssets])
+    void loadTemplates()
+  }, [loadAssets, loadTemplates])
 
   // 监听 selectionchange 以在光标移动时更新位置（contentEditable 的 onSelect 不可靠）
   useEffect(() => {
@@ -1839,6 +1879,15 @@ export default function InputBar() {
                     onSelect={atImageMenu.select}
                   />
                 )}
+                {templateMenu.visible && (
+                  <SuggestionMenu
+                    groups={templateMenuGroups}
+                    activeIndex={templateMenu.activeIndex}
+                    offsetLeft={menuLeft}
+                    onActiveIndexChange={templateMenu.setActiveIndex}
+                    onSelect={templateMenu.select}
+                  />
+                )}
                 <div
                   ref={textareaRef}
                   contentEditable
@@ -1868,6 +1917,7 @@ export default function InputBar() {
                       }, 0)
                     }
                     atImageMenu.open()
+                    templateMenu.open()
                   }}
                   onSelect={(e) => {
                     const el = e.currentTarget
@@ -1875,6 +1925,7 @@ export default function InputBar() {
                     setCursorPos(range.start)
                     syncMentionTagSelection(el)
                     atImageMenu.open()
+                    templateMenu.open()
                   }}
                   onKeyDown={handleKeyDown}
                   onPaste={handlePromptPaste}
@@ -1958,6 +2009,15 @@ export default function InputBar() {
                     title="素材与模板"
                   >
                     <LibraryIcon className="h-5 w-5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={startNamingTemplate}
+                    disabled={!prompt.trim()}
+                    className={SAVE_TEMPLATE_BUTTON_CLASS}
+                    title="存为模板"
+                  >
+                    <BookmarkIcon className="h-5 w-5" />
                   </button>
                   <ParamControls showCount />
                   {/* ml-auto 让 Generate 永远贴当前行右端，chips 偶尔挤到 row 2 时大按钮也能撑住空白。 */}
@@ -2055,6 +2115,15 @@ export default function InputBar() {
                       title="素材与模板"
                     >
                       <LibraryIcon className="h-5 w-5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={startNamingTemplate}
+                      disabled={!prompt.trim()}
+                      className={SAVE_TEMPLATE_BUTTON_CLASS}
+                      title="存为模板"
+                    >
+                      <BookmarkIcon className="h-5 w-5" />
                     </button>
                     <div
                       className="relative flex flex-1 items-center gap-2"
