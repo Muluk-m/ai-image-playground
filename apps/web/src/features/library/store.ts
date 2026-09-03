@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { API_MAX_IMAGES, MAX_INPUT_IMAGES_MESSAGE } from '../../lib/inputImageLimit'
-import { ensureImageCached, useStore } from '../../store'
+import { ensureImageCached, storeImageFromFile, useStore } from '../../store'
 import { assetStore } from './lib/assetStore'
 import { templateStore } from './lib/templateStore'
 import {
@@ -9,7 +9,7 @@ import {
   pickTemplateParams,
   remapTemplateMentions,
 } from './lib/templates'
-import type { AssetRecord, TemplateRecord } from './types'
+import type { AssetRecord, PendingAssetName, TemplateRecord } from './types'
 
 export type LibraryTab = 'assets' | 'templates'
 
@@ -19,8 +19,10 @@ export interface LibraryState {
   searchKeyword: string
   assets: AssetRecord[]
   templates: TemplateRecord[]
-  /** 正在为它取名的图片 id，null 表示没有在存素材。 */
-  namingImageId: string | null
+  /** 打开的模板详情，null 表示停在列表。 */
+  detailTemplateId: string | null
+  /** 等待取名的图片队列，头一条就是取名对话框正在问的那张。 */
+  pendingAssetNames: PendingAssetName[]
   /** 正在为当前 composer 状态取模板名。 */
   namingTemplate: boolean
 
@@ -28,7 +30,9 @@ export interface LibraryState {
   closePanel: () => void
   setTab: (tab: LibraryTab) => void
   setSearch: (keyword: string) => void
-  startNaming: (imageId: string) => void
+  openTemplateDetail: (id: string) => void
+  closeTemplateDetail: () => void
+  startNaming: (imageId: string, defaultName?: string) => void
   cancelNaming: () => void
   startNamingTemplate: () => void
   cancelNamingTemplate: () => void
@@ -37,6 +41,8 @@ export interface LibraryState {
   saveAsset: (imageId: string, name: string) => Promise<void>
   renameAsset: (id: string, name: string) => Promise<void>
   deleteAsset: (id: string) => Promise<void>
+  /** 存入本地图片文件并逐张排进取名队列。 */
+  importAssetFiles: (files: File[]) => Promise<void>
   /** 返回该素材图在参考图条里的序号；已在条里则复用原序号，附加失败返回 null。 */
   attachAsset: (id: string) => Promise<number | null>
 
@@ -54,7 +60,8 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
   searchKeyword: '',
   assets: [],
   templates: [],
-  namingImageId: null,
+  detailTemplateId: null,
+  pendingAssetNames: [],
   namingTemplate: false,
 
   openPanel: () => {
@@ -65,8 +72,11 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
   closePanel: () => set({ panelOpen: false }),
   setTab: (tab) => set({ tab }),
   setSearch: (searchKeyword) => set({ searchKeyword }),
-  startNaming: (namingImageId) => set({ namingImageId }),
-  cancelNaming: () => set({ namingImageId: null }),
+  openTemplateDetail: (detailTemplateId) => set({ detailTemplateId }),
+  closeTemplateDetail: () => set({ detailTemplateId: null }),
+  startNaming: (imageId, defaultName = '') =>
+    set((s) => ({ pendingAssetNames: [...s.pendingAssetNames, { imageId, defaultName }] })),
+  cancelNaming: () => set((s) => ({ pendingAssetNames: s.pendingAssetNames.slice(1) })),
   startNamingTemplate: () => set({ namingTemplate: true }),
   cancelNamingTemplate: () => set({ namingTemplate: false }),
 
@@ -86,7 +96,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
       lastUsedAt: now,
     }
     await assetStore.put(asset)
-    set((s) => ({ assets: [...s.assets, asset], namingImageId: null }))
+    set((s) => ({ assets: [...s.assets, asset], pendingAssetNames: s.pendingAssetNames.slice(1) }))
     useStore.getState().showToast('已存为素材', 'success')
   },
 
@@ -106,19 +116,42 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     const asset = get().assets.find((a) => a.id === id)
     if (!asset) return null
     const main = useStore.getState()
-    if (!hasRoomForImages(main.inputImages, [asset.imageId])) {
-      main.showToast(MAX_INPUT_IMAGES_MESSAGE, 'error')
-      return null
+    const already = main.inputImages.some((image) => image.id === asset.imageId)
+
+    if (!already) {
+      if (!hasRoomForImages(main.inputImages, [asset.imageId])) {
+        main.showToast(MAX_INPUT_IMAGES_MESSAGE, 'error')
+        return null
+      }
+      const dataUrl = await ensureImageCached(asset.imageId)
+      if (!dataUrl) {
+        main.showToast('素材图片已丢失', 'error')
+        return null
+      }
+      main.addInputImage({ id: asset.imageId, dataUrl })
     }
-    const dataUrl = await ensureImageCached(asset.imageId)
-    if (!dataUrl) {
-      main.showToast('素材图片已丢失', 'error')
-      return null
-    }
-    main.addInputImage({ id: asset.imageId, dataUrl })
+
     await writeAsset(set, { ...asset, lastUsedAt: Date.now() })
+    // 面板外（composer 的 `@` 菜单）插入的引用胶囊本身就是反馈，再 toast 是噪音。
+    if (get().panelOpen) {
+      set(() => ({ panelOpen: false, detailTemplateId: null }))
+      main.showToast(already ? '已在参考图中' : '已加入参考图', already ? 'info' : 'success')
+    }
     const index = useStore.getState().inputImages.findIndex((img) => img.id === asset.imageId)
     return index >= 0 ? index : null
+  },
+
+  importAssetFiles: async (files) => {
+    for (const file of files.filter((f) => f.type.startsWith('image/'))) {
+      try {
+        const stored = await storeImageFromFile(file, { compress: true })
+        get().startNaming(stored.id, stripFileExtension(file.name))
+      } catch (e) {
+        useStore
+          .getState()
+          .showToast(`图片添加失败：${e instanceof Error ? e.message : String(e)}`, 'error')
+      }
+    }
   },
 
   loadTemplates: async () => {
@@ -153,7 +186,10 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
 
   deleteTemplate: async (id) => {
     await templateStore.remove(id)
-    set((s) => ({ templates: s.templates.filter((t) => t.id !== id) }))
+    set((s) => ({
+      templates: s.templates.filter((t) => t.id !== id),
+      detailTemplateId: s.detailTemplateId === id ? null : s.detailTemplateId,
+    }))
   },
 
   applyTemplate: async (id) => {
@@ -176,6 +212,10 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     await writeTemplateIntoComposer(set, get, template)
   },
 }))
+
+function stripFileExtension(fileName: string): string {
+  return fileName.replace(/\.[^.]+$/, '')
+}
 
 type LibrarySet = (updater: (state: LibraryState) => Partial<LibraryState>) => void
 
@@ -230,7 +270,7 @@ async function writeTemplateIntoComposer(
   )
   main.setParams(template.params)
   await writeTemplate(set, { ...template, lastUsedAt: Date.now() })
-  set(() => ({ panelOpen: false }))
+  set(() => ({ panelOpen: false, detailTemplateId: null }))
 }
 
 /** 面板列表：按名字过滤，最近用过的排在前面。 */
