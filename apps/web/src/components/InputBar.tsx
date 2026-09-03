@@ -1782,8 +1782,8 @@ export default function InputBar() {
                     const text = getContentEditablePlainText(el)
                     // 手打出一个完整槽位时必须让渲染 effect 跑一次，否则它永远不会变成 chip。
                     const slotsChanged =
-                      getPromptSlotNames(text).join('\u0000') !==
-                      getPromptSlotNames(prompt).join('\u0000')
+                      JSON.stringify(getPromptSlotNames(text)) !==
+                      JSON.stringify(getPromptSlotNames(prompt))
                     isUserInputRef.current = !slotsChanged
                     setPrompt(text)
                     if (slotsChanged) {

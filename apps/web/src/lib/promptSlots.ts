@@ -44,8 +44,9 @@ export function getUnfilledPromptSlots(prompt: string, slotValues: SlotValues): 
   return getPromptSlotNames(prompt).filter((name) => !slotValues[name]?.length)
 }
 
-/** 展开后的提示词条数；任一槽位无值时为 0。 */
-export function getPromptSlotBatchSize(prompt: string, slotValues: SlotValues): number {
+/** 展开后的提示词条数；任一槽位无值时为 0。别改成 expandPromptSlots().length：
+ * 上限判定发生在展开之前，用户可以把笛卡尔积撑到几十万条。 */
+function getPromptSlotBatchSize(prompt: string, slotValues: SlotValues): number {
   return getPromptSlotNames(prompt).reduce(
     (size, name) => size * (slotValues[name]?.length ?? 0),
     1,

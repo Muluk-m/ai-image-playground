@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { parseSlotValueLines } from '../lib/promptSlots'
+import ComposerPopover from './ComposerPopover'
 
 interface SlotValuePopoverProps {
   name: string
@@ -33,14 +34,7 @@ export default function SlotValuePopover({
   }, [onClose])
 
   return (
-    <div
-      ref={ref}
-      style={{ left: `${offsetLeft}px` }}
-      className="absolute bottom-full z-50 mb-2 w-64 overflow-hidden rounded-2xl border border-gray-200/70 bg-white/95 p-1.5 shadow-xl ring-1 ring-black/5 backdrop-blur-xl dark:border-white/[0.08] dark:bg-gray-900/95 dark:ring-white/10"
-    >
-      <div className="px-2 pb-1 pt-0.5 text-[11px] text-gray-400 dark:text-gray-500">
-        {`槽位 {${name}}`}
-      </div>
+    <ComposerPopover ref={ref} heading={`槽位 {${name}}`} offsetLeft={offsetLeft}>
       <textarea
         autoFocus
         value={text}
@@ -59,6 +53,6 @@ export default function SlotValuePopover({
         }}
         className="custom-scrollbar w-full resize-none rounded-xl bg-gray-50 px-2 py-1.5 text-xs leading-relaxed text-gray-700 outline-none placeholder:text-gray-400 focus:bg-gray-100 dark:bg-white/[0.04] dark:text-gray-200 dark:placeholder:text-gray-500 dark:focus:bg-white/[0.07]"
       />
-    </div>
+    </ComposerPopover>
   )
 }
