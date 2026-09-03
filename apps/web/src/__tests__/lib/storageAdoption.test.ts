@@ -152,6 +152,23 @@ describe('adopting anonymous storage after login', () => {
     expect(await readAll(USER_DB, 'assets')).toEqual([asset])
   })
 
+  it('adopts templates saved while anonymous', async () => {
+    const template = {
+      id: 'tpl1',
+      name: '锁产品前缀',
+      prompt: '保持⁣@图1⁤不变',
+      assetIds: ['a1'],
+      params: { size: '1024x1024', quality: 'high', n: 1 },
+      createdAt: 1,
+      lastUsedAt: 1,
+    }
+    await seed(BASE_DB_NAME, { tasks: [{ id: 't1' }], templates: [template] })
+
+    await adopt(USER_ID)
+
+    expect(await readAll(USER_DB, 'templates')).toEqual([template])
+  })
+
   it('merges into an existing user database without overwriting its records', async () => {
     await seed(BASE_DB_NAME, {
       tasks: [
