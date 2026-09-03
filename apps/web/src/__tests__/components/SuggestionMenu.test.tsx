@@ -142,6 +142,7 @@ describe('SuggestionMenu', () => {
 
     pressKey('Escape')
     expect(onClose).toHaveBeenCalledTimes(1)
+    expect(optionButtons()).toHaveLength(0)
   })
 
   it('stays hidden when there is no candidate', () => {
