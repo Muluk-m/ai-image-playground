@@ -3,12 +3,19 @@ import { scopedStorageName } from './authScope'
 
 /** 匿名 scope 下的 DB 名，其它 scope 由 scopedStorageName 派生。 */
 export const BASE_DB_NAME = 'image-playground'
-const DB_VERSION = 3
+const DB_VERSION = 4
 const STORE_TASKS = 'tasks'
 const STORE_IMAGES = 'images'
 const STORE_THUMBNAILS = 'thumbnails'
 export const STORE_ASSETS = 'assets'
-export const DB_STORE_NAMES = [STORE_TASKS, STORE_IMAGES, STORE_THUMBNAILS, STORE_ASSETS] as const
+export const STORE_TEMPLATES = 'templates'
+export const DB_STORE_NAMES = [
+  STORE_TASKS,
+  STORE_IMAGES,
+  STORE_THUMBNAILS,
+  STORE_ASSETS,
+  STORE_TEMPLATES,
+] as const
 export type DbStoreName = (typeof DB_STORE_NAMES)[number]
 const THUMBNAIL_MAX_SIZE = 720
 const THUMBNAIL_QUALITY = 0.9

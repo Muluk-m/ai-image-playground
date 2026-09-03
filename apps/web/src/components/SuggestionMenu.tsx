@@ -134,13 +134,13 @@ export function useSuggestionMenu<T>({
       }
       if (e.key === 'Escape') {
         e.preventDefault()
-        setActiveIndex(0)
+        dismiss()
         onClose()
         return true
       }
       return false
     },
-    [activeIndex, count, onClose, options, select, visible],
+    [activeIndex, count, dismiss, onClose, options, select, visible],
   )
 
   return { visible, activeIndex, setActiveIndex, open, dismiss, select, handleKeyDown }

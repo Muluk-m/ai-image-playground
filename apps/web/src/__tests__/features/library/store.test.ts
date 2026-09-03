@@ -1,16 +1,35 @@
 import { IDBFactory } from 'fake-indexeddb'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { selectVisibleAssets, useLibraryStore } from '../../../features/library/store'
+import {
+  selectVisibleAssets,
+  selectVisibleTemplates,
+  useLibraryStore,
+} from '../../../features/library/store'
 import { storeImage } from '../../../lib/db'
+import { API_MAX_IMAGES } from '../../../lib/inputImageLimit'
+import { getSelectedImageMentionLabel } from '../../../lib/promptImageMentions'
 import { useStore } from '../../../store'
+import { DEFAULT_PARAMS } from '../../../types'
 
 const IMAGE_A = 'data:image/png;base64,AAAA'
 const IMAGE_B = 'data:image/png;base64,BBBB'
 
 beforeEach(() => {
   vi.stubGlobal('indexedDB', new IDBFactory())
-  useStore.setState({ inputImages: [], prompt: '' })
-  useLibraryStore.setState({ assets: [], searchKeyword: '', panelOpen: false, tab: 'assets' })
+  useStore.setState({
+    inputImages: [],
+    prompt: '',
+    params: { ...DEFAULT_PARAMS },
+    showToast: vi.fn(),
+    setConfirmDialog: vi.fn(),
+  })
+  useLibraryStore.setState({
+    assets: [],
+    templates: [],
+    searchKeyword: '',
+    panelOpen: false,
+    tab: 'assets',
+  })
 })
 
 afterEach(() => {
@@ -95,6 +114,26 @@ describe('attaching an asset', () => {
 
     expect(useLibraryStore.getState().assets[0].lastUsedAt).toBe(5000)
   })
+
+  it('refuses once the reference strip is full', async () => {
+    const imageId = await storeImage(IMAGE_A)
+    await useLibraryStore.getState().saveAsset(imageId, '白底图')
+    useStore.setState({
+      inputImages: Array.from({ length: API_MAX_IMAGES }, (_, index) => ({
+        id: `filler-${index}`,
+        dataUrl: IMAGE_B,
+      })),
+    })
+
+    expect(
+      await useLibraryStore.getState().attachAsset(useLibraryStore.getState().assets[0].id),
+    ).toBeNull()
+    expect(useStore.getState().inputImages).toHaveLength(API_MAX_IMAGES)
+    expect(useStore.getState().showToast).toHaveBeenCalledWith(
+      expect.stringContaining('已达上限'),
+      'error',
+    )
+  })
 })
 
 describe('managing assets', () => {
@@ -132,6 +171,176 @@ describe('managing assets', () => {
     expect(useLibraryStore.getState().assets).toEqual([])
     await expect(useLibraryStore.getState().attachAsset(asset.id)).resolves.toBeNull()
     expect(useStore.getState().inputImages).toEqual([])
+  })
+})
+
+const mention = getSelectedImageMentionLabel
+
+async function saveAssetNamed(dataUrl: string, name: string) {
+  const imageId = await storeImage(dataUrl)
+  await useLibraryStore.getState().saveAsset(imageId, name)
+  const asset = useLibraryStore.getState().assets.find((a) => a.name === name)
+  if (!asset) throw new Error('asset not saved')
+  return asset
+}
+
+/** 存一个引用了 `白底图` 的模板，返回它与那条素材。 */
+async function saveTemplateReferencingAsset(name = '锁产品前缀') {
+  const asset = await saveAssetNamed(IMAGE_A, '白底图')
+  await useLibraryStore.getState().attachAsset(asset.id)
+  useStore.setState({
+    prompt: `${mention(0)} 换背景`,
+    params: { ...DEFAULT_PARAMS, size: '1536x1024', quality: 'high', n: 3 },
+  })
+
+  await useLibraryStore.getState().saveTemplate(name)
+  const template = useLibraryStore.getState().templates.find((t) => t.name === name)
+  if (!template) throw new Error('template not saved')
+
+  useStore.setState({ inputImages: [], prompt: '', params: { ...DEFAULT_PARAMS } })
+  return { asset, template }
+}
+
+describe('saving a template', () => {
+  it('snapshots the marked prompt, the referenced assets and the params', async () => {
+    const { asset } = await saveTemplateReferencingAsset()
+
+    useLibraryStore.setState({ templates: [] })
+    await useLibraryStore.getState().loadTemplates()
+    const [template] = useLibraryStore.getState().templates
+    expect(template.name).toBe('锁产品前缀')
+    expect(template.prompt).toBe(`${mention(0)} 换背景`)
+    expect(template.assetIds).toEqual([asset.id])
+    expect(template.params).toEqual({ size: '1536x1024', quality: 'high', n: 3 })
+  })
+
+  it('refuses a blank name', async () => {
+    useStore.setState({ prompt: '前缀' })
+
+    await useLibraryStore.getState().saveTemplate('   ')
+
+    expect(useLibraryStore.getState().templates).toEqual([])
+  })
+})
+
+describe('applying a template', () => {
+  it('attaches the missing asset image behind the current ones and remaps the reference', async () => {
+    const { asset, template } = await saveTemplateReferencingAsset()
+    useStore.setState({ inputImages: [{ id: 'other', dataUrl: IMAGE_B }] })
+
+    await useLibraryStore.getState().applyTemplate(template.id)
+
+    expect(useStore.getState().inputImages.map((image) => image.id)).toEqual([
+      'other',
+      asset.imageId,
+    ])
+    expect(useStore.getState().prompt).toBe(`${mention(1)} 换背景`)
+    expect(useStore.getState().params).toMatchObject({
+      size: '1536x1024',
+      quality: 'high',
+      n: 3,
+    })
+  })
+
+  it('reuses a reference image that is already attached', async () => {
+    const { asset, template } = await saveTemplateReferencingAsset()
+    useStore.setState({ inputImages: [{ id: asset.imageId, dataUrl: IMAGE_A }] })
+
+    await useLibraryStore.getState().applyTemplate(template.id)
+
+    expect(useStore.getState().inputImages).toHaveLength(1)
+    expect(useStore.getState().prompt).toBe(`${mention(0)} 换背景`)
+  })
+
+  it('still applies when the asset was deleted, showing the reference as removed', async () => {
+    const { asset, template } = await saveTemplateReferencingAsset()
+    await useLibraryStore.getState().deleteAsset(asset.id)
+
+    await useLibraryStore.getState().applyTemplate(template.id)
+
+    expect(useStore.getState().inputImages).toEqual([])
+    expect(useStore.getState().prompt).toBe('@已移除图片 换背景')
+  })
+
+  it('asks before overwriting a non-empty prompt', async () => {
+    const { template } = await saveTemplateReferencingAsset()
+    useStore.setState({ prompt: '正在写的提示词' })
+
+    await useLibraryStore.getState().applyTemplate(template.id)
+
+    expect(useStore.getState().prompt).toBe('正在写的提示词')
+    const dialog = vi.mocked(useStore.getState().setConfirmDialog).mock.calls[0][0]
+    dialog?.action()
+    await vi.waitFor(() => expect(useStore.getState().prompt).toBe(`${mention(0)} 换背景`))
+  })
+
+  it('refuses when attaching would pass the reference image cap', async () => {
+    const { template } = await saveTemplateReferencingAsset()
+    useStore.setState({
+      inputImages: Array.from({ length: API_MAX_IMAGES }, (_, index) => ({
+        id: `filler-${index}`,
+        dataUrl: IMAGE_B,
+      })),
+    })
+
+    await useLibraryStore.getState().applyTemplate(template.id)
+
+    expect(useStore.getState().prompt).toBe('')
+    expect(useStore.getState().showToast).toHaveBeenCalledWith(
+      expect.stringContaining('已达上限'),
+      'error',
+    )
+  })
+
+  it('records the last use', async () => {
+    const { template } = await saveTemplateReferencingAsset()
+    vi.spyOn(Date, 'now').mockReturnValue(9000)
+
+    await useLibraryStore.getState().applyTemplate(template.id)
+
+    expect(useLibraryStore.getState().templates[0].lastUsedAt).toBe(9000)
+  })
+})
+
+describe('managing templates', () => {
+  it('renames one and refuses a blank name', async () => {
+    const { template } = await saveTemplateReferencingAsset()
+
+    await useLibraryStore.getState().renameTemplate(template.id, '  ')
+    expect(useLibraryStore.getState().templates[0].name).toBe('锁产品前缀')
+
+    await useLibraryStore.getState().renameTemplate(template.id, '新名字')
+    useLibraryStore.setState({ templates: [] })
+    await useLibraryStore.getState().loadTemplates()
+    expect(useLibraryStore.getState().templates[0].name).toBe('新名字')
+  })
+
+  it('deletes one', async () => {
+    const { template } = await saveTemplateReferencingAsset()
+
+    await useLibraryStore.getState().deleteTemplate(template.id)
+
+    useLibraryStore.setState({ templates: [] })
+    await useLibraryStore.getState().loadTemplates()
+    expect(useLibraryStore.getState().templates).toEqual([])
+  })
+
+  it('lists the most recently used first and filters by name', async () => {
+    const now = vi.spyOn(Date, 'now')
+    now.mockReturnValue(1000)
+    useStore.setState({ prompt: '前缀' })
+    await useLibraryStore.getState().saveTemplate('锁产品前缀')
+    now.mockReturnValue(2000)
+    await useLibraryStore.getState().saveTemplate('分镜风格后缀')
+
+    expect(
+      selectVisibleTemplates(useLibraryStore.getState()).map((template) => template.name),
+    ).toEqual(['分镜风格后缀', '锁产品前缀'])
+
+    useLibraryStore.getState().setSearch('锁产品')
+    expect(
+      selectVisibleTemplates(useLibraryStore.getState()).map((template) => template.name),
+    ).toEqual(['锁产品前缀'])
   })
 })
 
