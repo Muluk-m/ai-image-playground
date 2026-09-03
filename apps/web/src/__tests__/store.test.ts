@@ -381,6 +381,17 @@ describe('input persistence setting', () => {
     expect(getPersistedState(useStore.getState())).not.toHaveProperty('slotValues')
   })
 
+  it('drops persisted slot values that are not string arrays', () => {
+    const merged = useStore.persist
+      .getOptions()
+      .merge?.(
+        { settings: { ...DEFAULT_SETTINGS }, slotValues: { 背景: '浴室', 角度: ['正面', 3] } },
+        useStore.getState(),
+      ) as { slotValues: Record<string, string[]> }
+
+    expect(merged.slotValues).toEqual({ 角度: ['正面'] })
+  })
+
   it('keeps slot values whose slot left the prompt, so retyping it restores them', () => {
     useStore.getState().setPrompt('没有槽位')
 

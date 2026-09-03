@@ -406,6 +406,17 @@ export function getPersistedState(state: AppState) {
   }
 }
 
+function normalizeSlotValues(persisted: unknown): SlotValues {
+  if (!persisted || typeof persisted !== 'object') return {}
+  return Object.fromEntries(
+    Object.entries(persisted).flatMap(([name, values]) =>
+      Array.isArray(values)
+        ? [[name, values.filter((v): v is string => typeof v === 'string')]]
+        : [],
+    ),
+  )
+}
+
 function mergePersistedState(persistedState: unknown, currentState: AppState): AppState {
   if (!persistedState || typeof persistedState !== 'object') return currentState
 
@@ -429,7 +440,7 @@ function mergePersistedState(persistedState: unknown, currentState: AppState): A
       settings.persistInputOnRestart && Array.isArray(persisted.inputImages)
         ? persisted.inputImages
         : [],
-    slotValues: settings.persistInputOnRestart && persisted.slotValues ? persisted.slotValues : {},
+    slotValues: settings.persistInputOnRestart ? normalizeSlotValues(persisted.slotValues) : {},
   }
 }
 
