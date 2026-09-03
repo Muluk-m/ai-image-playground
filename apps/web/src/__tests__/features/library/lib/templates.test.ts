@@ -3,6 +3,7 @@ import {
   buildTemplateMenuGroups,
   collectTemplateAssetIds,
   getSlashTemplateQuery,
+  getTemplatePreviewText,
   matchTemplatesByName,
   pickTemplateParams,
   remapTemplateMentions,
@@ -89,6 +90,17 @@ describe('remapping a template prompt onto the new reference order', () => {
     const remapped = remapTemplateMentions(mention(0), ['image-b'], [IMAGE_A])
 
     expect(remapped).toBe('@已移除图片')
+  })
+})
+
+describe('the panel preview', () => {
+  it('shows the asset name for a live reference and the index for a deleted one', () => {
+    const template = makeTemplate({
+      prompt: `${mention(0)} 站在 ${mention(1)} 前`,
+      assetIds: ['a1', 'gone'],
+    })
+
+    expect(getTemplatePreviewText(template, [makeAsset()])).toBe('@白底图 站在 @图2 前')
   })
 })
 
