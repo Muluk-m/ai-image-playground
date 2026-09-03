@@ -167,19 +167,30 @@ export function insertImageMentionAtVisibleRange(
   }
 }
 
+/** `nextIndexOf` 给出新序号，负数表示图已不在条里，null 表示这条引用不归本次重排管。 */
+export function remapImageMentions(
+  prompt: string,
+  nextIndexOf: (imageIndex: number) => number | null,
+): string {
+  return prompt.replace(SELECTED_IMAGE_MENTION_RE, (text, n) => {
+    const nextIndex = nextIndexOf(Number(n) - 1)
+    if (nextIndex == null) return text
+    return nextIndex >= 0 ? getSelectedImageMentionLabel(nextIndex) : '@已移除图片'
+  })
+}
+
 export function remapImageMentionsForOrder(
   prompt: string,
   previousImages: InputImage[],
   nextImages: InputImage[],
   equivalentImageIds: Record<string, string> = {},
 ): string {
-  return prompt.replace(SELECTED_IMAGE_MENTION_RE, (text, n) => {
-    const previousImage = previousImages[Number(n) - 1]
-    if (!previousImage) return text
+  return remapImageMentions(prompt, (imageIndex) => {
+    const previousImage = previousImages[imageIndex]
+    if (!previousImage) return null
 
     const nextImageId = equivalentImageIds[previousImage.id] ?? previousImage.id
-    const nextIndex = nextImages.findIndex((img) => img.id === nextImageId)
-    return nextIndex >= 0 ? getSelectedImageMentionLabel(nextIndex) : '@已移除图片'
+    return nextImages.findIndex((img) => img.id === nextImageId)
   })
 }
 
