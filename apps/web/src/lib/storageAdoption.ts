@@ -5,7 +5,12 @@ import { BASE_DB_NAME, DB_STORE_NAMES, type DbStoreName, openNamedDb } from './d
 const ADOPTION_DONE_KEY = `${BASE_DB_NAME}:adopted`
 
 // 图片是整张 data URL，一次全读进内存会在大库上炸掉标签页；任务行小得多，不必切这么碎。
-const BATCH_SIZE: Record<DbStoreName, number> = { tasks: 200, images: 10, thumbnails: 50 }
+const BATCH_SIZE: Record<DbStoreName, number> = {
+  tasks: 200,
+  images: 10,
+  thumbnails: 50,
+  assets: 200,
+}
 
 let adoption: Promise<number> | null = null
 

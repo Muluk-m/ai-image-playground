@@ -14,6 +14,8 @@ import UpdateBanner from './components/UpdateBanner'
 import CanvasMode from './features/canvas/components/CanvasMode'
 import InspirationPanel from './features/inspiration/components/InspirationPanel'
 import { initHashRoute } from './features/inspiration/lib/hashRoute'
+import LibraryPanel from './features/library/components/LibraryPanel'
+import SaveAssetDialog from './features/library/components/SaveAssetDialog'
 import { isByokGenerationEnabled } from './lib/clientCapabilities'
 import {
   buildSettingsFromUrlParams,
@@ -83,6 +85,8 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
       <Lightbox />
       <SettingsModal />
       <InspirationPanel />
+      <LibraryPanel />
+      <SaveAssetDialog />
       <ConfirmDialog />
       <Toast />
       <UpdateBanner />

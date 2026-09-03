@@ -2240,14 +2240,20 @@ export async function addImageFromFile(file: File): Promise<void> {
   useStore.getState().addInputImage({ id, dataUrl })
 }
 
-/** 添加图片到输入（右键菜单）—— 支持 data/blob/http URL */
-export async function addImageFromUrl(src: string): Promise<string> {
+/** 把一张图片存进 image store —— 支持 data/blob/http URL */
+export async function storeImageFromUrl(src: string): Promise<{ id: string; dataUrl: string }> {
   const res = await fetch(src)
   const blob = await res.blob()
   if (!blob.type.startsWith('image/')) throw new Error('不是有效的图片')
   const dataUrl = await blobToDataUrl(blob)
   const id = await storeImage(dataUrl, 'upload')
   cacheImage(id, dataUrl)
+  return { id, dataUrl }
+}
+
+/** 添加图片到输入（右键菜单） */
+export async function addImageFromUrl(src: string): Promise<string> {
+  const { id, dataUrl } = await storeImageFromUrl(src)
   useStore.getState().addInputImage({ id, dataUrl })
   return id
 }
