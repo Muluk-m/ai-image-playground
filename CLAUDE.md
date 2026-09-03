@@ -43,11 +43,7 @@ pnpm workspace + Turbo v2 + Biome：
 2. `pnpm typecheck` — TypeScript 跨包 build 检查
 3. **测试**：顶层 `pnpm test`，或在改动涉及的 app 目录里跑 `pnpm test`。PostgreSQL 集成测试需要 `TEST_DATABASE_URL`（本机例：`TEST_DATABASE_URL=postgres://qiqian@127.0.0.1:5432/aip_test`），未设置会直接报错失败。
 
-任一项不过就不要 push。`.github/workflows/ci.yml` 会在 PR 与 `main` 上把同样三件事再跑一遍
-（外加 `pnpm build` 与 shellcheck），但它是兜底，不是替代：本地先全绿再 push，别拿 CI 当调试器。
-
-`main` 上门禁绿会自动发布两个前端到 Cloudflare Pages（见 README 选项 4「自动发布」）。
-所以推 `main` 就是上线，VPS 后端仍然手动部署。
+任一项不过就不要 push。本地是唯一关卡，没有 CI 兜底。
 
 ## 测试约定
 
