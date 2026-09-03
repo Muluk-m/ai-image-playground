@@ -1,5 +1,8 @@
-import type { InputImage } from '../types'
-import { getPromptMentionParts, getSelectedImageMentionLabel } from './promptImageMentions'
+import {
+  getPromptMentionParts,
+  getSelectedImageMentionLabel,
+  type MentionLabelResolver,
+} from './promptImageMentions'
 import { type SlotValues, splitTextIntoSlotParts } from './promptSlots'
 
 function escapeHtml(text: string) {
@@ -11,17 +14,17 @@ function escapeHtml(text: string) {
 }
 
 /**
- * contentEditable 的胶囊渲染。胶囊 textContent 必须与 prompt 中对应的可见文本等长，
- * 否则光标偏移换算全部错位——所以槽位的 ×k 只能走 CSS ::after，不能进 DOM 文本。
+ * contentEditable 的胶囊渲染。胶囊 textContent 必须与 `labelFor` 给出的可见文本一致——
+ * 光标偏移按它计长，多一个字就整体错位，所以槽位的 ×k 只能走 CSS ::after，不能进 DOM 文本。
  */
 export function buildPromptEditorHtml(
   prompt: string,
-  inputImages: InputImage[],
+  labelFor: MentionLabelResolver,
   slotValues: SlotValues,
 ): string {
   if (!prompt) return ''
 
-  return getPromptMentionParts(prompt, inputImages)
+  return getPromptMentionParts(prompt, labelFor)
     .map((part) => {
       if (part.type === 'mention') {
         return `<span contenteditable="false" class="mention-tag" data-mention-text="${escapeHtml(getSelectedImageMentionLabel(part.imageIndex))}">${escapeHtml(part.text)}</span>`

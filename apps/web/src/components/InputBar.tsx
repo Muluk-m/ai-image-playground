@@ -1,5 +1,10 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import {
+  type AtMentionValue,
+  buildAtMentionGroups,
+  getAssetNamesByImageId,
+} from '../features/library/lib/assetMentions'
 import { useLibraryStore } from '../features/library/store'
 import {
   clientProfileToApiProfile,
@@ -21,13 +26,14 @@ import { usePrivateSubmissionGuard } from '../lib/privateOverlay'
 import { buildPromptEditorHtml } from '../lib/promptEditorHtml'
 import { computePromptHeight } from '../lib/promptHeight'
 import {
+  createMentionLabels,
   getAtImageQuery,
-  getImageMentionLabel,
   getPromptIndexFromVisibleIndex,
-  imageMentionMatches,
+  getPromptMentionParts,
+  getVisiblePrompt,
   insertImageMentionAtVisibleRange,
   isCursorInSelectedImageMention,
-  stripImageMentionMarkers,
+  type MentionLabelResolver,
 } from '../lib/promptImageMentions'
 import { getPromptSlotNames, getSubmissionImageCount } from '../lib/promptSlots'
 import {
@@ -334,6 +340,9 @@ export default function InputBar() {
   const setConfirmDialog = useStore((s) => s.setConfirmDialog)
   const openLibrary = useLibraryStore((s) => s.openPanel)
   const startNamingAsset = useLibraryStore((s) => s.startNaming)
+  const assets = useLibraryStore((s) => s.assets)
+  const loadAssets = useLibraryStore((s) => s.loadAssets)
+  const attachAsset = useLibraryStore((s) => s.attachAsset)
   const selectedTaskIds = useStore((s) => s.selectedTaskIds)
   const setSelectedTaskIds = useStore((s) => s.setSelectedTaskIds)
   const clearSelection = useStore((s) => s.clearSelection)
@@ -535,24 +544,33 @@ export default function InputBar() {
     ? inputImages.filter((img) => img.id !== maskTargetImage.id)
     : inputImages
   const cursorPosition = cursorPos
-  const visiblePrompt = stripImageMentionMarkers(prompt)
-  const atImageQuery = isCursorInSelectedImageMention(prompt, cursorPosition)
+  const mentionLabels = useMemo(
+    () => createMentionLabels(inputImages, getAssetNamesByImageId(assets)),
+    [inputImages, assets],
+  )
+  const visiblePrompt = getVisiblePrompt(prompt, mentionLabels)
+  const atImageQuery = isCursorInSelectedImageMention(prompt, cursorPosition, mentionLabels)
     ? null
-    : getAtImageQuery(visiblePrompt, cursorPosition, inputImages)
-  const atImageMenuOptions = atImageQuery
-    ? inputImages
-        .map((img, index) => ({
-          key: img.id,
-          label: getImageMentionLabel(index),
-          thumbnailUrl: img.dataUrl,
-          value: index,
-        }))
-        .filter((option) => imageMentionMatches(atImageQuery.query, option.value))
+    : getAtImageQuery(visiblePrompt, cursorPosition)
+  const atMentionGroups = atImageQuery
+    ? buildAtMentionGroups({
+        query: atImageQuery.query,
+        inputImages,
+        assets,
+        canAttachAssets: supportsEdit,
+      })
     : []
   const blurPrompt = useCallback(() => textareaRef.current?.blur(), [])
   const replaceRangeWithImageMention = useCallback(
-    (start: number, end: number, imageIndex: number) => {
-      const next = insertImageMentionAtVisibleRange(prompt, start, end, imageIndex)
+    (start: number, end: number, imageIndex: number, nextLabelFor?: MentionLabelResolver) => {
+      const next = insertImageMentionAtVisibleRange(
+        prompt,
+        start,
+        end,
+        imageIndex,
+        mentionLabels,
+        nextLabelFor,
+      )
       isUserInputRef.current = false
       setPrompt(next.prompt)
       window.setTimeout(() => {
@@ -562,7 +580,7 @@ export default function InputBar() {
         }
       }, 0)
     },
-    [prompt, setPrompt],
+    [mentionLabels, prompt, setPrompt],
   )
   const insertImageMentionAtCursor = useCallback(
     (imageIndex: number) => {
@@ -572,20 +590,50 @@ export default function InputBar() {
     },
     [prompt, replaceRangeWithImageMention],
   )
-  const selectAtImageOption = useCallback(
-    (imageIndex: number) => {
+  const selectAtMentionOption = useCallback(
+    async (value: AtMentionValue) => {
       const el = textareaRef.current
       const cursor = el ? getContentEditableCursor(el) : prompt.length
-      const query = getAtImageQuery(stripImageMentionMarkers(prompt), cursor, inputImages)
+      const query = getAtImageQuery(getVisiblePrompt(prompt, mentionLabels), cursor)
       if (!query) return
-      replaceRangeWithImageMention(query.start, cursor, imageIndex)
+
+      if (value.type === 'image') {
+        replaceRangeWithImageMention(query.start, cursor, value.index)
+        return
+      }
+
+      const asset = assets.find((a) => a.id === value.id)
+      if (!asset) return
+      if (atImageLimit && !inputImages.some((img) => img.id === asset.imageId)) {
+        showToast(attachDisabledReason, 'error')
+        return
+      }
+
+      const imageIndex = await attachAsset(value.id)
+      if (imageIndex == null) return
+      // 附加后参考图与素材的最近使用都变了，胶囊标签得按新状态算，否则光标落错位置。
+      const nextLabels = createMentionLabels(
+        useStore.getState().inputImages,
+        getAssetNamesByImageId(useLibraryStore.getState().assets),
+      )
+      replaceRangeWithImageMention(query.start, cursor, imageIndex, nextLabels)
     },
-    [inputImages, prompt, replaceRangeWithImageMention],
+    [
+      assets,
+      attachAsset,
+      attachDisabledReason,
+      atImageLimit,
+      inputImages,
+      mentionLabels,
+      prompt,
+      replaceRangeWithImageMention,
+      showToast,
+    ],
   )
 
   const atImageMenu = useSuggestionMenu({
-    options: atImageMenuOptions,
-    onSelect: selectAtImageOption,
+    groups: atMentionGroups,
+    onSelect: (value: AtMentionValue) => void selectAtMentionOption(value),
     onClose: blurPrompt,
   })
 
@@ -595,8 +643,8 @@ export default function InputBar() {
       const selection = el
         ? getContentEditableSelection(el)
         : { start: prompt.length, end: prompt.length }
-      const promptStart = getPromptIndexFromVisibleIndex(prompt, selection.start)
-      const promptEnd = getPromptIndexFromVisibleIndex(prompt, selection.end)
+      const promptStart = getPromptIndexFromVisibleIndex(prompt, selection.start, mentionLabels)
+      const promptEnd = getPromptIndexFromVisibleIndex(prompt, selection.end, mentionLabels)
       const nextPrompt = `${prompt.slice(0, promptStart)}${text}${prompt.slice(promptEnd)}`
       const nextCursor = selection.start + text.length
       setPrompt(nextPrompt)
@@ -899,10 +947,14 @@ export default function InputBar() {
     const selection = getContentEditableSelection(el)
     if (selection.start === selection.end) return
 
-    const promptStart = getPromptIndexFromVisibleIndex(prompt, selection.start)
-    const promptEnd = getPromptIndexFromVisibleIndex(prompt, selection.end)
-    const text = stripImageMentionMarkers(prompt.slice(promptStart, promptEnd))
-    const copyText = /^\s*@图\d+\s*$/.test(text) ? text.trim() : text
+    const promptStart = getPromptIndexFromVisibleIndex(prompt, selection.start, mentionLabels)
+    const promptEnd = getPromptIndexFromVisibleIndex(prompt, selection.end, mentionLabels)
+    const text = getVisiblePrompt(prompt.slice(promptStart, promptEnd), mentionLabels)
+    // 只选中一个胶囊时复制胶囊本身，别把它两边的空白也带走
+    const parts = getPromptMentionParts(prompt.slice(promptStart, promptEnd), mentionLabels).filter(
+      (part) => part.type === 'mention' || part.text.trim(),
+    )
+    const copyText = parts.length === 1 && parts[0].type === 'mention' ? parts[0].text : text
 
     e.preventDefault()
     e.clipboardData.setData('text/plain', copyText)
@@ -1018,11 +1070,11 @@ export default function InputBar() {
       isUserInputRef.current = false
       return
     }
-    const html = buildPromptEditorHtml(prompt, inputImages, slotValues)
+    const html = buildPromptEditorHtml(prompt, mentionLabels, slotValues)
     if (el.innerHTML !== html) {
       el.innerHTML = html
     }
-  }, [prompt, inputImages, slotValues])
+  }, [prompt, mentionLabels, slotValues])
 
   useEffect(() => {
     adjustTextareaHeight()
@@ -1031,6 +1083,11 @@ export default function InputBar() {
   useEffect(() => {
     setOpenSlot((slot) => (slot && !getPromptSlotNames(prompt).includes(slot.name) ? null : slot))
   }, [prompt])
+
+  // 素材名要参与 `@` 候选与胶囊标签，不能等到用户打开素材面板才读。
+  useEffect(() => {
+    void loadAssets()
+  }, [loadAssets])
 
   // 监听 selectionchange 以在光标移动时更新位置（contentEditable 的 onSelect 不可靠）
   useEffect(() => {
@@ -1698,9 +1755,7 @@ export default function InputBar() {
                 className="min-w-0 flex-1 truncate rounded-xl bg-gray-100/60 px-3 py-2 text-left text-sm text-gray-600 hover:bg-gray-100 dark:bg-white/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.07]"
                 title="点击展开输入框"
               >
-                {prompt.trim()
-                  ? stripImageMentionMarkers(prompt)
-                  : '点击展开输入框，输入新的 prompt...'}
+                {prompt.trim() ? visiblePrompt : '点击展开输入框，输入新的 prompt...'}
               </button>
               <div
                 className="relative flex items-center gap-2"
@@ -1800,8 +1855,7 @@ export default function InputBar() {
                 )}
                 {atImageMenu.visible && (
                   <SuggestionMenu
-                    heading="选择当前参考图"
-                    options={atImageMenuOptions}
+                    groups={atMentionGroups}
                     activeIndex={atImageMenu.activeIndex}
                     offsetLeft={menuLeft}
                     onActiveIndexChange={atImageMenu.setActiveIndex}

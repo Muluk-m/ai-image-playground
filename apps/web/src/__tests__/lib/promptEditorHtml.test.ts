@@ -1,14 +1,15 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest'
 import { buildPromptEditorHtml } from '../../lib/promptEditorHtml'
-import { getSelectedImageMentionLabel } from '../../lib/promptImageMentions'
+import { createMentionLabels, getSelectedImageMentionLabel } from '../../lib/promptImageMentions'
 import type { InputImage } from '../../types'
 
 const images: InputImage[] = [{ id: 'image-a', dataUrl: 'data:image/png;base64,a' }]
+const labels = createMentionLabels(images)
 
-function render(prompt: string, slotValues: Record<string, string[]> = {}) {
+function render(prompt: string, slotValues: Record<string, string[]> = {}, labelFor = labels) {
   const el = document.createElement('div')
-  el.innerHTML = buildPromptEditorHtml(prompt, images, slotValues)
+  el.innerHTML = buildPromptEditorHtml(prompt, labelFor, slotValues)
   return el
 }
 
@@ -42,6 +43,18 @@ describe('prompt editor html', () => {
     expect(el.querySelectorAll('.mention-tag')).toHaveLength(2)
     expect(el.querySelector('.mention-tag:not(.slot-tag)')?.textContent).toBe('@图1')
     expect(el.querySelector('.slot-tag')?.textContent).toBe('{场景}')
+  })
+
+  it('renders a mention with the name its image carries', () => {
+    const el = render(
+      `${getSelectedImageMentionLabel(0)} 放大`,
+      {},
+      createMentionLabels(images, { 'image-a': '熊猫' }),
+    )
+    const chip = el.querySelector<HTMLElement>('.mention-tag:not(.slot-tag)')
+
+    expect(chip?.textContent).toBe('@熊猫')
+    expect(chip?.dataset.mentionText).toBe(getSelectedImageMentionLabel(0))
   })
 
   it('escapes markup in prompt text and slot names', () => {
