@@ -369,8 +369,33 @@ describe('input persistence setting', () => {
       settings: { ...DEFAULT_SETTINGS },
       prompt: 'prompt',
       inputImages: [imageA],
+      slotValues: { 背景: ['浴室'] },
       dismissedCodexCliPrompts: [],
     })
+  })
+
+  it('persists slot values with the rest of the input', () => {
+    expect(getPersistedState(useStore.getState()).slotValues).toEqual({ 背景: ['浴室'] })
+
+    useStore.setState({ settings: { ...DEFAULT_SETTINGS, persistInputOnRestart: false } })
+    expect(getPersistedState(useStore.getState())).not.toHaveProperty('slotValues')
+  })
+
+  it('drops persisted slot values that are not string arrays', () => {
+    const merged = useStore.persist
+      .getOptions()
+      .merge?.(
+        { settings: { ...DEFAULT_SETTINGS }, slotValues: { 背景: '浴室', 角度: ['正面', 3] } },
+        useStore.getState(),
+      ) as { slotValues: Record<string, string[]> }
+
+    expect(merged.slotValues).toEqual({ 角度: ['正面'] })
+  })
+
+  it('keeps slot values whose slot left the prompt, so retyping it restores them', () => {
+    useStore.getState().setPrompt('没有槽位')
+
+    expect(useStore.getState().slotValues).toEqual({ 背景: ['浴室'] })
   })
 
   it('persists input when restart input restore is enabled', () => {
@@ -789,5 +814,86 @@ describe('submitTask 数量分发（capability n 门控）', () => {
     )
 
     expectFanOutFour()
+  })
+})
+
+describe('submitTask 槽位批量展开', () => {
+  function setupSlotState(prompt: string, slotValues: Record<string, string[]>, n: number) {
+    const profile = createDefaultOpenAIByokProfile({ apiKey: 'test-key' })
+    useStore.setState({
+      settings: normalizeSettings({
+        ...DEFAULT_SETTINGS,
+        profiles: [profile],
+        activeProfileId: profile.id,
+        clearInputAfterSubmit: false,
+      }),
+      prompt,
+      slotValues,
+      inputImages: [],
+      maskDraft: null,
+      params: { ...DEFAULT_PARAMS, n },
+      tasks: [],
+      detailTaskId: null,
+      showSettings: false,
+      toast: null,
+      confirmDialog: null,
+      showToast: vi.fn(),
+      setConfirmDialog: vi.fn(),
+    })
+  }
+
+  beforeEach(() => {
+    vi.mocked(callImageApi).mockClear()
+    vi.mocked(callImageApi).mockResolvedValue({
+      images: ['data:image/png;base64,generated'],
+      actualParamsList: [{ size: '1x1' }],
+    })
+    setChannels([])
+  })
+
+  it('笛卡尔积展开为独立任务，每条提示词已替换且配置一致', async () => {
+    setupSlotState('{场景}里的猫，{角度}', { 场景: ['浴室', '厨房'], 角度: ['正面', '俯视'] }, 1)
+
+    await submitTask()
+
+    const tasks = useStore.getState().tasks
+    expect(tasks.map((t) => t.prompt)).toEqual([
+      '浴室里的猫，正面',
+      '浴室里的猫，俯视',
+      '厨房里的猫，正面',
+      '厨房里的猫，俯视',
+    ])
+    expect(new Set(tasks.map((t) => t.clientRequestId)).size).toBe(4)
+    expect(tasks.every((t) => t.apiModel === tasks[0].apiModel)).toBe(true)
+  })
+
+  it('展开后每条再按现有 n 规则分发：M=2 × n=3 得到 6 条 n=1 任务', async () => {
+    setupSlotState('{场景}里的猫', { 场景: ['浴室', '厨房'] }, 3)
+
+    await submitTask()
+
+    const tasks = useStore.getState().tasks
+    expect(tasks).toHaveLength(6)
+    expect(tasks.every((t) => t.params.n === 1)).toBe(true)
+    expect(tasks.filter((t) => t.prompt === '浴室里的猫')).toHaveLength(3)
+    expect(tasks.filter((t) => t.prompt === '厨房里的猫')).toHaveLength(3)
+  })
+
+  it('M × n 超过 16 张时不提交并提示', async () => {
+    setupSlotState('{场景}', { 场景: ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i'] }, 2)
+
+    await submitTask()
+
+    expect(useStore.getState().tasks).toHaveLength(0)
+    expect(useStore.getState().showToast).toHaveBeenCalledWith('单次最多 16 张', 'error')
+  })
+
+  it('任一槽位无值时不提交并提示', async () => {
+    setupSlotState('{场景}里的{角度}', { 场景: ['浴室'] }, 1)
+
+    await submitTask()
+
+    expect(useStore.getState().tasks).toHaveLength(0)
+    expect(useStore.getState().showToast).toHaveBeenCalledWith('槽位 {角度} 未填值', 'error')
   })
 })
