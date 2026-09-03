@@ -1,4 +1,4 @@
-import { PlusIcon } from '../../../components/icons'
+import NewAssetButton from './NewAssetButton'
 
 /** 参考图缩略图 + 右键菜单：告诉用户素材从哪来。 */
 function SaveAssetIllustration() {
@@ -46,14 +46,7 @@ export function AssetsEmpty({ onImport }: { onImport: () => void }) {
           手机上长按缩略图
         </span>
       </p>
-      <button
-        type="button"
-        onClick={onImport}
-        className="flex items-center gap-1 rounded-lg bg-blue-500/10 px-3 py-1.5 text-sm font-medium text-blue-700 transition hover:bg-blue-500/20 dark:bg-blue-500/15 dark:text-blue-300 dark:hover:bg-blue-500/25"
-      >
-        <PlusIcon className="h-4 w-4" />
-        新建素材
-      </button>
+      <NewAssetButton onClick={onImport} />
     </div>
   )
 }
@@ -64,4 +57,9 @@ export function TemplatesEmpty() {
       写好提示词后点存为模板，输入 / 调用
     </p>
   )
+}
+
+/** 库里有东西、只是被搜索过滤光时的那一行。 */
+export function NoMatch({ label }: { label: string }) {
+  return <p className="pt-16 text-center text-sm text-gray-400 dark:text-gray-500">{label}</p>
 }
