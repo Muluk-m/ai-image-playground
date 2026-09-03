@@ -118,8 +118,16 @@ describe('@ 菜单的素材分组', () => {
     document.body.innerHTML = ''
   })
 
-  function Harness({ query, onSelect }: { query: string; onSelect: (v: AtMentionValue) => void }) {
-    const groups = buildAtMentionGroups({ query, inputImages: menuImages, assets: menuAssets })
+  function Harness({
+    query,
+    assets = menuAssets,
+    onSelect,
+  }: {
+    query: string
+    assets?: AssetRecord[]
+    onSelect: (v: AtMentionValue) => void
+  }) {
+    const groups = buildAtMentionGroups({ query, inputImages: menuImages, assets })
     const menu = useSuggestionMenu({ groups, onSelect, onClose: () => {} })
     return (
       <div data-testid="editor" onKeyDown={menu.handleKeyDown}>
@@ -176,5 +184,29 @@ describe('@ 菜单的素材分组', () => {
     pressKey('Enter')
 
     expect(onSelect).toHaveBeenCalledWith({ type: 'asset', id: 'asset-1' })
+  })
+
+  it('一条素材都没有时素材组留一行提示', () => {
+    act(() => root.render(<Harness query="" assets={[]} onSelect={() => {}} />))
+
+    expect(headings()).toEqual(['本次参考图', '素材'])
+    expect(optionLabels()).toEqual(['@图1'])
+    expect(host.textContent).toContain('还没有素材，右键参考图可保存')
+  })
+
+  it('键盘导航跳过素材空态提示', () => {
+    const onSelect = vi.fn()
+    act(() => root.render(<Harness query="" assets={[]} onSelect={onSelect} />))
+
+    pressKey('ArrowDown')
+    pressKey('Enter')
+
+    expect(onSelect).toHaveBeenCalledWith({ type: 'image', index: 0 })
+  })
+
+  it('素材被搜索过滤光时不冒空态提示', () => {
+    act(() => root.render(<Harness query="不存在的名字" onSelect={() => {}} />))
+
+    expect(host.textContent ?? '').not.toContain('还没有素材')
   })
 })
