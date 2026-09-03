@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { AssetRecord } from '../features/library/types'
+import type { AssetRecord, TemplateRecord } from '../features/library/types'
 import {
   createDefaultGeminiByokProfile,
   createDefaultOpenAIByokProfile,
@@ -69,6 +69,21 @@ vi.mock('../features/library/lib/assetStore', () => {
       },
       remove: async (id: string) => {
         assets.delete(id)
+      },
+    },
+  }
+})
+
+vi.mock('../features/library/lib/templateStore', () => {
+  const templates = new Map<string, TemplateRecord>()
+  return {
+    templateStore: {
+      list: async () => [...templates.values()],
+      put: async (template: TemplateRecord) => {
+        templates.set(template.id, template)
+      },
+      remove: async (id: string) => {
+        templates.delete(id)
       },
     },
   }
@@ -915,7 +930,7 @@ describe('submitTask 槽位批量展开', () => {
   })
 })
 
-describe('@ 引用素材后提交', () => {
+describe('素材引用与模板套用后提交', () => {
   const PANDA = 'data:image/png;base64,panda'
   const HALL = 'data:image/png;base64,hall'
 
@@ -966,7 +981,7 @@ describe('@ 引用素材后提交', () => {
     })
     setChannels([])
     await clearImages()
-    useLibraryStore.setState({ assets: [] })
+    useLibraryStore.setState({ assets: [], templates: [] })
     setupState()
   })
 
@@ -1014,5 +1029,37 @@ describe('@ 引用素材后提交', () => {
     await submitTask()
 
     expect(await submittedPrompt()).toBe('放进 @已移除图片')
+  })
+
+  it('套用模板后引用按落位后的新序号发送', async () => {
+    const panda = await attachNewAsset('img-panda', PANDA, '熊猫')
+    useStore.setState({ prompt: `把${getSelectedImageMentionLabel(panda ?? 0)}放大` })
+    await useLibraryStore.getState().saveTemplate('熊猫模板')
+    const [template] = useLibraryStore.getState().templates
+
+    useStore.setState({ inputImages: [{ id: 'img-hall', dataUrl: HALL }], prompt: '' })
+    await useLibraryStore.getState().applyTemplate(template.id)
+    await submitTask()
+
+    expect(useStore.getState().inputImages.map((image) => image.id)).toEqual([
+      'img-hall',
+      'img-panda',
+    ])
+    expect(await submittedPrompt()).toBe('把[image 2]放大')
+  })
+
+  it('模板引用的素材已删除时仍能提交，引用降级为已移除', async () => {
+    const panda = await attachNewAsset('img-panda', PANDA, '熊猫')
+    useStore.setState({ prompt: `把${getSelectedImageMentionLabel(panda ?? 0)}放大` })
+    await useLibraryStore.getState().saveTemplate('熊猫模板')
+    const [template] = useLibraryStore.getState().templates
+    const [asset] = useLibraryStore.getState().assets
+
+    await useLibraryStore.getState().deleteAsset(asset.id)
+    useStore.setState({ inputImages: [], prompt: '' })
+    await useLibraryStore.getState().applyTemplate(template.id)
+    await submitTask()
+
+    expect(await submittedPrompt()).toBe('把@已移除图片放大')
   })
 })
