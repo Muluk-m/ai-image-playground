@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { AssetRecord } from '../features/library/types'
 import {
   createDefaultGeminiByokProfile,
   createDefaultOpenAIByokProfile,
@@ -58,6 +59,21 @@ vi.mock('../lib/db', () => {
   }
 })
 
+vi.mock('../features/library/lib/assetStore', () => {
+  const assets = new Map<string, AssetRecord>()
+  return {
+    assetStore: {
+      list: async () => [...assets.values()],
+      put: async (asset: AssetRecord) => {
+        assets.set(asset.id, asset)
+      },
+      remove: async (id: string) => {
+        assets.delete(id)
+      },
+    },
+  }
+})
+
 vi.mock('../lib/api', () => ({
   callImageApi: vi.fn(async () => ({
     images: ['data:image/png;base64,generated'],
@@ -74,6 +90,7 @@ vi.mock('../lib/transparentImage', async (importOriginal) => {
   }
 })
 
+import { useLibraryStore } from '../features/library/store'
 import { callImageApi } from '../lib/api'
 import { setChannels } from '../lib/channels/channelStore'
 import type { BuiltinEdgeProfile, ClientProfile, PublicChannel } from '../lib/channels/types'
@@ -895,5 +912,107 @@ describe('submitTask 槽位批量展开', () => {
 
     expect(useStore.getState().tasks).toHaveLength(0)
     expect(useStore.getState().showToast).toHaveBeenCalledWith('槽位 {角度} 未填值', 'error')
+  })
+})
+
+describe('@ 引用素材后提交', () => {
+  const PANDA = 'data:image/png;base64,panda'
+  const HALL = 'data:image/png;base64,hall'
+
+  function setupState() {
+    const profile = createDefaultOpenAIByokProfile({ apiKey: 'test-key' })
+    useStore.setState({
+      settings: normalizeSettings({
+        ...DEFAULT_SETTINGS,
+        profiles: [profile],
+        activeProfileId: profile.id,
+        clearInputAfterSubmit: false,
+      }),
+      prompt: '',
+      slotValues: {},
+      inputImages: [],
+      maskDraft: null,
+      params: { ...DEFAULT_PARAMS, n: 1 },
+      tasks: [],
+      detailTaskId: null,
+      showSettings: false,
+      toast: null,
+      confirmDialog: null,
+      showToast: vi.fn(),
+      setConfirmDialog: vi.fn(),
+    })
+  }
+
+  async function attachNewAsset(imageId: string, dataUrl: string, name: string) {
+    await putImage({ id: imageId, dataUrl, source: 'upload', createdAt: 0 })
+    await useLibraryStore.getState().saveAsset(imageId, name)
+    const asset = useLibraryStore
+      .getState()
+      .assets.find((a) => a.imageId === imageId && a.name === name)
+    if (!asset) throw new Error('asset not saved')
+    return useLibraryStore.getState().attachAsset(asset.id)
+  }
+
+  async function submittedPrompt() {
+    await waitUntil(() => vi.mocked(callImageApi).mock.calls.length > 0, '未发出上游请求')
+    return vi.mocked(callImageApi).mock.calls[0][0].prompt
+  }
+
+  beforeEach(async () => {
+    vi.mocked(callImageApi).mockClear()
+    vi.mocked(callImageApi).mockResolvedValue({
+      images: ['data:image/png;base64,generated'],
+      actualParamsList: [{ size: '1x1' }],
+    })
+    setChannels([])
+    await clearImages()
+    useLibraryStore.setState({ assets: [] })
+    setupState()
+  })
+
+  it('素材附加的参考图按序号发送为 [image N]', async () => {
+    const index = await attachNewAsset('img-panda', PANDA, '熊猫')
+    useStore.setState({ prompt: `把${getSelectedImageMentionLabel(index ?? 0)}放大` })
+
+    await submitTask()
+
+    expect(useStore.getState().inputImages).toHaveLength(1)
+    expect(await submittedPrompt()).toBe('把[image 1]放大')
+  })
+
+  it('同一张图的第二个素材复用原序号，不重复附图', async () => {
+    await attachNewAsset('img-panda', PANDA, '熊猫')
+    const second = await attachNewAsset('img-panda', PANDA, '白底熊猫')
+    useStore.setState({ prompt: `${getSelectedImageMentionLabel(second ?? 0)} 再来一张` })
+
+    await submitTask()
+
+    expect(second).toBe(0)
+    expect(useStore.getState().inputImages).toHaveLength(1)
+    expect(await submittedPrompt()).toBe('[image 1] 再来一张')
+  })
+
+  it('重排参考图后素材引用跟着图走', async () => {
+    const panda = await attachNewAsset('img-panda', PANDA, '熊猫')
+    const hall = await attachNewAsset('img-hall', HALL, '正义盟大殿')
+    useStore.setState({
+      prompt: `${getSelectedImageMentionLabel(panda ?? 0)} 站在 ${getSelectedImageMentionLabel(hall ?? 1)} 前`,
+    })
+
+    useStore.getState().moveInputImage(1, 0)
+    await submitTask()
+
+    expect(await submittedPrompt()).toBe('[image 2] 站在 [image 1] 前')
+  })
+
+  it('删除参考图后素材引用降级为已移除', async () => {
+    await attachNewAsset('img-panda', PANDA, '熊猫')
+    const hall = await attachNewAsset('img-hall', HALL, '正义盟大殿')
+    useStore.setState({ prompt: `放进 ${getSelectedImageMentionLabel(hall ?? 1)}` })
+
+    useStore.getState().removeInputImage(1)
+    await submitTask()
+
+    expect(await submittedPrompt()).toBe('放进 @已移除图片')
   })
 })
