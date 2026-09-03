@@ -2273,10 +2273,7 @@ export async function importData(
   }
 }
 
-/**
- * 存一张本地图片文件到图片库。`compress` 只给素材开：素材图长期躺在 IndexedDB 里，
- * 参考图的压缩留到提交时统一做，提早压会连带改掉遮罩对齐的那张底图。
- */
+/** `compress` 只给素材开——素材图长期躺在 IndexedDB 里；参考图在提交时由 api.ts 统一压。 */
 export async function storeImageFromFile(
   file: File,
   options: { compress?: boolean } = {},
