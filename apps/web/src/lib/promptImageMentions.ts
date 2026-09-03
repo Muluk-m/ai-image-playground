@@ -9,6 +9,9 @@ export interface AtImageQuery {
   query: string
 }
 
+/** 胶囊的显示文本；null 表示该序号没有对应参考图，按普通文本渲染。 */
+export type MentionLabelResolver = (imageIndex: number) => string | null
+
 export function getImageMentionLabel(index: number) {
   return `@图${index + 1}`
 }
@@ -17,37 +20,101 @@ export function getSelectedImageMentionLabel(index: number) {
   return `${MENTION_START}${getImageMentionLabel(index)}${MENTION_END}`
 }
 
-export function stripImageMentionMarkers(prompt: string): string {
+/** `labelByImageId` 给图片起的名字优先于序号；提示词里存的仍是按序号的哨兵标记。 */
+export function createMentionLabels(
+  inputImages: InputImage[],
+  labelByImageId: Record<string, string> = {},
+): MentionLabelResolver {
+  return (index) => {
+    const image = inputImages[index]
+    if (!image) return null
+    const named = labelByImageId[image.id]
+    return named ? `@${named}` : getImageMentionLabel(index)
+  }
+}
+
+function stripImageMentionMarkers(prompt: string): string {
   return prompt.replace(/[\u2063\u2064]/g, '')
 }
 
-export function getPromptIndexFromVisibleIndex(prompt: string, visibleIndex: number): number {
-  let visible = 0
-  for (let i = 0; i < prompt.length; i++) {
-    if (prompt[i] === MENTION_START || prompt[i] === MENTION_END) continue
-    if (visible >= visibleIndex) return i
-    visible++
-  }
-  return prompt.length
+interface MentionSpan {
+  visibleStart: number
+  visibleEnd: number
+  imageIndex: number
 }
 
-export function isCursorInSelectedImageMention(prompt: string, visibleCursor: number): boolean {
+interface PromptScan {
+  visible: string
+  spans: MentionSpan[]
+  /** 第 i 个可见字符在 prompt 里的下标；胶囊内的字符一律指向胶囊起点 */
+  promptIndexAt: number[]
+}
+
+/**
+ * 可见文本是渲染出来的那一串，胶囊按 `labelFor` 的显示标签计长——contentEditable 的光标
+ * 偏移就是在这个坐标系里数的，两边不一致光标会整体错位。
+ */
+function scanPrompt(prompt: string, labelFor: MentionLabelResolver): PromptScan {
+  const spans: MentionSpan[] = []
+  const promptIndexAt: number[] = []
+  const visible: string[] = []
+  let plainFrom = 0
+
+  const pushPlain = (to: number) => {
+    for (let i = plainFrom; i < to; i++) {
+      const char = prompt[i]
+      if (char === MENTION_START || char === MENTION_END) continue
+      promptIndexAt.push(i)
+      visible.push(char)
+    }
+  }
+
   for (const match of prompt.matchAll(SELECTED_IMAGE_MENTION_RE)) {
     if (match.index == null) continue
-    const visibleStart = stripImageMentionMarkers(prompt.slice(0, match.index)).length
-    const visibleEnd = visibleStart + getImageMentionLabel(Number(match[1]) - 1).length
-    if (visibleCursor > visibleStart && visibleCursor <= visibleEnd) return true
+    const imageIndex = Number(match[1]) - 1
+    const label = labelFor(imageIndex)
+    if (label == null) continue
+
+    pushPlain(match.index)
+    spans.push({
+      visibleStart: visible.length,
+      visibleEnd: visible.length + label.length,
+      imageIndex,
+    })
+    for (let i = 0; i < label.length; i++) {
+      promptIndexAt.push(match.index)
+      visible.push(label[i])
+    }
+    plainFrom = match.index + match[0].length
   }
-  return false
+  pushPlain(prompt.length)
+
+  return { visible: visible.join(''), spans, promptIndexAt }
 }
 
-export function getAtImageQuery(
-  prompt: string,
-  cursor: number,
-  inputImages: InputImage[],
-): AtImageQuery | null {
-  if (inputImages.length === 0) return null
+export function getVisiblePrompt(prompt: string, labelFor: MentionLabelResolver): string {
+  return scanPrompt(prompt, labelFor).visible
+}
 
+export function getPromptIndexFromVisibleIndex(
+  prompt: string,
+  visibleIndex: number,
+  labelFor: MentionLabelResolver,
+): number {
+  return scanPrompt(prompt, labelFor).promptIndexAt[visibleIndex] ?? prompt.length
+}
+
+export function isCursorInSelectedImageMention(
+  prompt: string,
+  visibleCursor: number,
+  labelFor: MentionLabelResolver,
+): boolean {
+  return scanPrompt(prompt, labelFor).spans.some(
+    (span) => visibleCursor > span.visibleStart && visibleCursor <= span.visibleEnd,
+  )
+}
+
+export function getAtImageQuery(prompt: string, cursor: number): AtImageQuery | null {
   const beforeCursor = prompt.slice(0, cursor)
   const atIndex = beforeCursor.lastIndexOf('@')
   if (atIndex < 0) return null
@@ -66,34 +133,27 @@ export function imageMentionMatches(query: string, index: number) {
   return oneBasedIndex.includes(normalized) || label.toLowerCase().includes(normalized)
 }
 
-export function insertImageMention(
-  prompt: string,
-  start: number,
-  cursor: number,
-  imageIndex: number,
-) {
-  const mention = getSelectedImageMentionLabel(imageIndex)
-  const visibleMention = getImageMentionLabel(imageIndex)
-  const nextPrompt = `${prompt.slice(0, start)}${mention}${prompt.slice(cursor)}`
-  return {
-    prompt: nextPrompt,
-    cursor: start + visibleMention.length,
-  }
-}
-
+/**
+ * `nextLabelFor` 是插入后编辑器会显示的那套标签——附加素材会改变胶囊标签的长度，
+ * 用旧标签算光标就会落偏。
+ */
 export function insertImageMentionAtVisibleRange(
   prompt: string,
   start: number,
   cursor: number,
   imageIndex: number,
+  labelFor: MentionLabelResolver,
+  nextLabelFor: MentionLabelResolver = labelFor,
 ) {
-  const promptStart = getPromptIndexFromVisibleIndex(prompt, start)
-  const promptCursor = getPromptIndexFromVisibleIndex(prompt, cursor)
+  const { promptIndexAt } = scanPrompt(prompt, labelFor)
+  const promptStart = promptIndexAt[start] ?? prompt.length
+  const promptCursor = promptIndexAt[cursor] ?? prompt.length
   const mention = getSelectedImageMentionLabel(imageIndex)
-  const visibleMention = getImageMentionLabel(imageIndex)
+  const nextPrompt = `${prompt.slice(0, promptStart)}${mention}${prompt.slice(promptCursor)}`
   return {
-    prompt: `${prompt.slice(0, promptStart)}${mention}${prompt.slice(promptCursor)}`,
-    cursor: start + visibleMention.length,
+    prompt: nextPrompt,
+    cursor: getVisiblePrompt(nextPrompt.slice(0, promptStart + mention.length), nextLabelFor)
+      .length,
   }
 }
 
@@ -119,31 +179,26 @@ export type PromptMentionPart =
 
 export function getPromptMentionParts(
   prompt: string,
-  inputImages: InputImage[],
+  labelFor: MentionLabelResolver,
 ): PromptMentionPart[] {
+  const { visible, spans } = scanPrompt(prompt, labelFor)
   const parts: PromptMentionPart[] = []
-  let lastIndex = 0
+  let cursor = 0
 
-  for (const match of prompt.matchAll(SELECTED_IMAGE_MENTION_RE)) {
-    const text = getImageMentionLabel(Number(match[1]) - 1)
-    const index = Number(match[1]) - 1
-    if (!inputImages[index] || match.index == null) continue
-
-    if (match.index > lastIndex) {
-      parts.push({
-        type: 'text',
-        text: stripImageMentionMarkers(prompt.slice(lastIndex, match.index)),
-      })
+  for (const span of spans) {
+    if (span.visibleStart > cursor) {
+      parts.push({ type: 'text', text: visible.slice(cursor, span.visibleStart) })
     }
-    parts.push({ type: 'mention', text, imageIndex: index })
-    lastIndex = match.index + match[0].length
+    parts.push({
+      type: 'mention',
+      text: visible.slice(span.visibleStart, span.visibleEnd),
+      imageIndex: span.imageIndex,
+    })
+    cursor = span.visibleEnd
   }
+  if (cursor < visible.length) parts.push({ type: 'text', text: visible.slice(cursor) })
 
-  if (lastIndex < prompt.length) {
-    parts.push({ type: 'text', text: stripImageMentionMarkers(prompt.slice(lastIndex)) })
-  }
-
-  return parts.length > 0 ? parts : [{ type: 'text', text: stripImageMentionMarkers(prompt) }]
+  return parts.length > 0 ? parts : [{ type: 'text', text: visible }]
 }
 
 export function replaceImageMentionsForApi(prompt: string, imageCount?: number): string {
