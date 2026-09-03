@@ -383,6 +383,32 @@ paid 形态两边都需要那份经过评审的 `./private` overlay：VPS 上检
 项目的那台机器的检出里也要一份。internal 形态恰好相反——它的 Pages 发布必须在没有这棵树的
 检出里跑，因为 overlay 只凭文件存在就会被编译进去。
 
+### 自动发布
+
+`.github/workflows/ci.yml` 给每个 pull request 与每次推 `main` 把关：lint、typecheck、
+连 PostgreSQL service 跑测试、构建、shellcheck。`main` 上门禁绿之后，
+`.github/workflows/release-internal.yml` 跑 `scripts/pages-release.sh internal`，再向私有
+仓库派发 `public-main-updated`，由它用同一个 commit 加 overlay 重建 paid 前端。paid 产物
+永远不在这里构建：公开的构建日志会带出 overlay 的路径。
+
+VPS 后端上线仍然手动。CI 不碰那台机器，照旧在它上面跑 `scripts/vps-deploy.sh`。
+
+在本仓库的 Actions 设置里配置：
+
+| 名称 | 类型 | 用途 |
+| --- | --- | --- |
+| `INTERNAL_PAGES_PROJECT` | variable | Cloudflare Pages 项目名 |
+| `INTERNAL_BFF_BASE_URL` | variable | 写进 `runtime-config.json` 的 API 源 |
+| `INTERNAL_PUBLIC_ORIGIN` | variable | 线上前端源，用于轮询 `/version.json` |
+| `INTERNAL_CLOUDFLARE_ACCOUNT_ID` | variable | 持有该 Pages 项目的 Cloudflare 账号 |
+| `INTERNAL_NOTIFY_UPDATE` | variable，可选 | `true` 提示已打开的页面刷新；不设则静默发布 |
+| `PRIVATE_REPO` | variable，可选 | 默认 `Muluk-m/ai-image-playground-private` |
+| `CLOUDFLARE_API_TOKEN_INTERNAL` | secret | 该账号的 Pages token |
+| `PRIVATE_REPO_DISPATCH_TOKEN` | secret | 对私有仓库有 `contents: write` 的 token |
+
+没有 `PRIVATE_REPO_DISPATCH_TOKEN` 时 internal 发布照常跑，paid 重建跳过并打一条 warning。
+私有仓库自己那组 variable 与 secret 写在它的 README 里。
+
 ## 🛠 开发
 
 ```bash
