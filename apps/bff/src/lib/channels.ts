@@ -6,6 +6,8 @@
  *   - JSON 损坏 / schema 不匹配 → 抛 ChannelsLoadError，由 startup 拦截决定退出还是降级
  *   - secretRef 指向的 env 不存在 → 该 channel 进 warnings，但仍保留在列表里
  *     （sanitize 输出给前端，调用上游时再失败，比启动期 fail-fast 更宽容）
+ *   - baseUrlRef 指向的 env 不存在 / 不是 http(s) → 该 channel 进 warnings 并被整条丢弃。
+ *     跟缺 secret 不同：没有上游地址就没有「调用上游时再失败」这一步，留着只会拼出非法 URL。
  *
  * `getChannels()` 返回内部全字段（含 baseUrl / auth / 已解析 secret），仅 BFF 内部使用。
  * `getDiscoveredChannels()` 返回 sanitized 字段，可安全经 /api/channels 发给前端。
@@ -49,6 +51,12 @@ export interface InternalChannel {
   allowedPaths: string[]
   models: ChannelModel[]
   defaults: ChannelDefaults
+}
+
+/** parseChannel 的产物：baseUrl 尚未解析，只有 `baseUrl` / `baseUrlRef` 二选一。 */
+interface ParsedChannel extends Omit<InternalChannel, 'baseUrl'> {
+  baseUrl?: string
+  baseUrlRef?: string
 }
 
 export interface ChannelsLoadResult {
@@ -167,7 +175,30 @@ function parseAuth(v: unknown, ctx: string): ChannelAuth {
   return out
 }
 
-function parseChannel(raw: unknown, idx: number): InternalChannel {
+const HTTP_URL_PATTERN = /^https?:\/\//
+
+function normalizeBaseUrl(url: string): string {
+  return url.replace(/\/+$/, '')
+}
+
+/** `baseUrl` 字面值与 `baseUrlRef` env 名二选一，不允许同时出现。 */
+function parseBaseUrlSource(raw: Record<string, unknown>, ctx: string): Partial<ParsedChannel> {
+  if (raw.baseUrl !== undefined && raw.baseUrlRef !== undefined)
+    throw new ChannelsLoadError(`${ctx} must set exactly one of baseUrl or baseUrlRef`)
+  if (raw.baseUrlRef !== undefined) {
+    const ref = requireNonEmptyString(raw.baseUrlRef, `${ctx}.baseUrlRef`)
+    if (!ENV_NAME_PATTERN.test(ref))
+      throw new ChannelsLoadError(
+        `${ctx}.baseUrlRef must be an UPPER_SNAKE_CASE env var name (got '${ref}')`,
+      )
+    return { baseUrlRef: ref }
+  }
+  if (typeof raw.baseUrl !== 'string' || !HTTP_URL_PATTERN.test(raw.baseUrl))
+    throw new ChannelsLoadError(`${ctx}.baseUrl must start with http:// or https://`)
+  return { baseUrl: normalizeBaseUrl(raw.baseUrl) }
+}
+
+function parseChannel(raw: unknown, idx: number): ParsedChannel {
   const ctx = `channels[${idx}]`
   if (!isObject(raw)) throw new ChannelsLoadError(`${ctx} must be an object`)
 
@@ -177,8 +208,6 @@ function parseChannel(raw: unknown, idx: number): InternalChannel {
     throw new ChannelsLoadError(
       `${ctx}.kind must be one of: ${VALID_KINDS.join(', ')} (got '${String(raw.kind)}')`,
     )
-  if (typeof raw.baseUrl !== 'string' || !/^https?:\/\//.test(raw.baseUrl))
-    throw new ChannelsLoadError(`${ctx}.baseUrl must start with http:// or https://`)
   if (!isStringArray(raw.allowedPaths) || raw.allowedPaths.length === 0)
     throw new ChannelsLoadError(`${ctx}.allowedPaths must be a non-empty string[]`)
 
@@ -186,12 +215,31 @@ function parseChannel(raw: unknown, idx: number): InternalChannel {
     id: raw.id,
     kind: raw.kind as ChannelKind,
     label: requireNonEmptyString(raw.label, `${ctx}.label`),
-    baseUrl: raw.baseUrl.replace(/\/+$/, ''),
+    ...parseBaseUrlSource(raw, ctx),
     auth: parseAuth(raw.auth, ctx),
     allowedPaths: raw.allowedPaths,
     models: parseModels(raw.models, ctx),
     defaults: parseDefaults(raw.defaults, ctx),
   }
+}
+
+/** 解析成功返回 baseUrl；env 缺失或值非法返回 warning 文案，由调用方丢弃该 channel。 */
+function resolveBaseUrl(
+  ch: ParsedChannel,
+  envLookup: (key: string) => string | undefined,
+): { baseUrl: string } | { warning: string } {
+  if (ch.baseUrl !== undefined) return { baseUrl: ch.baseUrl }
+  const ref = ch.baseUrlRef as string
+  const value = envLookup(ref)?.trim() ?? ''
+  if (!value)
+    return {
+      warning: `channel '${ch.id}': env '${ref}' is empty or unset; the channel is disabled and will not be advertised`,
+    }
+  if (!HTTP_URL_PATTERN.test(value))
+    return {
+      warning: `channel '${ch.id}': env '${ref}' must start with http:// or https://; the channel is disabled and will not be advertised`,
+    }
+  return { baseUrl: normalizeBaseUrl(value) }
 }
 
 /**
@@ -209,10 +257,17 @@ export function parseChannelsConfig(
 
   const warnings: string[] = []
   const seenIds = new Set<string>()
-  const channels: InternalChannel[] = channelsRaw.map((raw, idx) => {
+  const channels: InternalChannel[] = []
+  channelsRaw.forEach((raw, idx) => {
     const ch = parseChannel(raw, idx)
     if (seenIds.has(ch.id)) throw new ChannelsLoadError(`channels[${idx}].id duplicate: '${ch.id}'`)
     seenIds.add(ch.id)
+
+    const resolved = resolveBaseUrl(ch, envLookup)
+    if ('warning' in resolved) {
+      warnings.push(resolved.warning)
+      return
+    }
 
     const secret = envLookup(ch.auth.secretRef)?.trim() ?? ''
     if (!secret) {
@@ -220,7 +275,8 @@ export function parseChannelsConfig(
         `channel '${ch.id}': env '${ch.auth.secretRef}' is empty or unset; upstream calls will fail until it's provided`,
       )
     }
-    return { ...ch, auth: { ...ch.auth, secret } }
+    const { baseUrlRef: _ref, ...rest } = ch
+    channels.push({ ...rest, baseUrl: resolved.baseUrl, auth: { ...ch.auth, secret } })
   })
   return { channels, warnings }
 }
