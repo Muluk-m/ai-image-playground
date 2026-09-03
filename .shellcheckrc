@@ -1,0 +1,3 @@
+# `CDPATH= cd -- ...` is the repo-wide idiom for a cd that cannot be hijacked by CDPATH.
+# ShellCheck reads the empty assignment as a typo.
+disable=SC1007
