@@ -61,8 +61,12 @@ export function buildAtMentionGroups({
       }))
     : []
 
+  // 一条素材都没有时留住空组当引导；有素材只是被查询过滤光则照旧收起。
+  const assetsEmptyNote =
+    canAttachAssets && assets.length === 0 ? '还没有素材，右键参考图可保存' : undefined
+
   return [
     { key: 'images', heading: '本次参考图', options: imageOptions },
-    { key: 'assets', heading: '素材', options: assetOptions },
-  ].filter((group) => group.options.length > 0)
+    { key: 'assets', heading: '素材', options: assetOptions, emptyNote: assetsEmptyNote },
+  ].filter((group) => group.options.length > 0 || group.emptyNote)
 }

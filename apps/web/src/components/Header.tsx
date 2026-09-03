@@ -4,6 +4,7 @@ import { useAuth } from '../auth/AuthContext'
 import { LoginMethodsPanel } from '../auth/LoginMethodsPanel'
 import InspirationCoach from '../features/inspiration/components/InspirationCoach'
 import { useInspirationStore } from '../features/inspiration/store'
+import LibraryCoach, { useLibraryCoachActive } from '../features/library/components/LibraryCoach'
 import { useLibraryStore } from '../features/library/store'
 import { useTooltip } from '../hooks/useTooltip'
 import {
@@ -32,6 +33,7 @@ export default function Header() {
   const inspirationCoachActive = useStore(
     (s) => !s.inspirationCoachDismissed && s.tasks.length === 0,
   )
+  const libraryCoachActive = useLibraryCoachActive()
 
   const inspirationTooltip = useTooltip()
   const libraryTooltip = useTooltip()
@@ -112,14 +114,21 @@ export default function Header() {
                   dismissAllTooltips()
                   openLibrary()
                 }}
-                className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-900 transition-colors"
+                className={`p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-900 transition-colors ${
+                  libraryCoachActive ? 'animate-coach-pulse' : ''
+                }`}
                 aria-label="素材与模板"
               >
-                <LibraryIcon className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+                <LibraryIcon
+                  className={`w-5 h-5 ${
+                    libraryCoachActive ? 'text-blue-500' : 'text-gray-600 dark:text-gray-400'
+                  }`}
+                />
               </button>
               <ViewportTooltip visible={libraryTooltip.visible} className="whitespace-nowrap">
                 素材与模板
               </ViewportTooltip>
+              <LibraryCoach />
             </div>
             <div className="relative" {...settingsTooltip.handlers}>
               <button

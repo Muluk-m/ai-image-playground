@@ -39,6 +39,16 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
+describe('opening the panel', () => {
+  it('records the first open so the coach card stops showing', () => {
+    useStore.setState({ libraryPanelOpened: false })
+
+    useLibraryStore.getState().openPanel()
+
+    expect(useStore.getState().libraryPanelOpened).toBe(true)
+  })
+})
+
 describe('saving an asset', () => {
   it('keeps the name and image id, and survives a reload', async () => {
     const imageId = await storeImage(IMAGE_A)

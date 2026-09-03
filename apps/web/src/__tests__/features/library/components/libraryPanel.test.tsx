@@ -118,3 +118,49 @@ describe('the asset card', () => {
     expect(useStore.getState().setLightboxImageId).toHaveBeenCalledWith('image-a')
   })
 })
+
+describe('the empty asset tab', () => {
+  beforeEach(() => {
+    useLibraryStore.setState({ assets: [] })
+  })
+
+  it('shows how an asset is made, with an illustration', () => {
+    render()
+
+    expect(document.body.textContent).toContain('右键参考图缩略图，选择存为素材')
+    expect(document.querySelector('[data-empty-illustration]')).not.toBeNull()
+  })
+
+  it('offers the import entry inside the empty state', () => {
+    const input = () => document.querySelector<HTMLInputElement>('input[type="file"]')
+    render()
+    const openPicker = vi.spyOn(input() as HTMLInputElement, 'click')
+
+    const buttons = [...document.querySelectorAll('button')].filter(
+      (b) => b.textContent === '新建素材',
+    )
+    click(buttons[buttons.length - 1])
+
+    expect(openPicker).toHaveBeenCalled()
+  })
+
+  it('keeps the plain no-match line when a search hides every asset', () => {
+    useLibraryStore.setState({ assets: [ASSET], searchKeyword: '不存在' })
+    render()
+
+    expect(document.body.textContent).toContain('没有匹配的素材')
+    expect(document.body.textContent).not.toContain('右键参考图缩略图')
+  })
+})
+
+describe('the empty template tab', () => {
+  beforeEach(() => {
+    useLibraryStore.setState({ tab: 'templates', templates: [] })
+  })
+
+  it('shows how a template is made and called', () => {
+    render()
+
+    expect(document.body.textContent).toContain('写好提示词后点存为模板，输入 / 调用')
+  })
+})

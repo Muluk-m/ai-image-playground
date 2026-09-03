@@ -13,6 +13,8 @@ export interface SuggestionMenuGroup<T> {
   key: string
   heading: ReactNode
   options: SuggestionMenuOption<T>[]
+  /** 空组时代替候选列出的一行说明；不可选中，键盘导航不经过它。 */
+  emptyNote?: ReactNode
 }
 
 function countOptionsBefore<T>(groups: SuggestionMenuGroup<T>[], groupIndex: number) {
@@ -44,6 +46,11 @@ export default function SuggestionMenu<T>({
             <div className="px-2 pb-1 pt-0.5 text-[11px] text-gray-400 dark:text-gray-500">
               {group.heading}
             </div>
+            {group.options.length === 0 && group.emptyNote && (
+              <div className="px-2 py-1.5 text-xs text-gray-400 dark:text-gray-500">
+                {group.emptyNote}
+              </div>
+            )}
             {group.options.map((option, optionIndex) => {
               const index = countOptionsBefore(groups, groupIndex) + optionIndex
               return (
