@@ -41,7 +41,7 @@ jobs:
       TEST_DATABASE_URL: postgres://postgres@127.0.0.1:5432/aip_test
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # The overlay compiles in by mere file presence, so a public build log could leak its
       # paths. Nothing here may ever produce a paid bundle.
@@ -51,7 +51,7 @@ jobs:
       # No version input: the action reads packageManager from package.json.
       - uses: pnpm/action-setup@v4
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: '22'
           cache: pnpm
