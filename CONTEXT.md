@@ -107,6 +107,13 @@ _Avoid_: 管理员、admin 用户、超级用户
 可以有多条素材记录，删素材不动图片。
 _Avoid_: 图库、收藏夹、素材图
 
+**模板（template）**：
+一段可复用的提示词连同它引用的素材与参数快照，记录 `{ id, name, prompt, assetIds, params,
+createdAt, lastUsedAt }`，存在主 IndexedDB 的 `templates` 表里。`prompt` 存带哨兵标记的形式，
+`assetIds` 按引用序号排列（那一位不是素材就记 null）。套用先补齐缺席的素材图，再按新顺序
+remap 引用——素材已删的位降级为「已移除」，套用仍然成功。
+_Avoid_: 预设、快捷短语、prompt 片段
+
 ## 测试
 
 - `apps/web` 有 jsdom 环境（按文件 `@vitest-environment jsdom` 启用），组件级冒烟测试的入口；Overlay 是首个有 DOM 锚点的模块。
