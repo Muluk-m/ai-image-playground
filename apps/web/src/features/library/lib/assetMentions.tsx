@@ -7,17 +7,22 @@ import type { AssetRecord } from '../types'
 /** `@` 候选选中后交还给 composer 的身份：本次参考图按序号，素材按记录 id。 */
 export type AtMentionValue = { type: 'image'; index: number } | { type: 'asset'; id: string }
 
-/** 同一张图有多个素材名时取最近用过的那个，并列时取列表里的第一个。 */
-export function getAssetNamesByImageId(assets: AssetRecord[]): Record<string, string> {
-  const names: Record<string, string> = {}
-  const usedAt: Record<string, number> = {}
+/** 同一张图有多条素材记录时取最近用过的那条，并列时取列表里的第一条。 */
+export function getAssetsByImageId(assets: AssetRecord[]): Record<string, AssetRecord> {
+  const byImageId: Record<string, AssetRecord> = {}
 
   for (const asset of assets) {
-    if (asset.imageId in usedAt && usedAt[asset.imageId] >= asset.lastUsedAt) continue
-    names[asset.imageId] = asset.name
-    usedAt[asset.imageId] = asset.lastUsedAt
+    const chosen = byImageId[asset.imageId]
+    if (chosen && chosen.lastUsedAt >= asset.lastUsedAt) continue
+    byImageId[asset.imageId] = asset
   }
-  return names
+  return byImageId
+}
+
+export function getAssetNamesByImageId(assets: AssetRecord[]): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(getAssetsByImageId(assets)).map(([imageId, asset]) => [imageId, asset.name]),
+  )
 }
 
 export function matchAssetsByName(assets: AssetRecord[], query: string): AssetRecord[] {

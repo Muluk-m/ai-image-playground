@@ -124,6 +124,16 @@ export function getAtImageQuery(prompt: string, cursor: number): AtImageQuery | 
   return { start: atIndex, query }
 }
 
+/** 提示词里出现过的参考图序号，去重后按出现顺序。 */
+export function getMentionedImageIndexes(prompt: string): number[] {
+  const indexes: number[] = []
+  for (const match of prompt.matchAll(SELECTED_IMAGE_MENTION_RE)) {
+    const index = Number(match[1]) - 1
+    if (!indexes.includes(index)) indexes.push(index)
+  }
+  return indexes
+}
+
 export function imageMentionMatches(query: string, index: number) {
   const normalized = query.trim().toLowerCase()
   if (!normalized) return true
