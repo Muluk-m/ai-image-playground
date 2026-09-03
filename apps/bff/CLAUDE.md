@@ -21,6 +21,7 @@ BFF 的公开核心只做四件事：
 代码：[`channels.json`](./channels.json) + [`src/lib/channels.ts`](./src/lib/channels.ts) + [`src/routes/channels.ts`](./src/routes/channels.ts)。
 
 - channel id 强制 kebab-case，`auth.secretRef` 指向环境变量名（**UPPER_SNAKE_CASE，不是真值** — 校验器会拒绝长得像 `sk-...` / `AIza...` 的字符串）
+- `baseUrlRef` 与 `baseUrl` 二选一，同样指向环境变量名（如 `GROK_BASE_URL`），用于上游地址本身不能进公开仓库的 channel。值必须是**能解析出主机名的 https URL**（channel key 随请求发出，明文 http 会泄露它；只有 `localhost` / `127.0.0.1` / `::1` 允许 http，给本机 dev 反代留口）；env 缺失或不合法时该 channel 整条丢弃并 warn，不回落任何字面地址
 - 真实 API key 只在 BFF 进程的 env 里；客户端永远不带 `Authorization`
 - BFF 启动时 `initChannels()` 解析 channels.json + 解析 `process.env[secretRef]`；缺 secret 只 warn 不 fatal
 - `GET /api/channels` 暴露 sanitized channel 列表（不含 `baseUrl` / `auth` / `allowedPaths`）给前端 boot 时拉
