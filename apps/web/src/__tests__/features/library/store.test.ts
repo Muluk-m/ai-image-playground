@@ -162,6 +162,16 @@ describe('attaching an asset', () => {
   })
 })
 
+describe('the panel', () => {
+  it('drops the open detail when it closes, so reopening lands on the list', () => {
+    useLibraryStore.setState({ panelOpen: true, detailTemplateId: 't1' })
+
+    useLibraryStore.getState().closePanel()
+
+    expect(useLibraryStore.getState().detailTemplateId).toBeNull()
+  })
+})
+
 describe('managing assets', () => {
   it('renames one', async () => {
     const imageId = await storeImage(IMAGE_A)
