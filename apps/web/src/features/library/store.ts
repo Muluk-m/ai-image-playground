@@ -69,7 +69,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     void get().loadAssets()
     void get().loadTemplates()
   },
-  closePanel: () => set({ panelOpen: false }),
+  closePanel: () => set({ panelOpen: false, detailTemplateId: null }),
   setTab: (tab) => set({ tab }),
   setSearch: (searchKeyword) => set({ searchKeyword }),
   openTemplateDetail: (detailTemplateId) => set({ detailTemplateId }),
@@ -134,7 +134,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     await writeAsset(set, { ...asset, lastUsedAt: Date.now() })
     // 面板外（composer 的 `@` 菜单）插入的引用胶囊本身就是反馈，再 toast 是噪音。
     if (get().panelOpen) {
-      set(() => ({ panelOpen: false, detailTemplateId: null }))
+      get().closePanel()
       main.showToast(already ? '已在参考图中' : '已加入参考图', already ? 'info' : 'success')
     }
     const index = useStore.getState().inputImages.findIndex((img) => img.id === asset.imageId)
@@ -270,7 +270,7 @@ async function writeTemplateIntoComposer(
   )
   main.setParams(template.params)
   await writeTemplate(set, { ...template, lastUsedAt: Date.now() })
-  set(() => ({ panelOpen: false, detailTemplateId: null }))
+  get().closePanel()
 }
 
 /** 面板列表：按名字过滤，最近用过的排在前面。 */
