@@ -1063,3 +1063,39 @@ describe('素材引用与模板套用后提交', () => {
     expect(await submittedPrompt()).toBe('把@已移除图片放大')
   })
 })
+
+describe('素材与模板引导标记', () => {
+  it('三个标记都进持久化状态', () => {
+    useStore.setState({
+      libraryCoachDismissed: true,
+      libraryPanelOpened: true,
+      assetHintShown: true,
+    })
+
+    const persisted = getPersistedState(useStore.getState())
+
+    expect(persisted.libraryCoachDismissed).toBe(true)
+    expect(persisted.libraryPanelOpened).toBe(true)
+    expect(persisted.assetHintShown).toBe(true)
+  })
+
+  it('旧版本没写过这三个标记时读回 false', () => {
+    useStore.setState({
+      libraryCoachDismissed: true,
+      libraryPanelOpened: true,
+      assetHintShown: true,
+    })
+
+    const merged = useStore.persist
+      .getOptions()
+      .merge?.({ settings: { ...DEFAULT_SETTINGS } }, useStore.getState()) as {
+      libraryCoachDismissed: boolean
+      libraryPanelOpened: boolean
+      assetHintShown: boolean
+    }
+
+    expect(merged.libraryCoachDismissed).toBe(false)
+    expect(merged.libraryPanelOpened).toBe(false)
+    expect(merged.assetHintShown).toBe(false)
+  })
+})
