@@ -597,7 +597,7 @@ describe('callUpstream grok-images channel（channel base/key + Grok 编辑协�
     id: 'grok-images',
     kind: 'openai-queue',
     label: 'Grok Imagine Image',
-    baseUrl: 'https://sub2api.qiliangjia.org/v1',
+    baseUrl: 'https://gateway.example.com/v1',
     auth: { type: 'bearer', secretRef: 'GROK_API_KEY', secret: 'grok-test-key' },
     allowedPaths: ['images/generations', 'images/edits'],
     models: [
@@ -637,7 +637,7 @@ describe('callUpstream grok-images channel（channel base/key + Grok 编辑协�
       request: { prompt: 'a cat', size: '1024x1024' },
     })
     expect(calls).toHaveLength(1)
-    expect(calls[0]!.url).toBe('https://sub2api.qiliangjia.org/v1/images/generations')
+    expect(calls[0]!.url).toBe('https://gateway.example.com/v1/images/generations')
     const headers = new Headers(calls[0]!.init?.headers as HeadersInit)
     expect(headers.get('authorization')).toBe('Bearer grok-test-key')
     expect(headers.get('content-type')).toContain('application/json')
@@ -747,7 +747,7 @@ describe('callUpstream grok-images channel（channel base/key + Grok 编辑协�
       },
     })
     expect(calls).toHaveLength(1)
-    expect(calls[0]!.url).toBe('https://sub2api.qiliangjia.org/v1/images/edits')
+    expect(calls[0]!.url).toBe('https://gateway.example.com/v1/images/edits')
     const headers = new Headers(calls[0]!.init?.headers as HeadersInit)
     expect(headers.get('authorization')).toBe('Bearer grok-test-key')
     expect(headers.get('content-type')).toContain('application/json')
@@ -778,7 +778,7 @@ describe('callUpstream grok-images channel（channel base/key + Grok 编辑协�
     })
 
     expect(calls).toHaveLength(1)
-    expect(calls[0]!.url).toBe('https://sub2api.qiliangjia.org/v1/images/edits')
+    expect(calls[0]!.url).toBe('https://gateway.example.com/v1/images/edits')
     const body = JSON.parse(calls[0]!.init?.body as string)
     expect(body.image.type).toBe('image_url')
     expect(body.image.url).toStartWith('data:image/png;base64,')
@@ -905,7 +905,7 @@ describe('callUpstream grok-images channel（channel base/key + Grok 编辑协�
     })
     expect(calls).toHaveLength(2)
     for (const c of calls) {
-      expect(c.url).toBe('https://sub2api.qiliangjia.org/v1/images/generations')
+      expect(c.url).toBe('https://gateway.example.com/v1/images/generations')
       const headers = new Headers(c.init?.headers as HeadersInit)
       expect(headers.get('authorization')).toBe('Bearer grok-test-key')
       expect(JSON.parse(c.init?.body as string).n).toBeUndefined()
@@ -929,7 +929,7 @@ describe('callUpstream grok-images channel（channel base/key + Grok 编辑协�
 
     expect(calls).toHaveLength(2)
     for (const call of calls) {
-      expect(call.url).toBe('https://sub2api.qiliangjia.org/v1/images/edits')
+      expect(call.url).toBe('https://gateway.example.com/v1/images/edits')
       const headers = new Headers(call.init?.headers as HeadersInit)
       expect(headers.get('content-type')).toContain('application/json')
       const body = JSON.parse(call.init?.body as string)
