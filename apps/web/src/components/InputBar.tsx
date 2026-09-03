@@ -16,6 +16,7 @@ import { getModelCapabilities, NO_EDIT_SUPPORT_MESSAGE } from '../lib/channels/p
 import { getPublicChannels } from '../lib/channels/publicChannels'
 import { getSafeBoundingClientRect } from '../lib/domRect'
 import { downloadImagesByIds } from '../lib/downloadImages'
+import { API_MAX_IMAGES, MAX_INPUT_IMAGES_MESSAGE } from '../lib/inputImageLimit'
 import { createLongPress } from '../lib/longPress'
 import {
   getChangedParams,
@@ -311,9 +312,6 @@ function ButtonTooltip({ visible, text }: { visible: boolean; text: ReactNode })
   )
 }
 
-/** API 支持的最大参考图数量 */
-const API_MAX_IMAGES = 16
-
 function useIsMobile() {
   const [isMobile, setIsMobile] = useState(window.innerWidth < 640)
   useEffect(() => {
@@ -534,9 +532,7 @@ export default function InputBar() {
   // 参考图入口：模型不支持 edit（如 Agnes 之前只声明 generate）则禁用附图，
   // 否则会让用户附了图提交、到上游才报错。达上限同样禁用。
   const attachDisabled = atImageLimit || !supportsEdit
-  const attachDisabledReason = !supportsEdit
-    ? NO_EDIT_SUPPORT_MESSAGE
-    : `参考图数量已达上限（${API_MAX_IMAGES} 张），无法继续添加`
+  const attachDisabledReason = !supportsEdit ? NO_EDIT_SUPPORT_MESSAGE : MAX_INPUT_IMAGES_MESSAGE
   const maskTargetImage = maskDraft
     ? (inputImages.find((img) => img.id === maskDraft.targetImageId) ?? null)
     : null
@@ -602,13 +598,6 @@ export default function InputBar() {
         return
       }
 
-      const asset = assets.find((a) => a.id === value.id)
-      if (!asset) return
-      if (atImageLimit && !inputImages.some((img) => img.id === asset.imageId)) {
-        showToast(attachDisabledReason, 'error')
-        return
-      }
-
       const imageIndex = await attachAsset(value.id)
       if (imageIndex == null) return
       // 附加后参考图与素材的最近使用都变了，胶囊标签得按新状态算，否则光标落错位置。
@@ -618,17 +607,7 @@ export default function InputBar() {
       )
       replaceRangeWithImageMention(query.start, cursor, imageIndex, nextLabels)
     },
-    [
-      assets,
-      attachAsset,
-      attachDisabledReason,
-      atImageLimit,
-      inputImages,
-      mentionLabels,
-      prompt,
-      replaceRangeWithImageMention,
-      showToast,
-    ],
+    [attachAsset, mentionLabels, prompt, replaceRangeWithImageMention],
   )
 
   const atImageMenu = useSuggestionMenu({
@@ -870,9 +849,7 @@ export default function InputBar() {
       }
       const currentCount = useStore.getState().inputImages.length
       if (currentCount >= API_MAX_IMAGES) {
-        useStore
-          .getState()
-          .showToast(`参考图数量已达上限（${API_MAX_IMAGES} 张），无法继续添加`, 'error')
+        useStore.getState().showToast(MAX_INPUT_IMAGES_MESSAGE, 'error')
         return
       }
 
