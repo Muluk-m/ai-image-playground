@@ -6,6 +6,8 @@ interface NamingDialogProps {
   /** 标题下的一行说明；省略则不占位 */
   description?: ReactNode
   placeholder: string
+  /** 空名时回落到它；也用作输入框的初值 */
+  defaultName?: string
   /** 输入框左侧的缩略图 */
   preview?: ReactNode
   onCancel: () => void
@@ -17,25 +19,26 @@ export default function NamingDialog({
   title,
   description,
   placeholder,
+  defaultName = '',
   preview,
   onCancel,
   onSave,
 }: NamingDialogProps) {
-  const [name, setName] = useState('')
+  const [name, setName] = useState(defaultName)
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     inputRef.current?.focus()
   }, [])
 
-  const trimmed = name.trim()
+  const finalName = name.trim() || defaultName.trim()
 
   return (
     <Overlay onClose={onCancel} tier="raised">
       <form
         onSubmit={(e) => {
           e.preventDefault()
-          if (trimmed) onSave(trimmed)
+          if (finalName) onSave(finalName)
         }}
         className="relative z-10 w-full max-w-sm rounded-2xl border border-white/50 bg-white p-5 shadow-2xl ring-1 ring-black/5 animate-modal-in dark:border-white/[0.08] dark:bg-gray-900 dark:ring-white/10"
       >
@@ -70,7 +73,7 @@ export default function NamingDialog({
           </button>
           <button
             type="submit"
-            disabled={!trimmed}
+            disabled={!finalName}
             className="rounded-xl bg-blue-500 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-blue-600 disabled:cursor-not-allowed disabled:bg-gray-200 disabled:text-gray-400 dark:disabled:bg-white/10 dark:disabled:text-gray-500"
           >
             保存

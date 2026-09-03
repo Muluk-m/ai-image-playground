@@ -32,3 +32,9 @@ export interface TemplateRecord {
   createdAt: number
   lastUsedAt: number
 }
+
+/** 排队等取名的一张图；`defaultName` 是空名时回落的名字（新建素材用文件名）。 */
+export interface PendingAssetName {
+  imageId: string
+  defaultName: string
+}

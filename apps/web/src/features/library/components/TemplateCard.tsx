@@ -1,103 +1,92 @@
-import { type KeyboardEvent, useState } from 'react'
-import { EditIcon, TrashIcon } from '../../../components/icons'
-import { useStore } from '../../../store'
-import { getTemplatePreviewText } from '../lib/templates'
+import type { KeyboardEvent } from 'react'
+import {
+  getTemplateAssetRefs,
+  getTemplateParamEntries,
+  getTemplatePreviewText,
+} from '../lib/templates'
 import { useLibraryStore } from '../store'
 import type { TemplateRecord } from '../types'
+import AssetThumb from './AssetThumb'
+
+const STRIP_LIMIT = 4
 
 export default function TemplateCard({ template }: { template: TemplateRecord }) {
   const assets = useLibraryStore((s) => s.assets)
   const applyTemplate = useLibraryStore((s) => s.applyTemplate)
-  const renameTemplate = useLibraryStore((s) => s.renameTemplate)
-  const deleteTemplate = useLibraryStore((s) => s.deleteTemplate)
-  const setConfirmDialog = useStore((s) => s.setConfirmDialog)
-  const [draftName, setDraftName] = useState<string | null>(null)
+  const openTemplateDetail = useLibraryStore((s) => s.openTemplateDetail)
 
-  const commitRename = () => {
-    if (draftName !== null) void renameTemplate(template.id, draftName)
-    setDraftName(null)
-  }
+  const refs = getTemplateAssetRefs(template, assets)
+  const shown = refs.slice(0, STRIP_LIMIT)
+  const overflow = refs.length - shown.length
 
   const handleKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault()
-      void applyTemplate(template.id)
+      openTemplateDetail(template.id)
     }
   }
 
-  const referencedCount = template.assetIds.filter(Boolean).length
-
   return (
-    <div className="group relative flex flex-col gap-2 rounded-2xl border border-gray-200/60 bg-gray-50/40 p-3.5 transition-all duration-300 hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-lg dark:border-white/[0.06] dark:bg-white/[0.02] dark:hover:border-blue-500/40">
-      <div className="flex items-center gap-1">
-        {draftName === null ? (
-          <span className="min-w-0 flex-1 truncate text-sm font-medium text-gray-800 dark:text-gray-100">
-            {template.name}
-          </span>
-        ) : (
-          <input
-            value={draftName}
-            onChange={(e) => setDraftName(e.target.value)}
-            onBlur={commitRename}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') commitRename()
-              if (e.key === 'Escape') setDraftName(null)
-            }}
-            maxLength={40}
-            className="min-w-0 flex-1 rounded-md border border-blue-300 bg-white px-1.5 py-0.5 text-sm text-gray-800 focus:outline-none dark:border-blue-500/50 dark:bg-white/[0.06] dark:text-gray-100"
-          />
-        )}
-
-        <button
-          type="button"
-          onClick={() => setDraftName(template.name)}
-          aria-label="重命名"
-          className="shrink-0 rounded-md p-1 text-gray-400 opacity-0 transition hover:bg-gray-100 hover:text-gray-600 group-hover:opacity-100 dark:hover:bg-white/[0.06] dark:hover:text-gray-200"
-        >
-          <EditIcon className="h-3.5 w-3.5" />
-        </button>
-        <button
-          type="button"
-          onClick={() =>
-            setConfirmDialog({
-              title: '删除模板',
-              message: `确定删除模板「${template.name}」吗？`,
-              action: () => void deleteTemplate(template.id),
-            })
-          }
-          aria-label="删除"
-          className="shrink-0 rounded-md p-1 text-gray-400 opacity-0 transition hover:bg-red-50 hover:text-red-500 group-hover:opacity-100 dark:hover:bg-red-500/10"
-        >
-          <TrashIcon className="h-3.5 w-3.5" />
-        </button>
-      </div>
-
-      {/* 外层不是 <button>：卡片内还有重命名与删除按钮，嵌套 button 是 invalid HTML。 */}
+    <div className="group relative flex flex-col gap-2.5 rounded-2xl border border-gray-200/60 bg-gray-50/40 p-3.5 transition-all duration-300 hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-lg dark:border-white/[0.06] dark:bg-white/[0.02] dark:hover:border-blue-500/40">
+      {/* 外层不是 <button>：卡片底部还有「套用」按钮，嵌套 button 是 invalid HTML。 */}
       <div
         role="button"
         tabIndex={0}
-        onClick={() => void applyTemplate(template.id)}
+        onClick={() => openTemplateDetail(template.id)}
         onKeyDown={handleKeyDown}
-        title="套用模板"
-        className="cursor-pointer rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-400/60"
+        title="查看详情"
+        className="flex cursor-pointer flex-col gap-2 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-400/60"
       >
+        <span className="truncate text-sm font-medium text-gray-800 dark:text-gray-100">
+          {template.name}
+        </span>
+
         <p className="line-clamp-3 whitespace-pre-wrap break-words text-xs leading-relaxed text-gray-500 dark:text-gray-400">
           {getTemplatePreviewText(template, assets)}
         </p>
+
+        {refs.length > 0 && (
+          <div className="flex items-center gap-1.5">
+            <ul className="flex items-center gap-1.5">
+              {shown.map((ref, index) => (
+                <li
+                  key={`${ref.assetId}:${index}`}
+                  className="h-9 w-9 shrink-0 overflow-hidden rounded-lg border border-gray-200 bg-gray-100 dark:border-white/[0.08] dark:bg-white/[0.04]"
+                >
+                  {ref.asset ? (
+                    <AssetThumb imageId={ref.asset.imageId} alt={ref.asset.name} />
+                  ) : (
+                    <span
+                      title="素材已删除"
+                      aria-label="素材已删除"
+                      className="block h-full w-full bg-[repeating-linear-gradient(45deg,transparent,transparent_4px,rgba(120,120,120,0.18)_4px,rgba(120,120,120,0.18)_8px)]"
+                    />
+                  )}
+                </li>
+              ))}
+            </ul>
+            {overflow > 0 && (
+              <span className="text-[11px] font-medium text-gray-400 dark:text-gray-500">
+                +{overflow}
+              </span>
+            )}
+          </div>
+        )}
       </div>
 
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-gray-400 dark:text-gray-500">
-        <span>{template.params.size}</span>
-        <span>·</span>
-        <span>{template.params.quality}</span>
-        <span>·</span>
-        <span>{template.params.n} 张</span>
-        {referencedCount > 0 && (
-          <>
-            <span>·</span>
-            <span>{referencedCount} 张素材</span>
-          </>
-        )}
+      <div className="flex items-center justify-between gap-2">
+        <span className="min-w-0 truncate text-[11px] text-gray-400 dark:text-gray-500">
+          {getTemplateParamEntries(template.params)
+            .map((entry) => `${entry.label} ${entry.value}`)
+            .join(' · ')}
+        </span>
+        <button
+          type="button"
+          onClick={() => void applyTemplate(template.id)}
+          className="shrink-0 rounded-lg bg-blue-500/10 px-2.5 py-1 text-[11px] font-medium text-blue-700 transition hover:bg-blue-500/20 dark:bg-blue-500/15 dark:text-blue-300 dark:hover:bg-blue-500/25"
+        >
+          套用
+        </button>
       </div>
     </div>
   )
