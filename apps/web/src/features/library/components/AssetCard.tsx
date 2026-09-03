@@ -1,5 +1,5 @@
 import { type KeyboardEvent, useState } from 'react'
-import { EditIcon, TrashIcon } from '../../../components/icons'
+import { EditIcon, TrashIcon, ZoomIcon } from '../../../components/icons'
 import { useStore } from '../../../store'
 import { useLibraryStore } from '../store'
 import type { AssetRecord } from '../types'
@@ -10,6 +10,7 @@ export default function AssetCard({ asset }: { asset: AssetRecord }) {
   const renameAsset = useLibraryStore((s) => s.renameAsset)
   const deleteAsset = useLibraryStore((s) => s.deleteAsset)
   const setConfirmDialog = useStore((s) => s.setConfirmDialog)
+  const setLightboxImageId = useStore((s) => s.setLightboxImageId)
   const [draftName, setDraftName] = useState<string | null>(null)
 
   const commitRename = () => {
@@ -26,7 +27,7 @@ export default function AssetCard({ asset }: { asset: AssetRecord }) {
 
   return (
     <div className="group relative flex flex-col overflow-hidden rounded-2xl border border-gray-200/60 bg-gray-50/40 transition-all duration-300 hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-lg dark:border-white/[0.06] dark:bg-white/[0.02] dark:hover:border-blue-500/40">
-      {/* 外层不是 <button>：卡片内还有重命名与删除按钮，嵌套 button 是 invalid HTML。 */}
+      {/* 外层不是 <button>：卡片内还有放大、重命名与删除按钮，嵌套 button 是 invalid HTML。 */}
       <div
         role="button"
         tabIndex={0}
@@ -36,12 +37,21 @@ export default function AssetCard({ asset }: { asset: AssetRecord }) {
         className="relative aspect-square cursor-pointer overflow-hidden bg-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-400/60 dark:bg-white/[0.05]"
       >
         <AssetThumb imageId={asset.imageId} alt={asset.name} />
-        <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/45 opacity-0 transition-opacity group-hover:opacity-100">
-          <span className="rounded-lg bg-white/90 px-2.5 py-1 text-[11px] font-medium text-gray-800">
-            加入参考图
-          </span>
-        </div>
+        {/* 标签常显：触屏没有 hover，只在 hover 时才现就等于没有。 */}
+        <span className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 to-transparent px-2 pb-1.5 pt-4 text-[11px] font-medium text-white">
+          加入参考图
+        </span>
       </div>
+
+      <button
+        type="button"
+        onClick={() => setLightboxImageId(asset.imageId)}
+        aria-label="放大预览"
+        title="放大预览"
+        className="absolute right-1.5 top-1.5 rounded-lg bg-black/45 p-1.5 text-white transition hover:bg-black/65"
+      >
+        <ZoomIcon className="h-3.5 w-3.5" />
+      </button>
 
       <div className="flex items-center gap-1 px-2.5 py-2">
         {draftName === null ? (
@@ -66,7 +76,7 @@ export default function AssetCard({ asset }: { asset: AssetRecord }) {
           type="button"
           onClick={() => setDraftName(asset.name)}
           aria-label="重命名"
-          className="shrink-0 rounded-md p-1 text-gray-400 opacity-0 transition hover:bg-gray-100 hover:text-gray-600 group-hover:opacity-100 dark:hover:bg-white/[0.06] dark:hover:text-gray-200"
+          className="shrink-0 rounded-md p-1 text-gray-400 transition hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-white/[0.06] dark:hover:text-gray-200"
         >
           <EditIcon className="h-3.5 w-3.5" />
         </button>
@@ -80,7 +90,7 @@ export default function AssetCard({ asset }: { asset: AssetRecord }) {
             })
           }
           aria-label="删除"
-          className="shrink-0 rounded-md p-1 text-gray-400 opacity-0 transition hover:bg-red-50 hover:text-red-500 group-hover:opacity-100 dark:hover:bg-red-500/10"
+          className="shrink-0 rounded-md p-1 text-gray-400 transition hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-500/10"
         >
           <TrashIcon className="h-3.5 w-3.5" />
         </button>

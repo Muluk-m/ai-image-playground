@@ -39,6 +39,7 @@ import { callImageApi, resumeQueueImageApi } from './lib/api'
 import { STORE_PERSIST_KEY, scopedLocalStorage } from './lib/authScope'
 import { validateMaskMatchesImage } from './lib/canvasImage'
 import { isByokGenerationEnabled, isClientCapabilityEnabled } from './lib/clientCapabilities'
+import { compressInputImageDataUrls } from './lib/compressInputImage'
 import {
   CURRENT_THUMBNAIL_VERSION,
   clearImages,
@@ -2272,13 +2273,22 @@ export async function importData(
   }
 }
 
+/** `compress` 只给素材开——素材图长期躺在 IndexedDB 里；参考图在提交时由 api.ts 统一压。 */
+export async function storeImageFromFile(
+  file: File,
+  options: { compress?: boolean } = {},
+): Promise<{ id: string; dataUrl: string }> {
+  const raw = await fileToDataUrl(file)
+  const dataUrl = options.compress ? ((await compressInputImageDataUrls([raw]))[0] ?? raw) : raw
+  const id = await storeImage(dataUrl, 'upload')
+  cacheImage(id, dataUrl)
+  return { id, dataUrl }
+}
+
 /** 添加图片到输入（文件上传） */
 export async function addImageFromFile(file: File): Promise<void> {
   if (!file.type.startsWith('image/')) return
-  const dataUrl = await fileToDataUrl(file)
-  const id = await storeImage(dataUrl, 'upload')
-  cacheImage(id, dataUrl)
-  useStore.getState().addInputImage({ id, dataUrl })
+  useStore.getState().addInputImage(await storeImageFromFile(file))
 }
 
 /** 把一张图片存进 image store —— 支持 data/blob/http URL */
