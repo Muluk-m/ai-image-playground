@@ -3,7 +3,10 @@ import {
   buildTemplateMenuGroups,
   collectTemplateAssetIds,
   getSlashTemplateQuery,
+  getTemplateAssetRefs,
+  getTemplateParamEntries,
   getTemplatePreviewText,
+  getTemplatePromptParts,
   matchTemplatesByName,
   pickTemplateParams,
   remapTemplateMentions,
@@ -101,6 +104,48 @@ describe('the panel preview', () => {
     })
 
     expect(getTemplatePreviewText(template, [makeAsset()])).toBe('@白底图 站在 @图2 前')
+  })
+})
+
+describe('the referenced assets of a template', () => {
+  it('keeps the deleted ones as empty slots and drops the positions that never were assets', () => {
+    const template = makeTemplate({ assetIds: ['a1', null, 'gone'] })
+
+    expect(getTemplateAssetRefs(template, [makeAsset()])).toEqual([
+      { assetId: 'a1', asset: makeAsset() },
+      { assetId: 'gone', asset: null },
+    ])
+  })
+})
+
+describe('the detail prompt', () => {
+  it('splits into mention, slot and plain parts', () => {
+    const template = makeTemplate({
+      prompt: `${mention(0)} 背景换成 {背景}`,
+      assetIds: ['a1'],
+    })
+
+    expect(getTemplatePromptParts(template, [makeAsset()])).toEqual([
+      { type: 'mention', text: '@白底图' },
+      { type: 'text', text: ' 背景换成 ' },
+      { type: 'slot', text: '{背景}', name: '背景' },
+    ])
+  })
+
+  it('falls back to the index when the asset is gone', () => {
+    const template = makeTemplate({ prompt: mention(1), assetIds: [null, 'gone'] })
+
+    expect(getTemplatePromptParts(template, [])).toEqual([{ type: 'mention', text: '@图2' }])
+  })
+})
+
+describe('the param line', () => {
+  it('labels every param and writes auto out', () => {
+    expect(getTemplateParamEntries({ size: 'auto', quality: 'auto', n: 1 })).toEqual([
+      { label: '尺寸', value: 'auto' },
+      { label: '质量', value: 'auto' },
+      { label: '数量', value: '1 张' },
+    ])
   })
 })
 
