@@ -125,10 +125,9 @@ describe('the template detail', () => {
   }
 
   it('renders references and slots as chips', () => {
-    renderDetail(
-      makeTemplate({ prompt: `${mention(0)} 背景换成 {背景}`, assetIds: ['a1'] }),
-      [makeAsset()],
-    )
+    renderDetail(makeTemplate({ prompt: `${mention(0)} 背景换成 {背景}`, assetIds: ['a1'] }), [
+      makeAsset(),
+    ])
 
     expect(document.querySelector('.mention-tag:not(.slot-tag)')?.textContent).toBe('@白底图')
     expect(document.querySelector('.slot-tag')?.textContent).toBe('{背景}')
