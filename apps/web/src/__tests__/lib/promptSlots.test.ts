@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
   expandPromptSlots,
-  getPromptSlotBatchSize,
   getPromptSlotNames,
   getSubmissionImageCount,
   getUnfilledPromptSlots,
@@ -34,7 +33,6 @@ describe('prompt slots parsing', () => {
 describe('prompt slots expansion', () => {
   it('returns the prompt unchanged when it has no slot', () => {
     expect(expandPromptSlots('一只猫', {})).toEqual(['一只猫'])
-    expect(getPromptSlotBatchSize('一只猫', {})).toBe(1)
   })
 
   it('replaces every occurrence of a slot with each value', () => {
@@ -48,9 +46,6 @@ describe('prompt slots expansion', () => {
     expect(
       expandPromptSlots('{场景}-{角度}', { 场景: ['浴室', '厨房'], 角度: ['正面', '俯视'] }),
     ).toEqual(['浴室-正面', '浴室-俯视', '厨房-正面', '厨房-俯视'])
-    expect(
-      getPromptSlotBatchSize('{场景}-{角度}', { 场景: ['浴室', '厨房'], 角度: ['正面', '俯视'] }),
-    ).toBe(4)
   })
 
   it('ignores stored values whose slot is no longer in the prompt', () => {
@@ -61,7 +56,6 @@ describe('prompt slots expansion', () => {
 
   it('reports unfilled slots and expands to nothing while any slot is unfilled', () => {
     expect(getUnfilledPromptSlots('{场景}-{角度}', { 场景: ['浴室'] })).toEqual(['角度'])
-    expect(getPromptSlotBatchSize('{场景}-{角度}', { 场景: ['浴室'] })).toBe(0)
     expect(expandPromptSlots('{场景}-{角度}', { 场景: ['浴室'] })).toEqual([])
   })
 })
