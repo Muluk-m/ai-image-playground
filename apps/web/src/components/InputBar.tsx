@@ -1,5 +1,6 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import AssetHint from '../features/library/components/AssetHint'
 import {
   type AtMentionValue,
   buildAtMentionGroups,
@@ -1521,6 +1522,7 @@ export default function InputBar() {
   const renderImageThumbs = () => {
     return (
       <div ref={imagesRef}>
+        <AssetHint />
         <div className="grid grid-cols-[repeat(auto-fill,52px)] justify-between gap-x-2 gap-y-3 mb-3">
           {inputImages.map((img, idx) => renderImageThumb(img, idx))}
           {renderClearAllButton()}
