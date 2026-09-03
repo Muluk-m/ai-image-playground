@@ -66,6 +66,13 @@ import {
   notifyPrivateSubmissionSettled,
 } from './lib/privateOverlay'
 import { remapImageMentionsForOrder, replaceImageMentionsForApi } from './lib/promptImageMentions'
+import {
+  expandPromptSlots,
+  getSubmissionImageCount,
+  getUnfilledPromptSlots,
+  MAX_BATCH_IMAGES,
+  type SlotValues,
+} from './lib/promptSlots'
 import { dismissAllTooltips } from './lib/tooltipDismiss'
 import {
   createTransparentOutputMeta,
@@ -385,6 +392,7 @@ export function getPersistedState(state: AppState) {
     ...(settings.persistInputOnRestart
       ? {
           prompt: state.prompt,
+          slotValues: state.slotValues,
           inputImages: state.inputImages.map((img) => ({ id: img.id, dataUrl: '' })),
         }
       : {}),
@@ -396,6 +404,17 @@ export function getPersistedState(state: AppState) {
     // 通过 profile.source === 'builtin-edge' 判定，而不是字符串前缀。
     profileModelCache: filterUserProfileCache(state.profileModelCache ?? {}, settings.profiles),
   }
+}
+
+function normalizeSlotValues(persisted: unknown): SlotValues {
+  if (!persisted || typeof persisted !== 'object') return {}
+  return Object.fromEntries(
+    Object.entries(persisted).flatMap(([name, values]) =>
+      Array.isArray(values)
+        ? [[name, values.filter((v): v is string => typeof v === 'string')]]
+        : [],
+    ),
+  )
 }
 
 function mergePersistedState(persistedState: unknown, currentState: AppState): AppState {
@@ -421,6 +440,7 @@ function mergePersistedState(persistedState: unknown, currentState: AppState): A
       settings.persistInputOnRestart && Array.isArray(persisted.inputImages)
         ? persisted.inputImages
         : [],
+    slotValues: settings.persistInputOnRestart ? normalizeSlotValues(persisted.slotValues) : {},
   }
 }
 
@@ -436,6 +456,8 @@ interface AppState {
   // 输入
   prompt: string
   setPrompt: (p: string) => void
+  slotValues: SlotValues
+  setSlotValues: (name: string, values: string[]) => void
   inputImages: InputImage[]
   addInputImage: (img: InputImage) => void
   removeInputImage: (idx: number) => void
@@ -563,6 +585,9 @@ export const useStore = create<AppState>()(
       // Input
       prompt: '',
       setPrompt: (prompt) => set({ prompt }),
+      slotValues: {},
+      setSlotValues: (name, values) =>
+        set((s) => ({ slotValues: { ...s.slotValues, [name]: values } })),
       inputImages: [],
       addInputImage: (img) =>
         set((s) => {
@@ -1195,6 +1220,7 @@ export async function submitTask(
   const {
     settings,
     prompt,
+    slotValues,
     inputImages,
     maskDraft,
     params,
@@ -1251,6 +1277,12 @@ export async function submitTask(
     return
   }
 
+  const unfilledSlots = getUnfilledPromptSlots(prompt, slotValues)
+  if (unfilledSlots.length > 0) {
+    showToast(`槽位 {${unfilledSlots[0]}} 未填值`, 'error')
+    return
+  }
+
   let orderedInputImages = inputImages
   let maskImageId: string | null = null
   let maskTargetImageId: string | null = null
@@ -1299,9 +1331,6 @@ export async function submitTask(
   const taskParams = shouldUseTransparentOutput
     ? getTransparentRequestParams(normalizedParams)
     : { ...normalizedParams, transparent_output: false }
-  const transparentMeta = taskParams.transparent_output
-    ? createTransparentOutputMeta(prompt.trim())
-    : null
   const normalizedParamPatch = getChangedParams(params, taskParams)
   if (Object.keys(normalizedParamPatch).length) {
     useStore.getState().setParams(normalizedParamPatch)
@@ -1316,28 +1345,40 @@ export async function submitTask(
     getModelCapabilities(activeProfile, getPublicChannels())?.has('n') === true
   const fanOut = billedBuiltinSubmission || supportsNativeCount ? 1 : Math.max(1, taskParams.n)
   const singleParams = fanOut === 1 ? taskParams : { ...taskParams, n: 1 }
+  const trimmedPrompt = prompt.trim()
+  if (getSubmissionImageCount(trimmedPrompt, slotValues, taskParams.n) > MAX_BATCH_IMAGES) {
+    showToast(`单次最多 ${MAX_BATCH_IMAGES} 张`, 'error')
+    return
+  }
   const createdAt = Date.now()
-  const newTasks: TaskRecord[] = Array.from({ length: fanOut }, () => ({
-    id: genId(),
-    prompt: prompt.trim(),
-    params: singleParams,
-    apiProvider: submitView.provider,
-    apiProfileId: activeProfile.id,
-    apiProfileName: submitView.name,
-    apiModel: submitView.model,
-    inputImageIds: orderedInputImages.map((i) => i.id),
-    maskTargetImageId,
-    maskImageId,
-    transparentOutput: transparentMeta?.transparentOutput,
-    transparentPrompt: transparentMeta?.effectivePrompt,
-    outputImages: [],
-    status: 'running',
-    error: null,
-    createdAt,
-    finishedAt: null,
-    elapsed: null,
-    clientRequestId: crypto.randomUUID(),
-  }))
+  const newTasks: TaskRecord[] = expandPromptSlots(trimmedPrompt, slotValues).flatMap(
+    (taskPrompt) => {
+      const transparentMeta = taskParams.transparent_output
+        ? createTransparentOutputMeta(taskPrompt)
+        : null
+      return Array.from({ length: fanOut }, () => ({
+        id: genId(),
+        prompt: taskPrompt,
+        params: singleParams,
+        apiProvider: submitView.provider,
+        apiProfileId: activeProfile.id,
+        apiProfileName: submitView.name,
+        apiModel: submitView.model,
+        inputImageIds: orderedInputImages.map((i) => i.id),
+        maskTargetImageId,
+        maskImageId,
+        transparentOutput: transparentMeta?.transparentOutput,
+        transparentPrompt: transparentMeta?.effectivePrompt,
+        outputImages: [],
+        status: 'running' as const,
+        error: null,
+        createdAt,
+        finishedAt: null,
+        elapsed: null,
+        clientRequestId: crypto.randomUUID(),
+      }))
+    },
+  )
 
   const latestTasks = useStore.getState().tasks
   useStore.getState().setTasks([...newTasks, ...latestTasks])
