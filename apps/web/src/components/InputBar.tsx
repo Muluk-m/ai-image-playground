@@ -11,6 +11,7 @@ import { getModelCapabilities, NO_EDIT_SUPPORT_MESSAGE } from '../lib/channels/p
 import { getPublicChannels } from '../lib/channels/publicChannels'
 import { getSafeBoundingClientRect } from '../lib/domRect'
 import { downloadImagesByIds } from '../lib/downloadImages'
+import { createLongPress } from '../lib/longPress'
 import {
   getChangedParams,
   getParamCapabilities,
@@ -459,6 +460,18 @@ export default function InputBar() {
   const imageDragOverIndexRef = useRef<number | null>(null)
   const imageDragPreviewRef = useRef<HTMLElement | null>(null)
   const suppressImageClickRef = useRef(false)
+  const thumbLongPressTargetRef = useRef<{ index: number; imageId: string } | null>(null)
+  const thumbLongPress = useMemo(
+    () =>
+      createLongPress(({ x, y }) => {
+        const target = thumbLongPressTargetRef.current
+        if (!target) return
+        suppressImageClickRef.current = true
+        setThumbMenu({ index: target.index, imageId: target.imageId, x, y })
+      }),
+    [],
+  )
+  useEffect(() => () => thumbLongPress.cancel(), [thumbLongPress])
   const isUserInputRef = useRef(false)
   const imageHintLockedRef = useRef(false)
   const imageHintReleaseRef = useRef<(() => void) | null>(null)
@@ -1220,29 +1233,23 @@ export default function InputBar() {
     }
 
     const handleTouchStart = (e: React.TouchEvent) => {
-      if (isMaskTarget) {
-        const touch = e.touches[0]
-        imageTouchDragRef.current = {
-          index: idx,
-          startX: touch.clientX,
-          startY: touch.clientY,
-          moved: false,
-        }
-        return
-      }
       const touch = e.touches[0]
-      imageDragIndexRef.current = idx
+      thumbLongPressTargetRef.current = { index: idx, imageId: img.id }
+      thumbLongPress.start({ x: touch.clientX, y: touch.clientY })
       imageTouchDragRef.current = {
         index: idx,
         startX: touch.clientX,
         startY: touch.clientY,
         moved: false,
       }
+      if (isMaskTarget) return
+      imageDragIndexRef.current = idx
       setTouchDragPreview(null)
     }
 
     const handleTouchMove = (e: React.TouchEvent) => {
       const touch = e.touches[0]
+      thumbLongPress.move({ x: touch.clientX, y: touch.clientY })
       const touchDrag = imageTouchDragRef.current
       if (touchDrag.index === null) return
 
@@ -1270,19 +1277,22 @@ export default function InputBar() {
 
     const handleTouchEnd = (e: React.TouchEvent) => {
       const touchDrag = imageTouchDragRef.current
+      thumbLongPress.cancel()
       clearImageHintTimer()
       if (touchDrag.index !== null && imageDragOverIndexRef.current !== null) {
         e.preventDefault()
         moveInputImage(touchDrag.index, imageDragOverIndexRef.current)
-        window.setTimeout(() => {
-          suppressImageClickRef.current = false
-        }, 0)
       }
+      // 抬手后紧跟的 click 要被吞掉（拖拽落位、长按开菜单都不该再开灯箱），下一轮宏任务才复位。
+      window.setTimeout(() => {
+        suppressImageClickRef.current = false
+      }, 0)
       resetImageDrag()
       hideLockedImageHint()
     }
 
     const handleTouchCancel = () => {
+      thumbLongPress.cancel()
       suppressImageClickRef.current = false
       hideLockedImageHint()
       resetImageDrag()
