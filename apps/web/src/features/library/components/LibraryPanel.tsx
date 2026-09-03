@@ -1,8 +1,14 @@
 import { useShallow } from 'zustand/react/shallow'
 import { CloseIcon, LibraryIcon } from '../../../components/icons'
 import Overlay from '../../../components/Overlay'
-import { type LibraryTab, selectVisibleAssets, useLibraryStore } from '../store'
+import {
+  type LibraryTab,
+  selectVisibleAssets,
+  selectVisibleTemplates,
+  useLibraryStore,
+} from '../store'
 import AssetCard from './AssetCard'
+import TemplateCard from './TemplateCard'
 
 const TABS: Array<{ id: LibraryTab; label: string }> = [
   { id: 'assets', label: '素材' },
@@ -18,8 +24,12 @@ export default function LibraryPanel() {
   const setSearch = useLibraryStore((s) => s.setSearch)
   const assets = useLibraryStore(useShallow(selectVisibleAssets))
   const assetCount = useLibraryStore((s) => s.assets.length)
+  const templates = useLibraryStore(useShallow(selectVisibleTemplates))
+  const templateCount = useLibraryStore((s) => s.templates.length)
 
   if (!panelOpen) return null
+
+  const counts: Record<LibraryTab, number> = { assets: assetCount, templates: templateCount }
 
   return (
     <Overlay onClose={closePanel} tier="modal">
@@ -35,7 +45,7 @@ export default function LibraryPanel() {
               type="search"
               value={searchKeyword}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="搜索素材名"
+              placeholder={tab === 'templates' ? '搜索模板名' : '搜索素材名'}
               className="w-full rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-800 placeholder:text-gray-400 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100 dark:border-white/[0.08] dark:bg-white/[0.04] dark:text-gray-100 dark:focus:border-blue-500/50 dark:focus:ring-blue-500/15"
             />
           </div>
@@ -64,9 +74,9 @@ export default function LibraryPanel() {
               }`}
             >
               {label}
-              {id === 'assets' && assetCount > 0 && (
+              {counts[id] > 0 && (
                 <span className="ml-1.5 text-xs text-gray-400 dark:text-gray-500">
-                  {assetCount}
+                  {counts[id]}
                 </span>
               )}
             </button>
@@ -75,7 +85,19 @@ export default function LibraryPanel() {
 
         <div className="custom-scrollbar min-h-0 flex-1 overflow-y-auto p-5">
           {tab === 'templates' ? (
-            <p className="pt-16 text-center text-sm text-gray-400 dark:text-gray-500">暂未开放</p>
+            templates.length === 0 ? (
+              <p className="pt-16 text-center text-sm text-gray-400 dark:text-gray-500">
+                {templateCount === 0
+                  ? '还没有模板，在输入框旁点书签图标可存为模板'
+                  : '没有匹配的模板'}
+              </p>
+            ) : (
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {templates.map((template) => (
+                  <TemplateCard key={template.id} template={template} />
+                ))}
+              </div>
+            )
           ) : assets.length === 0 ? (
             <p className="pt-16 text-center text-sm text-gray-400 dark:text-gray-500">
               {assetCount === 0 ? '还没有素材，右键图片可存为素材' : '没有匹配的素材'}

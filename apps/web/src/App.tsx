@@ -16,6 +16,7 @@ import InspirationPanel from './features/inspiration/components/InspirationPanel
 import { initHashRoute } from './features/inspiration/lib/hashRoute'
 import LibraryPanel from './features/library/components/LibraryPanel'
 import SaveAssetDialog from './features/library/components/SaveAssetDialog'
+import SaveTemplateDialog from './features/library/components/SaveTemplateDialog'
 import { isByokGenerationEnabled } from './lib/clientCapabilities'
 import {
   buildSettingsFromUrlParams,
@@ -87,6 +88,7 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
       <InspirationPanel />
       <LibraryPanel />
       <SaveAssetDialog />
+      <SaveTemplateDialog />
       <ConfirmDialog />
       <Toast />
       <UpdateBanner />

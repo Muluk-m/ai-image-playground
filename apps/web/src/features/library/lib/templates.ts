@@ -1,0 +1,86 @@
+import type { SuggestionMenuGroup } from '../../../components/SuggestionMenu'
+import {
+  createMentionLabels,
+  getMentionedImageIndexes,
+  getVisiblePrompt,
+  remapImageMentions,
+} from '../../../lib/promptImageMentions'
+import type { InputImage, TaskParams } from '../../../types'
+import type { AssetRecord, TemplateParams, TemplateRecord } from '../types'
+import { getAssetsByImageId } from './assetMentions'
+
+/** 引用到的参考图不是素材时该位记 null，序号仍要占住，否则套用后引用会整体错位。 */
+export function collectTemplateAssetIds(
+  prompt: string,
+  inputImages: InputImage[],
+  assets: AssetRecord[],
+): Array<string | null> {
+  const indexes = getMentionedImageIndexes(prompt)
+  if (indexes.length === 0) return []
+
+  const assetByImageId = getAssetsByImageId(assets)
+  return Array.from({ length: Math.max(...indexes) + 1 }, (_, index) => {
+    if (!indexes.includes(index)) return null
+    const imageId = inputImages[index]?.id
+    return (imageId && assetByImageId[imageId]?.id) ?? null
+  })
+}
+
+export function remapTemplateMentions(
+  prompt: string,
+  imageIdsByOldIndex: Array<string | null>,
+  nextImages: InputImage[],
+): string {
+  return remapImageMentions(prompt, (imageIndex) => {
+    const imageId = imageIdsByOldIndex[imageIndex]
+    return imageId ? nextImages.findIndex((image) => image.id === imageId) : -1
+  })
+}
+
+/** 面板里的模板预览：引用显示素材名，素材已删的位退回 `@图N`。 */
+export function getTemplatePreviewText(template: TemplateRecord, assets: AssetRecord[]): string {
+  const namesByAssetId = Object.fromEntries(assets.map((asset) => [asset.id, asset.name]))
+  const assetsAsImages = template.assetIds.map((assetId) => ({ id: assetId ?? '', dataUrl: '' }))
+  return getVisiblePrompt(template.prompt, createMentionLabels(assetsAsImages, namesByAssetId))
+}
+
+export function pickTemplateParams(params: TaskParams): TemplateParams {
+  return { size: params.size, quality: params.quality, n: params.n }
+}
+
+export function matchTemplatesByName(templates: TemplateRecord[], query: string): TemplateRecord[] {
+  const keyword = query.trim().toLowerCase()
+  return templates
+    .filter((template) => !keyword || template.name.toLowerCase().includes(keyword))
+    .sort((a, b) => b.lastUsedAt - a.lastUsedAt)
+}
+
+/** 仅在 `/` 位于行首或空白之后时成立，避免误伤路径类文本。 */
+export function getSlashTemplateQuery(
+  prompt: string,
+  cursor: number,
+): { start: number; query: string } | null {
+  const beforeCursor = prompt.slice(0, cursor)
+  const slashIndex = beforeCursor.lastIndexOf('/')
+  if (slashIndex < 0) return null
+  if (slashIndex > 0 && !/\s/.test(beforeCursor[slashIndex - 1])) return null
+
+  const query = beforeCursor.slice(slashIndex + 1)
+  if (/\s/.test(query)) return null
+  return { start: slashIndex, query }
+}
+
+export function buildTemplateMenuGroups({
+  query,
+  templates,
+}: {
+  query: string
+  templates: TemplateRecord[]
+}): SuggestionMenuGroup<string>[] {
+  const options = matchTemplatesByName(templates, query).map((template) => ({
+    key: template.id,
+    label: template.name,
+    value: template.id,
+  }))
+  return options.length > 0 ? [{ key: 'templates', heading: '模板', options }] : []
+}
