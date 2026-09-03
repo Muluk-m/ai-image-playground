@@ -1,5 +1,6 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { useLibraryStore } from '../features/library/store'
 import {
   clientProfileToApiProfile,
   getActiveApiProfile,
@@ -10,6 +11,7 @@ import { getModelCapabilities, NO_EDIT_SUPPORT_MESSAGE } from '../lib/channels/p
 import { getPublicChannels } from '../lib/channels/publicChannels'
 import { getSafeBoundingClientRect } from '../lib/domRect'
 import { downloadImagesByIds } from '../lib/downloadImages'
+import { createLongPress } from '../lib/longPress'
 import {
   getChangedParams,
   getParamCapabilities,
@@ -35,8 +37,9 @@ import {
   updateTaskInStore,
   useStore,
 } from '../store'
+import ContextMenu, { ContextMenuItem } from './ContextMenu'
 import { ChipIcons } from './chipIcons'
-import { CloseIcon } from './icons'
+import { CloseIcon, LibraryIcon, LinkIcon } from './icons'
 import ParamControls from './ParamControls'
 import SubmissionBillingAction from './SubmissionBillingAction'
 import SuggestionMenu, { useSuggestionMenu } from './SuggestionMenu'
@@ -328,6 +331,8 @@ export default function InputBar() {
   const setLightboxImageId = useStore((s) => s.setLightboxImageId)
   const showToast = useStore((s) => s.showToast)
   const setConfirmDialog = useStore((s) => s.setConfirmDialog)
+  const openLibrary = useLibraryStore((s) => s.openPanel)
+  const startNamingAsset = useLibraryStore((s) => s.startNaming)
   const selectedTaskIds = useStore((s) => s.selectedTaskIds)
   const setSelectedTaskIds = useStore((s) => s.setSelectedTaskIds)
   const clearSelection = useStore((s) => s.clearSelection)
@@ -430,6 +435,12 @@ export default function InputBar() {
   // 整张输入卡片折叠：折叠后只剩 mini bar（prompt 摘要 + 生成 + 展开按钮），让背景任务卡片露出来。
   const [barCollapsed, setBarCollapsed] = useState(false)
   const [maskPreviewUrl, setMaskPreviewUrl] = useState('')
+  const [thumbMenu, setThumbMenu] = useState<{
+    index: number
+    imageId: string
+    x: number
+    y: number
+  } | null>(null)
   const [imageDragIndex, setImageDragIndex] = useState<number | null>(null)
   const [imageDragOverIndex, setImageDragOverIndex] = useState<number | null>(null)
   const [touchDragPreview, setTouchDragPreview] = useState<{
@@ -449,6 +460,18 @@ export default function InputBar() {
   const imageDragOverIndexRef = useRef<number | null>(null)
   const imageDragPreviewRef = useRef<HTMLElement | null>(null)
   const suppressImageClickRef = useRef(false)
+  const thumbLongPressTargetRef = useRef<{ index: number; imageId: string } | null>(null)
+  const thumbLongPress = useMemo(
+    () =>
+      createLongPress(({ x, y }) => {
+        const target = thumbLongPressTargetRef.current
+        if (!target) return
+        suppressImageClickRef.current = true
+        setThumbMenu({ index: target.index, imageId: target.imageId, x, y })
+      }),
+    [],
+  )
+  useEffect(() => () => thumbLongPress.cancel(), [thumbLongPress])
   const isUserInputRef = useRef(false)
   const imageHintLockedRef = useRef(false)
   const imageHintReleaseRef = useRef<(() => void) | null>(null)
@@ -521,14 +544,9 @@ export default function InputBar() {
         .filter((option) => imageMentionMatches(atImageQuery.query, option.value))
     : []
   const blurPrompt = useCallback(() => textareaRef.current?.blur(), [])
-  const selectAtImageOption = useCallback(
-    (imageIndex: number) => {
-      const el = textareaRef.current
-      const cursor = el ? getContentEditableCursor(el) : prompt.length
-      const query = getAtImageQuery(stripImageMentionMarkers(prompt), cursor, inputImages)
-      if (!query) return
-
-      const next = insertImageMentionAtVisibleRange(prompt, query.start, cursor, imageIndex)
+  const replaceRangeWithImageMention = useCallback(
+    (start: number, end: number, imageIndex: number) => {
+      const next = insertImageMentionAtVisibleRange(prompt, start, end, imageIndex)
       isUserInputRef.current = false
       setPrompt(next.prompt)
       window.setTimeout(() => {
@@ -538,7 +556,25 @@ export default function InputBar() {
         }
       }, 0)
     },
-    [inputImages, prompt, setPrompt],
+    [prompt, setPrompt],
+  )
+  const insertImageMentionAtCursor = useCallback(
+    (imageIndex: number) => {
+      const el = textareaRef.current
+      const cursor = el ? getContentEditableCursor(el) : prompt.length
+      replaceRangeWithImageMention(cursor, cursor, imageIndex)
+    },
+    [prompt, replaceRangeWithImageMention],
+  )
+  const selectAtImageOption = useCallback(
+    (imageIndex: number) => {
+      const el = textareaRef.current
+      const cursor = el ? getContentEditableCursor(el) : prompt.length
+      const query = getAtImageQuery(stripImageMentionMarkers(prompt), cursor, inputImages)
+      if (!query) return
+      replaceRangeWithImageMention(query.start, cursor, imageIndex)
+    },
+    [inputImages, prompt, replaceRangeWithImageMention],
   )
 
   const atImageMenu = useSuggestionMenu({
@@ -1197,29 +1233,23 @@ export default function InputBar() {
     }
 
     const handleTouchStart = (e: React.TouchEvent) => {
-      if (isMaskTarget) {
-        const touch = e.touches[0]
-        imageTouchDragRef.current = {
-          index: idx,
-          startX: touch.clientX,
-          startY: touch.clientY,
-          moved: false,
-        }
-        return
-      }
       const touch = e.touches[0]
-      imageDragIndexRef.current = idx
+      thumbLongPressTargetRef.current = { index: idx, imageId: img.id }
+      thumbLongPress.start({ x: touch.clientX, y: touch.clientY })
       imageTouchDragRef.current = {
         index: idx,
         startX: touch.clientX,
         startY: touch.clientY,
         moved: false,
       }
+      if (isMaskTarget) return
+      imageDragIndexRef.current = idx
       setTouchDragPreview(null)
     }
 
     const handleTouchMove = (e: React.TouchEvent) => {
       const touch = e.touches[0]
+      thumbLongPress.move({ x: touch.clientX, y: touch.clientY })
       const touchDrag = imageTouchDragRef.current
       if (touchDrag.index === null) return
 
@@ -1247,19 +1277,22 @@ export default function InputBar() {
 
     const handleTouchEnd = (e: React.TouchEvent) => {
       const touchDrag = imageTouchDragRef.current
+      thumbLongPress.cancel()
       clearImageHintTimer()
       if (touchDrag.index !== null && imageDragOverIndexRef.current !== null) {
         e.preventDefault()
         moveInputImage(touchDrag.index, imageDragOverIndexRef.current)
-        window.setTimeout(() => {
-          suppressImageClickRef.current = false
-        }, 0)
       }
+      // 抬手后紧跟的 click 要被吞掉（拖拽落位、长按开菜单都不该再开灯箱），下一轮宏任务才复位。
+      window.setTimeout(() => {
+        suppressImageClickRef.current = false
+      }, 0)
       resetImageDrag()
       hideLockedImageHint()
     }
 
     const handleTouchCancel = () => {
+      thumbLongPress.cancel()
       suppressImageClickRef.current = false
       hideLockedImageHint()
       resetImageDrag()
@@ -1283,17 +1316,7 @@ export default function InputBar() {
         onTouchCancel={handleTouchCancel}
         onContextMenu={(e) => {
           e.preventDefault()
-          const el = textareaRef.current
-          const cursor = el ? getContentEditableCursor(el) : prompt.length
-          const next = insertImageMentionAtVisibleRange(prompt, cursor, cursor, idx)
-          isUserInputRef.current = false
-          setPrompt(next.prompt)
-          window.setTimeout(() => {
-            if (textareaRef.current) {
-              textareaRef.current.focus()
-              setContentEditableCursor(textareaRef.current, next.cursor)
-            }
-          }, 0)
+          setThumbMenu({ index: idx, imageId: img.id, x: e.clientX, y: e.clientY })
         }}
       >
         <ButtonTooltip
@@ -1441,6 +1464,26 @@ export default function InputBar() {
             </div>,
             document.body,
           )}
+        {thumbMenu && (
+          <ContextMenu x={thumbMenu.x} y={thumbMenu.y} onClose={() => setThumbMenu(null)}>
+            <ContextMenuItem
+              icon={<LinkIcon className="h-4 w-4 flex-shrink-0" />}
+              label="插入引用"
+              onClick={() => {
+                insertImageMentionAtCursor(thumbMenu.index)
+                setThumbMenu(null)
+              }}
+            />
+            <ContextMenuItem
+              icon={<LibraryIcon className="h-4 w-4 flex-shrink-0" />}
+              label="存为素材"
+              onClick={() => {
+                startNamingAsset(thumbMenu.imageId)
+                setThumbMenu(null)
+              }}
+            />
+          </ContextMenu>
+        )}
       </div>
     )
   }
@@ -1843,6 +1886,14 @@ export default function InputBar() {
                       {ChipIcons.imageAttach}
                     </button>
                   </div>
+                  <button
+                    type="button"
+                    onClick={openLibrary}
+                    className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl border border-gray-300/80 bg-white/70 text-gray-500 transition-colors duration-150 hover:border-gray-400/80 hover:bg-white dark:border-white/[0.12] dark:bg-white/[0.04] dark:text-gray-300 dark:hover:border-white/[0.20] dark:hover:bg-white/[0.07]"
+                    title="素材与模板"
+                  >
+                    <LibraryIcon className="h-5 w-5" />
+                  </button>
                   <ParamControls showCount />
                   {/* ml-auto 让 Generate 永远贴当前行右端，chips 偶尔挤到 row 2 时大按钮也能撑住空白。 */}
                   <div
@@ -1932,6 +1983,14 @@ export default function InputBar() {
                         {ChipIcons.imageAttach}
                       </button>
                     </div>
+                    <button
+                      type="button"
+                      onClick={openLibrary}
+                      className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl border border-gray-300/80 bg-white/70 text-gray-500 transition-colors duration-150 dark:border-white/[0.12] dark:bg-white/[0.04] dark:text-gray-300"
+                      title="素材与模板"
+                    >
+                      <LibraryIcon className="h-5 w-5" />
+                    </button>
                     <div
                       className="relative flex flex-1 items-center gap-2"
                       onMouseEnter={() => setSubmitHover(true)}

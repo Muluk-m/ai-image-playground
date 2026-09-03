@@ -139,6 +139,19 @@ describe('adopting anonymous storage after login', () => {
     expect(await databaseNames()).not.toContain(BASE_DB_NAME)
   })
 
+  it('adopts assets saved while anonymous', async () => {
+    const asset = { id: 'a1', name: '白底图', imageId: 'i1', createdAt: 1, lastUsedAt: 1 }
+    await seed(BASE_DB_NAME, {
+      tasks: [{ id: 't1' }],
+      images: [{ id: 'i1', dataUrl: 'data:,a' }],
+      assets: [asset],
+    })
+
+    await adopt(USER_ID)
+
+    expect(await readAll(USER_DB, 'assets')).toEqual([asset])
+  })
+
   it('merges into an existing user database without overwriting its records', async () => {
     await seed(BASE_DB_NAME, {
       tasks: [
