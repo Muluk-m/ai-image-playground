@@ -18,7 +18,7 @@ function shot(overrides: Partial<RemixShot> = {}): RemixShot {
   return {
     id: 's1',
     type: 'scene',
-    competitorImageId: 'i1',
+    sourceImageId: 'i1',
     brief: {
       composition: '浴缸居中偏左',
       camera: 'eye level',
@@ -35,7 +35,7 @@ function shot(overrides: Partial<RemixShot> = {}): RemixShot {
     enabled: true,
     referenceImageId: 'r1',
     productImageId: 'p-front',
-    status: 'pending',
+    taskIds: [],
     ...overrides,
   }
 }
@@ -47,7 +47,7 @@ beforeEach(() => {
   vi.stubGlobal('indexedDB', new IDBFactory())
   useStore.setState({ showToast: vi.fn() })
   useRemixStore.getState().startNewSet()
-  useRemixStore.setState((s) => ({ draft: { ...s.draft, id: 'set1', competitorImageIds: ['i1'] } }))
+  useRemixStore.setState((s) => ({ draft: { ...s.draft, id: 'set1', sourceImageIds: ['i1'] } }))
   host = document.createElement('div')
   document.body.appendChild(host)
   root = createRoot(host)
@@ -87,7 +87,7 @@ function checkbox(label: string): HTMLInputElement {
 
 describe('the shot list', () => {
   it('renders one card per shot with its brief and prompt', () => {
-    setShots([shot(), shot({ id: 's2', type: 'main', competitorImageId: 'i2' })])
+    setShots([shot(), shot({ id: 's2', type: 'main', sourceImageId: 'i2' })])
     render()
 
     expect(document.querySelectorAll('li')).toHaveLength(2)
@@ -151,5 +151,34 @@ describe('the shot list', () => {
     render()
 
     expect(document.body.textContent).toContain('先在步骤①保存一个套')
+  })
+})
+
+describe('the background styles of an own set', () => {
+  beforeEach(() => {
+    useRemixStore.setState((s) => ({
+      draft: { ...s.draft, sourceKind: 'own', sourceImageIds: ['i1', 'i2'] },
+    }))
+  })
+
+  it('replaces the analysis button with the style picker', () => {
+    render()
+
+    expect(document.body.textContent).not.toContain('分析竞品图')
+    expect(document.body.textContent).toContain('展开镜头')
+    expect(document.body.textContent).toContain('暖灰微水泥')
+  })
+
+  it('counts the shots a style choice will produce', () => {
+    render()
+
+    const style = [...document.querySelectorAll('button')].find((node) =>
+      node.textContent?.startsWith('暖灰微水泥'),
+    )
+    if (!style) throw new Error('no style button')
+    act(() => style.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+
+    expect(useRemixStore.getState().backgroundStyleIds).toEqual(['warm-microcement'])
+    expect(document.body.textContent).toContain('2 图 × 1 风格 · 2 镜')
   })
 })

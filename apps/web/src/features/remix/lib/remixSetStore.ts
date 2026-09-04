@@ -8,8 +8,19 @@ export interface RemixSetStore {
   remove(id: string): Promise<void>
 }
 
+/** 结构对不上的旧记录直接跳过：读出来只会在下游炸，没有可迁移的内容。 */
+function isCurrentShape(record: RemixSetRecord): boolean {
+  return (
+    Array.isArray(record.source?.sourceImageIds) &&
+    record.shots.every((shot) => Array.isArray(shot.taskIds))
+  )
+}
+
 export const remixSetStore: RemixSetStore = {
-  list: () => dbTransaction<RemixSetRecord[]>(STORE_REMIX_SETS, 'readonly', (s) => s.getAll()),
+  list: () =>
+    dbTransaction<RemixSetRecord[]>(STORE_REMIX_SETS, 'readonly', (s) => s.getAll()).then((sets) =>
+      sets.filter(isCurrentShape),
+    ),
   put: (set) => dbTransaction(STORE_REMIX_SETS, 'readwrite', (s) => s.put(set)).then(() => {}),
   remove: (id) => dbTransaction(STORE_REMIX_SETS, 'readwrite', (s) => s.delete(id)).then(() => {}),
 }

@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import InspirationEmptyHero from '../features/inspiration/components/InspirationEmptyHero'
+import RemixSetHistoryCard from '../features/remix/components/RemixSetHistoryCard'
+import { groupTasksBySet } from '../features/remix/lib/history'
+import { useRemixStore } from '../features/remix/store'
 import { editOutputImage, removeTask, reuseConfig, sendTaskToCanvas, useStore } from '../store'
 import TaskCard from './TaskCard'
 
@@ -33,6 +36,7 @@ export default function TaskGrid() {
   const startedWithCtrl = useRef(false)
   const initialSelection = useRef<string[]>([])
   const isMac = /Mac|iPod|iPhone|iPad/.test(navigator.platform)
+  const [expandedSetIds, setExpandedSetIds] = useState<string[]>([])
 
   const filteredTasks = useMemo(() => {
     const sorted = [...tasks].sort((a, b) => b.createdAt - a.createdAt)
@@ -49,6 +53,12 @@ export default function TaskGrid() {
       return prompt.includes(q) || paramStr.includes(q)
     })
   }, [tasks, searchQuery, filterStatus, filterFavorite])
+
+  const historyItems = useMemo(() => groupTasksBySet(filteredTasks), [filteredTasks])
+
+  useEffect(() => {
+    void useRemixStore.getState().loadSets()
+  }, [])
 
   const handleDelete = (task: (typeof tasks)[0]) => {
     setConfirmDialog({
@@ -276,6 +286,35 @@ export default function TaskGrid() {
     }
   }, [clearSelection, isMac])
 
+  const renderTask = (task: (typeof tasks)[0]) => (
+    <div key={task.id} className="task-card-wrapper" data-task-id={task.id}>
+      <TaskCard
+        task={task}
+        onClick={(e) => {
+          if (Date.now() < suppressClickUntil.current) {
+            e.preventDefault()
+            return
+          }
+          suppressClickUntil.current = 0
+          const isCtrl = isMac ? e.metaKey : e.ctrlKey
+          if (isCtrl) {
+            useStore.getState().toggleTaskSelection(task.id)
+          } else if (selectedTaskIds.length > 0) {
+            clearSelection()
+            setDetailTaskId(task.id)
+          } else {
+            setDetailTaskId(task.id)
+          }
+        }}
+        onReuse={() => reuseConfig(task)}
+        onEditOutputs={() => editOutputImage(task)}
+        onSendToCanvas={() => sendTaskToCanvas(task)}
+        onDelete={() => handleDelete(task)}
+        isSelected={selectedTaskIds.includes(task.id)}
+      />
+    </div>
+  )
+
   if (!filteredTasks.length) {
     if (searchQuery || filterFavorite || filterStatus !== 'all') {
       return (
@@ -290,34 +329,26 @@ export default function TaskGrid() {
   return (
     <div ref={rootRef} data-task-grid-root className="relative min-h-[50vh]">
       <div ref={gridRef} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 pb-10">
-        {filteredTasks.map((task) => (
-          <div key={task.id} className="task-card-wrapper" data-task-id={task.id}>
-            <TaskCard
-              task={task}
-              onClick={(e) => {
-                if (Date.now() < suppressClickUntil.current) {
-                  e.preventDefault()
-                  return
-                }
-                suppressClickUntil.current = 0
-                const isCtrl = isMac ? e.metaKey : e.ctrlKey
-                if (isCtrl) {
-                  useStore.getState().toggleTaskSelection(task.id)
-                } else if (selectedTaskIds.length > 0) {
-                  clearSelection()
-                  setDetailTaskId(task.id)
-                } else {
-                  setDetailTaskId(task.id)
-                }
-              }}
-              onReuse={() => reuseConfig(task)}
-              onEditOutputs={() => editOutputImage(task)}
-              onSendToCanvas={() => sendTaskToCanvas(task)}
-              onDelete={() => handleDelete(task)}
-              isSelected={selectedTaskIds.includes(task.id)}
-            />
-          </div>
-        ))}
+        {historyItems.flatMap((item) => {
+          if (item.kind === 'task') return [renderTask(item.task)]
+          const expanded = expandedSetIds.includes(item.setId)
+          return [
+            <RemixSetHistoryCard
+              key={`set-${item.setId}`}
+              setId={item.setId}
+              tasks={item.tasks}
+              expanded={expanded}
+              onToggle={() =>
+                setExpandedSetIds((ids) =>
+                  ids.includes(item.setId)
+                    ? ids.filter((id) => id !== item.setId)
+                    : [...ids, item.setId],
+                )
+              }
+            />,
+            ...(expanded ? item.tasks.map(renderTask) : []),
+          ]
+        })}
       </div>
       {selectionBox && (
         <div
