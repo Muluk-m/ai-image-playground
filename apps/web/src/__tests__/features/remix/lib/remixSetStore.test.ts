@@ -16,7 +16,7 @@ const SET: RemixSetRecord = {
   source: {
     kind: 'competitor',
     listingUrl: 'https://www.amazon.com/dp/B0FVLNS696',
-    competitorImageIds: ['i1', 'i2'],
+    sourceImageIds: ['i1', 'i2'],
   },
   productAssets: [{ assetId: 'a1', angle: 'front' }],
   settings: { platform: 'amazon', language: 'en', level: 'high', product: PRODUCT },

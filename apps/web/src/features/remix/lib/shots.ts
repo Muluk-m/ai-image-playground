@@ -67,7 +67,7 @@ function promptFor(shot: Pick<RemixShot, 'type' | 'brief' | 'copy'>, ctx: ShotCo
 }
 
 function makeShot(
-  competitorImageId: string,
+  sourceImageId: string,
   type: ShotType,
   brief: RemixBrief,
   copy: RemixShotCopy,
@@ -77,7 +77,7 @@ function makeShot(
   const draft: RemixShot = {
     id: crypto.randomUUID(),
     type,
-    competitorImageId,
+    sourceImageId,
     brief,
     copy,
     prompt: '',
@@ -85,20 +85,20 @@ function makeShot(
     enabled: false,
     ...(images.referenceImageId ? { referenceImageId: images.referenceImageId } : {}),
     ...(images.productImageId ? { productImageId: images.productImageId } : {}),
-    status: 'pending',
+    taskIds: [],
   }
   return { ...draft, prompt: promptFor(draft, ctx), enabled: canGenerateShot(draft) }
 }
 
 export function createShot(
-  competitorImageId: string,
+  sourceImageId: string,
   brief: CompetitorBrief,
   referenceImageId: string,
   ctx: ShotContext,
 ): RemixShot {
   const { shotType, suggestedTitle, ...rest } = brief
   return makeShot(
-    competitorImageId,
+    sourceImageId,
     shotType,
     rest,
     { title: suggestedTitle ?? '', subtitle: brief.textZones[0] ?? '' },
@@ -108,13 +108,13 @@ export function createShot(
 }
 
 /** 分析不可用时的空白镜头：简报与提示词由人手填。 */
-export function createBlankShot(competitorImageId: string, ctx: ShotContext): RemixShot {
+export function createBlankShot(sourceImageId: string, ctx: ShotContext): RemixShot {
   return makeShot(
-    competitorImageId,
+    sourceImageId,
     'other',
     { ...EMPTY_BRIEF },
     { title: '', subtitle: '' },
-    { referenceImageId: competitorImageId, productImageId: ctx.productImageFor('') },
+    { referenceImageId: sourceImageId, productImageId: ctx.productImageFor('') },
     ctx,
   )
 }

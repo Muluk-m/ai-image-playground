@@ -104,7 +104,7 @@ function ShotCard({ shot, index }: { shot: RemixShot; index: number }) {
       </div>
 
       <div className="flex flex-wrap gap-3">
-        <Thumb label="竞品原图" imageId={shot.competitorImageId} />
+        <Thumb label="竞品原图" imageId={shot.sourceImageId} />
         <Thumb label="参考图" imageId={shot.referenceImageId} />
         {renderable && <Thumb label="产品底图" imageId={shot.productImageId} empty="缺底图" />}
       </div>

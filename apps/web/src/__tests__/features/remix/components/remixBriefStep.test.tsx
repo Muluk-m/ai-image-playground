@@ -18,7 +18,7 @@ function shot(overrides: Partial<RemixShot> = {}): RemixShot {
   return {
     id: 's1',
     type: 'scene',
-    competitorImageId: 'i1',
+    sourceImageId: 'i1',
     brief: {
       composition: '浴缸居中偏左',
       camera: 'eye level',
@@ -35,7 +35,7 @@ function shot(overrides: Partial<RemixShot> = {}): RemixShot {
     enabled: true,
     referenceImageId: 'r1',
     productImageId: 'p-front',
-    status: 'pending',
+    taskIds: [],
     ...overrides,
   }
 }
@@ -47,7 +47,7 @@ beforeEach(() => {
   vi.stubGlobal('indexedDB', new IDBFactory())
   useStore.setState({ showToast: vi.fn() })
   useRemixStore.getState().startNewSet()
-  useRemixStore.setState((s) => ({ draft: { ...s.draft, id: 'set1', competitorImageIds: ['i1'] } }))
+  useRemixStore.setState((s) => ({ draft: { ...s.draft, id: 'set1', sourceImageIds: ['i1'] } }))
   host = document.createElement('div')
   document.body.appendChild(host)
   root = createRoot(host)
@@ -87,7 +87,7 @@ function checkbox(label: string): HTMLInputElement {
 
 describe('the shot list', () => {
   it('renders one card per shot with its brief and prompt', () => {
-    setShots([shot(), shot({ id: 's2', type: 'main', competitorImageId: 'i2' })])
+    setShots([shot(), shot({ id: 's2', type: 'main', sourceImageId: 'i2' })])
     render()
 
     expect(document.querySelectorAll('li')).toHaveLength(2)

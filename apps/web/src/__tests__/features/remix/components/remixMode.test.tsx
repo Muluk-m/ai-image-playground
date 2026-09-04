@@ -115,14 +115,14 @@ describe('the remix wizard', () => {
   })
 
   it('drops a competitor image from the thumbnail strip', () => {
-    useRemixStore.getState().addCompetitorImages(['i1', 'i2'])
+    useRemixStore.getState().addSourceImages(['i1', 'i2'])
     render()
 
     const remove = document.querySelector('[aria-label="移除竞品图 1"]')
     if (!remove) throw new Error('no remove button')
     click(remove)
 
-    expect(useRemixStore.getState().draft.competitorImageIds).toEqual(['i2'])
+    expect(useRemixStore.getState().draft.sourceImageIds).toEqual(['i2'])
   })
 
   it('lists the saved sets so one can be reopened', () => {
@@ -131,7 +131,7 @@ describe('the remix wizard', () => {
         {
           id: 'set1',
           name: '奶油浴缸',
-          source: { kind: 'competitor', competitorImageIds: ['i1'] },
+          source: { kind: 'competitor', sourceImageIds: ['i1'] },
           productAssets: [],
           settings: { platform: 'amazon', language: 'zh', level: 'high', product: PRODUCT },
           shots: [],
@@ -145,6 +145,6 @@ describe('the remix wizard', () => {
     click(findByText('奶油浴缸'))
 
     expect(useRemixStore.getState().activeSetId).toBe('set1')
-    expect(useRemixStore.getState().draft.competitorImageIds).toEqual(['i1'])
+    expect(useRemixStore.getState().draft.sourceImageIds).toEqual(['i1'])
   })
 })
