@@ -21,6 +21,7 @@ describe('client capability bootstrap', () => {
         'billing:credits': false,
         'generation:byok': true,
         'quota:daily': false,
+        'remix:analyze': false,
         'remix:listing': false,
       }),
     )
@@ -72,6 +73,7 @@ describe('client capability bootstrap', () => {
           'billing:credits': false,
           'generation:byok': false,
           'quota:daily': false,
+          'remix:analyze': false,
           'remix:listing': false,
         }),
       ),
