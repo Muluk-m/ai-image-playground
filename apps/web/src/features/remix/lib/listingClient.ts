@@ -17,9 +17,10 @@ export function listingImageProxyUrl(imageUrl: string): string {
   return `${bffBase()}/api/remix/image?url=${encodeURIComponent(imageUrl)}`
 }
 
-export async function fetchListingImages(url: string, fetcher: Fetcher = fetch): Promise<
-  ListingImages
-> {
+export async function fetchListingImages(
+  url: string,
+  fetcher: Fetcher = fetch,
+): Promise<ListingImages> {
   const response = await fetcher(`${bffBase()}/api/remix/listing`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
