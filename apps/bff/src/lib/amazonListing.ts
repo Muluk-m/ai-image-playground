@@ -58,7 +58,9 @@ export function isAllowedListingImageUrl(input: string): boolean {
 
 function isProductImageUrl(input: string): boolean {
   const url = parseUrl(input)
-  return url !== null && isAllowedListingImageUrl(input) && url.pathname.startsWith(PRODUCT_IMAGE_PATH)
+  return (
+    url !== null && isAllowedListingImageUrl(input) && url.pathname.startsWith(PRODUCT_IMAGE_PATH)
+  )
 }
 
 /** `..._AC_US40_.jpg` 这类尺寸段去掉才是原图地址。 */
