@@ -15,17 +15,18 @@ export const remixListingRoutes = new Elysia()
       return { error: 'invalid_request', message: error.message }
     }
   })
+  .onBeforeHandle(() => {
+    if (!isCapabilityEnabled('remix:listing')) return capabilityUnavailable('remix:listing')
+  })
   .post(
     '/api/remix/listing',
     async ({ body, status }) => {
-      if (!isCapabilityEnabled('remix:listing')) return capabilityUnavailable('remix:listing')
-
       const listing = parseAmazonListingUrl(body.url)
       if (!listing) return status(400, { error: 'unsupported_listing_url' })
 
-      let page: ReturnType<typeof parseListingPage>
+      let html: string
       try {
-        page = parseListingPage(await fetchListingHtml(listing.canonicalUrl))
+        html = await fetchListingHtml(listing.canonicalUrl)
       } catch (error) {
         log.warn(
           { event: 'remix.listing_fetch_failed', asin: listing.asin, err: error },
@@ -33,6 +34,8 @@ export const remixListingRoutes = new Elysia()
         )
         return status(502, { error: 'listing_unavailable' })
       }
+
+      const page = parseListingPage(html)
       // 空图集意味着验证码页或页面结构变了，两者前端都只能回落到上传。
       if (page.images.length === 0) return status(502, { error: 'listing_unavailable' })
 
@@ -43,7 +46,6 @@ export const remixListingRoutes = new Elysia()
   .get(
     '/api/remix/image',
     async ({ query, status }) => {
-      if (!isCapabilityEnabled('remix:listing')) return capabilityUnavailable('remix:listing')
       if (!isAllowedListingImageUrl(query.url))
         return status(400, { error: 'image_host_not_allowed' })
 
