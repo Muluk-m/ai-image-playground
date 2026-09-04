@@ -27,6 +27,12 @@ export function parseBackgroundPlan(value: unknown): BackgroundPlan | null {
   if (typeof category !== 'string' || typeof sceneType !== 'string' || typeof plan !== 'string') {
     return null
   }
+  // 方案句既当版本标签又进提示词，两处必须是同一串，所以在这里定型。
   if (!plan.trim()) return null
-  return { category, sceneType, productBox: box, plan }
+  return {
+    category: category.trim(),
+    sceneType: sceneType.trim(),
+    productBox: box,
+    plan: plan.trim(),
+  }
 }

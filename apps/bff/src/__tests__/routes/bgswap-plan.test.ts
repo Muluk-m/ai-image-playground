@@ -104,6 +104,16 @@ describe('POST /api/bgswap/plan', () => {
     expect(json).toEqual({ ...PLAN, prompt: buildBackgroundPrompt({ plan: PLAN.plan }) })
   })
 
+  it('trims the model answer so the plan label and the prompt carry the same sentence', async () => {
+    const padded = { ...PLAN, plan: `  ${PLAN.plan}\n`, category: ' 独立式浴缸 ' }
+    setVisionFetchForTesting(visionFetchReturning(chatCompletion(JSON.stringify(padded))))
+
+    const { status, json } = await plan({ image: PIXEL })
+
+    expect(status).toBe(200)
+    expect(json).toEqual({ ...PLAN, prompt: buildBackgroundPrompt({ plan: PLAN.plan }) })
+  })
+
   it('accepts a null product box', async () => {
     const noBox = { ...PLAN, productBox: null }
     setVisionFetchForTesting(visionFetchReturning(chatCompletion(JSON.stringify(noBox))))
