@@ -2,7 +2,10 @@ import { describe, expect, it } from 'vitest'
 import {
   buildShotPrompt,
   isRenderableShotType,
+  joinPromptSections,
   productContextDescription,
+  productLockSection,
+  qualitySection,
 } from '../../../../features/remix/lib/prompt'
 import type {
   RemixBrief,
@@ -141,5 +144,20 @@ describe('describing the product for the vision model', () => {
     expect(productContextDescription({ ...PRODUCT, mainColor: '', forbiddenColors: [] })).toBe(
       '蛋形单边斜背，外沿薄壁',
     )
+  })
+})
+
+describe('composing the sections on their own', () => {
+  it('builds a prompt from the product lock and the quality line alone', () => {
+    const prompt = joinPromptSections([productLockSection(PRODUCT), qualitySection()])
+
+    expect(prompt).toContain('图1是我方产品：W2753 独立浴缸')
+    expect(prompt).toContain('不得变成米白 / 浅灰 / 白色 / 橄榄绿')
+    expect(prompt).toContain('商业电商产品图，8K 超写实，无文字无水印')
+    expect(prompt).not.toContain('图2')
+  })
+
+  it('leaves room for on-image text in the quality line when asked', () => {
+    expect(qualitySection(true)).not.toContain('无文字')
   })
 })

@@ -34,7 +34,7 @@ export interface ShotPromptInput {
 }
 
 /** 锁产品段：颜色要点名目标色与误判色，只说「不得改色」时模型会把产品拉向环境色温。 */
-function lockProduct(product: RemixProductDescription): string {
+export function productLockSection(product: RemixProductDescription): string {
   const features = product.features.trim()
   const mainColor = product.mainColor.trim()
   const lines = [
@@ -50,13 +50,14 @@ function lockProduct(product: RemixProductDescription): string {
   return lines.join('')
 }
 
-function referenceConstraint(level: RemixLevel): string {
+/** 参考约束段：高档只借风格，低档保留构图。 */
+export function referenceConstraintSection(level: RemixLevel): string {
   return level === 'high'
     ? '图2只作为风格与档次参考，禁止照搬其构图、机位、道具摆位、挂画、地毯与配件，画面必须与图2明显不同。'
     : '图2只作为构图、机位与布光参考，不要复制图2里的产品。'
 }
 
-function shotDescription(brief: RemixBrief): string {
+export function shotDescriptionSection(brief: RemixBrief): string {
   const fields: Array<[string, string]> = [
     ['画面', brief.composition],
     ['机位', brief.camera],
@@ -71,7 +72,8 @@ function shotDescription(brief: RemixBrief): string {
     .join('')
 }
 
-function differentiation(brief: RemixBrief): string {
+/** 差异化替换段：从简报的背景与道具派生「改为…」，只在高档用。 */
+export function differentiationSection(brief: RemixBrief): string {
   const background = brief.background.trim()
   const props = brief.props.filter((prop) => prop.trim())
   if (!background && props.length === 0) return ''
@@ -81,7 +83,8 @@ function differentiation(brief: RemixBrief): string {
   return `${swap}${props.length > 0 ? `，不出现${props.join('、')}` : ''}。`
 }
 
-function copyLine(copy: RemixShotCopy, language: RemixLanguage): string {
+/** 卖点文案段：图上要出文字的镜头才加。 */
+export function copySection(copy: RemixShotCopy, language: RemixLanguage): string {
   const title = copy.title.trim()
   const subtitle = copy.subtitle.trim()
   if (!title && !subtitle) return ''
@@ -89,20 +92,27 @@ function copyLine(copy: RemixShotCopy, language: RemixLanguage): string {
   return `图上文案用${LANGUAGE_NAMES[language]}：${parts.join('，')}，拼写必须准确。`
 }
 
+/** 品质段。`onImageText` 为真时不写「无文字」，位置留给卖点文案段。 */
+export function qualitySection(onImageText = false): string {
+  return onImageText
+    ? '商业电商产品图，8K 超写实，无水印。'
+    : '商业电商产品图，8K 超写实，无文字无水印。'
+}
+
+export function joinPromptSections(sections: string[]): string {
+  return sections.filter(Boolean).join('\n')
+}
+
 export function buildShotPrompt(input: ShotPromptInput): string {
   if (!isRenderableShotType(input.type)) return ''
 
   const sellingPoint = input.type === 'selling-point'
-  return [
-    lockProduct(input.product),
-    referenceConstraint(input.level),
-    shotDescription(input.brief),
-    input.level === 'high' ? differentiation(input.brief) : '',
-    sellingPoint
-      ? '商业电商产品图，8K 超写实，无水印。'
-      : '商业电商产品图，8K 超写实，无文字无水印。',
-    sellingPoint ? copyLine(input.copy, input.language) : '',
-  ]
-    .filter(Boolean)
-    .join('\n')
+  return joinPromptSections([
+    productLockSection(input.product),
+    referenceConstraintSection(input.level),
+    shotDescriptionSection(input.brief),
+    input.level === 'high' ? differentiationSection(input.brief) : '',
+    qualitySection(sellingPoint),
+    sellingPoint ? copySection(input.copy, input.language) : '',
+  ])
 }

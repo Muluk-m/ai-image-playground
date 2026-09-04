@@ -10,7 +10,15 @@ import { CARD, FIELD, LABEL, NOTICE, PRIMARY_BUTTON } from './styles'
 const BADGE = 'rounded-full px-2 py-0.5 text-xs'
 const THUMB = 'h-20 w-20 overflow-hidden rounded-xl border border-gray-200 dark:border-white/[0.08]'
 
-function Thumb({ label, imageId }: { label: string; imageId?: string }) {
+function Thumb({
+  label,
+  imageId,
+  empty = '无',
+}: {
+  label: string
+  imageId?: string
+  empty?: string
+}) {
   return (
     <div className="flex flex-col gap-1">
       <span className={LABEL}>{label}</span>
@@ -22,7 +30,7 @@ function Thumb({ label, imageId }: { label: string; imageId?: string }) {
         <div
           className={`${THUMB} flex items-center justify-center bg-amber-500/10 text-xs text-amber-700 dark:text-amber-300`}
         >
-          缺底图
+          {empty}
         </div>
       )}
     </div>
@@ -98,7 +106,7 @@ function ShotCard({ shot, index }: { shot: RemixShot; index: number }) {
       <div className="flex flex-wrap gap-3">
         <Thumb label="竞品原图" imageId={shot.competitorImageId} />
         <Thumb label="参考图" imageId={shot.referenceImageId} />
-        {renderable && <Thumb label="产品底图" imageId={shot.productImageId} />}
+        {renderable && <Thumb label="产品底图" imageId={shot.productImageId} empty="缺底图" />}
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2">

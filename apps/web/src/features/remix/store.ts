@@ -24,6 +24,7 @@ import type {
   RemixSetRecord,
   RemixSetSettings,
   RemixShot,
+  RemixSourceKind,
 } from './types'
 
 export type RemixStep = 1 | 2 | 3
@@ -42,6 +43,7 @@ export interface RemixDraft {
   /** 已保存的套 id；null 表示还没落盘。 */
   id: string | null
   name: string
+  sourceKind: RemixSourceKind
   listingUrl: string
   competitorImageIds: string[]
   productAssets: RemixProductAsset[]
@@ -91,6 +93,7 @@ function emptyDraft(): RemixDraft {
   return {
     id: null,
     name: '',
+    sourceKind: 'competitor',
     listingUrl: '',
     competitorImageIds: [],
     productAssets: [],
@@ -104,6 +107,7 @@ function draftFromSet(set: RemixSetRecord): RemixDraft {
   return {
     id: set.id,
     name: set.name,
+    sourceKind: set.source.kind === 'own' ? 'own' : 'competitor',
     listingUrl: set.source.listingUrl ?? '',
     competitorImageIds: [...set.source.competitorImageIds],
     productAssets: set.productAssets.map((product) => ({ ...product })),
@@ -333,6 +337,7 @@ async function persistDraft(set: SetState, get: GetState): Promise<void> {
     id: draft.id ?? crypto.randomUUID(),
     name: draft.name.trim() || `复刻套 ${sets.length + 1}`,
     source: {
+      kind: draft.sourceKind,
       ...(listingUrl ? { listingUrl } : {}),
       competitorImageIds: draft.competitorImageIds,
     },

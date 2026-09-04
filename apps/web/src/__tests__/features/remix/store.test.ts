@@ -138,7 +138,11 @@ describe('saving a set', () => {
     const [stored] = await remixSetStore.list()
     expect(stored).toMatchObject({
       name: '奶油浴缸',
-      source: { listingUrl: 'https://www.amazon.com/dp/B0FVLNS696', competitorImageIds: ['i1'] },
+      source: {
+        kind: 'competitor',
+        listingUrl: 'https://www.amazon.com/dp/B0FVLNS696',
+        competitorImageIds: ['i1'],
+      },
       productAssets: [{ assetId: 'a1', angle: 'front' }],
       settings: { platform: 'alibaba', language: 'en', level: 'low' },
       shots: [],
