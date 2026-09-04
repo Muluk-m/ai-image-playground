@@ -18,6 +18,7 @@ import {
   REMIX_SOURCE_KINDS,
 } from '../types'
 import ListInput from './ListInput'
+import Pending from './Pending'
 import { CARD, FIELD, LABEL, NOTICE, OUTLINE_BUTTON, PRIMARY_BUTTON } from './styles'
 
 function Choice<T extends string>({
@@ -55,6 +56,7 @@ function Choice<T extends string>({
 export default function RemixInputStep() {
   const draft = useRemixStore((s) => s.draft)
   const listingLoading = useRemixStore((s) => s.listingLoading)
+  const listingStartedAt = useRemixStore((s) => s.listingStartedAt)
   const listingNotice = useRemixStore((s) => s.listingNotice)
   const needsFrontAsset = useRemixStore(selectNeedsFrontAsset)
   const assets = useLibraryStore(
@@ -138,7 +140,11 @@ export default function RemixInputStep() {
                   disabled={listingLoading}
                   className={`shrink-0 ${PRIMARY_BUTTON}`}
                 >
-                  {listingLoading ? '抓取中' : '抓取图集'}
+                  {listingLoading ? (
+                    <Pending label="抓取中" startedAt={listingStartedAt} />
+                  ) : (
+                    '抓取图集'
+                  )}
                 </button>
               </div>
 

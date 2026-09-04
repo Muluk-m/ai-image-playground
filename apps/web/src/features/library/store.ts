@@ -78,7 +78,9 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
   openTemplateDetail: (detailTemplateId) => set({ detailTemplateId }),
   closeTemplateDetail: () => set({ detailTemplateId: null }),
   startNaming: (imageId, defaultName = '', onSaved) =>
-    set((s) => ({ pendingAssetNames: [...s.pendingAssetNames, { imageId, defaultName, onSaved }] })),
+    set((s) => ({
+      pendingAssetNames: [...s.pendingAssetNames, { imageId, defaultName, onSaved }],
+    })),
   cancelNaming: () => set((s) => ({ pendingAssetNames: s.pendingAssetNames.slice(1) })),
   startNamingTemplate: () => set({ namingTemplate: true }),
   cancelNamingTemplate: () => set({ namingTemplate: false }),
