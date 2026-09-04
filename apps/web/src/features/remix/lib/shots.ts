@@ -114,7 +114,11 @@ export function createBlankShot(competitorImageId: string, ctx: ShotContext): Re
   )
 }
 
-export function applyShotPatch(shot: RemixShot, patch: RemixShotPatch, ctx: ShotContext): RemixShot {
+export function applyShotPatch(
+  shot: RemixShot,
+  patch: RemixShotPatch,
+  ctx: ShotContext,
+): RemixShot {
   const next: RemixShot = {
     ...shot,
     type: patch.type ?? shot.type,

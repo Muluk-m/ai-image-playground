@@ -1,8 +1,4 @@
-import {
-  type CompetitorBrief,
-  type ProductContext,
-  SHOT_TYPES,
-} from '@image-playground/shared'
+import { type CompetitorBrief, type ProductContext, SHOT_TYPES } from '@image-playground/shared'
 import { bffBaseUrl } from '../../../lib/runtimeConfig'
 
 type Fetcher = (input: string, init?: RequestInit) => Promise<Response>

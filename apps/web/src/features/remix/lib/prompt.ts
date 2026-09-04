@@ -98,7 +98,9 @@ export function buildShotPrompt(input: ShotPromptInput): string {
     referenceConstraint(input.level),
     shotDescription(input.brief),
     input.level === 'high' ? differentiation(input.brief) : '',
-    sellingPoint ? '商业电商产品图，8K 超写实，无水印。' : '商业电商产品图，8K 超写实，无文字无水印。',
+    sellingPoint
+      ? '商业电商产品图，8K 超写实，无水印。'
+      : '商业电商产品图，8K 超写实，无文字无水印。',
     sellingPoint ? copyLine(input.copy, input.language) : '',
   ]
     .filter(Boolean)

@@ -15,6 +15,7 @@ import {
   REMIX_PLATFORM_LABELS,
   REMIX_PLATFORMS,
 } from '../types'
+import ListInput from './ListInput'
 
 const CARD =
   'rounded-2xl border border-gray-200/70 bg-white/70 p-4 dark:border-white/[0.08] dark:bg-white/[0.02]'
@@ -73,8 +74,11 @@ export default function RemixInputStep() {
     toggleProductAsset,
     setProductAngle,
     updateSettings,
+    updateProduct,
     saveAndContinue,
   } = useRemixStore.getState()
+
+  const product = draft.settings.product
 
   const angleOf = (assetId: string): ProductAngle | null =>
     draft.productAssets.find((product) => product.assetId === assetId)?.angle ?? null
@@ -173,6 +177,59 @@ export default function RemixInputStep() {
 
         <section className={CARD}>
           <h2 className="mb-3 text-sm font-semibold text-gray-800 dark:text-gray-100">产品素材</h2>
+
+          <div className="mb-4 grid gap-3 sm:grid-cols-2">
+            <div>
+              <label className={LABEL} htmlFor="remix-product-name">
+                产品名
+              </label>
+              <input
+                id="remix-product-name"
+                value={product.name}
+                onChange={(e) => updateProduct({ name: e.target.value })}
+                placeholder="例：W2753 独立浴缸"
+                className={`mt-1.5 ${FIELD}`}
+              />
+            </div>
+            <div>
+              <label className={LABEL} htmlFor="remix-product-features">
+                外形特征
+              </label>
+              <input
+                id="remix-product-features"
+                value={product.features}
+                onChange={(e) => updateProduct({ features: e.target.value })}
+                placeholder="例：蛋形单边斜背，外沿薄壁"
+                className={`mt-1.5 ${FIELD}`}
+              />
+            </div>
+            <div>
+              <label className={LABEL} htmlFor="remix-product-color">
+                主色
+              </label>
+              <input
+                id="remix-product-color"
+                value={product.mainColor}
+                onChange={(e) => updateProduct({ mainColor: e.target.value })}
+                placeholder="例：哑光灰棕（暖调中灰偏棕）"
+                className={`mt-1.5 ${FIELD}`}
+              />
+            </div>
+            <div>
+              <label className={LABEL} htmlFor="remix-product-forbidden">
+                禁止色
+              </label>
+              <ListInput
+                key={`${draft.id ?? 'new'}-forbidden`}
+                id="remix-product-forbidden"
+                label="禁止色"
+                value={product.forbiddenColors}
+                onChange={(forbiddenColors) => updateProduct({ forbiddenColors })}
+                placeholder="例：米白、浅灰、白色、橄榄绿"
+                className={`mt-1.5 ${FIELD}`}
+              />
+            </div>
+          </div>
 
           {assets.length === 0 ? (
             <p className="text-sm text-gray-500 dark:text-gray-400">素材库还是空的</p>

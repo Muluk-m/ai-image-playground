@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useLibraryStore } from '../../library/store'
 import { type RemixStep, useRemixStore } from '../store'
+import RemixBriefStep from './RemixBriefStep'
 import RemixInputStep from './RemixInputStep'
 
 const STEPS: Array<{ id: RemixStep; label: string }> = [
@@ -69,9 +70,9 @@ export default function RemixMode() {
         ))}
       </nav>
 
-      {step === 1 ? (
-        <RemixInputStep />
-      ) : (
+      {step === 1 && <RemixInputStep />}
+      {step === 2 && <RemixBriefStep />}
+      {step === 3 && (
         <div className="rounded-2xl border border-gray-200/70 bg-white/70 p-8 text-center text-sm text-gray-500 dark:border-white/[0.08] dark:bg-white/[0.02] dark:text-gray-400">
           尚未开放
         </div>
