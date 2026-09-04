@@ -1,46 +1,16 @@
+import {
+  type CompetitorBrief,
+  type ProductBox,
+  type ProductContext,
+  SHOT_TYPES,
+  type ShotType,
+} from '@image-playground/shared'
 import { Agent, fetch as undiciFetch } from 'undici'
 import { config } from '../config'
 import { resolveApiKey } from './resolveApiKey'
 import { isObject } from './type-guards'
 
 // 独立于 upstream.ts：那里是生图队列的协议适配，超时预算按分钟算，这里按秒。
-
-const SHOT_TYPES = [
-  'main',
-  'scene',
-  'topdown',
-  'detail',
-  'selling-point',
-  'spec-diagram',
-  'other',
-] as const
-
-export type ShotType = (typeof SHOT_TYPES)[number]
-
-export interface ProductBox {
-  readonly x: number
-  readonly y: number
-  readonly w: number
-  readonly h: number
-}
-
-export interface CompetitorBrief {
-  readonly shotType: ShotType
-  readonly composition: string
-  readonly camera: string
-  readonly lighting: string
-  readonly background: string
-  readonly props: string[]
-  readonly textZones: string[]
-  readonly palette: string[]
-  readonly productBox: ProductBox | null
-  readonly suggestedTitle?: string
-}
-
-export interface ProductContext {
-  readonly name: string
-  readonly description: string
-}
 
 export class VisionUpstreamError extends Error {
   constructor(readonly status: number) {
