@@ -44,7 +44,7 @@ describe('deriving one shot state from the task records', () => {
   it('collects the output images of a finished shot', () => {
     const tasks = indexTasksById([task('t1', { status: 'done', outputImages: ['o1', 'o2'] })])
 
-    expect(shotProgress({ id: 'shot-1', taskIds: ['t1'] }, tasks, NO_QUEUE)).toEqual({
+    expect(shotProgress({ id: 'shot-1', taskIds: ['t1'] }, tasks, NO_QUEUE)).toMatchObject({
       state: 'done',
       error: null,
       outputImageIds: ['o1', 'o2'],
@@ -65,6 +65,42 @@ describe('deriving one shot state from the task records', () => {
 
     expect(shotProgress({ id: 'shot-1', taskIds: ['t1', 't2'] }, tasks, NO_QUEUE)).toMatchObject({
       state: 'running',
+    })
+  })
+
+  it('times a running shot from the earliest submission', () => {
+    const tasks = indexTasksById([task('t1', { createdAt: 3_000 }), task('t2', { createdAt: 1_000 })])
+
+    expect(shotProgress({ id: 'shot-1', taskIds: ['t1', 't2'] }, tasks, NO_QUEUE)).toMatchObject({
+      startedAt: 1_000,
+      elapsed: null,
+    })
+  })
+
+  it('reports the total span of a finished shot', () => {
+    const tasks = indexTasksById([
+      task('t1', { status: 'done', createdAt: 1_000, finishedAt: 9_000, elapsed: 8_000 }),
+      task('t2', { status: 'done', createdAt: 2_000, finishedAt: 5_000, elapsed: 3_000 }),
+    ])
+
+    expect(shotProgress({ id: 'shot-1', taskIds: ['t1', 't2'] }, tasks, NO_QUEUE)).toMatchObject({
+      startedAt: null,
+      elapsed: 8_000,
+    })
+  })
+
+  it('leaves the span unknown when no task ever finished', () => {
+    const tasks = indexTasksById([task('t1', { status: 'done', createdAt: 1_000 })])
+
+    expect(shotProgress({ id: 'shot-1', taskIds: ['t1'] }, tasks, NO_QUEUE)).toMatchObject({
+      elapsed: null,
+    })
+  })
+
+  it('leaves an untouched shot without any timing', () => {
+    expect(shotProgress({ id: 'shot-1', taskIds: [] }, new Map(), ['shot-1'])).toMatchObject({
+      startedAt: null,
+      elapsed: null,
     })
   })
 
