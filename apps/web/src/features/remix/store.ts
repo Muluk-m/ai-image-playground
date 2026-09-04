@@ -119,12 +119,10 @@ export const useRemixStore = create<RemixState>((set, get) => ({
     set({ listingLoading: true, listingNotice: null })
     try {
       const listing = await fetchListingImages(url)
-      const imageIds: string[] = []
-      for (const image of listing.images) {
-        const stored = await storeImageFromUrl(listingImageProxyUrl(image))
-        imageIds.push(stored.id)
-      }
-      get().addCompetitorImages(imageIds)
+      const stored = await Promise.all(
+        listing.images.map((image) => storeImageFromUrl(listingImageProxyUrl(image))),
+      )
+      get().addCompetitorImages(stored.map((image) => image.id))
       const name = listing.title ?? listing.asin
       if (!get().draft.name && name) get().setName(name)
     } catch (error) {

@@ -48,6 +48,14 @@ export function getRuntimeConfig(): RuntimeConfig {
   return cached
 }
 
+/**
+ * BFF base URL，尾斜杠已去掉。空字符串 = 同源（BFF 同进程托管前端 dist，最常见形态）；
+ * 非空 = 跨域（如 cf tunnel），fetch 走绝对 URL。
+ */
+export function bffBaseUrl(): string {
+  return cached.bff.baseUrl.replace(/\/+$/, '')
+}
+
 /** 仅供测试：直接塞入 config，绕过 fetch。 */
 export function _setRuntimeConfigForTesting(config: RuntimeConfig): void {
   cached = config
