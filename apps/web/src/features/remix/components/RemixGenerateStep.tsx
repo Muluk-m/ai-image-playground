@@ -3,7 +3,12 @@ import { useMemo, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useStore } from '../../../store'
 import AssetThumb from '../../library/components/AssetThumb'
-import { type CropOffset, defaultExportFit, type ExportFit } from '../lib/exportPresets'
+import {
+  type CropOffset,
+  defaultExportFit,
+  EXPORT_FITS,
+  type ExportFit,
+} from '../lib/exportPresets'
 import { downloadSetZip, downloadShotImage } from '../lib/exportSet'
 import {
   indexTasksById,
@@ -93,7 +98,7 @@ function ShotRow({
           onChange={(event) => onFitChange(event.target.value as ExportFit)}
           className={`${SELECT} text-xs`}
         >
-          {(Object.keys(EXPORT_FIT_LABELS) as ExportFit[]).map((option) => (
+          {EXPORT_FITS.map((option) => (
             <option key={option} value={option}>
               {EXPORT_FIT_LABELS[option]}
             </option>
