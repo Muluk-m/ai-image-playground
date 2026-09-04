@@ -231,10 +231,10 @@ describe('analysing the competitor images into shots', () => {
 
     await useRemixStore.getState().analyzeShots()
 
-    expect(analyzeCompetitorImages).toHaveBeenCalledWith(
-      ['data:image/png;base64,i1'],
-      { name: 'W2753 浴缸', description: '蛋形单边斜背。主色：哑光灰棕。不得出现的颜色：米白 / 浅灰' },
-    )
+    expect(analyzeCompetitorImages).toHaveBeenCalledWith(['data:image/png;base64,i1'], {
+      name: 'W2753 浴缸',
+      description: '蛋形单边斜背。主色：哑光灰棕。不得出现的颜色：米白 / 浅灰',
+    })
     expect(shots()).toHaveLength(1)
     expect(shots()[0]).toMatchObject({
       type: 'scene',
