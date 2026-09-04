@@ -21,6 +21,7 @@ describe('client capability bootstrap', () => {
         'billing:credits': false,
         'generation:byok': true,
         'quota:daily': false,
+        'remix:listing': false,
       }),
     )
     vi.stubGlobal('fetch', fetchSpy)
@@ -71,6 +72,7 @@ describe('client capability bootstrap', () => {
           'billing:credits': false,
           'generation:byok': false,
           'quota:daily': false,
+          'remix:listing': false,
         }),
       ),
     )

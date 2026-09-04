@@ -280,6 +280,7 @@ describe('mask draft lifecycle in store actions', () => {
         'billing:credits': true,
         'generation:byok': false,
         'quota:daily': false,
+        'remix:listing': false,
       }),
     )
     await bootstrapClientCapabilities(true, '')
