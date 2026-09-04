@@ -1,4 +1,4 @@
-import type { CompetitorBrief } from '@image-playground/shared'
+import type { CompetitorBrief, ProductContext } from '@image-playground/shared'
 import { create } from 'zustand'
 import { isClientCapabilityEnabled } from '../../lib/clientCapabilities'
 import { ensureImageCached, storeImageFromFile, storeImageFromUrl, useStore } from '../../store'
@@ -278,13 +278,15 @@ export const useRemixStore = create<RemixState>((set, get) => ({
         productContext(draft),
       )
       const context = shotContext(get)
-      const shots: RemixShot[] = []
-      for (const [index, brief] of briefs.entries()) {
+      const analysed = briefs.flatMap((brief, index) => {
         const source = sources[index]
-        if (!source) continue
-        const referenceImageId = await storeReferenceImage(source, brief)
-        shots.push(createShot(source.imageId, brief, referenceImageId, context))
-      }
+        return source ? [{ source, brief }] : []
+      })
+      const shots = await Promise.all(
+        analysed.map(async ({ source, brief }) =>
+          createShot(source.imageId, brief, await storeReferenceImage(source, brief), context),
+        ),
+      )
       set((s) => ({ draft: { ...s.draft, shots } }))
       await persistDraft(set, get)
     } catch (error) {
@@ -297,26 +299,12 @@ export const useRemixStore = create<RemixState>((set, get) => ({
 
   updateShot: (shotId, patch) => {
     const context = shotContext(get)
-    set((s) => ({
-      draft: {
-        ...s.draft,
-        shots: s.draft.shots.map((shot) =>
-          shot.id === shotId ? applyShotPatch(shot, patch, context) : shot,
-        ),
-      },
-    }))
+    mapShot(set, shotId, (shot) => applyShotPatch(shot, patch, context))
   },
 
   resetShotPrompt: (shotId) => {
     const context = shotContext(get)
-    set((s) => ({
-      draft: {
-        ...s.draft,
-        shots: s.draft.shots.map((shot) =>
-          shot.id === shotId ? regenerateShotPrompt(shot, context) : shot,
-        ),
-      },
-    }))
+    mapShot(set, shotId, (shot) => regenerateShotPrompt(shot, context))
   },
 
   saveShotsAndContinue: async () => {
@@ -327,6 +315,15 @@ export const useRemixStore = create<RemixState>((set, get) => ({
 
 type SetState = (partial: Partial<RemixState> | ((s: RemixState) => Partial<RemixState>)) => void
 type GetState = () => RemixState
+
+function mapShot(set: SetState, shotId: string, transform: (shot: RemixShot) => RemixShot): void {
+  set((s) => ({
+    draft: {
+      ...s.draft,
+      shots: s.draft.shots.map((shot) => (shot.id === shotId ? transform(shot) : shot)),
+    },
+  }))
+}
 
 async function persistDraft(set: SetState, get: GetState): Promise<void> {
   const { draft, sets } = get()
@@ -368,7 +365,7 @@ function shotContext(get: GetState): ShotContext {
   }
 }
 
-function productContext(draft: RemixDraft): { name: string; description: string } {
+function productContext(draft: RemixDraft): ProductContext {
   const { product } = draft.settings
   return {
     name: product.name.trim() || draft.name.trim() || '本产品',

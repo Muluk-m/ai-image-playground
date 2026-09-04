@@ -16,12 +16,7 @@ import {
   REMIX_PLATFORMS,
 } from '../types'
 import ListInput from './ListInput'
-
-const CARD =
-  'rounded-2xl border border-gray-200/70 bg-white/70 p-4 dark:border-white/[0.08] dark:bg-white/[0.02]'
-const FIELD =
-  'w-full rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-800 placeholder:text-gray-400 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100 dark:border-white/[0.08] dark:bg-white/[0.04] dark:text-gray-100 dark:focus:border-blue-500/50 dark:focus:ring-blue-500/15'
-const LABEL = 'text-xs font-medium text-gray-500 dark:text-gray-400'
+import { CARD, FIELD, LABEL, NOTICE, PRIMARY_BUTTON } from './styles'
 
 function Choice<T extends string>({
   options,
@@ -117,17 +112,13 @@ export default function RemixInputStep() {
               type="button"
               onClick={() => void fetchListing()}
               disabled={listingLoading}
-              className="shrink-0 rounded-lg bg-blue-500 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-blue-600 disabled:cursor-wait disabled:opacity-60"
+              className={`shrink-0 ${PRIMARY_BUTTON}`}
             >
               {listingLoading ? '抓取中' : '抓取图集'}
             </button>
           </div>
 
-          {listingNotice && (
-            <p className="mt-2 rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
-              {listingNotice}
-            </p>
-          )}
+          {listingNotice && <p className={`mt-2 ${NOTICE}`}>{listingNotice}</p>}
 
           <div className="mt-3 flex items-center gap-2">
             <button
@@ -277,11 +268,7 @@ export default function RemixInputStep() {
             </ul>
           )}
 
-          {needsFrontAsset && (
-            <p className="mt-3 rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
-              建议补一张正面白底图
-            </p>
-          )}
+          {needsFrontAsset && <p className={`mt-3 ${NOTICE}`}>建议补一张正面白底图</p>}
         </section>
       </div>
 
@@ -325,7 +312,7 @@ export default function RemixInputStep() {
         <button
           type="button"
           onClick={() => void saveAndContinue()}
-          className="rounded-lg bg-blue-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-600"
+          className={`${PRIMARY_BUTTON} px-4 py-2`}
         >
           保存并下一步
         </button>

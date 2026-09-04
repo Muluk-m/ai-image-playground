@@ -5,12 +5,8 @@ import { canGenerateShot } from '../lib/shots'
 import { useRemixStore } from '../store'
 import { type RemixShot, SHOT_TYPE_LABELS } from '../types'
 import ListInput from './ListInput'
+import { CARD, FIELD, LABEL, NOTICE, PRIMARY_BUTTON } from './styles'
 
-const CARD =
-  'rounded-2xl border border-gray-200/70 bg-white/70 p-4 dark:border-white/[0.08] dark:bg-white/[0.02]'
-const FIELD =
-  'w-full rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-800 placeholder:text-gray-400 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100 dark:border-white/[0.08] dark:bg-white/[0.04] dark:text-gray-100 dark:focus:border-blue-500/50 dark:focus:ring-blue-500/15'
-const LABEL = 'text-xs font-medium text-gray-500 dark:text-gray-400'
 const BADGE = 'rounded-full px-2 py-0.5 text-xs'
 const THUMB = 'h-20 w-20 overflow-hidden rounded-xl border border-gray-200 dark:border-white/[0.08]'
 
@@ -211,18 +207,14 @@ export default function RemixBriefStep() {
           type="button"
           onClick={() => void analyzeShots()}
           disabled={analyzing}
-          className="rounded-lg bg-blue-500 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-blue-600 disabled:cursor-wait disabled:opacity-60"
+          className={PRIMARY_BUTTON}
         >
           {analyzing ? '分析中' : draft.shots.length > 0 ? '重新分析' : '分析竞品图'}
         </button>
         <span className="text-xs text-gray-500 dark:text-gray-400">
           {draft.shots.length} 镜 · 已选 {selected} 镜
         </span>
-        {analyzeNotice && (
-          <p className="w-full rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
-            {analyzeNotice}
-          </p>
-        )}
+        {analyzeNotice && <p className={`w-full ${NOTICE}`}>{analyzeNotice}</p>}
       </div>
 
       {draft.shots.length > 0 && (
@@ -237,7 +229,7 @@ export default function RemixBriefStep() {
         <button
           type="button"
           onClick={() => void saveShotsAndContinue()}
-          className="rounded-lg bg-blue-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-600"
+          className={`${PRIMARY_BUTTON} px-4 py-2`}
         >
           下一步
         </button>
