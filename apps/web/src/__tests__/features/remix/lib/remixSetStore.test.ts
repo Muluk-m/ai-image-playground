@@ -55,4 +55,27 @@ describe('remix set storage', () => {
 
     expect(await remixSetStore.list()).toEqual([])
   })
+
+  it('skips a set written under an older shape', async () => {
+    const legacy = {
+      ...SET,
+      id: 'legacy',
+      source: { kind: 'competitor', competitorImageIds: ['i1'] },
+    } as unknown as RemixSetRecord
+    await remixSetStore.put(legacy)
+    await remixSetStore.put(SET)
+
+    expect(await remixSetStore.list()).toEqual([SET])
+  })
+
+  it('skips a set whose shots have no task list', async () => {
+    const legacy = {
+      ...SET,
+      id: 'legacy',
+      shots: [{ id: 's1', status: 'pending' }],
+    } as unknown as RemixSetRecord
+    await remixSetStore.put(legacy)
+
+    expect(await remixSetStore.list()).toEqual([])
+  })
 })
