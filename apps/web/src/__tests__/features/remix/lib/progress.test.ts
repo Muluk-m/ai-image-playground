@@ -69,7 +69,10 @@ describe('deriving one shot state from the task records', () => {
   })
 
   it('times a running shot from the earliest submission', () => {
-    const tasks = indexTasksById([task('t1', { createdAt: 3_000 }), task('t2', { createdAt: 1_000 })])
+    const tasks = indexTasksById([
+      task('t1', { createdAt: 3_000 }),
+      task('t2', { createdAt: 1_000 }),
+    ])
 
     expect(shotProgress({ id: 'shot-1', taskIds: ['t1', 't2'] }, tasks, NO_QUEUE)).toMatchObject({
       startedAt: 1_000,

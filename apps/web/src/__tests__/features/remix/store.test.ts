@@ -88,6 +88,24 @@ describe('fetching the competitor image set from a listing url', () => {
     expect(state.draft.name).toBe('Abruzzo Bathtub')
   })
 
+  it('times the fetch from the moment it starts until it lands', async () => {
+    let land: (listing: unknown) => void = () => {}
+    fetchListingImages.mockReturnValue(
+      new Promise((resolve) => {
+        land = resolve
+      }),
+    )
+    useRemixStore.getState().setListingUrl('https://www.amazon.com/dp/B0FVLNS696')
+
+    const fetching = useRemixStore.getState().fetchListing()
+    expect(useRemixStore.getState().listingStartedAt).not.toBeNull()
+
+    land({ asin: 'B0FVLNS696', images: [] })
+    await fetching
+
+    expect(useRemixStore.getState().listingStartedAt).toBeNull()
+  })
+
   it('keeps the fallback notice when the listing cannot be reached', async () => {
     fetchListingImages.mockRejectedValue(new Error('抓不到这条链接的图集'))
     useRemixStore.getState().setListingUrl('https://www.amazon.com/dp/B0FVLNS696')
@@ -286,6 +304,33 @@ describe('analysing the competitor images into shots', () => {
       productImageId: 'p-front',
     })
     expect(shots()[0]?.prompt).toContain('必须保持哑光灰棕')
+  })
+
+  it('analyses one image per request and counts them as they land', async () => {
+    const remix = useRemixStore.getState()
+    remix.addSourceImages(['i1', 'i2'])
+    remix.toggleProductAsset('a-front')
+    remix.setProductAngle('a-front', 'front')
+    await useRemixStore.getState().saveAndContinue()
+    const seen: Array<[number, number, number | null]> = []
+    analyzeCompetitorImages.mockImplementation(async () => {
+      const state = useRemixStore.getState()
+      seen.push([state.analyzedCount, state.analyzeTotal, state.analyzeStartedAt])
+      return [SCENE_BRIEF]
+    })
+
+    await useRemixStore.getState().analyzeShots()
+
+    expect(analyzeCompetitorImages).toHaveBeenCalledTimes(2)
+    expect(analyzeCompetitorImages.mock.calls.map((call) => call[0])).toEqual([
+      ['data:image/png;base64,i1'],
+      ['data:image/png;base64,i2'],
+    ])
+    expect(seen.map(([done, total]) => `${done}/${total}`)).toEqual(['0/2', '0/2'])
+    expect(seen.every(([, , startedAt]) => startedAt !== null)).toBe(true)
+    expect(useRemixStore.getState().analyzedCount).toBe(2)
+    expect(shots().map((s) => s.sourceImageId)).toEqual(['i1', 'i2'])
+    expect(useRemixStore.getState().analyzeStartedAt).toBeNull()
   })
 
   it('stores the erased competitor image as the reference and keeps the original', async () => {
