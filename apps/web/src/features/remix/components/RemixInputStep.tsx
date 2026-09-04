@@ -2,7 +2,7 @@ import { useRef } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { CloseIcon } from '../../../components/icons'
 import AssetThumb from '../../library/components/AssetThumb'
-import { selectVisibleAssets, useLibraryStore } from '../../library/store'
+import { useLibraryStore } from '../../library/store'
 import { selectNeedsFrontAsset, useRemixStore } from '../store'
 import {
   PRODUCT_ANGLE_LABELS,
@@ -59,7 +59,9 @@ export default function RemixInputStep() {
   const listingLoading = useRemixStore((s) => s.listingLoading)
   const listingNotice = useRemixStore((s) => s.listingNotice)
   const needsFrontAsset = useRemixStore(selectNeedsFrontAsset)
-  const assets = useLibraryStore(useShallow(selectVisibleAssets))
+  const assets = useLibraryStore(
+    useShallow((s) => [...s.assets].sort((a, b) => b.lastUsedAt - a.lastUsedAt)),
+  )
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const {
