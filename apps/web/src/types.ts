@@ -140,6 +140,12 @@ export interface MaskDraft {
 
 export type TaskStatus = 'running' | 'done' | 'error'
 
+/** 任务的归属：属于哪一套的哪一镜。 */
+export interface TaskOrigin {
+  setId: string
+  shotId: string
+}
+
 export interface TaskRecord {
   id: string
   prompt: string
@@ -193,6 +199,8 @@ export interface TaskRecord {
   elapsed: number | null
   /** 是否收藏 */
   isFavorite?: boolean
+  /** 归属：套内逐镜提交才带，零散提交不带。 */
+  origin?: TaskOrigin
 }
 
 // ===== IndexedDB 存储的图片 =====

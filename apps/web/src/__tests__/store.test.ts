@@ -109,7 +109,7 @@ import { useLibraryStore } from '../features/library/store'
 import { callImageApi } from '../lib/api'
 import { setChannels } from '../lib/channels/channelStore'
 import type { BuiltinEdgeProfile, ClientProfile, PublicChannel } from '../lib/channels/types'
-import { clearImages, getImage, putImage } from '../lib/db'
+import { clearImages, getAllTasks, getImage, putImage } from '../lib/db'
 import { removeKeyedBackgroundFromDataUrl } from '../lib/transparentImage'
 import {
   addCompletedCanvasTask,
@@ -119,6 +119,7 @@ import {
   markInterruptedOpenAIRunningTasks,
   retryTask,
   reuseConfig,
+  submitPrepared,
   submitTask,
   useStore,
 } from '../store'
@@ -1097,5 +1098,159 @@ describe('素材与模板引导标记', () => {
     expect(merged.libraryCoachDismissed).toBe(false)
     expect(merged.libraryPanelOpened).toBe(false)
     expect(merged.assetHintShown).toBe(false)
+  })
+})
+
+describe('submitPrepared 显式参数提交接缝', () => {
+  const PREPARED_IMAGE = 'data:image/png;base64,prepared'
+  const preparedGeminiProfile = createDefaultGeminiByokProfile({
+    id: 'gemini-byok',
+    apiKey: 'gemini-key',
+  })
+
+  function setupPreparedState() {
+    const profile = createDefaultOpenAIByokProfile({ apiKey: 'test-key' })
+    useStore.setState({
+      settings: normalizeSettings({
+        ...DEFAULT_SETTINGS,
+        profiles: [profile, preparedGeminiProfile],
+        activeProfileId: profile.id,
+        clearInputAfterSubmit: false,
+      }),
+      prompt: '',
+      slotValues: {},
+      inputImages: [],
+      maskDraft: null,
+      params: { ...DEFAULT_PARAMS, n: 1 },
+      tasks: [],
+      detailTaskId: null,
+      showSettings: false,
+      toast: null,
+      confirmDialog: null,
+      showToast: vi.fn(),
+      setConfirmDialog: vi.fn(),
+    })
+  }
+
+  beforeEach(async () => {
+    vi.mocked(callImageApi).mockClear()
+    vi.mocked(callImageApi).mockResolvedValue({
+      images: ['data:image/png;base64,generated'],
+      actualParamsList: [{ size: '1x1' }],
+    })
+    setChannels([])
+    await clearImages()
+    await putImage({ id: imageA.id, dataUrl: PREPARED_IMAGE, source: 'upload', createdAt: 0 })
+    setupPreparedState()
+  })
+
+  it('返回创建的任务 id，产出与 composer 路径同形的任务', async () => {
+    useStore.setState({
+      prompt: '一只猫',
+      inputImages: [{ id: imageA.id, dataUrl: PREPARED_IMAGE }],
+    })
+    await submitTask()
+    const composerTask = useStore.getState().tasks[0]
+
+    useStore.setState({ tasks: [], prompt: '', inputImages: [] })
+    const ids = await submitPrepared({
+      prompt: '一只猫',
+      inputImages: [{ id: imageA.id, dataUrl: PREPARED_IMAGE }],
+      params: { ...DEFAULT_PARAMS, n: 1 },
+    })
+
+    expect(ids).toHaveLength(1)
+    const prepared = useStore.getState().tasks[0]
+    expect(prepared.id).toBe(ids[0])
+    expect(prepared).toMatchObject({
+      prompt: composerTask.prompt,
+      apiProvider: composerTask.apiProvider,
+      apiProfileId: composerTask.apiProfileId,
+      apiProfileName: composerTask.apiProfileName,
+      apiModel: composerTask.apiModel,
+      inputImageIds: composerTask.inputImageIds,
+    })
+    expect(prepared.params).toEqual(composerTask.params)
+    expect(prepared.clientRequestId).toBeTruthy()
+  })
+
+  it('归属信息落进任务记录并持久化，不带时记录里没有该字段', async () => {
+    const [withOrigin] = await submitPrepared({
+      prompt: '主图',
+      inputImages: [],
+      params: { ...DEFAULT_PARAMS, n: 1 },
+      origin: { setId: 'set-1', shotId: 'shot-3' },
+    })
+
+    expect(useStore.getState().tasks[0].origin).toEqual({ setId: 'set-1', shotId: 'shot-3' })
+    const persisted = (await getAllTasks()).find((t) => t.id === withOrigin)
+    expect(persisted?.origin).toEqual({ setId: 'set-1', shotId: 'shot-3' })
+
+    useStore.setState({ tasks: [] })
+    await submitPrepared({ prompt: '主图', inputImages: [], params: { ...DEFAULT_PARAMS, n: 1 } })
+    expect(useStore.getState().tasks[0].origin).toBeUndefined()
+  })
+
+  it('不经 composer 校验：超过 16 张仍提交且不弹提示', async () => {
+    const ids = await submitPrepared({
+      prompt: '{场景}',
+      slotValues: { 场景: ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i'] },
+      inputImages: [],
+      params: { ...DEFAULT_PARAMS, n: 2 },
+    })
+
+    expect(ids).toHaveLength(18)
+    expect(useStore.getState().tasks).toHaveLength(18)
+    expect(useStore.getState().showToast).not.toHaveBeenCalled()
+  })
+
+  it('只产出一条任务时复用传入的幂等键，分发成多条时各自唯一', async () => {
+    await submitPrepared({
+      prompt: 'p',
+      inputImages: [],
+      params: { ...DEFAULT_PARAMS, n: 1 },
+      clientRequestId: 'req-1',
+    })
+    expect(useStore.getState().tasks[0].clientRequestId).toBe('req-1')
+
+    useStore.setState({ tasks: [] })
+    await submitPrepared({
+      prompt: 'p',
+      inputImages: [],
+      params: { ...DEFAULT_PARAMS, n: 3 },
+      clientRequestId: 'req-1',
+    })
+    const keys = useStore.getState().tasks.map((t) => t.clientRequestId)
+    expect(new Set(keys).size).toBe(3)
+    expect(keys).not.toContain('req-1')
+  })
+
+  it('按 profileId 提交时任务记录带该配置的快照，不受当前活动配置影响', async () => {
+    await submitPrepared({
+      prompt: 'p',
+      inputImages: [],
+      params: { ...DEFAULT_PARAMS, n: 1 },
+      profileId: preparedGeminiProfile.id,
+    })
+
+    expect(useStore.getState().tasks[0]).toMatchObject({
+      apiProfileId: preparedGeminiProfile.id,
+      apiProvider: 'gemini',
+    })
+    expect(useStore.getState().settings.activeProfileId).toBe('default-openai')
+  })
+
+  it('遮罩按显式参数写进任务记录', async () => {
+    await submitPrepared({
+      prompt: 'p',
+      inputImages: [{ id: imageA.id, dataUrl: PREPARED_IMAGE }],
+      params: { ...DEFAULT_PARAMS, n: 1 },
+      mask: { imageId: 'mask-image', targetImageId: imageA.id },
+    })
+
+    expect(useStore.getState().tasks[0]).toMatchObject({
+      maskImageId: 'mask-image',
+      maskTargetImageId: imageA.id,
+    })
   })
 })

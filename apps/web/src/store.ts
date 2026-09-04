@@ -21,6 +21,7 @@ import type {
   ExportData,
   InputImage,
   MaskDraft,
+  TaskOrigin,
   TaskParams,
   TaskRecord,
 } from './types'
@@ -62,6 +63,7 @@ import { orderInputImagesForMask } from './lib/mask'
 import { getCustomQueuedImageResult } from './lib/openaiCompatibleImageApi'
 import { getChangedParams, normalizeParamsForSettings } from './lib/paramCompatibility'
 import {
+  getPrivateSubmissionGuard,
   notifyPrivateSubmissionAccepted,
   notifyPrivateSubmissionError,
   notifyPrivateSubmissionSettled,
@@ -1234,6 +1236,131 @@ export async function initStore() {
   }
 }
 
+/** 归一化 + 透明输出改写。幂等：composer 的参数回写与提交接缝各推导一次，结果相同。 */
+function deriveTaskParams(
+  params: TaskParams,
+  requestSettings: AppSettings,
+  hasInputImages: boolean,
+): TaskParams {
+  const normalized = normalizeParamsForSettings(params, requestSettings, { hasInputImages })
+  return normalized.output_format === 'png' && normalized.transparent_output
+    ? getTransparentRequestParams(normalized)
+    : { ...normalized, transparent_output: false }
+}
+
+export interface PreparedSubmission {
+  prompt: string
+  inputImages: InputImage[]
+  params: TaskParams
+  /** 槽位值；省略即按字面提交。 */
+  slotValues?: SlotValues
+  mask?: { imageId: string; targetImageId: string } | null
+  /** 提交所用的 API 配置；省略用当前活动配置。 */
+  profileId?: string
+  /** 幂等键；只在本次提交恰好产出一条任务时生效。 */
+  clientRequestId?: string
+  /** 归属信息（套 / 镜头）；零散提交不带。 */
+  origin?: TaskOrigin
+}
+
+/**
+ * 显式参数提交入口，composer 与套内逐镜提交共用：归一化、槽位展开、数量分发、
+ * 落库并发起，返回创建的任务 id。composer 专属的校验与状态回写在 submitTask 里。
+ */
+export async function submitPrepared(input: PreparedSubmission): Promise<string[]> {
+  const { settings, showToast } = useStore.getState()
+  const normalizedSettings = normalizeSettings(settings)
+  const profile =
+    normalizedSettings.profiles.find((item) => item.id === input.profileId) ??
+    getActiveApiProfile(normalizedSettings)
+  const requestSettings = createSettingsForApiProfile(normalizedSettings, profile)
+
+  if (!isByokGenerationEnabled() && profile.source !== 'builtin-edge') {
+    showToast('当前部署只允许使用内置模型', 'error')
+    return []
+  }
+
+  const validationError = validateClientProfile(profile)
+  if (validationError) {
+    showToast(`请先完善请求 API 配置：${validationError}`, 'error')
+    useStore.getState().setShowSettings(true)
+    return []
+  }
+
+  const trimmedPrompt = input.prompt.trim()
+  if (!trimmedPrompt) {
+    showToast('请输入提示词', 'error')
+    return []
+  }
+
+  const taskParams = deriveTaskParams(input.params, requestSettings, input.inputImages.length > 0)
+  const submitView = clientProfileToApiProfile(profile)
+  const prompts = expandPromptSlots(trimmedPrompt, input.slotValues ?? {})
+  if (prompts.length === 0) return []
+
+  const submissionGuard = getPrivateSubmissionGuard({
+    model: submitView.model,
+    quantity: prompts.length * Math.max(1, taskParams.n),
+  })
+  if (submissionGuard.blocked) {
+    showToast(submissionGuard.disabledReason ?? '当前无法生成', 'error')
+    return []
+  }
+
+  // 持久化输入图片到 IndexedDB（此前只在内存缓存中）
+  for (const img of input.inputImages) {
+    await storeImage(img.dataUrl)
+  }
+
+  // Billed submissions must stay in one BFF task so credit reservation is atomic. Otherwise,
+  // only channels that explicitly declare native count support receive n in one request.
+  const billedBuiltinSubmission =
+    profile.source === 'builtin-edge' && isClientCapabilityEnabled('billing:credits')
+  const supportsNativeCount = getModelCapabilities(profile, getPublicChannels())?.has('n') === true
+  const fanOut = billedBuiltinSubmission || supportsNativeCount ? 1 : Math.max(1, taskParams.n)
+  const singleParams = fanOut === 1 ? taskParams : { ...taskParams, n: 1 }
+  // 幂等键逐任务唯一：多条任务共用一个键会被 BFF 去重折叠成一次生成。
+  const reusableRequestId = prompts.length * fanOut === 1 ? input.clientRequestId : undefined
+  const createdAt = Date.now()
+  const newTasks: TaskRecord[] = prompts.flatMap((taskPrompt) => {
+    const transparentMeta = taskParams.transparent_output
+      ? createTransparentOutputMeta(taskPrompt)
+      : null
+    return Array.from({ length: fanOut }, () => ({
+      id: genId(),
+      prompt: taskPrompt,
+      params: singleParams,
+      apiProvider: submitView.provider,
+      apiProfileId: profile.id,
+      apiProfileName: submitView.name,
+      apiModel: submitView.model,
+      inputImageIds: input.inputImages.map((i) => i.id),
+      maskTargetImageId: input.mask?.targetImageId ?? null,
+      maskImageId: input.mask?.imageId ?? null,
+      transparentOutput: transparentMeta?.transparentOutput,
+      transparentPrompt: transparentMeta?.effectivePrompt,
+      origin: input.origin,
+      outputImages: [],
+      status: 'running' as const,
+      error: null,
+      createdAt,
+      finishedAt: null,
+      elapsed: null,
+      clientRequestId: reusableRequestId ?? crypto.randomUUID(),
+    }))
+  })
+
+  const latestTasks = useStore.getState().tasks
+  useStore.getState().setTasks([...newTasks, ...latestTasks])
+  await Promise.all(newTasks.map((t) => putTask(t)))
+
+  for (const t of newTasks) {
+    void executeTask(t.id)
+  }
+
+  return newTasks.map((t) => t.id)
+}
+
 /** 提交新任务 */
 export async function submitTask(
   options: { allowFullMask?: boolean; useCurrentApiProfileWhenReusedMissing?: boolean } = {},
@@ -1281,23 +1408,6 @@ export async function submitTask(
     }
   }
 
-  if (!isByokGenerationEnabled() && activeProfile.source !== 'builtin-edge') {
-    showToast('当前部署只允许使用内置模型', 'error')
-    return
-  }
-
-  const validationError = validateClientProfile(activeProfile)
-  if (validationError) {
-    showToast(`请先完善请求 API 配置：${validationError}`, 'error')
-    useStore.getState().setShowSettings(true)
-    return
-  }
-
-  if (!prompt.trim()) {
-    showToast('请输入提示词', 'error')
-    return
-  }
-
   const unfilledSlots = getUnfilledPromptSlots(prompt, slotValues)
   if (unfilledSlots.length > 0) {
     showToast(`槽位 {${unfilledSlots[0]}} 未填值`, 'error')
@@ -1339,71 +1449,29 @@ export async function submitTask(
     }
   }
 
-  // 持久化输入图片到 IndexedDB（此前只在内存缓存中）
-  for (const img of orderedInputImages) {
-    await storeImage(img.dataUrl)
-  }
-
-  const normalizedParams = normalizeParamsForSettings(params, requestSettings, {
-    hasInputImages: orderedInputImages.length > 0,
-  })
-  const shouldUseTransparentOutput =
-    normalizedParams.output_format === 'png' && normalizedParams.transparent_output
-  const taskParams = shouldUseTransparentOutput
-    ? getTransparentRequestParams(normalizedParams)
-    : { ...normalizedParams, transparent_output: false }
+  const taskParams = deriveTaskParams(params, requestSettings, orderedInputImages.length > 0)
   const normalizedParamPatch = getChangedParams(params, taskParams)
   if (Object.keys(normalizedParamPatch).length) {
     useStore.getState().setParams(normalizedParamPatch)
   }
 
-  const submitView = clientProfileToApiProfile(activeProfile)
-  // Billed submissions must stay in one BFF task so credit reservation is atomic. Otherwise,
-  // only channels that explicitly declare native count support receive n in one request.
-  const billedBuiltinSubmission =
-    activeProfile.source === 'builtin-edge' && isClientCapabilityEnabled('billing:credits')
-  const supportsNativeCount =
-    getModelCapabilities(activeProfile, getPublicChannels())?.has('n') === true
-  const fanOut = billedBuiltinSubmission || supportsNativeCount ? 1 : Math.max(1, taskParams.n)
-  const singleParams = fanOut === 1 ? taskParams : { ...taskParams, n: 1 }
-  const trimmedPrompt = prompt.trim()
-  if (getSubmissionImageCount(trimmedPrompt, slotValues, taskParams.n) > MAX_BATCH_IMAGES) {
+  if (getSubmissionImageCount(prompt.trim(), slotValues, taskParams.n) > MAX_BATCH_IMAGES) {
     showToast(`单次最多 ${MAX_BATCH_IMAGES} 张`, 'error')
     return
   }
-  const createdAt = Date.now()
-  const newTasks: TaskRecord[] = expandPromptSlots(trimmedPrompt, slotValues).flatMap(
-    (taskPrompt) => {
-      const transparentMeta = taskParams.transparent_output
-        ? createTransparentOutputMeta(taskPrompt)
-        : null
-      return Array.from({ length: fanOut }, () => ({
-        id: genId(),
-        prompt: taskPrompt,
-        params: singleParams,
-        apiProvider: submitView.provider,
-        apiProfileId: activeProfile.id,
-        apiProfileName: submitView.name,
-        apiModel: submitView.model,
-        inputImageIds: orderedInputImages.map((i) => i.id),
-        maskTargetImageId,
-        maskImageId,
-        transparentOutput: transparentMeta?.transparentOutput,
-        transparentPrompt: transparentMeta?.effectivePrompt,
-        outputImages: [],
-        status: 'running' as const,
-        error: null,
-        createdAt,
-        finishedAt: null,
-        elapsed: null,
-        clientRequestId: crypto.randomUUID(),
-      }))
-    },
-  )
 
-  const latestTasks = useStore.getState().tasks
-  useStore.getState().setTasks([...newTasks, ...latestTasks])
-  await Promise.all(newTasks.map((t) => putTask(t)))
+  const createdTaskIds = await submitPrepared({
+    prompt,
+    slotValues,
+    inputImages: orderedInputImages,
+    params: taskParams,
+    mask:
+      maskImageId && maskTargetImageId
+        ? { imageId: maskImageId, targetImageId: maskTargetImageId }
+        : null,
+    profileId: activeProfile.id,
+  })
+  if (createdTaskIds.length === 0) return
 
   if (settings.clearInputAfterSubmit) {
     useStore.getState().setPrompt('')
@@ -1414,10 +1482,6 @@ export async function submitTask(
   // 滚出顶部时把视口平滑滚回，让新卡片即刻可见。已在顶部时无需动。
   if (typeof window !== 'undefined' && window.scrollY > SUBMIT_SCROLL_TO_TOP_THRESHOLD_PX) {
     window.scrollTo({ top: 0, behavior: 'smooth' })
-  }
-
-  for (const t of newTasks) {
-    void executeTask(t.id)
   }
 }
 
@@ -1623,14 +1687,7 @@ export async function retryTask(task: TaskRecord) {
   const { settings } = useStore.getState()
   const activeProfile = getActiveApiProfile(settings)
   const activeView = clientProfileToApiProfile(activeProfile)
-  const normalizedParams = normalizeParamsForSettings(task.params, settings, {
-    hasInputImages: task.inputImageIds.length > 0,
-  })
-  const shouldUseTransparentOutput =
-    normalizedParams.output_format === 'png' && normalizedParams.transparent_output
-  const taskParams = shouldUseTransparentOutput
-    ? getTransparentRequestParams(normalizedParams)
-    : { ...normalizedParams, transparent_output: false }
+  const taskParams = deriveTaskParams(task.params, settings, task.inputImageIds.length > 0)
   const transparentMeta = taskParams.transparent_output
     ? createTransparentOutputMeta(task.prompt.trim())
     : null
