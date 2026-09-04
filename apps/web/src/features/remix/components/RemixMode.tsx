@@ -3,12 +3,13 @@ import { useShallow } from 'zustand/react/shallow'
 import { useLibraryStore } from '../../library/store'
 import { type RemixStep, useRemixStore } from '../store'
 import RemixBriefStep from './RemixBriefStep'
+import RemixGenerateStep from './RemixGenerateStep'
 import RemixInputStep from './RemixInputStep'
 
 const STEPS: Array<{ id: RemixStep; label: string }> = [
   { id: 1, label: '① 输入' },
   { id: 2, label: '② 简报与镜头' },
-  { id: 3, label: '③ 生成' },
+  { id: 3, label: '③ 生成与导出' },
 ]
 
 export default function RemixMode() {
@@ -72,11 +73,7 @@ export default function RemixMode() {
 
       {step === 1 && <RemixInputStep />}
       {step === 2 && <RemixBriefStep />}
-      {step === 3 && (
-        <div className="rounded-2xl border border-gray-200/70 bg-white/70 p-8 text-center text-sm text-gray-500 dark:border-white/[0.08] dark:bg-white/[0.02] dark:text-gray-400">
-          尚未开放
-        </div>
-      )}
+      {step === 3 && <RemixGenerateStep />}
     </main>
   )
 }

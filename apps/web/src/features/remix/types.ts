@@ -49,6 +49,11 @@ export interface RemixProductAsset {
 export const REMIX_SOURCE_KINDS = ['competitor', 'own'] as const
 export type RemixSourceKind = (typeof REMIX_SOURCE_KINDS)[number]
 
+export const REMIX_SOURCE_KIND_LABELS: Record<RemixSourceKind, string> = {
+  competitor: '复刻竞品',
+  own: '换背景',
+}
+
 export interface RemixSetSource {
   kind: RemixSourceKind
   listingUrl?: string
