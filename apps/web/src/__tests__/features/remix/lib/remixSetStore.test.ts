@@ -3,7 +3,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { remixSetStore } from '../../../../features/remix/lib/remixSetStore'
 import type { RemixSetRecord } from '../../../../features/remix/types'
 
-const PRODUCT = { name: 'W2753 浴缸', features: '蛋形单边斜背', mainColor: '哑光灰棕', forbiddenColors: ['米白'] }
+const PRODUCT = {
+  name: 'W2753 浴缸',
+  features: '蛋形单边斜背',
+  mainColor: '哑光灰棕',
+  forbiddenColors: ['米白'],
+}
 
 const SET: RemixSetRecord = {
   id: 'set1',

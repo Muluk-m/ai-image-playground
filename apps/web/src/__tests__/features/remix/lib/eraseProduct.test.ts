@@ -21,7 +21,9 @@ describe('turning the normalised product box into a pixel rectangle', () => {
   })
 
   it('reports no rectangle for a box with no area', () => {
-    expect(productBoxToPixelRect({ x: 0.5, y: 0.5, w: 0, h: 0.3 }, { width: 100, height: 100 })).toBeNull()
+    expect(
+      productBoxToPixelRect({ x: 0.5, y: 0.5, w: 0, h: 0.3 }, { width: 100, height: 100 }),
+    ).toBeNull()
     expect(
       productBoxToPixelRect({ x: 0.5, y: 0.5, w: 0.001, h: 0.001 }, { width: 100, height: 100 }, 0),
     ).toBeNull()

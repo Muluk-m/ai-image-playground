@@ -36,11 +36,7 @@ describe('asking the BFF to analyse competitor images', () => {
   it('posts the images with the product context and returns the briefs', async () => {
     const fetcher = vi.fn().mockResolvedValue(jsonResponse({ briefs: [BRIEF] }))
 
-    const briefs = await analyzeCompetitorImages(
-      ['data:image/png;base64,AAA'],
-      PRODUCT,
-      fetcher,
-    )
+    const briefs = await analyzeCompetitorImages(['data:image/png;base64,AAA'], PRODUCT, fetcher)
 
     expect(fetcher).toHaveBeenCalledWith(
       'https://bff.example.com/api/remix/analyze',

@@ -138,8 +138,8 @@ describe('describing the product for the vision model', () => {
   })
 
   it('says nothing about colours that were not filled in', () => {
-    expect(
-      productContextDescription({ ...PRODUCT, mainColor: '', forbiddenColors: [] }),
-    ).toBe('蛋形单边斜背，外沿薄壁')
+    expect(productContextDescription({ ...PRODUCT, mainColor: '', forbiddenColors: [] })).toBe(
+      '蛋形单边斜背，外沿薄壁',
+    )
   })
 })
