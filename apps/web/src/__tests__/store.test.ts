@@ -398,6 +398,27 @@ describe('interrupted OpenAI running tasks', () => {
   })
 })
 
+describe('the persisted app mode', () => {
+  function merge(persisted: Record<string, unknown>) {
+    return useStore.persist
+      .getOptions()
+      .merge?.({ settings: { ...DEFAULT_SETTINGS }, ...persisted }, useStore.getState()) as {
+      appMode: string
+    }
+  }
+
+  it('restores a mode that is still offered', () => {
+    expect(merge({ appMode: 'bgswap' }).appMode).toBe('bgswap')
+    expect(merge({ appMode: 'remix' }).appMode).toBe('remix')
+  })
+
+  it('falls back to the current mode when the persisted one is gone', () => {
+    useStore.setState({ appMode: 'browse' })
+
+    expect(merge({ appMode: 'retired-mode' }).appMode).toBe('browse')
+  })
+})
+
 describe('input persistence setting', () => {
   beforeEach(() => {
     useStore.setState({

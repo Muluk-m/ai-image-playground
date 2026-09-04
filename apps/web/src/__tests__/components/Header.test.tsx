@@ -34,12 +34,13 @@ function modeButton(label: string): HTMLButtonElement {
 }
 
 describe('the mode switch', () => {
-  it('offers the workbench, the canvas and the remix mode', () => {
+  it('offers the workbench, the canvas, the remix and the background swap mode', () => {
     act(() => root.render(<Header />))
 
     expect(modeButton('工作台').getAttribute('aria-pressed')).toBe('true')
     expect(modeButton('创作')).toBeTruthy()
     expect(modeButton('复刻套图')).toBeTruthy()
+    expect(modeButton('换背景')).toBeTruthy()
   })
 
   it('switches to the remix mode when it is picked', () => {
@@ -51,5 +52,16 @@ describe('the mode switch', () => {
 
     expect(useStore.getState().appMode).toBe('remix')
     expect(modeButton('复刻套图').getAttribute('aria-pressed')).toBe('true')
+  })
+
+  it('switches to the background swap mode when it is picked', () => {
+    act(() => root.render(<Header />))
+
+    act(() => {
+      modeButton('换背景').dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(useStore.getState().appMode).toBe('bgswap')
+    expect(modeButton('换背景').getAttribute('aria-pressed')).toBe('true')
   })
 })
