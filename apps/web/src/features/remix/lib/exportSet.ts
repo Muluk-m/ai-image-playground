@@ -5,8 +5,12 @@ import {
   CENTER_OFFSET,
   type CropOffset,
   computeCenterCrop,
+  computeLetterbox,
+  type ExportFit,
+  edgeAverageColor,
   exportEntryName,
   exportFileName,
+  type Size,
   sanitizePathSegment,
 } from './exportPresets'
 
@@ -14,6 +18,7 @@ export interface SetExportShot {
   shotIndex: number
   shotType: ShotType
   imageIds: readonly string[]
+  fit: ExportFit
 }
 
 function loadImage(src: string): Promise<HTMLImageElement> {
@@ -25,23 +30,46 @@ function loadImage(src: string): Promise<HTMLImageElement> {
   })
 }
 
+const PROBE_EDGE = 64
+
+/** 底色只看边缘，先缩到 64px 再取：整幅 getImageData 每张要拷几十 MB 像素。 */
+function paddingColor(image: HTMLImageElement, source: Size): string {
+  const scale = Math.min(1, PROBE_EDGE / Math.max(source.width, source.height))
+  const size = {
+    width: Math.max(1, Math.round(source.width * scale)),
+    height: Math.max(1, Math.round(source.height * scale)),
+  }
+  const probe = document.createElement('canvas')
+  probe.width = size.width
+  probe.height = size.height
+  const ctx = probe.getContext('2d')
+  if (!ctx) return '#ffffff'
+  ctx.drawImage(image, 0, 0, size.width, size.height)
+  return edgeAverageColor(ctx.getImageData(0, 0, size.width, size.height).data, size)
+}
+
 async function renderToPreset(
   dataUrl: string,
   preset: ExportPreset,
   offset: CropOffset,
+  fit: ExportFit,
 ): Promise<Blob> {
   const image = await loadImage(dataUrl)
-  const crop = computeCenterCrop(
-    { width: image.naturalWidth, height: image.naturalHeight },
-    preset,
-    offset,
-  )
+  const source = { width: image.naturalWidth, height: image.naturalHeight }
   const canvas = document.createElement('canvas')
   canvas.width = preset.width
   canvas.height = preset.height
   const ctx = canvas.getContext('2d')
   if (!ctx) throw new Error('画布不可用')
-  ctx.drawImage(image, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, preset.width, preset.height)
+  if (fit === 'letterbox') {
+    const box = computeLetterbox(source, preset)
+    ctx.fillStyle = paddingColor(image, source)
+    ctx.fillRect(0, 0, preset.width, preset.height)
+    ctx.drawImage(image, box.dx, box.dy, box.dw, box.dh)
+  } else {
+    const crop = computeCenterCrop(source, preset, offset)
+    ctx.drawImage(image, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, preset.width, preset.height)
+  }
   const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'))
   if (!blob) throw new Error('导出失败')
   return blob
@@ -51,10 +79,11 @@ async function exportedImage(
   imageId: string,
   preset: ExportPreset,
   offset: CropOffset,
+  fit: ExportFit,
 ): Promise<Blob> {
   const dataUrl = await imageDataUrl(imageId)
   if (!dataUrl) throw new Error('找不到这张图')
-  return renderToPreset(dataUrl, preset, offset)
+  return renderToPreset(dataUrl, preset, offset, fit)
 }
 
 /** 单张下载也走预设，导出的尺寸与打包里的一致。 */
@@ -67,7 +96,7 @@ export async function downloadShotImage(
 ): Promise<void> {
   const imageIndex = Math.max(0, shot.imageIds.indexOf(imageId))
   downloadBlob(
-    await exportedImage(imageId, preset, offset),
+    await exportedImage(imageId, preset, offset, shot.fit),
     exportFileName(shot.shotIndex, shot.shotType, imageIndex),
   )
 }
@@ -89,7 +118,7 @@ export async function downloadSetZip(
   for (const shot of shots) {
     for (const [imageIndex, imageId] of shot.imageIds.entries()) {
       try {
-        const rendered = await exportedImage(imageId, preset, offset)
+        const rendered = await exportedImage(imageId, preset, offset, shot.fit)
         entries[exportEntryName(setName, shot.shotIndex, shot.shotType, imageIndex)] =
           new Uint8Array(await rendered.arrayBuffer())
       } catch {

@@ -113,15 +113,85 @@ describe('building the prompt for one shot', () => {
   })
 
   it('writes the selling point copy in chinese when that is the choice', () => {
-    const prompt = build({ type: 'selling-point', copy: { title: '防滑底', subtitle: '' } })
+    const prompt = build({ type: 'selling-point', copy: { title: '防滑底', subtitle: '深长缸体' } })
 
     expect(prompt).toContain('图上文案用中文')
     expect(prompt).toContain('标题「防滑底」')
-    expect(prompt).not.toContain('副标题')
+    expect(prompt).toContain('副标题「深长缸体」')
+  })
+
+  it('spells out the selling point layout and the safe margin', () => {
+    const prompt = build({ type: 'selling-point', copy: { title: '防滑底', subtitle: '深长缸体' } })
+
+    expect(prompt).toContain('标题排在画面上方或左上')
+    expect(prompt).toContain('留出干净的文案区')
+    expect(prompt).toContain('文字距画面边缘 8% 以上')
   })
 
   it('leaves a spec diagram without a prompt', () => {
     expect(build({ type: 'spec-diagram' })).toBe('')
+  })
+
+  it('turns the remaining text zones into icon labels', () => {
+    const prompt = build({
+      type: 'selling-point',
+      copy: { title: '防滑底', subtitle: '深长缸体' },
+      brief: { ...BRIEF, textZones: ['防滑底', '深长缸体', '保温 4 小时'] },
+    })
+
+    expect(prompt).toContain('图标标签：保温 4 小时')
+  })
+})
+
+describe('filling in a selling point shot that has no copy', () => {
+  const EMPTY: RemixShotCopy = { title: '', subtitle: '' }
+
+  it('takes the title and the subtitle from the brief text zones', () => {
+    const prompt = build({
+      type: 'selling-point',
+      copy: EMPTY,
+      brief: { ...BRIEF, textZones: ['一体成型缸体', '边缘薄至 8mm'] },
+    })
+
+    expect(prompt).toContain('标题「一体成型缸体」')
+    expect(prompt).toContain('副标题「边缘薄至 8mm」')
+  })
+
+  it('keeps the subtitle the user typed and picks another zone for the title', () => {
+    const prompt = build({
+      type: 'selling-point',
+      copy: { title: '', subtitle: '边缘薄至 8mm' },
+      brief: { ...BRIEF, textZones: ['边缘薄至 8mm', '一体成型缸体'] },
+    })
+
+    expect(prompt).toContain('标题「一体成型缸体」')
+    expect(prompt).toContain('副标题「边缘薄至 8mm」')
+  })
+
+  it('derives both lines from the product features when the brief has no text', () => {
+    const prompt = build({ type: 'selling-point', copy: EMPTY })
+
+    expect(prompt).toContain('标题「蛋形单边斜背」')
+    expect(prompt).toContain('副标题「外沿薄壁」')
+  })
+
+  it('joins the derived subtitle with the punctuation of the chosen language', () => {
+    const product = { ...PRODUCT, features: 'Egg-shaped shell, thin rim, slanted back' }
+
+    expect(build({ type: 'selling-point', copy: EMPTY, product, language: 'en' })).toContain(
+      '副标题「thin rim, slanted back」',
+    )
+    expect(build({ type: 'selling-point', copy: EMPTY, product, language: 'zh' })).toContain(
+      '副标题「thin rim，slanted back」',
+    )
+  })
+
+  it('falls back to the product name when nothing else is filled in', () => {
+    const product = { ...PRODUCT, features: '', mainColor: '' }
+    const prompt = build({ type: 'selling-point', copy: EMPTY, product })
+
+    expect(prompt).toContain('标题「W2753 独立浴缸」')
+    expect(prompt).toContain('副标题「W2753 独立浴缸」')
   })
 })
 
