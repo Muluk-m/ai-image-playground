@@ -6,6 +6,7 @@
     "generation:byok": false,
     "operator:console": false,
     "quota:daily": true,
+    "remix:analyze": false,
     "remix:listing": false
   },
   "quotas": {
