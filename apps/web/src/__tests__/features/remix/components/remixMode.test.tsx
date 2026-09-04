@@ -125,6 +125,29 @@ describe('the remix wizard', () => {
     expect(useRemixStore.getState().draft.sourceImageIds).toEqual(['i2'])
   })
 
+  it('drops the listing field when the source is the user own images', () => {
+    render()
+
+    expect(findByText('抓取图集')).toBeTruthy()
+
+    click(findByText('换背景'))
+
+    expect(useRemixStore.getState().draft.sourceKind).toBe('own')
+    expect(document.querySelector('#remix-listing-url')).toBeNull()
+    expect(document.body.textContent).toContain('上传原图')
+  })
+
+  it('takes an image from the library as a source image', () => {
+    render()
+
+    click(findByText('换背景'))
+    const pick = document.querySelector('[aria-label="把 白色蛋形浴缸 加为原图"]')
+    if (!pick) throw new Error('no library pick button')
+    click(pick)
+
+    expect(useRemixStore.getState().draft.sourceImageIds).toEqual(['image-a'])
+  })
+
   it('lists the saved sets so one can be reopened', () => {
     useRemixStore.setState({
       sets: [
