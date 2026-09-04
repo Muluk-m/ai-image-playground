@@ -1,7 +1,7 @@
 import { BACKGROUND_PRESETS } from '@image-playground/shared'
 import { useShallow } from 'zustand/react/shallow'
+import { CARD, FIELD, LABEL, PRIMARY_BUTTON } from '../../../components/panelStyles'
 import { useRemixStore } from '../store'
-import { CARD, FIELD, LABEL, PRIMARY_BUTTON } from './styles'
 
 export default function BackgroundStylePicker() {
   const selected = useRemixStore(useShallow((s) => s.backgroundStyleIds))

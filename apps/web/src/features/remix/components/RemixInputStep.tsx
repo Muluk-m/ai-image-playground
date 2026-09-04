@@ -1,6 +1,15 @@
 import { useRef } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { CloseIcon } from '../../../components/icons'
+import Pending from '../../../components/Pending'
+import {
+  CARD,
+  FIELD,
+  LABEL,
+  NOTICE,
+  OUTLINE_BUTTON,
+  PRIMARY_BUTTON,
+} from '../../../components/panelStyles'
 import AssetThumb from '../../library/components/AssetThumb'
 import { useLibraryStore } from '../../library/store'
 import { selectNeedsFrontAsset, useRemixStore } from '../store'
@@ -18,8 +27,6 @@ import {
   REMIX_SOURCE_KINDS,
 } from '../types'
 import ListInput from './ListInput'
-import Pending from './Pending'
-import { CARD, FIELD, LABEL, NOTICE, OUTLINE_BUTTON, PRIMARY_BUTTON } from './styles'
 
 function Choice<T extends string>({
   options,
