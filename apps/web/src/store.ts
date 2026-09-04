@@ -381,13 +381,14 @@ function orderImagesWithMaskFirst(
   return next
 }
 
-export const APP_MODES = ['browse', 'create', 'remix'] as const
+export const APP_MODES = ['browse', 'create', 'remix', 'bgswap'] as const
 export type AppMode = (typeof APP_MODES)[number]
 
 export const APP_MODE_LABELS: Record<AppMode, string> = {
   browse: '工作台',
   create: '创作',
   remix: '复刻套图',
+  bgswap: '换背景',
 }
 
 export function getPersistedState(state: AppState) {
