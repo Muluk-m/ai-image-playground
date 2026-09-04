@@ -13,7 +13,7 @@ import {
   PrivateWebReplacesAuthActions,
 } from '../lib/privateOverlay'
 import { dismissAllTooltips } from '../lib/tooltipDismiss'
-import { useStore } from '../store'
+import { APP_MODE_LABELS, APP_MODES, useStore } from '../store'
 import HelpModal from './HelpModal'
 import { LibraryIcon, SparkleIcon } from './icons'
 import ViewportTooltip from './ViewportTooltip'
@@ -70,7 +70,7 @@ export default function Header() {
           </div>
           <div className="flex items-center gap-1 shrink-0">
             <div className="flex items-center gap-0.5 mr-1 p-0.5 rounded-lg bg-gray-100 dark:bg-gray-900">
-              {(['browse', 'create'] as const).map((mode) => (
+              {APP_MODES.map((mode) => (
                 <button
                   key={mode}
                   onClick={() => setAppMode(mode)}
@@ -81,7 +81,7 @@ export default function Header() {
                   }`}
                   aria-pressed={appMode === mode}
                 >
-                  {mode === 'browse' ? '工作台' : '创作'}
+                  {APP_MODE_LABELS[mode]}
                 </button>
               ))}
             </div>
