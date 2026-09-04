@@ -4,6 +4,8 @@ export const PROMPT_LANGUAGES = ['zh', 'en'] as const
 
 export type PromptLanguage = (typeof PROMPT_LANGUAGES)[number]
 
+export const DEFAULT_PROMPT_LANGUAGE: PromptLanguage = 'zh'
+
 /** 视觉模型对一张商品图的判断：品类、原场景与它给出的一句新背景方案。 */
 export interface BackgroundPlan {
   readonly category: string

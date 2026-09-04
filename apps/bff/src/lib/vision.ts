@@ -1,6 +1,7 @@
 import {
   type BackgroundPlan,
   type CompetitorBrief,
+  DEFAULT_PROMPT_LANGUAGE,
   type ProductContext,
   type PromptLanguage,
   parseBackgroundPlan,
@@ -189,7 +190,7 @@ export interface BackgroundPlanRequest {
 export function planBackground({
   image,
   preference,
-  language = 'zh',
+  language = DEFAULT_PROMPT_LANGUAGE,
 }: BackgroundPlanRequest): Promise<BackgroundPlan> {
   return ask(image, planPromptFor(preference, language), parseBackgroundPlan)
 }

@@ -1,4 +1,4 @@
-import type { PromptLanguage } from '@image-playground/shared'
+import { DEFAULT_PROMPT_LANGUAGE, type PromptLanguage } from '@image-playground/shared'
 
 export interface BackgroundPromptInput {
   readonly plan: string
@@ -34,7 +34,7 @@ const TEMPLATES: Record<PromptLanguage, Template> = {
 export function buildBackgroundPrompt({
   plan,
   preference,
-  language = 'zh',
+  language = DEFAULT_PROMPT_LANGUAGE,
 }: BackgroundPromptInput): string {
   const template = TEMPLATES[language]
   const wanted = preference?.trim()
