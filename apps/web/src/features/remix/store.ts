@@ -389,8 +389,8 @@ export const useRemixStore = create<RemixState>((set, get) => ({
     set({ generating: true, queuedShotIds: runnable.map((shot) => shot.id) })
     try {
       for (const shot of runnable) {
-        set((s) => ({ queuedShotIds: s.queuedShotIds.filter((id) => id !== shot.id) }))
         await submitShot(set, get, shot.id)
+        set((s) => ({ queuedShotIds: s.queuedShotIds.filter((id) => id !== shot.id) }))
       }
     } finally {
       set({ generating: false, queuedShotIds: [] })
