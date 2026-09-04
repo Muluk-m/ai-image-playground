@@ -20,7 +20,7 @@ export function backgroundBriefFromPreset(preset: BackgroundPreset): RemixBrief 
 export function backgroundLockSection(product: RemixProductDescription): string {
   return [
     productIdentityLine(product),
-    '产品的位置、大小、角度、颜色、材质、缸沿厚度与阴影接地全部保持不变，只替换产品以外的背景，不得重绘、移动或裁切产品。',
+    '产品的位置、大小、角度、颜色、材质、边缘厚度与阴影接地全部保持不变，只替换产品以外的背景，不得重绘、移动或裁切产品。',
     colorLockLine(product),
   ].join('')
 }

@@ -7,6 +7,10 @@ export interface ShotProgress {
   state: ShotState
   error: string | null
   outputImageIds: string[]
+  /** 进行中的起点，用来读秒；其它状态为 null。 */
+  startedAt: number | null
+  /** 结束后的总耗时毫秒；还没有任何一条任务结束时为 null。 */
+  elapsed: number | null
 }
 
 export const SHOT_STATE_LABELS: Record<ShotState, string> = {
@@ -42,14 +46,31 @@ export function shotProgress(
       state: queuedShotIds.includes(shot.id) ? 'queued' : 'idle',
       error: null,
       outputImageIds,
+      startedAt: null,
+      elapsed: null,
     }
   }
+
   if (tasks.some((task) => task.status === 'running')) {
-    return { state: 'running', error: null, outputImageIds }
+    const startedAt = Math.min(...tasks.map((task) => task.createdAt))
+    return { state: 'running', error: null, outputImageIds, startedAt, elapsed: null }
   }
+  const elapsed = totalElapsed(tasks)
   const failed = tasks.find((task) => task.status === 'error')
-  if (failed) return { state: 'error', error: failed.error, outputImageIds }
-  return { state: 'done', error: null, outputImageIds }
+  if (failed) {
+    return { state: 'error', error: failed.error, outputImageIds, startedAt: null, elapsed }
+  }
+  return { state: 'done', error: null, outputImageIds, startedAt: null, elapsed }
+}
+
+/** 一镜可能有多条任务：总耗时是最早提交到最晚结束的那一段。 */
+function totalElapsed(tasks: readonly TaskRecord[]): number | null {
+  const ends = tasks.flatMap((task) => {
+    if (task.finishedAt !== null) return [task.finishedAt]
+    return task.elapsed !== null ? [task.createdAt + task.elapsed] : []
+  })
+  if (ends.length === 0) return null
+  return Math.max(...ends) - Math.min(...tasks.map((task) => task.createdAt))
 }
 
 export interface SetProgress {

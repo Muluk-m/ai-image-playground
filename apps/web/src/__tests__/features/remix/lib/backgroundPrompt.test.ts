@@ -39,9 +39,19 @@ describe('building the background swap prompt', () => {
     const prompt = buildBackgroundSwapPrompt({ product: PRODUCT, brief: BRIEF })
 
     expect(prompt).toContain('图1是我方产品：W2753 独立浴缸，蛋形单边斜背，外沿薄壁')
-    expect(prompt).toContain('位置、大小、角度、颜色、材质、缸沿')
+    expect(prompt).toContain('位置、大小、角度、颜色、材质、边缘厚度')
     expect(prompt).toContain('阴影接地')
     expect(prompt).toContain('只替换产品以外的背景')
+  })
+
+  it('leaves the trade wording to the features the user typed', () => {
+    const prompt = buildBackgroundSwapPrompt({
+      product: { name: '产品', features: '', mainColor: '', forbiddenColors: [] },
+      brief: BRIEF,
+    })
+
+    expect(prompt).not.toContain('浴缸')
+    expect(prompt).not.toContain('缸沿')
   })
 
   it('names the target colour and the colours that must not appear', () => {

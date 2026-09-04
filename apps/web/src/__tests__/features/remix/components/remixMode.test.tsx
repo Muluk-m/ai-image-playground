@@ -62,6 +62,15 @@ function click(element: Element) {
   })
 }
 
+function upload(label: string, ...files: File[]) {
+  const input = document.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`)
+  if (!input) throw new Error(`no file input labelled ${label}`)
+  Object.defineProperty(input, 'files', { value: files, configurable: true })
+  act(() => {
+    input.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+}
+
 function findByText(text: string): HTMLElement {
   const element = [...document.querySelectorAll('button, h2, h3, label, p, span')].find(
     (node) => node.textContent === text,
@@ -79,6 +88,15 @@ describe('the remix wizard', () => {
     expect(document.body.textContent).toContain('③ 生成')
     expect(findByText('抓取图集')).toBeTruthy()
     expect(findByText('保存并下一步')).toBeTruthy()
+  })
+
+  it('keeps the example placeholders free of any one trade', () => {
+    render()
+
+    const placeholders = [...document.querySelectorAll('input')].map((input) => input.placeholder)
+
+    expect(placeholders.filter((text) => text.startsWith('例：')).length).toBeGreaterThan(0)
+    for (const text of placeholders) expect(text).not.toContain('浴缸')
   })
 
   it('explains the fallback when the listing cannot be fetched', () => {
@@ -146,6 +164,44 @@ describe('the remix wizard', () => {
     click(pick)
 
     expect(useRemixStore.getState().draft.sourceImageIds).toEqual(['image-a'])
+  })
+
+  it('picks an uploaded product image into the set once it is named', () => {
+    const uploaded: AssetRecord = {
+      id: 'a2',
+      name: '正面白底图',
+      imageId: 'image-b',
+      createdAt: 2,
+      lastUsedAt: 2,
+    }
+    useLibraryStore.setState({
+      importAssetFiles: vi.fn(async (_files, onSaved) => {
+        useLibraryStore.setState((s) => ({ assets: [...s.assets, uploaded] }))
+        onSaved?.(uploaded)
+      }),
+    })
+    render()
+
+    upload('上传产品图', new File(['x'], '正面.png', { type: 'image/png' }))
+
+    expect(useRemixStore.getState().draft.productAssets).toEqual([
+      { assetId: 'a2', angle: 'front' },
+    ])
+    const angle = document.querySelector<HTMLSelectElement>('select[data-angle-for="a2"]')
+    expect(angle?.value).toBe('front')
+    expect(document.body.textContent).toContain('已选 1 张')
+  })
+
+  it('takes an uploaded image as a source image when swapping backgrounds', () => {
+    const importSourceFiles = vi.fn().mockResolvedValue(undefined)
+    useRemixStore.setState({ importSourceFiles })
+    render()
+    click(findByText('换背景'))
+
+    const file = new File(['x'], '原图.png', { type: 'image/png' })
+    upload('上传原图', file)
+
+    expect(importSourceFiles).toHaveBeenCalledWith([file])
   })
 
   it('lists the saved sets so one can be reopened', () => {

@@ -74,6 +74,7 @@ beforeEach(() => {
   vi.stubGlobal('indexedDB', new IDBFactory())
   useStore.setState({ showToast: vi.fn(), tasks: [] })
   useRemixStore.getState().startNewSet()
+  useRemixStore.setState({ generating: false })
   host = document.createElement('div')
   document.body.appendChild(host)
   root = createRoot(host)
@@ -140,6 +141,45 @@ describe('the remix generation step', () => {
     expect(document.body.textContent).toContain('上游 429')
     expect(document.body.textContent).toContain('未开始')
     expect(document.body.textContent).toContain('完成 1/3')
+  })
+
+  it('counts up on a running shot and shows the total once it is done', () => {
+    seedDraft([shot({ id: 's1', taskIds: ['t1'] }), shot({ id: 's2', taskIds: ['t2'] })])
+    useStore.setState({
+      tasks: [
+        task('t1', { createdAt: Date.now() - 65_000 }),
+        task('t2', {
+          status: 'done',
+          createdAt: 1_000,
+          finishedAt: 43_000,
+          elapsed: 42_000,
+          outputImages: ['o1'],
+        }),
+      ],
+    })
+    render()
+
+    expect(document.body.textContent).toContain('生成中 1:05')
+    expect(document.body.textContent).toContain('完成 · 42s')
+  })
+
+  it('hides the spinner but keeps the words when motion is reduced', () => {
+    seedDraft([shot({ taskIds: ['t1'] })])
+    useStore.setState({ tasks: [task('t1')] })
+    render()
+
+    const spinner = document.querySelector('svg.animate-spin')
+    expect(spinner?.getAttribute('class')).toContain('motion-reduce:hidden')
+  })
+
+  it('shows the run is going while the whole set is submitted', () => {
+    seedDraft([shot()])
+    useRemixStore.setState({ generating: true })
+    render()
+
+    const button = findByText('生成中')
+    expect(button.hasAttribute('disabled')).toBe(true)
+    expect(button.querySelector('svg.animate-spin')).not.toBeNull()
   })
 
   it('regenerates just one shot', () => {
