@@ -1,3 +1,5 @@
+import type { CompetitorBrief, ShotType } from '@image-playground/shared'
+
 /** 产品素材的拍摄角度。镜头按机位挑同角度的底图，角度不匹配时模型会改产品。 */
 export const PRODUCT_ANGLES = ['front', 'three-quarter', 'high-angle', 'top-down', 'side'] as const
 export type ProductAngle = (typeof PRODUCT_ANGLES)[number]
@@ -30,12 +32,25 @@ export type RemixLevel = (typeof REMIX_LEVELS)[number]
 
 export const REMIX_LEVEL_LABELS: Record<RemixLevel, string> = { low: '低', high: '高' }
 
+/** 锁产品段的原料。主色与禁止色分开填：只说「不得改色」时模型会把产品拉向环境色温。 */
+export interface RemixProductDescription {
+  name: string
+  features: string
+  mainColor: string
+  forbiddenColors: string[]
+}
+
 export interface RemixProductAsset {
   assetId: string
   angle: ProductAngle
 }
 
+/** 竞品复刻用别人的图，`own` 是拿用户自己的现成图批量换背景。 */
+export const REMIX_SOURCE_KINDS = ['competitor', 'own'] as const
+export type RemixSourceKind = (typeof REMIX_SOURCE_KINDS)[number]
+
 export interface RemixSetSource {
+  kind: RemixSourceKind
   listingUrl?: string
   competitorImageIds: string[]
 }
@@ -44,14 +59,39 @@ export interface RemixSetSettings {
   platform: RemixPlatform
   language: RemixLanguage
   level: RemixLevel
+  product: RemixProductDescription
 }
 
-/** 一镜。简报与提示词由步骤②填充，本步保存的套 `shots` 为空。 */
+export const SHOT_TYPE_LABELS: Record<ShotType, string> = {
+  main: '主图',
+  scene: '场景图',
+  topdown: '俯拍图',
+  detail: '细节图',
+  'selling-point': '卖点图',
+  'spec-diagram': '尺寸参数图',
+  other: '其它',
+}
+
+/** 画面简报。镜型是镜头自己的字段，建议标题落在 `copy` 里，这里只留其余的可编辑内容。 */
+export type RemixBrief = Omit<CompetitorBrief, 'shotType' | 'suggestedTitle'>
+
+/** 卖点图的图上文案，其它镜型不用。 */
+export interface RemixShotCopy {
+  title: string
+  subtitle: string
+}
+
+/** 一镜。简报与提示词由步骤②填充，步骤①保存的套 `shots` 为空。 */
 export interface RemixShot {
   id: string
-  type: string
-  brief: Record<string, string>
+  type: ShotType
+  /** 竞品原图，抹产品后仍留着供人核对。 */
+  competitorImageId: string
+  brief: RemixBrief
+  copy: RemixShotCopy
   prompt: string
+  /** 手改过的提示词不再被简报改动覆盖。 */
+  promptEdited: boolean
   enabled: boolean
   referenceImageId?: string
   productImageId?: string
