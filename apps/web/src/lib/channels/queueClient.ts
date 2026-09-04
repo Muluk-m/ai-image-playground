@@ -17,7 +17,7 @@ import {
   getApiErrorMessage,
   getDataUrlEncodedByteSize,
 } from '../imageApiShared'
-import { getRuntimeConfig } from '../runtimeConfig'
+import { bffBaseUrl } from '../runtimeConfig'
 import { nearestAspectRatio } from '../size'
 import type { BuiltinEdgeProfile, ProviderKind, PublicChannel } from './types'
 
@@ -28,13 +28,7 @@ const { POLL_BACKOFF_MS, POLL_MAX_MS, POLL_MAX_CONSECUTIVE_FAILURES } = QUEUE_TI
  *
  * 浏览器 ↔ BFF 全是 < 1s 短请求；BFF 用 localhost 调上游，任务多久都不受
  * 浏览器/Edge 长超时限制。
- *
- * BFF base URL 来自 `runtimeConfig.bff.baseUrl`：空字符串 = 同源（BFF 同进程
- * 托管前端 dist，最常见形态）；非空 = 跨域（如 cf tunnel），fetch 走绝对 URL。
  */
-function bffBase(): string {
-  return getRuntimeConfig().bff.baseUrl.replace(/\/+$/, '')
-}
 
 export async function callQueueChannelApi(
   opts: CallApiOptions,
@@ -50,7 +44,7 @@ export async function callQueueChannelApi(
   )
 
   const model = profile.selectedModelId
-  const base = bffBase()
+  const base = bffBaseUrl()
   const codexCli = Boolean(channel.defaults.codexCli)
 
   const requestId = await submit(base, provider, model, opts, codexCli, opts.clientRequestId)
@@ -72,7 +66,7 @@ export async function resumeQueueChannelApi(
   if (!toQueueProvider(channel.kind)) {
     throw new Error(`resumeQueueChannelApi: 不支持的 channel kind ${channel.kind}`)
   }
-  return await pollAndFetch(channel, bffBase(), requestId)
+  return await pollAndFetch(channel, bffBaseUrl(), requestId)
 }
 
 async function pollAndFetch(

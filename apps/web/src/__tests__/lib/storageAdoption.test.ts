@@ -169,6 +169,24 @@ describe('adopting anonymous storage after login', () => {
     expect(await readAll(USER_DB, 'templates')).toEqual([template])
   })
 
+  it('adopts remix sets saved while anonymous', async () => {
+    const remixSet = {
+      id: 'set1',
+      name: '奶油浴缸',
+      source: { listingUrl: 'https://www.amazon.com/dp/B0FVLNS696', competitorImageIds: ['i1'] },
+      productAssets: [{ assetId: 'a1', angle: 'front' }],
+      settings: { platform: 'amazon', language: 'en', level: 'high' },
+      shots: [],
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    await seed(BASE_DB_NAME, { tasks: [{ id: 't1' }], remix_sets: [remixSet] })
+
+    await adopt(USER_ID)
+
+    expect(await readAll(USER_DB, 'remix_sets')).toEqual([remixSet])
+  })
+
   it('merges into an existing user database without overwriting its records', async () => {
     await seed(BASE_DB_NAME, {
       tasks: [
@@ -279,8 +297,8 @@ describe('adopting anonymous storage after login', () => {
     const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
     await seed(BASE_DB_NAME, { tasks: [{ id: 't1' }] })
     storage.set(STORE_PERSIST_KEY, '{"settings":"anonymous"}')
-    // 目标库停在更高的版本，认领时的 open 直接抛 VersionError。
-    await seed(USER_DB, {}, 5)
+    // 目标库停在远高于 DB_VERSION 的版本，认领时的 open 直接抛 VersionError。
+    await seed(USER_DB, {}, 99)
 
     expect(await adopt(USER_ID)).toBe(0)
 

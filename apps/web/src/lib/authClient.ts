@@ -1,6 +1,6 @@
 import type { AuthUserView, LoginMethodsView, OAuthProviderView } from '@image-playground/shared'
 import { isClientCapabilityEnabled } from './clientCapabilities'
-import { getRuntimeConfig } from './runtimeConfig'
+import { bffBaseUrl } from './runtimeConfig'
 export const AUTH_SESSION_EXPIRED_EVENT = 'image-playground:auth-session-expired'
 
 export class AuthRequestError extends Error {
@@ -14,7 +14,7 @@ export class AuthRequestError extends Error {
 }
 
 function bffUrl(path: string): string {
-  return `${getRuntimeConfig().bff.baseUrl.replace(/\/+$/, '')}${path}`
+  return `${bffBaseUrl()}${path}`
 }
 
 async function parseError(res: Response): Promise<AuthRequestError> {
