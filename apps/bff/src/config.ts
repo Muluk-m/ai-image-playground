@@ -84,7 +84,7 @@ export const config = {
   },
   remix: {
     /** 复刻模式的视觉分析模型。网关模型列表会变，换模型只改 env。 */
-    visionModel: env('REMIX_VISION_MODEL', 'claude-sonnet-4-6'),
+    visionModel: env('REMIX_VISION_MODEL', 'gpt-5.4'),
   },
   databaseUrl: env('DATABASE_URL'),
   corsOrigins: env('CORS_ALLOWED_ORIGINS', '*'),
