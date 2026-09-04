@@ -30,13 +30,21 @@ function loadImage(src: string): Promise<HTMLImageElement> {
   })
 }
 
-function paddingColor(image: HTMLImageElement, size: Size): string {
+const PROBE_EDGE = 64
+
+/** 底色只看边缘，先缩到 64px 再取：整幅 getImageData 每张要拷几十 MB 像素。 */
+function paddingColor(image: HTMLImageElement, source: Size): string {
+  const scale = Math.min(1, PROBE_EDGE / Math.max(source.width, source.height))
+  const size = {
+    width: Math.max(1, Math.round(source.width * scale)),
+    height: Math.max(1, Math.round(source.height * scale)),
+  }
   const probe = document.createElement('canvas')
   probe.width = size.width
   probe.height = size.height
   const ctx = probe.getContext('2d')
   if (!ctx) return '#ffffff'
-  ctx.drawImage(image, 0, 0)
+  ctx.drawImage(image, 0, 0, size.width, size.height)
   return edgeAverageColor(ctx.getImageData(0, 0, size.width, size.height).data, size)
 }
 

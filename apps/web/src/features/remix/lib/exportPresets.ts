@@ -44,8 +44,8 @@ export function computeCenterCrop(
   }
 }
 
-/** 卖点图的文字贴着画面边缘，中心裁切会切掉，所以它默认补边而不是裁切。 */
-export type ExportFit = 'crop' | 'letterbox'
+export const EXPORT_FITS = ['crop', 'letterbox'] as const
+export type ExportFit = (typeof EXPORT_FITS)[number]
 
 export interface FitRect {
   dx: number
@@ -54,6 +54,7 @@ export interface FitRect {
   dh: number
 }
 
+/** 卖点图的文字贴着画面边缘，中心裁切会切掉，所以它默认补边而不是裁切。 */
 export function defaultExportFit(shotType: ShotType): ExportFit {
   return shotType === 'selling-point' ? 'letterbox' : 'crop'
 }

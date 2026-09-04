@@ -99,8 +99,7 @@ function featureClauses(product: RemixProductDescription): string[] {
 }
 
 /** 标题副标题都为空时模型会自己编（试点里编出了 Easy-Clean Matte Surface），所以这里必须给出文案。 */
-export function sellingPointCopy(input: ShotPromptInput): RemixShotCopy {
-  const zones = input.brief.textZones.map((zone) => zone.trim()).filter(Boolean)
+function sellingPointCopy(input: ShotPromptInput, zones: readonly string[]): RemixShotCopy {
   const clauses = featureClauses(input.product)
   const name = input.product.name.trim()
   const given = { title: input.copy.title.trim(), subtitle: input.copy.subtitle.trim() }
@@ -117,10 +116,9 @@ export function sellingPointCopy(input: ShotPromptInput): RemixShotCopy {
 
 /** 卖点文案段：版式与文案一并写死，只说「加个标题」时模型会渲染成纯场景图。 */
 export function sellingPointSection(input: ShotPromptInput): string {
-  const { title, subtitle } = sellingPointCopy(input)
-  const labels = input.brief.textZones
-    .map((zone) => zone.trim())
-    .filter((zone) => zone && zone !== title && zone !== subtitle)
+  const zones = input.brief.textZones.map((zone) => zone.trim()).filter(Boolean)
+  const { title, subtitle } = sellingPointCopy(input, zones)
+  const labels = zones.filter((zone) => zone !== title && zone !== subtitle)
   return [
     '卖点图版式：标题排在画面上方或左上，四周留出干净的文案区，产品不被文字压住。',
     `图上文案用${LANGUAGE_NAMES[input.language]}，逐字照抄不得改写：标题「${title}」，副标题「${subtitle}」，拼写必须准确。`,
