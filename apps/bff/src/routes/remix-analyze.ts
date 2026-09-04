@@ -1,5 +1,6 @@
 import { Elysia, t } from 'elysia'
 import { capabilityUnavailable, isCapabilityEnabled } from '../lib/capabilities'
+import { log } from '../lib/logger'
 import {
   analyzeCompetitorImages,
   VisionInvalidResponseError,
@@ -25,13 +26,16 @@ export const remixAnalyzeRoutes = new Elysia()
       return { error: 'invalid_request', message: error.message }
     }
   })
+  .onBeforeHandle(() => {
+    if (!isCapabilityEnabled('remix:analyze')) return capabilityUnavailable('remix:analyze')
+  })
   .post(
     '/api/remix/analyze',
     async ({ body, status }) => {
-      if (!isCapabilityEnabled('remix:analyze')) return capabilityUnavailable('remix:analyze')
       try {
         return { briefs: await analyzeCompetitorImages(body.images, body.product) }
       } catch (error) {
+        log.warn({ event: 'remix.vision_failed', err: error }, 'vision analysis failed')
         if (error instanceof VisionUpstreamError) {
           return status(502, { error: 'vision_upstream_error', upstream_status: error.status })
         }
