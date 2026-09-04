@@ -1,6 +1,10 @@
 import {
+  type BackgroundPlan,
   type CompetitorBrief,
+  DEFAULT_PROMPT_LANGUAGE,
   type ProductContext,
+  type PromptLanguage,
+  parseBackgroundPlan,
   parseCompetitorBrief,
   SHOT_TYPES,
 } from '@image-playground/shared'
@@ -72,6 +76,28 @@ function promptFor(product: ProductContext): string {
   }`
 }
 
+const PLAN_INSTRUCTIONS = `You look at one product photo and decide which real environment the product belongs in once its background is replaced. The product itself will not change.
+Answer with a single JSON object and nothing else. Keys:
+"category": the product category, a few words
+"sceneType": the setting of the photo you are looking at, a few words
+"productBox": {"x","y","w","h"} normalised to 0-1 for the product's bounding box, or null when no product is visible
+"plan": ONE sentence describing a real environment that suits this category, naming the wall, the floor, the light and one or two props`
+
+const PLAN_LANGUAGE: Record<PromptLanguage, string> = {
+  zh: 'Write "category", "sceneType" and "plan" in Chinese.',
+  en: 'Write "category", "sceneType" and "plan" in English.',
+}
+
+function planPromptFor(preference: string | undefined, language: PromptLanguage): string {
+  const wanted = preference?.trim()
+  return [
+    PLAN_INSTRUCTIONS,
+    PLAN_LANGUAGE[language],
+    // 偏好压过模型自己的判断，所以它进视觉提示，而不只是拼进最终提示词。
+    ...(wanted ? [`The user asked for this direction, it outranks your own taste: ${wanted}`] : []),
+  ].join('\n\n')
+}
+
 function extractJson(content: string): unknown {
   const fenced = content.match(/```(?:json)?\s*([\s\S]*?)```/)
   const candidate = (fenced?.[1] ?? content).trim()
@@ -99,7 +125,7 @@ function messageContent(raw: string): string | undefined {
 }
 
 /** 上游回的 chat 文本，形状不对时 undefined —— 交给调用方决定重试还是放弃。 */
-async function requestContent(image: string, product: ProductContext): Promise<string | undefined> {
+async function requestContent(image: string, prompt: string): Promise<string | undefined> {
   const abort = new AbortController()
   const timer = setTimeout(() => abort.abort(), REQUEST_TIMEOUT_MS)
   try {
@@ -117,7 +143,7 @@ async function requestContent(image: string, product: ProductContext): Promise<s
           {
             role: 'user',
             content: [
-              { type: 'text', text: promptFor(product) },
+              { type: 'text', text: prompt },
               { type: 'image_url', image_url: { url: image } },
             ],
           },
@@ -133,11 +159,16 @@ async function requestContent(image: string, product: ProductContext): Promise<s
   }
 }
 
-async function analyzeImage(image: string, product: ProductContext): Promise<CompetitorBrief> {
+/** 上游偶发不回 JSON，重试一次；第二次仍不可用就是硬失败。 */
+async function ask<T>(
+  image: string,
+  prompt: string,
+  parse: (value: unknown) => T | null,
+): Promise<T> {
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    const content = await requestContent(image, product)
-    const brief = content === undefined ? null : parseCompetitorBrief(extractJson(content))
-    if (brief) return brief
+    const content = await requestContent(image, prompt)
+    const parsed = content === undefined ? null : parse(extractJson(content))
+    if (parsed) return parsed
   }
   throw new VisionInvalidResponseError()
 }
@@ -146,5 +177,20 @@ export function analyzeCompetitorImages(
   images: readonly string[],
   product: ProductContext,
 ): Promise<CompetitorBrief[]> {
-  return Promise.all(images.map((image) => analyzeImage(image, product)))
+  const prompt = promptFor(product)
+  return Promise.all(images.map((image) => ask(image, prompt, parseCompetitorBrief)))
+}
+
+export interface BackgroundPlanRequest {
+  readonly image: string
+  readonly preference?: string
+  readonly language?: PromptLanguage
+}
+
+export function planBackground({
+  image,
+  preference,
+  language = DEFAULT_PROMPT_LANGUAGE,
+}: BackgroundPlanRequest): Promise<BackgroundPlan> {
+  return ask(image, planPromptFor(preference, language), parseBackgroundPlan)
 }
