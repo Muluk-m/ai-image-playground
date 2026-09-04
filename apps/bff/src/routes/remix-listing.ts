@@ -55,6 +55,7 @@ export const remixListingRoutes = new Elysia()
           headers: {
             'content-type': image.contentType,
             'cache-control': 'private, max-age=3600',
+            'x-content-type-options': 'nosniff',
           },
         })
       } catch (error) {

@@ -5,6 +5,14 @@ export const LISTING_TIMEOUT_MS = 15_000
 export const MAX_LISTING_HTML_BYTES = 5 * 1024 * 1024
 export const MAX_LISTING_IMAGE_BYTES = 20 * 1024 * 1024
 
+const PROXYABLE_IMAGE_TYPES = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/gif',
+  'image/avif',
+])
+
 interface ListingResponse {
   readonly ok: boolean
   readonly status: number
@@ -87,8 +95,9 @@ export interface FetchedImage {
 
 export async function fetchListingImage(url: string): Promise<FetchedImage> {
   const response = await request(url, 'image/avif,image/webp,image/*,*/*;q=0.8')
-  const contentType = response.headers.get('content-type') ?? ''
-  if (!contentType.startsWith('image/')) {
+  const contentType = (response.headers.get('content-type') ?? '').split(';')[0]!.trim()
+  // 白名单而非 `image/` 前缀：BFF 与前端同源，代理回一张 image/svg+xml 就是本站的 XSS。
+  if (!PROXYABLE_IMAGE_TYPES.has(contentType)) {
     throw new ListingFetchError(`upstream returned ${contentType || 'no content type'}`)
   }
   return { body: await readBounded(response, MAX_LISTING_IMAGE_BYTES), contentType }

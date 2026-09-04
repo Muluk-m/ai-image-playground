@@ -143,8 +143,13 @@ describe('GET /api/remix/image', () => {
     expect(oversized.status).toBe(502)
     expect(await oversized.json()).toEqual({ error: 'image_unavailable' })
 
-    stubFetch(() => new Response('<html>nope</html>', { headers: { 'content-type': 'text/html' } }))
-    const notAnImage = await getImage('https://m.media-amazon.com/images/I/71aaaaaaaaL.jpg')
-    expect(notAnImage.status).toBe(502)
+    for (const contentType of ['text/html', 'image/svg+xml']) {
+      stubFetch(
+        () =>
+          new Response('<svg onload="alert(1)"/>', { headers: { 'content-type': contentType } }),
+      )
+      const notProxyable = await getImage('https://m.media-amazon.com/images/I/71aaaaaaaaL.jpg')
+      expect(notProxyable.status).toBe(502)
+    }
   })
 })
