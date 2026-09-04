@@ -107,16 +107,16 @@ describe('parseListingPage', () => {
 describe('isAllowedListingImageUrl', () => {
   it('allows only https amazon image hosts', () => {
     expect(isAllowedListingImageUrl('https://m.media-amazon.com/images/I/71a.jpg')).toBe(true)
-    expect(isAllowedListingImageUrl('https://images-na.ssl-images-amazon.com/images/I/71a.jpg')).toBe(
-      true,
-    )
-    expect(isAllowedListingImageUrl('https://images-eu.ssl-images-amazon.com/images/I/71a.jpg')).toBe(
-      true,
-    )
+    expect(
+      isAllowedListingImageUrl('https://images-na.ssl-images-amazon.com/images/I/71a.jpg'),
+    ).toBe(true)
+    expect(
+      isAllowedListingImageUrl('https://images-eu.ssl-images-amazon.com/images/I/71a.jpg'),
+    ).toBe(true)
     expect(isAllowedListingImageUrl('http://m.media-amazon.com/images/I/71a.jpg')).toBe(false)
-    expect(isAllowedListingImageUrl('https://m.media-amazon.com.evil.example/images/I/71a.jpg')).toBe(
-      false,
-    )
+    expect(
+      isAllowedListingImageUrl('https://m.media-amazon.com.evil.example/images/I/71a.jpg'),
+    ).toBe(false)
     expect(isAllowedListingImageUrl('https://www.amazon.com/images/I/71a.jpg')).toBe(false)
     expect(isAllowedListingImageUrl('nonsense')).toBe(false)
   })
