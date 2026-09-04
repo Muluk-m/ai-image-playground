@@ -13,6 +13,7 @@
     "generation:byok": false,
     "operator:console": false,
     "quota:daily": false,
+    "remix:analyze": false,
     "remix:listing": false
   },
   "quotas": {
