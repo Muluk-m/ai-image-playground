@@ -164,6 +164,17 @@ describe('the remix generation step', () => {
     expect(generateSet).toHaveBeenCalled()
   })
 
+  it('pads the selling point shot on export and crops the rest', () => {
+    seedDraft([shot({ id: 's1', type: 'selling-point' }), shot({ id: 's2', type: 'scene' })])
+    render()
+
+    const fits = [
+      ...document.querySelectorAll<HTMLSelectElement>('select[aria-label$="镜导出方式"]'),
+    ]
+
+    expect(fits.map((select) => select.value)).toEqual(['letterbox', 'crop'])
+  })
+
   it('offers the platform sizes for the export', () => {
     seedDraft([shot()])
     render()

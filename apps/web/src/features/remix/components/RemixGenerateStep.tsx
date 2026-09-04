@@ -3,7 +3,7 @@ import { useMemo, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useStore } from '../../../store'
 import AssetThumb from '../../library/components/AssetThumb'
-import type { CropOffset } from '../lib/exportPresets'
+import { type CropOffset, defaultExportFit, type ExportFit } from '../lib/exportPresets'
 import { downloadSetZip, downloadShotImage } from '../lib/exportSet'
 import {
   indexTasksById,
@@ -27,6 +27,11 @@ const STATE_STYLES: Record<ShotState, string> = {
 
 const EMPTY_PROGRESS: ShotProgress = { state: 'idle', error: null, outputImageIds: [] }
 
+const EXPORT_FIT_LABELS: Record<ExportFit, string> = { crop: '裁切', letterbox: '留白' }
+
+const SELECT =
+  'rounded-lg border border-gray-200 bg-white px-2 py-1 text-sm text-gray-800 focus:border-blue-400 focus:outline-none dark:border-white/[0.08] dark:bg-white/[0.04] dark:text-gray-100'
+
 const GHOST_BUTTON =
   'rounded-lg px-2 py-1 text-xs text-blue-600 transition hover:bg-blue-500/10 disabled:opacity-40 dark:text-blue-300'
 
@@ -40,6 +45,8 @@ function ShotRow({
   setName,
   preset,
   offset,
+  fit,
+  onFitChange,
   progress,
 }: {
   shot: RemixShot
@@ -47,6 +54,8 @@ function ShotRow({
   setName: string
   preset: ExportPreset
   offset: CropOffset
+  fit: ExportFit
+  onFitChange: (fit: ExportFit) => void
   progress: ShotProgress
 }) {
   const regenerateShot = useRemixStore((s) => s.regenerateShot)
@@ -78,6 +87,18 @@ function ShotRow({
       </div>
 
       <div className="flex shrink-0 flex-wrap items-center gap-1">
+        <select
+          value={fit}
+          aria-label={`第 ${index + 1} 镜导出方式`}
+          onChange={(event) => onFitChange(event.target.value as ExportFit)}
+          className={`${SELECT} text-xs`}
+        >
+          {(Object.keys(EXPORT_FIT_LABELS) as ExportFit[]).map((option) => (
+            <option key={option} value={option}>
+              {EXPORT_FIT_LABELS[option]}
+            </option>
+          ))}
+        </select>
         <button
           type="button"
           onClick={() => void regenerateShot(shot.id)}
@@ -94,7 +115,7 @@ function ShotRow({
             if (!imageId) return
             void downloadShotImage(
               setName,
-              { shotIndex: index, shotType: shot.type, imageIds: progress.outputImageIds },
+              { shotIndex: index, shotType: shot.type, imageIds: progress.outputImageIds, fit },
               imageId,
               preset,
               offset,
@@ -121,8 +142,10 @@ export default function RemixGenerateStep() {
   const [presetId, setPresetId] = useState(() => presetFor(draft.settings.platform).id)
   const [exporting, setExporting] = useState(false)
   const [offset, setOffset] = useState<CropOffset>({ x: 0, y: 0 })
+  const [fits, setFits] = useState<Record<string, ExportFit>>({})
 
   const preset = presetFor(presetId)
+  const fitFor = (shot: RemixShot): ExportFit => fits[shot.id] ?? defaultExportFit(shot.type)
   const tasksById = useMemo(() => indexTasksById(tasks), [tasks])
   const progressByShotId = useMemo(
     () =>
@@ -147,6 +170,7 @@ export default function RemixGenerateStep() {
         shotIndex,
         shotType: shot.type,
         imageIds: progressByShotId.get(shot.id)?.outputImageIds ?? [],
+        fit: fitFor(shot),
       }))
       const result = await downloadSetZip(draft.name, shots, preset, offset)
       showToast(
@@ -192,7 +216,7 @@ export default function RemixGenerateStep() {
           value={presetId}
           aria-label="导出尺寸"
           onChange={(event) => setPresetId(event.target.value)}
-          className="rounded-lg border border-gray-200 bg-white px-2 py-1 text-sm text-gray-800 focus:border-blue-400 focus:outline-none dark:border-white/[0.08] dark:bg-white/[0.04] dark:text-gray-100"
+          className={SELECT}
         >
           {EXPORT_PRESETS.map((option) => (
             <option key={option.id} value={option.id}>
@@ -250,6 +274,8 @@ export default function RemixGenerateStep() {
               setName={draft.name}
               preset={preset}
               offset={offset}
+              fit={fitFor(shot)}
+              onFitChange={(fit) => setFits((current) => ({ ...current, [shot.id]: fit }))}
               progress={progressByShotId.get(shot.id) ?? EMPTY_PROGRESS}
             />
           ))}
