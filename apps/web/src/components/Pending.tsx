@@ -1,4 +1,4 @@
-import { formatElapsed, useElapsed } from '../../../hooks/useElapsed'
+import { formatElapsed, useElapsed } from '../hooks/useElapsed'
 
 /** 进行中的反馈：转圈加读秒。减少动效时只留文字。 */
 export default function Pending({ label, startedAt }: { label: string; startedAt: number | null }) {
