@@ -94,7 +94,7 @@ export default function RemixInputStep() {
             id="remix-set-name"
             value={draft.name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="例：奶油浴缸"
+            placeholder="例：新品套图"
             className={`mt-1.5 ${FIELD}`}
           />
         </div>
@@ -219,7 +219,7 @@ export default function RemixInputStep() {
                 id="remix-product-name"
                 value={productDescription.name}
                 onChange={(e) => updateProduct({ name: e.target.value })}
-                placeholder="例：W2753 独立浴缸"
+                placeholder="例：产品型号或名称"
                 className={`mt-1.5 ${FIELD}`}
               />
             </div>
@@ -231,7 +231,7 @@ export default function RemixInputStep() {
                 id="remix-product-features"
                 value={productDescription.features}
                 onChange={(e) => updateProduct({ features: e.target.value })}
-                placeholder="例：蛋形单边斜背，外沿薄壁"
+                placeholder="例：主体形状、边缘、材质"
                 className={`mt-1.5 ${FIELD}`}
               />
             </div>
@@ -243,7 +243,7 @@ export default function RemixInputStep() {
                 id="remix-product-color"
                 value={productDescription.mainColor}
                 onChange={(e) => updateProduct({ mainColor: e.target.value })}
-                placeholder="例：哑光灰棕（暖调中灰偏棕）"
+                placeholder="例：主色，含冷暖倾向"
                 className={`mt-1.5 ${FIELD}`}
               />
             </div>
@@ -257,7 +257,7 @@ export default function RemixInputStep() {
                 label="禁止色"
                 value={productDescription.forbiddenColors}
                 onChange={(forbiddenColors) => updateProduct({ forbiddenColors })}
-                placeholder="例：米白、浅灰、白色、橄榄绿"
+                placeholder="例：容易被误画成的颜色"
                 className={`mt-1.5 ${FIELD}`}
               />
             </div>
