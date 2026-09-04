@@ -12,7 +12,8 @@
     "billing:credits": false,
     "generation:byok": false,
     "operator:console": false,
-    "quota:daily": false
+    "quota:daily": false,
+    "remix:listing": false
   },
   "quotas": {
     "generation:daily-images": 0

@@ -856,6 +856,7 @@ describe('callImageApi', () => {
         'billing:credits': false,
         'generation:byok': false,
         'quota:daily': false,
+        'remix:listing': false,
       }),
     )
     await bootstrapClientCapabilities(true, 'https://bff.example')

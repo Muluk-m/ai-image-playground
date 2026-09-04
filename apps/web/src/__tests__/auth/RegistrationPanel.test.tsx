@@ -115,6 +115,7 @@ describe('LoginScreen registration entry', () => {
           'billing:credits': true,
           'generation:byok': false,
           'quota:daily': false,
+          'remix:listing': false,
         }),
       ),
     )
