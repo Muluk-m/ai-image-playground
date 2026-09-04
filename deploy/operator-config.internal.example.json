@@ -5,7 +5,8 @@
     "billing:credits": false,
     "generation:byok": false,
     "operator:console": false,
-    "quota:daily": true
+    "quota:daily": true,
+    "remix:listing": false
   },
   "quotas": {
     "generation:daily-images": 50

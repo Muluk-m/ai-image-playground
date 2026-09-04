@@ -39,6 +39,8 @@ BFF 同时托管 `apps/web/dist` 静态产物（`STATIC_DIR` 指向 dist 即可�
 | `POST` | `/api/auth/logout` | 撤销当前 session（需 `accounts:login`） |
 | `GET` | `/api/auth/me` | 查询当前账号（需 `accounts:login`） |
 | `GET` | `/api/channels` | 返回 sanitized channel 列表；账号登录能力开启时需登录 |
+| `POST` | `/api/remix/listing` | 抓亚马逊商品页解析图集，返回 `{ asin, title?, images }`（需 `remix:listing`）|
+| `GET` | `/api/remix/image?url=` | 代理亚马逊图片字节，主机白名单外一律拒绝（需 `remix:listing`）|
 | `POST` | `/v1/queue/{provider}/{model}/submit` | 入队，立即返回 `request_id` |
 | `GET` | `/v1/queue/requests/{id}/status` | 状态查询（含 queue_position / started_at 等）|
 | `GET` | `/v1/queue/requests/{id}` | 拿结果（`completed` 时含 `payload`；其它状态 425）|
