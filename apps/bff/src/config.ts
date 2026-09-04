@@ -82,6 +82,10 @@ export const config = {
      */
     asyncImageTasks: booleanEnv('UPSTREAM_ASYNC_IMAGE_TASKS', false),
   },
+  remix: {
+    /** 复刻模式的视觉分析模型。网关模型列表会变，换模型只改 env。 */
+    visionModel: env('REMIX_VISION_MODEL', 'claude-sonnet-4-6'),
+  },
   databaseUrl: env('DATABASE_URL'),
   corsOrigins: env('CORS_ALLOWED_ORIGINS', '*'),
   /** Explicit origins from CORS_ALLOWED_ORIGINS; empty when the deployment allows any origin. */

@@ -1,5 +1,6 @@
 {
   "capabilities": {
+    "remix:analyze": true,
     "remix:listing": true
   }
 }
