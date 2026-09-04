@@ -30,7 +30,13 @@ const STATE_STYLES: Record<ShotState, string> = {
   error: 'bg-red-500/10 text-red-700 dark:text-red-300',
 }
 
-const EMPTY_PROGRESS: ShotProgress = { state: 'idle', error: null, outputImageIds: [] }
+const EMPTY_PROGRESS: ShotProgress = {
+  state: 'idle',
+  error: null,
+  outputImageIds: [],
+  startedAt: null,
+  elapsed: null,
+}
 
 const EXPORT_FIT_LABELS: Record<ExportFit, string> = { crop: '裁切', letterbox: '留白' }
 
