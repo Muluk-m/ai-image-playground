@@ -7,7 +7,7 @@ import {
 } from '../lib/vision'
 
 const analyzeBodySchema = t.Object({
-  images: t.Array(t.String({ pattern: '^data:image/', maxLength: 12_000_000 }), {
+  images: t.Array(t.String({ pattern: '^data:image/', maxLength: 4_000_000 }), {
     minItems: 1,
     maxItems: 20,
   }),

@@ -3,12 +3,9 @@ import { config } from '../config'
 import { resolveApiKey } from './resolveApiKey'
 import { isObject } from './type-guards'
 
-/**
- * 复刻模式的竞品图分析：一张图一次 chat 调用，拿回结构化简报。
- * 独立于 upstream.ts —— 那里是生图队列的协议适配，超时预算按分钟算，这里按秒。
- */
+// 独立于 upstream.ts：那里是生图队列的协议适配，超时预算按分钟算，这里按秒。
 
-export const SHOT_TYPES = [
+const SHOT_TYPES = [
   'main',
   'scene',
   'topdown',
@@ -175,14 +172,21 @@ function asBrief(value: unknown): CompetitorBrief | undefined {
   }
 }
 
-function messageContent(payload: unknown): string | undefined {
+function messageContent(raw: string): string | undefined {
+  let payload: unknown
+  try {
+    payload = JSON.parse(raw)
+  } catch {
+    return undefined
+  }
   if (!isObject(payload) || !Array.isArray(payload.choices)) return undefined
   const message = isObject(payload.choices[0]) ? payload.choices[0].message : undefined
   if (!isObject(message) || typeof message.content !== 'string') return undefined
   return message.content
 }
 
-async function requestBrief(image: string, product: ProductContext): Promise<string> {
+/** 上游回的 chat 文本，形状不对时 undefined —— 交给调用方决定重试还是放弃。 */
+async function requestContent(image: string, product: ProductContext): Promise<string | undefined> {
   const abort = new AbortController()
   const timer = setTimeout(() => abort.abort(), REQUEST_TIMEOUT_MS)
   try {
@@ -209,7 +213,7 @@ async function requestBrief(image: string, product: ProductContext): Promise<str
       dispatcher: visionDispatcher,
     })
     if (!response.ok) throw new VisionUpstreamError(response.status)
-    return await response.text()
+    return messageContent(await response.text())
   } finally {
     clearTimeout(timer)
   }
@@ -217,14 +221,7 @@ async function requestBrief(image: string, product: ProductContext): Promise<str
 
 async function analyzeImage(image: string, product: ProductContext): Promise<CompetitorBrief> {
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    const raw = await requestBrief(image, product)
-    let payload: unknown
-    try {
-      payload = JSON.parse(raw)
-    } catch {
-      continue
-    }
-    const content = messageContent(payload)
+    const content = await requestContent(image, product)
     const brief = content === undefined ? undefined : asBrief(extractJson(content))
     if (brief) return brief
   }
