@@ -278,7 +278,7 @@ export const useRemixStore = create<RemixState>((set, get) => ({
   addProductAsset: (assetId) =>
     set((s) =>
       s.draft.productAssets.some((product) => product.assetId === assetId)
-        ? s
+        ? {}
         : {
             draft: {
               ...s.draft,

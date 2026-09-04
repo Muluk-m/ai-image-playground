@@ -103,7 +103,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     }
     await assetStore.put(asset)
     set((s) => ({ assets: [...s.assets, asset], pendingAssetNames: s.pendingAssetNames.slice(1) }))
-    pending?.onSaved?.(asset)
+    if (pending?.imageId === imageId) pending.onSaved?.(asset)
     useStore.getState().showToast('已存为素材', 'success')
   },
 
