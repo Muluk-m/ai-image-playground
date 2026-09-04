@@ -14,6 +14,8 @@ import {
   REMIX_LEVELS,
   REMIX_PLATFORM_LABELS,
   REMIX_PLATFORMS,
+  REMIX_SOURCE_KIND_LABELS,
+  REMIX_SOURCE_KINDS,
 } from '../types'
 import ListInput from './ListInput'
 import { CARD, FIELD, LABEL, NOTICE, PRIMARY_BUTTON } from './styles'
@@ -64,61 +66,83 @@ export default function RemixInputStep() {
     setName,
     setListingUrl,
     fetchListing,
-    importCompetitorFiles,
-    removeCompetitorImage,
+    importSourceFiles,
+    removeSourceImage,
     toggleProductAsset,
     setProductAngle,
     updateSettings,
     updateProduct,
     saveAndContinue,
+    setSourceKind,
+    addSourceImages,
   } = useRemixStore.getState()
 
   const productDescription = draft.settings.product
+  const own = draft.sourceKind === 'own'
 
   const angleOf = (assetId: string): ProductAngle | null =>
     draft.productAssets.find((product) => product.assetId === assetId)?.angle ?? null
 
   return (
     <div className="flex flex-col gap-4">
-      <div className={CARD}>
-        <label className={LABEL} htmlFor="remix-set-name">
-          套名称
-        </label>
-        <input
-          id="remix-set-name"
-          value={draft.name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="例：奶油浴缸"
-          className={`mt-1.5 ${FIELD} sm:max-w-sm`}
-        />
+      <div className={`${CARD} grid gap-3 sm:grid-cols-2`}>
+        <div>
+          <label className={LABEL} htmlFor="remix-set-name">
+            套名称
+          </label>
+          <input
+            id="remix-set-name"
+            value={draft.name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="例：奶油浴缸"
+            className={`mt-1.5 ${FIELD}`}
+          />
+        </div>
+        <div>
+          <span className={LABEL}>来源</span>
+          <div className="mt-1.5">
+            <Choice
+              options={REMIX_SOURCE_KINDS}
+              labels={REMIX_SOURCE_KIND_LABELS}
+              value={draft.sourceKind}
+              onPick={setSourceKind}
+            />
+          </div>
+        </div>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
         <section className={CARD}>
-          <h2 className="mb-3 text-sm font-semibold text-gray-800 dark:text-gray-100">竞品图</h2>
+          <h2 className="mb-3 text-sm font-semibold text-gray-800 dark:text-gray-100">
+            {own ? '原图' : '竞品图'}
+          </h2>
 
-          <label className={LABEL} htmlFor="remix-listing-url">
-            竞品链接
-          </label>
-          <div className="mt-1.5 flex flex-col gap-2 sm:flex-row">
-            <input
-              id="remix-listing-url"
-              value={draft.listingUrl}
-              onChange={(e) => setListingUrl(e.target.value)}
-              placeholder="https://www.amazon.com/dp/..."
-              className={FIELD}
-            />
-            <button
-              type="button"
-              onClick={() => void fetchListing()}
-              disabled={listingLoading}
-              className={`shrink-0 ${PRIMARY_BUTTON}`}
-            >
-              {listingLoading ? '抓取中' : '抓取图集'}
-            </button>
-          </div>
+          {!own && (
+            <>
+              <label className={LABEL} htmlFor="remix-listing-url">
+                竞品链接
+              </label>
+              <div className="mt-1.5 flex flex-col gap-2 sm:flex-row">
+                <input
+                  id="remix-listing-url"
+                  value={draft.listingUrl}
+                  onChange={(e) => setListingUrl(e.target.value)}
+                  placeholder="https://www.amazon.com/dp/..."
+                  className={FIELD}
+                />
+                <button
+                  type="button"
+                  onClick={() => void fetchListing()}
+                  disabled={listingLoading}
+                  className={`shrink-0 ${PRIMARY_BUTTON}`}
+                >
+                  {listingLoading ? '抓取中' : '抓取图集'}
+                </button>
+              </div>
 
-          {listingNotice && <p className={`mt-2 ${NOTICE}`}>{listingNotice}</p>}
+              {listingNotice && <p className={`mt-2 ${NOTICE}`}>{listingNotice}</p>}
+            </>
+          )}
 
           <div className="mt-3 flex items-center gap-2">
             <button
@@ -126,10 +150,10 @@ export default function RemixInputStep() {
               onClick={() => fileInputRef.current?.click()}
               className="rounded-lg border border-gray-200 px-3 py-1.5 text-sm text-gray-700 transition hover:border-blue-400 hover:text-blue-600 dark:border-white/[0.12] dark:text-gray-200 dark:hover:border-blue-500/50 dark:hover:text-blue-300"
             >
-              上传竞品图
+              {own ? '上传原图' : '上传竞品图'}
             </button>
             <span className="text-xs text-gray-400 dark:text-gray-500">
-              {draft.competitorImageIds.length} 张
+              {draft.sourceImageIds.length} 张
             </span>
             <input
               ref={fileInputRef}
@@ -138,24 +162,41 @@ export default function RemixInputStep() {
               multiple
               hidden
               onChange={(e) => {
-                void importCompetitorFiles([...(e.target.files ?? [])])
+                void importSourceFiles([...(e.target.files ?? [])])
                 e.target.value = ''
               }}
             />
           </div>
 
-          {draft.competitorImageIds.length > 0 && (
+          {own && assets.length > 0 && (
             <ul className="mt-3 flex flex-wrap gap-2">
-              {draft.competitorImageIds.map((imageId, index) => (
+              {assets.map((asset) => (
+                <li key={asset.id}>
+                  <button
+                    type="button"
+                    onClick={() => addSourceImages([asset.imageId])}
+                    aria-label={`把 ${asset.name} 加为原图`}
+                    className="h-16 w-16 overflow-hidden rounded-xl border border-gray-200 transition hover:border-blue-400 dark:border-white/[0.08]"
+                  >
+                    <AssetThumb imageId={asset.imageId} alt={asset.name} />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {draft.sourceImageIds.length > 0 && (
+            <ul className="mt-3 flex flex-wrap gap-2">
+              {draft.sourceImageIds.map((imageId, index) => (
                 <li
                   key={imageId}
                   className="relative h-20 w-20 overflow-hidden rounded-xl border border-gray-200 dark:border-white/[0.08]"
                 >
-                  <AssetThumb imageId={imageId} alt={`竞品图 ${index + 1}`} />
+                  <AssetThumb imageId={imageId} alt={`${own ? '原图' : '竞品图'} ${index + 1}`} />
                   <button
                     type="button"
-                    onClick={() => removeCompetitorImage(imageId)}
-                    aria-label={`移除竞品图 ${index + 1}`}
+                    onClick={() => removeSourceImage(imageId)}
+                    aria-label={`移除${own ? '原图' : '竞品图'} ${index + 1}`}
                     className="absolute right-1 top-1 rounded-full bg-black/45 p-1 text-white transition hover:bg-black/65"
                   >
                     <CloseIcon className="h-3 w-3" />
@@ -222,9 +263,10 @@ export default function RemixInputStep() {
             </div>
           </div>
 
-          {assets.length === 0 ? (
+          {!own && assets.length === 0 && (
             <p className="text-sm text-gray-500 dark:text-gray-400">素材库还是空的</p>
-          ) : (
+          )}
+          {!own && assets.length > 0 && (
             <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3">
               {assets.map((asset) => {
                 const angle = angleOf(asset.id)
@@ -268,7 +310,7 @@ export default function RemixInputStep() {
             </ul>
           )}
 
-          {needsFrontAsset && <p className={`mt-3 ${NOTICE}`}>建议补一张正面白底图</p>}
+          {!own && needsFrontAsset && <p className={`mt-3 ${NOTICE}`}>建议补一张正面白底图</p>}
         </section>
       </div>
 
@@ -295,17 +337,19 @@ export default function RemixInputStep() {
             />
           </div>
         </div>
-        <div>
-          <span className={LABEL}>差异化档位</span>
-          <div className="mt-1.5">
-            <Choice
-              options={REMIX_LEVELS}
-              labels={REMIX_LEVEL_LABELS}
-              value={draft.settings.level}
-              onPick={(level) => updateSettings({ level })}
-            />
+        {!own && (
+          <div>
+            <span className={LABEL}>差异化档位</span>
+            <div className="mt-1.5">
+              <Choice
+                options={REMIX_LEVELS}
+                labels={REMIX_LEVEL_LABELS}
+                value={draft.settings.level}
+                onPick={(level) => updateSettings({ level })}
+              />
+            </div>
           </div>
-        </div>
+        )}
       </section>
 
       <div className="flex justify-end">
