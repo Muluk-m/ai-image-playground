@@ -49,13 +49,17 @@ export function sanitizePathSegment(name: string): string {
   return cleaned || '未命名'
 }
 
+export function exportFileName(shotIndex: number, shotType: ShotType, imageIndex = 0): string {
+  const order = String(shotIndex + 1).padStart(2, '0')
+  const suffix = imageIndex > 0 ? `-${imageIndex + 1}` : ''
+  return `${order}-${SHOT_TYPE_LABELS[shotType]}${suffix}.png`
+}
+
 export function exportEntryName(
   setName: string,
   shotIndex: number,
   shotType: ShotType,
   imageIndex = 0,
 ): string {
-  const order = String(shotIndex + 1).padStart(2, '0')
-  const suffix = imageIndex > 0 ? `-${imageIndex + 1}` : ''
-  return `${sanitizePathSegment(setName)}/${order}-${SHOT_TYPE_LABELS[shotType]}${suffix}.png`
+  return `${sanitizePathSegment(setName)}/${exportFileName(shotIndex, shotType, imageIndex)}`
 }
