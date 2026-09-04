@@ -3,6 +3,7 @@ import { useMemo, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useStore } from '../../../store'
 import AssetThumb from '../../library/components/AssetThumb'
+import type { CropOffset } from '../lib/exportPresets'
 import { downloadSetZip, downloadShotImage } from '../lib/exportSet'
 import { indexTasksById, SHOT_STATE_LABELS, type ShotState, shotProgress } from '../lib/progress'
 import { canGenerateShot } from '../lib/shots'
@@ -32,11 +33,13 @@ function ShotRow({
   index,
   setName,
   preset,
+  offset,
 }: {
   shot: RemixShot
   index: number
   setName: string
   preset: ExportPreset
+  offset: CropOffset
 }) {
   const tasks = useStore((s) => s.tasks)
   const queuedShotIds = useRemixStore(useShallow((s) => s.queuedShotIds))
@@ -92,6 +95,7 @@ function ShotRow({
               { shotIndex: index, shotType: shot.type, imageIds: progress.outputImageIds },
               imageId,
               preset,
+              offset,
             )
           }}
           className={GHOST_BUTTON}
@@ -114,6 +118,7 @@ export default function RemixGenerateStep() {
   const showToast = useStore((s) => s.showToast)
   const [presetId, setPresetId] = useState(() => presetFor(draft.settings.platform).id)
   const [exporting, setExporting] = useState(false)
+  const [offset, setOffset] = useState<CropOffset>({ x: 0, y: 0 })
 
   const preset = presetFor(presetId)
   const runnable = draft.shots.filter((shot) => shot.enabled && canGenerateShot(shot))
@@ -138,7 +143,7 @@ export default function RemixGenerateStep() {
         shotType: shot.type,
         imageIds: shotProgress(shot, tasksById, queuedShotIds).outputImageIds,
       }))
-      const result = await downloadSetZip(draft.name, shots, preset)
+      const result = await downloadSetZip(draft.name, shots, preset, offset)
       showToast(
         result.count > 0 ? `已打包 ${result.count} 张` : '这套还没有可导出的图',
         result.count > 0 ? 'success' : 'error',
@@ -190,6 +195,32 @@ export default function RemixGenerateStep() {
             </option>
           ))}
         </select>
+        <label className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
+          水平
+          <input
+            type="range"
+            min={-1}
+            max={1}
+            step={0.1}
+            value={offset.x}
+            aria-label="裁切水平偏移"
+            onChange={(event) => setOffset((o) => ({ ...o, x: Number(event.target.value) }))}
+            className="w-24 accent-blue-500"
+          />
+        </label>
+        <label className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
+          垂直
+          <input
+            type="range"
+            min={-1}
+            max={1}
+            step={0.1}
+            value={offset.y}
+            aria-label="裁切垂直偏移"
+            onChange={(event) => setOffset((o) => ({ ...o, y: Number(event.target.value) }))}
+            className="w-24 accent-blue-500"
+          />
+        </label>
         <button
           type="button"
           onClick={() => void exportSet()}
