@@ -1268,12 +1268,11 @@ export interface PreparedSubmission {
  * 落库并发起，返回创建的任务 id。composer 专属的校验与状态回写在 submitTask 里。
  */
 export async function submitPrepared(input: PreparedSubmission): Promise<string[]> {
-  const { showToast } = useStore.getState()
-  const normalizedSettings = normalizeSettings(useStore.getState().settings)
+  const { settings, showToast } = useStore.getState()
+  const normalizedSettings = normalizeSettings(settings)
   const profile =
-    (input.profileId
-      ? normalizedSettings.profiles.find((item) => item.id === input.profileId)
-      : null) ?? getActiveApiProfile(normalizedSettings)
+    normalizedSettings.profiles.find((item) => item.id === input.profileId) ??
+    getActiveApiProfile(normalizedSettings)
   const requestSettings = createSettingsForApiProfile(normalizedSettings, profile)
 
   if (!isByokGenerationEnabled() && profile.source !== 'builtin-edge') {
