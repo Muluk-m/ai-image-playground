@@ -51,14 +51,16 @@ export function shotProgress(
     }
   }
 
-  const timing = { startedAt: null as number | null, elapsed: totalElapsed(tasks) }
   if (tasks.some((task) => task.status === 'running')) {
     const startedAt = Math.min(...tasks.map((task) => task.createdAt))
     return { state: 'running', error: null, outputImageIds, startedAt, elapsed: null }
   }
+  const elapsed = totalElapsed(tasks)
   const failed = tasks.find((task) => task.status === 'error')
-  if (failed) return { state: 'error', error: failed.error, outputImageIds, ...timing }
-  return { state: 'done', error: null, outputImageIds, ...timing }
+  if (failed) {
+    return { state: 'error', error: failed.error, outputImageIds, startedAt: null, elapsed }
+  }
+  return { state: 'done', error: null, outputImageIds, startedAt: null, elapsed }
 }
 
 /** 一镜可能有多条任务：总耗时是最早提交到最晚结束的那一段。 */
