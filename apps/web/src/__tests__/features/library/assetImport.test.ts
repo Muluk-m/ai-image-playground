@@ -59,6 +59,16 @@ describe('importing local image files as assets', () => {
     ])
   })
 
+  it('hands the saved asset back to whoever asked for the import', async () => {
+    const onSaved = vi.fn()
+    await useLibraryStore.getState().importAssetFiles([imageFile('白底图.png')], onSaved)
+    const [pending] = useLibraryStore.getState().pendingAssetNames
+
+    await useLibraryStore.getState().saveAsset(pending.imageId, '白底图')
+
+    expect(onSaved).toHaveBeenCalledWith(expect.objectContaining({ name: '白底图' }))
+  })
+
   it('moves on to the next image once one is named', async () => {
     await useLibraryStore
       .getState()

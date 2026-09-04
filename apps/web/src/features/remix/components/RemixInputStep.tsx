@@ -18,7 +18,8 @@ import {
   REMIX_SOURCE_KINDS,
 } from '../types'
 import ListInput from './ListInput'
-import { CARD, FIELD, LABEL, NOTICE, PRIMARY_BUTTON } from './styles'
+import Pending from './Pending'
+import { CARD, FIELD, LABEL, NOTICE, OUTLINE_BUTTON, PRIMARY_BUTTON } from './styles'
 
 function Choice<T extends string>({
   options,
@@ -55,12 +56,14 @@ function Choice<T extends string>({
 export default function RemixInputStep() {
   const draft = useRemixStore((s) => s.draft)
   const listingLoading = useRemixStore((s) => s.listingLoading)
+  const listingStartedAt = useRemixStore((s) => s.listingStartedAt)
   const listingNotice = useRemixStore((s) => s.listingNotice)
   const needsFrontAsset = useRemixStore(selectNeedsFrontAsset)
   const assets = useLibraryStore(
     useShallow((s) => [...s.assets].sort((a, b) => b.lastUsedAt - a.lastUsedAt)),
   )
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const productInputRef = useRef<HTMLInputElement>(null)
 
   const {
     setName,
@@ -75,6 +78,7 @@ export default function RemixInputStep() {
     saveAndContinue,
     setSourceKind,
     addSourceImages,
+    importProductFiles,
   } = useRemixStore.getState()
 
   const productDescription = draft.settings.product
@@ -94,7 +98,7 @@ export default function RemixInputStep() {
             id="remix-set-name"
             value={draft.name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="例：奶油浴缸"
+            placeholder="例：新品套图"
             className={`mt-1.5 ${FIELD}`}
           />
         </div>
@@ -136,7 +140,11 @@ export default function RemixInputStep() {
                   disabled={listingLoading}
                   className={`shrink-0 ${PRIMARY_BUTTON}`}
                 >
-                  {listingLoading ? '抓取中' : '抓取图集'}
+                  {listingLoading ? (
+                    <Pending label="抓取中" startedAt={listingStartedAt} />
+                  ) : (
+                    '抓取图集'
+                  )}
                 </button>
               </div>
 
@@ -148,7 +156,7 @@ export default function RemixInputStep() {
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              className="rounded-lg border border-gray-200 px-3 py-1.5 text-sm text-gray-700 transition hover:border-blue-400 hover:text-blue-600 dark:border-white/[0.12] dark:text-gray-200 dark:hover:border-blue-500/50 dark:hover:text-blue-300"
+              className={OUTLINE_BUTTON}
             >
               {own ? '上传原图' : '上传竞品图'}
             </button>
@@ -161,6 +169,7 @@ export default function RemixInputStep() {
               accept="image/*"
               multiple
               hidden
+              aria-label={own ? '上传原图' : '上传竞品图'}
               onChange={(e) => {
                 void importSourceFiles([...(e.target.files ?? [])])
                 e.target.value = ''
@@ -219,7 +228,7 @@ export default function RemixInputStep() {
                 id="remix-product-name"
                 value={productDescription.name}
                 onChange={(e) => updateProduct({ name: e.target.value })}
-                placeholder="例：W2753 独立浴缸"
+                placeholder="例：产品型号或名称"
                 className={`mt-1.5 ${FIELD}`}
               />
             </div>
@@ -231,7 +240,7 @@ export default function RemixInputStep() {
                 id="remix-product-features"
                 value={productDescription.features}
                 onChange={(e) => updateProduct({ features: e.target.value })}
-                placeholder="例：蛋形单边斜背，外沿薄壁"
+                placeholder="例：主体形状、边缘、材质"
                 className={`mt-1.5 ${FIELD}`}
               />
             </div>
@@ -243,7 +252,7 @@ export default function RemixInputStep() {
                 id="remix-product-color"
                 value={productDescription.mainColor}
                 onChange={(e) => updateProduct({ mainColor: e.target.value })}
-                placeholder="例：哑光灰棕（暖调中灰偏棕）"
+                placeholder="例：主色，含冷暖倾向"
                 className={`mt-1.5 ${FIELD}`}
               />
             </div>
@@ -257,11 +266,38 @@ export default function RemixInputStep() {
                 label="禁止色"
                 value={productDescription.forbiddenColors}
                 onChange={(forbiddenColors) => updateProduct({ forbiddenColors })}
-                placeholder="例：米白、浅灰、白色、橄榄绿"
+                placeholder="例：容易被误画成的颜色"
                 className={`mt-1.5 ${FIELD}`}
               />
             </div>
           </div>
+
+          {!own && (
+            <div className="mb-3 flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => productInputRef.current?.click()}
+                className={OUTLINE_BUTTON}
+              >
+                上传产品图
+              </button>
+              <span className="text-xs text-gray-400 dark:text-gray-500">
+                已选 {draft.productAssets.length} 张
+              </span>
+              <input
+                ref={productInputRef}
+                type="file"
+                accept="image/*"
+                multiple
+                hidden
+                aria-label="上传产品图"
+                onChange={(e) => {
+                  void importProductFiles([...(e.target.files ?? [])])
+                  e.target.value = ''
+                }}
+              />
+            </div>
+          )}
 
           {!own && assets.length === 0 && (
             <p className="text-sm text-gray-500 dark:text-gray-400">素材库还是空的</p>

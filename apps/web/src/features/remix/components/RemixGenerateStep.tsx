@@ -1,6 +1,7 @@
 import { EXPORT_PRESETS, type ExportPreset, findExportPreset } from '@image-playground/shared'
 import { useMemo, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
+import { formatElapsed } from '../../../hooks/useElapsed'
 import { useStore } from '../../../store'
 import AssetThumb from '../../library/components/AssetThumb'
 import {
@@ -20,6 +21,7 @@ import {
 import { canGenerateShot } from '../lib/shots'
 import { useRemixStore } from '../store'
 import { type RemixShot, SHOT_TYPE_LABELS } from '../types'
+import Pending from './Pending'
 import { CARD, LABEL, PRIMARY_BUTTON } from './styles'
 
 const STATE_STYLES: Record<ShotState, string> = {
@@ -30,7 +32,13 @@ const STATE_STYLES: Record<ShotState, string> = {
   error: 'bg-red-500/10 text-red-700 dark:text-red-300',
 }
 
-const EMPTY_PROGRESS: ShotProgress = { state: 'idle', error: null, outputImageIds: [] }
+const EMPTY_PROGRESS: ShotProgress = {
+  state: 'idle',
+  error: null,
+  outputImageIds: [],
+  startedAt: null,
+  elapsed: null,
+}
 
 const EXPORT_FIT_LABELS: Record<ExportFit, string> = { crop: '裁切', letterbox: '留白' }
 
@@ -42,6 +50,21 @@ const GHOST_BUTTON =
 
 function presetFor(id: string): ExportPreset {
   return findExportPreset(id) ?? (EXPORT_PRESETS[0] as ExportPreset)
+}
+
+function StateBadge({ progress }: { progress: ShotProgress }) {
+  const label = SHOT_STATE_LABELS[progress.state]
+  return (
+    <span className={`rounded-full px-2 py-0.5 text-xs ${STATE_STYLES[progress.state]}`}>
+      {progress.state === 'running' ? (
+        <Pending label={label} startedAt={progress.startedAt} />
+      ) : progress.elapsed === null ? (
+        label
+      ) : (
+        `${label} · ${formatElapsed(progress.elapsed)}`
+      )}
+    </span>
+  )
 }
 
 function ShotRow({
@@ -72,9 +95,7 @@ function ShotRow({
           <span className="text-sm font-medium text-gray-800 dark:text-gray-100">
             {String(index + 1).padStart(2, '0')} · {SHOT_TYPE_LABELS[shot.type]}
           </span>
-          <span className={`rounded-full px-2 py-0.5 text-xs ${STATE_STYLES[progress.state]}`}>
-            {SHOT_STATE_LABELS[progress.state]}
-          </span>
+          <StateBadge progress={progress} />
         </div>
         {progress.error && (
           <p className="break-words text-xs text-red-600 dark:text-red-300">{progress.error}</p>
@@ -196,7 +217,7 @@ export default function RemixGenerateStep() {
           disabled={generating}
           className={PRIMARY_BUTTON}
         >
-          {generating ? '生成中' : '开始生成'}
+          {generating ? <Pending label="生成中" startedAt={null} /> : '开始生成'}
         </button>
         <label className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
           每镜张数

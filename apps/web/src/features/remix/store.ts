@@ -46,6 +46,8 @@ export type RemixStep = 1 | 2 | 3
 const UPLOAD_FALLBACK = '请直接上传竞品图'
 const CUSTOM_BACKGROUND_ID = 'custom'
 const DEFAULT_PRODUCT_ANGLE: ProductAngle = 'three-quarter'
+/** 上传的产品图按正面登记：正面白底图是每套都要有、也最常缺的那一张。 */
+const UPLOAD_PRODUCT_ANGLE: ProductAngle = 'front'
 const ANALYZE_FALLBACK = '可以手写简报与提示词'
 const DEFAULT_SETTINGS: RemixSetSettings = {
   platform: 'amazon',
@@ -73,9 +75,16 @@ export interface RemixState {
   step: RemixStep
   draft: RemixDraft
   listingLoading: boolean
+  /** 抓图开始的时刻，用来读秒；不在抓图时为 null。 */
+  listingStartedAt: number | null
   /** 抓图不可用时给出的回落说明，null 表示没有可说的。 */
   listingNotice: string | null
   analyzing: boolean
+  /** 分析开始的时刻，用来读秒；不在分析时为 null。 */
+  analyzeStartedAt: number | null
+  /** 已拿到简报的竞品图张数与本轮总数。 */
+  analyzedCount: number
+  analyzeTotal: number
   /** 分析不可用时给出的回落说明，null 表示没有可说的。 */
   analyzeNotice: string | null
   /** `own` 套步骤②选中的背景风格。 */
@@ -99,6 +108,8 @@ export interface RemixState {
   addSourceImages: (imageIds: string[]) => void
   removeSourceImage: (imageId: string) => void
 
+  importProductFiles: (files: File[]) => Promise<void>
+  addProductAsset: (assetId: string) => void
   toggleProductAsset: (assetId: string) => void
   setProductAngle: (assetId: string, angle: ProductAngle) => void
   updateSettings: (patch: Partial<RemixSetSettings>) => void
@@ -153,8 +164,12 @@ export const useRemixStore = create<RemixState>((set, get) => ({
   step: 1,
   draft: emptyDraft(),
   listingLoading: false,
+  listingStartedAt: null,
   listingNotice: null,
   analyzing: false,
+  analyzeStartedAt: null,
+  analyzedCount: 0,
+  analyzeTotal: 0,
   analyzeNotice: null,
   backgroundStyleIds: [],
   customBackground: '',
@@ -205,7 +220,7 @@ export const useRemixStore = create<RemixState>((set, get) => ({
       return
     }
 
-    set({ listingLoading: true, listingNotice: null })
+    set({ listingLoading: true, listingStartedAt: Date.now(), listingNotice: null })
     try {
       const listing = await fetchListingImages(url)
       const stored = await Promise.all(
@@ -218,7 +233,7 @@ export const useRemixStore = create<RemixState>((set, get) => ({
       const reason = error instanceof Error ? error.message : String(error)
       set({ listingNotice: `${reason}，${UPLOAD_FALLBACK}` })
     } finally {
-      set({ listingLoading: false })
+      set({ listingLoading: false, listingStartedAt: null })
     }
   },
 
@@ -256,6 +271,21 @@ export const useRemixStore = create<RemixState>((set, get) => ({
         sourceImageIds: s.draft.sourceImageIds.filter((id) => id !== imageId),
       },
     })),
+
+  importProductFiles: (files) =>
+    useLibraryStore.getState().importAssetFiles(files, (asset) => get().addProductAsset(asset.id)),
+
+  addProductAsset: (assetId) =>
+    set((s) =>
+      s.draft.productAssets.some((product) => product.assetId === assetId)
+        ? {}
+        : {
+            draft: {
+              ...s.draft,
+              productAssets: [...s.draft.productAssets, { assetId, angle: UPLOAD_PRODUCT_ANGLE }],
+            },
+          },
+    ),
 
   toggleProductAsset: (assetId) =>
     set((s) => {
@@ -314,18 +344,28 @@ export const useRemixStore = create<RemixState>((set, get) => ({
       return
     }
 
-    set({ analyzing: true, analyzeNotice: null })
+    set({
+      analyzing: true,
+      analyzeStartedAt: Date.now(),
+      analyzedCount: 0,
+      analyzeTotal: draft.sourceImageIds.length,
+      analyzeNotice: null,
+    })
     try {
       const sources = await loadSourceImages(draft.sourceImageIds)
-      const briefs = await analyzeCompetitorImages(
-        sources.map((source) => source.dataUrl),
-        productContext(draft),
-      )
+      set({ analyzeTotal: sources.length })
+      const product = productContext(draft)
+      // 一图一次请求：整批一次返回时读秒只能空转，看不出走到第几张。
+      const analysed = (
+        await Promise.all(
+          sources.map(async (source) => {
+            const [brief] = await analyzeCompetitorImages([source.dataUrl], product)
+            set((s) => ({ analyzedCount: s.analyzedCount + 1 }))
+            return brief ? [{ source, brief }] : []
+          }),
+        )
+      ).flat()
       const context = shotContext(get)
-      const analysed = briefs.flatMap((brief, index) => {
-        const source = sources[index]
-        return source ? [{ source, brief }] : []
-      })
       const shots = await Promise.all(
         analysed.map(async ({ source, brief }) =>
           createShot(source.imageId, brief, await storeReferenceImage(source, brief), context),
@@ -337,7 +377,7 @@ export const useRemixStore = create<RemixState>((set, get) => ({
       const reason = error instanceof Error ? error.message : String(error)
       await fillBlankShots(set, get, `${reason}，${ANALYZE_FALLBACK}`)
     } finally {
-      set({ analyzing: false })
+      set({ analyzing: false, analyzeStartedAt: null })
     }
   },
 

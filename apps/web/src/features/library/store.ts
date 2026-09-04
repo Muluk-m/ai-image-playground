@@ -13,6 +13,8 @@ import type { AssetRecord, PendingAssetName, TemplateRecord } from './types'
 
 export type LibraryTab = 'assets' | 'templates'
 
+type OnAssetSaved = (asset: AssetRecord) => void
+
 export interface LibraryState {
   panelOpen: boolean
   tab: LibraryTab
@@ -32,7 +34,7 @@ export interface LibraryState {
   setSearch: (keyword: string) => void
   openTemplateDetail: (id: string) => void
   closeTemplateDetail: () => void
-  startNaming: (imageId: string, defaultName?: string) => void
+  startNaming: (imageId: string, defaultName?: string, onSaved?: OnAssetSaved) => void
   cancelNaming: () => void
   startNamingTemplate: () => void
   cancelNamingTemplate: () => void
@@ -41,8 +43,8 @@ export interface LibraryState {
   saveAsset: (imageId: string, name: string) => Promise<void>
   renameAsset: (id: string, name: string) => Promise<void>
   deleteAsset: (id: string) => Promise<void>
-  /** 存入本地图片文件并逐张排进取名队列。 */
-  importAssetFiles: (files: File[]) => Promise<void>
+  /** 存入本地图片文件并逐张排进取名队列；`onSaved` 让发起方接手每条新素材。 */
+  importAssetFiles: (files: File[], onSaved?: OnAssetSaved) => Promise<void>
   /** 返回该素材图在参考图条里的序号；已在条里则复用原序号，附加失败返回 null。 */
   attachAsset: (id: string) => Promise<number | null>
 
@@ -75,8 +77,10 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
   setSearch: (searchKeyword) => set({ searchKeyword }),
   openTemplateDetail: (detailTemplateId) => set({ detailTemplateId }),
   closeTemplateDetail: () => set({ detailTemplateId: null }),
-  startNaming: (imageId, defaultName = '') =>
-    set((s) => ({ pendingAssetNames: [...s.pendingAssetNames, { imageId, defaultName }] })),
+  startNaming: (imageId, defaultName = '', onSaved) =>
+    set((s) => ({
+      pendingAssetNames: [...s.pendingAssetNames, { imageId, defaultName, onSaved }],
+    })),
   cancelNaming: () => set((s) => ({ pendingAssetNames: s.pendingAssetNames.slice(1) })),
   startNamingTemplate: () => set({ namingTemplate: true }),
   cancelNamingTemplate: () => set({ namingTemplate: false }),
@@ -88,6 +92,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
   saveAsset: async (imageId, name) => {
     const trimmed = name.trim()
     if (!trimmed) return
+    const pending = get().pendingAssetNames[0]
     const now = Date.now()
     const asset: AssetRecord = {
       id: crypto.randomUUID(),
@@ -98,6 +103,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     }
     await assetStore.put(asset)
     set((s) => ({ assets: [...s.assets, asset], pendingAssetNames: s.pendingAssetNames.slice(1) }))
+    if (pending?.imageId === imageId) pending.onSaved?.(asset)
     useStore.getState().showToast('已存为素材', 'success')
   },
 
@@ -142,11 +148,11 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     return index >= 0 ? index : null
   },
 
-  importAssetFiles: async (files) => {
+  importAssetFiles: async (files, onSaved) => {
     for (const file of files.filter((f) => f.type.startsWith('image/'))) {
       try {
         const stored = await storeImageFromFile(file, { compress: true })
-        get().startNaming(stored.id, stripFileExtension(file.name))
+        get().startNaming(stored.id, stripFileExtension(file.name), onSaved)
       } catch (e) {
         useStore
           .getState()

@@ -13,6 +13,7 @@ const isClientCapabilityEnabled = vi.hoisted(() => vi.fn())
 const analyzeCompetitorImages = vi.hoisted(() => vi.fn())
 const eraseProductArea = vi.hoisted(() => vi.fn())
 const submitPrepared = vi.hoisted(() => vi.fn())
+const storeImageFromFile = vi.hoisted(() => vi.fn())
 
 vi.mock('../../../features/remix/lib/listingClient', () => ({
   fetchListingImages,
@@ -31,6 +32,7 @@ vi.mock('../../../features/remix/lib/eraseProduct', () => ({ eraseProductArea })
 vi.mock('../../../store', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../store')>()),
   storeImageFromUrl,
+  storeImageFromFile,
   ensureImageCached,
   submitPrepared,
 }))
@@ -46,6 +48,7 @@ beforeEach(() => {
   eraseProductArea.mockResolvedValue('data:image/png;base64,erased')
   submitPrepared.mockImplementation(async () => [`task-${submitPrepared.mock.calls.length}`])
   useLibraryStore.setState({
+    pendingAssetNames: [],
     assets: [
       { id: 'a-front', name: '正面白底', imageId: 'p-front', createdAt: 1, lastUsedAt: 1 },
       { id: 'a-top', name: '正顶白底', imageId: 'p-top', createdAt: 1, lastUsedAt: 1 },
@@ -83,6 +86,24 @@ describe('fetching the competitor image set from a listing url', () => {
     expect(state.draft.sourceImageIds).toHaveLength(2)
     expect(state.listingNotice).toBeNull()
     expect(state.draft.name).toBe('Abruzzo Bathtub')
+  })
+
+  it('times the fetch from the moment it starts until it lands', async () => {
+    let land: (listing: unknown) => void = () => {}
+    fetchListingImages.mockReturnValue(
+      new Promise((resolve) => {
+        land = resolve
+      }),
+    )
+    useRemixStore.getState().setListingUrl('https://www.amazon.com/dp/B0FVLNS696')
+
+    const fetching = useRemixStore.getState().fetchListing()
+    expect(useRemixStore.getState().listingStartedAt).not.toBeNull()
+
+    land({ asin: 'B0FVLNS696', images: [] })
+    await fetching
+
+    expect(useRemixStore.getState().listingStartedAt).toBeNull()
   })
 
   it('keeps the fallback notice when the listing cannot be reached', async () => {
@@ -123,6 +144,37 @@ describe('picking product assets', () => {
 
     useRemixStore.getState().setProductAngle('a1', 'front')
     expect(selectNeedsFrontAsset(useRemixStore.getState())).toBe(false)
+  })
+})
+
+describe('uploading product images', () => {
+  it('names each file through the library and selects the saved asset as a front base image', async () => {
+    storeImageFromFile.mockImplementation(async (file: File) => ({ id: `img-${file.name}` }))
+
+    await useRemixStore
+      .getState()
+      .importProductFiles([new File(['x'], '正面.png', { type: 'image/png' })])
+
+    const [pending] = useLibraryStore.getState().pendingAssetNames
+    expect(pending).toMatchObject({ imageId: 'img-正面.png', defaultName: '正面' })
+
+    await useLibraryStore.getState().saveAsset(pending.imageId, '正面白底图')
+
+    const asset = useLibraryStore.getState().assets.find((a) => a.name === '正面白底图')
+    expect(useRemixStore.getState().draft.productAssets).toEqual([
+      { assetId: asset?.id, angle: 'front' },
+    ])
+  })
+
+  it('keeps the angle of an asset that is already picked', () => {
+    useRemixStore.getState().toggleProductAsset('a-top')
+    useRemixStore.getState().setProductAngle('a-top', 'top-down')
+
+    useRemixStore.getState().addProductAsset('a-top')
+
+    expect(useRemixStore.getState().draft.productAssets).toEqual([
+      { assetId: 'a-top', angle: 'top-down' },
+    ])
   })
 })
 
@@ -252,6 +304,33 @@ describe('analysing the competitor images into shots', () => {
       productImageId: 'p-front',
     })
     expect(shots()[0]?.prompt).toContain('必须保持哑光灰棕')
+  })
+
+  it('analyses one image per request and counts them as they land', async () => {
+    const remix = useRemixStore.getState()
+    remix.addSourceImages(['i1', 'i2'])
+    remix.toggleProductAsset('a-front')
+    remix.setProductAngle('a-front', 'front')
+    await useRemixStore.getState().saveAndContinue()
+    const seen: Array<[number, number, number | null]> = []
+    analyzeCompetitorImages.mockImplementation(async () => {
+      const state = useRemixStore.getState()
+      seen.push([state.analyzedCount, state.analyzeTotal, state.analyzeStartedAt])
+      return [SCENE_BRIEF]
+    })
+
+    await useRemixStore.getState().analyzeShots()
+
+    expect(analyzeCompetitorImages).toHaveBeenCalledTimes(2)
+    expect(analyzeCompetitorImages.mock.calls.map((call) => call[0])).toEqual([
+      ['data:image/png;base64,i1'],
+      ['data:image/png;base64,i2'],
+    ])
+    expect(seen.map(([done, total]) => `${done}/${total}`)).toEqual(['0/2', '0/2'])
+    expect(seen.every(([, , startedAt]) => startedAt !== null)).toBe(true)
+    expect(useRemixStore.getState().analyzedCount).toBe(2)
+    expect(shots().map((s) => s.sourceImageId)).toEqual(['i1', 'i2'])
+    expect(useRemixStore.getState().analyzeStartedAt).toBeNull()
   })
 
   it('stores the erased competitor image as the reference and keeps the original', async () => {

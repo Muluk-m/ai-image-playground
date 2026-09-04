@@ -11,3 +11,6 @@ export const PRIMARY_BUTTON =
 
 export const NOTICE =
   'rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300'
+
+export const OUTLINE_BUTTON =
+  'rounded-lg border border-gray-200 px-3 py-1.5 text-sm text-gray-700 transition hover:border-blue-400 hover:text-blue-600 dark:border-white/[0.12] dark:text-gray-200 dark:hover:border-blue-500/50 dark:hover:text-blue-300'

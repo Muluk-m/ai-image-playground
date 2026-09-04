@@ -47,7 +47,11 @@ beforeEach(() => {
   vi.stubGlobal('indexedDB', new IDBFactory())
   useStore.setState({ showToast: vi.fn() })
   useRemixStore.getState().startNewSet()
-  useRemixStore.setState((s) => ({ draft: { ...s.draft, id: 'set1', sourceImageIds: ['i1'] } }))
+  useRemixStore.setState((s) => ({
+    draft: { ...s.draft, id: 'set1', sourceImageIds: ['i1'] },
+    analyzing: false,
+    analyzeStartedAt: null,
+  }))
   host = document.createElement('div')
   document.body.appendChild(host)
   root = createRoot(host)
@@ -144,6 +148,24 @@ describe('the shot list', () => {
 
     expect(document.body.textContent).toContain('竞品图分析未开启')
     expect(document.querySelector('textarea')).toBeTruthy()
+  })
+
+  it('reads the clock and the count while the images are analysed', () => {
+    useRemixStore.setState({
+      analyzing: true,
+      analyzeStartedAt: Date.now() - 12_000,
+      analyzedCount: 3,
+      analyzeTotal: 8,
+    })
+    render()
+
+    const button = [...document.querySelectorAll('button')].find((node) =>
+      node.textContent?.startsWith('分析中'),
+    )
+    expect(button?.textContent).toBe('分析中 12s')
+    expect(button?.hasAttribute('disabled')).toBe(true)
+    expect(button?.querySelector('svg.animate-spin')).not.toBeNull()
+    expect(document.body.textContent).toContain('已分析 3/8')
   })
 
   it('asks for a set before anything can be analysed', () => {

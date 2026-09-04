@@ -6,6 +6,7 @@ import { useRemixStore } from '../store'
 import { type RemixShot, SHOT_TYPE_LABELS } from '../types'
 import BackgroundStylePicker from './BackgroundStylePicker'
 import ListInput from './ListInput'
+import Pending from './Pending'
 import { CARD, FIELD, LABEL, NOTICE, PRIMARY_BUTTON } from './styles'
 
 const BADGE = 'rounded-full px-2 py-0.5 text-xs'
@@ -204,6 +205,9 @@ function ShotCard({ shot, index }: { shot: RemixShot; index: number }) {
 export default function RemixBriefStep() {
   const draft = useRemixStore((s) => s.draft)
   const analyzing = useRemixStore((s) => s.analyzing)
+  const analyzeStartedAt = useRemixStore((s) => s.analyzeStartedAt)
+  const analyzedCount = useRemixStore((s) => s.analyzedCount)
+  const analyzeTotal = useRemixStore((s) => s.analyzeTotal)
   const analyzeNotice = useRemixStore((s) => s.analyzeNotice)
   const analyzeShots = useRemixStore((s) => s.analyzeShots)
   const saveShotsAndContinue = useRemixStore((s) => s.saveShotsAndContinue)
@@ -230,10 +234,18 @@ export default function RemixBriefStep() {
             disabled={analyzing}
             className={PRIMARY_BUTTON}
           >
-            {analyzing ? '分析中' : draft.shots.length > 0 ? '重新分析' : '分析竞品图'}
+            {analyzing ? (
+              <Pending label="分析中" startedAt={analyzeStartedAt} />
+            ) : draft.shots.length > 0 ? (
+              '重新分析'
+            ) : (
+              '分析竞品图'
+            )}
           </button>
           <span className="text-xs text-gray-500 dark:text-gray-400">
-            {draft.shots.length} 镜 · 已选 {selected} 镜
+            {analyzing
+              ? `已分析 ${analyzedCount}/${analyzeTotal}`
+              : `${draft.shots.length} 镜 · 已选 ${selected} 镜`}
           </span>
           {analyzeNotice && <p className={`w-full ${NOTICE}`}>{analyzeNotice}</p>}
         </div>
