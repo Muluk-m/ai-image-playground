@@ -52,7 +52,8 @@ export type RemixSourceKind = (typeof REMIX_SOURCE_KINDS)[number]
 export interface RemixSetSource {
   kind: RemixSourceKind
   listingUrl?: string
-  competitorImageIds: string[]
+  /** 套的来源图：`competitor` 套是竞品图，`own` 套是用户自己的现成图。 */
+  sourceImageIds: string[]
 }
 
 export interface RemixSetSettings {
@@ -85,8 +86,8 @@ export interface RemixShotCopy {
 export interface RemixShot {
   id: string
   type: ShotType
-  /** 竞品原图，抹产品后仍留着供人核对。 */
-  competitorImageId: string
+  /** 来源原图。竞品套抹产品后仍留着供人核对，`own` 套里它同时是产品底图。 */
+  sourceImageId: string
   brief: RemixBrief
   copy: RemixShotCopy
   prompt: string
@@ -95,11 +96,11 @@ export interface RemixShot {
   enabled: boolean
   referenceImageId?: string
   productImageId?: string
-  taskId?: string
-  status: 'pending' | 'running' | 'done' | 'error'
+  /** 这一镜发起过的任务。状态从任务记录派生，镜头自己不存状态。 */
+  taskIds: string[]
 }
 
-/** 套：一条竞品链接（或一组竞品图）加一组产品素材，产出的一组图作为整体。 */
+/** 套：一组来源图加一组产品素材，产出的一组图作为整体。 */
 export interface RemixSetRecord {
   id: string
   name: string

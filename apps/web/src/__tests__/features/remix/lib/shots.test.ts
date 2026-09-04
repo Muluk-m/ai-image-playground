@@ -29,7 +29,7 @@ describe('expanding own images into shots', () => {
     const shots = expandOwnShots(['img-a', 'img-b', 'img-c'], STYLES, CONTEXT)
 
     expect(shots).toHaveLength(6)
-    expect(shots.map((shot) => shot.competitorImageId)).toEqual([
+    expect(shots.map((shot) => shot.sourceImageId)).toEqual([
       'img-a',
       'img-a',
       'img-b',

@@ -12,6 +12,7 @@ const ensureImageCached = vi.hoisted(() => vi.fn())
 const isClientCapabilityEnabled = vi.hoisted(() => vi.fn())
 const analyzeCompetitorImages = vi.hoisted(() => vi.fn())
 const eraseProductArea = vi.hoisted(() => vi.fn())
+const submitPrepared = vi.hoisted(() => vi.fn())
 
 vi.mock('../../../features/remix/lib/listingClient', () => ({
   fetchListingImages,
@@ -31,6 +32,7 @@ vi.mock('../../../store', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../store')>()),
   storeImageFromUrl,
   ensureImageCached,
+  submitPrepared,
 }))
 
 beforeEach(() => {
@@ -42,6 +44,7 @@ beforeEach(() => {
   storeImageFromUrl.mockImplementation(async (url: string) => ({ id: `img-${url}`, dataUrl: '' }))
   ensureImageCached.mockImplementation(async (id: string) => `data:image/png;base64,${id}`)
   eraseProductArea.mockResolvedValue('data:image/png;base64,erased')
+  submitPrepared.mockImplementation(async () => [`task-${submitPrepared.mock.calls.length}`])
   useLibraryStore.setState({
     assets: [
       { id: 'a-front', name: '正面白底', imageId: 'p-front', createdAt: 1, lastUsedAt: 1 },
@@ -77,7 +80,7 @@ describe('fetching the competitor image set from a listing url', () => {
     await useRemixStore.getState().fetchListing()
 
     const state = useRemixStore.getState()
-    expect(state.draft.competitorImageIds).toHaveLength(2)
+    expect(state.draft.sourceImageIds).toHaveLength(2)
     expect(state.listingNotice).toBeNull()
     expect(state.draft.name).toBe('Abruzzo Bathtub')
   })
@@ -127,7 +130,7 @@ describe('saving a set', () => {
   it('persists the draft and moves on to the briefs step', async () => {
     const remix = useRemixStore.getState()
     remix.setListingUrl('https://www.amazon.com/dp/B0FVLNS696')
-    remix.addCompetitorImages(['i1'])
+    remix.addSourceImages(['i1'])
     remix.toggleProductAsset('a1')
     remix.setProductAngle('a1', 'front')
     remix.updateSettings({ platform: 'alibaba', language: 'en', level: 'low' })
@@ -141,7 +144,7 @@ describe('saving a set', () => {
       source: {
         kind: 'competitor',
         listingUrl: 'https://www.amazon.com/dp/B0FVLNS696',
-        competitorImageIds: ['i1'],
+        sourceImageIds: ['i1'],
       },
       productAssets: [{ assetId: 'a1', angle: 'front' }],
       settings: { platform: 'alibaba', language: 'en', level: 'low' },
@@ -160,7 +163,7 @@ describe('saving a set', () => {
   })
 
   it('updates the set in place when it is saved again', async () => {
-    useRemixStore.getState().addCompetitorImages(['i1'])
+    useRemixStore.getState().addSourceImages(['i1'])
     await useRemixStore.getState().saveAndContinue()
     const savedId = useRemixStore.getState().activeSetId
 
@@ -174,21 +177,21 @@ describe('saving a set', () => {
   })
 
   it('reopens a saved set from the set list', async () => {
-    useRemixStore.getState().addCompetitorImages(['i1'])
+    useRemixStore.getState().addSourceImages(['i1'])
     useRemixStore.getState().setName('第一套')
     await useRemixStore.getState().saveAndContinue()
     const savedId = useRemixStore.getState().activeSetId ?? ''
 
     useRemixStore.getState().startNewSet()
-    expect(useRemixStore.getState().draft.competitorImageIds).toEqual([])
+    expect(useRemixStore.getState().draft.sourceImageIds).toEqual([])
 
     useRemixStore.getState().selectSet(savedId)
     expect(useRemixStore.getState().draft.name).toBe('第一套')
-    expect(useRemixStore.getState().draft.competitorImageIds).toEqual(['i1'])
+    expect(useRemixStore.getState().draft.sourceImageIds).toEqual(['i1'])
   })
 
   it('loads the saved sets from IndexedDB', async () => {
-    useRemixStore.getState().addCompetitorImages(['i1'])
+    useRemixStore.getState().addSourceImages(['i1'])
     await useRemixStore.getState().saveAndContinue()
     useRemixStore.setState({ sets: [] })
 
@@ -212,7 +215,7 @@ const SCENE_BRIEF: CompetitorBrief = {
 
 async function startSet(briefs: CompetitorBrief[] = [SCENE_BRIEF]) {
   const remix = useRemixStore.getState()
-  remix.addCompetitorImages(['i1'])
+  remix.addSourceImages(['i1'])
   remix.toggleProductAsset('a-front')
   remix.setProductAngle('a-front', 'front')
   remix.updateProduct({
@@ -242,7 +245,7 @@ describe('analysing the competitor images into shots', () => {
     expect(shots()).toHaveLength(1)
     expect(shots()[0]).toMatchObject({
       type: 'scene',
-      competitorImageId: 'i1',
+      sourceImageId: 'i1',
       brief: { composition: '浴缸居中偏左' },
       promptEdited: false,
       enabled: true,
@@ -261,7 +264,7 @@ describe('analysing the competitor images into shots', () => {
       SCENE_BRIEF.productBox,
     )
     expect(shots()[0]?.referenceImageId).toBe('img-data:image/png;base64,erased')
-    expect(shots()[0]?.competitorImageId).toBe('i1')
+    expect(shots()[0]?.sourceImageId).toBe('i1')
   })
 
   it('keeps the original as the reference when no product box came back', async () => {
@@ -302,7 +305,7 @@ describe('analysing the competitor images into shots', () => {
     expect(analyzeCompetitorImages).not.toHaveBeenCalled()
     expect(useRemixStore.getState().analyzeNotice).toContain('手写')
     expect(shots()).toHaveLength(1)
-    expect(shots()[0]?.competitorImageId).toBe('i1')
+    expect(shots()[0]?.sourceImageId).toBe('i1')
   })
 
   it('keeps the shots it already has when the analysis fails', async () => {
@@ -396,5 +399,156 @@ describe('editing one shot', () => {
     const [stored] = await remixSetStore.list()
     expect(stored?.shots[0]?.prompt).toBe('我自己写的提示词')
     expect(useRemixStore.getState().step).toBe(3)
+  })
+})
+
+describe('generating a set shot by shot', () => {
+  it('submits one task per enabled shot and writes the task id back', async () => {
+    await startSet()
+    await useRemixStore.getState().analyzeShots()
+    const setId = useRemixStore.getState().activeSetId
+    const shotId = shots()[0]?.id
+
+    await useRemixStore.getState().generateSet()
+
+    expect(submitPrepared).toHaveBeenCalledTimes(1)
+    expect(submitPrepared).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: shots()[0]?.prompt,
+        origin: { setId, shotId },
+        inputImages: [
+          { id: 'p-front', dataUrl: 'data:image/png;base64,p-front' },
+          {
+            id: 'img-data:image/png;base64,erased',
+            dataUrl: 'data:image/png;base64,img-data:image/png;base64,erased',
+          },
+        ],
+      }),
+    )
+    expect(shots()[0]?.taskIds).toEqual(['task-1'])
+  })
+
+  it('sends the per shot count as the quantity', async () => {
+    await startSet()
+    await useRemixStore.getState().analyzeShots()
+    useRemixStore.getState().setPerShotCount(3)
+
+    await useRemixStore.getState().generateSet()
+
+    expect(submitPrepared).toHaveBeenCalledWith(
+      expect.objectContaining({ params: expect.objectContaining({ n: 3 }) }),
+    )
+  })
+
+  it('skips the shots that are not ticked', async () => {
+    await startSet()
+    await useRemixStore.getState().analyzeShots()
+    useRemixStore.getState().updateShot(shots()[0]?.id ?? '', { enabled: false })
+
+    await useRemixStore.getState().generateSet()
+
+    expect(submitPrepared).not.toHaveBeenCalled()
+  })
+
+  it('keeps the task ids in the set record so a refresh finds them', async () => {
+    await startSet()
+    await useRemixStore.getState().analyzeShots()
+
+    await useRemixStore.getState().generateSet()
+    useRemixStore.setState({ sets: [] })
+    useRemixStore.getState().startNewSet()
+    await useRemixStore.getState().loadSets()
+    const [stored] = useRemixStore.getState().sets
+    useRemixStore.getState().selectSet(stored?.id ?? '')
+
+    expect(shots()[0]?.taskIds).toEqual(['task-1'])
+  })
+
+  it('leaves the shot untouched when the submission is refused', async () => {
+    await startSet()
+    await useRemixStore.getState().analyzeShots()
+    submitPrepared.mockResolvedValue([])
+
+    await useRemixStore.getState().generateSet()
+
+    expect(shots()[0]?.taskIds).toEqual([])
+  })
+})
+
+describe('regenerating one shot', () => {
+  it('resubmits only that shot and replaces its task ids', async () => {
+    await startSet()
+    await useRemixStore.getState().analyzeShots()
+    await useRemixStore.getState().generateSet()
+    const shotId = shots()[0]?.id ?? ''
+
+    await useRemixStore.getState().regenerateShot(shotId)
+
+    expect(submitPrepared).toHaveBeenCalledTimes(2)
+    expect(shots()[0]?.taskIds).toEqual(['task-2'])
+  })
+})
+
+describe('a set built from the user own images', () => {
+  async function startOwnSet() {
+    const remix = useRemixStore.getState()
+    remix.setSourceKind('own')
+    remix.addSourceImages(['own-1', 'own-2'])
+    remix.updateProduct({ name: 'W2753 浴缸', mainColor: '哑光灰棕', forbiddenColors: ['米白'] })
+    await useRemixStore.getState().saveAndContinue()
+  }
+
+  it('saves the source kind on the set', async () => {
+    await startOwnSet()
+
+    const [stored] = await remixSetStore.list()
+    expect(stored?.source.kind).toBe('own')
+    expect(stored?.source.listingUrl).toBeUndefined()
+  })
+
+  it('expands image by style without calling the analysis', async () => {
+    await startOwnSet()
+    useRemixStore.getState().toggleBackgroundStyle('warm-microcement')
+    useRemixStore.getState().toggleBackgroundStyle('white-mosaic')
+
+    await useRemixStore.getState().expandOwnShots()
+
+    expect(analyzeCompetitorImages).not.toHaveBeenCalled()
+    expect(eraseProductArea).not.toHaveBeenCalled()
+    expect(shots()).toHaveLength(4)
+    expect(shots()[0]?.prompt).toContain('只替换产品以外的背景')
+    expect(shots()[0]?.productImageId).toBe('own-1')
+  })
+
+  it('adds the hand written style alongside the presets', async () => {
+    await startOwnSet()
+    useRemixStore.getState().setCustomBackground('日式汤屋，杉木墙面')
+
+    await useRemixStore.getState().expandOwnShots()
+
+    expect(shots()).toHaveLength(2)
+    expect(shots()[0]?.prompt).toContain('日式汤屋，杉木墙面')
+  })
+
+  it('asks for a style before expanding', async () => {
+    await startOwnSet()
+
+    await useRemixStore.getState().expandOwnShots()
+
+    expect(shots()).toHaveLength(0)
+  })
+
+  it('submits the own image as the only input image', async () => {
+    await startOwnSet()
+    useRemixStore.getState().toggleBackgroundStyle('warm-microcement')
+    await useRemixStore.getState().expandOwnShots()
+
+    await useRemixStore.getState().generateSet()
+
+    expect(submitPrepared).toHaveBeenCalledWith(
+      expect.objectContaining({
+        inputImages: [{ id: 'own-1', dataUrl: 'data:image/png;base64,own-1' }],
+      }),
+    )
   })
 })

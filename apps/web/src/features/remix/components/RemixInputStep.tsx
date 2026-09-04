@@ -64,8 +64,8 @@ export default function RemixInputStep() {
     setName,
     setListingUrl,
     fetchListing,
-    importCompetitorFiles,
-    removeCompetitorImage,
+    importSourceFiles,
+    removeSourceImage,
     toggleProductAsset,
     setProductAngle,
     updateSettings,
@@ -129,7 +129,7 @@ export default function RemixInputStep() {
               上传竞品图
             </button>
             <span className="text-xs text-gray-400 dark:text-gray-500">
-              {draft.competitorImageIds.length} 张
+              {draft.sourceImageIds.length} 张
             </span>
             <input
               ref={fileInputRef}
@@ -138,15 +138,15 @@ export default function RemixInputStep() {
               multiple
               hidden
               onChange={(e) => {
-                void importCompetitorFiles([...(e.target.files ?? [])])
+                void importSourceFiles([...(e.target.files ?? [])])
                 e.target.value = ''
               }}
             />
           </div>
 
-          {draft.competitorImageIds.length > 0 && (
+          {draft.sourceImageIds.length > 0 && (
             <ul className="mt-3 flex flex-wrap gap-2">
-              {draft.competitorImageIds.map((imageId, index) => (
+              {draft.sourceImageIds.map((imageId, index) => (
                 <li
                   key={imageId}
                   className="relative h-20 w-20 overflow-hidden rounded-xl border border-gray-200 dark:border-white/[0.08]"
@@ -154,7 +154,7 @@ export default function RemixInputStep() {
                   <AssetThumb imageId={imageId} alt={`竞品图 ${index + 1}`} />
                   <button
                     type="button"
-                    onClick={() => removeCompetitorImage(imageId)}
+                    onClick={() => removeSourceImage(imageId)}
                     aria-label={`移除竞品图 ${index + 1}`}
                     className="absolute right-1 top-1 rounded-full bg-black/45 p-1 text-white transition hover:bg-black/65"
                   >
