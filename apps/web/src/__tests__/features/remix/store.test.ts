@@ -13,6 +13,7 @@ const isClientCapabilityEnabled = vi.hoisted(() => vi.fn())
 const analyzeCompetitorImages = vi.hoisted(() => vi.fn())
 const eraseProductArea = vi.hoisted(() => vi.fn())
 const submitPrepared = vi.hoisted(() => vi.fn())
+const storeImageFromFile = vi.hoisted(() => vi.fn())
 
 vi.mock('../../../features/remix/lib/listingClient', () => ({
   fetchListingImages,
@@ -31,6 +32,7 @@ vi.mock('../../../features/remix/lib/eraseProduct', () => ({ eraseProductArea })
 vi.mock('../../../store', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../store')>()),
   storeImageFromUrl,
+  storeImageFromFile,
   ensureImageCached,
   submitPrepared,
 }))
@@ -46,6 +48,7 @@ beforeEach(() => {
   eraseProductArea.mockResolvedValue('data:image/png;base64,erased')
   submitPrepared.mockImplementation(async () => [`task-${submitPrepared.mock.calls.length}`])
   useLibraryStore.setState({
+    pendingAssetNames: [],
     assets: [
       { id: 'a-front', name: '正面白底', imageId: 'p-front', createdAt: 1, lastUsedAt: 1 },
       { id: 'a-top', name: '正顶白底', imageId: 'p-top', createdAt: 1, lastUsedAt: 1 },
@@ -123,6 +126,37 @@ describe('picking product assets', () => {
 
     useRemixStore.getState().setProductAngle('a1', 'front')
     expect(selectNeedsFrontAsset(useRemixStore.getState())).toBe(false)
+  })
+})
+
+describe('uploading product images', () => {
+  it('names each file through the library and selects the saved asset as a front base image', async () => {
+    storeImageFromFile.mockImplementation(async (file: File) => ({ id: `img-${file.name}` }))
+
+    await useRemixStore
+      .getState()
+      .importProductFiles([new File(['x'], '正面.png', { type: 'image/png' })])
+
+    const [pending] = useLibraryStore.getState().pendingAssetNames
+    expect(pending).toMatchObject({ imageId: 'img-正面.png', defaultName: '正面' })
+
+    await useLibraryStore.getState().saveAsset(pending.imageId, '正面白底图')
+
+    const asset = useLibraryStore.getState().assets.find((a) => a.name === '正面白底图')
+    expect(useRemixStore.getState().draft.productAssets).toEqual([
+      { assetId: asset?.id, angle: 'front' },
+    ])
+  })
+
+  it('keeps the angle of an asset that is already picked', () => {
+    useRemixStore.getState().toggleProductAsset('a-top')
+    useRemixStore.getState().setProductAngle('a-top', 'top-down')
+
+    useRemixStore.getState().addProductAsset('a-top')
+
+    expect(useRemixStore.getState().draft.productAssets).toEqual([
+      { assetId: 'a-top', angle: 'top-down' },
+    ])
   })
 })
 

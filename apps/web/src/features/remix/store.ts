@@ -46,6 +46,8 @@ export type RemixStep = 1 | 2 | 3
 const UPLOAD_FALLBACK = '请直接上传竞品图'
 const CUSTOM_BACKGROUND_ID = 'custom'
 const DEFAULT_PRODUCT_ANGLE: ProductAngle = 'three-quarter'
+/** 上传的产品图按正面登记：正面白底图是每套都要有、也最常缺的那一张。 */
+const UPLOAD_PRODUCT_ANGLE: ProductAngle = 'front'
 const ANALYZE_FALLBACK = '可以手写简报与提示词'
 const DEFAULT_SETTINGS: RemixSetSettings = {
   platform: 'amazon',
@@ -99,6 +101,8 @@ export interface RemixState {
   addSourceImages: (imageIds: string[]) => void
   removeSourceImage: (imageId: string) => void
 
+  importProductFiles: (files: File[]) => Promise<void>
+  addProductAsset: (assetId: string) => void
   toggleProductAsset: (assetId: string) => void
   setProductAngle: (assetId: string, angle: ProductAngle) => void
   updateSettings: (patch: Partial<RemixSetSettings>) => void
@@ -256,6 +260,23 @@ export const useRemixStore = create<RemixState>((set, get) => ({
         sourceImageIds: s.draft.sourceImageIds.filter((id) => id !== imageId),
       },
     })),
+
+  importProductFiles: (files) =>
+    useLibraryStore
+      .getState()
+      .importAssetFiles(files, (asset) => get().addProductAsset(asset.id)),
+
+  addProductAsset: (assetId) =>
+    set((s) =>
+      s.draft.productAssets.some((product) => product.assetId === assetId)
+        ? s
+        : {
+            draft: {
+              ...s.draft,
+              productAssets: [...s.draft.productAssets, { assetId, angle: UPLOAD_PRODUCT_ANGLE }],
+            },
+          },
+    ),
 
   toggleProductAsset: (assetId) =>
     set((s) => {

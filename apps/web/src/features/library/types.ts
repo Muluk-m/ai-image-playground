@@ -37,4 +37,6 @@ export interface TemplateRecord {
 export interface PendingAssetName {
   imageId: string
   defaultName: string
+  /** 取名保存后回调，让发起导入的一方接手这条新素材。 */
+  onSaved?: (asset: AssetRecord) => void
 }
