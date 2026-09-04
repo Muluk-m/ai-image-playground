@@ -1,26 +1,49 @@
+import type { CompetitorBrief, ProductContext } from '@image-playground/shared'
 import { create } from 'zustand'
 import { isClientCapabilityEnabled } from '../../lib/clientCapabilities'
-import { storeImageFromFile, storeImageFromUrl, useStore } from '../../store'
+import { ensureImageCached, storeImageFromFile, storeImageFromUrl, useStore } from '../../store'
+import { useLibraryStore } from '../library/store'
+import { analyzeCompetitorImages } from './lib/analyzeClient'
+import { eraseProductArea } from './lib/eraseProduct'
 import { fetchListingImages, listingImageProxyUrl } from './lib/listingClient'
+import { productContextDescription } from './lib/prompt'
 import { remixSetStore } from './lib/remixSetStore'
+import {
+  applyShotPatch,
+  createBlankShot,
+  createShot,
+  productImageResolver,
+  type RemixShotPatch,
+  regenerateShotPrompt,
+  type ShotContext,
+} from './lib/shots'
 import type {
   ProductAngle,
   RemixProductAsset,
+  RemixProductDescription,
   RemixSetRecord,
   RemixSetSettings,
   RemixShot,
+  RemixSourceKind,
 } from './types'
 
 export type RemixStep = 1 | 2 | 3
 
 const UPLOAD_FALLBACK = '请直接上传竞品图'
 const DEFAULT_PRODUCT_ANGLE: ProductAngle = 'three-quarter'
-const DEFAULT_SETTINGS: RemixSetSettings = { platform: 'amazon', language: 'zh', level: 'high' }
+const ANALYZE_FALLBACK = '可以手写简报与提示词'
+const DEFAULT_SETTINGS: RemixSetSettings = {
+  platform: 'amazon',
+  language: 'zh',
+  level: 'high',
+  product: { name: '', features: '', mainColor: '', forbiddenColors: [] },
+}
 
 export interface RemixDraft {
   /** 已保存的套 id；null 表示还没落盘。 */
   id: string | null
   name: string
+  sourceKind: RemixSourceKind
   listingUrl: string
   competitorImageIds: string[]
   productAssets: RemixProductAsset[]
@@ -37,6 +60,9 @@ export interface RemixState {
   listingLoading: boolean
   /** 抓图不可用时给出的回落说明，null 表示没有可说的。 */
   listingNotice: string | null
+  analyzing: boolean
+  /** 分析不可用时给出的回落说明，null 表示没有可说的。 */
+  analyzeNotice: string | null
 
   loadSets: () => Promise<void>
   startNewSet: () => void
@@ -53,14 +79,21 @@ export interface RemixState {
   toggleProductAsset: (assetId: string) => void
   setProductAngle: (assetId: string, angle: ProductAngle) => void
   updateSettings: (patch: Partial<RemixSetSettings>) => void
+  updateProduct: (patch: Partial<RemixProductDescription>) => void
 
   saveAndContinue: () => Promise<void>
+
+  analyzeShots: () => Promise<void>
+  updateShot: (shotId: string, patch: RemixShotPatch) => void
+  resetShotPrompt: (shotId: string) => void
+  saveShotsAndContinue: () => Promise<void>
 }
 
 function emptyDraft(): RemixDraft {
   return {
     id: null,
     name: '',
+    sourceKind: 'competitor',
     listingUrl: '',
     competitorImageIds: [],
     productAssets: [],
@@ -74,6 +107,7 @@ function draftFromSet(set: RemixSetRecord): RemixDraft {
   return {
     id: set.id,
     name: set.name,
+    sourceKind: set.source.kind === 'own' ? 'own' : 'competitor',
     listingUrl: set.source.listingUrl ?? '',
     competitorImageIds: [...set.source.competitorImageIds],
     productAssets: set.productAssets.map((product) => ({ ...product })),
@@ -90,17 +124,32 @@ export const useRemixStore = create<RemixState>((set, get) => ({
   draft: emptyDraft(),
   listingLoading: false,
   listingNotice: null,
+  analyzing: false,
+  analyzeNotice: null,
 
   loadSets: async () => {
     set({ sets: await remixSetStore.list() })
   },
 
-  startNewSet: () => set({ draft: emptyDraft(), activeSetId: null, step: 1, listingNotice: null }),
+  startNewSet: () =>
+    set({
+      draft: emptyDraft(),
+      activeSetId: null,
+      step: 1,
+      listingNotice: null,
+      analyzeNotice: null,
+    }),
 
   selectSet: (id) => {
     const target = get().sets.find((item) => item.id === id)
     if (!target) return
-    set({ draft: draftFromSet(target), activeSetId: id, step: 1, listingNotice: null })
+    set({
+      draft: draftFromSet(target),
+      activeSetId: id,
+      step: 1,
+      listingNotice: null,
+      analyzeNotice: null,
+    })
   },
 
   setStep: (step) => set({ step }),
@@ -194,6 +243,14 @@ export const useRemixStore = create<RemixState>((set, get) => ({
   updateSettings: (patch) =>
     set((s) => ({ draft: { ...s.draft, settings: { ...s.draft.settings, ...patch } } })),
 
+  updateProduct: (patch) =>
+    set((s) => ({
+      draft: {
+        ...s.draft,
+        settings: { ...s.draft.settings, product: { ...s.draft.settings.product, ...patch } },
+      },
+    })),
+
   saveAndContinue: async () => {
     const { draft } = get()
     if (draft.competitorImageIds.length === 0) {
@@ -201,33 +258,167 @@ export const useRemixStore = create<RemixState>((set, get) => ({
       return
     }
 
-    const now = Date.now()
-    const listingUrl = draft.listingUrl.trim()
-    const record: RemixSetRecord = {
-      id: draft.id ?? crypto.randomUUID(),
-      name: draft.name.trim() || `复刻套 ${get().sets.length + 1}`,
-      source: {
-        ...(listingUrl ? { listingUrl } : {}),
-        competitorImageIds: draft.competitorImageIds,
-      },
-      productAssets: draft.productAssets,
-      settings: draft.settings,
-      shots: draft.shots,
-      createdAt: draft.createdAt ?? now,
-      updatedAt: now,
+    await persistDraft(set, get)
+    set({ step: 2 })
+  },
+
+  analyzeShots: async () => {
+    const { draft } = get()
+    if (draft.competitorImageIds.length === 0) {
+      useStore.getState().showToast('先放入至少一张竞品图', 'error')
+      return
     }
 
-    await remixSetStore.put(record)
-    set((s) => ({
-      sets: s.sets.some((item) => item.id === record.id)
-        ? s.sets.map((item) => (item.id === record.id ? record : item))
-        : [...s.sets, record],
-      draft: draftFromSet(record),
-      activeSetId: record.id,
-      step: 2,
-    }))
+    if (!isClientCapabilityEnabled('remix:analyze')) {
+      await fillBlankShots(set, get, `竞品图分析未开启，${ANALYZE_FALLBACK}`)
+      return
+    }
+
+    set({ analyzing: true, analyzeNotice: null })
+    try {
+      const sources = await loadCompetitorImages(draft.competitorImageIds)
+      const briefs = await analyzeCompetitorImages(
+        sources.map((source) => source.dataUrl),
+        productContext(draft),
+      )
+      const context = shotContext(get)
+      const analysed = briefs.flatMap((brief, index) => {
+        const source = sources[index]
+        return source ? [{ source, brief }] : []
+      })
+      const shots = await Promise.all(
+        analysed.map(async ({ source, brief }) =>
+          createShot(source.imageId, brief, await storeReferenceImage(source, brief), context),
+        ),
+      )
+      set((s) => ({ draft: { ...s.draft, shots } }))
+      await persistDraft(set, get)
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error)
+      await fillBlankShots(set, get, `${reason}，${ANALYZE_FALLBACK}`)
+    } finally {
+      set({ analyzing: false })
+    }
+  },
+
+  updateShot: (shotId, patch) => {
+    const context = shotContext(get)
+    mapShot(set, shotId, (shot) => applyShotPatch(shot, patch, context))
+  },
+
+  resetShotPrompt: (shotId) => {
+    const context = shotContext(get)
+    mapShot(set, shotId, (shot) => regenerateShotPrompt(shot, context))
+  },
+
+  saveShotsAndContinue: async () => {
+    await persistDraft(set, get)
+    set({ step: 3 })
   },
 }))
+
+type SetState = (partial: Partial<RemixState> | ((s: RemixState) => Partial<RemixState>)) => void
+type GetState = () => RemixState
+
+function mapShot(set: SetState, shotId: string, transform: (shot: RemixShot) => RemixShot): void {
+  set((s) => ({
+    draft: {
+      ...s.draft,
+      shots: s.draft.shots.map((shot) => (shot.id === shotId ? transform(shot) : shot)),
+    },
+  }))
+}
+
+async function persistDraft(set: SetState, get: GetState): Promise<void> {
+  const { draft, sets } = get()
+  const now = Date.now()
+  const listingUrl = draft.listingUrl.trim()
+  const record: RemixSetRecord = {
+    id: draft.id ?? crypto.randomUUID(),
+    name: draft.name.trim() || `复刻套 ${sets.length + 1}`,
+    source: {
+      kind: draft.sourceKind,
+      ...(listingUrl ? { listingUrl } : {}),
+      competitorImageIds: draft.competitorImageIds,
+    },
+    productAssets: draft.productAssets,
+    settings: draft.settings,
+    shots: draft.shots,
+    createdAt: draft.createdAt ?? now,
+    updatedAt: now,
+  }
+
+  await remixSetStore.put(record)
+  set((s) => ({
+    sets: s.sets.some((item) => item.id === record.id)
+      ? s.sets.map((item) => (item.id === record.id ? record : item))
+      : [...s.sets, record],
+    draft: draftFromSet(record),
+    activeSetId: record.id,
+  }))
+}
+
+function shotContext(get: GetState): ShotContext {
+  const { draft } = get()
+  const assets = useLibraryStore.getState().assets
+  return {
+    settings: draft.settings,
+    productImageFor: productImageResolver(
+      draft.productAssets,
+      (assetId) => assets.find((asset) => asset.id === assetId)?.imageId,
+    ),
+  }
+}
+
+function productContext(draft: RemixDraft): ProductContext {
+  const { product } = draft.settings
+  return {
+    name: product.name.trim() || draft.name.trim() || '本产品',
+    description: productContextDescription(product),
+  }
+}
+
+interface CompetitorImage {
+  imageId: string
+  dataUrl: string
+}
+
+async function loadCompetitorImages(imageIds: string[]): Promise<CompetitorImage[]> {
+  const loaded = await Promise.all(
+    imageIds.map(async (imageId) => {
+      const dataUrl = await ensureImageCached(imageId)
+      return dataUrl ? { imageId, dataUrl } : null
+    }),
+  )
+  return loaded.filter((image): image is CompetitorImage => image !== null)
+}
+
+/** 抹不掉产品时退回原图：宁可让人自己核对，也不要卡住整轮分析。 */
+async function storeReferenceImage(
+  source: CompetitorImage,
+  brief: CompetitorBrief,
+): Promise<string> {
+  if (!brief.productBox) return source.imageId
+  try {
+    const erased = await eraseProductArea(source.dataUrl, brief.productBox)
+    return (await storeImageFromUrl(erased)).id
+  } catch {
+    return source.imageId
+  }
+}
+
+/** 已经有镜头时只留说明，不拿空白镜头覆盖人写过的东西。 */
+async function fillBlankShots(set: SetState, get: GetState, notice: string): Promise<void> {
+  const { draft } = get()
+  if (draft.shots.length > 0) {
+    set({ analyzeNotice: notice })
+    return
+  }
+  const context = shotContext(get)
+  const shots = draft.competitorImageIds.map((imageId) => createBlankShot(imageId, context))
+  set((s) => ({ draft: { ...s.draft, shots }, analyzeNotice: notice }))
+  await persistDraft(set, get)
+}
 
 /** 所选产品素材里没有正面白底图时提示补图：镜头与底图角度不匹配，模型会改产品。 */
 export function selectNeedsFrontAsset(state: RemixState): boolean {

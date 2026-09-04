@@ -23,6 +23,13 @@ const ASSET: AssetRecord = {
   lastUsedAt: 1,
 }
 
+const PRODUCT = {
+  name: 'W2753 浴缸',
+  features: '蛋形单边斜背',
+  mainColor: '哑光灰棕',
+  forbiddenColors: ['米白'],
+}
+
 let host: HTMLDivElement
 let root: Root
 
@@ -124,9 +131,9 @@ describe('the remix wizard', () => {
         {
           id: 'set1',
           name: '奶油浴缸',
-          source: { competitorImageIds: ['i1'] },
+          source: { kind: 'competitor', competitorImageIds: ['i1'] },
           productAssets: [],
-          settings: { platform: 'amazon', language: 'zh', level: 'high' },
+          settings: { platform: 'amazon', language: 'zh', level: 'high', product: PRODUCT },
           shots: [],
           createdAt: 1,
           updatedAt: 1,
