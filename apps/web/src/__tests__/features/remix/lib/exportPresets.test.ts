@@ -2,6 +2,9 @@ import { EXPORT_PRESETS, findExportPreset } from '@image-playground/shared'
 import { describe, expect, it } from 'vitest'
 import {
   computeCenterCrop,
+  computeLetterbox,
+  defaultExportFit,
+  edgeAverageColor,
   exportEntryName,
   sanitizePathSegment,
 } from '../../../../features/remix/lib/exportPresets'
@@ -72,6 +75,53 @@ describe('cropping a returned image to a preset', () => {
 
     expect(crop.sx).toBe(313)
     expect(crop.sx + crop.sw).toBeLessThanOrEqual(1254)
+  })
+})
+
+describe('padding a returned image out to a preset', () => {
+  it('keeps the whole frame and centres it when the ratios differ', () => {
+    expect(computeLetterbox({ width: 1000, height: 500 }, { width: 2000, height: 2000 })).toEqual({
+      dx: 0,
+      dy: 500,
+      dw: 2000,
+      dh: 1000,
+    })
+  })
+
+  it('pads the sides when the frame is taller than the preset', () => {
+    expect(computeLetterbox({ width: 1122, height: 1402 }, { width: 2000, height: 2000 })).toEqual({
+      dx: 200,
+      dy: 0,
+      dw: 1601,
+      dh: 2000,
+    })
+  })
+
+  it('fills the frame when the ratios already match', () => {
+    expect(computeLetterbox({ width: 1122, height: 1122 }, { width: 2000, height: 2000 })).toEqual({
+      dx: 0,
+      dy: 0,
+      dw: 2000,
+      dh: 2000,
+    })
+  })
+
+  it('takes the padding colour from the border pixels', () => {
+    const red = [255, 0, 0, 255]
+    const blue = [0, 0, 255, 255]
+    const pixels = new Uint8ClampedArray([red, red, red, red, blue, red, red, red, red].flat())
+
+    expect(edgeAverageColor(pixels, { width: 3, height: 3 })).toBe('#ff0000')
+  })
+
+  it('pads with white when the border is transparent', () => {
+    expect(edgeAverageColor(new Uint8ClampedArray(4 * 4), { width: 2, height: 2 })).toBe('#ffffff')
+  })
+
+  it('pads the selling point shot and crops the others', () => {
+    expect(defaultExportFit('selling-point')).toBe('letterbox')
+    expect(defaultExportFit('main')).toBe('crop')
+    expect(defaultExportFit('scene')).toBe('crop')
   })
 })
 
