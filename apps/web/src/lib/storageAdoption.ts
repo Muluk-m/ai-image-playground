@@ -11,6 +11,7 @@ const BATCH_SIZE: Record<DbStoreName, number> = {
   thumbnails: 50,
   assets: 200,
   templates: 200,
+  remix_sets: 200,
 }
 
 let adoption: Promise<number> | null = null

@@ -381,6 +381,15 @@ function orderImagesWithMaskFirst(
   return next
 }
 
+export const APP_MODES = ['browse', 'create', 'remix'] as const
+export type AppMode = (typeof APP_MODES)[number]
+
+export const APP_MODE_LABELS: Record<AppMode, string> = {
+  browse: '工作台',
+  create: '创作',
+  remix: '复刻套图',
+}
+
 export function getPersistedState(state: AppState) {
   const normalized = normalizeSettings(state.settings)
   // builtin-edge profile 不进 localStorage：其完整定义来自 config/channels.json + edge env。
@@ -423,6 +432,10 @@ function normalizeSlotValues(persisted: unknown): SlotValues {
   )
 }
 
+function isAppMode(value: unknown): value is AppMode {
+  return APP_MODES.includes(value as AppMode)
+}
+
 function mergePersistedState(persistedState: unknown, currentState: AppState): AppState {
   if (!persistedState || typeof persistedState !== 'object') return currentState
 
@@ -441,6 +454,7 @@ function mergePersistedState(persistedState: unknown, currentState: AppState): A
     pinnedInspirationIds: Array.isArray(persisted.pinnedInspirationIds)
       ? persisted.pinnedInspirationIds.filter((x): x is string => typeof x === 'string')
       : [],
+    appMode: isAppMode(persisted.appMode) ? persisted.appMode : currentState.appMode,
     prompt:
       settings.persistInputOnRestart && typeof persisted.prompt === 'string'
         ? persisted.prompt
@@ -513,9 +527,9 @@ interface AppState {
   clearSelection: () => void
 
   // UI
-  /** 顶层视图模式：browse = 历史任务网格；create = 无限画布创作模式 */
-  appMode: 'browse' | 'create'
-  setAppMode: (mode: AppState['appMode']) => void
+  /** 顶层视图模式：browse = 历史任务网格；create = 无限画布创作模式；remix = 复刻套图向导 */
+  appMode: AppMode
+  setAppMode: (mode: AppMode) => void
   /**
    * 「工作台图片 → 创作模式画布」一次性 handoff 队列（不持久化）：browse 卡片点「送入画布」
    * 时暂存待放入的 dataUrl，切到 create 后由画布 onMount 消费。是内存传递，跨刷新不复现。
