@@ -59,7 +59,6 @@ export function defaultExportFit(shotType: ShotType): ExportFit {
   return shotType === 'selling-point' ? 'letterbox' : 'crop'
 }
 
-/** 整幅缩进目标尺寸并居中，余下的两条边留白。 */
 export function computeLetterbox(source: Size, target: Size): FitRect {
   const scale = Math.min(target.width / source.width, target.height / source.height)
   const dw = Math.round(source.width * scale)
