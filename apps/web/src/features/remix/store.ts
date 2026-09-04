@@ -6,6 +6,7 @@ import {
 } from '@image-playground/shared'
 import { create } from 'zustand'
 import { isClientCapabilityEnabled } from '../../lib/clientCapabilities'
+import { fetchListingImages, listingImageProxyUrl } from '../../lib/listingClient'
 import {
   ensureImageCached,
   storeImageFromFile,
@@ -17,7 +18,6 @@ import type { InputImage } from '../../types'
 import { useLibraryStore } from '../library/store'
 import { analyzeCompetitorImages } from './lib/analyzeClient'
 import { eraseProductArea } from './lib/eraseProduct'
-import { fetchListingImages, listingImageProxyUrl } from './lib/listingClient'
 import { productContextDescription } from './lib/prompt'
 import { remixSetStore } from './lib/remixSetStore'
 import {

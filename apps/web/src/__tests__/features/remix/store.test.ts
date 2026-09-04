@@ -15,7 +15,7 @@ const eraseProductArea = vi.hoisted(() => vi.fn())
 const submitPrepared = vi.hoisted(() => vi.fn())
 const storeImageFromFile = vi.hoisted(() => vi.fn())
 
-vi.mock('../../../features/remix/lib/listingClient', () => ({
+vi.mock('../../../lib/listingClient', () => ({
   fetchListingImages,
   listingImageProxyUrl: (url: string) => `/api/remix/image?url=${encodeURIComponent(url)}`,
 }))
