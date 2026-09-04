@@ -73,7 +73,7 @@ export default function RemixInputStep() {
     saveAndContinue,
   } = useRemixStore.getState()
 
-  const product = draft.settings.product
+  const productDescription = draft.settings.product
 
   const angleOf = (assetId: string): ProductAngle | null =>
     draft.productAssets.find((product) => product.assetId === assetId)?.angle ?? null
@@ -176,7 +176,7 @@ export default function RemixInputStep() {
               </label>
               <input
                 id="remix-product-name"
-                value={product.name}
+                value={productDescription.name}
                 onChange={(e) => updateProduct({ name: e.target.value })}
                 placeholder="例：W2753 独立浴缸"
                 className={`mt-1.5 ${FIELD}`}
@@ -188,7 +188,7 @@ export default function RemixInputStep() {
               </label>
               <input
                 id="remix-product-features"
-                value={product.features}
+                value={productDescription.features}
                 onChange={(e) => updateProduct({ features: e.target.value })}
                 placeholder="例：蛋形单边斜背，外沿薄壁"
                 className={`mt-1.5 ${FIELD}`}
@@ -200,7 +200,7 @@ export default function RemixInputStep() {
               </label>
               <input
                 id="remix-product-color"
-                value={product.mainColor}
+                value={productDescription.mainColor}
                 onChange={(e) => updateProduct({ mainColor: e.target.value })}
                 placeholder="例：哑光灰棕（暖调中灰偏棕）"
                 className={`mt-1.5 ${FIELD}`}
@@ -214,7 +214,7 @@ export default function RemixInputStep() {
                 key={`${draft.id ?? 'new'}-forbidden`}
                 id="remix-product-forbidden"
                 label="禁止色"
-                value={product.forbiddenColors}
+                value={productDescription.forbiddenColors}
                 onChange={(forbiddenColors) => updateProduct({ forbiddenColors })}
                 placeholder="例：米白、浅灰、白色、橄榄绿"
                 className={`mt-1.5 ${FIELD}`}

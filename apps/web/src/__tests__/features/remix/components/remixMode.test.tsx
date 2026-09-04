@@ -131,7 +131,7 @@ describe('the remix wizard', () => {
         {
           id: 'set1',
           name: '奶油浴缸',
-          source: { competitorImageIds: ['i1'] },
+          source: { kind: 'competitor', competitorImageIds: ['i1'] },
           productAssets: [],
           settings: { platform: 'amazon', language: 'zh', level: 'high', product: PRODUCT },
           shots: [],

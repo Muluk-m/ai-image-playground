@@ -45,7 +45,12 @@ export interface RemixProductAsset {
   angle: ProductAngle
 }
 
+/** 竞品复刻用别人的图，`own` 是拿用户自己的现成图批量换背景。 */
+export const REMIX_SOURCE_KINDS = ['competitor', 'own'] as const
+export type RemixSourceKind = (typeof REMIX_SOURCE_KINDS)[number]
+
 export interface RemixSetSource {
+  kind: RemixSourceKind
   listingUrl?: string
   competitorImageIds: string[]
 }
@@ -67,8 +72,8 @@ export const SHOT_TYPE_LABELS: Record<ShotType, string> = {
   other: '其它',
 }
 
-/** 画面简报。镜型是镜头自己的字段，这里只留其余的可编辑内容。 */
-export type RemixBrief = Omit<CompetitorBrief, 'shotType'>
+/** 画面简报。镜型是镜头自己的字段，建议标题落在 `copy` 里，这里只留其余的可编辑内容。 */
+export type RemixBrief = Omit<CompetitorBrief, 'shotType' | 'suggestedTitle'>
 
 /** 卖点图的图上文案，其它镜型不用。 */
 export interface RemixShotCopy {
