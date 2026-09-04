@@ -117,9 +117,10 @@ _Avoid_: 预设、快捷短语、prompt 片段
 ## 复刻套图（remix）
 
 **套（set）**：
-一条竞品链接（或一组上传的竞品图）加一组标好角度的产品素材，连同平台 / 文案语言 / 差异化档位，
-作为一个整体产出的一组图。记录 `{ id, name, source, productAssets, settings, shots, createdAt,
-updatedAt }` 存在主 IndexedDB 的 `remix_sets` 表里，跟随 scope 隔离与匿名库领养。
+一条竞品链接（或一组上传的竞品图）加一组标好角度的产品素材，连同平台 / 文案语言 / 差异化档位与
+产品描述（名称、外形特征、主色、禁止色），作为一个整体产出的一组图。记录 `{ id, name, source,
+productAssets, settings, shots, createdAt, updatedAt }` 存在主 IndexedDB 的 `remix_sets` 表里，
+跟随 scope 隔离与匿名库领养。
 _Avoid_: 批次、任务组、套图任务
 
 **镜头（shot）**：
