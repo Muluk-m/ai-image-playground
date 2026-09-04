@@ -1,4 +1,4 @@
-import { bffBaseUrl } from '../../../lib/runtimeConfig'
+import { bffBaseUrl } from './runtimeConfig'
 
 export interface ListingImages {
   asin: string

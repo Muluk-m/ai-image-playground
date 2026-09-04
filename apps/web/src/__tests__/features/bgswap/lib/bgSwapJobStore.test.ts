@@ -35,7 +35,13 @@ describe('background swap job storage', () => {
   })
 
   it('keeps the versions and the chosen one of an image', async () => {
-    const version = { id: 'v1', taskId: 't1', plan: '浅木地面，左侧窗光', prompt: 'p', masked: true }
+    const version = {
+      id: 'v1',
+      taskId: 't1',
+      plan: '浅木地面，左侧窗光',
+      prompt: 'p',
+      masked: true,
+    }
     await bgSwapJobStore.put(
       makeJob({ images: [{ imageId: 'image-1', versions: [version], chosenVersionId: 'v1' }] }),
     )
