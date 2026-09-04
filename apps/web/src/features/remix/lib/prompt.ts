@@ -33,21 +33,26 @@ export interface ShotPromptInput {
   language: RemixLanguage
 }
 
-/** 锁产品段：颜色要点名目标色与误判色，只说「不得改色」时模型会把产品拉向环境色温。 */
-export function productLockSection(product: RemixProductDescription): string {
+/** 产品自报家门的一句，锁产品段与换背景锁产品段共用。 */
+export function productIdentityLine(product: RemixProductDescription): string {
   const features = product.features.trim()
+  return `图1是我方产品：${product.name.trim()}${features ? `，${features}` : ''}。`
+}
+
+/** 颜色要点名目标色与误判色，只说「不得改色」时模型会把产品拉向环境色温。 */
+export function colorLockLine(product: RemixProductDescription): string {
   const mainColor = product.mainColor.trim()
-  const lines = [
-    `图1是我方产品：${product.name.trim()}${features ? `，${features}` : ''}。`,
+  if (!mainColor) return ''
+  const forbidden = product.forbiddenColors.filter((color) => color.trim())
+  return `必须保持${mainColor}${forbidden.length > 0 ? `，不得变成${forbidden.join(' / ')}` : ''}，环境光再暖再暗固有色也不变。`
+}
+
+export function productLockSection(product: RemixProductDescription): string {
+  return [
+    productIdentityLine(product),
     '严格保留款式、轮廓比例、颜色、材质质感，不得变形、不得换成别的产品。',
-  ]
-  if (mainColor) {
-    const forbidden = product.forbiddenColors.filter((color) => color.trim())
-    lines.push(
-      `必须保持${mainColor}${forbidden.length > 0 ? `，不得变成${forbidden.join(' / ')}` : ''}，环境光再暖再暗固有色也不变。`,
-    )
-  }
-  return lines.join('')
+    colorLockLine(product),
+  ].join('')
 }
 
 /** 参考约束段：高档只借风格，低档保留构图。 */
