@@ -1,4 +1,4 @@
-/** 平台导出尺寸。上游返回尺寸会浮动，导出前按这里的宽高归一化。 */
+/** 平台导出尺寸。`id` 与套的 platform 同名，选了平台就定了默认导出尺寸。 */
 export interface ExportPreset {
   readonly id: string
   readonly label: string

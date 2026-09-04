@@ -5,6 +5,23 @@ export interface DownloadResult {
   failed: number
 }
 
+/** 浏览器只认这套 anchor 动作，套图导出与单图下载共用。 */
+export function downloadBlob(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = filename
+  document.body.appendChild(anchor)
+  anchor.click()
+  document.body.removeChild(anchor)
+  URL.revokeObjectURL(url)
+}
+
+/** 按 imageId 取图，缓存优先。 */
+export async function imageDataUrl(imageId: string): Promise<string | undefined> {
+  return getCachedImage(imageId) ?? (await ensureImageCached(imageId))
+}
+
 /**
  * 按 imageId 顺序下载到本地。InputBar 批量下载和 TaskCard 单卡下载共用，
  * 不在 helper 里发 toast，由调用方按场景文案自定义。
@@ -20,22 +37,15 @@ export async function downloadImagesByIds(
   let failed = 0
   for (const id of ids) {
     try {
-      const url = getCachedImage(id) ?? (await ensureImageCached(id))
+      const url = await imageDataUrl(id)
       if (!url) {
         failed++
         continue
       }
       const res = await fetch(url)
       const blob = await res.blob()
-      const objUrl = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = objUrl
       const ext = blob.type.split('/')[1] || 'png'
-      a.download = `${filenamePrefix}-${Date.now()}-${success}.${ext}`
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      URL.revokeObjectURL(objUrl)
+      downloadBlob(blob, `${filenamePrefix}-${Date.now()}-${success}.${ext}`)
       success++
       await new Promise((r) => setTimeout(r, 100))
     } catch (err) {

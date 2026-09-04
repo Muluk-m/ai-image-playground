@@ -1,11 +1,17 @@
-import { EXPORT_PRESETS, type ExportPreset } from '@image-playground/shared'
+import { EXPORT_PRESETS, type ExportPreset, findExportPreset } from '@image-playground/shared'
 import { useMemo, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useStore } from '../../../store'
 import AssetThumb from '../../library/components/AssetThumb'
 import type { CropOffset } from '../lib/exportPresets'
 import { downloadSetZip, downloadShotImage } from '../lib/exportSet'
-import { indexTasksById, SHOT_STATE_LABELS, type ShotState, shotProgress } from '../lib/progress'
+import {
+  indexTasksById,
+  SHOT_STATE_LABELS,
+  type ShotProgress,
+  type ShotState,
+  shotProgress,
+} from '../lib/progress'
 import { canGenerateShot } from '../lib/shots'
 import { useRemixStore } from '../store'
 import { type RemixShot, SHOT_TYPE_LABELS } from '../types'
@@ -19,13 +25,13 @@ const STATE_STYLES: Record<ShotState, string> = {
   error: 'bg-red-500/10 text-red-700 dark:text-red-300',
 }
 
+const EMPTY_PROGRESS: ShotProgress = { state: 'idle', error: null, outputImageIds: [] }
+
 const GHOST_BUTTON =
   'rounded-lg px-2 py-1 text-xs text-blue-600 transition hover:bg-blue-500/10 disabled:opacity-40 dark:text-blue-300'
 
-function presetFor(platform: string): ExportPreset {
-  return (
-    EXPORT_PRESETS.find((preset) => preset.id === platform) ?? (EXPORT_PRESETS[0] as ExportPreset)
-  )
+function presetFor(id: string): ExportPreset {
+  return findExportPreset(id) ?? (EXPORT_PRESETS[0] as ExportPreset)
 }
 
 function ShotRow({
@@ -34,20 +40,16 @@ function ShotRow({
   setName,
   preset,
   offset,
+  progress,
 }: {
   shot: RemixShot
   index: number
   setName: string
   preset: ExportPreset
   offset: CropOffset
+  progress: ShotProgress
 }) {
-  const tasks = useStore((s) => s.tasks)
-  const queuedShotIds = useRemixStore(useShallow((s) => s.queuedShotIds))
   const regenerateShot = useRemixStore((s) => s.regenerateShot)
-  const progress = useMemo(
-    () => shotProgress(shot, indexTasksById(tasks), queuedShotIds),
-    [shot, tasks, queuedShotIds],
-  )
 
   return (
     <li className={`${CARD} flex flex-col gap-3 sm:flex-row sm:items-start`}>
@@ -121,11 +123,14 @@ export default function RemixGenerateStep() {
   const [offset, setOffset] = useState<CropOffset>({ x: 0, y: 0 })
 
   const preset = presetFor(presetId)
-  const runnable = draft.shots.filter((shot) => shot.enabled && canGenerateShot(shot))
   const tasksById = useMemo(() => indexTasksById(tasks), [tasks])
-  const done = runnable.filter(
-    (shot) => shotProgress(shot, tasksById, queuedShotIds).state === 'done',
-  ).length
+  const progressByShotId = useMemo(
+    () =>
+      new Map(draft.shots.map((shot) => [shot.id, shotProgress(shot, tasksById, queuedShotIds)])),
+    [draft.shots, tasksById, queuedShotIds],
+  )
+  const runnable = draft.shots.filter((shot) => shot.enabled && canGenerateShot(shot))
+  const done = runnable.filter((shot) => progressByShotId.get(shot.id)?.state === 'done').length
 
   if (!draft.id) {
     return (
@@ -141,7 +146,7 @@ export default function RemixGenerateStep() {
       const shots = draft.shots.map((shot, shotIndex) => ({
         shotIndex,
         shotType: shot.type,
-        imageIds: shotProgress(shot, tasksById, queuedShotIds).outputImageIds,
+        imageIds: progressByShotId.get(shot.id)?.outputImageIds ?? [],
       }))
       const result = await downloadSetZip(draft.name, shots, preset, offset)
       showToast(
@@ -238,7 +243,15 @@ export default function RemixGenerateStep() {
       ) : (
         <ol className="flex flex-col gap-3">
           {draft.shots.map((shot, index) => (
-            <ShotRow key={shot.id} shot={shot} index={index} setName={draft.name} preset={preset} />
+            <ShotRow
+              key={shot.id}
+              shot={shot}
+              index={index}
+              setName={draft.name}
+              preset={preset}
+              offset={offset}
+              progress={progressByShotId.get(shot.id) ?? EMPTY_PROGRESS}
+            />
           ))}
         </ol>
       )}

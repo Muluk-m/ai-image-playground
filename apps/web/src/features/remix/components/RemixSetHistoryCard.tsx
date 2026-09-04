@@ -1,4 +1,3 @@
-import { useShallow } from 'zustand/react/shallow'
 import type { TaskRecord } from '../../../types'
 import AssetThumb from '../../library/components/AssetThumb'
 import { useRemixStore } from '../store'
@@ -16,9 +15,7 @@ export default function RemixSetHistoryCard({
   expanded: boolean
   onToggle: () => void
 }) {
-  const name = useRemixStore(
-    useShallow((s) => s.sets.find((item) => item.id === setId)?.name ?? '套'),
-  )
+  const name = useRemixStore((s) => s.sets.find((item) => item.id === setId)?.name ?? '套')
   const done = tasks.filter((task) => task.status === 'done').length
   const failed = tasks.filter((task) => task.status === 'error').length
   const previews = tasks.flatMap((task) => task.outputImages).slice(0, PREVIEW_LIMIT)

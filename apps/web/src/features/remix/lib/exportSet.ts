@@ -1,11 +1,12 @@
 import type { ExportPreset, ShotType } from '@image-playground/shared'
 import { zipSync } from 'fflate'
-import { ensureImageCached, getCachedImage } from '../../../store'
+import { downloadBlob, imageDataUrl } from '../../../lib/downloadImages'
 import {
   CENTER_OFFSET,
   type CropOffset,
   computeCenterCrop,
   exportEntryName,
+  exportFileName,
   sanitizePathSegment,
 } from './exportPresets'
 
@@ -46,26 +47,14 @@ async function renderToPreset(
   return blob
 }
 
-async function exportedBytes(
+async function exportedImage(
   imageId: string,
   preset: ExportPreset,
   offset: CropOffset,
-): Promise<Uint8Array> {
-  const dataUrl = getCachedImage(imageId) ?? (await ensureImageCached(imageId))
+): Promise<Blob> {
+  const dataUrl = await imageDataUrl(imageId)
   if (!dataUrl) throw new Error('找不到这张图')
-  const blob = await renderToPreset(dataUrl, preset, offset)
-  return new Uint8Array(await blob.arrayBuffer())
-}
-
-export function downloadBlob(blob: Blob, filename: string): void {
-  const url = URL.createObjectURL(blob)
-  const anchor = document.createElement('a')
-  anchor.href = url
-  anchor.download = filename
-  document.body.appendChild(anchor)
-  anchor.click()
-  document.body.removeChild(anchor)
-  URL.revokeObjectURL(url)
+  return renderToPreset(dataUrl, preset, offset)
 }
 
 /** 单张下载也走预设，导出的尺寸与打包里的一致。 */
@@ -77,10 +66,10 @@ export async function downloadShotImage(
   offset: CropOffset = CENTER_OFFSET,
 ): Promise<void> {
   const imageIndex = Math.max(0, shot.imageIds.indexOf(imageId))
-  const dataUrl = getCachedImage(imageId) ?? (await ensureImageCached(imageId))
-  if (!dataUrl) throw new Error('找不到这张图')
-  const name = exportEntryName(setName, shot.shotIndex, shot.shotType, imageIndex)
-  downloadBlob(await renderToPreset(dataUrl, preset, offset), name.split('/').slice(1).join('/'))
+  downloadBlob(
+    await exportedImage(imageId, preset, offset),
+    exportFileName(shot.shotIndex, shot.shotType, imageIndex),
+  )
 }
 
 export interface SetExportResult {
@@ -100,8 +89,9 @@ export async function downloadSetZip(
   for (const shot of shots) {
     for (const [imageIndex, imageId] of shot.imageIds.entries()) {
       try {
+        const rendered = await exportedImage(imageId, preset, offset)
         entries[exportEntryName(setName, shot.shotIndex, shot.shotType, imageIndex)] =
-          await exportedBytes(imageId, preset, offset)
+          new Uint8Array(await rendered.arrayBuffer())
       } catch {
         failed++
       }

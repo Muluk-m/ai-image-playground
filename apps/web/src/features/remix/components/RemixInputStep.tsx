@@ -263,9 +263,10 @@ export default function RemixInputStep() {
             </div>
           </div>
 
-          {own ? null : assets.length === 0 ? (
+          {!own && assets.length === 0 && (
             <p className="text-sm text-gray-500 dark:text-gray-400">素材库还是空的</p>
-          ) : (
+          )}
+          {!own && assets.length > 0 && (
             <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3">
               {assets.map((asset) => {
                 const angle = angleOf(asset.id)
