@@ -114,6 +114,19 @@ createdAt, lastUsedAt }`，存在主 IndexedDB 的 `templates` 表里。`prompt`
 remap 引用——素材已删的位降级为「已移除」，套用仍然成功。
 _Avoid_: 预设、快捷短语、prompt 片段
 
+## 复刻套图（remix）
+
+**套（set）**：
+一条竞品链接（或一组上传的竞品图）加一组标好角度的产品素材，连同平台 / 文案语言 / 差异化档位，
+作为一个整体产出的一组图。记录 `{ id, name, source, productAssets, settings, shots, createdAt,
+updatedAt }` 存在主 IndexedDB 的 `remix_sets` 表里，跟随 scope 隔离与匿名库领养。
+_Avoid_: 批次、任务组、套图任务
+
+**镜头（shot）**：
+套里的一张图，由一张竞品图派生：一份可编辑的画面简报、由简报派生的提示词、一张同角度的产品底图，
+以及生成后回写的任务 id。尺寸图、参数表这类只占位不生图。
+_Avoid_: 分镜、图位、slot
+
 ## 测试
 
 - `apps/web` 有 jsdom 环境（按文件 `@vitest-environment jsdom` 启用），组件级冒烟测试的入口；Overlay 是首个有 DOM 锚点的模块。
