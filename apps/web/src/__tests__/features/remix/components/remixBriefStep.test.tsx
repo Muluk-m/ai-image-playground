@@ -153,3 +153,32 @@ describe('the shot list', () => {
     expect(document.body.textContent).toContain('先在步骤①保存一个套')
   })
 })
+
+describe('the background styles of an own set', () => {
+  beforeEach(() => {
+    useRemixStore.setState((s) => ({
+      draft: { ...s.draft, sourceKind: 'own', sourceImageIds: ['i1', 'i2'] },
+    }))
+  })
+
+  it('replaces the analysis button with the style picker', () => {
+    render()
+
+    expect(document.body.textContent).not.toContain('分析竞品图')
+    expect(document.body.textContent).toContain('展开镜头')
+    expect(document.body.textContent).toContain('暖灰微水泥')
+  })
+
+  it('counts the shots a style choice will produce', () => {
+    render()
+
+    const style = [...document.querySelectorAll('button')].find((node) =>
+      node.textContent?.startsWith('暖灰微水泥'),
+    )
+    if (!style) throw new Error('no style button')
+    act(() => style.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+
+    expect(useRemixStore.getState().backgroundStyleIds).toEqual(['warm-microcement'])
+    expect(document.body.textContent).toContain('2 图 × 1 风格 · 2 镜')
+  })
+})
