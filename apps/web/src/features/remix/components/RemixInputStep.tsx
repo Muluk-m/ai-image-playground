@@ -18,7 +18,7 @@ import {
   REMIX_SOURCE_KINDS,
 } from '../types'
 import ListInput from './ListInput'
-import { CARD, FIELD, LABEL, NOTICE, PRIMARY_BUTTON } from './styles'
+import { CARD, FIELD, LABEL, NOTICE, OUTLINE_BUTTON, PRIMARY_BUTTON } from './styles'
 
 function Choice<T extends string>({
   options,
@@ -61,6 +61,7 @@ export default function RemixInputStep() {
     useShallow((s) => [...s.assets].sort((a, b) => b.lastUsedAt - a.lastUsedAt)),
   )
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const productInputRef = useRef<HTMLInputElement>(null)
 
   const {
     setName,
@@ -75,6 +76,7 @@ export default function RemixInputStep() {
     saveAndContinue,
     setSourceKind,
     addSourceImages,
+    importProductFiles,
   } = useRemixStore.getState()
 
   const productDescription = draft.settings.product
@@ -148,7 +150,7 @@ export default function RemixInputStep() {
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              className="rounded-lg border border-gray-200 px-3 py-1.5 text-sm text-gray-700 transition hover:border-blue-400 hover:text-blue-600 dark:border-white/[0.12] dark:text-gray-200 dark:hover:border-blue-500/50 dark:hover:text-blue-300"
+              className={OUTLINE_BUTTON}
             >
               {own ? '上传原图' : '上传竞品图'}
             </button>
@@ -161,6 +163,7 @@ export default function RemixInputStep() {
               accept="image/*"
               multiple
               hidden
+              aria-label={own ? '上传原图' : '上传竞品图'}
               onChange={(e) => {
                 void importSourceFiles([...(e.target.files ?? [])])
                 e.target.value = ''
@@ -262,6 +265,33 @@ export default function RemixInputStep() {
               />
             </div>
           </div>
+
+          {!own && (
+            <div className="mb-3 flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => productInputRef.current?.click()}
+                className={OUTLINE_BUTTON}
+              >
+                上传产品图
+              </button>
+              <span className="text-xs text-gray-400 dark:text-gray-500">
+                已选 {draft.productAssets.length} 张
+              </span>
+              <input
+                ref={productInputRef}
+                type="file"
+                accept="image/*"
+                multiple
+                hidden
+                aria-label="上传产品图"
+                onChange={(e) => {
+                  void importProductFiles([...(e.target.files ?? [])])
+                  e.target.value = ''
+                }}
+              />
+            </div>
+          )}
 
           {!own && assets.length === 0 && (
             <p className="text-sm text-gray-500 dark:text-gray-400">素材库还是空的</p>
