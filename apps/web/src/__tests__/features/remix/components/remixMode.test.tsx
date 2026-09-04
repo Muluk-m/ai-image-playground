@@ -81,6 +81,15 @@ describe('the remix wizard', () => {
     expect(findByText('保存并下一步')).toBeTruthy()
   })
 
+  it('keeps the example placeholders free of any one trade', () => {
+    render()
+
+    const placeholders = [...document.querySelectorAll('input')].map((input) => input.placeholder)
+
+    expect(placeholders.filter((text) => text.startsWith('例：')).length).toBeGreaterThan(0)
+    for (const text of placeholders) expect(text).not.toContain('浴缸')
+  })
+
   it('explains the fallback when the listing cannot be fetched', () => {
     const fetchListing = vi.fn(async () => {
       useRemixStore.setState({ listingNotice: '链接抓取未开启，请直接上传竞品图' })
