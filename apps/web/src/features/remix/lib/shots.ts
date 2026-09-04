@@ -1,12 +1,14 @@
-import type { CompetitorBrief, ShotType } from '@image-playground/shared'
+import type { BackgroundPreset, CompetitorBrief, ShotType } from '@image-playground/shared'
 import type {
   RemixBrief,
   RemixProductAsset,
   RemixSetSettings,
   RemixShot,
   RemixShotCopy,
+  RemixSourceKind,
 } from '../types'
 import { cameraToAngle, matchProductAsset } from './angleMatch'
+import { backgroundBriefFromPreset, buildBackgroundSwapPrompt } from './backgroundPrompt'
 import { buildShotPrompt, isRenderableShotType } from './prompt'
 
 const EMPTY_BRIEF: RemixBrief = {
@@ -21,6 +23,7 @@ const EMPTY_BRIEF: RemixBrief = {
 }
 
 export interface ShotContext {
+  sourceKind: RemixSourceKind
   settings: RemixSetSettings
   /** 机位 → 同角度底图的 imageId，缺角度时 undefined。 */
   productImageFor: (camera: string) => string | undefined
@@ -50,6 +53,9 @@ export function productImageResolver(
 }
 
 function promptFor(shot: Pick<RemixShot, 'type' | 'brief' | 'copy'>, ctx: ShotContext): string {
+  if (ctx.sourceKind === 'own') {
+    return buildBackgroundSwapPrompt({ product: ctx.settings.product, brief: shot.brief })
+  }
   return buildShotPrompt({
     type: shot.type,
     product: ctx.settings.product,
@@ -65,10 +71,9 @@ function makeShot(
   type: ShotType,
   brief: RemixBrief,
   copy: RemixShotCopy,
-  referenceImageId: string,
+  images: { referenceImageId?: string; productImageId?: string },
   ctx: ShotContext,
 ): RemixShot {
-  const productImageId = ctx.productImageFor(brief.camera)
   const draft: RemixShot = {
     id: crypto.randomUUID(),
     type,
@@ -78,8 +83,8 @@ function makeShot(
     prompt: '',
     promptEdited: false,
     enabled: false,
-    referenceImageId,
-    ...(productImageId ? { productImageId } : {}),
+    ...(images.referenceImageId ? { referenceImageId: images.referenceImageId } : {}),
+    ...(images.productImageId ? { productImageId: images.productImageId } : {}),
     status: 'pending',
   }
   return { ...draft, prompt: promptFor(draft, ctx), enabled: canGenerateShot(draft) }
@@ -97,7 +102,7 @@ export function createShot(
     shotType,
     rest,
     { title: suggestedTitle ?? '', subtitle: brief.textZones[0] ?? '' },
-    referenceImageId,
+    { referenceImageId, productImageId: ctx.productImageFor(rest.camera) },
     ctx,
   )
 }
@@ -109,8 +114,28 @@ export function createBlankShot(competitorImageId: string, ctx: ShotContext): Re
     'other',
     { ...EMPTY_BRIEF },
     { title: '', subtitle: '' },
-    competitorImageId,
+    { referenceImageId: competitorImageId, productImageId: ctx.productImageFor('') },
     ctx,
+  )
+}
+
+/** `own` 套按「图 × 风格」展开：原图既是要改的画面，也是它自己的产品底图。 */
+export function expandOwnShots(
+  imageIds: readonly string[],
+  styles: readonly BackgroundPreset[],
+  ctx: ShotContext,
+): RemixShot[] {
+  return imageIds.flatMap((imageId) =>
+    styles.map((style) =>
+      makeShot(
+        imageId,
+        'scene',
+        backgroundBriefFromPreset(style),
+        { title: '', subtitle: '' },
+        { productImageId: imageId },
+        ctx,
+      ),
+    ),
   )
 }
 
@@ -126,7 +151,7 @@ export function applyShotPatch(
     copy: { ...shot.copy, ...patch.copy },
   }
 
-  if (patch.brief?.camera !== undefined) {
+  if (ctx.sourceKind === 'competitor' && patch.brief?.camera !== undefined) {
     const productImageId = ctx.productImageFor(next.brief.camera)
     if (productImageId) next.productImageId = productImageId
     else delete next.productImageId

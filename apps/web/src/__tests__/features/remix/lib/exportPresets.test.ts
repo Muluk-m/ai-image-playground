@@ -22,12 +22,14 @@ describe('the platform export presets', () => {
 
 describe('cropping a returned image to a preset', () => {
   it('keeps the whole frame when the ratios already match', () => {
-    expect(computeCenterCrop({ width: 1122, height: 1122 }, { width: 2000, height: 2000 })).toEqual({
-      sx: 0,
-      sy: 0,
-      sw: 1122,
-      sh: 1122,
-    })
+    expect(computeCenterCrop({ width: 1122, height: 1122 }, { width: 2000, height: 2000 })).toEqual(
+      {
+        sx: 0,
+        sy: 0,
+        sw: 1122,
+        sh: 1122,
+      },
+    )
   })
 
   it('trims the sides when the frame is wider than the preset', () => {
@@ -40,12 +42,14 @@ describe('cropping a returned image to a preset', () => {
   })
 
   it('trims top and bottom when the frame is taller than the preset', () => {
-    expect(computeCenterCrop({ width: 1122, height: 1402 }, { width: 2000, height: 2000 })).toEqual({
-      sx: 0,
-      sy: 140,
-      sw: 1122,
-      sh: 1122,
-    })
+    expect(computeCenterCrop({ width: 1122, height: 1402 }, { width: 2000, height: 2000 })).toEqual(
+      {
+        sx: 0,
+        sy: 140,
+        sw: 1122,
+        sh: 1122,
+      },
+    )
   })
 
   it('slides the crop to one edge at the extreme offset', () => {
@@ -57,10 +61,14 @@ describe('cropping a returned image to a preset', () => {
   })
 
   it('clamps an offset that points past the edge', () => {
-    const crop = computeCenterCrop({ width: 1254, height: 1254 }, { width: 750, height: 1000 }, {
-      x: 4,
-      y: 0,
-    })
+    const crop = computeCenterCrop(
+      { width: 1254, height: 1254 },
+      { width: 750, height: 1000 },
+      {
+        x: 4,
+        y: 0,
+      },
+    )
 
     expect(crop.sx).toBe(313)
     expect(crop.sx + crop.sw).toBeLessThanOrEqual(1254)

@@ -8,7 +8,7 @@ export function backgroundBriefFromPreset(preset: BackgroundPreset): RemixBrief 
     composition: '',
     camera: '',
     lighting: '',
-    background: `${preset.wall}；${preset.floor}`,
+    background: [preset.wall.trim(), preset.floor.trim()].filter(Boolean).join('；'),
     props: [...preset.props],
     textZones: [],
     palette: [],

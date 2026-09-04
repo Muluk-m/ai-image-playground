@@ -363,6 +363,7 @@ function shotContext(get: GetState): ShotContext {
   const assets = useLibraryStore.getState().assets
   return {
     settings: draft.settings,
+    sourceKind: draft.sourceKind,
     productImageFor: productImageResolver(
       draft.productAssets,
       (assetId) => assets.find((asset) => asset.id === assetId)?.imageId,
