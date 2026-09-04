@@ -1,4 +1,5 @@
 export * from './auth'
+export * from './bgswap'
 export * from './capabilities'
 export * from './channel-discovery'
 export * from './oauth'

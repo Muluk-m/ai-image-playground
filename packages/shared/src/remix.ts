@@ -46,7 +46,7 @@ function parseUnit(value: unknown): number | undefined {
 }
 
 /** `undefined` 是框本身不合法，`null` 是画面里本就没有产品。 */
-function parseProductBox(value: unknown): ProductBox | null | undefined {
+export function parseProductBox(value: unknown): ProductBox | null | undefined {
   if (value === null || value === undefined) return null
   if (typeof value !== 'object') return undefined
   const box = value as Record<string, unknown>
