@@ -34,6 +34,7 @@ describe('auth client', () => {
           'billing:credits': false,
           'generation:byok': true,
           'quota:daily': false,
+          'remix:listing': false,
         }),
       ),
     )

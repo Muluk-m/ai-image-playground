@@ -5,6 +5,7 @@ export const CAPABILITIES = {
   'generation:byok': { defaultValue: false, clientExposed: true },
   'operator:console': { defaultValue: false, clientExposed: false },
   'quota:daily': { defaultValue: false, clientExposed: true },
+  'remix:listing': { defaultValue: false, clientExposed: true },
 } as const satisfies Record<`${string}:${string}`, CapabilityDefinition>
 
 export interface CapabilityDefinition {
