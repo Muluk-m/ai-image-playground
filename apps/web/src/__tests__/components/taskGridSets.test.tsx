@@ -50,7 +50,7 @@ beforeEach(() => {
       {
         id: 'set-1',
         name: '奶油浴缸',
-        source: { kind: 'own', sourceImageIds: ['i1'] },
+        source: { sourceImageIds: ['i1'] },
         productAssets: [],
         settings: {
           platform: 'amazon',

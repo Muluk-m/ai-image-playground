@@ -45,19 +45,8 @@ export interface RemixProductAsset {
   angle: ProductAngle
 }
 
-/** 竞品复刻用别人的图，`own` 是拿用户自己的现成图批量换背景。 */
-export const REMIX_SOURCE_KINDS = ['competitor', 'own'] as const
-export type RemixSourceKind = (typeof REMIX_SOURCE_KINDS)[number]
-
-export const REMIX_SOURCE_KIND_LABELS: Record<RemixSourceKind, string> = {
-  competitor: '复刻竞品',
-  own: '换背景',
-}
-
 export interface RemixSetSource {
-  kind: RemixSourceKind
   listingUrl?: string
-  /** 套的来源图：`competitor` 套是竞品图，`own` 套是用户自己的现成图。 */
   sourceImageIds: string[]
 }
 
@@ -91,7 +80,7 @@ export interface RemixShotCopy {
 export interface RemixShot {
   id: string
   type: ShotType
-  /** 来源原图。竞品套抹产品后仍留着供人核对，`own` 套里它同时是产品底图。 */
+  /** 来源竞品图。抹掉产品后仍留着供人核对。 */
   sourceImageId: string
   brief: RemixBrief
   copy: RemixShotCopy
@@ -105,7 +94,7 @@ export interface RemixShot {
   taskIds: string[]
 }
 
-/** 套：一组来源图加一组产品素材，产出的一组图作为整体。 */
+/** 套：一组竞品来源图加一组产品素材，产出的一组图作为整体。 */
 export interface RemixSetRecord {
   id: string
   name: string
