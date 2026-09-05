@@ -13,14 +13,23 @@ import {
   submitPrepared,
   useStore,
 } from '../../store'
+import { pendingBatchImageIds } from './lib/batch'
 import { bgSwapJobStore } from './lib/bgSwapJobStore'
 import { requestBackgroundPlan } from './lib/planClient'
-import type { BgSwapImage, BgSwapJobRecord, BgSwapStage, BgSwapVersion } from './types'
+import type {
+  BgSwapBatchItemState,
+  BgSwapBatchProgress,
+  BgSwapImage,
+  BgSwapJobRecord,
+  BgSwapStage,
+  BgSwapVersion,
+} from './types'
 
 const UPLOAD_FALLBACK = '请直接上传原图'
 const UNMASKED_FALLBACK = '本版未抠图'
 const MASK_UNSUPPORTED = `当前模型不支持遮罩，${UNMASKED_FALLBACK}`
 const MATTE_FAILED = `抠图失败，${UNMASKED_FALLBACK}`
+const NOT_SUBMITTED = '这张没有提交成功'
 
 type Mask = { imageId: string; targetImageId: string }
 
@@ -53,6 +62,9 @@ export interface BgSwapState {
   /** 中栏正在看的版本；null 表示看原图。 */
   previewVersionId: string | null
 
+  /** 这一轮批量的进度，null 表示这次打开还没跑过批量。 */
+  batch: BgSwapBatchProgress | null
+
   loadJobs: () => Promise<void>
   startNewJob: () => void
   selectJob: (id: string) => void
@@ -61,6 +73,10 @@ export interface BgSwapState {
   retryVersion: (versionId: string) => Promise<void>
   chooseVersion: (versionId: string) => void
   previewVersion: (versionId: string | null) => void
+
+  runBatch: () => Promise<void>
+  runBatchImage: (imageId: string) => Promise<void>
+  stopBatch: () => void
 
   setListingUrl: (url: string) => void
   fetchListing: () => Promise<void>
@@ -107,6 +123,7 @@ export const useBgSwapStore = create<BgSwapState>((set, get) => ({
   swapStartedAt: null,
   swapNotice: null,
   previewVersionId: null,
+  batch: null,
 
   loadJobs: async () => {
     set({ jobs: await bgSwapJobStore.list() })
@@ -121,6 +138,7 @@ export const useBgSwapStore = create<BgSwapState>((set, get) => ({
       listingNotice: null,
       swapNotice: null,
       previewVersionId: null,
+      batch: null,
     }),
 
   selectJob: (id) => {
@@ -134,6 +152,7 @@ export const useBgSwapStore = create<BgSwapState>((set, get) => ({
       listingNotice: null,
       swapNotice: null,
       previewVersionId: null,
+      batch: null,
     })
   },
 
@@ -200,44 +219,36 @@ export const useBgSwapStore = create<BgSwapState>((set, get) => ({
   setVersionsPerImage: (versionsPerImage) => patchDraft(set, get, { versionsPerImage }),
 
   swapBackground: async () => {
-    const { draft, selectedImageId, swapStage } = get()
+    const { draft, selectedImageId, swapStage, batch } = get()
     const image = draft.images.find((item) => item.imageId === selectedImageId)
     const jobId = draft.id
-    if (swapStage || !image || !jobId) return
+    if (swapStage || batch?.running || !image || !jobId) return
 
-    await runStages(set, 'plan', async () => {
-      const dataUrl = await loadOriginal(image.imageId)
-      const plan = await requestBackgroundPlan({ image: dataUrl, preference: draft.preference })
-      await runVersion(set, get, {
-        jobId,
-        imageId: image.imageId,
-        dataUrl,
-        versionId: crypto.randomUUID(),
-        plan: plan.plan,
-        prompt: plan.prompt,
-      })
+    await runStages(set, async (stage) => {
+      const prepared = await prepareImage(get, image.imageId, stage)
+      if (prepared.notice) set({ swapNotice: prepared.notice })
+      const version = await submitVersion(jobId, prepared, crypto.randomUUID())
+      if (!version) return
+      await recordVersions(set, get, image.imageId, [version])
+      set({ previewVersionId: version.id })
     })
   },
 
   /** 重跑沿用这一版已有的方案与提示词，只换掉任务，版本条上不多出一条。 */
   retryVersion: async (versionId) => {
-    const { draft, swapStage } = get()
+    const { draft, swapStage, batch } = get()
     const image = draft.images.find((item) =>
       item.versions.some((version) => version.id === versionId),
     )
     const version = image?.versions.find((item) => item.id === versionId)
     const jobId = draft.id
-    if (swapStage || !image || !version || !jobId) return
+    if (swapStage || batch?.running || !image || !version || !jobId) return
 
-    await runStages(set, 'matte', async () => {
-      await runVersion(set, get, {
-        jobId,
-        imageId: image.imageId,
-        dataUrl: await loadOriginal(image.imageId),
-        versionId,
-        plan: version.plan,
-        prompt: version.prompt,
-      })
+    await runStages(set, async (stage) => {
+      const prepared = await prepareImage(get, image.imageId, stage, version)
+      if (prepared.notice) set({ swapNotice: prepared.notice })
+      const rerun = await submitVersion(jobId, prepared, versionId)
+      if (rerun) await recordVersions(set, get, image.imageId, [rerun])
     })
   },
 
@@ -246,7 +257,9 @@ export const useBgSwapStore = create<BgSwapState>((set, get) => ({
       draft: {
         ...s.draft,
         images: s.draft.images.map((image) =>
-          image.imageId === s.selectedImageId ? { ...image, chosenVersionId: versionId } : image,
+          image.versions.some((version) => version.id === versionId)
+            ? { ...image, chosenVersionId: versionId }
+            : image,
         ),
       },
     }))
@@ -254,6 +267,23 @@ export const useBgSwapStore = create<BgSwapState>((set, get) => ({
   },
 
   previewVersion: (previewVersionId) => set({ previewVersionId }),
+
+  runBatch: async () => {
+    const { draft, selectedImageId } = get()
+    const targets = pendingBatchImageIds(draft.images, selectedImageId)
+    if (targets.length > 0) await runBatchOver(set, get, targets, targets)
+  },
+
+  /** 单张重跑接着上一轮的进度条走，其余图的状态不动。 */
+  runBatchImage: async (imageId) => {
+    const previous = get().batch?.items ?? []
+    const items = previous.some((item) => item.imageId === imageId)
+      ? previous.map((item) => item.imageId)
+      : [...previous.map((item) => item.imageId), imageId]
+    await runBatchOver(set, get, items, [imageId])
+  },
+
+  stopBatch: () => patchBatch(set, { stopRequested: true }),
 }))
 
 type SetState = (partial: Partial<BgSwapState> | ((s: BgSwapState) => Partial<BgSwapState>)) => void
@@ -274,24 +304,24 @@ async function loadOriginal(imageId: string): Promise<string> {
   return dataUrl
 }
 
-interface VersionSeed {
-  jobId: string
+/** 一张图跑完方案与蒙版后的成果，同一张的每一版都拿它去提交。 */
+interface PreparedImage {
   imageId: string
   dataUrl: string
-  versionId: string
+  mask: Mask | null
+  /** 蒙版回落的说明，没有回落时为 null。 */
+  notice: string | null
   plan: string
   prompt: string
 }
 
-/** 读秒的开关与失败说明只在这里写，出一版与重跑一版进来的段位不同。 */
-async function runStages(
-  set: SetState,
-  first: BgSwapStage,
-  body: () => Promise<void>,
-): Promise<void> {
-  set({ swapStage: first, swapStartedAt: Date.now(), swapNotice: null })
+type StageSink = (stage: BgSwapStage) => void
+
+/** 读秒的开关与失败说明只在这里写，段位由 body 自己推。 */
+async function runStages(set: SetState, body: (stage: StageSink) => Promise<void>): Promise<void> {
+  set({ swapStartedAt: Date.now(), swapNotice: null })
   try {
-    await body()
+    await body((swapStage) => set({ swapStage }))
   } catch (error) {
     set({ swapNotice: reasonOf(error) })
   } finally {
@@ -299,42 +329,147 @@ async function runStages(
   }
 }
 
-/** 蒙版 → 提交 → 回写，出一版与重跑一版共用；调用方负责方案与收尾。 */
-async function runVersion(set: SetState, get: GetState, seed: VersionSeed): Promise<void> {
-  set({ swapStage: 'matte' })
-  const mask = await buildMask(set, seed.imageId, seed.dataUrl)
+/** 方案 → 蒙版，一张图只走一次，之后它的每一版共用。`reuse` 是重跑时沿用的旧方案。 */
+async function prepareImage(
+  get: GetState,
+  imageId: string,
+  stage: StageSink,
+  reuse?: { plan: string; prompt: string },
+): Promise<PreparedImage> {
+  if (!reuse) stage('plan')
+  const dataUrl = await loadOriginal(imageId)
+  const planned =
+    reuse ?? (await requestBackgroundPlan({ image: dataUrl, preference: get().draft.preference }))
+  stage('matte')
+  const { mask, notice } = await buildMask(imageId, dataUrl)
+  stage('generate')
+  return { imageId, dataUrl, mask, notice, plan: planned.plan, prompt: planned.prompt }
+}
 
-  set({ swapStage: 'generate' })
+/** 提交一次生成，拿回可落盘的版本；被提交门禁拦下时返回 null。 */
+async function submitVersion(
+  jobId: string,
+  prepared: PreparedImage,
+  versionId: string,
+): Promise<BgSwapVersion | null> {
   const [taskId] = await submitPrepared({
-    prompt: seed.prompt,
-    inputImages: [{ id: seed.imageId, dataUrl: seed.dataUrl }],
+    prompt: prepared.prompt,
+    inputImages: [{ id: prepared.imageId, dataUrl: prepared.dataUrl }],
     params: { ...useStore.getState().params, n: 1 },
-    mask,
-    origin: { setId: seed.jobId, shotId: `${seed.imageId}:${seed.versionId}` },
+    mask: prepared.mask,
+    origin: { setId: jobId, shotId: `${prepared.imageId}:${versionId}` },
   })
   // 提交门禁拦下时没有任务 id，submitPrepared 已经解释过原因，这里不留空版本。
-  if (!taskId) return
+  if (!taskId) return null
 
-  const version: BgSwapVersion = {
-    id: seed.versionId,
+  return {
+    id: versionId,
     taskId,
-    plan: seed.plan,
-    prompt: seed.prompt,
-    masked: mask !== null,
+    plan: prepared.plan,
+    prompt: prepared.prompt,
+    masked: prepared.mask !== null,
     createdAt: Date.now(),
   }
+}
+
+async function recordVersions(
+  set: SetState,
+  get: GetState,
+  imageId: string,
+  versions: readonly BgSwapVersion[],
+): Promise<void> {
   set((s) => ({
     draft: {
       ...s.draft,
       images: s.draft.images.map((image) =>
-        image.imageId === seed.imageId
-          ? { ...image, versions: upsertVersion(image.versions, version) }
+        image.imageId === imageId
+          ? { ...image, versions: versions.reduce(upsertVersion, image.versions) }
           : image,
       ),
     },
-    previewVersionId: version.id,
   }))
   await persistDraft(set, get)
+}
+
+/** 起一轮批量：`listed` 是进度条上要列出的图，`targets` 是这轮真去跑的，一张跑完再跑下一张。 */
+async function runBatchOver(
+  set: SetState,
+  get: GetState,
+  listed: readonly string[],
+  targets: readonly string[],
+): Promise<void> {
+  const { draft, swapStage, batch } = get()
+  const jobId = draft.id
+  if (swapStage || batch?.running || !jobId) return
+
+  const previous = new Map((batch?.items ?? []).map((item) => [item.imageId, item]))
+  set({
+    batch: {
+      items: listed.map((imageId) => {
+        const kept = targets.includes(imageId) ? undefined : previous.get(imageId)
+        return kept ?? { imageId, state: 'pending', error: null }
+      }),
+      running: true,
+      stopRequested: false,
+      startedAt: Date.now(),
+      stage: null,
+    },
+  })
+
+  for (const imageId of targets) {
+    if (get().batch?.stopRequested) break
+    await runOneOfBatch(set, get, jobId, imageId)
+  }
+
+  patchBatch(set, { running: false, stage: null })
+}
+
+/** 批量里的一张：同一张的多版一起提交，跨图由调用方串起来。 */
+async function runOneOfBatch(
+  set: SetState,
+  get: GetState,
+  jobId: string,
+  imageId: string,
+): Promise<void> {
+  patchBatchItem(set, imageId, 'running', null)
+  try {
+    const prepared = await prepareImage(get, imageId, (stage) => patchBatch(set, { stage }))
+    const submitted = await Promise.all(
+      Array.from({ length: get().draft.versionsPerImage }, () =>
+        submitVersion(jobId, prepared, crypto.randomUUID()),
+      ),
+    )
+    const versions = submitted.filter((version) => version !== null)
+    if (versions.length === 0) throw new Error(NOT_SUBMITTED)
+    await recordVersions(set, get, imageId, versions)
+    patchBatchItem(set, imageId, 'done', null)
+  } catch (error) {
+    patchBatchItem(set, imageId, 'error', reasonOf(error))
+  }
+}
+
+function patchBatch(set: SetState, patch: Partial<BgSwapBatchProgress>): void {
+  set((s) => (s.batch ? { batch: { ...s.batch, ...patch } } : {}))
+}
+
+function patchBatchItem(
+  set: SetState,
+  imageId: string,
+  state: BgSwapBatchItemState,
+  error: string | null,
+): void {
+  set((s) =>
+    s.batch
+      ? {
+          batch: {
+            ...s.batch,
+            items: s.batch.items.map((item) =>
+              item.imageId === imageId ? { ...item, state, error } : item,
+            ),
+          },
+        }
+      : {},
+  )
 }
 
 function upsertVersion(versions: BgSwapVersion[], version: BgSwapVersion): BgSwapVersion[] {
@@ -343,24 +478,26 @@ function upsertVersion(versions: BgSwapVersion[], version: BgSwapVersion): BgSwa
     : [...versions, version]
 }
 
-/** 抠不出来就回落提示词版：宁可产品不锁死，也不要卡住这一版。 */
-async function buildMask(set: SetState, imageId: string, dataUrl: string): Promise<Mask | null> {
+/** 抠不出来就回落提示词版：宁可产品不锁死，也不要卡住这一版。`notice` 是回落的说明。 */
+async function buildMask(
+  imageId: string,
+  dataUrl: string,
+): Promise<{ mask: Mask | null; notice: string | null }> {
   if (
     !modelSupportsNativeMask(getActiveApiProfile(useStore.getState().settings), getPublicChannels())
   ) {
-    set({ swapNotice: MASK_UNSUPPORTED })
-    return null
+    return { mask: null, notice: MASK_UNSUPPORTED }
   }
   try {
     const matte = await segmentProduct(dataUrl)
-    if (!assessMatte(matte).ok) {
-      set({ swapNotice: MATTE_FAILED })
-      return null
+    if (!assessMatte(matte).ok) return { mask: null, notice: MATTE_FAILED }
+    const mask = {
+      imageId: await storeImage(alphaToInpaintMask(matte), 'mask'),
+      targetImageId: imageId,
     }
-    return { imageId: await storeImage(alphaToInpaintMask(matte), 'mask'), targetImageId: imageId }
+    return { mask, notice: null }
   } catch {
-    set({ swapNotice: MATTE_FAILED })
-    return null
+    return { mask: null, notice: MATTE_FAILED }
   }
 }
 

@@ -389,3 +389,138 @@ describe('retrying a failed version', () => {
     expect(versions[0]).toMatchObject({ id: version.id, taskId: 'task-2', plan: PLAN.plan })
   })
 })
+
+describe('running the batch over the remaining images', () => {
+  /** 三张图，样张是第一张；批量只该动后两张。 */
+  async function jobWithThreeImages(): Promise<void> {
+    await useBgSwapStore
+      .getState()
+      .importFiles([image('主图.png'), image('细节.png'), image('场景.png')])
+  }
+
+  it('covers every image but the sample, one image at a time', async () => {
+    await jobWithThreeImages()
+    let inFlight = 0
+    let peak = 0
+    requestBackgroundPlan.mockImplementation(async () => {
+      inFlight += 1
+      peak = Math.max(peak, inFlight)
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      inFlight -= 1
+      return PLAN
+    })
+
+    await useBgSwapStore.getState().runBatch()
+
+    expect(requestBackgroundPlan).toHaveBeenCalledTimes(2)
+    expect(peak).toBe(1)
+    const [main, detail, scene] = useBgSwapStore.getState().draft.images
+    expect(main.versions).toEqual([])
+    expect(detail.versions).toHaveLength(1)
+    expect(scene.versions).toHaveLength(1)
+  })
+
+  it('submits one plan and matte per image but every version of it at once', async () => {
+    await jobWithThreeImages()
+    useBgSwapStore.getState().setVersionsPerImage(3)
+
+    await useBgSwapStore.getState().runBatch()
+
+    expect(requestBackgroundPlan).toHaveBeenCalledTimes(2)
+    expect(segmentProduct).toHaveBeenCalledTimes(2)
+    expect(submitPrepared).toHaveBeenCalledTimes(6)
+    expect(useBgSwapStore.getState().draft.images[1].versions).toHaveLength(3)
+  })
+
+  it('walks the progress bar to the end and clears the running flag', async () => {
+    await jobWithThreeImages()
+
+    await useBgSwapStore.getState().runBatch()
+
+    const batch = useBgSwapStore.getState().batch
+    expect(batch?.running).toBe(false)
+    expect(batch?.items.map((item) => item.state)).toEqual(['done', 'done'])
+  })
+
+  it('stops after the image in flight when asked to', async () => {
+    await jobWithThreeImages()
+    requestBackgroundPlan.mockImplementation(async () => {
+      useBgSwapStore.getState().stopBatch()
+      return PLAN
+    })
+
+    await useBgSwapStore.getState().runBatch()
+
+    expect(requestBackgroundPlan).toHaveBeenCalledTimes(1)
+    expect(useBgSwapStore.getState().batch?.items.map((item) => item.state)).toEqual([
+      'done',
+      'pending',
+    ])
+  })
+
+  it('keeps the failure reason on the image that failed and carries on', async () => {
+    await jobWithThreeImages()
+    requestBackgroundPlan.mockRejectedValueOnce(new Error('没拿到可用的背景方案'))
+
+    await useBgSwapStore.getState().runBatch()
+
+    const [failed, second] = useBgSwapStore.getState().batch?.items ?? []
+    expect(failed).toMatchObject({ state: 'error', error: '没拿到可用的背景方案' })
+    expect(second?.state).toBe('done')
+  })
+
+  it('reruns one failed image on its own', async () => {
+    await jobWithThreeImages()
+    requestBackgroundPlan.mockRejectedValueOnce(new Error('没拿到可用的背景方案'))
+    await useBgSwapStore.getState().runBatch()
+    const failedImageId = useBgSwapStore.getState().batch?.items[0].imageId
+    if (!failedImageId) throw new Error('nothing failed')
+
+    await useBgSwapStore.getState().runBatchImage(failedImageId)
+
+    expect(useBgSwapStore.getState().batch?.items[0]).toMatchObject({ state: 'done', error: null })
+    expect(
+      useBgSwapStore.getState().draft.images.find((item) => item.imageId === failedImageId)
+        ?.versions,
+    ).toHaveLength(1)
+  })
+
+  it('refuses to start a second run while one is going', async () => {
+    await jobWithThreeImages()
+    useBgSwapStore.setState({
+      batch: { items: [], running: true, stopRequested: false, startedAt: 1, stage: null },
+    })
+
+    await useBgSwapStore.getState().runBatch()
+
+    expect(requestBackgroundPlan).not.toHaveBeenCalled()
+  })
+
+  it('leaves the images it already covered out of the next run after a reload', async () => {
+    await jobWithThreeImages()
+    await useBgSwapStore.getState().runBatch()
+    const savedId = useBgSwapStore.getState().draft.id
+    if (!savedId) throw new Error('the job was never saved')
+
+    useBgSwapStore.getState().startNewJob()
+    useBgSwapStore.setState({ jobs: [] })
+    await useBgSwapStore.getState().loadJobs()
+    useBgSwapStore.getState().selectJob(savedId)
+
+    expect(useBgSwapStore.getState().batch).toBeNull()
+    expect(useBgSwapStore.getState().draft.images[1].versions).toHaveLength(1)
+    await useBgSwapStore.getState().runBatch()
+    expect(requestBackgroundPlan).toHaveBeenCalledTimes(2)
+  })
+
+  it('holds the single swap button while the batch is going', async () => {
+    await jobWithThreeImages()
+    useBgSwapStore.setState({
+      batch: { items: [], running: true, stopRequested: false, startedAt: 1, stage: null },
+    })
+
+    await useBgSwapStore.getState().swapBackground()
+
+    expect(requestBackgroundPlan).not.toHaveBeenCalled()
+  })
+})

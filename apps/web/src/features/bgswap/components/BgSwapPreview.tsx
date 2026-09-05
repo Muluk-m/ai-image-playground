@@ -1,13 +1,8 @@
 import { useShallow } from 'zustand/react/shallow'
-import { CARD } from '../../../components/panelStyles'
+import { ACTIVE_SEGMENT, CARD, IDLE_SEGMENT, SEGMENT } from '../../../components/panelStyles'
 import { useImageThumbnail } from '../../../hooks/useImageThumbnail'
 import { useStore } from '../../../store'
 import { useBgSwapStore } from '../store'
-
-const SEGMENT = 'rounded-md px-2.5 py-1 text-xs transition'
-const ACTIVE_SEGMENT =
-  'bg-white font-medium text-gray-900 shadow-sm dark:bg-gray-700 dark:text-gray-50'
-const IDLE_SEGMENT = 'text-gray-500 disabled:opacity-50 dark:text-gray-400'
 
 export default function BgSwapPreview() {
   const images = useBgSwapStore(useShallow((s) => s.draft.images))

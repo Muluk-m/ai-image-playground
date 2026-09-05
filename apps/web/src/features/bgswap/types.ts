@@ -37,3 +37,28 @@ export interface BgSwapJobRecord {
 }
 
 export const VERSIONS_PER_IMAGE_CHOICES = [1, 2, 3] as const
+
+export type BgSwapBatchItemState = 'pending' | 'running' | 'done' | 'error'
+
+export const BG_SWAP_BATCH_STATE_LABELS: Record<BgSwapBatchItemState, string> = {
+  pending: '待跑',
+  running: '进行中',
+  done: '完成',
+  error: '失败',
+}
+
+export interface BgSwapBatchItem {
+  imageId: string
+  state: BgSwapBatchItemState
+  error: string | null
+}
+
+/** 一轮批量的进度。只活在内存里，刷新后由任务记录里的版本重新算出剩下哪些图。 */
+export interface BgSwapBatchProgress {
+  items: BgSwapBatchItem[]
+  running: boolean
+  stopRequested: boolean
+  startedAt: number | null
+  /** 当前这张走到的那一段，两张之间为 null。 */
+  stage: BgSwapStage | null
+}
