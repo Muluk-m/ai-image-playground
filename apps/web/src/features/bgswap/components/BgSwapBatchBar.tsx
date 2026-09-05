@@ -1,19 +1,20 @@
 import { useShallow } from 'zustand/react/shallow'
 import Pending from '../../../components/Pending'
-import { CARD, OUTLINE_BUTTON, PRIMARY_BUTTON } from '../../../components/panelStyles'
+import { CARD, GHOST_BUTTON, OUTLINE_BUTTON, PRIMARY_BUTTON } from '../../../components/panelStyles'
 import { batchDoneCount, pendingBatchImageIds } from '../lib/batch'
 import { useBgSwapStore } from '../store'
-import { BG_SWAP_BATCH_STATE_LABELS, BG_SWAP_STAGE_LABELS } from '../types'
+import {
+  BG_SWAP_BATCH_STATE_LABELS,
+  BG_SWAP_STAGE_LABELS,
+  type BgSwapBatchItemState,
+} from '../types'
 
-const STATE_STYLES = {
+const STATE_STYLES: Record<BgSwapBatchItemState, string> = {
   pending: 'text-gray-500 dark:text-gray-400',
   running: 'text-blue-700 dark:text-blue-300',
   done: 'text-emerald-700 dark:text-emerald-300',
   error: 'text-red-600 dark:text-red-300',
 }
-
-const GHOST_BUTTON =
-  'rounded-lg px-2 py-1 text-xs text-blue-600 transition hover:bg-blue-500/10 disabled:opacity-40 dark:text-blue-300'
 
 export default function BgSwapBatchBar() {
   const images = useBgSwapStore(useShallow((s) => s.draft.images))

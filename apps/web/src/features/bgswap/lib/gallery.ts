@@ -2,13 +2,14 @@ import type { ExportEntry, ExportFit } from '../../../lib/imageExport'
 import { sanitizePathSegment } from '../../../lib/imageExport'
 import type { TaskRecord } from '../../../types'
 import type { BgSwapImage, BgSwapVersion } from '../types'
-import { versionProgress } from './versionProgress'
+import { type VersionState, versionProgress } from './versionProgress'
 
 export interface GalleryVersion {
   version: BgSwapVersion
   /** 原图在任务里的序号，导出文件名用它。 */
   imageIndex: number
   versionIndex: number
+  state: VersionState
   outputImageIds: string[]
   chosen: boolean
 }
@@ -35,13 +36,17 @@ export function galleryRows(
           {
             imageId: image.imageId,
             imageIndex,
-            versions: image.versions.map((version, versionIndex) => ({
-              version,
-              imageIndex,
-              versionIndex,
-              outputImageIds: versionProgress(tasksById.get(version.taskId)).outputImageIds,
-              chosen: image.chosenVersionId === version.id,
-            })),
+            versions: image.versions.map((version, versionIndex) => {
+              const progress = versionProgress(tasksById.get(version.taskId))
+              return {
+                version,
+                imageIndex,
+                versionIndex,
+                state: progress.state,
+                outputImageIds: progress.outputImageIds,
+                chosen: image.chosenVersionId === version.id,
+              }
+            }),
           },
         ],
   )
