@@ -1,18 +1,18 @@
-import { useShallow } from 'zustand/react/shallow'
-import { CARD, FIELD, LABEL, PRIMARY_BUTTON } from '../../../components/panelStyles'
+import Pending from '../../../components/Pending'
+import { CARD, FIELD, LABEL, NOTICE, PRIMARY_BUTTON } from '../../../components/panelStyles'
 import { useBgSwapStore } from '../store'
-import { VERSIONS_PER_IMAGE_CHOICES } from '../types'
+import { BG_SWAP_STAGE_LABELS, VERSIONS_PER_IMAGE_CHOICES } from '../types'
+import BgSwapVersionBar from './BgSwapVersionBar'
 
 export default function BgSwapControls() {
   const preference = useBgSwapStore((s) => s.draft.preference)
   const versionsPerImage = useBgSwapStore((s) => s.draft.versionsPerImage)
-  const versions = useBgSwapStore(
-    useShallow(
-      (s) => s.draft.images.find((image) => image.imageId === s.selectedImageId)?.versions ?? [],
-    ),
-  )
+  const selectedImageId = useBgSwapStore((s) => s.selectedImageId)
+  const swapStage = useBgSwapStore((s) => s.swapStage)
+  const swapStartedAt = useBgSwapStore((s) => s.swapStartedAt)
+  const swapNotice = useBgSwapStore((s) => s.swapNotice)
 
-  const { setPreference, setVersionsPerImage } = useBgSwapStore.getState()
+  const { setPreference, setVersionsPerImage, swapBackground } = useBgSwapStore.getState()
 
   return (
     <section data-bgswap-column="controls" className={`${CARD} flex flex-col gap-3`}>
@@ -53,17 +53,22 @@ export default function BgSwapControls() {
         </div>
       </div>
 
-      {/* 出图在 #109 落地，本票只占位。 */}
-      <button type="button" disabled className={PRIMARY_BUTTON}>
-        换背景
+      <button
+        type="button"
+        onClick={() => void swapBackground()}
+        disabled={swapStage !== null || !selectedImageId}
+        className={PRIMARY_BUTTON}
+      >
+        {swapStage ? (
+          <Pending label={BG_SWAP_STAGE_LABELS[swapStage]} startedAt={swapStartedAt} />
+        ) : (
+          '换背景'
+        )}
       </button>
 
-      <div>
-        <span className={LABEL}>版本</span>
-        <p className="mt-1.5 text-xs text-gray-400 dark:text-gray-500">
-          {versions.length === 0 ? '暂无版本' : `${versions.length} 版`}
-        </p>
-      </div>
+      {swapNotice && <p className={NOTICE}>{swapNotice}</p>}
+
+      <BgSwapVersionBar />
     </section>
   )
 }
