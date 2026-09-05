@@ -1,7 +1,16 @@
 import { EXPORT_PRESETS, type ExportPreset, findExportPreset } from '@image-playground/shared'
 import { useMemo, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { CARD, LABEL, PRIMARY_BUTTON } from '../../../components/panelStyles'
+import {
+  ACTIVE_SEGMENT,
+  CARD,
+  GHOST_BUTTON,
+  IDLE_SEGMENT,
+  LABEL,
+  PRIMARY_BUTTON,
+  SEGMENT,
+  SELECT,
+} from '../../../components/panelStyles'
 import {
   downloadExportedImage,
   downloadExportZip,
@@ -21,27 +30,12 @@ import {
   type GalleryVersion,
   galleryRows,
 } from '../lib/gallery'
-import { VERSION_STATE_LABELS, versionProgress } from '../lib/versionProgress'
+import { VERSION_STATE_LABELS } from '../lib/versionProgress'
 import { useBgSwapStore } from '../store'
 
 const VIEWS = ['grouped', 'flat'] as const
 type GalleryView = (typeof VIEWS)[number]
 const VIEW_LABELS: Record<GalleryView, string> = { grouped: '分组', flat: '平铺' }
-
-const SEGMENT = 'rounded-md px-2.5 py-1 text-xs transition'
-const ACTIVE_SEGMENT =
-  'bg-white font-medium text-gray-900 shadow-sm dark:bg-gray-700 dark:text-gray-50'
-const IDLE_SEGMENT = 'text-gray-500 dark:text-gray-400'
-
-const SELECT =
-  'rounded-lg border border-gray-200 bg-white px-2 py-1 text-sm text-gray-800 focus:border-blue-400 focus:outline-none dark:border-white/[0.08] dark:bg-white/[0.04] dark:text-gray-100'
-
-const GHOST_BUTTON =
-  'rounded-lg px-2 py-1 text-xs text-blue-600 transition hover:bg-blue-500/10 disabled:opacity-40 dark:text-blue-300'
-
-function presetFor(id: string): ExportPreset {
-  return findExportPreset(id) ?? (EXPORT_PRESETS[0] as ExportPreset)
-}
 
 function VersionCard({
   item,
@@ -54,8 +48,6 @@ function VersionCard({
   preset: ExportPreset
   onChoose: () => void
 }) {
-  const tasks = useStore((s) => s.tasks)
-  const progress = versionProgress(tasks.find((task) => task.id === item.version.taskId))
   const [first] = item.outputImageIds
   const label = `原图 ${item.imageIndex + 1} 第 ${item.versionIndex + 1} 版`
 
@@ -66,7 +58,7 @@ function VersionCard({
           <AssetThumb imageId={first} alt={label} />
         ) : (
           <span className="flex h-full items-center justify-center text-xs text-gray-400 dark:text-gray-500">
-            {VERSION_STATE_LABELS[progress.state]}
+            {VERSION_STATE_LABELS[item.state]}
           </span>
         )}
       </div>
@@ -122,14 +114,14 @@ export default function BgSwapGallery() {
 
   const tasksById = useMemo(() => new Map(tasks.map((task) => [task.id, task])), [tasks])
   const rows = useMemo(() => galleryRows(images, tasksById), [images, tasksById])
-  const preset = presetFor(presetId)
+  const preset = findExportPreset(presetId) ?? (EXPORT_PRESETS[0] as ExportPreset)
 
   const exportAll = async () => {
     setExporting(true)
     try {
       const result = await downloadExportZip(
-        jobName || '换背景',
-        exportEntries(jobName || '换背景', rows, scope, fit),
+        jobName,
+        exportEntries(jobName, rows, scope, fit),
         preset,
       )
       showToast(
