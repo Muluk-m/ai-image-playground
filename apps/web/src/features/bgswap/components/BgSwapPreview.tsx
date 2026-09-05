@@ -1,9 +1,8 @@
-import { useMemo } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { CARD } from '../../../components/panelStyles'
 import { useImageThumbnail } from '../../../hooks/useImageThumbnail'
 import { useStore } from '../../../store'
-import { indexTasksById, versionProgress } from '../lib/versionProgress'
+import { versionProgress } from '../lib/versionProgress'
 import { useBgSwapStore } from '../store'
 
 const SEGMENT = 'rounded-md px-2.5 py-1 text-xs transition'
@@ -16,18 +15,17 @@ export default function BgSwapPreview() {
   const selectedImageId = useBgSwapStore((s) => s.selectedImageId)
   const previewVersionId = useBgSwapStore((s) => s.previewVersionId)
   const tasks = useStore((s) => s.tasks)
-  const tasksById = useMemo(() => indexTasksById(tasks), [tasks])
 
   const { previewVersion } = useBgSwapStore.getState()
   const selected = images.find((image) => image.imageId === selectedImageId)
   const index = images.findIndex((image) => image.imageId === selectedImageId)
   const versions = selected?.versions ?? []
   const previewed = versions.find((version) => version.id === previewVersionId)
-  const outputImageId = previewed
-    ? versionProgress(previewed.taskId, tasksById).outputImageIds[0]
-    : undefined
+  const shownImageId = previewed
+    ? versionProgress(tasks.find((task) => task.id === previewed.taskId)).outputImageIds[0]
+    : selected?.imageId
   const label = previewed ? `第 ${versions.indexOf(previewed) + 1} 版` : `原图 ${index + 1}`
-  const thumbnail = useImageThumbnail(previewed ? outputImageId : selected?.imageId)
+  const thumbnail = useImageThumbnail(shownImageId)
 
   return (
     <section data-bgswap-column="preview" className={CARD}>

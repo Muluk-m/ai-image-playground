@@ -4,7 +4,7 @@ import Pending from '../../../components/Pending'
 import { LABEL, NOTICE } from '../../../components/panelStyles'
 import { formatElapsed } from '../../../hooks/useElapsed'
 import { useStore } from '../../../store'
-import { indexTasksById, VERSION_STATE_LABELS, versionProgress } from '../lib/versionProgress'
+import { VERSION_STATE_LABELS, versionProgress } from '../lib/versionProgress'
 import { useBgSwapStore } from '../store'
 
 const ACTION =
@@ -16,7 +16,7 @@ export default function BgSwapVersionBar() {
   )
   const previewVersionId = useBgSwapStore((s) => s.previewVersionId)
   const tasks = useStore((s) => s.tasks)
-  const tasksById = useMemo(() => indexTasksById(tasks), [tasks])
+  const tasksById = useMemo(() => new Map(tasks.map((task) => [task.id, task])), [tasks])
 
   const { previewVersion, chooseVersion, retryVersion } = useBgSwapStore.getState()
   const versions = selected?.versions ?? []
@@ -29,7 +29,7 @@ export default function BgSwapVersionBar() {
       ) : (
         <ul data-bgswap-versions className="mt-1.5 flex flex-col gap-1.5">
           {versions.map((version, index) => {
-            const progress = versionProgress(version.taskId, tasksById)
+            const progress = versionProgress(tasksById.get(version.taskId))
             const chosen = selected?.chosenVersionId === version.id
             return (
               <li
