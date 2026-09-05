@@ -15,6 +15,23 @@ export function getModelCapabilities(
   return model ? new Set(model.capabilities) : null
 }
 
+/**
+ * 模型是否「原生」支持遮罩（走 OpenAI images/edits 的真·inpainting）。
+ * - builtin-edge：按 channel 模型 capability 'mask'（当前仅 gpt-image-2 声明）
+ * - user-byok：仅 gemini kind 无原生 mask（geminiImageApi 不接受 mask）；
+ *   openai-compat / http-template 走 images/edits 原生支持
+ * 不支持的模型在分发层走软遮罩降级（见 api.ts 的 applySoftMaskFallback）。
+ */
+export function modelSupportsNativeMask(
+  profile: ClientProfile,
+  publicChannels: PublicChannel[],
+): boolean {
+  if (profile.source === 'builtin-edge') {
+    return getModelCapabilities(profile, publicChannels)?.has('mask') ?? false
+  }
+  return profile.kind !== 'gemini'
+}
+
 /** 模型不支持参考图（图生图）时的统一提示文案，多处编辑入口复用。 */
 export const NO_EDIT_SUPPORT_MESSAGE = '当前模型不支持参考图（图生图），切换模型后可用'
 

@@ -1,9 +1,9 @@
 import { clientProfileToApiProfile, getActiveApiProfile } from './apiProfiles'
 import { createMaskPreviewDataUrl } from './canvasImage'
-import { getModelCapabilities } from './channels/profileSelectors'
+import { modelSupportsNativeMask } from './channels/profileSelectors'
 import { getPublicChannel, getPublicChannels } from './channels/publicChannels'
 import { callQueueChannelApi, resumeQueueChannelApi, toQueueProvider } from './channels/queueClient'
-import type { ClientProfile, UserByokProfile } from './channels/types'
+import type { UserByokProfile } from './channels/types'
 import { isByokGenerationEnabled } from './clientCapabilities'
 import { compressInputImageDataUrls } from './compressInputImage'
 import { callGeminiImageApi } from './geminiImageApi'
@@ -31,21 +31,6 @@ function toByokAdapterProfile(profile: UserByokProfile): BYOKAdapterProfile {
     apiProxy: profile.preferences.apiProxy,
     responseFormatB64Json: profile.preferences.responseFormatB64Json,
   }
-}
-
-/**
- * 模型是否“原生”支持遮罩（走 OpenAI images/edits 的真·inpainting）。
- * - builtin-edge：按 channel 模型 capability 'mask'（当前仅 gpt-image-2 声明）
- * - user-byok：仅 gemini kind 无原生 mask（geminiImageApi 不接受 mask）；
- *   openai-compat / http-template 走 images/edits 原生支持
- * 不支持的模型走软遮罩降级（见 applySoftMaskFallback）。
- */
-function modelSupportsNativeMask(profile: ClientProfile): boolean {
-  // builtin-edge：capability 声明是权威；BYOK：仅 gemini kind 不接受原生 mask
-  if (profile.source === 'builtin-edge') {
-    return getModelCapabilities(profile, getPublicChannels())?.has('mask') ?? false
-  }
-  return profile.kind !== 'gemini'
 }
 
 const SOFT_MASK_INSTRUCTION =
@@ -95,7 +80,7 @@ export async function callImageApi(opts: CallApiOptions): Promise<CallApiResult>
   // 不支持原生 mask 的模型：把遮罩降级成「原图 + 高亮标注图 + prompt 指令」。
   // n>1 时上层已 fan-out 成多条 task，各自合成同一张标注图（输入相同、开销可接受），
   // 不做跨 task 缓存以避免缓存生命周期复杂度。
-  if (opts.maskDataUrl && !modelSupportsNativeMask(profile)) {
+  if (opts.maskDataUrl && !modelSupportsNativeMask(profile, getPublicChannels())) {
     opts = await applySoftMaskFallback(opts)
   }
 
