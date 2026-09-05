@@ -41,6 +41,7 @@ describe('background swap job storage', () => {
       plan: '浅木地面，左侧窗光',
       prompt: 'p',
       masked: true,
+      createdAt: 3,
     }
     await bgSwapJobStore.put(
       makeJob({ images: [{ imageId: 'image-1', versions: [version], chosenVersionId: 'v1' }] }),
