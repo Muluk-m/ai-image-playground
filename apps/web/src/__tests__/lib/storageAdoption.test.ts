@@ -187,6 +187,23 @@ describe('adopting anonymous storage after login', () => {
     expect(await readAll(USER_DB, 'remix_sets')).toEqual([remixSet])
   })
 
+  it('adopts background swap jobs saved while anonymous', async () => {
+    const job = {
+      id: 'job1',
+      name: '春季主图',
+      images: [{ imageId: 'i1', versions: [], chosenVersionId: undefined }],
+      preference: '北欧风',
+      versionsPerImage: 2,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    await seed(BASE_DB_NAME, { tasks: [{ id: 't1' }], bgswap_jobs: [job] })
+
+    await adopt(USER_ID)
+
+    expect(await readAll(USER_DB, 'bgswap_jobs')).toEqual([job])
+  })
+
   it('merges into an existing user database without overwriting its records', async () => {
     await seed(BASE_DB_NAME, {
       tasks: [
