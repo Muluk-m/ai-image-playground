@@ -151,12 +151,13 @@ describe('modelSupportsNativeMask', () => {
 
   it('builtin-edge: only when the model declares mask', () => {
     expect(modelSupportsNativeMask(makeBuiltin(), publicChannels)).toBe(false)
-    expect(
-      modelSupportsNativeMask(
-        { ...makeBuiltin(), channelId: 'mask-channel', selectedModelId: 'gpt-image-2' },
-        [maskChannel],
-      ),
-    ).toBe(true)
+    const masking: ClientProfile = {
+      id: 'p1',
+      source: 'builtin-edge',
+      channelId: 'mask-channel',
+      selectedModelId: 'gpt-image-2',
+    }
+    expect(modelSupportsNativeMask(masking, [maskChannel])).toBe(true)
   })
 
   it('user-byok: every kind but gemini takes a native mask', () => {
