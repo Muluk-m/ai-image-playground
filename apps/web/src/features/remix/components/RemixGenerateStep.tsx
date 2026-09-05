@@ -4,14 +4,14 @@ import { useShallow } from 'zustand/react/shallow'
 import Pending from '../../../components/Pending'
 import { CARD, LABEL, PRIMARY_BUTTON } from '../../../components/panelStyles'
 import { formatElapsed } from '../../../hooks/useElapsed'
-import { useStore } from '../../../store'
-import AssetThumb from '../../library/components/AssetThumb'
 import {
   type CropOffset,
   EXPORT_FIT_LABELS,
   EXPORT_FITS,
   type ExportFit,
 } from '../../../lib/imageExport'
+import { useStore } from '../../../store'
+import AssetThumb from '../../library/components/AssetThumb'
 import { defaultExportFit } from '../lib/exportPresets'
 import { downloadSetZip, downloadShotImage } from '../lib/exportSet'
 import {
