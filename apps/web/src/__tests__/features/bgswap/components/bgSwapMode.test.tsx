@@ -287,6 +287,163 @@ describe('running one background swap', () => {
   })
 })
 
+describe('running the batch over the remaining images', () => {
+  async function withTwoImages() {
+    render()
+    upload(
+      '上传原图',
+      new File(['x'], '主图.png', { type: 'image/png' }),
+      new File(['x'], '细节.png', { type: 'image/png' }),
+    )
+    while (useBgSwapStore.getState().draft.id === null) {
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0))
+      })
+    }
+  }
+
+  it('offers the images the sample leaves behind', async () => {
+    await withTwoImages()
+
+    expect(batchBar().textContent).toContain('对剩下的 1 张')
+    expect(batchButton().disabled).toBe(false)
+  })
+
+  it('counts the images through and lands them on done', async () => {
+    await withTwoImages()
+
+    click(batchButton())
+    await settle()
+
+    expect(useBgSwapStore.getState().draft.images[1].versions).toHaveLength(1)
+    const [item] = batchBar().querySelectorAll('[data-bgswap-batch-item]')
+    expect(item.textContent).toContain('原图 2')
+    expect(item.textContent).toContain('完成')
+  })
+
+  it('reads the seconds out and offers a stop while it runs', async () => {
+    const plan = deferred<typeof PLAN>()
+    requestBackgroundPlan.mockReturnValue(plan.promise)
+    await withTwoImages()
+
+    click(batchButton())
+    await settle()
+
+    expect(batchBar().textContent).toContain('批量 0/1')
+    expect(batchBar().textContent).toContain('方案中')
+    const stop = [...batchBar().querySelectorAll('button')].find(
+      (button) => button.textContent === '停止',
+    )
+    if (!stop) throw new Error('no stop button')
+    click(stop)
+    plan.resolve(PLAN)
+    await settle()
+  })
+
+  it('shows the failure reason and offers a rerun for that image', async () => {
+    requestBackgroundPlan.mockRejectedValueOnce(new Error('没拿到可用的背景方案'))
+    await withTwoImages()
+
+    click(batchButton())
+    await settle()
+
+    const [item] = batchBar().querySelectorAll('[data-bgswap-batch-item]')
+    expect(item.textContent).toContain('没拿到可用的背景方案')
+    const rerun = [...item.querySelectorAll('button')].find(
+      (button) => button.textContent === '重跑这张',
+    )
+    if (!rerun) throw new Error('no rerun button')
+    click(rerun)
+    await settle()
+
+    expect(batchBar().querySelector('[data-bgswap-batch-item]')?.textContent).toContain('完成')
+  })
+})
+
+describe('the result gallery', () => {
+  async function withOneResult() {
+    render()
+    upload('上传原图', new File(['x'], '主图.png', { type: 'image/png' }))
+    while (useBgSwapStore.getState().draft.id === null) {
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0))
+      })
+    }
+    click(swapButton())
+    await settle()
+    act(() => {
+      useStore.setState({ tasks: [finishedTask('task-1')] })
+    })
+  }
+
+  it('says so while nothing has been produced', () => {
+    render()
+
+    expect(gallery().textContent).toContain('暂无结果')
+  })
+
+  it('switches between the grouped and the tiled view', async () => {
+    await withOneResult()
+
+    expect(gallery().querySelectorAll('[data-bgswap-gallery-row]')).toHaveLength(1)
+
+    const tiled = [...gallery().querySelectorAll('button')].find(
+      (button) => button.textContent === '平铺',
+    )
+    if (!tiled) throw new Error('no tiled button')
+    click(tiled)
+
+    expect(gallery().querySelectorAll('[data-bgswap-gallery-row]')).toHaveLength(0)
+    expect(gallery().querySelectorAll('[data-bgswap-gallery-item]')).toHaveLength(1)
+  })
+
+  it('offers the export size, the export scope and the packed download', async () => {
+    await withOneResult()
+
+    expect(gallery().querySelector('[aria-label="导出尺寸"]')).not.toBeNull()
+    expect(gallery().querySelector('[aria-label="导出范围"]')).not.toBeNull()
+    const pack = [...gallery().querySelectorAll('button')].find(
+      (button) => button.textContent === '打包下载',
+    )
+    expect(pack?.disabled).toBe(false)
+  })
+
+  it('takes a version as the chosen one from the gallery', async () => {
+    await withOneResult()
+
+    const choose = [...gallery().querySelectorAll('button')].find(
+      (button) => button.textContent === '用这版',
+    )
+    if (!choose) throw new Error('no choose button')
+    click(choose)
+    await settle()
+
+    const [version] = useBgSwapStore.getState().draft.images[0].versions
+    expect(useBgSwapStore.getState().draft.images[0].chosenVersionId).toBe(version.id)
+    expect(gallery().textContent).toContain('已选')
+  })
+})
+
+function batchBar(): HTMLElement {
+  const element = document.querySelector<HTMLElement>('[data-bgswap-batch]')
+  if (!element) throw new Error('no batch bar')
+  return element
+}
+
+function batchButton(): HTMLButtonElement {
+  const button = [...batchBar().querySelectorAll('button')].find(
+    (item) => item.textContent === '批量跑',
+  )
+  if (!button) throw new Error('no batch button')
+  return button
+}
+
+function gallery(): HTMLElement {
+  const element = document.querySelector<HTMLElement>('[data-bgswap-gallery]')
+  if (!element) throw new Error('no gallery')
+  return element
+}
+
 function swapButton(): HTMLButtonElement {
   const button = [...column('controls').querySelectorAll('button')].find((item) =>
     /换背景|方案中|抠图中|生成中/.test(item.textContent ?? ''),
