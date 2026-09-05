@@ -329,8 +329,9 @@ describe('running the batch over the remaining images', () => {
     click(batchButton())
     await settle()
 
-    expect(batchBar().textContent).toContain('批量 0/1')
+    expect(batchBar().textContent).toContain('批量 0/1 · 原图 2')
     expect(batchBar().textContent).toContain('方案中')
+    expect(swapButton().disabled).toBe(true)
     const stop = [...batchBar().querySelectorAll('button')].find(
       (button) => button.textContent === '停止',
     )

@@ -26,13 +26,16 @@ export default function BgSwapBatchBar() {
   const remaining = pendingBatchImageIds(images, selectedImageId)
   const orderOf = (imageId: string) => images.findIndex((image) => image.imageId === imageId) + 1
   const running = batch?.running === true
+  const current = batch?.items.find((item) => item.state === 'running')
 
   return (
     <section data-bgswap-batch className={`${CARD} mt-4 flex flex-col gap-3`}>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-gray-700 dark:text-gray-200">
           {running
-            ? `批量 ${batchDoneCount(batch.items)}/${batch.items.length}`
+            ? `批量 ${batchDoneCount(batch.items)}/${batch.items.length}${
+                current ? ` · 原图 ${orderOf(current.imageId)}` : ''
+              }`
             : `对剩下的 ${remaining.length} 张全部按同样方式跑`}
         </p>
         <div className="flex items-center gap-2">
