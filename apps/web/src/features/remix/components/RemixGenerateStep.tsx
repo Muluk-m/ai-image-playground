@@ -8,10 +8,11 @@ import { useStore } from '../../../store'
 import AssetThumb from '../../library/components/AssetThumb'
 import {
   type CropOffset,
-  defaultExportFit,
+  EXPORT_FIT_LABELS,
   EXPORT_FITS,
   type ExportFit,
-} from '../lib/exportPresets'
+} from '../../../lib/imageExport'
+import { defaultExportFit } from '../lib/exportPresets'
 import { downloadSetZip, downloadShotImage } from '../lib/exportSet'
 import {
   indexTasksById,
@@ -39,8 +40,6 @@ const EMPTY_PROGRESS: ShotProgress = {
   startedAt: null,
   elapsed: null,
 }
-
-const EXPORT_FIT_LABELS: Record<ExportFit, string> = { crop: '裁切', letterbox: '留白' }
 
 const SELECT =
   'rounded-lg border border-gray-200 bg-white px-2 py-1 text-sm text-gray-800 focus:border-blue-400 focus:outline-none dark:border-white/[0.08] dark:bg-white/[0.04] dark:text-gray-100'
@@ -70,7 +69,6 @@ function StateBadge({ progress }: { progress: ShotProgress }) {
 function ShotRow({
   shot,
   index,
-  setName,
   preset,
   offset,
   fit,
@@ -79,7 +77,6 @@ function ShotRow({
 }: {
   shot: RemixShot
   index: number
-  setName: string
   preset: ExportPreset
   offset: CropOffset
   fit: ExportFit
@@ -140,7 +137,6 @@ function ShotRow({
             const imageId = progress.outputImageIds[0]
             if (!imageId) return
             void downloadShotImage(
-              setName,
               { shotIndex: index, shotType: shot.type, imageIds: progress.outputImageIds, fit },
               imageId,
               preset,
@@ -297,7 +293,6 @@ export default function RemixGenerateStep() {
               key={shot.id}
               shot={shot}
               index={index}
-              setName={draft.name}
               preset={preset}
               offset={offset}
               fit={fitFor(shot)}
