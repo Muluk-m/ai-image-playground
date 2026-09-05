@@ -51,7 +51,7 @@ export default function BgSwapMode() {
         <BgSwapControls />
       </div>
 
-      {/* 批量与总览在 #109 落地，本票只占位。 */}
+      {/* 批量与总览在 #110 落地，「每张几版」也在那里才生效，本票只占位。 */}
       <div className={`${CARD} mt-4 flex flex-wrap items-center justify-between gap-3`}>
         <p className="text-sm text-gray-700 dark:text-gray-200">
           对剩下的 {Math.max(0, imageCount - 1)} 张全部按同样方式跑
