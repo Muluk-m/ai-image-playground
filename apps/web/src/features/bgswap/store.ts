@@ -162,8 +162,7 @@ export const useBgSwapStore = create<BgSwapState>((set, get) => ({
       addImages(set, added)
       await persistDraft(set, get)
     } catch (error) {
-      const reason = error instanceof Error ? error.message : String(error)
-      set({ listingNotice: `${reason}，${UPLOAD_FALLBACK}` })
+      set({ listingNotice: `${reasonOf(error)}，${UPLOAD_FALLBACK}` })
     } finally {
       set({ listingLoading: false, listingStartedAt: null })
     }
@@ -175,8 +174,7 @@ export const useBgSwapStore = create<BgSwapState>((set, get) => ({
         const stored = await storeImageFromFile(file, { compress: true })
         addImages(set, [{ imageId: stored.id, versions: [] }])
       } catch (error) {
-        const reason = error instanceof Error ? error.message : String(error)
-        useStore.getState().showToast(`图片添加失败：${reason}`, 'error')
+        useStore.getState().showToast(`图片添加失败：${reasonOf(error)}`, 'error')
       }
     }
     await persistDraft(set, get)
@@ -204,24 +202,21 @@ export const useBgSwapStore = create<BgSwapState>((set, get) => ({
   swapBackground: async () => {
     const { draft, selectedImageId, swapStage } = get()
     const image = draft.images.find((item) => item.imageId === selectedImageId)
-    if (swapStage || !image || !draft.id) return
+    const jobId = draft.id
+    if (swapStage || !image || !jobId) return
 
-    set({ swapStage: 'plan', swapStartedAt: Date.now(), swapNotice: null })
-    try {
+    await runStages(set, 'plan', async () => {
       const dataUrl = await loadOriginal(image.imageId)
       const plan = await requestBackgroundPlan({ image: dataUrl, preference: draft.preference })
       await runVersion(set, get, {
+        jobId,
         imageId: image.imageId,
         dataUrl,
         versionId: crypto.randomUUID(),
         plan: plan.plan,
         prompt: plan.prompt,
       })
-    } catch (error) {
-      set({ swapNotice: reasonOf(error) })
-    } finally {
-      set({ swapStage: null, swapStartedAt: null })
-    }
+    })
   },
 
   /** 重跑沿用这一版已有的方案与提示词，只换掉任务，版本条上不多出一条。 */
@@ -231,22 +226,19 @@ export const useBgSwapStore = create<BgSwapState>((set, get) => ({
       item.versions.some((version) => version.id === versionId),
     )
     const version = image?.versions.find((item) => item.id === versionId)
-    if (swapStage || !image || !version || !draft.id) return
+    const jobId = draft.id
+    if (swapStage || !image || !version || !jobId) return
 
-    set({ swapStage: 'matte', swapStartedAt: Date.now(), swapNotice: null })
-    try {
+    await runStages(set, 'matte', async () => {
       await runVersion(set, get, {
+        jobId,
         imageId: image.imageId,
         dataUrl: await loadOriginal(image.imageId),
         versionId,
         plan: version.plan,
         prompt: version.prompt,
       })
-    } catch (error) {
-      set({ swapNotice: reasonOf(error) })
-    } finally {
-      set({ swapStage: null, swapStartedAt: null })
-    }
+    })
   },
 
   chooseVersion: (versionId) => {
@@ -283,11 +275,28 @@ async function loadOriginal(imageId: string): Promise<string> {
 }
 
 interface VersionSeed {
+  jobId: string
   imageId: string
   dataUrl: string
   versionId: string
   plan: string
   prompt: string
+}
+
+/** 读秒的开关与失败说明只在这里写，出一版与重跑一版进来的段位不同。 */
+async function runStages(
+  set: SetState,
+  first: BgSwapStage,
+  body: () => Promise<void>,
+): Promise<void> {
+  set({ swapStage: first, swapStartedAt: Date.now(), swapNotice: null })
+  try {
+    await body()
+  } catch (error) {
+    set({ swapNotice: reasonOf(error) })
+  } finally {
+    set({ swapStage: null, swapStartedAt: null })
+  }
 }
 
 /** 蒙版 → 提交 → 回写，出一版与重跑一版共用；调用方负责方案与收尾。 */
@@ -301,7 +310,7 @@ async function runVersion(set: SetState, get: GetState, seed: VersionSeed): Prom
     inputImages: [{ id: seed.imageId, dataUrl: seed.dataUrl }],
     params: { ...useStore.getState().params, n: 1 },
     mask,
-    origin: { setId: get().draft.id ?? '', shotId: `${seed.imageId}:${seed.versionId}` },
+    origin: { setId: seed.jobId, shotId: `${seed.imageId}:${seed.versionId}` },
   })
   // 提交门禁拦下时没有任务 id，submitPrepared 已经解释过原因，这里不留空版本。
   if (!taskId) return

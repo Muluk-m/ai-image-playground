@@ -20,15 +20,7 @@ export const VERSION_STATE_LABELS: Record<VersionState, string> = {
   error: '失败',
 }
 
-export function indexTasksById(tasks: readonly TaskRecord[]): ReadonlyMap<string, TaskRecord> {
-  return new Map(tasks.map((task) => [task.id, task]))
-}
-
-export function versionProgress(
-  taskId: string,
-  tasksById: ReadonlyMap<string, TaskRecord>,
-): VersionProgress {
-  const task = tasksById.get(taskId)
+export function versionProgress(task: TaskRecord | undefined): VersionProgress {
   if (!task) {
     return { state: 'queued', error: null, outputImageIds: [], startedAt: null, elapsed: null }
   }
