@@ -6,7 +6,6 @@ import { bgSwapJobStore } from './lib/bgSwapJobStore'
 import type { BgSwapImage, BgSwapJobRecord } from './types'
 
 const UPLOAD_FALLBACK = '请直接上传原图'
-const DEFAULT_VERSIONS_PER_IMAGE = 1
 
 export interface BgSwapDraft {
   /** 已保存的任务 id；null 表示还没落盘。 */
@@ -50,7 +49,7 @@ function emptyDraft(): BgSwapDraft {
     name: '',
     images: [],
     preference: '',
-    versionsPerImage: DEFAULT_VERSIONS_PER_IMAGE,
+    versionsPerImage: 1,
     createdAt: null,
   }
 }
@@ -59,7 +58,7 @@ function draftFromJob(job: BgSwapJobRecord): BgSwapDraft {
   return {
     id: job.id,
     name: job.name,
-    images: job.images.map((image) => ({ ...image })),
+    images: job.images,
     preference: job.preference,
     versionsPerImage: job.versionsPerImage,
     createdAt: job.createdAt,
@@ -122,7 +121,7 @@ export const useBgSwapStore = create<BgSwapState>((set, get) => ({
         })),
       )
       const name = listing.title ?? listing.asin
-      if (!get().draft.name && name) set((s) => ({ draft: { ...s.draft, name } }))
+      set((s) => ({ draft: { ...s.draft, name: s.draft.name || name } }))
       addImages(set, added)
       await persistDraft(set, get)
     } catch (error) {
@@ -160,19 +159,18 @@ export const useBgSwapStore = create<BgSwapState>((set, get) => ({
 
   selectImage: (selectedImageId) => set({ selectedImageId }),
 
-  setPreference: (preference) => {
-    set((s) => ({ draft: { ...s.draft, preference } }))
-    void persistDraft(set, get)
-  },
+  setPreference: (preference) => patchDraft(set, get, { preference }),
 
-  setVersionsPerImage: (count) => {
-    set((s) => ({ draft: { ...s.draft, versionsPerImage: count } }))
-    void persistDraft(set, get)
-  },
+  setVersionsPerImage: (versionsPerImage) => patchDraft(set, get, { versionsPerImage }),
 }))
 
 type SetState = (partial: Partial<BgSwapState> | ((s: BgSwapState) => Partial<BgSwapState>)) => void
 type GetState = () => BgSwapState
+
+function patchDraft(set: SetState, get: GetState, patch: Partial<BgSwapDraft>): void {
+  set((s) => ({ draft: { ...s.draft, ...patch } }))
+  void persistDraft(set, get)
+}
 
 function addImages(set: SetState, added: BgSwapImage[]): void {
   set((s) => {
