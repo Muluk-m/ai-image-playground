@@ -1,27 +1,22 @@
 import { zlibSync } from 'fflate'
 import type { MaskPixels } from './types'
 
-const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]
+const PNG_SIGNATURE = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
 const BASE64_CHUNK = 0x8000
 
-let crcTable: Uint32Array | null = null
-
-function getCrcTable(): Uint32Array {
-  if (crcTable) return crcTable
+const CRC_TABLE = (() => {
   const table = new Uint32Array(256)
   for (let n = 0; n < 256; n++) {
     let c = n
     for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1
     table[n] = c >>> 0
   }
-  crcTable = table
   return table
-}
+})()
 
 function crc32(bytes: Uint8Array): number {
-  const table = getCrcTable()
   let c = 0xffffffff
-  for (let i = 0; i < bytes.length; i++) c = table[(c ^ bytes[i]) & 0xff] ^ (c >>> 8)
+  for (let i = 0; i < bytes.length; i++) c = CRC_TABLE[(c ^ bytes[i]) & 0xff] ^ (c >>> 8)
   return (c ^ 0xffffffff) >>> 0
 }
 
@@ -45,7 +40,26 @@ function toScanlines(pixels: MaskPixels): Uint8Array {
   return raw
 }
 
-export function encodeRgbaPng(pixels: MaskPixels): Uint8Array {
+function concat(parts: Uint8Array[]): Uint8Array {
+  const out = new Uint8Array(parts.reduce((total, part) => total + part.length, 0))
+  let offset = 0
+  for (const part of parts) {
+    out.set(part, offset)
+    offset += part.length
+  }
+  return out
+}
+
+function toBase64(bytes: Uint8Array): string {
+  let binary = ''
+  for (let i = 0; i < bytes.length; i += BASE64_CHUNK) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + BASE64_CHUNK))
+  }
+  return btoa(binary)
+}
+
+/** 自己编码，好让遮罩在没有 canvas 的环境里也能生成与验证。 */
+export function encodeRgbaPngDataUrl(pixels: MaskPixels): string {
   const header = new Uint8Array(13)
   const headerView = new DataView(header.buffer)
   headerView.setUint32(0, pixels.width)
@@ -53,26 +67,11 @@ export function encodeRgbaPng(pixels: MaskPixels): Uint8Array {
   header[8] = 8 // bit depth
   header[9] = 6 // colour type: truecolour with alpha
 
-  const parts = [
-    Uint8Array.from(PNG_SIGNATURE),
+  const png = concat([
+    PNG_SIGNATURE,
     chunk('IHDR', header),
     chunk('IDAT', zlibSync(toScanlines(pixels))),
     chunk('IEND', new Uint8Array(0)),
-  ]
-
-  const png = new Uint8Array(parts.reduce((total, part) => total + part.length, 0))
-  let offset = 0
-  for (const part of parts) {
-    png.set(part, offset)
-    offset += part.length
-  }
-  return png
-}
-
-export function toPngDataUrl(png: Uint8Array): string {
-  let binary = ''
-  for (let i = 0; i < png.length; i += BASE64_CHUNK) {
-    binary += String.fromCharCode(...png.subarray(i, i + BASE64_CHUNK))
-  }
-  return `data:image/png;base64,${btoa(binary)}`
+  ])
+  return `data:image/png;base64,${toBase64(png)}`
 }
