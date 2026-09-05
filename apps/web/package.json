@@ -15,6 +15,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@huggingface/transformers": "^4.2.0",
     "@image-playground/shared": "workspace:*",
     "fflate": "^0.8.2",
     "konva": "^10.3.0",
