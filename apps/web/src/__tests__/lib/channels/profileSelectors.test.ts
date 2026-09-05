@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   getProfileModels,
   getSelectedModel,
+  modelSupportsNativeMask,
   updateProfileModels,
   updateSelectedModel,
 } from '../../../lib/channels/profileSelectors'
@@ -138,5 +139,34 @@ describe('updateSelectedModel', () => {
   it('rejects empty modelId', () => {
     const p = makeByok(['m1'])
     expect(updateSelectedModel(p, '  ', publicChannels)).toBe(p)
+  })
+})
+
+describe('modelSupportsNativeMask', () => {
+  const maskChannel: PublicChannel = {
+    ...builtinChannel,
+    id: 'mask-channel',
+    models: [{ id: 'gpt-image-2', label: 'GPT Image 2', capabilities: ['generate', 'mask'] }],
+  }
+
+  it('builtin-edge: only when the model declares mask', () => {
+    expect(modelSupportsNativeMask(makeBuiltin(), publicChannels)).toBe(false)
+    const masking: ClientProfile = {
+      id: 'p1',
+      source: 'builtin-edge',
+      channelId: 'mask-channel',
+      selectedModelId: 'gpt-image-2',
+    }
+    expect(modelSupportsNativeMask(masking, [maskChannel])).toBe(true)
+  })
+
+  it('user-byok: every kind but gemini takes a native mask', () => {
+    expect(modelSupportsNativeMask(makeByok(['gpt-image-2']), publicChannels)).toBe(true)
+    expect(
+      modelSupportsNativeMask(
+        { ...makeByok(['g']), kind: 'gemini' } as ClientProfile,
+        publicChannels,
+      ),
+    ).toBe(false)
   })
 })
