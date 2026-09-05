@@ -132,11 +132,11 @@ _Avoid_: 分镜、图位、slot
 ## 换背景（bgswap）
 
 **换背景任务（bgswap job）**：
-一组用户自己的现成商品图，连同一句偏好与每张要出几版，作为一个整体跑完。记录
-`{ id, name, images, preference, versionsPerImage, createdAt, updatedAt }` 存在主 IndexedDB 的
-`bgswap_jobs` 表里，跟随 scope 隔离与匿名库领养。每张图记 `{ imageId, sourceUrl?, versions,
-chosenVersionId? }`——`versions` 是同一张原图的多次产出，用户选一版定稿。与复刻套图无关：
-产品像素不动，只重绘背景，AI 自己判断品类与相称的环境，用户不选风格。
+一组用户自己的现成商品图，连同一句偏好与每张要出几版，作为一个整体跑完。产品像素不动，只重绘
+背景，品类与环境由 AI 自己判断，没有风格库可选。记录 `{ id, name, images, preference,
+versionsPerImage, createdAt, updatedAt }` 存在主 IndexedDB 的 `bgswap_jobs` 表里，跟随 scope
+隔离与匿名库领养；每张图记 `{ imageId, sourceUrl?, versions, chosenVersionId? }`，一张原图的多次
+产出都留着，用户选一版定稿。
 _Avoid_: 批量换背景套、背景风格、镜头
 
 ## 测试
