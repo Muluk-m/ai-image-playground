@@ -1,4 +1,4 @@
-import { encodeRgbaPng, toPngDataUrl } from './pngEncode'
+import { encodeRgbaPngDataUrl } from './pngEncode'
 import type { MaskPixels, ProductAlpha } from './types'
 
 export const DEFAULT_MASK_THRESHOLD = 0.5
@@ -24,15 +24,17 @@ function blurAxis(
   const out = new Float32Array(src.length)
   const outer = horizontal ? height : width
   const inner = horizontal ? width : height
+  const outerStep = horizontal ? width : 1
+  const innerStep = horizontal ? 1 : width
   const prefix = new Float32Array(inner + 1)
-  const at = (o: number, i: number) => (horizontal ? o * width + i : i * width + o)
 
   for (let o = 0; o < outer; o++) {
-    for (let i = 0; i < inner; i++) prefix[i + 1] = prefix[i] + src[at(o, i)]
+    const base = o * outerStep
+    for (let i = 0; i < inner; i++) prefix[i + 1] = prefix[i] + src[base + i * innerStep]
     for (let i = 0; i < inner; i++) {
       const lo = Math.max(0, i - radius)
       const hi = Math.min(inner - 1, i + radius)
-      out[at(o, i)] = (prefix[hi + 1] - prefix[lo]) / (hi - lo + 1)
+      out[base + i * innerStep] = (prefix[hi + 1] - prefix[lo]) / (hi - lo + 1)
     }
   }
   return out
@@ -81,5 +83,5 @@ export function alphaToMaskPixels(
 
 /** 与 MaskEditorModal 一致的产出：与原图同尺寸的 PNG data URL。 */
 export function alphaToInpaintMask(matte: ProductAlpha, options: InpaintMaskOptions = {}): string {
-  return toPngDataUrl(encodeRgbaPng(alphaToMaskPixels(matte, options)))
+  return encodeRgbaPngDataUrl(alphaToMaskPixels(matte, options))
 }

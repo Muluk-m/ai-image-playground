@@ -1,10 +1,7 @@
 import { AutoModel, AutoProcessor, RawImage } from '@huggingface/transformers'
 import type { ProductAlpha } from './types'
 
-/**
- * BiRefNet_lite（MIT）：通用显著物体分割，不挑品类。只提供 fp32 / fp16 两种权重，
- * 这里取 fp16 + WebGPU（约 114 MB，浏览器 Cache 存一次）。
- */
+/** BiRefNet_lite（MIT）：通用显著物体分割，换品类不用换模型。 */
 const MODEL_ID = 'onnx-community/BiRefNet_lite-ONNX'
 
 type Segmenter = Awaited<ReturnType<typeof loadSegmenter>>
