@@ -5,6 +5,16 @@ export interface BgSwapVersion {
   plan: string
   prompt: string
   masked: boolean
+  createdAt: number
+}
+
+/** 出一版要走的三段，读秒按段切换。 */
+export type BgSwapStage = 'plan' | 'matte' | 'generate'
+
+export const BG_SWAP_STAGE_LABELS: Record<BgSwapStage, string> = {
+  plan: '方案中',
+  matte: '抠图中',
+  generate: '生成中',
 }
 
 export interface BgSwapImage {
