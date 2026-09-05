@@ -245,23 +245,9 @@ export const useBgSwapStore = create<BgSwapState>((set, get) => ({
     if (swapStage || batch?.running || !image || !version || !jobId) return
 
     await runStages(set, async (stage) => {
-      stage('matte')
-      const dataUrl = await loadOriginal(image.imageId)
-      const { mask, notice } = await buildMask(image.imageId, dataUrl)
-      if (notice) set({ swapNotice: notice })
-      stage('generate')
-      const rerun = await submitVersion(
-        jobId,
-        {
-          imageId: image.imageId,
-          dataUrl,
-          mask,
-          notice,
-          plan: version.plan,
-          prompt: version.prompt,
-        },
-        versionId,
-      )
+      const prepared = await prepareImage(get, image.imageId, stage, version)
+      if (prepared.notice) set({ swapNotice: prepared.notice })
+      const rerun = await submitVersion(jobId, prepared, versionId)
       if (rerun) await recordVersions(set, get, image.imageId, [rerun])
     })
   },
@@ -283,49 +269,18 @@ export const useBgSwapStore = create<BgSwapState>((set, get) => ({
   previewVersion: (previewVersionId) => set({ previewVersionId }),
 
   runBatch: async () => {
-    const { draft, selectedImageId, swapStage, batch } = get()
-    const jobId = draft.id
-    if (swapStage || batch?.running || !jobId) return
-
+    const { draft, selectedImageId } = get()
     const targets = pendingBatchImageIds(draft.images, selectedImageId)
-    if (targets.length === 0) return
-
-    set({
-      batch: {
-        items: targets.map((imageId) => ({ imageId, state: 'pending', error: null })),
-        running: true,
-        stopRequested: false,
-        startedAt: Date.now(),
-        stage: null,
-      },
-    })
-
-    for (const imageId of targets) {
-      if (get().batch?.stopRequested) break
-      await runOneOfBatch(set, get, jobId, imageId)
-    }
-
-    patchBatch(set, { running: false, stage: null })
+    if (targets.length > 0) await runBatchOver(set, get, targets, targets)
   },
 
+  /** 单张重跑接着上一轮的进度条走，其余图的状态不动。 */
   runBatchImage: async (imageId) => {
-    const { draft, swapStage, batch } = get()
-    const jobId = draft.id
-    if (swapStage || batch?.running || !jobId) return
-
-    set({
-      batch: {
-        items: batch?.items.some((item) => item.imageId === imageId)
-          ? batch.items
-          : [...(batch?.items ?? []), { imageId, state: 'pending', error: null }],
-        running: true,
-        stopRequested: false,
-        startedAt: Date.now(),
-        stage: null,
-      },
-    })
-    await runOneOfBatch(set, get, jobId, imageId)
-    patchBatch(set, { running: false, stage: null })
+    const previous = get().batch?.items ?? []
+    const items = previous.some((item) => item.imageId === imageId)
+      ? previous.map((item) => item.imageId)
+      : [...previous.map((item) => item.imageId), imageId]
+    await runBatchOver(set, get, items, [imageId])
   },
 
   stopBatch: () => patchBatch(set, { stopRequested: true }),
@@ -374,19 +329,21 @@ async function runStages(set: SetState, body: (stage: StageSink) => Promise<void
   }
 }
 
-/** 方案 → 蒙版，一张图只走一次，之后它的每一版共用。 */
+/** 方案 → 蒙版，一张图只走一次，之后它的每一版共用。`reuse` 是重跑时沿用的旧方案。 */
 async function prepareImage(
   get: GetState,
   imageId: string,
   stage: StageSink,
+  reuse?: { plan: string; prompt: string },
 ): Promise<PreparedImage> {
-  stage('plan')
+  if (!reuse) stage('plan')
   const dataUrl = await loadOriginal(imageId)
-  const plan = await requestBackgroundPlan({ image: dataUrl, preference: get().draft.preference })
+  const planned =
+    reuse ?? (await requestBackgroundPlan({ image: dataUrl, preference: get().draft.preference }))
   stage('matte')
   const { mask, notice } = await buildMask(imageId, dataUrl)
   stage('generate')
-  return { imageId, dataUrl, mask, notice, plan: plan.plan, prompt: plan.prompt }
+  return { imageId, dataUrl, mask, notice, plan: planned.plan, prompt: planned.prompt }
 }
 
 /** 提交一次生成，拿回可落盘的版本；被提交门禁拦下时返回 null。 */
@@ -432,6 +389,39 @@ async function recordVersions(
     },
   }))
   await persistDraft(set, get)
+}
+
+/** 起一轮批量：`listed` 是进度条上要列出的图，`targets` 是这轮真去跑的，一张跑完再跑下一张。 */
+async function runBatchOver(
+  set: SetState,
+  get: GetState,
+  listed: readonly string[],
+  targets: readonly string[],
+): Promise<void> {
+  const { draft, swapStage, batch } = get()
+  const jobId = draft.id
+  if (swapStage || batch?.running || !jobId) return
+
+  const previous = new Map((batch?.items ?? []).map((item) => [item.imageId, item]))
+  set({
+    batch: {
+      items: listed.map((imageId) => {
+        const kept = targets.includes(imageId) ? undefined : previous.get(imageId)
+        return kept ?? { imageId, state: 'pending', error: null }
+      }),
+      running: true,
+      stopRequested: false,
+      startedAt: Date.now(),
+      stage: null,
+    },
+  })
+
+  for (const imageId of targets) {
+    if (get().batch?.stopRequested) break
+    await runOneOfBatch(set, get, jobId, imageId)
+  }
+
+  patchBatch(set, { running: false, stage: null })
 }
 
 /** 批量里的一张：同一张的多版一起提交，跨图由调用方串起来。 */
