@@ -1,18 +1,13 @@
 import type { ExportPreset, ShotType } from '@image-playground/shared'
-import { zipSync } from 'fflate'
-import { downloadBlob, imageDataUrl } from '../../../lib/downloadImages'
 import {
   CENTER_OFFSET,
   type CropOffset,
-  computeCenterCrop,
-  computeLetterbox,
+  downloadExportedImage,
+  downloadExportZip,
   type ExportFit,
-  edgeAverageColor,
-  exportEntryName,
-  exportFileName,
-  type Size,
-  sanitizePathSegment,
-} from './exportPresets'
+  type ExportResult,
+} from '../../../lib/imageExport'
+import { exportEntryName, exportFileName } from './exportPresets'
 
 export interface SetExportShot {
   shotIndex: number
@@ -21,89 +16,20 @@ export interface SetExportShot {
   fit: ExportFit
 }
 
-function loadImage(src: string): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const image = new Image()
-    image.onload = () => resolve(image)
-    image.onerror = () => reject(new Error('图片解码失败'))
-    image.src = src
-  })
-}
-
-const PROBE_EDGE = 64
-
-/** 底色只看边缘，先缩到 64px 再取：整幅 getImageData 每张要拷几十 MB 像素。 */
-function paddingColor(image: HTMLImageElement, source: Size): string {
-  const scale = Math.min(1, PROBE_EDGE / Math.max(source.width, source.height))
-  const size = {
-    width: Math.max(1, Math.round(source.width * scale)),
-    height: Math.max(1, Math.round(source.height * scale)),
-  }
-  const probe = document.createElement('canvas')
-  probe.width = size.width
-  probe.height = size.height
-  const ctx = probe.getContext('2d')
-  if (!ctx) return '#ffffff'
-  ctx.drawImage(image, 0, 0, size.width, size.height)
-  return edgeAverageColor(ctx.getImageData(0, 0, size.width, size.height).data, size)
-}
-
-async function renderToPreset(
-  dataUrl: string,
-  preset: ExportPreset,
-  offset: CropOffset,
-  fit: ExportFit,
-): Promise<Blob> {
-  const image = await loadImage(dataUrl)
-  const source = { width: image.naturalWidth, height: image.naturalHeight }
-  const canvas = document.createElement('canvas')
-  canvas.width = preset.width
-  canvas.height = preset.height
-  const ctx = canvas.getContext('2d')
-  if (!ctx) throw new Error('画布不可用')
-  if (fit === 'letterbox') {
-    const box = computeLetterbox(source, preset)
-    ctx.fillStyle = paddingColor(image, source)
-    ctx.fillRect(0, 0, preset.width, preset.height)
-    ctx.drawImage(image, box.dx, box.dy, box.dw, box.dh)
-  } else {
-    const crop = computeCenterCrop(source, preset, offset)
-    ctx.drawImage(image, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, preset.width, preset.height)
-  }
-  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'))
-  if (!blob) throw new Error('导出失败')
-  return blob
-}
-
-async function exportedImage(
-  imageId: string,
-  preset: ExportPreset,
-  offset: CropOffset,
-  fit: ExportFit,
-): Promise<Blob> {
-  const dataUrl = await imageDataUrl(imageId)
-  if (!dataUrl) throw new Error('找不到这张图')
-  return renderToPreset(dataUrl, preset, offset, fit)
-}
-
-/** 单张下载也走预设，导出的尺寸与打包里的一致。 */
 export async function downloadShotImage(
-  setName: string,
   shot: SetExportShot,
   imageId: string,
   preset: ExportPreset,
   offset: CropOffset = CENTER_OFFSET,
 ): Promise<void> {
   const imageIndex = Math.max(0, shot.imageIds.indexOf(imageId))
-  downloadBlob(
-    await exportedImage(imageId, preset, offset, shot.fit),
+  await downloadExportedImage(
     exportFileName(shot.shotIndex, shot.shotType, imageIndex),
+    imageId,
+    shot.fit,
+    preset,
+    offset,
   )
-}
-
-export interface SetExportResult {
-  count: number
-  failed: number
 }
 
 export async function downloadSetZip(
@@ -111,29 +37,13 @@ export async function downloadSetZip(
   shots: readonly SetExportShot[],
   preset: ExportPreset,
   offset: CropOffset = CENTER_OFFSET,
-): Promise<SetExportResult> {
-  const entries: Record<string, Uint8Array> = {}
-  let failed = 0
-
-  for (const shot of shots) {
-    for (const [imageIndex, imageId] of shot.imageIds.entries()) {
-      try {
-        const rendered = await exportedImage(imageId, preset, offset, shot.fit)
-        entries[exportEntryName(setName, shot.shotIndex, shot.shotType, imageIndex)] =
-          new Uint8Array(await rendered.arrayBuffer())
-      } catch {
-        failed++
-      }
-    }
-  }
-
-  const count = Object.keys(entries).length
-  if (count === 0) return { count, failed }
-
-  const zipped = zipSync(entries, { level: 0 })
-  downloadBlob(
-    new Blob([zipped as BlobPart], { type: 'application/zip' }),
-    `${sanitizePathSegment(setName)}.zip`,
+): Promise<ExportResult> {
+  const entries = shots.flatMap((shot) =>
+    shot.imageIds.map((imageId, imageIndex) => ({
+      path: exportEntryName(setName, shot.shotIndex, shot.shotType, imageIndex),
+      imageId,
+      fit: shot.fit,
+    })),
   )
-  return { count, failed }
+  return downloadExportZip(setName, entries, preset, offset)
 }

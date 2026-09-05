@@ -11,6 +11,7 @@ export default function BgSwapControls() {
   const swapStage = useBgSwapStore((s) => s.swapStage)
   const swapStartedAt = useBgSwapStore((s) => s.swapStartedAt)
   const swapNotice = useBgSwapStore((s) => s.swapNotice)
+  const batchRunning = useBgSwapStore((s) => s.batch?.running === true)
 
   const { setPreference, setVersionsPerImage, swapBackground } = useBgSwapStore.getState()
 
@@ -56,7 +57,7 @@ export default function BgSwapControls() {
       <button
         type="button"
         onClick={() => void swapBackground()}
-        disabled={swapStage !== null || !selectedImageId}
+        disabled={swapStage !== null || batchRunning || !selectedImageId}
         className={PRIMARY_BUTTON}
       >
         {swapStage ? (

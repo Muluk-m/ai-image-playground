@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useBgSwapStore } from '../features/bgswap/store'
 import InspirationEmptyHero from '../features/inspiration/components/InspirationEmptyHero'
-import RemixSetHistoryCard from '../features/remix/components/RemixSetHistoryCard'
 import { groupTasksBySet } from '../features/remix/lib/history'
 import { useRemixStore } from '../features/remix/store'
 import { editOutputImage, removeTask, reuseConfig, sendTaskToCanvas, useStore } from '../store'
+import SetHistoryCard from './SetHistoryCard'
 import TaskCard from './TaskCard'
 
 export default function TaskGrid() {
@@ -55,9 +56,12 @@ export default function TaskGrid() {
   }, [tasks, searchQuery, filterStatus, filterFavorite])
 
   const historyItems = useMemo(() => groupTasksBySet(filteredTasks), [filteredTasks])
+  const remixSets = useRemixStore((s) => s.sets)
+  const bgSwapJobs = useBgSwapStore((s) => s.jobs)
 
   useEffect(() => {
     void useRemixStore.getState().loadSets()
+    void useBgSwapStore.getState().loadJobs()
   }, [])
 
   const handleDelete = (task: (typeof tasks)[0]) => {
@@ -332,10 +336,13 @@ export default function TaskGrid() {
         {historyItems.flatMap((item) => {
           if (item.kind === 'task') return [renderTask(item.task)]
           const expanded = expandedSetIds.includes(item.setId)
+          const job = bgSwapJobs.find((entry) => entry.id === item.setId)
+          const set = remixSets.find((entry) => entry.id === item.setId)
           return [
-            <RemixSetHistoryCard
+            <SetHistoryCard
               key={`set-${item.setId}`}
-              setId={item.setId}
+              name={job?.name ?? set?.name ?? '套'}
+              kindLabel={job ? '换背景' : '套'}
               tasks={item.tasks}
               expanded={expanded}
               onToggle={() =>
