@@ -6,7 +6,6 @@ import { isRenderableShotType } from '../lib/prompt'
 import { canGenerateShot } from '../lib/shots'
 import { useRemixStore } from '../store'
 import { type RemixShot, SHOT_TYPE_LABELS } from '../types'
-import BackgroundStylePicker from './BackgroundStylePicker'
 import ListInput from './ListInput'
 
 const BADGE = 'rounded-full px-2 py-0.5 text-xs'
@@ -64,7 +63,6 @@ function BriefField({
 function ShotCard({ shot, index }: { shot: RemixShot; index: number }) {
   const updateShot = useRemixStore((s) => s.updateShot)
   const resetShotPrompt = useRemixStore((s) => s.resetShotPrompt)
-  const own = useRemixStore((s) => s.draft.sourceKind === 'own')
   const renderable = isRenderableShotType(shot.type)
   const generatable = canGenerateShot(shot)
 
@@ -107,60 +105,52 @@ function ShotCard({ shot, index }: { shot: RemixShot; index: number }) {
       </div>
 
       <div className="flex flex-wrap gap-3">
-        <Thumb label={own ? '原图' : '竞品原图'} imageId={shot.sourceImageId} />
-        {!own && <Thumb label="参考图" imageId={shot.referenceImageId} />}
-        {!own && renderable && (
-          <Thumb label="产品底图" imageId={shot.productImageId} empty="缺底图" />
-        )}
+        <Thumb label="竞品原图" imageId={shot.sourceImageId} />
+        <Thumb label="参考图" imageId={shot.referenceImageId} />
+        {renderable && <Thumb label="产品底图" imageId={shot.productImageId} empty="缺底图" />}
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2">
-        {!own && (
-          <>
-            <BriefField
-              label="构图"
-              value={shot.brief.composition}
-              onChange={(composition) => updateShot(shot.id, { brief: { composition } })}
-            />
-            <BriefField
-              label="机位"
-              value={shot.brief.camera}
-              onChange={(camera) => updateShot(shot.id, { brief: { camera } })}
-            />
-            <BriefField
-              label="光线"
-              value={shot.brief.lighting}
-              onChange={(lighting) => updateShot(shot.id, { brief: { lighting } })}
-            />
-          </>
-        )}
+        <BriefField
+          label="构图"
+          value={shot.brief.composition}
+          onChange={(composition) => updateShot(shot.id, { brief: { composition } })}
+        />
+        <BriefField
+          label="机位"
+          value={shot.brief.camera}
+          onChange={(camera) => updateShot(shot.id, { brief: { camera } })}
+        />
+        <BriefField
+          label="光线"
+          value={shot.brief.lighting}
+          onChange={(lighting) => updateShot(shot.id, { brief: { lighting } })}
+        />
         <BriefField
           label="背景"
           value={shot.brief.background}
           onChange={(background) => updateShot(shot.id, { brief: { background } })}
         />
         <div>
-          <span className={LABEL}>{own ? '配件' : '道具'}</span>
+          <span className={LABEL}>道具</span>
           <ListInput
             key={`${shot.id}-props`}
-            label={own ? '配件' : '道具'}
+            label="道具"
             value={shot.brief.props}
             onChange={(props) => updateShot(shot.id, { brief: { props } })}
             className={`mt-1 ${FIELD}`}
           />
         </div>
-        {!own && (
-          <div>
-            <span className={LABEL}>配色</span>
-            <ListInput
-              key={`${shot.id}-palette`}
-              label="配色"
-              value={shot.brief.palette}
-              onChange={(palette) => updateShot(shot.id, { brief: { palette } })}
-              className={`mt-1 ${FIELD}`}
-            />
-          </div>
-        )}
+        <div>
+          <span className={LABEL}>配色</span>
+          <ListInput
+            key={`${shot.id}-palette`}
+            label="配色"
+            value={shot.brief.palette}
+            onChange={(palette) => updateShot(shot.id, { brief: { palette } })}
+            className={`mt-1 ${FIELD}`}
+          />
+        </div>
         {shot.type === 'selling-point' && (
           <>
             <BriefField
@@ -224,32 +214,28 @@ export default function RemixBriefStep() {
 
   return (
     <div className="flex flex-col gap-4">
-      {draft.sourceKind === 'own' ? (
-        <BackgroundStylePicker />
-      ) : (
-        <div className={`${CARD} flex flex-wrap items-center gap-3`}>
-          <button
-            type="button"
-            onClick={() => void analyzeShots()}
-            disabled={analyzing}
-            className={PRIMARY_BUTTON}
-          >
-            {analyzing ? (
-              <Pending label="分析中" startedAt={analyzeStartedAt} />
-            ) : draft.shots.length > 0 ? (
-              '重新分析'
-            ) : (
-              '分析竞品图'
-            )}
-          </button>
-          <span className="text-xs text-gray-500 dark:text-gray-400">
-            {analyzing
-              ? `已分析 ${analyzedCount}/${analyzeTotal}`
-              : `${draft.shots.length} 镜 · 已选 ${selected} 镜`}
-          </span>
-          {analyzeNotice && <p className={`w-full ${NOTICE}`}>{analyzeNotice}</p>}
-        </div>
-      )}
+      <div className={`${CARD} flex flex-wrap items-center gap-3`}>
+        <button
+          type="button"
+          onClick={() => void analyzeShots()}
+          disabled={analyzing}
+          className={PRIMARY_BUTTON}
+        >
+          {analyzing ? (
+            <Pending label="分析中" startedAt={analyzeStartedAt} />
+          ) : draft.shots.length > 0 ? (
+            '重新分析'
+          ) : (
+            '分析竞品图'
+          )}
+        </button>
+        <span className="text-xs text-gray-500 dark:text-gray-400">
+          {analyzing
+            ? `已分析 ${analyzedCount}/${analyzeTotal}`
+            : `${draft.shots.length} 镜 · 已选 ${selected} 镜`}
+        </span>
+        {analyzeNotice && <p className={`w-full ${NOTICE}`}>{analyzeNotice}</p>}
+      </div>
 
       {draft.shots.length > 0 && (
         <ol className="flex flex-col gap-4">

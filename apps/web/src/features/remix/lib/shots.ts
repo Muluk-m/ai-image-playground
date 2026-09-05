@@ -1,14 +1,12 @@
-import type { BackgroundPreset, CompetitorBrief, ShotType } from '@image-playground/shared'
+import type { CompetitorBrief, ShotType } from '@image-playground/shared'
 import type {
   RemixBrief,
   RemixProductAsset,
   RemixSetSettings,
   RemixShot,
   RemixShotCopy,
-  RemixSourceKind,
 } from '../types'
 import { cameraToAngle, matchProductAsset } from './angleMatch'
-import { backgroundBriefFromPreset, buildBackgroundSwapPrompt } from './backgroundPrompt'
 import { buildShotPrompt, isRenderableShotType } from './prompt'
 
 const EMPTY_BRIEF: RemixBrief = {
@@ -23,7 +21,6 @@ const EMPTY_BRIEF: RemixBrief = {
 }
 
 export interface ShotContext {
-  sourceKind: RemixSourceKind
   settings: RemixSetSettings
   /** 机位 → 同角度底图的 imageId，缺角度时 undefined。 */
   productImageFor: (camera: string) => string | undefined
@@ -53,9 +50,6 @@ export function productImageResolver(
 }
 
 function promptFor(shot: Pick<RemixShot, 'type' | 'brief' | 'copy'>, ctx: ShotContext): string {
-  if (ctx.sourceKind === 'own') {
-    return buildBackgroundSwapPrompt({ product: ctx.settings.product, brief: shot.brief })
-  }
   return buildShotPrompt({
     type: shot.type,
     product: ctx.settings.product,
@@ -119,26 +113,6 @@ export function createBlankShot(sourceImageId: string, ctx: ShotContext): RemixS
   )
 }
 
-/** `own` 套按「图 × 风格」展开：原图既是要改的画面，也是它自己的产品底图。 */
-export function expandOwnShots(
-  imageIds: readonly string[],
-  styles: readonly BackgroundPreset[],
-  ctx: ShotContext,
-): RemixShot[] {
-  return imageIds.flatMap((imageId) =>
-    styles.map((style) =>
-      makeShot(
-        imageId,
-        'scene',
-        backgroundBriefFromPreset(style),
-        { title: '', subtitle: '' },
-        { productImageId: imageId },
-        ctx,
-      ),
-    ),
-  )
-}
-
 export function applyShotPatch(
   shot: RemixShot,
   patch: RemixShotPatch,
@@ -151,7 +125,7 @@ export function applyShotPatch(
     copy: { ...shot.copy, ...patch.copy },
   }
 
-  if (ctx.sourceKind === 'competitor' && patch.brief?.camera !== undefined) {
+  if (patch.brief?.camera !== undefined) {
     const productImageId = ctx.productImageFor(next.brief.camera)
     if (productImageId) next.productImageId = productImageId
     else delete next.productImageId
