@@ -143,29 +143,6 @@ describe('the remix wizard', () => {
     expect(useRemixStore.getState().draft.sourceImageIds).toEqual(['i2'])
   })
 
-  it('drops the listing field when the source is the user own images', () => {
-    render()
-
-    expect(findByText('抓取图集')).toBeTruthy()
-
-    click(findByText('换背景'))
-
-    expect(useRemixStore.getState().draft.sourceKind).toBe('own')
-    expect(document.querySelector('#remix-listing-url')).toBeNull()
-    expect(document.body.textContent).toContain('上传原图')
-  })
-
-  it('takes an image from the library as a source image', () => {
-    render()
-
-    click(findByText('换背景'))
-    const pick = document.querySelector('[aria-label="把 白色蛋形浴缸 加为原图"]')
-    if (!pick) throw new Error('no library pick button')
-    click(pick)
-
-    expect(useRemixStore.getState().draft.sourceImageIds).toEqual(['image-a'])
-  })
-
   it('picks an uploaded product image into the set once it is named', () => {
     const uploaded: AssetRecord = {
       id: 'a2',
@@ -192,25 +169,13 @@ describe('the remix wizard', () => {
     expect(document.body.textContent).toContain('已选 1 张')
   })
 
-  it('takes an uploaded image as a source image when swapping backgrounds', () => {
-    const importSourceFiles = vi.fn().mockResolvedValue(undefined)
-    useRemixStore.setState({ importSourceFiles })
-    render()
-    click(findByText('换背景'))
-
-    const file = new File(['x'], '原图.png', { type: 'image/png' })
-    upload('上传原图', file)
-
-    expect(importSourceFiles).toHaveBeenCalledWith([file])
-  })
-
   it('lists the saved sets so one can be reopened', () => {
     useRemixStore.setState({
       sets: [
         {
           id: 'set1',
           name: '奶油浴缸',
-          source: { kind: 'competitor', sourceImageIds: ['i1'] },
+          source: { sourceImageIds: ['i1'] },
           productAssets: [],
           settings: { platform: 'amazon', language: 'zh', level: 'high', product: PRODUCT },
           shots: [],

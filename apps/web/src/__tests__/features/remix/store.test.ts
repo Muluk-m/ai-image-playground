@@ -194,7 +194,6 @@ describe('saving a set', () => {
     expect(stored).toMatchObject({
       name: '奶油浴缸',
       source: {
-        kind: 'competitor',
         listingUrl: 'https://www.amazon.com/dp/B0FVLNS696',
         sourceImageIds: ['i1'],
       },
@@ -565,69 +564,5 @@ describe('regenerating one shot', () => {
 
     expect(submitPrepared).toHaveBeenCalledTimes(2)
     expect(shots()[0]?.taskIds).toEqual(['task-2'])
-  })
-})
-
-describe('a set built from the user own images', () => {
-  async function startOwnSet() {
-    const remix = useRemixStore.getState()
-    remix.setSourceKind('own')
-    remix.addSourceImages(['own-1', 'own-2'])
-    remix.updateProduct({ name: 'W2753 浴缸', mainColor: '哑光灰棕', forbiddenColors: ['米白'] })
-    await useRemixStore.getState().saveAndContinue()
-  }
-
-  it('saves the source kind on the set', async () => {
-    await startOwnSet()
-
-    const [stored] = await remixSetStore.list()
-    expect(stored?.source.kind).toBe('own')
-    expect(stored?.source.listingUrl).toBeUndefined()
-  })
-
-  it('expands image by style without calling the analysis', async () => {
-    await startOwnSet()
-    useRemixStore.getState().toggleBackgroundStyle('warm-microcement')
-    useRemixStore.getState().toggleBackgroundStyle('white-mosaic')
-
-    await useRemixStore.getState().expandOwnShots()
-
-    expect(analyzeCompetitorImages).not.toHaveBeenCalled()
-    expect(eraseProductArea).not.toHaveBeenCalled()
-    expect(shots()).toHaveLength(4)
-    expect(shots()[0]?.prompt).toContain('只替换产品以外的背景')
-    expect(shots()[0]?.productImageId).toBe('own-1')
-  })
-
-  it('adds the hand written style alongside the presets', async () => {
-    await startOwnSet()
-    useRemixStore.getState().setCustomBackground('日式汤屋，杉木墙面')
-
-    await useRemixStore.getState().expandOwnShots()
-
-    expect(shots()).toHaveLength(2)
-    expect(shots()[0]?.prompt).toContain('日式汤屋，杉木墙面')
-  })
-
-  it('asks for a style before expanding', async () => {
-    await startOwnSet()
-
-    await useRemixStore.getState().expandOwnShots()
-
-    expect(shots()).toHaveLength(0)
-  })
-
-  it('submits the own image as the only input image', async () => {
-    await startOwnSet()
-    useRemixStore.getState().toggleBackgroundStyle('warm-microcement')
-    await useRemixStore.getState().expandOwnShots()
-
-    await useRemixStore.getState().generateSet()
-
-    expect(submitPrepared).toHaveBeenCalledWith(
-      expect.objectContaining({
-        inputImages: [{ id: 'own-1', dataUrl: 'data:image/png;base64,own-1' }],
-      }),
-    )
   })
 })

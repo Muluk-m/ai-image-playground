@@ -14,7 +14,6 @@ const SET: RemixSetRecord = {
   id: 'set1',
   name: '奶油浴缸',
   source: {
-    kind: 'competitor',
     listingUrl: 'https://www.amazon.com/dp/B0FVLNS696',
     sourceImageIds: ['i1', 'i2'],
   },
@@ -60,7 +59,7 @@ describe('remix set storage', () => {
     const legacy = {
       ...SET,
       id: 'legacy',
-      source: { kind: 'competitor', competitorImageIds: ['i1'] },
+      source: { competitorImageIds: ['i1'] },
     } as unknown as RemixSetRecord
     await remixSetStore.put(legacy)
     await remixSetStore.put(SET)
