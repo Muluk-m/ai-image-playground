@@ -6,6 +6,8 @@ import {
   type PromptLanguage,
   parseBackgroundPlan,
   parseCompetitorBrief,
+  parseSceneScan,
+  type SceneScan,
   SHOT_TYPES,
 } from '@image-playground/shared'
 import { Agent, fetch as undiciFetch } from 'undici'
@@ -76,16 +78,22 @@ function promptFor(product: ProductContext): string {
   }`
 }
 
+const SCENE_TYPE_KEY = `"sceneType": exactly one of "photo" (a plain product or lifestyle photo), "infographic" (headings, icons or comparison bars drawn onto the image), "callout" (a close-up carrying speech bubbles or pointer labels), "collage" (several panels tiled into one image). Answer with the English keyword itself.`
+
+const SCAN_INSTRUCTIONS = `You look at one product photo and say what kind of image it is.
+Answer with a single JSON object and nothing else. Keys:
+${SCENE_TYPE_KEY}`
+
 const PLAN_INSTRUCTIONS = `You look at one product photo and decide which real environment the product belongs in once its background is replaced. The product itself will not change.
 Answer with a single JSON object and nothing else. Keys:
 "category": the product category, a few words
-"sceneType": the setting of the photo you are looking at, a few words
+${SCENE_TYPE_KEY}
 "productBox": {"x","y","w","h"} normalised to 0-1 for the product's bounding box, or null when no product is visible
 "plan": ONE sentence describing a real environment that suits this category, naming the wall, the floor, the light and one or two props`
 
 const PLAN_LANGUAGE: Record<PromptLanguage, string> = {
-  zh: 'Write "category", "sceneType" and "plan" in Chinese.',
-  en: 'Write "category", "sceneType" and "plan" in English.',
+  zh: 'Write "category" and "plan" in Chinese.',
+  en: 'Write "category" and "plan" in English.',
 }
 
 function planPromptFor(preference: string | undefined, language: PromptLanguage): string {
@@ -193,4 +201,9 @@ export function planBackground({
   language = DEFAULT_PROMPT_LANGUAGE,
 }: BackgroundPlanRequest): Promise<BackgroundPlan> {
   return ask(image, planPromptFor(preference, language), parseBackgroundPlan)
+}
+
+/** 预检：只问画面类型。前端拉完图就要知道哪些是示意图，方案与偏好那一段留到点「换背景」时再问。 */
+export function scanScene(image: string): Promise<SceneScan> {
+  return ask(image, SCAN_INSTRUCTIONS, parseSceneScan)
 }

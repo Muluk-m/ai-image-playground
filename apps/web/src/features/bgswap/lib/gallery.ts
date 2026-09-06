@@ -5,6 +5,8 @@ import { type VersionState, versionProgress } from './versionProgress'
 
 export interface GalleryVersion {
   version: BgSwapVersion
+  /** 这一版的原图，看蒙版时要把预览盖回它上面。 */
+  imageId: string
   /** 原图在任务里的序号，导出文件名用它。 */
   imageIndex: number
   versionIndex: number
@@ -39,6 +41,7 @@ export function galleryRows(
               const progress = versionProgress(tasksById.get(version.taskId))
               return {
                 version,
+                imageId: image.imageId,
                 imageIndex,
                 versionIndex,
                 state: progress.state,

@@ -24,7 +24,7 @@ const PIXEL =
 
 const PLAN = {
   category: '独立式浴缸',
-  sceneType: '纯色棚拍',
+  sceneType: 'photo',
   productBox: { x: 0.2, y: 0.3, w: 0.5, h: 0.4 },
   plan: '暖白微水泥墙面，浅橡木地板，左侧柔和窗光，一株散尾葵与一条亚麻毛巾。',
 }
@@ -43,6 +43,17 @@ function visionFetchReturning(...bodies: Response[]): VisionFetch {
     index += 1
     return body.clone()
   }) as unknown as VisionFetch
+}
+
+async function scan(body: unknown) {
+  const response = await app.handle(
+    new Request('http://localhost/api/bgswap/scan', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+  )
+  return { status: response.status, json: await response.json() }
 }
 
 async function plan(body: unknown) {
@@ -75,7 +86,12 @@ describe('POST /api/bgswap/plan', () => {
     expect(status).toBe(200)
     expect(json).toEqual({
       ...PLAN,
-      prompt: buildBackgroundPrompt({ plan: PLAN.plan, preference: '北欧风', language: 'zh' }),
+      prompt: buildBackgroundPrompt({
+        plan: PLAN.plan,
+        sceneType: 'photo',
+        preference: '北欧风',
+        language: 'zh',
+      }),
     })
 
     expect(calls).toHaveLength(1)
@@ -101,7 +117,10 @@ describe('POST /api/bgswap/plan', () => {
     const { status, json } = await plan({ image: PIXEL })
 
     expect(status).toBe(200)
-    expect(json).toEqual({ ...PLAN, prompt: buildBackgroundPrompt({ plan: PLAN.plan }) })
+    expect(json).toEqual({
+      ...PLAN,
+      prompt: buildBackgroundPrompt({ plan: PLAN.plan, sceneType: 'photo' }),
+    })
   })
 
   it('trims the model answer so the plan label and the prompt carry the same sentence', async () => {
@@ -111,7 +130,55 @@ describe('POST /api/bgswap/plan', () => {
     const { status, json } = await plan({ image: PIXEL })
 
     expect(status).toBe(200)
-    expect(json).toEqual({ ...PLAN, prompt: buildBackgroundPrompt({ plan: PLAN.plan }) })
+    expect(json).toEqual({
+      ...PLAN,
+      prompt: buildBackgroundPrompt({ plan: PLAN.plan, sceneType: 'photo' }),
+    })
+  })
+
+  it('takes each of the four scene kinds and normalises the wording', async () => {
+    for (const [answered, parsed] of [
+      ['photo', 'photo'],
+      ['Infographic', 'infographic'],
+      [' callout ', 'callout'],
+      ['collage', 'collage'],
+    ]) {
+      setVisionFetchForTesting(
+        visionFetchReturning(chatCompletion(JSON.stringify({ ...PLAN, sceneType: answered }))),
+      )
+
+      const { status, json } = await plan({ image: PIXEL })
+
+      expect(status).toBe(200)
+      expect(json).toMatchObject({ sceneType: parsed })
+    }
+  })
+
+  /** 示意图默认被跳过，所以一个认不出的画面类型宁可当没答，也不能悄悄按实拍图走。 */
+  it('treats a scene kind outside the four as no answer at all', async () => {
+    const fetchImpl = visionFetchReturning(
+      chatCompletion(JSON.stringify({ ...PLAN, sceneType: '纯色棚拍' })),
+    )
+    setVisionFetchForTesting(fetchImpl)
+
+    const { status, json } = await plan({ image: PIXEL })
+
+    expect(status).toBe(502)
+    expect(json).toEqual({ error: 'vision_invalid_response' })
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+  })
+
+  it('asks for the surfaces to go only when the image is a plain photo', async () => {
+    setVisionFetchForTesting(
+      visionFetchReturning(chatCompletion(JSON.stringify({ ...PLAN, sceneType: 'infographic' }))),
+    )
+
+    const { json } = await plan({ image: PIXEL })
+
+    expect((json as { prompt: string }).prompt).not.toContain('墙面、半墙、台面与地面')
+    expect(buildBackgroundPrompt({ plan: PLAN.plan, sceneType: 'photo' })).toContain(
+      '墙面、半墙、台面与地面',
+    )
   })
 
   it('accepts a null product box', async () => {
@@ -167,5 +234,34 @@ describe('POST /api/bgswap/plan', () => {
 
     const badLanguage = await plan({ image: PIXEL, language: 'fr' })
     expect(badLanguage.status).toBe(400)
+  })
+})
+
+describe('POST /api/bgswap/scan', () => {
+  it('answers with the scene kind alone', async () => {
+    setVisionFetchForTesting(
+      visionFetchReturning(chatCompletion(JSON.stringify({ sceneType: 'infographic' }))),
+    )
+
+    const { status, json } = await scan({ image: PIXEL })
+
+    expect(status).toBe(200)
+    expect(json).toEqual({ sceneType: 'infographic' })
+  })
+
+  it('fails with 502 when the model never names one of the four', async () => {
+    const fetchImpl = visionFetchReturning(chatCompletion(JSON.stringify({ sceneType: '说明图' })))
+    setVisionFetchForTesting(fetchImpl)
+
+    const { status, json } = await scan({ image: PIXEL })
+
+    expect(status).toBe(502)
+    expect(json).toEqual({ error: 'vision_invalid_response' })
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+  })
+
+  it('rejects a body without a data-URL image', async () => {
+    expect((await scan({})).status).toBe(400)
+    expect((await scan({ image: 'https://example.com/a.jpg' })).status).toBe(400)
   })
 })
