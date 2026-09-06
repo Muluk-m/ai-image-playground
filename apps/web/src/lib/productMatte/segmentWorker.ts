@@ -55,11 +55,12 @@ async function segment({ backend, dataUrl }: MatteWorkerRequest): Promise<Produc
     dtype: backend.dtype,
     device: backend.device,
   })
-  const { input, width, height } = await toSquareInput(dataUrl, backend.inputSize)
   const size = backend.inputSize
+  const { input, width, height } = await toSquareInput(dataUrl, size)
   const output = await model({
     [backend.inputName]: new Tensor('float32', input, [1, 3, size, size]),
   })
+  // U²-Net 出 7 个输出，第一个才是融合后的那张；按名字取会挑到某一层的中间监督图。
   const first = output[Object.keys(output)[0]]
   const scores = Array.isArray(first) ? first[0] : first
   return resizeAlpha(scoresToAlpha(scores.data, backend.activation), size, width, height)
