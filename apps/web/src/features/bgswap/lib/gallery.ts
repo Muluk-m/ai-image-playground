@@ -70,19 +70,27 @@ export function bgSwapEntryName(
   return `${sanitizePathSegment(jobName)}/${bgSwapFileName(imageIndex, versionIndex, imageOffset)}`
 }
 
-export function exportEntries(
+export interface ExportPlan {
+  entries: ExportEntry[]
+  /** 范围内还没出图的版本数：失败的、排队的、正在跑的都算，打包时跳过。 */
+  skipped: number
+}
+
+export function exportPlan(
   jobName: string,
   rows: readonly GalleryRow[],
   scope: ExportScope,
   fit: ExportFit,
-): ExportEntry[] {
-  return flatVersions(rows)
-    .filter((item) => scope === 'all' || item.chosen)
-    .flatMap((item) =>
+): ExportPlan {
+  const inScope = flatVersions(rows).filter((item) => scope === 'all' || item.chosen)
+  return {
+    entries: inScope.flatMap((item) =>
       item.outputImageIds.map((imageId, imageOffset) => ({
         path: bgSwapEntryName(jobName, item.imageIndex, item.versionIndex, imageOffset),
         imageId,
         fit,
       })),
-    )
+    ),
+    skipped: inScope.filter((item) => item.outputImageIds.length === 0).length,
+  }
 }

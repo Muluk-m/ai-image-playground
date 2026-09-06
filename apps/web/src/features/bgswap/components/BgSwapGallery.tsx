@@ -1,6 +1,7 @@
 import { EXPORT_PRESETS, type ExportPreset, findExportPreset } from '@image-playground/shared'
 import { useMemo, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
+import Pending from '../../../components/Pending'
 import {
   ACTIVE_SEGMENT,
   CARD,
@@ -25,7 +26,7 @@ import {
   EXPORT_SCOPE_LABELS,
   EXPORT_SCOPES,
   type ExportScope,
-  exportEntries,
+  exportPlan,
   flatVersions,
   type GalleryVersion,
   galleryRows,
@@ -36,6 +37,10 @@ import { useBgSwapStore } from '../store'
 const VIEWS = ['grouped', 'flat'] as const
 type GalleryView = (typeof VIEWS)[number]
 const VIEW_LABELS: Record<GalleryView, string> = { grouped: '分组', flat: '平铺' }
+
+function reasonOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
 
 function VersionCard({
   item,
@@ -50,6 +55,7 @@ function VersionCard({
   onChoose: () => void
   onRetry: () => void
 }) {
+  const showToast = useStore((s) => s.showToast)
   const [first] = item.outputImageIds
   const label = `原图 ${item.imageIndex + 1} 第 ${item.versionIndex + 1} 版`
 
@@ -91,12 +97,12 @@ function VersionCard({
             <button
               type="button"
               onClick={() => {
-                void downloadExportedImage(
+                downloadExportedImage(
                   bgSwapFileName(item.imageIndex, item.versionIndex),
                   first,
                   fit,
                   preset,
-                )
+                ).catch((error: unknown) => showToast(`下载失败：${reasonOf(error)}`, 'error'))
               }}
               className={GHOST_BUTTON}
             >
@@ -120,26 +126,28 @@ export default function BgSwapGallery() {
   const [presetId, setPresetId] = useState(EXPORT_PRESETS[0]?.id ?? 'amazon')
   const [scope, setScope] = useState<ExportScope>('chosen')
   const [fit, setFit] = useState<ExportFit>('crop')
-  const [exporting, setExporting] = useState(false)
+  const [exportStartedAt, setExportStartedAt] = useState<number | null>(null)
 
   const tasksById = useMemo(() => new Map(tasks.map((task) => [task.id, task])), [tasks])
   const rows = useMemo(() => galleryRows(images, tasksById), [images, tasksById])
   const preset = findExportPreset(presetId) ?? (EXPORT_PRESETS[0] as ExportPreset)
 
   const exportAll = async () => {
-    setExporting(true)
+    setExportStartedAt(Date.now())
     try {
-      const result = await downloadExportZip(
-        jobName,
-        exportEntries(jobName, rows, scope, fit),
-        preset,
-      )
+      const plan = exportPlan(jobName, rows, scope, fit)
+      const result = await downloadExportZip(jobName, plan.entries, preset)
+      // 渲染失败的那几张与本来就没出图的版本对用户是同一件事：这次没打进去。
+      const left = plan.skipped + result.failed
+      const missing = left > 0 ? `，已跳过 ${left} 个未完成版本` : ''
       showToast(
-        result.count > 0 ? `已打包 ${result.count} 张` : '没有可导出的图',
+        result.count > 0 ? `已打包 ${result.count} 张${missing}` : `没有可导出的图${missing}`,
         result.count > 0 ? 'success' : 'error',
       )
+    } catch (error) {
+      showToast(`打包失败：${reasonOf(error)}`, 'error')
     } finally {
-      setExporting(false)
+      setExportStartedAt(null)
     }
   }
 
@@ -203,10 +211,14 @@ export default function BgSwapGallery() {
         <button
           type="button"
           onClick={() => void exportAll()}
-          disabled={exporting || rows.length === 0}
+          disabled={exportStartedAt !== null || rows.length === 0}
           className={PRIMARY_BUTTON}
         >
-          {exporting ? '打包中' : '打包下载'}
+          {exportStartedAt === null ? (
+            '打包下载'
+          ) : (
+            <Pending label="打包中" startedAt={exportStartedAt} />
+          )}
         </button>
       </div>
 
