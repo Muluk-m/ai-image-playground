@@ -1,10 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createMaskPreviewDataUrl } from '../lib/canvasImage'
+import { downloadBlob } from '../lib/downloadImages'
 import { ensureImageCached, getCachedImage, useStore } from '../store'
+import { DownloadIcon } from './icons'
 import Overlay from './Overlay'
 
 const MIN_SCALE = 1
 const MAX_SCALE = 10
+/** 手指移出这个距离才算拖动 */
+const TOUCH_DRAG_THRESHOLD_PX = 8
 
 function clamp(v: number, min: number, max: number) {
   return Math.max(min, Math.min(max, v))
@@ -187,6 +191,8 @@ function LightboxInner({
   onNext,
 }: LightboxInnerProps) {
   const containerRef = useRef<HTMLDivElement>(null)
+  const showToast = useStore((s) => s.showToast)
+  const [coarsePointer] = useState(() => window.matchMedia('(pointer: coarse)').matches)
 
   // 用 ref 追踪最新变换，避免闭包过期
   const scaleRef = useRef(1)
@@ -200,9 +206,10 @@ function LightboxInner({
   // 缩放倍率显示：2s 无操作后自动隐藏
   const [showZoomBadge, setShowZoomBadge] = useState(false)
   const zoomTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  // 拖拽状态
+  // 拖拽状态。pending = 手指已按下但还没超过阈值，尚未算拖动
   const dragRef = useRef({
     active: false,
+    pending: false,
     startX: 0,
     startY: 0,
     baseTx: 0,
@@ -311,6 +318,7 @@ function LightboxInner({
       e.preventDefault()
       dragRef.current = {
         active: true,
+        pending: false,
         startX: e.clientX,
         startY: e.clientY,
         baseTx: txRef.current,
@@ -372,12 +380,38 @@ function LightboxInner({
     [apply, getCenter],
   )
 
+  const handleSave = useCallback(
+    async (e: React.MouseEvent) => {
+      e.stopPropagation()
+      try {
+        const blob = await (await fetch(src)).blob()
+        const filename = `image-${Date.now()}.${blob.type.split('/')[1] || 'png'}`
+        if ('download' in document.createElement('a')) {
+          downloadBlob(blob, filename)
+          showToast('开始下载', 'success')
+        } else {
+          // iOS 13 之前忽略 download 属性，只能把图打开让用户长按保存
+          window.open(URL.createObjectURL(blob), '_blank')
+        }
+      } catch (err) {
+        console.error(err)
+        showToast('保存失败', 'error')
+      }
+    },
+    [src, showToast],
+  )
+
   // ====== 触控事件 ======
   useEffect(() => {
     const el = containerRef.current
     if (!el) return
 
     const onTouchStart = (e: TouchEvent) => {
+      // 工具栏按钮上的触摸不参与手势，否则 touchend 会把它当成「点击空白关闭」
+      if (e.target instanceof Element && e.target.closest('button')) {
+        tapRef.current = { time: 0, x: 0, y: 0 }
+        return
+      }
       if (e.touches.length === 2) {
         e.preventDefault()
         hadMultiTouchRef.current = true
@@ -421,10 +455,12 @@ function LightboxInner({
         }
         tapRef.current = { time: now, x: t.clientX, y: t.clientY }
 
+        // 这里不 preventDefault：iOS 一旦取消 touchstart 就不再弹长按保存菜单。
+        // 拖动改到 touchmove 超过阈值时才拦。
         if (scaleRef.current > 1 && touchStartedOnImageRef.current) {
-          e.preventDefault()
           dragRef.current = {
-            active: true,
+            active: false,
+            pending: true,
             startX: t.clientX,
             startY: t.clientY,
             baseTx: txRef.current,
@@ -443,10 +479,17 @@ function LightboxInner({
         const ns = clamp(p.startScale * (dist / p.startDist), MIN_SCALE, MAX_SCALE)
         const r = ns / p.startScale
         apply(ns, p.midX - r * (p.midX - p.startTx), p.midY - r * (p.midY - p.startTy))
-      } else if (dragRef.current.active && e.touches.length === 1) {
-        e.preventDefault()
+      } else if ((dragRef.current.active || dragRef.current.pending) && e.touches.length === 1) {
         const t = e.touches[0]
         const d = dragRef.current
+        if (!d.active) {
+          if (Math.hypot(t.clientX - d.startX, t.clientY - d.startY) < TOUCH_DRAG_THRESHOLD_PX) {
+            return
+          }
+          d.active = true
+          d.pending = false
+        }
+        e.preventDefault()
         apply(scaleRef.current, d.baseTx + t.clientX - d.startX, d.baseTy + t.clientY - d.startY)
       }
     }
@@ -455,6 +498,7 @@ function LightboxInner({
       if (e.touches.length < 2) pinchRef.current.active = false
       if (e.touches.length === 0) {
         dragRef.current.active = false
+        dragRef.current.pending = false
         if (hadMultiTouchRef.current) {
           hadMultiTouchRef.current = false
           tapRef.current = { time: 0, x: 0, y: 0 }
@@ -474,13 +518,23 @@ function LightboxInner({
       }
     }
 
+    // iOS 弹出长按菜单时发 touchcancel 而不是 touchend，不清掉手势状态下一次触摸会从旧起点跳一下
+    const onTouchCancel = () => {
+      dragRef.current.active = false
+      dragRef.current.pending = false
+      pinchRef.current.active = false
+      tapRef.current = { time: 0, x: 0, y: 0 }
+    }
+
     el.addEventListener('touchstart', onTouchStart, { passive: false })
     el.addEventListener('touchmove', onTouchMove, { passive: false })
     el.addEventListener('touchend', onTouchEnd)
+    el.addEventListener('touchcancel', onTouchCancel)
     return () => {
       el.removeEventListener('touchstart', onTouchStart)
       el.removeEventListener('touchmove', onTouchMove)
       el.removeEventListener('touchend', onTouchEnd)
+      el.removeEventListener('touchcancel', onTouchCancel)
     }
   }, [apply, getCenter, onClose])
 
@@ -530,6 +584,17 @@ function LightboxInner({
             )}
           </div>
         </div>
+
+        {coarsePointer && (
+          <button
+            data-save-image
+            onClick={handleSave}
+            className="absolute top-4 right-4 z-10 flex items-center gap-1.5 rounded-full bg-black/40 px-3 py-2 text-sm text-white backdrop-blur-sm transition-all hover:bg-black/60"
+          >
+            <DownloadIcon className="w-4 h-4" />
+            保存图片
+          </button>
+        )}
 
         {/* 左右切换按钮 */}
         {showNav && !isZoomed && (
