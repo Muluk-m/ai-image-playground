@@ -12,6 +12,7 @@ import {
   SEGMENT,
   SELECT,
 } from '../../../components/panelStyles'
+import { useImageThumbnail } from '../../../hooks/useImageThumbnail'
 import {
   downloadExportedImage,
   downloadExportZip,
@@ -102,6 +103,7 @@ function VersionCard({
   const label = `原图 ${item.imageIndex + 1} 第 ${item.versionIndex + 1} 版`
   const matte = item.version.mattePreviewImageId
   const overlaid = matte !== undefined && matteOverlayVersionId === item.version.id
+  const overlay = useImageThumbnail(overlaid ? matte : undefined)
 
   return (
     <li data-bgswap-gallery-item className="flex w-28 shrink-0 flex-col gap-1">
@@ -109,9 +111,13 @@ function VersionCard({
         {overlaid ? (
           <>
             <AssetThumb imageId={item.imageId} alt={label} />
-            <span className="absolute inset-0">
-              <AssetThumb imageId={matte} alt="蒙版" />
-            </span>
+            {overlay?.dataUrl && (
+              <img
+                src={overlay.dataUrl}
+                alt="蒙版"
+                className="absolute inset-0 h-full w-full object-cover"
+              />
+            )}
           </>
         ) : first ? (
           <AssetThumb imageId={first} alt={label} />

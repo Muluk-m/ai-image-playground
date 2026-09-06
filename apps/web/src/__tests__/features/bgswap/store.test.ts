@@ -449,6 +449,20 @@ describe('swapping the background of a diagram', () => {
     expect(useBgSwapStore.getState().draft.images[0].versions).toHaveLength(1)
   })
 
+  /** 对话框摆在中间，用户思考的时候批量可能已经开跑了。 */
+  it('turns the confirmation down when something else started meanwhile', async () => {
+    await jobWithADiagram()
+    await useBgSwapStore.getState().swapBackground()
+    useBgSwapStore.setState({
+      batch: { items: [], running: true, stopRequested: false, startedAt: 1, stage: null },
+    })
+
+    useStore.getState().confirmDialog?.action()
+    await settle()
+
+    expect(requestBackgroundPlan).not.toHaveBeenCalled()
+  })
+
   it('asks nothing for a plain product photo', async () => {
     await jobWithOneImage()
 
