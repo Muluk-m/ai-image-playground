@@ -1,11 +1,7 @@
 import type { ProductBox } from '@image-playground/shared'
 import { describe, expect, it } from 'vitest'
-import {
-  MATTE_BOX_IOU_THRESHOLD,
-  matteAgreesWithBox,
-  matteBounds,
-} from '../../../lib/productMatte'
 import type { ProductAlpha } from '../../../lib/productMatte'
+import { MATTE_BOX_IOU_THRESHOLD, matteAgreesWithBox, matteBounds } from '../../../lib/productMatte'
 
 /** 在 10×10 的画布上把一个矩形涂成产品，坐标是像素格。 */
 function matteWithRect(x: number, y: number, w: number, h: number): ProductAlpha {

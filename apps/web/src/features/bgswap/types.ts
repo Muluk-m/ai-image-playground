@@ -1,4 +1,4 @@
-import type { BgSceneType } from '@image-playground/shared'
+import type { BgSceneType, ProductBox } from '@image-playground/shared'
 import type { MatteBackendId, SegmentFailureReason } from '../../lib/productMatte'
 
 /** 抠图没用上的原因：跑不出来（前三种），或抠出来的框跟方案给的产品框对不上。 */
@@ -15,6 +15,8 @@ export interface BgSwapVersion {
   taskId: string
   plan: string
   prompt: string
+  /** 方案给的产品框，重跑时拿它再校一次蒙版；旧记录没有这个字段。 */
+  productBox?: ProductBox | null
   masked: boolean
   /** 这一版落盘时还没有这个字段的旧记录为 undefined。 */
   matte?: MatteOutcome

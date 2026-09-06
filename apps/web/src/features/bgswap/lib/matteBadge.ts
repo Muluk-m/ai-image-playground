@@ -14,10 +14,10 @@ export function matteBadge(version: BgSwapVersion): MatteBadge | null {
   if (version.masked) {
     return matte?.ok ? { text: MATTE_BACKEND_LABELS[matte.backend], tone: 'ok' } : null
   }
-  // 抠出来了但抠错了对象，跟根本没抠出来是两回事：用户要知道去看蒙版。
-  if (matte && !matte.ok && matte.reason === 'box-mismatch') {
-    return { text: UNRELIABLE, tone: 'warn' }
+  if (matte && !matte.ok) {
+    // 抠出来了但抠错了对象，跟根本没抠出来是两回事：用户要去看蒙版。
+    if (matte.reason === 'box-mismatch') return { text: UNRELIABLE, tone: 'warn' }
+    return { text: `未抠图 · ${MATTE_FAILURE_LABELS[matte.reason]}`, tone: 'warn' }
   }
-  const reason = matte && !matte.ok ? MATTE_FAILURE_LABELS[matte.reason] : null
-  return { text: reason ? `未抠图 · ${reason}` : '未抠图', tone: 'warn' }
+  return { text: '未抠图', tone: 'warn' }
 }
