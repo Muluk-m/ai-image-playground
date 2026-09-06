@@ -333,13 +333,16 @@ function reasonOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
-/** 单张出一版：确认对话框要在点了「仍要换背景」之后才走这里，所以它跟入口分开。 */
+/** 单张出一版。确认对话框摆在中间，所以「有没有别的在跑」要在用户点完之后再看一次。 */
 async function swapOneVersion(
   set: SetState,
   get: GetState,
   jobId: string,
   imageId: string,
 ): Promise<void> {
+  const { swapStage, batch } = get()
+  if (swapStage || batch?.running) return
+
   await runStages(set, async (stage) => {
     const prepared = await prepareImage(get, imageId, stage)
     if (prepared.notice) set({ swapNotice: prepared.notice })
