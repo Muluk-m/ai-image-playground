@@ -1,3 +1,4 @@
+import type { ProductBox } from '@image-playground/shared'
 import { create } from 'zustand'
 import { getActiveApiProfile } from '../../lib/apiProfiles'
 import { modelSupportsNativeMask } from '../../lib/channels/profileSelectors'
@@ -7,7 +8,9 @@ import { storeImage } from '../../lib/db'
 import { fetchListingImages, listingImageProxyUrl } from '../../lib/listingClient'
 import {
   alphaToInpaintMask,
+  alphaToMattePreview,
   assessMatte,
+  matteAgreesWithBox,
   ProductMatteError,
   segmentProduct,
 } from '../../lib/productMatte'
@@ -20,7 +23,8 @@ import {
 } from '../../store'
 import { pendingBatchImageIds } from './lib/batch'
 import { bgSwapJobStore } from './lib/bgSwapJobStore'
-import { requestBackgroundPlan } from './lib/planClient'
+import { requestBackgroundPlan, requestSceneScan } from './lib/planClient'
+import { DIAGRAM_LABEL, isDiagram } from './lib/scene'
 import type {
   BgSwapBatchItemState,
   BgSwapBatchProgress,
@@ -28,6 +32,7 @@ import type {
   BgSwapJobRecord,
   BgSwapStage,
   BgSwapVersion,
+  MatteFailureCause,
   MatteOutcome,
 } from './types'
 
@@ -35,6 +40,7 @@ const UPLOAD_FALLBACK = '请直接上传原图'
 const UNMASKED_FALLBACK = '本版未抠图'
 const MASK_UNSUPPORTED = `当前模型不支持遮罩，${UNMASKED_FALLBACK}`
 const MATTE_FAILED = `抠图失败，${UNMASKED_FALLBACK}`
+const MATTE_UNRELIABLE = `蒙版与产品框不符，${UNMASKED_FALLBACK}`
 const NOT_SUBMITTED = '这张没有提交成功'
 
 type Mask = { imageId: string; targetImageId: string }
@@ -67,6 +73,8 @@ export interface BgSwapState {
   swapNotice: string | null
   /** 中栏正在看的版本；null 表示看原图。 */
   previewVersionId: string | null
+  /** 正在把哪一版的蒙版盖在原图上看；null 表示没在看蒙版。 */
+  matteOverlayVersionId: string | null
 
   /** 这一轮批量的进度，null 表示这次打开还没跑过批量。 */
   batch: BgSwapBatchProgress | null
@@ -79,6 +87,7 @@ export interface BgSwapState {
   retryVersion: (versionId: string) => Promise<void>
   chooseVersion: (versionId: string) => void
   previewVersion: (versionId: string | null) => void
+  toggleMatteOverlay: (versionId: string) => void
 
   runBatch: () => Promise<void>
   runBatchImage: (imageId: string) => Promise<void>
@@ -129,6 +138,7 @@ export const useBgSwapStore = create<BgSwapState>((set, get) => ({
   swapStartedAt: null,
   swapNotice: null,
   previewVersionId: null,
+  matteOverlayVersionId: null,
   batch: null,
 
   loadJobs: async () => {
@@ -144,6 +154,7 @@ export const useBgSwapStore = create<BgSwapState>((set, get) => ({
       listingNotice: null,
       swapNotice: null,
       previewVersionId: null,
+      matteOverlayVersionId: null,
       batch: null,
     }),
 
@@ -158,6 +169,7 @@ export const useBgSwapStore = create<BgSwapState>((set, get) => ({
       listingNotice: null,
       swapNotice: null,
       previewVersionId: null,
+      matteOverlayVersionId: null,
       batch: null,
     })
   },
@@ -186,6 +198,7 @@ export const useBgSwapStore = create<BgSwapState>((set, get) => ({
       set((s) => ({ draft: { ...s.draft, name: s.draft.name || name } }))
       addImages(set, added)
       await persistDraft(set, get)
+      await scanScenes(set, get)
     } catch (error) {
       set({ listingNotice: `${reasonOf(error)}，${UPLOAD_FALLBACK}` })
     } finally {
@@ -203,6 +216,7 @@ export const useBgSwapStore = create<BgSwapState>((set, get) => ({
       }
     }
     await persistDraft(set, get)
+    await scanScenes(set, get)
   },
 
   removeImage: (imageId) => {
@@ -218,7 +232,12 @@ export const useBgSwapStore = create<BgSwapState>((set, get) => ({
   },
 
   selectImage: (selectedImageId) =>
-    set({ selectedImageId, previewVersionId: null, swapNotice: null }),
+    set({
+      selectedImageId,
+      previewVersionId: null,
+      matteOverlayVersionId: null,
+      swapNotice: null,
+    }),
 
   setPreference: (preference) => patchDraft(set, get, { preference }),
 
@@ -230,14 +249,19 @@ export const useBgSwapStore = create<BgSwapState>((set, get) => ({
     const jobId = draft.id
     if (swapStage || batch?.running || !image || !jobId) return
 
-    await runStages(set, async (stage) => {
-      const prepared = await prepareImage(get, image.imageId, stage)
-      if (prepared.notice) set({ swapNotice: prepared.notice })
-      const version = await submitVersion(jobId, prepared, crypto.randomUUID())
-      if (!version) return
-      await recordVersions(set, get, image.imageId, [version])
-      set({ previewVersionId: version.id })
-    })
+    if (isDiagram(image.sceneType)) {
+      useStore.getState().setConfirmDialog({
+        title: '这张是示意图',
+        message: `${DIAGRAM_LABEL}。`,
+        confirmText: '仍要换背景',
+        cancelText: '取消',
+        showCancel: true,
+        tone: 'warning',
+        action: () => void swapOneVersion(set, get, jobId, image.imageId),
+      })
+      return
+    }
+    await swapOneVersion(set, get, jobId, image.imageId)
   },
 
   /** 重跑沿用这一版已有的方案与提示词，只换掉任务，版本条上不多出一条。 */
@@ -274,6 +298,11 @@ export const useBgSwapStore = create<BgSwapState>((set, get) => ({
 
   previewVersion: (previewVersionId) => set({ previewVersionId }),
 
+  toggleMatteOverlay: (versionId) =>
+    set((s) => ({
+      matteOverlayVersionId: s.matteOverlayVersionId === versionId ? null : versionId,
+    })),
+
   runBatch: async () => {
     const { draft, selectedImageId } = get()
     const targets = pendingBatchImageIds(draft.images, selectedImageId)
@@ -304,6 +333,44 @@ function reasonOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
+/** 单张出一版。确认对话框摆在中间，所以「有没有别的在跑」要在用户点完之后再看一次。 */
+async function swapOneVersion(
+  set: SetState,
+  get: GetState,
+  jobId: string,
+  imageId: string,
+): Promise<void> {
+  const { swapStage, batch } = get()
+  if (swapStage || batch?.running) return
+
+  await runStages(set, async (stage) => {
+    const prepared = await prepareImage(get, imageId, stage)
+    if (prepared.notice) set({ swapNotice: prepared.notice })
+    const version = await submitVersion(jobId, prepared, crypto.randomUUID())
+    if (!version) return
+    await recordVersions(set, get, imageId, [version])
+    set({ previewVersionId: version.id })
+  })
+}
+
+/** 预检刚进来的图，一张一张问画面类型；认不出来的按普通商品图走，不挡用户。 */
+async function scanScenes(set: SetState, get: GetState): Promise<void> {
+  if (!isClientCapabilityEnabled('remix:analyze')) return
+
+  let scanned = false
+  for (const image of get().draft.images) {
+    if (image.sceneType) continue
+    try {
+      const sceneType = await requestSceneScan(await loadOriginal(image.imageId))
+      patchImage(set, image.imageId, (item) => ({ ...item, sceneType }))
+      scanned = true
+    } catch {
+      // 预检失败不该拦住换背景，这张就当普通商品图。
+    }
+  }
+  if (scanned) await persistDraft(set, get)
+}
+
 async function loadOriginal(imageId: string): Promise<string> {
   const dataUrl = await ensureImageCached(imageId)
   if (!dataUrl) throw new Error('原图已不在本地')
@@ -315,6 +382,8 @@ interface MaskAttempt {
   /** 蒙版回落的说明，没有回落时为 null。 */
   notice: string | null
   matte: MatteOutcome
+  /** 蒙版叠在原图上的预览图；抠图没跑出结果时为 null。 */
+  previewImageId: string | null
 }
 
 /** 一张图跑完方案与蒙版后的成果，同一张的每一版都拿它去提交。 */
@@ -323,6 +392,7 @@ interface PreparedImage extends MaskAttempt {
   dataUrl: string
   plan: string
   prompt: string
+  productBox: ProductBox | null
 }
 
 type StageSink = (stage: BgSwapStage) => void
@@ -344,16 +414,24 @@ async function prepareImage(
   get: GetState,
   imageId: string,
   stage: StageSink,
-  reuse?: { plan: string; prompt: string },
+  reuse?: BgSwapVersion,
 ): Promise<PreparedImage> {
   if (!reuse) stage('plan')
   const dataUrl = await loadOriginal(imageId)
   const planned =
     reuse ?? (await requestBackgroundPlan({ image: dataUrl, preference: get().draft.preference }))
+  const productBox = planned.productBox ?? null
   stage('matte')
-  const attempt = await buildMask(imageId, dataUrl)
+  const attempt = await buildMask(imageId, dataUrl, productBox)
   stage('generate')
-  return { ...attempt, imageId, dataUrl, plan: planned.plan, prompt: planned.prompt }
+  return {
+    ...attempt,
+    imageId,
+    dataUrl,
+    plan: planned.plan,
+    prompt: planned.prompt,
+    productBox,
+  }
 }
 
 /** 提交一次生成，拿回可落盘的版本；被提交门禁拦下时返回 null。 */
@@ -377,8 +455,10 @@ async function submitVersion(
     taskId,
     plan: prepared.plan,
     prompt: prepared.prompt,
+    productBox: prepared.productBox,
     masked: prepared.mask !== null,
     matte: prepared.matte,
+    ...(prepared.previewImageId ? { mattePreviewImageId: prepared.previewImageId } : {}),
     createdAt: Date.now(),
   }
 }
@@ -389,17 +469,24 @@ async function recordVersions(
   imageId: string,
   versions: readonly BgSwapVersion[],
 ): Promise<void> {
+  patchImage(set, imageId, (image) => ({
+    ...image,
+    versions: versions.reduce(upsertVersion, image.versions),
+  }))
+  await persistDraft(set, get)
+}
+
+function patchImage(
+  set: SetState,
+  imageId: string,
+  patch: (image: BgSwapImage) => BgSwapImage,
+): void {
   set((s) => ({
     draft: {
       ...s.draft,
-      images: s.draft.images.map((image) =>
-        image.imageId === imageId
-          ? { ...image, versions: versions.reduce(upsertVersion, image.versions) }
-          : image,
-      ),
+      images: s.draft.images.map((image) => (image.imageId === imageId ? patch(image) : image)),
     },
   }))
-  await persistDraft(set, get)
 }
 
 /** 起一轮批量：`listed` 是进度条上要列出的图，`targets` 是这轮真去跑的，一张跑完再跑下一张。 */
@@ -489,17 +576,32 @@ function upsertVersion(versions: BgSwapVersion[], version: BgSwapVersion): BgSwa
     : [...versions, version]
 }
 
+function unmasked(
+  notice: string,
+  reason: MatteFailureCause,
+  previewImageId: string | null,
+): MaskAttempt {
+  return { mask: null, notice, matte: { ok: false, reason }, previewImageId }
+}
+
 /** 抠不出来就回落提示词版：宁可产品不锁死，也不要卡住这一版。`notice` 是回落的说明。 */
-async function buildMask(imageId: string, dataUrl: string): Promise<MaskAttempt> {
+async function buildMask(
+  imageId: string,
+  dataUrl: string,
+  productBox: ProductBox | null,
+): Promise<MaskAttempt> {
   if (
     !modelSupportsNativeMask(getActiveApiProfile(useStore.getState().settings), getPublicChannels())
   ) {
-    return { mask: null, notice: MASK_UNSUPPORTED, matte: { ok: false, reason: 'unsupported' } }
+    return unmasked(MASK_UNSUPPORTED, 'unsupported', null)
   }
   try {
     const matte = await segmentProduct(dataUrl)
-    if (!assessMatte(matte).ok) {
-      return { mask: null, notice: MATTE_FAILED, matte: { ok: false, reason: 'failed' } }
+    // 预览图连抠错的那次也要存：用户就是靠它看出抠错了什么。
+    const previewImageId = await storeImage(alphaToMattePreview(matte), 'mask')
+    if (!assessMatte(matte).ok) return unmasked(MATTE_FAILED, 'failed', previewImageId)
+    if (!matteAgreesWithBox(matte, productBox)) {
+      return unmasked(MATTE_UNRELIABLE, 'box-mismatch', previewImageId)
     }
     const mask = {
       imageId: await storeImage(alphaToInpaintMask(matte), 'mask'),
@@ -509,10 +611,11 @@ async function buildMask(imageId: string, dataUrl: string): Promise<MaskAttempt>
       mask,
       notice: null,
       matte: { ok: true, backend: matte.backend, elapsedMs: matte.elapsedMs },
+      previewImageId,
     }
   } catch (error) {
     const reason = error instanceof ProductMatteError ? error.reason : 'failed'
-    return { mask: null, notice: MATTE_FAILED, matte: { ok: false, reason } }
+    return unmasked(MATTE_FAILED, reason, null)
   }
 }
 

@@ -12,6 +12,7 @@ import {
   SEGMENT,
   SELECT,
 } from '../../../components/panelStyles'
+import { useImageThumbnail } from '../../../hooks/useImageThumbnail'
 import {
   downloadExportedImage,
   downloadExportZip,
@@ -96,13 +97,29 @@ function VersionCard({
   onRetry: () => void
 }) {
   const showToast = useStore((s) => s.showToast)
+  const matteOverlayVersionId = useBgSwapStore((s) => s.matteOverlayVersionId)
+  const toggleMatteOverlay = useBgSwapStore((s) => s.toggleMatteOverlay)
   const [first] = item.outputImageIds
   const label = `原图 ${item.imageIndex + 1} 第 ${item.versionIndex + 1} 版`
+  const matte = item.version.mattePreviewImageId
+  const overlaid = matte !== undefined && matteOverlayVersionId === item.version.id
+  const overlay = useImageThumbnail(overlaid ? matte : undefined)
 
   return (
     <li data-bgswap-gallery-item className="flex w-28 shrink-0 flex-col gap-1">
-      <div className="aspect-square overflow-hidden rounded-xl border border-gray-200 dark:border-white/[0.08]">
-        {first ? (
+      <div className="relative aspect-square overflow-hidden rounded-xl border border-gray-200 dark:border-white/[0.08]">
+        {overlaid ? (
+          <>
+            <AssetThumb imageId={item.imageId} alt={label} />
+            {overlay?.dataUrl && (
+              <img
+                src={overlay.dataUrl}
+                alt="蒙版"
+                className="absolute inset-0 h-full w-full object-cover"
+              />
+            )}
+          </>
+        ) : first ? (
           <AssetThumb imageId={first} alt={label} />
         ) : (
           <span className="flex h-full items-center justify-center text-xs text-gray-400 dark:text-gray-500">
@@ -122,6 +139,16 @@ function VersionCard({
         )}
       </span>
       <div className="flex gap-0.5">
+        {matte && (
+          <button
+            type="button"
+            onClick={() => toggleMatteOverlay(item.version.id)}
+            aria-pressed={overlaid}
+            className={GHOST_BUTTON}
+          >
+            看蒙版
+          </button>
+        )}
         {item.state === 'error' && (
           <button type="button" onClick={onRetry} className={GHOST_BUTTON}>
             重跑

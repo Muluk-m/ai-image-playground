@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { batchDoneCount, pendingBatchImageIds } from '../../../../features/bgswap/lib/batch'
+import {
+  batchDoneCount,
+  pendingBatchImageIds,
+  skippedDiagramImageIds,
+} from '../../../../features/bgswap/lib/batch'
 import type { BgSwapImage, BgSwapVersion } from '../../../../features/bgswap/types'
 
 function version(id: string): BgSwapVersion {
@@ -32,6 +36,30 @@ describe('picking the images a batch run should cover', () => {
 
   it('covers every image when no sample is selected', () => {
     expect(pendingBatchImageIds([image('a'), image('b')], null)).toEqual(['a', 'b'])
+  })
+
+  /** 试点里示意图与卖点拼图被换背景毁掉了内容，所以批量默认放过它们。 */
+  it('leaves out the images that carry explanatory text', () => {
+    const images = [
+      image('a'),
+      image('b', { sceneType: 'infographic' }),
+      image('c', { sceneType: 'callout' }),
+      image('d', { sceneType: 'collage' }),
+      image('e', { sceneType: 'photo' }),
+      image('f'),
+    ]
+
+    expect(pendingBatchImageIds(images, 'a')).toEqual(['e', 'f'])
+    expect(skippedDiagramImageIds(images, 'a')).toEqual(['b', 'c', 'd'])
+  })
+
+  it('counts no skips among images the batch would not touch anyway', () => {
+    const images = [
+      image('a', { sceneType: 'infographic' }),
+      image('b', { sceneType: 'collage', versions: [version('v1')] }),
+    ]
+
+    expect(skippedDiagramImageIds(images, 'a')).toEqual([])
   })
 })
 

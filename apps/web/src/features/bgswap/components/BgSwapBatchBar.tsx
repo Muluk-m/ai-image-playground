@@ -1,7 +1,7 @@
 import { useShallow } from 'zustand/react/shallow'
 import Pending from '../../../components/Pending'
 import { CARD, GHOST_BUTTON, OUTLINE_BUTTON, PRIMARY_BUTTON } from '../../../components/panelStyles'
-import { batchDoneCount, pendingBatchImageIds } from '../lib/batch'
+import { batchDoneCount, pendingBatchImageIds, skippedDiagramImageIds } from '../lib/batch'
 import { useBgSwapStore } from '../store'
 import {
   BG_SWAP_BATCH_STATE_LABELS,
@@ -24,6 +24,7 @@ export default function BgSwapBatchBar() {
 
   const { runBatch, runBatchImage, stopBatch } = useBgSwapStore.getState()
   const remaining = pendingBatchImageIds(images, selectedImageId)
+  const skipped = skippedDiagramImageIds(images, selectedImageId)
   const orderOf = (imageId: string) => images.findIndex((image) => image.imageId === imageId) + 1
   const running = batch?.running === true
   const current = batch?.items.find((item) => item.state === 'running')
@@ -37,6 +38,11 @@ export default function BgSwapBatchBar() {
                 current ? ` · 原图 ${orderOf(current.imageId)}` : ''
               }`
             : `对剩下的 ${remaining.length} 张全部按同样方式跑`}
+          {!running && skipped.length > 0 && (
+            <span className="ml-2 text-xs text-amber-700 dark:text-amber-300">
+              已跳过 {skipped.length} 张示意图
+            </span>
+          )}
         </p>
         <div className="flex items-center gap-2">
           {running && (

@@ -12,6 +12,7 @@ import {
 } from '../../../components/panelStyles'
 import { isClientCapabilityEnabled } from '../../../lib/clientCapabilities'
 import AssetThumb from '../../library/components/AssetThumb'
+import { DIAGRAM_LABEL, isDiagram } from '../lib/scene'
 import { useBgSwapStore } from '../store'
 
 export default function BgSwapSources() {
@@ -103,8 +104,15 @@ export default function BgSwapSources() {
                 <span className="block h-10 w-10 shrink-0 overflow-hidden rounded-lg">
                   <AssetThumb imageId={image.imageId} alt={`原图 ${index + 1}`} />
                 </span>
-                <span className="min-w-0 truncate text-xs text-gray-700 dark:text-gray-200">
-                  原图 {index + 1}
+                <span className="flex min-w-0 flex-col gap-0.5">
+                  <span className="truncate text-xs text-gray-700 dark:text-gray-200">
+                    原图 {index + 1}
+                  </span>
+                  {isDiagram(image.sceneType) && (
+                    <span className="truncate rounded bg-amber-500/10 px-1 py-0.5 text-[11px] text-amber-700 dark:text-amber-300">
+                      {DIAGRAM_LABEL}
+                    </span>
+                  )}
                 </span>
               </button>
               <button
