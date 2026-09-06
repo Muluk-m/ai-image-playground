@@ -42,11 +42,13 @@ function VersionCard({
   fit,
   preset,
   onChoose,
+  onRetry,
 }: {
   item: GalleryVersion
   fit: ExportFit
   preset: ExportPreset
   onChoose: () => void
+  onRetry: () => void
 }) {
   const [first] = item.outputImageIds
   const label = `原图 ${item.imageIndex + 1} 第 ${item.versionIndex + 1} 版`
@@ -74,27 +76,34 @@ function VersionCard({
         )}
       </span>
       <div className="flex gap-0.5">
-        {!item.chosen && (
-          <button type="button" onClick={onChoose} disabled={!first} className={GHOST_BUTTON}>
-            用这版
+        {item.state === 'error' && (
+          <button type="button" onClick={onRetry} className={GHOST_BUTTON}>
+            重跑
           </button>
         )}
-        <button
-          type="button"
-          disabled={!first}
-          onClick={() => {
-            if (!first) return
-            void downloadExportedImage(
-              bgSwapFileName(item.imageIndex, item.versionIndex),
-              first,
-              fit,
-              preset,
-            )
-          }}
-          className={GHOST_BUTTON}
-        >
-          下载
-        </button>
+        {first && (
+          <>
+            {!item.chosen && (
+              <button type="button" onClick={onChoose} className={GHOST_BUTTON}>
+                用这版
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                void downloadExportedImage(
+                  bgSwapFileName(item.imageIndex, item.versionIndex),
+                  first,
+                  fit,
+                  preset,
+                )
+              }}
+              className={GHOST_BUTTON}
+            >
+              下载
+            </button>
+          </>
+        )}
       </div>
     </li>
   )
@@ -106,6 +115,7 @@ export default function BgSwapGallery() {
   const tasks = useStore((s) => s.tasks)
   const showToast = useStore((s) => s.showToast)
   const chooseVersion = useBgSwapStore((s) => s.chooseVersion)
+  const retryVersion = useBgSwapStore((s) => s.retryVersion)
   const [view, setView] = useState<GalleryView>('grouped')
   const [presetId, setPresetId] = useState(EXPORT_PRESETS[0]?.id ?? 'amazon')
   const [scope, setScope] = useState<ExportScope>('chosen')
@@ -211,6 +221,7 @@ export default function BgSwapGallery() {
               fit={fit}
               preset={preset}
               onChoose={() => chooseVersion(item.version.id)}
+              onRetry={() => void retryVersion(item.version.id)}
             />
           ))}
         </ul>
@@ -238,6 +249,7 @@ export default function BgSwapGallery() {
                     fit={fit}
                     preset={preset}
                     onChoose={() => chooseVersion(item.version.id)}
+                    onRetry={() => void retryVersion(item.version.id)}
                   />
                 ))}
               </ul>
