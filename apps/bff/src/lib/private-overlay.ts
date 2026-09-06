@@ -1,3 +1,4 @@
+import type { TaskErrorType } from '@image-playground/shared'
 import { type AnyElysia, Elysia } from 'elysia'
 import type { db as bffDb } from '../db/client'
 
@@ -12,6 +13,9 @@ export type TaskReservationResult =
     }
   | { readonly kind: 'price_unavailable'; readonly model: string }
 
+/** 任务终态。结算判据只看它，不看上游被调用了几次。 */
+export type TaskOutcome = 'completed' | 'failed' | 'cancelled'
+
 export interface PrivateTaskHooks {
   reserveTask(input: {
     tx: BffTransaction
@@ -23,7 +27,10 @@ export interface PrivateTaskHooks {
   finalizeTask(input: {
     tx: BffTransaction
     taskId: string
+    outcome: TaskOutcome
     upstreamInvocationCount: number
+    errorType?: TaskErrorType | null
+    upstreamStatus?: number | null
   }): Promise<void>
   onUserCreated(input: { tx: BffTransaction; userId: string }): Promise<void>
   runMaintenance(now: number): Promise<void>
