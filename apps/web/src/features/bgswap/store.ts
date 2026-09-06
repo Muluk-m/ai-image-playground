@@ -5,7 +5,12 @@ import { getPublicChannels } from '../../lib/channels/publicChannels'
 import { isClientCapabilityEnabled } from '../../lib/clientCapabilities'
 import { storeImage } from '../../lib/db'
 import { fetchListingImages, listingImageProxyUrl } from '../../lib/listingClient'
-import { alphaToInpaintMask, assessMatte, segmentProduct } from '../../lib/productMatte'
+import {
+  alphaToInpaintMask,
+  assessMatte,
+  ProductMatteError,
+  segmentProduct,
+} from '../../lib/productMatte'
 import {
   ensureImageCached,
   storeImageFromFile,
@@ -23,6 +28,7 @@ import type {
   BgSwapJobRecord,
   BgSwapStage,
   BgSwapVersion,
+  MatteOutcome,
 } from './types'
 
 const UPLOAD_FALLBACK = '请直接上传原图'
@@ -304,13 +310,17 @@ async function loadOriginal(imageId: string): Promise<string> {
   return dataUrl
 }
 
-/** 一张图跑完方案与蒙版后的成果，同一张的每一版都拿它去提交。 */
-interface PreparedImage {
-  imageId: string
-  dataUrl: string
+interface MaskAttempt {
   mask: Mask | null
   /** 蒙版回落的说明，没有回落时为 null。 */
   notice: string | null
+  matte: MatteOutcome
+}
+
+/** 一张图跑完方案与蒙版后的成果，同一张的每一版都拿它去提交。 */
+interface PreparedImage extends MaskAttempt {
+  imageId: string
+  dataUrl: string
   plan: string
   prompt: string
 }
@@ -341,9 +351,9 @@ async function prepareImage(
   const planned =
     reuse ?? (await requestBackgroundPlan({ image: dataUrl, preference: get().draft.preference }))
   stage('matte')
-  const { mask, notice } = await buildMask(imageId, dataUrl)
+  const attempt = await buildMask(imageId, dataUrl)
   stage('generate')
-  return { imageId, dataUrl, mask, notice, plan: planned.plan, prompt: planned.prompt }
+  return { ...attempt, imageId, dataUrl, plan: planned.plan, prompt: planned.prompt }
 }
 
 /** 提交一次生成，拿回可落盘的版本；被提交门禁拦下时返回 null。 */
@@ -368,6 +378,7 @@ async function submitVersion(
     plan: prepared.plan,
     prompt: prepared.prompt,
     masked: prepared.mask !== null,
+    matte: prepared.matte,
     createdAt: Date.now(),
   }
 }
@@ -479,25 +490,29 @@ function upsertVersion(versions: BgSwapVersion[], version: BgSwapVersion): BgSwa
 }
 
 /** 抠不出来就回落提示词版：宁可产品不锁死，也不要卡住这一版。`notice` 是回落的说明。 */
-async function buildMask(
-  imageId: string,
-  dataUrl: string,
-): Promise<{ mask: Mask | null; notice: string | null }> {
+async function buildMask(imageId: string, dataUrl: string): Promise<MaskAttempt> {
   if (
     !modelSupportsNativeMask(getActiveApiProfile(useStore.getState().settings), getPublicChannels())
   ) {
-    return { mask: null, notice: MASK_UNSUPPORTED }
+    return { mask: null, notice: MASK_UNSUPPORTED, matte: { ok: false, reason: 'unsupported' } }
   }
   try {
     const matte = await segmentProduct(dataUrl)
-    if (!assessMatte(matte).ok) return { mask: null, notice: MATTE_FAILED }
+    if (!assessMatte(matte).ok) {
+      return { mask: null, notice: MATTE_FAILED, matte: { ok: false, reason: 'failed' } }
+    }
     const mask = {
       imageId: await storeImage(alphaToInpaintMask(matte), 'mask'),
       targetImageId: imageId,
     }
-    return { mask, notice: null }
-  } catch {
-    return { mask: null, notice: MATTE_FAILED }
+    return {
+      mask,
+      notice: null,
+      matte: { ok: true, backend: matte.backend, elapsedMs: matte.elapsedMs },
+    }
+  } catch (error) {
+    const reason = error instanceof ProductMatteError ? error.reason : 'failed'
+    return { mask: null, notice: MATTE_FAILED, matte: { ok: false, reason } }
   }
 }
 

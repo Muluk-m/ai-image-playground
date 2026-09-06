@@ -1,8 +1,13 @@
+import { eligibleBackends, type MatteBackend, type MatteBackendId } from './backends'
 import type { ProductAlpha } from './types'
 
-export const DEFAULT_SEGMENT_TIMEOUT_MS = 60_000
-
 export type SegmentFailureReason = 'unsupported' | 'timeout' | 'failed'
+
+export const MATTE_FAILURE_LABELS: Record<SegmentFailureReason, string> = {
+  timeout: '超时',
+  unsupported: '不支持',
+  failed: '运行错误',
+}
 
 export class ProductMatteError extends Error {
   readonly reason: SegmentFailureReason
@@ -14,42 +19,67 @@ export class ProductMatteError extends Error {
   }
 }
 
+export type MatteRunner = (
+  backend: MatteBackend,
+  dataUrl: string,
+  signal: AbortSignal,
+) => Promise<ProductAlpha>
+
 export interface SegmentProductOptions {
-  timeoutMs?: number
+  backends?: readonly MatteBackend[]
+  run?: MatteRunner
 }
 
-/**
- * 只走 WebGPU：唯一体积可接受的权重是 fp16，而 fp16 在 wasm 后端没有可靠支持；
- * 没有 WebGPU 就直接失败，让调用方回落提示词版，不去下 200 MB 的 fp32。
- */
-export function isProductMatteSupported(): boolean {
-  if (typeof navigator === 'undefined') return false
-  return Boolean((navigator as { gpu?: unknown }).gpu)
+export interface SegmentedProduct extends ProductAlpha {
+  backend: MatteBackendId
+  elapsedMs: number
 }
 
+/** 超时由这里判，不等后端自己认账：卡死的 worker 不能把整条链拖住。 */
+function runWithTimeout(
+  run: MatteRunner,
+  backend: MatteBackend,
+  dataUrl: string,
+): Promise<ProductAlpha> {
+  const controller = new AbortController()
+  const timeout = new ProductMatteError('timeout', `${backend.id} 抠图超时`)
+  let timer: ReturnType<typeof setTimeout>
+  const expired = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      controller.abort(timeout)
+      reject(timeout)
+    }, backend.timeoutMs)
+  })
+  return Promise.race([run(backend, dataUrl, controller.signal), expired]).finally(() =>
+    clearTimeout(timer),
+  )
+}
+
+/** 沿回落链一环环试，第一个抠出来的就是答案；全挂了抛最后一环的原因。 */
 export async function segmentProduct(
   dataUrl: string,
   options: SegmentProductOptions = {},
-): Promise<ProductAlpha> {
-  if (!isProductMatteSupported()) {
-    throw new ProductMatteError('unsupported', '当前浏览器不支持本地抠图（需要 WebGPU）')
+): Promise<SegmentedProduct> {
+  const chain = await eligibleBackends(options.backends)
+  if (chain.length === 0) {
+    throw new ProductMatteError('unsupported', '当前浏览器跑不了本地抠图')
   }
 
-  const timeoutMs = options.timeoutMs ?? DEFAULT_SEGMENT_TIMEOUT_MS
-  let timer: ReturnType<typeof setTimeout> | undefined
+  const run = options.run ?? (await import('./segmentWorkerClient')).runInWorker
+  let failure = new ProductMatteError('failed', '本地抠图失败')
 
-  try {
-    const segmented = import('./segmentEngine').then((engine) =>
-      engine.runProductSegmentation(dataUrl),
-    )
-    const timedOut = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(new ProductMatteError('timeout', '抠图超时')), timeoutMs)
-    })
-    return await Promise.race([segmented, timedOut])
-  } catch (error) {
-    if (error instanceof ProductMatteError) throw error
-    throw new ProductMatteError('failed', error instanceof Error ? error.message : String(error))
-  } finally {
-    clearTimeout(timer)
+  for (const backend of chain) {
+    const startedAt = Date.now()
+    try {
+      const matte = await runWithTimeout(run, backend, dataUrl)
+      return { ...matte, backend: backend.id, elapsedMs: Date.now() - startedAt }
+    } catch (error) {
+      failure =
+        error instanceof ProductMatteError
+          ? error
+          : new ProductMatteError('failed', error instanceof Error ? error.message : String(error))
+    }
   }
+
+  throw failure
 }
