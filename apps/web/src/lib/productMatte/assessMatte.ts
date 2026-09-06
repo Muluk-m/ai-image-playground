@@ -3,7 +3,7 @@ import type { MatteAssessment, ProductAlpha } from './types'
 export const MIN_PRODUCT_COVERAGE = 0.03
 export const MAX_PRODUCT_COVERAGE = 0.9
 
-const PRODUCT_ALPHA_THRESHOLD = 128
+export const PRODUCT_ALPHA_THRESHOLD = 128
 
 /** 占比异常说明模型没抠到产品（过小）或把整张图当成产品（过大），两种都不能拿去重绘背景。 */
 export function assessMatte(matte: ProductAlpha): MatteAssessment {
