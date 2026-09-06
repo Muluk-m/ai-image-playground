@@ -139,6 +139,17 @@ versionsPerImage, createdAt, updatedAt }` 存在主 IndexedDB 的 `bgswap_jobs` 
 产出都留着，用户选一版定稿。
 _Avoid_: 批量换背景套、背景风格、镜头
 
+**画面类型（scene type）**：
+一张原图是 `photo`（产品实拍）、`infographic`（示意图）、`callout`（带标注的特写）还是
+`collage`（卖点拼图），由视觉模型的预检给出，记在原图上。非 `photo` 的图带说明文字，换背景
+会把它们毁掉：批量默认跳过，单张要用户确认。认不出类型就当 `photo`。
+_Avoid_: 场景、图片分类、sceneType 自由文本
+
+**蒙版一致性（matte agreement）**：
+抠出来的蒙版外接框与方案给的 `productBox` 的重叠率。低于阈值判为抠错了对象，这一版不带蒙版
+提交并标「蒙版不可靠」——占比正常不等于抠对了东西。
+_Avoid_: 蒙版质量、抠图置信度
+
 ## 测试
 
 - `apps/web` 有 jsdom 环境（按文件 `@vitest-environment jsdom` 启用），组件级冒烟测试的入口；Overlay 是首个有 DOM 锚点的模块。
