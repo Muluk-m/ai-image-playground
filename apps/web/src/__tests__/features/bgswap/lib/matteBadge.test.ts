@@ -36,6 +36,13 @@ describe('matteBadge', () => {
     })
   })
 
+  it('抠出来但跟产品框对不上时报蒙版不可靠', () => {
+    expect(matteBadge(version(false, { ok: false, reason: 'box-mismatch' }))).toEqual({
+      text: '蒙版不可靠',
+      tone: 'warn',
+    })
+  })
+
   it('没记抠图结果的旧版本只报未抠图', () => {
     expect(matteBadge(version(false))).toEqual({ text: '未抠图', tone: 'warn' })
   })
