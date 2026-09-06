@@ -1,9 +1,13 @@
+import type { BgSceneType } from '@image-playground/shared'
 import type { MatteBackendId, SegmentFailureReason } from '../../lib/productMatte'
+
+/** 抠图没用上的原因：跑不出来（前三种），或抠出来的框跟方案给的产品框对不上。 */
+export type MatteFailureCause = SegmentFailureReason | 'box-mismatch'
 
 /** 抠图这一段的结果：成功记实际用到的后端与耗时，失败记原因。 */
 export type MatteOutcome =
   | { ok: true; backend: MatteBackendId; elapsedMs: number }
-  | { ok: false; reason: SegmentFailureReason }
+  | { ok: false; reason: MatteFailureCause }
 
 /** 一次「换背景」的产出。`masked` 为假是蒙版失败的提示词版，产品像素没被锁住。 */
 export interface BgSwapVersion {
@@ -14,6 +18,8 @@ export interface BgSwapVersion {
   masked: boolean
   /** 这一版落盘时还没有这个字段的旧记录为 undefined。 */
   matte?: MatteOutcome
+  /** 抠出来的蒙版叠在原图上的预览图；抠图没跑出结果时没有。 */
+  mattePreviewImageId?: string
   createdAt: number
 }
 
@@ -30,6 +36,8 @@ export interface BgSwapImage {
   imageId: string
   /** 链接拉图时的原始图片地址，上传的图没有。 */
   sourceUrl?: string
+  /** 预检认出的画面类型；还没预检或预检失败时为 undefined。 */
+  sceneType?: BgSceneType
   versions: BgSwapVersion[]
   chosenVersionId?: string
 }
