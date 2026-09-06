@@ -15,6 +15,7 @@ const storeImageFromFile = vi.hoisted(() =>
 const ensureImageCached = vi.hoisted(() => vi.fn())
 const submitPrepared = vi.hoisted(() => vi.fn())
 const requestBackgroundPlan = vi.hoisted(() => vi.fn())
+const requestSceneScan = vi.hoisted(() => vi.fn())
 const segmentProduct = vi.hoisted(() => vi.fn())
 const assessMatte = vi.hoisted(() => vi.fn())
 const alphaToInpaintMask = vi.hoisted(() => vi.fn())
@@ -39,7 +40,10 @@ vi.mock('../../../store', async (importOriginal) => ({
   submitPrepared,
 }))
 
-vi.mock('../../../features/bgswap/lib/planClient', () => ({ requestBackgroundPlan }))
+vi.mock('../../../features/bgswap/lib/planClient', () => ({
+  requestBackgroundPlan,
+  requestSceneScan,
+}))
 
 vi.mock('../../../lib/productMatte', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../lib/productMatte')>()),
@@ -60,7 +64,7 @@ vi.mock('../../../lib/db', async (importOriginal) => ({
 
 const PLAN = {
   category: '折叠浴缸',
-  sceneType: '纯白背景',
+  sceneType: 'photo',
   productBox: null,
   plan: '放进有窗光的日式木质浴室',
   prompt: '锁住产品，只换背景',
@@ -76,15 +80,23 @@ async function jobWithOneImage(): Promise<string> {
   return 'image-主图.png'
 }
 
+/** 确认对话框的按钮是同步的，点下去之后要等提交链跑完。 */
+async function settle(): Promise<void> {
+  for (let round = 0; round < 5; round++) {
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  }
+}
+
 beforeEach(() => {
   vi.stubGlobal('indexedDB', new IDBFactory())
-  useStore.setState({ showToast: vi.fn() })
+  useStore.setState({ showToast: vi.fn(), confirmDialog: null })
   useBgSwapStore.setState({ jobs: [], swapStage: null, swapStartedAt: null })
   useBgSwapStore.getState().startNewJob()
   isClientCapabilityEnabled.mockReturnValue(true)
   ensureImageCached.mockImplementation(async (id: string) => `data:image/png;base64,${id}`)
   submitPrepared.mockImplementation(async () => [`task-${submitPrepared.mock.calls.length}`])
   requestBackgroundPlan.mockResolvedValue(PLAN)
+  requestSceneScan.mockResolvedValue('photo')
   segmentProduct.mockResolvedValue({
     alpha: new Uint8ClampedArray(4),
     width: 2,
@@ -146,6 +158,45 @@ describe('putting original images into a job', () => {
   })
 })
 
+describe('checking what kind of image each original is', () => {
+  it('scans an uploaded image and keeps the answer with the job', async () => {
+    requestSceneScan.mockResolvedValue('infographic')
+
+    await useBgSwapStore.getState().importFiles([image('示意图.png')])
+
+    expect(requestSceneScan).toHaveBeenCalledWith('data:image/png;base64,image-示意图.png')
+    expect(useBgSwapStore.getState().draft.images[0].sceneType).toBe('infographic')
+
+    useBgSwapStore.setState({ jobs: [] })
+    await useBgSwapStore.getState().loadJobs()
+    expect(useBgSwapStore.getState().jobs[0].images[0].sceneType).toBe('infographic')
+  })
+
+  it('scans each image once', async () => {
+    await useBgSwapStore.getState().importFiles([image('主图.png'), image('细节.png')])
+    await useBgSwapStore.getState().importFiles([image('场景.png')])
+
+    expect(requestSceneScan).toHaveBeenCalledTimes(3)
+  })
+
+  /** 认不出画面类型不该拦住换背景，这张就当普通商品图。 */
+  it('leaves the scene kind unknown when the scan fails', async () => {
+    requestSceneScan.mockRejectedValue(new Error('没认出这张图的画面类型'))
+
+    await useBgSwapStore.getState().importFiles([image('主图.png')])
+
+    expect(useBgSwapStore.getState().draft.images[0].sceneType).toBeUndefined()
+  })
+
+  it('does not scan when image analysis is off', async () => {
+    isClientCapabilityEnabled.mockReturnValue(false)
+
+    await useBgSwapStore.getState().importFiles([image('主图.png')])
+
+    expect(requestSceneScan).not.toHaveBeenCalled()
+  })
+})
+
 describe('pulling a listing into a job', () => {
   it('stores every fetched image behind the proxy and keeps its source url', async () => {
     fetchListingImages.mockResolvedValue({
@@ -159,8 +210,18 @@ describe('pulling a listing into a job', () => {
 
     expect(storeImageFromUrl).toHaveBeenCalledWith('proxy:https://img/1.jpg')
     expect(useBgSwapStore.getState().draft.images).toEqual([
-      { imageId: 'image-proxy:https://img/1.jpg', sourceUrl: 'https://img/1.jpg', versions: [] },
-      { imageId: 'image-proxy:https://img/2.jpg', sourceUrl: 'https://img/2.jpg', versions: [] },
+      {
+        imageId: 'image-proxy:https://img/1.jpg',
+        sourceUrl: 'https://img/1.jpg',
+        versions: [],
+        sceneType: 'photo',
+      },
+      {
+        imageId: 'image-proxy:https://img/2.jpg',
+        sourceUrl: 'https://img/2.jpg',
+        versions: [],
+        sceneType: 'photo',
+      },
     ])
     expect(useBgSwapStore.getState().draft.name).toBe('折叠浴缸')
   })
@@ -363,6 +424,136 @@ describe('swapping the background of one image', () => {
   })
 })
 
+describe('swapping the background of a diagram', () => {
+  async function jobWithADiagram(): Promise<void> {
+    requestSceneScan.mockResolvedValue('collage')
+    await useBgSwapStore.getState().importFiles([image('卖点图.png')])
+  }
+
+  it('asks before touching an image that carries explanatory text', async () => {
+    await jobWithADiagram()
+
+    await useBgSwapStore.getState().swapBackground()
+
+    expect(requestBackgroundPlan).not.toHaveBeenCalled()
+    expect(useStore.getState().confirmDialog?.message).toContain('含说明文字，换背景会丢失')
+  })
+
+  it('goes ahead once the user confirms', async () => {
+    await jobWithADiagram()
+    await useBgSwapStore.getState().swapBackground()
+
+    useStore.getState().confirmDialog?.action()
+    await settle()
+
+    expect(useBgSwapStore.getState().draft.images[0].versions).toHaveLength(1)
+  })
+
+  it('asks nothing for a plain product photo', async () => {
+    await jobWithOneImage()
+
+    await useBgSwapStore.getState().swapBackground()
+
+    expect(useStore.getState().confirmDialog).toBeNull()
+    expect(useBgSwapStore.getState().draft.images[0].versions).toHaveLength(1)
+  })
+})
+
+describe('checking the matte against the product box', () => {
+  /** 全白 alpha 的外接框是整张图，跟一个小小的产品框几乎不重叠。 */
+  function matteCoveringEverything() {
+    return {
+      alpha: new Uint8ClampedArray([255, 255, 255, 255]),
+      width: 2,
+      height: 2,
+      backend: 'wasm-u2netp',
+      elapsedMs: 3200,
+    }
+  }
+
+  it('drops a matte that sits somewhere else and says so on the version', async () => {
+    await jobWithOneImage()
+    requestBackgroundPlan.mockResolvedValue({
+      ...PLAN,
+      productBox: { x: 0, y: 0, w: 0.1, h: 0.1 },
+    })
+    segmentProduct.mockResolvedValue(matteCoveringEverything())
+
+    await useBgSwapStore.getState().swapBackground()
+
+    expect(alphaToInpaintMask).not.toHaveBeenCalled()
+    expect(submitPrepared.mock.calls[0][0].mask).toBeNull()
+    expect(useBgSwapStore.getState().draft.images[0].versions[0]).toMatchObject({
+      masked: false,
+      matte: { ok: false, reason: 'box-mismatch' },
+    })
+    expect(useBgSwapStore.getState().swapNotice).toContain('蒙版与产品框不符')
+  })
+
+  it('keeps the matte when it lands on the box the plan reported', async () => {
+    await jobWithOneImage()
+    requestBackgroundPlan.mockResolvedValue({ ...PLAN, productBox: { x: 0, y: 0, w: 1, h: 1 } })
+    segmentProduct.mockResolvedValue(matteCoveringEverything())
+
+    await useBgSwapStore.getState().swapBackground()
+
+    expect(useBgSwapStore.getState().draft.images[0].versions[0].masked).toBe(true)
+  })
+})
+
+describe('keeping a matte preview beside the version', () => {
+  it('stores the overlay in the image library and records it on the version', async () => {
+    storeImage.mockImplementation(async (dataUrl: string) =>
+      dataUrl === 'data:image/png;base64,MASK' ? 'mask-1' : 'preview-1',
+    )
+    await jobWithOneImage()
+
+    await useBgSwapStore.getState().swapBackground()
+
+    expect(useBgSwapStore.getState().draft.images[0].versions[0].mattePreviewImageId).toBe(
+      'preview-1',
+    )
+  })
+
+  /** 抠错了的那次尤其要留预览，用户就是靠它看出抠到了别的东西。 */
+  it('keeps the overlay even when the matte is turned down', async () => {
+    storeImage.mockImplementation(async (dataUrl: string) =>
+      dataUrl === 'data:image/png;base64,MASK' ? 'mask-1' : 'preview-1',
+    )
+    await jobWithOneImage()
+    assessMatte.mockReturnValue({ ok: false, coverage: 0.001, reason: 'too-small' })
+
+    await useBgSwapStore.getState().swapBackground()
+
+    const [version] = useBgSwapStore.getState().draft.images[0].versions
+    expect(version.masked).toBe(false)
+    expect(version.mattePreviewImageId).toBe('preview-1')
+  })
+
+  it('has no overlay when the matte never ran', async () => {
+    await jobWithOneImage()
+    segmentProduct.mockRejectedValue(new ProductMatteError('timeout', '抠图超时'))
+
+    await useBgSwapStore.getState().swapBackground()
+
+    expect(
+      useBgSwapStore.getState().draft.images[0].versions[0].mattePreviewImageId,
+    ).toBeUndefined()
+  })
+
+  it('shows and hides the overlay for one version at a time', async () => {
+    await jobWithOneImage()
+    await useBgSwapStore.getState().swapBackground()
+    const [version] = useBgSwapStore.getState().draft.images[0].versions
+
+    useBgSwapStore.getState().toggleMatteOverlay(version.id)
+    expect(useBgSwapStore.getState().matteOverlayVersionId).toBe(version.id)
+
+    useBgSwapStore.getState().toggleMatteOverlay(version.id)
+    expect(useBgSwapStore.getState().matteOverlayVersionId).toBeNull()
+  })
+})
+
 describe('picking among the versions', () => {
   it('marks the chosen version and keeps it after a reload', async () => {
     await jobWithOneImage()
@@ -446,6 +637,22 @@ describe('running the batch over the remaining images', () => {
     expect(main.versions).toEqual([])
     expect(detail.versions).toHaveLength(1)
     expect(scene.versions).toHaveLength(1)
+  })
+
+  it('leaves the diagrams alone but still runs one when asked by hand', async () => {
+    requestSceneScan.mockResolvedValueOnce('photo')
+    requestSceneScan.mockResolvedValueOnce('infographic')
+    requestSceneScan.mockResolvedValueOnce('photo')
+    await jobWithThreeImages()
+
+    await useBgSwapStore.getState().runBatch()
+
+    expect(useBgSwapStore.getState().draft.images[1].versions).toEqual([])
+    expect(useBgSwapStore.getState().draft.images[2].versions).toHaveLength(1)
+
+    await useBgSwapStore.getState().runBatchImage('image-细节.png')
+
+    expect(useBgSwapStore.getState().draft.images[1].versions).toHaveLength(1)
   })
 
   it('submits one plan and matte per image but every version of it at once', async () => {

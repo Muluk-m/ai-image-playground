@@ -48,8 +48,8 @@ export function matteAgreesWithBox(
   productBox: ProductBox | null,
   threshold: number = MATTE_BOX_IOU_THRESHOLD,
 ): boolean {
+  if (!productBox) return true
   const bounds = matteBounds(matte)
   if (!bounds) return false
-  if (!productBox) return true
   return iou(bounds, productBox) >= threshold
 }

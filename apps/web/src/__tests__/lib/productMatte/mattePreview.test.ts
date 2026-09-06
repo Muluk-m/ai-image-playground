@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { alphaToMattePreview, alphaToPreviewPixels } from '../../../lib/productMatte'
 import type { ProductAlpha } from '../../../lib/productMatte'
+import { alphaToMattePreview, alphaToPreviewPixels } from '../../../lib/productMatte'
 
 /** 左半边是产品，右半边是背景。 */
 function halfMatte(): ProductAlpha {
