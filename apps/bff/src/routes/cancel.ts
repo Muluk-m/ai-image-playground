@@ -31,6 +31,7 @@ export const cancelRoutes = new Elysia().use(requireUser).put(
         await taskHooks.finalizeTask({
           tx,
           taskId: row.id,
+          outcome: 'cancelled',
           upstreamInvocationCount: row.upstreamInvocationCount,
         })
       }
