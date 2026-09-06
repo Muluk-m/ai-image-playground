@@ -88,7 +88,10 @@ export async function finishTask(id: string, update: TerminalTaskUpdate): Promis
     await taskHooks.finalizeTask({
       tx,
       taskId: finished.id,
+      outcome: update.status,
       upstreamInvocationCount: finished.upstreamInvocationCount,
+      errorType: update.errorType,
+      upstreamStatus: update.upstreamStatus ?? null,
     })
     return true
   })
