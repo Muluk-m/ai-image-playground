@@ -5,6 +5,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import BgSwapMode from '../../../../features/bgswap/components/BgSwapMode'
 import { useBgSwapStore } from '../../../../features/bgswap/store'
+import { ProductMatteError } from '../../../../lib/productMatte'
 import { useStore } from '../../../../store'
 
 declare global {
@@ -91,7 +92,13 @@ beforeEach(() => {
   ensureImageCached.mockImplementation(async (id: string) => `data:image/png;base64,${id}`)
   submitPrepared.mockResolvedValue(['task-1'])
   requestBackgroundPlan.mockResolvedValue(PLAN)
-  segmentProduct.mockResolvedValue({ alpha: new Uint8ClampedArray(4), width: 2, height: 2 })
+  segmentProduct.mockResolvedValue({
+    alpha: new Uint8ClampedArray(4),
+    width: 2,
+    height: 2,
+    backend: 'wasm-u2netp',
+    elapsedMs: 3200,
+  })
   assessMatte.mockReturnValue({ ok: true, coverage: 0.4 })
   alphaToInpaintMask.mockReturnValue('data:image/png;base64,MASK')
   modelSupportsNativeMask.mockReturnValue(true)
@@ -242,14 +249,23 @@ describe('running one background swap', () => {
     expect(row.textContent).toContain('排队')
   })
 
-  it('marks a prompt-only version when the matte fails', async () => {
-    segmentProduct.mockRejectedValue(new Error('抠图超时'))
+  it('marks a prompt-only version with why the matte was skipped', async () => {
+    segmentProduct.mockRejectedValue(new ProductMatteError('timeout', '抠图超时'))
     await withOneImage()
 
     click(swapButton())
     await settle()
 
-    expect(document.querySelector('[data-bgswap-version]')?.textContent).toContain('未抠图')
+    expect(document.querySelector('[data-bgswap-version]')?.textContent).toContain('未抠图 · 超时')
+  })
+
+  it('shows which backend produced the matte', async () => {
+    await withOneImage()
+
+    click(swapButton())
+    await settle()
+
+    expect(document.querySelector('[data-bgswap-version]')?.textContent).toContain('U²-Netp · CPU')
   })
 
   it('takes a finished version as the chosen one', async () => {
