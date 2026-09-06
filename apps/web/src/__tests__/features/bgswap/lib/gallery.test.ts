@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   bgSwapEntryName,
-  exportEntries,
+  exportPlan,
   flatVersions,
   galleryRows,
 } from '../../../../features/bgswap/lib/gallery'
@@ -81,19 +81,41 @@ describe('naming the exported files', () => {
 
 describe('picking what goes into the package', () => {
   it('packs only the chosen version of each image', () => {
-    const entries = exportEntries('折叠浴缸', galleryRows(IMAGES, TASKS), 'chosen', 'crop')
+    const plan = exportPlan('折叠浴缸', galleryRows(IMAGES, TASKS), 'chosen', 'crop')
 
-    expect(entries).toEqual([{ path: '折叠浴缸/01-v2.png', imageId: 'out-2', fit: 'crop' }])
+    expect(plan.entries).toEqual([{ path: '折叠浴缸/01-v2.png', imageId: 'out-2', fit: 'crop' }])
+    expect(plan.skipped).toBe(0)
   })
 
   it('packs every version when asked for all of them', () => {
-    const entries = exportEntries('折叠浴缸', galleryRows(IMAGES, TASKS), 'all', 'letterbox')
+    const plan = exportPlan('折叠浴缸', galleryRows(IMAGES, TASKS), 'all', 'letterbox')
 
-    expect(entries.map((entry) => entry.path)).toEqual([
+    expect(plan.entries.map((entry) => entry.path)).toEqual([
       '折叠浴缸/01-v1.png',
       '折叠浴缸/01-v2.png',
       '折叠浴缸/03-v1.png',
     ])
-    expect(entries.every((entry) => entry.fit === 'letterbox')).toBe(true)
+    expect(plan.entries.every((entry) => entry.fit === 'letterbox')).toBe(true)
+  })
+
+  it('leaves out the versions that produced nothing and counts them', () => {
+    const tasks = new Map(TASKS)
+    tasks.set('task-v1', { ...doneTask('task-v1', []), status: 'error', error: '上游报错' })
+    tasks.delete('task-v3')
+
+    const plan = exportPlan('折叠浴缸', galleryRows(IMAGES, tasks), 'all', 'crop')
+
+    expect(plan.entries.map((entry) => entry.path)).toEqual(['折叠浴缸/01-v2.png'])
+    expect(plan.skipped).toBe(2)
+  })
+
+  it('counts a chosen version that has no image yet as skipped', () => {
+    const tasks = new Map(TASKS)
+    tasks.set('task-v2', { ...doneTask('task-v2', []), status: 'running', finishedAt: null })
+
+    const plan = exportPlan('折叠浴缸', galleryRows(IMAGES, tasks), 'chosen', 'crop')
+
+    expect(plan.entries).toEqual([])
+    expect(plan.skipped).toBe(1)
   })
 })

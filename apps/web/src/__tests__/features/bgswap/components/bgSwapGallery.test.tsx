@@ -13,6 +13,15 @@ declare global {
 }
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
+const downloadExportZip = vi.hoisted(() => vi.fn())
+const downloadExportedImage = vi.hoisted(() => vi.fn())
+
+vi.mock('../../../../lib/imageExport', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../../lib/imageExport')>()),
+  downloadExportZip,
+  downloadExportedImage,
+}))
+
 vi.mock('../../../../features/library/components/AssetThumb', () => ({
   default: ({ alt }: { alt: string }) => <span>{alt}</span>,
 }))
@@ -35,6 +44,15 @@ function task(id: string, patch: Partial<TaskRecord> = {}): TaskRecord {
 
 function version(id: string) {
   return { id, taskId: `task-${id}`, plan: '木质浴室', prompt: 'p', masked: true, createdAt: 1 }
+}
+
+/** 一个能被外部推进的 promise，让测试停在打包中间观察读秒文案。 */
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((r) => {
+    resolve = r
+  })
+  return { promise, resolve }
 }
 
 const showToast = vi.fn<(message: string, type?: 'info' | 'success' | 'error') => void>()
@@ -65,6 +83,7 @@ beforeEach(() => {
       ],
     },
   })
+  downloadExportZip.mockResolvedValue({ count: 1, failed: 0 })
   host = document.createElement('div')
   document.body.appendChild(host)
   root = createRoot(host)
@@ -93,6 +112,12 @@ function buttonLabelled(text: string, scope: ParentNode = document): HTMLButtonE
   return found
 }
 
+async function settle() {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  })
+}
+
 describe('the results overview', () => {
   it('reruns a failed version in place', () => {
     render()
@@ -100,9 +125,58 @@ describe('the results overview', () => {
       item.textContent?.includes('失败'),
     )
     if (!failed) throw new Error('no failed version card')
-
     click(buttonLabelled('重跑', failed))
 
     expect(retryVersion).toHaveBeenCalledWith('v2')
+  })
+
+  it('counts the seconds on the export button while it packs', async () => {
+    const packing = deferred<{ count: number; failed: number }>()
+    downloadExportZip.mockReturnValue(packing.promise)
+    render()
+
+    click(buttonLabelled('打包下载'))
+    await settle()
+
+    const packButton = [...document.querySelectorAll('button')].find((b) =>
+      b.textContent?.includes('打包中'),
+    )
+    expect(packButton?.disabled).toBe(true)
+
+    packing.resolve({ count: 1, failed: 0 })
+    await settle()
+
+    expect(showToast).toHaveBeenCalledWith('已打包 1 张', 'success')
+  })
+
+  it('says how many unfinished versions it left out', async () => {
+    render()
+
+    act(() => {
+      const select = document.querySelector<HTMLSelectElement>('select[aria-label="导出范围"]')
+      if (!select) throw new Error('no scope select')
+      select.value = 'all'
+      select.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+    click(buttonLabelled('打包下载'))
+    await settle()
+
+    expect(downloadExportZip).toHaveBeenCalledWith(
+      '折叠浴缸',
+      [{ path: '折叠浴缸/01-v1.png', imageId: 'out-1', fit: 'crop' }],
+      expect.anything(),
+    )
+    expect(showToast).toHaveBeenCalledWith('已打包 1 张，已跳过 1 个未完成版本', 'success')
+  })
+
+  it('reports a package that blew up instead of leaving no trace', async () => {
+    downloadExportZip.mockRejectedValue(new Error('画布不可用'))
+    render()
+
+    click(buttonLabelled('打包下载'))
+    await settle()
+
+    expect(showToast).toHaveBeenCalledWith('打包失败：画布不可用', 'error')
+    expect(buttonLabelled('打包下载').disabled).toBe(false)
   })
 })
