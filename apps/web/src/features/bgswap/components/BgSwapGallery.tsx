@@ -26,10 +26,14 @@ import {
   EXPORT_SCOPE_LABELS,
   EXPORT_SCOPES,
   type ExportScope,
+  exportBlockedReason,
   exportPlan,
   flatVersions,
   type GalleryVersion,
   galleryRows,
+  hasChosenVersion,
+  type ManualExportScope,
+  resolveExportScope,
 } from '../lib/gallery'
 import { VERSION_STATE_LABELS } from '../lib/versionProgress'
 import { useBgSwapStore } from '../store'
@@ -37,6 +41,42 @@ import { useBgSwapStore } from '../store'
 const VIEWS = ['grouped', 'flat'] as const
 type GalleryView = (typeof VIEWS)[number]
 const VIEW_LABELS: Record<GalleryView, string> = { grouped: '分组', flat: '平铺' }
+
+const HINT = 'rounded bg-amber-500/10 px-1 text-xs text-amber-700 dark:text-amber-300'
+
+function Segmented<T extends string>({
+  label,
+  options,
+  labels,
+  value,
+  onChange,
+}: {
+  label: string
+  options: readonly T[]
+  labels: Record<T, string>
+  value: T
+  onChange: (option: T) => void
+}) {
+  return (
+    <div
+      role="group"
+      aria-label={label}
+      className="flex items-center gap-0.5 rounded-lg bg-gray-100 p-0.5 dark:bg-gray-900"
+    >
+      {options.map((option) => (
+        <button
+          key={option}
+          type="button"
+          onClick={() => onChange(option)}
+          aria-pressed={value === option}
+          className={`${SEGMENT} ${value === option ? ACTIVE_SEGMENT : IDLE_SEGMENT}`}
+        >
+          {labels[option]}
+        </button>
+      ))}
+    </div>
+  )
+}
 
 function reasonOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
@@ -124,7 +164,7 @@ export default function BgSwapGallery() {
   const retryVersion = useBgSwapStore((s) => s.retryVersion)
   const [view, setView] = useState<GalleryView>('grouped')
   const [presetId, setPresetId] = useState(EXPORT_PRESETS[0]?.id ?? 'amazon')
-  const [scope, setScope] = useState<ExportScope>('chosen')
+  const [manualScope, setManualScope] = useState<ManualExportScope | null>(null)
   const [fit, setFit] = useState<ExportFit>('crop')
   const [exportStartedAt, setExportStartedAt] = useState<number | null>(null)
 
@@ -132,10 +172,14 @@ export default function BgSwapGallery() {
   const rows = useMemo(() => galleryRows(images, tasksById), [images, tasksById])
   const preset = findExportPreset(presetId) ?? (EXPORT_PRESETS[0] as ExportPreset)
 
+  const hasChosen = hasChosenVersion(rows)
+  const scope = resolveExportScope(hasChosen, manualScope)
+  const plan = useMemo(() => exportPlan(jobName, rows, scope, fit), [jobName, rows, scope, fit])
+  const blocked = exportBlockedReason(scope, hasChosen, plan.entries.length)
+
   const exportAll = async () => {
     setExportStartedAt(Date.now())
     try {
-      const plan = exportPlan(jobName, rows, scope, fit)
       const result = await downloadExportZip(jobName, plan.entries, preset)
       // 渲染失败的那几张与本来就没出图的版本对用户是同一件事：这次没打进去。
       const left = plan.skipped + result.failed
@@ -155,19 +199,13 @@ export default function BgSwapGallery() {
     <section data-bgswap-gallery className={`${CARD} mt-4 flex flex-col gap-3`}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-100">结果总览</h2>
-        <div className="flex items-center gap-0.5 rounded-lg bg-gray-100 p-0.5 dark:bg-gray-900">
-          {VIEWS.map((option) => (
-            <button
-              key={option}
-              type="button"
-              onClick={() => setView(option)}
-              aria-pressed={view === option}
-              className={`${SEGMENT} ${view === option ? ACTIVE_SEGMENT : IDLE_SEGMENT}`}
-            >
-              {VIEW_LABELS[option]}
-            </button>
-          ))}
-        </div>
+        <Segmented
+          label="总览排布"
+          options={VIEWS}
+          labels={VIEW_LABELS}
+          value={view}
+          onChange={setView}
+        />
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -184,42 +222,36 @@ export default function BgSwapGallery() {
             </option>
           ))}
         </select>
-        <select
+        <Segmented
+          label="导出范围"
+          options={EXPORT_SCOPES}
+          labels={EXPORT_SCOPE_LABELS}
           value={scope}
-          aria-label="导出范围"
-          onChange={(event) => setScope(event.target.value as ExportScope)}
-          className={SELECT}
-        >
-          {EXPORT_SCOPES.map((option) => (
-            <option key={option} value={option}>
-              {EXPORT_SCOPE_LABELS[option]}
-            </option>
-          ))}
-        </select>
-        <select
+          onChange={(option: ExportScope) => setManualScope({ scope: option, hasChosen })}
+        />
+        {!hasChosen && scope === 'all' && !blocked && (
+          <span className={HINT}>未选用，导出全部</span>
+        )}
+        <Segmented
+          label="导出方式"
+          options={EXPORT_FITS}
+          labels={EXPORT_FIT_LABELS}
           value={fit}
-          aria-label="导出方式"
-          onChange={(event) => setFit(event.target.value as ExportFit)}
-          className={SELECT}
-        >
-          {EXPORT_FITS.map((option) => (
-            <option key={option} value={option}>
-              {EXPORT_FIT_LABELS[option]}
-            </option>
-          ))}
-        </select>
+          onChange={setFit}
+        />
         <button
           type="button"
           onClick={() => void exportAll()}
-          disabled={exportStartedAt !== null || rows.length === 0}
+          disabled={exportStartedAt !== null || plan.entries.length === 0}
           className={PRIMARY_BUTTON}
         >
           {exportStartedAt === null ? (
-            '打包下载'
+            `打包下载 ${plan.entries.length} 张`
           ) : (
             <Pending label="打包中" startedAt={exportStartedAt} />
           )}
         </button>
+        {blocked && rows.length > 0 && <span className={HINT}>{blocked}</span>}
       </div>
 
       {rows.length === 0 ? (
