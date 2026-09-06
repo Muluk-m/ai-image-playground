@@ -1,3 +1,10 @@
+import type { MatteBackendId, SegmentFailureReason } from '../../lib/productMatte'
+
+/** 抠图这一段的结果：成功记实际用到的后端与耗时，失败记原因。 */
+export type MatteOutcome =
+  | { ok: true; backend: MatteBackendId; elapsedMs: number }
+  | { ok: false; reason: SegmentFailureReason }
+
 /** 一次「换背景」的产出。`masked` 为假是蒙版失败的提示词版，产品像素没被锁住。 */
 export interface BgSwapVersion {
   id: string
@@ -5,6 +12,8 @@ export interface BgSwapVersion {
   plan: string
   prompt: string
   masked: boolean
+  /** 这一版落盘时还没有这个字段的旧记录为 undefined。 */
+  matte?: MatteOutcome
   createdAt: number
 }
 

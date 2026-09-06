@@ -1,6 +1,7 @@
 import { IDBFactory } from 'fake-indexeddb'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useBgSwapStore } from '../../../features/bgswap/store'
+import { ProductMatteError } from '../../../lib/productMatte'
 import { useStore } from '../../../store'
 
 const fetchListingImages = vi.hoisted(() => vi.fn())
@@ -40,7 +41,12 @@ vi.mock('../../../store', async (importOriginal) => ({
 
 vi.mock('../../../features/bgswap/lib/planClient', () => ({ requestBackgroundPlan }))
 
-vi.mock('../../../lib/productMatte', () => ({ segmentProduct, assessMatte, alphaToInpaintMask }))
+vi.mock('../../../lib/productMatte', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../lib/productMatte')>()),
+  segmentProduct,
+  assessMatte,
+  alphaToInpaintMask,
+}))
 
 vi.mock('../../../lib/channels/profileSelectors', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../lib/channels/profileSelectors')>()),
@@ -79,7 +85,13 @@ beforeEach(() => {
   ensureImageCached.mockImplementation(async (id: string) => `data:image/png;base64,${id}`)
   submitPrepared.mockImplementation(async () => [`task-${submitPrepared.mock.calls.length}`])
   requestBackgroundPlan.mockResolvedValue(PLAN)
-  segmentProduct.mockResolvedValue({ alpha: new Uint8ClampedArray(4), width: 2, height: 2 })
+  segmentProduct.mockResolvedValue({
+    alpha: new Uint8ClampedArray(4),
+    width: 2,
+    height: 2,
+    backend: 'wasm-u2netp',
+    elapsedMs: 3200,
+  })
   assessMatte.mockReturnValue({ ok: true, coverage: 0.4 })
   alphaToInpaintMask.mockReturnValue('data:image/png;base64,MASK')
   modelSupportsNativeMask.mockReturnValue(true)
@@ -220,6 +232,7 @@ describe('swapping the background of one image', () => {
       plan: PLAN.plan,
       prompt: PLAN.prompt,
       masked: true,
+      matte: { ok: true, backend: 'wasm-u2netp', elapsedMs: 3200 },
     })
     expect(version.createdAt).toBeGreaterThan(0)
   })
@@ -265,8 +278,23 @@ describe('swapping the background of one image', () => {
     await useBgSwapStore.getState().swapBackground()
 
     expect(submitPrepared.mock.calls[0][0].mask).toBeNull()
-    expect(useBgSwapStore.getState().draft.images[0].versions[0].masked).toBe(false)
+    expect(useBgSwapStore.getState().draft.images[0].versions[0]).toMatchObject({
+      masked: false,
+      matte: { ok: false, reason: 'failed' },
+    })
     expect(useBgSwapStore.getState().swapNotice).toContain('未抠图')
+  })
+
+  it('keeps the matte failure reason on the version', async () => {
+    await jobWithOneImage()
+    segmentProduct.mockRejectedValue(new ProductMatteError('timeout', '抠图超时'))
+
+    await useBgSwapStore.getState().swapBackground()
+
+    expect(useBgSwapStore.getState().draft.images[0].versions[0].matte).toEqual({
+      ok: false,
+      reason: 'timeout',
+    })
   })
 
   it('falls back when the product covers too little of the image', async () => {
