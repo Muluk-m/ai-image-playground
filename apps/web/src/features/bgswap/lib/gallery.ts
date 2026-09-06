@@ -55,6 +55,34 @@ export function flatVersions(rows: readonly GalleryRow[]): GalleryVersion[] {
   return rows.flatMap((row) => row.versions)
 }
 
+export interface ManualExportScope {
+  scope: ExportScope
+  /** 切换那一刻有没有选用版本。 */
+  hasChosen: boolean
+}
+
+export function hasChosenVersion(rows: readonly GalleryRow[]): boolean {
+  return rows.some((row) => row.versions.some((item) => item.chosen))
+}
+
+/** 手动值只在选用状态没变时算数，用户选定或撤销一版之后重新落回默认。 */
+export function resolveExportScope(
+  hasChosen: boolean,
+  manual: ManualExportScope | null,
+): ExportScope {
+  if (manual && manual.hasChosen === hasChosen) return manual.scope
+  return hasChosen ? 'chosen' : 'all'
+}
+
+export function exportBlockedReason(
+  scope: ExportScope,
+  hasChosen: boolean,
+  count: number,
+): string | null {
+  if (count > 0) return null
+  return scope === 'chosen' && !hasChosen ? '未选用版本' : '暂无成图'
+}
+
 export function bgSwapFileName(imageIndex: number, versionIndex: number, imageOffset = 0): string {
   const order = String(imageIndex + 1).padStart(2, '0')
   const suffix = imageOffset > 0 ? `-${imageOffset + 1}` : ''
