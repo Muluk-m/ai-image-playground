@@ -4,11 +4,17 @@ import Pending from '../../../components/Pending'
 import { LABEL, NOTICE } from '../../../components/panelStyles'
 import { formatElapsed } from '../../../hooks/useElapsed'
 import { useStore } from '../../../store'
+import { type MatteBadge, matteBadge } from '../lib/matteBadge'
 import { VERSION_STATE_LABELS, versionProgress } from '../lib/versionProgress'
 import { useBgSwapStore } from '../store'
 
 const ACTION =
   'rounded-md px-2 py-0.5 text-xs text-gray-600 transition hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-white/[0.06]'
+
+const BADGE_TONE: Record<MatteBadge['tone'], string> = {
+  ok: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
+  warn: 'bg-amber-500/10 text-amber-700 dark:text-amber-300',
+}
 
 export default function BgSwapVersionBar() {
   const selected = useBgSwapStore(
@@ -31,6 +37,7 @@ export default function BgSwapVersionBar() {
           {versions.map((version, index) => {
             const progress = versionProgress(tasksById.get(version.taskId))
             const chosen = selected?.chosenVersionId === version.id
+            const badge = matteBadge(version)
             return (
               <li
                 key={version.id}
@@ -59,9 +66,9 @@ export default function BgSwapVersionBar() {
                         {progress.elapsed === null ? '' : ` ${formatElapsed(progress.elapsed)}`}
                       </span>
                     )}
-                    {!version.masked && (
-                      <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-amber-700 dark:text-amber-300">
-                        未抠图
+                    {badge && (
+                      <span className={`rounded px-1.5 py-0.5 ${BADGE_TONE[badge.tone]}`}>
+                        {badge.text}
                       </span>
                     )}
                     {chosen && (

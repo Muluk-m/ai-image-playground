@@ -40,7 +40,12 @@ vi.mock('../../../../store', async (importOriginal) => ({
 
 vi.mock('../../../../features/bgswap/lib/planClient', () => ({ requestBackgroundPlan }))
 
-vi.mock('../../../../lib/productMatte', () => ({ segmentProduct, assessMatte, alphaToInpaintMask }))
+vi.mock('../../../../lib/productMatte', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../../lib/productMatte')>()),
+  segmentProduct,
+  assessMatte,
+  alphaToInpaintMask,
+}))
 
 vi.mock('../../../../lib/channels/profileSelectors', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../../lib/channels/profileSelectors')>()),

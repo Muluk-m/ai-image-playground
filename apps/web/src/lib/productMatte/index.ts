@@ -7,9 +7,17 @@ export {
 } from './alphaToInpaintMask'
 export { assessMatte, MAX_PRODUCT_COVERAGE, MIN_PRODUCT_COVERAGE } from './assessMatte'
 export {
-  DEFAULT_SEGMENT_TIMEOUT_MS,
-  isProductMatteSupported,
+  eligibleBackends,
+  MATTE_BACKEND_LABELS,
+  MATTE_BACKENDS,
+  type MatteBackend,
+  type MatteBackendId,
+} from './backends'
+export {
+  MATTE_FAILURE_LABELS,
+  type MatteRunner,
   ProductMatteError,
+  type SegmentedProduct,
   type SegmentFailureReason,
   type SegmentProductOptions,
   segmentProduct,
