@@ -5,6 +5,9 @@ export interface DownloadResult {
   failed: number
 }
 
+/** click() 只是排队下载，浏览器随后才异步读 blob；同步 revoke 会让下载空落盘。 */
+export const REVOKE_OBJECT_URL_DELAY_MS = 40_000
+
 /** 浏览器只认这套 anchor 动作，套图导出与单图下载共用。 */
 export function downloadBlob(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob)
@@ -14,7 +17,7 @@ export function downloadBlob(blob: Blob, filename: string): void {
   document.body.appendChild(anchor)
   anchor.click()
   document.body.removeChild(anchor)
-  URL.revokeObjectURL(url)
+  setTimeout(() => URL.revokeObjectURL(url), REVOKE_OBJECT_URL_DELAY_MS)
 }
 
 /** 按 imageId 取图，缓存优先。 */
