@@ -21,6 +21,7 @@ const storeImageFromFile = vi.hoisted(() =>
 const ensureImageCached = vi.hoisted(() => vi.fn())
 const submitPrepared = vi.hoisted(() => vi.fn())
 const requestBackgroundPlan = vi.hoisted(() => vi.fn())
+const requestSceneScan = vi.hoisted(() => vi.fn())
 const segmentProduct = vi.hoisted(() => vi.fn())
 const assessMatte = vi.hoisted(() => vi.fn())
 const alphaToInpaintMask = vi.hoisted(() => vi.fn())
@@ -39,7 +40,10 @@ vi.mock('../../../../store', async (importOriginal) => ({
   submitPrepared,
 }))
 
-vi.mock('../../../../features/bgswap/lib/planClient', () => ({ requestBackgroundPlan }))
+vi.mock('../../../../features/bgswap/lib/planClient', () => ({
+  requestBackgroundPlan,
+  requestSceneScan,
+}))
 
 vi.mock('../../../../lib/productMatte', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../../lib/productMatte')>()),
@@ -60,7 +64,7 @@ vi.mock('../../../../lib/db', async (importOriginal) => ({
 
 const PLAN = {
   category: '折叠浴缸',
-  sceneType: '纯白背景',
+  sceneType: 'photo',
   productBox: null,
   plan: '放进有窗光的日式木质浴室',
   prompt: '锁住产品，只换背景',
@@ -92,6 +96,7 @@ beforeEach(() => {
   ensureImageCached.mockImplementation(async (id: string) => `data:image/png;base64,${id}`)
   submitPrepared.mockResolvedValue(['task-1'])
   requestBackgroundPlan.mockResolvedValue(PLAN)
+  requestSceneScan.mockResolvedValue('photo')
   segmentProduct.mockResolvedValue({
     alpha: new Uint8ClampedArray(4),
     width: 2,
@@ -305,6 +310,52 @@ describe('running one background swap', () => {
 
     expect(column('preview').textContent).toContain('原图 1')
     expect(useBgSwapStore.getState().previewVersionId).toBeNull()
+  })
+})
+
+describe('marking the images that carry explanatory text', () => {
+  it('labels a diagram in the source list and counts it out of the batch', async () => {
+    requestSceneScan.mockResolvedValue('infographic')
+    render()
+
+    upload(
+      '上传原图',
+      new File(['x'], '主图.png', { type: 'image/png' }),
+      new File(['x'], '示意图.png', { type: 'image/png' }),
+    )
+    await settle()
+
+    const [, diagram] = column('sources').querySelectorAll('[data-bgswap-source]')
+    expect(diagram.textContent).toContain('含说明文字，换背景会丢失')
+    expect(batchBar().textContent).toContain('已跳过 1 张示意图')
+    expect(batchBar().textContent).toContain('对剩下的 0 张')
+  })
+})
+
+describe('looking at the matte before trusting a version', () => {
+  it('switches the middle preview to the matte laid over the original', async () => {
+    render()
+    upload('上传原图', new File(['x'], '主图.png', { type: 'image/png' }))
+    while (useBgSwapStore.getState().draft.id === null) {
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0))
+      })
+    }
+    click(swapButton())
+    await settle()
+
+    const toggle = [...document.querySelectorAll('button')].find(
+      (button) => button.textContent === '看蒙版',
+    )
+    if (!toggle) throw new Error('no matte toggle')
+    click(toggle)
+
+    expect(column('preview').textContent).toContain('原图 1 蒙版')
+
+    click(toggle)
+
+    expect(useBgSwapStore.getState().matteOverlayVersionId).toBeNull()
+    expect(column('preview').textContent).toContain('第 1 版')
   })
 })
 

@@ -5,6 +5,7 @@ import { LABEL, NOTICE } from '../../../components/panelStyles'
 import { formatElapsed } from '../../../hooks/useElapsed'
 import { useStore } from '../../../store'
 import { type MatteBadge, matteBadge } from '../lib/matteBadge'
+import { DIAGRAM_LABEL, isDiagram } from '../lib/scene'
 import { VERSION_STATE_LABELS, versionProgress } from '../lib/versionProgress'
 import { useBgSwapStore } from '../store'
 
@@ -21,15 +22,22 @@ export default function BgSwapVersionBar() {
     useShallow((s) => s.draft.images.find((image) => image.imageId === s.selectedImageId)),
   )
   const previewVersionId = useBgSwapStore((s) => s.previewVersionId)
+  const matteOverlayVersionId = useBgSwapStore((s) => s.matteOverlayVersionId)
   const tasks = useStore((s) => s.tasks)
   const tasksById = useMemo(() => new Map(tasks.map((task) => [task.id, task])), [tasks])
 
-  const { previewVersion, chooseVersion, retryVersion } = useBgSwapStore.getState()
+  const { previewVersion, chooseVersion, retryVersion, toggleMatteOverlay } =
+    useBgSwapStore.getState()
   const versions = selected?.versions ?? []
 
   return (
     <div>
       <span className={LABEL}>版本</span>
+      {selected && isDiagram(selected.sceneType) && (
+        <p className="mt-1.5 rounded bg-amber-500/10 px-1.5 py-0.5 text-xs text-amber-700 dark:text-amber-300">
+          {DIAGRAM_LABEL}
+        </p>
+      )}
       {versions.length === 0 ? (
         <p className="mt-1.5 text-xs text-gray-400 dark:text-gray-500">暂无版本</p>
       ) : (
@@ -85,6 +93,16 @@ export default function BgSwapVersionBar() {
                 {progress.error && <p className={`mt-1.5 ${NOTICE}`}>{progress.error}</p>}
 
                 <div className="mt-1.5 flex gap-1">
+                  {version.mattePreviewImageId && (
+                    <button
+                      type="button"
+                      onClick={() => toggleMatteOverlay(version.id)}
+                      aria-pressed={matteOverlayVersionId === version.id}
+                      className={ACTION}
+                    >
+                      看蒙版
+                    </button>
+                  )}
                   {progress.state === 'error' && (
                     <button
                       type="button"
