@@ -17,7 +17,9 @@ const { finishTask } = await import('../../db/task-transitions')
 const { _setPrivateBffOverlayForTesting, EMPTY_PRIVATE_BFF_OVERLAY } = await import(
   '../../lib/private-overlay'
 )
-type PrivateBffOverlay = Awaited<ReturnType<typeof import('../../lib/private-overlay')>>
+type PrivateBffOverlay = import('../../lib/private-overlay').PrivateBffOverlay
+type PrivateTaskHooks = import('../../lib/private-overlay').PrivateTaskHooks
+type TaskStatus = (typeof schema.tasks.$inferInsert)['status']
 
 type SettlementCall = {
   taskId: string
@@ -29,19 +31,13 @@ type SettlementCall = {
 
 let settlements: SettlementCall[]
 
-function trackingOverlay() {
+function trackingOverlay(): PrivateBffOverlay {
   return Object.freeze({
     ...EMPTY_PRIVATE_BFF_OVERLAY,
     present: true,
     taskHooks: {
       ...EMPTY_PRIVATE_BFF_OVERLAY.taskHooks,
-      async finalizeTask(input: {
-        taskId: string
-        outcome: string
-        upstreamInvocationCount: number
-        errorType?: string | null
-        upstreamStatus?: number | null
-      }) {
+      async finalizeTask(input: Parameters<PrivateTaskHooks['finalizeTask']>[0]) {
         settlements.push({
           taskId: input.taskId,
           outcome: input.outcome,
@@ -54,7 +50,7 @@ function trackingOverlay() {
   })
 }
 
-async function insertTask(id: string, status: string, upstreamInvocationCount = 0) {
+async function insertTask(id: string, status: TaskStatus, upstreamInvocationCount = 0) {
   await db.insert(schema.tasks).values({
     id,
     provider: 'openai-compat',
@@ -68,7 +64,7 @@ async function insertTask(id: string, status: string, upstreamInvocationCount = 
 
 beforeEach(async () => {
   settlements = []
-  _setPrivateBffOverlayForTesting(trackingOverlay() as unknown as PrivateBffOverlay)
+  _setPrivateBffOverlayForTesting(trackingOverlay())
   await db.delete(schema.tasks)
 })
 

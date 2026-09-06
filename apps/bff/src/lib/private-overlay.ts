@@ -29,7 +29,7 @@ export interface PrivateTaskHooks {
     taskId: string
     outcome: TaskOutcome
     upstreamInvocationCount: number
-    errorType?: TaskErrorType | null
+    errorType?: TaskErrorType
     upstreamStatus?: number | null
   }): Promise<void>
   onUserCreated(input: { tx: BffTransaction; userId: string }): Promise<void>
