@@ -118,6 +118,15 @@ async function settle() {
   })
 }
 
+function chooseNothing() {
+  useBgSwapStore.setState((state) => ({
+    draft: {
+      ...state.draft,
+      images: state.draft.images.map(({ chosenVersionId: _dropped, ...image }) => image),
+    },
+  }))
+}
+
 describe('the results overview', () => {
   it('reruns a failed version in place', () => {
     render()
@@ -135,7 +144,7 @@ describe('the results overview', () => {
     downloadExportZip.mockReturnValue(packing.promise)
     render()
 
-    click(buttonLabelled('打包下载'))
+    click(buttonLabelled('打包下载 1 张'))
     await settle()
 
     const packButton = [...document.querySelectorAll('button')].find((b) =>
@@ -152,13 +161,8 @@ describe('the results overview', () => {
   it('says how many unfinished versions it left out', async () => {
     render()
 
-    act(() => {
-      const select = document.querySelector<HTMLSelectElement>('select[aria-label="导出范围"]')
-      if (!select) throw new Error('no scope select')
-      select.value = 'all'
-      select.dispatchEvent(new Event('change', { bubbles: true }))
-    })
-    click(buttonLabelled('打包下载'))
+    click(buttonLabelled('全部版'))
+    click(buttonLabelled('打包下载 1 张'))
     await settle()
 
     expect(downloadExportZip).toHaveBeenCalledWith(
@@ -173,10 +177,38 @@ describe('the results overview', () => {
     downloadExportZip.mockRejectedValue(new Error('画布不可用'))
     render()
 
-    click(buttonLabelled('打包下载'))
+    click(buttonLabelled('打包下载 1 张'))
     await settle()
 
     expect(showToast).toHaveBeenCalledWith('打包失败：画布不可用', 'error')
-    expect(buttonLabelled('打包下载').disabled).toBe(false)
+    expect(buttonLabelled('打包下载 1 张').disabled).toBe(false)
+  })
+
+  it('exports the chosen version once one is picked', () => {
+    render()
+
+    expect(buttonLabelled('选用版').getAttribute('aria-pressed')).toBe('true')
+    expect(document.body.textContent).not.toContain('未选用，导出全部')
+    expect(buttonLabelled('打包下载 1 张').disabled).toBe(false)
+  })
+
+  it('falls back to every version, labelled, while nothing is picked', () => {
+    chooseNothing()
+    render()
+
+    expect(buttonLabelled('全部版').getAttribute('aria-pressed')).toBe('true')
+    expect(document.body.textContent).toContain('未选用，导出全部')
+    expect(buttonLabelled('打包下载 1 张').disabled).toBe(false)
+  })
+
+  it('blocks the package with a reason when the scope holds nothing', () => {
+    chooseNothing()
+    render()
+
+    click(buttonLabelled('选用版'))
+
+    const packButton = buttonLabelled('打包下载 0 张')
+    expect(packButton.disabled).toBe(true)
+    expect(document.body.textContent).toContain('未选用版本')
   })
 })

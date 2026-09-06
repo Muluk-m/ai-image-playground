@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import {
   bgSwapEntryName,
+  exportBlockedReason,
   exportPlan,
   flatVersions,
   galleryRows,
+  hasChosenVersion,
+  resolveExportScope,
 } from '../../../../features/bgswap/lib/gallery'
 import type { BgSwapImage, BgSwapVersion } from '../../../../features/bgswap/types'
 import type { TaskRecord } from '../../../../types'
@@ -117,5 +120,30 @@ describe('picking what goes into the package', () => {
 
     expect(plan.entries).toEqual([])
     expect(plan.skipped).toBe(1)
+  })
+})
+
+describe('picking the export scope for the user', () => {
+  const nothingChosen = galleryRows([image('a', { versions: [version('v1')] })], TASKS)
+
+  it('knows whether any version was picked', () => {
+    expect(hasChosenVersion(galleryRows(IMAGES, TASKS))).toBe(true)
+    expect(hasChosenVersion(nothingChosen)).toBe(false)
+  })
+
+  it('packs every version while nothing is picked, the chosen one afterwards', () => {
+    expect(resolveExportScope(false, null)).toBe('all')
+    expect(resolveExportScope(true, null)).toBe('chosen')
+  })
+
+  it('keeps a manual scope until the picked state changes', () => {
+    expect(resolveExportScope(true, { scope: 'all', hasChosen: true })).toBe('all')
+    expect(resolveExportScope(false, { scope: 'chosen', hasChosen: true })).toBe('all')
+  })
+
+  it('says why nothing can be packed', () => {
+    expect(exportBlockedReason('all', false, 3)).toBe(null)
+    expect(exportBlockedReason('chosen', false, 0)).toBe('未选用版本')
+    expect(exportBlockedReason('all', true, 0)).toBe('暂无成图')
   })
 })

@@ -425,7 +425,7 @@ describe('the result gallery', () => {
     expect(gallery().querySelector('[aria-label="导出尺寸"]')).not.toBeNull()
     expect(gallery().querySelector('[aria-label="导出范围"]')).not.toBeNull()
     const pack = [...gallery().querySelectorAll('button')].find(
-      (button) => button.textContent === '打包下载',
+      (button) => button.textContent === '打包下载 1 张',
     )
     expect(pack?.disabled).toBe(false)
   })
