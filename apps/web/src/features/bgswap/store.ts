@@ -32,6 +32,7 @@ import type {
   BgSwapJobRecord,
   BgSwapStage,
   BgSwapVersion,
+  MatteFailureCause,
   MatteOutcome,
 } from './types'
 
@@ -358,14 +359,7 @@ async function scanScenes(set: SetState, get: GetState): Promise<void> {
     if (image.sceneType) continue
     try {
       const sceneType = await requestSceneScan(await loadOriginal(image.imageId))
-      set((s) => ({
-        draft: {
-          ...s.draft,
-          images: s.draft.images.map((item) =>
-            item.imageId === image.imageId ? { ...item, sceneType } : item,
-          ),
-        },
-      }))
+      patchImage(set, image.imageId, (item) => ({ ...item, sceneType }))
       scanned = true
     } catch {
       // 预检失败不该拦住换背景，这张就当普通商品图。
@@ -472,17 +466,24 @@ async function recordVersions(
   imageId: string,
   versions: readonly BgSwapVersion[],
 ): Promise<void> {
+  patchImage(set, imageId, (image) => ({
+    ...image,
+    versions: versions.reduce(upsertVersion, image.versions),
+  }))
+  await persistDraft(set, get)
+}
+
+function patchImage(
+  set: SetState,
+  imageId: string,
+  patch: (image: BgSwapImage) => BgSwapImage,
+): void {
   set((s) => ({
     draft: {
       ...s.draft,
-      images: s.draft.images.map((image) =>
-        image.imageId === imageId
-          ? { ...image, versions: versions.reduce(upsertVersion, image.versions) }
-          : image,
-      ),
+      images: s.draft.images.map((image) => (image.imageId === imageId ? patch(image) : image)),
     },
   }))
-  await persistDraft(set, get)
 }
 
 /** 起一轮批量：`listed` 是进度条上要列出的图，`targets` 是这轮真去跑的，一张跑完再跑下一张。 */
@@ -572,6 +573,14 @@ function upsertVersion(versions: BgSwapVersion[], version: BgSwapVersion): BgSwa
     : [...versions, version]
 }
 
+function unmasked(
+  notice: string,
+  reason: MatteFailureCause,
+  previewImageId: string | null,
+): MaskAttempt {
+  return { mask: null, notice, matte: { ok: false, reason }, previewImageId }
+}
+
 /** 抠不出来就回落提示词版：宁可产品不锁死，也不要卡住这一版。`notice` 是回落的说明。 */
 async function buildMask(
   imageId: string,
@@ -581,32 +590,15 @@ async function buildMask(
   if (
     !modelSupportsNativeMask(getActiveApiProfile(useStore.getState().settings), getPublicChannels())
   ) {
-    return {
-      mask: null,
-      notice: MASK_UNSUPPORTED,
-      matte: { ok: false, reason: 'unsupported' },
-      previewImageId: null,
-    }
+    return unmasked(MASK_UNSUPPORTED, 'unsupported', null)
   }
   try {
     const matte = await segmentProduct(dataUrl)
     // 预览图连抠错的那次也要存：用户就是靠它看出抠错了什么。
     const previewImageId = await storeImage(alphaToMattePreview(matte), 'mask')
-    if (!assessMatte(matte).ok) {
-      return {
-        mask: null,
-        notice: MATTE_FAILED,
-        matte: { ok: false, reason: 'failed' },
-        previewImageId,
-      }
-    }
+    if (!assessMatte(matte).ok) return unmasked(MATTE_FAILED, 'failed', previewImageId)
     if (!matteAgreesWithBox(matte, productBox)) {
-      return {
-        mask: null,
-        notice: MATTE_UNRELIABLE,
-        matte: { ok: false, reason: 'box-mismatch' },
-        previewImageId,
-      }
+      return unmasked(MATTE_UNRELIABLE, 'box-mismatch', previewImageId)
     }
     const mask = {
       imageId: await storeImage(alphaToInpaintMask(matte), 'mask'),
@@ -620,7 +612,7 @@ async function buildMask(
     }
   } catch (error) {
     const reason = error instanceof ProductMatteError ? error.reason : 'failed'
-    return { mask: null, notice: MATTE_FAILED, matte: { ok: false, reason }, previewImageId: null }
+    return unmasked(MATTE_FAILED, reason, null)
   }
 }
 
