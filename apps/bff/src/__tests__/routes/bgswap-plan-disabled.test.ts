@@ -13,25 +13,27 @@ const { setVisionFetchForTesting } = await import('../../lib/vision')
 
 const app = new Elysia().use(bgswapPlanRoutes)
 
-describe('POST /api/bgswap/plan without the capability', () => {
-  it('answers 404 and never reaches the gateway', async () => {
+describe('the bgswap vision routes without the capability', () => {
+  it('answer 404 and never reach the gateway', async () => {
     setVisionFetchForTesting(() => {
       throw new Error('unexpected vision call')
     })
 
-    const response = await app.handle(
-      new Request('http://localhost/api/bgswap/plan', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ image: 'data:image/png;base64,AA==' }),
-      }),
-    )
+    for (const path of ['/api/bgswap/plan', '/api/bgswap/scan']) {
+      const response = await app.handle(
+        new Request(`http://localhost${path}`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ image: 'data:image/png;base64,AA==' }),
+        }),
+      )
 
-    expect(response.status).toBe(404)
-    expect(await response.json()).toEqual({
-      error: 'capability_unavailable',
-      capability: 'remix:analyze',
-    })
+      expect(response.status).toBe(404)
+      expect(await response.json()).toEqual({
+        error: 'capability_unavailable',
+        capability: 'remix:analyze',
+      })
+    }
     setVisionFetchForTesting()
   })
 })
