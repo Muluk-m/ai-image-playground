@@ -102,6 +102,7 @@ describe('POST /api/bgswap/plan', () => {
       prompt: buildBackgroundPrompt({
         plan: PLAN.plan,
         sceneType: 'photo',
+        inventory: PLAN.inventory,
         preference: '北欧风',
         language: 'zh',
       }),
@@ -132,7 +133,11 @@ describe('POST /api/bgswap/plan', () => {
     expect(status).toBe(200)
     expect(json).toEqual({
       ...PLAN,
-      prompt: buildBackgroundPrompt({ plan: PLAN.plan, sceneType: 'photo' }),
+      prompt: buildBackgroundPrompt({
+        plan: PLAN.plan,
+        sceneType: 'photo',
+        inventory: PLAN.inventory,
+      }),
     })
   })
 
@@ -145,7 +150,11 @@ describe('POST /api/bgswap/plan', () => {
     expect(status).toBe(200)
     expect(json).toEqual({
       ...PLAN,
-      prompt: buildBackgroundPrompt({ plan: PLAN.plan, sceneType: 'photo' }),
+      prompt: buildBackgroundPrompt({
+        plan: PLAN.plan,
+        sceneType: 'photo',
+        inventory: PLAN.inventory,
+      }),
     })
   })
 
@@ -276,7 +285,12 @@ describe('POST /api/bgswap/plan', () => {
       expect(status).toBe(200)
       expect(json).toEqual({
         ...PLAN,
-        prompt: buildBackgroundPrompt({ plan: PLAN.plan, sceneType: 'photo', mode }),
+        prompt: buildBackgroundPrompt({
+          plan: PLAN.plan,
+          sceneType: 'photo',
+          inventory: PLAN.inventory,
+          mode,
+        }),
       })
     }
   })
@@ -288,6 +302,25 @@ describe('POST /api/bgswap/plan', () => {
 
     expect(status).toBe(200)
     expect(json).toMatchObject({ inventory: PLAN.inventory })
+  })
+
+  it('names every inventory item in the prompt it assembles', async () => {
+    setVisionFetchForTesting(visionFetchReturning(chatCompletion(JSON.stringify(PLAN))))
+
+    const { json } = await plan({ image: PIXEL })
+
+    const { prompt } = json as { prompt: string }
+    for (const item of PLAN.inventory) expect(prompt).toContain(item)
+    expect(prompt).not.toContain('产品本身及所有与之相连的部件')
+  })
+
+  it('falls back to the generic untouched clause when the model lists no inventory', async () => {
+    const { inventory: _inventory, ...noInventory } = PLAN
+    setVisionFetchForTesting(visionFetchReturning(chatCompletion(JSON.stringify(noInventory))))
+
+    const { json } = await plan({ image: PIXEL })
+
+    expect((json as { prompt: string }).prompt).toContain('产品本身及所有与之相连的部件')
   })
 
   it('still answers when the model leaves the inventory out', async () => {
