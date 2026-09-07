@@ -11,7 +11,7 @@ import { bootstrapClientCapabilities } from '../../../lib/clientCapabilities'
 import { getImage, putImage } from '../../../lib/db'
 import { ensureAssetImage } from '../../../lib/sync/assetImages'
 import { startSyncEngine, syncNow } from '../../../lib/sync/engine'
-import { readPendingChanges } from '../../../lib/sync/pending'
+import { readPendingChanges, writePendingChanges } from '../../../lib/sync/pending'
 import { useSyncStatus } from '../../../lib/sync/status'
 import { getAssetImage, postSync, putAssetImage } from '../../../lib/sync/syncClient'
 import { useStore } from '../../../store'
@@ -97,7 +97,7 @@ afterEach(async () => {
   stopEngine = null
   setClientStorageScope(null)
   vi.unstubAllGlobals()
-  useSyncStatus.setState({ enabled: false, unsyncedImages: [] })
+  useSyncStatus.setState({ enabled: false, unsyncedImages: [], uploads: null })
   await bootstrapClientCapabilities(false, '')
 })
 
@@ -149,6 +149,36 @@ describe('uploading an asset image', () => {
     expect(useSyncStatus.getState().unsyncedImages).toEqual([LOCAL_IMAGE])
     expect(readPendingChanges().assets).toEqual([])
     expect(await assetStore.list()).toHaveLength(1)
+  })
+
+  it('counts the batch up as it sends the images one at a time', async () => {
+    const gates: Array<() => void> = []
+    putAssetImageMock.mockImplementation(
+      () => new Promise((resolve) => gates.push(() => resolve('uploaded'))),
+    )
+    const ids = ['i1', 'i2', 'i3']
+    for (const id of ids) await putImage({ id, dataUrl: PIXEL, createdAt: 1 })
+    // 首次登录的形状：素材记录已经在本机，待推集合里全是它们，图一张都还没上去。
+    await assetStore.applyRemote(ids.map((imageId, index) => asset(`a${index + 1}`, imageId)))
+    writePendingChanges({
+      version: 0,
+      templates: [],
+      assets: ['a1', 'a2', 'a3'],
+      settingsUpdatedAt: null,
+      lastSyncedAt: null,
+      unsyncedImages: [],
+    })
+
+    stopEngine = startSyncEngine()
+
+    for (let done = 0; done < ids.length; done += 1) {
+      await vi.waitFor(() => expect(useSyncStatus.getState().uploads).toEqual({ done, total: 3 }))
+      await vi.waitFor(() => expect(gates).toHaveLength(done + 1))
+      gates[done]?.()
+    }
+    await vi.waitFor(() => expect(postSyncMock).toHaveBeenCalledTimes(1))
+    expect(pushedAssetIds(0)).toEqual(['a1', 'a2', 'a3'])
+    await vi.waitFor(() => expect(useSyncStatus.getState().uploads).toBeNull())
   })
 
   it('keeps the record pending when the upload fails on the network', async () => {

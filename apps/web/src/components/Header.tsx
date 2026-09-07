@@ -17,6 +17,7 @@ import { dismissAllTooltips } from '../lib/tooltipDismiss'
 import { APP_MODE_LABELS, useStore, visibleAppModes } from '../store'
 import HelpModal from './HelpModal'
 import { LibraryIcon, SparkleIcon } from './icons'
+import LogoutDialog from './LogoutDialog'
 import ViewportTooltip from './ViewportTooltip'
 
 export default function Header() {
@@ -25,6 +26,7 @@ export default function Header() {
   const setAppMode = useStore((s) => s.setAppMode)
   const [showHelp, setShowHelp] = useState(false)
   const [loggingOut, setLoggingOut] = useState(false)
+  const [logoutOpen, setLogoutOpen] = useState(false)
   const [loginMethodsOpen, setLoginMethodsOpen] = useState(false)
   const auth = useAuth()
 
@@ -200,10 +202,7 @@ export default function Header() {
             <PrivateWebHeaderAccountActions
               username={auth.user?.username ?? null}
               loggingOut={loggingOut}
-              onLogout={() => {
-                setLoggingOut(true)
-                void auth.logout()
-              }}
+              onLogout={() => setLogoutOpen(true)}
             />
             {auth.enabled && auth.user && !PrivateWebReplacesAuthActions ? (
               <div className="ml-1 flex items-center gap-2 border-l border-gray-200 pl-2 dark:border-white/[0.1]">
@@ -223,10 +222,7 @@ export default function Header() {
                 <button
                   type="button"
                   disabled={loggingOut}
-                  onClick={() => {
-                    setLoggingOut(true)
-                    void auth.logout()
-                  }}
+                  onClick={() => setLogoutOpen(true)}
                   className="rounded-lg px-2 py-1.5 text-[12px] font-medium text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-800 disabled:cursor-wait disabled:opacity-50 dark:text-gray-400 dark:hover:bg-gray-900 dark:hover:text-gray-100"
                 >
                   {loggingOut ? '退出中' : '退出'}
@@ -241,6 +237,16 @@ export default function Header() {
       </div>
       {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
       {loginMethodsOpen && <LoginMethodsPanel onClose={() => setLoginMethodsOpen(false)} />}
+      {logoutOpen && (
+        <LogoutDialog
+          onCancel={() => setLogoutOpen(false)}
+          onConfirm={(clearLocalData) => {
+            setLogoutOpen(false)
+            setLoggingOut(true)
+            void auth.logout(clearLocalData)
+          }}
+        />
+      )}
     </>
   )
 }
