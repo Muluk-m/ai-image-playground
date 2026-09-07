@@ -3,8 +3,8 @@
  * 等到真要看它、用它的那一刻才把图取回来，启动时一张都不取。
  */
 
-import { refreshImageThumbnail } from '../../store'
-import { getImage, putImage } from '../db'
+import { blobToDataUrl, refreshImageThumbnail } from '../../store'
+import { getImage, hasImage, putImage } from '../db'
 import { clearImageUnsynced, markImageUnsynced } from './pending'
 import { useSyncStatus } from './status'
 import { getAssetImage, putAssetImage } from './syncClient'
@@ -41,11 +41,10 @@ export function uploadAssetImage(imageId: string): Promise<AssetImageUpload> {
 export function ensureAssetImage(imageId: string): Promise<boolean> {
   const running = fetches.get(imageId)
   if (running) return running
-  const task = fetchQueue.then(() => fetchIfMissing(imageId))
+  const task = fetchQueue.then(() => fetchIfMissing(imageId)).finally(() => fetches.delete(imageId))
   fetchQueue = task
-  const tracked = task.finally(() => fetches.delete(imageId))
-  fetches.set(imageId, tracked)
-  return tracked
+  fetches.set(imageId, task)
+  return task
 }
 
 async function upload(imageId: string): Promise<AssetImageUpload> {
@@ -62,26 +61,26 @@ async function upload(imageId: string): Promise<AssetImageUpload> {
   } catch {
     return 'failed'
   }
-  uploaded.add(imageId)
+  noteAssetImageOnServer(imageId)
   clearImageUnsynced(imageId)
   return 'uploaded'
 }
 
 async function fetchIfMissing(imageId: string): Promise<boolean> {
   try {
-    if (await getImage(imageId)) return true
+    if (await hasImage(imageId)) return true
     if (!useSyncStatus.getState().enabled) return false
 
     const blob = await getAssetImage(imageId)
     if (!blob) return false
     await putImage({
       id: imageId,
-      dataUrl: await toDataUrl(blob),
+      dataUrl: await blobToDataUrl(blob),
       createdAt: Date.now(),
       source: 'upload',
     })
     refreshImageThumbnail(imageId)
-    uploaded.add(imageId)
+    noteAssetImageOnServer(imageId)
     return true
   } catch {
     return false
@@ -95,13 +94,4 @@ function toBlob(dataUrl: string): Blob | null {
   const bytes = new Uint8Array(binary.length)
   for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i)
   return new Blob([bytes], { type: match[1]! })
-}
-
-function toDataUrl(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(String(reader.result))
-    reader.onerror = () => reject(reader.error ?? new Error('read failed'))
-    reader.readAsDataURL(blob)
-  })
 }
