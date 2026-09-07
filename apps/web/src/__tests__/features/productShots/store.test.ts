@@ -279,6 +279,32 @@ describe('pulling a listing into a job', () => {
 
     expect(useProductShotsStore.getState().listingNotice).toContain('抓不到这条链接的图集')
     expect(useProductShotsStore.getState().listingLoading).toBe(false)
+    expect(useProductShotsStore.getState().listingStartedAt).toBeNull()
+  })
+
+  it('resets the fetch button and counts the images once they are in', async () => {
+    fetchListingImages.mockResolvedValue({
+      asin: 'B0H8YGPK5Z',
+      title: '折叠浴缸',
+      images: ['https://img/1.jpg', 'https://img/2.jpg'],
+    })
+    let scanned!: (sceneType: string) => void
+    requestSceneScan.mockReturnValue(
+      new Promise<string>((resolve) => {
+        scanned = resolve
+      }),
+    )
+    useProductShotsStore.getState().setListingUrl('https://www.amazon.com/dp/B0H8YGPK5Z')
+
+    const pulling = useProductShotsStore.getState().fetchListing()
+    await vi.waitFor(() => expect(requestSceneScan).toHaveBeenCalled())
+
+    expect(useProductShotsStore.getState().listingLoading).toBe(false)
+    expect(useProductShotsStore.getState().listingStartedAt).toBeNull()
+    expect(useStore.getState().showToast).toHaveBeenCalledWith('已拉入 2 张', 'success')
+
+    scanned('photo')
+    await pulling
   })
 })
 
