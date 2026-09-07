@@ -1,11 +1,12 @@
 import { IDBFactory, IDBObjectStore } from 'fake-indexeddb'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { STORE_PERSIST_KEY } from '../../lib/authScope'
+import { STORE_PERSIST_KEY, SYNC_CHECKPOINT_KEY } from '../../lib/authScope'
 import { BASE_DB_NAME, DB_STORE_NAMES, type DbStoreName, openNamedDb } from '../../lib/db'
 
 const USER_ID = 'u1'
 const USER_DB = `${BASE_DB_NAME}:user-${USER_ID}`
 const SCOPED_PERSIST_KEY = `${STORE_PERSIST_KEY}:user-${USER_ID}`
+const SCOPED_CHECKPOINT_KEY = `${SYNC_CHECKPOINT_KEY}:user-${USER_ID}`
 const ADOPTION_DONE_KEY = `${BASE_DB_NAME}:adopted`
 
 type Seed = Partial<Record<DbStoreName, Array<Record<string, unknown>>>>
@@ -98,13 +99,37 @@ function failEveryAddWith(name: string): void {
   })
 }
 
-/** 每个用例重新加载模块：认领按启动一次做记忆化，scope 也是模块级状态。 */
-async function adopt(userId: string | null): Promise<number> {
+/** 每个用例重新加载模块：认领按启动一次做记忆化，scope 与能力清单也是模块级状态。 */
+async function adopt(userId: string | null, sync = false): Promise<number> {
   vi.resetModules()
   const { setClientStorageScope } = await import('../../lib/authScope')
-  const { adoptAnonymousStorage } = await import('../../lib/storageAdoption')
+  const { bootstrapClientCapabilities } = await import('../../lib/clientCapabilities')
   setClientStorageScope(userId)
+  if (sync) {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        Response.json({
+          'accounts:login': true,
+          'accounts:self-register': false,
+          'accounts:sync': true,
+          'billing:credits': false,
+          'generation:byok': true,
+          'generation:video': false,
+          'quota:daily': false,
+          'remix:analyze': false,
+          'remix:listing': false,
+        }),
+      ),
+    )
+    await bootstrapClientCapabilities(true, 'https://bff.example.com')
+  }
+  const { adoptAnonymousStorage } = await import('../../lib/storageAdoption')
   return adoptAnonymousStorage()
+}
+
+function checkpoint(): { templates: string[]; assets: string[]; settingsUpdatedAt: number | null } {
+  return JSON.parse(storage.get(SCOPED_CHECKPOINT_KEY) ?? '{}')
 }
 
 let storage: Map<string, string>
@@ -344,5 +369,48 @@ describe('adopting anonymous storage after login', () => {
     expect(storage.get(STORE_PERSIST_KEY)).toBe('{"settings":"anonymous"}')
     expect(storage.has(ADOPTION_DONE_KEY)).toBe(false)
     expect(logged).toHaveBeenCalled()
+  })
+
+  it('marks what it adopted dirty so the push queue carries it up', async () => {
+    await seed(BASE_DB_NAME, {
+      tasks: [{ id: 't1' }],
+      templates: [
+        { id: 'tpl1', name: '主图', updatedAt: 1 },
+        { id: 'tpl2', name: '详情页', updatedAt: 1 },
+      ],
+      assets: [
+        { id: 'a1', name: '白底图', imageId: 'i1', updatedAt: 1 },
+        { id: 'a2', updatedAt: 2, deletedAt: 2 },
+      ],
+    })
+    storage.set(STORE_PERSIST_KEY, '{"settings":"anonymous"}')
+
+    await adopt(USER_ID, true)
+
+    expect(checkpoint().templates.sort()).toEqual(['tpl1', 'tpl2'])
+    expect(checkpoint().assets.sort()).toEqual(['a1', 'a2'])
+    expect(checkpoint().settingsUpdatedAt).toEqual(expect.any(Number))
+  })
+
+  it('leaves the settings alone when the user already had their own', async () => {
+    await seed(BASE_DB_NAME, { tasks: [{ id: 't1' }] })
+    storage.set(STORE_PERSIST_KEY, '{"settings":"anonymous"}')
+    storage.set(SCOPED_PERSIST_KEY, '{"settings":"mine"}')
+
+    await adopt(USER_ID, true)
+
+    expect(checkpoint().settingsUpdatedAt ?? null).toBeNull()
+  })
+
+  it('writes no sync state at all when accounts:sync is off', async () => {
+    await seed(BASE_DB_NAME, {
+      tasks: [{ id: 't1' }],
+      templates: [{ id: 'tpl1', name: '主图', updatedAt: 1 }],
+    })
+    storage.set(STORE_PERSIST_KEY, '{"settings":"anonymous"}')
+
+    await adopt(USER_ID)
+
+    expect(storage.has(SCOPED_CHECKPOINT_KEY)).toBe(false)
   })
 })

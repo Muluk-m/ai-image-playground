@@ -1,5 +1,11 @@
-import { SCOPED_LOCAL_STORAGE_KEYS, safeLocalStorage, scopedStorageName } from './authScope'
+import {
+  SCOPED_LOCAL_STORAGE_KEYS,
+  STORE_PERSIST_KEY,
+  safeLocalStorage,
+  scopedStorageName,
+} from './authScope'
 import { BASE_DB_NAME, DB_STORE_NAMES, type DbStoreName, openNamedDb } from './db'
+import { markAdoptedDirty } from './sync/pending'
 
 /** 认领完成的标记，跨 scope 共用。不支持 indexedDB.databases() 的浏览器靠它避免每次启动重扫。 */
 const ADOPTION_DONE_KEY = `${BASE_DB_NAME}:adopted`
@@ -41,13 +47,22 @@ async function runAdoption(): Promise<number> {
   const source = await openNamedDb(BASE_DB_NAME)
   let target: IDBDatabase | null = null
   let adoptedTasks = 0
+  let adoptedTemplates: string[] = []
+  let adoptedAssets: string[] = []
   try {
     target = await openNamedDb(scopedDbName)
     for (const storeName of DB_STORE_NAMES) {
       const copied = await copyStore(source, target, storeName)
-      if (storeName === 'tasks') adoptedTasks = copied
+      if (storeName === 'tasks') adoptedTasks = copied.length
+      if (storeName === 'templates') adoptedTemplates = copied
+      if (storeName === 'assets') adoptedAssets = copied
     }
-    adoptLocalStorage()
+    // 领养来的东西走同一条推送队列；标脏必须排在 localStorage 搬完之后，检查点本身也是搬的对象。
+    markAdoptedDirty({
+      templates: adoptedTemplates,
+      assets: adoptedAssets,
+      settings: adoptLocalStorage(),
+    })
   } finally {
     target?.close()
     source.close()
@@ -76,19 +91,21 @@ async function copyStore(
   source: IDBDatabase,
   target: IDBDatabase,
   storeName: DbStoreName,
-): Promise<number> {
+): Promise<string[]> {
   const sourceKeys = await getAllKeys(source, storeName)
-  if (sourceKeys.length === 0) return 0
+  if (sourceKeys.length === 0) return []
 
   // 先按 key 排掉重复，免得把目标已有的图片（整张 data URL）白读一遍进内存。
   const existing = new Set((await getAllKeys(target, storeName)).map(String))
   const missing = sourceKeys.filter((key) => !existing.has(String(key)))
 
   const batchSize = BATCH_SIZE[storeName]
-  let copied = 0
+  const copied: string[] = []
   for (let index = 0; index < missing.length; index += batchSize) {
     const batch = missing.slice(index, index + batchSize)
-    copied += await addRecords(target, storeName, await readRecords(source, storeName, batch))
+    copied.push(
+      ...(await addRecords(target, storeName, await readRecords(source, storeName, batch))),
+    )
   }
   return copied
 }
@@ -123,13 +140,13 @@ function readRecords(db: IDBDatabase, storeName: string, keys: IDBValidKey[]): P
   })
 }
 
-function addRecords(db: IDBDatabase, storeName: string, records: unknown[]): Promise<number> {
+function addRecords(db: IDBDatabase, storeName: string, records: unknown[]): Promise<string[]> {
   return runTransaction(db, storeName, 'readwrite', (store) => {
-    let written = 0
+    const written: string[] = []
     for (const record of records) {
       const request = store.add(record)
       request.onsuccess = () => {
-        written += 1
+        written.push(String((record as { id: unknown }).id))
       }
       request.onerror = (event) => {
         // 目标已有同 id：跳过而不是让整个事务连带回滚。其余错误（配额耗尽等）
@@ -143,15 +160,18 @@ function addRecords(db: IDBDatabase, storeName: string, records: unknown[]): Pro
   })
 }
 
-/** 已登录用户自己的设置永远优先，只补目标 scope 还没有的 key。 */
-function adoptLocalStorage(): void {
+/** 已登录用户自己的设置永远优先，只补目标 scope 还没有的 key。返回用户设置有没有被领养。 */
+function adoptLocalStorage(): boolean {
+  let settingsAdopted = false
   for (const key of SCOPED_LOCAL_STORAGE_KEYS) {
     const anonymous = safeLocalStorage.getItem(key)
     if (anonymous === null) continue
     const scopedKey = scopedStorageName(key)
     if (safeLocalStorage.getItem(scopedKey) !== null) continue
     safeLocalStorage.setItem(scopedKey, anonymous)
+    if (key === STORE_PERSIST_KEY) settingsAdopted = true
   }
+  return settingsAdopted
 }
 
 function deleteAnonymousDb(): Promise<boolean> {

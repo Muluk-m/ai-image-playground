@@ -3,6 +3,7 @@
  * 用户 scope 下，重启后仍在，所以断网期间的改动不会丢。
  */
 import { SYNC_CHECKPOINT_KEY, safeLocalStorage, scopedStorageName } from '../authScope'
+import { isClientCapabilityEnabled } from '../clientCapabilities'
 import { useSyncStatus } from './status'
 
 export type SyncCollection = 'templates' | 'assets'
@@ -59,6 +60,30 @@ export function markRecordDirty(collection: SyncCollection, record: DirtyRecord)
     writePendingChanges({ ...checkpoint, [collection]: [...checkpoint[collection], record.id] })
   }
   notify(`${collection}:${record.id}`, record)
+}
+
+/**
+ * 匿名库领养来的模板、素材与用户设置一次性标脏。领养跑在引擎启动之前，没有监听者可通知，
+ * 所以直接落检查点；能力关闭时一个字节都不写。
+ */
+export function markAdoptedDirty(adopted: {
+  templates: readonly string[]
+  assets: readonly string[]
+  settings: boolean
+}): void {
+  if (!isClientCapabilityEnabled('accounts:sync')) return
+  if (adopted.templates.length === 0 && adopted.assets.length === 0 && !adopted.settings) return
+  const checkpoint = readPendingChanges()
+  writePendingChanges({
+    ...checkpoint,
+    templates: union(checkpoint.templates, adopted.templates),
+    assets: union(checkpoint.assets, adopted.assets),
+    settingsUpdatedAt: adopted.settings ? Date.now() : checkpoint.settingsUpdatedAt,
+  })
+}
+
+function union(current: readonly string[], added: readonly string[]): string[] {
+  return [...new Set([...current, ...added])]
 }
 
 /** 推不上去也不再重试的记录（图片本体被服务端拒了）从待推集合里摘掉。 */
