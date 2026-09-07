@@ -11,14 +11,13 @@ import SettingsModal from './components/SettingsModal'
 import TaskGrid from './components/TaskGrid'
 import Toast from './components/Toast'
 import UpdateBanner from './components/UpdateBanner'
-import BgSwapMode from './features/bgswap/components/BgSwapMode'
 import CanvasMode from './features/canvas/components/CanvasMode'
 import InspirationPanel from './features/inspiration/components/InspirationPanel'
 import { initHashRoute } from './features/inspiration/lib/hashRoute'
 import LibraryPanel from './features/library/components/LibraryPanel'
 import SaveAssetDialog from './features/library/components/SaveAssetDialog'
 import SaveTemplateDialog from './features/library/components/SaveTemplateDialog'
-import RemixMode from './features/remix/components/RemixMode'
+import ProductShotsMode from './features/productShots/components/ProductShotsMode'
 import { isByokGenerationEnabled } from './lib/clientCapabilities'
 import {
   buildSettingsFromUrlParams,
@@ -73,10 +72,8 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
       <Header />
       {appMode === 'create' ? (
         <CanvasMode />
-      ) : appMode === 'remix' ? (
-        <RemixMode />
-      ) : appMode === 'bgswap' ? (
-        <BgSwapMode />
+      ) : appMode === 'product' ? (
+        <ProductShotsMode />
       ) : (
         <>
           <main data-home-main data-drag-select-surface className="pb-48">

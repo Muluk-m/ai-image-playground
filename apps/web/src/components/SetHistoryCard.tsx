@@ -3,7 +3,7 @@ import type { TaskRecord } from '../types'
 
 const PREVIEW_LIMIT = 4
 
-/** 历史里一组同源任务折起来的卡：复刻套与换背景任务共用。 */
+/** 历史里一组同源任务折起来的卡。 */
 export default function SetHistoryCard({
   name,
   kindLabel,
