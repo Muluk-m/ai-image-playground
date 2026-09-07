@@ -3,6 +3,7 @@ import {
   SYNC_MAX_CHANGES_PER_COLLECTION,
   SYNC_NAME_MAX_LENGTH,
   SYNC_PROMPT_MAX_LENGTH,
+  SYNC_SETTINGS_MAX_BYTES,
   SYNC_TEMPLATE_ASSET_IDS_MAX,
 } from '@image-playground/shared'
 import { Elysia, t } from 'elysia'
@@ -71,14 +72,19 @@ export const syncRoutes = new Elysia()
   })
   .use(resolveAuthUser)
   // 能力关闭时连身份都不该泄露，所以 404 排在 401 前面。
-  .onBeforeHandle(({ authUser, status }) => {
+  .onBeforeHandle(() => {
     if (!isCapabilityEnabled('accounts:sync')) return capabilityUnavailable('accounts:sync')
-    if (!authUser) return status(401, { error: 'unauthorized' })
   })
   .post(
     '/api/sync',
     async ({ authUser, body, status }) => {
       if (!authUser) return status(401, { error: 'unauthorized' })
+      if (
+        body.settings &&
+        Buffer.byteLength(JSON.stringify(body.settings.document)) > SYNC_SETTINGS_MAX_BYTES
+      ) {
+        return status(400, { error: 'invalid_request', message: 'settings document too large' })
+      }
       return synchronize(authUser.id, body)
     },
     { body: syncBodySchema },

@@ -1,7 +1,11 @@
 import { afterAll, beforeEach, describe, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
-import type { SyncRequestBody, SyncResponseBody } from '@image-playground/shared'
+import {
+  SYNC_SETTINGS_MAX_BYTES,
+  type SyncRequestBody,
+  type SyncResponseBody,
+} from '@image-playground/shared'
 import { eq } from 'drizzle-orm'
 
 const TEST_DB = await resetTestDatabase('bff_sync_routes')
@@ -234,6 +238,12 @@ describe('POST /api/sync', () => {
       }),
     )
     expect(incomplete.status).toBe(400)
+
+    const oversized = await sync(deviceA, {
+      version: 0,
+      settings: { updatedAt: 1_000, document: { blob: 'x'.repeat(SYNC_SETTINGS_MAX_BYTES) } },
+    })
+    expect(oversized.status).toBe(400)
   })
 
   it('drops every synced record when the user is deleted', async () => {
