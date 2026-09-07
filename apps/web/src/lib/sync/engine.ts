@@ -7,7 +7,7 @@ import type {
   SyncResponseBody,
   SyncTemplateChange,
 } from '@image-playground/shared'
-import { SYNC_MAX_CHANGES_PER_COLLECTION } from '@image-playground/shared'
+import { isSyncTombstone, SYNC_MAX_CHANGES_PER_COLLECTION } from '@image-playground/shared'
 import { assetStore } from '../../features/library/lib/assetStore'
 import { templateStore } from '../../features/library/lib/templateStore'
 import { useLibraryStore } from '../../features/library/store'
@@ -190,19 +190,25 @@ function collect<T extends { id: string }>(
 async function withImagesUploaded(
   changes: Array<AssetRecord | Tombstone>,
 ): Promise<Array<AssetRecord | Tombstone>> {
-  const outcomes = await Promise.all(
-    changes.map((change) =>
-      'imageId' in change ? uploadAssetImage(change.imageId) : Promise.resolve('uploaded' as const),
-    ),
-  )
-  const refused = changes.filter((_, index) => outcomes[index] === 'refused').map((row) => row.id)
+  const ready: Array<AssetRecord | Tombstone> = []
+  const refused: string[] = []
+  // 逐张传，不并发：首次登录那一批素材会把几百张图一起推出去。
+  for (const change of changes) {
+    if (isSyncTombstone(change)) {
+      ready.push(change)
+      continue
+    }
+    const outcome = await uploadAssetImage(change.imageId)
+    if (outcome === 'uploaded') ready.push(change)
+    if (outcome === 'refused') refused.push(change.id)
+  }
   if (refused.length > 0) dropPendingRecords('assets', refused)
-  return changes.filter((_, index) => outcomes[index] === 'uploaded')
+  return ready
 }
 
 async function applyResponse(response: SyncResponseBody): Promise<void> {
   for (const change of response.assets) {
-    if ('imageId' in change) noteAssetImageOnServer(change.imageId)
+    if (!isSyncTombstone(change)) noteAssetImageOnServer(change.imageId)
   }
   await Promise.all([
     templateStore.applyRemote(response.templates as Array<TemplateRecord | Tombstone>),

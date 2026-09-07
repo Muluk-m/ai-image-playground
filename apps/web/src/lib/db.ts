@@ -176,6 +176,13 @@ export async function getImageThumbnail(id: string): Promise<StoredImageThumbnai
   return thumbnail
 }
 
+/** 只问在不在，不把整张图读出来。 */
+export function hasImage(id: string): Promise<boolean> {
+  return dbTransaction<IDBValidKey | undefined>(STORE_IMAGES, 'readonly', (s) => s.getKey(id)).then(
+    Boolean,
+  )
+}
+
 export function getAllImages(): Promise<StoredImage[]> {
   return dbTransaction(STORE_IMAGES, 'readonly', (s) => s.getAll())
 }

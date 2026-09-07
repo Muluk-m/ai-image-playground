@@ -28,10 +28,8 @@ function assetImageUrl(imageId: string): string {
   return `${bffBaseUrl()}/api/sync/assets/${encodeURIComponent(imageId)}`
 }
 
-/** 服务端收下了这张图，还是永远不会收（配额、类型）——后者重试没有意义。 */
-export type AssetImageUpload = 'uploaded' | 'refused'
-
-export async function putAssetImage(imageId: string, blob: Blob): Promise<AssetImageUpload> {
+/** `refused` = 服务端永远不会收这张图（配额、类型），重试没有意义。 */
+export async function putAssetImage(imageId: string, blob: Blob): Promise<'uploaded' | 'refused'> {
   const response = await authenticatedBffFetch(assetImageUrl(imageId), {
     method: 'PUT',
     headers: { 'content-type': blob.type },
