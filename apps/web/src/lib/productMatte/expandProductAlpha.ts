@@ -21,6 +21,13 @@ export interface ExpandProductAlphaOptions {
   minElongation?: number
 }
 
+const NEIGHBOURS = [
+  [1, 0],
+  [-1, 0],
+  [0, 1],
+  [0, -1],
+] as const
+
 interface PixelRect {
   left: number
   top: number
@@ -76,12 +83,7 @@ function attachmentPixels(
         if (py < minY) minY = py
         if (py > maxY) maxY = py
 
-        for (const [dx, dy] of [
-          [1, 0],
-          [-1, 0],
-          [0, 1],
-          [0, -1],
-        ]) {
+        for (const [dx, dy] of NEIGHBOURS) {
           const nx = px + dx
           const ny = py + dy
           if (nx < rect.left || nx > rect.right || ny < rect.top || ny > rect.bottom) continue
@@ -99,7 +101,8 @@ function attachmentPixels(
       const boxWidth = maxX - minX + 1
       const boxHeight = maxY - minY + 1
       const elongation = Math.max(boxWidth, boxHeight) / Math.min(boxWidth, boxHeight)
-      if (touchesProduct && elongation >= minElongation) merged.push(...region)
+      // 区域可能有几万个像素，展开成实参会爆栈。
+      if (touchesProduct && elongation >= minElongation) for (const i of region) merged.push(i)
     }
   }
   return merged
