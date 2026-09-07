@@ -1,7 +1,12 @@
-import type { BgSceneType, ProductBox } from '@image-playground/shared'
+import type { BgSceneType, ProductBox, PromptLanguage, ShotType } from '@image-playground/shared'
 import type { ProductAsset } from '../../lib/productAngle'
 import type { MatteBackendId, SegmentFailureReason } from '../../lib/productMatte'
-import type { RemixBrief, RemixLevel, RemixProductDescription } from '../../lib/shotTypes'
+import type {
+  RemixBrief,
+  RemixLevel,
+  RemixProductDescription,
+  RemixShotCopy,
+} from '../../lib/shotTypes'
 import type { ProductShotAction } from './lib/actions'
 
 /** 旧任务记录里的两组分段，只用来把老记录读成一个动作。 */
@@ -42,6 +47,12 @@ export interface ProductShotVersion {
   level?: RemixLevel
   /** 借创意重做那一版的简报，重跑与「查看方案」拿它；其余动作没有。 */
   brief?: RemixBrief
+  /** 简报判出的镜型，抽屉里重算提示词要它；只有借创意重做有。 */
+  shotType?: ShotType
+  /** 卖点图的图上文案，抽屉里可改；其余镜型没有。 */
+  copy?: RemixShotCopy
+  /** 提示词被人手改过：之后改简报字段不再覆盖它。 */
+  promptEdited?: boolean
   /** 换产品与借创意重做时用掉的那条素材；只换背景时没有。 */
   productAssetId?: string
   /** 这一版落盘时还没有这个字段的旧记录为 undefined。 */
@@ -87,6 +98,8 @@ export interface ProductShotJob {
   productAssets?: ProductAsset[]
   /** 产品说明整任务生效，借创意重做的锁产品段从这里取。 */
   product?: RemixProductDescription
+  /** 图上文案的语言，整任务生效；旧记录没有它，按中文读。 */
+  language?: PromptLanguage
   createdAt: number
   updatedAt: number
 }
