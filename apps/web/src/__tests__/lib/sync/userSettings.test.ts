@@ -160,6 +160,12 @@ describe('applying a document from another device', () => {
     expect(useStore.getState().settings.activeProfileId).toBe('byok-1')
   })
 
+  it('ignores a mode this deployment does not offer', () => {
+    applyUserSettingsDocument({ ...readUserSettingsDocument(), appMode: 'video' })
+
+    expect(useStore.getState().appMode).toBe('browse')
+  })
+
   it('ignores a document that is not an object', () => {
     applyUserSettingsDocument(null)
     applyUserSettingsDocument('nonsense')
