@@ -203,11 +203,7 @@ function UserDetailContent({
         </CardContent>
       </Card>
 
-      <div className="grid gap-4 xl:grid-cols-[340px_minmax(0,1fr)]">
-        <div className="min-w-0">
-          <PrivateAdminUserDetailPanel userId={user.id} username={user.username} />
-        </div>
-
+      <PrivateAdminUserDetailPanel userId={user.id} username={user.username}>
         <Card className="min-w-0">
           <CardHeader className="flex-row flex-wrap items-center justify-between gap-3 space-y-0 p-4">
             <CardTitle className="text-sm">
@@ -247,7 +243,7 @@ function UserDetailContent({
             )}
           </CardContent>
         </Card>
-      </div>
+      </PrivateAdminUserDetailPanel>
     </>
   )
 }
