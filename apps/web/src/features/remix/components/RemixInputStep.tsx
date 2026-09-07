@@ -10,13 +10,15 @@ import {
   OUTLINE_BUTTON,
   PRIMARY_BUTTON,
 } from '../../../components/panelStyles'
-import AssetThumb from '../../library/components/AssetThumb'
-import { useLibraryStore } from '../../library/store'
-import { selectNeedsFrontAsset, useRemixStore } from '../store'
 import {
   PRODUCT_ANGLE_LABELS,
   PRODUCT_ANGLES,
   type ProductAngle,
+} from '../../../lib/productAngle'
+import AssetThumb from '../../library/components/AssetThumb'
+import { useLibraryStore } from '../../library/store'
+import { selectNeedsFrontAsset, useRemixStore } from '../store'
+import {
   REMIX_LANGUAGE_LABELS,
   REMIX_LANGUAGES,
   REMIX_LEVEL_LABELS,
