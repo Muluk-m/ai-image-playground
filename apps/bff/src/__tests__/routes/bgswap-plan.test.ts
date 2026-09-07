@@ -24,6 +24,7 @@ const PIXEL =
 
 const PLAN = {
   category: '独立式浴缸',
+  camera: '略高于缸沿的 3/4 侧视，标准镜头',
   sceneType: 'photo',
   productBox: { x: 0.2, y: 0.3, w: 0.5, h: 0.4 },
   plan: '暖白微水泥墙面，浅橡木地板，左侧柔和窗光，一株散尾葵与一条亚麻毛巾。',
@@ -234,6 +235,42 @@ describe('POST /api/bgswap/plan', () => {
 
     const badLanguage = await plan({ image: PIXEL, language: 'fr' })
     expect(badLanguage.status).toBe(400)
+  })
+
+  it('keeps the camera sentence so the client can pick a matching asset angle', async () => {
+    setVisionFetchForTesting(visionFetchReturning(chatCompletion(JSON.stringify(PLAN))))
+
+    const { json } = await plan({ image: PIXEL })
+
+    expect(json).toMatchObject({ camera: PLAN.camera })
+  })
+
+  it('still answers when the model leaves the camera sentence out', async () => {
+    const { camera: _camera, ...noCamera } = PLAN
+    setVisionFetchForTesting(visionFetchReturning(chatCompletion(JSON.stringify(noCamera))))
+
+    const { status, json } = await plan({ image: PIXEL })
+
+    expect(status).toBe(200)
+    expect(json).toMatchObject({ camera: '' })
+  })
+
+  it('returns the prompt of the mode the client asked for', async () => {
+    for (const mode of ['replace-product', 'replace-and-background'] as const) {
+      setVisionFetchForTesting(visionFetchReturning(chatCompletion(JSON.stringify(PLAN))))
+
+      const { status, json } = await plan({ image: PIXEL, mode })
+
+      expect(status).toBe(200)
+      expect(json).toEqual({
+        ...PLAN,
+        prompt: buildBackgroundPrompt({ plan: PLAN.plan, sceneType: 'photo', mode }),
+      })
+    }
+  })
+
+  it('rejects a mode outside the three', async () => {
+    expect((await plan({ image: PIXEL, mode: 'erase-product' })).status).toBe(400)
   })
 })
 

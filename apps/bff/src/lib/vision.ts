@@ -87,6 +87,7 @@ ${SCENE_TYPE_KEY}`
 const PLAN_INSTRUCTIONS = `You look at one product photo and decide which real environment the product belongs in once its background is replaced. The product itself will not change.
 Answer with a single JSON object and nothing else. Keys:
 "category": the product category, a few words
+"camera": one sentence on the angle and height the product is shot from
 ${SCENE_TYPE_KEY}
 "productBox": {"x","y","w","h"} normalised to 0-1 for the product's bounding box, or null when no product is visible
 "plan": ONE sentence describing a real environment that suits this category, naming the wall, the floor, the light and one or two props`
