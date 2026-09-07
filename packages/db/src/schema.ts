@@ -106,6 +106,78 @@ export const operator_audits = pgTable(
   ],
 )
 
+/**
+ * 同步记录的通用列。删除以墓碑传播：`deleted_at` 非空的行内容列全为空，客户端读路径按它过滤。
+ * `version` 是落库那一刻的每用户版本号，拉取即「取版本号大于客户端持有值的行」。
+ */
+const syncRecordColumns = {
+  user_id: text('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  id: text('id').notNull(),
+  updated_at: epochMs('updated_at').notNull(),
+  last_used_at: epochMs('last_used_at'),
+  deleted_at: epochMs('deleted_at'),
+  version: integer('version').notNull(),
+}
+
+export const user_templates = pgTable(
+  'user_templates',
+  {
+    ...syncRecordColumns,
+    name: text('name'),
+    prompt: text('prompt'),
+    asset_ids: bunJsonb('asset_ids').$type<Array<string | null>>(),
+    params: bunJsonb('params').$type<Record<string, unknown>>(),
+    created_at: epochMs('created_at'),
+  },
+  (t) => [
+    primaryKey({ columns: [t.user_id, t.id] }),
+    index('idx_user_templates_user_version').on(t.user_id, t.version),
+    check(
+      'user_templates_live_payload_check',
+      sql`${t.deleted_at} IS NOT NULL OR (${t.name} IS NOT NULL AND ${t.prompt} IS NOT NULL AND ${t.created_at} IS NOT NULL)`,
+    ),
+  ],
+)
+
+export const user_assets = pgTable(
+  'user_assets',
+  {
+    ...syncRecordColumns,
+    name: text('name'),
+    /** 图片本体的内容哈希，同时是对象键 `users/<user_id>/assets/<image_id>` 的末段。 */
+    image_id: text('image_id'),
+    created_at: epochMs('created_at'),
+  },
+  (t) => [
+    primaryKey({ columns: [t.user_id, t.id] }),
+    index('idx_user_assets_user_version').on(t.user_id, t.version),
+    check(
+      'user_assets_live_payload_check',
+      sql`${t.deleted_at} IS NOT NULL OR (${t.name} IS NOT NULL AND ${t.image_id} IS NOT NULL AND ${t.created_at} IS NOT NULL)`,
+    ),
+  ],
+)
+
+/** 用户设置整份存取，不做字段级合并。 */
+export const user_preferences = pgTable('user_preferences', {
+  user_id: text('user_id')
+    .primaryKey()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  document: bunJsonb('document').$type<Record<string, unknown>>().notNull(),
+  updated_at: epochMs('updated_at').notNull(),
+  version: integer('version').notNull(),
+})
+
+/** 每用户单调递增的同步版本号；推送时锁住这一行，同一用户的并发同步因此串行。 */
+export const user_sync_state = pgTable('user_sync_state', {
+  user_id: text('user_id')
+    .primaryKey()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  version: integer('version').notNull().default(0),
+})
+
 export const tasks = pgTable(
   'tasks',
   {
@@ -191,3 +263,6 @@ export type UserIdentity = typeof user_identities.$inferSelect
 export type NewUserIdentity = typeof user_identities.$inferInsert
 export type OperatorAudit = typeof operator_audits.$inferSelect
 export type NewOperatorAudit = typeof operator_audits.$inferInsert
+export type UserTemplateRow = typeof user_templates.$inferSelect
+export type UserAssetRow = typeof user_assets.$inferSelect
+export type UserPreferencesRow = typeof user_preferences.$inferSelect

@@ -25,7 +25,7 @@ describe('runMigrations', () => {
     const rows = await connection.client.unsafe(
       'SELECT id, hash, created_at FROM drizzle.__drizzle_migrations ORDER BY id',
     )
-    expect(rows).toHaveLength(8)
+    expect(rows).toHaveLength(9)
     expect(rows[0]).toMatchObject({ id: 1 })
     expect(rows[1]).toMatchObject({ id: 2 })
     expect(rows[2]).toMatchObject({ id: 3 })
@@ -34,6 +34,7 @@ describe('runMigrations', () => {
     expect(rows[5]).toMatchObject({ id: 6 })
     expect(rows[6]).toMatchObject({ id: 7 })
     expect(rows[7]).toMatchObject({ id: 8 })
+    expect(rows[8]).toMatchObject({ id: 9 })
   })
 
   it('creates PostgreSQL-native JSONB and timestamptz columns', async () => {
@@ -84,12 +85,13 @@ describe('runMigrations', () => {
     const rows = await connection.client.unsafe(
       'SELECT id FROM drizzle.__drizzle_migrations ORDER BY id',
     )
-    expect(rows).toHaveLength(8)
+    expect(rows).toHaveLength(9)
   })
 
   it('applies every rollback in reverse order and can migrate forward again', async () => {
     const rollbackDirectory = new URL('../../drizzle/rollback/', import.meta.url)
     for (const file of [
+      '0008_clean_fantastic_four.down.sql',
       '0007_shocking_gertrude_yorkes.down.sql',
       '0006_romantic_hiroim.down.sql',
       '0005_left_annihilus.down.sql',
@@ -106,20 +108,22 @@ describe('runMigrations', () => {
       {
         tasks: string | null
         audits: string | null
+        templates: string | null
         migrations: string | null
       }[]
     >`
       SELECT
         to_regclass('public.tasks')::text AS tasks,
         to_regclass('public.operator_audits')::text AS audits,
+        to_regclass('public.user_templates')::text AS templates,
         to_regclass('drizzle.__drizzle_migrations')::text AS migrations
     `
-    expect(rolledBack).toEqual({ tasks: null, audits: null, migrations: null })
+    expect(rolledBack).toEqual({ tasks: null, audits: null, templates: null, migrations: null })
 
     await runMigrations(databaseUrl)
     const restored = await connection.client.unsafe(
       'SELECT id FROM drizzle.__drizzle_migrations ORDER BY id',
     )
-    expect(restored).toHaveLength(8)
+    expect(restored).toHaveLength(9)
   })
 })
