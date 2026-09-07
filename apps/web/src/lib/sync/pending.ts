@@ -24,13 +24,16 @@ const EMPTY: SyncCheckpoint = {
   lastSyncedAt: null,
 }
 
-let notify: (() => void) | null = null
+/** 一次本机改动的标识：记录是 `<集合>:<id>`，用户设置是 `settings`。 */
+export type PendingKey = string
+
+let notify: ((key: PendingKey) => void) | null = null
 
 /**
  * 引擎跑起来才开始标脏：能力关闭或匿名的部署里，本机写入一个字节都不该落到同步状态上。
  * 返回停止函数。
  */
-export function trackLocalChanges(listener: () => void): () => void {
+export function trackLocalChanges(listener: (key: PendingKey) => void): () => void {
   notify = listener
   return () => {
     if (notify === listener) notify = null
@@ -43,13 +46,13 @@ export function markRecordDirty(collection: SyncCollection, id: string): void {
   if (!checkpoint[collection].includes(id)) {
     writePendingChanges({ ...checkpoint, [collection]: [...checkpoint[collection], id] })
   }
-  notify()
+  notify(`${collection}:${id}`)
 }
 
 export function markSettingsDirty(updatedAt: number): void {
   if (!notify) return
   writePendingChanges({ ...readPendingChanges(), settingsUpdatedAt: updatedAt })
-  notify()
+  notify('settings')
 }
 
 export function readPendingChanges(): SyncCheckpoint {
