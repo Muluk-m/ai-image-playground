@@ -14,10 +14,14 @@ import { useLibraryStore } from '../../features/library/store'
 import type { AssetRecord, TemplateRecord, Tombstone } from '../../features/library/types'
 import { useStore } from '../../store'
 import { isClientCapabilityEnabled } from '../clientCapabilities'
+import { forgetUploadedAssetImages, uploadAssetImage } from './assetImages'
 import {
+  type DirtyRecord,
+  dropPendingRecords,
   markSettingsDirty,
   type PendingKey,
   pendingCount,
+  publishCheckpoint,
   readPendingChanges,
   type SyncCheckpoint,
   type SyncCollection,
@@ -43,7 +47,8 @@ export function startSyncEngine(): () => void {
   if (!isClientCapabilityEnabled('accounts:sync')) return () => {}
 
   settingsSnapshot = JSON.stringify(readUserSettingsDocument())
-  publish(readPendingChanges())
+  forgetUploadedAssetImages()
+  publishCheckpoint()
   useSyncStatus.setState({ enabled: true })
 
   const stopTracking = trackLocalChanges(onLocalChange)
@@ -95,9 +100,10 @@ function filledOneRequest(request: SyncRequestBody): boolean {
   )
 }
 
-function onLocalChange(key: PendingKey): void {
+function onLocalChange(key: PendingKey, record?: DirtyRecord): void {
   changedInFlight?.add(key)
-  publish(readPendingChanges())
+  // 素材图不等元数据的 debounce：建素材那一刻就开始传，记录才追得上它。
+  if (record?.imageId) void uploadAssetImage(record.imageId)
   schedulePush()
 }
 
@@ -155,7 +161,7 @@ async function buildRequest(checkpoint: SyncCheckpoint): Promise<SyncRequestBody
   return {
     version: checkpoint.version,
     templates: collect(templates, checkpoint.templates).map(toWire),
-    assets: collect(assets, checkpoint.assets),
+    assets: await withImagesUploaded(collect(assets, checkpoint.assets)),
     settings:
       checkpoint.settingsUpdatedAt === null
         ? null
@@ -175,6 +181,23 @@ function collect<T extends { id: string }>(
 ): Array<T | Tombstone> {
   const wanted = new Set(pendingIds)
   return rows.filter((row) => wanted.has(row.id)).slice(0, SYNC_MAX_CHANGES_PER_COLLECTION)
+}
+
+/**
+ * 先图后记录：服务端只收图片本体已经在它那边的素材记录。图还没传上去的这一轮不推，
+ * 留在待推集合里等下一轮；服务端明确不收的（配额、类型）摘出待推集合，改标「未同步」。
+ */
+async function withImagesUploaded(
+  changes: Array<AssetRecord | Tombstone>,
+): Promise<Array<AssetRecord | Tombstone>> {
+  const outcomes = await Promise.all(
+    changes.map((change) =>
+      'imageId' in change ? uploadAssetImage(change.imageId) : Promise.resolve('uploaded' as const),
+    ),
+  )
+  const refused = changes.filter((_, index) => outcomes[index] === 'refused').map((row) => row.id)
+  if (refused.length > 0) dropPendingRecords('assets', refused)
+  return changes.filter((_, index) => outcomes[index] === 'uploaded')
 }
 
 async function applyResponse(response: SyncResponseBody): Promise<void> {
@@ -215,14 +238,7 @@ function settle(request: SyncRequestBody, response: SyncResponseBody): void {
     settingsUpdatedAt:
       request.settings && !changedInFlight?.has('settings') ? null : current.settingsUpdatedAt,
     lastSyncedAt: Date.now(),
+    unsyncedImages: current.unsyncedImages,
   }
   writePendingChanges(next)
-  publish(next)
-}
-
-function publish(checkpoint: SyncCheckpoint): void {
-  useSyncStatus.setState({
-    pending: pendingCount(checkpoint),
-    lastSyncedAt: checkpoint.lastSyncedAt,
-  })
 }

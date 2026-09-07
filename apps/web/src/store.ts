@@ -257,6 +257,11 @@ export function subscribeImageThumbnail(
   }
 }
 
+/** 惰性取回素材图之后：把缩略图补出来，推给正在等它的卡片。 */
+export function refreshImageThumbnail(id: string) {
+  scheduleThumbnailBackfill([id], 'visible')
+}
+
 function notifyImageThumbnail(
   id: string,
   thumbnail: { dataUrl: string; width?: number; height?: number },

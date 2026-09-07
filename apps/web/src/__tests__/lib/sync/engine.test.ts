@@ -216,6 +216,7 @@ describe('pushing local changes', () => {
       assets: [],
       settingsUpdatedAt: null,
       lastSyncedAt: null,
+      unsyncedImages: [],
     })
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
 
