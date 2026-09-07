@@ -34,34 +34,23 @@ function modeButton(label: string): HTMLButtonElement {
 }
 
 describe('the mode switch', () => {
-  it('offers the workbench, the canvas, the remix and the background swap mode', () => {
+  it('offers the workbench, the canvas and the product shots mode', () => {
     act(() => root.render(<Header />))
 
     expect(modeButton('工作台').getAttribute('aria-pressed')).toBe('true')
     expect(modeButton('创作')).toBeTruthy()
-    expect(modeButton('复刻套图')).toBeTruthy()
-    expect(modeButton('换背景')).toBeTruthy()
+    expect(modeButton('商品图')).toBeTruthy()
+    expect([...document.querySelectorAll('button[aria-pressed]')]).toHaveLength(3)
   })
 
-  it('switches to the remix mode when it is picked', () => {
+  it('switches to the product shots mode when it is picked', () => {
     act(() => root.render(<Header />))
 
     act(() => {
-      modeButton('复刻套图').dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      modeButton('商品图').dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
-    expect(useStore.getState().appMode).toBe('remix')
-    expect(modeButton('复刻套图').getAttribute('aria-pressed')).toBe('true')
-  })
-
-  it('switches to the background swap mode when it is picked', () => {
-    act(() => root.render(<Header />))
-
-    act(() => {
-      modeButton('换背景').dispatchEvent(new MouseEvent('click', { bubbles: true }))
-    })
-
-    expect(useStore.getState().appMode).toBe('bgswap')
-    expect(modeButton('换背景').getAttribute('aria-pressed')).toBe('true')
+    expect(useStore.getState().appMode).toBe('product')
+    expect(modeButton('商品图').getAttribute('aria-pressed')).toBe('true')
   })
 })
