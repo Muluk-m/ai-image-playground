@@ -160,6 +160,7 @@ export default function Header() {
               </button>
               {syncPending ? (
                 <span
+                  role="img"
                   aria-label="有未同步项"
                   className="pointer-events-none absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-amber-500"
                 />
