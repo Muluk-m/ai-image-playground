@@ -34,6 +34,7 @@ export function parseSort(value: unknown): SortKey {
 
 export interface AdminSession {
   readonly accounts_login: boolean
+  readonly accounts_sync: boolean
   readonly ok: true
 }
 

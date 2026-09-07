@@ -77,5 +77,6 @@ export const authRoutes = new Elysia()
   })
   .get('/api/me', () => ({
     accounts_login: getAdminCapabilities().accountsLogin,
+    accounts_sync: getAdminCapabilities().accountsSync,
     ok: true as const,
   }))
