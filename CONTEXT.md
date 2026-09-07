@@ -114,41 +114,36 @@ createdAt, lastUsedAt }`，存在主 IndexedDB 的 `templates` 表里。`prompt`
 remap 引用——素材已删的位降级为「已移除」，套用仍然成功。
 _Avoid_: 预设、快捷短语、prompt 片段
 
-## 复刻套图（remix，已下线）
+## 商品图（product shots）
 
-向导界面与套记录已下线（#132），`remix_sets` 表保留不读；提示词段、简报类型与导出预设留在
-`apps/web/src/lib/`。下面两条词条随之作废，正式改写见 #135。
+复刻套图向导已下线（#132），「套」与「镜头」不再是概念；`remix_sets` 表保留不读，下一次升版时删。
+提示词段与简报类型留在 `apps/web/src/lib/`，导出预设留在 `packages/shared/`。
 
-**套（set）**：
-一组竞品来源图加一组标好角度的产品素材，连同平台 / 文案语言 / 差异化档位与产品描述（名称、外形特征、
-主色、禁止色），作为一个整体产出的一组图。来源是竞品链接或上传的竞品图，复刻它们的创意。记录
-`{ id, name, source, productAssets, settings, shots, createdAt, updatedAt }` 存在主 IndexedDB 的
-`remix_sets` 表里，跟随 scope 隔离与匿名库领养。
-_Avoid_: 批次、任务组、套图任务
+**商品图任务（product shot job）**：
+一组原图，连同任务级的产品素材、一句偏好与每张要出几版，作为一个整体跑完。原图来自上传、竞品
+链接或素材库；任务名来自链接标题，没有就是「商品图 N」。记录 `{ id, name, images, preference,
+versionsPerImage, mode, productAssets, createdAt, updatedAt }` 存在主 IndexedDB 的 `bgswap_jobs`
+表里（表名是历史，不是概念），跟随 scope 隔离与匿名库领养；每张图记
+`{ imageId, sourceUrl?, sceneType?, versions, chosenVersionId? }`。
+_Avoid_: 套、批次、换背景任务、任务组
 
-**镜头（shot）**：
-套里的一张图，由一张来源图派生：一份可编辑的画面简报、由简报派生的提示词、一张产品底图，以及
-生成后回写的任务 id。一图一镜，底图按机位选同角度的素材。尺寸图、参数表这类只占位不生图。
-镜头不存状态，状态一律从任务记录派生。
-_Avoid_: 分镜、图位、slot
+**动作（action）**：
+右栏点的那一下要做什么：`background`（原图产品，只换背景）、`replace-product`（换成素材里的产品，
+背景像素不动）、`replace-and-background`（两样都换）。动作决定遮罩朝哪一侧重绘（换产品时蒙版反过来，
+产品区重绘、背景保留）、提交带几张参考图（换产品时是 [原图, 按机位匹配的素材图]），以及 BFF 用哪一段
+提示词模板。产品素材整任务生效，最近一次动作记在任务上供批量沿用。
+_Avoid_: 模式、bgswap mode、镜头类型
 
-## 换背景（bgswap）
+**版本（version）**：
+一次动作的产出，记 `{ id, taskId, plan, prompt, productBox, masked, mode, productAssetId, matte,
+mattePreviewImageId, createdAt }`。一张原图的多版都留着，用户选一版定稿；重跑照本版的动作走。版本
+不存进度，进度一律从任务记录派生——历史折叠卡上的动作标签也是把任务内各版本的动作去重来的。
+_Avoid_: 镜头、结果、出图记录
 
-**换背景任务（bgswap job）**：
-一组用户自己的现成商品图，连同一句偏好与每张要出几版，作为一个整体跑完。产品像素不动，只重绘
-背景，品类与环境由 AI 自己判断，没有风格库可选。记录 `{ id, name, images, preference,
-versionsPerImage, createdAt, updatedAt }` 存在主 IndexedDB 的 `bgswap_jobs` 表里，跟随 scope
-隔离与匿名库领养；每张图记 `{ imageId, sourceUrl?, versions, chosenVersionId? }`，一张原图的多次
-产出都留着，用户选一版定稿。
-_Avoid_: 批量换背景套、背景风格、镜头
-
-**换背景模式（bgswap mode）**：
-一次生成要动画面的哪一部分，由右栏点的那个动作直接定：`background`（原图产品，
-只换背景）、`replace-product`（换成素材里的产品，背景像素不动）、`replace-and-background`（两样都
-换）。模式决定遮罩朝哪一侧重绘（换产品时蒙版反过来，产品区重绘、背景保留）、提交带几张参考图
-（换产品时是 [原图, 按机位匹配的素材图]），以及 BFF 用哪一段提示词模板。产品素材整任务生效，
-最近一次动作记在任务上供批量沿用；版本记下自己跑的模式与用掉的 `productAssetId`，重跑照旧模式走。
-_Avoid_: 换图模式、product mode、模式枚举当版本
+**导出（export）**：
+平台预设（`amazon` / `alibaba` / `pinduoduo` / `site` 的尺寸）与裁切 / 留白只在总览的导出面板出现，
+流程里不选平台。范围默认「选用版」，一版都没选时导出全部。
+_Avoid_: 平台档位、尺寸设置、导出预设当任务设置
 
 **画面类型（scene type）**：
 一张原图是 `photo`（产品实拍）、`infographic`（示意图）、`callout`（带标注的特写）还是

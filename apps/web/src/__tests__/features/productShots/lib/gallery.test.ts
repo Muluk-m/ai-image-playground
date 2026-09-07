@@ -1,3 +1,4 @@
+import { EXPORT_PRESETS, findExportPreset } from '@image-playground/shared'
 import { describe, expect, it } from 'vitest'
 import {
   exportBlockedReason,
@@ -145,5 +146,19 @@ describe('picking the export scope for the user', () => {
     expect(exportBlockedReason('all', false, 3)).toBe(null)
     expect(exportBlockedReason('chosen', false, 0)).toBe('未选用版本')
     expect(exportBlockedReason('all', true, 0)).toBe('暂无成图')
+  })
+})
+
+describe('the platform export presets', () => {
+  it('covers the four store platforms', () => {
+    expect(EXPORT_PRESETS.map((preset) => preset.id)).toEqual([
+      'amazon',
+      'alibaba',
+      'pinduoduo',
+      'site',
+    ])
+    expect(findExportPreset('amazon')).toMatchObject({ width: 2000, height: 2000 })
+    expect(findExportPreset('pinduoduo')).toMatchObject({ width: 750, height: 1000 })
+    expect(findExportPreset('nowhere')).toBeNull()
   })
 })

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import InspirationEmptyHero from '../features/inspiration/components/InspirationEmptyHero'
+import { jobActionLabels } from '../features/productShots/lib/actions'
 import { useProductShotsStore } from '../features/productShots/store'
 import { groupTasksBySet } from '../lib/setHistory'
 import { editOutputImage, removeTask, reuseConfig, sendTaskToCanvas, useStore } from '../store'
@@ -338,7 +339,7 @@ export default function TaskGrid() {
             <SetHistoryCard
               key={`set-${item.setId}`}
               name={job?.name ?? '商品图任务'}
-              kindLabel="商品图"
+              actions={jobActionLabels(job)}
               tasks={item.tasks}
               expanded={expanded}
               onToggle={() =>
