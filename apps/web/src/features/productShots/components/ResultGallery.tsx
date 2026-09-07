@@ -57,6 +57,7 @@ function VersionCard({
   const showToast = useStore((s) => s.showToast)
   const matteOverlayVersionId = useProductShotsStore((s) => s.matteOverlayVersionId)
   const toggleMatteOverlay = useProductShotsStore((s) => s.toggleMatteOverlay)
+  const openPlanDrawer = useProductShotsStore((s) => s.openPlanDrawer)
   const [first] = item.outputImageIds
   const label = `原图 ${item.imageIndex + 1} 第 ${item.versionIndex + 1} 版`
   const matte = item.version.mattePreviewImageId
@@ -95,8 +96,20 @@ function VersionCard({
             未抠图
           </span>
         )}
+        {item.version.promptEdited && (
+          <span className="rounded bg-amber-500/10 px-1 text-amber-700 dark:text-amber-300">
+            手改
+          </span>
+        )}
       </span>
-      <div className="flex gap-0.5">
+      <div className="flex flex-wrap gap-0.5">
+        <button
+          type="button"
+          onClick={() => openPlanDrawer(item.version.id)}
+          className={GHOST_BUTTON}
+        >
+          查看方案
+        </button>
         {matte && (
           <button
             type="button"

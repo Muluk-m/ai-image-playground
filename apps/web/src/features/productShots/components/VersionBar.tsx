@@ -28,7 +28,7 @@ export default function VersionBar() {
   const tasks = useStore((s) => s.tasks)
   const tasksById = useMemo(() => new Map(tasks.map((task) => [task.id, task])), [tasks])
 
-  const { previewVersion, chooseVersion, retryVersion, toggleMatteOverlay } =
+  const { previewVersion, chooseVersion, retryVersion, toggleMatteOverlay, openPlanDrawer } =
     useProductShotsStore.getState()
   const versions = selected?.versions ?? []
 
@@ -84,6 +84,11 @@ export default function VersionBar() {
                     <span className="rounded bg-violet-500/10 px-1.5 py-0.5 text-violet-700 dark:text-violet-300">
                       {actionLabel(version.mode, version.level)}
                     </span>
+                    {version.promptEdited && (
+                      <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-amber-700 dark:text-amber-300">
+                        手改
+                      </span>
+                    )}
                     {chosen && (
                       <span className="rounded bg-blue-500/10 px-1.5 py-0.5 text-blue-700 dark:text-blue-300">
                         已选
@@ -100,6 +105,13 @@ export default function VersionBar() {
                 {progress.error && <p className={`mt-1.5 ${NOTICE}`}>{progress.error}</p>}
 
                 <div className="mt-1.5 flex gap-1">
+                  <button
+                    type="button"
+                    onClick={() => openPlanDrawer(version.id)}
+                    className={ACTION}
+                  >
+                    查看方案
+                  </button>
                   {version.mattePreviewImageId && (
                     <button
                       type="button"
