@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   bgSwapMode,
+  changesBackground,
   maskSideFor,
   swapsProduct,
 } from '../../../../features/bgswap/lib/mode'
@@ -28,6 +29,15 @@ describe('which side of the mask gets repainted', () => {
 
   it('asks for no mask at all when the whole picture is redrawn', () => {
     expect(maskSideFor('replace-and-background')).toBeNull()
+  })
+})
+
+describe('whether the background plan sentence applies to a version', () => {
+  it('drops it only for the mode that leaves the background alone', () => {
+    expect(changesBackground('replace-product')).toBe(false)
+    expect(changesBackground('background')).toBe(true)
+    expect(changesBackground('replace-and-background')).toBe(true)
+    expect(changesBackground(undefined)).toBe(true)
   })
 })
 

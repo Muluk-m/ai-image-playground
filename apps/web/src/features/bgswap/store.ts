@@ -543,14 +543,17 @@ async function prepareImage(
   if (!reuse) stage('plan')
   const dataUrl = await loadOriginal(imageId)
   const planned =
-    reuse ??
-    (await requestBackgroundPlan({ image: dataUrl, preference: draft.preference, mode }))
+    reuse ?? (await requestBackgroundPlan({ image: dataUrl, preference: draft.preference, mode }))
   const productBox = planned.productBox ?? null
 
   const product =
     mode === 'background'
       ? null
-      : await loadProductAsset(draft, 'camera' in planned ? planned.camera : '', reuse?.productAssetId)
+      : await loadProductAsset(
+          draft,
+          'camera' in planned ? planned.camera : '',
+          reuse?.productAssetId,
+        )
 
   const side = maskSideFor(mode)
   if (side) stage('matte')

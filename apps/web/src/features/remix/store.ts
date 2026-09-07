@@ -1,6 +1,7 @@
 import type { CompetitorBrief, ProductContext } from '@image-playground/shared'
 import { create } from 'zustand'
 import { isClientCapabilityEnabled } from '../../lib/clientCapabilities'
+import { eraseProductArea } from '../../lib/eraseProduct'
 import { fetchListingImages, listingImageProxyUrl } from '../../lib/listingClient'
 import type { ProductAngle, ProductAsset } from '../../lib/productAngle'
 import {
@@ -13,7 +14,6 @@ import {
 import type { InputImage } from '../../types'
 import { useLibraryStore } from '../library/store'
 import { analyzeCompetitorImages } from './lib/analyzeClient'
-import { eraseProductArea } from '../../lib/eraseProduct'
 import { productContextDescription } from './lib/prompt'
 import { remixSetStore } from './lib/remixSetStore'
 import {
@@ -26,12 +26,7 @@ import {
   regenerateShotPrompt,
   type ShotContext,
 } from './lib/shots'
-import type {
-  RemixProductDescription,
-  RemixSetRecord,
-  RemixSetSettings,
-  RemixShot,
-} from './types'
+import type { RemixProductDescription, RemixSetRecord, RemixSetSettings, RemixShot } from './types'
 
 export type RemixStep = 1 | 2 | 3
 

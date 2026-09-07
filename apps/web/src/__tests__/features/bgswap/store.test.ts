@@ -123,10 +123,7 @@ beforeEach(() => {
   modelSupportsNativeMask.mockReturnValue(true)
   storeImage.mockResolvedValue('mask-1')
   useLibraryStore.setState({
-    assets: [
-      asset('a-front', '正面白底', 'asset-front'),
-      asset('a-side', '侧面', 'asset-side'),
-    ],
+    assets: [asset('a-front', '正面白底', 'asset-front'), asset('a-side', '侧面', 'asset-side')],
   })
 })
 
@@ -740,7 +737,10 @@ describe('swapping the product and the background at once', () => {
   }
 
   it('redraws the whole picture: no mask, the erased original as framing', async () => {
-    requestBackgroundPlan.mockResolvedValue({ ...PLAN, productBox: { x: 0.1, y: 0.2, w: 0.3, h: 0.4 } })
+    requestBackgroundPlan.mockResolvedValue({
+      ...PLAN,
+      productBox: { x: 0.1, y: 0.2, w: 0.3, h: 0.4 },
+    })
     const imageId = await jobWithBoth()
 
     await useBgSwapStore.getState().swapBackground()
