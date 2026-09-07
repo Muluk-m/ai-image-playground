@@ -18,7 +18,7 @@ const GENERIC_PRODUCT_NAME = '本产品'
 /** 默认走「不像」：借创意重做的用处是借竞品的档次，不是复制它的画面。 */
 export const DEFAULT_REMIX_LEVEL: RemixLevel = 'high'
 
-const COLOR_SEPARATORS = /[、,，;；\s]+/
+const LIST_SEPARATORS = /[、,，;；\s]+/
 
 export function emptyProductDescription(): RemixProductDescription {
   return { name: '', features: '', mainColor: '', forbiddenColors: [] }
@@ -94,10 +94,10 @@ export function remixProductDescription(
   }
 }
 
-export function parseColorList(text: string): string[] {
-  return text.split(COLOR_SEPARATORS).filter(Boolean)
+export function parseTextList(text: string): string[] {
+  return text.split(LIST_SEPARATORS).filter(Boolean)
 }
 
-export function formatColorList(colors: readonly string[]): string {
-  return colors.join('、')
+export function formatTextList(items: readonly string[]): string {
+  return items.join('、')
 }

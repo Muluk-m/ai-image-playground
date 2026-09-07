@@ -10,10 +10,11 @@ import {
 } from '../../../components/panelStyles'
 import Segmented from '../../../components/Segmented'
 import { actionLabel, PROMPT_LANGUAGE_LABELS } from '../lib/actions'
-import { formatColorList, parseColorList } from '../lib/remixPlan'
+import { formatTextList, parseTextList } from '../lib/remixPlan'
 import type { VersionPlanPatch } from '../lib/versionPlan'
 import { useProductShotsStore } from '../store'
 import type { ProductShotVersion } from '../types'
+import TextField from './TextField'
 
 const BADGE = 'rounded px-1.5 py-0.5 text-xs'
 const NO_BOX = '方案没框出产品'
@@ -137,41 +138,45 @@ function RemixBriefFields({ version, onEdit }: FieldsProps) {
 
   return (
     <div className="grid gap-3 sm:grid-cols-2">
-      <Field
+      <TextField
         label="构图"
         value={brief.composition}
         onChange={(composition) => onEdit({ brief: { composition } })}
       />
-      <Field
+      <TextField
         label="机位"
         value={brief.camera}
         onChange={(camera) => onEdit({ brief: { camera } })}
       />
-      <Field
+      <TextField
         label="光线"
         value={brief.lighting}
         onChange={(lighting) => onEdit({ brief: { lighting } })}
       />
-      <Field
+      <TextField
         label="背景"
         value={brief.background}
         onChange={(background) => onEdit({ brief: { background } })}
       />
-      <Field
-        // 受控会把刚敲下的分隔符吃掉（解析后又格式化回去），所以列表格不受控，换版本时重挂。
+      <TextField
+        // 不受控，所以换版本时要靠 key 重挂。
         key={`props-${version.id}`}
         label="道具"
-        defaultValue={formatColorList(brief.props)}
-        onChange={(text) => onEdit({ brief: { props: parseColorList(text) } })}
+        defaultValue={formatTextList(brief.props)}
+        onChange={(text) => onEdit({ brief: { props: parseTextList(text) } })}
       />
-      <Field
+      <TextField
         key={`palette-${version.id}`}
         label="配色"
-        defaultValue={formatColorList(brief.palette)}
-        onChange={(text) => onEdit({ brief: { palette: parseColorList(text) } })}
+        defaultValue={formatTextList(brief.palette)}
+        onChange={(text) => onEdit({ brief: { palette: parseTextList(text) } })}
       />
-      <Field label="标题" value={copy.title} onChange={(title) => onEdit({ copy: { title } })} />
-      <Field
+      <TextField
+        label="标题"
+        value={copy.title}
+        onChange={(title) => onEdit({ copy: { title } })}
+      />
+      <TextField
         label="副标题"
         value={copy.subtitle}
         onChange={(subtitle) => onEdit({ copy: { subtitle } })}
@@ -181,7 +186,7 @@ function RemixBriefFields({ version, onEdit }: FieldsProps) {
 }
 
 function SwapPlanFields({ version, onEdit }: FieldsProps) {
-  const box = version.productBox ?? null
+  const box = version.productBox
 
   return (
     <div className="flex flex-col gap-3">
@@ -220,28 +225,5 @@ function SwapPlanFields({ version, onEdit }: FieldsProps) {
         )}
       </div>
     </div>
-  )
-}
-
-interface FieldProps {
-  label: string
-  value?: string
-  defaultValue?: string
-  onChange: (value: string) => void
-}
-
-function Field({ label, value, defaultValue, onChange }: FieldProps) {
-  return (
-    <label className="block">
-      <span className={LABEL}>{label}</span>
-      <input
-        type="text"
-        aria-label={label}
-        value={value}
-        defaultValue={defaultValue}
-        onChange={(e) => onChange(e.target.value)}
-        className={`mt-1 ${FIELD}`}
-      />
-    </label>
   )
 }

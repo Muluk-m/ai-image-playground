@@ -1,12 +1,13 @@
 import { useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { CARD, FIELD, LABEL, OUTLINE_BUTTON } from '../../../components/panelStyles'
+import { CARD, OUTLINE_BUTTON } from '../../../components/panelStyles'
 import { PRODUCT_ANGLE_LABELS } from '../../../lib/productAngle'
 import AssetThumb from '../../library/components/AssetThumb'
 import { useLibraryStore } from '../../library/store'
-import { formatColorList, parseColorList } from '../lib/remixPlan'
+import { formatTextList, parseTextList } from '../lib/remixPlan'
 import { useProductShotsStore } from '../store'
 import ProductPicker from './ProductPicker'
+import TextField from './TextField'
 
 const NO_MAIN_COLOR = '未填主色，颜色可能漂'
 
@@ -63,64 +64,37 @@ export default function ProductBar() {
 
       {describing && (
         <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <Field
+          <TextField
             label="产品名"
             value={product.name}
             placeholder="默认用素材名"
             onChange={(name) => setProductDescription({ name })}
           />
-          <Field
+          <TextField
             label="外形特征"
             value={product.features}
             placeholder="例：蛋形单边斜背"
             onChange={(features) => setProductDescription({ features })}
           />
-          <Field
+          <TextField
             label="主色"
             value={product.mainColor}
             placeholder="例：哑光灰棕"
             notice={product.mainColor.trim() ? undefined : NO_MAIN_COLOR}
             onChange={(mainColor) => setProductDescription({ mainColor })}
           />
-          <Field
-            // 受控会把刚敲下的分隔符吃掉（解析后又格式化回去），所以这一格不受控，换任务时重挂。
+          <TextField
+            // 不受控，所以换任务时要靠 key 重挂。
             key={jobId ?? 'new'}
             label="禁止色"
-            defaultValue={formatColorList(product.forbiddenColors)}
+            defaultValue={formatTextList(product.forbiddenColors)}
             placeholder="例：米白、浅灰"
-            onChange={(text) => setProductDescription({ forbiddenColors: parseColorList(text) })}
+            onChange={(text) => setProductDescription({ forbiddenColors: parseTextList(text) })}
           />
         </div>
       )}
 
       {pickerOpen && <ProductPicker />}
     </section>
-  )
-}
-
-interface FieldProps {
-  label: string
-  value?: string
-  defaultValue?: string
-  placeholder: string
-  notice?: string
-  onChange: (value: string) => void
-}
-
-function Field({ label, value, defaultValue, placeholder, notice, onChange }: FieldProps) {
-  return (
-    <label className="block">
-      <span className={LABEL}>{label}</span>
-      <input
-        type="text"
-        aria-label={label}
-        value={value}
-        defaultValue={defaultValue}
-        placeholder={placeholder}
-        onChange={(e) => onChange(e.target.value)}
-        className={`mt-1 ${FIELD}`}
-      />
-      {notice && <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">{notice}</p>}
-    </label>
   )
 }
