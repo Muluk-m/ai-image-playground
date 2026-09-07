@@ -1,13 +1,11 @@
 import { describe, expect, it } from 'bun:test'
 import { buildBackgroundPrompt } from '@image-playground/shared'
+import { HARD_CODED_PARTS } from '../hardCodedParts'
 
 const PLAN_ZH = '暖白微水泥墙面，浅橡木地板，左侧柔和窗光，一株散尾葵与一条亚麻毛巾。'
 const PLAN_EN = 'Warm microcement wall, pale oak floor, soft window light from the left, one palm.'
 const INVENTORY_ZH = ['浴缸', '落地龙头']
 const INVENTORY_EN = ['the bathtub', 'the floor-standing tap']
-const HARD_CODED_PARTS = new RegExp(
-  ['龙头', '排水', '把手', '底座', 'faucet', 'drain', 'handles', 'feet'].join('|'),
-)
 
 describe('buildBackgroundPrompt', () => {
   it('runs the untouched section, the plan, the realism and the quality clause in order (zh)', () => {

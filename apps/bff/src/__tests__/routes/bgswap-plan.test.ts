@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, mock } from 'bun:test'
 import { resolve } from 'node:path'
 import { Elysia } from 'elysia'
+import { HARD_CODED_PARTS } from '../hardCodedParts'
 
 process.env.PORT = '0'
 process.env.DATABASE_URL = 'postgres://unused/unused'
@@ -318,6 +319,37 @@ describe('POST /api/bgswap/plan', () => {
     const sent = calls[0]!.prompt
     expect(sent).toContain('"inventory"')
     expect(sent.indexOf('"inventory"')).toBeLessThan(sent.indexOf('"plan"'))
+  })
+
+  it('makes the inventory a matter of function, not of touching the product', async () => {
+    const calls: VisionCall[] = []
+    setVisionFetchForTesting(recordingVisionFetch(calls))
+
+    await plan({ image: PIXEL })
+
+    expect(calls[0]!.prompt).toMatch(/functionally belongs/)
+    expect(calls[0]!.prompt).toMatch(/whether or not it touches/)
+  })
+
+  it('asks for props that lift on their own and duplicate nothing on the inventory', async () => {
+    const calls: VisionCall[] = []
+    setVisionFetchForTesting(recordingVisionFetch(calls))
+
+    await plan({ image: PIXEL })
+
+    const sent = calls[0]!.prompt
+    expect(sent).toMatch(/liftable on its own/)
+    expect(sent).toMatch(/must not appear in "inventory"/)
+    expect(sent).toMatch(/must not repeat the function/)
+  })
+
+  it('names no part type of its own, so the inventory stays the model answer', async () => {
+    const calls: VisionCall[] = []
+    setVisionFetchForTesting(recordingVisionFetch(calls))
+
+    await plan({ image: PIXEL })
+
+    expect(calls[0]!.prompt).not.toMatch(HARD_CODED_PARTS)
   })
 
   it('tells the model that a must-keep in the preference joins the inventory', async () => {
