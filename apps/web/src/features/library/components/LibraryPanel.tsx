@@ -1,7 +1,10 @@
 import { useRef } from 'react'
 import { useShallow } from 'zustand/react/shallow'
+import DropOverlay from '../../../components/DropOverlay'
 import { CloseIcon, LibraryIcon } from '../../../components/icons'
 import Overlay from '../../../components/Overlay'
+import { useImageDropZone } from '../../../hooks/useImageDropZone'
+import { usePasteImageFiles } from '../../../hooks/usePasteImageFiles'
 import {
   type LibraryTab,
   selectVisibleAssets,
@@ -32,6 +35,9 @@ export default function LibraryPanel() {
   const templateCount = useLibraryStore((s) => s.templates.length)
   const importAssetFiles = useLibraryStore((s) => s.importAssetFiles)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const saveAssets = (files: File[]) => void importAssetFiles(files)
+  const { dragging, dropZoneProps } = useImageDropZone(saveAssets)
+  usePasteImageFiles('library', saveAssets)
 
   if (!panelOpen) return null
 
@@ -135,9 +141,19 @@ export default function LibraryPanel() {
           )}
         </div>
 
-        <div className="custom-scrollbar min-h-0 flex-1 overflow-y-auto p-5">
-          {tab === 'templates' ? renderTemplates() : renderAssets()}
-        </div>
+        {tab === 'templates' ? (
+          <div className="custom-scrollbar min-h-0 flex-1 overflow-y-auto p-5">
+            {renderTemplates()}
+          </div>
+        ) : (
+          // 落点包在滚动容器外面，高亮层才盖住看得见的那一屏，而不是随内容滚走。
+          <div {...dropZoneProps} className="relative flex min-h-0 flex-1 flex-col">
+            <div className="custom-scrollbar min-h-0 flex-1 overflow-y-auto p-5">
+              {renderAssets()}
+            </div>
+            {dragging && <DropOverlay label="松开即存为素材" />}
+          </div>
+        )}
       </div>
 
       <TemplateDetail />

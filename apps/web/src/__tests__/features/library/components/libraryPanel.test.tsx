@@ -127,7 +127,8 @@ describe('the empty asset tab', () => {
   it('shows how an asset is made, with an illustration', () => {
     render()
 
-    expect(document.body.textContent).toContain('右键参考图缩略图，选择存为素材')
+    expect(document.body.textContent).toContain('拖入或粘贴图片，或右键参考图缩略图存为素材')
+    expect(document.body.textContent).toContain('手机上长按缩略图')
     expect(document.querySelector('[data-empty-illustration]')).not.toBeNull()
   })
 
@@ -162,5 +163,89 @@ describe('the empty template tab', () => {
     render()
 
     expect(document.body.textContent).toContain('写好提示词后点存为模板，输入 / 调用')
+  })
+})
+
+describe('dropping and pasting images into the asset tab', () => {
+  const png = () => new File(['x'], '白底图.png', { type: 'image/png' })
+  const pdf = () => new File(['x'], '说明.pdf', { type: 'application/pdf' })
+
+  let importAssetFiles = vi.fn().mockResolvedValue(undefined)
+
+  beforeEach(() => {
+    importAssetFiles = vi.fn().mockResolvedValue(undefined)
+    useStore.setState({ appMode: 'browse' })
+    useLibraryStore.setState({ importAssetFiles })
+  })
+
+  function dropZone(): HTMLElement {
+    const element = document.querySelector<HTMLElement>('[data-image-dropzone]')
+    if (!element) throw new Error('no drop zone')
+    return element
+  }
+
+  function fireDrag(target: Element, type: string, files: File[]) {
+    const event = new Event(type, { bubbles: true, cancelable: true })
+    Object.defineProperty(event, 'dataTransfer', {
+      value: {
+        files,
+        types: ['Files'],
+        items: files.map((file) => ({ kind: 'file', type: file.type, getAsFile: () => file })),
+      },
+    })
+    act(() => {
+      target.dispatchEvent(event)
+    })
+  }
+
+  function firePaste(files: File[]) {
+    const event = new Event('paste', { bubbles: true, cancelable: true })
+    Object.defineProperty(event, 'clipboardData', {
+      value: {
+        files,
+        items: files.map((file) => ({ kind: 'file', type: file.type, getAsFile: () => file })),
+      },
+    })
+    act(() => {
+      document.dispatchEvent(event)
+    })
+  }
+
+  it('marks the asset area as a drop target while a file hovers it', () => {
+    render()
+
+    fireDrag(dropZone(), 'dragenter', [png()])
+    expect(dropZone().textContent).toContain('松开即存为素材')
+
+    fireDrag(dropZone(), 'dragleave', [png()])
+    expect(dropZone().textContent).not.toContain('松开即存为素材')
+  })
+
+  it('saves every dropped image and refuses the rest', () => {
+    render()
+
+    fireDrag(dropZone(), 'dragenter', [png(), pdf()])
+    fireDrag(dropZone(), 'drop', [png(), pdf()])
+
+    expect(importAssetFiles.mock.calls[0][0]).toHaveLength(1)
+    expect(useStore.getState().showToast).toHaveBeenCalledWith('只支持图片文件', 'error')
+  })
+
+  it('saves a pasted image while the panel is open', () => {
+    render()
+
+    firePaste([png()])
+
+    expect(importAssetFiles).toHaveBeenCalledTimes(1)
+  })
+
+  it('leaves the clipboard alone on the templates tab', () => {
+    useLibraryStore.setState({ tab: 'templates' })
+    render()
+
+    firePaste([png()])
+
+    expect(importAssetFiles).not.toHaveBeenCalled()
+    expect(document.querySelector('[data-image-dropzone]')).toBeNull()
   })
 })
