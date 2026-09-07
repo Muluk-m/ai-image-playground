@@ -11,6 +11,7 @@
   "capabilities": {
     "billing:credits": false,
     "generation:byok": false,
+    "generation:video": false,
     "operator:console": false,
     "quota:daily": false,
     "remix:analyze": false,
