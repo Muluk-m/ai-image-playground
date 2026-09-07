@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { AuthContextProvider } from '../../auth/AuthContext'
 import Header from '../../components/Header'
 import { useStore } from '../../store'
 
@@ -26,6 +27,32 @@ afterEach(() => {
   host.remove()
   document.body.innerHTML = ''
 })
+
+function renderLoggedIn(logout: (clearLocalData: boolean) => Promise<void>): void {
+  act(() =>
+    root.render(
+      <AuthContextProvider
+        value={{
+          enabled: true,
+          user: { id: 'u1', username: '小马' },
+          logout,
+        }}
+      >
+        <Header />
+      </AuthContextProvider>,
+    ),
+  )
+}
+
+/** 浮层 portal 到 body，落在 host 之外，所以退出按钮在两处同名时靠这个分开。 */
+function click(label: string, where: 'header' | 'dialog' = 'header'): void {
+  const buttons = [...document.querySelectorAll('button')].filter(
+    (it) => it.textContent === label && host.contains(it) === (where === 'header'),
+  )
+  const button = buttons[0]
+  if (!button) throw new Error(`no ${where} button labelled ${label}`)
+  act(() => button.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+}
 
 function modeButton(label: string): HTMLButtonElement {
   const button = [...document.querySelectorAll('button')].find((b) => b.textContent === label)
@@ -52,5 +79,22 @@ describe('the mode switch', () => {
 
     expect(useStore.getState().appMode).toBe('product')
     expect(modeButton('商品图').getAttribute('aria-pressed')).toBe('true')
+  })
+})
+
+describe('logging out', () => {
+  it('asks before it goes, and passes on whether to clear the local data', () => {
+    const logout = vi.fn(async () => {})
+    renderLoggedIn(logout)
+
+    click('退出')
+    expect(logout).not.toHaveBeenCalled()
+    expect(document.body.textContent).toContain('同时清除本机数据')
+
+    const box = document.querySelector<HTMLInputElement>('input[type="checkbox"]')
+    act(() => box?.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+    click('退出', 'dialog')
+
+    expect(logout).toHaveBeenCalledWith(true)
   })
 })

@@ -4,7 +4,7 @@ import { createContext, useContext } from 'react'
 export interface AuthContextValue {
   enabled: boolean
   user: AuthUserView | null
-  logout: () => Promise<void>
+  logout: (clearLocalData: boolean) => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextValue>({
