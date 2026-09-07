@@ -23,8 +23,15 @@ export default function VersionBar() {
   const tasks = useStore((s) => s.tasks)
   const tasksById = useMemo(() => new Map(tasks.map((task) => [task.id, task])), [tasks])
 
-  const { previewVersion, chooseVersion, retryVersion, toggleMatteOverlay, openPlanDrawer } =
-    useProductShotsStore.getState()
+  const {
+    previewVersion,
+    chooseVersion,
+    retryVersion,
+    toggleMatteOverlay,
+    editVersionMask,
+    regenerateWithMask,
+    openPlanDrawer,
+  } = useProductShotsStore.getState()
   const versions = selected?.versions ?? []
 
   return (
@@ -74,6 +81,11 @@ export default function VersionBar() {
                     <span className="rounded bg-violet-500/10 px-1.5 py-0.5 text-violet-700 dark:text-violet-300">
                       {actionLabel(version.mode, version.level)}
                     </span>
+                    {version.lowResSource && (
+                      <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-amber-700 dark:text-amber-300">
+                        源图分辨率低
+                      </span>
+                    )}
                     {version.promptEdited && (
                       <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-amber-700 dark:text-amber-300">
                         手改
@@ -111,6 +123,24 @@ export default function VersionBar() {
                     >
                       看蒙版
                     </button>
+                  )}
+                  {version.maskImageId && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => void editVersionMask(version.id)}
+                        className={ACTION}
+                      >
+                        编辑蒙版
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void regenerateWithMask(version.id)}
+                        className={ACTION}
+                      >
+                        用此蒙版重生成
+                      </button>
+                    </>
                   )}
                   {progress.state === 'error' && (
                     <button

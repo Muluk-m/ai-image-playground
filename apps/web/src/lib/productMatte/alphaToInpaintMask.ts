@@ -1,3 +1,4 @@
+import { dilateBinary } from './morphology'
 import { encodeRgbaPngDataUrl } from './pngEncode'
 import type { MaskPixels, ProductAlpha } from './types'
 
@@ -60,33 +61,6 @@ function applyFeather(
   return out
 }
 
-/** 一轴膨胀：窗口里有一个产品像素，中心就算产品。 */
-function dilateAxis(
-  src: Float32Array,
-  width: number,
-  height: number,
-  radius: number,
-  horizontal: boolean,
-): Float32Array {
-  const out = new Float32Array(src.length)
-  const outer = horizontal ? height : width
-  const inner = horizontal ? width : height
-  const outerStep = horizontal ? width : 1
-  const innerStep = horizontal ? 1 : width
-  const prefix = new Float32Array(inner + 1)
-
-  for (let o = 0; o < outer; o++) {
-    const base = o * outerStep
-    for (let i = 0; i < inner; i++) prefix[i + 1] = prefix[i] + src[base + i * innerStep]
-    for (let i = 0; i < inner; i++) {
-      const lo = Math.max(0, i - radius)
-      const hi = Math.min(inner - 1, i + radius)
-      out[base + i * innerStep] = prefix[hi + 1] - prefix[lo] > 0 ? 255 : 0
-    }
-  }
-  return out
-}
-
 /** 阈值化 → 可选膨胀 → 可选羽化，两种遮罩共用；`invert` 决定哪一侧是重绘区。 */
 function maskPixels(matte: ProductAlpha, options: ProductMaskOptions, invert: boolean): MaskPixels {
   const { width, height } = matte
@@ -97,10 +71,7 @@ function maskPixels(matte: ProductAlpha, options: ProductMaskOptions, invert: bo
 
   const binary = new Float32Array(total)
   for (let i = 0; i < total; i++) binary[i] = matte.alpha[i] >= cutoff ? 255 : 0
-  const grown =
-    grow > 0
-      ? dilateAxis(dilateAxis(binary, width, height, grow, true), width, height, grow, false)
-      : binary
+  const grown = dilateBinary(binary, width, height, grow)
   const values = feather > 0 ? applyFeather(grown, width, height, feather) : grown
 
   const data = new Uint8ClampedArray(total * 4)

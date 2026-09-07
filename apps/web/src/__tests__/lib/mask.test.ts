@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   assertUsableMaskCoverage,
   classifyMaskAlpha,
+  maskPaintOperation,
   orderInputImagesForMask,
   validateMaskTarget,
 } from '../../lib/mask'
@@ -73,5 +74,18 @@ describe('assertUsableMaskCoverage', () => {
 
   it('allows full masks so the UI can confirm before submit', () => {
     expect(() => assertUsableMaskCoverage('full')).not.toThrow()
+  })
+})
+
+describe('which way the brush paints', () => {
+  it('paints the repaint area in the composer', () => {
+    expect(maskPaintOperation('brush', false)).toBe('destination-out')
+    expect(maskPaintOperation('eraser', false)).toBe('source-over')
+  })
+
+  /** 商品图的蒙版是保留区：涂龙头是把它加进保留区，不是划成重绘。 */
+  it('paints the kept area when the caller asked for keep semantics', () => {
+    expect(maskPaintOperation('brush', true)).toBe('source-over')
+    expect(maskPaintOperation('eraser', true)).toBe('destination-out')
   })
 })

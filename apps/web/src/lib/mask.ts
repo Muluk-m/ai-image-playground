@@ -16,6 +16,17 @@ export function orderInputImagesForMask(
   return [target, ...inputImages.filter((img) => img.id !== targetImageId)]
 }
 
+/**
+ * 遮罩画布上不透明 = 保留、透明 = 重绘。保留区语义（商品图改蒙版）下画笔与橡皮对调：
+ * 涂 = 加入保留区，擦 = 移出保留区。
+ */
+export function maskPaintOperation(
+  tool: 'brush' | 'eraser',
+  keepSemantics: boolean,
+): GlobalCompositeOperation {
+  return (tool === 'brush') === keepSemantics ? 'source-over' : 'destination-out'
+}
+
 export function classifyMaskAlpha(imageData: Pick<ImageData, 'data'>): MaskCoverage {
   let edited = 0
   let fullyTransparent = 0

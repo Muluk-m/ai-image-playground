@@ -78,6 +78,9 @@ export interface BackgroundPromptInput {
 
 interface Template {
   readonly lock: string
+  /** 只说「产品不变」时模型会重画龙头、抹平颗粒，所以附件与表面纹理要各自点名。 */
+  readonly keepAttachments: string
+  readonly sourceAttachments: string
   readonly surfaces: string
   readonly realism: string
   readonly preference: (value: string) => string
@@ -90,12 +93,16 @@ interface Template {
 const TEMPLATES: Record<PromptLanguage, Template> = {
   zh: {
     lock: '严格保留图中产品本身：款式、位置、大小、角度、颜色、材质、边缘厚度、阴影接地关系全部不变，不得移动或缩放产品。只替换产品以外的背景环境。',
+    keepAttachments:
+      '产品本体及其附件（龙头、排水、把手、底座等）保持原样，形状、位置、朝向、比例、颜色、材质与表面纹理（颗粒、哑光、纹路）全部不变，不得重画、不得平滑、不得改款。',
+    sourceAttachments:
+      '图2产品的本体与附件（龙头、排水、把手、底座等）要照原样画全，形状、比例、颜色、材质与表面纹理（颗粒、哑光、纹路）以图2为准，不得重画、不得平滑、不得改款。',
     surfaces:
       '原图里的墙面、半墙、台面与地面都属于背景，一并替换成新环境的对应表面，不要保留任何一块原有饰面。',
     realism:
       '背景要像真实房屋实拍而不是效果图：真实的墙面材质细节与轻微不均匀、自然的窗光与柔和阴影、轻微的镜头透视与景深、真实家居配件自然摆放、没有过度光滑的 CG 感，色调克制。',
     preference: (value) => `用户偏好：${value}。`,
-    quality: '商业产品摄影，无文字无水印。',
+    quality: '写实商业摄影，清晰锐利，细节丰富，材质纹理可见，无过度平滑，无 CG 感，无文字无水印。',
     swapInMask:
       '把图1遮罩区域内的产品替换为图2里的产品：沿用图1原有的角度、透视与画面比例，光线方向、明暗与阴影接地关系照图1，产品的颜色、材质与外形细节以图2为准。',
     keepScene:
@@ -105,12 +112,17 @@ const TEMPLATES: Record<PromptLanguage, Template> = {
   },
   en: {
     lock: 'Keep the product in the image exactly as it is: style, position, size, angle, colour, material, edge thickness and contact shadows all unchanged; never move or rescale it. Replace only the background environment around the product.',
+    keepAttachments:
+      'The product and its attachments (faucet, drain, handles, feet) stay exactly as they are: shape, position, orientation, proportion, colour, material and surface texture (speckle, matte finish, grain) all unchanged; never repaint, never smooth, never restyle them.',
+    sourceAttachments:
+      'Draw the product from image 2 with every attachment it has (faucet, drain, handles, feet): shape, proportion, colour, material and surface texture (speckle, matte finish, grain) all follow image 2; never repaint, never smooth, never restyle them.',
     surfaces:
       'The walls, half walls, counters and floor of the original photo are background as well: replace all of them with the surfaces of the new environment and keep none of the original finishes.',
     realism:
       'The background must look like a real home photographed on location, not a render: real wall texture with slight unevenness, natural window light with soft shadows, slight lens perspective and depth of field, real household props placed naturally, no over-smooth CG feel, restrained colour.',
     preference: (value) => `User preference: ${value}.`,
-    quality: 'Commercial product photography, no text, no watermark.',
+    quality:
+      'Realistic commercial photography, sharp and detailed, visible material texture, no over-smoothing, no CG look, no text, no watermark.',
     swapInMask:
       'Replace the product inside the masked area of image 1 with the product from image 2: keep the angle, perspective and scale of image 1, keep its light direction, tonality and contact shadows, and take colour, material and shape detail from image 2.',
     keepScene:
@@ -138,10 +150,10 @@ export function buildBackgroundPrompt({
   // 只换产品时背景一个像素都不动，方案句与偏好都是背景的事，带上只会诱导模型改景。
   const body =
     mode === 'replace-product'
-      ? [template.swapInMask, template.keepScene]
+      ? [template.swapInMask, template.sourceAttachments, template.keepScene]
       : mode === 'replace-and-background'
-        ? [template.swapIntoFraming, ...background, ...wish]
-        : [template.lock, ...background, ...wish]
+        ? [template.swapIntoFraming, template.sourceAttachments, ...background, ...wish]
+        : [template.lock, template.keepAttachments, ...background, ...wish]
 
   return [...body, template.quality].join('\n')
 }

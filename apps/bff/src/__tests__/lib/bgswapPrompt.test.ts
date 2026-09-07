@@ -11,10 +11,10 @@ describe('buildBackgroundPrompt', () => {
     expect(prompt).toContain('严格保留图中产品本身')
     expect(prompt).toContain(PLAN_ZH)
     expect(prompt).toContain('真实房屋实拍')
-    expect(prompt).toContain('商业产品摄影，无文字无水印')
+    expect(prompt).toContain('写实商业摄影，清晰锐利')
     expect(prompt.indexOf('严格保留图中产品本身')).toBeLessThan(prompt.indexOf(PLAN_ZH))
     expect(prompt.indexOf(PLAN_ZH)).toBeLessThan(prompt.indexOf('真实房屋实拍'))
-    expect(prompt.indexOf('真实房屋实拍')).toBeLessThan(prompt.indexOf('商业产品摄影'))
+    expect(prompt.indexOf('真实房屋实拍')).toBeLessThan(prompt.indexOf('写实商业摄影'))
   })
 
   it('omits the preference clause when the preference is empty or blank (zh)', () => {
@@ -42,7 +42,7 @@ describe('buildBackgroundPrompt', () => {
     expect(prompt).toContain('北欧风')
     expect(prompt).not.toContain('  北欧风  ')
     expect(prompt.indexOf('真实房屋实拍')).toBeLessThan(prompt.indexOf('北欧风'))
-    expect(prompt.indexOf('北欧风')).toBeLessThan(prompt.indexOf('商业产品摄影'))
+    expect(prompt.indexOf('北欧风')).toBeLessThan(prompt.indexOf('写实商业摄影'))
   })
 
   it('builds an all-English prompt for the en language', () => {
@@ -57,7 +57,7 @@ describe('buildBackgroundPrompt', () => {
     expect(prompt).toContain(PLAN_EN)
     expect(prompt).toContain('real home photographed on location')
     expect(prompt).toContain('Nordic')
-    expect(prompt).toContain('Commercial product photography, no text, no watermark')
+    expect(prompt).toContain('Realistic commercial photography, sharp and detailed')
     expect(prompt).not.toMatch(/[一-鿿]/)
   })
 
@@ -99,7 +99,7 @@ describe('buildBackgroundPrompt in replace-product mode', () => {
     expect(prompt).toContain('角度、透视与画面比例')
     expect(prompt).toContain('颜色、材质')
     expect(prompt).toContain('遮罩以外的画面一律不变')
-    expect(prompt).toContain('商业产品摄影，无文字无水印')
+    expect(prompt).toContain('写实商业摄影，清晰锐利')
   })
 
   it('drops the background plan and the realism clause: the scene stays put', () => {
@@ -163,5 +163,48 @@ describe('buildBackgroundPrompt in replace-and-background mode', () => {
     expect(prompt).toContain('Image 1 is a framing reference')
     expect(prompt).toContain(PLAN_EN)
     expect(prompt).not.toMatch(/[一-鿿]/)
+  })
+})
+
+describe('buildBackgroundPrompt product adherence', () => {
+  /** 客户实拍：龙头被重画、缸体颗粒被抹平，锁产品段必须点名附件与表面纹理。 */
+  it('names the attachments and the surface texture when the original product stays (zh)', () => {
+    const prompt = buildBackgroundPrompt({ plan: PLAN_ZH, sceneType: 'photo' })
+
+    expect(prompt).toContain('附件（龙头、排水、把手、底座等）')
+    expect(prompt).toContain('表面纹理（颗粒、哑光、纹路）')
+    expect(prompt).toContain('不得重画、不得平滑、不得改款')
+  })
+
+  it('asks for the attachments and the texture of the second image in both replace modes (zh)', () => {
+    for (const mode of ['replace-product', 'replace-and-background'] as const) {
+      const prompt = buildBackgroundPrompt({ plan: PLAN_ZH, sceneType: 'photo', mode })
+      expect(prompt).toContain('图2产品的本体与附件')
+      expect(prompt).toContain('表面纹理（颗粒、哑光、纹路）')
+      expect(prompt).toContain('不得重画、不得平滑、不得改款')
+    }
+  })
+
+  it('asks every mode for a sharp realistic photo instead of a smooth render (zh)', () => {
+    for (const mode of ['background', 'replace-product', 'replace-and-background'] as const) {
+      expect(buildBackgroundPrompt({ plan: PLAN_ZH, sceneType: 'photo', mode })).toContain(
+        '写实商业摄影，清晰锐利，细节丰富，材质纹理可见，无过度平滑，无 CG 感，无文字无水印',
+      )
+    }
+  })
+
+  it('keeps the adherence clauses English in the en templates', () => {
+    for (const mode of ['background', 'replace-product', 'replace-and-background'] as const) {
+      const prompt = buildBackgroundPrompt({
+        plan: PLAN_EN,
+        sceneType: 'photo',
+        language: 'en',
+        mode,
+      })
+      expect(prompt).toContain('surface texture')
+      expect(prompt).toContain('never repaint, never smooth, never restyle')
+      expect(prompt).toContain('Realistic commercial photography')
+      expect(prompt).not.toMatch(/[一-鿿]/)
+    }
   })
 })
