@@ -113,7 +113,7 @@ describe('editing the plan of a background swap version', () => {
   it('falls back to the generic untouched clause for a version without an inventory', () => {
     const next = editVersionPlan(swapVersion(), { plan: '放进水泥灰的极简浴室' }, CONTEXT)
 
-    expect(next.prompt).toContain('不动的部分：产品本身及所有与之相连的部件。')
+    expect(next.prompt).toContain('不动的部分：产品本身及所有功能上属于它的部件。')
   })
 
   it('rebuilds the prompt in the language of the job', () => {

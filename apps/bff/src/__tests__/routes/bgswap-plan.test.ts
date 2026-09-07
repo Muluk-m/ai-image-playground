@@ -306,7 +306,7 @@ describe('POST /api/bgswap/plan', () => {
 
     expect(status).toBe(200)
     expect(json).toMatchObject({ inventory: [] })
-    expect((json as { prompt: string }).prompt).toContain('产品本身及所有与之相连的部件')
+    expect((json as { prompt: string }).prompt).toContain('产品本身及所有功能上属于它的部件')
   })
 
   it('asks the model for the inventory before the plan sentence', async () => {

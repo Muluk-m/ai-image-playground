@@ -35,7 +35,7 @@ describe('buildBackgroundPrompt', () => {
     })
 
     expect(prompt).toContain(
-      '形状、位置、朝向、比例、颜色、材质与表面纹理（颗粒、哑光、纹路）全部不变',
+      '形状、位置、朝向、比例、颜色、材质、表面纹理（颗粒、哑光、纹路）与阴影接地关系全部不变',
     )
     expect(prompt).toContain('不得重画、不得平滑、不得改款')
     expect(prompt).toContain('不得移动或缩放')
@@ -57,9 +57,11 @@ describe('buildBackgroundPrompt', () => {
     const zh = buildBackgroundPrompt({ plan: PLAN_ZH, sceneType: 'photo' })
     const en = buildBackgroundPrompt({ plan: PLAN_EN, sceneType: 'photo', language: 'en' })
 
-    expect(zh).toContain('不动的部分：产品本身及所有与之相连的部件。')
+    expect(zh).toContain('不动的部分：产品本身及所有功能上属于它的部件。')
     expect(zh).toContain('不得新增任何与产品及其部件同类的物件。')
-    expect(en).toContain('Untouched: the product itself and every part attached to it.')
+    expect(en).toContain(
+      'Untouched: the product itself and every part that functionally belongs to it.',
+    )
     expect(en).toContain('Never add anything of the same kind as the product or any of its parts.')
   })
 
