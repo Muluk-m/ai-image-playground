@@ -2,6 +2,7 @@ import {
   type BgSceneType,
   buildBackgroundPrompt,
   DEFAULT_BG_SWAP_MODE,
+  normalizeInventory,
   type ProductBox,
   type PromptLanguage,
 } from '@image-playground/shared'
@@ -20,6 +21,7 @@ export interface VersionPlanContext {
 /** 抽屉里能改的东西。给了 `prompt` 就是手改，其余是简报字段。 */
 export interface VersionPlanPatch {
   plan?: string
+  inventory?: readonly string[]
   productBox?: ProductBox | null
   brief?: Partial<RemixBrief>
   copy?: Partial<RemixShotCopy>
@@ -59,6 +61,7 @@ export function editVersionPlan(
   const next: ProductShotVersion = {
     ...version,
     plan: patch.plan ?? version.plan,
+    ...(patch.inventory !== undefined ? { inventory: normalizeInventory(patch.inventory) } : {}),
     ...(patch.productBox !== undefined ? { productBox: patch.productBox } : {}),
     ...(version.brief && patch.brief ? { brief: { ...version.brief, ...patch.brief } } : {}),
     ...(patch.copy ? { copy: { title: '', subtitle: '', ...version.copy, ...patch.copy } } : {}),
