@@ -3,7 +3,7 @@
  * 密钥类数据（BYOK profile、customProviders、providerOrder、profileModelCache）与本机数据
  * （草稿、槽位值、任务记录、商品图任务、画布）都不在这里，加字段前先对照 CONTEXT.md。
  */
-import { APP_MODES, type AppMode, useStore } from '../../store'
+import { type AppMode, useStore, visibleAppModes } from '../../store'
 import { DEFAULT_PARAMS, type TaskParams } from '../../types'
 import { getActiveApiProfile, normalizeSettings } from '../apiProfiles'
 import { updateSelectedModel } from '../channels/profileSelectors'
@@ -72,7 +72,10 @@ export function applyUserSettingsDocument(document: unknown): void {
   if (isRecord(document.params)) {
     state.setParams({ ...DEFAULT_PARAMS, ...(document.params as Partial<TaskParams>) })
   }
-  if (APP_MODES.includes(document.appMode as AppMode)) state.setAppMode(document.appMode as AppMode)
+  // 只认本部署可见的模式：video 由 `generation:video` 决定，别把用户扔进一个没有入口的模式。
+  if (visibleAppModes().includes(document.appMode as AppMode)) {
+    state.setAppMode(document.appMode as AppMode)
+  }
 
   useStore.setState({
     pinnedInspirationIds: Array.isArray(document.pinnedInspirationIds)
