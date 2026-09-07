@@ -100,7 +100,33 @@ describe('editing the plan of a background swap version', () => {
 
     expect(next.plan).toBe('放进水泥灰的极简浴室')
     expect(next.prompt).toContain('放进水泥灰的极简浴室')
-    expect(next.prompt).toContain('严格保留图中产品本身')
+    expect(next.prompt).toContain('不动的部分')
+  })
+
+  it('names the inventory of the version in the untouched section', () => {
+    const version = { ...swapVersion(), inventory: ['浴缸', '落地龙头'] }
+
+    const next = editVersionPlan(version, { plan: '放进水泥灰的极简浴室' }, CONTEXT)
+
+    expect(next.prompt).toContain('不动的部分：浴缸、落地龙头。')
+  })
+
+  it('falls back to the generic untouched clause for a version without an inventory', () => {
+    const next = editVersionPlan(swapVersion(), { plan: '放进水泥灰的极简浴室' }, CONTEXT)
+
+    expect(next.prompt).toContain('不动的部分：产品本身及所有与之相连的部件。')
+  })
+
+  it('rebuilds the prompt in the language of the job', () => {
+    const next = editVersionPlan(
+      { ...swapVersion(), inventory: ['the bathtub'] },
+      { plan: 'A warm microcement bathroom' },
+      { ...CONTEXT, language: 'en' },
+    )
+
+    expect(next.prompt).toContain('Untouched: the bathtub.')
+    expect(next.prompt).toContain('To replace: A warm microcement bathroom')
+    expect(next.prompt).not.toMatch(/[一-鿿]/)
   })
 
   it('takes the preference of the job into the rebuilt prompt', () => {
