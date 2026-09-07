@@ -707,8 +707,8 @@ export const useStore = create<AppState>()(
       maskEditorImageId: null,
       setMaskEditorImageId: (maskEditorImageId) => {
         if (maskEditorImageId) dismissAllTooltips()
-        // 会话跟着编辑器关闭一起结束，否则下一次 composer 打开会走别人的保存路径。
-        set({ maskEditorImageId, ...(maskEditorImageId ? {} : { maskEditorSession: null }) })
+        // 这是 composer 的入口：会话一律清掉，否则保存会写到别人那里去。
+        set({ maskEditorImageId, maskEditorSession: null })
       },
       maskEditorSession: null,
       openMaskEditorSession: (imageId, maskEditorSession) => {

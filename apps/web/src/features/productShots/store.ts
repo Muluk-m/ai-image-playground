@@ -681,13 +681,18 @@ async function swapOneVersion(
   const { swapStage, batch } = get()
   if (swapStage || batch?.running) return
 
+  // 只换蒙版的那条路提示词没被人碰过，不该标手改，也不该把抽屉弹出来。
+  const handPicked = Boolean(reuse) && !maskOverride
+
   await runStages(set, async (stage) => {
     const prepared = await prepareImage(get, imageId, stage, reuse, maskOverride)
     if (prepared.notice) set({ swapNotice: prepared.notice })
     const version = await submitVersion(jobId, prepared, crypto.randomUUID())
     if (!version) return
-    await recordVersions(set, get, imageId, [reuse ? { ...version, promptEdited: true } : version])
-    set({ previewVersionId: version.id, ...(reuse ? { planVersionId: version.id } : {}) })
+    await recordVersions(set, get, imageId, [
+      handPicked ? { ...version, promptEdited: true } : version,
+    ])
+    set({ previewVersionId: version.id, ...(handPicked ? { planVersionId: version.id } : {}) })
   })
 }
 
