@@ -49,12 +49,14 @@ export function startSyncEngine(): () => void {
   const stopTracking = trackLocalChanges(onLocalChange)
   const unsubscribe = useStore.subscribe(onStoreChange)
   document.addEventListener('visibilitychange', flushOnHide)
+  window.addEventListener('online', pushOnReconnect)
   void syncNow()
 
   return () => {
     stopTracking()
     unsubscribe()
     document.removeEventListener('visibilitychange', flushOnHide)
+    window.removeEventListener('online', pushOnReconnect)
     clearTimer()
     useSyncStatus.setState({ enabled: false, status: 'idle' })
   }
@@ -68,6 +70,7 @@ export async function syncNow(options: { keepalive?: boolean } = {}): Promise<vo
   useSyncStatus.setState({ status: 'syncing' })
 
   const pushed = changedInFlight
+  let again = false
   try {
     const checkpoint = readPendingChanges()
     const request = await buildRequest(checkpoint)
@@ -75,12 +78,21 @@ export async function syncNow(options: { keepalive?: boolean } = {}): Promise<vo
     await applyResponse(response)
     settle(request, response)
     useSyncStatus.setState({ status: 'idle' })
+    again = filledOneRequest(request)
   } catch {
     useSyncStatus.setState({ status: 'error' })
+    // 失败不自排重试，否则断网时会变成每 2 秒一次的空转；补推交给 `online` 与下一次本机改动。
   } finally {
     changedInFlight = null
-    if (pushed.size > 0) schedulePush()
+    if (again || pushed.size > 0) schedulePush()
   }
+}
+
+/** 装满一次请求就说明还有没带走的，紧接着再推一轮。 */
+function filledOneRequest(request: SyncRequestBody): boolean {
+  return [request.templates, request.assets].some(
+    (changes) => (changes?.length ?? 0) >= SYNC_MAX_CHANGES_PER_COLLECTION,
+  )
 }
 
 function onLocalChange(key: PendingKey): void {
@@ -118,6 +130,10 @@ function flushOnHide(): void {
   void syncNow({ keepalive: true })
 }
 
+function pushOnReconnect(): void {
+  if (pendingCount(readPendingChanges()) > 0) void syncNow()
+}
+
 function schedulePush(): void {
   clearTimer()
   pushTimer = setTimeout(() => {
@@ -152,7 +168,7 @@ function toWire(row: TemplateRecord | Tombstone): SyncTemplateChange {
   return 'deletedAt' in row ? row : { ...row, params: { ...row.params } as Record<string, unknown> }
 }
 
-/** 一次请求推不完的留在待推集合里，成功后紧接着再推一轮。 */
+/** 一次请求最多带走这么多，其余留在待推集合里等下一轮。 */
 function collect<T extends { id: string }>(
   rows: Array<T | Tombstone>,
   pendingIds: readonly string[],
