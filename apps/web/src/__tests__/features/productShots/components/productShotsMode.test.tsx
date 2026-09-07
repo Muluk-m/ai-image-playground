@@ -29,6 +29,7 @@ const alphaToInpaintMask = vi.hoisted(() => vi.fn())
 const alphaToProductMask = vi.hoisted(() => vi.fn())
 const modelSupportsNativeMask = vi.hoisted(() => vi.fn())
 const storeImage = vi.hoisted(() => vi.fn())
+const getImageDimensions = vi.hoisted(() => vi.fn())
 
 vi.mock('../../../../lib/clientCapabilities', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../../lib/clientCapabilities')>()),
@@ -63,6 +64,12 @@ vi.mock('../../../../lib/channels/profileSelectors', async (importOriginal) => (
 vi.mock('../../../../lib/db', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../../lib/db')>()),
   storeImage,
+}))
+
+// jsdom 不解码图片，真的 getImageDimensions 会永远挂着，整条提交链跟着停住。
+vi.mock('../../../../lib/canvasImage', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../../lib/canvasImage')>()),
+  getImageDimensions,
 }))
 
 const PLAN = {
@@ -114,6 +121,7 @@ beforeEach(() => {
   useLibraryStore.setState({ assets: [], loadAssets: vi.fn().mockResolvedValue(undefined) })
   modelSupportsNativeMask.mockReturnValue(true)
   storeImage.mockResolvedValue('mask-1')
+  getImageDimensions.mockResolvedValue({ width: 2000, height: 2000 })
   host = document.createElement('div')
   document.body.appendChild(host)
   root = createRoot(host)
@@ -340,6 +348,34 @@ describe('running one background swap', () => {
 
     expect(document.querySelector('[data-product-shots-version]')?.textContent).toContain(
       '未抠图 · 超时',
+    )
+  })
+
+  it('opens the mask editor on the version mask, brush painting the kept area', async () => {
+    await withOneImage()
+
+    click(actionButton())
+    await settle()
+    const edit = [...document.querySelectorAll('button')].find(
+      (button) => button.textContent === '编辑蒙版',
+    )
+    if (!edit) throw new Error('no mask edit button')
+    click(edit)
+    await settle()
+
+    expect(useStore.getState().maskEditorImageId).toBe('image-主图.png')
+    expect(useStore.getState().maskEditorSession?.keepSemantics).toBe(true)
+  })
+
+  it('marks a version whose source image is small', async () => {
+    getImageDimensions.mockResolvedValue({ width: 864, height: 864 })
+    await withOneImage()
+
+    click(actionButton())
+    await settle()
+
+    expect(document.querySelector('[data-product-shots-version]')?.textContent).toContain(
+      '源图分辨率低',
     )
   })
 

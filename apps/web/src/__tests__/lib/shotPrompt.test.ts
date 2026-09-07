@@ -97,7 +97,18 @@ describe('building the prompt for one shot', () => {
   })
 
   it('ends on the quality line with no on-image text', () => {
-    expect(build()).toContain('商业电商产品图，8K 超写实，无文字无水印')
+    expect(build()).toContain(
+      '商业电商产品图，8K 超写实，清晰锐利，材质纹理可见，无过度平滑，无文字无水印',
+    )
+  })
+
+  /** 客户实拍：龙头被重画、缸体颗粒被抹平，锁产品段必须点名附件与表面纹理。 */
+  it('names the attachments and the surface texture in the product lock', () => {
+    const prompt = build()
+
+    expect(prompt).toContain('附件（龙头、排水、把手、底座等）')
+    expect(prompt).toContain('表面纹理（颗粒、哑光、纹路）')
+    expect(prompt).toContain('不得重画、不得平滑、不得改款')
   })
 
   it('asks for the selling point copy in the chosen language', () => {
@@ -225,7 +236,9 @@ describe('composing the sections on their own', () => {
 
     expect(prompt).toContain('图1是我方产品：W2753 独立浴缸')
     expect(prompt).toContain('不得变成米白 / 浅灰 / 白色 / 橄榄绿')
-    expect(prompt).toContain('商业电商产品图，8K 超写实，无文字无水印')
+    expect(prompt).toContain(
+      '商业电商产品图，8K 超写实，清晰锐利，材质纹理可见，无过度平滑，无文字无水印',
+    )
     expect(prompt).not.toContain('图2')
   })
 

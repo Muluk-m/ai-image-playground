@@ -47,10 +47,15 @@ export function colorLockLine(product: RemixProductDescription): string {
   return `必须保持${mainColor}${forbidden.length > 0 ? `，不得变成${forbidden.join(' / ')}` : ''}，环境光再暖再暗固有色也不变。`
 }
 
+/** 只说「产品不变」时模型会重画龙头、抹平颗粒，所以附件与表面纹理要各自点名。 */
+const ATTACHMENT_LOCK =
+  '产品本体及其附件（龙头、排水、把手、底座等）保持原样，形状、位置、朝向、比例、颜色、材质与表面纹理（颗粒、哑光、纹路）全部不变，不得重画、不得平滑、不得改款。'
+
 export function productLockSection(product: RemixProductDescription): string {
   return [
     productIdentityLine(product),
     '严格保留款式、轮廓比例、颜色、材质质感，不得变形、不得换成别的产品。',
+    ATTACHMENT_LOCK,
     colorLockLine(product),
   ].join('')
 }
@@ -130,8 +135,8 @@ export function sellingPointSection(input: ShotPromptInput): string {
 /** 品质段。`onImageText` 为真时不写「无文字」，位置留给卖点文案段。 */
 export function qualitySection(onImageText = false): string {
   return onImageText
-    ? '商业电商产品图，8K 超写实，无水印。'
-    : '商业电商产品图，8K 超写实，无文字无水印。'
+    ? '商业电商产品图，8K 超写实，清晰锐利，材质纹理可见，无过度平滑，无水印。'
+    : '商业电商产品图，8K 超写实，清晰锐利，材质纹理可见，无过度平滑，无文字无水印。'
 }
 
 export function joinPromptSections(sections: string[]): string {

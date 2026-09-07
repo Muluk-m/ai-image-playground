@@ -23,6 +23,14 @@ export {
   type MatteBackendId,
 } from './backends'
 export {
+  ATTACHMENT_ALPHA_THRESHOLD,
+  ATTACHMENT_MIN_ELONGATION,
+  DEFAULT_MATTE_GROW_RATIO,
+  type ExpandProductAlphaOptions,
+  expandProductAlpha,
+} from './expandProductAlpha'
+export { maskDataUrlToAlpha } from './maskAlpha'
+export {
   MATTE_BOX_IOU_THRESHOLD,
   matteAgreesWithBox,
   matteBounds,
