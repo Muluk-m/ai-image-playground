@@ -807,7 +807,10 @@ describe('editing the mask of a version by hand', () => {
     expect(segmentProduct).not.toHaveBeenCalled()
     const submitted = submitPrepared.mock.calls[submitPrepared.mock.calls.length - 1][0]
     expect(submitted.mask).toEqual({ imageId: 'mask-1', targetImageId: 'image-主图.png' })
-    expect(useProductShotsStore.getState().draft.images[0].versions).toHaveLength(2)
+    const versions = useProductShotsStore.getState().draft.images[0].versions
+    expect(versions).toHaveLength(2)
+    // 只换蒙版，提示词没被人碰过。
+    expect(versions[1].promptEdited).toBeUndefined()
   })
 
   /** 遮罩编辑会按官方尺寸改图，重生成要提交蒙版对着的那一张。 */
