@@ -20,6 +20,7 @@ import {
   pendingCount,
   readPendingChanges,
   type SyncCheckpoint,
+  type SyncCollection,
   trackLocalChanges,
   writePendingChanges,
 } from './pending'
@@ -34,12 +35,14 @@ let pushTimer: ReturnType<typeof setTimeout> | null = null
 let changedInFlight: Set<PendingKey> | null = null
 let settingsSnapshot = ''
 let applyingRemote = false
+/** 上一次看到的、用户设置文档取值的那几片 store 状态。 */
+let watched: unknown[] = []
 
 /** 能力关闭时引擎完全不启动：不标脏、不发请求、不写任何存储。 */
 export function startSyncEngine(): () => void {
   if (!isClientCapabilityEnabled('accounts:sync')) return () => {}
 
-  settingsSnapshot = serialize(readUserSettingsDocument())
+  settingsSnapshot = JSON.stringify(readUserSettingsDocument())
   publish(readPendingChanges())
   useSyncStatus.setState({ enabled: true })
 
@@ -87,7 +90,6 @@ function onLocalChange(key: PendingKey): void {
 }
 
 /** store 的每次写入都会走到这里，先比对象身份，只有可能变过才去序列化文档。 */
-let watched: unknown[] = []
 function onStoreChange(): void {
   const state = useStore.getState()
   const next = [
@@ -104,7 +106,7 @@ function onStoreChange(): void {
   watched = next
   if (!changed || applyingRemote) return
 
-  const serialized = serialize(readUserSettingsDocument())
+  const serialized = JSON.stringify(readUserSettingsDocument())
   if (serialized === settingsSnapshot) return
   settingsSnapshot = serialized
   markSettingsDirty(Date.now())
@@ -130,19 +132,18 @@ function clearTimer(): void {
 }
 
 async function buildRequest(checkpoint: SyncCheckpoint): Promise<SyncRequestBody> {
+  const [templates, assets] = await Promise.all([
+    templateStore.listChanges(),
+    assetStore.listChanges(),
+  ])
   return {
     version: checkpoint.version,
-    templates: (
-      await collect<TemplateRecord>(templateStore.listChanges(), checkpoint.templates)
-    ).map(toWire),
-    assets: await collect<AssetRecord>(assetStore.listChanges(), checkpoint.assets),
+    templates: collect(templates, checkpoint.templates).map(toWire),
+    assets: collect(assets, checkpoint.assets),
     settings:
       checkpoint.settingsUpdatedAt === null
         ? null
-        : {
-            updatedAt: checkpoint.settingsUpdatedAt,
-            document: readUserSettingsDocument() as unknown as Record<string, unknown>,
-          },
+        : { updatedAt: checkpoint.settingsUpdatedAt, document: readUserSettingsDocument() },
   }
 }
 
@@ -152,38 +153,43 @@ function toWire(row: TemplateRecord | Tombstone): SyncTemplateChange {
 }
 
 /** 一次请求推不完的留在待推集合里，成功后紧接着再推一轮。 */
-async function collect<T extends { id: string }>(
-  rows: Promise<Array<T | Tombstone>>,
+function collect<T extends { id: string }>(
+  rows: Array<T | Tombstone>,
   pendingIds: readonly string[],
-): Promise<Array<T | Tombstone>> {
+): Array<T | Tombstone> {
   const wanted = new Set(pendingIds)
-  return (await rows).filter((row) => wanted.has(row.id)).slice(0, SYNC_MAX_CHANGES_PER_COLLECTION)
+  return rows.filter((row) => wanted.has(row.id)).slice(0, SYNC_MAX_CHANGES_PER_COLLECTION)
 }
 
 async function applyResponse(response: SyncResponseBody): Promise<void> {
-  await templateStore.applyRemote(response.templates as Array<TemplateRecord | Tombstone>)
-  await assetStore.applyRemote(response.assets as Array<AssetRecord | Tombstone>)
+  await Promise.all([
+    templateStore.applyRemote(response.templates as Array<TemplateRecord | Tombstone>),
+    assetStore.applyRemote(response.assets as Array<AssetRecord | Tombstone>),
+  ])
 
   applyingRemote = true
   try {
     if (response.settings) applyUserSettingsDocument(response.settings.document)
   } finally {
     applyingRemote = false
-    settingsSnapshot = serialize(readUserSettingsDocument())
+    settingsSnapshot = JSON.stringify(readUserSettingsDocument())
   }
 
   const library = useLibraryStore.getState()
-  if (response.templates.length > 0) await library.loadTemplates()
-  if (response.assets.length > 0) await library.loadAssets()
+  await Promise.all([
+    response.templates.length > 0 ? library.loadTemplates() : null,
+    response.assets.length > 0 ? library.loadAssets() : null,
+  ])
 }
 
 /** 清账：推上去的从待推集合里划掉，被拒的和飞行期间又改过的留下。 */
 function settle(request: SyncRequestBody, response: SyncResponseBody): void {
   const rejected = new Set(response.rejected.map((rejection) => rejection.id))
-  const keep = (collection: 'templates' | 'assets') => (id: string) =>
-    !request[collection]?.some((change) => change.id === id) ||
-    rejected.has(id) ||
-    (changedInFlight?.has(`${collection}:${id}`) ?? false)
+  const keep = (collection: SyncCollection) => {
+    const sent = new Set(request[collection]?.map((change) => change.id))
+    return (id: string) =>
+      !sent.has(id) || rejected.has(id) || (changedInFlight?.has(`${collection}:${id}`) ?? false)
+  }
 
   const current = readPendingChanges()
   const next: SyncCheckpoint = {
@@ -203,16 +209,4 @@ function publish(checkpoint: SyncCheckpoint): void {
     pending: pendingCount(checkpoint),
     lastSyncedAt: checkpoint.lastSyncedAt,
   })
-}
-
-/** 字段顺序稳定的序列化，用来判断文档有没有真的变过。 */
-function serialize(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(serialize).join(',')}]`
-  if (value && typeof value === 'object') {
-    return `{${Object.entries(value as Record<string, unknown>)
-      .sort(([a], [b]) => (a < b ? -1 : 1))
-      .map(([key, item]) => `${JSON.stringify(key)}:${serialize(item)}`)
-      .join(',')}}`
-  }
-  return JSON.stringify(value) ?? 'null'
 }
