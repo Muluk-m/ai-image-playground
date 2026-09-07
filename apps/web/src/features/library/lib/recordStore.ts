@@ -1,7 +1,7 @@
 import { dbTransaction } from '../../../lib/db'
 import type { Tombstone } from '../types'
 
-/** 素材 / 模板共用的记录存储后端。服务端实现替换调用方的那一个绑定即可。 */
+/** 同步集合（素材 / 模板）的记录存储后端。本机数据的表照旧硬删，不要绑到这里。 */
 export interface RecordStore<T> {
   list(): Promise<T[]>
   put(record: T): Promise<void>
