@@ -1,7 +1,7 @@
 import type { ProductBox } from '@image-playground/shared'
 import { LABEL } from '../../../components/panelStyles'
+import { useImageThumbnail } from '../../../hooks/useImageThumbnail'
 import { useStore } from '../../../store'
-import AssetThumb from '../../library/components/AssetThumb'
 import { useLibraryStore } from '../../library/store'
 import type { ProductShotVersion } from '../types'
 
@@ -34,18 +34,10 @@ export default function PlanReferences({
   return (
     <div data-product-shots-plan-references>
       <span className={LABEL}>参考图</span>
-      <ul className="mt-1 flex flex-wrap gap-2">
+      <ul className="mt-1 flex flex-wrap items-start gap-2">
         {references.map((item) => (
-          <li key={item.label} className="w-16">
-            <button
-              type="button"
-              onClick={() => setLightboxImageId(item.imageId, imageIds)}
-              aria-label={`放大${item.label}`}
-              className="group relative block h-16 w-16 overflow-hidden rounded-lg border border-gray-200 dark:border-white/[0.08]"
-            >
-              <AssetThumb imageId={item.imageId} alt={item.label} />
-              {item.box && <BoxOutline box={item.box} />}
-            </button>
+          <li key={item.label} className="max-w-[8rem]">
+            <Thumb reference={item} onOpen={() => setLightboxImageId(item.imageId, imageIds)} />
             <span className="mt-0.5 block truncate text-center text-[10px] text-gray-500 dark:text-gray-400">
               {item.label}
             </span>
@@ -53,6 +45,32 @@ export default function PlanReferences({
         ))}
       </ul>
     </div>
+  )
+}
+
+/** 容器尺寸随图片比例走：`object-cover` 裁过的图上，百分比产品框会落错位置。 */
+function Thumb({ reference, onOpen }: { reference: Reference; onOpen: () => void }) {
+  const thumbnail = useImageThumbnail(reference.imageId)
+
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      aria-label={`放大${reference.label}`}
+      className="relative inline-block h-16 overflow-hidden rounded-lg border border-gray-200 dark:border-white/[0.08]"
+    >
+      {thumbnail?.dataUrl ? (
+        <img
+          src={thumbnail.dataUrl}
+          data-image-id={reference.imageId}
+          alt={reference.label}
+          className="h-16 w-auto max-w-[8rem] object-contain"
+        />
+      ) : (
+        <span className="block h-16 w-16 bg-gray-100 dark:bg-white/[0.04]" />
+      )}
+      {reference.box && <BoxOutline box={reference.box} />}
+    </button>
   )
 }
 
