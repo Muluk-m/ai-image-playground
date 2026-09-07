@@ -18,11 +18,8 @@ export const DEFAULT_REMIX_LEVEL: RemixLevel = 'high'
 
 const COLOR_SEPARATORS = /[、,，;；\s]+/
 
-export const EMPTY_PRODUCT_DESCRIPTION: RemixProductDescription = {
-  name: '',
-  features: '',
-  mainColor: '',
-  forbiddenColors: [],
+export function emptyProductDescription(): RemixProductDescription {
+  return { name: '', features: '', mainColor: '', forbiddenColors: [] }
 }
 
 /** 借创意重做的一版方案：版本条上的那句、提交用的提示词，以及重跑要沿用的简报。 */
@@ -66,14 +63,13 @@ export function buildRemixPlan({
 
 /** 产品说明：用户填了就用他填的，产品名空着时退到素材名与任务名。 */
 export function remixProductDescription(
-  product: RemixProductDescription | undefined,
+  product: RemixProductDescription,
   assetName: string,
   jobName: string,
 ): RemixProductDescription {
-  const filled = product ?? EMPTY_PRODUCT_DESCRIPTION
   return {
-    ...filled,
-    name: filled.name.trim() || assetName.trim() || jobName.trim() || GENERIC_PRODUCT_NAME,
+    ...product,
+    name: product.name.trim() || assetName.trim() || jobName.trim() || GENERIC_PRODUCT_NAME,
   }
 }
 

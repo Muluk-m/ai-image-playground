@@ -528,11 +528,12 @@ describe('the product picked once for the whole job', () => {
     return button
   }
 
-  function levelButton(level: string): HTMLButtonElement {
-    const button = document.querySelector<HTMLButtonElement>(
-      `[data-product-shots-level="${level}"]`,
+  function levelButton(label: string): HTMLButtonElement {
+    const group = document.querySelector('[role="group"][aria-label="与竞品的距离"]')
+    const button = [...(group?.querySelectorAll('button') ?? [])].find(
+      (item) => item.textContent === label,
     )
-    if (!button) throw new Error(`no ${level} level button`)
+    if (!button) throw new Error(`no ${label} level button`)
     return button
   }
 
@@ -561,12 +562,12 @@ describe('the product picked once for the whole job', () => {
   it('picks how far the remix goes from the competitor', () => {
     render()
 
-    expect(levelButton('high').getAttribute('aria-pressed')).toBe('true')
+    expect(levelButton('不像').getAttribute('aria-pressed')).toBe('true')
 
-    click(levelButton('low'))
+    click(levelButton('像'))
 
     expect(useProductShotsStore.getState().draft.level).toBe('low')
-    expect(levelButton('low').getAttribute('aria-pressed')).toBe('true')
+    expect(levelButton('像').getAttribute('aria-pressed')).toBe('true')
   })
 
   it('describes the product once the panel is unfolded', () => {

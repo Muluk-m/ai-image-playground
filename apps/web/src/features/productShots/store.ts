@@ -46,7 +46,7 @@ import { requestBackgroundPlan, requestSceneScan } from './lib/planClient'
 import {
   buildRemixPlan,
   DEFAULT_REMIX_LEVEL,
-  EMPTY_PRODUCT_DESCRIPTION,
+  emptyProductDescription,
   type RemixPlanned,
   remixProductDescription,
 } from './lib/remixPlan'
@@ -170,7 +170,7 @@ function emptyDraft(): ProductShotsDraft {
     mode: DEFAULT_BG_SWAP_MODE,
     level: DEFAULT_REMIX_LEVEL,
     productAssets: [],
-    product: EMPTY_PRODUCT_DESCRIPTION,
+    product: emptyProductDescription(),
     createdAt: null,
   }
 }
@@ -185,7 +185,7 @@ function draftFromJob(job: ProductShotJob): ProductShotsDraft {
     mode: job.mode ?? legacyJobMode(job.productSource, job.target),
     level: job.level ?? DEFAULT_REMIX_LEVEL,
     productAssets: job.productAssets ?? [],
-    product: job.product ?? EMPTY_PRODUCT_DESCRIPTION,
+    product: job.product ?? emptyProductDescription(),
     createdAt: job.createdAt,
   }
 }
@@ -515,6 +515,9 @@ interface MaskAttempt {
   previewImageId: string | null
 }
 
+/** 整图重画的那几种动作不带遮罩。 */
+const NO_MASK: MaskAttempt = { mask: null, notice: null, matte: null, previewImageId: null }
+
 /** 一张图跑完方案与蒙版后的成果，同一张的每一版都拿它去提交。 */
 interface PreparedImage extends MaskAttempt {
   imageId: string
@@ -628,9 +631,7 @@ async function prepareRemix(
   const framing = await framingImage(imageId, dataUrl, productBox)
 
   return {
-    mask: null,
-    matte: null,
-    previewImageId: null,
+    ...NO_MASK,
     notice: product.notice,
     imageId,
     plan: planned.plan,
@@ -693,9 +694,7 @@ async function prepareSwap(
 
   const side = maskSideFor(mode)
   if (side) stage('matte')
-  const attempt = side
-    ? await buildMask(imageId, dataUrl, productBox, side)
-    : { mask: null, notice: null, matte: null, previewImageId: null }
+  const attempt = side ? await buildMask(imageId, dataUrl, productBox, side) : NO_MASK
 
   stage('generate')
   const original =
