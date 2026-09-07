@@ -2,6 +2,7 @@ import type { CompetitorBrief } from '@image-playground/shared'
 import { describe, expect, it } from 'vitest'
 import {
   buildRemixPlan,
+  emptyProductDescription,
   formatColorList,
   parseColorList,
   remixProductDescription,
@@ -98,12 +99,7 @@ describe('building a creative remix plan from a competitor brief', () => {
 })
 
 describe('describing my product for the analysis and the product lock', () => {
-  const EMPTY: RemixProductDescription = {
-    name: '',
-    features: '',
-    mainColor: '',
-    forbiddenColors: [],
-  }
+  const EMPTY = emptyProductDescription()
 
   it('keeps what the user typed', () => {
     expect(remixProductDescription(PRODUCT, '正面白底', '浴缸套图')).toEqual(PRODUCT)
@@ -112,7 +108,7 @@ describe('describing my product for the analysis and the product lock', () => {
   it('names the product after the picked asset, then after the job', () => {
     expect(remixProductDescription(EMPTY, '正面白底', '浴缸套图').name).toBe('正面白底')
     expect(remixProductDescription(EMPTY, '  ', '浴缸套图').name).toBe('浴缸套图')
-    expect(remixProductDescription(undefined, '', '').name).toBe('本产品')
+    expect(remixProductDescription(EMPTY, '', '').name).toBe('本产品')
   })
 })
 

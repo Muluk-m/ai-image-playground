@@ -1,14 +1,6 @@
 import Pending from '../../../components/Pending'
-import {
-  ACTIVE_SEGMENT,
-  CARD,
-  FIELD,
-  IDLE_SEGMENT,
-  LABEL,
-  NOTICE,
-  PRIMARY_BUTTON,
-  SEGMENT,
-} from '../../../components/panelStyles'
+import { CARD, FIELD, LABEL, NOTICE, PRIMARY_BUTTON } from '../../../components/panelStyles'
+import Segmented from '../../../components/Segmented'
 import { REMIX_LEVELS } from '../../../lib/shotTypes'
 import { ACTION_LABELS, type ProductShotAction, REMIX_LEVEL_LABELS } from '../lib/actions'
 import { useProductShotsStore } from '../store'
@@ -63,19 +55,14 @@ export default function ActionPanel() {
                 )}
               </button>
               {action.mode === 'remix' && (
-                <div className="mt-1 flex w-fit gap-0.5 rounded-lg bg-gray-100 p-0.5 dark:bg-white/[0.06]">
-                  {REMIX_LEVELS.map((choice) => (
-                    <button
-                      key={choice}
-                      type="button"
-                      data-product-shots-level={choice}
-                      onClick={() => setRemixLevel(choice)}
-                      aria-pressed={level === choice}
-                      className={`${SEGMENT} ${level === choice ? ACTIVE_SEGMENT : IDLE_SEGMENT}`}
-                    >
-                      {REMIX_LEVEL_LABELS[choice]}
-                    </button>
-                  ))}
+                <div className="mt-1 w-fit">
+                  <Segmented
+                    label="与竞品的距离"
+                    options={REMIX_LEVELS}
+                    labels={REMIX_LEVEL_LABELS}
+                    value={level}
+                    onChange={setRemixLevel}
+                  />
                 </div>
               )}
               {blocked && <p className={`mt-1 ${NOTICE}`}>{NO_PRODUCT}</p>}
