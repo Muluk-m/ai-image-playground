@@ -9,7 +9,8 @@ import { getActiveApiProfile, normalizeSettings } from '../apiProfiles'
 import { updateSelectedModel } from '../channels/profileSelectors'
 import { getPublicChannels } from '../channels/publicChannels'
 
-export interface UserSettingsDocument {
+// type 而非 interface：协议侧的 document 是 Record<string, unknown>，只有 type 有隐式索引签名。
+export type UserSettingsDocument = {
   clearInputAfterSubmit: boolean
   persistInputOnRestart: boolean
   reuseTaskApiProfileTemporarily: boolean
