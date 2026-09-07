@@ -44,6 +44,8 @@ export interface VideoModelSupport {
   readonly lastFrame: boolean
   /** 实测典型耗时，用于生成中卡片的等待提示。 */
   readonly typicalSeconds: number
+  /** 模型卡片上的一句话定位。耗时相近时推导不出区分度，所以显式写死。 */
+  readonly tagline: string
 }
 
 export const VIDEO_MODEL_SUPPORT: Record<string, VideoModelSupport> = {
@@ -55,15 +57,17 @@ export const VIDEO_MODEL_SUPPORT: Record<string, VideoModelSupport> = {
     firstFrame: true,
     lastFrame: false,
     typicalSeconds: 40,
+    tagline: '高清',
   },
-  'agnes-video-2.5': {
-    label: 'Agnes 2.5',
+  'agnes-video-2.5-flash': {
+    label: 'Agnes 2.5 Flash',
     durations: [5, 8, 10],
     aspectRatios: ['16:9', '9:16', '1:1'],
-    resolutions: ['720p', '1080p', '2k'],
+    resolutions: ['720p'],
     firstFrame: true,
     lastFrame: true,
-    typicalSeconds: 90,
+    typicalSeconds: 40,
+    tagline: '首尾帧',
   },
 }
 

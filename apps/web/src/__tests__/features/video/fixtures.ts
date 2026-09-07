@@ -22,8 +22,8 @@ export const AGNES_CHANNEL: DiscoveredChannel = {
   label: 'Agnes 视频',
   models: [
     {
-      id: 'agnes-video-2.5',
-      label: 'Agnes Video 2.5',
+      id: 'agnes-video-2.5-flash',
+      label: 'Agnes Video 2.5 Flash',
       capabilities: [
         'generate',
         'duration',

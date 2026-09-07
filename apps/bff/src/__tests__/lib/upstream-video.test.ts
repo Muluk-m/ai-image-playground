@@ -55,8 +55,8 @@ const agnesVideoChannel: InternalChannel = {
   allowedPaths: ['videos', 'agnesapi'],
   models: [
     {
-      id: 'agnes-video-2.5',
-      label: 'Agnes Video 2.5',
+      id: 'agnes-video-2.5-flash',
+      label: 'Agnes Video 2.5 Flash',
       media: 'video',
       capabilities: [
         'generate',
@@ -204,7 +204,7 @@ describe('Grok video upstream', () => {
 })
 
 describe('Agnes video upstream', () => {
-  const pollUrl = `${AGNES_POLL}?video_id=task_1&model_name=agnes-video-2.5`
+  const pollUrl = `${AGNES_POLL}?video_id=task_1&model_name=agnes-video-2.5-flash`
 
   it('creates a text-mode task, polls the gateway root and returns the result address', async () => {
     let polls = 0
@@ -215,10 +215,10 @@ describe('Agnes video upstream', () => {
         : json({ status: 'completed', url: RESULT_URL })
     }
 
-    const { payload } = await run('agnes-video-2.5', { video: video() })
+    const { payload } = await run('agnes-video-2.5-flash', { video: video() })
 
     expect(bodyOf(`${AGNES_BASE}/videos`)).toEqual({
-      model: 'agnes-video-2.5',
+      model: 'agnes-video-2.5-flash',
       prompt: 'a cat surfing',
       seconds: '5',
       mode: 'text',
@@ -237,14 +237,14 @@ describe('Agnes video upstream', () => {
         ? json({ video_id: 'task_1' })
         : json({ status: 'completed', url: RESULT_URL })
 
-    await run('agnes-video-2.5', {
+    await run('agnes-video-2.5-flash', {
       input_images: [TINY_PNG_DATA_URL, TINY_PNG_DATA_URL],
-      video: video({ resolution: '2k', first_frame_index: 0, last_frame_index: 1 }),
+      video: video({ resolution: '720p', first_frame_index: 0, last_frame_index: 1 }),
     })
 
     expect(bodyOf(`${AGNES_BASE}/videos`)).toMatchObject({
       mode: 'keyframe',
-      size: '2K',
+      size: '720P',
       first_frame: TINY_PNG_DATA_URL,
       last_frame: TINY_PNG_DATA_URL,
     })
@@ -256,7 +256,7 @@ describe('Agnes video upstream', () => {
         ? json({ video_id: 'task_1' })
         : json({ status: 'completed', metadata: { url: RESULT_URL } })
 
-    const { payload } = await run('agnes-video-2.5', { video: video() })
+    const { payload } = await run('agnes-video-2.5-flash', { video: video() })
 
     expect(payload).toMatchObject({ data: [{ url: RESULT_URL }] })
   })
@@ -267,13 +267,15 @@ describe('Agnes video upstream', () => {
         ? json({ video_id: 'task_1' })
         : json({ status: 'failed', error: { message: 'generation failed' } })
 
-    await expect(run('agnes-video-2.5', { video: video() })).rejects.toThrow('generation failed')
+    await expect(run('agnes-video-2.5-flash', { video: video() })).rejects.toThrow(
+      'generation failed',
+    )
   })
 
   it('surfaces a rate limited creation as a retryable upstream failure', async () => {
     handler = () => json({ error: { message: 'rate_limit_exceeded' } }, 429)
 
-    await expect(run('agnes-video-2.5', { video: video() })).rejects.toMatchObject({
+    await expect(run('agnes-video-2.5-flash', { video: video() })).rejects.toMatchObject({
       upstreamStatus: 429,
     })
   })
