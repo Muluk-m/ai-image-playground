@@ -5,8 +5,9 @@ const PLAN_ZH = '暖白微水泥墙面，浅橡木地板，左侧柔和窗光，
 const PLAN_EN = 'Warm microcement wall, pale oak floor, soft window light from the left, one palm.'
 const INVENTORY_ZH = ['浴缸', '落地龙头']
 const INVENTORY_EN = ['the bathtub', 'the floor-standing tap']
-/** 写死品类词是本次要根除的反模式，产出里出现任何一个就算回潮。 */
-const HARD_CODED_PARTS = ['龙头', '排水', '把手', '底座', 'faucet', 'drain', 'handles', 'feet']
+const HARD_CODED_PARTS = new RegExp(
+  ['龙头', '排水', '把手', '底座', 'faucet', 'drain', 'handles', 'feet'].join('|'),
+)
 
 describe('buildBackgroundPrompt', () => {
   it('runs the untouched section, the plan, the realism and the quality clause in order (zh)', () => {
@@ -40,32 +41,26 @@ describe('buildBackgroundPrompt', () => {
     expect(prompt).toContain('不得移动或缩放')
   })
 
-  it('forbids a prop of the same kind as anything untouched, right after the plan (zh)', () => {
+  it('forbids a prop of the same kind as anything on the inventory, right after the plan (zh)', () => {
     const prompt = buildBackgroundPrompt({
       plan: PLAN_ZH,
       sceneType: 'photo',
       inventory: INVENTORY_ZH,
     })
 
-    expect(prompt).toContain('不得新增任何与不动的部分同类的物件')
-    expect(prompt.indexOf(PLAN_ZH)).toBeLessThan(
-      prompt.indexOf('不得新增任何与不动的部分同类的物件'),
-    )
-    expect(prompt.indexOf('不得新增任何与不动的部分同类的物件')).toBeLessThan(
-      prompt.indexOf('墙面、半墙、台面与地面'),
-    )
+    expect(prompt).toContain('不得新增任何与浴缸、落地龙头同类的物件。')
+    expect(prompt.indexOf(PLAN_ZH)).toBeLessThan(prompt.indexOf('不得新增任何与'))
+    expect(prompt.indexOf('不得新增任何与')).toBeLessThan(prompt.indexOf('墙面、半墙、台面与地面'))
   })
 
-  it('falls back to the generic untouched clause when the inventory is empty', () => {
-    expect(buildBackgroundPrompt({ plan: PLAN_ZH, sceneType: 'photo' })).toContain(
-      '不动的部分：产品本身及所有与之相连的部件。',
-    )
-    expect(
-      buildBackgroundPrompt({ plan: PLAN_ZH, sceneType: 'photo', inventory: ['  ', ''] }),
-    ).toBe(buildBackgroundPrompt({ plan: PLAN_ZH, sceneType: 'photo', inventory: [] }))
-    expect(buildBackgroundPrompt({ plan: PLAN_EN, sceneType: 'photo', language: 'en' })).toContain(
-      'Untouched: the product itself and every part attached to it.',
-    )
+  it('falls back to the generic wording when the inventory is empty', () => {
+    const zh = buildBackgroundPrompt({ plan: PLAN_ZH, sceneType: 'photo' })
+    const en = buildBackgroundPrompt({ plan: PLAN_EN, sceneType: 'photo', language: 'en' })
+
+    expect(zh).toContain('不动的部分：产品本身及所有与之相连的部件。')
+    expect(zh).toContain('不得新增任何与产品及其部件同类的物件。')
+    expect(en).toContain('Untouched: the product itself and every part attached to it.')
+    expect(en).toContain('Never add anything of the same kind as the product or any of its parts.')
   })
 
   it('joins the inventory the way the prompt language writes a list', () => {
@@ -78,8 +73,13 @@ describe('buildBackgroundPrompt', () => {
       }),
     ).toContain('Untouched: the bathtub, the floor-standing tap.')
     expect(
-      buildBackgroundPrompt({ plan: PLAN_ZH, sceneType: 'photo', inventory: INVENTORY_ZH }),
-    ).toContain('不动的部分：浴缸、落地龙头。')
+      buildBackgroundPrompt({
+        plan: PLAN_EN,
+        sceneType: 'photo',
+        language: 'en',
+        inventory: INVENTORY_EN,
+      }),
+    ).toContain('Never add anything of the same kind as the bathtub, the floor-standing tap.')
   })
 
   it('names no part type of its own when the inventory is empty', () => {
@@ -91,7 +91,7 @@ describe('buildBackgroundPrompt', () => {
           language,
           mode,
         })
-        for (const part of HARD_CODED_PARTS) expect(prompt).not.toContain(part)
+        expect(prompt).not.toMatch(HARD_CODED_PARTS)
       }
     }
   })
@@ -227,7 +227,7 @@ describe('buildBackgroundPrompt in replace-and-background mode', () => {
     expect(prompt.indexOf('图1是构图参考')).toBeLessThan(prompt.indexOf(PLAN_ZH))
   })
 
-  it('takes the product from the second image before the untouched section', () => {
+  it('takes the product from the second image and never locks the pixels of the first (zh)', () => {
     const prompt = buildBackgroundPrompt({
       plan: PLAN_ZH,
       sceneType: 'photo',
@@ -235,10 +235,30 @@ describe('buildBackgroundPrompt in replace-and-background mode', () => {
       inventory: INVENTORY_ZH,
     })
 
-    expect(prompt.indexOf('图1是构图参考')).toBeLessThan(prompt.indexOf('不动的部分'))
-    expect(prompt.indexOf('不动的部分：浴缸、落地龙头。')).toBeLessThan(
-      prompt.indexOf('要换的部分'),
-    )
+    expect(prompt).not.toContain('不动的部分')
+    expect(prompt.indexOf('图1是构图参考')).toBeLessThan(prompt.indexOf('图2产品连同'))
+    expect(prompt.indexOf('图2产品连同')).toBeLessThan(prompt.indexOf('要换的部分'))
+    expect(prompt.indexOf('要换的部分')).toBeLessThan(prompt.indexOf('不得新增任何与'))
+  })
+
+  it('still forbids a prop of the same kind as anything on the inventory', () => {
+    expect(
+      buildBackgroundPrompt({
+        plan: PLAN_ZH,
+        sceneType: 'photo',
+        mode: 'replace-and-background',
+        inventory: INVENTORY_ZH,
+      }),
+    ).toContain('不得新增任何与浴缸、落地龙头同类的物件。')
+    expect(
+      buildBackgroundPrompt({
+        plan: PLAN_EN,
+        sceneType: 'photo',
+        language: 'en',
+        mode: 'replace-and-background',
+        inventory: INVENTORY_EN,
+      }),
+    ).toContain('Never add anything of the same kind as the bathtub, the floor-standing tap.')
   })
 
   it('builds an all-English prompt for the en language', () => {
@@ -250,25 +270,13 @@ describe('buildBackgroundPrompt in replace-and-background mode', () => {
     })
 
     expect(prompt).toContain('Image 1 is a framing reference')
+    expect(prompt).not.toContain('Untouched:')
     expect(prompt).toContain(PLAN_EN)
     expect(prompt).not.toMatch(/[一-鿿]/)
   })
 })
 
 describe('buildBackgroundPrompt product adherence', () => {
-  /** 客户实拍：龙头被重画、缸体颗粒被抹平，不动的部分必须点名清单与表面纹理。 */
-  it('names the inventory and the surface texture when the original product stays (zh)', () => {
-    const prompt = buildBackgroundPrompt({
-      plan: PLAN_ZH,
-      sceneType: 'photo',
-      inventory: INVENTORY_ZH,
-    })
-
-    expect(prompt).toContain('不动的部分：浴缸、落地龙头。')
-    expect(prompt).toContain('表面纹理（颗粒、哑光、纹路）')
-    expect(prompt).toContain('不得重画、不得平滑、不得改款')
-  })
-
   it('asks for every part of the second image and its texture in both replace modes (zh)', () => {
     for (const mode of ['replace-product', 'replace-and-background'] as const) {
       const prompt = buildBackgroundPrompt({ plan: PLAN_ZH, sceneType: 'photo', mode })
