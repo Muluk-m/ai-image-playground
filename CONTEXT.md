@@ -114,7 +114,10 @@ createdAt, lastUsedAt }`，存在主 IndexedDB 的 `templates` 表里。`prompt`
 remap 引用——素材已删的位降级为「已移除」，套用仍然成功。
 _Avoid_: 预设、快捷短语、prompt 片段
 
-## 复刻套图（remix）
+## 复刻套图（remix，已下线）
+
+向导界面与套记录已下线（#132），`remix_sets` 表保留不读；提示词段、简报类型与导出预设留在
+`apps/web/src/lib/`。下面两条词条随之作废，正式改写见 #135。
 
 **套（set）**：
 一组竞品来源图加一组标好角度的产品素材，连同平台 / 文案语言 / 差异化档位与产品描述（名称、外形特征、
@@ -140,11 +143,11 @@ versionsPerImage, createdAt, updatedAt }` 存在主 IndexedDB 的 `bgswap_jobs` 
 _Avoid_: 批量换背景套、背景风格、镜头
 
 **换背景模式（bgswap mode）**：
-一次生成要动画面的哪一部分，由右栏的「产品来源」与「目标」两组分段合成：`background`（原图产品，
+一次生成要动画面的哪一部分，由右栏点的那个动作直接定：`background`（原图产品，
 只换背景）、`replace-product`（换成素材里的产品，背景像素不动）、`replace-and-background`（两样都
 换）。模式决定遮罩朝哪一侧重绘（换产品时蒙版反过来，产品区重绘、背景保留）、提交带几张参考图
-（换产品时是 [原图, 按机位匹配的素材图]），以及 BFF 用哪一段提示词模板。产品设置整任务生效，
-批量沿用；版本记下自己跑的模式与用掉的 `productAssetId`，重跑照旧模式走。
+（换产品时是 [原图, 按机位匹配的素材图]），以及 BFF 用哪一段提示词模板。产品素材整任务生效，
+最近一次动作记在任务上供批量沿用；版本记下自己跑的模式与用掉的 `productAssetId`，重跑照旧模式走。
 _Avoid_: 换图模式、product mode、模式枚举当版本
 
 **画面类型（scene type）**：
