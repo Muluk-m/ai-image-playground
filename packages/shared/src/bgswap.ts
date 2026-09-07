@@ -29,6 +29,8 @@ export interface BackgroundPlan {
   readonly camera: string
   readonly sceneType: BgSceneType
   readonly productBox: ProductBox | null
+  /** 算作产品、换背景时一个像素都不该动的那组部件；判据是功能归属，不是物理相连。 */
+  readonly inventory: readonly string[]
   readonly plan: string
 }
 
@@ -39,7 +41,10 @@ export interface BackgroundPlanResult extends BackgroundPlan {
 /** 视觉模型的输出与 BFF 应答的方案部分是同一个形状，两侧共用这一个解析器。 */
 export function parseBackgroundPlan(value: unknown): BackgroundPlan | null {
   if (typeof value !== 'object' || value === null) return null
-  const { category, camera, sceneType, productBox, plan } = value as Record<string, unknown>
+  const { category, camera, sceneType, productBox, inventory, plan } = value as Record<
+    string,
+    unknown
+  >
   const box = parseProductBox(productBox)
   const scene = parseSceneType(sceneType)
   if (box === undefined || !scene) return null
@@ -52,8 +57,18 @@ export function parseBackgroundPlan(value: unknown): BackgroundPlan | null {
     camera: typeof camera === 'string' ? camera.trim() : '',
     sceneType: scene,
     productBox: box,
+    inventory: parseInventory(inventory),
     plan: plan.trim(),
   }
+}
+
+/** 清单缺席或形状不对不该让整个方案作废，一律读成空清单。 */
+function parseInventory(value: unknown): readonly string[] {
+  if (!Array.isArray(value)) return []
+  const named = value
+    .map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
+    .filter(Boolean)
+  return [...new Set(named)]
 }
 
 /** 画面类型是枚举不是自由文本：答不上枚举就当没答，交给上层重试。 */
