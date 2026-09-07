@@ -44,6 +44,9 @@ describe('operator config', () => {
     expect(resolved.loaded).toBe(false)
 
     expect(Object.values(resolved.capabilities).every((value) => value === false)).toBe(true)
+    expect(resolved.quotas['sync:asset-image-bytes']).toBe(10 * 1024 * 1024)
+    expect(resolved.quotas['sync:user-asset-bytes']).toBe(500 * 1024 * 1024)
+    expect(Object.values(resolved.quotaSources).every((source) => source === 'default')).toBe(true)
     expect(Object.values(resolved.capabilitySources).every((source) => source === 'default')).toBe(
       true,
     )
@@ -60,6 +63,8 @@ describe('operator config', () => {
     expect(resolved.capabilitySources['billing:credits']).toBe('file')
     expect(resolved.quotas['generation:daily-images']).toBe(0)
     expect(resolved.quotaSources['generation:daily-images']).toBe('file')
+    expect(resolved.quotas['sync:asset-image-bytes']).toBe(10 * 1024 * 1024)
+    expect(resolved.quotas['sync:user-asset-bytes']).toBe(500 * 1024 * 1024)
     expect(resolved.channelsFile).toBe('/run/operator/channels.json')
     expect(resolved).not.toHaveProperty('preset')
     expect(resolved).not.toHaveProperty('presets')

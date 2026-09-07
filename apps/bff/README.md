@@ -45,6 +45,9 @@ BFF 同时托管 `apps/web/dist` 静态产物（`STATIC_DIR` 指向 dist 即可�
 | `GET` | `/v1/queue/requests/{id}/status` | 状态查询（含 queue_position / started_at 等）|
 | `GET` | `/v1/queue/requests/{id}` | 拿结果（`completed` 时含 `payload`；其它状态 425）|
 | `PUT` | `/v1/queue/requests/{id}/cancel` | 取消（in_progress 仅标记，worker 完成时会覆盖）|
+| `POST` | `/api/sync` | 一次请求既推也拉模板 / 素材 / 用户设置（需 `accounts:sync` + 登录）|
+| `PUT` | `/api/sync/assets/{imageId}` | 上传素材图本体；`imageId` 是内容哈希（需 `accounts:sync` + 登录）|
+| `GET` | `/api/sync/assets/{imageId}` | 下载自己的素材图；别人的 `imageId` 一律 404（需 `accounts:sync` + 登录）|
 
 请求 / 响应 schema 见 [`packages/shared/src/queue-protocol.ts`](../../packages/shared/src/queue-protocol.ts) 和 [`packages/shared/src/channel-discovery.ts`](../../packages/shared/src/channel-discovery.ts)。
 
@@ -97,6 +100,20 @@ channel kind `openai-queue` / `gemini-queue` 在前端层用，到 BFF URL 就�
 `preset` 选择同文件 `presets` 中的定义；预设先展开，随后由顶层 `capabilities`
 覆盖。`quotas` 是独立的数值命名空间，不得把数值写进能力表。`config` 留给 channel、
 品牌和内容文件路径及 secret 环境变量名；真实业务值和 secret 不放进样例或仓库。
+
+### 配额
+
+| Key | 缺省值 | 说明 |
+|---|---|---|
+| `generation:daily-images` | `0` | 每设备每日生成张数上限（需 `quota:daily`）|
+| `sync:asset-image-bytes` | `10485760`（10 MB）| 单张素材图上传字节上限 |
+| `sync:user-asset-bytes` | `524288000`（500 MB）| 每用户素材图总字节上限 |
+
+超过任一素材图上限时 `PUT /api/sync/assets/{imageId}` 返回 `413`，body 为
+`{ "error": "asset_image_too_large" | "asset_storage_quota_exceeded", "limit": <字节> }`，
+对象与台账都不落。被拒的素材在客户端照常本地可用，只是标「未同步」；对应的素材记录
+在 `POST /api/sync` 里会被单独拒绝（`rejected` 里给 `asset_image_missing`），同批其它
+记录照常接受。同一个 `imageId` 重复上传直接成功且只计一次字节。
 
 根目录 `private/` 是被忽略的可选 overlay。公开工作树默认没有该目录，BFF 经唯一的
 `apps/bff/src/lib/private-overlay.ts` 接缝加载它；目录缺席时返回可运行的空插件。
