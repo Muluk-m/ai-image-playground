@@ -18,17 +18,13 @@ export function createRecordStore<T extends { id: string }>(
 ): RecordStore<T> {
   const write = (record: T | Tombstone) =>
     dbTransaction(storeName, 'readwrite', (store) => store.put(record)).then(() => {})
+  const listChanges = () =>
+    dbTransaction<Array<T | Tombstone>>(storeName, 'readonly', (store) => store.getAll())
 
   return {
-    list: async () => {
-      const rows = await dbTransaction<Array<T | Tombstone>>(storeName, 'readonly', (store) =>
-        store.getAll(),
-      )
-      return rows.filter((row): row is T => !isTombstone(row))
-    },
+    listChanges,
 
-    listChanges: () =>
-      dbTransaction<Array<T | Tombstone>>(storeName, 'readonly', (store) => store.getAll()),
+    list: async () => (await listChanges()).filter((row): row is T => !isTombstone(row)),
 
     put: async (record) => {
       await write(record)
