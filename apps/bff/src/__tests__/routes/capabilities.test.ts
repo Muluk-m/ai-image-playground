@@ -25,6 +25,7 @@ describe('GET /api/capabilities', () => {
     expect(Object.keys(body).sort()).toEqual(exposedKeys)
     expect(body['accounts:login']).toBe(true)
     expect(body['accounts:self-register']).toBe(false)
+    expect(body['accounts:sync']).toBe(false)
     expect(body).not.toHaveProperty('operator:console')
   })
 

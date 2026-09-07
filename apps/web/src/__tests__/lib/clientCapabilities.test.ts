@@ -18,6 +18,7 @@ describe('client capability bootstrap', () => {
       Response.json({
         'accounts:login': true,
         'accounts:self-register': true,
+        'accounts:sync': true,
         'billing:credits': false,
         'generation:byok': true,
         'generation:video': false,

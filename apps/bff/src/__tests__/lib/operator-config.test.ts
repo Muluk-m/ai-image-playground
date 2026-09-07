@@ -116,6 +116,28 @@ describe('operator config', () => {
     )
   })
 
+  it('treats accounts:sync as off when login is off', () => {
+    const syncWithoutLogin = temporaryFile(
+      JSON.stringify({
+        capabilities: {
+          'accounts:login': false,
+          'accounts:sync': true,
+        },
+      }),
+    )
+    const syncWithLogin = temporaryFile(
+      JSON.stringify({
+        capabilities: {
+          'accounts:login': true,
+          'accounts:sync': true,
+        },
+      }),
+    )
+
+    expect(loadOperatorConfig(syncWithoutLogin).capabilities['accounts:sync']).toBe(false)
+    expect(loadOperatorConfig(syncWithLogin).capabilities['accounts:sync']).toBe(true)
+  })
+
   it('keeps known keys typed while evaluating runtime unknown keys as false', () => {
     const known: CapabilityKey = 'accounts:login'
     const resolved = loadOperatorConfig(sampleFile)
