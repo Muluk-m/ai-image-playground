@@ -1,4 +1,4 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { createFileRoute, notFound, useNavigate } from '@tanstack/react-router'
 import { KeyRound, LogOut, ShieldCheck, ShieldOff } from 'lucide-react'
 import { useMemo, useState } from 'react'
@@ -15,7 +15,9 @@ import { UserFormDialog } from '@/components/UserFormDialog'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { adminSessionQueryOptions } from '@/lib/admin-session'
 import { apiClient } from '@/lib/api-client'
+import { bytes } from '@/lib/format'
 import { PrivateAdminUserDetailPanel } from '@/lib/private-overlay'
 import { useUserDetail, useUserTasks } from '@/lib/queries'
 import { clearTaskView, parseUserDetailSearch, RANGE_LABEL } from '@/lib/search-params'
@@ -150,6 +152,7 @@ function UserDetailContent({
   userId: string
 }) {
   const navigate = useNavigate()
+  const { data: adminSession } = useQuery(adminSessionQueryOptions)
   const tasksQuery = useUserTasks(userId, status)
   const tasks = useMemo(
     () => (tasksQuery.data?.pages ?? []).flatMap((page) => page.tasks),
@@ -200,6 +203,14 @@ function UserDetailContent({
             <Kpi variant="inline" label="活跃会话" value={String(user.active_sessions)} />
             <Kpi variant="inline" label="历史任务" value={String(user.task_count)} />
           </div>
+
+          {adminSession?.accounts_sync ? (
+            <div className="mt-4 grid gap-4 border-t pt-4 sm:grid-cols-2 xl:grid-cols-4">
+              <Kpi variant="inline" label="模板" value={String(detail.template_count)} />
+              <Kpi variant="inline" label="素材" value={String(detail.asset_count)} />
+              <Kpi variant="inline" label="素材占用" value={bytes(detail.asset_bytes)} />
+            </div>
+          ) : null}
         </CardContent>
       </Card>
 

@@ -38,6 +38,19 @@ export function duration(startedAt: number | null, completedAt: number | null): 
   return rs === 0 ? `${m}m` : `${m}m ${rs}s`
 }
 
+const BYTE_UNITS = ['B', 'KB', 'MB', 'GB', 'TB'] as const
+
+/** 字节数 "0 B" / "2.0 KB" / "3.0 MB" */
+export function bytes(value: number): string {
+  let scaled = Math.max(0, value)
+  let unit = 0
+  while (scaled >= 1024 && unit < BYTE_UNITS.length - 1) {
+    scaled /= 1024
+    unit += 1
+  }
+  return `${unit === 0 ? Math.round(scaled) : scaled.toFixed(1)} ${BYTE_UNITS[unit]}`
+}
+
 function pad(value: number): string {
   return String(value).padStart(2, '0')
 }
