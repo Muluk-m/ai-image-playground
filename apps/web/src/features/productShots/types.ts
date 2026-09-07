@@ -25,7 +25,7 @@ export type MatteOutcome =
   | { ok: true; backend: MatteBackendId; elapsedMs: number }
   | { ok: false; reason: MatteFailureCause }
 
-/** 一次「换背景」的产出。`masked` 为假是蒙版失败的提示词版，产品像素没被锁住。 */
+/** 一次动作的产出。`masked` 为假是蒙版失败的提示词版，产品像素没被锁住。 */
 export interface ProductShotVersion {
   id: string
   taskId: string
@@ -64,7 +64,7 @@ export interface ProductShotImage {
   chosenVersionId?: string
 }
 
-/** 换背景任务：一组原图连同偏好与版数，作为一个整体跑完。 */
+/** 商品图任务：一组原图连同偏好与版数，作为一个整体跑完。 */
 export interface ProductShotJob {
   id: string
   name: string

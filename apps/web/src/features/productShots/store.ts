@@ -816,7 +816,7 @@ async function persistDraft(set: SetState, get: GetState): Promise<void> {
   const now = Date.now()
   const record: ProductShotJob = {
     id: draft.id ?? crypto.randomUUID(),
-    name: draft.name.trim() || `换背景 ${jobs.length + 1}`,
+    name: draft.name.trim() || `商品图 ${jobs.length + 1}`,
     images: draft.images,
     preference: draft.preference,
     versionsPerImage: draft.versionsPerImage,
