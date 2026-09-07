@@ -252,7 +252,7 @@ describe('picking where the source images come from', () => {
 
     click(sourceTab('素材库'))
     const open = [...column('sources').querySelectorAll('button')].find(
-      (item) => item.textContent === '从素材库选',
+      (item) => item.textContent === '从素材库选原图',
     )
     if (!open) throw new Error('no library picker button')
     click(open)
@@ -260,6 +260,7 @@ describe('picking where the source images come from', () => {
 
     const picker = document.querySelector('[data-product-shots-source-picker]')
     if (!picker) throw new Error('no source picker overlay')
+    expect(picker.textContent).toContain('选原图')
     const card = [...picker.querySelectorAll('button')].find((item) =>
       item.textContent?.includes('主图白底'),
     )
@@ -551,18 +552,41 @@ describe('the product picked once for the whole job', () => {
     return button
   }
 
+  function pickProductButton(): HTMLButtonElement {
+    const button = [...column('actions').querySelectorAll('button')].find(
+      (item) => item.textContent === '选产品素材',
+    )
+    if (!button) throw new Error('no pick product button')
+    return button
+  }
+
   it('holds the product swap back until a product asset is picked', () => {
     render()
 
     expect(actionButton('replace-product').disabled).toBe(true)
-    expect(column('actions').textContent).toContain('先在上方选产品素材')
+    expect(pickProductButton()).toBeTruthy()
   })
 
   it('holds the creative remix back until a product asset is picked', () => {
     render()
 
     expect(actionButton('remix').disabled).toBe(true)
-    expect(column('actions').textContent).toContain('先在上方选产品素材')
+    expect(pickProductButton()).toBeTruthy()
+  })
+
+  it('opens the picker from the reason a held back action gives', async () => {
+    render()
+
+    click(pickProductButton())
+    await settle()
+
+    expect(document.querySelector('[data-product-shots-product-picker]')).not.toBeNull()
+  })
+
+  it('says what the product at the top is used for', () => {
+    render()
+
+    expect(productBar().textContent).toContain('换产品 / 借创意重做时放进画面的产品')
   })
 
   it('picks how far the remix goes from the competitor', () => {
