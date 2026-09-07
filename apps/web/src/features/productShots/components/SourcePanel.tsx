@@ -10,22 +10,39 @@ import {
   OUTLINE_BUTTON,
   PRIMARY_BUTTON,
 } from '../../../components/panelStyles'
+import Segmented from '../../../components/Segmented'
 import { isClientCapabilityEnabled } from '../../../lib/clientCapabilities'
 import AssetThumb from '../../library/components/AssetThumb'
 import { DIAGRAM_LABEL, isDiagram } from '../lib/scene'
-import { useProductShotsStore } from '../store'
+import { SOURCE_MODE_LABELS, SOURCE_MODES, useProductShotsStore } from '../store'
+import SourceLibraryPicker from './SourceLibraryPicker'
 
 export default function SourcePanel() {
   const images = useProductShotsStore(useShallow((s) => s.draft.images))
   const selectedImageId = useProductShotsStore((s) => s.selectedImageId)
+  const sourcePickerOpen = useProductShotsStore((s) => s.sourcePickerOpen)
   const listingUrl = useProductShotsStore((s) => s.listingUrl)
   const listingLoading = useProductShotsStore((s) => s.listingLoading)
   const listingStartedAt = useProductShotsStore((s) => s.listingStartedAt)
   const listingNotice = useProductShotsStore((s) => s.listingNotice)
+  const picked = useProductShotsStore((s) => s.sourceMode)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const { setListingUrl, fetchListing, importFiles, removeImage, selectImage } =
-    useProductShotsStore.getState()
+  const {
+    setSourceMode,
+    setListingUrl,
+    fetchListing,
+    importFiles,
+    openSourcePicker,
+    removeImage,
+    selectImage,
+  } = useProductShotsStore.getState()
+
+  // 抓图能力关掉时链接这一档整个不出现，选中它的老状态回落到上传。
+  const offered = SOURCE_MODES.filter(
+    (mode) => mode !== 'listing' || isClientCapabilityEnabled('remix:listing'),
+  )
+  const sourceMode = offered.includes(picked) ? picked : 'upload'
 
   return (
     <section data-product-shots-column="sources" className={CARD}>
@@ -34,8 +51,16 @@ export default function SourcePanel() {
         <span className="text-xs text-gray-400 dark:text-gray-500">{images.length} 张</span>
       </div>
 
-      {isClientCapabilityEnabled('remix:listing') && (
-        <>
+      <Segmented
+        label="图片来源"
+        options={offered}
+        labels={SOURCE_MODE_LABELS}
+        value={sourceMode}
+        onChange={setSourceMode}
+      />
+
+      {sourceMode === 'listing' && (
+        <div className="mt-3">
           <label className={LABEL} htmlFor="product-shots-listing-url">
             商品链接
           </label>
@@ -60,32 +85,43 @@ export default function SourcePanel() {
               )}
             </button>
           </div>
-        </>
+          {listingNotice && <p className={`mt-2 ${NOTICE}`}>{listingNotice}</p>}
+        </div>
       )}
 
-      {listingNotice && <p className={`mt-2 ${NOTICE}`}>{listingNotice}</p>}
+      {sourceMode === 'upload' && (
+        <div className="mt-3">
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className={`w-full ${OUTLINE_BUTTON}`}
+          >
+            上传原图
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            hidden
+            aria-label="上传原图"
+            onChange={(e) => {
+              void importFiles([...(e.target.files ?? [])])
+              e.target.value = ''
+            }}
+          />
+        </div>
+      )}
 
-      <div className="mt-3">
-        <button
-          type="button"
-          onClick={() => fileInputRef.current?.click()}
-          className={`w-full ${OUTLINE_BUTTON}`}
-        >
-          上传原图
-        </button>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*"
-          multiple
-          hidden
-          aria-label="上传原图"
-          onChange={(e) => {
-            void importFiles([...(e.target.files ?? [])])
-            e.target.value = ''
-          }}
-        />
-      </div>
+      {sourceMode === 'library' && (
+        <div className="mt-3">
+          <button type="button" onClick={openSourcePicker} className={`w-full ${OUTLINE_BUTTON}`}>
+            从素材库选
+          </button>
+        </div>
+      )}
+
+      {sourcePickerOpen && <SourceLibraryPicker />}
 
       {images.length > 0 && (
         <ul className="mt-3 flex max-h-96 flex-col gap-1.5 overflow-y-auto">

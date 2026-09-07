@@ -63,6 +63,17 @@ const ASSET_MISSING = '素材图片已丢失'
 
 type Mask = { imageId: string; targetImageId: string }
 
+export const SOURCE_MODES = ['upload', 'listing', 'library'] as const
+
+/** 原图从哪来：自己上传、贴商品链接抓、还是从素材库里挑。 */
+export type SourceMode = (typeof SOURCE_MODES)[number]
+
+export const SOURCE_MODE_LABELS: Record<SourceMode, string> = {
+  upload: '上传',
+  listing: '亚马逊链接',
+  library: '素材库',
+}
+
 export interface ProductShotsDraft {
   /** 已保存的任务 id；null 表示还没落盘。 */
   id: string | null
@@ -81,6 +92,8 @@ export interface ProductShotsState {
   activeJobId: string | null
   draft: ProductShotsDraft
   selectedImageId: string | null
+  /** 左栏这一刻在用哪种来源。只是 UI 状态，不进任务记录。 */
+  sourceMode: SourceMode
   listingUrl: string
   listingLoading: boolean
   /** 抓图开始的时刻，用来读秒；不在抓图时为 null。 */
@@ -102,6 +115,8 @@ export interface ProductShotsState {
 
   /** 素材快捷弹层是否打开。 */
   productPickerOpen: boolean
+  /** 从素材库挑原图的弹层是否打开。 */
+  sourcePickerOpen: boolean
 
   loadJobs: () => Promise<void>
   startNewJob: () => void
@@ -117,9 +132,13 @@ export interface ProductShotsState {
   runBatchImage: (imageId: string) => Promise<void>
   stopBatch: () => void
 
+  setSourceMode: (mode: SourceMode) => void
   setListingUrl: (url: string) => void
   fetchListing: () => Promise<void>
   importFiles: (files: File[]) => Promise<void>
+  addImagesFromAssets: (assetIds: readonly string[]) => Promise<void>
+  openSourcePicker: () => void
+  closeSourcePicker: () => void
   removeImage: (imageId: string) => void
   selectImage: (imageId: string) => void
 
@@ -164,6 +183,7 @@ export const useProductShotsStore = create<ProductShotsState>((set, get) => ({
   activeJobId: null,
   draft: emptyDraft(),
   selectedImageId: null,
+  sourceMode: 'upload',
   listingUrl: '',
   listingLoading: false,
   listingStartedAt: null,
@@ -175,6 +195,7 @@ export const useProductShotsStore = create<ProductShotsState>((set, get) => ({
   matteOverlayVersionId: null,
   batch: null,
   productPickerOpen: false,
+  sourcePickerOpen: false,
 
   loadJobs: async () => {
     set({ jobs: await productShotJobStore.list() })
@@ -185,6 +206,7 @@ export const useProductShotsStore = create<ProductShotsState>((set, get) => ({
       draft: emptyDraft(),
       activeJobId: null,
       selectedImageId: null,
+      sourceMode: 'upload',
       listingUrl: '',
       listingNotice: null,
       swapNotice: null,
@@ -207,6 +229,11 @@ export const useProductShotsStore = create<ProductShotsState>((set, get) => ({
       matteOverlayVersionId: null,
       batch: null,
     })
+  },
+
+  setSourceMode: (sourceMode) => {
+    set({ sourceMode })
+    if (sourceMode === 'library') void useLibraryStore.getState().loadAssets()
   },
 
   setListingUrl: (listingUrl) => set({ listingUrl }),
@@ -253,6 +280,25 @@ export const useProductShotsStore = create<ProductShotsState>((set, get) => ({
     await persistDraft(set, get)
     await scanScenes(set, get)
   },
+
+  addImagesFromAssets: async (assetIds) => {
+    const { assets } = useLibraryStore.getState()
+    const added = assetIds.flatMap((assetId) => {
+      const asset = assets.find((item) => item.id === assetId)
+      return asset ? [{ imageId: asset.imageId, versions: [] }] : []
+    })
+    if (added.length === 0) return
+    addImages(set, added)
+    await persistDraft(set, get)
+    await scanScenes(set, get)
+  },
+
+  openSourcePicker: () => {
+    set({ sourcePickerOpen: true })
+    void useLibraryStore.getState().loadAssets()
+  },
+
+  closeSourcePicker: () => set({ sourcePickerOpen: false }),
 
   removeImage: (imageId) => {
     set((s) => {
