@@ -64,12 +64,17 @@ const ANGLE_KEYWORDS: Array<[ProductAngle, string[]]> = [
 
 const DEFAULT_ANGLE: ProductAngle = 'three-quarter'
 
-export function cameraToAngle(camera: string): ProductAngle {
-  const text = camera.toLowerCase()
+/** 没写角度就返回 null：机位回落 3/4 侧，素材名回落正面，两处口径不同。 */
+export function angleFromText(text: string): ProductAngle | null {
+  const lower = text.toLowerCase()
   for (const [angle, keywords] of ANGLE_KEYWORDS) {
-    if (keywords.some((keyword) => text.includes(keyword))) return angle
+    if (keywords.some((keyword) => lower.includes(keyword))) return angle
   }
-  return DEFAULT_ANGLE
+  return null
+}
+
+export function cameraToAngle(camera: string): ProductAngle {
+  return angleFromText(camera) ?? DEFAULT_ANGLE
 }
 
 /** 角度不匹配时模型会改产品，所以宁可返回 null 让调用方决定怎么退。 */
