@@ -23,15 +23,6 @@ export interface PrivateAdminOverlay {
 }
 
 const EmptyComponent = () => null
-function EmptyUserDetailPanel({
-  children,
-}: {
-  userId: string
-  username: string
-  children?: ReactNode
-}) {
-  return children ?? null
-}
 const EMPTY_SUMMARIES: Readonly<Record<string, PrivateAdminUserSummary>> = Object.freeze({})
 const EMPTY_OVERLAY: PrivateAdminOverlay = Object.freeze({
   present: false,
@@ -39,7 +30,7 @@ const EMPTY_OVERLAY: PrivateAdminOverlay = Object.freeze({
   useUserSummaries: () => EMPTY_SUMMARIES,
   OverviewPanel: EmptyComponent,
   SettingsPanel: EmptyComponent,
-  UserDetailPanel: EmptyUserDetailPanel,
+  UserDetailPanel: EmptyComponent,
 })
 
 const privateModules = import.meta.glob('../../../../private/apps/admin/index.tsx', { eager: true })
@@ -146,7 +137,7 @@ export function PrivateAdminUserDetailPanel(props: {
 }) {
   const enabled = usePrivateAdminOverlayEnabled()
   const Component = overlay.UserDetailPanel
-  if (!enabled) return props.children ?? null
+  if (!enabled) return props.children
   return <Component {...props} />
 }
 
