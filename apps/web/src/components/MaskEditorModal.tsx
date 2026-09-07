@@ -850,24 +850,21 @@ export default function MaskEditorModal() {
           targetImageId: workingTargetId,
           targetDataUrl: sourceDataUrl,
         })
-        setMaskEditorImageId(null)
-        showToast('遮罩已保存', 'success')
-        return
+      } else {
+        const latestStore = useStore.getState()
+        latestStore.setInputImages(
+          replaceMaskTargetImage(latestStore.inputImages, savingImageId, {
+            id: workingTargetId,
+            dataUrl: sourceDataUrl,
+          }),
+          { equivalentImageIds: { [savingImageId]: workingTargetId } },
+        )
+        setMaskDraft({
+          targetImageId: workingTargetId,
+          maskDataUrl,
+          updatedAt: Date.now(),
+        })
       }
-
-      const latestStore = useStore.getState()
-      latestStore.setInputImages(
-        replaceMaskTargetImage(latestStore.inputImages, savingImageId, {
-          id: workingTargetId,
-          dataUrl: sourceDataUrl,
-        }),
-        { equivalentImageIds: { [savingImageId]: workingTargetId } },
-      )
-      setMaskDraft({
-        targetImageId: workingTargetId,
-        maskDataUrl,
-        updatedAt: Date.now(),
-      })
       setMaskEditorImageId(null)
       showToast('遮罩已保存', 'success')
     } catch (err) {
