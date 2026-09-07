@@ -74,6 +74,11 @@ export default function VersionBar() {
                     <span className="rounded bg-violet-500/10 px-1.5 py-0.5 text-violet-700 dark:text-violet-300">
                       {actionLabel(version.mode, version.level)}
                     </span>
+                    {version.lowResSource && (
+                      <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-amber-700 dark:text-amber-300">
+                        源图分辨率低
+                      </span>
+                    )}
                     {version.promptEdited && (
                       <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-amber-700 dark:text-amber-300">
                         手改

@@ -9,12 +9,14 @@ import {
 import { create } from 'zustand'
 import { analyzeCompetitorImages } from '../../lib/analyzeClient'
 import { getActiveApiProfile } from '../../lib/apiProfiles'
+import { getImageDimensions } from '../../lib/canvasImage'
 import { modelSupportsNativeMask } from '../../lib/channels/profileSelectors'
 import { getPublicChannels } from '../../lib/channels/publicChannels'
 import { isClientCapabilityEnabled } from '../../lib/clientCapabilities'
 import { storeImage } from '../../lib/db'
 import { eraseProductArea } from '../../lib/eraseProduct'
 import { fetchListingImages, listingImageProxyUrl } from '../../lib/listingClient'
+import { getParamCapabilities } from '../../lib/paramCompatibility'
 import {
   angleFromText,
   cameraToAngle,
@@ -51,7 +53,7 @@ import {
   submitPrepared,
   useStore,
 } from '../../store'
-import type { InputImage } from '../../types'
+import type { InputImage, TaskParams } from '../../types'
 import { useLibraryStore } from '../library/store'
 import type { AssetRecord } from '../library/types'
 import { ACTION_LABELS, type ProductShotAction } from './lib/actions'
@@ -91,6 +93,8 @@ const MASK_UNSUPPORTED = `当前模型不支持遮罩，${UNMASKED_FALLBACK}`
 const MATTE_FAILED = `抠图失败，${UNMASKED_FALLBACK}`
 const MATTE_UNRELIABLE = `蒙版与产品框不符，${UNMASKED_FALLBACK}`
 const NOT_SUBMITTED = '这张没有提交成功'
+/** 短边低于这个像素数就算低分辨率源图。 */
+const LOW_RES_SHORT_EDGE = 1200
 const NO_ASSET_PICKED = '请先选一张产品素材'
 const ANALYZE_OFF = '竞品图分析未开启，这张跑不了借创意重做'
 const NO_BRIEF = '这张没分析出可用的简报'
@@ -640,6 +644,16 @@ async function loadOriginal(imageId: string): Promise<string> {
   return dataUrl
 }
 
+/** 小图放大后细节发软，版本上要标出来。量不出尺寸只是没法标，不该拦住生成。 */
+async function isLowResSource(dataUrl: string): Promise<boolean> {
+  try {
+    const { width, height } = await getImageDimensions(dataUrl)
+    return Math.min(width, height) < LOW_RES_SHORT_EDGE
+  } catch {
+    return false
+  }
+}
+
 interface MaskAttempt {
   mask: Mask | null
   /** 蒙版回落的说明，没有回落时为 null。 */
@@ -655,6 +669,8 @@ const NO_MASK: MaskAttempt = { mask: null, notice: null, matte: null, previewIma
 
 /** 一张图跑完方案与蒙版后的成果，同一张的每一版都拿它去提交。 */
 interface PreparedImage extends MaskAttempt {
+  /** 源图短边低于门槛，这一版的细节本来就上不去。 */
+  lowResSource: boolean
   imageId: string
   plan: string
   prompt: string
@@ -778,6 +794,7 @@ async function prepareRemix(
   return {
     ...NO_MASK,
     notice: product.notice,
+    lowResSource: await isLowResSource(dataUrl),
     imageId,
     plan: planned.plan,
     prompt: planned.prompt,
@@ -853,6 +870,7 @@ async function prepareSwap(
   return {
     ...attempt,
     notice: [product?.notice, attempt.notice].filter(Boolean).join('；') || null,
+    lowResSource: await isLowResSource(dataUrl),
     imageId,
     plan: planned.plan,
     prompt: planned.prompt,
@@ -873,7 +891,7 @@ async function submitVersion(
   const [taskId] = await submitPrepared({
     prompt: prepared.prompt,
     inputImages: prepared.inputImages,
-    params: { ...useStore.getState().params, n: 1 },
+    params: submitParams(),
     mask: prepared.mask,
     origin: { setId: jobId, shotId: `${prepared.imageId}:${versionId}` },
   })
@@ -896,8 +914,17 @@ async function submitVersion(
     ...(prepared.productAssetId ? { productAssetId: prepared.productAssetId } : {}),
     ...(prepared.matte ? { matte: prepared.matte } : {}),
     ...(prepared.previewImageId ? { mattePreviewImageId: prepared.previewImageId } : {}),
+    ...(prepared.lowResSource ? { lowResSource: true } : {}),
     createdAt: Date.now(),
   }
+}
+
+/** 商品图要的是最高保真；profile 给不了 quality 时保持当前参数，别硬塞上游不认的字段。 */
+function submitParams(): TaskParams {
+  const { params, settings } = useStore.getState()
+  const profile = getActiveApiProfile(settings)
+  const supportsQuality = getParamCapabilities(profile, params.output_format).quality
+  return { ...params, n: 1, ...(supportsQuality ? { quality: 'high' as const } : {}) }
 }
 
 async function recordVersions(
