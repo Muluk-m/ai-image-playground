@@ -15,6 +15,7 @@ import { formatTextList, parseTextList } from '../lib/remixPlan'
 import type { VersionPlanPatch } from '../lib/versionPlan'
 import { useProductShotsStore } from '../store'
 import type { ProductShotVersion } from '../types'
+import PlanReferences from './PlanReferences'
 import TextField from './TextField'
 
 const BADGE = 'rounded px-1.5 py-0.5 text-xs'
@@ -28,10 +29,14 @@ const BOX_SIDES: Array<{ key: keyof ProductBox; label: string }> = [
 
 export default function PlanDrawer() {
   const versionId = useProductShotsStore((s) => s.planVersionId)
-  const version = useProductShotsStore(
-    useShallow((s) =>
-      s.draft.images.flatMap((image) => image.versions).find((item) => item.id === versionId),
-    ),
+  const found = useProductShotsStore(
+    useShallow((s) => {
+      for (const image of s.draft.images) {
+        const version = image.versions.find((item) => item.id === versionId)
+        if (version) return { imageId: image.imageId, version }
+      }
+      return null
+    }),
   )
   const language = useProductShotsStore((s) => s.draft.language)
   const busy = useProductShotsStore((s) => s.swapStage !== null || s.batch?.running === true)
@@ -44,7 +49,8 @@ export default function PlanDrawer() {
     setPromptLanguage,
   } = useProductShotsStore.getState()
 
-  if (!version) return null
+  if (!found) return null
+  const { imageId, version } = found
   const edit = (patch: VersionPlanPatch) => editVersionPlan(version.id, patch)
 
   return (
@@ -69,6 +75,8 @@ export default function PlanDrawer() {
         </div>
 
         <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4">
+          <PlanReferences imageId={imageId} version={version} />
+
           <div className="flex items-center gap-2">
             <span className={LABEL}>文案语言</span>
             <Segmented
