@@ -178,13 +178,13 @@ _Avoid_: 附件、配件、产品框、保留区、关键词表
 _Avoid_: 配件、陈设、装饰
 
 **偏好（preference）**：
-任务级的一句自由文本，实际承载两件事：**保留项**（用户点名不能动的东西，抽出来并入产品清单）与
-**风格愿望**（其余部分，作为方案的补充附在提示词末尾）。界面上不拆字段，拆分由视觉模型完成。
+任务级的一句自由文本，实际承载两件事：**保留项**（用户点名不能动的东西，由视觉模型抽出并入产品清单）与
+**风格愿望**。界面上不拆字段，提示词末尾附的仍是整句原文，抽取只是多了一条进清单的路。
 _Avoid_: 风格要求、备注、附加提示词
 
 **版本（version）**：
 一次动作的产出，记 `{ id, taskId, plan, prompt, productBox, masked, mode, level, brief, shotType,
-copy, promptEdited, productAssetId, matte, mattePreviewImageId, createdAt }`。一张原图的多版都留着，
+copy, promptEdited, productAssetId, inventory, matte, mattePreviewImageId, createdAt }`。一张原图的多版都留着，
 用户选一版定稿；重跑照本版的动作走。版本不存进度，进度一律从任务记录派生——历史折叠卡上的动作标签
 也是把任务内各版本的动作去重来的。
 _Avoid_: 镜头、结果、出图记录
