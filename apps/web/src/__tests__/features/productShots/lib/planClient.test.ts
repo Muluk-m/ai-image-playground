@@ -115,21 +115,16 @@ describe('asking the BFF for a background plan', () => {
     ).rejects.toThrow('背景方案')
   })
 
-  it('reads an answer without an inventory as an empty one', async () => {
+  it('empties a missing or malformed inventory instead of failing the plan', async () => {
     const { inventory: _inventory, ...noInventory } = PLAN
-    const fetcher = vi.fn().mockResolvedValue(jsonResponse(noInventory))
 
-    const result = await requestBackgroundPlan({ image: 'data:image/png;base64,AAA' }, fetcher)
+    for (const body of [noInventory, { ...PLAN, inventory: '浴缸、龙头' }]) {
+      const fetcher = vi.fn().mockResolvedValue(jsonResponse(body))
 
-    expect(result.inventory).toEqual([])
-  })
+      const result = await requestBackgroundPlan({ image: 'data:image/png;base64,AAA' }, fetcher)
 
-  it('empties a malformed inventory instead of failing the plan', async () => {
-    const fetcher = vi.fn().mockResolvedValue(jsonResponse({ ...PLAN, inventory: '浴缸、龙头' }))
-
-    const result = await requestBackgroundPlan({ image: 'data:image/png;base64,AAA' }, fetcher)
-
-    expect(result.inventory).toEqual([])
+      expect(result.inventory).toEqual([])
+    }
   })
 
   it('trims the inventory entries, drops the empty ones and keeps each name once', async () => {
