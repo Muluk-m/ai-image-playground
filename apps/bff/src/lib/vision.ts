@@ -91,7 +91,7 @@ Answer with a single JSON object and nothing else. Keys:
 ${SCENE_TYPE_KEY}
 "productBox": {"x","y","w","h"} normalised to 0-1 for the product's bounding box, or null when no product is visible
 "inventory": array of short strings naming everything in the photo that counts as the product: the product itself, plus every part that functionally belongs to this one item of merchandise and would have no reason to exist without it, whether or not it touches the main body. Anything that stands on its own and could be taken away without leaving the merchandise incomplete is staging, not product.
-"plan": ONE sentence describing a real environment that suits this category, naming the wall, the floor, the light and one or two props. Every prop must be liftable on its own, must not appear in "inventory", and must not repeat the function of anything in "inventory"`
+"plan": ONE sentence describing a real environment that suits this category, naming the wall, the floor, the light and one or two props. Every prop must be liftable on its own, must not appear in "inventory", and must not repeat the function of anything in "inventory". The sentence describes the new environment only: never restate what stays, never repeat the user's wording, no preamble`
 
 const PLAN_LANGUAGE: Record<PromptLanguage, string> = {
   zh: 'Write all free-text values in Chinese.',
@@ -151,7 +151,7 @@ async function requestContent(image: string, prompt: string): Promise<string | u
         authorization: `Bearer ${resolveApiKey('openai-compat')}`,
       },
       body: JSON.stringify({
-        // 默认是 gpt-5.4：网关上的 claude 系列全部限流回 429，改回去会拿不到简报。
+        // 网关上的 claude 系列全部限流回 429，视觉模型别换成它们。
         model: config.remix.visionModel,
         max_tokens: 1500,
         messages: [
