@@ -12,7 +12,6 @@ vi.mock('../../../../lib/sync/assetImages', () => ({ ensureAssetImage: vi.fn() }
 const ensureAssetImageMock = vi.mocked(ensureAssetImage)
 
 declare global {
-  // eslint-disable-next-line no-var
   var IS_REACT_ACT_ENVIRONMENT: boolean
 }
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
