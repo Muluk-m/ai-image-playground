@@ -10,10 +10,9 @@ import {
   SYNC_TEMPLATE_PARAMS_MAX_BYTES,
 } from '@image-playground/shared'
 import { Elysia, t } from 'elysia'
-import { config } from '../config'
 import { capabilityUnavailable, isCapabilityEnabled } from '../lib/capabilities'
 import { synchronize } from '../lib/sync'
-import { readAssetImage, storeAssetImage } from '../lib/sync-assets'
+import { assetImageByteLimit, readAssetImage, storeAssetImage } from '../lib/sync-assets'
 import { resolveAuthUser } from '../lib/user-auth'
 
 const epochMs = t.Integer({ minimum: 0 })
@@ -126,15 +125,14 @@ export const syncRoutes = new Elysia()
 
       // 声明长度先挡一道，否则超限的 body 仍会被整个读进内存才被拒。
       const declared = Number(request.headers.get('content-length'))
-      const imageLimit = config.operator.quotas['sync:asset-image-bytes']
-      if (Number.isFinite(declared) && declared > imageLimit) {
-        return status(413, { error: 'asset_image_too_large', limit: imageLimit })
+      if (Number.isFinite(declared) && declared > assetImageByteLimit()) {
+        return status(413, { error: 'asset_image_too_large', limit: assetImageByteLimit() })
       }
 
       const bytes = new Uint8Array(await request.arrayBuffer())
       const stored = await storeAssetImage(authUser.id, params.imageId, bytes, contentType)
       if (!stored.ok) return status(413, { error: stored.error, limit: stored.limit })
-      return { imageId: stored.imageId, bytes: stored.bytes, totalBytes: stored.totalBytes }
+      return stored.result
     },
     { params: imageIdParams, parse: 'none' },
   )
@@ -142,9 +140,8 @@ export const syncRoutes = new Elysia()
     '/api/sync/assets/:imageId',
     async ({ authUser, params, status }) => {
       if (!authUser) return status(401, { error: 'unauthorized' })
-      const stored = SYNC_IMAGE_ID_PATTERN.test(params.imageId)
-        ? await readAssetImage(authUser.id, params.imageId)
-        : null
+      // 台账查得到才去碰对象存储，畸形 `imageId` 天然落不到任何一行。
+      const stored = await readAssetImage(authUser.id, params.imageId)
       if (!stored) return status(404, { error: 'asset_image_not_found' })
       return new Response(stored.bytes, {
         headers: {

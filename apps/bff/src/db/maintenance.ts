@@ -4,10 +4,9 @@ import { log } from '../lib/logger'
 import { objectStore } from '../lib/objectStore'
 import { loadPrivateBffOverlay } from '../lib/private-overlay'
 import { planNextAttempt } from '../lib/retry'
+import { ASSET_OBJECT_ROOT, assetOwnerPrefix } from '../lib/sync-assets'
 import { db, schema } from './client'
 import { finishTask, requeueTask, requeueTasksForPolling } from './task-transitions'
-
-const ASSET_OBJECT_PREFIX = 'users/'
 
 export interface RecoveredTasks {
   requeued: number
@@ -102,8 +101,8 @@ export async function runPrivateMaintenance(now = Date.now()): Promise<void> {
  */
 export async function purgeOrphanedAssetObjects(): Promise<number> {
   const owners = new Set<string>()
-  for (const key of await objectStore().listPrefix(ASSET_OBJECT_PREFIX)) {
-    const owner = key.slice(ASSET_OBJECT_PREFIX.length).split('/')[0]
+  for (const key of await objectStore().listPrefix(ASSET_OBJECT_ROOT)) {
+    const owner = key.slice(ASSET_OBJECT_ROOT.length).split('/')[0]
     if (owner) owners.add(owner)
   }
   if (owners.size === 0) return 0
@@ -121,7 +120,7 @@ export async function purgeOrphanedAssetObjects(): Promise<number> {
   for (const owner of owners) {
     if (alive.has(owner)) continue
     try {
-      await objectStore().deletePrefix(`${ASSET_OBJECT_PREFIX}${owner}/`)
+      await objectStore().deletePrefix(assetOwnerPrefix(owner))
       removed += 1
     } catch (error) {
       log.warn(
