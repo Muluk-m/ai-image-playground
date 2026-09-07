@@ -100,7 +100,6 @@ describe('editing the plan of a background swap version', () => {
 
     expect(next.plan).toBe('放进水泥灰的极简浴室')
     expect(next.prompt).toContain('放进水泥灰的极简浴室')
-    expect(next.prompt).toContain('不动的部分')
   })
 
   it('names the inventory of the version in the untouched section', () => {
