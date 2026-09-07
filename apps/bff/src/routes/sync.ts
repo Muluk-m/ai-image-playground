@@ -10,6 +10,7 @@ import {
   SYNC_TEMPLATE_PARAMS_MAX_BYTES,
 } from '@image-playground/shared'
 import { Elysia, t } from 'elysia'
+import { config } from '../config'
 import { capabilityUnavailable, isCapabilityEnabled } from '../lib/capabilities'
 import { synchronize } from '../lib/sync'
 import { readAssetImage, storeAssetImage } from '../lib/sync-assets'
@@ -122,6 +123,13 @@ export const syncRoutes = new Elysia()
       }
       const contentType = (request.headers.get('content-type') ?? '').split(';')[0]!.trim()
       if (!isAssetImageMime(contentType)) return status(415, { error: 'unsupported_media_type' })
+
+      // 声明长度先挡一道，否则超限的 body 仍会被整个读进内存才被拒。
+      const declared = Number(request.headers.get('content-length'))
+      const imageLimit = config.operator.quotas['sync:asset-image-bytes']
+      if (Number.isFinite(declared) && declared > imageLimit) {
+        return status(413, { error: 'asset_image_too_large', limit: imageLimit })
+      }
 
       const bytes = new Uint8Array(await request.arrayBuffer())
       const stored = await storeAssetImage(authUser.id, params.imageId, bytes, contentType)
