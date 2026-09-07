@@ -31,6 +31,7 @@ describe('auth client', () => {
         Response.json({
           'accounts:login': true,
           'accounts:self-register': true,
+          'accounts:sync': false,
           'billing:credits': false,
           'generation:byok': true,
           'generation:video': false,
