@@ -1,0 +1,6 @@
+{
+  "capabilities": {
+    "accounts:login": false,
+    "accounts:sync": true
+  }
+}

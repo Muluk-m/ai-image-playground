@@ -17,6 +17,7 @@ import { remixListingRoutes } from './routes/remix-listing'
 import { resultRoutes } from './routes/result'
 import { statusRoutes } from './routes/status'
 import { submitRoutes } from './routes/submit'
+import { syncRoutes } from './routes/sync'
 
 const corsOrigin = config.corsOrigins === '*' ? true : config.corsOriginList
 
@@ -132,6 +133,7 @@ export const app = new Elysia()
   .use(bgswapPlanRoutes)
   .use(remixAnalyzeRoutes)
   .use(remixListingRoutes)
+  .use(syncRoutes)
   .use(internalUserRoutes)
   .use(internalCapabilitiesRoutes)
   .use(privateBffOverlay.routes)

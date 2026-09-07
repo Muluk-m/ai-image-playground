@@ -9,6 +9,7 @@
     }
   },
   "capabilities": {
+    "accounts:sync": false,
     "billing:credits": false,
     "generation:byok": false,
     "generation:video": false,
