@@ -25,19 +25,30 @@ export default function FrameSlot({ slot, imageId, disabledReason, hint, onPick 
 
   if (imageId) {
     return (
-      <div className="relative aspect-[16/10] overflow-hidden rounded-xl border border-gray-200 dark:border-white/[0.08]">
+      <div
+        aria-disabled={disabled}
+        className={`relative aspect-[16/10] overflow-hidden rounded-xl border border-gray-200 dark:border-white/[0.08] ${
+          disabled ? 'opacity-55' : ''
+        }`}
+      >
         <AssetThumb imageId={imageId} alt={label} />
         <span className="absolute left-1.5 top-1.5 rounded bg-black/55 px-1.5 text-[10px] text-white">
           {label}
         </span>
-        <button
-          type="button"
-          onClick={() => useVideoStore.getState().setFrame(slot, null)}
-          aria-label={`移除${label}`}
-          className="absolute right-1.5 top-1.5 grid h-5 w-5 place-items-center rounded-full bg-black/55 text-[11px] text-white"
-        >
-          ×
-        </button>
+        {disabled ? (
+          <span className="absolute inset-x-0 bottom-0 bg-black/60 px-1.5 py-0.5 text-center text-[10px] text-white">
+            {disabledReason}
+          </span>
+        ) : (
+          <button
+            type="button"
+            onClick={() => useVideoStore.getState().setFrame(slot, null)}
+            aria-label={`移除${label}`}
+            className="absolute right-1.5 top-1.5 grid h-5 w-5 place-items-center rounded-full bg-black/55 text-[11px] text-white"
+          >
+            ×
+          </button>
+        )}
       </div>
     )
   }
