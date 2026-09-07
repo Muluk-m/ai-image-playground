@@ -151,7 +151,7 @@ async function requestContent(image: string, prompt: string): Promise<string | u
         authorization: `Bearer ${resolveApiKey('openai-compat')}`,
       },
       body: JSON.stringify({
-        // 默认是 gpt-5.4：网关上的 claude 系列全部限流回 429，改回去会拿不到简报。
+        // 网关上的 claude 系列全部限流回 429，视觉模型别换成它们。
         model: config.remix.visionModel,
         max_tokens: 1500,
         messages: [
