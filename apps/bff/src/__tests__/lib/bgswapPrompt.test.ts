@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { buildBackgroundPrompt } from '../../lib/bgswapPrompt'
+import { buildBackgroundPrompt } from '@image-playground/shared'
 
 const PLAN_ZH = '暖白微水泥墙面，浅橡木地板，左侧柔和窗光，一株散尾葵与一条亚麻毛巾。'
 const PLAN_EN = 'Warm microcement wall, pale oak floor, soft window light from the left, one palm.'
