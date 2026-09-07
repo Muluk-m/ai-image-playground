@@ -4,6 +4,7 @@ import { useLibraryStore } from '../../library/store'
 import { useProductShotsStore } from '../store'
 import ActionPanel from './ActionPanel'
 import BatchBar from './BatchBar'
+import PlanDrawer from './PlanDrawer'
 import PreviewPanel from './PreviewPanel'
 import ProductBar from './ProductBar'
 import ResultGallery from './ResultGallery'
@@ -59,6 +60,7 @@ export default function ProductShotsMode() {
 
       <BatchBar />
       <ResultGallery />
+      <PlanDrawer />
     </main>
   )
 }

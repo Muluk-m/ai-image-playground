@@ -963,6 +963,169 @@ describe('remaking a picture with the idea of a competitor shot', () => {
   })
 })
 
+describe('reading and editing the plan of a version', () => {
+  /** 顶部选了两张标好角度的素材，机位对上的是 3/4 侧那张。 */
+  async function jobWithAssets(): Promise<string> {
+    const imageId = await jobWithOneImage()
+    const store = useProductShotsStore.getState()
+    store.toggleProductAsset('a-front')
+    store.setProductAngle('a-front', 'front')
+    store.toggleProductAsset('a-side')
+    store.setProductAngle('a-side', 'three-quarter')
+    return imageId
+  }
+
+  function firstVersion() {
+    const [version] = useProductShotsStore.getState().draft.images[0].versions
+    return version
+  }
+
+  it('rebuilds the prompt when the plan sentence changes', async () => {
+    await jobWithOneImage()
+    await useProductShotsStore.getState().runAction('background')
+
+    useProductShotsStore.getState().editVersionPlan(firstVersion().id, {
+      plan: '放进水泥灰的极简浴室',
+    })
+
+    expect(firstVersion().plan).toBe('放进水泥灰的极简浴室')
+    expect(firstVersion().prompt).toContain('放进水泥灰的极简浴室')
+  })
+
+  it('rebuilds the prompt when a remix brief field changes', async () => {
+    await jobWithAssets()
+    await useProductShotsStore.getState().runAction('remix')
+
+    useProductShotsStore.getState().editVersionPlan(firstVersion().id, {
+      brief: { background: '水泥灰浴室' },
+    })
+
+    expect(firstVersion().prompt).toContain('背景：水泥灰浴室')
+  })
+
+  it('stops rebuilding once the prompt is written by hand', async () => {
+    await jobWithOneImage()
+    await useProductShotsStore.getState().runAction('background')
+    const versionId = firstVersion().id
+
+    useProductShotsStore.getState().editVersionPlan(versionId, { prompt: '我自己写的提示词' })
+    useProductShotsStore.getState().editVersionPlan(versionId, { plan: '放进水泥灰的极简浴室' })
+
+    expect(firstVersion()).toMatchObject({
+      prompt: '我自己写的提示词',
+      promptEdited: true,
+      plan: '放进水泥灰的极简浴室',
+    })
+  })
+
+  it('takes the hand written prompt back to the AI one', async () => {
+    await jobWithOneImage()
+    await useProductShotsStore.getState().runAction('background')
+    const versionId = firstVersion().id
+    useProductShotsStore.getState().editVersionPlan(versionId, { prompt: '我自己写的提示词' })
+
+    useProductShotsStore.getState().resetVersionPrompt(versionId)
+
+    expect(firstVersion().promptEdited).toBe(false)
+    expect(firstVersion().prompt).toContain(PLAN.plan)
+  })
+
+  it('keeps an edited plan across a reload', async () => {
+    await jobWithOneImage()
+    await useProductShotsStore.getState().runAction('background')
+    useProductShotsStore.getState().editVersionPlan(firstVersion().id, {
+      prompt: '我自己写的提示词',
+    })
+    const jobId = useProductShotsStore.getState().draft.id
+
+    useProductShotsStore.getState().startNewJob()
+    await useProductShotsStore.getState().loadJobs()
+    useProductShotsStore.getState().selectJob(jobId as string)
+
+    expect(firstVersion()).toMatchObject({ prompt: '我自己写的提示词', promptEdited: true })
+  })
+})
+
+describe('regenerating from the plan in the drawer', () => {
+  function versions() {
+    return useProductShotsStore.getState().draft.images[0].versions
+  }
+
+  it('submits a new version on the edited prompt and marks it by hand', async () => {
+    await jobWithOneImage()
+    await useProductShotsStore.getState().runAction('background')
+    const [version] = versions()
+    useProductShotsStore.getState().editVersionPlan(version.id, { prompt: '我自己写的提示词' })
+
+    await useProductShotsStore.getState().regenerateFromVersion(version.id)
+
+    expect(requestBackgroundPlan).toHaveBeenCalledTimes(1)
+    expect(submitPrepared.mock.calls[1][0].prompt).toBe('我自己写的提示词')
+    expect(versions()).toHaveLength(2)
+    expect(versions()[1]).toMatchObject({ promptEdited: true, mode: 'background', masked: true })
+    expect(versions()[1].id).not.toBe(version.id)
+  })
+
+  it('keeps the mask of the action the version came from', async () => {
+    await jobWithOneImage()
+    await useProductShotsStore.getState().runAction('background')
+    const [version] = versions()
+
+    await useProductShotsStore.getState().regenerateFromVersion(version.id)
+
+    expect(submitPrepared.mock.calls[1][0].mask).toEqual({
+      imageId: 'mask-1',
+      targetImageId: 'image-主图.png',
+    })
+  })
+
+  it('keeps the reference images and the asset of a remix version', async () => {
+    await jobWithOneImage()
+    const store = useProductShotsStore.getState()
+    store.toggleProductAsset('a-side')
+    store.setProductAngle('a-side', 'three-quarter')
+    await useProductShotsStore.getState().runAction('remix')
+    const [version] = versions()
+
+    await useProductShotsStore.getState().regenerateFromVersion(version.id)
+
+    expect(analyzeCompetitorImages).toHaveBeenCalledTimes(1)
+    const [submission] = submitPrepared.mock.calls[1]
+    expect(submission.inputImages[0]).toEqual({
+      id: 'asset-side',
+      dataUrl: 'data:image/png;base64,asset-side',
+    })
+    expect(submission.mask).toBeNull()
+    expect(versions()[1]).toMatchObject({ mode: 'remix', productAssetId: 'a-side' })
+  })
+})
+
+describe('the language of the copy printed on the picture', () => {
+  it('writes the selling point copy in the language of the job', async () => {
+    analyzeCompetitorImages.mockResolvedValue([{ ...BRIEF, shotType: 'selling-point' }])
+    await jobWithOneImage()
+    const store = useProductShotsStore.getState()
+    store.toggleProductAsset('a-side')
+    store.setPromptLanguage('en')
+
+    await useProductShotsStore.getState().runAction('remix')
+
+    expect(submitPrepared.mock.calls[0][0].prompt).toContain('图上文案用英文')
+  })
+
+  it('keeps the language with the job', async () => {
+    await jobWithOneImage()
+    useProductShotsStore.getState().setPromptLanguage('en')
+    const jobId = useProductShotsStore.getState().draft.id
+
+    useProductShotsStore.getState().startNewJob()
+    await useProductShotsStore.getState().loadJobs()
+    useProductShotsStore.getState().selectJob(jobId as string)
+
+    expect(useProductShotsStore.getState().draft.language).toBe('en')
+  })
+})
+
 describe('retrying a failed version', () => {
   it('resubmits the same plan and replaces the task', async () => {
     await jobWithOneImage()
