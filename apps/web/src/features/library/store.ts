@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { API_MAX_IMAGES, MAX_INPUT_IMAGES_MESSAGE } from '../../lib/inputImageLimit'
+import { ensureAssetImage } from '../../lib/sync/assetImages'
 import { ensureImageCached, storeImageFromFile, useStore } from '../../store'
 import { assetStore } from './lib/assetStore'
 import { templateStore } from './lib/templateStore'
@@ -131,6 +132,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
         main.showToast(MAX_INPUT_IMAGES_MESSAGE, 'error')
         return null
       }
+      await ensureAssetImage(asset.imageId)
       const dataUrl = await ensureImageCached(asset.imageId)
       if (!dataUrl) {
         main.showToast('素材图片已丢失', 'error')
@@ -271,6 +273,8 @@ async function writeTemplateIntoComposer(
 
   for (const imageId of new Set(imageIdsByOldIndex.filter((id) => id !== null))) {
     if (useStore.getState().inputImages.some((image) => image.id === imageId)) continue
+    // 别的设备建的素材图这时才取回来，取不到才让那一处引用降级为「已移除」。
+    await ensureAssetImage(imageId)
     const dataUrl = await ensureImageCached(imageId)
     if (dataUrl) main.addInputImage({ id: imageId, dataUrl })
   }
