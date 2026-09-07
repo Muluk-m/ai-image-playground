@@ -4,7 +4,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import TaskGrid from '../../components/TaskGrid'
-import { useRemixStore } from '../../features/remix/store'
+import { useProductShotsStore } from '../../features/productShots/store'
 import { useStore } from '../../store'
 import type { TaskOrigin, TaskRecord } from '../../types'
 
@@ -44,21 +44,15 @@ beforeEach(() => {
     showToast: vi.fn(),
     setConfirmDialog: vi.fn(),
   })
-  useRemixStore.setState({
-    loadSets: vi.fn().mockResolvedValue(undefined),
-    sets: [
+  useProductShotsStore.setState({
+    loadJobs: vi.fn().mockResolvedValue(undefined),
+    jobs: [
       {
         id: 'set-1',
         name: '奶油浴缸',
-        source: { sourceImageIds: ['i1'] },
-        productAssets: [],
-        settings: {
-          platform: 'amazon',
-          language: 'zh',
-          level: 'high',
-          product: { name: '', features: '', mainColor: '', forbiddenColors: [] },
-        },
-        shots: [],
+        images: [],
+        preference: '',
+        versionsPerImage: 1,
         createdAt: 1,
         updatedAt: 1,
       },

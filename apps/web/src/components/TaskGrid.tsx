@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useBgSwapStore } from '../features/bgswap/store'
 import InspirationEmptyHero from '../features/inspiration/components/InspirationEmptyHero'
-import { groupTasksBySet } from '../features/remix/lib/history'
-import { useRemixStore } from '../features/remix/store'
+import { useProductShotsStore } from '../features/productShots/store'
+import { groupTasksBySet } from '../lib/setHistory'
 import { editOutputImage, removeTask, reuseConfig, sendTaskToCanvas, useStore } from '../store'
 import SetHistoryCard from './SetHistoryCard'
 import TaskCard from './TaskCard'
@@ -56,12 +55,10 @@ export default function TaskGrid() {
   }, [tasks, searchQuery, filterStatus, filterFavorite])
 
   const historyItems = useMemo(() => groupTasksBySet(filteredTasks), [filteredTasks])
-  const remixSets = useRemixStore((s) => s.sets)
-  const bgSwapJobs = useBgSwapStore((s) => s.jobs)
+  const productShotJobs = useProductShotsStore((s) => s.jobs)
 
   useEffect(() => {
-    void useRemixStore.getState().loadSets()
-    void useBgSwapStore.getState().loadJobs()
+    void useProductShotsStore.getState().loadJobs()
   }, [])
 
   const handleDelete = (task: (typeof tasks)[0]) => {
@@ -336,13 +333,12 @@ export default function TaskGrid() {
         {historyItems.flatMap((item) => {
           if (item.kind === 'task') return [renderTask(item.task)]
           const expanded = expandedSetIds.includes(item.setId)
-          const job = bgSwapJobs.find((entry) => entry.id === item.setId)
-          const set = remixSets.find((entry) => entry.id === item.setId)
+          const job = productShotJobs.find((entry) => entry.id === item.setId)
           return [
             <SetHistoryCard
               key={`set-${item.setId}`}
-              name={job?.name ?? set?.name ?? '套'}
-              kindLabel={job ? '换背景' : '套'}
+              name={job?.name ?? '商品图任务'}
+              kindLabel="商品图"
               tasks={item.tasks}
               expanded={expanded}
               onToggle={() =>
