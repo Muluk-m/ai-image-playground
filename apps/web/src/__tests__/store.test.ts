@@ -277,6 +277,7 @@ describe('mask draft lifecycle in store actions', () => {
       Response.json({
         'accounts:login': true,
         'accounts:self-register': true,
+        'accounts:sync': false,
         'billing:credits': true,
         'generation:byok': false,
         'generation:video': false,

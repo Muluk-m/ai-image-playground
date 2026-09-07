@@ -853,6 +853,7 @@ describe('callImageApi', () => {
       Response.json({
         'accounts:login': true,
         'accounts:self-register': false,
+        'accounts:sync': false,
         'billing:credits': false,
         'generation:byok': false,
         'generation:video': false,

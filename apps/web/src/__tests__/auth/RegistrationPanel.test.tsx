@@ -112,6 +112,7 @@ describe('LoginScreen registration entry', () => {
         Response.json({
           'accounts:login': true,
           'accounts:self-register': true,
+          'accounts:sync': false,
           'billing:credits': true,
           'generation:byok': false,
           'generation:video': false,
