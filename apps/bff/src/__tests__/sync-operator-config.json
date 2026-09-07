@@ -1,0 +1,7 @@
+{
+  "capabilities": {
+    "accounts:login": true,
+    "accounts:self-register": false,
+    "accounts:sync": true
+  }
+}
