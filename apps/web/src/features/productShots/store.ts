@@ -751,6 +751,7 @@ interface PreparedImage extends MaskAttempt {
   plan: string
   prompt: string
   productBox: ProductBox | null
+  inventory?: readonly string[]
   mode: ProductShotAction
   /** 借创意重做的档位、简报、镜型与图上文案，其余动作没有。 */
   level?: RemixLevel
@@ -965,6 +966,7 @@ async function prepareSwap(
     plan: planned.plan,
     prompt: planned.prompt,
     productBox,
+    inventory: planned.inventory,
     mode,
     promptEdited: reuse?.promptEdited,
     inputImages: product ? [original, product.image] : [original],
@@ -994,6 +996,7 @@ async function submitVersion(
     plan: prepared.plan,
     prompt: prepared.prompt,
     productBox: prepared.productBox,
+    ...(prepared.inventory?.length ? { inventory: prepared.inventory } : {}),
     masked: prepared.mask !== null,
     mode: prepared.mode,
     ...(prepared.level ? { level: prepared.level } : {}),
