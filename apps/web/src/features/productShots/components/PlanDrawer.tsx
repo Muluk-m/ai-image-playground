@@ -10,6 +10,7 @@ import {
 } from '../../../components/panelStyles'
 import Segmented from '../../../components/Segmented'
 import { actionLabel, PROMPT_LANGUAGE_LABELS } from '../lib/actions'
+import { changesBackground } from '../lib/mode'
 import { formatTextList, parseTextList } from '../lib/remixPlan'
 import type { VersionPlanPatch } from '../lib/versionPlan'
 import { useProductShotsStore } from '../store'
@@ -190,16 +191,19 @@ function SwapPlanFields({ version, onEdit }: FieldsProps) {
 
   return (
     <div className="flex flex-col gap-3">
-      <div>
-        <span className={LABEL}>方案句</span>
-        <textarea
-          aria-label="方案句"
-          value={version.plan}
-          rows={3}
-          onChange={(e) => onEdit({ plan: e.target.value })}
-          className={`mt-1 ${FIELD} resize-y`}
-        />
-      </div>
+      {/* 只换产品那一版背景一个像素都不动，方案句进不了它的提示词，摆出来就是骗人。 */}
+      {changesBackground(version.mode) && (
+        <div>
+          <span className={LABEL}>方案句</span>
+          <textarea
+            aria-label="方案句"
+            value={version.plan}
+            rows={3}
+            onChange={(e) => onEdit({ plan: e.target.value })}
+            className={`mt-1 ${FIELD} resize-y`}
+          />
+        </div>
+      )}
       <div>
         <span className={LABEL}>产品框</span>
         {box ? (
