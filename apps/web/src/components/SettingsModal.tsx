@@ -146,6 +146,7 @@ import {
 import ModelCombobox from './ModelCombobox'
 import Overlay from './Overlay'
 import Select from './Select'
+import SyncStatusPanel from './SyncStatusPanel'
 import ViewportTooltip from './ViewportTooltip'
 
 function newId(prefix: string) {
@@ -2113,6 +2114,7 @@ export default function SettingsModal() {
 
                 {activeTab === 'data' && (
                   <div className="space-y-4">
+                    <SyncStatusPanel />
                     <div className="rounded-2xl bg-gray-50/80 p-4 border border-gray-200/60 dark:bg-white/[0.02] dark:border-white/[0.05] flex items-start gap-3">
                       <svg
                         className="w-5 h-5 text-blue-500 shrink-0 mt-0.5"

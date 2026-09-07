@@ -8,7 +8,6 @@ import type {
   SyncTemplateChange,
 } from '@image-playground/shared'
 import { SYNC_MAX_CHANGES_PER_COLLECTION } from '@image-playground/shared'
-import { create } from 'zustand'
 import { assetStore } from '../../features/library/lib/assetStore'
 import { templateStore } from '../../features/library/lib/templateStore'
 import { useLibraryStore } from '../../features/library/store'
@@ -24,26 +23,11 @@ import {
   trackLocalChanges,
   writePendingChanges,
 } from './pending'
+import { useSyncStatus } from './status'
 import { postSync } from './syncClient'
 import { applyUserSettingsDocument, readUserSettingsDocument } from './userSettings'
 
 const PUSH_DEBOUNCE_MS = 2000
-
-export type SyncStatus = 'idle' | 'syncing' | 'error'
-
-interface SyncStatusState {
-  enabled: boolean
-  status: SyncStatus
-  pending: number
-  lastSyncedAt: number | null
-}
-
-export const useSyncStatus = create<SyncStatusState>(() => ({
-  enabled: false,
-  status: 'idle',
-  pending: 0,
-  lastSyncedAt: null,
-}))
 
 let pushTimer: ReturnType<typeof setTimeout> | null = null
 /** 非 null 表示有请求在飞，集合里是这期间又改了什么——它们不能被这一轮的清账抹掉。 */
