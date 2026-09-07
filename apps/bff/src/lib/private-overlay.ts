@@ -22,7 +22,10 @@ export interface PrivateTaskHooks {
     taskId: string
     userId: string
     model: string
+    /** 计价单位数：图片任务是张数，视频任务是秒数。 */
     quantity: number
+    /** 单位倍率；图片恒为 1，视频取清晰度倍率。 */
+    unitMultiplier: number
   }): Promise<TaskReservationResult>
   finalizeTask(input: {
     tx: BffTransaction
