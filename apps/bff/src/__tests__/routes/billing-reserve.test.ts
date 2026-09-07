@@ -58,16 +58,16 @@ const channels: InternalChannel[] = [
     defaults: {},
   },
   {
-    id: 'agnes-video',
+    id: 'grok-video',
     kind: 'openai-queue',
-    label: 'Agnes Video',
+    label: 'Grok Video',
     baseUrl: 'https://gateway.example/v1',
-    auth: { type: 'bearer', secretRef: 'AGNES_API_KEY', secret: 'k' },
+    auth: { type: 'bearer', secretRef: 'GROK_API_KEY', secret: 'k' },
     allowedPaths: ['videos'],
     models: [
       {
-        id: 'agnes-video-2.5',
-        label: 'Agnes 2.5',
+        id: 'grok-imagine-video',
+        label: 'Grok Imagine',
         media: 'video',
         capabilities: ['generate', 'duration', 'aspect_ratio', 'resolution', 'first_frame'],
       },
@@ -142,7 +142,7 @@ describe('billing reservation units', () => {
   })
 
   it('reserves a video task by seconds at the resolution multiplier', async () => {
-    const status = await submit('agnes-video-2.5', {
+    const status = await submit('grok-imagine-video', {
       video: { duration_seconds: 8, aspect_ratio: '16:9', resolution: '1080p' },
     })
 
@@ -151,7 +151,7 @@ describe('billing reservation units', () => {
       {
         taskId: expect.any(String),
         userId: 'billing-user',
-        model: 'agnes-video-2.5',
+        model: 'grok-imagine-video',
         quantity: 8,
         unitMultiplier: 1.6,
       },
