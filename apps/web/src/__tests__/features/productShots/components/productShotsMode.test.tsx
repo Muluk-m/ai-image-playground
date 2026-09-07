@@ -732,6 +732,135 @@ describe('the result gallery', () => {
   })
 })
 
+describe('the plan drawer of one version', () => {
+  async function withOneVersion() {
+    render()
+    upload('上传原图', new File(['x'], '主图.png', { type: 'image/png' }))
+    while (useProductShotsStore.getState().draft.id === null) {
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0))
+      })
+    }
+    click(actionButton())
+    await settle()
+  }
+
+  function openDrawer(from: HTMLElement) {
+    const open = [...from.querySelectorAll('button')].find(
+      (button) => button.textContent === '查看方案',
+    )
+    if (!open) throw new Error('no plan drawer button')
+    click(open)
+  }
+
+  it('keeps the drawer folded until the version bar asks for it', async () => {
+    await withOneVersion()
+
+    expect(drawer()).toBeNull()
+
+    openDrawer(column('actions'))
+
+    expect(drawer()?.textContent).toContain('提示词')
+    expect(promptField().value).toBe(PLAN.prompt)
+  })
+
+  it('opens the same drawer from the gallery card', async () => {
+    await withOneVersion()
+
+    openDrawer(gallery())
+
+    expect(drawer()).not.toBeNull()
+  })
+
+  it('rebuilds the prompt when the plan sentence is edited', async () => {
+    await withOneVersion()
+    openDrawer(column('actions'))
+
+    write('方案句', '放进水泥灰的极简浴室')
+    await settle()
+
+    expect(promptField().value).toContain('放进水泥灰的极简浴室')
+  })
+
+  it('marks a hand written prompt and offers the way back', async () => {
+    await withOneVersion()
+    openDrawer(column('actions'))
+
+    write('提示词', '我自己写的提示词')
+    await settle()
+
+    expect(drawer()?.textContent).toContain('手改')
+    expect(column('actions').textContent).toContain('手改')
+
+    const reset = [...(drawer()?.querySelectorAll('button') ?? [])].find(
+      (button) => button.textContent === '重置为 AI 版本',
+    )
+    if (!reset) throw new Error('no reset button')
+    click(reset)
+    await settle()
+
+    expect(promptField().value).toContain(PLAN.plan)
+  })
+
+  it('submits another version on the prompt in the drawer', async () => {
+    await withOneVersion()
+    openDrawer(column('actions'))
+    write('提示词', '我自己写的提示词')
+    await settle()
+
+    const regenerate = [...(drawer()?.querySelectorAll('button') ?? [])].find(
+      (button) => button.textContent === '按此重生成',
+    )
+    if (!regenerate) throw new Error('no regenerate button')
+    click(regenerate)
+    await settle()
+
+    expect(submitPrepared.mock.calls[1][0].prompt).toBe('我自己写的提示词')
+    expect(useProductShotsStore.getState().draft.images[0].versions).toHaveLength(2)
+  })
+
+  it('sets the language of the copy printed on the picture for the whole job', async () => {
+    await withOneVersion()
+    openDrawer(column('actions'))
+
+    const english = [...(drawer()?.querySelectorAll('button') ?? [])].find(
+      (button) => button.textContent === '英文',
+    )
+    if (!english) throw new Error('no english button')
+    click(english)
+    await settle()
+
+    expect(useProductShotsStore.getState().draft.language).toBe('en')
+  })
+})
+
+function drawer(): HTMLElement | null {
+  return document.querySelector<HTMLElement>('[data-product-shots-plan-drawer]')
+}
+
+function promptField(): HTMLTextAreaElement {
+  const field = document.querySelector<HTMLTextAreaElement>('[aria-label="提示词"]')
+  if (!field) throw new Error('no prompt field')
+  return field
+}
+
+/** 输入框与文本域各有自己的 value setter，React 只认对应原型上的那一个。 */
+function write(label: string, value: string) {
+  const field = document.querySelector<HTMLInputElement | HTMLTextAreaElement>(
+    `[aria-label="${label}"]`,
+  )
+  if (!field) throw new Error(`no field labelled ${label}`)
+  const prototype =
+    field instanceof HTMLTextAreaElement
+      ? HTMLTextAreaElement.prototype
+      : HTMLInputElement.prototype
+  const setter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set
+  act(() => {
+    setter?.call(field, value)
+    field.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+}
+
 function batchBar(): HTMLElement {
   const element = document.querySelector<HTMLElement>('[data-product-shots-batch]')
   if (!element) throw new Error('no batch bar')
