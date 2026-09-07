@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { canvasToBlob, loadImage } from '../lib/canvasImage'
 import { storeImage } from '../lib/db'
+import { maskPaintOperation } from '../lib/mask'
 import { prepareMaskTargetDataUrl, replaceMaskTargetImage } from '../lib/maskPreprocess'
 import {
   clampViewTransform,
@@ -106,6 +107,7 @@ export default function MaskEditorModal() {
   const imageId = useStore((s) => s.maskEditorImageId)
   const setMaskEditorImageId = useStore((s) => s.setMaskEditorImageId)
   const maskDraft = useStore((s) => s.maskDraft)
+  const session = useStore((s) => s.maskEditorSession)
   const setMaskDraft = useStore((s) => s.setMaskDraft)
   const clearMaskDraft = useStore((s) => s.clearMaskDraft)
   const setConfirmDialog = useStore((s) => s.setConfirmDialog)
@@ -414,13 +416,17 @@ export default function MaskEditorModal() {
     renderPreview()
   }
 
+  function paintOperation(nextTool: Tool): GlobalCompositeOperation {
+    return maskPaintOperation(nextTool, session?.keepSemantics ?? false)
+  }
+
   function drawAt(point: Point, nextTool = tool) {
     const canvas = maskCanvasRef.current
     const ctx = canvas?.getContext('2d')
     if (!canvas || !ctx) return
 
     ctx.save()
-    ctx.globalCompositeOperation = nextTool === 'brush' ? 'destination-out' : 'source-over'
+    ctx.globalCompositeOperation = paintOperation(nextTool)
     ctx.fillStyle = '#fff'
     ctx.beginPath()
     ctx.arc(point.x, point.y, brushSize / 2, 0, Math.PI * 2)
@@ -435,7 +441,7 @@ export default function MaskEditorModal() {
     if (!canvas || !ctx) return
 
     ctx.save()
-    ctx.globalCompositeOperation = nextTool === 'brush' ? 'destination-out' : 'source-over'
+    ctx.globalCompositeOperation = paintOperation(nextTool)
     ctx.strokeStyle = '#fff'
     ctx.lineWidth = brushSize
     ctx.lineCap = 'round'
@@ -527,9 +533,14 @@ export default function MaskEditorModal() {
 
         fillWhiteMask(maskCanvas)
 
-        if (maskDraft?.targetImageId === targetImageId) {
+        const initialMask = session
+          ? session.maskDataUrl
+          : maskDraft?.targetImageId === targetImageId
+            ? maskDraft.maskDataUrl
+            : null
+        if (initialMask) {
           try {
-            const draftImage = await loadImage(maskDraft.maskDataUrl)
+            const draftImage = await loadImage(initialMask)
             if (cancelled) return
             drawMaskImageToCanvas(draftImage, maskCanvas)
           } catch (err) {
@@ -576,7 +587,7 @@ export default function MaskEditorModal() {
       panGestureRef.current = null
       setIsPanning(false)
     }
-  }, [imageId, maskDraft, setMaskEditorImageId, showToast])
+  }, [imageId, maskDraft, session, setMaskEditorImageId, showToast])
 
   useEffect(() => {
     if (isAltKeyPressed) {
@@ -833,6 +844,17 @@ export default function MaskEditorModal() {
       )
         return
 
+      if (session) {
+        await session.onSave({
+          maskDataUrl,
+          targetImageId: workingTargetId,
+          targetDataUrl: sourceDataUrl,
+        })
+        setMaskEditorImageId(null)
+        showToast('遮罩已保存', 'success')
+        return
+      }
+
       const latestStore = useStore.getState()
       latestStore.setInputImages(
         replaceMaskTargetImage(latestStore.inputImages, savingImageId, {
@@ -1022,7 +1044,7 @@ export default function MaskEditorModal() {
                     className={`p-2 sm:p-2.5 rounded-lg sm:rounded-xl transition-all ${tool === 'brush' ? 'bg-white shadow-sm text-blue-500 dark:bg-[#323338] dark:text-blue-400 dark:shadow-none' : 'text-gray-500 hover:text-gray-700 dark:text-[#8a8a8e] dark:hover:text-gray-200'}`}
                     onClick={() => setTool('brush')}
                     disabled={!isReady || isSaving}
-                    title="画笔"
+                    title={session?.keepSemantics ? '涂成保留区' : '画笔'}
                   >
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path
@@ -1037,7 +1059,7 @@ export default function MaskEditorModal() {
                     className={`p-2 sm:p-2.5 rounded-lg sm:rounded-xl transition-all ${tool === 'eraser' ? 'bg-white shadow-sm text-blue-500 dark:bg-[#323338] dark:text-blue-400 dark:shadow-none' : 'text-gray-500 hover:text-gray-700 dark:text-[#8a8a8e] dark:hover:text-gray-200'}`}
                     onClick={() => setTool('eraser')}
                     disabled={!isReady || isSaving}
-                    title="橡皮"
+                    title={session?.keepSemantics ? '移出保留区' : '橡皮'}
                   >
                     <svg
                       className="w-5 h-5"
