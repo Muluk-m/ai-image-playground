@@ -33,7 +33,7 @@ import {
   trackLocalChanges,
   writePendingChanges,
 } from './pending'
-import { useSyncStatus } from './status'
+import { reportAssetUploads, useSyncStatus } from './status'
 import { postSync } from './syncClient'
 import { applyUserSettingsDocument, readUserSettingsDocument } from './userSettings'
 
@@ -94,6 +94,7 @@ export async function syncNow(options: { keepalive?: boolean } = {}): Promise<vo
     // 失败不自排重试，否则断网时会变成每 2 秒一次的空转；补推交给 `online` 与下一次本机改动。
   } finally {
     changedInFlight = null
+    reportAssetUploads(0, 0)
     if (again || pushed.size > 0) schedulePush()
   }
 }
@@ -198,6 +199,10 @@ async function withImagesUploaded(
 ): Promise<Array<AssetRecord | Tombstone>> {
   const ready: Array<AssetRecord | Tombstone> = []
   const refused: string[] = []
+  const queued = hiding ? new Set<string>() : imagesToUpload(changes)
+  const total = queued.size
+  let done = 0
+  reportAssetUploads(done, total)
   // 逐张传，不并发：首次登录那一批素材会把几百张图一起推出去。
   for (const change of changes) {
     if (isSyncTombstone(change)) {
@@ -209,12 +214,26 @@ async function withImagesUploaded(
       if (isAssetImageOnServer(change.imageId)) ready.push(change)
       continue
     }
+    const counted = queued.delete(change.imageId)
     const outcome = await uploadAssetImage(change.imageId)
+    if (counted) {
+      done += 1
+      reportAssetUploads(done, total)
+    }
     if (outcome === 'uploaded') ready.push(change)
     if (outcome === 'refused') refused.push(change.id)
   }
   if (refused.length > 0) dropPendingRecords('assets', refused)
   return ready
+}
+
+/** 这一轮真要传的图；同一张图被几条素材引用只算一次。 */
+function imagesToUpload(changes: Array<AssetRecord | Tombstone>): Set<string> {
+  const ids = new Set<string>()
+  for (const change of changes) {
+    if (!isSyncTombstone(change) && !isAssetImageOnServer(change.imageId)) ids.add(change.imageId)
+  }
+  return ids
 }
 
 async function applyResponse(response: SyncResponseBody): Promise<void> {
