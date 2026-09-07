@@ -3,7 +3,6 @@ import {
   changesBackground,
   legacyJobMode,
   maskSideFor,
-  swapsProduct,
 } from '../../../../features/productShots/lib/mode'
 
 describe('reading an old record as one action', () => {
@@ -33,6 +32,7 @@ describe('which side of the mask gets repainted', () => {
 
   it('asks for no mask at all when the whole picture is redrawn', () => {
     expect(maskSideFor('replace-and-background')).toBeNull()
+    expect(maskSideFor('remix')).toBeNull()
   })
 })
 
@@ -41,15 +41,7 @@ describe('whether the background plan sentence applies to a version', () => {
     expect(changesBackground('replace-product')).toBe(false)
     expect(changesBackground('background')).toBe(true)
     expect(changesBackground('replace-and-background')).toBe(true)
+    expect(changesBackground('remix')).toBe(true)
     expect(changesBackground(undefined)).toBe(true)
-  })
-})
-
-describe('labelling a version that swapped the product', () => {
-  it('counts both replacing modes and neither the background mode nor an old record', () => {
-    expect(swapsProduct('replace-product')).toBe(true)
-    expect(swapsProduct('replace-and-background')).toBe(true)
-    expect(swapsProduct('background')).toBe(false)
-    expect(swapsProduct(undefined)).toBe(false)
   })
 })

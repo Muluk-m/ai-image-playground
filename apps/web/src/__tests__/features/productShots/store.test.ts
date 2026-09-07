@@ -23,6 +23,7 @@ const assessMatte = vi.hoisted(() => vi.fn())
 const alphaToInpaintMask = vi.hoisted(() => vi.fn())
 const alphaToProductMask = vi.hoisted(() => vi.fn())
 const eraseProductArea = vi.hoisted(() => vi.fn())
+const analyzeCompetitorImages = vi.hoisted(() => vi.fn())
 const modelSupportsNativeMask = vi.hoisted(() => vi.fn())
 const storeImage = vi.hoisted(() => vi.fn())
 
@@ -59,6 +60,8 @@ vi.mock('../../../lib/productMatte', async (importOriginal) => ({
 
 vi.mock('../../../lib/eraseProduct', () => ({ eraseProductArea }))
 
+vi.mock('../../../lib/analyzeClient', () => ({ analyzeCompetitorImages }))
+
 vi.mock('../../../lib/channels/profileSelectors', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../lib/channels/profileSelectors')>()),
   modelSupportsNativeMask,
@@ -76,6 +79,18 @@ const PLAN = {
   productBox: null,
   plan: '放进有窗光的日式木质浴室',
   prompt: '锁住产品，只换背景',
+}
+
+const BRIEF = {
+  shotType: 'scene',
+  composition: '浴缸靠窗斜放，右侧留出毛巾架',
+  camera: '略高的 3/4 侧视',
+  lighting: '柔和窗光',
+  background: '日式木质浴室',
+  props: ['毛巾'],
+  textZones: [],
+  palette: ['米白'],
+  productBox: { x: 0.1, y: 0.2, w: 0.3, h: 0.4 },
 }
 
 function image(name: string): File {
@@ -120,6 +135,7 @@ beforeEach(() => {
   alphaToInpaintMask.mockReturnValue('data:image/png;base64,MASK')
   alphaToProductMask.mockReturnValue('data:image/png;base64,PRODUCT-MASK')
   eraseProductArea.mockResolvedValue('data:image/png;base64,ERASED')
+  analyzeCompetitorImages.mockResolvedValue([BRIEF])
   modelSupportsNativeMask.mockReturnValue(true)
   storeImage.mockResolvedValue('mask-1')
   useLibraryStore.setState({
@@ -779,6 +795,171 @@ describe('swapping the product and the background at once', () => {
 
     expect(eraseProductArea).not.toHaveBeenCalled()
     expect(submitPrepared.mock.calls[0][0].inputImages[0].id).toBe(imageId)
+  })
+})
+
+describe('remaking a picture with the idea of a competitor shot', () => {
+  /** 顶部选了两张标好角度的素材，机位对上的是 3/4 侧那张。 */
+  async function jobWithAssets(): Promise<string> {
+    const imageId = await jobWithOneImage()
+    const store = useProductShotsStore.getState()
+    store.toggleProductAsset('a-front')
+    store.setProductAngle('a-front', 'front')
+    store.toggleProductAsset('a-side')
+    store.setProductAngle('a-side', 'three-quarter')
+    return imageId
+  }
+
+  it('reads the competitor picture instead of asking for a background plan', async () => {
+    await jobWithAssets()
+    useProductShotsStore.getState().setProductDescription({
+      name: 'W2753 独立浴缸',
+      features: '蛋形单边斜背',
+      mainColor: '哑光灰棕',
+    })
+
+    await useProductShotsStore.getState().runAction('remix')
+
+    expect(requestBackgroundPlan).not.toHaveBeenCalled()
+    expect(analyzeCompetitorImages).toHaveBeenCalledWith(['data:image/png;base64,image-主图.png'], {
+      name: 'W2753 独立浴缸',
+      description: '蛋形单边斜背。主色：哑光灰棕',
+    })
+  })
+
+  it('names the product after the picked asset until someone fills the name in', async () => {
+    await jobWithAssets()
+
+    await useProductShotsStore.getState().runAction('remix')
+
+    expect(analyzeCompetitorImages.mock.calls[0][1].name).toBe('正面白底')
+  })
+
+  it('sends the product first and the erased original second, with no mask', async () => {
+    await jobWithAssets()
+
+    await useProductShotsStore.getState().runAction('remix')
+
+    expect(eraseProductArea).toHaveBeenCalledWith('data:image/png;base64,image-主图.png', {
+      x: 0.1,
+      y: 0.2,
+      w: 0.3,
+      h: 0.4,
+    })
+    const [submission] = submitPrepared.mock.calls[0]
+    // 六段提示词把序号写死成「图1是我方产品、图2是参考」，所以素材必须排第一。
+    expect(submission.inputImages).toEqual([
+      { id: 'asset-side', dataUrl: 'data:image/png;base64,asset-side' },
+      { id: 'image-data:image/png;base64,ERASED', dataUrl: 'data:image/png;base64,ERASED' },
+    ])
+    expect(submission.mask).toBeNull()
+    expect(segmentProduct).not.toHaveBeenCalled()
+  })
+
+  it('files the version under the job and the image it came from', async () => {
+    const imageId = await jobWithAssets()
+
+    await useProductShotsStore.getState().runAction('remix')
+
+    const { draft } = useProductShotsStore.getState()
+    const [version] = draft.images[0].versions
+    expect(submitPrepared.mock.calls[0][0].origin).toEqual({
+      setId: draft.id,
+      shotId: `${imageId}:${version.id}`,
+    })
+  })
+
+  it('records the action, the level, the brief and the asset on the version', async () => {
+    await jobWithAssets()
+
+    await useProductShotsStore.getState().runAction('remix')
+
+    expect(useProductShotsStore.getState().draft.images[0].versions[0]).toMatchObject({
+      mode: 'remix',
+      level: 'high',
+      plan: BRIEF.composition,
+      productAssetId: 'a-side',
+      masked: false,
+      brief: { camera: BRIEF.camera, background: BRIEF.background },
+    })
+  })
+
+  it('builds the prompt of the level the user picked', async () => {
+    await jobWithAssets()
+    useProductShotsStore.getState().setRemixLevel('low')
+
+    await useProductShotsStore.getState().runAction('remix')
+
+    expect(submitPrepared.mock.calls[0][0].prompt).toContain('图2只作为构图、机位与布光参考')
+  })
+
+  it('holds the remix until a product asset is picked', async () => {
+    await jobWithOneImage()
+
+    await useProductShotsStore.getState().runAction('remix')
+
+    expect(submitPrepared).not.toHaveBeenCalled()
+    expect(useProductShotsStore.getState().swapNotice).toContain('素材')
+  })
+
+  it('says so when the analysis is switched off', async () => {
+    await jobWithAssets()
+    isClientCapabilityEnabled.mockReturnValue(false)
+
+    await useProductShotsStore.getState().runAction('remix')
+
+    expect(analyzeCompetitorImages).not.toHaveBeenCalled()
+    expect(useProductShotsStore.getState().swapNotice).toContain('分析')
+  })
+
+  it('keeps the action and the level for every image of the batch', async () => {
+    await jobWithAssets()
+    useProductShotsStore.getState().setRemixLevel('low')
+    await useProductShotsStore.getState().runAction('remix')
+    await useProductShotsStore.getState().importFiles([image('细节.png')])
+
+    await useProductShotsStore.getState().runBatch()
+
+    expect(useProductShotsStore.getState().draft.images[1].versions[0]).toMatchObject({
+      mode: 'remix',
+      level: 'low',
+      productAssetId: 'a-side',
+    })
+  })
+
+  it('reruns a failed version on the brief it already has', async () => {
+    await jobWithAssets()
+    await useProductShotsStore.getState().runAction('remix')
+    const [version] = useProductShotsStore.getState().draft.images[0].versions
+
+    await useProductShotsStore.getState().retryVersion(version.id)
+
+    expect(analyzeCompetitorImages).toHaveBeenCalledTimes(1)
+    expect(submitPrepared).toHaveBeenCalledTimes(2)
+    const versions = useProductShotsStore.getState().draft.images[0].versions
+    expect(versions).toHaveLength(1)
+    expect(versions[0]).toMatchObject({ id: version.id, taskId: 'task-2', mode: 'remix' })
+  })
+
+  it('reopens a saved job with the product description it was saved with', async () => {
+    await jobWithAssets()
+    useProductShotsStore.getState().setProductDescription({
+      name: 'W2753 独立浴缸',
+      forbiddenColors: ['米白', '浅灰'],
+    })
+    await useProductShotsStore.getState().runAction('remix')
+    const jobId = useProductShotsStore.getState().draft.id
+
+    useProductShotsStore.getState().startNewJob()
+    await useProductShotsStore.getState().loadJobs()
+    useProductShotsStore.getState().selectJob(jobId as string)
+
+    const { draft } = useProductShotsStore.getState()
+    expect(draft.mode).toBe('remix')
+    expect(draft.product).toMatchObject({
+      name: 'W2753 独立浴缸',
+      forbiddenColors: ['米白', '浅灰'],
+    })
   })
 })
 

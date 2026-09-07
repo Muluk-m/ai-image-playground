@@ -1,5 +1,6 @@
 import { type BgSwapMode, DEFAULT_BG_SWAP_MODE, type ProductBox } from '@image-playground/shared'
 import { create } from 'zustand'
+import { analyzeCompetitorImages } from '../../lib/analyzeClient'
 import { getActiveApiProfile } from '../../lib/apiProfiles'
 import { modelSupportsNativeMask } from '../../lib/channels/profileSelectors'
 import { getPublicChannels } from '../../lib/channels/publicChannels'
@@ -26,6 +27,8 @@ import {
   ProductMatteError,
   segmentProduct,
 } from '../../lib/productMatte'
+import { productContextDescription } from '../../lib/shotPrompt'
+import type { RemixBrief, RemixLevel, RemixProductDescription } from '../../lib/shotTypes'
 import {
   ensureImageCached,
   storeImageFromFile,
@@ -35,10 +38,18 @@ import {
 } from '../../store'
 import type { InputImage } from '../../types'
 import { useLibraryStore } from '../library/store'
+import { ACTION_LABELS, type ProductShotAction } from './lib/actions'
 import { pendingBatchImageIds } from './lib/batch'
 import { productShotJobStore } from './lib/jobStore'
 import { legacyJobMode, type MaskSide, maskSideFor } from './lib/mode'
 import { requestBackgroundPlan, requestSceneScan } from './lib/planClient'
+import {
+  buildRemixPlan,
+  DEFAULT_REMIX_LEVEL,
+  EMPTY_PRODUCT_DESCRIPTION,
+  type RemixPlanned,
+  remixProductDescription,
+} from './lib/remixPlan'
 import { DIAGRAM_LABEL, isDiagram } from './lib/scene'
 import type {
   MatteFailureCause,
@@ -59,6 +70,8 @@ const MATTE_FAILED = `抠图失败，${UNMASKED_FALLBACK}`
 const MATTE_UNRELIABLE = `蒙版与产品框不符，${UNMASKED_FALLBACK}`
 const NOT_SUBMITTED = '这张没有提交成功'
 const NO_ASSET_PICKED = '请先选一张产品素材'
+const ANALYZE_OFF = '竞品图分析未开启，这张跑不了借创意重做'
+const NO_BRIEF = '这张没分析出可用的简报'
 const NO_ANGLE_MATCH = '没有与机位相符的素材，用了第一张'
 const ASSET_MISSING = '素材图片已丢失'
 
@@ -72,8 +85,11 @@ export interface ProductShotsDraft {
   preference: string
   versionsPerImage: number
   /** 最近一次跑的动作，重跑与批量都沿用它。 */
-  mode: BgSwapMode
+  mode: ProductShotAction
+  /** 借创意重做与竞品的距离，批量沿用。 */
+  level: RemixLevel
   productAssets: ProductAsset[]
+  product: RemixProductDescription
   createdAt: number | null
 }
 
@@ -112,7 +128,7 @@ export interface ProductShotsState {
   startNewJob: () => void
   selectJob: (id: string) => void
 
-  runAction: (mode: BgSwapMode) => Promise<void>
+  runAction: (mode: ProductShotAction) => Promise<void>
   retryVersion: (versionId: string) => Promise<void>
   chooseVersion: (versionId: string) => void
   previewVersion: (versionId: string | null) => void
@@ -134,7 +150,9 @@ export interface ProductShotsState {
 
   setPreference: (preference: string) => void
   setVersionsPerImage: (count: number) => void
+  setRemixLevel: (level: RemixLevel) => void
 
+  setProductDescription: (patch: Partial<RemixProductDescription>) => void
   toggleProductAsset: (assetId: string) => void
   setProductAngle: (assetId: string, angle: ProductAngle) => void
   importProductFiles: (files: File[]) => Promise<void>
@@ -150,7 +168,9 @@ function emptyDraft(): ProductShotsDraft {
     preference: '',
     versionsPerImage: 1,
     mode: DEFAULT_BG_SWAP_MODE,
+    level: DEFAULT_REMIX_LEVEL,
     productAssets: [],
+    product: EMPTY_PRODUCT_DESCRIPTION,
     createdAt: null,
   }
 }
@@ -163,7 +183,9 @@ function draftFromJob(job: ProductShotJob): ProductShotsDraft {
     preference: job.preference,
     versionsPerImage: job.versionsPerImage,
     mode: job.mode ?? legacyJobMode(job.productSource, job.target),
+    level: job.level ?? DEFAULT_REMIX_LEVEL,
     productAssets: job.productAssets ?? [],
+    product: job.product ?? EMPTY_PRODUCT_DESCRIPTION,
     createdAt: job.createdAt,
   }
 }
@@ -314,6 +336,11 @@ export const useProductShotsStore = create<ProductShotsState>((set, get) => ({
 
   setVersionsPerImage: (versionsPerImage) => patchDraft(set, get, { versionsPerImage }),
 
+  setRemixLevel: (level) => patchDraft(set, get, { level }),
+
+  setProductDescription: (patch) =>
+    patchDraft(set, get, { product: { ...get().draft.product, ...patch } }),
+
   toggleProductAsset: (assetId) =>
     patchDraft(set, get, {
       productAssets: toggleProductAsset(get().draft.productAssets, assetId, DEFAULT_PRODUCT_ANGLE),
@@ -352,7 +379,7 @@ export const useProductShotsStore = create<ProductShotsState>((set, get) => ({
       useStore.getState().setConfirmDialog({
         title: '这张是示意图',
         message: `${DIAGRAM_LABEL}。`,
-        confirmText: '仍要换背景',
+        confirmText: `仍要${ACTION_LABELS[mode]}`,
         cancelText: '取消',
         showCancel: true,
         tone: 'warning',
@@ -494,10 +521,16 @@ interface PreparedImage extends MaskAttempt {
   plan: string
   prompt: string
   productBox: ProductBox | null
-  mode: BgSwapMode
-  /** 提交时的参考图，第一张永远是原图（换产品并换背景时是抹掉产品的那张）。 */
+  mode: ProductShotAction
+  /** 借创意重做的档位与简报，其余动作没有。 */
+  level?: RemixLevel
+  brief?: RemixBrief
+  /**
+   * 提交时的参考图。换背景那三种第一张是原图（整图重画时是抹掉产品的那张）；
+   * 借创意重做反过来，产品素材排第一。
+   */
   inputImages: InputImage[]
-  /** 换产品用掉的素材，没换产品时为 null。 */
+  /** 换产品与借创意重做用掉的素材，只换背景时为 null。 */
   productAssetId: string | null
 }
 
@@ -515,8 +548,11 @@ async function runStages(set: SetState, body: (stage: StageSink) => Promise<void
   }
 }
 
-/** 重跑沿用这一版当时的模式，不受右栏之后被改成什么影响。 */
-function modeOf(draft: ProductShotsDraft, reuse: ProductShotVersion | undefined): BgSwapMode {
+/** 重跑沿用这一版当时的动作，不受右栏之后被改成什么影响。 */
+function modeOf(
+  draft: ProductShotsDraft,
+  reuse: ProductShotVersion | undefined,
+): ProductShotAction {
   return reuse ? (reuse.mode ?? DEFAULT_BG_SWAP_MODE) : draft.mode
 }
 
@@ -557,15 +593,89 @@ async function framingImage(
   }
 }
 
-/** 方案 → 素材 → 蒙版，一张图只走一次，之后它的每一版共用。`reuse` 是重跑时沿用的旧方案。 */
-async function prepareImage(
+/** 一张图只准备一次，之后它的每一版共用。`reuse` 是重跑时沿用的旧方案。 */
+function prepareImage(
+  get: GetState,
+  imageId: string,
+  stage: StageSink,
+  reuse?: ProductShotVersion,
+): Promise<PreparedImage> {
+  const mode = modeOf(get().draft, reuse)
+  return mode === 'remix'
+    ? prepareRemix(get, imageId, stage, reuse)
+    : prepareSwap(get, imageId, stage, mode, reuse)
+}
+
+/** 借创意重做：分析竞品图 → 六段提示词 → 抹掉产品的原图当参考，不带遮罩。 */
+async function prepareRemix(
   get: GetState,
   imageId: string,
   stage: StageSink,
   reuse?: ProductShotVersion,
 ): Promise<PreparedImage> {
   const { draft } = get()
-  const mode = modeOf(draft, reuse)
+  const level = reuse?.level ?? draft.level
+  if (!reuse) stage('plan')
+  const dataUrl = await loadOriginal(imageId)
+  const planned =
+    reuse?.brief !== undefined
+      ? { plan: reuse.plan, prompt: reuse.prompt, brief: reuse.brief }
+      : await planRemix(draft, dataUrl, level)
+  const product = await loadProductAsset(draft, planned.brief.camera, reuse?.productAssetId)
+
+  stage('generate')
+  const productBox = planned.brief.productBox ?? null
+  const framing = await framingImage(imageId, dataUrl, productBox)
+
+  return {
+    mask: null,
+    matte: null,
+    previewImageId: null,
+    notice: product.notice,
+    imageId,
+    plan: planned.plan,
+    prompt: planned.prompt,
+    productBox,
+    mode: 'remix',
+    level,
+    brief: planned.brief,
+    // 六段提示词把序号写死成「图1是我方产品、图2是参考」，所以素材必须排第一。
+    inputImages: [product.image, framing],
+    productAssetId: product.assetId,
+  }
+}
+
+async function planRemix(
+  draft: ProductShotsDraft,
+  dataUrl: string,
+  level: RemixLevel,
+): Promise<RemixPlanned> {
+  if (!isClientCapabilityEnabled('remix:analyze')) throw new Error(ANALYZE_OFF)
+  const product = remixProductDescription(draft.product, firstAssetName(draft), draft.name)
+  const [brief] = await analyzeCompetitorImages([dataUrl], {
+    name: product.name,
+    description: productContextDescription(product),
+  })
+  if (!brief) throw new Error(NO_BRIEF)
+  return buildRemixPlan({ brief, product, level })
+}
+
+/** 产品名空着时拿第一张素材的名字顶上：工作台上只有它能说明这是什么产品。 */
+function firstAssetName(draft: ProductShotsDraft): string {
+  const picked = draft.productAssets[0]
+  if (!picked) return ''
+  return useLibraryStore.getState().assets.find((item) => item.id === picked.assetId)?.name ?? ''
+}
+
+/** 换背景那三种：方案 → 素材 → 蒙版。 */
+async function prepareSwap(
+  get: GetState,
+  imageId: string,
+  stage: StageSink,
+  mode: BgSwapMode,
+  reuse?: ProductShotVersion,
+): Promise<PreparedImage> {
+  const { draft } = get()
   if (!reuse) stage('plan')
   const dataUrl = await loadOriginal(imageId)
   const planned =
@@ -630,6 +740,8 @@ async function submitVersion(
     productBox: prepared.productBox,
     masked: prepared.mask !== null,
     mode: prepared.mode,
+    ...(prepared.level ? { level: prepared.level } : {}),
+    ...(prepared.brief ? { brief: prepared.brief } : {}),
     ...(prepared.productAssetId ? { productAssetId: prepared.productAssetId } : {}),
     ...(prepared.matte ? { matte: prepared.matte } : {}),
     ...(prepared.previewImageId ? { mattePreviewImageId: prepared.previewImageId } : {}),
@@ -821,7 +933,9 @@ async function persistDraft(set: SetState, get: GetState): Promise<void> {
     preference: draft.preference,
     versionsPerImage: draft.versionsPerImage,
     mode: draft.mode,
+    level: draft.level,
     productAssets: draft.productAssets,
+    product: draft.product,
     createdAt: draft.createdAt ?? now,
     updatedAt: now,
   }
