@@ -691,14 +691,6 @@ const GROK_SIZE_TO_ASPECT: Readonly<Record<string, string>> = {
   '1024x768': '4:3',
   '768x1024': '3:4',
   '1280x544': '21:9',
-  '2048x2048': '1:1',
-  '2160x1440': '3:2',
-  '1440x2160': '2:3',
-  '2560x1440': '16:9',
-  '1440x2560': '9:16',
-  '2048x1536': '4:3',
-  '1536x2048': '3:4',
-  '2560x1088': '21:9',
 }
 
 function grokAspectRatioFromSize(size: string | undefined): string | undefined {
@@ -771,27 +763,19 @@ function buildGrokImagine2Body(
   }
 }
 
-function grokImageRef(url: string): { type: 'image_url'; url: string } {
-  return { type: 'image_url', url }
-}
-
 function buildGrokEditBody(model: string, request: HydratedSubmitRequest): Record<string, unknown> {
   // n 由上层 fan-out 承担；extra 最后 spread 进 body，所以 extra.n 也要一起剥。
-  const source = isGrokImagine2(model)
+  const grok2 = isGrokImagine2(model)
+  const { n: _n, ...body } = grok2
     ? buildGrokImagine2Body(model, request)
     : buildOpenAIBody(model, request)
-  const { n: _n, ...body } = source
-  const images = (request.input_images ?? []).map(grokImageRef)
-  if (isGrokImagine2(model) && images.length > 1) {
-    return { ...body, images }
-  }
+  const images = (request.input_images ?? []).map((url) => ({ type: 'image_url' as const, url }))
+  if (grok2 && images.length > 1) return { ...body, images }
   const image = images[0]
   return {
     ...body,
     ...(image ? { image } : {}),
-    ...(!isGrokImagine2(model) && request.mask
-      ? { mask: { type: 'image_url', url: request.mask } }
-      : {}),
+    ...(!grok2 && request.mask ? { mask: { type: 'image_url', url: request.mask } } : {}),
   }
 }
 

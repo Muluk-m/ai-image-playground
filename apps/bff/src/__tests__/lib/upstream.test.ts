@@ -947,54 +947,8 @@ describe('callUpstream grok-images channel（channel base/key + Grok 编辑协�
     }
     expect((result.payload as { data: unknown[] }).data).toHaveLength(2)
   })
-})
 
-describe('callUpstream grok-imagine-image-2.0（aspect_ratio / 原生多参考图）', () => {
-  let calls: FetchCall[] = []
-
-  const grokChannel: InternalChannel = {
-    id: 'grok-images',
-    kind: 'openai-queue',
-    label: 'Grok Imagine Image',
-    baseUrl: 'https://gateway.example.com/v1',
-    auth: { type: 'bearer', secretRef: 'GROK_API_KEY', secret: 'grok-test-key' },
-    allowedPaths: ['images/generations', 'images/edits'],
-    models: [
-      {
-        id: 'grok-imagine-image',
-        label: 'Grok Imagine Image 1.0',
-        capabilities: ['generate', 'edit', 'n'],
-      },
-      {
-        id: 'grok-imagine-image-2.0',
-        label: 'Grok Imagine Image 2.0',
-        capabilities: ['generate', 'edit', 'n', 'quality'],
-      },
-    ],
-    defaults: { apiMode: 'images', timeout: 600, responseFormatB64Json: true },
-  }
-
-  beforeEach(() => {
-    calls = []
-    _setChannelsForTesting([grokChannel])
-    setUpstreamFetchForTesting((async (
-      input: Parameters<TestFetch>[0],
-      init: Parameters<TestFetch>[1],
-    ) => {
-      calls.push({ url: typeof input === 'string' ? input : input.toString(), init })
-      return new Response(JSON.stringify({ data: [{ b64_json: 'ok' }] }), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      })
-    }) as unknown as TestFetch)
-  })
-
-  afterEach(() => {
-    setUpstreamFetchForTesting()
-    _setChannelsForTesting([])
-  })
-
-  it('generations：默认不传 size / aspect_ratio / quality / resolution', async () => {
+  it('2.0 generations：默认不传 size / aspect_ratio / quality / resolution', async () => {
     await callUpstream({
       provider: 'openai-compat',
       model: 'grok-imagine-image-2.0',
@@ -1015,7 +969,7 @@ describe('callUpstream grok-imagine-image-2.0（aspect_ratio / 原生多参考�
     expect(body).not.toHaveProperty('output_format')
   })
 
-  it('generations：OpenAI size 映射成 aspect_ratio，不带 size', async () => {
+  it('2.0 generations：OpenAI size 映射成 aspect_ratio，不带 size', async () => {
     await callUpstream({
       provider: 'openai-compat',
       model: 'grok-imagine-image-2.0',
@@ -1027,7 +981,7 @@ describe('callUpstream grok-imagine-image-2.0（aspect_ratio / 原生多参考�
     expect(body).not.toHaveProperty('output_format')
   })
 
-  it('generations：1K 预设 1280x544 精确落到 21:9', async () => {
+  it('2.0 generations：1K 预设 1280x544 精确落到 21:9', async () => {
     await callUpstream({
       provider: 'openai-compat',
       model: 'grok-imagine-image-2.0',
@@ -1036,7 +990,7 @@ describe('callUpstream grok-imagine-image-2.0（aspect_ratio / 原生多参考�
     expect(JSON.parse(calls[0]!.init?.body as string).aspect_ratio).toBe('21:9')
   })
 
-  it('generations：quality=low → low + 1k', async () => {
+  it('2.0 generations：quality=low → low + 1k', async () => {
     await callUpstream({
       provider: 'openai-compat',
       model: 'grok-imagine-image-2.0',
@@ -1048,7 +1002,7 @@ describe('callUpstream grok-imagine-image-2.0（aspect_ratio / 原生多参考�
     })
   })
 
-  it('generations：quality=high → medium + 2k（上游没有 high）', async () => {
+  it('2.0 generations：quality=high → medium + 2k（上游没有 high）', async () => {
     await callUpstream({
       provider: 'openai-compat',
       model: 'grok-imagine-image-2.0',
@@ -1059,7 +1013,7 @@ describe('callUpstream grok-imagine-image-2.0（aspect_ratio / 原生多参考�
     expect(body.resolution).toBe('2k')
   })
 
-  it('generations：quality=auto 不传 quality / resolution', async () => {
+  it('2.0 generations：quality=auto 不传 quality / resolution', async () => {
     await callUpstream({
       provider: 'openai-compat',
       model: 'grok-imagine-image-2.0',
@@ -1070,7 +1024,7 @@ describe('callUpstream grok-imagine-image-2.0（aspect_ratio / 原生多参考�
     expect(body).not.toHaveProperty('resolution')
   })
 
-  it('generations：剥掉 moderation，保留 extra 里的非 OpenAI 字段', async () => {
+  it('2.0 generations：剥掉 moderation，保留 extra 里的非 OpenAI 字段', async () => {
     await callUpstream({
       provider: 'openai-compat',
       model: 'grok-imagine-image-2.0',
@@ -1082,7 +1036,7 @@ describe('callUpstream grok-imagine-image-2.0（aspect_ratio / 原生多参考�
     expect(body.seed).toBe(7)
   })
 
-  it('edits：单张参考图走 JSON image，不带 size', async () => {
+  it('2.0 edits：单张参考图走 JSON image，不带 size', async () => {
     const original = await solidImageDataUrl('#cc5500', 'jpeg')
     await callUpstream({
       provider: 'openai-compat',
@@ -1106,7 +1060,7 @@ describe('callUpstream grok-imagine-image-2.0（aspect_ratio / 原生多参考�
     expect(body).not.toHaveProperty('images')
   })
 
-  it('edits：两张参考图原生发给 images 数组，不合成 contact sheet', async () => {
+  it('2.0 edits：两张参考图原生发给 images 数组，不合成 contact sheet', async () => {
     const red = await solidImageDataUrl('#ff0000')
     const blue = await solidImageDataUrl('#0000ff')
     await callUpstream({
@@ -1126,7 +1080,7 @@ describe('callUpstream grok-imagine-image-2.0（aspect_ratio / 原生多参考�
     ])
   })
 
-  it('edits：超过 5 张参考图明确拒绝，不发起 fetch', async () => {
+  it('2.0 edits：超过 5 张参考图明确拒绝，不发起 fetch', async () => {
     let caught: unknown
     try {
       await callUpstream({
@@ -1146,7 +1100,7 @@ describe('callUpstream grok-imagine-image-2.0（aspect_ratio / 原生多参考�
     expect(calls).toHaveLength(0)
   })
 
-  it('edits：带 mask 明确拒绝，不发起 fetch', async () => {
+  it('2.0 edits：带 mask 明确拒绝，不发起 fetch', async () => {
     let caught: unknown
     try {
       await callUpstream({
