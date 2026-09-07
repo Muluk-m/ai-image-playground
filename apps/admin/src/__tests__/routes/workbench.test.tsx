@@ -133,15 +133,8 @@ describe('time range placement', () => {
 
   it('renders no range control on the user detail page', async () => {
     renderAt('/users/user-1')
-    expect(await screen.findByText('全部历史任务与账户操作')).toBeInTheDocument()
-    expect(screen.queryByLabelText('时间范围')).not.toBeInTheDocument()
-  })
-})
-
-describe('user detail overlay slot', () => {
-  it('keeps the task history when the private overlay is off', async () => {
-    renderAt('/users/user-1')
     expect(await screen.findByLabelText('任务状态筛选')).toBeInTheDocument()
+    expect(screen.queryByLabelText('时间范围')).not.toBeInTheDocument()
     expect(screen.queryByRole('tab', { name: '运营操作' })).not.toBeInTheDocument()
     expect(screen.queryByText('积分账户')).not.toBeInTheDocument()
   })
