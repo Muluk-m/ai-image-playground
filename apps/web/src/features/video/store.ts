@@ -28,7 +28,7 @@ const NO_FIRST_FRAME = '请先放一张首帧图'
 const NO_MODEL = '当前部署没有可用的视频模型'
 const FRAME_MISSING = '首尾帧图片已丢失'
 
-const INITIAL_DRAFT: VideoDraft = {
+export const INITIAL_VIDEO_DRAFT: VideoDraft = {
   source: 'text',
   prompt: '',
   model: '',
@@ -75,6 +75,24 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
 }
 
+/** 首尾帧下标指向 input_images：首帧永远 0，尾帧跟在它后面。 */
+function videoRequestOf(params: {
+  duration: VideoDuration
+  aspectRatio: VideoAspectRatio
+  resolution: VideoResolution
+  firstFrameImageId?: string | null
+  lastFrameImageId?: string | null
+}): VideoRequest {
+  const request: VideoRequest = {
+    duration_seconds: params.duration,
+    aspect_ratio: params.aspectRatio,
+    resolution: params.resolution,
+  }
+  if (params.firstFrameImageId) request.first_frame_index = 0
+  if (params.lastFrameImageId) request.last_frame_index = params.firstFrameImageId ? 1 : 0
+  return request
+}
+
 export const useVideoStore = create<VideoState>((set, get) => {
   async function patch(id: string, changes: Partial<VideoTask>): Promise<void> {
     const current = get().tasks.find((task) => task.id === id)
@@ -88,24 +106,13 @@ export const useVideoStore = create<VideoState>((set, get) => {
     const ids = [task.firstFrameImageId, task.lastFrameImageId].filter(
       (id): id is string => typeof id === 'string',
     )
-    const urls: string[] = []
-    for (const id of ids) {
-      const dataUrl = await ensureImageCached(id)
-      if (!dataUrl) throw new Error(FRAME_MISSING)
-      urls.push(dataUrl)
-    }
-    return urls
-  }
-
-  function videoRequestOf(task: VideoTask): VideoRequest {
-    const request: VideoRequest = {
-      duration_seconds: task.duration,
-      aspect_ratio: task.aspectRatio,
-      resolution: task.resolution,
-    }
-    if (task.firstFrameImageId) request.first_frame_index = 0
-    if (task.lastFrameImageId) request.last_frame_index = task.firstFrameImageId ? 1 : 0
-    return request
+    return await Promise.all(
+      ids.map(async (id) => {
+        const dataUrl = await ensureImageCached(id)
+        if (!dataUrl) throw new Error(FRAME_MISSING)
+        return dataUrl
+      }),
+    )
   }
 
   /** 提交与续跑同一条路径：没有 request_id 就先提交，有就直接接着轮询。 */
@@ -164,13 +171,7 @@ export const useVideoStore = create<VideoState>((set, get) => {
     }
 
     const frameCount = [firstFrameImageId, lastFrameImageId].filter(Boolean).length
-    const video: VideoRequest = {
-      duration_seconds: draft.duration,
-      aspect_ratio: draft.aspectRatio,
-      resolution: draft.resolution,
-    }
-    if (firstFrameImageId) video.first_frame_index = 0
-    if (lastFrameImageId) video.last_frame_index = firstFrameImageId ? 1 : 0
+    const video = videoRequestOf({ ...draft, firstFrameImageId, lastFrameImageId })
     const validation = validateVideoRequest(option.modelId, video, frameCount)
     if (!validation.ok) {
       showToast(validation.reason, 'error')
@@ -219,7 +220,7 @@ export const useVideoStore = create<VideoState>((set, get) => {
 
   return {
     tasks: [],
-    draft: INITIAL_DRAFT,
+    draft: INITIAL_VIDEO_DRAFT,
     loaded: false,
 
     async loadTasks() {
