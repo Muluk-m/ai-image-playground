@@ -33,7 +33,9 @@ export function versionPrompt(version: ProductShotVersion, ctx: VersionPlanConte
     return buildBackgroundPrompt({
       plan: version.plan,
       sceneType: ctx.sceneType,
+      inventory: version.inventory ?? [],
       preference: ctx.preference,
+      language: ctx.language,
       mode,
     })
   }
