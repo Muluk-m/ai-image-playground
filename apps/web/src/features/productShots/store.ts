@@ -292,6 +292,7 @@ export const useProductShotsStore = create<ProductShotsState>((set, get) => ({
     }
 
     set({ listingLoading: true, listingStartedAt: Date.now(), listingNotice: null })
+    let pulled = 0
     try {
       const listing = await fetchListingImages(url)
       const added = await Promise.all(
@@ -304,13 +305,17 @@ export const useProductShotsStore = create<ProductShotsState>((set, get) => ({
       const name = listing.title ?? listing.asin
       set((s) => ({ draft: { ...s.draft, name: s.draft.name || name } }))
       addImages(set, added)
+      pulled = added.length
       await persistDraft(set, get)
-      await scanScenes(set, get)
     } catch (error) {
       set({ listingNotice: `${reasonOf(error)}，${UPLOAD_FALLBACK}` })
     } finally {
       set({ listingLoading: false, listingStartedAt: null })
     }
+    if (pulled === 0) return
+    useStore.getState().showToast(`已拉入 ${pulled} 张`, 'success')
+    // 预检逐张打上游，必须留在按钮复位之后：挪回 try 里图集已到齐按钮还在读秒。
+    await scanScenes(set, get)
   },
 
   importFiles: async (files) => {

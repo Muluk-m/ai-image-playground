@@ -81,6 +81,12 @@ describe('building the prompt for one shot', () => {
     expect(prompt).not.toContain('背景改为与')
   })
 
+  it('swaps the recognisable decoration at the low level too', () => {
+    const prompt = build({ level: 'low' })
+
+    expect(prompt).toContain('挂画、海报、文字、logo、品牌标识等可识别装饰必须换成另一组内容')
+  })
+
   it('carries the brief fields into the shot description', () => {
     const prompt = build()
 

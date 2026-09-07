@@ -59,7 +59,7 @@ export function productLockSection(product: RemixProductDescription): string {
 export function referenceConstraintSection(level: RemixLevel): string {
   return level === 'high'
     ? '图2只作为风格与档次参考，禁止照搬其构图、机位、道具摆位、挂画、地毯与配件，画面必须与图2明显不同。'
-    : '图2只作为构图、机位与布光参考，不要复制图2里的产品。'
+    : '图2只作为构图、机位与布光参考，不要复制图2里的产品；挂画、海报、文字、logo、品牌标识等可识别装饰必须换成另一组内容，不得照搬。'
 }
 
 export function shotDescriptionSection(brief: RemixBrief): string {
