@@ -43,7 +43,14 @@ beforeEach(() => {
   useStore.setState({ setLightboxImageId })
   useLibraryStore.setState({
     assets: [
-      { id: 'asset-1', name: '正面白底', imageId: 'product-1', createdAt: 1, lastUsedAt: 1 },
+      {
+        id: 'asset-1',
+        name: '正面白底',
+        imageId: 'product-1',
+        createdAt: 1,
+        updatedAt: 1,
+        lastUsedAt: 1,
+      },
     ],
   })
   host = document.createElement('div')

@@ -424,3 +424,77 @@ describe('browsing assets', () => {
     ])
   })
 })
+
+describe('record timestamps', () => {
+  it('stamps a new asset and moves updatedAt only when its content changes', async () => {
+    const now = vi.spyOn(Date, 'now')
+    now.mockReturnValue(1000)
+    const asset = await saveAssetNamed(IMAGE_A, '白底图')
+    expect(asset.updatedAt).toBe(1000)
+
+    now.mockReturnValue(2000)
+    await useLibraryStore.getState().attachAsset(asset.id)
+    expect(useLibraryStore.getState().assets[0]).toMatchObject({
+      updatedAt: 1000,
+      lastUsedAt: 2000,
+    })
+
+    now.mockReturnValue(3000)
+    await useLibraryStore.getState().renameAsset(asset.id, '新名字')
+
+    useLibraryStore.setState({ assets: [] })
+    await useLibraryStore.getState().loadAssets()
+    expect(useLibraryStore.getState().assets[0]).toMatchObject({
+      updatedAt: 3000,
+      lastUsedAt: 2000,
+    })
+  })
+
+  it('stamps a new template and moves updatedAt only when its content changes', async () => {
+    const now = vi.spyOn(Date, 'now')
+    now.mockReturnValue(1000)
+    const { template } = await saveTemplateReferencingAsset()
+    expect(template.updatedAt).toBe(1000)
+
+    now.mockReturnValue(2000)
+    await useLibraryStore.getState().applyTemplate(template.id)
+    expect(useLibraryStore.getState().templates[0]).toMatchObject({
+      updatedAt: 1000,
+      lastUsedAt: 2000,
+    })
+
+    now.mockReturnValue(3000)
+    await useLibraryStore.getState().renameTemplate(template.id, '新名字')
+
+    useLibraryStore.setState({ templates: [] })
+    await useLibraryStore.getState().loadTemplates()
+    expect(useLibraryStore.getState().templates[0]).toMatchObject({
+      updatedAt: 3000,
+      lastUsedAt: 2000,
+    })
+  })
+
+  it('keeps a deleted asset out of every read path', async () => {
+    const asset = await saveAssetNamed(IMAGE_A, '白底图')
+
+    await useLibraryStore.getState().deleteAsset(asset.id)
+
+    useLibraryStore.setState({ assets: [] })
+    await useLibraryStore.getState().loadAssets()
+    expect(useLibraryStore.getState().assets).toEqual([])
+    expect(selectVisibleAssets(useLibraryStore.getState())).toEqual([])
+  })
+
+  it('keeps a deleted template out of every read path', async () => {
+    const { template } = await saveTemplateReferencingAsset()
+
+    await useLibraryStore.getState().deleteTemplate(template.id)
+
+    useLibraryStore.setState({ templates: [] })
+    await useLibraryStore.getState().loadTemplates()
+    expect(useLibraryStore.getState().templates).toEqual([])
+    expect(selectVisibleTemplates(useLibraryStore.getState())).toEqual([])
+    await useLibraryStore.getState().applyTemplate(template.id)
+    expect(useStore.getState().prompt).toBe('')
+  })
+})
