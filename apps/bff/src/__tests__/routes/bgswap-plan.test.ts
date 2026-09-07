@@ -127,6 +127,8 @@ describe('POST /api/bgswap/plan', () => {
     expect(calls[0]!.images).toEqual([PIXEL])
     // 偏好优先于模型自己的判断，所以它必须进视觉提示，而不只是进最终提示词。
     expect(calls[0]!.prompt).toContain('北欧风')
+    // 计划句会落进最终提示词的「要换的部分」，复述保留项会读成自相矛盾。
+    expect(calls[0]!.prompt).toContain('never restate what stays')
   })
 
   it('works without a preference and defaults to Chinese', async () => {
