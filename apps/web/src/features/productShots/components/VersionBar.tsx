@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { DownloadIcon, EditIcon } from '../../../components/icons'
 import Pending from '../../../components/Pending'
-import { LABEL, NOTICE } from '../../../components/panelStyles'
+import { NOTICE } from '../../../components/panelStyles'
 import { formatElapsed } from '../../../hooks/useElapsed'
 import { useImageThumbnail } from '../../../hooks/useImageThumbnail'
 import { downloadImagesByIds } from '../../../lib/downloadImages'
@@ -45,7 +45,6 @@ export default function VersionBar() {
 
   return (
     <div>
-      <span className={LABEL}>版本</span>
       {selected && isDiagram(selected.sceneType) && (
         <p className="mt-1.5 rounded bg-amber-500/10 px-1.5 py-0.5 text-xs text-amber-700 dark:text-amber-300">
           {DIAGRAM_LABEL}

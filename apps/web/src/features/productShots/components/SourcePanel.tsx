@@ -9,6 +9,7 @@ import {
   LABEL,
   NOTICE,
   OUTLINE_BUTTON,
+  PANEL_TITLE,
   PRIMARY_BUTTON,
 } from '../../../components/panelStyles'
 import Segmented from '../../../components/Segmented'
@@ -55,7 +56,7 @@ export default function SourcePanel() {
   return (
     <section data-product-shots-column="sources" className={CARD}>
       <div className="mb-3 flex items-baseline gap-2">
-        <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-100">原图</h2>
+        <h2 className={PANEL_TITLE}>原图</h2>
         <span className="text-xs text-gray-400 dark:text-gray-500">{images.length} 张</span>
       </div>
 

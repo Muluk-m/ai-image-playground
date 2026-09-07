@@ -6,6 +6,12 @@ export const FIELD =
 
 export const LABEL = 'text-xs font-medium text-gray-500 dark:text-gray-400'
 
+/** 面板与面板内分段的标题。 */
+export const PANEL_TITLE = 'text-sm font-semibold text-gray-800 dark:text-gray-100'
+
+/** 同一张卡里分段之间的分隔。 */
+export const PANEL_SECTION = 'border-t border-gray-200/70 pt-4 dark:border-white/[0.08]'
+
 export const PRIMARY_BUTTON =
   'rounded-lg bg-blue-500 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-blue-600 disabled:cursor-wait disabled:opacity-60'
 

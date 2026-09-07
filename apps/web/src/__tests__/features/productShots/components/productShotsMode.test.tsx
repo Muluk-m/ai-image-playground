@@ -741,6 +741,64 @@ describe('the product picked once for the whole job', () => {
   })
 })
 
+describe('the right column grouped into settings, generation and versions', () => {
+  const PRODUCT_REASON = '换产品与借创意重做需要先选产品素材'
+
+  function headings(): string[] {
+    return [...column('actions').querySelectorAll('h2')].map((item) => item.textContent ?? '')
+  }
+
+  function reasons(): Element[] {
+    return [...column('actions').querySelectorAll('[data-product-shots-action-reason]')]
+  }
+
+  it('orders the column as settings, generation and versions', () => {
+    render()
+
+    expect(headings()).toEqual(['设置', '生成', '版本'])
+  })
+
+  it('puts the three actions on one row', () => {
+    render()
+
+    const row = actionButton('background').parentElement
+    expect(actionButton('replace-product').parentElement).toBe(row)
+    expect(actionButton('remix').parentElement).toBe(row)
+  })
+
+  it('gives the held back actions one reason, not one per button', () => {
+    render()
+
+    expect(reasons().map((item) => item.textContent)).toEqual([PRODUCT_REASON])
+    expect(column('actions').textContent?.split(PRODUCT_REASON)).toHaveLength(2)
+  })
+
+  it('drops the reason once a product asset is picked', () => {
+    useLibraryStore.setState({
+      assets: [{ id: 'a1', name: '正面白底', imageId: 'asset-1', createdAt: 1, lastUsedAt: 1 }],
+    })
+    render()
+
+    expect(column('actions').textContent).toContain('产品素材：未选')
+
+    act(() => {
+      useProductShotsStore.getState().toggleProductAsset('a1')
+    })
+
+    expect(reasons()).toEqual([])
+    expect(column('actions').textContent).toContain('更换')
+  })
+
+  it('keeps the settings where they are', () => {
+    render()
+
+    const settings = column('actions').querySelector('[data-product-shots-settings]')
+    expect(settings?.textContent).toContain('偏好')
+    expect(settings?.textContent).toContain('每张几版')
+    expect(settings?.querySelector('[role="group"][aria-label="与竞品的距离"]')).not.toBeNull()
+  })
+})
+
 describe('the result gallery', () => {
   async function withOneResult() {
     render()
