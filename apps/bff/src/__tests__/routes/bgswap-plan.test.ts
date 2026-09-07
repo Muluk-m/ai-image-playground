@@ -13,7 +13,7 @@ process.env.OPERATOR_CONFIG_FILE = resolve(import.meta.dir, '../remix-operator-c
 // Dynamic import keeps environment setup ahead of configuration module evaluation.
 const { bgswapPlanRoutes } = await import('../../routes/bgswap-plan')
 const { setVisionFetchForTesting } = await import('../../lib/vision')
-const { buildBackgroundPrompt } = await import('../../lib/bgswapPrompt')
+const { buildBackgroundPrompt } = await import('@image-playground/shared')
 
 type VisionFetch = NonNullable<Parameters<typeof setVisionFetchForTesting>[0]>
 
