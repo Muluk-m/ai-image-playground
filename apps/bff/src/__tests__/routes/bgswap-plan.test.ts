@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, mock } from 'bun:test'
 import { resolve } from 'node:path'
 import { Elysia } from 'elysia'
+import { HARD_CODED_PARTS } from '../hardCodedParts'
 
 process.env.PORT = '0'
 process.env.DATABASE_URL = 'postgres://unused/unused'
@@ -27,6 +28,7 @@ const PLAN = {
   camera: '略高于缸沿的 3/4 侧视，标准镜头',
   sceneType: 'photo',
   productBox: { x: 0.2, y: 0.3, w: 0.5, h: 0.4 },
+  inventory: ['独立式浴缸', '落地龙头'],
   plan: '暖白微水泥墙面，浅橡木地板，左侧柔和窗光，一株散尾葵与一条亚麻毛巾。',
 }
 
@@ -43,6 +45,33 @@ function visionFetchReturning(...bodies: Response[]): VisionFetch {
     const body = bodies[Math.min(index, bodies.length - 1)]!
     index += 1
     return body.clone()
+  }) as unknown as VisionFetch
+}
+
+interface VisionCall {
+  readonly url: string
+  readonly authorization: string
+  readonly model: string
+  readonly images: readonly string[]
+  readonly prompt: string
+}
+
+function recordingVisionFetch(calls: VisionCall[]): VisionFetch {
+  return mock(async (url: unknown, init: unknown) => {
+    const { headers, body } = init as { headers: Record<string, string>; body: string }
+    const sent = JSON.parse(body) as {
+      model: string
+      messages: { content: { type: string; text?: string; image_url?: { url: string } }[] }[]
+    }
+    const parts = sent.messages[0]!.content
+    calls.push({
+      url: String(url),
+      authorization: headers.authorization!,
+      model: sent.model,
+      images: parts.flatMap((part) => (part.image_url ? [part.image_url.url] : [])),
+      prompt: parts.find((part) => part.type === 'text')?.text ?? '',
+    })
+    return chatCompletion(JSON.stringify(PLAN))
   }) as unknown as VisionFetch
 }
 
@@ -74,13 +103,8 @@ afterEach(() => {
 
 describe('POST /api/bgswap/plan', () => {
   it('returns the plan plus a prompt assembled from the server template', async () => {
-    const calls: { url: string; init: unknown }[] = []
-    setVisionFetchForTesting(
-      mock(async (url: unknown, init: unknown) => {
-        calls.push({ url: String(url), init })
-        return chatCompletion(JSON.stringify(PLAN))
-      }) as unknown as VisionFetch,
-    )
+    const calls: VisionCall[] = []
+    setVisionFetchForTesting(recordingVisionFetch(calls))
 
     const { status, json } = await plan({ image: PIXEL, preference: '北欧风', language: 'zh' })
 
@@ -90,6 +114,7 @@ describe('POST /api/bgswap/plan', () => {
       prompt: buildBackgroundPrompt({
         plan: PLAN.plan,
         sceneType: 'photo',
+        inventory: PLAN.inventory,
         preference: '北欧风',
         language: 'zh',
       }),
@@ -97,19 +122,11 @@ describe('POST /api/bgswap/plan', () => {
 
     expect(calls).toHaveLength(1)
     expect(calls[0]!.url).toBe('http://gateway.test/v1/chat/completions')
-    const init = calls[0]!.init as { headers: Record<string, string>; body: string }
-    expect(init.headers.authorization).toBe('Bearer fixture-upstream-key')
-    const sent = JSON.parse(init.body) as {
-      model: string
-      messages: { content: { type: string; text?: string; image_url?: { url: string } }[] }[]
-    }
-    expect(sent.model).toBe('fixture-vision-model')
-    const parts = sent.messages[0]!.content
-    expect(parts.some((part) => part.type === 'image_url' && part.image_url?.url === PIXEL)).toBe(
-      true,
-    )
+    expect(calls[0]!.authorization).toBe('Bearer fixture-upstream-key')
+    expect(calls[0]!.model).toBe('fixture-vision-model')
+    expect(calls[0]!.images).toEqual([PIXEL])
     // 偏好优先于模型自己的判断，所以它必须进视觉提示，而不只是进最终提示词。
-    expect(parts.find((part) => part.type === 'text')?.text).toContain('北欧风')
+    expect(calls[0]!.prompt).toContain('北欧风')
   })
 
   it('works without a preference and defaults to Chinese', async () => {
@@ -120,7 +137,11 @@ describe('POST /api/bgswap/plan', () => {
     expect(status).toBe(200)
     expect(json).toEqual({
       ...PLAN,
-      prompt: buildBackgroundPrompt({ plan: PLAN.plan, sceneType: 'photo' }),
+      prompt: buildBackgroundPrompt({
+        plan: PLAN.plan,
+        sceneType: 'photo',
+        inventory: PLAN.inventory,
+      }),
     })
   })
 
@@ -133,7 +154,11 @@ describe('POST /api/bgswap/plan', () => {
     expect(status).toBe(200)
     expect(json).toEqual({
       ...PLAN,
-      prompt: buildBackgroundPrompt({ plan: PLAN.plan, sceneType: 'photo' }),
+      prompt: buildBackgroundPrompt({
+        plan: PLAN.plan,
+        sceneType: 'photo',
+        inventory: PLAN.inventory,
+      }),
     })
   })
 
@@ -264,9 +289,77 @@ describe('POST /api/bgswap/plan', () => {
       expect(status).toBe(200)
       expect(json).toEqual({
         ...PLAN,
-        prompt: buildBackgroundPrompt({ plan: PLAN.plan, sceneType: 'photo', mode }),
+        prompt: buildBackgroundPrompt({
+          plan: PLAN.plan,
+          sceneType: 'photo',
+          inventory: PLAN.inventory,
+          mode,
+        }),
       })
     }
+  })
+
+  it('still answers, with the generic untouched clause, when the model lists no inventory', async () => {
+    const { inventory: _inventory, ...noInventory } = PLAN
+    setVisionFetchForTesting(visionFetchReturning(chatCompletion(JSON.stringify(noInventory))))
+
+    const { status, json } = await plan({ image: PIXEL })
+
+    expect(status).toBe(200)
+    expect(json).toMatchObject({ inventory: [] })
+    expect((json as { prompt: string }).prompt).toContain('产品本身及所有功能上属于它的部件')
+  })
+
+  it('asks the model for the inventory before the plan sentence', async () => {
+    const calls: VisionCall[] = []
+    setVisionFetchForTesting(recordingVisionFetch(calls))
+
+    await plan({ image: PIXEL })
+
+    const sent = calls[0]!.prompt
+    expect(sent).toContain('"inventory"')
+    expect(sent.indexOf('"inventory"')).toBeLessThan(sent.indexOf('"plan"'))
+  })
+
+  it('makes the inventory a matter of function, not of touching the product', async () => {
+    const calls: VisionCall[] = []
+    setVisionFetchForTesting(recordingVisionFetch(calls))
+
+    await plan({ image: PIXEL })
+
+    expect(calls[0]!.prompt).toMatch(/functionally belongs/)
+    expect(calls[0]!.prompt).toMatch(/whether or not it touches/)
+  })
+
+  it('asks for props that lift on their own and duplicate nothing on the inventory', async () => {
+    const calls: VisionCall[] = []
+    setVisionFetchForTesting(recordingVisionFetch(calls))
+
+    await plan({ image: PIXEL })
+
+    const sent = calls[0]!.prompt
+    expect(sent).toMatch(/liftable on its own/)
+    expect(sent).toMatch(/must not appear in "inventory"/)
+    expect(sent).toMatch(/must not repeat the function/)
+  })
+
+  it('names no part type of its own, so the inventory stays the model answer', async () => {
+    const calls: VisionCall[] = []
+    setVisionFetchForTesting(recordingVisionFetch(calls))
+
+    await plan({ image: PIXEL })
+
+    expect(calls[0]!.prompt).not.toMatch(HARD_CODED_PARTS)
+  })
+
+  it('tells the model that a must-keep in the preference joins the inventory', async () => {
+    const calls: VisionCall[] = []
+    setVisionFetchForTesting(recordingVisionFetch(calls))
+
+    await plan({ image: PIXEL, preference: '保留原有的落地龙头' })
+
+    expect(calls[0]!.prompt).toContain('保留原有的落地龙头')
+    expect(calls[0]!.prompt).toMatch(/must-keep[\s\S]*"inventory"/)
   })
 
   it('rejects a mode outside the three', async () => {

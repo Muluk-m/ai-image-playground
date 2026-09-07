@@ -10,6 +10,7 @@ const PLAN = {
   camera: '略高的 3/4 侧视',
   sceneType: 'photo',
   productBox: { x: 0.1, y: 0.2, w: 0.5, h: 0.4 },
+  inventory: ['浴缸', '落地龙头'],
   plan: '放进有窗光的日式木质浴室',
   prompt: '锁住产品……只换背景',
 }
@@ -112,6 +113,30 @@ describe('asking the BFF for a background plan', () => {
     await expect(
       requestBackgroundPlan({ image: 'data:image/png;base64,AAA' }, fetcher),
     ).rejects.toThrow('背景方案')
+  })
+
+  it('empties a missing or malformed inventory instead of failing the plan', async () => {
+    const { inventory: _inventory, ...noInventory } = PLAN
+
+    for (const body of [noInventory, { ...PLAN, inventory: '浴缸、龙头' }]) {
+      const fetcher = vi.fn().mockResolvedValue(jsonResponse(body))
+
+      const result = await requestBackgroundPlan({ image: 'data:image/png;base64,AAA' }, fetcher)
+
+      expect(result.inventory).toEqual([])
+    }
+  })
+
+  it('trims the inventory entries, drops the empty ones and keeps each name once', async () => {
+    const fetcher = vi
+      .fn()
+      .mockResolvedValue(
+        jsonResponse({ ...PLAN, inventory: ['  浴缸 ', '浴缸', '', '  ', 7, '落地龙头'] }),
+      )
+
+    const result = await requestBackgroundPlan({ image: 'data:image/png;base64,AAA' }, fetcher)
+
+    expect(result.inventory).toEqual(['浴缸', '落地龙头'])
   })
 })
 
