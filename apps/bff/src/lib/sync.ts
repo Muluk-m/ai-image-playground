@@ -17,6 +17,7 @@ interface ExistingMeta {
   readonly id: string
   readonly updated_at: number
   readonly last_used_at: number | null
+  readonly deleted_at: number | null
 }
 
 interface IncomingChange {
@@ -38,8 +39,9 @@ function mergedLastUsedAt(incoming: IncomingChange, existing: ExistingMeta | und
 }
 
 /**
- * 合并规则只有这一份：`updatedAt` 大者胜，墓碑同样参与；输的一方只有 `lastUsedAt`
- * 更大时才更新那一列。返回输掉的记录 id，它们要回给客户端覆盖本地那一份。
+ * 合并规则只有这一份：`updatedAt` 大者胜，墓碑同样参与；输给实体记录的一方只有 `lastUsedAt`
+ * 更大时才更新那一列，输给墓碑的一方什么都不改（墓碑不带 `lastUsedAt`）。
+ * 返回输掉的记录 id，它们要回给客户端覆盖本地那一份。
  */
 async function mergeChanges<Change extends IncomingChange>(
   changes: readonly Change[],
@@ -53,7 +55,7 @@ async function mergeChanges<Change extends IncomingChange>(
     const lastUsedAt = mergedLastUsedAt(change, existing)
     if (!existing || change.updatedAt > existing.updated_at) {
       await writer.write(change, allocate(), lastUsedAt)
-    } else if (lastUsedAt > (existing.last_used_at ?? 0)) {
+    } else if (existing.deleted_at === null && lastUsedAt > (existing.last_used_at ?? 0)) {
       await writer.touch(change.id, allocate(), lastUsedAt)
     } else {
       stale.push(change.id)
@@ -76,7 +78,12 @@ async function loadExistingMeta(
 ): Promise<Map<string, ExistingMeta>> {
   if (!ids.length) return new Map()
   const rows = await tx
-    .select({ id: table.id, updated_at: table.updated_at, last_used_at: table.last_used_at })
+    .select({
+      id: table.id,
+      updated_at: table.updated_at,
+      last_used_at: table.last_used_at,
+      deleted_at: table.deleted_at,
+    })
     .from(table)
     .where(and(eq(table.user_id, userId), inArray(table.id, [...ids])))
   return new Map(rows.map((row) => [row.id, row]))

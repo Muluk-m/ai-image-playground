@@ -204,6 +204,41 @@ describe('POST /api/sync', () => {
     expect(older.body.settings).toEqual({ updatedAt: 2_000, document: { appMode: 'canvas' } })
   })
 
+  it('hands back the records a push lost even when the client already holds the version', async () => {
+    await sync(deviceA, {
+      version: 0,
+      templates: [template({ name: 'A', updatedAt: 2_000 })],
+      settings: { updatedAt: 2_000, document: { appMode: 'studio' } },
+    })
+    const pulled = await sync(deviceB, { version: 0 })
+
+    const lost = await sync(deviceB, {
+      version: pulled.body.version,
+      templates: [template({ name: 'B', updatedAt: 1_500 })],
+      settings: { updatedAt: 1_500, document: { appMode: 'canvas' } },
+    })
+    expect(lost.body.version).toBe(pulled.body.version)
+    expect(lost.body.templates).toEqual([template({ name: 'A', updatedAt: 2_000 })] as never)
+    expect(lost.body.settings).toEqual({ updatedAt: 2_000, document: { appMode: 'studio' } })
+  })
+
+  it('leaves a tombstone untouched when the loser only carries a larger lastUsedAt', async () => {
+    await sync(deviceA, { version: 0, templates: [template()] })
+    const deleted = await sync(deviceA, {
+      version: 1,
+      templates: [{ id: 'template-1', updatedAt: 3_000, deletedAt: 3_000 }],
+    })
+
+    const lost = await sync(deviceB, {
+      version: deleted.body.version,
+      templates: [template({ updatedAt: 1_000, lastUsedAt: 9_000 })],
+    })
+    expect(lost.body.version).toBe(deleted.body.version)
+    expect(lost.body.templates).toEqual([
+      { id: 'template-1', updatedAt: 3_000, deletedAt: 3_000 },
+    ] as never)
+  })
+
   it('syncs assets and their tombstones', async () => {
     await sync(deviceA, { version: 0, assets: [asset()] })
     const pulled = await sync(deviceB, { version: 0 })
