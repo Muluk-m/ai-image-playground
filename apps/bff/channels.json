@@ -95,6 +95,59 @@
         "asyncTasks": true
       },
       "allowedPaths": ["images/generations", "images/edits"]
+    },
+    {
+      "id": "grok-video",
+      "kind": "openai-queue",
+      "label": "Grok Imagine Video",
+      "baseUrlRef": "GROK_BASE_URL",
+      "auth": {
+        "type": "bearer",
+        "secretRef": "GROK_API_KEY"
+      },
+      "models": [
+        {
+          "id": "grok-imagine-video",
+          "label": "Grok Imagine Video",
+          "media": "video",
+          "capabilities": ["generate", "duration", "aspect_ratio", "resolution", "first_frame"]
+        }
+      ],
+      "defaults": {
+        "timeout": 600,
+        "asyncTasks": true
+      },
+      "allowedPaths": ["videos/generations", "videos"]
+    },
+    {
+      "id": "agnes-video",
+      "kind": "openai-queue",
+      "label": "Agnes AI Video",
+      "baseUrl": "https://apihub.agnes-ai.com/v1",
+      "auth": {
+        "type": "bearer",
+        "secretRef": "AGNES_API_KEY"
+      },
+      "models": [
+        {
+          "id": "agnes-video-2.5",
+          "label": "Agnes Video 2.5",
+          "media": "video",
+          "capabilities": [
+            "generate",
+            "duration",
+            "aspect_ratio",
+            "resolution",
+            "first_frame",
+            "last_frame"
+          ]
+        }
+      ],
+      "defaults": {
+        "timeout": 600,
+        "asyncTasks": true
+      },
+      "allowedPaths": ["videos", "agnesapi"]
     }
   ]
 }
