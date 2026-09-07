@@ -1,4 +1,4 @@
-import type { SyncAssetQuotaErrorCode, SyncAssetUploadResult } from '@image-playground/shared'
+import type { SyncAssetQuotaError, SyncAssetUploadResult } from '@image-playground/shared'
 import { and, eq, inArray, sql } from 'drizzle-orm'
 import { config } from '../config'
 import { db, schema } from '../db/client'
@@ -15,11 +15,7 @@ export interface AssetUploadAccepted {
   readonly result: SyncAssetUploadResult
 }
 
-export interface AssetUploadRejected {
-  readonly ok: false
-  readonly error: SyncAssetQuotaErrorCode
-  readonly limit: number
-}
+export type AssetUploadRejected = SyncAssetQuotaError & { readonly ok: false }
 
 /** 对象键的唯一出处；孤儿清扫按 `assetOwnerPrefix(userId)` 反过来收走一个用户的全部对象。 */
 export const ASSET_OBJECT_ROOT = 'users/'
@@ -37,11 +33,12 @@ export function assetImageByteLimit(): number {
 }
 
 async function totalBytes(userId: string): Promise<number> {
+  // sum() 出来是 bigint，别往 int4 上转——运营把每用户配额调过 2 GB 之后这里就会溢出报错。
   const [row] = await db
-    .select({ total: sql<number>`coalesce(sum(${schema.user_asset_objects.bytes}), 0)::int` })
+    .select({ total: sql<string | number>`coalesce(sum(${schema.user_asset_objects.bytes}), 0)` })
     .from(schema.user_asset_objects)
     .where(eq(schema.user_asset_objects.user_id, userId))
-  return row?.total ?? 0
+  return Number(row?.total ?? 0)
 }
 
 /**
