@@ -144,3 +144,121 @@ describe('PlanDrawer 参考图', () => {
     expect(document.body.querySelector('[data-product-shots-plan-box]')).toBeNull()
   })
 })
+
+function inventoryBox() {
+  return document.body.querySelector<HTMLElement>('[data-product-shots-plan-inventory]')
+}
+
+function chipNames() {
+  const chips = inventoryBox()?.querySelectorAll('[data-product-shots-plan-chip]') ?? []
+  return [...chips].map((chip) => chip.getAttribute('data-product-shots-plan-chip'))
+}
+
+function inventoryInput() {
+  const input = inventoryBox()?.querySelector<HTMLInputElement>('input')
+  if (!input) throw new Error('no inventory input')
+  return input
+}
+
+function storedVersion() {
+  return useProductShotsStore.getState().draft.images[0].versions[0]
+}
+
+function click(element: Element) {
+  act(() => {
+    element.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+  })
+}
+
+function type(input: HTMLInputElement, value: string) {
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
+  act(() => {
+    setter?.call(input, value)
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+}
+
+describe('PlanDrawer 产品清单', () => {
+  it('把只换背景那一版的清单排成 chip', () => {
+    render(version({ inventory: ['浴缸', '落地龙头'] }))
+
+    expect(chipNames()).toEqual(['浴缸', '落地龙头'])
+  })
+
+  it('换产品并换背景也摆出清单', () => {
+    render(version({ mode: 'replace-and-background', inventory: ['台灯', '电源线'] }))
+
+    expect(chipNames()).toEqual(['台灯', '电源线'])
+  })
+
+  it('换产品那一版不摆清单', () => {
+    render(version({ mode: 'replace-product', inventory: ['浴缸'] }))
+
+    expect(inventoryBox()).toBeNull()
+  })
+
+  it('旧记录没有清单时只留一个空输入框', () => {
+    render(version())
+
+    expect(inventoryBox()).not.toBeNull()
+    expect(chipNames()).toEqual([])
+    expect(inventoryInput().value).toBe('')
+  })
+
+  it('删掉一个 chip 后就地重算提示词', () => {
+    render(version({ inventory: ['浴缸', '落地龙头'] }))
+
+    const remove = inventoryBox()?.querySelector('button[aria-label="删除 落地龙头"]')
+    if (!remove) throw new Error('no remove button')
+    click(remove)
+
+    expect(chipNames()).toEqual(['浴缸'])
+    expect(storedVersion().inventory).toEqual(['浴缸'])
+    expect(storedVersion().prompt).toContain('不动的部分：浴缸。')
+  })
+
+  it('删光之后提示词回落到通用句', () => {
+    render(version({ inventory: ['浴缸'] }))
+
+    const remove = inventoryBox()?.querySelector('button[aria-label="删除 浴缸"]')
+    if (!remove) throw new Error('no remove button')
+    click(remove)
+
+    expect(storedVersion().inventory).toEqual([])
+    expect(storedVersion().prompt).toContain('不动的部分：产品本身及所有功能上属于它的部件。')
+  })
+
+  it('回车把输入框里的名字加进清单', () => {
+    render(version({ inventory: ['浴缸'] }))
+
+    const input = inventoryInput()
+    type(input, ' 落地龙头 ')
+    act(() => {
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    })
+
+    expect(chipNames()).toEqual(['浴缸', '落地龙头'])
+    expect(storedVersion().inventory).toEqual(['浴缸', '落地龙头'])
+    expect(storedVersion().prompt).toContain('不动的部分：浴缸、落地龙头。')
+    expect(inventoryInput().value).toBe('')
+  })
+
+  it('手改过的提示词不被清单改动覆盖', () => {
+    render(version({ inventory: ['浴缸', '落地龙头'] }))
+
+    const prompt = document.body.querySelector<HTMLTextAreaElement>('textarea[aria-label="提示词"]')
+    if (!prompt) throw new Error('no prompt field')
+    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set
+    act(() => {
+      setter?.call(prompt, '我自己写的提示词')
+      prompt.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+
+    const remove = inventoryBox()?.querySelector('button[aria-label="删除 落地龙头"]')
+    if (!remove) throw new Error('no remove button')
+    click(remove)
+
+    expect(storedVersion().inventory).toEqual(['浴缸'])
+    expect(storedVersion().prompt).toBe('我自己写的提示词')
+  })
+})

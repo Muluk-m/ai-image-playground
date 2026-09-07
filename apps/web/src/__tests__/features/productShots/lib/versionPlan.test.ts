@@ -141,6 +141,35 @@ describe('editing the plan of a background swap version', () => {
     expect(next.prompt).toContain('用户偏好：北欧风')
   })
 
+  it('rebuilds the prompt around the edited inventory', () => {
+    const next = editVersionPlan(swapVersion(), { inventory: ['浴缸', '落地龙头'] }, CONTEXT)
+
+    expect(next.inventory).toEqual(['浴缸', '落地龙头'])
+    expect(next.prompt).toContain('不动的部分：浴缸、落地龙头。')
+    expect(next.prompt).toContain('不得新增任何与浴缸、落地龙头同类的物件。')
+  })
+
+  it('trims, drops empty and de-duplicates the edited inventory', () => {
+    const next = editVersionPlan(
+      swapVersion(),
+      { inventory: [' 浴缸 ', '', '浴缸', '落地龙头'] },
+      CONTEXT,
+    )
+
+    expect(next.inventory).toEqual(['浴缸', '落地龙头'])
+  })
+
+  it('falls back to the generic untouched clause once the last item is removed', () => {
+    const emptied = editVersionPlan(
+      { ...swapVersion(), inventory: ['浴缸'] },
+      { inventory: [] },
+      CONTEXT,
+    )
+
+    expect(emptied.inventory).toEqual([])
+    expect(emptied.prompt).toContain('不动的部分：产品本身及所有功能上属于它的部件。')
+  })
+
   it('keeps the product box the drawer edited', () => {
     const next = editVersionPlan(
       swapVersion(),
@@ -167,6 +196,28 @@ describe('protecting a prompt someone wrote by hand', () => {
 
     expect(next.brief?.background).toBe('水泥灰浴室')
     expect(next.prompt).toBe('我自己写的提示词')
+  })
+
+  it('leaves the hand written prompt alone when the inventory changes afterwards', () => {
+    const edited = editVersionPlan(swapVersion(), { prompt: '我自己写的提示词' }, CONTEXT)
+
+    const next = editVersionPlan(edited, { inventory: ['浴缸', '落地龙头'] }, CONTEXT)
+
+    expect(next.inventory).toEqual(['浴缸', '落地龙头'])
+    expect(next.prompt).toBe('我自己写的提示词')
+  })
+
+  it('rebuilds the prompt out of the current inventory when it is reset', () => {
+    const edited = editVersionPlan(
+      swapVersion(),
+      { prompt: '我自己写的提示词', inventory: ['浴缸', '落地龙头'] },
+      CONTEXT,
+    )
+
+    const next = resetVersionPrompt(edited, CONTEXT)
+
+    expect(next.promptEdited).toBe(false)
+    expect(next.prompt).toContain('不动的部分：浴缸、落地龙头。')
   })
 
   it('rebuilds the prompt and drops the mark when it is reset', () => {
