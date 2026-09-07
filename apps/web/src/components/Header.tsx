@@ -13,7 +13,7 @@ import {
   PrivateWebReplacesAuthActions,
 } from '../lib/privateOverlay'
 import { dismissAllTooltips } from '../lib/tooltipDismiss'
-import { APP_MODE_LABELS, APP_MODES, useStore } from '../store'
+import { APP_MODE_LABELS, useStore, visibleAppModes } from '../store'
 import HelpModal from './HelpModal'
 import { LibraryIcon, SparkleIcon } from './icons'
 import ViewportTooltip from './ViewportTooltip'
@@ -70,7 +70,7 @@ export default function Header() {
           </div>
           <div className="flex items-center gap-1 shrink-0">
             <div className="flex items-center gap-0.5 mr-1 p-0.5 rounded-lg bg-gray-100 dark:bg-gray-900">
-              {APP_MODES.map((mode) => (
+              {visibleAppModes().map((mode) => (
                 <button
                   key={mode}
                   onClick={() => setAppMode(mode)}

@@ -16,6 +16,7 @@ import {
 } from './lib/channels/profileSelectors'
 import { getPublicChannels } from './lib/channels/publicChannels'
 import type { ClientProfile } from './lib/channels/types'
+import { isVideoModeAvailable } from './lib/channels/videoChannels'
 import type {
   AppSettings,
   ExportData,
@@ -382,13 +383,19 @@ function orderImagesWithMaskFirst(
   return next
 }
 
-export const APP_MODES = ['browse', 'create', 'product'] as const
+export const APP_MODES = ['browse', 'create', 'product', 'video'] as const
 export type AppMode = (typeof APP_MODES)[number]
 
 export const APP_MODE_LABELS: Record<AppMode, string> = {
   browse: '工作台',
   create: '创作',
   product: '商品图',
+  video: '视频',
+}
+
+/** 分段控件与模式分发都只认这份列表。视频要 BFF 频道加能力开关，纯静态形态没有。 */
+export function visibleAppModes(): AppMode[] {
+  return APP_MODES.filter((mode) => mode !== 'video' || isVideoModeAvailable())
 }
 
 /** 复刻套图与换背景并进商品图；旧持久化值直接丢弃会把老用户扔回工作台。 */
@@ -441,8 +448,10 @@ function isAppMode(value: unknown): value is AppMode {
 }
 
 function persistedAppMode(value: unknown, fallback: AppMode): AppMode {
-  if (isAppMode(value)) return value
-  return (typeof value === 'string' ? RETIRED_APP_MODES[value] : undefined) ?? fallback
+  const mode = isAppMode(value)
+    ? value
+    : ((typeof value === 'string' ? RETIRED_APP_MODES[value] : undefined) ?? fallback)
+  return visibleAppModes().includes(mode) ? mode : fallback
 }
 
 function mergePersistedState(persistedState: unknown, currentState: AppState): AppState {

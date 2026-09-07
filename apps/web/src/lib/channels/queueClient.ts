@@ -1,10 +1,12 @@
 import {
   QUEUE_TIMEOUTS,
   type QueueProvider,
+  type ResultImageMeta,
   type ResultResponse,
   type StatusResponse,
   type StatusResultMeta,
   type SubmitResponse,
+  type VideoRequest,
 } from '@image-playground/shared'
 import type { TaskParams } from '../../types'
 import { authenticatedBffFetch } from '../authClient'
@@ -153,6 +155,16 @@ async function submit(
   if (opts.maskDataUrl) body.mask = opts.maskDataUrl
   if (clientRequestId) body.client_request_id = clientRequestId
 
+  return await postSubmit(base, provider, model, body)
+}
+
+/** submit 的 POST 与错误归一化。视频提交与图片提交共用，402 / 429 语义必须一致。 */
+async function postSubmit(
+  base: string,
+  provider: QueueProvider,
+  model: string,
+  body: Record<string, unknown>,
+): Promise<string> {
   const url = `${base}/v1/queue/${provider}/${encodeURIComponent(model)}/submit`
   const res = await authenticatedBffFetch(url, {
     method: 'POST',
@@ -203,6 +215,48 @@ async function submit(
   const json = (await res.json()) as SubmitResponse
   if (!json.request_id) throw new Error('BFF submit 响应缺少 request_id')
   return json.request_id
+}
+
+export interface VideoSubmitInput {
+  channel: PublicChannel
+  model: string
+  prompt: string
+  video: VideoRequest
+  /** 首帧在 index 0、尾帧在 index 1；video 里的下标指向这个数组。 */
+  inputImageDataUrls: string[]
+  clientRequestId: string
+}
+
+export async function submitVideoRequest(input: VideoSubmitInput): Promise<string> {
+  const provider = toQueueProvider(input.channel.kind)
+  if (!provider) {
+    throw new Error(`submitVideoRequest: 不支持的 channel kind ${input.channel.kind}`)
+  }
+  assertImageInputPayloadSize(
+    input.inputImageDataUrls.reduce((sum, url) => sum + getDataUrlEncodedByteSize(url), 0),
+  )
+  const body: Record<string, unknown> = {
+    prompt: input.prompt,
+    device_id: getDeviceId(),
+    video: input.video,
+    client_request_id: input.clientRequestId,
+  }
+  if (input.inputImageDataUrls.length) body.input_images = input.inputImageDataUrls
+  return await postSubmit(bffBaseUrl(), provider, input.model, body)
+}
+
+/**
+ * 只等到 completed 并交出输出元信息。视频字节不落 IndexedDB —— 播放由 <video>
+ * 直接打 BFF 输出端点，这里拉一遍只会把 mp4 读进内存又丢掉。
+ */
+export async function awaitQueueOutputs(requestId: string): Promise<ResultImageMeta[]> {
+  const base = bffBaseUrl()
+  const inlined = await poll(base, requestId)
+  const meta = inlined ?? (await fetchResultMeta(base, requestId))
+  if (!meta.images?.length) {
+    throw new Error('BFF 返回 completed 但输出列表为空')
+  }
+  return meta.images
 }
 
 type PollOutcome =

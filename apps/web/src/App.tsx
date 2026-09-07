@@ -18,6 +18,7 @@ import LibraryPanel from './features/library/components/LibraryPanel'
 import SaveAssetDialog from './features/library/components/SaveAssetDialog'
 import SaveTemplateDialog from './features/library/components/SaveTemplateDialog'
 import ProductShotsMode from './features/productShots/components/ProductShotsMode'
+import VideoMode from './features/video/components/VideoMode'
 import { isByokGenerationEnabled } from './lib/clientCapabilities'
 import {
   buildSettingsFromUrlParams,
@@ -85,6 +86,8 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
         <CanvasMode />
       ) : appMode === 'product' ? (
         <ProductShotsMode />
+      ) : appMode === 'video' ? (
+        <VideoMode />
       ) : (
         <>
           <main data-home-main data-drag-select-surface className="pb-48">
