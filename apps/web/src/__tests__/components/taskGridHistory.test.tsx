@@ -45,7 +45,31 @@ beforeEach(() => {
       {
         id: 'job-1',
         name: '折叠浴缸',
-        images: [],
+        images: [
+          {
+            imageId: 'img-1',
+            versions: [
+              {
+                id: 'v1',
+                taskId: 'task-1',
+                plan: '方案',
+                prompt: '提示词',
+                masked: true,
+                mode: 'background',
+                createdAt: 1,
+              },
+              {
+                id: 'v2',
+                taskId: 'task-2',
+                plan: '方案',
+                prompt: '提示词',
+                masked: true,
+                mode: 'replace-product',
+                createdAt: 2,
+              },
+            ],
+          },
+        ],
         preference: '',
         versionsPerImage: 1,
         createdAt: 1,
@@ -73,9 +97,25 @@ describe('folding a product shot job in the history', () => {
     const cards = document.querySelectorAll('[data-set-history-card]')
     expect(cards).toHaveLength(1)
     expect(cards[0].textContent).toContain('折叠浴缸')
-    expect(cards[0].textContent).toContain('商品图 · 完成 1/2')
+    expect(cards[0].textContent).toContain('完成 1/2')
     expect(cards[0].textContent).toContain('失败 1')
     expect(document.querySelectorAll('.task-card-wrapper')).toHaveLength(0)
+  })
+
+  it('tags the card with each action the job ran', () => {
+    act(() => root.render(<TaskGrid />))
+
+    const tags = document.querySelectorAll('[data-set-history-card] [data-set-history-action]')
+    expect([...tags].map((tag) => tag.textContent)).toEqual(['换背景', '换产品'])
+  })
+
+  it('falls back to a plain name once the job record is gone', () => {
+    useProductShotsStore.setState({ jobs: [] })
+    act(() => root.render(<TaskGrid />))
+
+    const card = document.querySelector('[data-set-history-card]')
+    expect(card?.textContent).toContain('商品图任务')
+    expect(card?.querySelectorAll('[data-set-history-action]')).toHaveLength(0)
   })
 
   it('lets the card open to its tasks', () => {

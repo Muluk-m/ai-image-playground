@@ -6,13 +6,13 @@ const PREVIEW_LIMIT = 4
 /** 历史里一组同源任务折起来的卡。 */
 export default function SetHistoryCard({
   name,
-  kindLabel,
+  actions,
   tasks,
   expanded,
   onToggle,
 }: {
   name: string
-  kindLabel: string
+  actions: readonly string[]
   tasks: readonly TaskRecord[]
   expanded: boolean
   onToggle: () => void
@@ -29,8 +29,21 @@ export default function SetHistoryCard({
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold text-gray-800 dark:text-gray-100">{name}</p>
-          <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
-            {kindLabel} · 完成 {done}/{tasks.length}
+          {actions.length > 0 && (
+            <div className="mt-1 flex flex-wrap gap-1">
+              {actions.map((action) => (
+                <span
+                  key={action}
+                  data-set-history-action
+                  className="rounded bg-blue-500/10 px-1.5 py-0.5 text-xs text-blue-700 dark:text-blue-300"
+                >
+                  {action}
+                </span>
+              ))}
+            </div>
+          )}
+          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            完成 {done}/{tasks.length}
             {failed > 0 ? ` · 失败 ${failed}` : ''}
           </p>
         </div>
