@@ -1,5 +1,9 @@
 // @vitest-environment jsdom
-import type { SyncRequestBody, SyncResponseBody } from '@image-playground/shared'
+import {
+  SYNC_MAX_CHANGES_PER_COLLECTION,
+  type SyncRequestBody,
+  type SyncResponseBody,
+} from '@image-playground/shared'
 import { IDBFactory } from 'fake-indexeddb'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { templateStore } from '../../../features/library/lib/templateStore'
@@ -7,7 +11,7 @@ import { useLibraryStore } from '../../../features/library/store'
 import { setClientStorageScope } from '../../../lib/authScope'
 import { bootstrapClientCapabilities } from '../../../lib/clientCapabilities'
 import { startSyncEngine } from '../../../lib/sync/engine'
-import { readPendingChanges } from '../../../lib/sync/pending'
+import { readPendingChanges, writePendingChanges } from '../../../lib/sync/pending'
 import { postSync } from '../../../lib/sync/syncClient'
 import { useStore } from '../../../store'
 import { DEFAULT_PARAMS } from '../../../types'
@@ -182,6 +186,49 @@ describe('pushing local changes', () => {
 
     await vi.waitFor(() => expect(postSyncMock).toHaveBeenCalledTimes(2))
     expect(postSyncMock.mock.calls[1]?.[1]).toEqual({ keepalive: true })
+  })
+
+  it('pushes what offline left pending as soon as the network comes back', async () => {
+    postSyncMock.mockRejectedValue(new Error('offline'))
+    stopEngine = startSyncEngine()
+    await vi.waitFor(() => expect(postSyncMock).toHaveBeenCalledTimes(1))
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+
+    await templateStore.put(template('t1', '离线建的'))
+    await vi.advanceTimersByTimeAsync(2000)
+    await vi.waitFor(() => expect(postSyncMock).toHaveBeenCalledTimes(2))
+
+    postSyncMock.mockResolvedValue(response({ version: 3 }))
+    window.dispatchEvent(new Event('online'))
+
+    await vi.waitFor(() => expect(postSyncMock).toHaveBeenCalledTimes(3))
+    const pushed = postSyncMock.mock.calls[2]?.[0] as SyncRequestBody
+    expect(pushed.templates?.map((change) => change.id)).toEqual(['t1'])
+    await vi.waitFor(() => expect(readPendingChanges().templates).toEqual([]))
+  })
+
+  it('carries what one request could not hold in the next round', async () => {
+    const ids = Array.from({ length: SYNC_MAX_CHANGES_PER_COLLECTION + 1 }, (_, i) => `t${i}`)
+    await templateStore.applyRemote(ids.map((id) => template(id, id)))
+    writePendingChanges({
+      version: 0,
+      templates: ids,
+      assets: [],
+      settingsUpdatedAt: null,
+      lastSyncedAt: null,
+    })
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+
+    stopEngine = startSyncEngine()
+    await vi.waitFor(() => expect(postSyncMock).toHaveBeenCalledTimes(1))
+    expect((postSyncMock.mock.calls[0]?.[0] as SyncRequestBody).templates).toHaveLength(
+      SYNC_MAX_CHANGES_PER_COLLECTION,
+    )
+
+    await vi.advanceTimersByTimeAsync(2000)
+    await vi.waitFor(() => expect(postSyncMock).toHaveBeenCalledTimes(2))
+    expect((postSyncMock.mock.calls[1]?.[0] as SyncRequestBody).templates).toHaveLength(1)
+    await vi.waitFor(() => expect(readPendingChanges().templates).toEqual([]))
   })
 
   it('keeps offline changes pending and pushes them on the next run', async () => {
