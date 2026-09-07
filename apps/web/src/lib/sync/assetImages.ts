@@ -1,0 +1,101 @@
+/**
+ * 素材图的上下行。本机建的素材先把图片本体传上去，记录才推得动；别的设备建的素材
+ * 等到真要看它、用它的那一刻才把图取回来，启动时一张都不取。
+ */
+
+import { refreshImageThumbnail } from '../../store'
+import { getImage, putImage } from '../db'
+import { clearImageUnsynced, markImageUnsynced } from './pending'
+import { useSyncStatus } from './status'
+import { getAssetImage, putAssetImage } from './syncClient'
+
+/** `refused` = 服务端不会再收这张图，记录改标「未同步」；`failed` 留着下一轮重试。 */
+export type AssetImageUpload = 'uploaded' | 'refused' | 'failed'
+
+const uploaded = new Set<string>()
+const uploads = new Map<string, Promise<AssetImageUpload>>()
+const fetches = new Map<string, Promise<boolean>>()
+/** 取图排队串行，否则打开素材库会把几十张图一起拉下来。 */
+let fetchQueue: Promise<unknown> = Promise.resolve()
+
+/** 引擎启动时清账：`imageId` 是内容哈希，换个账号登录后同一张图仍要重新上传一次。 */
+export function forgetUploadedAssetImages(): void {
+  uploaded.clear()
+}
+
+export function uploadAssetImage(imageId: string): Promise<AssetImageUpload> {
+  if (uploaded.has(imageId)) return Promise.resolve('uploaded')
+  const running = uploads.get(imageId)
+  if (running) return running
+  const task = upload(imageId).finally(() => uploads.delete(imageId))
+  uploads.set(imageId, task)
+  return task
+}
+
+/** 本机有图片本体就直接算数；没有才去服务端取一张回来。 */
+export function ensureAssetImage(imageId: string): Promise<boolean> {
+  const running = fetches.get(imageId)
+  if (running) return running
+  const task = fetchQueue.then(() => fetchIfMissing(imageId))
+  fetchQueue = task
+  const tracked = task.finally(() => fetches.delete(imageId))
+  fetches.set(imageId, tracked)
+  return tracked
+}
+
+async function upload(imageId: string): Promise<AssetImageUpload> {
+  try {
+    const image = await getImage(imageId)
+    const blob = image && toBlob(image.dataUrl)
+    // 本机没有图片本体的素材只可能是别的设备建的，服务端那边本来就有图，交给它判定。
+    if (!blob) return 'uploaded'
+
+    if ((await putAssetImage(imageId, blob)) === 'refused') {
+      markImageUnsynced(imageId)
+      return 'refused'
+    }
+  } catch {
+    return 'failed'
+  }
+  uploaded.add(imageId)
+  clearImageUnsynced(imageId)
+  return 'uploaded'
+}
+
+async function fetchIfMissing(imageId: string): Promise<boolean> {
+  try {
+    if (await getImage(imageId)) return true
+    if (!useSyncStatus.getState().enabled) return false
+
+    const blob = await getAssetImage(imageId)
+    if (!blob) return false
+    await putImage({
+      id: imageId,
+      dataUrl: await toDataUrl(blob),
+      createdAt: Date.now(),
+      source: 'upload',
+    })
+    refreshImageThumbnail(imageId)
+    return true
+  } catch {
+    return false
+  }
+}
+
+function toBlob(dataUrl: string): Blob | null {
+  const match = /^data:([^;,]+);base64,(.*)$/s.exec(dataUrl)
+  if (!match) return null
+  const binary = atob(match[2]!)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i)
+  return new Blob([bytes], { type: match[1]! })
+}
+
+function toDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result))
+    reader.onerror = () => reject(reader.error ?? new Error('read failed'))
+    reader.readAsDataURL(blob)
+  })
+}

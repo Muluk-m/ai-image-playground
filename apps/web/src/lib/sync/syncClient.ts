@@ -23,3 +23,29 @@ export async function postSync(
   if (!response.ok) throw new SyncRequestError(response.status)
   return (await response.json()) as SyncResponseBody
 }
+
+function assetImageUrl(imageId: string): string {
+  return `${bffBaseUrl()}/api/sync/assets/${encodeURIComponent(imageId)}`
+}
+
+/** 服务端收下了这张图，还是永远不会收（配额、类型）——后者重试没有意义。 */
+export type AssetImageUpload = 'uploaded' | 'refused'
+
+export async function putAssetImage(imageId: string, blob: Blob): Promise<AssetImageUpload> {
+  const response = await authenticatedBffFetch(assetImageUrl(imageId), {
+    method: 'PUT',
+    headers: { 'content-type': blob.type },
+    body: blob,
+  })
+  if (response.ok) return 'uploaded'
+  if (response.status === 413 || response.status === 415) return 'refused'
+  throw new SyncRequestError(response.status)
+}
+
+/** 服务端也没有这张图时返回 null。 */
+export async function getAssetImage(imageId: string): Promise<Blob | null> {
+  const response = await authenticatedBffFetch(assetImageUrl(imageId))
+  if (response.status === 404) return null
+  if (!response.ok) throw new SyncRequestError(response.status)
+  return await response.blob()
+}

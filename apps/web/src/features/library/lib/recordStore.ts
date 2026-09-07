@@ -28,14 +28,15 @@ export function createRecordStore<T extends { id: string }>(
 
     put: async (record) => {
       await write(record)
-      markRecordDirty(storeName, record.id)
+      markRecordDirty(storeName, record)
     },
 
     // 删除写墓碑而不是抹掉行，否则另一台设备推来的旧版本会让它复活。
     remove: async (id) => {
       const now = Date.now()
-      await write({ id, updatedAt: now, deletedAt: now })
-      markRecordDirty(storeName, id)
+      const tombstone = { id, updatedAt: now, deletedAt: now }
+      await write(tombstone)
+      markRecordDirty(storeName, tombstone)
     },
 
     applyRemote: async (changes) => {
