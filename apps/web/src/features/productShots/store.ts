@@ -1043,7 +1043,6 @@ function addImages(set: SetState, added: ProductShotImage[]): void {
   })
 }
 
-/** 一张图都没有的任务不落盘：否则光是打字就会在任务列表里堆出空任务。 */
 /** 素材库同时是原图与产品的来源，选完原图用户以为产品也选过了；产品还空着就认领第一张。 */
 function adoptAsProduct(set: SetState, get: GetState, asset: AssetRecord): void {
   if (get().draft.productAssets.length > 0) return
@@ -1052,6 +1051,7 @@ function adoptAsProduct(set: SetState, get: GetState, asset: AssetRecord): void 
   useStore.getState().showToast(`已把「${asset.name}」设为我的产品，可在上方更换`, 'success')
 }
 
+/** 一张图都没有的任务不落盘：否则光是打字就会在任务列表里堆出空任务。 */
 async function persistDraft(set: SetState, get: GetState): Promise<void> {
   const { draft, jobs } = get()
   if (draft.images.length === 0 && !draft.id) return
