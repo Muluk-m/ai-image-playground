@@ -15,10 +15,9 @@ declare global {
 }
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
-vi.mock('../../../../features/library/components/AssetThumb', () => ({
-  default: ({ imageId, alt }: { imageId: string; alt: string }) => (
-    <span data-image-id={imageId}>{alt}</span>
-  ),
+vi.mock('../../../../hooks/useImageThumbnail', () => ({
+  useImageThumbnail: (imageId: string | undefined) =>
+    imageId ? { dataUrl: `data:image/png;base64,${imageId}` } : null,
 }))
 
 function version(patch: Partial<ProductShotVersion> = {}): ProductShotVersion {
@@ -83,14 +82,16 @@ function thumbs() {
   return [...document.body.querySelectorAll('[data-product-shots-plan-references] button')]
 }
 
+function imageIds() {
+  return thumbs().map((button) => button.querySelector('img')?.getAttribute('data-image-id'))
+}
+
 describe('PlanDrawer 参考图', () => {
   it('只有原图时只出一张缩略图', () => {
     render(version())
 
     expect(thumbs().map((button) => button.getAttribute('aria-label'))).toEqual(['放大原图'])
-    expect(thumbs()[0].querySelector('[data-image-id]')?.getAttribute('data-image-id')).toBe(
-      'src-1',
-    )
+    expect(imageIds()).toEqual(['src-1'])
   })
 
   it('换产品且有蒙版时出原图、产品、蒙版三张', () => {
@@ -101,18 +102,13 @@ describe('PlanDrawer 参考图', () => {
       '放大产品',
       '放大蒙版',
     ])
-    expect(
-      thumbs().map((button) =>
-        button.querySelector('[data-image-id]')?.getAttribute('data-image-id'),
-      ),
-    ).toEqual(['src-1', 'product-1', 'mask-1'])
+    expect(imageIds()).toEqual(['src-1', 'product-1', 'mask-1'])
   })
 
   it('抠图预览优先于原始蒙版', () => {
     render(version({ maskImageId: 'mask-1', mattePreviewImageId: 'matte-1' }))
 
-    const matte = thumbs()[1]
-    expect(matte.querySelector('[data-image-id]')?.getAttribute('data-image-id')).toBe('matte-1')
+    expect(imageIds()).toEqual(['src-1', 'matte-1'])
   })
 
   it('点缩略图打开大图，翻页范围是这组参考图', () => {
@@ -128,7 +124,9 @@ describe('PlanDrawer 参考图', () => {
   it('有产品框时原图缩略图上画出框', () => {
     render(version({ productBox: { x: 0.1, y: 0.2, w: 0.5, h: 0.4 } }))
 
-    const box = document.body.querySelector<HTMLElement>('[data-product-shots-plan-box]')
+    const box = thumbs()[0].querySelector<HTMLElement>('[data-product-shots-plan-box]')
+    expect(thumbs()[0].className).toContain('relative')
+    expect(box).not.toBeNull()
     expect(box?.style.left).toBe('10%')
     expect(box?.style.width).toBe('50%')
   })
