@@ -204,7 +204,7 @@ function SwapPlanFields({ version, onEdit }: FieldsProps) {
       {changesBackground(version.mode) && (
         <>
           <PlanInventory
-            // 输入框不受控，换版本时要靠 key 重挂。
+            // 输入框里的草稿是本地 state，换版本要靠 key 清掉。
             key={version.id}
             inventory={version.inventory ?? []}
             onChange={(inventory) => onEdit({ inventory })}

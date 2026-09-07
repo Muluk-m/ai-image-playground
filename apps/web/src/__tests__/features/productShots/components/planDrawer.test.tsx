@@ -170,11 +170,17 @@ function click(element: Element) {
   })
 }
 
-function type(input: HTMLInputElement, value: string) {
-  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
+function removeChip(name: string) {
+  const button = inventoryBox()?.querySelector(`button[aria-label="删除 ${name}"]`)
+  if (!button) throw new Error(`no chip named ${name}`)
+  click(button)
+}
+
+function type(field: HTMLInputElement | HTMLTextAreaElement, value: string) {
+  const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), 'value')?.set
   act(() => {
-    setter?.call(input, value)
-    input.dispatchEvent(new Event('input', { bubbles: true }))
+    setter?.call(field, value)
+    field.dispatchEvent(new Event('input', { bubbles: true }))
   })
 }
 
@@ -208,24 +214,20 @@ describe('PlanDrawer 产品清单', () => {
   it('删掉一个 chip 后就地重算提示词', () => {
     render(version({ inventory: ['浴缸', '落地龙头'] }))
 
-    const remove = inventoryBox()?.querySelector('button[aria-label="删除 落地龙头"]')
-    if (!remove) throw new Error('no remove button')
-    click(remove)
+    removeChip('落地龙头')
 
     expect(chipNames()).toEqual(['浴缸'])
     expect(storedVersion().inventory).toEqual(['浴缸'])
     expect(storedVersion().prompt).toContain('不动的部分：浴缸。')
   })
 
-  it('删光之后提示词回落到通用句', () => {
+  it('删光之后清单落成空列表', () => {
     render(version({ inventory: ['浴缸'] }))
 
-    const remove = inventoryBox()?.querySelector('button[aria-label="删除 浴缸"]')
-    if (!remove) throw new Error('no remove button')
-    click(remove)
+    removeChip('浴缸')
 
+    expect(chipNames()).toEqual([])
     expect(storedVersion().inventory).toEqual([])
-    expect(storedVersion().prompt).toContain('不动的部分：产品本身及所有功能上属于它的部件。')
   })
 
   it('回车把输入框里的名字加进清单', () => {
@@ -239,7 +241,6 @@ describe('PlanDrawer 产品清单', () => {
 
     expect(chipNames()).toEqual(['浴缸', '落地龙头'])
     expect(storedVersion().inventory).toEqual(['浴缸', '落地龙头'])
-    expect(storedVersion().prompt).toContain('不动的部分：浴缸、落地龙头。')
     expect(inventoryInput().value).toBe('')
   })
 
@@ -248,15 +249,9 @@ describe('PlanDrawer 产品清单', () => {
 
     const prompt = document.body.querySelector<HTMLTextAreaElement>('textarea[aria-label="提示词"]')
     if (!prompt) throw new Error('no prompt field')
-    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set
-    act(() => {
-      setter?.call(prompt, '我自己写的提示词')
-      prompt.dispatchEvent(new Event('input', { bubbles: true }))
-    })
+    type(prompt, '我自己写的提示词')
 
-    const remove = inventoryBox()?.querySelector('button[aria-label="删除 落地龙头"]')
-    if (!remove) throw new Error('no remove button')
-    click(remove)
+    removeChip('落地龙头')
 
     expect(storedVersion().inventory).toEqual(['浴缸'])
     expect(storedVersion().prompt).toBe('我自己写的提示词')

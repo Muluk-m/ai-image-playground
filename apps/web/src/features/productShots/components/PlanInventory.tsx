@@ -1,8 +1,5 @@
-import { normalizeInventory } from '@image-playground/shared'
 import { useState } from 'react'
-import { FIELD, LABEL } from '../../../components/panelStyles'
-
-const BOX = `flex flex-wrap items-center gap-1.5 ${FIELD} focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-100 dark:focus-within:border-blue-500/50 dark:focus-within:ring-blue-500/15`
+import { FIELD_BOX, LABEL } from '../../../components/panelStyles'
 
 const CHIP =
   'inline-flex items-center gap-1 rounded-md bg-indigo-500/10 py-0.5 pl-2 pr-1 text-xs text-indigo-700 dark:text-indigo-300'
@@ -19,21 +16,22 @@ export default function PlanInventory({ inventory, onChange }: PlanInventoryProp
 
   const add = () => {
     if (!draft.trim()) return
-    onChange(normalizeInventory([...inventory, draft]))
+    onChange([...inventory, draft])
     setDraft('')
   }
 
   return (
     <div>
       <span className={LABEL}>产品清单</span>
-      <div data-product-shots-plan-inventory className={`mt-1 ${BOX}`}>
-        {inventory.map((name, index) => (
-          <span key={`${name}-${index}`} data-product-shots-plan-chip={name} className={CHIP}>
+      <div data-product-shots-plan-inventory className={`mt-1 ${FIELD_BOX}`}>
+        {/* 清单写进版本前已去重，所以名字可以既当 key 又当删除的判据。 */}
+        {inventory.map((name) => (
+          <span key={name} data-product-shots-plan-chip={name} className={CHIP}>
             {name}
             <button
               type="button"
               aria-label={`删除 ${name}`}
-              onClick={() => onChange(inventory.filter((_, at) => at !== index))}
+              onClick={() => onChange(inventory.filter((item) => item !== name))}
               className={REMOVE}
             >
               ×
