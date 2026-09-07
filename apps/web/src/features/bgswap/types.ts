@@ -1,5 +1,26 @@
-import type { BgSceneType, ProductBox } from '@image-playground/shared'
+import type { BgSceneType, BgSwapMode, ProductBox } from '@image-playground/shared'
+import type { ProductAsset } from '../../lib/productAngle'
 import type { MatteBackendId, SegmentFailureReason } from '../../lib/productMatte'
+
+export const BG_SWAP_PRODUCT_SOURCES = ['original', 'asset'] as const
+
+/** 画面里的产品从哪来：留原图那件，还是换成素材库里的。 */
+export type BgSwapProductSource = (typeof BG_SWAP_PRODUCT_SOURCES)[number]
+
+export const BG_SWAP_PRODUCT_SOURCE_LABELS: Record<BgSwapProductSource, string> = {
+  original: '原图产品',
+  asset: '换成我的素材',
+}
+
+export const BG_SWAP_TARGETS = ['product-only', 'product-and-background'] as const
+
+/** 换成素材之后要不要连背景一起换。产品来源是原图时这一档不起作用。 */
+export type BgSwapTarget = (typeof BG_SWAP_TARGETS)[number]
+
+export const BG_SWAP_TARGET_LABELS: Record<BgSwapTarget, string> = {
+  'product-only': '只换产品',
+  'product-and-background': '换产品并换背景',
+}
 
 /** 抠图没用上的原因：跑不出来（前三种），或抠出来的框跟方案给的产品框对不上。 */
 export type MatteFailureCause = SegmentFailureReason | 'box-mismatch'
@@ -18,6 +39,10 @@ export interface BgSwapVersion {
   /** 方案给的产品框，重跑时拿它再校一次蒙版；旧记录没有这个字段。 */
   productBox?: ProductBox | null
   masked: boolean
+  /** 这一版跑的是哪种模式；旧记录没有这个字段，按只换背景读。 */
+  mode?: BgSwapMode
+  /** 换产品时用掉的那条素材；没换产品时没有。 */
+  productAssetId?: string
   /** 这一版落盘时还没有这个字段的旧记录为 undefined。 */
   matte?: MatteOutcome
   /** 抠出来的蒙版叠在原图上的预览图；抠图没跑出结果时没有。 */
@@ -51,6 +76,10 @@ export interface BgSwapJobRecord {
   images: BgSwapImage[]
   preference: string
   versionsPerImage: number
+  /** 产品设置整任务生效，批量沿用。旧记录没有这三个字段，按原图产品读。 */
+  productSource?: BgSwapProductSource
+  target?: BgSwapTarget
+  productAssets?: ProductAsset[]
   createdAt: number
   updatedAt: number
 }

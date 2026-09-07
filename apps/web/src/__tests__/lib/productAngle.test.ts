@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { cameraToAngle, matchProductAsset } from '../../../../features/remix/lib/angleMatch'
-import type { RemixProductAsset } from '../../../../features/remix/types'
+import type { ProductAsset } from '../../lib/productAngle'
+import { cameraToAngle, matchProductAsset } from '../../lib/productAngle'
 
 describe('reading the camera field as a product angle', () => {
   it('reads a straight-on camera as the front angle', () => {
@@ -32,7 +32,7 @@ describe('reading the camera field as a product angle', () => {
 })
 
 describe('picking the product base image for one shot', () => {
-  const assets: RemixProductAsset[] = [
+  const assets: ProductAsset[] = [
     { assetId: 'a-front', angle: 'front' },
     { assetId: 'a-side', angle: 'side' },
   ]

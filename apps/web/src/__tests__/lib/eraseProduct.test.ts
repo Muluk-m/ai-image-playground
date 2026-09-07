@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { productBoxToPixelRect } from '../../../../features/remix/lib/eraseProduct'
+import { productBoxToPixelRect } from '../../lib/eraseProduct'
 
 describe('turning the normalised product box into a pixel rectangle', () => {
   it('scales the box to the image and rounds to whole pixels', () => {

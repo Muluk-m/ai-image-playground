@@ -10,6 +10,8 @@ const UNRELIABLE = '蒙版不可靠'
 
 /** 版本条上的抠图标签：抠到了报后端，没抠到报原因。 */
 export function matteBadge(version: BgSwapVersion): MatteBadge | null {
+  // 整图重画的那一版本来就不抠图，「未抠图」在那里不是回落而是噪音。
+  if (version.mode === 'replace-and-background') return null
   const matte = version.matte
   if (version.masked) {
     return matte?.ok ? { text: MATTE_BACKEND_LABELS[matte.backend], tone: 'ok' } : null

@@ -1,5 +1,6 @@
 import {
   type BackgroundPlanResult,
+  BG_SWAP_MODES,
   PROMPT_LANGUAGES,
   type SceneScan,
 } from '@image-playground/shared'
@@ -20,6 +21,7 @@ const planBodySchema = t.Object({
   image: imageSchema,
   preference: t.Optional(t.String({ maxLength: 500 })),
   language: t.Optional(t.UnionEnum(PROMPT_LANGUAGES)),
+  mode: t.Optional(t.UnionEnum(BG_SWAP_MODES)),
 })
 
 /** 两个视觉端点的失败口径一致：上游挂了与答非所问都是 502。返回 null 表示不是视觉失败。 */
@@ -54,6 +56,7 @@ export const bgswapPlanRoutes = new Elysia()
             sceneType: plan.sceneType,
             preference: body.preference,
             language: body.language,
+            mode: body.mode,
           }),
         } satisfies BackgroundPlanResult
       } catch (error) {

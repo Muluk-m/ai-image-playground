@@ -5,6 +5,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import BgSwapMode from '../../../../features/bgswap/components/BgSwapMode'
 import { useBgSwapStore } from '../../../../features/bgswap/store'
+import { useLibraryStore } from '../../../../features/library/store'
 import { ProductMatteError } from '../../../../lib/productMatte'
 import { useStore } from '../../../../store'
 
@@ -25,6 +26,7 @@ const requestSceneScan = vi.hoisted(() => vi.fn())
 const segmentProduct = vi.hoisted(() => vi.fn())
 const assessMatte = vi.hoisted(() => vi.fn())
 const alphaToInpaintMask = vi.hoisted(() => vi.fn())
+const alphaToProductMask = vi.hoisted(() => vi.fn())
 const modelSupportsNativeMask = vi.hoisted(() => vi.fn())
 const storeImage = vi.hoisted(() => vi.fn())
 
@@ -50,6 +52,7 @@ vi.mock('../../../../lib/productMatte', async (importOriginal) => ({
   segmentProduct,
   assessMatte,
   alphaToInpaintMask,
+  alphaToProductMask,
 }))
 
 vi.mock('../../../../lib/channels/profileSelectors', async (importOriginal) => ({
@@ -64,6 +67,7 @@ vi.mock('../../../../lib/db', async (importOriginal) => ({
 
 const PLAN = {
   category: '折叠浴缸',
+  camera: '略高的 3/4 侧视',
   sceneType: 'photo',
   productBox: null,
   plan: '放进有窗光的日式木质浴室',
@@ -106,6 +110,8 @@ beforeEach(() => {
   })
   assessMatte.mockReturnValue({ ok: true, coverage: 0.4 })
   alphaToInpaintMask.mockReturnValue('data:image/png;base64,MASK')
+  alphaToProductMask.mockReturnValue('data:image/png;base64,PRODUCT-MASK')
+  useLibraryStore.setState({ assets: [], loadAssets: vi.fn().mockResolvedValue(undefined) })
   modelSupportsNativeMask.mockReturnValue(true)
   storeImage.mockResolvedValue('mask-1')
   host = document.createElement('div')
@@ -433,6 +439,94 @@ describe('running the batch over the remaining images', () => {
   })
 })
 
+describe('choosing where the product comes from', () => {
+  function pressed(group: string, label: string): HTMLButtonElement {
+    const segment = document.querySelector(`[role="group"][aria-label="${group}"]`)
+    const button = [...(segment?.querySelectorAll('button') ?? [])].find(
+      (item) => item.textContent === label,
+    )
+    if (!button) throw new Error(`no ${label} segment in ${group}`)
+    return button
+  }
+
+  it('offers the target only once the product comes from an asset', () => {
+    render()
+
+    expect(pressed('产品来源', '原图产品').getAttribute('aria-pressed')).toBe('true')
+    expect(document.querySelector('[role="group"][aria-label="目标"]')).toBeNull()
+
+    click(pressed('产品来源', '换成我的素材'))
+
+    expect(pressed('目标', '只换产品').getAttribute('aria-pressed')).toBe('true')
+    expect(swapButton().textContent).toBe('换产品')
+
+    click(pressed('目标', '换产品并换背景'))
+
+    expect(swapButton().textContent).toBe('换产品并换背景')
+  })
+
+  it('picks an asset in the overlay and shows it beside the controls', async () => {
+    useLibraryStore.setState({
+      assets: [{ id: 'a1', name: '正面白底', imageId: 'asset-1', createdAt: 1, lastUsedAt: 1 }],
+    })
+    render()
+    click(pressed('产品来源', '换成我的素材'))
+
+    const open = [...column('controls').querySelectorAll('button')].find(
+      (item) => item.textContent === '选素材',
+    )
+    if (!open) throw new Error('no picker button')
+    click(open)
+    await settle()
+
+    const picker = document.querySelector('[data-bgswap-product-picker]')
+    if (!picker) throw new Error('no picker overlay')
+    const card = [...picker.querySelectorAll('button')].find((item) =>
+      item.textContent?.includes('正面白底'),
+    )
+    if (!card) throw new Error('no asset card')
+    click(card)
+
+    const angle = document.querySelector<HTMLSelectElement>('select[data-angle-for="a1"]')
+    expect(angle).not.toBeNull()
+    expect(useBgSwapStore.getState().draft.productAssets).toEqual([
+      { assetId: 'a1', angle: 'three-quarter' },
+    ])
+
+    const done = [...picker.querySelectorAll('button')].find((item) => item.textContent === '完成')
+    if (!done) throw new Error('no done button')
+    click(done)
+
+    expect(document.querySelector('[data-bgswap-product-picker]')).toBeNull()
+    expect(document.querySelector('[data-bgswap-product]')?.textContent).toContain('3/4 侧')
+  })
+
+  it('labels a version that swapped the product', async () => {
+    useLibraryStore.setState({
+      assets: [{ id: 'a1', name: '正面白底', imageId: 'asset-1', createdAt: 1, lastUsedAt: 1 }],
+    })
+    render()
+    upload('上传原图', new File(['x'], '主图.png', { type: 'image/png' }))
+    while (useBgSwapStore.getState().draft.id === null) {
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0))
+      })
+    }
+    act(() => {
+      useBgSwapStore.getState().setProductSource('asset')
+      useBgSwapStore.getState().toggleProductAsset('a1')
+    })
+
+    click(swapButton())
+    await settle()
+
+    const row = document.querySelector('[data-bgswap-version]')
+    expect(row?.textContent).toContain('已换产品')
+    // 背景没动，那一句背景方案在这一版上是假的。
+    expect(row?.textContent).not.toContain(PLAN.plan)
+  })
+})
+
 describe('the result gallery', () => {
   async function withOneResult() {
     render()
@@ -518,9 +612,7 @@ function gallery(): HTMLElement {
 }
 
 function swapButton(): HTMLButtonElement {
-  const button = [...column('controls').querySelectorAll('button')].find((item) =>
-    /换背景|方案中|抠图中|生成中/.test(item.textContent ?? ''),
-  )
+  const button = document.querySelector<HTMLButtonElement>('[data-bgswap-swap]')
   if (!button) throw new Error('no swap button')
   return button
 }

@@ -77,6 +77,9 @@ beforeEach(() => {
       name: '折叠浴缸',
       preference: '',
       versionsPerImage: 1,
+      productSource: 'original',
+      target: 'product-only',
+      productAssets: [],
       createdAt: 1,
       images: [
         { imageId: 'src-1', versions: [version('v1'), version('v2')], chosenVersionId: 'v1' },

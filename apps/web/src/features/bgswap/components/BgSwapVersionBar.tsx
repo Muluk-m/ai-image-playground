@@ -5,6 +5,7 @@ import { LABEL, NOTICE } from '../../../components/panelStyles'
 import { formatElapsed } from '../../../hooks/useElapsed'
 import { useStore } from '../../../store'
 import { type MatteBadge, matteBadge } from '../lib/matteBadge'
+import { changesBackground, PRODUCT_SWAPPED_LABEL, swapsProduct } from '../lib/mode'
 import { DIAGRAM_LABEL, isDiagram } from '../lib/scene'
 import { VERSION_STATE_LABELS, versionProgress } from '../lib/versionProgress'
 import { useBgSwapStore } from '../store'
@@ -79,15 +80,22 @@ export default function BgSwapVersionBar() {
                         {badge.text}
                       </span>
                     )}
+                    {swapsProduct(version.mode) && (
+                      <span className="rounded bg-violet-500/10 px-1.5 py-0.5 text-violet-700 dark:text-violet-300">
+                        {PRODUCT_SWAPPED_LABEL}
+                      </span>
+                    )}
                     {chosen && (
                       <span className="rounded bg-blue-500/10 px-1.5 py-0.5 text-blue-700 dark:text-blue-300">
                         已选
                       </span>
                     )}
                   </span>
-                  <span className="mt-1 block text-xs text-gray-600 dark:text-gray-300">
-                    {version.plan}
-                  </span>
+                  {changesBackground(version.mode) && (
+                    <span className="mt-1 block text-xs text-gray-600 dark:text-gray-300">
+                      {version.plan}
+                    </span>
+                  )}
                 </button>
 
                 {progress.error && <p className={`mt-1.5 ${NOTICE}`}>{progress.error}</p>}
