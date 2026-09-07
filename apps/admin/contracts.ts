@@ -134,6 +134,10 @@ export interface UserDetailResult {
   volume: TaskVolumeBucket[]
   volume_bucket: VolumeBucketUnit
   volume_range: Range
+  /** 同步足迹：墓碑不计入两个计数；字节数与 BFF 素材配额用的是同一个分母。 */
+  template_count: number
+  asset_count: number
+  asset_bytes: number
 }
 
 export interface UserTasksResult {

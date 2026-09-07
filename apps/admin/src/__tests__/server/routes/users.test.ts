@@ -87,6 +87,75 @@ await writer.db.insert(writer.schema.tasks).values([
   },
 ])
 
+await writer.db.insert(writer.schema.user_templates).values([
+  {
+    user_id: 'user-existing',
+    id: 'template-live',
+    name: '产品图',
+    prompt: 'a product on white',
+    created_at: now - 3600_000,
+    updated_at: now - 3600_000,
+    version: 1,
+  },
+  {
+    user_id: 'user-existing',
+    id: 'template-deleted',
+    updated_at: now - 1800_000,
+    deleted_at: now - 1800_000,
+    version: 2,
+  },
+])
+await writer.db.insert(writer.schema.user_assets).values([
+  {
+    user_id: 'user-existing',
+    id: 'asset-live',
+    name: 'logo',
+    image_id: 'image-a',
+    created_at: now - 3600_000,
+    updated_at: now - 3600_000,
+    version: 3,
+  },
+  {
+    user_id: 'user-existing',
+    id: 'asset-deleted',
+    updated_at: now - 900_000,
+    deleted_at: now - 900_000,
+    version: 4,
+  },
+  {
+    user_id: 'user-idle',
+    id: 'asset-other-user',
+    name: 'other',
+    image_id: 'image-b',
+    created_at: now - 3600_000,
+    updated_at: now - 3600_000,
+    version: 1,
+  },
+])
+await writer.db.insert(writer.schema.user_asset_objects).values([
+  {
+    user_id: 'user-existing',
+    image_id: 'image-a',
+    bytes: 2048,
+    content_type: 'image/png',
+    created_at: now - 3600_000,
+  },
+  {
+    user_id: 'user-existing',
+    image_id: 'image-orphan',
+    bytes: 1024,
+    content_type: 'image/png',
+    created_at: now - 3600_000,
+  },
+  {
+    user_id: 'user-idle',
+    image_id: 'image-b',
+    bytes: 4096,
+    content_type: 'image/png',
+    created_at: now - 3600_000,
+  },
+])
+
 const { setAdminCapabilitiesForTesting } = await import('../../../../server/config')
 setAdminCapabilitiesForTesting({ accountsLogin: true })
 
@@ -164,6 +233,26 @@ describe('admin user routes', () => {
     expect(body.volume.reduce((sum, bucket) => sum + bucket.total, 0)).toBe(2)
     expect(body.volume_bucket).toBe('day')
     expect(body.volume_range).toBe('30d')
+  })
+
+  it('counts live sync records and the uploaded asset bytes', async () => {
+    const response = await call('/api/users/user-existing')
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({
+      template_count: 1,
+      asset_count: 1,
+      asset_bytes: 3072,
+    })
+  })
+
+  it('scopes the sync footprint to the requested user', async () => {
+    const response = await call('/api/users/user-idle')
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({
+      template_count: 0,
+      asset_count: 1,
+      asset_bytes: 4096,
+    })
   })
 
   it('serves the task timeline from its own endpoint, filtered by status', async () => {
