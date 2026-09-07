@@ -1,22 +1,25 @@
-import type { BgSwapMode } from '@image-playground/shared'
 import Pending from '../../../components/Pending'
 import { CARD, FIELD, LABEL, NOTICE, PRIMARY_BUTTON } from '../../../components/panelStyles'
+import Segmented from '../../../components/Segmented'
+import { REMIX_LEVELS } from '../../../lib/shotTypes'
+import { ACTION_LABELS, type ProductShotAction, REMIX_LEVEL_LABELS } from '../lib/actions'
 import { useProductShotsStore } from '../store'
 import { PRODUCT_SHOT_STAGE_LABELS, VERSIONS_PER_IMAGE_CHOICES } from '../types'
 import VersionBar from './VersionBar'
 
 const NO_PRODUCT = '先在上方选产品素材'
-const COMING = '即将支持'
 
-const ACTIONS: Array<{ mode: BgSwapMode; label: string; needsProduct: boolean }> = [
-  { mode: 'background', label: '换背景', needsProduct: false },
-  { mode: 'replace-product', label: '换产品', needsProduct: true },
+const ACTIONS: Array<{ mode: ProductShotAction; needsProduct: boolean }> = [
+  { mode: 'background', needsProduct: false },
+  { mode: 'replace-product', needsProduct: true },
+  { mode: 'remix', needsProduct: true },
 ]
 
 export default function ActionPanel() {
   const preference = useProductShotsStore((s) => s.draft.preference)
   const versionsPerImage = useProductShotsStore((s) => s.draft.versionsPerImage)
   const runningMode = useProductShotsStore((s) => s.draft.mode)
+  const level = useProductShotsStore((s) => s.draft.level)
   const hasProduct = useProductShotsStore((s) => s.draft.productAssets.length > 0)
   const selectedImageId = useProductShotsStore((s) => s.selectedImageId)
   const swapStage = useProductShotsStore((s) => s.swapStage)
@@ -24,7 +27,8 @@ export default function ActionPanel() {
   const swapNotice = useProductShotsStore((s) => s.swapNotice)
   const batchRunning = useProductShotsStore((s) => s.batch?.running === true)
 
-  const { setPreference, setVersionsPerImage, runAction } = useProductShotsStore.getState()
+  const { setPreference, setVersionsPerImage, setRemixLevel, runAction } =
+    useProductShotsStore.getState()
   const busy = swapStage !== null || batchRunning
 
   return (
@@ -47,24 +51,24 @@ export default function ActionPanel() {
                 {running ? (
                   <Pending label={PRODUCT_SHOT_STAGE_LABELS[swapStage]} startedAt={swapStartedAt} />
                 ) : (
-                  action.label
+                  ACTION_LABELS[action.mode]
                 )}
               </button>
+              {action.mode === 'remix' && (
+                <div className="mt-1 w-fit">
+                  <Segmented
+                    label="与竞品的距离"
+                    options={REMIX_LEVELS}
+                    labels={REMIX_LEVEL_LABELS}
+                    value={level}
+                    onChange={setRemixLevel}
+                  />
+                </div>
+              )}
               {blocked && <p className={`mt-1 ${NOTICE}`}>{NO_PRODUCT}</p>}
             </div>
           )
         })}
-        <div>
-          <button
-            type="button"
-            data-product-shots-action="remix"
-            disabled
-            className={PRIMARY_BUTTON}
-          >
-            借创意重做
-          </button>
-          <p className={`mt-1 ${NOTICE}`}>{COMING}</p>
-        </div>
       </div>
 
       <div>
