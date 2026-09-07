@@ -18,7 +18,6 @@ import { initHashRoute } from './features/inspiration/lib/hashRoute'
 import LibraryPanel from './features/library/components/LibraryPanel'
 import SaveAssetDialog from './features/library/components/SaveAssetDialog'
 import SaveTemplateDialog from './features/library/components/SaveTemplateDialog'
-import RemixMode from './features/remix/components/RemixMode'
 import { isByokGenerationEnabled } from './lib/clientCapabilities'
 import {
   buildSettingsFromUrlParams,
@@ -73,9 +72,7 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
       <Header />
       {appMode === 'create' ? (
         <CanvasMode />
-      ) : appMode === 'remix' ? (
-        <RemixMode />
-      ) : appMode === 'bgswap' ? (
+      ) : appMode === 'product' ? (
         <BgSwapMode />
       ) : (
         <>

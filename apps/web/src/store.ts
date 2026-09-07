@@ -381,15 +381,17 @@ function orderImagesWithMaskFirst(
   return next
 }
 
-export const APP_MODES = ['browse', 'create', 'remix', 'bgswap'] as const
+export const APP_MODES = ['browse', 'create', 'product'] as const
 export type AppMode = (typeof APP_MODES)[number]
 
 export const APP_MODE_LABELS: Record<AppMode, string> = {
   browse: '工作台',
   create: '创作',
-  remix: '复刻套图',
-  bgswap: '换背景',
+  product: '商品图',
 }
+
+/** 复刻套图与换背景并进商品图；旧持久化值直接丢弃会把老用户扔回工作台。 */
+const RETIRED_APP_MODES: Record<string, AppMode> = { remix: 'product', bgswap: 'product' }
 
 export function getPersistedState(state: AppState) {
   const normalized = normalizeSettings(state.settings)
@@ -437,6 +439,11 @@ function isAppMode(value: unknown): value is AppMode {
   return APP_MODES.includes(value as AppMode)
 }
 
+function persistedAppMode(value: unknown, fallback: AppMode): AppMode {
+  if (isAppMode(value)) return value
+  return (typeof value === 'string' ? RETIRED_APP_MODES[value] : undefined) ?? fallback
+}
+
 function mergePersistedState(persistedState: unknown, currentState: AppState): AppState {
   if (!persistedState || typeof persistedState !== 'object') return currentState
 
@@ -455,7 +462,7 @@ function mergePersistedState(persistedState: unknown, currentState: AppState): A
     pinnedInspirationIds: Array.isArray(persisted.pinnedInspirationIds)
       ? persisted.pinnedInspirationIds.filter((x): x is string => typeof x === 'string')
       : [],
-    appMode: isAppMode(persisted.appMode) ? persisted.appMode : currentState.appMode,
+    appMode: persistedAppMode(persisted.appMode, currentState.appMode),
     prompt:
       settings.persistInputOnRestart && typeof persisted.prompt === 'string'
         ? persisted.prompt

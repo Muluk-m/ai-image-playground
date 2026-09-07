@@ -408,8 +408,13 @@ describe('the persisted app mode', () => {
   }
 
   it('restores a mode that is still offered', () => {
-    expect(merge({ appMode: 'bgswap' }).appMode).toBe('bgswap')
-    expect(merge({ appMode: 'remix' }).appMode).toBe('remix')
+    expect(merge({ appMode: 'product' }).appMode).toBe('product')
+    expect(merge({ appMode: 'create' }).appMode).toBe('create')
+  })
+
+  it('lands the retired remix and background swap modes on the product one', () => {
+    expect(merge({ appMode: 'remix' }).appMode).toBe('product')
+    expect(merge({ appMode: 'bgswap' }).appMode).toBe('product')
   })
 
   it('falls back to the current mode when the persisted one is gone', () => {
