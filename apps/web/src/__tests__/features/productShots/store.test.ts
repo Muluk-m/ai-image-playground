@@ -92,6 +92,7 @@ const PLAN = {
   camera: '略高的 3/4 侧视',
   sceneType: 'photo',
   productBox: null,
+  inventory: ['浴缸', '落地龙头'],
   plan: '放进有窗光的日式木质浴室',
   prompt: '锁住产品，只换背景',
 }
@@ -464,6 +465,25 @@ describe('swapping the background of one image', () => {
       matte: { ok: true, backend: 'wasm-u2netp', elapsedMs: 3200 },
     })
     expect(version.createdAt).toBeGreaterThan(0)
+  })
+
+  it('keeps the inventory the plan listed on the version', async () => {
+    await jobWithOneImage()
+
+    await useProductShotsStore.getState().runAction('background')
+
+    expect(useProductShotsStore.getState().draft.images[0].versions[0].inventory).toEqual(
+      PLAN.inventory,
+    )
+  })
+
+  it('leaves the inventory off the version when the plan listed none', async () => {
+    requestBackgroundPlan.mockResolvedValue({ ...PLAN, inventory: [] })
+    await jobWithOneImage()
+
+    await useProductShotsStore.getState().runAction('background')
+
+    expect(useProductShotsStore.getState().draft.images[0].versions[0].inventory).toBeUndefined()
   })
 
   it('walks the three stages and lands back on none', async () => {

@@ -40,6 +40,8 @@ export interface ProductShotVersion {
   prompt: string
   /** 方案给的产品框，重跑时拿它再校一次蒙版；旧记录没有这个字段。 */
   productBox?: ProductBox | null
+  /** 这一版认定的产品清单；旧记录与方案没列出清单时没有这个字段，按空清单读。 */
+  inventory?: readonly string[]
   masked: boolean
   /** 这一版跑的是哪个动作；旧记录没有这个字段，按只换背景读。 */
   mode?: ProductShotAction

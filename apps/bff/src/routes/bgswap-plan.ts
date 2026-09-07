@@ -55,6 +55,7 @@ export const bgswapPlanRoutes = new Elysia()
           prompt: buildBackgroundPrompt({
             plan: plan.plan,
             sceneType: plan.sceneType,
+            inventory: plan.inventory,
             preference: body.preference,
             language: body.language,
             mode: body.mode,

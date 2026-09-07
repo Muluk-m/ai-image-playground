@@ -29,6 +29,8 @@ export interface BackgroundPlan {
   readonly camera: string
   readonly sceneType: BgSceneType
   readonly productBox: ProductBox | null
+  /** 算作产品、换背景时一个像素都不该动的那组部件；判据是功能归属，不是物理相连。 */
+  readonly inventory: readonly string[]
   readonly plan: string
 }
 
@@ -39,7 +41,10 @@ export interface BackgroundPlanResult extends BackgroundPlan {
 /** 视觉模型的输出与 BFF 应答的方案部分是同一个形状，两侧共用这一个解析器。 */
 export function parseBackgroundPlan(value: unknown): BackgroundPlan | null {
   if (typeof value !== 'object' || value === null) return null
-  const { category, camera, sceneType, productBox, plan } = value as Record<string, unknown>
+  const { category, camera, sceneType, productBox, inventory, plan } = value as Record<
+    string,
+    unknown
+  >
   const box = parseProductBox(productBox)
   const scene = parseSceneType(sceneType)
   if (box === undefined || !scene) return null
@@ -52,8 +57,18 @@ export function parseBackgroundPlan(value: unknown): BackgroundPlan | null {
     camera: typeof camera === 'string' ? camera.trim() : '',
     sceneType: scene,
     productBox: box,
+    inventory: normalizeInventory(inventory),
     plan: plan.trim(),
   }
+}
+
+/** 清单缺席或形状不对不该让整个方案作废，一律读成空清单。 */
+export function normalizeInventory(value: unknown): readonly string[] {
+  if (!Array.isArray(value)) return []
+  const named = value
+    .map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
+    .filter(Boolean)
+  return [...new Set(named)]
 }
 
 /** 画面类型是枚举不是自由文本：答不上枚举就当没答，交给上层重试。 */
@@ -71,16 +86,17 @@ export function parseSceneScan(value: unknown): SceneScan | null {
 export interface BackgroundPromptInput {
   readonly plan: string
   readonly sceneType: BgSceneType
+  readonly inventory?: readonly string[]
   readonly preference?: string
   readonly language?: PromptLanguage
   readonly mode?: BgSwapMode
 }
 
 interface Template {
-  readonly lock: string
-  /** 只说「产品不变」时模型会重画龙头、抹平颗粒，所以附件与表面纹理要各自点名。 */
-  readonly keepAttachments: string
-  readonly sourceAttachments: string
+  readonly untouched: (names: readonly string[]) => string
+  readonly toReplace: string
+  readonly noDuplicates: (names: readonly string[]) => string
+  readonly sourceParts: string
   readonly surfaces: string
   readonly realism: string
   readonly preference: (value: string) => string
@@ -92,11 +108,15 @@ interface Template {
 
 const TEMPLATES: Record<PromptLanguage, Template> = {
   zh: {
-    lock: '严格保留图中产品本身：款式、位置、大小、角度、颜色、材质、边缘厚度、阴影接地关系全部不变，不得移动或缩放产品。只替换产品以外的背景环境。',
-    keepAttachments:
-      '产品本体及其附件（龙头、排水、把手、底座等）保持原样，形状、位置、朝向、比例、颜色、材质与表面纹理（颗粒、哑光、纹路）全部不变，不得重画、不得平滑、不得改款。',
-    sourceAttachments:
-      '图2产品的本体与附件（龙头、排水、把手、底座等）要照原样画全，形状、比例、颜色、材质与表面纹理（颗粒、哑光、纹路）以图2为准，不得重画、不得平滑、不得改款。',
+    untouched: (names) =>
+      `不动的部分：${names.length ? names.join('、') : '产品本身及所有功能上属于它的部件'}。形状、位置、朝向、比例、颜色、材质、表面纹理（颗粒、哑光、纹路）与阴影接地关系全部不变，不得重画、不得平滑、不得改款，不得移动或缩放。`,
+    toReplace: '要换的部分：',
+    noDuplicates: (names) =>
+      names.length
+        ? `不得新增任何与${names.join('、')}同类的物件。`
+        : '不得新增任何与产品及其部件同类的物件。',
+    sourceParts:
+      '图2产品连同它带的每一个部件都要照原样画全，形状、比例、颜色、材质与表面纹理（颗粒、哑光、纹路）以图2为准，不得重画、不得平滑、不得改款。',
     surfaces:
       '原图里的墙面、半墙、台面与地面都属于背景，一并替换成新环境的对应表面，不要保留任何一块原有饰面。',
     realism:
@@ -111,11 +131,15 @@ const TEMPLATES: Record<PromptLanguage, Template> = {
       '图1是构图参考，原产品所在的位置已被抹成灰块：把图2里的产品按同样的角度、透视、大小与位置画回那个位置，产品的颜色、材质与外形细节以图2为准。',
   },
   en: {
-    lock: 'Keep the product in the image exactly as it is: style, position, size, angle, colour, material, edge thickness and contact shadows all unchanged; never move or rescale it. Replace only the background environment around the product.',
-    keepAttachments:
-      'The product and its attachments (faucet, drain, handles, feet) stay exactly as they are: shape, position, orientation, proportion, colour, material and surface texture (speckle, matte finish, grain) all unchanged; never repaint, never smooth, never restyle them.',
-    sourceAttachments:
-      'Draw the product from image 2 with every attachment it has (faucet, drain, handles, feet): shape, proportion, colour, material and surface texture (speckle, matte finish, grain) all follow image 2; never repaint, never smooth, never restyle them.',
+    untouched: (names) =>
+      `Untouched: ${names.length ? names.join(', ') : 'the product itself and every part that functionally belongs to it'}. Shape, position, orientation, proportion, colour, material, surface texture (speckle, matte finish, grain) and contact shadows all stay unchanged; never repaint, never smooth, never restyle; never move or rescale.`,
+    toReplace: 'To replace: ',
+    noDuplicates: (names) =>
+      names.length
+        ? `Never add anything of the same kind as ${names.join(', ')}.`
+        : 'Never add anything of the same kind as the product or any of its parts.',
+    sourceParts:
+      'Draw the product from image 2 with every part image 2 shows: shape, proportion, colour, material and surface texture (speckle, matte finish, grain) all follow image 2; never repaint, never smooth, never restyle them.',
     surfaces:
       'The walls, half walls, counters and floor of the original photo are background as well: replace all of them with the surfaces of the new environment and keep none of the original finishes.',
     realism:
@@ -132,28 +156,36 @@ const TEMPLATES: Record<PromptLanguage, Template> = {
   },
 }
 
-/** 方案句是唯一的可变段（偏好可选）：抽屉里改了方案句，前端拿这里重算同一串提示词。 */
+/** 方案句与清单是可变段（偏好可选）：抽屉里改了它们，前端拿这里重算同一串提示词。 */
 export function buildBackgroundPrompt({
   plan,
   sceneType,
+  inventory = [],
   preference,
   language = DEFAULT_PROMPT_LANGUAGE,
   mode = DEFAULT_BG_SWAP_MODE,
 }: BackgroundPromptInput): string {
   const template = TEMPLATES[language]
-  const wanted = preference?.trim()
-  // 示意图与拼图上的「墙面」多半是版面而不是背景，整片换掉会把说明一起吃了。
-  const surfaces = sceneType === 'photo' ? [template.surfaces] : []
-  const background = [...surfaces, plan.trim(), template.realism]
-  const wish = wanted ? [template.preference(wanted)] : []
 
   // 只换产品时背景一个像素都不动，方案句与偏好都是背景的事，带上只会诱导模型改景。
-  const body =
-    mode === 'replace-product'
-      ? [template.swapInMask, template.sourceAttachments, template.keepScene]
-      : mode === 'replace-and-background'
-        ? [template.swapIntoFraming, template.sourceAttachments, ...background, ...wish]
-        : [template.lock, template.keepAttachments, ...background, ...wish]
+  if (mode === 'replace-product') {
+    return [template.swapInMask, template.sourceParts, template.keepScene, template.quality].join(
+      '\n',
+    )
+  }
 
-  return [...body, template.quality].join('\n')
+  const wanted = preference?.trim()
+  return [
+    // 换产品时画面里的产品来自图2，图1那件不再存在，锁像素的那句反而会让模型两件都画。
+    ...(mode === 'replace-and-background'
+      ? [template.swapIntoFraming, template.sourceParts]
+      : [template.untouched(inventory)]),
+    `${template.toReplace}${plan.trim()}`,
+    template.noDuplicates(inventory),
+    // 示意图与拼图上的「墙面」多半是版面而不是背景，整片换掉会把说明一起吃了。
+    ...(sceneType === 'photo' ? [template.surfaces] : []),
+    template.realism,
+    ...(wanted ? [template.preference(wanted)] : []),
+    template.quality,
+  ].join('\n')
 }
