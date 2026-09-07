@@ -2,7 +2,7 @@ import { useEffect } from 'react'
 import { useLibraryStore } from '../../library/store'
 import { useVideoStore } from '../store'
 import VideoComposer from './VideoComposer'
-import VideoResultList from './VideoResultList'
+import VideoFeed from './VideoFeed'
 
 export default function VideoMode() {
   useEffect(() => {
@@ -15,7 +15,7 @@ export default function VideoMode() {
     <main className="safe-area-x mx-auto max-w-7xl px-4 pb-24 pt-4">
       <div className="grid gap-4 lg:grid-cols-[23rem_minmax(0,1fr)]">
         <VideoComposer />
-        <VideoResultList />
+        <VideoFeed />
       </div>
     </main>
   )

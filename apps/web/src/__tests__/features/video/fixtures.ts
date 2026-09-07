@@ -1,4 +1,5 @@
 import type { DiscoveredChannel } from '@image-playground/shared'
+import type { VideoTask } from '../../../features/video/types'
 
 export const GROK_CHANNEL: DiscoveredChannel = {
   id: 'grok-video',
@@ -43,4 +44,25 @@ export const IMAGE_CHANNEL: DiscoveredChannel = {
   label: 'OpenAI',
   models: [{ id: 'gpt-image-2', label: 'gpt-image-2', capabilities: ['generate'] }],
   defaults: {},
+}
+
+export function videoTask(overrides: Partial<VideoTask> = {}): VideoTask {
+  return {
+    id: 'task-1',
+    clientRequestId: 'client-1',
+    channelId: 'grok-video',
+    source: 'text',
+    prompt: '霓虹街道跑车驶过',
+    model: 'grok-imagine-video',
+    duration: 5,
+    aspectRatio: '16:9',
+    resolution: '720p',
+    status: 'done',
+    error: null,
+    createdAt: 1_000,
+    completedAt: 40_000,
+    bffRequestId: 'req-1',
+    outputIndex: 0,
+    ...overrides,
+  }
 }
