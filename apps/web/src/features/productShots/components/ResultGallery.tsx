@@ -2,11 +2,9 @@ import { EXPORT_PRESETS, type ExportPreset, findExportPreset } from '@image-play
 import { useMemo, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import Pending from '../../../components/Pending'
-import { CARD, GHOST_BUTTON, LABEL, PRIMARY_BUTTON, SELECT } from '../../../components/panelStyles'
+import { CARD, LABEL, PRIMARY_BUTTON, SELECT } from '../../../components/panelStyles'
 import Segmented from '../../../components/Segmented'
-import { useImageThumbnail } from '../../../hooks/useImageThumbnail'
 import {
-  downloadExportedImage,
   downloadExportZip,
   EXPORT_FIT_LABELS,
   EXPORT_FITS,
@@ -21,16 +19,14 @@ import {
   exportBlockedReason,
   exportPlan,
   flatVersions,
-  type GalleryVersion,
+  galleryImageIds,
   galleryRows,
   hasChosenVersion,
   type ManualExportScope,
   resolveExportScope,
-  shotFileName,
 } from '../lib/gallery'
-import { VERSION_STATE_LABELS } from '../lib/versionProgress'
 import { useProductShotsStore } from '../store'
-import MatteTag from './MatteTag'
+import VersionCard from './VersionCard'
 
 const VIEWS = ['grouped', 'flat'] as const
 type GalleryView = (typeof VIEWS)[number]
@@ -38,116 +34,11 @@ const VIEW_LABELS: Record<GalleryView, string> = { grouped: '分组', flat: '平
 
 const HINT = 'rounded bg-amber-500/10 px-1 text-xs text-amber-700 dark:text-amber-300'
 
+/** 卡片等宽：一行放得下几张由容器宽度决定，每张都是同一个宽度。 */
+const CARD_GRID = 'grid grid-cols-[repeat(auto-fill,minmax(8rem,1fr))] gap-2'
+
 function reasonOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
-}
-
-function VersionCard({
-  item,
-  fit,
-  preset,
-  onChoose,
-  onRetry,
-}: {
-  item: GalleryVersion
-  fit: ExportFit
-  preset: ExportPreset
-  onChoose: () => void
-  onRetry: () => void
-}) {
-  const showToast = useStore((s) => s.showToast)
-  const matteOverlayVersionId = useProductShotsStore((s) => s.matteOverlayVersionId)
-  const toggleMatteOverlay = useProductShotsStore((s) => s.toggleMatteOverlay)
-  const openPlanDrawer = useProductShotsStore((s) => s.openPlanDrawer)
-  const [first] = item.outputImageIds
-  const label = `原图 ${item.imageIndex + 1} 第 ${item.versionIndex + 1} 版`
-  const matte = item.version.mattePreviewImageId
-  const overlaid = matte !== undefined && matteOverlayVersionId === item.version.id
-  const overlay = useImageThumbnail(overlaid ? matte : undefined)
-
-  return (
-    <li data-product-shots-gallery-item className="flex w-28 shrink-0 flex-col gap-1">
-      <div className="relative aspect-square overflow-hidden rounded-xl border border-gray-200 dark:border-white/[0.08]">
-        {overlaid ? (
-          <>
-            <AssetThumb imageId={item.imageId} alt={label} />
-            {overlay?.dataUrl && (
-              <img
-                src={overlay.dataUrl}
-                alt="蒙版"
-                className="absolute inset-0 h-full w-full object-cover"
-              />
-            )}
-          </>
-        ) : first ? (
-          <AssetThumb imageId={first} alt={label} />
-        ) : (
-          <span className="flex h-full items-center justify-center text-xs text-gray-400 dark:text-gray-500">
-            {VERSION_STATE_LABELS[item.state]}
-          </span>
-        )}
-      </div>
-      <span className="flex items-center gap-1 text-xs text-gray-600 dark:text-gray-300">
-        第 {item.versionIndex + 1} 版
-        {item.chosen && (
-          <span className="rounded bg-blue-500/10 px-1 text-blue-700 dark:text-blue-300">已选</span>
-        )}
-        <MatteTag version={item.version} className="px-1" />
-        {item.version.promptEdited && (
-          <span className="rounded bg-amber-500/10 px-1 text-amber-700 dark:text-amber-300">
-            手改
-          </span>
-        )}
-      </span>
-      <div className="flex flex-wrap gap-0.5">
-        <button
-          type="button"
-          onClick={() => openPlanDrawer(item.version.id)}
-          className={GHOST_BUTTON}
-        >
-          查看方案
-        </button>
-        {matte && (
-          <button
-            type="button"
-            onClick={() => toggleMatteOverlay(item.version.id)}
-            aria-pressed={overlaid}
-            className={GHOST_BUTTON}
-          >
-            看蒙版
-          </button>
-        )}
-        {item.state === 'error' && (
-          <button type="button" onClick={onRetry} className={GHOST_BUTTON}>
-            重跑
-          </button>
-        )}
-        {first && (
-          <>
-            {!item.chosen && (
-              <button type="button" onClick={onChoose} className={GHOST_BUTTON}>
-                用这版
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={() => {
-                downloadExportedImage(
-                  shotFileName(item.imageIndex, item.versionIndex),
-                  first,
-                  fit,
-                  preset,
-                ).catch((error: unknown) => showToast(`下载失败：${reasonOf(error)}`, 'error'))
-              }}
-              className={GHOST_BUTTON}
-            >
-              下载
-            </button>
-          </>
-        )}
-      </div>
-    </li>
-  )
 }
 
 export default function ResultGallery() {
@@ -157,6 +48,8 @@ export default function ResultGallery() {
   const showToast = useStore((s) => s.showToast)
   const chooseVersion = useProductShotsStore((s) => s.chooseVersion)
   const retryVersion = useProductShotsStore((s) => s.retryVersion)
+  const selectImage = useProductShotsStore((s) => s.selectImage)
+  const setLightboxImageId = useStore((s) => s.setLightboxImageId)
   const [view, setView] = useState<GalleryView>('grouped')
   const [presetId, setPresetId] = useState(EXPORT_PRESETS[0]?.id ?? 'amazon')
   const [manualScope, setManualScope] = useState<ManualExportScope | null>(null)
@@ -171,6 +64,8 @@ export default function ResultGallery() {
   const scope = resolveExportScope(hasChosen, manualScope)
   const plan = useMemo(() => exportPlan(jobName, rows, scope, fit), [jobName, rows, scope, fit])
   const blocked = exportBlockedReason(scope, hasChosen, plan.entries.length)
+  const lightboxImageIds = useMemo(() => galleryImageIds(rows), [rows])
+  const openLightbox = (imageId: string) => setLightboxImageId(imageId, lightboxImageIds)
 
   const exportAll = async () => {
     setExportStartedAt(Date.now())
@@ -252,13 +147,14 @@ export default function ResultGallery() {
       {rows.length === 0 ? (
         <p className="text-xs text-gray-400 dark:text-gray-500">暂无结果</p>
       ) : view === 'flat' ? (
-        <ul className="flex flex-wrap gap-3">
+        <ul className={CARD_GRID}>
           {flatVersions(rows).map((item) => (
             <VersionCard
               key={item.version.id}
               item={item}
               fit={fit}
               preset={preset}
+              onOpen={openLightbox}
               onChoose={() => chooseVersion(item.version.id)}
               onRetry={() => void retryVersion(item.version.id)}
             />
@@ -272,21 +168,28 @@ export default function ResultGallery() {
               data-product-shots-gallery-row
               className="flex flex-col gap-2 border-t border-gray-200/70 pt-3 first:border-0 first:pt-0 dark:border-white/[0.08] sm:flex-row sm:items-start sm:gap-3"
             >
-              <div className="flex w-28 shrink-0 flex-col gap-1">
-                <div className="aspect-square overflow-hidden rounded-xl border border-gray-200 dark:border-white/[0.08]">
+              <button
+                type="button"
+                data-product-shots-gallery-source
+                onClick={() => selectImage(row.imageId)}
+                aria-label={`预览原图 ${row.imageIndex + 1}`}
+                className="flex w-28 shrink-0 flex-col gap-1 text-left"
+              >
+                <span className="block aspect-square overflow-hidden rounded-xl border border-gray-200 dark:border-white/[0.08]">
                   <AssetThumb imageId={row.imageId} alt={`原图 ${row.imageIndex + 1}`} />
-                </div>
+                </span>
                 <span className="text-xs text-gray-500 dark:text-gray-400">
                   原图 {row.imageIndex + 1}
                 </span>
-              </div>
-              <ul className="flex min-w-0 flex-1 flex-wrap gap-3">
+              </button>
+              <ul className={`min-w-0 flex-1 ${CARD_GRID}`}>
                 {row.versions.map((item) => (
                   <VersionCard
                     key={item.version.id}
                     item={item}
                     fit={fit}
                     preset={preset}
+                    onOpen={openLightbox}
                     onChoose={() => chooseVersion(item.version.id)}
                     onRetry={() => void retryVersion(item.version.id)}
                   />

@@ -4,6 +4,7 @@ import {
   exportBlockedReason,
   exportPlan,
   flatVersions,
+  galleryImageIds,
   galleryRows,
   hasChosenVersion,
   resolveExportScope,
@@ -61,6 +62,10 @@ describe('laying the results out by original image', () => {
     expect(first.versions.map((item) => item.versionIndex)).toEqual([0, 1])
     expect(first.versions.map((item) => item.chosen)).toEqual([false, true])
     expect(first.versions[0].outputImageIds).toEqual(['out-1'])
+  })
+
+  it('lists every finished image for the lightbox to page through', () => {
+    expect(galleryImageIds(galleryRows(IMAGES, TASKS))).toEqual(['out-1', 'out-2', 'out-3'])
   })
 
   it('flattens every version of every image for the tiled view', () => {
