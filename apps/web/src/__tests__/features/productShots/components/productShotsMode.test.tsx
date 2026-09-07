@@ -351,6 +351,22 @@ describe('running one background swap', () => {
     )
   })
 
+  it('opens the mask editor on the version mask, brush painting the kept area', async () => {
+    await withOneImage()
+
+    click(actionButton())
+    await settle()
+    const edit = [...document.querySelectorAll('button')].find(
+      (button) => button.textContent === '编辑蒙版',
+    )
+    if (!edit) throw new Error('no mask edit button')
+    click(edit)
+    await settle()
+
+    expect(useStore.getState().maskEditorImageId).toBe('image-主图.png')
+    expect(useStore.getState().maskEditorSession?.keepSemantics).toBe(true)
+  })
+
   it('marks a version whose source image is small', async () => {
     getImageDimensions.mockResolvedValue({ width: 864, height: 864 })
     await withOneImage()

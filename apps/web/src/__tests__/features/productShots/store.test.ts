@@ -751,6 +751,84 @@ describe('growing the matte before it becomes a mask', () => {
   })
 })
 
+describe('editing the mask of a version by hand', () => {
+  async function versionWithMask() {
+    storeImage.mockImplementation(async (dataUrl: string) =>
+      dataUrl === 'data:image/png;base64,MASK' ? 'mask-1' : 'preview-1',
+    )
+    await jobWithOneImage()
+    await useProductShotsStore.getState().runAction('background')
+    return useProductShotsStore.getState().draft.images[0].versions[0]
+  }
+
+  it('keeps the mask and the image it was drawn on with the version', async () => {
+    const version = await versionWithMask()
+
+    expect(version.maskImageId).toBe('mask-1')
+    expect(version.maskTargetImageId).toBe('image-主图.png')
+  })
+
+  it('opens the mask editor on that mask with the brush painting the kept area', async () => {
+    const version = await versionWithMask()
+
+    await useProductShotsStore.getState().editVersionMask(version.id)
+
+    expect(useStore.getState().maskEditorImageId).toBe('image-主图.png')
+    expect(useStore.getState().maskEditorSession).toMatchObject({
+      maskDataUrl: 'data:image/png;base64,mask-1',
+      keepSemantics: true,
+    })
+  })
+
+  it('writes the edited mask back onto the version', async () => {
+    const version = await versionWithMask()
+    await useProductShotsStore.getState().editVersionMask(version.id)
+    storeImage.mockResolvedValue('mask-2')
+
+    await useStore.getState().maskEditorSession?.onSave({
+      maskDataUrl: 'data:image/png;base64,EDITED',
+      targetImageId: 'image-resized',
+      targetDataUrl: 'data:image/png;base64,resized',
+    })
+
+    expect(useProductShotsStore.getState().draft.images[0].versions[0]).toMatchObject({
+      masked: true,
+      maskImageId: 'mask-2',
+      maskTargetImageId: 'image-resized',
+    })
+  })
+
+  it('regenerates with the mask on the version instead of running the matte again', async () => {
+    const version = await versionWithMask()
+    segmentProduct.mockClear()
+
+    await useProductShotsStore.getState().regenerateWithMask(version.id)
+
+    expect(segmentProduct).not.toHaveBeenCalled()
+    const submitted = submitPrepared.mock.calls[submitPrepared.mock.calls.length - 1][0]
+    expect(submitted.mask).toEqual({ imageId: 'mask-1', targetImageId: 'image-主图.png' })
+    expect(useProductShotsStore.getState().draft.images[0].versions).toHaveLength(2)
+  })
+
+  /** 遮罩编辑会按官方尺寸改图，重生成要提交蒙版对着的那一张。 */
+  it('submits the image the edited mask was drawn on', async () => {
+    const version = await versionWithMask()
+    await useProductShotsStore.getState().editVersionMask(version.id)
+    storeImage.mockResolvedValue('mask-2')
+    await useStore.getState().maskEditorSession?.onSave({
+      maskDataUrl: 'data:image/png;base64,EDITED',
+      targetImageId: 'image-resized',
+      targetDataUrl: 'data:image/png;base64,resized',
+    })
+
+    await useProductShotsStore.getState().regenerateWithMask(version.id)
+
+    const submitted = submitPrepared.mock.calls[submitPrepared.mock.calls.length - 1][0]
+    expect(submitted.inputImages[0].id).toBe('image-resized')
+    expect(submitted.mask).toEqual({ imageId: 'mask-2', targetImageId: 'image-resized' })
+  })
+})
+
 describe('keeping a matte preview beside the version', () => {
   it('stores the overlay in the image library and records it on the version', async () => {
     storeImage.mockImplementation(async (dataUrl: string) =>

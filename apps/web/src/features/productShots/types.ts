@@ -59,6 +59,10 @@ export interface ProductShotVersion {
   matte?: MatteOutcome
   /** 抠出来的蒙版叠在原图上的预览图；抠图没跑出结果时没有。 */
   mattePreviewImageId?: string
+  /** 这一版用掉的蒙版，手改蒙版与照它重生成都拿它当底；回落成提示词版时没有。 */
+  maskImageId?: string
+  /** 蒙版对着的那张图：遮罩编辑会按官方尺寸改图，重生成必须提交这一张。 */
+  maskTargetImageId?: string
   /** 源图短边低于门槛，细节本来就上不去；版本条上要标出来。 */
   lowResSource?: boolean
   createdAt: number

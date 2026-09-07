@@ -21,6 +21,7 @@ import type {
   ExportData,
   InputImage,
   MaskDraft,
+  MaskEditorSession,
   TaskOrigin,
   TaskParams,
   TaskRecord,
@@ -503,6 +504,9 @@ interface AppState {
   clearMaskDraft: () => void
   maskEditorImageId: string | null
   setMaskEditorImageId: (id: string | null) => void
+  /** 非 composer 的调用方开的编辑会话；为 null 时编辑器按 composer 的老路走。 */
+  maskEditorSession: MaskEditorSession | null
+  openMaskEditorSession: (imageId: string, session: MaskEditorSession) => void
 
   // 参数
   params: TaskParams
@@ -703,7 +707,13 @@ export const useStore = create<AppState>()(
       maskEditorImageId: null,
       setMaskEditorImageId: (maskEditorImageId) => {
         if (maskEditorImageId) dismissAllTooltips()
-        set({ maskEditorImageId })
+        // 会话跟着编辑器关闭一起结束，否则下一次 composer 打开会走别人的保存路径。
+        set({ maskEditorImageId, ...(maskEditorImageId ? {} : { maskEditorSession: null }) })
+      },
+      maskEditorSession: null,
+      openMaskEditorSession: (imageId, maskEditorSession) => {
+        dismissAllTooltips()
+        set({ maskEditorImageId: imageId, maskEditorSession })
       },
 
       // Params

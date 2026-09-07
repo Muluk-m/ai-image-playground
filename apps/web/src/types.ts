@@ -136,6 +136,22 @@ export interface MaskDraft {
   updatedAt: number
 }
 
+/**
+ * 从别处（商品图版本）打开遮罩编辑：自带初始遮罩，存哪去由发起方决定，
+ * composer 的输入图与遮罩草稿一概不动。
+ */
+export interface MaskEditorSession {
+  /** 打底的遮罩，透明处是重绘区；没有就从整张保留开始。 */
+  maskDataUrl: string | null
+  /** 画笔涂的是保留区，与 composer 里「涂掉 = 重绘」相反。 */
+  keepSemantics: boolean
+  onSave: (result: {
+    maskDataUrl: string
+    targetImageId: string
+    targetDataUrl: string
+  }) => void | Promise<void>
+}
+
 // ===== 任务记录 =====
 
 export type TaskStatus = 'running' | 'done' | 'error'

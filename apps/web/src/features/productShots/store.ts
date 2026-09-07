@@ -34,6 +34,7 @@ import {
   alphaToProductMask,
   assessMatte,
   expandProductAlpha,
+  maskDataUrlToAlpha,
   matteAgreesWithBox,
   type ProductAlpha,
   ProductMatteError,
@@ -93,6 +94,7 @@ const MASK_UNSUPPORTED = `当前模型不支持遮罩，${UNMASKED_FALLBACK}`
 const MATTE_FAILED = `抠图失败，${UNMASKED_FALLBACK}`
 const MATTE_UNRELIABLE = `蒙版与产品框不符，${UNMASKED_FALLBACK}`
 const NOT_SUBMITTED = '这张没有提交成功'
+const MASK_MISSING = '蒙版图片已丢失'
 /** 短边低于这个像素数就算低分辨率源图。 */
 const LOW_RES_SHORT_EDGE = 1200
 const NO_ASSET_PICKED = '请先选一张产品素材'
@@ -163,6 +165,8 @@ export interface ProductShotsState {
   runAction: (mode: ProductShotAction) => Promise<void>
   retryVersion: (versionId: string) => Promise<void>
   regenerateFromVersion: (versionId: string) => Promise<void>
+  editVersionMask: (versionId: string) => Promise<void>
+  regenerateWithMask: (versionId: string) => Promise<void>
   chooseVersion: (versionId: string) => void
   previewVersion: (versionId: string | null) => void
   toggleMatteOverlay: (versionId: string) => void
@@ -488,6 +492,33 @@ export const useProductShotsStore = create<ProductShotsState>((set, get) => ({
     if (draft.id && found) await swapOneVersion(set, get, draft.id, found.imageId, found.version)
   },
 
+  /** 「编辑蒙版」：拿这一版的蒙版进遮罩编辑器，画笔涂的是保留区。 */
+  editVersionMask: async (versionId) => {
+    const found = findVersion(get().draft, versionId)
+    const maskImageId = found?.version.maskImageId
+    if (!found || !maskImageId) return
+
+    const maskDataUrl = await ensureImageCached(maskImageId)
+    if (!maskDataUrl) {
+      set({ swapNotice: MASK_MISSING })
+      return
+    }
+    useStore.getState().openMaskEditorSession(found.version.maskTargetImageId ?? found.imageId, {
+      maskDataUrl,
+      keepSemantics: true,
+      onSave: (saved) => saveEditedMask(set, get, versionId, saved),
+    })
+  },
+
+  /** 「用此蒙版重生成」：提示词与参考图照旧，蒙版用这一版身上那张。 */
+  regenerateWithMask: async (versionId) => {
+    const { draft } = get()
+    const found = findVersion(draft, versionId)
+    const attempt = maskAttemptOf(found?.version)
+    if (!draft.id || !found || !attempt) return
+    await swapOneVersion(set, get, draft.id, found.imageId, found.version, attempt)
+  },
+
   /** 再点已选的那版就是取消选用。 */
   chooseVersion: (versionId) => {
     set((s) => ({
@@ -596,6 +627,45 @@ function reasonOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
+/** 这一版身上的蒙版，拿来当重生成的输入；没抠到蒙版的版本为 null。 */
+function maskAttemptOf(version: ProductShotVersion | undefined): MaskAttempt | null {
+  if (!version?.maskImageId || !version.maskTargetImageId) return null
+  return {
+    mask: { imageId: version.maskImageId, targetImageId: version.maskTargetImageId },
+    notice: null,
+    matte: version.matte ?? null,
+    previewImageId: version.mattePreviewImageId ?? null,
+  }
+}
+
+/** 手改完蒙版写回这一版：预览也要跟着换，否则「看蒙版」还停在抠图那一版。 */
+async function saveEditedMask(
+  set: SetState,
+  get: GetState,
+  versionId: string,
+  saved: { maskDataUrl: string; targetImageId: string },
+): Promise<void> {
+  const maskImageId = await storeImage(saved.maskDataUrl, 'mask')
+  const previewImageId = await editedMaskPreview(saved.maskDataUrl)
+
+  patchVersion(set, get, versionId, (version) => ({
+    ...version,
+    masked: true,
+    maskImageId,
+    maskTargetImageId: saved.targetImageId,
+    ...(previewImageId ? { mattePreviewImageId: previewImageId } : {}),
+  }))
+}
+
+/** 预览画不出来不该让保存失败：蒙版本身已经写回去了。 */
+async function editedMaskPreview(maskDataUrl: string): Promise<string | null> {
+  try {
+    return await storeImage(alphaToMattePreview(await maskDataUrlToAlpha(maskDataUrl)), 'mask')
+  } catch {
+    return null
+  }
+}
+
 /**
  * 单张出一版。确认对话框摆在中间，所以「有没有别的在跑」要在用户点完之后再看一次。
  * `reuse` 是抽屉里那一版：提交的是人挑定的提示词而不是新出的方案，所以新版一律算手改。
@@ -606,12 +676,13 @@ async function swapOneVersion(
   jobId: string,
   imageId: string,
   reuse?: ProductShotVersion,
+  maskOverride?: MaskAttempt,
 ): Promise<void> {
   const { swapStage, batch } = get()
   if (swapStage || batch?.running) return
 
   await runStages(set, async (stage) => {
-    const prepared = await prepareImage(get, imageId, stage, reuse)
+    const prepared = await prepareImage(get, imageId, stage, reuse, maskOverride)
     if (prepared.notice) set({ swapNotice: prepared.notice })
     const version = await submitVersion(jobId, prepared, crypto.randomUUID())
     if (!version) return
@@ -737,6 +808,17 @@ async function loadProductAsset(
   }
 }
 
+/** 遮罩编辑会按官方尺寸改过图，提交要用蒙版对着的那一张，否则尺寸对不上被拒。 */
+async function maskTargetImage(
+  imageId: string,
+  dataUrl: string,
+  mask: Mask | null,
+): Promise<InputImage> {
+  if (!mask || mask.targetImageId === imageId) return { id: imageId, dataUrl }
+  const target = await ensureImageCached(mask.targetImageId)
+  return target ? { id: mask.targetImageId, dataUrl: target } : { id: imageId, dataUrl }
+}
+
 /** 整图重画时原产品还留在画面里模型会照它画，所以先把那块抹成灰。 */
 async function framingImage(
   imageId: string,
@@ -757,11 +839,12 @@ function prepareImage(
   imageId: string,
   stage: StageSink,
   reuse?: ProductShotVersion,
+  maskOverride?: MaskAttempt,
 ): Promise<PreparedImage> {
   const mode = modeOf(get().draft, reuse)
   return mode === 'remix'
     ? prepareRemix(get, imageId, stage, reuse)
-    : prepareSwap(get, imageId, stage, mode, reuse)
+    : prepareSwap(get, imageId, stage, mode, reuse, maskOverride)
 }
 
 /** 借创意重做：分析竞品图 → 六段提示词 → 抹掉产品的原图当参考，不带遮罩。 */
@@ -840,6 +923,7 @@ async function prepareSwap(
   stage: StageSink,
   mode: BgSwapMode,
   reuse?: ProductShotVersion,
+  maskOverride?: MaskAttempt,
 ): Promise<PreparedImage> {
   const { draft } = get()
   if (!reuse) stage('plan')
@@ -858,14 +942,15 @@ async function prepareSwap(
         )
 
   const side = maskSideFor(mode)
-  if (side) stage('matte')
-  const attempt = side ? await buildMask(imageId, dataUrl, productBox, side) : NO_MASK
+  if (side && !maskOverride) stage('matte')
+  const attempt =
+    maskOverride ?? (side ? await buildMask(imageId, dataUrl, productBox, side) : NO_MASK)
 
   stage('generate')
   const original =
     mode === 'replace-and-background'
       ? await framingImage(imageId, dataUrl, productBox)
-      : { id: imageId, dataUrl }
+      : await maskTargetImage(imageId, dataUrl, attempt.mask)
 
   return {
     ...attempt,
@@ -913,6 +998,9 @@ async function submitVersion(
     ...(prepared.promptEdited ? { promptEdited: true } : {}),
     ...(prepared.productAssetId ? { productAssetId: prepared.productAssetId } : {}),
     ...(prepared.matte ? { matte: prepared.matte } : {}),
+    ...(prepared.mask
+      ? { maskImageId: prepared.mask.imageId, maskTargetImageId: prepared.mask.targetImageId }
+      : {}),
     ...(prepared.previewImageId ? { mattePreviewImageId: prepared.previewImageId } : {}),
     ...(prepared.lowResSource ? { lowResSource: true } : {}),
     createdAt: Date.now(),
