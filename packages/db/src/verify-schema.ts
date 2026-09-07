@@ -4,6 +4,7 @@ export const EXPECTED_TABLES = [
   'daily_quota',
   'operator_audits',
   'tasks',
+  'user_asset_objects',
   'user_assets',
   'user_identities',
   'user_preferences',
@@ -34,6 +35,7 @@ export const EXPECTED_INDEXES = [
   'idx_users_username',
   'operator_audits_pkey',
   'tasks_pkey',
+  'user_asset_objects_user_id_image_id_pk',
   'user_assets_user_id_id_pk',
   'user_identities_pkey',
   'user_preferences_pkey',
@@ -43,7 +45,7 @@ export const EXPECTED_INDEXES = [
   'users_pkey',
 ] as const
 
-const EXPECTED_MIGRATION_COUNT = 9
+const EXPECTED_MIGRATION_COUNT = 10
 
 export interface SchemaVerificationResult {
   tables: number

@@ -1,6 +1,8 @@
 import type { UserAssetRow, UserTemplateRow } from '@image-playground/db'
 import type {
   SyncAssetChange,
+  SyncAssetRecord,
+  SyncRejection,
   SyncRequestBody,
   SyncResponseBody,
   SyncSettingsDocument,
@@ -12,6 +14,7 @@ import { and, asc, eq, gt, inArray, or, type SQL } from 'drizzle-orm'
 import type { PgColumn } from 'drizzle-orm/pg-core'
 import { db, schema } from '../db/client'
 import type { BffTransaction } from './private-overlay'
+import { uploadedImageIds } from './sync-assets'
 
 interface ExistingMeta {
   readonly id: string
@@ -203,6 +206,27 @@ async function mergeTemplates(
   })
 }
 
+/** 素材记录只有在图片本体已上传后才算可同步；被拒的那条不影响同批其它记录。 */
+async function partitionAssets(
+  tx: BffTransaction,
+  userId: string,
+  changes: readonly SyncAssetChange[],
+): Promise<{ accepted: SyncAssetChange[]; rejected: SyncRejection[] }> {
+  const live = changes.filter((change): change is SyncAssetRecord => !isSyncTombstone(change))
+  const uploaded = await uploadedImageIds(
+    tx,
+    userId,
+    live.map((change) => change.imageId),
+  )
+  const accepted: SyncAssetChange[] = []
+  const rejected: SyncRejection[] = []
+  for (const change of changes) {
+    if (isSyncTombstone(change) || uploaded.has(change.imageId)) accepted.push(change)
+    else rejected.push({ collection: 'assets', id: change.id, reason: 'asset_image_missing' })
+  }
+  return { accepted, rejected }
+}
+
 async function mergeAssets(
   tx: BffTransaction,
   userId: string,
@@ -280,7 +304,8 @@ export async function synchronize(
     const clientVersion = Math.min(Math.max(request.version, 0), startVersion)
 
     const staleTemplateIds = await mergeTemplates(tx, userId, templates, allocate)
-    const staleAssetIds = await mergeAssets(tx, userId, assets, allocate)
+    const { accepted, rejected } = await partitionAssets(tx, userId, assets)
+    const staleAssetIds = await mergeAssets(tx, userId, accepted, allocate)
     const staleSettings = await mergeSettings(tx, userId, request.settings, allocate)
 
     if (version !== startVersion) {
@@ -333,7 +358,7 @@ export async function synchronize(
         settingsRow && (settingsRow.version > clientVersion || staleSettings)
           ? { updatedAt: settingsRow.updated_at, document: settingsRow.document }
           : null,
-      rejected: [],
+      rejected,
     }
   })
 }

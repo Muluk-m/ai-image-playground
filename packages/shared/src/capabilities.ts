@@ -31,6 +31,8 @@ export interface AdminCapabilityManifest {
 
 export const QUOTAS = {
   'generation:daily-images': { defaultValue: 0 },
+  'sync:asset-image-bytes': { defaultValue: 10 * 1024 * 1024 },
+  'sync:user-asset-bytes': { defaultValue: 500 * 1024 * 1024 },
 } as const satisfies Record<`${string}:${string}`, QuotaDefinition>
 
 export interface QuotaDefinition {

@@ -10,6 +10,8 @@
     "remix:listing": false
   },
   "quotas": {
-    "generation:daily-images": 0
+    "generation:daily-images": 0,
+    "sync:asset-image-bytes": 10485760,
+    "sync:user-asset-bytes": 524288000
   }
 }

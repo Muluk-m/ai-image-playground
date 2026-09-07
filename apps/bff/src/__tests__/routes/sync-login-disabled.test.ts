@@ -33,4 +33,24 @@ describe('POST /api/sync with sync configured on but login off', () => {
     })
     expect(capabilityManifest()['accounts:sync']).toBe(false)
   })
+
+  it('answers 404 on the asset image endpoints too', async () => {
+    const uploaded = await app.handle(
+      new Request('http://localhost/api/sync/assets/image-1', {
+        method: 'PUT',
+        headers: { 'content-type': 'image/png' },
+        body: new Uint8Array(8),
+      }),
+    )
+    const downloaded = await app.handle(
+      new Request('http://localhost/api/sync/assets/image-1', { method: 'GET' }),
+    )
+
+    expect(uploaded.status).toBe(404)
+    expect(downloaded.status).toBe(404)
+    expect(await downloaded.json()).toEqual({
+      error: 'capability_unavailable',
+      capability: 'accounts:sync',
+    })
+  })
 })

@@ -4,6 +4,7 @@ import { log } from '../lib/logger'
 import { objectStore } from '../lib/objectStore'
 import { loadPrivateBffOverlay } from '../lib/private-overlay'
 import { planNextAttempt } from '../lib/retry'
+import { ASSET_OBJECT_ROOT, assetOwnerPrefix } from '../lib/sync-assets'
 import { db, schema } from './client'
 import { finishTask, requeueTask, requeueTasksForPolling } from './task-transitions'
 
@@ -92,6 +93,43 @@ async function recoverTasks(scope: SQL, now: number): Promise<RecoveredTasks> {
 export async function runPrivateMaintenance(now = Date.now()): Promise<void> {
   const taskHooks = (await loadPrivateBffOverlay()).taskHooks
   await taskHooks.runMaintenance(now)
+}
+
+/**
+ * 用户行删掉后素材台账随外键级联消失，对象存储里那批 key 只有靠这一趟扫描收走。
+ * 只有在 users 表明确查不到该 owner 时才删，查询失败一律不动。
+ */
+export async function purgeOrphanedAssetObjects(): Promise<number> {
+  const owners = new Set<string>()
+  for (const key of await objectStore().listPrefix(ASSET_OBJECT_ROOT)) {
+    const owner = key.slice(ASSET_OBJECT_ROOT.length).split('/')[0]
+    if (owner) owners.add(owner)
+  }
+  if (owners.size === 0) return 0
+
+  const alive = new Set(
+    (
+      await db
+        .select({ id: schema.users.id })
+        .from(schema.users)
+        .where(inArray(schema.users.id, [...owners]))
+    ).map((row) => row.id),
+  )
+
+  let removed = 0
+  for (const owner of owners) {
+    if (alive.has(owner)) continue
+    try {
+      await objectStore().deletePrefix(assetOwnerPrefix(owner))
+      removed += 1
+    } catch (error) {
+      log.warn(
+        { event: 'object_store.orphan_cleanup_failed', userId: owner, err: String(error) },
+        'orphaned asset objects left for the next sweep',
+      )
+    }
+  }
+  return removed
 }
 
 /**
