@@ -6,12 +6,8 @@ import {
   productContextDescription,
   productLockSection,
   qualitySection,
-} from '../../../../features/remix/lib/prompt'
-import type {
-  RemixBrief,
-  RemixProductDescription,
-  RemixShotCopy,
-} from '../../../../features/remix/types'
+} from '../../lib/shotPrompt'
+import type { RemixBrief, RemixProductDescription, RemixShotCopy } from '../../lib/shotTypes'
 
 const PRODUCT: RemixProductDescription = {
   name: 'W2753 独立浴缸',

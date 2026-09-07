@@ -1,6 +1,6 @@
 import { EXPORT_PRESETS, findExportPreset } from '@image-playground/shared'
 import { describe, expect, it } from 'vitest'
-import { defaultExportFit, exportEntryName } from '../../../../features/remix/lib/exportPresets'
+import { defaultExportFit, exportEntryName } from '../../lib/shotExportPresets'
 
 describe('the platform export presets', () => {
   it('covers the four store platforms', () => {

@@ -1,4 +1,4 @@
-import type { TaskRecord } from '../../../types'
+import type { TaskRecord } from '../types'
 
 export type HistoryItem =
   | { kind: 'task'; task: TaskRecord }

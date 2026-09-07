@@ -3,7 +3,7 @@ import {
   type ProductContext,
   parseCompetitorBrief,
 } from '@image-playground/shared'
-import { bffBaseUrl } from '../../../lib/runtimeConfig'
+import { bffBaseUrl } from './runtimeConfig'
 
 type Fetcher = (input: string, init?: RequestInit) => Promise<Response>
 

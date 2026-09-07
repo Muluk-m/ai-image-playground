@@ -5,7 +5,7 @@ import type {
   RemixLevel,
   RemixProductDescription,
   RemixShotCopy,
-} from '../types'
+} from './shotTypes'
 
 const LANGUAGE_NAMES: Record<RemixLanguage, string> = { zh: '中文', en: '英文' }
 
