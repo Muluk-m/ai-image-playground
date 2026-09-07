@@ -99,6 +99,18 @@ describe('VideoComposer', () => {
     expect(slot?.querySelector('button')).toBeNull()
   })
 
+  it('Grok 下留住的尾帧图仍在，槽里写着原因', () => {
+    act(() => useVideoStore.getState().setFrame('last', 'img-last'))
+    render()
+
+    const slot = document.querySelector<HTMLElement>('[aria-disabled="true"]')
+    expect(slot?.textContent).toContain('尾帧')
+    expect(slot?.textContent).toContain('Grok 不支持尾帧')
+    // 上传 / 选图 都不在：这一槽此刻不接新图，但已有的那张没被丢掉。
+    expect(slot?.querySelector('button')).toBeNull()
+    expect(useVideoStore.getState().draft.lastFrameImageId).toBe('img-last')
+  })
+
   it('换到 Agnes 后尾帧槽可用', () => {
     render()
     click(

@@ -151,18 +151,54 @@ describe('提交', () => {
 })
 
 describe('参数', () => {
-  it('换模型时把不支持的档位与尾帧退回合法值', () => {
+  it('换模型时把不支持的档位退回合法值', () => {
     const store = useVideoStore.getState()
     store.setModel('agnes-video-2.5')
     store.setResolution('2k')
-    store.setFrame('last', 'img-last')
     expect(draft().resolution).toBe('2k')
 
     store.setModel('grok-imagine-video')
 
     expect(draft().resolution).toBe('720p')
-    expect(draft().lastFrameImageId).toBeNull()
     expect(draft().duration).toBe(5)
+  })
+
+  it('切到不支持尾帧的模型时留住尾帧图，切回去还在', () => {
+    const store = useVideoStore.getState()
+    store.setModel('agnes-video-2.5')
+    store.setFrame('last', 'img-last')
+
+    store.setModel('grok-imagine-video')
+    expect(draft().lastFrameImageId).toBe('img-last')
+
+    store.setModel('agnes-video-2.5')
+    expect(draft().lastFrameImageId).toBe('img-last')
+  })
+
+  it('留住的尾帧不进 Grok 的提交体', async () => {
+    const store = useVideoStore.getState()
+    store.setModel('agnes-video-2.5')
+    store.setSource('image')
+    store.setFrame('first', 'img-first')
+    store.setFrame('last', 'img-last')
+    store.setModel('grok-imagine-video')
+    store.setPrompt('主图动效')
+    await store.submit()
+    await settle()
+
+    expect(submitVideoRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        inputImageDataUrls: ['data:image/png;base64,img-first'],
+        video: {
+          duration_seconds: 5,
+          aspect_ratio: '16:9',
+          resolution: '720p',
+          first_frame_index: 0,
+        },
+      }),
+    )
+    expect(tasks()[0]!.lastFrameImageId).toBeUndefined()
+    expect(draft().lastFrameImageId).toBe('img-last')
   })
 
   it('运镜片段追加到描述末尾', () => {
