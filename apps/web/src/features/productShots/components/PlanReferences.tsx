@@ -9,7 +9,6 @@ interface Reference {
   label: string
   imageId: string
   box?: ProductBox | null
-  badge?: string
 }
 
 /** 这一版实际用到的图：原图、换上去的产品素材、抠出来的蒙版。 */
@@ -28,7 +27,7 @@ export default function PlanReferences({
   const matteImageId = version.mattePreviewImageId ?? version.maskImageId
   const references: Reference[] = [{ label: '原图', imageId, box: version.productBox }]
   if (productImageId) references.push({ label: '产品', imageId: productImageId })
-  if (matteImageId) references.push({ label: '蒙版', imageId: matteImageId, badge: '蒙版' })
+  if (matteImageId) references.push({ label: '蒙版', imageId: matteImageId })
 
   const imageIds = references.map((item) => item.imageId)
 
@@ -46,11 +45,6 @@ export default function PlanReferences({
             >
               <AssetThumb imageId={item.imageId} alt={item.label} />
               {item.box && <BoxOutline box={item.box} />}
-              {item.badge && (
-                <span className="absolute left-0.5 top-0.5 rounded bg-black/55 px-1 text-[10px] text-white">
-                  {item.badge}
-                </span>
-              )}
             </button>
             <span className="mt-0.5 block truncate text-center text-[10px] text-gray-500 dark:text-gray-400">
               {item.label}
