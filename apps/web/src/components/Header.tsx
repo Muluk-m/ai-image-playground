@@ -12,6 +12,7 @@ import {
   PrivateWebHeaderCreditAction,
   PrivateWebReplacesAuthActions,
 } from '../lib/privateOverlay'
+import { useSyncStatus } from '../lib/sync/status'
 import { dismissAllTooltips } from '../lib/tooltipDismiss'
 import { APP_MODE_LABELS, useStore, visibleAppModes } from '../store'
 import HelpModal from './HelpModal'
@@ -39,6 +40,7 @@ export default function Header() {
   const libraryTooltip = useTooltip()
   const helpTooltip = useTooltip()
   const settingsTooltip = useTooltip()
+  const syncPending = useSyncStatus((s) => s.enabled && (s.pending > 0 || s.status === 'error'))
 
   // 绑定回跳只回到工作台，面板得靠回跳参数自己重开。
   useEffect(() => {
@@ -156,6 +158,12 @@ export default function Header() {
                   />
                 </svg>
               </button>
+              {syncPending ? (
+                <span
+                  aria-label="有未同步项"
+                  className="pointer-events-none absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-amber-500"
+                />
+              ) : null}
               <ViewportTooltip visible={settingsTooltip.visible} className="whitespace-nowrap">
                 设置
               </ViewportTooltip>
