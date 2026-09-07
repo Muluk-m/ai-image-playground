@@ -1,0 +1,11 @@
+{
+  "capabilities": {
+    "accounts:login": true,
+    "accounts:self-register": false,
+    "accounts:sync": true
+  },
+  "quotas": {
+    "sync:asset-image-bytes": 64,
+    "sync:user-asset-bytes": 160
+  }
+}
