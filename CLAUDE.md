@@ -128,6 +128,10 @@ Issues and specs live in GitHub Issues of `Muluk-m/ai-image-playground` (`gh` CL
 
 Default five-role vocabulary (`needs-triage` / `needs-info` / `ready-for-agent` / `ready-for-human` / `wontfix`). See `docs/agents/triage-labels.md`.
 
+### Roadmap
+
+Product directions, dependencies and open decisions live in `docs/ROADMAP.md`; tracking issues carry the `roadmap` label.
+
 ### Domain docs
 
 Single-context: root `CONTEXT.md` + `docs/adr/`. See `docs/agents/domain.md`.
