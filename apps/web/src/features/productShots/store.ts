@@ -16,6 +16,7 @@ import { storeImage } from '../../lib/db'
 import { eraseProductArea } from '../../lib/eraseProduct'
 import { fetchListingImages, listingImageProxyUrl } from '../../lib/listingClient'
 import {
+  angleFromText,
   cameraToAngle,
   DEFAULT_PRODUCT_ANGLE,
   matchProductAsset,
@@ -50,6 +51,7 @@ import {
 } from '../../store'
 import type { InputImage } from '../../types'
 import { useLibraryStore } from '../library/store'
+import type { AssetRecord } from '../library/types'
 import { ACTION_LABELS, type ProductShotAction } from './lib/actions'
 import { pendingBatchImageIds } from './lib/batch'
 import { productShotJobStore } from './lib/jobStore'
@@ -333,12 +335,17 @@ export const useProductShotsStore = create<ProductShotsState>((set, get) => ({
 
   addImagesFromAssets: async (assetIds) => {
     const { assets } = useLibraryStore.getState()
-    const added = assetIds.flatMap((assetId) => {
+    const picked = assetIds.flatMap((assetId) => {
       const asset = assets.find((item) => item.id === assetId)
-      return asset ? [{ imageId: asset.imageId, versions: [] }] : []
+      return asset ? [asset] : []
     })
-    if (added.length === 0) return
-    addImages(set, added)
+    const [first] = picked
+    if (!first) return
+    addImages(
+      set,
+      picked.map((asset) => ({ imageId: asset.imageId, versions: [] })),
+    )
+    adoptAsProduct(set, get, first)
     await persistDraft(set, get)
     await scanScenes(set, get)
   },
@@ -1037,6 +1044,14 @@ function addImages(set: SetState, added: ProductShotImage[]): void {
 }
 
 /** 一张图都没有的任务不落盘：否则光是打字就会在任务列表里堆出空任务。 */
+/** 素材库同时是原图与产品的来源，选完原图用户以为产品也选过了；产品还空着就认领第一张。 */
+function adoptAsProduct(set: SetState, get: GetState, asset: AssetRecord): void {
+  if (get().draft.productAssets.length > 0) return
+  const angle = angleFromText(asset.name) ?? UPLOAD_PRODUCT_ANGLE
+  set((s) => ({ draft: { ...s.draft, productAssets: [{ assetId: asset.id, angle }] } }))
+  useStore.getState().showToast(`已把「${asset.name}」设为我的产品，可在上方更换`, 'success')
+}
+
 async function persistDraft(set: SetState, get: GetState): Promise<void> {
   const { draft, jobs } = get()
   if (draft.images.length === 0 && !draft.id) return

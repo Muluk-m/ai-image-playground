@@ -7,7 +7,7 @@ import { useProductShotsStore } from '../store'
 import { PRODUCT_SHOT_STAGE_LABELS, VERSIONS_PER_IMAGE_CHOICES } from '../types'
 import VersionBar from './VersionBar'
 
-const NO_PRODUCT = '先在上方选产品素材'
+const PICK_PRODUCT = '选产品素材'
 
 const ACTIONS: Array<{ mode: ProductShotAction; needsProduct: boolean }> = [
   { mode: 'background', needsProduct: false },
@@ -27,7 +27,7 @@ export default function ActionPanel() {
   const swapNotice = useProductShotsStore((s) => s.swapNotice)
   const batchRunning = useProductShotsStore((s) => s.batch?.running === true)
 
-  const { setPreference, setVersionsPerImage, setRemixLevel, runAction } =
+  const { setPreference, setVersionsPerImage, setRemixLevel, runAction, openProductPicker } =
     useProductShotsStore.getState()
   const busy = swapStage !== null || batchRunning
 
@@ -65,7 +65,15 @@ export default function ActionPanel() {
                   />
                 </div>
               )}
-              {blocked && <p className={`mt-1 ${NOTICE}`}>{NO_PRODUCT}</p>}
+              {blocked && (
+                <button
+                  type="button"
+                  onClick={openProductPicker}
+                  className={`mt-1 ${NOTICE} underline underline-offset-2 transition hover:bg-amber-500/20`}
+                >
+                  {PICK_PRODUCT}
+                </button>
+              )}
             </div>
           )
         })}
