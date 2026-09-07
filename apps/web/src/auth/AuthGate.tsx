@@ -8,6 +8,7 @@ import {
 } from '../lib/authClient'
 import { setClientStorageScope } from '../lib/authScope'
 import { bootstrapChannels } from '../lib/channels/bootstrapChannels'
+import { clearScopedClientStorage } from '../lib/clearScopedStorage'
 import { isClientCapabilityEnabled } from '../lib/clientCapabilities'
 import { getRuntimeConfig } from '../lib/runtimeConfig'
 import { adoptAnonymousStorage } from '../lib/storageAdoption'
@@ -109,9 +110,10 @@ export function AuthGate() {
     return () => window.removeEventListener(AUTH_SESSION_EXPIRED_EVENT, expired)
   }, [])
 
-  const logout = useCallback(async () => {
+  const logout = useCallback(async (clearLocalData: boolean) => {
     try {
       await logoutUser()
+      if (clearLocalData) await clearScopedClientStorage()
     } finally {
       window.location.reload()
     }
