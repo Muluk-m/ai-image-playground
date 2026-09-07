@@ -11,7 +11,9 @@ export const ACTION_LABELS: Record<BgSwapMode, string> = {
 export function jobActionLabels(job: ProductShotJob | undefined): string[] {
   if (!job) return []
   const used = new Set(
-    job.images.flatMap((image) => image.versions.map((v) => v.mode ?? DEFAULT_BG_SWAP_MODE)),
+    job.images.flatMap((image) =>
+      image.versions.map((version) => version.mode ?? DEFAULT_BG_SWAP_MODE),
+    ),
   )
   return BG_SWAP_MODES.filter((mode) => used.has(mode)).map((mode) => ACTION_LABELS[mode])
 }
