@@ -3,6 +3,7 @@ import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
 import {
   SYNC_SETTINGS_MAX_BYTES,
+  SYNC_TEMPLATE_PARAMS_MAX_BYTES,
   type SyncRequestBody,
   type SyncResponseBody,
 } from '@image-playground/shared'
@@ -237,6 +238,14 @@ describe('POST /api/sync', () => {
     expect(lost.body.templates).toEqual([
       { id: 'template-1', updatedAt: 3_000, deletedAt: 3_000 },
     ] as never)
+  })
+
+  it('rejects a template whose params exceed the protocol budget', async () => {
+    const oversized = await sync(deviceA, {
+      version: 0,
+      templates: [template({ params: { blob: 'x'.repeat(SYNC_TEMPLATE_PARAMS_MAX_BYTES) } })],
+    })
+    expect(oversized.status).toBe(400)
   })
 
   it('syncs assets and their tombstones', async () => {
