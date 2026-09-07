@@ -357,7 +357,7 @@ describe('running one background swap', () => {
     click(actionButton())
     await settle()
     const edit = [...document.querySelectorAll('button')].find(
-      (button) => button.textContent === '编辑蒙版',
+      (button) => button.title === '编辑蒙版',
     )
     if (!edit) throw new Error('no mask edit button')
     click(edit)
@@ -400,8 +400,8 @@ describe('running one background swap', () => {
       })
     })
 
-    const choose = [...document.querySelectorAll('button')].find(
-      (button) => button.textContent === '用这版',
+    const choose = [...column('actions').querySelectorAll('button')].find(
+      (button) => button.title === '用这版',
     )
     if (!choose) throw new Error('no choose button')
     click(choose)
@@ -409,7 +409,11 @@ describe('running one background swap', () => {
 
     const [version] = useProductShotsStore.getState().draft.images[0].versions
     expect(useProductShotsStore.getState().draft.images[0].chosenVersionId).toBe(version.id)
-    expect(document.querySelector('[data-product-shots-version]')?.textContent).toContain('已选')
+    expect(
+      [...column('actions').querySelectorAll('button')]
+        .find((button) => button.title === '取消选用')
+        ?.getAttribute('aria-pressed'),
+    ).toBe('true')
   })
 
   it('switches the middle preview between the original and a version', async () => {
@@ -461,8 +465,8 @@ describe('looking at the matte before trusting a version', () => {
     click(actionButton())
     await settle()
 
-    const toggle = [...document.querySelectorAll('button')].find(
-      (button) => button.textContent === '看蒙版',
+    const toggle = [...column('actions').querySelectorAll('button')].find(
+      (button) => button.title === '看蒙版',
     )
     if (!toggle) throw new Error('no matte toggle')
     click(toggle)
@@ -727,7 +731,7 @@ describe('the product picked once for the whole job', () => {
     expect(row?.textContent).not.toContain(PLAN.plan)
 
     const open = [...(row?.querySelectorAll('button') ?? [])].find(
-      (button) => button.textContent === '查看方案',
+      (button) => button.title === '查看方案',
     )
     if (!open) throw new Error('no plan drawer button')
     click(open)
