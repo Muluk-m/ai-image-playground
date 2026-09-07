@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import {
-  shotEntryName,
   exportBlockedReason,
   exportPlan,
   flatVersions,
   galleryRows,
   hasChosenVersion,
   resolveExportScope,
+  shotEntryName,
 } from '../../../../features/productShots/lib/gallery'
 import type { ProductShotImage, ProductShotVersion } from '../../../../features/productShots/types'
 import type { TaskRecord } from '../../../../types'

@@ -37,20 +37,18 @@ import type { InputImage } from '../../types'
 import { useLibraryStore } from '../library/store'
 import { pendingBatchImageIds } from './lib/batch'
 import { productShotJobStore } from './lib/jobStore'
-import { bgSwapMode, type MaskSide, maskSideFor } from './lib/mode'
+import { legacyJobMode, type MaskSide, maskSideFor } from './lib/mode'
 import { requestBackgroundPlan, requestSceneScan } from './lib/planClient'
 import { DIAGRAM_LABEL, isDiagram } from './lib/scene'
 import type {
+  MatteFailureCause,
+  MatteOutcome,
   ProductShotBatchItemState,
   ProductShotBatchProgress,
   ProductShotImage,
   ProductShotJob,
-  LegacyProductSource,
   ProductShotStage,
-  LegacyTarget,
   ProductShotVersion,
-  MatteFailureCause,
-  MatteOutcome,
 } from './types'
 
 const UPLOAD_FALLBACK = '请直接上传原图'
@@ -72,8 +70,8 @@ export interface ProductShotsDraft {
   images: ProductShotImage[]
   preference: string
   versionsPerImage: number
-  productSource: LegacyProductSource
-  target: LegacyTarget
+  /** 最近一次跑的动作，重跑与批量都沿用它。 */
+  mode: BgSwapMode
   productAssets: ProductAsset[]
   createdAt: number | null
 }
@@ -109,7 +107,7 @@ export interface ProductShotsState {
   startNewJob: () => void
   selectJob: (id: string) => void
 
-  swapBackground: () => Promise<void>
+  runAction: (mode: BgSwapMode) => Promise<void>
   retryVersion: (versionId: string) => Promise<void>
   chooseVersion: (versionId: string) => void
   previewVersion: (versionId: string | null) => void
@@ -128,8 +126,6 @@ export interface ProductShotsState {
   setPreference: (preference: string) => void
   setVersionsPerImage: (count: number) => void
 
-  setProductSource: (source: LegacyProductSource) => void
-  setSwapTarget: (target: LegacyTarget) => void
   toggleProductAsset: (assetId: string) => void
   setProductAngle: (assetId: string, angle: ProductAngle) => void
   importProductFiles: (files: File[]) => Promise<void>
@@ -144,8 +140,7 @@ function emptyDraft(): ProductShotsDraft {
     images: [],
     preference: '',
     versionsPerImage: 1,
-    productSource: 'original',
-    target: 'product-only',
+    mode: DEFAULT_BG_SWAP_MODE,
     productAssets: [],
     createdAt: null,
   }
@@ -158,8 +153,7 @@ function draftFromJob(job: ProductShotJob): ProductShotsDraft {
     images: job.images,
     preference: job.preference,
     versionsPerImage: job.versionsPerImage,
-    productSource: job.productSource ?? 'original',
-    target: job.target ?? 'product-only',
+    mode: job.mode ?? legacyJobMode(job.productSource, job.target),
     productAssets: job.productAssets ?? [],
     createdAt: job.createdAt,
   }
@@ -284,10 +278,6 @@ export const useProductShotsStore = create<ProductShotsState>((set, get) => ({
 
   setVersionsPerImage: (versionsPerImage) => patchDraft(set, get, { versionsPerImage }),
 
-  setProductSource: (productSource) => patchDraft(set, get, { productSource }),
-
-  setSwapTarget: (target) => patchDraft(set, get, { target }),
-
   toggleProductAsset: (assetId) =>
     patchDraft(set, get, {
       productAssets: toggleProductAsset(get().draft.productAssets, assetId, DEFAULT_PRODUCT_ANGLE),
@@ -315,11 +305,12 @@ export const useProductShotsStore = create<ProductShotsState>((set, get) => ({
 
   closeProductPicker: () => set({ productPickerOpen: false }),
 
-  swapBackground: async () => {
+  runAction: async (mode) => {
     const { draft, selectedImageId, swapStage, batch } = get()
     const image = draft.images.find((item) => item.imageId === selectedImageId)
     const jobId = draft.id
     if (swapStage || batch?.running || !image || !jobId) return
+    patchDraft(set, get, { mode })
 
     if (isDiagram(image.sceneType)) {
       useStore.getState().setConfirmDialog({
@@ -393,7 +384,9 @@ export const useProductShotsStore = create<ProductShotsState>((set, get) => ({
   stopBatch: () => patchBatch(set, { stopRequested: true }),
 }))
 
-type SetState = (partial: Partial<ProductShotsState> | ((s: ProductShotsState) => Partial<ProductShotsState>)) => void
+type SetState = (
+  partial: Partial<ProductShotsState> | ((s: ProductShotsState) => Partial<ProductShotsState>),
+) => void
 type GetState = () => ProductShotsState
 
 function patchDraft(set: SetState, get: GetState, patch: Partial<ProductShotsDraft>): void {
@@ -488,8 +481,7 @@ async function runStages(set: SetState, body: (stage: StageSink) => Promise<void
 
 /** 重跑沿用这一版当时的模式，不受右栏之后被改成什么影响。 */
 function modeOf(draft: ProductShotsDraft, reuse: ProductShotVersion | undefined): BgSwapMode {
-  if (reuse) return reuse.mode ?? DEFAULT_BG_SWAP_MODE
-  return bgSwapMode(draft.productSource, draft.target)
+  return reuse ? (reuse.mode ?? DEFAULT_BG_SWAP_MODE) : draft.mode
 }
 
 /** 按机位挑一张素材：挑不到同角度就用第一张，宁可角度差一点也别停在这里。 */
@@ -716,7 +708,10 @@ function patchBatchItem(
   )
 }
 
-function upsertVersion(versions: ProductShotVersion[], version: ProductShotVersion): ProductShotVersion[] {
+function upsertVersion(
+  versions: ProductShotVersion[],
+  version: ProductShotVersion,
+): ProductShotVersion[] {
   return versions.some((item) => item.id === version.id)
     ? versions.map((item) => (item.id === version.id ? version : item))
     : [...versions, version]
@@ -789,8 +784,7 @@ async function persistDraft(set: SetState, get: GetState): Promise<void> {
     images: draft.images,
     preference: draft.preference,
     versionsPerImage: draft.versionsPerImage,
-    productSource: draft.productSource,
-    target: draft.target,
+    mode: draft.mode,
     productAssets: draft.productAssets,
     createdAt: draft.createdAt ?? now,
     updatedAt: now,

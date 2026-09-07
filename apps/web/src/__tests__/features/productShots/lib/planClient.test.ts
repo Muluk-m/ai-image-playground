@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { requestBackgroundPlan, requestSceneScan } from '../../../../features/productShots/lib/planClient'
+import {
+  requestBackgroundPlan,
+  requestSceneScan,
+} from '../../../../features/productShots/lib/planClient'
 import { _setRuntimeConfigForTesting } from '../../../../lib/runtimeConfig'
 
 const PLAN = {

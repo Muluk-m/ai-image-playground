@@ -77,8 +77,7 @@ beforeEach(() => {
       name: '折叠浴缸',
       preference: '',
       versionsPerImage: 1,
-      productSource: 'original',
-      target: 'product-only',
+      mode: 'background',
       productAssets: [],
       createdAt: 1,
       images: [
@@ -133,8 +132,8 @@ function chooseNothing() {
 describe('the results overview', () => {
   it('reruns a failed version in place', () => {
     render()
-    const failed = [...document.querySelectorAll('[data-product-shots-gallery-item]')].find((item) =>
-      item.textContent?.includes('失败'),
+    const failed = [...document.querySelectorAll('[data-product-shots-gallery-item]')].find(
+      (item) => item.textContent?.includes('失败'),
     )
     if (!failed) throw new Error('no failed version card')
     click(buttonLabelled('重跑', failed))

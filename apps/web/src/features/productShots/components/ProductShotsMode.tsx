@@ -2,10 +2,11 @@ import { useEffect } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useLibraryStore } from '../../library/store'
 import { useProductShotsStore } from '../store'
-import BatchBar from './BatchBar'
 import ActionPanel from './ActionPanel'
-import ResultGallery from './ResultGallery'
+import BatchBar from './BatchBar'
 import PreviewPanel from './PreviewPanel'
+import ProductBar from './ProductBar'
+import ResultGallery from './ResultGallery'
 import SourcePanel from './SourcePanel'
 
 export default function ProductShotsMode() {
@@ -47,6 +48,8 @@ export default function ProductShotsMode() {
           新建任务
         </button>
       </div>
+
+      <ProductBar />
 
       <div className="grid gap-4 lg:grid-cols-[15rem_minmax(0,1fr)_17rem]">
         <SourcePanel />

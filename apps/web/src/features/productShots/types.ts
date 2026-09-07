@@ -2,25 +2,9 @@ import type { BgSceneType, BgSwapMode, ProductBox } from '@image-playground/shar
 import type { ProductAsset } from '../../lib/productAngle'
 import type { MatteBackendId, SegmentFailureReason } from '../../lib/productMatte'
 
-export const LEGACY_PRODUCT_SOURCES = ['original', 'asset'] as const
-
-/** 画面里的产品从哪来：留原图那件，还是换成素材库里的。 */
-export type LegacyProductSource = (typeof LEGACY_PRODUCT_SOURCES)[number]
-
-export const LEGACY_PRODUCT_SOURCE_LABELS: Record<LegacyProductSource, string> = {
-  original: '原图产品',
-  asset: '换成我的素材',
-}
-
-export const LEGACY_TARGETS = ['product-only', 'product-and-background'] as const
-
-/** 换成素材之后要不要连背景一起换。产品来源是原图时这一档不起作用。 */
-export type LegacyTarget = (typeof LEGACY_TARGETS)[number]
-
-export const LEGACY_TARGET_LABELS: Record<LegacyTarget, string> = {
-  'product-only': '只换产品',
-  'product-and-background': '换产品并换背景',
-}
+/** 旧任务记录里的两组分段，只用来把老记录读成一个动作。 */
+export type LegacyProductSource = 'original' | 'asset'
+export type LegacyTarget = 'product-only' | 'product-and-background'
 
 /** 抠图没用上的原因：跑不出来（前三种），或抠出来的框跟方案给的产品框对不上。 */
 export type MatteFailureCause = SegmentFailureReason | 'box-mismatch'
@@ -76,9 +60,11 @@ export interface ProductShotJob {
   images: ProductShotImage[]
   preference: string
   versionsPerImage: number
-  /** 产品设置整任务生效，批量沿用。旧记录没有这三个字段，按原图产品读。 */
+  /** 最近一次跑的动作，批量沿用；旧记录没有它，由下面两个旧字段读出来。 */
+  mode?: BgSwapMode
   productSource?: LegacyProductSource
   target?: LegacyTarget
+  /** 产品素材整任务生效，换产品与借创意重做共用。 */
   productAssets?: ProductAsset[]
   createdAt: number
   updatedAt: number

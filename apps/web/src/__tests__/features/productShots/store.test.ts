@@ -1,8 +1,8 @@
 import { IDBFactory } from 'fake-indexeddb'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { useProductShotsStore } from '../../../features/productShots/store'
 import { useLibraryStore } from '../../../features/library/store'
 import type { AssetRecord } from '../../../features/library/types'
+import { useProductShotsStore } from '../../../features/productShots/store'
 import { ProductMatteError } from '../../../lib/productMatte'
 import { useStore } from '../../../store'
 
@@ -142,7 +142,9 @@ describe('putting original images into a job', () => {
   })
 
   it('skips files that are not images', async () => {
-    await useProductShotsStore.getState().importFiles([new File(['x'], 'a.pdf', { type: 'text/plain' })])
+    await useProductShotsStore
+      .getState()
+      .importFiles([new File(['x'], 'a.pdf', { type: 'text/plain' })])
 
     expect(useProductShotsStore.getState().draft.images).toEqual([])
   })
@@ -288,7 +290,7 @@ describe('swapping the background of one image', () => {
     const imageId = await jobWithOneImage()
     useProductShotsStore.getState().setPreference('北欧风')
 
-    await useProductShotsStore.getState().swapBackground()
+    await useProductShotsStore.getState().runAction('background')
 
     expect(requestBackgroundPlan).toHaveBeenCalledWith({
       image: `data:image/png;base64,${imageId}`,
@@ -332,7 +334,7 @@ describe('swapping the background of one image', () => {
       return ['task-1']
     })
 
-    await useProductShotsStore.getState().swapBackground()
+    await useProductShotsStore.getState().runAction('background')
 
     expect(stages).toEqual(['plan', 'matte', 'generate'])
     expect(useProductShotsStore.getState().swapStage).toBeNull()
@@ -341,8 +343,8 @@ describe('swapping the background of one image', () => {
   it('keeps every click as its own version, newest last', async () => {
     await jobWithOneImage()
 
-    await useProductShotsStore.getState().swapBackground()
-    await useProductShotsStore.getState().swapBackground()
+    await useProductShotsStore.getState().runAction('background')
+    await useProductShotsStore.getState().runAction('background')
 
     expect(useProductShotsStore.getState().draft.images[0].versions.map((v) => v.taskId)).toEqual([
       'task-1',
@@ -354,7 +356,7 @@ describe('swapping the background of one image', () => {
     await jobWithOneImage()
     segmentProduct.mockRejectedValue(new Error('抠图超时'))
 
-    await useProductShotsStore.getState().swapBackground()
+    await useProductShotsStore.getState().runAction('background')
 
     expect(submitPrepared.mock.calls[0][0].mask).toBeNull()
     expect(useProductShotsStore.getState().draft.images[0].versions[0]).toMatchObject({
@@ -368,7 +370,7 @@ describe('swapping the background of one image', () => {
     await jobWithOneImage()
     segmentProduct.mockRejectedValue(new ProductMatteError('timeout', '抠图超时'))
 
-    await useProductShotsStore.getState().swapBackground()
+    await useProductShotsStore.getState().runAction('background')
 
     expect(useProductShotsStore.getState().draft.images[0].versions[0].matte).toEqual({
       ok: false,
@@ -380,7 +382,7 @@ describe('swapping the background of one image', () => {
     await jobWithOneImage()
     assessMatte.mockReturnValue({ ok: false, coverage: 0.001, reason: 'too-small' })
 
-    await useProductShotsStore.getState().swapBackground()
+    await useProductShotsStore.getState().runAction('background')
 
     expect(alphaToInpaintMask).not.toHaveBeenCalled()
     expect(useProductShotsStore.getState().draft.images[0].versions[0].masked).toBe(false)
@@ -390,7 +392,7 @@ describe('swapping the background of one image', () => {
     await jobWithOneImage()
     modelSupportsNativeMask.mockReturnValue(false)
 
-    await useProductShotsStore.getState().swapBackground()
+    await useProductShotsStore.getState().runAction('background')
 
     expect(segmentProduct).not.toHaveBeenCalled()
     expect(submitPrepared.mock.calls[0][0].mask).toBeNull()
@@ -401,7 +403,7 @@ describe('swapping the background of one image', () => {
     await jobWithOneImage()
     requestBackgroundPlan.mockRejectedValue(new Error('没拿到可用的背景方案'))
 
-    await useProductShotsStore.getState().swapBackground()
+    await useProductShotsStore.getState().runAction('background')
 
     expect(submitPrepared).not.toHaveBeenCalled()
     expect(useProductShotsStore.getState().draft.images[0].versions).toEqual([])
@@ -413,7 +415,7 @@ describe('swapping the background of one image', () => {
     await jobWithOneImage()
     submitPrepared.mockResolvedValue([])
 
-    await useProductShotsStore.getState().swapBackground()
+    await useProductShotsStore.getState().runAction('background')
 
     expect(useProductShotsStore.getState().draft.images[0].versions).toEqual([])
   })
@@ -422,14 +424,14 @@ describe('swapping the background of one image', () => {
     await jobWithOneImage()
     useProductShotsStore.setState({ swapStage: 'generate' })
 
-    await useProductShotsStore.getState().swapBackground()
+    await useProductShotsStore.getState().runAction('background')
 
     expect(requestBackgroundPlan).not.toHaveBeenCalled()
   })
 
   it('survives a reload with its versions', async () => {
     await jobWithOneImage()
-    await useProductShotsStore.getState().swapBackground()
+    await useProductShotsStore.getState().runAction('background')
     const savedId = useProductShotsStore.getState().draft.id
     if (!savedId) throw new Error('the job was never saved')
 
@@ -451,7 +453,7 @@ describe('swapping the background of a diagram', () => {
   it('asks before touching an image that carries explanatory text', async () => {
     await jobWithADiagram()
 
-    await useProductShotsStore.getState().swapBackground()
+    await useProductShotsStore.getState().runAction('background')
 
     expect(requestBackgroundPlan).not.toHaveBeenCalled()
     expect(useStore.getState().confirmDialog?.message).toContain('含说明文字，换背景会丢失')
@@ -459,7 +461,7 @@ describe('swapping the background of a diagram', () => {
 
   it('goes ahead once the user confirms', async () => {
     await jobWithADiagram()
-    await useProductShotsStore.getState().swapBackground()
+    await useProductShotsStore.getState().runAction('background')
 
     useStore.getState().confirmDialog?.action()
     await settle()
@@ -470,7 +472,7 @@ describe('swapping the background of a diagram', () => {
   /** 对话框摆在中间，用户思考的时候批量可能已经开跑了。 */
   it('turns the confirmation down when something else started meanwhile', async () => {
     await jobWithADiagram()
-    await useProductShotsStore.getState().swapBackground()
+    await useProductShotsStore.getState().runAction('background')
     useProductShotsStore.setState({
       batch: { items: [], running: true, stopRequested: false, startedAt: 1, stage: null },
     })
@@ -484,7 +486,7 @@ describe('swapping the background of a diagram', () => {
   it('asks nothing for a plain product photo', async () => {
     await jobWithOneImage()
 
-    await useProductShotsStore.getState().swapBackground()
+    await useProductShotsStore.getState().runAction('background')
 
     expect(useStore.getState().confirmDialog).toBeNull()
     expect(useProductShotsStore.getState().draft.images[0].versions).toHaveLength(1)
@@ -511,7 +513,7 @@ describe('checking the matte against the product box', () => {
     })
     segmentProduct.mockResolvedValue(matteCoveringEverything())
 
-    await useProductShotsStore.getState().swapBackground()
+    await useProductShotsStore.getState().runAction('background')
 
     expect(alphaToInpaintMask).not.toHaveBeenCalled()
     expect(submitPrepared.mock.calls[0][0].mask).toBeNull()
@@ -527,7 +529,7 @@ describe('checking the matte against the product box', () => {
     requestBackgroundPlan.mockResolvedValue({ ...PLAN, productBox: { x: 0, y: 0, w: 1, h: 1 } })
     segmentProduct.mockResolvedValue(matteCoveringEverything())
 
-    await useProductShotsStore.getState().swapBackground()
+    await useProductShotsStore.getState().runAction('background')
 
     expect(useProductShotsStore.getState().draft.images[0].versions[0].masked).toBe(true)
   })
@@ -540,7 +542,7 @@ describe('keeping a matte preview beside the version', () => {
     )
     await jobWithOneImage()
 
-    await useProductShotsStore.getState().swapBackground()
+    await useProductShotsStore.getState().runAction('background')
 
     expect(useProductShotsStore.getState().draft.images[0].versions[0].mattePreviewImageId).toBe(
       'preview-1',
@@ -555,7 +557,7 @@ describe('keeping a matte preview beside the version', () => {
     await jobWithOneImage()
     assessMatte.mockReturnValue({ ok: false, coverage: 0.001, reason: 'too-small' })
 
-    await useProductShotsStore.getState().swapBackground()
+    await useProductShotsStore.getState().runAction('background')
 
     const [version] = useProductShotsStore.getState().draft.images[0].versions
     expect(version.masked).toBe(false)
@@ -566,7 +568,7 @@ describe('keeping a matte preview beside the version', () => {
     await jobWithOneImage()
     segmentProduct.mockRejectedValue(new ProductMatteError('timeout', '抠图超时'))
 
-    await useProductShotsStore.getState().swapBackground()
+    await useProductShotsStore.getState().runAction('background')
 
     expect(
       useProductShotsStore.getState().draft.images[0].versions[0].mattePreviewImageId,
@@ -575,7 +577,7 @@ describe('keeping a matte preview beside the version', () => {
 
   it('shows and hides the overlay for one version at a time', async () => {
     await jobWithOneImage()
-    await useProductShotsStore.getState().swapBackground()
+    await useProductShotsStore.getState().runAction('background')
     const [version] = useProductShotsStore.getState().draft.images[0].versions
 
     useProductShotsStore.getState().toggleMatteOverlay(version.id)
@@ -589,7 +591,7 @@ describe('keeping a matte preview beside the version', () => {
 describe('picking among the versions', () => {
   it('marks the chosen version and keeps it after a reload', async () => {
     await jobWithOneImage()
-    await useProductShotsStore.getState().swapBackground()
+    await useProductShotsStore.getState().runAction('background')
     const [version] = useProductShotsStore.getState().draft.images[0].versions
     const savedId = useProductShotsStore.getState().draft.id
     if (!savedId) throw new Error('the job was never saved')
@@ -599,13 +601,14 @@ describe('picking among the versions', () => {
 
     expect(useProductShotsStore.getState().draft.images[0].chosenVersionId).toBe(version.id)
     expect(
-      useProductShotsStore.getState().jobs.find((job) => job.id === savedId)?.images[0].chosenVersionId,
+      useProductShotsStore.getState().jobs.find((job) => job.id === savedId)?.images[0]
+        .chosenVersionId,
     ).toBe(version.id)
   })
 
   it('previews the newest version and drops back to the original', async () => {
     await jobWithOneImage()
-    await useProductShotsStore.getState().swapBackground()
+    await useProductShotsStore.getState().runAction('background')
     const [version] = useProductShotsStore.getState().draft.images[0].versions
 
     expect(useProductShotsStore.getState().previewVersionId).toBe(version.id)
@@ -616,7 +619,7 @@ describe('picking among the versions', () => {
 
   it('shows the original again after switching to another image', async () => {
     await useProductShotsStore.getState().importFiles([image('主图.png'), image('细节.png')])
-    await useProductShotsStore.getState().swapBackground()
+    await useProductShotsStore.getState().runAction('background')
 
     useProductShotsStore.getState().selectImage('image-细节.png')
 
@@ -625,12 +628,10 @@ describe('picking among the versions', () => {
 })
 
 describe('swapping the product for one of my assets', () => {
-  /** 右栏选了两张标好角度的素材，产品来源切到素材。 */
-  async function jobWithAssets(target: 'product-only' | 'product-and-background'): Promise<string> {
+  /** 顶部选了两张标好角度的素材。 */
+  async function jobWithAssets(): Promise<string> {
     const imageId = await jobWithOneImage()
     const store = useProductShotsStore.getState()
-    store.setProductSource('asset')
-    store.setSwapTarget(target)
     store.toggleProductAsset('a-front')
     store.setProductAngle('a-front', 'front')
     store.toggleProductAsset('a-side')
@@ -639,9 +640,9 @@ describe('swapping the product for one of my assets', () => {
   }
 
   it('repaints the product area and keeps the background pixels', async () => {
-    const imageId = await jobWithAssets('product-only')
+    const imageId = await jobWithAssets()
 
-    await useProductShotsStore.getState().swapBackground()
+    await useProductShotsStore.getState().runAction('replace-product')
 
     expect(requestBackgroundPlan.mock.calls[0][0].mode).toBe('replace-product')
     expect(alphaToProductMask).toHaveBeenCalledTimes(1)
@@ -654,9 +655,9 @@ describe('swapping the product for one of my assets', () => {
   })
 
   it('sends the original first and the angle-matched asset second', async () => {
-    const imageId = await jobWithAssets('product-only')
+    const imageId = await jobWithAssets()
 
-    await useProductShotsStore.getState().swapBackground()
+    await useProductShotsStore.getState().runAction('replace-product')
 
     // 方案说机位是 3/4 侧，所以拿标了 three-quarter 的那张，不是正面那张。
     expect(submitPrepared.mock.calls[0][0].inputImages).toEqual([
@@ -666,9 +667,9 @@ describe('swapping the product for one of my assets', () => {
   })
 
   it('records the asset and the mode on the version', async () => {
-    await jobWithAssets('product-only')
+    await jobWithAssets()
 
-    await useProductShotsStore.getState().swapBackground()
+    await useProductShotsStore.getState().runAction('replace-product')
 
     expect(useProductShotsStore.getState().draft.images[0].versions[0]).toMatchObject({
       mode: 'replace-product',
@@ -679,26 +680,26 @@ describe('swapping the product for one of my assets', () => {
 
   it('holds the swap until an asset is picked', async () => {
     await jobWithOneImage()
-    useProductShotsStore.getState().setProductSource('asset')
 
-    await useProductShotsStore.getState().swapBackground()
+    await useProductShotsStore.getState().runAction('replace-product')
 
     expect(submitPrepared).not.toHaveBeenCalled()
     expect(useProductShotsStore.getState().swapNotice).toContain('素材')
   })
 
   it('falls back to the first asset when no angle matches', async () => {
-    await jobWithAssets('product-only')
+    await jobWithAssets()
     useProductShotsStore.getState().setProductAngle('a-side', 'top-down')
 
-    await useProductShotsStore.getState().swapBackground()
+    await useProductShotsStore.getState().runAction('replace-product')
 
     expect(submitPrepared.mock.calls[0][0].inputImages[1].id).toBe('asset-front')
     expect(useProductShotsStore.getState().swapNotice).toContain('机位')
   })
 
   it('keeps the product settings for every image of the batch', async () => {
-    await jobWithAssets('product-only')
+    await jobWithAssets()
+    await useProductShotsStore.getState().runAction('replace-product')
     await useProductShotsStore.getState().importFiles([image('细节.png')])
 
     await useProductShotsStore.getState().runBatch()
@@ -707,8 +708,9 @@ describe('swapping the product for one of my assets', () => {
     expect(version).toMatchObject({ mode: 'replace-product', productAssetId: 'a-side' })
   })
 
-  it('reopens a saved job with the product settings it was saved with', async () => {
-    await jobWithAssets('product-and-background')
+  it('reopens a saved job with the action and the product it was saved with', async () => {
+    await jobWithAssets()
+    await useProductShotsStore.getState().runAction('replace-product')
     const jobId = useProductShotsStore.getState().draft.id
 
     useProductShotsStore.getState().startNewJob()
@@ -716,8 +718,7 @@ describe('swapping the product for one of my assets', () => {
     useProductShotsStore.getState().selectJob(jobId as string)
 
     const { draft } = useProductShotsStore.getState()
-    expect(draft.productSource).toBe('asset')
-    expect(draft.target).toBe('product-and-background')
+    expect(draft.mode).toBe('replace-product')
     expect(draft.productAssets).toEqual([
       { assetId: 'a-front', angle: 'front' },
       { assetId: 'a-side', angle: 'three-quarter' },
@@ -729,8 +730,6 @@ describe('swapping the product and the background at once', () => {
   async function jobWithBoth(): Promise<string> {
     const imageId = await jobWithOneImage()
     const store = useProductShotsStore.getState()
-    store.setProductSource('asset')
-    store.setSwapTarget('product-and-background')
     store.toggleProductAsset('a-front')
     store.setProductAngle('a-front', 'three-quarter')
     return imageId
@@ -743,7 +742,7 @@ describe('swapping the product and the background at once', () => {
     })
     const imageId = await jobWithBoth()
 
-    await useProductShotsStore.getState().swapBackground()
+    await useProductShotsStore.getState().runAction('replace-and-background')
 
     expect(requestBackgroundPlan.mock.calls[0][0].mode).toBe('replace-and-background')
     expect(eraseProductArea).toHaveBeenCalledWith(`data:image/png;base64,${imageId}`, {
@@ -763,7 +762,7 @@ describe('swapping the product and the background at once', () => {
   it('never runs the matte: nothing in the picture is being kept', async () => {
     await jobWithBoth()
 
-    await useProductShotsStore.getState().swapBackground()
+    await useProductShotsStore.getState().runAction('replace-and-background')
 
     expect(segmentProduct).not.toHaveBeenCalled()
     expect(useProductShotsStore.getState().draft.images[0].versions[0]).toMatchObject({
@@ -776,7 +775,7 @@ describe('swapping the product and the background at once', () => {
   it('sends the untouched original when the plan found no product box', async () => {
     const imageId = await jobWithBoth()
 
-    await useProductShotsStore.getState().swapBackground()
+    await useProductShotsStore.getState().runAction('replace-and-background')
 
     expect(eraseProductArea).not.toHaveBeenCalled()
     expect(submitPrepared.mock.calls[0][0].inputImages[0].id).toBe(imageId)
@@ -786,7 +785,7 @@ describe('swapping the product and the background at once', () => {
 describe('retrying a failed version', () => {
   it('resubmits the same plan and replaces the task', async () => {
     await jobWithOneImage()
-    await useProductShotsStore.getState().swapBackground()
+    await useProductShotsStore.getState().runAction('background')
     const [version] = useProductShotsStore.getState().draft.images[0].versions
 
     await useProductShotsStore.getState().retryVersion(version.id)
@@ -904,7 +903,10 @@ describe('running the batch over the remaining images', () => {
 
     await useProductShotsStore.getState().runBatchImage(failedImageId)
 
-    expect(useProductShotsStore.getState().batch?.items[0]).toMatchObject({ state: 'done', error: null })
+    expect(useProductShotsStore.getState().batch?.items[0]).toMatchObject({
+      state: 'done',
+      error: null,
+    })
     expect(
       useProductShotsStore.getState().draft.images.find((item) => item.imageId === failedImageId)
         ?.versions,
@@ -945,7 +947,7 @@ describe('running the batch over the remaining images', () => {
       batch: { items: [], running: true, stopRequested: false, startedAt: 1, stage: null },
     })
 
-    await useProductShotsStore.getState().swapBackground()
+    await useProductShotsStore.getState().runAction('background')
 
     expect(requestBackgroundPlan).not.toHaveBeenCalled()
   })
