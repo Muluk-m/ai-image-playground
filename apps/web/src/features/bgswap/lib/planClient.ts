@@ -1,6 +1,7 @@
 import {
   type BackgroundPlanResult,
   type BgSceneType,
+  type BgSwapMode,
   type PromptLanguage,
   parseBackgroundPlan,
   parseSceneScan,
@@ -16,6 +17,7 @@ export interface BackgroundPlanRequest {
   image: string
   preference?: string
   language?: PromptLanguage
+  mode?: BgSwapMode
 }
 
 export async function requestBackgroundPlan(
@@ -30,6 +32,7 @@ export async function requestBackgroundPlan(
       image: request.image,
       ...(preference ? { preference } : {}),
       ...(request.language ? { language: request.language } : {}),
+      ...(request.mode ? { mode: request.mode } : {}),
     }),
   })
   const result = response.ok ? parsePlanResult(await response.json()) : null

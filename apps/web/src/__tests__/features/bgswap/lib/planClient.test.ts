@@ -4,6 +4,7 @@ import { _setRuntimeConfigForTesting } from '../../../../lib/runtimeConfig'
 
 const PLAN = {
   category: '折叠浴缸',
+  camera: '略高的 3/4 侧视',
   sceneType: 'photo',
   productBox: { x: 0.1, y: 0.2, w: 0.5, h: 0.4 },
   plan: '放进有窗光的日式木质浴室',
@@ -53,6 +54,20 @@ describe('asking the BFF for a background plan', () => {
 
     expect(JSON.parse(fetcher.mock.calls[0][1].body)).toEqual({
       image: 'data:image/png;base64,AAA',
+    })
+  })
+
+  it('sends the mode when one is asked for', async () => {
+    const fetcher = vi.fn().mockResolvedValue(jsonResponse(PLAN))
+
+    await requestBackgroundPlan(
+      { image: 'data:image/png;base64,AAA', mode: 'replace-product' },
+      fetcher,
+    )
+
+    expect(JSON.parse(fetcher.mock.calls[0][1].body)).toEqual({
+      image: 'data:image/png;base64,AAA',
+      mode: 'replace-product',
     })
   })
 
