@@ -19,7 +19,7 @@ export interface ProductAsset {
 
 export const DEFAULT_PRODUCT_ANGLE: ProductAngle = 'three-quarter'
 
-/** 上传的产品图按正面登记：正面白底图是最常要、也最常缺的那一张。 */
+/** 没标角度的产品图按正面登记：正面白底图是最常要、也最常缺的那一张。 */
 export const UPLOAD_PRODUCT_ANGLE: ProductAngle = 'front'
 
 /** 先匹配的先赢：`top-down` 的词必须排在 `high-angle` 前，否则「俯」把正顶也吃掉。 */
