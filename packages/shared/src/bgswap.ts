@@ -109,7 +109,7 @@ interface Template {
 const TEMPLATES: Record<PromptLanguage, Template> = {
   zh: {
     untouched: (names) =>
-      `不动的部分：${names.length ? names.join('、') : '产品本身及所有与之相连的部件'}。形状、位置、朝向、比例、颜色、材质与表面纹理（颗粒、哑光、纹路）全部不变，不得重画、不得平滑、不得改款，不得移动或缩放。`,
+      `不动的部分：${names.length ? names.join('、') : '产品本身及所有功能上属于它的部件'}。形状、位置、朝向、比例、颜色、材质、表面纹理（颗粒、哑光、纹路）与阴影接地关系全部不变，不得重画、不得平滑、不得改款，不得移动或缩放。`,
     toReplace: '要换的部分：',
     noDuplicates: (names) =>
       names.length
@@ -132,7 +132,7 @@ const TEMPLATES: Record<PromptLanguage, Template> = {
   },
   en: {
     untouched: (names) =>
-      `Untouched: ${names.length ? names.join(', ') : 'the product itself and every part attached to it'}. Shape, position, orientation, proportion, colour, material and surface texture (speckle, matte finish, grain) all stay unchanged; never repaint, never smooth, never restyle; never move or rescale.`,
+      `Untouched: ${names.length ? names.join(', ') : 'the product itself and every part that functionally belongs to it'}. Shape, position, orientation, proportion, colour, material, surface texture (speckle, matte finish, grain) and contact shadows all stay unchanged; never repaint, never smooth, never restyle; never move or rescale.`,
     toReplace: 'To replace: ',
     noDuplicates: (names) =>
       names.length
