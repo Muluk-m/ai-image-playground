@@ -1,38 +1,47 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
+import { DownloadIcon, EditIcon } from '../../../components/icons'
 import Pending from '../../../components/Pending'
 import { LABEL, NOTICE } from '../../../components/panelStyles'
 import { formatElapsed } from '../../../hooks/useElapsed'
+import { useImageThumbnail } from '../../../hooks/useImageThumbnail'
+import { downloadImagesByIds } from '../../../lib/downloadImages'
 import { useStore } from '../../../store'
-import { actionLabel } from '../lib/actions'
+import AssetThumb from '../../library/components/AssetThumb'
 import { changesBackground } from '../lib/mode'
 import { DIAGRAM_LABEL, isDiagram } from '../lib/scene'
-import { VERSION_STATE_LABELS, versionProgress } from '../lib/versionProgress'
+import { VERSION_STATE_LABELS, type VersionProgress, versionProgress } from '../lib/versionProgress'
 import { useProductShotsStore } from '../store'
-import MatteTag from './MatteTag'
+import type { ProductShotVersion } from '../types'
+import {
+  CheckIcon,
+  MaskRetryIcon,
+  MatteIcon,
+  PlanIcon,
+  RetryIcon,
+  VERSION_ACTION_ROW,
+  VERSION_ICON_BUTTON,
+  VersionTags,
+  VersionTitle,
+} from './versionParts'
 
-const ACTION =
-  'rounded-md px-2 py-0.5 text-xs text-gray-600 transition hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-white/[0.06]'
+/** 选用态的实心勾：深色下也不许 hover 把蓝底洗掉。 */
+const CHOSEN_ICON =
+  'bg-blue-500 text-white hover:bg-blue-500 hover:text-white dark:text-white dark:hover:bg-blue-500 dark:hover:text-white'
 
 export default function VersionBar() {
   const selected = useProductShotsStore(
     useShallow((s) => s.draft.images.find((image) => image.imageId === s.selectedImageId)),
   )
-  const previewVersionId = useProductShotsStore((s) => s.previewVersionId)
-  const matteOverlayVersionId = useProductShotsStore((s) => s.matteOverlayVersionId)
   const tasks = useStore((s) => s.tasks)
+  const setLightboxImageId = useStore((s) => s.setLightboxImageId)
   const tasksById = useMemo(() => new Map(tasks.map((task) => [task.id, task])), [tasks])
 
-  const {
-    previewVersion,
-    chooseVersion,
-    retryVersion,
-    toggleMatteOverlay,
-    editVersionMask,
-    regenerateWithMask,
-    openPlanDrawer,
-  } = useProductShotsStore.getState()
-  const versions = selected?.versions ?? []
+  const rows = (selected?.versions ?? []).map((version) => ({
+    version,
+    progress: versionProgress(tasksById.get(version.taskId)),
+  }))
+  const lightboxImageIds = rows.flatMap((row) => row.progress.outputImageIds)
 
   return (
     <div>
@@ -42,130 +51,231 @@ export default function VersionBar() {
           {DIAGRAM_LABEL}
         </p>
       )}
-      {versions.length === 0 ? (
+      {!selected || rows.length === 0 ? (
         <p className="mt-1.5 text-xs text-gray-400 dark:text-gray-500">暂无版本</p>
       ) : (
         <ul data-product-shots-versions className="mt-1.5 flex flex-col gap-1.5">
-          {versions.map((version, index) => {
-            const progress = versionProgress(tasksById.get(version.taskId))
-            const chosen = selected?.chosenVersionId === version.id
-            return (
-              <li
-                key={version.id}
-                data-product-shots-version
-                className={`rounded-xl border p-2 transition ${
-                  previewVersionId === version.id
-                    ? 'border-blue-400 bg-blue-500/5 dark:border-blue-500/50'
-                    : 'border-gray-200 dark:border-white/[0.08]'
-                }`}
-              >
-                <button
-                  type="button"
-                  onClick={() => previewVersion(version.id)}
-                  aria-pressed={previewVersionId === version.id}
-                  className="block w-full text-left"
-                >
-                  <span className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
-                    <span className="font-medium text-gray-700 dark:text-gray-200">
-                      第 {index + 1} 版
-                    </span>
-                    {progress.state === 'running' ? (
-                      <Pending label="生成中" startedAt={progress.startedAt} />
-                    ) : (
-                      <span>
-                        {VERSION_STATE_LABELS[progress.state]}
-                        {progress.elapsed === null ? '' : ` ${formatElapsed(progress.elapsed)}`}
-                      </span>
-                    )}
-                    <MatteTag version={version} className="px-1.5 py-0.5" />
-                    <span className="rounded bg-violet-500/10 px-1.5 py-0.5 text-violet-700 dark:text-violet-300">
-                      {actionLabel(version.mode, version.level)}
-                    </span>
-                    {version.lowResSource && (
-                      <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-amber-700 dark:text-amber-300">
-                        源图分辨率低
-                      </span>
-                    )}
-                    {version.promptEdited && (
-                      <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-amber-700 dark:text-amber-300">
-                        手改
-                      </span>
-                    )}
-                    {chosen && (
-                      <span className="rounded bg-blue-500/10 px-1.5 py-0.5 text-blue-700 dark:text-blue-300">
-                        已选
-                      </span>
-                    )}
-                  </span>
-                  {changesBackground(version.mode) && (
-                    <span className="mt-1 block text-xs text-gray-600 dark:text-gray-300">
-                      {version.plan}
-                    </span>
-                  )}
-                </button>
-
-                {progress.error && <p className={`mt-1.5 ${NOTICE}`}>{progress.error}</p>}
-
-                <div className="mt-1.5 flex gap-1">
-                  <button
-                    type="button"
-                    onClick={() => openPlanDrawer(version.id)}
-                    className={ACTION}
-                  >
-                    查看方案
-                  </button>
-                  {version.mattePreviewImageId && (
-                    <button
-                      type="button"
-                      onClick={() => toggleMatteOverlay(version.id)}
-                      aria-pressed={matteOverlayVersionId === version.id}
-                      className={ACTION}
-                    >
-                      看蒙版
-                    </button>
-                  )}
-                  {version.maskImageId && (
-                    <>
-                      <button
-                        type="button"
-                        onClick={() => void editVersionMask(version.id)}
-                        className={ACTION}
-                      >
-                        编辑蒙版
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void regenerateWithMask(version.id)}
-                        className={ACTION}
-                      >
-                        用此蒙版重生成
-                      </button>
-                    </>
-                  )}
-                  {progress.state === 'error' && (
-                    <button
-                      type="button"
-                      onClick={() => void retryVersion(version.id)}
-                      className={ACTION}
-                    >
-                      重跑
-                    </button>
-                  )}
-                  {progress.state === 'done' && !chosen && (
-                    <button
-                      type="button"
-                      onClick={() => chooseVersion(version.id)}
-                      className={ACTION}
-                    >
-                      用这版
-                    </button>
-                  )}
-                </div>
-              </li>
-            )
-          })}
+          {rows.map((row, index) => (
+            <VersionRow
+              key={row.version.id}
+              version={row.version}
+              imageId={selected.imageId}
+              index={index}
+              progress={row.progress}
+              chosen={selected.chosenVersionId === row.version.id}
+              onOpen={(imageId) => setLightboxImageId(imageId, lightboxImageIds)}
+            />
+          ))}
         </ul>
       )}
     </div>
+  )
+}
+
+/** 完成的那一版只报耗时，「完成」和秒数说的是同一件事。 */
+function statusLabel(progress: VersionProgress): string {
+  const elapsed = progress.elapsed === null ? '' : formatElapsed(progress.elapsed)
+  if (progress.state === 'done' && elapsed) return elapsed
+  return elapsed
+    ? `${VERSION_STATE_LABELS[progress.state]} ${elapsed}`
+    : VERSION_STATE_LABELS[progress.state]
+}
+
+function VersionRow({
+  version,
+  imageId,
+  index,
+  progress,
+  chosen,
+  onOpen,
+}: {
+  version: ProductShotVersion
+  /** 这一版的原图，看蒙版时把预览盖回它上面。 */
+  imageId: string
+  index: number
+  progress: VersionProgress
+  chosen: boolean
+  onOpen: (imageId: string) => void
+}) {
+  const previewing = useProductShotsStore((s) => s.previewVersionId === version.id)
+  const overlaid = useProductShotsStore(
+    (s) => s.matteOverlayVersionId === version.id && version.mattePreviewImageId !== undefined,
+  )
+  const {
+    previewVersion,
+    chooseVersion,
+    retryVersion,
+    toggleMatteOverlay,
+    editVersionMask,
+    regenerateWithMask,
+    openPlanDrawer,
+  } = useProductShotsStore.getState()
+  const showToast = useStore((s) => s.showToast)
+  const [unfolded, setUnfolded] = useState(false)
+
+  const overlay = useImageThumbnail(overlaid ? version.mattePreviewImageId : undefined)
+  const [first] = progress.outputImageIds
+  const label = `第 ${index + 1} 版`
+  const chooseLabel = chosen ? '取消选用' : '用这版'
+
+  const download = async () => {
+    if (!first) return
+    const { failed } = await downloadImagesByIds([first], `v${index + 1}`)
+    if (failed > 0) showToast('下载失败', 'error')
+  }
+
+  return (
+    <li
+      data-product-shots-version
+      className={`group flex gap-2 rounded-xl border p-1.5 transition ${
+        chosen
+          ? 'border-blue-400 bg-blue-500/5 dark:border-blue-500/50'
+          : 'border-gray-200 dark:border-white/[0.08]'
+      }`}
+    >
+      <button
+        type="button"
+        data-product-shots-version-preview
+        onClick={() => previewVersion(version.id)}
+        onDoubleClick={() => first && onOpen(first)}
+        aria-pressed={previewing}
+        aria-label={`预览${label}`}
+        className={`relative block h-14 w-14 shrink-0 overflow-hidden rounded-lg border ${
+          previewing
+            ? 'border-blue-400 ring-1 ring-blue-400'
+            : 'border-gray-200 dark:border-white/[0.08]'
+        }`}
+      >
+        {overlaid ? (
+          <>
+            <AssetThumb imageId={imageId} alt={label} />
+            {overlay?.dataUrl && (
+              <img
+                src={overlay.dataUrl}
+                alt="蒙版"
+                className="absolute inset-0 h-full w-full object-cover"
+              />
+            )}
+          </>
+        ) : first ? (
+          <AssetThumb imageId={first} alt={label} />
+        ) : (
+          <span className="flex h-full items-center justify-center text-[11px] text-gray-400 dark:text-gray-500">
+            {VERSION_STATE_LABELS[progress.state]}
+          </span>
+        )}
+      </button>
+
+      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <VersionTitle
+          index={index}
+          version={version}
+          trailing={
+            <span className="shrink-0 text-gray-500 dark:text-gray-400">
+              {progress.state === 'running' ? (
+                <Pending label="生成中" startedAt={progress.startedAt} />
+              ) : (
+                statusLabel(progress)
+              )}
+            </span>
+          }
+        />
+        <VersionTags version={version} />
+
+        {changesBackground(version.mode) && version.plan && (
+          <button
+            type="button"
+            data-product-shots-version-plan
+            onClick={() => setUnfolded(!unfolded)}
+            aria-expanded={unfolded}
+            className={`text-left text-xs text-gray-600 dark:text-gray-300 ${unfolded ? '' : 'line-clamp-2'}`}
+          >
+            {version.plan}
+          </button>
+        )}
+
+        {progress.error && <p className={NOTICE}>{progress.error}</p>}
+
+        <div className={VERSION_ACTION_ROW}>
+          <button
+            type="button"
+            onClick={() => openPlanDrawer(version.id)}
+            title="查看方案"
+            aria-label="查看方案"
+            className={VERSION_ICON_BUTTON}
+          >
+            <PlanIcon className="h-4 w-4" />
+          </button>
+          {version.mattePreviewImageId && (
+            <button
+              type="button"
+              onClick={() => toggleMatteOverlay(version.id)}
+              aria-pressed={overlaid}
+              title="看蒙版"
+              aria-label="看蒙版"
+              className={`${VERSION_ICON_BUTTON} ${overlaid ? 'bg-blue-500/10 text-blue-600 dark:text-blue-300' : ''}`}
+            >
+              <MatteIcon className="h-4 w-4" />
+            </button>
+          )}
+          {version.maskImageId && (
+            <>
+              <button
+                type="button"
+                onClick={() => void editVersionMask(version.id)}
+                title="编辑蒙版"
+                aria-label="编辑蒙版"
+                className={VERSION_ICON_BUTTON}
+              >
+                <EditIcon className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => void regenerateWithMask(version.id)}
+                title="用此蒙版重生成"
+                aria-label="用此蒙版重生成"
+                className={VERSION_ICON_BUTTON}
+              >
+                <MaskRetryIcon className="h-4 w-4" />
+              </button>
+            </>
+          )}
+          {first && (
+            <>
+              <button
+                type="button"
+                onClick={() => chooseVersion(version.id)}
+                aria-pressed={chosen}
+                title={chooseLabel}
+                aria-label={chooseLabel}
+                className={`${VERSION_ICON_BUTTON} ${chosen ? CHOSEN_ICON : ''}`}
+              >
+                <CheckIcon className="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => void download()}
+                title="下载"
+                aria-label="下载"
+                className={VERSION_ICON_BUTTON}
+              >
+                <DownloadIcon className="h-4 w-4" />
+              </button>
+            </>
+          )}
+          {progress.state === 'error' && (
+            <button
+              type="button"
+              onClick={() => void retryVersion(version.id)}
+              title="重跑"
+              aria-label="重跑"
+              className={VERSION_ICON_BUTTON}
+            >
+              <RetryIcon className="h-4 w-4" />
+            </button>
+          )}
+        </div>
+      </div>
+    </li>
   )
 }
