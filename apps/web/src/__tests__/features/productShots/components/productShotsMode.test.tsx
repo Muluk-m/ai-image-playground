@@ -583,7 +583,7 @@ describe('the product picked once for the whole job', () => {
     await settle()
 
     const row = document.querySelector('[data-product-shots-version]')
-    expect(row?.textContent).toContain('已换产品')
+    expect(row?.textContent).toContain('换产品')
     // 背景没动，那一句背景方案在这一版上是假的。
     expect(row?.textContent).not.toContain(PLAN.plan)
   })

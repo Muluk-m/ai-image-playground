@@ -78,7 +78,9 @@ beforeEach(() => {
       preference: '',
       versionsPerImage: 1,
       mode: 'background',
+      level: 'high',
       productAssets: [],
+      product: { name: '', features: '', mainColor: '', forbiddenColors: [] },
       createdAt: 1,
       images: [
         { imageId: 'src-1', versions: [version('v1'), version('v2')], chosenVersionId: 'v1' },
