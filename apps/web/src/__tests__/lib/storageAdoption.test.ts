@@ -140,7 +140,14 @@ describe('adopting anonymous storage after login', () => {
   })
 
   it('adopts assets saved while anonymous', async () => {
-    const asset = { id: 'a1', name: '白底图', imageId: 'i1', createdAt: 1, lastUsedAt: 1 }
+    const asset = {
+      id: 'a1',
+      name: '白底图',
+      imageId: 'i1',
+      createdAt: 1,
+      updatedAt: 1,
+      lastUsedAt: 1,
+    }
     await seed(BASE_DB_NAME, {
       tasks: [{ id: 't1' }],
       images: [{ id: 'i1', dataUrl: 'data:,a' }],
@@ -152,6 +159,18 @@ describe('adopting anonymous storage after login', () => {
     expect(await readAll(USER_DB, 'assets')).toEqual([asset])
   })
 
+  it('carries tombstones across so a deleted record stays deleted', async () => {
+    const tombstone = { id: 'a1', updatedAt: 2000, deletedAt: 2000 }
+    await seed(BASE_DB_NAME, {
+      tasks: [{ id: 't1' }],
+      assets: [tombstone, { id: 'a2', name: '主图', imageId: 'i1', createdAt: 1, updatedAt: 1 }],
+    })
+
+    await adopt(USER_ID)
+
+    expect(await readAll(USER_DB, 'assets')).toContainEqual(tombstone)
+  })
+
   it('adopts templates saved while anonymous', async () => {
     const template = {
       id: 'tpl1',
@@ -160,6 +179,7 @@ describe('adopting anonymous storage after login', () => {
       assetIds: ['a1'],
       params: { size: '1024x1024', quality: 'high', n: 1 },
       createdAt: 1,
+      updatedAt: 1,
       lastUsedAt: 1,
     }
     await seed(BASE_DB_NAME, { tasks: [{ id: 't1' }], templates: [template] })
