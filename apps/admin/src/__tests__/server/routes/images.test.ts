@@ -163,13 +163,13 @@ describe('GET /api/tasks/:id/input-image', () => {
   })
 
   it('fails configuration validation when account authentication has no service credential', () => {
-    setAdminCapabilitiesForTesting({ accountsLogin: true })
+    setAdminCapabilitiesForTesting({ accountsLogin: true, accountsSync: true })
     delete process.env.INTERNAL_API_TOKEN
     try {
       expect(() => config.assertValid()).toThrow('Missing env: INTERNAL_API_TOKEN')
     } finally {
       process.env.INTERNAL_API_TOKEN = 'fixture-service-credential-alpha'
-      setAdminCapabilitiesForTesting({ accountsLogin: false })
+      setAdminCapabilitiesForTesting({ accountsLogin: false, accountsSync: false })
     }
   })
 })

@@ -87,7 +87,7 @@ describe('GET /api/me', () => {
     const sessionCookie = loginRes.headers.get('set-cookie')!.split(';')[0]!
     const meRes = await get('/api/me', sessionCookie, '10.0.0.6')
     expect(meRes.status).toBe(200)
-    expect(await meRes.json()).toEqual({ accounts_login: false, ok: true })
+    expect(await meRes.json()).toEqual({ accounts_login: false, accounts_sync: false, ok: true })
 
     const usersRes = await get('/api/users', sessionCookie, '10.0.0.6')
     expect(usersRes.status).toBe(404)
