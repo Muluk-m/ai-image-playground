@@ -3,7 +3,14 @@ import { create } from 'zustand'
 import { isClientCapabilityEnabled } from '../../lib/clientCapabilities'
 import { eraseProductArea } from '../../lib/eraseProduct'
 import { fetchListingImages, listingImageProxyUrl } from '../../lib/listingClient'
-import type { ProductAngle, ProductAsset } from '../../lib/productAngle'
+import {
+  DEFAULT_PRODUCT_ANGLE,
+  type ProductAngle,
+  type ProductAsset,
+  setProductAssetAngle,
+  toggleProductAsset,
+  UPLOAD_PRODUCT_ANGLE,
+} from '../../lib/productAngle'
 import {
   ensureImageCached,
   storeImageFromFile,
@@ -31,9 +38,6 @@ import type { RemixProductDescription, RemixSetRecord, RemixSetSettings, RemixSh
 export type RemixStep = 1 | 2 | 3
 
 const UPLOAD_FALLBACK = '请直接上传竞品图'
-const DEFAULT_PRODUCT_ANGLE: ProductAngle = 'three-quarter'
-/** 上传的产品图按正面登记：正面白底图是每套都要有、也最常缺的那一张。 */
-const UPLOAD_PRODUCT_ANGLE: ProductAngle = 'front'
 const ANALYZE_FALLBACK = '可以手写简报与提示词'
 const DEFAULT_SETTINGS: RemixSetSettings = {
   platform: 'amazon',
@@ -259,25 +263,18 @@ export const useRemixStore = create<RemixState>((set, get) => ({
     ),
 
   toggleProductAsset: (assetId) =>
-    set((s) => {
-      const selected = s.draft.productAssets.some((product) => product.assetId === assetId)
-      return {
-        draft: {
-          ...s.draft,
-          productAssets: selected
-            ? s.draft.productAssets.filter((product) => product.assetId !== assetId)
-            : [...s.draft.productAssets, { assetId, angle: DEFAULT_PRODUCT_ANGLE }],
-        },
-      }
-    }),
+    set((s) => ({
+      draft: {
+        ...s.draft,
+        productAssets: toggleProductAsset(s.draft.productAssets, assetId, DEFAULT_PRODUCT_ANGLE),
+      },
+    })),
 
   setProductAngle: (assetId, angle) =>
     set((s) => ({
       draft: {
         ...s.draft,
-        productAssets: s.draft.productAssets.map((product) =>
-          product.assetId === assetId ? { ...product, angle } : product,
-        ),
+        productAssets: setProductAssetAngle(s.draft.productAssets, assetId, angle),
       },
     })),
 

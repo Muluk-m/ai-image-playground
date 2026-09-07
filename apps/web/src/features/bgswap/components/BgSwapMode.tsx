@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { useShallow } from 'zustand/react/shallow'
+import { useLibraryStore } from '../../library/store'
 import { useBgSwapStore } from '../store'
 import BgSwapBatchBar from './BgSwapBatchBar'
 import BgSwapControls from './BgSwapControls'
@@ -15,6 +16,8 @@ export default function BgSwapMode() {
 
   useEffect(() => {
     void useBgSwapStore.getState().loadJobs()
+    // 重开一个换产品的任务时，右栏的素材缩略图与提交都要现成的素材记录。
+    void useLibraryStore.getState().loadAssets()
   }, [])
 
   return (

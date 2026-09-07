@@ -1,4 +1,4 @@
-import type { BgSwapMode, ProductBox } from '@image-playground/shared'
+import { type BgSwapMode, DEFAULT_BG_SWAP_MODE, type ProductBox } from '@image-playground/shared'
 import { create } from 'zustand'
 import { getActiveApiProfile } from '../../lib/apiProfiles'
 import { modelSupportsNativeMask } from '../../lib/channels/profileSelectors'
@@ -9,11 +9,13 @@ import { eraseProductArea } from '../../lib/eraseProduct'
 import { fetchListingImages, listingImageProxyUrl } from '../../lib/listingClient'
 import {
   cameraToAngle,
+  DEFAULT_PRODUCT_ANGLE,
   matchProductAsset,
   type ProductAngle,
   type ProductAsset,
   setProductAssetAngle,
   toggleProductAsset,
+  UPLOAD_PRODUCT_ANGLE,
 } from '../../lib/productAngle'
 import {
   alphaToInpaintMask,
@@ -60,10 +62,6 @@ const NOT_SUBMITTED = '这张没有提交成功'
 const NO_ASSET_PICKED = '请先选一张产品素材'
 const NO_ANGLE_MATCH = '没有与机位相符的素材，用了第一张'
 const ASSET_MISSING = '素材图片已丢失'
-/** 面板里勾中素材时的默认角度，与复刻套图一致。 */
-const DEFAULT_PRODUCT_ANGLE: ProductAngle = 'three-quarter'
-/** 上传的产品图按正面登记：正面白底图最常缺。 */
-const UPLOAD_PRODUCT_ANGLE: ProductAngle = 'front'
 
 type Mask = { imageId: string; targetImageId: string }
 
@@ -490,7 +488,7 @@ async function runStages(set: SetState, body: (stage: StageSink) => Promise<void
 
 /** 重跑沿用这一版当时的模式，不受右栏之后被改成什么影响。 */
 function modeOf(draft: BgSwapDraft, reuse: BgSwapVersion | undefined): BgSwapMode {
-  if (reuse) return reuse.mode ?? 'background'
+  if (reuse) return reuse.mode ?? DEFAULT_BG_SWAP_MODE
   return bgSwapMode(draft.productSource, draft.target)
 }
 
