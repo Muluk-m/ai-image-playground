@@ -115,8 +115,14 @@ function extractOpenAI(payload: unknown): ExtractedResult {
     if (validUrl) rawUrls.push(validUrl)
     const object = typeof item.object === 'string' ? item.object : undefined
     const mime = typeof item.mime === 'string' ? item.mime : 'image/png'
+    const duration = typeof item.duration_seconds === 'number' ? item.duration_seconds : undefined
     if ((typeof item.b64_json === 'string' && item.b64_json) || object || validUrl) {
-      images.push({ index: images.length, mime, revised_prompt: revised })
+      images.push({
+        index: images.length,
+        mime,
+        revised_prompt: revised,
+        ...(duration !== undefined ? { duration_seconds: duration } : {}),
+      })
     }
   }
   return {
@@ -141,17 +147,15 @@ function resolveOpenAIBytes(payload: unknown, index: number): ImageBytesRef | nu
   const p = payload as { data?: Array<Record<string, unknown>> } | null
   let count = 0
   for (const item of p?.data ?? []) {
+    // 视频结果在归档前就带 mime，别一路默认成 image/png。
+    const declared = typeof item.mime === 'string' ? item.mime : 'image/png'
     let ref: ImageBytesRef | null = null
     if (typeof item.object === 'string' && item.object) {
-      ref = {
-        kind: 'object',
-        data: item.object,
-        mime: typeof item.mime === 'string' ? item.mime : 'image/png',
-      }
+      ref = { kind: 'object', data: item.object, mime: declared }
     } else if (typeof item.b64_json === 'string' && item.b64_json) {
-      ref = { kind: 'b64', data: item.b64_json, mime: 'image/png' }
+      ref = { kind: 'b64', data: item.b64_json, mime: declared }
     } else if (typeof item.url === 'string' && /^https?:\/\//i.test(item.url)) {
-      ref = { kind: 'url', data: item.url, mime: 'image/png' }
+      ref = { kind: 'url', data: item.url, mime: declared }
     }
     if (!ref) continue
     if (count === index) return ref

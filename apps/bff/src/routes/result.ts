@@ -9,6 +9,13 @@ import { asQueueProvider } from '../lib/queueProvider'
 import { taskAccessWhere } from '../lib/task-access'
 import { requireUserOrService } from '../lib/user-auth'
 
+const outputRouteOptions = {
+  params: t.Object({
+    id: t.String(),
+    index: t.String(),
+  }),
+}
+
 export const resultRoutes = new Elysia()
   .use(requireUserOrService)
   // 1) 元信息端点：返回图片列表 + actual_params + raw_image_urls；不含像素字节
@@ -54,55 +61,19 @@ export const resultRoutes = new Elysia()
     },
     { params: t.Object({ id: t.String() }) },
   )
-  // 2) 二进制端点：按 index 返回原始像素字节，跳过 base64 + JSON 双重开销
+  // 2) 二进制端点：按 index 返回原始字节，跳过 base64 + JSON 双重开销。
+  //    /image/ 是 /output/ 的历史别名，两条路径同一个处理器。
+  .get(
+    '/v1/queue/requests/:id/output/:index',
+    ({ params, request, authUser, serviceIdentity }) =>
+      serveOutput(params, request, authUser?.id ?? null, serviceIdentity),
+    outputRouteOptions,
+  )
   .get(
     '/v1/queue/requests/:id/image/:index',
-    async ({ params, status, authUser, serviceIdentity }) => {
-      const [task] = await db
-        .select()
-        .from(schema.tasks)
-        .where(taskAccessWhere(params.id, authUser?.id ?? null, serviceIdentity))
-        .limit(1)
-      if (!task || task.status !== 'completed') return status(404, { error: 'not_ready' })
-      const provider = asQueueProvider(task.provider)
-      if (!provider) return status(500, { error: `unknown_provider:${task.provider}` })
-      const idx = Number(params.index)
-      if (!Number.isInteger(idx) || idx < 0) return status(400, { error: 'bad_index' })
-
-      const ref = resolveImageBytesRef(provider, task.result_payload, idx)
-      if (!ref) return status(404, { error: 'image_not_found' })
-
-      // Ownership is immutable. Owned bytes must not enter shared caches.
-      const headers = {
-        'content-type': ref.mime,
-        'cache-control': `${task.user_id === null ? 'public' : 'private'}, max-age=31536000, immutable`,
-      } as const
-
-      if (ref.kind === 'b64') {
-        const bytes = Buffer.from(ref.data, 'base64')
-        return new Response(bytes, { headers })
-      }
-      if (ref.kind === 'object') {
-        try {
-          return new Response(await objectStore().read(ref.data), { headers })
-        } catch {
-          return status(502, { error: 'object_storage_error' })
-        }
-      }
-      // kind === 'url'：上游返回了 http 地址，BFF 现拉回来透传给客户端
-      const upstream = await fetch(ref.data)
-      if (!upstream.ok || !upstream.body) {
-        return status(502, { error: `upstream_image_${upstream.status}` })
-      }
-      const mime = upstream.headers.get('content-type') ?? ref.mime
-      return new Response(upstream.body, { headers: { ...headers, 'content-type': mime } })
-    },
-    {
-      params: t.Object({
-        id: t.String(),
-        index: t.String(),
-      }),
-    },
+    ({ params, request, authUser, serviceIdentity }) =>
+      serveOutput(params, request, authUser?.id ?? null, serviceIdentity),
+    outputRouteOptions,
   )
   .get(
     '/v1/queue/requests/:id/input-image/:index',
@@ -143,6 +114,110 @@ export const resultRoutes = new Elysia()
       }),
     },
   )
+
+function jsonError(status: number, body: Record<string, unknown>): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'content-type': 'application/json' },
+  })
+}
+
+async function serveOutput(
+  params: { id: string; index: string },
+  request: Request,
+  userId: string | null,
+  serviceIdentity: boolean | undefined,
+): Promise<Response> {
+  const [task] = await db
+    .select()
+    .from(schema.tasks)
+    .where(taskAccessWhere(params.id, userId, serviceIdentity))
+    .limit(1)
+  if (!task || task.status !== 'completed') return jsonError(404, { error: 'not_ready' })
+  const provider = asQueueProvider(task.provider)
+  if (!provider) return jsonError(500, { error: `unknown_provider:${task.provider}` })
+  const idx = Number(params.index)
+  if (!Number.isInteger(idx) || idx < 0) return jsonError(400, { error: 'bad_index' })
+
+  const ref = resolveImageBytesRef(provider, task.result_payload, idx)
+  if (!ref) return jsonError(404, { error: 'image_not_found' })
+
+  // Ownership is immutable. Owned bytes must not enter shared caches.
+  const cacheControl = `${task.user_id === null ? 'public' : 'private'}, max-age=31536000, immutable`
+  const range = request.headers.get('range')
+
+  if (ref.kind === 'b64') {
+    return mediaResponse(Buffer.from(ref.data, 'base64'), ref.mime, cacheControl, range)
+  }
+  if (ref.kind === 'object') {
+    try {
+      return mediaResponse(await objectStore().read(ref.data), ref.mime, cacheControl, range)
+    } catch {
+      return jsonError(502, { error: 'object_storage_error' })
+    }
+  }
+  // kind === 'url'：上游返回了 http 地址，BFF 现拉回来透传给客户端
+  const upstream = await fetch(ref.data)
+  if (!upstream.ok || !upstream.body) {
+    return jsonError(502, { error: `upstream_image_${upstream.status}` })
+  }
+  const mime = upstream.headers.get('content-type') ?? ref.mime
+  if (!isSeekable(mime)) {
+    return new Response(upstream.body, {
+      headers: { 'content-type': mime, 'cache-control': cacheControl },
+    })
+  }
+  return mediaResponse(new Uint8Array(await upstream.arrayBuffer()), mime, cacheControl, range)
+}
+
+/** `<video>` 拖进度条要靠 Range；图片全量返回即可，不必声明可寻址。 */
+function isSeekable(mime: string): boolean {
+  return mime.startsWith('video/')
+}
+
+function mediaResponse(
+  bytes: Uint8Array<ArrayBuffer>,
+  mime: string,
+  cacheControl: string,
+  range: string | null,
+): Response {
+  const headers: Record<string, string> = { 'content-type': mime, 'cache-control': cacheControl }
+  if (!isSeekable(mime)) return new Response(bytes, { headers })
+
+  headers['accept-ranges'] = 'bytes'
+  const span = range === null ? null : parseByteRange(range, bytes.length)
+  if (span === null) return new Response(bytes, { headers })
+  if (span === 'unsatisfiable') {
+    headers['content-range'] = `bytes */${bytes.length}`
+    return new Response(null, { status: 416, headers })
+  }
+  headers['content-range'] = `bytes ${span.start}-${span.end}/${bytes.length}`
+  return new Response(bytes.slice(span.start, span.end + 1), { status: 206, headers })
+}
+
+/**
+ * 单段 `bytes=` 区间。多段与不认识的写法返回 null，按整份 200 回 —— 规范允许，
+ * 播放器拿到 200 会退回整段下载而不是报错。
+ */
+function parseByteRange(
+  header: string,
+  size: number,
+): { start: number; end: number } | 'unsatisfiable' | null {
+  const match = /^bytes=(\d*)-(\d*)$/.exec(header.trim())
+  if (!match) return null
+  const [, rawStart, rawEnd] = match
+  if (!rawStart && !rawEnd) return null
+  if (!rawStart) {
+    const suffix = Number(rawEnd)
+    if (suffix === 0) return 'unsatisfiable'
+    return { start: Math.max(0, size - suffix), end: size - 1 }
+  }
+  const start = Number(rawStart)
+  if (start >= size) return 'unsatisfiable'
+  const end = rawEnd ? Math.min(Number(rawEnd), size - 1) : size - 1
+  if (end < start) return 'unsatisfiable'
+  return { start, end }
+}
 
 type InputImage =
   | { kind: 'b64'; data: string; mime: string }
