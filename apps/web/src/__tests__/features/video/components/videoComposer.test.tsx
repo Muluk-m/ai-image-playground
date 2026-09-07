@@ -4,7 +4,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import VideoComposer from '../../../../features/video/components/VideoComposer'
-import { useVideoStore } from '../../../../features/video/store'
+import { INITIAL_VIDEO_DRAFT, useVideoStore } from '../../../../features/video/store'
 import { setChannels } from '../../../../lib/channels/channelStore'
 import { useStore } from '../../../../store'
 import { AGNES_CHANNEL, GROK_CHANNEL } from '../fixtures'
@@ -47,16 +47,7 @@ beforeEach(() => {
   useVideoStore.setState({
     tasks: [],
     loaded: false,
-    draft: {
-      source: 'image',
-      prompt: '',
-      model: '',
-      duration: 5,
-      aspectRatio: '16:9',
-      resolution: '720p',
-      firstFrameImageId: null,
-      lastFrameImageId: null,
-    },
+    draft: { ...INITIAL_VIDEO_DRAFT, source: 'image' },
   })
   useVideoStore.getState().syncModelOptions()
   host = document.createElement('div')

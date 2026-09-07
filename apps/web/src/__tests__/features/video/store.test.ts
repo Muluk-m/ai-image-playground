@@ -1,7 +1,7 @@
 import { IDBFactory } from 'fake-indexeddb'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { videoTaskStore } from '../../../features/video/lib/videoStore'
-import { useVideoStore } from '../../../features/video/store'
+import { INITIAL_VIDEO_DRAFT, useVideoStore } from '../../../features/video/store'
 import type { VideoTask } from '../../../features/video/types'
 import { setChannels } from '../../../lib/channels/channelStore'
 import { useStore } from '../../../store'
@@ -12,7 +12,6 @@ const awaitQueueOutputs = vi.hoisted(() => vi.fn(async () => [{ index: 0, mime: 
 const ensureImageCached = vi.hoisted(() =>
   vi.fn(async (id: string) => `data:image/png;base64,${id}`),
 )
-const storeImageFromFile = vi.hoisted(() => vi.fn(async () => ({ id: 'uploaded', dataUrl: 'x' })))
 const getPrivateSubmissionGuard = vi.hoisted(() => vi.fn(() => ({ blocked: false })))
 
 vi.mock('../../../lib/channels/queueClient', () => ({ submitVideoRequest, awaitQueueOutputs }))
@@ -20,7 +19,6 @@ vi.mock('../../../lib/channels/queueClient', () => ({ submitVideoRequest, awaitQ
 vi.mock('../../../store', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../store')>()),
   ensureImageCached,
-  storeImageFromFile,
 }))
 
 vi.mock('../../../lib/privateOverlay', async (importOriginal) => ({
@@ -49,20 +47,7 @@ beforeEach(() => {
   vi.stubGlobal('indexedDB', new IDBFactory())
   setChannels([IMAGE_CHANNEL, GROK_CHANNEL, AGNES_CHANNEL])
   useStore.setState({ showToast, tasks: [] })
-  useVideoStore.setState({
-    tasks: [],
-    loaded: false,
-    draft: {
-      source: 'text',
-      prompt: '',
-      model: '',
-      duration: 5,
-      aspectRatio: '16:9',
-      resolution: '720p',
-      firstFrameImageId: null,
-      lastFrameImageId: null,
-    },
-  })
+  useVideoStore.setState({ tasks: [], loaded: false, draft: INITIAL_VIDEO_DRAFT })
   useVideoStore.getState().syncModelOptions()
 })
 
