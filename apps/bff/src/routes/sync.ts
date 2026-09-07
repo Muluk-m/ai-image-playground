@@ -1,5 +1,7 @@
 import {
+  SYNC_ASSET_IMAGE_MIME_TYPES,
   SYNC_ID_MAX_LENGTH,
+  SYNC_IMAGE_ID_PATTERN,
   SYNC_MAX_CHANGES_PER_COLLECTION,
   SYNC_NAME_MAX_LENGTH,
   SYNC_PROMPT_MAX_LENGTH,
@@ -10,6 +12,7 @@ import {
 import { Elysia, t } from 'elysia'
 import { capabilityUnavailable, isCapabilityEnabled } from '../lib/capabilities'
 import { synchronize } from '../lib/sync'
+import { readAssetImage, storeAssetImage } from '../lib/sync-assets'
 import { resolveAuthUser } from '../lib/user-auth'
 
 const epochMs = t.Integer({ minimum: 0 })
@@ -69,6 +72,14 @@ const syncBodySchema = t.Object({
   ),
 })
 
+const imageIdParams = t.Object({
+  imageId: t.String({ minLength: 1, maxLength: SYNC_ID_MAX_LENGTH }),
+})
+
+function isAssetImageMime(value: string): boolean {
+  return (SYNC_ASSET_IMAGE_MIME_TYPES as readonly string[]).includes(value)
+}
+
 export const syncRoutes = new Elysia()
   // Elysia 默认对 body schema 校验失败返 422；规范要求 400，统一在路由作用域拦截。
   .onError({ as: 'scoped' }, ({ code, error, set }) => {
@@ -101,4 +112,38 @@ export const syncRoutes = new Elysia()
       return synchronize(authUser.id, body)
     },
     { body: syncBodySchema },
+  )
+  .put(
+    '/api/sync/assets/:imageId',
+    async ({ authUser, params, request, status }) => {
+      if (!authUser) return status(401, { error: 'unauthorized' })
+      if (!SYNC_IMAGE_ID_PATTERN.test(params.imageId)) {
+        return status(400, { error: 'invalid_request', message: 'malformed imageId' })
+      }
+      const contentType = (request.headers.get('content-type') ?? '').split(';')[0]!.trim()
+      if (!isAssetImageMime(contentType)) return status(415, { error: 'unsupported_media_type' })
+
+      const bytes = new Uint8Array(await request.arrayBuffer())
+      const stored = await storeAssetImage(authUser.id, params.imageId, bytes, contentType)
+      if (!stored.ok) return status(413, { error: stored.error, limit: stored.limit })
+      return { imageId: stored.imageId, bytes: stored.bytes, totalBytes: stored.totalBytes }
+    },
+    { params: imageIdParams, parse: 'none' },
+  )
+  .get(
+    '/api/sync/assets/:imageId',
+    async ({ authUser, params, status }) => {
+      if (!authUser) return status(401, { error: 'unauthorized' })
+      const stored = SYNC_IMAGE_ID_PATTERN.test(params.imageId)
+        ? await readAssetImage(authUser.id, params.imageId)
+        : null
+      if (!stored) return status(404, { error: 'asset_image_not_found' })
+      return new Response(stored.bytes, {
+        headers: {
+          'content-type': stored.contentType,
+          'cache-control': 'private, max-age=31536000, immutable',
+        },
+      })
+    },
+    { params: imageIdParams },
   )

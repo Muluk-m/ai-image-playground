@@ -170,6 +170,24 @@ export const user_preferences = pgTable('user_preferences', {
   version: integer('version').notNull(),
 })
 
+/**
+ * 已上传的素材图本体台账。对象键是 `users/<user_id>/assets/<image_id>`，这张表既是「对象在不在」
+ * 的判据（同步接受素材记录的前提），也是每用户素材总字节的来源——对象存储自己数不出来。
+ */
+export const user_asset_objects = pgTable(
+  'user_asset_objects',
+  {
+    user_id: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    image_id: text('image_id').notNull(),
+    bytes: integer('bytes').notNull(),
+    content_type: text('content_type').notNull(),
+    created_at: epochMs('created_at').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.user_id, t.image_id] })],
+)
+
 /** 每用户单调递增的同步版本号；推送时锁住这一行，同一用户的并发同步因此串行。 */
 export const user_sync_state = pgTable('user_sync_state', {
   user_id: text('user_id')
@@ -266,3 +284,4 @@ export type NewOperatorAudit = typeof operator_audits.$inferInsert
 export type UserTemplateRow = typeof user_templates.$inferSelect
 export type UserAssetRow = typeof user_assets.$inferSelect
 export type UserPreferencesRow = typeof user_preferences.$inferSelect
+export type UserAssetObjectRow = typeof user_asset_objects.$inferSelect
