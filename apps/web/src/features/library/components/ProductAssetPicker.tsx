@@ -12,7 +12,6 @@ import AssetThumb from './AssetThumb'
 interface ProductAssetPickerProps {
   assets: readonly AssetRecord[]
   selected: readonly ProductAsset[]
-  /** 上传按钮与隐藏 input 的名字，两处 UI 各自不同。 */
   uploadLabel: string
   onToggle: (assetId: string) => void
   onAngleChange: (assetId: string, angle: ProductAngle) => void
