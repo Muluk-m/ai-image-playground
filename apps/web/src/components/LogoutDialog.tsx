@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Checkbox } from './Checkbox'
 import Overlay from './Overlay'
 
 interface LogoutDialogProps {
@@ -15,15 +16,13 @@ export default function LogoutDialog({ onCancel, onConfirm }: LogoutDialogProps)
       <div className="relative z-10 w-full max-w-sm rounded-2xl border border-white/50 bg-white p-5 shadow-2xl ring-1 ring-black/5 animate-modal-in dark:border-white/[0.08] dark:bg-gray-900 dark:ring-white/10">
         <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100">退出登录</h3>
 
-        <label className="mt-4 flex items-center gap-2.5 text-sm text-gray-600 dark:text-gray-300">
-          <input
-            type="checkbox"
-            checked={clearLocalData}
-            onChange={(event) => setClearLocalData(event.target.checked)}
-            className="h-4 w-4 shrink-0 rounded border-gray-300 text-blue-500 focus:ring-blue-400 dark:border-white/20 dark:bg-white/[0.06]"
-          />
-          同时清除本机数据
-        </label>
+        <Checkbox
+          checked={clearLocalData}
+          onChange={setClearLocalData}
+          label="同时清除本机数据"
+          tone="danger"
+          className="mt-4"
+        />
 
         <div className="mt-5 flex items-center justify-end gap-2">
           <button
