@@ -108,15 +108,20 @@ provision，否则 SELECT-only 的备份角色读不到它，每日 `pg_dump` �
 - Commit message 用 Conventional Commits（`feat:` / `fix(scope):` / `docs:` …）。
 - 在 monorepo 内通常用 scope 指 app，如 `feat(web): ...` / `feat(bff): ...` / `feat(admin): ...`。
 
-## Spec / Plan 流程
+## Spec / Plan 流程（ask-matt）
 
-复杂改动用 [superpowers](https://github.com/anthropics/skills) / openspec 流程：
+复杂改动走 Matt Pocock skills 主流程。**不用 openspec**：`openspec/`、`.claude/skills/openspec-*`、
+`.claude/commands/opsx` 是切换前的遗留，不要往里新建 change。
 
-- `openspec/changes/<name>/proposal.md` — Why + What Changes + Capabilities
-- `openspec/changes/<name>/design.md` — 设计细节、决策表、风险
-- `openspec/changes/<name>/tasks.md` — 可执行任务清单
+1. `/grill-with-docs` — 面谈把想法磨清；决策落 `CONTEXT.md` 与 `docs/adr/`。
+2. 有必须跑起来才能回答的问题（状态模型、业务逻辑、要看见的 UI）→ `/prototype`，用 `/handoff` 进出。
+3. 跨 session 的活：`/to-spec` 把对话写成 spec 发到 GitHub Issue（标 `ready-for-agent`）→ `/to-tickets`
+   拆成带 blocking 边的 tracer-bullet tickets → 每张 ticket 单独 `/implement`（内部走 `/tdd` 与 `/code-review`），
+   ticket 之间 `/clear`。步骤 1–3 保持在同一个 context 里，`/to-tickets` 之前不 compact。
+4. 单 session 能做完的：直接 `/implement`。
 
-新功能建议先 proposal → design → tasks → 执行。简单 bug fix 可以直接动手。
+不确定该用哪个 skill 就 `/ask-matt`。简单 bug fix 直接动手；难查的 bug 走 `/diagnosing-bugs`；
+大到一个 session 装不下、方向还在雾里的走 `/wayfinder`。`docs/ROADMAP.md` 里的每一项动工都从第 1 步开始。
 
 ## Agent skills
 

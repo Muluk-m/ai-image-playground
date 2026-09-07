@@ -1,6 +1,6 @@
 # Roadmap
 
-产品方向与排期的唯一记录。每项写清「目标 / 现状 / 涉及层 / 待裁决 / 验收」，动工前先按 openspec 流程出 proposal，
+产品方向与排期的唯一记录。每项写清「目标 / 现状 / 涉及层 / 待裁决 / 验收」，动工前先走 `/grill-with-docs` → `/to-spec` → `/to-tickets`（见 CLAUDE.md「Spec / Plan 流程」），
 这里只登记方向与依赖，不写设计细节。进度勾选在本文件，追踪 issue 见 GitHub `roadmap` 标签。
 
 ## 排序原则
