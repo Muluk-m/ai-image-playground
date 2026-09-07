@@ -379,8 +379,7 @@ function mapTaskListItem(row: Record<string, unknown>): TaskListItem {
   }
 }
 
-// 字节数按已上传的图片本体台账求和，与 BFF 校验 `sync:user-asset-bytes` 用的是同一个分母；
-// 换成「活素材引用到的图片」会算出一个和配额对不上的数，运营排查配额时反而更糊涂。
+// asset_bytes 必须和 BFF 校验 `sync:user-asset-bytes` 的分母一致，别改成「活素材引用到的图片」。
 const SYNC_FOOTPRINT = sql`
   (SELECT COUNT(*) FROM user_templates WHERE user_id = u.id AND deleted_at IS NULL) AS template_count,
   (SELECT COUNT(*) FROM user_assets WHERE user_id = u.id AND deleted_at IS NULL) AS asset_count,
