@@ -3,6 +3,7 @@
  * 等到真要看它、用它的那一刻才把图取回来，启动时一张都不取。
  */
 
+import { assetStore } from '../../features/library/lib/assetStore'
 import { blobToDataUrl, refreshImageThumbnail } from '../../store'
 import { getImage, hasImage, putImage } from '../db'
 import { clearImageUnsynced, markImageUnsynced } from './pending'
@@ -75,6 +76,8 @@ async function fetchIfMissing(imageId: string): Promise<boolean> {
   try {
     if (await hasImage(imageId)) return true
     if (!useSyncStatus.getState().enabled) return false
+    // 服务端只存素材图；任务结果、商品图这些本机数据的缺图不该去问它。
+    if (!(await namesAnAsset(imageId))) return false
 
     const blob = await getAssetImage(imageId)
     if (!blob) return false
@@ -90,6 +93,10 @@ async function fetchIfMissing(imageId: string): Promise<boolean> {
   } catch {
     return false
   }
+}
+
+async function namesAnAsset(imageId: string): Promise<boolean> {
+  return (await assetStore.list()).some((asset) => asset.imageId === imageId)
 }
 
 function toBlob(dataUrl: string): Blob | null {

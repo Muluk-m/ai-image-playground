@@ -180,12 +180,21 @@ describe('fetching an asset image another device uploaded', () => {
       new Blob([new Uint8Array([1, 2, 3])], { type: 'image/png' }),
     )
     useSyncStatus.setState({ enabled: true })
+    await assetStore.applyRemote([asset('a1', 'image-remote')])
 
     expect(await ensureAssetImage('image-remote')).toBe(true)
     expect(await ensureAssetImage('image-remote')).toBe(true)
 
     expect(getAssetImageMock).toHaveBeenCalledTimes(1)
     expect((await getImage('image-remote'))?.dataUrl).toMatch(/^data:image\/png;base64,/)
+  })
+
+  it('leaves an image no asset names alone', async () => {
+    useSyncStatus.setState({ enabled: true })
+
+    expect(await ensureAssetImage('image-of-a-generated-result')).toBe(false)
+
+    expect(getAssetImageMock).not.toHaveBeenCalled()
   })
 
   it('stays off the network while the engine is not running', async () => {
