@@ -79,4 +79,89 @@ describe('buildBackgroundPrompt', () => {
       buildBackgroundPrompt({ plan: PLAN_ZH, sceneType: 'photo', language: 'zh' }),
     )
   })
+
+  it('falls back to the background-only prompt when no mode is given', () => {
+    expect(buildBackgroundPrompt({ plan: PLAN_ZH, sceneType: 'photo' })).toBe(
+      buildBackgroundPrompt({ plan: PLAN_ZH, sceneType: 'photo', mode: 'background' }),
+    )
+  })
+})
+
+describe('buildBackgroundPrompt in replace-product mode', () => {
+  it('asks for the masked product to become the one in the second image and nothing else to move', () => {
+    const prompt = buildBackgroundPrompt({
+      plan: PLAN_ZH,
+      sceneType: 'photo',
+      mode: 'replace-product',
+    })
+
+    expect(prompt).toContain('把图1遮罩区域内的产品替换为图2里的产品')
+    expect(prompt).toContain('角度、透视与画面比例')
+    expect(prompt).toContain('颜色、材质')
+    expect(prompt).toContain('遮罩以外的画面一律不变')
+    expect(prompt).toContain('商业产品摄影，无文字无水印')
+  })
+
+  it('drops the background plan and the realism clause: the scene stays put', () => {
+    const prompt = buildBackgroundPrompt({
+      plan: PLAN_ZH,
+      sceneType: 'photo',
+      preference: '北欧风',
+      mode: 'replace-product',
+    })
+
+    expect(prompt).not.toContain(PLAN_ZH)
+    expect(prompt).not.toContain('真实房屋实拍')
+    expect(prompt).not.toContain('墙面、半墙、台面与地面')
+    expect(prompt).not.toContain('北欧风')
+  })
+
+  it('builds an all-English prompt for the en language', () => {
+    const prompt = buildBackgroundPrompt({
+      plan: PLAN_EN,
+      sceneType: 'photo',
+      language: 'en',
+      mode: 'replace-product',
+    })
+
+    expect(prompt).toContain('Replace the product inside the masked area of image 1')
+    expect(prompt).not.toMatch(/[一-鿿]/)
+  })
+})
+
+describe('buildBackgroundPrompt in replace-and-background mode', () => {
+  it('treats the first image as framing only and keeps the background plan', () => {
+    const prompt = buildBackgroundPrompt({
+      plan: PLAN_ZH,
+      sceneType: 'photo',
+      preference: '北欧风',
+      mode: 'replace-and-background',
+    })
+
+    expect(prompt).toContain('图1是构图参考')
+    expect(prompt).toContain('图2里的产品')
+    expect(prompt).toContain(PLAN_ZH)
+    expect(prompt).toContain('真实房屋实拍')
+    expect(prompt).toContain('北欧风')
+    expect(prompt.indexOf('图1是构图参考')).toBeLessThan(prompt.indexOf(PLAN_ZH))
+  })
+
+  it('never asks for the original product to be kept', () => {
+    expect(
+      buildBackgroundPrompt({ plan: PLAN_ZH, sceneType: 'photo', mode: 'replace-and-background' }),
+    ).not.toContain('严格保留图中产品本身')
+  })
+
+  it('builds an all-English prompt for the en language', () => {
+    const prompt = buildBackgroundPrompt({
+      plan: PLAN_EN,
+      sceneType: 'photo',
+      language: 'en',
+      mode: 'replace-and-background',
+    })
+
+    expect(prompt).toContain('Image 1 is a framing reference')
+    expect(prompt).toContain(PLAN_EN)
+    expect(prompt).not.toMatch(/[一-鿿]/)
+  })
 })
