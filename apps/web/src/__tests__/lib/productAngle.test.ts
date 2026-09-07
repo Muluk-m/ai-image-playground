@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { cameraToAngle, matchProductAsset } from '../../lib/productAngle'
 import type { ProductAsset } from '../../lib/productAngle'
+import { cameraToAngle, matchProductAsset } from '../../lib/productAngle'
 
 describe('reading the camera field as a product angle', () => {
   it('reads a straight-on camera as the front angle', () => {

@@ -10,12 +10,8 @@ import {
   OUTLINE_BUTTON,
   PRIMARY_BUTTON,
 } from '../../../components/panelStyles'
-import {
-  PRODUCT_ANGLE_LABELS,
-  PRODUCT_ANGLES,
-  type ProductAngle,
-} from '../../../lib/productAngle'
 import AssetThumb from '../../library/components/AssetThumb'
+import ProductAssetPicker from '../../library/components/ProductAssetPicker'
 import { useLibraryStore } from '../../library/store'
 import { selectNeedsFrontAsset, useRemixStore } from '../store'
 import {
@@ -70,7 +66,6 @@ export default function RemixInputStep() {
     useShallow((s) => [...s.assets].sort((a, b) => b.lastUsedAt - a.lastUsedAt)),
   )
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const productInputRef = useRef<HTMLInputElement>(null)
 
   const {
     setName,
@@ -87,9 +82,6 @@ export default function RemixInputStep() {
   } = useRemixStore.getState()
 
   const productDescription = draft.settings.product
-
-  const angleOf = (assetId: string): ProductAngle | null =>
-    draft.productAssets.find((product) => product.assetId === assetId)?.angle ?? null
 
   return (
     <div className="flex flex-col gap-4">
@@ -240,77 +232,14 @@ export default function RemixInputStep() {
             </div>
           </div>
 
-          <div className="mb-3 flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => productInputRef.current?.click()}
-              className={OUTLINE_BUTTON}
-            >
-              上传产品图
-            </button>
-            <span className="text-xs text-gray-400 dark:text-gray-500">
-              已选 {draft.productAssets.length} 张
-            </span>
-            <input
-              ref={productInputRef}
-              type="file"
-              accept="image/*"
-              multiple
-              hidden
-              aria-label="上传产品图"
-              onChange={(e) => {
-                void importProductFiles([...(e.target.files ?? [])])
-                e.target.value = ''
-              }}
-            />
-          </div>
-
-          {assets.length === 0 && (
-            <p className="text-sm text-gray-500 dark:text-gray-400">素材库还是空的</p>
-          )}
-          {assets.length > 0 && (
-            <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-              {assets.map((asset) => {
-                const angle = angleOf(asset.id)
-                return (
-                  <li key={asset.id} className="flex flex-col gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => toggleProductAsset(asset.id)}
-                      aria-pressed={angle !== null}
-                      className={`overflow-hidden rounded-xl border transition ${
-                        angle !== null
-                          ? 'border-blue-400 ring-2 ring-blue-400/30'
-                          : 'border-gray-200 hover:border-blue-300 dark:border-white/[0.08]'
-                      }`}
-                    >
-                      <span className="block aspect-square">
-                        <AssetThumb imageId={asset.imageId} alt={asset.name} />
-                      </span>
-                      <span className="block truncate px-2 py-1 text-xs text-gray-700 dark:text-gray-200">
-                        {asset.name}
-                      </span>
-                    </button>
-                    {angle !== null && (
-                      <select
-                        value={angle}
-                        data-angle-for={asset.id}
-                        aria-label={`${asset.name} 角度`}
-                        onChange={(e) => setProductAngle(asset.id, e.target.value as ProductAngle)}
-                        className={FIELD}
-                      >
-                        {PRODUCT_ANGLES.map((option) => (
-                          <option key={option} value={option}>
-                            {PRODUCT_ANGLE_LABELS[option]}
-                          </option>
-                        ))}
-                      </select>
-                    )}
-                  </li>
-                )
-              })}
-            </ul>
-          )}
+          <ProductAssetPicker
+            assets={assets}
+            selected={draft.productAssets}
+            uploadLabel="上传产品图"
+            onToggle={toggleProductAsset}
+            onAngleChange={setProductAngle}
+            onUpload={(files) => void importProductFiles(files)}
+          />
 
           {needsFrontAsset && <p className={`mt-3 ${NOTICE}`}>建议补一张正面白底图</p>}
         </section>

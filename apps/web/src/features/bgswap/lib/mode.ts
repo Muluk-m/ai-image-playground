@@ -3,6 +3,13 @@ import type { BgSwapProductSource, BgSwapTarget } from '../types'
 
 export const PRODUCT_SWAPPED_LABEL = '已换产品'
 
+/** 出图按钮上的字，跟着右栏选的模式走。 */
+export const BG_SWAP_ACTION_LABELS: Record<BgSwapMode, string> = {
+  background: '换背景',
+  'replace-product': '换产品',
+  'replace-and-background': '换产品并换背景',
+}
+
 /** 遮罩重绘的是哪一侧；null = 这一模式整图重画，不带遮罩。 */
 export type MaskSide = 'background' | 'product'
 
@@ -14,6 +21,11 @@ export function bgSwapMode(source: BgSwapProductSource, target: BgSwapTarget): B
 
 export function swapsProduct(mode: BgSwapMode | undefined): boolean {
   return mode === 'replace-product' || mode === 'replace-and-background'
+}
+
+/** 背景没动的那一版不该挂背景方案句：那句描述的环境从来没被画出来。 */
+export function changesBackground(mode: BgSwapMode | undefined): boolean {
+  return mode !== 'replace-product'
 }
 
 export function maskSideFor(mode: BgSwapMode): MaskSide | null {

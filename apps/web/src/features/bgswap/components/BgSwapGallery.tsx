@@ -2,16 +2,8 @@ import { EXPORT_PRESETS, type ExportPreset, findExportPreset } from '@image-play
 import { useMemo, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import Pending from '../../../components/Pending'
-import {
-  ACTIVE_SEGMENT,
-  CARD,
-  GHOST_BUTTON,
-  IDLE_SEGMENT,
-  LABEL,
-  PRIMARY_BUTTON,
-  SEGMENT,
-  SELECT,
-} from '../../../components/panelStyles'
+import { CARD, GHOST_BUTTON, LABEL, PRIMARY_BUTTON, SELECT } from '../../../components/panelStyles'
+import Segmented from '../../../components/Segmented'
 import { useImageThumbnail } from '../../../hooks/useImageThumbnail'
 import {
   downloadExportedImage,
@@ -44,40 +36,6 @@ type GalleryView = (typeof VIEWS)[number]
 const VIEW_LABELS: Record<GalleryView, string> = { grouped: '分组', flat: '平铺' }
 
 const HINT = 'rounded bg-amber-500/10 px-1 text-xs text-amber-700 dark:text-amber-300'
-
-function Segmented<T extends string>({
-  label,
-  options,
-  labels,
-  value,
-  onChange,
-}: {
-  label: string
-  options: readonly T[]
-  labels: Record<T, string>
-  value: T
-  onChange: (option: T) => void
-}) {
-  return (
-    <div
-      role="group"
-      aria-label={label}
-      className="flex items-center gap-0.5 rounded-lg bg-gray-100 p-0.5 dark:bg-gray-900"
-    >
-      {options.map((option) => (
-        <button
-          key={option}
-          type="button"
-          onClick={() => onChange(option)}
-          aria-pressed={value === option}
-          className={`${SEGMENT} ${value === option ? ACTIVE_SEGMENT : IDLE_SEGMENT}`}
-        >
-          {labels[option]}
-        </button>
-      ))}
-    </div>
-  )
-}
 
 function reasonOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)

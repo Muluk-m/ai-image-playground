@@ -88,11 +88,7 @@ function dilateAxis(
 }
 
 /** 阈值化 → 可选膨胀 → 可选羽化，两种遮罩共用；`invert` 决定哪一侧是重绘区。 */
-function maskPixels(
-  matte: ProductAlpha,
-  options: ProductMaskOptions,
-  invert: boolean,
-): MaskPixels {
+function maskPixels(matte: ProductAlpha, options: ProductMaskOptions, invert: boolean): MaskPixels {
   const { width, height } = matte
   const total = width * height
   const cutoff = (options.threshold ?? DEFAULT_MASK_THRESHOLD) * 255
