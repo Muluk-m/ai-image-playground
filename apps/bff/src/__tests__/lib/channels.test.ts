@@ -7,6 +7,7 @@ import {
   getDiscoveredChannels,
   loadChannelsFromFile,
   parseChannelsConfig,
+  resolveModelMedia,
 } from '../../lib/channels'
 
 const SAMPLE_CHANNEL = {
@@ -296,6 +297,48 @@ describe('parseChannelsConfig', () => {
     expect(result.channels).toHaveLength(1)
     const [ch] = result.channels
     expect(ch.models[0].capabilities).toEqual([...CHANNEL_CAPABILITIES])
+  })
+
+  it('keeps the declared media on the model and defaults it to image', () => {
+    const result = parseChannelsConfig(
+      {
+        channels: [
+          {
+            ...SAMPLE_CHANNEL,
+            models: [
+              { id: 'v', label: 'V', media: 'video', capabilities: ['generate'] },
+              { id: 'i', label: 'I', capabilities: ['generate'] },
+            ],
+          },
+        ],
+      },
+      ENV_WITH_SECRETS,
+    )
+    const [ch] = result.channels
+    expect(ch.models[0].media).toBe('video')
+    expect(ch.models[1].media).toBeUndefined()
+
+    _setChannelsForTesting(result.channels)
+    expect(getDiscoveredChannels()[0]?.models[0]?.media).toBe('video')
+    expect(resolveModelMedia('v')).toBe('video')
+    expect(resolveModelMedia('i')).toBe('image')
+    expect(resolveModelMedia('absent')).toBeUndefined()
+  })
+
+  it('rejects an unknown model media', () => {
+    expect(() =>
+      parseChannelsConfig(
+        {
+          channels: [
+            {
+              ...SAMPLE_CHANNEL,
+              models: [{ id: 'm', label: 'M', media: 'audio', capabilities: ['generate'] }],
+            },
+          ],
+        },
+        ENV_WITH_SECRETS,
+      ),
+    ).toThrow(/media/)
   })
 
   it('rejects empty models array', () => {

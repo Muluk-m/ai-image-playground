@@ -1,0 +1,280 @@
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
+import { Buffer } from 'node:buffer'
+import type { VideoRequest } from '@image-playground/shared'
+import { jsonResponse as json } from '../helpers/upstreamStubs'
+
+// Inject before importing config, which captures process environment at module initialization.
+process.env.UPSTREAM_BASE_URL = 'http://localhost:9999'
+process.env.UPSTREAM_API_KEY = 'test-key'
+process.env.DATABASE_URL = process.env.TEST_DATABASE_URL ?? ''
+process.env.PORT = '0'
+
+const { callUpstream, setAsyncPollBackoffForTesting, setUpstreamFetchForTesting } = await import(
+  '../../lib/upstream'
+)
+const { _setChannelsForTesting } = await import('../../lib/channels')
+type InternalChannel = import('../../lib/channels').InternalChannel
+type TestFetch = NonNullable<Parameters<typeof setUpstreamFetchForTesting>[0]>
+
+const GROK_BASE = 'https://gateway.example/v1'
+const AGNES_BASE = 'https://apihub.agnes-ai.com/v1'
+const AGNES_POLL = 'https://apihub.agnes-ai.com/agnesapi'
+const RESULT_URL = 'https://cdn.agnes-ai.com/videos/a.mp4'
+const TINY_PNG_DATA_URL =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgAAIAAAUAAeImBZsAAAAASUVORK5CYII='
+
+/** ISO-BMFF 头：4 字节 box size + 'ftyp'。 */
+const MP4_BYTES = Uint8Array.from([
+  0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6f, 0x6d,
+])
+
+const grokVideoChannel: InternalChannel = {
+  id: 'grok-video',
+  kind: 'openai-queue',
+  label: 'Grok Imagine Video',
+  baseUrl: GROK_BASE,
+  auth: { type: 'bearer', secretRef: 'GROK_API_KEY', secret: 'grok-test-key' },
+  allowedPaths: ['videos/generations', 'videos'],
+  models: [
+    {
+      id: 'grok-imagine-video',
+      label: 'Grok Imagine Video',
+      media: 'video',
+      capabilities: ['generate', 'duration', 'aspect_ratio', 'resolution', 'first_frame'],
+    },
+  ],
+  defaults: { timeout: 600, asyncTasks: true },
+}
+
+const agnesVideoChannel: InternalChannel = {
+  id: 'agnes-video',
+  kind: 'openai-queue',
+  label: 'Agnes AI Video',
+  baseUrl: AGNES_BASE,
+  auth: { type: 'bearer', secretRef: 'AGNES_API_KEY', secret: 'agnes-test-key' },
+  allowedPaths: ['videos', 'agnesapi'],
+  models: [
+    {
+      id: 'agnes-video-2.5',
+      label: 'Agnes Video 2.5',
+      media: 'video',
+      capabilities: [
+        'generate',
+        'duration',
+        'aspect_ratio',
+        'resolution',
+        'first_frame',
+        'last_frame',
+      ],
+    },
+  ],
+  defaults: { timeout: 600, asyncTasks: true },
+}
+
+type FetchCall = { url: string; init: Parameters<TestFetch>[1] }
+
+let calls: FetchCall[] = []
+let handler: (url: string) => Response
+
+function bodyOf(url: string): Record<string, unknown> {
+  const call = calls.find((one) => one.url === url)
+  if (!call) throw new Error(`no request to ${url}; got ${calls.map((c) => c.url).join(', ')}`)
+  return JSON.parse(String((call.init as { body?: unknown }).body))
+}
+
+function video(overrides: Partial<VideoRequest> = {}): VideoRequest {
+  return { duration_seconds: 5, aspect_ratio: '16:9', resolution: '720p', ...overrides }
+}
+
+function run(model: string, request: Record<string, unknown>) {
+  return callUpstream({
+    provider: 'openai-compat',
+    model,
+    request: { prompt: 'a cat surfing', ...request } as never,
+  })
+}
+
+beforeEach(() => {
+  calls = []
+  handler = () => json({})
+  setAsyncPollBackoffForTesting([1])
+  _setChannelsForTesting([grokVideoChannel, agnesVideoChannel])
+  setUpstreamFetchForTesting((async (
+    input: Parameters<TestFetch>[0],
+    init: Parameters<TestFetch>[1],
+  ) => {
+    const url = typeof input === 'string' ? input : String(input)
+    calls.push({ url, init })
+    return handler(url)
+  }) as unknown as TestFetch)
+})
+
+afterEach(() => {
+  setUpstreamFetchForTesting()
+  setAsyncPollBackoffForTesting()
+  _setChannelsForTesting([])
+})
+
+describe('Grok video upstream', () => {
+  it('creates the task, polls to done and fetches the content bytes', async () => {
+    let polls = 0
+    handler = (url) => {
+      if (url === `${GROK_BASE}/videos/generations`) return json({ request_id: 'req_1' })
+      if (url === `${GROK_BASE}/videos/req_1`) {
+        return ++polls === 1
+          ? json({ status: 'pending', progress: 1 })
+          : json({
+              status: 'done',
+              progress: 100,
+              video: { duration: 5, url: '/v1/videos/req_1/content' },
+            })
+      }
+      return new Response(MP4_BYTES, { status: 200 })
+    }
+
+    const { payload } = await run('grok-imagine-video', { video: video() })
+
+    expect(bodyOf(`${GROK_BASE}/videos/generations`)).toEqual({
+      model: 'grok-imagine-video',
+      prompt: 'a cat surfing',
+      duration: 5,
+      aspect_ratio: '16:9',
+      resolution: '720p',
+    })
+    expect(calls.map((one) => one.url)).toEqual([
+      `${GROK_BASE}/videos/generations`,
+      `${GROK_BASE}/videos/req_1`,
+      `${GROK_BASE}/videos/req_1`,
+      `${GROK_BASE}/videos/req_1/content`,
+    ])
+    const data = (payload as { data: Array<Record<string, unknown>> }).data
+    expect(data[0]).toMatchObject({ mime: 'video/mp4', duration_seconds: 5 })
+    expect(Buffer.from(String(data[0]?.b64_json), 'base64').equals(Buffer.from(MP4_BYTES))).toBe(
+      true,
+    )
+  })
+
+  it('switches to the image-to-video model when a first frame is present', async () => {
+    handler = (url) => {
+      if (url === `${GROK_BASE}/videos/generations`) return json({ request_id: 'req_2' })
+      if (url === `${GROK_BASE}/videos/req_2`)
+        return json({ status: 'done', video: { duration: 8, url: '/v1/videos/req_2/content' } })
+      return new Response(MP4_BYTES, { status: 200 })
+    }
+
+    await run('grok-imagine-video', {
+      input_images: [TINY_PNG_DATA_URL],
+      video: video({ duration_seconds: 8, first_frame_index: 0 }),
+    })
+
+    expect(bodyOf(`${GROK_BASE}/videos/generations`)).toMatchObject({
+      model: 'grok-imagine-video-1.5',
+      duration: 8,
+      image: { url: TINY_PNG_DATA_URL },
+    })
+  })
+
+  it('reads the content endpoint with the channel credential', async () => {
+    handler = (url) => {
+      if (url === `${GROK_BASE}/videos/generations`) return json({ request_id: 'req_3' })
+      if (url === `${GROK_BASE}/videos/req_3`)
+        return json({ status: 'succeeded', video: { url: '/v1/videos/req_3/content' } })
+      return new Response(MP4_BYTES, { status: 200 })
+    }
+
+    await run('grok-imagine-video', { video: video() })
+
+    const content = calls.at(-1)!
+    expect(content.url).toBe(`${GROK_BASE}/videos/req_3/content`)
+    expect((content.init as { headers: Record<string, string> }).headers.authorization).toBe(
+      'Bearer grok-test-key',
+    )
+  })
+
+  it('fails terminally when the upstream task reports a failed status', async () => {
+    handler = (url) =>
+      url === `${GROK_BASE}/videos/generations`
+        ? json({ request_id: 'req_4' })
+        : json({ status: 'failed', error: { message: 'moderation blocked' } })
+
+    await expect(run('grok-imagine-video', { video: video() })).rejects.toThrow(
+      'moderation blocked',
+    )
+  })
+})
+
+describe('Agnes video upstream', () => {
+  const pollUrl = `${AGNES_POLL}?video_id=task_1&model_name=agnes-video-2.5`
+
+  it('creates a text-mode task, polls the gateway root and returns the result address', async () => {
+    let polls = 0
+    handler = (url) => {
+      if (url === `${AGNES_BASE}/videos`) return json({ video_id: 'task_1', status: 'queued' })
+      return ++polls === 1
+        ? json({ status: 'in_progress' })
+        : json({ status: 'completed', url: RESULT_URL })
+    }
+
+    const { payload } = await run('agnes-video-2.5', { video: video() })
+
+    expect(bodyOf(`${AGNES_BASE}/videos`)).toEqual({
+      model: 'agnes-video-2.5',
+      prompt: 'a cat surfing',
+      seconds: '5',
+      mode: 'text',
+      size: '720P',
+      aspect_ratio: '16:9',
+    })
+    expect(calls.map((one) => one.url)).toEqual([`${AGNES_BASE}/videos`, pollUrl, pollUrl])
+    expect(payload).toEqual({
+      data: [{ url: RESULT_URL, mime: 'video/mp4', duration_seconds: 5 }],
+    })
+  })
+
+  it('sends keyframe mode with both frames and the mapped size', async () => {
+    handler = (url) =>
+      url === `${AGNES_BASE}/videos`
+        ? json({ video_id: 'task_1' })
+        : json({ status: 'completed', url: RESULT_URL })
+
+    await run('agnes-video-2.5', {
+      input_images: [TINY_PNG_DATA_URL, TINY_PNG_DATA_URL],
+      video: video({ resolution: '2k', first_frame_index: 0, last_frame_index: 1 }),
+    })
+
+    expect(bodyOf(`${AGNES_BASE}/videos`)).toMatchObject({
+      mode: 'keyframe',
+      size: '2K',
+      first_frame: TINY_PNG_DATA_URL,
+      last_frame: TINY_PNG_DATA_URL,
+    })
+  })
+
+  it('falls back to the metadata address when the top level one is missing', async () => {
+    handler = (url) =>
+      url === `${AGNES_BASE}/videos`
+        ? json({ video_id: 'task_1' })
+        : json({ status: 'completed', metadata: { url: RESULT_URL } })
+
+    const { payload } = await run('agnes-video-2.5', { video: video() })
+
+    expect(payload).toMatchObject({ data: [{ url: RESULT_URL }] })
+  })
+
+  it('fails terminally with the upstream message when the task fails', async () => {
+    handler = (url) =>
+      url === `${AGNES_BASE}/videos`
+        ? json({ video_id: 'task_1' })
+        : json({ status: 'failed', error: { message: 'generation failed' } })
+
+    await expect(run('agnes-video-2.5', { video: video() })).rejects.toThrow('generation failed')
+  })
+
+  it('surfaces a rate limited creation as a retryable upstream failure', async () => {
+    handler = () => json({ error: { message: 'rate_limit_exceeded' } }, 429)
+
+    await expect(run('agnes-video-2.5', { video: video() })).rejects.toMatchObject({
+      upstreamStatus: 429,
+    })
+  })
+})

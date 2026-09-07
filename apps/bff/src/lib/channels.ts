@@ -24,6 +24,7 @@ import type {
   ChannelCapability,
   ChannelDefaults,
   ChannelKind,
+  ChannelMedia,
   ChannelModel,
   DiscoveredChannel,
 } from '@image-playground/shared'
@@ -100,16 +101,27 @@ function parseCapabilities(v: unknown, ctx: string): ChannelCapability[] {
   })
 }
 
+const VALID_MEDIA: readonly ChannelMedia[] = ['image', 'video']
+
+function parseMedia(v: unknown, ctx: string): ChannelMedia | undefined {
+  if (v === undefined) return undefined
+  if (typeof v !== 'string' || !VALID_MEDIA.includes(v as ChannelMedia))
+    throw new ChannelsLoadError(`${ctx}.media must be one of: ${VALID_MEDIA.join(', ')}`)
+  return v as ChannelMedia
+}
+
 function parseModels(v: unknown, channelCtx: string): ChannelModel[] {
   if (!Array.isArray(v) || v.length === 0)
     throw new ChannelsLoadError(`${channelCtx}: models must be a non-empty array`)
   return v.map((raw, idx) => {
     const ctx = `${channelCtx}.models[${idx}]`
     if (!isObject(raw)) throw new ChannelsLoadError(`${ctx} must be an object`)
+    const media = parseMedia(raw.media, ctx)
     return {
       id: requireNonEmptyString(raw.id, `${ctx}.id`),
       label: requireNonEmptyString(raw.label, `${ctx}.label`),
       capabilities: parseCapabilities(raw.capabilities, ctx),
+      ...(media ? { media } : {}),
     }
   })
 }
@@ -354,6 +366,15 @@ export function getChannels(): InternalChannel[] {
 
 export function getDiscoveredChannels(): DiscoveredChannel[] {
   return discoveredCache
+}
+
+/** 模型声明的媒介类型；模型没在任何 channel 里声明时 undefined。缺省视为 image。 */
+export function resolveModelMedia(model: string): ChannelMedia | undefined {
+  for (const channel of loaded) {
+    const declared = channel.models.find((m) => m.id === model)
+    if (declared) return declared.media ?? 'image'
+  }
+  return undefined
 }
 
 function setLoaded(channels: InternalChannel[]): void {
