@@ -63,8 +63,19 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
       }
     }
 
+    // 松手落在落点外时浏览器会直接打开这张图，把整个工作台顶掉。
+    const swallowStrayFileDrop = (e: DragEvent) => {
+      if (e.dataTransfer?.types.includes('Files')) e.preventDefault()
+    }
+
     document.addEventListener('dragstart', preventPageImageDrag)
-    return () => document.removeEventListener('dragstart', preventPageImageDrag)
+    document.addEventListener('dragover', swallowStrayFileDrop)
+    document.addEventListener('drop', swallowStrayFileDrop)
+    return () => {
+      document.removeEventListener('dragstart', preventPageImageDrag)
+      document.removeEventListener('dragover', swallowStrayFileDrop)
+      document.removeEventListener('drop', swallowStrayFileDrop)
+    }
   }, [])
 
   return (

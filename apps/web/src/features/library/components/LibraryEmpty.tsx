@@ -41,7 +41,7 @@ export function AssetsEmpty({ onImport }: { onImport: () => void }) {
     <div className="flex flex-col items-center gap-4 pt-12 text-center">
       <SaveAssetIllustration />
       <p className="text-sm text-gray-500 dark:text-gray-400">
-        右键参考图缩略图，选择存为素材
+        拖入或粘贴图片，或右键参考图缩略图存为素材
         <span className="mt-1 block text-xs text-gray-400 dark:text-gray-500">
           手机上长按缩略图
         </span>
