@@ -1,12 +1,6 @@
 import type { CompetitorBrief, ShotType } from '@image-playground/shared'
-import type {
-  RemixBrief,
-  RemixProductAsset,
-  RemixSetSettings,
-  RemixShot,
-  RemixShotCopy,
-} from '../types'
-import { cameraToAngle, matchProductAsset } from './angleMatch'
+import { cameraToAngle, matchProductAsset, type ProductAsset } from '../../../lib/productAngle'
+import type { RemixBrief, RemixSetSettings, RemixShot, RemixShotCopy } from '../types'
 import { buildShotPrompt, isRenderableShotType } from './prompt'
 
 const EMPTY_BRIEF: RemixBrief = {
@@ -40,7 +34,7 @@ export function canGenerateShot(shot: RemixShot): boolean {
 }
 
 export function productImageResolver(
-  productAssets: readonly RemixProductAsset[],
+  productAssets: readonly ProductAsset[],
   imageIdOf: (assetId: string) => string | undefined,
 ): (camera: string) => string | undefined {
   return (camera) => {

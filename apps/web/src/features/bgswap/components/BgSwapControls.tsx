@@ -1,7 +1,9 @@
 import Pending from '../../../components/Pending'
 import { CARD, FIELD, LABEL, NOTICE, PRIMARY_BUTTON } from '../../../components/panelStyles'
+import { BG_SWAP_ACTION_LABELS, bgSwapMode } from '../lib/mode'
 import { useBgSwapStore } from '../store'
 import { BG_SWAP_STAGE_LABELS, VERSIONS_PER_IMAGE_CHOICES } from '../types'
+import BgSwapProductPanel from './BgSwapProductPanel'
 import BgSwapVersionBar from './BgSwapVersionBar'
 
 export default function BgSwapControls() {
@@ -12,12 +14,15 @@ export default function BgSwapControls() {
   const swapStartedAt = useBgSwapStore((s) => s.swapStartedAt)
   const swapNotice = useBgSwapStore((s) => s.swapNotice)
   const batchRunning = useBgSwapStore((s) => s.batch?.running === true)
+  const mode = useBgSwapStore((s) => bgSwapMode(s.draft.productSource, s.draft.target))
 
   const { setPreference, setVersionsPerImage, swapBackground } = useBgSwapStore.getState()
 
   return (
     <section data-bgswap-column="controls" className={`${CARD} flex flex-col gap-3`}>
       <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-100">换背景</h2>
+
+      <BgSwapProductPanel />
 
       <div>
         <label className={LABEL} htmlFor="bgswap-preference">
@@ -56,6 +61,7 @@ export default function BgSwapControls() {
 
       <button
         type="button"
+        data-bgswap-swap
         onClick={() => void swapBackground()}
         disabled={swapStage !== null || batchRunning || !selectedImageId}
         className={PRIMARY_BUTTON}
@@ -63,7 +69,7 @@ export default function BgSwapControls() {
         {swapStage ? (
           <Pending label={BG_SWAP_STAGE_LABELS[swapStage]} startedAt={swapStartedAt} />
         ) : (
-          '换背景'
+          BG_SWAP_ACTION_LABELS[mode]
         )}
       </button>
 

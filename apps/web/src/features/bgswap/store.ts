@@ -1,14 +1,26 @@
-import type { ProductBox } from '@image-playground/shared'
+import { type BgSwapMode, DEFAULT_BG_SWAP_MODE, type ProductBox } from '@image-playground/shared'
 import { create } from 'zustand'
 import { getActiveApiProfile } from '../../lib/apiProfiles'
 import { modelSupportsNativeMask } from '../../lib/channels/profileSelectors'
 import { getPublicChannels } from '../../lib/channels/publicChannels'
 import { isClientCapabilityEnabled } from '../../lib/clientCapabilities'
 import { storeImage } from '../../lib/db'
+import { eraseProductArea } from '../../lib/eraseProduct'
 import { fetchListingImages, listingImageProxyUrl } from '../../lib/listingClient'
+import {
+  cameraToAngle,
+  DEFAULT_PRODUCT_ANGLE,
+  matchProductAsset,
+  type ProductAngle,
+  type ProductAsset,
+  setProductAssetAngle,
+  toggleProductAsset,
+  UPLOAD_PRODUCT_ANGLE,
+} from '../../lib/productAngle'
 import {
   alphaToInpaintMask,
   alphaToMattePreview,
+  alphaToProductMask,
   assessMatte,
   matteAgreesWithBox,
   ProductMatteError,
@@ -21,8 +33,11 @@ import {
   submitPrepared,
   useStore,
 } from '../../store'
+import type { InputImage } from '../../types'
+import { useLibraryStore } from '../library/store'
 import { pendingBatchImageIds } from './lib/batch'
 import { bgSwapJobStore } from './lib/bgSwapJobStore'
+import { bgSwapMode, type MaskSide, maskSideFor } from './lib/mode'
 import { requestBackgroundPlan, requestSceneScan } from './lib/planClient'
 import { DIAGRAM_LABEL, isDiagram } from './lib/scene'
 import type {
@@ -30,7 +45,9 @@ import type {
   BgSwapBatchProgress,
   BgSwapImage,
   BgSwapJobRecord,
+  BgSwapProductSource,
   BgSwapStage,
+  BgSwapTarget,
   BgSwapVersion,
   MatteFailureCause,
   MatteOutcome,
@@ -42,6 +59,9 @@ const MASK_UNSUPPORTED = `当前模型不支持遮罩，${UNMASKED_FALLBACK}`
 const MATTE_FAILED = `抠图失败，${UNMASKED_FALLBACK}`
 const MATTE_UNRELIABLE = `蒙版与产品框不符，${UNMASKED_FALLBACK}`
 const NOT_SUBMITTED = '这张没有提交成功'
+const NO_ASSET_PICKED = '请先选一张产品素材'
+const NO_ANGLE_MATCH = '没有与机位相符的素材，用了第一张'
+const ASSET_MISSING = '素材图片已丢失'
 
 type Mask = { imageId: string; targetImageId: string }
 
@@ -52,6 +72,9 @@ export interface BgSwapDraft {
   images: BgSwapImage[]
   preference: string
   versionsPerImage: number
+  productSource: BgSwapProductSource
+  target: BgSwapTarget
+  productAssets: ProductAsset[]
   createdAt: number | null
 }
 
@@ -79,6 +102,9 @@ export interface BgSwapState {
   /** 这一轮批量的进度，null 表示这次打开还没跑过批量。 */
   batch: BgSwapBatchProgress | null
 
+  /** 素材快捷弹层是否打开。 */
+  productPickerOpen: boolean
+
   loadJobs: () => Promise<void>
   startNewJob: () => void
   selectJob: (id: string) => void
@@ -101,6 +127,14 @@ export interface BgSwapState {
 
   setPreference: (preference: string) => void
   setVersionsPerImage: (count: number) => void
+
+  setProductSource: (source: BgSwapProductSource) => void
+  setSwapTarget: (target: BgSwapTarget) => void
+  toggleProductAsset: (assetId: string) => void
+  setProductAngle: (assetId: string, angle: ProductAngle) => void
+  importProductFiles: (files: File[]) => Promise<void>
+  openProductPicker: () => void
+  closeProductPicker: () => void
 }
 
 function emptyDraft(): BgSwapDraft {
@@ -110,6 +144,9 @@ function emptyDraft(): BgSwapDraft {
     images: [],
     preference: '',
     versionsPerImage: 1,
+    productSource: 'original',
+    target: 'product-only',
+    productAssets: [],
     createdAt: null,
   }
 }
@@ -121,6 +158,9 @@ function draftFromJob(job: BgSwapJobRecord): BgSwapDraft {
     images: job.images,
     preference: job.preference,
     versionsPerImage: job.versionsPerImage,
+    productSource: job.productSource ?? 'original',
+    target: job.target ?? 'product-only',
+    productAssets: job.productAssets ?? [],
     createdAt: job.createdAt,
   }
 }
@@ -140,6 +180,7 @@ export const useBgSwapStore = create<BgSwapState>((set, get) => ({
   previewVersionId: null,
   matteOverlayVersionId: null,
   batch: null,
+  productPickerOpen: false,
 
   loadJobs: async () => {
     set({ jobs: await bgSwapJobStore.list() })
@@ -242,6 +283,37 @@ export const useBgSwapStore = create<BgSwapState>((set, get) => ({
   setPreference: (preference) => patchDraft(set, get, { preference }),
 
   setVersionsPerImage: (versionsPerImage) => patchDraft(set, get, { versionsPerImage }),
+
+  setProductSource: (productSource) => patchDraft(set, get, { productSource }),
+
+  setSwapTarget: (target) => patchDraft(set, get, { target }),
+
+  toggleProductAsset: (assetId) =>
+    patchDraft(set, get, {
+      productAssets: toggleProductAsset(get().draft.productAssets, assetId, DEFAULT_PRODUCT_ANGLE),
+    }),
+
+  setProductAngle: (assetId, angle) =>
+    patchDraft(set, get, {
+      productAssets: setProductAssetAngle(get().draft.productAssets, assetId, angle),
+    }),
+
+  importProductFiles: (files) =>
+    useLibraryStore.getState().importAssetFiles(files, (asset) =>
+      patchDraft(set, get, {
+        productAssets: [
+          ...get().draft.productAssets,
+          { assetId: asset.id, angle: UPLOAD_PRODUCT_ANGLE },
+        ],
+      }),
+    ),
+
+  openProductPicker: () => {
+    set({ productPickerOpen: true })
+    void useLibraryStore.getState().loadAssets()
+  },
+
+  closeProductPicker: () => set({ productPickerOpen: false }),
 
   swapBackground: async () => {
     const { draft, selectedImageId, swapStage, batch } = get()
@@ -381,7 +453,8 @@ interface MaskAttempt {
   mask: Mask | null
   /** 蒙版回落的说明，没有回落时为 null。 */
   notice: string | null
-  matte: MatteOutcome
+  /** 这一模式不带遮罩时为 null，没跑过抠图也就没有结论。 */
+  matte: MatteOutcome | null
   /** 蒙版叠在原图上的预览图；抠图没跑出结果时为 null。 */
   previewImageId: string | null
 }
@@ -389,10 +462,14 @@ interface MaskAttempt {
 /** 一张图跑完方案与蒙版后的成果，同一张的每一版都拿它去提交。 */
 interface PreparedImage extends MaskAttempt {
   imageId: string
-  dataUrl: string
   plan: string
   prompt: string
   productBox: ProductBox | null
+  mode: BgSwapMode
+  /** 提交时的参考图，第一张永远是原图（换产品并换背景时是抹掉产品的那张）。 */
+  inputImages: InputImage[]
+  /** 换产品用掉的素材，没换产品时为 null。 */
+  productAssetId: string | null
 }
 
 type StageSink = (stage: BgSwapStage) => void
@@ -409,28 +486,95 @@ async function runStages(set: SetState, body: (stage: StageSink) => Promise<void
   }
 }
 
-/** 方案 → 蒙版，一张图只走一次，之后它的每一版共用。`reuse` 是重跑时沿用的旧方案。 */
+/** 重跑沿用这一版当时的模式，不受右栏之后被改成什么影响。 */
+function modeOf(draft: BgSwapDraft, reuse: BgSwapVersion | undefined): BgSwapMode {
+  if (reuse) return reuse.mode ?? DEFAULT_BG_SWAP_MODE
+  return bgSwapMode(draft.productSource, draft.target)
+}
+
+/** 按机位挑一张素材：挑不到同角度就用第一张，宁可角度差一点也别停在这里。 */
+async function loadProductAsset(
+  draft: BgSwapDraft,
+  camera: string,
+  reuseAssetId: string | undefined,
+): Promise<{ assetId: string; image: InputImage; notice: string | null }> {
+  const matched = reuseAssetId
+    ? (draft.productAssets.find((item) => item.assetId === reuseAssetId) ?? null)
+    : matchProductAsset(cameraToAngle(camera), draft.productAssets)
+  const picked = matched ?? draft.productAssets[0]
+  if (!picked) throw new Error(NO_ASSET_PICKED)
+
+  const record = useLibraryStore.getState().assets.find((item) => item.id === picked.assetId)
+  const dataUrl = record ? await ensureImageCached(record.imageId) : null
+  if (!record || !dataUrl) throw new Error(ASSET_MISSING)
+
+  return {
+    assetId: picked.assetId,
+    image: { id: record.imageId, dataUrl },
+    notice: matched ? null : NO_ANGLE_MATCH,
+  }
+}
+
+/** 整图重画时原产品还留在画面里模型会照它画，所以先把那块抹成灰。 */
+async function framingImage(
+  imageId: string,
+  dataUrl: string,
+  productBox: ProductBox | null,
+): Promise<InputImage> {
+  if (!productBox) return { id: imageId, dataUrl }
+  try {
+    return await storeImageFromUrl(await eraseProductArea(dataUrl, productBox))
+  } catch {
+    return { id: imageId, dataUrl }
+  }
+}
+
+/** 方案 → 素材 → 蒙版，一张图只走一次，之后它的每一版共用。`reuse` 是重跑时沿用的旧方案。 */
 async function prepareImage(
   get: GetState,
   imageId: string,
   stage: StageSink,
   reuse?: BgSwapVersion,
 ): Promise<PreparedImage> {
+  const { draft } = get()
+  const mode = modeOf(draft, reuse)
   if (!reuse) stage('plan')
   const dataUrl = await loadOriginal(imageId)
   const planned =
-    reuse ?? (await requestBackgroundPlan({ image: dataUrl, preference: get().draft.preference }))
+    reuse ?? (await requestBackgroundPlan({ image: dataUrl, preference: draft.preference, mode }))
   const productBox = planned.productBox ?? null
-  stage('matte')
-  const attempt = await buildMask(imageId, dataUrl, productBox)
+
+  const product =
+    mode === 'background'
+      ? null
+      : await loadProductAsset(
+          draft,
+          'camera' in planned ? planned.camera : '',
+          reuse?.productAssetId,
+        )
+
+  const side = maskSideFor(mode)
+  if (side) stage('matte')
+  const attempt = side
+    ? await buildMask(imageId, dataUrl, productBox, side)
+    : { mask: null, notice: null, matte: null, previewImageId: null }
+
   stage('generate')
+  const original =
+    mode === 'replace-and-background'
+      ? await framingImage(imageId, dataUrl, productBox)
+      : { id: imageId, dataUrl }
+
   return {
     ...attempt,
+    notice: [product?.notice, attempt.notice].filter(Boolean).join('；') || null,
     imageId,
-    dataUrl,
     plan: planned.plan,
     prompt: planned.prompt,
     productBox,
+    mode,
+    inputImages: product ? [original, product.image] : [original],
+    productAssetId: product?.assetId ?? null,
   }
 }
 
@@ -442,7 +586,7 @@ async function submitVersion(
 ): Promise<BgSwapVersion | null> {
   const [taskId] = await submitPrepared({
     prompt: prepared.prompt,
-    inputImages: [{ id: prepared.imageId, dataUrl: prepared.dataUrl }],
+    inputImages: prepared.inputImages,
     params: { ...useStore.getState().params, n: 1 },
     mask: prepared.mask,
     origin: { setId: jobId, shotId: `${prepared.imageId}:${versionId}` },
@@ -457,7 +601,9 @@ async function submitVersion(
     prompt: prepared.prompt,
     productBox: prepared.productBox,
     masked: prepared.mask !== null,
-    matte: prepared.matte,
+    mode: prepared.mode,
+    ...(prepared.productAssetId ? { productAssetId: prepared.productAssetId } : {}),
+    ...(prepared.matte ? { matte: prepared.matte } : {}),
     ...(prepared.previewImageId ? { mattePreviewImageId: prepared.previewImageId } : {}),
     createdAt: Date.now(),
   }
@@ -589,6 +735,7 @@ async function buildMask(
   imageId: string,
   dataUrl: string,
   productBox: ProductBox | null,
+  side: MaskSide,
 ): Promise<MaskAttempt> {
   if (
     !modelSupportsNativeMask(getActiveApiProfile(useStore.getState().settings), getPublicChannels())
@@ -603,10 +750,8 @@ async function buildMask(
     if (!matteAgreesWithBox(matte, productBox)) {
       return unmasked(MATTE_UNRELIABLE, 'box-mismatch', previewImageId)
     }
-    const mask = {
-      imageId: await storeImage(alphaToInpaintMask(matte), 'mask'),
-      targetImageId: imageId,
-    }
+    const pixels = side === 'product' ? alphaToProductMask(matte) : alphaToInpaintMask(matte)
+    const mask = { imageId: await storeImage(pixels, 'mask'), targetImageId: imageId }
     return {
       mask,
       notice: null,
@@ -644,6 +789,9 @@ async function persistDraft(set: SetState, get: GetState): Promise<void> {
     images: draft.images,
     preference: draft.preference,
     versionsPerImage: draft.versionsPerImage,
+    productSource: draft.productSource,
+    target: draft.target,
+    productAssets: draft.productAssets,
     createdAt: draft.createdAt ?? now,
     updatedAt: now,
   }

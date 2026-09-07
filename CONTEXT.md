@@ -139,6 +139,14 @@ versionsPerImage, createdAt, updatedAt }` 存在主 IndexedDB 的 `bgswap_jobs` 
 产出都留着，用户选一版定稿。
 _Avoid_: 批量换背景套、背景风格、镜头
 
+**换背景模式（bgswap mode）**：
+一次生成要动画面的哪一部分，由右栏的「产品来源」与「目标」两组分段合成：`background`（原图产品，
+只换背景）、`replace-product`（换成素材里的产品，背景像素不动）、`replace-and-background`（两样都
+换）。模式决定遮罩朝哪一侧重绘（换产品时蒙版反过来，产品区重绘、背景保留）、提交带几张参考图
+（换产品时是 [原图, 按机位匹配的素材图]），以及 BFF 用哪一段提示词模板。产品设置整任务生效，
+批量沿用；版本记下自己跑的模式与用掉的 `productAssetId`，重跑照旧模式走。
+_Avoid_: 换图模式、product mode、模式枚举当版本
+
 **画面类型（scene type）**：
 一张原图是 `photo`（产品实拍）、`infographic`（示意图）、`callout`（带标注的特写）还是
 `collage`（卖点拼图），由视觉模型的预检给出，记在原图上。非 `photo` 的图带说明文字，换背景

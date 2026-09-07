@@ -1,16 +1,5 @@
 import type { CompetitorBrief, ShotType } from '@image-playground/shared'
-
-/** 产品素材的拍摄角度。镜头按机位挑同角度的底图，角度不匹配时模型会改产品。 */
-export const PRODUCT_ANGLES = ['front', 'three-quarter', 'high-angle', 'top-down', 'side'] as const
-export type ProductAngle = (typeof PRODUCT_ANGLES)[number]
-
-export const PRODUCT_ANGLE_LABELS: Record<ProductAngle, string> = {
-  front: '正面',
-  'three-quarter': '3/4 侧',
-  'high-angle': '俯拍',
-  'top-down': '正顶',
-  side: '侧面',
-}
+import type { ProductAsset } from '../../lib/productAngle'
 
 export const REMIX_PLATFORMS = ['amazon', 'alibaba', 'pinduoduo', 'site'] as const
 export type RemixPlatform = (typeof REMIX_PLATFORMS)[number]
@@ -38,11 +27,6 @@ export interface RemixProductDescription {
   features: string
   mainColor: string
   forbiddenColors: string[]
-}
-
-export interface RemixProductAsset {
-  assetId: string
-  angle: ProductAngle
 }
 
 export interface RemixSetSource {
@@ -99,7 +83,7 @@ export interface RemixSetRecord {
   id: string
   name: string
   source: RemixSetSource
-  productAssets: RemixProductAsset[]
+  productAssets: ProductAsset[]
   settings: RemixSetSettings
   shots: RemixShot[]
   createdAt: number

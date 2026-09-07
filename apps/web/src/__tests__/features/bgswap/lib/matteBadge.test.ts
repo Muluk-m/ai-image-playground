@@ -50,4 +50,8 @@ describe('matteBadge', () => {
   it('抠图成功的旧版本不挂标签', () => {
     expect(matteBadge(version(true))).toBeNull()
   })
+
+  it('整图重画的那一版不报未抠图：它本来就不抠', () => {
+    expect(matteBadge({ ...version(false), mode: 'replace-and-background' })).toBeNull()
+  })
 })
