@@ -1,14 +1,10 @@
 import type { CompetitorBrief, ShotType } from '@image-playground/shared'
 
-export const REMIX_LANGUAGES = ['zh', 'en'] as const
-export type RemixLanguage = (typeof REMIX_LANGUAGES)[number]
+/** 卖点图上的文案语言。 */
+export type RemixLanguage = 'zh' | 'en'
 
-export const REMIX_LANGUAGE_LABELS: Record<RemixLanguage, string> = { zh: '中文', en: '英文' }
-
-export const REMIX_LEVELS = ['low', 'high'] as const
-export type RemixLevel = (typeof REMIX_LEVELS)[number]
-
-export const REMIX_LEVEL_LABELS: Record<RemixLevel, string> = { low: '低', high: '高' }
+/** 借创意重做与竞品的距离：低档保留构图，高档只借风格。 */
+export type RemixLevel = 'low' | 'high'
 
 /** 锁产品段的原料。主色与禁止色分开填：只说「不得改色」时模型会把产品拉向环境色温。 */
 export interface RemixProductDescription {
