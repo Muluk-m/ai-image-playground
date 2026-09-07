@@ -2,6 +2,7 @@ import type { CompetitorBrief, ProductContext } from '@image-playground/shared'
 import { create } from 'zustand'
 import { isClientCapabilityEnabled } from '../../lib/clientCapabilities'
 import { fetchListingImages, listingImageProxyUrl } from '../../lib/listingClient'
+import type { ProductAngle, ProductAsset } from '../../lib/productAngle'
 import {
   ensureImageCached,
   storeImageFromFile,
@@ -26,8 +27,6 @@ import {
   type ShotContext,
 } from './lib/shots'
 import type {
-  ProductAngle,
-  RemixProductAsset,
   RemixProductDescription,
   RemixSetRecord,
   RemixSetSettings,
@@ -54,7 +53,7 @@ export interface RemixDraft {
   name: string
   listingUrl: string
   sourceImageIds: string[]
-  productAssets: RemixProductAsset[]
+  productAssets: ProductAsset[]
   settings: RemixSetSettings
   shots: RemixShot[]
   createdAt: number | null
