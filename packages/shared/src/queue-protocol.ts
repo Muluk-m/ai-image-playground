@@ -6,6 +6,8 @@
  * BFF 用 localhost / 内网调上游 API，完全脱钩浏览器和 Edge 的 HTTP 长超时限制。
  */
 
+import type { VideoRequest } from './video-presets'
+
 export type QueueProvider = 'openai-compat' | 'gemini'
 
 export const TASK_STATUSES = ['queued', 'in_progress', 'completed', 'failed', 'cancelled'] as const
@@ -70,6 +72,8 @@ export interface SubmitRequest {
    * OpenAI mask edit data URL. Only the server's persisted representation uses an object ref.
    */
   mask?: string
+  /** 视频任务参数。只有 media='video' 的模型接受它，图片模型带上则 400。 */
+  video?: VideoRequest
   /** 额外原样转发给上游的请求体字段（如 OpenAI 的 response_format 等） */
   extra?: Record<string, unknown>
   /**
@@ -123,9 +127,10 @@ export interface StatusResponse {
 }
 
 /**
- * 单张图片的元信息（不含像素字节）。
+ * 单条输出的元信息（不含字节）。名字沿用 ResultImageMeta 保持协议兼容，实际已泛化到
+ * 视频输出 — mime 可以是 image/* 或 video/mp4。
  *
- * 像素字节通过 `GET /v1/queue/requests/{id}/image/{index}` 单独拿，避免在 JSON
+ * 字节通过 `GET /v1/queue/requests/{id}/image/{index}` 单独拿，避免在 JSON
  * 里塞 base64 走 cf tunnel 下行——base64 比原生 PNG/WebP 大 33%，且文本不便
  * gzip 高效压缩。
  */
@@ -137,6 +142,8 @@ export interface ResultImageMeta {
   /** 像素尺寸（OpenAI 不一定返；Gemini 通过 BFF 自己解析） */
   width?: number
   height?: number
+  /** 视频输出的时长，图片输出没有这个字段。 */
+  duration_seconds?: number
 }
 
 /**

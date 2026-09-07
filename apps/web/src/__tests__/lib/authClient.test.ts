@@ -33,6 +33,7 @@ describe('auth client', () => {
           'accounts:self-register': true,
           'billing:credits': false,
           'generation:byok': true,
+          'generation:video': false,
           'quota:daily': false,
           'remix:analyze': false,
           'remix:listing': false,
