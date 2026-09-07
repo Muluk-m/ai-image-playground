@@ -4,9 +4,12 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import AssetCard from '../../../features/library/components/AssetCard'
 import type { AssetRecord } from '../../../features/library/types'
+import { ensureAssetImage } from '../../../lib/sync/assetImages'
 import { useSyncStatus } from '../../../lib/sync/status'
 
 vi.mock('../../../lib/sync/assetImages', () => ({ ensureAssetImage: vi.fn() }))
+
+const ensureAssetImageMock = vi.mocked(ensureAssetImage)
 
 declare global {
   // eslint-disable-next-line no-var
@@ -33,6 +36,7 @@ function render(): void {
 }
 
 beforeEach(() => {
+  ensureAssetImageMock.mockReset()
   host = document.createElement('div')
   document.body.appendChild(host)
   root = createRoot(host)
@@ -42,6 +46,14 @@ afterEach(() => {
   act(() => root.unmount())
   host.remove()
   useSyncStatus.setState({ enabled: false, unsyncedImages: [] })
+})
+
+describe('a visible asset card', () => {
+  it('asks for the image only once it is on screen', () => {
+    render()
+
+    expect(ensureAssetImageMock).toHaveBeenCalledWith('image-1')
+  })
 })
 
 describe('the unsynced mark on an asset card', () => {

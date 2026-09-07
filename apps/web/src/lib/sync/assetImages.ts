@@ -23,6 +23,11 @@ export function forgetUploadedAssetImages(): void {
   uploaded.clear()
 }
 
+/** 服务端回传过的素材图它自己就有；不记下来，改个名就会把整张图重传一遍。 */
+export function noteAssetImageOnServer(imageId: string): void {
+  uploaded.add(imageId)
+}
+
 export function uploadAssetImage(imageId: string): Promise<AssetImageUpload> {
   if (uploaded.has(imageId)) return Promise.resolve('uploaded')
   const running = uploads.get(imageId)
@@ -76,6 +81,7 @@ async function fetchIfMissing(imageId: string): Promise<boolean> {
       source: 'upload',
     })
     refreshImageThumbnail(imageId)
+    uploaded.add(imageId)
     return true
   } catch {
     return false
