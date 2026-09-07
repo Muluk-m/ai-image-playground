@@ -30,6 +30,7 @@ import {
 } from '../lib/gallery'
 import { VERSION_STATE_LABELS } from '../lib/versionProgress'
 import { useProductShotsStore } from '../store'
+import MatteTag from './MatteTag'
 
 const VIEWS = ['grouped', 'flat'] as const
 type GalleryView = (typeof VIEWS)[number]
@@ -91,11 +92,7 @@ function VersionCard({
         {item.chosen && (
           <span className="rounded bg-blue-500/10 px-1 text-blue-700 dark:text-blue-300">已选</span>
         )}
-        {!item.version.masked && (
-          <span className="rounded bg-amber-500/10 px-1 text-amber-700 dark:text-amber-300">
-            未抠图
-          </span>
-        )}
+        <MatteTag version={item.version} className="px-1" />
         {item.version.promptEdited && (
           <span className="rounded bg-amber-500/10 px-1 text-amber-700 dark:text-amber-300">
             手改

@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import ResultGallery from '../../../../features/productShots/components/ResultGallery'
 import { useProductShotsStore } from '../../../../features/productShots/store'
+import type { ProductShotVersion } from '../../../../features/productShots/types'
 import { useStore } from '../../../../store'
 import type { TaskRecord } from '../../../../types'
 
@@ -123,6 +124,12 @@ async function settle() {
   })
 }
 
+function showVersions(versions: ProductShotVersion[]) {
+  useProductShotsStore.setState((state) => ({
+    draft: { ...state.draft, images: [{ imageId: 'src-1', versions }] },
+  }))
+}
+
 function chooseNothing() {
   useProductShotsStore.setState((state) => ({
     draft: {
@@ -204,6 +211,20 @@ describe('the results overview', () => {
     expect(buttonLabelled('全部版').getAttribute('aria-pressed')).toBe('true')
     expect(document.body.textContent).toContain('未选用，导出全部')
     expect(buttonLabelled('打包下载 1 张').disabled).toBe(false)
+  })
+
+  it('marks a masked action that fell back to a prompt-only version', () => {
+    showVersions([{ ...version('v1'), masked: false, mode: 'background' }])
+    render()
+
+    expect(document.body.textContent).toContain('未抠图')
+  })
+
+  it('leaves the matte tag off a version whose action never mattes', () => {
+    showVersions([{ ...version('v1'), masked: false, mode: 'remix' }])
+    render()
+
+    expect(document.body.textContent).not.toContain('未抠图')
   })
 
   it('blocks the package with a reason when the scope holds nothing', () => {
