@@ -23,6 +23,7 @@ const segmentProduct = vi.hoisted(() => vi.fn())
 const assessMatte = vi.hoisted(() => vi.fn())
 const alphaToInpaintMask = vi.hoisted(() => vi.fn())
 const alphaToProductMask = vi.hoisted(() => vi.fn())
+const expandProductAlpha = vi.hoisted(() => vi.fn())
 const eraseProductArea = vi.hoisted(() => vi.fn())
 const analyzeCompetitorImages = vi.hoisted(() => vi.fn())
 const modelSupportsNativeMask = vi.hoisted(() => vi.fn())
@@ -57,6 +58,7 @@ vi.mock('../../../lib/productMatte', async (importOriginal) => ({
   assessMatte,
   alphaToInpaintMask,
   alphaToProductMask,
+  expandProductAlpha,
 }))
 
 vi.mock('../../../lib/eraseProduct', () => ({ eraseProductArea }))
@@ -135,6 +137,7 @@ beforeEach(() => {
   assessMatte.mockReturnValue({ ok: true, coverage: 0.4 })
   alphaToInpaintMask.mockReturnValue('data:image/png;base64,MASK')
   alphaToProductMask.mockReturnValue('data:image/png;base64,PRODUCT-MASK')
+  expandProductAlpha.mockImplementation((matte: object) => ({ ...matte, grown: true }))
   eraseProductArea.mockResolvedValue('data:image/png;base64,ERASED')
   analyzeCompetitorImages.mockResolvedValue([BRIEF])
   modelSupportsNativeMask.mockReturnValue(true)
@@ -655,6 +658,37 @@ describe('checking the matte against the product box', () => {
     await useProductShotsStore.getState().runAction('background')
 
     expect(useProductShotsStore.getState().draft.images[0].versions[0].masked).toBe(true)
+  })
+})
+
+describe('growing the matte before it becomes a mask', () => {
+  it('builds the mask from the grown alpha and gives the growth the plan box', async () => {
+    await jobWithOneImage()
+    requestBackgroundPlan.mockResolvedValue({ ...PLAN, productBox: { x: 0, y: 0, w: 1, h: 1 } })
+    segmentProduct.mockResolvedValue({
+      alpha: new Uint8ClampedArray([255, 255, 255, 255]),
+      width: 2,
+      height: 2,
+      backend: 'wasm-u2netp',
+      elapsedMs: 3200,
+    })
+
+    await useProductShotsStore.getState().runAction('background')
+
+    expect(expandProductAlpha).toHaveBeenCalledWith(expect.anything(), {
+      productBox: { x: 0, y: 0, w: 1, h: 1 },
+    })
+    expect(alphaToInpaintMask).toHaveBeenCalledWith(expect.objectContaining({ grown: true }))
+  })
+
+  /** 抠错的那次预览要照实显示抠到了什么，膨胀会把问题遮掉。 */
+  it('leaves a turned-down matte alone', async () => {
+    await jobWithOneImage()
+    assessMatte.mockReturnValue({ ok: false, coverage: 0.001, reason: 'too-small' })
+
+    await useProductShotsStore.getState().runAction('background')
+
+    expect(expandProductAlpha).not.toHaveBeenCalled()
   })
 })
 

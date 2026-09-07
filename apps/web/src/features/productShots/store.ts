@@ -31,7 +31,9 @@ import {
   alphaToMattePreview,
   alphaToProductMask,
   assessMatte,
+  expandProductAlpha,
   matteAgreesWithBox,
+  type ProductAlpha,
   ProductMatteError,
   segmentProduct,
 } from '../../lib/productMatte'
@@ -1022,6 +1024,18 @@ function unmasked(
   return { mask: null, notice, matte: { ok: false, reason }, previewImageId }
 }
 
+/** 蒙版不能用的两种情形：抠出来的占比不对，或抠中的不是方案说的那个产品。 */
+function matteFailure(
+  matte: ProductAlpha,
+  productBox: ProductBox | null,
+): { notice: string; reason: MatteFailureCause } | null {
+  if (!assessMatte(matte).ok) return { notice: MATTE_FAILED, reason: 'failed' }
+  if (!matteAgreesWithBox(matte, productBox)) {
+    return { notice: MATTE_UNRELIABLE, reason: 'box-mismatch' }
+  }
+  return null
+}
+
 /** 抠不出来就回落提示词版：宁可产品不锁死，也不要卡住这一版。`notice` 是回落的说明。 */
 async function buildMask(
   imageId: string,
@@ -1036,13 +1050,13 @@ async function buildMask(
   }
   try {
     const matte = await segmentProduct(dataUrl)
+    const failure = matteFailure(matte, productBox)
+    // 一致性校验看原始蒙版；膨胀后的那张才是真正用掉的，预览与它一致用户才看得出附件有没有进保留区。
+    const used = failure ? matte : expandProductAlpha(matte, { productBox })
     // 预览图连抠错的那次也要存：用户就是靠它看出抠错了什么。
-    const previewImageId = await storeImage(alphaToMattePreview(matte), 'mask')
-    if (!assessMatte(matte).ok) return unmasked(MATTE_FAILED, 'failed', previewImageId)
-    if (!matteAgreesWithBox(matte, productBox)) {
-      return unmasked(MATTE_UNRELIABLE, 'box-mismatch', previewImageId)
-    }
-    const pixels = side === 'product' ? alphaToProductMask(matte) : alphaToInpaintMask(matte)
+    const previewImageId = await storeImage(alphaToMattePreview(used), 'mask')
+    if (failure) return unmasked(failure.notice, failure.reason, previewImageId)
+    const pixels = side === 'product' ? alphaToProductMask(used) : alphaToInpaintMask(used)
     const mask = { imageId: await storeImage(pixels, 'mask'), targetImageId: imageId }
     return {
       mask,
