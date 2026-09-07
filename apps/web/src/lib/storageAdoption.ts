@@ -13,6 +13,7 @@ const BATCH_SIZE: Record<DbStoreName, number> = {
   templates: 200,
   remix_sets: 200,
   bgswap_jobs: 200,
+  video_tasks: 200,
 }
 
 let adoption: Promise<number> | null = null
