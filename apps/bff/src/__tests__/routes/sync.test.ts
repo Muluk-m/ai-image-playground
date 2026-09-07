@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, describe, expect, it } from 'bun:test'
+import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
 import {
@@ -8,6 +8,7 @@ import {
   type SyncResponseBody,
 } from '@image-playground/shared'
 import { eq } from 'drizzle-orm'
+import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
 
 const TEST_DB = await resetTestDatabase('bff_sync_routes')
 
@@ -21,10 +22,31 @@ const { app } = await import('../../app')
 const { close: closeDb, db, schema } = await import('../../db/client')
 const { createUserSession } = await import('../../lib/user-session')
 const { USER_SESSION_COOKIE } = await import('../../lib/user-session')
+const { setObjectStoreForTesting } = await import('../../lib/objectStore')
+
+beforeEach(() => {
+  setObjectStoreForTesting(new InMemoryObjectStore())
+})
+
+afterEach(() => {
+  setObjectStoreForTesting()
+})
 
 afterAll(async () => {
   await closeDb()
 })
+
+/** 素材记录只有在图片本体已上传后才被接受。 */
+async function uploadImage(cookie: string, imageId: string): Promise<void> {
+  const response = await app.handle(
+    new Request(`http://localhost/api/sync/assets/${imageId}`, {
+      method: 'PUT',
+      headers: { cookie, 'content-type': 'image/png' },
+      body: new Uint8Array(8),
+    }),
+  )
+  if (response.status !== 200) throw new Error(`asset upload failed: ${response.status}`)
+}
 
 async function resetDb() {
   await db.delete(schema.users)
@@ -249,6 +271,7 @@ describe('POST /api/sync', () => {
   })
 
   it('syncs assets and their tombstones', async () => {
+    await uploadImage(deviceA, 'image-hash-1')
     await sync(deviceA, { version: 0, assets: [asset()] })
     const pulled = await sync(deviceB, { version: 0 })
     expect(pulled.body.assets).toEqual([asset()] as never)
@@ -291,6 +314,7 @@ describe('POST /api/sync', () => {
   })
 
   it('drops every synced record when the user is deleted', async () => {
+    await uploadImage(deviceA, 'image-hash-1')
     await sync(deviceA, {
       version: 0,
       templates: [template()],
