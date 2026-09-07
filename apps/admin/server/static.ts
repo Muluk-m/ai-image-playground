@@ -3,7 +3,6 @@ import { extname, join } from 'node:path'
 // 从 apps/bff/src/app.ts 的 serveStatic / serveSpaFallback / cacheControlFor /
 // MIME 表 / gzip 探测复制而来，剔除 BFF 专属的 sw.js / inspiration-manifest.json
 // 分支（admin 没有 SW 也没有 hero seed）。
-// 共用还是分叉的取舍见 openspec/changes/admin-dashboard-ui/design.md。
 
 const COMPRESSIBLE_EXTS = new Set([
   '.html',

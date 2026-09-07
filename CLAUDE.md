@@ -110,8 +110,7 @@ provision，否则 SELECT-only 的备份角色读不到它，每日 `pg_dump` �
 
 ## Spec / Plan 流程（ask-matt）
 
-复杂改动走 Matt Pocock skills 主流程。**不用 openspec**：`openspec/`、`.claude/skills/openspec-*`、
-`.claude/commands/opsx` 是切换前的遗留，不要往里新建 change。
+复杂改动走 Matt Pocock skills 主流程。**不用 openspec**，也不要新建 `openspec/` 目录：那套流程已退役。
 
 1. `/grill-with-docs` — 面谈把想法磨清；决策落 `CONTEXT.md` 与 `docs/adr/`。
 2. 有必须跑起来才能回答的问题（状态模型、业务逻辑、要看见的 UI）→ `/prototype`，用 `/handoff` 进出。
