@@ -98,9 +98,6 @@ export default function VideoComposer() {
   const [pickerSlot, setPickerSlot] = useState<VideoFrameSlot | null>(null)
   const support = VIDEO_MODEL_SUPPORT[draft.model]
 
-  // 两家模型的分工：出片快的那家写「快」，另一家写「细节好」。
-  const fastestSeconds = Math.min(...options.map((option) => option.support.typicalSeconds))
-
   const guard = usePrivateSubmissionGuard({
     model: draft.model,
     quantity: draft.duration,
@@ -195,7 +192,7 @@ export default function VideoComposer() {
             <ModelCard
               key={option.modelId}
               option={option}
-              hint={option.support.typicalSeconds === fastestSeconds ? '快' : '细节好'}
+              hint={option.support.tagline}
               selected={option.modelId === draft.model}
               onSelect={() => useVideoStore.getState().setModel(option.modelId)}
             />

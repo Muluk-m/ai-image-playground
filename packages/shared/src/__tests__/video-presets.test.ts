@@ -7,7 +7,7 @@ import {
 } from '../video-presets'
 
 const GROK = 'grok-imagine-video'
-const AGNES = 'agnes-video-2.5'
+const AGNES = 'agnes-video-2.5-flash'
 
 function request(overrides: Partial<VideoRequest> = {}): VideoRequest {
   return { duration_seconds: 5, aspect_ratio: '16:9', resolution: '720p', ...overrides }
@@ -33,19 +33,21 @@ describe('validateVideoRequest', () => {
     })
   })
 
-  it('accepts 2k on Agnes and rejects it on Grok', () => {
-    expect(validateVideoRequest(AGNES, request({ resolution: '2k' }), 0)).toEqual({ ok: true })
+  it('rejects 2k on both models', () => {
+    expect(validateVideoRequest(AGNES, request({ resolution: '2k' }), 0)).toEqual({
+      ok: false,
+      reason: 'Agnes 2.5 Flash 清晰度只支持 720p',
+    })
     expect(validateVideoRequest(GROK, request({ resolution: '2k' }), 0)).toEqual({
       ok: false,
       reason: 'Grok 清晰度只支持 720p / 1080p',
     })
   })
 
-  it('names 2K in the Agnes resolution reason', () => {
-    const result = validateVideoRequest(AGNES, request({ resolution: '4k' as never }), 0)
-    expect(result).toEqual({
+  it('rejects 1080p on Agnes Flash, which is 720P only', () => {
+    expect(validateVideoRequest(AGNES, request({ resolution: '1080p' }), 0)).toEqual({
       ok: false,
-      reason: 'Agnes 2.5 清晰度只支持 720p / 1080p / 2K',
+      reason: 'Agnes 2.5 Flash 清晰度只支持 720p',
     })
   })
 
@@ -74,7 +76,7 @@ describe('validateVideoRequest', () => {
   it('rejects an unsupported aspect ratio', () => {
     expect(validateVideoRequest(AGNES, request({ aspect_ratio: '4:3' as never }), 0)).toEqual({
       ok: false,
-      reason: 'Agnes 2.5 画幅只支持 16:9 / 9:16 / 1:1',
+      reason: 'Agnes 2.5 Flash 画幅只支持 16:9 / 9:16 / 1:1',
     })
   })
 
@@ -97,6 +99,11 @@ describe('videoRateMultiplier', () => {
 describe('VIDEO_MODEL_SUPPORT', () => {
   it('carries the typical elapsed seconds shown while generating', () => {
     expect(VIDEO_MODEL_SUPPORT[GROK].typicalSeconds).toBe(40)
-    expect(VIDEO_MODEL_SUPPORT[AGNES].typicalSeconds).toBe(90)
+    expect(VIDEO_MODEL_SUPPORT[AGNES].typicalSeconds).toBe(40)
+  })
+
+  it('gives every model a distinct card tagline', () => {
+    const taglines = Object.values(VIDEO_MODEL_SUPPORT).map((support) => support.tagline)
+    expect(new Set(taglines).size).toBe(taglines.length)
   })
 })

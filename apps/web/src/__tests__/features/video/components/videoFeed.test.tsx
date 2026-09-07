@@ -25,7 +25,7 @@ const TASKS = [
     completedAt: null,
     source: 'image',
     firstFrameImageId: 'img-1',
-    model: 'agnes-video-2.5',
+    model: 'agnes-video-2.5-flash',
   }),
 ]
 

@@ -90,7 +90,7 @@ describe('提交', () => {
 
   it('图生任务把首帧放 index 0、尾帧放 index 1', async () => {
     const store = useVideoStore.getState()
-    store.setModel('agnes-video-2.5')
+    store.setModel('agnes-video-2.5-flash')
     store.setSource('image')
     store.setPrompt('水龙头出水到关闭')
     store.setFrame('first', 'img-first')
@@ -153,11 +153,12 @@ describe('提交', () => {
 describe('参数', () => {
   it('换模型时把不支持的档位退回合法值', () => {
     const store = useVideoStore.getState()
-    store.setModel('agnes-video-2.5')
-    store.setResolution('2k')
-    expect(draft().resolution).toBe('2k')
-
     store.setModel('grok-imagine-video')
+    store.setResolution('1080p')
+    expect(draft().resolution).toBe('1080p')
+
+    // Agnes Flash 只有 720P，1080p 必须退回。
+    store.setModel('agnes-video-2.5-flash')
 
     expect(draft().resolution).toBe('720p')
     expect(draft().duration).toBe(5)
@@ -165,19 +166,19 @@ describe('参数', () => {
 
   it('切到不支持尾帧的模型时留住尾帧图，切回去还在', () => {
     const store = useVideoStore.getState()
-    store.setModel('agnes-video-2.5')
+    store.setModel('agnes-video-2.5-flash')
     store.setFrame('last', 'img-last')
 
     store.setModel('grok-imagine-video')
     expect(draft().lastFrameImageId).toBe('img-last')
 
-    store.setModel('agnes-video-2.5')
+    store.setModel('agnes-video-2.5-flash')
     expect(draft().lastFrameImageId).toBe('img-last')
   })
 
   it('留住的尾帧不进 Grok 的提交体', async () => {
     const store = useVideoStore.getState()
-    store.setModel('agnes-video-2.5')
+    store.setModel('agnes-video-2.5-flash')
     store.setSource('image')
     store.setFrame('first', 'img-first')
     store.setFrame('last', 'img-last')
@@ -230,7 +231,7 @@ describe('记录', () => {
 
   it('重生成复制原参数再提交一条', async () => {
     const store = useVideoStore.getState()
-    store.setModel('agnes-video-2.5')
+    store.setModel('grok-imagine-video')
     store.setPrompt('台盆环绕半圈')
     store.setDuration(8)
     store.setResolution('1080p')
@@ -245,7 +246,7 @@ describe('记录', () => {
     expect(tasks()).toHaveLength(2)
     const copy = tasks().find((task) => task.id !== original.id)!
     expect(copy.prompt).toBe('台盆环绕半圈')
-    expect(copy.model).toBe('agnes-video-2.5')
+    expect(copy.model).toBe('grok-imagine-video')
     expect(copy.duration).toBe(8)
     expect(copy.resolution).toBe('1080p')
     expect(copy.clientRequestId).not.toBe(original.clientRequestId)

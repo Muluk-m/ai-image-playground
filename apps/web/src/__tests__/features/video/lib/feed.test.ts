@@ -12,7 +12,7 @@ const TASKS = [
     status: 'running',
     source: 'image',
     firstFrameImageId: 'img-1',
-    model: 'agnes-video-2.5',
+    model: 'agnes-video-2.5-flash',
   }),
 ]
 
@@ -24,7 +24,7 @@ describe('listing the feed filters', () => {
       { id: 'source:text', label: '文生', count: 2 },
       { id: 'source:image', label: '图生', count: 1 },
       { id: 'model:grok-imagine-video', label: 'Grok', count: 2 },
-      { id: 'model:agnes-video-2.5', label: 'Agnes 2.5', count: 1 },
+      { id: 'model:agnes-video-2.5-flash', label: 'Agnes 2.5 Flash', count: 1 },
     ])
   })
 
