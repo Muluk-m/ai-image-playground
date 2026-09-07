@@ -35,8 +35,9 @@ export function useImageDropZone(onFiles: (files: File[]) => void) {
         event.preventDefault()
         event.stopPropagation()
       },
+      // 离开事件不问带的是什么：有的浏览器这时已经不给 types 了，问了就永远熄不掉高亮。
       onDragLeave: (event: DragEvent) => {
-        if (!carriesFiles(event)) return
+        if (depth.current === 0) return
         event.stopPropagation()
         depth.current -= 1
         if (depth.current <= 0) stop()
