@@ -192,20 +192,80 @@ describe('the background swap workbench', () => {
     expect(useProductShotsStore.getState().draft.images).toEqual([])
   })
 
-  it('offers the link field only while link fetching is on', () => {
+  it('holds the background swap button until there is an image to work on', () => {
     render()
+
+    expect(actionButton().disabled).toBe(true)
+  })
+})
+
+describe('picking where the source images come from', () => {
+  function sourceTab(label: string): HTMLButtonElement {
+    const button = [...column('sources').querySelectorAll('button')].find(
+      (item) => item.textContent === label,
+    )
+    if (!button) throw new Error(`no ${label} tab`)
+    return button
+  }
+
+  it('offers uploading, the listing link and the asset library', () => {
+    render()
+
+    expect(sourceTab('上传').getAttribute('aria-pressed')).toBe('true')
+    expect(sourceTab('亚马逊链接')).toBeTruthy()
+    expect(sourceTab('素材库')).toBeTruthy()
+  })
+
+  it('shows the link field only on the link tab, and only while fetching is on', () => {
+    render()
+    expect(document.querySelector('#product-shots-listing-url')).toBeNull()
+
+    click(sourceTab('亚马逊链接'))
     expect(document.querySelector('#product-shots-listing-url')).not.toBeNull()
 
     isClientCapabilityEnabled.mockReturnValue(false)
     act(() => root.render(<ProductShotsMode />))
 
     expect(document.querySelector('#product-shots-listing-url')).toBeNull()
+    expect(
+      [...column('sources').querySelectorAll('button')].some(
+        (item) => item.textContent === '亚马逊链接',
+      ),
+    ).toBe(false)
   })
 
-  it('holds the background swap button until there is an image to work on', () => {
+  it('takes an asset out of the library as a source image', async () => {
+    useLibraryStore.setState({
+      assets: [{ id: 'a1', name: '主图白底', imageId: 'asset-1', createdAt: 1, lastUsedAt: 1 }],
+    })
     render()
 
-    expect(actionButton().disabled).toBe(true)
+    click(sourceTab('素材库'))
+    const open = [...column('sources').querySelectorAll('button')].find(
+      (item) => item.textContent === '从素材库选',
+    )
+    if (!open) throw new Error('no library picker button')
+    click(open)
+    await settle()
+
+    const picker = document.querySelector('[data-product-shots-source-picker]')
+    if (!picker) throw new Error('no source picker overlay')
+    const card = [...picker.querySelectorAll('button')].find((item) =>
+      item.textContent?.includes('主图白底'),
+    )
+    if (!card) throw new Error('no asset card')
+    click(card)
+    const add = [...picker.querySelectorAll('button')].find(
+      (item) => item.textContent === '加入 1 张',
+    )
+    if (!add) throw new Error('no add button')
+    click(add)
+    await settle()
+
+    expect(document.querySelector('[data-product-shots-source-picker]')).toBeNull()
+    expect(useProductShotsStore.getState().draft.images.map((image) => image.imageId)).toContain(
+      'asset-1',
+    )
   })
 })
 
