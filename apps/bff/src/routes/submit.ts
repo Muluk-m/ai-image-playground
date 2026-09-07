@@ -1,9 +1,11 @@
-import type { PersistedSubmitRequest, QueueProvider } from '@image-playground/shared'
+import type { PersistedSubmitRequest, QueueProvider, VideoRequest } from '@image-playground/shared'
+import { validateVideoRequest } from '@image-playground/shared'
 import { and, eq, isNull } from 'drizzle-orm'
 import { Elysia, t } from 'elysia'
 import { config } from '../config'
 import { db, schema } from '../db/client'
 import { isCapabilityEnabled } from '../lib/capabilities'
+import { resolveModelMedia } from '../lib/channels'
 import { archiveInputImages, ObjectStorageError } from '../lib/imageArchive'
 import { objectStore } from '../lib/objectStore'
 import { loadPrivateBffOverlay } from '../lib/private-overlay'
@@ -23,6 +25,16 @@ const submitBodySchema = t.Object({
   n: t.Optional(t.Number({ minimum: 1, maximum: 16, multipleOf: 1 })),
   input_images: t.Optional(t.Array(t.String())),
   mask: t.Optional(t.String()),
+  /** 档位合法性由 shared 的 validateVideoRequest 兜底，这里只做形状白名单。 */
+  video: t.Optional(
+    t.Object({
+      duration_seconds: t.Number(),
+      aspect_ratio: t.String(),
+      resolution: t.String(),
+      first_frame_index: t.Optional(t.Number({ minimum: 0 })),
+      last_frame_index: t.Optional(t.Number({ minimum: 0 })),
+    }),
+  ),
   extra: t.Optional(t.Record(t.String(), t.Any())),
   /**
    * 幂等键：前端在 submitTask 时为每个任务生成 UUID。同一 ID 二次 submit
@@ -66,6 +78,19 @@ export const submitRoutes = new Elysia()
         return status(400, { error: `unsupported provider: ${provider}` })
       }
 
+      const video = body.video as VideoRequest | undefined
+      const media = resolveModelMedia(model)
+      if (video && media !== 'video') {
+        return status(400, { error: 'video_not_supported', message: '该模型不支持视频生成' })
+      }
+      if (!video && media === 'video') {
+        return status(400, { error: 'video_params_required', message: '视频任务缺少视频参数' })
+      }
+      if (video) {
+        const check = validateVideoRequest(model, video, body.input_images?.length ?? 0)
+        if (!check.ok) return status(400, { error: 'invalid_video_request', message: check.reason })
+      }
+
       // 幂等命中（client_request_id 已存在）走优先返回，避免重复扣配额。
       if (body.client_request_id) {
         const existing = await findTaskByIdempotencyKey(
@@ -80,7 +105,8 @@ export const submitRoutes = new Elysia()
       const id = crypto.randomUUID()
       let requestPayload: PersistedSubmitRequest
       try {
-        requestPayload = await archiveInputImages(id, body)
+        const { video: _rawVideo, ...rest } = body
+        requestPayload = await archiveInputImages(id, { ...rest, ...(video ? { video } : {}) })
       } catch (error) {
         try {
           await objectStore().deletePrefix(`${id}/in/`)
@@ -98,6 +124,8 @@ export const submitRoutes = new Elysia()
       }
 
       const n = body.n ?? 1
+      // 免费部署的每日配额按输出计数：一条视频算一次，不按秒数放大。
+      const quotaUnits = video ? 1 : n
       const now = Date.now()
       const taskHooks = (await loadPrivateBffOverlay()).taskHooks
       const dailyQuotaEnabled = isCapabilityEnabled('quota:daily')
@@ -137,7 +165,12 @@ export const submitRoutes = new Elysia()
             return reservation
           }
         } else if (dailyQuotaEnabled) {
-          const quota = await tryConsumeQuotaInTransaction(tx, body.device_id, n, dailyImageQuota)
+          const quota = await tryConsumeQuotaInTransaction(
+            tx,
+            body.device_id,
+            quotaUnits,
+            dailyImageQuota,
+          )
           if (!quota.ok) {
             await tx.delete(schema.tasks).where(eq(schema.tasks.id, id))
             return { kind: 'quota_exceeded' as const, quota }

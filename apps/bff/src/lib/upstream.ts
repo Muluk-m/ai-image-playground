@@ -1,5 +1,10 @@
 import { Buffer, File } from 'node:buffer'
-import { QUEUE_TIMEOUTS, type QueueProvider } from '@image-playground/shared'
+import {
+  QUEUE_TIMEOUTS,
+  type QueueProvider,
+  type VideoRequest,
+  type VideoResolution,
+} from '@image-playground/shared'
 import sharp from 'sharp'
 import { Agent, FormData, fetch as undiciFetch } from 'undici'
 import { config } from '../config'
@@ -34,10 +39,16 @@ type ChannelRouteStyle =
   | 'openai-images'
   /** Grok Imagine JSON generations/edits。1.0 多图拼 contact sheet；2.0 原生最多 5 张并映射 size/quality。 */
   | 'grok-openai-images'
+  /** Grok Imagine 视频：提交拿 request_id，轮询 videos/{id}，成片字节要带 key 去内容端点取。 */
+  | 'grok-videos'
+  /** Agnes 视频：提交拿 video_id，轮询网关根下的 agnesapi，结果是公网 mp4 地址。 */
+  | 'agnes-videos'
 
 const CHANNEL_ROUTE_STYLES: Readonly<Record<string, ChannelRouteStyle | undefined>> = {
   'agnes-images': 'agnes-generations-json',
   'grok-images': 'grok-openai-images',
+  'grok-video': 'grok-videos',
+  'agnes-video': 'agnes-videos',
 }
 
 interface UpstreamRoute {
@@ -113,6 +124,7 @@ interface UpstreamResponse {
   readonly ok: boolean
   readonly status: number
   text(): Promise<string>
+  arrayBuffer(): Promise<ArrayBuffer>
 }
 
 type UpstreamFetch = (
@@ -272,7 +284,7 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
        * 重提已落库的 id 就是第二次计费，所以缺口是唯一可以提交的份额。
        */
       const collectTaskIds = async (
-        url: string,
+        protocol: AsyncTaskProtocol,
         count: number,
         makeInit: () => UpstreamFetchInit,
       ): Promise<string[]> => {
@@ -280,7 +292,9 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
         if (missing <= 0) return [...resumeIds]
         const settled = await Promise.allSettled(
           Array.from({ length: missing }, async () =>
-            extractAsyncTaskId((await parseResponse(await performFetch(url, makeInit()))).payload),
+            protocol.readTaskId(
+              (await parseResponse(await performFetch(protocol.submitUrl, makeInit()))).payload,
+            ),
           ),
         )
         const taskIds = [
@@ -308,8 +322,11 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
       }
 
       /** 轮询单个上游任务到终态。判定与提交侧方向相反：瞬时错误一律继续轮。 */
-      const pollAsyncTask = async (taskId: string): Promise<UpstreamCallResult> => {
-        const pollUrl = `${base}/images/tasks/${encodeURIComponent(taskId)}`
+      const pollAsyncTask = async (
+        protocol: AsyncTaskProtocol,
+        taskId: string,
+      ): Promise<UpstreamCallResult> => {
+        const pollUrl = protocol.pollUrl(taskId)
         for (let attempt = 0; ; attempt++) {
           if (Date.now() >= deadlineAt) throw new UpstreamTimeoutError()
           let payload: unknown
@@ -323,7 +340,7 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
             if (timedOut || externalSignal?.aborted || !isRecoverablePollFailure(err)) throw err
             // 留 payload 为 undefined，下面按 pending 走同一条退避路径。
           }
-          const state = readAsyncTaskState(payload)
+          const state = protocol.readState(payload)
           if (state.kind === 'completed') return { payload: state.payload }
           if (state.kind === 'failed') throw asyncTaskFailure(state.status, payload)
           await pollDelay(attempt)
@@ -348,9 +365,47 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
             merge,
           )
         }
-        const taskIds = await collectTaskIds(`${url}/async`, count, makeInit)
-        const results = await Promise.all(taskIds.map(pollAsyncTask))
+        const protocol = imageTaskProtocol(base, url)
+        const taskIds = await collectTaskIds(protocol, count, makeInit)
+        const results = await Promise.all(taskIds.map((id) => pollAsyncTask(protocol, id)))
         return results.length === 1 ? results[0]! : merge(results)
+      }
+
+      if (style === 'grok-videos' || style === 'agnes-videos') {
+        const video = request.video
+        if (!video) throw clientError('视频任务缺少视频参数')
+        const isGrok = style === 'grok-videos'
+        const protocol = isGrok ? grokVideoProtocol(base) : agnesVideoProtocol(base, model)
+        const body = JSON.stringify(
+          isGrok
+            ? buildGrokVideoBody(model, request, video)
+            : buildAgnesVideoBody(model, request, video),
+        )
+        const headers = { 'content-type': 'application/json', ...authHeader }
+        const [taskId] = await collectTaskIds(protocol, 1, () => ({
+          method: 'POST',
+          headers,
+          body,
+        }))
+        const { payload } = await pollAsyncTask(protocol, taskId!)
+        if (!isGrok) return agnesVideoResult(payload, video)
+
+        // Grok 的内容端点要带 key，取回字节交给归档；轮询响应里只有相对路径。
+        const contentUrl = grokVideoContentUrl(base, payload)
+        const res = await performFetch(contentUrl, { method: 'GET', headers: authHeader }, false)
+        if (!res.ok) await parseResponse(res)
+        const bytes = Buffer.from(await res.arrayBuffer())
+        return {
+          payload: {
+            data: [
+              {
+                b64_json: bytes.toString('base64'),
+                mime: VIDEO_MIME,
+                duration_seconds: grokVideoDuration(payload, video),
+              },
+            ],
+          },
+        }
       }
 
       // Agnes 风格上游：没有 images/edits 端点，图生图与文生图
@@ -359,12 +414,7 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
       // （跑成纯文生图），必须放 extra_body；n 同样被忽略，这里学 gemini 分支 fan-out。
       if (style === 'agnes-generations-json') {
         if (request.mask) {
-          // 挂 upstreamStatus=400 → retry.ts 判为永久失败，不浪费 3 次重试
-          const err = new Error(
-            '该模型不支持遮罩编辑（上游无 mask 能力），请换 GPT 模型或去掉遮罩',
-          ) as Error & { upstreamStatus: number }
-          err.upstreamStatus = 400
-          throw err
+          throw clientError('该模型不支持遮罩编辑（上游无 mask 能力），请换 GPT 模型或去掉遮罩')
         }
         const body = JSON.stringify(buildAgnesGenerationsBody(model, request))
         const headers = { 'content-type': 'application/json', ...authHeader }
@@ -496,11 +546,55 @@ function isRecoverablePollFailure(err: unknown): boolean {
   return status === 408 || status === 429 || status >= 500
 }
 
-function extractAsyncTaskId(payload: unknown): string {
-  const taskId = (payload as { task_id?: unknown } | null)?.task_id
-  if (typeof taskId === 'string' && taskId.length > 0) return taskId
+/**
+ * 一种上游异步任务形态：提交地址、id 字段、轮询地址、状态词表。
+ * 图片与两家视频上游共用同一套提交 / 落库 / 轮询骨架，差异全在这四项。
+ */
+interface AsyncTaskProtocol {
+  readonly submitUrl: string
+  readonly pollUrl: (taskId: string) => string
+  readonly readTaskId: (payload: unknown) => string
+  readonly readState: (payload: unknown) => AsyncTaskState
+}
+
+function imageTaskProtocol(base: string, submitBase: string): AsyncTaskProtocol {
+  return {
+    submitUrl: `${submitBase}/async`,
+    pollUrl: (taskId) => `${base}/images/tasks/${encodeURIComponent(taskId)}`,
+    readTaskId: (payload) => readTaskIdField(payload, ['task_id']),
+    readState: readAsyncTaskState,
+  }
+}
+
+function grokVideoProtocol(base: string): AsyncTaskProtocol {
+  return {
+    submitUrl: `${base}/videos/generations`,
+    pollUrl: (taskId) => `${base}/videos/${encodeURIComponent(taskId)}`,
+    readTaskId: (payload) => readTaskIdField(payload, ['request_id', 'id']),
+    readState: readGrokVideoState,
+  }
+}
+
+/** Agnes 的轮询端点挂在网关根上，不在 /v1 下 —— 用 base 的 origin 重新拼，别接相对路径。 */
+function agnesVideoProtocol(base: string, model: string): AsyncTaskProtocol {
+  const origin = new URL(base).origin
+  return {
+    submitUrl: `${base}/videos`,
+    pollUrl: (taskId) =>
+      `${origin}/agnesapi?video_id=${encodeURIComponent(taskId)}&model_name=${encodeURIComponent(model)}`,
+    readTaskId: (payload) => readTaskIdField(payload, ['video_id', 'task_id', 'id']),
+    readState: readAgnesVideoState,
+  }
+}
+
+function readTaskIdField(payload: unknown, fields: readonly string[]): string {
+  const body = (payload ?? {}) as Record<string, unknown>
+  for (const field of fields) {
+    const value = body[field]
+    if (typeof value === 'string' && value.length > 0) return value
+  }
   // 任务可能已经建起来在烧钱，但我们拿不到 id 去轮询它 —— 按结果未知处理，绝不自动重提。
-  throw new UpstreamResultUnknownError('上游异步任务提交未返回 task_id，执行结果未知')
+  throw new UpstreamResultUnknownError(`上游异步任务提交未返回 ${fields[0]}，执行结果未知`)
 }
 
 /** 上游把异步开关关掉时提交一律 404。单独一条 event，别混在通用 upstream 失败里。 */
@@ -529,6 +623,105 @@ function readAsyncTaskState(payload: unknown): AsyncTaskState {
   }
   if (body.status !== 'failed') return { kind: 'pending' }
   return { kind: 'failed', status: typeof body.http_status === 'number' ? body.http_status : null }
+}
+
+const VIDEO_MIME = 'video/mp4'
+
+const GROK_VIDEO_DONE_STATUSES = new Set(['done', 'succeeded', 'completed'])
+const GROK_VIDEO_FAILED_STATUSES = new Set(['failed', 'error', 'expired', 'cancelled'])
+
+function readStatusToken(payload: unknown): string | null {
+  const status = (payload as { status?: unknown } | null)?.status
+  return typeof status === 'string' ? status.toLowerCase() : null
+}
+
+function readGrokVideoState(payload: unknown): AsyncTaskState {
+  const status = readStatusToken(payload)
+  if (status === null) return { kind: 'pending' }
+  if (GROK_VIDEO_DONE_STATUSES.has(status)) return { kind: 'completed', payload }
+  if (GROK_VIDEO_FAILED_STATUSES.has(status)) return { kind: 'failed', status: null }
+  return { kind: 'pending' }
+}
+
+function readAgnesVideoState(payload: unknown): AsyncTaskState {
+  const status = readStatusToken(payload)
+  if (status === 'completed') return { kind: 'completed', payload }
+  if (status === 'failed') return { kind: 'failed', status: null }
+  return { kind: 'pending' }
+}
+
+/** 内容端点给的是网关相对路径，按 baseUrl 解析成绝对地址。 */
+function grokVideoContentUrl(base: string, payload: unknown): string {
+  const url = (payload as { video?: { url?: unknown } } | null)?.video?.url
+  if (typeof url !== 'string' || url.length === 0)
+    throw new UpstreamResultUnknownError('Grok 视频任务已完成但未返回内容地址')
+  return new URL(url, base).toString()
+}
+
+function grokVideoDuration(payload: unknown, video: VideoRequest): number {
+  const duration = (payload as { video?: { duration?: unknown } } | null)?.video?.duration
+  return typeof duration === 'number' && duration > 0 ? duration : video.duration_seconds
+}
+
+function agnesVideoResult(payload: unknown, video: VideoRequest): UpstreamCallResult {
+  const body = (payload ?? {}) as { url?: unknown; metadata?: { url?: unknown } }
+  const url = [body.url, body.metadata?.url].find(
+    (value): value is string => typeof value === 'string' && /^https?:\/\//i.test(value),
+  )
+  if (!url) throw new UpstreamResultUnknownError('Agnes 视频任务已完成但未返回结果地址')
+  return {
+    payload: { data: [{ url, mime: VIDEO_MIME, duration_seconds: video.duration_seconds }] },
+  }
+}
+
+/** 首尾帧指向同一请求的 input_images；hydrate 之后它们已经是 data URL。 */
+function videoFrame(request: HydratedSubmitRequest, index: number | undefined): string | undefined {
+  if (index === undefined) return undefined
+  return request.input_images?.[index]
+}
+
+/** 有首帧时上游要求换到图生视频模型，文生的那个不吃 image 字段。 */
+const GROK_VIDEO_FIRST_FRAME_MODEL = 'grok-imagine-video-1.5'
+
+function buildGrokVideoBody(
+  model: string,
+  request: HydratedSubmitRequest,
+  video: VideoRequest,
+): Record<string, unknown> {
+  const firstFrame = videoFrame(request, video.first_frame_index)
+  return {
+    model: firstFrame ? GROK_VIDEO_FIRST_FRAME_MODEL : model,
+    prompt: request.prompt,
+    duration: video.duration_seconds,
+    aspect_ratio: video.aspect_ratio,
+    resolution: video.resolution,
+    ...(firstFrame ? { image: { url: firstFrame } } : {}),
+  }
+}
+
+const AGNES_VIDEO_SIZES: Record<VideoResolution, string> = {
+  '720p': '720P',
+  '1080p': '1080P',
+  '2k': '2K',
+}
+
+function buildAgnesVideoBody(
+  model: string,
+  request: HydratedSubmitRequest,
+  video: VideoRequest,
+): Record<string, unknown> {
+  const firstFrame = videoFrame(request, video.first_frame_index)
+  const lastFrame = videoFrame(request, video.last_frame_index)
+  return {
+    model,
+    prompt: request.prompt,
+    seconds: String(video.duration_seconds),
+    mode: firstFrame || lastFrame ? 'keyframe' : 'text',
+    size: AGNES_VIDEO_SIZES[video.resolution],
+    aspect_ratio: video.aspect_ratio,
+    ...(firstFrame ? { first_frame: firstFrame } : {}),
+    ...(lastFrame ? { last_frame: lastFrame } : {}),
+  }
 }
 
 /** 上游任务终态失败 → 复用 HTTP 失败的错误形状，retry.ts 与 admin 才认得出来。 */
@@ -779,10 +972,15 @@ function buildGrokEditBody(model: string, request: HydratedSubmitRequest): Recor
   }
 }
 
-function grokClientError(message: string): never {
+/** 挂 upstreamStatus=400 → retry.ts 判为永久失败，不浪费 3 次重试。 */
+function clientError(message: string): Error {
   const err = new Error(message) as Error & { upstreamStatus: number }
   err.upstreamStatus = 400
-  throw err
+  return err
+}
+
+function grokClientError(message: string): never {
+  throw clientError(message)
 }
 
 function normalizeGrokImagine2EditInputs(request: HydratedSubmitRequest): HydratedSubmitRequest {

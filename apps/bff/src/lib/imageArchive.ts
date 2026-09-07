@@ -125,8 +125,12 @@ async function archiveOpenAIOutput(taskId: string, payload: object): Promise<voi
     const source: { bytes: Uint8Array; mime?: string } = encoded
       ? { bytes: Buffer.from(encoded, 'base64') }
       : await fetchSourceImage(sourceUrl!)
+    const declared = typeof item.mime === 'string' ? item.mime : undefined
     const mime =
-      detectImageMime(source.bytes) ?? source.mime ?? openAIOutputMime(response.output_format)
+      detectMediaMime(source.bytes) ??
+      declared ??
+      source.mime ??
+      openAIOutputMime(response.output_format)
 
     const key = `${taskId}/out/${index}`
     await writeWithRetry(key, source.bytes, mime)
@@ -167,7 +171,7 @@ async function archiveGeminiOutput(taskId: string, payload: object): Promise<voi
       if (!inline || typeof inline.data !== 'string' || !inline.data) continue
       const bytes = Buffer.from(inline.data, 'base64')
       const declaredMime = typeof inline.mimeType === 'string' ? inline.mimeType : 'image/png'
-      const mime = detectImageMime(bytes) ?? declaredMime
+      const mime = detectMediaMime(bytes) ?? declaredMime
       const key = `${taskId}/out/${index}`
       await writeWithRetry(key, bytes, mime)
       inline.object = key
@@ -219,7 +223,7 @@ function openAIOutputMime(format: string | undefined): string {
   return 'image/png'
 }
 
-function detectImageMime(bytes: Uint8Array): string | undefined {
+function detectMediaMime(bytes: Uint8Array): string | undefined {
   if (
     bytes.length >= 8 &&
     bytes[0] === 0x89 &&
@@ -248,6 +252,16 @@ function detectImageMime(bytes: Uint8Array): string | undefined {
     bytes[11] === 0x50
   ) {
     return 'image/webp'
+  }
+  // ISO-BMFF: 4 字节 box size 之后是 'ftyp'。mp4 / mov 共用这个头。
+  if (
+    bytes.length >= 12 &&
+    bytes[4] === 0x66 &&
+    bytes[5] === 0x74 &&
+    bytes[6] === 0x79 &&
+    bytes[7] === 0x70
+  ) {
+    return 'video/mp4'
   }
   return undefined
 }
