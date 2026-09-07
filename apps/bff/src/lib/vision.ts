@@ -94,8 +94,8 @@ ${SCENE_TYPE_KEY}
 "plan": ONE sentence describing a real environment that suits this category, naming the wall, the floor, the light and one or two props. Every prop must be liftable on its own, must not appear in "inventory", and must not repeat the function of anything in "inventory"`
 
 const PLAN_LANGUAGE: Record<PromptLanguage, string> = {
-  zh: 'Write "category", "inventory" and "plan" in Chinese.',
-  en: 'Write "category", "inventory" and "plan" in English.',
+  zh: 'Write all free-text values in Chinese.',
+  en: 'Write all free-text values in English.',
 }
 
 function planPromptFor(preference: string | undefined, language: PromptLanguage): string {
