@@ -254,7 +254,16 @@ describe('picking where the source images come from', () => {
 
   it('takes an asset out of the library as a source image', async () => {
     useLibraryStore.setState({
-      assets: [{ id: 'a1', name: '主图白底', imageId: 'asset-1', createdAt: 1, lastUsedAt: 1 }],
+      assets: [
+        {
+          id: 'a1',
+          name: '主图白底',
+          imageId: 'asset-1',
+          createdAt: 1,
+          updatedAt: 1,
+          lastUsedAt: 1,
+        },
+      ],
     })
     render()
 
@@ -679,7 +688,16 @@ describe('the product picked once for the whole job', () => {
 
   it('picks an asset in the overlay and shows it at the top', async () => {
     useLibraryStore.setState({
-      assets: [{ id: 'a1', name: '正面白底', imageId: 'asset-1', createdAt: 1, lastUsedAt: 1 }],
+      assets: [
+        {
+          id: 'a1',
+          name: '正面白底',
+          imageId: 'asset-1',
+          createdAt: 1,
+          updatedAt: 1,
+          lastUsedAt: 1,
+        },
+      ],
     })
     render()
 
@@ -709,7 +727,16 @@ describe('the product picked once for the whole job', () => {
 
   it('labels a version that swapped the product', async () => {
     useLibraryStore.setState({
-      assets: [{ id: 'a1', name: '正面白底', imageId: 'asset-1', createdAt: 1, lastUsedAt: 1 }],
+      assets: [
+        {
+          id: 'a1',
+          name: '正面白底',
+          imageId: 'asset-1',
+          createdAt: 1,
+          updatedAt: 1,
+          lastUsedAt: 1,
+        },
+      ],
     })
     render()
     upload('上传原图', new File(['x'], '主图.png', { type: 'image/png' }))
@@ -775,7 +802,16 @@ describe('the right column grouped into settings, generation and versions', () =
 
   it('drops the reason once a product asset is picked', () => {
     useLibraryStore.setState({
-      assets: [{ id: 'a1', name: '正面白底', imageId: 'asset-1', createdAt: 1, lastUsedAt: 1 }],
+      assets: [
+        {
+          id: 'a1',
+          name: '正面白底',
+          imageId: 'asset-1',
+          createdAt: 1,
+          updatedAt: 1,
+          lastUsedAt: 1,
+        },
+      ],
     })
     render()
 

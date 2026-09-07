@@ -19,6 +19,7 @@ const ASSET: AssetRecord = {
   name: '白底图',
   imageId: 'image-a',
   createdAt: 1,
+  updatedAt: 1,
   lastUsedAt: 1,
 }
 

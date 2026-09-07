@@ -38,6 +38,7 @@ function makeTemplate(overrides: Partial<TemplateRecord>): TemplateRecord {
     assetIds: [],
     params: { size: '1024x1024', quality: 'high', n: 1 },
     createdAt: 1,
+    updatedAt: 1,
     lastUsedAt: 1,
     ...overrides,
   }
