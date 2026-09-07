@@ -665,6 +665,15 @@ describe('the product picked once for the whole job', () => {
     expect(row?.textContent).toContain('换产品')
     // 背景没动，那一句背景方案在这一版上是假的。
     expect(row?.textContent).not.toContain(PLAN.plan)
+
+    const open = [...(row?.querySelectorAll('button') ?? [])].find(
+      (button) => button.textContent === '查看方案',
+    )
+    if (!open) throw new Error('no plan drawer button')
+    click(open)
+
+    expect(document.querySelector('[aria-label="方案句"]')).toBeNull()
+    expect(document.querySelector('[aria-label="提示词"]')).not.toBeNull()
   })
 })
 
