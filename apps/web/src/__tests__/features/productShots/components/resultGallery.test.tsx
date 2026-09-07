@@ -81,6 +81,7 @@ beforeEach(() => {
       level: 'high',
       productAssets: [],
       product: { name: '', features: '', mainColor: '', forbiddenColors: [] },
+      language: 'zh',
       createdAt: 1,
       images: [
         { imageId: 'src-1', versions: [version('v1'), version('v2')], chosenVersionId: 'v1' },
