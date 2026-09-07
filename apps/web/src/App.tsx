@@ -11,7 +11,7 @@ import SettingsModal from './components/SettingsModal'
 import TaskGrid from './components/TaskGrid'
 import Toast from './components/Toast'
 import UpdateBanner from './components/UpdateBanner'
-import BgSwapMode from './features/bgswap/components/BgSwapMode'
+import ProductShotsMode from './features/productShots/components/ProductShotsMode'
 import CanvasMode from './features/canvas/components/CanvasMode'
 import InspirationPanel from './features/inspiration/components/InspirationPanel'
 import { initHashRoute } from './features/inspiration/lib/hashRoute'
@@ -73,7 +73,7 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
       {appMode === 'create' ? (
         <CanvasMode />
       ) : appMode === 'product' ? (
-        <BgSwapMode />
+        <ProductShotsMode />
       ) : (
         <>
           <main data-home-main data-drag-select-surface className="pb-48">

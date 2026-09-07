@@ -3,7 +3,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import TaskGrid from '../../components/TaskGrid'
-import { useBgSwapStore } from '../../features/bgswap/store'
+import { useProductShotsStore } from '../../features/productShots/store'
 import { useRemixStore } from '../../features/remix/store'
 import { useStore } from '../../store'
 import type { TaskRecord } from '../../types'
@@ -42,7 +42,7 @@ beforeEach(() => {
     selectedTaskIds: [],
   })
   useRemixStore.setState({ sets: [], loadSets: vi.fn().mockResolvedValue(undefined) })
-  useBgSwapStore.setState({
+  useProductShotsStore.setState({
     jobs: [
       {
         id: 'job-1',
