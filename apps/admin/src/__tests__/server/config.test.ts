@@ -18,13 +18,13 @@ describe('loadAdminCapabilities', () => {
         url: String(input),
         authorization: new Headers(init?.headers).get('authorization'),
       })
-      return Response.json({ 'accounts:login': false })
+      return Response.json({ 'accounts:login': false, 'accounts:sync': false })
     }
 
     delete process.env.INTERNAL_API_TOKEN
     try {
       await loadAdminCapabilities(disabledFetch)
-      expect(getAdminCapabilities()).toEqual({ accountsLogin: false })
+      expect(getAdminCapabilities()).toEqual({ accountsLogin: false, accountsSync: false })
       expect(() => config.assertValid()).not.toThrow()
       expect(requests).toEqual([
         { url: 'http://bff.test:37377/api/capabilities', authorization: null },
@@ -34,13 +34,19 @@ describe('loadAdminCapabilities', () => {
     }
   })
 
+  it('denies sync when the manifest omits it', async () => {
+    await loadAdminCapabilities(async () => Response.json({ 'accounts:login': true }))
+    expect(getAdminCapabilities()).toEqual({ accountsLogin: true, accountsSync: false })
+  })
+
   it('requires the service credential when login is enabled', async () => {
-    const enabledFetch = async () => Response.json({ 'accounts:login': true })
+    const enabledFetch = async () =>
+      Response.json({ 'accounts:login': true, 'accounts:sync': true })
 
     await loadAdminCapabilities(enabledFetch)
     delete process.env.INTERNAL_API_TOKEN
     try {
-      expect(getAdminCapabilities()).toEqual({ accountsLogin: true })
+      expect(getAdminCapabilities()).toEqual({ accountsLogin: true, accountsSync: true })
       expect(() => config.assertValid()).toThrow('Missing env: INTERNAL_API_TOKEN')
     } finally {
       process.env.INTERNAL_API_TOKEN = 'fixture-service-credential-alpha'
