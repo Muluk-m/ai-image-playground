@@ -19,7 +19,7 @@ import {
   notifyPrivateSubmissionSettled,
 } from '../../lib/privateOverlay'
 import { ensureImageCached, storeImageFromFile, useStore } from '../../store'
-import { appendCameraMove, clampDraftToSupport } from './lib/draft'
+import { appendCameraMove, clampDraftToSupport, videoDraftFromTask } from './lib/draft'
 import { videoTaskStore } from './lib/videoStore'
 import type { VideoDraft, VideoFrameSlot, VideoSource, VideoTask } from './types'
 
@@ -62,6 +62,8 @@ export interface VideoState {
   useAsFirstFrame(imageId: string): void
 
   submit(): Promise<string | null>
+  /** 把这条的参数填回左栏，不提交。 */
+  loadDraft(task: VideoTask): void
   regenerate(task: VideoTask): Promise<string | null>
   removeTask(id: string): Promise<void>
   setThumbnail(id: string, thumbnailDataUrl: string): Promise<void>
@@ -286,17 +288,12 @@ export const useVideoStore = create<VideoState>((set, get) => {
       return enqueue(get().draft)
     },
 
+    loadDraft(task) {
+      set({ draft: videoDraftFromTask(task) })
+    },
+
     regenerate(task) {
-      const draft: VideoDraft = {
-        source: task.source,
-        prompt: task.prompt,
-        model: task.model,
-        duration: task.duration,
-        aspectRatio: task.aspectRatio,
-        resolution: task.resolution,
-        firstFrameImageId: task.firstFrameImageId ?? null,
-        lastFrameImageId: task.lastFrameImageId ?? null,
-      }
+      const draft = videoDraftFromTask(task)
       set({ draft })
       return enqueue(draft)
     },
