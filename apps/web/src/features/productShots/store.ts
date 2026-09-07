@@ -429,40 +429,23 @@ export const useProductShotsStore = create<ProductShotsState>((set, get) => ({
   /** 重跑沿用这一版已有的方案与提示词，只换掉任务，版本条上不多出一条。 */
   retryVersion: async (versionId) => {
     const { draft, swapStage, batch } = get()
-    const image = draft.images.find((item) =>
-      item.versions.some((version) => version.id === versionId),
-    )
-    const version = image?.versions.find((item) => item.id === versionId)
+    const found = findVersion(draft, versionId)
     const jobId = draft.id
-    if (swapStage || batch?.running || !image || !version || !jobId) return
+    if (swapStage || batch?.running || !found || !jobId) return
 
     await runStages(set, async (stage) => {
-      const prepared = await prepareImage(get, image.imageId, stage, version)
+      const prepared = await prepareImage(get, found.imageId, stage, found.version)
       if (prepared.notice) set({ swapNotice: prepared.notice })
       const rerun = await submitVersion(jobId, prepared, versionId)
-      if (rerun) await recordVersions(set, get, image.imageId, [rerun])
+      if (rerun) await recordVersions(set, get, found.imageId, [rerun])
     })
   },
 
   /** 「按此重生成」：拿抽屉里这一版的提示词另起一版，遮罩与参考图照原动作再走一遍。 */
   regenerateFromVersion: async (versionId) => {
-    const { draft, swapStage, batch } = get()
-    const image = draft.images.find((item) =>
-      item.versions.some((version) => version.id === versionId),
-    )
-    const version = image?.versions.find((item) => item.id === versionId)
-    const jobId = draft.id
-    if (swapStage || batch?.running || !image || !version || !jobId) return
-
-    await runStages(set, async (stage) => {
-      const prepared = await prepareImage(get, image.imageId, stage, version)
-      if (prepared.notice) set({ swapNotice: prepared.notice })
-      const next = await submitVersion(jobId, prepared, crypto.randomUUID())
-      if (!next) return
-      // 提交的是人挑定的提示词而不是新出的方案，所以这一版一律算手改。
-      await recordVersions(set, get, image.imageId, [{ ...next, promptEdited: true }])
-      set({ previewVersionId: next.id, planVersionId: next.id })
-    })
+    const { draft } = get()
+    const found = findVersion(draft, versionId)
+    if (draft.id && found) await swapOneVersion(set, get, draft.id, found.imageId, found.version)
   },
 
   chooseVersion: (versionId) => {
@@ -534,6 +517,17 @@ function versionContext(draft: ProductShotsDraft, image: ProductShotImage): Vers
   }
 }
 
+function findVersion(
+  draft: ProductShotsDraft,
+  versionId: string,
+): { imageId: string; image: ProductShotImage; version: ProductShotVersion } | null {
+  for (const image of draft.images) {
+    const version = image.versions.find((item) => item.id === versionId)
+    if (version) return { imageId: image.imageId, image, version }
+  }
+  return null
+}
+
 function patchVersion(
   set: SetState,
   get: GetState,
@@ -541,13 +535,11 @@ function patchVersion(
   transform: (version: ProductShotVersion, ctx: VersionPlanContext) => ProductShotVersion,
 ): void {
   const { draft } = get()
-  const image = draft.images.find((item) =>
-    item.versions.some((version) => version.id === versionId),
-  )
-  if (!image) return
+  const found = findVersion(draft, versionId)
+  if (!found) return
 
-  const ctx = versionContext(draft, image)
-  patchImage(set, image.imageId, (item) => ({
+  const ctx = versionContext(draft, found.image)
+  patchImage(set, found.imageId, (item) => ({
     ...item,
     versions: item.versions.map((version) =>
       version.id === versionId ? transform(version, ctx) : version,
@@ -560,23 +552,27 @@ function reasonOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
-/** 单张出一版。确认对话框摆在中间，所以「有没有别的在跑」要在用户点完之后再看一次。 */
+/**
+ * 单张出一版。确认对话框摆在中间，所以「有没有别的在跑」要在用户点完之后再看一次。
+ * `reuse` 是抽屉里那一版：提交的是人挑定的提示词而不是新出的方案，所以新版一律算手改。
+ */
 async function swapOneVersion(
   set: SetState,
   get: GetState,
   jobId: string,
   imageId: string,
+  reuse?: ProductShotVersion,
 ): Promise<void> {
   const { swapStage, batch } = get()
   if (swapStage || batch?.running) return
 
   await runStages(set, async (stage) => {
-    const prepared = await prepareImage(get, imageId, stage)
+    const prepared = await prepareImage(get, imageId, stage, reuse)
     if (prepared.notice) set({ swapNotice: prepared.notice })
     const version = await submitVersion(jobId, prepared, crypto.randomUUID())
     if (!version) return
-    await recordVersions(set, get, imageId, [version])
-    set({ previewVersionId: version.id })
+    await recordVersions(set, get, imageId, [reuse ? { ...version, promptEdited: true } : version])
+    set({ previewVersionId: version.id, ...(reuse ? { planVersionId: version.id } : {}) })
   })
 }
 

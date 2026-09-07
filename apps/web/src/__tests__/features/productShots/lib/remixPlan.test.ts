@@ -3,8 +3,8 @@ import { describe, expect, it } from 'vitest'
 import {
   buildRemixPlan,
   emptyProductDescription,
-  formatColorList,
-  parseColorList,
+  formatTextList,
+  parseTextList,
   remixProductDescription,
 } from '../../../../features/productShots/lib/remixPlan'
 import type { RemixProductDescription } from '../../../../lib/shotTypes'
@@ -114,10 +114,10 @@ describe('describing my product for the analysis and the product lock', () => {
 
 describe('typing a list of colours', () => {
   it('splits on the punctuation a user would type and drops the blanks', () => {
-    expect(parseColorList('米白、浅灰,  白色 ，')).toEqual(['米白', '浅灰', '白色'])
+    expect(parseTextList('米白、浅灰,  白色 ，')).toEqual(['米白', '浅灰', '白色'])
   })
 
   it('shows the list back as one line', () => {
-    expect(formatColorList(['米白', '浅灰'])).toBe('米白、浅灰')
+    expect(formatTextList(['米白', '浅灰'])).toBe('米白、浅灰')
   })
 })
