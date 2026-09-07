@@ -6,11 +6,14 @@ let currentScope = ANONYMOUS_SCOPE
 /** store persist 的 name。 */
 export const STORE_PERSIST_KEY = 'image-playground'
 
+/** 同步检查点的 name。 */
+export const SYNC_CHECKPOINT_KEY = 'image-playground-sync'
+
 /**
  * 走 scopedLocalStorage 的全部 key。登录后认领匿名历史要照着它搬，
  * 新增按 scope 隔离的 key 必须登记进来。
  */
-export const SCOPED_LOCAL_STORAGE_KEYS = [STORE_PERSIST_KEY]
+export const SCOPED_LOCAL_STORAGE_KEYS = [STORE_PERSIST_KEY, SYNC_CHECKPOINT_KEY]
 
 /**
  * 必须在首次加载 App/store/db 之前设置。认证部署按用户隔离本地历史、图片与 BYOK
