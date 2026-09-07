@@ -27,7 +27,7 @@ vi.mock('../../../lib/clientCapabilities', async (importOriginal) => ({
 
 vi.mock('../../../features/remix/lib/analyzeClient', () => ({ analyzeCompetitorImages }))
 
-vi.mock('../../../features/remix/lib/eraseProduct', () => ({ eraseProductArea }))
+vi.mock('../../../lib/eraseProduct', () => ({ eraseProductArea }))
 
 vi.mock('../../../store', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../store')>()),

@@ -74,3 +74,21 @@ export function matchProductAsset(
 ): ProductAsset | null {
   return assets.find((asset) => asset.angle === angle) ?? null
 }
+
+export function toggleProductAsset(
+  assets: readonly ProductAsset[],
+  assetId: string,
+  angle: ProductAngle,
+): ProductAsset[] {
+  return assets.some((asset) => asset.assetId === assetId)
+    ? assets.filter((asset) => asset.assetId !== assetId)
+    : [...assets, { assetId, angle }]
+}
+
+export function setProductAssetAngle(
+  assets: readonly ProductAsset[],
+  assetId: string,
+  angle: ProductAngle,
+): ProductAsset[] {
+  return assets.map((asset) => (asset.assetId === assetId ? { ...asset, angle } : asset))
+}

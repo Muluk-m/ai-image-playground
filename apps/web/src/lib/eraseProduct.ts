@@ -1,5 +1,5 @@
 import type { ProductBox } from '@image-playground/shared'
-import { loadImage } from '../../../lib/canvasImage'
+import { loadImage } from './canvasImage'
 
 export interface PixelRect {
   x: number

@@ -13,7 +13,7 @@ import {
 import type { InputImage } from '../../types'
 import { useLibraryStore } from '../library/store'
 import { analyzeCompetitorImages } from './lib/analyzeClient'
-import { eraseProductArea } from './lib/eraseProduct'
+import { eraseProductArea } from '../../lib/eraseProduct'
 import { productContextDescription } from './lib/prompt'
 import { remixSetStore } from './lib/remixSetStore'
 import {

@@ -1,6 +1,8 @@
 import { IDBFactory } from 'fake-indexeddb'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useBgSwapStore } from '../../../features/bgswap/store'
+import { useLibraryStore } from '../../../features/library/store'
+import type { AssetRecord } from '../../../features/library/types'
 import { ProductMatteError } from '../../../lib/productMatte'
 import { useStore } from '../../../store'
 
@@ -19,6 +21,8 @@ const requestSceneScan = vi.hoisted(() => vi.fn())
 const segmentProduct = vi.hoisted(() => vi.fn())
 const assessMatte = vi.hoisted(() => vi.fn())
 const alphaToInpaintMask = vi.hoisted(() => vi.fn())
+const alphaToProductMask = vi.hoisted(() => vi.fn())
+const eraseProductArea = vi.hoisted(() => vi.fn())
 const modelSupportsNativeMask = vi.hoisted(() => vi.fn())
 const storeImage = vi.hoisted(() => vi.fn())
 
@@ -50,7 +54,10 @@ vi.mock('../../../lib/productMatte', async (importOriginal) => ({
   segmentProduct,
   assessMatte,
   alphaToInpaintMask,
+  alphaToProductMask,
 }))
+
+vi.mock('../../../lib/eraseProduct', () => ({ eraseProductArea }))
 
 vi.mock('../../../lib/channels/profileSelectors', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../lib/channels/profileSelectors')>()),
@@ -64,6 +71,7 @@ vi.mock('../../../lib/db', async (importOriginal) => ({
 
 const PLAN = {
   category: '折叠浴缸',
+  camera: '略高的 3/4 侧视',
   sceneType: 'photo',
   productBox: null,
   plan: '放进有窗光的日式木质浴室',
@@ -72,6 +80,10 @@ const PLAN = {
 
 function image(name: string): File {
   return new File(['x'], name, { type: 'image/png' })
+}
+
+function asset(id: string, name: string, imageId: string): AssetRecord {
+  return { id, name, imageId, createdAt: 1, lastUsedAt: 1 }
 }
 
 /** 一张原图 + 一份可用蒙版的默认剧本，测试只覆盖它要变的那一段。 */
@@ -106,8 +118,16 @@ beforeEach(() => {
   })
   assessMatte.mockReturnValue({ ok: true, coverage: 0.4 })
   alphaToInpaintMask.mockReturnValue('data:image/png;base64,MASK')
+  alphaToProductMask.mockReturnValue('data:image/png;base64,PRODUCT-MASK')
+  eraseProductArea.mockResolvedValue('data:image/png;base64,ERASED')
   modelSupportsNativeMask.mockReturnValue(true)
   storeImage.mockResolvedValue('mask-1')
+  useLibraryStore.setState({
+    assets: [
+      asset('a-front', '正面白底', 'asset-front'),
+      asset('a-side', '侧面', 'asset-side'),
+    ],
+  })
 })
 
 afterEach(() => {
@@ -276,6 +296,7 @@ describe('swapping the background of one image', () => {
     expect(requestBackgroundPlan).toHaveBeenCalledWith({
       image: `data:image/png;base64,${imageId}`,
       preference: '北欧风',
+      mode: 'background',
     })
     const jobId = useBgSwapStore.getState().draft.id
     const [version] = useBgSwapStore.getState().draft.images[0].versions
@@ -603,6 +624,162 @@ describe('picking among the versions', () => {
     useBgSwapStore.getState().selectImage('image-细节.png')
 
     expect(useBgSwapStore.getState().previewVersionId).toBeNull()
+  })
+})
+
+describe('swapping the product for one of my assets', () => {
+  /** 右栏选了两张标好角度的素材，产品来源切到素材。 */
+  async function jobWithAssets(target: 'product-only' | 'product-and-background'): Promise<string> {
+    const imageId = await jobWithOneImage()
+    const store = useBgSwapStore.getState()
+    store.setProductSource('asset')
+    store.setSwapTarget(target)
+    store.toggleProductAsset('a-front')
+    store.setProductAngle('a-front', 'front')
+    store.toggleProductAsset('a-side')
+    store.setProductAngle('a-side', 'three-quarter')
+    return imageId
+  }
+
+  it('repaints the product area and keeps the background pixels', async () => {
+    const imageId = await jobWithAssets('product-only')
+
+    await useBgSwapStore.getState().swapBackground()
+
+    expect(requestBackgroundPlan.mock.calls[0][0].mode).toBe('replace-product')
+    expect(alphaToProductMask).toHaveBeenCalledTimes(1)
+    expect(alphaToInpaintMask).not.toHaveBeenCalled()
+    expect(storeImage).toHaveBeenCalledWith('data:image/png;base64,PRODUCT-MASK', 'mask')
+    expect(submitPrepared.mock.calls[0][0].mask).toEqual({
+      imageId: 'mask-1',
+      targetImageId: imageId,
+    })
+  })
+
+  it('sends the original first and the angle-matched asset second', async () => {
+    const imageId = await jobWithAssets('product-only')
+
+    await useBgSwapStore.getState().swapBackground()
+
+    // 方案说机位是 3/4 侧，所以拿标了 three-quarter 的那张，不是正面那张。
+    expect(submitPrepared.mock.calls[0][0].inputImages).toEqual([
+      { id: imageId, dataUrl: `data:image/png;base64,${imageId}` },
+      { id: 'asset-side', dataUrl: 'data:image/png;base64,asset-side' },
+    ])
+  })
+
+  it('records the asset and the mode on the version', async () => {
+    await jobWithAssets('product-only')
+
+    await useBgSwapStore.getState().swapBackground()
+
+    expect(useBgSwapStore.getState().draft.images[0].versions[0]).toMatchObject({
+      mode: 'replace-product',
+      productAssetId: 'a-side',
+      masked: true,
+    })
+  })
+
+  it('holds the swap until an asset is picked', async () => {
+    await jobWithOneImage()
+    useBgSwapStore.getState().setProductSource('asset')
+
+    await useBgSwapStore.getState().swapBackground()
+
+    expect(submitPrepared).not.toHaveBeenCalled()
+    expect(useBgSwapStore.getState().swapNotice).toContain('素材')
+  })
+
+  it('falls back to the first asset when no angle matches', async () => {
+    await jobWithAssets('product-only')
+    useBgSwapStore.getState().setProductAngle('a-side', 'top-down')
+
+    await useBgSwapStore.getState().swapBackground()
+
+    expect(submitPrepared.mock.calls[0][0].inputImages[1].id).toBe('asset-front')
+    expect(useBgSwapStore.getState().swapNotice).toContain('机位')
+  })
+
+  it('keeps the product settings for every image of the batch', async () => {
+    await jobWithAssets('product-only')
+    await useBgSwapStore.getState().importFiles([image('细节.png')])
+
+    await useBgSwapStore.getState().runBatch()
+
+    const [version] = useBgSwapStore.getState().draft.images[1].versions
+    expect(version).toMatchObject({ mode: 'replace-product', productAssetId: 'a-side' })
+  })
+
+  it('reopens a saved job with the product settings it was saved with', async () => {
+    await jobWithAssets('product-and-background')
+    const jobId = useBgSwapStore.getState().draft.id
+
+    useBgSwapStore.getState().startNewJob()
+    await useBgSwapStore.getState().loadJobs()
+    useBgSwapStore.getState().selectJob(jobId as string)
+
+    const { draft } = useBgSwapStore.getState()
+    expect(draft.productSource).toBe('asset')
+    expect(draft.target).toBe('product-and-background')
+    expect(draft.productAssets).toEqual([
+      { assetId: 'a-front', angle: 'front' },
+      { assetId: 'a-side', angle: 'three-quarter' },
+    ])
+  })
+})
+
+describe('swapping the product and the background at once', () => {
+  async function jobWithBoth(): Promise<string> {
+    const imageId = await jobWithOneImage()
+    const store = useBgSwapStore.getState()
+    store.setProductSource('asset')
+    store.setSwapTarget('product-and-background')
+    store.toggleProductAsset('a-front')
+    store.setProductAngle('a-front', 'three-quarter')
+    return imageId
+  }
+
+  it('redraws the whole picture: no mask, the erased original as framing', async () => {
+    requestBackgroundPlan.mockResolvedValue({ ...PLAN, productBox: { x: 0.1, y: 0.2, w: 0.3, h: 0.4 } })
+    const imageId = await jobWithBoth()
+
+    await useBgSwapStore.getState().swapBackground()
+
+    expect(requestBackgroundPlan.mock.calls[0][0].mode).toBe('replace-and-background')
+    expect(eraseProductArea).toHaveBeenCalledWith(`data:image/png;base64,${imageId}`, {
+      x: 0.1,
+      y: 0.2,
+      w: 0.3,
+      h: 0.4,
+    })
+    const [submission] = submitPrepared.mock.calls[0]
+    expect(submission.mask).toBeNull()
+    expect(submission.inputImages).toEqual([
+      { id: 'image-data:image/png;base64,ERASED', dataUrl: 'data:image/png;base64,ERASED' },
+      { id: 'asset-front', dataUrl: 'data:image/png;base64,asset-front' },
+    ])
+  })
+
+  it('never runs the matte: nothing in the picture is being kept', async () => {
+    await jobWithBoth()
+
+    await useBgSwapStore.getState().swapBackground()
+
+    expect(segmentProduct).not.toHaveBeenCalled()
+    expect(useBgSwapStore.getState().draft.images[0].versions[0]).toMatchObject({
+      mode: 'replace-and-background',
+      productAssetId: 'a-front',
+      masked: false,
+    })
+  })
+
+  it('sends the untouched original when the plan found no product box', async () => {
+    const imageId = await jobWithBoth()
+
+    await useBgSwapStore.getState().swapBackground()
+
+    expect(eraseProductArea).not.toHaveBeenCalled()
+    expect(submitPrepared.mock.calls[0][0].inputImages[0].id).toBe(imageId)
   })
 })
 
