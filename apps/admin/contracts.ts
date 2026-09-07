@@ -34,6 +34,7 @@ export function parseSort(value: unknown): SortKey {
 
 export interface AdminSession {
   readonly accounts_login: boolean
+  readonly accounts_sync: boolean
   readonly ok: true
 }
 
@@ -134,6 +135,10 @@ export interface UserDetailResult {
   volume: TaskVolumeBucket[]
   volume_bucket: VolumeBucketUnit
   volume_range: Range
+  /** 墓碑不计入两个计数；asset_bytes 是该用户已上传图片本体的总字节。 */
+  template_count: number
+  asset_count: number
+  asset_bytes: number
 }
 
 export interface UserTasksResult {

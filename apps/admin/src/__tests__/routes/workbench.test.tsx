@@ -5,7 +5,7 @@ import { createMemoryHistory, createRouter, RouterProvider } from '@tanstack/rea
 import { render, screen, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const session = vi.hoisted(() => ({ accountsLogin: true }))
+const session = vi.hoisted(() => ({ accountsLogin: true, accountsSync: true }))
 
 vi.mock('../../lib/api-client', () => {
   const overview = {
@@ -37,12 +37,26 @@ vi.mock('../../lib/api-client', () => {
   }
 
   async function get(url: string): Promise<unknown> {
-    if (url === '/api/me') return { ok: true, accounts_login: session.accountsLogin }
+    if (url === '/api/me') {
+      return {
+        ok: true,
+        accounts_login: session.accountsLogin,
+        accounts_sync: session.accountsSync,
+      }
+    }
     if (url === '/api/extensions') return { navigation: [], user_links: [] }
     if (url.startsWith('/api/overview')) return overview
     if (url.includes('/tasks')) return { tasks: [], nextCursor: null }
     if (url.startsWith('/api/users/')) {
-      return { user, volume: [], volume_bucket: 'day', volume_range: '30d' }
+      return {
+        user,
+        volume: [],
+        volume_bucket: 'day',
+        volume_range: '30d',
+        template_count: 4,
+        asset_count: 12,
+        asset_bytes: 3 * 1024 * 1024,
+      }
     }
     if (url.startsWith('/api/users')) {
       return {
@@ -81,6 +95,7 @@ function renderAt(path: string): void {
 
 beforeEach(() => {
   session.accountsLogin = true
+  session.accountsSync = true
   document.cookie = 'sidebar_state=; path=/; max-age=0'
 })
 
@@ -122,6 +137,26 @@ describe('sidebar navigation', () => {
     renderAt('/overview')
     await screen.findByRole('list', { name: '后台导航' })
     expect(document.querySelector('[data-state="collapsed"]')).toBeNull()
+  })
+})
+
+describe('sync footprint', () => {
+  it('shows the template, asset and byte counts when accounts:sync is enabled', async () => {
+    renderAt('/users/user-1')
+    expect(await screen.findByText('模板')).toBeInTheDocument()
+    expect(screen.getByText('4')).toBeInTheDocument()
+    expect(screen.getByText('素材')).toBeInTheDocument()
+    expect(screen.getByText('12')).toBeInTheDocument()
+    expect(screen.getByText('素材占用')).toBeInTheDocument()
+    expect(screen.getByText('3.0 MB')).toBeInTheDocument()
+  })
+
+  it('hides the sync footprint when accounts:sync is disabled', async () => {
+    session.accountsSync = false
+    renderAt('/users/user-1')
+    expect(await screen.findByLabelText('任务状态筛选')).toBeInTheDocument()
+    expect(screen.queryByText('模板')).not.toBeInTheDocument()
+    expect(screen.queryByText('素材占用')).not.toBeInTheDocument()
   })
 })
 

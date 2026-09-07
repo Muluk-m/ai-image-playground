@@ -379,11 +379,18 @@ function mapTaskListItem(row: Record<string, unknown>): TaskListItem {
   }
 }
 
+// asset_bytes 必须和 BFF 校验 `sync:user-asset-bytes` 的分母一致，别改成「活素材引用到的图片」。
+const SYNC_FOOTPRINT = sql`
+  (SELECT COUNT(*) FROM user_templates WHERE user_id = u.id AND deleted_at IS NULL) AS template_count,
+  (SELECT COUNT(*) FROM user_assets WHERE user_id = u.id AND deleted_at IS NULL) AS asset_count,
+  (SELECT COALESCE(SUM(bytes), 0) FROM user_asset_objects WHERE user_id = u.id) AS asset_bytes
+`
+
 export async function getUserDetail(userId: string): Promise<UserDetailResult | null> {
   const { db } = getHandle()
   const [userRowsRaw, volume] = await Promise.all([
     db.execute(sql`
-      SELECT ${ADMIN_USER_PROJECTION}
+      SELECT ${ADMIN_USER_PROJECTION}, ${SYNC_FOOTPRINT}
       FROM users u
       CROSS JOIN LATERAL (
         SELECT COUNT(*) AS task_count, MAX(t.submitted_at) AS last_task_at
@@ -402,6 +409,9 @@ export async function getUserDetail(userId: string): Promise<UserDetailResult | 
     volume,
     volume_bucket: volumeBucketUnit(USER_VOLUME_RANGE),
     volume_range: USER_VOLUME_RANGE,
+    template_count: Number(userRow.template_count),
+    asset_count: Number(userRow.asset_count),
+    asset_bytes: Number(userRow.asset_bytes),
   }
 }
 
