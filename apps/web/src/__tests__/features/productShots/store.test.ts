@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useLibraryStore } from '../../../features/library/store'
 import type { AssetRecord } from '../../../features/library/types'
 import { useProductShotsStore } from '../../../features/productShots/store'
+import { getImage, putImage } from '../../../lib/db'
 import { ProductMatteError } from '../../../lib/productMatte'
 import { useStore } from '../../../store'
 
@@ -362,6 +363,48 @@ describe('reopening a saved job', () => {
     expect(draft.preference).toBe('北欧风')
     expect(draft.versionsPerImage).toBe(3)
     expect(selectedImageId).toBe('image-主图.png')
+  })
+})
+
+describe('renaming and deleting a job', () => {
+  it('carries the new name to the export name and to the record the history card reads', async () => {
+    await useProductShotsStore.getState().importFiles([image('主图.png')])
+    const savedId = useProductShotsStore.getState().draft.id
+    if (!savedId) throw new Error('the job was never saved')
+
+    await useProductShotsStore.getState().renameJob(savedId, '  日式浴室主图  ')
+
+    expect(useProductShotsStore.getState().draft.name).toBe('日式浴室主图')
+    expect(useProductShotsStore.getState().jobs[0]?.name).toBe('日式浴室主图')
+    useProductShotsStore.setState({ jobs: [] })
+    await useProductShotsStore.getState().loadJobs()
+    expect(useProductShotsStore.getState().jobs[0]?.name).toBe('日式浴室主图')
+  })
+
+  it('refuses a blank name', async () => {
+    await useProductShotsStore.getState().importFiles([image('主图.png')])
+    const savedId = useProductShotsStore.getState().draft.id
+    if (!savedId) throw new Error('the job was never saved')
+    const before = useProductShotsStore.getState().draft.name
+
+    await useProductShotsStore.getState().renameJob(savedId, '   ')
+
+    expect(useProductShotsStore.getState().draft.name).toBe(before)
+  })
+
+  it('drops the record but leaves the images and the generated history', async () => {
+    await putImage({ id: 'image-主图.png', dataUrl: 'data:,原图', createdAt: 1 })
+    useStore.setState({ tasks: [{ id: 'task-1' } as never] })
+    await useProductShotsStore.getState().importFiles([image('主图.png')])
+    const savedId = useProductShotsStore.getState().draft.id
+    if (!savedId) throw new Error('the job was never saved')
+
+    await useProductShotsStore.getState().deleteJob(savedId)
+
+    expect(useProductShotsStore.getState().jobs).toEqual([])
+    expect(useProductShotsStore.getState().activeJobId).toBeNull()
+    expect(await getImage('image-主图.png')).toBeTruthy()
+    expect(useStore.getState().tasks).toHaveLength(1)
   })
 })
 

@@ -151,6 +151,8 @@ export interface ProductShotsState {
   loadJobs: () => Promise<void>
   startNewJob: () => void
   selectJob: (id: string) => void
+  renameJob: (id: string, name: string) => Promise<void>
+  deleteJob: (id: string) => Promise<void>
 
   runAction: (mode: ProductShotAction) => Promise<void>
   retryVersion: (versionId: string) => Promise<void>
@@ -276,6 +278,26 @@ export const useProductShotsStore = create<ProductShotsState>((set, get) => ({
       planVersionId: null,
       batch: null,
     })
+  },
+
+  renameJob: async (id, name) => {
+    const trimmed = name.trim()
+    const target = get().jobs.find((job) => job.id === id)
+    if (!target || !trimmed || trimmed === target.name) return
+    const record: ProductShotJob = { ...target, name: trimmed, updatedAt: Date.now() }
+    await productShotJobStore.put(record)
+    set((s) => ({
+      jobs: s.jobs.map((job) => (job.id === id ? record : job)),
+      draft: s.activeJobId === id ? { ...s.draft, name: trimmed } : s.draft,
+    }))
+  },
+
+  /** 只删任务记录：图片本体与已生成的任务历史另有主人，不跟着走。 */
+  deleteJob: async (id) => {
+    await productShotJobStore.remove(id)
+    const wasActive = get().activeJobId === id
+    set((s) => ({ jobs: s.jobs.filter((job) => job.id !== id) }))
+    if (wasActive) get().startNewJob()
   },
 
   setSourceMode: (sourceMode) => {
