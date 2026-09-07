@@ -1,5 +1,5 @@
 import type { PersistedSubmitRequest, QueueProvider, VideoRequest } from '@image-playground/shared'
-import { validateVideoRequest } from '@image-playground/shared'
+import { validateVideoRequest, videoRateMultiplier } from '@image-playground/shared'
 import { and, eq, isNull } from 'drizzle-orm'
 import { Elysia, t } from 'elysia'
 import { config } from '../config'
@@ -158,7 +158,8 @@ export const submitRoutes = new Elysia()
             taskId: id,
             userId: authUser.id,
             model,
-            quantity: n,
+            quantity: video ? video.duration_seconds : n,
+            unitMultiplier: video ? videoRateMultiplier(video.resolution) : 1,
           })
           if (reservation.kind !== 'reserved') {
             await tx.delete(schema.tasks).where(eq(schema.tasks.id, id))
