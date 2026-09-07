@@ -7,7 +7,7 @@ import type {
   SyncResponseBody,
   SyncTemplateChange,
 } from '@image-playground/shared'
-import { SYNC_MAX_CHANGES_PER_COLLECTION } from '@image-playground/shared'
+import { isSyncTombstone, SYNC_MAX_CHANGES_PER_COLLECTION } from '@image-playground/shared'
 import { assetStore } from '../../features/library/lib/assetStore'
 import { templateStore } from '../../features/library/lib/templateStore'
 import { useLibraryStore } from '../../features/library/store'
@@ -15,9 +15,18 @@ import type { AssetRecord, TemplateRecord, Tombstone } from '../../features/libr
 import { useStore } from '../../store'
 import { isClientCapabilityEnabled } from '../clientCapabilities'
 import {
+  forgetUploadedAssetImages,
+  isAssetImageOnServer,
+  noteAssetImageOnServer,
+  uploadAssetImage,
+} from './assetImages'
+import {
+  type DirtyRecord,
+  dropPendingRecords,
   markSettingsDirty,
   type PendingKey,
   pendingCount,
+  publishCheckpoint,
   readPendingChanges,
   type SyncCheckpoint,
   type SyncCollection,
@@ -43,7 +52,8 @@ export function startSyncEngine(): () => void {
   if (!isClientCapabilityEnabled('accounts:sync')) return () => {}
 
   settingsSnapshot = JSON.stringify(readUserSettingsDocument())
-  publish(readPendingChanges())
+  forgetUploadedAssetImages()
+  publishCheckpoint()
   useSyncStatus.setState({ enabled: true })
 
   const stopTracking = trackLocalChanges(onLocalChange)
@@ -73,7 +83,7 @@ export async function syncNow(options: { keepalive?: boolean } = {}): Promise<vo
   let again = false
   try {
     const checkpoint = readPendingChanges()
-    const request = await buildRequest(checkpoint)
+    const request = await buildRequest(checkpoint, options.keepalive ?? false)
     const response = await postSync(request, options)
     await applyResponse(response)
     settle(request, response)
@@ -95,9 +105,10 @@ function filledOneRequest(request: SyncRequestBody): boolean {
   )
 }
 
-function onLocalChange(key: PendingKey): void {
+function onLocalChange(key: PendingKey, record?: DirtyRecord): void {
   changedInFlight?.add(key)
-  publish(readPendingChanges())
+  // 素材图不等元数据的 debounce：建素材那一刻就开始传，记录才追得上它。
+  if (record?.imageId) void uploadAssetImage(record.imageId)
   schedulePush()
 }
 
@@ -147,7 +158,7 @@ function clearTimer(): void {
   pushTimer = null
 }
 
-async function buildRequest(checkpoint: SyncCheckpoint): Promise<SyncRequestBody> {
+async function buildRequest(checkpoint: SyncCheckpoint, hiding: boolean): Promise<SyncRequestBody> {
   const [templates, assets] = await Promise.all([
     templateStore.listChanges(),
     assetStore.listChanges(),
@@ -155,7 +166,7 @@ async function buildRequest(checkpoint: SyncCheckpoint): Promise<SyncRequestBody
   return {
     version: checkpoint.version,
     templates: collect(templates, checkpoint.templates).map(toWire),
-    assets: collect(assets, checkpoint.assets),
+    assets: await withImagesUploaded(collect(assets, checkpoint.assets), hiding),
     settings:
       checkpoint.settingsUpdatedAt === null
         ? null
@@ -177,7 +188,39 @@ function collect<T extends { id: string }>(
   return rows.filter((row) => wanted.has(row.id)).slice(0, SYNC_MAX_CHANGES_PER_COLLECTION)
 }
 
+/**
+ * 先图后记录：服务端只收图片本体已经在它那边的素材记录。图还没传上去的这一轮不推，
+ * 留在待推集合里等下一轮；服务端明确不收的（配额、类型）摘出待推集合，改标「未同步」。
+ */
+async function withImagesUploaded(
+  changes: Array<AssetRecord | Tombstone>,
+  hiding: boolean,
+): Promise<Array<AssetRecord | Tombstone>> {
+  const ready: Array<AssetRecord | Tombstone> = []
+  const refused: string[] = []
+  // 逐张传，不并发：首次登录那一批素材会把几百张图一起推出去。
+  for (const change of changes) {
+    if (isSyncTombstone(change)) {
+      ready.push(change)
+      continue
+    }
+    // 页面正在隐藏：等图片传完，这一轮元数据就跟着页面一起没了。
+    if (hiding) {
+      if (isAssetImageOnServer(change.imageId)) ready.push(change)
+      continue
+    }
+    const outcome = await uploadAssetImage(change.imageId)
+    if (outcome === 'uploaded') ready.push(change)
+    if (outcome === 'refused') refused.push(change.id)
+  }
+  if (refused.length > 0) dropPendingRecords('assets', refused)
+  return ready
+}
+
 async function applyResponse(response: SyncResponseBody): Promise<void> {
+  for (const change of response.assets) {
+    if (!isSyncTombstone(change)) noteAssetImageOnServer(change.imageId)
+  }
   await Promise.all([
     templateStore.applyRemote(response.templates as Array<TemplateRecord | Tombstone>),
     assetStore.applyRemote(response.assets as Array<AssetRecord | Tombstone>),
@@ -215,14 +258,7 @@ function settle(request: SyncRequestBody, response: SyncResponseBody): void {
     settingsUpdatedAt:
       request.settings && !changedInFlight?.has('settings') ? null : current.settingsUpdatedAt,
     lastSyncedAt: Date.now(),
+    unsyncedImages: current.unsyncedImages,
   }
   writePendingChanges(next)
-  publish(next)
-}
-
-function publish(checkpoint: SyncCheckpoint): void {
-  useSyncStatus.setState({
-    pending: pendingCount(checkpoint),
-    lastSyncedAt: checkpoint.lastSyncedAt,
-  })
 }

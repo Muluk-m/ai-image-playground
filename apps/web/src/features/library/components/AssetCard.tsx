@@ -1,5 +1,6 @@
 import { type KeyboardEvent, useState } from 'react'
 import { EditIcon, TrashIcon, ZoomIcon } from '../../../components/icons'
+import { useSyncStatus } from '../../../lib/sync/status'
 import { useStore } from '../../../store'
 import { useLibraryStore } from '../store'
 import type { AssetRecord } from '../types'
@@ -11,6 +12,7 @@ export default function AssetCard({ asset }: { asset: AssetRecord }) {
   const deleteAsset = useLibraryStore((s) => s.deleteAsset)
   const setConfirmDialog = useStore((s) => s.setConfirmDialog)
   const setLightboxImageId = useStore((s) => s.setLightboxImageId)
+  const unsynced = useSyncStatus((s) => s.enabled && s.unsyncedImages.includes(asset.imageId))
   const [draftName, setDraftName] = useState<string | null>(null)
 
   const commitRename = () => {
@@ -37,6 +39,11 @@ export default function AssetCard({ asset }: { asset: AssetRecord }) {
         className="relative aspect-square cursor-pointer overflow-hidden bg-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-400/60 dark:bg-white/[0.05]"
       >
         <AssetThumb imageId={asset.imageId} alt={asset.name} />
+        {unsynced && (
+          <span className="pointer-events-none absolute left-1.5 top-1.5 rounded-md bg-black/45 px-1.5 py-0.5 text-[10px] font-medium text-white">
+            未同步
+          </span>
+        )}
         {/* 标签常显：触屏没有 hover，只在 hover 时才现就等于没有。 */}
         <span className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 to-transparent px-2 pb-1.5 pt-4 text-[11px] font-medium text-white">
           加入参考图

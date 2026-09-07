@@ -8,6 +8,8 @@ interface SyncStatusState {
   status: SyncStatus
   pending: number
   lastSyncedAt: number | null
+  /** 服务端不会再收的素材图；引用它们的素材卡标「未同步」。 */
+  unsyncedImages: string[]
 }
 
 export const useSyncStatus = create<SyncStatusState>(() => ({
@@ -15,4 +17,5 @@ export const useSyncStatus = create<SyncStatusState>(() => ({
   status: 'idle',
   pending: 0,
   lastSyncedAt: null,
+  unsyncedImages: [],
 }))
