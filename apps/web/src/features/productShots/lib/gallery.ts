@@ -58,6 +58,11 @@ export function flatVersions(rows: readonly GalleryRow[]): GalleryVersion[] {
   return rows.flatMap((row) => row.versions)
 }
 
+/** 大图查看器的翻页范围：总览里所有成图，按卡片顺序。 */
+export function galleryImageIds(rows: readonly GalleryRow[]): string[] {
+  return flatVersions(rows).flatMap((item) => item.outputImageIds)
+}
+
 export interface ManualExportScope {
   scope: ExportScope
   /** 切换那一刻有没有选用版本。 */

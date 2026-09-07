@@ -752,16 +752,16 @@ describe('the result gallery', () => {
   it('takes a version as the chosen one from the gallery', async () => {
     await withOneResult()
 
-    const choose = [...gallery().querySelectorAll('button')].find(
-      (button) => button.textContent === '用这版',
-    )
+    const choose = gallery().querySelector<HTMLButtonElement>('[data-product-shots-choose]')
     if (!choose) throw new Error('no choose button')
     click(choose)
     await settle()
 
     const [version] = useProductShotsStore.getState().draft.images[0].versions
     expect(useProductShotsStore.getState().draft.images[0].chosenVersionId).toBe(version.id)
-    expect(gallery().textContent).toContain('已选')
+    expect(
+      gallery().querySelector('[data-product-shots-choose]')?.getAttribute('aria-pressed'),
+    ).toBe('true')
   })
 })
 
@@ -779,8 +779,9 @@ describe('the plan drawer of one version', () => {
   }
 
   function openDrawer(from: HTMLElement) {
+    // 版本条上是文字按钮，总览卡上是图标按钮，两处认同一个名字。
     const open = [...from.querySelectorAll('button')].find(
-      (button) => button.textContent === '查看方案',
+      (button) => button.textContent === '查看方案' || button.title === '查看方案',
     )
     if (!open) throw new Error('no plan drawer button')
     click(open)

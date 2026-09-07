@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { IDBFactory } from 'fake-indexeddb'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -57,15 +58,18 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
 }
 
 const showToast = vi.fn<(message: string, type?: 'info' | 'success' | 'error') => void>()
+const setLightboxImageId = vi.fn<(id: string | null, list?: string[]) => void>()
 const retryVersion = vi.fn<(versionId: string) => Promise<void>>()
 
 let host: HTMLDivElement
 let root: Root
 
 beforeEach(() => {
+  vi.stubGlobal('indexedDB', new IDBFactory())
   retryVersion.mockResolvedValue(undefined)
   useStore.setState({
     showToast,
+    setLightboxImageId,
     tasks: [
       task('task-v1', { outputImages: ['out-1'] }),
       task('task-v2', { status: 'error', error: '上游报错', outputImages: [] }),
@@ -73,6 +77,9 @@ beforeEach(() => {
   })
   useProductShotsStore.setState({
     retryVersion,
+    selectedImageId: null,
+    previewVersionId: null,
+    matteOverlayVersionId: null,
     draft: {
       id: 'job-1',
       name: '折叠浴缸',
@@ -112,10 +119,36 @@ function click(element: Element) {
   })
 }
 
+function doubleClick(element: Element) {
+  act(() => {
+    element.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
+  })
+}
+
 function buttonLabelled(text: string, scope: ParentNode = document): HTMLButtonElement {
   const found = [...scope.querySelectorAll('button')].find((b) => b.textContent?.trim() === text)
   if (!found) throw new Error(`no button labelled ${text}`)
   return found
+}
+
+function buttonTitled(title: string, scope: ParentNode = document): HTMLButtonElement {
+  const found = [...scope.querySelectorAll('button')].find((b) => b.title === title)
+  if (!found) throw new Error(`no button titled ${title}`)
+  return found
+}
+
+function cards(): HTMLElement[] {
+  return [...document.querySelectorAll<HTMLElement>('[data-product-shots-gallery-item]')]
+}
+
+function part(selector: string, scope: ParentNode = document): HTMLElement {
+  const found = scope.querySelector<HTMLElement>(selector)
+  if (!found) throw new Error(`no ${selector}`)
+  return found
+}
+
+function chosenVersionId(): string | undefined {
+  return useProductShotsStore.getState().draft.images[0]?.chosenVersionId
 }
 
 async function settle() {
@@ -142,13 +175,68 @@ function chooseNothing() {
 describe('the results overview', () => {
   it('reruns a failed version in place', () => {
     render()
-    const failed = [...document.querySelectorAll('[data-product-shots-gallery-item]')].find(
-      (item) => item.textContent?.includes('失败'),
-    )
+    const failed = cards().find((item) => item.textContent?.includes('失败'))
     if (!failed) throw new Error('no failed version card')
-    click(buttonLabelled('重跑', failed))
+    click(buttonTitled('重跑', failed))
 
     expect(retryVersion).toHaveBeenCalledWith('v2')
+  })
+
+  it('previews the version in the middle column on a single click', () => {
+    render()
+
+    click(part('[data-product-shots-preview]', cards()[0] as HTMLElement))
+
+    expect(useProductShotsStore.getState().selectedImageId).toBe('src-1')
+    expect(useProductShotsStore.getState().previewVersionId).toBe('v1')
+  })
+
+  it('opens the lightbox on a double click', () => {
+    render()
+
+    doubleClick(part('[data-product-shots-preview]', cards()[0] as HTMLElement))
+
+    expect(setLightboxImageId).toHaveBeenCalledWith('out-1', ['out-1'])
+  })
+
+  it('picks the version with the check dot and unpicks it on a second click', () => {
+    chooseNothing()
+    render()
+
+    click(part('[data-product-shots-choose]', cards()[0] as HTMLElement))
+    expect(chosenVersionId()).toBe('v1')
+
+    click(part('[data-product-shots-choose]', cards()[0] as HTMLElement))
+    expect(chosenVersionId()).toBeUndefined()
+  })
+
+  it('names every icon action for the pointer and the screen reader', () => {
+    render()
+    const [done] = cards()
+    if (!done) throw new Error('no version card')
+
+    for (const title of ['查看方案', '下载']) {
+      const button = buttonTitled(title, done)
+      expect(button.getAttribute('aria-label')).toBe(title)
+      expect(button.disabled).toBe(false)
+    }
+  })
+
+  it('keeps the version title on one line', () => {
+    render()
+
+    expect(part('[data-product-shots-version-title]').className).toContain('whitespace-nowrap')
+    expect(part('[data-product-shots-version-tags]').className).toContain('whitespace-nowrap')
+  })
+
+  it('previews the source image from the grouped view', () => {
+    render()
+    useProductShotsStore.setState({ selectedImageId: 'src-1', previewVersionId: 'v1' })
+
+    click(part('[data-product-shots-gallery-source]'))
+
+    expect(useProductShotsStore.getState().selectedImageId).toBe('src-1')
+    expect(useProductShotsStore.getState().previewVersionId).toBeNull()
   })
 
   it('counts the seconds on the export button while it packs', async () => {

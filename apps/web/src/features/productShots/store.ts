@@ -460,13 +460,17 @@ export const useProductShotsStore = create<ProductShotsState>((set, get) => ({
     if (draft.id && found) await swapOneVersion(set, get, draft.id, found.imageId, found.version)
   },
 
+  /** 再点已选的那版就是取消选用。 */
   chooseVersion: (versionId) => {
     set((s) => ({
       draft: {
         ...s.draft,
         images: s.draft.images.map((image) =>
           image.versions.some((version) => version.id === versionId)
-            ? { ...image, chosenVersionId: versionId }
+            ? {
+                ...image,
+                chosenVersionId: image.chosenVersionId === versionId ? undefined : versionId,
+              }
             : image,
         ),
       },
