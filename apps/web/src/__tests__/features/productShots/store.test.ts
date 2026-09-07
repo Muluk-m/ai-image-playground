@@ -122,7 +122,7 @@ function image(name: string): File {
 }
 
 function asset(id: string, name: string, imageId: string): AssetRecord {
-  return { id, name, imageId, createdAt: 1, lastUsedAt: 1 }
+  return { id, name, imageId, createdAt: 1, updatedAt: 1, lastUsedAt: 1 }
 }
 
 /** 一张原图 + 一份可用蒙版的默认剧本，测试只覆盖它要变的那一段。 */

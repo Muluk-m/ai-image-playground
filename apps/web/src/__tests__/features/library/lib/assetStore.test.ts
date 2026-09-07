@@ -2,6 +2,7 @@ import { IDBFactory } from 'fake-indexeddb'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { assetStore } from '../../../../features/library/lib/assetStore'
 import type { AssetRecord } from '../../../../features/library/types'
+import { dbTransaction, STORE_ASSETS } from '../../../../lib/db'
 
 function makeAsset(overrides: Partial<AssetRecord> = {}): AssetRecord {
   return {
@@ -9,6 +10,7 @@ function makeAsset(overrides: Partial<AssetRecord> = {}): AssetRecord {
     name: '产品白底图',
     imageId: 'image-1',
     createdAt: 1000,
+    updatedAt: 1000,
     lastUsedAt: 1000,
     ...overrides,
   }
@@ -54,5 +56,29 @@ describe('asset storage', () => {
     await assetStore.remove('a1')
 
     expect((await assetStore.list()).map((asset) => asset.id)).toEqual(['a2'])
+  })
+
+  it('leaves a tombstone behind instead of dropping the row', async () => {
+    await assetStore.put(makeAsset({ id: 'a1' }))
+
+    await assetStore.remove('a1')
+
+    const rows = await dbTransaction<Array<Record<string, unknown>>>(
+      STORE_ASSETS,
+      'readonly',
+      (store) => store.getAll(),
+    )
+    expect(rows).toHaveLength(1)
+    expect(rows[0].id).toBe('a1')
+    expect(typeof rows[0].deletedAt).toBe('number')
+    expect(rows[0].name).toBeUndefined()
+  })
+
+  it('hides a tombstone written by another device', async () => {
+    await dbTransaction(STORE_ASSETS, 'readwrite', (store) =>
+      store.put({ id: 'a1', updatedAt: 2000, deletedAt: 2000 }),
+    )
+
+    expect(await assetStore.list()).toEqual([])
   })
 })

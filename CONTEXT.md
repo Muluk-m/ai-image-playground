@@ -112,14 +112,14 @@ _Avoid_: 贡献图、日历图、热图
 ## 素材库（library）
 
 **素材（asset）**：
-给一张已存图片起的名字，记录 `{ id, name, imageId, createdAt, lastUsedAt }`，存在主 IndexedDB 的
+给一张已存图片起的名字，记录 `{ id, name, imageId, createdAt, updatedAt, lastUsedAt }`，存在主 IndexedDB 的
 `assets` 表里，跟随 scope 隔离与匿名库领养。图片本体与缩略图仍归 image store，同一个 `imageId`
 可以有多条素材记录，删素材不动图片。
 _Avoid_: 图库、收藏夹、素材图
 
 **模板（template）**：
 一段可复用的提示词连同它引用的素材与参数快照，记录 `{ id, name, prompt, assetIds, params,
-createdAt, lastUsedAt }`，存在主 IndexedDB 的 `templates` 表里。`prompt` 存带哨兵标记的形式，
+createdAt, updatedAt, lastUsedAt }`，存在主 IndexedDB 的 `templates` 表里。`prompt` 存带哨兵标记的形式，
 `assetIds` 按引用序号排列（那一位不是素材就记 null）。套用先补齐缺席的素材图，再按新顺序
 remap 引用——素材已删的位降级为「已移除」，套用仍然成功。
 _Avoid_: 预设、快捷短语、prompt 片段
@@ -136,6 +136,8 @@ _Avoid_: 偏好、配置、账号配置、settings 大杂烩
 登录用户的模板、素材（含图片本体）与用户设置在设备与服务端之间的合并，只在 `accounts:sync` 开启的
 部署存在。本机与服务端各自的记录取并集，同一条记录以最后写入为准，删除以墓碑传播；素材记录只有
 在图片本体已上传后才算可同步。服务端这份是用户档案，长期保存，不随任务记录过期。
+素材与模板两张表为此常备两件事，与同步是否开启无关：`updatedAt` 只在内容改动时前进（「使用」只动
+`lastUsedAt`），删除写成只留 id 与时间戳的**墓碑**行，所有读路径过滤掉它。
 _Avoid_: 备份、云存储、上传、账号存储
 
 **本机数据（device-local data）**：

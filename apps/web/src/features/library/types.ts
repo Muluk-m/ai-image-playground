@@ -9,7 +9,16 @@ export interface AssetRecord {
   name: string
   imageId: string
   createdAt: number
+  /** 内容最后一次改动的时间。「使用」只动 `lastUsedAt`，不动这里。 */
+  updatedAt: number
   lastUsedAt: number
+}
+
+/** 墓碑：删掉的记录在表里留下的这一行，只有 id 与时间戳。所有读路径都要过滤掉它。 */
+export interface Tombstone {
+  id: string
+  updatedAt: number
+  deletedAt: number
 }
 
 /** 模板保存的参数快照。 */
@@ -30,6 +39,8 @@ export interface TemplateRecord {
   assetIds: Array<string | null>
   params: TemplateParams
   createdAt: number
+  /** 内容最后一次改动的时间。「套用」只动 `lastUsedAt`，不动这里。 */
+  updatedAt: number
   lastUsedAt: number
 }
 
