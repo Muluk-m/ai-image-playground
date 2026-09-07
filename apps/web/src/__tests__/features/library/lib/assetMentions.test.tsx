@@ -29,7 +29,7 @@ declare global {
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
 function asset(partial: Partial<AssetRecord> & { id: string; name: string }): AssetRecord {
-  return { imageId: 'image-a', createdAt: 0, lastUsedAt: 0, ...partial }
+  return { imageId: 'image-a', createdAt: 0, updatedAt: 0, lastUsedAt: 0, ...partial }
 }
 
 const inputImages: InputImage[] = [

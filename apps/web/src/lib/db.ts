@@ -3,7 +3,7 @@ import { scopedStorageName } from './authScope'
 
 /** 匿名 scope 下的 DB 名，其它 scope 由 scopedStorageName 派生。 */
 export const BASE_DB_NAME = 'image-playground'
-const DB_VERSION = 7
+const DB_VERSION = 8
 const STORE_TASKS = 'tasks'
 const STORE_IMAGES = 'images'
 const STORE_THUMBNAILS = 'thumbnails'
@@ -33,16 +33,34 @@ export function openNamedDb(name: string): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(name, DB_VERSION)
     req.onupgradeneeded = (e) => {
-      const db = (e.target as IDBOpenDBRequest).result
+      const request = e.target as IDBOpenDBRequest
+      const db = request.result
       for (const storeName of DB_STORE_NAMES) {
         if (!db.objectStoreNames.contains(storeName)) {
           db.createObjectStore(storeName, { keyPath: 'id' })
         }
       }
+      if (e.oldVersion < 8 && request.transaction) backfillUpdatedAt(request.transaction)
     }
     req.onsuccess = () => resolve(req.result)
     req.onerror = () => reject(req.error)
   })
+}
+
+/** v8：素材与模板记录新增 updatedAt，旧记录取 createdAt。 */
+function backfillUpdatedAt(tx: IDBTransaction): void {
+  for (const storeName of [STORE_ASSETS, STORE_TEMPLATES]) {
+    const cursorRequest = tx.objectStore(storeName).openCursor()
+    cursorRequest.onsuccess = () => {
+      const cursor = cursorRequest.result
+      if (!cursor) return
+      const record = cursor.value as { createdAt?: number; updatedAt?: number }
+      if (record.updatedAt === undefined) {
+        cursor.update({ ...record, updatedAt: record.createdAt ?? Date.now() })
+      }
+      cursor.continue()
+    }
+  }
 }
 
 function openDB(): Promise<IDBDatabase> {

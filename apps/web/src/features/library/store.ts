@@ -99,6 +99,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
       name: trimmed,
       imageId,
       createdAt: now,
+      updatedAt: now,
       lastUsedAt: now,
     }
     await assetStore.put(asset)
@@ -111,7 +112,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     const trimmed = name.trim()
     const asset = get().assets.find((a) => a.id === id)
     if (!trimmed || !asset) return
-    await writeAsset(set, { ...asset, name: trimmed })
+    await writeAsset(set, { ...asset, name: trimmed, updatedAt: Date.now() })
   },
 
   deleteAsset: async (id) => {
@@ -177,6 +178,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
       assetIds: collectTemplateAssetIds(main.prompt, main.inputImages, get().assets),
       params: pickTemplateParams(main.params),
       createdAt: now,
+      updatedAt: now,
       lastUsedAt: now,
     }
     await templateStore.put(template)
@@ -188,7 +190,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     const trimmed = name.trim()
     const template = get().templates.find((t) => t.id === id)
     if (!trimmed || !template) return
-    await writeTemplate(set, { ...template, name: trimmed })
+    await writeTemplate(set, { ...template, name: trimmed, updatedAt: Date.now() })
   },
 
   deleteTemplate: async (id) => {
@@ -226,6 +228,7 @@ function stripFileExtension(fileName: string): string {
 
 type LibrarySet = (updater: (state: LibraryState) => Partial<LibraryState>) => void
 
+// 「使用」只动 lastUsedAt：改内容的调用方自己带上新的 updatedAt，这里不代劳。
 async function writeAsset(set: LibrarySet, asset: AssetRecord): Promise<void> {
   await assetStore.put(asset)
   set((s) => ({ assets: s.assets.map((a) => (a.id === asset.id ? asset : a)) }))

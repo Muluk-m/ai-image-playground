@@ -20,7 +20,15 @@ const IMAGE_B: InputImage = { id: 'image-b', dataUrl: 'data:,b' }
 const IMAGE_C: InputImage = { id: 'image-c', dataUrl: 'data:,c' }
 
 function makeAsset(overrides: Partial<AssetRecord> = {}): AssetRecord {
-  return { id: 'a1', name: '白底图', imageId: 'image-a', createdAt: 1, lastUsedAt: 1, ...overrides }
+  return {
+    id: 'a1',
+    name: '白底图',
+    imageId: 'image-a',
+    createdAt: 1,
+    updatedAt: 1,
+    lastUsedAt: 1,
+    ...overrides,
+  }
 }
 
 function makeTemplate(overrides: Partial<TemplateRecord> = {}): TemplateRecord {
@@ -31,6 +39,7 @@ function makeTemplate(overrides: Partial<TemplateRecord> = {}): TemplateRecord {
     assetIds: [],
     params: { size: '1024x1024', quality: 'high', n: 1 },
     createdAt: 1,
+    updatedAt: 1,
     lastUsedAt: 1,
     ...overrides,
   }
