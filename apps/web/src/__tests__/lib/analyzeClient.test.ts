@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { analyzeCompetitorImages } from '../../../../features/remix/lib/analyzeClient'
-import { _setRuntimeConfigForTesting } from '../../../../lib/runtimeConfig'
+import { analyzeCompetitorImages } from '../../lib/analyzeClient'
+import { _setRuntimeConfigForTesting } from '../../lib/runtimeConfig'
 
 const BRIEF = {
   shotType: 'scene',

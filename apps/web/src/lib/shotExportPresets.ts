@@ -1,6 +1,6 @@
 import type { ShotType } from '@image-playground/shared'
-import { type ExportFit, sanitizePathSegment } from '../../../lib/imageExport'
-import { SHOT_TYPE_LABELS } from '../types'
+import { type ExportFit, sanitizePathSegment } from './imageExport'
+import { SHOT_TYPE_LABELS } from './shotTypes'
 
 /** 卖点图的文字贴着画面边缘，中心裁切会切掉，所以它默认补边而不是裁切。 */
 export function defaultExportFit(shotType: ShotType): ExportFit {

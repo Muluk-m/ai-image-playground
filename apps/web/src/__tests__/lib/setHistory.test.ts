@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { groupTasksBySet } from '../../../../features/remix/lib/history'
-import type { TaskOrigin, TaskRecord } from '../../../../types'
+import { groupTasksBySet } from '../../lib/setHistory'
+import type { TaskOrigin, TaskRecord } from '../../types'
 
 function task(id: string, createdAt: number, origin?: TaskOrigin): TaskRecord {
   return {

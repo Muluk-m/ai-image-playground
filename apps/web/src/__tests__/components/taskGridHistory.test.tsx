@@ -4,7 +4,6 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import TaskGrid from '../../components/TaskGrid'
 import { useProductShotsStore } from '../../features/productShots/store'
-import { useRemixStore } from '../../features/remix/store'
 import { useStore } from '../../store'
 import type { TaskRecord } from '../../types'
 
@@ -41,7 +40,6 @@ beforeEach(() => {
     filterFavorite: false,
     selectedTaskIds: [],
   })
-  useRemixStore.setState({ sets: [], loadSets: vi.fn().mockResolvedValue(undefined) })
   useProductShotsStore.setState({
     jobs: [
       {
@@ -68,14 +66,14 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 
-describe('folding a background swap job in the history', () => {
+describe('folding a product shot job in the history', () => {
   it('shows one card named after the job instead of every task', () => {
     act(() => root.render(<TaskGrid />))
 
     const cards = document.querySelectorAll('[data-set-history-card]')
     expect(cards).toHaveLength(1)
     expect(cards[0].textContent).toContain('折叠浴缸')
-    expect(cards[0].textContent).toContain('换背景 · 完成 1/2')
+    expect(cards[0].textContent).toContain('商品图 · 完成 1/2')
     expect(cards[0].textContent).toContain('失败 1')
     expect(document.querySelectorAll('.task-card-wrapper')).toHaveLength(0)
   })
