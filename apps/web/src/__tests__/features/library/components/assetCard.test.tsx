@@ -2,12 +2,12 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import AssetCard from '../../../features/library/components/AssetCard'
-import type { AssetRecord } from '../../../features/library/types'
-import { ensureAssetImage } from '../../../lib/sync/assetImages'
-import { useSyncStatus } from '../../../lib/sync/status'
+import AssetCard from '../../../../features/library/components/AssetCard'
+import type { AssetRecord } from '../../../../features/library/types'
+import { ensureAssetImage } from '../../../../lib/sync/assetImages'
+import { useSyncStatus } from '../../../../lib/sync/status'
 
-vi.mock('../../../lib/sync/assetImages', () => ({ ensureAssetImage: vi.fn() }))
+vi.mock('../../../../lib/sync/assetImages', () => ({ ensureAssetImage: vi.fn() }))
 
 const ensureAssetImageMock = vi.mocked(ensureAssetImage)
 
