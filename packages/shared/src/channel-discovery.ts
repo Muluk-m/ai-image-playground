@@ -20,6 +20,8 @@ export type ChannelKind = 'openai-queue' | 'gemini-queue'
  * 每条 n=1）。是否走原生 n 只看此 membership，禁止按 provider / 模型名推断。
  * 'moderation' = 上游认 OpenAI 的 moderation 参数；未声明时 BFF 会剥掉再发上游
  * （Grok 网关收到它直接 403，报文长得像内容被拦，实际只是不认这个字段）。
+ * 'duration' / 'aspect_ratio' / 'resolution' / 'first_frame' / 'last_frame' = 视频模型的参数支持，
+ * 具体档位见 video-presets 的 VIDEO_MODEL_SUPPORT。
  * 数组里没有 = 不支持（UI 收起对应控件）。BYOK profile 无此信息，UI 不做限制。
  */
 // 单一事实来源 — BFF 的 channels.json 校验器直接读这条 tuple。之前 BFF 侧另抄了一份运行时
@@ -33,13 +35,22 @@ export const CHANNEL_CAPABILITIES = [
   'size',
   'n',
   'moderation',
+  'duration',
+  'aspect_ratio',
+  'resolution',
+  'first_frame',
+  'last_frame',
 ] as const
 export type ChannelCapability = (typeof CHANNEL_CAPABILITIES)[number]
+
+/** 模型产出的媒介类型。缺省 image — 存量 channel 配置不写这个字段。 */
+export type ChannelMedia = 'image' | 'video'
 
 export interface ChannelModel {
   id: string
   label: string
   capabilities: ChannelCapability[]
+  media?: ChannelMedia
 }
 
 /**

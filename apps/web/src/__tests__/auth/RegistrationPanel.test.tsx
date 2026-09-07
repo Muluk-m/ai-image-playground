@@ -114,6 +114,7 @@ describe('LoginScreen registration entry', () => {
           'accounts:self-register': true,
           'billing:credits': true,
           'generation:byok': false,
+          'generation:video': false,
           'quota:daily': false,
           'remix:analyze': false,
           'remix:listing': false,
