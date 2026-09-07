@@ -1,7 +1,7 @@
 import { QUEUE_TIMEOUTS, SERVER_IDLE_TIMEOUT_SEC } from '@image-playground/shared'
 import { config } from './config'
 import { close as closeDb } from './db/client'
-import { purgeOldTasks, runPrivateMaintenance } from './db/maintenance'
+import { purgeOldTasks, purgeOrphanedAssetObjects, runPrivateMaintenance } from './db/maintenance'
 import { isCapabilityEnabled } from './lib/capabilities'
 import { initChannels } from './lib/channels'
 import { log } from './lib/logger'
@@ -37,6 +37,7 @@ log.info(
   'operator capabilities resolved',
 )
 const accountsLoginEnabled = isCapabilityEnabled('accounts:login')
+const syncEnabled = isCapabilityEnabled('accounts:sync')
 
 const channelsResult = initChannels(config.channelsFile ?? undefined)
 for (const warning of channelsResult.warnings) {
@@ -60,6 +61,12 @@ setInterval(async () => {
   const removed = await purgeOldTasks()
   await runPrivateMaintenance()
   if (removed > 0) log.info({ event: 'periodic.purged', count: removed }, 'purged old tasks')
+  if (syncEnabled) {
+    const orphaned = await purgeOrphanedAssetObjects()
+    if (orphaned > 0) {
+      log.info({ event: 'periodic.purged_asset_owners', count: orphaned }, 'purged asset objects')
+    }
+  }
 }, QUEUE_TIMEOUTS.PURGE_INTERVAL_MS)
 
 if (config.corsOrigins === '*') {
