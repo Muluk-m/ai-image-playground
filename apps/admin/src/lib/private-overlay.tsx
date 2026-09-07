@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { notFound, useLocation } from '@tanstack/react-router'
-import type { ComponentType } from 'react'
+import type { ComponentType, ReactNode } from 'react'
 import { Page } from '@/components/Page'
 import { apiClient } from './api-client'
 
@@ -19,7 +19,7 @@ export interface PrivateAdminOverlay {
   ): Readonly<Record<string, PrivateAdminUserSummary>>
   OverviewPanel: ComponentType
   SettingsPanel: ComponentType
-  UserDetailPanel: ComponentType<{ userId: string; username: string }>
+  UserDetailPanel: ComponentType<{ userId: string; username: string; children?: ReactNode }>
 }
 
 const EmptyComponent = () => null
@@ -130,10 +130,15 @@ export function PrivateAdminSettingsPanel() {
   )
 }
 
-export function PrivateAdminUserDetailPanel(props: { userId: string; username: string }) {
+export function PrivateAdminUserDetailPanel(props: {
+  userId: string
+  username: string
+  children?: ReactNode
+}) {
   const enabled = usePrivateAdminOverlayEnabled()
   const Component = overlay.UserDetailPanel
-  return enabled ? <Component {...props} /> : null
+  if (!enabled) return props.children
+  return <Component {...props} />
 }
 
 export function usePrivateAdminUserSummaries(userIds: readonly string[]): {
