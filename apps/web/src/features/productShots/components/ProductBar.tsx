@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { CARD, OUTLINE_BUTTON } from '../../../components/panelStyles'
+import { CARD, OUTLINE_BUTTON, PANEL_TITLE } from '../../../components/panelStyles'
 import { PRODUCT_ANGLE_LABELS } from '../../../lib/productAngle'
 import AssetThumb from '../../library/components/AssetThumb'
 import { useLibraryStore } from '../../library/store'
@@ -24,7 +24,7 @@ export default function ProductBar() {
   return (
     <section data-product-shots-product className={`${CARD} mb-4`}>
       <div className="flex flex-wrap items-center gap-3">
-        <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-100">我的产品</h2>
+        <h2 className={PANEL_TITLE}>我的产品</h2>
         <span className="text-xs text-gray-400 dark:text-gray-500">
           换产品 / 借创意重做时放进画面的产品
         </span>
