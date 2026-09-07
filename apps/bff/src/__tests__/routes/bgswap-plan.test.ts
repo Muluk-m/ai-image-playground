@@ -27,6 +27,7 @@ const PLAN = {
   camera: '略高于缸沿的 3/4 侧视，标准镜头',
   sceneType: 'photo',
   productBox: { x: 0.2, y: 0.3, w: 0.5, h: 0.4 },
+  inventory: ['独立式浴缸', '落地龙头'],
   plan: '暖白微水泥墙面，浅橡木地板，左侧柔和窗光，一株散尾葵与一条亚麻毛巾。',
 }
 
@@ -43,6 +44,17 @@ function visionFetchReturning(...bodies: Response[]): VisionFetch {
     const body = bodies[Math.min(index, bodies.length - 1)]!
     index += 1
     return body.clone()
+  }) as unknown as VisionFetch
+}
+
+/** 记下每次发给视觉模型的那段文字，指令本身也是被测行为。 */
+function promptCapturingFetch(prompts: string[]): VisionFetch {
+  return mock(async (_url: unknown, init: unknown) => {
+    const sent = JSON.parse((init as { body: string }).body) as {
+      messages: { content: { type: string; text?: string }[] }[]
+    }
+    prompts.push(sent.messages[0]!.content.find((part) => part.type === 'text')?.text ?? '')
+    return chatCompletion(JSON.stringify(PLAN))
   }) as unknown as VisionFetch
 }
 
@@ -267,6 +279,46 @@ describe('POST /api/bgswap/plan', () => {
         prompt: buildBackgroundPrompt({ plan: PLAN.plan, sceneType: 'photo', mode }),
       })
     }
+  })
+
+  it('answers with the inventory the model listed', async () => {
+    setVisionFetchForTesting(visionFetchReturning(chatCompletion(JSON.stringify(PLAN))))
+
+    const { status, json } = await plan({ image: PIXEL })
+
+    expect(status).toBe(200)
+    expect(json).toMatchObject({ inventory: PLAN.inventory })
+  })
+
+  it('still answers when the model leaves the inventory out', async () => {
+    const { inventory: _inventory, ...noInventory } = PLAN
+    setVisionFetchForTesting(visionFetchReturning(chatCompletion(JSON.stringify(noInventory))))
+
+    const { status, json } = await plan({ image: PIXEL })
+
+    expect(status).toBe(200)
+    expect(json).toMatchObject({ inventory: [] })
+  })
+
+  it('asks the model for the inventory before the plan sentence', async () => {
+    const prompts: string[] = []
+    setVisionFetchForTesting(promptCapturingFetch(prompts))
+
+    await plan({ image: PIXEL })
+
+    const sent = prompts[0]!
+    expect(sent).toContain('"inventory"')
+    expect(sent.indexOf('"inventory"')).toBeLessThan(sent.indexOf('"plan"'))
+  })
+
+  it('tells the model that a must-keep in the preference joins the inventory', async () => {
+    const prompts: string[] = []
+    setVisionFetchForTesting(promptCapturingFetch(prompts))
+
+    await plan({ image: PIXEL, preference: '保留原有的落地龙头' })
+
+    expect(prompts[0]!).toContain('保留原有的落地龙头')
+    expect(prompts[0]!).toMatch(/must-keep[\s\S]*"inventory"/)
   })
 
   it('rejects a mode outside the three', async () => {

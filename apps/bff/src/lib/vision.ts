@@ -90,11 +90,12 @@ Answer with a single JSON object and nothing else. Keys:
 "camera": one sentence on the angle and height the product is shot from
 ${SCENE_TYPE_KEY}
 "productBox": {"x","y","w","h"} normalised to 0-1 for the product's bounding box, or null when no product is visible
-"plan": ONE sentence describing a real environment that suits this category, naming the wall, the floor, the light and one or two props`
+"inventory": array of short strings naming everything in the photo that counts as the product: the product itself, plus every part that functionally belongs to this one item of merchandise and would have no reason to exist without it, whether or not it touches the main body. Anything that stands on its own and could be taken away without leaving the merchandise incomplete is staging, not product.
+"plan": ONE sentence describing a real environment that suits this category, naming the wall, the floor, the light and one or two props. Every prop must be liftable on its own, must not appear in "inventory", and must not repeat the function of anything in "inventory"`
 
 const PLAN_LANGUAGE: Record<PromptLanguage, string> = {
-  zh: 'Write "category" and "plan" in Chinese.',
-  en: 'Write "category" and "plan" in English.',
+  zh: 'Write "category", "inventory" and "plan" in Chinese.',
+  en: 'Write "category", "inventory" and "plan" in English.',
 }
 
 function planPromptFor(preference: string | undefined, language: PromptLanguage): string {
@@ -103,7 +104,12 @@ function planPromptFor(preference: string | undefined, language: PromptLanguage)
     PLAN_INSTRUCTIONS,
     PLAN_LANGUAGE[language],
     // 偏好压过模型自己的判断，所以它进视觉提示，而不只是拼进最终提示词。
-    ...(wanted ? [`The user asked for this direction, it outranks your own taste: ${wanted}`] : []),
+    ...(wanted
+      ? [
+          `The user asked for this direction, it outranks your own taste: ${wanted}`,
+          'Whatever it names as must-keep belongs in "inventory", however you would have judged it.',
+        ]
+      : []),
   ].join('\n\n')
 }
 
