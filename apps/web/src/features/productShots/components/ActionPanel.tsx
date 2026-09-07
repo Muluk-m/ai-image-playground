@@ -1,28 +1,71 @@
+import type { BgSwapMode } from '@image-playground/shared'
 import Pending from '../../../components/Pending'
 import { CARD, FIELD, LABEL, NOTICE, PRIMARY_BUTTON } from '../../../components/panelStyles'
-import { ACTION_LABELS, bgSwapMode } from '../lib/mode'
 import { useProductShotsStore } from '../store'
 import { PRODUCT_SHOT_STAGE_LABELS, VERSIONS_PER_IMAGE_CHOICES } from '../types'
-import ProductBar from './ProductBar'
 import VersionBar from './VersionBar'
+
+const NO_PRODUCT = '先在上方选产品素材'
+const COMING = '即将支持'
+
+const ACTIONS: Array<{ mode: BgSwapMode; label: string; needsProduct: boolean }> = [
+  { mode: 'background', label: '换背景', needsProduct: false },
+  { mode: 'replace-product', label: '换产品', needsProduct: true },
+]
 
 export default function ActionPanel() {
   const preference = useProductShotsStore((s) => s.draft.preference)
   const versionsPerImage = useProductShotsStore((s) => s.draft.versionsPerImage)
+  const runningMode = useProductShotsStore((s) => s.draft.mode)
+  const hasProduct = useProductShotsStore((s) => s.draft.productAssets.length > 0)
   const selectedImageId = useProductShotsStore((s) => s.selectedImageId)
   const swapStage = useProductShotsStore((s) => s.swapStage)
   const swapStartedAt = useProductShotsStore((s) => s.swapStartedAt)
   const swapNotice = useProductShotsStore((s) => s.swapNotice)
   const batchRunning = useProductShotsStore((s) => s.batch?.running === true)
-  const mode = useProductShotsStore((s) => bgSwapMode(s.draft.productSource, s.draft.target))
 
-  const { setPreference, setVersionsPerImage, swapBackground } = useProductShotsStore.getState()
+  const { setPreference, setVersionsPerImage, runAction } = useProductShotsStore.getState()
+  const busy = swapStage !== null || batchRunning
 
   return (
-    <section data-product-shots-column="controls" className={`${CARD} flex flex-col gap-3`}>
-      <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-100">换背景</h2>
+    <section data-product-shots-column="actions" className={`${CARD} flex flex-col gap-3`}>
+      <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-100">动作</h2>
 
-      <ProductBar />
+      <div className="flex flex-col gap-1.5">
+        {ACTIONS.map((action) => {
+          const blocked = action.needsProduct && !hasProduct
+          const running = swapStage !== null && runningMode === action.mode
+          return (
+            <div key={action.mode}>
+              <button
+                type="button"
+                data-product-shots-action={action.mode}
+                onClick={() => void runAction(action.mode)}
+                disabled={busy || blocked || !selectedImageId}
+                className={PRIMARY_BUTTON}
+              >
+                {running ? (
+                  <Pending label={PRODUCT_SHOT_STAGE_LABELS[swapStage]} startedAt={swapStartedAt} />
+                ) : (
+                  action.label
+                )}
+              </button>
+              {blocked && <p className={`mt-1 ${NOTICE}`}>{NO_PRODUCT}</p>}
+            </div>
+          )
+        })}
+        <div>
+          <button
+            type="button"
+            data-product-shots-action="remix"
+            disabled
+            className={PRIMARY_BUTTON}
+          >
+            借创意重做
+          </button>
+          <p className={`mt-1 ${NOTICE}`}>{COMING}</p>
+        </div>
+      </div>
 
       <div>
         <label className={LABEL} htmlFor="product-shots-preference">
@@ -58,20 +101,6 @@ export default function ActionPanel() {
           ))}
         </div>
       </div>
-
-      <button
-        type="button"
-        data-product-shots-swap
-        onClick={() => void swapBackground()}
-        disabled={swapStage !== null || batchRunning || !selectedImageId}
-        className={PRIMARY_BUTTON}
-      >
-        {swapStage ? (
-          <Pending label={PRODUCT_SHOT_STAGE_LABELS[swapStage]} startedAt={swapStartedAt} />
-        ) : (
-          ACTION_LABELS[mode]
-        )}
-      </button>
 
       {swapNotice && <p className={NOTICE}>{swapNotice}</p>}
 

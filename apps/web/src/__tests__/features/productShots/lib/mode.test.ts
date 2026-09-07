@@ -1,20 +1,24 @@
 import { describe, expect, it } from 'vitest'
 import {
-  bgSwapMode,
   changesBackground,
+  legacyJobMode,
   maskSideFor,
   swapsProduct,
 } from '../../../../features/productShots/lib/mode'
 
-describe('reading the two segmented controls as one mode', () => {
+describe('reading an old record as one action', () => {
   it('keeps the original product whatever the target says', () => {
-    expect(bgSwapMode('original', 'product-only')).toBe('background')
-    expect(bgSwapMode('original', 'product-and-background')).toBe('background')
+    expect(legacyJobMode('original', 'product-only')).toBe('background')
+    expect(legacyJobMode('original', 'product-and-background')).toBe('background')
   })
 
   it('takes the target once the product comes from an asset', () => {
-    expect(bgSwapMode('asset', 'product-only')).toBe('replace-product')
-    expect(bgSwapMode('asset', 'product-and-background')).toBe('replace-and-background')
+    expect(legacyJobMode('asset', 'product-only')).toBe('replace-product')
+    expect(legacyJobMode('asset', 'product-and-background')).toBe('replace-and-background')
+  })
+
+  it('reads a record that predates both fields as a background swap', () => {
+    expect(legacyJobMode(undefined, undefined)).toBe('background')
   })
 })
 

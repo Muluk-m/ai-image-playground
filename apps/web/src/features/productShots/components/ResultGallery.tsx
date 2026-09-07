@@ -15,7 +15,6 @@ import {
 import { useStore } from '../../../store'
 import AssetThumb from '../../library/components/AssetThumb'
 import {
-  shotFileName,
   EXPORT_SCOPE_LABELS,
   EXPORT_SCOPES,
   type ExportScope,
@@ -27,6 +26,7 @@ import {
   hasChosenVersion,
   type ManualExportScope,
   resolveExportScope,
+  shotFileName,
 } from '../lib/gallery'
 import { VERSION_STATE_LABELS } from '../lib/versionProgress'
 import { useProductShotsStore } from '../store'

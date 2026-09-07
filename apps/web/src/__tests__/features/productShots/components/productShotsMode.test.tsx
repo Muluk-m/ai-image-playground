@@ -3,9 +3,9 @@ import { IDBFactory } from 'fake-indexeddb'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { useLibraryStore } from '../../../../features/library/store'
 import ProductShotsMode from '../../../../features/productShots/components/ProductShotsMode'
 import { useProductShotsStore } from '../../../../features/productShots/store'
-import { useLibraryStore } from '../../../../features/library/store'
 import { ProductMatteError } from '../../../../lib/productMatte'
 import { useStore } from '../../../../store'
 
@@ -167,7 +167,7 @@ describe('the background swap workbench', () => {
 
     expect(column('sources').textContent).toContain('原图')
     expect(column('preview').textContent).toContain('当前版')
-    expect(column('controls').textContent).toContain('换背景')
+    expect(column('actions').textContent).toContain('换背景')
   })
 
   it('shows an uploaded image in the source list', async () => {
@@ -205,7 +205,7 @@ describe('the background swap workbench', () => {
   it('holds the background swap button until there is an image to work on', () => {
     render()
 
-    expect(swapButton().disabled).toBe(true)
+    expect(actionButton().disabled).toBe(true)
   })
 })
 
@@ -230,28 +230,28 @@ describe('running one background swap', () => {
     submitPrepared.mockReturnValue(submit.promise)
     await withOneImage()
 
-    click(swapButton())
+    click(actionButton())
     await settle()
-    expect(swapButton().textContent).toContain('方案中')
-    expect(swapButton().disabled).toBe(true)
+    expect(actionButton().textContent).toContain('方案中')
+    expect(actionButton().disabled).toBe(true)
 
     plan.resolve(PLAN)
     await settle()
-    expect(swapButton().textContent).toContain('抠图中')
+    expect(actionButton().textContent).toContain('抠图中')
 
     matte.resolve({ alpha: new Uint8ClampedArray(4), width: 2, height: 2 })
     await settle()
-    expect(swapButton().textContent).toContain('生成中')
+    expect(actionButton().textContent).toContain('生成中')
 
     submit.resolve(['task-1'])
     await settle()
-    expect(swapButton().textContent).toBe('换背景')
+    expect(actionButton().textContent).toBe('换背景')
   })
 
   it('puts the new version on the bar with its plan label', async () => {
     await withOneImage()
 
-    click(swapButton())
+    click(actionButton())
     await settle()
 
     const [row] = document.querySelectorAll('[data-product-shots-version]')
@@ -264,24 +264,28 @@ describe('running one background swap', () => {
     segmentProduct.mockRejectedValue(new ProductMatteError('timeout', '抠图超时'))
     await withOneImage()
 
-    click(swapButton())
+    click(actionButton())
     await settle()
 
-    expect(document.querySelector('[data-product-shots-version]')?.textContent).toContain('未抠图 · 超时')
+    expect(document.querySelector('[data-product-shots-version]')?.textContent).toContain(
+      '未抠图 · 超时',
+    )
   })
 
   it('shows which backend produced the matte', async () => {
     await withOneImage()
 
-    click(swapButton())
+    click(actionButton())
     await settle()
 
-    expect(document.querySelector('[data-product-shots-version]')?.textContent).toContain('U²-Netp · CPU')
+    expect(document.querySelector('[data-product-shots-version]')?.textContent).toContain(
+      'U²-Netp · CPU',
+    )
   })
 
   it('takes a finished version as the chosen one', async () => {
     await withOneImage()
-    click(swapButton())
+    click(actionButton())
     await settle()
     act(() => {
       useStore.setState({
@@ -303,7 +307,7 @@ describe('running one background swap', () => {
 
   it('switches the middle preview between the original and a version', async () => {
     await withOneImage()
-    click(swapButton())
+    click(actionButton())
     await settle()
 
     expect(column('preview').textContent).toContain('第 1 版')
@@ -347,7 +351,7 @@ describe('looking at the matte before trusting a version', () => {
         await new Promise((resolve) => setTimeout(resolve, 0))
       })
     }
-    click(swapButton())
+    click(actionButton())
     await settle()
 
     const toggle = [...document.querySelectorAll('button')].find(
@@ -409,7 +413,7 @@ describe('running the batch over the remaining images', () => {
 
     expect(batchBar().textContent).toContain('批量 0/1 · 原图 2')
     expect(batchBar().textContent).toContain('方案中')
-    expect(swapButton().disabled).toBe(true)
+    expect(actionButton().disabled).toBe(true)
     const stop = [...batchBar().querySelectorAll('button')].find(
       (button) => button.textContent === '停止',
     )
@@ -435,48 +439,48 @@ describe('running the batch over the remaining images', () => {
     click(rerun)
     await settle()
 
-    expect(batchBar().querySelector('[data-product-shots-batch-item]')?.textContent).toContain('完成')
+    expect(batchBar().querySelector('[data-product-shots-batch-item]')?.textContent).toContain(
+      '完成',
+    )
   })
 })
 
-describe('choosing where the product comes from', () => {
-  function pressed(group: string, label: string): HTMLButtonElement {
-    const segment = document.querySelector(`[role="group"][aria-label="${group}"]`)
-    const button = [...(segment?.querySelectorAll('button') ?? [])].find(
-      (item) => item.textContent === label,
+describe('the product picked once for the whole job', () => {
+  function productBar(): HTMLElement {
+    const element = document.querySelector<HTMLElement>('[data-product-shots-product]')
+    if (!element) throw new Error('no product bar')
+    return element
+  }
+
+  function pickerButton(): HTMLButtonElement {
+    const button = [...productBar().querySelectorAll('button')].find((item) =>
+      item.textContent?.includes('素材'),
     )
-    if (!button) throw new Error(`no ${label} segment in ${group}`)
+    if (!button) throw new Error('no picker button')
     return button
   }
 
-  it('offers the target only once the product comes from an asset', () => {
+  it('holds the product swap back until a product asset is picked', () => {
     render()
 
-    expect(pressed('产品来源', '原图产品').getAttribute('aria-pressed')).toBe('true')
-    expect(document.querySelector('[role="group"][aria-label="目标"]')).toBeNull()
-
-    click(pressed('产品来源', '换成我的素材'))
-
-    expect(pressed('目标', '只换产品').getAttribute('aria-pressed')).toBe('true')
-    expect(swapButton().textContent).toBe('换产品')
-
-    click(pressed('目标', '换产品并换背景'))
-
-    expect(swapButton().textContent).toBe('换产品并换背景')
+    expect(actionButton('replace-product').disabled).toBe(true)
+    expect(column('actions').textContent).toContain('先在上方选产品素材')
   })
 
-  it('picks an asset in the overlay and shows it beside the controls', async () => {
+  it('offers the creative remix as a placeholder only', () => {
+    render()
+
+    expect(actionButton('remix').disabled).toBe(true)
+    expect(column('actions').textContent).toContain('即将支持')
+  })
+
+  it('picks an asset in the overlay and shows it at the top', async () => {
     useLibraryStore.setState({
       assets: [{ id: 'a1', name: '正面白底', imageId: 'asset-1', createdAt: 1, lastUsedAt: 1 }],
     })
     render()
-    click(pressed('产品来源', '换成我的素材'))
 
-    const open = [...column('controls').querySelectorAll('button')].find(
-      (item) => item.textContent === '选素材',
-    )
-    if (!open) throw new Error('no picker button')
-    click(open)
+    click(pickerButton())
     await settle()
 
     const picker = document.querySelector('[data-product-shots-product-picker]')
@@ -487,8 +491,7 @@ describe('choosing where the product comes from', () => {
     if (!card) throw new Error('no asset card')
     click(card)
 
-    const angle = document.querySelector<HTMLSelectElement>('select[data-angle-for="a1"]')
-    expect(angle).not.toBeNull()
+    expect(document.querySelector<HTMLSelectElement>('select[data-angle-for="a1"]')).not.toBeNull()
     expect(useProductShotsStore.getState().draft.productAssets).toEqual([
       { assetId: 'a1', angle: 'three-quarter' },
     ])
@@ -498,7 +501,7 @@ describe('choosing where the product comes from', () => {
     click(done)
 
     expect(document.querySelector('[data-product-shots-product-picker]')).toBeNull()
-    expect(document.querySelector('[data-product-shots-product]')?.textContent).toContain('3/4 侧')
+    expect(productBar().textContent).toContain('3/4 侧')
   })
 
   it('labels a version that swapped the product', async () => {
@@ -513,11 +516,10 @@ describe('choosing where the product comes from', () => {
       })
     }
     act(() => {
-      useProductShotsStore.getState().setProductSource('asset')
       useProductShotsStore.getState().toggleProductAsset('a1')
     })
 
-    click(swapButton())
+    click(actionButton('replace-product'))
     await settle()
 
     const row = document.querySelector('[data-product-shots-version]')
@@ -536,7 +538,7 @@ describe('the result gallery', () => {
         await new Promise((resolve) => setTimeout(resolve, 0))
       })
     }
-    click(swapButton())
+    click(actionButton())
     await settle()
     act(() => {
       useStore.setState({ tasks: [finishedTask('task-1')] })
@@ -611,9 +613,11 @@ function gallery(): HTMLElement {
   return element
 }
 
-function swapButton(): HTMLButtonElement {
-  const button = document.querySelector<HTMLButtonElement>('[data-product-shots-swap]')
-  if (!button) throw new Error('no swap button')
+function actionButton(action = 'background'): HTMLButtonElement {
+  const button = document.querySelector<HTMLButtonElement>(
+    `[data-product-shots-action="${action}"]`,
+  )
+  if (!button) throw new Error(`no ${action} action button`)
   return button
 }
 

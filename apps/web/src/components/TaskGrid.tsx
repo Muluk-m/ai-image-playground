@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useProductShotsStore } from '../features/productShots/store'
 import InspirationEmptyHero from '../features/inspiration/components/InspirationEmptyHero'
+import { useProductShotsStore } from '../features/productShots/store'
 import { groupTasksBySet } from '../features/remix/lib/history'
 import { useRemixStore } from '../features/remix/store'
 import { editOutputImage, removeTask, reuseConfig, sendTaskToCanvas, useStore } from '../store'

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { matteBadge } from '../../../../features/productShots/lib/matteBadge'
-import type { ProductShotVersion, MatteOutcome } from '../../../../features/productShots/types'
+import type { MatteOutcome, ProductShotVersion } from '../../../../features/productShots/types'
 
 function version(masked: boolean, matte?: MatteOutcome): ProductShotVersion {
   return {
