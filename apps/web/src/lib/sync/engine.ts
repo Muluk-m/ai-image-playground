@@ -14,7 +14,7 @@ import { useLibraryStore } from '../../features/library/store'
 import type { AssetRecord, TemplateRecord, Tombstone } from '../../features/library/types'
 import { useStore } from '../../store'
 import { isClientCapabilityEnabled } from '../clientCapabilities'
-import { forgetUploadedAssetImages, uploadAssetImage } from './assetImages'
+import { forgetUploadedAssetImages, noteAssetImageOnServer, uploadAssetImage } from './assetImages'
 import {
   type DirtyRecord,
   dropPendingRecords,
@@ -201,6 +201,9 @@ async function withImagesUploaded(
 }
 
 async function applyResponse(response: SyncResponseBody): Promise<void> {
+  for (const change of response.assets) {
+    if ('imageId' in change) noteAssetImageOnServer(change.imageId)
+  }
   await Promise.all([
     templateStore.applyRemote(response.templates as Array<TemplateRecord | Tombstone>),
     assetStore.applyRemote(response.assets as Array<AssetRecord | Tombstone>),
