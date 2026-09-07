@@ -24,6 +24,8 @@ const assessMatte = vi.hoisted(() => vi.fn())
 const alphaToInpaintMask = vi.hoisted(() => vi.fn())
 const alphaToProductMask = vi.hoisted(() => vi.fn())
 const expandProductAlpha = vi.hoisted(() => vi.fn())
+const getImageDimensions = vi.hoisted(() => vi.fn())
+const getParamCapabilities = vi.hoisted(() => vi.fn())
 const eraseProductArea = vi.hoisted(() => vi.fn())
 const analyzeCompetitorImages = vi.hoisted(() => vi.fn())
 const modelSupportsNativeMask = vi.hoisted(() => vi.fn())
@@ -63,6 +65,16 @@ vi.mock('../../../lib/productMatte', async (importOriginal) => ({
 
 vi.mock('../../../lib/eraseProduct', () => ({ eraseProductArea }))
 
+vi.mock('../../../lib/canvasImage', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../lib/canvasImage')>()),
+  getImageDimensions,
+}))
+
+vi.mock('../../../lib/paramCompatibility', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../lib/paramCompatibility')>()),
+  getParamCapabilities,
+}))
+
 vi.mock('../../../lib/analyzeClient', () => ({ analyzeCompetitorImages }))
 
 vi.mock('../../../lib/channels/profileSelectors', async (importOriginal) => ({
@@ -94,6 +106,14 @@ const BRIEF = {
   textZones: [],
   palette: ['米白'],
   productBox: { x: 0.1, y: 0.2, w: 0.3, h: 0.4 },
+}
+
+const PARAM_CAPABILITIES = {
+  quality: true,
+  size: true,
+  transparentOutput: true,
+  compression: true,
+  moderation: true,
 }
 
 function image(name: string): File {
@@ -138,6 +158,8 @@ beforeEach(() => {
   alphaToInpaintMask.mockReturnValue('data:image/png;base64,MASK')
   alphaToProductMask.mockReturnValue('data:image/png;base64,PRODUCT-MASK')
   expandProductAlpha.mockImplementation((matte: object) => ({ ...matte, grown: true }))
+  getImageDimensions.mockResolvedValue({ width: 2000, height: 2000 })
+  getParamCapabilities.mockReturnValue(PARAM_CAPABILITIES)
   eraseProductArea.mockResolvedValue('data:image/png;base64,ERASED')
   analyzeCompetitorImages.mockResolvedValue([BRIEF])
   modelSupportsNativeMask.mockReturnValue(true)
@@ -658,6 +680,43 @@ describe('checking the matte against the product box', () => {
     await useProductShotsStore.getState().runAction('background')
 
     expect(useProductShotsStore.getState().draft.images[0].versions[0].masked).toBe(true)
+  })
+})
+
+describe('asking for the best the model can render', () => {
+  it('submits at high quality', async () => {
+    await jobWithOneImage()
+
+    await useProductShotsStore.getState().runAction('background')
+
+    expect(submitPrepared.mock.calls[0][0].params).toMatchObject({ quality: 'high', n: 1 })
+  })
+
+  it('leaves the quality alone when the profile has no quality parameter', async () => {
+    getParamCapabilities.mockReturnValue({ ...PARAM_CAPABILITIES, quality: false })
+    await jobWithOneImage()
+
+    await useProductShotsStore.getState().runAction('background')
+
+    expect(submitPrepared.mock.calls[0][0].params.quality).toBe('auto')
+  })
+
+  it('marks a version whose source image is smaller than 1200 on its short edge', async () => {
+    getImageDimensions.mockResolvedValue({ width: 864, height: 864 })
+    await jobWithOneImage()
+
+    await useProductShotsStore.getState().runAction('background')
+
+    expect(useProductShotsStore.getState().draft.images[0].versions[0].lowResSource).toBe(true)
+  })
+
+  it('says nothing about the resolution when the source is big enough', async () => {
+    getImageDimensions.mockResolvedValue({ width: 1200, height: 1600 })
+    await jobWithOneImage()
+
+    await useProductShotsStore.getState().runAction('background')
+
+    expect(useProductShotsStore.getState().draft.images[0].versions[0].lowResSource).toBeUndefined()
   })
 })
 

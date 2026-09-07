@@ -59,6 +59,8 @@ export interface ProductShotVersion {
   matte?: MatteOutcome
   /** 抠出来的蒙版叠在原图上的预览图；抠图没跑出结果时没有。 */
   mattePreviewImageId?: string
+  /** 源图短边低于门槛，细节本来就上不去；版本条上要标出来。 */
+  lowResSource?: boolean
   createdAt: number
 }
 
