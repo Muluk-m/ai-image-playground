@@ -9,6 +9,7 @@ export const SYNC_PROMPT_MAX_LENGTH = 20_000
 export const SYNC_ID_MAX_LENGTH = 128
 export const SYNC_TEMPLATE_ASSET_IDS_MAX = 32
 export const SYNC_SETTINGS_MAX_BYTES = 64_000
+export const SYNC_TEMPLATE_PARAMS_MAX_BYTES = 8_000
 
 /** 删掉的记录在同步里的样子；`deletedAt` 的有无就是墓碑与实体记录的判据。 */
 export interface SyncTombstone {

@@ -5,6 +5,7 @@ import {
   SYNC_PROMPT_MAX_LENGTH,
   SYNC_SETTINGS_MAX_BYTES,
   SYNC_TEMPLATE_ASSET_IDS_MAX,
+  SYNC_TEMPLATE_PARAMS_MAX_BYTES,
 } from '@image-playground/shared'
 import { Elysia, t } from 'elysia'
 import { capabilityUnavailable, isCapabilityEnabled } from '../lib/capabilities'
@@ -40,6 +41,12 @@ const assetSchema = t.Object({
   lastUsedAt: epochMs,
 })
 
+function overBudget(value: unknown, limit: number): boolean {
+  return Buffer.byteLength(JSON.stringify(value)) > limit
+}
+
+// 这两个 union 会让 exact-mirror 打 "TypeCompiler is required" 警告（elysia 1.4 的上游缺陷）；
+// 拆掉 union 就没人再挡「半条记录」，警告留着。
 const syncBodySchema = t.Object({
   version: t.Integer({ minimum: 0 }),
   templates: t.Optional(
@@ -79,11 +86,17 @@ export const syncRoutes = new Elysia()
     '/api/sync',
     async ({ authUser, body, status }) => {
       if (!authUser) return status(401, { error: 'unauthorized' })
-      if (
-        body.settings &&
-        Buffer.byteLength(JSON.stringify(body.settings.document)) > SYNC_SETTINGS_MAX_BYTES
-      ) {
+      if (body.settings && overBudget(body.settings.document, SYNC_SETTINGS_MAX_BYTES)) {
         return status(400, { error: 'invalid_request', message: 'settings document too large' })
+      }
+      // jsonb 列没有长度上限，params 的字节数只能在这里挡。
+      if (
+        body.templates?.some(
+          (change) =>
+            'params' in change && overBudget(change.params, SYNC_TEMPLATE_PARAMS_MAX_BYTES),
+        )
+      ) {
+        return status(400, { error: 'invalid_request', message: 'template params too large' })
       }
       return synchronize(authUser.id, body)
     },
