@@ -115,13 +115,6 @@ export const resultRoutes = new Elysia()
     },
   )
 
-function jsonError(status: number, body: Record<string, unknown>): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { 'content-type': 'application/json' },
-  })
-}
-
 async function serveOutput(
   params: { id: string; index: string },
   request: Request,
@@ -133,14 +126,17 @@ async function serveOutput(
     .from(schema.tasks)
     .where(taskAccessWhere(params.id, userId, serviceIdentity))
     .limit(1)
-  if (!task || task.status !== 'completed') return jsonError(404, { error: 'not_ready' })
+  if (!task || task.status !== 'completed')
+    return Response.json({ error: 'not_ready' }, { status: 404 })
   const provider = asQueueProvider(task.provider)
-  if (!provider) return jsonError(500, { error: `unknown_provider:${task.provider}` })
+  if (!provider)
+    return Response.json({ error: `unknown_provider:${task.provider}` }, { status: 500 })
   const idx = Number(params.index)
-  if (!Number.isInteger(idx) || idx < 0) return jsonError(400, { error: 'bad_index' })
+  if (!Number.isInteger(idx) || idx < 0)
+    return Response.json({ error: 'bad_index' }, { status: 400 })
 
   const ref = resolveImageBytesRef(provider, task.result_payload, idx)
-  if (!ref) return jsonError(404, { error: 'image_not_found' })
+  if (!ref) return Response.json({ error: 'image_not_found' }, { status: 404 })
 
   // Ownership is immutable. Owned bytes must not enter shared caches.
   const cacheControl = `${task.user_id === null ? 'public' : 'private'}, max-age=31536000, immutable`
@@ -153,13 +149,13 @@ async function serveOutput(
     try {
       return mediaResponse(await objectStore().read(ref.data), ref.mime, cacheControl, range)
     } catch {
-      return jsonError(502, { error: 'object_storage_error' })
+      return Response.json({ error: 'object_storage_error' }, { status: 502 })
     }
   }
   // kind === 'url'：上游返回了 http 地址，BFF 现拉回来透传给客户端
   const upstream = await fetch(ref.data)
   if (!upstream.ok || !upstream.body) {
-    return jsonError(502, { error: `upstream_image_${upstream.status}` })
+    return Response.json({ error: `upstream_image_${upstream.status}` }, { status: 502 })
   }
   const mime = upstream.headers.get('content-type') ?? ref.mime
   if (!isSeekable(mime)) {
