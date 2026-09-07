@@ -222,3 +222,30 @@ describe('fetching an asset image another device uploaded', () => {
     expect(useStore.getState().inputImages.map((image) => image.id)).toEqual(['image-remote'])
   })
 })
+
+describe('flushing on the way out', () => {
+  it('pushes the metadata without waiting for an image upload', async () => {
+    await storeLocalImage()
+    putAssetImageMock.mockReturnValue(new Promise(() => {}))
+    await startEngine()
+
+    await assetStore.put(asset('a1', LOCAL_IMAGE))
+    await templateStore.put({
+      id: 't1',
+      name: '海报',
+      prompt: '出图',
+      assetIds: [],
+      params: { size: 'auto', quality: 'auto', n: 1 },
+      createdAt: 1,
+      updatedAt: 1,
+      lastUsedAt: 1,
+    })
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true })
+    document.dispatchEvent(new Event('visibilitychange'))
+
+    await vi.waitFor(() => expect(postSyncMock).toHaveBeenCalledTimes(2))
+    const body = postSyncMock.mock.calls[1]?.[0] as SyncRequestBody
+    expect(body.templates?.map((change) => change.id)).toEqual(['t1'])
+    expect(pushedAssetIds(1)).toEqual([])
+  })
+})
