@@ -117,7 +117,7 @@ export default function SourcePanel() {
       {sourceMode === 'library' && (
         <div className="mt-3">
           <button type="button" onClick={openSourcePicker} className={`w-full ${OUTLINE_BUTTON}`}>
-            从素材库选
+            从素材库选原图
           </button>
         </div>
       )}

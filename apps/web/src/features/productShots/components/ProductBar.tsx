@@ -25,10 +25,11 @@ export default function ProductBar() {
     <section data-product-shots-product className={`${CARD} mb-4`}>
       <div className="flex flex-wrap items-center gap-3">
         <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-100">我的产品</h2>
+        <span className="text-xs text-gray-400 dark:text-gray-500">
+          换产品 / 借创意重做时放进画面的产品
+        </span>
         {productAssets.length === 0 ? (
-          <p className="text-xs text-gray-500 dark:text-gray-400">
-            还没选产品素材，换产品与借创意重做要用它
-          </p>
+          <p className="text-xs text-gray-500 dark:text-gray-400">还没选产品素材</p>
         ) : (
           <ul className="flex flex-wrap gap-2">
             {productAssets.map((picked) => {

@@ -193,6 +193,44 @@ describe('putting original images into a job', () => {
   })
 })
 
+describe('taking a library asset as the original', () => {
+  it('makes the picked asset my product while none is picked', async () => {
+    await useProductShotsStore.getState().addImagesFromAssets(['a-side'])
+
+    expect(useProductShotsStore.getState().draft.productAssets).toEqual([
+      { assetId: 'a-side', angle: 'side' },
+    ])
+    expect(useStore.getState().showToast).toHaveBeenCalledWith(
+      '已把「侧面」设为我的产品，可在上方更换',
+      'success',
+    )
+  })
+
+  it('registers an asset whose name says no angle as the front one', async () => {
+    useLibraryStore.setState({ assets: [asset('a-plain', '主图白底', 'asset-plain')] })
+
+    await useProductShotsStore.getState().addImagesFromAssets(['a-plain'])
+
+    expect(useProductShotsStore.getState().draft.productAssets).toEqual([
+      { assetId: 'a-plain', angle: 'front' },
+    ])
+  })
+
+  it('leaves the product alone once one is picked', async () => {
+    useProductShotsStore.getState().toggleProductAsset('a-front')
+
+    await useProductShotsStore.getState().addImagesFromAssets(['a-side'])
+
+    expect(useProductShotsStore.getState().draft.productAssets).toEqual([
+      { assetId: 'a-front', angle: 'three-quarter' },
+    ])
+    expect(useStore.getState().showToast).not.toHaveBeenCalledWith(
+      expect.stringContaining('设为我的产品'),
+      'success',
+    )
+  })
+})
+
 describe('checking what kind of image each original is', () => {
   it('scans an uploaded image and keeps the answer with the job', async () => {
     requestSceneScan.mockResolvedValue('infographic')
