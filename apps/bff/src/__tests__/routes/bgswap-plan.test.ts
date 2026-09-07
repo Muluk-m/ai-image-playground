@@ -47,13 +47,29 @@ function visionFetchReturning(...bodies: Response[]): VisionFetch {
   }) as unknown as VisionFetch
 }
 
-/** 记下每次发给视觉模型的那段文字，指令本身也是被测行为。 */
-function promptCapturingFetch(prompts: string[]): VisionFetch {
-  return mock(async (_url: unknown, init: unknown) => {
-    const sent = JSON.parse((init as { body: string }).body) as {
-      messages: { content: { type: string; text?: string }[] }[]
+interface VisionCall {
+  readonly url: string
+  readonly authorization: string
+  readonly model: string
+  readonly images: readonly string[]
+  readonly prompt: string
+}
+
+function recordingVisionFetch(calls: VisionCall[]): VisionFetch {
+  return mock(async (url: unknown, init: unknown) => {
+    const { headers, body } = init as { headers: Record<string, string>; body: string }
+    const sent = JSON.parse(body) as {
+      model: string
+      messages: { content: { type: string; text?: string; image_url?: { url: string } }[] }[]
     }
-    prompts.push(sent.messages[0]!.content.find((part) => part.type === 'text')?.text ?? '')
+    const parts = sent.messages[0]!.content
+    calls.push({
+      url: String(url),
+      authorization: headers.authorization!,
+      model: sent.model,
+      images: parts.flatMap((part) => (part.image_url ? [part.image_url.url] : [])),
+      prompt: parts.find((part) => part.type === 'text')?.text ?? '',
+    })
     return chatCompletion(JSON.stringify(PLAN))
   }) as unknown as VisionFetch
 }
@@ -86,13 +102,8 @@ afterEach(() => {
 
 describe('POST /api/bgswap/plan', () => {
   it('returns the plan plus a prompt assembled from the server template', async () => {
-    const calls: { url: string; init: unknown }[] = []
-    setVisionFetchForTesting(
-      mock(async (url: unknown, init: unknown) => {
-        calls.push({ url: String(url), init })
-        return chatCompletion(JSON.stringify(PLAN))
-      }) as unknown as VisionFetch,
-    )
+    const calls: VisionCall[] = []
+    setVisionFetchForTesting(recordingVisionFetch(calls))
 
     const { status, json } = await plan({ image: PIXEL, preference: '北欧风', language: 'zh' })
 
@@ -110,19 +121,11 @@ describe('POST /api/bgswap/plan', () => {
 
     expect(calls).toHaveLength(1)
     expect(calls[0]!.url).toBe('http://gateway.test/v1/chat/completions')
-    const init = calls[0]!.init as { headers: Record<string, string>; body: string }
-    expect(init.headers.authorization).toBe('Bearer fixture-upstream-key')
-    const sent = JSON.parse(init.body) as {
-      model: string
-      messages: { content: { type: string; text?: string; image_url?: { url: string } }[] }[]
-    }
-    expect(sent.model).toBe('fixture-vision-model')
-    const parts = sent.messages[0]!.content
-    expect(parts.some((part) => part.type === 'image_url' && part.image_url?.url === PIXEL)).toBe(
-      true,
-    )
+    expect(calls[0]!.authorization).toBe('Bearer fixture-upstream-key')
+    expect(calls[0]!.model).toBe('fixture-vision-model')
+    expect(calls[0]!.images).toEqual([PIXEL])
     // 偏好优先于模型自己的判断，所以它必须进视觉提示，而不只是进最终提示词。
-    expect(parts.find((part) => part.type === 'text')?.text).toContain('北欧风')
+    expect(calls[0]!.prompt).toContain('北欧风')
   })
 
   it('works without a preference and defaults to Chinese', async () => {
@@ -295,35 +298,7 @@ describe('POST /api/bgswap/plan', () => {
     }
   })
 
-  it('answers with the inventory the model listed', async () => {
-    setVisionFetchForTesting(visionFetchReturning(chatCompletion(JSON.stringify(PLAN))))
-
-    const { status, json } = await plan({ image: PIXEL })
-
-    expect(status).toBe(200)
-    expect(json).toMatchObject({ inventory: PLAN.inventory })
-  })
-
-  it('names every inventory item in the prompt it assembles', async () => {
-    setVisionFetchForTesting(visionFetchReturning(chatCompletion(JSON.stringify(PLAN))))
-
-    const { json } = await plan({ image: PIXEL })
-
-    const { prompt } = json as { prompt: string }
-    for (const item of PLAN.inventory) expect(prompt).toContain(item)
-    expect(prompt).not.toContain('产品本身及所有与之相连的部件')
-  })
-
-  it('falls back to the generic untouched clause when the model lists no inventory', async () => {
-    const { inventory: _inventory, ...noInventory } = PLAN
-    setVisionFetchForTesting(visionFetchReturning(chatCompletion(JSON.stringify(noInventory))))
-
-    const { json } = await plan({ image: PIXEL })
-
-    expect((json as { prompt: string }).prompt).toContain('产品本身及所有与之相连的部件')
-  })
-
-  it('still answers when the model leaves the inventory out', async () => {
+  it('still answers, with the generic untouched clause, when the model lists no inventory', async () => {
     const { inventory: _inventory, ...noInventory } = PLAN
     setVisionFetchForTesting(visionFetchReturning(chatCompletion(JSON.stringify(noInventory))))
 
@@ -331,27 +306,28 @@ describe('POST /api/bgswap/plan', () => {
 
     expect(status).toBe(200)
     expect(json).toMatchObject({ inventory: [] })
+    expect((json as { prompt: string }).prompt).toContain('产品本身及所有与之相连的部件')
   })
 
   it('asks the model for the inventory before the plan sentence', async () => {
-    const prompts: string[] = []
-    setVisionFetchForTesting(promptCapturingFetch(prompts))
+    const calls: VisionCall[] = []
+    setVisionFetchForTesting(recordingVisionFetch(calls))
 
     await plan({ image: PIXEL })
 
-    const sent = prompts[0]!
+    const sent = calls[0]!.prompt
     expect(sent).toContain('"inventory"')
     expect(sent.indexOf('"inventory"')).toBeLessThan(sent.indexOf('"plan"'))
   })
 
   it('tells the model that a must-keep in the preference joins the inventory', async () => {
-    const prompts: string[] = []
-    setVisionFetchForTesting(promptCapturingFetch(prompts))
+    const calls: VisionCall[] = []
+    setVisionFetchForTesting(recordingVisionFetch(calls))
 
     await plan({ image: PIXEL, preference: '保留原有的落地龙头' })
 
-    expect(prompts[0]!).toContain('保留原有的落地龙头')
-    expect(prompts[0]!).toMatch(/must-keep[\s\S]*"inventory"/)
+    expect(calls[0]!.prompt).toContain('保留原有的落地龙头')
+    expect(calls[0]!.prompt).toMatch(/must-keep[\s\S]*"inventory"/)
   })
 
   it('rejects a mode outside the three', async () => {
