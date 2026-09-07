@@ -10,7 +10,10 @@ export interface StoredAssetImage {
   readonly contentType: string
 }
 
-export type AssetUploadAccepted = SyncAssetUploadResult & { readonly ok: true }
+export interface AssetUploadAccepted {
+  readonly ok: true
+  readonly result: SyncAssetUploadResult
+}
 
 export interface AssetUploadRejected {
   readonly ok: false
@@ -18,8 +21,19 @@ export interface AssetUploadRejected {
   readonly limit: number
 }
 
+/** 对象键的唯一出处；孤儿清扫按 `assetOwnerPrefix(userId)` 反过来收走一个用户的全部对象。 */
+export const ASSET_OBJECT_ROOT = 'users/'
+
+export function assetOwnerPrefix(userId: string): string {
+  return `${ASSET_OBJECT_ROOT}${userId}/`
+}
+
 export function assetObjectKey(userId: string, imageId: string): string {
-  return `users/${userId}/assets/${imageId}`
+  return `${assetOwnerPrefix(userId)}assets/${imageId}`
+}
+
+export function assetImageByteLimit(): number {
+  return config.operator.quotas['sync:asset-image-bytes']
 }
 
 async function totalBytes(userId: string): Promise<number> {
@@ -40,23 +54,27 @@ export async function storeAssetImage(
   bytes: Uint8Array,
   contentType: string,
 ): Promise<AssetUploadAccepted | AssetUploadRejected> {
-  const imageLimit = config.operator.quotas['sync:asset-image-bytes']
+  const imageLimit = assetImageByteLimit()
   const userLimit = config.operator.quotas['sync:user-asset-bytes']
   if (bytes.byteLength > imageLimit) {
     return { ok: false, error: 'asset_image_too_large', limit: imageLimit }
   }
 
-  const used = await totalBytes(userId)
-  const [existing] = await db
-    .select({ bytes: schema.user_asset_objects.bytes })
-    .from(schema.user_asset_objects)
-    .where(
-      and(
-        eq(schema.user_asset_objects.user_id, userId),
-        eq(schema.user_asset_objects.image_id, imageId),
+  const [used, [existing]] = await Promise.all([
+    totalBytes(userId),
+    db
+      .select({ bytes: schema.user_asset_objects.bytes })
+      .from(schema.user_asset_objects)
+      .where(
+        and(
+          eq(schema.user_asset_objects.user_id, userId),
+          eq(schema.user_asset_objects.image_id, imageId),
+        ),
       ),
-    )
-  if (existing) return { ok: true, imageId, bytes: existing.bytes, totalBytes: used }
+  ])
+  if (existing) {
+    return { ok: true, result: { imageId, bytes: existing.bytes, totalBytes: used } }
+  }
 
   if (used + bytes.byteLength > userLimit) {
     return { ok: false, error: 'asset_storage_quota_exceeded', limit: userLimit }
@@ -73,7 +91,10 @@ export async function storeAssetImage(
       created_at: Date.now(),
     })
     .onConflictDoNothing()
-  return { ok: true, imageId, bytes: bytes.byteLength, totalBytes: used + bytes.byteLength }
+  return {
+    ok: true,
+    result: { imageId, bytes: bytes.byteLength, totalBytes: used + bytes.byteLength },
+  }
 }
 
 export async function readAssetImage(
