@@ -25,7 +25,7 @@ describe('videoModelOptions', () => {
   it('只收 media 为 video 且档位表里有的模型', () => {
     expect(videoModelOptions().map((option) => option.modelId)).toEqual([
       'grok-imagine-video',
-      'agnes-video-2.5',
+      'agnes-video-2.5-flash',
     ])
   })
 

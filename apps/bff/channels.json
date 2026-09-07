@@ -130,8 +130,8 @@
       },
       "models": [
         {
-          "id": "agnes-video-2.5",
-          "label": "Agnes Video 2.5",
+          "id": "agnes-video-2.5-flash",
+          "label": "Agnes Video 2.5 Flash",
           "media": "video",
           "capabilities": [
             "generate",
