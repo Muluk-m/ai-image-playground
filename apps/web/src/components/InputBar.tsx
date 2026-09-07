@@ -8,6 +8,8 @@ import {
 } from '../features/library/lib/assetMentions'
 import { buildTemplateMenuGroups, getSlashTemplateQuery } from '../features/library/lib/templates'
 import { useLibraryStore } from '../features/library/store'
+import { useImageInputScope } from '../hooks/useImageInputScope'
+import { usePasteImageFiles } from '../hooks/usePasteImageFiles'
 import {
   clientProfileToApiProfile,
   getActiveApiProfile,
@@ -977,29 +979,18 @@ export default function InputBar() {
     e.clipboardData.setData('text/plain', copyText)
   }
 
-  // 粘贴图片
-  useEffect(() => {
-    const handlePaste = (e: ClipboardEvent) => {
-      const items = e.clipboardData?.items
-      if (!items) return
-      const imageFiles: File[] = []
-      for (const item of Array.from(items)) {
-        if (item.type.startsWith('image/')) {
-          const file = item.getAsFile()
-          if (file) imageFiles.push(file)
-        }
-      }
-      if (imageFiles.length > 0) {
-        e.preventDefault()
-        handleFilesRef.current(imageFiles)
-      }
-    }
-    document.addEventListener('paste', handlePaste)
-    return () => document.removeEventListener('paste', handlePaste)
-  }, [])
+  const dragActive = useImageInputScope() === 'browse'
+  usePasteImageFiles('browse', (files) => void handleFilesRef.current(files))
 
   // 拖拽图片 - 监听整个页面
   useEffect(() => {
+    // 素材面板自己是落点，它开着时全屏遮罩既抢不到 drop，也等不到熄灭它的 dragleave。
+    if (!dragActive) {
+      dragCounter.current = 0
+      setIsDragging(false)
+      return
+    }
+
     const handleDragEnter = (e: DragEvent) => {
       e.preventDefault()
       e.stopPropagation()
@@ -1045,7 +1036,7 @@ export default function InputBar() {
       document.removeEventListener('dragleave', handleDragLeave)
       document.removeEventListener('drop', handleDrop)
     }
-  }, [])
+  }, [dragActive])
 
   const adjustTextareaHeight = useCallback(() => {
     const el = textareaRef.current

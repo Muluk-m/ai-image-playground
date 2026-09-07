@@ -936,3 +936,127 @@ function finishedTask(id: string) {
     elapsed: 3_000,
   }
 }
+
+function fileDragEvent(type: string, files: File[]) {
+  const event = new Event(type, { bubbles: true, cancelable: true })
+  Object.defineProperty(event, 'dataTransfer', {
+    value: {
+      files,
+      types: ['Files'],
+      items: files.map((file) => ({ kind: 'file', type: file.type, getAsFile: () => file })),
+    },
+  })
+  return event
+}
+
+function fireDrag(target: Element, type: string, files: File[]) {
+  act(() => {
+    target.dispatchEvent(fileDragEvent(type, files))
+  })
+}
+
+function firePaste(files: File[]) {
+  const event = new Event('paste', { bubbles: true, cancelable: true })
+  Object.defineProperty(event, 'clipboardData', {
+    value: {
+      files,
+      items: files.map((file) => ({ kind: 'file', type: file.type, getAsFile: () => file })),
+    },
+  })
+  act(() => {
+    document.dispatchEvent(event)
+  })
+}
+
+describe('dropping and pasting images into the source list', () => {
+  const png = () => new File(['x'], '主图.png', { type: 'image/png' })
+  const pdf = () => new File(['x'], '说明.pdf', { type: 'application/pdf' })
+
+  function dropZone(): HTMLElement {
+    const element = column('sources').querySelector<HTMLElement>('[data-image-dropzone]')
+    if (!element) throw new Error('no drop zone')
+    return element
+  }
+
+  it('marks the list as a drop target while a file hovers it', () => {
+    render()
+
+    fireDrag(dropZone(), 'dragenter', [png()])
+    expect(dropZone().textContent).toContain('松开即上传')
+
+    fireDrag(dropZone(), 'dragleave', [png()])
+    expect(dropZone().textContent).not.toContain('松开即上传')
+  })
+
+  it('imports every dropped image and refuses the rest', async () => {
+    render()
+
+    fireDrag(dropZone(), 'dragenter', [png(), pdf()])
+    fireDrag(dropZone(), 'drop', [png(), pdf()])
+    await settle()
+
+    expect(useProductShotsStore.getState().draft.images).toHaveLength(1)
+    expect(dropZone().textContent).not.toContain('松开即上传')
+    expect(useStore.getState().showToast).toHaveBeenCalledWith('只支持图片文件', 'error')
+  })
+
+  it('offers the empty list as a second upload button', () => {
+    render()
+    const input = document.querySelector<HTMLInputElement>('input[aria-label="上传原图"]')
+    if (!input) throw new Error('no file input')
+    const openPicker = vi.spyOn(input, 'click')
+
+    const placeholder = [...dropZone().querySelectorAll('button')].find(
+      (item) => item.textContent === '拖入图片，或点击上传',
+    )
+    if (!placeholder) throw new Error('no empty state button')
+    click(placeholder)
+
+    expect(openPicker).toHaveBeenCalled()
+  })
+
+  it('takes a pasted image while the product shots mode is in front', async () => {
+    useStore.setState({ appMode: 'product' })
+    render()
+
+    firePaste([png()])
+    await settle()
+
+    expect(useProductShotsStore.getState().draft.images).toHaveLength(1)
+  })
+
+  it('ignores a paste that belongs to the workbench behind it', async () => {
+    useStore.setState({ appMode: 'browse' })
+    render()
+
+    firePaste([png()])
+    await settle()
+
+    expect(useProductShotsStore.getState().draft.images).toEqual([])
+  })
+
+  it('takes a drop in the product asset overlay as an upload', async () => {
+    const importAssetFiles = vi.fn().mockResolvedValue(undefined)
+    useLibraryStore.setState({ importAssetFiles })
+    render()
+    const open = [...document.querySelectorAll('button')].find(
+      (item) => item.textContent === '选素材',
+    )
+    if (!open) throw new Error('no product picker button')
+    click(open)
+    await settle()
+
+    const zone = document.querySelector<HTMLElement>(
+      '[data-product-shots-product-picker][data-image-dropzone]',
+    )
+    if (!zone) throw new Error('no drop zone in the product picker')
+    fireDrag(zone, 'dragenter', [png()])
+    expect(zone.textContent).toContain('松开即上传')
+
+    fireDrag(zone, 'drop', [png(), pdf()])
+    await settle()
+
+    expect(importAssetFiles).toHaveBeenCalled()
+    expect(importAssetFiles.mock.calls[0][0]).toHaveLength(1)
+  })
+})
