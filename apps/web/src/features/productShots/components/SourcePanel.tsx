@@ -14,7 +14,8 @@ import Segmented from '../../../components/Segmented'
 import { isClientCapabilityEnabled } from '../../../lib/clientCapabilities'
 import AssetThumb from '../../library/components/AssetThumb'
 import { DIAGRAM_LABEL, isDiagram } from '../lib/scene'
-import { SOURCE_MODE_LABELS, SOURCE_MODES, useProductShotsStore } from '../store'
+import { useProductShotsStore } from '../store'
+import { SOURCE_MODE_LABELS, SOURCE_MODES } from '../types'
 import SourceLibraryPicker from './SourceLibraryPicker'
 
 export default function SourcePanel() {
@@ -25,7 +26,7 @@ export default function SourcePanel() {
   const listingLoading = useProductShotsStore((s) => s.listingLoading)
   const listingStartedAt = useProductShotsStore((s) => s.listingStartedAt)
   const listingNotice = useProductShotsStore((s) => s.listingNotice)
-  const picked = useProductShotsStore((s) => s.sourceMode)
+  const requested = useProductShotsStore((s) => s.sourceMode)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const {
@@ -42,7 +43,7 @@ export default function SourcePanel() {
   const offered = SOURCE_MODES.filter(
     (mode) => mode !== 'listing' || isClientCapabilityEnabled('remix:listing'),
   )
-  const sourceMode = offered.includes(picked) ? picked : 'upload'
+  const sourceMode = offered.includes(requested) ? requested : 'upload'
 
   return (
     <section data-product-shots-column="sources" className={CARD}>

@@ -6,6 +6,17 @@ import type { MatteBackendId, SegmentFailureReason } from '../../lib/productMatt
 export type LegacyProductSource = 'original' | 'asset'
 export type LegacyTarget = 'product-only' | 'product-and-background'
 
+export const SOURCE_MODES = ['upload', 'listing', 'library'] as const
+
+/** 原图从哪来：自己上传、贴商品链接抓、还是从素材库里挑。 */
+export type SourceMode = (typeof SOURCE_MODES)[number]
+
+export const SOURCE_MODE_LABELS: Record<SourceMode, string> = {
+  upload: '上传',
+  listing: '亚马逊链接',
+  library: '素材库',
+}
+
 /** 抠图没用上的原因：跑不出来（前三种），或抠出来的框跟方案给的产品框对不上。 */
 export type MatteFailureCause = SegmentFailureReason | 'box-mismatch'
 

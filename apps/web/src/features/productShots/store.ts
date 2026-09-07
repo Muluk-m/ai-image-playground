@@ -49,6 +49,7 @@ import type {
   ProductShotJob,
   ProductShotStage,
   ProductShotVersion,
+  SourceMode,
 } from './types'
 
 const UPLOAD_FALLBACK = '请直接上传原图'
@@ -62,17 +63,6 @@ const NO_ANGLE_MATCH = '没有与机位相符的素材，用了第一张'
 const ASSET_MISSING = '素材图片已丢失'
 
 type Mask = { imageId: string; targetImageId: string }
-
-export const SOURCE_MODES = ['upload', 'listing', 'library'] as const
-
-/** 原图从哪来：自己上传、贴商品链接抓、还是从素材库里挑。 */
-export type SourceMode = (typeof SOURCE_MODES)[number]
-
-export const SOURCE_MODE_LABELS: Record<SourceMode, string> = {
-  upload: '上传',
-  listing: '亚马逊链接',
-  library: '素材库',
-}
 
 export interface ProductShotsDraft {
   /** 已保存的任务 id；null 表示还没落盘。 */
