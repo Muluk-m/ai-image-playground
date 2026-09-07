@@ -4,8 +4,9 @@ import Pending from '../../../components/Pending'
 import { LABEL, NOTICE } from '../../../components/panelStyles'
 import { formatElapsed } from '../../../hooks/useElapsed'
 import { useStore } from '../../../store'
+import { actionLabel } from '../lib/actions'
 import { type MatteBadge, matteBadge } from '../lib/matteBadge'
-import { changesBackground, PRODUCT_SWAPPED_LABEL, swapsProduct } from '../lib/mode'
+import { changesBackground } from '../lib/mode'
 import { DIAGRAM_LABEL, isDiagram } from '../lib/scene'
 import { VERSION_STATE_LABELS, versionProgress } from '../lib/versionProgress'
 import { useProductShotsStore } from '../store'
@@ -80,11 +81,9 @@ export default function VersionBar() {
                         {badge.text}
                       </span>
                     )}
-                    {swapsProduct(version.mode) && (
-                      <span className="rounded bg-violet-500/10 px-1.5 py-0.5 text-violet-700 dark:text-violet-300">
-                        {PRODUCT_SWAPPED_LABEL}
-                      </span>
-                    )}
+                    <span className="rounded bg-violet-500/10 px-1.5 py-0.5 text-violet-700 dark:text-violet-300">
+                      {actionLabel(version.mode, version.level)}
+                    </span>
                     {chosen && (
                       <span className="rounded bg-blue-500/10 px-1.5 py-0.5 text-blue-700 dark:text-blue-300">
                         已选

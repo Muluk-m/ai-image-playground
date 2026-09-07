@@ -51,7 +51,8 @@ describe('matteBadge', () => {
     expect(matteBadge(version(true))).toBeNull()
   })
 
-  it('整图重画的那一版不报未抠图：它本来就不抠', () => {
+  it('整图重画的那几版不报未抠图：它们本来就不抠', () => {
     expect(matteBadge({ ...version(false), mode: 'replace-and-background' })).toBeNull()
+    expect(matteBadge({ ...version(false), mode: 'remix' })).toBeNull()
   })
 })

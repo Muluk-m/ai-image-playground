@@ -1,6 +1,8 @@
-import type { BgSceneType, BgSwapMode, ProductBox } from '@image-playground/shared'
+import type { BgSceneType, ProductBox } from '@image-playground/shared'
 import type { ProductAsset } from '../../lib/productAngle'
 import type { MatteBackendId, SegmentFailureReason } from '../../lib/productMatte'
+import type { RemixBrief, RemixLevel, RemixProductDescription } from '../../lib/shotTypes'
+import type { ProductShotAction } from './lib/actions'
 
 /** 旧任务记录里的两组分段，只用来把老记录读成一个动作。 */
 export type LegacyProductSource = 'original' | 'asset'
@@ -34,9 +36,13 @@ export interface ProductShotVersion {
   /** 方案给的产品框，重跑时拿它再校一次蒙版；旧记录没有这个字段。 */
   productBox?: ProductBox | null
   masked: boolean
-  /** 这一版跑的是哪种模式；旧记录没有这个字段，按只换背景读。 */
-  mode?: BgSwapMode
-  /** 换产品时用掉的那条素材；没换产品时没有。 */
+  /** 这一版跑的是哪个动作；旧记录没有这个字段，按只换背景读。 */
+  mode?: ProductShotAction
+  /** 与竞品的距离，只有借创意重做有。 */
+  level?: RemixLevel
+  /** 借创意重做那一版的简报，重跑与「查看方案」拿它；其余动作没有。 */
+  brief?: RemixBrief
+  /** 换产品与借创意重做时用掉的那条素材；只换背景时没有。 */
   productAssetId?: string
   /** 这一版落盘时还没有这个字段的旧记录为 undefined。 */
   matte?: MatteOutcome
@@ -72,11 +78,15 @@ export interface ProductShotJob {
   preference: string
   versionsPerImage: number
   /** 最近一次跑的动作，批量沿用；旧记录没有它，由下面两个旧字段读出来。 */
-  mode?: BgSwapMode
+  mode?: ProductShotAction
+  /** 最近一次借创意重做的档位，批量沿用。 */
+  level?: RemixLevel
   productSource?: LegacyProductSource
   target?: LegacyTarget
   /** 产品素材整任务生效，换产品与借创意重做共用。 */
   productAssets?: ProductAsset[]
+  /** 产品说明整任务生效，借创意重做的锁产品段从这里取。 */
+  product?: RemixProductDescription
   createdAt: number
   updatedAt: number
 }

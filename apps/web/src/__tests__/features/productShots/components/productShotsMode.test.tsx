@@ -152,6 +152,16 @@ function click(element: Element) {
   })
 }
 
+function type(label: string, value: string) {
+  const input = document.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`)
+  if (!input) throw new Error(`no input labelled ${label}`)
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
+  act(() => {
+    setter?.call(input, value)
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+}
+
 function upload(label: string, ...files: File[]) {
   const input = document.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`)
   if (!input) throw new Error(`no file input labelled ${label}`)
@@ -512,6 +522,27 @@ describe('the product picked once for the whole job', () => {
     return element
   }
 
+  function describeButton(): HTMLButtonElement {
+    const button = productBar().querySelector<HTMLButtonElement>('[data-product-shots-describe]')
+    if (!button) throw new Error('no describe button')
+    return button
+  }
+
+  function colorInput(): HTMLInputElement {
+    const input = document.querySelector<HTMLInputElement>('input[aria-label="禁止色"]')
+    if (!input) throw new Error('no forbidden colours input')
+    return input
+  }
+
+  function levelButton(label: string): HTMLButtonElement {
+    const group = document.querySelector('[role="group"][aria-label="与竞品的距离"]')
+    const button = [...(group?.querySelectorAll('button') ?? [])].find(
+      (item) => item.textContent === label,
+    )
+    if (!button) throw new Error(`no ${label} level button`)
+    return button
+  }
+
   function pickerButton(): HTMLButtonElement {
     const button = [...productBar().querySelectorAll('button')].find((item) =>
       item.textContent?.includes('素材'),
@@ -527,11 +558,59 @@ describe('the product picked once for the whole job', () => {
     expect(column('actions').textContent).toContain('先在上方选产品素材')
   })
 
-  it('offers the creative remix as a placeholder only', () => {
+  it('holds the creative remix back until a product asset is picked', () => {
     render()
 
     expect(actionButton('remix').disabled).toBe(true)
-    expect(column('actions').textContent).toContain('即将支持')
+    expect(column('actions').textContent).toContain('先在上方选产品素材')
+  })
+
+  it('picks how far the remix goes from the competitor', () => {
+    render()
+
+    expect(levelButton('不像').getAttribute('aria-pressed')).toBe('true')
+
+    click(levelButton('像'))
+
+    expect(useProductShotsStore.getState().draft.level).toBe('low')
+    expect(levelButton('像').getAttribute('aria-pressed')).toBe('true')
+  })
+
+  it('describes the product once the panel is unfolded', () => {
+    render()
+
+    expect(productBar().querySelector('[aria-label="主色"]')).toBeNull()
+    click(describeButton())
+
+    type('主色', '哑光灰棕')
+
+    expect(useProductShotsStore.getState().draft.product.mainColor).toBe('哑光灰棕')
+  })
+
+  it('says the colour may drift while nobody named the main colour', () => {
+    render()
+    click(describeButton())
+
+    expect(productBar().textContent).toContain('未填主色，颜色可能漂')
+
+    type('主色', '哑光灰棕')
+
+    expect(productBar().textContent).not.toContain('未填主色，颜色可能漂')
+  })
+
+  it('keeps the forbidden colours as a list without eating the separator', () => {
+    render()
+    click(describeButton())
+
+    type('禁止色', '米白、')
+
+    expect(useProductShotsStore.getState().draft.product.forbiddenColors).toEqual(['米白'])
+    // 受控输入框会在这里把「、」擦掉，用户就再也打不出第二个颜色。
+    expect(colorInput().value).toBe('米白、')
+
+    type('禁止色', '米白、浅灰')
+
+    expect(useProductShotsStore.getState().draft.product.forbiddenColors).toEqual(['米白', '浅灰'])
   })
 
   it('picks an asset in the overlay and shows it at the top', async () => {
@@ -583,7 +662,7 @@ describe('the product picked once for the whole job', () => {
     await settle()
 
     const row = document.querySelector('[data-product-shots-version]')
-    expect(row?.textContent).toContain('已换产品')
+    expect(row?.textContent).toContain('换产品')
     // 背景没动，那一句背景方案在这一版上是假的。
     expect(row?.textContent).not.toContain(PLAN.plan)
   })
