@@ -1,4 +1,4 @@
-import type { SyncAssetUploadErrorCode } from '@image-playground/shared'
+import type { SyncAssetQuotaErrorCode, SyncAssetUploadResult } from '@image-playground/shared'
 import { and, eq, inArray, sql } from 'drizzle-orm'
 import { config } from '../config'
 import { db, schema } from '../db/client'
@@ -10,16 +10,11 @@ export interface StoredAssetImage {
   readonly contentType: string
 }
 
-export interface AssetUploadAccepted {
-  readonly ok: true
-  readonly imageId: string
-  readonly bytes: number
-  readonly totalBytes: number
-}
+export type AssetUploadAccepted = SyncAssetUploadResult & { readonly ok: true }
 
 export interface AssetUploadRejected {
   readonly ok: false
-  readonly error: SyncAssetUploadErrorCode
+  readonly error: SyncAssetQuotaErrorCode
   readonly limit: number
 }
 
