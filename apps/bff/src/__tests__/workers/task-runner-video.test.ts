@@ -65,8 +65,8 @@ const videoChannels: InternalChannel[] = [
     allowedPaths: ['videos', 'agnesapi'],
     models: [
       {
-        id: 'agnes-video-2.5',
-        label: 'Agnes Video 2.5',
+        id: 'agnes-video-2.5-flash',
+        label: 'Agnes Video 2.5 Flash',
         media: 'video',
         capabilities: ['generate', 'duration', 'aspect_ratio', 'resolution', 'first_frame'],
       },
@@ -177,7 +177,7 @@ describe('Agnes video task', () => {
         ? json({ status: 'in_progress' })
         : json({ status: 'completed', url: RESULT_URL })
     }
-    await insertVideoTask('agnes-video-task', 'agnes-video-2.5')
+    await insertVideoTask('agnes-video-task', 'agnes-video-2.5-flash')
 
     await runTask('agnes-video-task')
 
@@ -201,7 +201,7 @@ describe('Agnes video task', () => {
       url.endsWith('/videos')
         ? json({ video_id: 'task_2' })
         : json({ status: 'failed', error: { message: 'generation failed' } })
-    await insertVideoTask('agnes-video-failed', 'agnes-video-2.5')
+    await insertVideoTask('agnes-video-failed', 'agnes-video-2.5-flash')
 
     await runTask('agnes-video-failed')
 
