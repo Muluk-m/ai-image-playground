@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { useAuth } from './auth/AuthContext'
 import ConfirmDialog from './components/ConfirmDialog'
 import DetailModal from './components/DetailModal'
 import Header from './components/Header'
@@ -20,6 +21,7 @@ import SaveTemplateDialog from './features/library/components/SaveTemplateDialog
 import ProductShotsMode from './features/productShots/components/ProductShotsMode'
 import VideoMode from './features/video/components/VideoMode'
 import { isByokGenerationEnabled } from './lib/clientCapabilities'
+import { startSyncEngine } from './lib/sync/engine'
 import {
   buildSettingsFromUrlParams,
   clearUrlSettingParams,
@@ -30,6 +32,10 @@ import { initStore, useStore } from './store'
 export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: number }) {
   const setSettings = useStore((s) => s.setSettings)
   const appMode = useStore((s) => s.appMode)
+  const user = useAuth().user
+
+  // 匿名设备没有同步；能力关不关由引擎自己判断。
+  useEffect(() => (user ? startSyncEngine() : undefined), [user])
 
   useEffect(() => {
     const searchParams = new URLSearchParams(window.location.search)
