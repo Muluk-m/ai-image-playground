@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useBgSwapStore } from '../features/bgswap/store'
+import { useProductShotsStore } from '../features/productShots/store'
 import InspirationEmptyHero from '../features/inspiration/components/InspirationEmptyHero'
 import { groupTasksBySet } from '../features/remix/lib/history'
 import { useRemixStore } from '../features/remix/store'
@@ -57,11 +57,11 @@ export default function TaskGrid() {
 
   const historyItems = useMemo(() => groupTasksBySet(filteredTasks), [filteredTasks])
   const remixSets = useRemixStore((s) => s.sets)
-  const bgSwapJobs = useBgSwapStore((s) => s.jobs)
+  const bgSwapJobs = useProductShotsStore((s) => s.jobs)
 
   useEffect(() => {
     void useRemixStore.getState().loadSets()
-    void useBgSwapStore.getState().loadJobs()
+    void useProductShotsStore.getState().loadJobs()
   }, [])
 
   const handleDelete = (task: (typeof tasks)[0]) => {
