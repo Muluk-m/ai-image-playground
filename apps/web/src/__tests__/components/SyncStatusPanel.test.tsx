@@ -26,13 +26,25 @@ beforeEach(() => {
   host = document.createElement('div')
   document.body.appendChild(host)
   root = createRoot(host)
-  useSyncStatus.setState({ enabled: true, status: 'idle', pending: 0, lastSyncedAt: null })
+  useSyncStatus.setState({
+    enabled: true,
+    status: 'idle',
+    pending: 0,
+    lastSyncedAt: null,
+    uploads: null,
+  })
 })
 
 afterEach(() => {
   act(() => root.unmount())
   host.remove()
-  useSyncStatus.setState({ enabled: false, status: 'idle', pending: 0, lastSyncedAt: null })
+  useSyncStatus.setState({
+    enabled: false,
+    status: 'idle',
+    pending: 0,
+    lastSyncedAt: null,
+    uploads: null,
+  })
 })
 
 describe('the sync status panel', () => {
@@ -55,6 +67,14 @@ describe('the sync status panel', () => {
     })
     expect(host.querySelector('button')).toBeNull()
   })
+
+  it('shows the bulk upload progress while it runs', () => {
+    useSyncStatus.setState({ status: 'syncing', uploads: { done: 1, total: 3 } })
+
+    render()
+
+    expect(host.textContent).toContain('上传素材图 1/3')
+  })
 })
 
 describe('the status label', () => {
@@ -65,6 +85,18 @@ describe('the status label', () => {
     expect(syncLabel({ status: 'error', pending: 0, lastSyncedAt: now, now })).toBe('同步失败')
     expect(syncLabel({ status: 'syncing', pending: 0, lastSyncedAt: now, now })).toBe('同步中')
     expect(syncLabel({ status: 'idle', pending: 0, lastSyncedAt: null, now })).toBe('尚未同步')
+  })
+
+  it('counts the asset images a bulk upload still has to send', () => {
+    expect(
+      syncLabel({
+        status: 'syncing',
+        pending: 5,
+        lastSyncedAt: null,
+        uploads: { done: 2, total: 5 },
+        now,
+      }),
+    ).toBe('上传素材图 2/5')
   })
 
   it('dates the last successful run', () => {

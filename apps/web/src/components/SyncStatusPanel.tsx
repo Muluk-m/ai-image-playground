@@ -1,5 +1,5 @@
 import { syncNow } from '../lib/sync/engine'
-import { useSyncStatus } from '../lib/sync/status'
+import { type AssetUploadProgress, useSyncStatus } from '../lib/sync/status'
 
 /** 设置页「数据管理」里的同步状态。只标状态，不解释规则。 */
 export default function SyncStatusPanel() {
@@ -7,6 +7,7 @@ export default function SyncStatusPanel() {
   const status = useSyncStatus((s) => s.status)
   const pending = useSyncStatus((s) => s.pending)
   const lastSyncedAt = useSyncStatus((s) => s.lastSyncedAt)
+  const uploads = useSyncStatus((s) => s.uploads)
   if (!enabled) return null
 
   const failed = status === 'error'
@@ -17,7 +18,7 @@ export default function SyncStatusPanel() {
         <p
           className={`mt-1 text-[13px] ${failed ? 'text-red-500 dark:text-red-400' : 'text-gray-500 dark:text-gray-400'}`}
         >
-          {syncLabel({ status, pending, lastSyncedAt })}
+          {syncLabel({ status, pending, lastSyncedAt, uploads })}
         </p>
       </div>
       {failed ? (
@@ -37,14 +38,17 @@ export function syncLabel({
   status,
   pending,
   lastSyncedAt,
+  uploads = null,
   now = Date.now(),
 }: {
   status: 'idle' | 'syncing' | 'error'
   pending: number
   lastSyncedAt: number | null
+  uploads?: AssetUploadProgress | null
   now?: number
 }): string {
   if (status === 'error') return '同步失败'
+  if (uploads) return `上传素材图 ${uploads.done}/${uploads.total}`
   if (status === 'syncing') return '同步中'
   if (pending > 0) return `${pending} 项待同步`
   if (lastSyncedAt === null) return '尚未同步'
