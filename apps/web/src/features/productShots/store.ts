@@ -1,4 +1,11 @@
-import { type BgSwapMode, DEFAULT_BG_SWAP_MODE, type ProductBox } from '@image-playground/shared'
+import {
+  type BgSwapMode,
+  DEFAULT_BG_SWAP_MODE,
+  DEFAULT_PROMPT_LANGUAGE,
+  type ProductBox,
+  type PromptLanguage,
+  type ShotType,
+} from '@image-playground/shared'
 import { create } from 'zustand'
 import { analyzeCompetitorImages } from '../../lib/analyzeClient'
 import { getActiveApiProfile } from '../../lib/apiProfiles'
@@ -28,7 +35,12 @@ import {
   segmentProduct,
 } from '../../lib/productMatte'
 import { productContextDescription } from '../../lib/shotPrompt'
-import type { RemixBrief, RemixLevel, RemixProductDescription } from '../../lib/shotTypes'
+import type {
+  RemixBrief,
+  RemixLevel,
+  RemixProductDescription,
+  RemixShotCopy,
+} from '../../lib/shotTypes'
 import {
   ensureImageCached,
   storeImageFromFile,
@@ -51,6 +63,12 @@ import {
   remixProductDescription,
 } from './lib/remixPlan'
 import { DIAGRAM_LABEL, isDiagram } from './lib/scene'
+import {
+  editVersionPlan,
+  resetVersionPrompt,
+  type VersionPlanContext,
+  type VersionPlanPatch,
+} from './lib/versionPlan'
 import type {
   MatteFailureCause,
   MatteOutcome,
@@ -90,6 +108,8 @@ export interface ProductShotsDraft {
   level: RemixLevel
   productAssets: ProductAsset[]
   product: RemixProductDescription
+  /** 图上文案的语言，整任务生效。 */
+  language: PromptLanguage
   createdAt: number | null
 }
 
@@ -115,6 +135,8 @@ export interface ProductShotsState {
   previewVersionId: string | null
   /** 正在把哪一版的蒙版盖在原图上看；null 表示没在看蒙版。 */
   matteOverlayVersionId: string | null
+  /** 「查看方案」抽屉开在哪一版上；null 表示收起。 */
+  planVersionId: string | null
 
   /** 这一轮批量的进度，null 表示这次打开还没跑过批量。 */
   batch: ProductShotBatchProgress | null
@@ -130,9 +152,14 @@ export interface ProductShotsState {
 
   runAction: (mode: ProductShotAction) => Promise<void>
   retryVersion: (versionId: string) => Promise<void>
+  regenerateFromVersion: (versionId: string) => Promise<void>
   chooseVersion: (versionId: string) => void
   previewVersion: (versionId: string | null) => void
   toggleMatteOverlay: (versionId: string) => void
+  openPlanDrawer: (versionId: string) => void
+  closePlanDrawer: () => void
+  editVersionPlan: (versionId: string, patch: VersionPlanPatch) => void
+  resetVersionPrompt: (versionId: string) => void
 
   runBatch: () => Promise<void>
   runBatchImage: (imageId: string) => Promise<void>
@@ -151,6 +178,7 @@ export interface ProductShotsState {
   setPreference: (preference: string) => void
   setVersionsPerImage: (count: number) => void
   setRemixLevel: (level: RemixLevel) => void
+  setPromptLanguage: (language: PromptLanguage) => void
 
   setProductDescription: (patch: Partial<RemixProductDescription>) => void
   toggleProductAsset: (assetId: string) => void
@@ -171,6 +199,7 @@ function emptyDraft(): ProductShotsDraft {
     level: DEFAULT_REMIX_LEVEL,
     productAssets: [],
     product: emptyProductDescription(),
+    language: DEFAULT_PROMPT_LANGUAGE,
     createdAt: null,
   }
 }
@@ -186,6 +215,7 @@ function draftFromJob(job: ProductShotJob): ProductShotsDraft {
     level: job.level ?? DEFAULT_REMIX_LEVEL,
     productAssets: job.productAssets ?? [],
     product: job.product ?? emptyProductDescription(),
+    language: job.language ?? DEFAULT_PROMPT_LANGUAGE,
     createdAt: job.createdAt,
   }
 }
@@ -205,6 +235,7 @@ export const useProductShotsStore = create<ProductShotsState>((set, get) => ({
   swapNotice: null,
   previewVersionId: null,
   matteOverlayVersionId: null,
+  planVersionId: null,
   batch: null,
   productPickerOpen: false,
   sourcePickerOpen: false,
@@ -224,6 +255,7 @@ export const useProductShotsStore = create<ProductShotsState>((set, get) => ({
       swapNotice: null,
       previewVersionId: null,
       matteOverlayVersionId: null,
+      planVersionId: null,
       batch: null,
     }),
 
@@ -239,6 +271,7 @@ export const useProductShotsStore = create<ProductShotsState>((set, get) => ({
       swapNotice: null,
       previewVersionId: null,
       matteOverlayVersionId: null,
+      planVersionId: null,
       batch: null,
     })
   },
@@ -329,6 +362,7 @@ export const useProductShotsStore = create<ProductShotsState>((set, get) => ({
       selectedImageId,
       previewVersionId: null,
       matteOverlayVersionId: null,
+      planVersionId: null,
       swapNotice: null,
     }),
 
@@ -337,6 +371,8 @@ export const useProductShotsStore = create<ProductShotsState>((set, get) => ({
   setVersionsPerImage: (versionsPerImage) => patchDraft(set, get, { versionsPerImage }),
 
   setRemixLevel: (level) => patchDraft(set, get, { level }),
+
+  setPromptLanguage: (language) => patchDraft(set, get, { language }),
 
   setProductDescription: (patch) =>
     patchDraft(set, get, { product: { ...get().draft.product, ...patch } }),
@@ -393,19 +429,23 @@ export const useProductShotsStore = create<ProductShotsState>((set, get) => ({
   /** 重跑沿用这一版已有的方案与提示词，只换掉任务，版本条上不多出一条。 */
   retryVersion: async (versionId) => {
     const { draft, swapStage, batch } = get()
-    const image = draft.images.find((item) =>
-      item.versions.some((version) => version.id === versionId),
-    )
-    const version = image?.versions.find((item) => item.id === versionId)
+    const found = findVersion(draft, versionId)
     const jobId = draft.id
-    if (swapStage || batch?.running || !image || !version || !jobId) return
+    if (swapStage || batch?.running || !found || !jobId) return
 
     await runStages(set, async (stage) => {
-      const prepared = await prepareImage(get, image.imageId, stage, version)
+      const prepared = await prepareImage(get, found.imageId, stage, found.version)
       if (prepared.notice) set({ swapNotice: prepared.notice })
       const rerun = await submitVersion(jobId, prepared, versionId)
-      if (rerun) await recordVersions(set, get, image.imageId, [rerun])
+      if (rerun) await recordVersions(set, get, found.imageId, [rerun])
     })
+  },
+
+  /** 「按此重生成」：拿抽屉里这一版的提示词另起一版，遮罩与参考图照原动作再走一遍。 */
+  regenerateFromVersion: async (versionId) => {
+    const { draft } = get()
+    const found = findVersion(draft, versionId)
+    if (draft.id && found) await swapOneVersion(set, get, draft.id, found.imageId, found.version)
   },
 
   chooseVersion: (versionId) => {
@@ -428,6 +468,16 @@ export const useProductShotsStore = create<ProductShotsState>((set, get) => ({
     set((s) => ({
       matteOverlayVersionId: s.matteOverlayVersionId === versionId ? null : versionId,
     })),
+
+  openPlanDrawer: (planVersionId) => set({ planVersionId }),
+
+  closePlanDrawer: () => set({ planVersionId: null }),
+
+  editVersionPlan: (versionId, patch) =>
+    patchVersion(set, get, versionId, (version, ctx) => editVersionPlan(version, patch, ctx)),
+
+  resetVersionPrompt: (versionId) =>
+    patchVersion(set, get, versionId, (version, ctx) => resetVersionPrompt(version, ctx)),
 
   runBatch: async () => {
     const { draft, selectedImageId } = get()
@@ -457,27 +507,72 @@ function patchDraft(set: SetState, get: GetState, patch: Partial<ProductShotsDra
   void persistDraft(set, get)
 }
 
+/** 重算提示词要的任务级设定。画面类型取预检的结论：出方案那次模型判的没有留在版本上。 */
+function versionContext(draft: ProductShotsDraft, image: ProductShotImage): VersionPlanContext {
+  return {
+    product: remixProductDescription(draft.product, firstAssetName(draft), draft.name),
+    language: draft.language,
+    preference: draft.preference,
+    sceneType: image.sceneType ?? 'photo',
+  }
+}
+
+function findVersion(
+  draft: ProductShotsDraft,
+  versionId: string,
+): { imageId: string; image: ProductShotImage; version: ProductShotVersion } | null {
+  for (const image of draft.images) {
+    const version = image.versions.find((item) => item.id === versionId)
+    if (version) return { imageId: image.imageId, image, version }
+  }
+  return null
+}
+
+function patchVersion(
+  set: SetState,
+  get: GetState,
+  versionId: string,
+  transform: (version: ProductShotVersion, ctx: VersionPlanContext) => ProductShotVersion,
+): void {
+  const { draft } = get()
+  const found = findVersion(draft, versionId)
+  if (!found) return
+
+  const ctx = versionContext(draft, found.image)
+  patchImage(set, found.imageId, (item) => ({
+    ...item,
+    versions: item.versions.map((version) =>
+      version.id === versionId ? transform(version, ctx) : version,
+    ),
+  }))
+  void persistDraft(set, get)
+}
+
 function reasonOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
-/** 单张出一版。确认对话框摆在中间，所以「有没有别的在跑」要在用户点完之后再看一次。 */
+/**
+ * 单张出一版。确认对话框摆在中间，所以「有没有别的在跑」要在用户点完之后再看一次。
+ * `reuse` 是抽屉里那一版：提交的是人挑定的提示词而不是新出的方案，所以新版一律算手改。
+ */
 async function swapOneVersion(
   set: SetState,
   get: GetState,
   jobId: string,
   imageId: string,
+  reuse?: ProductShotVersion,
 ): Promise<void> {
   const { swapStage, batch } = get()
   if (swapStage || batch?.running) return
 
   await runStages(set, async (stage) => {
-    const prepared = await prepareImage(get, imageId, stage)
+    const prepared = await prepareImage(get, imageId, stage, reuse)
     if (prepared.notice) set({ swapNotice: prepared.notice })
     const version = await submitVersion(jobId, prepared, crypto.randomUUID())
     if (!version) return
-    await recordVersions(set, get, imageId, [version])
-    set({ previewVersionId: version.id })
+    await recordVersions(set, get, imageId, [reuse ? { ...version, promptEdited: true } : version])
+    set({ previewVersionId: version.id, ...(reuse ? { planVersionId: version.id } : {}) })
   })
 }
 
@@ -525,9 +620,13 @@ interface PreparedImage extends MaskAttempt {
   prompt: string
   productBox: ProductBox | null
   mode: ProductShotAction
-  /** 借创意重做的档位与简报，其余动作没有。 */
+  /** 借创意重做的档位、简报、镜型与图上文案，其余动作没有。 */
   level?: RemixLevel
   brief?: RemixBrief
+  shotType?: ShotType
+  copy?: RemixShotCopy
+  /** 沿用的那一版提示词是手改的，重跑时标记不能丢。 */
+  promptEdited?: boolean
   /**
    * 提交时的参考图。换背景那三种第一张是原图（整图重画时是抹掉产品的那张）；
    * 借创意重做反过来，产品素材排第一。
@@ -622,7 +721,13 @@ async function prepareRemix(
   const dataUrl = await loadOriginal(imageId)
   const planned =
     reuse?.brief !== undefined
-      ? { plan: reuse.plan, prompt: reuse.prompt, brief: reuse.brief }
+      ? {
+          plan: reuse.plan,
+          prompt: reuse.prompt,
+          brief: reuse.brief,
+          shotType: reuse.shotType,
+          copy: reuse.copy,
+        }
       : await planRemix(draft, dataUrl, level)
   const product = await loadProductAsset(draft, planned.brief.camera, reuse?.productAssetId)
 
@@ -640,6 +745,9 @@ async function prepareRemix(
     mode: 'remix',
     level,
     brief: planned.brief,
+    shotType: planned.shotType,
+    copy: planned.copy,
+    promptEdited: reuse?.promptEdited,
     // 六段提示词把序号写死成「图1是我方产品、图2是参考」，所以素材必须排第一。
     inputImages: [product.image, framing],
     productAssetId: product.assetId,
@@ -658,7 +766,7 @@ async function planRemix(
     description: productContextDescription(product),
   })
   if (!brief) throw new Error(NO_BRIEF)
-  return buildRemixPlan({ brief, product, level })
+  return buildRemixPlan({ brief, product, level, language: draft.language })
 }
 
 /** 产品名空着时拿第一张素材的名字顶上：工作台上只有它能说明这是什么产品。 */
@@ -710,6 +818,7 @@ async function prepareSwap(
     prompt: planned.prompt,
     productBox,
     mode,
+    promptEdited: reuse?.promptEdited,
     inputImages: product ? [original, product.image] : [original],
     productAssetId: product?.assetId ?? null,
   }
@@ -741,6 +850,9 @@ async function submitVersion(
     mode: prepared.mode,
     ...(prepared.level ? { level: prepared.level } : {}),
     ...(prepared.brief ? { brief: prepared.brief } : {}),
+    ...(prepared.shotType ? { shotType: prepared.shotType } : {}),
+    ...(prepared.copy ? { copy: prepared.copy } : {}),
+    ...(prepared.promptEdited ? { promptEdited: true } : {}),
     ...(prepared.productAssetId ? { productAssetId: prepared.productAssetId } : {}),
     ...(prepared.matte ? { matte: prepared.matte } : {}),
     ...(prepared.previewImageId ? { mattePreviewImageId: prepared.previewImageId } : {}),
@@ -935,6 +1047,7 @@ async function persistDraft(set: SetState, get: GetState): Promise<void> {
     level: draft.level,
     productAssets: draft.productAssets,
     product: draft.product,
+    language: draft.language,
     createdAt: draft.createdAt ?? now,
     updatedAt: now,
   }

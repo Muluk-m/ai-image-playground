@@ -1,11 +1,12 @@
 import {
   type BackgroundPlanResult,
   BG_SWAP_MODES,
+  buildBackgroundPrompt,
   PROMPT_LANGUAGES,
   type SceneScan,
 } from '@image-playground/shared'
 import { Elysia, t } from 'elysia'
-import { buildBackgroundPrompt } from '../lib/bgswapPrompt'
+
 import { capabilityUnavailable, isCapabilityEnabled } from '../lib/capabilities'
 import { log } from '../lib/logger'
 import {

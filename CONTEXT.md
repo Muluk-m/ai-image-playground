@@ -135,10 +135,18 @@ _Avoid_: 套、批次、换背景任务、任务组
 _Avoid_: 模式、bgswap mode、镜头类型
 
 **版本（version）**：
-一次动作的产出，记 `{ id, taskId, plan, prompt, productBox, masked, mode, productAssetId, matte,
-mattePreviewImageId, createdAt }`。一张原图的多版都留着，用户选一版定稿；重跑照本版的动作走。版本
-不存进度，进度一律从任务记录派生——历史折叠卡上的动作标签也是把任务内各版本的动作去重来的。
+一次动作的产出，记 `{ id, taskId, plan, prompt, productBox, masked, mode, level, brief, shotType,
+copy, promptEdited, productAssetId, matte, mattePreviewImageId, createdAt }`。一张原图的多版都留着，
+用户选一版定稿；重跑照本版的动作走。版本不存进度，进度一律从任务记录派生——历史折叠卡上的动作标签
+也是把任务内各版本的动作去重来的。
 _Avoid_: 镜头、结果、出图记录
+
+**方案抽屉（plan drawer）**：
+某一版的简报与提示词摊开可改的浮层，版本条与总览版本卡各有一个入口，默认收起。改简报字段就地重算
+提示词（借创意重做走六段构建器，其余动作走共用的换背景模板）；提示词一旦被人手写过，这一版就标
+「手改」，简报改动不再覆盖它，只有「重置为 AI 版本」能收回标记。「按此重生成」拿抽屉里的提示词另
+起一版，遮罩与参考图照原动作再走一遍，新版一律算手改。图上文案的语言是任务级设定，摆在抽屉顶部。
+_Avoid_: 编辑提示词面板、提示词覆盖、镜头编辑
 
 **导出（export）**：
 平台预设（`amazon` / `alibaba` / `pinduoduo` / `site` 的尺寸）与裁切 / 留白只在总览的导出面板出现，

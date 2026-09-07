@@ -1,4 +1,9 @@
-import { BG_SWAP_MODES, type BgSwapMode, DEFAULT_BG_SWAP_MODE } from '@image-playground/shared'
+import {
+  BG_SWAP_MODES,
+  type BgSwapMode,
+  DEFAULT_BG_SWAP_MODE,
+  type PromptLanguage,
+} from '@image-playground/shared'
 import type { RemixLevel } from '../../../lib/shotTypes'
 import type { ProductShotJob } from '../types'
 
@@ -16,6 +21,9 @@ export const ACTION_LABELS: Record<ProductShotAction, string> = {
 
 /** 借创意重做与竞品的距离。 */
 export const REMIX_LEVEL_LABELS: Record<RemixLevel, string> = { low: '像', high: '不像' }
+
+/** 图上文案的语言。 */
+export const PROMPT_LANGUAGE_LABELS: Record<PromptLanguage, string> = { zh: '中文', en: '英文' }
 
 /** 版本条上的动作标签；旧记录没记动作，按只换背景读。 */
 export function actionLabel(
