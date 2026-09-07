@@ -1,9 +1,13 @@
 export {
   alphaToInpaintMask,
   alphaToMaskPixels,
+  alphaToProductMask,
+  alphaToProductMaskPixels,
   DEFAULT_MASK_FEATHER,
   DEFAULT_MASK_THRESHOLD,
+  DEFAULT_PRODUCT_MASK_GROW,
   type InpaintMaskOptions,
+  type ProductMaskOptions,
 } from './alphaToInpaintMask'
 export {
   assessMatte,

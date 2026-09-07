@@ -1,6 +1,11 @@
 import { unzlibSync } from 'fflate'
 import { describe, expect, it } from 'vitest'
-import { alphaToInpaintMask, alphaToMaskPixels } from '../../../lib/productMatte/alphaToInpaintMask'
+import {
+  alphaToInpaintMask,
+  alphaToMaskPixels,
+  alphaToProductMask,
+  alphaToProductMaskPixels,
+} from '../../../lib/productMatte/alphaToInpaintMask'
 import type { ProductAlpha } from '../../../lib/productMatte/types'
 
 function matte(
@@ -120,6 +125,71 @@ describe('alphaToMaskPixels', () => {
     expect(pixels.width).toBe(5)
     expect(pixels.height).toBe(3)
     expect(pixels.data.length).toBe(5 * 3 * 4)
+  })
+})
+
+describe('alphaToProductMaskPixels', () => {
+  it('产品透明重绘、背景不透明保留，与换背景的遮罩正好相反', () => {
+    const product = matte(4, 4, (x) => (x < 2 ? 255 : 0))
+    const pixels = alphaToProductMaskPixels(product, { feather: 0, grow: 0 })
+    const background = alphaToMaskPixels(product, { feather: 0 })
+
+    expect(pixels.width).toBe(4)
+    expect(pixels.height).toBe(4)
+    expect(pixels.data[3]).toBe(0)
+    expect(pixels.data[2 * 4 + 3]).toBe(255)
+    for (let i = 3; i < pixels.data.length; i += 4) {
+      expect(pixels.data[i]).toBe(255 - background.data[i])
+    }
+  })
+
+  it('遮罩 RGB 恒为白，只有 alpha 承载语义', () => {
+    const pixels = alphaToProductMaskPixels(
+      matte(2, 2, () => 255),
+      { feather: 0, grow: 0 },
+    )
+
+    for (let i = 0; i < pixels.data.length; i += 4) {
+      expect([pixels.data[i], pixels.data[i + 1], pixels.data[i + 2]]).toEqual([255, 255, 255])
+    }
+  })
+
+  /** 边缘与阴影接地要一起重画，重绘区必须盖过产品轮廓一圈。 */
+  it('外扩把重绘区推到产品轮廓之外', () => {
+    const product = matte(16, 1, (x) => (x < 8 ? 255 : 0))
+    const alphaAt = (pixels: { data: Uint8ClampedArray }, x: number) => pixels.data[x * 4 + 3]
+
+    const tight = alphaToProductMaskPixels(product, { feather: 0, grow: 0 })
+    const grown = alphaToProductMaskPixels(product, { feather: 0, grow: 3 })
+
+    expect(alphaAt(tight, 8)).toBe(255)
+    expect(alphaAt(grown, 8)).toBe(0)
+    expect(alphaAt(grown, 10)).toBe(0)
+    expect(alphaAt(grown, 15)).toBe(255)
+  })
+
+  it('外扩与羽化都不改变尺寸', () => {
+    const pixels = alphaToProductMaskPixels(matte(5, 3, (x) => (x < 2 ? 255 : 0)))
+
+    expect(pixels.width).toBe(5)
+    expect(pixels.height).toBe(3)
+    expect(pixels.data.length).toBe(5 * 3 * 4)
+  })
+})
+
+describe('alphaToProductMask', () => {
+  it('产出与原图同尺寸的 PNG data URL', () => {
+    const dataUrl = alphaToProductMask(
+      matte(6, 4, (x) => (x < 3 ? 255 : 0)),
+      { feather: 0, grow: 0 },
+    )
+    expect(dataUrl.startsWith('data:image/png;base64,')).toBe(true)
+
+    const decoded = decodeRgbaPng(dataUrlToBytes(dataUrl))
+    expect(decoded.width).toBe(6)
+    expect(decoded.height).toBe(4)
+    expect(decoded.data[3]).toBe(0)
+    expect(decoded.data[3 * 4 + 3]).toBe(255)
   })
 })
 
