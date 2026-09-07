@@ -14,7 +14,12 @@ import { useLibraryStore } from '../../features/library/store'
 import type { AssetRecord, TemplateRecord, Tombstone } from '../../features/library/types'
 import { useStore } from '../../store'
 import { isClientCapabilityEnabled } from '../clientCapabilities'
-import { forgetUploadedAssetImages, noteAssetImageOnServer, uploadAssetImage } from './assetImages'
+import {
+  forgetUploadedAssetImages,
+  isAssetImageOnServer,
+  noteAssetImageOnServer,
+  uploadAssetImage,
+} from './assetImages'
 import {
   type DirtyRecord,
   dropPendingRecords,
@@ -78,7 +83,7 @@ export async function syncNow(options: { keepalive?: boolean } = {}): Promise<vo
   let again = false
   try {
     const checkpoint = readPendingChanges()
-    const request = await buildRequest(checkpoint)
+    const request = await buildRequest(checkpoint, options.keepalive ?? false)
     const response = await postSync(request, options)
     await applyResponse(response)
     settle(request, response)
@@ -153,7 +158,7 @@ function clearTimer(): void {
   pushTimer = null
 }
 
-async function buildRequest(checkpoint: SyncCheckpoint): Promise<SyncRequestBody> {
+async function buildRequest(checkpoint: SyncCheckpoint, hiding: boolean): Promise<SyncRequestBody> {
   const [templates, assets] = await Promise.all([
     templateStore.listChanges(),
     assetStore.listChanges(),
@@ -161,7 +166,7 @@ async function buildRequest(checkpoint: SyncCheckpoint): Promise<SyncRequestBody
   return {
     version: checkpoint.version,
     templates: collect(templates, checkpoint.templates).map(toWire),
-    assets: await withImagesUploaded(collect(assets, checkpoint.assets)),
+    assets: await withImagesUploaded(collect(assets, checkpoint.assets), hiding),
     settings:
       checkpoint.settingsUpdatedAt === null
         ? null
@@ -189,6 +194,7 @@ function collect<T extends { id: string }>(
  */
 async function withImagesUploaded(
   changes: Array<AssetRecord | Tombstone>,
+  hiding: boolean,
 ): Promise<Array<AssetRecord | Tombstone>> {
   const ready: Array<AssetRecord | Tombstone> = []
   const refused: string[] = []
@@ -196,6 +202,11 @@ async function withImagesUploaded(
   for (const change of changes) {
     if (isSyncTombstone(change)) {
       ready.push(change)
+      continue
+    }
+    // 页面正在隐藏：等图片传完，这一轮元数据就跟着页面一起没了。
+    if (hiding) {
+      if (isAssetImageOnServer(change.imageId)) ready.push(change)
       continue
     }
     const outcome = await uploadAssetImage(change.imageId)

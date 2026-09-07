@@ -23,6 +23,11 @@ export function forgetUploadedAssetImages(): void {
   uploaded.clear()
 }
 
+/** 页面隐藏时的冲刷靠它挑记录：这一刻传得动的只有服务端已经拿到的那些图。 */
+export function isAssetImageOnServer(imageId: string): boolean {
+  return uploaded.has(imageId)
+}
+
 /** 服务端回传过的素材图它自己就有；不记下来，改个名就会把整张图重传一遍。 */
 export function noteAssetImageOnServer(imageId: string): void {
   uploaded.add(imageId)
