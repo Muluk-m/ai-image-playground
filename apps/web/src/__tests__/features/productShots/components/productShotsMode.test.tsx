@@ -528,6 +528,12 @@ describe('the product picked once for the whole job', () => {
     return button
   }
 
+  function colorInput(): HTMLInputElement {
+    const input = document.querySelector<HTMLInputElement>('input[aria-label="禁止色"]')
+    if (!input) throw new Error('no forbidden colours input')
+    return input
+  }
+
   function levelButton(label: string): HTMLButtonElement {
     const group = document.querySelector('[role="group"][aria-label="与竞品的距离"]')
     const button = [...(group?.querySelectorAll('button') ?? [])].find(
@@ -592,9 +598,15 @@ describe('the product picked once for the whole job', () => {
     expect(productBar().textContent).not.toContain('未填主色，颜色可能漂')
   })
 
-  it('keeps the forbidden colours as a list', () => {
+  it('keeps the forbidden colours as a list without eating the separator', () => {
     render()
     click(describeButton())
+
+    type('禁止色', '米白、')
+
+    expect(useProductShotsStore.getState().draft.product.forbiddenColors).toEqual(['米白'])
+    // 受控输入框会在这里把「、」擦掉，用户就再也打不出第二个颜色。
+    expect(colorInput().value).toBe('米白、')
 
     type('禁止色', '米白、浅灰')
 

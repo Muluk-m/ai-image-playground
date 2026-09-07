@@ -13,6 +13,7 @@ const NO_MAIN_COLOR = '未填主色，颜色可能漂'
 export default function ProductBar() {
   const productAssets = useProductShotsStore(useShallow((s) => s.draft.productAssets))
   const product = useProductShotsStore(useShallow((s) => s.draft.product))
+  const jobId = useProductShotsStore((s) => s.draft.id)
   const pickerOpen = useProductShotsStore((s) => s.productPickerOpen)
   const assets = useLibraryStore(useShallow((s) => s.assets))
   const [describing, setDescribing] = useState(false)
@@ -82,8 +83,10 @@ export default function ProductBar() {
             onChange={(mainColor) => setProductDescription({ mainColor })}
           />
           <Field
+            // 受控会把刚敲下的分隔符吃掉（解析后又格式化回去），所以这一格不受控，换任务时重挂。
+            key={jobId ?? 'new'}
             label="禁止色"
-            value={formatColorList(product.forbiddenColors)}
+            defaultValue={formatColorList(product.forbiddenColors)}
             placeholder="例：米白、浅灰"
             onChange={(text) => setProductDescription({ forbiddenColors: parseColorList(text) })}
           />
@@ -97,25 +100,27 @@ export default function ProductBar() {
 
 interface FieldProps {
   label: string
-  value: string
+  value?: string
+  defaultValue?: string
   placeholder: string
   notice?: string
   onChange: (value: string) => void
 }
 
-function Field({ label, value, placeholder, notice, onChange }: FieldProps) {
+function Field({ label, value, defaultValue, placeholder, notice, onChange }: FieldProps) {
   return (
-    <div>
+    <label className="block">
       <span className={LABEL}>{label}</span>
       <input
         type="text"
         aria-label={label}
         value={value}
+        defaultValue={defaultValue}
         placeholder={placeholder}
         onChange={(e) => onChange(e.target.value)}
         className={`mt-1 ${FIELD}`}
       />
       {notice && <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">{notice}</p>}
-    </div>
+    </label>
   )
 }
