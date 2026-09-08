@@ -1,7 +1,13 @@
-import { afterEach, describe, expect, it, mock } from 'bun:test'
+import { afterEach, describe, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
 import { Elysia } from 'elysia'
 import { HARD_CODED_PARTS } from '../hardCodedParts'
+import {
+  type ChatCall,
+  chatCompletion,
+  chatFetchReturning,
+  recordingChatFetch,
+} from '../helpers/chatStubs'
 
 process.env.PORT = '0'
 process.env.DATABASE_URL = 'postgres://unused/unused'
@@ -13,10 +19,8 @@ process.env.OPERATOR_CONFIG_FILE = resolve(import.meta.dir, '../remix-operator-c
 
 // Dynamic import keeps environment setup ahead of configuration module evaluation.
 const { bgswapPlanRoutes } = await import('../../routes/bgswap-plan')
-const { setVisionFetchForTesting } = await import('../../lib/vision')
+const { setChatFetchForTesting } = await import('../../lib/chatCompletion')
 const { buildBackgroundPrompt } = await import('@image-playground/shared')
-
-type VisionFetch = NonNullable<Parameters<typeof setVisionFetchForTesting>[0]>
 
 const app = new Elysia().use(bgswapPlanRoutes)
 
@@ -32,48 +36,7 @@ const PLAN = {
   plan: '暖白微水泥墙面，浅橡木地板，左侧柔和窗光，一株散尾葵与一条亚麻毛巾。',
 }
 
-function chatCompletion(content: string): Response {
-  return new Response(JSON.stringify({ choices: [{ message: { content } }] }), {
-    status: 200,
-    headers: { 'content-type': 'application/json' },
-  })
-}
-
-function visionFetchReturning(...bodies: Response[]): VisionFetch {
-  let index = 0
-  return mock(async () => {
-    const body = bodies[Math.min(index, bodies.length - 1)]!
-    index += 1
-    return body.clone()
-  }) as unknown as VisionFetch
-}
-
-interface VisionCall {
-  readonly url: string
-  readonly authorization: string
-  readonly model: string
-  readonly images: readonly string[]
-  readonly prompt: string
-}
-
-function recordingVisionFetch(calls: VisionCall[]): VisionFetch {
-  return mock(async (url: unknown, init: unknown) => {
-    const { headers, body } = init as { headers: Record<string, string>; body: string }
-    const sent = JSON.parse(body) as {
-      model: string
-      messages: { content: { type: string; text?: string; image_url?: { url: string } }[] }[]
-    }
-    const parts = sent.messages[0]!.content
-    calls.push({
-      url: String(url),
-      authorization: headers.authorization!,
-      model: sent.model,
-      images: parts.flatMap((part) => (part.image_url ? [part.image_url.url] : [])),
-      prompt: parts.find((part) => part.type === 'text')?.text ?? '',
-    })
-    return chatCompletion(JSON.stringify(PLAN))
-  }) as unknown as VisionFetch
-}
+const planned = () => chatCompletion(JSON.stringify(PLAN))
 
 async function scan(body: unknown) {
   const response = await app.handle(
@@ -98,13 +61,13 @@ async function plan(body: unknown) {
 }
 
 afterEach(() => {
-  setVisionFetchForTesting()
+  setChatFetchForTesting()
 })
 
 describe('POST /api/bgswap/plan', () => {
   it('returns the plan plus a prompt assembled from the server template', async () => {
-    const calls: VisionCall[] = []
-    setVisionFetchForTesting(recordingVisionFetch(calls))
+    const calls: ChatCall[] = []
+    setChatFetchForTesting(recordingChatFetch(calls, planned))
 
     const { status, json } = await plan({ image: PIXEL, preference: '北欧风', language: 'zh' })
 
@@ -132,7 +95,7 @@ describe('POST /api/bgswap/plan', () => {
   })
 
   it('works without a preference and defaults to Chinese', async () => {
-    setVisionFetchForTesting(visionFetchReturning(chatCompletion(JSON.stringify(PLAN))))
+    setChatFetchForTesting(chatFetchReturning(chatCompletion(JSON.stringify(PLAN))))
 
     const { status, json } = await plan({ image: PIXEL })
 
@@ -149,7 +112,7 @@ describe('POST /api/bgswap/plan', () => {
 
   it('trims the model answer so the plan label and the prompt carry the same sentence', async () => {
     const padded = { ...PLAN, plan: `  ${PLAN.plan}\n`, category: ' 独立式浴缸 ' }
-    setVisionFetchForTesting(visionFetchReturning(chatCompletion(JSON.stringify(padded))))
+    setChatFetchForTesting(chatFetchReturning(chatCompletion(JSON.stringify(padded))))
 
     const { status, json } = await plan({ image: PIXEL })
 
@@ -171,8 +134,8 @@ describe('POST /api/bgswap/plan', () => {
       [' callout ', 'callout'],
       ['collage', 'collage'],
     ]) {
-      setVisionFetchForTesting(
-        visionFetchReturning(chatCompletion(JSON.stringify({ ...PLAN, sceneType: answered }))),
+      setChatFetchForTesting(
+        chatFetchReturning(chatCompletion(JSON.stringify({ ...PLAN, sceneType: answered }))),
       )
 
       const { status, json } = await plan({ image: PIXEL })
@@ -184,10 +147,10 @@ describe('POST /api/bgswap/plan', () => {
 
   /** 示意图默认被跳过，所以一个认不出的画面类型宁可当没答，也不能悄悄按实拍图走。 */
   it('treats a scene kind outside the four as no answer at all', async () => {
-    const fetchImpl = visionFetchReturning(
+    const fetchImpl = chatFetchReturning(
       chatCompletion(JSON.stringify({ ...PLAN, sceneType: '纯色棚拍' })),
     )
-    setVisionFetchForTesting(fetchImpl)
+    setChatFetchForTesting(fetchImpl)
 
     const { status, json } = await plan({ image: PIXEL })
 
@@ -197,8 +160,8 @@ describe('POST /api/bgswap/plan', () => {
   })
 
   it('asks for the surfaces to go only when the image is a plain photo', async () => {
-    setVisionFetchForTesting(
-      visionFetchReturning(chatCompletion(JSON.stringify({ ...PLAN, sceneType: 'infographic' }))),
+    setChatFetchForTesting(
+      chatFetchReturning(chatCompletion(JSON.stringify({ ...PLAN, sceneType: 'infographic' }))),
     )
 
     const { json } = await plan({ image: PIXEL })
@@ -211,7 +174,7 @@ describe('POST /api/bgswap/plan', () => {
 
   it('accepts a null product box', async () => {
     const noBox = { ...PLAN, productBox: null }
-    setVisionFetchForTesting(visionFetchReturning(chatCompletion(JSON.stringify(noBox))))
+    setChatFetchForTesting(chatFetchReturning(chatCompletion(JSON.stringify(noBox))))
 
     const { status, json } = await plan({ image: PIXEL })
 
@@ -220,11 +183,11 @@ describe('POST /api/bgswap/plan', () => {
   })
 
   it('retries once when the model answers with something other than a plan', async () => {
-    const fetchImpl = visionFetchReturning(
+    const fetchImpl = chatFetchReturning(
       chatCompletion('sorry, I cannot help'),
       chatCompletion(`\`\`\`json\n${JSON.stringify(PLAN)}\n\`\`\``),
     )
-    setVisionFetchForTesting(fetchImpl)
+    setChatFetchForTesting(fetchImpl)
 
     const { status } = await plan({ image: PIXEL })
 
@@ -233,8 +196,8 @@ describe('POST /api/bgswap/plan', () => {
   })
 
   it('fails with 502 when the retry is still not a plan', async () => {
-    const fetchImpl = visionFetchReturning(chatCompletion('not json at all'))
-    setVisionFetchForTesting(fetchImpl)
+    const fetchImpl = chatFetchReturning(chatCompletion('not json at all'))
+    setChatFetchForTesting(fetchImpl)
 
     const { status, json } = await plan({ image: PIXEL })
 
@@ -244,7 +207,7 @@ describe('POST /api/bgswap/plan', () => {
   })
 
   it('passes an upstream failure through as 502 with the upstream status', async () => {
-    setVisionFetchForTesting(visionFetchReturning(new Response('rate limited', { status: 429 })))
+    setChatFetchForTesting(chatFetchReturning(new Response('rate limited', { status: 429 })))
 
     const { status, json } = await plan({ image: PIXEL })
 
@@ -265,7 +228,7 @@ describe('POST /api/bgswap/plan', () => {
   })
 
   it('keeps the camera sentence so the client can pick a matching asset angle', async () => {
-    setVisionFetchForTesting(visionFetchReturning(chatCompletion(JSON.stringify(PLAN))))
+    setChatFetchForTesting(chatFetchReturning(chatCompletion(JSON.stringify(PLAN))))
 
     const { json } = await plan({ image: PIXEL })
 
@@ -274,7 +237,7 @@ describe('POST /api/bgswap/plan', () => {
 
   it('still answers when the model leaves the camera sentence out', async () => {
     const { camera: _camera, ...noCamera } = PLAN
-    setVisionFetchForTesting(visionFetchReturning(chatCompletion(JSON.stringify(noCamera))))
+    setChatFetchForTesting(chatFetchReturning(chatCompletion(JSON.stringify(noCamera))))
 
     const { status, json } = await plan({ image: PIXEL })
 
@@ -284,7 +247,7 @@ describe('POST /api/bgswap/plan', () => {
 
   it('returns the prompt of the mode the client asked for', async () => {
     for (const mode of ['replace-product', 'replace-and-background'] as const) {
-      setVisionFetchForTesting(visionFetchReturning(chatCompletion(JSON.stringify(PLAN))))
+      setChatFetchForTesting(chatFetchReturning(chatCompletion(JSON.stringify(PLAN))))
 
       const { status, json } = await plan({ image: PIXEL, mode })
 
@@ -303,7 +266,7 @@ describe('POST /api/bgswap/plan', () => {
 
   it('still answers, with the generic untouched clause, when the model lists no inventory', async () => {
     const { inventory: _inventory, ...noInventory } = PLAN
-    setVisionFetchForTesting(visionFetchReturning(chatCompletion(JSON.stringify(noInventory))))
+    setChatFetchForTesting(chatFetchReturning(chatCompletion(JSON.stringify(noInventory))))
 
     const { status, json } = await plan({ image: PIXEL })
 
@@ -313,8 +276,8 @@ describe('POST /api/bgswap/plan', () => {
   })
 
   it('asks the model for the inventory before the plan sentence', async () => {
-    const calls: VisionCall[] = []
-    setVisionFetchForTesting(recordingVisionFetch(calls))
+    const calls: ChatCall[] = []
+    setChatFetchForTesting(recordingChatFetch(calls, planned))
 
     await plan({ image: PIXEL })
 
@@ -324,8 +287,8 @@ describe('POST /api/bgswap/plan', () => {
   })
 
   it('makes the inventory a matter of function, not of touching the product', async () => {
-    const calls: VisionCall[] = []
-    setVisionFetchForTesting(recordingVisionFetch(calls))
+    const calls: ChatCall[] = []
+    setChatFetchForTesting(recordingChatFetch(calls, planned))
 
     await plan({ image: PIXEL })
 
@@ -334,8 +297,8 @@ describe('POST /api/bgswap/plan', () => {
   })
 
   it('asks for props that lift on their own and duplicate nothing on the inventory', async () => {
-    const calls: VisionCall[] = []
-    setVisionFetchForTesting(recordingVisionFetch(calls))
+    const calls: ChatCall[] = []
+    setChatFetchForTesting(recordingChatFetch(calls, planned))
 
     await plan({ image: PIXEL })
 
@@ -346,8 +309,8 @@ describe('POST /api/bgswap/plan', () => {
   })
 
   it('names no part type of its own, so the inventory stays the model answer', async () => {
-    const calls: VisionCall[] = []
-    setVisionFetchForTesting(recordingVisionFetch(calls))
+    const calls: ChatCall[] = []
+    setChatFetchForTesting(recordingChatFetch(calls, planned))
 
     await plan({ image: PIXEL })
 
@@ -355,8 +318,8 @@ describe('POST /api/bgswap/plan', () => {
   })
 
   it('tells the model that a must-keep in the preference joins the inventory', async () => {
-    const calls: VisionCall[] = []
-    setVisionFetchForTesting(recordingVisionFetch(calls))
+    const calls: ChatCall[] = []
+    setChatFetchForTesting(recordingChatFetch(calls, planned))
 
     await plan({ image: PIXEL, preference: '保留原有的落地龙头' })
 
@@ -371,8 +334,8 @@ describe('POST /api/bgswap/plan', () => {
 
 describe('POST /api/bgswap/scan', () => {
   it('answers with the scene kind alone', async () => {
-    setVisionFetchForTesting(
-      visionFetchReturning(chatCompletion(JSON.stringify({ sceneType: 'infographic' }))),
+    setChatFetchForTesting(
+      chatFetchReturning(chatCompletion(JSON.stringify({ sceneType: 'infographic' }))),
     )
 
     const { status, json } = await scan({ image: PIXEL })
@@ -382,8 +345,8 @@ describe('POST /api/bgswap/scan', () => {
   })
 
   it('fails with 502 when the model never names one of the four', async () => {
-    const fetchImpl = visionFetchReturning(chatCompletion(JSON.stringify({ sceneType: '说明图' })))
-    setVisionFetchForTesting(fetchImpl)
+    const fetchImpl = chatFetchReturning(chatCompletion(JSON.stringify({ sceneType: '说明图' })))
+    setChatFetchForTesting(fetchImpl)
 
     const { status, json } = await scan({ image: PIXEL })
 

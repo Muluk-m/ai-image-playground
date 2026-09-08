@@ -13,18 +13,13 @@ export const STORYBOARD_STYLE_MAX_CHARS = 100
 export interface StoryboardShot {
   /** 1-based 镜号 */
   readonly no: number
-  /** ≤ 12 汉字 */
   readonly title: string
-  /** 画面：谁、在哪、做什么、光线 */
   readonly description: string
-  /** 运镜，如「缓慢推进」「环绕半圈」 */
   readonly camera: string
-  /** 台词 / 字幕，可为空串 */
+  /** 台词 / 字幕；默片式镜头没有词，允许空串。 */
   readonly line: string
   readonly seconds: number
-  /** 直接喂文生图 / 图生图的提示词（含风格与比例语境） */
   readonly imagePrompt: string
-  /** 直接喂图生视频的提示词（动作 + 运镜 + 光线变化） */
   readonly videoPrompt: string
 }
 
@@ -40,7 +35,6 @@ export interface StoryboardPlanRequest {
   readonly secondsPerShot: StoryboardSeconds
   readonly aspectRatio: VideoAspectRatio
   readonly style?: string
-  /** data URL，可选；有则模型据此描述产品 / 主体 */
   readonly referenceImage?: string
 }
 
@@ -65,7 +59,6 @@ function parseShot(value: unknown, no: number, seconds: number): StoryboardShot 
     title,
     description,
     camera,
-    // 台词是唯一允许留空的字段：默片式镜头没有词，不该让整份分镜作废。
     line: typeof shot.line === 'string' ? shot.line.trim() : '',
     // 时长是请求参数不是模型答案：模型改了它，下游的视频请求就会跟界面对不上。
     seconds,

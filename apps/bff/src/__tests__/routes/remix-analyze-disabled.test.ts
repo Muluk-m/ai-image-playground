@@ -9,13 +9,13 @@ process.env.OPERATOR_CONFIG_FILE = ''
 
 // Dynamic import keeps environment setup ahead of configuration module evaluation.
 const { remixAnalyzeRoutes } = await import('../../routes/remix-analyze')
-const { setVisionFetchForTesting } = await import('../../lib/vision')
+const { setChatFetchForTesting } = await import('../../lib/chatCompletion')
 
 const app = new Elysia().use(remixAnalyzeRoutes)
 
 describe('POST /api/remix/analyze without the capability', () => {
   it('answers 404 and never reaches the gateway', async () => {
-    setVisionFetchForTesting(() => {
+    setChatFetchForTesting(() => {
       throw new Error('unexpected vision call')
     })
 
@@ -35,6 +35,6 @@ describe('POST /api/remix/analyze without the capability', () => {
       error: 'capability_unavailable',
       capability: 'remix:analyze',
     })
-    setVisionFetchForTesting()
+    setChatFetchForTesting()
   })
 })

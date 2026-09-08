@@ -10,53 +10,8 @@ import {
   type SceneScan,
   SHOT_TYPES,
 } from '@image-playground/shared'
-import { Agent, fetch as undiciFetch } from 'undici'
 import { config } from '../config'
-import { resolveApiKey } from './resolveApiKey'
-import { isObject } from './type-guards'
-
-// 独立于 upstream.ts：那里是生图队列的协议适配，超时预算按分钟算，这里按秒。
-
-export class VisionUpstreamError extends Error {
-  constructor(readonly status: number) {
-    super(`Vision upstream returned ${status}`)
-    this.name = 'VisionUpstreamError'
-  }
-}
-
-export class VisionInvalidResponseError extends Error {
-  constructor() {
-    super('Vision model did not return a usable brief')
-    this.name = 'VisionInvalidResponseError'
-  }
-}
-
-interface VisionResponse {
-  readonly ok: boolean
-  readonly status: number
-  text(): Promise<string>
-}
-
-type VisionFetch = (
-  input: Parameters<typeof undiciFetch>[0],
-  init?: Parameters<typeof undiciFetch>[1],
-) => Promise<VisionResponse>
-
-const CONNECT_TIMEOUT_MS = 10_000
-const REQUEST_TIMEOUT_MS = 60_000
-
-const visionDispatcher = new Agent({
-  connectTimeout: CONNECT_TIMEOUT_MS,
-  headersTimeout: REQUEST_TIMEOUT_MS,
-  bodyTimeout: REQUEST_TIMEOUT_MS,
-})
-
-let visionFetch: VisionFetch = undiciFetch
-
-/** 测试注入点；undefined 恢复真实 Undici transport。 */
-export function setVisionFetchForTesting(fetchImpl?: VisionFetch): void {
-  visionFetch = fetchImpl ?? undiciFetch
-}
+import { askChatModel } from './chatCompletion'
 
 const INSTRUCTIONS = `You analyse one competitor product photo so a different product can be shot the same way.
 Answer with a single JSON object and nothing else. Keys:
@@ -113,79 +68,14 @@ function planPromptFor(preference: string | undefined, language: PromptLanguage)
   ].join('\n\n')
 }
 
-function extractJson(content: string): unknown {
-  const fenced = content.match(/```(?:json)?\s*([\s\S]*?)```/)
-  const candidate = (fenced?.[1] ?? content).trim()
-  const start = candidate.indexOf('{')
-  const end = candidate.lastIndexOf('}')
-  if (start === -1 || end <= start) return undefined
-  try {
-    return JSON.parse(candidate.slice(start, end + 1))
-  } catch {
-    return undefined
-  }
-}
+const VISION_ASK = { maxTokens: 1500, timeoutMs: 60_000 } as const
 
-function messageContent(raw: string): string | undefined {
-  let payload: unknown
-  try {
-    payload = JSON.parse(raw)
-  } catch {
-    return undefined
-  }
-  if (!isObject(payload) || !Array.isArray(payload.choices)) return undefined
-  const message = isObject(payload.choices[0]) ? payload.choices[0].message : undefined
-  if (!isObject(message) || typeof message.content !== 'string') return undefined
-  return message.content
-}
-
-/** 上游回的 chat 文本，形状不对时 undefined —— 交给调用方决定重试还是放弃。 */
-async function requestContent(image: string, prompt: string): Promise<string | undefined> {
-  const abort = new AbortController()
-  const timer = setTimeout(() => abort.abort(), REQUEST_TIMEOUT_MS)
-  try {
-    const response = await visionFetch(`${config.upstream.baseUrl}/v1/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        authorization: `Bearer ${resolveApiKey('openai-compat')}`,
-      },
-      body: JSON.stringify({
-        // 网关上的 claude 系列全部限流回 429，视觉模型别换成它们。
-        model: config.remix.visionModel,
-        max_tokens: 1500,
-        messages: [
-          {
-            role: 'user',
-            content: [
-              { type: 'text', text: prompt },
-              { type: 'image_url', image_url: { url: image } },
-            ],
-          },
-        ],
-      }),
-      signal: abort.signal,
-      dispatcher: visionDispatcher,
-    })
-    if (!response.ok) throw new VisionUpstreamError(response.status)
-    return messageContent(await response.text())
-  } finally {
-    clearTimeout(timer)
-  }
-}
-
-/** 上游偶发不回 JSON，重试一次；第二次仍不可用就是硬失败。 */
-async function ask<T>(
-  image: string,
-  prompt: string,
-  parse: (value: unknown) => T | null,
-): Promise<T> {
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    const content = await requestContent(image, prompt)
-    const parsed = content === undefined ? null : parse(extractJson(content))
-    if (parsed) return parsed
-  }
-  throw new VisionInvalidResponseError()
+function ask<T>(image: string, prompt: string, parse: (value: unknown) => T | null): Promise<T> {
+  return askChatModel(
+    // 网关上的 claude 系列全部限流回 429，视觉模型别换成它们。
+    { model: config.remix.visionModel, prompt, images: [image], ...VISION_ASK },
+    parse,
+  )
 }
 
 export function analyzeCompetitorImages(
