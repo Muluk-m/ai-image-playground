@@ -286,25 +286,13 @@ describe('first start on a scope that has never synced', () => {
     expect(pushed.templates?.map((change) => change.id)).toEqual(['t1', 't2'])
     expect(pushed.assets?.map((change) => change.id)).toEqual(['a1'])
     expect(pushed.settings?.document).toMatchObject({ enterSubmit: true })
+    // 这份设置从没有过时间戳，推上去也要输给服务端已有的那份。
+    expect(pushed.settings?.updatedAt).toBe(1)
   })
 
-  it('stamps settings it never timestamped so a copy on the server wins', async () => {
-    stopEngine = startSyncEngine()
-
-    await vi.waitFor(() => expect(postSyncMock).toHaveBeenCalledTimes(1))
-    expect((postSyncMock.mock.calls[0]?.[0] as SyncRequestBody).settings?.updatedAt).toBe(1)
-  })
-
-  it('leaves a scope that already synced alone', async () => {
+  it('leaves a scope that already synced alone, whatever version it holds', async () => {
     await templateStore.applyRemote([template('t1', '海报')])
-    writePendingChanges({
-      version: 4,
-      templates: [],
-      assets: [],
-      settingsUpdatedAt: null,
-      lastSyncedAt: 1_700_000_000_000,
-      unsyncedImages: [],
-    })
+    writePendingChanges({ ...readPendingChanges(), lastSyncedAt: 1_700_000_000_000 })
 
     stopEngine = startSyncEngine()
 
