@@ -227,6 +227,9 @@ describe('the results overview', () => {
 
     expect(part('[data-product-shots-version-title]').className).toContain('whitespace-nowrap')
     expect(part('[data-product-shots-version-tags]').className).toContain('whitespace-nowrap')
+    // 格子窄，动作标签在这里仍然省略，跟宽版的版本条不一样。
+    const [, action] = part('[data-product-shots-version-title]').children
+    expect(action?.className).toContain('truncate')
   })
 
   it('previews the source image from the grouped view', () => {

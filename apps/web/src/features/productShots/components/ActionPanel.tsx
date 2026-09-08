@@ -17,7 +17,6 @@ import { ACTION_LABELS, type ProductShotAction, REMIX_LEVEL_LABELS } from '../li
 import { sourceMatteNotice } from '../lib/matteBadge'
 import { useProductShotsStore } from '../store'
 import { PRODUCT_SHOT_STAGE_LABELS, VERSIONS_PER_IMAGE_CHOICES } from '../types'
-import VersionBar from './VersionBar'
 
 const PICK_PRODUCT = '选产品素材'
 const NO_PRODUCT = '产品素材：未选'
@@ -36,7 +35,6 @@ const ACTIONS: Array<{ mode: ProductShotAction; needsProduct: boolean }> = [
 export default function ActionPanel() {
   const preference = useProductShotsStore((s) => s.draft.preference)
   const versionsPerImage = useProductShotsStore((s) => s.draft.versionsPerImage)
-  const runningMode = useProductShotsStore((s) => s.draft.mode)
   const level = useProductShotsStore((s) => s.draft.level)
   const productAssets = useProductShotsStore(useShallow((s) => s.draft.productAssets))
   const selectedImageId = useProductShotsStore((s) => s.selectedImageId)
@@ -142,26 +140,25 @@ export default function ActionPanel() {
         )}
 
         <div className="grid grid-cols-3 gap-1.5">
-          {ACTIONS.map((action) => {
-            const running = swapStage !== null && runningMode === action.mode
-            return (
-              <button
-                key={action.mode}
-                type="button"
-                data-product-shots-action={action.mode}
-                onClick={() => void runAction(action.mode)}
-                disabled={busy || !selectedImageId || (action.needsProduct && !hasProduct)}
-                className={ACTION_BUTTON}
-              >
-                {running ? (
-                  <Pending label={PRODUCT_SHOT_STAGE_LABELS[swapStage]} startedAt={swapStartedAt} />
-                ) : (
-                  ACTION_LABELS[action.mode]
-                )}
-              </button>
-            )
-          })}
+          {ACTIONS.map((action) => (
+            <button
+              key={action.mode}
+              type="button"
+              data-product-shots-action={action.mode}
+              onClick={() => void runAction(action.mode)}
+              disabled={busy || !selectedImageId || (action.needsProduct && !hasProduct)}
+              className={ACTION_BUTTON}
+            >
+              {ACTION_LABELS[action.mode]}
+            </button>
+          ))}
         </div>
+
+        {swapStage && (
+          <p data-product-shots-progress className="text-xs text-gray-500 dark:text-gray-400">
+            <Pending label={PRODUCT_SHOT_STAGE_LABELS[swapStage]} startedAt={swapStartedAt} />
+          </p>
+        )}
 
         {!hasProduct && (
           <p data-product-shots-action-reason className={NOTICE}>
@@ -169,11 +166,6 @@ export default function ActionPanel() {
           </p>
         )}
         {swapNotice && <p className={NOTICE}>{swapNotice}</p>}
-      </div>
-
-      <div className={PANEL_SECTION}>
-        <h2 className={PANEL_TITLE}>版本</h2>
-        <VersionBar />
       </div>
     </section>
   )

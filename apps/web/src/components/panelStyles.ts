@@ -39,3 +39,6 @@ export const ACTIVE_SEGMENT =
   'bg-white font-medium text-gray-900 shadow-sm dark:bg-gray-700 dark:text-gray-50'
 
 export const IDLE_SEGMENT = 'text-gray-500 disabled:opacity-50 dark:text-gray-400'
+
+/** 顶栏是 fixed 的，吸顶元素得自己让开它加上刘海的高度。 */
+export const HEADER_OFFSET = 'calc(var(--safe-area-top) + var(--header-height))'
