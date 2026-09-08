@@ -1,4 +1,5 @@
 import { type MatteResponse, parseMatteResponse } from '@image-playground/shared'
+import { authenticatedBffFetch } from './authClient'
 import { bffBaseUrl } from './runtimeConfig'
 
 type Fetcher = (input: string, init?: RequestInit) => Promise<Response>
@@ -7,7 +8,7 @@ const UNAVAILABLE = '服务端抠图没有返回可用的蒙版'
 
 export async function requestServerMatte(
   image: string,
-  fetcher: Fetcher = fetch,
+  fetcher: Fetcher = authenticatedBffFetch,
 ): Promise<MatteResponse> {
   const response = await fetcher(`${bffBaseUrl()}/api/matte`, {
     method: 'POST',

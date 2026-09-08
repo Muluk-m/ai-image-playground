@@ -11,14 +11,21 @@ import {
   verifySourceToken,
 } from '../lib/matte'
 import { objectStore } from '../lib/objectStore'
+import { requireUserOrService } from '../lib/user-auth'
 
 const matteBodySchema = t.Object({ image: imageDataUrlSchema() })
 
-export const matteRoutes = new Elysia()
-  .use(badRequestOnValidation())
-  .onBeforeHandle(() => {
+/** 每个实例要一份自己的：命名插件会被去重，两条路由就只剩一条挂上门禁。 */
+const capabilityGate = () =>
+  new Elysia().onBeforeHandle({ as: 'scoped' }, () => {
     if (!isCapabilityEnabled('matte:server')) return capabilityUnavailable('matte:server')
   })
+
+// 抠图要花 Cloudflare 转换额度和对象存储，所以匿名请求不能进来。
+const matteCreateRoutes = new Elysia()
+  .use(badRequestOnValidation())
+  .use(capabilityGate())
+  .use(requireUserOrService)
   .post(
     '/api/matte',
     async ({ body, status }) => {
@@ -53,7 +60,10 @@ export const matteRoutes = new Elysia()
     },
     { body: matteBodySchema },
   )
-  // Cloudflare 回源取原图走这里，所以没有 cookie 鉴权，只认 token。
+
+// Cloudflare 回源取原图走这里，所以没有 cookie 鉴权，只认 token；单独一个实例才躲得开上面的鉴权。
+const matteSourceRoutes = new Elysia()
+  .use(capabilityGate())
   .get('/api/matte/source/:token', async ({ params, status }) => {
     const key = verifySourceToken(params.token)
     if (!key) return status(404, { error: 'not_found' })
@@ -71,3 +81,5 @@ export const matteRoutes = new Elysia()
       },
     })
   })
+
+export const matteRoutes = new Elysia().use(matteCreateRoutes).use(matteSourceRoutes)
