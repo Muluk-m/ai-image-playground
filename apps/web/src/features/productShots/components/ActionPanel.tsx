@@ -17,7 +17,6 @@ import { ACTION_LABELS, type ProductShotAction, REMIX_LEVEL_LABELS } from '../li
 import { sourceMatteNotice } from '../lib/matteBadge'
 import { useProductShotsStore } from '../store'
 import { PRODUCT_SHOT_STAGE_LABELS, VERSIONS_PER_IMAGE_CHOICES } from '../types'
-import VersionBar from './VersionBar'
 
 const PICK_PRODUCT = '选产品素材'
 const NO_PRODUCT = '产品素材：未选'
@@ -169,11 +168,6 @@ export default function ActionPanel() {
           </p>
         )}
         {swapNotice && <p className={NOTICE}>{swapNotice}</p>}
-      </div>
-
-      <div className={PANEL_SECTION}>
-        <h2 className={PANEL_TITLE}>版本</h2>
-        <VersionBar />
       </div>
     </section>
   )

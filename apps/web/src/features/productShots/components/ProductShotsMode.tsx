@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { HEADER_OFFSET } from '../../../components/panelStyles'
 import { useLibraryStore } from '../../library/store'
 import { useProductShotsStore } from '../store'
 import ActionPanel from './ActionPanel'
@@ -9,6 +10,10 @@ import PreviewPanel from './PreviewPanel'
 import ProductBar from './ProductBar'
 import ResultGallery from './ResultGallery'
 import SourcePanel from './SourcePanel'
+import VersionBar from './VersionBar'
+
+/** 左右两栏吸顶，只有中央栏随页面滚：版本一多，原图与设置不能跟着滚出视口。 */
+const STICKY_COLUMN = 'lg:sticky lg:self-start'
 
 export default function ProductShotsMode() {
   useEffect(() => {
@@ -23,10 +28,19 @@ export default function ProductShotsMode() {
 
       <ProductBar />
 
-      <div className="grid gap-4 lg:grid-cols-[15rem_minmax(0,1fr)_17rem]">
-        <SourcePanel />
-        <PreviewPanel />
-        <ActionPanel />
+      <div className="grid items-start gap-4 lg:grid-cols-[15rem_minmax(0,1fr)_17rem]">
+        <div className={STICKY_COLUMN} style={{ top: HEADER_OFFSET }}>
+          <SourcePanel />
+        </div>
+
+        <div data-product-shots-column="center" className="flex flex-col gap-4">
+          <PreviewPanel />
+          <VersionBar />
+        </div>
+
+        <div className={STICKY_COLUMN} style={{ top: HEADER_OFFSET }}>
+          <ActionPanel />
+        </div>
       </div>
 
       <BatchBar />
