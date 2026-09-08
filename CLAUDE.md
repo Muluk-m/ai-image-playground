@@ -90,6 +90,10 @@ lockfile 里带着 `private/apps/*` 三个 importer，这是「公开树零改�
 镜像的 deps stage 也要装 overlay 的 manifest，否则 pnpm 不会把只有 overlay 依赖的包拉进 store，
 后续 stage 的 `pnpm install --offline` 会以 `ERR_PNPM_NO_OFFLINE_TARBALL` 失败。
 
+**任何** lockfile 重新生成都必须带着 `private/`：在没有 overlay 的 checkout 里跑 `pnpm install`
+会静默删掉这三个 importer，收费镜像与收费 Pages 的 `--frozen-lockfile` 随即以
+`ERR_PNPM_OUTDATED_LOCKFILE` 失败。
+
 ## 版本模型与分支
 
 **服务端只有一套。** `apps/bff`、`apps/admin` 服务端、`packages/db` 同时兼容收费与免费部署：
