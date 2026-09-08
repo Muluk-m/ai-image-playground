@@ -67,6 +67,8 @@ export interface VideoState {
   regenerate(task: VideoTask): Promise<string | null>
   removeTask(id: string): Promise<void>
   setThumbnail(id: string, thumbnailDataUrl: string): Promise<void>
+  /** 图生任务上游不返回尺寸，只能由播放器 metadata 回填。 */
+  setDimensions(id: string, width: number, height: number): Promise<void>
 }
 
 function byNewest(tasks: VideoTask[]): VideoTask[] {
@@ -307,6 +309,10 @@ export const useVideoStore = create<VideoState>((set, get) => {
 
     setThumbnail(id, thumbnailDataUrl) {
       return patch(id, { thumbnailDataUrl })
+    },
+
+    setDimensions(id, width, height) {
+      return patch(id, { width, height })
     },
   }
 })
