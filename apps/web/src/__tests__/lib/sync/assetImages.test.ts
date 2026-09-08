@@ -11,7 +11,7 @@ import { bootstrapClientCapabilities } from '../../../lib/clientCapabilities'
 import { getImage, putImage } from '../../../lib/db'
 import { ensureAssetImage } from '../../../lib/sync/assetImages'
 import { startSyncEngine, syncNow } from '../../../lib/sync/engine'
-import { readPendingChanges, writePendingChanges } from '../../../lib/sync/pending'
+import { readPendingChanges } from '../../../lib/sync/pending'
 import { useSyncStatus } from '../../../lib/sync/status'
 import { getAssetImage, postSync, putAssetImage } from '../../../lib/sync/syncClient'
 import { useStore } from '../../../store'
@@ -158,16 +158,8 @@ describe('uploading an asset image', () => {
     )
     const ids = ['i1', 'i2', 'i3']
     for (const id of ids) await putImage({ id, dataUrl: PIXEL, createdAt: 1 })
-    // 首次登录的形状：素材记录已经在本机，待推集合里全是它们，图一张都还没上去。
+    // 首次同步的形状：素材记录已经在本机，图一张都还没上去，待推集合由引擎自己铺开。
     await assetStore.applyRemote(ids.map((imageId, index) => asset(`a${index + 1}`, imageId)))
-    writePendingChanges({
-      version: 0,
-      templates: [],
-      assets: ['a1', 'a2', 'a3'],
-      settingsUpdatedAt: null,
-      lastSyncedAt: null,
-      unsyncedImages: [],
-    })
 
     stopEngine = startSyncEngine()
 
