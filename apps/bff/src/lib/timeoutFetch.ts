@@ -27,10 +27,7 @@ export interface FetchSlot<F> {
   set(impl?: F): void
 }
 
-/**
- * 每个调用方一个 transport 槽。响应形状由调用方各自的窄接口决定，泛型无法同时表达
- * 「undiciFetch 可赋给 F」，所以这里做唯一一次断言，换掉四份各自的 undici 导入。
- */
+/** 响应形状由各调用方的窄接口决定，泛型表达不了「undiciFetch 可赋给 F」，故此处断言一次。 */
 export function createFetchSlot<F>(): FetchSlot<F> {
   let impl = undiciFetch as F
   return {
@@ -78,7 +75,6 @@ export function startDeadline(timeoutMs: number, externalSignal?: AbortSignal): 
   }
 }
 
-/** 单次请求的超时预算，跑完即回收定时器。 */
 export async function withDeadline<T>(
   timeoutMs: number,
   run: (signal: AbortSignal) => Promise<T>,
