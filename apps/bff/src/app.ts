@@ -17,6 +17,7 @@ import { remixAnalyzeRoutes } from './routes/remix-analyze'
 import { remixListingRoutes } from './routes/remix-listing'
 import { resultRoutes } from './routes/result'
 import { statusRoutes } from './routes/status'
+import { storyboardPlanRoutes } from './routes/storyboard-plan'
 import { submitRoutes } from './routes/submit'
 import { syncRoutes } from './routes/sync'
 
@@ -135,6 +136,7 @@ export const app = new Elysia()
   .use(matteRoutes)
   .use(remixAnalyzeRoutes)
   .use(remixListingRoutes)
+  .use(storyboardPlanRoutes)
   .use(syncRoutes)
   .use(internalUserRoutes)
   .use(internalCapabilitiesRoutes)

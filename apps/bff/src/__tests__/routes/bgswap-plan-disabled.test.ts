@@ -9,13 +9,13 @@ process.env.OPERATOR_CONFIG_FILE = ''
 
 // Dynamic import keeps environment setup ahead of configuration module evaluation.
 const { bgswapPlanRoutes } = await import('../../routes/bgswap-plan')
-const { setVisionFetchForTesting } = await import('../../lib/vision')
+const { setChatFetchForTesting } = await import('../../lib/chatCompletion')
 
 const app = new Elysia().use(bgswapPlanRoutes)
 
 describe('the bgswap vision routes without the capability', () => {
   it('answer 404 and never reach the gateway', async () => {
-    setVisionFetchForTesting(() => {
+    setChatFetchForTesting(() => {
       throw new Error('unexpected vision call')
     })
 
@@ -34,6 +34,6 @@ describe('the bgswap vision routes without the capability', () => {
         capability: 'remix:analyze',
       })
     }
-    setVisionFetchForTesting()
+    setChatFetchForTesting()
   })
 })

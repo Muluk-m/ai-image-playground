@@ -1,12 +1,9 @@
 import { Elysia, t } from 'elysia'
 import { capabilityUnavailable, isCapabilityEnabled } from '../lib/capabilities'
+import { chatFailure } from '../lib/chatCompletion'
 import { badRequestOnValidation, imageDataUrlSchema } from '../lib/http'
 import { log } from '../lib/logger'
-import {
-  analyzeCompetitorImages,
-  VisionInvalidResponseError,
-  VisionUpstreamError,
-} from '../lib/vision'
+import { analyzeCompetitorImages } from '../lib/vision'
 
 const analyzeBodySchema = t.Object({
   images: t.Array(imageDataUrlSchema(), { minItems: 1, maxItems: 20 }),
@@ -28,12 +25,8 @@ export const remixAnalyzeRoutes = new Elysia()
         return { briefs: await analyzeCompetitorImages(body.images, body.product) }
       } catch (error) {
         log.warn({ event: 'remix.vision_failed', err: error }, 'vision analysis failed')
-        if (error instanceof VisionUpstreamError) {
-          return status(502, { error: 'vision_upstream_error', upstream_status: error.status })
-        }
-        if (error instanceof VisionInvalidResponseError) {
-          return status(502, { error: 'vision_invalid_response' })
-        }
+        const failure = chatFailure(error, 'vision')
+        if (failure) return status(502, failure)
         throw error
       }
     },

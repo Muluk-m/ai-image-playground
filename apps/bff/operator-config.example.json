@@ -12,6 +12,7 @@
     "accounts:sync": false,
     "billing:credits": false,
     "generation:byok": false,
+    "generation:storyboard": false,
     "generation:video": false,
     "matte:server": true,
     "operator:console": false,

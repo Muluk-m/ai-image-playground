@@ -8,14 +8,10 @@ import {
 import { Elysia, t } from 'elysia'
 
 import { capabilityUnavailable, isCapabilityEnabled } from '../lib/capabilities'
+import { chatFailure } from '../lib/chatCompletion'
 import { badRequestOnValidation, imageDataUrlSchema } from '../lib/http'
 import { log } from '../lib/logger'
-import {
-  planBackground,
-  scanScene,
-  VisionInvalidResponseError,
-  VisionUpstreamError,
-} from '../lib/vision'
+import { planBackground, scanScene } from '../lib/vision'
 
 const imageSchema = imageDataUrlSchema()
 
@@ -25,15 +21,6 @@ const planBodySchema = t.Object({
   language: t.Optional(t.UnionEnum(PROMPT_LANGUAGES)),
   mode: t.Optional(t.UnionEnum(BG_SWAP_MODES)),
 })
-
-/** 两个视觉端点的失败口径一致：上游挂了与答非所问都是 502。返回 null 表示不是视觉失败。 */
-function visionFailure(error: unknown): Record<string, unknown> | null {
-  if (error instanceof VisionUpstreamError) {
-    return { error: 'vision_upstream_error', upstream_status: error.status }
-  }
-  if (error instanceof VisionInvalidResponseError) return { error: 'vision_invalid_response' }
-  return null
-}
 
 export const bgswapPlanRoutes = new Elysia()
   .use(badRequestOnValidation())
@@ -58,7 +45,7 @@ export const bgswapPlanRoutes = new Elysia()
         } satisfies BackgroundPlanResult
       } catch (error) {
         log.warn({ event: 'bgswap.vision_failed', err: error }, 'background planning failed')
-        const failure = visionFailure(error)
+        const failure = chatFailure(error, 'vision')
         if (failure) return status(502, failure)
         throw error
       }
@@ -72,7 +59,7 @@ export const bgswapPlanRoutes = new Elysia()
         return (await scanScene(body.image)) satisfies SceneScan
       } catch (error) {
         log.warn({ event: 'bgswap.scan_failed', err: error }, 'scene scan failed')
-        const failure = visionFailure(error)
+        const failure = chatFailure(error, 'vision')
         if (failure) return status(502, failure)
         throw error
       }
