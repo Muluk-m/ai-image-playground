@@ -6,6 +6,7 @@ import AssetThumb from '../../library/components/AssetThumb'
 import { type GalleryVersion, shotFileName } from '../lib/gallery'
 import { VERSION_STATE_LABELS } from '../lib/versionProgress'
 import { useProductShotsStore } from '../store'
+import IconButton from './IconButton'
 import MattedThumb from './MattedThumb'
 import {
   CheckIcon,
@@ -85,13 +86,11 @@ export default function VersionCard({
         </button>
         {first && (
           <>
-            <button
-              type="button"
+            <IconButton
               data-product-shots-choose
               onClick={onChoose}
               aria-pressed={item.chosen}
-              title={item.chosen ? '取消选用' : '用这版'}
-              aria-label={item.chosen ? '取消选用' : '用这版'}
+              label={item.chosen ? '取消选用' : '用这版'}
               className={`absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full border transition ${
                 item.chosen
                   ? 'border-blue-500 bg-blue-500 text-white'
@@ -99,17 +98,15 @@ export default function VersionCard({
               }`}
             >
               <CheckIcon className="h-3 w-3" />
-            </button>
-            <button
-              type="button"
+            </IconButton>
+            <IconButton
               data-product-shots-zoom
               onClick={() => onOpen(first)}
-              title="放大查看"
-              aria-label="放大查看"
+              label="放大查看"
               className="absolute bottom-1 right-1 flex h-6 w-6 items-center justify-center rounded-full bg-black/45 text-white opacity-0 transition hover:bg-black/70 group-hover:opacity-100 group-focus-within:opacity-100 [@media(pointer:coarse)]:opacity-100"
             >
               <ZoomIcon className="h-3.5 w-3.5" />
-            </button>
+            </IconButton>
           </>
         )}
       </div>
@@ -118,30 +115,25 @@ export default function VersionCard({
       <VersionTags version={item.version} state={item.state} />
 
       <div className={`mt-auto ${VERSION_ACTION_ROW}`}>
-        <button
-          type="button"
+        <IconButton
           onClick={() => openPlanDrawer(item.version.id)}
-          title="查看方案"
-          aria-label="查看方案"
+          label="查看方案"
           className={VERSION_ICON_BUTTON}
         >
           <PlanIcon className="h-4 w-4" />
-        </button>
+        </IconButton>
         {matte && (
-          <button
-            type="button"
+          <IconButton
             onClick={() => toggleMatteOverlay(item.version.id)}
             aria-pressed={overlaid}
-            title="看蒙版"
-            aria-label="看蒙版"
+            label="看蒙版"
             className={`${VERSION_ICON_BUTTON} ${overlaid ? 'bg-blue-500/10 text-blue-600 dark:text-blue-300' : ''}`}
           >
             <MatteIcon className="h-4 w-4" />
-          </button>
+          </IconButton>
         )}
         {first && (
-          <button
-            type="button"
+          <IconButton
             onClick={() => {
               downloadExportedImage(
                 shotFileName(item.imageIndex, item.versionIndex),
@@ -150,23 +142,16 @@ export default function VersionCard({
                 preset,
               ).catch((error: unknown) => showToast(`下载失败：${reasonOf(error)}`, 'error'))
             }}
-            title="下载"
-            aria-label="下载"
+            label="下载"
             className={VERSION_ICON_BUTTON}
           >
             <DownloadIcon className="h-4 w-4" />
-          </button>
+          </IconButton>
         )}
         {item.state === 'error' && (
-          <button
-            type="button"
-            onClick={onRetry}
-            title="重跑"
-            aria-label="重跑"
-            className={VERSION_ICON_BUTTON}
-          >
+          <IconButton onClick={onRetry} label="重跑" className={VERSION_ICON_BUTTON}>
             <RetryIcon className="h-4 w-4" />
-          </button>
+          </IconButton>
         )}
       </div>
     </li>
