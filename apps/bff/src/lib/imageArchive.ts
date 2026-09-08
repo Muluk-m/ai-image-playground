@@ -1,12 +1,17 @@
 import type {
   PersistedSubmitRequest,
+  PersistedVideoRequest,
   QueueProvider,
   StoredImageRef,
   SubmitRequest,
+  VideoRequest,
 } from '@image-playground/shared'
 import { objectStore } from './objectStore'
 
-export type HydratedSubmitRequest = SubmitRequest
+export type HydratedVideoRequest = VideoRequest & { source_video?: string }
+export type HydratedSubmitRequest = Omit<SubmitRequest, 'video'> & {
+  video?: HydratedVideoRequest
+}
 
 const STORAGE_WRITE_ATTEMPTS = 3
 const STORAGE_RETRY_DELAYS_MS = [50, 150] as const
@@ -81,6 +86,11 @@ export async function hydrateInputImages(
     hydrated.mask = isStoredImageRef(request.mask)
       ? await hydrateObjectRef(request.mask)
       : request.mask
+  }
+  const video = request.video as PersistedVideoRequest | undefined
+  const source = video?.source_video
+  if (video && source) {
+    hydrated.video = { ...video, source_video: await hydrateObjectRef(source) }
   }
   return hydrated
 }

@@ -25,13 +25,29 @@ export const VIDEO_RESOLUTION_MULTIPLIERS: Record<VideoResolution, number> = {
   '2k': 2.2,
 }
 
+export const VIDEO_MODES = ['generate', 'extend', 'edit'] as const
+export type VideoMode = (typeof VIDEO_MODES)[number]
+
+/** 续写长度的上下限（秒）。generate 的档位表不适用于它。 */
+export const VIDEO_EXTEND_MIN_SECONDS = 2
+export const VIDEO_EXTEND_MAX_SECONDS = 10
+
 /** `SubmitRequest.video` 的载荷。首尾帧下标指向同一请求的 `input_images`。 */
 export interface VideoRequest {
-  duration_seconds: VideoDuration
+  /**
+   * generate 走档位表；extend 是续写长度 2-10；edit 跟随源片，客户端填它已知的秒数。
+   * 计费一律按这个数收。
+   */
+  duration_seconds: number
   aspect_ratio: VideoAspectRatio
   resolution: VideoResolution
   first_frame_index?: number
   last_frame_index?: number
+  /** 默认 generate；extend 从源片最后一帧续写，edit 按提示词改源片。 */
+  mode?: VideoMode
+  /** 源片：本人已完成的视频任务及其输出下标。extend / edit 必填。 */
+  source_task_id?: string
+  source_output_index?: number
 }
 
 export interface VideoModelSupport {
@@ -42,6 +58,10 @@ export interface VideoModelSupport {
   readonly resolutions: readonly VideoResolution[]
   readonly firstFrame: boolean
   readonly lastFrame: boolean
+  /** 从源片最后一帧续写。 */
+  readonly extend: boolean
+  /** 按提示词改写源片。 */
+  readonly edit: boolean
   /** 实测典型耗时，用于生成中卡片的等待提示。 */
   readonly typicalSeconds: number
   /** 模型卡片上的一句话定位。耗时相近时推导不出区分度，所以显式写死。 */
@@ -56,6 +76,8 @@ export const VIDEO_MODEL_SUPPORT: Record<string, VideoModelSupport> = {
     resolutions: ['720p', '1080p'],
     firstFrame: true,
     lastFrame: false,
+    extend: true,
+    edit: true,
     typicalSeconds: 40,
     tagline: '高清',
   },
@@ -66,6 +88,8 @@ export const VIDEO_MODEL_SUPPORT: Record<string, VideoModelSupport> = {
     resolutions: ['720p'],
     firstFrame: true,
     lastFrame: true,
+    extend: false,
+    edit: false,
     typicalSeconds: 40,
     tagline: '首尾帧',
   },
@@ -86,8 +110,28 @@ export function validateVideoRequest(
   if (!support) return { ok: false, reason: '该模型不支持视频生成' }
 
   const { label } = support
-  if (!support.durations.includes(video.duration_seconds))
-    return { ok: false, reason: `${label} 时长只支持 ${support.durations.join(' / ')} 秒` }
+  const mode = video.mode ?? 'generate'
+  if (!VIDEO_MODES.includes(mode)) return { ok: false, reason: '不支持的视频模式' }
+  const sourceCheck = validateVideoSource(support, mode, video)
+  if (sourceCheck) return sourceCheck
+
+  if (mode === 'generate') {
+    if (!(support.durations as readonly number[]).includes(video.duration_seconds))
+      return { ok: false, reason: `${label} 时长只支持 ${support.durations.join(' / ')} 秒` }
+  } else if (mode === 'extend') {
+    const { duration_seconds: seconds } = video
+    if (
+      !Number.isInteger(seconds) ||
+      seconds < VIDEO_EXTEND_MIN_SECONDS ||
+      seconds > VIDEO_EXTEND_MAX_SECONDS
+    )
+      return {
+        ok: false,
+        reason: `续写时长只支持 ${VIDEO_EXTEND_MIN_SECONDS}-${VIDEO_EXTEND_MAX_SECONDS} 秒`,
+      }
+  } else if (!(video.duration_seconds > 0)) {
+    return { ok: false, reason: '改视频缺少源片时长' }
+  }
 
   if (!support.aspectRatios.includes(video.aspect_ratio))
     return { ok: false, reason: `${label} 画幅只支持 ${support.aspectRatios.join(' / ')}` }
@@ -109,4 +153,26 @@ export function validateVideoRequest(
   }
 
   return { ok: true }
+}
+
+const MODE_LABELS: Record<Exclude<VideoMode, 'generate'>, string> = {
+  extend: '续写',
+  edit: '改视频',
+}
+
+function validateVideoSource(
+  support: VideoModelSupport,
+  mode: VideoMode,
+  video: VideoRequest,
+): VideoValidationResult | null {
+  if (mode === 'generate') return null
+  const name = MODE_LABELS[mode]
+  if (!(mode === 'extend' ? support.extend : support.edit))
+    return { ok: false, reason: `${support.label} 不支持${name}` }
+  if (video.first_frame_index !== undefined || video.last_frame_index !== undefined)
+    return { ok: false, reason: '续写和改视频不接受首尾帧' }
+  const index = video.source_output_index
+  if (!video.source_task_id || index === undefined || !Number.isInteger(index) || index < 0)
+    return { ok: false, reason: `${name}缺少源视频` }
+  return null
 }

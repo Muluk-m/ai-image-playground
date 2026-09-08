@@ -1,5 +1,6 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { resetTestDatabase } from '@image-playground/db/testing'
+import { eq } from 'drizzle-orm'
 import {
   _setPrivateBffOverlayForTesting,
   EMPTY_PRIVATE_BFF_OVERLAY,
@@ -66,6 +67,7 @@ beforeEach(async () => {
   _setChannelsForTesting(channels)
   await db.delete(schema.tasks)
   await db.delete(schema.daily_quota)
+  await db.delete(schema.users)
 })
 
 afterEach(() => {
@@ -95,7 +97,11 @@ async function submit(model: string, body: Record<string, unknown>) {
   return { status: res.status, json: (await res.json()) as Record<string, unknown> }
 }
 
-async function insertCompletedVideo(id: string, mime = 'video/mp4'): Promise<void> {
+async function insertCompletedVideo(
+  id: string,
+  mime = 'video/mp4',
+  overrides: Partial<typeof schema.tasks.$inferInsert> = {},
+): Promise<void> {
   const bytes = mime === 'video/mp4' ? MP4_BYTES : PNG_BYTES
   await storage.write(`${id}/out/0`, bytes, mime)
   const now = Date.now()
@@ -110,7 +116,43 @@ async function insertCompletedVideo(id: string, mime = 'video/mp4'): Promise<voi
     },
     submitted_at: now,
     completed_at: now,
+    ...overrides,
   })
+}
+
+async function storedVideo(requestId: unknown): Promise<Record<string, unknown> | undefined> {
+  const [task] = await db
+    .select({ request_payload: schema.tasks.request_payload })
+    .from(schema.tasks)
+    .where(eq(schema.tasks.id, String(requestId)))
+  return (task?.request_payload as { video?: Record<string, unknown> } | undefined)?.video
+}
+
+const OTHER_USER = 'user-other'
+
+async function insertOtherUser(): Promise<void> {
+  const now = Date.now()
+  await db.insert(schema.users).values({
+    id: OTHER_USER,
+    username: 'other',
+    password_hash: 'x',
+    created_at: now,
+    updated_at: now,
+  })
+}
+
+function extendBody(overrides: Record<string, unknown> = {}) {
+  return {
+    video: {
+      duration_seconds: 3,
+      aspect_ratio: '16:9',
+      resolution: '720p',
+      mode: 'extend',
+      source_task_id: 'src-video',
+      source_output_index: 0,
+      ...overrides,
+    },
+  }
 }
 
 describe('video submit validation', () => {
@@ -162,6 +204,87 @@ describe('video submit validation', () => {
 
     expect(status).toBe(400)
     expect(json.error).toBe('video_params_required')
+  })
+})
+
+describe('video source validation', () => {
+  it('queues an extension and stores only the source reference', async () => {
+    await insertCompletedVideo('src-video')
+
+    const { status, json } = await submit('grok-imagine-video', extendBody())
+
+    expect(status).toBe(200)
+    expect(await storedVideo(json.request_id)).toEqual({
+      duration_seconds: 3,
+      aspect_ratio: '16:9',
+      resolution: '720p',
+      mode: 'extend',
+      source_task_id: 'src-video',
+      source_output_index: 0,
+      source_video: { object: 'src-video/out/0', mime: 'video/mp4' },
+    })
+  })
+
+  it('rejects a source task that does not exist', async () => {
+    const { status, json } = await submit('grok-imagine-video', extendBody())
+
+    expect(status).toBe(400)
+    expect(json.error).toBe('invalid_video_source')
+    expect(String(json.message)).toContain('源视频不存在')
+  })
+
+  it('rejects a source task owned by somebody else', async () => {
+    await insertOtherUser()
+    await insertCompletedVideo('src-video', 'video/mp4', { user_id: OTHER_USER })
+
+    const { status, json } = await submit('grok-imagine-video', extendBody())
+
+    expect(status).toBe(400)
+    expect(String(json.message)).toContain('源视频不存在')
+  })
+
+  it('rejects a source task that has not completed', async () => {
+    await insertCompletedVideo('src-video', 'video/mp4', { status: 'in_progress' })
+
+    const { status, json } = await submit('grok-imagine-video', extendBody())
+
+    expect(status).toBe(400)
+    expect(String(json.message)).toContain('还没生成完成')
+  })
+
+  it('rejects a source output that is an image', async () => {
+    await insertCompletedVideo('src-video', 'image/png')
+
+    const { status, json } = await submit('grok-imagine-video', extendBody())
+
+    expect(status).toBe(400)
+    expect(String(json.message)).toContain('不是视频')
+  })
+
+  it('rejects a source output index the task does not have', async () => {
+    await insertCompletedVideo('src-video')
+
+    const { status, json } = await submit(
+      'grok-imagine-video',
+      extendBody({ source_output_index: 3 }),
+    )
+
+    expect(status).toBe(400)
+    expect(String(json.message)).toContain('不是视频')
+  })
+
+  it('drops a client supplied source reference on a plain generation', async () => {
+    const { status, json } = await submit('grok-imagine-video', {
+      video: {
+        duration_seconds: 5,
+        aspect_ratio: '16:9',
+        resolution: '720p',
+        source_video: { object: 'someone-else/out/0', mime: 'video/mp4' },
+      },
+    })
+
+    expect(status).toBe(200)
+    expect(await storedVideo(json.request_id)).not.toHaveProperty('source_video')
   })
 })
 

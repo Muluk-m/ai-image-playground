@@ -67,7 +67,7 @@ describe('validateVideoRequest', () => {
   })
 
   it('rejects an unsupported duration', () => {
-    expect(validateVideoRequest(GROK, request({ duration_seconds: 12 as never }), 0)).toEqual({
+    expect(validateVideoRequest(GROK, request({ duration_seconds: 12 }), 0)).toEqual({
       ok: false,
       reason: 'Grok 时长只支持 5 / 8 / 10 秒',
     })
@@ -77,6 +77,103 @@ describe('validateVideoRequest', () => {
     expect(validateVideoRequest(AGNES, request({ aspect_ratio: '4:3' as never }), 0)).toEqual({
       ok: false,
       reason: 'Agnes 2.5 Flash 画幅只支持 16:9 / 9:16 / 1:1',
+    })
+  })
+
+  it('accepts extend and edit on Grok with a source video', () => {
+    expect(
+      validateVideoRequest(
+        GROK,
+        request({
+          mode: 'extend',
+          duration_seconds: 3,
+          source_task_id: 't1',
+          source_output_index: 0,
+        }),
+        0,
+      ),
+    ).toEqual({ ok: true })
+    expect(
+      validateVideoRequest(
+        GROK,
+        request({
+          mode: 'edit',
+          duration_seconds: 6.4,
+          source_task_id: 't1',
+          source_output_index: 1,
+        }),
+        0,
+      ),
+    ).toEqual({ ok: true })
+  })
+
+  it('rejects extend and edit on a model without that support', () => {
+    expect(
+      validateVideoRequest(
+        AGNES,
+        request({ mode: 'extend', source_task_id: 't1', source_output_index: 0 }),
+        0,
+      ),
+    ).toEqual({ ok: false, reason: 'Agnes 2.5 Flash 不支持续写' })
+    expect(
+      validateVideoRequest(
+        AGNES,
+        request({ mode: 'edit', source_task_id: 't1', source_output_index: 0 }),
+        0,
+      ),
+    ).toEqual({ ok: false, reason: 'Agnes 2.5 Flash 不支持改视频' })
+  })
+
+  it('rejects a source video that is missing or badly addressed', () => {
+    expect(validateVideoRequest(GROK, request({ mode: 'extend' }), 0)).toEqual({
+      ok: false,
+      reason: '续写缺少源视频',
+    })
+    expect(
+      validateVideoRequest(
+        GROK,
+        request({ mode: 'edit', source_task_id: 't1', source_output_index: -1 }),
+        0,
+      ),
+    ).toEqual({ ok: false, reason: '改视频缺少源视频' })
+  })
+
+  it('rejects an extension length outside 2-10 seconds', () => {
+    for (const seconds of [1, 11, 2.5]) {
+      expect(
+        validateVideoRequest(
+          GROK,
+          request({
+            mode: 'extend',
+            duration_seconds: seconds,
+            source_task_id: 't1',
+            source_output_index: 0,
+          }),
+          0,
+        ),
+      ).toEqual({ ok: false, reason: '续写时长只支持 2-10 秒' })
+    }
+  })
+
+  it('rejects a keyframe combined with a source video', () => {
+    expect(
+      validateVideoRequest(
+        GROK,
+        request({
+          mode: 'extend',
+          first_frame_index: 0,
+          source_task_id: 't1',
+          source_output_index: 0,
+        }),
+        1,
+      ),
+    ).toEqual({ ok: false, reason: '续写和改视频不接受首尾帧' })
+  })
+
+  it('rejects a mode outside the vocabulary', () => {
+    expect(validateVideoRequest(GROK, request({ mode: 'remix' as never }), 0)).toEqual({
+      ok: false,
+      reason: '不支持的视频模式',
     })
   })
 
@@ -100,6 +197,11 @@ describe('VIDEO_MODEL_SUPPORT', () => {
   it('carries the typical elapsed seconds shown while generating', () => {
     expect(VIDEO_MODEL_SUPPORT[GROK].typicalSeconds).toBe(40)
     expect(VIDEO_MODEL_SUPPORT[AGNES].typicalSeconds).toBe(40)
+  })
+
+  it('offers extend and edit on Grok only', () => {
+    expect(VIDEO_MODEL_SUPPORT[GROK]).toMatchObject({ extend: true, edit: true })
+    expect(VIDEO_MODEL_SUPPORT[AGNES]).toMatchObject({ extend: false, edit: false })
   })
 
   it('gives every model a distinct card tagline', () => {

@@ -4,9 +4,8 @@ import { Buffer } from 'node:buffer'
 process.env.DATABASE_URL ||= 'postgresql://unused:unused@127.0.0.1:5432/unused'
 process.env.PORT ||= '0'
 
-const { archiveOutputImages, ObjectStorageError, SourceImageFetchError } = await import(
-  '../../lib/imageArchive'
-)
+const { archiveOutputImages, hydrateInputImages, ObjectStorageError, SourceImageFetchError } =
+  await import('../../lib/imageArchive')
 const { isRetryableError } = await import('../../lib/retry')
 const { setObjectStoreForTesting } = await import('../../lib/objectStore')
 const { InMemoryObjectStore } = await import('../helpers/inMemoryObjectStore')
@@ -90,5 +89,35 @@ describe('archiveOutputImages 回源取图', () => {
     expect(error).toBeInstanceOf(ObjectStorageError)
     expect(error).not.toBeInstanceOf(SourceImageFetchError)
     expect(isRetryableError(error)).toBe(false)
+  })
+})
+
+describe('hydrateInputImages 的源视频', () => {
+  it('把源片引用读成 data URI，其余视频字段原样保留', async () => {
+    const bytes = Uint8Array.from([0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70])
+    await store.write('src/out/0', bytes, 'video/mp4')
+
+    const hydrated = await hydrateInputImages({
+      prompt: 'p',
+      video: {
+        duration_seconds: 3,
+        aspect_ratio: '16:9',
+        resolution: '720p',
+        mode: 'extend',
+        source_task_id: 'src',
+        source_output_index: 0,
+        source_video: { object: 'src/out/0', mime: 'video/mp4' },
+      },
+    })
+
+    expect(hydrated.video).toEqual({
+      duration_seconds: 3,
+      aspect_ratio: '16:9',
+      resolution: '720p',
+      mode: 'extend',
+      source_task_id: 'src',
+      source_output_index: 0,
+      source_video: `data:video/mp4;base64,${Buffer.from(bytes).toString('base64')}`,
+    })
   })
 })
