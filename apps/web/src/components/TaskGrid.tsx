@@ -2,10 +2,17 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import InspirationEmptyHero from '../features/inspiration/components/InspirationEmptyHero'
 import { jobActionLabels } from '../features/productShots/lib/actions'
 import { useProductShotsStore } from '../features/productShots/store'
+import { useStoryboardStore } from '../features/video/storyboard/store'
 import { groupTasksBySet } from '../lib/setHistory'
 import { editOutputImage, removeTask, reuseConfig, sendTaskToCanvas, useStore } from '../store'
+import type { TaskRecord } from '../types'
 import SetHistoryCard from './SetHistoryCard'
 import TaskCard from './TaskCard'
+
+/** 套的名字要落在它自己的记录上；记录还没加载时至少不能把分镜说成商品图。 */
+function setFallbackName(task: TaskRecord | undefined): string {
+  return task?.origin?.kind === 'storyboard' ? '分镜' : '商品图任务'
+}
 
 export default function TaskGrid() {
   const tasks = useStore((s) => s.tasks)
@@ -57,9 +64,11 @@ export default function TaskGrid() {
 
   const historyItems = useMemo(() => groupTasksBySet(filteredTasks), [filteredTasks])
   const productShotJobs = useProductShotsStore((s) => s.jobs)
+  const storyboards = useStoryboardStore((s) => s.storyboards)
 
   useEffect(() => {
     void useProductShotsStore.getState().loadJobs()
+    void useStoryboardStore.getState().load()
   }, [])
 
   const handleDelete = (task: (typeof tasks)[0]) => {
@@ -334,11 +343,12 @@ export default function TaskGrid() {
         {historyItems.flatMap((item) => {
           if (item.kind === 'task') return [renderTask(item.task)]
           const expanded = expandedSetIds.includes(item.setId)
-          const job = productShotJobs.find((entry) => entry.id === item.setId)
+          const storyboard = storyboards.find((entry) => entry.id === item.setId)
+          const job = storyboard ? undefined : productShotJobs.find((e) => e.id === item.setId)
           return [
             <SetHistoryCard
               key={`set-${item.setId}`}
-              name={job?.name ?? '商品图任务'}
+              name={storyboard?.title ?? job?.name ?? setFallbackName(item.tasks[0])}
               actions={jobActionLabels(job)}
               tasks={item.tasks}
               expanded={expanded}

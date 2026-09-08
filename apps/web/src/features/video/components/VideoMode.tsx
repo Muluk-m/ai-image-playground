@@ -1,12 +1,15 @@
 import { useEffect } from 'react'
 import { useLibraryStore } from '../../library/store'
 import { useVideoStore } from '../store'
+import StoryboardBoard from '../storyboard/components/StoryboardBoard'
+import { useStoryboardStore } from '../storyboard/store'
 import VideoComposer from './VideoComposer'
 import VideoFeed from './VideoFeed'
 
 export default function VideoMode() {
   useEffect(() => {
     void useVideoStore.getState().loadTasks()
+    void useStoryboardStore.getState().load()
     // 首尾帧可以从素材库挑，选图弹层要现成的素材记录。
     void useLibraryStore.getState().loadAssets()
   }, [])
@@ -15,7 +18,10 @@ export default function VideoMode() {
     <main className="safe-area-x mx-auto max-w-7xl px-4 pb-24 pt-4">
       <div className="grid gap-4 lg:grid-cols-[23rem_minmax(0,1fr)]">
         <VideoComposer />
-        <VideoFeed />
+        <div className="flex min-w-0 flex-col gap-4">
+          <StoryboardBoard />
+          <VideoFeed />
+        </div>
       </div>
     </main>
   )

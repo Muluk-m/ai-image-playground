@@ -13,6 +13,15 @@ export const VIDEO_SOURCE_LABELS: Record<VideoSource, string> = {
   image: '图生视频',
 }
 
+/** 左栏的第三格只是页签：分镜自己出图，出的视频仍记成图生。 */
+export const VIDEO_COMPOSER_SOURCES = [...VIDEO_SOURCES, 'storyboard'] as const
+export type VideoComposerSource = (typeof VIDEO_COMPOSER_SOURCES)[number]
+
+export const VIDEO_COMPOSER_SOURCE_LABELS: Record<VideoComposerSource, string> = {
+  ...VIDEO_SOURCE_LABELS,
+  storyboard: '分镜',
+}
+
 export const VIDEO_FRAME_SLOTS = ['first', 'last'] as const
 export type VideoFrameSlot = (typeof VIDEO_FRAME_SLOTS)[number]
 
@@ -63,6 +72,9 @@ export interface VideoTask {
   completedAt: number | null
   /** 图生任务是首帧缩略图；文生任务由播放器首帧截图回填。 */
   thumbnailDataUrl?: string
+  /** 由分镜的某一镜提交时带上，卡片据此标镜号。 */
+  storyboardId?: string
+  shotNo?: number
 }
 
 /** 左栏这一刻的参数。提交时冻结成 VideoTask。 */

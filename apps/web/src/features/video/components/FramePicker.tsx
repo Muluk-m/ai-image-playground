@@ -20,9 +20,11 @@ const EMPTY: Record<PickerTab, string> = {
 
 export default function FramePicker({
   slot,
+  label,
   onClose,
 }: {
   slot: VideoFrameSlot
+  label?: string
   onClose: () => void
 }) {
   const [tab, setTab] = useState<PickerTab>('library')
@@ -37,7 +39,7 @@ export default function FramePicker({
     <Overlay onClose={onClose}>
       <div className="relative z-10 flex max-h-[80vh] w-full max-w-lg flex-col rounded-2xl border border-white/50 bg-white p-5 shadow-2xl ring-1 ring-black/5 animate-modal-in dark:border-white/[0.08] dark:bg-gray-900 dark:ring-white/10">
         <div className="mb-3 flex items-center justify-between gap-3">
-          <h3 className={PANEL_TITLE}>选{VIDEO_FRAME_SLOT_LABELS[slot]}</h3>
+          <h3 className={PANEL_TITLE}>选{label ?? VIDEO_FRAME_SLOT_LABELS[slot]}</h3>
           <Segmented
             label="图片来源"
             options={TABS}
