@@ -287,7 +287,9 @@ function scheduleThumbnailBackfillTick() {
 
   const run = () => {
     thumbnailBackfillScheduled = false
-    void processNextThumbnailBackfill()
+    processNextThumbnailBackfill().catch(() => {
+      // Best-effort like startThumbnailBackfill: a tick that outlives its page must not reject.
+    })
   }
 
   if ('requestIdleCallback' in window) {
