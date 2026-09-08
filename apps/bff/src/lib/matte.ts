@@ -29,7 +29,6 @@ type MatteFetch = (
   init: { signal: AbortSignal; dispatcher?: Dispatcher },
 ) => Promise<MatteFetchResponse>
 
-// 整体超时归 deadline；这里只管连不上的情况。
 const matteDispatcher = createDispatcher({ connectMs: CONNECT_TIMEOUT_MS })
 
 const matteTransport = createFetchSlot<MatteFetch>()
