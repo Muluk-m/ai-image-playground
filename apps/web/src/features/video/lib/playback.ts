@@ -1,7 +1,8 @@
 import { authenticatedBffFetch } from '../../../lib/authClient'
 import { downloadBlob } from '../../../lib/downloadImages'
 import { bffBaseUrl } from '../../../lib/runtimeConfig'
-import { storeImageFromUrl } from '../../../store'
+import { storeImageFromUrl, useStore } from '../../../store'
+import { useLibraryStore } from '../../library/store'
 import { useVideoStore } from '../store'
 import type { VideoTask } from '../types'
 
@@ -52,4 +53,14 @@ export function captureVideoFrame(video: HTMLVideoElement): string | null {
 export async function adoptAsFirstFrame(dataUrl: string): Promise<void> {
   const { id } = await storeImageFromUrl(dataUrl)
   useVideoStore.getState().useAsFirstFrame(id)
+}
+
+/** 图片侧的「做成视频」：填首帧并切到视频模式，沿途关掉挡住 composer 的浮层。 */
+export function startVideoFromImage(imageId: string): void {
+  useVideoStore.getState().useAsFirstFrame(imageId)
+  const main = useStore.getState()
+  main.setAppMode('video')
+  main.setLightboxImageId(null)
+  main.setDetailTaskId(null)
+  useLibraryStore.getState().closePanel()
 }

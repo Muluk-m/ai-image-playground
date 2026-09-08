@@ -1,13 +1,15 @@
 import type React from 'react'
 import { useEffect, useState } from 'react'
 import { useLibraryStore } from '../features/library/store'
+import { startVideoFromImage } from '../features/video/lib/playback'
 import { getActiveApiProfile } from '../lib/apiProfiles'
 import { modelSupportsEdit, NO_EDIT_SUPPORT_MESSAGE } from '../lib/channels/profileSelectors'
 import { getPublicChannels } from '../lib/channels/publicChannels'
+import { isVideoModeAvailable } from '../lib/channels/videoChannels'
 import { copyBlobToClipboard, getClipboardFailureMessage } from '../lib/clipboard'
 import { addImageFromUrl, ensureImageCached, storeImageFromUrl, useStore } from '../store'
 import ContextMenu, { ContextMenuItem } from './ContextMenu'
-import { CopyIcon, DownloadIcon, EditIcon, LibraryIcon } from './icons'
+import { CopyIcon, DownloadIcon, EditIcon, LibraryIcon, VideoIcon } from './icons'
 
 export default function ImageContextMenu() {
   const [menuInfo, setMenuInfo] = useState<{
@@ -140,6 +142,18 @@ export default function ImageContextMenu() {
     }
   }
 
+  const handleMakeVideo = async (e: React.MouseEvent) => {
+    e.stopPropagation()
+    const { imageId, src } = menuInfo
+    setMenuInfo(null)
+    try {
+      startVideoFromImage(imageId ?? (await storeImageFromUrl(src)).id)
+    } catch (err) {
+      console.error(err)
+      showToast(`做成视频失败：${err instanceof Error ? err.message : String(err)}`, 'error')
+    }
+  }
+
   return (
     <ContextMenu
       x={menuInfo.x}
@@ -171,6 +185,13 @@ export default function ImageContextMenu() {
         label="存为素材"
         onClick={handleSaveAsset}
       />
+      {isVideoModeAvailable() && (
+        <ContextMenuItem
+          icon={<VideoIcon className="w-4 h-4 flex-shrink-0" />}
+          label="做成视频"
+          onClick={handleMakeVideo}
+        />
+      )}
     </ContextMenu>
   )
 }
