@@ -857,6 +857,7 @@ describe('callImageApi', () => {
         'billing:credits': false,
         'generation:byok': false,
         'generation:video': false,
+        'matte:server': false,
         'quota:daily': false,
         'remix:analyze': false,
         'remix:listing': false,
