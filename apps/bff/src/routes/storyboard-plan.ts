@@ -12,6 +12,7 @@ import { chatFailure } from '../lib/chatCompletion'
 import { badRequestOnValidation, imageDataUrlSchema } from '../lib/http'
 import { log } from '../lib/logger'
 import { planStoryboard } from '../lib/storyboard'
+import { requireUserOrService } from '../lib/user-auth'
 
 const planBodySchema = t.Object({
   idea: t.String({ minLength: 1, maxLength: STORYBOARD_IDEA_MAX_CHARS }),
@@ -22,6 +23,7 @@ const planBodySchema = t.Object({
   referenceImage: t.Optional(imageDataUrlSchema()),
 })
 
+// 每次调用都烧上游视觉模型额度，所以匿名请求不能进来。
 export const storyboardPlanRoutes = new Elysia()
   .use(badRequestOnValidation())
   .onBeforeHandle(() => {
@@ -29,6 +31,7 @@ export const storyboardPlanRoutes = new Elysia()
       return capabilityUnavailable('generation:storyboard')
     }
   })
+  .use(requireUserOrService)
   .post(
     '/api/storyboard/plan',
     async ({ body, status }) => {

@@ -39,6 +39,7 @@ beforeEach(() => {
 afterEach(() => {
   _setRuntimeConfigForTesting({ bff: { enabled: false, baseUrl: '' } })
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
 })
 
 describe('asking the BFF for a storyboard', () => {
@@ -68,5 +69,14 @@ describe('asking the BFF for a storyboard', () => {
 
     const empty = vi.fn().mockResolvedValue(jsonResponse({}))
     await expect(planStoryboard(REQUEST, empty)).rejects.toThrow('分镜脚本没有生成成功')
+  })
+
+  it('sends the cookie by default so a logged-in deployment lets the call through', async () => {
+    const sent = vi.fn().mockResolvedValue(jsonResponse({ plan: PLAN }))
+    vi.stubGlobal('fetch', sent)
+
+    await planStoryboard(REQUEST)
+
+    expect(sent.mock.calls[0][1]).toMatchObject({ credentials: 'include' })
   })
 })
