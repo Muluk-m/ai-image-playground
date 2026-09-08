@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { Buffer } from 'node:buffer'
 import type { HydratedVideoRequest } from '../../lib/imageArchive'
-import { jsonResponse as json } from '../helpers/upstreamStubs'
+import { jsonResponse as json, jsonResponse as jsonBody } from '../helpers/upstreamStubs'
 
 // Inject before importing config, which captures process environment at module initialization.
 process.env.UPSTREAM_BASE_URL = 'http://localhost:9999'
@@ -15,6 +15,7 @@ const {
   setAsyncPollBackoffForTesting,
   setUpstreamFetchForTesting,
 } = await import('../../lib/upstream')
+const { isRetryableError } = await import('../../lib/retry')
 const { _setChannelsForTesting } = await import('../../lib/channels')
 type InternalChannel = import('../../lib/channels').InternalChannel
 type TestFetch = NonNullable<Parameters<typeof setUpstreamFetchForTesting>[0]>
@@ -25,6 +26,12 @@ const AGNES_POLL = 'https://apihub.agnes-ai.com/agnesapi'
 const ARK_BASE = 'https://ark.example/api/v3'
 const ARK_TASKS = `${ARK_BASE}/contents/generations/tasks`
 const ARK_MODEL = 'doubao-seedance-2-0-mini-260615'
+const VEO_BASE = 'https://generativelanguage.googleapis.com/v1beta'
+const VEO_MODEL = 'veo-3.1-fast-generate-preview'
+const VEO_OPERATION = `models/${VEO_MODEL}/operations/op_1`
+const VEO_SUBMIT = `${VEO_BASE}/models/${VEO_MODEL}:predictLongRunning`
+const VEO_POLL = `${VEO_BASE}/${VEO_OPERATION}`
+const VEO_DOWNLOAD = `${VEO_BASE}/files/veo_1:download?alt=media`
 const ARK_RESULT_URL = 'https://ark-content.example/videos/a.mp4'
 const RESULT_URL = 'https://cdn.agnes-ai.com/videos/a.mp4'
 const SOURCE_VIDEO_DATA_URL = 'data:video/mp4;base64,AAAAGGZ0eXBpc29t'
@@ -104,6 +111,24 @@ const arkVideoChannel: InternalChannel = {
   defaults: { timeout: 600, asyncTasks: true },
 }
 
+const veoVideoChannel: InternalChannel = {
+  id: 'veo-video',
+  kind: 'openai-queue',
+  label: 'Veo',
+  baseUrl: VEO_BASE,
+  auth: { type: 'bearer', secretRef: 'VEO_API_KEY', secret: 'veo-test-key' },
+  allowedPaths: ['models'],
+  models: [
+    {
+      id: VEO_MODEL,
+      label: 'Veo 3.1 Fast',
+      media: 'video',
+      capabilities: ['generate', 'duration', 'aspect_ratio', 'resolution', 'first_frame'],
+    },
+  ],
+  defaults: { timeout: 600, asyncTasks: true },
+}
+
 type FetchCall = { url: string; init: Parameters<TestFetch>[1] }
 
 let calls: FetchCall[] = []
@@ -131,7 +156,7 @@ beforeEach(() => {
   calls = []
   handler = () => json({})
   setAsyncPollBackoffForTesting([1])
-  _setChannelsForTesting([grokVideoChannel, agnesVideoChannel, arkVideoChannel])
+  _setChannelsForTesting([grokVideoChannel, agnesVideoChannel, arkVideoChannel, veoVideoChannel])
   setUpstreamFetchForTesting((async (
     input: Parameters<TestFetch>[0],
     init: Parameters<TestFetch>[1],
@@ -497,5 +522,178 @@ describe('Seedance video upstream', () => {
       }),
     ).rejects.toThrow('该模型不支持续写和改视频')
     expect(calls).toEqual([])
+  })
+})
+
+function headersOf(url: string): Record<string, string> {
+  const call = calls.find((one) => one.url === url)
+  if (!call) throw new Error(`no request to ${url}; got ${calls.map((c) => c.url).join(', ')}`)
+  return (call.init as { headers: Record<string, string> }).headers
+}
+
+describe('Veo video upstream', () => {
+  const doneOperation = {
+    done: true,
+    response: {
+      generateVideoResponse: { generatedSamples: [{ video: { uri: VEO_DOWNLOAD } }] },
+    },
+  }
+
+  it('submits the long running operation, polls it and downloads the mp4', async () => {
+    let polls = 0
+    handler = (url) => {
+      if (url === VEO_SUBMIT) return json({ name: VEO_OPERATION })
+      if (url === VEO_POLL) return ++polls === 1 ? json({ done: false }) : json(doneOperation)
+      return new Response(MP4_BYTES, { status: 200 })
+    }
+
+    const { payload } = await run(VEO_MODEL, { video: video({ duration_seconds: 4 }) })
+
+    expect(bodyOf(VEO_SUBMIT)).toEqual({
+      instances: [{ prompt: 'a cat surfing' }],
+      parameters: {
+        aspectRatio: '16:9',
+        durationSeconds: '4',
+        resolution: '720p',
+        personGeneration: 'allow_all',
+      },
+    })
+    expect(calls.map((one) => one.url)).toEqual([VEO_SUBMIT, VEO_POLL, VEO_POLL, VEO_DOWNLOAD])
+    expect(headersOf(VEO_SUBMIT)['x-goog-api-key']).toBe('veo-test-key')
+    expect(headersOf(VEO_SUBMIT).authorization).toBeUndefined()
+    expect(headersOf(VEO_DOWNLOAD)['x-goog-api-key']).toBe('veo-test-key')
+    const data = (payload as { data: Array<Record<string, unknown>> }).data
+    expect(data[0]).toMatchObject({ mime: 'video/mp4', duration_seconds: 4 })
+    expect(Buffer.from(String(data[0]?.b64_json), 'base64').equals(Buffer.from(MP4_BYTES))).toBe(
+      true,
+    )
+  })
+
+  it('sends a first frame as inline data and narrows person generation', async () => {
+    handler = (url) =>
+      url === VEO_SUBMIT
+        ? json({ name: VEO_OPERATION })
+        : url === VEO_POLL
+          ? json(doneOperation)
+          : new Response(MP4_BYTES, { status: 200 })
+
+    await run(VEO_MODEL, {
+      input_images: [TINY_PNG_DATA_URL],
+      video: video({ duration_seconds: 8, resolution: '1080p', first_frame_index: 0 }),
+    })
+
+    expect(bodyOf(VEO_SUBMIT)).toEqual({
+      instances: [
+        {
+          prompt: 'a cat surfing',
+          image: {
+            inlineData: {
+              mimeType: 'image/png',
+              data: TINY_PNG_DATA_URL.split(',')[1],
+            },
+          },
+        },
+      ],
+      parameters: {
+        aspectRatio: '16:9',
+        durationSeconds: '8',
+        resolution: '1080p',
+        personGeneration: 'allow_adult',
+      },
+    })
+  })
+
+  it('fails terminally when the finished operation carries an error', async () => {
+    handler = (url) =>
+      url === VEO_SUBMIT
+        ? json({ name: VEO_OPERATION })
+        : json({ done: true, error: { code: 3, message: 'safety filter blocked the prompt' } })
+
+    await expect(run(VEO_MODEL, { video: video({ duration_seconds: 4 }) })).rejects.toThrow(
+      'safety filter blocked the prompt',
+    )
+  })
+
+  it('reports an unknown result when the finished operation carries no sample', async () => {
+    handler = (url) =>
+      url === VEO_SUBMIT
+        ? json({ name: VEO_OPERATION })
+        : json({ done: true, response: { generateVideoResponse: { generatedSamples: [] } } })
+
+    await expect(run(VEO_MODEL, { video: video({ duration_seconds: 4 }) })).rejects.toThrow(
+      'Veo 视频任务已完成但未返回结果地址',
+    )
+  })
+
+  it('fails when the download answers a non-2xx', async () => {
+    handler = (url) => {
+      if (url === VEO_SUBMIT) return json({ name: VEO_OPERATION })
+      if (url === VEO_POLL) return json(doneOperation)
+      return json({ error: { message: 'file expired' } }, 403)
+    }
+
+    await expect(run(VEO_MODEL, { video: video({ duration_seconds: 4 }) })).rejects.toMatchObject({
+      upstreamStatus: 403,
+    })
+  })
+
+  it('keeps a rate limited submit retryable and a rejected one permanent', async () => {
+    handler = () => json({ error: { message: 'quota exceeded' } }, 429)
+    const rateLimited = await run(VEO_MODEL, { video: video({ duration_seconds: 4 }) }).catch(
+      (err: unknown) => err,
+    )
+    expect(rateLimited).toMatchObject({ upstreamStatus: 429 })
+    expect(isRetryableError(rateLimited)).toBe(true)
+
+    handler = () => json({ error: { message: 'prompt too long' } }, 400)
+    const rejected = await run(VEO_MODEL, { video: video({ duration_seconds: 4 }) }).catch(
+      (err: unknown) => err,
+    )
+    expect(rejected).toMatchObject({ upstreamStatus: 400 })
+    expect(isRetryableError(rejected)).toBe(false)
+  })
+
+  it('follows the download redirect and carries the key onto the final hop', async () => {
+    const seen: Array<{ path: string; key: string | null }> = []
+    const server = Bun.serve({
+      port: 0,
+      fetch(req) {
+        const url = new URL(req.url)
+        seen.push({ path: url.pathname, key: req.headers.get('x-goog-api-key') })
+        if (url.pathname.endsWith(':predictLongRunning')) return jsonBody({ name: VEO_OPERATION })
+        if (url.pathname.endsWith('/op_1'))
+          return jsonBody({
+            done: true,
+            response: {
+              generateVideoResponse: {
+                generatedSamples: [{ video: { uri: `${url.origin}/v1beta/files/veo_1` } }],
+              },
+            },
+          })
+        if (url.pathname === '/v1beta/files/veo_1')
+          return new Response(null, {
+            status: 302,
+            headers: { location: `${url.origin}/storage/veo_1.mp4` },
+          })
+        return new Response(MP4_BYTES, { status: 200 })
+      },
+    })
+    try {
+      // 真实 transport：跟随重定向是它的行为，桩替换不掉。
+      setUpstreamFetchForTesting()
+      _setChannelsForTesting([
+        { ...veoVideoChannel, baseUrl: `http://127.0.0.1:${server.port}/v1beta` },
+      ])
+
+      const { payload } = await run(VEO_MODEL, { video: video({ duration_seconds: 4 }) })
+
+      const data = (payload as { data: Array<Record<string, unknown>> }).data
+      expect(Buffer.from(String(data[0]?.b64_json), 'base64').equals(Buffer.from(MP4_BYTES))).toBe(
+        true,
+      )
+      expect(seen.at(-1)).toEqual({ path: '/storage/veo_1.mp4', key: 'veo-test-key' })
+    } finally {
+      server.stop(true)
+    }
   })
 })
