@@ -36,6 +36,10 @@ const RESULT_URL = 'https://cdn.agnes-ai.com/videos/a.mp4'
 const ARK_BASE = 'https://ark.example/api/v3'
 const ARK_MODEL = 'doubao-seedance-2-0-mini-260615'
 const ARK_RESULT_URL = 'https://ark-content.example/videos/a.mp4'
+const VEO_BASE = 'https://generativelanguage.googleapis.com/v1beta'
+const VEO_MODEL = 'veo-3.1-fast-generate-preview'
+const VEO_OPERATION = `models/${VEO_MODEL}/operations/op_1`
+const VEO_DOWNLOAD = `${VEO_BASE}/files/veo_1:download?alt=media`
 /** ISO-BMFF 头：4 字节 box size + 'ftyp'。 */
 const MP4_BYTES = Uint8Array.from([
   0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6f, 0x6d,
@@ -96,6 +100,23 @@ const videoChannels: InternalChannel[] = [
           'first_frame',
           'last_frame',
         ],
+      },
+    ],
+    defaults: { asyncTasks: true },
+  },
+  {
+    id: 'veo-video',
+    kind: 'openai-queue',
+    label: 'Veo',
+    baseUrl: VEO_BASE,
+    auth: { type: 'bearer', secretRef: 'VEO_API_KEY', secret: 'veo-test-key' },
+    allowedPaths: ['models'],
+    models: [
+      {
+        id: VEO_MODEL,
+        label: 'Veo 3.1 Fast',
+        media: 'video',
+        capabilities: ['generate', 'duration', 'aspect_ratio', 'resolution', 'first_frame'],
       },
     ],
     defaults: { asyncTasks: true },
@@ -284,6 +305,63 @@ describe('Seedance video task', () => {
       errorMessage: 'generation failed',
       attempt: 0,
     })
+  })
+})
+
+describe('Veo video task', () => {
+  const doneOperation = {
+    done: true,
+    response: {
+      generateVideoResponse: { generatedSamples: [{ video: { uri: VEO_DOWNLOAD } }] },
+    },
+  }
+
+  it('archives the downloaded mp4 bytes under the task output', async () => {
+    let polls = 0
+    upstream.handler = (url) => {
+      if (url.endsWith(':predictLongRunning')) return json({ name: VEO_OPERATION })
+      if (url.endsWith(VEO_OPERATION))
+        return ++polls === 1 ? json({ done: false }) : json(doneOperation)
+      return new Response(MP4_BYTES, { status: 200 })
+    }
+    await insertVideoTask('veo-video-task', VEO_MODEL, {
+      request_payload: {
+        prompt: 'a cat surfing',
+        video: { duration_seconds: 4, aspect_ratio: '16:9', resolution: '720p' },
+      },
+    })
+
+    await runTask('veo-video-task')
+
+    const row = await readTask('veo-video-task')
+    expect(row).toMatchObject({
+      status: 'completed',
+      invocations: 1,
+      taskIds: [VEO_OPERATION],
+    })
+    expect(row?.result).toMatchObject({
+      data: [{ object: 'veo-video-task/out/0', mime: 'video/mp4', duration_seconds: 4 }],
+    })
+    expect(await storage.read('veo-video-task/out/0')).toEqual(MP4_BYTES)
+  })
+
+  it('resumes polling the stored operation instead of submitting a second one', async () => {
+    upstream.handler = (url) =>
+      url.endsWith(VEO_OPERATION) ? json(doneOperation) : new Response(MP4_BYTES, { status: 200 })
+    await insertVideoTask('veo-video-resume', VEO_MODEL, {
+      upstream_task_ids: [VEO_OPERATION],
+      upstream_submitted_at: Date.now(),
+      upstream_invocation_count: 1,
+    })
+
+    await runTask('veo-video-resume')
+
+    expect(await readTask('veo-video-resume')).toMatchObject({
+      status: 'completed',
+      invocations: 1,
+      taskIds: [VEO_OPERATION],
+    })
+    expect(upstream.calls).toEqual([`${VEO_BASE}/${VEO_OPERATION}`, VEO_DOWNLOAD])
   })
 })
 
