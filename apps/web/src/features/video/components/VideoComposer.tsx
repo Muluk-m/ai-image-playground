@@ -199,9 +199,7 @@ function VideoSubmitPanel({
             return multiplier === 1 ? label : `${label} ×${multiplier}`
           }}
           optionDisabled={(resolution) =>
-            !(videoDurationsForResolution(support, resolution) as readonly number[]).includes(
-              draft.duration,
-            )
+            !videoDurationsForResolution(support, resolution).includes(draft.duration)
           }
           onChange={(resolution) => useVideoStore.getState().setResolution(resolution)}
         />

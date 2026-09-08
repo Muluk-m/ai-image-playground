@@ -15,6 +15,7 @@ export function clampToSupported<T>(allowed: readonly T[], value: T): T {
 /**
  * 换模型时把不支持的档位落到该模型的合法值上。帧槽不动 —— 切到不支持尾帧的模型
  * 只是不提交它，图还留着，切回去还在。
+ * 清晰度是主轴：时长按清晰度退，反过来会把用户刚点的清晰度顶掉。
  */
 export function clampDraftToSupport(draft: VideoDraft, support: VideoModelSupport): VideoDraft {
   const resolution = clampToSupported(support.resolutions, draft.resolution)

@@ -23,14 +23,16 @@ declare global {
 }
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
+const PRICE_PER_SECOND: Record<string, number> = {
+  'grok-imagine-video': 60,
+  'agnes-video-2.5-flash': 80,
+  [CONSTRAINED_MODEL]: 50,
+}
+
 /** 计费 overlay 在场时的门禁：ceil(单价 × 秒数 × 倍率)。 */
 const { usePrivateSubmissionGuard, billedGuard } = vi.hoisted(() => {
   const billedGuard = (input: { model: string; quantity: number; unitMultiplier?: number }) => {
-    const price: number | undefined = {
-      'grok-imagine-video': 60,
-      'agnes-video-2.5-flash': 80,
-      'constrained-video-test-model': 50,
-    }[input.model]
+    const price = PRICE_PER_SECOND[input.model]
     if (price === undefined) return { blocked: false }
     return {
       blocked: false,
