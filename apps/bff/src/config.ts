@@ -109,6 +109,10 @@ export const config = {
     /** 复刻模式的视觉分析模型。网关模型列表会变，换模型只改 env。 */
     visionModel: env('REMIX_VISION_MODEL', 'gpt-6-astra'),
   },
+  storyboard: {
+    /** 分镜脚本模型。默认跟视觉模型同一个，写脚本吃力时单独换。 */
+    model: env('STORYBOARD_MODEL', '') || env('REMIX_VISION_MODEL', 'gpt-6-astra'),
+  },
   matte: {
     /** 本部署对外可达、且所在 Cloudflare zone 已开图片变换的源；抠图 URL 两段都用它。 */
     get transformOrigin(): string {

@@ -8,24 +8,26 @@ process.env.UPSTREAM_API_KEY = 'fixture-upstream-key'
 process.env.OPERATOR_CONFIG_FILE = ''
 
 // Dynamic import keeps environment setup ahead of configuration module evaluation.
-const { remixAnalyzeRoutes } = await import('../../routes/remix-analyze')
+const { storyboardPlanRoutes } = await import('../../routes/storyboard-plan')
 const { setChatFetchForTesting } = await import('../../lib/chatCompletion')
 
-const app = new Elysia().use(remixAnalyzeRoutes)
+const app = new Elysia().use(storyboardPlanRoutes)
 
-describe('POST /api/remix/analyze without the capability', () => {
+describe('the storyboard route without the capability', () => {
   it('answers 404 and never reaches the gateway', async () => {
     setChatFetchForTesting(() => {
-      throw new Error('unexpected vision call')
+      throw new Error('unexpected storyboard call')
     })
 
     const response = await app.handle(
-      new Request('http://localhost/api/remix/analyze', {
+      new Request('http://localhost/api/storyboard/plan', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          images: ['data:image/png;base64,AA=='],
-          product: { name: 'Abruzzo tub', description: '' },
+          idea: '一支讲通勤咖啡的短片',
+          shots: 2,
+          secondsPerShot: 5,
+          aspectRatio: '9:16',
         }),
       }),
     )
@@ -33,7 +35,7 @@ describe('POST /api/remix/analyze without the capability', () => {
     expect(response.status).toBe(404)
     expect(await response.json()).toEqual({
       error: 'capability_unavailable',
-      capability: 'remix:analyze',
+      capability: 'generation:storyboard',
     })
     setChatFetchForTesting()
   })

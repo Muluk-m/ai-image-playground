@@ -1,6 +1,12 @@
-import { afterEach, describe, expect, it, mock } from 'bun:test'
+import { afterEach, describe, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
 import { Elysia } from 'elysia'
+import {
+  type ChatCall,
+  chatCompletion,
+  chatFetchReturning,
+  recordingChatFetch,
+} from '../helpers/chatStubs'
 
 process.env.PORT = '0'
 process.env.DATABASE_URL = 'postgres://unused/unused'
@@ -12,9 +18,7 @@ process.env.OPERATOR_CONFIG_FILE = resolve(import.meta.dir, '../remix-operator-c
 
 // Dynamic import keeps environment setup ahead of configuration module evaluation.
 const { remixAnalyzeRoutes } = await import('../../routes/remix-analyze')
-const { setVisionFetchForTesting } = await import('../../lib/vision')
-
-type VisionFetch = NonNullable<Parameters<typeof setVisionFetchForTesting>[0]>
+const { setChatFetchForTesting } = await import('../../lib/chatCompletion')
 
 const app = new Elysia().use(remixAnalyzeRoutes)
 
@@ -34,22 +38,6 @@ const BRIEF = {
   suggestedTitle: 'Freestanding tub in a stone bath',
 }
 
-function chatCompletion(content: string): Response {
-  return new Response(JSON.stringify({ choices: [{ message: { content } }] }), {
-    status: 200,
-    headers: { 'content-type': 'application/json' },
-  })
-}
-
-function visionFetchReturning(...bodies: Response[]): VisionFetch {
-  let index = 0
-  return mock(async () => {
-    const body = bodies[Math.min(index, bodies.length - 1)]!
-    index += 1
-    return body.clone()
-  }) as unknown as VisionFetch
-}
-
 async function analyze(body: unknown) {
   const response = await app.handle(
     new Request('http://localhost/api/remix/analyze', {
@@ -62,18 +50,13 @@ async function analyze(body: unknown) {
 }
 
 afterEach(() => {
-  setVisionFetchForTesting()
+  setChatFetchForTesting()
 })
 
 describe('POST /api/remix/analyze', () => {
   it('returns one brief per image and calls the gateway chat endpoint', async () => {
-    const calls: { url: string; init: unknown }[] = []
-    setVisionFetchForTesting(
-      mock(async (url: unknown, init: unknown) => {
-        calls.push({ url: String(url), init })
-        return chatCompletion(JSON.stringify(BRIEF))
-      }) as unknown as VisionFetch,
-    )
+    const calls: ChatCall[] = []
+    setChatFetchForTesting(recordingChatFetch(calls, () => chatCompletion(JSON.stringify(BRIEF))))
 
     const { status, json } = await analyze({
       images: [PIXEL, PIXEL],
@@ -84,26 +67,17 @@ describe('POST /api/remix/analyze', () => {
     expect(json).toEqual({ briefs: [BRIEF, BRIEF] })
     expect(calls).toHaveLength(2)
     expect(calls[0]!.url).toBe('http://gateway.test/v1/chat/completions')
-
-    const init = calls[0]!.init as { headers: Record<string, string>; body: string }
-    expect(init.headers.authorization).toBe('Bearer fixture-upstream-key')
-    const sent = JSON.parse(init.body) as {
-      model: string
-      messages: { content: { type: string; image_url?: { url: string } }[] }[]
-    }
-    expect(sent.model).toBe('fixture-vision-model')
-    const parts = sent.messages[0]!.content
-    expect(parts.some((part) => part.type === 'image_url' && part.image_url?.url === PIXEL)).toBe(
-      true,
-    )
+    expect(calls[0]!.authorization).toBe('Bearer fixture-upstream-key')
+    expect(calls[0]!.model).toBe('fixture-vision-model')
+    expect(calls[0]!.images).toEqual([PIXEL])
   })
 
   it('retries once when the model answers with something other than a brief', async () => {
-    const fetchImpl = visionFetchReturning(
+    const fetchImpl = chatFetchReturning(
       chatCompletion('sorry, I cannot help'),
       chatCompletion(`\`\`\`json\n${JSON.stringify(BRIEF)}\n\`\`\``),
     )
-    setVisionFetchForTesting(fetchImpl)
+    setChatFetchForTesting(fetchImpl)
 
     const { status, json } = await analyze({
       images: [PIXEL],
@@ -116,8 +90,8 @@ describe('POST /api/remix/analyze', () => {
   })
 
   it('fails with 502 when the retry is still not a brief', async () => {
-    const fetchImpl = visionFetchReturning(chatCompletion('not json at all'))
-    setVisionFetchForTesting(fetchImpl)
+    const fetchImpl = chatFetchReturning(chatCompletion('not json at all'))
+    setChatFetchForTesting(fetchImpl)
 
     const { status, json } = await analyze({
       images: [PIXEL],
@@ -130,7 +104,7 @@ describe('POST /api/remix/analyze', () => {
   })
 
   it('passes an upstream failure through as 502 with the upstream status', async () => {
-    setVisionFetchForTesting(visionFetchReturning(new Response('rate limited', { status: 429 })))
+    setChatFetchForTesting(chatFetchReturning(new Response('rate limited', { status: 429 })))
 
     const { status, json } = await analyze({
       images: [PIXEL],
