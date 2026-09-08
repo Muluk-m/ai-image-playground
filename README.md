@@ -156,6 +156,9 @@ scripts/app-compose.sh up image-playground-internal
 scripts/app-compose.sh up image-playground-paid
 ```
 
+`build-private` rebuilds the overlay and dependency stages without the build cache, because a
+public `build` on the same host caches them with an empty overlay.
+
 `infra-compose.sh` uses
 `$XDG_CONFIG_HOME/ai-image-playground/infra.env` by default. Set `INFRA_ENV_FILE` to
 override it. `up` waits for PostgreSQL. `provision` idempotently creates one deployment

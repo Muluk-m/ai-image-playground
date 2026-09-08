@@ -32,7 +32,10 @@ shift
 if [ "$command" = build ] || [ "$command" = build-private ]; then
   image=${1:-ai-image-playground:local}
   if [ "$command" = build-private ]; then
+    # A public build caches these two stages with an empty overlay; reusing that
+    # cache leaves the overlay dependencies out of the pnpm store.
     docker build \
+      --no-cache-filter private-manifests,deps \
       --build-context private-overlay="$repo_root/private" \
       --build-arg PRIVATE_OVERLAY_PRESENT=true \
       --tag "$image" \
