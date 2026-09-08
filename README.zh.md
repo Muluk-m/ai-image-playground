@@ -145,6 +145,9 @@ scripts/app-compose.sh up image-playground-internal
 scripts/app-compose.sh up image-playground-paid
 ```
 
+`build-private` 会跳过 overlay 与依赖安装两个 stage 的构建缓存，因为同一台机器上的公开
+`build` 会把它们缓存成空 overlay 的结果。
+
 `infra-compose.sh` 默认读取
 `$XDG_CONFIG_HOME/ai-image-playground/infra.env`，可用 `INFRA_ENV_FILE` 覆盖。`up` 只等
 PostgreSQL 健康。`provision` 会幂等创建部署数据库、schema-owner migrator、DML-only
