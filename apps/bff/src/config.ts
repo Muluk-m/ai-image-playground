@@ -61,6 +61,13 @@ export const config = {
     if (hasCapability(config.operator, 'accounts:login') && !config.auth.internalApiToken) {
       throw new Error('Missing env: INTERNAL_API_TOKEN')
     }
+    const transformOrigin = config.matte.transformOrigin
+    if (transformOrigin && !transformOrigin.startsWith('https://')) {
+      throw new Error('MATTE_TRANSFORM_ORIGIN must be an https:// origin')
+    }
+    if (hasCapability(config.operator, 'matte:server') && !transformOrigin) {
+      throw new Error('Missing env: MATTE_TRANSFORM_ORIGIN (required by matte:server)')
+    }
     if (config.worker.healthStaleAfterMs < config.worker.pollIntervalMs * 3) {
       throw new Error('WORKER_HEALTH_STALE_AFTER_MS must be at least three poll intervals')
     }
@@ -85,6 +92,12 @@ export const config = {
   remix: {
     /** 复刻模式的视觉分析模型。网关模型列表会变，换模型只改 env。 */
     visionModel: env('REMIX_VISION_MODEL', 'gpt-6-astra'),
+  },
+  matte: {
+    /** 本部署对外可达、且所在 Cloudflare zone 已开图片变换的源；抠图 URL 两段都用它。 */
+    get transformOrigin(): string {
+      return env('MATTE_TRANSFORM_ORIGIN', '').replace(/\/+$/, '')
+    },
   },
   databaseUrl: env('DATABASE_URL'),
   corsOrigins: env('CORS_ALLOWED_ORIGINS', '*'),
