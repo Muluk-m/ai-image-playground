@@ -1,95 +1,74 @@
-import { expect, it } from 'bun:test'
+import { expect, it, setDefaultTimeout } from 'bun:test'
 import { rmSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 const repoRoot = resolve(import.meta.dir, '../../../../..')
 
-// Each case gets its own fixture path: a case that times out still runs its
-// cleanup later, and a shared path would delete the next case's fixture.
-function fixturePath(name: string): string {
-  return resolve(repoRoot, `apps/bff/src/private-boundary-${name}.fixture.ts`)
-}
+// Spawning biome or the scanner runs past bun's 5s default while the rest of the
+// monorepo test run is in flight.
+setDefaultTimeout(60_000)
 
-// Spawning biome and the scanner costs seconds when the whole monorepo test
-// run is in flight, well past bun's 5s default.
-const SPAWN_TIMEOUT_MS = 60_000
+const scanner = () => ['bun', 'run', 'scripts/check-private-boundary.ts']
 
-async function spawnCheck(command: string[]): Promise<{ exitCode: number; output: string }> {
-  const child = Bun.spawn(command, { cwd: repoRoot, stdout: 'pipe', stderr: 'pipe' })
-  const [exitCode, stdout, stderr] = await Promise.all([
-    child.exited,
-    new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
-  ])
-  return { exitCode, output: `${stdout}\n${stderr}` }
-}
-
-async function runBoundaryScanner(name: string, source: string): Promise<string> {
-  const fixture = fixturePath(name)
+// Per-case fixture paths: on one shared path a timed-out case's late cleanup
+// deletes the next case's fixture.
+async function scanFixture(
+  name: string,
+  source: string,
+  command: (fixture: string) => string[],
+): Promise<string> {
+  const fixture = resolve(repoRoot, `apps/bff/src/private-boundary-${name}.fixture.ts`)
   writeFileSync(fixture, source)
   try {
-    const { exitCode, output } = await spawnCheck([
-      'bun',
-      'run',
-      'scripts/check-private-boundary.ts',
+    const child = Bun.spawn(command(fixture), { cwd: repoRoot, stdout: 'pipe', stderr: 'pipe' })
+    const [exitCode, stdout, stderr] = await Promise.all([
+      child.exited,
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
     ])
     expect(exitCode).not.toBe(0)
-    return output
+    return `${stdout}\n${stderr}`
   } finally {
     rmSync(fixture, { force: true })
   }
 }
 
-it(
-  'rejects private-tree imports outside the audited overlay seam',
-  async () => {
-    const fixture = fixturePath('import')
-    writeFileSync(fixture, "import '../../../../private/apps/bff/index.ts'\n")
+it('rejects private-tree imports outside the audited overlay seam', async () => {
+  const output = await scanFixture(
+    'import',
+    "import '../../../../private/apps/bff/index.ts'\n",
+    (fixture) => ['pnpm', 'exec', 'biome', 'lint', fixture],
+  )
 
-    try {
-      const { exitCode, output } = await spawnCheck(['pnpm', 'exec', 'biome', 'lint', fixture])
+  expect(output).toContain(
+    'Private-tree imports are only allowed at the three audited overlay seams.',
+  )
+})
 
-      expect(exitCode).not.toBe(0)
-      expect(output).toContain(
-        'Private-tree imports are only allowed at the three audited overlay seams.',
-      )
-    } finally {
-      rmSync(fixture, { force: true })
-    }
-  },
-  SPAWN_TIMEOUT_MS,
-)
+it('rejects Vite glob and URL private-tree references outside audited seams', async () => {
+  const output = await scanFixture(
+    'vite',
+    [
+      "import.meta.glob('../../../../private/apps/web/index.tsx')",
+      "new URL('../../../../private/apps/bff/index.ts', import.meta.url)",
+    ].join('\n'),
+    scanner,
+  )
 
-it(
-  'rejects Vite glob and URL private-tree references outside audited seams',
-  async () => {
-    const output = await runBoundaryScanner(
-      'vite',
-      [
-        "import.meta.glob('../../../../private/apps/web/index.tsx')",
-        "new URL('../../../../private/apps/bff/index.ts', import.meta.url)",
-      ].join('\n'),
-    )
+  expect(output).toContain('private-boundary-vite.fixture.ts:1')
+  expect(output).toContain('private-boundary-vite.fixture.ts:2')
+})
 
-    expect(output).toContain('private-boundary-vite.fixture.ts:1')
-    expect(output).toContain('private-boundary-vite.fixture.ts:2')
-  },
-  SPAWN_TIMEOUT_MS,
-)
+it('rejects ambient and wildcard sibling references to the private tree', async () => {
+  const output = await scanFixture(
+    'ambient',
+    [
+      "declare module '*private/apps/bff/index.ts' {}",
+      "const content = '../../*/apps/web/**/*.tsx'",
+    ].join('\n'),
+    scanner,
+  )
 
-it(
-  'rejects ambient and wildcard sibling references to the private tree',
-  async () => {
-    const output = await runBoundaryScanner(
-      'ambient',
-      [
-        "declare module '*private/apps/bff/index.ts' {}",
-        "const content = '../../*/apps/web/**/*.tsx'",
-      ].join('\n'),
-    )
-
-    expect(output).toContain('private-boundary-ambient.fixture.ts:1')
-    expect(output).toContain('private-boundary-ambient.fixture.ts:2')
-  },
-  SPAWN_TIMEOUT_MS,
-)
+  expect(output).toContain('private-boundary-ambient.fixture.ts:1')
+  expect(output).toContain('private-boundary-ambient.fixture.ts:2')
+})
