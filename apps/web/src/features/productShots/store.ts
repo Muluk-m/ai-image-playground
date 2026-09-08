@@ -161,6 +161,7 @@ export interface ProductShotsState {
   retryVersion: (versionId: string) => Promise<void>
   regenerateFromVersion: (versionId: string) => Promise<void>
   editVersionMask: (versionId: string) => Promise<void>
+  editSourceMask: (imageId: string) => Promise<void>
   regenerateWithMask: (versionId: string) => Promise<void>
   chooseVersion: (versionId: string) => void
   previewVersion: (versionId: string | null) => void
@@ -490,21 +491,26 @@ export const useProductShotsStore = create<ProductShotsState>((set, get) => ({
     if (draft.id && found) await swapOneVersion(set, get, draft.id, found.imageId, found.version)
   },
 
-  /** 「编辑蒙版」：改的是原图身上那份蒙版，画笔涂的是保留区。 */
   editVersionMask: async (versionId) => {
     const found = findVersion(get().draft, versionId)
-    const matte = found?.image.sourceMatte
-    if (!found || !matte?.maskImageId) return
+    if (found) await get().editSourceMask(found.imageId)
+  },
+
+  /** 「改蒙版」：改的是原图身上那份蒙版，画笔涂的是保留区。 */
+  editSourceMask: async (imageId) => {
+    const image = get().draft.images.find((item) => item.imageId === imageId)
+    const matte = image?.sourceMatte
+    if (!matte?.maskImageId) return
 
     const maskDataUrl = await ensureImageCached(matte.maskImageId)
     if (!maskDataUrl) {
       set({ swapNotice: MASK_MISSING })
       return
     }
-    useStore.getState().openMaskEditorSession(matte.maskTargetImageId ?? found.imageId, {
+    useStore.getState().openMaskEditorSession(matte.maskTargetImageId ?? imageId, {
       maskDataUrl,
       keepSemantics: true,
-      onSave: (saved) => saveEditedMask(set, get, found.imageId, saved),
+      onSave: (saved) => saveEditedMask(set, get, imageId, saved),
     })
   },
 

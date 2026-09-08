@@ -433,6 +433,7 @@ export function getPersistedState(state: AppState) {
     libraryCoachDismissed: state.libraryCoachDismissed,
     libraryPanelOpened: state.libraryPanelOpened,
     assetHintShown: state.assetHintShown,
+    matteOverlayHidden: state.matteOverlayHidden,
     pinnedInspirationIds: state.pinnedInspirationIds,
     // 内置 channel 的 model cache 不进 localStorage（避免敏感模型清单泄漏到导出）。
     // 通过 profile.source === 'builtin-edge' 判定，而不是字符串前缀。
@@ -477,6 +478,7 @@ function mergePersistedState(persistedState: unknown, currentState: AppState): A
     libraryCoachDismissed: Boolean(persisted.libraryCoachDismissed),
     libraryPanelOpened: Boolean(persisted.libraryPanelOpened),
     assetHintShown: Boolean(persisted.assetHintShown),
+    matteOverlayHidden: Boolean(persisted.matteOverlayHidden),
     pinnedInspirationIds: Array.isArray(persisted.pinnedInspirationIds)
       ? persisted.pinnedInspirationIds.filter((x): x is string => typeof x === 'string')
       : [],
@@ -587,6 +589,9 @@ interface AppState {
   /** 参考图缩略图上方的一次性提示，出现过就不再出现。 */
   assetHintShown: boolean
   markAssetHintShown: () => void
+  /** 商品图预览区的蒙版叠色开关，默认叠。 */
+  matteOverlayHidden: boolean
+  setMatteOverlayHidden: (hidden: boolean) => void
   /** 用户手动置顶的灵感 id 列表；顺序 = pin 顺序（最近 pin 的在前）。 */
   pinnedInspirationIds: string[]
   /** toggle 置顶状态：未 pin → pin（插到最前）；已 pin → unpin。 */
@@ -820,6 +825,8 @@ export const useStore = create<AppState>()(
       markLibraryPanelOpened: () => set({ libraryPanelOpened: true }),
       assetHintShown: false,
       markAssetHintShown: () => set({ assetHintShown: true }),
+      matteOverlayHidden: false,
+      setMatteOverlayHidden: (matteOverlayHidden) => set({ matteOverlayHidden }),
       pinnedInspirationIds: [],
       toggleInspirationPin: (id) =>
         set((st) => {
