@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { LoginScreen } from '../../auth/LoginScreen'
 import { RegistrationPanel } from '../../auth/RegistrationPanel'
 import { bootstrapClientCapabilities } from '../../lib/clientCapabilities'
+import { allCapabilitiesOff } from '../fixtures/capabilities'
 
 declare global {
   var IS_REACT_ACT_ENVIRONMENT: boolean
@@ -110,16 +111,10 @@ describe('LoginScreen registration entry', () => {
       'fetch',
       vi.fn(async () =>
         Response.json({
+          ...allCapabilitiesOff(),
           'accounts:login': true,
           'accounts:self-register': true,
-          'accounts:sync': false,
           'billing:credits': true,
-          'generation:byok': false,
-          'generation:video': false,
-          'matte:server': false,
-          'quota:daily': false,
-          'remix:analyze': false,
-          'remix:listing': false,
         }),
       ),
     )

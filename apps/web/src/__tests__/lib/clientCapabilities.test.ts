@@ -6,6 +6,7 @@ import {
   isByokGenerationEnabled,
   isClientCapabilityEnabled,
 } from '../../lib/clientCapabilities'
+import { allCapabilitiesOff } from '../fixtures/capabilities'
 
 afterEach(async () => {
   vi.unstubAllGlobals()
@@ -16,16 +17,11 @@ describe('client capability bootstrap', () => {
   it('loads only the BFF manifest and resolves enabled capabilities', async () => {
     const fetchSpy = vi.fn(async () =>
       Response.json({
+        ...allCapabilitiesOff(),
         'accounts:login': true,
         'accounts:self-register': true,
         'accounts:sync': true,
-        'billing:credits': false,
         'generation:byok': true,
-        'generation:video': false,
-        'matte:server': false,
-        'quota:daily': false,
-        'remix:analyze': false,
-        'remix:listing': false,
       }),
     )
     vi.stubGlobal('fetch', fetchSpy)
@@ -71,16 +67,7 @@ describe('client capability bootstrap', () => {
       'fetch',
       vi.fn(async () =>
         Response.json({
-          'accounts:login': false,
-          'accounts:self-register': false,
-          'accounts:sync': false,
-          'billing:credits': false,
-          'generation:byok': false,
-          'generation:video': false,
-          'matte:server': false,
-          'quota:daily': false,
-          'remix:analyze': false,
-          'remix:listing': false,
+          ...allCapabilitiesOff(),
         }),
       ),
     )

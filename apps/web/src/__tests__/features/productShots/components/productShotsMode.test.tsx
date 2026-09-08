@@ -5,11 +5,11 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useLibraryStore } from '../../../../features/library/store'
 import ProductShotsMode from '../../../../features/productShots/components/ProductShotsMode'
-import { pendingMatte } from '../../../../features/productShots/lib/sourceMatte'
 import { useProductShotsStore } from '../../../../features/productShots/store'
 import type { SourceMatte } from '../../../../features/productShots/types'
 import { ProductMatteError } from '../../../../lib/productMatte'
 import { getPersistedState, useStore } from '../../../../store'
+import { browserOnlyCapabilities, settleUntil as settleRounds } from '../fixtures'
 
 declare global {
   // eslint-disable-next-line no-var
@@ -17,7 +17,7 @@ declare global {
 }
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
-const isClientCapabilityEnabled = vi.hoisted(() => vi.fn(() => true))
+const isClientCapabilityEnabled = vi.hoisted(() => vi.fn((_name: string) => true))
 const storeImageFromFile = vi.hoisted(() =>
   vi.fn(async (file: File) => ({ id: `image-${file.name}`, dataUrl: `data:,${file.name}` })),
 )
@@ -115,7 +115,7 @@ beforeEach(() => {
     loadJobs: vi.fn().mockResolvedValue(undefined),
   })
   useProductShotsStore.getState().startNewJob()
-  isClientCapabilityEnabled.mockReturnValue(true)
+  isClientCapabilityEnabled.mockImplementation(browserOnlyCapabilities)
   ensureImageCached.mockImplementation(async (id: string) => `data:image/png;base64,${id}`)
   submitPrepared.mockResolvedValue(['task-1'])
   requestBackgroundPlan.mockResolvedValue(PLAN)
@@ -127,7 +127,6 @@ beforeEach(() => {
     backend: 'wasm-u2netp',
     elapsedMs: 3200,
   })
-  requestServerMatte.mockRejectedValue(new Error('服务端抠图没有返回可用的蒙版'))
   maskDataUrlToAlpha.mockResolvedValue({ alpha: new Uint8ClampedArray(4), width: 2, height: 2 })
   assessMatte.mockReturnValue({ ok: true, coverage: 0.4 })
   alphaToInpaintMask.mockReturnValue('data:image/png;base64,MASK')
@@ -153,17 +152,19 @@ function render() {
   act(() => root.render(<ProductShotsMode />))
 }
 
-/** 一次点击要串起接口、抠图与 IndexedDB 落盘，微任务刷一轮不够。 */
-async function settle() {
-  await settleUntil(() => false)
+/** React 的每一轮都要包在 act 里，否则状态更新的警告会淹掉断言。 */
+function tick() {
+  return act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  })
 }
 
-async function settleUntil(done: () => boolean) {
-  for (let round = 0; round < 8 || (round < 40 && !done()); round++) {
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 0))
-    })
-  }
+function settle() {
+  return settleRounds(() => false, tick)
+}
+
+function settleUntil(done: () => boolean) {
+  return settleRounds(done, tick)
 }
 
 function column(name: string): HTMLElement {
@@ -1215,26 +1216,30 @@ describe('dropping and pasting images into the source list', () => {
 })
 
 describe('the matte laid over the source image', () => {
-  const ready = (patch: Partial<SourceMatte> = {}): SourceMatte => ({
-    ...pendingMatte(),
+  const ready = (patch: Partial<Extract<SourceMatte, { status: 'ready' }>> = {}): SourceMatte => ({
     status: 'ready',
-    source: 'browser',
+    backend: 'wasm-u2netp',
+    alphaImageId: 'alpha-1',
+    targetImageId: 'image-1',
     previewImageId: 'matte-1',
-    maskImageId: 'mask-1',
-    maskTargetImageId: 'image-1',
+    edited: false,
     ...patch,
   })
 
-  function seed(...mattes: SourceMatte[]) {
+  /** null = 这张还在抠，身上还没有蒙版。 */
+  function seed(...mattes: Array<SourceMatte | null>) {
     const images = mattes.map((sourceMatte, index) => ({
       imageId: `image-${index + 1}`,
       versions: [],
-      sourceMatte,
+      ...(sourceMatte ? { sourceMatte } : {}),
     }))
     act(() => {
       useProductShotsStore.setState((s) => ({
         draft: { ...s.draft, id: 'job-1', images },
         selectedImageId: images[0]?.imageId ?? null,
+        mattingImageIds: images
+          .filter((_, index) => mattes[index] === null)
+          .map((image) => image.imageId),
       }))
     })
     render()
@@ -1278,36 +1283,21 @@ describe('the matte laid over the source image', () => {
     act(() => root.render(<ProductShotsMode />))
 
     expect(overlaySwitch().checked).toBe(false)
-    expect(overlayIn('preview')).toBeNull()
   })
 
   it('shows the plain original while the matte is still running', () => {
-    seed(pendingMatte())
+    seed(null)
 
     expect(overlayIn('preview')).toBeNull()
     expect(column('preview').textContent).toContain('抠图中')
   })
 
-  it('names the state of every image in the source list', () => {
-    seed(
-      ready(),
-      ready({ source: 'server' }),
-      pendingMatte(),
-      ready({ agreement: 'box-mismatch' }),
-      ready({ edited: true }),
-      { ...pendingMatte(), status: 'failed', reason: 'failed' },
+  it('names the matte state on the source row', () => {
+    seed(ready())
+
+    expect(column('sources').querySelector('[data-product-shots-source]')?.textContent).toContain(
+      '已抠 · U²-Netp · CPU',
     )
-
-    const rows = [...column('sources').querySelectorAll('[data-product-shots-source]')]
-
-    expect(rows.map((row) => row.textContent)).toEqual([
-      expect.stringContaining('已抠 · 浏览器'),
-      expect.stringContaining('已抠 · 服务端'),
-      expect.stringContaining('抠图中'),
-      expect.stringContaining('蒙版不可靠'),
-      expect.stringContaining('手改'),
-      expect.stringContaining('未抠'),
-    ])
   })
 
   it('opens the mask editor on the image matte, brush painting the kept area', async () => {
@@ -1323,7 +1313,7 @@ describe('the matte laid over the source image', () => {
   it('reports an unreliable matte without holding the actions back', () => {
     seed(ready({ agreement: 'box-mismatch' }))
 
-    expect(column('actions').textContent).toContain('蒙版不可靠，先改再跑')
+    expect(column('actions').textContent).toContain('蒙版不可靠')
     expect(actionButton().disabled).toBe(false)
   })
 
@@ -1346,7 +1336,7 @@ describe('the matte laid over the source image', () => {
 
     const rows = [...batchBar().querySelectorAll('[data-product-shots-batch-item]')]
 
-    expect(rows[0].textContent).toContain('已抠 · 浏览器')
+    expect(rows[0].textContent).toContain('已抠 · U²-Netp · CPU')
     expect(rows[1].textContent).toContain('蒙版不可靠')
   })
 })

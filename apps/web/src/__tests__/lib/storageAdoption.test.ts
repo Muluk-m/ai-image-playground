@@ -2,6 +2,7 @@ import { IDBFactory, IDBObjectStore } from 'fake-indexeddb'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { STORE_PERSIST_KEY, SYNC_CHECKPOINT_KEY } from '../../lib/authScope'
 import { BASE_DB_NAME, DB_STORE_NAMES, type DbStoreName, openNamedDb } from '../../lib/db'
+import { allCapabilitiesOff } from '../fixtures/capabilities'
 
 const USER_ID = 'u1'
 const USER_DB = `${BASE_DB_NAME}:user-${USER_ID}`
@@ -110,16 +111,10 @@ async function adopt(userId: string | null, sync = false): Promise<number> {
       'fetch',
       vi.fn(async () =>
         Response.json({
+          ...allCapabilitiesOff(),
           'accounts:login': true,
-          'accounts:self-register': false,
           'accounts:sync': true,
-          'billing:credits': false,
           'generation:byok': true,
-          'generation:video': false,
-          'matte:server': false,
-          'quota:daily': false,
-          'remix:analyze': false,
-          'remix:listing': false,
         }),
       ),
     )
