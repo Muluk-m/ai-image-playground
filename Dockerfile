@@ -5,6 +5,14 @@
 # `--build-arg PRIVATE_OVERLAY_PRESENT=true`.
 FROM scratch AS private-overlay
 
+# The public lockfile carries the private/apps/* importers, so pnpm fetches their
+# dependencies only when the overlay manifests are present at install time.
+FROM oven/bun:1 AS private-manifests
+COPY --from=private-overlay / /overlay/private
+RUN mkdir -p /overlay/private \
+  && find /overlay/private ! -type d ! -name package.json -delete \
+  && find /overlay/private -mindepth 1 -type d -empty -delete
+
 # One release image runs every application role. Compose selects nginx, BFF,
 # worker, or Admin with APP_ROLE and command; both deployment projects reuse the
 # same immutable image and the web role writes its runtime config at startup.
@@ -25,6 +33,9 @@ COPY apps/bff/package.json ./apps/bff/
 COPY apps/admin/package.json ./apps/admin/
 COPY packages/db/package.json ./packages/db/
 COPY packages/shared/package.json ./packages/shared/
+COPY --from=private-manifests /overlay/private ./private
+ARG PRIVATE_OVERLAY_PRESENT=false
+RUN if [ "$PRIVATE_OVERLAY_PRESENT" != "true" ]; then rm -rf /app/private; fi
 
 RUN pnpm install --frozen-lockfile
 
