@@ -254,6 +254,82 @@ describe('fetching an asset image another device uploaded', () => {
   })
 })
 
+describe('an asset whose image body is not on this device', () => {
+  it('stays out of the first-sync push and out of the pending count', async () => {
+    await storeLocalImage()
+    await assetStore.applyRemote([asset('a1', 'image-remote'), asset('a2', LOCAL_IMAGE)])
+
+    await startEngine()
+
+    expect(pushedAssetIds(0)).toEqual(['a2'])
+    expect(putAssetImageMock).toHaveBeenCalledTimes(1)
+    await vi.waitFor(() => expect(readPendingChanges().assets).toEqual([]))
+    expect(useSyncStatus.getState().pending).toBe(0)
+  })
+
+  it('leaves the pending set when the server rejects it as missing its image', async () => {
+    postSyncMock.mockResolvedValueOnce(response({ assets: [asset('a1', 'image-remote')] }))
+    await startEngine()
+    postSyncMock.mockResolvedValue(
+      response({ rejected: [{ collection: 'assets', id: 'a1', reason: 'asset_image_missing' }] }),
+    )
+
+    await assetStore.put({ ...asset('a1', 'image-remote'), name: '改过的名字' })
+    await syncNow()
+
+    expect(pushedAssetIds(1)).toEqual(['a1'])
+    expect(readPendingChanges().assets).toEqual([])
+    expect(useSyncStatus.getState().pending).toBe(0)
+  })
+
+  it('goes up on the next round once this device fetches the image', async () => {
+    getAssetImageMock.mockResolvedValue(
+      new Blob([new Uint8Array([1, 2, 3])], { type: 'image/png' }),
+    )
+    await assetStore.applyRemote([asset('a1', 'image-remote')])
+    await startEngine()
+    expect(pushedAssetIds(0)).toEqual([])
+
+    expect(await ensureAssetImage('image-remote')).toBe(true)
+    await syncNow()
+
+    expect(pushedAssetIds(1)).toEqual(['a1'])
+    await vi.waitFor(() => expect(readPendingChanges().assets).toEqual([]))
+  })
+
+  it('goes up on the next round when the image lands mid-push', async () => {
+    await storeLocalImage()
+    getAssetImageMock.mockResolvedValue(
+      new Blob([new Uint8Array([1, 2, 3])], { type: 'image/png' }),
+    )
+    // 传 a2 的图这段时间里用户打开素材库，a1 的图被取回本机。
+    putAssetImageMock.mockImplementation(async () => {
+      await ensureAssetImage('image-remote')
+      return 'uploaded'
+    })
+    await assetStore.applyRemote([asset('a1', 'image-remote'), asset('a2', LOCAL_IMAGE)])
+
+    await startEngine()
+    await vi.waitFor(() => expect(readPendingChanges().lastSyncedAt).not.toBeNull())
+
+    expect(pushedAssetIds(0)).toEqual(['a2'])
+    await syncNow()
+    expect(pushedAssetIds(1)).toEqual(['a1'])
+  })
+
+  it('still pushes the tombstone when it is deleted while withheld', async () => {
+    await assetStore.applyRemote([asset('a1', 'image-remote')])
+    await startEngine()
+    await vi.waitFor(() => expect(readPendingChanges().imagelessAssets).toEqual(['a1']))
+
+    await assetStore.remove('a1')
+    await syncNow()
+
+    expect(pushedAssetIds(1)).toEqual(['a1'])
+    expect(readPendingChanges().assets).toEqual([])
+  })
+})
+
 describe('flushing on the way out', () => {
   it('pushes the metadata without waiting for an image upload', async () => {
     await storeLocalImage()
