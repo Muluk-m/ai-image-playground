@@ -4,6 +4,7 @@ import ContextMenu, { ContextMenuItem } from '../../../components/ContextMenu'
 import { TrashIcon } from '../../../components/icons'
 import { formatElapsed, useElapsed } from '../../../hooks/useElapsed'
 import { useStore } from '../../../store'
+import { videoAspectLabel, videoFrameAspect } from '../lib/aspect'
 import {
   adoptAsFirstFrame,
   captureVideoFrame,
@@ -41,6 +42,7 @@ export default function VideoCard({ task, onOpen }: { task: VideoTask; onOpen: (
   const done = task.status === 'done'
   const playbackUrl = videoOutputUrl(task)
   const badge = frameBadge(task)
+  const frameAspect = videoFrameAspect(task)
 
   const download = async () => {
     try {
@@ -79,14 +81,21 @@ export default function VideoCard({ task, onOpen }: { task: VideoTask; onOpen: (
         >
           {/* 输出比例的画框居中放进 16:9 容器，竖版与方图自然留出黑边。 */}
           <span className={OVERLAY}>
-            <span
-              className="block h-full"
-              style={{ aspectRatio: task.aspectRatio.replace(':', ' / ') }}
-            >
-              {task.thumbnailDataUrl && (
-                <img src={task.thumbnailDataUrl} alt="" className="h-full w-full object-cover" />
-              )}
-            </span>
+            {frameAspect ? (
+              <span className="block h-full" style={{ aspectRatio: frameAspect }}>
+                {task.thumbnailDataUrl && (
+                  <img src={task.thumbnailDataUrl} alt="" className="h-full w-full object-cover" />
+                )}
+              </span>
+            ) : (
+              task.thumbnailDataUrl && (
+                <img
+                  src={task.thumbnailDataUrl}
+                  alt=""
+                  className="max-h-full max-w-full object-contain"
+                />
+              )
+            )}
           </span>
 
           {done && (
@@ -187,7 +196,7 @@ export default function VideoCard({ task, onOpen }: { task: VideoTask; onOpen: (
         <div className="mt-0.5 flex flex-wrap items-center gap-2">
           <span>{modelLabel}</span>
           <span>{task.duration} 秒</span>
-          <span>{task.aspectRatio}</span>
+          <span>{videoAspectLabel(task)}</span>
           {task.credits !== undefined && task.status !== 'error' && (
             <span>{task.credits} 积分</span>
           )}

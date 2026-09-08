@@ -88,6 +88,27 @@ describe('提交', () => {
     expect(await videoTaskStore.list()).toHaveLength(1)
   })
 
+  it('完成时把输出的实际尺寸写回任务', async () => {
+    awaitQueueOutputs.mockResolvedValue([
+      { index: 0, mime: 'video/mp4', width: 960, height: 960 },
+    ] as never)
+    useVideoStore.getState().setPrompt('方图首帧动起来')
+    await useVideoStore.getState().submit()
+    await settle()
+
+    expect(tasks()[0]).toMatchObject({ status: 'done', width: 960, height: 960 })
+    expect((await videoTaskStore.list())[0]).toMatchObject({ width: 960, height: 960 })
+  })
+
+  it('上游不给尺寸时任务不带尺寸字段', async () => {
+    useVideoStore.getState().setPrompt('没有尺寸的输出')
+    await useVideoStore.getState().submit()
+    await settle()
+
+    expect(tasks()[0]!.width).toBeUndefined()
+    expect(tasks()[0]!.height).toBeUndefined()
+  })
+
   it('图生任务把首帧放 index 0、尾帧放 index 1', async () => {
     const store = useVideoStore.getState()
     store.setModel('agnes-video-2.5-flash')

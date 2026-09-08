@@ -48,6 +48,9 @@ export interface VideoTask {
   credits?: number
   /** 完成时的输出下标；播放地址是 `/v1/queue/requests/{bffRequestId}/output/{outputIndex}`。 */
   outputIndex?: number
+  /** 实际输出像素，完成时由队列输出元信息回填；上游不给就没有。 */
+  width?: number
+  height?: number
   createdAt: number
   completedAt: number | null
   /** 图生任务是首帧缩略图；文生任务由播放器首帧截图回填。 */
