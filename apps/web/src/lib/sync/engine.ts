@@ -32,6 +32,7 @@ import {
   type SyncCheckpoint,
   type SyncCollection,
   trackLocalChanges,
+  withholdImagelessAssets,
   writePendingChanges,
 } from './pending'
 import { reportAssetUploads, useSyncStatus } from './status'
@@ -217,7 +218,8 @@ function collect<T extends { id: string }>(
 
 /**
  * 先图后记录：服务端只收图片本体已经在它那边的素材记录。图还没传上去的这一轮不推，
- * 留在待推集合里等下一轮；服务端明确不收的（配额、类型）摘出待推集合，改标「未同步」。
+ * 留在待推集合里等下一轮；服务端明确不收的（配额、类型）摘出待推集合，改标「未同步」；
+ * 本机根本没有图片本体的撤出待推集合，等取图路径取回图片再入。
  */
 async function withImagesUploaded(
   changes: Array<AssetRecord | Tombstone>,
@@ -225,6 +227,7 @@ async function withImagesUploaded(
 ): Promise<Array<AssetRecord | Tombstone>> {
   const ready: Array<AssetRecord | Tombstone> = []
   const refused: string[] = []
+  const imageless: string[] = []
   const queued = hiding ? new Set<string>() : imagesToUpload(changes)
   const total = queued.size
   let done = 0
@@ -248,8 +251,10 @@ async function withImagesUploaded(
     }
     if (outcome === 'uploaded') ready.push(change)
     if (outcome === 'refused') refused.push(change.id)
+    if (outcome === 'imageless') imageless.push(change.id)
   }
   if (refused.length > 0) dropPendingRecords('assets', refused)
+  withholdImagelessAssets(imageless)
   return ready
 }
 
@@ -288,6 +293,12 @@ async function applyResponse(response: SyncResponseBody): Promise<void> {
 
 /** 清账：推上去的从待推集合里划掉，被拒的和飞行期间又改过的留下。 */
 function settle(request: SyncRequestBody, response: SyncResponseBody): void {
+  // 服务端那边也没有这张图：重推多少轮都是同一个拒绝，撤出待推集合。
+  withholdImagelessAssets(
+    response.rejected
+      .filter((rejection) => rejection.reason === 'asset_image_missing')
+      .map((rejection) => rejection.id),
+  )
   const rejected = new Set(response.rejected.map((rejection) => rejection.id))
   const keep = (collection: SyncCollection) => {
     const sent = new Set(request[collection]?.map((change) => change.id))
@@ -304,6 +315,7 @@ function settle(request: SyncRequestBody, response: SyncResponseBody): void {
       request.settings && !changedInFlight?.has('settings') ? null : current.settingsUpdatedAt,
     lastSyncedAt: Date.now(),
     unsyncedImages: current.unsyncedImages,
+    imagelessAssets: current.imagelessAssets,
   }
   writePendingChanges(next)
 }

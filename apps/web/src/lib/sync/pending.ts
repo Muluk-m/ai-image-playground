@@ -25,6 +25,8 @@ export interface SyncCheckpoint {
   lastSyncedAt: number | null
   /** 服务端不会再收的素材图；引用它们的素材在本机照常可用，只标「未同步」。 */
   unsyncedImages: string[]
+  /** 本机没有图片本体、这一轮推不动的素材记录；不算待推，取回图片后再入待推集合。 */
+  imagelessAssets: string[]
 }
 
 const EMPTY: SyncCheckpoint = {
@@ -34,6 +36,7 @@ const EMPTY: SyncCheckpoint = {
   settingsUpdatedAt: null,
   lastSyncedAt: null,
   unsyncedImages: [],
+  imagelessAssets: [],
 }
 
 /** 一次本机改动的标识：记录是 `<集合>:<id>`，用户设置是 `settings`。 */
@@ -106,6 +109,40 @@ export function dropPendingRecords(collection: SyncCollection, ids: readonly str
   writePendingChanges({ ...checkpoint, [collection]: kept })
 }
 
+/**
+ * 本机没有图片本体的素材记录撤出待推集合：只可能是别的设备建的，图还没惰性取回来，
+ * 推上去只会被服务端一轮轮拒掉，「N 项待同步」永远清不掉。
+ */
+export function withholdImagelessAssets(ids: readonly string[]): void {
+  if (ids.length === 0) return
+  const checkpoint = readPendingChanges()
+  const withheld = new Set(ids)
+  const assets = checkpoint.assets.filter((id) => !withheld.has(id))
+  const imagelessAssets = union(checkpoint.imagelessAssets, ids)
+  if (
+    assets.length === checkpoint.assets.length &&
+    imagelessAssets.length === checkpoint.imagelessAssets.length
+  ) {
+    return
+  }
+  writePendingChanges({ ...checkpoint, assets, imagelessAssets })
+}
+
+/** 取图路径取回图片本体后，之前因缺图撤下的素材记录重新入待推集合。 */
+export function restoreImagelessAssets(ids: readonly string[]): void {
+  if (!notify) return
+  const checkpoint = readPendingChanges()
+  const restored = ids.filter((id) => checkpoint.imagelessAssets.includes(id))
+  if (restored.length === 0) return
+  const withheld = new Set(restored)
+  writePendingChanges({
+    ...checkpoint,
+    assets: union(checkpoint.assets, restored),
+    imagelessAssets: checkpoint.imagelessAssets.filter((id) => !withheld.has(id)),
+  })
+  for (const id of restored) notify(`assets:${id}`)
+}
+
 export function markImageUnsynced(imageId: string): void {
   const checkpoint = readPendingChanges()
   if (checkpoint.unsyncedImages.includes(imageId)) return
@@ -143,6 +180,7 @@ export function readPendingChanges(): SyncCheckpoint {
         typeof parsed.settingsUpdatedAt === 'number' ? parsed.settingsUpdatedAt : null,
       lastSyncedAt: typeof parsed.lastSyncedAt === 'number' ? parsed.lastSyncedAt : null,
       unsyncedImages: stringArray(parsed.unsyncedImages),
+      imagelessAssets: stringArray(parsed.imagelessAssets),
     }
   } catch {
     return EMPTY

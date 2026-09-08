@@ -11,6 +11,7 @@ import { templateStore } from '../../../features/library/lib/templateStore'
 import { useLibraryStore } from '../../../features/library/store'
 import { setClientStorageScope } from '../../../lib/authScope'
 import { bootstrapClientCapabilities } from '../../../lib/clientCapabilities'
+import { putImage } from '../../../lib/db'
 import { startSyncEngine } from '../../../lib/sync/engine'
 import { readPendingChanges, writePendingChanges } from '../../../lib/sync/pending'
 import { postSync } from '../../../lib/sync/syncClient'
@@ -19,6 +20,8 @@ import { DEFAULT_PARAMS } from '../../../types'
 
 vi.mock('../../../lib/sync/syncClient', () => ({
   postSync: vi.fn(),
+  putAssetImage: vi.fn(async () => 'uploaded'),
+  getAssetImage: vi.fn(async () => null),
   SyncRequestError: class extends Error {},
 }))
 
@@ -222,6 +225,7 @@ describe('pushing local changes', () => {
       settingsUpdatedAt: null,
       lastSyncedAt: null,
       unsyncedImages: [],
+      imagelessAssets: [],
     })
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
 
@@ -277,6 +281,7 @@ describe('first start on a scope that has never synced', () => {
     // applyRemote 不标脏，正好摆出「引擎跑起来之前就已经在本机」的库。
     await templateStore.applyRemote([template('t1', '海报'), template('t2', '横幅')])
     await assetStore.applyRemote([asset('a1')])
+    await putImage({ id: 'image-a1', dataUrl: 'data:image/png;base64,AAAA', createdAt: 1 })
     useStore.getState().setSettings({ enterSubmit: true })
 
     stopEngine = startSyncEngine()
