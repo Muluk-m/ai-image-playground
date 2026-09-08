@@ -1,11 +1,11 @@
-import { useState } from 'react'
-import { useShallow } from 'zustand/react/shallow'
+import { useMemo, useState } from 'react'
 import Overlay from '../../../components/Overlay'
 import { PANEL_TITLE } from '../../../components/panelStyles'
 import Segmented from '../../../components/Segmented'
 import { useStore } from '../../../store'
 import AssetThumb from '../../library/components/AssetThumb'
 import { useLibraryStore } from '../../library/store'
+import { assetSources, historySources } from '../lib/frameSources'
 import { useVideoStore } from '../store'
 import { VIDEO_FRAME_SLOT_LABELS, type VideoFrameSlot } from '../types'
 
@@ -26,21 +26,12 @@ export default function FramePicker({
   onClose: () => void
 }) {
   const [tab, setTab] = useState<PickerTab>('library')
-  const assets = useLibraryStore(
-    useShallow((s) => [...s.assets].sort((a, b) => b.lastUsedAt - a.lastUsedAt)),
+  const assets = useLibraryStore((s) => s.assets)
+  const tasks = useStore((s) => s.tasks)
+  const items = useMemo(
+    () => (tab === 'library' ? assetSources(assets) : historySources(tasks)),
+    [tab, assets, tasks],
   )
-  const history = useStore(
-    useShallow((s) =>
-      [...s.tasks]
-        .sort((a, b) => b.createdAt - a.createdAt)
-        .flatMap((task) => task.outputImages ?? []),
-    ),
-  )
-
-  const items =
-    tab === 'library'
-      ? assets.map((asset) => ({ imageId: asset.imageId, name: asset.name }))
-      : history.map((imageId) => ({ imageId, name: '' }))
 
   return (
     <Overlay onClose={onClose}>
