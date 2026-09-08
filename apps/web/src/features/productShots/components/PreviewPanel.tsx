@@ -10,7 +10,7 @@ import { useImageThumbnail } from '../../../hooks/useImageThumbnail'
 import { useStore } from '../../../store'
 import { sourceMatteBadge } from '../lib/matteBadge'
 import { useProductShotsStore } from '../store'
-import { BadgeTag } from './MatteTag'
+import BadgeTag from './BadgeTag'
 
 export default function PreviewPanel() {
   const images = useProductShotsStore(useShallow((s) => s.draft.images))
@@ -44,9 +44,12 @@ export default function PreviewPanel() {
       : `原图 ${index + 1}`
   const matte = selected?.sourceMatte
   const onOriginal = selected !== undefined && previewed === undefined && overlaid === undefined
-  const sourceOverlaid = onOriginal && !matteOverlayHidden ? matte?.previewImageId : undefined
   const thumbnail = useImageThumbnail(shownImageId)
-  const overlay = useImageThumbnail(overlaid?.mattePreviewImageId ?? sourceOverlaid ?? undefined)
+  // 某一版的「看蒙版」压过原图身上那份：要核对的是这一版实际用掉的蒙版。
+  const overlay = useImageThumbnail(
+    overlaid?.mattePreviewImageId ??
+      (onOriginal && !matteOverlayHidden ? (matte?.previewImageId ?? undefined) : undefined),
+  )
 
   return (
     <section data-product-shots-column="preview" className={CARD}>

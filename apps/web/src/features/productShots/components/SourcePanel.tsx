@@ -14,15 +14,14 @@ import {
 } from '../../../components/panelStyles'
 import Segmented from '../../../components/Segmented'
 import { useImageDropZone } from '../../../hooks/useImageDropZone'
-import { useImageThumbnail } from '../../../hooks/useImageThumbnail'
 import { usePasteImageFiles } from '../../../hooks/usePasteImageFiles'
 import { isClientCapabilityEnabled } from '../../../lib/clientCapabilities'
-import AssetThumb from '../../library/components/AssetThumb'
 import { sourceMatteBadge } from '../lib/matteBadge'
 import { DIAGRAM_LABEL, isDiagram } from '../lib/scene'
 import { useProductShotsStore } from '../store'
-import { SOURCE_MODE_LABELS, SOURCE_MODES, type SourceMatte } from '../types'
-import { BadgeTag } from './MatteTag'
+import { SOURCE_MODE_LABELS, SOURCE_MODES } from '../types'
+import BadgeTag from './BadgeTag'
+import MattedThumb from './MattedThumb'
 import SourceLibraryPicker from './SourceLibraryPicker'
 
 export default function SourcePanel() {
@@ -157,9 +156,9 @@ export default function SourcePanel() {
                   }`}
                 >
                   <span className="relative block h-10 w-10 shrink-0 overflow-hidden rounded-lg">
-                    <SourceThumb
+                    <MattedThumb
                       imageId={image.imageId}
-                      matte={image.sourceMatte}
+                      overlayImageId={image.sourceMatte?.previewImageId}
                       alt={`原图 ${index + 1}`}
                     />
                   </span>
@@ -193,29 +192,5 @@ export default function SourcePanel() {
         {dragging && <DropOverlay label="松开即上传" />}
       </div>
     </section>
-  )
-}
-
-function SourceThumb({
-  imageId,
-  matte,
-  alt,
-}: {
-  imageId: string
-  matte: SourceMatte | undefined
-  alt: string
-}) {
-  const overlay = useImageThumbnail(matte?.previewImageId ?? undefined)
-  return (
-    <>
-      <AssetThumb imageId={imageId} alt={alt} />
-      {overlay?.dataUrl && (
-        <img
-          src={overlay.dataUrl}
-          alt="蒙版"
-          className="absolute inset-0 h-full w-full object-cover"
-        />
-      )}
-    </>
   )
 }

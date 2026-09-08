@@ -4,7 +4,6 @@ import { DownloadIcon, EditIcon } from '../../../components/icons'
 import Pending from '../../../components/Pending'
 import { NOTICE } from '../../../components/panelStyles'
 import { formatElapsed } from '../../../hooks/useElapsed'
-import { useImageThumbnail } from '../../../hooks/useImageThumbnail'
 import { downloadImagesByIds } from '../../../lib/downloadImages'
 import { useStore } from '../../../store'
 import AssetThumb from '../../library/components/AssetThumb'
@@ -13,6 +12,7 @@ import { DIAGRAM_LABEL, isDiagram } from '../lib/scene'
 import { VERSION_STATE_LABELS, type VersionProgress, versionProgress } from '../lib/versionProgress'
 import { useProductShotsStore } from '../store'
 import type { ProductShotVersion } from '../types'
+import MattedThumb from './MattedThumb'
 import {
   CheckIcon,
   MaskRetryIcon,
@@ -116,7 +116,6 @@ function VersionRow({
   const showToast = useStore((s) => s.showToast)
   const [unfolded, setUnfolded] = useState(false)
 
-  const overlay = useImageThumbnail(overlaid ? version.mattePreviewImageId : undefined)
   const [first] = progress.outputImageIds
   const label = `第 ${index + 1} 版`
   const chooseLabel = chosen ? '取消选用' : '用这版'
@@ -150,16 +149,7 @@ function VersionRow({
         }`}
       >
         {overlaid ? (
-          <>
-            <AssetThumb imageId={imageId} alt={label} />
-            {overlay?.dataUrl && (
-              <img
-                src={overlay.dataUrl}
-                alt="蒙版"
-                className="absolute inset-0 h-full w-full object-cover"
-              />
-            )}
-          </>
+          <MattedThumb imageId={imageId} overlayImageId={version.mattePreviewImageId} alt={label} />
         ) : first ? (
           <AssetThumb imageId={first} alt={label} />
         ) : (

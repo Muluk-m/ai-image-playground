@@ -1,12 +1,12 @@
 import type { ExportPreset } from '@image-playground/shared'
 import { DownloadIcon, ZoomIcon } from '../../../components/icons'
-import { useImageThumbnail } from '../../../hooks/useImageThumbnail'
 import { downloadExportedImage, type ExportFit } from '../../../lib/imageExport'
 import { useStore } from '../../../store'
 import AssetThumb from '../../library/components/AssetThumb'
 import { type GalleryVersion, shotFileName } from '../lib/gallery'
 import { VERSION_STATE_LABELS } from '../lib/versionProgress'
 import { useProductShotsStore } from '../store'
+import MattedThumb from './MattedThumb'
 import {
   CheckIcon,
   MatteIcon,
@@ -48,7 +48,6 @@ export default function VersionCard({
   const label = `原图 ${item.imageIndex + 1} 第 ${item.versionIndex + 1} 版`
   const matte = item.version.mattePreviewImageId
   const overlaid = matte !== undefined && matteOverlayVersionId === item.version.id
-  const overlay = useImageThumbnail(overlaid ? matte : undefined)
 
   const preview = () => {
     // selectImage 会清掉预览，先切原图再落这一版。
@@ -75,16 +74,7 @@ export default function VersionCard({
           className="block h-full w-full"
         >
           {overlaid ? (
-            <>
-              <AssetThumb imageId={item.imageId} alt={label} />
-              {overlay?.dataUrl && (
-                <img
-                  src={overlay.dataUrl}
-                  alt="蒙版"
-                  className="absolute inset-0 h-full w-full object-cover"
-                />
-              )}
-            </>
+            <MattedThumb imageId={item.imageId} overlayImageId={matte} alt={label} />
           ) : first ? (
             <AssetThumb imageId={first} alt={label} />
           ) : (

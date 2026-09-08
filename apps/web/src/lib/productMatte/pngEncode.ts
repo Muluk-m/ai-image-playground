@@ -58,6 +58,28 @@ function toBase64(bytes: Uint8Array): string {
   return btoa(binary)
 }
 
+/** 遮罩与 alpha 图的 RGB 恒为白，原生 inpaint 只读 alpha。 */
+export const WHITE = [255, 255, 255] as const
+
+/** 单通道 → RGBA：三种遮罩语义全在 alpha 上，RGB 只是底色。 */
+export function packRgba(
+  alpha: ArrayLike<number>,
+  width: number,
+  height: number,
+  rgb: readonly [number, number, number],
+  mapAlpha: (value: number) => number = (value) => value,
+): MaskPixels {
+  const total = width * height
+  const data = new Uint8ClampedArray(total * 4)
+  for (let i = 0; i < total; i++) {
+    data[i * 4] = rgb[0]
+    data[i * 4 + 1] = rgb[1]
+    data[i * 4 + 2] = rgb[2]
+    data[i * 4 + 3] = mapAlpha(alpha[i])
+  }
+  return { data, width, height }
+}
+
 /** 自己编码，好让遮罩在没有 canvas 的环境里也能生成与验证。 */
 export function encodeRgbaPngDataUrl(pixels: MaskPixels): string {
   const header = new Uint8Array(13)

@@ -9,7 +9,7 @@ import {
   PRODUCT_SHOT_STAGE_LABELS,
   type ProductShotBatchItemState,
 } from '../types'
-import { BadgeTag } from './MatteTag'
+import BadgeTag from './BadgeTag'
 
 const STATE_STYLES: Record<ProductShotBatchItemState, string> = {
   pending: 'text-gray-500 dark:text-gray-400',
