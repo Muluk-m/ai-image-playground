@@ -12,16 +12,16 @@
 3. **分镜的产出是视频提示词**，视频生成不先能用，分镜模式没有出口。
 
 推荐顺序：底座（0.x）→ 账号与增长（1.x）→ 视频生成（2.1）→ 智能体（2.2）→ 分镜（2.3）。
-0.2 与 1.x 已搁置（见 0.2），当前主线是 0.1 → 2.1 收尾 → 2.2 → 2.3。
+0.2 与 1.x 已搁置（见 0.2）；0.1 的图片 / 视频部分已落地。当前主线是 2.1 收尾（Veo）→ 2.2 智能体（含 token 计费单元）→ 2.3 分镜。
 
 ## Phase 0：底座
 
 ### 0.1 计费单元泛化
 
-- [ ] 目标：积分预扣 / 结算从「按张」扩成「按计费单元」，一个任务可以是 N 张图、N 秒视频、一轮对话或若干 token。
-- 现状：`PrivateTaskHooks.reserveTask` 只收 `model + quantity`，模型单价定义是「每张图积分数」（见 `CONTEXT.md` 积分与套餐）。
+- [x] 图片与视频：模型单价带 `unit`（`image` / `second`），预扣接缝收 `quantity × unitMultiplier`，视频按秒计费已落地（公开树 c2de35d，私有树迁移 0006）。
+- [ ] 对话：token 计费单元（输入 / 输出 token 单价、按预估预扣按实际结算）随 2.2 智能体一起做，不单独立项。
+- 现状：`PrivateTaskHooks.reserveTask` 收 `model + quantity + unitMultiplier`，单价表按 `model` 一行、`unit` 一列。
 - 涉及：公开树接缝 `apps/bff/src/lib/private-overlay.ts`、`packages/shared` 的任务协议；私有树 hold / settle / 模型单价表。
-- 待裁决：单价表按 `model × unitKind` 维护，还是每个模式一张价目表。
 - 验收：图片任务行为与流水不变；新增单元种类不改公开树。
 
 ### 0.2 邮件基础设施（搁置，2026-09-08）
