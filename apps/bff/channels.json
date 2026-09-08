@@ -148,6 +148,36 @@
         "asyncTasks": true
       },
       "allowedPaths": ["videos", "agnesapi"]
+    },
+    {
+      "id": "ark-video",
+      "kind": "openai-queue",
+      "label": "Seedance Video",
+      "baseUrlRef": "ARK_BASE_URL",
+      "auth": {
+        "type": "bearer",
+        "secretRef": "ARK_API_KEY"
+      },
+      "models": [
+        {
+          "id": "doubao-seedance-2-0-mini-260615",
+          "label": "Seedance 2.0 Mini",
+          "media": "video",
+          "capabilities": [
+            "generate",
+            "duration",
+            "aspect_ratio",
+            "resolution",
+            "first_frame",
+            "last_frame"
+          ]
+        }
+      ],
+      "defaults": {
+        "timeout": 600,
+        "asyncTasks": true
+      },
+      "allowedPaths": ["contents/generations/tasks"]
     }
   ]
 }

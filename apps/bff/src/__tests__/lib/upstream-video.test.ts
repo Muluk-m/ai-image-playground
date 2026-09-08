@@ -22,6 +22,10 @@ type TestFetch = NonNullable<Parameters<typeof setUpstreamFetchForTesting>[0]>
 const GROK_BASE = 'https://gateway.example/v1'
 const AGNES_BASE = 'https://apihub.agnes-ai.com/v1'
 const AGNES_POLL = 'https://apihub.agnes-ai.com/agnesapi'
+const ARK_BASE = 'https://ark.example/api/v3'
+const ARK_TASKS = `${ARK_BASE}/contents/generations/tasks`
+const ARK_MODEL = 'doubao-seedance-2-0-mini-260615'
+const ARK_RESULT_URL = 'https://ark-content.example/videos/a.mp4'
 const RESULT_URL = 'https://cdn.agnes-ai.com/videos/a.mp4'
 const SOURCE_VIDEO_DATA_URL = 'data:video/mp4;base64,AAAAGGZ0eXBpc29t'
 const TINY_PNG_DATA_URL =
@@ -75,6 +79,31 @@ const agnesVideoChannel: InternalChannel = {
   defaults: { timeout: 600, asyncTasks: true },
 }
 
+const arkVideoChannel: InternalChannel = {
+  id: 'ark-video',
+  kind: 'openai-queue',
+  label: 'Seedance Video',
+  baseUrl: ARK_BASE,
+  auth: { type: 'bearer', secretRef: 'ARK_API_KEY', secret: 'ark-test-key' },
+  allowedPaths: ['contents/generations/tasks'],
+  models: [
+    {
+      id: ARK_MODEL,
+      label: 'Seedance 2.0 Mini',
+      media: 'video',
+      capabilities: [
+        'generate',
+        'duration',
+        'aspect_ratio',
+        'resolution',
+        'first_frame',
+        'last_frame',
+      ],
+    },
+  ],
+  defaults: { timeout: 600, asyncTasks: true },
+}
+
 type FetchCall = { url: string; init: Parameters<TestFetch>[1] }
 
 let calls: FetchCall[] = []
@@ -102,7 +131,7 @@ beforeEach(() => {
   calls = []
   handler = () => json({})
   setAsyncPollBackoffForTesting([1])
-  _setChannelsForTesting([grokVideoChannel, agnesVideoChannel])
+  _setChannelsForTesting([grokVideoChannel, agnesVideoChannel, arkVideoChannel])
   setUpstreamFetchForTesting((async (
     input: Parameters<TestFetch>[0],
     init: Parameters<TestFetch>[1],
@@ -365,5 +394,108 @@ describe('Agnes video upstream', () => {
     await expect(run('agnes-video-2.5-flash', { video: video() })).rejects.toMatchObject({
       upstreamStatus: 429,
     })
+  })
+})
+
+describe('Seedance video upstream', () => {
+  const pollUrl = `${ARK_TASKS}/task_ark_1`
+
+  it('creates a text task, polls the same path and returns the result address', async () => {
+    let polls = 0
+    handler = (url) => {
+      if (url === ARK_TASKS) return json({ id: 'task_ark_1' })
+      return ++polls === 1
+        ? json({ status: 'running' })
+        : json({ status: 'succeeded', content: { video_url: ARK_RESULT_URL } })
+    }
+
+    const { payload } = await run(ARK_MODEL, {
+      video: video({ duration_seconds: 15, resolution: '1080p' }),
+    })
+
+    expect(bodyOf(ARK_TASKS)).toEqual({
+      model: ARK_MODEL,
+      content: [{ type: 'text', text: 'a cat surfing' }],
+      ratio: '16:9',
+      duration: 15,
+      resolution: '1080p',
+      watermark: false,
+    })
+    expect(calls.map((one) => one.url)).toEqual([ARK_TASKS, pollUrl, pollUrl])
+    expect(payload).toEqual({
+      data: [{ url: ARK_RESULT_URL, mime: 'video/mp4', duration_seconds: 15 }],
+    })
+  })
+
+  it('sends both keyframes as roled image_url content items', async () => {
+    handler = (url) =>
+      url === ARK_TASKS
+        ? json({ id: 'task_ark_1' })
+        : json({ status: 'succeeded', content: { video_url: ARK_RESULT_URL } })
+
+    await run(ARK_MODEL, {
+      input_images: [TINY_PNG_DATA_URL, TINY_PNG_DATA_URL],
+      video: video({ first_frame_index: 0, last_frame_index: 1 }),
+    })
+
+    expect(bodyOf(ARK_TASKS).content).toEqual([
+      { type: 'text', text: 'a cat surfing' },
+      { type: 'image_url', image_url: { url: TINY_PNG_DATA_URL }, role: 'first_frame' },
+      { type: 'image_url', image_url: { url: TINY_PNG_DATA_URL }, role: 'last_frame' },
+    ])
+  })
+
+  it('submits with the channel credential', async () => {
+    handler = (url) =>
+      url === ARK_TASKS
+        ? json({ id: 'task_ark_1' })
+        : json({ status: 'succeeded', content: { video_url: ARK_RESULT_URL } })
+
+    await run(ARK_MODEL, { video: video() })
+
+    expect((calls[0]?.init as { headers: Record<string, string> }).headers.authorization).toBe(
+      'Bearer ark-test-key',
+    )
+  })
+
+  it('fails terminally with the upstream message when the task fails', async () => {
+    handler = (url) =>
+      url === ARK_TASKS
+        ? json({ id: 'task_ark_1' })
+        : json({ status: 'failed', error: { message: 'content moderation blocked' } })
+
+    await expect(run(ARK_MODEL, { video: video() })).rejects.toThrow('content moderation blocked')
+  })
+
+  it('keeps polling through an unknown intermediate status', async () => {
+    let polls = 0
+    handler = (url) => {
+      if (url === ARK_TASKS) return json({ id: 'task_ark_1' })
+      return ++polls === 1
+        ? json({ status: 'some_new_state' })
+        : json({ status: 'succeeded', content: { video_url: ARK_RESULT_URL } })
+    }
+
+    await run(ARK_MODEL, { video: video() })
+
+    expect(calls).toHaveLength(3)
+  })
+
+  it('reports an unknown result when the succeeded payload carries no address', async () => {
+    handler = (url) =>
+      url === ARK_TASKS ? json({ id: 'task_ark_1' }) : json({ status: 'succeeded', content: {} })
+
+    await expect(run(ARK_MODEL, { video: video() })).rejects.toThrow(
+      'Seedance 视频任务已完成但未返回结果地址',
+    )
+  })
+
+  it('refuses extend before reaching the upstream', async () => {
+    await expect(
+      run(ARK_MODEL, {
+        video: video({ mode: 'extend', source_task_id: 'src', source_output_index: 0 }),
+      }),
+    ).rejects.toThrow('该模型不支持续写和改视频')
+    expect(calls).toEqual([])
   })
 })
