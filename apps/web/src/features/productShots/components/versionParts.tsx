@@ -90,7 +90,7 @@ export function VersionTitle({
       className="flex items-center gap-1 overflow-hidden whitespace-nowrap text-xs text-gray-700 dark:text-gray-200"
     >
       <span className="shrink-0 font-medium">第 {index + 1} 版</span>
-      <span className="truncate rounded bg-violet-500/10 px-1 text-[11px] text-violet-700 dark:text-violet-300">
+      <span className="shrink-0 whitespace-nowrap rounded bg-violet-500/10 px-1 text-[11px] text-violet-700 dark:text-violet-300">
         {actionLabel(version.mode, version.level)}
       </span>
       {trailing}

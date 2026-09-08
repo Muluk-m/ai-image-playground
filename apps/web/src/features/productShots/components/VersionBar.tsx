@@ -116,6 +116,7 @@ function VersionRow({
   } = useProductShotsStore.getState()
   const showToast = useStore((s) => s.showToast)
   const [unfolded, setUnfolded] = useState(false)
+  const [unfoldedError, setUnfoldedError] = useState(false)
 
   const [first] = progress.outputImageIds
   const label = `第 ${index + 1} 版`
@@ -130,7 +131,7 @@ function VersionRow({
   return (
     <li
       data-product-shots-version
-      className={`group flex gap-2 rounded-xl border p-1.5 transition ${
+      className={`group grid grid-cols-[72px_minmax(0,1fr)_auto] items-start gap-2 rounded-xl border p-1.5 transition ${
         chosen
           ? 'border-blue-400 bg-blue-500/5 dark:border-blue-500/50'
           : 'border-gray-200 dark:border-white/[0.08]'
@@ -143,7 +144,7 @@ function VersionRow({
         onDoubleClick={() => first && onOpen(first)}
         aria-pressed={previewing}
         aria-label={`预览${label}`}
-        className={`relative block h-14 w-14 shrink-0 overflow-hidden rounded-lg border ${
+        className={`relative block h-[72px] w-[72px] overflow-hidden rounded-lg border ${
           previewing
             ? 'border-blue-400 ring-1 ring-blue-400'
             : 'border-gray-200 dark:border-white/[0.08]'
@@ -160,7 +161,7 @@ function VersionRow({
         )}
       </button>
 
-      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+      <div className="flex min-w-0 flex-col gap-0.5">
         <VersionTitle
           index={index}
           version={version}
@@ -188,87 +189,100 @@ function VersionRow({
           </button>
         )}
 
-        {progress.error && <p className={NOTICE}>{progress.error}</p>}
+        {progress.error && (
+          <p className={`flex items-baseline gap-1 ${NOTICE}`}>
+            <span className={unfoldedError ? '' : 'min-w-0 flex-1 truncate'}>{progress.error}</span>
+            <button
+              type="button"
+              data-product-shots-version-error-toggle
+              onClick={() => setUnfoldedError(!unfoldedError)}
+              aria-expanded={unfoldedError}
+              className={`shrink-0 ${GHOST_BUTTON}`}
+            >
+              {unfoldedError ? '收起' : '展开'}
+            </button>
+          </p>
+        )}
+      </div>
 
-        <div className={VERSION_ACTION_ROW}>
+      <div className={VERSION_ACTION_ROW}>
+        <button
+          type="button"
+          onClick={() => openPlanDrawer(version.id)}
+          title="查看方案"
+          aria-label="查看方案"
+          className={VERSION_ICON_BUTTON}
+        >
+          <PlanIcon className="h-4 w-4" />
+        </button>
+        {version.mattePreviewImageId && (
           <button
             type="button"
-            onClick={() => openPlanDrawer(version.id)}
-            title="查看方案"
-            aria-label="查看方案"
-            className={VERSION_ICON_BUTTON}
+            onClick={() => toggleMatteOverlay(version.id)}
+            aria-pressed={overlaid}
+            title="看蒙版"
+            aria-label="看蒙版"
+            className={`${VERSION_ICON_BUTTON} ${overlaid ? 'bg-blue-500/10 text-blue-600 dark:text-blue-300' : ''}`}
           >
-            <PlanIcon className="h-4 w-4" />
+            <MatteIcon className="h-4 w-4" />
           </button>
-          {version.mattePreviewImageId && (
+        )}
+        {matteReady && (
+          <>
             <button
               type="button"
-              onClick={() => toggleMatteOverlay(version.id)}
-              aria-pressed={overlaid}
-              title="看蒙版"
-              aria-label="看蒙版"
-              className={`${VERSION_ICON_BUTTON} ${overlaid ? 'bg-blue-500/10 text-blue-600 dark:text-blue-300' : ''}`}
-            >
-              <MatteIcon className="h-4 w-4" />
-            </button>
-          )}
-          {matteReady && (
-            <>
-              <button
-                type="button"
-                onClick={() => void editSourceMask(imageId)}
-                title="编辑蒙版"
-                aria-label="编辑蒙版"
-                className={VERSION_ICON_BUTTON}
-              >
-                <EditIcon className="h-4 w-4" />
-              </button>
-              <button
-                type="button"
-                onClick={() => void regenerateFromVersion(version.id, true)}
-                title="用此蒙版重生成"
-                aria-label="用此蒙版重生成"
-                className={VERSION_ICON_BUTTON}
-              >
-                <MaskRetryIcon className="h-4 w-4" />
-              </button>
-            </>
-          )}
-          {first && (
-            <>
-              <button
-                type="button"
-                onClick={() => chooseVersion(version.id)}
-                aria-pressed={chosen}
-                title={chooseLabel}
-                aria-label={chooseLabel}
-                className={`${VERSION_ICON_BUTTON} ${chosen ? CHOSEN_ICON : ''}`}
-              >
-                <CheckIcon className="h-3.5 w-3.5" />
-              </button>
-              <button
-                type="button"
-                onClick={() => void download()}
-                title="下载"
-                aria-label="下载"
-                className={VERSION_ICON_BUTTON}
-              >
-                <DownloadIcon className="h-4 w-4" />
-              </button>
-            </>
-          )}
-          {progress.state === 'error' && (
-            <button
-              type="button"
-              onClick={() => void retryVersion(version.id)}
-              title="重跑"
-              aria-label="重跑"
+              onClick={() => void editSourceMask(imageId)}
+              title="编辑蒙版"
+              aria-label="编辑蒙版"
               className={VERSION_ICON_BUTTON}
             >
-              <RetryIcon className="h-4 w-4" />
+              <EditIcon className="h-4 w-4" />
             </button>
-          )}
-        </div>
+            <button
+              type="button"
+              onClick={() => void regenerateFromVersion(version.id, true)}
+              title="用此蒙版重生成"
+              aria-label="用此蒙版重生成"
+              className={VERSION_ICON_BUTTON}
+            >
+              <MaskRetryIcon className="h-4 w-4" />
+            </button>
+          </>
+        )}
+        {first && (
+          <>
+            <button
+              type="button"
+              onClick={() => chooseVersion(version.id)}
+              aria-pressed={chosen}
+              title={chooseLabel}
+              aria-label={chooseLabel}
+              className={`${VERSION_ICON_BUTTON} ${chosen ? CHOSEN_ICON : ''}`}
+            >
+              <CheckIcon className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => void download()}
+              title="下载"
+              aria-label="下载"
+              className={VERSION_ICON_BUTTON}
+            >
+              <DownloadIcon className="h-4 w-4" />
+            </button>
+          </>
+        )}
+        {progress.state === 'error' && (
+          <button
+            type="button"
+            onClick={() => void retryVersion(version.id)}
+            title="重跑"
+            aria-label="重跑"
+            className={VERSION_ICON_BUTTON}
+          >
+            <RetryIcon className="h-4 w-4" />
+          </button>
+        )}
       </div>
     </li>
   )
