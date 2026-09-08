@@ -6,6 +6,14 @@ import { AuthContextProvider } from '../../auth/AuthContext'
 import Header from '../../components/Header'
 import { useStore } from '../../store'
 
+// 私有 overlay 接管账号区（replacesAuthActions）后公开的退出按钮不再渲染；这里测的是公开分支。
+vi.mock('../../lib/privateOverlay', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/privateOverlay')>()),
+  PrivateWebHeaderCreditAction: () => null,
+  PrivateWebHeaderAccountActions: () => null,
+  PrivateWebReplacesAuthActions: false,
+}))
+
 declare global {
   // eslint-disable-next-line no-var
   var IS_REACT_ACT_ENVIRONMENT: boolean

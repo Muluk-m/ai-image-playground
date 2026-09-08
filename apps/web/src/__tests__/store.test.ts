@@ -89,6 +89,14 @@ vi.mock('../features/library/lib/templateStore', () => {
   }
 })
 
+// 私有 overlay 存在时，计费门禁会因为没有账号快照而拦下提交；本文件只测公开 store 行为。
+const getPrivateSubmissionGuard = vi.hoisted(() => vi.fn(() => ({ blocked: false })))
+
+vi.mock('../lib/privateOverlay', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../lib/privateOverlay')>()),
+  getPrivateSubmissionGuard,
+}))
+
 vi.mock('../lib/api', () => ({
   callImageApi: vi.fn(async () => ({
     images: ['data:image/png;base64,generated'],
