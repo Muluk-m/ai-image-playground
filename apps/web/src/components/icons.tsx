@@ -242,3 +242,20 @@ export function BookmarkIcon(props: SVGProps<SVGSVGElement>) {
     </svg>
   )
 }
+
+export function VideoIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg
+      fill="none"
+      stroke="currentColor"
+      viewBox="0 0 24 24"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={2}
+      {...props}
+    >
+      <rect x="2.5" y="5" width="13" height="14" rx="2.5" />
+      <path d="M15.5 10.5 21 7.5v9l-5.5-3z" />
+    </svg>
+  )
+}

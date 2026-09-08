@@ -5,6 +5,7 @@ import {
   selectVisibleTemplates,
   useLibraryStore,
 } from '../../../features/library/store'
+import { INITIAL_VIDEO_DRAFT, useVideoStore } from '../../../features/video/store'
 import { storeImage } from '../../../lib/db'
 import { API_MAX_IMAGES } from '../../../lib/inputImageLimit'
 import { getSelectedImageMentionLabel } from '../../../lib/promptImageMentions'
@@ -16,7 +17,9 @@ const IMAGE_B = 'data:image/png;base64,BBBB'
 
 beforeEach(() => {
   vi.stubGlobal('indexedDB', new IDBFactory())
+  useVideoStore.setState({ draft: { ...INITIAL_VIDEO_DRAFT } })
   useStore.setState({
+    appMode: 'browse',
     inputImages: [],
     prompt: '',
     params: { ...DEFAULT_PARAMS },
@@ -113,6 +116,33 @@ describe('attaching an asset', () => {
     expect(
       await useLibraryStore.getState().attachAsset(useLibraryStore.getState().assets[0].id),
     ).toBe(1)
+  })
+
+  it('fills the video first frame instead of the reference strip in video mode', async () => {
+    const imageId = await storeImage(IMAGE_A)
+    await useLibraryStore.getState().saveAsset(imageId, '白底图')
+    useStore.setState({ appMode: 'video' })
+    useLibraryStore.setState({ panelOpen: true })
+
+    await useLibraryStore.getState().attachAsset(useLibraryStore.getState().assets[0].id)
+
+    expect(useVideoStore.getState().draft.firstFrameImageId).toBe(imageId)
+    expect(useStore.getState().inputImages).toEqual([])
+    expect(useLibraryStore.getState().panelOpen).toBe(false)
+    expect(useStore.getState().showToast).toHaveBeenCalledWith('已填入首帧', 'success')
+  })
+
+  it('records the last use in video mode too', async () => {
+    const now = vi.spyOn(Date, 'now')
+    now.mockReturnValue(1000)
+    const imageId = await storeImage(IMAGE_A)
+    await useLibraryStore.getState().saveAsset(imageId, '白底图')
+    useStore.setState({ appMode: 'video' })
+
+    now.mockReturnValue(5000)
+    await useLibraryStore.getState().attachAsset(useLibraryStore.getState().assets[0].id)
+
+    expect(useLibraryStore.getState().assets[0].lastUsedAt).toBe(5000)
   })
 
   it('records the last use', async () => {

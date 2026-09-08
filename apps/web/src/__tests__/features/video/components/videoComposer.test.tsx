@@ -3,6 +3,7 @@ import { IDBFactory } from 'fake-indexeddb'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { useLibraryStore } from '../../../../features/library/store'
 import VideoComposer from '../../../../features/video/components/VideoComposer'
 import { INITIAL_VIDEO_DRAFT, useVideoStore } from '../../../../features/video/store'
 import { setChannels } from '../../../../lib/channels/channelStore'
@@ -44,6 +45,7 @@ beforeEach(() => {
   vi.stubGlobal('indexedDB', new IDBFactory())
   setChannels([GROK_CHANNEL, AGNES_CHANNEL])
   useStore.setState({ showToast: vi.fn(), tasks: [] })
+  useLibraryStore.setState({ assets: [] })
   useVideoStore.setState({
     tasks: [],
     loaded: false,
@@ -78,6 +80,15 @@ function chip(group: string, text: string): HTMLElement {
   const found = [...buttons].find((button) => button.textContent?.trim() === text)
   if (!found) throw new Error(`no ${group} chip ${text}`)
   return found
+}
+
+function stripButtons(): string[] {
+  const strip = document.querySelector('[aria-label="素材库 · 最近出图"]')
+  return [...(strip?.querySelectorAll('button') ?? [])].map((button) => button.textContent ?? '')
+}
+
+function libraryAsset(name: string, imageId: string) {
+  return { id: `asset-${imageId}`, name, imageId, createdAt: 1, updatedAt: 1, lastUsedAt: 1 }
 }
 
 function submitButton(): HTMLElement {
@@ -185,6 +196,41 @@ describe('VideoComposer', () => {
     expect(chips.some((button) => button.disabled)).toBe(false)
     expect(chip('比例', '16:9').getAttribute('aria-pressed')).toBe('true')
     expect(document.body.textContent).not.toContain('随首帧')
+  })
+
+  it('素材条一点就填首帧', () => {
+    useLibraryStore.setState({
+      assets: [
+        { id: 'a1', name: '白底图', imageId: 'img-a', createdAt: 1, updatedAt: 1, lastUsedAt: 1 },
+      ],
+    })
+    render()
+
+    click(
+      [...document.querySelectorAll('button')].find((button) => button.title === '白底图') ?? null,
+    )
+
+    expect(useVideoStore.getState().draft.firstFrameImageId).toBe('img-a')
+  })
+
+  it('没有素材也没有出图时素材条不出现', () => {
+    render()
+
+    expect(document.body.textContent).not.toContain('素材库 · 最近出图')
+  })
+
+  it('素材条上的尾帧按钮跟着模型走', () => {
+    useLibraryStore.setState({ assets: [libraryAsset('白底图', 'img-a')] })
+    render()
+    expect(stripButtons()).toEqual(['白底图'])
+
+    click(
+      [...document.querySelectorAll('button')].find((button) =>
+        button.textContent?.startsWith('Agnes 2.5 Flash'),
+      ) ?? null,
+    )
+
+    expect(stripButtons()).toEqual(['白底图', '尾帧'])
   })
 
   it('文生标签下不显示首尾帧槽', () => {

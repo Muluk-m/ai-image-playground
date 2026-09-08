@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { API_MAX_IMAGES, MAX_INPUT_IMAGES_MESSAGE } from '../../lib/inputImageLimit'
 import { ensureAssetImage } from '../../lib/sync/assetImages'
 import { ensureImageCached, storeImageFromFile, useStore } from '../../store'
+import { useVideoStore } from '../video/store'
 import { assetStore } from './lib/assetStore'
 import { templateStore } from './lib/templateStore'
 import {
@@ -125,6 +126,18 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     const asset = get().assets.find((a) => a.id === id)
     if (!asset) return null
     const main = useStore.getState()
+
+    if (main.appMode === 'video') {
+      await ensureAssetImage(asset.imageId)
+      useVideoStore.getState().useAsFirstFrame(asset.imageId)
+      await writeAsset(set, { ...asset, lastUsedAt: Date.now() })
+      if (get().panelOpen) {
+        get().closePanel()
+        main.showToast('已填入首帧', 'success')
+      }
+      return null
+    }
+
     const already = main.inputImages.some((image) => image.id === asset.imageId)
 
     if (!already) {

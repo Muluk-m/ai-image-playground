@@ -1,10 +1,15 @@
-import { type KeyboardEvent, useState } from 'react'
-import { EditIcon, TrashIcon, ZoomIcon } from '../../../components/icons'
+import { type KeyboardEvent, useMemo, useState } from 'react'
+import { EditIcon, TrashIcon, VideoIcon, ZoomIcon } from '../../../components/icons'
+import { isVideoModeAvailable } from '../../../lib/channels/videoChannels'
 import { useSyncStatus } from '../../../lib/sync/status'
 import { useStore } from '../../../store'
+import { startVideoFromImage } from '../../video/lib/entry'
 import { useLibraryStore } from '../store'
 import type { AssetRecord } from '../types'
 import AssetThumb from './AssetThumb'
+
+const ICON_BUTTON =
+  'shrink-0 rounded-md p-1 text-gray-400 transition hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-white/[0.06] dark:hover:text-gray-200'
 
 export default function AssetCard({ asset }: { asset: AssetRecord }) {
   const attachAsset = useLibraryStore((s) => s.attachAsset)
@@ -12,6 +17,8 @@ export default function AssetCard({ asset }: { asset: AssetRecord }) {
   const deleteAsset = useLibraryStore((s) => s.deleteAsset)
   const setConfirmDialog = useStore((s) => s.setConfirmDialog)
   const setLightboxImageId = useStore((s) => s.setLightboxImageId)
+  const videoMode = useStore((s) => s.appMode === 'video')
+  const videoAvailable = useMemo(() => isVideoModeAvailable(), [])
   const unsynced = useSyncStatus((s) => s.enabled && s.unsyncedImages.includes(asset.imageId))
   const [draftName, setDraftName] = useState<string | null>(null)
 
@@ -46,7 +53,7 @@ export default function AssetCard({ asset }: { asset: AssetRecord }) {
         )}
         {/* 标签常显：触屏没有 hover，只在 hover 时才现就等于没有。 */}
         <span className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 to-transparent px-2 pb-1.5 pt-4 text-[11px] font-medium text-white">
-          加入参考图
+          {videoMode ? '填入首帧' : '加入参考图'}
         </span>
       </div>
 
@@ -79,11 +86,22 @@ export default function AssetCard({ asset }: { asset: AssetRecord }) {
           />
         )}
 
+        {videoAvailable && !videoMode && (
+          <button
+            type="button"
+            onClick={() => startVideoFromImage(asset.imageId)}
+            aria-label="做成视频"
+            title="做成视频"
+            className={ICON_BUTTON}
+          >
+            <VideoIcon className="h-3.5 w-3.5" />
+          </button>
+        )}
         <button
           type="button"
           onClick={() => setDraftName(asset.name)}
           aria-label="重命名"
-          className="shrink-0 rounded-md p-1 text-gray-400 transition hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-white/[0.06] dark:hover:text-gray-200"
+          className={ICON_BUTTON}
         >
           <EditIcon className="h-3.5 w-3.5" />
         </button>

@@ -19,6 +19,7 @@ import { CAMERA_MOVES, VIDEO_SOURCE_LABELS, VIDEO_SOURCES, type VideoFrameSlot }
 import { ACTIVE_CHIP, CHIP, IDLE_CHIP, PARAM_ROW_KEY, SUGGESTION_CHIP } from './chipStyles'
 import FramePicker from './FramePicker'
 import FrameSlot from './FrameSlot'
+import FrameSourceStrip from './FrameSourceStrip'
 
 function ChipRow<T extends string | number>({
   label,
@@ -145,7 +146,7 @@ export default function VideoComposer() {
           <div className="mb-1.5 flex items-baseline justify-between">
             <span className={LABEL}>首帧 · 尾帧</span>
             <span className="text-[11px] text-gray-400 dark:text-gray-500">
-              拖入 · 粘贴 · 素材库 · 从历史选
+              拖入 · 粘贴 · 下方直接点
             </span>
           </div>
           <div className="grid grid-cols-2 gap-2">
@@ -162,6 +163,10 @@ export default function VideoComposer() {
               onPick={() => setPickerSlot('last')}
             />
           </div>
+          <FrameSourceStrip
+            showLastFrame={support.lastFrame}
+            onPickAll={() => setPickerSlot('first')}
+          />
         </div>
       )}
 
