@@ -12,6 +12,8 @@ import {
 const GROK = 'grok-imagine-video'
 const AGNES = 'agnes-video-2.5-flash'
 const SEEDANCE = 'doubao-seedance-2-0-mini-260615'
+const VEO_FAST = 'veo-3.1-fast-generate-preview'
+const VEO_LITE = 'veo-3.1-lite-generate-preview'
 
 function request(overrides: Partial<VideoRequest> = {}): VideoRequest {
   return { duration_seconds: 5, aspect_ratio: '16:9', resolution: '720p', ...overrides }
@@ -55,6 +57,46 @@ describe('validateVideoRequest', () => {
     expect(
       validateVideoRequest(CONSTRAINED, request({ duration_seconds: 6, resolution: '1080p' }), 0),
     ).toEqual({ ok: false, reason: '受限模型 1080p 只支持 8 秒' })
+  })
+
+  it('accepts 4 and 6 second 720p Veo clips', () => {
+    for (const model of [VEO_FAST, VEO_LITE]) {
+      expect(validateVideoRequest(model, request({ duration_seconds: 4 }), 0)).toEqual({ ok: true })
+      expect(validateVideoRequest(model, request({ duration_seconds: 6 }), 0)).toEqual({ ok: true })
+    }
+  })
+
+  it('accepts 1080p Veo only at 8 seconds', () => {
+    expect(
+      validateVideoRequest(VEO_FAST, request({ duration_seconds: 8, resolution: '1080p' }), 0),
+    ).toEqual({ ok: true })
+    expect(
+      validateVideoRequest(VEO_FAST, request({ duration_seconds: 6, resolution: '1080p' }), 0),
+    ).toEqual({ ok: false, reason: 'Veo 3.1 Fast 1080p 只支持 8 秒' })
+  })
+
+  it('rejects 1:1, a last frame and deriving on Veo', () => {
+    expect(
+      validateVideoRequest(VEO_LITE, request({ duration_seconds: 4, aspect_ratio: '1:1' }), 0),
+    ).toEqual({
+      ok: false,
+      reason: 'Veo 3.1 Lite 画幅只支持 16:9 / 9:16',
+    })
+    expect(
+      validateVideoRequest(VEO_LITE, request({ duration_seconds: 4, last_frame_index: 0 }), 1),
+    ).toEqual({ ok: false, reason: 'Veo 3.1 Lite 不支持尾帧' })
+    expect(
+      validateVideoRequest(
+        VEO_LITE,
+        request({
+          duration_seconds: 4,
+          mode: 'extend',
+          source_task_id: 'src',
+          source_output_index: 0,
+        }),
+        0,
+      ),
+    ).toEqual({ ok: false, reason: 'Veo 3.1 Lite 不支持续写' })
   })
 
   it('accepts a legal text-to-video combination on both models', () => {
@@ -273,6 +315,13 @@ describe('videoRateMultiplier', () => {
     expect(videoRateMultiplier(SEEDANCE, '1080p')).toBe(1.6)
   })
 
+  it('prices Veo 1080p at a fifth above 720p', () => {
+    for (const model of [VEO_FAST, VEO_LITE]) {
+      expect(videoRateMultiplier(model, '720p')).toBe(1)
+      expect(videoRateMultiplier(model, '1080p')).toBe(1.2)
+    }
+  })
+
   it('falls back to one for a model or resolution outside the matrix', () => {
     expect(videoRateMultiplier(GROK, '2k')).toBe(1)
     expect(videoRateMultiplier('gpt-image-2', '720p')).toBe(1)
@@ -282,8 +331,15 @@ describe('videoRateMultiplier', () => {
 describe('videoDurationsForResolution', () => {
   it('offers every duration of the model when the resolution is unconstrained', () => {
     for (const support of Object.values(VIDEO_MODEL_SUPPORT))
-      for (const resolution of support.resolutions)
+      for (const resolution of support.resolutions) {
+        if (support.durationsByResolution?.[resolution]) continue
         expect(videoDurationsForResolution(support, resolution)).toEqual(support.durations)
+      }
+  })
+
+  it('narrows Veo 1080p to the single length it renders', () => {
+    expect(videoDurationsForResolution(VIDEO_MODEL_SUPPORT[VEO_FAST], '1080p')).toEqual([8])
+    expect(videoDurationsForResolution(VIDEO_MODEL_SUPPORT[VEO_LITE], '720p')).toEqual([4, 6, 8])
   })
 
   it('narrows to the subset the model declares for that resolution', () => {

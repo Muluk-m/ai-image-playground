@@ -178,6 +178,36 @@
         "asyncTasks": true
       },
       "allowedPaths": ["contents/generations/tasks"]
+    },
+    {
+      "id": "veo-video",
+      "kind": "openai-queue",
+      "label": "Veo",
+      "baseUrl": "https://generativelanguage.googleapis.com/v1beta",
+      "requiresSecret": true,
+      "auth": {
+        "type": "bearer",
+        "secretRef": "VEO_API_KEY"
+      },
+      "models": [
+        {
+          "id": "veo-3.1-fast-generate-preview",
+          "label": "Veo 3.1 Fast",
+          "media": "video",
+          "capabilities": ["generate", "duration", "aspect_ratio", "resolution", "first_frame"]
+        },
+        {
+          "id": "veo-3.1-lite-generate-preview",
+          "label": "Veo 3.1 Lite",
+          "media": "video",
+          "capabilities": ["generate", "duration", "aspect_ratio", "resolution", "first_frame"]
+        }
+      ],
+      "defaults": {
+        "timeout": 600,
+        "asyncTasks": true
+      },
+      "allowedPaths": ["models"]
     }
   ]
 }
