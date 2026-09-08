@@ -9,6 +9,10 @@ function reasons(task: Parameters<typeof deriveOptions>[0]) {
   )
 }
 
+function modelIds(task: Parameters<typeof deriveOptions>[0]) {
+  return Object.fromEntries(deriveOptions(task).map((option) => [option.mode, option.modelId]))
+}
+
 beforeEach(() => {
   setChannels([GROK_CHANNEL, AGNES_CHANNEL])
 })
@@ -22,6 +26,10 @@ describe('派生可用性', () => {
     const task = videoTask({ duration: 5 })
 
     expect(reasons(task)).toEqual({ extend: undefined, edit: undefined })
+    expect(modelIds(task)).toEqual({
+      extend: 'grok-imagine-video',
+      edit: 'grok-imagine-video',
+    })
     const check = checkDerive(task, 'extend')
     expect(check.ok && check.option.modelId).toBe('grok-imagine-video')
     expect(check.ok && check.option.channelId).toBe('grok-video')

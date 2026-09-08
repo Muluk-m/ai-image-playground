@@ -202,7 +202,10 @@ describe('派生', () => {
       }),
     )
     const derived = tasks().find((task) => task.id === id)!
-    expect(derived).toMatchObject({ mode: 'extend', sourceTaskId: source.id, duration: 5 })
+    expect(derived).toMatchObject({
+      duration: 5,
+      derived: { mode: 'extend', sourceTaskId: source.id },
+    })
   })
 
   it('改视频沿用源片时长，不带首尾帧下标', async () => {

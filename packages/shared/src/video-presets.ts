@@ -27,6 +27,16 @@ export const VIDEO_RESOLUTION_MULTIPLIERS: Record<VideoResolution, number> = {
 
 export type VideoMode = 'generate' | 'extend' | 'edit'
 
+/** 从一条成品视频派生出来的模式。 */
+export type VideoDeriveMode = Exclude<VideoMode, 'generate'>
+
+export const VIDEO_DERIVE_MODES = ['extend', 'edit'] as const satisfies readonly VideoDeriveMode[]
+
+export const VIDEO_DERIVE_LABELS: Record<VideoDeriveMode, string> = {
+  extend: '续写',
+  edit: '改视频',
+}
+
 /** 续写长度的上下限（秒）。generate 的档位表不适用于它。 */
 export const VIDEO_EXTEND_MIN_SECONDS = 2
 export const VIDEO_EXTEND_MAX_SECONDS = 10
@@ -153,18 +163,13 @@ export function validateVideoRequest(
   return { ok: true }
 }
 
-const MODE_LABELS: Record<Exclude<VideoMode, 'generate'>, string> = {
-  extend: '续写',
-  edit: '改视频',
-}
-
 function validateVideoSource(
   support: VideoModelSupport,
   mode: VideoMode,
   video: VideoRequest,
 ): VideoValidationResult | null {
   if (mode === 'generate') return null
-  const name = MODE_LABELS[mode]
+  const name = VIDEO_DERIVE_LABELS[mode]
   if (!(mode === 'extend' ? support.extend : support.edit))
     return { ok: false, reason: `${support.label} 不支持${name}` }
   if (video.first_frame_index !== undefined || video.last_frame_index !== undefined)

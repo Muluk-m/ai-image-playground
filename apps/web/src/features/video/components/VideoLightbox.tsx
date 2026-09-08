@@ -1,11 +1,15 @@
-import { VIDEO_MODEL_SUPPORT, VIDEO_RESOLUTION_LABELS } from '@image-playground/shared'
+import {
+  VIDEO_DERIVE_LABELS,
+  VIDEO_MODEL_SUPPORT,
+  VIDEO_RESOLUTION_LABELS,
+} from '@image-playground/shared'
 import { useRef, useState } from 'react'
 import Overlay from '../../../components/Overlay'
 import { LABEL, OUTLINE_BUTTON } from '../../../components/panelStyles'
 import { copyTextToClipboard, getClipboardFailureMessage } from '../../../lib/clipboard'
 import { useStore } from '../../../store'
 import { videoAspectLabel, videoFrameAspect } from '../lib/aspect'
-import { deriveOptions } from '../lib/derive'
+import { deriveOptions, type VideoDeriveOption } from '../lib/derive'
 import {
   adoptAsFirstFrame,
   captureVideoFrame,
@@ -13,7 +17,7 @@ import {
   videoOutputUrl,
 } from '../lib/playback'
 import { useVideoStore } from '../store'
-import type { VideoDeriveMode, VideoTask } from '../types'
+import type { VideoTask } from '../types'
 import DeriveVideoPopover from './DeriveVideoPopover'
 
 function reason(error: unknown): string {
@@ -37,7 +41,7 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 
 export default function VideoLightbox({ task, onClose }: { task: VideoTask; onClose: () => void }) {
   const videoRef = useRef<HTMLVideoElement>(null)
-  const [derive, setDerive] = useState<VideoDeriveMode | null>(null)
+  const [derive, setDerive] = useState<VideoDeriveOption | null>(null)
   const showToast = useStore((s) => s.showToast)
   const playbackUrl = videoOutputUrl(task)
   const modelLabel = VIDEO_MODEL_SUPPORT[task.model]?.label ?? task.model
@@ -180,11 +184,11 @@ export default function VideoLightbox({ task, onClose }: { task: VideoTask; onCl
                 key={option.mode}
                 type="button"
                 className={`${OUTLINE_BUTTON} disabled:cursor-not-allowed disabled:opacity-40`}
-                disabled={option.disabledReason !== undefined}
+                disabled={!option.modelId}
                 title={option.disabledReason}
-                onClick={() => setDerive(option.mode)}
+                onClick={() => setDerive(option)}
               >
-                {option.label}
+                {VIDEO_DERIVE_LABELS[option.mode]}
               </button>
             ))}
           </div>
@@ -202,10 +206,11 @@ export default function VideoLightbox({ task, onClose }: { task: VideoTask; onCl
         </div>
       </div>
 
-      {derive && (
+      {derive?.modelId && (
         <DeriveVideoPopover
           task={task}
-          mode={derive}
+          mode={derive.mode}
+          modelId={derive.modelId}
           tier="alert"
           onClose={() => setDerive(null)}
         />
