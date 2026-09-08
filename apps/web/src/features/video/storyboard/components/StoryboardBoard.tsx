@@ -98,7 +98,7 @@ export default function StoryboardBoard() {
         <button
           type="button"
           disabled={!option || wholeRunning || guard.blocked}
-          title={option ? guard.disabledReason : unsupportedDurationReason(record.totalSeconds)}
+          title={guard.disabledReason}
           className={`${PRIMARY_BUTTON} disabled:cursor-not-allowed`}
           onClick={() => void useStoryboardStore.getState().generateWholeVideo(record.id)}
         >
@@ -137,9 +137,10 @@ export default function StoryboardBoard() {
             rows={record.shots.length + 2}
             onBlur={(event) => {
               setEditingPrompt(false)
-              void useStoryboardStore
-                .getState()
-                .updateVideoPrompt(record.id, event.target.value.trim())
+              const next = event.target.value.trim()
+              if (next !== record.videoPrompt) {
+                void useStoryboardStore.getState().updateVideoPrompt(record.id, next)
+              }
             }}
             className={`${FIELD} resize-none`}
           />

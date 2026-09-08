@@ -26,7 +26,12 @@ import {
 } from '../../lib/privateOverlay'
 import { ensureImageCached, storeImageFromFile, useStore } from '../../store'
 import { checkDerive, DERIVE_RESOLUTION } from './lib/derive'
-import { appendCameraMove, clampDraftToSupport, videoDraftFromTask } from './lib/draft'
+import {
+  appendCameraMove,
+  clampDraftToSupport,
+  clampToSupported,
+  videoDraftFromTask,
+} from './lib/draft'
 import { videoTaskStore } from './lib/videoStore'
 import type { VideoDraft, VideoFrameSlot, VideoSource, VideoTask } from './types'
 
@@ -56,7 +61,6 @@ export interface StoryboardVideoInput {
   storyboardId: string
   /** 缺席即整条视频。 */
   shotNo?: number
-  /** 没有图就走文生。 */
   imageId: string | null
   prompt: string
   seconds: number
@@ -92,7 +96,7 @@ export interface VideoState {
     input: { mode: VideoDeriveMode; prompt: string; seconds: number },
   ): Promise<string | null>
   submitFromStoryboard(input: StoryboardVideoInput): Promise<string | null>
-  /** 整条分镜出一条视频：时长是分镜总时长，出得了它的模型才收得下。 */
+  /** 整条分镜出一条视频，时长是分镜总时长。 */
   submitStoryboardVideo(input: StoryboardVideoInput): Promise<string | null>
   /** 把这条的参数填回左栏，不提交。 */
   loadDraft(task: VideoTask): void
@@ -283,13 +287,9 @@ export const useVideoStore = create<VideoState>((set, get) => {
       option,
       source: input.imageId ? 'image' : 'text',
       prompt: input.prompt,
-      duration: (support.durations as readonly number[]).includes(input.seconds)
-        ? input.seconds
-        : support.durations[0]!,
-      aspectRatio: support.aspectRatios.includes(input.aspectRatio)
-        ? input.aspectRatio
-        : support.aspectRatios[0]!,
-      resolution: support.resolutions.includes(resolution) ? resolution : support.resolutions[0]!,
+      duration: clampToSupported(support.durations as readonly number[], input.seconds),
+      aspectRatio: clampToSupported(support.aspectRatios, input.aspectRatio),
+      resolution: clampToSupported(support.resolutions, resolution),
       firstFrameImageId: input.imageId,
       shot: {
         storyboardId: input.storyboardId,

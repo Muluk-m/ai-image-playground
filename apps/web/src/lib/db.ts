@@ -1,9 +1,10 @@
+import { storyboardShotLabel } from '@image-playground/shared'
 import type { StoredImage, StoredImageThumbnail, TaskRecord } from '../types'
 import { scopedStorageName } from './authScope'
 
 /** 匿名 scope 下的 DB 名，其它 scope 由 scopedStorageName 派生。 */
 export const BASE_DB_NAME = 'image-playground'
-const DB_VERSION = 9
+const DB_VERSION = 10
 const STORE_TASKS = 'tasks'
 const STORE_IMAGES = 'images'
 const STORE_THUMBNAILS = 'thumbnails'
@@ -43,6 +44,7 @@ export function openNamedDb(name: string): Promise<IDBDatabase> {
         }
       }
       if (e.oldVersion < 8 && request.transaction) backfillUpdatedAt(request.transaction)
+      if (e.oldVersion < 10 && request.transaction) backfillStoryboardTiming(request.transaction)
     }
     req.onsuccess = () => resolve(req.result)
     req.onerror = () => reject(req.error)
@@ -62,6 +64,47 @@ function backfillUpdatedAt(tx: IDBTransaction): void {
       }
       cursor.continue()
     }
+  }
+}
+
+/** v10 之前的分镜：一镜一条视频，没有时间轴，也没有整条视频的提示词。 */
+interface LegacyStoryboard {
+  summary: string
+  videoPrompt?: string
+  shots: { no: number; description: string; camera: string; seconds: number }[]
+}
+
+/** v10：分镜改成一次出整条视频，旧记录按每镜时长顺推时间轴，并合成一条整片提示词。 */
+function backfillStoryboardTiming(tx: IDBTransaction): void {
+  const cursorRequest = tx.objectStore(STORE_STORYBOARDS).openCursor()
+  cursorRequest.onsuccess = () => {
+    const cursor = cursorRequest.result
+    if (!cursor) return
+    const record = cursor.value as LegacyStoryboard
+    if (record.videoPrompt === undefined) cursor.update(timedStoryboard(record))
+    cursor.continue()
+  }
+}
+
+function timedStoryboard(record: LegacyStoryboard) {
+  let startSeconds = 0
+  const shots = record.shots.map((shot) => {
+    const timed = { ...shot, startSeconds }
+    startSeconds += shot.seconds
+    return timed
+  })
+  return {
+    ...record,
+    totalSeconds: startSeconds,
+    videoPrompt: [
+      record.summary,
+      ...shots.map(
+        (shot) => `${storyboardShotLabel(shot.no, shot)}：${shot.description}，${shot.camera}`,
+      ),
+    ].join('\n'),
+    shotImagesRequested: true,
+    videoTaskId: null,
+    shots,
   }
 }
 

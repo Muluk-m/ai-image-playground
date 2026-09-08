@@ -4,6 +4,7 @@ import {
   VIDEO_ASPECT_RATIOS,
   type VideoModelSupport,
 } from '@image-playground/shared'
+import { Checkbox } from '../../../../components/Checkbox'
 import { FIELD, LABEL, PANEL_SECTION, PRIMARY_BUTTON } from '../../../../components/panelStyles'
 import ChipRow from '../../components/ChipRow'
 import FrameSlot from '../../components/FrameSlot'
@@ -94,15 +95,11 @@ export default function StoryboardComposer({
         />
       </div>
 
-      <label className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-300">
-        <input
-          type="checkbox"
-          checked={draft.shotImages}
-          onChange={(event) => useStoryboardStore.getState().setShotImages(event.target.checked)}
-          className="h-3.5 w-3.5"
-        />
-        先出分镜图
-      </label>
+      <Checkbox
+        checked={draft.shotImages}
+        onChange={(checked) => useStoryboardStore.getState().setShotImages(checked)}
+        label="先出分镜图"
+      />
 
       <div className={PANEL_SECTION}>
         <button

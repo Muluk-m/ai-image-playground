@@ -28,7 +28,6 @@ export interface StoryboardRecord {
   style: StoryboardStyle
   referenceImageId: string | null
   shotImagesRequested: boolean
-  /** 整条视频的任务 id。 */
   videoTaskId: string | null
   shots: StoryboardShotRecord[]
 }

@@ -52,7 +52,6 @@ export interface StoryboardState {
   updateShot(id: string, no: number, patch: StoryboardShotPatch): Promise<void>
   updateVideoPrompt(id: string, videoPrompt: string): Promise<void>
   regenerateShotImage(id: string, no: number): Promise<void>
-  /** 还没出图的镜补出分镜图。 */
   generateMissingShotImages(id: string): Promise<void>
   generateShotVideo(id: string, no: number): Promise<void>
   /** 整条分镜出成一条视频：一条多镜提示词，时长是分镜总时长。 */

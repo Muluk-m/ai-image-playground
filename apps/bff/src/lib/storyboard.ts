@@ -1,8 +1,8 @@
 import type { StoryboardPlan, StoryboardPlanRequest } from '@image-playground/shared'
 import {
   parseStoryboardPlan,
-  storyboardRangeLabel,
   storyboardSegments,
+  storyboardShotLabel,
 } from '@image-playground/shared'
 import { config } from '../config'
 import { askChatModel } from './chatCompletion'
@@ -10,7 +10,7 @@ import { askChatModel } from './chatCompletion'
 export function buildStoryboardPrompt(request: StoryboardPlanRequest): string {
   const style = request.style?.trim()
   const timeline = storyboardSegments(request.totalSeconds, request.shots)
-    .map((segment, index) => `镜头${index + 1}（${storyboardRangeLabel(segment)}秒）`)
+    .map((segment, index) => storyboardShotLabel(index + 1, segment))
     .join('、')
   return [
     '你是短视频分镜师。把下面这个创意拆成一条整片：整片一次生成，内部硬切成多个镜头。',
