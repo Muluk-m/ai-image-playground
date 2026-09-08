@@ -293,11 +293,12 @@ export const useProductShotsStore = create<ProductShotsState>((set, get) => ({
     const target = get().jobs.find((job) => job.id === id)
     if (!target || !trimmed || trimmed === target.name) return
     const record: ProductShotJob = { ...target, name: trimmed, updatedAt: Date.now() }
-    await productShotJobStore.put(record)
+    // 先落草稿再落盘：后台抠图的那次写入读到的必须是新名字，否则它会把旧名字写回去。
     set((s) => ({
       jobs: s.jobs.map((job) => (job.id === id ? record : job)),
       draft: s.activeJobId === id ? { ...s.draft, name: trimmed } : s.draft,
     }))
+    await productShotJobStore.put(record)
   },
 
   /** 只删任务记录：图片本体与已生成的任务历史另有主人，不跟着走。 */
@@ -1246,7 +1247,11 @@ async function persistDraft(set: SetState, get: GetState): Promise<void> {
     jobs: s.jobs.some((job) => job.id === record.id)
       ? s.jobs.map((job) => (job.id === record.id ? record : job))
       : [...s.jobs, record],
-    draft: draftFromJob(record),
+    // 落盘期间草稿可能又被改过（抠图就在后台跑），那一份说了算，别拿旧记录盖回去。
+    draft:
+      s.draft === draft
+        ? draftFromJob(record)
+        : { ...s.draft, id: record.id, createdAt: record.createdAt },
     activeJobId: record.id,
   }))
 }
