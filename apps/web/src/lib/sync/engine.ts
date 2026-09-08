@@ -39,7 +39,7 @@ import { postSync } from './syncClient'
 import { applyUserSettingsDocument, readUserSettingsDocument } from './userSettings'
 
 const PUSH_DEBOUNCE_MS = 2000
-/** 从没被推上去过的那份用户设置该带的时间戳，见 `markNeverSyncedScopeDirty`。 */
+/** 从没有过时间戳的那份用户设置带的时间戳：推得上去，但输给服务端已有的任何一份。 */
 const UNTIMESTAMPED_SETTINGS = 1
 
 let pushTimer: ReturnType<typeof setTimeout> | null = null
@@ -49,8 +49,6 @@ let settingsSnapshot = ''
 let applyingRemote = false
 /** 上一次看到的、用户设置文档取值的那几片 store 状态。 */
 let watched: unknown[] = []
-/** 引擎的第几次启动；停掉之后飞在半路的首次标脏靠它认出自己已经过期。 */
-let generation = 0
 
 /** 能力关闭时引擎完全不启动：不标脏、不发请求、不写任何存储。 */
 export function startSyncEngine(): () => void {
@@ -65,41 +63,15 @@ export function startSyncEngine(): () => void {
   const unsubscribe = useStore.subscribe(onStoreChange)
   document.addEventListener('visibilitychange', flushOnHide)
   window.addEventListener('online', pushOnReconnect)
-
-  const started = (generation += 1)
-  void markNeverSyncedScopeDirty().then(() => {
-    // 标脏期间用户退出了：这时的 scope 已经是匿名的，一个字节都不该再往上推。
-    if (generation === started) void syncNow()
-  })
+  void syncNow()
 
   return () => {
-    generation += 1
     stopTracking()
     unsubscribe()
     document.removeEventListener('visibilitychange', flushOnHide)
     window.removeEventListener('online', pushOnReconnect)
     clearTimer()
     useSyncStatus.setState({ enabled: false, status: 'idle' })
-  }
-}
-
-/**
- * 引擎第一次在某个用户 scope 上启动：本机已有的模板、素材与用户设置全部标脏，走领养那条
- * 批量路径推上去。判据是「从没成功同步完一轮」而不是版本号——服务端给新用户的版本号也是 0。
- */
-async function markNeverSyncedScopeDirty(): Promise<void> {
-  if (readPendingChanges().lastSyncedAt !== null) return
-  try {
-    // 墓碑不推：这个 scope 还没同步过，它删掉的记录服务端本来就没有。
-    const [templates, assets] = await Promise.all([templateStore.list(), assetStore.list()])
-    markBulkDirty({
-      templates: templates.map((record) => record.id),
-      assets: assets.map((record) => record.id),
-      // 这份设置从没有过时间戳；冒充 now 会让新设备的默认值盖掉别的设备已经同步上去的那份。
-      settingsUpdatedAt: UNTIMESTAMPED_SETTINGS,
-    })
-  } catch {
-    // 读不到本机库就这一轮不标脏，下次启动再来；不能因此连拉取也不做。
   }
 }
 
@@ -113,8 +85,7 @@ export async function syncNow(options: { keepalive?: boolean } = {}): Promise<vo
   const pushed = changedInFlight
   let again = false
   try {
-    const checkpoint = readPendingChanges()
-    const request = await buildRequest(checkpoint, options.keepalive ?? false)
+    const request = await buildRequest(options.keepalive ?? false)
     const response = await postSync(request, options)
     await applyResponse(response)
     settle(request, response)
@@ -190,11 +161,12 @@ function clearTimer(): void {
   pushTimer = null
 }
 
-async function buildRequest(checkpoint: SyncCheckpoint, hiding: boolean): Promise<SyncRequestBody> {
+async function buildRequest(hiding: boolean): Promise<SyncRequestBody> {
   const [templates, assets] = await Promise.all([
     templateStore.listChanges(),
     assetStore.listChanges(),
   ])
+  const checkpoint = seedFirstSync(readPendingChanges(), templates, assets)
   return {
     version: checkpoint.version,
     templates: collect(templates, checkpoint.templates).map(toWire),
@@ -204,6 +176,29 @@ async function buildRequest(checkpoint: SyncCheckpoint, hiding: boolean): Promis
         ? null
         : { updatedAt: checkpoint.settingsUpdatedAt, document: readUserSettingsDocument() },
   }
+}
+
+/**
+ * 这个 scope 从没同步完一轮：本机已有的记录与用户设置全部标脏，跟着这一轮一起上去。
+ * 判据用 `lastSyncedAt` 而不是版本号——服务端给新用户的版本号也是 0。
+ */
+function seedFirstSync(
+  checkpoint: SyncCheckpoint,
+  templates: Array<TemplateRecord | Tombstone>,
+  assets: Array<AssetRecord | Tombstone>,
+): SyncCheckpoint {
+  if (checkpoint.lastSyncedAt !== null) return checkpoint
+  markBulkDirty({
+    // 墓碑不推：这个 scope 还没同步过，它删掉的记录服务端本来就没有。
+    templates: liveIds(templates),
+    assets: liveIds(assets),
+    settingsUpdatedAt: UNTIMESTAMPED_SETTINGS,
+  })
+  return readPendingChanges()
+}
+
+function liveIds(rows: Array<{ id: string } | Tombstone>): string[] {
+  return rows.filter((row) => !isSyncTombstone(row)).map((row) => row.id)
 }
 
 /** 协议侧的 params 是 jsonb，本机侧是具名类型，只有这一个字段需要放宽。 */
