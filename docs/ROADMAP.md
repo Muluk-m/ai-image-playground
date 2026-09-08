@@ -71,7 +71,7 @@
 ### 2.1 视频生成
 
 - [ ] 目标：工作台新增视频模式：文生视频、图生视频，结果可预览、下载、进历史。
-- 进度：视频模式 composer、feed 与播放器，以及 Grok Imagine / Agnes 两家视频上游已落 main（#189 / #190 / #191）。Grok 续写（`/videos/extensions`）与改视频（`/videos/edits`）已在 BFF 落地。剩余：Veo 上游、按秒或按片计费（依赖 0.1）、视频任务的 Seedance 接入。
+- 进度：视频模式 composer、feed 与播放器，以及 Grok Imagine / Agnes 两家视频上游已落 main（#189 / #190 / #191）。Grok 续写（`/videos/extensions`）与改视频（`/videos/edits`）已在 BFF 落地。火山方舟 Seedance 2.0（`doubao-seedance-2-0-mini-260615`，最长 15 秒、支持首尾帧）已接入 BFF，靠 `ARK_BASE_URL` / `ARK_API_KEY` 开关。剩余：Veo 上游、按秒或按片计费（依赖 0.1）。
 - 现状：BFF 队列模式天然适合分钟级任务，直连 BYOK 路径不适合。
 - 服务商分两批：
   - 首发：Grok Imagine 视频、Agnes `agnes-video`、Gemini API 的 Veo 3.x（Google 生视频走 Veo，异步 operation 轮询，需核实当前模型 id 与价格）。

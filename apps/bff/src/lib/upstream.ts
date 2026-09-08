@@ -44,12 +44,15 @@ type ChannelRouteStyle =
   | 'grok-videos'
   /** Agnes 视频：提交拿 video_id，轮询网关根下的 agnesapi，结果是公网 mp4 地址。 */
   | 'agnes-videos'
+  /** 火山方舟 Seedance：提交 content 数组拿 id，轮询同一路径，结果是公网 mp4 地址。 */
+  | 'ark-videos'
 
 const CHANNEL_ROUTE_STYLES: Readonly<Record<string, ChannelRouteStyle | undefined>> = {
   'agnes-images': 'agnes-generations-json',
   'grok-images': 'grok-openai-images',
   'grok-video': 'grok-videos',
   'agnes-video': 'agnes-videos',
+  'ark-video': 'ark-videos',
 }
 
 interface UpstreamRoute {
@@ -372,17 +375,25 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
         return results.length === 1 ? results[0]! : merge(results)
       }
 
-      if (style === 'grok-videos' || style === 'agnes-videos') {
+      if (style === 'grok-videos' || style === 'agnes-videos' || style === 'ark-videos') {
         const video = request.video
         if (!video) throw clientError('视频任务缺少视频参数')
-        const isGrok = style === 'grok-videos'
         const mode = video.mode ?? 'generate'
-        const protocol = isGrok ? grokVideoProtocol(base, mode) : agnesVideoProtocol(base, model)
-        const body = JSON.stringify(
-          isGrok
-            ? buildGrokVideoBody(model, request, video, mode)
-            : buildAgnesVideoBody(model, request, video),
-        )
+        if (style !== 'grok-videos' && mode !== 'generate')
+          throw clientError('该模型不支持续写和改视频')
+        let protocol: AsyncTaskProtocol
+        let payloadBody: Record<string, unknown>
+        if (style === 'grok-videos') {
+          protocol = grokVideoProtocol(base, mode)
+          payloadBody = buildGrokVideoBody(model, request, video, mode)
+        } else if (style === 'agnes-videos') {
+          protocol = agnesVideoProtocol(base, model)
+          payloadBody = buildAgnesVideoBody(model, request, video)
+        } else {
+          protocol = arkVideoProtocol(base)
+          payloadBody = buildArkVideoBody(model, request, video)
+        }
+        const body = JSON.stringify(payloadBody)
         const headers = { 'content-type': 'application/json', ...authHeader }
         const [taskId] = await collectTaskIds(protocol, 1, () => ({
           method: 'POST',
@@ -390,7 +401,8 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
           body,
         }))
         const { payload } = await pollAsyncTask(protocol, taskId!)
-        if (!isGrok) return agnesVideoResult(payload, video)
+        if (style === 'agnes-videos') return agnesVideoResult(payload, video)
+        if (style === 'ark-videos') return arkVideoResult(payload, video)
 
         // Grok 的内容端点要带 key，取回字节交给归档；轮询响应里只有相对路径。
         const contentUrl = grokVideoContentUrl(base, payload)
@@ -595,6 +607,16 @@ function agnesVideoProtocol(base: string, model: string): AsyncTaskProtocol {
   }
 }
 
+function arkVideoProtocol(base: string): AsyncTaskProtocol {
+  const tasks = `${base}/contents/generations/tasks`
+  return {
+    submitUrl: tasks,
+    pollUrl: (taskId) => `${tasks}/${encodeURIComponent(taskId)}`,
+    readTaskId: (payload) => readTaskIdField(payload, ['id']),
+    readState: readArkVideoState,
+  }
+}
+
 function readTaskIdField(payload: unknown, fields: readonly string[]): string {
   const body = (payload ?? {}) as Record<string, unknown>
   for (const field of fields) {
@@ -658,6 +680,16 @@ function readAgnesVideoState(payload: unknown): AsyncTaskState {
   return { kind: 'pending' }
 }
 
+const ARK_VIDEO_FAILED_STATUSES = new Set(['failed', 'cancelled', 'expired'])
+
+function readArkVideoState(payload: unknown): AsyncTaskState {
+  const status = readStatusToken(payload)
+  if (status === 'succeeded') return { kind: 'completed', payload }
+  if (status !== null && ARK_VIDEO_FAILED_STATUSES.has(status))
+    return { kind: 'failed', status: null }
+  return { kind: 'pending' }
+}
+
 /** 内容端点给的是网关相对路径，按 baseUrl 解析成绝对地址。 */
 function grokVideoContentUrl(base: string, payload: unknown): string {
   const url = (payload as { video?: { url?: unknown } } | null)?.video?.url
@@ -677,6 +709,15 @@ function agnesVideoResult(payload: unknown, video: HydratedVideoRequest): Upstre
     (value): value is string => typeof value === 'string' && /^https?:\/\//i.test(value),
   )
   if (!url) throw new UpstreamResultUnknownError('Agnes 视频任务已完成但未返回结果地址')
+  return {
+    payload: { data: [{ url, mime: VIDEO_MIME, duration_seconds: video.duration_seconds }] },
+  }
+}
+
+function arkVideoResult(payload: unknown, video: HydratedVideoRequest): UpstreamCallResult {
+  const url = (payload as { content?: { video_url?: unknown } } | null)?.content?.video_url
+  if (typeof url !== 'string' || !/^https?:\/\//i.test(url))
+    throw new UpstreamResultUnknownError('Seedance 视频任务已完成但未返回结果地址')
   return {
     payload: { data: [{ url, mime: VIDEO_MIME, duration_seconds: video.duration_seconds }] },
   }
@@ -740,6 +781,31 @@ function buildAgnesVideoBody(
     aspect_ratio: video.aspect_ratio,
     ...(firstFrame ? { first_frame: firstFrame } : {}),
     ...(lastFrame ? { last_frame: lastFrame } : {}),
+  }
+}
+
+/** 方舟的 ratio / resolution token 跟我们的档位同名，直接透传，别再加一层映射。 */
+function buildArkVideoBody(
+  model: string,
+  request: HydratedSubmitRequest,
+  video: HydratedVideoRequest,
+): Record<string, unknown> {
+  const frames = [
+    { role: 'first_frame', url: videoFrame(request, video.first_frame_index) },
+    { role: 'last_frame', url: videoFrame(request, video.last_frame_index) },
+  ]
+  return {
+    model,
+    content: [
+      { type: 'text', text: request.prompt },
+      ...frames.flatMap(({ role, url }) =>
+        url ? [{ type: 'image_url', image_url: { url }, role }] : [],
+      ),
+    ],
+    ratio: video.aspect_ratio,
+    duration: video.duration_seconds,
+    resolution: video.resolution,
+    watermark: false,
   }
 }
 

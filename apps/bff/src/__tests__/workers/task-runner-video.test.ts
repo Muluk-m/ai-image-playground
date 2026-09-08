@@ -33,6 +33,9 @@ type InternalChannel = import('../../lib/channels').InternalChannel
 const GROK_BASE = 'https://gateway.example/v1'
 const AGNES_BASE = 'https://apihub.agnes-ai.com/v1'
 const RESULT_URL = 'https://cdn.agnes-ai.com/videos/a.mp4'
+const ARK_BASE = 'https://ark.example/api/v3'
+const ARK_MODEL = 'doubao-seedance-2-0-mini-260615'
+const ARK_RESULT_URL = 'https://ark-content.example/videos/a.mp4'
 /** ISO-BMFF 头：4 字节 box size + 'ftyp'。 */
 const MP4_BYTES = Uint8Array.from([
   0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6f, 0x6d,
@@ -67,6 +70,23 @@ const videoChannels: InternalChannel[] = [
       {
         id: 'agnes-video-2.5-flash',
         label: 'Agnes Video 2.5 Flash',
+        media: 'video',
+        capabilities: ['generate', 'duration', 'aspect_ratio', 'resolution', 'first_frame'],
+      },
+    ],
+    defaults: { asyncTasks: true },
+  },
+  {
+    id: 'ark-video',
+    kind: 'openai-queue',
+    label: 'Seedance Video',
+    baseUrl: ARK_BASE,
+    auth: { type: 'bearer', secretRef: 'ARK_API_KEY', secret: 'ark-test-key' },
+    allowedPaths: ['contents/generations/tasks'],
+    models: [
+      {
+        id: ARK_MODEL,
+        label: 'Seedance 2.0 Mini',
         media: 'video',
         capabilities: ['generate', 'duration', 'aspect_ratio', 'resolution', 'first_frame'],
       },
@@ -206,6 +226,52 @@ describe('Agnes video task', () => {
     await runTask('agnes-video-failed')
 
     expect(await readTask('agnes-video-failed')).toMatchObject({
+      status: 'failed',
+      errorType: 'upstream_error',
+      errorMessage: 'generation failed',
+      attempt: 0,
+    })
+  })
+})
+
+describe('Seedance video task', () => {
+  it('archives the result address as mp4 bytes', async () => {
+    let polls = 0
+    upstream.handler = (url) => {
+      if (url.endsWith('/contents/generations/tasks')) return json({ id: 'task_ark_1' })
+      return ++polls === 1
+        ? json({ status: 'running' })
+        : json({ status: 'succeeded', content: { video_url: ARK_RESULT_URL } })
+    }
+    await insertVideoTask('ark-video-task', ARK_MODEL)
+
+    await runTask('ark-video-task')
+
+    const row = await readTask('ark-video-task')
+    expect(row).toMatchObject({ status: 'completed', taskIds: ['task_ark_1'] })
+    expect(row?.result).toMatchObject({
+      data: [
+        {
+          object: 'ark-video-task/out/0',
+          mime: 'video/mp4',
+          duration_seconds: 5,
+          source_url: ARK_RESULT_URL,
+        },
+      ],
+    })
+    expect(await storage.read('ark-video-task/out/0')).toEqual(MP4_BYTES)
+  })
+
+  it('writes a terminal failure when the upstream task reports failed', async () => {
+    upstream.handler = (url) =>
+      url.endsWith('/contents/generations/tasks')
+        ? json({ id: 'task_ark_2' })
+        : json({ status: 'failed', error: { message: 'generation failed' } })
+    await insertVideoTask('ark-video-failed', ARK_MODEL)
+
+    await runTask('ark-video-failed')
+
+    expect(await readTask('ark-video-failed')).toMatchObject({
       status: 'failed',
       errorType: 'upstream_error',
       errorMessage: 'generation failed',

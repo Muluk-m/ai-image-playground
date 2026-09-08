@@ -28,6 +28,7 @@ const MP4_BYTES = Uint8Array.from([
   0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6f, 0x6d,
 ])
 const PNG_BYTES = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+const SEEDANCE = 'doubao-seedance-2-0-mini-260615'
 
 const channels: InternalChannel[] = [
   {
@@ -53,6 +54,30 @@ const channels: InternalChannel[] = [
         label: 'Grok Imagine Video',
         media: 'video',
         capabilities: ['generate', 'duration', 'aspect_ratio', 'resolution', 'first_frame'],
+      },
+    ],
+    defaults: { asyncTasks: true },
+  },
+  {
+    id: 'ark-video',
+    kind: 'openai-queue',
+    label: 'Seedance Video',
+    baseUrl: 'https://ark.example/api/v3',
+    auth: { type: 'bearer', secretRef: 'ARK_API_KEY', secret: 'k' },
+    allowedPaths: ['contents/generations/tasks'],
+    models: [
+      {
+        id: SEEDANCE,
+        label: 'Seedance 2.0 Mini',
+        media: 'video',
+        capabilities: [
+          'generate',
+          'duration',
+          'aspect_ratio',
+          'resolution',
+          'first_frame',
+          'last_frame',
+        ],
       },
     ],
     defaults: { asyncTasks: true },
@@ -188,6 +213,32 @@ describe('video submit validation', () => {
 
     expect(status).toBe(400)
     expect(String(json.message)).toContain('清晰度')
+  })
+
+  it('queues a 15 second 1080p Seedance request with both keyframes', async () => {
+    const { status, json } = await submit(SEEDANCE, {
+      input_images: [TINY_PNG, TINY_PNG],
+      video: {
+        duration_seconds: 15,
+        aspect_ratio: '9:16',
+        resolution: '1080p',
+        first_frame_index: 0,
+        last_frame_index: 1,
+      },
+    })
+
+    expect(status).toBe(200)
+    expect(json).toMatchObject({ status: 'queued' })
+  })
+
+  it('rejects an extension on Seedance, which only generates', async () => {
+    await insertCompletedVideo('src-video')
+
+    const { status, json } = await submit(SEEDANCE, extendBody())
+
+    expect(status).toBe(400)
+    expect(json.error).toBe('invalid_video_request')
+    expect(String(json.message)).toContain('不支持续写')
   })
 
   it('rejects video parameters sent to an image model', async () => {
