@@ -1,9 +1,9 @@
 /**
- * 视频档位与每模型支持矩阵。清晰度倍率只在这里定义一次 — 计费预扣与前端估算
+ * 视频档位与每模型支持矩阵。价格结构与组合约束都长在模型上 — 计费预扣与前端估算
  * 都引用它，两边各写一份就会出现「按钮上写 A 积分、账单扣 B 积分」。
  */
 
-export const VIDEO_DURATIONS = [5, 8, 10, 15] as const
+export const VIDEO_DURATIONS = [4, 5, 6, 8, 10, 15] as const
 export type VideoDuration = (typeof VIDEO_DURATIONS)[number]
 
 export const VIDEO_ASPECT_RATIOS = ['16:9', '9:16', '1:1'] as const
@@ -16,13 +16,6 @@ export const VIDEO_RESOLUTION_LABELS: Record<VideoResolution, string> = {
   '720p': '720p',
   '1080p': '1080p',
   '2k': '2K',
-}
-
-/** 每秒单价的清晰度倍率。 */
-export const VIDEO_RESOLUTION_MULTIPLIERS: Record<VideoResolution, number> = {
-  '720p': 1,
-  '1080p': 1.6,
-  '2k': 2.2,
 }
 
 export const VIDEO_MODES = ['generate', 'extend', 'edit'] as const
@@ -66,6 +59,12 @@ export interface VideoModelSupport {
   readonly durations: readonly VideoDuration[]
   readonly aspectRatios: readonly VideoAspectRatio[]
   readonly resolutions: readonly VideoResolution[]
+  /** 每秒单价的清晰度倍率，逐条对应 `resolutions`。 */
+  readonly resolutionMultipliers: Readonly<Partial<Record<VideoResolution, number>>>
+  /** 某清晰度只配得上一部分时长；缺省为该模型的全部时长。 */
+  readonly durationsByResolution?: Readonly<
+    Partial<Record<VideoResolution, readonly VideoDuration[]>>
+  >
   readonly firstFrame: boolean
   readonly lastFrame: boolean
   /** 从源片最后一帧续写。 */
@@ -84,6 +83,7 @@ export const VIDEO_MODEL_SUPPORT: Record<string, VideoModelSupport> = {
     durations: [5, 8, 10, 15],
     aspectRatios: ['16:9', '9:16', '1:1'],
     resolutions: ['720p', '1080p'],
+    resolutionMultipliers: { '720p': 1, '1080p': 1.6 },
     firstFrame: true,
     lastFrame: false,
     extend: true,
@@ -96,6 +96,7 @@ export const VIDEO_MODEL_SUPPORT: Record<string, VideoModelSupport> = {
     durations: [5, 8, 10],
     aspectRatios: ['16:9', '9:16', '1:1'],
     resolutions: ['720p'],
+    resolutionMultipliers: { '720p': 1 },
     firstFrame: true,
     lastFrame: true,
     extend: false,
@@ -108,6 +109,7 @@ export const VIDEO_MODEL_SUPPORT: Record<string, VideoModelSupport> = {
     durations: [5, 8, 10, 15],
     aspectRatios: ['16:9', '9:16', '1:1'],
     resolutions: ['720p', '1080p'],
+    resolutionMultipliers: { '720p': 1, '1080p': 1.6 },
     firstFrame: true,
     lastFrame: true,
     extend: false,
@@ -119,8 +121,15 @@ export const VIDEO_MODEL_SUPPORT: Record<string, VideoModelSupport> = {
 
 export type VideoValidationResult = { ok: true } | { ok: false; reason: string }
 
-export function videoRateMultiplier(resolution: VideoResolution): number {
-  return VIDEO_RESOLUTION_MULTIPLIERS[resolution]
+export function videoRateMultiplier(modelId: string, resolution: VideoResolution): number {
+  return VIDEO_MODEL_SUPPORT[modelId]?.resolutionMultipliers[resolution] ?? 1
+}
+
+export function videoDurationsForResolution(
+  support: VideoModelSupport,
+  resolution: VideoResolution,
+): readonly VideoDuration[] {
+  return support.durationsByResolution?.[resolution] ?? support.durations
 }
 
 export function validateVideoRequest(
@@ -161,6 +170,15 @@ export function validateVideoRequest(
   if (!support.resolutions.includes(video.resolution)) {
     const allowed = support.resolutions.map((r) => VIDEO_RESOLUTION_LABELS[r]).join(' / ')
     return { ok: false, reason: `${label} 清晰度只支持 ${allowed}` }
+  }
+
+  if (mode === 'generate') {
+    const allowed = videoDurationsForResolution(support, video.resolution)
+    if (!(allowed as readonly number[]).includes(video.duration_seconds))
+      return {
+        ok: false,
+        reason: `${label} ${VIDEO_RESOLUTION_LABELS[video.resolution]} 只支持 ${allowed.join(' / ')} 秒`,
+      }
   }
 
   const frames = [
