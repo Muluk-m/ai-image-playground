@@ -109,7 +109,9 @@ fi
   else
     unset CLOUDFLARE_API_TOKEN
   fi
-  "$repo_root/scripts/pages-deploy.sh" "$bundle" "$pages_project"
+  # `main` is passed explicitly: this is the production entry point, and an omitted branch
+  # resolves to a preview alias.
+  "$repo_root/scripts/pages-deploy.sh" "$bundle" "$pages_project" main
 )
 
 built_version=$(version_of <"$dist_manifest")
