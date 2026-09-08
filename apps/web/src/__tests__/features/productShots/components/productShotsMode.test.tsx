@@ -5,9 +5,11 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useLibraryStore } from '../../../../features/library/store'
 import ProductShotsMode from '../../../../features/productShots/components/ProductShotsMode'
+import { pendingMatte } from '../../../../features/productShots/lib/sourceMatte'
 import { useProductShotsStore } from '../../../../features/productShots/store'
+import type { SourceMatte } from '../../../../features/productShots/types'
 import { ProductMatteError } from '../../../../lib/productMatte'
-import { useStore } from '../../../../store'
+import { getPersistedState, useStore } from '../../../../store'
 
 declare global {
   // eslint-disable-next-line no-var
@@ -51,6 +53,11 @@ vi.mock('../../../../features/productShots/lib/planClient', () => ({
 }))
 
 vi.mock('../../../../lib/matteClient', () => ({ requestServerMatte }))
+
+// jsdom 画不出缩略图，不给这一层喂图 <img> 一个都不会挂上去。
+vi.mock('../../../../hooks/useImageThumbnail', () => ({
+  useImageThumbnail: (imageId?: string) => (imageId ? { dataUrl: `data:,${imageId}` } : null),
+}))
 
 vi.mock('../../../../lib/productMatte', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../../lib/productMatte')>()),
@@ -100,7 +107,7 @@ let root: Root
 
 beforeEach(() => {
   vi.stubGlobal('indexedDB', new IDBFactory())
-  useStore.setState({ showToast: vi.fn(), tasks: [] })
+  useStore.setState({ showToast: vi.fn(), tasks: [], matteOverlayHidden: false })
   useProductShotsStore.setState({
     jobs: [],
     swapStage: null,
@@ -1204,5 +1211,142 @@ describe('dropping and pasting images into the source list', () => {
 
     expect(importAssetFiles).toHaveBeenCalled()
     expect(importAssetFiles.mock.calls[0][0]).toHaveLength(1)
+  })
+})
+
+describe('the matte laid over the source image', () => {
+  const ready = (patch: Partial<SourceMatte> = {}): SourceMatte => ({
+    ...pendingMatte(),
+    status: 'ready',
+    source: 'browser',
+    previewImageId: 'matte-1',
+    maskImageId: 'mask-1',
+    maskTargetImageId: 'image-1',
+    ...patch,
+  })
+
+  function seed(...mattes: SourceMatte[]) {
+    const images = mattes.map((sourceMatte, index) => ({
+      imageId: `image-${index + 1}`,
+      versions: [],
+      sourceMatte,
+    }))
+    act(() => {
+      useProductShotsStore.setState((s) => ({
+        draft: { ...s.draft, id: 'job-1', images },
+        selectedImageId: images[0]?.imageId ?? null,
+      }))
+    })
+    render()
+  }
+
+  function overlayIn(name: string): Element | null {
+    return column(name).querySelector('img[alt="蒙版"]')
+  }
+
+  function overlaySwitch(): HTMLInputElement {
+    const box = column('preview').querySelector<HTMLInputElement>('input[type="checkbox"]')
+    if (!box) throw new Error('no matte switch')
+    return box
+  }
+
+  function button(name: string, label: string): HTMLButtonElement {
+    const found = [...column(name).querySelectorAll('button')].find(
+      (item) => item.textContent === label,
+    )
+    if (!found) throw new Error(`no ${label} button`)
+    return found
+  }
+
+  it('lays the matte over the original and over the thumbnail', () => {
+    seed(ready())
+
+    expect(overlaySwitch().checked).toBe(true)
+    expect(overlayIn('preview')).not.toBeNull()
+    expect(overlayIn('sources')).not.toBeNull()
+  })
+
+  it('drops the overlay off the preview once the switch is off, and remembers it', () => {
+    seed(ready())
+
+    act(() => overlaySwitch().click())
+
+    expect(overlayIn('preview')).toBeNull()
+    expect(overlayIn('sources')).not.toBeNull()
+    expect(getPersistedState(useStore.getState()).matteOverlayHidden).toBe(true)
+
+    act(() => root.render(<ProductShotsMode />))
+
+    expect(overlaySwitch().checked).toBe(false)
+    expect(overlayIn('preview')).toBeNull()
+  })
+
+  it('shows the plain original while the matte is still running', () => {
+    seed(pendingMatte())
+
+    expect(overlayIn('preview')).toBeNull()
+    expect(column('preview').textContent).toContain('抠图中')
+  })
+
+  it('names the state of every image in the source list', () => {
+    seed(
+      ready(),
+      ready({ source: 'server' }),
+      pendingMatte(),
+      ready({ agreement: 'box-mismatch' }),
+      ready({ edited: true }),
+      { ...pendingMatte(), status: 'failed', reason: 'failed' },
+    )
+
+    const rows = [...column('sources').querySelectorAll('[data-product-shots-source]')]
+
+    expect(rows.map((row) => row.textContent)).toEqual([
+      expect.stringContaining('已抠 · 浏览器'),
+      expect.stringContaining('已抠 · 服务端'),
+      expect.stringContaining('抠图中'),
+      expect.stringContaining('蒙版不可靠'),
+      expect.stringContaining('手改'),
+      expect.stringContaining('未抠'),
+    ])
+  })
+
+  it('opens the mask editor on the image matte, brush painting the kept area', async () => {
+    seed(ready())
+
+    click(button('preview', '改蒙版'))
+    await settle()
+
+    expect(useStore.getState().maskEditorImageId).toBe('image-1')
+    expect(useStore.getState().maskEditorSession?.keepSemantics).toBe(true)
+  })
+
+  it('reports an unreliable matte without holding the actions back', () => {
+    seed(ready({ agreement: 'box-mismatch' }))
+
+    expect(column('actions').textContent).toContain('蒙版不可靠，先改再跑')
+    expect(actionButton().disabled).toBe(false)
+  })
+
+  it('carries the chip into the batch list', () => {
+    act(() => {
+      useProductShotsStore.setState({
+        batch: {
+          items: [
+            { imageId: 'image-1', state: 'done', error: null },
+            { imageId: 'image-2', state: 'pending', error: null },
+          ],
+          running: false,
+          stopRequested: false,
+          startedAt: null,
+          stage: null,
+        },
+      })
+    })
+    seed(ready(), ready({ agreement: 'box-mismatch' }))
+
+    const rows = [...batchBar().querySelectorAll('[data-product-shots-batch-item]')]
+
+    expect(rows[0].textContent).toContain('已抠 · 浏览器')
+    expect(rows[1].textContent).toContain('蒙版不可靠')
   })
 })
