@@ -230,7 +230,7 @@ describe('the results overview', () => {
     expect(chosenVersionId()).toBeUndefined()
   })
 
-  it('names every icon action for the pointer and the screen reader', () => {
+  it('names every icon action for the screen reader and leaves no native title', () => {
     render()
     const [done] = cards()
     if (!done) throw new Error('no version card')
@@ -238,7 +238,6 @@ describe('the results overview', () => {
     for (const label of ['查看方案', '下载', '放大查看', '取消选用']) {
       const button = iconButton(label, done)
       expect(button.getAttribute('aria-label')).toBe(label)
-      // 原生 title 和应用提示会叠着出，只留应用提示那一份。
       expect(button.getAttribute('title')).toBeNull()
       expect(button.disabled).toBe(false)
     }

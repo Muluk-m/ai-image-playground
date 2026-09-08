@@ -242,13 +242,12 @@ describe('the version bar of the selected source image', () => {
     expect(chosenVersionId()).toBeUndefined()
   })
 
-  it('names every icon action for the pointer and the screen reader', () => {
+  it('names every icon action for the screen reader and leaves no native title', () => {
     render()
 
     for (const label of ['查看方案', '看蒙版', '编辑蒙版', '用此蒙版重生成', '用这版', '下载']) {
       const button = iconButton(label, row(0))
       expect(button.getAttribute('aria-label')).toBe(label)
-      // 原生 title 和应用提示会叠着出，只留应用提示那一份。
       expect(button.getAttribute('title')).toBeNull()
       expect(button.disabled).toBe(false)
     }
