@@ -59,8 +59,8 @@ function version(id: string, patch: Partial<ProductShotVersion> = {}): ProductSh
 const setLightboxImageId = vi.fn<(id: string | null, list?: string[]) => void>()
 const showToast = vi.fn<(message: string, type?: 'info' | 'success' | 'error') => void>()
 const retryVersion = vi.fn<(versionId: string) => Promise<void>>()
-const editVersionMask = vi.fn<(versionId: string) => Promise<void>>()
-const regenerateWithMask = vi.fn<(versionId: string) => Promise<void>>()
+const editSourceMask = vi.fn<(imageId: string) => Promise<void>>()
+const regenerateFromVersion = vi.fn<(versionId: string, maskOnly?: boolean) => Promise<void>>()
 
 let host: HTMLDivElement
 let root: Root
@@ -68,8 +68,8 @@ let root: Root
 beforeEach(() => {
   vi.stubGlobal('indexedDB', new IDBFactory())
   retryVersion.mockResolvedValue(undefined)
-  editVersionMask.mockResolvedValue(undefined)
-  regenerateWithMask.mockResolvedValue(undefined)
+  editSourceMask.mockResolvedValue(undefined)
+  regenerateFromVersion.mockResolvedValue(undefined)
   downloadImagesByIds.mockResolvedValue({ success: 1, failed: 0 })
   useStore.setState({
     showToast,
@@ -81,8 +81,8 @@ beforeEach(() => {
   })
   useProductShotsStore.setState({
     retryVersion,
-    editVersionMask,
-    regenerateWithMask,
+    editSourceMask,
+    regenerateFromVersion,
     selectedImageId: 'src-1',
     previewVersionId: null,
     matteOverlayVersionId: null,
@@ -97,7 +97,20 @@ beforeEach(() => {
       product: { name: '', features: '', mainColor: '', forbiddenColors: [] },
       language: 'zh',
       createdAt: 1,
-      images: [{ imageId: 'src-1', versions: [version('v1'), version('v2')] }],
+      images: [
+        {
+          imageId: 'src-1',
+          versions: [version('v1'), version('v2')],
+          sourceMatte: {
+            status: 'ready',
+            backend: 'wasm-u2netp',
+            alphaImageId: 'alpha-1',
+            targetImageId: 'src-1',
+            previewImageId: 'matte-1',
+            edited: false,
+          },
+        },
+      ],
     },
   })
   host = document.createElement('div')
@@ -226,7 +239,7 @@ describe('the version bar of the selected source image', () => {
     expect(retryVersion).toHaveBeenCalledWith('v2')
 
     click(buttonTitled('用此蒙版重生成', row(0)))
-    expect(regenerateWithMask).toHaveBeenCalledWith('v1')
+    expect(regenerateFromVersion).toHaveBeenCalledWith('v1', true)
   })
 
   it('downloads the version image at its own size', () => {
