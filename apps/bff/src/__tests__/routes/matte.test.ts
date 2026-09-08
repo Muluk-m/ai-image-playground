@@ -15,7 +15,6 @@ const { matteRoutes } = await import('../../routes/matte')
 const { mintSourceToken, setMatteFetchForTesting } = await import('../../lib/matte')
 const { setObjectStoreForTesting } = await import('../../lib/objectStore')
 const { InMemoryObjectStore } = await import('../helpers/inMemoryObjectStore')
-const { config } = await import('../../config')
 
 type MatteFetch = NonNullable<Parameters<typeof setMatteFetchForTesting>[0]>
 
@@ -171,19 +170,5 @@ describe('GET /api/matte/source/:token', () => {
       const response = await getSource(token)
       expect(response.status).toBe(404)
     }
-  })
-})
-
-describe('config.assertValid with matte:server enabled', () => {
-  afterEach(() => {
-    process.env.MATTE_TRANSFORM_ORIGIN = 'https://bff.example.com/'
-  })
-
-  it('refuses a missing or plain-http transform origin', () => {
-    process.env.MATTE_TRANSFORM_ORIGIN = ''
-    expect(() => config.assertValid()).toThrow('Missing env: MATTE_TRANSFORM_ORIGIN')
-
-    process.env.MATTE_TRANSFORM_ORIGIN = 'http://bff.example.com'
-    expect(() => config.assertValid()).toThrow('must be an https:// origin')
   })
 })

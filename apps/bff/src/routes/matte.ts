@@ -68,7 +68,9 @@ export const matteRoutes = new Elysia()
       try {
         alpha = await fetchForegroundPng(mintSourceToken(sourceKey))
       } catch (error) {
-        log.warn({ event: 'matte.upstream_failed', err: error }, 'foreground segmentation failed')
+        // 只记 message：cause 里带着签好 token 的取图 URL。
+        const message = error instanceof Error ? error.message : String(error)
+        log.warn({ event: 'matte.upstream_failed', message }, 'foreground segmentation failed')
         return status(502, { error: 'matte_upstream_error' })
       }
       await store.write(alphaKey, alpha, 'image/png')

@@ -21,6 +21,17 @@ const booleanEnv = (key: string, fallback: boolean): boolean => {
   if (value !== 'true' && value !== 'false') throw new Error(`${key} must be true or false`)
   return value === 'true'
 }
+/** 抠图 URL 把它当字面前缀拼两次，所以只收裸 origin：带路径或查询会拼出别的地址。 */
+const bareHttpsOrigin = (raw: string): string => {
+  if (!raw) return ''
+  try {
+    const url = new URL(raw)
+    if (url.protocol !== 'https:' || url.pathname !== '/' || url.search || url.hash) return ''
+    return url.origin
+  } catch {
+    return ''
+  }
+}
 const clientIpSource = env('CLIENT_IP_SOURCE', 'peer')
 if (
   clientIpSource !== 'peer' &&
@@ -61,12 +72,17 @@ export const config = {
     if (hasCapability(config.operator, 'accounts:login') && !config.auth.internalApiToken) {
       throw new Error('Missing env: INTERNAL_API_TOKEN')
     }
-    const transformOrigin = config.matte.transformOrigin
-    if (transformOrigin && !transformOrigin.startsWith('https://')) {
-      throw new Error('MATTE_TRANSFORM_ORIGIN must be an https:// origin')
-    }
-    if (hasCapability(config.operator, 'matte:server') && !transformOrigin) {
-      throw new Error('Missing env: MATTE_TRANSFORM_ORIGIN (required by matte:server)')
+    if (hasCapability(config.operator, 'matte:server')) {
+      // 取图 token 的 HMAC secret 由它派生，空 secret 等于任何人都能签出取图 token。
+      if (!config.auth.internalApiToken) {
+        throw new Error('Missing env: INTERNAL_API_TOKEN (required by matte:server)')
+      }
+      if (!env('MATTE_TRANSFORM_ORIGIN', '')) {
+        throw new Error('Missing env: MATTE_TRANSFORM_ORIGIN (required by matte:server)')
+      }
+      if (!config.matte.transformOrigin) {
+        throw new Error('MATTE_TRANSFORM_ORIGIN must be a bare https:// origin')
+      }
     }
     if (config.worker.healthStaleAfterMs < config.worker.pollIntervalMs * 3) {
       throw new Error('WORKER_HEALTH_STALE_AFTER_MS must be at least three poll intervals')
@@ -96,7 +112,7 @@ export const config = {
   matte: {
     /** 本部署对外可达、且所在 Cloudflare zone 已开图片变换的源；抠图 URL 两段都用它。 */
     get transformOrigin(): string {
-      return env('MATTE_TRANSFORM_ORIGIN', '').replace(/\/+$/, '')
+      return bareHttpsOrigin(env('MATTE_TRANSFORM_ORIGIN', ''))
     },
   },
   databaseUrl: env('DATABASE_URL'),
