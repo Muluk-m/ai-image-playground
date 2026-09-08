@@ -17,9 +17,11 @@ import { useImageDropZone } from '../../../hooks/useImageDropZone'
 import { usePasteImageFiles } from '../../../hooks/usePasteImageFiles'
 import { isClientCapabilityEnabled } from '../../../lib/clientCapabilities'
 import AssetThumb from '../../library/components/AssetThumb'
+import { sourceMatteBadge } from '../lib/matteBadge'
 import { DIAGRAM_LABEL, isDiagram } from '../lib/scene'
 import { useProductShotsStore } from '../store'
 import { SOURCE_MODE_LABELS, SOURCE_MODES } from '../types'
+import { BadgeTag } from './MatteTag'
 import SourceLibraryPicker from './SourceLibraryPicker'
 
 export default function SourcePanel() {
@@ -164,6 +166,10 @@ export default function SourcePanel() {
                         {DIAGRAM_LABEL}
                       </span>
                     )}
+                    <BadgeTag
+                      badge={sourceMatteBadge(image.sourceMatte)}
+                      className="w-fit px-1 py-0.5 text-[11px]"
+                    />
                   </span>
                 </button>
                 <button
