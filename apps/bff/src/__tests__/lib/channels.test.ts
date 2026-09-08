@@ -434,10 +434,6 @@ describe('shipped channels.json', () => {
       media: 'video',
     })
   })
-})
-
-describe('shipped Veo channel', () => {
-  const shipped: unknown = JSON.parse(readFileSync(defaultChannelsPath(), 'utf8'))
 
   it('stays out of the discovery list when VEO_API_KEY is unset', () => {
     const result = parseChannelsConfig(shipped, () => undefined)
