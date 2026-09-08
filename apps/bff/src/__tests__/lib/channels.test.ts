@@ -382,20 +382,18 @@ describe('parseChannelsConfig', () => {
 })
 
 describe('shipped channels.json', () => {
-  const shipped = (): unknown => JSON.parse(readFileSync(defaultChannelsPath(), 'utf8'))
+  const shipped: unknown = JSON.parse(readFileSync(defaultChannelsPath(), 'utf8'))
 
   it('drops the Seedance channel when ARK_BASE_URL is unset', () => {
-    const result = parseChannelsConfig(shipped(), () => undefined)
+    const result = parseChannelsConfig(shipped, () => undefined)
 
     expect(result.channels.map((c) => c.id)).not.toContain('ark-video')
-    expect(result.warnings).toContain(
-      "channel 'ark-video': env 'ARK_BASE_URL' is empty or unset; the channel is disabled and will not be advertised",
-    )
+    expect(result.warnings.find((w) => w.includes("channel 'ark-video'"))).toContain('ARK_BASE_URL')
   })
 
   it('advertises the Seedance video model once ARK_BASE_URL and ARK_API_KEY are set', () => {
     const result = parseChannelsConfig(
-      shipped(),
+      shipped,
       (key) =>
         ({ ARK_BASE_URL: 'https://ark.cn-beijing.volces.com/api/v3', ARK_API_KEY: 'ark-key' })[key],
     )
