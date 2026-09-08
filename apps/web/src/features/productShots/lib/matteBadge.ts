@@ -37,3 +37,11 @@ export function sourceMatteBadge(matte: SourceMatte | undefined): MatteBadge | n
   if (matte.agreement === 'box-mismatch') return { text: UNRELIABLE, tone: 'warn' }
   return { text: `已抠 · ${matte.source === 'server' ? SERVER : BROWSER}`, tone: 'ok' }
 }
+
+/** 蒙版没抠成时动作区的那一句；动作照跑。 */
+export function sourceMatteNotice(matte: SourceMatte | undefined): string | null {
+  if (!matte || matte.edited) return null
+  if (matte.status === 'failed') return '未抠，本次动作不带蒙版'
+  if (matte.agreement === 'box-mismatch') return `${UNRELIABLE}，先改再跑`
+  return null
+}
