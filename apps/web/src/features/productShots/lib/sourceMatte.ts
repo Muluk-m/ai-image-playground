@@ -9,6 +9,7 @@ import {
   alphaToProductMask,
   assessMatte,
   expandProductAlpha,
+  type MatteBackendId,
   maskDataUrlToAlpha,
   matteAgreesWithBox,
   type ProductAlpha,
@@ -17,7 +18,7 @@ import {
   segmentProduct,
 } from '../../../lib/productMatte'
 import { ensureImageCached } from '../../../store'
-import type { MatteAgreement, MatteOutcome, MatteSource, SourceMatte } from '../types'
+import type { MatteAgreement, MatteOutcome, SourceMatte } from '../types'
 import type { MaskSide } from './mode'
 
 export const UNMASKED_FALLBACK = '本版未抠图'
@@ -34,6 +35,8 @@ export interface MaskAttempt {
   matte: MatteOutcome | null
   /** 蒙版叠在原图上的预览图；抠图没跑出结果时为 null。 */
   previewImageId: string | null
+  /** 这次按产品框算出的一致性，写回原图只为芯片；方案没给框时缺席。 */
+  agreement?: MatteAgreement
 }
 
 /** 整图重画的那几种动作不带遮罩。 */
@@ -47,165 +50,106 @@ export function unmasked(
   return { mask: null, notice, matte: { ok: false, reason }, previewImageId }
 }
 
-export function pendingMatte(): SourceMatte {
-  return {
-    status: 'pending',
-    source: null,
-    alphaImageId: null,
-    previewImageId: null,
-    maskImageId: null,
-    maskTargetImageId: null,
-    elapsedMs: null,
-    agreement: null,
-    backend: null,
-    reason: null,
-    edited: false,
-  }
+interface RawMatte {
+  alpha: ProductAlpha
+  /** 落盘的那张 alpha PNG。服务端那张原样存，不解码再编码一遍。 */
+  dataUrl: string
+  backend: MatteBackendId
 }
 
-interface Segmented {
-  raw: ProductAlpha
-  source: MatteSource
-  backend: SourceMatte['backend']
-}
-
-async function segment(dataUrl: string): Promise<Segmented> {
-  const server = isClientCapabilityEnabled('matte:server') ? await serverAlpha(dataUrl) : null
-  if (server) return { raw: server, source: 'server', backend: null }
-  const matte = await segmentProduct(dataUrl)
-  return { raw: matte, source: 'browser', backend: matte.backend }
+async function segment(dataUrl: string): Promise<RawMatte> {
+  const server = isClientCapabilityEnabled('matte:server') ? await serverMatte(dataUrl) : null
+  return server ?? (await browserMatte(dataUrl))
 }
 
 /** 服务端抠不出来就落回浏览器链。 */
-async function serverAlpha(dataUrl: string): Promise<ProductAlpha | null> {
+async function serverMatte(dataUrl: string): Promise<RawMatte | null> {
   try {
-    return await maskDataUrlToAlpha((await requestServerMatte(dataUrl)).alpha)
+    const { alpha } = await requestServerMatte(dataUrl)
+    return {
+      alpha: await maskDataUrlToAlpha(alpha),
+      dataUrl: alpha,
+      backend: 'cloudflare-birefnet',
+    }
   } catch {
     return null
   }
 }
 
-type MatteMeta = Pick<SourceMatte, 'source' | 'backend' | 'elapsedMs' | 'maskTargetImageId'>
-
-/** 抠出的 alpha → 落盘的蒙版记录。产品框可以缺席：那时只是不做回捞也不校验。 */
-async function settle(
-  raw: ProductAlpha,
-  productBox: ProductBox | null,
-  meta: MatteMeta,
-): Promise<SourceMatte> {
-  const base = { ...pendingMatte(), ...meta }
-  if (!assessMatte(raw).ok) {
-    // 抠错的那次预览照实存：用户就是靠它看出抠到了什么。
-    return { ...base, status: 'failed', reason: 'failed', previewImageId: await preview(raw) }
-  }
-
-  const agreement: MatteAgreement | null = productBox
-    ? matteAgreesWithBox(raw, productBox)
-      ? 'ok'
-      : 'box-mismatch'
-    : null
-  // 校验看原始蒙版；膨胀后的那张才是真正用掉的，预览与它一致用户才看得出附件有没有进保留区。
-  const used = agreement === 'box-mismatch' ? raw : expandProductAlpha(raw, { productBox })
-  return {
-    ...base,
-    status: 'ready',
-    agreement,
-    previewImageId: await preview(used),
-    alphaImageId: await storeImage(alphaToDataUrl(raw), 'mask'),
-    maskImageId:
-      agreement === 'box-mismatch' ? null : await storeImage(alphaToInpaintMask(used), 'mask'),
-  }
-}
-
-function preview(matte: ProductAlpha): Promise<string> {
-  return storeImage(alphaToMattePreview(matte), 'mask')
+async function browserMatte(dataUrl: string): Promise<RawMatte> {
+  const matte = await segmentProduct(dataUrl)
+  return { alpha: matte, dataUrl: alphaToDataUrl(matte), backend: matte.backend }
 }
 
 /** 抠一张原图。抠不出来记 failed，动作那边回落成提示词版。 */
-export async function runSourceMatte(
-  imageId: string,
-  dataUrl: string,
-  productBox: ProductBox | null,
-): Promise<SourceMatte> {
-  const startedAt = Date.now()
+export async function runSourceMatte(imageId: string, dataUrl: string): Promise<SourceMatte> {
   try {
-    const { raw, source, backend } = await segment(dataUrl)
-    return await settle(raw, productBox, {
-      source,
-      backend,
-      elapsedMs: Date.now() - startedAt,
-      maskTargetImageId: imageId,
-    })
+    const raw = await segment(dataUrl)
+    const previewImageId = await storeImage(alphaToMattePreview(raw.alpha), 'mask')
+    // 抠错的那次预览照实存：用户就是靠它看出抠到了什么。
+    if (!assessMatte(raw.alpha).ok) return { status: 'failed', reason: 'failed', previewImageId }
+    return {
+      status: 'ready',
+      backend: raw.backend,
+      alphaImageId: await storeImage(raw.dataUrl, 'mask'),
+      targetImageId: imageId,
+      previewImageId,
+      edited: false,
+    }
   } catch (error) {
     const reason = error instanceof ProductMatteError ? error.reason : 'failed'
-    return { ...pendingMatte(), status: 'failed', reason, elapsedMs: Date.now() - startedAt }
+    return { status: 'failed', reason, previewImageId: null }
   }
 }
 
-/** 方案给出产品框后补做一次：框内附件回捞与一致性校验都要框，抠图跑在方案之前。 */
-export async function applyProductBox(
+/** 原图的 alpha → 这一次动作要提交的遮罩。`side` 决定重绘哪一侧，产品框决定回捞与校验。 */
+export async function maskAttemptFor(
   matte: SourceMatte,
-  productBox: ProductBox,
-): Promise<SourceMatte> {
-  if (matte.status !== 'ready' || matte.edited || matte.agreement !== null) return matte
-  try {
-    const alphaDataUrl = matte.alphaImageId ? await ensureImageCached(matte.alphaImageId) : null
-    if (!alphaDataUrl) return matte
-    return await settle(await maskDataUrlToAlpha(alphaDataUrl), productBox, {
-      source: matte.source,
-      backend: matte.backend,
-      elapsedMs: matte.elapsedMs,
-      maskTargetImageId: matte.maskTargetImageId,
-    })
-  } catch {
-    // 读不回原始 alpha 就留着未校验的那份，别把动作一起拖垮。
-    return matte
-  }
-}
-
-function outcomeOf(matte: SourceMatte): MatteOutcome {
-  return {
-    ok: true,
-    elapsedMs: matte.elapsedMs ?? 0,
-    ...(matte.backend ? { backend: matte.backend } : {}),
-  }
-}
-
-/** 原图的蒙版 → 这一次动作要提交的遮罩。`side` 决定重绘哪一侧。 */
-export async function maskAttemptFor(matte: SourceMatte, side: MaskSide): Promise<MaskAttempt> {
+  productBox: ProductBox | null,
+  side: MaskSide,
+): Promise<MaskAttempt> {
   if (matte.status === 'failed') {
-    return unmasked(MATTE_FAILED, matte.reason ?? 'failed', matte.previewImageId)
+    return unmasked(MATTE_FAILED, matte.reason, matte.previewImageId)
   }
-  if (matte.agreement === 'box-mismatch' && !matte.edited) {
-    return unmasked(MATTE_UNRELIABLE, 'box-mismatch', matte.previewImageId)
-  }
-  if (!matte.maskImageId || !matte.maskTargetImageId) {
+
+  try {
+    const raw = await readAlpha(matte.alphaImageId)
+    if (!raw) return unmasked(MATTE_FAILED, 'failed', matte.previewImageId)
+
+    // 手改的那份就是最终答案，既不回捞也不再校验。
+    if (matte.edited) return await masked(matte, raw, side, 'ok')
+
+    const agreement: MatteAgreement | undefined = productBox
+      ? matteAgreesWithBox(raw, productBox)
+        ? 'ok'
+        : 'box-mismatch'
+      : undefined
+    if (agreement === 'box-mismatch') {
+      return { ...unmasked(MATTE_UNRELIABLE, 'box-mismatch', matte.previewImageId), agreement }
+    }
+    return await masked(matte, expandProductAlpha(raw, { productBox }), side, agreement)
+  } catch {
     return unmasked(MATTE_FAILED, 'failed', matte.previewImageId)
   }
-
-  const attempt = { notice: null, matte: outcomeOf(matte), previewImageId: matte.previewImageId }
-  if (side === 'background') {
-    return {
-      ...attempt,
-      mask: { imageId: matte.maskImageId, targetImageId: matte.maskTargetImageId },
-    }
-  }
-
-  const productMaskId = await productMaskFrom(matte.maskImageId)
-  if (!productMaskId) return unmasked(MATTE_FAILED, 'failed', matte.previewImageId)
-  return {
-    ...attempt,
-    mask: { imageId: productMaskId, targetImageId: matte.maskTargetImageId },
-  }
 }
 
-/** 保留侧遮罩 → 产品侧遮罩。取不回来就当没抠到，动作回落成提示词版。 */
-async function productMaskFrom(maskImageId: string): Promise<string | null> {
-  try {
-    const maskDataUrl = await ensureImageCached(maskImageId)
-    if (!maskDataUrl) return null
-    return await storeImage(alphaToProductMask(await maskDataUrlToAlpha(maskDataUrl)), 'mask')
-  } catch {
-    return null
+async function readAlpha(alphaImageId: string): Promise<ProductAlpha | null> {
+  const dataUrl = await ensureImageCached(alphaImageId)
+  return dataUrl ? await maskDataUrlToAlpha(dataUrl) : null
+}
+
+async function masked(
+  matte: Extract<SourceMatte, { status: 'ready' }>,
+  alpha: ProductAlpha,
+  side: MaskSide,
+  agreement: MatteAgreement | undefined,
+): Promise<MaskAttempt> {
+  const mask = side === 'background' ? alphaToInpaintMask(alpha) : alphaToProductMask(alpha)
+  return {
+    mask: { imageId: await storeImage(mask, 'mask'), targetImageId: matte.targetImageId },
+    notice: null,
+    matte: { ok: true, backend: matte.backend },
+    previewImageId: matte.previewImageId,
+    ...(agreement ? { agreement } : {}),
   }
 }

@@ -27,42 +27,29 @@ export const SOURCE_MODE_LABELS: Record<SourceMode, string> = {
 /** 抠图没用上的原因：跑不出来（前三种），或抠出来的框跟方案给的产品框对不上。 */
 export type MatteFailureCause = SegmentFailureReason | 'box-mismatch'
 
-/** 抠图这一段的结果：成功记实际用到的后端与耗时，失败记原因。 */
+/** 抠图这一段的结果：成功记抠出它的后端，失败记原因。 */
 export type MatteOutcome =
-  | {
-      ok: true
-      /** 浏览器链跑的那一环；服务端抠的没有。 */
-      backend?: MatteBackendId
-      elapsedMs: number
-    }
+  | { ok: true; backend: MatteBackendId }
   | { ok: false; reason: MatteFailureCause }
 
-/** 这份蒙版是服务端抠的还是浏览器抠的。 */
-export type MatteSource = 'server' | 'browser'
-
-/** 蒙版的外接框与方案给的产品框对不对得上；方案还没给出框时为 null。 */
+/** 蒙版的外接框与方案给的产品框对不对得上。 */
 export type MatteAgreement = 'ok' | 'box-mismatch'
 
-/**
- * 原图身上的蒙版：进任务时抠一次，之后每个动作都用它。
- * `alphaImageId` 是模型原始 alpha，只为方案给出产品框后重做一次回捞与校验而留；手改过就作废。
- */
-export interface SourceMatte {
-  status: 'pending' | 'ready' | 'failed'
-  source: MatteSource | null
-  alphaImageId: string | null
-  previewImageId: string | null
-  /** 保留侧不透明的遮罩 PNG；产品侧遮罩按需从它派生。 */
-  maskImageId: string | null
-  /** 遮罩对着的那张图：手改会按官方尺寸改图。 */
-  maskTargetImageId: string | null
-  elapsedMs: number | null
-  agreement: MatteAgreement | null
-  backend: MatteBackendId | null
-  /** status 为 failed 时的原因。 */
-  reason: SegmentFailureReason | null
-  edited: boolean
-}
+/** 原图身上的蒙版。只存 alpha：遮罩与一致性都在动作那一刻按当时的产品框现算，不落盘。 */
+export type SourceMatte =
+  | { status: 'failed'; reason: MatteFailureCause; previewImageId: string | null }
+  | {
+      status: 'ready'
+      backend: MatteBackendId
+      /** alpha 通道即保留区；手改过的就是编辑器存下来的那张。 */
+      alphaImageId: string
+      /** alpha 对着的那张图：手改会按官方尺寸改图。 */
+      targetImageId: string
+      previewImageId: string
+      edited: boolean
+      /** 最近一次动作算出的一致性，只喂芯片，不参与派生。 */
+      agreement?: MatteAgreement
+    }
 
 /** 一次动作的产出。`masked` 为假是蒙版失败的提示词版，产品像素没被锁住。 */
 export interface ProductShotVersion {
@@ -117,7 +104,7 @@ export interface ProductShotImage {
   sourceUrl?: string
   /** 预检认出的画面类型；还没预检或预检失败时为 undefined。 */
   sceneType?: BgSceneType
-  /** 旧记录没有这个字段，第一次用到时才抠。 */
+  /** 旧记录没有这个字段，打开任务时补抠。 */
   sourceMatte?: SourceMatte
   versions: ProductShotVersion[]
   chosenVersionId?: string

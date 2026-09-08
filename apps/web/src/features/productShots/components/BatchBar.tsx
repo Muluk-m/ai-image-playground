@@ -23,6 +23,7 @@ export default function BatchBar() {
   const selectedImageId = useProductShotsStore((s) => s.selectedImageId)
   const swapStage = useProductShotsStore((s) => s.swapStage)
   const batch = useProductShotsStore((s) => s.batch)
+  const matting = useProductShotsStore(useShallow((s) => s.mattingImageIds))
 
   const { runBatch, runBatchImage, stopBatch } = useProductShotsStore.getState()
   const remaining = pendingBatchImageIds(images, selectedImageId)
@@ -92,7 +93,7 @@ export default function BatchBar() {
                 {PRODUCT_SHOT_BATCH_STATE_LABELS[item.state]}
               </span>
               <BadgeTag
-                badge={sourceMatteBadge(matteOf(item.imageId))}
+                badge={sourceMatteBadge(matteOf(item.imageId), matting.includes(item.imageId))}
                 className="px-1 py-0.5 text-[11px]"
               />
               {item.error && (

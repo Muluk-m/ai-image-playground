@@ -59,6 +59,7 @@ export default function VersionBar() {
               key={row.version.id}
               version={row.version}
               imageId={selected.imageId}
+              matteReady={selected.sourceMatte?.status === 'ready'}
               index={index}
               progress={row.progress}
               chosen={selected.chosenVersionId === row.version.id}
@@ -83,6 +84,7 @@ function statusLabel(progress: VersionProgress): string {
 function VersionRow({
   version,
   imageId,
+  matteReady,
   index,
   progress,
   chosen,
@@ -91,6 +93,8 @@ function VersionRow({
   version: ProductShotVersion
   /** 这一版的原图，看蒙版时把预览盖回它上面。 */
   imageId: string
+  /** 改蒙版与重生成用的是原图身上那份，不是这一版的快照。 */
+  matteReady: boolean
   index: number
   progress: VersionProgress
   chosen: boolean
@@ -105,8 +109,8 @@ function VersionRow({
     chooseVersion,
     retryVersion,
     toggleMatteOverlay,
-    editVersionMask,
-    regenerateWithMask,
+    editSourceMask,
+    regenerateFromVersion,
     openPlanDrawer,
   } = useProductShotsStore.getState()
   const showToast = useStore((s) => s.showToast)
@@ -217,11 +221,11 @@ function VersionRow({
               <MatteIcon className="h-4 w-4" />
             </button>
           )}
-          {version.maskImageId && (
+          {matteReady && (
             <>
               <button
                 type="button"
-                onClick={() => void editVersionMask(version.id)}
+                onClick={() => void editSourceMask(imageId)}
                 title="编辑蒙版"
                 aria-label="编辑蒙版"
                 className={VERSION_ICON_BUTTON}
@@ -230,7 +234,7 @@ function VersionRow({
               </button>
               <button
                 type="button"
-                onClick={() => void regenerateWithMask(version.id)}
+                onClick={() => void regenerateFromVersion(version.id, true)}
                 title="用此蒙版重生成"
                 aria-label="用此蒙版重生成"
                 className={VERSION_ICON_BUTTON}
