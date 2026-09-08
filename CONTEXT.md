@@ -155,7 +155,7 @@ _Avoid_: 生成记录、历史（口语，边界不清）
 链接或素材库；任务名来自链接标题，没有就是「商品图 N」。记录 `{ id, name, images, preference,
 versionsPerImage, mode, productAssets, createdAt, updatedAt }` 存在主 IndexedDB 的 `bgswap_jobs`
 表里（表名是历史，不是概念），跟随 scope 隔离与匿名库领养；每张图记
-`{ imageId, sourceUrl?, sceneType?, versions, chosenVersionId? }`。
+`{ imageId, sourceUrl?, sceneType?, sourceMatte?, versions, chosenVersionId? }`。
 _Avoid_: 套、批次、换背景任务、任务组
 
 **动作（action）**：
@@ -209,9 +209,17 @@ _Avoid_: 平台档位、尺寸设置、导出预设当任务设置
 会把它们毁掉：批量默认跳过，单张要用户确认。认不出类型就当 `photo`。
 _Avoid_: 场景、图片分类、sceneType 自由文本
 
+**原图蒙版（source matte）**：
+属于原图而不是某一版的抠图结果，原图一进任务就抠一次，之后每个动作共用。**只存 alpha**
+（连同抠出它的后端、预览图与它对着的那张图）；遮罩 PNG、附件回捞与一致性都在动作那一刻按
+alpha 加这次动作的产品框现算，不落盘。手改过的 alpha 就是最终答案，不再回捞也不再校验。
+抠图在跑的那段时间是内存状态，不进任务记录。
+_Avoid_: 版本蒙版、遮罩缓存、maskImageId（那是版本上的快照）
+
 **蒙版一致性（matte agreement）**：
-抠出来的蒙版外接框与方案给的 `productBox` 的重叠率。低于阈值判为抠错了对象，这一版不带蒙版
-提交并标「蒙版不可靠」——占比正常不等于抠对了东西。
+原图 alpha 的外接框与方案给的 `productBox` 的重叠率，每个动作按它自己那个框现算。低于阈值
+判为抠错了对象，这一版不带蒙版提交并标「蒙版不可靠」——占比正常不等于抠对了东西。结论会回写
+到原图上供状态标签显示，但只是缓存：谁也不许拿它当派生依据。
 _Avoid_: 蒙版质量、抠图置信度
 
 ## 测试
