@@ -136,7 +136,7 @@ interface UpstreamResponse {
 }
 
 type UpstreamFetch = (input: UndiciFetchInput, init?: UndiciFetchInit) => Promise<UpstreamResponse>
-type UpstreamFetchInit = Parameters<UpstreamFetch>[1]
+type UpstreamFetchInit = UndiciFetchInit
 
 export const UPSTREAM_CONNECT_TIMEOUT_MS = 10_000
 export const UPSTREAM_TRANSPORT_TIMEOUT_MS = QUEUE_TIMEOUTS.UPSTREAM_HARD_TIMEOUT_MS + 60_000
