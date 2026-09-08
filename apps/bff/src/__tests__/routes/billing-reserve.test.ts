@@ -141,7 +141,7 @@ describe('billing reservation units', () => {
     ])
   })
 
-  it('reserves a video task by seconds at the resolution multiplier', async () => {
+  it('reserves a video task by seconds at the multiplier that model prices the resolution at', async () => {
     const status = await submit('grok-imagine-video', {
       video: { duration_seconds: 8, aspect_ratio: '16:9', resolution: '1080p' },
     })
@@ -154,6 +154,23 @@ describe('billing reservation units', () => {
         model: 'grok-imagine-video',
         quantity: 8,
         unitMultiplier: 1.6,
+      },
+    ])
+  })
+
+  it('reserves a 720p video task at multiplier one', async () => {
+    const status = await submit('grok-imagine-video', {
+      video: { duration_seconds: 5, aspect_ratio: '16:9', resolution: '720p' },
+    })
+
+    expect(status).toBe(200)
+    expect(reservations).toEqual([
+      {
+        taskId: expect.any(String),
+        userId: 'billing-user',
+        model: 'grok-imagine-video',
+        quantity: 5,
+        unitMultiplier: 1,
       },
     ])
   })
