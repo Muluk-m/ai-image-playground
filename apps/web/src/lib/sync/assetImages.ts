@@ -6,12 +6,12 @@
 import { assetStore } from '../../features/library/lib/assetStore'
 import { blobToDataUrl, refreshImageThumbnail } from '../../store'
 import { getImage, hasImage, putImage } from '../db'
-import { clearImageUnsynced, markImageUnsynced } from './pending'
+import { clearImageUnsynced, markImageUnsynced, restoreImagelessAssets } from './pending'
 import { useSyncStatus } from './status'
 import { getAssetImage, putAssetImage } from './syncClient'
 
 /** `refused` = 服务端不会再收这张图，记录改标「未同步」；`failed` 留着下一轮重试。 */
-export type AssetImageUpload = 'uploaded' | 'refused' | 'failed'
+export type AssetImageUpload = 'uploaded' | 'refused' | 'failed' | 'imageless'
 
 const uploaded = new Set<string>()
 const uploads = new Map<string, Promise<AssetImageUpload>>()
@@ -57,8 +57,7 @@ async function upload(imageId: string): Promise<AssetImageUpload> {
   try {
     const image = await getImage(imageId)
     const blob = image && toBlob(image.dataUrl)
-    // 本机没有图片本体的素材只可能是别的设备建的，服务端那边本来就有图，交给它判定。
-    if (!blob) return 'uploaded'
+    if (!blob) return 'imageless'
 
     if ((await putAssetImage(imageId, blob)) === 'refused') {
       markImageUnsynced(imageId)
@@ -77,7 +76,8 @@ async function fetchIfMissing(imageId: string): Promise<boolean> {
     if (await hasImage(imageId)) return true
     if (!useSyncStatus.getState().enabled) return false
     // 服务端只存素材图；任务结果、商品图这些本机数据的缺图不该去问它。
-    if (!(await namesAnAsset(imageId))) return false
+    const named = await assetIdsUsing(imageId)
+    if (named.length === 0) return false
 
     const blob = await getAssetImage(imageId)
     if (!blob) return false
@@ -89,14 +89,16 @@ async function fetchIfMissing(imageId: string): Promise<boolean> {
     })
     refreshImageThumbnail(imageId)
     noteAssetImageOnServer(imageId)
+    restoreImagelessAssets(named)
     return true
   } catch {
     return false
   }
 }
 
-async function namesAnAsset(imageId: string): Promise<boolean> {
-  return (await assetStore.list()).some((asset) => asset.imageId === imageId)
+async function assetIdsUsing(imageId: string): Promise<string[]> {
+  const assets = await assetStore.list()
+  return assets.filter((asset) => asset.imageId === imageId).map((asset) => asset.id)
 }
 
 function toBlob(dataUrl: string): Blob | null {
