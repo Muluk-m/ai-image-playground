@@ -92,6 +92,48 @@ describe('a finished card', () => {
     expect(host.textContent).toContain('300 积分')
   })
 
+  it('reads the actual output size when the queue returned one', () => {
+    render(videoTask({ source: 'image', firstFrameImageId: 'a', width: 960, height: 960 }))
+
+    expect(host.textContent).toContain('960\u00d7960')
+    expect(host.textContent).not.toContain('16:9')
+  })
+
+  it('falls back to 随首帧 for an image source without a size', () => {
+    render(videoTask({ source: 'image', firstFrameImageId: 'a' }))
+
+    expect(host.textContent).toContain('随首帧')
+    expect(host.textContent).not.toContain('16:9')
+  })
+
+  it('letterboxes by the actual size instead of the selected ratio', () => {
+    render(
+      videoTask({
+        source: 'image',
+        firstFrameImageId: 'a',
+        width: 960,
+        height: 960,
+        thumbnailDataUrl: 'data:image/png;base64,AA',
+      }),
+    )
+
+    const frame = host.querySelector<HTMLElement>('span[style*="aspect-ratio"]')
+    expect(frame?.style.aspectRatio).toBe('960 / 960')
+  })
+
+  it('lets the thumbnail size itself while an image task has no output size', () => {
+    render(
+      videoTask({
+        source: 'image',
+        firstFrameImageId: 'a',
+        thumbnailDataUrl: 'data:image/png;base64,AA',
+      }),
+    )
+
+    expect(host.querySelector('span[style*="aspect-ratio"]')).toBeNull()
+    expect(host.querySelector('img')?.className).toContain('object-contain')
+  })
+
   it('offers the hover actions', () => {
     render(videoTask())
 

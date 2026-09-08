@@ -4,6 +4,7 @@ import Overlay from '../../../components/Overlay'
 import { LABEL, OUTLINE_BUTTON } from '../../../components/panelStyles'
 import { copyTextToClipboard, getClipboardFailureMessage } from '../../../lib/clipboard'
 import { useStore } from '../../../store'
+import { videoAspectLabel } from '../lib/aspect'
 import {
   adoptAsFirstFrame,
   captureVideoFrame,
@@ -116,7 +117,8 @@ export default function VideoLightbox({ task, onClose }: { task: VideoTask; onCl
           <dl className="grid grid-cols-[3.5rem_minmax(0,1fr)] gap-x-2 gap-y-1 text-xs">
             <Row label="模型">{modelLabel}</Row>
             <Row label="参数">
-              {task.duration} 秒 · {task.aspectRatio} · {VIDEO_RESOLUTION_LABELS[task.resolution]}
+              {task.duration} 秒 · {videoAspectLabel(task)} ·{' '}
+              {VIDEO_RESOLUTION_LABELS[task.resolution]}
             </Row>
             {firstFrame && (
               <Row label="首帧">

@@ -106,6 +106,18 @@ describe('playing a finished video', () => {
     expect(document.body.textContent).toContain('300')
     expect(document.body.textContent).toContain('用时 39 秒')
   })
+
+  it('reads the actual output size for an image source', () => {
+    render(videoTask({ source: 'image', firstFrameImageId: 'a', width: 960, height: 960 }))
+
+    expect(document.body.textContent).toContain('5 秒 · 960\u00d7960 · 720p')
+  })
+
+  it('reads 随首帧 for an image source without a size', () => {
+    render(videoTask({ source: 'image', firstFrameImageId: 'a' }))
+
+    expect(document.body.textContent).toContain('5 秒 · 随首帧 · 720p')
+  })
 })
 
 describe('acting on a video', () => {
