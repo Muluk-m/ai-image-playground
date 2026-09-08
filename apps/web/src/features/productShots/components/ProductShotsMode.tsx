@@ -28,7 +28,7 @@ export default function ProductShotsMode() {
 
       <ProductBar />
 
-      <div className="grid items-start gap-4 lg:grid-cols-[15rem_minmax(0,1fr)_17rem]">
+      <div className="grid gap-4 lg:grid-cols-[15rem_minmax(0,1fr)_17rem]">
         <div className={STICKY_COLUMN} style={{ top: HEADER_OFFSET }}>
           <SourcePanel />
         </div>
