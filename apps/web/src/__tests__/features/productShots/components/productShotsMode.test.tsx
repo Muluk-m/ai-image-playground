@@ -173,6 +173,12 @@ function column(name: string): HTMLElement {
   return element
 }
 
+function progressLine(): HTMLElement {
+  const element = document.querySelector<HTMLElement>('[data-product-shots-progress]')
+  if (!element) throw new Error('no progress line')
+  return element
+}
+
 function versionPanel(): HTMLElement {
   const element = document.querySelector<HTMLElement>('[data-product-shots-version-panel]')
   if (!element) throw new Error('no version panel')
@@ -345,20 +351,41 @@ describe('running one background swap', () => {
 
     click(actionButton())
     await settle()
-    expect(actionButton().textContent).toContain('方案中')
-    expect(actionButton().disabled).toBe(true)
+    expect(progressLine().textContent).toContain('方案中')
 
     plan.resolve(PLAN)
     await settle()
-    expect(actionButton().textContent).toContain('抠图中')
+    expect(progressLine().textContent).toContain('抠图中')
 
     matte.resolve({ alpha: new Uint8ClampedArray(4), width: 2, height: 2 })
     await settle()
-    expect(actionButton().textContent).toContain('生成中')
+    expect(progressLine().textContent).toContain('生成中')
 
     submit.resolve(['task-1'])
     await settle()
-    expect(actionButton().textContent).toBe('换背景')
+    expect(document.querySelector('[data-product-shots-progress]')).toBeNull()
+  })
+
+  it('keeps the three action buttons on their own labels while a stage runs', async () => {
+    const plan = deferred<typeof PLAN>()
+    requestBackgroundPlan.mockReturnValue(plan.promise)
+    await withOneImage()
+
+    click(actionButton())
+    await settle()
+
+    for (const [action, label] of [
+      ['background', '换背景'],
+      ['replace-product', '换产品'],
+      ['remix', '借创意重做'],
+    ]) {
+      expect(actionButton(action).textContent).toBe(label)
+      expect(actionButton(action).disabled).toBe(true)
+    }
+    expect(progressLine().textContent).toContain('方案中')
+
+    plan.resolve(PLAN)
+    await settle()
   })
 
   it('puts the new version on the bar with its plan label', async () => {
