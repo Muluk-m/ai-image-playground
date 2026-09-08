@@ -1,7 +1,9 @@
 import { type KeyboardEvent, useState } from 'react'
-import { EditIcon, TrashIcon, ZoomIcon } from '../../../components/icons'
+import { EditIcon, TrashIcon, VideoIcon, ZoomIcon } from '../../../components/icons'
+import { isVideoModeAvailable } from '../../../lib/channels/videoChannels'
 import { useSyncStatus } from '../../../lib/sync/status'
 import { useStore } from '../../../store'
+import { startVideoFromImage } from '../../video/lib/playback'
 import { useLibraryStore } from '../store'
 import type { AssetRecord } from '../types'
 import AssetThumb from './AssetThumb'
@@ -79,6 +81,17 @@ export default function AssetCard({ asset }: { asset: AssetRecord }) {
           />
         )}
 
+        {isVideoModeAvailable() && (
+          <button
+            type="button"
+            onClick={() => startVideoFromImage(asset.imageId)}
+            aria-label="做成视频"
+            title="做成视频"
+            className="shrink-0 rounded-md p-1 text-gray-400 transition hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-white/[0.06] dark:hover:text-gray-200"
+          >
+            <VideoIcon className="h-3.5 w-3.5" />
+          </button>
+        )}
         <button
           type="button"
           onClick={() => setDraftName(asset.name)}

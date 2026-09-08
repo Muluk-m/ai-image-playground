@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { startVideoFromImage } from '../features/video/lib/playback'
 import { createMaskPreviewDataUrl } from '../lib/canvasImage'
+import { isVideoModeAvailable } from '../lib/channels/videoChannels'
 import { downloadBlob } from '../lib/downloadImages'
 import { ensureImageCached, getCachedImage, useStore } from '../store'
-import { DownloadIcon } from './icons'
+import { DownloadIcon, VideoIcon } from './icons'
 import Overlay from './Overlay'
 
 const MIN_SCALE = 1
@@ -547,6 +549,8 @@ function LightboxInner({
 
   const navBtnClass =
     'absolute top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/40 text-white hover:bg-black/60 transition-all z-10 backdrop-blur-sm'
+  const actionBtnClass =
+    'flex items-center gap-1.5 rounded-full bg-black/40 px-3 py-2 text-sm text-white backdrop-blur-sm transition-all hover:bg-black/60'
 
   return (
     <Overlay onClose={onClose} tier="raised" backdrop="none" layout="fill">
@@ -585,16 +589,26 @@ function LightboxInner({
           </div>
         </div>
 
-        {coarsePointer && (
-          <button
-            data-save-image
-            onClick={handleSave}
-            className="absolute top-4 right-4 z-10 flex items-center gap-1.5 rounded-full bg-black/40 px-3 py-2 text-sm text-white backdrop-blur-sm transition-all hover:bg-black/60"
-          >
-            <DownloadIcon className="w-4 h-4" />
-            保存图片
-          </button>
-        )}
+        <div className="absolute top-4 right-4 z-10 flex items-center gap-2">
+          {isVideoModeAvailable() && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                startVideoFromImage(imageId)
+              }}
+              className={actionBtnClass}
+            >
+              <VideoIcon className="w-4 h-4" />
+              做成视频
+            </button>
+          )}
+          {coarsePointer && (
+            <button data-save-image onClick={handleSave} className={actionBtnClass}>
+              <DownloadIcon className="w-4 h-4" />
+              保存图片
+            </button>
+          )}
+        </div>
 
         {/* 左右切换按钮 */}
         {showNav && !isZoomed && (
