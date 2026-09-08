@@ -1,4 +1,8 @@
-import type { VideoModelSupport } from '@image-playground/shared'
+import {
+  VIDEO_DURATIONS,
+  type VideoDuration,
+  type VideoModelSupport,
+} from '@image-playground/shared'
 import type { VideoDraft, VideoTask } from '../types'
 
 /**
@@ -24,13 +28,18 @@ export function appendCameraMove(prompt: string, move: string): string {
   return /[，。！？；、,.!?;]$/.test(base) ? `${base}${move}` : `${base}，${move}`
 }
 
+/** 续写秒数不在档位表里，填回左栏时退到默认档。 */
+function draftDuration(seconds: number): VideoDuration {
+  return VIDEO_DURATIONS.find((duration) => duration === seconds) ?? VIDEO_DURATIONS[0]
+}
+
 /** 把一条任务的参数还原成左栏草稿。重生成与「相同参数再来一条」共用。 */
 export function videoDraftFromTask(task: VideoTask): VideoDraft {
   return {
     source: task.source,
     prompt: task.prompt,
     model: task.model,
-    duration: task.duration,
+    duration: draftDuration(task.duration),
     aspectRatio: task.aspectRatio,
     resolution: task.resolution,
     firstFrameImageId: task.firstFrameImageId ?? null,

@@ -10,7 +10,7 @@ import {
 import { create } from 'zustand'
 import { getStoredChannel } from '../../lib/channels/channelStore'
 import { awaitQueueOutputs, submitVideoRequest } from '../../lib/channels/queueClient'
-import { videoModelOptions } from '../../lib/channels/videoChannels'
+import { type VideoModelOption, videoModelOptions } from '../../lib/channels/videoChannels'
 import { getImageThumbnail } from '../../lib/db'
 import {
   getPrivateSubmissionGuard,
@@ -19,14 +19,19 @@ import {
   notifyPrivateSubmissionSettled,
 } from '../../lib/privateOverlay'
 import { ensureImageCached, storeImageFromFile, useStore } from '../../store'
+import { checkDerive } from './lib/derive'
 import { appendCameraMove, clampDraftToSupport, videoDraftFromTask } from './lib/draft'
 import { videoTaskStore } from './lib/videoStore'
-import type { VideoDraft, VideoFrameSlot, VideoSource, VideoTask } from './types'
+import type { VideoDeriveMode, VideoDraft, VideoFrameSlot, VideoSource, VideoTask } from './types'
 
 const EMPTY_PROMPT = '请先写一句描述'
 const NO_FIRST_FRAME = '请先放一张首帧图'
 const NO_MODEL = '当前部署没有可用的视频模型'
 const FRAME_MISSING = '首尾帧图片已丢失'
+const SOURCE_GONE = '源视频已不在'
+
+/** 派生输出的上游封顶。 */
+const DERIVE_RESOLUTION: VideoResolution = '720p'
 
 export const INITIAL_VIDEO_DRAFT: VideoDraft = {
   source: 'text',
@@ -62,6 +67,11 @@ export interface VideoState {
   useAsFirstFrame(imageId: string): void
 
   submit(): Promise<string | null>
+  /** 从一条成品视频派生一条新任务，参数不经左栏草稿。 */
+  deriveVideo(
+    source: VideoTask,
+    input: { mode: VideoDeriveMode; prompt: string; seconds: number },
+  ): Promise<string | null>
   /** 把这条的参数填回左栏，不提交。 */
   loadDraft(task: VideoTask): void
   regenerate(task: VideoTask): Promise<string | null>
@@ -79,22 +89,39 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
 }
 
-/** 首尾帧下标指向 input_images：首帧永远 0，尾帧跟在它后面。 */
-function videoRequestOf(params: {
-  duration: VideoDuration
+/**
+ * 首尾帧下标指向 input_images：首帧永远 0，尾帧跟在它后面。派生任务不带帧，改带源片的
+ * BFF request_id —— 本地 id 上游不认，所以到提交这一刻才换。
+ */
+function videoRequestOf(task: VideoTask, tasks: VideoTask[]): VideoRequest {
+  const request: VideoRequest = {
+    duration_seconds: task.duration,
+    aspect_ratio: task.aspectRatio,
+    resolution: task.resolution,
+  }
+  if (task.mode) {
+    const origin = tasks.find((item) => item.id === task.sourceTaskId)
+    if (!origin?.bffRequestId || origin.outputIndex === undefined) throw new Error(SOURCE_GONE)
+    request.mode = task.mode
+    request.source_task_id = origin.bffRequestId
+    request.source_output_index = origin.outputIndex
+    return request
+  }
+  if (task.firstFrameImageId) request.first_frame_index = 0
+  if (task.lastFrameImageId) request.last_frame_index = task.firstFrameImageId ? 1 : 0
+  return request
+}
+
+interface EnqueueInput {
+  option: VideoModelOption
+  source: VideoSource
+  prompt: string
+  duration: number
   aspectRatio: VideoAspectRatio
   resolution: VideoResolution
   firstFrameImageId?: string | null
   lastFrameImageId?: string | null
-}): VideoRequest {
-  const request: VideoRequest = {
-    duration_seconds: params.duration,
-    aspect_ratio: params.aspectRatio,
-    resolution: params.resolution,
-  }
-  if (params.firstFrameImageId) request.first_frame_index = 0
-  if (params.lastFrameImageId) request.last_frame_index = params.firstFrameImageId ? 1 : 0
-  return request
+  derived?: { mode: VideoDeriveMode; sourceTaskId: string }
 }
 
 export const useVideoStore = create<VideoState>((set, get) => {
@@ -132,7 +159,7 @@ export const useVideoStore = create<VideoState>((set, get) => {
           channel,
           model: task.model,
           prompt: task.prompt,
-          video: videoRequestOf(task),
+          video: videoRequestOf(task, get().tasks),
           inputImageDataUrls: await frameDataUrls(task),
           clientRequestId: task.clientRequestId,
         })
@@ -156,7 +183,66 @@ export const useVideoStore = create<VideoState>((set, get) => {
     }
   }
 
-  async function enqueue(draft: VideoDraft): Promise<string | null> {
+  /** 冻结一条任务并交给 runTask。校验与门禁都在这里，成功才落盘。 */
+  async function enqueue(input: EnqueueInput): Promise<string | null> {
+    const { showToast } = useStore.getState()
+    const task: VideoTask = {
+      id: crypto.randomUUID(),
+      clientRequestId: crypto.randomUUID(),
+      channelId: input.option.channelId,
+      source: input.source,
+      prompt: input.prompt,
+      model: input.option.modelId,
+      duration: input.duration,
+      aspectRatio: input.aspectRatio,
+      resolution: input.resolution,
+      status: 'queued',
+      error: null,
+      createdAt: Date.now(),
+      completedAt: null,
+      ...(input.firstFrameImageId ? { firstFrameImageId: input.firstFrameImageId } : {}),
+      ...(input.lastFrameImageId ? { lastFrameImageId: input.lastFrameImageId } : {}),
+      ...(input.derived ?? {}),
+    }
+
+    let video: VideoRequest
+    try {
+      video = videoRequestOf(task, get().tasks)
+    } catch (err) {
+      showToast(errorMessage(err), 'error')
+      return null
+    }
+    const frameCount = [task.firstFrameImageId, task.lastFrameImageId].filter(Boolean).length
+    const validation = validateVideoRequest(task.model, video, frameCount)
+    if (!validation.ok) {
+      showToast(validation.reason, 'error')
+      return null
+    }
+
+    const guard = getPrivateSubmissionGuard({
+      model: task.model,
+      quantity: task.duration,
+      unitMultiplier: videoRateMultiplier(task.resolution),
+    })
+    if (guard.blocked) {
+      if (guard.disabledReason) showToast(guard.disabledReason, 'error')
+      guard.blockedAction?.run()
+      return null
+    }
+    if (guard.estimatedCredits !== undefined) task.credits = guard.estimatedCredits
+
+    if (task.firstFrameImageId) {
+      const thumbnail = await getImageThumbnail(task.firstFrameImageId).catch(() => undefined)
+      if (thumbnail?.thumbnailDataUrl) task.thumbnailDataUrl = thumbnail.thumbnailDataUrl
+    }
+
+    set((state) => ({ tasks: byNewest([task, ...state.tasks]) }))
+    await videoTaskStore.put(task)
+    void runTask(task.id)
+    return task.id
+  }
+
+  async function enqueueDraft(draft: VideoDraft): Promise<string | null> {
     const { showToast } = useStore.getState()
     const prompt = draft.prompt.trim()
     if (!prompt) {
@@ -176,52 +262,16 @@ export const useVideoStore = create<VideoState>((set, get) => {
       return null
     }
 
-    const frameCount = [firstFrameImageId, lastFrameImageId].filter(Boolean).length
-    const video = videoRequestOf({ ...draft, firstFrameImageId, lastFrameImageId })
-    const validation = validateVideoRequest(option.modelId, video, frameCount)
-    if (!validation.ok) {
-      showToast(validation.reason, 'error')
-      return null
-    }
-
-    const guard = getPrivateSubmissionGuard({
-      model: option.modelId,
-      quantity: draft.duration,
-      unitMultiplier: videoRateMultiplier(draft.resolution),
-    })
-    if (guard.blocked) {
-      if (guard.disabledReason) showToast(guard.disabledReason, 'error')
-      guard.blockedAction?.run()
-      return null
-    }
-
-    const task: VideoTask = {
-      id: crypto.randomUUID(),
-      clientRequestId: crypto.randomUUID(),
-      channelId: option.channelId,
+    return await enqueue({
+      option,
       source: draft.source,
       prompt,
-      model: option.modelId,
       duration: draft.duration,
       aspectRatio: draft.aspectRatio,
       resolution: draft.resolution,
-      status: 'queued',
-      error: null,
-      createdAt: Date.now(),
-      completedAt: null,
-      ...(firstFrameImageId ? { firstFrameImageId } : {}),
-      ...(lastFrameImageId ? { lastFrameImageId } : {}),
-      ...(guard.estimatedCredits === undefined ? {} : { credits: guard.estimatedCredits }),
-    }
-    if (firstFrameImageId) {
-      const thumbnail = await getImageThumbnail(firstFrameImageId).catch(() => undefined)
-      if (thumbnail?.thumbnailDataUrl) task.thumbnailDataUrl = thumbnail.thumbnailDataUrl
-    }
-
-    set((state) => ({ tasks: byNewest([task, ...state.tasks]) }))
-    await videoTaskStore.put(task)
-    void runTask(task.id)
-    return task.id
+      firstFrameImageId,
+      lastFrameImageId,
+    })
   }
 
   return {
@@ -289,7 +339,30 @@ export const useVideoStore = create<VideoState>((set, get) => {
     },
 
     submit() {
-      return enqueue(get().draft)
+      return enqueueDraft(get().draft)
+    },
+
+    deriveVideo(source, input) {
+      const { showToast } = useStore.getState()
+      const prompt = input.prompt.trim()
+      if (!prompt) {
+        showToast(EMPTY_PROMPT, 'error')
+        return Promise.resolve(null)
+      }
+      const check = checkDerive(source, input.mode)
+      if (!check.ok) {
+        showToast(check.reason, 'error')
+        return Promise.resolve(null)
+      }
+      return enqueue({
+        option: check.option,
+        source: 'text',
+        prompt,
+        duration: input.seconds,
+        aspectRatio: source.aspectRatio,
+        resolution: DERIVE_RESOLUTION,
+        derived: { mode: input.mode, sourceTaskId: source.id },
+      })
     },
 
     loadDraft(task) {
@@ -297,9 +370,21 @@ export const useVideoStore = create<VideoState>((set, get) => {
     },
 
     regenerate(task) {
+      if (task.mode && task.sourceTaskId) {
+        const origin = get().tasks.find((item) => item.id === task.sourceTaskId)
+        if (!origin) {
+          useStore.getState().showToast(SOURCE_GONE, 'error')
+          return Promise.resolve(null)
+        }
+        return get().deriveVideo(origin, {
+          mode: task.mode,
+          prompt: task.prompt,
+          seconds: task.duration,
+        })
+      }
       const draft = videoDraftFromTask(task)
       set({ draft })
-      return enqueue(draft)
+      return enqueueDraft(draft)
     },
 
     async removeTask(id) {
