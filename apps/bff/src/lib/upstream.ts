@@ -12,6 +12,7 @@ import { getChannels } from './channels'
 import type { HydratedSubmitRequest } from './imageArchive'
 import { log } from './logger'
 import { resolveApiKey } from './resolveApiKey'
+import { isObject } from './type-guards'
 
 /**
  * Convert queued requests into OpenAI Images or Gemini generateContent calls.
@@ -724,9 +725,16 @@ function buildAgnesVideoBody(
   }
 }
 
+/** 已知错误码换成中文文案；上游英文原文仍完整落 upstream_body。 */
+function asyncFailureMessage(payload: unknown, status: number | null): string {
+  const error = isObject(payload) ? payload.error : null
+  if (isObject(error) && error.code === 'internal_error') return '上游服务异常，请稍后重试'
+  return extractErrorMessage(payload, status ?? 502)
+}
+
 /** 上游任务终态失败 → 复用 HTTP 失败的错误形状，retry.ts 与 admin 才认得出来。 */
 function asyncTaskFailure(status: number | null, payload: unknown): Error {
-  const err = new Error(extractErrorMessage(payload, status ?? 502)) as Error & {
+  const err = new Error(asyncFailureMessage(payload, status)) as Error & {
     upstreamStatus?: number
     upstreamPayload: unknown
   }
@@ -1222,23 +1230,19 @@ function stringifyUpstreamPayload(payload: unknown): string | null {
 }
 
 /**
- * 从 catch 到的错误里抽上游 HTTP 层诊断信息，供 task-runner 落库、admin 直接展示。
- * transport 中断 / BFF 硬超时压根没拿到 HTTP 响应，两个字段都是 null——此时
- * error_type='upstream_result_unknown' 已经表达了「结果未知」。
+ * 从 catch 到的错误里抽上游诊断信息，供 task-runner 落库、admin 直接展示。
+ * 两个字段互相独立：异步任务终态失败有 body 没有 HTTP status，别再把 body 挂到 status 上。
  */
 export function extractUpstreamFailure(err: unknown): {
   status: number | null
   body: string | null
 } {
-  // 用 in / typeof 运行时窄化，不做 `err as { upstreamStatus?: unknown }` 这种
-  // 断言式访问：err 来自 catch，形状没有任何保证，断言只会把错读伪装成合法读。
-  if (!err || typeof err !== 'object' || !('upstreamStatus' in err)) {
-    return { status: null, body: null }
-  }
+  if (!isObject(err)) return { status: null, body: null }
   const status = err.upstreamStatus
-  if (typeof status !== 'number') return { status: null, body: null }
-  const body = 'upstreamPayload' in err ? stringifyUpstreamPayload(err.upstreamPayload) : null
-  return { status, body }
+  return {
+    status: typeof status === 'number' ? status : null,
+    body: stringifyUpstreamPayload(err.upstreamPayload),
+  }
 }
 
 function extractErrorMessage(payload: unknown, status: number): string {
