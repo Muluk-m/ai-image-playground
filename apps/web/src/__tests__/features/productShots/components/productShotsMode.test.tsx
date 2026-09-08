@@ -200,6 +200,12 @@ function hover(element: Element) {
   })
 }
 
+function unhover(element: Element) {
+  act(() => {
+    element.dispatchEvent(new MouseEvent('mouseout', { bubbles: true }))
+  })
+}
+
 function focus(element: Element) {
   act(() => {
     element.dispatchEvent(new FocusEvent('focusin', { bubbles: true }))
@@ -276,12 +282,14 @@ describe('the background swap workbench', () => {
     await act(async () => {})
     const remove = document.querySelector('[aria-label="移除原图 1"]')
     if (!remove) throw new Error('no remove button')
-    // 原生 title 和应用提示会叠着出，只留应用提示那一份。
     expect(remove.getAttribute('title')).toBeNull()
     expect(document.body.textContent).not.toContain('移除原图 1')
 
     hover(remove)
     expect(document.body.textContent).toContain('移除原图 1')
+
+    unhover(remove)
+    expect(document.body.textContent).not.toContain('移除原图 1')
 
     focus(remove)
     expect(document.body.textContent).toContain('移除原图 1')
