@@ -27,7 +27,7 @@ export default function ChipRow<T extends string | number>({
       {note && <span className="text-xs text-gray-600 dark:text-gray-300">{note}</span>}
       <div role="group" aria-label={label} className="flex flex-wrap gap-1.5">
         {options.map((option) => {
-          const off = disabled === true || optionDisabled?.(option) === true
+          const off = Boolean(disabled || optionDisabled?.(option))
           return (
             <button
               key={option}
