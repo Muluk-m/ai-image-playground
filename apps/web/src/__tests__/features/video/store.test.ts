@@ -145,13 +145,14 @@ describe('提交', () => {
   })
 
   it('描述超过模型上限时不提交', async () => {
+    const cap = VIDEO_MODEL_SUPPORT[VEO_FAST_MODEL].promptMaxChars!
     const store = useVideoStore.getState()
     store.setModel(VEO_FAST_MODEL)
-    store.setPrompt('光'.repeat(VIDEO_MODEL_SUPPORT[VEO_FAST_MODEL].promptMaxChars! + 1))
+    store.setPrompt('光'.repeat(cap + 1))
 
     expect(await store.submit()).toBeNull()
     expect(submitVideoRequest).not.toHaveBeenCalled()
-    expect(showToast).toHaveBeenCalledWith('Veo 3.1 Fast 描述最多 1024 字', 'error')
+    expect(showToast).toHaveBeenCalledWith(`Veo 3.1 Fast 描述最多 ${cap} 字`, 'error')
   })
 
   it('门禁拦住时不提交，并跑它给的动作', async () => {

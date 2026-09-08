@@ -252,11 +252,12 @@ export const useVideoStore = create<VideoState>((set, get) => {
     for (const check of [
       validateVideoRequest(task.model, video, frameCount),
       validateVideoPrompt(task.model, prompt),
-    ])
+    ]) {
       if (!check.ok) {
         showToast(check.reason, 'error')
         return null
       }
+    }
 
     const guard = getPrivateSubmissionGuard({
       model: task.model,
