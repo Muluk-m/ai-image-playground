@@ -173,6 +173,12 @@ function column(name: string): HTMLElement {
   return element
 }
 
+function versionPanel(): HTMLElement {
+  const element = document.querySelector<HTMLElement>('[data-product-shots-version-panel]')
+  if (!element) throw new Error('no version panel')
+  return element
+}
+
 function click(element: Element) {
   act(() => {
     element.dispatchEvent(new MouseEvent('click', { bubbles: true }))
@@ -428,7 +434,7 @@ describe('running one background swap', () => {
       })
     })
 
-    const choose = [...column('actions').querySelectorAll('button')].find(
+    const choose = [...versionPanel().querySelectorAll('button')].find(
       (button) => button.title === '用这版',
     )
     if (!choose) throw new Error('no choose button')
@@ -438,7 +444,7 @@ describe('running one background swap', () => {
     const [version] = useProductShotsStore.getState().draft.images[0].versions
     expect(useProductShotsStore.getState().draft.images[0].chosenVersionId).toBe(version.id)
     expect(
-      [...column('actions').querySelectorAll('button')]
+      [...versionPanel().querySelectorAll('button')]
         .find((button) => button.title === '取消选用')
         ?.getAttribute('aria-pressed'),
     ).toBe('true')
@@ -493,7 +499,7 @@ describe('looking at the matte before trusting a version', () => {
     click(actionButton())
     await settle()
 
-    const toggle = [...column('actions').querySelectorAll('button')].find(
+    const toggle = [...versionPanel().querySelectorAll('button')].find(
       (button) => button.title === '看蒙版',
     )
     if (!toggle) throw new Error('no matte toggle')
@@ -787,7 +793,7 @@ describe('the product picked once for the whole job', () => {
   })
 })
 
-describe('the right column grouped into settings, generation and versions', () => {
+describe('the right column grouped into settings and generation', () => {
   const PRODUCT_REASON = '换产品与借创意重做需要先选产品素材'
 
   function headings(): string[] {
@@ -798,10 +804,10 @@ describe('the right column grouped into settings, generation and versions', () =
     return [...column('actions').querySelectorAll('[data-product-shots-action-reason]')]
   }
 
-  it('orders the column as settings, generation and versions', () => {
+  it('orders the column as settings and generation', () => {
     render()
 
-    expect(headings()).toEqual(['设置', '生成', '版本'])
+    expect(headings()).toEqual(['设置', '生成'])
   })
 
   it('puts the three actions on one row', () => {
@@ -945,7 +951,7 @@ describe('the plan drawer of one version', () => {
 
     expect(drawer()).toBeNull()
 
-    openDrawer(column('actions'))
+    openDrawer(versionPanel())
 
     expect(drawer()?.textContent).toContain('提示词')
     expect(promptField().value).toBe(PLAN.prompt)
@@ -961,7 +967,7 @@ describe('the plan drawer of one version', () => {
 
   it('rebuilds the prompt when the plan sentence is edited', async () => {
     await withOneVersion()
-    openDrawer(column('actions'))
+    openDrawer(versionPanel())
 
     write('方案句', '放进水泥灰的极简浴室')
     await settle()
@@ -971,13 +977,13 @@ describe('the plan drawer of one version', () => {
 
   it('marks a hand written prompt and offers the way back', async () => {
     await withOneVersion()
-    openDrawer(column('actions'))
+    openDrawer(versionPanel())
 
     write('提示词', '我自己写的提示词')
     await settle()
 
     expect(drawer()?.textContent).toContain('手改')
-    expect(column('actions').textContent).toContain('手改')
+    expect(versionPanel().textContent).toContain('手改')
 
     const reset = [...(drawer()?.querySelectorAll('button') ?? [])].find(
       (button) => button.textContent === '重置为 AI 版本',
@@ -991,7 +997,7 @@ describe('the plan drawer of one version', () => {
 
   it('submits another version on the prompt in the drawer', async () => {
     await withOneVersion()
-    openDrawer(column('actions'))
+    openDrawer(versionPanel())
     write('提示词', '我自己写的提示词')
     await settle()
 
@@ -1008,7 +1014,7 @@ describe('the plan drawer of one version', () => {
 
   it('sets the language of the copy printed on the picture for the whole job', async () => {
     await withOneVersion()
-    openDrawer(column('actions'))
+    openDrawer(versionPanel())
 
     const english = [...(drawer()?.querySelectorAll('button') ?? [])].find(
       (button) => button.textContent === '英文',

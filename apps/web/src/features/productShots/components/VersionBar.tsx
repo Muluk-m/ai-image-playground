@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { DownloadIcon, EditIcon } from '../../../components/icons'
 import Pending from '../../../components/Pending'
-import { NOTICE } from '../../../components/panelStyles'
+import { CARD, GHOST_BUTTON, NOTICE, PANEL_TITLE } from '../../../components/panelStyles'
 import { formatElapsed } from '../../../hooks/useElapsed'
 import { downloadImagesByIds } from '../../../lib/downloadImages'
 import { useStore } from '../../../store'
@@ -44,7 +44,8 @@ export default function VersionBar() {
   const lightboxImageIds = rows.flatMap((row) => row.progress.outputImageIds)
 
   return (
-    <div>
+    <section data-product-shots-version-panel className={CARD}>
+      <h2 className={PANEL_TITLE}>版本</h2>
       {selected && isDiagram(selected.sceneType) && (
         <p className="mt-1.5 rounded bg-amber-500/10 px-1.5 py-0.5 text-xs text-amber-700 dark:text-amber-300">
           {DIAGRAM_LABEL}
@@ -68,7 +69,7 @@ export default function VersionBar() {
           ))}
         </ul>
       )}
-    </div>
+    </section>
   )
 }
 

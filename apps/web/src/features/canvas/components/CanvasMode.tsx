@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { HEADER_OFFSET } from '../../../components/panelStyles'
 import { useStore } from '../../../store'
 import { CanvasDoc } from '../lib/canvasDoc'
 import { CanvasEditor } from '../lib/editor'
@@ -12,8 +13,6 @@ import CanvasToolbar from './CanvasToolbar'
 import KonvaCanvas from './KonvaCanvas'
 import PlaceholderOverlay from './PlaceholderOverlay'
 import StylePanel from './StylePanel'
-
-const HEADER_OFFSET = 'calc(var(--safe-area-top) + var(--header-height))'
 
 /**
  * 创作模式：自建无限画布（Konva 渲染，MIT，无任何 license 依赖）。
