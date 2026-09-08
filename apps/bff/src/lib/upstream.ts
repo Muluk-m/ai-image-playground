@@ -51,12 +51,15 @@ type ChannelRouteStyle =
   | 'grok-videos'
   /** Agnes 视频：提交拿 video_id，轮询网关根下的 agnesapi，结果是公网 mp4 地址。 */
   | 'agnes-videos'
+  /** 火山方舟 Seedance：提交 content 数组拿 id，轮询同一路径，结果是公网 mp4 地址。 */
+  | 'ark-videos'
 
 const CHANNEL_ROUTE_STYLES: Readonly<Record<string, ChannelRouteStyle | undefined>> = {
   'agnes-images': 'agnes-generations-json',
   'grok-images': 'grok-openai-images',
   'grok-video': 'grok-videos',
   'agnes-video': 'agnes-videos',
+  'ark-video': 'ark-videos',
 }
 
 interface UpstreamRoute {
@@ -363,25 +366,21 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
         return results.length === 1 ? results[0]! : merge(results)
       }
 
-      if (style === 'grok-videos' || style === 'agnes-videos') {
+      const videoSpec = VIDEO_STYLE_SPECS[style]
+      if (videoSpec) {
         const video = request.video
         if (!video) throw clientError('视频任务缺少视频参数')
-        const isGrok = style === 'grok-videos'
         const mode = video.mode ?? 'generate'
-        const protocol = isGrok ? grokVideoProtocol(base, mode) : agnesVideoProtocol(base, model)
-        const body = JSON.stringify(
-          isGrok
-            ? buildGrokVideoBody(model, request, video, mode)
-            : buildAgnesVideoBody(model, request, video),
-        )
+        if (!videoSpec.modes.includes(mode)) throw clientError('该模型不支持续写和改视频')
+        const protocol = videoSpec.protocol({ base, model, mode })
         const headers = { 'content-type': 'application/json', ...authHeader }
         const [taskId] = await collectTaskIds(protocol, 1, () => ({
           method: 'POST',
           headers,
-          body,
+          body: JSON.stringify(videoSpec.body(model, request, video, mode)),
         }))
         const { payload } = await pollAsyncTask(protocol, taskId!)
-        if (!isGrok) return agnesVideoResult(payload, video)
+        if (videoSpec.result) return videoSpec.result(payload, video)
 
         // Grok 的内容端点要带 key，取回字节交给归档；轮询响应里只有相对路径。
         const contentUrl = grokVideoContentUrl(base, payload)
@@ -558,6 +557,40 @@ function imageTaskProtocol(base: string, submitBase: string): AsyncTaskProtocol 
   }
 }
 
+interface VideoStyleSpec {
+  /** 上游实际接受的模式；档位表已在 submit 拦过一遍，这里是发请求前的最后一道。 */
+  readonly modes: readonly VideoMode[]
+  protocol(args: { base: string; model: string; mode: VideoMode }): AsyncTaskProtocol
+  body(
+    model: string,
+    request: HydratedSubmitRequest,
+    video: HydratedVideoRequest,
+    mode: VideoMode,
+  ): Record<string, unknown>
+  /** 成片是公网地址的上游在此收口；缺省表示要另发一次请求取字节（Grok）。 */
+  result?(payload: unknown, video: HydratedVideoRequest): UpstreamCallResult
+}
+
+const VIDEO_STYLE_SPECS: Partial<Record<ChannelRouteStyle, VideoStyleSpec>> = {
+  'grok-videos': {
+    modes: ['generate', 'extend', 'edit'],
+    protocol: ({ base, mode }) => grokVideoProtocol(base, mode),
+    body: buildGrokVideoBody,
+  },
+  'agnes-videos': {
+    modes: ['generate'],
+    protocol: ({ base, model }) => agnesVideoProtocol(base, model),
+    body: buildAgnesVideoBody,
+    result: agnesVideoResult,
+  },
+  'ark-videos': {
+    modes: ['generate'],
+    protocol: ({ base }) => arkVideoProtocol(base),
+    body: buildArkVideoBody,
+    result: arkVideoResult,
+  },
+}
+
 const GROK_VIDEO_SUBMIT_PATHS: Record<VideoMode, string> = {
   generate: 'videos/generations',
   extend: 'videos/extensions',
@@ -582,6 +615,16 @@ function agnesVideoProtocol(base: string, model: string): AsyncTaskProtocol {
       `${origin}/agnesapi?video_id=${encodeURIComponent(taskId)}&model_name=${encodeURIComponent(model)}`,
     readTaskId: (payload) => readTaskIdField(payload, ['video_id', 'task_id', 'id']),
     readState: readAgnesVideoState,
+  }
+}
+
+function arkVideoProtocol(base: string): AsyncTaskProtocol {
+  const tasks = `${base}/contents/generations/tasks`
+  return {
+    submitUrl: tasks,
+    pollUrl: (taskId) => `${tasks}/${encodeURIComponent(taskId)}`,
+    readTaskId: (payload) => readTaskIdField(payload, ['id']),
+    readState: readArkVideoState,
   }
 }
 
@@ -625,28 +668,33 @@ function readAsyncTaskState(payload: unknown): AsyncTaskState {
 
 const VIDEO_MIME = 'video/mp4'
 
-const GROK_VIDEO_DONE_STATUSES = new Set(['done', 'succeeded', 'completed'])
-const GROK_VIDEO_FAILED_STATUSES = new Set(['failed', 'error', 'expired', 'cancelled'])
-
 function readStatusToken(payload: unknown): string | null {
   const status = (payload as { status?: unknown } | null)?.status
   return typeof status === 'string' ? status.toLowerCase() : null
 }
 
-function readGrokVideoState(payload: unknown): AsyncTaskState {
-  const status = readStatusToken(payload)
-  if (status === null) return { kind: 'pending' }
-  if (GROK_VIDEO_DONE_STATUSES.has(status)) return { kind: 'completed', payload }
-  if (GROK_VIDEO_FAILED_STATUSES.has(status)) return { kind: 'failed', status: null }
-  return { kind: 'pending' }
+/** 未知 status 一律当 pending 继续轮：上游加新中间态时不该把任务判死。 */
+function videoStatusReader(
+  done: readonly string[],
+  failed: readonly string[],
+): (payload: unknown) => AsyncTaskState {
+  const doneStatuses = new Set(done)
+  const failedStatuses = new Set(failed)
+  return (payload) => {
+    const status = readStatusToken(payload)
+    if (status === null) return { kind: 'pending' }
+    if (doneStatuses.has(status)) return { kind: 'completed', payload }
+    if (failedStatuses.has(status)) return { kind: 'failed', status: null }
+    return { kind: 'pending' }
+  }
 }
 
-function readAgnesVideoState(payload: unknown): AsyncTaskState {
-  const status = readStatusToken(payload)
-  if (status === 'completed') return { kind: 'completed', payload }
-  if (status === 'failed') return { kind: 'failed', status: null }
-  return { kind: 'pending' }
-}
+const readGrokVideoState = videoStatusReader(
+  ['done', 'succeeded', 'completed'],
+  ['failed', 'error', 'expired', 'cancelled'],
+)
+const readAgnesVideoState = videoStatusReader(['completed'], ['failed'])
+const readArkVideoState = videoStatusReader(['succeeded'], ['failed', 'cancelled', 'expired'])
 
 /** 内容端点给的是网关相对路径，按 baseUrl 解析成绝对地址。 */
 function grokVideoContentUrl(base: string, payload: unknown): string {
@@ -661,15 +709,30 @@ function grokVideoDuration(payload: unknown, video: HydratedVideoRequest): numbe
   return typeof duration === 'number' && duration > 0 ? duration : video.duration_seconds
 }
 
+/** 成片是公网地址的上游共用的结果信封；归档随后按地址回源取字节。 */
+function remoteVideoResult(
+  url: unknown,
+  video: HydratedVideoRequest,
+  label: string,
+): UpstreamCallResult {
+  if (typeof url !== 'string' || !/^https?:\/\//i.test(url))
+    throw new UpstreamResultUnknownError(`${label} 视频任务已完成但未返回结果地址`)
+  return {
+    payload: { data: [{ url, mime: VIDEO_MIME, duration_seconds: video.duration_seconds }] },
+  }
+}
+
 function agnesVideoResult(payload: unknown, video: HydratedVideoRequest): UpstreamCallResult {
   const body = (payload ?? {}) as { url?: unknown; metadata?: { url?: unknown } }
   const url = [body.url, body.metadata?.url].find(
     (value): value is string => typeof value === 'string' && /^https?:\/\//i.test(value),
   )
-  if (!url) throw new UpstreamResultUnknownError('Agnes 视频任务已完成但未返回结果地址')
-  return {
-    payload: { data: [{ url, mime: VIDEO_MIME, duration_seconds: video.duration_seconds }] },
-  }
+  return remoteVideoResult(url, video, 'Agnes')
+}
+
+function arkVideoResult(payload: unknown, video: HydratedVideoRequest): UpstreamCallResult {
+  const content = (payload as { content?: { video_url?: unknown } } | null)?.content
+  return remoteVideoResult(content?.video_url, video, 'Seedance')
 }
 
 /** 首尾帧指向同一请求的 input_images；hydrate 之后它们已经是 data URL。 */
@@ -730,6 +793,30 @@ function buildAgnesVideoBody(
     aspect_ratio: video.aspect_ratio,
     ...(firstFrame ? { first_frame: firstFrame } : {}),
     ...(lastFrame ? { last_frame: lastFrame } : {}),
+  }
+}
+
+/** 方舟的 ratio / resolution token 跟我们的档位同名，直接透传，别再加一层映射。 */
+function buildArkVideoBody(
+  model: string,
+  request: HydratedSubmitRequest,
+  video: HydratedVideoRequest,
+): Record<string, unknown> {
+  const frame = (role: string, index: number | undefined): Record<string, unknown>[] => {
+    const url = videoFrame(request, index)
+    return url ? [{ type: 'image_url', image_url: { url }, role }] : []
+  }
+  return {
+    model,
+    content: [
+      { type: 'text', text: request.prompt },
+      ...frame('first_frame', video.first_frame_index),
+      ...frame('last_frame', video.last_frame_index),
+    ],
+    ratio: video.aspect_ratio,
+    duration: video.duration_seconds,
+    resolution: video.resolution,
+    watermark: false,
   }
 }
 

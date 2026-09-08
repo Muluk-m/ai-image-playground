@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'bun:test'
+import { readFileSync } from 'node:fs'
 import { CHANNEL_CAPABILITIES } from '@image-playground/shared'
 import {
   _setChannelsForTesting,
   ChannelsLoadError,
+  defaultChannelsPath,
   getChannels,
   getDiscoveredChannels,
   loadChannelsFromFile,
@@ -376,6 +378,33 @@ describe('parseChannelsConfig', () => {
     expect(() => parseChannelsConfig({ channels: 'oops' }, ENV_WITH_SECRETS)).toThrow(
       /channels must be an array/,
     )
+  })
+})
+
+describe('shipped channels.json', () => {
+  const shipped: unknown = JSON.parse(readFileSync(defaultChannelsPath(), 'utf8'))
+
+  it('drops the Seedance channel when ARK_BASE_URL is unset', () => {
+    const result = parseChannelsConfig(shipped, () => undefined)
+
+    expect(result.channels.map((c) => c.id)).not.toContain('ark-video')
+    expect(result.warnings.find((w) => w.includes("channel 'ark-video'"))).toContain('ARK_BASE_URL')
+  })
+
+  it('advertises the Seedance video model once ARK_BASE_URL and ARK_API_KEY are set', () => {
+    const result = parseChannelsConfig(
+      shipped,
+      (key) =>
+        ({ ARK_BASE_URL: 'https://ark.cn-beijing.volces.com/api/v3', ARK_API_KEY: 'ark-key' })[key],
+    )
+
+    const ark = result.channels.find((c) => c.id === 'ark-video')
+    expect(ark?.baseUrl).toBe('https://ark.cn-beijing.volces.com/api/v3')
+    expect(ark?.auth.secret).toBe('ark-key')
+    expect(ark?.models[0]).toMatchObject({
+      id: 'doubao-seedance-2-0-mini-260615',
+      media: 'video',
+    })
   })
 })
 
