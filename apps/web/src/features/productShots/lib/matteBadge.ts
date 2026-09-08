@@ -42,6 +42,6 @@ export function sourceMatteBadge(
 /** 蒙版没抠成时动作区的那一句；动作照跑。 */
 export function sourceMatteNotice(matte: SourceMatte | undefined): string | null {
   if (!matte) return null
-  if (matte.status === 'failed') return '未抠，本次动作不带蒙版'
-  return matte.agreement === 'box-mismatch' ? `${UNRELIABLE}，先改再跑` : null
+  if (matte.status === 'failed') return '未抠图'
+  return matte.agreement === 'box-mismatch' ? UNRELIABLE : null
 }

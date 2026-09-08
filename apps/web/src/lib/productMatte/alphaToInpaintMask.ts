@@ -1,5 +1,5 @@
 import { dilateBinary } from './morphology'
-import { encodeRgbaPngDataUrl } from './pngEncode'
+import { encodeRgbaPngDataUrl, packRgba, WHITE } from './pngEncode'
 import type { MaskPixels, ProductAlpha } from './types'
 
 export const DEFAULT_MASK_THRESHOLD = 0.5
@@ -74,14 +74,7 @@ function maskPixels(matte: ProductAlpha, options: ProductMaskOptions, invert: bo
   const grown = dilateBinary(binary, width, height, grow)
   const values = feather > 0 ? applyFeather(grown, width, height, feather) : grown
 
-  const data = new Uint8ClampedArray(total * 4)
-  for (let i = 0; i < total; i++) {
-    data[i * 4] = 255
-    data[i * 4 + 1] = 255
-    data[i * 4 + 2] = 255
-    data[i * 4 + 3] = Math.round(invert ? 255 - values[i] : values[i])
-  }
-  return { data, width, height }
+  return packRgba(values, width, height, WHITE, (value) => Math.round(invert ? 255 - value : value))
 }
 
 /**

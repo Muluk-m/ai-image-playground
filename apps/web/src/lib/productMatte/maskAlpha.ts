@@ -1,5 +1,5 @@
 import { loadImage } from '../canvasImage'
-import { encodeRgbaPngDataUrl } from './pngEncode'
+import { encodeRgbaPngDataUrl, packRgba, WHITE } from './pngEncode'
 import type { ProductAlpha } from './types'
 
 /** 遮罩 PNG 的 alpha 通道就是产品 alpha：不透明处保留，透明处重绘。 */
@@ -20,12 +20,5 @@ export async function maskDataUrlToAlpha(maskDataUrl: string): Promise<ProductAl
 
 /** `maskDataUrlToAlpha` 的逆。不阈值化：附件回捞靠的正是那些弱响应。 */
 export function alphaToDataUrl(matte: ProductAlpha): string {
-  const data = new Uint8ClampedArray(matte.alpha.length * 4)
-  for (let i = 0; i < matte.alpha.length; i++) {
-    data[i * 4] = 255
-    data[i * 4 + 1] = 255
-    data[i * 4 + 2] = 255
-    data[i * 4 + 3] = matte.alpha[i]
-  }
-  return encodeRgbaPngDataUrl({ data, width: matte.width, height: matte.height })
+  return encodeRgbaPngDataUrl(packRgba(matte.alpha, matte.width, matte.height, WHITE))
 }
