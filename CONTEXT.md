@@ -222,6 +222,25 @@ _Avoid_: 版本蒙版、遮罩缓存、maskImageId（那是版本上的快照）
 到原图上供状态标签显示，但只是缓存：谁也不许拿它当派生依据。
 _Avoid_: 蒙版质量、抠图置信度
 
+## 分镜（storyboard）
+
+**分镜（storyboard）**：
+一句创意或一段脚本拆出的一份镜头表，记 `{ title, summary, shots }`。由 `POST /api/storyboard/plan`
+让对话模型一次生成，请求带创意、镜头数、每镜秒数、画幅比例、可选风格与可选参考图。生成本身不计费，
+派生出的生图与生视频照常走既有计费。
+_Avoid_: 脚本、故事板、镜头组
+
+**镜（shot）**：
+分镜里的一条，记 `{ no, title, description, camera, line, seconds, imagePrompt, videoPrompt }`。
+`no` 从 1 连续编号，`seconds` 一律取请求里的每镜秒数而不是模型的答案——模型改了它，视频请求就跟界面
+对不上。`imagePrompt` 与 `videoPrompt` 必须各自成立、不依赖上下文：分镜要能导出到别的平台直接粘贴。
+_Avoid_: 镜头（那是商品图里的旧概念）、分格、帧
+
+**分镜图（storyboard frame）**：
+某一镜由 `imagePrompt` 生成的首帧图，走既有的图片队列；它再连同 `videoPrompt` 走图生视频，
+一镜一条片子。
+_Avoid_: 关键帧、首图
+
 ## 测试
 
 - `apps/web` 有 jsdom 环境（按文件 `@vitest-environment jsdom` 启用），组件级冒烟测试的入口；Overlay 是首个有 DOM 锚点的模块。
