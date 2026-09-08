@@ -28,18 +28,7 @@ import {
   toggleProductAsset,
   UPLOAD_PRODUCT_ANGLE,
 } from '../../lib/productAngle'
-import {
-  alphaToInpaintMask,
-  alphaToMattePreview,
-  alphaToProductMask,
-  assessMatte,
-  expandProductAlpha,
-  maskDataUrlToAlpha,
-  matteAgreesWithBox,
-  type ProductAlpha,
-  ProductMatteError,
-  segmentProduct,
-} from '../../lib/productMatte'
+import { alphaToMattePreview, maskDataUrlToAlpha } from '../../lib/productMatte'
 import { productContextDescription } from '../../lib/shotPrompt'
 import type {
   RemixBrief,
@@ -71,28 +60,36 @@ import {
 } from './lib/remixPlan'
 import { DIAGRAM_LABEL, isDiagram } from './lib/scene'
 import {
+  applyProductBox,
+  MATTE_FAILED,
+  type Mask,
+  type MaskAttempt,
+  maskAttemptFor,
+  NO_MASK,
+  pendingMatte,
+  runSourceMatte,
+  UNMASKED_FALLBACK,
+  unmasked,
+} from './lib/sourceMatte'
+import {
   editVersionPlan,
   resetVersionPrompt,
   type VersionPlanContext,
   type VersionPlanPatch,
 } from './lib/versionPlan'
 import type {
-  MatteFailureCause,
-  MatteOutcome,
   ProductShotBatchItemState,
   ProductShotBatchProgress,
   ProductShotImage,
   ProductShotJob,
   ProductShotStage,
   ProductShotVersion,
+  SourceMatte,
   SourceMode,
 } from './types'
 
 const UPLOAD_FALLBACK = '请直接上传原图'
-const UNMASKED_FALLBACK = '本版未抠图'
 const MASK_UNSUPPORTED = `当前模型不支持遮罩，${UNMASKED_FALLBACK}`
-const MATTE_FAILED = `抠图失败，${UNMASKED_FALLBACK}`
-const MATTE_UNRELIABLE = `蒙版与产品框不符，${UNMASKED_FALLBACK}`
 const NOT_SUBMITTED = '这张没有提交成功'
 const MASK_MISSING = '蒙版图片已丢失'
 /** 短边低于这个像素数就算低分辨率源图。 */
@@ -102,8 +99,6 @@ const ANALYZE_OFF = '竞品图分析未开启，这张跑不了借创意重做'
 const NO_BRIEF = '这张没分析出可用的简报'
 const NO_ANGLE_MATCH = '没有与机位相符的素材，用了第一张'
 const ASSET_MISSING = '素材图片已丢失'
-
-type Mask = { imageId: string; targetImageId: string }
 
 export interface ProductShotsDraft {
   /** 已保存的任务 id；null 表示还没落盘。 */
@@ -350,6 +345,7 @@ export const useProductShotsStore = create<ProductShotsState>((set, get) => ({
     useStore.getState().showToast(`已拉入 ${pulled} 张`, 'success')
     // 预检逐张打上游，必须留在按钮复位之后：挪回 try 里图集已到齐按钮还在读秒。
     await scanScenes(set, get)
+    await matteNewImages(set, get)
   },
 
   importFiles: async (files) => {
@@ -363,6 +359,7 @@ export const useProductShotsStore = create<ProductShotsState>((set, get) => ({
     }
     await persistDraft(set, get)
     await scanScenes(set, get)
+    await matteNewImages(set, get)
   },
 
   addImagesFromAssets: async (assetIds) => {
@@ -380,6 +377,7 @@ export const useProductShotsStore = create<ProductShotsState>((set, get) => ({
     adoptAsProduct(set, get, first)
     await persistDraft(set, get)
     await scanScenes(set, get)
+    await matteNewImages(set, get)
   },
 
   openSourcePicker: () => {
@@ -478,7 +476,7 @@ export const useProductShotsStore = create<ProductShotsState>((set, get) => ({
     if (swapStage || batch?.running || !found || !jobId) return
 
     await runStages(set, async (stage) => {
-      const prepared = await prepareImage(get, found.imageId, stage, found.version)
+      const prepared = await prepareImage(set, get, found.imageId, stage, found.version)
       if (prepared.notice) set({ swapNotice: prepared.notice })
       const rerun = await submitVersion(jobId, prepared, versionId)
       if (rerun) await recordVersions(set, get, found.imageId, [rerun])
@@ -492,30 +490,33 @@ export const useProductShotsStore = create<ProductShotsState>((set, get) => ({
     if (draft.id && found) await swapOneVersion(set, get, draft.id, found.imageId, found.version)
   },
 
-  /** 「编辑蒙版」：拿这一版的蒙版进遮罩编辑器，画笔涂的是保留区。 */
+  /** 「编辑蒙版」：改的是原图身上那份蒙版，画笔涂的是保留区。 */
   editVersionMask: async (versionId) => {
     const found = findVersion(get().draft, versionId)
-    const maskImageId = found?.version.maskImageId
-    if (!found || !maskImageId) return
+    const matte = found?.image.sourceMatte
+    if (!found || !matte?.maskImageId) return
 
-    const maskDataUrl = await ensureImageCached(maskImageId)
+    const maskDataUrl = await ensureImageCached(matte.maskImageId)
     if (!maskDataUrl) {
       set({ swapNotice: MASK_MISSING })
       return
     }
-    useStore.getState().openMaskEditorSession(found.version.maskTargetImageId ?? found.imageId, {
+    useStore.getState().openMaskEditorSession(matte.maskTargetImageId ?? found.imageId, {
       maskDataUrl,
       keepSemantics: true,
-      onSave: (saved) => saveEditedMask(set, get, versionId, saved),
+      onSave: (saved) => saveEditedMask(set, get, found.imageId, saved),
     })
   },
 
-  /** 「用此蒙版重生成」：提示词与参考图照旧，蒙版用这一版身上那张。 */
+  /** 「用此蒙版重生成」：提示词与参考图照旧，蒙版用原图当前那份。 */
   regenerateWithMask: async (versionId) => {
     const { draft } = get()
     const found = findVersion(draft, versionId)
-    const attempt = maskAttemptOf(found?.version)
-    if (!draft.id || !found || !attempt) return
+    const side = found ? maskSideFor(found.version.mode ?? DEFAULT_BG_SWAP_MODE) : null
+    const matte = found?.image.sourceMatte
+    if (!draft.id || !found || !side || !matte) return
+    const attempt = await maskAttemptFor(matte, side)
+    if (!attempt.mask) return
     await swapOneVersion(set, get, draft.id, found.imageId, found.version, attempt)
   },
 
@@ -627,34 +628,31 @@ function reasonOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
-/** 这一版身上的蒙版，拿来当重生成的输入；没抠到蒙版的版本为 null。 */
-function maskAttemptOf(version: ProductShotVersion | undefined): MaskAttempt | null {
-  if (!version?.maskImageId || !version.maskTargetImageId) return null
-  return {
-    mask: { imageId: version.maskImageId, targetImageId: version.maskTargetImageId },
-    notice: null,
-    matte: version.matte ?? null,
-    previewImageId: version.mattePreviewImageId ?? null,
-  }
-}
-
-/** 手改完蒙版写回这一版：预览也要跟着换，否则「看蒙版」还停在抠图那一版。 */
+/** 手改完蒙版写回原图：预览也要跟着换，否则「看蒙版」还停在抠图那一版。 */
 async function saveEditedMask(
   set: SetState,
   get: GetState,
-  versionId: string,
+  imageId: string,
   saved: { maskDataUrl: string; targetImageId: string },
 ): Promise<void> {
   const maskImageId = await storeImage(saved.maskDataUrl, 'mask')
   const previewImageId = await editedMaskPreview(saved.maskDataUrl)
 
-  patchVersion(set, get, versionId, (version) => ({
-    ...version,
-    masked: true,
-    maskImageId,
-    maskTargetImageId: saved.targetImageId,
-    ...(previewImageId ? { mattePreviewImageId: previewImageId } : {}),
+  patchImage(set, imageId, (image) => ({
+    ...image,
+    sourceMatte: {
+      ...(image.sourceMatte ?? pendingMatte()),
+      status: 'ready',
+      maskImageId,
+      maskTargetImageId: saved.targetImageId,
+      // 手改的这份就是最终答案，方案再给产品框也不该拿原始 alpha 重做回捞。
+      alphaImageId: null,
+      reason: null,
+      edited: true,
+      ...(previewImageId ? { previewImageId } : {}),
+    },
   }))
+  await persistDraft(set, get)
 }
 
 /** 预览画不出来不该让保存失败：蒙版本身已经写回去了。 */
@@ -685,7 +683,7 @@ async function swapOneVersion(
   const handPicked = Boolean(reuse) && !maskOverride
 
   await runStages(set, async (stage) => {
-    const prepared = await prepareImage(get, imageId, stage, reuse, maskOverride)
+    const prepared = await prepareImage(set, get, imageId, stage, reuse, maskOverride)
     if (prepared.notice) set({ swapNotice: prepared.notice })
     const version = await submitVersion(jobId, prepared, crypto.randomUUID())
     if (!version) return
@@ -720,6 +718,72 @@ async function loadOriginal(imageId: string): Promise<string> {
   return dataUrl
 }
 
+/** 抠图一张一张跑：模型吃满设备，几张并行只会互相拖慢。 */
+let matteQueue: Promise<unknown> = Promise.resolve()
+const mattesInFlight = new Map<string, Promise<void>>()
+
+function imageOf(state: ProductShotsState, imageId: string): ProductShotImage | undefined {
+  return state.draft.images.find((image) => image.imageId === imageId)
+}
+
+/** 原图一进任务就抠，之后每个动作直接拿这份蒙版。 */
+async function matteNewImages(set: SetState, get: GetState): Promise<void> {
+  const fresh = get().draft.images.filter((image) => !image.sourceMatte)
+  await Promise.all(fresh.map((image) => ensureMatte(set, get, image.imageId)))
+}
+
+/** 已经抠好或正在抠就不重来；旧记录与还没抠的这时才排进队。 */
+function ensureMatte(set: SetState, get: GetState, imageId: string): Promise<void> {
+  const inFlight = mattesInFlight.get(imageId)
+  if (inFlight) return inFlight
+  const matte = imageOf(get(), imageId)?.sourceMatte
+  if (matte && matte.status !== 'pending') return Promise.resolve()
+
+  patchImage(set, imageId, (image) => ({ ...image, sourceMatte: pendingMatte() }))
+  const task = matteQueue.then(() => matteOne(set, get, imageId)).catch(() => {})
+  matteQueue = task
+  const tracked = task.finally(() => mattesInFlight.delete(imageId))
+  mattesInFlight.set(imageId, tracked)
+  return tracked
+}
+
+async function matteOne(set: SetState, get: GetState, imageId: string): Promise<void> {
+  let matte: SourceMatte
+  try {
+    matte = await runSourceMatte(imageId, await loadOriginal(imageId), null)
+  } catch {
+    matte = { ...pendingMatte(), status: 'failed', reason: 'failed' }
+  }
+  if (!imageOf(get(), imageId)) return
+  patchImage(set, imageId, (image) => ({ ...image, sourceMatte: matte }))
+  await persistDraft(set, get)
+}
+
+/** 动作要的遮罩来自原图身上那份蒙版：还在抠就等它，方案给了产品框就补校一次。 */
+async function imageMaskAttempt(
+  set: SetState,
+  get: GetState,
+  imageId: string,
+  productBox: ProductBox | null,
+  side: MaskSide,
+): Promise<MaskAttempt> {
+  if (
+    !modelSupportsNativeMask(getActiveApiProfile(useStore.getState().settings), getPublicChannels())
+  ) {
+    return unmasked(MASK_UNSUPPORTED, 'unsupported', null)
+  }
+
+  await ensureMatte(set, get, imageId)
+  const matte = imageOf(get(), imageId)?.sourceMatte
+  if (!matte) return unmasked(MATTE_FAILED, 'failed', null)
+  if (!productBox || matte.agreement !== null) return maskAttemptFor(matte, side)
+
+  const rechecked = await applyProductBox(matte, productBox)
+  patchImage(set, imageId, (image) => ({ ...image, sourceMatte: rechecked }))
+  await persistDraft(set, get)
+  return maskAttemptFor(rechecked, side)
+}
+
 /** 小图放大后细节发软，版本上要标出来。量不出尺寸只是没法标，不该拦住生成。 */
 async function isLowResSource(dataUrl: string): Promise<boolean> {
   try {
@@ -729,19 +793,6 @@ async function isLowResSource(dataUrl: string): Promise<boolean> {
     return false
   }
 }
-
-interface MaskAttempt {
-  mask: Mask | null
-  /** 蒙版回落的说明，没有回落时为 null。 */
-  notice: string | null
-  /** 这一模式不带遮罩时为 null，没跑过抠图也就没有结论。 */
-  matte: MatteOutcome | null
-  /** 蒙版叠在原图上的预览图；抠图没跑出结果时为 null。 */
-  previewImageId: string | null
-}
-
-/** 整图重画的那几种动作不带遮罩。 */
-const NO_MASK: MaskAttempt = { mask: null, notice: null, matte: null, previewImageId: null }
 
 /** 一张图跑完方案与蒙版后的成果，同一张的每一版都拿它去提交。 */
 interface PreparedImage extends MaskAttempt {
@@ -841,6 +892,7 @@ async function framingImage(
 
 /** 一张图只准备一次，之后它的每一版共用。`reuse` 是重跑时沿用的旧方案。 */
 function prepareImage(
+  set: SetState,
   get: GetState,
   imageId: string,
   stage: StageSink,
@@ -850,7 +902,7 @@ function prepareImage(
   const mode = modeOf(get().draft, reuse)
   return mode === 'remix'
     ? prepareRemix(get, imageId, stage, reuse)
-    : prepareSwap(get, imageId, stage, mode, reuse, maskOverride)
+    : prepareSwap(set, get, imageId, stage, mode, reuse, maskOverride)
 }
 
 /** 借创意重做：分析竞品图 → 六段提示词 → 抹掉产品的原图当参考，不带遮罩。 */
@@ -924,6 +976,7 @@ function firstAssetName(draft: ProductShotsDraft): string {
 
 /** 换背景那三种：方案 → 素材 → 蒙版。 */
 async function prepareSwap(
+  set: SetState,
   get: GetState,
   imageId: string,
   stage: StageSink,
@@ -950,7 +1003,7 @@ async function prepareSwap(
   const side = maskSideFor(mode)
   if (side && !maskOverride) stage('matte')
   const attempt =
-    maskOverride ?? (side ? await buildMask(imageId, dataUrl, productBox, side) : NO_MASK)
+    maskOverride ?? (side ? await imageMaskAttempt(set, get, imageId, productBox, side) : NO_MASK)
 
   stage('generate')
   const original =
@@ -1091,7 +1144,7 @@ async function runOneOfBatch(
 ): Promise<void> {
   patchBatchItem(set, imageId, 'running', null)
   try {
-    const prepared = await prepareImage(get, imageId, (stage) => patchBatch(set, { stage }))
+    const prepared = await prepareImage(set, get, imageId, (stage) => patchBatch(set, { stage }))
     const submitted = await Promise.all(
       Array.from({ length: get().draft.versionsPerImage }, () =>
         submitVersion(jobId, prepared, crypto.randomUUID()),
@@ -1137,60 +1190,6 @@ function upsertVersion(
   return versions.some((item) => item.id === version.id)
     ? versions.map((item) => (item.id === version.id ? version : item))
     : [...versions, version]
-}
-
-function unmasked(
-  notice: string,
-  reason: MatteFailureCause,
-  previewImageId: string | null,
-): MaskAttempt {
-  return { mask: null, notice, matte: { ok: false, reason }, previewImageId }
-}
-
-/** 蒙版不能用的两种情形：抠出来的占比不对，或抠中的不是方案说的那个产品。 */
-function matteFailure(
-  matte: ProductAlpha,
-  productBox: ProductBox | null,
-): { notice: string; reason: MatteFailureCause } | null {
-  if (!assessMatte(matte).ok) return { notice: MATTE_FAILED, reason: 'failed' }
-  if (!matteAgreesWithBox(matte, productBox)) {
-    return { notice: MATTE_UNRELIABLE, reason: 'box-mismatch' }
-  }
-  return null
-}
-
-/** 抠不出来就回落提示词版：宁可产品不锁死，也不要卡住这一版。`notice` 是回落的说明。 */
-async function buildMask(
-  imageId: string,
-  dataUrl: string,
-  productBox: ProductBox | null,
-  side: MaskSide,
-): Promise<MaskAttempt> {
-  if (
-    !modelSupportsNativeMask(getActiveApiProfile(useStore.getState().settings), getPublicChannels())
-  ) {
-    return unmasked(MASK_UNSUPPORTED, 'unsupported', null)
-  }
-  try {
-    const matte = await segmentProduct(dataUrl)
-    const failure = matteFailure(matte, productBox)
-    // 一致性校验看原始蒙版；膨胀后的那张才是真正用掉的，预览与它一致用户才看得出附件有没有进保留区。
-    const used = failure ? matte : expandProductAlpha(matte, { productBox })
-    // 预览图连抠错的那次也要存：用户就是靠它看出抠错了什么。
-    const previewImageId = await storeImage(alphaToMattePreview(used), 'mask')
-    if (failure) return unmasked(failure.notice, failure.reason, previewImageId)
-    const pixels = side === 'product' ? alphaToProductMask(used) : alphaToInpaintMask(used)
-    const mask = { imageId: await storeImage(pixels, 'mask'), targetImageId: imageId }
-    return {
-      mask,
-      notice: null,
-      matte: { ok: true, backend: matte.backend, elapsedMs: matte.elapsedMs },
-      previewImageId,
-    }
-  } catch (error) {
-    const reason = error instanceof ProductMatteError ? error.reason : 'failed'
-    return unmasked(MATTE_FAILED, reason, null)
-  }
 }
 
 function addImages(set: SetState, added: ProductShotImage[]): void {
