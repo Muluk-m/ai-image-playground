@@ -32,6 +32,7 @@ COPY apps/web/package.json ./apps/web/
 COPY apps/bff/package.json ./apps/bff/
 COPY apps/admin/package.json ./apps/admin/
 COPY packages/db/package.json ./packages/db/
+COPY packages/node-kit/package.json ./packages/node-kit/
 COPY packages/shared/package.json ./packages/shared/
 COPY --from=private-manifests /overlay/private ./private
 ARG PRIVATE_OVERLAY_PRESENT=false
@@ -71,6 +72,7 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/apps/bff/node_modules ./apps/bff/node_modules
 COPY --from=deps /app/apps/admin/node_modules ./apps/admin/node_modules
 COPY --from=deps /app/packages/db/node_modules ./packages/db/node_modules
+COPY --from=deps /app/packages/node-kit/node_modules ./packages/node-kit/node_modules
 COPY --from=deps /app/packages/shared/node_modules ./packages/shared/node_modules
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
@@ -80,6 +82,7 @@ COPY apps/admin/package.json ./apps/admin/package.json
 COPY apps/admin/server ./apps/admin/server
 COPY apps/admin/contracts.ts ./apps/admin/contracts.ts
 COPY packages/db ./packages/db
+COPY packages/node-kit ./packages/node-kit
 COPY packages/shared ./packages/shared
 COPY --from=admin-build /app/apps/admin/dist ./apps/admin/dist
 COPY --from=web-build /app/apps/web/dist /usr/share/nginx/html
