@@ -63,22 +63,30 @@ export function markRecordDirty(collection: SyncCollection, record: DirtyRecord)
 }
 
 /**
- * 匿名库领养来的模板、素材与用户设置一次性标脏。领养跑在引擎启动之前，没有监听者可通知，
- * 所以直接落检查点；能力关闭时一个字节都不写。
+ * 一整批已在本机的记录一次性标脏：匿名库领养与引擎首次在某个 scope 上启动都走这里。
+ * 两者都跑在标脏监听器之外，所以直接落检查点；能力关闭时一个字节都不写。
  */
-export function markAdoptedDirty(adopted: {
+export function markBulkDirty(dirty: {
   templates: readonly string[]
   assets: readonly string[]
-  settings: boolean
+  /** 用户设置这份文档要带的时间戳；null = 这一批不含用户设置。 */
+  settingsUpdatedAt: number | null
 }): void {
   if (!isClientCapabilityEnabled('accounts:sync')) return
-  if (adopted.templates.length === 0 && adopted.assets.length === 0 && !adopted.settings) return
+  if (
+    dirty.templates.length === 0 &&
+    dirty.assets.length === 0 &&
+    dirty.settingsUpdatedAt === null
+  ) {
+    return
+  }
   const checkpoint = readPendingChanges()
   writePendingChanges({
     ...checkpoint,
-    templates: union(checkpoint.templates, adopted.templates),
-    assets: union(checkpoint.assets, adopted.assets),
-    settingsUpdatedAt: adopted.settings ? Date.now() : checkpoint.settingsUpdatedAt,
+    templates: union(checkpoint.templates, dirty.templates),
+    assets: union(checkpoint.assets, dirty.assets),
+    // 已在待推的那个时间戳一定不比这一批旧，压低它会让本机改动输给服务端。
+    settingsUpdatedAt: checkpoint.settingsUpdatedAt ?? dirty.settingsUpdatedAt,
   })
 }
 
