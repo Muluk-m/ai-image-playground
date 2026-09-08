@@ -51,7 +51,7 @@ export default function DeriveVideoPopover({
   const guard = usePrivateSubmissionGuard({
     model: modelId,
     quantity: seconds,
-    unitMultiplier: videoRateMultiplier(DERIVE_RESOLUTION),
+    unitMultiplier: videoRateMultiplier(modelId, DERIVE_RESOLUTION),
   })
 
   const submit = async () => {

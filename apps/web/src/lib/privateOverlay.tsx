@@ -4,7 +4,7 @@ export interface PrivateSubmissionInput {
   model: string
   /** 计价单位数：图片任务是张数，视频任务是秒数。 */
   quantity: number
-  /** 单位倍率，缺省 1；视频按清晰度取 videoRateMultiplier。 */
+  /** 单位倍率，缺省 1；视频按模型与清晰度取 videoRateMultiplier。 */
   unitMultiplier?: number
 }
 

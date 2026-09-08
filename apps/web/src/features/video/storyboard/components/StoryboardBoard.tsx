@@ -43,7 +43,7 @@ export default function StoryboardBoard() {
   const guard = usePrivateSubmissionGuard({
     model: option?.modelId ?? model,
     quantity: record?.totalSeconds ?? 0,
-    unitMultiplier: videoRateMultiplier(resolution),
+    unitMultiplier: videoRateMultiplier(option?.modelId ?? model, resolution),
   })
 
   // 出图任务跑在工作台里，分镜记录只存任务 id，完成后要把图挂回来。

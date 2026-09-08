@@ -1,3 +1,4 @@
+import { VIDEO_MODEL_SUPPORT } from '@image-playground/shared'
 import { IDBFactory } from 'fake-indexeddb'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { videoTaskStore } from '../../../features/video/lib/videoStore'
@@ -5,7 +6,15 @@ import { INITIAL_VIDEO_DRAFT, useVideoStore } from '../../../features/video/stor
 import type { VideoTask } from '../../../features/video/types'
 import { setChannels } from '../../../lib/channels/channelStore'
 import { useStore } from '../../../store'
-import { AGNES_CHANNEL, GROK_CHANNEL, IMAGE_CHANNEL, videoTask } from './fixtures'
+import {
+  AGNES_CHANNEL,
+  CONSTRAINED_CHANNEL,
+  CONSTRAINED_MODEL,
+  CONSTRAINED_SUPPORT,
+  GROK_CHANNEL,
+  IMAGE_CHANNEL,
+  videoTask,
+} from './fixtures'
 
 const submitVideoRequest = vi.hoisted(() => vi.fn(async () => 'req-1'))
 const awaitQueueOutputs = vi.hoisted(() => vi.fn(async () => [{ index: 0, mime: 'video/mp4' }]))
@@ -45,13 +54,15 @@ function tasks() {
 
 beforeEach(() => {
   vi.stubGlobal('indexedDB', new IDBFactory())
-  setChannels([IMAGE_CHANNEL, GROK_CHANNEL, AGNES_CHANNEL])
+  setChannels([IMAGE_CHANNEL, GROK_CHANNEL, AGNES_CHANNEL, CONSTRAINED_CHANNEL])
+  VIDEO_MODEL_SUPPORT[CONSTRAINED_MODEL] = CONSTRAINED_SUPPORT
   useStore.setState({ showToast, tasks: [] })
   useVideoStore.setState({ tasks: [], loaded: false, draft: INITIAL_VIDEO_DRAFT })
   useVideoStore.getState().syncModelOptions()
 })
 
 afterEach(() => {
+  delete VIDEO_MODEL_SUPPORT[CONSTRAINED_MODEL]
   setChannels([])
   vi.unstubAllGlobals()
   vi.clearAllMocks()
@@ -290,6 +301,18 @@ describe('参数', () => {
 
     expect(draft().resolution).toBe('720p')
     expect(draft().duration).toBe(5)
+  })
+
+  it('换模型时把时长退到该清晰度配得上的档', () => {
+    const store = useVideoStore.getState()
+    store.setModel('grok-imagine-video')
+    store.setResolution('1080p')
+    store.setDuration(5)
+
+    // 受限模型的 1080p 只配 8 秒。
+    store.setModel(CONSTRAINED_MODEL)
+
+    expect(draft()).toMatchObject({ resolution: '1080p', duration: 8 })
   })
 
   it('切到不支持尾帧的模型时留住尾帧图，切回去还在', () => {

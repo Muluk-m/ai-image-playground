@@ -1,10 +1,9 @@
 import {
   VIDEO_ASPECT_RATIOS,
-  VIDEO_DURATIONS,
   VIDEO_MODEL_SUPPORT,
   VIDEO_RESOLUTION_LABELS,
-  VIDEO_RESOLUTION_MULTIPLIERS,
   type VideoModelSupport,
+  videoDurationsForResolution,
   videoRateMultiplier,
 } from '@image-playground/shared'
 import { useEffect, useMemo, useState } from 'react'
@@ -85,7 +84,7 @@ function VideoSubmitPanel({
   const guard = usePrivateSubmissionGuard({
     model: draft.model,
     quantity: draft.duration,
-    unitMultiplier: videoRateMultiplier(draft.resolution),
+    unitMultiplier: videoRateMultiplier(draft.model, draft.resolution),
   })
 
   usePasteImageFiles('video', (files) => {
@@ -96,6 +95,7 @@ function VideoSubmitPanel({
   })
 
   const lastFrameReason = support.lastFrame ? undefined : `${support.label} 不支持尾帧`
+  const durations = videoDurationsForResolution(support, draft.resolution)
   const summary = `${support.label} · ${draft.duration} 秒 · ${VIDEO_RESOLUTION_LABELS[draft.resolution]}`
 
   return (
@@ -174,9 +174,10 @@ function VideoSubmitPanel({
       <div className="flex flex-col gap-2.5">
         <ChipRow
           label="时长"
-          options={VIDEO_DURATIONS.filter((duration) => support.durations.includes(duration))}
+          options={support.durations}
           value={draft.duration}
           render={(duration) => `${duration} 秒`}
+          optionDisabled={(duration) => !durations.includes(duration)}
           onChange={(duration) => useVideoStore.getState().setDuration(duration)}
         />
         <ChipRow
@@ -193,10 +194,15 @@ function VideoSubmitPanel({
           options={support.resolutions}
           value={draft.resolution}
           render={(resolution) => {
-            const multiplier = VIDEO_RESOLUTION_MULTIPLIERS[resolution]
+            const multiplier = videoRateMultiplier(draft.model, resolution)
             const label = VIDEO_RESOLUTION_LABELS[resolution]
             return multiplier === 1 ? label : `${label} ×${multiplier}`
           }}
+          optionDisabled={(resolution) =>
+            !(videoDurationsForResolution(support, resolution) as readonly number[]).includes(
+              draft.duration,
+            )
+          }
           onChange={(resolution) => useVideoStore.getState().setResolution(resolution)}
         />
       </div>
