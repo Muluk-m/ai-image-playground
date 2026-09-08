@@ -8,11 +8,10 @@ import { setChannels } from '../../../lib/channels/channelStore'
 import { useStore } from '../../../store'
 import {
   AGNES_CHANNEL,
-  CONSTRAINED_CHANNEL,
-  CONSTRAINED_MODEL,
-  CONSTRAINED_SUPPORT,
   GROK_CHANNEL,
   IMAGE_CHANNEL,
+  VEO_CHANNEL,
+  VEO_FAST_MODEL,
   videoTask,
 } from './fixtures'
 
@@ -54,15 +53,13 @@ function tasks() {
 
 beforeEach(() => {
   vi.stubGlobal('indexedDB', new IDBFactory())
-  setChannels([IMAGE_CHANNEL, GROK_CHANNEL, AGNES_CHANNEL, CONSTRAINED_CHANNEL])
-  VIDEO_MODEL_SUPPORT[CONSTRAINED_MODEL] = CONSTRAINED_SUPPORT
+  setChannels([IMAGE_CHANNEL, GROK_CHANNEL, AGNES_CHANNEL, VEO_CHANNEL])
   useStore.setState({ showToast, tasks: [] })
   useVideoStore.setState({ tasks: [], loaded: false, draft: INITIAL_VIDEO_DRAFT })
   useVideoStore.getState().syncModelOptions()
 })
 
 afterEach(() => {
-  delete VIDEO_MODEL_SUPPORT[CONSTRAINED_MODEL]
   setChannels([])
   vi.unstubAllGlobals()
   vi.clearAllMocks()
@@ -145,6 +142,16 @@ describe('提交', () => {
     expect(await store.submit()).toBeNull()
     expect(submitVideoRequest).not.toHaveBeenCalled()
     expect(showToast).toHaveBeenCalledWith('请先放一张首帧图', 'error')
+  })
+
+  it('描述超过模型上限时不提交', async () => {
+    const store = useVideoStore.getState()
+    store.setModel(VEO_FAST_MODEL)
+    store.setPrompt('光'.repeat(VIDEO_MODEL_SUPPORT[VEO_FAST_MODEL].promptMaxChars! + 1))
+
+    expect(await store.submit()).toBeNull()
+    expect(submitVideoRequest).not.toHaveBeenCalled()
+    expect(showToast).toHaveBeenCalledWith('Veo 3.1 Fast 描述最多 1024 字', 'error')
   })
 
   it('门禁拦住时不提交，并跑它给的动作', async () => {
@@ -309,8 +316,8 @@ describe('参数', () => {
     store.setResolution('1080p')
     store.setDuration(5)
 
-    // 受限模型的 1080p 只配 8 秒。
-    store.setModel(CONSTRAINED_MODEL)
+    // Veo 的 1080p 只配 8 秒。
+    store.setModel(VEO_FAST_MODEL)
 
     expect(draft()).toMatchObject({ resolution: '1080p', duration: 8 })
   })

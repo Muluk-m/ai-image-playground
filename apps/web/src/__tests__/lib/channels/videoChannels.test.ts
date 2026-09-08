@@ -2,7 +2,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { setChannels } from '../../../lib/channels/channelStore'
 import { isVideoModeAvailable, videoModelOptions } from '../../../lib/channels/videoChannels'
 import { APP_MODE_LABELS, visibleAppModes } from '../../../store'
-import { AGNES_CHANNEL, GROK_CHANNEL, IMAGE_CHANNEL } from '../../features/video/fixtures'
+import {
+  AGNES_CHANNEL,
+  GROK_CHANNEL,
+  IMAGE_CHANNEL,
+  VEO_CHANNEL,
+  VEO_FAST_MODEL,
+  VEO_LITE_MODEL,
+} from '../../features/video/fixtures'
 
 const isClientCapabilityEnabled = vi.hoisted(() => vi.fn(() => true))
 
@@ -13,7 +20,7 @@ vi.mock('../../../lib/clientCapabilities', async (importOriginal) => ({
 
 beforeEach(() => {
   isClientCapabilityEnabled.mockReturnValue(true)
-  setChannels([IMAGE_CHANNEL, GROK_CHANNEL, AGNES_CHANNEL])
+  setChannels([IMAGE_CHANNEL, GROK_CHANNEL, AGNES_CHANNEL, VEO_CHANNEL])
 })
 
 afterEach(() => {
@@ -26,6 +33,8 @@ describe('videoModelOptions', () => {
     expect(videoModelOptions().map((option) => option.modelId)).toEqual([
       'grok-imagine-video',
       'agnes-video-2.5-flash',
+      VEO_FAST_MODEL,
+      VEO_LITE_MODEL,
     ])
   })
 
@@ -34,6 +43,12 @@ describe('videoModelOptions', () => {
     expect(grok.channelId).toBe('grok-video')
     expect(grok.label).toBe('Grok')
     expect(grok.support.lastFrame).toBe(false)
+  })
+
+  it('Veo 两个模型各带自己的标签', () => {
+    const veo = videoModelOptions().filter((option) => option.channelId === 'veo-video')
+    expect(veo.map((option) => option.label)).toEqual(['Veo 3.1 Fast', 'Veo 3.1 Lite'])
+    expect(veo.map((option) => option.support.tagline)).toEqual(['原生音频', '经济档'])
   })
 })
 
