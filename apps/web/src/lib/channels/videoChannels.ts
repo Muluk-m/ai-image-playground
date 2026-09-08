@@ -35,6 +35,20 @@ export function firstFrameModelOption(modelId: string): VideoModelOption | undef
   return current?.support.firstFrame ? current : options.find((item) => item.support.firstFrame)
 }
 
+/** 整条分镜视频要的模型：当前这个出得了这个时长就用它，否则退到第一个出得了的。 */
+export function durationModelOption(
+  modelId: string,
+  seconds: number,
+  needsFirstFrame: boolean,
+): VideoModelOption | undefined {
+  const fits = (option: VideoModelOption) =>
+    (option.support.durations as readonly number[]).includes(seconds) &&
+    (!needsFirstFrame || option.support.firstFrame)
+  const options = videoModelOptions()
+  const current = options.find((item) => item.modelId === modelId)
+  return current && fits(current) ? current : options.find(fits)
+}
+
 /** 视频入口的可见性。纯静态部署没有 channel，能力清单默认关，两者都要成立。 */
 export function isVideoModeAvailable(): boolean {
   return isClientCapabilityEnabled('generation:video') && videoModelOptions().length > 0

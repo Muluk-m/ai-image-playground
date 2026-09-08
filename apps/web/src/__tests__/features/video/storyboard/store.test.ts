@@ -11,7 +11,7 @@ import type { StoryboardPlanInput } from '../../../../features/video/storyboard/
 import { setChannels } from '../../../../lib/channels/channelStore'
 import { useStore } from '../../../../store'
 import type { TaskRecord } from '../../../../types'
-import { GROK_CHANNEL, IMAGE_CHANNEL } from '../fixtures'
+import { AGNES_CHANNEL, GROK_CHANNEL, IMAGE_CHANNEL } from '../fixtures'
 
 const planStoryboard = vi.hoisted(() => vi.fn())
 const submitPrepared = vi.hoisted(() => vi.fn(async () => ['task-1']))
@@ -33,7 +33,9 @@ const showToast = vi.fn()
 
 const PLAN: StoryboardPlan = {
   title: '夏日冰饮',
-  summary: '三镜讲清一杯冰饮的诞生',
+  summary: '两镜讲清一杯冰饮的诞生',
+  videoPrompt:
+    '一只挂满水珠的玻璃杯，晨光吧台，写实\n镜头1（0-5秒）：空杯静置，缓慢推进\n镜头2（5-10秒）：气泡水注入，手持跟拍',
   shots: [
     {
       no: 1,
@@ -41,6 +43,7 @@ const PLAN: StoryboardPlan = {
       description: '玻璃杯放在吧台，晨光斜照',
       camera: '缓慢推进',
       line: '',
+      startSeconds: 0,
       seconds: 5,
       imagePrompt: '吧台上的空玻璃杯，晨光',
       videoPrompt: '镜头缓慢推进，光线渐亮',
@@ -51,6 +54,7 @@ const PLAN: StoryboardPlan = {
       description: '气泡水注入杯中',
       camera: '手持跟拍',
       line: '就是这一口',
+      startSeconds: 5,
       seconds: 5,
       imagePrompt: '气泡水注入玻璃杯',
       videoPrompt: '液体注入，气泡上升',
@@ -63,6 +67,7 @@ function planInput(overrides: Partial<StoryboardPlanInput> = {}): StoryboardPlan
     ...INITIAL_STORYBOARD_DRAFT,
     idea: '一杯夏日冰饮',
     shots: 2,
+    totalSeconds: 10,
     aspectRatio: '16:9',
     referenceImageId: null,
     ...overrides,
@@ -130,7 +135,7 @@ describe('生成脚本与分镜图', () => {
     expect(planStoryboard).toHaveBeenCalledWith({
       idea: '一杯夏日冰饮',
       shots: 2,
-      secondsPerShot: 5,
+      totalSeconds: 10,
       aspectRatio: '16:9',
     })
     expect(submitPrepared).toHaveBeenCalledTimes(2)
@@ -145,7 +150,14 @@ describe('生成脚本与分镜图', () => {
       expect.objectContaining({ origin: { setId: id, shotId: 'shot-2', kind: 'storyboard' } }),
     )
 
-    expect(board()).toMatchObject({ title: '夏日冰饮', idea: '一杯夏日冰饮', style: '不限' })
+    expect(board()).toMatchObject({
+      title: '夏日冰饮',
+      idea: '一杯夏日冰饮',
+      style: '不限',
+      totalSeconds: 10,
+      videoPrompt: PLAN.videoPrompt,
+      shotImagesRequested: true,
+    })
     expect(board().shots.map((shot) => shot.imageTaskId)).toEqual(['task-1', 'task-2'])
     expect(await storyboardStore.list()).toHaveLength(1)
   })
@@ -176,6 +188,25 @@ describe('生成脚本与分镜图', () => {
       1,
       expect.objectContaining({ params: expect.objectContaining({ size: '720x1280' }) }),
     )
+  })
+
+  it('关掉先出分镜图时只落脚本', async () => {
+    const id = await useStoryboardStore.getState().plan(planInput({ shotImages: false }))
+
+    expect(id).toBeTruthy()
+    expect(submitPrepared).not.toHaveBeenCalled()
+    expect(board().shotImagesRequested).toBe(false)
+    expect(board().shots.map((shot) => shot.imageTaskId)).toEqual([null, null])
+  })
+
+  it('之后补出分镜图只提交还没提交过的镜', async () => {
+    const id = await useStoryboardStore.getState().plan(planInput({ shotImages: false }))
+    await useStoryboardStore.getState().regenerateShotImage(id!, 1)
+
+    await useStoryboardStore.getState().generateMissingShotImages(id!)
+
+    expect(submitPrepared).toHaveBeenCalledTimes(2)
+    expect(board().shots.every((shot) => shot.imageTaskId !== null)).toBe(true)
   })
 
   it('脚本请求失败时不留记录', async () => {
@@ -260,15 +291,68 @@ describe('生视频', () => {
     expect(showToast).toHaveBeenCalledWith('这一镜还没有分镜图', 'error')
   })
 
-  it('全部生视频只提交还没提交过的镜', async () => {
+  it('整条视频用整条提示词、总时长和第一镜的图提交一条任务', async () => {
     const id = await plannedWithImages()
-    await useStoryboardStore.getState().generateShotVideo(id, 1)
+
+    await useStoryboardStore.getState().generateWholeVideo(id)
     await settle()
 
-    await useStoryboardStore.getState().generateAllVideos(id)
+    const task = useVideoStore.getState().tasks[0]!
+    expect(task).toMatchObject({
+      source: 'image',
+      prompt: PLAN.videoPrompt,
+      duration: 10,
+      aspectRatio: '16:9',
+      firstFrameImageId: 'image-1',
+      storyboardId: id,
+    })
+    expect(task.shotNo).toBeUndefined()
+    expect(submitVideoRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: PLAN.videoPrompt,
+        video: expect.objectContaining({ duration_seconds: 10, first_frame_index: 0 }),
+        inputImageDataUrls: ['data:image/png;base64,image-1'],
+      }),
+    )
+    expect(board().videoTaskId).toBe(task.id)
+  })
+
+  it('没有分镜图时整条视频退到参考图', async () => {
+    const id = await useStoryboardStore
+      .getState()
+      .plan(planInput({ shotImages: false, referenceImageId: 'ref-1' }))
+
+    await useStoryboardStore.getState().generateWholeVideo(id!)
     await settle()
 
-    expect(useVideoStore.getState().tasks).toHaveLength(2)
-    expect(board().shots.every((shot) => shot.videoTaskId !== null)).toBe(true)
+    expect(useVideoStore.getState().tasks[0]).toMatchObject({
+      source: 'image',
+      firstFrameImageId: 'ref-1',
+    })
+  })
+
+  it('一张图都没有时整条视频走文生', async () => {
+    const id = await useStoryboardStore.getState().plan(planInput({ shotImages: false }))
+
+    await useStoryboardStore.getState().generateWholeVideo(id!)
+    await settle()
+
+    const task = useVideoStore.getState().tasks[0]!
+    expect(task.source).toBe('text')
+    expect(task.firstFrameImageId).toBeUndefined()
+    expect(submitVideoRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ inputImageDataUrls: [] }),
+    )
+  })
+
+  it('没有模型出得了这个时长时不提交', async () => {
+    const id = await useStoryboardStore.getState().plan(planInput({ totalSeconds: 15 }))
+    setChannels([IMAGE_CHANNEL, AGNES_CHANNEL])
+    useVideoStore.getState().syncModelOptions()
+
+    await useStoryboardStore.getState().generateWholeVideo(id!)
+
+    expect(useVideoStore.getState().tasks).toHaveLength(0)
+    expect(showToast).toHaveBeenCalledWith('当前模型不支持 15 秒', 'error')
   })
 })

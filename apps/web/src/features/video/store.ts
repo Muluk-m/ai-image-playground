@@ -12,6 +12,7 @@ import { create } from 'zustand'
 import { getStoredChannel } from '../../lib/channels/channelStore'
 import { awaitQueueOutputs, submitVideoRequest } from '../../lib/channels/queueClient'
 import {
+  durationModelOption,
   firstFrameModelOption,
   type VideoModelOption,
   videoModelOptions,
@@ -35,6 +36,10 @@ const NO_MODEL = '当前部署没有可用的视频模型'
 const FRAME_MISSING = '首尾帧图片已丢失'
 const SOURCE_GONE = '源视频已不在'
 
+export function unsupportedDurationReason(seconds: number): string {
+  return `当前模型不支持 ${seconds} 秒`
+}
+
 export const INITIAL_VIDEO_DRAFT: VideoDraft = {
   source: 'text',
   prompt: '',
@@ -46,13 +51,15 @@ export const INITIAL_VIDEO_DRAFT: VideoDraft = {
   lastFrameImageId: null,
 }
 
-/** 分镜某一镜的图生视频提交；模型与清晰度沿用左栏，时长与比例来自那一镜。 */
+/** 分镜的视频提交；清晰度沿用左栏，时长与比例来自分镜。 */
 export interface StoryboardVideoInput {
   storyboardId: string
-  shotNo: number
-  imageId: string
+  /** 缺席即整条视频。 */
+  shotNo?: number
+  /** 没有图就走文生。 */
+  imageId: string | null
   prompt: string
-  seconds: VideoDuration
+  seconds: number
   aspectRatio: VideoAspectRatio
 }
 
@@ -85,6 +92,8 @@ export interface VideoState {
     input: { mode: VideoDeriveMode; prompt: string; seconds: number },
   ): Promise<string | null>
   submitFromStoryboard(input: StoryboardVideoInput): Promise<string | null>
+  /** 整条分镜出一条视频：时长是分镜总时长，出得了它的模型才收得下。 */
+  submitStoryboardVideo(input: StoryboardVideoInput): Promise<string | null>
   /** 把这条的参数填回左栏，不提交。 */
   loadDraft(task: VideoTask): void
   regenerate(task: VideoTask): Promise<string | null>
@@ -263,6 +272,32 @@ export const useVideoStore = create<VideoState>((set, get) => {
     return task.id
   }
 
+  /** 分镜的秒数不一定落在模型档位上（每镜时长是总时长均分出来的），落不上就退到第一档。 */
+  function enqueueStoryboard(
+    option: VideoModelOption,
+    input: StoryboardVideoInput,
+  ): Promise<string | null> {
+    const { support } = option
+    const { resolution } = get().draft
+    return enqueue({
+      option,
+      source: input.imageId ? 'image' : 'text',
+      prompt: input.prompt,
+      duration: (support.durations as readonly number[]).includes(input.seconds)
+        ? input.seconds
+        : support.durations[0]!,
+      aspectRatio: support.aspectRatios.includes(input.aspectRatio)
+        ? input.aspectRatio
+        : support.aspectRatios[0]!,
+      resolution: support.resolutions.includes(resolution) ? resolution : support.resolutions[0]!,
+      firstFrameImageId: input.imageId,
+      shot: {
+        storyboardId: input.storyboardId,
+        ...(input.shotNo === undefined ? {} : { shotNo: input.shotNo }),
+      },
+    })
+  }
+
   async function enqueueDraft(draft: VideoDraft): Promise<string | null> {
     const { showToast } = useStore.getState()
     const option = videoModelOptions().find((item) => item.modelId === draft.model)
@@ -364,25 +399,16 @@ export const useVideoStore = create<VideoState>((set, get) => {
         useStore.getState().showToast(NO_MODEL, 'error')
         return Promise.resolve(null)
       }
-      const clamped = clampDraftToSupport(
-        {
-          ...get().draft,
-          model: option.modelId,
-          duration: input.seconds,
-          aspectRatio: input.aspectRatio,
-        },
-        option.support,
-      )
-      return enqueue({
-        option,
-        source: 'image',
-        prompt: input.prompt,
-        duration: clamped.duration,
-        aspectRatio: clamped.aspectRatio,
-        resolution: clamped.resolution,
-        firstFrameImageId: input.imageId,
-        shot: { storyboardId: input.storyboardId, shotNo: input.shotNo },
-      })
+      return enqueueStoryboard(option, input)
+    },
+
+    submitStoryboardVideo(input) {
+      const option = durationModelOption(get().draft.model, input.seconds, Boolean(input.imageId))
+      if (!option) {
+        useStore.getState().showToast(unsupportedDurationReason(input.seconds), 'error')
+        return Promise.resolve(null)
+      }
+      return enqueueStoryboard(option, input)
     },
 
     deriveVideo(origin, input) {

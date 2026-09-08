@@ -1,7 +1,7 @@
 import type {
-  StoryboardSeconds,
   StoryboardShot,
   StoryboardShotCount,
+  StoryboardTotalSeconds,
   VideoAspectRatio,
 } from '@image-playground/shared'
 
@@ -20,10 +20,16 @@ export interface StoryboardRecord {
   summary: string
   idea: string
   aspectRatio: VideoAspectRatio
-  secondsPerShot: StoryboardSeconds
+  /** 整条视频的时长；旧记录折算自每镜时长，可能落在视频模型的档位外。 */
+  totalSeconds: number
+  /** 整条视频的提示词：首行定主体与风格，其后每镜一行时间段。可编辑。 */
+  videoPrompt: string
   /** 重写脚本要照原样再问一次，所以风格跟着记录走，不跟着左栏。 */
   style: StoryboardStyle
   referenceImageId: string | null
+  shotImagesRequested: boolean
+  /** 整条视频的任务 id。 */
+  videoTaskId: string | null
   shots: StoryboardShotRecord[]
 }
 
@@ -35,8 +41,9 @@ export const STORYBOARD_FREE_STYLE: StoryboardStyle = '不限'
 export interface StoryboardDraft {
   idea: string
   shots: StoryboardShotCount
-  secondsPerShot: StoryboardSeconds
+  totalSeconds: StoryboardTotalSeconds
   style: StoryboardStyle
+  shotImages: boolean
 }
 
 /** 比例与参考图跟着视频草稿走，提交时才和分镜草稿拼成一次请求。 */
