@@ -59,7 +59,7 @@ export interface InternalChannel {
 interface ParsedChannel extends Omit<InternalChannel, 'baseUrl'> {
   baseUrl?: string
   baseUrlRef?: string
-  requiresSecret?: boolean
+  requiresSecret: boolean
 }
 
 export interface ChannelsLoadResult {
@@ -212,6 +212,12 @@ function parseBaseUrlSource(raw: Record<string, unknown>, ctx: string): Partial<
   return { baseUrl: normalizeBaseUrl(raw.baseUrl) }
 }
 
+function parseRequiresSecret(v: unknown, ctx: string): boolean {
+  if (v !== undefined && typeof v !== 'boolean')
+    throw new ChannelsLoadError(`${ctx}.requiresSecret must be boolean`)
+  return v === true
+}
+
 function parseChannel(raw: unknown, idx: number): ParsedChannel {
   const ctx = `channels[${idx}]`
   if (!isObject(raw)) throw new ChannelsLoadError(`${ctx} must be an object`)
@@ -230,22 +236,12 @@ function parseChannel(raw: unknown, idx: number): ParsedChannel {
     kind: raw.kind as ChannelKind,
     label: requireNonEmptyString(raw.label, `${ctx}.label`),
     ...parseBaseUrlSource(raw, ctx),
-    ...parseRequiresSecret(raw.requiresSecret, ctx),
+    requiresSecret: parseRequiresSecret(raw.requiresSecret, ctx),
     auth: parseAuth(raw.auth, ctx),
     allowedPaths: raw.allowedPaths,
     models: parseModels(raw.models, ctx),
     defaults: parseDefaults(raw.defaults, ctx),
   }
-}
-
-/**
- * 直连上游没有 key 就只能给用户一个必然失败的模型，所以这类 channel 宁可整条不广播。
- * 缺省仍是「留着，调用时再失败」——那是网关部署要的宽容。
- */
-function parseRequiresSecret(v: unknown, ctx: string): { requiresSecret?: boolean } {
-  if (v === undefined) return {}
-  if (typeof v !== 'boolean') throw new ChannelsLoadError(`${ctx}.requiresSecret must be boolean`)
-  return { requiresSecret: v }
 }
 
 /** `new URL` 把 IPv6 主机名还原成带方括号的形式，所以这里也带。 */
@@ -315,6 +311,7 @@ export function parseChannelsConfig(
 
     const secret = envLookup(ch.auth.secretRef)?.trim() ?? ''
     if (!secret) {
+      // 直连上游没有 key 就只是个必然失败的模型，宁可整条不广播；缺省的宽容留给网关部署。
       if (ch.requiresSecret) {
         warnings.push(
           `channel '${ch.id}': env '${ch.auth.secretRef}' is empty or unset; the channel is disabled and will not be advertised`,

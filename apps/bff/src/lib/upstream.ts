@@ -748,15 +748,16 @@ function grokVideoResult(
   }
 }
 
-/** 成片是公网地址的上游共用的结果收口；归档随后按地址回源取字节。 */
-function publicVideoOutcome(
+/** 成片地址已经是绝对地址的上游共用的收口；时长按提交值记。 */
+function absoluteVideoOutcome(
+  kind: VideoOutcome['kind'],
   url: unknown,
   video: HydratedVideoRequest,
   label: string,
 ): VideoOutcome {
   if (typeof url !== 'string' || !/^https?:\/\//i.test(url))
     throw new UpstreamResultUnknownError(`${label} 视频任务已完成但未返回结果地址`)
-  return { kind: 'public', url, durationSeconds: video.duration_seconds }
+  return { kind, url, durationSeconds: video.duration_seconds }
 }
 
 function agnesVideoResult(_base: string, payload: unknown, video: HydratedVideoRequest) {
@@ -764,32 +765,23 @@ function agnesVideoResult(_base: string, payload: unknown, video: HydratedVideoR
   const url = [body.url, body.metadata?.url].find(
     (value): value is string => typeof value === 'string' && /^https?:\/\//i.test(value),
   )
-  return publicVideoOutcome(url, video, 'Agnes')
+  return absoluteVideoOutcome('public', url, video, 'Agnes')
 }
 
 function arkVideoResult(_base: string, payload: unknown, video: HydratedVideoRequest) {
   const content = (payload as { content?: { video_url?: unknown } } | null)?.content
-  return publicVideoOutcome(content?.video_url, video, 'Seedance')
+  return absoluteVideoOutcome('public', content?.video_url, video, 'Seedance')
 }
 
-/** 成片在 Google 域内，取字节要带同一把 key；两天后链接失效，所以归档必须落我们自己的存储。 */
-function veoVideoResult(
-  _base: string,
-  payload: unknown,
-  video: HydratedVideoRequest,
-): VideoOutcome {
-  const sample = veoGeneratedSamples(payload)[0]
-  const uri = (sample as { video?: { uri?: unknown } } | undefined)?.video?.uri
-  if (typeof uri !== 'string' || !/^https?:\/\//i.test(uri))
-    throw new UpstreamResultUnknownError('Veo 视频任务已完成但未返回结果地址')
-  return { kind: 'credentialed', url: uri, durationSeconds: video.duration_seconds }
+type VeoOperation = {
+  response?: { generateVideoResponse?: { generatedSamples?: Array<{ video?: { uri?: unknown } }> } }
 }
 
-function veoGeneratedSamples(payload: unknown): readonly unknown[] {
-  const response = (payload as { response?: { generateVideoResponse?: unknown } } | null)?.response
-  const samples = (response?.generateVideoResponse as { generatedSamples?: unknown } | undefined)
-    ?.generatedSamples
-  return Array.isArray(samples) ? samples : []
+/** 成片在 Google 域内，取字节要带同一把 key；链接两天后失效，所以必须归档到自己的存储。 */
+function veoVideoResult(_base: string, payload: unknown, video: HydratedVideoRequest) {
+  const uri = (payload as VeoOperation | null)?.response?.generateVideoResponse
+    ?.generatedSamples?.[0]?.video?.uri
+  return absoluteVideoOutcome('credentialed', uri, video, 'Veo')
 }
 
 /** 首尾帧指向同一请求的 input_images；hydrate 之后它们已经是 data URL。 */
@@ -883,7 +875,8 @@ function buildVeoVideoBody(
   video: HydratedVideoRequest,
 ): Record<string, unknown> {
   const firstFrame = videoFrame(request, video.first_frame_index)
-  const image = firstFrame ? dataUrlToInlineData(firstFrame) : undefined
+  const image = firstFrame ? inlineDataPart(firstFrame) : undefined
+  if (firstFrame && !image) throw clientError('首帧图片不是合法的数据 URL')
   return {
     instances: [{ prompt: request.prompt, ...(image ? { image } : {}) }],
     parameters: {
@@ -1335,17 +1328,19 @@ function upstreamAuthHeader(style: ChannelRouteStyle, key: string): Record<strin
   return style === 'veo-videos' ? { 'x-goog-api-key': key } : { authorization: `Bearer ${key}` }
 }
 
-function dataUrlToInlineData(dataUrl: string): { inlineData: { mimeType: string; data: string } } {
+/** Google 家的图片入参形状；不是 data URL 返回 undefined，由调用方决定跳过还是报错。 */
+function inlineDataPart(
+  dataUrl: string,
+): { inlineData: { mimeType: string; data: string } } | undefined {
   const m = dataUrl.match(DATA_URL_PATTERN)
-  if (!m) throw clientError('首帧图片不是合法的数据 URL')
-  return { inlineData: { mimeType: m[1]!, data: m[2]! } }
+  return m ? { inlineData: { mimeType: m[1]!, data: m[2]! } } : undefined
 }
 
 function buildGeminiBody(request: HydratedSubmitRequest): Record<string, unknown> {
   const parts: Array<Record<string, unknown>> = [{ text: request.prompt }]
   for (const dataUrl of request.input_images ?? []) {
-    const m = dataUrl.match(DATA_URL_PATTERN)
-    if (m) parts.push({ inlineData: { mimeType: m[1], data: m[2] } })
+    const part = inlineDataPart(dataUrl)
+    if (part) parts.push(part)
   }
 
   const { generationConfig: extraGenerationConfig, ...extraTopLevel } = (request.extra ?? {}) as {
