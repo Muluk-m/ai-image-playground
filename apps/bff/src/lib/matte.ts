@@ -1,6 +1,7 @@
-import { createHmac, timingSafeEqual } from 'node:crypto'
+import { createHash, createHmac, timingSafeEqual } from 'node:crypto'
 import { Agent, fetch as undiciFetch } from 'undici'
 import { config } from '../config'
+import { objectStore } from './objectStore'
 import { isObject } from './type-guards'
 
 const SOURCE_TOKEN_TTL_MS = 5 * 60 * 1000
@@ -28,11 +29,8 @@ type MatteFetch = (
   init?: Parameters<typeof undiciFetch>[1],
 ) => Promise<MatteFetchResponse>
 
-const matteDispatcher = new Agent({
-  connectTimeout: CONNECT_TIMEOUT_MS,
-  headersTimeout: REQUEST_TIMEOUT_MS,
-  bodyTimeout: REQUEST_TIMEOUT_MS,
-})
+// 整体超时归 AbortController；这里只管连不上的情况。
+const matteDispatcher = new Agent({ connectTimeout: CONNECT_TIMEOUT_MS })
 
 let matteFetch: MatteFetch = undiciFetch
 
@@ -76,13 +74,13 @@ export function verifySourceToken(token: string, now = Date.now()): string | nul
   return SOURCE_KEY_PATTERN.test(key) ? key : null
 }
 
-export function foregroundTransformUrl(token: string): string {
+function foregroundTransformUrl(token: string): string {
   const origin = config.matte.transformOrigin
   return `${origin}/cdn-cgi/image/segment=foreground,format=png/${origin}/api/matte/source/${token}`
 }
 
 /** 只确认这是 Cloudflare 成功产出的 PNG；alpha 通道由前端读，BFF 不解码。 */
-export async function fetchForegroundPng(token: string): Promise<Uint8Array> {
+async function fetchForegroundPng(token: string): Promise<Uint8Array> {
   const abort = new AbortController()
   const timer = setTimeout(() => abort.abort(), REQUEST_TIMEOUT_MS)
   try {
@@ -104,4 +102,36 @@ export async function fetchForegroundPng(token: string): Promise<Uint8Array> {
   } finally {
     clearTimeout(timer)
   }
+}
+
+/** 对象键的扩展名就是 mime 子类型，jpeg 单独收敛成 jpg。 */
+function sourceExtension(mime: string): string {
+  const subtype = mime.slice(mime.indexOf('/') + 1)
+  return subtype === 'jpeg' ? 'jpg' : subtype
+}
+
+export function sourceContentType(key: string): string {
+  const extension = key.slice(key.lastIndexOf('.') + 1)
+  return `image/${extension === 'jpg' ? 'jpeg' : extension}`
+}
+
+/** 按原图内容哈希缓存，同一张图重复进来只调一次 Cloudflare。 */
+export async function segmentForeground(
+  bytes: Uint8Array,
+  mime: string,
+): Promise<{ png: Uint8Array; cached: boolean }> {
+  const hash = createHash('sha256').update(bytes).digest('hex')
+  const store = objectStore()
+  const alphaKey = `matte/${hash}/alpha.png`
+  try {
+    return { png: await store.read(alphaKey), cached: true }
+  } catch {
+    // 读不到就是没缓存过。
+  }
+
+  const sourceKey = `matte/${hash}/source.${sourceExtension(mime)}`
+  await store.write(sourceKey, bytes, mime)
+  const png = await fetchForegroundPng(mintSourceToken(sourceKey))
+  await store.write(alphaKey, png, 'image/png')
+  return { png, cached: false }
 }
