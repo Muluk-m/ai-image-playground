@@ -24,6 +24,8 @@ const submitPrepared = vi.hoisted(() => vi.fn())
 const requestBackgroundPlan = vi.hoisted(() => vi.fn())
 const requestSceneScan = vi.hoisted(() => vi.fn())
 const segmentProduct = vi.hoisted(() => vi.fn())
+const requestServerMatte = vi.hoisted(() => vi.fn())
+const maskDataUrlToAlpha = vi.hoisted(() => vi.fn())
 const assessMatte = vi.hoisted(() => vi.fn())
 const alphaToInpaintMask = vi.hoisted(() => vi.fn())
 const alphaToProductMask = vi.hoisted(() => vi.fn())
@@ -48,9 +50,12 @@ vi.mock('../../../../features/productShots/lib/planClient', () => ({
   requestSceneScan,
 }))
 
+vi.mock('../../../../lib/matteClient', () => ({ requestServerMatte }))
+
 vi.mock('../../../../lib/productMatte', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../../lib/productMatte')>()),
   segmentProduct,
+  maskDataUrlToAlpha,
   assessMatte,
   alphaToInpaintMask,
   alphaToProductMask,
@@ -115,6 +120,8 @@ beforeEach(() => {
     backend: 'wasm-u2netp',
     elapsedMs: 3200,
   })
+  requestServerMatte.mockRejectedValue(new Error('服务端抠图没有返回可用的蒙版'))
+  maskDataUrlToAlpha.mockResolvedValue({ alpha: new Uint8ClampedArray(4), width: 2, height: 2 })
   assessMatte.mockReturnValue({ ok: true, coverage: 0.4 })
   alphaToInpaintMask.mockReturnValue('data:image/png;base64,MASK')
   alphaToProductMask.mockReturnValue('data:image/png;base64,PRODUCT-MASK')
@@ -141,7 +148,11 @@ function render() {
 
 /** 一次点击要串起接口、抠图与 IndexedDB 落盘，微任务刷一轮不够。 */
 async function settle() {
-  for (let round = 0; round < 5; round++) {
+  await settleUntil(() => false)
+}
+
+async function settleUntil(done: () => boolean) {
+  for (let round = 0; round < 8 || (round < 40 && !done()); round++) {
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 0))
     })
@@ -497,11 +508,11 @@ describe('running the batch over the remaining images', () => {
       new File(['x'], '主图.png', { type: 'image/png' }),
       new File(['x'], '细节.png', { type: 'image/png' }),
     )
-    while (useProductShotsStore.getState().draft.id === null) {
-      await act(async () => {
-        await new Promise((resolve) => setTimeout(resolve, 0))
-      })
-    }
+    // 批量会等每张原图的抠图落定，图还在抠时点开始只是排队。
+    await settleUntil(() => {
+      const { draft } = useProductShotsStore.getState()
+      return draft.id !== null && draft.images.every((item) => item.sourceMatte?.status === 'ready')
+    })
   }
 
   it('offers the images the sample leaves behind', async () => {
@@ -515,7 +526,7 @@ describe('running the batch over the remaining images', () => {
     await withTwoImages()
 
     click(batchButton())
-    await settle()
+    await settleUntil(() => useProductShotsStore.getState().batch?.running === false)
 
     expect(useProductShotsStore.getState().draft.images[1].versions).toHaveLength(1)
     const [item] = batchBar().querySelectorAll('[data-product-shots-batch-item]')
