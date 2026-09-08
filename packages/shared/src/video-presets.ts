@@ -71,6 +71,8 @@ export interface VideoModelSupport {
   readonly extend: boolean
   /** 按提示词改写源片。 */
   readonly edit: boolean
+  /** 上游按 token 限描述长度；这里按「一个汉字一个 token」的最坏情况折成字符数。缺省不限。 */
+  readonly promptMaxChars?: number
   /** 实测典型耗时，用于生成中卡片的等待提示。 */
   readonly typicalSeconds: number
   /** 模型卡片上的一句话定位。耗时相近时推导不出区分度，所以显式写死。 */
@@ -124,6 +126,7 @@ export const VIDEO_MODEL_SUPPORT: Record<string, VideoModelSupport> = {
     resolutions: ['720p', '1080p'],
     resolutionMultipliers: { '720p': 1, '1080p': 1.2 },
     durationsByResolution: { '1080p': [8] },
+    promptMaxChars: 1024,
     firstFrame: true,
     lastFrame: false,
     extend: false,
@@ -138,6 +141,7 @@ export const VIDEO_MODEL_SUPPORT: Record<string, VideoModelSupport> = {
     resolutions: ['720p', '1080p'],
     resolutionMultipliers: { '720p': 1, '1080p': 1.2 },
     durationsByResolution: { '1080p': [8] },
+    promptMaxChars: 1024,
     firstFrame: true,
     lastFrame: false,
     extend: false,
@@ -158,6 +162,13 @@ export function videoDurationsForResolution(
   resolution: VideoResolution,
 ): readonly VideoDuration[] {
   return support.durationsByResolution?.[resolution] ?? support.durations
+}
+
+export function validateVideoPrompt(modelId: string, prompt: string): VideoValidationResult {
+  const support = VIDEO_MODEL_SUPPORT[modelId]
+  const max = support?.promptMaxChars
+  if (max === undefined || prompt.length <= max) return { ok: true }
+  return { ok: false, reason: `${support.label} 描述最多 ${max} 字` }
 }
 
 export function validateVideoRequest(
