@@ -26,7 +26,7 @@ describe('the storyboard route without the capability', () => {
         body: JSON.stringify({
           idea: '一支讲通勤咖啡的短片',
           shots: 2,
-          secondsPerShot: 5,
+          totalSeconds: 15,
           aspectRatio: '9:16',
         }),
       }),
