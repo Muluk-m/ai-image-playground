@@ -164,7 +164,6 @@ export function videoDurationsForResolution(
   return support.durationsByResolution?.[resolution] ?? support.durations
 }
 
-/** 描述长度：上游按 token 限，前端与提交口用同一个字符数近似。 */
 export function validateVideoPrompt(modelId: string, prompt: string): VideoValidationResult {
   const support = VIDEO_MODEL_SUPPORT[modelId]
   const max = support?.promptMaxChars
