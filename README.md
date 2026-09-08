@@ -260,6 +260,13 @@ BFF_ENABLED=true BFF_BASE_URL=https://api.example.com \
   scripts/pages-deploy.sh private ai-image-playground-paid main
 ```
 
+The third argument names the Pages alias to publish to. `main` is the production alias and has
+to be passed explicitly; omit the argument and the alias comes from the current git branch, or
+`preview-<short sha>` when the checkout is on a detached HEAD or on `main` itself. So a
+forgotten argument publishes a preview, never production. The script prints the resolved
+`target: production (main)` or `target: preview (<branch>)` before it builds, and
+`PAGES_DEPLOY_DRY_RUN=1` prints just that line and exits.
+
 The edition asserts the presence of the overlay; the backend switch is independent of it. A
 public bundle may set `BFF_ENABLED=true` and a private one may stay BYOK-only. wrangler reads
 `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` from the environment, which is how two
@@ -404,8 +411,10 @@ the same `deployments.log` the VPS writes.
 
 Set `<EDITION>_CLOUDFLARE_TOKEN_FILE` to an env file holding `CLOUDFLARE_API_TOKEN`, or leave it
 unset to release with wrangler's own OAuth login; either way the other account's token cannot
-leak in from the shell, so one workstation can release both. `pages-deploy.sh` remains the
-building block for a one-off upload with hand-set environment variables.
+leak in from the shell, so one workstation can release both. `pages-release.sh` is the only
+path that publishes to production, and it passes `main` to `pages-deploy.sh` explicitly.
+`pages-deploy.sh` remains the building block for a one-off upload with hand-set environment
+variables, and defaults to a preview alias when no branch is given.
 
 The frontend and the API must share one registrable domain, as in option 3: the Admin session
 cookie is `Secure; SameSite=Lax`.

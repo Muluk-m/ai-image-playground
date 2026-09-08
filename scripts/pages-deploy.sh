@@ -5,8 +5,13 @@ set -eu
 # (README options 3 and 4).
 #
 # Usage:
-#   scripts/pages-deploy.sh public <pages-project> [branch]     # branch defaults to main
+#   scripts/pages-deploy.sh public <pages-project> [branch]
 #   scripts/pages-deploy.sh private <pages-project> [branch]
+#
+# The branch selects the Pages alias. Production is `main`, and it has to be passed explicitly:
+# an omitted branch always resolves to a preview alias, never to production.
+#
+# PAGES_DEPLOY_DRY_RUN=1 prints the resolved target and exits before the build.
 #
 # EXTRA_ASSETS_DIR=<dir> copies untracked deployment files into dist/op/ before the upload.
 #
@@ -25,15 +30,32 @@ usage() {
 
 edition=${1:-}
 project=${2:-}
-# From a detached HEAD wrangler infers the branch name `head` and publishes a preview alias
-# instead of production, so this defaults rather than being left empty.
-branch=${3:-main}
 [ -n "$edition" ] || usage
 [ -n "$project" ] || usage
 [ "$#" -le 3 ] || usage
 
 repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 overlay_entry="$repo_root/private/apps/web/index.tsx"
+
+# A forgotten third argument used to default to `main`, which published an unmerged branch to
+# production. The default now names a preview alias even when the checkout sits on main.
+default_branch() {
+  head_name=$(git -C "$repo_root" rev-parse --abbrev-ref HEAD 2>/dev/null || printf 'HEAD')
+  case "$head_name" in
+    main | HEAD | '')
+      printf 'preview-%s' "$(git -C "$repo_root" rev-parse --short HEAD 2>/dev/null || printf 'local')"
+      ;;
+    *) printf '%s' "$head_name" ;;
+  esac
+}
+
+branch=${3:-$(default_branch)}
+if [ "$branch" = main ]; then
+  echo "target: production (main)"
+else
+  echo "target: preview ($branch)"
+fi
+[ "${PAGES_DEPLOY_DRY_RUN:-}" != 1 ] || exit 0
 
 case "$edition" in
   public)
