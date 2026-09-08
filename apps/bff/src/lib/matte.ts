@@ -5,7 +5,7 @@ import { isObject } from './type-guards'
 
 const SOURCE_TOKEN_TTL_MS = 5 * 60 * 1000
 const TOKEN_SECRET_LABEL = 'matte-source-token'
-const SOURCE_KEY_PATTERN = /^matte\/[^/]+\/source\.[a-z0-9]+$/
+const SOURCE_KEY_PATTERN = /^matte\/[0-9a-f]{64}\/source\.[a-z0-9]+$/
 
 const CONNECT_TIMEOUT_MS = 10_000
 const REQUEST_TIMEOUT_MS = 30_000
