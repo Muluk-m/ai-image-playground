@@ -1,4 +1,4 @@
-import type { DiscoveredChannel } from '@image-playground/shared'
+import type { DiscoveredChannel, VideoModelSupport } from '@image-playground/shared'
 import type { VideoTask } from '../../../features/video/types'
 
 export const GROK_CHANNEL: DiscoveredChannel = {
@@ -32,6 +32,39 @@ export const AGNES_CHANNEL: DiscoveredChannel = {
         'first_frame',
         'last_frame',
       ],
+      media: 'video',
+    },
+  ],
+  defaults: {},
+}
+
+/** 组合约束（某清晰度只配得上部分时长）要到 Veo 才有真模型，测试先自己登记一条。 */
+export const CONSTRAINED_MODEL = 'constrained-video-test-model'
+
+export const CONSTRAINED_SUPPORT: VideoModelSupport = {
+  label: '受限模型',
+  durations: [4, 6, 8],
+  aspectRatios: ['16:9'],
+  resolutions: ['720p', '1080p'],
+  resolutionMultipliers: { '720p': 1, '1080p': 1.2 },
+  durationsByResolution: { '1080p': [8] },
+  firstFrame: true,
+  lastFrame: false,
+  extend: false,
+  edit: false,
+  typicalSeconds: 60,
+  tagline: '受限',
+}
+
+export const CONSTRAINED_CHANNEL: DiscoveredChannel = {
+  id: 'constrained-video',
+  kind: 'openai-queue',
+  label: '受限视频',
+  models: [
+    {
+      id: CONSTRAINED_MODEL,
+      label: '受限模型',
+      capabilities: ['generate', 'duration', 'aspect_ratio', 'resolution', 'first_frame'],
       media: 'video',
     },
   ],

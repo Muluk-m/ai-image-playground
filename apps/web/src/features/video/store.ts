@@ -6,6 +6,7 @@ import {
   type VideoRequest,
   type VideoResolution,
   validateVideoRequest,
+  videoDurationsForResolution,
   videoRateMultiplier,
 } from '@image-playground/shared'
 import { create } from 'zustand'
@@ -256,7 +257,7 @@ export const useVideoStore = create<VideoState>((set, get) => {
     const guard = getPrivateSubmissionGuard({
       model: task.model,
       quantity: task.duration,
-      unitMultiplier: videoRateMultiplier(task.resolution),
+      unitMultiplier: videoRateMultiplier(task.model, task.resolution),
     })
     if (guard.blocked) {
       if (guard.disabledReason) showToast(guard.disabledReason, 'error')
@@ -287,7 +288,10 @@ export const useVideoStore = create<VideoState>((set, get) => {
       option,
       source: input.imageId ? 'image' : 'text',
       prompt: input.prompt,
-      duration: clampToSupported(support.durations as readonly number[], input.seconds),
+      duration: clampToSupported(
+        videoDurationsForResolution(support, resolution) as readonly number[],
+        input.seconds,
+      ),
       aspectRatio: clampToSupported(support.aspectRatios, input.aspectRatio),
       resolution: clampToSupported(support.resolutions, resolution),
       firstFrameImageId: input.imageId,
@@ -370,7 +374,11 @@ export const useVideoStore = create<VideoState>((set, get) => {
       set((state) => ({ draft: { ...state.draft, aspectRatio } }))
     },
     setResolution(resolution) {
-      set((state) => ({ draft: { ...state.draft, resolution } }))
+      set((state) => {
+        const support = VIDEO_MODEL_SUPPORT[state.draft.model]
+        const draft = { ...state.draft, resolution }
+        return { draft: support ? clampDraftToSupport(draft, support) : draft }
+      })
     },
 
     setFrame(slot, imageId) {
