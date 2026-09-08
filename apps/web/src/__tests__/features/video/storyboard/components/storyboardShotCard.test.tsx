@@ -51,6 +51,7 @@ function shot(overrides: Partial<StoryboardShotRecord> = {}): StoryboardShotReco
     description: '冰块落进玻璃杯',
     camera: '推镜',
     line: '',
+    startSeconds: 0,
     seconds: 5,
     imagePrompt: '玻璃杯特写',
     videoPrompt: '冰块缓缓落下',
@@ -69,9 +70,12 @@ const RECORD: StoryboardRecord = {
   summary: '三镜讲清一杯冰饮的诞生',
   idea: '冰饮广告',
   aspectRatio: '16:9',
-  secondsPerShot: 5,
+  totalSeconds: 5,
+  videoPrompt: '一杯夏日冰饮，吧台，写实\n镜头1（0-5秒）：冰块落进玻璃杯',
   style: '写实',
   referenceImageId: null,
+  shotImagesRequested: true,
+  videoTaskId: null,
   shots: [],
 }
 
