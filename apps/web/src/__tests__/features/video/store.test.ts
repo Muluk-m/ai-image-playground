@@ -5,7 +5,7 @@ import { INITIAL_VIDEO_DRAFT, useVideoStore } from '../../../features/video/stor
 import type { VideoTask } from '../../../features/video/types'
 import { setChannels } from '../../../lib/channels/channelStore'
 import { useStore } from '../../../store'
-import { AGNES_CHANNEL, GROK_CHANNEL, IMAGE_CHANNEL } from './fixtures'
+import { AGNES_CHANNEL, GROK_CHANNEL, IMAGE_CHANNEL, videoTask } from './fixtures'
 
 const submitVideoRequest = vi.hoisted(() => vi.fn(async () => 'req-1'))
 const awaitQueueOutputs = vi.hoisted(() => vi.fn(async () => [{ index: 0, mime: 'video/mp4' }]))
@@ -168,6 +168,113 @@ describe('提交', () => {
     expect(tasks()[0]!.status).toBe('error')
     expect(tasks()[0]!.error).toBe('上游未返回视频')
     expect(tasks()[0]!.credits).toBe(300)
+  })
+})
+
+describe('派生', () => {
+  function seedSource(overrides: Partial<VideoTask> = {}): VideoTask {
+    const source = videoTask({ bffRequestId: 'req-src', outputIndex: 2, ...overrides })
+    useVideoStore.setState({ tasks: [source] })
+    return source
+  }
+
+  it('续写按选中的秒数提交，带源片的 request_id 与输出下标', async () => {
+    const source = seedSource({ duration: 8, aspectRatio: '9:16' })
+
+    const id = await useVideoStore
+      .getState()
+      .deriveVideo(source, { mode: 'extend', prompt: '镜头继续拉远', seconds: 5 })
+    await settle()
+
+    expect(submitVideoRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: 'grok-imagine-video',
+        prompt: '镜头继续拉远',
+        inputImageDataUrls: [],
+        video: {
+          duration_seconds: 5,
+          aspect_ratio: '9:16',
+          resolution: '720p',
+          mode: 'extend',
+          source_task_id: 'req-src',
+          source_output_index: 2,
+        },
+      }),
+    )
+    const derived = tasks().find((task) => task.id === id)!
+    expect(derived).toMatchObject({
+      duration: 5,
+      derived: { mode: 'extend', sourceTaskId: source.id },
+    })
+  })
+
+  it('改视频沿用源片时长，不带首尾帧下标', async () => {
+    const source = seedSource({ duration: 8 })
+
+    await useVideoStore
+      .getState()
+      .deriveVideo(source, { mode: 'edit', prompt: '把车换成红色', seconds: 8 })
+    await settle()
+
+    expect(submitVideoRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        video: {
+          duration_seconds: 8,
+          aspect_ratio: '16:9',
+          resolution: '720p',
+          mode: 'edit',
+          source_task_id: 'req-src',
+          source_output_index: 2,
+        },
+      }),
+    )
+  })
+
+  it('源片已被删掉时不提交', async () => {
+    const source = videoTask({ bffRequestId: 'req-src', outputIndex: 2 })
+
+    expect(
+      await useVideoStore.getState().deriveVideo(source, {
+        mode: 'extend',
+        prompt: '再来一段',
+        seconds: 5,
+      }),
+    ).toBeNull()
+    expect(submitVideoRequest).not.toHaveBeenCalled()
+    expect(showToast).toHaveBeenCalledWith('源视频已不在', 'error')
+  })
+
+  it('超过 8 秒的源片不给改视频', async () => {
+    const source = seedSource({ duration: 10 })
+
+    expect(
+      await useVideoStore
+        .getState()
+        .deriveVideo(source, { mode: 'edit', prompt: '换个天色', seconds: 10 }),
+    ).toBeNull()
+    expect(showToast).toHaveBeenCalledWith('源片超过 8 秒', 'error')
+  })
+
+  it('重生成一条续写仍然指向同一个源片', async () => {
+    const source = seedSource({ duration: 5 })
+    const id = await useVideoStore
+      .getState()
+      .deriveVideo(source, { mode: 'extend', prompt: '继续往前推', seconds: 2 })
+    await settle()
+    submitVideoRequest.mockClear()
+
+    await useVideoStore.getState().regenerate(tasks().find((task) => task.id === id)!)
+    await settle()
+
+    expect(submitVideoRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        video: expect.objectContaining({
+          mode: 'extend',
+          source_task_id: 'req-src',
+          duration_seconds: 2,
+        }),
+      }),
+    )
   })
 })
 
