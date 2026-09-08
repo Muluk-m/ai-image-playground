@@ -89,6 +89,12 @@ export default function VideoLightbox({ task, onClose }: { task: VideoTask; onCl
               // 宽高都留给内容自己撑：给定宽度会让两个上限一起把画面压扁。
               className="max-h-[70vh] max-w-full rounded"
               style={{ aspectRatio: frameAspect }}
+              onLoadedMetadata={(event) => {
+                if (task.width && task.height) return
+                const { videoWidth, videoHeight } = event.currentTarget
+                if (!videoWidth || !videoHeight) return
+                void useVideoStore.getState().setDimensions(task.id, videoWidth, videoHeight)
+              }}
               onLoadedData={(event) => {
                 if (task.thumbnailDataUrl) return
                 const dataUrl = captureVideoFrame(event.currentTarget)
