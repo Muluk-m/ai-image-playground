@@ -1,8 +1,5 @@
 export const MATTE_BACKEND = 'cloudflare-birefnet'
 
-/** 与 BFF 路由体的 data URL maxLength 同源，两侧改一起改。 */
-export const MATTE_MAX_IMAGE_BYTES = 4_000_000
-
 export interface MatteResponse {
   /** PNG data URL，单通道语义：不透明 = 产品。 */
   readonly alpha: string
