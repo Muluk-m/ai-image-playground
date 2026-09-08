@@ -6,6 +6,7 @@ import {
 } from '@image-playground/shared'
 import { IDBFactory } from 'fake-indexeddb'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { assetStore } from '../../../features/library/lib/assetStore'
 import { templateStore } from '../../../features/library/lib/templateStore'
 import { useLibraryStore } from '../../../features/library/store'
 import { setClientStorageScope } from '../../../lib/authScope'
@@ -35,6 +36,10 @@ function template(id: string, name: string, updatedAt = 10) {
     updatedAt,
     lastUsedAt: 1,
   }
+}
+
+function asset(id: string, updatedAt = 10) {
+  return { id, name: id, imageId: `image-${id}`, createdAt: 1, updatedAt, lastUsedAt: 1 }
 }
 
 function response(overrides: Partial<SyncResponseBody> = {}): SyncResponseBody {
@@ -264,5 +269,68 @@ describe('with the capability off', () => {
 
     expect(postSyncMock).not.toHaveBeenCalled()
     expect(localStorage.getItem('image-playground-sync:user-alice')).toBeNull()
+  })
+})
+
+describe('first start on a scope that has never synced', () => {
+  it('pushes the library and the user settings this device already had', async () => {
+    // applyRemote 不标脏，正好摆出「引擎跑起来之前就已经在本机」的库。
+    await templateStore.applyRemote([template('t1', '海报'), template('t2', '横幅')])
+    await assetStore.applyRemote([asset('a1')])
+    useStore.getState().setSettings({ enterSubmit: true })
+
+    stopEngine = startSyncEngine()
+
+    await vi.waitFor(() => expect(postSyncMock).toHaveBeenCalledTimes(1))
+    const pushed = postSyncMock.mock.calls[0]?.[0] as SyncRequestBody
+    expect(pushed.templates?.map((change) => change.id)).toEqual(['t1', 't2'])
+    expect(pushed.assets?.map((change) => change.id)).toEqual(['a1'])
+    expect(pushed.settings?.document).toMatchObject({ enterSubmit: true })
+    // 这份设置从没有过时间戳，推上去也要输给服务端已有的那份。
+    expect(pushed.settings?.updatedAt).toBe(1)
+  })
+
+  it('leaves a scope that already synced alone, whatever version it holds', async () => {
+    await templateStore.applyRemote([template('t1', '海报')])
+    writePendingChanges({ ...readPendingChanges(), lastSyncedAt: 1_700_000_000_000 })
+
+    stopEngine = startSyncEngine()
+
+    await vi.waitFor(() => expect(postSyncMock).toHaveBeenCalledTimes(1))
+    const pushed = postSyncMock.mock.calls[0]?.[0] as SyncRequestBody
+    expect(pushed.templates).toEqual([])
+    expect(pushed.settings).toBeNull()
+  })
+
+  it('does not run again after the first push, logging out and back in included', async () => {
+    await templateStore.applyRemote([template('t1', '海报')])
+
+    stopEngine = startSyncEngine()
+    await vi.waitFor(() => expect(postSyncMock).toHaveBeenCalledTimes(1))
+    await vi.waitFor(() => expect(readPendingChanges().templates).toEqual([]))
+    stopEngine()
+
+    // 退出登录保留本机这个 scope 的缓存，再登录回来引擎读到的是同一份检查点。
+    setClientStorageScope(null)
+    setClientStorageScope('alice')
+    stopEngine = startSyncEngine()
+
+    await vi.waitFor(() => expect(postSyncMock).toHaveBeenCalledTimes(2))
+    const pushed = postSyncMock.mock.calls[1]?.[0] as SyncRequestBody
+    expect(pushed.templates).toEqual([])
+    expect(pushed.settings).toBeNull()
+  })
+
+  it('leaves records deleted before the first sync out of the push', async () => {
+    await templateStore.applyRemote([
+      template('t1', '海报'),
+      { id: 't2', updatedAt: 5, deletedAt: 5 },
+    ])
+
+    stopEngine = startSyncEngine()
+
+    await vi.waitFor(() => expect(postSyncMock).toHaveBeenCalledTimes(1))
+    const pushed = postSyncMock.mock.calls[0]?.[0] as SyncRequestBody
+    expect(pushed.templates?.map((change) => change.id)).toEqual(['t1'])
   })
 })
