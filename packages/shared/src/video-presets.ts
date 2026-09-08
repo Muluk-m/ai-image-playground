@@ -25,7 +25,8 @@ export const VIDEO_RESOLUTION_MULTIPLIERS: Record<VideoResolution, number> = {
   '2k': 2.2,
 }
 
-export type VideoMode = 'generate' | 'extend' | 'edit'
+export const VIDEO_MODES = ['generate', 'extend', 'edit'] as const
+export type VideoMode = (typeof VIDEO_MODES)[number]
 
 /** 续写长度的上下限（秒）。generate 的档位表不适用于它。 */
 export const VIDEO_EXTEND_MIN_SECONDS = 2
@@ -110,6 +111,7 @@ export function validateVideoRequest(
 
   const { label } = support
   const mode = video.mode ?? 'generate'
+  if (!VIDEO_MODES.includes(mode)) return { ok: false, reason: '不支持的视频模式' }
   const sourceCheck = validateVideoSource(support, mode, video)
   if (sourceCheck) return sourceCheck
 

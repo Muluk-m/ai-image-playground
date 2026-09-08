@@ -170,6 +170,13 @@ describe('validateVideoRequest', () => {
     ).toEqual({ ok: false, reason: '续写和改视频不接受首尾帧' })
   })
 
+  it('rejects a mode outside the vocabulary', () => {
+    expect(validateVideoRequest(GROK, request({ mode: 'remix' as never }), 0)).toEqual({
+      ok: false,
+      reason: '不支持的视频模式',
+    })
+  })
+
   it('rejects a model that is not a video model', () => {
     expect(validateVideoRequest('gpt-image-2', request(), 0)).toEqual({
       ok: false,

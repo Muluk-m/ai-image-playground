@@ -91,17 +91,8 @@ export interface SubmitRequest {
   device_id?: string
 }
 
-/**
- * 源视频字节的服务端引用。submit 校验完归属后落库，客户端既不发也读不到它。
- * kind 与 `resolveImageBytesRef` 的返回同形，直接存下来即可。
- */
-export interface StoredVideoRef {
-  kind: 'b64' | 'url' | 'object'
-  data: string
-  mime: string
-}
-
-export type PersistedVideoRequest = VideoRequest & { source_video?: StoredVideoRef }
+/** 源片引用。submit 校验完归属后落库，客户端既不发也读不到它。 */
+export type PersistedVideoRequest = VideoRequest & { source_video?: StoredImageRef }
 
 /** BFF-only database representation after input pixel bytes move to object storage. */
 export type PersistedSubmitRequest = Omit<SubmitRequest, 'input_images' | 'mask' | 'video'> & {
