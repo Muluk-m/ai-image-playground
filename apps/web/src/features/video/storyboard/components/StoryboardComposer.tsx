@@ -1,9 +1,10 @@
 import {
-  STORYBOARD_SECONDS,
   STORYBOARD_SHOT_COUNTS,
+  STORYBOARD_TOTAL_SECONDS,
   VIDEO_ASPECT_RATIOS,
   type VideoModelSupport,
 } from '@image-playground/shared'
+import { Checkbox } from '../../../../components/Checkbox'
 import { FIELD, LABEL, PANEL_SECTION, PRIMARY_BUTTON } from '../../../../components/panelStyles'
 import ChipRow from '../../components/ChipRow'
 import FrameSlot from '../../components/FrameSlot'
@@ -65,18 +66,18 @@ export default function StoryboardComposer({
 
       <div className="flex flex-col gap-2.5">
         <ChipRow
+          label="总时长"
+          options={STORYBOARD_TOTAL_SECONDS}
+          value={draft.totalSeconds}
+          render={(seconds) => `${seconds} 秒`}
+          onChange={(seconds) => useStoryboardStore.getState().setTotalSeconds(seconds)}
+        />
+        <ChipRow
           label="镜数"
           options={STORYBOARD_SHOT_COUNTS}
           value={draft.shots}
           render={(count) => `${count}`}
           onChange={(count) => useStoryboardStore.getState().setShots(count)}
-        />
-        <ChipRow
-          label="每镜"
-          options={STORYBOARD_SECONDS}
-          value={draft.secondsPerShot}
-          render={(seconds) => `${seconds} 秒`}
-          onChange={(seconds) => useStoryboardStore.getState().setSecondsPerShot(seconds)}
         />
         <ChipRow
           label="比例"
@@ -94,6 +95,12 @@ export default function StoryboardComposer({
         />
       </div>
 
+      <Checkbox
+        checked={draft.shotImages}
+        onChange={(checked) => useStoryboardStore.getState().setShotImages(checked)}
+        label="先出分镜图"
+      />
+
       <div className={PANEL_SECTION}>
         <button
           type="button"
@@ -101,7 +108,7 @@ export default function StoryboardComposer({
           onClick={submit}
           className={`${PRIMARY_BUTTON} w-full disabled:cursor-not-allowed`}
         >
-          {loading ? '生成中…' : '生成脚本与分镜图'}
+          {loading ? '生成中…' : draft.shotImages ? '生成脚本与分镜图' : '生成脚本'}
         </button>
       </div>
     </>

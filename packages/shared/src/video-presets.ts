@@ -81,7 +81,7 @@ export interface VideoModelSupport {
 export const VIDEO_MODEL_SUPPORT: Record<string, VideoModelSupport> = {
   'grok-imagine-video': {
     label: 'Grok',
-    durations: [5, 8, 10],
+    durations: [5, 8, 10, 15],
     aspectRatios: ['16:9', '9:16', '1:1'],
     resolutions: ['720p', '1080p'],
     firstFrame: true,

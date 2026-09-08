@@ -17,6 +17,7 @@ function shot(overrides: Partial<StoryboardShotRecord>): StoryboardShotRecord {
     description: '玻璃杯放在吧台',
     camera: '缓慢推进',
     line: '',
+    startSeconds: 0,
     seconds: 5,
     imagePrompt: '吧台上的空玻璃杯',
     videoPrompt: '镜头缓慢推进',
@@ -35,15 +36,19 @@ const RECORD: StoryboardRecord = {
   summary: '两镜讲清一杯冰饮',
   idea: '一杯夏日冰饮',
   aspectRatio: '16:9',
-  secondsPerShot: 5,
+  totalSeconds: 10,
+  videoPrompt: '冰饮玻璃杯，吧台，晨光\n镜头1（0-5秒）：空杯静置，缓慢推进',
   style: '写实',
   referenceImageId: null,
+  shotImagesRequested: true,
+  videoTaskId: 'video-whole',
   shots: [
     shot({}),
     shot({
       no: 2,
       title: '注水',
       line: '就是这一口',
+      startSeconds: 5,
       imageTaskId: 'task-2',
       imageId: null,
       videoTaskId: 'video-2',
@@ -61,7 +66,10 @@ describe('分镜导出', () => {
     expect(markdown).toContain('- 画面：玻璃杯放在吧台')
     expect(markdown).toContain('- 运镜：缓慢推进')
     expect(markdown).toContain('- 台词：（无）')
-    expect(markdown).toContain('- 时长：5 秒')
+    expect(markdown).toContain('## 整条视频提示词 · 10 秒')
+    expect(markdown).toContain('镜头1（0-5秒）：空杯静置，缓慢推进')
+    expect(markdown).toContain('- 时间：0-5 秒')
+    expect(markdown).toContain('- 时间：5-10 秒')
     expect(markdown).toContain('- 图片提示词：吧台上的空玻璃杯')
     expect(markdown).toContain('- 视频提示词：镜头缓慢推进')
     // 没出图的镜照样写进脚本。
@@ -73,6 +81,9 @@ describe('分镜导出', () => {
     const parsed = JSON.parse(storyboardExportJson(RECORD))
 
     expect(parsed.title).toBe('夏日冰饮')
+    expect(parsed.videoPrompt).toContain('镜头1（0-5秒）')
+    expect(parsed).not.toHaveProperty('videoTaskId')
+    expect(parsed.shots[0].startSeconds).toBe(0)
     expect(parsed.shots).toHaveLength(2)
     expect(parsed.shots[0]).not.toHaveProperty('imageTaskId')
     expect(parsed.shots[0]).not.toHaveProperty('imageId')

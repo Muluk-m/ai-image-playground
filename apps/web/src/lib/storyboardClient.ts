@@ -29,6 +29,6 @@ function parsePlan(body: unknown, request: StoryboardPlanRequest): StoryboardPla
   const { plan } = body as Record<string, unknown>
   return parseStoryboardPlan(plan, {
     shots: request.shots,
-    seconds: request.secondsPerShot,
+    totalSeconds: request.totalSeconds,
   })
 }

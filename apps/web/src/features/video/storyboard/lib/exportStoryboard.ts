@@ -1,3 +1,4 @@
+import { storyboardRangeLabel } from '@image-playground/shared'
 import { zipSync } from 'fflate'
 import { dataUrlToBlob } from '../../../../lib/canvasImage'
 import { downloadBlob } from '../../../../lib/downloadImages'
@@ -12,15 +13,24 @@ const MIME_EXTENSIONS: Record<string, string> = {
 }
 
 export function storyboardMarkdown(record: StoryboardRecord): string {
-  const lines = [`# ${record.title}`, '', record.summary, '']
+  const lines = [
+    `# ${record.title}`,
+    '',
+    record.summary,
+    '',
+    `## 整条视频提示词 · ${record.totalSeconds} 秒`,
+    '',
+    record.videoPrompt,
+    '',
+  ]
   for (const shot of record.shots) {
     lines.push(
       `## 镜 ${shot.no} · ${shot.title}`,
       '',
+      `- 时间：${storyboardRangeLabel(shot)} 秒`,
       `- 画面：${shot.description}`,
       `- 运镜：${shot.camera}`,
       `- 台词：${shot.line || '（无）'}`,
-      `- 时长：${shot.seconds} 秒`,
       `- 图片提示词：${shot.imagePrompt}`,
       `- 视频提示词：${shot.videoPrompt}`,
       '',
@@ -34,7 +44,8 @@ export function storyboardExportJson(record: StoryboardRecord): string {
   const shots = record.shots.map(
     ({ imageTaskId: _t, imageId: _i, videoTaskId: _v, ...shot }: StoryboardShotRecord) => shot,
   )
-  return `${JSON.stringify({ ...record, shots }, null, 2)}\n`
+  const { videoTaskId: _w, ...board } = record
+  return `${JSON.stringify({ ...board, shots }, null, 2)}\n`
 }
 
 function shotFileName(no: number, mime: string): string {
