@@ -8,6 +8,7 @@ export default function ChipRow<T extends string | number>({
   render,
   onChange,
   disabled,
+  optionDisabled,
   note,
 }: {
   label: string
@@ -16,6 +17,8 @@ export default function ChipRow<T extends string | number>({
   render: (option: T) => string
   onChange: (option: T) => void
   disabled?: boolean
+  /** 整行可用、但个别档位与另一行的选择配不上时置灰它。 */
+  optionDisabled?: (option: T) => boolean
   note?: string
 }) {
   return (
@@ -23,18 +26,21 @@ export default function ChipRow<T extends string | number>({
       <span className={PARAM_ROW_KEY}>{label}</span>
       {note && <span className="text-xs text-gray-600 dark:text-gray-300">{note}</span>}
       <div role="group" aria-label={label} className="flex flex-wrap gap-1.5">
-        {options.map((option) => (
-          <button
-            key={option}
-            type="button"
-            disabled={disabled}
-            aria-pressed={!disabled && option === value}
-            onClick={() => onChange(option)}
-            className={`${CHIP} ${!disabled && option === value ? ACTIVE_CHIP : IDLE_CHIP}`}
-          >
-            {render(option)}
-          </button>
-        ))}
+        {options.map((option) => {
+          const off = Boolean(disabled || optionDisabled?.(option))
+          return (
+            <button
+              key={option}
+              type="button"
+              disabled={off}
+              aria-pressed={!off && option === value}
+              onClick={() => onChange(option)}
+              className={`${CHIP} ${!off && option === value ? ACTIVE_CHIP : IDLE_CHIP}`}
+            >
+              {render(option)}
+            </button>
+          )
+        })}
       </div>
     </div>
   )

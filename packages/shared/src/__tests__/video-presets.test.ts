@@ -1,8 +1,11 @@
-import { describe, expect, it } from 'bun:test'
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test'
 import {
   VIDEO_MODEL_SUPPORT,
+  VIDEO_RESOLUTIONS,
+  type VideoModelSupport,
   type VideoRequest,
   validateVideoRequest,
+  videoDurationsForResolution,
   videoRateMultiplier,
 } from '../video-presets'
 
@@ -14,7 +17,46 @@ function request(overrides: Partial<VideoRequest> = {}): VideoRequest {
   return { duration_seconds: 5, aspect_ratio: '16:9', resolution: '720p', ...overrides }
 }
 
+const CONSTRAINED = 'constrained-video-test-model'
+const CONSTRAINED_SUPPORT: VideoModelSupport = {
+  label: '受限模型',
+  durations: [4, 6, 8],
+  aspectRatios: ['16:9'],
+  resolutions: ['720p', '1080p'],
+  resolutionMultipliers: { '720p': 1, '1080p': 1.2 },
+  durationsByResolution: { '1080p': [8] },
+  firstFrame: true,
+  lastFrame: false,
+  extend: false,
+  edit: false,
+  typicalSeconds: 60,
+  tagline: '受限',
+}
+
 describe('validateVideoRequest', () => {
+  // 组合约束要到 Veo 才有真模型，先用一条只在本 describe 里登记的矩阵条目测规则。
+  beforeAll(() => {
+    VIDEO_MODEL_SUPPORT[CONSTRAINED] = CONSTRAINED_SUPPORT
+  })
+  afterAll(() => {
+    delete VIDEO_MODEL_SUPPORT[CONSTRAINED]
+  })
+
+  it('accepts the durations a constrained resolution allows', () => {
+    expect(
+      validateVideoRequest(CONSTRAINED, request({ duration_seconds: 8, resolution: '1080p' }), 0),
+    ).toEqual({ ok: true })
+    expect(
+      validateVideoRequest(CONSTRAINED, request({ duration_seconds: 4, resolution: '720p' }), 0),
+    ).toEqual({ ok: true })
+  })
+
+  it('rejects a duration the chosen resolution does not allow', () => {
+    expect(
+      validateVideoRequest(CONSTRAINED, request({ duration_seconds: 6, resolution: '1080p' }), 0),
+    ).toEqual({ ok: false, reason: '受限模型 1080p 只支持 8 秒' })
+  })
+
   it('accepts a legal text-to-video combination on both models', () => {
     expect(validateVideoRequest(GROK, request({ duration_seconds: 10 }), 0)).toEqual({ ok: true })
     expect(validateVideoRequest(AGNES, request({ aspect_ratio: '9:16' }), 0)).toEqual({ ok: true })
@@ -223,10 +265,30 @@ describe('validateVideoRequest', () => {
 })
 
 describe('videoRateMultiplier', () => {
-  it('returns the per-resolution multiplier', () => {
-    expect(videoRateMultiplier('720p')).toBe(1)
-    expect(videoRateMultiplier('1080p')).toBe(1.6)
-    expect(videoRateMultiplier('2k')).toBe(2.2)
+  it('keeps the rate every existing model shipped with', () => {
+    expect(videoRateMultiplier(GROK, '720p')).toBe(1)
+    expect(videoRateMultiplier(GROK, '1080p')).toBe(1.6)
+    expect(videoRateMultiplier(AGNES, '720p')).toBe(1)
+    expect(videoRateMultiplier(SEEDANCE, '720p')).toBe(1)
+    expect(videoRateMultiplier(SEEDANCE, '1080p')).toBe(1.6)
+  })
+
+  it('falls back to one for a model or resolution outside the matrix', () => {
+    expect(videoRateMultiplier(GROK, '2k')).toBe(1)
+    expect(videoRateMultiplier('gpt-image-2', '720p')).toBe(1)
+  })
+})
+
+describe('videoDurationsForResolution', () => {
+  it('offers every duration of the model when the resolution is unconstrained', () => {
+    for (const support of Object.values(VIDEO_MODEL_SUPPORT))
+      for (const resolution of support.resolutions)
+        expect(videoDurationsForResolution(support, resolution)).toEqual(support.durations)
+  })
+
+  it('narrows to the subset the model declares for that resolution', () => {
+    expect(videoDurationsForResolution(CONSTRAINED_SUPPORT, '1080p')).toEqual([8])
+    expect(videoDurationsForResolution(CONSTRAINED_SUPPORT, '720p')).toEqual([4, 6, 8])
   })
 })
 
@@ -240,6 +302,24 @@ describe('VIDEO_MODEL_SUPPORT', () => {
   it('offers extend and edit on Grok only', () => {
     expect(VIDEO_MODEL_SUPPORT[GROK]).toMatchObject({ extend: true, edit: true })
     expect(VIDEO_MODEL_SUPPORT[AGNES]).toMatchObject({ extend: false, edit: false })
+  })
+
+  it('prices every resolution it offers and none it does not', () => {
+    for (const support of Object.values(VIDEO_MODEL_SUPPORT))
+      expect(Object.keys(support.resolutionMultipliers).sort()).toEqual(
+        [...support.resolutions].sort(),
+      )
+  })
+
+  it('constrains durations only for a resolution it offers, and only to durations it offers', () => {
+    for (const support of [...Object.values(VIDEO_MODEL_SUPPORT), CONSTRAINED_SUPPORT])
+      for (const resolution of VIDEO_RESOLUTIONS) {
+        const durations = support.durationsByResolution?.[resolution]
+        if (!durations) continue
+        expect(support.resolutions).toContain(resolution)
+        expect(durations.length).toBeGreaterThan(0)
+        for (const duration of durations) expect(support.durations).toContain(duration)
+      }
   })
 
   it('gives every model a distinct card tagline', () => {

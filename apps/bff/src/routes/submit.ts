@@ -208,7 +208,7 @@ export const submitRoutes = new Elysia()
             userId: authUser.id,
             model,
             quantity: video ? video.duration_seconds : n,
-            unitMultiplier: video ? videoRateMultiplier(video.resolution) : 1,
+            unitMultiplier: video ? videoRateMultiplier(model, video.resolution) : 1,
           })
           if (reservation.kind !== 'reserved') {
             await tx.delete(schema.tasks).where(eq(schema.tasks.id, id))
