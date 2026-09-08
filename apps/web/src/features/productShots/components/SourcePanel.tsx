@@ -21,6 +21,7 @@ import { DIAGRAM_LABEL, isDiagram } from '../lib/scene'
 import { useProductShotsStore } from '../store'
 import { SOURCE_MODE_LABELS, SOURCE_MODES } from '../types'
 import BadgeTag from './BadgeTag'
+import IconButton from './IconButton'
 import MattedThumb from './MattedThumb'
 import SourceLibraryPicker from './SourceLibraryPicker'
 
@@ -177,14 +178,13 @@ export default function SourcePanel() {
                     />
                   </span>
                 </button>
-                <button
-                  type="button"
+                <IconButton
                   onClick={() => removeImage(image.imageId)}
-                  aria-label={`移除原图 ${index + 1}`}
+                  label={`移除原图 ${index + 1}`}
                   className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-full bg-black/45 p-1 text-white transition hover:bg-black/65"
                 >
                   <CloseIcon className="h-3 w-3" />
-                </button>
+                </IconButton>
               </li>
             ))}
           </ul>
