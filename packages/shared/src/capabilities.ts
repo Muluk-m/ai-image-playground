@@ -4,6 +4,7 @@ export const CAPABILITIES = {
   'accounts:sync': { defaultValue: false, clientExposed: true },
   'billing:credits': { defaultValue: false, clientExposed: true },
   'generation:byok': { defaultValue: false, clientExposed: true },
+  'generation:storyboard': { defaultValue: false, clientExposed: true },
   'generation:video': { defaultValue: false, clientExposed: true },
   'matte:server': { defaultValue: false, clientExposed: true },
   'operator:console': { defaultValue: false, clientExposed: false },
