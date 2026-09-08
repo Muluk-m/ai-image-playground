@@ -11,6 +11,7 @@ import { capabilityUnavailable, isCapabilityEnabled } from '../lib/capabilities'
 import { chatFailure } from '../lib/chatCompletion'
 import { badRequestOnValidation, imageDataUrlSchema } from '../lib/http'
 import { log } from '../lib/logger'
+import { requireUserOrService } from '../lib/user-auth'
 import { planBackground, scanScene } from '../lib/vision'
 
 const imageSchema = imageDataUrlSchema()
@@ -22,11 +23,13 @@ const planBodySchema = t.Object({
   mode: t.Optional(t.UnionEnum(BG_SWAP_MODES)),
 })
 
+// 每次调用都烧上游视觉模型额度，所以匿名请求不能进来。
 export const bgswapPlanRoutes = new Elysia()
   .use(badRequestOnValidation())
   .onBeforeHandle(() => {
     if (!isCapabilityEnabled('remix:analyze')) return capabilityUnavailable('remix:analyze')
   })
+  .use(requireUserOrService)
   .post(
     '/api/bgswap/plan',
     async ({ body, status }) => {

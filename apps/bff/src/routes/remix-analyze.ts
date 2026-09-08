@@ -3,6 +3,7 @@ import { capabilityUnavailable, isCapabilityEnabled } from '../lib/capabilities'
 import { chatFailure } from '../lib/chatCompletion'
 import { badRequestOnValidation, imageDataUrlSchema } from '../lib/http'
 import { log } from '../lib/logger'
+import { requireUserOrService } from '../lib/user-auth'
 import { analyzeCompetitorImages } from '../lib/vision'
 
 const analyzeBodySchema = t.Object({
@@ -13,11 +14,13 @@ const analyzeBodySchema = t.Object({
   }),
 })
 
+// 每次调用都烧上游视觉模型额度，所以匿名请求不能进来。
 export const remixAnalyzeRoutes = new Elysia()
   .use(badRequestOnValidation())
   .onBeforeHandle(() => {
     if (!isCapabilityEnabled('remix:analyze')) return capabilityUnavailable('remix:analyze')
   })
+  .use(requireUserOrService)
   .post(
     '/api/remix/analyze',
     async ({ body, status }) => {
