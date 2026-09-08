@@ -136,6 +136,9 @@ Set `accounts:login=true` and `accounts:self-register=true` to expose the regist
 `POST /api/auth/register`; self-registration cannot be enabled without login. When the private
 billing overlay also enables `billing:credits`, account creation grants welcome credits in the
 same database transaction.
+`matte:server` needs `INTERNAL_API_TOKEN`, which signs the short-lived tokens Cloudflare uses to
+fetch a source image back, and `MATTE_TRANSFORM_ORIGIN`, a bare https origin of this deployment
+on a zone with image transformations on; BFF refuses to start without both.
 
 Start infrastructure, provision one migrator, one application writer, and one Admin reader for
 each deployment, build the release image once, then start each project:
@@ -165,7 +168,8 @@ any schema it still cannot read before it exits. No Compose file publishes a Pos
 Object storage is any S3-compatible service. Both deployment examples point at Cloudflare R2;
 `S3_KEY_PREFIX` confines a deployment to one prefix when its bucket is shared with other
 workloads. Each project also runs a `pg-backup` sidecar that uploads a daily `pg_dump` of its
-own database to `<S3_KEY_PREFIX>pg/<UTC date>.dump`. Retention belongs to a bucket lifecycle
+own database to `<S3_KEY_PREFIX>pg/<UTC date>.dump`, and `matte:server` caches each cutout under
+`<S3_KEY_PREFIX>matte/<sha256 of the source image>/`. Retention belongs to a bucket lifecycle
 rule, not to the sidecar.
 
 `app-compose.sh` defaults to
@@ -378,7 +382,8 @@ wrangler r2 bucket lifecycle add <bucket> --name pg-dumps \
   --prefix '<prefix>pg/' --expire-days 14
 ```
 
-The dumps sit inside the pixel prefix, so both rules match them and the shorter one decides.
+The dumps sit inside the pixel prefix, so both rules match them and the shorter one decides. The
+`matte/` cache sits there too, with only the 45-day rule matching it.
 
 Publish the frontend and only then move its DNS record to Pages. Copy
 `deploy/pages.env.example` to `$config_root/pages.env` on the workstation that releases the
