@@ -204,6 +204,19 @@ function type(label: string, value: string) {
   })
 }
 
+/** 一张原图跑完一次换背景，落下第一版。 */
+async function withOneVersion() {
+  render()
+  upload('上传原图', new File(['x'], '主图.png', { type: 'image/png' }))
+  while (useProductShotsStore.getState().draft.id === null) {
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+  }
+  click(actionButton())
+  await settle()
+}
+
 function upload(label: string, ...files: File[]) {
   const input = document.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`)
   if (!input) throw new Error(`no file input labelled ${label}`)
@@ -891,18 +904,6 @@ describe('the right column grouped into settings and generation', () => {
 })
 
 describe('the version list in the centre column', () => {
-  async function withOneVersion() {
-    render()
-    upload('上传原图', new File(['x'], '主图.png', { type: 'image/png' }))
-    while (useProductShotsStore.getState().draft.id === null) {
-      await act(async () => {
-        await new Promise((resolve) => setTimeout(resolve, 0))
-      })
-    }
-    click(actionButton())
-    await settle()
-  }
-
   function versionRow(): HTMLElement {
     const element = document.querySelector<HTMLElement>('[data-product-shots-version]')
     if (!element) throw new Error('no version row')
@@ -945,7 +946,7 @@ describe('the version list in the centre column', () => {
 
     const title = versionRow().querySelector<HTMLElement>('[data-product-shots-version-title]')
     const action = [...(title?.children ?? [])].find((item) => item.textContent === '换背景')
-    expect(action?.className).toContain('whitespace-nowrap')
+    expect(action?.className).toContain('shrink-0')
     expect(action?.className).not.toContain('truncate')
   })
 
@@ -1036,18 +1037,6 @@ describe('the result gallery', () => {
 })
 
 describe('the plan drawer of one version', () => {
-  async function withOneVersion() {
-    render()
-    upload('上传原图', new File(['x'], '主图.png', { type: 'image/png' }))
-    while (useProductShotsStore.getState().draft.id === null) {
-      await act(async () => {
-        await new Promise((resolve) => setTimeout(resolve, 0))
-      })
-    }
-    click(actionButton())
-    await settle()
-  }
-
   function openDrawer(from: HTMLElement) {
     // 版本条上是文字按钮，总览卡上是图标按钮，两处认同一个名字。
     const open = [...from.querySelectorAll('button')].find(

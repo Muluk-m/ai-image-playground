@@ -79,10 +79,13 @@ export function VersionTitle({
   index,
   version,
   trailing,
+  truncateAction = true,
 }: {
   index: number
   version: ProductShotVersion
   trailing?: ReactNode
+  /** 总览卡的格子窄，动作标签放不下就省略；版本条宽，整个放出来。 */
+  truncateAction?: boolean
 }) {
   return (
     <span
@@ -90,7 +93,11 @@ export function VersionTitle({
       className="flex items-center gap-1 overflow-hidden whitespace-nowrap text-xs text-gray-700 dark:text-gray-200"
     >
       <span className="shrink-0 font-medium">第 {index + 1} 版</span>
-      <span className="shrink-0 whitespace-nowrap rounded bg-violet-500/10 px-1 text-[11px] text-violet-700 dark:text-violet-300">
+      <span
+        className={`rounded bg-violet-500/10 px-1 text-[11px] text-violet-700 dark:text-violet-300 ${
+          truncateAction ? 'truncate' : 'shrink-0'
+        }`}
+      >
         {actionLabel(version.mode, version.level)}
       </span>
       {trailing}
