@@ -108,6 +108,7 @@ describe('the checkpoint', () => {
       settingsUpdatedAt: null,
       lastSyncedAt: null,
       unsyncedImages: [],
+      imagelessAssets: [],
     })
   })
 })
