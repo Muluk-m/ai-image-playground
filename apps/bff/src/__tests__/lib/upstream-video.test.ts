@@ -9,9 +9,12 @@ process.env.UPSTREAM_API_KEY = 'test-key'
 process.env.DATABASE_URL = process.env.TEST_DATABASE_URL ?? ''
 process.env.PORT = '0'
 
-const { callUpstream, setAsyncPollBackoffForTesting, setUpstreamFetchForTesting } = await import(
-  '../../lib/upstream'
-)
+const {
+  callUpstream,
+  extractUpstreamFailure,
+  setAsyncPollBackoffForTesting,
+  setUpstreamFetchForTesting,
+} = await import('../../lib/upstream')
 const { _setChannelsForTesting } = await import('../../lib/channels')
 type InternalChannel = import('../../lib/channels').InternalChannel
 type TestFetch = NonNullable<Parameters<typeof setUpstreamFetchForTesting>[0]>
@@ -200,6 +203,23 @@ describe('Grok video upstream', () => {
     await expect(run('grok-imagine-video', { video: video() })).rejects.toThrow(
       'moderation blocked',
     )
+  })
+
+  it('maps an internal_error failure to the Chinese message and keeps the upstream body', async () => {
+    const failure = {
+      status: 'failed',
+      error: {
+        code: 'internal_error',
+        message: 'Video generation failed due to an internal error. Please try again.',
+      },
+    }
+    handler = (url) =>
+      url === `${GROK_BASE}/videos/generations` ? json({ request_id: 'req_5' }) : json(failure)
+
+    const err = await run('grok-imagine-video', { video: video() }).catch((one: unknown) => one)
+
+    expect((err as Error).message).toBe('上游服务异常，请稍后重试')
+    expect(extractUpstreamFailure(err)).toEqual({ status: null, body: JSON.stringify(failure) })
   })
 })
 
