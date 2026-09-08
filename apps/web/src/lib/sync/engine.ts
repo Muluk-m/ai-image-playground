@@ -218,8 +218,8 @@ function collect<T extends { id: string }>(
 
 /**
  * 先图后记录：服务端只收图片本体已经在它那边的素材记录。图还没传上去的这一轮不推，
- * 留在待推集合里等下一轮；服务端明确不收的（配额、类型）摘出待推集合，改标「未同步」；
- * 本机根本没有图片本体的撤出待推集合，等取图路径取回图片再入。
+ * 留在待推集合里等下一轮；服务端明确不收的（配额、类型）摘出待推集合，改标「未同步」，
+ * 本机根本没有图片本体的也摘出去，等取图路径取回图片再入。
  */
 async function withImagesUploaded(
   changes: Array<AssetRecord | Tombstone>,
@@ -293,7 +293,7 @@ async function applyResponse(response: SyncResponseBody): Promise<void> {
 
 /** 清账：推上去的从待推集合里划掉，被拒的和飞行期间又改过的留下。 */
 function settle(request: SyncRequestBody, response: SyncResponseBody): void {
-  // 服务端那边也没有这张图：重推多少轮都是同一个拒绝，撤出待推集合。
+  // 服务端那边也没有这张图：留在待推集合里只会一轮轮重推同一条。
   withholdImagelessAssets(
     response.rejected
       .filter((rejection) => rejection.reason === 'asset_image_missing')
@@ -308,14 +308,13 @@ function settle(request: SyncRequestBody, response: SyncResponseBody): void {
 
   const current = readPendingChanges()
   const next: SyncCheckpoint = {
+    ...current,
     version: response.version,
     templates: current.templates.filter(keep('templates')),
     assets: current.assets.filter(keep('assets')),
     settingsUpdatedAt:
       request.settings && !changedInFlight?.has('settings') ? null : current.settingsUpdatedAt,
     lastSyncedAt: Date.now(),
-    unsyncedImages: current.unsyncedImages,
-    imagelessAssets: current.imagelessAssets,
   }
   writePendingChanges(next)
 }

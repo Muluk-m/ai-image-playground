@@ -10,10 +10,7 @@ import { clearImageUnsynced, markImageUnsynced, restoreImagelessAssets } from '.
 import { useSyncStatus } from './status'
 import { getAssetImage, putAssetImage } from './syncClient'
 
-/**
- * `refused` = 服务端不会再收这张图，记录改标「未同步」；`failed` 留着下一轮重试；
- * `imageless` = 本机没有图片本体，这一轮推不动这条记录。
- */
+/** `refused` = 服务端不会再收这张图，记录改标「未同步」；`failed` 留着下一轮重试。 */
 export type AssetImageUpload = 'uploaded' | 'refused' | 'failed' | 'imageless'
 
 const uploaded = new Set<string>()
@@ -79,7 +76,7 @@ async function fetchIfMissing(imageId: string): Promise<boolean> {
     if (await hasImage(imageId)) return true
     if (!useSyncStatus.getState().enabled) return false
     // 服务端只存素材图；任务结果、商品图这些本机数据的缺图不该去问它。
-    const named = await assetsNaming(imageId)
+    const named = await assetIdsUsing(imageId)
     if (named.length === 0) return false
 
     const blob = await getAssetImage(imageId)
@@ -99,7 +96,7 @@ async function fetchIfMissing(imageId: string): Promise<boolean> {
   }
 }
 
-async function assetsNaming(imageId: string): Promise<string[]> {
+async function assetIdsUsing(imageId: string): Promise<string[]> {
   const assets = await assetStore.list()
   return assets.filter((asset) => asset.imageId === imageId).map((asset) => asset.id)
 }
