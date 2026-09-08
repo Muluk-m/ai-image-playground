@@ -138,11 +138,13 @@ export const useVideoStore = create<VideoState>((set, get) => {
       }
       await patch(id, { bffRequestId: requestId, status: 'running' })
       const outputs = await awaitQueueOutputs(requestId)
+      const output = outputs[0]!
       await patch(id, {
         status: 'done',
         error: null,
-        outputIndex: outputs[0]!.index,
+        outputIndex: output.index,
         completedAt: Date.now(),
+        ...(output.width && output.height ? { width: output.width, height: output.height } : {}),
       })
     } catch (err) {
       notifyPrivateSubmissionError(err)
