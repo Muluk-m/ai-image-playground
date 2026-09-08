@@ -10,7 +10,6 @@ export type StoryboardTotalSeconds = (typeof STORYBOARD_TOTAL_SECONDS)[number]
 export const STORYBOARD_IDEA_MAX_CHARS = 2000
 export const STORYBOARD_STYLE_MAX_CHARS = 100
 
-/** 一镜在整条片子里占的时间段。 */
 export interface StoryboardSegment {
   readonly startSeconds: number
   readonly seconds: number
@@ -18,8 +17,9 @@ export interface StoryboardSegment {
 
 /** 均分总时长：端点对齐到 0.5 秒，段与段首尾相接，秒数之和等于总时长。 */
 export function storyboardSegments(totalSeconds: number, shots: number): StoryboardSegment[] {
-  const marks = Array.from({ length: shots + 1 }, (_, index) =>
-    index === shots ? totalSeconds : Math.round((totalSeconds * index * 2) / shots) / 2,
+  const marks = Array.from(
+    { length: shots + 1 },
+    (_, index) => Math.round((totalSeconds * index * 2) / shots) / 2,
   )
   return marks.slice(0, -1).map((startSeconds, index) => ({
     startSeconds,
@@ -30,6 +30,11 @@ export function storyboardSegments(totalSeconds: number, shots: number): Storybo
 /** 时间段标签的数字部分，如 `0-3.5`。 */
 export function storyboardRangeLabel(segment: StoryboardSegment): string {
   return `${segment.startSeconds}-${segment.startSeconds + segment.seconds}`
+}
+
+/** 整条视频提示词里每镜那一行的行首，模型照它写，旧记录也照它补。 */
+export function storyboardShotLabel(no: number, segment: StoryboardSegment): string {
+  return `镜头${no}（${storyboardRangeLabel(segment)}秒）`
 }
 
 export interface StoryboardShot extends StoryboardSegment {
