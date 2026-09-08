@@ -118,6 +118,30 @@ describe('playing a finished video', () => {
 
     expect(document.body.textContent).toContain('5 秒 · 随首帧 · 720p')
   })
+
+  it('backfills the missing size from the player metadata', async () => {
+    const task = videoTask({ source: 'image', firstFrameImageId: 'a' })
+    useVideoStore.setState({ tasks: [task] })
+    render(task)
+
+    await act(async () => {
+      player().dispatchEvent(new Event('loadedmetadata'))
+    })
+
+    expect(useVideoStore.getState().tasks[0]).toMatchObject({ width: 1280, height: 720 })
+  })
+
+  it('keeps a size the task already carries', async () => {
+    const task = videoTask({ source: 'image', firstFrameImageId: 'a', width: 960, height: 960 })
+    useVideoStore.setState({ tasks: [task] })
+    render(task)
+
+    await act(async () => {
+      player().dispatchEvent(new Event('loadedmetadata'))
+    })
+
+    expect(useVideoStore.getState().tasks[0]).toMatchObject({ width: 960, height: 960 })
+  })
 })
 
 describe('acting on a video', () => {
