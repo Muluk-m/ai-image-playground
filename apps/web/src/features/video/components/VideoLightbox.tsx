@@ -4,7 +4,7 @@ import Overlay from '../../../components/Overlay'
 import { LABEL, OUTLINE_BUTTON } from '../../../components/panelStyles'
 import { copyTextToClipboard, getClipboardFailureMessage } from '../../../lib/clipboard'
 import { useStore } from '../../../store'
-import { videoAspectLabel } from '../lib/aspect'
+import { videoAspectLabel, videoFrameAspect } from '../lib/aspect'
 import {
   adoptAsFirstFrame,
   captureVideoFrame,
@@ -39,6 +39,7 @@ export default function VideoLightbox({ task, onClose }: { task: VideoTask; onCl
   const playbackUrl = videoOutputUrl(task)
   const modelLabel = VIDEO_MODEL_SUPPORT[task.model]?.label ?? task.model
   const firstFrame = task.firstFrameImageId
+  const frameAspect = videoFrameAspect(task)
 
   const copyPrompt = async () => {
     try {
@@ -76,7 +77,7 @@ export default function VideoLightbox({ task, onClose }: { task: VideoTask; onCl
         data-video-lightbox
         className="relative z-10 grid max-h-[88vh] w-full max-w-5xl overflow-hidden rounded-2xl border border-white/50 bg-white shadow-2xl ring-1 ring-black/5 animate-modal-in dark:border-white/[0.08] dark:bg-gray-900 dark:ring-white/10 lg:grid-cols-[minmax(0,1fr)_20rem]"
       >
-        <div className="grid place-items-center bg-black p-4">
+        <div className="grid min-h-[16rem] place-items-center bg-black p-4">
           {playbackUrl ? (
             <video
               ref={videoRef}
@@ -85,7 +86,9 @@ export default function VideoLightbox({ task, onClose }: { task: VideoTask; onCl
               controls
               autoPlay
               playsInline
-              className="max-h-[70vh] w-full rounded"
+              // 宽高都留给内容自己撑：给定宽度会让两个上限一起把画面压扁。
+              className="max-h-[70vh] max-w-full rounded"
+              style={{ aspectRatio: frameAspect }}
               onLoadedData={(event) => {
                 if (task.thumbnailDataUrl) return
                 const dataUrl = captureVideoFrame(event.currentTarget)
