@@ -316,6 +316,18 @@ describe('an asset whose image body is not on this device', () => {
     await syncNow()
     expect(pushedAssetIds(1)).toEqual(['a1'])
   })
+
+  it('still pushes the tombstone when it is deleted while withheld', async () => {
+    await assetStore.applyRemote([asset('a1', 'image-remote')])
+    await startEngine()
+    await vi.waitFor(() => expect(readPendingChanges().imagelessAssets).toEqual(['a1']))
+
+    await assetStore.remove('a1')
+    await syncNow()
+
+    expect(pushedAssetIds(1)).toEqual(['a1'])
+    expect(readPendingChanges().assets).toEqual([])
+  })
 })
 
 describe('flushing on the way out', () => {
