@@ -56,7 +56,11 @@ export default function StoryboardComposer({
             onPick={onPickReference}
           />
         </div>
-        <FrameSourceStrip showLastFrame={false} onPickAll={onPickReference} />
+        <FrameSourceStrip
+          showLastFrame={false}
+          fillLabel={`填入${REFERENCE_LABEL}`}
+          onPickAll={onPickReference}
+        />
       </div>
 
       <div className="flex flex-col gap-2.5">

@@ -15,9 +15,10 @@ import {
 } from '../lib/playback'
 import { useVideoStore } from '../store'
 import type { VideoTask } from '../types'
+import { BADGE } from './chipStyles'
 import DeriveVideoPopover from './DeriveVideoPopover'
+import PlayBadge from './PlayBadge'
 
-const BADGE = 'absolute rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-white'
 const LINEAGE_CHIP =
   'rounded border border-gray-200 px-1 text-[10px] text-gray-500 dark:border-white/[0.12] dark:text-gray-400'
 const HOVER_BUTTON =
@@ -107,9 +108,7 @@ export default function VideoCard({ task, onOpen }: { task: VideoTask; onOpen: (
 
           {done && (
             <span className={OVERLAY}>
-              <span className="grid h-9 w-9 place-items-center rounded-full bg-black/55">
-                <span className="ml-1 block h-0 w-0 border-y-[8px] border-l-[13px] border-y-transparent border-l-white" />
-              </span>
+              <PlayBadge />
             </span>
           )}
 

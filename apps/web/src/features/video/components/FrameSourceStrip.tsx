@@ -10,9 +10,11 @@ const CAPTION = '素材库 · 最近出图'
 
 export default function FrameSourceStrip({
   showLastFrame,
+  fillLabel = '填入首帧',
   onPickAll,
 }: {
   showLastFrame: boolean
+  fillLabel?: string
   onPickAll: () => void
 }) {
   const assets = useLibraryStore((s) => s.assets)
@@ -36,7 +38,7 @@ export default function FrameSourceStrip({
             <button
               type="button"
               onClick={() => useVideoStore.getState().setFrame('first', source.imageId)}
-              title={source.name || '填入首帧'}
+              title={source.name || fillLabel}
               className={`block h-[62px] w-[62px] overflow-hidden rounded-lg border transition ${
                 source.imageId === selectedImageId
                   ? 'border-blue-400 ring-2 ring-blue-400/30'

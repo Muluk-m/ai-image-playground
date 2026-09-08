@@ -31,12 +31,16 @@ export const STORYBOARD_STYLES = ['写实', '杂志', '动画', '不限'] as con
 export type StoryboardStyle = (typeof STORYBOARD_STYLES)[number]
 export const STORYBOARD_FREE_STYLE: StoryboardStyle = '不限'
 
-/** 左栏这一刻的分镜参数；比例与参考图来自视频草稿，提交时一起交给 plan。 */
+/** 左栏这一刻的分镜参数。 */
 export interface StoryboardDraft {
   idea: string
   shots: StoryboardShotCount
   secondsPerShot: StoryboardSeconds
   style: StoryboardStyle
+}
+
+/** 比例与参考图跟着视频草稿走，提交时才和分镜草稿拼成一次请求。 */
+export type StoryboardPlanInput = StoryboardDraft & {
   aspectRatio: VideoAspectRatio
   referenceImageId: string | null
 }

@@ -7,7 +7,7 @@ import {
   INITIAL_STORYBOARD_DRAFT,
   useStoryboardStore,
 } from '../../../../features/video/storyboard/store'
-import type { StoryboardDraft } from '../../../../features/video/storyboard/types'
+import type { StoryboardPlanInput } from '../../../../features/video/storyboard/types'
 import { setChannels } from '../../../../lib/channels/channelStore'
 import { useStore } from '../../../../store'
 import type { TaskRecord } from '../../../../types'
@@ -58,7 +58,7 @@ const PLAN: StoryboardPlan = {
   ],
 }
 
-function draft(overrides: Partial<StoryboardDraft> = {}): StoryboardDraft {
+function planInput(overrides: Partial<StoryboardPlanInput> = {}): StoryboardPlanInput {
   return {
     ...INITIAL_STORYBOARD_DRAFT,
     idea: '一杯夏日冰饮',
@@ -78,6 +78,10 @@ async function settle() {
   for (let round = 0; round < 6; round++) {
     await new Promise((resolve) => setTimeout(resolve, 0))
   }
+}
+
+function taskMap(tasks: TaskRecord[]): Map<string, TaskRecord> {
+  return new Map(tasks.map((task) => [task.id, task]))
 }
 
 function doneTask(id: string, imageId: string): TaskRecord {
@@ -105,7 +109,6 @@ beforeEach(() => {
     storyboards: [],
     activeId: null,
     loading: false,
-    loaded: false,
     draft: INITIAL_STORYBOARD_DRAFT,
   })
   planStoryboard.mockResolvedValue(PLAN)
@@ -121,7 +124,7 @@ afterEach(() => {
 
 describe('生成脚本与分镜图', () => {
   it('落一条记录，并按镜逐条提交出图任务', async () => {
-    const id = await useStoryboardStore.getState().plan(draft())
+    const id = await useStoryboardStore.getState().plan(planInput())
 
     expect(id).toBeTruthy()
     expect(planStoryboard).toHaveBeenCalledWith({
@@ -148,7 +151,9 @@ describe('生成脚本与分镜图', () => {
   })
 
   it('带参考图时把它交给脚本和每一镜的出图', async () => {
-    await useStoryboardStore.getState().plan(draft({ referenceImageId: 'ref-1', style: '杂志' }))
+    await useStoryboardStore
+      .getState()
+      .plan(planInput({ referenceImageId: 'ref-1', style: '杂志' }))
 
     expect(planStoryboard).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -165,7 +170,7 @@ describe('生成脚本与分镜图', () => {
   })
 
   it('竖版分镜按 9:16 出图', async () => {
-    await useStoryboardStore.getState().plan(draft({ aspectRatio: '9:16' }))
+    await useStoryboardStore.getState().plan(planInput({ aspectRatio: '9:16' }))
 
     expect(submitPrepared).toHaveBeenNthCalledWith(
       1,
@@ -176,7 +181,7 @@ describe('生成脚本与分镜图', () => {
   it('脚本请求失败时不留记录', async () => {
     planStoryboard.mockRejectedValue(new Error('上游不可用'))
 
-    expect(await useStoryboardStore.getState().plan(draft())).toBeNull()
+    expect(await useStoryboardStore.getState().plan(planInput())).toBeNull()
     expect(useStoryboardStore.getState().storyboards).toHaveLength(0)
     expect(showToast).toHaveBeenCalledWith('上游不可用', 'error')
   })
@@ -184,7 +189,7 @@ describe('生成脚本与分镜图', () => {
 
 describe('镜头文案', () => {
   it('改动落盘', async () => {
-    const id = await useStoryboardStore.getState().plan(draft())
+    const id = await useStoryboardStore.getState().plan(planInput())
     await useStoryboardStore
       .getState()
       .updateShot(id!, 2, { description: '气泡水缓缓注入', videoPrompt: '气泡上升到杯口' })
@@ -200,11 +205,11 @@ describe('镜头文案', () => {
 
 describe('出图完成', () => {
   it('把工作台任务的出图挂回对应的镜', async () => {
-    await useStoryboardStore.getState().plan(draft())
+    await useStoryboardStore.getState().plan(planInput())
 
     useStoryboardStore
       .getState()
-      .adoptShotImages([doneTask('task-1', 'image-1'), doneTask('task-2', 'image-2')])
+      .adoptShotImages(taskMap([doneTask('task-1', 'image-1'), doneTask('task-2', 'image-2')]))
     await settle()
 
     expect(board().shots.map((shot) => shot.imageId)).toEqual(['image-1', 'image-2'])
@@ -213,10 +218,10 @@ describe('出图完成', () => {
 
 describe('生视频', () => {
   async function plannedWithImages() {
-    const id = await useStoryboardStore.getState().plan(draft())
+    const id = await useStoryboardStore.getState().plan(planInput())
     useStoryboardStore
       .getState()
-      .adoptShotImages([doneTask('task-1', 'image-1'), doneTask('task-2', 'image-2')])
+      .adoptShotImages(taskMap([doneTask('task-1', 'image-1'), doneTask('task-2', 'image-2')]))
     await settle()
     return id!
   }
@@ -247,7 +252,7 @@ describe('生视频', () => {
   })
 
   it('还没出图的镜不提交', async () => {
-    const id = await useStoryboardStore.getState().plan(draft())
+    const id = await useStoryboardStore.getState().plan(planInput())
 
     await useStoryboardStore.getState().generateShotVideo(id!, 1)
 
