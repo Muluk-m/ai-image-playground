@@ -144,7 +144,7 @@ function VersionRow({
         onDoubleClick={() => first && onOpen(first)}
         aria-pressed={previewing}
         aria-label={`预览${label}`}
-        className={`relative block h-[72px] w-[72px] overflow-hidden rounded-lg border ${
+        className={`relative block aspect-square w-full overflow-hidden rounded-lg border ${
           previewing
             ? 'border-blue-400 ring-1 ring-blue-400'
             : 'border-gray-200 dark:border-white/[0.08]'
@@ -165,6 +165,7 @@ function VersionRow({
         <VersionTitle
           index={index}
           version={version}
+          truncateAction={false}
           trailing={
             <span className="shrink-0 text-gray-500 dark:text-gray-400">
               {progress.state === 'running' ? (
