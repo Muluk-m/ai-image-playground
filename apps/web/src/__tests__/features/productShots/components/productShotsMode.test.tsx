@@ -194,6 +194,24 @@ function click(element: Element) {
   })
 }
 
+function hover(element: Element) {
+  act(() => {
+    element.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
+  })
+}
+
+function unhover(element: Element) {
+  act(() => {
+    element.dispatchEvent(new MouseEvent('mouseout', { bubbles: true }))
+  })
+}
+
+function focus(element: Element) {
+  act(() => {
+    element.dispatchEvent(new FocusEvent('focusin', { bubbles: true }))
+  })
+}
+
 function type(label: string, value: string) {
   const input = document.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`)
   if (!input) throw new Error(`no input labelled ${label}`)
@@ -255,6 +273,26 @@ describe('the background swap workbench', () => {
     click(remove)
 
     expect(useProductShotsStore.getState().draft.images).toEqual([])
+  })
+
+  it('shows the app tooltip on the source remove button', async () => {
+    render()
+
+    upload('上传原图', new File(['x'], '主图.png', { type: 'image/png' }))
+    await act(async () => {})
+    const remove = document.querySelector('[aria-label="移除原图 1"]')
+    if (!remove) throw new Error('no remove button')
+    expect(remove.getAttribute('title')).toBeNull()
+    expect(document.body.textContent).not.toContain('移除原图 1')
+
+    hover(remove)
+    expect(document.body.textContent).toContain('移除原图 1')
+
+    unhover(remove)
+    expect(document.body.textContent).not.toContain('移除原图 1')
+
+    focus(remove)
+    expect(document.body.textContent).toContain('移除原图 1')
   })
 
   it('holds the background swap button until there is an image to work on', () => {
@@ -434,7 +472,7 @@ describe('running one background swap', () => {
     click(actionButton())
     await settle()
     const edit = [...document.querySelectorAll('button')].find(
-      (button) => button.title === '编辑蒙版',
+      (button) => button.getAttribute('aria-label') === '编辑蒙版',
     )
     if (!edit) throw new Error('no mask edit button')
     click(edit)
@@ -478,7 +516,7 @@ describe('running one background swap', () => {
     })
 
     const choose = [...versionPanel().querySelectorAll('button')].find(
-      (button) => button.title === '用这版',
+      (button) => button.getAttribute('aria-label') === '用这版',
     )
     if (!choose) throw new Error('no choose button')
     click(choose)
@@ -488,7 +526,7 @@ describe('running one background swap', () => {
     expect(useProductShotsStore.getState().draft.images[0].chosenVersionId).toBe(version.id)
     expect(
       [...versionPanel().querySelectorAll('button')]
-        .find((button) => button.title === '取消选用')
+        .find((button) => button.getAttribute('aria-label') === '取消选用')
         ?.getAttribute('aria-pressed'),
     ).toBe('true')
   })
@@ -543,7 +581,7 @@ describe('looking at the matte before trusting a version', () => {
     await settle()
 
     const toggle = [...versionPanel().querySelectorAll('button')].find(
-      (button) => button.title === '看蒙版',
+      (button) => button.getAttribute('aria-label') === '看蒙版',
     )
     if (!toggle) throw new Error('no matte toggle')
     click(toggle)
@@ -826,7 +864,7 @@ describe('the product picked once for the whole job', () => {
     expect(row?.textContent).not.toContain(PLAN.plan)
 
     const open = [...(row?.querySelectorAll('button') ?? [])].find(
-      (button) => button.title === '查看方案',
+      (button) => button.getAttribute('aria-label') === '查看方案',
     )
     if (!open) throw new Error('no plan drawer button')
     click(open)
@@ -1040,7 +1078,8 @@ describe('the plan drawer of one version', () => {
   function openDrawer(from: HTMLElement) {
     // 版本条上是文字按钮，总览卡上是图标按钮，两处认同一个名字。
     const open = [...from.querySelectorAll('button')].find(
-      (button) => button.textContent === '查看方案' || button.title === '查看方案',
+      (button) =>
+        button.textContent === '查看方案' || button.getAttribute('aria-label') === '查看方案',
     )
     if (!open) throw new Error('no plan drawer button')
     click(open)

@@ -12,6 +12,7 @@ import { DIAGRAM_LABEL, isDiagram } from '../lib/scene'
 import { VERSION_STATE_LABELS, type VersionProgress, versionProgress } from '../lib/versionProgress'
 import { useProductShotsStore } from '../store'
 import type { ProductShotVersion } from '../types'
+import IconButton from './IconButton'
 import MattedThumb from './MattedThumb'
 import {
   CheckIcon,
@@ -207,82 +208,68 @@ function VersionRow({
       </div>
 
       <div className={VERSION_ACTION_ROW}>
-        <button
-          type="button"
+        <IconButton
           onClick={() => openPlanDrawer(version.id)}
-          title="查看方案"
-          aria-label="查看方案"
+          label="查看方案"
           className={VERSION_ICON_BUTTON}
         >
           <PlanIcon className="h-4 w-4" />
-        </button>
+        </IconButton>
         {version.mattePreviewImageId && (
-          <button
-            type="button"
+          <IconButton
             onClick={() => toggleMatteOverlay(version.id)}
             aria-pressed={overlaid}
-            title="看蒙版"
-            aria-label="看蒙版"
+            label="看蒙版"
             className={`${VERSION_ICON_BUTTON} ${overlaid ? 'bg-blue-500/10 text-blue-600 dark:text-blue-300' : ''}`}
           >
             <MatteIcon className="h-4 w-4" />
-          </button>
+          </IconButton>
         )}
         {matteReady && (
           <>
-            <button
-              type="button"
+            <IconButton
               onClick={() => void editSourceMask(imageId)}
-              title="编辑蒙版"
-              aria-label="编辑蒙版"
+              label="编辑蒙版"
               className={VERSION_ICON_BUTTON}
             >
               <EditIcon className="h-4 w-4" />
-            </button>
-            <button
-              type="button"
+            </IconButton>
+            <IconButton
               onClick={() => void regenerateFromVersion(version.id, true)}
-              title="用此蒙版重生成"
-              aria-label="用此蒙版重生成"
+              label="用此蒙版重生成"
               className={VERSION_ICON_BUTTON}
             >
               <MaskRetryIcon className="h-4 w-4" />
-            </button>
+            </IconButton>
           </>
         )}
         {first && (
           <>
-            <button
-              type="button"
+            <IconButton
               onClick={() => chooseVersion(version.id)}
               aria-pressed={chosen}
-              title={chooseLabel}
-              aria-label={chooseLabel}
+              label={chooseLabel}
               className={`${VERSION_ICON_BUTTON} ${chosen ? CHOSEN_ICON : ''}`}
             >
               <CheckIcon className="h-3.5 w-3.5" />
-            </button>
-            <button
-              type="button"
+            </IconButton>
+            <IconButton
               onClick={() => void download()}
-              title="下载"
-              aria-label="下载"
+              label="下载"
               className={VERSION_ICON_BUTTON}
             >
               <DownloadIcon className="h-4 w-4" />
-            </button>
+            </IconButton>
           </>
         )}
         {progress.state === 'error' && (
-          <button
-            type="button"
+          <IconButton
             onClick={() => void retryVersion(version.id)}
-            title="重跑"
-            aria-label="重跑"
+            label="重跑"
             className={VERSION_ICON_BUTTON}
           >
             <RetryIcon className="h-4 w-4" />
-          </button>
+          </IconButton>
         )}
       </div>
     </li>
