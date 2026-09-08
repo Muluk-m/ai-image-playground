@@ -13,6 +13,7 @@
     "billing:credits": false,
     "generation:byok": false,
     "generation:video": false,
+    "matte:server": true,
     "operator:console": false,
     "quota:daily": false,
     "remix:analyze": false,
