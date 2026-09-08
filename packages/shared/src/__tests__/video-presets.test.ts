@@ -69,7 +69,7 @@ describe('validateVideoRequest', () => {
   it('rejects an unsupported duration', () => {
     expect(validateVideoRequest(GROK, request({ duration_seconds: 12 }), 0)).toEqual({
       ok: false,
-      reason: 'Grok 时长只支持 5 / 8 / 10 秒',
+      reason: 'Grok 时长只支持 5 / 8 / 10 / 15 秒',
     })
   })
 
