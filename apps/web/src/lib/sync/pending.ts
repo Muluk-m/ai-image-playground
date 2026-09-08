@@ -109,38 +109,27 @@ export function dropPendingRecords(collection: SyncCollection, ids: readonly str
   writePendingChanges({ ...checkpoint, [collection]: kept })
 }
 
-/**
- * 本机没有图片本体的素材记录撤出待推集合：只可能是别的设备建的，图还没惰性取回来，
- * 推上去只会被服务端一轮轮拒掉，「N 项待同步」永远清不掉。
- */
+/** 本机没有图片本体的素材记录撤出待推集合：只可能是别的设备建的，图还没惰性取回来。 */
 export function withholdImagelessAssets(ids: readonly string[]): void {
   if (ids.length === 0) return
   const checkpoint = readPendingChanges()
   const withheld = new Set(ids)
-  const assets = checkpoint.assets.filter((id) => !withheld.has(id))
-  const imagelessAssets = union(checkpoint.imagelessAssets, ids)
-  if (
-    assets.length === checkpoint.assets.length &&
-    imagelessAssets.length === checkpoint.imagelessAssets.length
-  ) {
-    return
-  }
-  writePendingChanges({ ...checkpoint, assets, imagelessAssets })
+  writePendingChanges({
+    ...checkpoint,
+    assets: checkpoint.assets.filter((id) => !withheld.has(id)),
+    imagelessAssets: union(checkpoint.imagelessAssets, ids),
+  })
 }
 
 /** 取图路径取回图片本体后，之前因缺图撤下的素材记录重新入待推集合。 */
 export function restoreImagelessAssets(ids: readonly string[]): void {
   if (!notify) return
   const checkpoint = readPendingChanges()
-  const restored = ids.filter((id) => checkpoint.imagelessAssets.includes(id))
+  const withheld = new Set(checkpoint.imagelessAssets)
+  const restored = ids.filter((id) => withheld.delete(id))
   if (restored.length === 0) return
-  const withheld = new Set(restored)
-  writePendingChanges({
-    ...checkpoint,
-    assets: union(checkpoint.assets, restored),
-    imagelessAssets: checkpoint.imagelessAssets.filter((id) => !withheld.has(id)),
-  })
-  for (const id of restored) notify(`assets:${id}`)
+  writePendingChanges({ ...checkpoint, imagelessAssets: [...withheld] })
+  for (const id of restored) markRecordDirty('assets', { id })
 }
 
 export function markImageUnsynced(imageId: string): void {
