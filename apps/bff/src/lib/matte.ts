@@ -1,7 +1,7 @@
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto'
-import { Agent, type Dispatcher, fetch as undiciFetch } from 'undici'
 import { config } from '../config'
 import { objectStore } from './objectStore'
+import { createDispatcher, createFetchSlot, type Dispatcher, withDeadline } from './timeoutFetch'
 import { isObject } from './type-guards'
 
 const SOURCE_TOKEN_TTL_MS = 5 * 60 * 1000
@@ -29,14 +29,12 @@ type MatteFetch = (
   init: { signal: AbortSignal; dispatcher?: Dispatcher },
 ) => Promise<MatteFetchResponse>
 
-// 整体超时归 AbortController；这里只管连不上的情况。
-const matteDispatcher = new Agent({ connectTimeout: CONNECT_TIMEOUT_MS })
+const matteDispatcher = createDispatcher({ connectMs: CONNECT_TIMEOUT_MS })
 
-let matteFetch: MatteFetch = undiciFetch
+const matteTransport = createFetchSlot<MatteFetch>()
 
-/** 测试注入点；undefined 恢复真实 Undici transport。 */
 export function setMatteFetchForTesting(fetchImpl?: MatteFetch): void {
-  matteFetch = fetchImpl ?? undiciFetch
+  matteTransport.set(fetchImpl)
 }
 
 function signaturePayload(payload: string): Buffer {
@@ -80,28 +78,26 @@ function foregroundTransformUrl(token: string): string {
 }
 
 /** 只确认这是 Cloudflare 成功产出的 PNG；alpha 通道由前端读，BFF 不解码。 */
-async function fetchForegroundPng(token: string): Promise<Uint8Array> {
-  const abort = new AbortController()
-  const timer = setTimeout(() => abort.abort(), REQUEST_TIMEOUT_MS)
-  try {
-    const response = await matteFetch(foregroundTransformUrl(token), {
-      signal: abort.signal,
-      dispatcher: matteDispatcher,
-    })
-    if (response.status !== 200) throw new MatteUpstreamError(`HTTP ${response.status}`)
-    const resized = response.headers.get('cf-resized') ?? ''
-    if (resized.includes('err=')) throw new MatteUpstreamError(`cf-resized ${resized}`)
-    const contentType = (response.headers.get('content-type') ?? '').toLowerCase()
-    if (!contentType.startsWith('image/png')) {
-      throw new MatteUpstreamError(`content-type ${contentType || 'missing'}`)
+function fetchForegroundPng(token: string): Promise<Uint8Array> {
+  return withDeadline(REQUEST_TIMEOUT_MS, async (signal) => {
+    try {
+      const response = await matteTransport.current(foregroundTransformUrl(token), {
+        signal,
+        dispatcher: matteDispatcher,
+      })
+      if (response.status !== 200) throw new MatteUpstreamError(`HTTP ${response.status}`)
+      const resized = response.headers.get('cf-resized') ?? ''
+      if (resized.includes('err=')) throw new MatteUpstreamError(`cf-resized ${resized}`)
+      const contentType = (response.headers.get('content-type') ?? '').toLowerCase()
+      if (!contentType.startsWith('image/png')) {
+        throw new MatteUpstreamError(`content-type ${contentType || 'missing'}`)
+      }
+      return new Uint8Array(await response.arrayBuffer())
+    } catch (error) {
+      if (error instanceof MatteUpstreamError) throw error
+      throw new MatteUpstreamError('request failed', { cause: error })
     }
-    return new Uint8Array(await response.arrayBuffer())
-  } catch (error) {
-    if (error instanceof MatteUpstreamError) throw error
-    throw new MatteUpstreamError('request failed', { cause: error })
-  } finally {
-    clearTimeout(timer)
-  }
+  })
 }
 
 /** 对象键的扩展名就是 mime 子类型，jpeg 单独收敛成 jpg。 */

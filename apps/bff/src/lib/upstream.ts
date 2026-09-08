@@ -6,12 +6,19 @@ import {
   type VideoResolution,
 } from '@image-playground/shared'
 import sharp from 'sharp'
-import { Agent, FormData, fetch as undiciFetch } from 'undici'
+import { FormData } from 'undici'
 import { config } from '../config'
 import { getChannels } from './channels'
 import type { HydratedSubmitRequest, HydratedVideoRequest } from './imageArchive'
 import { log } from './logger'
 import { resolveApiKey } from './resolveApiKey'
+import {
+  createDispatcher,
+  createFetchSlot,
+  startDeadline,
+  type UndiciFetchInit,
+  type UndiciFetchInput,
+} from './timeoutFetch'
 import { isObject } from './type-guards'
 
 /**
@@ -128,26 +135,21 @@ interface UpstreamResponse {
   arrayBuffer(): Promise<ArrayBuffer>
 }
 
-type UpstreamFetch = (
-  input: Parameters<typeof undiciFetch>[0],
-  init?: Parameters<typeof undiciFetch>[1],
-) => Promise<UpstreamResponse>
-type UpstreamFetchInit = Parameters<UpstreamFetch>[1]
+type UpstreamFetch = (input: UndiciFetchInput, init?: UndiciFetchInit) => Promise<UpstreamResponse>
+type UpstreamFetchInit = UndiciFetchInit
 
 export const UPSTREAM_CONNECT_TIMEOUT_MS = 10_000
 export const UPSTREAM_TRANSPORT_TIMEOUT_MS = QUEUE_TIMEOUTS.UPSTREAM_HARD_TIMEOUT_MS + 60_000
 
-const upstreamDispatcher = new Agent({
-  connectTimeout: UPSTREAM_CONNECT_TIMEOUT_MS,
-  headersTimeout: UPSTREAM_TRANSPORT_TIMEOUT_MS,
-  bodyTimeout: UPSTREAM_TRANSPORT_TIMEOUT_MS,
+const upstreamDispatcher = createDispatcher({
+  connectMs: UPSTREAM_CONNECT_TIMEOUT_MS,
+  transportMs: UPSTREAM_TRANSPORT_TIMEOUT_MS,
 })
 
-let upstreamFetch: UpstreamFetch = undiciFetch
+const upstreamTransport = createFetchSlot<UpstreamFetch>()
 
-/** 测试注入点；undefined 恢复真实 Undici transport。 */
 export function setUpstreamFetchForTesting(fetchImpl?: UpstreamFetch): void {
-  upstreamFetch = fetchImpl ?? undiciFetch
+  upstreamTransport.set(fetchImpl)
 }
 
 /**
@@ -198,23 +200,12 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
   }
   if (!supportsModeration) request = withoutModeration(request)
 
-  const abort = new AbortController()
-  let timedOut = false
   const deadlineAt = (resume?.submittedAt ?? Date.now()) + QUEUE_TIMEOUTS.UPSTREAM_HARD_TIMEOUT_MS
-  const timer = setTimeout(
-    () => {
-      timedOut = true
-      abort.abort()
-    },
-    Math.max(0, deadlineAt - Date.now()),
-  )
-  const onExternalAbort = () => abort.abort()
-  if (externalSignal?.aborted) abort.abort()
-  else externalSignal?.addEventListener('abort', onExternalAbort)
+  const deadline = startDeadline(deadlineAt - Date.now(), externalSignal)
 
   const fetchInit = (init: UpstreamFetchInit): UpstreamFetchInit => ({
     ...init,
-    signal: abort.signal,
+    signal: deadline.signal,
     dispatcher: upstreamDispatcher,
   })
 
@@ -228,7 +219,7 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
     counted = true,
   ): Promise<UpstreamResponse> => {
     try {
-      if (abort.signal.aborted) throw new DOMException('Upstream request aborted', 'AbortError')
+      if (deadline.signal.aborted) throw new DOMException('Upstream request aborted', 'AbortError')
       if (counted) await beforeRequest?.()
 
       // The accounting callback is the dispatch commit point. Start the transport with a fresh
@@ -236,19 +227,19 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
       // create a charged task without a corresponding upstream invocation.
       const requestAbort = new AbortController()
       const relayAbort = () => requestAbort.abort()
-      const responsePromise = upstreamFetch(url, {
+      const responsePromise = upstreamTransport.current(url, {
         ...fetchInit(init),
         signal: requestAbort.signal,
       })
-      abort.signal.addEventListener('abort', relayAbort, { once: true })
-      if (abort.signal.aborted) relayAbort()
+      deadline.signal.addEventListener('abort', relayAbort, { once: true })
+      if (deadline.signal.aborted) relayAbort()
       try {
         return await responsePromise
       } finally {
-        abort.signal.removeEventListener('abort', relayAbort)
+        deadline.signal.removeEventListener('abort', relayAbort)
       }
     } catch (err) {
-      if (timedOut) throw new UpstreamTimeoutError()
+      if (deadline.timedOut) throw new UpstreamTimeoutError()
       if (externalSignal?.aborted) throw err
       const detail = err instanceof Error ? err.message : String(err)
       throw new UpstreamResultUnknownError(`上游连接中断，执行结果未知：${detail}`, {
@@ -261,7 +252,7 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
     try {
       return await parseUpstreamResponse(res)
     } catch (err) {
-      if (timedOut) throw new UpstreamTimeoutError()
+      if (deadline.timedOut) throw new UpstreamTimeoutError()
       if (externalSignal?.aborted) throw err
       if (typeof (err as { upstreamStatus?: unknown })?.upstreamStatus === 'number') throw err
       const detail = err instanceof Error ? err.message : String(err)
@@ -272,8 +263,7 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
   }
 
   // 这个 try 里每个 return 都必须 `return await`：裸 return 一个 promise 会让下面的
-  // finally 立刻跑，在请求还在飞的时候摘掉 external abort 监听并清掉超时定时器 ——
-  // 取消与硬超时都会静默失效。
+  // finally 立刻跑，请求还在飞的时候就 release 掉 deadline —— 取消与硬超时都会静默失效。
   try {
     if (provider === 'openai-compat') {
       const authHeader: Record<string, string> = key ? { authorization: `Bearer ${key}` } : {}
@@ -315,9 +305,9 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
       /** 硬超时会 abort 掉轮询的 sleep；不映射的话裸 AbortError 会被当成用户取消，行没有终态。 */
       const pollDelay = async (attempt: number): Promise<void> => {
         try {
-          await abortableSleep(asyncPollDelayMs(attempt), abort.signal)
+          await abortableSleep(asyncPollDelayMs(attempt), deadline.signal)
         } catch (err) {
-          if (timedOut) throw new UpstreamTimeoutError()
+          if (deadline.timedOut) throw new UpstreamTimeoutError()
           throw err
         }
       }
@@ -338,7 +328,8 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
               )
             ).payload
           } catch (err) {
-            if (timedOut || externalSignal?.aborted || !isRecoverablePollFailure(err)) throw err
+            if (deadline.timedOut || externalSignal?.aborted || !isRecoverablePollFailure(err))
+              throw err
             // 留 payload 为 undefined，下面按 pending 走同一条退避路径。
           }
           const state = protocol.readState(payload)
@@ -436,7 +427,7 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
         if (style === 'grok-openai-images') {
           editRequest = isGrokImagine2(model)
             ? normalizeGrokImagine2EditInputs(request)
-            : await normalizeGrokEditInputs(request, abort.signal)
+            : await normalizeGrokEditInputs(request, deadline.signal)
         }
         const n = Math.max(1, editRequest.n ?? 1)
         const unitRequest = n === 1 ? editRequest : withoutImageCount(editRequest)
@@ -501,11 +492,10 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
     throw new Error(`Unsupported provider: ${provider satisfies never}`)
   } catch (err) {
     // fan-out 请求任一失败时取消其它同批请求，避免 callUpstream 已返回失败后仍在后台跑。
-    abort.abort()
+    deadline.abort()
     throw err
   } finally {
-    clearTimeout(timer)
-    externalSignal?.removeEventListener('abort', onExternalAbort)
+    deadline.release()
   }
 }
 
