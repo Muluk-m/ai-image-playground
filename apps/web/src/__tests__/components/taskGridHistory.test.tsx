@@ -4,6 +4,8 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import TaskGrid from '../../components/TaskGrid'
 import { useProductShotsStore } from '../../features/productShots/store'
+import { useStoryboardStore } from '../../features/video/storyboard/store'
+import type { StoryboardRecord } from '../../features/video/storyboard/types'
 import { useStore } from '../../store'
 import type { TaskRecord } from '../../types'
 
@@ -26,6 +28,27 @@ function task(id: string, setId: string, status: TaskRecord['status']): TaskReco
     finishedAt: 9,
     elapsed: 1,
     origin: { setId, shotId: `${id}:v1` },
+  }
+}
+
+function storyboardTask(id: string): TaskRecord {
+  const record = task(id, 'board-1', 'done')
+  return { ...record, origin: { setId: 'board-1', shotId: id, kind: 'storyboard' } }
+}
+
+function storyboard(): StoryboardRecord {
+  return {
+    id: 'board-1',
+    createdAt: 1,
+    updatedAt: 1,
+    title: '夏日冰饮',
+    summary: '两镜',
+    idea: '冰饮',
+    aspectRatio: '16:9',
+    secondsPerShot: 5,
+    style: '不限',
+    referenceImageId: null,
+    shots: [],
   }
 }
 
@@ -78,6 +101,7 @@ beforeEach(() => {
     ],
     loadJobs: vi.fn().mockResolvedValue(undefined),
   })
+  useStoryboardStore.setState({ storyboards: [], load: vi.fn().mockResolvedValue(undefined) })
   host = document.createElement('div')
   document.body.appendChild(host)
   root = createRoot(host)
@@ -116,6 +140,15 @@ describe('folding a product shot job in the history', () => {
     const card = document.querySelector('[data-set-history-card]')
     expect(card?.textContent).toContain('商品图任务')
     expect(card?.querySelectorAll('[data-set-history-action]')).toHaveLength(0)
+  })
+
+  it('names a storyboard set after the storyboard', () => {
+    useStore.setState({ tasks: [storyboardTask('task-3'), storyboardTask('task-4')] })
+    useStoryboardStore.setState({ storyboards: [storyboard()] })
+    act(() => root.render(<TaskGrid />))
+
+    const card = document.querySelector('[data-set-history-card]')
+    expect(card?.textContent).toContain('夏日冰饮')
   })
 
   it('lets the card open to its tasks', () => {

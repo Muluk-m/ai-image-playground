@@ -160,6 +160,8 @@ export type TaskStatus = 'running' | 'done' | 'error'
 export interface TaskOrigin {
   setId: string
   shotId: string
+  /** 缺省是商品图套图；分镜的镜头图带 'storyboard'。 */
+  kind?: 'storyboard'
 }
 
 export interface TaskRecord {
