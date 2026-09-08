@@ -1,6 +1,12 @@
-import { Agent, fetch as undiciFetch } from 'undici'
 import { config } from '../config'
 import { resolveApiKey } from './resolveApiKey'
+import {
+  createDispatcher,
+  createFetchSlot,
+  type UndiciFetchInit,
+  type UndiciFetchInput,
+  withDeadline,
+} from './timeoutFetch'
 import { isObject } from './type-guards'
 
 // 独立于 upstream.ts：那里是生图队列的协议适配，超时预算按分钟算，这里按秒。
@@ -34,25 +40,20 @@ interface ChatResponse {
   text(): Promise<string>
 }
 
-type ChatFetch = (
-  input: Parameters<typeof undiciFetch>[0],
-  init?: Parameters<typeof undiciFetch>[1],
-) => Promise<ChatResponse>
+type ChatFetch = (input: UndiciFetchInput, init?: UndiciFetchInit) => Promise<ChatResponse>
 
 const CONNECT_TIMEOUT_MS = 10_000
 const POOL_TIMEOUT_MS = 90_000
 
-const chatDispatcher = new Agent({
-  connectTimeout: CONNECT_TIMEOUT_MS,
-  headersTimeout: POOL_TIMEOUT_MS,
-  bodyTimeout: POOL_TIMEOUT_MS,
+const chatDispatcher = createDispatcher({
+  connectMs: CONNECT_TIMEOUT_MS,
+  transportMs: POOL_TIMEOUT_MS,
 })
 
-let chatFetch: ChatFetch = undiciFetch
+const chatTransport = createFetchSlot<ChatFetch>()
 
-/** 测试注入点；undefined 恢复真实 Undici transport。 */
 export function setChatFetchForTesting(fetchImpl?: ChatFetch): void {
-  chatFetch = fetchImpl ?? undiciFetch
+  chatTransport.set(fetchImpl)
 }
 
 /** 上游回的 chat 文本，形状不对时 undefined —— 交给调用方决定重试还是放弃。 */
@@ -107,25 +108,21 @@ function requestBody({ model, prompt, images = [], maxTokens }: ChatAsk): string
   })
 }
 
-async function requestContent(body: string, timeoutMs: number): Promise<string | undefined> {
-  const abort = new AbortController()
-  const timer = setTimeout(() => abort.abort(), timeoutMs)
-  try {
-    const response = await chatFetch(`${config.upstream.baseUrl}/v1/chat/completions`, {
+function requestContent(body: string, timeoutMs: number): Promise<string | undefined> {
+  return withDeadline(timeoutMs, async (signal) => {
+    const response = await chatTransport.current(`${config.upstream.baseUrl}/v1/chat/completions`, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
         authorization: `Bearer ${resolveApiKey('openai-compat')}`,
       },
       body,
-      signal: abort.signal,
+      signal,
       dispatcher: chatDispatcher,
     })
     if (!response.ok) throw new ChatUpstreamError(response.status)
     return messageContent(await response.text())
-  } finally {
-    clearTimeout(timer)
-  }
+  })
 }
 
 /** 上游偶发不回 JSON，重试一次；第二次仍不可用就是硬失败。 */
