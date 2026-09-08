@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { startVideoFromImage } from '../features/video/lib/playback'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { startVideoFromImage } from '../features/video/lib/entry'
 import { createMaskPreviewDataUrl } from '../lib/canvasImage'
 import { isVideoModeAvailable } from '../lib/channels/videoChannels'
 import { downloadBlob } from '../lib/downloadImages'
@@ -195,6 +195,8 @@ function LightboxInner({
   const containerRef = useRef<HTMLDivElement>(null)
   const showToast = useStore((s) => s.showToast)
   const [coarsePointer] = useState(() => window.matchMedia('(pointer: coarse)').matches)
+  // 这个组件每帧重渲染（缩放/平移），频道列表 boot 后不变，只问一次。
+  const videoAvailable = useMemo(() => isVideoModeAvailable(), [])
 
   // 用 ref 追踪最新变换，避免闭包过期
   const scaleRef = useRef(1)
@@ -589,26 +591,28 @@ function LightboxInner({
           </div>
         </div>
 
-        <div className="absolute top-4 right-4 z-10 flex items-center gap-2">
-          {isVideoModeAvailable() && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation()
-                startVideoFromImage(imageId)
-              }}
-              className={actionBtnClass}
-            >
-              <VideoIcon className="w-4 h-4" />
-              做成视频
-            </button>
-          )}
-          {coarsePointer && (
-            <button data-save-image onClick={handleSave} className={actionBtnClass}>
-              <DownloadIcon className="w-4 h-4" />
-              保存图片
-            </button>
-          )}
-        </div>
+        {(videoAvailable || coarsePointer) && (
+          <div className="absolute top-4 right-4 z-10 flex items-center gap-2">
+            {videoAvailable && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  startVideoFromImage(imageId)
+                }}
+                className={actionBtnClass}
+              >
+                <VideoIcon className="w-4 h-4" />
+                做成视频
+              </button>
+            )}
+            {coarsePointer && (
+              <button data-save-image onClick={handleSave} className={actionBtnClass}>
+                <DownloadIcon className="w-4 h-4" />
+                保存图片
+              </button>
+            )}
+          </div>
+        )}
 
         {/* 左右切换按钮 */}
         {showNav && !isZoomed && (

@@ -1,11 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useLibraryStore } from '../../../../features/library/store'
-import { startVideoFromImage } from '../../../../features/video/lib/playback'
+import { startVideoFromImage } from '../../../../features/video/lib/entry'
 import { INITIAL_VIDEO_DRAFT, useVideoStore } from '../../../../features/video/store'
 import { useStore } from '../../../../store'
-
-vi.mock('../../../../lib/authClient', () => ({ authenticatedBffFetch: vi.fn() }))
-vi.mock('../../../../lib/downloadImages', () => ({ downloadBlob: vi.fn() }))
 
 beforeEach(() => {
   useVideoStore.setState({ draft: { ...INITIAL_VIDEO_DRAFT } })

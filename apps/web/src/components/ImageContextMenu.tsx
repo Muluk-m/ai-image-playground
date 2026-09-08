@@ -1,7 +1,7 @@
 import type React from 'react'
 import { useEffect, useState } from 'react'
 import { useLibraryStore } from '../features/library/store'
-import { startVideoFromImage } from '../features/video/lib/playback'
+import { startVideoFromImage } from '../features/video/lib/entry'
 import { getActiveApiProfile } from '../lib/apiProfiles'
 import { modelSupportsEdit, NO_EDIT_SUPPORT_MESSAGE } from '../lib/channels/profileSelectors'
 import { getPublicChannels } from '../lib/channels/publicChannels'
@@ -130,27 +130,18 @@ export default function ImageContextMenu() {
     }
   }
 
-  const handleSaveAsset = async (e: React.MouseEvent) => {
-    e.stopPropagation()
-    const { imageId, src } = menuInfo
-    setMenuInfo(null)
-    try {
-      startNamingAsset(imageId ?? (await storeImageFromUrl(src)).id)
-    } catch (err) {
-      console.error(err)
-      showToast(`存为素材失败：${err instanceof Error ? err.message : String(err)}`, 'error')
-    }
-  }
-
-  const handleMakeVideo = async (e: React.MouseEvent) => {
-    e.stopPropagation()
-    const { imageId, src } = menuInfo
-    setMenuInfo(null)
-    try {
-      startVideoFromImage(imageId ?? (await storeImageFromUrl(src)).id)
-    } catch (err) {
-      console.error(err)
-      showToast(`做成视频失败：${err instanceof Error ? err.message : String(err)}`, 'error')
+  // 菜单是全局的，右键的图未必进过 image store，落盘拿到 id 才能交给下一步。
+  const withStoredImage = (label: string, run: (imageId: string) => void) => {
+    return async (e: React.MouseEvent) => {
+      e.stopPropagation()
+      const { imageId, src } = menuInfo
+      setMenuInfo(null)
+      try {
+        run(imageId ?? (await storeImageFromUrl(src)).id)
+      } catch (err) {
+        console.error(err)
+        showToast(`${label}失败：${err instanceof Error ? err.message : String(err)}`, 'error')
+      }
     }
   }
 
@@ -183,13 +174,13 @@ export default function ImageContextMenu() {
       <ContextMenuItem
         icon={<LibraryIcon className="w-4 h-4 flex-shrink-0" />}
         label="存为素材"
-        onClick={handleSaveAsset}
+        onClick={withStoredImage('存为素材', startNamingAsset)}
       />
       {isVideoModeAvailable() && (
         <ContextMenuItem
           icon={<VideoIcon className="w-4 h-4 flex-shrink-0" />}
           label="做成视频"
-          onClick={handleMakeVideo}
+          onClick={withStoredImage('做成视频', startVideoFromImage)}
         />
       )}
     </ContextMenu>

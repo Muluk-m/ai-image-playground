@@ -164,7 +164,6 @@ export default function VideoComposer() {
             />
           </div>
           <FrameSourceStrip
-            selectedImageId={draft.firstFrameImageId}
             showLastFrame={support.lastFrame}
             onPickAll={() => setPickerSlot('first')}
           />
