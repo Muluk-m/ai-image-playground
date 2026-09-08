@@ -53,6 +53,8 @@ type ChannelRouteStyle =
   | 'agnes-videos'
   /** 火山方舟 Seedance：提交 content 数组拿 id，轮询同一路径，结果是公网 mp4 地址。 */
   | 'ark-videos'
+  /** Google Veo：提交拿 operation name，轮询 base + 该 name，成片要带 key 去 Google 域内取。 */
+  | 'veo-videos'
 
 const CHANNEL_ROUTE_STYLES: Readonly<Record<string, ChannelRouteStyle | undefined>> = {
   'agnes-images': 'agnes-generations-json',
@@ -60,6 +62,7 @@ const CHANNEL_ROUTE_STYLES: Readonly<Record<string, ChannelRouteStyle | undefine
   'grok-video': 'grok-videos',
   'agnes-video': 'agnes-videos',
   'ark-video': 'ark-videos',
+  'veo-video': 'veo-videos',
 }
 
 interface UpstreamRoute {
@@ -269,7 +272,7 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
   // finally 立刻跑，请求还在飞的时候就 release 掉 deadline —— 取消与硬超时都会静默失效。
   try {
     if (provider === 'openai-compat') {
-      const authHeader: Record<string, string> = key ? { authorization: `Bearer ${key}` } : {}
+      const authHeader = upstreamAuthHeader(style, key)
       const resumeIds = resume?.taskIds ?? []
       const useAsyncTasks = asyncTasks || resumeIds.length > 0
 
@@ -380,22 +383,17 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
           body: JSON.stringify(videoSpec.body(model, request, video, mode)),
         }))
         const { payload } = await pollAsyncTask(protocol, taskId!)
-        if (videoSpec.result) return videoSpec.result(payload, video)
+        const outcome = videoSpec.result(base, payload, video)
+        const duration_seconds = outcome.durationSeconds
+        if (outcome.kind === 'public')
+          return { payload: { data: [{ url: outcome.url, mime: VIDEO_MIME, duration_seconds }] } }
 
-        // Grok 的内容端点要带 key，取回字节交给归档；轮询响应里只有相对路径。
-        const contentUrl = grokVideoContentUrl(base, payload)
-        const res = await performFetch(contentUrl, { method: 'GET', headers: authHeader }, false)
+        const res = await performFetch(outcome.url, { method: 'GET', headers: authHeader }, false)
         if (!res.ok) await parseResponse(res)
         const bytes = Buffer.from(await res.arrayBuffer())
         return {
           payload: {
-            data: [
-              {
-                b64_json: bytes.toString('base64'),
-                mime: VIDEO_MIME,
-                duration_seconds: grokVideoDuration(payload, video),
-              },
-            ],
+            data: [{ b64_json: bytes.toString('base64'), mime: VIDEO_MIME, duration_seconds }],
           },
         }
       }
@@ -557,6 +555,16 @@ function imageTaskProtocol(base: string, submitBase: string): AsyncTaskProtocol 
   }
 }
 
+/**
+ * 成片的取法：`public` 交给归档回源，`credentialed` 要在上游路径内带 key 再取一次字节
+ * （上游把成片锁在自己域里，归档那一步没有凭据）。
+ */
+type VideoOutcome = {
+  readonly kind: 'public' | 'credentialed'
+  readonly url: string
+  readonly durationSeconds: number
+}
+
 interface VideoStyleSpec {
   /** 上游实际接受的模式；档位表已在 submit 拦过一遍，这里是发请求前的最后一道。 */
   readonly modes: readonly VideoMode[]
@@ -567,8 +575,7 @@ interface VideoStyleSpec {
     video: HydratedVideoRequest,
     mode: VideoMode,
   ): Record<string, unknown>
-  /** 成片是公网地址的上游在此收口；缺省表示要另发一次请求取字节（Grok）。 */
-  result?(payload: unknown, video: HydratedVideoRequest): UpstreamCallResult
+  result(base: string, payload: unknown, video: HydratedVideoRequest): VideoOutcome
 }
 
 const VIDEO_STYLE_SPECS: Partial<Record<ChannelRouteStyle, VideoStyleSpec>> = {
@@ -576,6 +583,7 @@ const VIDEO_STYLE_SPECS: Partial<Record<ChannelRouteStyle, VideoStyleSpec>> = {
     modes: ['generate', 'extend', 'edit'],
     protocol: ({ base, mode }) => grokVideoProtocol(base, mode),
     body: buildGrokVideoBody,
+    result: grokVideoResult,
   },
   'agnes-videos': {
     modes: ['generate'],
@@ -588,6 +596,12 @@ const VIDEO_STYLE_SPECS: Partial<Record<ChannelRouteStyle, VideoStyleSpec>> = {
     protocol: ({ base }) => arkVideoProtocol(base),
     body: buildArkVideoBody,
     result: arkVideoResult,
+  },
+  'veo-videos': {
+    modes: ['generate'],
+    protocol: ({ base, model }) => veoVideoProtocol(base, model),
+    body: buildVeoVideoBody,
+    result: veoVideoResult,
   },
 }
 
@@ -625,6 +639,19 @@ function arkVideoProtocol(base: string): AsyncTaskProtocol {
     pollUrl: (taskId) => `${tasks}/${encodeURIComponent(taskId)}`,
     readTaskId: (payload) => readTaskIdField(payload, ['id']),
     readState: readArkVideoState,
+  }
+}
+
+/**
+ * Veo 的任务 id 就是 operation name（`models/<model>/operations/<id>` 形状），
+ * 轮询地址是 base 直接拼它——带斜杠，不能 encodeURIComponent。
+ */
+function veoVideoProtocol(base: string, model: string): AsyncTaskProtocol {
+  return {
+    submitUrl: `${base}/models/${model}:predictLongRunning`,
+    pollUrl: (taskId) => `${base}/${taskId}`,
+    readTaskId: (payload) => readTaskIdField(payload, ['name']),
+    readState: readVeoVideoState,
   }
 }
 
@@ -696,43 +723,65 @@ const readGrokVideoState = videoStatusReader(
 const readAgnesVideoState = videoStatusReader(['completed'], ['failed'])
 const readArkVideoState = videoStatusReader(['succeeded'], ['failed', 'cancelled', 'expired'])
 
+/** operation 没有 status 字段：`done` 之前一律继续轮，`done` 带 error 是终态失败。 */
+function readVeoVideoState(payload: unknown): AsyncTaskState {
+  if (!isObject(payload) || payload.done !== true) return { kind: 'pending' }
+  if (payload.error) return { kind: 'failed', status: null }
+  return { kind: 'completed', payload }
+}
+
 /** 内容端点给的是网关相对路径，按 baseUrl 解析成绝对地址。 */
-function grokVideoContentUrl(base: string, payload: unknown): string {
-  const url = (payload as { video?: { url?: unknown } } | null)?.video?.url
-  if (typeof url !== 'string' || url.length === 0)
-    throw new UpstreamResultUnknownError('Grok 视频任务已完成但未返回内容地址')
-  return new URL(url, base).toString()
-}
-
-function grokVideoDuration(payload: unknown, video: HydratedVideoRequest): number {
-  const duration = (payload as { video?: { duration?: unknown } } | null)?.video?.duration
-  return typeof duration === 'number' && duration > 0 ? duration : video.duration_seconds
-}
-
-/** 成片是公网地址的上游共用的结果信封；归档随后按地址回源取字节。 */
-function remoteVideoResult(
-  url: unknown,
+function grokVideoResult(
+  base: string,
+  payload: unknown,
   video: HydratedVideoRequest,
-  label: string,
-): UpstreamCallResult {
-  if (typeof url !== 'string' || !/^https?:\/\//i.test(url))
-    throw new UpstreamResultUnknownError(`${label} 视频任务已完成但未返回结果地址`)
+): VideoOutcome {
+  const body = (payload as { video?: { url?: unknown; duration?: unknown } } | null)?.video
+  if (typeof body?.url !== 'string' || body.url.length === 0)
+    throw new UpstreamResultUnknownError('Grok 视频任务已完成但未返回内容地址')
+  const duration = body.duration
   return {
-    payload: { data: [{ url, mime: VIDEO_MIME, duration_seconds: video.duration_seconds }] },
+    kind: 'credentialed',
+    url: new URL(body.url, base).toString(),
+    durationSeconds:
+      typeof duration === 'number' && duration > 0 ? duration : video.duration_seconds,
   }
 }
 
-function agnesVideoResult(payload: unknown, video: HydratedVideoRequest): UpstreamCallResult {
+/** 成片地址已经是绝对地址的上游共用的收口；时长按提交值记。 */
+function absoluteVideoOutcome(
+  kind: VideoOutcome['kind'],
+  url: unknown,
+  video: HydratedVideoRequest,
+  label: string,
+): VideoOutcome {
+  if (typeof url !== 'string' || !/^https?:\/\//i.test(url))
+    throw new UpstreamResultUnknownError(`${label} 视频任务已完成但未返回结果地址`)
+  return { kind, url, durationSeconds: video.duration_seconds }
+}
+
+function agnesVideoResult(_base: string, payload: unknown, video: HydratedVideoRequest) {
   const body = (payload ?? {}) as { url?: unknown; metadata?: { url?: unknown } }
   const url = [body.url, body.metadata?.url].find(
     (value): value is string => typeof value === 'string' && /^https?:\/\//i.test(value),
   )
-  return remoteVideoResult(url, video, 'Agnes')
+  return absoluteVideoOutcome('public', url, video, 'Agnes')
 }
 
-function arkVideoResult(payload: unknown, video: HydratedVideoRequest): UpstreamCallResult {
+function arkVideoResult(_base: string, payload: unknown, video: HydratedVideoRequest) {
   const content = (payload as { content?: { video_url?: unknown } } | null)?.content
-  return remoteVideoResult(content?.video_url, video, 'Seedance')
+  return absoluteVideoOutcome('public', content?.video_url, video, 'Seedance')
+}
+
+type VeoOperation = {
+  response?: { generateVideoResponse?: { generatedSamples?: Array<{ video?: { uri?: unknown } }> } }
+}
+
+/** 成片在 Google 域内，取字节要带同一把 key；链接两天后失效，所以必须归档到自己的存储。 */
+function veoVideoResult(_base: string, payload: unknown, video: HydratedVideoRequest) {
+  const uri = (payload as VeoOperation | null)?.response?.generateVideoResponse
+    ?.generatedSamples?.[0]?.video?.uri
+  return absoluteVideoOutcome('credentialed', uri, video, 'Veo')
 }
 
 /** 首尾帧指向同一请求的 input_images；hydrate 之后它们已经是 data URL。 */
@@ -817,6 +866,27 @@ function buildArkVideoBody(
     duration: video.duration_seconds,
     resolution: video.resolution,
     watermark: false,
+  }
+}
+
+function buildVeoVideoBody(
+  _model: string,
+  request: HydratedSubmitRequest,
+  video: HydratedVideoRequest,
+): Record<string, unknown> {
+  const firstFrame = videoFrame(request, video.first_frame_index)
+  const image = firstFrame ? inlineDataPart(firstFrame) : undefined
+  if (firstFrame && !image) throw clientError('首帧图片不是合法的数据 URL')
+  return {
+    instances: [{ prompt: request.prompt, ...(image ? { image } : {}) }],
+    parameters: {
+      aspectRatio: video.aspect_ratio,
+      // 上游只认字符串秒数，数字会被拒。
+      durationSeconds: String(video.duration_seconds),
+      resolution: video.resolution,
+      // 上游按模式固定这个值：文生放开，带人像首帧的只允许成人。
+      personGeneration: image ? 'allow_adult' : 'allow_all',
+    },
   }
 }
 
@@ -1240,8 +1310,10 @@ function dataUrlToFile(dataUrl: string, filename: string): File {
   return new File([Buffer.from(bytes)], filename, { type: mime })
 }
 
+const DATA_URL_PATTERN = /^data:([^;,]+);base64,(.*)$/i
+
 function decodeDataUrl(dataUrl: string): { mime: string; bytes: Uint8Array } {
-  const m = dataUrl.match(/^data:([^;,]+);base64,(.*)$/i)
+  const m = dataUrl.match(DATA_URL_PATTERN)
   if (!m) throw new Error('input_images 中的数据 URL 格式无效，必须是 data:<mime>;base64,<...>')
   const mime = m[1]!
   const bin = atob(m[2]!)
@@ -1250,11 +1322,25 @@ function decodeDataUrl(dataUrl: string): { mime: string; bytes: Uint8Array } {
   return { mime, bytes }
 }
 
+/** Google 直连认自己的 key 头；其余上游都是 Bearer。 */
+function upstreamAuthHeader(style: ChannelRouteStyle, key: string): Record<string, string> {
+  if (!key) return {}
+  return style === 'veo-videos' ? { 'x-goog-api-key': key } : { authorization: `Bearer ${key}` }
+}
+
+/** Google 家的图片入参形状；不是 data URL 返回 undefined，由调用方决定跳过还是报错。 */
+function inlineDataPart(
+  dataUrl: string,
+): { inlineData: { mimeType: string; data: string } } | undefined {
+  const m = dataUrl.match(DATA_URL_PATTERN)
+  return m ? { inlineData: { mimeType: m[1]!, data: m[2]! } } : undefined
+}
+
 function buildGeminiBody(request: HydratedSubmitRequest): Record<string, unknown> {
   const parts: Array<Record<string, unknown>> = [{ text: request.prompt }]
   for (const dataUrl of request.input_images ?? []) {
-    const m = dataUrl.match(/^data:([^;,]+);base64,(.*)$/i)
-    if (m) parts.push({ inlineData: { mimeType: m[1], data: m[2] } })
+    const part = inlineDataPart(dataUrl)
+    if (part) parts.push(part)
   }
 
   const { generationConfig: extraGenerationConfig, ...extraTopLevel } = (request.extra ?? {}) as {

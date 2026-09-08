@@ -29,6 +29,7 @@ const MP4_BYTES = Uint8Array.from([
 ])
 const PNG_BYTES = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
 const SEEDANCE = 'doubao-seedance-2-0-mini-260615'
+const VEO = 'veo-3.1-lite-generate-preview'
 
 const channels: InternalChannel[] = [
   {
@@ -78,6 +79,23 @@ const channels: InternalChannel[] = [
           'first_frame',
           'last_frame',
         ],
+      },
+    ],
+    defaults: { asyncTasks: true },
+  },
+  {
+    id: 'veo-video',
+    kind: 'openai-queue',
+    label: 'Veo',
+    baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+    auth: { type: 'bearer', secretRef: 'VEO_API_KEY', secret: 'k' },
+    allowedPaths: ['models'],
+    models: [
+      {
+        id: VEO,
+        label: 'Veo 3.1 Lite',
+        media: 'video',
+        capabilities: ['generate', 'duration', 'aspect_ratio', 'resolution', 'first_frame'],
       },
     ],
     defaults: { asyncTasks: true },
@@ -229,6 +247,44 @@ describe('video submit validation', () => {
 
     expect(status).toBe(200)
     expect(json).toMatchObject({ status: 'queued' })
+  })
+
+  it('queues 4 and 6 second Veo requests', async () => {
+    for (const duration_seconds of [4, 6]) {
+      const { status, json } = await submit(VEO, {
+        video: { duration_seconds, aspect_ratio: '9:16', resolution: '720p' },
+      })
+
+      expect(status).toBe(200)
+      expect(json).toMatchObject({ status: 'queued' })
+    }
+  })
+
+  it('rejects a Veo combination the model does not render', async () => {
+    const sixAt1080p = await submit(VEO, {
+      video: { duration_seconds: 6, aspect_ratio: '16:9', resolution: '1080p' },
+    })
+    expect(sixAt1080p.status).toBe(400)
+    expect(sixAt1080p.json.error).toBe('invalid_video_request')
+    expect(String(sixAt1080p.json.message)).toContain('1080p')
+
+    const square = await submit(VEO, {
+      video: { duration_seconds: 4, aspect_ratio: '1:1', resolution: '720p' },
+    })
+    expect(square.status).toBe(400)
+    expect(String(square.json.message)).toContain('画幅')
+
+    const lastFrame = await submit(VEO, {
+      input_images: [TINY_PNG],
+      video: {
+        duration_seconds: 4,
+        aspect_ratio: '16:9',
+        resolution: '720p',
+        last_frame_index: 0,
+      },
+    })
+    expect(lastFrame.status).toBe(400)
+    expect(String(lastFrame.json.message)).toContain('尾帧')
   })
 
   it('rejects an extension on Seedance, which only generates', async () => {
