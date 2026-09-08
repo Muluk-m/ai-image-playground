@@ -6,6 +6,7 @@ import {
   parseBackgroundPlan,
   parseSceneScan,
 } from '@image-playground/shared'
+import { authenticatedBffFetch } from '../../../lib/authClient'
 import { bffBaseUrl } from '../../../lib/runtimeConfig'
 
 type Fetcher = (input: string, init?: RequestInit) => Promise<Response>
@@ -22,7 +23,7 @@ export interface BackgroundPlanRequest {
 
 export async function requestBackgroundPlan(
   request: BackgroundPlanRequest,
-  fetcher: Fetcher = fetch,
+  fetcher: Fetcher = authenticatedBffFetch,
 ): Promise<BackgroundPlanResult> {
   const preference = request.preference?.trim()
   const response = await fetcher(`${bffBaseUrl()}/api/bgswap/plan`, {
@@ -43,7 +44,7 @@ export async function requestBackgroundPlan(
 /** 预检：拉完图就问画面类型，好在批量与单张点击前知道哪些是示意图。 */
 export async function requestSceneScan(
   image: string,
-  fetcher: Fetcher = fetch,
+  fetcher: Fetcher = authenticatedBffFetch,
 ): Promise<BgSceneType> {
   const response = await fetcher(`${bffBaseUrl()}/api/bgswap/scan`, {
     method: 'POST',

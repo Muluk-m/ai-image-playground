@@ -3,6 +3,7 @@ import {
   type StoryboardPlan,
   type StoryboardPlanRequest,
 } from '@image-playground/shared'
+import { authenticatedBffFetch } from './authClient'
 import { bffBaseUrl } from './runtimeConfig'
 
 type Fetcher = (input: string, init?: RequestInit) => Promise<Response>
@@ -11,7 +12,7 @@ const UNAVAILABLE = '分镜脚本没有生成成功'
 
 export async function planStoryboard(
   request: StoryboardPlanRequest,
-  fetcher: Fetcher = fetch,
+  fetcher: Fetcher = authenticatedBffFetch,
 ): Promise<StoryboardPlan> {
   const response = await fetcher(`${bffBaseUrl()}/api/storyboard/plan`, {
     method: 'POST',
