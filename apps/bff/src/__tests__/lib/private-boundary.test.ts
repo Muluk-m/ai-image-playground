@@ -28,7 +28,11 @@ async function runBoundaryScanner(name: string, source: string): Promise<string>
   const fixture = fixturePath(name)
   writeFileSync(fixture, source)
   try {
-    const { exitCode, output } = await spawnCheck(['bun', 'run', 'scripts/check-private-boundary.ts'])
+    const { exitCode, output } = await spawnCheck([
+      'bun',
+      'run',
+      'scripts/check-private-boundary.ts',
+    ])
     expect(exitCode).not.toBe(0)
     return output
   } finally {
