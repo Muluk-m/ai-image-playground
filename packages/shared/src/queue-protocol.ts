@@ -91,10 +91,14 @@ export interface SubmitRequest {
   device_id?: string
 }
 
+/** 源片引用。submit 校验完归属后落库，客户端既不发也读不到它。 */
+export type PersistedVideoRequest = VideoRequest & { source_video?: StoredImageRef }
+
 /** BFF-only database representation after input pixel bytes move to object storage. */
-export type PersistedSubmitRequest = Omit<SubmitRequest, 'input_images' | 'mask'> & {
+export type PersistedSubmitRequest = Omit<SubmitRequest, 'input_images' | 'mask' | 'video'> & {
   input_images?: StoredImageRef[]
   mask?: StoredImageRef
+  video?: PersistedVideoRequest
 }
 
 export interface SubmitResponse {

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { Buffer } from 'node:buffer'
-import type { VideoRequest } from '@image-playground/shared'
+import type { HydratedVideoRequest } from '../../lib/imageArchive'
 import { jsonResponse as json } from '../helpers/upstreamStubs'
 
 // Inject before importing config, which captures process environment at module initialization.
@@ -23,6 +23,7 @@ const GROK_BASE = 'https://gateway.example/v1'
 const AGNES_BASE = 'https://apihub.agnes-ai.com/v1'
 const AGNES_POLL = 'https://apihub.agnes-ai.com/agnesapi'
 const RESULT_URL = 'https://cdn.agnes-ai.com/videos/a.mp4'
+const SOURCE_VIDEO_DATA_URL = 'data:video/mp4;base64,AAAAGGZ0eXBpc29t'
 const TINY_PNG_DATA_URL =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgAAIAAAUAAeImBZsAAAAASUVORK5CYII='
 
@@ -37,7 +38,7 @@ const grokVideoChannel: InternalChannel = {
   label: 'Grok Imagine Video',
   baseUrl: GROK_BASE,
   auth: { type: 'bearer', secretRef: 'GROK_API_KEY', secret: 'grok-test-key' },
-  allowedPaths: ['videos/generations', 'videos'],
+  allowedPaths: ['videos/generations', 'videos/extensions', 'videos/edits', 'videos'],
   models: [
     {
       id: 'grok-imagine-video',
@@ -85,7 +86,7 @@ function bodyOf(url: string): Record<string, unknown> {
   return JSON.parse(String((call.init as { body?: unknown }).body))
 }
 
-function video(overrides: Partial<VideoRequest> = {}): VideoRequest {
+function video(overrides: Partial<HydratedVideoRequest> = {}): HydratedVideoRequest {
   return { duration_seconds: 5, aspect_ratio: '16:9', resolution: '720p', ...overrides }
 }
 
@@ -192,6 +193,72 @@ describe('Grok video upstream', () => {
     expect((content.init as { headers: Record<string, string> }).headers.authorization).toBe(
       'Bearer grok-test-key',
     )
+  })
+
+  it('posts an extension with the source data URI and the extension length', async () => {
+    handler = (url) => {
+      if (url === `${GROK_BASE}/videos/extensions`) return json({ request_id: 'req_ext' })
+      if (url === `${GROK_BASE}/videos/req_ext`)
+        return json({ status: 'done', video: { duration: 3, url: '/v1/videos/req_ext/content' } })
+      return new Response(MP4_BYTES, { status: 200 })
+    }
+
+    const { payload } = await run('grok-imagine-video', {
+      video: video({
+        mode: 'extend',
+        duration_seconds: 3,
+        source_task_id: 'src',
+        source_output_index: 0,
+        source_video: SOURCE_VIDEO_DATA_URL,
+      }),
+    })
+
+    expect(bodyOf(`${GROK_BASE}/videos/extensions`)).toEqual({
+      model: 'grok-imagine-video',
+      prompt: 'a cat surfing',
+      video: { url: SOURCE_VIDEO_DATA_URL },
+      duration: 3,
+    })
+    expect(calls[0]?.url).toBe(`${GROK_BASE}/videos/extensions`)
+    const data = (payload as { data: Array<Record<string, unknown>> }).data
+    expect(data[0]).toMatchObject({ mime: 'video/mp4', duration_seconds: 3 })
+  })
+
+  it('posts an edit without a duration and keeps the source length', async () => {
+    handler = (url) => {
+      if (url === `${GROK_BASE}/videos/edits`) return json({ request_id: 'req_edit' })
+      if (url === `${GROK_BASE}/videos/req_edit`)
+        return json({ status: 'done', video: { url: '/v1/videos/req_edit/content' } })
+      return new Response(MP4_BYTES, { status: 200 })
+    }
+
+    const { payload } = await run('grok-imagine-video', {
+      video: video({
+        mode: 'edit',
+        duration_seconds: 6,
+        source_task_id: 'src',
+        source_output_index: 1,
+        source_video: SOURCE_VIDEO_DATA_URL,
+      }),
+    })
+
+    expect(bodyOf(`${GROK_BASE}/videos/edits`)).toEqual({
+      model: 'grok-imagine-video',
+      prompt: 'a cat surfing',
+      video: { url: SOURCE_VIDEO_DATA_URL },
+    })
+    expect((payload as { data: Array<Record<string, unknown>> }).data[0]).toMatchObject({
+      duration_seconds: 6,
+    })
+  })
+
+  it('refuses to submit an extension whose source video did not hydrate', async () => {
+    await expect(
+      run('grok-imagine-video', {
+        video: video({ mode: 'extend', source_task_id: 'src', source_output_index: 0 }),
+      }),
+    ).rejects.toThrow('续写和改视频缺少源视频')
+    expect(calls).toEqual([])
   })
 
   it('fails terminally when the upstream task reports a failed status', async () => {
