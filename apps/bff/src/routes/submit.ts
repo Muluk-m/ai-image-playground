@@ -1,4 +1,9 @@
-import type { PersistedSubmitRequest, QueueProvider, VideoRequest } from '@image-playground/shared'
+import type {
+  PersistedSubmitRequest,
+  PersistedVideoRequest,
+  StoredImageRef,
+  VideoRequest,
+} from '@image-playground/shared'
 import { validateVideoRequest, videoRateMultiplier } from '@image-playground/shared'
 import { and, eq, isNull } from 'drizzle-orm'
 import { Elysia, t } from 'elysia'
@@ -6,10 +11,13 @@ import { config } from '../config'
 import { db, schema } from '../db/client'
 import { isCapabilityEnabled } from '../lib/capabilities'
 import { resolveModelMedia } from '../lib/channels'
+import { resolveImageBytesRef } from '../lib/extractImages'
 import { archiveInputImages, ObjectStorageError } from '../lib/imageArchive'
 import { objectStore } from '../lib/objectStore'
 import { loadPrivateBffOverlay } from '../lib/private-overlay'
+import { asQueueProvider } from '../lib/queueProvider'
 import { tryConsumeQuotaInTransaction } from '../lib/quota'
+import { taskAccessWhere } from '../lib/task-access'
 import { requireUser } from '../lib/user-auth'
 
 const submitBodySchema = t.Object({
@@ -33,6 +41,9 @@ const submitBodySchema = t.Object({
       resolution: t.String(),
       first_frame_index: t.Optional(t.Number({ minimum: 0 })),
       last_frame_index: t.Optional(t.Number({ minimum: 0 })),
+      mode: t.Optional(t.String()),
+      source_task_id: t.Optional(t.String({ minLength: 1, maxLength: 64 })),
+      source_output_index: t.Optional(t.Number({ minimum: 0 })),
     }),
   ),
   extra: t.Optional(t.Record(t.String(), t.Any())),
@@ -48,9 +59,6 @@ const submitBodySchema = t.Object({
   device_id: t.String({ minLength: 8, maxLength: 64 }),
 })
 
-function isQueueProvider(value: string): value is QueueProvider {
-  return value === 'openai-compat' || value === 'gemini'
-}
 async function findTaskByIdempotencyKey(clientRequestId: string, userId: string | null) {
   const ownerCondition = userId ? eq(schema.tasks.user_id, userId) : isNull(schema.tasks.user_id)
   const [task] = await db
@@ -59,6 +67,33 @@ async function findTaskByIdempotencyKey(clientRequestId: string, userId: string 
     .where(and(eq(schema.tasks.client_request_id, clientRequestId), ownerCondition))
     .limit(1)
   return task
+}
+
+/** 只落引用，字节留在源任务的 object storage 里，worker 取的时候才读。 */
+async function resolveSourceVideo(
+  video: VideoRequest,
+  userId: string | null,
+): Promise<{ ref: StoredImageRef } | { reason: string }> {
+  const [task] = await db
+    .select({
+      status: schema.tasks.status,
+      provider: schema.tasks.provider,
+      result_payload: schema.tasks.result_payload,
+    })
+    .from(schema.tasks)
+    .where(taskAccessWhere(video.source_task_id ?? '', userId))
+    .limit(1)
+  if (!task) return { reason: '源视频不存在或不属于你' }
+  if (task.status !== 'completed') return { reason: '源视频还没生成完成' }
+
+  const provider = asQueueProvider(task.provider)
+  const ref = provider
+    ? resolveImageBytesRef(provider, task.result_payload, video.source_output_index ?? 0)
+    : null
+  // 归档跑在 completed 之前，所以完成任务的输出一定已经落到对象存储。
+  if (!ref || ref.kind !== 'object' || !ref.mime.startsWith('video/'))
+    return { reason: '源任务的这一条输出不是视频' }
+  return { ref: { object: ref.data, mime: ref.mime } }
 }
 
 export const submitRoutes = new Elysia()
@@ -74,7 +109,8 @@ export const submitRoutes = new Elysia()
     '/v1/queue/:provider/:model/submit',
     async ({ params, body, status, authUser }) => {
       const { provider, model } = params
-      if (!isQueueProvider(provider)) {
+      const queueProvider = asQueueProvider(provider)
+      if (!queueProvider) {
         return status(400, { error: `unsupported provider: ${provider}` })
       }
 
@@ -86,9 +122,19 @@ export const submitRoutes = new Elysia()
       if (!video && media === 'video') {
         return status(400, { error: 'video_params_required', message: '视频任务缺少视频参数' })
       }
+      let persistedVideo: PersistedVideoRequest | undefined
       if (video) {
         const check = validateVideoRequest(model, video, body.input_images?.length ?? 0)
         if (!check.ok) return status(400, { error: 'invalid_video_request', message: check.reason })
+        // 客户端塞进来的 source_video 不能变成任意对象读取，只认下面校验出来的那个。
+        const { source_video: _clientSupplied, ...wireVideo } = video as PersistedVideoRequest
+        persistedVideo = wireVideo
+        if (video.mode && video.mode !== 'generate') {
+          const source = await resolveSourceVideo(video, authUser?.id ?? null)
+          if ('reason' in source)
+            return status(400, { error: 'invalid_video_source', message: source.reason })
+          persistedVideo.source_video = source.ref
+        }
       }
 
       // 幂等命中（client_request_id 已存在）走优先返回，避免重复扣配额。
@@ -106,7 +152,10 @@ export const submitRoutes = new Elysia()
       let requestPayload: PersistedSubmitRequest
       try {
         const { video: _rawVideo, ...rest } = body
-        requestPayload = await archiveInputImages(id, { ...rest, ...(video ? { video } : {}) })
+        requestPayload = {
+          ...(await archiveInputImages(id, rest)),
+          ...(persistedVideo ? { video: persistedVideo } : {}),
+        }
       } catch (error) {
         try {
           await objectStore().deletePrefix(`${id}/in/`)
@@ -135,7 +184,7 @@ export const submitRoutes = new Elysia()
           .insert(schema.tasks)
           .values({
             id,
-            provider,
+            provider: queueProvider,
             model,
             status: 'queued',
             request_payload: requestPayload,
