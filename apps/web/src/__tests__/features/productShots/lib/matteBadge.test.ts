@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { matteBadge } from '../../../../features/productShots/lib/matteBadge'
+import { matteBadge, sourceMatteNotice } from '../../../../features/productShots/lib/matteBadge'
+import { pendingMatte } from '../../../../features/productShots/lib/sourceMatte'
 import type { MatteOutcome, ProductShotVersion } from '../../../../features/productShots/types'
 
 function version(masked: boolean, matte?: MatteOutcome): ProductShotVersion {
@@ -54,5 +55,26 @@ describe('matteBadge', () => {
   it('整图重画的那几版不报未抠图：它们本来就不抠', () => {
     expect(matteBadge({ ...version(false), mode: 'replace-and-background' })).toBeNull()
     expect(matteBadge({ ...version(false), mode: 'remix' })).toBeNull()
+  })
+})
+
+describe('sourceMatteNotice', () => {
+  const ready = { ...pendingMatte(), status: 'ready' } as const
+
+  it('抠不出来与抠错对象各报一句', () => {
+    expect(sourceMatteNotice({ ...pendingMatte(), status: 'failed' })).toBe(
+      '未抠，本次动作不带蒙版',
+    )
+    expect(sourceMatteNotice({ ...ready, agreement: 'box-mismatch' })).toBe('蒙版不可靠，先改再跑')
+  })
+
+  it('手改过的蒙版就是最终答案，不再报不可靠', () => {
+    expect(sourceMatteNotice({ ...ready, agreement: 'box-mismatch', edited: true })).toBeNull()
+  })
+
+  it('抠图中与抠好了都没有可说的', () => {
+    expect(sourceMatteNotice(pendingMatte())).toBeNull()
+    expect(sourceMatteNotice({ ...ready, agreement: 'ok' })).toBeNull()
+    expect(sourceMatteNotice(undefined)).toBeNull()
   })
 })
