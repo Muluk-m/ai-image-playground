@@ -6,6 +6,7 @@ import Segmented from '../../../components/Segmented'
 import { useStore } from '../../../store'
 import AssetThumb from '../../library/components/AssetThumb'
 import { useLibraryStore } from '../../library/store'
+import { historyImageIds, sortedAssets } from '../lib/frameSources'
 import { useVideoStore } from '../store'
 import { VIDEO_FRAME_SLOT_LABELS, type VideoFrameSlot } from '../types'
 
@@ -26,16 +27,8 @@ export default function FramePicker({
   onClose: () => void
 }) {
   const [tab, setTab] = useState<PickerTab>('library')
-  const assets = useLibraryStore(
-    useShallow((s) => [...s.assets].sort((a, b) => b.lastUsedAt - a.lastUsedAt)),
-  )
-  const history = useStore(
-    useShallow((s) =>
-      [...s.tasks]
-        .sort((a, b) => b.createdAt - a.createdAt)
-        .flatMap((task) => task.outputImages ?? []),
-    ),
-  )
+  const assets = useLibraryStore(useShallow((s) => sortedAssets(s.assets)))
+  const history = useStore(useShallow((s) => historyImageIds(s.tasks)))
 
   const items =
     tab === 'library'
