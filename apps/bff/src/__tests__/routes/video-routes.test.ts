@@ -1,5 +1,6 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { resetTestDatabase } from '@image-playground/db/testing'
+import { VIDEO_MODEL_SUPPORT } from '@image-playground/shared'
 import { eq } from 'drizzle-orm'
 import {
   _setPrivateBffOverlayForTesting,
@@ -285,6 +286,28 @@ describe('video submit validation', () => {
     })
     expect(lastFrame.status).toBe(400)
     expect(String(lastFrame.json.message)).toContain('尾帧')
+  })
+
+  it('rejects a prompt past the length the model accepts', async () => {
+    const video = { duration_seconds: 4, aspect_ratio: '16:9', resolution: '720p' }
+    const cap = VIDEO_MODEL_SUPPORT[VEO].promptMaxChars!
+
+    const tooLong = await submit(VEO, { prompt: '光'.repeat(cap + 1), video })
+    expect(tooLong.status).toBe(400)
+    expect(tooLong.json.error).toBe('invalid_video_request')
+    expect(String(tooLong.json.message)).toContain(String(cap))
+
+    const atCap = await submit(VEO, { prompt: '光'.repeat(cap), video })
+    expect(atCap.status).toBe(200)
+  })
+
+  it('leaves a long prompt alone on a model without a cap', async () => {
+    const { status } = await submit('grok-imagine-video', {
+      prompt: '光'.repeat(5000),
+      video: { duration_seconds: 5, aspect_ratio: '16:9', resolution: '720p' },
+    })
+
+    expect(status).toBe(200)
   })
 
   it('rejects an extension on Seedance, which only generates', async () => {

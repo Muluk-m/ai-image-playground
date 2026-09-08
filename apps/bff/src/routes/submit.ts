@@ -4,7 +4,11 @@ import type {
   StoredImageRef,
   VideoRequest,
 } from '@image-playground/shared'
-import { validateVideoRequest, videoRateMultiplier } from '@image-playground/shared'
+import {
+  validateVideoPrompt,
+  validateVideoRequest,
+  videoRateMultiplier,
+} from '@image-playground/shared'
 import { and, eq, isNull } from 'drizzle-orm'
 import { Elysia, t } from 'elysia'
 import { config } from '../config'
@@ -124,8 +128,13 @@ export const submitRoutes = new Elysia()
       }
       let persistedVideo: PersistedVideoRequest | undefined
       if (video) {
-        const check = validateVideoRequest(model, video, body.input_images?.length ?? 0)
-        if (!check.ok) return status(400, { error: 'invalid_video_request', message: check.reason })
+        const checks = [
+          validateVideoRequest(model, video, body.input_images?.length ?? 0),
+          validateVideoPrompt(model, body.prompt),
+        ]
+        for (const check of checks)
+          if (!check.ok)
+            return status(400, { error: 'invalid_video_request', message: check.reason })
         // 客户端塞进来的 source_video 不能变成任意对象读取，只认下面校验出来的那个。
         const { source_video: _clientSupplied, ...wireVideo } = video as PersistedVideoRequest
         persistedVideo = wireVideo
