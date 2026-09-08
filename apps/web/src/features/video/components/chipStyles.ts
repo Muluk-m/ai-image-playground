@@ -14,3 +14,6 @@ export const SUGGESTION_CHIP =
   'rounded-full border border-dashed border-gray-300 px-2.5 py-0.5 text-xs text-gray-500 transition hover:border-blue-400 hover:text-blue-600 dark:border-white/[0.16] dark:text-gray-400'
 
 export const PARAM_ROW_KEY = 'w-12 shrink-0 text-xs text-gray-500 dark:text-gray-400'
+
+/** 盖满画框的状态层：读秒、播放键、失败原因都用它定位。 */
+export const OVERLAY = 'absolute inset-0 grid place-items-center text-center text-xs'
