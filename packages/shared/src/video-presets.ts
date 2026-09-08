@@ -3,7 +3,7 @@
  * 都引用它，两边各写一份就会出现「按钮上写 A 积分、账单扣 B 积分」。
  */
 
-export const VIDEO_DURATIONS = [5, 8, 10] as const
+export const VIDEO_DURATIONS = [5, 8, 10, 15] as const
 export type VideoDuration = (typeof VIDEO_DURATIONS)[number]
 
 export const VIDEO_ASPECT_RATIOS = ['16:9', '9:16', '1:1'] as const
@@ -102,6 +102,18 @@ export const VIDEO_MODEL_SUPPORT: Record<string, VideoModelSupport> = {
     edit: false,
     typicalSeconds: 40,
     tagline: '首尾帧',
+  },
+  'doubao-seedance-2-0-mini-260615': {
+    label: 'Seedance 2.0',
+    durations: [5, 8, 10, 15],
+    aspectRatios: ['16:9', '9:16', '1:1'],
+    resolutions: ['720p', '1080p'],
+    firstFrame: true,
+    lastFrame: true,
+    extend: false,
+    edit: false,
+    typicalSeconds: 120,
+    tagline: '多镜头',
   },
 }
 
