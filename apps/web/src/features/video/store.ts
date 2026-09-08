@@ -11,7 +11,11 @@ import {
 import { create } from 'zustand'
 import { getStoredChannel } from '../../lib/channels/channelStore'
 import { awaitQueueOutputs, submitVideoRequest } from '../../lib/channels/queueClient'
-import { type VideoModelOption, videoModelOptions } from '../../lib/channels/videoChannels'
+import {
+  firstFrameModelOption,
+  type VideoModelOption,
+  videoModelOptions,
+} from '../../lib/channels/videoChannels'
 import { getImageThumbnail } from '../../lib/db'
 import {
   getPrivateSubmissionGuard,
@@ -42,6 +46,16 @@ export const INITIAL_VIDEO_DRAFT: VideoDraft = {
   lastFrameImageId: null,
 }
 
+/** 分镜某一镜的图生视频提交；模型与清晰度沿用左栏，时长与比例来自那一镜。 */
+export interface StoryboardVideoInput {
+  storyboardId: string
+  shotNo: number
+  imageId: string
+  prompt: string
+  seconds: VideoDuration
+  aspectRatio: VideoAspectRatio
+}
+
 export interface VideoState {
   tasks: VideoTask[]
   draft: VideoDraft
@@ -70,6 +84,7 @@ export interface VideoState {
     origin: VideoTask,
     input: { mode: VideoDeriveMode; prompt: string; seconds: number },
   ): Promise<string | null>
+  submitFromStoryboard(input: StoryboardVideoInput): Promise<string | null>
   /** 把这条的参数填回左栏，不提交。 */
   loadDraft(task: VideoTask): void
   regenerate(task: VideoTask): Promise<string | null>
@@ -121,6 +136,7 @@ interface EnqueueInput {
   firstFrameImageId?: string | null
   lastFrameImageId?: string | null
   derived?: { mode: VideoDeriveMode; sourceTaskId: string }
+  shot?: Pick<VideoTask, 'storyboardId' | 'shotNo'>
 }
 
 export const useVideoStore = create<VideoState>((set, get) => {
@@ -207,6 +223,7 @@ export const useVideoStore = create<VideoState>((set, get) => {
       ...(input.firstFrameImageId ? { firstFrameImageId: input.firstFrameImageId } : {}),
       ...(input.lastFrameImageId ? { lastFrameImageId: input.lastFrameImageId } : {}),
       ...(input.derived ? { derived: input.derived } : {}),
+      ...input.shot,
     }
 
     let video: VideoRequest
@@ -339,6 +356,33 @@ export const useVideoStore = create<VideoState>((set, get) => {
 
     submit() {
       return enqueueDraft(get().draft)
+    },
+
+    submitFromStoryboard(input) {
+      const option = firstFrameModelOption(get().draft.model)
+      if (!option) {
+        useStore.getState().showToast(NO_MODEL, 'error')
+        return Promise.resolve(null)
+      }
+      const clamped = clampDraftToSupport(
+        {
+          ...get().draft,
+          model: option.modelId,
+          duration: input.seconds,
+          aspectRatio: input.aspectRatio,
+        },
+        option.support,
+      )
+      return enqueue({
+        option,
+        source: 'image',
+        prompt: input.prompt,
+        duration: clamped.duration,
+        aspectRatio: clamped.aspectRatio,
+        resolution: clamped.resolution,
+        firstFrameImageId: input.imageId,
+        shot: { storyboardId: input.storyboardId, shotNo: input.shotNo },
+      })
     },
 
     deriveVideo(origin, input) {

@@ -4,6 +4,7 @@ import {
   VIDEO_MODEL_SUPPORT,
   VIDEO_RESOLUTION_LABELS,
   VIDEO_RESOLUTION_MULTIPLIERS,
+  type VideoModelSupport,
   videoRateMultiplier,
 } from '@image-playground/shared'
 import { useEffect, useMemo, useState } from 'react'
@@ -15,7 +16,15 @@ import { type VideoModelOption, videoModelOptions } from '../../../lib/channels/
 import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
 import { FOLLOWS_FIRST_FRAME } from '../lib/aspect'
 import { useVideoStore } from '../store'
-import { CAMERA_MOVES, VIDEO_SOURCE_LABELS, VIDEO_SOURCES, type VideoFrameSlot } from '../types'
+import { isClientCapabilityEnabled } from '../../../lib/clientCapabilities'
+import StoryboardComposer, { REFERENCE_LABEL } from '../storyboard/components/StoryboardComposer'
+import {
+  CAMERA_MOVES,
+  VIDEO_COMPOSER_SOURCE_LABELS,
+  VIDEO_COMPOSER_SOURCES,
+  VIDEO_SOURCES,
+  type VideoFrameSlot,
+} from '../types'
 import ChipRow from './ChipRow'
 import { SUGGESTION_CHIP } from './chipStyles'
 import FramePicker from './FramePicker'
@@ -62,12 +71,17 @@ function ModelCard({
   )
 }
 
-export default function VideoComposer() {
+/** 文生 / 图生的参数与提交。分镜页签换成 StoryboardComposer，两者共用左栏的模型与选图。 */
+function VideoSubmitPanel({
+  support,
+  options,
+  onPickFrame,
+}: {
+  support: VideoModelSupport
+  options: readonly VideoModelOption[]
+  onPickFrame: (slot: VideoFrameSlot) => void
+}) {
   const draft = useVideoStore((s) => s.draft)
-  const options = useMemo(() => videoModelOptions(), [])
-  const [pickerSlot, setPickerSlot] = useState<VideoFrameSlot | null>(null)
-  const support = VIDEO_MODEL_SUPPORT[draft.model]
-
   const guard = usePrivateSubmissionGuard({
     model: draft.model,
     quantity: draft.duration,
@@ -77,32 +91,15 @@ export default function VideoComposer() {
   usePasteImageFiles('video', (files) => {
     if (draft.source !== 'image' || !files[0]) return
     const slot: VideoFrameSlot =
-      !draft.firstFrameImageId || !support?.lastFrame || draft.lastFrameImageId ? 'first' : 'last'
+      !draft.firstFrameImageId || !support.lastFrame || draft.lastFrameImageId ? 'first' : 'last'
     void useVideoStore.getState().addFrameFromFile(slot, files[0])
   })
-
-  // draft 的默认 model 是空的：channel 列表要到 boot 拉完才有，早于本组件第一次渲染。
-  useEffect(() => {
-    if (!support) useVideoStore.getState().syncModelOptions()
-  }, [support])
-
-  if (!support) {
-    return options.length === 0 ? <div className={CARD}>当前部署没有可用的视频模型</div> : null
-  }
 
   const lastFrameReason = support.lastFrame ? undefined : `${support.label} 不支持尾帧`
   const summary = `${support.label} · ${draft.duration} 秒 · ${VIDEO_RESOLUTION_LABELS[draft.resolution]}`
 
   return (
-    <div className={`${CARD} flex flex-col gap-4`}>
-      <Segmented
-        label="视频来源"
-        options={VIDEO_SOURCES}
-        labels={VIDEO_SOURCE_LABELS}
-        value={draft.source}
-        onChange={(source) => useVideoStore.getState().setSource(source)}
-      />
-
+    <>
       {draft.source === 'image' && (
         <div>
           <div className="mb-1.5 flex items-baseline justify-between">
@@ -115,19 +112,19 @@ export default function VideoComposer() {
             <FrameSlot
               slot="first"
               imageId={draft.firstFrameImageId}
-              onPick={() => setPickerSlot('first')}
+              onPick={() => onPickFrame('first')}
             />
             <FrameSlot
               slot="last"
               imageId={draft.lastFrameImageId}
               hint="可选"
               disabledReason={lastFrameReason}
-              onPick={() => setPickerSlot('last')}
+              onPick={() => onPickFrame('last')}
             />
           </div>
           <FrameSourceStrip
             showLastFrame={support.lastFrame}
-            onPickAll={() => setPickerSlot('first')}
+            onPickAll={() => onPickFrame('first')}
           />
         </div>
       )}
@@ -232,8 +229,56 @@ export default function VideoComposer() {
           {guard.estimatedCredits === undefined ? '生成' : `生成 · ${guard.estimatedCredits} 积分`}
         </button>
       </div>
+    </>
+  )
+}
 
-      {pickerSlot && <FramePicker slot={pickerSlot} onClose={() => setPickerSlot(null)} />}
+export default function VideoComposer() {
+  const draft = useVideoStore((s) => s.draft)
+  const options = useMemo(() => videoModelOptions(), [])
+  const [pickerSlot, setPickerSlot] = useState<VideoFrameSlot | null>(null)
+  const [storyboard, setStoryboard] = useState(false)
+  const support = VIDEO_MODEL_SUPPORT[draft.model]
+
+  // draft 的默认 model 是空的：channel 列表要到 boot 拉完才有，早于本组件第一次渲染。
+  useEffect(() => {
+    if (!support) useVideoStore.getState().syncModelOptions()
+  }, [support])
+
+  if (!support) {
+    return options.length === 0 ? <div className={CARD}>当前部署没有可用的视频模型</div> : null
+  }
+
+  const sources = isClientCapabilityEnabled('generation:storyboard')
+    ? VIDEO_COMPOSER_SOURCES
+    : VIDEO_SOURCES
+
+  return (
+    <div className={`${CARD} flex flex-col gap-4`}>
+      <Segmented
+        label="视频来源"
+        options={sources}
+        labels={VIDEO_COMPOSER_SOURCE_LABELS}
+        value={storyboard ? 'storyboard' : draft.source}
+        onChange={(source) => {
+          setStoryboard(source === 'storyboard')
+          if (source !== 'storyboard') useVideoStore.getState().setSource(source)
+        }}
+      />
+
+      {storyboard ? (
+        <StoryboardComposer support={support} onPickReference={() => setPickerSlot('first')} />
+      ) : (
+        <VideoSubmitPanel support={support} options={options} onPickFrame={setPickerSlot} />
+      )}
+
+      {pickerSlot && (
+        <FramePicker
+          slot={pickerSlot}
+          label={storyboard ? REFERENCE_LABEL : undefined}
+          onClose={() => setPickerSlot(null)}
+        />
+      )}
     </div>
   )
 }
