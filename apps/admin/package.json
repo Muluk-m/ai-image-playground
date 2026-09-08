@@ -24,6 +24,7 @@
     "@elysiajs/cors": "^1.4.0",
     "@hookform/resolvers": "^5.7.1",
     "@image-playground/db": "workspace:*",
+    "@image-playground/node-kit": "workspace:*",
     "@image-playground/shared": "workspace:*",
     "@radix-ui/react-dialog": "^1.1.4",
     "@radix-ui/react-dropdown-menu": "^2.1.24",
