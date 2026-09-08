@@ -29,6 +29,7 @@ beforeEach(() => {
 afterEach(() => {
   _setRuntimeConfigForTesting({ bff: { enabled: false, baseUrl: '' } })
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
 })
 
 describe('asking the BFF for a background plan', () => {
@@ -169,5 +170,18 @@ describe('asking the BFF what kind of image this is', () => {
         vi.fn().mockResolvedValue(jsonResponse({ sceneType: '说明图' })),
       ),
     ).rejects.toThrow('画面类型')
+  })
+
+  it('sends the cookie by default on both vision calls', async () => {
+    const sent = vi.fn(async (input: string, _init?: RequestInit) =>
+      input.endsWith('/scan') ? jsonResponse({ sceneType: 'photo' }) : jsonResponse(PLAN),
+    )
+    vi.stubGlobal('fetch', sent)
+
+    await requestBackgroundPlan({ image: 'data:image/png;base64,AAA' })
+    await requestSceneScan('data:image/png;base64,AAA')
+
+    expect(sent.mock.calls[0][1]).toMatchObject({ credentials: 'include' })
+    expect(sent.mock.calls[1][1]).toMatchObject({ credentials: 'include' })
   })
 })
