@@ -17,6 +17,9 @@ export default function PreviewPanel() {
   const selectedImageId = useProductShotsStore((s) => s.selectedImageId)
   const previewVersionId = useProductShotsStore((s) => s.previewVersionId)
   const matteOverlayVersionId = useProductShotsStore((s) => s.matteOverlayVersionId)
+  const matting = useProductShotsStore((s) =>
+    s.selectedImageId === null ? false : s.mattingImageIds.includes(s.selectedImageId),
+  )
   const matteOverlayHidden = useStore((s) => s.matteOverlayHidden)
   const setMatteOverlayHidden = useStore((s) => s.setMatteOverlayHidden)
   const tasks = useStore((s) => s.tasks)
@@ -91,9 +94,9 @@ export default function PreviewPanel() {
         )}
       </div>
 
-      {onOriginal && matte && (
+      {onOriginal && (matte || matting) && (
         <div data-product-shots-matte-bar className="mt-2 flex flex-wrap items-center gap-2">
-          {matte.previewImageId && (
+          {matte?.previewImageId && (
             <label className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
               <input
                 type="checkbox"
@@ -104,10 +107,10 @@ export default function PreviewPanel() {
             </label>
           )}
           <BadgeTag
-            badge={sourceMatteBadge(matte)}
+            badge={sourceMatteBadge(matte, matting)}
             className="px-1.5 py-0.5 text-[11px] leading-tight"
           />
-          {matte.maskImageId && (
+          {matte?.status === 'ready' && (
             <button
               type="button"
               onClick={() => void editSourceMask(selected.imageId)}

@@ -34,6 +34,7 @@ export default function SourcePanel() {
   const listingStartedAt = useProductShotsStore((s) => s.listingStartedAt)
   const listingNotice = useProductShotsStore((s) => s.listingNotice)
   const requested = useProductShotsStore((s) => s.sourceMode)
+  const matting = useProductShotsStore(useShallow((s) => s.mattingImageIds))
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const {
@@ -172,7 +173,7 @@ export default function SourcePanel() {
                       </span>
                     )}
                     <BadgeTag
-                      badge={sourceMatteBadge(image.sourceMatte)}
+                      badge={sourceMatteBadge(image.sourceMatte, matting.includes(image.imageId))}
                       className="w-fit px-1 py-0.5 text-[11px]"
                     />
                   </span>
