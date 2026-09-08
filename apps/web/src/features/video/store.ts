@@ -283,7 +283,7 @@ export const useVideoStore = create<VideoState>((set, get) => {
     input: StoryboardVideoInput,
   ): Promise<string | null> {
     const { support } = option
-    const { resolution } = get().draft
+    const resolution = clampToSupported(support.resolutions, get().draft.resolution)
     return enqueue({
       option,
       source: input.imageId ? 'image' : 'text',
@@ -293,7 +293,7 @@ export const useVideoStore = create<VideoState>((set, get) => {
         input.seconds,
       ),
       aspectRatio: clampToSupported(support.aspectRatios, input.aspectRatio),
-      resolution: clampToSupported(support.resolutions, resolution),
+      resolution,
       firstFrameImageId: input.imageId,
       shot: {
         storyboardId: input.storyboardId,
