@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test'
 import {
   VIDEO_MODEL_SUPPORT,
+  VIDEO_RESOLUTIONS,
   type VideoModelSupport,
   type VideoRequest,
   validateVideoRequest,
@@ -308,6 +309,17 @@ describe('VIDEO_MODEL_SUPPORT', () => {
       expect(Object.keys(support.resolutionMultipliers).sort()).toEqual(
         [...support.resolutions].sort(),
       )
+  })
+
+  it('constrains durations only for a resolution it offers, and only to durations it offers', () => {
+    for (const support of [...Object.values(VIDEO_MODEL_SUPPORT), CONSTRAINED_SUPPORT])
+      for (const resolution of VIDEO_RESOLUTIONS) {
+        const durations = support.durationsByResolution?.[resolution]
+        if (!durations) continue
+        expect(support.resolutions).toContain(resolution)
+        expect(durations.length).toBeGreaterThan(0)
+        for (const duration of durations) expect(support.durations).toContain(duration)
+      }
   })
 
   it('gives every model a distinct card tagline', () => {
