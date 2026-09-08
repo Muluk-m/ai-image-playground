@@ -74,6 +74,23 @@ const channels: InternalChannel[] = [
     ],
     defaults: { asyncTasks: true },
   },
+  {
+    id: 'veo-video',
+    kind: 'openai-queue',
+    label: 'Veo',
+    baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+    auth: { type: 'bearer', secretRef: 'VEO_API_KEY', secret: 'k' },
+    allowedPaths: ['models'],
+    models: [
+      {
+        id: 'veo-3.1-fast-generate-preview',
+        label: 'Veo 3.1 Fast',
+        media: 'video',
+        capabilities: ['generate', 'duration', 'aspect_ratio', 'resolution', 'first_frame'],
+      },
+    ],
+    defaults: { asyncTasks: true },
+  },
 ]
 
 beforeEach(async () => {
@@ -154,6 +171,39 @@ describe('billing reservation units', () => {
         model: 'grok-imagine-video',
         quantity: 8,
         unitMultiplier: 1.6,
+      },
+    ])
+  })
+
+  it('reserves Veo 1080p a fifth above its 720p seconds', async () => {
+    expect(
+      await submit('veo-3.1-fast-generate-preview', {
+        video: { duration_seconds: 8, aspect_ratio: '16:9', resolution: '1080p' },
+      }),
+    ).toBe(200)
+    expect(reservations).toEqual([
+      {
+        taskId: expect.any(String),
+        userId: 'billing-user',
+        model: 'veo-3.1-fast-generate-preview',
+        quantity: 8,
+        unitMultiplier: 1.2,
+      },
+    ])
+
+    reservations.length = 0
+    expect(
+      await submit('veo-3.1-fast-generate-preview', {
+        video: { duration_seconds: 4, aspect_ratio: '9:16', resolution: '720p' },
+      }),
+    ).toBe(200)
+    expect(reservations).toEqual([
+      {
+        taskId: expect.any(String),
+        userId: 'billing-user',
+        model: 'veo-3.1-fast-generate-preview',
+        quantity: 4,
+        unitMultiplier: 1,
       },
     ])
   })
