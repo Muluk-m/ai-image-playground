@@ -1,5 +1,5 @@
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto'
-import { Agent, fetch as undiciFetch } from 'undici'
+import { Agent, type Dispatcher, fetch as undiciFetch } from 'undici'
 import { config } from '../config'
 import { objectStore } from './objectStore'
 import { isObject } from './type-guards'
@@ -25,8 +25,8 @@ interface MatteFetchResponse {
 }
 
 type MatteFetch = (
-  input: Parameters<typeof undiciFetch>[0],
-  init?: Parameters<typeof undiciFetch>[1],
+  url: string,
+  init: { signal: AbortSignal; dispatcher?: Dispatcher },
 ) => Promise<MatteFetchResponse>
 
 // 整体超时归 AbortController；这里只管连不上的情况。

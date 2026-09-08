@@ -49,11 +49,10 @@ function segmentedPng(headers: Record<string, string> = {}): Response {
   })
 }
 
-function matteFetchReturning(response: () => Response, urls: string[] = []): MatteFetch {
-  return mock(async (url: unknown) => {
-    urls.push(String(url))
-    return response()
-  }) as unknown as MatteFetch
+function injectMatteFetch(response: () => Response) {
+  const fetcher = mock<MatteFetch>(async () => response())
+  setMatteFetchForTesting(fetcher)
+  return fetcher
 }
 
 function postImage(image: string): Promise<Response> {
@@ -72,8 +71,7 @@ function getSource(token: string): Promise<Response> {
 
 describe('POST /api/matte', () => {
   it('segments through the transform URL and hands the token the source bytes', async () => {
-    const urls: string[] = []
-    setMatteFetchForTesting(matteFetchReturning(segmentedPng, urls))
+    const fetcher = injectMatteFetch(segmentedPng)
 
     const response = await postImage(SOURCE_IMAGE)
 
@@ -83,10 +81,11 @@ describe('POST /api/matte', () => {
       backend: 'cloudflare-birefnet',
       cached: false,
     })
-    expect(urls).toHaveLength(1)
-    expect(urls[0]!.startsWith(URL_PREFIX)).toBe(true)
+    expect(fetcher.mock.calls).toHaveLength(1)
+    const transformUrl = fetcher.mock.calls[0]![0]
+    expect(transformUrl.startsWith(URL_PREFIX)).toBe(true)
 
-    const source = await getSource(urls[0]!.slice(URL_PREFIX.length))
+    const source = await getSource(transformUrl.slice(URL_PREFIX.length))
     expect(source.status).toBe(200)
     expect(source.headers.get('content-type')).toBe('image/png')
     expect(source.headers.get('cache-control')).toBe('private, max-age=300')
@@ -95,8 +94,7 @@ describe('POST /api/matte', () => {
   })
 
   it('answers a stored alpha without calling Cloudflare again', async () => {
-    const urls: string[] = []
-    setMatteFetchForTesting(matteFetchReturning(segmentedPng, urls))
+    const fetcher = injectMatteFetch(segmentedPng)
     await postImage(SOURCE_IMAGE)
 
     const response = await postImage(SOURCE_IMAGE)
@@ -106,7 +104,7 @@ describe('POST /api/matte', () => {
       backend: 'cloudflare-birefnet',
       cached: true,
     })
-    expect(urls).toHaveLength(1)
+    expect(fetcher.mock.calls).toHaveLength(1)
   })
 
   it('answers 502 when the transform returns something other than a usable PNG', async () => {
@@ -118,7 +116,7 @@ describe('POST /api/matte', () => {
 
     for (const body of cases) {
       store.objects.clear()
-      setMatteFetchForTesting(matteFetchReturning(body))
+      injectMatteFetch(body)
       const response = await postImage(SOURCE_IMAGE)
       expect(response.status).toBe(502)
       expect(await response.json()).toEqual({ error: 'matte_upstream_error' })
@@ -128,9 +126,9 @@ describe('POST /api/matte', () => {
 
   it('answers 502 when the transform request aborts', async () => {
     setMatteFetchForTesting(
-      mock(async () => {
+      mock<MatteFetch>(async () => {
         throw new DOMException('Aborted', 'AbortError')
-      }) as unknown as MatteFetch,
+      }),
     )
 
     const response = await postImage(SOURCE_IMAGE)
@@ -140,16 +138,13 @@ describe('POST /api/matte', () => {
   })
 
   it('answers 400 for an oversized body', async () => {
-    setMatteFetchForTesting(
-      mock(async () => {
-        throw new Error('unexpected matte call')
-      }) as unknown as MatteFetch,
-    )
+    const fetcher = injectMatteFetch(segmentedPng)
 
     const response = await postImage(`data:image/png;base64,${'A'.repeat(4_000_001)}`)
 
     expect(response.status).toBe(400)
     expect(((await response.json()) as { error: string }).error).toBe('invalid_request')
+    expect(fetcher.mock.calls).toHaveLength(0)
   })
 })
 
