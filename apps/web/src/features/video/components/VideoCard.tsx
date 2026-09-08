@@ -153,6 +153,9 @@ export default function VideoCard({ task, onOpen }: { task: VideoTask; onOpen: (
           )}
 
           {badge && <span className={`${BADGE} left-1.5 top-1.5`}>{badge}</span>}
+          {task.shotNo !== undefined && (
+            <span className={`${BADGE} left-1.5 top-7`}>镜 {task.shotNo}</span>
+          )}
           {done && (
             <span className={`${BADGE} bottom-1.5 right-1.5`}>{clockLabel(task.duration)}</span>
           )}
