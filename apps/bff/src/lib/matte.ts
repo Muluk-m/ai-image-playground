@@ -1,8 +1,8 @@
-import { createHash, createHmac, timingSafeEqual } from 'node:crypto'
+import { createHash, createHmac } from 'node:crypto'
+import { signPayload, verifyPayload } from '@image-playground/node-kit'
 import { config } from '../config'
 import { objectStore } from './objectStore'
 import { createDispatcher, createFetchSlot, type Dispatcher, withDeadline } from './timeoutFetch'
-import { isObject } from './type-guards'
 
 const SOURCE_TOKEN_TTL_MS = 5 * 60 * 1000
 const TOKEN_SECRET_LABEL = 'matte-source-token'
@@ -37,39 +37,20 @@ export function setMatteFetchForTesting(fetchImpl?: MatteFetch): void {
   matteTransport.set(fetchImpl)
 }
 
-function signaturePayload(payload: string): Buffer {
-  const secret = createHmac('sha256', config.auth.internalApiToken)
-    .update(TOKEN_SECRET_LABEL)
-    .digest()
-  return createHmac('sha256', secret).update(payload).digest()
+/** 派生一把只给取图 token 用的密钥，别让它和其他 INTERNAL_API_TOKEN 用途共用签名空间。 */
+function sourceTokenSecret(): Buffer {
+  return createHmac('sha256', config.auth.internalApiToken).update(TOKEN_SECRET_LABEL).digest()
 }
 
 /** 取图路由没有 cookie 鉴权，token 是它的全部授权：绑一个对象、5 分钟过期。 */
 export function mintSourceToken(key: string, now = Date.now()): string {
-  const payload = JSON.stringify({ key, exp: now + SOURCE_TOKEN_TTL_MS })
-  const encodedPayload = Buffer.from(payload, 'utf8').toString('base64url')
-  return `${encodedPayload}.${signaturePayload(payload).toString('base64url')}`
+  return signPayload(sourceTokenSecret(), { key }, { ttlMs: SOURCE_TOKEN_TTL_MS, now })
 }
 
 export function verifySourceToken(token: string, now = Date.now()): string | null {
-  const parts = token.split('.')
-  if (parts.length !== 2 || !parts[0] || !parts[1]) return null
-
-  const payload = Buffer.from(parts[0], 'base64url').toString('utf8')
-  const signature = Buffer.from(parts[1], 'base64url')
-  const expected = signaturePayload(payload)
-  if (signature.length !== expected.length || !timingSafeEqual(signature, expected)) return null
-
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(payload)
-  } catch {
-    return null
-  }
-  if (!isObject(parsed)) return null
-  const { key, exp } = parsed
-  if (typeof key !== 'string' || typeof exp !== 'number' || exp < now) return null
-  return SOURCE_KEY_PATTERN.test(key) ? key : null
+  const payload = verifyPayload(sourceTokenSecret(), token, { now })
+  if (!payload || typeof payload.key !== 'string') return null
+  return SOURCE_KEY_PATTERN.test(payload.key) ? payload.key : null
 }
 
 function foregroundTransformUrl(token: string): string {
