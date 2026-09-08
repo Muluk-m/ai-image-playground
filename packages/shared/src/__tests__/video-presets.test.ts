@@ -8,6 +8,7 @@ import {
 
 const GROK = 'grok-imagine-video'
 const AGNES = 'agnes-video-2.5-flash'
+const SEEDANCE = 'doubao-seedance-2-0-mini-260615'
 
 function request(overrides: Partial<VideoRequest> = {}): VideoRequest {
   return { duration_seconds: 5, aspect_ratio: '16:9', resolution: '720p', ...overrides }
@@ -63,6 +64,38 @@ describe('validateVideoRequest', () => {
     expect(validateVideoRequest(AGNES, request({ last_frame_index: 2 }), 2)).toEqual({
       ok: false,
       reason: '尾帧图片不存在',
+    })
+  })
+
+  it('accepts a 15 second 1080p Seedance clip with both keyframes', () => {
+    expect(
+      validateVideoRequest(
+        SEEDANCE,
+        request({
+          duration_seconds: 15,
+          resolution: '1080p',
+          first_frame_index: 0,
+          last_frame_index: 1,
+        }),
+        2,
+      ),
+    ).toEqual({ ok: true })
+  })
+
+  it('rejects extend and edit on Seedance', () => {
+    expect(
+      validateVideoRequest(
+        SEEDANCE,
+        request({ mode: 'extend', source_task_id: 't1', source_output_index: 0 }),
+        0,
+      ),
+    ).toEqual({ ok: false, reason: 'Seedance 2.0 不支持续写' })
+  })
+
+  it('rejects 15 seconds on Grok, whose ladder stops at 10', () => {
+    expect(validateVideoRequest(GROK, request({ duration_seconds: 15 }), 0)).toEqual({
+      ok: false,
+      reason: 'Grok 时长只支持 5 / 8 / 10 秒',
     })
   })
 
@@ -197,6 +230,7 @@ describe('VIDEO_MODEL_SUPPORT', () => {
   it('carries the typical elapsed seconds shown while generating', () => {
     expect(VIDEO_MODEL_SUPPORT[GROK].typicalSeconds).toBe(40)
     expect(VIDEO_MODEL_SUPPORT[AGNES].typicalSeconds).toBe(40)
+    expect(VIDEO_MODEL_SUPPORT[SEEDANCE].typicalSeconds).toBe(120)
   })
 
   it('offers extend and edit on Grok only', () => {
