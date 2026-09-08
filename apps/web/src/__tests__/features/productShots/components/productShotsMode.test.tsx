@@ -84,6 +84,9 @@ vi.mock('../../../../lib/canvasImage', async (importOriginal) => ({
   getImageDimensions,
 }))
 
+const LONG_FAILURE =
+  '上游返回 400：提示词里带了被拒的词，换一句再试；这条原因很长，卡里默认只留一行'
+
 const PLAN = {
   category: '折叠浴缸',
   camera: '略高的 3/4 侧视',
@@ -173,6 +176,18 @@ function column(name: string): HTMLElement {
   return element
 }
 
+function progressLine(): HTMLElement {
+  const element = document.querySelector<HTMLElement>('[data-product-shots-progress]')
+  if (!element) throw new Error('no progress line')
+  return element
+}
+
+function versionPanel(): HTMLElement {
+  const element = document.querySelector<HTMLElement>('[data-product-shots-version-panel]')
+  if (!element) throw new Error('no version panel')
+  return element
+}
+
 function click(element: Element) {
   act(() => {
     element.dispatchEvent(new MouseEvent('click', { bubbles: true }))
@@ -187,6 +202,19 @@ function type(label: string, value: string) {
     setter?.call(input, value)
     input.dispatchEvent(new Event('input', { bubbles: true }))
   })
+}
+
+/** 一张原图跑完一次换背景，落下第一版。 */
+async function withOneVersion() {
+  render()
+  upload('上传原图', new File(['x'], '主图.png', { type: 'image/png' }))
+  while (useProductShotsStore.getState().draft.id === null) {
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+  }
+  click(actionButton())
+  await settle()
 }
 
 function upload(label: string, ...files: File[]) {
@@ -339,20 +367,41 @@ describe('running one background swap', () => {
 
     click(actionButton())
     await settle()
-    expect(actionButton().textContent).toContain('方案中')
-    expect(actionButton().disabled).toBe(true)
+    expect(progressLine().textContent).toContain('方案中')
 
     plan.resolve(PLAN)
     await settle()
-    expect(actionButton().textContent).toContain('抠图中')
+    expect(progressLine().textContent).toContain('抠图中')
 
     matte.resolve({ alpha: new Uint8ClampedArray(4), width: 2, height: 2 })
     await settle()
-    expect(actionButton().textContent).toContain('生成中')
+    expect(progressLine().textContent).toContain('生成中')
 
     submit.resolve(['task-1'])
     await settle()
-    expect(actionButton().textContent).toBe('换背景')
+    expect(document.querySelector('[data-product-shots-progress]')).toBeNull()
+  })
+
+  it('keeps the three action buttons on their own labels while a stage runs', async () => {
+    const plan = deferred<typeof PLAN>()
+    requestBackgroundPlan.mockReturnValue(plan.promise)
+    await withOneImage()
+
+    click(actionButton())
+    await settle()
+
+    for (const [action, label] of [
+      ['background', '换背景'],
+      ['replace-product', '换产品'],
+      ['remix', '借创意重做'],
+    ]) {
+      expect(actionButton(action).textContent).toBe(label)
+      expect(actionButton(action).disabled).toBe(true)
+    }
+    expect(progressLine().textContent).toContain('方案中')
+
+    plan.resolve(PLAN)
+    await settle()
   })
 
   it('puts the new version on the bar with its plan label', async () => {
@@ -428,7 +477,7 @@ describe('running one background swap', () => {
       })
     })
 
-    const choose = [...column('actions').querySelectorAll('button')].find(
+    const choose = [...versionPanel().querySelectorAll('button')].find(
       (button) => button.title === '用这版',
     )
     if (!choose) throw new Error('no choose button')
@@ -438,7 +487,7 @@ describe('running one background swap', () => {
     const [version] = useProductShotsStore.getState().draft.images[0].versions
     expect(useProductShotsStore.getState().draft.images[0].chosenVersionId).toBe(version.id)
     expect(
-      [...column('actions').querySelectorAll('button')]
+      [...versionPanel().querySelectorAll('button')]
         .find((button) => button.title === '取消选用')
         ?.getAttribute('aria-pressed'),
     ).toBe('true')
@@ -493,7 +542,7 @@ describe('looking at the matte before trusting a version', () => {
     click(actionButton())
     await settle()
 
-    const toggle = [...column('actions').querySelectorAll('button')].find(
+    const toggle = [...versionPanel().querySelectorAll('button')].find(
       (button) => button.title === '看蒙版',
     )
     if (!toggle) throw new Error('no matte toggle')
@@ -787,7 +836,7 @@ describe('the product picked once for the whole job', () => {
   })
 })
 
-describe('the right column grouped into settings, generation and versions', () => {
+describe('the right column grouped into settings and generation', () => {
   const PRODUCT_REASON = '换产品与借创意重做需要先选产品素材'
 
   function headings(): string[] {
@@ -798,10 +847,10 @@ describe('the right column grouped into settings, generation and versions', () =
     return [...column('actions').querySelectorAll('[data-product-shots-action-reason]')]
   }
 
-  it('orders the column as settings, generation and versions', () => {
+  it('orders the column as settings and generation', () => {
     render()
 
-    expect(headings()).toEqual(['设置', '生成', '版本'])
+    expect(headings()).toEqual(['设置', '生成'])
   })
 
   it('puts the three actions on one row', () => {
@@ -851,6 +900,75 @@ describe('the right column grouped into settings, generation and versions', () =
     expect(settings?.textContent).toContain('偏好')
     expect(settings?.textContent).toContain('每张几版')
     expect(settings?.querySelector('[role="group"][aria-label="与竞品的距离"]')).not.toBeNull()
+  })
+})
+
+describe('the version list in the centre column', () => {
+  function versionRow(): HTMLElement {
+    const element = document.querySelector<HTMLElement>('[data-product-shots-version]')
+    if (!element) throw new Error('no version row')
+    return element
+  }
+
+  function errorToggle(): HTMLButtonElement {
+    const element = versionRow().querySelector<HTMLButtonElement>(
+      '[data-product-shots-version-error-toggle]',
+    )
+    if (!element) throw new Error('no error toggle')
+    return element
+  }
+
+  it('puts the version list under the preview and out of the settings column', async () => {
+    await withOneVersion()
+
+    expect(column('center').contains(column('preview'))).toBe(true)
+    expect(column('center').contains(versionPanel())).toBe(true)
+    expect(
+      column('preview').compareDocumentPosition(versionPanel()) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+    expect(column('actions').contains(versionPanel())).toBe(false)
+    expect(column('actions').querySelector('[data-product-shots-version]')).toBeNull()
+  })
+
+  it('lays the card out as the thumbnail, the meta column and the operations', async () => {
+    await withOneVersion()
+
+    expect(versionRow().className).toContain('grid-cols-[72px_minmax(0,1fr)_auto]')
+    expect(versionRow().children).toHaveLength(3)
+  })
+
+  it('keeps the chips on one line and the action label whole', async () => {
+    await withOneVersion()
+
+    const tags = versionRow().querySelector<HTMLElement>('[data-product-shots-version-tags]')
+    expect(tags?.className).toContain('whitespace-nowrap')
+    expect(tags?.className).not.toContain('flex-wrap')
+
+    const title = versionRow().querySelector<HTMLElement>('[data-product-shots-version-title]')
+    const action = [...(title?.children ?? [])].find((item) => item.textContent === '换背景')
+    expect(action?.className).toContain('shrink-0')
+    expect(action?.className).not.toContain('truncate')
+  })
+
+  it('folds a failure to one line and unfolds the whole reason on demand', async () => {
+    await withOneVersion()
+    act(() => {
+      useStore.setState({
+        tasks: [{ ...finishedTask('task-1'), status: 'error', error: LONG_FAILURE }],
+      })
+    })
+
+    const folded = errorToggle().previousElementSibling
+    expect(folded?.textContent).toBe(LONG_FAILURE)
+    expect(folded?.className).toContain('truncate')
+    expect(errorToggle().textContent).toBe('展开')
+
+    click(errorToggle())
+
+    const unfolded = errorToggle().previousElementSibling
+    expect(unfolded?.textContent).toBe(LONG_FAILURE)
+    expect(unfolded?.className).not.toContain('truncate')
+    expect(errorToggle().textContent).toBe('收起')
   })
 })
 
@@ -919,18 +1037,6 @@ describe('the result gallery', () => {
 })
 
 describe('the plan drawer of one version', () => {
-  async function withOneVersion() {
-    render()
-    upload('上传原图', new File(['x'], '主图.png', { type: 'image/png' }))
-    while (useProductShotsStore.getState().draft.id === null) {
-      await act(async () => {
-        await new Promise((resolve) => setTimeout(resolve, 0))
-      })
-    }
-    click(actionButton())
-    await settle()
-  }
-
   function openDrawer(from: HTMLElement) {
     // 版本条上是文字按钮，总览卡上是图标按钮，两处认同一个名字。
     const open = [...from.querySelectorAll('button')].find(
@@ -945,7 +1051,7 @@ describe('the plan drawer of one version', () => {
 
     expect(drawer()).toBeNull()
 
-    openDrawer(column('actions'))
+    openDrawer(versionPanel())
 
     expect(drawer()?.textContent).toContain('提示词')
     expect(promptField().value).toBe(PLAN.prompt)
@@ -961,7 +1067,7 @@ describe('the plan drawer of one version', () => {
 
   it('rebuilds the prompt when the plan sentence is edited', async () => {
     await withOneVersion()
-    openDrawer(column('actions'))
+    openDrawer(versionPanel())
 
     write('方案句', '放进水泥灰的极简浴室')
     await settle()
@@ -971,13 +1077,13 @@ describe('the plan drawer of one version', () => {
 
   it('marks a hand written prompt and offers the way back', async () => {
     await withOneVersion()
-    openDrawer(column('actions'))
+    openDrawer(versionPanel())
 
     write('提示词', '我自己写的提示词')
     await settle()
 
     expect(drawer()?.textContent).toContain('手改')
-    expect(column('actions').textContent).toContain('手改')
+    expect(versionPanel().textContent).toContain('手改')
 
     const reset = [...(drawer()?.querySelectorAll('button') ?? [])].find(
       (button) => button.textContent === '重置为 AI 版本',
@@ -991,7 +1097,7 @@ describe('the plan drawer of one version', () => {
 
   it('submits another version on the prompt in the drawer', async () => {
     await withOneVersion()
-    openDrawer(column('actions'))
+    openDrawer(versionPanel())
     write('提示词', '我自己写的提示词')
     await settle()
 
@@ -1008,7 +1114,7 @@ describe('the plan drawer of one version', () => {
 
   it('sets the language of the copy printed on the picture for the whole job', async () => {
     await withOneVersion()
-    openDrawer(column('actions'))
+    openDrawer(versionPanel())
 
     const english = [...(drawer()?.querySelectorAll('button') ?? [])].find(
       (button) => button.textContent === '英文',
