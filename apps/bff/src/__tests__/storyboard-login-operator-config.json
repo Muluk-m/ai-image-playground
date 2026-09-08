@@ -1,0 +1,7 @@
+{
+  "capabilities": {
+    "generation:storyboard": true,
+    "accounts:login": true,
+    "accounts:self-register": false
+  }
+}

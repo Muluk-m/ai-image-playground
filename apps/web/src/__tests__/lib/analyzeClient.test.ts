@@ -30,6 +30,7 @@ beforeEach(() => {
 afterEach(() => {
   _setRuntimeConfigForTesting({ bff: { enabled: false, baseUrl: '' } })
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
 })
 
 describe('asking the BFF to analyse competitor images', () => {
@@ -73,5 +74,14 @@ describe('asking the BFF to analyse competitor images', () => {
     await expect(
       analyzeCompetitorImages(['data:image/png;base64,AAA'], PRODUCT, fetcher),
     ).rejects.toThrow('分析')
+  })
+
+  it('sends the cookie by default so a logged-in deployment lets the call through', async () => {
+    const sent = vi.fn().mockResolvedValue(jsonResponse({ briefs: [BRIEF] }))
+    vi.stubGlobal('fetch', sent)
+
+    await analyzeCompetitorImages(['data:image/png;base64,AAA'], PRODUCT)
+
+    expect(sent.mock.calls[0][1]).toMatchObject({ credentials: 'include' })
   })
 })

@@ -3,6 +3,7 @@ import {
   type ProductContext,
   parseCompetitorBrief,
 } from '@image-playground/shared'
+import { authenticatedBffFetch } from './authClient'
 import { bffBaseUrl } from './runtimeConfig'
 
 type Fetcher = (input: string, init?: RequestInit) => Promise<Response>
@@ -12,7 +13,7 @@ const UNAVAILABLE = '竞品图分析没有返回可用的简报'
 export async function analyzeCompetitorImages(
   images: readonly string[],
   product: ProductContext,
-  fetcher: Fetcher = fetch,
+  fetcher: Fetcher = authenticatedBffFetch,
 ): Promise<CompetitorBrief[]> {
   const response = await fetcher(`${bffBaseUrl()}/api/remix/analyze`, {
     method: 'POST',
