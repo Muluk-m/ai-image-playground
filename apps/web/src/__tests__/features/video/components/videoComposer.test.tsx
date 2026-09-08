@@ -167,6 +167,26 @@ describe('VideoComposer', () => {
     expect(useVideoStore.getState().draft.prompt).toBe('缓慢推进')
   })
 
+  it('图生下比例 chip 禁用并写明随首帧', () => {
+    render()
+
+    const chips = [...document.querySelectorAll<HTMLButtonElement>('[aria-label="比例"] button')]
+    expect(chips.length).toBeGreaterThan(0)
+    expect(chips.every((button) => button.disabled)).toBe(true)
+    expect(chips.every((button) => button.getAttribute('aria-pressed') === 'false')).toBe(true)
+    expect(document.body.textContent).toContain('随首帧')
+  })
+
+  it('文生下比例 chip 可选，不写随首帧', () => {
+    act(() => useVideoStore.getState().setSource('text'))
+    render()
+
+    const chips = [...document.querySelectorAll<HTMLButtonElement>('[aria-label="比例"] button')]
+    expect(chips.some((button) => button.disabled)).toBe(false)
+    expect(chip('比例', '16:9').getAttribute('aria-pressed')).toBe('true')
+    expect(document.body.textContent).not.toContain('随首帧')
+  })
+
   it('文生标签下不显示首尾帧槽', () => {
     render()
     expect(document.body.textContent).toContain('首帧 · 尾帧')

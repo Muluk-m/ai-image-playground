@@ -13,6 +13,7 @@ import SubmissionBillingAction from '../../../components/SubmissionBillingAction
 import { usePasteImageFiles } from '../../../hooks/usePasteImageFiles'
 import { type VideoModelOption, videoModelOptions } from '../../../lib/channels/videoChannels'
 import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
+import { FOLLOWS_FIRST_FRAME } from '../lib/aspect'
 import { useVideoStore } from '../store'
 import { CAMERA_MOVES, VIDEO_SOURCE_LABELS, VIDEO_SOURCES, type VideoFrameSlot } from '../types'
 import { ACTIVE_CHIP, CHIP, IDLE_CHIP, PARAM_ROW_KEY, SUGGESTION_CHIP } from './chipStyles'
@@ -25,24 +26,30 @@ function ChipRow<T extends string | number>({
   value,
   render,
   onChange,
+  disabled,
+  note,
 }: {
   label: string
   options: readonly T[]
   value: T
   render: (option: T) => string
   onChange: (option: T) => void
+  disabled?: boolean
+  note?: string
 }) {
   return (
     <div className="flex items-center gap-2">
       <span className={PARAM_ROW_KEY}>{label}</span>
+      {note && <span className="text-xs text-gray-600 dark:text-gray-300">{note}</span>}
       <div role="group" aria-label={label} className="flex flex-wrap gap-1.5">
         {options.map((option) => (
           <button
             key={option}
             type="button"
-            aria-pressed={option === value}
+            disabled={disabled}
+            aria-pressed={!disabled && option === value}
             onClick={() => onChange(option)}
-            className={`${CHIP} ${option === value ? ACTIVE_CHIP : IDLE_CHIP}`}
+            className={`${CHIP} ${!disabled && option === value ? ACTIVE_CHIP : IDLE_CHIP}`}
           >
             {render(option)}
           </button>
@@ -214,6 +221,8 @@ export default function VideoComposer() {
           value={draft.aspectRatio}
           render={(ratio) => ratio}
           onChange={(ratio) => useVideoStore.getState().setAspectRatio(ratio)}
+          disabled={draft.source === 'image'}
+          note={draft.source === 'image' ? FOLLOWS_FIRST_FRAME : undefined}
         />
         <ChipRow
           label="清晰度"
