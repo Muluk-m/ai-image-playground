@@ -1,4 +1,4 @@
-import type { ProductBox } from '@image-playground/shared'
+import { IMAGE_DATA_URL_MAX_CHARS, type ProductBox } from '@image-playground/shared'
 import { isClientCapabilityEnabled } from '../../../lib/clientCapabilities'
 import { storeImage } from '../../../lib/db'
 import { requestServerMatte } from '../../../lib/matteClient'
@@ -50,6 +50,26 @@ export function unmasked(
   return { mask: null, notice, matte: { ok: false, reason }, previewImageId }
 }
 
+/** 服务端抠图是等网络，浏览器链吃满设备：一个放三个进去，一个一次只放一个。 */
+const serverSlots = limiter(3)
+const browserSlots = limiter(1)
+
+function limiter(slots: number) {
+  const waiting: Array<() => void> = []
+  let free = slots
+  return async <T>(task: () => Promise<T>): Promise<T> => {
+    if (free === 0) await new Promise<void>((resolve) => waiting.push(resolve))
+    else free -= 1
+    try {
+      return await task()
+    } finally {
+      const next = waiting.shift()
+      if (next) next()
+      else free += 1
+    }
+  }
+}
+
 interface RawMatte {
   alpha: ProductAlpha
   /** 落盘的那张 alpha PNG。服务端那张原样存，不解码再编码一遍。 */
@@ -58,8 +78,13 @@ interface RawMatte {
 }
 
 async function segment(dataUrl: string): Promise<RawMatte> {
-  const server = isClientCapabilityEnabled('matte:server') ? await serverMatte(dataUrl) : null
-  return server ?? (await browserMatte(dataUrl))
+  const server = serverEligible(dataUrl) ? await serverSlots(() => serverMatte(dataUrl)) : null
+  return server ?? (await browserSlots(() => browserMatte(dataUrl)))
+}
+
+/** 超限的图路由会直接 400，别白跑一趟。 */
+function serverEligible(dataUrl: string): boolean {
+  return isClientCapabilityEnabled('matte:server') && dataUrl.length <= IMAGE_DATA_URL_MAX_CHARS
 }
 
 /** 服务端抠不出来就落回浏览器链。 */
