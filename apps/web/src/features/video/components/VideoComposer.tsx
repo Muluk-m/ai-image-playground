@@ -13,10 +13,10 @@ import Segmented from '../../../components/Segmented'
 import SubmissionBillingAction from '../../../components/SubmissionBillingAction'
 import { usePasteImageFiles } from '../../../hooks/usePasteImageFiles'
 import { type VideoModelOption, videoModelOptions } from '../../../lib/channels/videoChannels'
+import { isClientCapabilityEnabled } from '../../../lib/clientCapabilities'
 import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
 import { FOLLOWS_FIRST_FRAME } from '../lib/aspect'
 import { useVideoStore } from '../store'
-import { isClientCapabilityEnabled } from '../../../lib/clientCapabilities'
 import StoryboardComposer, { REFERENCE_LABEL } from '../storyboard/components/StoryboardComposer'
 import {
   CAMERA_MOVES,

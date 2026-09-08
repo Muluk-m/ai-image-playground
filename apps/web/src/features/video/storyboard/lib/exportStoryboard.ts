@@ -1,4 +1,5 @@
 import { zipSync } from 'fflate'
+import { dataUrlToBlob } from '../../../../lib/canvasImage'
 import { downloadBlob } from '../../../../lib/downloadImages'
 import { sanitizePathSegment } from '../../../../lib/imageExport'
 import { ensureImageCached } from '../../../../store'
@@ -36,17 +37,8 @@ export function storyboardExportJson(record: StoryboardRecord): string {
   return `${JSON.stringify({ ...record, shots }, null, 2)}\n`
 }
 
-function decodeDataUrl(dataUrl: string): { bytes: Uint8Array; extension: string } | null {
-  const match = dataUrl.match(/^data:([^;,]+)(;base64)?,(.*)$/)
-  if (!match) return null
-  const [, mime, base64, payload] = match
-  const text = base64 ? atob(payload ?? '') : decodeURIComponent(payload ?? '')
-  const bytes = new Uint8Array(text.length)
-  for (let index = 0; index < text.length; index++) bytes[index] = text.charCodeAt(index)
-  return { bytes, extension: MIME_EXTENSIONS[mime ?? ''] ?? (mime ?? '').split('/')[1] ?? 'png' }
-}
-
-export function shotFileName(no: number, extension: string): string {
+function shotFileName(no: number, mime: string): string {
+  const extension = MIME_EXTENSIONS[mime] ?? mime.split('/')[1] ?? 'png'
   return `镜${String(no).padStart(2, '0')}.${extension}`
 }
 
@@ -58,11 +50,12 @@ export async function storyboardZipFiles(
     'storyboard.md': new TextEncoder().encode(storyboardMarkdown(record)),
     'storyboard.json': new TextEncoder().encode(storyboardExportJson(record)),
   }
-  for (const shot of record.shots) {
-    if (!shot.imageId) continue
-    const dataUrl = await loadImage(shot.imageId)
-    const decoded = dataUrl ? decodeDataUrl(dataUrl) : null
-    if (decoded) files[shotFileName(shot.no, decoded.extension)] = decoded.bytes
+  const shots = record.shots.filter((shot) => shot.imageId)
+  const images = await Promise.all(shots.map((shot) => loadImage(shot.imageId!)))
+  for (const [index, dataUrl] of images.entries()) {
+    if (!dataUrl) continue
+    const blob = await dataUrlToBlob(dataUrl)
+    files[shotFileName(shots[index]!.no, blob.type)] = new Uint8Array(await blob.arrayBuffer())
   }
   return files
 }

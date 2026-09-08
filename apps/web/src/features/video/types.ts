@@ -13,7 +13,7 @@ export const VIDEO_SOURCE_LABELS: Record<VideoSource, string> = {
   image: '图生视频',
 }
 
-/** 左栏的第三格不是一种任务来源：分镜先出图，出的视频仍记成图生。 */
+/** 左栏的第三格只是页签：分镜自己出图，出的视频仍记成图生。 */
 export const VIDEO_COMPOSER_SOURCES = [...VIDEO_SOURCES, 'storyboard'] as const
 export type VideoComposerSource = (typeof VIDEO_COMPOSER_SOURCES)[number]
 
@@ -79,7 +79,7 @@ export interface VideoTask {
 
 /** 左栏这一刻的参数。提交时冻结成 VideoTask。 */
 export interface VideoDraft {
-  source: VideoComposerSource
+  source: VideoSource
   prompt: string
   model: string
   duration: VideoDuration

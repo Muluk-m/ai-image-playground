@@ -1,3 +1,6 @@
+/** 盖在画面上的小标签：镜号、首尾帧、时长。 */
+export const BADGE = 'absolute rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-white'
+
 export const CHIP =
   'rounded-full border px-2.5 py-0.5 text-xs transition disabled:cursor-not-allowed disabled:opacity-40'
 

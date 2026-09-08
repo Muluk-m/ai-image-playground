@@ -40,13 +40,13 @@ export default function StoryboardBoard() {
 
   // 出图任务跑在工作台里，分镜记录只存任务 id，完成后要把图挂回来。
   useEffect(() => {
-    useStoryboardStore.getState().adoptShotImages(tasks)
-  }, [tasks])
+    useStoryboardStore.getState().adoptShotImages(tasksById)
+  }, [tasksById])
 
   if (!record) return null
 
   const pending = record.shots.filter((shot) => shot.imageId && !shot.videoTaskId)
-  const openVideoTask = videoTasks.find((task) => task.id === openVideoTaskId) ?? null
+  const openVideoTask = openVideoTaskId ? (videoTasksById.get(openVideoTaskId) ?? null) : null
   const allVideosLabel =
     guard.estimatedCredits === undefined
       ? '全部生视频'

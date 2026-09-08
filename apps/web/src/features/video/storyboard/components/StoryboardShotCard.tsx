@@ -5,14 +5,30 @@ import { copyTextToClipboard, getClipboardFailureMessage } from '../../../../lib
 import { useStore } from '../../../../store'
 import type { TaskRecord } from '../../../../types'
 import AssetThumb from '../../../library/components/AssetThumb'
+import { BADGE } from '../../components/chipStyles'
+import PlayBadge from '../../components/PlayBadge'
 import type { VideoTask } from '../../types'
 import { useStoryboardStore } from '../store'
 import type { StoryboardRecord, StoryboardShotPatch, StoryboardShotRecord } from '../types'
 
-const BADGE = 'absolute rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-white'
 const ACTION = 'rounded-md px-1.5 py-1 text-[11px] transition disabled:opacity-40'
 
-function statusLabel(shot: StoryboardShotRecord, imageTask?: TaskRecord): string | null {
+const EDIT_FIELDS = [
+  { key: 'title', label: '标题' },
+  { key: 'description', label: '画面', rows: 3 },
+  { key: 'camera', label: '运镜' },
+  { key: 'line', label: '台词' },
+  { key: 'videoPrompt', label: '视频提示词', rows: 3 },
+] as const satisfies ReadonlyArray<{ key: keyof StoryboardShotPatch; label: string; rows?: number }>
+
+function badgeLabel(
+  shot: StoryboardShotRecord,
+  imageTask?: TaskRecord,
+  videoTask?: VideoTask,
+): string | null {
+  if (videoTask?.status === 'done') return '视频 ✓'
+  if (videoTask?.status === 'error') return '视频失败'
+  if (videoTask) return '视频生成中'
   if (shot.imageId) return '分镜图'
   if (imageTask?.status === 'error') return '出图失败'
   return null
@@ -34,9 +50,9 @@ export default function StoryboardShotCard({
 }) {
   const [editing, setEditing] = useState<'description' | 'all' | null>(null)
   const showToast = useStore((s) => s.showToast)
-  const imagePending = !shot.imageId && imageTask?.status !== 'error' && shot.imageTaskId !== null
+  const imagePending = !shot.imageId && shot.imageTaskId !== null && imageTask?.status !== 'error'
   const videoDone = videoTask?.status === 'done'
-  const videoPending = videoTask?.status === 'queued' || videoTask?.status === 'running'
+  const label = badgeLabel(shot, imageTask, videoTask)
 
   const patch = (field: keyof StoryboardShotPatch, value: string) => {
     if (shot[field] === value) return
@@ -71,9 +87,7 @@ export default function StoryboardShotCard({
             aria-label={`播放 镜 ${shot.no}`}
             className="absolute inset-0 grid place-items-center"
           >
-            <span className="grid h-9 w-9 place-items-center rounded-full bg-black/55">
-              <span className="ml-1 block h-0 w-0 border-y-[8px] border-l-[13px] border-y-transparent border-l-white" />
-            </span>
+            <PlayBadge />
           </button>
         )}
 
@@ -84,57 +98,32 @@ export default function StoryboardShotCard({
         )}
 
         <span className={`${BADGE} left-1.5 top-1.5`}>镜 {shot.no}</span>
-        <span className={`${BADGE} right-1.5 top-1.5`}>
-          {videoDone
-            ? '视频 ✓'
-            : videoPending
-              ? '视频生成中'
-              : videoTask?.status === 'error'
-                ? '视频失败'
-                : statusLabel(shot, imageTask)}
-        </span>
+        {label && <span className={`${BADGE} right-1.5 top-1.5`}>{label}</span>}
       </div>
 
       <div className="flex flex-col gap-1.5 px-2.5 py-2 text-xs text-gray-500 dark:text-gray-400">
         {editing ? (
           <div className="flex flex-col gap-1.5">
-            {editing === 'all' && (
-              <input
-                defaultValue={shot.title}
-                aria-label="标题"
-                onBlur={(event) => patch('title', event.target.value.trim())}
-                className={FIELD}
-              />
-            )}
-            <textarea
-              defaultValue={shot.description}
-              aria-label="画面"
-              rows={3}
-              onBlur={(event) => patch('description', event.target.value.trim())}
-              className={`${FIELD} resize-none`}
-            />
-            {editing === 'all' && (
-              <>
-                <input
-                  defaultValue={shot.camera}
-                  aria-label="运镜"
-                  onBlur={(event) => patch('camera', event.target.value.trim())}
-                  className={FIELD}
-                />
-                <input
-                  defaultValue={shot.line}
-                  aria-label="台词"
-                  onBlur={(event) => patch('line', event.target.value.trim())}
-                  className={FIELD}
-                />
-                <textarea
-                  defaultValue={shot.videoPrompt}
-                  aria-label="视频提示词"
-                  rows={3}
-                  onBlur={(event) => patch('videoPrompt', event.target.value.trim())}
-                  className={`${FIELD} resize-none`}
-                />
-              </>
+            {EDIT_FIELDS.filter((field) => editing === 'all' || field.key === 'description').map(
+              (field) =>
+                'rows' in field ? (
+                  <textarea
+                    key={field.key}
+                    defaultValue={shot[field.key]}
+                    aria-label={field.label}
+                    rows={field.rows}
+                    onBlur={(event) => patch(field.key, event.target.value.trim())}
+                    className={`${FIELD} resize-none`}
+                  />
+                ) : (
+                  <input
+                    key={field.key}
+                    defaultValue={shot[field.key]}
+                    aria-label={field.label}
+                    onBlur={(event) => patch(field.key, event.target.value.trim())}
+                    className={FIELD}
+                  />
+                ),
             )}
             <button type="button" className={GHOST_BUTTON} onClick={() => setEditing(null)}>
               完成
