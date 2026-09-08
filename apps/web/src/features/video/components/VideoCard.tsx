@@ -1,11 +1,11 @@
-import { VIDEO_MODEL_SUPPORT } from '@image-playground/shared'
+import { VIDEO_DERIVE_LABELS, VIDEO_MODEL_SUPPORT } from '@image-playground/shared'
 import { useState } from 'react'
 import ContextMenu, { ContextMenuItem } from '../../../components/ContextMenu'
 import { TrashIcon } from '../../../components/icons'
 import { formatElapsed, useElapsed } from '../../../hooks/useElapsed'
 import { useStore } from '../../../store'
 import { videoAspectLabel, videoFrameAspect } from '../lib/aspect'
-import { deriveOptions } from '../lib/derive'
+import { deriveOptions, type VideoDeriveOption } from '../lib/derive'
 import {
   adoptAsFirstFrame,
   captureVideoFrame,
@@ -14,7 +14,7 @@ import {
   videoOutputUrl,
 } from '../lib/playback'
 import { useVideoStore } from '../store'
-import { VIDEO_DERIVE_LABELS, type VideoDeriveMode, type VideoTask } from '../types'
+import type { VideoTask } from '../types'
 import DeriveVideoPopover from './DeriveVideoPopover'
 
 const BADGE = 'absolute rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-white'
@@ -39,7 +39,7 @@ function frameBadge(task: VideoTask): string | null {
 export default function VideoCard({ task, onOpen }: { task: VideoTask; onOpen: () => void }) {
   const showToast = useStore((s) => s.showToast)
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
-  const [derive, setDerive] = useState<VideoDeriveMode | null>(null)
+  const [derive, setDerive] = useState<VideoDeriveOption | null>(null)
   const elapsed = useElapsed(task.status === 'running' ? task.createdAt : null)
 
   const support = VIDEO_MODEL_SUPPORT[task.model]
@@ -48,7 +48,8 @@ export default function VideoCard({ task, onOpen }: { task: VideoTask; onOpen: (
   const playbackUrl = videoOutputUrl(task)
   const badge = frameBadge(task)
   const frameAspect = videoFrameAspect(task)
-  const derivations = deriveOptions(task)
+  // 未完成的卡片按钮条根本不渲染，别为它扫频道列表。
+  const derivations = done ? deriveOptions(task) : []
 
   const download = async () => {
     try {
@@ -177,11 +178,11 @@ export default function VideoCard({ task, onOpen }: { task: VideoTask; onOpen: (
                 key={option.mode}
                 type="button"
                 className={`${HOVER_BUTTON} disabled:opacity-40`}
-                disabled={option.disabledReason !== undefined}
+                disabled={!option.modelId}
                 title={option.disabledReason}
-                onClick={() => setDerive(option.mode)}
+                onClick={() => setDerive(option)}
               >
-                {option.label}
+                {VIDEO_DERIVE_LABELS[option.mode]}
               </button>
             ))}
             <button
@@ -204,7 +205,9 @@ export default function VideoCard({ task, onOpen }: { task: VideoTask; onOpen: (
           {task.prompt}
         </b>
         <div className="mt-0.5 flex flex-wrap items-center gap-2">
-          {task.mode && <span className={LINEAGE_CHIP}>{VIDEO_DERIVE_LABELS[task.mode]}</span>}
+          {task.derived && (
+            <span className={LINEAGE_CHIP}>{VIDEO_DERIVE_LABELS[task.derived.mode]}</span>
+          )}
           <span>{modelLabel}</span>
           <span>{task.duration} 秒</span>
           <span>{videoAspectLabel(task)}</span>
@@ -241,7 +244,14 @@ export default function VideoCard({ task, onOpen }: { task: VideoTask; onOpen: (
         </video>
       )}
 
-      {derive && <DeriveVideoPopover task={task} mode={derive} onClose={() => setDerive(null)} />}
+      {derive?.modelId && (
+        <DeriveVideoPopover
+          task={task}
+          mode={derive.mode}
+          modelId={derive.modelId}
+          onClose={() => setDerive(null)}
+        />
+      )}
 
       {menu && (
         <ContextMenu x={menu.x} y={menu.y} onClose={() => setMenu(null)}>

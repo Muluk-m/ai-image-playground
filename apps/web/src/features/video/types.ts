@@ -1,7 +1,7 @@
 import type {
   VideoAspectRatio,
+  VideoDeriveMode,
   VideoDuration,
-  VideoMode,
   VideoResolution,
 } from '@image-playground/shared'
 
@@ -19,16 +19,6 @@ export type VideoFrameSlot = (typeof VIDEO_FRAME_SLOTS)[number]
 export const VIDEO_FRAME_SLOT_LABELS: Record<VideoFrameSlot, string> = {
   first: '首帧',
   last: '尾帧',
-}
-
-/** 从一条成品视频派生出来的模式。generate 不落到任务上，所以这里只有两个值。 */
-export type VideoDeriveMode = Exclude<VideoMode, 'generate'>
-
-export const VIDEO_DERIVE_MODES = ['extend', 'edit'] as const satisfies readonly VideoDeriveMode[]
-
-export const VIDEO_DERIVE_LABELS: Record<VideoDeriveMode, string> = {
-  extend: '续写',
-  edit: '改视频',
 }
 
 export type VideoTaskStatus = 'queued' | 'running' | 'done' | 'error'
@@ -58,10 +48,8 @@ export interface VideoTask {
   resolution: VideoResolution
   firstFrameImageId?: string
   lastFrameImageId?: string
-  /** 派生任务才有；缺席即普通生成。 */
-  mode?: VideoDeriveMode
-  /** 源片的本地任务 id。提交时才换成它的 bffRequestId。 */
-  sourceTaskId?: string
+  /** 缺席即普通生成。sourceTaskId 是本地任务 id，提交时才换成源片的 bffRequestId。 */
+  derived?: { mode: VideoDeriveMode; sourceTaskId: string }
   status: VideoTaskStatus
   error: string | null
   /** 提交前的估算积分，无计费时不写。 */

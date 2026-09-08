@@ -1,6 +1,7 @@
 import {
   VIDEO_MODEL_SUPPORT,
   type VideoAspectRatio,
+  type VideoDeriveMode,
   type VideoDuration,
   type VideoRequest,
   type VideoResolution,
@@ -19,19 +20,16 @@ import {
   notifyPrivateSubmissionSettled,
 } from '../../lib/privateOverlay'
 import { ensureImageCached, storeImageFromFile, useStore } from '../../store'
-import { checkDerive } from './lib/derive'
+import { checkDerive, DERIVE_RESOLUTION } from './lib/derive'
 import { appendCameraMove, clampDraftToSupport, videoDraftFromTask } from './lib/draft'
 import { videoTaskStore } from './lib/videoStore'
-import type { VideoDeriveMode, VideoDraft, VideoFrameSlot, VideoSource, VideoTask } from './types'
+import type { VideoDraft, VideoFrameSlot, VideoSource, VideoTask } from './types'
 
 const EMPTY_PROMPT = '请先写一句描述'
 const NO_FIRST_FRAME = '请先放一张首帧图'
 const NO_MODEL = '当前部署没有可用的视频模型'
 const FRAME_MISSING = '首尾帧图片已丢失'
 const SOURCE_GONE = '源视频已不在'
-
-/** 派生输出的上游封顶。 */
-const DERIVE_RESOLUTION: VideoResolution = '720p'
 
 export const INITIAL_VIDEO_DRAFT: VideoDraft = {
   source: 'text',
@@ -69,7 +67,7 @@ export interface VideoState {
   submit(): Promise<string | null>
   /** 从一条成品视频派生一条新任务，参数不经左栏草稿。 */
   deriveVideo(
-    source: VideoTask,
+    origin: VideoTask,
     input: { mode: VideoDeriveMode; prompt: string; seconds: number },
   ): Promise<string | null>
   /** 把这条的参数填回左栏，不提交。 */
@@ -99,10 +97,11 @@ function videoRequestOf(task: VideoTask, tasks: VideoTask[]): VideoRequest {
     aspect_ratio: task.aspectRatio,
     resolution: task.resolution,
   }
-  if (task.mode) {
-    const origin = tasks.find((item) => item.id === task.sourceTaskId)
+  if (task.derived) {
+    const { mode, sourceTaskId } = task.derived
+    const origin = tasks.find((item) => item.id === sourceTaskId)
     if (!origin?.bffRequestId || origin.outputIndex === undefined) throw new Error(SOURCE_GONE)
-    request.mode = task.mode
+    request.mode = mode
     request.source_task_id = origin.bffRequestId
     request.source_output_index = origin.outputIndex
     return request
@@ -183,15 +182,20 @@ export const useVideoStore = create<VideoState>((set, get) => {
     }
   }
 
-  /** 冻结一条任务并交给 runTask。校验与门禁都在这里，成功才落盘。 */
+  /** 所有提交入口的收口：校验、门禁、落盘。 */
   async function enqueue(input: EnqueueInput): Promise<string | null> {
     const { showToast } = useStore.getState()
+    const prompt = input.prompt.trim()
+    if (!prompt) {
+      showToast(EMPTY_PROMPT, 'error')
+      return null
+    }
     const task: VideoTask = {
       id: crypto.randomUUID(),
       clientRequestId: crypto.randomUUID(),
       channelId: input.option.channelId,
       source: input.source,
-      prompt: input.prompt,
+      prompt,
       model: input.option.modelId,
       duration: input.duration,
       aspectRatio: input.aspectRatio,
@@ -202,7 +206,7 @@ export const useVideoStore = create<VideoState>((set, get) => {
       completedAt: null,
       ...(input.firstFrameImageId ? { firstFrameImageId: input.firstFrameImageId } : {}),
       ...(input.lastFrameImageId ? { lastFrameImageId: input.lastFrameImageId } : {}),
-      ...(input.derived ?? {}),
+      ...(input.derived ? { derived: input.derived } : {}),
     }
 
     let video: VideoRequest
@@ -244,11 +248,6 @@ export const useVideoStore = create<VideoState>((set, get) => {
 
   async function enqueueDraft(draft: VideoDraft): Promise<string | null> {
     const { showToast } = useStore.getState()
-    const prompt = draft.prompt.trim()
-    if (!prompt) {
-      showToast(EMPTY_PROMPT, 'error')
-      return null
-    }
     const option = videoModelOptions().find((item) => item.modelId === draft.model)
     if (!option) {
       showToast(NO_MODEL, 'error')
@@ -265,7 +264,7 @@ export const useVideoStore = create<VideoState>((set, get) => {
     return await enqueue({
       option,
       source: draft.source,
-      prompt,
+      prompt: draft.prompt,
       duration: draft.duration,
       aspectRatio: draft.aspectRatio,
       resolution: draft.resolution,
@@ -342,26 +341,20 @@ export const useVideoStore = create<VideoState>((set, get) => {
       return enqueueDraft(get().draft)
     },
 
-    deriveVideo(source, input) {
-      const { showToast } = useStore.getState()
-      const prompt = input.prompt.trim()
-      if (!prompt) {
-        showToast(EMPTY_PROMPT, 'error')
-        return Promise.resolve(null)
-      }
-      const check = checkDerive(source, input.mode)
+    deriveVideo(origin, input) {
+      const check = checkDerive(origin, input.mode)
       if (!check.ok) {
-        showToast(check.reason, 'error')
+        useStore.getState().showToast(check.reason, 'error')
         return Promise.resolve(null)
       }
       return enqueue({
         option: check.option,
         source: 'text',
-        prompt,
+        prompt: input.prompt,
         duration: input.seconds,
-        aspectRatio: source.aspectRatio,
+        aspectRatio: origin.aspectRatio,
         resolution: DERIVE_RESOLUTION,
-        derived: { mode: input.mode, sourceTaskId: source.id },
+        derived: { mode: input.mode, sourceTaskId: origin.id },
       })
     },
 
@@ -370,16 +363,21 @@ export const useVideoStore = create<VideoState>((set, get) => {
     },
 
     regenerate(task) {
-      if (task.mode && task.sourceTaskId) {
-        const origin = get().tasks.find((item) => item.id === task.sourceTaskId)
-        if (!origin) {
-          useStore.getState().showToast(SOURCE_GONE, 'error')
+      // 派生任务没有左栏表示，照抄原参数重提，别经过草稿。
+      if (task.derived) {
+        const option = videoModelOptions().find((item) => item.modelId === task.model)
+        if (!option) {
+          useStore.getState().showToast(NO_MODEL, 'error')
           return Promise.resolve(null)
         }
-        return get().deriveVideo(origin, {
-          mode: task.mode,
+        return enqueue({
+          option,
+          source: task.source,
           prompt: task.prompt,
-          seconds: task.duration,
+          duration: task.duration,
+          aspectRatio: task.aspectRatio,
+          resolution: task.resolution,
+          derived: task.derived,
         })
       }
       const draft = videoDraftFromTask(task)
