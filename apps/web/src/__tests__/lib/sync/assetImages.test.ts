@@ -296,6 +296,26 @@ describe('an asset whose image body is not on this device', () => {
     expect(pushedAssetIds(1)).toEqual(['a1'])
     await vi.waitFor(() => expect(readPendingChanges().assets).toEqual([]))
   })
+
+  it('goes up on the next round when the image lands mid-push', async () => {
+    await storeLocalImage()
+    getAssetImageMock.mockResolvedValue(
+      new Blob([new Uint8Array([1, 2, 3])], { type: 'image/png' }),
+    )
+    // 传 a2 的图这段时间里用户打开素材库，a1 的图被取回本机。
+    putAssetImageMock.mockImplementation(async () => {
+      await ensureAssetImage('image-remote')
+      return 'uploaded'
+    })
+    await assetStore.applyRemote([asset('a1', 'image-remote'), asset('a2', LOCAL_IMAGE)])
+
+    await startEngine()
+    await vi.waitFor(() => expect(readPendingChanges().lastSyncedAt).not.toBeNull())
+
+    expect(pushedAssetIds(0)).toEqual(['a2'])
+    await syncNow()
+    expect(pushedAssetIds(1)).toEqual(['a1'])
+  })
 })
 
 describe('flushing on the way out', () => {
