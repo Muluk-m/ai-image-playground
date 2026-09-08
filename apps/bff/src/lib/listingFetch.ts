@@ -1,4 +1,10 @@
-import { Agent, fetch as undiciFetch } from 'undici'
+import {
+  createDispatcher,
+  createFetchSlot,
+  type UndiciFetchInit,
+  type UndiciFetchInput,
+  withDeadline,
+} from './timeoutFetch'
 
 /** 抓竞品页是用户等待中的同步请求，用自己的短超时 dispatcher，不碰生图那套分钟级预算。 */
 export const LISTING_TIMEOUT_MS = 15_000
@@ -20,10 +26,7 @@ interface ListingResponse {
   arrayBuffer(): Promise<ArrayBuffer>
 }
 
-type ListingFetch = (
-  input: Parameters<typeof undiciFetch>[0],
-  init?: Parameters<typeof undiciFetch>[1],
-) => Promise<ListingResponse>
+type ListingFetch = (input: UndiciFetchInput, init?: UndiciFetchInit) => Promise<ListingResponse>
 
 export class ListingFetchError extends Error {
   constructor(message: string, options?: ErrorOptions) {
@@ -32,10 +35,9 @@ export class ListingFetchError extends Error {
   }
 }
 
-const listingDispatcher = new Agent({
-  connectTimeout: LISTING_TIMEOUT_MS,
-  headersTimeout: LISTING_TIMEOUT_MS,
-  bodyTimeout: LISTING_TIMEOUT_MS,
+const listingDispatcher = createDispatcher({
+  connectMs: LISTING_TIMEOUT_MS,
+  transportMs: LISTING_TIMEOUT_MS,
 })
 
 /** 不带浏览器 UA 与英文 Accept-Language 时亚马逊直接回验证码页。 */
@@ -46,31 +48,28 @@ const BROWSER_HEADERS: Record<string, string> = {
   accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
 }
 
-let listingFetch: ListingFetch = undiciFetch
+const listingTransport = createFetchSlot<ListingFetch>()
 
-/** 测试注入点；undefined 恢复真实 Undici transport。 */
 export function setListingFetchForTesting(fetchImpl?: ListingFetch): void {
-  listingFetch = fetchImpl ?? undiciFetch
+  listingTransport.set(fetchImpl)
 }
 
-async function request(url: string, accept?: string): Promise<ListingResponse> {
-  const abort = new AbortController()
-  const timer = setTimeout(() => abort.abort(), LISTING_TIMEOUT_MS)
-  try {
-    const response = await listingFetch(url, {
-      headers: accept ? { ...BROWSER_HEADERS, accept } : BROWSER_HEADERS,
-      signal: abort.signal,
-      dispatcher: listingDispatcher,
-      redirect: 'follow',
-    })
-    if (!response.ok) throw new ListingFetchError(`upstream responded ${response.status}`)
-    return response
-  } catch (error) {
-    if (error instanceof ListingFetchError) throw error
-    throw new ListingFetchError(`cannot reach ${url}`, { cause: error })
-  } finally {
-    clearTimeout(timer)
-  }
+function request(url: string, accept?: string): Promise<ListingResponse> {
+  return withDeadline(LISTING_TIMEOUT_MS, async (signal) => {
+    try {
+      const response = await listingTransport.current(url, {
+        headers: accept ? { ...BROWSER_HEADERS, accept } : BROWSER_HEADERS,
+        signal,
+        dispatcher: listingDispatcher,
+        redirect: 'follow',
+      })
+      if (!response.ok) throw new ListingFetchError(`upstream responded ${response.status}`)
+      return response
+    } catch (error) {
+      if (error instanceof ListingFetchError) throw error
+      throw new ListingFetchError(`cannot reach ${url}`, { cause: error })
+    }
+  })
 }
 
 async function readBounded(response: ListingResponse, limit: number): Promise<ArrayBuffer> {
