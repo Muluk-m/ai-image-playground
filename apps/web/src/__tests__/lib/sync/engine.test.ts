@@ -295,6 +295,44 @@ describe('first start on a scope that has never synced', () => {
     expect((postSyncMock.mock.calls[0]?.[0] as SyncRequestBody).settings?.updatedAt).toBe(1)
   })
 
+  it('leaves a scope that already synced alone', async () => {
+    await templateStore.applyRemote([template('t1', '海报')])
+    writePendingChanges({
+      version: 4,
+      templates: [],
+      assets: [],
+      settingsUpdatedAt: null,
+      lastSyncedAt: 1_700_000_000_000,
+      unsyncedImages: [],
+    })
+
+    stopEngine = startSyncEngine()
+
+    await vi.waitFor(() => expect(postSyncMock).toHaveBeenCalledTimes(1))
+    const pushed = postSyncMock.mock.calls[0]?.[0] as SyncRequestBody
+    expect(pushed.templates).toEqual([])
+    expect(pushed.settings).toBeNull()
+  })
+
+  it('does not run again after the first push, logging out and back in included', async () => {
+    await templateStore.applyRemote([template('t1', '海报')])
+
+    stopEngine = startSyncEngine()
+    await vi.waitFor(() => expect(postSyncMock).toHaveBeenCalledTimes(1))
+    await vi.waitFor(() => expect(readPendingChanges().templates).toEqual([]))
+    stopEngine()
+
+    // 退出登录保留本机这个 scope 的缓存，再登录回来引擎读到的是同一份检查点。
+    setClientStorageScope(null)
+    setClientStorageScope('alice')
+    stopEngine = startSyncEngine()
+
+    await vi.waitFor(() => expect(postSyncMock).toHaveBeenCalledTimes(2))
+    const pushed = postSyncMock.mock.calls[1]?.[0] as SyncRequestBody
+    expect(pushed.templates).toEqual([])
+    expect(pushed.settings).toBeNull()
+  })
+
   it('leaves records deleted before the first sync out of the push', async () => {
     await templateStore.applyRemote([
       template('t1', '海报'),
