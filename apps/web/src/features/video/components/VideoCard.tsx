@@ -5,6 +5,7 @@ import { TrashIcon } from '../../../components/icons'
 import { formatElapsed, useElapsed } from '../../../hooks/useElapsed'
 import { useStore } from '../../../store'
 import { videoAspectLabel, videoFrameAspect } from '../lib/aspect'
+import { deriveOptions } from '../lib/derive'
 import {
   adoptAsFirstFrame,
   captureVideoFrame,
@@ -13,9 +14,12 @@ import {
   videoOutputUrl,
 } from '../lib/playback'
 import { useVideoStore } from '../store'
-import type { VideoTask } from '../types'
+import { VIDEO_DERIVE_LABELS, type VideoDeriveMode, type VideoTask } from '../types'
+import DeriveVideoPopover from './DeriveVideoPopover'
 
 const BADGE = 'absolute rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-white'
+const LINEAGE_CHIP =
+  'rounded border border-gray-200 px-1 text-[10px] text-gray-500 dark:border-white/[0.12] dark:text-gray-400'
 const HOVER_BUTTON =
   'rounded-md bg-black/65 px-1 py-1 text-[11px] text-white transition hover:bg-black/80'
 const OVERLAY = 'absolute inset-0 grid place-items-center text-center text-xs'
@@ -35,6 +39,7 @@ function frameBadge(task: VideoTask): string | null {
 export default function VideoCard({ task, onOpen }: { task: VideoTask; onOpen: () => void }) {
   const showToast = useStore((s) => s.showToast)
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
+  const [derive, setDerive] = useState<VideoDeriveMode | null>(null)
   const elapsed = useElapsed(task.status === 'running' ? task.createdAt : null)
 
   const support = VIDEO_MODEL_SUPPORT[task.model]
@@ -43,6 +48,7 @@ export default function VideoCard({ task, onOpen }: { task: VideoTask; onOpen: (
   const playbackUrl = videoOutputUrl(task)
   const badge = frameBadge(task)
   const frameAspect = videoFrameAspect(task)
+  const derivations = deriveOptions(task)
 
   const download = async () => {
     try {
@@ -152,32 +158,36 @@ export default function VideoCard({ task, onOpen }: { task: VideoTask; onOpen: (
         </button>
 
         {done && (
-          <div className="pointer-events-none absolute inset-x-1.5 bottom-1.5 flex gap-1 opacity-0 transition group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100">
-            <button
-              type="button"
-              className={`${HOVER_BUTTON} flex-1`}
-              onClick={() => void download()}
-            >
+          <div className="pointer-events-none absolute inset-x-1.5 bottom-1.5 grid grid-cols-3 gap-1 opacity-0 transition group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100">
+            <button type="button" className={HOVER_BUTTON} onClick={() => void download()}>
               下载
             </button>
             <button
               type="button"
-              className={`${HOVER_BUTTON} flex-1`}
+              className={HOVER_BUTTON}
               onClick={() => void useVideoStore.getState().regenerate(task)}
             >
               重生成
             </button>
-            <button
-              type="button"
-              className={`${HOVER_BUTTON} flex-1`}
-              onClick={() => void useAsFirstFrame()}
-            >
+            <button type="button" className={HOVER_BUTTON} onClick={() => void useAsFirstFrame()}>
               用作首帧
             </button>
+            {derivations.map((option) => (
+              <button
+                key={option.mode}
+                type="button"
+                className={`${HOVER_BUTTON} disabled:opacity-40`}
+                disabled={option.disabledReason !== undefined}
+                title={option.disabledReason}
+                onClick={() => setDerive(option.mode)}
+              >
+                {option.label}
+              </button>
+            ))}
             <button
               type="button"
               aria-label="更多"
-              className={`${HOVER_BUTTON} w-7 shrink-0`}
+              className={HOVER_BUTTON}
               onClick={(event) => setMenu({ x: event.clientX, y: event.clientY })}
             >
               ⋯
@@ -194,6 +204,7 @@ export default function VideoCard({ task, onOpen }: { task: VideoTask; onOpen: (
           {task.prompt}
         </b>
         <div className="mt-0.5 flex flex-wrap items-center gap-2">
+          {task.mode && <span className={LINEAGE_CHIP}>{VIDEO_DERIVE_LABELS[task.mode]}</span>}
           <span>{modelLabel}</span>
           <span>{task.duration} 秒</span>
           <span>{videoAspectLabel(task)}</span>
@@ -229,6 +240,8 @@ export default function VideoCard({ task, onOpen }: { task: VideoTask; onOpen: (
           <track kind="captions" />
         </video>
       )}
+
+      {derive && <DeriveVideoPopover task={task} mode={derive} onClose={() => setDerive(null)} />}
 
       {menu && (
         <ContextMenu x={menu.x} y={menu.y} onClose={() => setMenu(null)}>
