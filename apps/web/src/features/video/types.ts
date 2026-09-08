@@ -1,4 +1,9 @@
-import type { VideoAspectRatio, VideoDuration, VideoResolution } from '@image-playground/shared'
+import type {
+  VideoAspectRatio,
+  VideoDeriveMode,
+  VideoDuration,
+  VideoResolution,
+} from '@image-playground/shared'
 
 export const VIDEO_SOURCES = ['text', 'image'] as const
 export type VideoSource = (typeof VIDEO_SOURCES)[number]
@@ -37,11 +42,14 @@ export interface VideoTask {
   source: VideoSource
   prompt: string
   model: string
-  duration: VideoDuration
+  /** generate 走档位表；续写填的是续写秒数，不一定落在档位上。 */
+  duration: number
   aspectRatio: VideoAspectRatio
   resolution: VideoResolution
   firstFrameImageId?: string
   lastFrameImageId?: string
+  /** 缺席即普通生成。sourceTaskId 是本地任务 id，提交时才换成源片的 bffRequestId。 */
+  derived?: { mode: VideoDeriveMode; sourceTaskId: string }
   status: VideoTaskStatus
   error: string | null
   /** 提交前的估算积分，无计费时不写。 */

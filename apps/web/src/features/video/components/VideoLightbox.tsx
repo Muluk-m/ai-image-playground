@@ -1,10 +1,15 @@
-import { VIDEO_MODEL_SUPPORT, VIDEO_RESOLUTION_LABELS } from '@image-playground/shared'
-import { useRef } from 'react'
+import {
+  VIDEO_DERIVE_LABELS,
+  VIDEO_MODEL_SUPPORT,
+  VIDEO_RESOLUTION_LABELS,
+} from '@image-playground/shared'
+import { useRef, useState } from 'react'
 import Overlay from '../../../components/Overlay'
 import { LABEL, OUTLINE_BUTTON } from '../../../components/panelStyles'
 import { copyTextToClipboard, getClipboardFailureMessage } from '../../../lib/clipboard'
 import { useStore } from '../../../store'
 import { videoAspectLabel, videoFrameAspect } from '../lib/aspect'
+import { deriveOptions, type VideoDeriveOption } from '../lib/derive'
 import {
   adoptAsFirstFrame,
   captureVideoFrame,
@@ -13,6 +18,7 @@ import {
 } from '../lib/playback'
 import { useVideoStore } from '../store'
 import type { VideoTask } from '../types'
+import DeriveVideoPopover from './DeriveVideoPopover'
 
 function reason(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
@@ -35,11 +41,13 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 
 export default function VideoLightbox({ task, onClose }: { task: VideoTask; onClose: () => void }) {
   const videoRef = useRef<HTMLVideoElement>(null)
+  const [derive, setDerive] = useState<VideoDeriveOption | null>(null)
   const showToast = useStore((s) => s.showToast)
   const playbackUrl = videoOutputUrl(task)
   const modelLabel = VIDEO_MODEL_SUPPORT[task.model]?.label ?? task.model
   const firstFrame = task.firstFrameImageId
   const frameAspect = videoFrameAspect(task)
+  const derivations = deriveOptions(task)
 
   const copyPrompt = async () => {
     try {
@@ -171,6 +179,18 @@ export default function VideoLightbox({ task, onClose }: { task: VideoTask; onCl
             >
               相同参数再来一条
             </button>
+            {derivations.map((option) => (
+              <button
+                key={option.mode}
+                type="button"
+                className={`${OUTLINE_BUTTON} disabled:cursor-not-allowed disabled:opacity-40`}
+                disabled={!option.modelId}
+                title={option.disabledReason}
+                onClick={() => setDerive(option)}
+              >
+                {VIDEO_DERIVE_LABELS[option.mode]}
+              </button>
+            ))}
           </div>
 
           <button
@@ -185,6 +205,16 @@ export default function VideoLightbox({ task, onClose }: { task: VideoTask; onCl
           </button>
         </div>
       </div>
+
+      {derive?.modelId && (
+        <DeriveVideoPopover
+          task={task}
+          mode={derive.mode}
+          modelId={derive.modelId}
+          tier="alert"
+          onClose={() => setDerive(null)}
+        />
+      )}
     </Overlay>
   )
 }
