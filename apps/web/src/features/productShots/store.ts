@@ -285,6 +285,7 @@ export const useProductShotsStore = create<ProductShotsState>((set, get) => ({
       planVersionId: null,
       batch: null,
     })
+    void matteNewImages(set, get)
   },
 
   renameJob: async (id, name) => {
@@ -346,8 +347,9 @@ export const useProductShotsStore = create<ProductShotsState>((set, get) => ({
     if (pulled === 0) return
     useStore.getState().showToast(`已拉入 ${pulled} 张`, 'success')
     // 预检逐张打上游，必须留在按钮复位之后：挪回 try 里图集已到齐按钮还在读秒。
+    const matting = matteNewImages(set, get)
     await scanScenes(set, get)
-    await matteNewImages(set, get)
+    await matting
   },
 
   importFiles: async (files) => {
@@ -360,8 +362,9 @@ export const useProductShotsStore = create<ProductShotsState>((set, get) => ({
       }
     }
     await persistDraft(set, get)
+    const matting = matteNewImages(set, get)
     await scanScenes(set, get)
-    await matteNewImages(set, get)
+    await matting
   },
 
   addImagesFromAssets: async (assetIds) => {
@@ -378,8 +381,9 @@ export const useProductShotsStore = create<ProductShotsState>((set, get) => ({
     )
     adoptAsProduct(set, get, first)
     await persistDraft(set, get)
+    const matting = matteNewImages(set, get)
     await scanScenes(set, get)
-    await matteNewImages(set, get)
+    await matting
   },
 
   openSourcePicker: () => {
@@ -704,8 +708,6 @@ async function loadOriginal(imageId: string): Promise<string> {
   return dataUrl
 }
 
-/** 抠图一张一张跑：模型吃满设备，几张并行只会互相拖慢。 */
-let matteQueue: Promise<unknown> = Promise.resolve()
 const mattesInFlight = new Map<string, Promise<void>>()
 
 function imageOf(state: ProductShotsState, imageId: string): ProductShotImage | undefined {
@@ -724,23 +726,21 @@ function setSourceMatte(
   return persistDraft(set, get)
 }
 
-/** 原图一进任务就抠，之后每个动作直接拿这份蒙版。 */
+/** 原图一进任务就抠，之后每个动作直接拿这份蒙版；旧记录打开任务时补上。 */
 async function matteNewImages(set: SetState, get: GetState): Promise<void> {
   const fresh = get().draft.images.filter((image) => !image.sourceMatte)
   await Promise.all(fresh.map((image) => ensureMatte(set, get, image.imageId)))
 }
 
-/** 已经抠好或正在抠就不重来；旧记录与还没抠的这时才排进队。 */
+/** 已经抠好或正在抠就不重来。模型不支持遮罩时一份都不抠，界面上也就没有抠图状态。 */
 function ensureMatte(set: SetState, get: GetState, imageId: string): Promise<void> {
   const inFlight = mattesInFlight.get(imageId)
   if (inFlight) return inFlight
   const image = imageOf(get(), imageId)
-  if (!image || image.sourceMatte) return Promise.resolve()
+  if (!image || image.sourceMatte || !maskSupported()) return Promise.resolve()
 
   markMatting(set, imageId, true)
-  const task = matteQueue.then(() => matteOne(set, get, imageId)).catch(() => {})
-  matteQueue = task
-  const tracked = task.finally(() => {
+  const tracked = matteOne(set, get, imageId).finally(() => {
     mattesInFlight.delete(imageId)
     markMatting(set, imageId, false)
   })
