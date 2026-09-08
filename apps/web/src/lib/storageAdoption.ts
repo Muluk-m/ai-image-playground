@@ -5,7 +5,7 @@ import {
   scopedStorageName,
 } from './authScope'
 import { BASE_DB_NAME, DB_STORE_NAMES, type DbStoreName, openNamedDb } from './db'
-import { markAdoptedDirty } from './sync/pending'
+import { markBulkDirty } from './sync/pending'
 
 /** 认领完成的标记，跨 scope 共用。不支持 indexedDB.databases() 的浏览器靠它避免每次启动重扫。 */
 const ADOPTION_DONE_KEY = `${BASE_DB_NAME}:adopted`
@@ -58,10 +58,10 @@ async function runAdoption(): Promise<number> {
       if (storeName === 'assets') adoptedAssets = copied
     }
     // 领养来的东西走同一条推送队列；标脏必须排在 localStorage 搬完之后，检查点本身也是搬的对象。
-    markAdoptedDirty({
+    markBulkDirty({
       templates: adoptedTemplates,
       assets: adoptedAssets,
-      settings: adoptLocalStorage(),
+      settingsUpdatedAt: adoptLocalStorage() ? Date.now() : null,
     })
   } finally {
     target?.close()
