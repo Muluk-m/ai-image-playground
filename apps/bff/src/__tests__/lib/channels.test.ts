@@ -77,6 +77,34 @@ describe('parseChannelsConfig', () => {
     expect(result.warnings[0]).toContain('SAMPLE_OPENAI_KEY')
   })
 
+  it('drops a channel that declares its secret mandatory when the env is unset', () => {
+    const result = parseChannelsConfig(
+      { channels: [{ ...SAMPLE_CHANNEL, requiresSecret: true }] },
+      ENV_EMPTY,
+    )
+    expect(result.channels).toEqual([])
+    expect(result.warnings[0]).toContain('SAMPLE_OPENAI_KEY')
+    expect(result.warnings[0]).toContain('will not be advertised')
+  })
+
+  it('keeps a channel that declares its secret mandatory once the env is set', () => {
+    const result = parseChannelsConfig(
+      { channels: [{ ...SAMPLE_CHANNEL, requiresSecret: true }] },
+      ENV_WITH_SECRETS,
+    )
+    expect(result.channels).toHaveLength(1)
+    expect(result.warnings).toEqual([])
+  })
+
+  it('rejects a non-boolean requiresSecret', () => {
+    expect(() =>
+      parseChannelsConfig(
+        { channels: [{ ...SAMPLE_CHANNEL, requiresSecret: 'yes' }] },
+        ENV_WITH_SECRETS,
+      ),
+    ).toThrow(/requiresSecret/)
+  })
+
   it('treats whitespace-only env value as missing', () => {
     const result = parseChannelsConfig({ channels: [SAMPLE_CHANNEL] }, (k) =>
       k === 'SAMPLE_OPENAI_KEY' ? '   ' : undefined,
@@ -405,6 +433,42 @@ describe('shipped channels.json', () => {
       id: 'doubao-seedance-2-0-mini-260615',
       media: 'video',
     })
+  })
+})
+
+describe('shipped Veo channel', () => {
+  const shipped: unknown = JSON.parse(readFileSync(defaultChannelsPath(), 'utf8'))
+
+  it('stays out of the discovery list when VEO_API_KEY is unset', () => {
+    const result = parseChannelsConfig(shipped, () => undefined)
+
+    expect(result.channels.map((c) => c.id)).not.toContain('veo-video')
+    expect(result.warnings.find((w) => w.includes("channel 'veo-video'"))).toContain('VEO_API_KEY')
+  })
+
+  it('advertises both Veo models on the Gemini v1beta root once the key is set', () => {
+    const result = parseChannelsConfig(shipped, (key) =>
+      key === 'VEO_API_KEY' ? 'veo-key' : undefined,
+    )
+
+    const veo = result.channels.find((c) => c.id === 'veo-video')
+    expect(veo?.baseUrl).toBe('https://generativelanguage.googleapis.com/v1beta')
+    expect(veo?.auth).toMatchObject({ type: 'bearer', secret: 'veo-key' })
+    expect(veo?.defaults).toMatchObject({ timeout: 600, asyncTasks: true })
+    expect(veo?.models).toEqual([
+      {
+        id: 'veo-3.1-fast-generate-preview',
+        label: 'Veo 3.1 Fast',
+        media: 'video',
+        capabilities: ['generate', 'duration', 'aspect_ratio', 'resolution', 'first_frame'],
+      },
+      {
+        id: 'veo-3.1-lite-generate-preview',
+        label: 'Veo 3.1 Lite',
+        media: 'video',
+        capabilities: ['generate', 'duration', 'aspect_ratio', 'resolution', 'first_frame'],
+      },
+    ])
   })
 })
 

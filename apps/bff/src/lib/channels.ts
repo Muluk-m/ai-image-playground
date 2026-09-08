@@ -5,7 +5,8 @@
  *   - 文件不存在 → 空列表 + warning
  *   - JSON 损坏 / schema 不匹配 → 抛 ChannelsLoadError，由 startup 拦截决定退出还是降级
  *   - secretRef 指向的 env 不存在 → 该 channel 进 warnings，但仍保留在列表里
- *     （sanitize 输出给前端，调用上游时再失败，比启动期 fail-fast 更宽容）
+ *     （sanitize 输出给前端，调用上游时再失败，比启动期 fail-fast 更宽容）；
+ *     声明了 `requiresSecret` 的 channel 例外，缺 secret 时整条丢弃
  *   - baseUrlRef 指向的 env 不存在 / 不是合法 https URL → 该 channel 进 warnings 并被整条丢弃。
  *     跟缺 secret 不同：没有上游地址就没有「调用上游时再失败」这一步，留着只会拼出非法 URL。
  *
@@ -58,6 +59,7 @@ export interface InternalChannel {
 interface ParsedChannel extends Omit<InternalChannel, 'baseUrl'> {
   baseUrl?: string
   baseUrlRef?: string
+  requiresSecret?: boolean
 }
 
 export interface ChannelsLoadResult {
@@ -228,11 +230,22 @@ function parseChannel(raw: unknown, idx: number): ParsedChannel {
     kind: raw.kind as ChannelKind,
     label: requireNonEmptyString(raw.label, `${ctx}.label`),
     ...parseBaseUrlSource(raw, ctx),
+    ...parseRequiresSecret(raw.requiresSecret, ctx),
     auth: parseAuth(raw.auth, ctx),
     allowedPaths: raw.allowedPaths,
     models: parseModels(raw.models, ctx),
     defaults: parseDefaults(raw.defaults, ctx),
   }
+}
+
+/**
+ * 直连上游没有 key 就只能给用户一个必然失败的模型，所以这类 channel 宁可整条不广播。
+ * 缺省仍是「留着，调用时再失败」——那是网关部署要的宽容。
+ */
+function parseRequiresSecret(v: unknown, ctx: string): { requiresSecret?: boolean } {
+  if (v === undefined) return {}
+  if (typeof v !== 'boolean') throw new ChannelsLoadError(`${ctx}.requiresSecret must be boolean`)
+  return { requiresSecret: v }
 }
 
 /** `new URL` 把 IPv6 主机名还原成带方括号的形式，所以这里也带。 */
@@ -302,11 +315,17 @@ export function parseChannelsConfig(
 
     const secret = envLookup(ch.auth.secretRef)?.trim() ?? ''
     if (!secret) {
+      if (ch.requiresSecret) {
+        warnings.push(
+          `channel '${ch.id}': env '${ch.auth.secretRef}' is empty or unset; the channel is disabled and will not be advertised`,
+        )
+        return
+      }
       warnings.push(
         `channel '${ch.id}': env '${ch.auth.secretRef}' is empty or unset; upstream calls will fail until it's provided`,
       )
     }
-    const { baseUrlRef: _ref, ...rest } = ch
+    const { baseUrlRef: _ref, requiresSecret: _requiresSecret, ...rest } = ch
     channels.push({ ...rest, baseUrl: resolved.baseUrl, auth: { ...ch.auth, secret } })
   })
   return { channels, warnings }
