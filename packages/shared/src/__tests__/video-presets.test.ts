@@ -4,6 +4,7 @@ import {
   VIDEO_RESOLUTIONS,
   type VideoModelSupport,
   type VideoRequest,
+  validateVideoPrompt,
   validateVideoRequest,
   videoDurationsForResolution,
   videoRateMultiplier,
@@ -381,5 +382,26 @@ describe('VIDEO_MODEL_SUPPORT', () => {
   it('gives every model a distinct card tagline', () => {
     const taglines = Object.values(VIDEO_MODEL_SUPPORT).map((support) => support.tagline)
     expect(new Set(taglines).size).toBe(taglines.length)
+  })
+})
+
+describe('validateVideoPrompt', () => {
+  it('accepts a prompt at the cap the model declares', () => {
+    const cap = VIDEO_MODEL_SUPPORT[VEO_FAST].promptMaxChars!
+    expect(validateVideoPrompt(VEO_FAST, '光'.repeat(cap))).toEqual({ ok: true })
+  })
+
+  it('rejects a prompt past the cap and names it', () => {
+    const cap = VIDEO_MODEL_SUPPORT[VEO_LITE].promptMaxChars!
+    expect(validateVideoPrompt(VEO_LITE, '光'.repeat(cap + 1))).toEqual({
+      ok: false,
+      reason: `Veo 3.1 Lite 描述最多 ${cap} 字`,
+    })
+  })
+
+  it('leaves models without a cap unlimited', () => {
+    expect(VIDEO_MODEL_SUPPORT[GROK].promptMaxChars).toBeUndefined()
+    expect(validateVideoPrompt(GROK, '光'.repeat(9000))).toEqual({ ok: true })
+    expect(validateVideoPrompt('gpt-image-2', '光'.repeat(9000))).toEqual({ ok: true })
   })
 })

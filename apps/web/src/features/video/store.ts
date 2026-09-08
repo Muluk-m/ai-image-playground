@@ -5,6 +5,7 @@ import {
   type VideoDuration,
   type VideoRequest,
   type VideoResolution,
+  validateVideoPrompt,
   validateVideoRequest,
   videoDurationsForResolution,
   videoRateMultiplier,
@@ -248,10 +249,14 @@ export const useVideoStore = create<VideoState>((set, get) => {
       return null
     }
     const frameCount = [task.firstFrameImageId, task.lastFrameImageId].filter(Boolean).length
-    const validation = validateVideoRequest(task.model, video, frameCount)
-    if (!validation.ok) {
-      showToast(validation.reason, 'error')
-      return null
+    for (const check of [
+      validateVideoRequest(task.model, video, frameCount),
+      validateVideoPrompt(task.model, prompt),
+    ]) {
+      if (!check.ok) {
+        showToast(check.reason, 'error')
+        return null
+      }
     }
 
     const guard = getPrivateSubmissionGuard({

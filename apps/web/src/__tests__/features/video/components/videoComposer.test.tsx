@@ -11,10 +11,10 @@ import { setChannels } from '../../../../lib/channels/channelStore'
 import { useStore } from '../../../../store'
 import {
   AGNES_CHANNEL,
-  CONSTRAINED_CHANNEL,
-  CONSTRAINED_MODEL,
-  CONSTRAINED_SUPPORT,
   GROK_CHANNEL,
+  VEO_CHANNEL,
+  VEO_FAST_MODEL,
+  VEO_LITE_MODEL,
 } from '../fixtures'
 
 declare global {
@@ -26,7 +26,8 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true
 const PRICE_PER_SECOND: Record<string, number> = {
   'grok-imagine-video': 60,
   'agnes-video-2.5-flash': 80,
-  [CONSTRAINED_MODEL]: 50,
+  [VEO_FAST_MODEL]: 60,
+  [VEO_LITE_MODEL]: 30,
 }
 
 /** 计费 overlay 在场时的门禁：ceil(单价 × 秒数 × 倍率)。 */
@@ -258,16 +259,23 @@ describe('VideoComposer', () => {
   })
 })
 
-describe('VideoComposer 的时长与清晰度联动', () => {
+describe('VideoComposer 上的 Veo', () => {
   beforeEach(() => {
-    VIDEO_MODEL_SUPPORT[CONSTRAINED_MODEL] = CONSTRAINED_SUPPORT
-    setChannels([CONSTRAINED_CHANNEL])
+    setChannels([VEO_CHANNEL])
     useVideoStore.setState({ draft: { ...INITIAL_VIDEO_DRAFT, source: 'text' } })
     useVideoStore.getState().syncModelOptions()
   })
 
-  afterEach(() => {
-    delete VIDEO_MODEL_SUPPORT[CONSTRAINED_MODEL]
+  it('两个模型带各自的定位与每秒积分进选择器', () => {
+    render()
+    const cards = [...document.querySelectorAll('button')].filter((button) =>
+      button.textContent?.includes('积分 / 秒'),
+    )
+
+    expect(cards.map((card) => card.textContent)).toEqual([
+      'Veo 3.1 Fast原生音频 · 60 积分 / 秒',
+      'Veo 3.1 Lite经济档 · 30 积分 / 秒',
+    ])
   })
 
   it('选 1080p 后只剩它配得上的时长', () => {
@@ -291,9 +299,22 @@ describe('VideoComposer 的时长与清晰度联动', () => {
   it('预估按该模型自己的清晰度倍率', () => {
     render()
     click(chip('时长', '8 秒'))
-    expect(submitButton().textContent).toBe('生成 · 400 积分')
+    expect(submitButton().textContent).toBe('生成 · 480 积分')
 
     click(chip('清晰度', '1080p ×1.2'))
-    expect(submitButton().textContent).toBe('生成 · 480 积分')
+    expect(submitButton().textContent).toBe('生成 · 576 积分')
+  })
+
+  it('描述超长时标出字数并禁止提交', () => {
+    const cap = VIDEO_MODEL_SUPPORT[VEO_FAST_MODEL].promptMaxChars!
+    act(() => useVideoStore.getState().setPrompt('光'.repeat(cap + 1)))
+    render()
+
+    expect(document.body.textContent).toContain(`${cap + 1} / ${cap}`)
+    expect((submitButton() as HTMLButtonElement).disabled).toBe(true)
+
+    act(() => useVideoStore.getState().setPrompt('光'.repeat(cap)))
+    expect(document.body.textContent).not.toContain(`${cap} / ${cap}`)
+    expect((submitButton() as HTMLButtonElement).disabled).toBe(false)
   })
 })

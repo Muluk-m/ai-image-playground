@@ -3,6 +3,7 @@ import {
   VIDEO_MODEL_SUPPORT,
   VIDEO_RESOLUTION_LABELS,
   type VideoModelSupport,
+  validateVideoPrompt,
   videoDurationsForResolution,
   videoRateMultiplier,
 } from '@image-playground/shared'
@@ -95,6 +96,7 @@ function VideoSubmitPanel({
   })
 
   const lastFrameReason = support.lastFrame ? undefined : `${support.label} 不支持尾帧`
+  const promptCheck = validateVideoPrompt(draft.model, draft.prompt)
   const durations = videoDurationsForResolution(support, draft.resolution)
   const summary = `${support.label} · ${draft.duration} 秒 · ${VIDEO_RESOLUTION_LABELS[draft.resolution]}`
 
@@ -132,7 +134,13 @@ function VideoSubmitPanel({
       <div>
         <div className="mb-1.5 flex items-baseline justify-between">
           <span className={LABEL}>描述</span>
-          <span className="text-[11px] text-gray-400 dark:text-gray-500">动作 · 镜头 · 光线</span>
+          {promptCheck.ok ? (
+            <span className="text-[11px] text-gray-400 dark:text-gray-500">动作 · 镜头 · 光线</span>
+          ) : (
+            <span className="text-[11px] text-red-600 dark:text-red-400">
+              {draft.prompt.length} / {support.promptMaxChars}
+            </span>
+          )}
         </div>
         <textarea
           value={draft.prompt}
@@ -225,8 +233,8 @@ function VideoSubmitPanel({
         />
         <button
           type="button"
-          disabled={guard.blocked}
-          title={guard.disabledReason}
+          disabled={guard.blocked || !promptCheck.ok}
+          title={promptCheck.ok ? guard.disabledReason : promptCheck.reason}
           onClick={() => void useVideoStore.getState().submit()}
           className={`${PRIMARY_BUTTON} w-full disabled:cursor-not-allowed`}
         >
