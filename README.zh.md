@@ -237,6 +237,11 @@ BFF_ENABLED=true BFF_BASE_URL=https://api.example.com \
   scripts/pages-deploy.sh private ai-image-playground-paid main
 ```
 
+第三个参数是要发布到的 Pages 别名。`main` 是生产别名，必须显式传；不传时别名取当前 git
+分支名，检出处于 detached HEAD 或就在 `main` 上时取 `preview-<短 sha>`。所以漏传第三个参数
+只会发预览，不会发生产。构建之前脚本会打印解析出的 `target: production (main)` 或
+`target: preview (<branch>)`，`PAGES_DEPLOY_DRY_RUN=1` 则只打印这一行就退出。
+
 edition 只断言 overlay 在不在，后端开关与它无关：公开版产物可以设 `BFF_ENABLED=true`，
 私有版产物也可以只走 BYOK。wrangler 从环境读 `CLOUDFLARE_ACCOUNT_ID` 与
 `CLOUDFLARE_API_TOKEN`，同一份检出因此能发布到两个 Cloudflare 账号下的两个项目。
@@ -363,8 +368,9 @@ scripts/pages-release.sh internal
 
 把 `<EDITION>_CLOUDFLARE_TOKEN_FILE` 指到一个设置了 `CLOUDFLARE_API_TOKEN` 的 env 文件，
 或者干脆不设、走 wrangler 自己的 OAuth 登录：两条路都不会让另一个账号的 token 从 shell 漏
-进来，所以一台机器可以同时发两个账号。手工设环境变量的一次性上传仍然直接用
-`pages-deploy.sh`。
+进来，所以一台机器可以同时发两个账号。`pages-release.sh` 是唯一发布到生产的路径，它给
+`pages-deploy.sh` 显式传 `main`。手工设环境变量的一次性上传仍然直接用 `pages-deploy.sh`，
+不传分支时它发到预览别名。
 
 前端域与 API 域同选项 3 一样必须是同一注册域：Admin 会话 cookie 是
 `Secure; SameSite=Lax`。
