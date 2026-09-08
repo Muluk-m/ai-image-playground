@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { Buffer } from 'node:buffer'
 import type { HydratedVideoRequest } from '../../lib/imageArchive'
-import { jsonResponse as json, jsonResponse as jsonBody } from '../helpers/upstreamStubs'
+import { jsonResponse as json } from '../helpers/upstreamStubs'
 
 // Inject before importing config, which captures process environment at module initialization.
 process.env.UPSTREAM_BASE_URL = 'http://localhost:9999'
@@ -660,9 +660,9 @@ describe('Veo video upstream', () => {
       fetch(req) {
         const url = new URL(req.url)
         seen.push({ path: url.pathname, key: req.headers.get('x-goog-api-key') })
-        if (url.pathname.endsWith(':predictLongRunning')) return jsonBody({ name: VEO_OPERATION })
+        if (url.pathname.endsWith(':predictLongRunning')) return json({ name: VEO_OPERATION })
         if (url.pathname.endsWith('/op_1'))
-          return jsonBody({
+          return json({
             done: true,
             response: {
               generateVideoResponse: {
