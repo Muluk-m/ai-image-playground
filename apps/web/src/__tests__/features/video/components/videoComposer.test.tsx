@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { VIDEO_MODEL_SUPPORT } from '@image-playground/shared'
 import { IDBFactory } from 'fake-indexeddb'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -8,7 +9,13 @@ import VideoComposer from '../../../../features/video/components/VideoComposer'
 import { INITIAL_VIDEO_DRAFT, useVideoStore } from '../../../../features/video/store'
 import { setChannels } from '../../../../lib/channels/channelStore'
 import { useStore } from '../../../../store'
-import { AGNES_CHANNEL, GROK_CHANNEL } from '../fixtures'
+import {
+  AGNES_CHANNEL,
+  CONSTRAINED_CHANNEL,
+  CONSTRAINED_MODEL,
+  CONSTRAINED_SUPPORT,
+  GROK_CHANNEL,
+} from '../fixtures'
 
 declare global {
   // eslint-disable-next-line no-var
@@ -19,19 +26,21 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true
 const PRICE_PER_SECOND: Record<string, number> = {
   'grok-imagine-video': 60,
   'agnes-video-2.5-flash': 80,
+  [CONSTRAINED_MODEL]: 50,
 }
 
 /** 计费 overlay 在场时的门禁：ceil(单价 × 秒数 × 倍率)。 */
-const usePrivateSubmissionGuard = vi.hoisted(() =>
-  vi.fn((input: { model: string; quantity: number; unitMultiplier?: number }) => {
+const { usePrivateSubmissionGuard, billedGuard } = vi.hoisted(() => {
+  const billedGuard = (input: { model: string; quantity: number; unitMultiplier?: number }) => {
     const price = PRICE_PER_SECOND[input.model]
     if (price === undefined) return { blocked: false }
     return {
       blocked: false,
       estimatedCredits: Math.ceil(price * input.quantity * (input.unitMultiplier ?? 1)),
     }
-  }),
-)
+  }
+  return { usePrivateSubmissionGuard: vi.fn(billedGuard), billedGuard }
+})
 
 vi.mock('../../../../lib/privateOverlay', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../../lib/privateOverlay')>()),
@@ -64,6 +73,7 @@ afterEach(() => {
   setChannels([])
   vi.unstubAllGlobals()
   vi.clearAllMocks()
+  usePrivateSubmissionGuard.mockImplementation(billedGuard)
 })
 
 function render() {
@@ -80,6 +90,11 @@ function chip(group: string, text: string): HTMLElement {
   const found = [...buttons].find((button) => button.textContent?.trim() === text)
   if (!found) throw new Error(`no ${group} chip ${text}`)
   return found
+}
+
+function disabledIn(group: string): string[] {
+  const buttons = document.querySelectorAll<HTMLButtonElement>(`[aria-label="${group}"] button`)
+  return [...buttons].filter((button) => button.disabled).map((button) => button.textContent ?? '')
 }
 
 function stripButtons(): string[] {
@@ -240,5 +255,45 @@ describe('VideoComposer', () => {
     act(() => useVideoStore.getState().setSource('text'))
 
     expect(document.body.textContent).not.toContain('首帧 · 尾帧')
+  })
+})
+
+describe('VideoComposer 的时长与清晰度联动', () => {
+  beforeEach(() => {
+    VIDEO_MODEL_SUPPORT[CONSTRAINED_MODEL] = CONSTRAINED_SUPPORT
+    setChannels([CONSTRAINED_CHANNEL])
+    useVideoStore.setState({ draft: { ...INITIAL_VIDEO_DRAFT, source: 'text' } })
+    useVideoStore.getState().syncModelOptions()
+  })
+
+  afterEach(() => {
+    delete VIDEO_MODEL_SUPPORT[CONSTRAINED_MODEL]
+  })
+
+  it('选 1080p 后只剩它配得上的时长', () => {
+    render()
+    click(chip('时长', '8 秒'))
+    click(chip('清晰度', '1080p ×1.2'))
+
+    expect(useVideoStore.getState().draft.resolution).toBe('1080p')
+    expect(disabledIn('时长')).toEqual(['4 秒', '6 秒'])
+  })
+
+  it('选了 1080p 配不上的时长后 1080p 不可选', () => {
+    render()
+    expect(useVideoStore.getState().draft.duration).toBe(4)
+    expect(disabledIn('清晰度')).toEqual(['1080p ×1.2'])
+
+    click(chip('时长', '8 秒'))
+    expect(disabledIn('清晰度')).toEqual([])
+  })
+
+  it('预估按该模型自己的清晰度倍率', () => {
+    render()
+    click(chip('时长', '8 秒'))
+    expect(submitButton().textContent).toBe('生成 · 400 积分')
+
+    click(chip('清晰度', '1080p ×1.2'))
+    expect(submitButton().textContent).toBe('生成 · 480 积分')
   })
 })
