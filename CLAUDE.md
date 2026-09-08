@@ -85,6 +85,11 @@ typecheck、测试和构建。公开树只允许以下三个审计接缝引用 `
 私有迁移新建 schema 时，必须把 schema 名登记到部署的 `POSTGRES_EXTRA_SCHEMAS` 并重跑
 provision，否则 SELECT-only 的备份角色读不到它，每日 `pg_dump` 全库失败。
 
+给私有 overlay 包加依赖时，必须带着 `private/` 重新生成公开的 `pnpm-lock.yaml` 并提交——公开
+lockfile 里带着 `private/apps/*` 三个 importer，这是「公开树零改动」唯一被接受的例外。同理
+镜像的 deps stage 也要装 overlay 的 manifest，否则 pnpm 不会把只有 overlay 依赖的包拉进 store，
+后续 stage 的 `pnpm install --offline` 会以 `ERR_PNPM_NO_OFFLINE_TARBALL` 失败。
+
 ## 版本模型与分支
 
 **服务端只有一套。** `apps/bff`、`apps/admin` 服务端、`packages/db` 同时兼容收费与免费部署：
