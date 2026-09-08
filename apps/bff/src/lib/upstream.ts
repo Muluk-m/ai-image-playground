@@ -2,14 +2,14 @@ import { Buffer, File } from 'node:buffer'
 import {
   QUEUE_TIMEOUTS,
   type QueueProvider,
-  type VideoRequest,
+  type VideoMode,
   type VideoResolution,
 } from '@image-playground/shared'
 import sharp from 'sharp'
 import { Agent, FormData, fetch as undiciFetch } from 'undici'
 import { config } from '../config'
 import { getChannels } from './channels'
-import type { HydratedSubmitRequest } from './imageArchive'
+import type { HydratedSubmitRequest, HydratedVideoRequest } from './imageArchive'
 import { log } from './logger'
 import { resolveApiKey } from './resolveApiKey'
 
@@ -375,10 +375,11 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
         const video = request.video
         if (!video) throw clientError('视频任务缺少视频参数')
         const isGrok = style === 'grok-videos'
-        const protocol = isGrok ? grokVideoProtocol(base) : agnesVideoProtocol(base, model)
+        const mode = video.mode ?? 'generate'
+        const protocol = isGrok ? grokVideoProtocol(base, mode) : agnesVideoProtocol(base, model)
         const body = JSON.stringify(
           isGrok
-            ? buildGrokVideoBody(model, request, video)
+            ? buildGrokVideoBody(model, request, video, mode)
             : buildAgnesVideoBody(model, request, video),
         )
         const headers = { 'content-type': 'application/json', ...authHeader }
@@ -566,9 +567,15 @@ function imageTaskProtocol(base: string, submitBase: string): AsyncTaskProtocol 
   }
 }
 
-function grokVideoProtocol(base: string): AsyncTaskProtocol {
+const GROK_VIDEO_SUBMIT_PATHS: Record<VideoMode, string> = {
+  generate: 'videos/generations',
+  extend: 'videos/extensions',
+  edit: 'videos/edits',
+}
+
+function grokVideoProtocol(base: string, mode: VideoMode): AsyncTaskProtocol {
   return {
-    submitUrl: `${base}/videos/generations`,
+    submitUrl: `${base}/${GROK_VIDEO_SUBMIT_PATHS[mode]}`,
     pollUrl: (taskId) => `${base}/videos/${encodeURIComponent(taskId)}`,
     readTaskId: (payload) => readTaskIdField(payload, ['request_id', 'id']),
     readState: readGrokVideoState,
@@ -658,12 +665,12 @@ function grokVideoContentUrl(base: string, payload: unknown): string {
   return new URL(url, base).toString()
 }
 
-function grokVideoDuration(payload: unknown, video: VideoRequest): number {
+function grokVideoDuration(payload: unknown, video: HydratedVideoRequest): number {
   const duration = (payload as { video?: { duration?: unknown } } | null)?.video?.duration
   return typeof duration === 'number' && duration > 0 ? duration : video.duration_seconds
 }
 
-function agnesVideoResult(payload: unknown, video: VideoRequest): UpstreamCallResult {
+function agnesVideoResult(payload: unknown, video: HydratedVideoRequest): UpstreamCallResult {
   const body = (payload ?? {}) as { url?: unknown; metadata?: { url?: unknown } }
   const url = [body.url, body.metadata?.url].find(
     (value): value is string => typeof value === 'string' && /^https?:\/\//i.test(value),
@@ -686,8 +693,19 @@ const GROK_VIDEO_FIRST_FRAME_MODEL = 'grok-imagine-video-1.5'
 function buildGrokVideoBody(
   model: string,
   request: HydratedSubmitRequest,
-  video: VideoRequest,
+  video: HydratedVideoRequest,
+  mode: VideoMode,
 ): Record<string, unknown> {
+  if (mode !== 'generate') {
+    if (!video.source_video) throw clientError('续写和改视频缺少源视频')
+    return {
+      model,
+      prompt: request.prompt,
+      video: { url: video.source_video },
+      // edit 的时长跟随源片，上游不接受 duration。
+      ...(mode === 'extend' ? { duration: video.duration_seconds } : {}),
+    }
+  }
   const firstFrame = videoFrame(request, video.first_frame_index)
   return {
     model: firstFrame ? GROK_VIDEO_FIRST_FRAME_MODEL : model,
@@ -708,7 +726,7 @@ const AGNES_VIDEO_SIZES: Record<VideoResolution, string> = {
 function buildAgnesVideoBody(
   model: string,
   request: HydratedSubmitRequest,
-  video: VideoRequest,
+  video: HydratedVideoRequest,
 ): Record<string, unknown> {
   const firstFrame = videoFrame(request, video.first_frame_index)
   const lastFrame = videoFrame(request, video.last_frame_index)
