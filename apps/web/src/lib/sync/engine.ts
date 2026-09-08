@@ -227,7 +227,6 @@ async function withImagesUploaded(
 ): Promise<Array<AssetRecord | Tombstone>> {
   const ready: Array<AssetRecord | Tombstone> = []
   const refused: string[] = []
-  const imageless: string[] = []
   const queued = hiding ? new Set<string>() : imagesToUpload(changes)
   const total = queued.size
   let done = 0
@@ -251,10 +250,10 @@ async function withImagesUploaded(
     }
     if (outcome === 'uploaded') ready.push(change)
     if (outcome === 'refused') refused.push(change.id)
-    if (outcome === 'imageless') imageless.push(change.id)
+    // 当场撤下：攒到循环末尾再撤，会把这期间取图路径刚取回图片、刚重标脏的记录一并撤掉。
+    if (outcome === 'imageless') withholdImagelessAssets([change.id])
   }
   if (refused.length > 0) dropPendingRecords('assets', refused)
-  withholdImagelessAssets(imageless)
   return ready
 }
 
