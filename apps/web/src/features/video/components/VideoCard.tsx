@@ -2,10 +2,10 @@ import { VIDEO_DERIVE_LABELS, VIDEO_MODEL_SUPPORT } from '@image-playground/shar
 import { useState } from 'react'
 import ContextMenu, { ContextMenuItem } from '../../../components/ContextMenu'
 import { TrashIcon } from '../../../components/icons'
-import { formatElapsed, useElapsed } from '../../../hooks/useElapsed'
 import { useStore } from '../../../store'
 import { videoAspectLabel, videoFrameAspect } from '../lib/aspect'
 import { deriveOptions, type VideoDeriveOption } from '../lib/derive'
+import { isVideoTaskActive } from '../lib/feed'
 import {
   adoptAsFirstFrame,
   captureVideoFrame,
@@ -15,18 +15,15 @@ import {
 } from '../lib/playback'
 import { useVideoStore } from '../store'
 import type { VideoTask } from '../types'
-import { BADGE } from './chipStyles'
+import { BADGE, OVERLAY } from './chipStyles'
 import DeriveVideoPopover from './DeriveVideoPopover'
 import PlayBadge from './PlayBadge'
+import RunningOverlay from './RunningOverlay'
 
 const LINEAGE_CHIP =
   'rounded border border-gray-200 px-1 text-[10px] text-gray-500 dark:border-white/[0.12] dark:text-gray-400'
 const HOVER_BUTTON =
   'rounded-md bg-black/65 px-1 py-1 text-[11px] text-white transition hover:bg-black/80'
-const OVERLAY = 'absolute inset-0 grid place-items-center text-center text-xs'
-
-/** 进度条封顶：跑过典型耗时也不能显示成已完成。 */
-const MAX_PROGRESS = 0.95
 
 function reason(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
@@ -41,8 +38,6 @@ export default function VideoCard({ task, onOpen }: { task: VideoTask; onOpen: (
   const showToast = useStore((s) => s.showToast)
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const [derive, setDerive] = useState<VideoDeriveOption | null>(null)
-  const elapsed = useElapsed(task.status === 'running' ? task.createdAt : null)
-
   const support = VIDEO_MODEL_SUPPORT[task.model]
   const modelLabel = support?.label ?? task.model
   const done = task.status === 'done'
@@ -112,20 +107,7 @@ export default function VideoCard({ task, onOpen }: { task: VideoTask; onOpen: (
             </span>
           )}
 
-          {task.status === 'running' && (
-            <span className={`${OVERLAY} bg-black/50 text-white`}>
-              <span>
-                <b className="block text-xl font-medium">{formatElapsed(elapsed ?? 0)}</b>
-                生成中
-                {support && (
-                  <small className="block opacity-80">通常 {support.typicalSeconds} 秒</small>
-                )}
-              </span>
-            </span>
-          )}
-          {task.status === 'queued' && (
-            <span className={`${OVERLAY} bg-black/50 text-white`}>排队</span>
-          )}
+          {isVideoTaskActive(task) && <RunningOverlay task={task} />}
           {task.status === 'error' && (
             <span
               className={`${OVERLAY} bg-gray-100 px-3 text-gray-600 dark:bg-white/[0.04] dark:text-gray-300`}
@@ -137,17 +119,6 @@ export default function VideoCard({ task, onOpen }: { task: VideoTask; onOpen: (
                   <small className="block">已退 {task.credits} 积分</small>
                 )}
               </span>
-            </span>
-          )}
-
-          {task.status === 'running' && support && (
-            <span className="absolute inset-x-0 bottom-0 h-[3px] bg-white/25">
-              <span
-                className="block h-full bg-blue-500"
-                style={{
-                  width: `${Math.min(MAX_PROGRESS, (elapsed ?? 0) / 1000 / support.typicalSeconds) * 100}%`,
-                }}
-              />
             </span>
           )}
 

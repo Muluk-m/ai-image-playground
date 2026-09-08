@@ -7,6 +7,8 @@ import type { TaskRecord } from '../../../../types'
 import AssetThumb from '../../../library/components/AssetThumb'
 import { BADGE } from '../../components/chipStyles'
 import PlayBadge from '../../components/PlayBadge'
+import RunningOverlay from '../../components/RunningOverlay'
+import { isVideoTaskActive } from '../../lib/feed'
 import type { VideoTask } from '../../types'
 import { useStoryboardStore } from '../store'
 import type { StoryboardRecord, StoryboardShotPatch, StoryboardShotRecord } from '../types'
@@ -28,7 +30,8 @@ function badgeLabel(
 ): string | null {
   if (videoTask?.status === 'done') return '视频 ✓'
   if (videoTask?.status === 'error') return '视频失败'
-  if (videoTask) return '视频生成中'
+  // 还在跑的视频由读秒遮罩说明状态。
+  if (videoTask) return null
   if (shot.imageId) return '分镜图'
   if (imageTask?.status === 'error') return '出图失败'
   return null
@@ -52,6 +55,7 @@ export default function StoryboardShotCard({
   const showToast = useStore((s) => s.showToast)
   const imagePending = !shot.imageId && shot.imageTaskId !== null && imageTask?.status !== 'error'
   const videoDone = videoTask?.status === 'done'
+  const videoPending = videoTask && isVideoTaskActive(videoTask) ? videoTask : undefined
   const label = badgeLabel(shot, imageTask, videoTask)
 
   const patch = (field: keyof StoryboardShotPatch, value: string) => {
@@ -96,6 +100,8 @@ export default function StoryboardShotCard({
             <Pending label="分镜图生成中" startedAt={imageTask?.createdAt ?? null} />
           </span>
         )}
+
+        {videoPending && <RunningOverlay task={videoPending} />}
 
         <span className={`${BADGE} left-1.5 top-1.5`}>镜 {shot.no}</span>
         {label && <span className={`${BADGE} right-1.5 top-1.5`}>{label}</span>}
