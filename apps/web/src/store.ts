@@ -287,8 +287,9 @@ function scheduleThumbnailBackfillTick() {
 
   const run = () => {
     thumbnailBackfillScheduled = false
-    processNextThumbnailBackfill().catch(() => {
-      // Best-effort like startThumbnailBackfill: a tick that outlives its page must not reject.
+    // The tick can outlive its page, so a rejection here has nowhere to go.
+    processNextThumbnailBackfill().catch((err) => {
+      console.warn('缩略图补齐调度失败', err)
     })
   }
 
