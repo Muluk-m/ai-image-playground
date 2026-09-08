@@ -11,7 +11,7 @@
     "build:static-host": "pnpm build && node scripts/write-runtime-config.mjs && node scripts/write-version-manifest.mjs",
     "typecheck": "pnpm gen:hero-seed && tsc -b",
     "preview": "vite preview",
-    "test": "vitest run",
+    "test": "pnpm gen:hero-seed && vitest run",
     "test:watch": "vitest"
   },
   "dependencies": {
