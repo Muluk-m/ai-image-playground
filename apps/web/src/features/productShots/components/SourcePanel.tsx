@@ -16,10 +16,12 @@ import Segmented from '../../../components/Segmented'
 import { useImageDropZone } from '../../../hooks/useImageDropZone'
 import { usePasteImageFiles } from '../../../hooks/usePasteImageFiles'
 import { isClientCapabilityEnabled } from '../../../lib/clientCapabilities'
-import AssetThumb from '../../library/components/AssetThumb'
+import { sourceMatteBadge } from '../lib/matteBadge'
 import { DIAGRAM_LABEL, isDiagram } from '../lib/scene'
 import { useProductShotsStore } from '../store'
 import { SOURCE_MODE_LABELS, SOURCE_MODES } from '../types'
+import BadgeTag from './BadgeTag'
+import MattedThumb from './MattedThumb'
 import SourceLibraryPicker from './SourceLibraryPicker'
 
 export default function SourcePanel() {
@@ -31,6 +33,7 @@ export default function SourcePanel() {
   const listingStartedAt = useProductShotsStore((s) => s.listingStartedAt)
   const listingNotice = useProductShotsStore((s) => s.listingNotice)
   const requested = useProductShotsStore((s) => s.sourceMode)
+  const matting = useProductShotsStore(useShallow((s) => s.mattingImageIds))
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const {
@@ -152,8 +155,12 @@ export default function SourcePanel() {
                       : 'border-gray-200 hover:border-blue-300 dark:border-white/[0.08]'
                   }`}
                 >
-                  <span className="block h-10 w-10 shrink-0 overflow-hidden rounded-lg">
-                    <AssetThumb imageId={image.imageId} alt={`原图 ${index + 1}`} />
+                  <span className="relative block h-10 w-10 shrink-0 overflow-hidden rounded-lg">
+                    <MattedThumb
+                      imageId={image.imageId}
+                      overlayImageId={image.sourceMatte?.previewImageId}
+                      alt={`原图 ${index + 1}`}
+                    />
                   </span>
                   <span className="flex min-w-0 flex-col gap-0.5">
                     <span className="truncate text-xs text-gray-700 dark:text-gray-200">
@@ -164,6 +171,10 @@ export default function SourcePanel() {
                         {DIAGRAM_LABEL}
                       </span>
                     )}
+                    <BadgeTag
+                      badge={sourceMatteBadge(image.sourceMatte, matting.includes(image.imageId))}
+                      className="w-fit px-1 py-0.5 text-[11px]"
+                    />
                   </span>
                 </button>
                 <button

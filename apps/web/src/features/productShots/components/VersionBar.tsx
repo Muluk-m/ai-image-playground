@@ -4,7 +4,6 @@ import { DownloadIcon, EditIcon } from '../../../components/icons'
 import Pending from '../../../components/Pending'
 import { NOTICE } from '../../../components/panelStyles'
 import { formatElapsed } from '../../../hooks/useElapsed'
-import { useImageThumbnail } from '../../../hooks/useImageThumbnail'
 import { downloadImagesByIds } from '../../../lib/downloadImages'
 import { useStore } from '../../../store'
 import AssetThumb from '../../library/components/AssetThumb'
@@ -13,6 +12,7 @@ import { DIAGRAM_LABEL, isDiagram } from '../lib/scene'
 import { VERSION_STATE_LABELS, type VersionProgress, versionProgress } from '../lib/versionProgress'
 import { useProductShotsStore } from '../store'
 import type { ProductShotVersion } from '../types'
+import MattedThumb from './MattedThumb'
 import {
   CheckIcon,
   MaskRetryIcon,
@@ -59,6 +59,7 @@ export default function VersionBar() {
               key={row.version.id}
               version={row.version}
               imageId={selected.imageId}
+              matteReady={selected.sourceMatte?.status === 'ready'}
               index={index}
               progress={row.progress}
               chosen={selected.chosenVersionId === row.version.id}
@@ -83,6 +84,7 @@ function statusLabel(progress: VersionProgress): string {
 function VersionRow({
   version,
   imageId,
+  matteReady,
   index,
   progress,
   chosen,
@@ -91,6 +93,8 @@ function VersionRow({
   version: ProductShotVersion
   /** 这一版的原图，看蒙版时把预览盖回它上面。 */
   imageId: string
+  /** 改蒙版与重生成用的是原图身上那份，不是这一版的快照。 */
+  matteReady: boolean
   index: number
   progress: VersionProgress
   chosen: boolean
@@ -105,14 +109,13 @@ function VersionRow({
     chooseVersion,
     retryVersion,
     toggleMatteOverlay,
-    editVersionMask,
-    regenerateWithMask,
+    editSourceMask,
+    regenerateFromVersion,
     openPlanDrawer,
   } = useProductShotsStore.getState()
   const showToast = useStore((s) => s.showToast)
   const [unfolded, setUnfolded] = useState(false)
 
-  const overlay = useImageThumbnail(overlaid ? version.mattePreviewImageId : undefined)
   const [first] = progress.outputImageIds
   const label = `第 ${index + 1} 版`
   const chooseLabel = chosen ? '取消选用' : '用这版'
@@ -146,16 +149,7 @@ function VersionRow({
         }`}
       >
         {overlaid ? (
-          <>
-            <AssetThumb imageId={imageId} alt={label} />
-            {overlay?.dataUrl && (
-              <img
-                src={overlay.dataUrl}
-                alt="蒙版"
-                className="absolute inset-0 h-full w-full object-cover"
-              />
-            )}
-          </>
+          <MattedThumb imageId={imageId} overlayImageId={version.mattePreviewImageId} alt={label} />
         ) : first ? (
           <AssetThumb imageId={first} alt={label} />
         ) : (
@@ -217,11 +211,11 @@ function VersionRow({
               <MatteIcon className="h-4 w-4" />
             </button>
           )}
-          {version.maskImageId && (
+          {matteReady && (
             <>
               <button
                 type="button"
-                onClick={() => void editVersionMask(version.id)}
+                onClick={() => void editSourceMask(imageId)}
                 title="编辑蒙版"
                 aria-label="编辑蒙版"
                 className={VERSION_ICON_BUTTON}
@@ -230,7 +224,7 @@ function VersionRow({
               </button>
               <button
                 type="button"
-                onClick={() => void regenerateWithMask(version.id)}
+                onClick={() => void regenerateFromVersion(version.id, true)}
                 title="用此蒙版重生成"
                 aria-label="用此蒙版重生成"
                 className={VERSION_ICON_BUTTON}

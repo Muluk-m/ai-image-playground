@@ -6,8 +6,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useLibraryStore } from '../../../../features/library/store'
 import ProductShotsMode from '../../../../features/productShots/components/ProductShotsMode'
 import { useProductShotsStore } from '../../../../features/productShots/store'
+import type { SourceMatte } from '../../../../features/productShots/types'
 import { ProductMatteError } from '../../../../lib/productMatte'
-import { useStore } from '../../../../store'
+import { getPersistedState, useStore } from '../../../../store'
+import { browserOnlyCapabilities, settleUntil as settleRounds } from '../fixtures'
 
 declare global {
   // eslint-disable-next-line no-var
@@ -15,7 +17,7 @@ declare global {
 }
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
-const isClientCapabilityEnabled = vi.hoisted(() => vi.fn(() => true))
+const isClientCapabilityEnabled = vi.hoisted(() => vi.fn((_name: string) => true))
 const storeImageFromFile = vi.hoisted(() =>
   vi.fn(async (file: File) => ({ id: `image-${file.name}`, dataUrl: `data:,${file.name}` })),
 )
@@ -24,6 +26,8 @@ const submitPrepared = vi.hoisted(() => vi.fn())
 const requestBackgroundPlan = vi.hoisted(() => vi.fn())
 const requestSceneScan = vi.hoisted(() => vi.fn())
 const segmentProduct = vi.hoisted(() => vi.fn())
+const requestServerMatte = vi.hoisted(() => vi.fn())
+const maskDataUrlToAlpha = vi.hoisted(() => vi.fn())
 const assessMatte = vi.hoisted(() => vi.fn())
 const alphaToInpaintMask = vi.hoisted(() => vi.fn())
 const alphaToProductMask = vi.hoisted(() => vi.fn())
@@ -48,9 +52,17 @@ vi.mock('../../../../features/productShots/lib/planClient', () => ({
   requestSceneScan,
 }))
 
+vi.mock('../../../../lib/matteClient', () => ({ requestServerMatte }))
+
+// jsdom 画不出缩略图，不给这一层喂图 <img> 一个都不会挂上去。
+vi.mock('../../../../hooks/useImageThumbnail', () => ({
+  useImageThumbnail: (imageId?: string) => (imageId ? { dataUrl: `data:,${imageId}` } : null),
+}))
+
 vi.mock('../../../../lib/productMatte', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../../lib/productMatte')>()),
   segmentProduct,
+  maskDataUrlToAlpha,
   assessMatte,
   alphaToInpaintMask,
   alphaToProductMask,
@@ -95,7 +107,7 @@ let root: Root
 
 beforeEach(() => {
   vi.stubGlobal('indexedDB', new IDBFactory())
-  useStore.setState({ showToast: vi.fn(), tasks: [] })
+  useStore.setState({ showToast: vi.fn(), tasks: [], matteOverlayHidden: false })
   useProductShotsStore.setState({
     jobs: [],
     swapStage: null,
@@ -103,7 +115,7 @@ beforeEach(() => {
     loadJobs: vi.fn().mockResolvedValue(undefined),
   })
   useProductShotsStore.getState().startNewJob()
-  isClientCapabilityEnabled.mockReturnValue(true)
+  isClientCapabilityEnabled.mockImplementation(browserOnlyCapabilities)
   ensureImageCached.mockImplementation(async (id: string) => `data:image/png;base64,${id}`)
   submitPrepared.mockResolvedValue(['task-1'])
   requestBackgroundPlan.mockResolvedValue(PLAN)
@@ -115,6 +127,7 @@ beforeEach(() => {
     backend: 'wasm-u2netp',
     elapsedMs: 3200,
   })
+  maskDataUrlToAlpha.mockResolvedValue({ alpha: new Uint8ClampedArray(4), width: 2, height: 2 })
   assessMatte.mockReturnValue({ ok: true, coverage: 0.4 })
   alphaToInpaintMask.mockReturnValue('data:image/png;base64,MASK')
   alphaToProductMask.mockReturnValue('data:image/png;base64,PRODUCT-MASK')
@@ -139,13 +152,19 @@ function render() {
   act(() => root.render(<ProductShotsMode />))
 }
 
-/** 一次点击要串起接口、抠图与 IndexedDB 落盘，微任务刷一轮不够。 */
-async function settle() {
-  for (let round = 0; round < 5; round++) {
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 0))
-    })
-  }
+/** React 的每一轮都要包在 act 里，否则状态更新的警告会淹掉断言。 */
+function tick() {
+  return act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  })
+}
+
+function settle() {
+  return settleRounds(() => false, tick)
+}
+
+function settleUntil(done: () => boolean) {
+  return settleRounds(done, tick)
 }
 
 function column(name: string): HTMLElement {
@@ -497,11 +516,11 @@ describe('running the batch over the remaining images', () => {
       new File(['x'], '主图.png', { type: 'image/png' }),
       new File(['x'], '细节.png', { type: 'image/png' }),
     )
-    while (useProductShotsStore.getState().draft.id === null) {
-      await act(async () => {
-        await new Promise((resolve) => setTimeout(resolve, 0))
-      })
-    }
+    // 批量会等每张原图的抠图落定，图还在抠时点开始只是排队。
+    await settleUntil(() => {
+      const { draft } = useProductShotsStore.getState()
+      return draft.id !== null && draft.images.every((item) => item.sourceMatte?.status === 'ready')
+    })
   }
 
   it('offers the images the sample leaves behind', async () => {
@@ -515,7 +534,7 @@ describe('running the batch over the remaining images', () => {
     await withTwoImages()
 
     click(batchButton())
-    await settle()
+    await settleUntil(() => useProductShotsStore.getState().batch?.running === false)
 
     expect(useProductShotsStore.getState().draft.images[1].versions).toHaveLength(1)
     const [item] = batchBar().querySelectorAll('[data-product-shots-batch-item]')
@@ -1193,5 +1212,131 @@ describe('dropping and pasting images into the source list', () => {
 
     expect(importAssetFiles).toHaveBeenCalled()
     expect(importAssetFiles.mock.calls[0][0]).toHaveLength(1)
+  })
+})
+
+describe('the matte laid over the source image', () => {
+  const ready = (patch: Partial<Extract<SourceMatte, { status: 'ready' }>> = {}): SourceMatte => ({
+    status: 'ready',
+    backend: 'wasm-u2netp',
+    alphaImageId: 'alpha-1',
+    targetImageId: 'image-1',
+    previewImageId: 'matte-1',
+    edited: false,
+    ...patch,
+  })
+
+  /** null = 这张还在抠，身上还没有蒙版。 */
+  function seed(...mattes: Array<SourceMatte | null>) {
+    const images = mattes.map((sourceMatte, index) => ({
+      imageId: `image-${index + 1}`,
+      versions: [],
+      ...(sourceMatte ? { sourceMatte } : {}),
+    }))
+    act(() => {
+      useProductShotsStore.setState((s) => ({
+        draft: { ...s.draft, id: 'job-1', images },
+        selectedImageId: images[0]?.imageId ?? null,
+        mattingImageIds: images
+          .filter((_, index) => mattes[index] === null)
+          .map((image) => image.imageId),
+      }))
+    })
+    render()
+  }
+
+  function overlayIn(name: string): Element | null {
+    return column(name).querySelector('img[alt="蒙版"]')
+  }
+
+  function overlaySwitch(): HTMLInputElement {
+    const box = column('preview').querySelector<HTMLInputElement>('input[type="checkbox"]')
+    if (!box) throw new Error('no matte switch')
+    return box
+  }
+
+  function button(name: string, label: string): HTMLButtonElement {
+    const found = [...column(name).querySelectorAll('button')].find(
+      (item) => item.textContent === label,
+    )
+    if (!found) throw new Error(`no ${label} button`)
+    return found
+  }
+
+  it('lays the matte over the original and over the thumbnail', () => {
+    seed(ready())
+
+    expect(overlaySwitch().checked).toBe(true)
+    expect(overlayIn('preview')).not.toBeNull()
+    expect(overlayIn('sources')).not.toBeNull()
+  })
+
+  it('drops the overlay off the preview once the switch is off, and remembers it', () => {
+    seed(ready())
+
+    act(() => overlaySwitch().click())
+
+    expect(overlayIn('preview')).toBeNull()
+    expect(overlayIn('sources')).not.toBeNull()
+    expect(getPersistedState(useStore.getState()).matteOverlayHidden).toBe(true)
+
+    act(() => root.render(<ProductShotsMode />))
+
+    expect(overlaySwitch().checked).toBe(false)
+  })
+
+  it('shows the plain original while the matte is still running', () => {
+    seed(null)
+
+    expect(overlayIn('preview')).toBeNull()
+    expect(column('preview').textContent).toContain('抠图中')
+  })
+
+  it('names the matte state on the source row', () => {
+    seed(ready())
+
+    expect(column('sources').querySelector('[data-product-shots-source]')?.textContent).toContain(
+      '已抠 · U²-Netp · CPU',
+    )
+  })
+
+  it('opens the mask editor on the image matte, brush painting the kept area', async () => {
+    seed(ready())
+
+    click(button('preview', '改蒙版'))
+    await settle()
+
+    expect(useStore.getState().maskEditorImageId).toBe('image-1')
+    expect(useStore.getState().maskEditorSession?.keepSemantics).toBe(true)
+  })
+
+  it('reports an unreliable matte without holding the actions back', () => {
+    seed(ready({ agreement: 'box-mismatch' }))
+
+    expect(column('actions').textContent).toContain('蒙版不可靠')
+    expect(actionButton().disabled).toBe(false)
+  })
+
+  it('carries the chip into the batch list', () => {
+    act(() => {
+      useProductShotsStore.setState({
+        batch: {
+          items: [
+            { imageId: 'image-1', state: 'done', error: null },
+            { imageId: 'image-2', state: 'pending', error: null },
+          ],
+          running: false,
+          stopRequested: false,
+          startedAt: null,
+          stage: null,
+        },
+      })
+    })
+    seed(ready(), ready({ agreement: 'box-mismatch' }))
+
+    const rows = [...batchBar().querySelectorAll('[data-product-shots-batch-item]')]
+
+    expect(rows[0].textContent).toContain('已抠 · U²-Netp · CPU')
+    expect(rows[1].textContent).toContain('蒙版不可靠')
   })
 })

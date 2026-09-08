@@ -14,6 +14,7 @@ import { REMIX_LEVELS } from '../../../lib/shotTypes'
 import AssetThumb from '../../library/components/AssetThumb'
 import { useLibraryStore } from '../../library/store'
 import { ACTION_LABELS, type ProductShotAction, REMIX_LEVEL_LABELS } from '../lib/actions'
+import { sourceMatteNotice } from '../lib/matteBadge'
 import { useProductShotsStore } from '../store'
 import { PRODUCT_SHOT_STAGE_LABELS, VERSIONS_PER_IMAGE_CHOICES } from '../types'
 import VersionBar from './VersionBar'
@@ -39,6 +40,11 @@ export default function ActionPanel() {
   const level = useProductShotsStore((s) => s.draft.level)
   const productAssets = useProductShotsStore(useShallow((s) => s.draft.productAssets))
   const selectedImageId = useProductShotsStore((s) => s.selectedImageId)
+  const matteNotice = useProductShotsStore((s) =>
+    sourceMatteNotice(
+      s.draft.images.find((image) => image.imageId === s.selectedImageId)?.sourceMatte,
+    ),
+  )
   const swapStage = useProductShotsStore((s) => s.swapStage)
   const swapStartedAt = useProductShotsStore((s) => s.swapStartedAt)
   const swapNotice = useProductShotsStore((s) => s.swapNotice)
@@ -128,6 +134,12 @@ export default function ActionPanel() {
 
       <div className={`${PANEL_SECTION} flex flex-col gap-2`}>
         <h2 className={PANEL_TITLE}>生成</h2>
+
+        {matteNotice && (
+          <p data-product-shots-matte-notice className={NOTICE}>
+            {matteNotice}
+          </p>
+        )}
 
         <div className="grid grid-cols-3 gap-1.5">
           {ACTIONS.map((action) => {

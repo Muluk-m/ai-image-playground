@@ -3,6 +3,8 @@
  * 客户端无条件用响应里的记录覆盖本地。
  */
 
+import { IMAGE_MIME_TYPES } from './image'
+
 export const SYNC_MAX_CHANGES_PER_COLLECTION = 500
 export const SYNC_NAME_MAX_LENGTH = 200
 export const SYNC_PROMPT_MAX_LENGTH = 20_000
@@ -11,14 +13,8 @@ export const SYNC_TEMPLATE_ASSET_IDS_MAX = 32
 export const SYNC_SETTINGS_MAX_BYTES = 64_000
 export const SYNC_TEMPLATE_PARAMS_MAX_BYTES = 8_000
 
-/** 素材图上传接受的 content-type；`imageId` 是内容哈希，字符集限制同时挡住对象键穿越。 */
-export const SYNC_ASSET_IMAGE_MIME_TYPES = [
-  'image/png',
-  'image/jpeg',
-  'image/webp',
-  'image/gif',
-  'image/avif',
-] as const
+export const SYNC_ASSET_IMAGE_MIME_TYPES = IMAGE_MIME_TYPES
+/** `imageId` 是内容哈希，字符集限制同时挡住对象键穿越。 */
 export const SYNC_IMAGE_ID_PATTERN = /^[A-Za-z0-9._-]+$/
 
 /** 两项素材图配额的拒绝码，各自对应 `quota` 命名空间里的一个 key。 */

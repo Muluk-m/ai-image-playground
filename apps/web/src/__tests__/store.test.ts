@@ -131,6 +131,7 @@ import {
   submitTask,
   useStore,
 } from '../store'
+import { allCapabilitiesOff } from './fixtures/capabilities'
 
 const imageA = { id: 'image-a', dataUrl: 'data:image/png;base64,a' }
 const imageB = { id: 'image-b', dataUrl: 'data:image/png;base64,b' }
@@ -283,15 +284,10 @@ describe('mask draft lifecycle in store actions', () => {
     setChannels([channel])
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       Response.json({
+        ...allCapabilitiesOff(),
         'accounts:login': true,
         'accounts:self-register': true,
-        'accounts:sync': false,
         'billing:credits': true,
-        'generation:byok': false,
-        'generation:video': false,
-        'quota:daily': false,
-        'remix:analyze': false,
-        'remix:listing': false,
       }),
     )
     await bootstrapClientCapabilities(true, '')

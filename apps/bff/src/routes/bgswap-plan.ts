@@ -8,6 +8,7 @@ import {
 import { Elysia, t } from 'elysia'
 
 import { capabilityUnavailable, isCapabilityEnabled } from '../lib/capabilities'
+import { badRequestOnValidation, imageDataUrlSchema } from '../lib/http'
 import { log } from '../lib/logger'
 import {
   planBackground,
@@ -16,7 +17,7 @@ import {
   VisionUpstreamError,
 } from '../lib/vision'
 
-const imageSchema = t.String({ pattern: '^data:image/', maxLength: 4_000_000 })
+const imageSchema = imageDataUrlSchema()
 
 const planBodySchema = t.Object({
   image: imageSchema,
@@ -35,13 +36,7 @@ function visionFailure(error: unknown): Record<string, unknown> | null {
 }
 
 export const bgswapPlanRoutes = new Elysia()
-  // Elysia 默认对 body schema 校验失败返 422；规范要求 400，统一在路由作用域拦截。
-  .onError({ as: 'scoped' }, ({ code, error, set }) => {
-    if (code === 'VALIDATION') {
-      set.status = 400
-      return { error: 'invalid_request', message: error.message }
-    }
-  })
+  .use(badRequestOnValidation())
   .onBeforeHandle(() => {
     if (!isCapabilityEnabled('remix:analyze')) return capabilityUnavailable('remix:analyze')
   })

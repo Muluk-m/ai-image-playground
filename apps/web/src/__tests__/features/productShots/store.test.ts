@@ -6,9 +6,17 @@ import { useProductShotsStore } from '../../../features/productShots/store'
 import { getImage, putImage } from '../../../lib/db'
 import { ProductMatteError } from '../../../lib/productMatte'
 import { useStore } from '../../../store'
+import {
+  browserMatte,
+  browserOnlyCapabilities,
+  matteCoveringEverything,
+  serverMatteResponse,
+  settle,
+  settleUntil,
+} from './fixtures'
 
 const fetchListingImages = vi.hoisted(() => vi.fn())
-const isClientCapabilityEnabled = vi.hoisted(() => vi.fn(() => true))
+const isClientCapabilityEnabled = vi.hoisted(() => vi.fn((_name: string) => true))
 const storeImageFromUrl = vi.hoisted(() =>
   vi.fn(async (src: string) => ({ id: `image-${src}`, dataUrl: src })),
 )
@@ -20,10 +28,14 @@ const submitPrepared = vi.hoisted(() => vi.fn())
 const requestBackgroundPlan = vi.hoisted(() => vi.fn())
 const requestSceneScan = vi.hoisted(() => vi.fn())
 const segmentProduct = vi.hoisted(() => vi.fn())
+const requestServerMatte = vi.hoisted(() => vi.fn())
+const maskDataUrlToAlpha = vi.hoisted(() => vi.fn())
 const assessMatte = vi.hoisted(() => vi.fn())
 const alphaToInpaintMask = vi.hoisted(() => vi.fn())
 const alphaToProductMask = vi.hoisted(() => vi.fn())
 const expandProductAlpha = vi.hoisted(() => vi.fn())
+const alphaToDataUrl = vi.hoisted(() => vi.fn())
+const alphaToMattePreview = vi.hoisted(() => vi.fn())
 const getImageDimensions = vi.hoisted(() => vi.fn())
 const getParamCapabilities = vi.hoisted(() => vi.fn())
 const eraseProductArea = vi.hoisted(() => vi.fn())
@@ -54,13 +66,18 @@ vi.mock('../../../features/productShots/lib/planClient', () => ({
   requestSceneScan,
 }))
 
+vi.mock('../../../lib/matteClient', () => ({ requestServerMatte }))
+
 vi.mock('../../../lib/productMatte', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../lib/productMatte')>()),
   segmentProduct,
+  maskDataUrlToAlpha,
   assessMatte,
   alphaToInpaintMask,
   alphaToProductMask,
   expandProductAlpha,
+  alphaToDataUrl,
+  alphaToMattePreview,
 }))
 
 vi.mock('../../../lib/eraseProduct', () => ({ eraseProductArea }))
@@ -125,17 +142,18 @@ function asset(id: string, name: string, imageId: string): AssetRecord {
   return { id, name, imageId, createdAt: 1, updatedAt: 1, lastUsedAt: 1 }
 }
 
+/** 抠图这一段落盘的三张图，用例按 id 断言就够，不必看像素。 */
+const STORED_IDS: Record<string, string> = {
+  'data:image/png;base64,ALPHA': 'alpha-1',
+  'data:image/png;base64,PREVIEW': 'preview-1',
+  'data:image/png;base64,MASK': 'mask-1',
+  'data:image/png;base64,PRODUCT-MASK': 'mask-1',
+}
+
 /** 一张原图 + 一份可用蒙版的默认剧本，测试只覆盖它要变的那一段。 */
 async function jobWithOneImage(): Promise<string> {
   await useProductShotsStore.getState().importFiles([image('主图.png')])
   return 'image-主图.png'
-}
-
-/** 确认对话框的按钮是同步的，点下去之后要等提交链跑完。 */
-async function settle(): Promise<void> {
-  for (let round = 0; round < 5; round++) {
-    await new Promise((resolve) => setTimeout(resolve, 0))
-  }
 }
 
 beforeEach(() => {
@@ -143,17 +161,17 @@ beforeEach(() => {
   useStore.setState({ showToast: vi.fn(), confirmDialog: null })
   useProductShotsStore.setState({ jobs: [], swapStage: null, swapStartedAt: null })
   useProductShotsStore.getState().startNewJob()
-  isClientCapabilityEnabled.mockReturnValue(true)
+  isClientCapabilityEnabled.mockImplementation(browserOnlyCapabilities)
   ensureImageCached.mockImplementation(async (id: string) => `data:image/png;base64,${id}`)
   submitPrepared.mockImplementation(async () => [`task-${submitPrepared.mock.calls.length}`])
   requestBackgroundPlan.mockResolvedValue(PLAN)
   requestSceneScan.mockResolvedValue('photo')
-  segmentProduct.mockResolvedValue({
-    alpha: new Uint8ClampedArray(4),
-    width: 2,
-    height: 2,
-    backend: 'wasm-u2netp',
-    elapsedMs: 3200,
+  segmentProduct.mockResolvedValue(browserMatte())
+  requestServerMatte.mockResolvedValue(serverMatteResponse())
+  // 存下来的 alpha 再读回来还是同一张：每个动作都从它重算遮罩。
+  maskDataUrlToAlpha.mockImplementation(async () => {
+    const { results } = segmentProduct.mock
+    return results[results.length - 1]?.value ?? browserMatte()
   })
   assessMatte.mockReturnValue({ ok: true, coverage: 0.4 })
   alphaToInpaintMask.mockReturnValue('data:image/png;base64,MASK')
@@ -164,7 +182,9 @@ beforeEach(() => {
   eraseProductArea.mockResolvedValue('data:image/png;base64,ERASED')
   analyzeCompetitorImages.mockResolvedValue([BRIEF])
   modelSupportsNativeMask.mockReturnValue(true)
-  storeImage.mockResolvedValue('mask-1')
+  alphaToDataUrl.mockReturnValue('data:image/png;base64,ALPHA')
+  alphaToMattePreview.mockReturnValue('data:image/png;base64,PREVIEW')
+  storeImage.mockImplementation(async (dataUrl: string) => STORED_IDS[dataUrl] ?? 'stored-1')
   useLibraryStore.setState({
     assets: [asset('a-front', '正面白底', 'asset-front'), asset('a-side', '侧面', 'asset-side')],
   })
@@ -315,12 +335,14 @@ describe('pulling a listing into a job', () => {
         sourceUrl: 'https://img/1.jpg',
         versions: [],
         sceneType: 'photo',
+        sourceMatte: expect.objectContaining({ status: 'ready', backend: 'wasm-u2netp' }),
       },
       {
         imageId: 'image-proxy:https://img/2.jpg',
         sourceUrl: 'https://img/2.jpg',
         versions: [],
         sceneType: 'photo',
+        sourceMatte: expect.objectContaining({ status: 'ready', backend: 'wasm-u2netp' }),
       },
     ])
     expect(useProductShotsStore.getState().draft.name).toBe('折叠浴缸')
@@ -434,6 +456,201 @@ describe('renaming and deleting a job', () => {
   })
 })
 
+describe('matting each original as it joins the job', () => {
+  function matteOf(imageId = 'image-主图.png') {
+    return useProductShotsStore.getState().draft.images.find((item) => item.imageId === imageId)
+      ?.sourceMatte
+  }
+
+  it('mattes an uploaded original on the server and keeps the answer with the job', async () => {
+    isClientCapabilityEnabled.mockReturnValue(true)
+
+    await useProductShotsStore.getState().importFiles([image('主图.png')])
+
+    expect(requestServerMatte).toHaveBeenCalledWith('data:image/png;base64,image-主图.png')
+    expect(segmentProduct).not.toHaveBeenCalled()
+    // 服务端那张 alpha 原样落盘，不解码再编码一遍。
+    expect(storeImage).toHaveBeenCalledWith('data:image/png;base64,SERVER-ALPHA', 'mask')
+    expect(matteOf()).toMatchObject({ status: 'ready', backend: 'cloudflare-birefnet' })
+
+    useProductShotsStore.setState({ jobs: [] })
+    await useProductShotsStore.getState().loadJobs()
+    const saved = useProductShotsStore.getState().jobs[0].images[0].sourceMatte
+    expect(saved).toMatchObject({ status: 'ready', backend: 'cloudflare-birefnet' })
+  })
+
+  it('falls back to the browser chain when the server cannot matte it', async () => {
+    isClientCapabilityEnabled.mockReturnValue(true)
+    requestServerMatte.mockRejectedValue(new Error('服务端抠图没有返回可用的蒙版'))
+
+    await useProductShotsStore.getState().importFiles([image('主图.png')])
+
+    expect(segmentProduct).toHaveBeenCalledWith('data:image/png;base64,image-主图.png')
+    expect(matteOf()).toMatchObject({ status: 'ready', backend: 'wasm-u2netp' })
+  })
+
+  it('mattes in the browser while server matting is off', async () => {
+    await useProductShotsStore.getState().importFiles([image('主图.png')])
+
+    expect(requestServerMatte).not.toHaveBeenCalled()
+    expect(matteOf()).toMatchObject({ backend: 'wasm-u2netp' })
+  })
+
+  /** 超限的图路由会直接拒掉，白跑一趟还得等它。 */
+  it('mattes an oversized original in the browser', async () => {
+    isClientCapabilityEnabled.mockReturnValue(true)
+    ensureImageCached.mockResolvedValue(`data:image/png;base64,${'A'.repeat(4_000_000)}`)
+
+    await useProductShotsStore.getState().importFiles([image('主图.png')])
+
+    expect(requestServerMatte).not.toHaveBeenCalled()
+    expect(matteOf()).toMatchObject({ backend: 'wasm-u2netp' })
+  })
+
+  it('mattes nothing while the model has no mask support', async () => {
+    modelSupportsNativeMask.mockReturnValue(false)
+
+    await useProductShotsStore.getState().importFiles([image('主图.png')])
+
+    expect(segmentProduct).not.toHaveBeenCalled()
+    expect(requestServerMatte).not.toHaveBeenCalled()
+    expect(matteOf()).toBeUndefined()
+  })
+
+  it('mattes an original the library picker brought in', async () => {
+    await useProductShotsStore.getState().addImagesFromAssets(['a-side'])
+
+    expect(matteOf('asset-side')).toMatchObject({ status: 'ready', backend: 'wasm-u2netp' })
+  })
+
+  /** 打开旧任务时补抠：那时的记录里还没有蒙版这个字段。 */
+  it('mattes the originals of a job saved before it carried a matte', async () => {
+    await jobWithOneImage()
+    const savedId = useProductShotsStore.getState().draft.id
+    if (!savedId) throw new Error('the job was never saved')
+    useProductShotsStore.setState((state) => ({
+      draft: {
+        ...state.draft,
+        images: state.draft.images.map(({ sourceMatte: _dropped, ...image }) => image),
+      },
+    }))
+    useProductShotsStore.getState().setPreference('北欧风')
+    await settle()
+    useProductShotsStore.getState().startNewJob()
+    segmentProduct.mockClear()
+
+    useProductShotsStore.getState().selectJob(savedId)
+    await settleUntil(() => matteOf() !== undefined)
+
+    expect(segmentProduct).toHaveBeenCalledTimes(1)
+    expect(matteOf()).toMatchObject({ status: 'ready' })
+  })
+
+  it('skips an original that was removed while its matte was running', async () => {
+    let finishMatte: (matte: unknown) => void = () => {}
+    segmentProduct.mockReturnValue(
+      new Promise((resolve) => {
+        finishMatte = resolve
+      }),
+    )
+    const upload = useProductShotsStore.getState().importFiles([image('主图.png')])
+    // 落盘与预检都要跑完再删，否则删掉的图会被在途的那次落盘写回来。
+    await settleUntil(() => useProductShotsStore.getState().draft.images[0]?.sceneType === 'photo')
+    await settle()
+
+    useProductShotsStore.getState().removeImage('image-主图.png')
+    finishMatte(browserMatte())
+    await upload
+
+    expect(useProductShotsStore.getState().draft.images).toEqual([])
+  })
+
+  it('takes the matte the original already has instead of running it again', async () => {
+    const imageId = await jobWithOneImage()
+    segmentProduct.mockClear()
+    requestServerMatte.mockClear()
+
+    await useProductShotsStore.getState().runAction('background')
+    await useProductShotsStore.getState().runAction('background')
+
+    expect(segmentProduct).not.toHaveBeenCalled()
+    expect(requestServerMatte).not.toHaveBeenCalled()
+    expect(submitPrepared.mock.calls[0][0].mask).toEqual({
+      imageId: 'mask-1',
+      targetImageId: imageId,
+    })
+  })
+
+  /** 抠图跟点动作是两条线，用户可以在抠完之前就点下去。 */
+  it('waits for a matte still running before it submits', async () => {
+    let finishMatte: (matte: unknown) => void = () => {}
+    segmentProduct.mockReturnValue(
+      new Promise((resolve) => {
+        finishMatte = resolve
+      }),
+    )
+    const upload = useProductShotsStore.getState().importFiles([image('主图.png')])
+    await settleUntil(() => useProductShotsStore.getState().draft.id !== null)
+
+    const action = useProductShotsStore.getState().runAction('background')
+    await settle()
+    expect(useProductShotsStore.getState().swapStage).toBe('matte')
+    expect(submitPrepared).not.toHaveBeenCalled()
+
+    finishMatte(browserMatte())
+    await Promise.all([upload, action])
+
+    expect(submitPrepared.mock.calls[0][0].mask).toEqual({
+      imageId: 'mask-1',
+      targetImageId: 'image-主图.png',
+    })
+  })
+
+  /** 旧任务的原图身上没有蒙版字段，第一次用到才抠。 */
+  it('mattes an original saved before the job carried one', async () => {
+    await jobWithOneImage()
+    useProductShotsStore.setState((state) => ({
+      draft: {
+        ...state.draft,
+        images: state.draft.images.map(({ sourceMatte: _dropped, ...image }) => image),
+      },
+    }))
+    segmentProduct.mockClear()
+
+    await useProductShotsStore.getState().runAction('background')
+
+    expect(segmentProduct).toHaveBeenCalledTimes(1)
+    expect(useProductShotsStore.getState().draft.images[0].versions[0].masked).toBe(true)
+  })
+
+  it('regenerates with the mask I edited by hand', async () => {
+    const imageId = await jobWithOneImage()
+    await editTheMask(imageId)
+    segmentProduct.mockClear()
+
+    await useProductShotsStore.getState().runAction('background')
+
+    expect(segmentProduct).not.toHaveBeenCalled()
+    // 手改的那份既不回捞也不再校验，直接当这次动作的 alpha 用。
+    expect(expandProductAlpha).not.toHaveBeenCalled()
+    expect(maskDataUrlToAlpha).toHaveBeenCalledWith('data:image/png;base64,edited-1')
+    const submitted = submitPrepared.mock.calls[submitPrepared.mock.calls.length - 1][0]
+    expect(submitted.mask).toEqual({ imageId: 'mask-1', targetImageId: 'image-resized' })
+  })
+})
+
+/** 打开编辑器、存下一张手改的蒙版，回到原图身上。 */
+async function editTheMask(imageId: string): Promise<void> {
+  await useProductShotsStore.getState().editSourceMask(imageId)
+  storeImage.mockResolvedValue('edited-1')
+  await useStore.getState().maskEditorSession?.onSave({
+    maskDataUrl: 'data:image/png;base64,EDITED',
+    targetImageId: 'image-resized',
+    targetDataUrl: 'data:image/png;base64,resized',
+  })
+  storeImage.mockImplementation(async (dataUrl: string) => STORED_IDS[dataUrl] ?? 'stored-1')
+}
+
 describe('swapping the background of one image', () => {
   it('plans, mattes and submits the masked generation', async () => {
     const imageId = await jobWithOneImage()
@@ -462,7 +679,7 @@ describe('swapping the background of one image', () => {
       plan: PLAN.plan,
       prompt: PLAN.prompt,
       masked: true,
-      matte: { ok: true, backend: 'wasm-u2netp', elapsedMs: 3200 },
+      matte: { ok: true, backend: 'wasm-u2netp' },
     })
     expect(version.createdAt).toBeGreaterThan(0)
   })
@@ -488,21 +705,13 @@ describe('swapping the background of one image', () => {
 
   it('walks the three stages and lands back on none', async () => {
     await jobWithOneImage()
-    const stages: (string | null)[] = []
-    requestBackgroundPlan.mockImplementation(async () => {
-      stages.push(useProductShotsStore.getState().swapStage)
-      return PLAN
-    })
-    segmentProduct.mockImplementation(async () => {
-      stages.push(useProductShotsStore.getState().swapStage)
-      return { alpha: new Uint8ClampedArray(4), width: 2, height: 2 }
-    })
-    submitPrepared.mockImplementation(async () => {
-      stages.push(useProductShotsStore.getState().swapStage)
-      return ['task-1']
+    const stages: string[] = []
+    const unsubscribe = useProductShotsStore.subscribe(({ swapStage }) => {
+      if (swapStage && stages[stages.length - 1] !== swapStage) stages.push(swapStage)
     })
 
     await useProductShotsStore.getState().runAction('background')
+    unsubscribe()
 
     expect(stages).toEqual(['plan', 'matte', 'generate'])
     expect(useProductShotsStore.getState().swapStage).toBeNull()
@@ -521,8 +730,8 @@ describe('swapping the background of one image', () => {
   })
 
   it('falls back to a prompt-only version when the matte fails', async () => {
-    await jobWithOneImage()
     segmentProduct.mockRejectedValue(new Error('抠图超时'))
+    await jobWithOneImage()
 
     await useProductShotsStore.getState().runAction('background')
 
@@ -535,8 +744,8 @@ describe('swapping the background of one image', () => {
   })
 
   it('keeps the matte failure reason on the version', async () => {
-    await jobWithOneImage()
     segmentProduct.mockRejectedValue(new ProductMatteError('timeout', '抠图超时'))
+    await jobWithOneImage()
 
     await useProductShotsStore.getState().runAction('background')
 
@@ -547,8 +756,8 @@ describe('swapping the background of one image', () => {
   })
 
   it('falls back when the product covers too little of the image', async () => {
-    await jobWithOneImage()
     assessMatte.mockReturnValue({ ok: false, coverage: 0.001, reason: 'too-small' })
+    await jobWithOneImage()
 
     await useProductShotsStore.getState().runAction('background')
 
@@ -562,7 +771,6 @@ describe('swapping the background of one image', () => {
 
     await useProductShotsStore.getState().runAction('background')
 
-    expect(segmentProduct).not.toHaveBeenCalled()
     expect(submitPrepared.mock.calls[0][0].mask).toBeNull()
     expect(useProductShotsStore.getState().swapNotice).toContain('不支持遮罩')
   })
@@ -662,40 +870,53 @@ describe('swapping the background of a diagram', () => {
 })
 
 describe('checking the matte against the product box', () => {
-  /** 全白 alpha 的外接框是整张图，跟一个小小的产品框几乎不重叠。 */
-  function matteCoveringEverything() {
-    return {
-      alpha: new Uint8ClampedArray([255, 255, 255, 255]),
-      width: 2,
-      height: 2,
-      backend: 'wasm-u2netp',
-      elapsedMs: 3200,
-    }
-  }
-
   it('drops a matte that sits somewhere else and says so on the version', async () => {
-    await jobWithOneImage()
     requestBackgroundPlan.mockResolvedValue({
       ...PLAN,
       productBox: { x: 0, y: 0, w: 0.1, h: 0.1 },
     })
     segmentProduct.mockResolvedValue(matteCoveringEverything())
+    await jobWithOneImage()
 
     await useProductShotsStore.getState().runAction('background')
 
-    expect(alphaToInpaintMask).not.toHaveBeenCalled()
     expect(submitPrepared.mock.calls[0][0].mask).toBeNull()
     expect(useProductShotsStore.getState().draft.images[0].versions[0]).toMatchObject({
       masked: false,
       matte: { ok: false, reason: 'box-mismatch' },
     })
+    expect(useProductShotsStore.getState().draft.images[0].sourceMatte).toMatchObject({
+      status: 'ready',
+      agreement: 'box-mismatch',
+    })
     expect(useProductShotsStore.getState().swapNotice).toContain('蒙版与产品框不符')
   })
 
+  /** 「蒙版不可靠」是给用户改的信号，不是一堵墙。 */
+  it('still edits the matte after a mismatch and runs the next action on it', async () => {
+    requestBackgroundPlan.mockResolvedValue({
+      ...PLAN,
+      productBox: { x: 0, y: 0, w: 0.1, h: 0.1 },
+    })
+    segmentProduct.mockResolvedValue(matteCoveringEverything())
+    const imageId = await jobWithOneImage()
+    await useProductShotsStore.getState().runAction('background')
+
+    await editTheMask(imageId)
+    await useProductShotsStore.getState().runAction('background')
+
+    expect(useProductShotsStore.getState().draft.images[0].sourceMatte).toMatchObject({
+      edited: true,
+      agreement: 'ok',
+    })
+    const submitted = submitPrepared.mock.calls[submitPrepared.mock.calls.length - 1][0]
+    expect(submitted.mask).toEqual({ imageId: 'mask-1', targetImageId: 'image-resized' })
+  })
+
   it('keeps the matte when it lands on the box the plan reported', async () => {
-    await jobWithOneImage()
     requestBackgroundPlan.mockResolvedValue({ ...PLAN, productBox: { x: 0, y: 0, w: 1, h: 1 } })
     segmentProduct.mockResolvedValue(matteCoveringEverything())
+    await jobWithOneImage()
 
     await useProductShotsStore.getState().runAction('background')
 
@@ -742,15 +963,9 @@ describe('asking for the best the model can render', () => {
 
 describe('growing the matte before it becomes a mask', () => {
   it('builds the mask from the grown alpha and gives the growth the plan box', async () => {
-    await jobWithOneImage()
     requestBackgroundPlan.mockResolvedValue({ ...PLAN, productBox: { x: 0, y: 0, w: 1, h: 1 } })
-    segmentProduct.mockResolvedValue({
-      alpha: new Uint8ClampedArray([255, 255, 255, 255]),
-      width: 2,
-      height: 2,
-      backend: 'wasm-u2netp',
-      elapsedMs: 3200,
-    })
+    segmentProduct.mockResolvedValue(matteCoveringEverything())
+    await jobWithOneImage()
 
     await useProductShotsStore.getState().runAction('background')
 
@@ -762,8 +977,8 @@ describe('growing the matte before it becomes a mask', () => {
 
   /** 抠错的那次预览要照实显示抠到了什么，膨胀会把问题遮掉。 */
   it('leaves a turned-down matte alone', async () => {
-    await jobWithOneImage()
     assessMatte.mockReturnValue({ ok: false, coverage: 0.001, reason: 'too-small' })
+    await jobWithOneImage()
 
     await useProductShotsStore.getState().runAction('background')
 
@@ -771,11 +986,8 @@ describe('growing the matte before it becomes a mask', () => {
   })
 })
 
-describe('editing the mask of a version by hand', () => {
+describe('editing the mask of the original by hand', () => {
   async function versionWithMask() {
-    storeImage.mockImplementation(async (dataUrl: string) =>
-      dataUrl === 'data:image/png;base64,MASK' ? 'mask-1' : 'preview-1',
-    )
     await jobWithOneImage()
     await useProductShotsStore.getState().runAction('background')
     return useProductShotsStore.getState().draft.images[0].versions[0]
@@ -788,41 +1000,38 @@ describe('editing the mask of a version by hand', () => {
     expect(version.maskTargetImageId).toBe('image-主图.png')
   })
 
-  it('opens the mask editor on that mask with the brush painting the kept area', async () => {
-    const version = await versionWithMask()
+  it('opens the mask editor on the alpha with the brush painting the kept area', async () => {
+    await versionWithMask()
 
-    await useProductShotsStore.getState().editVersionMask(version.id)
+    await useProductShotsStore.getState().editSourceMask('image-主图.png')
 
     expect(useStore.getState().maskEditorImageId).toBe('image-主图.png')
     expect(useStore.getState().maskEditorSession).toMatchObject({
-      maskDataUrl: 'data:image/png;base64,mask-1',
+      maskDataUrl: 'data:image/png;base64,alpha-1',
       keepSemantics: true,
     })
   })
 
-  it('writes the edited mask back onto the version', async () => {
-    const version = await versionWithMask()
-    await useProductShotsStore.getState().editVersionMask(version.id)
-    storeImage.mockResolvedValue('mask-2')
+  it('writes the edited mask back onto the original as its new alpha', async () => {
+    await versionWithMask()
 
-    await useStore.getState().maskEditorSession?.onSave({
-      maskDataUrl: 'data:image/png;base64,EDITED',
+    await editTheMask('image-主图.png')
+
+    expect(useProductShotsStore.getState().draft.images[0].sourceMatte).toMatchObject({
+      status: 'ready',
+      alphaImageId: 'edited-1',
       targetImageId: 'image-resized',
-      targetDataUrl: 'data:image/png;base64,resized',
+      edited: true,
     })
-
-    expect(useProductShotsStore.getState().draft.images[0].versions[0]).toMatchObject({
-      masked: true,
-      maskImageId: 'mask-2',
-      maskTargetImageId: 'image-resized',
-    })
+    // 版本留着自己那一版用掉的蒙版，手改不该回头改写它。
+    expect(useProductShotsStore.getState().draft.images[0].versions[0].maskImageId).toBe('mask-1')
   })
 
-  it('regenerates with the mask on the version instead of running the matte again', async () => {
+  it('regenerates on the matte of the original instead of running it again', async () => {
     const version = await versionWithMask()
     segmentProduct.mockClear()
 
-    await useProductShotsStore.getState().regenerateWithMask(version.id)
+    await useProductShotsStore.getState().regenerateFromVersion(version.id, true)
 
     expect(segmentProduct).not.toHaveBeenCalled()
     const submitted = submitPrepared.mock.calls[submitPrepared.mock.calls.length - 1][0]
@@ -836,19 +1045,13 @@ describe('editing the mask of a version by hand', () => {
   /** 遮罩编辑会按官方尺寸改图，重生成要提交蒙版对着的那一张。 */
   it('submits the image the edited mask was drawn on', async () => {
     const version = await versionWithMask()
-    await useProductShotsStore.getState().editVersionMask(version.id)
-    storeImage.mockResolvedValue('mask-2')
-    await useStore.getState().maskEditorSession?.onSave({
-      maskDataUrl: 'data:image/png;base64,EDITED',
-      targetImageId: 'image-resized',
-      targetDataUrl: 'data:image/png;base64,resized',
-    })
+    await editTheMask('image-主图.png')
 
-    await useProductShotsStore.getState().regenerateWithMask(version.id)
+    await useProductShotsStore.getState().regenerateFromVersion(version.id, true)
 
     const submitted = submitPrepared.mock.calls[submitPrepared.mock.calls.length - 1][0]
     expect(submitted.inputImages[0].id).toBe('image-resized')
-    expect(submitted.mask).toEqual({ imageId: 'mask-2', targetImageId: 'image-resized' })
+    expect(submitted.mask).toEqual({ imageId: 'mask-1', targetImageId: 'image-resized' })
   })
 })
 
@@ -871,8 +1074,8 @@ describe('keeping a matte preview beside the version', () => {
     storeImage.mockImplementation(async (dataUrl: string) =>
       dataUrl === 'data:image/png;base64,MASK' ? 'mask-1' : 'preview-1',
     )
-    await jobWithOneImage()
     assessMatte.mockReturnValue({ ok: false, coverage: 0.001, reason: 'too-small' })
+    await jobWithOneImage()
 
     await useProductShotsStore.getState().runAction('background')
 
@@ -882,8 +1085,8 @@ describe('keeping a matte preview beside the version', () => {
   })
 
   it('has no overlay when the matte never ran', async () => {
-    await jobWithOneImage()
     segmentProduct.mockRejectedValue(new ProductMatteError('timeout', '抠图超时'))
+    await jobWithOneImage()
 
     await useProductShotsStore.getState().runAction('background')
 
@@ -963,7 +1166,6 @@ describe('swapping the product for one of my assets', () => {
 
     expect(requestBackgroundPlan.mock.calls[0][0].mode).toBe('replace-product')
     expect(alphaToProductMask).toHaveBeenCalledTimes(1)
-    expect(alphaToInpaintMask).not.toHaveBeenCalled()
     expect(storeImage).toHaveBeenCalledWith('data:image/png;base64,PRODUCT-MASK', 'mask')
     expect(submitPrepared.mock.calls[0][0].mask).toEqual({
       imageId: 'mask-1',
@@ -1078,6 +1280,7 @@ describe('swapping the product and the background at once', () => {
 
   it('never runs the matte: nothing in the picture is being kept', async () => {
     await jobWithBoth()
+    segmentProduct.mockClear()
 
     await useProductShotsStore.getState().runAction('replace-and-background')
 
@@ -1154,7 +1357,6 @@ describe('remaking a picture with the idea of a competitor shot', () => {
       { id: 'image-data:image/png;base64,ERASED', dataUrl: 'data:image/png;base64,ERASED' },
     ])
     expect(submission.mask).toBeNull()
-    expect(segmentProduct).not.toHaveBeenCalled()
   })
 
   it('files the version under the job and the image it came from', async () => {
@@ -1490,14 +1692,15 @@ describe('running the batch over the remaining images', () => {
     expect(useProductShotsStore.getState().draft.images[1].versions).toHaveLength(1)
   })
 
-  it('submits one plan and matte per image but every version of it at once', async () => {
+  it('submits one plan per image but every version of it at once', async () => {
     await jobWithThreeImages()
     useProductShotsStore.getState().setVersionsPerImage(3)
+    segmentProduct.mockClear()
 
     await useProductShotsStore.getState().runBatch()
 
     expect(requestBackgroundPlan).toHaveBeenCalledTimes(2)
-    expect(segmentProduct).toHaveBeenCalledTimes(2)
+    expect(segmentProduct).not.toHaveBeenCalled()
     expect(submitPrepared).toHaveBeenCalledTimes(6)
     expect(useProductShotsStore.getState().draft.images[1].versions).toHaveLength(3)
   })
