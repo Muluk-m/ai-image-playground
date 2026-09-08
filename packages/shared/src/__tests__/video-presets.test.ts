@@ -92,10 +92,14 @@ describe('validateVideoRequest', () => {
     ).toEqual({ ok: false, reason: 'Seedance 2.0 不支持续写' })
   })
 
-  it('rejects 15 seconds on Grok, whose ladder stops at 10', () => {
-    expect(validateVideoRequest(GROK, request({ duration_seconds: 15 }), 0)).toEqual({
+  it('accepts the 15 seconds a whole storyboard runs to on Grok', () => {
+    expect(validateVideoRequest(GROK, request({ duration_seconds: 15 }), 0)).toEqual({ ok: true })
+  })
+
+  it('rejects 15 seconds on Agnes, whose ladder stops at 10', () => {
+    expect(validateVideoRequest(AGNES, request({ duration_seconds: 15 }), 0)).toEqual({
       ok: false,
-      reason: 'Grok 时长只支持 5 / 8 / 10 秒',
+      reason: 'Agnes 2.5 Flash 时长只支持 5 / 8 / 10 秒',
     })
   })
 
