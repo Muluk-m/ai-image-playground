@@ -6,7 +6,7 @@ import { planStoryboard } from '../../lib/storyboardClient'
 const REQUEST: StoryboardPlanRequest = {
   idea: '一支讲通勤咖啡的短片',
   shots: 2,
-  secondsPerShot: 5,
+  totalSeconds: 15,
   aspectRatio: '9:16',
 }
 
@@ -17,13 +17,25 @@ function shot(no: number) {
     description: '主角在清晨的地铁口捧着纸杯',
     camera: '缓慢推进',
     line: '',
-    seconds: 5,
     imagePrompt: 'commuter holding a paper cup at a subway entrance, 9:16',
     videoPrompt: 'slow push in, steam rises',
   }
 }
 
-const PLAN = { title: '通勤第一口', summary: '两镜讲清一杯咖啡的早晨', shots: [shot(1), shot(2)] }
+const PLAN = {
+  title: '通勤第一口',
+  summary: '两镜讲清一杯咖啡的早晨',
+  videoPrompt: '通勤者捧着纸杯，清晨地铁口，暖调胶片\n镜头1（0-7.5秒）：推门而出，缓慢推进',
+  shots: [shot(1), shot(2)],
+}
+
+const TIMED = {
+  ...PLAN,
+  shots: [
+    { ...shot(1), startSeconds: 0, seconds: 7.5 },
+    { ...shot(2), startSeconds: 7.5, seconds: 7.5 },
+  ],
+}
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -47,7 +59,7 @@ describe('asking the BFF for a storyboard', () => {
 
     const plan = await planStoryboard(REQUEST, fetcher)
 
-    expect(plan).toEqual(PLAN)
+    expect(plan).toEqual(TIMED)
     const [url, init] = fetcher.mock.calls[0]!
     expect(url).toBe('https://bff.example.com/api/storyboard/plan')
     expect(init.method).toBe('POST')

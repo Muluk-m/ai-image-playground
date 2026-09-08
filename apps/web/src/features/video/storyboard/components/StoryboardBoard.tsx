@@ -1,18 +1,21 @@
 import { videoRateMultiplier } from '@image-playground/shared'
 import { useEffect, useMemo, useState } from 'react'
+import Pending from '../../../../components/Pending'
 import {
   CARD,
+  FIELD,
   GHOST_BUTTON,
-  OUTLINE_BUTTON,
   PANEL_TITLE,
+  PRIMARY_BUTTON,
   SELECT,
 } from '../../../../components/panelStyles'
-import { firstFrameModelOption } from '../../../../lib/channels/videoChannels'
+import { durationModelOption } from '../../../../lib/channels/videoChannels'
 import { usePrivateSubmissionGuard } from '../../../../lib/privateOverlay'
 import { useStore } from '../../../../store'
+import PlayBadge from '../../components/PlayBadge'
 import VideoLightbox from '../../components/VideoLightbox'
-import { useVideoStore } from '../../store'
-import { useStoryboardStore } from '../store'
+import { unsupportedDurationReason, useVideoStore } from '../../store'
+import { useStoryboardStore, wholeVideoFrameId } from '../store'
 import StoryboardShotCard from './StoryboardShotCard'
 
 export default function StoryboardBoard() {
@@ -24,6 +27,7 @@ export default function StoryboardBoard() {
   const resolution = useVideoStore((s) => s.draft.resolution)
   const model = useVideoStore((s) => s.draft.model)
   const [openVideoTaskId, setOpenVideoTaskId] = useState<string | null>(null)
+  const [editingPrompt, setEditingPrompt] = useState(false)
 
   const record = storyboards.find((item) => item.id === activeId) ?? null
   const tasksById = useMemo(() => new Map(tasks.map((task) => [task.id, task])), [tasks])
@@ -32,9 +36,12 @@ export default function StoryboardBoard() {
     [videoTasks],
   )
 
+  const option = record
+    ? durationModelOption(model, record.totalSeconds, Boolean(wholeVideoFrameId(record)))
+    : undefined
   const guard = usePrivateSubmissionGuard({
-    model: firstFrameModelOption(model)?.modelId ?? model,
-    quantity: record?.secondsPerShot ?? 0,
+    model: option?.modelId ?? model,
+    quantity: record?.totalSeconds ?? 0,
     unitMultiplier: videoRateMultiplier(resolution),
   })
 
@@ -45,12 +52,13 @@ export default function StoryboardBoard() {
 
   if (!record) return null
 
-  const pending = record.shots.filter((shot) => shot.imageId && !shot.videoTaskId)
   const openVideoTask = openVideoTaskId ? (videoTasksById.get(openVideoTaskId) ?? null) : null
-  const allVideosLabel =
-    guard.estimatedCredits === undefined
-      ? '全部生视频'
-      : `全部生视频 · ${guard.estimatedCredits * pending.length} 积分`
+  const wholeTask = record.videoTaskId ? videoTasksById.get(record.videoTaskId) : undefined
+  const wholeRunning = wholeTask?.status === 'queued' || wholeTask?.status === 'running'
+  const missingImages = record.shots.some((shot) => shot.imageTaskId === null)
+  const wholeLabel = `生成整条视频 · ${record.totalSeconds} 秒${
+    guard.estimatedCredits === undefined ? '' : ` · ${guard.estimatedCredits} 积分`
+  }`
 
   return (
     <section className={`${CARD} flex flex-col gap-3`}>
@@ -78,13 +86,23 @@ export default function StoryboardBoard() {
         >
           重写脚本
         </button>
+        {missingImages && (
+          <button
+            type="button"
+            className={GHOST_BUTTON}
+            onClick={() => void useStoryboardStore.getState().generateMissingShotImages(record.id)}
+          >
+            全部出分镜图
+          </button>
+        )}
         <button
           type="button"
-          disabled={pending.length === 0}
-          className={OUTLINE_BUTTON}
-          onClick={() => void useStoryboardStore.getState().generateAllVideos(record.id)}
+          disabled={!option || wholeRunning || guard.blocked}
+          title={option ? guard.disabledReason : unsupportedDurationReason(record.totalSeconds)}
+          className={`${PRIMARY_BUTTON} disabled:cursor-not-allowed`}
+          onClick={() => void useStoryboardStore.getState().generateWholeVideo(record.id)}
         >
-          {allVideosLabel}
+          {wholeLabel}
         </button>
         <button
           type="button"
@@ -103,6 +121,75 @@ export default function StoryboardBoard() {
       </div>
 
       <p className="text-xs text-gray-500 dark:text-gray-400">{record.summary}</p>
+
+      {!option && (
+        <p className="text-[11px] text-red-600 dark:text-red-400">
+          {unsupportedDurationReason(record.totalSeconds)}
+        </p>
+      )}
+
+      <div className="flex flex-col gap-1.5">
+        <div className="text-xs font-medium text-gray-500 dark:text-gray-400">整条视频提示词</div>
+        {editingPrompt ? (
+          <textarea
+            defaultValue={record.videoPrompt}
+            aria-label="整条视频提示词"
+            rows={record.shots.length + 2}
+            onBlur={(event) => {
+              setEditingPrompt(false)
+              void useStoryboardStore
+                .getState()
+                .updateVideoPrompt(record.id, event.target.value.trim())
+            }}
+            className={`${FIELD} resize-none`}
+          />
+        ) : (
+          <button
+            type="button"
+            onClick={() => setEditingPrompt(true)}
+            className="whitespace-pre-wrap text-left text-xs leading-relaxed text-gray-600 dark:text-gray-300"
+          >
+            {record.videoPrompt}
+          </button>
+        )}
+      </div>
+
+      {wholeTask && (
+        <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+          {wholeTask.status === 'done' ? (
+            <button
+              type="button"
+              onClick={() => setOpenVideoTaskId(wholeTask.id)}
+              aria-label="播放整条视频"
+              className="relative block h-16 w-28 overflow-hidden rounded-lg bg-gray-900"
+            >
+              {wholeTask.thumbnailDataUrl && (
+                <img
+                  src={wholeTask.thumbnailDataUrl}
+                  alt=""
+                  className="h-full w-full object-cover"
+                />
+              )}
+              <span className="absolute inset-0 grid place-items-center">
+                <PlayBadge />
+              </span>
+            </button>
+          ) : wholeTask.status === 'error' ? (
+            <>
+              <span className="text-red-600 dark:text-red-400">{wholeTask.error}</span>
+              <button
+                type="button"
+                className={GHOST_BUTTON}
+                onClick={() => void useStoryboardStore.getState().generateWholeVideo(record.id)}
+              >
+                重试
+              </button>
+            </>
+          ) : (
+            <Pending label="整条视频生成中" startedAt={wholeTask.createdAt} />
+          )}
+        </div>
+      )}
 
       <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {record.shots.map((shot) => (
