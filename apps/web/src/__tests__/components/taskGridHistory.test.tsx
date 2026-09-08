@@ -45,9 +45,12 @@ function storyboard(): StoryboardRecord {
     summary: '两镜',
     idea: '冰饮',
     aspectRatio: '16:9',
-    secondsPerShot: 5,
+    totalSeconds: 10,
+    videoPrompt: '冰饮，吧台，晨光',
     style: '不限',
     referenceImageId: null,
+    shotImagesRequested: true,
+    videoTaskId: null,
     shots: [],
   }
 }

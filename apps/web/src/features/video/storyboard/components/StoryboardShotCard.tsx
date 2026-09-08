@@ -1,3 +1,4 @@
+import { storyboardRangeLabel } from '@image-playground/shared'
 import { useState } from 'react'
 import Pending from '../../../../components/Pending'
 import { FIELD, GHOST_BUTTON } from '../../../../components/panelStyles'
@@ -149,7 +150,7 @@ export default function StoryboardShotCard({
             </button>
             <div className="flex flex-wrap items-center gap-2">
               <span>{shot.camera}</span>
-              <span>{shot.seconds} 秒</span>
+              <span>{storyboardRangeLabel(shot)} 秒</span>
               {shot.line && <span className="truncate">「{shot.line}」</span>}
             </div>
           </>
@@ -166,7 +167,7 @@ export default function StoryboardShotCard({
               void useStoryboardStore.getState().regenerateShotImage(record.id, shot.no)
             }
           >
-            重出图
+            {shot.imageTaskId ? '重出图' : '出分镜图'}
           </button>
           <button type="button" className={ACTION} onClick={() => void copyPrompt()}>
             复制提示词
@@ -174,7 +175,7 @@ export default function StoryboardShotCard({
           <button
             type="button"
             disabled={!shot.imageId || Boolean(videoTask)}
-            className={`${ACTION} font-medium text-blue-600 dark:text-blue-300`}
+            className={ACTION}
             onClick={() => void useStoryboardStore.getState().generateShotVideo(record.id, shot.no)}
           >
             生视频

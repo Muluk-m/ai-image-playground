@@ -1,8 +1,8 @@
 import {
   STORYBOARD_IDEA_MAX_CHARS,
-  STORYBOARD_SECONDS,
   STORYBOARD_SHOT_COUNTS,
   STORYBOARD_STYLE_MAX_CHARS,
+  STORYBOARD_TOTAL_SECONDS,
   VIDEO_ASPECT_RATIOS,
 } from '@image-playground/shared'
 import { Elysia, t } from 'elysia'
@@ -17,7 +17,7 @@ import { requireUserOrService } from '../lib/user-auth'
 const planBodySchema = t.Object({
   idea: t.String({ minLength: 1, maxLength: STORYBOARD_IDEA_MAX_CHARS }),
   shots: t.UnionEnum(STORYBOARD_SHOT_COUNTS),
-  secondsPerShot: t.UnionEnum(STORYBOARD_SECONDS),
+  totalSeconds: t.UnionEnum(STORYBOARD_TOTAL_SECONDS),
   aspectRatio: t.UnionEnum(VIDEO_ASPECT_RATIOS),
   style: t.Optional(t.String({ maxLength: STORYBOARD_STYLE_MAX_CHARS })),
   referenceImage: t.Optional(imageDataUrlSchema()),

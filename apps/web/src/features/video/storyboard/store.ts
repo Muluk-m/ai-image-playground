@@ -1,7 +1,7 @@
 import type {
   StoryboardPlan,
-  StoryboardSeconds,
   StoryboardShotCount,
+  StoryboardTotalSeconds,
 } from '@image-playground/shared'
 import { create } from 'zustand'
 import { planStoryboard } from '../../../lib/storyboardClient'
@@ -26,8 +26,9 @@ const NO_IMAGE = '这一镜还没有分镜图'
 export const INITIAL_STORYBOARD_DRAFT: StoryboardDraft = {
   idea: '',
   shots: 3,
-  secondsPerShot: 5,
+  totalSeconds: 15,
   style: STORYBOARD_FREE_STYLE,
+  shotImages: true,
 }
 
 export interface StoryboardState {
@@ -39,8 +40,9 @@ export interface StoryboardState {
   load(): Promise<void>
   setIdea(idea: string): void
   setShots(shots: StoryboardShotCount): void
-  setSecondsPerShot(seconds: StoryboardSeconds): void
+  setTotalSeconds(totalSeconds: StoryboardTotalSeconds): void
   setStyle(style: StoryboardStyle): void
+  setShotImages(shotImages: boolean): void
 
   plan(input: StoryboardPlanInput): Promise<string | null>
   /** 用同样的创意重写脚本：镜头文案全换，图与视频重新来。 */
@@ -48,9 +50,12 @@ export interface StoryboardState {
   select(id: string): void
   remove(id: string): Promise<void>
   updateShot(id: string, no: number, patch: StoryboardShotPatch): Promise<void>
+  updateVideoPrompt(id: string, videoPrompt: string): Promise<void>
   regenerateShotImage(id: string, no: number): Promise<void>
+  generateMissingShotImages(id: string): Promise<void>
   generateShotVideo(id: string, no: number): Promise<void>
-  generateAllVideos(id: string): Promise<void>
+  /** 整条分镜出成一条视频：一条多镜提示词，时长是分镜总时长。 */
+  generateWholeVideo(id: string): Promise<void>
   /** 工作台任务跑完后把出图挂回对应的镜。 */
   adoptShotImages(tasks: ReadonlyMap<string, TaskRecord>): void
   exportZip(id: string): Promise<void>
@@ -73,6 +78,11 @@ function shotsFromPlan(plan: StoryboardPlan): StoryboardShotRecord[] {
   }))
 }
 
+/** 整条视频的首帧：第一镜出了图就用它，否则用参考图，都没有就纯文生。 */
+export function wholeVideoFrameId(record: StoryboardRecord): string | null {
+  return record.shots[0]?.imageId ?? record.referenceImageId
+}
+
 export const useStoryboardStore = create<StoryboardState>((set, get) => {
   const boardOf = (id: string) => get().storyboards.find((item) => item.id === id)
 
@@ -87,12 +97,15 @@ export const useStoryboardStore = create<StoryboardState>((set, get) => {
     await storyboardStore.put(record)
   }
 
+  async function patchBoard(id: string, patch: Partial<StoryboardRecord>): Promise<void> {
+    const record = boardOf(id)
+    if (record) await persist({ ...record, updatedAt: Date.now(), ...patch })
+  }
+
   async function patchShot(id: string, no: number, patch: Partial<StoryboardShotRecord>) {
     const record = boardOf(id)
     if (!record) return
-    await persist({
-      ...record,
-      updatedAt: Date.now(),
+    await patchBoard(id, {
       shots: record.shots.map((shot) => (shot.no === no ? { ...shot, ...patch } : shot)),
     })
   }
@@ -124,11 +137,16 @@ export const useStoryboardStore = create<StoryboardState>((set, get) => {
   }
 
   /** 逐条提交：每条都要单独过一次提交门禁，并按提交顺序排进工作台。 */
-  async function submitAllShotImages(id: string): Promise<void> {
+  async function submitShotImages(
+    id: string,
+    pick: (shot: StoryboardShotRecord) => boolean,
+  ): Promise<void> {
     const record = boardOf(id)
     if (!record) return
     const reference = await referenceDataUrl(record)
-    for (const shot of record.shots) await submitShotImage(record, shot.no, reference)
+    for (const shot of record.shots) {
+      if (pick(shot)) await submitShotImage(record, shot.no, reference)
+    }
   }
 
   async function runPlan(
@@ -143,7 +161,7 @@ export const useStoryboardStore = create<StoryboardState>((set, get) => {
       const plan = await planStoryboard({
         idea: input.idea.trim(),
         shots: input.shots,
-        secondsPerShot: input.secondsPerShot,
+        totalSeconds: input.totalSeconds,
         aspectRatio: input.aspectRatio,
         ...(input.style === STORYBOARD_FREE_STYLE ? {} : { style: input.style }),
         ...(reference ? { referenceImage: reference } : {}),
@@ -151,7 +169,7 @@ export const useStoryboardStore = create<StoryboardState>((set, get) => {
       const record = toRecord(plan)
       await persist(record)
       set({ activeId: record.id })
-      await submitAllShotImages(record.id)
+      if (record.shotImagesRequested) await submitShotImages(record.id, () => true)
       return record.id
     } catch (err) {
       useStore.getState().showToast(errorMessage(err), 'error')
@@ -178,11 +196,14 @@ export const useStoryboardStore = create<StoryboardState>((set, get) => {
     setShots(shots) {
       set((state) => ({ draft: { ...state.draft, shots } }))
     },
-    setSecondsPerShot(secondsPerShot) {
-      set((state) => ({ draft: { ...state.draft, secondsPerShot } }))
+    setTotalSeconds(totalSeconds) {
+      set((state) => ({ draft: { ...state.draft, totalSeconds } }))
     },
     setStyle(style) {
       set((state) => ({ draft: { ...state.draft, style } }))
+    },
+    setShotImages(shotImages) {
+      set((state) => ({ draft: { ...state.draft, shotImages } }))
     },
 
     plan(input) {
@@ -195,9 +216,12 @@ export const useStoryboardStore = create<StoryboardState>((set, get) => {
         summary: plan.summary,
         idea: input.idea.trim(),
         aspectRatio: input.aspectRatio,
-        secondsPerShot: input.secondsPerShot,
+        totalSeconds: input.totalSeconds,
+        videoPrompt: plan.videoPrompt,
         style: input.style,
         referenceImageId: input.referenceImageId,
+        shotImagesRequested: input.shotImages,
+        videoTaskId: null,
         shots: shotsFromPlan(plan),
       }))
     },
@@ -205,13 +229,23 @@ export const useStoryboardStore = create<StoryboardState>((set, get) => {
     replan(id) {
       const record = boardOf(id)
       if (!record) return Promise.resolve(null)
-      return runPlan({ ...record, shots: record.shots.length as StoryboardShotCount }, (plan) => ({
-        ...record,
-        updatedAt: Date.now(),
-        title: plan.title,
-        summary: plan.summary,
-        shots: shotsFromPlan(plan),
-      }))
+      return runPlan(
+        {
+          ...record,
+          shots: record.shots.length as StoryboardShotCount,
+          totalSeconds: record.totalSeconds as StoryboardTotalSeconds,
+          shotImages: record.shotImagesRequested,
+        },
+        (plan) => ({
+          ...record,
+          updatedAt: Date.now(),
+          title: plan.title,
+          summary: plan.summary,
+          videoPrompt: plan.videoPrompt,
+          videoTaskId: null,
+          shots: shotsFromPlan(plan),
+        }),
+      )
     },
 
     select(id) {
@@ -233,10 +267,18 @@ export const useStoryboardStore = create<StoryboardState>((set, get) => {
       return patchShot(id, no, patch)
     },
 
+    updateVideoPrompt(id, videoPrompt) {
+      return patchBoard(id, { videoPrompt })
+    },
+
     async regenerateShotImage(id, no) {
       await patchShot(id, no, { imageTaskId: null, imageId: null })
       const record = boardOf(id)
       if (record) await submitShotImage(record, no, await referenceDataUrl(record))
+    },
+
+    generateMissingShotImages(id) {
+      return submitShotImages(id, (shot) => shot.imageTaskId === null)
     },
 
     async generateShotVideo(id, no) {
@@ -252,18 +294,23 @@ export const useStoryboardStore = create<StoryboardState>((set, get) => {
         shotNo: no,
         imageId: shot.imageId,
         prompt: shot.videoPrompt,
-        seconds: record.secondsPerShot,
+        seconds: shot.seconds,
         aspectRatio: record.aspectRatio,
       })
       if (taskId) await patchShot(id, no, { videoTaskId: taskId })
     },
 
-    async generateAllVideos(id) {
+    async generateWholeVideo(id) {
       const record = boardOf(id)
       if (!record) return
-      for (const shot of record.shots) {
-        if (shot.imageId && !shot.videoTaskId) await get().generateShotVideo(id, shot.no)
-      }
+      const taskId = await useVideoStore.getState().submitStoryboardVideo({
+        storyboardId: id,
+        imageId: wholeVideoFrameId(record),
+        prompt: record.videoPrompt,
+        seconds: record.totalSeconds,
+        aspectRatio: record.aspectRatio,
+      })
+      if (taskId) await patchBoard(id, { videoTaskId: taskId })
     },
 
     adoptShotImages(tasks) {

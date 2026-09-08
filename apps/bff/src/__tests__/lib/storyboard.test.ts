@@ -12,7 +12,7 @@ const { buildStoryboardPrompt } = await import('../../lib/storyboard')
 const REQUEST = {
   idea: '一支讲通勤咖啡的短片',
   shots: 4,
-  secondsPerShot: 8,
+  totalSeconds: 15,
   aspectRatio: '9:16',
 } as const
 
@@ -22,7 +22,7 @@ describe('buildStoryboardPrompt', () => {
 
     expect(prompt).toContain('一支讲通勤咖啡的短片')
     expect(prompt).toContain('恰好 4 个镜头')
-    expect(prompt).toContain('8 秒')
+    expect(prompt).toContain('总时长：15 秒')
     expect(prompt).toContain('9:16')
   })
 
@@ -36,6 +36,16 @@ describe('buildStoryboardPrompt', () => {
       buildStoryboardPrompt({ ...REQUEST, referenceImage: 'data:image/png;base64,AA==' }),
     ).toContain('参考图')
     expect(buildStoryboardPrompt(REQUEST)).not.toContain('参考图')
+  })
+
+  it('spells out the timeline the whole-video prompt has to follow', () => {
+    const prompt = buildStoryboardPrompt(REQUEST)
+
+    expect(prompt).toContain(
+      '镜头1（0-4秒）、镜头2（4-7.5秒）、镜头3（7.5-11.5秒）、镜头4（11.5-15秒）',
+    )
+    expect(prompt).toContain('「镜头N（a-b秒）：画面 + 运镜」，共 4 行')
+    expect(prompt).toContain('硬切')
   })
 
   /** 分镜要能导出到别的工具用，所以每条提示词都必须离开这份 JSON 也成立。 */
