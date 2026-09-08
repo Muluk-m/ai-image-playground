@@ -14,13 +14,14 @@ import {
 } from '../../../components/panelStyles'
 import Segmented from '../../../components/Segmented'
 import { useImageDropZone } from '../../../hooks/useImageDropZone'
+import { useImageThumbnail } from '../../../hooks/useImageThumbnail'
 import { usePasteImageFiles } from '../../../hooks/usePasteImageFiles'
 import { isClientCapabilityEnabled } from '../../../lib/clientCapabilities'
 import AssetThumb from '../../library/components/AssetThumb'
 import { sourceMatteBadge } from '../lib/matteBadge'
 import { DIAGRAM_LABEL, isDiagram } from '../lib/scene'
 import { useProductShotsStore } from '../store'
-import { SOURCE_MODE_LABELS, SOURCE_MODES } from '../types'
+import { SOURCE_MODE_LABELS, SOURCE_MODES, type SourceMatte } from '../types'
 import { BadgeTag } from './MatteTag'
 import SourceLibraryPicker from './SourceLibraryPicker'
 
@@ -154,8 +155,12 @@ export default function SourcePanel() {
                       : 'border-gray-200 hover:border-blue-300 dark:border-white/[0.08]'
                   }`}
                 >
-                  <span className="block h-10 w-10 shrink-0 overflow-hidden rounded-lg">
-                    <AssetThumb imageId={image.imageId} alt={`原图 ${index + 1}`} />
+                  <span className="relative block h-10 w-10 shrink-0 overflow-hidden rounded-lg">
+                    <SourceThumb
+                      imageId={image.imageId}
+                      matte={image.sourceMatte}
+                      alt={`原图 ${index + 1}`}
+                    />
                   </span>
                   <span className="flex min-w-0 flex-col gap-0.5">
                     <span className="truncate text-xs text-gray-700 dark:text-gray-200">
@@ -187,5 +192,29 @@ export default function SourcePanel() {
         {dragging && <DropOverlay label="松开即上传" />}
       </div>
     </section>
+  )
+}
+
+function SourceThumb({
+  imageId,
+  matte,
+  alt,
+}: {
+  imageId: string
+  matte: SourceMatte | undefined
+  alt: string
+}) {
+  const overlay = useImageThumbnail(matte?.previewImageId ?? undefined)
+  return (
+    <>
+      <AssetThumb imageId={imageId} alt={alt} />
+      {overlay?.dataUrl && (
+        <img
+          src={overlay.dataUrl}
+          alt="蒙版"
+          className="absolute inset-0 h-full w-full object-cover"
+        />
+      )}
+    </>
   )
 }
