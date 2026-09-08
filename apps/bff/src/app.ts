@@ -11,6 +11,7 @@ import { cancelRoutes } from './routes/cancel'
 import { capabilitiesRoutes, internalCapabilitiesRoutes } from './routes/capabilities'
 import { channelsRoutes } from './routes/channels'
 import { internalUserRoutes } from './routes/internal-users'
+import { matteRoutes } from './routes/matte'
 import { oauthRoutes } from './routes/oauth'
 import { remixAnalyzeRoutes } from './routes/remix-analyze'
 import { remixListingRoutes } from './routes/remix-listing'
@@ -131,6 +132,7 @@ export const app = new Elysia()
   .use(resultRoutes)
   .use(cancelRoutes)
   .use(bgswapPlanRoutes)
+  .use(matteRoutes)
   .use(remixAnalyzeRoutes)
   .use(remixListingRoutes)
   .use(syncRoutes)
