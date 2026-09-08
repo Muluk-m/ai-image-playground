@@ -2,12 +2,14 @@ import { useShallow } from 'zustand/react/shallow'
 import Pending from '../../../components/Pending'
 import { CARD, GHOST_BUTTON, OUTLINE_BUTTON, PRIMARY_BUTTON } from '../../../components/panelStyles'
 import { batchDoneCount, pendingBatchImageIds, skippedDiagramImageIds } from '../lib/batch'
+import { sourceMatteBadge } from '../lib/matteBadge'
 import { useProductShotsStore } from '../store'
 import {
   PRODUCT_SHOT_BATCH_STATE_LABELS,
   PRODUCT_SHOT_STAGE_LABELS,
   type ProductShotBatchItemState,
 } from '../types'
+import { BadgeTag } from './MatteTag'
 
 const STATE_STYLES: Record<ProductShotBatchItemState, string> = {
   pending: 'text-gray-500 dark:text-gray-400',
@@ -26,6 +28,8 @@ export default function BatchBar() {
   const remaining = pendingBatchImageIds(images, selectedImageId)
   const skipped = skippedDiagramImageIds(images, selectedImageId)
   const orderOf = (imageId: string) => images.findIndex((image) => image.imageId === imageId) + 1
+  const matteOf = (imageId: string) =>
+    images.find((image) => image.imageId === imageId)?.sourceMatte
   const running = batch?.running === true
   const current = batch?.items.find((item) => item.state === 'running')
 
@@ -87,6 +91,10 @@ export default function BatchBar() {
               <span className={STATE_STYLES[item.state]}>
                 {PRODUCT_SHOT_BATCH_STATE_LABELS[item.state]}
               </span>
+              <BadgeTag
+                badge={sourceMatteBadge(matteOf(item.imageId))}
+                className="px-1 py-0.5 text-[11px]"
+              />
               {item.error && (
                 <span className="min-w-0 break-words text-red-600 dark:text-red-300">
                   {item.error}
