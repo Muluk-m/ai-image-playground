@@ -209,7 +209,7 @@ async function writeWithRetry(key: string, bytes: Uint8Array, mime: string): Pro
   )
 }
 
-function decodeDataUrl(value: string): { bytes: Uint8Array; mime: string } {
+export function decodeDataUrl(value: string): { bytes: Uint8Array; mime: string } {
   const match = /^data:([^;,]+);base64,(.+)$/i.exec(value)
   if (!match) {
     throw new TypeError('input image must be a data:<mime>;base64,<data> URL')

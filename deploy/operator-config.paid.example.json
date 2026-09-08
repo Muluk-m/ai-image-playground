@@ -4,6 +4,7 @@
     "accounts:self-register": true,
     "billing:credits": true,
     "generation:byok": false,
+    "matte:server": true,
     "operator:console": true,
     "quota:daily": false,
     "remix:analyze": false,

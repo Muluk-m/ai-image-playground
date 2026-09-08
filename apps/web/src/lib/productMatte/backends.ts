@@ -1,4 +1,7 @@
-export type MatteBackendId = 'webgpu-birefnet' | 'webgpu-u2netp' | 'wasm-u2netp'
+export type BrowserMatteBackendId = 'webgpu-birefnet' | 'webgpu-u2netp' | 'wasm-u2netp'
+
+/** 抠出这份 alpha 的是谁：服务端那一个不在浏览器回落链里。 */
+export type MatteBackendId = BrowserMatteBackendId | 'cloudflare-birefnet'
 
 export type MatteDevice = 'webgpu' | 'wasm'
 
@@ -6,7 +9,7 @@ export type MatteDevice = 'webgpu' | 'wasm'
 export type MatteActivation = 'sigmoid' | 'minmax'
 
 export interface MatteBackend {
-  id: MatteBackendId
+  id: BrowserMatteBackendId
   device: MatteDevice
   modelId: string
   dtype: 'fp16' | 'fp32'
@@ -60,6 +63,7 @@ export const MATTE_BACKENDS: readonly MatteBackend[] = [
 ]
 
 export const MATTE_BACKEND_LABELS: Record<MatteBackendId, string> = {
+  'cloudflare-birefnet': '服务端',
   'webgpu-birefnet': 'BiRefNet · GPU',
   'webgpu-u2netp': 'U²-Netp · GPU',
   'wasm-u2netp': 'U²-Netp · CPU',

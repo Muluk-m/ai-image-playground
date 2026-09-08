@@ -17,6 +17,7 @@ import { readPendingChanges, writePendingChanges } from '../../../lib/sync/pendi
 import { postSync } from '../../../lib/sync/syncClient'
 import { useStore } from '../../../store'
 import { DEFAULT_PARAMS } from '../../../types'
+import { allCapabilitiesOff } from '../../fixtures/capabilities'
 
 vi.mock('../../../lib/sync/syncClient', () => ({
   postSync: vi.fn(),
@@ -54,15 +55,10 @@ async function setCapabilities(sync: boolean): Promise<void> {
     'fetch',
     vi.fn(async () =>
       Response.json({
+        ...allCapabilitiesOff(),
         'accounts:login': true,
-        'accounts:self-register': false,
         'accounts:sync': sync,
-        'billing:credits': false,
         'generation:byok': true,
-        'generation:video': false,
-        'quota:daily': false,
-        'remix:analyze': false,
-        'remix:listing': false,
       }),
     ),
   )

@@ -1,17 +1,30 @@
 import { useShallow } from 'zustand/react/shallow'
-import { ACTIVE_SEGMENT, CARD, IDLE_SEGMENT, SEGMENT } from '../../../components/panelStyles'
+import {
+  ACTIVE_SEGMENT,
+  CARD,
+  GHOST_BUTTON,
+  IDLE_SEGMENT,
+  SEGMENT,
+} from '../../../components/panelStyles'
 import { useImageThumbnail } from '../../../hooks/useImageThumbnail'
 import { useStore } from '../../../store'
+import { sourceMatteBadge } from '../lib/matteBadge'
 import { useProductShotsStore } from '../store'
+import BadgeTag from './BadgeTag'
 
 export default function PreviewPanel() {
   const images = useProductShotsStore(useShallow((s) => s.draft.images))
   const selectedImageId = useProductShotsStore((s) => s.selectedImageId)
   const previewVersionId = useProductShotsStore((s) => s.previewVersionId)
   const matteOverlayVersionId = useProductShotsStore((s) => s.matteOverlayVersionId)
+  const matting = useProductShotsStore((s) =>
+    s.selectedImageId === null ? false : s.mattingImageIds.includes(s.selectedImageId),
+  )
+  const matteOverlayHidden = useStore((s) => s.matteOverlayHidden)
+  const setMatteOverlayHidden = useStore((s) => s.setMatteOverlayHidden)
   const tasks = useStore((s) => s.tasks)
 
-  const { previewVersion } = useProductShotsStore.getState()
+  const { previewVersion, editSourceMask } = useProductShotsStore.getState()
   const selected = images.find((image) => image.imageId === selectedImageId)
   const index = images.findIndex((image) => image.imageId === selectedImageId)
   const versions = selected?.versions ?? []
@@ -29,8 +42,14 @@ export default function PreviewPanel() {
     : previewed
       ? `第 ${versions.indexOf(previewed) + 1} 版`
       : `原图 ${index + 1}`
+  const matte = selected?.sourceMatte
+  const onOriginal = selected !== undefined && previewed === undefined && overlaid === undefined
   const thumbnail = useImageThumbnail(shownImageId)
-  const overlay = useImageThumbnail(overlaid?.mattePreviewImageId)
+  // 某一版的「看蒙版」压过原图身上那份：要核对的是这一版实际用掉的蒙版。
+  const overlay = useImageThumbnail(
+    overlaid?.mattePreviewImageId ??
+      (onOriginal && !matteOverlayHidden ? (matte?.previewImageId ?? undefined) : undefined),
+  )
 
   return (
     <section data-product-shots-column="preview" className={CARD}>
@@ -77,6 +96,34 @@ export default function PreviewPanel() {
           </span>
         )}
       </div>
+
+      {onOriginal && (matte || matting) && (
+        <div data-product-shots-matte-bar className="mt-2 flex flex-wrap items-center gap-2">
+          {matte?.previewImageId && (
+            <label className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
+              <input
+                type="checkbox"
+                checked={!matteOverlayHidden}
+                onChange={(e) => setMatteOverlayHidden(!e.target.checked)}
+              />
+              显示蒙版
+            </label>
+          )}
+          <BadgeTag
+            badge={sourceMatteBadge(matte, matting)}
+            className="px-1.5 py-0.5 text-[11px] leading-tight"
+          />
+          {matte?.status === 'ready' && (
+            <button
+              type="button"
+              onClick={() => void editSourceMask(selected.imageId)}
+              className={`ml-auto ${GHOST_BUTTON}`}
+            >
+              改蒙版
+            </button>
+          )}
+        </div>
+      )}
     </section>
   )
 }

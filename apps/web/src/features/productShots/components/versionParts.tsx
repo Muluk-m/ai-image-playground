@@ -1,8 +1,9 @@
 import type { ReactNode, SVGProps } from 'react'
 import { actionLabel } from '../lib/actions'
+import { matteBadge } from '../lib/matteBadge'
 import { VERSION_STATE_LABELS, type VersionState } from '../lib/versionProgress'
 import type { ProductShotVersion } from '../types'
-import MatteTag from './MatteTag'
+import BadgeTag from './BadgeTag'
 
 /** 图标操作行：指针悬停或键盘聚焦才露出，触摸屏没有 hover，常显。 */
 export const VERSION_ACTION_ROW =
@@ -113,7 +114,7 @@ export function VersionTags({
       {state !== undefined && state !== 'done' && (
         <span className="shrink-0">{VERSION_STATE_LABELS[state]}</span>
       )}
-      <MatteTag version={version} className="truncate px-1" />
+      <BadgeTag badge={matteBadge(version)} className="truncate px-1" />
       {version.lowResSource && <span className={AMBER_TAG}>源图分辨率低</span>}
       {version.promptEdited && <span className={AMBER_TAG}>手改</span>}
     </span>

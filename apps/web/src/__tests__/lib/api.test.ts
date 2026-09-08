@@ -5,6 +5,7 @@ import type { BuiltinEdgeProfile, PublicChannel, UserByokProfile } from '../../l
 import { bootstrapClientCapabilities } from '../../lib/clientCapabilities'
 import { buildAspectInstruction } from '../../lib/size'
 import { type AppSettings, DEFAULT_PARAMS } from '../../types'
+import { allCapabilitiesOff } from '../fixtures/capabilities'
 
 const mockChannels = vi.hoisted(() => ({ list: [] as PublicChannel[] }))
 vi.mock('../../lib/channels/publicChannels', () => ({
@@ -851,15 +852,8 @@ describe('callImageApi', () => {
   it('rejects BYOK dispatch when the BFF capability is disabled', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
       Response.json({
+        ...allCapabilitiesOff(),
         'accounts:login': true,
-        'accounts:self-register': false,
-        'accounts:sync': false,
-        'billing:credits': false,
-        'generation:byok': false,
-        'generation:video': false,
-        'quota:daily': false,
-        'remix:analyze': false,
-        'remix:listing': false,
       }),
     )
     await bootstrapClientCapabilities(true, 'https://bff.example')
