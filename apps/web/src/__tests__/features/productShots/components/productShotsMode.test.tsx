@@ -84,6 +84,9 @@ vi.mock('../../../../lib/canvasImage', async (importOriginal) => ({
   getImageDimensions,
 }))
 
+const LONG_FAILURE =
+  '上游返回 400：提示词里带了被拒的词，换一句再试；这条原因很长，卡里默认只留一行'
+
 const PLAN = {
   category: '折叠浴缸',
   camera: '略高的 3/4 侧视',
@@ -884,6 +887,87 @@ describe('the right column grouped into settings and generation', () => {
     expect(settings?.textContent).toContain('偏好')
     expect(settings?.textContent).toContain('每张几版')
     expect(settings?.querySelector('[role="group"][aria-label="与竞品的距离"]')).not.toBeNull()
+  })
+})
+
+describe('the version list in the centre column', () => {
+  async function withOneVersion() {
+    render()
+    upload('上传原图', new File(['x'], '主图.png', { type: 'image/png' }))
+    while (useProductShotsStore.getState().draft.id === null) {
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0))
+      })
+    }
+    click(actionButton())
+    await settle()
+  }
+
+  function versionRow(): HTMLElement {
+    const element = document.querySelector<HTMLElement>('[data-product-shots-version]')
+    if (!element) throw new Error('no version row')
+    return element
+  }
+
+  function errorToggle(): HTMLButtonElement {
+    const element = versionRow().querySelector<HTMLButtonElement>(
+      '[data-product-shots-version-error-toggle]',
+    )
+    if (!element) throw new Error('no error toggle')
+    return element
+  }
+
+  it('puts the version list under the preview and out of the settings column', async () => {
+    await withOneVersion()
+
+    expect(column('center').contains(column('preview'))).toBe(true)
+    expect(column('center').contains(versionPanel())).toBe(true)
+    expect(
+      column('preview').compareDocumentPosition(versionPanel()) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+    expect(column('actions').contains(versionPanel())).toBe(false)
+    expect(column('actions').querySelector('[data-product-shots-version]')).toBeNull()
+  })
+
+  it('lays the card out as the thumbnail, the meta column and the operations', async () => {
+    await withOneVersion()
+
+    expect(versionRow().className).toContain('grid-cols-[72px_minmax(0,1fr)_auto]')
+    expect(versionRow().children).toHaveLength(3)
+  })
+
+  it('keeps the chips on one line and the action label whole', async () => {
+    await withOneVersion()
+
+    const tags = versionRow().querySelector<HTMLElement>('[data-product-shots-version-tags]')
+    expect(tags?.className).toContain('whitespace-nowrap')
+    expect(tags?.className).not.toContain('flex-wrap')
+
+    const title = versionRow().querySelector<HTMLElement>('[data-product-shots-version-title]')
+    const action = [...(title?.children ?? [])].find((item) => item.textContent === '换背景')
+    expect(action?.className).toContain('whitespace-nowrap')
+    expect(action?.className).not.toContain('truncate')
+  })
+
+  it('folds a failure to one line and unfolds the whole reason on demand', async () => {
+    await withOneVersion()
+    act(() => {
+      useStore.setState({
+        tasks: [{ ...finishedTask('task-1'), status: 'error', error: LONG_FAILURE }],
+      })
+    })
+
+    const folded = errorToggle().previousElementSibling
+    expect(folded?.textContent).toBe(LONG_FAILURE)
+    expect(folded?.className).toContain('truncate')
+    expect(errorToggle().textContent).toBe('展开')
+
+    click(errorToggle())
+
+    const unfolded = errorToggle().previousElementSibling
+    expect(unfolded?.textContent).toBe(LONG_FAILURE)
+    expect(unfolded?.className).not.toContain('truncate')
+    expect(errorToggle().textContent).toBe('收起')
   })
 })
 
