@@ -1,38 +1,36 @@
 import { useMemo } from 'react'
-import { useShallow } from 'zustand/react/shallow'
 import { GHOST_BUTTON, LABEL } from '../../../components/panelStyles'
 import { useStore } from '../../../store'
 import AssetThumb from '../../library/components/AssetThumb'
 import { useLibraryStore } from '../../library/store'
-import { mergeFrameSources } from '../lib/frameSources'
+import { stripSources } from '../lib/frameSources'
 import { useVideoStore } from '../store'
 
-const LIMIT = 8
+const CAPTION = '素材库 · 最近出图'
 
 export default function FrameSourceStrip({
-  selectedImageId,
   showLastFrame,
   onPickAll,
 }: {
-  selectedImageId: string | null
   showLastFrame: boolean
   onPickAll: () => void
 }) {
-  const assets = useLibraryStore(useShallow((s) => s.assets))
-  const tasks = useStore(useShallow((s) => s.tasks))
-  const sources = useMemo(() => mergeFrameSources(assets, tasks, LIMIT), [assets, tasks])
+  const assets = useLibraryStore((s) => s.assets)
+  const tasks = useStore((s) => s.tasks)
+  const selectedImageId = useVideoStore((s) => s.draft.firstFrameImageId)
+  const sources = useMemo(() => stripSources(assets, tasks), [assets, tasks])
 
   if (sources.length === 0) return null
 
   return (
     <div className="mt-2 min-w-0">
       <div className="mb-1 flex items-baseline justify-between">
-        <span className={LABEL}>素材库 · 最近出图</span>
+        <span className={LABEL}>{CAPTION}</span>
         <button type="button" className={GHOST_BUTTON} onClick={onPickAll}>
           全部…
         </button>
       </div>
-      <ul className="hide-scrollbar flex gap-2 overflow-x-auto pb-1">
+      <ul aria-label={CAPTION} className="hide-scrollbar flex gap-2 overflow-x-auto pb-1">
         {sources.map((source) => (
           <li key={source.imageId} className="group relative shrink-0">
             <button
@@ -41,7 +39,7 @@ export default function FrameSourceStrip({
               title={source.name || '填入首帧'}
               className={`block h-[62px] w-[62px] overflow-hidden rounded-lg border transition ${
                 source.imageId === selectedImageId
-                  ? 'border-blue-400 ring-2 ring-blue-400/50'
+                  ? 'border-blue-400 ring-2 ring-blue-400/30'
                   : 'border-gray-200 hover:border-blue-300 dark:border-white/[0.08]'
               }`}
             >

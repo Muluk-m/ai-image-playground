@@ -83,8 +83,12 @@ function chip(group: string, text: string): HTMLElement {
 }
 
 function stripButtons(): string[] {
-  const strip = document.querySelector('ul.hide-scrollbar')
+  const strip = document.querySelector('[aria-label="素材库 · 最近出图"]')
   return [...(strip?.querySelectorAll('button') ?? [])].map((button) => button.textContent ?? '')
+}
+
+function libraryAsset(name: string, imageId: string) {
+  return { id: `asset-${imageId}`, name, imageId, createdAt: 1, updatedAt: 1, lastUsedAt: 1 }
 }
 
 function submitButton(): HTMLElement {
@@ -216,11 +220,7 @@ describe('VideoComposer', () => {
   })
 
   it('素材条上的尾帧按钮跟着模型走', () => {
-    useLibraryStore.setState({
-      assets: [
-        { id: 'a1', name: '白底图', imageId: 'img-a', createdAt: 1, updatedAt: 1, lastUsedAt: 1 },
-      ],
-    })
+    useLibraryStore.setState({ assets: [libraryAsset('白底图', 'img-a')] })
     render()
     expect(stripButtons()).toEqual(['白底图'])
 
