@@ -1,6 +1,5 @@
 import { videoRateMultiplier } from '@image-playground/shared'
 import { useEffect, useMemo, useState } from 'react'
-import Pending from '../../../../components/Pending'
 import {
   CARD,
   FIELD,
@@ -13,7 +12,9 @@ import { durationModelOption } from '../../../../lib/channels/videoChannels'
 import { usePrivateSubmissionGuard } from '../../../../lib/privateOverlay'
 import { useStore } from '../../../../store'
 import PlayBadge from '../../components/PlayBadge'
+import RunningOverlay from '../../components/RunningOverlay'
 import VideoLightbox from '../../components/VideoLightbox'
+import { isVideoTaskActive } from '../../lib/feed'
 import { unsupportedDurationReason, useVideoStore } from '../../store'
 import { useStoryboardStore, wholeVideoFrameId } from '../store'
 import StoryboardShotCard from './StoryboardShotCard'
@@ -54,7 +55,7 @@ export default function StoryboardBoard() {
 
   const openVideoTask = openVideoTaskId ? (videoTasksById.get(openVideoTaskId) ?? null) : null
   const wholeTask = record.videoTaskId ? videoTasksById.get(record.videoTaskId) : undefined
-  const wholeRunning = wholeTask?.status === 'queued' || wholeTask?.status === 'running'
+  const wholeRunning = wholeTask !== undefined && isVideoTaskActive(wholeTask)
   const missingImages = record.shots.some((shot) => shot.imageTaskId === null)
   const wholeLabel = `生成整条视频 · ${record.totalSeconds} 秒${
     guard.estimatedCredits === undefined ? '' : ` · ${guard.estimatedCredits} 积分`
@@ -157,25 +158,7 @@ export default function StoryboardBoard() {
 
       {wholeTask && (
         <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
-          {wholeTask.status === 'done' ? (
-            <button
-              type="button"
-              onClick={() => setOpenVideoTaskId(wholeTask.id)}
-              aria-label="播放整条视频"
-              className="relative block h-16 w-28 overflow-hidden rounded-lg bg-gray-900"
-            >
-              {wholeTask.thumbnailDataUrl && (
-                <img
-                  src={wholeTask.thumbnailDataUrl}
-                  alt=""
-                  className="h-full w-full object-cover"
-                />
-              )}
-              <span className="absolute inset-0 grid place-items-center">
-                <PlayBadge />
-              </span>
-            </button>
-          ) : wholeTask.status === 'error' ? (
+          {wholeTask.status === 'error' ? (
             <>
               <span className="text-red-600 dark:text-red-400">{wholeTask.error}</span>
               <button
@@ -187,7 +170,28 @@ export default function StoryboardBoard() {
               </button>
             </>
           ) : (
-            <Pending label="整条视频生成中" startedAt={wholeTask.createdAt} />
+            <button
+              type="button"
+              disabled={wholeRunning}
+              onClick={() => setOpenVideoTaskId(wholeTask.id)}
+              aria-label="播放整条视频"
+              className="relative block aspect-video w-44 overflow-hidden rounded-lg bg-gray-900 disabled:cursor-default"
+            >
+              {wholeTask.thumbnailDataUrl && (
+                <img
+                  src={wholeTask.thumbnailDataUrl}
+                  alt=""
+                  className="h-full w-full object-cover"
+                />
+              )}
+              {wholeRunning ? (
+                <RunningOverlay task={wholeTask} />
+              ) : (
+                <span className="absolute inset-0 grid place-items-center">
+                  <PlayBadge />
+                </span>
+              )}
+            </button>
           )}
         </div>
       )}
