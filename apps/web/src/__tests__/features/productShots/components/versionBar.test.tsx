@@ -141,6 +141,24 @@ function doubleClick(element: Element) {
   })
 }
 
+function hover(element: Element) {
+  act(() => {
+    element.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
+  })
+}
+
+function unhover(element: Element) {
+  act(() => {
+    element.dispatchEvent(new MouseEvent('mouseout', { bubbles: true }))
+  })
+}
+
+function focus(element: Element) {
+  act(() => {
+    element.dispatchEvent(new FocusEvent('focusin', { bubbles: true }))
+  })
+}
+
 function rows(): HTMLElement[] {
   return [...document.querySelectorAll<HTMLElement>('[data-product-shots-version]')]
 }
@@ -157,9 +175,11 @@ function part(selector: string, scope: ParentNode = document): HTMLElement {
   return found
 }
 
-function buttonTitled(title: string, scope: ParentNode = document): HTMLButtonElement {
-  const found = [...scope.querySelectorAll('button')].find((b) => b.title === title)
-  if (!found) throw new Error(`no button titled ${title}`)
+function iconButton(label: string, scope: ParentNode = document): HTMLButtonElement {
+  const found = [...scope.querySelectorAll('button')].find(
+    (b) => b.getAttribute('aria-label') === label,
+  )
+  if (!found) throw new Error(`no icon button labelled ${label}`)
   return found
 }
 
@@ -215,37 +235,55 @@ describe('the version bar of the selected source image', () => {
   it('picks the version with the check and unpicks it on a second click', () => {
     render()
 
-    click(buttonTitled('用这版', row(0)))
+    click(iconButton('用这版', row(0)))
     expect(chosenVersionId()).toBe('v1')
 
-    click(buttonTitled('取消选用', row(0)))
+    click(iconButton('取消选用', row(0)))
     expect(chosenVersionId()).toBeUndefined()
   })
 
   it('names every icon action for the pointer and the screen reader', () => {
     render()
 
-    for (const title of ['查看方案', '看蒙版', '编辑蒙版', '用此蒙版重生成', '用这版', '下载']) {
-      const button = buttonTitled(title, row(0))
-      expect(button.getAttribute('aria-label')).toBe(title)
+    for (const label of ['查看方案', '看蒙版', '编辑蒙版', '用此蒙版重生成', '用这版', '下载']) {
+      const button = iconButton(label, row(0))
+      expect(button.getAttribute('aria-label')).toBe(label)
+      // 原生 title 和应用提示会叠着出，只留应用提示那一份。
+      expect(button.getAttribute('title')).toBeNull()
       expect(button.disabled).toBe(false)
     }
+  })
+
+  it('shows the app tooltip on hover and on keyboard focus', () => {
+    render()
+
+    const button = iconButton('看蒙版', row(0))
+    expect(document.body.textContent).not.toContain('看蒙版')
+
+    hover(button)
+    expect(document.body.textContent).toContain('看蒙版')
+
+    unhover(button)
+    expect(document.body.textContent).not.toContain('看蒙版')
+
+    focus(button)
+    expect(document.body.textContent).toContain('看蒙版')
   })
 
   it('reruns a failed version and regenerates a finished one on its own mask', () => {
     render()
 
-    click(buttonTitled('重跑', row(1)))
+    click(iconButton('重跑', row(1)))
     expect(retryVersion).toHaveBeenCalledWith('v2')
 
-    click(buttonTitled('用此蒙版重生成', row(0)))
+    click(iconButton('用此蒙版重生成', row(0)))
     expect(regenerateFromVersion).toHaveBeenCalledWith('v1', true)
   })
 
   it('downloads the version image at its own size', () => {
     render()
 
-    click(buttonTitled('下载', row(0)))
+    click(iconButton('下载', row(0)))
 
     expect(downloadImagesByIds).toHaveBeenCalledWith(['out-1'], expect.any(String))
   })
