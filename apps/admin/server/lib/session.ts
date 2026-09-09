@@ -1,6 +1,7 @@
 import { signToken, verifyToken } from '@image-playground/node-kit'
+import type { Cookie } from 'elysia'
 import { config } from '../config'
-import { SESSION_TTL_MS } from './constants'
+import { SESSION_COOKIE_NAME, SESSION_TTL_MS } from './constants'
 
 /**
  * Cookie 格式：`<expires_at_iso>.<hmac-sha256-base64url>`，payload 明文入 token（`text` 编码），
@@ -22,4 +23,25 @@ export function verifySession(cookieVal: string): {
   const expiresAt = new Date(iso)
   if (Number.isNaN(expiresAt.getTime()) || expiresAt.getTime() < Date.now()) return { valid: false }
   return { valid: true, expiresAt }
+}
+
+const SESSION_COOKIE_OPTIONS = {
+  httpOnly: true,
+  secure: true,
+  sameSite: 'lax',
+  path: '/',
+} as const
+
+type CookieJar = Record<string, Cookie<unknown>>
+
+export function setSessionCookie(cookie: CookieJar): void {
+  cookie[SESSION_COOKIE_NAME]!.set({
+    ...SESSION_COOKIE_OPTIONS,
+    value: signSession(),
+    maxAge: SESSION_TTL_MS / 1000,
+  })
+}
+
+export function clearSessionCookie(cookie: CookieJar): void {
+  cookie[SESSION_COOKIE_NAME]!.set({ ...SESSION_COOKIE_OPTIONS, value: '', maxAge: 0 })
 }

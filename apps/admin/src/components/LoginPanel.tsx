@@ -1,10 +1,9 @@
 import { useQuery } from '@tanstack/react-query'
-
+import { LoginCard } from '@/components/LoginCard'
 import { LoginForm } from '@/components/LoginForm'
 import { Button } from '@/components/ui/button'
 import { loginMethodsQueryOptions } from '@/lib/admin-session'
-
-export type LoginErrorCode = 'not_allowed' | 'oauth_failed'
+import type { LoginErrorCode } from '../../contracts'
 
 export interface LoginPanelProps {
   redirectTo?: string
@@ -29,19 +28,10 @@ export function LoginPanel({ redirectTo, error, onSuccess }: LoginPanelProps) {
     : '/api/auth/google'
 
   return (
-    <div className="w-full max-w-sm space-y-4 rounded-lg border bg-card p-6 shadow-sm">
-      <div className="space-y-1">
-        <h1 className="text-lg font-semibold">登录</h1>
-        <p className="text-xs text-muted-foreground">image-playground · admin</p>
-      </div>
-      {error ? (
-        <p role="alert" className="text-xs text-destructive">
-          {ERROR_TEXT[error]}
-        </p>
-      ) : null}
+    <LoginCard error={error ? ERROR_TEXT[error] : null}>
       <Button asChild className="w-full">
         <a href={href}>使用 Google 登录</a>
       </Button>
-    </div>
+    </LoginCard>
   )
 }

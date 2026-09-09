@@ -1,10 +1,9 @@
 import { timingSafeEqual } from 'node:crypto'
 import { Elysia, t } from 'elysia'
 import { config, getAdminCapabilities } from '../config'
-import { SESSION_COOKIE_NAME, SESSION_TTL_MS } from '../lib/constants'
 import { clientKey, loginLimiter } from '../lib/login-rate-limit'
 import { requireAuth } from '../lib/middleware'
-import { signSession } from '../lib/session'
+import { clearSessionCookie, setSessionCookie } from '../lib/session'
 
 function eqPassword(a: string, b: string): boolean {
   const ab = Buffer.from(a)
@@ -17,7 +16,7 @@ export const authRoutes = new Elysia()
   .post(
     '/api/login',
     ({ body, cookie, request, set }) => {
-      if (!config.passwordLoginEnabled) {
+      if (config.google.enabled) {
         set.status = 403
         return { error: 'password_login_disabled' }
       }
@@ -32,16 +31,7 @@ export const authRoutes = new Elysia()
         return { error: locked ? 'rate_limited' : 'invalid_password' }
       }
       loginLimiter.recordSuccess(key)
-
-      const value = signSession()
-      cookie[SESSION_COOKIE_NAME].set({
-        value,
-        httpOnly: true,
-        secure: true,
-        sameSite: 'lax',
-        path: '/',
-        maxAge: SESSION_TTL_MS / 1000,
-      })
+      setSessionCookie(cookie)
       return { ok: true }
     },
     {
@@ -53,18 +43,11 @@ export const authRoutes = new Elysia()
   // Public: the login page has no session yet and must know which button to render.
   .get('/api/auth/methods', () => ({
     google_login: config.google.enabled,
-    password_login: config.passwordLoginEnabled,
+    password_login: !config.google.enabled,
   }))
   .use(requireAuth)
   .post('/api/logout', ({ cookie }) => {
-    cookie[SESSION_COOKIE_NAME].set({
-      value: '',
-      httpOnly: true,
-      secure: true,
-      sameSite: 'lax',
-      path: '/',
-      maxAge: 0,
-    })
+    clearSessionCookie(cookie)
     return { ok: true }
   })
   .get('/api/me', () => ({
