@@ -177,7 +177,7 @@ function VersionRow({
             </span>
           }
         />
-        <VersionTags version={version} wrap={false} />
+        <VersionTags version={version} />
 
         {changesBackground(version.mode) && version.plan && (
           <button
