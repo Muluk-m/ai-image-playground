@@ -975,12 +975,12 @@ describe('the version list in the centre column', () => {
     expect(versionRow().children).toHaveLength(3)
   })
 
-  it('keeps the chips on one line and the action label whole', async () => {
+  it('wraps the chips instead of squeezing them and keeps the action label whole', async () => {
     await withOneVersion()
 
     const tags = versionRow().querySelector<HTMLElement>('[data-product-shots-version-tags]')
-    expect(tags?.className).toContain('whitespace-nowrap')
-    expect(tags?.className).not.toContain('flex-wrap')
+    expect(tags?.className).toContain('flex-wrap')
+    expect(tags?.className).not.toContain('whitespace-nowrap')
 
     const title = versionRow().querySelector<HTMLElement>('[data-product-shots-version-title]')
     const action = [...(title?.children ?? [])].find((item) => item.textContent === '换背景')

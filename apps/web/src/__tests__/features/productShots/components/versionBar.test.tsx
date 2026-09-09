@@ -53,6 +53,7 @@ function version(id: string, patch: Partial<ProductShotVersion> = {}): ProductSh
     mattePreviewImageId: `matte-${id}`,
     maskImageId: `mask-${id}`,
     createdAt: 1,
+    ...patch,
   }
 }
 
@@ -188,7 +189,7 @@ function chosenVersionId(): string | undefined {
 }
 
 describe('the version bar of the selected source image', () => {
-  it('keeps the title line and the tag line from wrapping', () => {
+  it('keeps the title line from wrapping and lets the tag line wrap', () => {
     render()
 
     const title = part('[data-product-shots-version-title]', row(0))
@@ -197,9 +198,36 @@ describe('the version bar of the selected source image', () => {
     expect(title.textContent).toContain('52s')
     expect(title.textContent).not.toContain('完成')
     expect(title.className).toContain('whitespace-nowrap')
-    expect(part('[data-product-shots-version-tags]', row(0)).className).toContain(
-      'whitespace-nowrap',
-    )
+    expect(part('[data-product-shots-version-tags]', row(0)).className).toContain('flex-wrap')
+  })
+
+  it('spells the matte failure out instead of squeezing it to one glyph', () => {
+    useProductShotsStore.setState((state) => ({
+      draft: {
+        ...state.draft,
+        images: [
+          {
+            imageId: 'src-1',
+            versions: [
+              version('v1', {
+                masked: false,
+                matte: { ok: false, reason: 'failed' },
+                lowResSource: true,
+              }),
+            ],
+          },
+        ],
+      },
+    }))
+    render()
+
+    const tags = part('[data-product-shots-version-tags]', row(0))
+    expect(tags.textContent).toContain('未抠图 · 运行错误')
+    expect(tags.textContent).toContain('源图分辨率低')
+    // 挤扁的根因是标签会被压到内容以下，短标签一律不许收缩。
+    const [matte, lowRes] = tags.children
+    expect(matte?.getAttribute('title')).toBe('未抠图 · 运行错误')
+    expect(lowRes?.className).toContain('shrink-0')
   })
 
   it('folds the plan sentence to two lines and unfolds it on click', () => {
