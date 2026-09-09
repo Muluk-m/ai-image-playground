@@ -474,6 +474,8 @@ Stack: React 19 + Vite on the frontend · tldraw for the canvas · Bun + Elysia 
 
 When the upstream is a sub2api gateway with async image tasks enabled, set `UPSTREAM_ASYNC_IMAGE_TASKS=true` (or `defaults.asyncTasks` on a direct channel) so the worker submits and polls instead of holding a long connection — a restart then resumes polling rather than paying for the image twice. There is no silent fallback: **turn our declaration off before disabling the switch upstream**, or every submit fails with a 404.
 
+If the gateway's native GPT Image 2 adapter selects an unavailable main model, set `UPSTREAM_IMAGE_RESPONSES_MODEL=gpt-6-astra`. New gateway `gpt-image-2` requests then use `/v1/responses` with that main model and the `gpt-image-2` image tool, including references, masks and output controls. This takes precedence over the async-image setting only for these new requests; existing upstream task IDs still resume their original polling path. Leave it empty for native Images behavior. Responses streams have no resumable image-task ID: interruption or timeout is reported as an unknown result rather than automatically generating and charging again.
+
 ## 🙏 Credits
 
 Forked from [CookSleep/gpt_image_playground](https://github.com/CookSleep/gpt_image_playground) (MIT), keeping the original UX (reference images + mask editing, waterfall history, inspiration library, quick model picker, effective-parameter comparison). This fork adds native Gemini protocol support, a long-task queue mode, an optional backend, and the infinite-canvas create mode.

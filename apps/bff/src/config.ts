@@ -104,6 +104,8 @@ export const config = {
      * 那些 channel 的 baseUrl 只是名义地址，网关是哪一家只有 env 知道（见 apps/bff/CLAUDE.md）。
      */
     asyncImageTasks: booleanEnv('UPSTREAM_ASYNC_IMAGE_TASKS', false),
+    /** GPT Image 2 的 Responses 主模型；留空保留网关原生 Images 协议。 */
+    imageResponsesModel: env('UPSTREAM_IMAGE_RESPONSES_MODEL', ''),
   },
   remix: {
     /** 复刻模式的视觉分析模型。网关模型列表会变，换模型只改 env。 */
