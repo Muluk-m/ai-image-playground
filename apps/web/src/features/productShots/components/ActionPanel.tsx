@@ -18,6 +18,7 @@ import { ACTION_LABELS, type ProductShotAction, REMIX_LEVEL_LABELS } from '../li
 import { sourceMatteNotice } from '../lib/matteBadge'
 import { MATTE_FAILED_REASON, matteGateReason } from '../lib/matteGate'
 import { maskSideFor } from '../lib/mode'
+import { productGateReason, usesProductAsset } from '../lib/productGate'
 import { maskSupported } from '../lib/sourceMatte'
 import { useProductShotsStore } from '../store'
 import { PRODUCT_SHOT_STAGE_LABELS, VERSIONS_PER_IMAGE_CHOICES } from '../types'
@@ -31,13 +32,13 @@ const RETRY_MATTE = '重试抠图'
 const ACTION_BUTTON =
   'rounded-lg bg-blue-500 px-1 py-1.5 text-xs font-medium leading-tight text-white transition hover:bg-blue-600 disabled:opacity-50'
 
-const ACTIONS = (
-  [
-    { mode: 'background', needsProduct: false },
-    { mode: 'replace-product', needsProduct: true },
-    { mode: 'remix', needsProduct: true },
-  ] satisfies Array<{ mode: ProductShotAction; needsProduct: boolean }>
-).map((action) => ({ ...action, needsMatte: maskSideFor(action.mode) !== null }))
+const ACTIONS = (['background', 'replace-product', 'remix'] satisfies ProductShotAction[]).map(
+  (mode) => ({
+    mode,
+    needsProduct: usesProductAsset(mode),
+    needsMatte: maskSideFor(mode) !== null,
+  }),
+)
 
 export default function ActionPanel() {
   const preference = useProductShotsStore((s) => s.draft.preference)
@@ -72,6 +73,12 @@ export default function ActionPanel() {
   const matteBlocked = selectedImageId
     ? matteGateReason({ matte, matting, maskSupported: maskable })
     : null
+  const productBlocked = productGateReason({
+    needsProduct: true,
+    productAssets,
+    assets,
+    sourceImageId: selectedImageId,
+  })
 
   return (
     <section data-product-shots-column="actions" className={`${CARD} flex flex-col gap-4`}>
@@ -168,7 +175,7 @@ export default function ActionPanel() {
               disabled={
                 busy ||
                 !selectedImageId ||
-                (action.needsProduct && !hasProduct) ||
+                (action.needsProduct && (!hasProduct || productBlocked !== null)) ||
                 (action.needsMatte && matteBlocked !== null)
               }
               className={ACTION_BUTTON}
@@ -201,6 +208,14 @@ export default function ActionPanel() {
         {!hasProduct && (
           <p data-product-shots-action-reason className={NOTICE}>
             {NEEDS_PRODUCT}
+          </p>
+        )}
+        {productBlocked && (
+          <p data-product-shots-action-reason className={`${NOTICE} flex items-center gap-2`}>
+            {productBlocked}
+            <button type="button" onClick={openProductPicker} className={GHOST_BUTTON}>
+              {PICK_PRODUCT}
+            </button>
           </p>
         )}
         {swapNotice && <p className={NOTICE}>{swapNotice}</p>}
