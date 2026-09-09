@@ -65,7 +65,7 @@ const ANGLE_KEYWORDS: Array<[ProductAngle, string[]]> = [
 const DEFAULT_ANGLE: ProductAngle = 'three-quarter'
 
 /** 没写角度就返回 null：机位回落 3/4 侧，素材名回落正面，两处口径不同。 */
-export function angleFromText(text: string): ProductAngle | null {
+function angleFromText(text: string): ProductAngle | null {
   const lower = text.toLowerCase()
   for (const [angle, keywords] of ANGLE_KEYWORDS) {
     if (keywords.some((keyword) => lower.includes(keyword))) return angle

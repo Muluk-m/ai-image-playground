@@ -25,6 +25,7 @@ const storeImageFromFile = vi.hoisted(() =>
   vi.fn(async (file: File) => ({ id: `image-${file.name}`, dataUrl: `data:,${file.name}` })),
 )
 const ensureImageCached = vi.hoisted(() => vi.fn())
+const ensureAssetImage = vi.hoisted(() => vi.fn(async (_imageId: string) => true))
 const submitPrepared = vi.hoisted(() => vi.fn())
 const requestBackgroundPlan = vi.hoisted(() => vi.fn())
 const requestSceneScan = vi.hoisted(() => vi.fn())
@@ -82,6 +83,8 @@ vi.mock('../../../lib/productMatte', async (importOriginal) => ({
 }))
 
 vi.mock('../../../lib/eraseProduct', () => ({ eraseProductArea }))
+
+vi.mock('../../../lib/sync/assetImages', () => ({ ensureAssetImage }))
 
 vi.mock('../../../lib/canvasImage', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../lib/canvasImage')>()),
@@ -164,6 +167,7 @@ beforeEach(() => {
   useProductShotsStore.getState().startNewJob()
   isClientCapabilityEnabled.mockImplementation(browserOnlyCapabilities)
   ensureImageCached.mockImplementation(async (id: string) => `data:image/png;base64,${id}`)
+  ensureAssetImage.mockResolvedValue(true)
   submitPrepared.mockImplementation(async () => [`task-${submitPrepared.mock.calls.length}`])
   requestBackgroundPlan.mockResolvedValue(PLAN)
   requestSceneScan.mockResolvedValue('photo')
@@ -242,26 +246,14 @@ describe('putting original images into a job', () => {
 })
 
 describe('taking a library asset as the original', () => {
-  it('makes the picked asset my product while none is picked', async () => {
+  it('never takes it as my product too: that would send the same image twice', async () => {
     await useProductShotsStore.getState().addImagesFromAssets(['a-side'])
 
-    expect(useProductShotsStore.getState().draft.productAssets).toEqual([
-      { assetId: 'a-side', angle: 'side' },
-    ])
-    expect(useStore.getState().showToast).toHaveBeenCalledWith(
-      '已把「侧面」设为我的产品，可在上方更换',
+    expect(useProductShotsStore.getState().draft.productAssets).toEqual([])
+    expect(useStore.getState().showToast).not.toHaveBeenCalledWith(
+      expect.stringContaining('设为我的产品'),
       'success',
     )
-  })
-
-  it('registers an asset whose name says no angle as the front one', async () => {
-    useLibraryStore.setState({ assets: [asset('a-plain', '主图白底', 'asset-plain')] })
-
-    await useProductShotsStore.getState().addImagesFromAssets(['a-plain'])
-
-    expect(useProductShotsStore.getState().draft.productAssets).toEqual([
-      { assetId: 'a-plain', angle: 'front' },
-    ])
   })
 
   it('leaves the product alone once one is picked', async () => {
@@ -1440,6 +1432,107 @@ describe('swapping the product for one of my assets', () => {
       { assetId: 'a-front', angle: 'front' },
       { assetId: 'a-side', angle: 'three-quarter' },
     ])
+  })
+})
+
+describe('refusing a swap whose product is the original itself', () => {
+  /** 用户把原图那一张素材选成了产品：提交出去图1图2一模一样，模型只会把原图还回来。 */
+  async function jobWhoseProductIsTheOriginal(): Promise<string> {
+    const imageId = await jobWithOneImage()
+    useLibraryStore.setState({ assets: [asset('a-same', '同图', imageId)] })
+    useProductShotsStore.getState().toggleProductAsset('a-same')
+    return imageId
+  }
+
+  it('turns the click away before asking for a plan', async () => {
+    await jobWhoseProductIsTheOriginal()
+
+    await useProductShotsStore.getState().runAction('replace-product')
+
+    expect(requestBackgroundPlan).not.toHaveBeenCalled()
+    expect(submitPrepared).not.toHaveBeenCalled()
+    expect(useStore.getState().showToast).toHaveBeenCalledWith('产品素材与原图相同', 'error')
+  })
+
+  it('turns the remix away as well', async () => {
+    await jobWhoseProductIsTheOriginal()
+
+    await useProductShotsStore.getState().runAction('remix')
+
+    expect(analyzeCompetitorImages).not.toHaveBeenCalled()
+    expect(submitPrepared).not.toHaveBeenCalled()
+  })
+
+  it('lets a plain background swap through: it takes no product', async () => {
+    await jobWhoseProductIsTheOriginal()
+
+    await useProductShotsStore.getState().runAction('background')
+
+    expect(submitPrepared).toHaveBeenCalledTimes(1)
+  })
+
+  it('turns the retry of an earlier version away', async () => {
+    const imageId = await jobWithOneImage()
+    useProductShotsStore.getState().toggleProductAsset('a-side')
+    await useProductShotsStore.getState().runAction('replace-product')
+    const [version] = useProductShotsStore.getState().draft.images[0].versions
+
+    useProductShotsStore.getState().toggleProductAsset('a-side')
+    useLibraryStore.setState({ assets: [asset('a-same', '同图', imageId)] })
+    useProductShotsStore.getState().toggleProductAsset('a-same')
+    await useProductShotsStore.getState().retryVersion(version.id)
+
+    expect(submitPrepared).toHaveBeenCalledTimes(1)
+    expect(useStore.getState().showToast).toHaveBeenCalledWith('产品素材与原图相同', 'error')
+  })
+
+  it('marks the one image of the batch the product is a copy of and carries on', async () => {
+    await useProductShotsStore
+      .getState()
+      .importFiles([image('主图.png'), image('细节.png'), image('场景.png')])
+    useLibraryStore.setState({ assets: [asset('a-detail', '细节', 'image-细节.png')] })
+    useProductShotsStore.getState().toggleProductAsset('a-detail')
+    await useProductShotsStore.getState().runAction('replace-product')
+
+    await useProductShotsStore.getState().runBatch()
+
+    const { batch, draft } = useProductShotsStore.getState()
+    expect(batch?.items).toContainEqual({
+      imageId: 'image-细节.png',
+      state: 'error',
+      error: '产品素材与原图相同',
+    })
+    expect(draft.images[1].versions).toEqual([])
+    expect(draft.images[2].versions).toHaveLength(1)
+  })
+
+  it('says so when the picked product asset is no longer in the library', async () => {
+    await jobWithOneImage()
+    useProductShotsStore.getState().toggleProductAsset('a-front')
+    useLibraryStore.setState({ assets: [asset('a-side', '侧面', 'asset-side')] })
+
+    await useProductShotsStore.getState().runAction('replace-product')
+
+    expect(submitPrepared).not.toHaveBeenCalled()
+    expect(useStore.getState().showToast).toHaveBeenCalledWith('产品素材已丢失', 'error')
+  })
+
+  it('downloads an asset image synced from another device before reading it', async () => {
+    let downloaded = false
+    ensureAssetImage.mockImplementation(async (imageId: string) => {
+      downloaded = imageId === 'asset-side'
+      return true
+    })
+    ensureImageCached.mockImplementation(async (imageId: string) =>
+      imageId === 'asset-side' && !downloaded ? null : `data:image/png;base64,${imageId}`,
+    )
+    await jobWithOneImage()
+    useProductShotsStore.getState().toggleProductAsset('a-side')
+
+    await useProductShotsStore.getState().runAction('replace-product')
+
+    expect(ensureAssetImage).toHaveBeenCalledWith('asset-side')
+    expect(submitPrepared.mock.calls[0][0].inputImages[1].id).toBe('asset-side')
   })
 })
 
