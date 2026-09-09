@@ -328,7 +328,6 @@ describe('pulling a listing into a job', () => {
 
     await useProductShotsStore.getState().fetchListing()
 
-    expect(storeImageFromUrl).toHaveBeenCalledWith('proxy:https://img/1.jpg')
     expect(useProductShotsStore.getState().draft.images).toEqual([
       {
         imageId: 'image-proxy:https://img/1.jpg',

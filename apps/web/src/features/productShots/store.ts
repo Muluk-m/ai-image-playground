@@ -9,6 +9,7 @@ import {
 import { create } from 'zustand'
 import { analyzeCompetitorImages } from '../../lib/analyzeClient'
 import { getActiveApiProfile } from '../../lib/apiProfiles'
+import { authenticatedBffFetch } from '../../lib/authClient'
 import { getImageDimensions } from '../../lib/canvasImage'
 import { modelSupportsNativeMask } from '../../lib/channels/profileSelectors'
 import { getPublicChannels } from '../../lib/channels/publicChannels'
@@ -330,7 +331,8 @@ export const useProductShotsStore = create<ProductShotsState>((set, get) => ({
       const listing = await fetchListingImages(url)
       const added = await Promise.all(
         listing.images.map(async (sourceUrl) => ({
-          imageId: (await storeImageFromUrl(listingImageProxyUrl(sourceUrl))).id,
+          imageId: (await storeImageFromUrl(listingImageProxyUrl(sourceUrl), authenticatedBffFetch))
+            .id,
           sourceUrl,
           versions: [],
         })),

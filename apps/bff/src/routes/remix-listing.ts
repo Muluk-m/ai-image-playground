@@ -7,6 +7,7 @@ import {
 import { capabilityUnavailable, isCapabilityEnabled } from '../lib/capabilities'
 import { fetchListingHtml, fetchListingImage } from '../lib/listingFetch'
 import { log } from '../lib/logger'
+import { requireUserOrService } from '../lib/user-auth'
 
 export const remixListingRoutes = new Elysia()
   .onError({ as: 'scoped' }, ({ code, error, set }) => {
@@ -18,6 +19,7 @@ export const remixListingRoutes = new Elysia()
   .onBeforeHandle(() => {
     if (!isCapabilityEnabled('remix:listing')) return capabilityUnavailable('remix:listing')
   })
+  .use(requireUserOrService)
   .post(
     '/api/remix/listing',
     async ({ body, status }) => {

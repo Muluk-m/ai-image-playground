@@ -8,7 +8,10 @@ process.env.UPSTREAM_API_KEY = 'test'
 process.env.INTERNAL_API_TOKEN = 'fixture-service-credential-alpha'
 process.env.OPERATOR_CONFIG_FILE = resolve(import.meta.dir, '../remix-operator-config.json')
 
+// Load configuration only after the test deployment environment is set.
 const { app } = await import('../../app')
+const { config } = await import('../../config')
+const originalOperator = config.operator
 const { setListingFetchForTesting } = await import('../../lib/listingFetch')
 type TestFetch = NonNullable<Parameters<typeof setListingFetchForTesting>[0]>
 
@@ -30,22 +33,25 @@ function stubFetch(handler: (url: string, init: { headers?: Record<string, strin
   return calls
 }
 
-function post(url: unknown): Promise<Response> {
+function post(url: unknown, headers: Record<string, string> = {}): Promise<Response> {
   return app.handle(
     new Request('http://localhost/api/remix/listing', {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...headers },
       body: JSON.stringify({ url }),
     }),
   )
 }
 
-function getImage(url: string): Promise<Response> {
-  return app.handle(new Request(`http://localhost/api/remix/image?url=${encodeURIComponent(url)}`))
+function getImage(url: string, headers: Record<string, string> = {}): Promise<Response> {
+  return app.handle(
+    new Request(`http://localhost/api/remix/image?url=${encodeURIComponent(url)}`, { headers }),
+  )
 }
 
 afterEach(() => {
   setListingFetchForTesting()
+  config.operator = originalOperator
 })
 
 describe('POST /api/remix/listing', () => {
@@ -151,5 +157,64 @@ describe('GET /api/remix/image', () => {
       const notProxyable = await getImage('https://m.media-amazon.com/images/I/71aaaaaaaaL.jpg')
       expect(notProxyable.status).toBe(502)
     }
+  })
+})
+
+describe('listing fetch authorization', () => {
+  const imageUrl = 'https://m.media-amazon.com/images/I/71aaaaaaaaL.jpg'
+  const listingUrl = 'https://www.amazon.com/dp/B0FVLNS696'
+
+  function enableLogin() {
+    config.operator = {
+      ...originalOperator,
+      capabilities: { ...originalOperator.capabilities, 'accounts:login': true },
+    }
+  }
+
+  it('denies anonymous listing and image requests before any external fetch', async () => {
+    enableLogin()
+    const calls = stubFetch(() => new Response(listingHtml))
+
+    for (const response of [await post(listingUrl), await getImage(imageUrl)]) {
+      expect(response.status).toBe(401)
+      expect(await response.json()).toEqual({ error: 'unauthorized' })
+    }
+    expect(calls).toHaveLength(0)
+  })
+
+  it('allows the service credential to fetch both resources', async () => {
+    enableLogin()
+    const bytes = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])
+    stubFetch((url) =>
+      url === imageUrl
+        ? new Response(bytes, { headers: { 'content-type': 'image/png' } })
+        : new Response(listingHtml, { headers: { 'content-type': 'text/html' } }),
+    )
+    const headers = { authorization: 'Bearer fixture-service-credential-alpha' }
+
+    const listing = await post(listingUrl, headers)
+    expect(listing.status).toBe(200)
+    expect(await listing.json()).toMatchObject({ asin: 'B0FVLNS696' })
+    const image = await getImage(imageUrl, headers)
+    expect(image.status).toBe(200)
+    expect(new Uint8Array(await image.arrayBuffer())).toEqual(bytes)
+  })
+
+  it('does not let a service credential bypass a disabled listing capability', async () => {
+    config.operator = {
+      ...originalOperator,
+      capabilities: { ...originalOperator.capabilities, 'remix:listing': false },
+    }
+    const calls = stubFetch(() => new Response(listingHtml))
+    const headers = { authorization: 'Bearer fixture-service-credential-alpha' }
+
+    for (const response of [await post(listingUrl, headers), await getImage(imageUrl, headers)]) {
+      expect(response.status).toBe(404)
+      expect(await response.json()).toEqual({
+        error: 'capability_unavailable',
+        capability: 'remix:listing',
+      })
+    }
+    expect(calls).toHaveLength(0)
   })
 })
