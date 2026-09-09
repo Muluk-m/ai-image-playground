@@ -1,10 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { type MatteReadiness, matteGate } from '../../../../features/productShots/lib/matteGate'
-import {
-  MATTE_FAILURE_LABELS,
-  type MatteFailureCause,
-  type SourceMatte,
-} from '../../../../features/productShots/types'
+import { MATTE_FAILURE_LABELS, type SourceMatte } from '../../../../features/productShots/types'
 
 const READY: SourceMatte = {
   status: 'ready',
@@ -64,17 +60,10 @@ describe('matteGate', () => {
 })
 
 describe('MATTE_FAILURE_LABELS', () => {
-  it('每个原因都有一句标签', () => {
-    const causes: Array<Exclude<MatteFailureCause, 'box-mismatch'>> = [
-      'timeout',
-      'unsupported',
-      'failed',
-      'server',
-      'too-small',
-      'too-large',
-    ]
+  it('每个原因都有一句自己的标签', () => {
+    const labels = Object.values(MATTE_FAILURE_LABELS)
 
-    expect(Object.keys(MATTE_FAILURE_LABELS).sort()).toEqual([...causes].sort())
-    for (const cause of causes) expect(MATTE_FAILURE_LABELS[cause]).not.toBe('')
+    expect(labels.filter((label) => label !== '')).toEqual(labels)
+    expect(new Set(labels).size).toBe(labels.length)
   })
 })

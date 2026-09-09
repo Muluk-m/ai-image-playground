@@ -1,12 +1,10 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { logMatteFailure } from '../../../lib/productMatte/matteLog'
-
-const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-
-afterEach(() => warn.mockClear())
+import { silenceMatteLog } from '../../helpers/matteLog'
 
 describe('logMatteFailure', () => {
   it('一条日志带后端、原因与耗时，占比只有质量判定那一路才有', () => {
+    const warn = silenceMatteLog()
     logMatteFailure({
       backend: 'wasm-u2netp',
       reason: 'too-small',
@@ -20,6 +18,7 @@ describe('logMatteFailure', () => {
   })
 
   it('不把图片抄进日志', () => {
+    const warn = silenceMatteLog()
     logMatteFailure({
       backend: 'cloudflare-birefnet',
       reason: 'server',
@@ -33,6 +32,7 @@ describe('logMatteFailure', () => {
   })
 
   it('过长的上游报错截断，没有 error 就不写 message', () => {
+    const warn = silenceMatteLog()
     logMatteFailure({ backend: 'wasm-u2netp', reason: 'failed', elapsedMs: 5 })
     logMatteFailure({
       backend: 'wasm-u2netp',

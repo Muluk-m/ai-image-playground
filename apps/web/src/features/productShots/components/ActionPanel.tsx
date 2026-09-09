@@ -21,13 +21,12 @@ import { maskSideFor } from '../lib/mode'
 import { productGateReason, usesProductAsset } from '../lib/productGate'
 import { maskSupported } from '../lib/sourceMatte'
 import { useProductShotsStore } from '../store'
-import { PRODUCT_SHOT_STAGE_LABELS, VERSIONS_PER_IMAGE_CHOICES } from '../types'
+import { EDIT_MASK_LABEL, PRODUCT_SHOT_STAGE_LABELS, VERSIONS_PER_IMAGE_CHOICES } from '../types'
 
 const PICK_PRODUCT = '选产品素材'
 const NO_PRODUCT = '产品素材：未选'
 const NEEDS_PRODUCT = '换产品与借创意重做需要先选产品素材'
 const RETRY_MATTE = '重试抠图'
-const EDIT_MASK = '改蒙版'
 
 /** 三个动作挤在一排里，PRIMARY_BUTTON 的字号与内边距放不下最长的那个标签。 */
 const ACTION_BUTTON =
@@ -211,7 +210,7 @@ export default function ActionPanel() {
                 onClick={() => void editSourceMask(selectedImageId)}
                 className={GHOST_BUTTON}
               >
-                {EDIT_MASK}
+                {EDIT_MASK_LABEL}
               </button>
             )}
           </p>

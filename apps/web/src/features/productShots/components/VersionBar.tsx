@@ -11,7 +11,7 @@ import { changesBackground } from '../lib/mode'
 import { DIAGRAM_LABEL, isDiagram } from '../lib/scene'
 import { VERSION_STATE_LABELS, type VersionProgress, versionProgress } from '../lib/versionProgress'
 import { useProductShotsStore } from '../store'
-import type { ProductShotVersion } from '../types'
+import { matteEditable, type ProductShotVersion } from '../types'
 import IconButton from './IconButton'
 import MattedThumb from './MattedThumb'
 import {
@@ -61,6 +61,7 @@ export default function VersionBar() {
               key={row.version.id}
               version={row.version}
               imageId={selected.imageId}
+              matteEditable={matteEditable(selected.sourceMatte)}
               matteReady={selected.sourceMatte?.status === 'ready'}
               index={index}
               progress={row.progress}
@@ -86,6 +87,7 @@ function statusLabel(progress: VersionProgress): string {
 function VersionRow({
   version,
   imageId,
+  matteEditable,
   matteReady,
   index,
   progress,
@@ -96,6 +98,8 @@ function VersionRow({
   /** 这一版的原图，看蒙版时把预览盖回它上面。 */
   imageId: string
   /** 改蒙版与重生成用的是原图身上那份，不是这一版的快照。 */
+  matteEditable: boolean
+  /** 占比不对的那份只能改，不能拿去重生成。 */
   matteReady: boolean
   index: number
   progress: VersionProgress
@@ -225,23 +229,23 @@ function VersionRow({
             <MatteIcon className="h-4 w-4" />
           </IconButton>
         )}
+        {matteEditable && (
+          <IconButton
+            onClick={() => void editSourceMask(imageId)}
+            label="编辑蒙版"
+            className={VERSION_ICON_BUTTON}
+          >
+            <EditIcon className="h-4 w-4" />
+          </IconButton>
+        )}
         {matteReady && (
-          <>
-            <IconButton
-              onClick={() => void editSourceMask(imageId)}
-              label="编辑蒙版"
-              className={VERSION_ICON_BUTTON}
-            >
-              <EditIcon className="h-4 w-4" />
-            </IconButton>
-            <IconButton
-              onClick={() => void regenerateFromVersion(version.id, true)}
-              label="用此蒙版重生成"
-              className={VERSION_ICON_BUTTON}
-            >
-              <MaskRetryIcon className="h-4 w-4" />
-            </IconButton>
-          </>
+          <IconButton
+            onClick={() => void regenerateFromVersion(version.id, true)}
+            label="用此蒙版重生成"
+            className={VERSION_ICON_BUTTON}
+          >
+            <MaskRetryIcon className="h-4 w-4" />
+          </IconButton>
         )}
         {first && (
           <>

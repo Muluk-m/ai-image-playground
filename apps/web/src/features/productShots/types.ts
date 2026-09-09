@@ -35,6 +35,8 @@ export type MatteFailureCause =
   | 'server'
   | 'box-mismatch'
 
+export const EDIT_MASK_LABEL = '改蒙版'
+
 /** box-mismatch 自带一句「蒙版不可靠」，不在这张表里。 */
 export const MATTE_FAILURE_LABELS: Record<Exclude<MatteFailureCause, 'box-mismatch'>, string> = {
   timeout: '超时',
@@ -43,6 +45,11 @@ export const MATTE_FAILURE_LABELS: Record<Exclude<MatteFailureCause, 'box-mismat
   server: '服务端失败',
   'too-small': '占比过小',
   'too-large': '占比过大',
+}
+
+/** 蒙版编辑器与门禁都问这一条：抠出来的 alpha 还在不在。 */
+export function matteEditable(matte: SourceMatte | undefined): matte is MatteWithAlpha {
+  return matte !== undefined && matte.status !== 'failed'
 }
 
 /** 抠图这一段的结果：成功记抠出它的后端，失败记原因。 */
@@ -74,6 +81,8 @@ export type SourceMatte =
   | { status: 'failed'; reason: MatteFailureCause; previewImageId: string | null }
   | (MatteAlpha & { status: 'unusable'; reason: MatteCoverageReason })
   | (MatteAlpha & { status: 'ready' })
+
+export type MatteWithAlpha = Extract<SourceMatte, { status: 'ready' | 'unusable' }>
 
 /** 一次动作的产出。`masked` 为假是蒙版失败的提示词版，产品像素没被锁住。 */
 export interface ProductShotVersion {
