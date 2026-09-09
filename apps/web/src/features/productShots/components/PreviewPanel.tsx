@@ -113,7 +113,7 @@ export default function PreviewPanel() {
             badge={sourceMatteBadge(matte, matting)}
             className="px-1.5 py-0.5 text-[11px] leading-tight"
           />
-          {matte?.status === 'ready' && (
+          {matte && matte.status !== 'failed' && (
             <button
               type="button"
               onClick={() => void editSourceMask(selected.imageId)}

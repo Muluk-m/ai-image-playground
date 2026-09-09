@@ -22,7 +22,9 @@ function version(masked: boolean, matte?: MatteOutcome): ProductShotVersion {
   }
 }
 
-function ready(patch: Partial<Extract<SourceMatte, { status: 'ready' }>> = {}): SourceMatte {
+function ready(
+  patch: Partial<Extract<SourceMatte, { status: 'ready' }>> = {},
+): Extract<SourceMatte, { status: 'ready' }> {
   return {
     status: 'ready',
     backend: 'wasm-u2netp',
@@ -59,6 +61,14 @@ describe('matteBadge', () => {
     })
     expect(matteBadge(version(false, { ok: false, reason: 'failed' }))).toEqual({
       text: '未抠图 · 运行错误',
+      tone: 'warn',
+    })
+    expect(matteBadge(version(false, { ok: false, reason: 'server' }))).toEqual({
+      text: '未抠图 · 服务端失败',
+      tone: 'warn',
+    })
+    expect(matteBadge(version(false, { ok: false, reason: 'too-small' }))).toEqual({
+      text: '未抠图 · 占比过小',
       tone: 'warn',
     })
   })
@@ -98,8 +108,14 @@ describe('sourceMatteBadge', () => {
     })
   })
 
-  it('抠不出来报未抠，抠错对象报蒙版不可靠', () => {
+  it('抠不出来报未抠，占比不对报占比，抠错对象报蒙版不可靠', () => {
     expect(sourceMatteBadge(FAILED, false)).toEqual({ text: '未抠', tone: 'warn' })
+    expect(
+      sourceMatteBadge({ ...ready(), status: 'unusable', reason: 'too-small' }, false),
+    ).toEqual({ text: '占比过小', tone: 'warn' })
+    expect(
+      sourceMatteBadge({ ...ready(), status: 'unusable', reason: 'too-large' }, false),
+    ).toEqual({ text: '占比过大', tone: 'warn' })
     expect(sourceMatteBadge(ready({ agreement: 'box-mismatch' }), false)).toEqual({
       text: '蒙版不可靠',
       tone: 'warn',

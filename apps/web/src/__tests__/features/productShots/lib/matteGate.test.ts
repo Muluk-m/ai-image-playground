@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest'
+import { type MatteReadiness, matteGate } from '../../../../features/productShots/lib/matteGate'
 import {
-  type MatteReadiness,
-  matteGateReason,
-} from '../../../../features/productShots/lib/matteGate'
-import type { SourceMatte } from '../../../../features/productShots/types'
+  MATTE_FAILURE_LABELS,
+  type MatteFailureCause,
+  type SourceMatte,
+} from '../../../../features/productShots/types'
 
 const READY: SourceMatte = {
   status: 'ready',
@@ -16,28 +17,64 @@ const READY: SourceMatte = {
 
 const FAILED: SourceMatte = { status: 'failed', reason: 'timeout', previewImageId: null }
 
+const UNUSABLE: SourceMatte = { ...READY, status: 'unusable', reason: 'too-small' }
+
 function readiness(over: Partial<MatteReadiness> = {}): MatteReadiness {
   return { matte: READY, matting: false, maskSupported: true, ...over }
 }
 
-describe('matteGateReason', () => {
-  it('挡住抠图中与还没有记录的原图', () => {
-    expect(matteGateReason(readiness({ matting: true }))).toBe('抠图中')
-    expect(matteGateReason(readiness({ matte: undefined }))).toBe('抠图中')
+describe('matteGate', () => {
+  it('挡住抠图中与还没有记录的原图，这时候重试与改蒙版都解不开', () => {
+    expect(matteGate(readiness({ matting: true }))).toEqual({
+      reason: '抠图中',
+      retry: false,
+      edit: false,
+    })
+    expect(matteGate(readiness({ matte: undefined }))?.reason).toBe('抠图中')
   })
 
-  it('挡住抠图失败的原图', () => {
-    expect(matteGateReason(readiness({ matte: FAILED }))).toBe('抠图失败')
+  it('抠图失败只能重试', () => {
+    expect(matteGate(readiness({ matte: FAILED }))).toEqual({
+      reason: '抠图失败',
+      retry: true,
+      edit: false,
+    })
+  })
+
+  it('占比不对时报占比并放出改蒙版', () => {
+    expect(matteGate(readiness({ matte: UNUSABLE }))).toEqual({
+      reason: '抠图占比过小',
+      retry: true,
+      edit: true,
+    })
+    expect(matteGate(readiness({ matte: { ...UNUSABLE, reason: 'too-large' } }))?.reason).toBe(
+      '抠图占比过大',
+    )
   })
 
   it('抠好了就放行，蒙版与产品框不符也照放', () => {
-    expect(matteGateReason(readiness())).toBeNull()
-    expect(
-      matteGateReason(readiness({ matte: { ...READY, agreement: 'box-mismatch' } })),
-    ).toBeNull()
+    expect(matteGate(readiness())).toBeNull()
+    expect(matteGate(readiness({ matte: { ...READY, agreement: 'box-mismatch' } }))).toBeNull()
   })
 
   it('模型不支持遮罩时不挡', () => {
-    expect(matteGateReason(readiness({ matte: FAILED, maskSupported: false }))).toBeNull()
+    expect(matteGate(readiness({ matte: FAILED, maskSupported: false }))).toBeNull()
+    expect(matteGate(readiness({ matte: UNUSABLE, maskSupported: false }))).toBeNull()
+  })
+})
+
+describe('MATTE_FAILURE_LABELS', () => {
+  it('每个原因都有一句标签', () => {
+    const causes: Array<Exclude<MatteFailureCause, 'box-mismatch'>> = [
+      'timeout',
+      'unsupported',
+      'failed',
+      'server',
+      'too-small',
+      'too-large',
+    ]
+
+    expect(Object.keys(MATTE_FAILURE_LABELS).sort()).toEqual([...causes].sort())
+    for (const cause of causes) expect(MATTE_FAILURE_LABELS[cause]).not.toBe('')
   })
 })
