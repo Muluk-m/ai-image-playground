@@ -2,6 +2,7 @@ import { useMutation } from '@tanstack/react-query'
 import { Loader2 } from 'lucide-react'
 import { useState } from 'react'
 
+import { LoginCard } from '@/components/LoginCard'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { ApiError, apiClient } from '@/lib/api-client'
@@ -32,39 +33,28 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
   }
 
   return (
-    <form
-      onSubmit={onSubmit}
-      className="w-full max-w-sm space-y-4 rounded-lg border bg-card p-6 shadow-sm"
-      aria-label="登录"
-    >
-      <div className="space-y-1">
-        <h1 className="text-lg font-semibold">登录</h1>
-        <p className="text-xs text-muted-foreground">image-playground · admin</p>
-      </div>
-      <Input
-        type="password"
-        placeholder="密码"
-        autoFocus
-        autoComplete="current-password"
-        aria-label="密码"
-        value={password}
-        onChange={(e) => setPassword(e.currentTarget.value)}
-        disabled={mutation.isPending}
-      />
-      {errorText ? (
-        <p role="alert" className="text-xs text-destructive">
-          {errorText}
-        </p>
-      ) : null}
-      <Button
-        type="submit"
-        className="w-full"
-        disabled={mutation.isPending || password.length === 0}
-      >
-        {mutation.isPending ? <Loader2 className="animate-spin" /> : null}
-        登录
-      </Button>
-    </form>
+    <LoginCard error={errorText}>
+      <form onSubmit={onSubmit} className="space-y-4" aria-label="登录">
+        <Input
+          type="password"
+          placeholder="密码"
+          autoFocus
+          autoComplete="current-password"
+          aria-label="密码"
+          value={password}
+          onChange={(e) => setPassword(e.currentTarget.value)}
+          disabled={mutation.isPending}
+        />
+        <Button
+          type="submit"
+          className="w-full"
+          disabled={mutation.isPending || password.length === 0}
+        >
+          {mutation.isPending ? <Loader2 className="animate-spin" /> : null}
+          登录
+        </Button>
+      </form>
+    </LoginCard>
   )
 }
 
