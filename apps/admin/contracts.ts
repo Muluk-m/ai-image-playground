@@ -32,6 +32,9 @@ export function parseSort(value: unknown): SortKey {
     : DEFAULT_SORT
 }
 
+export const LOGIN_ERROR_CODES = ['not_allowed', 'oauth_failed'] as const
+export type LoginErrorCode = (typeof LOGIN_ERROR_CODES)[number]
+
 export interface AdminLoginMethods {
   readonly google_login: boolean
   readonly password_login: boolean

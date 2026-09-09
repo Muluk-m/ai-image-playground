@@ -1,9 +1,11 @@
 import { createFileRoute, redirect, useNavigate } from '@tanstack/react-router'
+import { LoginPanel } from '@/components/LoginPanel'
+import { adminSessionQueryOptions, loginMethodsQueryOptions } from '@/lib/admin-session'
+import { LOGIN_ERROR_CODES, type LoginErrorCode } from '../../contracts'
 
-import { type LoginErrorCode, LoginPanel } from '@/components/LoginPanel'
-import { adminSessionQueryOptions } from '@/lib/admin-session'
-
-const LOGIN_ERROR_CODES: readonly LoginErrorCode[] = ['not_allowed', 'oauth_failed']
+function isLoginErrorCode(value: unknown): value is LoginErrorCode {
+  return LOGIN_ERROR_CODES.includes(value as LoginErrorCode)
+}
 
 export interface LoginSearch {
   redirect?: string
@@ -12,16 +14,16 @@ export interface LoginSearch {
 
 function parseLoginSearch(input: Record<string, unknown>): LoginSearch {
   const r = input.redirect
-  const e = input.error
-  return {
-    ...(typeof r === 'string' && r.startsWith('/') ? { redirect: r } : {}),
-    ...(LOGIN_ERROR_CODES.includes(e as LoginErrorCode) ? { error: e as LoginErrorCode } : {}),
-  }
+  // `//host` would leave the console entirely.
+  const redirect = typeof r === 'string' && r.startsWith('/') && !r.startsWith('//') ? r : undefined
+  return { redirect, error: isLoginErrorCode(input.error) ? input.error : undefined }
 }
 
 export const Route = createFileRoute('/login')({
   validateSearch: parseLoginSearch,
   beforeLoad: async ({ context }) => {
+    // 与下面的登录态探测并行，避免登录页多等一个来回。
+    void context.queryClient.prefetchQuery(loginMethodsQueryOptions)
     // 已登录访问 /login → 跳 /devices；未登录则继续渲染表单。
     try {
       await context.queryClient.ensureQueryData(adminSessionQueryOptions)

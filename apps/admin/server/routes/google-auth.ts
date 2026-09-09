@@ -1,7 +1,6 @@
 import { signPayload, verifyPayload } from '@image-playground/node-kit'
 import { Elysia, t } from 'elysia'
 import { config } from '../config'
-import { SESSION_COOKIE_NAME, SESSION_TTL_MS } from '../lib/constants'
 import {
   createPkceChallenge,
   googleAuthorizeUrl,
@@ -9,7 +8,7 @@ import {
   resolveGoogleEmail,
 } from '../lib/google-oauth'
 import { clientKey, loginLimiter } from '../lib/login-rate-limit'
-import { signSession } from '../lib/session'
+import { setSessionCookie } from '../lib/session'
 
 const STATE_COOKIE_NAME = 'admin_oauth_state'
 const STATE_TTL_MS = 10 * 60_000
@@ -33,19 +32,9 @@ function sanitizeRedirect(value: unknown): string {
   return typeof value === 'string' && value.startsWith('/') && !value.startsWith('//') ? value : '/'
 }
 
-/** Origin Google redirects back to. Proxy headers only matter when the env is unset. */
-function adminOrigin(request: Request): string {
-  if (config.publicOrigin) return config.publicOrigin
-  const host = (request.headers.get('x-forwarded-host') ?? request.headers.get('host') ?? '')
-    .split(',')[0]
-    ?.trim()
-  if (!host) return new URL(request.url).origin
-  const proto = request.headers.get('x-forwarded-proto')?.split(',')[0]?.trim()
-  return `${proto || new URL(request.url).protocol.replace(':', '')}://${host}`
-}
-
+/** Must match the redirect URI registered on the Google client byte for byte. */
 function callbackUri(request: Request): string {
-  return `${adminOrigin(request)}/api/auth/google/callback`
+  return `${config.publicOrigin || new URL(request.url).origin}/api/auth/google/callback`
 }
 
 function redirectTo(target: string): Response {
@@ -120,14 +109,7 @@ export const googleAuthRoutes = new Elysia()
       }
 
       loginLimiter.recordSuccess(key)
-      cookie[SESSION_COOKIE_NAME].set({
-        value: signSession(),
-        httpOnly: true,
-        secure: true,
-        sameSite: 'lax',
-        path: '/',
-        maxAge: SESSION_TTL_MS / 1000,
-      })
+      setSessionCookie(cookie)
       logOutcome('ok')
       return redirectTo(issued.redirect)
     },

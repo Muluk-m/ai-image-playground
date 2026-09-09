@@ -28,8 +28,7 @@ const googleLoginEnabled = Boolean(
 export const config = {
   port: Number(env('PORT', '37378')),
   // Google login replaces the shared password rather than sitting beside it.
-  adminPassword: googleLoginEnabled ? env('ADMIN_PASSWORD', '') : env('ADMIN_PASSWORD'),
-  passwordLoginEnabled: !googleLoginEnabled,
+  adminPassword: googleLoginEnabled ? '' : env('ADMIN_PASSWORD'),
   google: {
     enabled: googleLoginEnabled,
     clientId: googleClientId,
