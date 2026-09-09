@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, type MockInstance, vi } from 'vitest'
 import type { MatteBackend, MatteRunner, ProductAlpha } from '../../../lib/productMatte'
 import {
   eligibleBackends,
@@ -54,7 +54,15 @@ function runner(
   return Object.assign(run as MatteRunner, { calls })
 }
 
+/** 每一环失败都会往控制台写一行，用例自己接住它。 */
+let warn: MockInstance
+
+beforeEach(() => {
+  warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+})
+
 afterEach(() => {
+  warn.mockRestore()
   stubWebGpu(0)
   vi.useRealTimers()
 })
@@ -80,6 +88,21 @@ describe('segmentProduct 回落链', () => {
 
     expect(matte.backend).toBe('wasm-u2netp')
     expect(run.calls).toEqual(['webgpu-birefnet', 'wasm-u2netp'])
+  })
+
+  it('挂掉的那一环各留一行日志，带后端、原因与耗时', async () => {
+    stubWebGpu(16)
+    const run = runner({
+      'webgpu-birefnet': new Error('shader 炸了'),
+      'wasm-u2netp': new ProductMatteError('timeout', '慢'),
+    })
+
+    await segmentProduct('data:image/png;base64,AA', { backends: CHAIN, run }).catch(() => {})
+
+    expect(warn.mock.calls.map((call) => call[0])).toEqual([
+      expect.stringMatching(/^\[matte\] backend=webgpu-birefnet reason=failed elapsed=\d+ms /),
+      expect.stringMatching(/^\[matte\] backend=wasm-u2netp reason=timeout elapsed=\d+ms /),
+    ])
   })
 
   it('某一环超时只废掉这一环，链条继续往下走', async () => {
