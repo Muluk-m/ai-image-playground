@@ -25,6 +25,15 @@ function job(id: string, name: string, updatedAt: number, versions = 0): Product
     images: [
       {
         imageId: `image-${id}`,
+        // 历史任务的蒙版已就绪；列表交互不应启动真实后台抠图。
+        sourceMatte: {
+          status: 'ready',
+          backend: 'wasm-u2netp',
+          alphaImageId: `alpha-${id}`,
+          targetImageId: `image-${id}`,
+          previewImageId: `preview-${id}`,
+          edited: false,
+        },
         versions: Array.from({ length: versions }, (_, index) => ({
           id: `${id}-v${index}`,
           taskId: `task-${id}-${index}`,
