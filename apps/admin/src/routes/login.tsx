@@ -1,20 +1,29 @@
 import { createFileRoute, redirect, useNavigate } from '@tanstack/react-router'
+import { LoginPanel } from '@/components/LoginPanel'
+import { adminSessionQueryOptions, loginMethodsQueryOptions } from '@/lib/admin-session'
+import { LOGIN_ERROR_CODES, type LoginErrorCode } from '../../contracts'
 
-import { LoginForm } from '@/components/LoginForm'
-import { adminSessionQueryOptions } from '@/lib/admin-session'
+function isLoginErrorCode(value: unknown): value is LoginErrorCode {
+  return LOGIN_ERROR_CODES.includes(value as LoginErrorCode)
+}
 
 export interface LoginSearch {
   redirect?: string
+  error?: LoginErrorCode
 }
 
 function parseLoginSearch(input: Record<string, unknown>): LoginSearch {
   const r = input.redirect
-  return typeof r === 'string' && r.startsWith('/') ? { redirect: r } : {}
+  // `//host` would leave the console entirely.
+  const redirect = typeof r === 'string' && r.startsWith('/') && !r.startsWith('//') ? r : undefined
+  return { redirect, error: isLoginErrorCode(input.error) ? input.error : undefined }
 }
 
 export const Route = createFileRoute('/login')({
   validateSearch: parseLoginSearch,
   beforeLoad: async ({ context }) => {
+    // 与下面的登录态探测并行，避免登录页多等一个来回。
+    void context.queryClient.prefetchQuery(loginMethodsQueryOptions)
     // 已登录访问 /login → 跳 /devices；未登录则继续渲染表单。
     try {
       await context.queryClient.ensureQueryData(adminSessionQueryOptions)
@@ -30,11 +39,13 @@ export const Route = createFileRoute('/login')({
 
 function LoginPage() {
   const navigate = useNavigate()
-  const { redirect: redirectTo } = Route.useSearch()
+  const { redirect: redirectTo, error } = Route.useSearch()
 
   return (
     <div className="flex min-h-screen items-center justify-center px-4">
-      <LoginForm
+      <LoginPanel
+        redirectTo={redirectTo}
+        error={error}
         onSuccess={() => {
           void navigate({ to: redirectTo ?? '/devices' })
         }}

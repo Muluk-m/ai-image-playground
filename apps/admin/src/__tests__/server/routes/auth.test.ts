@@ -61,6 +61,20 @@ describe('POST /api/login', () => {
   })
 })
 
+describe('GET /api/auth/methods', () => {
+  it('keeps password login as the only method without Google configuration', async () => {
+    const res = await get('/api/auth/methods', undefined, '10.0.0.7')
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ google_login: false, password_login: true })
+  })
+
+  it('404s the Google entry point when it is not configured', async () => {
+    const res = await get('/api/auth/google', undefined, '10.0.0.8')
+    expect(res.status).toBe(404)
+    expect(await res.json()).toEqual({ error: 'google_login_disabled' })
+  })
+})
+
 describe('POST /api/logout', () => {
   it('清 cookie', async () => {
     // 先 login

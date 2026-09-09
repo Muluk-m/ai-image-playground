@@ -206,6 +206,14 @@ does not publish host ports because the domain proxy owns ingress. If the existi
 proxy is not containerized, an operator-supplied Compose override must bind loopback-only
 Web/Admin ports.
 
+Admin signs in with the shared `ADMIN_PASSWORD` by default. Setting `ADMIN_GOOGLE_CLIENT_ID`,
+`ADMIN_GOOGLE_CLIENT_SECRET` and a comma-separated `ADMIN_GOOGLE_ALLOWED_EMAILS` replaces it with
+Google: the login page offers only the Google button, `POST /api/login` answers 403, and
+`ADMIN_PASSWORD` may stay empty. Only a verified address on the allowlist receives a session, and
+the callback shares the password login's rate limiter. Register
+`<ADMIN_PUBLIC_ORIGIN>/api/auth/google/callback` as an authorized redirect URI on the Google OAuth
+client; `ADMIN_PUBLIC_ORIGIN` may stay unset only where Admin already sees its own public host.
+
 For a one-time cutover from the former SQLite deployment:
 
 1. Stop the application.

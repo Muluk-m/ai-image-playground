@@ -1,27 +1,9 @@
 import { timingSafeEqual } from 'node:crypto'
 import { Elysia, t } from 'elysia'
 import { config, getAdminCapabilities } from '../config'
-import { SESSION_COOKIE_NAME, SESSION_TTL_MS } from '../lib/constants'
+import { clientKey, loginLimiter } from '../lib/login-rate-limit'
 import { requireAuth } from '../lib/middleware'
-import { createRateLimiter } from '../lib/rate-limit'
-import { signSession } from '../lib/session'
-
-const limiter = createRateLimiter({
-  maxFailures: 5,
-  windowMs: 60_000,
-  lockMs: 10 * 60_000,
-  maxEntries: 1024,
-})
-
-function clientKey(request: Request): string {
-  // Cloudflare tunnel 把客户端 IP 放 CF-Connecting-IP；标准 X-Forwarded-For
-  // 取首段；都没就用 'unknown'（测试 / 本机 dev）
-  const cf = request.headers.get('cf-connecting-ip')
-  if (cf) return cf
-  const xff = request.headers.get('x-forwarded-for')
-  if (xff) return xff.split(',')[0]!.trim()
-  return 'unknown'
-}
+import { clearSessionCookie, setSessionCookie } from '../lib/session'
 
 function eqPassword(a: string, b: string): boolean {
   const ab = Buffer.from(a)
@@ -34,27 +16,22 @@ export const authRoutes = new Elysia()
   .post(
     '/api/login',
     ({ body, cookie, request, set }) => {
+      if (config.google.enabled) {
+        set.status = 403
+        return { error: 'password_login_disabled' }
+      }
       const key = clientKey(request)
-      if (limiter.isLocked(key)) {
+      if (loginLimiter.isLocked(key)) {
         set.status = 429
         return { error: 'rate_limited' }
       }
       if (!eqPassword(body.password, config.adminPassword)) {
-        const locked = limiter.recordFailure(key)
+        const locked = loginLimiter.recordFailure(key)
         set.status = locked ? 429 : 401
         return { error: locked ? 'rate_limited' : 'invalid_password' }
       }
-      limiter.recordSuccess(key)
-
-      const value = signSession()
-      cookie[SESSION_COOKIE_NAME].set({
-        value,
-        httpOnly: true,
-        secure: true,
-        sameSite: 'lax',
-        path: '/',
-        maxAge: SESSION_TTL_MS / 1000,
-      })
+      loginLimiter.recordSuccess(key)
+      setSessionCookie(cookie)
       return { ok: true }
     },
     {
@@ -63,16 +40,14 @@ export const authRoutes = new Elysia()
       }),
     },
   )
+  // Public: the login page has no session yet and must know which button to render.
+  .get('/api/auth/methods', () => ({
+    google_login: config.google.enabled,
+    password_login: !config.google.enabled,
+  }))
   .use(requireAuth)
   .post('/api/logout', ({ cookie }) => {
-    cookie[SESSION_COOKIE_NAME].set({
-      value: '',
-      httpOnly: true,
-      secure: true,
-      sameSite: 'lax',
-      path: '/',
-      maxAge: 0,
-    })
+    clearSessionCookie(cookie)
     return { ok: true }
   })
   .get('/api/me', () => ({
