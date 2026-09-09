@@ -16,7 +16,8 @@ import AssetThumb from '../../library/components/AssetThumb'
 import { useLibraryStore } from '../../library/store'
 import { ACTION_LABELS, type ProductShotAction, REMIX_LEVEL_LABELS } from '../lib/actions'
 import { sourceMatteNotice } from '../lib/matteBadge'
-import { MATTE_FAILED, matteGateReason } from '../lib/matteGate'
+import { MATTE_FAILED_REASON, matteGateReason } from '../lib/matteGate'
+import { maskSideFor } from '../lib/mode'
 import { maskSupported } from '../lib/sourceMatte'
 import { useProductShotsStore } from '../store'
 import { PRODUCT_SHOT_STAGE_LABELS, VERSIONS_PER_IMAGE_CHOICES } from '../types'
@@ -30,11 +31,13 @@ const RETRY_MATTE = '重试抠图'
 const ACTION_BUTTON =
   'rounded-lg bg-blue-500 px-1 py-1.5 text-xs font-medium leading-tight text-white transition hover:bg-blue-600 disabled:opacity-50'
 
-const ACTIONS: Array<{ mode: ProductShotAction; needsProduct: boolean }> = [
-  { mode: 'background', needsProduct: false },
-  { mode: 'replace-product', needsProduct: true },
-  { mode: 'remix', needsProduct: true },
-]
+const ACTIONS = (
+  [
+    { mode: 'background', needsProduct: false },
+    { mode: 'replace-product', needsProduct: true },
+    { mode: 'remix', needsProduct: true },
+  ] satisfies Array<{ mode: ProductShotAction; needsProduct: boolean }>
+).map((action) => ({ ...action, needsMatte: maskSideFor(action.mode) !== null }))
 
 export default function ActionPanel() {
   const preference = useProductShotsStore((s) => s.draft.preference)
@@ -66,12 +69,9 @@ export default function ActionPanel() {
   const busy = swapStage !== null || batchRunning
   const hasProduct = productAssets.length > 0
   const matteNotice = sourceMatteNotice(matte)
-  const readiness = { matte, matting, maskSupported: maskable }
-  const actions = ACTIONS.map((action) => ({
-    ...action,
-    blocked: selectedImageId ? matteGateReason(action.mode, readiness) : null,
-  }))
-  const matteBlocked = actions.find((action) => action.blocked)?.blocked ?? null
+  const matteBlocked = selectedImageId
+    ? matteGateReason({ matte, matting, maskSupported: maskable })
+    : null
 
   return (
     <section data-product-shots-column="actions" className={`${CARD} flex flex-col gap-4`}>
@@ -159,7 +159,7 @@ export default function ActionPanel() {
         )}
 
         <div className="grid grid-cols-3 gap-1.5">
-          {actions.map((action) => (
+          {ACTIONS.map((action) => (
             <button
               key={action.mode}
               type="button"
@@ -169,7 +169,7 @@ export default function ActionPanel() {
                 busy ||
                 !selectedImageId ||
                 (action.needsProduct && !hasProduct) ||
-                action.blocked !== null
+                (action.needsMatte && matteBlocked !== null)
               }
               className={ACTION_BUTTON}
             >
@@ -187,7 +187,7 @@ export default function ActionPanel() {
         {matteBlocked && (
           <p data-product-shots-action-reason className={`${NOTICE} flex items-center gap-2`}>
             {matteBlocked}
-            {matteBlocked === MATTE_FAILED && selectedImageId && (
+            {matteBlocked === MATTE_FAILED_REASON && selectedImageId && (
               <button
                 type="button"
                 onClick={() => void retryMatte(selectedImageId)}

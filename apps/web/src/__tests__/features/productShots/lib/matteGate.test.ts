@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { matteGateReason } from '../../../../features/productShots/lib/matteGate'
+import {
+  type MatteReadiness,
+  matteGateReason,
+} from '../../../../features/productShots/lib/matteGate'
 import type { SourceMatte } from '../../../../features/productShots/types'
 
 const READY: SourceMatte = {
@@ -13,31 +16,28 @@ const READY: SourceMatte = {
 
 const FAILED: SourceMatte = { status: 'failed', reason: 'timeout', previewImageId: null }
 
-function readiness(over: Partial<Parameters<typeof matteGateReason>[1]> = {}) {
+function readiness(over: Partial<MatteReadiness> = {}): MatteReadiness {
   return { matte: READY, matting: false, maskSupported: true, ...over }
 }
 
 describe('matteGateReason', () => {
   it('挡住抠图中与还没有记录的原图', () => {
-    expect(matteGateReason('background', readiness({ matting: true }))).toBe('抠图中')
-    expect(matteGateReason('background', readiness({ matte: undefined }))).toBe('抠图中')
+    expect(matteGateReason(readiness({ matting: true }))).toBe('抠图中')
+    expect(matteGateReason(readiness({ matte: undefined }))).toBe('抠图中')
   })
 
   it('挡住抠图失败的原图', () => {
-    expect(matteGateReason('replace-product', readiness({ matte: FAILED }))).toBe('抠图失败')
+    expect(matteGateReason(readiness({ matte: FAILED }))).toBe('抠图失败')
   })
 
   it('抠好了就放行，蒙版与产品框不符也照放', () => {
-    expect(matteGateReason('background', readiness())).toBeNull()
+    expect(matteGateReason(readiness())).toBeNull()
     expect(
-      matteGateReason('background', readiness({ matte: { ...READY, agreement: 'box-mismatch' } })),
+      matteGateReason(readiness({ matte: { ...READY, agreement: 'box-mismatch' } })),
     ).toBeNull()
   })
 
-  it('不带遮罩的动作与不支持遮罩的模型都不挡', () => {
-    expect(matteGateReason('remix', readiness({ matte: FAILED }))).toBeNull()
-    expect(
-      matteGateReason('background', readiness({ matte: FAILED, maskSupported: false })),
-    ).toBeNull()
+  it('模型不支持遮罩时不挡', () => {
+    expect(matteGateReason(readiness({ matte: FAILED, maskSupported: false }))).toBeNull()
   })
 })

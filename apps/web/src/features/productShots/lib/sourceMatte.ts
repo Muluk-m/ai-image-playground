@@ -22,7 +22,7 @@ import {
   segmentProduct,
 } from '../../../lib/productMatte'
 import { ensureImageCached, useStore } from '../../../store'
-import type { InputImage } from '../../../types'
+import type { AppSettings, InputImage } from '../../../types'
 import type { MatteAgreement, MatteOutcome, ProductShotImage, SourceMatte } from '../types'
 import type { MaskSide } from './mode'
 
@@ -124,8 +124,7 @@ export function createSourceMattes(host: SourceMatteHost) {
     const entry = lifetime(source)
     if (!entry) return Promise.resolve()
     if (entry.pending) return entry.pending
-    if (host.read(source)?.sourceMatte || !maskSupported(useStore.getState().settings))
-      return Promise.resolve()
+    if (host.read(source)?.sourceMatte || !maskSupported()) return Promise.resolve()
     const pending = run(entry).finally(() => {
       entry.pending = undefined
       host.pendingChanged()
@@ -151,7 +150,7 @@ export function createSourceMattes(host: SourceMatteHost) {
       const entry = lifetime(source)
       if (!entry) throw new Error('原图已从任务移除')
       const original = { id: source.imageId, dataUrl: input.dataUrl }
-      if (!maskSupported(useStore.getState().settings)) {
+      if (!maskSupported()) {
         return { ...unmasked(MASK_UNSUPPORTED, 'unsupported', null), image: original }
       }
       await ensure(source)
@@ -255,8 +254,7 @@ export function createSourceMattes(host: SourceMatteHost) {
   }
 }
 
-/** 当前模型能不能带遮罩提交：抠图跑不跑、动作挡不挡，都看它。 */
-export function maskSupported(settings: unknown): boolean {
+export function maskSupported(settings: AppSettings = useStore.getState().settings): boolean {
   return modelSupportsNativeMask(getActiveApiProfile(settings), getPublicChannels())
 }
 
