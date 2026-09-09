@@ -222,15 +222,11 @@ function type(label: string, value: string) {
   })
 }
 
-/** 一张原图跑完一次换背景，落下第一版。 */
+/** 一张原图跑完一次换背景，落下第一版。抠图没落地按钮是灰的，等它亮起来再点。 */
 async function withOneVersion() {
   render()
   upload('上传原图', new File(['x'], '主图.png', { type: 'image/png' }))
-  while (useProductShotsStore.getState().draft.id === null) {
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 0))
-    })
-  }
+  await settleUntil(() => !actionButton().disabled)
   click(actionButton())
   await settle()
 }
@@ -383,25 +379,22 @@ describe('picking where the source images come from', () => {
 })
 
 describe('running one background swap', () => {
+  // 任务落盘要等 IndexedDB 走完，抠图落地才解开动作门禁：按钮亮起来才算准备好。
   async function withOneImage() {
     render()
     upload('上传原图', new File(['x'], '主图.png', { type: 'image/png' }))
-    // 任务落盘要等 IndexedDB 走完；没有 id 的草稿点「换背景」会被 store 直接挡回。
-    while (useProductShotsStore.getState().draft.id === null) {
-      await act(async () => {
-        await new Promise((resolve) => setTimeout(resolve, 0))
-      })
-    }
+    await settleUntil(() => !actionButton().disabled)
   }
 
   it('counts through planning, matting and generating', async () => {
     const plan = deferred<typeof PLAN>()
-    const matte = deferred<{ alpha: Uint8ClampedArray; width: number; height: number }>()
+    const alpha = deferred<{ alpha: Uint8ClampedArray; width: number; height: number }>()
     const submit = deferred<string[]>()
-    requestBackgroundPlan.mockReturnValue(plan.promise)
-    segmentProduct.mockReturnValue(matte.promise)
-    submitPrepared.mockReturnValue(submit.promise)
     await withOneImage()
+    // 原图那次抠图跑的是默认桩，这里挡的是这一次动作从 alpha 现算遮罩的那一段。
+    requestBackgroundPlan.mockReturnValue(plan.promise)
+    maskDataUrlToAlpha.mockReturnValue(alpha.promise)
+    submitPrepared.mockReturnValue(submit.promise)
 
     click(actionButton())
     await settle()
@@ -411,7 +404,7 @@ describe('running one background swap', () => {
     await settle()
     expect(progressLine().textContent).toContain('抠图中')
 
-    matte.resolve({ alpha: new Uint8ClampedArray(4), width: 2, height: 2 })
+    alpha.resolve({ alpha: new Uint8ClampedArray(4), width: 2, height: 2 })
     await settle()
     expect(progressLine().textContent).toContain('生成中')
 
@@ -422,8 +415,8 @@ describe('running one background swap', () => {
 
   it('keeps the three action buttons on their own labels while a stage runs', async () => {
     const plan = deferred<typeof PLAN>()
-    requestBackgroundPlan.mockReturnValue(plan.promise)
     await withOneImage()
+    requestBackgroundPlan.mockReturnValue(plan.promise)
 
     click(actionButton())
     await settle()
@@ -455,14 +448,14 @@ describe('running one background swap', () => {
   })
 
   it('marks a prompt-only version with why the matte was skipped', async () => {
-    segmentProduct.mockRejectedValue(new ProductMatteError('timeout', '抠图超时'))
     await withOneImage()
+    modelSupportsNativeMask.mockReturnValue(false)
 
     click(actionButton())
     await settle()
 
     expect(document.querySelector('[data-product-shots-version]')?.textContent).toContain(
-      '未抠图 · 超时',
+      '未抠图 · 不支持',
     )
   })
 
@@ -572,11 +565,7 @@ describe('looking at the matte before trusting a version', () => {
   it('switches the middle preview to the matte laid over the original', async () => {
     render()
     upload('上传原图', new File(['x'], '主图.png', { type: 'image/png' }))
-    while (useProductShotsStore.getState().draft.id === null) {
-      await act(async () => {
-        await new Promise((resolve) => setTimeout(resolve, 0))
-      })
-    }
+    await settleUntil(() => !actionButton().disabled)
     click(actionButton())
     await settle()
 
@@ -846,11 +835,7 @@ describe('the product picked once for the whole job', () => {
     })
     render()
     upload('上传原图', new File(['x'], '主图.png', { type: 'image/png' }))
-    while (useProductShotsStore.getState().draft.id === null) {
-      await act(async () => {
-        await new Promise((resolve) => setTimeout(resolve, 0))
-      })
-    }
+    await settleUntil(() => !actionButton().disabled)
     act(() => {
       useProductShotsStore.getState().toggleProductAsset('a1')
     })
@@ -941,6 +926,95 @@ describe('the right column grouped into settings and generation', () => {
   })
 })
 
+describe('holding the actions back until the matte lands', () => {
+  const MATTED_ALPHA = {
+    alpha: new Uint8ClampedArray(4),
+    width: 2,
+    height: 2,
+    backend: 'wasm-u2netp',
+    elapsedMs: 3200,
+  }
+
+  function reasons(): Element[] {
+    return [...column('actions').querySelectorAll('[data-product-shots-action-reason]')]
+  }
+
+  function pickProduct() {
+    useLibraryStore.setState({
+      assets: [
+        {
+          id: 'a1',
+          name: '正面白底',
+          imageId: 'asset-1',
+          createdAt: 1,
+          updatedAt: 1,
+          lastUsedAt: 1,
+        },
+      ],
+    })
+    act(() => {
+      useProductShotsStore.getState().toggleProductAsset('a1')
+    })
+  }
+
+  async function withMattingOriginal(): Promise<(matte: typeof MATTED_ALPHA) => void> {
+    const matte = deferred<typeof MATTED_ALPHA>()
+    segmentProduct.mockReturnValue(matte.promise)
+    render()
+    upload('上传原图', new File(['x'], '主图.png', { type: 'image/png' }))
+    await settleUntil(() => useProductShotsStore.getState().draft.id !== null)
+    return matte.resolve
+  }
+
+  it('holds the masked actions back while the original is still being matted', async () => {
+    const finishMatte = await withMattingOriginal()
+
+    expect(actionButton('background').disabled).toBe(true)
+    expect(actionButton('replace-product').disabled).toBe(true)
+    expect(reasons()[0]?.textContent).toBe('抠图中')
+
+    finishMatte(MATTED_ALPHA)
+    await settleUntil(() => !actionButton().disabled)
+
+    expect(actionButton('background').disabled).toBe(false)
+    expect(reasons().map((item) => item.textContent)).not.toContain('抠图中')
+  })
+
+  it('lets the maskless action through while the matte is still running', async () => {
+    const finishMatte = await withMattingOriginal()
+    pickProduct()
+
+    expect(actionButton('remix').disabled).toBe(false)
+
+    finishMatte(MATTED_ALPHA)
+    await settle()
+  })
+
+  it('offers a retry when the matte failed and lets the actions through once it lands', async () => {
+    segmentProduct.mockRejectedValueOnce(new ProductMatteError('timeout', '抠图超时'))
+    render()
+    upload('上传原图', new File(['x'], '主图.png', { type: 'image/png' }))
+    await settleUntil(() => reasons()[0]?.textContent?.startsWith('抠图失败') === true)
+
+    expect(actionButton('background').disabled).toBe(true)
+    expect(useProductShotsStore.getState().draft.images[0].sourceMatte).toMatchObject({
+      status: 'failed',
+    })
+
+    const retry = [...(reasons()[0]?.querySelectorAll('button') ?? [])].find(
+      (button) => button.textContent === '重试抠图',
+    )
+    if (!retry) throw new Error('no matte retry button')
+    click(retry)
+    await settleUntil(() => !actionButton().disabled)
+
+    expect(actionButton('background').disabled).toBe(false)
+    expect(useProductShotsStore.getState().draft.images[0].sourceMatte).toMatchObject({
+      status: 'ready',
+    })
+  })
+})
+
 describe('the version list in the centre column', () => {
   function versionRow(): HTMLElement {
     const element = document.querySelector<HTMLElement>('[data-product-shots-version]')
@@ -1014,11 +1088,7 @@ describe('the result gallery', () => {
   async function withOneResult() {
     render()
     upload('上传原图', new File(['x'], '主图.png', { type: 'image/png' }))
-    while (useProductShotsStore.getState().draft.id === null) {
-      await act(async () => {
-        await new Promise((resolve) => setTimeout(resolve, 0))
-      })
-    }
+    await settleUntil(() => !actionButton().disabled)
     click(actionButton())
     await settle()
     act(() => {

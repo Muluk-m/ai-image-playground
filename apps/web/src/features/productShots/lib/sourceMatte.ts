@@ -124,7 +124,8 @@ export function createSourceMattes(host: SourceMatteHost) {
     const entry = lifetime(source)
     if (!entry) return Promise.resolve()
     if (entry.pending) return entry.pending
-    if (host.read(source)?.sourceMatte || !maskSupported()) return Promise.resolve()
+    if (host.read(source)?.sourceMatte || !maskSupported(useStore.getState().settings))
+      return Promise.resolve()
     const pending = run(entry).finally(() => {
       entry.pending = undefined
       host.pendingChanged()
@@ -136,6 +137,13 @@ export function createSourceMattes(host: SourceMatteHost) {
 
   return {
     ensure,
+    /** 「重试抠图」：丢掉失败那条记录再抠一次，`ensure` 见到空的才会重跑。 */
+    async retry(source: SourceMatteRef): Promise<void> {
+      const entry = lifetime(source)
+      if (!entry || entry.pending) return
+      await host.update(source, (image) => ({ ...image, sourceMatte: undefined }))
+      await ensure(source)
+    },
     async prepare(
       source: SourceMatteRef,
       input: { dataUrl: string; productBox: ProductBox | null; side: MaskSide },
@@ -143,7 +151,7 @@ export function createSourceMattes(host: SourceMatteHost) {
       const entry = lifetime(source)
       if (!entry) throw new Error('原图已从任务移除')
       const original = { id: source.imageId, dataUrl: input.dataUrl }
-      if (!maskSupported()) {
+      if (!maskSupported(useStore.getState().settings)) {
         return { ...unmasked(MASK_UNSUPPORTED, 'unsupported', null), image: original }
       }
       await ensure(source)
@@ -247,11 +255,9 @@ export function createSourceMattes(host: SourceMatteHost) {
   }
 }
 
-function maskSupported(): boolean {
-  return modelSupportsNativeMask(
-    getActiveApiProfile(useStore.getState().settings),
-    getPublicChannels(),
-  )
+/** 当前模型能不能带遮罩提交：抠图跑不跑、动作挡不挡，都看它。 */
+export function maskSupported(settings: unknown): boolean {
+  return modelSupportsNativeMask(getActiveApiProfile(settings), getPublicChannels())
 }
 
 /** 服务端抠图是等网络，浏览器链吃满设备：一个放三个进去，一个一次只放一个。 */
