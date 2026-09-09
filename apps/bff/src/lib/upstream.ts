@@ -11,6 +11,11 @@ import { config } from '../config'
 import { getChannels } from './channels'
 import type { HydratedSubmitRequest, HydratedVideoRequest } from './imageArchive'
 import { log } from './logger'
+import {
+  buildImageResponsesBody,
+  ImageResponsesError,
+  readImageResponses,
+} from './openaiImageResponses'
 import { resolveApiKey } from './resolveApiKey'
 import {
   createDispatcher,
@@ -137,6 +142,7 @@ export interface UpstreamCallResult {
 interface UpstreamResponse {
   readonly ok: boolean
   readonly status: number
+  readonly body?: ReadableStream<Uint8Array> | null
   text(): Promise<string>
   arrayBuffer(): Promise<ArrayBuffer>
 }
@@ -254,12 +260,18 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
     }
   }
 
-  const parseResponse = async (res: UpstreamResponse): Promise<UpstreamCallResult> => {
+  const parseResponse = async (
+    res: UpstreamResponse,
+    imageResponses = false,
+  ): Promise<UpstreamCallResult> => {
     try {
-      return await parseUpstreamResponse(res)
+      return imageResponses && res.ok
+        ? { payload: await readImageResponses(res.body, deadline.signal) }
+        : await parseUpstreamResponse(res)
     } catch (err) {
       if (deadline.timedOut) throw new UpstreamTimeoutError()
       if (externalSignal?.aborted) throw err
+      if (err instanceof ImageResponsesError) throw err
       if (typeof (err as { upstreamStatus?: unknown })?.upstreamStatus === 'number') throw err
       const detail = err instanceof Error ? err.message : String(err)
       throw new UpstreamResultUnknownError(`上游响应中断，执行结果未知：${detail}`, {
@@ -396,6 +408,31 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
             data: [{ b64_json: bytes.toString('base64'), mime: VIDEO_MIME, duration_seconds }],
           },
         }
+      }
+
+      if (
+        style === 'openai-images' &&
+        model === 'gpt-image-2' &&
+        config.upstream.imageResponsesModel &&
+        resumeIds.length === 0
+      ) {
+        const body = JSON.stringify(
+          buildImageResponsesBody(config.upstream.imageResponsesModel, model, request),
+        )
+        const headers = {
+          'content-type': 'application/json',
+          accept: 'text/event-stream',
+          ...authHeader,
+        }
+        return await fanOutRequests(
+          request.n,
+          async () =>
+            parseResponse(
+              await performFetch(`${base}/responses`, { method: 'POST', headers, body }),
+              true,
+            ),
+          mergeOpenAIImageResults,
+        )
       }
 
       // Agnes 风格上游：没有 images/edits 端点，图生图与文生图
