@@ -795,7 +795,7 @@ describe('matting each original as it joins the job', () => {
   })
 
   /** 抠图跟点动作是两条线，用户可以在抠完之前就点下去。 */
-  it('waits for a matte still running before it submits', async () => {
+  it('turns the click away while the matte is still running', async () => {
     let finishMatte: (matte: unknown) => void = () => {}
     segmentProduct.mockReturnValue(
       new Promise((resolve) => {
@@ -805,13 +805,14 @@ describe('matting each original as it joins the job', () => {
     const upload = useProductShotsStore.getState().importFiles([image('主图.png')])
     await settleUntil(() => useProductShotsStore.getState().draft.id !== null)
 
-    const action = useProductShotsStore.getState().runAction('background')
-    await settle()
-    expect(useProductShotsStore.getState().swapStage).toBe('matte')
+    await useProductShotsStore.getState().runAction('background')
+
     expect(submitPrepared).not.toHaveBeenCalled()
+    expect(useStore.getState().showToast).toHaveBeenCalledWith('抠图中', 'error')
 
     finishMatte(browserMatte())
-    await Promise.all([upload, action])
+    await upload
+    await useProductShotsStore.getState().runAction('background')
 
     expect(submitPrepared.mock.calls[0][0].mask).toEqual({
       imageId: 'mask-1',
@@ -820,7 +821,7 @@ describe('matting each original as it joins the job', () => {
   })
 
   /** 旧任务的原图身上没有蒙版字段，第一次用到才抠。 */
-  it('mattes an original saved before the job carried one', async () => {
+  it('turns the click away on an original saved before the job carried a matte', async () => {
     await jobWithOneImage()
     useProductShotsStore.setState((state) => ({
       draft: {
@@ -828,12 +829,29 @@ describe('matting each original as it joins the job', () => {
         images: state.draft.images.map(({ sourceMatte: _dropped, ...image }) => image),
       },
     }))
-    segmentProduct.mockClear()
+    submitPrepared.mockClear()
 
     await useProductShotsStore.getState().runAction('background')
 
-    expect(segmentProduct).toHaveBeenCalledTimes(1)
-    expect(useProductShotsStore.getState().draft.images[0].versions[0].masked).toBe(true)
+    expect(submitPrepared).not.toHaveBeenCalled()
+    expect(useStore.getState().showToast).toHaveBeenCalledWith('抠图中', 'error')
+  })
+
+  it('re-mattes the original the retry points at and lets the action through', async () => {
+    segmentProduct.mockRejectedValueOnce(new Error('抠图超时'))
+    const imageId = await jobWithOneImage()
+    expect(matteOf()).toMatchObject({ status: 'failed' })
+
+    await useProductShotsStore.getState().retryMatte(imageId)
+
+    expect(matteOf()).toMatchObject({ status: 'ready' })
+
+    await useProductShotsStore.getState().runAction('background')
+
+    expect(submitPrepared.mock.calls[0][0].mask).toEqual({
+      imageId: 'mask-1',
+      targetImageId: 'image-主图.png',
+    })
   })
 
   it('regenerates with the mask I edited by hand', async () => {
@@ -942,40 +960,35 @@ describe('swapping the background of one image', () => {
     ])
   })
 
-  it('falls back to a prompt-only version when the matte fails', async () => {
+  it('records nothing when the matte failed', async () => {
     segmentProduct.mockRejectedValue(new Error('抠图超时'))
     await jobWithOneImage()
 
     await useProductShotsStore.getState().runAction('background')
 
-    expect(submitPrepared.mock.calls[0][0].mask).toBeNull()
-    expect(useProductShotsStore.getState().draft.images[0].versions[0]).toMatchObject({
-      masked: false,
-      matte: { ok: false, reason: 'failed' },
-    })
-    expect(useProductShotsStore.getState().swapNotice).toContain('未抠图')
+    expect(submitPrepared).not.toHaveBeenCalled()
+    expect(useProductShotsStore.getState().draft.images[0].versions).toEqual([])
+    expect(useStore.getState().showToast).toHaveBeenCalledWith('抠图失败', 'error')
   })
 
-  it('keeps the matte failure reason on the version', async () => {
+  it('keeps the matte failure reason on the original', async () => {
     segmentProduct.mockRejectedValue(new ProductMatteError('timeout', '抠图超时'))
     await jobWithOneImage()
 
-    await useProductShotsStore.getState().runAction('background')
-
-    expect(useProductShotsStore.getState().draft.images[0].versions[0].matte).toEqual({
-      ok: false,
+    expect(useProductShotsStore.getState().draft.images[0].sourceMatte).toMatchObject({
+      status: 'failed',
       reason: 'timeout',
     })
   })
 
-  it('falls back when the product covers too little of the image', async () => {
+  it('records nothing when the product covers too little of the image', async () => {
     assessMatte.mockReturnValue({ ok: false, coverage: 0.001, reason: 'too-small' })
     await jobWithOneImage()
 
     await useProductShotsStore.getState().runAction('background')
 
     expect(alphaToInpaintMask).not.toHaveBeenCalled()
-    expect(useProductShotsStore.getState().draft.images[0].versions[0].masked).toBe(false)
+    expect(useProductShotsStore.getState().draft.images[0].versions).toEqual([])
   })
 
   it('falls back when the model declares no mask support', async () => {
@@ -1265,22 +1278,19 @@ describe('keeping a matte preview beside the version', () => {
     assessMatte.mockReturnValue({ ok: false, coverage: 0.001, reason: 'too-small' })
     await jobWithOneImage()
 
-    await useProductShotsStore.getState().runAction('background')
-
-    const [version] = useProductShotsStore.getState().draft.images[0].versions
-    expect(version.masked).toBe(false)
-    expect(version.mattePreviewImageId).toBe('preview-1')
+    expect(useProductShotsStore.getState().draft.images[0].sourceMatte).toMatchObject({
+      status: 'failed',
+      previewImageId: 'preview-1',
+    })
   })
 
   it('has no overlay when the matte never ran', async () => {
     segmentProduct.mockRejectedValue(new ProductMatteError('timeout', '抠图超时'))
     await jobWithOneImage()
 
-    await useProductShotsStore.getState().runAction('background')
-
-    expect(
-      useProductShotsStore.getState().draft.images[0].versions[0].mattePreviewImageId,
-    ).toBeUndefined()
+    expect(useProductShotsStore.getState().draft.images[0].sourceMatte).toMatchObject({
+      previewImageId: null,
+    })
   })
 
   it('shows and hides the overlay for one version at a time', async () => {
