@@ -16,7 +16,6 @@ import { eraseProductArea } from '../../lib/eraseProduct'
 import { fetchListingImages, listingImageProxyUrl } from '../../lib/listingClient'
 import { getParamCapabilities } from '../../lib/paramCompatibility'
 import {
-  angleFromText,
   cameraToAngle,
   DEFAULT_PRODUCT_ANGLE,
   matchProductAsset,
@@ -33,6 +32,7 @@ import type {
   RemixProductDescription,
   RemixShotCopy,
 } from '../../lib/shotTypes'
+import { ensureAssetImage } from '../../lib/sync/assetImages'
 import {
   ensureImageCached,
   storeImageFromFile,
@@ -42,13 +42,13 @@ import {
 } from '../../store'
 import type { InputImage, TaskParams } from '../../types'
 import { useLibraryStore } from '../library/store'
-import type { AssetRecord } from '../library/types'
 import { ACTION_LABELS, type ProductShotAction } from './lib/actions'
 import { pendingBatchImageIds } from './lib/batch'
 import { productShotJobStore } from './lib/jobStore'
 import { matteGateReason } from './lib/matteGate'
 import { legacyJobMode, maskSideFor } from './lib/mode'
 import { requestBackgroundPlan, requestSceneScan } from './lib/planClient'
+import { productGateReason, usesProductAsset } from './lib/productGate'
 import {
   buildRemixPlan,
   DEFAULT_REMIX_LEVEL,
@@ -376,13 +376,11 @@ export const useProductShotsStore = create<ProductShotsState>((set, get) => ({
       const asset = assets.find((item) => item.id === assetId)
       return asset ? [asset] : []
     })
-    const [first] = picked
-    if (!first) return
+    if (picked.length === 0) return
     addImages(
       set,
       picked.map((asset) => ({ imageId: asset.imageId, versions: [] })),
     )
-    adoptAsProduct(set, get, first)
     const jobId = await persistDraft(set, get)
     if (!jobId) return
     const matting = matteNewImages(jobId)
@@ -463,7 +461,7 @@ export const useProductShotsStore = create<ProductShotsState>((set, get) => ({
     const image = draft.images.find((item) => item.imageId === selectedImageId)
     const jobId = draft.id
     if (swapStage || batch?.running || !image || !jobId) return
-    if (refuseUnmatted(get, mode, image.imageId)) return
+    if (refuseBlocked(get, mode, image.imageId)) return
     patchDraft(set, get, { mode })
 
     if (isDiagram(image.sceneType)) {
@@ -487,7 +485,7 @@ export const useProductShotsStore = create<ProductShotsState>((set, get) => ({
     const found = findVersion(draft, versionId)
     const jobId = draft.id
     if (swapStage || batch?.running || !found || !jobId) return
-    if (refuseUnmatted(get, modeOf(draft, found.version), found.imageId)) return
+    if (refuseBlocked(get, modeOf(draft, found.version), found.imageId)) return
 
     await runStages(set, async (stage) => {
       const prepared = await prepareImage(draft, found.imageId, stage, found.version)
@@ -502,7 +500,7 @@ export const useProductShotsStore = create<ProductShotsState>((set, get) => ({
     const { draft } = get()
     const found = findVersion(draft, versionId)
     if (!draft.id || !found) return
-    if (refuseUnmatted(get, modeOf(draft, found.version), found.imageId)) return
+    if (refuseBlocked(get, modeOf(draft, found.version), found.imageId)) return
     await swapOneVersion(set, get, draft.id, found.imageId, found.version, maskOnly)
   },
 
@@ -646,9 +644,32 @@ function matteBlockedFor(
   })
 }
 
-/** 门禁的第二道：UI 过期或走键盘绕过按钮时，蒙版没落地照样不提交。 */
-function refuseUnmatted(get: GetState, mode: ProductShotAction, imageId: string): boolean {
-  const blocked = matteBlockedFor(get, get().draft, mode, imageId)
+/** 产品素材与原图是同一张时不提交：图1图2一样，模型只会把原图还回来。 */
+function productBlockedFor(
+  draft: ProductShotsDraft,
+  mode: ProductShotAction,
+  imageId: string,
+): string | null {
+  return productGateReason({
+    needsProduct: usesProductAsset(mode),
+    productAssets: draft.productAssets,
+    assets: useLibraryStore.getState().assets,
+    sourceImageId: imageId,
+  })
+}
+
+function submitBlockedFor(
+  get: GetState,
+  draft: ProductShotsDraft,
+  mode: ProductShotAction,
+  imageId: string,
+): string | null {
+  return matteBlockedFor(get, draft, mode, imageId) ?? productBlockedFor(draft, mode, imageId)
+}
+
+/** 门禁的第二道：UI 过期或走键盘绕过按钮时，蒙版与素材没就位照样不提交。 */
+function refuseBlocked(get: GetState, mode: ProductShotAction, imageId: string): boolean {
+  const blocked = submitBlockedFor(get, get().draft, mode, imageId)
   if (blocked) useStore.getState().showToast(blocked, 'error')
   return blocked !== null
 }
@@ -831,8 +852,11 @@ async function loadProductAsset(
   if (!picked) throw new Error(NO_ASSET_PICKED)
 
   const record = useLibraryStore.getState().assets.find((item) => item.id === picked.assetId)
-  const dataUrl = record ? await ensureImageCached(record.imageId) : null
-  if (!record || !dataUrl) throw new Error(ASSET_MISSING)
+  if (!record) throw new Error(ASSET_MISSING)
+  // 别的设备存的素材本地还没有字节，先拉回来再读缓存。
+  await ensureAssetImage(record.imageId)
+  const dataUrl = await ensureImageCached(record.imageId)
+  if (!dataUrl) throw new Error(ASSET_MISSING)
 
   return {
     assetId: picked.assetId,
@@ -951,14 +975,13 @@ async function prepareSwap(
     reuse ?? (await requestBackgroundPlan({ image: dataUrl, preference: draft.preference, mode }))
   const productBox = planned.productBox ?? null
 
-  const product =
-    mode === 'background'
-      ? null
-      : await loadProductAsset(
-          draft,
-          'camera' in planned ? planned.camera : '',
-          reuse?.productAssetId,
-        )
+  const product = usesProductAsset(mode)
+    ? await loadProductAsset(
+        draft,
+        'camera' in planned ? planned.camera : '',
+        reuse?.productAssetId,
+      )
+    : null
 
   const side = maskSideFor(mode)
   if (side) stage('matte')
@@ -1107,7 +1130,8 @@ async function runOneOfBatch(
     const draft = state.draft.id === jobId ? state.draft : draftFromJob(job)
     // 批量是队列，抠图还在跑就等它；等完了再看这张能不能提交。
     await sourceMattes.ensure({ jobId, imageId })
-    const blocked = matteBlockedFor(get, get().draft, draft.mode, imageId)
+    // 蒙版要读 ensure 之后的那份，`draft` 是等待前的快照。
+    const blocked = submitBlockedFor(get, get().draft, draft.mode, imageId)
     if (blocked) throw new Error(blocked)
     const prepared = await prepareImage(draft, imageId, (stage) => patchBatch(set, { stage }))
     const submitted = await Promise.all(
@@ -1168,14 +1192,6 @@ function addImages(set: SetState, added: ProductShotImage[]): void {
       selectedImageId: s.selectedImageId ?? images[0]?.imageId ?? null,
     }
   })
-}
-
-/** 素材库同时是原图与产品的来源，选完原图用户以为产品也选过了；产品还空着就认领第一张。 */
-function adoptAsProduct(set: SetState, get: GetState, asset: AssetRecord): void {
-  if (get().draft.productAssets.length > 0) return
-  const angle = angleFromText(asset.name) ?? UPLOAD_PRODUCT_ANGLE
-  set((s) => ({ draft: { ...s.draft, productAssets: [{ assetId: asset.id, angle }] } }))
-  useStore.getState().showToast(`已把「${asset.name}」设为我的产品，可在上方更换`, 'success')
 }
 
 /** 一张图都没有的任务不落盘：否则光是打字就会在任务列表里堆出空任务。 */
