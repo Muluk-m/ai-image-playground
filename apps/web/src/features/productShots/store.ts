@@ -9,11 +9,9 @@ import {
 import { create } from 'zustand'
 import { analyzeCompetitorImages } from '../../lib/analyzeClient'
 import { getActiveApiProfile } from '../../lib/apiProfiles'
+import { authenticatedBffFetch } from '../../lib/authClient'
 import { getImageDimensions } from '../../lib/canvasImage'
-import { modelSupportsNativeMask } from '../../lib/channels/profileSelectors'
-import { getPublicChannels } from '../../lib/channels/publicChannels'
 import { isClientCapabilityEnabled } from '../../lib/clientCapabilities'
-import { storeImage } from '../../lib/db'
 import { eraseProductArea } from '../../lib/eraseProduct'
 import { fetchListingImages, listingImageProxyUrl } from '../../lib/listingClient'
 import { getParamCapabilities } from '../../lib/paramCompatibility'
@@ -28,7 +26,6 @@ import {
   toggleProductAsset,
   UPLOAD_PRODUCT_ANGLE,
 } from '../../lib/productAngle'
-import { alphaToMattePreview, maskDataUrlToAlpha } from '../../lib/productMatte'
 import { productContextDescription } from '../../lib/shotPrompt'
 import type {
   RemixBrief,
@@ -49,7 +46,7 @@ import type { AssetRecord } from '../library/types'
 import { ACTION_LABELS, type ProductShotAction } from './lib/actions'
 import { pendingBatchImageIds } from './lib/batch'
 import { productShotJobStore } from './lib/jobStore'
-import { legacyJobMode, type MaskSide, maskSideFor } from './lib/mode'
+import { legacyJobMode, maskSideFor } from './lib/mode'
 import { requestBackgroundPlan, requestSceneScan } from './lib/planClient'
 import {
   buildRemixPlan,
@@ -60,14 +57,10 @@ import {
 } from './lib/remixPlan'
 import { DIAGRAM_LABEL, isDiagram } from './lib/scene'
 import {
-  MATTE_FAILED,
-  type Mask,
+  createSourceMattes,
   type MaskAttempt,
-  maskAttemptFor,
   NO_MASK,
-  runSourceMatte,
-  UNMASKED_FALLBACK,
-  unmasked,
+  type SourceMatteRef,
 } from './lib/sourceMatte'
 import {
   editVersionPlan,
@@ -82,14 +75,11 @@ import type {
   ProductShotJob,
   ProductShotStage,
   ProductShotVersion,
-  SourceMatte,
   SourceMode,
 } from './types'
 
 const UPLOAD_FALLBACK = '请直接上传原图'
-const MASK_UNSUPPORTED = `当前模型不支持遮罩，${UNMASKED_FALLBACK}`
 const NOT_SUBMITTED = '这张没有提交成功'
-const MASK_MISSING = '蒙版图片已丢失'
 /** 短边低于这个像素数就算低分辨率源图。 */
 const LOW_RES_SHORT_EDGE = 1200
 const NO_ASSET_PICKED = '请先选一张产品素材'
@@ -252,7 +242,10 @@ export const useProductShotsStore = create<ProductShotsState>((set, get) => ({
   sourcePickerOpen: false,
 
   loadJobs: async () => {
-    set({ jobs: await productShotJobStore.list() })
+    const previous = get().jobs
+    const jobs = await productShotJobStore.list()
+    // 抠图、手改或删除已发布更新时，较早发起的读回不能倒写旧列表。
+    if (get().jobs === previous) set({ jobs })
   },
 
   startNewJob: () =>
@@ -268,6 +261,7 @@ export const useProductShotsStore = create<ProductShotsState>((set, get) => ({
       matteOverlayVersionId: null,
       planVersionId: null,
       batch: null,
+      mattingImageIds: [],
     }),
 
   selectJob: (id) => {
@@ -284,8 +278,9 @@ export const useProductShotsStore = create<ProductShotsState>((set, get) => ({
       matteOverlayVersionId: null,
       planVersionId: null,
       batch: null,
+      mattingImageIds: sourceMattes.pending(id),
     })
-    void matteNewImages(set, get)
+    void matteNewImages(id)
   },
 
   renameJob: async (id, name) => {
@@ -303,10 +298,11 @@ export const useProductShotsStore = create<ProductShotsState>((set, get) => ({
 
   /** 只删任务记录：图片本体与已生成的任务历史另有主人，不跟着走。 */
   deleteJob: async (id) => {
-    await productShotJobStore.remove(id)
+    sourceMattes.forget(id)
     const wasActive = get().activeJobId === id
     set((s) => ({ jobs: s.jobs.filter((job) => job.id !== id) }))
     if (wasActive) get().startNewJob()
+    await productShotJobStore.remove(id)
   },
 
   setSourceMode: (sourceMode) => {
@@ -326,11 +322,13 @@ export const useProductShotsStore = create<ProductShotsState>((set, get) => ({
 
     set({ listingLoading: true, listingStartedAt: Date.now(), listingNotice: null })
     let pulled = 0
+    let jobId: string | null = null
     try {
       const listing = await fetchListingImages(url)
       const added = await Promise.all(
         listing.images.map(async (sourceUrl) => ({
-          imageId: (await storeImageFromUrl(listingImageProxyUrl(sourceUrl))).id,
+          imageId: (await storeImageFromUrl(listingImageProxyUrl(sourceUrl), authenticatedBffFetch))
+            .id,
           sourceUrl,
           versions: [],
         })),
@@ -339,17 +337,17 @@ export const useProductShotsStore = create<ProductShotsState>((set, get) => ({
       set((s) => ({ draft: { ...s.draft, name: s.draft.name || name } }))
       addImages(set, added)
       pulled = added.length
-      await persistDraft(set, get)
+      jobId = await persistDraft(set, get)
     } catch (error) {
       set({ listingNotice: `${reasonOf(error)}，${UPLOAD_FALLBACK}` })
     } finally {
       set({ listingLoading: false, listingStartedAt: null })
     }
-    if (pulled === 0) return
+    if (pulled === 0 || !jobId) return
     useStore.getState().showToast(`已拉入 ${pulled} 张`, 'success')
     // 预检逐张打上游，必须留在按钮复位之后：挪回 try 里图集已到齐按钮还在读秒。
-    const matting = matteNewImages(set, get)
-    await scanScenes(set, get)
+    const matting = matteNewImages(jobId)
+    await scanScenes(set, get, jobId)
     await matting
   },
 
@@ -362,9 +360,10 @@ export const useProductShotsStore = create<ProductShotsState>((set, get) => ({
         useStore.getState().showToast(`图片添加失败：${reasonOf(error)}`, 'error')
       }
     }
-    await persistDraft(set, get)
-    const matting = matteNewImages(set, get)
-    await scanScenes(set, get)
+    const jobId = await persistDraft(set, get)
+    if (!jobId) return
+    const matting = matteNewImages(jobId)
+    await scanScenes(set, get, jobId)
     await matting
   },
 
@@ -381,9 +380,10 @@ export const useProductShotsStore = create<ProductShotsState>((set, get) => ({
       picked.map((asset) => ({ imageId: asset.imageId, versions: [] })),
     )
     adoptAsProduct(set, get, first)
-    await persistDraft(set, get)
-    const matting = matteNewImages(set, get)
-    await scanScenes(set, get)
+    const jobId = await persistDraft(set, get)
+    if (!jobId) return
+    const matting = matteNewImages(jobId)
+    await scanScenes(set, get, jobId)
     await matting
   },
 
@@ -395,6 +395,8 @@ export const useProductShotsStore = create<ProductShotsState>((set, get) => ({
   closeSourcePicker: () => set({ sourcePickerOpen: false }),
 
   removeImage: (imageId) => {
+    const jobId = get().draft.id
+    if (jobId) sourceMattes.forget(jobId, imageId)
     set((s) => {
       const images = s.draft.images.filter((image) => image.imageId !== imageId)
       return {
@@ -483,10 +485,10 @@ export const useProductShotsStore = create<ProductShotsState>((set, get) => ({
     if (swapStage || batch?.running || !found || !jobId) return
 
     await runStages(set, async (stage) => {
-      const prepared = await prepareImage(set, get, found.imageId, stage, found.version)
+      const prepared = await prepareImage(draft, found.imageId, stage, found.version)
       if (prepared.notice) set({ swapNotice: prepared.notice })
       const rerun = await submitVersion(jobId, prepared, versionId)
-      if (rerun) await recordVersions(set, get, found.imageId, [rerun])
+      if (rerun) await recordVersions(set, get, { jobId, imageId: found.imageId }, [rerun])
     })
   },
 
@@ -501,19 +503,14 @@ export const useProductShotsStore = create<ProductShotsState>((set, get) => ({
 
   /** 「改蒙版」：改的是原图身上那份 alpha，画笔涂的是保留区。 */
   editSourceMask: async (imageId) => {
-    const matte = imageOf(get(), imageId)?.sourceMatte
-    if (matte?.status !== 'ready') return
-
-    const maskDataUrl = await ensureImageCached(matte.alphaImageId)
-    if (!maskDataUrl) {
-      set({ swapNotice: MASK_MISSING })
-      return
+    const jobId = get().draft.id
+    if (!jobId) return
+    try {
+      const session = await sourceMattes.edit({ jobId, imageId })
+      if (session) useStore.getState().openMaskEditorSession(session.targetImageId, session)
+    } catch (error) {
+      set({ swapNotice: reasonOf(error) })
     }
-    useStore.getState().openMaskEditorSession(matte.targetImageId, {
-      maskDataUrl,
-      keepSemantics: true,
-      onSave: (saved) => saveEditedMask(set, get, imageId, saved),
-    })
   },
 
   /** 再点已选的那版就是取消选用。 */
@@ -624,37 +621,6 @@ function reasonOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
-/** 手改完蒙版写回原图：编辑器存的保留区就是新的 alpha，预览也要跟着换。 */
-async function saveEditedMask(
-  set: SetState,
-  get: GetState,
-  imageId: string,
-  saved: { maskDataUrl: string; targetImageId: string },
-): Promise<void> {
-  const matte = imageOf(get(), imageId)?.sourceMatte
-  if (matte?.status !== 'ready') return
-
-  const alphaImageId = await storeImage(saved.maskDataUrl, 'mask')
-  const previewImageId = await editedMaskPreview(saved.maskDataUrl)
-  await setSourceMatte(set, get, imageId, {
-    ...matte,
-    alphaImageId,
-    targetImageId: saved.targetImageId,
-    edited: true,
-    agreement: 'ok',
-    ...(previewImageId ? { previewImageId } : {}),
-  })
-}
-
-/** 预览画不出来不该让保存失败：蒙版本身已经写回去了。 */
-async function editedMaskPreview(maskDataUrl: string): Promise<string | null> {
-  try {
-    return await storeImage(alphaToMattePreview(await maskDataUrlToAlpha(maskDataUrl)), 'mask')
-  } catch {
-    return null
-  }
-}
-
 /**
  * 单张出一版。确认对话框摆在中间，所以「有没有别的在跑」要在用户点完之后再看一次。
  * `reuse` 是抽屉里那一版：提交的是人挑定的提示词而不是新出的方案，所以新版一律算手改。
@@ -667,40 +633,42 @@ async function swapOneVersion(
   reuse?: ProductShotVersion,
   maskOnly = false,
 ): Promise<void> {
-  const { swapStage, batch } = get()
-  if (swapStage || batch?.running) return
+  const { swapStage, batch, draft } = get()
+  if (swapStage || batch?.running || draft.id !== jobId) return
 
   // 只换蒙版的那条路提示词没被人碰过，不该标手改，也不该把抽屉弹出来。
   const handPicked = Boolean(reuse) && !maskOnly
 
   await runStages(set, async (stage) => {
-    const prepared = await prepareImage(set, get, imageId, stage, reuse)
+    const prepared = await prepareImage(draft, imageId, stage, reuse)
     if (prepared.notice) set({ swapNotice: prepared.notice })
     const version = await submitVersion(jobId, prepared, crypto.randomUUID())
     if (!version) return
-    await recordVersions(set, get, imageId, [
+    await recordVersions(set, get, { jobId, imageId }, [
       handPicked ? { ...version, promptEdited: true } : version,
     ])
-    set({ previewVersionId: version.id, ...(handPicked ? { planVersionId: version.id } : {}) })
+    if (get().draft.id === jobId) {
+      set({ previewVersionId: version.id, ...(handPicked ? { planVersionId: version.id } : {}) })
+    }
   })
 }
 
 /** 预检刚进来的图，一张一张问画面类型；认不出来的按普通商品图走，不挡用户。 */
-async function scanScenes(set: SetState, get: GetState): Promise<void> {
+async function scanScenes(set: SetState, get: GetState, jobId: string): Promise<void> {
   if (!isClientCapabilityEnabled('remix:analyze')) return
-
-  let scanned = false
-  for (const image of get().draft.images) {
+  const images = get().jobs.find((job) => job.id === jobId)?.images ?? []
+  for (const image of images) {
     if (image.sceneType) continue
     try {
       const sceneType = await requestSceneScan(await loadOriginal(image.imageId))
-      patchImage(set, image.imageId, (item) => ({ ...item, sceneType }))
-      scanned = true
+      await updateJobImage(set, get, { jobId, imageId: image.imageId }, (item) => ({
+        ...item,
+        sceneType,
+      }))
     } catch {
       // 预检失败不该拦住换背景，这张就当普通商品图。
     }
   }
-  if (scanned) await persistDraft(set, get)
 }
 
 async function loadOriginal(imageId: string): Promise<string> {
@@ -709,90 +677,55 @@ async function loadOriginal(imageId: string): Promise<string> {
   return dataUrl
 }
 
-const mattesInFlight = new Map<string, Promise<void>>()
+const sourceMattes = createSourceMattes({
+  read: ({ jobId, imageId }) => {
+    const { draft, jobs } = useProductShotsStore.getState()
+    const images = draft.id === jobId ? draft.images : jobs.find((job) => job.id === jobId)?.images
+    return images?.find((image) => image.imageId === imageId)
+  },
+  update: (source, transform) =>
+    updateJobImage(useProductShotsStore.setState, useProductShotsStore.getState, source, transform),
+  pendingChanged: () => {
+    useProductShotsStore.setState((state) => ({
+      mattingImageIds: sourceMattes.pending(state.activeJobId),
+    }))
+  },
+})
 
-function imageOf(state: ProductShotsState, imageId: string): ProductShotImage | undefined {
-  return state.draft.images.find((image) => image.imageId === imageId)
+async function matteNewImages(jobId: string): Promise<void> {
+  const job = useProductShotsStore.getState().jobs.find((item) => item.id === jobId)
+  if (!job) return
+  await Promise.all(job.images.map(({ imageId }) => sourceMattes.ensure({ jobId, imageId })))
 }
 
-/** 蒙版落盘只此一处：抠完、手改与一致性回写都走它。 */
-function setSourceMatte(
+async function updateJobImage(
   set: SetState,
   get: GetState,
-  imageId: string,
-  matte: SourceMatte,
+  source: SourceMatteRef,
+  transform: (image: ProductShotImage) => ProductShotImage,
 ): Promise<void> {
-  if (!imageOf(get(), imageId)) return Promise.resolve()
-  patchImage(set, imageId, (image) => ({ ...image, sourceMatte: matte }))
-  return persistDraft(set, get)
-}
-
-/** 原图一进任务就抠，之后每个动作直接拿这份蒙版；旧记录打开任务时补上。 */
-async function matteNewImages(set: SetState, get: GetState): Promise<void> {
-  const fresh = get().draft.images.filter((image) => !image.sourceMatte)
-  await Promise.all(fresh.map((image) => ensureMatte(set, get, image.imageId)))
-}
-
-/** 已经抠好或正在抠就不重来。模型不支持遮罩时一份都不抠，界面上也就没有抠图状态。 */
-function ensureMatte(set: SetState, get: GetState, imageId: string): Promise<void> {
-  const inFlight = mattesInFlight.get(imageId)
-  if (inFlight) return inFlight
-  const image = imageOf(get(), imageId)
-  if (!image || image.sourceMatte || !maskSupported()) return Promise.resolve()
-
-  markMatting(set, imageId, true)
-  const tracked = matteOne(set, get, imageId).finally(() => {
-    mattesInFlight.delete(imageId)
-    markMatting(set, imageId, false)
-  })
-  mattesInFlight.set(imageId, tracked)
-  return tracked
-}
-
-async function matteOne(set: SetState, get: GetState, imageId: string): Promise<void> {
-  let matte: SourceMatte
-  try {
-    matte = await runSourceMatte(imageId, await loadOriginal(imageId))
-  } catch {
-    matte = { status: 'failed', reason: 'failed', previewImageId: null }
+  const { draft, jobs } = get()
+  const active = draft.id === source.jobId
+  const job = jobs.find((item) => item.id === source.jobId)
+  const images = active ? draft.images : job?.images
+  const image = images?.find((item) => item.imageId === source.imageId)
+  if (!image || !images) return
+  const next = transform(image)
+  if (next === image) return
+  if (active) {
+    patchImage(set, source.imageId, () => next)
+    await persistDraft(set, get)
+  } else if (job) {
+    const record = {
+      ...job,
+      images: images.map((item) => (item === image ? next : item)),
+      updatedAt: Date.now(),
+    }
+    set((state) => ({
+      jobs: state.jobs.map((item) => (item.id === source.jobId ? record : item)),
+    }))
+    await productShotJobStore.put(record)
   }
-  await setSourceMatte(set, get, imageId, matte)
-}
-
-function markMatting(set: SetState, imageId: string, matting: boolean): void {
-  set((s) => ({
-    mattingImageIds: matting
-      ? [...s.mattingImageIds.filter((item) => item !== imageId), imageId]
-      : s.mattingImageIds.filter((item) => item !== imageId),
-  }))
-}
-
-function maskSupported(): boolean {
-  return modelSupportsNativeMask(
-    getActiveApiProfile(useStore.getState().settings),
-    getPublicChannels(),
-  )
-}
-
-/** 动作要的遮罩现算：还在抠就等它，一致性只回写给芯片看。 */
-async function imageMaskAttempt(
-  set: SetState,
-  get: GetState,
-  imageId: string,
-  productBox: ProductBox | null,
-  side: MaskSide,
-): Promise<MaskAttempt> {
-  if (!maskSupported()) return unmasked(MASK_UNSUPPORTED, 'unsupported', null)
-
-  await ensureMatte(set, get, imageId)
-  const matte = imageOf(get(), imageId)?.sourceMatte
-  if (!matte) return unmasked(MATTE_FAILED, 'failed', null)
-
-  const attempt = await maskAttemptFor(matte, productBox, side)
-  if (matte.status === 'ready' && attempt.agreement && attempt.agreement !== matte.agreement) {
-    await setSourceMatte(set, get, imageId, { ...matte, agreement: attempt.agreement })
-  }
-  return attempt
 }
 
 /** 小图放大后细节发软，版本上要标出来。量不出尺寸只是没法标，不该拦住生成。 */
@@ -876,17 +809,6 @@ async function loadProductAsset(
   }
 }
 
-/** 遮罩编辑会按官方尺寸改过图，提交要用蒙版对着的那一张，否则尺寸对不上被拒。 */
-async function maskTargetImage(
-  imageId: string,
-  dataUrl: string,
-  mask: Mask | null,
-): Promise<InputImage> {
-  if (!mask || mask.targetImageId === imageId) return { id: imageId, dataUrl }
-  const target = await ensureImageCached(mask.targetImageId)
-  return target ? { id: mask.targetImageId, dataUrl: target } : { id: imageId, dataUrl }
-}
-
 /** 整图重画时原产品还留在画面里模型会照它画，所以先把那块抹成灰。 */
 async function framingImage(
   imageId: string,
@@ -903,26 +825,24 @@ async function framingImage(
 
 /** 一张图只准备一次，之后它的每一版共用。`reuse` 是重跑时沿用的旧方案。 */
 function prepareImage(
-  set: SetState,
-  get: GetState,
+  draft: ProductShotsDraft,
   imageId: string,
   stage: StageSink,
   reuse?: ProductShotVersion,
 ): Promise<PreparedImage> {
-  const mode = modeOf(get().draft, reuse)
+  const mode = modeOf(draft, reuse)
   return mode === 'remix'
-    ? prepareRemix(get, imageId, stage, reuse)
-    : prepareSwap(set, get, imageId, stage, mode, reuse)
+    ? prepareRemix(draft, imageId, stage, reuse)
+    : prepareSwap(draft, imageId, stage, mode, reuse)
 }
 
 /** 借创意重做：分析竞品图 → 六段提示词 → 抹掉产品的原图当参考，不带遮罩。 */
 async function prepareRemix(
-  get: GetState,
+  draft: ProductShotsDraft,
   imageId: string,
   stage: StageSink,
   reuse?: ProductShotVersion,
 ): Promise<PreparedImage> {
-  const { draft } = get()
   const level = reuse?.level ?? draft.level
   if (!reuse) stage('plan')
   const dataUrl = await loadOriginal(imageId)
@@ -986,14 +906,13 @@ function firstAssetName(draft: ProductShotsDraft): string {
 
 /** 换背景那三种：方案 → 素材 → 蒙版。 */
 async function prepareSwap(
-  set: SetState,
-  get: GetState,
+  draft: ProductShotsDraft,
   imageId: string,
   stage: StageSink,
   mode: BgSwapMode,
   reuse?: ProductShotVersion,
 ): Promise<PreparedImage> {
-  const { draft } = get()
+  if (!draft.id) throw new Error('商品图任务已删除')
   if (!reuse) stage('plan')
   const dataUrl = await loadOriginal(imageId)
   const planned =
@@ -1011,13 +930,12 @@ async function prepareSwap(
 
   const side = maskSideFor(mode)
   if (side) stage('matte')
-  const attempt = side ? await imageMaskAttempt(set, get, imageId, productBox, side) : NO_MASK
+  const prepared = side
+    ? await sourceMattes.prepare({ jobId: draft.id, imageId }, { dataUrl, productBox, side })
+    : { ...NO_MASK, image: await framingImage(imageId, dataUrl, productBox) }
+  const { image: original, ...attempt } = prepared
 
   stage('generate')
-  const original =
-    mode === 'replace-and-background'
-      ? await framingImage(imageId, dataUrl, productBox)
-      : await maskTargetImage(imageId, dataUrl, attempt.mask)
 
   return {
     ...attempt,
@@ -1087,14 +1005,13 @@ function submitParams(): TaskParams {
 async function recordVersions(
   set: SetState,
   get: GetState,
-  imageId: string,
+  source: SourceMatteRef,
   versions: readonly ProductShotVersion[],
 ): Promise<void> {
-  patchImage(set, imageId, (image) => ({
+  await updateJobImage(set, get, source, (image) => ({
     ...image,
     versions: versions.reduce(upsertVersion, image.versions),
   }))
-  await persistDraft(set, get)
 }
 
 function patchImage(
@@ -1136,7 +1053,7 @@ async function runBatchOver(
   })
 
   for (const imageId of targets) {
-    if (get().batch?.stopRequested) break
+    if (!get().batch?.running || get().batch?.stopRequested) break
     await runOneOfBatch(set, get, jobId, imageId)
   }
 
@@ -1152,15 +1069,19 @@ async function runOneOfBatch(
 ): Promise<void> {
   patchBatchItem(set, imageId, 'running', null)
   try {
-    const prepared = await prepareImage(set, get, imageId, (stage) => patchBatch(set, { stage }))
+    const state = get()
+    const job = state.jobs.find((item) => item.id === jobId)
+    if (!job) return
+    const draft = state.draft.id === jobId ? state.draft : draftFromJob(job)
+    const prepared = await prepareImage(draft, imageId, (stage) => patchBatch(set, { stage }))
     const submitted = await Promise.all(
-      Array.from({ length: get().draft.versionsPerImage }, () =>
+      Array.from({ length: draft.versionsPerImage }, () =>
         submitVersion(jobId, prepared, crypto.randomUUID()),
       ),
     )
     const versions = submitted.filter((version) => version !== null)
     if (versions.length === 0) throw new Error(NOT_SUBMITTED)
-    await recordVersions(set, get, imageId, versions)
+    await recordVersions(set, get, { jobId, imageId }, versions)
     patchBatchItem(set, imageId, 'done', null)
   } catch (error) {
     patchBatchItem(set, imageId, 'error', reasonOf(error))
@@ -1222,9 +1143,9 @@ function adoptAsProduct(set: SetState, get: GetState, asset: AssetRecord): void 
 }
 
 /** 一张图都没有的任务不落盘：否则光是打字就会在任务列表里堆出空任务。 */
-async function persistDraft(set: SetState, get: GetState): Promise<void> {
+async function persistDraft(set: SetState, get: GetState): Promise<string | null> {
   const { draft, jobs } = get()
-  if (draft.images.length === 0 && !draft.id) return
+  if (draft.images.length === 0 && !draft.id) return null
 
   const now = Date.now()
   const record: ProductShotJob = {
@@ -1242,16 +1163,13 @@ async function persistDraft(set: SetState, get: GetState): Promise<void> {
     updatedAt: now,
   }
 
-  await productShotJobStore.put(record)
   set((s) => ({
     jobs: s.jobs.some((job) => job.id === record.id)
       ? s.jobs.map((job) => (job.id === record.id ? record : job))
       : [...s.jobs, record],
-    // 落盘期间草稿可能又被改过（抠图就在后台跑），那一份说了算，别拿旧记录盖回去。
-    draft:
-      s.draft === draft
-        ? draftFromJob(record)
-        : { ...s.draft, id: record.id, createdAt: record.createdAt },
+    draft: draftFromJob(record),
     activeJobId: record.id,
   }))
+  await productShotJobStore.put(record)
+  return record.id
 }

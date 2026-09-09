@@ -139,6 +139,9 @@ same database transaction.
 `matte:server` needs `INTERNAL_API_TOKEN`, which signs the short-lived tokens Cloudflare uses to
 fetch a source image back, and `MATTE_TRANSFORM_ORIGIN`, a bare https origin of this deployment
 on a zone with image transformations on; BFF refuses to start without both.
+When `accounts:login` is enabled, both listing endpoints (`POST /api/remix/listing` and
+`GET /api/remix/image`) require a user session or the internal service credential; browser
+requests include the session cookie even when the BFF is on a separate origin.
 
 Start infrastructure, provision one migrator, one application writer, and one Admin reader for
 each deployment, build the release image once, then start each project:
@@ -174,6 +177,15 @@ workloads. Each project also runs a `pg-backup` sidecar that uploads a daily `pg
 own database to `<S3_KEY_PREFIX>pg/<UTC date>.dump`, and `matte:server` caches each cutout under
 `<S3_KEY_PREFIX>matte/<sha256 of the source image>/`. Retention belongs to a bucket lifecycle
 rule, not to the sidecar.
+The browser probes `GET /api/matte/:hash` with the SHA-256 hex digest of the original image bytes
+before uploading to `POST /api/matte`. A hit returns the alpha with one object read and no source
+upload or transform. Both endpoints enforce `matte:server` and the same session/service guard.
+Browsers without Web Crypto use the upload path.
+
+For automatic product-shot mattes, action-time mask preparation removes foreground components
+wholly outside the plan's product box before agreement checking and expansion. Components that
+intersect or cross the box remain whole, including diagonal cords; objects touching the product
+or inside the box cannot be separated by this rule. Hand-edited mattes are left untouched.
 
 `app-compose.sh` defaults to
 `$XDG_CONFIG_HOME/ai-image-playground/apps/<project>/app.env` and requires a sibling

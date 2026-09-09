@@ -33,4 +33,14 @@ describe('POST /api/matte without the capability', () => {
     })
     setMatteFetchForTesting()
   })
+
+  it('also keeps the hash probe unavailable', async () => {
+    const response = await app.handle(new Request(`http://localhost/api/matte/${'a'.repeat(64)}`))
+
+    expect(response.status).toBe(404)
+    expect(await response.json()).toEqual({
+      error: 'capability_unavailable',
+      capability: 'matte:server',
+    })
+  })
 })
