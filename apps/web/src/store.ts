@@ -2425,8 +2425,11 @@ export async function addImageFromFile(file: File): Promise<void> {
 }
 
 /** 把一张图片存进 image store —— 支持 data/blob/http URL */
-export async function storeImageFromUrl(src: string): Promise<{ id: string; dataUrl: string }> {
-  const res = await fetch(src)
+export async function storeImageFromUrl(
+  src: string,
+  fetcher: (input: string) => Promise<Response> = fetch,
+): Promise<{ id: string; dataUrl: string }> {
+  const res = await fetcher(src)
   const blob = await res.blob()
   if (!blob.type.startsWith('image/')) throw new Error('不是有效的图片')
   const dataUrl = await blobToDataUrl(blob)

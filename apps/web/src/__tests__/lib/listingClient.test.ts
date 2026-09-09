@@ -16,6 +16,7 @@ beforeEach(() => {
 afterEach(() => {
   _setRuntimeConfigForTesting({ bff: { enabled: false, baseUrl: '' } })
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
 })
 
 describe('fetching a competitor listing', () => {
@@ -40,6 +41,22 @@ describe('fetching a competitor listing', () => {
     expect(listing).toEqual({
       asin: 'B0FVLNS696',
       title: 'Abruzzo Bathtub',
+      images: ['https://m.media-amazon.com/images/I/a.jpg'],
+    })
+  })
+
+  it('includes the session cookie when fetching a listing from a separate BFF origin', async () => {
+    vi.stubGlobal('fetch', async (_url: string, init?: RequestInit) =>
+      init?.credentials === 'include'
+        ? jsonResponse({
+            asin: 'B0FVLNS696',
+            images: ['https://m.media-amazon.com/images/I/a.jpg'],
+          })
+        : jsonResponse({ error: 'unauthorized' }, 401),
+    )
+
+    await expect(fetchListingImages('https://www.amazon.com/dp/B0FVLNS696')).resolves.toEqual({
+      asin: 'B0FVLNS696',
       images: ['https://m.media-amazon.com/images/I/a.jpg'],
     })
   })

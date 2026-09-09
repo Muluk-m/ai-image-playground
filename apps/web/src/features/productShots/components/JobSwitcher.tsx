@@ -5,6 +5,7 @@ import { FIELD, LABEL, OUTLINE_BUTTON } from '../../../components/panelStyles'
 import { useStore } from '../../../store'
 import { useProductShotsStore } from '../store'
 import type { ProductShotJob } from '../types'
+import IconButton from './IconButton'
 
 const UNSAVED = '新任务'
 
@@ -101,14 +102,13 @@ export default function JobSwitcher() {
           )}
 
           {draftName === null && activeJobId && (
-            <button
-              type="button"
+            <IconButton
               onClick={beginRename}
-              aria-label="重命名任务"
+              label="重命名任务"
               className="shrink-0 rounded-md p-1.5 text-gray-400 transition hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-white/[0.06] dark:hover:text-gray-200"
             >
               <EditIcon className="h-3.5 w-3.5" />
-            </button>
+            </IconButton>
           )}
         </div>
 
@@ -160,9 +160,8 @@ export default function JobSwitcher() {
                       · {versionCount(job)} 版
                     </span>
                   </button>
-                  <button
-                    type="button"
-                    aria-label={`删除任务 ${job.name}`}
+                  <IconButton
+                    label={`删除任务 ${job.name}`}
                     onClick={() => {
                       closeList()
                       setConfirmDialog({
@@ -175,7 +174,7 @@ export default function JobSwitcher() {
                     className="shrink-0 rounded-md p-1.5 text-gray-400 transition hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-500/10 dark:hover:text-red-400"
                   >
                     <TrashIcon className="h-3.5 w-3.5" />
-                  </button>
+                  </IconButton>
                 </li>
               ))}
             </ul>

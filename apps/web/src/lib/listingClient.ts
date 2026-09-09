@@ -1,3 +1,4 @@
+import { authenticatedBffFetch } from './authClient'
 import { bffBaseUrl } from './runtimeConfig'
 
 export interface ListingImages {
@@ -17,7 +18,7 @@ export function listingImageProxyUrl(imageUrl: string): string {
 
 export async function fetchListingImages(
   url: string,
-  fetcher: Fetcher = fetch,
+  fetcher: Fetcher = authenticatedBffFetch,
 ): Promise<ListingImages> {
   const response = await fetcher(`${bffBaseUrl()}/api/remix/listing`, {
     method: 'POST',

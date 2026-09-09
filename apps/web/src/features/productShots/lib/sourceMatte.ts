@@ -9,6 +9,7 @@ import {
   alphaToProductMask,
   assessMatte,
   expandProductAlpha,
+  filterProductAlpha,
   type MatteBackendId,
   maskDataUrlToAlpha,
   matteAgreesWithBox,
@@ -144,15 +145,16 @@ export async function maskAttemptFor(
     // 手改的那份就是最终答案，既不回捞也不再校验。
     if (matte.edited) return await masked(matte, raw, side, 'ok')
 
+    const product = filterProductAlpha(raw, productBox)
     const agreement: MatteAgreement | undefined = productBox
-      ? matteAgreesWithBox(raw, productBox)
+      ? matteAgreesWithBox(product, productBox)
         ? 'ok'
         : 'box-mismatch'
       : undefined
     if (agreement === 'box-mismatch') {
       return { ...unmasked(MATTE_UNRELIABLE, 'box-mismatch', matte.previewImageId), agreement }
     }
-    return await masked(matte, expandProductAlpha(raw, { productBox }), side, agreement)
+    return await masked(matte, expandProductAlpha(product, { productBox }), side, agreement)
   } catch {
     return unmasked(MATTE_FAILED, 'failed', matte.previewImageId)
   }

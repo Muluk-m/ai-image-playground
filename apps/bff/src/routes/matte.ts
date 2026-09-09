@@ -5,6 +5,7 @@ import { badRequestOnValidation, imageDataUrlSchema } from '../lib/http'
 import { decodeDataUrl } from '../lib/imageArchive'
 import { log } from '../lib/logger'
 import {
+  cachedForeground,
   MatteUpstreamError,
   segmentForeground,
   sourceContentType,
@@ -14,6 +15,14 @@ import { objectStore } from '../lib/objectStore'
 import { requireUserOrService } from '../lib/user-auth'
 
 const matteBodySchema = t.Object({ image: imageDataUrlSchema() })
+
+function matteResponse(png: Uint8Array, cached: boolean): MatteResponse {
+  return {
+    alpha: `data:image/png;base64,${Buffer.from(png).toString('base64')}`,
+    backend: MATTE_BACKEND,
+    cached,
+  }
+}
 
 /** 每个实例要一份自己的：命名插件会被去重，两条路由就只剩一条挂上门禁。 */
 const capabilityGate = () =>
@@ -26,6 +35,15 @@ const matteCreateRoutes = new Elysia()
   .use(badRequestOnValidation())
   .use(capabilityGate())
   .use(requireUserOrService)
+  .get(
+    '/api/matte/:hash',
+    async ({ params, status, set }) => {
+      set.headers['cache-control'] = 'private, no-store'
+      const png = await cachedForeground(params.hash)
+      return png ? matteResponse(png, true) : status(404, { error: 'not_found' })
+    },
+    { params: t.Object({ hash: t.String({ pattern: '^[0-9a-f]{64}$' }) }) },
+  )
   .post(
     '/api/matte',
     async ({ body, status }) => {
@@ -52,11 +70,7 @@ const matteCreateRoutes = new Elysia()
         )
         return status(502, { error: 'matte_upstream_error' })
       }
-      return {
-        alpha: `data:image/png;base64,${Buffer.from(segmented.png).toString('base64')}`,
-        backend: MATTE_BACKEND,
-        cached: segmented.cached,
-      } satisfies MatteResponse
+      return matteResponse(segmented.png, segmented.cached)
     },
     { body: matteBodySchema },
   )

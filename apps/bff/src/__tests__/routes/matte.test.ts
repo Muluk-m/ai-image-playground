@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test'
 import { createHash } from 'node:crypto'
 import { resolve } from 'node:path'
 import { Elysia } from 'elysia'
@@ -145,6 +145,47 @@ describe('POST /api/matte', () => {
     expect(response.status).toBe(400)
     expect(((await response.json()) as { error: string }).error).toBe('invalid_request')
     expect(fetcher.mock.calls).toHaveLength(0)
+  })
+})
+
+describe('GET /api/matte/:hash', () => {
+  it('returns the cached alpha with one storage read and no transform or upload', async () => {
+    await store.write(`matte/${SOURCE_HASH}/alpha.png`, ALPHA_BYTES, 'image/png')
+    const read = spyOn(store, 'read')
+    const write = spyOn(store, 'write')
+    const fetcher = injectMatteFetch(segmentedPng)
+
+    const response = await app.handle(new Request(`http://localhost/api/matte/${SOURCE_HASH}`))
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      alpha: `data:image/png;base64,${ALPHA_BYTES.toString('base64')}`,
+      backend: 'cloudflare-birefnet',
+      cached: true,
+    })
+    expect(response.headers.get('cache-control')).toBe('private, no-store')
+    expect(read).toHaveBeenCalledTimes(1)
+    expect(write).not.toHaveBeenCalled()
+    expect(fetcher).not.toHaveBeenCalled()
+  })
+
+  it('reports an uncached hash without starting a transform', async () => {
+    const fetcher = injectMatteFetch(segmentedPng)
+    const response = await app.handle(new Request(`http://localhost/api/matte/${SOURCE_HASH}`))
+
+    expect(response.status).toBe(404)
+    expect(await response.json()).toEqual({ error: 'not_found' })
+    expect(fetcher).not.toHaveBeenCalled()
+    expect(store.objects.size).toBe(0)
+  })
+
+  it('rejects malformed hashes before accessing storage', async () => {
+    const read = spyOn(store, 'read')
+    for (const hash of ['short', 'g'.repeat(64), `${SOURCE_HASH}0`]) {
+      const response = await app.handle(new Request(`http://localhost/api/matte/${hash}`))
+      expect(response.status).toBe(400)
+    }
+    expect(read).not.toHaveBeenCalled()
   })
 })
 

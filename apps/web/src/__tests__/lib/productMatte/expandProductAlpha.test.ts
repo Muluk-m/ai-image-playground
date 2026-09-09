@@ -4,6 +4,7 @@ import {
   DEFAULT_MATTE_GROW_RATIO,
   expandProductAlpha,
 } from '../../../lib/productMatte/expandProductAlpha'
+import { filterProductAlpha } from '../../../lib/productMatte/filterProductAlpha'
 import type { ProductAlpha } from '../../../lib/productMatte/types'
 
 function blank(width: number, height: number): ProductAlpha {
@@ -112,5 +113,64 @@ describe('pulling the attachments back into the product', () => {
     const expanded = expandProductAlpha(tubWithFaucet(), { growRatio: 0.03 })
 
     expect(at(expanded, 73, 25)).toBe(0)
+  })
+})
+
+describe('deriving a product mask without separate foreground props', () => {
+  const box = { x: 0.2, y: 0.2, w: 0.3, h: 0.3 }
+
+  it('removes an outside comb before growth, without changing the reusable source alpha', () => {
+    const source = paint(blank(100, 100), { x: 20, y: 20, w: 30, h: 30 }, 255)
+    paint(source, { x: 75, y: 20, w: 5, h: 25 }, 255)
+    // A faint shadow between objects must not join their foreground components.
+    paint(source, { x: 50, y: 30, w: 25, h: 1 }, 50)
+
+    const mask = expandProductAlpha(filterProductAlpha(source, box), { productBox: box })
+
+    expect(at(mask, 30, 30)).toBe(255)
+    expect(at(mask, 77, 30)).toBe(0)
+    expect(at(source, 77, 30)).toBe(255)
+  })
+
+  it('keeps an entire diagonal cord crossing the box, including its outside end', () => {
+    const source = paint(blank(100, 100), { x: 20, y: 20, w: 30, h: 30 }, 255)
+    for (let i = 50; i < 90; i++) source.alpha[i * 100 + i] = 255
+
+    const mask = expandProductAlpha(filterProductAlpha(source, box), { growRatio: 0 })
+
+    expect(at(mask, 89, 89)).toBe(255)
+  })
+
+  it('removes an outside component even when its bounding rectangle surrounds the box', () => {
+    const source = paint(blank(100, 100), { x: 20, y: 20, w: 30, h: 30 }, 255)
+    paint(source, { x: 10, y: 10, w: 60, h: 1 }, 255)
+    paint(source, { x: 10, y: 10, w: 1, h: 60 }, 255)
+
+    const mask = expandProductAlpha(filterProductAlpha(source, box), { growRatio: 0 })
+
+    expect(at(mask, 10, 30)).toBe(0)
+    expect(at(mask, 30, 30)).toBe(255)
+  })
+
+  it('preserves the existing in-box recovery of a weak, disconnected faucet', () => {
+    const source = paint(blank(100, 100), { x: 30, y: 50, w: 40, h: 30 }, 255)
+    paint(source, { x: 72, y: 20, w: 3, h: 30 }, 50)
+    const productBox = { x: 0.1, y: 0.1, w: 0.8, h: 0.8 }
+
+    const mask = expandProductAlpha(filterProductAlpha(source, productBox), {
+      growRatio: 0.03,
+      productBox,
+    })
+
+    expect(at(mask, 73, 25)).toBe(255)
+  })
+
+  it('does not discard disconnected foreground when there is no product box', () => {
+    const source = paint(blank(100, 100), { x: 20, y: 20, w: 30, h: 30 }, 255)
+    paint(source, { x: 75, y: 20, w: 5, h: 25 }, 255)
+
+    const mask = expandProductAlpha(filterProductAlpha(source, null), { growRatio: 0 })
+
+    expect(at(mask, 77, 30)).toBe(255)
   })
 })

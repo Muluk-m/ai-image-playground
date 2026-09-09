@@ -29,6 +29,7 @@ export {
   type ExpandProductAlphaOptions,
   expandProductAlpha,
 } from './expandProductAlpha'
+export { filterProductAlpha } from './filterProductAlpha'
 export { alphaToDataUrl, maskDataUrlToAlpha } from './maskAlpha'
 export {
   MATTE_BOX_IOU_THRESHOLD,

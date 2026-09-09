@@ -80,6 +80,33 @@ describe('POST /api/matte with accounts:login enabled', () => {
   })
 })
 
+describe('GET /api/matte/:hash with accounts:login enabled', () => {
+  const hash = 'a'.repeat(64)
+
+  it('does not disclose a cached alpha without authorization', async () => {
+    await store.write(`matte/${hash}/alpha.png`, ALPHA_BYTES, 'image/png')
+    const response = await app.handle(new Request(`http://localhost/api/matte/${hash}`))
+
+    expect(response.status).toBe(401)
+    expect(await response.json()).toEqual({ error: 'unauthorized' })
+  })
+
+  it('allows a service credential to read the cached alpha', async () => {
+    await store.write(`matte/${hash}/alpha.png`, ALPHA_BYTES, 'image/png')
+    const response = await app.handle(
+      new Request(`http://localhost/api/matte/${hash}`, {
+        headers: { authorization: 'Bearer fixture-service-credential-alpha' },
+      }),
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({
+      alpha: `data:image/png;base64,${ALPHA_BYTES.toString('base64')}`,
+      cached: true,
+    })
+  })
+})
+
 describe('GET /api/matte/source/:token with accounts:login enabled', () => {
   it('stays reachable without a cookie so Cloudflare can fetch the source', async () => {
     const key = `matte/${'a'.repeat(64)}/source.png`
