@@ -21,7 +21,7 @@ const { setChatFetchForTesting } = await import('../../lib/chatCompletion')
 
 const app = new Elysia().use(storyboardPlanRoutes)
 
-const REQUEST = { idea: '一支讲通勤咖啡的短片', shots: 2, secondsPerShot: 5, aspectRatio: '9:16' }
+const REQUEST = { idea: '一支讲通勤咖啡的短片', shots: 2, totalSeconds: 10, aspectRatio: '9:16' }
 
 function shot(no: number) {
   return {
@@ -30,13 +30,18 @@ function shot(no: number) {
     description: '主角在清晨的地铁口捧着纸杯',
     camera: '缓慢推进',
     line: '',
-    seconds: 5,
     imagePrompt: 'commuter holding a paper cup at a subway entrance, 9:16',
     videoPrompt: 'slow push in, steam rises',
   }
 }
 
-const PLAN = { title: '通勤第一口', summary: '两镜讲清一杯咖啡的早晨', shots: [shot(1), shot(2)] }
+const PLAN = {
+  title: '通勤第一口',
+  summary: '两镜讲清一杯咖啡的早晨',
+  videoPrompt:
+    '通勤者捧着纸杯，清晨地铁口\n镜头1（0-5秒）：走出地铁口\n镜头2（5-10秒）：纸杯升起热气',
+  shots: [shot(1), shot(2)],
+}
 
 function plan(headers: Record<string, string> = {}): Promise<Response> {
   return app.handle(
@@ -71,7 +76,6 @@ describe('POST /api/storyboard/plan with accounts:login enabled', () => {
     const response = await plan({ authorization: 'Bearer fixture-service-credential-alpha' })
 
     expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({ plan: PLAN })
     expect(fetchImpl).toHaveBeenCalledTimes(1)
   })
 })

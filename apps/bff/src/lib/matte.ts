@@ -92,19 +92,26 @@ export function sourceContentType(key: string): string {
   return `image/${extension === 'jpg' ? 'jpeg' : extension}`
 }
 
+/** A hit downloads the alpha directly: no metadata/existence request before the read. */
+export async function cachedForeground(hash: string): Promise<Uint8Array | null> {
+  try {
+    return await objectStore().read(`matte/${hash}/alpha.png`)
+  } catch {
+    // Keep the POST path's existing cache-miss behavior for unreadable objects.
+    return null
+  }
+}
+
 /** 按原图内容哈希缓存，同一张图重复进来只调一次 Cloudflare。 */
 export async function segmentForeground(
   bytes: Uint8Array,
   mime: string,
 ): Promise<{ png: Uint8Array; cached: boolean }> {
   const hash = createHash('sha256').update(bytes).digest('hex')
+  const cached = await cachedForeground(hash)
+  if (cached) return { png: cached, cached: true }
   const store = objectStore()
   const alphaKey = `matte/${hash}/alpha.png`
-  try {
-    return { png: await store.read(alphaKey), cached: true }
-  } catch {
-    // 读不到就是没缓存过。
-  }
 
   const sourceKey = `matte/${hash}/source.${sourceExtension(mime)}`
   await store.write(sourceKey, bytes, mime)
