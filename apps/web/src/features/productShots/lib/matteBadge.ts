@@ -39,9 +39,8 @@ export function sourceMatteBadge(
   return { text: `已抠 · ${MATTE_BACKEND_LABELS[matte.backend]}`, tone: 'ok' }
 }
 
-/** 蒙版没抠成时动作区的那一句；动作照跑。 */
+/** 蒙版抠出来了但抠错了对象时动作区的那一句；动作照跑。 */
 export function sourceMatteNotice(matte: SourceMatte | undefined): string | null {
-  if (!matte) return null
-  if (matte.status === 'failed') return '未抠图'
+  if (matte?.status !== 'ready') return null
   return matte.agreement === 'box-mismatch' ? UNRELIABLE : null
 }

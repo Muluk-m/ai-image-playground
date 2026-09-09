@@ -119,14 +119,14 @@ describe('sourceMatteBadge', () => {
 })
 
 describe('sourceMatteNotice', () => {
-  it('抠不出来与抠错对象各报一句', () => {
-    expect(sourceMatteNotice(FAILED)).toBe('未抠图')
+  it('抠错对象报一句', () => {
     expect(sourceMatteNotice(ready({ agreement: 'box-mismatch' }))).toBe('蒙版不可靠')
   })
 
-  it('抠好了与还没抠都没有可说的', () => {
+  it('抠好了、还没抠与抠不出来都没有可说的', () => {
     expect(sourceMatteNotice(ready({ agreement: 'ok' }))).toBeNull()
     expect(sourceMatteNotice(ready())).toBeNull()
     expect(sourceMatteNotice(undefined)).toBeNull()
+    expect(sourceMatteNotice(FAILED)).toBeNull()
   })
 })

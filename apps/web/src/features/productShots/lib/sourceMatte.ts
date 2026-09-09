@@ -22,7 +22,7 @@ import {
   segmentProduct,
 } from '../../../lib/productMatte'
 import { ensureImageCached, useStore } from '../../../store'
-import type { InputImage } from '../../../types'
+import type { AppSettings, InputImage } from '../../../types'
 import type { MatteAgreement, MatteOutcome, ProductShotImage, SourceMatte } from '../types'
 import type { MaskSide } from './mode'
 
@@ -136,6 +136,13 @@ export function createSourceMattes(host: SourceMatteHost) {
 
   return {
     ensure,
+    /** 「重试抠图」：丢掉失败那条记录再抠一次，`ensure` 见到空的才会重跑。 */
+    async retry(source: SourceMatteRef): Promise<void> {
+      const entry = lifetime(source)
+      if (!entry || entry.pending) return
+      await host.update(source, (image) => ({ ...image, sourceMatte: undefined }))
+      await ensure(source)
+    },
     async prepare(
       source: SourceMatteRef,
       input: { dataUrl: string; productBox: ProductBox | null; side: MaskSide },
@@ -247,11 +254,8 @@ export function createSourceMattes(host: SourceMatteHost) {
   }
 }
 
-function maskSupported(): boolean {
-  return modelSupportsNativeMask(
-    getActiveApiProfile(useStore.getState().settings),
-    getPublicChannels(),
-  )
+export function maskSupported(settings: AppSettings = useStore.getState().settings): boolean {
+  return modelSupportsNativeMask(getActiveApiProfile(settings), getPublicChannels())
 }
 
 /** 服务端抠图是等网络，浏览器链吃满设备：一个放三个进去，一个一次只放一个。 */
