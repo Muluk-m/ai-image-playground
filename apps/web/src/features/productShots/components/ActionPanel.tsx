@@ -11,26 +11,33 @@ import {
 } from '../../../components/panelStyles'
 import Segmented from '../../../components/Segmented'
 import { REMIX_LEVELS } from '../../../lib/shotTypes'
+import { useStore } from '../../../store'
 import AssetThumb from '../../library/components/AssetThumb'
 import { useLibraryStore } from '../../library/store'
 import { ACTION_LABELS, type ProductShotAction, REMIX_LEVEL_LABELS } from '../lib/actions'
 import { sourceMatteNotice } from '../lib/matteBadge'
+import { MATTE_FAILED_REASON, matteGateReason } from '../lib/matteGate'
+import { maskSideFor } from '../lib/mode'
+import { maskSupported } from '../lib/sourceMatte'
 import { useProductShotsStore } from '../store'
 import { PRODUCT_SHOT_STAGE_LABELS, VERSIONS_PER_IMAGE_CHOICES } from '../types'
 
 const PICK_PRODUCT = '选产品素材'
 const NO_PRODUCT = '产品素材：未选'
 const NEEDS_PRODUCT = '换产品与借创意重做需要先选产品素材'
+const RETRY_MATTE = '重试抠图'
 
 /** 三个动作挤在一排里，PRIMARY_BUTTON 的字号与内边距放不下最长的那个标签。 */
 const ACTION_BUTTON =
   'rounded-lg bg-blue-500 px-1 py-1.5 text-xs font-medium leading-tight text-white transition hover:bg-blue-600 disabled:opacity-50'
 
-const ACTIONS: Array<{ mode: ProductShotAction; needsProduct: boolean }> = [
-  { mode: 'background', needsProduct: false },
-  { mode: 'replace-product', needsProduct: true },
-  { mode: 'remix', needsProduct: true },
-]
+const ACTIONS = (
+  [
+    { mode: 'background', needsProduct: false },
+    { mode: 'replace-product', needsProduct: true },
+    { mode: 'remix', needsProduct: true },
+  ] satisfies Array<{ mode: ProductShotAction; needsProduct: boolean }>
+).map((action) => ({ ...action, needsMatte: maskSideFor(action.mode) !== null }))
 
 export default function ActionPanel() {
   const preference = useProductShotsStore((s) => s.draft.preference)
@@ -38,21 +45,33 @@ export default function ActionPanel() {
   const level = useProductShotsStore((s) => s.draft.level)
   const productAssets = useProductShotsStore(useShallow((s) => s.draft.productAssets))
   const selectedImageId = useProductShotsStore((s) => s.selectedImageId)
-  const matteNotice = useProductShotsStore((s) =>
-    sourceMatteNotice(
-      s.draft.images.find((image) => image.imageId === s.selectedImageId)?.sourceMatte,
-    ),
+  const matte = useProductShotsStore(
+    (s) => s.draft.images.find((image) => image.imageId === s.selectedImageId)?.sourceMatte,
   )
+  const matting = useProductShotsStore(
+    (s) => s.selectedImageId !== null && s.mattingImageIds.includes(s.selectedImageId),
+  )
+  const maskable = useStore((s) => maskSupported(s.settings))
   const swapStage = useProductShotsStore((s) => s.swapStage)
   const swapStartedAt = useProductShotsStore((s) => s.swapStartedAt)
   const swapNotice = useProductShotsStore((s) => s.swapNotice)
   const batchRunning = useProductShotsStore((s) => s.batch?.running === true)
   const assets = useLibraryStore(useShallow((s) => s.assets))
 
-  const { setPreference, setVersionsPerImage, setRemixLevel, runAction, openProductPicker } =
-    useProductShotsStore.getState()
+  const {
+    setPreference,
+    setVersionsPerImage,
+    setRemixLevel,
+    runAction,
+    openProductPicker,
+    retryMatte,
+  } = useProductShotsStore.getState()
   const busy = swapStage !== null || batchRunning
   const hasProduct = productAssets.length > 0
+  const matteNotice = sourceMatteNotice(matte)
+  const matteBlocked = selectedImageId
+    ? matteGateReason({ matte, matting, maskSupported: maskable })
+    : null
 
   return (
     <section data-product-shots-column="actions" className={`${CARD} flex flex-col gap-4`}>
@@ -146,7 +165,12 @@ export default function ActionPanel() {
               type="button"
               data-product-shots-action={action.mode}
               onClick={() => void runAction(action.mode)}
-              disabled={busy || !selectedImageId || (action.needsProduct && !hasProduct)}
+              disabled={
+                busy ||
+                !selectedImageId ||
+                (action.needsProduct && !hasProduct) ||
+                (action.needsMatte && matteBlocked !== null)
+              }
               className={ACTION_BUTTON}
             >
               {ACTION_LABELS[action.mode]}
@@ -160,6 +184,20 @@ export default function ActionPanel() {
           </p>
         )}
 
+        {matteBlocked && (
+          <p data-product-shots-action-reason className={`${NOTICE} flex items-center gap-2`}>
+            {matteBlocked}
+            {matteBlocked === MATTE_FAILED_REASON && selectedImageId && (
+              <button
+                type="button"
+                onClick={() => void retryMatte(selectedImageId)}
+                className={GHOST_BUTTON}
+              >
+                {RETRY_MATTE}
+              </button>
+            )}
+          </p>
+        )}
         {!hasProduct && (
           <p data-product-shots-action-reason className={NOTICE}>
             {NEEDS_PRODUCT}

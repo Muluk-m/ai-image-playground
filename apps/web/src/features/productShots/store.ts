@@ -46,6 +46,7 @@ import type { AssetRecord } from '../library/types'
 import { ACTION_LABELS, type ProductShotAction } from './lib/actions'
 import { pendingBatchImageIds } from './lib/batch'
 import { productShotJobStore } from './lib/jobStore'
+import { matteGateReason } from './lib/matteGate'
 import { legacyJobMode, maskSideFor } from './lib/mode'
 import { requestBackgroundPlan, requestSceneScan } from './lib/planClient'
 import {
@@ -59,6 +60,7 @@ import { DIAGRAM_LABEL, isDiagram } from './lib/scene'
 import {
   createSourceMattes,
   type MaskAttempt,
+  maskSupported,
   NO_MASK,
   type SourceMatteRef,
 } from './lib/sourceMatte'
@@ -153,6 +155,7 @@ export interface ProductShotsState {
   /** `maskOnly` 是「用此蒙版重生成」：提示词照旧，所以新版不算手改。 */
   regenerateFromVersion: (versionId: string, maskOnly?: boolean) => Promise<void>
   editSourceMask: (imageId: string) => Promise<void>
+  retryMatte: (imageId: string) => Promise<void>
   chooseVersion: (versionId: string) => void
   previewVersion: (versionId: string | null) => void
   toggleMatteOverlay: (versionId: string) => void
@@ -460,6 +463,7 @@ export const useProductShotsStore = create<ProductShotsState>((set, get) => ({
     const image = draft.images.find((item) => item.imageId === selectedImageId)
     const jobId = draft.id
     if (swapStage || batch?.running || !image || !jobId) return
+    if (refuseUnmatted(get, mode, image.imageId)) return
     patchDraft(set, get, { mode })
 
     if (isDiagram(image.sceneType)) {
@@ -483,6 +487,7 @@ export const useProductShotsStore = create<ProductShotsState>((set, get) => ({
     const found = findVersion(draft, versionId)
     const jobId = draft.id
     if (swapStage || batch?.running || !found || !jobId) return
+    if (refuseUnmatted(get, modeOf(draft, found.version), found.imageId)) return
 
     await runStages(set, async (stage) => {
       const prepared = await prepareImage(draft, found.imageId, stage, found.version)
@@ -496,9 +501,9 @@ export const useProductShotsStore = create<ProductShotsState>((set, get) => ({
   regenerateFromVersion: async (versionId, maskOnly = false) => {
     const { draft } = get()
     const found = findVersion(draft, versionId)
-    if (draft.id && found) {
-      await swapOneVersion(set, get, draft.id, found.imageId, found.version, maskOnly)
-    }
+    if (!draft.id || !found) return
+    if (refuseUnmatted(get, modeOf(draft, found.version), found.imageId)) return
+    await swapOneVersion(set, get, draft.id, found.imageId, found.version, maskOnly)
   },
 
   /** 「改蒙版」：改的是原图身上那份 alpha，画笔涂的是保留区。 */
@@ -511,6 +516,11 @@ export const useProductShotsStore = create<ProductShotsState>((set, get) => ({
     } catch (error) {
       set({ swapNotice: reasonOf(error) })
     }
+  },
+
+  retryMatte: async (imageId) => {
+    const jobId = get().draft.id
+    if (jobId) await sourceMattes.retry({ jobId, imageId })
   },
 
   /** 再点已选的那版就是取消选用。 */
@@ -619,6 +629,28 @@ function patchVersion(
 
 function reasonOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
+}
+
+/** 蒙版没落地就不提交。整图重画的动作不要遮罩，照跑。 */
+function matteBlockedFor(
+  get: GetState,
+  draft: ProductShotsDraft,
+  mode: ProductShotAction,
+  imageId: string,
+): string | null {
+  if (!maskSideFor(mode)) return null
+  return matteGateReason({
+    matte: draft.images.find((image) => image.imageId === imageId)?.sourceMatte,
+    matting: get().mattingImageIds.includes(imageId),
+    maskSupported: maskSupported(),
+  })
+}
+
+/** 门禁的第二道：UI 过期或走键盘绕过按钮时，蒙版没落地照样不提交。 */
+function refuseUnmatted(get: GetState, mode: ProductShotAction, imageId: string): boolean {
+  const blocked = matteBlockedFor(get, get().draft, mode, imageId)
+  if (blocked) useStore.getState().showToast(blocked, 'error')
+  return blocked !== null
 }
 
 /**
@@ -1073,6 +1105,10 @@ async function runOneOfBatch(
     const job = state.jobs.find((item) => item.id === jobId)
     if (!job) return
     const draft = state.draft.id === jobId ? state.draft : draftFromJob(job)
+    // 批量是队列，抠图还在跑就等它；等完了再看这张能不能提交。
+    await sourceMattes.ensure({ jobId, imageId })
+    const blocked = matteBlockedFor(get, get().draft, draft.mode, imageId)
+    if (blocked) throw new Error(blocked)
     const prepared = await prepareImage(draft, imageId, (stage) => patchBatch(set, { stage }))
     const submitted = await Promise.all(
       Array.from({ length: draft.versionsPerImage }, () =>
