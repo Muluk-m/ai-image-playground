@@ -7,6 +7,7 @@ import {
   ProductMatteError,
   segmentProduct,
 } from '../../../lib/productMatte'
+import { silenceMatteLog } from '../../helpers/matteLog'
 
 function backend(id: string, device: 'webgpu' | 'wasm', timeoutMs = 1_000): MatteBackend {
   return {
@@ -73,6 +74,7 @@ describe('segmentProduct 回落链', () => {
   })
 
   it('前一环失败就往下走，记的是真正跑成的那一环', async () => {
+    silenceMatteLog()
     stubWebGpu(16)
     const run = runner({ 'webgpu-birefnet': new Error('shader 炸了'), 'wasm-u2netp': 'ok' })
 
@@ -82,7 +84,24 @@ describe('segmentProduct 回落链', () => {
     expect(run.calls).toEqual(['webgpu-birefnet', 'wasm-u2netp'])
   })
 
+  it('挂掉的那一环各留一行日志，带后端、原因与耗时', async () => {
+    const warn = silenceMatteLog()
+    stubWebGpu(16)
+    const run = runner({
+      'webgpu-birefnet': new Error('shader 炸了'),
+      'wasm-u2netp': new ProductMatteError('timeout', '慢'),
+    })
+
+    await segmentProduct('data:image/png;base64,AA', { backends: CHAIN, run }).catch(() => {})
+
+    expect(warn.mock.calls.map((call) => call[0])).toEqual([
+      expect.stringMatching(/^\[matte\] backend=webgpu-birefnet reason=failed elapsed=\d+ms /),
+      expect.stringMatching(/^\[matte\] backend=wasm-u2netp reason=timeout elapsed=\d+ms /),
+    ])
+  })
+
   it('某一环超时只废掉这一环，链条继续往下走', async () => {
+    silenceMatteLog()
     stubWebGpu(16)
     const run = runner({ 'webgpu-birefnet': 'hang', 'wasm-u2netp': 'ok' })
 
@@ -105,6 +124,7 @@ describe('segmentProduct 回落链', () => {
   })
 
   it('全挂了抛最后一环的原因', async () => {
+    silenceMatteLog()
     stubWebGpu(16)
     const run = runner({
       'webgpu-birefnet': new Error('shader 炸了'),
@@ -121,6 +141,7 @@ describe('segmentProduct 回落链', () => {
   })
 
   it('最后一环超时时抛 timeout', async () => {
+    silenceMatteLog()
     stubWebGpu(0)
     const run = runner({ 'wasm-u2netp': 'hang' })
 

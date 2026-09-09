@@ -5,7 +5,7 @@ import {
   type SourceMatteHost,
   type SourceMatteRef,
 } from '../../../../features/productShots/lib/sourceMatte'
-import type { ProductShotImage } from '../../../../features/productShots/types'
+import type { ProductShotImage, SourceMatte } from '../../../../features/productShots/types'
 import { DEFAULT_SETTINGS } from '../../../../lib/apiProfiles'
 import { getImage, putImage } from '../../../../lib/db'
 import type * as MaskAlpha from '../../../../lib/productMatte/maskAlpha'
@@ -147,6 +147,27 @@ describe('原图蒙版 interface 的真实像素', () => {
     expect(productPixels.data[(32 * 64 + 50) * 4 + 3]).toBe(255)
     expect(product.image).toEqual({ id: targetImageId, dataUrl: source.dataUrl })
     expect(product.mask?.targetImageId).toBe(targetImageId)
+  })
+
+  it('占比不对的那份留着 alpha：编辑器照开，手改完就是可用蒙版', async () => {
+    const source = await original('left')
+    const ready = source.image.sourceMatte as Extract<SourceMatte, { status: 'ready' }>
+    source.image.sourceMatte = { ...ready, status: 'unusable', reason: 'too-small' }
+    const host = memoryHost([source.image])
+    const mattes = createSourceMattes(host)
+    const input = { dataUrl: source.dataUrl, productBox: null, side: 'background' } as const
+
+    const blocked = await mattes.prepare(source.ref, input)
+    expect(blocked.mask).toBeNull()
+    expect(blocked.matte).toEqual({ ok: false, reason: 'too-small' })
+
+    const editor = await mattes.edit(source.ref)
+    expect(editor?.targetImageId).toBe(source.ref.imageId)
+    await editor!.onSave({ maskDataUrl: source.dataUrl, targetImageId: source.ref.imageId })
+
+    expect(host.read(source.ref)?.sourceMatte).toMatchObject({ status: 'ready', edited: true })
+    const usable = await mattes.prepare(source.ref, input)
+    expect(usable.mask).not.toBeNull()
   })
 
   it('手改目标图丢失时拒绝准备，不能把遮罩配到另一张原图', async () => {

@@ -17,16 +17,14 @@ describe('assessMatte', () => {
   it('产品占比过小判失败', () => {
     const result = assessMatte(matte(1000, 20))
 
-    expect(result.ok).toBe(false)
-    expect(result.reason).toBe('too-small')
+    expect(result).toMatchObject({ ok: false, reason: 'too-small' })
     expect(result.coverage).toBeCloseTo(0.02)
   })
 
   it('产品占比过大判失败', () => {
     const result = assessMatte(matte(1000, 950))
 
-    expect(result.ok).toBe(false)
-    expect(result.reason).toBe('too-large')
+    expect(result).toMatchObject({ ok: false, reason: 'too-large' })
     expect(result.coverage).toBeCloseTo(0.95)
   })
 

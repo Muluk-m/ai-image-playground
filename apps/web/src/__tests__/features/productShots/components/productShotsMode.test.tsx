@@ -9,6 +9,7 @@ import { useProductShotsStore } from '../../../../features/productShots/store'
 import type { SourceMatte } from '../../../../features/productShots/types'
 import { ProductMatteError } from '../../../../lib/productMatte'
 import { getPersistedState, useStore } from '../../../../store'
+import { silenceMatteLog } from '../../../helpers/matteLog'
 import { browserMatte, browserOnlyCapabilities, settleUntil as settleRounds } from '../fixtures'
 
 declare global {
@@ -110,7 +111,12 @@ let root: Root
 
 beforeEach(() => {
   vi.stubGlobal('indexedDB', new IDBFactory())
-  useStore.setState({ showToast: vi.fn(), tasks: [], matteOverlayHidden: false })
+  useStore.setState({
+    showToast: vi.fn(),
+    tasks: [],
+    matteOverlayHidden: false,
+    maskEditorSession: null,
+  })
   useProductShotsStore.setState({
     jobs: [],
     swapStage: null,
@@ -232,6 +238,14 @@ async function withOneVersion() {
 
 function actionReasons(): Element[] {
   return [...column('actions').querySelectorAll('[data-product-shots-action-reason]')]
+}
+
+function reasonButton(label: string): HTMLButtonElement {
+  const found = [...(actionReasons()[0]?.querySelectorAll('button') ?? [])].find(
+    (button) => button.textContent === label,
+  )
+  if (!found) throw new Error(`no ${label} button in the action reason`)
+  return found
 }
 
 function upload(label: string, ...files: File[]) {
@@ -977,17 +991,49 @@ describe('holding the actions back until the matte lands', () => {
       status: 'failed',
     })
 
-    const retry = [...(actionReasons()[0]?.querySelectorAll('button') ?? [])].find(
-      (button) => button.textContent === '重试抠图',
-    )
-    if (!retry) throw new Error('no matte retry button')
-    click(retry)
+    click(reasonButton('重试抠图'))
     await settleUntil(() => !actionButton().disabled)
 
     expect(actionButton('background').disabled).toBe(false)
     expect(useProductShotsStore.getState().draft.images[0].sourceMatte).toMatchObject({
       status: 'ready',
     })
+  })
+
+  it('offers a mask edit when the matte covers too little, and lets the actions through once it is hand-edited', async () => {
+    silenceMatteLog()
+    assessMatte.mockReturnValue({ ok: false, coverage: 0.001, reason: 'too-small' })
+    render()
+    upload('上传原图', new File(['x'], '主图.png', { type: 'image/png' }))
+    await settleUntil(() => actionReasons()[0]?.textContent?.startsWith('抠图占比过小') === true)
+
+    expect(actionButton('background').disabled).toBe(true)
+    expect(useProductShotsStore.getState().draft.images[0].sourceMatte).toMatchObject({
+      status: 'unusable',
+      reason: 'too-small',
+      alphaImageId: 'mask-1',
+    })
+
+    click(reasonButton('改蒙版'))
+    await settleUntil(() => useStore.getState().maskEditorSession !== null)
+
+    const session = useStore.getState().maskEditorSession
+    if (!session) throw new Error('no mask editor session')
+    await act(async () => {
+      await session.onSave({
+        maskDataUrl: 'data:image/png;base64,EDITED',
+        targetImageId: 'image-主图.png',
+        targetDataUrl: 'data:,image-主图.png',
+      })
+    })
+    await settleUntil(() => !actionButton().disabled)
+
+    expect(useProductShotsStore.getState().draft.images[0].sourceMatte).toMatchObject({
+      status: 'ready',
+      edited: true,
+    })
+    expect(actionButton('background').disabled).toBe(false)
+    expect(actionReasons().map((item) => item.textContent)).not.toContain('抠图占比过小')
   })
 })
 

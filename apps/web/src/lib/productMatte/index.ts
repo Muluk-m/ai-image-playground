@@ -36,9 +36,9 @@ export {
   matteAgreesWithBox,
   matteBounds,
 } from './matteAgreesWithBox'
+export { logMatteFailure, type MatteFailureLog } from './matteLog'
 export { alphaToMattePreview, alphaToPreviewPixels } from './mattePreview'
 export {
-  MATTE_FAILURE_LABELS,
   type MatteRunner,
   ProductMatteError,
   type SegmentedProduct,
@@ -46,4 +46,4 @@ export {
   type SegmentProductOptions,
   segmentProduct,
 } from './segmentProduct'
-export type { MaskPixels, MatteAssessment, MatteFailureReason, ProductAlpha } from './types'
+export type { MaskPixels, MatteAssessment, MatteCoverageReason, ProductAlpha } from './types'
