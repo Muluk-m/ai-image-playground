@@ -1,13 +1,9 @@
 import { eligibleBackends, type MatteBackend, type MatteBackendId } from './backends'
+import { logMatteFailure } from './matteLog'
 import type { ProductAlpha } from './types'
 
+/** 浏览器回落链自己能给出的失败原因。 */
 export type SegmentFailureReason = 'unsupported' | 'timeout' | 'failed'
-
-export const MATTE_FAILURE_LABELS: Record<SegmentFailureReason, string> = {
-  timeout: '超时',
-  unsupported: '不支持',
-  failed: '运行错误',
-}
 
 export class ProductMatteError extends Error {
   readonly reason: SegmentFailureReason
@@ -78,6 +74,12 @@ export async function segmentProduct(
         error instanceof ProductMatteError
           ? error
           : new ProductMatteError('failed', error instanceof Error ? error.message : String(error))
+      logMatteFailure({
+        backend: backend.id,
+        reason: failure.reason,
+        elapsedMs: Date.now() - startedAt,
+        error: failure,
+      })
     }
   }
 
