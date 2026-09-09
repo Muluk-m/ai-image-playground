@@ -32,6 +32,11 @@ export function parseSort(value: unknown): SortKey {
     : DEFAULT_SORT
 }
 
+export interface AdminLoginMethods {
+  readonly google_login: boolean
+  readonly password_login: boolean
+}
+
 export interface AdminSession {
   readonly accounts_login: boolean
   readonly accounts_sync: boolean

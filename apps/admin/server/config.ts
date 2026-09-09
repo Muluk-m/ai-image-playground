@@ -12,9 +12,32 @@ if (cookieSecret.length < 32) {
   throw new Error('ADMIN_COOKIE_SECRET must be at least 32 chars')
 }
 
+const googleClientId = env('ADMIN_GOOGLE_CLIENT_ID', '')
+const googleClientSecret = env('ADMIN_GOOGLE_CLIENT_SECRET', '')
+const googleAllowedEmails = Object.freeze(
+  env('ADMIN_GOOGLE_ALLOWED_EMAILS', '')
+    .split(',')
+    .map((entry) => entry.trim().toLowerCase())
+    .filter(Boolean),
+)
+// An allowlist-less client id would let any Google account in, so all three are required.
+const googleLoginEnabled = Boolean(
+  googleClientId && googleClientSecret && googleAllowedEmails.length > 0,
+)
+
 export const config = {
   port: Number(env('PORT', '37378')),
-  adminPassword: env('ADMIN_PASSWORD'),
+  // Google login replaces the shared password rather than sitting beside it.
+  adminPassword: googleLoginEnabled ? env('ADMIN_PASSWORD', '') : env('ADMIN_PASSWORD'),
+  passwordLoginEnabled: !googleLoginEnabled,
+  google: {
+    enabled: googleLoginEnabled,
+    clientId: googleClientId,
+    clientSecret: googleClientSecret,
+    allowedEmails: googleAllowedEmails,
+  },
+  // Origin the Google redirect URI is built from; empty falls back to the request's own origin.
+  publicOrigin: env('ADMIN_PUBLIC_ORIGIN', '').replace(/\/+$/, ''),
   cookieSecret,
   bffInternalUrl: env('BFF_INTERNAL_URL', 'http://127.0.0.1:37377').replace(/\/+$/, ''),
   auth: {
