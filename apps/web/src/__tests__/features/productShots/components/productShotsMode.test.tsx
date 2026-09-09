@@ -9,7 +9,12 @@ import { useProductShotsStore } from '../../../../features/productShots/store'
 import type { SourceMatte } from '../../../../features/productShots/types'
 import { ProductMatteError } from '../../../../lib/productMatte'
 import { getPersistedState, useStore } from '../../../../store'
-import { browserMatte, browserOnlyCapabilities, settleUntil as settleRounds } from '../fixtures'
+import {
+  browserMatte,
+  browserOnlyCapabilities,
+  settleUntil as settleRounds,
+  silenceMatteLog,
+} from '../fixtures'
 
 declare global {
   // eslint-disable-next-line no-var
@@ -988,6 +993,47 @@ describe('holding the actions back until the matte lands', () => {
     expect(useProductShotsStore.getState().draft.images[0].sourceMatte).toMatchObject({
       status: 'ready',
     })
+  })
+
+  it('offers a mask edit when the matte covers too little, and lets the actions through once it is hand-edited', async () => {
+    silenceMatteLog()
+    assessMatte.mockReturnValue({ ok: false, coverage: 0.001, reason: 'too-small' })
+    render()
+    upload('上传原图', new File(['x'], '主图.png', { type: 'image/png' }))
+    await settleUntil(() => actionReasons()[0]?.textContent?.startsWith('抠图占比过小') === true)
+
+    expect(actionButton('background').disabled).toBe(true)
+    expect(useProductShotsStore.getState().draft.images[0].sourceMatte).toMatchObject({
+      status: 'unusable',
+      reason: 'too-small',
+      alphaImageId: 'mask-1',
+    })
+
+    const edit = [...(actionReasons()[0]?.querySelectorAll('button') ?? [])].find(
+      (button) => button.textContent === '改蒙版',
+    )
+    if (!edit) throw new Error('no mask edit button')
+    act(() => useStore.setState({ maskEditorSession: null }))
+    click(edit)
+    await settleUntil(() => useStore.getState().maskEditorSession !== null)
+
+    const session = useStore.getState().maskEditorSession
+    if (!session) throw new Error('no mask editor session')
+    await act(async () => {
+      await session.onSave({
+        maskDataUrl: 'data:image/png;base64,EDITED',
+        targetImageId: 'image-主图.png',
+        targetDataUrl: 'data:,image-主图.png',
+      })
+    })
+    await settleUntil(() => !actionButton().disabled)
+
+    expect(useProductShotsStore.getState().draft.images[0].sourceMatte).toMatchObject({
+      status: 'ready',
+      edited: true,
+    })
+    expect(actionButton('background').disabled).toBe(false)
+    expect(actionReasons().map((item) => item.textContent)).not.toContain('抠图占比过小')
   })
 })
 

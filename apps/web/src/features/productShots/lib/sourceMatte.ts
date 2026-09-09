@@ -13,17 +13,23 @@ import {
   assessMatte,
   expandProductAlpha,
   filterProductAlpha,
+  logMatteFailure,
   type MatteBackendId,
   maskDataUrlToAlpha,
   matteAgreesWithBox,
   type ProductAlpha,
   ProductMatteError,
-  type SegmentFailureReason,
   segmentProduct,
 } from '../../../lib/productMatte'
 import { ensureImageCached, useStore } from '../../../store'
 import type { AppSettings, InputImage } from '../../../types'
-import type { MatteAgreement, MatteOutcome, ProductShotImage, SourceMatte } from '../types'
+import type {
+  MatteAgreement,
+  MatteFailureCause,
+  MatteOutcome,
+  ProductShotImage,
+  SourceMatte,
+} from '../types'
 import type { MaskSide } from './mode'
 
 const UNMASKED_FALLBACK = '本版未抠图'
@@ -53,7 +59,7 @@ export const NO_MASK: MaskAttempt = { mask: null, notice: null, matte: null, pre
 
 function unmasked(
   notice: string,
-  reason: SegmentFailureReason | 'box-mismatch',
+  reason: MatteFailureCause,
   previewImageId: string | null,
 ): MaskAttempt {
   return { mask: null, notice, matte: { ok: false, reason }, previewImageId }
@@ -188,7 +194,8 @@ export function createSourceMattes(host: SourceMatteHost) {
     async edit(source: SourceMatteRef) {
       const entry = lifetime(source)
       const matte = host.read(source)?.sourceMatte
-      if (!entry || matte?.status !== 'ready') return null
+      // 占比不对的那份也能改：手改完就是可用的蒙版，这是用户唯一的出路。
+      if (!entry || !matte || matte.status === 'failed') return null
       const maskDataUrl = await ensureImageCached(matte.alphaImageId)
       if (!live(entry)) return null
       if (!maskDataUrl) throw new Error('蒙版图片已丢失')
@@ -215,7 +222,8 @@ export function createSourceMattes(host: SourceMatteHost) {
               ? {
                   ...image,
                   sourceMatte: {
-                    ...matte,
+                    status: 'ready',
+                    backend: matte.backend,
                     alphaImageId,
                     targetImageId: saved.targetImageId,
                     previewImageId,
@@ -283,11 +291,24 @@ interface RawMatte {
   /** 落盘的那张 alpha PNG。服务端那张原样存，不解码再编码一遍。 */
   dataUrl: string
   backend: MatteBackendId
+  elapsedMs: number
 }
 
+/** 服务端挂了、浏览器链又跑不起来：这一次用户撞上的是服务端那次失败。 */
+class ServerMatteFailure extends Error {}
+
 async function segment(dataUrl: string): Promise<RawMatte> {
-  const server = serverEligible(dataUrl) ? await serverSlots(() => serverMatte(dataUrl)) : null
-  return server ?? (await browserSlots(() => browserMatte(dataUrl)))
+  if (!serverEligible(dataUrl)) return await browserSlots(() => browserMatte(dataUrl))
+  const server = await serverSlots(() => serverMatte(dataUrl))
+  if (server) return server
+  try {
+    return await browserSlots(() => browserMatte(dataUrl))
+  } catch (error) {
+    if (error instanceof ProductMatteError && error.reason === 'unsupported') {
+      throw new ServerMatteFailure('服务端抠图失败')
+    }
+    throw error
+  }
 }
 
 /** 超限的图路由会直接 400，别白跑一趟。 */
@@ -297,42 +318,66 @@ function serverEligible(dataUrl: string): boolean {
 
 /** 服务端抠不出来就落回浏览器链。 */
 async function serverMatte(dataUrl: string): Promise<RawMatte | null> {
+  const startedAt = Date.now()
   try {
     const { alpha } = await requestServerMatte(dataUrl)
     return {
       alpha: await maskDataUrlToAlpha(alpha),
       dataUrl: alpha,
       backend: 'cloudflare-birefnet',
+      elapsedMs: Date.now() - startedAt,
     }
-  } catch {
+  } catch (error) {
+    logMatteFailure({
+      backend: 'cloudflare-birefnet',
+      reason: 'server',
+      elapsedMs: Date.now() - startedAt,
+      error,
+    })
     return null
   }
 }
 
 async function browserMatte(dataUrl: string): Promise<RawMatte> {
   const matte = await segmentProduct(dataUrl)
-  return { alpha: matte, dataUrl: alphaToDataUrl(matte), backend: matte.backend }
+  return {
+    alpha: matte,
+    dataUrl: alphaToDataUrl(matte),
+    backend: matte.backend,
+    elapsedMs: matte.elapsedMs,
+  }
 }
 
-/** 抠一张原图。抠不出来记 failed，动作那边回落成提示词版。 */
+/** 抠一张原图。抠不出来记 failed，占比不对记 unusable，动作那边都不放行。 */
 async function runSourceMatte(imageId: string, dataUrl: string): Promise<SourceMatte> {
   try {
     const raw = await segment(dataUrl)
-    const previewImageId = await storeImage(alphaToMattePreview(raw.alpha), 'mask')
     // 抠错的那次预览照实存：用户就是靠它看出抠到了什么。
-    if (!assessMatte(raw.alpha).ok) return { status: 'failed', reason: 'failed', previewImageId }
-    return {
-      status: 'ready',
+    const previewImageId = await storeImage(alphaToMattePreview(raw.alpha), 'mask')
+    const assessment = assessMatte(raw.alpha)
+    const alpha = {
       backend: raw.backend,
       alphaImageId: await storeImage(raw.dataUrl, 'mask'),
       targetImageId: imageId,
       previewImageId,
       edited: false,
     }
+    if (assessment.ok) return { ...alpha, status: 'ready' }
+    logMatteFailure({
+      backend: raw.backend,
+      reason: assessment.reason,
+      elapsedMs: raw.elapsedMs,
+      coverage: assessment.coverage,
+    })
+    return { ...alpha, status: 'unusable', reason: assessment.reason }
   } catch (error) {
-    const reason = error instanceof ProductMatteError ? error.reason : 'failed'
-    return { status: 'failed', reason, previewImageId: null }
+    return { status: 'failed', reason: causeOf(error), previewImageId: null }
   }
+}
+
+function causeOf(error: unknown): MatteFailureCause {
+  if (error instanceof ServerMatteFailure) return 'server'
+  return error instanceof ProductMatteError ? error.reason : 'failed'
 }
 
 /** 原图的 alpha → 这一次动作要提交的遮罩。`side` 决定重绘哪一侧，产品框决定回捞与校验。 */
@@ -341,7 +386,7 @@ async function maskAttemptFor(
   productBox: ProductBox | null,
   side: MaskSide,
 ): Promise<DerivedMask> {
-  if (matte.status === 'failed') {
+  if (matte.status !== 'ready') {
     return unmasked(MATTE_FAILED, matte.reason, matte.previewImageId)
   }
 

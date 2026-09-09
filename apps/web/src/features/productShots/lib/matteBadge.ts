@@ -1,5 +1,5 @@
-import { MATTE_BACKEND_LABELS, MATTE_FAILURE_LABELS } from '../../../lib/productMatte'
-import type { ProductShotVersion, SourceMatte } from '../types'
+import { MATTE_BACKEND_LABELS } from '../../../lib/productMatte'
+import { MATTE_FAILURE_LABELS, type ProductShotVersion, type SourceMatte } from '../types'
 import { maskSideFor } from './mode'
 
 export interface MatteBadge {
@@ -34,6 +34,7 @@ export function sourceMatteBadge(
   if (matting) return { text: '抠图中', tone: 'warn' }
   if (!matte) return null
   if (matte.status === 'failed') return { text: '未抠', tone: 'warn' }
+  if (matte.status === 'unusable') return { text: MATTE_FAILURE_LABELS[matte.reason], tone: 'warn' }
   if (matte.edited) return { text: '手改', tone: 'ok' }
   if (matte.agreement === 'box-mismatch') return { text: UNRELIABLE, tone: 'warn' }
   return { text: `已抠 · ${MATTE_BACKEND_LABELS[matte.backend]}`, tone: 'ok' }

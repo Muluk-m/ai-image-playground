@@ -16,7 +16,7 @@ import AssetThumb from '../../library/components/AssetThumb'
 import { useLibraryStore } from '../../library/store'
 import { ACTION_LABELS, type ProductShotAction, REMIX_LEVEL_LABELS } from '../lib/actions'
 import { sourceMatteNotice } from '../lib/matteBadge'
-import { MATTE_FAILED_REASON, matteGateReason } from '../lib/matteGate'
+import { matteGate } from '../lib/matteGate'
 import { maskSideFor } from '../lib/mode'
 import { productGateReason, usesProductAsset } from '../lib/productGate'
 import { maskSupported } from '../lib/sourceMatte'
@@ -27,6 +27,7 @@ const PICK_PRODUCT = '选产品素材'
 const NO_PRODUCT = '产品素材：未选'
 const NEEDS_PRODUCT = '换产品与借创意重做需要先选产品素材'
 const RETRY_MATTE = '重试抠图'
+const EDIT_MASK = '改蒙版'
 
 /** 三个动作挤在一排里，PRIMARY_BUTTON 的字号与内边距放不下最长的那个标签。 */
 const ACTION_BUTTON =
@@ -66,12 +67,13 @@ export default function ActionPanel() {
     runAction,
     openProductPicker,
     retryMatte,
+    editSourceMask,
   } = useProductShotsStore.getState()
   const busy = swapStage !== null || batchRunning
   const hasProduct = productAssets.length > 0
   const matteNotice = sourceMatteNotice(matte)
   const matteBlocked = selectedImageId
-    ? matteGateReason({ matte, matting, maskSupported: maskable })
+    ? matteGate({ matte, matting, maskSupported: maskable })
     : null
   const productBlocked = productGateReason({
     needsProduct: true,
@@ -191,16 +193,25 @@ export default function ActionPanel() {
           </p>
         )}
 
-        {matteBlocked && (
+        {matteBlocked && selectedImageId && (
           <p data-product-shots-action-reason className={`${NOTICE} flex items-center gap-2`}>
-            {matteBlocked}
-            {matteBlocked === MATTE_FAILED_REASON && selectedImageId && (
+            {matteBlocked.reason}
+            {matteBlocked.retry && (
               <button
                 type="button"
                 onClick={() => void retryMatte(selectedImageId)}
                 className={GHOST_BUTTON}
               >
                 {RETRY_MATTE}
+              </button>
+            )}
+            {matteBlocked.edit && (
+              <button
+                type="button"
+                onClick={() => void editSourceMask(selectedImageId)}
+                className={GHOST_BUTTON}
+              >
+                {EDIT_MASK}
               </button>
             )}
           </p>

@@ -11,10 +11,9 @@ export interface MaskPixels {
   height: number
 }
 
-export type MatteFailureReason = 'too-small' | 'too-large'
+/** 抠出来了但占比不对：太小说明没抠到产品，太大说明把整张图当成了产品。 */
+export type MatteCoverageReason = 'too-small' | 'too-large'
 
-export interface MatteAssessment {
-  ok: boolean
-  coverage: number
-  reason?: MatteFailureReason
-}
+export type MatteAssessment =
+  | { ok: true; coverage: number }
+  | { ok: false; coverage: number; reason: MatteCoverageReason }
