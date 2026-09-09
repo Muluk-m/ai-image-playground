@@ -261,11 +261,11 @@ describe('the results overview', () => {
     expect(document.body.textContent).toContain('放大查看')
   })
 
-  it('keeps the version title on one line', () => {
+  it('keeps the version title on one line and lets the tags wrap', () => {
     render()
 
     expect(part('[data-product-shots-version-title]').className).toContain('whitespace-nowrap')
-    expect(part('[data-product-shots-version-tags]').className).toContain('whitespace-nowrap')
+    expect(part('[data-product-shots-version-tags]').className).toContain('flex-wrap')
     // 格子窄，动作标签在这里仍然省略，跟宽版的版本条不一样。
     const [, action] = part('[data-product-shots-version-title]').children
     expect(action?.className).toContain('truncate')

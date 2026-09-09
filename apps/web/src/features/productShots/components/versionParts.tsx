@@ -12,7 +12,7 @@ export const VERSION_ACTION_ROW =
 export const VERSION_ICON_BUTTON =
   'flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-gray-500 transition hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-white/[0.08] dark:hover:text-gray-100'
 
-const AMBER_TAG = 'shrink-0 rounded bg-amber-500/10 px-1 text-amber-700 dark:text-amber-300'
+const AMBER_TAG = 'min-w-0 truncate rounded bg-amber-500/10 px-1 text-amber-700 dark:text-amber-300'
 
 export function CheckIcon(props: SVGProps<SVGSVGElement>) {
   return (
@@ -105,23 +105,28 @@ export function VersionTitle({
   )
 }
 
-/** 状态标签收成一行小字，放不下就省略。`state` 省掉时由调用方自己报进度。 */
+/** 状态标签排成小字，每个标签放不下就省略。`state` 省掉时由调用方自己报进度。 */
 export function VersionTags({
   version,
   state,
+  wrap = true,
 }: {
   version: ProductShotVersion
   state?: VersionState
+  /** 总览卡的格子窄，标签换行；版本条宽，收在一行。 */
+  wrap?: boolean
 }) {
   return (
     <span
       data-product-shots-version-tags
-      className="flex items-center gap-1 overflow-hidden whitespace-nowrap text-[11px] text-gray-500 dark:text-gray-400"
+      className={`flex items-center gap-x-1 text-[11px] text-gray-500 dark:text-gray-400 ${
+        wrap ? 'flex-wrap gap-y-0.5' : 'whitespace-nowrap'
+      }`}
     >
       {state !== undefined && state !== 'done' && (
-        <span className="shrink-0">{VERSION_STATE_LABELS[state]}</span>
+        <span className="min-w-0 truncate">{VERSION_STATE_LABELS[state]}</span>
       )}
-      <BadgeTag badge={matteBadge(version)} className="truncate px-1" />
+      <BadgeTag badge={matteBadge(version)} className="min-w-0 truncate px-1" />
       {version.lowResSource && <span className={AMBER_TAG}>源图分辨率低</span>}
       {version.promptEdited && <span className={AMBER_TAG}>手改</span>}
     </span>
