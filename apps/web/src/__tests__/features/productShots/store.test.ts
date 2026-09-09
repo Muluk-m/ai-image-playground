@@ -7,6 +7,7 @@ import { useProductShotsStore } from '../../../features/productShots/store'
 import { getImage, putImage } from '../../../lib/db'
 import { ProductMatteError } from '../../../lib/productMatte'
 import { useStore } from '../../../store'
+import { silenceMatteLog } from '../../helpers/matteLog'
 import {
   browserMatte,
   browserOnlyCapabilities,
@@ -471,7 +472,8 @@ describe('matting each original as it joins the job', () => {
     expect(saved).toMatchObject({ status: 'ready', backend: 'cloudflare-birefnet' })
   })
 
-  it('falls back to the browser chain when the server cannot matte it', async () => {
+  it('falls back to the browser chain when the server cannot matte it, logging the failure once', async () => {
+    const warn = silenceMatteLog()
     isClientCapabilityEnabled.mockReturnValue(true)
     requestServerMatte.mockRejectedValue(new Error('服务端抠图没有返回可用的蒙版'))
 
@@ -479,6 +481,20 @@ describe('matting each original as it joins the job', () => {
 
     expect(segmentProduct).toHaveBeenCalledWith('data:image/png;base64,image-主图.png')
     expect(matteOf()).toMatchObject({ status: 'ready', backend: 'wasm-u2netp' })
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(warn.mock.calls[0][0]).toContain('[matte] backend=cloudflare-birefnet reason=server')
+  })
+
+  /** 浏览器链根本跑不起来时，用户撞上的是服务端那次失败，标签不能说成「不支持」。 */
+  it('blames the server when it failed and the browser chain cannot run', async () => {
+    silenceMatteLog()
+    isClientCapabilityEnabled.mockReturnValue(true)
+    requestServerMatte.mockRejectedValue(new Error('服务端抠图没有返回可用的蒙版'))
+    segmentProduct.mockRejectedValue(new ProductMatteError('unsupported', '跑不了本地抠图'))
+
+    await useProductShotsStore.getState().importFiles([image('主图.png')])
+
+    expect(matteOf()).toMatchObject({ status: 'failed', reason: 'server' })
   })
 
   it('mattes in the browser while server matting is off', async () => {
@@ -973,7 +989,9 @@ describe('swapping the background of one image', () => {
     })
   })
 
-  it('records nothing when the product covers too little of the image', async () => {
+  /** 占比不对的 alpha 也要留住：用户手改它是唯一的出路。 */
+  it('records nothing when the product covers too little of the image, but keeps the alpha', async () => {
+    silenceMatteLog()
     assessMatte.mockReturnValue({ ok: false, coverage: 0.001, reason: 'too-small' })
     await jobWithOneImage()
 
@@ -981,6 +999,12 @@ describe('swapping the background of one image', () => {
 
     expect(alphaToInpaintMask).not.toHaveBeenCalled()
     expect(useProductShotsStore.getState().draft.images[0].versions).toEqual([])
+    expect(useProductShotsStore.getState().draft.images[0].sourceMatte).toMatchObject({
+      status: 'unusable',
+      reason: 'too-small',
+      alphaImageId: 'alpha-1',
+      targetImageId: 'image-主图.png',
+    })
   })
 
   it('falls back when the model declares no mask support', async () => {
@@ -1267,11 +1291,12 @@ describe('keeping a matte preview beside the version', () => {
     storeImage.mockImplementation(async (dataUrl: string) =>
       dataUrl === 'data:image/png;base64,MASK' ? 'mask-1' : 'preview-1',
     )
+    silenceMatteLog()
     assessMatte.mockReturnValue({ ok: false, coverage: 0.001, reason: 'too-small' })
     await jobWithOneImage()
 
     expect(useProductShotsStore.getState().draft.images[0].sourceMatte).toMatchObject({
-      status: 'failed',
+      status: 'unusable',
       previewImageId: 'preview-1',
     })
   })

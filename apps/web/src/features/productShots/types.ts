@@ -1,6 +1,10 @@
 import type { BgSceneType, ProductBox, PromptLanguage, ShotType } from '@image-playground/shared'
 import type { ProductAsset } from '../../lib/productAngle'
-import type { MatteBackendId, SegmentFailureReason } from '../../lib/productMatte'
+import type {
+  MatteBackendId,
+  MatteCoverageReason,
+  SegmentFailureReason,
+} from '../../lib/productMatte'
 import type {
   RemixBrief,
   RemixLevel,
@@ -24,8 +28,29 @@ export const SOURCE_MODE_LABELS: Record<SourceMode, string> = {
   library: '素材库',
 }
 
-/** 抠图没用上的原因：跑不出来（前三种），或抠出来的框跟方案给的产品框对不上。 */
-export type MatteFailureCause = SegmentFailureReason | 'box-mismatch'
+/** 抠图没用上的原因：浏览器链跑不出来、服务端挂了、占比不对，或抠出来的框跟产品框对不上。 */
+export type MatteFailureCause =
+  | SegmentFailureReason
+  | MatteCoverageReason
+  | 'server'
+  | 'box-mismatch'
+
+export const EDIT_MASK_LABEL = '改蒙版'
+
+/** box-mismatch 自带一句「蒙版不可靠」，不在这张表里。 */
+export const MATTE_FAILURE_LABELS: Record<Exclude<MatteFailureCause, 'box-mismatch'>, string> = {
+  timeout: '超时',
+  unsupported: '不支持',
+  failed: '运行错误',
+  server: '服务端失败',
+  'too-small': '占比过小',
+  'too-large': '占比过大',
+}
+
+/** 蒙版编辑器与门禁都问这一条：抠出来的 alpha 还在不在。 */
+export function matteEditable(matte: SourceMatte | undefined): matte is MatteWithAlpha {
+  return matte !== undefined && matte.status !== 'failed'
+}
 
 /** 抠图这一段的结果：成功记抠出它的后端，失败记原因。 */
 export type MatteOutcome =
@@ -35,21 +60,29 @@ export type MatteOutcome =
 /** 蒙版的外接框与方案给的产品框对不对得上。 */
 export type MatteAgreement = 'ok' | 'box-mismatch'
 
-/** 原图身上的蒙版。只存 alpha：遮罩与一致性都在动作那一刻按当时的产品框现算，不落盘。 */
+/** 抠出来的那份 alpha 与它落盘的三张图。 */
+interface MatteAlpha {
+  backend: MatteBackendId
+  /** alpha 通道即保留区；手改过的就是编辑器存下来的那张。 */
+  alphaImageId: string
+  /** alpha 对着的那张图：手改会按官方尺寸改图。 */
+  targetImageId: string
+  previewImageId: string
+  edited: boolean
+  /** 最近一次动作算出的一致性，只喂芯片，不参与派生。 */
+  agreement?: MatteAgreement
+}
+
+/**
+ * 原图身上的蒙版。只存 alpha：遮罩与一致性都在动作那一刻按当时的产品框现算，不落盘。
+ * `unusable` 是抠出来了但占比不对：动作照挡，alpha 留着让用户手改成可用的。
+ */
 export type SourceMatte =
   | { status: 'failed'; reason: MatteFailureCause; previewImageId: string | null }
-  | {
-      status: 'ready'
-      backend: MatteBackendId
-      /** alpha 通道即保留区；手改过的就是编辑器存下来的那张。 */
-      alphaImageId: string
-      /** alpha 对着的那张图：手改会按官方尺寸改图。 */
-      targetImageId: string
-      previewImageId: string
-      edited: boolean
-      /** 最近一次动作算出的一致性，只喂芯片，不参与派生。 */
-      agreement?: MatteAgreement
-    }
+  | (MatteAlpha & { status: 'unusable'; reason: MatteCoverageReason })
+  | (MatteAlpha & { status: 'ready' })
+
+export type MatteWithAlpha = Extract<SourceMatte, { status: 'ready' | 'unusable' }>
 
 /** 一次动作的产出。`masked` 为假是蒙版失败的提示词版，产品像素没被锁住。 */
 export interface ProductShotVersion {

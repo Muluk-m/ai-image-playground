@@ -10,6 +10,7 @@ import { useImageThumbnail } from '../../../hooks/useImageThumbnail'
 import { useStore } from '../../../store'
 import { sourceMatteBadge } from '../lib/matteBadge'
 import { useProductShotsStore } from '../store'
+import { EDIT_MASK_LABEL, matteEditable } from '../types'
 import BadgeTag from './BadgeTag'
 
 export default function PreviewPanel() {
@@ -113,13 +114,13 @@ export default function PreviewPanel() {
             badge={sourceMatteBadge(matte, matting)}
             className="px-1.5 py-0.5 text-[11px] leading-tight"
           />
-          {matte?.status === 'ready' && (
+          {matteEditable(matte) && (
             <button
               type="button"
               onClick={() => void editSourceMask(selected.imageId)}
               className={`ml-auto ${GHOST_BUTTON}`}
             >
-              改蒙版
+              {EDIT_MASK_LABEL}
             </button>
           )}
         </div>

@@ -45,7 +45,7 @@ import { useLibraryStore } from '../library/store'
 import { ACTION_LABELS, type ProductShotAction } from './lib/actions'
 import { pendingBatchImageIds } from './lib/batch'
 import { productShotJobStore } from './lib/jobStore'
-import { matteGateReason } from './lib/matteGate'
+import { matteGate } from './lib/matteGate'
 import { legacyJobMode, maskSideFor } from './lib/mode'
 import { requestBackgroundPlan, requestSceneScan } from './lib/planClient'
 import { productGateReason, usesProductAsset } from './lib/productGate'
@@ -637,11 +637,12 @@ function matteBlockedFor(
   imageId: string,
 ): string | null {
   if (!maskSideFor(mode)) return null
-  return matteGateReason({
+  const blocked = matteGate({
     matte: draft.images.find((image) => image.imageId === imageId)?.sourceMatte,
     matting: get().mattingImageIds.includes(imageId),
     maskSupported: maskSupported(),
   })
+  return blocked?.reason ?? null
 }
 
 /** 产品素材与原图是同一张时不提交：图1图2一样，模型只会把原图还回来。 */
