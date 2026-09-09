@@ -14,5 +14,9 @@ export default function BadgeTag({
   className: string
 }) {
   if (!badge) return null
-  return <span className={`rounded ${className} ${TONE[badge.tone]}`}>{badge.text}</span>
+  return (
+    <span title={badge.text} className={`rounded ${className} ${TONE[badge.tone]}`}>
+      {badge.text}
+    </span>
+  )
 }
