@@ -631,14 +631,24 @@ function reasonOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
+/** 蒙版没落地就不提交。整图重画的动作不要遮罩，照跑。 */
+function matteBlockedFor(
+  get: GetState,
+  draft: ProductShotsDraft,
+  mode: ProductShotAction,
+  imageId: string,
+): string | null {
+  if (!maskSideFor(mode)) return null
+  return matteGateReason({
+    matte: draft.images.find((image) => image.imageId === imageId)?.sourceMatte,
+    matting: get().mattingImageIds.includes(imageId),
+    maskSupported: maskSupported(),
+  })
+}
+
 /** 门禁的第二道：UI 过期或走键盘绕过按钮时，蒙版没落地照样不提交。 */
 function refuseUnmatted(get: GetState, mode: ProductShotAction, imageId: string): boolean {
-  const { draft, mattingImageIds } = get()
-  const blocked = matteGateReason(mode, {
-    matte: draft.images.find((image) => image.imageId === imageId)?.sourceMatte,
-    matting: mattingImageIds.includes(imageId),
-    maskSupported: maskSupported(useStore.getState().settings),
-  })
+  const blocked = matteBlockedFor(get, get().draft, mode, imageId)
   if (blocked) useStore.getState().showToast(blocked, 'error')
   return blocked !== null
 }
@@ -1095,6 +1105,10 @@ async function runOneOfBatch(
     const job = state.jobs.find((item) => item.id === jobId)
     if (!job) return
     const draft = state.draft.id === jobId ? state.draft : draftFromJob(job)
+    // 批量是队列，抠图还在跑就等它；等完了再看这张能不能提交。
+    await sourceMattes.ensure({ jobId, imageId })
+    const blocked = matteBlockedFor(get, get().draft, draft.mode, imageId)
+    if (blocked) throw new Error(blocked)
     const prepared = await prepareImage(draft, imageId, (stage) => patchBatch(set, { stage }))
     const submitted = await Promise.all(
       Array.from({ length: draft.versionsPerImage }, () =>

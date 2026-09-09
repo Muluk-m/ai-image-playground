@@ -1874,6 +1874,25 @@ describe('running the batch over the remaining images', () => {
     expect(scene.versions).toHaveLength(1)
   })
 
+  it('marks an image whose matte failed instead of submitting it maskless', async () => {
+    // 抠图按图序一张一张跑：让第二张失败，也就是批量要动的第一张。
+    segmentProduct
+      .mockResolvedValueOnce(browserMatte())
+      .mockRejectedValueOnce(new Error('抠图超时'))
+    await jobWithThreeImages()
+
+    await useProductShotsStore.getState().runBatch()
+
+    const { batch, draft } = useProductShotsStore.getState()
+    expect(batch?.items).toContainEqual({
+      imageId: 'image-细节.png',
+      state: 'error',
+      error: '抠图失败',
+    })
+    expect(draft.images[1].versions).toEqual([])
+    expect(draft.images[2].versions).toHaveLength(1)
+  })
+
   it('leaves the diagrams alone but still runs one when asked by hand', async () => {
     requestSceneScan.mockResolvedValueOnce('photo')
     requestSceneScan.mockResolvedValueOnce('infographic')
