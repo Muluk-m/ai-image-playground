@@ -9,12 +9,8 @@ import { useProductShotsStore } from '../../../../features/productShots/store'
 import type { SourceMatte } from '../../../../features/productShots/types'
 import { ProductMatteError } from '../../../../lib/productMatte'
 import { getPersistedState, useStore } from '../../../../store'
-import {
-  browserMatte,
-  browserOnlyCapabilities,
-  settleUntil as settleRounds,
-  silenceMatteLog,
-} from '../fixtures'
+import { silenceMatteLog } from '../../../helpers/matteLog'
+import { browserMatte, browserOnlyCapabilities, settleUntil as settleRounds } from '../fixtures'
 
 declare global {
   // eslint-disable-next-line no-var
@@ -115,7 +111,12 @@ let root: Root
 
 beforeEach(() => {
   vi.stubGlobal('indexedDB', new IDBFactory())
-  useStore.setState({ showToast: vi.fn(), tasks: [], matteOverlayHidden: false })
+  useStore.setState({
+    showToast: vi.fn(),
+    tasks: [],
+    matteOverlayHidden: false,
+    maskEditorSession: null,
+  })
   useProductShotsStore.setState({
     jobs: [],
     swapStage: null,
@@ -237,6 +238,14 @@ async function withOneVersion() {
 
 function actionReasons(): Element[] {
   return [...column('actions').querySelectorAll('[data-product-shots-action-reason]')]
+}
+
+function reasonButton(label: string): HTMLButtonElement {
+  const found = [...(actionReasons()[0]?.querySelectorAll('button') ?? [])].find(
+    (button) => button.textContent === label,
+  )
+  if (!found) throw new Error(`no ${label} button in the action reason`)
+  return found
 }
 
 function upload(label: string, ...files: File[]) {
@@ -982,11 +991,7 @@ describe('holding the actions back until the matte lands', () => {
       status: 'failed',
     })
 
-    const retry = [...(actionReasons()[0]?.querySelectorAll('button') ?? [])].find(
-      (button) => button.textContent === '重试抠图',
-    )
-    if (!retry) throw new Error('no matte retry button')
-    click(retry)
+    click(reasonButton('重试抠图'))
     await settleUntil(() => !actionButton().disabled)
 
     expect(actionButton('background').disabled).toBe(false)
@@ -1009,12 +1014,7 @@ describe('holding the actions back until the matte lands', () => {
       alphaImageId: 'mask-1',
     })
 
-    const edit = [...(actionReasons()[0]?.querySelectorAll('button') ?? [])].find(
-      (button) => button.textContent === '改蒙版',
-    )
-    if (!edit) throw new Error('no mask edit button')
-    act(() => useStore.setState({ maskEditorSession: null }))
-    click(edit)
+    click(reasonButton('改蒙版'))
     await settleUntil(() => useStore.getState().maskEditorSession !== null)
 
     const session = useStore.getState().maskEditorSession

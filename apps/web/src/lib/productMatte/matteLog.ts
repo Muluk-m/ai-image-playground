@@ -1,6 +1,7 @@
+import type { MatteBackendId } from './backends'
+
 export interface MatteFailureLog {
-  /** 试的是哪一环：服务端、浏览器回落链上的某个后端。 */
-  backend: string
+  backend: MatteBackendId
   reason: string
   elapsedMs: number
   /** 只有占比判定这一路有。 */
@@ -23,5 +24,8 @@ export function logMatteFailure(log: MatteFailureLog): void {
 function scrub(error: unknown): string {
   if (error === undefined || error === null) return ''
   const message = error instanceof Error ? error.message : String(error)
-  return message.replace(/data:[^\s'"]*/g, 'data:…').slice(0, MAX_MESSAGE)
+  return message
+    .slice(0, MAX_MESSAGE * 4)
+    .replace(/data:[^\s'"]*/g, 'data:…')
+    .slice(0, MAX_MESSAGE)
 }

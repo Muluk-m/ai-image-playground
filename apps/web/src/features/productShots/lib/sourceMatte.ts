@@ -23,12 +23,13 @@ import {
 } from '../../../lib/productMatte'
 import { ensureImageCached, useStore } from '../../../store'
 import type { AppSettings, InputImage } from '../../../types'
-import type {
-  MatteAgreement,
-  MatteFailureCause,
-  MatteOutcome,
-  ProductShotImage,
-  SourceMatte,
+import {
+  type MatteAgreement,
+  type MatteFailureCause,
+  type MatteOutcome,
+  matteEditable,
+  type ProductShotImage,
+  type SourceMatte,
 } from '../types'
 import type { MaskSide } from './mode'
 
@@ -195,7 +196,7 @@ export function createSourceMattes(host: SourceMatteHost) {
       const entry = lifetime(source)
       const matte = host.read(source)?.sourceMatte
       // 占比不对的那份也能改：手改完就是可用的蒙版，这是用户唯一的出路。
-      if (!entry || !matte || matte.status === 'failed') return null
+      if (!entry || !matteEditable(matte)) return null
       const maskDataUrl = await ensureImageCached(matte.alphaImageId)
       if (!live(entry)) return null
       if (!maskDataUrl) throw new Error('蒙版图片已丢失')
@@ -352,12 +353,15 @@ async function browserMatte(dataUrl: string): Promise<RawMatte> {
 async function runSourceMatte(imageId: string, dataUrl: string): Promise<SourceMatte> {
   try {
     const raw = await segment(dataUrl)
-    // 抠错的那次预览照实存：用户就是靠它看出抠到了什么。
-    const previewImageId = await storeImage(alphaToMattePreview(raw.alpha), 'mask')
     const assessment = assessMatte(raw.alpha)
+    // 抠错的那次预览照实存：用户就是靠它看出抠到了什么。
+    const [previewImageId, alphaImageId] = await Promise.all([
+      storeImage(alphaToMattePreview(raw.alpha), 'mask'),
+      storeImage(raw.dataUrl, 'mask'),
+    ])
     const alpha = {
       backend: raw.backend,
-      alphaImageId: await storeImage(raw.dataUrl, 'mask'),
+      alphaImageId,
       targetImageId: imageId,
       previewImageId,
       edited: false,

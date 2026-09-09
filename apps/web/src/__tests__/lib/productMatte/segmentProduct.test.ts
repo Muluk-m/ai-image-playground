@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, beforeEach, describe, expect, it, type MockInstance, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { MatteBackend, MatteRunner, ProductAlpha } from '../../../lib/productMatte'
 import {
   eligibleBackends,
@@ -7,6 +7,7 @@ import {
   ProductMatteError,
   segmentProduct,
 } from '../../../lib/productMatte'
+import { silenceMatteLog } from '../../helpers/matteLog'
 
 function backend(id: string, device: 'webgpu' | 'wasm', timeoutMs = 1_000): MatteBackend {
   return {
@@ -54,15 +55,7 @@ function runner(
   return Object.assign(run as MatteRunner, { calls })
 }
 
-/** 每一环失败都会往控制台写一行，用例自己接住它。 */
-let warn: MockInstance
-
-beforeEach(() => {
-  warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-})
-
 afterEach(() => {
-  warn.mockRestore()
   stubWebGpu(0)
   vi.useRealTimers()
 })
@@ -81,6 +74,7 @@ describe('segmentProduct 回落链', () => {
   })
 
   it('前一环失败就往下走，记的是真正跑成的那一环', async () => {
+    silenceMatteLog()
     stubWebGpu(16)
     const run = runner({ 'webgpu-birefnet': new Error('shader 炸了'), 'wasm-u2netp': 'ok' })
 
@@ -91,6 +85,7 @@ describe('segmentProduct 回落链', () => {
   })
 
   it('挂掉的那一环各留一行日志，带后端、原因与耗时', async () => {
+    const warn = silenceMatteLog()
     stubWebGpu(16)
     const run = runner({
       'webgpu-birefnet': new Error('shader 炸了'),
@@ -106,6 +101,7 @@ describe('segmentProduct 回落链', () => {
   })
 
   it('某一环超时只废掉这一环，链条继续往下走', async () => {
+    silenceMatteLog()
     stubWebGpu(16)
     const run = runner({ 'webgpu-birefnet': 'hang', 'wasm-u2netp': 'ok' })
 
@@ -128,6 +124,7 @@ describe('segmentProduct 回落链', () => {
   })
 
   it('全挂了抛最后一环的原因', async () => {
+    silenceMatteLog()
     stubWebGpu(16)
     const run = runner({
       'webgpu-birefnet': new Error('shader 炸了'),
@@ -144,6 +141,7 @@ describe('segmentProduct 回落链', () => {
   })
 
   it('最后一环超时时抛 timeout', async () => {
+    silenceMatteLog()
     stubWebGpu(0)
     const run = runner({ 'wasm-u2netp': 'hang' })
 

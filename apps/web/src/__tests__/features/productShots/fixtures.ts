@@ -1,5 +1,4 @@
 import type { MatteResponse } from '@image-playground/shared'
-import { onTestFinished, vi } from 'vitest'
 
 const ROUNDS = 40
 
@@ -40,11 +39,4 @@ export function serverMatteResponse(overrides: Partial<MatteResponse> = {}): Mat
 /** 服务端抠图默认关着，用例要走服务端那条路就自己打开。 */
 export function browserOnlyCapabilities(name: string): boolean {
   return name !== 'matte:server'
-}
-
-/** 抠图失败会往控制台写一行 `[matte]`，用例自己接住它，别淹掉输出。 */
-export function silenceMatteLog() {
-  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-  onTestFinished(() => warn.mockRestore())
-  return warn
 }

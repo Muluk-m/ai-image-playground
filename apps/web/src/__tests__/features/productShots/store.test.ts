@@ -7,6 +7,7 @@ import { useProductShotsStore } from '../../../features/productShots/store'
 import { getImage, putImage } from '../../../lib/db'
 import { ProductMatteError } from '../../../lib/productMatte'
 import { useStore } from '../../../store'
+import { silenceMatteLog } from '../../helpers/matteLog'
 import {
   browserMatte,
   browserOnlyCapabilities,
@@ -14,7 +15,6 @@ import {
   serverMatteResponse,
   settle,
   settleUntil,
-  silenceMatteLog,
 } from './fixtures'
 
 const fetchListingImages = vi.hoisted(() => vi.fn())

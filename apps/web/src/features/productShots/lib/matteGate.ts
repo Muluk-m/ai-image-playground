@@ -10,7 +10,6 @@ export interface MatteReadiness {
   maskSupported: boolean
 }
 
-/** 挡住动作的那一条：说清原因，并标出哪两个动作能解开它。 */
 export interface MatteBlock {
   reason: string
   retry: boolean
@@ -20,7 +19,6 @@ export interface MatteBlock {
 /** 蒙版还不能用时挡住动作；null = 可以跑。只问要遮罩的动作。 */
 export function matteGate({ matte, matting, maskSupported }: MatteReadiness): MatteBlock | null {
   if (!maskSupported) return null
-  // 抠图中是在等，不是失败，重试解不开。
   if (matting || !matte) return { reason: MATTING, retry: false, edit: false }
   if (matte.status === 'failed') return { reason: FAILED, retry: true, edit: false }
   if (matte.status === 'unusable') {
