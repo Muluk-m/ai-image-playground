@@ -2,6 +2,7 @@ import { IDBFactory } from 'fake-indexeddb'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useLibraryStore } from '../../../features/library/store'
 import type { AssetRecord } from '../../../features/library/types'
+import { productShotJobStore } from '../../../features/productShots/lib/jobStore'
 import { useProductShotsStore } from '../../../features/productShots/store'
 import { getImage, putImage } from '../../../lib/db'
 import { ProductMatteError } from '../../../lib/productMatte'
@@ -176,7 +177,7 @@ beforeEach(() => {
   assessMatte.mockReturnValue({ ok: true, coverage: 0.4 })
   alphaToInpaintMask.mockReturnValue('data:image/png;base64,MASK')
   alphaToProductMask.mockReturnValue('data:image/png;base64,PRODUCT-MASK')
-  expandProductAlpha.mockImplementation((matte: object) => ({ ...matte, grown: true }))
+  expandProductAlpha.mockImplementation((matte: object) => matte)
   getImageDimensions.mockResolvedValue({ width: 2000, height: 2000 })
   getParamCapabilities.mockReturnValue(PARAM_CAPABILITIES)
   eraseProductArea.mockResolvedValue('data:image/png;base64,ERASED')
@@ -562,6 +563,219 @@ describe('matting each original as it joins the job', () => {
     await upload
 
     expect(useProductShotsStore.getState().draft.images).toEqual([])
+  })
+
+  it('切换商品图任务后，后台蒙版只保存到发起它的原图', async () => {
+    const ready = browserMatte()
+    let finishMatte!: (value: typeof ready) => void
+    segmentProduct.mockReturnValueOnce(
+      new Promise<typeof ready>((resolve) => {
+        finishMatte = resolve
+      }),
+    )
+    const upload = useProductShotsStore.getState().importFiles([image('原任务.png')])
+    await settleUntil(() => segmentProduct.mock.calls.length === 1)
+    const originalJobId = useProductShotsStore.getState().draft.id!
+
+    useProductShotsStore.getState().startNewJob()
+    modelSupportsNativeMask.mockReturnValue(false)
+    await useProductShotsStore.getState().importFiles([image('新任务.png')])
+    useProductShotsStore.getState().setPreference('新任务的偏好')
+    const activeJobId = useProductShotsStore.getState().draft.id
+
+    finishMatte(ready)
+    await upload
+    await useProductShotsStore.getState().loadJobs()
+
+    const state = useProductShotsStore.getState()
+    expect(state.activeJobId).toBe(activeJobId)
+    expect(state.draft).toMatchObject({ id: activeJobId, preference: '新任务的偏好' })
+    expect(state.draft.images[0].sourceMatte).toBeUndefined()
+    expect(state.jobs.find((job) => job.id === originalJobId)?.images[0].sourceMatte).toMatchObject(
+      {
+        status: 'ready',
+        targetImageId: 'image-原任务.png',
+      },
+    )
+  })
+
+  it('派生中的动作保留旧快照，晚到的一致性不得覆盖手改 alpha', async () => {
+    segmentProduct.mockResolvedValue(matteCoveringEverything())
+    requestBackgroundPlan.mockResolvedValue({
+      ...PLAN,
+      productBox: { x: 0, y: 0, w: 1, h: 1 },
+    })
+    const imageId = await jobWithOneImage()
+    let releaseAlpha!: (dataUrl: string) => void
+    let readingAlpha = false
+    ensureImageCached.mockImplementation((id: string) => {
+      if (id === 'alpha-1' && !readingAlpha) {
+        readingAlpha = true
+        return new Promise<string>((resolve) => {
+          releaseAlpha = resolve
+        })
+      }
+      return Promise.resolve(`data:image/png;base64,${id}`)
+    })
+
+    const action = useProductShotsStore.getState().runAction('background')
+    await settleUntil(() => readingAlpha)
+    await editTheMask(imageId)
+    releaseAlpha('data:image/png;base64,alpha-1')
+    await action
+
+    const current = useProductShotsStore.getState().draft.images[0]
+    expect(current.sourceMatte).toMatchObject({
+      alphaImageId: 'edited-1',
+      targetImageId: 'image-resized',
+      edited: true,
+    })
+    expect(current.versions[0].maskTargetImageId).toBe(imageId)
+
+    await useProductShotsStore.getState().runAction('background')
+    expect(useProductShotsStore.getState().draft.images[0].versions[1].maskTargetImageId).toBe(
+      'image-resized',
+    )
+    await useProductShotsStore.getState().loadJobs()
+    expect(useProductShotsStore.getState().jobs[0].images[0].sourceMatte).toMatchObject({
+      alphaImageId: 'edited-1',
+      edited: true,
+    })
+  })
+
+  it('较早发起的列表读回不得覆盖已经保存的手改蒙版', async () => {
+    const imageId = await jobWithOneImage()
+    const jobId = useProductShotsStore.getState().draft.id!
+    const readJobs = productShotJobStore.list
+    let readCaptured!: () => void
+    let releaseRead!: () => void
+    const captured = new Promise<void>((resolve) => {
+      readCaptured = resolve
+    })
+    const gate = new Promise<void>((resolve) => {
+      releaseRead = resolve
+    })
+    const delayedRead = vi.spyOn(productShotJobStore, 'list').mockImplementationOnce(async () => {
+      const snapshot = await readJobs()
+      readCaptured()
+      await gate
+      return snapshot
+    })
+    try {
+      const loading = useProductShotsStore.getState().loadJobs()
+      await captured
+      await editTheMask(imageId)
+      releaseRead()
+      await loading
+    } finally {
+      releaseRead()
+      delayedRead.mockRestore()
+    }
+
+    useProductShotsStore.getState().startNewJob()
+    useProductShotsStore.getState().selectJob(jobId)
+    expect(useProductShotsStore.getState().draft.images[0].sourceMatte).toMatchObject({
+      alphaImageId: 'edited-1',
+      edited: true,
+    })
+    useProductShotsStore.getState().setPreference('保留手改后的产品')
+    await settle()
+    await useProductShotsStore.getState().loadJobs()
+    expect(useProductShotsStore.getState().jobs[0].images[0].sourceMatte).toMatchObject({
+      alphaImageId: 'edited-1',
+      edited: true,
+    })
+  })
+
+  it('删除正在抠图的任务后，迟到结果不得复活任务', async () => {
+    const ready = browserMatte()
+    let finish!: (value: typeof ready) => void
+    segmentProduct.mockReturnValueOnce(
+      new Promise<typeof ready>((resolve) => {
+        finish = resolve
+      }),
+    )
+    const upload = useProductShotsStore.getState().importFiles([image('待删除.png')])
+    await settleUntil(() => segmentProduct.mock.calls.length === 1)
+    await useProductShotsStore.getState().deleteJob(useProductShotsStore.getState().draft.id!)
+    finish(ready)
+    await upload
+    await useProductShotsStore.getState().loadJobs()
+    expect(useProductShotsStore.getState().jobs).toEqual([])
+    expect(useProductShotsStore.getState().draft.images).toEqual([])
+  })
+
+  it('删除后重新添加同图，不接收旧生命周期的抠图结果', async () => {
+    const ready = browserMatte()
+    let finishOld!: (value: typeof ready) => void
+    let finishNew!: (value: typeof ready) => void
+    segmentProduct
+      .mockReturnValueOnce(
+        new Promise<typeof ready>((resolve) => {
+          finishOld = resolve
+        }),
+      )
+      .mockReturnValueOnce(
+        new Promise<typeof ready>((resolve) => {
+          finishNew = resolve
+        }),
+      )
+    const first = useProductShotsStore.getState().importFiles([image('同图.png')])
+    await settleUntil(() => segmentProduct.mock.calls.length === 1)
+    useProductShotsStore.getState().removeImage('image-同图.png')
+    const second = useProductShotsStore.getState().importFiles([image('同图.png')])
+    finishOld(ready)
+    await first
+    await settleUntil(() => segmentProduct.mock.calls.length === 2)
+    expect(useProductShotsStore.getState().draft.images[0].sourceMatte).toBeUndefined()
+
+    finishNew({ ...ready, backend: 'webgpu-u2netp' })
+    await second
+    await useProductShotsStore.getState().loadJobs()
+    expect(useProductShotsStore.getState().jobs[0].images[0].sourceMatte).toMatchObject({
+      status: 'ready',
+      backend: 'webgpu-u2netp',
+    })
+  })
+
+  it('同图用于两任务时，编辑保存绑定原任务，删除后保存失效', async () => {
+    const imageId = await jobWithOneImage()
+    const originalJobId = useProductShotsStore.getState().draft.id!
+    await useProductShotsStore.getState().editSourceMask(imageId)
+    const session = useStore.getState().maskEditorSession!
+    useProductShotsStore.getState().startNewJob()
+    await jobWithOneImage()
+    const activeJobId = useProductShotsStore.getState().draft.id!
+    storeImage.mockResolvedValue('edited-original')
+    await session.onSave({
+      maskDataUrl: 'data:image/png;base64,EDITED',
+      targetImageId: 'original-resized',
+      targetDataUrl: 'data:image/png;base64,resized',
+    })
+    await useProductShotsStore.getState().loadJobs()
+
+    const state = useProductShotsStore.getState()
+    expect(state.draft.id).toBe(activeJobId)
+    expect(state.draft.images[0].sourceMatte).toMatchObject({ edited: false })
+    expect(state.jobs.find((job) => job.id === originalJobId)?.images[0].sourceMatte).toMatchObject(
+      {
+        alphaImageId: 'edited-original',
+        targetImageId: 'original-resized',
+        edited: true,
+      },
+    )
+
+    await useProductShotsStore.getState().deleteJob(originalJobId)
+    await session.onSave({
+      maskDataUrl: 'data:image/png;base64,AFTER-DELETE',
+      targetImageId: 'removed-resized',
+      targetDataUrl: 'data:image/png;base64,resized',
+    })
+    await useProductShotsStore.getState().loadJobs()
+    expect(useProductShotsStore.getState().jobs.map((job) => job.id)).toEqual([activeJobId])
+    expect(useProductShotsStore.getState().jobs[0].images[0].sourceMatte).toMatchObject({
+      edited: false,
+    })
   })
 
   it('takes the matte the original already has instead of running it again', async () => {
@@ -957,31 +1171,6 @@ describe('asking for the best the model can render', () => {
     await useProductShotsStore.getState().runAction('background')
 
     expect(useProductShotsStore.getState().draft.images[0].versions[0].lowResSource).toBeUndefined()
-  })
-})
-
-describe('growing the matte before it becomes a mask', () => {
-  it('builds the mask from the grown alpha and gives the growth the plan box', async () => {
-    requestBackgroundPlan.mockResolvedValue({ ...PLAN, productBox: { x: 0, y: 0, w: 1, h: 1 } })
-    segmentProduct.mockResolvedValue(matteCoveringEverything())
-    await jobWithOneImage()
-
-    await useProductShotsStore.getState().runAction('background')
-
-    expect(expandProductAlpha).toHaveBeenCalledWith(expect.anything(), {
-      productBox: { x: 0, y: 0, w: 1, h: 1 },
-    })
-    expect(alphaToInpaintMask).toHaveBeenCalledWith(expect.objectContaining({ grown: true }))
-  })
-
-  /** 抠错的那次预览要照实显示抠到了什么，膨胀会把问题遮掉。 */
-  it('leaves a turned-down matte alone', async () => {
-    assessMatte.mockReturnValue({ ok: false, coverage: 0.001, reason: 'too-small' })
-    await jobWithOneImage()
-
-    await useProductShotsStore.getState().runAction('background')
-
-    expect(expandProductAlpha).not.toHaveBeenCalled()
   })
 })
 
