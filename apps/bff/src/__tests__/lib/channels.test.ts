@@ -431,6 +431,21 @@ describe('shipped channels.json', () => {
     ])
   })
 
+  it('advertises only Grok Image 2.0 on the grok-images channel', () => {
+    const result = parseChannelsConfig(
+      shipped,
+      (key) => ({ GROK_BASE_URL: 'https://api.x.ai/v1', GROK_API_KEY: 'grok-key' })[key],
+    )
+
+    expect(result.channels.find((c) => c.id === 'grok-images')?.models).toEqual([
+      {
+        id: 'grok-imagine-image-2.0',
+        label: 'Grok Imagine Image 2.0',
+        capabilities: ['generate', 'edit', 'n', 'quality'],
+      },
+    ])
+  })
+
   it('drops the Seedance channel when ARK_BASE_URL is unset', () => {
     const result = parseChannelsConfig(shipped, () => undefined)
 
