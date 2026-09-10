@@ -10,9 +10,9 @@ import {
 } from '../../lib/private-overlay'
 import {
   type AgentCall,
+  type ControlledCompletion,
   completion,
   completionStream,
-  type ControlledCompletion,
   controlledCompletion,
   parseFrames,
   type ReceivedFrame,
@@ -261,10 +261,9 @@ describe('对话轮的结算', () => {
     const start = seen[0]!.event
     const turnId = start.type === 'turnStart' ? start.turnId : ''
 
-    const aborted = await post(
-      `/api/agent/conversations/${conversationId}/turns/${turnId}/abort`,
-      { deviceId: DEVICE },
-    )
+    const aborted = await post(`/api/agent/conversations/${conversationId}/turns/${turnId}/abort`, {
+      deviceId: DEVICE,
+    })
     expect(aborted.status).toBe(200)
 
     await waitFor(async () => settlements.length === 1)
