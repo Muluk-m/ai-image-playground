@@ -10,6 +10,7 @@
   },
   "capabilities": {
     "accounts:sync": false,
+    "agent:chat": false,
     "billing:credits": false,
     "generation:byok": false,
     "generation:storyboard": false,

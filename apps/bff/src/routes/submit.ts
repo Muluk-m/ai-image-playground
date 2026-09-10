@@ -16,6 +16,7 @@ import { db, schema } from '../db/client'
 import { isCapabilityEnabled } from '../lib/capabilities'
 import { resolveModelMedia } from '../lib/channels'
 import { resolveImageBytesRef } from '../lib/extractImages'
+import { deviceIdSchema } from '../lib/http'
 import { archiveInputImages, ObjectStorageError } from '../lib/imageArchive'
 import { objectStore } from '../lib/objectStore'
 import { loadPrivateBffOverlay } from '../lib/private-overlay'
@@ -60,7 +61,7 @@ const submitBodySchema = t.Object({
    * 浏览器持久化的设备 ID。BFF 用于按设备每日配额计数。前端 submitTask 时
    * 统一带；缺失或太短返回 400。BYOK profile 不走 BFF，无需此字段。
    */
-  device_id: t.String({ minLength: 8, maxLength: 64 }),
+  device_id: deviceIdSchema(),
 })
 
 async function findTaskByIdempotencyKey(clientRequestId: string, userId: string | null) {

@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react'
+import { useAgentPanelInset } from '../../agent/panelLayout'
 import { duplicateSelection } from '../lib/canvasClipboard'
 import type { CanvasDoc, Tool } from '../lib/canvasDoc'
 
@@ -132,6 +133,7 @@ function ToolButton({
 /** 底部居中工具条 + 左下角缩放控件（快捷键速查在 CanvasShortcutsHint）。 */
 export default function CanvasToolbar({ doc }: { doc: CanvasDoc }) {
   useSyncExternalStore(doc.subscribe, () => doc.version)
+  const agentPanelInset = useAgentPanelInset()
   const { tool, selection, camera, viewport } = doc
 
   const zoomStep = (dir: 1 | -1) => {
@@ -215,8 +217,11 @@ export default function CanvasToolbar({ doc }: { doc: CanvasDoc }) {
           )}
         </div>
       </div>
-      {/* 缩放控件：左下角 */}
-      <div className="pointer-events-none absolute bottom-4 left-4 z-[400]">
+      {/* 缩放控件：左下角，让开浮层对话面板 */}
+      <div
+        style={{ left: 16 + agentPanelInset }}
+        className="pointer-events-none absolute bottom-4 z-[400]"
+      >
         <div className="pointer-events-auto flex items-center rounded-xl border border-white/10 bg-gray-900/95 shadow-lg backdrop-blur">
           <button
             type="button"

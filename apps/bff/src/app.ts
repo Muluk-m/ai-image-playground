@@ -5,6 +5,7 @@ import { config } from './config'
 import { isCapabilityEnabled } from './lib/capabilities'
 import { assertPrivateBffOverlayPresent, loadPrivateBffOverlay } from './lib/private-overlay'
 import { gzipBlob } from './lib/staticCompression'
+import { agentRoutes } from './routes/agent'
 import { userAuthRoutes } from './routes/auth'
 import { bgswapPlanRoutes } from './routes/bgswap-plan'
 import { cancelRoutes } from './routes/cancel'
@@ -137,6 +138,7 @@ export const app = new Elysia()
   .use(remixAnalyzeRoutes)
   .use(remixListingRoutes)
   .use(storyboardPlanRoutes)
+  .use(agentRoutes)
   .use(syncRoutes)
   .use(internalUserRoutes)
   .use(internalCapabilitiesRoutes)
