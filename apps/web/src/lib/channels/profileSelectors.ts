@@ -33,14 +33,12 @@ export function modelSupportsNativeMask(
 }
 
 /**
- * 客户端认不认识当前选中的模型。
- * builtin-edge 的模型清单由 BFF 下发，长开的标签页可能停在改名前的旧清单上；
+ * builtin-edge 的模型清单由 BFF 下发，长开的标签页会停在改名前的旧清单上。
  * 认不出来不等于不支持，不能让它悄悄降级成「无此能力」。
  */
 export function isModelKnown(profile: ClientProfile, publicChannels: PublicChannel[]): boolean {
   if (profile.source !== 'builtin-edge') return true
-  const channel = publicChannels.find((c) => c.id === profile.channelId)
-  return channel?.models.some((m) => m.id === profile.selectedModelId) ?? false
+  return getProfileModels(profile, publicChannels).includes(profile.selectedModelId)
 }
 
 /** 模型不支持参考图（图生图）时的统一提示文案，多处编辑入口复用。 */
