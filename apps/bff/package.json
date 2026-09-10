@@ -14,6 +14,8 @@
     "db:migrate": "bun run src/db/migrate.ts"
   },
   "dependencies": {
+    "@earendil-works/pi-agent-core": "0.85.1",
+    "@earendil-works/pi-ai": "0.85.1",
     "@elysiajs/cors": "^1.4.0",
     "@image-playground/db": "workspace:*",
     "@image-playground/node-kit": "workspace:*",

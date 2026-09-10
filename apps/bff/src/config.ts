@@ -84,6 +84,9 @@ export const config = {
         throw new Error('MATTE_TRANSFORM_ORIGIN must be a bare https:// origin')
       }
     }
+    if (hasCapability(config.operator, 'agent:chat') && !config.agent.model) {
+      throw new Error('Missing env: AGENT_CHAT_MODEL (required by agent:chat)')
+    }
     if (config.worker.healthStaleAfterMs < config.worker.pollIntervalMs * 3) {
       throw new Error('WORKER_HEALTH_STALE_AFTER_MS must be at least three poll intervals')
     }
@@ -114,6 +117,12 @@ export const config = {
   storyboard: {
     /** 分镜脚本模型。默认跟视觉模型同一个，写脚本吃力时单独换。 */
     model: env('STORYBOARD_MODEL', '') || env('REMIX_VISION_MODEL', 'gpt-6-astra'),
+  },
+  agent: {
+    /** 智能体的对话模型。没有默认值：`agent:chat` 要求运营显式配一个能跑工具循环的模型。 */
+    model: env('AGENT_CHAT_MODEL', ''),
+    contextWindow: positiveIntEnv('AGENT_CHAT_CONTEXT_WINDOW', 128_000),
+    maxTokens: positiveIntEnv('AGENT_CHAT_MAX_TOKENS', 8_000),
   },
   matte: {
     /** 本部署对外可达、且所在 Cloudflare zone 已开图片变换的源；抠图 URL 两段都用它。 */

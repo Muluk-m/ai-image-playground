@@ -2,6 +2,7 @@ export const CAPABILITIES = {
   'accounts:login': { defaultValue: false, clientExposed: true },
   'accounts:self-register': { defaultValue: false, clientExposed: true },
   'accounts:sync': { defaultValue: false, clientExposed: true },
+  'agent:chat': { defaultValue: false, clientExposed: true },
   'billing:credits': { defaultValue: false, clientExposed: true },
   'generation:byok': { defaultValue: false, clientExposed: true },
   'generation:storyboard': { defaultValue: false, clientExposed: true },

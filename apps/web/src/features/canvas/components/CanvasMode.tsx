@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { HEADER_OFFSET } from '../../../components/panelStyles'
 import { useStore } from '../../../store'
+import AgentPanel from '../../agent/components/AgentPanel'
 import { CanvasDoc } from '../lib/canvasDoc'
 import { CanvasEditor } from '../lib/editor'
 import { loadScene, PERSIST_DEBOUNCE_MS, saveScene } from '../lib/persistence'
@@ -77,6 +78,7 @@ export default function CanvasMode() {
         <StylePanel doc={doc} />
         <CanvasShortcutsHint />
         <CanvasGenerateBar editor={editor} />
+        <AgentPanel doc={doc} />
       </div>
     </div>
   )
