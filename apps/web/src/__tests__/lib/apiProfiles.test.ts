@@ -197,6 +197,54 @@ describe('normalizeSettings + builtin channels (hydrate timing fix)', () => {
   })
 })
 
+describe('normalizeSettings + 失效的内置模型选择', () => {
+  const RENAMED_CHANNEL = {
+    id: 'test-openai',
+    kind: 'openai-queue' as const,
+    label: 'Test OpenAI',
+    models: [
+      { id: 'gpt-image-2.5-flare', label: 'Flare', capabilities: ['generate' as const] },
+      { id: 'gpt-image-2.5-sunburst', label: 'Sunburst', capabilities: ['generate' as const] },
+    ],
+    defaults: {},
+  }
+
+  const RETIRED = {
+    id: 'test-openai',
+    source: 'builtin-edge' as const,
+    channelId: 'test-openai',
+    selectedModelId: 'gpt-image-2',
+  }
+
+  it('把停用的模型换成 channel 的第一个模型', async () => {
+    const { setChannels } = await import('../../lib/channels/channelStore')
+    setChannels([RENAMED_CHANNEL])
+    try {
+      const s = normalizeSettings({ profiles: [RETIRED] })
+      expect(s.profiles).toHaveLength(1)
+      expect(s.profiles[0].selectedModelId).toBe('gpt-image-2.5-flare')
+    } finally {
+      setChannels([])
+    }
+  })
+
+  it('hydrate 早于 channel 装载时，列表到位后重算而不是吃缓存', async () => {
+    const { setChannels } = await import('../../lib/channels/channelStore')
+    setChannels([])
+    const hydrated = normalizeSettings({ profiles: [RETIRED] })
+    expect(hydrated.profiles.every((p) => p.source === 'user-byok')).toBe(true)
+
+    setChannels([RENAMED_CHANNEL])
+    try {
+      const s = normalizeSettings(hydrated)
+      const builtin = s.profiles.find((p) => p.source === 'builtin-edge')
+      expect(builtin?.selectedModelId).toBe('gpt-image-2.5-flare')
+    } finally {
+      setChannels([])
+    }
+  })
+})
+
 describe('switchByokProfileKind', () => {
   it('switches openai → gemini using gemini defaults', () => {
     const base = createDefaultOpenAIByokProfile({

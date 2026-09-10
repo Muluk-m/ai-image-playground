@@ -19,7 +19,7 @@ import { sourceMatteNotice } from '../lib/matteBadge'
 import { matteGate } from '../lib/matteGate'
 import { maskSideFor } from '../lib/mode'
 import { productGateReason, usesProductAsset } from '../lib/productGate'
-import { maskSupported } from '../lib/sourceMatte'
+import { maskSupported, modelKnown } from '../lib/sourceMatte'
 import { useProductShotsStore } from '../store'
 import { EDIT_MASK_LABEL, PRODUCT_SHOT_STAGE_LABELS, VERSIONS_PER_IMAGE_CHOICES } from '../types'
 
@@ -53,6 +53,7 @@ export default function ActionPanel() {
     (s) => s.selectedImageId !== null && s.mattingImageIds.includes(s.selectedImageId),
   )
   const maskable = useStore((s) => maskSupported(s.settings))
+  const knownModel = useStore((s) => modelKnown(s.settings))
   const swapStage = useProductShotsStore((s) => s.swapStage)
   const swapStartedAt = useProductShotsStore((s) => s.swapStartedAt)
   const swapNotice = useProductShotsStore((s) => s.swapNotice)
@@ -72,7 +73,7 @@ export default function ActionPanel() {
   const hasProduct = productAssets.length > 0
   const matteNotice = sourceMatteNotice(matte)
   const matteBlocked = selectedImageId
-    ? matteGate({ matte, matting, maskSupported: maskable })
+    ? matteGate({ matte, matting, maskSupported: maskable, modelKnown: knownModel })
     : null
   const productBlocked = productGateReason({
     needsProduct: true,
