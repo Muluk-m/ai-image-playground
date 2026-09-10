@@ -125,3 +125,43 @@ describe('重写脚本按钮', () => {
     expect(host.textContent).not.toContain('通常 60 秒')
   })
 })
+
+it('导演台切换镜头、编辑后保存版本，随后恢复原稿', async () => {
+  const shots = [1, 2].map((no) => ({
+    no,
+    title: `镜头 ${no}`,
+    description: `画面 ${no}`,
+    camera: '固定',
+    line: '',
+    videoPrompt: `画面 ${no}`,
+    imagePrompt: `画面 ${no}`,
+    seconds: 5,
+    startSeconds: (no - 1) * 5,
+    imageTaskId: null,
+    imageId: null,
+    videoTaskId: null,
+  }))
+  useStoryboardStore.setState({
+    storyboards: [{ ...RECORD, shots, totalSeconds: 10 }],
+    saveStates: {},
+  })
+  act(() => root.render(<StoryboardBoard />))
+  await act(async () => {
+    host.querySelector<HTMLButtonElement>('[aria-label="选择镜头 2"]')!.click()
+  })
+  expect(host.querySelector<HTMLInputElement>('[aria-label="镜头名称"]')!.value).toBe('镜头 2')
+  const click = async (label: string) => {
+    await act(async () => {
+      ;[...host.querySelectorAll('button')].find((b) => b.textContent === label)!.click()
+    })
+  }
+  await click('保存版本')
+  await click('保存新版本')
+  expect(host.textContent).toContain('v1 · 精修版')
+  await act(async () => {
+    await useStoryboardStore.getState().updateShot(RECORD.id, 2, { title: '修改后的镜头' })
+  })
+  await click('恢复此版本')
+  expect(useStoryboardStore.getState().storyboards[0]!.shots[1]!.title).toBe('镜头 2')
+  expect(useStoryboardStore.getState().storyboards[0]!.versions).toHaveLength(2)
+})
