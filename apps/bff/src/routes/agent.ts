@@ -1,5 +1,5 @@
 import type { AuthUserView } from '@image-playground/shared'
-import { AGENT_USER_MESSAGE_MAX_CHARS } from '@image-playground/shared'
+import { AGENT_TURN_MAX_REFERENCES, AGENT_USER_MESSAGE_MAX_CHARS } from '@image-playground/shared'
 import { Elysia, t } from 'elysia'
 import {
   type AgentOwner,
@@ -16,7 +16,12 @@ import { agentReplayStream, agentTurnStream } from '../lib/agent/sse'
 import { startConversationTurn } from '../lib/agent/start-turn'
 import { agentTurnRateLimited } from '../lib/agent/turn-rate-limit'
 import { capabilityUnavailable, isCapabilityEnabled } from '../lib/capabilities'
-import { badRequestOnValidation, clientAddress, deviceIdSchema } from '../lib/http'
+import {
+  badRequestOnValidation,
+  clientAddress,
+  deviceIdSchema,
+  imageDataUrlSchema,
+} from '../lib/http'
 import { reservationFailureResponse } from '../lib/private-overlay'
 import { resolveAuthUser } from '../lib/user-auth'
 
@@ -27,6 +32,19 @@ function ownerOf(authUser: AuthUserView | null, deviceId: string): AgentOwner {
 
 const NOT_FOUND = { error: 'conversation_not_found' }
 const TURN_NOT_FOUND = { error: 'turn_not_found' }
+
+/** 参考图按数组顺序编号，提示词里的 `[image N]` 就是这里的第 N 项。 */
+const referencesSchema = t.Optional(
+  t.Array(
+    t.Object({
+      imageId: t.String({ minLength: 1, maxLength: 128 }),
+      dataUrl: imageDataUrlSchema(),
+      name: t.Optional(t.String({ maxLength: 200 })),
+      maskDataUrl: t.Optional(imageDataUrlSchema()),
+    }),
+    { maxItems: AGENT_TURN_MAX_REFERENCES },
+  ),
+)
 
 const turnParams = t.Object({ id: t.String(), turnId: t.String() })
 const turnBody = t.Object({ deviceId: deviceIdSchema() })
@@ -81,6 +99,7 @@ export const agentRoutes = new Elysia()
         conversationId: conversation.id,
         owner,
         text: body.text,
+        references: body.references ?? [],
         deviceId: body.deviceId,
       })
       if (started.kind === 'authentication_required') return status(401, { error: 'unauthorized' })
@@ -92,6 +111,7 @@ export const agentRoutes = new Elysia()
       body: t.Object({
         deviceId: deviceIdSchema(),
         text: t.String({ minLength: 1, maxLength: AGENT_USER_MESSAGE_MAX_CHARS }),
+        references: referencesSchema,
       }),
     },
   )

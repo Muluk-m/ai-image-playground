@@ -64,6 +64,7 @@ async function usageOfTurnAfter(history: AgentMessageView[]): Promise<AgentTurnU
     userMessageId: 'next',
     history,
     text: '再来一张',
+    references: [],
     userId: null,
     deviceId: 'device-abcdefgh',
   })
@@ -101,6 +102,7 @@ describe('startAgentTurn usage', () => {
       turnId: 'turn-new',
       userMessageId: 'm7',
       history: HISTORY,
+      references: [],
       text: '再来一张',
       userId: null,
       deviceId: 'device-abcdefgh',

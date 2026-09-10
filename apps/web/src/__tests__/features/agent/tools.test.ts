@@ -77,6 +77,7 @@ const onCanvas = new Set<string>()
 const placed: { imageId: string; dataUrl: string }[] = []
 /** 画布内容的修订号；测试里手动抬它就等于「用户动了画布」。 */
 let revision = 0
+const anchors: (string | undefined)[] = []
 
 const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
   const url = String(input)
@@ -107,11 +108,14 @@ beforeEach(() => {
   onCanvas.clear()
   placed.length = 0
   revision = 0
+  anchors.length = 0
   setAgentCanvasSink({
     has: (imageId) => onCanvas.has(imageId),
     revision: () => revision,
-    async place(items, baseRevision) {
-      if (baseRevision !== undefined && baseRevision !== revision) return 'conflict'
+    async place(items, options) {
+      const base = options?.baseRevision
+      if (base !== undefined && base !== revision) return 'conflict'
+      anchors.push(options?.anchorImageId)
       for (const item of items) {
         placed.push(item)
         onCanvas.add(item.imageId)
@@ -164,6 +168,45 @@ describe('工具事件', () => {
       'http://bff.test/v1/queue/requests/task-1/image/0',
       expect.anything(),
     )
+  })
+
+  it('改图的产出贴着源图放，源图仍留在画布上', async () => {
+    onCanvas.add('canvas-1')
+    turnResponse = () =>
+      turnStream(
+        TURN_START,
+        {
+          type: 'toolEnd',
+          messageId: 'tool-1',
+          toolCallId: 'call-1',
+          toolName: 'editImage',
+          status: 'succeeded',
+          title: '把背景换成浅木色',
+          images: [IMAGE],
+          anchorImageId: 'canvas-1',
+        },
+        TURN_END,
+      )
+
+    await state().send('把这张的背景换成浅木色')
+
+    expect(anchors).toEqual(['canvas-1'])
+    expect(placed.map((one) => one.imageId)).toEqual(['agent_image_1'])
+    expect(onCanvas.has('canvas-1')).toBe(true)
+  })
+
+  it('起一轮时把输入框附上的参考图一起发过去', async () => {
+    turnResponse = () => turnStream(TURN_START, TURN_END)
+
+    await state().send('把[image 1]的背景换成浅木色', [
+      { imageId: 'canvas-1', dataUrl: 'data:image/png;base64,aGk=' },
+    ])
+
+    const turnCall = fetchMock.mock.calls.find(([input]) => String(input).includes('/turns'))
+    expect(JSON.parse(String(turnCall![1]!.body))).toMatchObject({
+      text: '把[image 1]的背景换成浅木色',
+      references: [{ imageId: 'canvas-1', dataUrl: 'data:image/png;base64,aGk=' }],
+    })
   })
 
   it('进度事件写到那次调用的卡上', async () => {

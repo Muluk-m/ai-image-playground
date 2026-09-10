@@ -6,6 +6,7 @@ import AgentPanel from '../../../../features/agent/components/AgentPanel'
 import { setAgentCanvasSink } from '../../../../features/agent/lib/canvasSink'
 import { useAgentStore } from '../../../../features/agent/store'
 import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
+import { useLibraryStore } from '../../../../features/library/store'
 import { bootstrapClientCapabilities } from '../../../../lib/clientCapabilities'
 
 declare global {
@@ -53,6 +54,8 @@ function texts(selector: string): string[] {
 
 beforeEach(async () => {
   await enableAgent(true)
+  // 输入框要素材名做胶囊标签，jsdom 里没有 IndexedDB 可读。
+  useLibraryStore.setState({ assets: [], loadAssets: async () => {} })
   useAgentStore.setState({
     open: true,
     tab: 'chat',

@@ -49,6 +49,8 @@ export interface LibraryState {
   importAssetFiles: (files: File[], onSaved?: OnAssetSaved) => Promise<void>
   /** 返回该素材图在参考图条里的序号；已在条里则复用原序号，附加失败返回 null。 */
   attachAsset: (id: string) => Promise<number | null>
+  /** 记一次使用。「最近用过」的排序是唯一读者，所以每条附加路径都要过它。 */
+  noteAssetUsed: (id: string) => Promise<void>
 
   loadTemplates: () => Promise<void>
   saveTemplate: (name: string) => Promise<void>
@@ -162,6 +164,11 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     }
     const index = useStore.getState().inputImages.findIndex((img) => img.id === asset.imageId)
     return index >= 0 ? index : null
+  },
+
+  noteAssetUsed: async (id) => {
+    const asset = get().assets.find((one) => one.id === id)
+    if (asset) await writeAsset(set, { ...asset, lastUsedAt: Date.now() })
   },
 
   importAssetFiles: async (files, onSaved) => {

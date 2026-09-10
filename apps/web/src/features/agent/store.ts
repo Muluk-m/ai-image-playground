@@ -6,6 +6,7 @@ import type {
   AgentToolImage,
   AgentToolResultBlock,
   AgentTurnEvent,
+  AgentTurnReference,
 } from '@image-playground/shared'
 import { agentMessageText } from '@image-playground/shared'
 import { create } from 'zustand'
@@ -22,7 +23,7 @@ import {
   resumeTurn,
   startTurn,
 } from './lib/agentClient'
-import { type AgentPlaceOutcome, agentCanvasSink } from './lib/canvasSink'
+import { type AgentPlaceOptions, type AgentPlaceOutcome, agentCanvasSink } from './lib/canvasSink'
 import type { AgentPanelMessage, AgentPanelTab, AgentToolMessage, AgentTurnStatus } from './types'
 
 const TURN_FAILED = '这一轮没有跑完'
@@ -55,8 +56,8 @@ export interface AgentState {
   selectConversation(conversationId: string): Promise<void>
   deleteConversation(conversationId: string): Promise<void>
   startNewConversation(): void
-  /** 空闲时起一轮；轮进行中则是插话。 */
-  send(text: string): Promise<void>
+  /** 空闲时起一轮；轮进行中则是插话（插话不带参考图）。 */
+  send(text: string, references?: readonly AgentTurnReference[]): Promise<void>
   abort(): Promise<void>
   /** 画布冲突后由用户把那张结果卡的产出放进画布。 */
   placeOnCanvas(messageId: string): Promise<void>
@@ -79,6 +80,7 @@ function toolCard(block: AgentToolResultBlock, id: string): AgentToolMessage {
     title: block.title,
     status: block.status,
     ...(block.images ? { images: block.images } : {}),
+    ...(block.anchorImageId ? { anchorImageId: block.anchorImageId } : {}),
     ...(block.message ? { message: block.message } : {}),
   }
 }
@@ -112,13 +114,14 @@ type LandOutcome = AgentPlaceOutcome | 'skipped' | 'failed'
 /** 把还没落画布的那几张下载下来交给画布。 */
 async function writeToCanvas(
   images: readonly AgentToolImage[],
-  baseRevision?: number,
+  options: AgentPlaceOptions,
 ): Promise<LandOutcome> {
   const sink = agentCanvasSink()
   if (!sink) return 'skipped'
   const missing = images.filter((image) => !sink.has(image.imageId))
   if (missing.length === 0) return 'skipped'
   // 判定归 place，这里只是别为一个已经定了的冲突白下几 MB。
+  const { baseRevision } = options
   if (baseRevision !== undefined && sink.revision() !== baseRevision) return 'conflict'
   try {
     const items = await Promise.all(
@@ -127,7 +130,7 @@ async function writeToCanvas(
         dataUrl: await fetchToolImage(image),
       })),
     )
-    return sink.place(items, baseRevision)
+    return sink.place(items, options)
   } catch (thrown) {
     console.warn('[agent] 产出没能落到画布上', thrown)
     return 'failed'
@@ -153,8 +156,8 @@ export const useAgentStore = create<AgentState>((set, get) => {
       ),
     }))
 
-  const land = async (images: readonly AgentToolImage[], messageId: string) => {
-    const outcome = await writeToCanvas(images, baseRevision)
+  const land = async (images: readonly AgentToolImage[], messageId: string, anchor?: string) => {
+    const outcome = await writeToCanvas(images, { baseRevision, anchorImageId: anchor })
     if (outcome === 'conflict') setConflict(messageId, true)
     // 智能体自己的写入不算用户改动，所以基线跟到写后的值：
     // 不抬的话同一轮里的第二次落图会把第一次当成用户动了画布。
@@ -248,7 +251,8 @@ export const useAgentStore = create<AgentState>((set, get) => {
     if (event.type === 'toolEnd' && event.status === 'succeeded') {
       const images = event.images ?? []
       const messageId = event.messageId
-      landing = landing.then(() => land(images, messageId))
+      const anchor = event.anchorImageId
+      landing = landing.then(() => land(images, messageId, anchor))
     }
   }
 
@@ -367,7 +371,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
       set({ conversationId: null, messages: [], error: null })
     },
 
-    async send(text) {
+    async send(text, references = []) {
       const trimmed = text.trim()
       if (!trimmed) return
 
@@ -393,7 +397,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
         fail()
         return
       }
-      await follow(target, startTurn(target, trimmed), trimmed)
+      await follow(target, startTurn(target, trimmed, references), trimmed)
       if (firstTurn) await get().refreshConversations()
     },
 
@@ -408,7 +412,9 @@ export const useAgentStore = create<AgentState>((set, get) => {
       const message = get().messages.find((one) => one.id === messageId)
       if (message?.kind !== 'tool') return
       // 不带基线：用户点了这个按钮，写入就是他要的。
-      const outcome = await writeToCanvas(message.images ?? [])
+      const outcome = await writeToCanvas(message.images ?? [], {
+        ...(message.anchorImageId ? { anchorImageId: message.anchorImageId } : {}),
+      })
       if (outcome !== 'failed') setConflict(messageId, false)
     },
   }

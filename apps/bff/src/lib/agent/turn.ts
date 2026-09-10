@@ -4,6 +4,7 @@ import type {
   AgentToolName,
   AgentToolResultBlock,
   AgentTurnErrorCode,
+  AgentTurnReference,
   AgentTurnUsage,
 } from '@image-playground/shared'
 import { agentTextFromBlocks, agentToolResultSummary } from '@image-playground/shared'
@@ -15,6 +16,7 @@ import { compactionSettings } from './compaction-settings'
 import { createCompactionTransform } from './compaction-transform'
 import { appendAgentMessage, touchAgentConversation } from './conversations'
 import { lastAgentEventSeq } from './events'
+import { createAgentImageSource, referenceManifest } from './images'
 import { agentModel, agentStreamFn } from './model'
 import { type RunningTurn, registerRunningTurn, turnEventLog } from './runningTurns'
 import {
@@ -38,6 +40,8 @@ const SYSTEM_PROMPT = [
   '你是创作模式画布旁的助手，帮用户把想法变成画布上的图。',
   '用中文回答，简短、具体，不要复述用户的话。',
   '用户要一张新图时调生图工具，把他的意图补成一条完整的提示词，不要反问他要什么风格。',
+  '用户指着某张图说要改时调改图工具，参考图用他引用的那张，产出会落在源图旁边，源图不动。',
+  '用户提到某个素材但没有引用它时，先用读素材库工具按名字查到图片 id，再拿去改图。',
   '工具产出会自动落到用户的画布上，不要让用户自己去保存。',
 ].join('\n')
 
@@ -53,6 +57,8 @@ export interface StartAgentTurnInput {
   readonly userMessageId: string
   readonly history: readonly AgentMessageView[]
   readonly text: string
+  /** 输入框里附上的参考图，序号就是提示词里的 `[image N]`。 */
+  readonly references: readonly AgentTurnReference[]
   /** 工具提交的图片任务归到这个身份下，计费与配额因此与用户自己提交的一致。 */
   readonly userId: string | null
   readonly deviceId: string
@@ -165,6 +171,7 @@ function toolResultBlock(
     status: 'succeeded',
     title: pending.title,
     ...(details?.images?.length ? { images: details.images } : {}),
+    ...(details?.anchorImageId ? { anchorImageId: details.anchorImageId } : {}),
   }
 }
 
@@ -179,6 +186,11 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
   const replayedAssistants = assistantCount(input.history)
   const startedAt = Date.now()
   const events = turnEventLog(conversationId, turnId, await lastAgentEventSeq(conversationId))
+  const images = createAgentImageSource({
+    references: input.references,
+    history: input.history,
+    userId: input.userId,
+  })
   const agent = new Agent({
     initialState: {
       systemPrompt: SYSTEM_PROMPT,
@@ -189,6 +201,7 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
         turnId: input.turnId,
         userId: input.userId,
         deviceId: input.deviceId,
+        images,
       }),
     },
     streamFn: agentStreamFn(),
@@ -351,7 +364,7 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
   const unregister = registerRunningTurn(turn)
 
   void agent
-    .prompt(prompt)
+    .prompt(`${prompt}${referenceManifest(input.references)}`)
     .catch((thrown) => {
       if (aborted || error) return
       log.warn({ event: 'agent.turn_failed', err: thrown }, 'agent turn failed')

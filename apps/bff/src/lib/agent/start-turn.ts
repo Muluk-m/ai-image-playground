@@ -1,3 +1,4 @@
+import type { AgentTurnReference } from '@image-playground/shared'
 import { agentConversationTitle } from '@image-playground/shared'
 import { config } from '../../config'
 import { db } from '../../db/client'
@@ -21,6 +22,8 @@ export interface StartConversationTurnInput {
   readonly conversationId: string
   readonly owner: AgentOwner
   readonly text: string
+  /** 输入框里附上的参考图，序号就是提示词里的 `[image N]`。 */
+  readonly references: readonly AgentTurnReference[]
   /** 归属是用户时 owner 里没有设备，但工具提交的任务仍要按设备计日配额。 */
   readonly deviceId: string
 }
@@ -50,7 +53,7 @@ function chatSettlement(taskHooks: PrivateTaskHooks, turnId: string) {
 export async function startConversationTurn(
   input: StartConversationTurnInput,
 ): Promise<StartConversationTurnResult> {
-  const { conversationId, owner, text, deviceId } = input
+  const { conversationId, owner, text, references, deviceId } = input
   const userId = owner.kind === 'user' ? owner.userId : null
   const billed = isCapabilityEnabled('billing:credits')
   if (billed && owner.kind !== 'user') return { kind: 'authentication_required' }
@@ -98,6 +101,7 @@ export async function startConversationTurn(
       userMessageId: written.userMessageId,
       history,
       text,
+      references,
       userId,
       deviceId,
       settle: reservation ? chatSettlement(overlay.taskHooks, turnId) : undefined,

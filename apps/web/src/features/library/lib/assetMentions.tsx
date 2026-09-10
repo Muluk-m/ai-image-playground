@@ -1,4 +1,4 @@
-import type { SuggestionMenuGroup } from '../../../components/SuggestionMenu'
+import type { SuggestionMenuGroup, SuggestionMenuOption } from '../../../components/SuggestionMenu'
 import { getImageMentionLabel, imageMentionMatches } from '../../../lib/promptImageMentions'
 import type { InputImage } from '../../../types'
 import AssetThumb from '../components/AssetThumb'
@@ -25,11 +25,51 @@ export function getAssetNamesByImageId(assets: AssetRecord[]): Record<string, st
   )
 }
 
-export function matchAssetsByName(assets: AssetRecord[], query: string): AssetRecord[] {
+export function labelMatches(query: string, label: string): boolean {
   const keyword = query.trim().toLowerCase()
+  return !keyword || label.toLowerCase().includes(keyword)
+}
+
+export function matchAssetsByName(assets: AssetRecord[], query: string): AssetRecord[] {
   return assets
-    .filter((asset) => !keyword || asset.name.toLowerCase().includes(keyword))
+    .filter((asset) => labelMatches(query, asset.name))
     .sort((a, b) => b.lastUsedAt - a.lastUsedAt)
+}
+
+/** 参考图候选：`value` 由调用方给，两个 composer 的候选身份各自不同。 */
+export function inputImageOptions<T>(
+  images: readonly InputImage[],
+  query: string,
+  label: (image: InputImage, index: number) => string,
+  value: (index: number) => T,
+): SuggestionMenuOption<T>[] {
+  return images
+    .map((image, index) => ({
+      key: `image:${image.id}`,
+      label: label(image, index),
+      thumbnail: <img src={image.dataUrl} className="h-full w-full object-cover" alt="" />,
+      value: value(index),
+      index,
+    }))
+    .filter(
+      (option) => imageMentionMatches(query, option.index) || labelMatches(query, option.label),
+    )
+}
+
+export function assetOptions<T>(
+  assets: AssetRecord[],
+  query: string,
+  value: (asset: AssetRecord) => T,
+  exclude: ReadonlySet<string> = new Set(),
+): SuggestionMenuOption<T>[] {
+  return matchAssetsByName(assets, query)
+    .filter((asset) => !exclude.has(asset.imageId))
+    .map((asset) => ({
+      key: `asset:${asset.id}`,
+      label: asset.name,
+      thumbnail: <AssetThumb imageId={asset.imageId} alt="" />,
+      value: value(asset),
+    }))
 }
 
 export function buildAtMentionGroups({
@@ -43,22 +83,15 @@ export function buildAtMentionGroups({
   assets: AssetRecord[]
   canAttachAssets?: boolean
 }): SuggestionMenuGroup<AtMentionValue>[] {
-  const imageOptions = inputImages
-    .map((image, index) => ({
-      key: `image:${image.id}`,
-      label: getImageMentionLabel(index),
-      thumbnail: <img src={image.dataUrl} className="h-full w-full object-cover" alt="" />,
-      value: { type: 'image', index } as const,
-    }))
-    .filter((option) => imageMentionMatches(query, option.value.index))
+  const imageOptions = inputImageOptions<AtMentionValue>(
+    inputImages,
+    query,
+    (_image, index) => getImageMentionLabel(index),
+    (index) => ({ type: 'image', index }),
+  )
 
-  const assetOptions = canAttachAssets
-    ? matchAssetsByName(assets, query).map((asset) => ({
-        key: `asset:${asset.id}`,
-        label: asset.name,
-        thumbnail: <AssetThumb imageId={asset.imageId} alt="" />,
-        value: { type: 'asset', id: asset.id } as const,
-      }))
+  const pickedAssets = canAttachAssets
+    ? assetOptions<AtMentionValue>(assets, query, (asset) => ({ type: 'asset', id: asset.id }))
     : []
 
   // 一条素材都没有时留住空组当引导；有素材只是被查询过滤光则照旧收起。
@@ -67,6 +100,6 @@ export function buildAtMentionGroups({
 
   return [
     { key: 'images', heading: '本次参考图', options: imageOptions },
-    { key: 'assets', heading: '素材', options: assetOptions, emptyNote: assetsEmptyNote },
+    { key: 'assets', heading: '素材', options: pickedAssets, emptyNote: assetsEmptyNote },
   ].filter((group) => group.options.length > 0 || group.emptyNote)
 }
