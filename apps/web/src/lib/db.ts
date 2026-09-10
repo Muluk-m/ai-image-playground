@@ -4,7 +4,7 @@ import { scopedStorageName } from './authScope'
 
 /** 匿名 scope 下的 DB 名，其它 scope 由 scopedStorageName 派生。 */
 export const BASE_DB_NAME = 'image-playground'
-const DB_VERSION = 10
+const DB_VERSION = 11
 const STORE_TASKS = 'tasks'
 const STORE_IMAGES = 'images'
 const STORE_THUMBNAILS = 'thumbnails'
@@ -44,7 +44,7 @@ export function openNamedDb(name: string): Promise<IDBDatabase> {
         }
       }
       if (e.oldVersion < 8 && request.transaction) backfillUpdatedAt(request.transaction)
-      if (e.oldVersion < 10 && request.transaction) backfillStoryboardTiming(request.transaction)
+      if (e.oldVersion < 11 && request.transaction) upgradeStoryboards(request.transaction)
     }
     req.onsuccess = () => resolve(req.result)
     req.onerror = () => reject(req.error)
@@ -74,14 +74,32 @@ interface LegacyStoryboard {
   shots: { no: number; description: string; camera: string; seconds: number }[]
 }
 
-/** v10：分镜改成一次出整条视频，旧记录按每镜时长顺推时间轴，并合成一条整片提示词。 */
-function backfillStoryboardTiming(tx: IDBTransaction): void {
+type StoredStoryboard = LegacyStoryboard & {
+  referenceImageId?: string | null
+  referenceImageIds?: string[]
+}
+
+/**
+ * 分镜记录的历次改形。它们必须共用一趟游标：两趟并行游标读的是同一条旧记录，
+ * 后写的那趟会把前一趟的结果整条盖掉。每一步认形状不认版本号，所以补过的记录会跳过。
+ */
+function upgradeStoryboards(tx: IDBTransaction): void {
   const cursorRequest = tx.objectStore(STORE_STORYBOARDS).openCursor()
   cursorRequest.onsuccess = () => {
     const cursor = cursorRequest.result
     if (!cursor) return
-    const record = cursor.value as LegacyStoryboard
-    if (record.videoPrompt === undefined) cursor.update(timedStoryboard(record))
+    let record = cursor.value as StoredStoryboard
+    let changed = false
+    if (record.videoPrompt === undefined) {
+      record = timedStoryboard(record)
+      changed = true
+    }
+    if (record.referenceImageIds === undefined) {
+      const { referenceImageId, ...rest } = record
+      record = { ...rest, referenceImageIds: referenceImageId ? [referenceImageId] : [] }
+      changed = true
+    }
+    if (changed) cursor.update(record)
     cursor.continue()
   }
 }

@@ -69,7 +69,6 @@ function planInput(overrides: Partial<StoryboardPlanInput> = {}): StoryboardPlan
     shots: 2,
     totalSeconds: 10,
     aspectRatio: '16:9',
-    referenceImageId: null,
     ...overrides,
   }
 }
@@ -162,21 +161,25 @@ describe('生成脚本与分镜图', () => {
     expect(await storyboardStore.list()).toHaveLength(1)
   })
 
-  it('带参考图时把它交给脚本和每一镜的出图', async () => {
+  it('带参考图时把它们全部交给脚本和每一镜的出图', async () => {
     await useStoryboardStore
       .getState()
-      .plan(planInput({ referenceImageId: 'ref-1', style: '杂志' }))
+      .plan(planInput({ referenceImageIds: ['ref-1', 'ref-2'], style: '杂志' }))
 
     expect(planStoryboard).toHaveBeenCalledWith(
       expect.objectContaining({
         style: '杂志',
-        referenceImage: 'data:image/png;base64,ref-1',
+        referenceImages: ['data:image/png;base64,ref-1', 'data:image/png;base64,ref-2'],
       }),
     )
+    expect(board().referenceImageIds).toEqual(['ref-1', 'ref-2'])
     expect(submitPrepared).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({
-        inputImages: [{ id: 'ref-1', dataUrl: 'data:image/png;base64,ref-1' }],
+        inputImages: [
+          { id: 'ref-1', dataUrl: 'data:image/png;base64,ref-1' },
+          { id: 'ref-2', dataUrl: 'data:image/png;base64,ref-2' },
+        ],
       }),
     )
   })
@@ -320,7 +323,7 @@ describe('生视频', () => {
   it('没有分镜图时整条视频退到参考图', async () => {
     const id = await useStoryboardStore
       .getState()
-      .plan(planInput({ shotImages: false, referenceImageId: 'ref-1' }))
+      .plan(planInput({ shotImages: false, referenceImageIds: ['ref-1'] }))
 
     await useStoryboardStore.getState().generateWholeVideo(id!)
     await settle()
@@ -345,6 +348,24 @@ describe('生视频', () => {
     )
   })
 
+  it('重出某一镜时同样带上全部参考图', async () => {
+    const id = await useStoryboardStore
+      .getState()
+      .plan(planInput({ shotImages: false, referenceImageIds: ['ref-1', 'ref-2'] }))
+    submitPrepared.mockClear()
+
+    await useStoryboardStore.getState().regenerateShotImage(id!, 2)
+
+    expect(submitPrepared).toHaveBeenCalledWith(
+      expect.objectContaining({
+        inputImages: [
+          { id: 'ref-1', dataUrl: 'data:image/png;base64,ref-1' },
+          { id: 'ref-2', dataUrl: 'data:image/png;base64,ref-2' },
+        ],
+      }),
+    )
+  })
+
   it('没有模型出得了这个时长时不提交', async () => {
     const id = await useStoryboardStore.getState().plan(planInput({ totalSeconds: 15 }))
     setChannels([IMAGE_CHANNEL, AGNES_CHANNEL])
@@ -354,5 +375,33 @@ describe('生视频', () => {
 
     expect(useVideoStore.getState().tasks).toHaveLength(0)
     expect(showToast).toHaveBeenCalledWith('当前模型不支持 15 秒', 'error')
+  })
+})
+
+describe('参考图', () => {
+  const draft = () => useStoryboardStore.getState().draft.referenceImageIds
+
+  it('加、再点一次拿掉、× 掉一张', () => {
+    useStoryboardStore.getState().toggleReference('ref-1')
+    useStoryboardStore.getState().toggleReference('ref-2')
+
+    expect(draft()).toEqual(['ref-1', 'ref-2'])
+
+    useStoryboardStore.getState().toggleReference('ref-1')
+
+    expect(draft()).toEqual(['ref-2'])
+
+    useStoryboardStore.getState().removeReference('ref-2')
+
+    expect(draft()).toEqual([])
+  })
+
+  it('第 5 张进不来，只提示', () => {
+    for (const id of ['ref-1', 'ref-2', 'ref-3', 'ref-4', 'ref-5']) {
+      useStoryboardStore.getState().toggleReference(id)
+    }
+
+    expect(draft()).toEqual(['ref-1', 'ref-2', 'ref-3', 'ref-4'])
+    expect(showToast).toHaveBeenCalledWith('最多 4 张参考图', 'error')
   })
 })

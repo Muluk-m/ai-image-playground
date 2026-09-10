@@ -9,23 +9,14 @@ import { VIDEO_FRAME_SLOT_LABELS, type VideoFrameSlot } from '../types'
 interface FrameSlotProps {
   slot: VideoFrameSlot
   imageId: string | null
-  /** 槽位在当前模式下的叫法，缺省用「首帧 / 尾帧」。 */
-  label?: string
   /** 有值即置灰，并把原因写在槽里。 */
   disabledReason?: string
   hint?: string
   onPick: () => void
 }
 
-export default function FrameSlot({
-  slot,
-  imageId,
-  label: labelOverride,
-  disabledReason,
-  hint,
-  onPick,
-}: FrameSlotProps) {
-  const label = labelOverride ?? VIDEO_FRAME_SLOT_LABELS[slot]
+export default function FrameSlot({ slot, imageId, disabledReason, hint, onPick }: FrameSlotProps) {
+  const label = VIDEO_FRAME_SLOT_LABELS[slot]
   const inputRef = useRef<HTMLInputElement>(null)
   const disabled = Boolean(disabledReason)
   const { dragging, dropZoneProps } = useImageDropZone((files) => {

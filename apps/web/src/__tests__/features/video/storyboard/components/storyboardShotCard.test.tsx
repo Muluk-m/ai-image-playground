@@ -73,7 +73,7 @@ const RECORD: StoryboardRecord = {
   totalSeconds: 5,
   videoPrompt: '一杯夏日冰饮，吧台，写实\n镜头1（0-5秒）：冰块落进玻璃杯',
   style: '写实',
-  referenceImageId: null,
+  referenceImageIds: [],
   shotImagesRequested: true,
   videoTaskId: null,
   shots: [],
