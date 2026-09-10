@@ -1,6 +1,6 @@
 import type { TaskErrorType } from '@image-playground/shared'
 import { and, eq, inArray } from 'drizzle-orm'
-import { loadPrivateBffOverlay } from '../lib/private-overlay'
+import { loadPrivateBffOverlay, type TaskUsage } from '../lib/private-overlay'
 import { db, schema } from './client'
 
 /**
@@ -61,7 +61,7 @@ export type TerminalTaskUpdate = {
   errorType?: TaskErrorType
   upstreamStatus?: number | null
   upstreamBody?: string | null
-  actualUsage?: { quantity: number; unitMultiplier: number }
+  actualUsage?: TaskUsage
 }
 
 /** 写终态并触发私有 overlay 的结算 / 退回。返回是否真的改到了行。 */

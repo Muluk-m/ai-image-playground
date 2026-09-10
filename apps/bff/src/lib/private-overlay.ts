@@ -16,6 +16,12 @@ export type TaskReservationResult =
 /** 任务终态。结算判据只看它，不看上游被调用了几次。 */
 export type TaskOutcome = 'completed' | 'failed' | 'cancelled'
 
+/** 计价用量，口径同 reserveTask 的 quantity 与 unitMultiplier。 */
+export interface TaskUsage {
+  quantity: number
+  unitMultiplier: number
+}
+
 export interface PrivateTaskHooks {
   reserveTask(input: {
     tx: BffTransaction
@@ -34,8 +40,8 @@ export interface PrivateTaskHooks {
     upstreamInvocationCount: number
     errorType?: TaskErrorType
     upstreamStatus?: number | null
-    /** 上游返回的实际用量，口径同 reserveTask；缺席即按预留额全额结算。 */
-    actualUsage?: { quantity: number; unitMultiplier: number }
+    /** 上游返回的实际用量；缺席即按预留额全额结算。 */
+    actualUsage?: TaskUsage
   }): Promise<void>
   onUserCreated(input: { tx: BffTransaction; userId: string }): Promise<void>
   runMaintenance(now: number): Promise<void>
