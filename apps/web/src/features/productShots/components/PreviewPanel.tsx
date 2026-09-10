@@ -93,7 +93,7 @@ export default function PreviewPanel() {
             <WorkflowImage
               imageId={previewed?.workflow?.sourceImageId ?? selected?.imageId}
               alt="修改前"
-              className="aspect-[3/4] w-full rounded-xl border border-gray-200 bg-gray-50 object-contain dark:border-white/[0.08] dark:bg-white/[0.02]"
+              className="aspect-[3/4] max-h-[min(50dvh,32rem)] w-full rounded-xl border border-gray-200 bg-gray-50 object-contain dark:border-white/[0.08] dark:bg-white/[0.02]"
             />
             <figcaption className="mt-2 text-center text-xs text-gray-500 dark:text-gray-400">
               {previewed?.workflow ? '修改前' : '原图'}
@@ -104,7 +104,7 @@ export default function PreviewPanel() {
               imageId={shownImageId}
               version={previewed}
               alt={label}
-              className="aspect-[3/4] w-full rounded-xl border border-gray-200 bg-gray-50 object-contain dark:border-white/[0.08] dark:bg-white/[0.02]"
+              className="aspect-[3/4] max-h-[min(50dvh,32rem)] w-full rounded-xl border border-gray-200 bg-gray-50 object-contain dark:border-white/[0.08] dark:bg-white/[0.02]"
             />
             <figcaption className="mt-2 text-center text-xs text-gray-500 dark:text-gray-400">
               {label}
@@ -112,7 +112,7 @@ export default function PreviewPanel() {
           </figure>
         </div>
       ) : (
-        <div className="flex aspect-[4/3] items-center justify-center overflow-hidden rounded-xl border border-gray-200 bg-gray-50 dark:border-white/[0.08] dark:bg-white/[0.02]">
+        <div className="flex aspect-[4/3] max-h-[min(50dvh,32rem)] items-center justify-center overflow-hidden rounded-xl border border-gray-200 bg-gray-50 dark:border-white/[0.08] dark:bg-white/[0.02]">
           {thumbnail?.dataUrl ? (
             <span className="relative block h-full w-full">
               <WorkflowImage
@@ -136,17 +136,24 @@ export default function PreviewPanel() {
           )}
         </div>
       )}
-      {canUseResult && previewed && shownImageId && (
-        <PreviewToolbar
-          key={previewed.id}
-          version={previewed}
-          imageId={shownImageId}
-          imageIndex={index}
-          versionIndex={versions.indexOf(previewed)}
-          comparing={comparing}
-          onCompare={() => setComparing((value) => !value)}
-        />
-      )}
+      <PreviewToolbar
+        key={canUseResult ? previewed?.id : 'unavailable'}
+        version={canUseResult ? previewed : undefined}
+        imageId={canUseResult ? shownImageId : undefined}
+        imageIndex={index}
+        versionIndex={previewed ? versions.indexOf(previewed) : -1}
+        comparing={canUseResult && comparing}
+        onCompare={() => setComparing((value) => !value)}
+        disabledReason={
+          !selected
+            ? '上传原图并生成图片后，可使用这些工具。'
+            : !previewed || overlaid
+              ? '选择已生成的版本，可使用这些工具。'
+              : previewTask?.status === 'running'
+                ? '生成完成后，可编辑、衍生、对比和导出。'
+                : '当前版本暂无结果，请生成图片或选择其他版本。'
+        }
+      />
 
       {onOriginal && (matte || matting) && (
         <div data-product-shots-matte-bar className="mt-2 flex flex-wrap items-center gap-2">
