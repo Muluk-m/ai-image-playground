@@ -3,7 +3,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { ChevronDownIcon, EditIcon, PlusIcon, TrashIcon } from '../../../components/icons'
 import { FIELD, LABEL, OUTLINE_BUTTON } from '../../../components/panelStyles'
 import { useStore } from '../../../store'
-import { useProductShotsStore } from '../store'
+import { byRecency, useProductShotsStore } from '../store'
 import type { ProductShotJob } from '../types'
 import IconButton from './IconButton'
 
@@ -41,9 +41,7 @@ export default function JobSwitcher() {
 
   const listed = useMemo(() => {
     const keyword = query.trim().toLowerCase()
-    return jobs
-      .filter((job) => job.name.toLowerCase().includes(keyword))
-      .sort((a, b) => b.updatedAt - a.updatedAt)
+    return jobs.filter((job) => job.name.toLowerCase().includes(keyword)).sort(byRecency)
   }, [jobs, query])
 
   const beginRename = () => {
