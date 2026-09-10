@@ -1,4 +1,11 @@
-import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  type KeyboardEvent,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react'
 import { CloseIcon } from '../../../components/icons'
 import SuggestionMenu, { useSuggestionMenu } from '../../../components/SuggestionMenu'
 import {
@@ -53,7 +60,26 @@ export default function AgentComposer({ doc }: { doc: CanvasDoc }) {
   }, [loadAssets])
 
   const labels = useMemo(() => referenceLabels(draft.references), [draft.references])
-  const canvas = useMemo(() => canvasImages(doc), [doc])
+  const version = useSyncExternalStore(doc.subscribe, () => doc.version)
+  const canvas = useMemo(() => canvasImages(doc), [doc, version])
+
+  // contentEditable 的 onSelect 不可靠，光标位置只能靠 selectionchange 跟。
+  useEffect(() => {
+    const onSelectionChange = () => {
+      const el = editorRef.current
+      const selection = window.getSelection()
+      if (!el || !selection?.rangeCount) return
+      try {
+        if (!selection.getRangeAt(0).intersectsNode(el)) return
+      } catch {
+        return
+      }
+      setCursor(getContentEditableSelection(el).start)
+      syncMentionTagSelection(el)
+    }
+    document.addEventListener('selectionchange', onSelectionChange)
+    return () => document.removeEventListener('selectionchange', onSelectionChange)
+  }, [])
 
   useEffect(() => {
     const typed = typedRef.current
@@ -105,6 +131,8 @@ export default function AgentComposer({ doc }: { doc: CanvasDoc }) {
     await ensureAssetImage(asset.imageId)
     const dataUrl = await ensureImageCached(asset.imageId)
     if (!dataUrl) return
+    // 读素材库工具按「最近用过」排序，不记这一笔它就永远看不见智能体这边的使用。
+    void useLibraryStore.getState().noteAssetUsed(asset.id)
     applyAttach({ id: asset.imageId, dataUrl, name: asset.name }, active.start, at)
   }
 
@@ -119,7 +147,6 @@ export default function AgentComposer({ doc }: { doc: CanvasDoc }) {
     if (!submission.text.trim()) return
     setDraft(EMPTY_DRAFT)
     setCursor(0)
-    if (editorRef.current) editorRef.current.innerHTML = ''
     void useAgentStore.getState().send(submission.text, submission.references)
   }
 
@@ -182,12 +209,6 @@ export default function AgentComposer({ doc }: { doc: CanvasDoc }) {
             const text = getContentEditablePlainText(el)
             typedRef.current = text
             setDraft((current) => ({ ...current, prompt: text }))
-            menu.open()
-          }}
-          onSelect={(event) => {
-            const el = event.currentTarget
-            setCursor(getContentEditableSelection(el).start)
-            syncMentionTagSelection(el)
             menu.open()
           }}
           onKeyDown={onKeyDown}

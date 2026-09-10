@@ -16,7 +16,7 @@ import { compactionSettings } from './compaction-settings'
 import { createCompactionTransform } from './compaction-transform'
 import { appendAgentMessage, touchAgentConversation } from './conversations'
 import { lastAgentEventSeq } from './events'
-import { createAgentImageSource } from './images'
+import { createAgentImageSource, referenceManifest } from './images'
 import { agentModel, agentStreamFn } from './model'
 import { type RunningTurn, registerRunningTurn, turnEventLog } from './runningTurns'
 import {
@@ -364,7 +364,7 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
   const unregister = registerRunningTurn(turn)
 
   void agent
-    .prompt(`${prompt}${images.manifest()}`)
+    .prompt(`${prompt}${referenceManifest(input.references)}`)
     .catch((thrown) => {
       if (aborted || error) return
       log.warn({ event: 'agent.turn_failed', err: thrown }, 'agent turn failed')

@@ -156,15 +156,8 @@ export const useAgentStore = create<AgentState>((set, get) => {
       ),
     }))
 
-  const land = async (
-    images: readonly AgentToolImage[],
-    messageId: string,
-    anchorImageId: string | undefined,
-  ) => {
-    const outcome = await writeToCanvas(images, {
-      ...(baseRevision !== undefined ? { baseRevision } : {}),
-      ...(anchorImageId ? { anchorImageId } : {}),
-    })
+  const land = async (images: readonly AgentToolImage[], messageId: string, anchor?: string) => {
+    const outcome = await writeToCanvas(images, { baseRevision, anchorImageId: anchor })
     if (outcome === 'conflict') setConflict(messageId, true)
     // 智能体自己的写入不算用户改动，所以基线跟到写后的值：
     // 不抬的话同一轮里的第二次落图会把第一次当成用户动了画布。

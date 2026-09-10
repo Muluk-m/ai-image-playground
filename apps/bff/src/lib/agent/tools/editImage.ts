@@ -31,14 +31,12 @@ async function resolveAll(
   context: AgentToolContext,
   imageIds: readonly string[],
 ): Promise<ResolvedAgentImage[]> {
-  const resolved: ResolvedAgentImage[] = []
-  for (const imageId of imageIds) {
-    const image = await context.images.resolve(imageId)
+  const resolved = await Promise.all(imageIds.map((id) => context.images.resolve(id)))
+  return resolved.map((image, at) => {
     // 模型会顺着历史里的图片 id 猜，猜错时它得知道该让用户去输入框引用那张图。
-    if (!image) throw new Error(`拿不到图片 ${imageId}，请让用户在输入框里引用它`)
-    resolved.push(image)
-  }
-  return resolved
+    if (!image) throw new Error(`拿不到图片 ${imageIds[at]}，请让用户在输入框里引用它`)
+    return image
+  })
 }
 
 export const editImage: AgentToolDefinition = {

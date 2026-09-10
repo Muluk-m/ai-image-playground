@@ -15,7 +15,6 @@ export interface AgentReference extends InputImage {
   readonly maskDataUrl?: string
 }
 
-/** 一条待发送的消息：带哨兵标记的提示词，加它按序号指向的参考图。 */
 export interface AgentDraft {
   readonly prompt: string
   readonly references: readonly AgentReference[]
@@ -33,7 +32,7 @@ export function referenceLabels(references: readonly AgentReference[]): MentionL
 
 export interface AttachedReference {
   readonly draft: AgentDraft
-  /** 插入后光标停在可见文本的这个位置。 */
+  /** 可见文本坐标系里的光标落点。 */
   readonly cursor: number
 }
 

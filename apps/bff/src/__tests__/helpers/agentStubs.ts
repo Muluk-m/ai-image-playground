@@ -53,6 +53,41 @@ export function toolCallCompletion(...calls: ToolCallSpec[]): Response {
   return stream.responseFor()
 }
 
+/** 依次回答每一次上游请求；用完之后重复最后一条，免得跑飞的循环挂住测试。 */
+export function scriptedAgentFetch(calls: AgentCall[], answers: Array<() => Response>) {
+  let at = 0
+  return recordingAgentFetch(calls, () => (answers[at++] ?? answers.at(-1)!)())
+}
+
+/** 工具测试共用的图片 channel 与上游返回体。 */
+export const TEST_IMAGE_CHANNEL = {
+  id: 'openai-images',
+  kind: 'openai-queue' as const,
+  label: 'OpenAI',
+  baseUrl: 'https://api.openai.com/v1',
+  auth: { type: 'bearer' as const, secretRef: 'OPENAI_API_KEY', secret: 'k' },
+  allowedPaths: ['images/generations'],
+  models: [
+    {
+      id: 'gpt-image-2.5-flare',
+      label: 'GPT Image 2.5 Flare',
+      capabilities: ['generate' as const],
+    },
+  ],
+  defaults: { apiMode: 'images' as const, timeout: 600 },
+}
+
+export const TEST_RESULT_PAYLOAD = { data: [{ b64_json: 'aGk=', mime: 'image/png' }] }
+
+export function eventsOfType<T extends AgentTurnEvent['type']>(
+  frames: { event: AgentTurnEvent }[],
+  type: T,
+): Extract<AgentTurnEvent, { type: T }>[] {
+  return frames
+    .map((frame) => frame.event)
+    .filter((event): event is Extract<AgentTurnEvent, { type: T }> => event.type === type)
+}
+
 export function recordingAgentFetch(
   calls: AgentCall[],
   answer: (signal?: AbortSignal) => Response,

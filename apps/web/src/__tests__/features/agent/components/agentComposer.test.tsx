@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
+
+import type { AgentTurnReference } from '@image-playground/shared'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { AgentTurnReference } from '@image-playground/shared'
 import AgentComposer from '../../../../features/agent/components/AgentComposer'
 import { useAgentStore } from '../../../../features/agent/store'
 import { CanvasDoc, type ImageEl } from '../../../../features/canvas/lib/canvasDoc'

@@ -1,10 +1,10 @@
 import type { AgentMessageView, AgentToolImage, AgentTurnReference } from '@image-playground/shared'
-import { eq } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import { resolveImageBytesRef } from '../extractImages'
 import { objectStore } from '../objectStore'
 import { asQueueProvider } from '../queueProvider'
 import { readAssetImage } from '../sync-assets'
+import { taskAccessWhere } from '../task-access'
 
 export interface ResolvedAgentImage {
   readonly dataUrl: string
@@ -17,8 +17,6 @@ export interface AgentImageSource {
   resolve(imageId: string): Promise<ResolvedAgentImage | null>
   /** 记下工具刚产出的图，同一轮里下一个工具才能接着改它。 */
   note(images: readonly AgentToolImage[]): void
-  /** 附在用户消息后面送给模型的参考图清单；没有引用时是空串。 */
-  manifest(): string
 }
 
 interface TaskOutput {
@@ -27,10 +25,14 @@ interface TaskOutput {
 }
 
 function dataUrl(bytes: Uint8Array, mime: string): string {
-  return `data:${mime};base64,${Buffer.from(bytes).toString('base64')}`
+  const view = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  return `data:${mime};base64,${view.toString('base64')}`
 }
 
-async function readTaskOutput(output: TaskOutput): Promise<ResolvedAgentImage | null> {
+async function readTaskOutput(
+  output: TaskOutput,
+  userId: string | null,
+): Promise<ResolvedAgentImage | null> {
   const [task] = await db
     .select({
       status: schema.tasks.status,
@@ -38,7 +40,7 @@ async function readTaskOutput(output: TaskOutput): Promise<ResolvedAgentImage | 
       result_payload: schema.tasks.result_payload,
     })
     .from(schema.tasks)
-    .where(eq(schema.tasks.id, output.taskId))
+    .where(taskAccessWhere(output.taskId, userId))
     .limit(1)
   if (!task || task.status !== 'completed') return null
   const provider = asQueueProvider(task.provider)
@@ -68,13 +70,42 @@ function outputsFromHistory(history: readonly AgentMessageView[]): Map<string, T
   return outputs
 }
 
+/** 附在用户消息后面送给模型；没有引用时是空串。 */
+export function referenceManifest(references: readonly AgentTurnReference[]): string {
+  if (references.length === 0) return ''
+  const lines = references.map((one, at) => {
+    const name = one.name ? `${one.name}，` : ''
+    const mask = one.maskDataUrl ? '，用户在上面画了遮罩' : ''
+    return `[image ${at + 1}] ${name}图片 id ${one.imageId}${mask}`
+  })
+  return `\n\n本轮引用的图：\n${lines.join('\n')}`
+}
+
 export function createAgentImageSource(input: {
   readonly references: readonly AgentTurnReference[]
   readonly history: readonly AgentMessageView[]
   readonly userId: string | null
 }): AgentImageSource {
+  const { userId } = input
   const references = new Map(input.references.map((one) => [one.imageId, one]))
   const outputs = outputsFromHistory(input.history)
+  // 缓存 promise 而不是值：模型连着改同一张图时，重复的那几次连 I/O 都不发。
+  const resolving = new Map<string, Promise<ResolvedAgentImage | null>>()
+
+  const read = async (imageId: string): Promise<ResolvedAgentImage | null> => {
+    const reference = references.get(imageId)
+    if (reference) {
+      return {
+        dataUrl: reference.dataUrl,
+        ...(reference.maskDataUrl ? { maskDataUrl: reference.maskDataUrl } : {}),
+      }
+    }
+    const output = outputs.get(imageId)
+    if (output) return readTaskOutput(output, userId)
+    if (!userId) return null
+    const asset = await readAssetImage(userId, imageId)
+    return asset ? { dataUrl: dataUrl(asset.bytes, asset.contentType) } : null
+  }
 
   return {
     note(images) {
@@ -83,29 +114,12 @@ export function createAgentImageSource(input: {
       }
     },
 
-    async resolve(imageId) {
-      const reference = references.get(imageId)
-      if (reference) {
-        return {
-          dataUrl: reference.dataUrl,
-          ...(reference.maskDataUrl ? { maskDataUrl: reference.maskDataUrl } : {}),
-        }
-      }
-      const output = outputs.get(imageId)
-      if (output) return readTaskOutput(output)
-      if (!input.userId) return null
-      const asset = await readAssetImage(input.userId, imageId)
-      return asset ? { dataUrl: dataUrl(asset.bytes, asset.contentType) } : null
-    },
-
-    manifest() {
-      if (input.references.length === 0) return ''
-      const lines = input.references.map((one, at) => {
-        const name = one.name ? `${one.name}，` : ''
-        const mask = one.maskDataUrl ? '，用户在上面画了遮罩' : ''
-        return `[image ${at + 1}] ${name}图片 id ${one.imageId}${mask}`
-      })
-      return `\n\n本轮引用的图：\n${lines.join('\n')}`
+    resolve(imageId) {
+      const running = resolving.get(imageId)
+      if (running) return running
+      const started = read(imageId)
+      resolving.set(imageId, started)
+      return started
     },
   }
 }
