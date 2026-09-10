@@ -2,6 +2,7 @@ import { describe, expect, it } from 'bun:test'
 import {
   AGENT_CONVERSATION_TITLE_MAX_CHARS,
   type AgentTurnEvent,
+  agentClarificationSummary,
   agentConversationTitle,
   agentHeartbeatFrame,
   agentMessageText,
@@ -57,5 +58,16 @@ describe('parseAgentFrame', () => {
   it('drops a heartbeat comment and a malformed frame', () => {
     expect(parseAgentFrame(agentHeartbeatFrame().trim())).toBeNull()
     expect(parseAgentFrame('id: 3\ndata: {oops')).toBeNull()
+  })
+})
+
+describe('agentClarificationSummary', () => {
+  it('replays the question with its options on one line', () => {
+    const line = agentClarificationSummary({
+      type: 'clarification',
+      question: '要哪种风格？',
+      options: ['写实照片', '扁平插画'],
+    })
+    expect(line).toBe('向用户提问：要哪种风格？（选项：写实照片 / 扁平插画）')
   })
 })

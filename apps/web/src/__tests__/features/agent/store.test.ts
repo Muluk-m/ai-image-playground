@@ -2,7 +2,7 @@
 import type { AgentConversationView, AgentTurnEvent } from '@image-playground/shared'
 import { encodeAgentFrame } from '@image-playground/shared'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { useAgentStore } from '../../../features/agent/store'
+import { answerableClarificationId, useAgentStore } from '../../../features/agent/store'
 import { _setRuntimeConfigForTesting } from '../../../lib/runtimeConfig'
 
 const CONVERSATION = 'conversation-1'
@@ -315,5 +315,91 @@ describe('限流', () => {
 
     expect(state().turn).toBe('failed')
     expect(state().error).toBe('发送太频繁，稍后再试')
+  })
+})
+
+describe('澄清', () => {
+  const CLARIFICATION: AgentTurnEvent = {
+    type: 'clarification',
+    messageId: 'clarify-1',
+    question: '要哪种风格？',
+    options: ['写实照片', '扁平插画'],
+  }
+
+  const CARD = {
+    kind: 'clarification',
+    id: 'clarify-1',
+    question: '要哪种风格？',
+    options: ['写实照片', '扁平插画'],
+  }
+
+  it('这一轮以单选收尾，用户选的那一项开启下一轮', async () => {
+    turnResponse = () => turnStream(TURN_START, CLARIFICATION, TURN_END)
+
+    await state().send('给我画个杯子')
+
+    expect(state().turn).toBe('idle')
+    expect(state().messages).toEqual([
+      { kind: 'text', id: 'user-1', role: 'user', text: '给我画个杯子', streaming: false },
+      CARD,
+    ])
+    expect(answerableClarificationId(state().messages)).toBe('clarify-1')
+
+    turnResponse = () =>
+      turnStream(
+        { type: 'turnStart', turnId: 'turn-2', userMessageId: 'user-2' },
+        { type: 'assistantStart', messageId: 'assistant-2' },
+        { type: 'textDelta', messageId: 'assistant-2', delta: '好的' },
+        { type: 'turnEnd', turnId: 'turn-2', durationMs: 5, stopReason: 'completed', usage: null },
+      )
+
+    await state().send('写实照片')
+
+    expect(state().messages).toEqual([
+      { kind: 'text', id: 'user-1', role: 'user', text: '给我画个杯子', streaming: false },
+      CARD,
+      { kind: 'text', id: 'user-2', role: 'user', text: '写实照片', streaming: false },
+      { kind: 'text', id: 'assistant-2', role: 'assistant', text: '好的', streaming: false },
+    ])
+    // 后面已经有用户消息了，这条澄清作过答。
+    expect(answerableClarificationId(state().messages)).toBeNull()
+  })
+
+  it('重新打开会话时没作答的澄清还能作答', async () => {
+    localStorage.setItem('image-playground.agent_conversation_id', CONVERSATION)
+    messagesResponse = () =>
+      Response.json({
+        activeTurn: null,
+        messages: [
+          {
+            id: 'user-1',
+            turnId: 'turn-1',
+            role: 'user',
+            content: [{ type: 'text', text: '给我画个杯子' }],
+            createdAt: 1,
+          },
+          {
+            id: 'clarify-1',
+            turnId: 'turn-1',
+            role: 'assistant',
+            content: [
+              {
+                type: 'clarification',
+                question: '要哪种风格？',
+                options: ['写实照片', '扁平插画'],
+              },
+            ],
+            createdAt: 2,
+          },
+        ],
+      })
+
+    await state().load()
+
+    expect(state().messages).toEqual([
+      { kind: 'text', id: 'user-1', role: 'user', text: '给我画个杯子', streaming: false },
+      CARD,
+    ])
+    expect(answerableClarificationId(state().messages)).toBe('clarify-1')
   })
 })

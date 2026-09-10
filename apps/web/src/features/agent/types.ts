@@ -27,6 +27,14 @@ export interface AgentToolMessage {
   readonly canvasConflict?: boolean
 }
 
-export type AgentPanelMessage = AgentTextMessage | AgentToolMessage
+/** 一次澄清提问。末尾那条还没作答，可以点；它之后有用户消息的就是作过答的。 */
+export interface AgentClarificationMessage {
+  readonly kind: 'clarification'
+  readonly id: string
+  readonly question: string
+  readonly options: readonly string[]
+}
+
+export type AgentPanelMessage = AgentTextMessage | AgentToolMessage | AgentClarificationMessage
 
 export type AgentPanelTab = 'chat' | 'history' | 'layers'

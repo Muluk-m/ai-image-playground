@@ -197,6 +197,7 @@ describe('智能体改图工具', () => {
     expect(task!.request_payload.mask).toBeUndefined()
 
     expect(calls[0]!.tools?.map((tool) => tool.function.name).sort()).toEqual([
+      'askClarification',
       'editImage',
       'generateImage',
       'readLibrary',

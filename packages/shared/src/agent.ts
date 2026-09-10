@@ -56,7 +56,14 @@ export interface AgentToolResultBlock {
   readonly message?: string
 }
 
-export type AgentContentBlock = AgentTextBlock | AgentToolResultBlock
+/** 一次澄清提问。落在助手消息里，所以重新打开会话还能看见、还能作答。 */
+export interface AgentClarificationBlock {
+  readonly type: 'clarification'
+  readonly question: string
+  readonly options: readonly string[]
+}
+
+export type AgentContentBlock = AgentTextBlock | AgentToolResultBlock | AgentClarificationBlock
 
 export interface AgentMessageView {
   readonly id: string
@@ -133,6 +140,10 @@ export type AgentToolEndEvent = Omit<AgentToolResultBlock, 'type'> & {
   readonly messageId: string
 }
 
+export type AgentClarificationEvent = AgentClarificationBlock & {
+  readonly messageId: string
+}
+
 /** 轮进行中追加的用户消息。 */
 export interface AgentInterjectionEvent {
   readonly type: 'interjection'
@@ -168,6 +179,7 @@ export type AgentTurnEvent =
   | AgentToolStartEvent
   | AgentToolProgressEvent
   | AgentToolEndEvent
+  | AgentClarificationEvent
   | AgentInterjectionEvent
   | AgentTurnEndEvent
 
@@ -232,6 +244,11 @@ export function agentToolResultSummary(block: AgentToolResultBlock): string {
   if (block.status === 'failed') return `${block.title}：失败（${block.message ?? '未知原因'}）`
   const ids = (block.images ?? []).map((image) => image.imageId).join(', ')
   return ids ? `${block.title}：完成，图片 ${ids}` : `${block.title}：完成`
+}
+
+/** 澄清回放给模型的形状：用户的下一条消息就是他选的那一项。 */
+export function agentClarificationSummary(block: AgentClarificationBlock): string {
+  return `向用户提问：${block.question}（选项：${block.options.join(' / ')}）`
 }
 
 /** 折行压成一行再截断，省略号占最后一格。 */
