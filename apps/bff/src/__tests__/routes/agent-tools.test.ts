@@ -275,6 +275,21 @@ describe('智能体生图工具', () => {
     expect(task!.status).toBe('failed')
   })
 
+  it('keeps the video tool out of a deployment without generation:video', async () => {
+    const calls: AgentCall[] = []
+    setAgentFetchForTesting(scriptedAgentFetch(calls, [() => completionStream('好')]))
+    const conversationId = await startConversation()
+
+    await runTurn(conversationId, '你好')
+
+    expect(calls[0]!.tools?.map((tool) => tool.function.name).sort()).toEqual([
+      'askClarification',
+      'editImage',
+      'generateImage',
+      'readLibrary',
+    ])
+  })
+
   it('replays a stored tool result to the model on the next turn', async () => {
     const calls: AgentCall[] = []
     setAgentFetchForTesting(
