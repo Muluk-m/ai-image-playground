@@ -7,6 +7,7 @@ import type {
 } from '@image-playground/shared'
 import { agentMessageText, agentTextFromBlocks } from '@image-playground/shared'
 import { log } from '../logger'
+import { createCompactionTransform } from './compaction-transform'
 import { agentModel, agentStreamFn } from './model'
 
 const EMPTY_USAGE = {
@@ -25,6 +26,7 @@ const SYSTEM_PROMPT = [
 ].join('\n')
 
 export interface AgentTurnInput {
+  readonly conversationId: string
   readonly turnId: string
   readonly userMessageId: string
   readonly assistantMessageId: string
@@ -117,6 +119,12 @@ export async function* runAgentTurn(
       messages: replayed(input.history),
     },
     streamFn: agentStreamFn(),
+    transformContext: createCompactionTransform({
+      conversationId: input.conversationId,
+      turnId: input.turnId,
+      historyIds: input.history.map((message) => message.id),
+      userMessageId: input.userMessageId,
+    }),
   })
 
   let error: AgentTurnErrorCode | undefined
