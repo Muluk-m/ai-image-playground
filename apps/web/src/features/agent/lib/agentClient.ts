@@ -76,7 +76,6 @@ export async function adoptAgentConversations(
 
 export interface AgentConversationState {
   readonly messages: AgentMessageView[]
-  /** 翻历史时的每轮页脚；过了事件保留窗口的轮不在里面。 */
   readonly turns: AgentTurnSummaryView[]
   readonly activeTurn: AgentActiveTurnView | null
 }

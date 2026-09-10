@@ -47,7 +47,6 @@ function trackingOverlay(): PrivateBffOverlay {
           upstreamStatus: input.upstreamStatus ?? null,
           actualUsage: input.actualUsage ?? null,
         })
-        return { credits: 0 }
       },
     },
   })
@@ -89,7 +88,7 @@ describe('task settlement hook', () => {
       completedAt: Date.now(),
     })
 
-    expect(written).not.toBeNull()
+    expect(written).toBe(true)
     expect(settlements).toEqual([
       {
         taskId: 'settle-completed',
@@ -114,7 +113,7 @@ describe('task settlement hook', () => {
       completedAt: Date.now(),
     })
 
-    expect(written).not.toBeNull()
+    expect(written).toBe(true)
     expect(settlements).toEqual([
       {
         taskId: 'settle-failed',
@@ -157,7 +156,7 @@ describe('task settlement hook', () => {
       actualUsage: { quantity: 1, unitMultiplier: 3.5 },
     })
 
-    expect(written).not.toBeNull()
+    expect(written).toBe(true)
     expect(settlements).toEqual([
       {
         taskId: 'settle-metered',

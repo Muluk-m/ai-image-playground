@@ -1,6 +1,6 @@
 import type { TaskErrorType } from '@image-playground/shared'
 import { and, eq, inArray } from 'drizzle-orm'
-import { loadPrivateBffOverlay, type TaskSettlement, type TaskUsage } from '../lib/private-overlay'
+import { loadPrivateBffOverlay, type TaskUsage } from '../lib/private-overlay'
 import { db, schema } from './client'
 
 /**
@@ -66,11 +66,8 @@ export type TerminalTaskUpdate = {
   actualUsage?: TaskUsage
 }
 
-/** 写终态并触发私有 overlay 的结算 / 退回。没改到行就返回 null。 */
-export async function finishTask(
-  id: string,
-  update: TerminalTaskUpdate,
-): Promise<TaskSettlement | null> {
+/** 写终态并触发私有 overlay 的结算 / 退回。返回是否真的改到了行。 */
+export async function finishTask(id: string, update: TerminalTaskUpdate): Promise<boolean> {
   const taskHooks = (await loadPrivateBffOverlay()).taskHooks
   return db.transaction(async (tx) => {
     const [finished] = await tx
@@ -91,8 +88,8 @@ export async function finishTask(
         id: schema.tasks.id,
         upstreamInvocationCount: schema.tasks.upstream_invocation_count,
       })
-    if (!finished) return null
-    return taskHooks.finalizeTask({
+    if (!finished) return false
+    await taskHooks.finalizeTask({
       tx,
       taskId: finished.id,
       outcome: update.status,
@@ -101,5 +98,6 @@ export async function finishTask(
       upstreamStatus: update.upstreamStatus ?? null,
       actualUsage: update.actualUsage,
     })
+    return true
   })
 }

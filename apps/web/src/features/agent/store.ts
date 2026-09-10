@@ -55,7 +55,6 @@ export interface AgentState {
   conversationId: string | null
   conversations: AgentConversationView[]
   messages: AgentPanelMessage[]
-  /** 每轮的页脚，按轮 id。 */
   turns: Record<string, AgentTurnFooter>
   turn: AgentTurnStatus
   /** 正在跟的那一轮；中止与插话都指向它。 */
@@ -78,6 +77,14 @@ export interface AgentState {
   abort(): Promise<void>
   /** 画布冲突后由用户把那张结果卡的产出放进画布。 */
   placeOnCanvas(messageId: string): Promise<void>
+}
+
+function mergeTurn(
+  turns: Record<string, AgentTurnFooter>,
+  turnId: string,
+  patch: Partial<AgentTurnFooter>,
+): Record<string, AgentTurnFooter> {
+  return { ...turns, [turnId]: { ...turns[turnId], turnId, ...patch } }
 }
 
 function replaceOrAppend(
@@ -219,24 +226,17 @@ export const useAgentStore = create<AgentState>((set, get) => {
   }
 
   /** 事件按 id 幂等：重连重发的帧、以及续播重放的整轮，都要落到同一个结果上。 */
-  const apply = (event: AgentTurnEvent, pendingUserText: string | null) => {
+  const apply = (event: AgentTurnEvent, pendingUserText: string | null, turnId: string) => {
     set((state) => {
-      // 事件里只有 turnStart 带轮 id，其余各帧靠正在跟的那一轮认领。
-      const turnId = event.type === 'turnStart' ? event.turnId : (state.activeTurn?.turnId ?? '')
       switch (event.type) {
         case 'turnStart':
           return {
             activeTurn: { turnId: event.turnId },
-            turns: {
-              ...state.turns,
-              [event.turnId]: {
-                ...state.turns[event.turnId],
-                turnId: event.turnId,
-                ...(event.reservedCredits === undefined
-                  ? {}
-                  : { reservedCredits: event.reservedCredits }),
-              },
-            },
+            turns: mergeTurn(
+              state.turns,
+              event.turnId,
+              event.reservedCredits === undefined ? {} : { reservedCredits: event.reservedCredits },
+            ),
             messages: state.messages.some((one) => one.id === event.userMessageId)
               ? state.messages
               : [
@@ -315,16 +315,11 @@ export const useAgentStore = create<AgentState>((set, get) => {
             ),
           }
         case 'turnEnd': {
-          const turns = {
-            ...state.turns,
-            [event.turnId]: {
-              ...state.turns[event.turnId],
-              turnId: event.turnId,
-              durationMs: event.durationMs,
-              stopReason: event.stopReason,
-              ...(event.cost ? { cost: event.cost } : {}),
-            },
-          }
+          const turns = mergeTurn(state.turns, event.turnId, {
+            durationMs: event.durationMs,
+            stopReason: event.stopReason,
+            ...(event.cost ? { cost: event.cost } : {}),
+          })
           if (event.stopReason === 'failed') return { ...failPatch(state), turns }
           return {
             turn: 'idle' as const,
@@ -352,9 +347,12 @@ export const useAgentStore = create<AgentState>((set, get) => {
     conversationId: string,
     frames: AsyncGenerator<AgentFrame>,
     pendingUserText: string | null,
+    resumedTurnId = '',
   ) => {
     let source = frames
     let seen = 0
+    // 只有 turnStart 带轮 id；续播接在半截上时它已经播过了，所以从调用方拿。
+    let turnId = resumedTurnId
     // 重连预算按「多久没有进展」算：长轮里断上几次但每次都续上，不该被判失败。
     for (let attempt = 0; ; attempt += 1) {
       try {
@@ -364,7 +362,8 @@ export const useAgentStore = create<AgentState>((set, get) => {
             seen = frame.id
             attempt = -1
           }
-          apply(frame.event, pendingUserText)
+          if (frame.event.type === 'turnStart') turnId = frame.event.turnId
+          apply(frame.event, pendingUserText, turnId)
           if (frame.event.type === 'turnEnd') {
             await landing
             return
@@ -444,7 +443,12 @@ export const useAgentStore = create<AgentState>((set, get) => {
       if (!state.activeTurn) return
       set({ turn: 'running', error: null, activeTurn: state.activeTurn })
       takeBaseRevision()
-      await follow(conversationId, resumeTurn(conversationId, state.activeTurn.turnId, 0), null)
+      await follow(
+        conversationId,
+        resumeTurn(conversationId, state.activeTurn.turnId, 0),
+        null,
+        state.activeTurn.turnId,
+      )
     },
 
     async deleteConversation(conversationId) {

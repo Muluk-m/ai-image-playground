@@ -59,16 +59,16 @@ async function insertChatTask(
 }
 
 /** 结算是模块级工厂而不是用例里的闭包：闭包会把整段历史钉到轮结束。 */
-function chatSettlement(turnId: string, pricing: ChatPricing) {
+function chatSettlement(conversationId: string, turnId: string, pricing: ChatPricing) {
   return async (settlement: AgentTurnSettlement): Promise<AgentTurnCost> => {
-    const settled = await finishTask(turnId, {
+    await finishTask(turnId, {
       status: settlement.outcome,
       completedAt: Date.now(),
       upstreamInvocationCount: settlement.upstreamInvocationCount,
       // usage 为 null 是上游没报，缺席即按预留全额结算——退错方向就是凭空造积分。
       ...(settlement.usage ? { actualUsage: actualChatUsage(settlement.usage, pricing) } : {}),
     })
-    return collectTurnCost(turnId, settled?.credits ?? 0)
+    return collectTurnCost(conversationId, turnId)
   }
 }
 
@@ -103,8 +103,8 @@ export async function startConversationTurn(
         }
       : null
 
-  let reservedCredits: number | undefined
   const written = await db.transaction(async (tx) => {
+    let reservedCredits: number | undefined
     if (reservation) {
       await insertChatTask(tx, {
         taskId: turnId,
@@ -129,7 +129,7 @@ export async function startConversationTurn(
       role: 'user',
       content: [{ type: 'text', text }],
     })
-    return { kind: 'reserved' as const, userMessageId: userMessage.id }
+    return { kind: 'reserved' as const, userMessageId: userMessage.id, reservedCredits }
   })
   if (written.kind !== 'reserved') return written
 
@@ -144,8 +144,8 @@ export async function startConversationTurn(
       references,
       userId,
       deviceId,
-      ...(reservedCredits === undefined ? {} : { reservedCredits }),
-      settle: reservation ? chatSettlement(turnId, pricing) : undefined,
+      reservedCredits: written.reservedCredits,
+      settle: reservation ? chatSettlement(conversationId, turnId, pricing) : undefined,
     }),
   }
 }

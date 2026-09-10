@@ -103,10 +103,7 @@ export interface AgentConversationView {
   readonly updatedAt: number
 }
 
-/**
- * 一轮的消耗明细，单位是积分。金额由后端按结算结果给出：单价在私有账本里，
- * 前端自己折算会与结算漂移。
- */
+/** 一轮的消耗明细，单位是积分。 */
 export interface AgentTurnCost {
   readonly chat: number
   readonly image: number
@@ -207,7 +204,7 @@ export type AgentTurnEvent =
   | AgentInterjectionEvent
   | AgentTurnEndEvent
 
-/** 翻历史时每轮页脚要的那几项。轮事件过了保留窗口就没有了，那些轮不带页脚。 */
+/** 翻历史时每轮页脚要的那几项。 */
 export interface AgentTurnSummaryView {
   readonly turnId: string
   readonly durationMs: number

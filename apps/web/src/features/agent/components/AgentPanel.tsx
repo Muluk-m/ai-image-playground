@@ -1,10 +1,11 @@
-import { Fragment, useEffect, useRef } from 'react'
+import { Fragment, useEffect, useMemo, useRef } from 'react'
 import { PlusIcon, TrashIcon } from '../../../components/icons'
 import { useStore } from '../../../store'
 import type { CanvasDoc } from '../../canvas/lib/canvasDoc'
 import {
   ACTIVE_LIST_ROW,
   ACTIVE_TAB,
+  CARD_NOTE,
   GHOST_LINK,
   ICON_BUTTON,
   IDLE_TAB,
@@ -121,6 +122,11 @@ export default function AgentPanel({ doc }: { doc: CanvasDoc }) {
   const { setOpen, setTab, load, startNewConversation, refreshConversations } =
     useAgentStore.getState()
   const logRef = useRef<HTMLDivElement>(null)
+  // 流式输出时这个组件每个字都重渲染一次，别让它顺带把整张轮表遍历两遍。
+  const sessionCredits = useMemo(
+    () => (Object.values(turns).some((footer) => footer.cost) ? agentSessionCredits(turns) : null),
+    [turns],
+  )
 
   useEffect(() => {
     void load()
@@ -135,8 +141,6 @@ export default function AgentPanel({ doc }: { doc: CanvasDoc }) {
   if (!open) return <CollapsedButton onOpen={() => setOpen(true)} />
 
   const answerableId = answerableClarificationId(messages)
-  // 计费关着的部署里没有一轮带金额，会话合计整行因此不出现。
-  const billed = Object.values(turns).some((footer) => footer.cost)
 
   return (
     <div
@@ -238,12 +242,10 @@ export default function AgentPanel({ doc }: { doc: CanvasDoc }) {
         </div>
       )}
 
-      {tab === 'chat' && billed && (
-        <div
-          className={`flex shrink-0 items-center justify-between px-3 pb-1 text-[11px] ${INK_3}`}
-        >
+      {tab === 'chat' && sessionCredits !== null && (
+        <div className={`flex shrink-0 items-center justify-between px-3 pb-1 ${CARD_NOTE}`}>
           <span>本次会话</span>
-          <Credits credits={agentSessionCredits(turns)} />
+          <Credits credits={sessionCredits} />
         </div>
       )}
       {tab === 'chat' && <AgentComposer doc={doc} />}

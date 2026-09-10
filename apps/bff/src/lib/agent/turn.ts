@@ -381,7 +381,7 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
     type: 'turnStart',
     turnId,
     userMessageId,
-    ...(input.reservedCredits === undefined ? {} : { reservedCredits: input.reservedCredits }),
+    reservedCredits: input.reservedCredits,
   })
 
   const turn: RunningTurn = {
@@ -448,7 +448,7 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
         stopReason: outcome === 'cancelled' ? 'aborted' : outcome,
         ...(error ? { error } : {}),
         usage,
-        ...(cost ? { cost } : {}),
+        cost,
       })
       await touchAgentConversation(conversationId)
       await events.flush()

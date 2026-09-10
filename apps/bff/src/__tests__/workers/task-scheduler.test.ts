@@ -247,7 +247,6 @@ describe('recoverAbandonedTasks', () => {
         ...EMPTY_PRIVATE_BFF_OVERLAY.taskHooks,
         async finalizeTask(input: { taskId: string; outcome: string }) {
           settled.push({ taskId: input.taskId, outcome: input.outcome })
-          return { credits: 0 }
         },
       },
     })

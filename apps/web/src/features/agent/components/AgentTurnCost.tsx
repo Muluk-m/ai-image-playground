@@ -1,6 +1,6 @@
 import { agentTurnCostTotal } from '@image-playground/shared'
-import { useState } from 'react'
-import { INK_3 } from '../agentStyles'
+import { Fragment, type ReactNode, useState } from 'react'
+import { CARD_NOTE } from '../agentStyles'
 import { formatCredits, formatTurnDuration } from '../lib/turnCost'
 import type { AgentTurnFooter } from '../types'
 
@@ -27,45 +27,43 @@ export function Credits({ credits }: { credits: number }) {
   )
 }
 
-function Separator() {
-  return <span aria-hidden="true">·</span>
-}
-
 export default function AgentTurnCost({ footer }: { footer: AgentTurnFooter }) {
   const [open, setOpen] = useState(false)
   const cost = footer.cost
   const total = cost ? agentTurnCostTotal(cost) : null
-  const free = total === 0
+
+  const parts: ReactNode[] = []
+  if (footer.durationMs !== undefined) {
+    parts.push(<span>本轮耗时 {formatTurnDuration(footer.durationMs)}</span>)
+  } else if (footer.reservedCredits !== undefined) {
+    parts.push(
+      <span className="inline-flex items-center gap-1">
+        预扣 <Credits credits={footer.reservedCredits} />
+      </span>,
+    )
+  }
+  if (total === 0) parts.push(<span>本轮免费，未扣积分</span>)
+  if (total) {
+    parts.push(
+      <button
+        type="button"
+        aria-expanded={open}
+        className="inline-flex items-center gap-1 transition-colors hover:text-[#8b8b93]"
+        onClick={() => setOpen(!open)}
+      >
+        消耗 <Credits credits={total} />
+      </button>,
+    )
+  }
 
   return (
-    <div className={`flex flex-wrap items-center gap-1 text-[11px] ${INK_3}`}>
-      {footer.durationMs !== undefined && (
-        <span>本轮耗时 {formatTurnDuration(footer.durationMs)}</span>
-      )}
-      {footer.durationMs === undefined && footer.reservedCredits !== undefined && (
-        <span className="inline-flex items-center gap-1">
-          预扣 <Credits credits={footer.reservedCredits} />
-        </span>
-      )}
-      {free && (
-        <>
-          {footer.durationMs !== undefined && <Separator />}
-          <span>本轮免费，未扣积分</span>
-        </>
-      )}
-      {total !== null && !free && (
-        <>
-          {footer.durationMs !== undefined && <Separator />}
-          <button
-            type="button"
-            aria-expanded={open}
-            className="inline-flex items-center gap-1 transition-colors hover:text-[#8b8b93]"
-            onClick={() => setOpen(!open)}
-          >
-            消耗 <Credits credits={total} />
-          </button>
-        </>
-      )}
+    <div className={`flex flex-wrap items-center gap-1 ${CARD_NOTE}`}>
+      {parts.map((part, index) => (
+        <Fragment key={index}>
+          {index > 0 && <span aria-hidden="true">·</span>}
+          {part}
+        </Fragment>
+      ))}
       {open && cost && (
         <span className="basis-full tabular-nums">
           {BREAKDOWN.filter(([key]) => cost[key] > 0)

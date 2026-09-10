@@ -1,9 +1,10 @@
 import {
   AGENT_TURN_EVENT_RETENTION_MS,
+  type AgentTurnEndEvent,
   type AgentTurnEvent,
   type AgentTurnSummaryView,
 } from '@image-playground/shared'
-import { and, asc, desc, eq, gt, lt, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gt, lt } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 
 export interface StoredAgentEvent {
@@ -81,27 +82,23 @@ export async function readAgentTurnEvents(
 export async function listAgentTurnSummaries(
   conversationId: string,
 ): Promise<AgentTurnSummaryView[]> {
+  // 终帧是一轮的最后一个事件，所以取每轮末条即可，不必对 jsonb 谓词扫全会话的事件。
   const rows = await db
-    .select({ event: schema.agent_turn_events.event })
+    .selectDistinctOn([schema.agent_turn_events.turn_id], {
+      event: schema.agent_turn_events.event,
+    })
     .from(schema.agent_turn_events)
-    .where(
-      and(
-        eq(schema.agent_turn_events.conversation_id, conversationId),
-        sql`${schema.agent_turn_events.event} ->> 'type' = 'turnEnd'`,
-      ),
-    )
-    .orderBy(asc(schema.agent_turn_events.seq))
-  return rows.flatMap(({ event }) => {
-    if (event.type !== 'turnEnd') return []
-    return [
-      {
-        turnId: event.turnId,
-        durationMs: event.durationMs,
-        stopReason: event.stopReason,
-        ...(event.cost ? { cost: event.cost } : {}),
-      },
-    ]
-  })
+    .where(eq(schema.agent_turn_events.conversation_id, conversationId))
+    .orderBy(asc(schema.agent_turn_events.turn_id), desc(schema.agent_turn_events.seq))
+  return rows
+    .map(({ event }) => event)
+    .filter((event): event is AgentTurnEndEvent => event.type === 'turnEnd')
+    .map((event) => ({
+      turnId: event.turnId,
+      durationMs: event.durationMs,
+      stopReason: event.stopReason,
+      cost: event.cost,
+    }))
 }
 
 /** 保留窗口之外的事件没人再续播，留着只会把表撑大。 */
