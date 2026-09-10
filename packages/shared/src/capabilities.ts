@@ -33,6 +33,12 @@ export interface AdminCapabilityManifest {
 }
 
 export const QUOTAS = {
+  'agent:compaction-buffer-tokens': { defaultValue: 13_000 },
+  'agent:compaction-cooldown-minutes': { defaultValue: 6 * 60 },
+  'agent:compaction-failure-threshold': { defaultValue: 3 },
+  'agent:compaction-keep-messages': { defaultValue: 10 },
+  'agent:compaction-max-folds': { defaultValue: 5 },
+  'agent:compaction-output-reserve-tokens': { defaultValue: 20_000 },
   'generation:daily-images': { defaultValue: 0 },
   'sync:asset-image-bytes': { defaultValue: 10 * 1024 * 1024 },
   'sync:user-asset-bytes': { defaultValue: 500 * 1024 * 1024 },
