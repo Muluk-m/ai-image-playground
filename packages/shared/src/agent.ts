@@ -1,5 +1,7 @@
 /** 智能体对话协议（`/api/agent/*`）。一轮的事件流走 `text/event-stream`。 */
 
+import type { ChannelMedia } from './channel-discovery'
+
 export const AGENT_CONVERSATION_TITLE_MAX_CHARS = 60
 export const AGENT_USER_MESSAGE_MAX_CHARS = 4_000
 
@@ -10,8 +12,8 @@ export interface AgentTextBlock {
   readonly text: string
 }
 
-/** 智能体可调用的工具。生视频另有独立的票，往这里追加。 */
-export type AgentToolName = 'generateImage' | 'editImage' | 'readLibrary'
+/** 智能体可调用的工具。 */
+export type AgentToolName = 'generateImage' | 'editImage' | 'readLibrary' | 'generateVideo'
 
 /**
  * 一轮里用户在输入框附上的参考图。数组下标加一就是提示词里 `[image N]` 的 N，
@@ -31,9 +33,13 @@ export const AGENT_TURN_MAX_REFERENCES = 8
 
 export type AgentToolStatus = 'succeeded' | 'failed'
 
-/** 工具产出的一张图。`imageId` 同时是画布对象的 id，结果卡凭它定位到画布上同一个对象。 */
-export interface AgentToolImage {
-  readonly imageId: string
+/**
+ * 工具产出的一件产物。`artifactId` 同时是画布对象的 id，结果卡凭它定位到画布上同一个对象。
+ * `media` 是取字节的判据：图片下载成位图，视频只拿播放地址。
+ */
+export interface AgentToolArtifact {
+  readonly artifactId: string
+  readonly media: ChannelMedia
   readonly taskId: string
   readonly outputIndex: number
   readonly mime: string
@@ -49,9 +55,9 @@ export interface AgentToolResultBlock {
   readonly status: AgentToolStatus
   /** 面板上这张卡的一行标签。 */
   readonly title: string
-  readonly images?: readonly AgentToolImage[]
-  /** 产出落画布时贴着这个对象放；缺席就落在视口中央。 */
-  readonly anchorImageId?: string
+  readonly artifacts?: readonly AgentToolArtifact[]
+  /** 产出落画布时贴着这个画布对象放；缺席就落在视口中央。 */
+  readonly anchorObjectId?: string
   /** 失败原因，一句话。 */
   readonly message?: string
 }
@@ -239,11 +245,16 @@ export function agentMessageText(message: AgentMessageView): string {
   return agentTextFromBlocks(message.content)
 }
 
-/** 工具结果回放给模型的形状：图片 id 让它下一轮还能指着同一张图说话。 */
+/** 说给模型听的产物名词。工具的结果文字与回放共用，两处不一致模型就指不准同一件东西。 */
+export const AGENT_ARTIFACT_NOUN: Record<ChannelMedia, string> = { image: '图片', video: '视频' }
+
+/** 工具结果回放给模型的形状：产物 id 让它下一轮还能指着同一件东西说话。 */
 export function agentToolResultSummary(block: AgentToolResultBlock): string {
   if (block.status === 'failed') return `${block.title}：失败（${block.message ?? '未知原因'}）`
-  const ids = (block.images ?? []).map((image) => image.imageId).join(', ')
-  return ids ? `${block.title}：完成，图片 ${ids}` : `${block.title}：完成`
+  const listed = (block.artifacts ?? [])
+    .map((artifact) => `${AGENT_ARTIFACT_NOUN[artifact.media]} ${artifact.artifactId}`)
+    .join(', ')
+  return listed ? `${block.title}：完成，${listed}` : `${block.title}：完成`
 }
 
 /** 澄清回放给模型的形状：用户的下一条消息就是他选的那一项。 */

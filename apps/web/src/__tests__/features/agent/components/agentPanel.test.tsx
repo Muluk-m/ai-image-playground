@@ -135,7 +135,7 @@ describe('AgentPanel', () => {
       async place() {
         return 'placed'
       },
-      focus: (imageId) => focused.push(imageId),
+      focus: (objectId) => focused.push(objectId),
       async thumbnail() {
         return 'data:image/png;base64,AQID'
       },
@@ -148,8 +148,14 @@ describe('AgentPanel', () => {
           toolCallId: 'call-1',
           title: '一只橘猫坐在窗台上',
           status: 'succeeded',
-          images: [
-            { imageId: 'agent_image_1', taskId: 'task-1', outputIndex: 0, mime: 'image/png' },
+          artifacts: [
+            {
+              artifactId: 'agent_image_1',
+              media: 'image',
+              taskId: 'task-1',
+              outputIndex: 0,
+              mime: 'image/png',
+            },
           ],
         },
       ],
@@ -179,8 +185,14 @@ describe('AgentPanel', () => {
           title: '一只橘猫坐在窗台上',
           status: 'succeeded',
           canvasConflict: true,
-          images: [
-            { imageId: 'agent_image_1', taskId: 'task-1', outputIndex: 0, mime: 'image/png' },
+          artifacts: [
+            {
+              artifactId: 'agent_image_1',
+              media: 'image',
+              taskId: 'task-1',
+              outputIndex: 0,
+              mime: 'image/png',
+            },
           ],
         },
       ],

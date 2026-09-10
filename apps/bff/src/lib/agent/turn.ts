@@ -32,6 +32,7 @@ import { type RunningTurn, registerRunningTurn, turnEventLog } from './runningTu
 import {
   type AgentToolDetails,
   agentToolAbortsTurn,
+  agentToolGuidance,
   agentTools,
   agentToolTitle,
   isAgentToolName,
@@ -46,15 +47,16 @@ const EMPTY_USAGE = {
   cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
 }
 
-const SYSTEM_PROMPT = [
-  '你是创作模式画布旁的助手，帮用户把想法变成画布上的图。',
-  '用中文回答，简短、具体，不要复述用户的话。',
-  '用户要一张新图时调生图工具，把他的意图补成一条完整的提示词，不要反问他要什么风格。',
-  '用户指着某张图说要改时调改图工具，参考图用他引用的那张，产出会落在源图旁边，源图不动。',
-  '用户提到某个素材但没有引用它时，先用读素材库工具按名字查到图片 id，再拿去改图。',
-  '工具产出会自动落到用户的画布上，不要让用户自己去保存。',
-  '拿不准他要哪一种时调澄清工具给出几个具体选项，不要反问一大段。',
-].join('\n')
+function systemPrompt(): string {
+  return [
+    '你是创作模式画布旁的助手，帮用户把想法变成画布上的图。',
+    '用中文回答，简短、具体，不要复述用户的话。',
+    // 逐工具那几句跟着清单走：关掉的工具连同它的用法一起消失，否则模型会承诺它调不了的事。
+    ...agentToolGuidance(),
+    '工具产出会自动落到用户的画布上，不要让用户自己去保存。',
+    '拿不准他要哪一种时调澄清工具给出几个具体选项，不要反问一大段。',
+  ].join('\n')
+}
 
 export interface AgentTurnSettlement {
   readonly outcome: TaskOutcome
@@ -124,7 +126,7 @@ export function estimateTurnInputTokens(
 ): number {
   const now = Date.now()
   const messages: AgentMessage[] = [
-    { role: 'user', content: [{ type: 'text', text: SYSTEM_PROMPT }], timestamp: now },
+    { role: 'user', content: [{ type: 'text', text: systemPrompt() }], timestamp: now },
     ...replayed(history),
     { role: 'user', content: [{ type: 'text', text }], timestamp: now },
   ]
@@ -185,8 +187,8 @@ function toolResultBlock(
     ...head,
     status: 'succeeded',
     title: pending.title,
-    ...(details?.images?.length ? { images: details.images } : {}),
-    ...(details?.anchorImageId ? { anchorImageId: details.anchorImageId } : {}),
+    ...(details?.artifacts?.length ? { artifacts: details.artifacts } : {}),
+    ...(details?.anchorObjectId ? { anchorObjectId: details.anchorObjectId } : {}),
   }
 }
 
@@ -209,7 +211,7 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
   let clarified = false
   const agent = new Agent({
     initialState: {
-      systemPrompt: SYSTEM_PROMPT,
+      systemPrompt: systemPrompt(),
       model: agentModel(),
       messages: replayed(input.history),
       tools: [
