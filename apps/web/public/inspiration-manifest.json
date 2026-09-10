@@ -36,7 +36,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "摄影与写实",
       "tags": [
@@ -59,7 +59,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "摄影与写实",
       "tags": [
@@ -83,7 +83,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "摄影与写实",
       "tags": [
@@ -107,7 +107,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "产品与电商",
       "tags": [
@@ -131,7 +131,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "插画与艺术",
       "tags": [
@@ -154,7 +154,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "场景与叙事",
       "tags": [
@@ -178,7 +178,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "摄影与写实",
       "tags": [
@@ -201,7 +201,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "摄影与写实",
       "tags": [
@@ -225,7 +225,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "场景与叙事",
       "tags": [
@@ -249,7 +249,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "海报与字体",
       "tags": [
@@ -271,7 +271,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "海报与字体",
       "tags": [
@@ -294,7 +294,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "人物与角色",
       "tags": [
@@ -318,7 +318,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "历史与古典",
       "tags": [
@@ -342,7 +342,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "摄影与写实",
       "tags": [
@@ -365,7 +365,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "场景与叙事",
       "tags": [
@@ -389,7 +389,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "摄影与写实",
       "tags": [
@@ -413,7 +413,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "建筑与空间",
       "tags": [
@@ -436,7 +436,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "插画与艺术",
       "tags": [
@@ -458,7 +458,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "插画与艺术",
       "tags": [
@@ -479,7 +479,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "摄影与写实",
       "tags": [
@@ -502,7 +502,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "图表与信息图",
       "tags": [
@@ -526,7 +526,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "海报与字体",
       "tags": [
@@ -550,7 +550,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "插画与艺术",
       "tags": [
@@ -571,7 +571,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "UI 与界面",
       "tags": [
@@ -594,7 +594,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "UI 与界面",
       "tags": [
@@ -615,7 +615,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "UI 与界面",
       "tags": [
@@ -636,7 +636,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "海报与字体",
       "tags": [
@@ -660,7 +660,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "UI 与界面",
       "tags": [
@@ -682,7 +682,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "摄影与写实",
       "tags": [
@@ -706,7 +706,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "人物与角色",
       "tags": [
@@ -727,7 +727,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "人物与角色",
       "tags": [
@@ -748,7 +748,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "海报与字体",
       "tags": [
@@ -772,7 +772,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "场景与叙事",
       "tags": [
@@ -795,7 +795,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "场景与叙事",
       "tags": [
@@ -819,7 +819,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "摄影与写实",
       "tags": [
@@ -841,7 +841,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "场景与叙事",
       "tags": [
@@ -865,7 +865,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "其他场景",
       "tags": [
@@ -886,7 +886,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "场景与叙事",
       "tags": [
@@ -910,7 +910,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "海报与字体",
       "tags": [
@@ -934,7 +934,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "海报与字体",
       "tags": [
@@ -958,7 +958,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "UI 与界面",
       "tags": [
@@ -980,7 +980,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "品牌与 Logo",
       "tags": [
@@ -1004,7 +1004,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "其他场景",
       "tags": [
@@ -1025,7 +1025,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "人物与角色",
       "tags": [
@@ -1048,7 +1048,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "摄影与写实",
       "tags": [
@@ -1068,7 +1068,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "摄影与写实",
       "tags": [
@@ -1091,7 +1091,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "建筑与空间",
       "tags": [
@@ -1115,7 +1115,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "图表与信息图",
       "tags": [
@@ -1138,7 +1138,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "品牌与 Logo",
       "tags": [
@@ -1162,7 +1162,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "人物与角色",
       "tags": [
@@ -1185,7 +1185,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "摄影与写实",
       "tags": [
@@ -1209,7 +1209,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "摄影与写实",
       "tags": [
@@ -1233,7 +1233,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "图表与信息图",
       "tags": [
@@ -1254,7 +1254,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "插画与艺术",
       "tags": [
@@ -1274,7 +1274,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "产品与电商",
       "tags": [
@@ -1295,7 +1295,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "人物与角色",
       "tags": [
@@ -1319,7 +1319,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "人物与角色",
       "tags": [
@@ -1343,7 +1343,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "产品与电商",
       "tags": [
@@ -1367,7 +1367,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "建筑与空间",
       "tags": [
@@ -1387,7 +1387,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "其他场景",
       "tags": [
@@ -1407,7 +1407,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "海报与字体",
       "tags": [
@@ -1431,7 +1431,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "摄影与写实",
       "tags": [
@@ -1454,7 +1454,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "产品与电商",
       "tags": [
@@ -1478,7 +1478,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "图表与信息图",
       "tags": [
@@ -1502,7 +1502,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "其他场景",
       "tags": [
@@ -1526,7 +1526,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "品牌与 Logo",
       "tags": [
@@ -1550,7 +1550,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "图表与信息图",
       "tags": [
@@ -1570,7 +1570,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "图表与信息图",
       "tags": [
@@ -1594,7 +1594,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "海报与字体",
       "tags": [
@@ -1618,7 +1618,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "产品与电商",
       "tags": [
@@ -1642,7 +1642,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "摄影与写实",
       "tags": [
@@ -1662,7 +1662,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "插画与艺术",
       "tags": [
@@ -1686,7 +1686,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "海报与字体",
       "tags": [
@@ -1710,7 +1710,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "品牌与 Logo",
       "tags": [
@@ -1732,7 +1732,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "图表与信息图",
       "tags": [
@@ -1756,7 +1756,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "海报与字体",
       "tags": [
@@ -1776,7 +1776,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "海报与字体",
       "tags": [
@@ -1798,7 +1798,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "海报与字体",
       "tags": [
@@ -1822,7 +1822,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "摄影与写实",
       "tags": [
@@ -1846,7 +1846,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "海报与字体",
       "tags": [
@@ -1869,7 +1869,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "人物与角色",
       "tags": [
@@ -1893,7 +1893,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "插画与艺术",
       "tags": [
@@ -1913,7 +1913,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "海报与字体",
       "tags": [
@@ -1937,7 +1937,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "品牌与 Logo",
       "tags": [
@@ -1961,7 +1961,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "海报与字体",
       "tags": [
@@ -1985,7 +1985,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "品牌与 Logo",
       "tags": [
@@ -2008,7 +2008,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "图表与信息图",
       "tags": [
@@ -2032,7 +2032,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "场景与叙事",
       "tags": [
@@ -2052,7 +2052,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "海报与字体",
       "tags": [
@@ -2074,7 +2074,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "历史与古典",
       "tags": [
@@ -2093,7 +2093,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "历史与古典",
       "tags": [
@@ -2112,7 +2112,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "UI 与界面",
       "tags": [
@@ -2131,7 +2131,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "UI 与界面",
       "tags": [
@@ -2151,7 +2151,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "图表与信息图",
       "tags": [
@@ -2170,7 +2170,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "图表与信息图",
       "tags": [
@@ -2189,7 +2189,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "海报与字体",
       "tags": [
@@ -2208,7 +2208,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "建筑与空间",
       "tags": [
@@ -2227,7 +2227,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "UI 与界面",
       "tags": [
@@ -2246,7 +2246,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "场景与叙事",
       "tags": [
@@ -2268,7 +2268,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "建筑与空间",
       "tags": [
@@ -2292,7 +2292,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "产品与电商",
       "tags": [
@@ -2316,7 +2316,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "人物与角色",
       "tags": [
@@ -2340,7 +2340,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "人物与角色",
       "tags": [
@@ -2363,7 +2363,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "场景与叙事",
       "tags": [
@@ -2386,7 +2386,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "其他场景",
       "tags": [
@@ -2410,7 +2410,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "摄影与写实",
       "tags": [
@@ -2432,7 +2432,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "摄影与写实",
       "tags": [
@@ -2455,7 +2455,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "海报与字体",
       "tags": [
@@ -2479,7 +2479,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "场景与叙事",
       "tags": [
@@ -2501,7 +2501,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "产品与电商",
       "tags": [
@@ -2525,7 +2525,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "产品与电商",
       "tags": [
@@ -2549,7 +2549,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "插画与艺术",
       "tags": [
@@ -2573,7 +2573,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "场景与叙事",
       "tags": [
@@ -2597,7 +2597,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "海报与字体",
       "tags": [
@@ -2621,7 +2621,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "产品与电商",
       "tags": [
@@ -2644,7 +2644,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "海报与字体",
       "tags": [
@@ -2667,7 +2667,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "摄影与写实",
       "tags": [
@@ -2687,7 +2687,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "品牌与 Logo",
       "tags": [
@@ -2711,7 +2711,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "其他场景",
       "tags": [
@@ -2733,7 +2733,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "UI 与界面",
       "tags": [
@@ -2753,7 +2753,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "海报与字体",
       "tags": [
@@ -2777,7 +2777,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "人物与角色",
       "tags": [
@@ -2801,7 +2801,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "摄影与写实",
       "tags": [
@@ -2825,7 +2825,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "海报与字体",
       "tags": [
@@ -2849,7 +2849,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "文档与排版",
       "tags": [
@@ -2869,7 +2869,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "其他场景",
       "tags": [
@@ -2889,7 +2889,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "产品与电商",
       "tags": [
@@ -2911,7 +2911,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "摄影与写实",
       "tags": [
@@ -2931,7 +2931,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "插画与艺术",
       "tags": [
@@ -2955,7 +2955,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "海报与字体",
       "tags": [
@@ -2979,7 +2979,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "其他场景",
       "tags": [
@@ -2999,7 +2999,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "图表与信息图",
       "tags": [
@@ -3023,7 +3023,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "其他场景",
       "tags": [
@@ -3043,7 +3043,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "品牌与 Logo",
       "tags": [
@@ -3063,7 +3063,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "文档与排版",
       "tags": [
@@ -3083,7 +3083,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "历史与古典",
       "tags": [
@@ -3104,7 +3104,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "海报与字体",
       "tags": [
@@ -3125,7 +3125,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "其他场景",
       "tags": [
@@ -3149,7 +3149,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "UI 与界面",
       "tags": [
@@ -3169,7 +3169,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "UI 与界面",
       "tags": [
@@ -3189,7 +3189,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "UI 与界面",
       "tags": [
@@ -3209,7 +3209,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "其他场景",
       "tags": [
@@ -3232,7 +3232,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "UI 与界面",
       "tags": [
@@ -3252,7 +3252,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "摄影与写实",
       "tags": [
@@ -3272,7 +3272,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "海报与字体",
       "tags": [
@@ -3292,7 +3292,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "UI 与界面",
       "tags": [
@@ -3316,7 +3316,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "插画与艺术",
       "tags": [
@@ -3337,7 +3337,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "UI 与界面",
       "tags": [
@@ -3361,7 +3361,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "海报与字体",
       "tags": [
@@ -3385,7 +3385,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "海报与字体",
       "tags": [
@@ -3408,7 +3408,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "摄影与写实",
       "tags": [
@@ -3429,7 +3429,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "海报与字体",
       "tags": [
@@ -3453,7 +3453,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "海报与字体",
       "tags": [
@@ -3477,7 +3477,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "建筑与空间",
       "tags": [
@@ -3500,7 +3500,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "摄影与写实",
       "tags": [
@@ -3522,7 +3522,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "摄影与写实",
       "tags": [
@@ -3546,7 +3546,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "人物与角色",
       "tags": [
@@ -3566,7 +3566,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "人物与角色",
       "tags": [
@@ -3589,7 +3589,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "UI 与界面",
       "tags": [
@@ -3609,7 +3609,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "历史与古典",
       "tags": [
@@ -3630,7 +3630,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "历史与古典",
       "tags": [
@@ -3654,7 +3654,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "文档与排版",
       "tags": [
@@ -3674,7 +3674,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "产品与电商",
       "tags": [
@@ -3694,7 +3694,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "产品与电商",
       "tags": [
@@ -3714,7 +3714,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "人物与角色",
       "tags": [
@@ -3735,7 +3735,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "摄影与写实",
       "tags": [
@@ -3755,7 +3755,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "UI 与界面",
       "tags": [
@@ -3776,7 +3776,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "UI 与界面",
       "tags": [
@@ -3797,7 +3797,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "UI 与界面",
       "tags": [
@@ -3817,7 +3817,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "UI 与界面",
       "tags": [
@@ -3837,7 +3837,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "UI 与界面",
       "tags": [
@@ -3858,7 +3858,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "UI 与界面",
       "tags": [
@@ -3878,7 +3878,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "UI 与界面",
       "tags": [
@@ -3898,7 +3898,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "海报与字体",
       "tags": [
@@ -3919,7 +3919,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "海报与字体",
       "tags": [
@@ -3939,7 +3939,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "其他场景",
       "tags": [
@@ -3959,7 +3959,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "其他场景",
       "tags": [
@@ -3979,7 +3979,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "其他场景",
       "tags": [
@@ -3999,7 +3999,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "UI 与界面",
       "tags": [
@@ -4019,7 +4019,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "图表与信息图",
       "tags": [
@@ -4039,7 +4039,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "品牌与 Logo",
       "tags": [
@@ -4059,7 +4059,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "插画与艺术",
       "tags": [
@@ -4079,7 +4079,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "其他场景",
       "tags": [
@@ -4099,7 +4099,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "品牌与 Logo",
       "tags": [
@@ -4122,7 +4122,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "UI 与界面",
       "tags": [
@@ -4142,7 +4142,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "其他场景",
       "tags": [
@@ -4162,7 +4162,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "其他场景",
       "tags": [
@@ -4183,7 +4183,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "摄影与写实",
       "tags": [
@@ -4207,7 +4207,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "UI 与界面",
       "tags": [
@@ -4227,7 +4227,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "场景与叙事",
       "tags": [
@@ -4248,7 +4248,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "产品与电商",
       "tags": [
@@ -4271,7 +4271,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "海报与字体",
       "tags": [
@@ -4295,7 +4295,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "海报与字体",
       "tags": [
@@ -4319,7 +4319,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "历史与古典",
       "tags": [
@@ -4340,7 +4340,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "插画与艺术",
       "tags": [
@@ -4361,7 +4361,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "文档与排版",
       "tags": [
@@ -4381,7 +4381,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "插画与艺术",
       "tags": [
@@ -4402,7 +4402,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "海报与字体",
       "tags": [
@@ -4426,7 +4426,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "海报与字体",
       "tags": [
@@ -4450,7 +4450,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "海报与字体",
       "tags": [
@@ -4470,7 +4470,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "UI 与界面",
       "tags": [
@@ -4490,7 +4490,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "历史与古典",
       "tags": [
@@ -4512,7 +4512,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "文档与排版",
       "tags": [
@@ -4532,7 +4532,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "场景与叙事",
       "tags": [
@@ -4556,7 +4556,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "海报与字体",
       "tags": [
@@ -4580,7 +4580,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "图表与信息图",
       "tags": [
@@ -4604,7 +4604,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "摄影与写实",
       "tags": [
@@ -4626,7 +4626,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "海报与字体",
       "tags": [
@@ -4650,7 +4650,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "摄影与写实",
       "tags": [
@@ -4673,7 +4673,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "图表与信息图",
       "tags": [
@@ -4697,7 +4697,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "摄影与写实",
       "tags": [
@@ -4720,7 +4720,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "品牌与 Logo",
       "tags": [
@@ -4740,7 +4740,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "其他场景",
       "tags": [
@@ -4764,7 +4764,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "图表与信息图",
       "tags": [
@@ -4788,7 +4788,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "UI 与界面",
       "tags": [
@@ -4810,7 +4810,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "人物与角色",
       "tags": [
@@ -4833,7 +4833,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "建筑与空间",
       "tags": [
@@ -4853,7 +4853,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "图表与信息图",
       "tags": [
@@ -4873,7 +4873,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "UI 与界面",
       "tags": [
@@ -4893,7 +4893,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "场景与叙事",
       "tags": [
@@ -4916,7 +4916,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "UI 与界面",
       "tags": [
@@ -4937,7 +4937,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "历史与古典",
       "tags": [
@@ -4961,7 +4961,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "历史与古典",
       "tags": [
@@ -4980,7 +4980,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "其他场景",
       "tags": [
@@ -5000,7 +5000,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "其他场景",
       "tags": [
@@ -5020,7 +5020,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "摄影与写实",
       "tags": [
@@ -5040,7 +5040,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "文档与排版",
       "tags": [
@@ -5061,7 +5061,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "UI 与界面",
       "tags": [
@@ -5081,7 +5081,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "摄影与写实",
       "tags": [
@@ -5105,7 +5105,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "摄影与写实",
       "tags": [
@@ -5127,7 +5127,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "UI 与界面",
       "tags": [
@@ -5147,7 +5147,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "其他场景",
       "tags": [
@@ -5168,7 +5168,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "摄影与写实",
       "tags": [
@@ -5192,7 +5192,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "产品与电商",
       "tags": [
@@ -5212,7 +5212,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "插画与艺术",
       "tags": [
@@ -5234,7 +5234,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "产品与电商",
       "tags": [
@@ -5255,7 +5255,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "海报与字体",
       "tags": [
@@ -5275,7 +5275,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "产品与电商",
       "tags": [
@@ -5296,7 +5296,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "产品与电商",
       "tags": [
@@ -5316,7 +5316,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "UI 与界面",
       "tags": [
@@ -5338,7 +5338,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "摄影与写实",
       "tags": [
@@ -5362,7 +5362,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "品牌与 Logo",
       "tags": [
@@ -5384,7 +5384,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "历史与古典",
       "tags": [
@@ -5404,7 +5404,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "历史与古典",
       "tags": [
@@ -5425,7 +5425,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "图表与信息图",
       "tags": [
@@ -5445,7 +5445,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "场景与叙事",
       "tags": [
@@ -5466,7 +5466,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "海报与字体",
       "tags": [
@@ -5488,7 +5488,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "海报与字体",
       "tags": [
@@ -5510,7 +5510,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "图表与信息图",
       "tags": [
@@ -5534,7 +5534,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "产品与电商",
       "tags": [
@@ -5554,7 +5554,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "UI 与界面",
       "tags": [
@@ -5574,7 +5574,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "历史与古典",
       "tags": [
@@ -5594,7 +5594,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "海报与字体",
       "tags": [
@@ -5618,7 +5618,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "历史与古典",
       "tags": [
@@ -5641,7 +5641,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "其他场景",
       "tags": [
@@ -5664,7 +5664,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "品牌与 Logo",
       "tags": [
@@ -5686,7 +5686,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "图表与信息图",
       "tags": [
@@ -5706,7 +5706,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "文档与排版",
       "tags": [
@@ -5726,7 +5726,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "历史与古典",
       "tags": [
@@ -5746,7 +5746,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "其他场景",
       "tags": [
@@ -5766,7 +5766,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "摄影与写实",
       "tags": [
@@ -5788,7 +5788,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "UI 与界面",
       "tags": [
@@ -5809,7 +5809,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "UI 与界面",
       "tags": [
@@ -5829,7 +5829,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "人物与角色",
       "tags": [
@@ -5849,7 +5849,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "UI 与界面",
       "tags": [
@@ -5872,7 +5872,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "品牌与 Logo",
       "tags": [
@@ -5893,7 +5893,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "UI 与界面",
       "tags": [
@@ -5917,7 +5917,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "UI 与界面",
       "tags": [
@@ -5941,7 +5941,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "产品与电商",
       "tags": [
@@ -5965,7 +5965,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "UI 与界面",
       "tags": [
@@ -5989,7 +5989,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "产品与电商",
       "tags": [
@@ -6009,7 +6009,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "摄影与写实",
       "tags": [
@@ -6031,7 +6031,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "海报与字体",
       "tags": [
@@ -6054,7 +6054,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "UI 与界面",
       "tags": [
@@ -6078,7 +6078,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "产品与电商",
       "tags": [
@@ -6101,7 +6101,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "产品与电商",
       "tags": [
@@ -6125,7 +6125,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "UI 与界面",
       "tags": [
@@ -6149,7 +6149,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "UI 与界面",
       "tags": [
@@ -6171,7 +6171,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "摄影与写实",
       "tags": [
@@ -6193,7 +6193,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "UI 与界面",
       "tags": [
@@ -6215,7 +6215,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "UI 与界面",
       "tags": [
@@ -6237,7 +6237,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "产品与电商",
       "tags": [
@@ -6260,7 +6260,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "摄影与写实",
       "tags": [
@@ -6284,7 +6284,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "产品与电商",
       "tags": [
@@ -6308,7 +6308,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "产品与电商",
       "tags": [
@@ -6331,7 +6331,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "海报与字体",
       "tags": [
@@ -6354,7 +6354,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "海报与字体",
       "tags": [
@@ -6376,7 +6376,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "品牌与 Logo",
       "tags": [
@@ -6399,7 +6399,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "品牌与 Logo",
       "tags": [
@@ -6422,7 +6422,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "品牌与 Logo",
       "tags": [
@@ -6445,7 +6445,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "品牌与 Logo",
       "tags": [
@@ -6469,7 +6469,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "品牌与 Logo",
       "tags": [
@@ -6492,7 +6492,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "UI 与界面",
       "tags": [
@@ -6516,7 +6516,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "品牌与 Logo",
       "tags": [
@@ -6540,7 +6540,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "UI 与界面",
       "tags": [
@@ -6564,7 +6564,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "品牌与 Logo",
       "tags": [
@@ -6588,7 +6588,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "插画与艺术",
       "tags": [
@@ -6611,7 +6611,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "海报与字体",
       "tags": [
@@ -6634,7 +6634,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "插画与艺术",
       "tags": [
@@ -6657,7 +6657,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "海报与字体",
       "tags": [
@@ -6681,7 +6681,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "插画与艺术",
       "tags": [
@@ -6704,7 +6704,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "海报与字体",
       "tags": [
@@ -6728,7 +6728,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "人物与角色",
       "tags": [
@@ -6751,7 +6751,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "海报与字体",
       "tags": [
@@ -6774,7 +6774,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "插画与艺术",
       "tags": [
@@ -6797,7 +6797,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "插画与艺术",
       "tags": [
@@ -6820,7 +6820,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "文档与排版",
       "tags": [
@@ -6844,7 +6844,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "插画与艺术",
       "tags": [
@@ -6867,7 +6867,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "插画与艺术",
       "tags": [
@@ -6891,7 +6891,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "插画与艺术",
       "tags": [
@@ -6914,7 +6914,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "插画与艺术",
       "tags": [
@@ -6938,7 +6938,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "插画与艺术",
       "tags": [
@@ -6962,7 +6962,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "插画与艺术",
       "tags": [
@@ -6985,7 +6985,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "插画与艺术",
       "tags": [
@@ -7005,7 +7005,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "UI 与界面",
       "tags": [
@@ -7029,7 +7029,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "UI 与界面",
       "tags": [
@@ -7050,7 +7050,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "UI 与界面",
       "tags": [
@@ -7070,7 +7070,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "UI 与界面",
       "tags": [
@@ -7090,7 +7090,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "UI 与界面",
       "tags": [
@@ -7114,7 +7114,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "其他场景",
       "tags": [
@@ -7138,7 +7138,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "海报与字体",
       "tags": [
@@ -7161,7 +7161,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "UI 与界面",
       "tags": [
@@ -7182,7 +7182,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "UI 与界面",
       "tags": [
@@ -7203,7 +7203,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "图表与信息图",
       "tags": [
@@ -7223,7 +7223,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "海报与字体",
       "tags": [
@@ -7245,7 +7245,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "海报与字体",
       "tags": [
@@ -7269,7 +7269,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "海报与字体",
       "tags": [
@@ -7292,7 +7292,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "海报与字体",
       "tags": [
@@ -7314,7 +7314,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "海报与字体",
       "tags": [
@@ -7335,7 +7335,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "UI 与界面",
       "tags": [
@@ -7358,7 +7358,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "UI 与界面",
       "tags": [
@@ -7381,7 +7381,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "UI 与界面",
       "tags": [
@@ -7403,7 +7403,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "UI 与界面",
       "tags": [
@@ -7425,7 +7425,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "UI 与界面",
       "tags": [
@@ -7447,7 +7447,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "UI 与界面",
       "tags": [
@@ -7471,7 +7471,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "UI 与界面",
       "tags": [
@@ -7495,7 +7495,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "图表与信息图",
       "tags": [
@@ -7519,7 +7519,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "海报与字体",
       "tags": [
@@ -7543,7 +7543,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "图表与信息图",
       "tags": [
@@ -7567,7 +7567,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "图表与信息图",
       "tags": [
@@ -7591,7 +7591,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "图表与信息图",
       "tags": [
@@ -7615,7 +7615,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "图表与信息图",
       "tags": [
@@ -7639,7 +7639,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "海报与字体",
       "tags": [
@@ -7663,7 +7663,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "其他场景",
       "tags": [
@@ -7686,7 +7686,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "其他场景",
       "tags": [
@@ -7710,7 +7710,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "其他场景",
       "tags": [
@@ -7734,7 +7734,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "其他场景",
       "tags": [
@@ -7758,7 +7758,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "图表与信息图",
       "tags": [
@@ -7782,7 +7782,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "图表与信息图",
       "tags": [
@@ -7806,7 +7806,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "图表与信息图",
       "tags": [
@@ -7830,7 +7830,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "图表与信息图",
       "tags": [
@@ -7854,7 +7854,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "图表与信息图",
       "tags": [
@@ -7878,7 +7878,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "图表与信息图",
       "tags": [
@@ -7902,7 +7902,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "图表与信息图",
       "tags": [
@@ -7926,7 +7926,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "图表与信息图",
       "tags": [
@@ -7950,7 +7950,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "图表与信息图",
       "tags": [
@@ -7974,7 +7974,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "图表与信息图",
       "tags": [
@@ -7998,7 +7998,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "图表与信息图",
       "tags": [
@@ -8021,7 +8021,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "图表与信息图",
       "tags": [
@@ -8044,7 +8044,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "图表与信息图",
       "tags": [
@@ -8068,7 +8068,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "图表与信息图",
       "tags": [
@@ -8091,7 +8091,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "海报与字体",
       "tags": [
@@ -8113,7 +8113,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "海报与字体",
       "tags": [
@@ -8136,7 +8136,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "海报与字体",
       "tags": [
@@ -8159,7 +8159,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "插画与艺术",
       "tags": [
@@ -8183,7 +8183,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "海报与字体",
       "tags": [
@@ -8207,7 +8207,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "海报与字体",
       "tags": [
@@ -8231,7 +8231,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "UI 与界面",
       "tags": [
@@ -8255,7 +8255,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "摄影与写实",
       "tags": [
@@ -8276,7 +8276,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "图表与信息图",
       "tags": [
@@ -8299,7 +8299,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "产品与电商",
       "tags": [
@@ -8320,7 +8320,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "摄影与写实",
       "tags": [
@@ -8344,7 +8344,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "插画与艺术",
       "tags": [
@@ -8366,7 +8366,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "图表与信息图",
       "tags": [
@@ -8389,7 +8389,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "建筑与空间",
       "tags": [
@@ -8411,7 +8411,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "UI 与界面",
       "tags": [
@@ -8431,7 +8431,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "UI 与界面",
       "tags": [
@@ -8451,7 +8451,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "产品与电商",
       "tags": [
@@ -8474,7 +8474,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "摄影与写实",
       "tags": [
@@ -8497,7 +8497,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "摄影与写实",
       "tags": [
@@ -8520,7 +8520,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "历史与古典",
       "tags": [
@@ -8542,7 +8542,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "插画与艺术",
       "tags": [
@@ -8564,7 +8564,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "UI 与界面",
       "tags": [
@@ -8588,7 +8588,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "人物与角色",
       "tags": [
@@ -8612,7 +8612,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "插画与艺术",
       "tags": [
@@ -8634,7 +8634,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "插画与艺术",
       "tags": [
@@ -8656,7 +8656,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "插画与艺术",
       "tags": [
@@ -8678,7 +8678,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "插画与艺术",
       "tags": [
@@ -8700,7 +8700,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "摄影与写实",
       "tags": [
@@ -8723,7 +8723,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "摄影与写实",
       "tags": [
@@ -8745,7 +8745,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "插画与艺术",
       "tags": [
@@ -8768,7 +8768,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "产品与电商",
       "tags": [
@@ -8791,7 +8791,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "插画与艺术",
       "tags": [
@@ -8815,7 +8815,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "摄影与写实",
       "tags": [
@@ -8837,7 +8837,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "插画与艺术",
       "tags": [
@@ -8861,7 +8861,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "摄影与写实",
       "tags": [
@@ -8883,7 +8883,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "摄影与写实",
       "tags": [
@@ -8907,7 +8907,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "人物与角色",
       "tags": [
@@ -8929,7 +8929,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "摄影与写实",
       "tags": [
@@ -8951,7 +8951,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "人物与角色",
       "tags": [
@@ -8971,7 +8971,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "摄影与写实",
       "tags": [
@@ -8991,7 +8991,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "图表与信息图",
       "tags": [
@@ -9014,7 +9014,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "插画与艺术",
       "tags": [
@@ -9037,7 +9037,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "UI 与界面",
       "tags": [
@@ -9061,7 +9061,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "建筑与空间",
       "tags": [
@@ -9082,7 +9082,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "图表与信息图",
       "tags": [
@@ -9103,7 +9103,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "建筑与空间",
       "tags": [
@@ -9127,7 +9127,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "产品与电商",
       "tags": [
@@ -9150,7 +9150,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "海报与字体",
       "tags": [
@@ -9169,7 +9169,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "海报与字体",
       "tags": [
@@ -9189,7 +9189,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "图表与信息图",
       "tags": [
@@ -9208,7 +9208,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "文档与排版",
       "tags": [
@@ -9230,7 +9230,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "建筑与空间",
       "tags": [
@@ -9249,7 +9249,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "海报与字体",
       "tags": [
@@ -9269,7 +9269,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "海报与字体",
       "tags": [
@@ -9289,7 +9289,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "图表与信息图",
       "tags": [
@@ -9312,7 +9312,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "UI 与界面",
       "tags": [
@@ -9335,7 +9335,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "插画与艺术",
       "tags": [
@@ -9355,7 +9355,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "海报与字体",
       "tags": [
@@ -9376,7 +9376,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "UI 与界面",
       "tags": [
@@ -9395,7 +9395,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "海报与字体",
       "tags": [
@@ -9416,7 +9416,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "UI 与界面",
       "tags": [
@@ -9437,7 +9437,7 @@
         "size": "auto",
         "n": 1
       },
-      "recommendedModel": "gpt-image-2",
+      "recommendedModel": "gpt-image-2.5-flare",
       "recommendedProvider": "openai-compat",
       "category": "UI 与界面",
       "tags": [
