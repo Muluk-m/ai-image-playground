@@ -1,5 +1,5 @@
 import type { TaskErrorType } from '@image-playground/shared'
-import { type AnyElysia, Elysia } from 'elysia'
+import { type AnyElysia, Elysia, status } from 'elysia'
 import type { db as bffDb } from '../db/client'
 
 export type BffTransaction = Parameters<Parameters<typeof bffDb.transaction>[0]>[0]
@@ -12,6 +12,17 @@ export type TaskReservationResult =
       readonly available: number
     }
   | { readonly kind: 'price_unavailable'; readonly model: string }
+
+export type TaskReservationFailure = Exclude<TaskReservationResult, { kind: 'reserved' }>
+
+/** 预扣被拒的线上契约。图片、视频与对话共用，别在各自路由里再写一遍状态码。 */
+export function reservationFailureResponse(failure: TaskReservationFailure) {
+  if (failure.kind === 'insufficient_credits') {
+    const { required, available } = failure
+    return status(402, { error: 'insufficient_credits', required, available })
+  }
+  return status(422, { error: 'model_price_unavailable', model: failure.model })
+}
 
 /** 任务终态。结算判据只看它，不看上游被调用了几次。 */
 export type TaskOutcome = 'completed' | 'failed' | 'cancelled'

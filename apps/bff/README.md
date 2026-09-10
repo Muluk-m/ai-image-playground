@@ -107,6 +107,8 @@ channel kind `openai-queue` / `gemini-queue` 在前端层用，到 BFF URL 就�
 
 | Key | 缺省值 | 说明 |
 |---|---|---|
+| `agent:chat-output-price-ratio` | `5` | 对话输出单价是输入单价的几倍（输入 6 / 输出 30）|
+| `agent:chat-output-reserve-tokens` | `2000` | 一轮对话预扣多少输出 token |
 | `agent:compaction-buffer-tokens` | `13000` | 压缩阈值相对有效窗口留的缓冲 |
 | `agent:compaction-cooldown-minutes` | `360` | 摘要连续失败后的熔断时长 |
 | `agent:compaction-failure-threshold` | `3` | 触发熔断的连续失败次数 |
@@ -117,6 +119,10 @@ channel kind `openai-queue` / `gemini-queue` 在前端层用，到 BFF URL 就�
 | `generation:daily-images` | `0` | 每设备每日生成张数上限（需 `quota:daily`）|
 | `sync:asset-image-bytes` | `10485760`（10 MB）| 单张素材图上传字节上限 |
 | `sync:user-asset-bytes` | `524288000`（500 MB）| 每用户素材图总字节上限 |
+
+开了 `billing:credits` 的部署要把 `AGENT_CHAT_MODEL` 当成一个计价模型登记进单价表，
+每单位积分数即每千输入 token 的积分（B 档是 6）；没有有效单价时起轮返回 422
+`model_price_unavailable`。
 
 超过任一素材图上限时 `PUT /api/sync/assets/{imageId}` 返回 `413`，body 为
 `{ "error": "asset_image_too_large" | "asset_storage_quota_exceeded", "limit": <字节> }`，

@@ -24,6 +24,7 @@ const { setChatFetchForTesting } = await import('../../../lib/chatCompletion')
 const { startAgentTurn } = await import('../../../lib/agent/turn')
 const { createAgentConversation } = await import('../../../lib/agent/conversations')
 const { close: closeDb } = await import('../../../db/client')
+type AgentTurnSettlement = import('../../../lib/agent/turn').AgentTurnSettlement
 
 const NARRATIVE = {
   completed: '出了三张马克杯图',
@@ -62,6 +63,7 @@ describe('startAgentTurn usage', () => {
       '第一句',
     )
 
+    const settlements: AgentTurnSettlement[] = []
     const turn = await startAgentTurn({
       conversationId: conversation.id,
       turnId: 'turn-new',
@@ -70,6 +72,9 @@ describe('startAgentTurn usage', () => {
       text: '再来一张',
       userId: null,
       deviceId: 'device-abcdefgh',
+      settle: async (settlement) => {
+        settlements.push(settlement)
+      },
     })
 
     const events: AgentTurnEvent[] = []
@@ -80,6 +85,14 @@ describe('startAgentTurn usage', () => {
     expect(summaryCalls[0]!.model).toBe('fixture-summary-model')
     const end = events.at(-1)!
     expect(end.type === 'turnEnd' && end.usage).toEqual({ inputTokens: 12, outputTokens: 4 })
+    // 结算读的是同一份用量：摘要那次请求不进任何一轮的账。
+    expect(settlements).toEqual([
+      {
+        outcome: 'completed',
+        usage: { inputTokens: 12, outputTokens: 4 },
+        upstreamInvocationCount: 1,
+      },
+    ])
 
     // 摘要只塑造送给模型的输入，不进事件流：轮事件表会原样发给前端。
     const streamed = JSON.stringify(events)

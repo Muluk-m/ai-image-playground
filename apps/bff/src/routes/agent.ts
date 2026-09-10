@@ -1,24 +1,23 @@
 import type { AuthUserView } from '@image-playground/shared'
-import { AGENT_USER_MESSAGE_MAX_CHARS, agentConversationTitle } from '@image-playground/shared'
+import { AGENT_USER_MESSAGE_MAX_CHARS } from '@image-playground/shared'
 import { Elysia, t } from 'elysia'
-import { db } from '../db/client'
 import {
   type AgentOwner,
   adoptDeviceConversations,
-  appendAgentMessage,
   createAgentConversation,
   findAgentConversation,
   listAgentConversations,
   listAgentMessages,
-  setAgentConversationTitle,
   softDeleteAgentConversation,
 } from '../lib/agent/conversations'
 import { agentTurnHasEvents, readAgentTurnEvents } from '../lib/agent/events'
 import { type RunningTurn, runningTurn } from '../lib/agent/runningTurns'
 import { agentReplayStream, agentTurnStream } from '../lib/agent/sse'
+import { startConversationTurn } from '../lib/agent/start-turn'
 import { agentTurnRateLimited } from '../lib/agent/turn-rate-limit'
 import { capabilityUnavailable, isCapabilityEnabled } from '../lib/capabilities'
 import { badRequestOnValidation, clientAddress, deviceIdSchema } from '../lib/http'
+import { reservationFailureResponse } from '../lib/private-overlay'
 import { resolveAuthUser } from '../lib/user-auth'
 
 /** 归属不依赖登录能力：有会话 cookie 就挂用户，否则挂设备。 */
@@ -78,30 +77,15 @@ export const agentRoutes = new Elysia()
       if (!conversation) return status(404, NOT_FOUND)
       if (runningTurn(conversation.id)) return status(409, { error: 'turn_already_running' })
 
-      const history = await listAgentMessages(conversation.id, owner)
-      if (history.length === 0) {
-        await setAgentConversationTitle(conversation.id, owner, agentConversationTitle(body.text))
-      }
-      const turnId = crypto.randomUUID()
-      const userMessage = await appendAgentMessage(db, {
+      const started = await startConversationTurn({
         conversationId: conversation.id,
-        turnId,
-        role: 'user',
-        content: [{ type: 'text', text: body.text }],
-      })
-
-      // 动态引入：pi 的模块图有 60-90ms，`agent:chat` 关着的部署不该在启动时付。
-      const { startAgentTurn } = await import('../lib/agent/turn')
-      const turn = await startAgentTurn({
-        conversationId: conversation.id,
-        turnId,
-        userMessageId: userMessage.id,
-        history,
+        owner,
         text: body.text,
-        userId: authUser?.id ?? null,
         deviceId: body.deviceId,
       })
-      return agentTurnStream(turn.read(0))
+      if (started.kind === 'authentication_required') return status(401, { error: 'unauthorized' })
+      if (started.kind !== 'started') return reservationFailureResponse(started)
+      return agentTurnStream(started.turn.read(0))
     },
     {
       params: t.Object({ id: t.String() }),

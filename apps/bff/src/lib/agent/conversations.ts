@@ -123,11 +123,12 @@ export async function adoptDeviceConversations(deviceId: string, userId: string)
 }
 
 export async function setAgentConversationTitle(
+  executor: Executor,
   id: string,
   owner: AgentOwner,
   title: string,
 ): Promise<void> {
-  await db
+  await executor
     .update(schema.agent_conversations)
     .set({ title })
     .where(and(eq(schema.agent_conversations.id, id), ownerWhere(owner)))

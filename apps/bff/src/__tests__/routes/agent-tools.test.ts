@@ -218,6 +218,32 @@ describe('智能体生图工具', () => {
     expect(calls[0]!.tools?.map((tool) => tool.function.name)).toEqual(['generateImage'])
   })
 
+  it('adds up the usage of every upstream call the tool loop makes', async () => {
+    setAgentFetchForTesting(
+      scriptedAgentFetch(
+        [],
+        [
+          () =>
+            toolCallCompletion({
+              id: 'call-1',
+              name: 'generateImage',
+              args: { prompt: '一只橘猫坐在窗台上' },
+            }),
+          () => completionStream('画好了'),
+        ],
+      ),
+    )
+    const stop = settleSubmittedTasks('completed')
+    const conversationId = await startConversation()
+
+    const frames = await runTurn(conversationId, '画一只橘猫坐在窗台上')
+    stop()
+
+    // 两次上游各报 12 / 4；只读末条就会把工具那一次白送。
+    const [end] = events(frames, 'turnEnd')
+    expect(end!.usage).toEqual({ inputTokens: 24, outputTokens: 8 })
+  })
+
   it('reports two tool calls in one turn independently', async () => {
     const calls: AgentCall[] = []
     setAgentFetchForTesting(
