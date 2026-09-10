@@ -70,10 +70,13 @@ function toolResult(id: string, text: string): CompactionMessage {
 }
 
 function textOf(message: AgentMessage): string {
-  const content = message.content
+  if (!('content' in message)) return ''
+  const content: string | readonly unknown[] = message.content
   if (typeof content === 'string') return content
   return content
-    .map((block) => ('text' in block && typeof block.text === 'string' ? block.text : ''))
+    .map((block) =>
+      typeof block === 'object' && block !== null && 'text' in block ? String(block.text) : '',
+    )
     .join('')
 }
 

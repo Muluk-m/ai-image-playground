@@ -1,4 +1,6 @@
 import { type AgentMessage, estimateTokens } from '@earendil-works/pi-agent-core'
+import type { AgentCompactionNarrative } from '@image-playground/shared'
+import { isObject } from '../type-guards'
 
 /**
  * 上下文压缩：消息与锚点进，塑形后的消息与新锚点出。纯模块，不碰数据库也不发请求——
@@ -17,16 +19,8 @@ export interface CompactionAnchor {
   readonly coveredCount: number
 }
 
-/** 摘要正文的固定分节。用户原话不在这里：它由本模块从原文逐字取，不经模型。 */
-export interface CompactionNarrative {
-  readonly completed: string
-  readonly inProgress: string
-  readonly decisions: string
-  readonly artifacts: string
-}
-
 export interface CompactionState {
-  readonly narrative: CompactionNarrative
+  readonly narrative: AgentCompactionNarrative
   readonly anchor: CompactionAnchor
   /** 自上次全量重做以来的连续增量折叠次数。 */
   readonly foldCount: number
@@ -53,10 +47,10 @@ export interface CompactionSettings {
 export interface SummaryRequest {
   /** 这次要折进摘要的消息。增量折叠时只有新增那一段。 */
   readonly messages: readonly CompactionMessage[]
-  readonly previousSummary: CompactionNarrative | null
+  readonly previousSummary: AgentCompactionNarrative | null
 }
 
-export type Summarize = (request: SummaryRequest) => Promise<CompactionNarrative | null>
+export type Summarize = (request: SummaryRequest) => Promise<AgentCompactionNarrative | null>
 
 /** Tier 1 工具结果外置的接缝。本仓库的工具结果是图片 id 与几行元数据，触发不到，故不实现。 */
 export type ToolResultOffload = (
@@ -108,10 +102,12 @@ function isUser(entry: CompactionMessage): boolean {
 }
 
 function messageText(entry: CompactionMessage): string {
-  const content = entry.message.content
+  const message = entry.message
+  if (!('content' in message)) return ''
+  const content: string | readonly unknown[] = message.content
   if (typeof content === 'string') return content
   return content
-    .map((block) => ('text' in block && typeof block.text === 'string' ? block.text : ''))
+    .map((block) => (isObject(block) && typeof block.text === 'string' ? block.text : ''))
     .join('')
 }
 
@@ -188,7 +184,7 @@ function verbatimSection(covered: readonly CompactionMessage[], budget: number):
 }
 
 function summaryMessage(
-  narrative: CompactionNarrative,
+  narrative: AgentCompactionNarrative,
   covered: readonly CompactionMessage[],
   verbatimBudget: number,
 ): AgentMessage {
@@ -214,7 +210,7 @@ function summaryMessage(
 }
 
 function shaped(
-  narrative: CompactionNarrative,
+  narrative: AgentCompactionNarrative,
   messages: readonly CompactionMessage[],
   cut: number,
   verbatimBudget: number,
@@ -227,7 +223,7 @@ function shaped(
 
 /** 摘要在、但尾巴仍然超预算时的形状：摘要保住，尾巴截到装得下。 */
 function shapedWithinBudget(
-  narrative: CompactionNarrative,
+  narrative: AgentCompactionNarrative,
   messages: readonly CompactionMessage[],
   cut: number,
   verbatimBudget: number,
