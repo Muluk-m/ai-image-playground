@@ -25,6 +25,9 @@ const app = new Elysia().use(storyboardPlanRoutes)
 const PIXEL =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
 
+const OTHER_PIXEL =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
+
 const REQUEST = { idea: '一支讲通勤咖啡的短片', shots: 2, totalSeconds: 15, aspectRatio: '9:16' }
 
 function shot(no: number) {
@@ -89,15 +92,15 @@ describe('POST /api/storyboard/plan', () => {
     expect(calls[0]!.images).toEqual([])
   })
 
-  it('sends the reference image alongside the prompt when one is attached', async () => {
+  it('sends every reference image alongside the prompt', async () => {
     const calls: ChatCall[] = []
     setChatFetchForTesting(recordingChatFetch(calls, planned))
 
-    const { status } = await plan({ ...REQUEST, referenceImage: PIXEL })
+    const { status } = await plan({ ...REQUEST, referenceImages: [PIXEL, OTHER_PIXEL] })
 
     expect(status).toBe(200)
-    expect(calls[0]!.images).toEqual([PIXEL])
-    expect(calls[0]!.prompt).toContain('参考图')
+    expect(calls[0]!.images).toEqual([PIXEL, OTHER_PIXEL])
+    expect(calls[0]!.prompt).toContain('随附 2 张参考图')
   })
 
   it('lays the requested timeline over whatever the model wrote on each shot', async () => {
@@ -172,9 +175,12 @@ describe('POST /api/storyboard/plan', () => {
     expect((await plan({ ...REQUEST, totalSeconds: 8 })).status).toBe(400)
     expect((await plan({ ...REQUEST, aspectRatio: '4:3' })).status).toBe(400)
     expect((await plan({ ...REQUEST, style: 'x'.repeat(101) })).status).toBe(400)
-    expect((await plan({ ...REQUEST, referenceImage: 'https://example.com/a.jpg' })).status).toBe(
-      400,
-    )
+    expect(
+      (await plan({ ...REQUEST, referenceImages: ['https://example.com/a.jpg'] })).status,
+    ).toBe(400)
+    expect(
+      (await plan({ ...REQUEST, referenceImages: Array(5).fill(PIXEL) as string[] })).status,
+    ).toBe(400)
 
     const missing = await plan({ shots: 2, totalSeconds: 15, aspectRatio: '9:16' })
     expect(missing.status).toBe(400)
