@@ -25,7 +25,7 @@ describe('runMigrations', () => {
     const rows = await connection.client.unsafe(
       'SELECT id, hash, created_at FROM drizzle.__drizzle_migrations ORDER BY id',
     )
-    expect(rows).toHaveLength(12)
+    expect(rows).toHaveLength(13)
     expect(rows[0]).toMatchObject({ id: 1 })
     expect(rows[1]).toMatchObject({ id: 2 })
     expect(rows[2]).toMatchObject({ id: 3 })
@@ -38,6 +38,7 @@ describe('runMigrations', () => {
     expect(rows[9]).toMatchObject({ id: 10 })
     expect(rows[10]).toMatchObject({ id: 11 })
     expect(rows[11]).toMatchObject({ id: 12 })
+    expect(rows[12]).toMatchObject({ id: 13 })
   })
 
   it('creates PostgreSQL-native JSONB and timestamptz columns', async () => {
@@ -88,12 +89,14 @@ describe('runMigrations', () => {
     const rows = await connection.client.unsafe(
       'SELECT id FROM drizzle.__drizzle_migrations ORDER BY id',
     )
-    expect(rows).toHaveLength(12)
+    expect(rows).toHaveLength(13)
   })
 
   it('applies every rollback in reverse order and can migrate forward again', async () => {
     const rollbackDirectory = new URL('../../drizzle/rollback/', import.meta.url)
     for (const file of [
+      '0012_flowery_viper.down.sql',
+      '0011_public_meggan.down.sql',
       '0010_calm_pestilence.down.sql',
       '0009_silky_the_fallen.down.sql',
       '0008_clean_fantastic_four.down.sql',
@@ -129,6 +132,6 @@ describe('runMigrations', () => {
     const restored = await connection.client.unsafe(
       'SELECT id FROM drizzle.__drizzle_migrations ORDER BY id',
     )
-    expect(restored).toHaveLength(12)
+    expect(restored).toHaveLength(13)
   })
 })

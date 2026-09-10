@@ -2,6 +2,7 @@ import type {
   AgentCompactionRecord,
   AgentContentBlock,
   AgentMessageRole,
+  AgentTurnEvent,
   PersistedSubmitRequest,
   QueueProvider,
   TaskStatus,
@@ -260,6 +261,28 @@ export const agent_messages = pgTable(
   ],
 )
 
+/**
+ * 轮的流事件，为断线重放存在。`seq` 是会话内单调递增的事件序号，也就是 SSE 的 `id`：
+ * 前端带 `Last-Event-ID` 重连时从它之后续播。有保留窗口，过期由 `purgeOldAgentTurnEvents` 清掉。
+ */
+export const agent_turn_events = pgTable(
+  'agent_turn_events',
+  {
+    conversation_id: text('conversation_id')
+      .notNull()
+      .references(() => agent_conversations.id, { onDelete: 'cascade' }),
+    seq: integer('seq').notNull(),
+    turn_id: text('turn_id').notNull(),
+    event: bunJsonb('event').$type<AgentTurnEvent>().notNull(),
+    created_at: epochMs('created_at').notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.conversation_id, t.seq] }),
+    index('idx_agent_turn_events_turn').on(t.conversation_id, t.turn_id, t.seq),
+    index('idx_agent_turn_events_created').on(t.created_at),
+  ],
+)
+
 export const tasks = pgTable(
   'tasks',
   {
@@ -351,3 +374,4 @@ export type UserPreferencesRow = typeof user_preferences.$inferSelect
 export type UserAssetObjectRow = typeof user_asset_objects.$inferSelect
 export type AgentConversationRow = typeof agent_conversations.$inferSelect
 export type AgentMessageRow = typeof agent_messages.$inferSelect
+export type AgentTurnEventRow = typeof agent_turn_events.$inferSelect
