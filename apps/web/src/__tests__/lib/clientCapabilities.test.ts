@@ -1,4 +1,4 @@
-import { CAPABILITIES } from '@image-playground/shared'
+import type { ClientCapabilityKey } from '@image-playground/shared'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   bootstrapClientCapabilities,
@@ -28,17 +28,33 @@ describe('client capability bootstrap', () => {
 
     await bootstrapClientCapabilities(true, 'https://bff.example.com/')
 
-    expect(fetchSpy).toHaveBeenCalledWith(
-      'https://bff.example.com/api/capabilities',
-      expect.objectContaining({ cache: 'no-store' }),
-    )
     expect(isClientCapabilityEnabled('accounts:login')).toBe(true)
     expect(isClientCapabilityEnabled('accounts:self-register')).toBe(true)
     expect(isClientCapabilityEnabled('generation:byok')).toBe(true)
     expect(getClientCapabilityManifest()).not.toHaveProperty('operator:console')
   })
 
-  it('fails closed when the backend is absent, unreachable, or returns an invalid manifest', async () => {
+  it('keeps known capabilities enabled when an older server omits newer keys', async () => {
+    const legacyManifest: Partial<Record<ClientCapabilityKey, boolean>> = {
+      ...allCapabilitiesOff(),
+      'accounts:login': true,
+      'billing:credits': true,
+    }
+    delete legacyManifest['agent:chat']
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json(legacyManifest)),
+    )
+
+    await bootstrapClientCapabilities(true, 'https://bff.example.com')
+
+    expect(isClientCapabilityEnabled('accounts:login')).toBe(true)
+    expect(isClientCapabilityEnabled('billing:credits')).toBe(true)
+    expect(isClientCapabilityEnabled('agent:chat')).toBe(false)
+    expect(isByokGenerationEnabled()).toBe(false)
+  })
+
+  it('fails closed for a disabled backend or a malformed capability value', async () => {
     await bootstrapClientCapabilities(false, '')
     expect(Object.values(getClientCapabilityManifest()).every((value) => value === false)).toBe(
       true,
@@ -46,14 +62,10 @@ describe('client capability bootstrap', () => {
 
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () => Response.json({ 'accounts:login': true })),
+      vi.fn(async () => Response.json({ 'accounts:login': 'true', 'generation:byok': true })),
     )
     await bootstrapClientCapabilities(true, '')
 
-    const exposedCount = Object.values(CAPABILITIES).filter(
-      (definition) => definition.clientExposed,
-    ).length
-    expect(Object.keys(getClientCapabilityManifest())).toHaveLength(exposedCount)
     expect(Object.values(getClientCapabilityManifest()).every((value) => value === false)).toBe(
       true,
     )

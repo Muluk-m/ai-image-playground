@@ -137,6 +137,8 @@ configuration remain in these external directories; only safe examples are commi
 `operator-config.json` is optional beside each `app.env`: missing means every capability is off;
 a present invalid file prevents BFF startup. The browser obtains its read-only capability list
 from the BFF and never evaluates operator settings itself.
+When frontend and BFF releases differ, capabilities omitted by an older BFF remain disabled;
+explicitly returned flags still apply. A malformed capability value rejects the manifest.
 Set `accounts:login=true` and `accounts:self-register=true` to expose the registration entry and
 `POST /api/auth/register`; self-registration cannot be enabled without login. When the private
 billing overlay also enables `billing:credits`, account creation grants welcome credits in the
