@@ -1,5 +1,5 @@
 import type { AgentToolResult } from '@earendil-works/pi-agent-core'
-import type { AgentToolImage } from '@image-playground/shared'
+import type { AgentToolArtifact } from '@image-playground/shared'
 import { config } from '../../../config'
 import { resolveQueueModel } from '../../channels'
 import { awaitQueueTask, type CreateQueueTaskOutcome, createQueueTask } from '../../taskSubmission'
@@ -55,28 +55,29 @@ export async function runImageTask(
   })
   if (outcome.kind !== 'completed') throw new Error(outcome.reason)
 
-  const images: AgentToolImage[] = outcome.result.images.map((image) => ({
+  const artifacts: AgentToolArtifact[] = outcome.result.images.map((image) => ({
     // 画布对象与结果卡共用这个 id，点卡才能定位到同一个对象。
-    imageId: `agent_${crypto.randomUUID()}`,
+    artifactId: `agent_${crypto.randomUUID()}`,
+    media: 'image',
     taskId: submitted.taskId,
     outputIndex: image.index,
     mime: image.mime,
     ...(image.width !== undefined ? { width: image.width } : {}),
     ...(image.height !== undefined ? { height: image.height } : {}),
   }))
-  context.images.note(images)
+  context.images.note(artifacts)
 
   return {
     content: [
       {
         type: 'text',
-        text: `已生成 ${images.length} 张图并放到画布上，图片 id：${images
-          .map((image) => image.imageId)
+        text: `已生成 ${artifacts.length} 张图并放到画布上，图片 id：${artifacts
+          .map((artifact) => artifact.artifactId)
           .join(', ')}`,
       },
     ],
     details: {
-      images,
+      artifacts,
       ...(input.anchorImageId ? { anchorImageId: input.anchorImageId } : {}),
     },
   }

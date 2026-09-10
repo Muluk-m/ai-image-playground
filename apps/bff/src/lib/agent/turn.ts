@@ -185,7 +185,7 @@ function toolResultBlock(
     ...head,
     status: 'succeeded',
     title: pending.title,
-    ...(details?.images?.length ? { images: details.images } : {}),
+    ...(details?.artifacts?.length ? { artifacts: details.artifacts } : {}),
     ...(details?.anchorImageId ? { anchorImageId: details.anchorImageId } : {}),
   }
 }

@@ -4,7 +4,7 @@ import type {
   AgentConversationView,
   AgentFrame,
   AgentMessageView,
-  AgentToolImage,
+  AgentToolArtifact,
   AgentToolResultBlock,
   AgentTurnEvent,
   AgentTurnReference,
@@ -86,7 +86,7 @@ function toolCard(block: AgentToolResultBlock, id: string): AgentToolMessage {
     toolCallId: block.toolCallId,
     title: block.title,
     status: block.status,
-    ...(block.images ? { images: block.images } : {}),
+    ...(block.artifacts ? { artifacts: block.artifacts } : {}),
     ...(block.anchorImageId ? { anchorImageId: block.anchorImageId } : {}),
     ...(block.message ? { message: block.message } : {}),
   }
@@ -139,23 +139,23 @@ const failPatch = (state: AgentState, message = TURN_FAILED) => ({
 /** `skipped`：没有画布，或这几张已经在上面了——续播会把同一条 `toolEnd` 重放给我们。 */
 type LandOutcome = AgentPlaceOutcome | 'skipped' | 'failed'
 
-/** 把还没落画布的那几张下载下来交给画布。 */
+/** 把还没落画布的那几件产物取回来交给画布。 */
 async function writeToCanvas(
-  images: readonly AgentToolImage[],
+  artifacts: readonly AgentToolArtifact[],
   options: AgentPlaceOptions,
 ): Promise<LandOutcome> {
   const sink = agentCanvasSink()
   if (!sink) return 'skipped'
-  const missing = images.filter((image) => !sink.has(image.imageId))
+  const missing = artifacts.filter((artifact) => !sink.has(artifact.artifactId))
   if (missing.length === 0) return 'skipped'
   // 判定归 place，这里只是别为一个已经定了的冲突白下几 MB。
   const { baseRevision } = options
   if (baseRevision !== undefined && sink.revision() !== baseRevision) return 'conflict'
   try {
     const items = await Promise.all(
-      missing.map(async (image) => ({
-        imageId: image.imageId,
-        dataUrl: await fetchToolImage(image),
+      missing.map(async (artifact) => ({
+        artifactId: artifact.artifactId,
+        dataUrl: await fetchToolImage(artifact),
       })),
     )
     return sink.place(items, options)
@@ -184,8 +184,12 @@ export const useAgentStore = create<AgentState>((set, get) => {
       ),
     }))
 
-  const land = async (images: readonly AgentToolImage[], messageId: string, anchor?: string) => {
-    const outcome = await writeToCanvas(images, { baseRevision, anchorImageId: anchor })
+  const land = async (
+    artifacts: readonly AgentToolArtifact[],
+    messageId: string,
+    anchor?: string,
+  ) => {
+    const outcome = await writeToCanvas(artifacts, { baseRevision, anchorImageId: anchor })
     if (outcome === 'conflict') setConflict(messageId, true)
     // 智能体自己的写入不算用户改动，所以基线跟到写后的值：
     // 不抬的话同一轮里的第二次落图会把第一次当成用户动了画布。
@@ -281,10 +285,10 @@ export const useAgentStore = create<AgentState>((set, get) => {
       }
     })
     if (event.type === 'toolEnd' && event.status === 'succeeded') {
-      const images = event.images ?? []
+      const artifacts = event.artifacts ?? []
       const messageId = event.messageId
       const anchor = event.anchorImageId
-      landing = landing.then(() => land(images, messageId, anchor))
+      landing = landing.then(() => land(artifacts, messageId, anchor))
     }
   }
 
@@ -444,7 +448,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
       const message = get().messages.find((one) => one.id === messageId)
       if (message?.kind !== 'tool') return
       // 不带基线：用户点了这个按钮，写入就是他要的。
-      const outcome = await writeToCanvas(message.images ?? [], {
+      const outcome = await writeToCanvas(message.artifacts ?? [], {
         ...(message.anchorImageId ? { anchorImageId: message.anchorImageId } : {}),
       })
       if (outcome !== 'failed') setConflict(messageId, false)

@@ -3,7 +3,7 @@ import type {
   AgentConversationView,
   AgentFrame,
   AgentMessageView,
-  AgentToolImage,
+  AgentToolArtifact,
   AgentTurnReference,
 } from '@image-playground/shared'
 import { AGENT_FRAME_SEPARATOR, parseAgentFrame } from '@image-playground/shared'
@@ -165,6 +165,6 @@ export async function interjectTurn(
   )
 }
 
-export function fetchToolImage(image: AgentToolImage): Promise<string> {
-  return fetchImageDataUrl(bffBaseUrl(), image.taskId, image.outputIndex, image.mime)
+export function fetchToolImage(artifact: AgentToolArtifact): Promise<string> {
+  return fetchImageDataUrl(bffBaseUrl(), artifact.taskId, artifact.outputIndex, artifact.mime)
 }

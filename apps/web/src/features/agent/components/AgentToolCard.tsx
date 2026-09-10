@@ -1,4 +1,4 @@
-import type { AgentToolImage } from '@image-playground/shared'
+import type { AgentToolArtifact } from '@image-playground/shared'
 import { useEffect, useState } from 'react'
 import { CARD, CARD_NOTE, CARD_TITLE, GHOST_LINK, THUMBNAIL } from '../agentStyles'
 import { agentCanvasSink } from '../lib/canvasSink'
@@ -16,27 +16,27 @@ function statusNote(message: AgentToolMessage): string | null {
   return null
 }
 
-function Thumbnail({ image }: { image: AgentToolImage }) {
+function Thumbnail({ artifact }: { artifact: AgentToolArtifact }) {
   const [source, setSource] = useState<string | null>(null)
 
   useEffect(() => {
     let alive = true
     void agentCanvasSink()
-      ?.thumbnail(image.imageId)
+      ?.thumbnail(artifact.artifactId)
       .then((data) => {
         if (alive) setSource(data)
       })
     return () => {
       alive = false
     }
-  }, [image.imageId])
+  }, [artifact.artifactId])
 
   if (!source) return null
   return (
     <button
       type="button"
       className={THUMBNAIL}
-      onClick={() => agentCanvasSink()?.focus(image.imageId)}
+      onClick={() => agentCanvasSink()?.focus(artifact.artifactId)}
     >
       <img src={source} alt="" className="h-full w-full object-cover" />
     </button>
@@ -51,10 +51,10 @@ export default function AgentToolCard({ message }: { message: AgentToolMessage }
       <p className={CARD_TITLE}>{message.title}</p>
       {note && <p className={CARD_NOTE}>{note}</p>}
       {/* 冲突时画布上还没有这些对象，缩略图问了也是空的；手动放入后这里重新挂载再问。 */}
-      {!conflicted && message.images && message.images.length > 0 && (
+      {!conflicted && message.artifacts && message.artifacts.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
-          {message.images.map((image) => (
-            <Thumbnail key={image.imageId} image={image} />
+          {message.artifacts.map((artifact) => (
+            <Thumbnail key={artifact.artifactId} artifact={artifact} />
           ))}
         </div>
       )}

@@ -11,35 +11,35 @@ export function createAgentCanvasSink(editor: CanvasEditor): AgentCanvasSink {
   const thumbnails = new Map<string, string>()
 
   return {
-    has: (imageId) => editor.getElement(imageId) !== undefined,
+    has: (objectId) => editor.getElement(objectId) !== undefined,
 
     revision: () => editor.editRevision(),
 
-    async place(images, options) {
+    async place(artifacts, options) {
       const base = options?.baseRevision
       if (base !== undefined && editor.editRevision() !== base) return 'conflict'
       const anchor = options?.anchorImageId
       const bounds = anchor ? (editor.getElementPageBounds(anchor) ?? null) : null
       await placeImagesOnCanvas(
         editor,
-        images.map((image) => image.dataUrl),
+        artifacts.map((artifact) => artifact.dataUrl),
         computePlaceholderTarget(editor, bounds),
-        { ids: images.map((image) => image.imageId) },
+        { ids: artifacts.map((artifact) => artifact.artifactId) },
       )
       return 'placed'
     },
 
-    focus(imageId) {
-      if (!editor.getElement(imageId)) return
-      editor.setSelectedElements([imageId])
-      editor.scrollToElements([imageId])
+    focus(objectId) {
+      if (!editor.getElement(objectId)) return
+      editor.setSelectedElements([objectId])
+      editor.scrollToElements([objectId])
     },
 
-    async thumbnail(imageId) {
-      const cached = thumbnails.get(imageId)
+    async thumbnail(objectId) {
+      const cached = thumbnails.get(objectId)
       if (cached) return cached
-      const rendered = await editor.toImage([imageId], { scale: THUMBNAIL_SCALE })
-      if (rendered) thumbnails.set(imageId, rendered)
+      const rendered = await editor.toImage([objectId], { scale: THUMBNAIL_SCALE })
+      if (rendered) thumbnails.set(objectId, rendered)
       return rendered
     },
   }

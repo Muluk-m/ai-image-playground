@@ -1,4 +1,8 @@
-import type { AgentMessageView, AgentToolImage, AgentTurnReference } from '@image-playground/shared'
+import type {
+  AgentMessageView,
+  AgentToolArtifact,
+  AgentTurnReference,
+} from '@image-playground/shared'
 import { db, schema } from '../../db/client'
 import { resolveImageBytesRef } from '../extractImages'
 import { objectStore } from '../objectStore'
@@ -15,8 +19,8 @@ export interface ResolvedAgentImage {
 /** 模型只会说图片 id，字节从哪来由这里决定。 */
 export interface AgentImageSource {
   resolve(imageId: string): Promise<ResolvedAgentImage | null>
-  /** 记下工具刚产出的图，同一轮里下一个工具才能接着改它。 */
-  note(images: readonly AgentToolImage[]): void
+  /** 记下工具刚产出的图，同一轮里下一个工具才能接着改它。视频不进这里：它取不出可编辑的位图。 */
+  note(artifacts: readonly AgentToolArtifact[]): void
 }
 
 interface TaskOutput {
@@ -62,8 +66,12 @@ function outputsFromHistory(history: readonly AgentMessageView[]): Map<string, T
   for (const message of history) {
     for (const block of message.content) {
       if (block.type !== 'toolResult') continue
-      for (const image of block.images ?? []) {
-        outputs.set(image.imageId, { taskId: image.taskId, outputIndex: image.outputIndex })
+      for (const artifact of block.artifacts ?? []) {
+        if (artifact.media !== 'image') continue
+        outputs.set(artifact.artifactId, {
+          taskId: artifact.taskId,
+          outputIndex: artifact.outputIndex,
+        })
       }
     }
   }
@@ -108,9 +116,13 @@ export function createAgentImageSource(input: {
   }
 
   return {
-    note(images) {
-      for (const image of images) {
-        outputs.set(image.imageId, { taskId: image.taskId, outputIndex: image.outputIndex })
+    note(artifacts) {
+      for (const artifact of artifacts) {
+        if (artifact.media !== 'image') continue
+        outputs.set(artifact.artifactId, {
+          taskId: artifact.taskId,
+          outputIndex: artifact.outputIndex,
+        })
       }
     },
 

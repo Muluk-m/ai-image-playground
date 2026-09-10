@@ -188,8 +188,8 @@ describe('智能体改图工具', () => {
     expect(end).toMatchObject({ toolCallId: 'call-1', status: 'succeeded' })
     // 产出贴着源图放，源图本身不进这次任务的产出。
     expect(end!.anchorImageId).toBe('canvas-1')
-    expect(end!.images).toHaveLength(1)
-    expect(end!.images![0]!.imageId).not.toBe('canvas-1')
+    expect(end!.artifacts).toHaveLength(1)
+    expect(end!.artifacts![0]!.artifactId).not.toBe('canvas-1')
 
     const [task] = await db.select().from(schema.tasks)
     expect(task!.request_payload.prompt).toBe('把背景换成浅木色')
@@ -280,7 +280,7 @@ describe('智能体读素材库工具', () => {
     const [end] = eventsOfType(frames, 'toolEnd')
     expect(end).toMatchObject({ toolCallId: 'call-1', status: 'succeeded' })
     // 读素材库不产出画布对象。
-    expect(end!.images).toBeUndefined()
+    expect(end!.artifacts).toBeUndefined()
 
     // 查到的图片 id 要回到模型手上，它才能接着拿去改图。
     const seen = JSON.stringify(calls.at(-1)!.messages)
