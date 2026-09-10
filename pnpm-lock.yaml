@@ -207,6 +207,9 @@ importers:
       sharp:
         specifier: ^0.35.3
         version: 0.35.3
+      typebox:
+        specifier: 1.3.7
+        version: 1.3.7
       undici:
         specifier: ^7.28.0
         version: 7.28.0

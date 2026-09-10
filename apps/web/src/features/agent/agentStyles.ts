@@ -35,3 +35,13 @@ export const LIST_ROW =
 export const ACTIVE_LIST_ROW = 'bg-white/[0.09]'
 
 export const GHOST_LINK = 'text-[11px] text-blue-300 transition-colors hover:text-blue-200'
+
+export const CARD =
+  'flex max-w-full flex-col gap-1.5 rounded-xl border border-white/[0.09] bg-white/[0.04] px-2.5 py-2'
+
+export const CARD_TITLE = `text-xs leading-relaxed ${INK}`
+
+export const CARD_NOTE = `text-[11px] ${INK_3}`
+
+export const THUMBNAIL =
+  'h-16 w-16 overflow-hidden rounded-lg border border-white/[0.09] transition hover:border-blue-500/60'

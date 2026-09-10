@@ -28,6 +28,7 @@ import type {
   ChannelMedia,
   ChannelModel,
   DiscoveredChannel,
+  QueueProvider,
 } from '@image-playground/shared'
 import { CHANNEL_CAPABILITIES } from '@image-playground/shared'
 import { isObject } from './type-guards'
@@ -391,6 +392,25 @@ export function resolveModelMedia(model: string): ChannelMedia | undefined {
     if (declared) return declared.media ?? 'image'
   }
   return undefined
+}
+
+/** 给了 id 就按 id 找，没给就取该介质的默认模型——channels 数组顺序是产品契约。 */
+export function resolveQueueModel(
+  media: ChannelMedia,
+  modelId?: string,
+): { provider: QueueProvider; model: string } | undefined {
+  for (const channel of loaded) {
+    for (const model of channel.models) {
+      if ((model.media ?? 'image') !== media) continue
+      if (modelId && model.id !== modelId) continue
+      return { provider: queueProviderOf(channel.kind), model: model.id }
+    }
+  }
+  return undefined
+}
+
+function queueProviderOf(kind: ChannelKind): QueueProvider {
+  return kind === 'gemini-queue' ? 'gemini' : 'openai-compat'
 }
 
 function setLoaded(channels: InternalChannel[]): void {

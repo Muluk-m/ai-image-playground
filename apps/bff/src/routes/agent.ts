@@ -98,6 +98,8 @@ export const agentRoutes = new Elysia()
         userMessageId: userMessage.id,
         history,
         text: body.text,
+        userId: authUser?.id ?? null,
+        deviceId: body.deviceId,
       })
       return agentTurnStream(turn.read(0))
     },

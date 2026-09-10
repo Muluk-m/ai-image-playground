@@ -25,6 +25,7 @@ import { agentPanelPresent } from '../panelLayout'
 import { useAgentStore } from '../store'
 import AgentLayers from './AgentLayers'
 import AgentReply from './AgentReply'
+import AgentToolCard from './AgentToolCard'
 
 const TABS = [
   { id: 'chat', label: '对话' },
@@ -219,20 +220,24 @@ export default function AgentPanel({ doc }: { doc: CanvasDoc }) {
           className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto px-3 py-1"
         >
           {messages.length === 0 && <p className={`text-xs ${INK_3}`}>还没有对话</p>}
-          {messages.map((message) =>
-            message.role === 'user' ? (
-              <p key={message.id} className={USER_BUBBLE}>
-                {message.text}
-              </p>
-            ) : (
+          {messages.map((message) => {
+            if (message.kind === 'tool') return <AgentToolCard key={message.id} message={message} />
+            if (message.role === 'user') {
+              return (
+                <p key={message.id} className={USER_BUBBLE}>
+                  {message.text}
+                </p>
+              )
+            }
+            return (
               <AgentReply
                 key={message.id}
                 messageId={message.id}
                 text={message.text}
                 streaming={message.streaming}
               />
-            ),
-          )}
+            )
+          })}
           {error && <p className={`text-xs ${INK_3}`}>{error}</p>}
         </div>
       )}

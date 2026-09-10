@@ -68,6 +68,8 @@ describe('startAgentTurn usage', () => {
       userMessageId: 'm7',
       history: HISTORY,
       text: '再来一张',
+      userId: null,
+      deviceId: 'device-abcdefgh',
     })
 
     const events: AgentTurnEvent[] = []

@@ -31,6 +31,7 @@ export const EXPECTED_INDEXES = [
   'idx_operator_audits_created_at',
   'idx_operator_audits_target',
   'idx_tasks_admin_device_time',
+  'idx_tasks_agent_turn',
   'idx_tasks_anonymous_client_request_id',
   'idx_tasks_next_retry_at',
   'idx_tasks_status',

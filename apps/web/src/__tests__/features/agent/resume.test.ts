@@ -119,8 +119,14 @@ describe('断线重连', () => {
     expect(resumeRequests[0]!.url).toContain(`/turns/${TURN}/events`)
     expect(state().turn).toBe('idle')
     expect(state().messages).toEqual([
-      { id: 'user-1', role: 'user', text: '把背景换成浅木色', streaming: false },
-      { id: 'assistant-1', role: 'assistant', text: '好的，这就来', streaming: false },
+      { kind: 'text', id: 'user-1', role: 'user', text: '把背景换成浅木色', streaming: false },
+      {
+        kind: 'text',
+        id: 'assistant-1',
+        role: 'assistant',
+        text: '好的，这就来',
+        streaming: false,
+      },
     ])
   })
 
@@ -167,8 +173,8 @@ describe('刷新后重新挂上', () => {
 
     expect(resumeRequests[0]!.lastEventId).toBeNull()
     expect(state().messages).toEqual([
-      { id: 'user-1', role: 'user', text: '把背景换成浅木色', streaming: false },
-      { id: 'assistant-1', role: 'assistant', text: '好的', streaming: false },
+      { kind: 'text', id: 'user-1', role: 'user', text: '把背景换成浅木色', streaming: false },
+      { kind: 'text', id: 'assistant-1', role: 'assistant', text: '好的', streaming: false },
     ])
     expect(state().turn).toBe('idle')
   })
@@ -221,6 +227,7 @@ describe('中止', () => {
     expect(posted.map((one) => one.url).filter((url) => url.includes('/abort'))).toHaveLength(1)
     expect(state().turn).toBe('idle')
     expect(state().messages[state().messages.length - 1]).toEqual({
+      kind: 'text',
       id: 'assistant-1',
       role: 'assistant',
       text: '好的',
@@ -272,10 +279,10 @@ describe('插话', () => {
     await state().send('画一只猫')
 
     expect(state().messages).toEqual([
-      { id: 'user-1', role: 'user', text: '画一只猫', streaming: false },
-      { id: 'assistant-1', role: 'assistant', text: '好的', streaming: false },
-      { id: 'user-2', role: 'user', text: '改成狗', streaming: false },
-      { id: 'assistant-2', role: 'assistant', text: '好，改成狗', streaming: false },
+      { kind: 'text', id: 'user-1', role: 'user', text: '画一只猫', streaming: false },
+      { kind: 'text', id: 'assistant-1', role: 'assistant', text: '好的', streaming: false },
+      { kind: 'text', id: 'user-2', role: 'user', text: '改成狗', streaming: false },
+      { kind: 'text', id: 'assistant-2', role: 'assistant', text: '好，改成狗', streaming: false },
     ])
   })
 })

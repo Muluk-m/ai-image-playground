@@ -125,6 +125,8 @@ export const config = {
     maxTokens: positiveIntEnv('AGENT_CHAT_MAX_TOKENS', 8_000),
     /** 上下文压缩的摘要模型。默认跟随对话模型，部署时建议单独配一个便宜档。 */
     summaryModel: env('AGENT_SUMMARY_MODEL', '') || env('AGENT_CHAT_MODEL', ''),
+    /** 生图工具用的模型。留空跟随内置 channel 的默认图片模型。 */
+    imageModel: env('AGENT_IMAGE_MODEL', ''),
   },
   matte: {
     /** 本部署对外可达、且所在 Cloudflare zone 已开图片变换的源；抠图 URL 两段都用它。 */
