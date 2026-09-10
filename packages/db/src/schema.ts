@@ -1,4 +1,10 @@
-import type { PersistedSubmitRequest, QueueProvider, TaskStatus } from '@image-playground/shared'
+import type {
+  AgentContentBlock,
+  AgentMessageRole,
+  PersistedSubmitRequest,
+  QueueProvider,
+  TaskStatus,
+} from '@image-playground/shared'
 import { sql } from 'drizzle-orm'
 import {
   check,
@@ -196,6 +202,61 @@ export const user_sync_state = pgTable('user_sync_state', {
   version: integer('version').notNull().default(0),
 })
 
+/**
+ * 智能体会话。归属 `user_id` 或 `device_id`，二者互斥：设备登录后会话改挂到用户。
+ * 删除以墓碑传播，`deleted_at` 非空的会话从读路径消失。
+ */
+export const agent_conversations = pgTable(
+  'agent_conversations',
+  {
+    id: text('id').primaryKey(),
+    user_id: text('user_id').references(() => users.id, { onDelete: 'cascade' }),
+    device_id: text('device_id'),
+    title: text('title').notNull(),
+    created_at: epochMs('created_at').notNull(),
+    updated_at: epochMs('updated_at').notNull(),
+    deleted_at: epochMs('deleted_at'),
+  },
+  (t) => [
+    check(
+      'agent_conversations_owner_check',
+      sql`(${t.user_id} IS NULL) <> (${t.device_id} IS NULL)`,
+    ),
+    index('idx_agent_conversations_user_time')
+      .on(t.user_id, t.updated_at.desc())
+      .where(sql`${t.user_id} IS NOT NULL`),
+    index('idx_agent_conversations_device_time')
+      .on(t.device_id, t.updated_at.desc())
+      .where(sql`${t.device_id} IS NOT NULL`),
+  ],
+)
+
+/**
+ * 会话里的消息。`seq` 是会话内单调递增的读回顺序。存储里的消息一条不改：
+ * 上下文压缩只塑造送给模型的输入，不回写这张表。
+ */
+export const agent_messages = pgTable(
+  'agent_messages',
+  {
+    conversation_id: text('conversation_id')
+      .notNull()
+      .references(() => agent_conversations.id, { onDelete: 'cascade' }),
+    id: text('id').notNull(),
+    turn_id: text('turn_id').notNull(),
+    seq: integer('seq').notNull(),
+    role: text('role').$type<AgentMessageRole>().notNull(),
+    content: bunJsonb('content').$type<AgentContentBlock[]>().notNull(),
+    created_at: epochMs('created_at').notNull(),
+    deleted_at: epochMs('deleted_at'),
+  },
+  (t) => [
+    primaryKey({ columns: [t.conversation_id, t.id] }),
+    uniqueIndex('idx_agent_messages_conversation_seq').on(t.conversation_id, t.seq),
+    index('idx_agent_messages_turn').on(t.conversation_id, t.turn_id),
+    check('agent_messages_role_check', sql`${t.role} IN ('user', 'assistant', 'tool')`),
+  ],
+)
+
 export const tasks = pgTable(
   'tasks',
   {
@@ -285,3 +346,5 @@ export type UserTemplateRow = typeof user_templates.$inferSelect
 export type UserAssetRow = typeof user_assets.$inferSelect
 export type UserPreferencesRow = typeof user_preferences.$inferSelect
 export type UserAssetObjectRow = typeof user_asset_objects.$inferSelect
+export type AgentConversationRow = typeof agent_conversations.$inferSelect
+export type AgentMessageRow = typeof agent_messages.$inferSelect
