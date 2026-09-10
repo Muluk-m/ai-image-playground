@@ -9,20 +9,14 @@ import {
   validateVideoRequest,
   videoRateMultiplier,
 } from '@image-playground/shared'
-import { and, eq, isNull } from 'drizzle-orm'
 import { Elysia, t } from 'elysia'
-import { config } from '../config'
 import { db, schema } from '../db/client'
-import { isCapabilityEnabled } from '../lib/capabilities'
 import { resolveModelMedia } from '../lib/channels'
 import { resolveImageBytesRef } from '../lib/extractImages'
 import { deviceIdSchema } from '../lib/http'
-import { archiveInputImages, ObjectStorageError } from '../lib/imageArchive'
-import { objectStore } from '../lib/objectStore'
-import { loadPrivateBffOverlay } from '../lib/private-overlay'
 import { asQueueProvider } from '../lib/queueProvider'
-import { tryConsumeQuotaInTransaction } from '../lib/quota'
 import { taskAccessWhere } from '../lib/task-access'
+import { createQueueTask, findTaskByIdempotencyKey } from '../lib/taskSubmission'
 import { requireUser } from '../lib/user-auth'
 
 const submitBodySchema = t.Object({
@@ -63,16 +57,6 @@ const submitBodySchema = t.Object({
    */
   device_id: deviceIdSchema(),
 })
-
-async function findTaskByIdempotencyKey(clientRequestId: string, userId: string | null) {
-  const ownerCondition = userId ? eq(schema.tasks.user_id, userId) : isNull(schema.tasks.user_id)
-  const [task] = await db
-    .select({ id: schema.tasks.id, submitted_at: schema.tasks.submitted_at })
-    .from(schema.tasks)
-    .where(and(eq(schema.tasks.client_request_id, clientRequestId), ownerCondition))
-    .limit(1)
-  return task
-}
 
 /** 只落引用，字节留在源任务的 object storage 里，worker 取的时候才读。 */
 async function resolveSourceVideo(
@@ -158,93 +142,28 @@ export const submitRoutes = new Elysia()
         }
       }
 
-      const id = crypto.randomUUID()
-      let requestPayload: PersistedSubmitRequest
-      try {
-        const { video: _rawVideo, ...rest } = body
-        requestPayload = {
-          ...(await archiveInputImages(id, rest)),
-          ...(persistedVideo ? { video: persistedVideo } : {}),
-        }
-      } catch (error) {
-        try {
-          await objectStore().deletePrefix(`${id}/in/`)
-        } catch {
-          // No task row references this prefix. Bucket lifecycle cleanup removes any orphan.
-        }
-        if (error instanceof TypeError) {
-          return status(400, { error: 'invalid_input_image', message: error.message })
-        }
-        const message =
-          error instanceof ObjectStorageError
-            ? error.message
-            : 'Object storage input archive failed'
-        return status(503, { error: 'object_storage_error', message })
-      }
-
+      const { video: _rawVideo, ...rest } = body
       const n = body.n ?? 1
-      // 免费部署的每日配额按输出计数：一条视频算一次，不按秒数放大。
-      const quotaUnits = video ? 1 : n
-      const now = Date.now()
-      const taskHooks = (await loadPrivateBffOverlay()).taskHooks
-      const dailyQuotaEnabled = isCapabilityEnabled('quota:daily')
-      const dailyImageQuota = config.operator.quotas['generation:daily-images']
-      const outcome = await db.transaction(async (tx) => {
-        const inserted = await tx
-          .insert(schema.tasks)
-          .values({
-            id,
-            provider: queueProvider,
-            model,
-            status: 'queued',
-            request_payload: requestPayload,
-            submitted_at: now,
-            user_id: authUser?.id ?? null,
-            client_request_id: body.client_request_id ?? null,
-          })
-          .onConflictDoNothing()
-          .returning({ id: schema.tasks.id, submitted_at: schema.tasks.submitted_at })
-
-        if (inserted.length === 0) return { kind: 'idempotency_conflict' as const }
-
-        if (isCapabilityEnabled('billing:credits')) {
-          if (!authUser) {
-            await tx.delete(schema.tasks).where(eq(schema.tasks.id, id))
-            return { kind: 'authentication_required' as const }
-          }
-          const reservation = await taskHooks.reserveTask({
-            tx,
-            taskId: id,
-            userId: authUser.id,
-            model,
-            quantity: video ? video.duration_seconds : n,
-            unitMultiplier: video ? videoRateMultiplier(model, video.resolution) : 1,
-          })
-          if (reservation.kind !== 'reserved') {
-            await tx.delete(schema.tasks).where(eq(schema.tasks.id, id))
-            return reservation
-          }
-        } else if (dailyQuotaEnabled) {
-          const quota = await tryConsumeQuotaInTransaction(
-            tx,
-            body.device_id,
-            quotaUnits,
-            dailyImageQuota,
-          )
-          if (!quota.ok) {
-            await tx.delete(schema.tasks).where(eq(schema.tasks.id, id))
-            return { kind: 'quota_exceeded' as const, quota }
-          }
-        }
-        return { kind: 'inserted' as const, task: inserted[0]! }
+      const outcome = await createQueueTask({
+        provider: queueProvider,
+        model,
+        request: rest,
+        ...(persistedVideo ? { video: persistedVideo } : {}),
+        userId: authUser?.id ?? null,
+        pricing: {
+          quantity: video ? video.duration_seconds : n,
+          unitMultiplier: video ? videoRateMultiplier(model, video.resolution) : 1,
+        },
+        // 免费部署的每日配额按输出计数：一条视频算一次，不按秒数放大。
+        quotaUnits: video ? 1 : n,
       })
 
-      if (outcome.kind !== 'inserted') {
-        try {
-          await objectStore().deletePrefix(`${id}/in/`)
-        } catch {
-          // The losing task has no row. Any undeleted prefix is a harmless lifecycle orphan.
-        }
+      if (outcome.kind === 'invalid_input_image') {
+        return status(400, { error: 'invalid_input_image', message: outcome.message })
+      }
+
+      if (outcome.kind === 'object_storage_error') {
+        return status(503, { error: 'object_storage_error', message: outcome.message })
       }
 
       if (outcome.kind === 'insufficient_credits') {
@@ -290,9 +209,9 @@ export const submitRoutes = new Elysia()
       }
 
       return {
-        request_id: outcome.task.id,
+        request_id: outcome.taskId,
         status: 'queued',
-        submitted_at: outcome.task.submitted_at,
+        submitted_at: outcome.submittedAt,
       }
     },
     {
