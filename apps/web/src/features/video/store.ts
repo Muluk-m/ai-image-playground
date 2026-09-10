@@ -1,4 +1,5 @@
 import {
+  clampVideoPreset,
   VIDEO_DEFAULT_ASPECT_RATIO,
   VIDEO_DEFAULT_DURATION,
   VIDEO_DEFAULT_RESOLUTION,
@@ -10,7 +11,6 @@ import {
   type VideoResolution,
   validateVideoPrompt,
   validateVideoRequest,
-  videoDurationsForResolution,
   videoRateMultiplier,
 } from '@image-playground/shared'
 import { create } from 'zustand'
@@ -31,12 +31,7 @@ import {
 } from '../../lib/privateOverlay'
 import { ensureImageCached, storeImageFromFile, useStore } from '../../store'
 import { checkDerive, DERIVE_RESOLUTION } from './lib/derive'
-import {
-  appendCameraMove,
-  clampDraftToSupport,
-  clampToSupported,
-  videoDraftFromTask,
-} from './lib/draft'
+import { appendCameraMove, clampDraftToSupport, videoDraftFromTask } from './lib/draft'
 import { videoTaskStore } from './lib/videoStore'
 import type { VideoDraft, VideoFrameSlot, VideoSource, VideoTask } from './types'
 
@@ -290,18 +285,16 @@ export const useVideoStore = create<VideoState>((set, get) => {
     option: VideoModelOption,
     input: StoryboardVideoInput,
   ): Promise<string | null> {
-    const { support } = option
-    const resolution = clampToSupported(support.resolutions, get().draft.resolution)
+    const preset = clampVideoPreset(option.support, {
+      duration: input.seconds,
+      aspectRatio: input.aspectRatio,
+      resolution: get().draft.resolution,
+    })
     return enqueue({
       option,
       source: input.imageId ? 'image' : 'text',
       prompt: input.prompt,
-      duration: clampToSupported(
-        videoDurationsForResolution(support, resolution) as readonly number[],
-        input.seconds,
-      ),
-      aspectRatio: clampToSupported(support.aspectRatios, input.aspectRatio),
-      resolution,
+      ...preset,
       firstFrameImageId: input.imageId,
       shot: {
         storyboardId: input.storyboardId,

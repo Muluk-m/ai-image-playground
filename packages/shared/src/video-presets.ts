@@ -163,6 +163,41 @@ export function clampToSupported<T>(allowed: readonly T[], value: T): T {
   return allowed.includes(value) ? value : allowed[0]!
 }
 
+export interface VideoPreset {
+  readonly duration: VideoDuration
+  readonly aspectRatio: VideoAspectRatio
+  readonly resolution: VideoResolution
+}
+
+/**
+ * 把要的档位落到该模型支持得了的值上。清晰度是主轴：时长按清晰度退，
+ * 反过来会把刚选定的清晰度顶掉。
+ */
+export function clampVideoPreset(
+  support: VideoModelSupport,
+  asked: {
+    readonly duration?: number | undefined
+    readonly aspectRatio?: VideoAspectRatio | undefined
+    readonly resolution?: VideoResolution | undefined
+  },
+): VideoPreset {
+  const resolution = clampToSupported(
+    support.resolutions,
+    asked.resolution ?? VIDEO_DEFAULT_RESOLUTION,
+  )
+  return {
+    resolution,
+    duration: clampToSupported(
+      videoDurationsForResolution(support, resolution),
+      (asked.duration ?? VIDEO_DEFAULT_DURATION) as VideoDuration,
+    ),
+    aspectRatio: clampToSupported(
+      support.aspectRatios,
+      asked.aspectRatio ?? VIDEO_DEFAULT_ASPECT_RATIO,
+    ),
+  }
+}
+
 export function videoRateMultiplier(modelId: string, resolution: VideoResolution): number {
   return VIDEO_MODEL_SUPPORT[modelId]?.resolutionMultipliers[resolution] ?? 1
 }

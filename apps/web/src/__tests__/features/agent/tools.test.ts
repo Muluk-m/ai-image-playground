@@ -34,7 +34,6 @@ const VIDEO: AgentToolArtifact = {
   taskId: 'task-2',
   outputIndex: 0,
   mime: 'video/mp4',
-  durationSeconds: 5,
 }
 
 const TURN_START: AgentTurnEvent = { type: 'turnStart', turnId: 'turn-1', userMessageId: 'user-1' }
@@ -135,7 +134,7 @@ beforeEach(() => {
     async place(items, options) {
       const base = options?.baseRevision
       if (base !== undefined && base !== revision) return 'conflict'
-      anchors.push(options?.anchorImageId)
+      anchors.push(options?.anchorObjectId)
       for (const item of items) {
         placed.push(item)
         onCanvas.add(item.artifactId)
@@ -203,7 +202,7 @@ describe('工具事件', () => {
           status: 'succeeded',
           title: '把背景换成浅木色',
           artifacts: [IMAGE],
-          anchorImageId: 'canvas-1',
+          anchorObjectId: 'canvas-1',
         },
         TURN_END,
       )
@@ -305,7 +304,7 @@ describe('视频产物', () => {
           status: 'succeeded',
           title: '视频：让这只猫眨眼',
           artifacts: [VIDEO],
-          anchorImageId: 'canvas-1',
+          anchorObjectId: 'canvas-1',
         },
         TURN_END,
       )

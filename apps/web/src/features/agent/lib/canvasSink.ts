@@ -13,7 +13,7 @@ export interface AgentPlaceOptions {
   /** 跟上这一轮时的画布修订号；与当前对不上就一张都不写。省略即无条件写入（用户手动放入）。 */
   readonly baseRevision?: number
   /** 贴着这个对象放；它不在画布上就落在视口中央。 */
-  readonly anchorImageId?: string
+  readonly anchorObjectId?: string
 }
 
 export interface AgentCanvasSink {

@@ -5,7 +5,6 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import CanvasVideoOverlay from '../../../../features/canvas/components/CanvasVideoOverlay'
 import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
 import { CanvasEditor } from '../../../../features/canvas/lib/editor'
-import { videoElementMeta } from '../../../../features/canvas/lib/videoElements'
 import { _setRuntimeConfigForTesting } from '../../../../lib/runtimeConfig'
 
 declare global {
@@ -30,7 +29,7 @@ function addVideo(id: string): void {
       y: 0,
       width: 320,
       height: 180,
-      meta: videoElementMeta({ taskId: 'task-2', outputIndex: 0 }),
+      video: { taskId: 'task-2', outputIndex: 0 },
     },
   ])
 }

@@ -23,6 +23,18 @@ export interface AgentImageSource {
   note(artifacts: readonly AgentToolArtifact[]): void
 }
 
+/** 按 id 取图，取不到就抛。工具共用这一句：模型换个 id 重试是它唯一的出路。 */
+export async function requireAgentImages(
+  source: AgentImageSource,
+  imageIds: readonly string[],
+): Promise<ResolvedAgentImage[]> {
+  const resolved = await Promise.all(imageIds.map((id) => source.resolve(id)))
+  return resolved.map((image, at) => {
+    if (!image) throw new Error(`拿不到图片 ${imageIds[at]}，请让用户在输入框里引用它`)
+    return image
+  })
+}
+
 interface TaskOutput {
   readonly taskId: string
   readonly outputIndex: number
@@ -66,16 +78,24 @@ function outputsFromHistory(history: readonly AgentMessageView[]): Map<string, T
   for (const message of history) {
     for (const block of message.content) {
       if (block.type !== 'toolResult') continue
-      for (const artifact of block.artifacts ?? []) {
-        if (artifact.media !== 'image') continue
-        outputs.set(artifact.artifactId, {
-          taskId: artifact.taskId,
-          outputIndex: artifact.outputIndex,
-        })
-      }
+      rememberImages(outputs, block.artifacts ?? [])
     }
   }
   return outputs
+}
+
+/** 视频取不出可编辑的位图，所以只有图片产物进得来。 */
+function rememberImages(
+  outputs: Map<string, TaskOutput>,
+  artifacts: readonly AgentToolArtifact[],
+): void {
+  for (const artifact of artifacts) {
+    if (artifact.media !== 'image') continue
+    outputs.set(artifact.artifactId, {
+      taskId: artifact.taskId,
+      outputIndex: artifact.outputIndex,
+    })
+  }
 }
 
 /** 附在用户消息后面送给模型；没有引用时是空串。 */
@@ -117,13 +137,7 @@ export function createAgentImageSource(input: {
 
   return {
     note(artifacts) {
-      for (const artifact of artifacts) {
-        if (artifact.media !== 'image') continue
-        outputs.set(artifact.artifactId, {
-          taskId: artifact.taskId,
-          outputIndex: artifact.outputIndex,
-        })
-      }
+      rememberImages(outputs, artifacts)
     },
 
     resolve(imageId) {

@@ -45,8 +45,6 @@ export interface AgentToolArtifact {
   readonly mime: string
   readonly width?: number
   readonly height?: number
-  /** 视频时长（秒），图片没有。 */
-  readonly durationSeconds?: number
 }
 
 /** 一次工具调用的最终结果。它单独占一条助手消息，所以翻历史时与文字回复各就各位。 */
@@ -58,8 +56,8 @@ export interface AgentToolResultBlock {
   /** 面板上这张卡的一行标签。 */
   readonly title: string
   readonly artifacts?: readonly AgentToolArtifact[]
-  /** 产出落画布时贴着这个对象放；缺席就落在视口中央。 */
-  readonly anchorImageId?: string
+  /** 产出落画布时贴着这个画布对象放；缺席就落在视口中央。 */
+  readonly anchorObjectId?: string
   /** 失败原因，一句话。 */
   readonly message?: string
 }
@@ -247,7 +245,8 @@ export function agentMessageText(message: AgentMessageView): string {
   return agentTextFromBlocks(message.content)
 }
 
-const AGENT_ARTIFACT_NOUN: Record<ChannelMedia, string> = { image: '图片', video: '视频' }
+/** 说给模型听的产物名词。工具的结果文字与回放共用，两处不一致模型就指不准同一件东西。 */
+export const AGENT_ARTIFACT_NOUN: Record<ChannelMedia, string> = { image: '图片', video: '视频' }
 
 /** 工具结果回放给模型的形状：产物 id 让它下一轮还能指着同一件东西说话。 */
 export function agentToolResultSummary(block: AgentToolResultBlock): string {

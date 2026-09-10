@@ -141,7 +141,14 @@ describe('落画布', () => {
       },
     ])
 
-    const [, , , options] = placeImagesOnCanvasMock.mock.calls[0]!
-    expect(options.metas).toEqual([undefined, { videoTaskId: 'task-2', videoOutputIndex: '0' }])
+    const [, placing] = placeImagesOnCanvasMock.mock.calls[0]!
+    expect(placing).toEqual([
+      { dataUrl: IMAGES[0]!.dataUrl, id: 'agent_image_1' },
+      {
+        dataUrl: 'data:image/png;base64,UE9T',
+        id: 'agent_video_1',
+        video: { taskId: 'task-2', outputIndex: 0 },
+      },
+    ])
   })
 })

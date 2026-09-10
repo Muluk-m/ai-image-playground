@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
 import { CanvasEditor } from '../../../../features/canvas/lib/editor'
-import { canvasVideos, videoElementMeta } from '../../../../features/canvas/lib/videoElements'
+import { canvasVideos } from '../../../../features/canvas/lib/videoElements'
 import { _setRuntimeConfigForTesting } from '../../../../lib/runtimeConfig'
 
 const PIXEL = 'data:image/png;base64,AQID'
@@ -26,7 +26,7 @@ describe('画布上的视频对象', () => {
         y: 20,
         width: 320,
         height: 180,
-        meta: videoElementMeta({ taskId: 'task-2', outputIndex: 1 }),
+        video: { taskId: 'task-2', outputIndex: 1 },
       },
     ])
 

@@ -1,21 +1,18 @@
 import type { AgentTool } from '@earendil-works/pi-agent-core'
-import type { VideoAspectRatio, VideoDuration, VideoResolution } from '@image-playground/shared'
+import type { VideoModelSupport } from '@image-playground/shared'
 import {
   agentTitleLine,
-  clampToSupported,
+  clampVideoPreset,
   VIDEO_ASPECT_RATIOS,
-  VIDEO_DEFAULT_ASPECT_RATIO,
-  VIDEO_DEFAULT_DURATION,
-  VIDEO_DEFAULT_RESOLUTION,
   VIDEO_DURATIONS,
   VIDEO_MODEL_SUPPORT,
   VIDEO_RESOLUTIONS,
-  videoDurationsForResolution,
 } from '@image-playground/shared'
 import { Type } from 'typebox'
 import { isCapabilityEnabled } from '../../capabilities'
-import { resolveAgentModel, runQueueTask } from './queueTask'
-import type { AgentToolContext, AgentToolDefinition, AgentToolDetails } from './types'
+import { requireAgentImages } from '../images'
+import { noModelMessage, type QueueTarget, resolveAgentModel, runQueueTask } from './queueTask'
+import type { AgentToolDefinition, AgentToolDetails } from './types'
 
 const TITLE_MAX_CHARS = 32
 
@@ -55,56 +52,23 @@ function title(args: unknown): string {
     : '生视频'
 }
 
-interface Preset {
-  readonly duration: VideoDuration
-  readonly aspectRatio: VideoAspectRatio
-  readonly resolution: VideoResolution
-}
-
 /**
- * 模型可以说任意档位，落到这个部署的视频模型支持不了的值上就退档。
- * 清晰度是主轴：时长按清晰度退，反过来会把清晰度顶掉。
+ * 能跑的视频模型：既要在这个部署的 channel 里，也要在支持矩阵里。
+ * 少判一半，工具就会进模型的清单，然后在执行时抛——那一轮直接死掉。
  */
-function presetFor(
-  modelId: string,
-  asked: {
-    duration?: number | undefined
-    aspectRatio?: VideoAspectRatio | undefined
-    resolution?: VideoResolution | undefined
-  },
-): Preset {
-  const support = VIDEO_MODEL_SUPPORT[modelId]
-  if (!support) throw new Error('暂时没有可用的生视频模型')
-  const resolution = clampToSupported(
-    support.resolutions,
-    asked.resolution ?? VIDEO_DEFAULT_RESOLUTION,
-  )
-  return {
-    resolution,
-    duration: clampToSupported(
-      videoDurationsForResolution(support, resolution),
-      (asked.duration ?? VIDEO_DEFAULT_DURATION) as VideoDuration,
-    ),
-    aspectRatio: clampToSupported(
-      support.aspectRatios,
-      asked.aspectRatio ?? VIDEO_DEFAULT_ASPECT_RATIO,
-    ),
-  }
-}
-
-async function firstFrame(context: AgentToolContext, imageId: string): Promise<string> {
-  const image = await context.images.resolve(imageId)
-  // 模型会顺着历史里的图片 id 猜，猜错时它得知道该让用户去输入框引用那张图。
-  if (!image) throw new Error(`拿不到图片 ${imageId}，请让用户在输入框里引用它`)
-  return image.dataUrl
+function videoModel(): { target: QueueTarget; support: VideoModelSupport } | null {
+  const target = resolveAgentModel('video')
+  const support = target ? VIDEO_MODEL_SUPPORT[target.model] : undefined
+  return target && support ? { target, support } : null
 }
 
 export const generateVideo: AgentToolDefinition = {
   name: 'generateVideo',
+  guidance: '用户要让画面动起来时调生视频工具；视频慢也贵，他没明说要视频就别自作主张。',
   title,
   // 视频是这里最贵的一件事，失败让模型接着重试等于再扣一次费；停下来交给用户定夺。
   onError: 'abort',
-  available: () => isCapabilityEnabled('generation:video'),
+  available: () => isCapabilityEnabled('generation:video') && videoModel() !== null,
   create(context) {
     const tool: AgentTool<typeof parameters, AgentToolDetails> = {
       name: 'generateVideo',
@@ -113,18 +77,21 @@ export const generateVideo: AgentToolDefinition = {
         '生成一段视频，产出直接落到用户的画布上，带封面可播放。给了图片 id 就从那张图动起来，不给就按提示词凭空生成。视频比图片慢得多也贵得多，用户明确要视频时才调。',
       parameters,
       async execute(_toolCallId, params, signal, onUpdate) {
-        const target = resolveAgentModel('video')
-        if (!target) throw new Error('暂时没有可用的生视频模型')
-        const preset = presetFor(target.model, {
+        const resolved = videoModel()
+        if (!resolved) throw new Error(noModelMessage('video'))
+        const preset = clampVideoPreset(resolved.support, {
           duration: params.durationSeconds,
           aspectRatio: params.aspectRatio,
           resolution: params.resolution,
         })
-        const source = params.imageId ? await firstFrame(context, params.imageId) : null
+        const source = params.imageId
+          ? (await requireAgentImages(context.images, [params.imageId]))[0]!.dataUrl
+          : null
         return runQueueTask(
           context,
           {
             media: 'video',
+            target: resolved.target,
             prompt: params.prompt,
             ...(source ? { inputImages: [source] } : {}),
             video: {
@@ -133,7 +100,7 @@ export const generateVideo: AgentToolDefinition = {
               resolution: preset.resolution,
               ...(source ? { first_frame_index: 0 } : {}),
             },
-            ...(params.imageId ? { anchorImageId: params.imageId } : {}),
+            ...(params.imageId ? { anchorObjectId: params.imageId } : {}),
           },
           signal,
           onUpdate,

@@ -212,10 +212,9 @@ describe('智能体生视频工具', () => {
       media: 'video',
       mime: 'video/mp4',
       outputIndex: 0,
-      durationSeconds: 5,
     })
     // 文生视频没有源图可贴，产出落视口中央。
-    expect(end!.anchorImageId).toBeUndefined()
+    expect(end!.anchorObjectId).toBeUndefined()
 
     const turnStart = eventsOfType(frames, 'turnStart')[0]!
     const [task] = await db.select().from(schema.tasks)
@@ -245,7 +244,7 @@ describe('智能体生视频工具', () => {
 
     const [end] = eventsOfType(frames, 'toolEnd')
     expect(end!.status).toBe('succeeded')
-    expect(end!.anchorImageId).toBe('canvas-1')
+    expect(end!.anchorObjectId).toBe('canvas-1')
 
     const [task] = await db.select().from(schema.tasks)
     expect(task!.request_payload.input_images).toHaveLength(1)

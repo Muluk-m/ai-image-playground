@@ -14,18 +14,21 @@ function find(name: string): AgentToolDefinition | undefined {
   return TOOLS.find((tool) => tool.name === name)
 }
 
+function present(): AgentToolDefinition[] {
+  return TOOLS.filter((tool) => tool.available?.() ?? true)
+}
+
 export function agentTools(context: AgentToolContext): AgentTool[] {
-  return TOOLS.filter((tool) => tool.available?.() ?? true).map((tool) => tool.create(context))
+  return present().map((tool) => tool.create(context))
+}
+
+/** 系统提示词里逐工具的那几句。与模型收到的清单同一份过滤，两边不会各说各的。 */
+export function agentToolGuidance(): string[] {
+  return present().map((tool) => tool.guidance)
 }
 
 export function isAgentToolName(name: string): name is AgentToolName {
   return find(name) !== undefined
-}
-
-/** 这个部署有没有开这条工具。系统提示词据此增删对应的那句话。 */
-export function isAgentToolAvailable(name: AgentToolName): boolean {
-  const tool = find(name)
-  return tool ? (tool.available?.() ?? true) : false
 }
 
 export function agentToolTitle(name: string, args: unknown): string {

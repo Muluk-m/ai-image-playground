@@ -11,6 +11,7 @@ import { authenticatedBffFetch } from '../../../lib/authClient'
 import { fetchImageDataUrl } from '../../../lib/channels/queueClient'
 import { getDeviceId } from '../../../lib/deviceId'
 import { bffBaseUrl } from '../../../lib/runtimeConfig'
+import { queueOutputUrl } from '../../video/lib/playback'
 
 type Fetcher = (input: string, init?: RequestInit) => Promise<Response>
 
@@ -171,5 +172,5 @@ export function fetchToolImage(artifact: AgentToolArtifact): Promise<string> {
 
 /** 视频产物的播放地址。mp4 不落本地，画布与结果卡都打这里。 */
 export function toolArtifactUrl(artifact: AgentToolArtifact): string {
-  return `${bffBaseUrl()}/v1/queue/requests/${artifact.taskId}/output/${artifact.outputIndex}`
+  return queueOutputUrl(artifact.taskId, artifact.outputIndex)
 }

@@ -22,7 +22,7 @@ export interface AgentToolMessage {
   readonly artifacts?: readonly AgentToolArtifact[]
   readonly message?: string
   /** 产出贴着这个画布对象放；手动放入时也照这个位置。 */
-  readonly anchorImageId?: string
+  readonly anchorObjectId?: string
   /** 画布冲突：产出没有自动写入画布，卡上给手动放入的入口。 */
   readonly canvasConflict?: boolean
 }

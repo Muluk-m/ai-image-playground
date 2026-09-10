@@ -187,7 +187,7 @@ describe('智能体改图工具', () => {
     const [end] = eventsOfType(frames, 'toolEnd')
     expect(end).toMatchObject({ toolCallId: 'call-1', status: 'succeeded' })
     // 产出贴着源图放，源图本身不进这次任务的产出。
-    expect(end!.anchorImageId).toBe('canvas-1')
+    expect(end!.anchorObjectId).toBe('canvas-1')
     expect(end!.artifacts).toHaveLength(1)
     expect(end!.artifacts![0]!.artifactId).not.toBe('canvas-1')
 
@@ -336,7 +336,7 @@ describe('智能体读素材库工具', () => {
 
     const ends = eventsOfType(frames, 'toolEnd')
     expect(ends.map((event) => event.status)).toEqual(['succeeded', 'succeeded'])
-    expect(ends[1]!.anchorImageId).toBe('img-cat')
+    expect(ends[1]!.anchorObjectId).toBe('img-cat')
 
     const [task] = await db.select().from(schema.tasks)
     expect(task!.request_payload.input_images).toHaveLength(1)

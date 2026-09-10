@@ -1,6 +1,6 @@
 import { captureVideoFrame } from '../../video/lib/playback'
 
-/** 拉一帧当封面。上游慢或跨域没配好时不该把整次落画布拖住。 */
+/** 上游慢或跨域没配好时，抓封面不该把整次落画布拖住。 */
 const CAPTURE_TIMEOUT_MS = 8_000
 const FALLBACK_WIDTH = 640
 const FALLBACK_HEIGHT = 360
@@ -21,23 +21,30 @@ function blankPoster(width: number, height: number): string {
 function captureFirstFrame(url: string): Promise<string | null> {
   return new Promise((resolve) => {
     const video = document.createElement('video')
+    const listeners = new AbortController()
     let settled = false
-    const finish = (poster: string | null) => {
+    const settle = (poster: string | null) => {
       if (settled) return
       settled = true
+      window.clearTimeout(timer)
+      listeners.abort()
       video.removeAttribute('src')
+      // 只摘 src 不会中止在途请求，超时那条路上它会一直挂到 GC。
+      video.load()
       resolve(poster)
     }
-    const timer = window.setTimeout(() => finish(null), CAPTURE_TIMEOUT_MS)
-    const done = (poster: string | null) => {
-      window.clearTimeout(timer)
-      finish(poster)
-    }
+    const timer = window.setTimeout(() => settle(null), CAPTURE_TIMEOUT_MS)
     video.crossOrigin = 'use-credentials'
     video.preload = 'metadata'
     video.muted = true
-    video.addEventListener('loadeddata', () => done(captureVideoFrame(video)))
-    video.addEventListener('error', () => done(null))
+    video.addEventListener(
+      'loadeddata',
+      () => {
+        if (!settled) settle(captureVideoFrame(video))
+      },
+      { signal: listeners.signal },
+    )
+    video.addEventListener('error', () => settle(null), { signal: listeners.signal })
     video.src = url
   })
 }

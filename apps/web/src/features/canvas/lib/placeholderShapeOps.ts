@@ -4,6 +4,9 @@ import type { CanvasEditor, CanvasTaskStatus, PlacedImage, PlaceholderView } fro
 import { Box } from './geometry'
 import { fitToTarget, PLACEMENT_GAP, type PlacementTarget } from './placement'
 
+/** 要放的一项。`id` 与 `video` 只属于这一项，`opts.meta` 是整批共用的溯源。 */
+export type PlaceItem = Pick<PlacedImage, 'dataUrl' | 'id' | 'video'>
+
 /** 统一的错误消息提取（画布任务终局共用）。 */
 export function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
@@ -49,35 +52,32 @@ export async function settleGeneration(
  * - 尺寸：按 target 框 contain 适配（dataUrl 保留原始分辨率），不按原始像素落图
  * - 位置：居中于 target 框；多张按 target 宽度分格沿水平排开（与 fanOutTargets 对齐），
  *   彼此留 PLACEMENT_GAP 间距，各自在格内居中
- * - meta（可选）写到每个 image 元素上，承载生成溯源（prompt 等）；metas 逐项追加
+ * - meta（可选）写到每个 image 元素上，承载生成溯源（prompt 等）
  * 供「占位框替换为结果」与「工作台图片送进画布」两处复用（都不依赖占位框存在）。
  */
 export async function placeImagesOnCanvas(
   editor: CanvasEditor,
-  dataUrls: string[],
+  placing: readonly PlaceItem[],
   target: PlacementTarget,
-  opts: {
-    meta?: Record<string, string>
-    ids?: readonly string[]
-    metas?: readonly (Record<string, string> | undefined)[]
-  } = {},
+  opts: { meta?: Record<string, string> } = {},
 ): Promise<void> {
   const centerY = target.y + target.h / 2
-  const sizes = await Promise.all(dataUrls.map(getImageDimensions))
+  const sizes = await Promise.all(placing.map((one) => getImageDimensions(one.dataUrl)))
 
   const items: PlacedImage[] = []
-  for (let i = 0; i < dataUrls.length; i++) {
+  for (let i = 0; i < placing.length; i++) {
+    const one = placing[i]!
     const { width, height } = sizes[i]
     const fitted = fitToTarget(width, height, target)
     const cellX = target.x + i * (target.w + PLACEMENT_GAP)
     items.push({
-      dataUrl: dataUrls[i],
+      dataUrl: one.dataUrl,
       x: cellX + (target.w - fitted.w) / 2,
       y: centerY - fitted.h / 2,
       width: fitted.w,
       height: fitted.h,
-      ...(opts.ids?.[i] ? { id: opts.ids[i] } : {}),
-      ...(opts.metas?.[i] ? { meta: opts.metas[i] } : {}),
+      ...(one.id ? { id: one.id } : {}),
+      ...(one.video ? { video: one.video } : {}),
     })
   }
   const ids = editor.placeImages(items, opts.meta)
@@ -107,6 +107,11 @@ async function placeResults(
   const anchor = placeholder ? targetFromShape(placeholder) : target
   const provenance = placeholder ? { prompt: placeholder.meta.prompt } : undefined
   // 放置成功后才删占位框：中途失败（如图片解码）时它得留着，错误态才有处可标
-  await placeImagesOnCanvas(editor, dataUrls, anchor, { meta: provenance })
+  await placeImagesOnCanvas(
+    editor,
+    dataUrls.map((dataUrl) => ({ dataUrl })),
+    anchor,
+    { meta: provenance },
+  )
   if (placeholder) editor.deleteElement(placeholderId)
 }

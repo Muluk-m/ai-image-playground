@@ -16,11 +16,13 @@ export interface AgentToolContext {
 export interface AgentToolDetails {
   readonly stage?: AgentToolStage
   readonly artifacts?: readonly AgentToolArtifact[]
-  readonly anchorImageId?: string
+  readonly anchorObjectId?: string
 }
 
 export interface AgentToolDefinition {
   readonly name: AgentToolName
+  /** 进系统提示词的那一句用法指引。工具不在场时它跟着一起消失。 */
+  readonly guidance: string
   /** 面板上这次调用的一行标签，从模型给的参数算。 */
   title(args: unknown): string
   /**

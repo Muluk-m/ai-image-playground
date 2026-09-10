@@ -32,9 +32,9 @@ import { type RunningTurn, registerRunningTurn, turnEventLog } from './runningTu
 import {
   type AgentToolDetails,
   agentToolAbortsTurn,
+  agentToolGuidance,
   agentTools,
   agentToolTitle,
-  isAgentToolAvailable,
   isAgentToolName,
 } from './tools'
 
@@ -51,13 +51,8 @@ function systemPrompt(): string {
   return [
     '你是创作模式画布旁的助手，帮用户把想法变成画布上的图。',
     '用中文回答，简短、具体，不要复述用户的话。',
-    '用户要一张新图时调生图工具，把他的意图补成一条完整的提示词，不要反问他要什么风格。',
-    '用户指着某张图说要改时调改图工具，参考图用他引用的那张，产出会落在源图旁边，源图不动。',
-    '用户提到某个素材但没有引用它时，先用读素材库工具按名字查到图片 id，再拿去改图。',
-    // 关掉生视频的部署里这句必须消失，否则模型会承诺一件它调不了的事。
-    ...(isAgentToolAvailable('generateVideo')
-      ? ['用户要让画面动起来时调生视频工具；视频慢也贵，他没明说要视频就别自作主张。']
-      : []),
+    // 逐工具那几句跟着清单走：关掉的工具连同它的用法一起消失，否则模型会承诺它调不了的事。
+    ...agentToolGuidance(),
     '工具产出会自动落到用户的画布上，不要让用户自己去保存。',
     '拿不准他要哪一种时调澄清工具给出几个具体选项，不要反问一大段。',
   ].join('\n')
@@ -193,7 +188,7 @@ function toolResultBlock(
     status: 'succeeded',
     title: pending.title,
     ...(details?.artifacts?.length ? { artifacts: details.artifacts } : {}),
-    ...(details?.anchorImageId ? { anchorImageId: details.anchorImageId } : {}),
+    ...(details?.anchorObjectId ? { anchorObjectId: details.anchorObjectId } : {}),
   }
 }
 

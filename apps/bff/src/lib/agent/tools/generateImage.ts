@@ -21,6 +21,7 @@ function title(args: unknown): string {
 
 export const generateImage: AgentToolDefinition = {
   name: 'generateImage',
+  guidance: '用户要一张新图时调生图工具，把他的意图补成一条完整的提示词，不要反问他要什么风格。',
   title,
   onError: 'abort',
   create(context) {

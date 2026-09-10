@@ -56,7 +56,11 @@ export default function CanvasMode() {
       recoverCanvasTasks(editor)
       const pending = useStore.getState().consumeCanvasImages()
       if (pending.length > 0) {
-        placeImagesOnCanvas(editor, pending, computePlaceholderTarget(editor, null)).then(
+        placeImagesOnCanvas(
+          editor,
+          pending.map((dataUrl) => ({ dataUrl })),
+          computePlaceholderTarget(editor, null),
+        ).then(
           // 放置若在卸载后才完成，最终落盘已错过 → 补存一次
           () => {
             if (disposed) void saveScene(editor)

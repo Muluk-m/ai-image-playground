@@ -94,7 +94,7 @@ function toolCard(block: AgentToolResultBlock, id: string): AgentToolMessage {
     title: block.title,
     status: block.status,
     ...(block.artifacts ? { artifacts: block.artifacts } : {}),
-    ...(block.anchorImageId ? { anchorImageId: block.anchorImageId } : {}),
+    ...(block.anchorObjectId ? { anchorObjectId: block.anchorObjectId } : {}),
     ...(block.message ? { message: block.message } : {}),
   }
 }
@@ -202,7 +202,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
     messageId: string,
     anchor?: string,
   ) => {
-    const outcome = await writeToCanvas(artifacts, { baseRevision, anchorImageId: anchor })
+    const outcome = await writeToCanvas(artifacts, { baseRevision, anchorObjectId: anchor })
     if (outcome === 'conflict') setConflict(messageId, true)
     // 智能体自己的写入不算用户改动，所以基线跟到写后的值：
     // 不抬的话同一轮里的第二次落图会把第一次当成用户动了画布。
@@ -300,7 +300,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
     if (event.type === 'toolEnd' && event.status === 'succeeded') {
       const artifacts = event.artifacts ?? []
       const messageId = event.messageId
-      const anchor = event.anchorImageId
+      const anchor = event.anchorObjectId
       landing = landing.then(() => land(artifacts, messageId, anchor))
     }
   }
@@ -462,7 +462,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
       if (message?.kind !== 'tool') return
       // 不带基线：用户点了这个按钮，写入就是他要的。
       const outcome = await writeToCanvas(message.artifacts ?? [], {
-        ...(message.anchorImageId ? { anchorImageId: message.anchorImageId } : {}),
+        ...(message.anchorObjectId ? { anchorObjectId: message.anchorObjectId } : {}),
       })
       if (outcome !== 'failed') setConflict(messageId, false)
     },
