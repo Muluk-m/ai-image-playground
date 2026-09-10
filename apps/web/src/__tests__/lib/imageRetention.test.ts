@@ -84,6 +84,7 @@ describe('shared image ownership', () => {
       'first-frame',
       'last-frame',
       'story-reference',
+      'story-reference-secondary',
       'story-image',
     ]
     await images([...retained, 'orphan', 'deleted-asset'])
@@ -100,7 +101,7 @@ describe('shared image ownership', () => {
     await dbTransaction(STORE_STORYBOARDS, 'readwrite', (store) =>
       store.put({
         id: 'story',
-        referenceImageId: 'story-reference',
+        referenceImageIds: ['story-reference', 'story-reference-secondary'],
         shots: [{ imageId: 'story-image' }],
       }),
     )

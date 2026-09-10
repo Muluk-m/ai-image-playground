@@ -307,7 +307,7 @@ export async function getReferencedImageIds(tasks: readonly TaskRecord[]): Promi
     add(video.lastFrameImageId)
   }
   for (const storyboard of storyboards) {
-    add(storyboard.referenceImageId)
+    for (const imageId of storyboard.referenceImageIds) add(imageId)
     for (const shot of storyboard.shots) add(shot.imageId)
   }
   return ids
