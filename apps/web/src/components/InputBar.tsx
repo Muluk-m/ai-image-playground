@@ -1435,7 +1435,7 @@ export default function InputBar() {
           <span className="absolute bottom-1 left-1 flex h-4 w-4 items-center justify-center rounded-full bg-black/55 text-[9px] font-semibold text-white backdrop-blur-sm z-10 pointer-events-none">
             {idx + 1}
           </span>
-          {/* 遮罩入口对所有支持 edit（图生图）的模型开放：原生 mask（gpt-image-2）走
+          {/* 遮罩入口对所有支持 edit（图生图）的模型开放：声明原生 mask 的模型走
               images/edits inpaint；其余模型在 callImageApi 降级为「原图+高亮标注图」软遮罩 */}
           {canEdit && supportsEdit && (
             <button

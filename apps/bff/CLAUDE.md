@@ -36,7 +36,7 @@ BFF 的公开核心只做四件事：
 
   网关部署里 `openai-images` 那条 channel 的 `baseUrl: https://api.openai.com/v1` 只是名义地址，`resolveUpstream` 压根不读它；在那儿写 `asyncTasks: true` 字面含义是「api.openai.com 有 /async 端点」，是假的。网关是不是 sub2api 只有 env 知道。
 - 打开异步后 worker 提交拿 `imgtask_…` 落库再轮询，重启按 id 接着轮，不重提交、不重计费。**上游没有幂等键**：已落库的 id 一律只轮不重提，重试只补提交缺口。要关上游的异步开关，先关我们这边的声明位——否则提交一律 404（日志 event `upstream.async_disabled`），没有静默回落同步。
-- 网关的 Images 桥接主模型不可用时，可设 `UPSTREAM_IMAGE_RESPONSES_MODEL=gpt-6-astra`：仅通用网关的 `gpt-image-2` 新任务改走 `/v1/responses`，图片工具模型保持 `gpt-image-2`；该声明优先于异步图片开关，留空保留原协议。已落库的 `imgtask_…` 仍按原协议恢复。新 Responses 请求不产生可恢复任务 id，断流/超时按结果未知处理，不自动重提；图片片段只有收到成功完成事件后才能交付。
+- 网关的 Images 桥接主模型不可用时，可设 `UPSTREAM_IMAGE_RESPONSES_MODEL=gpt-6-astra`：仅通用网关的 `gpt-image-*` 新任务改走 `/v1/responses`，图片工具模型保持被选中的那个；该声明优先于异步图片开关，留空保留原协议。已落库的 `imgtask_…` 仍按原协议恢复。新 Responses 请求不产生可恢复任务 id，断流/超时按结果未知处理，不自动重提；图片片段只有收到成功完成事件后才能交付。
 
 ## Queue 模式协议（apps/web ↔ apps/bff）
 

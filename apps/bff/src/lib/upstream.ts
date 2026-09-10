@@ -412,7 +412,7 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
 
       if (
         style === 'openai-images' &&
-        model === 'gpt-image-2' &&
+        isGptImageModel(model) &&
         config.upstream.imageResponsesModel &&
         resumeIds.length === 0
       ) {
@@ -1056,6 +1056,11 @@ function buildOpenAIBody(model: string, request: HydratedSubmitRequest): Record<
     ...(request.n ? { n: request.n } : {}),
     ...(request.extra ?? {}),
   }
+}
+
+/** 按 id 前缀认 GPT Image 家族：网关给的别名不带这个前缀就静默走回原 Images 协议。 */
+function isGptImageModel(model: string): boolean {
+  return model.startsWith('gpt-image-')
 }
 
 const GROK_IMAGINE_2_MODEL_ID = 'grok-imagine-image-2.0'
