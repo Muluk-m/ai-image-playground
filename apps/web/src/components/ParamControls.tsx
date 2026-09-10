@@ -1,4 +1,12 @@
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  type ComponentProps,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import {
   clientProfileToApiProfile,
   getActiveApiProfile,
@@ -19,6 +27,7 @@ import {
   type TaskParams,
 } from '../types'
 import { ChipIcons } from './chipIcons'
+import { compactModelName, ModelLogo } from './ModelIdentity'
 import ParamChip from './ParamChip'
 import Select from './Select'
 import SizePickerModal from './SizePickerModal'
@@ -31,13 +40,13 @@ const CHIP_WRAPPER_CLASS = 'absolute inset-0'
 function ChipSelect<T extends string>(props: {
   value: T
   onChange: (v: T) => void
-  options: ReadonlyArray<{ label: string; value: string }>
+  options: ComponentProps<typeof Select>['options']
 }) {
   return (
     <Select
       value={props.value}
       onChange={(v) => props.onChange(v as T)}
-      options={[...props.options]}
+      options={props.options}
       className={CHIP_TRIGGER_CLASS}
       wrapperClassName={CHIP_WRAPPER_CLASS}
       hideSelectedLabel
@@ -234,7 +243,8 @@ export default function ParamControls({ showCount = false }: { showCount?: boole
   const globalModelOptions = useMemo(() => {
     const publicChannels = getPublicChannels()
     const byokEnabled = isByokGenerationEnabled()
-    return settings.profiles
+    const labelCounts = new Map<string, number>()
+    const options = settings.profiles
       .filter((profile) => byokEnabled || profile.source === 'builtin-edge')
       .flatMap((profile) => {
         const view = clientProfileToApiProfile(profile)
@@ -243,15 +253,25 @@ export default function ParamControls({ showCount = false }: { showCount?: boole
         const cachedExtras = (profileModelCache[profile.id] ?? [])
           .filter((id) => !knownIds.has(id))
           .map((id) => ({ id, label: id }))
-        return [...presetOptions, ...cachedExtras].map((option) => ({
-          value: `${profile.id}::${option.id}`,
-          model: option.id,
-          modelLabel: option.label,
-          profileId: profile.id,
-          profileName: view.name,
-          provider: view.provider,
-        }))
+        return [...presetOptions, ...cachedExtras].map((option) => {
+          const label = compactModelName(option.id, option.label)
+          labelCounts.set(label, (labelCounts.get(label) ?? 0) + 1)
+          return {
+            value: `${profile.id}::${option.id}`,
+            model: option.id,
+            profileId: profile.id,
+            profileName: view.name,
+            label,
+            icon: <ModelLogo model={option.id} />,
+            title: `${option.label} · ${view.name}\n${option.id}`,
+            description: '',
+          }
+        })
       })
+    for (const option of options) {
+      if ((labelCounts.get(option.label) ?? 0) > 1) option.description = option.profileName
+    }
+    return options
   }, [settings.profiles, profileModelCache])
   const currentModelValue = `${activeProfile.id}::${activeView.model}`
   const handleGlobalModelPick = (rawValue: string) => {
@@ -267,25 +287,22 @@ export default function ParamControls({ showCount = false }: { showCount?: boole
     setSettings({ profiles: nextProfiles, activeProfileId: option.profileId })
   }
 
-  // Model chip 只显示 modelLabel；profileName 留在下拉里 + tooltip，控制 chip 宽度。
-  const modelLine =
-    globalModelOptions.find((o) => o.value === currentModelValue)?.modelLabel ?? '未选择'
+  // 品牌图标 + 短名称；重名选项补充来源，完整名称与模型 ID 留在 tooltip。
+  const currentModel = globalModelOptions.find((option) => option.value === currentModelValue)
+  const modelLine = currentModel?.label ?? '未选择'
 
   return (
     <>
       {globalModelOptions.length > 0 && (
         <ParamChip
-          icon={ChipIcons.model}
+          icon={currentModel?.icon ?? ChipIcons.model}
           label={modelLine}
-          className="min-w-[150px] max-w-[200px] flex-shrink"
+          className="min-w-[184px] max-w-[224px] shrink-0 pr-9"
         >
           <ChipSelect
             value={currentModelValue}
             onChange={(val) => handleGlobalModelPick(val)}
-            options={globalModelOptions.map((o) => ({
-              label: `${o.modelLabel} · ${o.profileName}`,
-              value: o.value,
-            }))}
+            options={globalModelOptions}
           />
         </ParamChip>
       )}

@@ -41,7 +41,7 @@ Three ways to work, one shared history:
 
 ### 🛠 Workbench mode
 
-- **Multiple models** — OpenAI, Gemini, custom HTTP endpoints; bring your own API key
+- **Multiple models** — OpenAI, Gemini, custom HTTP endpoints; bring your own API key. The model picker uses compact names and brand icons, with full names and model IDs on hover; matching names are distinguished by their configuration.
 - **Reference images + masks** — up to 16 reference images; the OpenAI path includes a visual mask editor
 - **Waterfall history** — every generation saved locally with its effective parameters, favoritable and searchable
 - **Inspiration library** — hundreds of high-quality prompts you can apply with one click
