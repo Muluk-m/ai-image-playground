@@ -5,6 +5,7 @@ import { db, schema } from '../db/client'
 import { resolveModelMedia } from '../lib/channels'
 import { resolveImageBytesRef } from '../lib/extractImages'
 import { deviceIdSchema } from '../lib/http'
+import { reservationFailureResponse } from '../lib/private-overlay'
 import { asQueueProvider } from '../lib/queueProvider'
 import { taskAccessWhere } from '../lib/task-access'
 import { createQueueTask, findTaskByIdempotencyKey } from '../lib/taskSubmission'
@@ -150,16 +151,8 @@ export const submitRoutes = new Elysia()
         return status(503, { error: 'object_storage_error', message: outcome.message })
       }
 
-      if (outcome.kind === 'insufficient_credits') {
-        return status(402, {
-          error: 'insufficient_credits',
-          required: outcome.required,
-          available: outcome.available,
-        })
-      }
-
-      if (outcome.kind === 'price_unavailable') {
-        return status(422, { error: 'model_price_unavailable', model: outcome.model })
+      if (outcome.kind === 'insufficient_credits' || outcome.kind === 'price_unavailable') {
+        return reservationFailureResponse(outcome)
       }
 
       if (outcome.kind === 'authentication_required') {

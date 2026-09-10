@@ -86,6 +86,22 @@ export function parseFrames(payload: string): ReceivedFrame[] {
     .filter((frame): frame is { id: number; event: AgentTurnEvent } => frame?.id != null)
 }
 
+/** 一个只读到前 `count` 帧就撒手的消费者，模拟断线。 */
+export async function readFrames(response: Response, count: number): Promise<ReceivedFrame[]> {
+  const reader = response.body!.getReader()
+  const decoder = new TextDecoder()
+  let buffered = ''
+  let frames: ReceivedFrame[] = []
+  while (frames.length < count) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffered += decoder.decode(value, { stream: true })
+    frames = parseFrames(buffered)
+  }
+  await reader.cancel()
+  return frames.slice(0, count)
+}
+
 export interface ControlledCompletion {
   /** 中止要靠 signal 把上游流打断，否则 pi 会一直等这条永不结束的流。 */
   responseFor(signal?: AbortSignal): Response

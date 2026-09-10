@@ -92,7 +92,7 @@ describe('agent conversations', () => {
 
     expect(await listAgentMessages(conversation.id, DEVICE)).toEqual([])
 
-    await setAgentConversationTitle(conversation.id, DEVICE, '改成别的')
+    await setAgentConversationTitle(db, conversation.id, DEVICE, '改成别的')
     expect((await findAgentConversation(conversation.id, USER))!.title).toBe('第一句')
   })
 
