@@ -5,7 +5,7 @@ import type { db as bffDb } from '../db/client'
 export type BffTransaction = Parameters<Parameters<typeof bffDb.transaction>[0]>[0]
 
 export type TaskReservationResult =
-  | { readonly kind: 'reserved' }
+  | { readonly kind: 'reserved'; readonly credits: number }
   | {
       readonly kind: 'insufficient_credits'
       readonly required: number
@@ -42,6 +42,12 @@ export interface ChatPricing {
   readonly outputReserveTokens: number
 }
 
+/** 结算结果。积分只有私有账本算得出，公开树拿它去显示，绝不自己按单价折算。 */
+export interface TaskSettlement {
+  /** 这条任务最终实际扣掉的积分；全额退回即 0。 */
+  readonly credits: number
+}
+
 export interface PrivateTaskHooks {
   reserveTask(input: {
     tx: BffTransaction
@@ -62,9 +68,13 @@ export interface PrivateTaskHooks {
     upstreamStatus?: number | null
     /** 上游返回的实际用量；缺席即按预留额全额结算。 */
     actualUsage?: TaskUsage
-  }): Promise<void>
+  }): Promise<TaskSettlement>
   /** 单价表里没登记这个对话模型时返回 null；起轮会在预扣那一步被拒。 */
   chatPricing(model: string): Promise<ChatPricing | null>
+  /** 已结算任务的实际扣费额，按任务 id；查不到的任务不出现在结果里。 */
+  taskCredits(input: {
+    taskIds: readonly string[]
+  }): Promise<Readonly<Record<string, number>>>
   onUserCreated(input: { tx: BffTransaction; userId: string }): Promise<void>
   runMaintenance(now: number): Promise<void>
 }
@@ -85,11 +95,16 @@ export interface PrivateBffOverlay {
 
 const EMPTY_TASK_HOOKS: PrivateTaskHooks = Object.freeze({
   async reserveTask() {
-    return { kind: 'reserved' as const }
+    return { kind: 'reserved' as const, credits: 0 }
   },
-  async finalizeTask() {},
+  async finalizeTask() {
+    return { credits: 0 }
+  },
   async chatPricing() {
     return null
+  },
+  async taskCredits() {
+    return {}
   },
   async onUserCreated() {},
   async runMaintenance() {},
@@ -117,6 +132,7 @@ async function loadOverlay(entryUrl: URL): Promise<PrivateBffOverlay> {
     typeof privateModule.privateTaskHooks.reserveTask !== 'function' ||
     typeof privateModule.privateTaskHooks.finalizeTask !== 'function' ||
     typeof privateModule.privateTaskHooks.chatPricing !== 'function' ||
+    typeof privateModule.privateTaskHooks.taskCredits !== 'function' ||
     typeof privateModule.privateTaskHooks.runMaintenance !== 'function' ||
     typeof privateModule.privateTaskHooks.onUserCreated !== 'function'
   ) {

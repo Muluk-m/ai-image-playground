@@ -1,4 +1,4 @@
-import type { AgentTurnReference } from '@image-playground/shared'
+import type { AgentTurnCost, AgentTurnReference } from '@image-playground/shared'
 import { agentConversationTitle } from '@image-playground/shared'
 import { eq } from 'drizzle-orm'
 import { config } from '../../config'
@@ -15,6 +15,7 @@ import {
   setAgentConversationTitle,
 } from './conversations'
 import type { RunningTurn } from './runningTurns'
+import { collectTurnCost } from './turn-cost'
 import type { AgentTurnSettlement } from './turn'
 
 export interface StartConversationTurnInput {
@@ -59,14 +60,15 @@ async function insertChatTask(
 
 /** 结算是模块级工厂而不是用例里的闭包：闭包会把整段历史钉到轮结束。 */
 function chatSettlement(turnId: string, pricing: ChatPricing) {
-  return async (settlement: AgentTurnSettlement) => {
-    await finishTask(turnId, {
+  return async (settlement: AgentTurnSettlement): Promise<AgentTurnCost> => {
+    const settled = await finishTask(turnId, {
       status: settlement.outcome,
       completedAt: Date.now(),
       upstreamInvocationCount: settlement.upstreamInvocationCount,
       // usage 为 null 是上游没报，缺席即按预留全额结算——退错方向就是凭空造积分。
       ...(settlement.usage ? { actualUsage: actualChatUsage(settlement.usage, pricing) } : {}),
     })
+    return collectTurnCost(turnId, settled?.credits ?? 0)
   }
 }
 
@@ -101,6 +103,7 @@ export async function startConversationTurn(
         }
       : null
 
+  let reservedCredits: number | undefined
   const written = await db.transaction(async (tx) => {
     if (reservation) {
       await insertChatTask(tx, {
@@ -115,6 +118,7 @@ export async function startConversationTurn(
         await tx.delete(schema.tasks).where(eq(schema.tasks.id, turnId))
         return reserved
       }
+      reservedCredits = reserved.credits
     }
     if (history.length === 0) {
       await setAgentConversationTitle(tx, conversationId, owner, agentConversationTitle(text))
@@ -140,6 +144,7 @@ export async function startConversationTurn(
       references,
       userId,
       deviceId,
+      ...(reservedCredits === undefined ? {} : { reservedCredits }),
       settle: reservation ? chatSettlement(turnId, pricing) : undefined,
     }),
   }

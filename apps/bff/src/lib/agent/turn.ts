@@ -4,6 +4,7 @@ import type {
   AgentMessageView,
   AgentToolName,
   AgentToolResultBlock,
+  AgentTurnCost,
   AgentTurnErrorCode,
   AgentTurnReference,
   AgentTurnUsage,
@@ -75,8 +76,10 @@ export interface StartAgentTurnInput {
   /** 工具提交的图片任务归到这个身份下，计费与配额因此与用户自己提交的一致。 */
   readonly userId: string | null
   readonly deviceId: string
-  /** 收尾结算；缺席即这个部署不计费。 */
-  readonly settle?: (settlement: AgentTurnSettlement) => Promise<void>
+  /** 起轮时预扣的积分；缺席即这个部署不计费。 */
+  readonly reservedCredits?: number
+  /** 收尾结算，回报本轮结算后的消耗；缺席即这个部署不计费。 */
+  readonly settle?: (settlement: AgentTurnSettlement) => Promise<AgentTurnCost>
 }
 
 /** 工具结果块回放成一行文字：pi 的转录里没有历史轮的工具调用，配不成对的工具结果会被上游拒。 */
@@ -374,7 +377,12 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
     }
   })
 
-  events.emit({ type: 'turnStart', turnId, userMessageId })
+  events.emit({
+    type: 'turnStart',
+    turnId,
+    userMessageId,
+    ...(input.reservedCredits === undefined ? {} : { reservedCredits: input.reservedCredits }),
+  })
 
   const turn: RunningTurn = {
     conversationId,
@@ -412,8 +420,9 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
 
       const usage = reportedUsage(agent.state.messages)
       const outcome: TaskOutcome = error ? 'failed' : aborted ? 'cancelled' : 'completed'
+      let cost: AgentTurnCost | undefined
       try {
-        await settle?.({
+        cost = await settle?.({
           outcome,
           usage,
           upstreamInvocationCount: Math.max(
@@ -439,6 +448,7 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
         stopReason: outcome === 'cancelled' ? 'aborted' : outcome,
         ...(error ? { error } : {}),
         usage,
+        ...(cost ? { cost } : {}),
       })
       await touchAgentConversation(conversationId)
       await events.flush()

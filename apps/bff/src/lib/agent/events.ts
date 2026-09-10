@@ -1,5 +1,9 @@
-import { AGENT_TURN_EVENT_RETENTION_MS, type AgentTurnEvent } from '@image-playground/shared'
-import { and, asc, desc, eq, gt, lt } from 'drizzle-orm'
+import {
+  AGENT_TURN_EVENT_RETENTION_MS,
+  type AgentTurnEvent,
+  type AgentTurnSummaryView,
+} from '@image-playground/shared'
+import { and, asc, desc, eq, gt, lt, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 
 export interface StoredAgentEvent {
@@ -68,6 +72,36 @@ export async function readAgentTurnEvents(
     )
     .orderBy(asc(schema.agent_turn_events.seq))
   return rows
+}
+
+/**
+ * 翻历史时的每轮页脚：终帧本来就带耗时与消耗，不为它另存一份。
+ * 代价是过了事件保留窗口的轮没有页脚。
+ */
+export async function listAgentTurnSummaries(
+  conversationId: string,
+): Promise<AgentTurnSummaryView[]> {
+  const rows = await db
+    .select({ event: schema.agent_turn_events.event })
+    .from(schema.agent_turn_events)
+    .where(
+      and(
+        eq(schema.agent_turn_events.conversation_id, conversationId),
+        sql`${schema.agent_turn_events.event} ->> 'type' = 'turnEnd'`,
+      ),
+    )
+    .orderBy(asc(schema.agent_turn_events.seq))
+  return rows.flatMap(({ event }) => {
+    if (event.type !== 'turnEnd') return []
+    return [
+      {
+        turnId: event.turnId,
+        durationMs: event.durationMs,
+        stopReason: event.stopReason,
+        ...(event.cost ? { cost: event.cost } : {}),
+      },
+    ]
+  })
 }
 
 /** 保留窗口之外的事件没人再续播，留着只会把表撑大。 */
