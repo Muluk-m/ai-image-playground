@@ -188,6 +188,41 @@ describe('normalizeSettings + builtin channels (hydrate timing fix)', () => {
     }
   })
 
+  it('builds no profile for a video-only channel', async () => {
+    const { setChannels } = await import('../../lib/channels/channelStore')
+    const { GROK_CHANNEL, IMAGE_CHANNEL } = await import('../features/video/fixtures')
+    setChannels([GROK_CHANNEL, IMAGE_CHANNEL])
+    try {
+      const s = normalizeSettings({})
+      expect(s.profiles.map((p) => p.id)).toEqual([IMAGE_CHANNEL.id])
+      expect(s.activeProfileId).toBe(IMAGE_CHANNEL.id)
+    } finally {
+      setChannels([])
+    }
+  })
+
+  it('repairs a persisted builtin profile pinned to a video model', async () => {
+    const { setChannels } = await import('../../lib/channels/channelStore')
+    setChannels([
+      {
+        id: 'test-mixed',
+        kind: 'openai-queue',
+        label: 'Test Mixed',
+        models: [
+          { id: 'vid', label: 'Video', capabilities: ['generate'], media: 'video' },
+          { id: 'img', label: 'Image', capabilities: ['generate'] },
+        ],
+        defaults: {},
+      },
+    ])
+    try {
+      const s = normalizeSettings({ profiles: [createBuiltinEdgeProfile('test-mixed', 'vid')] })
+      expect(s.profiles[0]).toMatchObject({ channelId: 'test-mixed', selectedModelId: 'img' })
+    } finally {
+      setChannels([])
+    }
+  })
+
   it('still falls back to default BYOK when there are no channels and no profiles', () => {
     // 旧行为不变：纯静态 BYOK 部署形态
     const s = normalizeSettings({})
