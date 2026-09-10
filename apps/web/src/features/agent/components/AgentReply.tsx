@@ -18,7 +18,8 @@ export default function AgentReply({ messageId, text }: Props) {
     const body = bodyRef.current
     if (!body || expanded) return
     setClipped(body.scrollHeight > body.clientHeight + 1)
-  }, [expanded])
+    // 文字是流进来的，量一次不够：每次增量后折叠判定都会变。
+  }, [expanded, text])
 
   return (
     <div className="flex flex-col items-start gap-0.5">
