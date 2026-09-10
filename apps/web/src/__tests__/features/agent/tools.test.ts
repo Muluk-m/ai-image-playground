@@ -57,6 +57,8 @@ let turnResponse: () => Response
 let messagesResponse: () => Response
 const onCanvas = new Set<string>()
 const placed: { imageId: string; dataUrl: string }[] = []
+/** 画布内容的修订号；测试里手动抬它就等于「用户动了画布」。 */
+let revision = 0
 
 const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
   const url = String(input)
@@ -86,13 +88,18 @@ beforeEach(() => {
   localStorage.clear()
   onCanvas.clear()
   placed.length = 0
+  revision = 0
   setAgentCanvasSink({
     has: (imageId) => onCanvas.has(imageId),
-    async place(items) {
+    revision: () => revision,
+    async place(items, baseRevision) {
+      if (baseRevision !== undefined && baseRevision !== revision) return 'conflict'
       for (const item of items) {
         placed.push(item)
         onCanvas.add(item.imageId)
       }
+      revision += 1
+      return 'placed'
     },
     focus() {},
     async thumbnail() {
@@ -193,6 +200,77 @@ describe('工具事件', () => {
     expect(placed).toEqual([])
   })
 
+  it('一轮里连着两次落图，第二次不因为第一次的写入误判冲突', async () => {
+    const second = { ...IMAGE, imageId: 'agent_image_2' }
+    turnResponse = () =>
+      turnStream(
+        TURN_START,
+        TOOL_START,
+        TOOL_END,
+        { ...TOOL_START, messageId: 'tool-2', toolCallId: 'call-2' },
+        { ...TOOL_END, messageId: 'tool-2', toolCallId: 'call-2', images: [second] },
+        TURN_END,
+      )
+
+    await state().send('画两只橘猫')
+
+    expect(placed.map((one) => one.imageId)).toEqual(['agent_image_1', 'agent_image_2'])
+    expect(toolMessages().every((one) => one.canvasConflict !== true)).toBe(true)
+  })
+})
+
+describe('画布冲突', () => {
+  /** 起完这一轮之后用户动了画布：基线取在 send 里，所以这里抬修订号就是冲突。 */
+  function editCanvasDuringTurn(...events: AgentTurnEvent[]): void {
+    turnResponse = () => {
+      revision += 1
+      return turnStream(...events)
+    }
+  }
+
+  it('生成期间画布被改过就不写入，结果卡留住产出并给出手动放入的入口', async () => {
+    editCanvasDuringTurn(TURN_START, TOOL_START, TOOL_END, TURN_END)
+
+    await state().send('画一只橘猫')
+
+    expect(placed).toEqual([])
+    expect(onCanvas.has(IMAGE.imageId)).toBe(false)
+    expect(toolMessages()[0]).toMatchObject({
+      status: 'succeeded',
+      images: [IMAGE],
+      canvasConflict: true,
+    })
+  })
+
+  it('手动放入把产出写进画布并撤掉提示', async () => {
+    editCanvasDuringTurn(TURN_START, TOOL_START, TOOL_END, TURN_END)
+    await state().send('画一只橘猫')
+
+    await state().placeOnCanvas('tool-1')
+
+    expect(placed).toEqual([{ imageId: 'agent_image_1', dataUrl: 'data:image/png;base64,AQID' }])
+    expect(toolMessages()[0]!.canvasConflict).toBeUndefined()
+  })
+
+  it('冲突之后这一轮的后续产出照样不写入', async () => {
+    const second = { ...IMAGE, imageId: 'agent_image_2' }
+    editCanvasDuringTurn(
+      TURN_START,
+      TOOL_START,
+      TOOL_END,
+      { ...TOOL_START, messageId: 'tool-2', toolCallId: 'call-2' },
+      { ...TOOL_END, messageId: 'tool-2', toolCallId: 'call-2', images: [second] },
+      TURN_END,
+    )
+
+    await state().send('画两只橘猫')
+
+    expect(placed).toEqual([])
+    expect(toolMessages().map((one) => one.canvasConflict)).toEqual([true, true])
+  })
+})
+
+describe('历史', () => {
   it('读回历史时把存下来的工具结果还原成结果卡', async () => {
     messagesResponse = () =>
       Response.json({

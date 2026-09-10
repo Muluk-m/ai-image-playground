@@ -1,4 +1,8 @@
-import type { AgentCanvasSink, AgentPlacedImage } from '../../agent/lib/canvasSink'
+import type {
+  AgentCanvasSink,
+  AgentPlacedImage,
+  AgentPlaceOutcome,
+} from '../../agent/lib/canvasSink'
 import type { CanvasEditor } from './editor'
 import { placeImagesOnCanvas } from './placeholderShapeOps'
 import { computePlaceholderTarget } from './placement'
@@ -13,13 +17,20 @@ export function createAgentCanvasSink(editor: CanvasEditor): AgentCanvasSink {
   return {
     has: (imageId) => editor.getElement(imageId) !== undefined,
 
-    async place(images: readonly AgentPlacedImage[]) {
+    revision: () => editor.contentRevision(),
+
+    async place(
+      images: readonly AgentPlacedImage[],
+      baseRevision?: number,
+    ): Promise<AgentPlaceOutcome> {
+      if (baseRevision !== undefined && editor.contentRevision() !== baseRevision) return 'conflict'
       await placeImagesOnCanvas(
         editor,
         images.map((image) => image.dataUrl),
         computePlaceholderTarget(editor, null),
         { ids: images.map((image) => image.imageId) },
       )
+      return 'placed'
     },
 
     focus(imageId) {
