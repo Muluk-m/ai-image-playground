@@ -1,4 +1,7 @@
 import {
+  VIDEO_DEFAULT_ASPECT_RATIO,
+  VIDEO_DEFAULT_DURATION,
+  VIDEO_DEFAULT_RESOLUTION,
   VIDEO_MODEL_SUPPORT,
   type VideoAspectRatio,
   type VideoDeriveMode,
@@ -51,9 +54,9 @@ export const INITIAL_VIDEO_DRAFT: VideoDraft = {
   source: 'text',
   prompt: '',
   model: '',
-  duration: 5,
-  aspectRatio: '16:9',
-  resolution: '720p',
+  duration: VIDEO_DEFAULT_DURATION,
+  aspectRatio: VIDEO_DEFAULT_ASPECT_RATIO,
+  resolution: VIDEO_DEFAULT_RESOLUTION,
   firstFrameImageId: null,
   lastFrameImageId: null,
 }

@@ -18,6 +18,11 @@ export const VIDEO_RESOLUTION_LABELS: Record<VideoResolution, string> = {
   '2k': '2K',
 }
 
+/** 新建一条视频时的缺省档位；模型不支持就按它自己的支持矩阵退档。 */
+export const VIDEO_DEFAULT_DURATION: VideoDuration = 5
+export const VIDEO_DEFAULT_ASPECT_RATIO: VideoAspectRatio = '16:9'
+export const VIDEO_DEFAULT_RESOLUTION: VideoResolution = '720p'
+
 export const VIDEO_MODES = ['generate', 'extend', 'edit'] as const
 export type VideoMode = (typeof VIDEO_MODES)[number]
 
@@ -152,6 +157,11 @@ export const VIDEO_MODEL_SUPPORT: Record<string, VideoModelSupport> = {
 }
 
 export type VideoValidationResult = { ok: true } | { ok: false; reason: string }
+
+/** 落不到该模型的合法档位上就退到它的第一档。 */
+export function clampToSupported<T>(allowed: readonly T[], value: T): T {
+  return allowed.includes(value) ? value : allowed[0]!
+}
 
 export function videoRateMultiplier(modelId: string, resolution: VideoResolution): number {
   return VIDEO_MODEL_SUPPORT[modelId]?.resolutionMultipliers[resolution] ?? 1

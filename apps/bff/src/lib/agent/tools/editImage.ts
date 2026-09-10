@@ -2,7 +2,7 @@ import type { AgentTool } from '@earendil-works/pi-agent-core'
 import { agentTitleLine } from '@image-playground/shared'
 import { Type } from 'typebox'
 import type { ResolvedAgentImage } from '../images'
-import { runImageTask } from './imageTask'
+import { runQueueTask } from './queueTask'
 import type { AgentToolContext, AgentToolDefinition, AgentToolDetails } from './types'
 
 const TITLE_MAX_CHARS = 40
@@ -53,9 +53,10 @@ export const editImage: AgentToolDefinition = {
       parameters,
       async execute(_toolCallId, params, signal, onUpdate) {
         const images = await resolveAll(context, params.imageIds)
-        return runImageTask(
+        return runQueueTask(
           context,
           {
+            media: 'image',
             prompt: params.prompt,
             inputImages: images.map((image) => image.dataUrl),
             ...(images[0]?.maskDataUrl ? { mask: images[0].maskDataUrl } : {}),

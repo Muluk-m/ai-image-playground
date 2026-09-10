@@ -1,4 +1,5 @@
 import {
+  clampToSupported,
   VIDEO_DURATIONS,
   VIDEO_MODEL_SUPPORT,
   type VideoDuration,
@@ -7,10 +8,7 @@ import {
 } from '@image-playground/shared'
 import type { VideoDraft, VideoTask } from '../types'
 
-/** 落不到该模型的合法档位上就退到它的第一档。 */
-export function clampToSupported<T>(allowed: readonly T[], value: T): T {
-  return allowed.includes(value) ? value : allowed[0]!
-}
+export { clampToSupported }
 
 /**
  * 换模型时把不支持的档位落到该模型的合法值上。帧槽不动 —— 切到不支持尾帧的模型

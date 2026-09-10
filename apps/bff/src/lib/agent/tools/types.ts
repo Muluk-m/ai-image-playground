@@ -28,5 +28,7 @@ export interface AgentToolDefinition {
    * 换成模型可以改参数重试的工具就填 `continue`。
    */
   readonly onError: 'abort' | 'continue'
+  /** 部署开关；缺席即到处都在。关掉时工具不进模型的清单，历史里的结果照样认得出来。 */
+  available?(): boolean
   create(context: AgentToolContext): AgentTool
 }
