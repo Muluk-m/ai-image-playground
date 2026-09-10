@@ -1,6 +1,7 @@
 import { type KeyboardEvent, useEffect, useRef, useState } from 'react'
 import type { CanvasDoc } from '../../canvas/lib/canvasDoc'
 import {
+  ABORT_BUTTON,
   ACTIVE_TAB,
   FIELD,
   ICON_BUTTON,
@@ -43,7 +44,7 @@ export default function AgentPanel({ doc }: { doc: CanvasDoc }) {
   const messages = useAgentStore((state) => state.messages)
   const turn = useAgentStore((state) => state.turn)
   const error = useAgentStore((state) => state.error)
-  const { setOpen, setTab, load, send } = useAgentStore.getState()
+  const { setOpen, setTab, load, send, abort } = useAgentStore.getState()
   const [draft, setDraft] = useState('')
   const logRef = useRef<HTMLDivElement>(null)
 
@@ -150,14 +151,14 @@ export default function AgentPanel({ doc }: { doc: CanvasDoc }) {
             placeholder="说一句你想做什么"
             className={FIELD}
           />
-          <div className="flex items-center justify-end">
-            <button
-              type="button"
-              className={SEND_BUTTON}
-              disabled={turn === 'running' || !draft.trim()}
-              onClick={submit}
-            >
-              {turn === 'running' ? '进行中' : '发送'}
+          <div className="flex items-center justify-end gap-2">
+            {turn === 'running' && (
+              <button type="button" className={ABORT_BUTTON} onClick={() => void abort()}>
+                中止
+              </button>
+            )}
+            <button type="button" className={SEND_BUTTON} disabled={!draft.trim()} onClick={submit}>
+              {turn === 'running' ? '插话' : '发送'}
             </button>
           </div>
         </div>

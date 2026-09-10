@@ -24,6 +24,9 @@ export const FIELD =
 export const SEND_BUTTON =
   'h-7 rounded-lg bg-blue-600 px-3 text-xs font-semibold text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-40'
 
+export const ABORT_BUTTON =
+  'h-7 rounded-lg border border-white/[0.12] px-3 text-xs text-[#c9c9d1] transition hover:bg-white/[0.08]'
+
 export const ICON_BUTTON = `rounded-lg p-1 transition-colors ${INK_3} hover:bg-white/[0.08] hover:text-[#e8e8ea]`
 
 export const GHOST_LINK = 'text-[11px] text-blue-300 transition-colors hover:text-blue-200'

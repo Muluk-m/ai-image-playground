@@ -2,6 +2,7 @@ import { QUEUE_TIMEOUTS, SERVER_IDLE_TIMEOUT_SEC } from '@image-playground/share
 import { config } from './config'
 import { close as closeDb } from './db/client'
 import { purgeOldTasks, purgeOrphanedAssetObjects, runPrivateMaintenance } from './db/maintenance'
+import { purgeOldAgentTurnEvents } from './lib/agent/events'
 import { isCapabilityEnabled } from './lib/capabilities'
 import { initChannels } from './lib/channels'
 import { log } from './lib/logger'
@@ -38,6 +39,7 @@ log.info(
 )
 const accountsLoginEnabled = isCapabilityEnabled('accounts:login')
 const syncEnabled = isCapabilityEnabled('accounts:sync')
+const agentEnabled = isCapabilityEnabled('agent:chat')
 
 const channelsResult = initChannels(config.channelsFile ?? undefined)
 for (const warning of channelsResult.warnings) {
@@ -65,6 +67,12 @@ setInterval(async () => {
     const orphaned = await purgeOrphanedAssetObjects()
     if (orphaned > 0) {
       log.info({ event: 'periodic.purged_asset_owners', count: orphaned }, 'purged asset objects')
+    }
+  }
+  if (agentEnabled) {
+    const expired = await purgeOldAgentTurnEvents()
+    if (expired > 0) {
+      log.info({ event: 'periodic.purged_agent_events', count: expired }, 'purged agent events')
     }
   }
 }, QUEUE_TIMEOUTS.PURGE_INTERVAL_MS)

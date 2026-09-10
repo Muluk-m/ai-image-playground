@@ -1,14 +1,13 @@
 import { Agent, type AgentMessage } from '@earendil-works/pi-agent-core'
-import type {
-  AgentMessageView,
-  AgentTurnErrorCode,
-  AgentTurnEvent,
-  AgentTurnUsage,
-} from '@image-playground/shared'
-import { agentMessageText, agentTextFromBlocks } from '@image-playground/shared'
+import type { AgentMessageView, AgentTurnErrorCode, AgentTurnUsage } from '@image-playground/shared'
+import { agentMessageText } from '@image-playground/shared'
+import { db } from '../../db/client'
 import { log } from '../logger'
 import { createCompactionTransform } from './compaction-transform'
+import { appendAgentMessage, touchAgentConversation } from './conversations'
+import { lastAgentEventSeq } from './events'
 import { agentModel, agentStreamFn } from './model'
+import { type RunningTurn, registerRunningTurn, turnEventLog } from './runningTurns'
 
 const EMPTY_USAGE = {
   input: 0,
@@ -25,11 +24,10 @@ const SYSTEM_PROMPT = [
   '现在你还没有可调用的工具，只能对着用户描述的内容给出建议。',
 ].join('\n')
 
-export interface AgentTurnInput {
+export interface StartAgentTurnInput {
   readonly conversationId: string
   readonly turnId: string
   readonly userMessageId: string
-  readonly assistantMessageId: string
   readonly history: readonly AgentMessageView[]
   readonly text: string
 }
@@ -58,43 +56,9 @@ function replayed(history: readonly AgentMessageView[]): AgentMessage[] {
   )
 }
 
-interface EventQueue {
-  push(event: AgentTurnEvent): void
-  finish(): void
-  drain(): AsyncGenerator<AgentTurnEvent>
-}
-
-function eventQueue(): EventQueue {
-  const buffered: AgentTurnEvent[] = []
-  let wake: (() => void) | null = null
-  let finished = false
-  return {
-    push(event) {
-      buffered.push(event)
-      wake?.()
-      wake = null
-    },
-    finish() {
-      finished = true
-      wake?.()
-      wake = null
-    },
-    async *drain() {
-      while (true) {
-        while (buffered.length > 0) yield buffered.shift()!
-        if (finished) return
-        await new Promise<void>((resolve) => {
-          wake = resolve
-        })
-      }
-    },
-  }
-}
-
-export interface AgentTurnResult {
-  readonly text: string
-  readonly usage: AgentTurnUsage | null
-  readonly error?: AgentTurnErrorCode
+interface OpenAssistantMessage {
+  readonly id: string
+  text: string
 }
 
 /**
@@ -108,13 +72,11 @@ function reportedUsage(message: AgentMessage | undefined): AgentTurnUsage | null
   return { inputTokens: input, outputTokens: output }
 }
 
-/** 这里不碰数据库：落库由调用方在 `onSettled` 里做。 */
-export async function* runAgentTurn(
-  input: AgentTurnInput,
-  onSettled: (result: AgentTurnResult) => Promise<void>,
-): AsyncGenerator<AgentTurnEvent> {
+/** 起一轮并立刻返回把手；`read()` 可以被断开再重开。 */
+export async function startAgentTurn(input: StartAgentTurnInput): Promise<RunningTurn> {
+  const { conversationId, turnId, userMessageId, text: prompt } = input
   const startedAt = Date.now()
-  const queue = eventQueue()
+  const events = turnEventLog(conversationId, turnId, await lastAgentEventSeq(conversationId))
   const agent = new Agent({
     initialState: {
       systemPrompt: SYSTEM_PROMPT,
@@ -131,56 +93,132 @@ export async function* runAgentTurn(
   })
 
   let error: AgentTurnErrorCode | undefined
-  agent.subscribe((event) => {
-    if (event.type === 'message_update' && event.assistantMessageEvent.type === 'text_delta') {
-      queue.push({ type: 'textDelta', delta: event.assistantMessageEvent.delta })
+  let aborted = false
+  let storedAny = false
+  let open: OpenAssistantMessage | null = null
+  let queued: { readonly id: string; readonly text: string }[] = []
+  // 消息表的读回顺序是插入顺序，所以落库排成一条链，不让插话抢在半截回复前面。
+  let writes: Promise<void> = Promise.resolve()
+
+  const write = (append: () => Promise<void>) => {
+    writes = writes.then(append)
+    return writes
+  }
+
+  const closeOpen = async () => {
+    const current = open
+    open = null
+    if (current) await store(current)
+  }
+
+  const flushQueued = () => {
+    const pending = queued
+    queued = []
+    for (const message of pending) {
+      write(async () => {
+        await appendAgentMessage(db, {
+          id: message.id,
+          conversationId,
+          turnId,
+          role: 'user',
+          content: [{ type: 'text', text: message.text }],
+        })
+      })
     }
-    // pi 不为上游失败抛异常，它把失败写进助手消息的停因。
+  }
+
+  const store = (message: OpenAssistantMessage) =>
+    write(async () => {
+      if (!message.text) return
+      await appendAgentMessage(db, {
+        id: message.id,
+        conversationId,
+        turnId,
+        role: 'assistant',
+        content: [{ type: 'text', text: message.text }],
+      })
+      storedAny = true
+    })
+
+  agent.subscribe(async (event) => {
+    if (event.type === 'message_start' && event.message.role === 'assistant') {
+      open = { id: crypto.randomUUID(), text: '' }
+    }
+    if (event.type === 'message_update' && event.assistantMessageEvent.type === 'text_delta') {
+      const current = open
+      if (!current) return
+      // 上游报错的那条助手消息一个字都没有，不为它开一个空气泡。
+      if (!current.text) events.emit({ type: 'assistantStart', messageId: current.id })
+      current.text += event.assistantMessageEvent.delta
+      events.emit({
+        type: 'textDelta',
+        messageId: current.id,
+        delta: event.assistantMessageEvent.delta,
+      })
+    }
     if (event.type === 'message_end' && event.message.role === 'assistant') {
+      // pi 不为上游失败抛异常，它把失败写进助手消息的停因。
       if (event.message.stopReason === 'error') error = 'agent_upstream_error'
+      else await closeOpen()
+      open = null
+      flushQueued()
     }
   })
 
-  const running = agent
-    .prompt(input.text)
+  events.emit({ type: 'turnStart', turnId, userMessageId })
+
+  const turn: RunningTurn = {
+    conversationId,
+    turnId,
+    read: (afterSeq) => events.read(afterSeq),
+    interject(text) {
+      const messageId = crypto.randomUUID()
+      // 插话要等当前这条助手消息落库；pi 也是等它跑完才把插话喂进去。
+      queued.push({ id: messageId, text })
+      if (!open) flushQueued()
+      events.emit({ type: 'interjection', messageId, text })
+      agent.steer({ role: 'user', content: [{ type: 'text', text }], timestamp: Date.now() })
+      return messageId
+    },
+    abort() {
+      aborted = true
+      agent.abort()
+    },
+  }
+  const unregister = registerRunningTurn(turn)
+
+  void agent
+    .prompt(prompt)
     .catch((thrown) => {
+      if (aborted) return
       log.warn({ event: 'agent.turn_failed', err: thrown }, 'agent turn failed')
       error = 'agent_run_failed'
     })
-    .finally(() => queue.finish())
+    .then(async () => {
+      // 中止时 pi 可能走不到 message_end，已经流给用户的半截回复要自己落库。
+      await closeOpen()
+      flushQueued()
+      await writes
+      if (!error && !aborted && !storedAny) error = 'agent_run_failed'
 
-  try {
-    yield {
-      type: 'turnStart',
-      turnId: input.turnId,
-      userMessageId: input.userMessageId,
-      assistantMessageId: input.assistantMessageId,
-    }
-    for await (const event of queue.drain()) yield event
+      const usage = reportedUsage(agent.state.messages.at(-1))
+      log.info(
+        { event: 'agent.turn_settled', turnId, usage, error: error ?? null },
+        'agent turn settled',
+      )
+      events.emit({
+        type: 'turnEnd',
+        turnId,
+        durationMs: Date.now() - startedAt,
+        stopReason: error ? 'failed' : aborted ? 'aborted' : 'completed',
+        ...(error ? { error } : {}),
+        usage,
+      })
+      await touchAgentConversation(conversationId)
+      await events.flush()
+      unregister()
+      events.close()
+    })
 
-    const last = agent.state.messages.at(-1)
-    const text = last?.role === 'assistant' ? agentTextFromBlocks(last.content) : ''
-    const usage = reportedUsage(last)
-    if (!error && !text) error = 'agent_run_failed'
-
-    log.info(
-      { event: 'agent.turn_settled', turnId: input.turnId, usage, error: error ?? null },
-      'agent turn settled',
-    )
-    await onSettled({ text, usage, error })
-    if (error) {
-      yield { type: 'error', error }
-      return
-    }
-    yield {
-      type: 'turnEnd',
-      turnId: input.turnId,
-      durationMs: Date.now() - startedAt,
-      usage,
-    }
-  } finally {
-    // 客户端断开时消费者停止拉取，不中止上游就会把整轮 token 烧完。
-    agent.abort()
-    await running
-  }
+  return turn
 }
