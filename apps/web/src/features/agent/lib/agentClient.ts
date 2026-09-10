@@ -3,14 +3,16 @@ import type {
   AgentConversationView,
   AgentFrame,
   AgentMessageView,
-  AgentToolImage,
+  AgentToolArtifact,
   AgentTurnReference,
+  AgentTurnSummaryView,
 } from '@image-playground/shared'
 import { AGENT_FRAME_SEPARATOR, parseAgentFrame } from '@image-playground/shared'
 import { authenticatedBffFetch } from '../../../lib/authClient'
 import { fetchImageDataUrl } from '../../../lib/channels/queueClient'
 import { getDeviceId } from '../../../lib/deviceId'
 import { bffBaseUrl } from '../../../lib/runtimeConfig'
+import { queueOutputUrl } from '../../video/lib/playback'
 
 type Fetcher = (input: string, init?: RequestInit) => Promise<Response>
 
@@ -74,6 +76,7 @@ export async function adoptAgentConversations(
 
 export interface AgentConversationState {
   readonly messages: AgentMessageView[]
+  readonly turns: AgentTurnSummaryView[]
   readonly activeTurn: AgentActiveTurnView | null
 }
 
@@ -165,6 +168,11 @@ export async function interjectTurn(
   )
 }
 
-export function fetchToolImage(image: AgentToolImage): Promise<string> {
-  return fetchImageDataUrl(bffBaseUrl(), image.taskId, image.outputIndex, image.mime)
+export function fetchToolImage(artifact: AgentToolArtifact): Promise<string> {
+  return fetchImageDataUrl(bffBaseUrl(), artifact.taskId, artifact.outputIndex, artifact.mime)
+}
+
+/** 视频产物的播放地址。mp4 不落本地，画布与结果卡都打这里。 */
+export function toolArtifactUrl(artifact: AgentToolArtifact): string {
+  return queueOutputUrl(artifact.taskId, artifact.outputIndex)
 }

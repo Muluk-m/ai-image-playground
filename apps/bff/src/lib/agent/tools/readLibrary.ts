@@ -51,6 +51,7 @@ async function describe(context: AgentToolContext, query: string | undefined): P
 
 export const readLibrary: AgentToolDefinition = {
   name: 'readLibrary',
+  guidance: '用户提到某个素材但没有引用它时，先用读素材库工具按名字查到图片 id，再拿去改图。',
   title,
   onError: 'continue',
   create(context) {

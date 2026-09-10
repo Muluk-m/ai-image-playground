@@ -13,6 +13,7 @@ import { recoverCanvasTasks } from '../lib/recoverCanvasTasks'
 import CanvasGenerateBar from './CanvasGenerateBar'
 import CanvasShortcutsHint from './CanvasShortcutsHint'
 import CanvasToolbar from './CanvasToolbar'
+import CanvasVideoOverlay from './CanvasVideoOverlay'
 import KonvaCanvas from './KonvaCanvas'
 import PlaceholderOverlay from './PlaceholderOverlay'
 import StylePanel from './StylePanel'
@@ -55,7 +56,11 @@ export default function CanvasMode() {
       recoverCanvasTasks(editor)
       const pending = useStore.getState().consumeCanvasImages()
       if (pending.length > 0) {
-        placeImagesOnCanvas(editor, pending, computePlaceholderTarget(editor, null)).then(
+        placeImagesOnCanvas(
+          editor,
+          pending.map((dataUrl) => ({ dataUrl })),
+          computePlaceholderTarget(editor, null),
+        ).then(
           // 放置若在卸载后才完成，最终落盘已错过 → 补存一次
           () => {
             if (disposed) void saveScene(editor)
@@ -82,6 +87,7 @@ export default function CanvasMode() {
       <div className="relative h-full w-full">
         <KonvaCanvas editor={editor} />
         <PlaceholderOverlay editor={editor} />
+        <CanvasVideoOverlay editor={editor} />
         <CanvasToolbar doc={doc} />
         <StylePanel doc={doc} />
         <CanvasShortcutsHint />

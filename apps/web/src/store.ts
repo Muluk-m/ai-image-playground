@@ -55,6 +55,7 @@ import {
   getAllTasks,
   getImage,
   getImageThumbnail,
+  getReferencedImageIds,
   getStoredFreshImageThumbnail,
   putImage,
   putImageThumbnail,
@@ -1207,6 +1208,16 @@ async function resolveImageSizeParamsList(
   )
 }
 
+async function imageIdsInUse(tasks: readonly TaskRecord[]): Promise<Set<string>> {
+  const ids = await getReferencedImageIds(tasks)
+  const { inputImages, maskDraft } = useStore.getState()
+  for (const image of inputImages) ids.add(image.id)
+  if (maskDraft) {
+    ids.add(maskDraft.targetImageId)
+  }
+  return ids
+}
+
 /** 初始化：从 IndexedDB 加载任务，按需恢复输入图片，并清理孤立图片 */
 export async function initStore() {
   const storedTasks = await getAllTasks()
@@ -1231,20 +1242,8 @@ export async function initStore() {
     }
   }
 
-  // 收集所有任务引用的图片 id
-  const referencedIds = new Set<string>()
+  const referencedIds = await imageIdsInUse(tasks)
   const persistedInputImages = useStore.getState().inputImages
-  for (const img of persistedInputImages) referencedIds.add(img.id)
-  for (const t of tasks) {
-    for (const id of t.inputImageIds || []) referencedIds.add(id)
-    if (t.maskImageId) referencedIds.add(t.maskImageId)
-    for (const id of t.outputImages || []) {
-      referencedIds.add(id)
-    }
-    for (const id of t.transparentOriginalImages || []) {
-      if (id) referencedIds.add(id)
-    }
-  }
 
   // 只枚举 key 清理孤立图片，避免启动时把所有 4K 原图读进内存。
   const imageIds = await getAllImageIds()
@@ -1970,8 +1969,7 @@ export async function sendTaskToCanvas(task: TaskRecord, imageId?: string) {
 
 /** 删除多条任务 */
 export async function removeMultipleTasks(taskIds: string[]) {
-  const { tasks, setTasks, inputImages, showToast, clearSelection, selectedTaskIds } =
-    useStore.getState()
+  const { tasks, setTasks, showToast, clearSelection, selectedTaskIds } = useStore.getState()
 
   if (!taskIds.length) return
 
@@ -1996,17 +1994,7 @@ export async function removeMultipleTasks(taskIds: string[]) {
     await dbDeleteTask(id)
   }
 
-  // 找出其他任务仍引用的图片
-  const stillUsed = new Set<string>()
-  for (const t of remaining) {
-    for (const id of t.inputImageIds || []) stillUsed.add(id)
-    if (t.maskImageId) stillUsed.add(t.maskImageId)
-    for (const id of t.outputImages || []) stillUsed.add(id)
-    for (const id of t.transparentOriginalImages || []) {
-      if (id) stillUsed.add(id)
-    }
-  }
-  for (const img of inputImages) stillUsed.add(img.id)
+  const stillUsed = await imageIdsInUse(remaining)
 
   // 删除孤立图片
   for (const imgId of deletedImageIds) {
@@ -2028,7 +2016,7 @@ export async function removeMultipleTasks(taskIds: string[]) {
 
 /** 删除单条任务 */
 export async function removeTask(task: TaskRecord) {
-  const { tasks, setTasks, inputImages, showToast } = useStore.getState()
+  const { tasks, setTasks, showToast } = useStore.getState()
 
   // 收集此任务关联的图片
   const taskImageIds = new Set([
@@ -2043,17 +2031,7 @@ export async function removeTask(task: TaskRecord) {
   setTasks(remaining)
   await dbDeleteTask(task.id)
 
-  // 找出其他任务仍引用的图片
-  const stillUsed = new Set<string>()
-  for (const t of remaining) {
-    for (const id of t.inputImageIds || []) stillUsed.add(id)
-    if (t.maskImageId) stillUsed.add(t.maskImageId)
-    for (const id of t.outputImages || []) stillUsed.add(id)
-    for (const id of t.transparentOriginalImages || []) {
-      if (id) stillUsed.add(id)
-    }
-  }
-  for (const img of inputImages) stillUsed.add(img.id)
+  const stillUsed = await imageIdsInUse(remaining)
 
   // 删除孤立图片
   for (const imgId of taskImageIds) {

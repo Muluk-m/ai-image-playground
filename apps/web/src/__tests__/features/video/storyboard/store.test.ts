@@ -374,7 +374,7 @@ describe('生视频', () => {
     await useStoryboardStore.getState().generateWholeVideo(id!)
 
     expect(useVideoStore.getState().tasks).toHaveLength(0)
-    expect(showToast).toHaveBeenCalledWith('当前模型不支持 15 秒', 'error')
+    expect(showToast).toHaveBeenCalledWith(expect.stringContaining('当前模型不支持 15 秒'), 'error')
   })
 })
 
@@ -404,4 +404,131 @@ describe('参考图', () => {
     expect(draft()).toEqual(['ref-1', 'ref-2', 'ref-3', 'ref-4'])
     expect(showToast).toHaveBeenCalledWith('最多 4 张参考图', 'error')
   })
+})
+
+describe('导演台保存与版本', () => {
+  it('编辑画面和时长会更新真正提交的提示词与时间段', async () => {
+    await useStoryboardStore.getState().plan(planInput({ shotImages: false }))
+    await useStoryboardStore
+      .getState()
+      .updateShot(board().id, 1, { description: '红色玻璃杯', seconds: 3 })
+    expect(board().shots[1]?.startSeconds).toBe(3)
+    expect(board().totalSeconds).toBe(8)
+    expect(board().videoPrompt).toContain('红色玻璃杯')
+    expect(board().videoPrompt).toContain('3-8秒')
+    expect(board().shots[0]?.imagePrompt).toContain('红色玻璃杯')
+    const saved = (await storyboardStore.list())[0]!
+    expect(saved.videoPrompt).toEqual(board().videoPrompt)
+  })
+
+  it('恢复旧版本前保存当前草稿，版本内容不随编辑改变', async () => {
+    await useStoryboardStore.getState().plan(planInput({ shotImages: false }))
+    const id = board().id
+    const version = await useStoryboardStore.getState().saveVersion(id, '初稿')
+    await useStoryboardStore.getState().updateShot(id, 1, { title: '新版开场' })
+    expect(version?.content.shots[0]?.title).toBe('开场')
+    await useStoryboardStore.getState().restoreVersion(id, version!.id)
+    expect(board().shots[0]?.title).toBe('开场')
+    expect(board().versions?.[1]?.content.shots[0]?.title).toBe('新版开场')
+    useStoryboardStore.setState({ storyboards: [], activeId: null })
+    await useStoryboardStore.getState().load()
+    expect(board().versions).toHaveLength(2)
+    expect(board().shots[0]?.title).toBe('开场')
+  })
+
+  it('镜头前移重算时间但保留镜头身份和图片关联', async () => {
+    await useStoryboardStore.getState().plan(planInput({ shotImages: false }))
+    await useStoryboardStore.getState().moveShot(board().id, 2, -1)
+    expect(board().shots.map((shot) => [shot.no, shot.startSeconds])).toEqual([
+      [2, 0],
+      [1, 5],
+    ])
+    expect(board().videoPrompt.indexOf('液体注入')).toBeLessThan(
+      board().videoPrompt.indexOf('镜头缓慢推进'),
+    )
+  })
+
+  it('写盘失败显示失败状态并阻止视频提交，重试后恢复', async () => {
+    await useStoryboardStore.getState().plan(planInput({ shotImages: false }))
+    const id = board().id
+    const write = vi.spyOn(storyboardStore, 'put').mockRejectedValue(new Error('quota'))
+    const submit = vi.spyOn(useVideoStore.getState(), 'submitStoryboardVideo')
+    expect(await useStoryboardStore.getState().generateWholeVideo(id)).toBeNull()
+    expect(submit).not.toHaveBeenCalled()
+    expect(useStoryboardStore.getState().saveStates[id]).toBe('error')
+    write.mockRestore()
+    submit.mockRestore()
+    await useStoryboardStore.getState().retrySave(id)
+    expect(useStoryboardStore.getState().saveStates[id]).toBe('saved')
+  })
+
+  it('连续编辑按顺序写盘，早期完成不能把后续写入标为已保存', async () => {
+    await useStoryboardStore.getState().plan(planInput({ shotImages: false }))
+    const id = board().id
+    const writes: Array<() => void> = []
+    const put = vi
+      .spyOn(storyboardStore, 'put')
+      .mockImplementation(() => new Promise<void>((resolve) => writes.push(resolve)))
+    const first = useStoryboardStore.getState().rename(id, '第一次')
+    const second = useStoryboardStore.getState().rename(id, '最后一次')
+    await Promise.resolve()
+    expect(put).toHaveBeenCalledTimes(1)
+    writes[0]!()
+    await first
+    expect(useStoryboardStore.getState().saveStates[id]).toBe('saving')
+    await Promise.resolve()
+    writes[1]!()
+    await second
+    expect(put.mock.calls[1]?.[0].title).toBe('最后一次')
+    expect(useStoryboardStore.getState().saveStates[id]).toBe('saved')
+    put.mockRestore()
+  })
+})
+
+it('视频任务冻结提交时的分镜版本，之后编辑不会改写来源', async () => {
+  await useStoryboardStore.getState().plan(planInput({ shotImages: false }))
+  const id = board().id
+  const taskId = await useStoryboardStore.getState().generateWholeVideo(id)
+  expect(taskId).not.toBeNull()
+  const task = useVideoStore.getState().tasks.find((task) => task.id === taskId)!
+  expect(task.storyboardVersion?.content.shots[0]?.title).toBe('开场')
+  await useStoryboardStore.getState().updateShot(id, 1, { title: '新的开场' })
+  expect(task.storyboardVersion?.content.shots[0]?.title).toBe('开场')
+  expect(task.prompt).toBe(PLAN.videoPrompt)
+  await settle()
+})
+
+it('删除最后一镜后新增不复用在途任务的镜头身份', async () => {
+  await useStoryboardStore.getState().plan(planInput({ shotImages: false }))
+  const id = board().id
+  await useStoryboardStore.getState().removeShot(id, 2)
+  await useStoryboardStore.getState().addShot(id)
+  expect(board().shots.map((shot) => shot.no)).toEqual([1, 3])
+})
+
+it('恢复过程中出现新的编辑时保留它，不覆盖未备份的更改', async () => {
+  await useStoryboardStore.getState().plan(planInput({ shotImages: false }))
+  const id = board().id
+  const version = await useStoryboardStore.getState().saveVersion(id, '原稿')
+  await useStoryboardStore.getState().rename(id, '准备恢复的草稿')
+  let finish!: () => void
+  const originalPut = storyboardStore.put
+  const put = vi
+    .spyOn(storyboardStore, 'put')
+    .mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve
+        }),
+    )
+    .mockImplementation(originalPut)
+  const restoring = useStoryboardStore.getState().restoreVersion(id, version!.id)
+  await Promise.resolve()
+  const edit = useStoryboardStore.getState().rename(id, '恢复期间的新修改')
+  finish()
+  await restoring
+  await edit
+  expect(board().title).toBe('恢复期间的新修改')
+  expect(showToast).toHaveBeenCalledWith(expect.stringContaining('草稿在恢复期间有新修改'), 'error')
+  put.mockRestore()
 })

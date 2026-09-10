@@ -9,6 +9,13 @@ import { planStoryboard } from '../../../lib/storyboardClient'
 import { ensureImageCached, storeImageFromFile, submitPrepared, useStore } from '../../../store'
 import type { InputImage, TaskRecord } from '../../../types'
 import { useVideoStore } from '../store'
+import {
+  sameStoryboard,
+  sequencePrompt,
+  sequenceShots,
+  shotPrompt,
+  storyboardContent,
+} from './lib/director'
 import { downloadStoryboardZip } from './lib/exportStoryboard'
 import { storyboardImageParams } from './lib/shotImage'
 import { storyboardStore } from './lib/storyboardStore'
@@ -20,6 +27,7 @@ import {
   type StoryboardShotPatch,
   type StoryboardShotRecord,
   type StoryboardStyle,
+  type StoryboardVersion,
 } from './types'
 
 const NO_IMAGE = '这一镜还没有分镜图'
@@ -42,6 +50,15 @@ export interface StoryboardState {
   activeId: string | null
   loadingSince: number | null
   draft: StoryboardDraft
+  saveStates: Record<string, 'saving' | 'saved' | 'error'>
+  loadError: string | null
+  saveVersion(id: string, name: string): Promise<StoryboardVersion | null>
+  restoreVersion(id: string, versionId: string): Promise<void>
+  rename(id: string, title: string): Promise<void>
+  retrySave(id: string): Promise<void>
+  moveShot(id: string, no: number, direction: -1 | 1): Promise<void>
+  addShot(id: string, copyNo?: number): Promise<void>
+  removeShot(id: string, no: number): Promise<void>
 
   load(): Promise<void>
   setIdea(idea: string): void
@@ -63,9 +80,9 @@ export interface StoryboardState {
   updateVideoPrompt(id: string, videoPrompt: string): Promise<void>
   regenerateShotImage(id: string, no: number): Promise<void>
   generateMissingShotImages(id: string): Promise<void>
-  generateShotVideo(id: string, no: number): Promise<void>
+  generateShotVideo(id: string, no: number): Promise<string | null>
   /** 整条分镜出成一条视频：一条多镜提示词，时长是分镜总时长。 */
-  generateWholeVideo(id: string): Promise<void>
+  generateWholeVideo(id: string): Promise<string | null>
   /** 工作台任务跑完后把出图挂回对应的镜。 */
   adoptShotImages(tasks: ReadonlyMap<string, TaskRecord>): void
   exportZip(id: string): Promise<void>
@@ -102,15 +119,67 @@ export const useStoryboardStore = create<StoryboardState>((set, get) => {
     return false
   }
 
-  async function persist(record: StoryboardRecord): Promise<void> {
+  const deleting = new Set<string>()
+  const writes = new Map<string, Promise<boolean>>()
+  const saveSequence = new Map<string, number>()
+
+  async function persist(record: StoryboardRecord): Promise<boolean> {
+    if (deleting.has(record.id)) return false
+    const sequence = (saveSequence.get(record.id) ?? 0) + 1
+    saveSequence.set(record.id, sequence)
     set((state) => ({
       storyboards: byNewest(
         state.storyboards.some((item) => item.id === record.id)
           ? state.storyboards.map((item) => (item.id === record.id ? record : item))
           : [record, ...state.storyboards],
       ),
+      saveStates: { ...state.saveStates, [record.id]: 'saving' },
     }))
-    await storyboardStore.put(record)
+    const pending = (writes.get(record.id) ?? Promise.resolve(true)).then(async () => {
+      try {
+        await storyboardStore.put(record)
+        if (saveSequence.get(record.id) === sequence) {
+          set((state) => ({ saveStates: { ...state.saveStates, [record.id]: 'saved' } }))
+        }
+        return true
+      } catch (err) {
+        if (saveSequence.get(record.id) === sequence) {
+          set((state) => ({ saveStates: { ...state.saveStates, [record.id]: 'error' } }))
+          useStore.getState().showToast(`分镜保存失败：${errorMessage(err)}`, 'error')
+        }
+        return false
+      }
+    })
+    writes.set(record.id, pending)
+    const saved = await pending
+    if (writes.get(record.id) === pending) writes.delete(record.id)
+    return saved
+  }
+
+  async function versionForGeneration(id: string): Promise<StoryboardVersion | null> {
+    const record = boardOf(id)
+    if (!record) return null
+    const content = storyboardContent(record)
+    const existing = record.versions?.find((version) => sameStoryboard(version.content, content))
+    if (!existing) return get().saveVersion(id, '生成前快照')
+    return (await persist(record)) ? structuredClone(existing) : null
+  }
+
+  async function editSequence(
+    record: StoryboardRecord,
+    next: StoryboardShotRecord[],
+  ): Promise<void> {
+    const shots = sequenceShots(next)
+    await patchBoard(record.id, {
+      shots,
+      totalSeconds: shots.reduce((sum, shot) => sum + shot.seconds, 0),
+      nextShotNo: Math.max(
+        record.nextShotNo ?? 1,
+        ...record.shots.map((shot) => shot.no + 1),
+        ...shots.map((shot) => shot.no + 1),
+      ),
+      videoPrompt: sequencePrompt(record, shots),
+    })
   }
 
   async function patchBoard(id: string, patch: Partial<StoryboardRecord>): Promise<void> {
@@ -180,7 +249,7 @@ export const useStoryboardStore = create<StoryboardState>((set, get) => {
         ...(references.length > 0 ? { referenceImages: references } : {}),
       })
       const record = toRecord(plan)
-      await persist(record)
+      if (!(await persist(record))) return null
       set({ activeId: record.id })
       if (record.shotImagesRequested) await submitShotImages(record.id, () => true)
       return record.id
@@ -197,10 +266,104 @@ export const useStoryboardStore = create<StoryboardState>((set, get) => {
     activeId: null,
     loadingSince: null,
     draft: INITIAL_STORYBOARD_DRAFT,
+    saveStates: {},
+    loadError: null,
+
+    async retrySave(id) {
+      const record = boardOf(id)
+      if (record) await persist(record)
+    },
+    rename(id, title) {
+      return patchBoard(id, { title: title.trim() || '未命名分镜' })
+    },
+    async saveVersion(id, name) {
+      const record = boardOf(id)
+      if (!record) return null
+      const versions = record.versions ?? []
+      const version: StoryboardVersion = {
+        id: crypto.randomUUID(),
+        name: name.trim() || '未命名版本',
+        number: versions.length + 1,
+        savedAt: Date.now(),
+        content: storyboardContent(record),
+      }
+      return (await persist({ ...record, versions: [...versions, version], updatedAt: Date.now() }))
+        ? structuredClone(version)
+        : null
+    },
+    async restoreVersion(id, versionId) {
+      const record = boardOf(id)
+      const version = record?.versions?.find((item) => item.id === versionId)
+      if (!record || !version) return
+      if (!sameStoryboard(storyboardContent(record), version.content)) {
+        const backup = await get().saveVersion(id, '恢复前草稿')
+        if (!backup) return
+        const current = boardOf(id)
+        if (!current || !sameStoryboard(storyboardContent(current), backup.content)) {
+          useStore
+            .getState()
+            .showToast('草稿在恢复期间有新修改，已保留新修改，请重新选择恢复版本', 'error')
+          return
+        }
+      }
+      await patchBoard(id, { ...structuredClone(version.content), videoTaskId: null })
+    },
+    async moveShot(id, no, direction) {
+      const record = boardOf(id)
+      if (!record) return
+      const index = record.shots.findIndex((shot) => shot.no === no)
+      const target = index + direction
+      if (index < 0 || target < 0 || target >= record.shots.length) return
+      const shots = [...record.shots]
+      ;[shots[index], shots[target]] = [shots[target]!, shots[index]!]
+      await editSequence(record, shots)
+    },
+    async addShot(id, copyNo) {
+      const record = boardOf(id)
+      if (!record) return
+      const origin = record.shots.find((shot) => shot.no === copyNo)
+      const next: StoryboardShotRecord = {
+        no: Math.max(record.nextShotNo ?? 1, ...record.shots.map((shot) => shot.no + 1)),
+        title: origin ? `${origin.title} · 副本` : '新镜头',
+        description: origin?.description ?? '',
+        camera: origin?.camera ?? '固定镜头',
+        line: origin?.line ?? '',
+        seconds: origin?.seconds ?? 5,
+        startSeconds: 0,
+        imagePrompt: origin?.imagePrompt ?? '',
+        videoPrompt: origin?.videoPrompt ?? '',
+        imageId: origin?.imageId ?? null,
+        imageTaskId: null,
+        videoTaskId: null,
+      }
+      await editSequence(record, [...record.shots, next])
+    },
+    async removeShot(id, no) {
+      const record = boardOf(id)
+      if (record && record.shots.length > 1) {
+        await editSequence(
+          record,
+          record.shots.filter((shot) => shot.no !== no),
+        )
+      }
+    },
 
     async load() {
-      const stored = byNewest(await storyboardStore.list())
-      set((state) => ({ storyboards: stored, activeId: state.activeId ?? stored[0]?.id ?? null }))
+      try {
+        const stored = byNewest(await storyboardStore.list())
+        set((state) => ({
+          storyboards: byNewest([
+            ...stored.filter(
+              (item) => !state.storyboards.some((current) => current.id === item.id),
+            ),
+            ...state.storyboards,
+          ]),
+          activeId: state.activeId ?? stored[0]?.id ?? null,
+          loadError: null,
+        }))
+      } catch (err) {
+        set({ loadError: `分镜读取失败：${errorMessage(err)}` })
+      }
     },
 
     setIdea(idea) {
@@ -270,6 +433,7 @@ export const useStoryboardStore = create<StoryboardState>((set, get) => {
     replan(id) {
       const record = boardOf(id)
       if (!record) return Promise.resolve(null)
+      // 重写生成新分镜，保留原稿及其版本。
       return runPlan(
         {
           ...record,
@@ -279,6 +443,9 @@ export const useStoryboardStore = create<StoryboardState>((set, get) => {
         },
         (plan) => ({
           ...record,
+          id: crypto.randomUUID(),
+          createdAt: Date.now(),
+          versions: [],
           updatedAt: Date.now(),
           title: plan.title,
           summary: plan.summary,
@@ -294,18 +461,47 @@ export const useStoryboardStore = create<StoryboardState>((set, get) => {
     },
 
     async remove(id) {
-      set((state) => ({
-        storyboards: state.storyboards.filter((item) => item.id !== id),
-        activeId:
-          state.activeId === id
-            ? (state.storyboards.find((item) => item.id !== id)?.id ?? null)
-            : state.activeId,
-      }))
-      await storyboardStore.remove(id)
+      deleting.add(id)
+      await writes.get(id)
+      try {
+        await storyboardStore.remove(id)
+        set((state) => ({
+          storyboards: state.storyboards.filter((item) => item.id !== id),
+          activeId:
+            state.activeId === id
+              ? (state.storyboards.find((item) => item.id !== id)?.id ?? null)
+              : state.activeId,
+        }))
+      } catch (err) {
+        useStore.getState().showToast(`删除失败：${errorMessage(err)}`, 'error')
+      } finally {
+        deleting.delete(id)
+      }
     },
 
-    updateShot(id, no, patch) {
-      return patchShot(id, no, patch)
+    async updateShot(id, no, patch) {
+      const record = boardOf(id)
+      const shot = record?.shots.find((item) => item.no === no)
+      if (!record || !shot) return
+      const next = { ...shot, ...patch }
+      if (
+        patch.seconds !== undefined &&
+        (!Number.isFinite(patch.seconds) || patch.seconds < 0.5 || patch.seconds > 30)
+      )
+        return
+      if (
+        patch.description !== undefined ||
+        patch.camera !== undefined ||
+        patch.line !== undefined
+      ) {
+        next.videoPrompt = patch.videoPrompt ?? shotPrompt(next)
+        if (patch.description !== undefined)
+          next.imagePrompt = `${record.summary}。${next.description}`
+      }
+      await editSequence(
+        record,
+        record.shots.map((item) => (item.no === no ? next : item)),
+      )
     },
 
     updateVideoPrompt(id, videoPrompt) {
@@ -325,12 +521,18 @@ export const useStoryboardStore = create<StoryboardState>((set, get) => {
     async generateShotVideo(id, no) {
       const record = boardOf(id)
       const shot = record?.shots.find((item) => item.no === no)
-      if (!record || !shot) return
+      if (!record || !shot) return null
       if (!shot.imageId) {
         useStore.getState().showToast(NO_IMAGE, 'error')
-        return
+        return null
       }
+      const { model, resolution } = useVideoStore.getState().draft
+      const version = await versionForGeneration(id)
+      if (!version) return null
       const taskId = await useVideoStore.getState().submitFromStoryboard({
+        storyboardVersion: version,
+        model,
+        resolution,
         storyboardId: id,
         shotNo: no,
         imageId: shot.imageId,
@@ -339,12 +541,19 @@ export const useStoryboardStore = create<StoryboardState>((set, get) => {
         aspectRatio: record.aspectRatio,
       })
       if (taskId) await patchShot(id, no, { videoTaskId: taskId })
+      return taskId
     },
 
     async generateWholeVideo(id) {
       const record = boardOf(id)
-      if (!record) return
+      if (!record) return null
+      const { model, resolution } = useVideoStore.getState().draft
+      const version = await versionForGeneration(id)
+      if (!version) return null
       const taskId = await useVideoStore.getState().submitStoryboardVideo({
+        storyboardVersion: version,
+        model,
+        resolution,
         storyboardId: id,
         imageId: wholeVideoFrameId(record),
         prompt: record.videoPrompt,
@@ -352,6 +561,7 @@ export const useStoryboardStore = create<StoryboardState>((set, get) => {
         aspectRatio: record.aspectRatio,
       })
       if (taskId) await patchBoard(id, { videoTaskId: taskId })
+      return taskId
     },
 
     adoptShotImages(tasks) {

@@ -33,6 +33,11 @@ export default function VideoCard({ task, onOpen }: { task: VideoTask; onOpen: (
   const modelLabel = support?.label ?? task.model
   const done = task.status === 'done'
   const playbackUrl = videoOutputUrl(task)
+  const sourceIndex = task.storyboardVersion?.content.shots.findIndex(
+    (shot) => shot.no === task.shotNo,
+  )
+  const displayShotNo =
+    sourceIndex !== undefined && sourceIndex >= 0 ? sourceIndex + 1 : task.shotNo
   const badge = frameBadge(task)
   const frameAspect = videoFrameAspect(task)
   // 未完成的卡片按钮条根本不渲染，别为它扫频道列表。
@@ -106,7 +111,7 @@ export default function VideoCard({ task, onOpen }: { task: VideoTask; onOpen: (
 
           {badge && <span className={`${BADGE} left-1.5 top-1.5`}>{badge}</span>}
           {task.shotNo !== undefined && (
-            <span className={`${BADGE} left-1.5 top-7`}>镜 {task.shotNo}</span>
+            <span className={`${BADGE} left-1.5 top-7`}>镜 {displayShotNo}</span>
           )}
           {done && (
             <span className={`${BADGE} bottom-1.5 right-1.5`}>{clockLabel(task.duration)}</span>
@@ -157,6 +162,27 @@ export default function VideoCard({ task, onOpen }: { task: VideoTask; onOpen: (
         >
           {task.prompt}
         </b>
+        {task.storyboardVersion && (
+          <details className="mt-2 text-xs">
+            <summary className="cursor-pointer">
+              来源：{task.storyboardVersion.content.title} · v{task.storyboardVersion.number}
+            </summary>
+            <p className="mt-2">
+              {task.storyboardVersion.name} ·{' '}
+              {new Date(task.storyboardVersion.savedAt).toLocaleString()}
+            </p>
+            <ol className="mt-2 space-y-2">
+              {task.storyboardVersion.content.shots.map((shot, index) => (
+                <li key={shot.no}>
+                  <strong>
+                    {index + 1}. {shot.title} · {shot.seconds} 秒
+                  </strong>
+                  <p>{shot.description}</p>
+                </li>
+              ))}
+            </ol>
+          </details>
+        )}
         <div className="mt-0.5 flex flex-wrap items-center gap-2">
           {task.derived && (
             <span className={LINEAGE_CHIP}>{VIDEO_DERIVE_LABELS[task.derived.mode]}</span>

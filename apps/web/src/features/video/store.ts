@@ -1,4 +1,8 @@
 import {
+  clampVideoPreset,
+  VIDEO_DEFAULT_ASPECT_RATIO,
+  VIDEO_DEFAULT_DURATION,
+  VIDEO_DEFAULT_RESOLUTION,
   VIDEO_MODEL_SUPPORT,
   type VideoAspectRatio,
   type VideoDeriveMode,
@@ -7,7 +11,6 @@ import {
   type VideoResolution,
   validateVideoPrompt,
   validateVideoRequest,
-  videoDurationsForResolution,
   videoRateMultiplier,
 } from '@image-playground/shared'
 import { create } from 'zustand'
@@ -28,12 +31,7 @@ import {
 } from '../../lib/privateOverlay'
 import { ensureImageCached, storeImageFromFile, useStore } from '../../store'
 import { checkDerive, DERIVE_RESOLUTION } from './lib/derive'
-import {
-  appendCameraMove,
-  clampDraftToSupport,
-  clampToSupported,
-  videoDraftFromTask,
-} from './lib/draft'
+import { appendCameraMove, clampDraftToSupport, videoDraftFromTask } from './lib/draft'
 import { videoTaskStore } from './lib/videoStore'
 import type { VideoDraft, VideoFrameSlot, VideoSource, VideoTask } from './types'
 
@@ -51,9 +49,9 @@ export const INITIAL_VIDEO_DRAFT: VideoDraft = {
   source: 'text',
   prompt: '',
   model: '',
-  duration: 5,
-  aspectRatio: '16:9',
-  resolution: '720p',
+  duration: VIDEO_DEFAULT_DURATION,
+  aspectRatio: VIDEO_DEFAULT_ASPECT_RATIO,
+  resolution: VIDEO_DEFAULT_RESOLUTION,
   firstFrameImageId: null,
   lastFrameImageId: null,
 }
@@ -61,6 +59,9 @@ export const INITIAL_VIDEO_DRAFT: VideoDraft = {
 /** 分镜的视频提交；清晰度沿用左栏，时长与比例来自分镜。 */
 export interface StoryboardVideoInput {
   storyboardId: string
+  storyboardVersion?: VideoTask['storyboardVersion']
+  model?: string
+  resolution?: VideoResolution
   /** 缺席即整条视频。 */
   shotNo?: number
   imageId: string | null
@@ -151,7 +152,7 @@ interface EnqueueInput {
   firstFrameImageId?: string | null
   lastFrameImageId?: string | null
   derived?: { mode: VideoDeriveMode; sourceTaskId: string }
-  shot?: Pick<VideoTask, 'storyboardId' | 'shotNo'>
+  shot?: Pick<VideoTask, 'storyboardId' | 'shotNo' | 'storyboardVersion'>
 }
 
 export const useVideoStore = create<VideoState>((set, get) => {
@@ -287,21 +288,34 @@ export const useVideoStore = create<VideoState>((set, get) => {
     option: VideoModelOption,
     input: StoryboardVideoInput,
   ): Promise<string | null> {
-    const { support } = option
-    const resolution = clampToSupported(support.resolutions, get().draft.resolution)
+    const requestedResolution = input.resolution ?? get().draft.resolution
+    const preset = clampVideoPreset(option.support, {
+      duration: input.seconds,
+      aspectRatio: input.aspectRatio,
+      resolution: requestedResolution,
+    })
+    if (
+      input.storyboardVersion &&
+      (preset.duration !== input.seconds ||
+        preset.aspectRatio !== input.aspectRatio ||
+        preset.resolution !== requestedResolution)
+    ) {
+      useStore
+        .getState()
+        .showToast(`当前模型不支持 ${input.seconds} 秒或所选比例、清晰度，请调整生成设置`, 'error')
+      return Promise.resolve(null)
+    }
     return enqueue({
       option,
       source: input.imageId ? 'image' : 'text',
       prompt: input.prompt,
-      duration: clampToSupported(
-        videoDurationsForResolution(support, resolution) as readonly number[],
-        input.seconds,
-      ),
-      aspectRatio: clampToSupported(support.aspectRatios, input.aspectRatio),
-      resolution,
+      ...preset,
       firstFrameImageId: input.imageId,
       shot: {
         storyboardId: input.storyboardId,
+        ...(input.storyboardVersion
+          ? { storyboardVersion: structuredClone(input.storyboardVersion) }
+          : {}),
         ...(input.shotNo === undefined ? {} : { shotNo: input.shotNo }),
       },
     })
@@ -407,7 +421,12 @@ export const useVideoStore = create<VideoState>((set, get) => {
     },
 
     submitFromStoryboard(input) {
-      const option = firstFrameModelOption(get().draft.model)
+      const option = input.storyboardVersion
+        ? videoModelOptions().find(
+            (item) =>
+              item.modelId === (input.model ?? get().draft.model) && item.support.firstFrame,
+          )
+        : firstFrameModelOption(get().draft.model)
       if (!option) {
         useStore.getState().showToast(NO_MODEL, 'error')
         return Promise.resolve(null)
@@ -416,7 +435,13 @@ export const useVideoStore = create<VideoState>((set, get) => {
     },
 
     submitStoryboardVideo(input) {
-      const option = durationModelOption(get().draft.model, input.seconds, Boolean(input.imageId))
+      const option = input.storyboardVersion
+        ? videoModelOptions().find(
+            (item) =>
+              item.modelId === (input.model ?? get().draft.model) &&
+              (!input.imageId || item.support.firstFrame),
+          )
+        : durationModelOption(get().draft.model, input.seconds, Boolean(input.imageId))
       if (!option) {
         useStore.getState().showToast(unsupportedDurationReason(input.seconds), 'error')
         return Promise.resolve(null)
@@ -461,6 +486,28 @@ export const useVideoStore = create<VideoState>((set, get) => {
           aspectRatio: task.aspectRatio,
           resolution: task.resolution,
           derived: task.derived,
+        })
+      }
+      if (task.storyboardId) {
+        const option = videoModelOptions().find((item) => item.modelId === task.model)
+        if (!option) {
+          useStore.getState().showToast(NO_MODEL, 'error')
+          return Promise.resolve(null)
+        }
+        return enqueue({
+          option,
+          source: task.source,
+          prompt: task.prompt,
+          duration: task.duration,
+          aspectRatio: task.aspectRatio,
+          resolution: task.resolution,
+          firstFrameImageId: task.firstFrameImageId,
+          lastFrameImageId: task.lastFrameImageId,
+          shot: {
+            storyboardId: task.storyboardId,
+            shotNo: task.shotNo,
+            storyboardVersion: task.storyboardVersion,
+          },
         })
       }
       const draft = videoDraftFromTask(task)

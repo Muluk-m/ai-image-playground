@@ -5,6 +5,8 @@ import type {
   VideoResolution,
 } from '@image-playground/shared'
 
+import type { StoryboardVersion } from './storyboard/types'
+
 export const VIDEO_SOURCES = ['text', 'image'] as const
 export type VideoSource = (typeof VIDEO_SOURCES)[number]
 
@@ -73,6 +75,7 @@ export interface VideoTask {
   /** 图生任务是首帧缩略图；文生任务由播放器首帧截图回填。 */
   thumbnailDataUrl?: string
   /** 由分镜的某一镜提交时带上，卡片据此标镜号。 */
+  storyboardVersion?: StoryboardVersion
   storyboardId?: string
   shotNo?: number
 }

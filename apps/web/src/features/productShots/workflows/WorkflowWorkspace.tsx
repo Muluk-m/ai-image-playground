@@ -29,7 +29,7 @@ import {
 import WorkflowImage from './WorkflowImage'
 
 const DIRECTIONS = ['暖色石材', '北欧浅木', '自然日光']
-const KINDS = { edit: '局部修改', kit: '做成一套', draft: '先看方案', refine: '精修成品' }
+const KINDS = { edit: '局部编辑', kit: '批量衍生', draft: '先看方案', refine: '精修成品' }
 function report(error: unknown) {
   useStore.getState().showToast(error instanceof Error ? error.message : String(error), 'error')
 }
@@ -446,7 +446,7 @@ export default function WorkflowWorkspace({ session }: { session: WorkflowSessio
               className={OUTLINE_BUTTON}
               onClick={() => openWorkflow('kit', shown.id)}
             >
-              做成一套
+              批量衍生
             </button>
           </>
         )}
@@ -513,7 +513,7 @@ export function KitResult({
             openWorkflow('edit', version.id)
           }}
         >
-          只改这里
+          局部编辑
         </button>
       </div>
       {editing && (

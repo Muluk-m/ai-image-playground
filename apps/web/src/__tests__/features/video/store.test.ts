@@ -465,3 +465,24 @@ describe('记录', () => {
     expect(tasks()[0]!.status).toBe('done')
   })
 })
+
+describe('分镜重试来源', () => {
+  it('重试保留分镜身份、来源快照和原始参数，不读取当前草稿', async () => {
+    const original = videoTask({
+      storyboardId: 'board-1',
+      shotNo: 3,
+      prompt: '原镜头提示词',
+      status: 'error',
+    })
+    await useVideoStore.getState().regenerate(original)
+    expect(tasks()[0]).toMatchObject({
+      storyboardId: 'board-1',
+      shotNo: 3,
+      prompt: original.prompt,
+      model: original.model,
+      duration: original.duration,
+      resolution: original.resolution,
+    })
+    await settle()
+  })
+})

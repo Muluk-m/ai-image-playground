@@ -1,30 +1,18 @@
 import {
+  clampVideoPreset,
   VIDEO_DURATIONS,
   VIDEO_MODEL_SUPPORT,
   type VideoDuration,
   type VideoModelSupport,
-  videoDurationsForResolution,
 } from '@image-playground/shared'
 import type { VideoDraft, VideoTask } from '../types'
-
-/** 落不到该模型的合法档位上就退到它的第一档。 */
-export function clampToSupported<T>(allowed: readonly T[], value: T): T {
-  return allowed.includes(value) ? value : allowed[0]!
-}
 
 /**
  * 换模型时把不支持的档位落到该模型的合法值上。帧槽不动 —— 切到不支持尾帧的模型
  * 只是不提交它，图还留着，切回去还在。
- * 清晰度是主轴：时长按清晰度退，反过来会把用户刚点的清晰度顶掉。
  */
 export function clampDraftToSupport(draft: VideoDraft, support: VideoModelSupport): VideoDraft {
-  const resolution = clampToSupported(support.resolutions, draft.resolution)
-  return {
-    ...draft,
-    duration: clampToSupported(videoDurationsForResolution(support, resolution), draft.duration),
-    aspectRatio: clampToSupported(support.aspectRatios, draft.aspectRatio),
-    resolution,
-  }
+  return { ...draft, ...clampVideoPreset(support, draft) }
 }
 
 export function appendCameraMove(prompt: string, move: string): string {
