@@ -3,10 +3,6 @@
 export const AGENT_CONVERSATION_TITLE_MAX_CHARS = 60
 export const AGENT_USER_MESSAGE_MAX_CHARS = 4_000
 
-/** 选项多到要挑就不叫澄清了；模型给多了这次调用作废，让它重问。 */
-export const AGENT_CLARIFICATION_MIN_OPTIONS = 2
-export const AGENT_CLARIFICATION_MAX_OPTIONS = 4
-
 export type AgentMessageRole = 'user' | 'assistant'
 
 export interface AgentTextBlock {
@@ -144,9 +140,7 @@ export type AgentToolEndEvent = Omit<AgentToolResultBlock, 'type'> & {
   readonly messageId: string
 }
 
-/** 与落库的澄清块同形，理由同 `toolEnd`。 */
-export type AgentClarificationEvent = Omit<AgentClarificationBlock, 'type'> & {
-  readonly type: 'clarification'
+export type AgentClarificationEvent = AgentClarificationBlock & {
   readonly messageId: string
 }
 

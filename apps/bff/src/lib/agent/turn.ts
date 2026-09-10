@@ -1,5 +1,6 @@
 import { Agent, type AgentMessage, estimateTokens } from '@earendil-works/pi-agent-core'
 import type {
+  AgentContentBlock,
   AgentMessageView,
   AgentToolName,
   AgentToolResultBlock,
@@ -205,6 +206,7 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
     history: input.history,
     userId: input.userId,
   })
+  let clarified = false
   const agent = new Agent({
     initialState: {
       systemPrompt: SYSTEM_PROMPT,
@@ -218,12 +220,14 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
           deviceId: input.deviceId,
           images,
         }),
-        clarificationTool(),
+        clarificationTool,
       ],
     },
     streamFn: agentStreamFn(),
     // 逐个跑：每次调用都是一条计费任务，并发起来事件次序也对不上产出落画布的顺序。
     toolExecution: 'sequential',
+    // 澄清即收尾：用户的选择是下一条用户消息，所以这一轮不再回上游要下一句。
+    shouldStopAfterTurn: () => clarified,
     transformContext: createCompactionTransform({
       conversationId: input.conversationId,
       turnId: input.turnId,
@@ -270,7 +274,7 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
   /** 一次工具调用独占一条助手消息，两次调用的结果卡因此不会互相覆盖。 */
   const openTools = new Map<string, OpenToolCall>()
 
-  const storeToolResult = (block: AgentToolResultBlock, messageId: string) =>
+  const storeBlock = (block: AgentContentBlock, messageId: string) =>
     write(async () => {
       await appendAgentMessage(db, {
         id: messageId,
@@ -343,22 +347,14 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
         })
       }
     }
+    // 澄清不出工具卡，所以它不在工具注册表里，`openTools` 也没有它的登记。
     if (event.type === 'tool_execution_end' && event.toolName === AGENT_CLARIFICATION_TOOL) {
       const block = event.isError ? null : clarificationFromResult(event.result)
       if (!block) return
       const messageId = crypto.randomUUID()
-      const { type: _asked, ...fields } = block
-      events.emit({ type: 'clarification', messageId, ...fields })
-      write(async () => {
-        await appendAgentMessage(db, {
-          id: messageId,
-          conversationId,
-          turnId,
-          role: 'assistant',
-          content: [block],
-        })
-        storedAny = true
-      })
+      events.emit({ ...block, messageId })
+      await storeBlock(block, messageId)
+      clarified = true
       return
     }
     if (event.type === 'tool_execution_end') {
@@ -368,7 +364,7 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
       const block = toolResultBlock(pending, event.toolCallId, event.result, event.isError)
       const { type: _stored, ...fields } = block
       events.emit({ type: 'toolEnd', messageId: pending.messageId, ...fields })
-      await storeToolResult(block, pending.messageId)
+      await storeBlock(block, pending.messageId)
       if (event.isError && agentToolAbortsTurn(event.toolName)) {
         error = 'agent_tool_failed'
         agent.abort()

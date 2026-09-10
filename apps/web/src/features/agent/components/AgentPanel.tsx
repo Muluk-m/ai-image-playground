@@ -108,7 +108,6 @@ export default function AgentPanel({ doc }: { doc: CanvasDoc }) {
   const { setOpen, setTab, load, startNewConversation, refreshConversations } =
     useAgentStore.getState()
   const logRef = useRef<HTMLDivElement>(null)
-  const answerableId = answerableClarificationId(messages)
 
   useEffect(() => {
     void load()
@@ -121,6 +120,8 @@ export default function AgentPanel({ doc }: { doc: CanvasDoc }) {
 
   if (!agentPanelPresent()) return null
   if (!open) return <CollapsedButton onOpen={() => setOpen(true)} />
+
+  const answerableId = answerableClarificationId(messages)
 
   return (
     <div

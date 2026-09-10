@@ -260,10 +260,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
           }
         case 'clarification':
           return {
-            messages: replaceOrAppend(
-              state.messages,
-              clarificationCard({ ...event, type: 'clarification' }, event.messageId),
-            ),
+            messages: replaceOrAppend(state.messages, clarificationCard(event, event.messageId)),
           }
         case 'toolEnd':
           return {

@@ -2,6 +2,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
 import type { AgentMessageView, AgentTurnEvent } from '@image-playground/shared'
+import { eq } from 'drizzle-orm'
 import { Elysia } from 'elysia'
 import {
   type AgentCall,
@@ -22,10 +23,29 @@ process.env.OPERATOR_CONFIG_FILE = resolve(import.meta.dir, '../agent-operator-c
 // Dynamic imports keep environment setup ahead of modules that capture configuration.
 const { agentRoutes } = await import('../../routes/agent')
 const { setAgentFetchForTesting } = await import('../../lib/agent/model')
+const { setQueueTaskPollingForTesting } = await import('../../lib/taskSubmission')
+const { _setChannelsForTesting } = await import('../../lib/channels')
 const { close: closeDb, db, schema } = await import('../../db/client')
 
 const app = new Elysia().use(agentRoutes)
 const DEVICE = 'device-abcdefgh'
+
+const IMAGE_CHANNEL = {
+  id: 'openai-images',
+  kind: 'openai-queue' as const,
+  label: 'OpenAI',
+  baseUrl: 'https://api.openai.com/v1',
+  auth: { type: 'bearer' as const, secretRef: 'OPENAI_API_KEY', secret: 'k' },
+  allowedPaths: ['images/generations'],
+  models: [
+    {
+      id: 'gpt-image-2.5-flare',
+      label: 'GPT Image 2.5 Flare',
+      capabilities: ['generate' as const],
+    },
+  ],
+  defaults: { apiMode: 'images' as const, timeout: 600 },
+}
 
 const QUESTION = '这张图要哪种风格？'
 const OPTIONS = ['写实照片', '扁平插画']
@@ -85,12 +105,37 @@ function clarificationCall(id: string, options: readonly string[]) {
   })
 }
 
+/** 测试里的迷你 worker：把工具刚提交的任务推到终态，让工具循环能往下跑。 */
+function settleSubmittedTasks(): () => void {
+  let stopped = false
+  void (async () => {
+    while (!stopped) {
+      await db
+        .update(schema.tasks)
+        .set({
+          status: 'completed',
+          result_payload: { data: [{ b64_json: 'aGk=', mime: 'image/png' }] },
+          completed_at: Date.now(),
+        })
+        .where(eq(schema.tasks.status, 'queued'))
+      await Bun.sleep(2)
+    }
+  })()
+  return () => {
+    stopped = true
+  }
+}
+
 beforeEach(async () => {
+  _setChannelsForTesting([IMAGE_CHANNEL])
+  setQueueTaskPollingForTesting({ intervalMs: 2, budgetMs: 5_000 })
+  await db.delete(schema.tasks)
   await db.delete(schema.agent_conversations)
 })
 
 afterEach(() => {
   setAgentFetchForTesting()
+  setQueueTaskPollingForTesting()
 })
 
 afterAll(async () => {
@@ -150,6 +195,41 @@ describe('智能体澄清', () => {
       'assistant',
     ])
     expect(messages[2]!.content).toEqual([{ type: 'text', text: OPTIONS[0]! }])
+  })
+
+  it('still ends the turn when the clarification shares a batch with another tool', async () => {
+    const calls: AgentCall[] = []
+    setAgentFetchForTesting(
+      scriptedAgentFetch(calls, [
+        () =>
+          toolCallCompletion(
+            { id: 'call-1', name: 'generateImage', args: { prompt: '一只橘猫' } },
+            {
+              id: 'call-2',
+              name: 'askClarification',
+              args: { question: QUESTION, options: OPTIONS },
+            },
+          ),
+        () => completionStream('不该走到这里'),
+      ]),
+    )
+    const stop = settleSubmittedTasks()
+    const conversationId = await startConversation()
+
+    const frames = await runTurn(conversationId, '画只猫')
+    stop()
+
+    expect(types(frames)).toEqual([
+      'turnStart',
+      'toolStart',
+      'toolProgress',
+      'toolEnd',
+      'clarification',
+      'turnEnd',
+    ])
+    const end = frames.at(-1)!.event
+    expect(end).toMatchObject({ type: 'turnEnd', stopReason: 'completed' })
+    expect(calls).toHaveLength(1)
   })
 
   it('refuses more options than the cap and lets the model ask again', async () => {
