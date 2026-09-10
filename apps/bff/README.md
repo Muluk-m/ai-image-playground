@@ -107,6 +107,13 @@ channel kind `openai-queue` / `gemini-queue` 在前端层用，到 BFF URL 就�
 
 | Key | 缺省值 | 说明 |
 |---|---|---|
+| `agent:compaction-buffer-tokens` | `13000` | 压缩阈值相对有效窗口留的缓冲 |
+| `agent:compaction-cooldown-minutes` | `360` | 摘要连续失败后的熔断时长 |
+| `agent:compaction-failure-threshold` | `3` | 触发熔断的连续失败次数 |
+| `agent:compaction-keep-messages` | `10` | 压缩后保留原文的最近消息条数 |
+| `agent:compaction-max-folds` | `5` | 连续增量折叠多少次后强制全量重做 |
+| `agent:compaction-output-reserve-tokens` | `20000` | 有效窗口给输出留的 token |
+| `agent:compaction-verbatim-tokens` | `20000` | 摘要里逐字保留用户原话的 token 上限 |
 | `generation:daily-images` | `0` | 每设备每日生成张数上限（需 `quota:daily`）|
 | `sync:asset-image-bytes` | `10485760`（10 MB）| 单张素材图上传字节上限 |
 | `sync:user-asset-bytes` | `524288000`（500 MB）| 每用户素材图总字节上限 |

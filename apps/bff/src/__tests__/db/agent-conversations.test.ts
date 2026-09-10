@@ -11,6 +11,8 @@ const {
   createAgentConversation,
   findAgentConversation,
   listAgentMessages,
+  loadAgentCompaction,
+  saveAgentCompaction,
   softDeleteAgentConversation,
 } = await import('../../lib/agent/conversations')
 
@@ -99,6 +101,48 @@ describe('agent conversations', () => {
     await db.delete(schema.users)
 
     expect(await findAgentConversation(conversation.id, USER)).toBeNull()
+  })
+
+  it('round-trips the compaction state of a conversation', async () => {
+    const conversation = await createAgentConversation(USER, '第一句')
+    expect(await loadAgentCompaction(conversation.id)).toBeNull()
+
+    const record = {
+      summary: {
+        completed: '出了三张图',
+        inProgress: '在调背景',
+        decisions: '主体不换',
+        artifacts: 'img-1',
+      },
+      anchor: { lastMessageId: 'msg-9', coveredCount: 9 },
+      foldCount: 2,
+      failureCount: 0,
+      openedAt: null,
+    }
+    await saveAgentCompaction(conversation.id, record)
+
+    expect(await loadAgentCompaction(conversation.id)).toEqual(record)
+  })
+
+  it('leaves the stored messages untouched when compaction state is written', async () => {
+    const conversation = await createAgentConversation(USER, '第一句')
+    await appendAgentMessage(db, {
+      conversationId: conversation.id,
+      turnId: 'turn-1',
+      role: 'user',
+      content: [{ type: 'text', text: '把背景换成浅木色' }],
+    })
+    const before = await listAgentMessages(conversation.id)
+
+    await saveAgentCompaction(conversation.id, {
+      summary: { completed: 'a', inProgress: 'b', decisions: 'c', artifacts: 'd' },
+      anchor: { lastMessageId: before[0]!.id, coveredCount: 1 },
+      foldCount: 0,
+      failureCount: 0,
+      openedAt: null,
+    })
+
+    expect(await listAgentMessages(conversation.id)).toEqual(before)
   })
 
   it('refuses a row that claims both a user and a device', async () => {

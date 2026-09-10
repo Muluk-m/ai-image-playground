@@ -1,4 +1,5 @@
 import type {
+  AgentCompactionRecord,
   AgentContentBlock,
   AgentConversationView,
   AgentMessageRole,
@@ -116,6 +117,26 @@ export async function softDeleteAgentConversation(id: string, owner: AgentOwner)
     .update(schema.agent_conversations)
     .set({ deleted_at: now, updated_at: now })
     .where(and(eq(schema.agent_conversations.id, id), ownerWhere(owner)))
+}
+
+/** 压缩状态是会话的服务端私有列，读写都不碰消息表——存储里的消息一条不改。 */
+export async function loadAgentCompaction(id: string): Promise<AgentCompactionRecord | null> {
+  const [row] = await db
+    .select({ compaction: schema.agent_conversations.compaction })
+    .from(schema.agent_conversations)
+    .where(eq(schema.agent_conversations.id, id))
+    .limit(1)
+  return row?.compaction ?? null
+}
+
+export async function saveAgentCompaction(
+  id: string,
+  record: AgentCompactionRecord,
+): Promise<void> {
+  await db
+    .update(schema.agent_conversations)
+    .set({ compaction: record })
+    .where(eq(schema.agent_conversations.id, id))
 }
 
 export async function appendAgentMessage(

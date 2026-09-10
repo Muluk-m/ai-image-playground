@@ -21,6 +21,23 @@ export interface AgentMessageView {
   readonly createdAt: number
 }
 
+/** 摘要正文的固定分节。用户原话不在这里：那一节由压缩模块从原文逐字取，不经模型。 */
+export interface AgentCompactionNarrative {
+  readonly completed: string
+  readonly inProgress: string
+  readonly decisions: string
+  readonly artifacts: string
+}
+
+/** 会话上的上下文压缩私有状态。服务端自用，不进任何下发前端的视图。 */
+export interface AgentCompactionRecord {
+  readonly summary: AgentCompactionNarrative | null
+  readonly anchor: { readonly lastMessageId: string; readonly coveredCount: number } | null
+  readonly foldCount: number
+  readonly failureCount: number
+  readonly openedAt: number | null
+}
+
 export interface AgentConversationView {
   readonly id: string
   readonly title: string

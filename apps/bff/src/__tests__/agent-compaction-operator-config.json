@@ -1,0 +1,14 @@
+{
+  "capabilities": {
+    "agent:chat": true
+  },
+  "quotas": {
+    "agent:compaction-output-reserve-tokens": 4000,
+    "agent:compaction-buffer-tokens": 1000,
+    "agent:compaction-keep-messages": 4,
+    "agent:compaction-verbatim-tokens": 300,
+    "agent:compaction-max-folds": 2,
+    "agent:compaction-failure-threshold": 1,
+    "agent:compaction-cooldown-minutes": 30
+  }
+}
