@@ -5,6 +5,7 @@ import type { AgentMessageView, AgentTurnEvent } from '@image-playground/shared'
 import { Elysia } from 'elysia'
 import {
   type AgentCall,
+  completion,
   completionStream,
   parseFrames,
   recordingAgentFetch,
@@ -111,6 +112,32 @@ describe('POST /api/agent/conversations/:id/turns', () => {
     expect(messages[0]!.content).toEqual([{ type: 'text', text: '把背景换成浅木色' }])
     expect(messages[1]!.content).toEqual([{ type: 'text', text: '好的，我把背景换成浅木色' }])
     expect(messages[1]!.turnId).toBe(messages[0]!.turnId)
+  })
+
+  it('asks the gateway to report usage and passes what it reports to the turn end', async () => {
+    const calls: AgentCall[] = []
+    setAgentFetchForTesting(recordingAgentFetch(calls, () => completionStream('好')))
+    const conversationId = await startConversation()
+
+    const { frames } = await runTurn(conversationId, '把背景换成浅木色')
+
+    // 流式响应默认不带用量，`stream_options` 是 token 计费唯一的来源。
+    expect(calls[0]!.stream_options).toEqual({ include_usage: true })
+    const end = frames.at(-1)!.event
+    expect(end.type === 'turnEnd' && end.usage).toEqual({ inputTokens: 12, outputTokens: 4 })
+  })
+
+  it('reports no usage when the gateway drops stream_options', async () => {
+    setAgentFetchForTesting(
+      recordingAgentFetch([], () => completion({ deltas: ['好'], usage: undefined })),
+    )
+    const conversationId = await startConversation()
+
+    const { frames } = await runTurn(conversationId, '把背景换成浅木色')
+
+    const end = frames.at(-1)!.event
+    expect(end.type).toBe('turnEnd')
+    expect(end.type === 'turnEnd' && end.usage).toBeNull()
   })
 
   it('sends the stored history along with the new message', async () => {

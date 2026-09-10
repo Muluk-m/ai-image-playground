@@ -19,6 +19,8 @@ export function setAgentFetchForTesting(impl?: AgentFetch): void {
 /**
  * 中转网关按 OpenAI Chat Completions 说话，但既不认 `store` 也不认
  * `max_completion_tokens`，与 chatCompletion.ts 打的是同一个上游。
+ * `supportsUsageInStreaming` 显式写死：pi 会按 baseUrl 猜兼容性，猜错就没有
+ * `stream_options.include_usage`，流式响应也就不带用量，token 计费无从结算。
  */
 function gatewayModel(): Model<'openai-completions'> {
   return {
@@ -32,12 +34,20 @@ function gatewayModel(): Model<'openai-completions'> {
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: config.agent.contextWindow,
     maxTokens: config.agent.maxTokens,
-    compat: { supportsStore: false, maxTokensField: 'max_tokens' },
+    compat: {
+      supportsStore: false,
+      maxTokensField: 'max_tokens',
+      supportsUsageInStreaming: true,
+    },
   }
 }
 
 let cached: { model: Model<'openai-completions'>; streamFn: StreamFn } | undefined
 
+/**
+ * 不给 pi 装 telemetry exporter。它的 telemetry 是零依赖契约包，默认 no-op；
+ * 装一个就等于把会话内容导给第三方后端。要可观测性走我们自己的 logger。
+ */
 function runtime() {
   if (cached) return cached
   const model = gatewayModel()

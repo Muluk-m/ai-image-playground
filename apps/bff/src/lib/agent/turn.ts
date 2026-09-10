@@ -1,5 +1,10 @@
 import { Agent, type AgentMessage } from '@earendil-works/pi-agent-core'
-import type { AgentMessageView, AgentTurnErrorCode, AgentTurnEvent } from '@image-playground/shared'
+import type {
+  AgentMessageView,
+  AgentTurnErrorCode,
+  AgentTurnEvent,
+  AgentTurnUsage,
+} from '@image-playground/shared'
 import { agentMessageText, agentTextFromBlocks } from '@image-playground/shared'
 import { log } from '../logger'
 import { agentModel, agentStreamFn } from './model'
@@ -86,7 +91,16 @@ function eventQueue(): EventQueue {
 
 export interface AgentTurnResult {
   readonly text: string
+  readonly usage: AgentTurnUsage | null
   readonly error?: AgentTurnErrorCode
+}
+
+/** 全零就是没报：中转网关吞掉 `stream_options` 时 pi 也只能填零，与真·零 token 不可区分。 */
+function reportedUsage(message: AgentMessage | undefined): AgentTurnUsage | null {
+  if (message?.role !== 'assistant') return null
+  const { input, output } = message.usage
+  if (!input && !output) return null
+  return { inputTokens: input, outputTokens: output }
 }
 
 /** 这里不碰数据库：落库由调用方在 `onSettled` 里做。 */
@@ -135,14 +149,24 @@ export async function* runAgentTurn(
 
     const last = agent.state.messages.at(-1)
     const text = last?.role === 'assistant' ? agentTextFromBlocks(last.content) : ''
+    const usage = reportedUsage(last)
     if (!error && !text) error = 'agent_run_failed'
 
-    await onSettled({ text, error })
+    log.info(
+      { event: 'agent.turn_settled', turnId: input.turnId, usage, error: error ?? null },
+      'agent turn settled',
+    )
+    await onSettled({ text, usage, error })
     if (error) {
       yield { type: 'error', error }
       return
     }
-    yield { type: 'turnEnd', turnId: input.turnId, durationMs: Date.now() - startedAt }
+    yield {
+      type: 'turnEnd',
+      turnId: input.turnId,
+      durationMs: Date.now() - startedAt,
+      usage,
+    }
   } finally {
     // 客户端断开时消费者停止拉取，不中止上游就会把整轮 token 烧完。
     agent.abort()
