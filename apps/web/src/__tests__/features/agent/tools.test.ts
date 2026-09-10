@@ -1,5 +1,10 @@
 // @vitest-environment jsdom
-import type { AgentToolImage, AgentTurnEvent } from '@image-playground/shared'
+import type {
+  AgentToolEndEvent,
+  AgentToolImage,
+  AgentToolStartEvent,
+  AgentTurnEvent,
+} from '@image-playground/shared'
 import { encodeAgentFrame } from '@image-playground/shared'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { setAgentCanvasSink } from '../../../features/agent/lib/canvasSink'
@@ -17,7 +22,7 @@ const IMAGE: AgentToolImage = {
 }
 
 const TURN_START: AgentTurnEvent = { type: 'turnStart', turnId: 'turn-1', userMessageId: 'user-1' }
-const TOOL_START: AgentTurnEvent = {
+const TOOL_START: AgentToolStartEvent = {
   type: 'toolStart',
   messageId: 'tool-1',
   toolCallId: 'call-1',
@@ -30,7 +35,7 @@ const TOOL_PROGRESS: AgentTurnEvent = {
   toolCallId: 'call-1',
   stage: 'running',
 }
-const TOOL_END: AgentTurnEvent = {
+const TOOL_END: AgentToolEndEvent = {
   type: 'toolEnd',
   messageId: 'tool-1',
   toolCallId: 'call-1',
@@ -45,6 +50,19 @@ const TURN_END: AgentTurnEvent = {
   durationMs: 90,
   stopReason: 'completed',
   usage: null,
+}
+
+/** 一轮里两次工具调用，各出一张图。 */
+function twoToolTurn(): AgentTurnEvent[] {
+  const second: AgentToolImage = { ...IMAGE, imageId: 'agent_image_2' }
+  return [
+    TURN_START,
+    TOOL_START,
+    TOOL_END,
+    { ...TOOL_START, messageId: 'tool-2', toolCallId: 'call-2' },
+    { ...TOOL_END, messageId: 'tool-2', toolCallId: 'call-2', images: [second] },
+    TURN_END,
+  ]
 }
 
 function turnStream(...events: AgentTurnEvent[]): Response {
@@ -201,16 +219,7 @@ describe('工具事件', () => {
   })
 
   it('一轮里连着两次落图，第二次不因为第一次的写入误判冲突', async () => {
-    const second = { ...IMAGE, imageId: 'agent_image_2' }
-    turnResponse = () =>
-      turnStream(
-        TURN_START,
-        TOOL_START,
-        TOOL_END,
-        { ...TOOL_START, messageId: 'tool-2', toolCallId: 'call-2' },
-        { ...TOOL_END, messageId: 'tool-2', toolCallId: 'call-2', images: [second] },
-        TURN_END,
-      )
+    turnResponse = () => turnStream(...twoToolTurn())
 
     await state().send('画两只橘猫')
 
@@ -253,15 +262,7 @@ describe('画布冲突', () => {
   })
 
   it('冲突之后这一轮的后续产出照样不写入', async () => {
-    const second = { ...IMAGE, imageId: 'agent_image_2' }
-    editCanvasDuringTurn(
-      TURN_START,
-      TOOL_START,
-      TOOL_END,
-      { ...TOOL_START, messageId: 'tool-2', toolCallId: 'call-2' },
-      { ...TOOL_END, messageId: 'tool-2', toolCallId: 'call-2', images: [second] },
-      TURN_END,
-    )
+    editCanvasDuringTurn(...twoToolTurn())
 
     await state().send('画两只橘猫')
 

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const { placeImagesOnCanvasMock } = vi.hoisted(() => ({
-  placeImagesOnCanvasMock: vi.fn(async () => {}),
+  placeImagesOnCanvasMock: vi.fn(),
 }))
 
 vi.mock('../../../../features/canvas/lib/placeholderShapeOps', () => ({
@@ -48,8 +48,8 @@ beforeEach(() => {
   })
 })
 
-describe('画布修订号', () => {
-  it('平移、缩放与选区不算画布改动', () => {
+describe('画布编辑修订号', () => {
+  it('平移、缩放、选区与工具不算编辑', () => {
     addText('text-1')
     const before = sink.revision()
 
@@ -62,24 +62,39 @@ describe('画布修订号', () => {
     expect(sink.revision()).toBe(before)
   })
 
-  it('增删改元素各抬一次修订号', () => {
+  it('增删元素与撤销重做各抬一次', () => {
     const start = sink.revision()
 
     addText('text-1')
-    doc.updateElements([{ id: 'text-1', patch: { x: 40 } }])
     doc.deleteElements(['text-1'])
-
-    expect(sink.revision()).toBe(start + 3)
-  })
-
-  it('撤销与重做也算画布改动', () => {
-    addText('text-1')
-    const afterAdd = sink.revision()
-
     doc.undo()
     doc.redo()
 
-    expect(sink.revision()).toBe(afterAdd + 2)
+    expect(sink.revision()).toBe(start + 4)
+  })
+
+  it('一次拖拽只算一次，过程中的高频更新不重复计', () => {
+    addText('text-1')
+    const before = sink.revision()
+
+    doc.captureHistory()
+    doc.updateElements([{ id: 'text-1', patch: { x: 10 } }])
+    doc.updateElements([{ id: 'text-1', patch: { x: 20 } }])
+
+    expect(sink.revision()).toBe(before + 1)
+  })
+
+  it('占位框状态流转与场景恢复不算用户编辑', () => {
+    const placeholderId = editor.createPlaceholder(
+      { x: 0, y: 0, w: 10, h: 10 },
+      { taskId: 't', clientRequestId: 'c', source: 'builtin-edge', prompt: '' },
+    )
+    const before = sink.revision()
+
+    editor.updatePlaceholder(placeholderId, { status: 'error', message: '上游拒绝' })
+    doc.restore([], {})
+
+    expect(sink.revision()).toBe(before)
   })
 })
 
