@@ -24,6 +24,8 @@ export interface PrivateSubmissionGuard {
 export interface PrivateHeaderActionsProps {
   username: string | null
   loggingOut: boolean
+  syncPending: boolean
+  onOpenSettings(): void
   onLogout(): void
 }
 

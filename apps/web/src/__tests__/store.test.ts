@@ -413,20 +413,19 @@ describe('the persisted app mode', () => {
     }
   }
 
-  it('restores a mode that is still offered', () => {
-    expect(merge({ appMode: 'product' }).appMode).toBe('product')
-    expect(merge({ appMode: 'create' }).appMode).toBe('create')
-  })
-
-  it('lands the retired remix and background swap modes on the product one', () => {
-    expect(merge({ appMode: 'remix' }).appMode).toBe('product')
-    expect(merge({ appMode: 'bgswap' }).appMode).toBe('product')
-  })
-
-  it('falls back to the current mode when the persisted one is gone', () => {
+  it('opens the workbench instead of a saved page', () => {
     useStore.setState({ appMode: 'browse' })
+    expect(merge({ appMode: 'product' }).appMode).toBe('browse')
+  })
 
-    expect(merge({ appMode: 'retired-mode' }).appMode).toBe('browse')
+  it('does not undo navigation chosen before hydration finishes', () => {
+    useStore.getState().setAppMode('create')
+    expect(merge({ appMode: 'product' }).appMode).toBe('create')
+  })
+
+  it('does not save the current page for the next visit', () => {
+    useStore.getState().setAppMode('product')
+    expect(getPersistedState(useStore.getState())).not.toHaveProperty('appMode')
   })
 })
 

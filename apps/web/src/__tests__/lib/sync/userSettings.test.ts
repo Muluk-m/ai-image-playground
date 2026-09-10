@@ -59,7 +59,7 @@ afterEach(() => {
 })
 
 describe('the user settings document', () => {
-  it('carries the behaviour switches, params, mode, pins and coach marks', () => {
+  it('carries behaviour switches, params, pins and coach marks without navigation', () => {
     useStore.getState().setSettings({ enterSubmit: true, alwaysShowRetryButton: true })
     useStore.getState().setParams({ n: 3 })
     useStore.getState().setAppMode('product')
@@ -71,7 +71,7 @@ describe('the user settings document', () => {
     expect(document.enterSubmit).toBe(true)
     expect(document.alwaysShowRetryButton).toBe(true)
     expect(document.params.n).toBe(3)
-    expect(document.appMode).toBe('product')
+    expect(document).not.toHaveProperty('appMode')
     expect(document.pinnedInspirationIds).toEqual(['inspiration-7'])
     expect(document.libraryCoachDismissed).toBe(true)
   })
@@ -81,7 +81,6 @@ describe('the user settings document', () => {
 
     expect(Object.keys(document).sort()).toEqual([
       'alwaysShowRetryButton',
-      'appMode',
       'assetHintShown',
       'builtinChannel',
       'clearInputAfterSubmit',
@@ -111,7 +110,7 @@ describe('the user settings document', () => {
 })
 
 describe('applying a document from another device', () => {
-  it('writes the switches, params, mode, pins and coach marks', () => {
+  it('applies settings without restoring another device’s page', () => {
     applyUserSettingsDocument({
       ...readUserSettingsDocument(),
       enterSubmit: true,
@@ -124,7 +123,7 @@ describe('applying a document from another device', () => {
     const state = useStore.getState()
     expect(state.settings.enterSubmit).toBe(true)
     expect(state.params.n).toBe(4)
-    expect(state.appMode).toBe('create')
+    expect(state.appMode).toBe('browse')
     expect(state.pinnedInspirationIds).toEqual(['from-other-device'])
     expect(state.inspirationCoachDismissed).toBe(true)
   })
@@ -160,10 +159,11 @@ describe('applying a document from another device', () => {
     expect(useStore.getState().settings.activeProfileId).toBe('byok-1')
   })
 
-  it('ignores a mode this deployment does not offer', () => {
-    applyUserSettingsDocument({ ...readUserSettingsDocument(), appMode: 'video' })
+  it('does not interrupt navigation already chosen in this session', () => {
+    useStore.getState().setAppMode('product')
+    applyUserSettingsDocument({ ...readUserSettingsDocument(), appMode: 'create' })
 
-    expect(useStore.getState().appMode).toBe('browse')
+    expect(useStore.getState().appMode).toBe('product')
   })
 
   it('ignores a document that is not an object', () => {

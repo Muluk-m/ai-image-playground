@@ -406,9 +406,6 @@ export function visibleAppModes(): AppMode[] {
   return APP_MODES.filter((mode) => mode !== 'video' || isVideoModeAvailable())
 }
 
-/** 复刻套图与换背景并进商品图；旧持久化值直接丢弃会把老用户扔回工作台。 */
-const RETIRED_APP_MODES: Record<string, AppMode> = { remix: 'product', bgswap: 'product' }
-
 export function getPersistedState(state: AppState) {
   const normalized = normalizeSettings(state.settings)
   // builtin-edge profile 不进 localStorage：其完整定义来自 config/channels.json + edge env。
@@ -427,7 +424,6 @@ export function getPersistedState(state: AppState) {
           inputImages: state.inputImages.map((img) => ({ id: img.id, dataUrl: '' })),
         }
       : {}),
-    appMode: state.appMode,
     dismissedCodexCliPrompts: state.dismissedCodexCliPrompts,
     inspirationCoachDismissed: state.inspirationCoachDismissed,
     libraryCoachDismissed: state.libraryCoachDismissed,
@@ -452,17 +448,6 @@ function normalizeSlotValues(persisted: unknown): SlotValues {
   )
 }
 
-function isAppMode(value: unknown): value is AppMode {
-  return APP_MODES.includes(value as AppMode)
-}
-
-function persistedAppMode(value: unknown, fallback: AppMode): AppMode {
-  const mode = isAppMode(value)
-    ? value
-    : ((typeof value === 'string' ? RETIRED_APP_MODES[value] : undefined) ?? fallback)
-  return visibleAppModes().includes(mode) ? mode : fallback
-}
-
 function mergePersistedState(persistedState: unknown, currentState: AppState): AppState {
   if (!persistedState || typeof persistedState !== 'object') return currentState
 
@@ -482,7 +467,8 @@ function mergePersistedState(persistedState: unknown, currentState: AppState): A
     pinnedInspirationIds: Array.isArray(persisted.pinnedInspirationIds)
       ? persisted.pinnedInspirationIds.filter((x): x is string => typeof x === 'string')
       : [],
-    appMode: persistedAppMode(persisted.appMode, currentState.appMode),
+    // Navigation belongs to this session, not saved settings or another device.
+    appMode: currentState.appMode,
     prompt:
       settings.persistInputOnRestart && typeof persisted.prompt === 'string'
         ? persisted.prompt
@@ -558,7 +544,7 @@ interface AppState {
   clearSelection: () => void
 
   // UI
-  /** 顶层视图模式：browse = 历史任务网格；create = 无限画布创作模式；remix = 复刻套图向导 */
+  /** 当前会话的顶层页面；每次打开应用从工作台开始，不持久化或跨设备同步。 */
   appMode: AppMode
   setAppMode: (mode: AppMode) => void
   /**

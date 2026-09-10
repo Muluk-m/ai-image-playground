@@ -1773,7 +1773,9 @@ export default function InputBar() {
                 />
                 <ButtonTooltip
                   visible={(!hasSubmitApiConfig || submissionGuard.blocked) && submitHover}
-                  text={submissionGuard.disabledReason ?? '尚未完成 API 配置，请在右上角设置中进行'}
+                  text={
+                    submissionGuard.disabledReason ?? '尚未完成 API 配置，请打开右上角菜单 → 设置'
+                  }
                 />
                 <button
                   type="button"
@@ -2021,7 +2023,8 @@ export default function InputBar() {
                     <ButtonTooltip
                       visible={(!hasSubmitApiConfig || submissionGuard.blocked) && submitHover}
                       text={
-                        submissionGuard.disabledReason ?? '尚未完成 API 配置，请在右上角设置中进行'
+                        submissionGuard.disabledReason ??
+                        '尚未完成 API 配置，请打开右上角菜单 → 设置'
                       }
                     />
                     <button
@@ -2126,7 +2129,7 @@ export default function InputBar() {
                         visible={(!hasSubmitApiConfig || submissionGuard.blocked) && submitHover}
                         text={
                           submissionGuard.disabledReason ??
-                          '尚未完成 API 配置，请在右上角设置中进行'
+                          '尚未完成 API 配置，请打开右上角菜单 → 设置'
                         }
                       />
                       <button
