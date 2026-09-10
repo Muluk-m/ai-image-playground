@@ -9,6 +9,7 @@ import { askChatModel } from './chatCompletion'
 
 export function buildStoryboardPrompt(request: StoryboardPlanRequest): string {
   const style = request.style?.trim()
+  const references = request.referenceImages ?? []
   const timeline = storyboardSegments(request.totalSeconds, request.shots)
     .map((segment, index) => storyboardShotLabel(index + 1, segment))
     .join('、')
@@ -18,8 +19,12 @@ export function buildStoryboardPrompt(request: StoryboardPlanRequest): string {
     `总时长：${request.totalSeconds} 秒，按 ${timeline} 切分，时间段首尾相接、不重叠。`,
     `画幅比例：${request.aspectRatio}。`,
     ...(style ? [`风格要求：${style}。`] : []),
-    ...(request.referenceImage
-      ? ['随附一张参考图：片中的产品 / 主体以它为准，描述与提示词都要写出它的真实外观。']
+    ...(references.length > 0
+      ? [
+          `随附 ${references.length} 张参考图，依次记作 ${references
+            .map((_, index) => `图${index + 1}`)
+            .join('、')}：片中的产品 / 主体以它们为准，描述与提示词都要写出它们的真实外观。`,
+        ]
       : []),
     '只输出一个 JSON 对象，不要任何解释文字、不要前后缀。字段：',
     '"title"：分镜标题，一句话',
@@ -47,7 +52,7 @@ export function planStoryboard(request: StoryboardPlanRequest): Promise<Storyboa
     {
       model: config.storyboard.model,
       prompt: buildStoryboardPrompt(request),
-      images: request.referenceImage ? [request.referenceImage] : [],
+      images: request.referenceImages ?? [],
       // 一份 5 镜脚本每镜两条提示词，外加整条视频的提示词，1500 会被截断在半句话上。
       maxTokens: 4000,
       timeoutMs: 90_000,

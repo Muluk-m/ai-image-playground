@@ -10,6 +10,7 @@ import {
   useStoryboardStore,
 } from '../../../../../features/video/storyboard/store'
 import { useStore } from '../../../../../store'
+import type { TaskRecord } from '../../../../../types'
 
 declare global {
   // eslint-disable-next-line no-var
@@ -39,6 +40,23 @@ const PLAN: StoryboardPlan = {
   shots: [],
 }
 
+const showToast = vi.fn()
+
+function doneTask(imageId: string): TaskRecord {
+  return {
+    id: `task-${imageId}`,
+    prompt: '',
+    params: useStore.getState().params,
+    inputImageIds: [],
+    outputImages: [imageId],
+    status: 'done',
+    error: null,
+    createdAt: 1_000,
+    finishedAt: 2_000,
+    elapsed: 1_000,
+  }
+}
+
 let host: HTMLDivElement
 let root: Root
 let settlePlan: (plan: StoryboardPlan) => void
@@ -53,7 +71,7 @@ beforeEach(() => {
         settlePlan = resolve
       }),
   )
-  useStore.setState({ showToast: vi.fn() })
+  useStore.setState({ showToast, tasks: [] })
   useStoryboardStore.setState({
     storyboards: [],
     activeId: null,
@@ -84,11 +102,14 @@ function planButton(): HTMLButtonElement {
 
 describe('生成脚本按钮', () => {
   it('跑起来后读秒，跑完回到原文案', async () => {
-    act(() => root.render(<StoryboardComposer support={SUPPORT} onPickReference={vi.fn()} />))
+    act(() => root.render(<StoryboardComposer support={SUPPORT} />))
 
     expect(planButton().textContent).toBe('生成脚本')
 
-    act(() => planButton().click())
+    // 参考图先要逐张读出 data URL，所以请求要等一轮微任务才发出去。
+    await act(async () => {
+      planButton().click()
+    })
 
     expect(planButton().textContent).toBe('生成中 0s')
     expect(planButton().disabled).toBe(true)
@@ -106,5 +127,49 @@ describe('生成脚本按钮', () => {
     expect(planButton().textContent).toBe('生成脚本')
     expect(planButton().disabled).toBe(false)
     expect(host.textContent).not.toContain('通常 60 秒')
+  })
+})
+
+function references(): HTMLLIElement[] {
+  const list = host.querySelector('ul[aria-label="参考图"]')
+  if (!list) throw new Error('没找到参考图列表')
+  return [...list.querySelectorAll('li')]
+}
+
+function render(referenceImageIds: string[]) {
+  useStoryboardStore.setState((state) => ({ draft: { ...state.draft, referenceImageIds } }))
+  act(() => root.render(<StoryboardComposer support={SUPPORT} />))
+}
+
+describe('参考图', () => {
+  it('选了几张就摆几张，没满时留着上传与选图', () => {
+    render(['ref-1', 'ref-2'])
+
+    expect(references()).toHaveLength(3)
+    expect(host.textContent).toContain('上传')
+    expect(host.textContent).toContain('选图')
+  })
+
+  it('第 4 张之后收起添加位，再点素材条只提示', () => {
+    useStore.setState({ showToast, tasks: [doneTask('ref-5')] })
+    render(['ref-1', 'ref-2', 'ref-3', 'ref-4'])
+
+    expect(references()).toHaveLength(4)
+    expect(host.textContent).not.toContain('上传')
+
+    const strip = host.querySelector('ul[aria-label="素材库 · 最近出图"] button')
+    act(() => (strip as HTMLButtonElement).click())
+
+    expect(showToast).toHaveBeenCalledWith('最多 4 张参考图', 'error')
+    expect(useStoryboardStore.getState().draft.referenceImageIds).toHaveLength(4)
+  })
+
+  it('点掉一张就少一张', () => {
+    render(['ref-1', 'ref-2'])
+
+    const remove = references()[0]!.querySelector('button')
+    act(() => (remove as HTMLButtonElement).click())
+
+    expect(useStoryboardStore.getState().draft.referenceImageIds).toEqual(['ref-2'])
   })
 })
