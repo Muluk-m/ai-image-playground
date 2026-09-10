@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'bun:test'
 import {
   AGENT_CONVERSATION_TITLE_MAX_CHARS,
+  type AgentTurnEvent,
   agentConversationTitle,
   agentHeartbeatFrame,
   agentMessageText,
-  type AgentTurnEvent,
   encodeAgentFrame,
   isAgentTurnTerminal,
   parseAgentFrame,
@@ -64,7 +64,12 @@ describe('parseAgentFrame', () => {
 describe('isAgentTurnTerminal', () => {
   it('treats turn end and error as the last event of a turn', () => {
     expect(
-      isAgentTurnTerminal({ type: 'turnEnd', turnId: 't1', durationMs: 1, stopReason: 'completed' }),
+      isAgentTurnTerminal({
+        type: 'turnEnd',
+        turnId: 't1',
+        durationMs: 1,
+        stopReason: 'completed',
+      }),
     ).toBe(true)
     expect(isAgentTurnTerminal({ type: 'error', error: 'agent_upstream_error' })).toBe(true)
     expect(isAgentTurnTerminal({ type: 'textDelta', messageId: 'a1', delta: '好' })).toBe(false)
