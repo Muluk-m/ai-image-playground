@@ -1,5 +1,7 @@
 import { IDBFactory } from 'fake-indexeddb'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { productShotJobStore } from '../../../../features/productShots/lib/jobStore'
+import { matteGate } from '../../../../features/productShots/lib/matteGate'
 import {
   createSourceMattes,
   type SourceMatteHost,
@@ -7,10 +9,10 @@ import {
 } from '../../../../features/productShots/lib/sourceMatte'
 import type { ProductShotImage, SourceMatte } from '../../../../features/productShots/types'
 import { DEFAULT_SETTINGS } from '../../../../lib/apiProfiles'
-import { getImage, putImage } from '../../../../lib/db'
+import { deleteImage, getImage, putImage } from '../../../../lib/db'
 import type * as MaskAlpha from '../../../../lib/productMatte/maskAlpha'
 import { alphaToDataUrl } from '../../../../lib/productMatte/maskAlpha'
-import { useStore } from '../../../../store'
+import { initStore, useStore } from '../../../../store'
 import { decodeRgbaPng } from '../../../helpers/png'
 
 // Node 没有 Canvas；只替换 PNG 解码执行，agreement、扩张、极性与编码全部用真实实现。
@@ -25,6 +27,7 @@ vi.mock('../../../../lib/productMatte/maskAlpha', async (importOriginal) => ({
 }))
 
 beforeEach(() => {
+  vi.stubGlobal('window', { requestIdleCallback: vi.fn() })
   vi.stubGlobal('indexedDB', new IDBFactory())
   useStore.setState({ settings: DEFAULT_SETTINGS })
 })
@@ -168,6 +171,77 @@ describe('原图蒙版 interface 的真实像素', () => {
     expect(host.read(source.ref)?.sourceMatte).toMatchObject({ status: 'ready', edited: true })
     const usable = await mattes.prepare(source.ref, input)
     expect(usable.mask).not.toBeNull()
+  })
+
+  it('刷新后的图片清理不能删掉手改蒙版，下一次换背景仍使用它', async () => {
+    const source = await original('left')
+    source.image.sourceMatte = {
+      ...(source.image.sourceMatte as Extract<SourceMatte, { status: 'ready' }>),
+      edited: true,
+    }
+    await putImage({ id: source.ref.imageId, dataUrl: source.dataUrl, createdAt: 1 })
+    await productShotJobStore.put({
+      id: source.ref.jobId,
+      name: '商品图 2',
+      images: [source.image],
+      preference: '户外场景',
+      versionsPerImage: 1,
+      createdAt: 1,
+      updatedAt: 1,
+    })
+
+    await initStore()
+
+    const mattes = createSourceMattes(memoryHost([source.image]))
+    const prepared = await mattes.prepare(source.ref, {
+      dataUrl: source.dataUrl,
+      productBox: null,
+      side: 'background',
+    })
+    expect(prepared.notice).toBeNull()
+    const pixels = await maskPixels(prepared.mask!.imageId)
+    expect(pixels.data[(32 * 64 + 14) * 4 + 3]).toBe(255)
+    expect(pixels.data[(32 * 64 + 50) * 4 + 3]).toBe(0)
+  })
+
+  it('已丢失的手改蒙版阻止提交，并提供重试而不是继续按无蒙版生成', async () => {
+    const source = await original('left')
+    source.image.sourceMatte = {
+      ...(source.image.sourceMatte as Extract<SourceMatte, { status: 'ready' }>),
+      edited: true,
+    }
+    const host = memoryHost([source.image])
+    const mattes = createSourceMattes(host)
+    await deleteImage(source.alphaImageId)
+
+    await expect(
+      mattes.prepare(source.ref, {
+        dataUrl: source.dataUrl,
+        productBox: null,
+        side: 'background',
+      }),
+    ).rejects.toThrow('本地蒙版数据已丢失')
+    expect(
+      matteGate({
+        matte: host.read(source.ref)?.sourceMatte,
+        matting: false,
+        maskSupported: true,
+        modelKnown: true,
+      }),
+    ).toMatchObject({ retry: true, edit: false })
+  })
+
+  it('打开已丢失的蒙版也能退出伪就绪状态，让用户重新抠图', async () => {
+    const source = await original('left')
+    const host = memoryHost([source.image])
+    const mattes = createSourceMattes(host)
+    await deleteImage(source.alphaImageId)
+
+    await expect(mattes.edit(source.ref)).rejects.toThrow('本地蒙版数据已丢失')
+    expect(host.read(source.ref)?.sourceMatte).toMatchObject({
+      status: 'failed',
+      reason: 'missing',
+    })
   })
 
   it('手改目标图丢失时拒绝准备，不能把遮罩配到另一张原图', async () => {
