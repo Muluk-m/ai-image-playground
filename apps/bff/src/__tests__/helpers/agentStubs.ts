@@ -10,14 +10,25 @@ export interface AgentCall {
   readonly authorization: string | null
   readonly model: string
   readonly messages: { role: string; content: unknown }[]
+  readonly stream_options?: { include_usage?: boolean }
 }
 
 function sseBody(chunks: unknown[]): string {
   return `${chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join('')}data: [DONE]\n\n`
 }
 
+interface CompletionOptions {
+  readonly deltas: readonly string[]
+  /** 缺席即模拟「中转网关吞掉 stream_options」：末帧不带用量。 */
+  readonly usage?: { readonly prompt_tokens: number; readonly completion_tokens: number }
+}
+
 /** 上游把一条回复拆成若干 delta，末帧带 finish_reason —— 逐字流的最小可信形状。 */
 export function completionStream(...deltas: string[]): Response {
+  return completion({ deltas, usage: { prompt_tokens: 12, completion_tokens: 4 } })
+}
+
+export function completion({ deltas, usage }: CompletionOptions): Response {
   const chunks: unknown[] = deltas.map((content, index) => ({
     id: 'completion-1',
     choices: [{ index: 0, delta: index === 0 ? { role: 'assistant', content } : { content } }],
@@ -25,7 +36,7 @@ export function completionStream(...deltas: string[]): Response {
   chunks.push({
     id: 'completion-1',
     choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
-    usage: { prompt_tokens: 12, completion_tokens: 4 },
+    ...(usage ? { usage } : {}),
   })
   return new Response(sseBody(chunks), {
     headers: { 'content-type': 'text/event-stream' },
@@ -44,6 +55,7 @@ export function recordingAgentFetch(
       authorization: new Headers(request.headers).get('authorization'),
       model: sent.model,
       messages: sent.messages,
+      stream_options: sent.stream_options,
     })
     return answer()
   }) as unknown as typeof globalThis.fetch
