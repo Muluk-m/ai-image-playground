@@ -5,7 +5,7 @@ import type {
   AgentMessageRole,
   AgentMessageView,
 } from '@image-playground/shared'
-import { and, asc, eq, isNull, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, isNull, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import type { BffTransaction } from '../private-overlay'
 
@@ -95,6 +95,25 @@ export async function findAgentConversation(
     )
     .limit(1)
   return row ? conversationView(row) : null
+}
+
+export async function listAgentConversations(owner: AgentOwner): Promise<AgentConversationView[]> {
+  const rows = await db
+    .select()
+    .from(schema.agent_conversations)
+    .where(and(ownerWhere(owner), isNull(schema.agent_conversations.deleted_at)))
+    .orderBy(desc(schema.agent_conversations.updated_at))
+  return rows.map(conversationView)
+}
+
+/** 幂等靠改挂本身：设备名下的行一次搬空，重复登录再扫就是空集，不会搬出第二份。 */
+export async function adoptDeviceConversations(deviceId: string, userId: string): Promise<number> {
+  const rows = await db
+    .update(schema.agent_conversations)
+    .set({ user_id: userId, device_id: null })
+    .where(eq(schema.agent_conversations.device_id, deviceId))
+    .returning({ id: schema.agent_conversations.id })
+  return rows.length
 }
 
 export async function setAgentConversationTitle(id: string, title: string): Promise<void> {
