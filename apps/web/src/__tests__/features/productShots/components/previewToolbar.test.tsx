@@ -44,6 +44,18 @@ const version: ProductShotVersion = {
     groupId: 'group',
   },
 }
+const task: TaskRecord = {
+  id: 'task',
+  prompt: '',
+  params: DEFAULT_PARAMS,
+  inputImageIds: ['original'],
+  outputImages: ['result'],
+  status: 'done',
+  error: null,
+  createdAt: 1,
+  finishedAt: 2,
+  elapsed: 1,
+}
 const button = (label: string) => {
   const result = [...host.querySelectorAll('button')].find((el) => el.textContent?.trim() === label)
   if (!result) throw new Error(`Missing button: ${label}`)
@@ -62,7 +74,7 @@ beforeEach(() => {
     matteOverlayVersionId: null,
   }))
   useStore.setState({
-    tasks: [{ id: 'task', status: 'done', outputImages: ['result'] }] as TaskRecord[],
+    tasks: [task],
   })
   host = document.createElement('div')
   document.body.append(host)
@@ -81,7 +93,7 @@ it('opens editing and kit workflows for the visible version and hides actions wi
   expect(useWorkflowEditor.getState().session).toMatchObject({ kind: 'kit', versionId: 'edited' })
   await act(async () =>
     useStore.setState({
-      tasks: [{ id: 'task', status: 'running', outputImages: [] }] as TaskRecord[],
+      tasks: [{ ...task, status: 'running', outputImages: [] }],
     }),
   )
   expect(host.querySelector('[aria-label="图像操作"]')).toBeNull()
