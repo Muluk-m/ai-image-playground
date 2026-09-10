@@ -1,27 +1,24 @@
+import { serializeConversation } from '@earendil-works/pi-agent-core'
+import type { Message } from '@earendil-works/pi-ai'
 import type { AgentCompactionNarrative } from '@image-playground/shared'
 import { config } from '../../config'
 import { askChatModel } from '../chatCompletion'
 import { log } from '../logger'
 import { isObject } from '../type-guards'
-import {
-  type CompactionMessage,
-  compactionMessageText,
-  type Summarize,
-  type SummaryRequest,
-} from './compaction'
+import type { CompactionMessage, Summarize, SummaryRequest } from './compaction'
 
 /** 摘要输入很大而输出是四段话；给足够写完、又不够跑题的额度。 */
 const SUMMARY_MAX_TOKENS = 1_500
 const SUMMARY_TIMEOUT_MS = 60_000
 
 function transcript(messages: readonly CompactionMessage[]): string {
-  return messages
-    .map((entry) => {
-      const message = entry.message
-      const label = message.role === 'toolResult' ? `toolResult:${message.toolName}` : message.role
-      return `<${label}>\n${compactionMessageText(entry)}`
-    })
-    .join('\n\n')
+  const llm = messages
+    .map((entry) => entry.message)
+    .filter(
+      (message): message is Message =>
+        message.role === 'user' || message.role === 'assistant' || message.role === 'toolResult',
+    )
+  return serializeConversation(llm)
 }
 
 export function buildSummaryPrompt(request: SummaryRequest): string {
@@ -47,14 +44,11 @@ export function buildSummaryPrompt(request: SummaryRequest): string {
 
 function parseNarrative(value: unknown): AgentCompactionNarrative | null {
   if (!isObject(value)) return null
-  const fields = ['completed', 'inProgress', 'decisions', 'artifacts'] as const
-  if (fields.some((field) => typeof value[field] !== 'string')) return null
-  return {
-    completed: value.completed as string,
-    inProgress: value.inProgress as string,
-    decisions: value.decisions as string,
-    artifacts: value.artifacts as string,
+  const { completed, inProgress, decisions, artifacts } = value
+  if ([completed, inProgress, decisions, artifacts].some((field) => typeof field !== 'string')) {
+    return null
   }
+  return { completed, inProgress, decisions, artifacts } as AgentCompactionNarrative
 }
 
 /**

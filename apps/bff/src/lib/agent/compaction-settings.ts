@@ -2,30 +2,20 @@ import type { QuotaValues } from '@image-playground/shared'
 import { config } from '../../config'
 import type { CompactionSettings } from './compaction'
 
-export interface CompactionModelLimits {
-  readonly contextWindow: number
-  readonly maxOutputTokens: number
-}
-
-export function compactionSettingsFrom(
-  quotas: QuotaValues,
-  model: CompactionModelLimits,
+export function compactionSettings(
+  quotas: QuotaValues = config.operator.quotas,
+  contextWindow: number = config.agent.contextWindow,
+  maxOutputTokens: number = config.agent.maxTokens,
 ): CompactionSettings {
   return {
-    contextWindow: model.contextWindow,
-    maxOutputTokens: model.maxOutputTokens,
+    contextWindow,
+    maxOutputTokens,
     outputReserveTokens: quotas['agent:compaction-output-reserve-tokens'],
     bufferTokens: quotas['agent:compaction-buffer-tokens'],
     keepRecentMessages: quotas['agent:compaction-keep-messages'],
+    verbatimTokens: quotas['agent:compaction-verbatim-tokens'],
     maxIncrementalFolds: quotas['agent:compaction-max-folds'],
     failureThreshold: quotas['agent:compaction-failure-threshold'],
     breakerCooldownMs: quotas['agent:compaction-cooldown-minutes'] * 60 * 1000,
   }
-}
-
-export function compactionSettings(): CompactionSettings {
-  return compactionSettingsFrom(config.operator.quotas, {
-    contextWindow: config.agent.contextWindow,
-    maxOutputTokens: config.agent.maxTokens,
-  })
 }

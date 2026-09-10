@@ -1,6 +1,6 @@
 import { type AgentMessage, estimateTokens } from '@earendil-works/pi-agent-core'
+import { contentText } from '@earendil-works/pi-ai'
 import type { AgentCompactionNarrative } from '@image-playground/shared'
-import { isObject } from '../type-guards'
 
 /**
  * 上下文压缩：消息与锚点进，塑形后的消息与新锚点出。纯模块，不碰数据库也不发请求——
@@ -39,6 +39,8 @@ export interface CompactionSettings {
   readonly outputReserveTokens: number
   readonly bufferTokens: number
   readonly keepRecentMessages: number
+  /** 摘要里逐字保留用户原话的 token 上限，超出的最旧几条降级为占位。 */
+  readonly verbatimTokens: number
   readonly maxIncrementalFolds: number
   readonly failureThreshold: number
   readonly breakerCooldownMs: number
@@ -73,7 +75,6 @@ export interface CompactionInput {
   readonly settings: CompactionSettings
   readonly now: number
   readonly summarize: Summarize
-  readonly offloadToolResults?: ToolResultOffload
 }
 
 export interface CompactionBudget {
@@ -89,8 +90,19 @@ export function compactionBudget(settings: CompactionSettings): CompactionBudget
 
 const CLOSED_BREAKER: CompactionBreaker = { failureCount: 0, openedAt: null }
 
-function tokensOf(messages: readonly CompactionMessage[]): number {
-  return messages.reduce((total, entry) => total + estimateTokens(entry.message), 0)
+/** 这个钩子每次模型请求都跑一遍，而前缀逐字节不变；不记住就每次重扫整段历史。 */
+const tokenCache = new WeakMap<AgentMessage, number>()
+
+function tokens(message: AgentMessage): number {
+  const cached = tokenCache.get(message)
+  if (cached !== undefined) return cached
+  const estimated = estimateTokens(message)
+  tokenCache.set(message, estimated)
+  return estimated
+}
+
+function tokensOf(messages: readonly AgentMessage[]): number {
+  return messages.reduce((total, message) => total + tokens(message), 0)
 }
 
 function plain(messages: readonly CompactionMessage[]): AgentMessage[] {
@@ -101,14 +113,9 @@ function isUser(entry: CompactionMessage): boolean {
   return entry.message.role === 'user'
 }
 
-export function compactionMessageText(entry: CompactionMessage): string {
+function messageText(entry: CompactionMessage): string {
   const message = entry.message
-  if (!('content' in message)) return ''
-  const content: string | readonly unknown[] = message.content
-  if (typeof content === 'string') return content
-  return content
-    .map((block) => (isObject(block) && typeof block.text === 'string' ? block.text : ''))
-    .join('')
+  return 'content' in message ? contentText(message.content, '') : ''
 }
 
 function anchorMatches(messages: readonly CompactionMessage[], anchor: CompactionAnchor): boolean {
@@ -143,9 +150,9 @@ function trailingWindow(
   budget: number,
 ): CompactionMessage[] {
   let start = messages.length - 1
-  let used = estimateTokens(messages[start]!.message)
+  let used = tokens(messages[start]!.message)
   while (start > 0) {
-    const cost = estimateTokens(messages[start - 1]!.message)
+    const cost = tokens(messages[start - 1]!.message)
     if (used + cost > budget) break
     start -= 1
     used += cost
@@ -165,11 +172,12 @@ function section(value: string): string {
  * 但不许消失——用户看不到自己说过的话被吞掉。
  */
 function verbatimSection(covered: readonly CompactionMessage[], budget: number): string {
-  const texts = covered.filter(isUser).map(compactionMessageText)
+  const users = covered.filter(isUser)
+  const texts = users.map(messageText)
   const kept = new Set<number>()
   let used = 0
   for (let index = texts.length - 1; index >= 0; index -= 1) {
-    const cost = Math.ceil(texts[index]!.length / 4)
+    const cost = tokens(users[index]!.message)
     if (used + cost > budget) break
     used += cost
     kept.add(index)
@@ -209,30 +217,18 @@ function summaryMessage(
   return { role: 'user', content: [{ type: 'text', text }], timestamp: Date.now() }
 }
 
+/**
+ * 摘要 + 尾巴。`tailBudget` 为空表示保留完整的原文窗口——刚折叠出来的摘要不覆盖这段尾巴，
+ * 裁掉它就等于两边都没有；只有拿不出新摘要的兜底路径才按预算裁。
+ */
 function shaped(
-  narrative: AgentCompactionNarrative,
-  messages: readonly CompactionMessage[],
-  cut: number,
-  verbatimBudget: number,
+  summary: AgentMessage,
+  tail: readonly CompactionMessage[],
+  tailBudget: number | null,
 ): AgentMessage[] {
-  return [
-    summaryMessage(narrative, messages.slice(0, cut), verbatimBudget),
-    ...plain(messages.slice(cut)),
-  ]
-}
-
-/** 摘要在、但尾巴仍然超预算时的形状：摘要保住，尾巴截到装得下。 */
-function shapedWithinBudget(
-  narrative: AgentCompactionNarrative,
-  messages: readonly CompactionMessage[],
-  cut: number,
-  verbatimBudget: number,
-  threshold: number,
-): AgentMessage[] {
-  const summary = summaryMessage(narrative, messages.slice(0, cut), verbatimBudget)
-  const tail = messages.slice(cut)
+  if (tailBudget === null) return [summary, ...plain(tail)]
   if (tail.length === 0) return [summary]
-  return [summary, ...plain(trailingWindow(tail, threshold - estimateTokens(summary)))]
+  return [summary, ...plain(trailingWindow(tail, tailBudget - tokens(summary)))]
 }
 
 function cooled(
@@ -254,30 +250,25 @@ function afterFailure(
 }
 
 export async function shapeAgentContext(input: CompactionInput): Promise<CompactionResult> {
-  const messages = input.offloadToolResults
-    ? await input.offloadToolResults(input.messages)
-    : input.messages
-  const { effectiveWindow, threshold } = compactionBudget(input.settings)
-  const verbatimBudget = Math.max(1, Math.floor(effectiveWindow / 4))
+  const messages = input.messages
+  const { threshold } = compactionBudget(input.settings)
   const breaker = cooled(input.breaker, input.now, input.settings)
 
-  if (messages.length === 0 || tokensOf(messages) <= threshold) {
+  if (messages.length === 0 || tokensOf(plain(messages)) <= threshold) {
     return { messages: plain(messages), state: input.state, breaker, mode: 'none' }
   }
 
   // 锚点失配等同于没有摘要：继续用它会把中间被删的内容永久冻在摘要里。
   const state = input.state && anchorMatches(messages, input.state.anchor) ? input.state : null
+  const covered = state ? state.anchor.coveredCount : 0
+  const reusedSummary = state
+    ? summaryMessage(state.narrative, messages.slice(0, covered), input.settings.verbatimTokens)
+    : null
 
   const fallback = (next: CompactionBreaker): CompactionResult =>
-    state
+    state && reusedSummary
       ? {
-          messages: shapedWithinBudget(
-            state.narrative,
-            messages,
-            state.anchor.coveredCount,
-            verbatimBudget,
-            threshold,
-          ),
+          messages: shaped(reusedSummary, messages.slice(covered), threshold),
           state,
           breaker: next,
           mode: 'reuse',
@@ -291,32 +282,33 @@ export async function shapeAgentContext(input: CompactionInput): Promise<Compact
 
   if (breaker.openedAt !== null) return fallback(breaker)
 
-  if (state) {
-    const reused = shaped(state.narrative, messages, state.anchor.coveredCount, verbatimBudget)
-    if (reused.reduce((total, message) => total + estimateTokens(message), 0) <= threshold) {
+  if (state && reusedSummary) {
+    const reused = shaped(reusedSummary, messages.slice(covered), null)
+    if (tokensOf(reused) <= threshold) {
       return { messages: reused, state, breaker, mode: 'reuse' }
     }
   }
 
-  const floor = state ? state.anchor.coveredCount : 0
-  const cut = cutPoint(messages, input.settings.keepRecentMessages, floor)
-  if (cut <= floor) return fallback(breaker)
+  const cut = cutPoint(messages, input.settings.keepRecentMessages, covered)
+  if (cut <= covered) return fallback(breaker)
 
-  const incremental = state !== null && state.foldCount < input.settings.maxIncrementalFolds
+  // 折叠满次数就丢开旧摘要从头重做，免得增量摘要一路失真下去。
+  const previous = state && state.foldCount < input.settings.maxIncrementalFolds ? state : null
   const narrative = await input.summarize({
-    messages: messages.slice(incremental ? floor : 0, cut),
-    previousSummary: incremental && state ? state.narrative : null,
+    messages: messages.slice(previous ? covered : 0, cut),
+    previousSummary: previous ? previous.narrative : null,
   })
   if (!narrative) return fallback(afterFailure(breaker, input.now, input.settings))
 
+  const summary = summaryMessage(narrative, messages.slice(0, cut), input.settings.verbatimTokens)
   return {
-    messages: shaped(narrative, messages, cut, verbatimBudget),
+    messages: shaped(summary, messages.slice(cut), null),
     state: {
       narrative,
       anchor: { lastMessageId: messages[cut - 1]!.id, coveredCount: cut },
-      foldCount: incremental && state ? state.foldCount + 1 : 0,
+      foldCount: previous ? previous.foldCount + 1 : 0,
     },
     breaker: CLOSED_BREAKER,
-    mode: incremental ? 'incremental' : 'rebuild',
+    mode: previous ? 'incremental' : 'rebuild',
   }
 }

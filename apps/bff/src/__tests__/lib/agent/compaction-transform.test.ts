@@ -2,7 +2,13 @@ import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
 import type { AgentMessage } from '@earendil-works/pi-agent-core'
 import { resetTestDatabase } from '@image-playground/db/testing'
-import { chatCompletion, chatFetchReturning } from '../../helpers/chatStubs'
+import { assistant, body, user } from '../../helpers/agentMessages'
+import {
+  type ChatCall,
+  chatCompletion,
+  chatFetchReturning,
+  recordingChatFetch,
+} from '../../helpers/chatStubs'
 
 process.env.DATABASE_URL = await resetTestDatabase('agent_compaction')
 process.env.PORT = '0'
@@ -33,44 +39,16 @@ const NARRATIVE = {
 
 const DEVICE = { kind: 'device', deviceId: 'device-abcdefgh' } as const
 
-function body(marker: string): string {
-  return marker.repeat(400)
-}
-
-function user(text: string): AgentMessage {
-  return { role: 'user', content: [{ type: 'text', text }], timestamp: 1 }
-}
-
-function assistant(text: string): AgentMessage {
-  return {
-    role: 'assistant',
-    content: [{ type: 'text', text }],
-    api: 'openai-completions',
-    provider: 'p',
-    model: 'm',
-    usage: {
-      input: 0,
-      output: 0,
-      cacheRead: 0,
-      cacheWrite: 0,
-      totalTokens: 0,
-      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-    },
-    stopReason: 'stop',
-    timestamp: 1,
-  }
-}
-
 /** 五条落库的历史 + 本轮那条用户消息，正好越过阈值。 */
 const HISTORY_IDS = ['m1', 'm2', 'm3', 'm4', 'm5']
 const MESSAGES: AgentMessage[] = [
-  user(body('a')),
-  assistant(body('b')),
-  user(body('c')),
-  assistant(body('d')),
-  user(body('e')),
-  user(body('f')),
-]
+  user('m1', body('a')),
+  assistant('m2', body('b')),
+  user('m3', body('c')),
+  assistant('m4', body('d')),
+  user('m5', body('e')),
+  user('m6', body('f')),
+].map((entry) => entry.message)
 
 beforeEach(async () => {
   await db.delete(schema.agent_conversations)
@@ -122,11 +100,10 @@ describe('createCompactionTransform', () => {
       userMessageId: 'm6',
     })(MESSAGES)
 
-    let summaryCalls = 0
-    setChatFetchForTesting((async () => {
-      summaryCalls += 1
-      return new Response('nope', { status: 502 })
-    }) as Parameters<typeof setChatFetchForTesting>[0])
+    const summaryCalls: ChatCall[] = []
+    setChatFetchForTesting(
+      recordingChatFetch(summaryCalls, () => new Response('nope', { status: 502 })),
+    )
 
     // 第二轮的尾巴便宜到摘要 + 尾巴装得下：这一态不该再调模型。
     const shaped = await createCompactionTransform({
@@ -134,9 +111,9 @@ describe('createCompactionTransform', () => {
       turnId: 'turn-2',
       historyIds: [...HISTORY_IDS, 'm6'],
       userMessageId: 'm7',
-    })([...MESSAGES.slice(0, 5), user('好的')])
+    })([...MESSAGES.slice(0, 5), user('m7', '好的').message])
 
-    expect(summaryCalls).toBe(0)
+    expect(summaryCalls).toHaveLength(0)
     expect(JSON.stringify(shaped[0])).toContain('出了三张马克杯图')
   })
 

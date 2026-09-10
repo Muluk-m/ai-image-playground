@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'bun:test'
-import type { AgentMessage } from '@earendil-works/pi-agent-core'
 import {
   type CompactionBreaker,
   type CompactionMessage,
@@ -9,6 +8,7 @@ import {
   type SummaryRequest,
   shapeAgentContext,
 } from '../../../lib/agent/compaction'
+import { assistant, body, textOf, toolResult, user } from '../../helpers/agentMessages'
 
 const SETTINGS: CompactionSettings = {
   contextWindow: 400,
@@ -16,69 +16,13 @@ const SETTINGS: CompactionSettings = {
   outputReserveTokens: 100,
   bufferTokens: 50,
   keepRecentMessages: 2,
+  verbatimTokens: 87,
   maxIncrementalFolds: 5,
   failureThreshold: 3,
   breakerCooldownMs: 6 * 60 * 60 * 1000,
 }
 
 const CLOSED: CompactionBreaker = { failureCount: 0, openedAt: null }
-
-/** 400 字符 = 100 token（pi 的估算是 ceil(chars/4)），阈值 300 时四条就过线。 */
-function body(marker: string): string {
-  return marker.repeat(400)
-}
-
-function user(id: string, text: string): CompactionMessage {
-  return { id, message: { role: 'user', content: [{ type: 'text', text }], timestamp: 1 } }
-}
-
-function assistant(id: string, text: string): CompactionMessage {
-  return {
-    id,
-    message: {
-      role: 'assistant',
-      content: [{ type: 'text', text }],
-      api: 'openai-completions',
-      provider: 'p',
-      model: 'm',
-      usage: {
-        input: 0,
-        output: 0,
-        cacheRead: 0,
-        cacheWrite: 0,
-        totalTokens: 0,
-        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-      },
-      stopReason: 'stop',
-      timestamp: 1,
-    },
-  }
-}
-
-function toolResult(id: string, text: string): CompactionMessage {
-  return {
-    id,
-    message: {
-      role: 'toolResult',
-      toolCallId: id,
-      toolName: 'generate_image',
-      content: [{ type: 'text', text }],
-      isError: false,
-      timestamp: 1,
-    },
-  }
-}
-
-function textOf(message: AgentMessage): string {
-  if (!('content' in message)) return ''
-  const content: string | readonly unknown[] = message.content
-  if (typeof content === 'string') return content
-  return content
-    .map((block) =>
-      typeof block === 'object' && block !== null && 'text' in block ? String(block.text) : '',
-    )
-    .join('')
-}
 
 function narrative() {
   return {
@@ -511,31 +455,6 @@ describe('shapeAgentContext', () => {
 
     expect(messages).toHaveLength(5)
     expect(JSON.stringify(messages)).toBe(snapshot)
-  })
-
-  it('runs the tool-result offload seam before measuring the context', async () => {
-    const messages = [
-      user('m1', body('a')),
-      toolResult('m2', body('b')),
-      user('m3', body('c')),
-      assistant('m4', 'd'.repeat(200)),
-    ]
-    const calls: SummaryRequest[] = []
-    const result = await shapeAgentContext({
-      messages,
-      state: null,
-      breaker: CLOSED,
-      settings: SETTINGS,
-      now: 1_000,
-      summarize: summarizerOf(calls),
-      offloadToolResults: async (entries) =>
-        entries.map((entry) =>
-          entry.message.role === 'toolResult' ? toolResult(entry.id, 'img-1') : entry,
-        ),
-    })
-
-    expect(result.mode).toBe('none')
-    expect(calls).toHaveLength(0)
   })
 
   it('keeps at least the newest message when the trailing window cannot fit', async () => {

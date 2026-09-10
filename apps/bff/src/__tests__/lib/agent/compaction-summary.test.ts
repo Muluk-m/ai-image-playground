@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'bun:test'
-import type { CompactionMessage } from '../../../lib/agent/compaction'
+import { user } from '../../helpers/agentMessages'
 import type { ChatCall } from '../../helpers/chatStubs'
 import { chatCompletion, chatFetchReturning, recordingChatFetch } from '../../helpers/chatStubs'
 
@@ -19,10 +19,6 @@ const NARRATIVE = {
   inProgress: '在调背景色',
   decisions: '主体不换',
   artifacts: 'img-1、img-2',
-}
-
-function user(id: string, text: string): CompactionMessage {
-  return { id, message: { role: 'user', content: [{ type: 'text', text }], timestamp: 1 } }
 }
 
 afterEach(() => {
