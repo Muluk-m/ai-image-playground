@@ -1,12 +1,13 @@
-import type {
-  StoryboardPlan,
-  StoryboardShotCount,
-  StoryboardTotalSeconds,
+import {
+  STORYBOARD_MAX_REFERENCE_IMAGES,
+  type StoryboardPlan,
+  type StoryboardShotCount,
+  type StoryboardTotalSeconds,
 } from '@image-playground/shared'
 import { create } from 'zustand'
 import { planStoryboard } from '../../../lib/storyboardClient'
-import { ensureImageCached, submitPrepared, useStore } from '../../../store'
-import type { TaskRecord } from '../../../types'
+import { ensureImageCached, storeImageFromFile, submitPrepared, useStore } from '../../../store'
+import type { InputImage, TaskRecord } from '../../../types'
 import { useVideoStore } from '../store'
 import { downloadStoryboardZip } from './lib/exportStoryboard'
 import { storyboardImageParams } from './lib/shotImage'
@@ -22,6 +23,7 @@ import {
 } from './types'
 
 const NO_IMAGE = '这一镜还没有分镜图'
+const TOO_MANY_REFERENCES = `最多 ${STORYBOARD_MAX_REFERENCE_IMAGES} 张参考图`
 
 /** 给用户的预期，不是超时。 */
 export const STORYBOARD_PLAN_TYPICAL_SECONDS = 60
@@ -31,6 +33,7 @@ export const INITIAL_STORYBOARD_DRAFT: StoryboardDraft = {
   shots: 3,
   totalSeconds: 15,
   style: STORYBOARD_FREE_STYLE,
+  referenceImageIds: [],
   shotImages: true,
 }
 
@@ -46,6 +49,10 @@ export interface StoryboardState {
   setTotalSeconds(totalSeconds: StoryboardTotalSeconds): void
   setStyle(style: StoryboardStyle): void
   setShotImages(shotImages: boolean): void
+  /** 已选的再点一次拿掉；已满时只提示，不挤掉已选的。 */
+  toggleReference(imageId: string): void
+  removeReference(imageId: string): void
+  addReferencesFromFiles(files: File[]): Promise<void>
 
   plan(input: StoryboardPlanInput): Promise<string | null>
   /** 用同样的创意重写脚本：镜头文案全换，图与视频重新来。 */
@@ -81,13 +88,19 @@ function shotsFromPlan(plan: StoryboardPlan): StoryboardShotRecord[] {
   }))
 }
 
-/** 整条视频的首帧：第一镜出了图就用它，否则用参考图，都没有就纯文生。 */
+/** 整条视频的首帧：第一镜出了图就用它，否则用第一张参考图，都没有就纯文生。 */
 export function wholeVideoFrameId(record: StoryboardRecord): string | null {
-  return record.shots[0]?.imageId ?? record.referenceImageId
+  return record.shots[0]?.imageId ?? record.referenceImageIds[0] ?? null
 }
 
 export const useStoryboardStore = create<StoryboardState>((set, get) => {
   const boardOf = (id: string) => get().storyboards.find((item) => item.id === id)
+
+  function roomForReference(): boolean {
+    if (get().draft.referenceImageIds.length < STORYBOARD_MAX_REFERENCE_IMAGES) return true
+    useStore.getState().showToast(TOO_MANY_REFERENCES, 'error')
+    return false
+  }
 
   async function persist(record: StoryboardRecord): Promise<void> {
     set((state) => ({
@@ -116,16 +129,13 @@ export const useStoryboardStore = create<StoryboardState>((set, get) => {
   async function submitShotImage(
     record: StoryboardRecord,
     no: number,
-    referenceDataUrl: string | undefined,
+    references: InputImage[],
   ): Promise<void> {
     const shot = record.shots.find((item) => item.no === no)
     if (!shot) return
     const [taskId] = await submitPrepared({
       prompt: shot.imagePrompt,
-      inputImages:
-        record.referenceImageId && referenceDataUrl
-          ? [{ id: record.referenceImageId, dataUrl: referenceDataUrl }]
-          : [],
+      inputImages: references,
       params: storyboardImageParams(useStore.getState().params, record.aspectRatio),
       origin: { setId: record.id, shotId: `shot-${no}`, kind: 'storyboard' },
     })
@@ -133,10 +143,12 @@ export const useStoryboardStore = create<StoryboardState>((set, get) => {
     await patchShot(record.id, no, { imageTaskId: taskId, imageId: null })
   }
 
-  function referenceDataUrl(record: StoryboardRecord): Promise<string | undefined> {
-    return record.referenceImageId
-      ? ensureImageCached(record.referenceImageId)
-      : Promise.resolve(undefined)
+  /** 取不出来的那张直接丢掉：分镜照样出，只是少一张参考。 */
+  async function loadReferences(ids: readonly string[]): Promise<InputImage[]> {
+    const loaded = await Promise.all(
+      ids.map(async (id) => ({ id, dataUrl: await ensureImageCached(id) })),
+    )
+    return loaded.filter((one): one is InputImage => Boolean(one.dataUrl))
   }
 
   /** 逐条提交：每条都要单独过一次提交门禁，并按提交顺序排进工作台。 */
@@ -146,9 +158,9 @@ export const useStoryboardStore = create<StoryboardState>((set, get) => {
   ): Promise<void> {
     const record = boardOf(id)
     if (!record) return
-    const reference = await referenceDataUrl(record)
+    const references = await loadReferences(record.referenceImageIds)
     for (const shot of record.shots) {
-      if (pick(shot)) await submitShotImage(record, shot.no, reference)
+      if (pick(shot)) await submitShotImage(record, shot.no, references)
     }
   }
 
@@ -158,16 +170,14 @@ export const useStoryboardStore = create<StoryboardState>((set, get) => {
   ): Promise<string | null> {
     set({ loadingSince: Date.now() })
     try {
-      const reference = input.referenceImageId
-        ? await ensureImageCached(input.referenceImageId)
-        : undefined
+      const references = (await loadReferences(input.referenceImageIds)).map((one) => one.dataUrl)
       const plan = await planStoryboard({
         idea: input.idea.trim(),
         shots: input.shots,
         totalSeconds: input.totalSeconds,
         aspectRatio: input.aspectRatio,
         ...(input.style === STORYBOARD_FREE_STYLE ? {} : { style: input.style }),
-        ...(reference ? { referenceImage: reference } : {}),
+        ...(references.length > 0 ? { referenceImages: references } : {}),
       })
       const record = toRecord(plan)
       await persist(record)
@@ -209,6 +219,34 @@ export const useStoryboardStore = create<StoryboardState>((set, get) => {
       set((state) => ({ draft: { ...state.draft, shotImages } }))
     },
 
+    toggleReference(imageId) {
+      const { referenceImageIds } = get().draft
+      if (referenceImageIds.includes(imageId)) {
+        get().removeReference(imageId)
+        return
+      }
+      if (!roomForReference()) return
+      set((state) => ({
+        draft: { ...state.draft, referenceImageIds: [...state.draft.referenceImageIds, imageId] },
+      }))
+    },
+    removeReference(imageId) {
+      set((state) => ({
+        draft: {
+          ...state.draft,
+          referenceImageIds: state.draft.referenceImageIds.filter((id) => id !== imageId),
+        },
+      }))
+    },
+    // 先问还装不装得下再落盘：拖进来十几张时，多余的会白白解码并永久留在 IndexedDB 里。
+    async addReferencesFromFiles(files) {
+      for (const file of files) {
+        if (!roomForReference()) return
+        const { id } = await storeImageFromFile(file)
+        get().toggleReference(id)
+      }
+    },
+
     plan(input) {
       const now = Date.now()
       return runPlan(input, (plan) => ({
@@ -222,7 +260,7 @@ export const useStoryboardStore = create<StoryboardState>((set, get) => {
         totalSeconds: input.totalSeconds,
         videoPrompt: plan.videoPrompt,
         style: input.style,
-        referenceImageId: input.referenceImageId,
+        referenceImageIds: [...input.referenceImageIds],
         shotImagesRequested: input.shotImages,
         videoTaskId: null,
         shots: shotsFromPlan(plan),
@@ -277,7 +315,7 @@ export const useStoryboardStore = create<StoryboardState>((set, get) => {
     async regenerateShotImage(id, no) {
       await patchShot(id, no, { imageTaskId: null, imageId: null })
       const record = boardOf(id)
-      if (record) await submitShotImage(record, no, await referenceDataUrl(record))
+      if (record) await submitShotImage(record, no, await loadReferences(record.referenceImageIds))
     },
 
     generateMissingShotImages(id) {

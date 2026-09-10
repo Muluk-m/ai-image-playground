@@ -26,7 +26,7 @@ export interface StoryboardRecord {
   videoPrompt: string
   /** 重写脚本要照原样再问一次，所以风格跟着记录走，不跟着左栏。 */
   style: StoryboardStyle
-  referenceImageId: string | null
+  referenceImageIds: string[]
   shotImagesRequested: boolean
   videoTaskId: string | null
   shots: StoryboardShotRecord[]
@@ -36,19 +36,19 @@ export const STORYBOARD_STYLES = ['写实', '杂志', '动画', '不限'] as con
 export type StoryboardStyle = (typeof STORYBOARD_STYLES)[number]
 export const STORYBOARD_FREE_STYLE: StoryboardStyle = '不限'
 
-/** 左栏这一刻的分镜参数。 */
+/** 左栏这一刻的分镜参数。参考图是分镜自己的，不跟图生视频的首帧共用。 */
 export interface StoryboardDraft {
   idea: string
   shots: StoryboardShotCount
   totalSeconds: StoryboardTotalSeconds
   style: StoryboardStyle
+  referenceImageIds: string[]
   shotImages: boolean
 }
 
-/** 比例与参考图跟着视频草稿走，提交时才和分镜草稿拼成一次请求。 */
+/** 比例跟着视频草稿走，提交时才和分镜草稿拼成一次请求。 */
 export type StoryboardPlanInput = StoryboardDraft & {
   aspectRatio: VideoAspectRatio
-  referenceImageId: string | null
 }
 
 export type StoryboardShotPatch = Partial<

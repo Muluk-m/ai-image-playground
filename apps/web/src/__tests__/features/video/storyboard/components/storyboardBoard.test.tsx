@@ -48,7 +48,7 @@ const RECORD: StoryboardRecord = {
   totalSeconds: 15,
   videoPrompt: '一只挂满水珠的玻璃杯，晨光吧台，写实',
   style: '写实',
-  referenceImageId: null,
+  referenceImageIds: [],
   shotImagesRequested: false,
   videoTaskId: null,
   shots: [],
@@ -103,7 +103,10 @@ describe('重写脚本按钮', () => {
 
     expect(replanButton().textContent).toBe('重写脚本')
 
-    act(() => replanButton().click())
+    // 参考图先要逐张读出 data URL，所以请求要等一轮微任务才发出去。
+    await act(async () => {
+      replanButton().click()
+    })
 
     expect(replanButton().textContent).toBe('生成中 0s')
     expect(replanButton().disabled).toBe(true)

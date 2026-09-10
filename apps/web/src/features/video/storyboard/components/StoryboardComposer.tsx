@@ -8,32 +8,19 @@ import { Checkbox } from '../../../../components/Checkbox'
 import Pending from '../../../../components/Pending'
 import { FIELD, LABEL, PANEL_SECTION, PRIMARY_BUTTON } from '../../../../components/panelStyles'
 import ChipRow from '../../components/ChipRow'
-import FrameSlot from '../../components/FrameSlot'
-import FrameSourceStrip from '../../components/FrameSourceStrip'
 import { useVideoStore } from '../../store'
 import { STORYBOARD_PLAN_TYPICAL_SECONDS, useStoryboardStore } from '../store'
 import { STORYBOARD_STYLES } from '../types'
+import StoryboardReferences from './StoryboardReferences'
 
-export const REFERENCE_LABEL = '参考图'
-
-export default function StoryboardComposer({
-  support,
-  onPickReference,
-}: {
-  support: VideoModelSupport
-  onPickReference: () => void
-}) {
+export default function StoryboardComposer({ support }: { support: VideoModelSupport }) {
   const videoDraft = useVideoStore((s) => s.draft)
   const draft = useStoryboardStore((s) => s.draft)
   const loadingSince = useStoryboardStore((s) => s.loadingSince)
   const idleLabel = draft.shotImages ? '生成脚本与分镜图' : '生成脚本'
 
   const submit = () =>
-    void useStoryboardStore.getState().plan({
-      ...draft,
-      aspectRatio: videoDraft.aspectRatio,
-      referenceImageId: videoDraft.firstFrameImageId,
-    })
+    void useStoryboardStore.getState().plan({ ...draft, aspectRatio: videoDraft.aspectRatio })
 
   return (
     <>
@@ -49,22 +36,7 @@ export default function StoryboardComposer({
         />
       </div>
 
-      <div>
-        <div className={`${LABEL} mb-1.5`}>{REFERENCE_LABEL} · 可选</div>
-        <div className="grid grid-cols-2 gap-2">
-          <FrameSlot
-            slot="first"
-            label={REFERENCE_LABEL}
-            imageId={videoDraft.firstFrameImageId}
-            onPick={onPickReference}
-          />
-        </div>
-        <FrameSourceStrip
-          showLastFrame={false}
-          fillLabel={`填入${REFERENCE_LABEL}`}
-          onPickAll={onPickReference}
-        />
-      </div>
+      <StoryboardReferences />
 
       <div className="flex flex-col gap-2.5">
         <ChipRow

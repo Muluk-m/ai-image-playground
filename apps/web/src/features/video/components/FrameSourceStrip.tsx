@@ -11,15 +11,18 @@ const CAPTION = '素材库 · 最近出图'
 export default function FrameSourceStrip({
   showLastFrame,
   fillLabel = '填入首帧',
+  selectedImageIds,
+  onSelect,
   onPickAll,
 }: {
   showLastFrame: boolean
   fillLabel?: string
+  selectedImageIds: readonly string[]
+  onSelect: (imageId: string) => void
   onPickAll: () => void
 }) {
   const assets = useLibraryStore((s) => s.assets)
   const tasks = useStore((s) => s.tasks)
-  const selectedImageId = useVideoStore((s) => s.draft.firstFrameImageId)
   const sources = useMemo(() => stripSources(assets, tasks), [assets, tasks])
 
   if (sources.length === 0) return null
@@ -37,10 +40,11 @@ export default function FrameSourceStrip({
           <li key={source.imageId} className="group relative shrink-0">
             <button
               type="button"
-              onClick={() => useVideoStore.getState().setFrame('first', source.imageId)}
+              aria-pressed={selectedImageIds.includes(source.imageId)}
+              onClick={() => onSelect(source.imageId)}
               title={source.name || fillLabel}
               className={`block h-[62px] w-[62px] overflow-hidden rounded-lg border transition ${
-                source.imageId === selectedImageId
+                selectedImageIds.includes(source.imageId)
                   ? 'border-blue-400 ring-2 ring-blue-400/30'
                   : 'border-gray-200 hover:border-blue-300 dark:border-white/[0.08]'
               }`}

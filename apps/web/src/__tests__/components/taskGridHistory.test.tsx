@@ -48,7 +48,7 @@ function storyboard(): StoryboardRecord {
     totalSeconds: 10,
     videoPrompt: '冰饮，吧台，晨光',
     style: '不限',
-    referenceImageId: null,
+    referenceImageIds: [],
     shotImagesRequested: true,
     videoTaskId: null,
     shots: [],
