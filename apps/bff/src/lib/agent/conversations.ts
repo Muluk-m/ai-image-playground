@@ -16,6 +16,7 @@ type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0]
 type Executor = typeof db | Transaction
 
 export interface AppendAgentMessage {
+  readonly id?: string
   readonly conversationId: string
   readonly turnId: string
   readonly role: AgentMessageRole
@@ -95,6 +96,13 @@ export async function findAgentConversation(
   return row ? conversationView(row) : null
 }
 
+export async function setAgentConversationTitle(id: string, title: string): Promise<void> {
+  await db
+    .update(schema.agent_conversations)
+    .set({ title })
+    .where(eq(schema.agent_conversations.id, id))
+}
+
 export async function touchAgentConversation(id: string, now = Date.now()): Promise<void> {
   await db
     .update(schema.agent_conversations)
@@ -123,7 +131,7 @@ export async function appendAgentMessage(
     .insert(schema.agent_messages)
     .values({
       conversation_id: message.conversationId,
-      id: crypto.randomUUID(),
+      id: message.id ?? crypto.randomUUID(),
       turn_id: message.turnId,
       seq: (highest?.seq ?? 0) + 1,
       role: message.role,
