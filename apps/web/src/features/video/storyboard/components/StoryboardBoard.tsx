@@ -1,5 +1,6 @@
 import { videoRateMultiplier } from '@image-playground/shared'
 import { useEffect, useMemo, useState } from 'react'
+import Pending from '../../../../components/Pending'
 import {
   CARD,
   FIELD,
@@ -16,13 +17,13 @@ import RunningOverlay from '../../components/RunningOverlay'
 import VideoLightbox from '../../components/VideoLightbox'
 import { isVideoTaskActive } from '../../lib/feed'
 import { unsupportedDurationReason, useVideoStore } from '../../store'
-import { useStoryboardStore, wholeVideoFrameId } from '../store'
+import { STORYBOARD_PLAN_TYPICAL_SECONDS, useStoryboardStore, wholeVideoFrameId } from '../store'
 import StoryboardShotCard from './StoryboardShotCard'
 
 export default function StoryboardBoard() {
   const storyboards = useStoryboardStore((s) => s.storyboards)
   const activeId = useStoryboardStore((s) => s.activeId)
-  const loading = useStoryboardStore((s) => s.loading)
+  const loadingSince = useStoryboardStore((s) => s.loadingSince)
   const tasks = useStore((s) => s.tasks)
   const videoTasks = useVideoStore((s) => s.tasks)
   const resolution = useVideoStore((s) => s.draft.resolution)
@@ -81,12 +82,17 @@ export default function StoryboardBoard() {
         )}
         <button
           type="button"
-          disabled={loading}
+          disabled={loadingSince !== null}
           className={GHOST_BUTTON}
           onClick={() => void useStoryboardStore.getState().replan(record.id)}
         >
-          重写脚本
+          {loadingSince === null ? '重写脚本' : <Pending label="生成中" startedAt={loadingSince} />}
         </button>
+        {loadingSince !== null && (
+          <span className="text-xs text-gray-500 dark:text-gray-400">
+            通常 {STORYBOARD_PLAN_TYPICAL_SECONDS} 秒
+          </span>
+        )}
         {missingImages && (
           <button
             type="button"
