@@ -2138,3 +2138,43 @@ describe('running the batch over the remaining images', () => {
     expect(requestBackgroundPlan).not.toHaveBeenCalled()
   })
 })
+
+describe('the notice a run leaves behind', () => {
+  const STALE = '抠图失败，本版未抠图'
+
+  it('goes away when another original is selected', async () => {
+    await useProductShotsStore.getState().importFiles([image('主图.png'), image('细节.png')])
+    useProductShotsStore.setState({ swapNotice: STALE })
+
+    useProductShotsStore.getState().selectImage('image-细节.png')
+
+    expect(useProductShotsStore.getState().swapNotice).toBeNull()
+  })
+
+  it('goes away when the selected original is dropped', async () => {
+    await useProductShotsStore.getState().importFiles([image('主图.png'), image('细节.png')])
+    useProductShotsStore.setState({ swapNotice: STALE })
+
+    useProductShotsStore.getState().removeImage('image-主图.png')
+
+    expect(useProductShotsStore.getState().swapNotice).toBeNull()
+  })
+
+  it('goes away when the next run starts', async () => {
+    await jobWithOneImage()
+    useProductShotsStore.setState({ swapNotice: STALE })
+
+    await useProductShotsStore.getState().runAction('background')
+
+    expect(useProductShotsStore.getState().swapNotice).toBeNull()
+  })
+
+  it('goes away when the batch starts', async () => {
+    await useProductShotsStore.getState().importFiles([image('主图.png'), image('细节.png')])
+    useProductShotsStore.setState({ swapNotice: STALE })
+
+    await useProductShotsStore.getState().runBatch()
+
+    expect(useProductShotsStore.getState().swapNotice).toBeNull()
+  })
+})
