@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import {
   ACTIVE_SEGMENT,
@@ -11,9 +12,9 @@ import { useStore } from '../../../store'
 import { sourceMatteBadge } from '../lib/matteBadge'
 import { useProductShotsStore } from '../store'
 import { EDIT_MASK_LABEL, matteEditable } from '../types'
-import { openWorkflow, reviewWorkflow } from '../workflows/runtime'
 import WorkflowImage from '../workflows/WorkflowImage'
 import BadgeTag from './BadgeTag'
+import PreviewToolbar from './PreviewToolbar'
 
 export default function PreviewPanel() {
   const images = useProductShotsStore(useShallow((s) => s.draft.images))
@@ -26,6 +27,10 @@ export default function PreviewPanel() {
   const matteOverlayHidden = useStore((s) => s.matteOverlayHidden)
   const setMatteOverlayHidden = useStore((s) => s.setMatteOverlayHidden)
   const tasks = useStore((s) => s.tasks)
+  const [comparing, setComparing] = useState(false)
+  useEffect(() => {
+    setComparing(false)
+  }, [selectedImageId, previewVersionId, matteOverlayVersionId])
 
   const { previewVersion, editSourceMask } = useProductShotsStore.getState()
   const selected = images.find((image) => image.imageId === selectedImageId)
@@ -36,10 +41,11 @@ export default function PreviewPanel() {
   const overlaid = versions.find(
     (version) => version.id === matteOverlayVersionId && version.mattePreviewImageId,
   )
-  const shownImageId =
-    previewed && !overlaid
-      ? tasks.find((task) => task.id === previewed.taskId)?.outputImages[0]
-      : selected?.imageId
+  const previewTask = tasks.find((task) => task.id === previewed?.taskId)
+  const canUseResult = Boolean(
+    previewed && !overlaid && previewTask?.status === 'done' && previewTask.outputImages[0],
+  )
+  const shownImageId = previewed && !overlaid ? previewTask?.outputImages[0] : selected?.imageId
   const label = overlaid
     ? `原图 ${index + 1} 蒙版`
     : previewed
@@ -81,68 +87,66 @@ export default function PreviewPanel() {
         </div>
       </div>
 
-      <div className="flex aspect-[4/3] items-center justify-center overflow-hidden rounded-xl border border-gray-200 bg-gray-50 dark:border-white/[0.08] dark:bg-white/[0.02]">
-        {thumbnail?.dataUrl ? (
-          <span className="relative block h-full w-full">
+      {comparing && canUseResult ? (
+        <div aria-label="版本对比" className="grid grid-cols-2 gap-2">
+          <figure className="min-w-0">
+            <WorkflowImage
+              imageId={previewed?.workflow?.sourceImageId ?? selected?.imageId}
+              alt="修改前"
+              className="aspect-[3/4] w-full rounded-xl border border-gray-200 bg-gray-50 object-contain dark:border-white/[0.08] dark:bg-white/[0.02]"
+            />
+            <figcaption className="mt-2 text-center text-xs text-gray-500 dark:text-gray-400">
+              {previewed?.workflow ? '修改前' : '原图'}
+            </figcaption>
+          </figure>
+          <figure className="min-w-0">
             <WorkflowImage
               imageId={shownImageId}
-              version={overlaid ? undefined : previewed}
+              version={previewed}
               alt={label}
-              className="h-full w-full object-contain"
+              className="aspect-[3/4] w-full rounded-xl border border-gray-200 bg-gray-50 object-contain dark:border-white/[0.08] dark:bg-white/[0.02]"
             />
-            {overlay?.dataUrl && (
-              <img
-                src={overlay.dataUrl}
-                alt="蒙版"
-                className="absolute inset-0 h-full w-full object-contain"
+            <figcaption className="mt-2 text-center text-xs text-gray-500 dark:text-gray-400">
+              {label}
+            </figcaption>
+          </figure>
+        </div>
+      ) : (
+        <div className="flex aspect-[4/3] items-center justify-center overflow-hidden rounded-xl border border-gray-200 bg-gray-50 dark:border-white/[0.08] dark:bg-white/[0.02]">
+          {thumbnail?.dataUrl ? (
+            <span className="relative block h-full w-full">
+              <WorkflowImage
+                imageId={shownImageId}
+                version={overlaid ? undefined : previewed}
+                alt={label}
+                className="h-full w-full object-contain"
               />
-            )}
-          </span>
-        ) : (
-          <span className="text-xs text-gray-400 dark:text-gray-500">
-            {previewed ? '这版还没有图' : '暂无原图'}
-          </span>
-        )}
-      </div>
-
-      {previewed &&
-        !overlaid &&
-        tasks.find((t) => t.id === previewed.taskId)?.status === 'done' && (
-          <div className="mt-3 flex flex-wrap gap-2">
-            <button
-              type="button"
-              className={GHOST_BUTTON}
-              onClick={() => openWorkflow('edit', previewed.id)}
-            >
-              只改这里
-            </button>
-            <button
-              type="button"
-              className={GHOST_BUTTON}
-              onClick={() => openWorkflow('kit', previewed.id)}
-            >
-              做成一套
-            </button>
-            {previewed.workflow?.spec.kind === 'edit' && (
-              <button
-                type="button"
-                className={GHOST_BUTTON}
-                onClick={() => reviewWorkflow(previewed)}
-              >
-                前后对比
-              </button>
-            )}
-            {previewed.workflow?.spec.kind === 'draft' && (
-              <button
-                type="button"
-                className={GHOST_BUTTON}
-                onClick={() => openWorkflow('refine', previewed.id)}
-              >
-                精修这版
-              </button>
-            )}
-          </div>
-        )}
+              {overlay?.dataUrl && (
+                <img
+                  src={overlay.dataUrl}
+                  alt="蒙版"
+                  className="absolute inset-0 h-full w-full object-contain"
+                />
+              )}
+            </span>
+          ) : (
+            <span className="text-xs text-gray-400 dark:text-gray-500">
+              {previewed ? '这版还没有图' : '暂无原图'}
+            </span>
+          )}
+        </div>
+      )}
+      {canUseResult && previewed && shownImageId && (
+        <PreviewToolbar
+          key={previewed.id}
+          version={previewed}
+          imageId={shownImageId}
+          imageIndex={index}
+          versionIndex={versions.indexOf(previewed)}
+          comparing={comparing}
+          onCompare={() => setComparing((value) => !value)}
+        />
+      )}
 
       {onOriginal && (matte || matting) && (
         <div data-product-shots-matte-bar className="mt-2 flex flex-wrap items-center gap-2">
