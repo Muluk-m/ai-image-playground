@@ -32,7 +32,7 @@ _setPrivateBffOverlayForTesting(
       ...EMPTY_PRIVATE_BFF_OVERLAY.taskHooks,
       async reserveTask({ tx: _tx, ...rest }: Parameters<PrivateTaskHooks['reserveTask']>[0]) {
         reservations.push(rest)
-        return { kind: 'reserved' as const }
+        return { kind: 'reserved' as const, credits: 0 }
       },
     },
   }),

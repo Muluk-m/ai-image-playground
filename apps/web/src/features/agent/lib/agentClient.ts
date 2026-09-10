@@ -5,6 +5,7 @@ import type {
   AgentMessageView,
   AgentToolArtifact,
   AgentTurnReference,
+  AgentTurnSummaryView,
 } from '@image-playground/shared'
 import { AGENT_FRAME_SEPARATOR, parseAgentFrame } from '@image-playground/shared'
 import { authenticatedBffFetch } from '../../../lib/authClient'
@@ -75,6 +76,7 @@ export async function adoptAgentConversations(
 
 export interface AgentConversationState {
   readonly messages: AgentMessageView[]
+  readonly turns: AgentTurnSummaryView[]
   readonly activeTurn: AgentActiveTurnView | null
 }
 

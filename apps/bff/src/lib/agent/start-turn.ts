@@ -1,4 +1,4 @@
-import type { AgentTurnReference } from '@image-playground/shared'
+import type { AgentTurnCost, AgentTurnReference } from '@image-playground/shared'
 import { agentConversationTitle } from '@image-playground/shared'
 import { eq } from 'drizzle-orm'
 import { config } from '../../config'
@@ -16,6 +16,7 @@ import {
 } from './conversations'
 import type { RunningTurn } from './runningTurns'
 import type { AgentTurnSettlement } from './turn'
+import { collectTurnCost } from './turn-cost'
 
 export interface StartConversationTurnInput {
   readonly conversationId: string
@@ -58,8 +59,8 @@ async function insertChatTask(
 }
 
 /** 结算是模块级工厂而不是用例里的闭包：闭包会把整段历史钉到轮结束。 */
-function chatSettlement(turnId: string, pricing: ChatPricing) {
-  return async (settlement: AgentTurnSettlement) => {
+function chatSettlement(conversationId: string, turnId: string, pricing: ChatPricing) {
+  return async (settlement: AgentTurnSettlement): Promise<AgentTurnCost> => {
     await finishTask(turnId, {
       status: settlement.outcome,
       completedAt: Date.now(),
@@ -67,6 +68,7 @@ function chatSettlement(turnId: string, pricing: ChatPricing) {
       // usage 为 null 是上游没报，缺席即按预留全额结算——退错方向就是凭空造积分。
       ...(settlement.usage ? { actualUsage: actualChatUsage(settlement.usage, pricing) } : {}),
     })
+    return collectTurnCost(conversationId, turnId)
   }
 }
 
@@ -102,6 +104,7 @@ export async function startConversationTurn(
       : null
 
   const written = await db.transaction(async (tx) => {
+    let reservedCredits: number | undefined
     if (reservation) {
       await insertChatTask(tx, {
         taskId: turnId,
@@ -115,6 +118,7 @@ export async function startConversationTurn(
         await tx.delete(schema.tasks).where(eq(schema.tasks.id, turnId))
         return reserved
       }
+      reservedCredits = reserved.credits
     }
     if (history.length === 0) {
       await setAgentConversationTitle(tx, conversationId, owner, agentConversationTitle(text))
@@ -125,7 +129,7 @@ export async function startConversationTurn(
       role: 'user',
       content: [{ type: 'text', text }],
     })
-    return { kind: 'reserved' as const, userMessageId: userMessage.id }
+    return { kind: 'reserved' as const, userMessageId: userMessage.id, reservedCredits }
   })
   if (written.kind !== 'reserved') return written
 
@@ -140,7 +144,8 @@ export async function startConversationTurn(
       references,
       userId,
       deviceId,
-      settle: reservation ? chatSettlement(turnId, pricing) : undefined,
+      reservedCredits: written.reservedCredits,
+      settle: reservation ? chatSettlement(conversationId, turnId, pricing) : undefined,
     }),
   }
 }

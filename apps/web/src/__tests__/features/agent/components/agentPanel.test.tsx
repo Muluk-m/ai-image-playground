@@ -61,6 +61,7 @@ beforeEach(async () => {
     tab: 'chat',
     conversationId: null,
     messages: [],
+    turns: {},
     turn: 'idle',
     error: null,
     loaded: true,
@@ -112,6 +113,7 @@ describe('AgentPanel', () => {
         {
           kind: 'text',
           id: 'assistant-1',
+          turnId: 'turn-1',
           role: 'assistant',
           text: '好'.repeat(400),
           streaming: false,
@@ -145,6 +147,7 @@ describe('AgentPanel', () => {
         {
           kind: 'tool',
           id: 'tool-1',
+          turnId: 'turn-1',
           toolCallId: 'call-1',
           title: '一只橘猫坐在窗台上',
           status: 'succeeded',
@@ -181,6 +184,7 @@ describe('AgentPanel', () => {
         {
           kind: 'tool',
           id: 'tool-1',
+          turnId: 'turn-1',
           toolCallId: 'call-1',
           title: '一只橘猫坐在窗台上',
           status: 'succeeded',
@@ -216,6 +220,7 @@ describe('AgentPanel', () => {
         {
           kind: 'clarification',
           id: 'clarify-1',
+          turnId: 'turn-1',
           question: '要哪种风格？',
           options: ['写实照片', '扁平插画'],
         },
@@ -238,10 +243,18 @@ describe('AgentPanel', () => {
         {
           kind: 'clarification',
           id: 'clarify-1',
+          turnId: 'turn-1',
           question: '要哪种风格？',
           options: ['写实照片', '扁平插画'],
         },
-        { kind: 'text', id: 'user-2', role: 'user', text: '写实照片', streaming: false },
+        {
+          kind: 'text',
+          id: 'user-2',
+          turnId: 'turn-1',
+          role: 'user',
+          text: '写实照片',
+          streaming: false,
+        },
       ],
     })
     render()
@@ -251,6 +264,148 @@ describe('AgentPanel', () => {
       (button) => button.textContent === '扁平插画',
     ) as HTMLButtonElement
     expect(option.disabled).toBe(true)
+  })
+
+  it('每轮页脚写耗时与合计消耗，点开看明细', () => {
+    useAgentStore.setState({
+      messages: [
+        {
+          kind: 'text',
+          id: 'user-1',
+          turnId: 'turn-1',
+          role: 'user',
+          text: '画',
+          streaming: false,
+        },
+      ],
+      turns: {
+        'turn-1': {
+          turnId: 'turn-1',
+          durationMs: 70_000,
+          stopReason: 'completed',
+          cost: { chat: 42, image: 85, video: 0 },
+        },
+      },
+    })
+    render()
+
+    expect(host.textContent).toContain('本轮耗时 1m 10s')
+    const toggle = [...host.querySelectorAll('button')].find((button) =>
+      button.textContent?.startsWith('消耗'),
+    )!
+    expect(toggle.textContent).toBe('消耗 127')
+
+    act(() => toggle.click())
+    expect(host.textContent).toContain('对话 42 · 生图 85')
+  })
+
+  it('进行中的轮写预扣数', () => {
+    useAgentStore.setState({
+      messages: [
+        {
+          kind: 'text',
+          id: 'user-1',
+          turnId: 'turn-1',
+          role: 'user',
+          text: '画',
+          streaming: false,
+        },
+      ],
+      turns: { 'turn-1': { turnId: 'turn-1', reservedCredits: 60 } },
+      turn: 'running',
+    })
+    render()
+
+    expect(host.textContent).toContain('预扣 60')
+    expect(host.textContent).not.toContain('本轮耗时')
+  })
+
+  it('失败的轮写本轮免费', () => {
+    useAgentStore.setState({
+      messages: [
+        {
+          kind: 'text',
+          id: 'user-1',
+          turnId: 'turn-1',
+          role: 'user',
+          text: '画',
+          streaming: false,
+        },
+      ],
+      turns: {
+        'turn-1': {
+          turnId: 'turn-1',
+          durationMs: 12_000,
+          stopReason: 'failed',
+          cost: { chat: 0, image: 0, video: 0 },
+        },
+      },
+    })
+    render()
+
+    expect(host.textContent).toContain('本轮免费，未扣积分')
+  })
+
+  it('面板底部写本次会话的合计消耗', () => {
+    useAgentStore.setState({
+      messages: [
+        {
+          kind: 'text',
+          id: 'user-1',
+          turnId: 'turn-1',
+          role: 'user',
+          text: '画',
+          streaming: false,
+        },
+        {
+          kind: 'text',
+          id: 'user-2',
+          turnId: 'turn-2',
+          role: 'user',
+          text: '再画',
+          streaming: false,
+        },
+      ],
+      turns: {
+        'turn-1': {
+          turnId: 'turn-1',
+          durationMs: 1_000,
+          stopReason: 'completed',
+          cost: { chat: 42, image: 85, video: 0 },
+        },
+        'turn-2': {
+          turnId: 'turn-2',
+          durationMs: 1_000,
+          stopReason: 'completed',
+          cost: { chat: 60, image: 0, video: 125 },
+        },
+      },
+    })
+    render()
+
+    expect(host.textContent).toContain('本次会话')
+    expect(host.textContent).toContain('312')
+  })
+
+  it('计费关着的部署里页脚只剩耗时，会话合计不出现', () => {
+    useAgentStore.setState({
+      messages: [
+        {
+          kind: 'text',
+          id: 'user-1',
+          turnId: 'turn-1',
+          role: 'user',
+          text: '画',
+          streaming: false,
+        },
+      ],
+      turns: { 'turn-1': { turnId: 'turn-1', durationMs: 12_000, stopReason: 'completed' } },
+    })
+    render()
+
+    expect(host.textContent).toContain('本轮耗时 12s')
+    expect(host.textContent).not.toContain('消耗')
+    expect(host.textContent).not.toContain('本次会话')
   })
 
   it('能力关闭时什么都不渲染', async () => {

@@ -10,7 +10,11 @@ import {
   listAgentMessages,
   softDeleteAgentConversation,
 } from '../lib/agent/conversations'
-import { agentTurnHasEvents, readAgentTurnEvents } from '../lib/agent/events'
+import {
+  agentTurnHasEvents,
+  listAgentTurnSummaries,
+  readAgentTurnEvents,
+} from '../lib/agent/events'
 import { type RunningTurn, runningTurn } from '../lib/agent/runningTurns'
 import { agentReplayStream, agentTurnStream } from '../lib/agent/sse'
 import { startConversationTurn } from '../lib/agent/start-turn'
@@ -74,8 +78,13 @@ export const agentRoutes = new Elysia()
       const conversation = await findAgentConversation(params.id, owner)
       if (!conversation) return status(404, NOT_FOUND)
       const active = runningTurn(conversation.id)
+      const [messages, turns] = await Promise.all([
+        listAgentMessages(conversation.id, owner),
+        listAgentTurnSummaries(conversation.id),
+      ])
       return {
-        messages: await listAgentMessages(conversation.id, owner),
+        messages,
+        turns,
         // 刷新后的页面据此挂回仍在进行的那一轮。
         activeTurn: active ? { turnId: active.turnId } : null,
       }

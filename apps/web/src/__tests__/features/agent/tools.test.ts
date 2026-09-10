@@ -148,12 +148,13 @@ beforeEach(() => {
     },
   })
   turnResponse = () => turnStream(TURN_START, TURN_END)
-  messagesResponse = () => Response.json({ messages: [], activeTurn: null })
+  messagesResponse = () => Response.json({ messages: [], activeTurn: null, turns: [] })
   useAgentStore.setState({
     conversationId: null,
     messages: [],
     turn: 'idle',
     activeTurn: null,
+    turns: {},
     error: null,
     loaded: false,
     expanded: {},
@@ -176,6 +177,7 @@ describe('工具事件', () => {
       {
         kind: 'tool',
         id: 'tool-1',
+        turnId: 'turn-1',
         toolCallId: 'call-1',
         title: '一只橘猫坐在窗台上',
         status: 'succeeded',
@@ -374,6 +376,7 @@ describe('历史', () => {
     messagesResponse = () =>
       Response.json({
         activeTurn: null,
+        turns: [],
         messages: [
           {
             id: 'tool-1',
@@ -400,6 +403,7 @@ describe('历史', () => {
       {
         kind: 'tool',
         id: 'tool-1',
+        turnId: 'turn-1',
         toolCallId: 'call-1',
         title: '一只橘猫坐在窗台上',
         status: 'succeeded',

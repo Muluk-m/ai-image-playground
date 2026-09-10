@@ -1,10 +1,17 @@
-import type { AgentToolArtifact, AgentToolStage, AgentToolStatus } from '@image-playground/shared'
+import type {
+  AgentToolArtifact,
+  AgentToolStage,
+  AgentToolStatus,
+  AgentTurnCost,
+  AgentTurnStopReason,
+} from '@image-playground/shared'
 
 export type AgentTurnStatus = 'idle' | 'running' | 'failed'
 
 export interface AgentTextMessage {
   readonly kind: 'text'
   readonly id: string
+  readonly turnId: string
   readonly role: 'user' | 'assistant'
   readonly text: string
   /** 本轮还在流的那条助手消息。 */
@@ -15,6 +22,7 @@ export interface AgentTextMessage {
 export interface AgentToolMessage {
   readonly kind: 'tool'
   readonly id: string
+  readonly turnId: string
   readonly toolCallId: string
   readonly title: string
   readonly status: AgentToolStatus | 'running'
@@ -31,6 +39,7 @@ export interface AgentToolMessage {
 export interface AgentClarificationMessage {
   readonly kind: 'clarification'
   readonly id: string
+  readonly turnId: string
   readonly question: string
   readonly options: readonly string[]
 }
@@ -38,3 +47,12 @@ export interface AgentClarificationMessage {
 export type AgentPanelMessage = AgentTextMessage | AgentToolMessage | AgentClarificationMessage
 
 export type AgentPanelTab = 'chat' | 'history' | 'layers'
+
+/** 一轮的页脚：进行中只有预扣数，结算后有耗时与实际消耗。 */
+export interface AgentTurnFooter {
+  readonly turnId: string
+  readonly reservedCredits?: number
+  readonly durationMs?: number
+  readonly stopReason?: AgentTurnStopReason
+  readonly cost?: AgentTurnCost
+}
