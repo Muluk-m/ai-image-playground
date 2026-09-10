@@ -31,11 +31,16 @@ describe('buildStoryboardPrompt', () => {
     expect(buildStoryboardPrompt(REQUEST)).not.toContain('风格要求')
   })
 
-  it('mentions the reference image only when one is attached', () => {
-    expect(
-      buildStoryboardPrompt({ ...REQUEST, referenceImage: 'data:image/png;base64,AA==' }),
-    ).toContain('参考图')
+  it('counts and numbers the reference images so the model can name them', () => {
+    const prompt = buildStoryboardPrompt({
+      ...REQUEST,
+      referenceImages: ['data:image/png;base64,AA==', 'data:image/png;base64,BB=='],
+    })
+
+    expect(prompt).toContain('随附 2 张参考图')
+    expect(prompt).toContain('图1、图2')
     expect(buildStoryboardPrompt(REQUEST)).not.toContain('参考图')
+    expect(buildStoryboardPrompt({ ...REQUEST, referenceImages: [] })).not.toContain('参考图')
   })
 
   it('spells out the timeline the whole-video prompt has to follow', () => {
