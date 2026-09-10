@@ -3,26 +3,19 @@ import {
   VIDEO_MODEL_SUPPORT,
   VIDEO_RESOLUTION_LABELS,
 } from '@image-playground/shared'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Overlay from '../../../components/Overlay'
 import { LABEL, OUTLINE_BUTTON } from '../../../components/panelStyles'
 import { copyTextToClipboard, getClipboardFailureMessage } from '../../../lib/clipboard'
 import { useStore } from '../../../store'
 import { videoAspectLabel, videoFrameAspect } from '../lib/aspect'
 import { deriveOptions, type VideoDeriveOption } from '../lib/derive'
-import {
-  adoptAsFirstFrame,
-  captureVideoFrame,
-  downloadVideoTask,
-  videoOutputUrl,
-} from '../lib/playback'
+import { adoptAsFirstFrame, captureVideoFrame, videoOutputUrl } from '../lib/playback'
+import { cancelVideoDownload } from '../lib/useVideoDownload'
 import { useVideoStore } from '../store'
 import type { VideoTask } from '../types'
 import DeriveVideoPopover from './DeriveVideoPopover'
-
-function reason(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
-}
+import VideoDownloadButton from './VideoDownloadButton'
 
 function timing(task: VideoTask): string {
   const at = new Date(task.createdAt).toLocaleString('zh-CN')
@@ -49,21 +42,15 @@ export default function VideoLightbox({ task, onClose }: { task: VideoTask; onCl
   const frameAspect = videoFrameAspect(task)
   const derivations = deriveOptions(task)
 
+  // 灯箱关掉后还在拉流就是白读几 MB；卡片不这么做，它会被搜索框一个字符卸载掉。
+  useEffect(() => () => cancelVideoDownload(task.id), [task.id])
+
   const copyPrompt = async () => {
     try {
       await copyTextToClipboard(task.prompt)
       showToast('已复制描述', 'success')
     } catch (error) {
       showToast(getClipboardFailureMessage('复制失败', error), 'error')
-    }
-  }
-
-  const download = async () => {
-    try {
-      await downloadVideoTask(task)
-      showToast('开始下载', 'success')
-    } catch (error) {
-      showToast(reason(error), 'error')
     }
   }
 
@@ -153,9 +140,7 @@ export default function VideoLightbox({ task, onClose }: { task: VideoTask; onCl
           </dl>
 
           <div className="grid grid-cols-2 gap-2">
-            <button type="button" className={OUTLINE_BUTTON} onClick={() => void download()}>
-              下载 mp4
-            </button>
+            <VideoDownloadButton task={task} className={OUTLINE_BUTTON} idleLabel="下载 mp4" />
             <button
               type="button"
               className={OUTLINE_BUTTON}

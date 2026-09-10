@@ -6,28 +6,19 @@ import { useStore } from '../../../store'
 import { videoAspectLabel, videoFrameAspect } from '../lib/aspect'
 import { deriveOptions, type VideoDeriveOption } from '../lib/derive'
 import { isVideoTaskActive } from '../lib/feed'
-import {
-  adoptAsFirstFrame,
-  captureVideoFrame,
-  clockLabel,
-  downloadVideoTask,
-  videoOutputUrl,
-} from '../lib/playback'
+import { adoptAsFirstFrame, captureVideoFrame, clockLabel, videoOutputUrl } from '../lib/playback'
 import { useVideoStore } from '../store'
 import type { VideoTask } from '../types'
 import { BADGE, OVERLAY } from './chipStyles'
 import DeriveVideoPopover from './DeriveVideoPopover'
 import PlayBadge from './PlayBadge'
 import RunningOverlay from './RunningOverlay'
+import VideoDownloadButton from './VideoDownloadButton'
 
 const LINEAGE_CHIP =
   'rounded border border-gray-200 px-1 text-[10px] text-gray-500 dark:border-white/[0.12] dark:text-gray-400'
 const HOVER_BUTTON =
   'rounded-md bg-black/65 px-1 py-1 text-[11px] text-white transition hover:bg-black/80'
-
-function reason(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
-}
 
 function frameBadge(task: VideoTask): string | null {
   if (task.source !== 'image') return null
@@ -46,15 +37,6 @@ export default function VideoCard({ task, onOpen }: { task: VideoTask; onOpen: (
   const frameAspect = videoFrameAspect(task)
   // 未完成的卡片按钮条根本不渲染，别为它扫频道列表。
   const derivations = done ? deriveOptions(task) : []
-
-  const download = async () => {
-    try {
-      await downloadVideoTask(task)
-      showToast('开始下载', 'success')
-    } catch (error) {
-      showToast(reason(error), 'error')
-    }
-  }
 
   const useAsFirstFrame = async () => {
     if (!task.thumbnailDataUrl) {
@@ -133,9 +115,7 @@ export default function VideoCard({ task, onOpen }: { task: VideoTask; onOpen: (
 
         {done && (
           <div className="pointer-events-none absolute inset-x-1.5 bottom-1.5 grid grid-cols-3 gap-1 opacity-0 transition group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100">
-            <button type="button" className={HOVER_BUTTON} onClick={() => void download()}>
-              下载
-            </button>
+            <VideoDownloadButton task={task} className={HOVER_BUTTON} idleLabel="下载" />
             <button
               type="button"
               className={HOVER_BUTTON}

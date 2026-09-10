@@ -21,11 +21,41 @@ const CAPTURED_FRAME = 'data:image/jpeg;base64,captured'
 const storeImageFromUrl = vi.hoisted(() =>
   vi.fn(async (dataUrl: string) => ({ id: 'frame-1', dataUrl })),
 )
+const authenticatedBffFetch = vi.hoisted(() => vi.fn())
+const downloadBlob = vi.hoisted(() => vi.fn())
 
 vi.mock('../../../../store', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../../store')>()),
   storeImageFromUrl,
 }))
+
+vi.mock('../../../../lib/authClient', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../../lib/authClient')>()),
+  authenticatedBffFetch,
+}))
+
+vi.mock('../../../../lib/downloadImages', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../../lib/downloadImages')>()),
+  downloadBlob,
+}))
+
+/** 一条要手动喂的响应流：断言进行中的下载状态需要它停在半路。 */
+function pausedResponse(headers: Record<string, string>) {
+  const pending: Array<(result: { done: boolean; value?: Uint8Array }) => void> = []
+  const response = {
+    ok: true,
+    headers: new Headers(headers),
+    body: { getReader: () => ({ read: () => new Promise((resolve) => pending.push(resolve)) }) },
+  }
+  const settle = async (result: { done: boolean; value?: Uint8Array }) => {
+    await act(async () => pending.shift()?.(result))
+  }
+  return {
+    response,
+    send: (size: number) => settle({ done: false, value: new Uint8Array(size) }),
+    end: () => settle({ done: true }),
+  }
+}
 
 let host: HTMLDivElement
 let root: Root
@@ -179,6 +209,38 @@ describe('acting on a video', () => {
       aspectRatio: '9:16',
     })
     expect(useVideoStore.getState().tasks).toEqual([])
+  })
+
+  it('reads out the progress, ignores a second click and restores the label', async () => {
+    const stream = pausedResponse({ 'content-length': '10' })
+    authenticatedBffFetch.mockResolvedValue(stream.response)
+    render()
+
+    await click('下载 mp4')
+    await stream.send(4)
+
+    expect(button('下载中 40%').disabled).toBe(true)
+
+    button('下载中 40%').click()
+    expect(authenticatedBffFetch).toHaveBeenCalledTimes(1)
+
+    await stream.end()
+
+    expect(downloadBlob).toHaveBeenCalledWith(expect.any(Blob), '霓虹街道跑车驶过-5s.mp4')
+    expect(button('下载 mp4').disabled).toBe(false)
+  })
+
+  it('stops pulling bytes once the lightbox closes', async () => {
+    const stream = pausedResponse({})
+    authenticatedBffFetch.mockResolvedValue(stream.response)
+    render()
+
+    await click('下载 mp4')
+    act(() => root.unmount())
+
+    const [, init] = authenticatedBffFetch.mock.calls[0] as [string, { signal: AbortSignal }]
+    expect(init.signal.aborted).toBe(true)
+    await stream.end()
   })
 
   it('drops the record on delete', async () => {
