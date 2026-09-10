@@ -3,8 +3,8 @@
  * 密钥类数据（BYOK profile、customProviders、providerOrder、profileModelCache）与本机数据
  * （草稿、槽位值、任务记录、商品图任务、画布）都不在这里，加字段前先对照 CONTEXT.md。
  */
-import { type AppMode, useStore, visibleAppModes } from '../../store'
-import { DEFAULT_PARAMS, type TaskParams } from '../../types'
+import { useStore } from '../../store'
+import { type AppSettings, DEFAULT_PARAMS, type TaskParams } from '../../types'
 import { getActiveApiProfile, normalizeSettings } from '../apiProfiles'
 import { updateSelectedModel } from '../channels/profileSelectors'
 import { getPublicChannels } from '../channels/publicChannels'
@@ -17,7 +17,6 @@ export type UserSettingsDocument = {
   alwaysShowRetryButton: boolean
   enterSubmit: boolean
   params: TaskParams
-  appMode: AppMode
   /** 选中的是 BYOK profile 时为 null：那是本机的事，不跨设备。 */
   builtinChannel: { channelId: string; modelId: string } | null
   pinnedInspirationIds: string[]
@@ -38,7 +37,6 @@ export function readUserSettingsDocument(): UserSettingsDocument {
     alwaysShowRetryButton: settings.alwaysShowRetryButton,
     enterSubmit: settings.enterSubmit,
     params: { ...state.params },
-    appMode: state.appMode,
     builtinChannel:
       active.source === 'builtin-edge'
         ? { channelId: active.channelId, modelId: active.selectedModelId }
@@ -72,11 +70,6 @@ export function applyUserSettingsDocument(document: unknown): void {
   if (isRecord(document.params)) {
     state.setParams({ ...DEFAULT_PARAMS, ...(document.params as Partial<TaskParams>) })
   }
-  // 只认本部署可见的模式：video 由 `generation:video` 决定，别把用户扔进一个没有入口的模式。
-  if (visibleAppModes().includes(document.appMode as AppMode)) {
-    state.setAppMode(document.appMode as AppMode)
-  }
-
   useStore.setState({
     pinnedInspirationIds: Array.isArray(document.pinnedInspirationIds)
       ? document.pinnedInspirationIds.filter((id): id is string => typeof id === 'string')
@@ -90,8 +83,6 @@ export function applyUserSettingsDocument(document: unknown): void {
     assetHintShown: boolean(document.assetHintShown, state.assetHintShown),
   })
 }
-
-type AppSettings = ReturnType<typeof normalizeSettings>
 
 /** 本机没有这个 channel 时保持原选择，否则会把用户钉在一个不存在的 profile 上。 */
 function selectedBuiltinChannel(

@@ -922,8 +922,14 @@
   --safe-area-right: env(safe-area-inset-right, 0px);
   --safe-area-bottom: env(safe-area-inset-bottom, 0px);
   --safe-area-left: env(safe-area-inset-left, 0px);
-  --header-height: 3.5rem;
+  --header-height: 6rem;
   scrollbar-gutter: stable;
+}
+
+@media (min-width: 1024px) {
+  :root {
+    --header-height: 4rem;
+  }
 }
 
 html {
