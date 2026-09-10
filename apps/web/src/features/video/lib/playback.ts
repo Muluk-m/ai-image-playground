@@ -24,12 +24,58 @@ export function videoFileName(task: VideoTask): string {
   return `${slug || 'video'}-${task.duration}s.mp4`
 }
 
-export async function downloadVideoTask(task: VideoTask): Promise<void> {
+export interface VideoDownloadProgress {
+  received: number
+  /** 上游给了 content-length 才有总量，否则只能报已收字节。 */
+  total: number | null
+}
+
+export function downloadProgressLabel({ received, total }: VideoDownloadProgress): string {
+  if (total) return `下载中 ${Math.min(100, Math.round((received / total) * 100))}%`
+  return `下载中 ${(received / 1_048_576).toFixed(1)} MB`
+}
+
+async function readWithProgress(
+  res: Response,
+  onProgress?: (progress: VideoDownloadProgress) => void,
+): Promise<Blob> {
+  const reader = res.body?.getReader()
+  // 少数网关不给可读流，只能整块取——这条路径没有进度可报。
+  if (!reader) return res.blob()
+  const total = Number(res.headers.get('content-length')) || null
+  const chunks: Uint8Array[] = []
+  let received = 0
+  let reported = ''
+  // 按文案去重：每块都上报会让一个 30MB 视频重渲染近千次，其中九成画面一模一样。
+  const report = () => {
+    const label = downloadProgressLabel({ received, total })
+    if (label === reported) return
+    reported = label
+    onProgress?.({ received, total })
+  }
+  report()
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    chunks.push(value)
+    received += value.byteLength
+    report()
+  }
+  return new Blob(chunks as BlobPart[], { type: res.headers.get('content-type') ?? '' })
+}
+
+export async function downloadVideoTask(
+  task: VideoTask,
+  options: {
+    onProgress?: (progress: VideoDownloadProgress) => void
+    signal?: AbortSignal
+  } = {},
+): Promise<void> {
   const url = videoOutputUrl(task)
   if (!url) throw new Error('这条还没有可下载的视频')
-  const res = await authenticatedBffFetch(url)
+  const res = await authenticatedBffFetch(url, { signal: options.signal })
   if (!res.ok) throw new Error(`视频拉取失败：${res.status}`)
-  downloadBlob(await res.blob(), videoFileName(task))
+  downloadBlob(await readWithProgress(res, options.onProgress), videoFileName(task))
 }
 
 /** 跨域视频没配好 CORS 时 canvas 会被污染，toDataURL 直接抛。 */
