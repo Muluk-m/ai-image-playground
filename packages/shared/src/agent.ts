@@ -109,12 +109,14 @@ export interface AgentToolProgressEvent {
 
 export type AgentToolStage = 'submitted' | 'running'
 
+/** 带上 `title`：断线后只续播尾巴时，前端手上可能没有这次调用的 `toolStart`。 */
 export interface AgentToolEndEvent {
   readonly type: 'toolEnd'
   readonly messageId: string
   readonly toolCallId: string
   readonly toolName: AgentToolName
   readonly status: AgentToolStatus
+  readonly title: string
   readonly images?: readonly AgentToolImage[]
   readonly message?: string
 }

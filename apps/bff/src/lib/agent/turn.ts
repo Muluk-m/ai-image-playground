@@ -277,6 +277,7 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
         toolCallId: block.toolCallId,
         toolName: block.toolName,
         status: block.status,
+        title: block.title,
         ...(block.images ? { images: block.images } : {}),
         ...(block.message ? { message: block.message } : {}),
       })

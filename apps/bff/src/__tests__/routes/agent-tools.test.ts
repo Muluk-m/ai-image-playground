@@ -184,6 +184,7 @@ describe('智能体生图工具', () => {
       messageId: start!.messageId,
       toolCallId: 'call-1',
       status: 'succeeded',
+      title: '一只橘猫坐在窗台上',
     })
     expect(end!.images).toHaveLength(1)
     const image = end!.images![0]!
