@@ -7,12 +7,18 @@ import type {
 } from '@image-playground/shared'
 import { encodeAgentFrame } from '@image-playground/shared'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+vi.mock('../../../features/agent/lib/videoPoster', () => ({
+  videoPosterDataUrl: async () => POSTER,
+}))
+
 import { setAgentCanvasSink } from '../../../features/agent/lib/canvasSink'
 import { useAgentStore } from '../../../features/agent/store'
 import type { AgentToolMessage } from '../../../features/agent/types'
 import { _setRuntimeConfigForTesting } from '../../../lib/runtimeConfig'
 
 const CONVERSATION = 'conversation-1'
+const POSTER = 'data:image/png;base64,UE9TVEVS'
 
 const IMAGE: AgentToolArtifact = {
   artifactId: 'agent_image_1',
@@ -20,6 +26,15 @@ const IMAGE: AgentToolArtifact = {
   taskId: 'task-1',
   outputIndex: 0,
   mime: 'image/png',
+}
+
+const VIDEO: AgentToolArtifact = {
+  artifactId: 'agent_video_1',
+  media: 'video',
+  taskId: 'task-2',
+  outputIndex: 0,
+  mime: 'video/mp4',
+  durationSeconds: 5,
 }
 
 const TURN_START: AgentTurnEvent = { type: 'turnStart', turnId: 'turn-1', userMessageId: 'user-1' }
@@ -75,7 +90,11 @@ function turnStream(...events: AgentTurnEvent[]): Response {
 let turnResponse: () => Response
 let messagesResponse: () => Response
 const onCanvas = new Set<string>()
-const placed: { artifactId: string; dataUrl: string }[] = []
+const placed: {
+  artifactId: string
+  dataUrl: string
+  video?: { taskId: string; outputIndex: number }
+}[] = []
 /** 画布内容的修订号；测试里手动抬它就等于「用户动了画布」。 */
 let revision = 0
 const anchors: (string | undefined)[] = []
@@ -269,6 +288,42 @@ describe('工具事件', () => {
 
     expect(placed.map((one) => one.artifactId)).toEqual(['agent_image_1', 'agent_image_2'])
     expect(toolMessages().every((one) => one.canvasConflict !== true)).toBe(true)
+  })
+})
+
+describe('视频产物', () => {
+  it('落画布的是封面加播放来源，mp4 不下载到本地', async () => {
+    onCanvas.add('canvas-1')
+    turnResponse = () =>
+      turnStream(
+        TURN_START,
+        {
+          type: 'toolEnd',
+          messageId: 'tool-1',
+          toolCallId: 'call-1',
+          toolName: 'generateVideo',
+          status: 'succeeded',
+          title: '视频：让这只猫眨眼',
+          artifacts: [VIDEO],
+          anchorImageId: 'canvas-1',
+        },
+        TURN_END,
+      )
+
+    await state().send('让[image 1]动起来')
+
+    expect(placed).toEqual([
+      {
+        artifactId: 'agent_video_1',
+        dataUrl: POSTER,
+        video: { taskId: 'task-2', outputIndex: 0 },
+      },
+    ])
+    expect(anchors).toEqual(['canvas-1'])
+    const downloads = fetchMock.mock.calls.filter(([input]) =>
+      String(input).includes('/v1/queue/requests/'),
+    )
+    expect(downloads).toEqual([])
   })
 })
 

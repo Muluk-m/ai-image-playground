@@ -3,6 +3,8 @@ export interface AgentPlacedArtifact {
   readonly artifactId: string
   /** 落到画布上的位图；视频产物给的是封面。 */
   readonly dataUrl: string
+  /** 视频产物的播放来源。mp4 不进画布存档，播放时现拼地址。 */
+  readonly video?: { readonly taskId: string; readonly outputIndex: number }
 }
 
 export type AgentPlaceOutcome = 'placed' | 'conflict'

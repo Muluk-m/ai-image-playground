@@ -2,6 +2,7 @@ import type { AgentCanvasSink } from '../../agent/lib/canvasSink'
 import type { CanvasEditor } from './editor'
 import { placeImagesOnCanvas } from './placeholderShapeOps'
 import { computePlaceholderTarget } from './placement'
+import { videoElementMeta } from './videoElements'
 
 /** 结果卡缩略图的缩放比。画布对象通常 360 页面单位宽，缩到面板里够看。 */
 const THUMBNAIL_SCALE = 0.25
@@ -24,7 +25,12 @@ export function createAgentCanvasSink(editor: CanvasEditor): AgentCanvasSink {
         editor,
         artifacts.map((artifact) => artifact.dataUrl),
         computePlaceholderTarget(editor, bounds),
-        { ids: artifacts.map((artifact) => artifact.artifactId) },
+        {
+          ids: artifacts.map((artifact) => artifact.artifactId),
+          metas: artifacts.map((artifact) =>
+            artifact.video ? videoElementMeta(artifact.video) : undefined,
+          ),
+        },
       )
       return 'placed'
     },

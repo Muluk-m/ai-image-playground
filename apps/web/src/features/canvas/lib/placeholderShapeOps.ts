@@ -49,14 +49,18 @@ export async function settleGeneration(
  * - 尺寸：按 target 框 contain 适配（dataUrl 保留原始分辨率），不按原始像素落图
  * - 位置：居中于 target 框；多张按 target 宽度分格沿水平排开（与 fanOutTargets 对齐），
  *   彼此留 PLACEMENT_GAP 间距，各自在格内居中
- * - meta（可选）写到每个 image 元素上，承载生成溯源（prompt 等）
+ * - meta（可选）写到每个 image 元素上，承载生成溯源（prompt 等）；metas 逐项追加
  * 供「占位框替换为结果」与「工作台图片送进画布」两处复用（都不依赖占位框存在）。
  */
 export async function placeImagesOnCanvas(
   editor: CanvasEditor,
   dataUrls: string[],
   target: PlacementTarget,
-  opts: { meta?: Record<string, string>; ids?: readonly string[] } = {},
+  opts: {
+    meta?: Record<string, string>
+    ids?: readonly string[]
+    metas?: readonly (Record<string, string> | undefined)[]
+  } = {},
 ): Promise<void> {
   const centerY = target.y + target.h / 2
   const sizes = await Promise.all(dataUrls.map(getImageDimensions))
@@ -73,6 +77,7 @@ export async function placeImagesOnCanvas(
       width: fitted.w,
       height: fitted.h,
       ...(opts.ids?.[i] ? { id: opts.ids[i] } : {}),
+      ...(opts.metas?.[i] ? { meta: opts.metas[i] } : {}),
     })
   }
   const ids = editor.placeImages(items, opts.meta)

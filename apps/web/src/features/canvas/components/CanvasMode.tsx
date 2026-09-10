@@ -13,6 +13,7 @@ import { recoverCanvasTasks } from '../lib/recoverCanvasTasks'
 import CanvasGenerateBar from './CanvasGenerateBar'
 import CanvasShortcutsHint from './CanvasShortcutsHint'
 import CanvasToolbar from './CanvasToolbar'
+import CanvasVideoOverlay from './CanvasVideoOverlay'
 import KonvaCanvas from './KonvaCanvas'
 import PlaceholderOverlay from './PlaceholderOverlay'
 import StylePanel from './StylePanel'
@@ -82,6 +83,7 @@ export default function CanvasMode() {
       <div className="relative h-full w-full">
         <KonvaCanvas editor={editor} />
         <PlaceholderOverlay editor={editor} />
+        <CanvasVideoOverlay editor={editor} />
         <CanvasToolbar doc={doc} />
         <StylePanel doc={doc} />
         <CanvasShortcutsHint />

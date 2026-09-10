@@ -168,3 +168,8 @@ export async function interjectTurn(
 export function fetchToolImage(artifact: AgentToolArtifact): Promise<string> {
   return fetchImageDataUrl(bffBaseUrl(), artifact.taskId, artifact.outputIndex, artifact.mime)
 }
+
+/** 视频产物的播放地址。mp4 不落本地，画布与结果卡都打这里。 */
+export function toolArtifactUrl(artifact: AgentToolArtifact): string {
+  return `${bffBaseUrl()}/v1/queue/requests/${artifact.taskId}/output/${artifact.outputIndex}`
+}

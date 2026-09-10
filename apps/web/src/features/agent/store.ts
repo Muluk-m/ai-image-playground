@@ -23,8 +23,15 @@ import {
   removeConversation,
   resumeTurn,
   startTurn,
+  toolArtifactUrl,
 } from './lib/agentClient'
-import { type AgentPlaceOptions, type AgentPlaceOutcome, agentCanvasSink } from './lib/canvasSink'
+import {
+  type AgentPlacedArtifact,
+  type AgentPlaceOptions,
+  type AgentPlaceOutcome,
+  agentCanvasSink,
+} from './lib/canvasSink'
+import { videoPosterDataUrl } from './lib/videoPoster'
 import type {
   AgentClarificationMessage,
   AgentPanelMessage,
@@ -139,6 +146,17 @@ const failPatch = (state: AgentState, message = TURN_FAILED) => ({
 /** `skipped`：没有画布，或这几张已经在上面了——续播会把同一条 `toolEnd` 重放给我们。 */
 type LandOutcome = AgentPlaceOutcome | 'skipped' | 'failed'
 
+/** 视频只取封面，mp4 留在服务端；图片整张下下来。 */
+async function placeable(artifact: AgentToolArtifact): Promise<AgentPlacedArtifact> {
+  const { artifactId, taskId, outputIndex } = artifact
+  if (artifact.media !== 'video') return { artifactId, dataUrl: await fetchToolImage(artifact) }
+  return {
+    artifactId,
+    dataUrl: await videoPosterDataUrl(toolArtifactUrl(artifact), artifact),
+    video: { taskId, outputIndex },
+  }
+}
+
 /** 把还没落画布的那几件产物取回来交给画布。 */
 async function writeToCanvas(
   artifacts: readonly AgentToolArtifact[],
@@ -152,12 +170,7 @@ async function writeToCanvas(
   const { baseRevision } = options
   if (baseRevision !== undefined && sink.revision() !== baseRevision) return 'conflict'
   try {
-    const items = await Promise.all(
-      missing.map(async (artifact) => ({
-        artifactId: artifact.artifactId,
-        dataUrl: await fetchToolImage(artifact),
-      })),
-    )
+    const items = await Promise.all(missing.map(placeable))
     return sink.place(items, options)
   } catch (thrown) {
     console.warn('[agent] 产出没能落到画布上', thrown)

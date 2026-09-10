@@ -1,5 +1,6 @@
 import type { AgentToolArtifact } from '@image-playground/shared'
 import { useEffect, useState } from 'react'
+import PlayBadge from '../../video/components/PlayBadge'
 import { CARD, CARD_NOTE, CARD_TITLE, GHOST_LINK, THUMBNAIL } from '../agentStyles'
 import { agentCanvasSink } from '../lib/canvasSink'
 import { useAgentStore } from '../store'
@@ -35,10 +36,15 @@ function Thumbnail({ artifact }: { artifact: AgentToolArtifact }) {
   return (
     <button
       type="button"
-      className={THUMBNAIL}
+      className={`relative ${THUMBNAIL}`}
       onClick={() => agentCanvasSink()?.focus(artifact.artifactId)}
     >
       <img src={source} alt="" className="h-full w-full object-cover" />
+      {artifact.media === 'video' && (
+        <span className="absolute inset-0 grid scale-50 place-items-center">
+          <PlayBadge />
+        </span>
+      )}
     </button>
   )
 }

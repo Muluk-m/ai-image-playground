@@ -145,6 +145,8 @@ export interface PlacedImage {
   width: number
   height: number
   id?: string
+  /** 只属于这一项的溯源，与整批共用的 meta 合并。 */
+  meta?: Record<string, string>
 }
 
 /** 相机平滑动画时长（scrollToElements）。 */
@@ -267,7 +269,7 @@ export class CanvasEditor {
         height: item.height,
         rotation: 0,
         fileId,
-        ...(meta ? { meta: { ...meta } } : {}),
+        ...(meta || item.meta ? { meta: { ...meta, ...item.meta } } : {}),
       }
     })
     this.doc.addElements(els, { files })
