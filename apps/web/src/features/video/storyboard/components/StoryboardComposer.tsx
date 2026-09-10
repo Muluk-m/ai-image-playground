@@ -5,12 +5,13 @@ import {
   type VideoModelSupport,
 } from '@image-playground/shared'
 import { Checkbox } from '../../../../components/Checkbox'
+import Pending from '../../../../components/Pending'
 import { FIELD, LABEL, PANEL_SECTION, PRIMARY_BUTTON } from '../../../../components/panelStyles'
 import ChipRow from '../../components/ChipRow'
 import FrameSlot from '../../components/FrameSlot'
 import FrameSourceStrip from '../../components/FrameSourceStrip'
 import { useVideoStore } from '../../store'
-import { useStoryboardStore } from '../store'
+import { STORYBOARD_PLAN_TYPICAL_SECONDS, useStoryboardStore } from '../store'
 import { STORYBOARD_STYLES } from '../types'
 
 export const REFERENCE_LABEL = '参考图'
@@ -24,7 +25,8 @@ export default function StoryboardComposer({
 }) {
   const videoDraft = useVideoStore((s) => s.draft)
   const draft = useStoryboardStore((s) => s.draft)
-  const loading = useStoryboardStore((s) => s.loading)
+  const loadingSince = useStoryboardStore((s) => s.loadingSince)
+  const idleLabel = draft.shotImages ? '生成脚本与分镜图' : '生成脚本'
 
   const submit = () =>
     void useStoryboardStore.getState().plan({
@@ -104,12 +106,15 @@ export default function StoryboardComposer({
       <div className={PANEL_SECTION}>
         <button
           type="button"
-          disabled={loading || !draft.idea.trim()}
+          disabled={loadingSince !== null || !draft.idea.trim()}
           onClick={submit}
           className={`${PRIMARY_BUTTON} w-full disabled:cursor-not-allowed`}
         >
-          {loading ? '生成中…' : draft.shotImages ? '生成脚本与分镜图' : '生成脚本'}
+          {loadingSince === null ? idleLabel : <Pending label="生成中" startedAt={loadingSince} />}
         </button>
+        {loadingSince !== null && (
+          <p className={`${LABEL} mt-1.5 text-center`}>通常 {STORYBOARD_PLAN_TYPICAL_SECONDS} 秒</p>
+        )}
       </div>
     </>
   )
