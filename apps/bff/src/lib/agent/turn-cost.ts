@@ -7,10 +7,7 @@ import { loadPrivateBffOverlay } from '../private-overlay'
  * 工具任务各自独立计费，只用轮 id 关联，所以本轮的账要从任务表反查再归集。
  * 金额一律问私有账本，公开树不按单价折算：折算会与结算漂移。
  */
-export async function collectTurnCost(
-  turnId: string,
-  chatCredits: number,
-): Promise<AgentTurnCost> {
+export async function collectTurnCost(turnId: string, chatCredits: number): Promise<AgentTurnCost> {
   const rows = await db
     .select({
       id: schema.tasks.id,

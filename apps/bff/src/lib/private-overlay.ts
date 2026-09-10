@@ -72,9 +72,7 @@ export interface PrivateTaskHooks {
   /** 单价表里没登记这个对话模型时返回 null；起轮会在预扣那一步被拒。 */
   chatPricing(model: string): Promise<ChatPricing | null>
   /** 已结算任务的实际扣费额，按任务 id；查不到的任务不出现在结果里。 */
-  taskCredits(input: {
-    taskIds: readonly string[]
-  }): Promise<Readonly<Record<string, number>>>
+  taskCredits(input: { taskIds: readonly string[] }): Promise<Readonly<Record<string, number>>>
   onUserCreated(input: { tx: BffTransaction; userId: string }): Promise<void>
   runMaintenance(now: number): Promise<void>
 }
