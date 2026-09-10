@@ -8,6 +8,7 @@ import { productShotJobStore } from '../../../../features/productShots/lib/jobSt
 import { useProductShotsStore } from '../../../../features/productShots/store'
 import type { ProductShotJob } from '../../../../features/productShots/types'
 import { useStore } from '../../../../store'
+import { productShotJob as job } from '../fixtures'
 
 declare global {
   // eslint-disable-next-line no-var
@@ -17,39 +18,6 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
 let host: HTMLDivElement
 let root: Root
-
-function job(id: string, name: string, updatedAt: number, versions = 0): ProductShotJob {
-  return {
-    id,
-    name,
-    images: [
-      {
-        imageId: `image-${id}`,
-        // 历史任务的蒙版已就绪；列表交互不应启动真实后台抠图。
-        sourceMatte: {
-          status: 'ready',
-          backend: 'wasm-u2netp',
-          alphaImageId: `alpha-${id}`,
-          targetImageId: `image-${id}`,
-          previewImageId: `preview-${id}`,
-          edited: false,
-        },
-        versions: Array.from({ length: versions }, (_, index) => ({
-          id: `${id}-v${index}`,
-          taskId: `task-${id}-${index}`,
-          plan: '换背景',
-          prompt: '锁住产品',
-          masked: true,
-          createdAt: updatedAt,
-        })),
-      },
-    ],
-    preference: '',
-    versionsPerImage: 1,
-    createdAt: 1_700_000_000_000,
-    updatedAt,
-  }
-}
 
 async function seed(...jobs: ProductShotJob[]) {
   for (const record of jobs) await productShotJobStore.put(record)
