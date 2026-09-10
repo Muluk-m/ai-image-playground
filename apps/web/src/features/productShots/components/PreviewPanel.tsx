@@ -11,6 +11,8 @@ import { useStore } from '../../../store'
 import { sourceMatteBadge } from '../lib/matteBadge'
 import { useProductShotsStore } from '../store'
 import { EDIT_MASK_LABEL, matteEditable } from '../types'
+import { openWorkflow, reviewWorkflow } from '../workflows/runtime'
+import WorkflowImage from '../workflows/WorkflowImage'
 import BadgeTag from './BadgeTag'
 
 export default function PreviewPanel() {
@@ -82,7 +84,12 @@ export default function PreviewPanel() {
       <div className="flex aspect-[4/3] items-center justify-center overflow-hidden rounded-xl border border-gray-200 bg-gray-50 dark:border-white/[0.08] dark:bg-white/[0.02]">
         {thumbnail?.dataUrl ? (
           <span className="relative block h-full w-full">
-            <img src={thumbnail.dataUrl} alt={label} className="h-full w-full object-contain" />
+            <WorkflowImage
+              imageId={shownImageId}
+              version={overlaid ? undefined : previewed}
+              alt={label}
+              className="h-full w-full object-contain"
+            />
             {overlay?.dataUrl && (
               <img
                 src={overlay.dataUrl}
@@ -97,6 +104,45 @@ export default function PreviewPanel() {
           </span>
         )}
       </div>
+
+      {previewed &&
+        !overlaid &&
+        tasks.find((t) => t.id === previewed.taskId)?.status === 'done' && (
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              className={GHOST_BUTTON}
+              onClick={() => openWorkflow('edit', previewed.id)}
+            >
+              只改这里
+            </button>
+            <button
+              type="button"
+              className={GHOST_BUTTON}
+              onClick={() => openWorkflow('kit', previewed.id)}
+            >
+              做成一套
+            </button>
+            {previewed.workflow?.spec.kind === 'edit' && (
+              <button
+                type="button"
+                className={GHOST_BUTTON}
+                onClick={() => reviewWorkflow(previewed)}
+              >
+                前后对比
+              </button>
+            )}
+            {previewed.workflow?.spec.kind === 'draft' && (
+              <button
+                type="button"
+                className={GHOST_BUTTON}
+                onClick={() => openWorkflow('refine', previewed.id)}
+              >
+                精修这版
+              </button>
+            )}
+          </div>
+        )}
 
       {onOriginal && (matte || matting) && (
         <div data-product-shots-matte-bar className="mt-2 flex flex-wrap items-center gap-2">

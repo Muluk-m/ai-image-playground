@@ -2,6 +2,9 @@ import { useEffect } from 'react'
 import { HEADER_OFFSET } from '../../../components/panelStyles'
 import { useLibraryStore } from '../../library/store'
 import { useProductShotsStore } from '../store'
+import { useWorkflowEditor } from '../workflows/runtime'
+import WorkflowGallery from '../workflows/WorkflowGallery'
+import WorkflowWorkspace from '../workflows/WorkflowWorkspace'
 import ActionPanel from './ActionPanel'
 import BatchBar from './BatchBar'
 import JobSwitcher from './JobSwitcher'
@@ -16,6 +19,10 @@ import VersionBar from './VersionBar'
 const STICKY_COLUMN = 'lg:sticky lg:self-start'
 
 export default function ProductShotsMode() {
+  const session = useWorkflowEditor((s) => s.session)
+  const jobId = useProductShotsStore((s) => s.draft.id)
+  const imageId = useProductShotsStore((s) => s.selectedImageId)
+  const activeSession = session?.jobId === jobId && session.imageId === imageId ? session : null
   useEffect(() => {
     const { loadJobs, openLatestJob } = useProductShotsStore.getState()
     void loadJobs().then(openLatestJob)
@@ -34,17 +41,27 @@ export default function ProductShotsMode() {
           <SourcePanel />
         </div>
 
-        <div data-product-shots-column="center" className="flex flex-col gap-4">
-          <PreviewPanel />
-          <VersionBar />
-        </div>
+        {activeSession ? (
+          <WorkflowWorkspace
+            key={`${activeSession.jobId}:${activeSession.imageId}:${activeSession.kind}:${activeSession.versionId}:${activeSession.resultVersionId}`}
+            session={activeSession}
+          />
+        ) : (
+          <>
+            <div data-product-shots-column="center" className="flex flex-col gap-4">
+              <PreviewPanel />
+              <VersionBar />
+            </div>
 
-        <div className={STICKY_COLUMN} style={{ top: HEADER_OFFSET }}>
-          <ActionPanel />
-        </div>
+            <div className={STICKY_COLUMN} style={{ top: HEADER_OFFSET }}>
+              <ActionPanel />
+            </div>
+          </>
+        )}
       </div>
 
       <BatchBar />
+      <WorkflowGallery />
       <ResultGallery />
       <PlanDrawer />
     </main>
