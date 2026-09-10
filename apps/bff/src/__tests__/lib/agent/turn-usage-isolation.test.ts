@@ -21,7 +21,7 @@ process.env.OPERATOR_CONFIG_FILE = resolve(
 // Dynamic imports keep environment setup ahead of modules that capture configuration.
 const { setAgentFetchForTesting } = await import('../../../lib/agent/model')
 const { setChatFetchForTesting } = await import('../../../lib/chatCompletion')
-const { runAgentTurn } = await import('../../../lib/agent/turn')
+const { startAgentTurn } = await import('../../../lib/agent/turn')
 const { createAgentConversation } = await import('../../../lib/agent/conversations')
 const { close: closeDb } = await import('../../../db/client')
 
@@ -50,7 +50,7 @@ afterAll(async () => {
   await closeDb()
 })
 
-describe('runAgentTurn usage', () => {
+describe('startAgentTurn usage', () => {
   it('leaves the compaction summary out of the turn usage', async () => {
     setAgentFetchForTesting(recordingAgentFetch([], () => completionStream('好')))
     const summaryCalls: ChatCall[] = []
@@ -62,20 +62,16 @@ describe('runAgentTurn usage', () => {
       '第一句',
     )
 
+    const turn = await startAgentTurn({
+      conversationId: conversation.id,
+      turnId: 'turn-new',
+      userMessageId: 'm7',
+      history: HISTORY,
+      text: '再来一张',
+    })
+
     const events: AgentTurnEvent[] = []
-    for await (const event of runAgentTurn(
-      {
-        conversationId: conversation.id,
-        turnId: 'turn-new',
-        userMessageId: 'm7',
-        assistantMessageId: 'm8',
-        history: HISTORY,
-        text: '再来一张',
-      },
-      async () => {},
-    )) {
-      events.push(event)
-    }
+    for await (const stored of turn.read(0)) events.push(stored.event)
 
     // 摘要真的调了，但那次请求的 token 不进这一轮：轮的用量只有对话补全那 12 / 4。
     expect(summaryCalls).toHaveLength(1)
