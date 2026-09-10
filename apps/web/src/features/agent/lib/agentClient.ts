@@ -38,6 +38,35 @@ export async function createConversation(
   return ((await response.json()) as { conversation: AgentConversationView }).conversation
 }
 
+export async function fetchConversations(
+  fetcher: Fetcher = authenticatedBffFetch,
+): Promise<AgentConversationView[]> {
+  const query = new URLSearchParams({ deviceId: getDeviceId() })
+  const response = await fetcher(url(`/conversations?${query}`))
+  if (!response.ok) throw new AgentRequestError(response.status)
+  return ((await response.json()) as { conversations: AgentConversationView[] }).conversations
+}
+
+export async function deleteConversation(
+  conversationId: string,
+  fetcher: Fetcher = authenticatedBffFetch,
+): Promise<void> {
+  const response = await fetcher(url(`/conversations/${conversationId}`), {
+    ...jsonInit({ deviceId: getDeviceId() }),
+    method: 'DELETE',
+  })
+  if (!response.ok) throw new AgentRequestError(response.status)
+}
+
+/** 登录那一刻把设备名下的会话改挂到用户；服务端幂等，重复调用搬不出第二份。 */
+export async function adoptAgentConversations(
+  fetcher: Fetcher = authenticatedBffFetch,
+): Promise<number> {
+  const response = await fetcher(url('/conversations/adopt'), jsonInit({ deviceId: getDeviceId() }))
+  if (!response.ok) throw new AgentRequestError(response.status)
+  return ((await response.json()) as { adopted: number }).adopted
+}
+
 export interface AgentConversationState {
   readonly messages: AgentMessageView[]
   readonly activeTurn: AgentActiveTurnView | null

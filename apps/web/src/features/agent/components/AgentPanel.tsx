@@ -2,11 +2,15 @@ import { type KeyboardEvent, useEffect, useRef, useState } from 'react'
 import type { CanvasDoc } from '../../canvas/lib/canvasDoc'
 import {
   ABORT_BUTTON,
+  ACTIVE_LIST_ROW,
   ACTIVE_TAB,
   FIELD,
+  GHOST_LINK,
   ICON_BUTTON,
   IDLE_TAB,
+  INK,
   INK_3,
+  LIST_ROW,
   PANEL_MARGIN,
   PANEL_SHADOW,
   PANEL_SURFACE,
@@ -24,6 +28,56 @@ const TABS = [
   { id: 'chat', label: '对话' },
   { id: 'layers', label: '图层' },
 ] as const
+
+const UNTITLED = '新对话'
+
+function ConversationList({ onPick }: { onPick: () => void }) {
+  const conversations = useAgentStore((state) => state.conversations)
+  const conversationId = useAgentStore((state) => state.conversationId)
+  const { selectConversation, deleteConversation } = useAgentStore.getState()
+
+  if (conversations.length === 0) {
+    return <p className={`px-3 text-xs ${INK_3}`}>还没有会话</p>
+  }
+
+  return (
+    <div className="flex flex-col gap-0.5 px-2">
+      {conversations.map((one) => (
+        <div
+          key={one.id}
+          className={`${LIST_ROW} ${one.id === conversationId ? ACTIVE_LIST_ROW : ''}`}
+        >
+          <button
+            type="button"
+            className={`min-w-0 flex-1 truncate text-left ${INK}`}
+            onClick={() => {
+              void selectConversation(one.id)
+              onPick()
+            }}
+          >
+            {one.title || UNTITLED}
+          </button>
+          <button
+            type="button"
+            aria-label={`删除会话 ${one.title || UNTITLED}`}
+            className={`${ICON_BUTTON} opacity-0 group-hover:opacity-100`}
+            onClick={() => void deleteConversation(one.id)}
+          >
+            <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" aria-hidden="true">
+              <path
+                d="M3.5 4.5h9M6.5 4.5V3h3v1.5M5 4.5l.5 8h5l.5-8"
+                stroke="currentColor"
+                strokeWidth="1.3"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </button>
+        </div>
+      ))}
+    </div>
+  )
+}
 
 function CollapsedButton({ onOpen }: { onOpen: () => void }) {
   return (
@@ -44,8 +98,9 @@ export default function AgentPanel({ doc }: { doc: CanvasDoc }) {
   const messages = useAgentStore((state) => state.messages)
   const turn = useAgentStore((state) => state.turn)
   const error = useAgentStore((state) => state.error)
-  const { setOpen, setTab, load, send, abort } = useAgentStore.getState()
+  const { setOpen, setTab, load, send, abort, startNewConversation } = useAgentStore.getState()
   const [draft, setDraft] = useState('')
+  const [showHistory, setShowHistory] = useState(false)
   const logRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -113,7 +168,41 @@ export default function AgentPanel({ doc }: { doc: CanvasDoc }) {
         </button>
       </div>
 
-      {tab === 'layers' ? (
+      {tab === 'chat' && (
+        <div className="flex shrink-0 items-center justify-between gap-2 px-3 pb-1.5">
+          <button
+            type="button"
+            className={GHOST_LINK}
+            onClick={() => setShowHistory((value) => !value)}
+          >
+            {showHistory ? '返回对话' : '历史会话'}
+          </button>
+          <button
+            type="button"
+            aria-label="新对话"
+            className={ICON_BUTTON}
+            onClick={() => {
+              setShowHistory(false)
+              startNewConversation()
+            }}
+          >
+            <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" aria-hidden="true">
+              <path
+                d="M8 3.5v9M3.5 8h9"
+                stroke="currentColor"
+                strokeWidth="1.6"
+                strokeLinecap="round"
+              />
+            </svg>
+          </button>
+        </div>
+      )}
+
+      {tab === 'chat' && showHistory ? (
+        <div className="min-h-0 flex-1 overflow-y-auto py-1">
+          <ConversationList onPick={() => setShowHistory(false)} />
+        </div>
+      ) : tab === 'layers' ? (
         <div className="min-h-0 flex-1 overflow-y-auto py-1">
           <AgentLayers doc={doc} />
         </div>
@@ -141,7 +230,7 @@ export default function AgentPanel({ doc }: { doc: CanvasDoc }) {
         </div>
       )}
 
-      {tab === 'chat' && (
+      {tab === 'chat' && !showHistory && (
         <div className="flex shrink-0 flex-col gap-2 px-3 pb-3 pt-2">
           <textarea
             rows={2}

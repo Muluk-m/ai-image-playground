@@ -1,4 +1,9 @@
-import type { AgentActiveTurnView, AgentFrame, AgentTurnEvent } from '@image-playground/shared'
+import type {
+  AgentActiveTurnView,
+  AgentConversationView,
+  AgentFrame,
+  AgentTurnEvent,
+} from '@image-playground/shared'
 import { agentMessageText } from '@image-playground/shared'
 import { create } from 'zustand'
 import { AGENT_CONVERSATION_KEY, safeLocalStorage, scopedStorageName } from '../../lib/authScope'
@@ -6,6 +11,8 @@ import {
   AgentRequestError,
   abortTurn,
   createConversation,
+  deleteConversation,
+  fetchConversations,
   fetchMessages,
   interjectTurn,
   resumeTurn,
@@ -14,6 +21,7 @@ import {
 import type { AgentPanelMessage, AgentPanelTab, AgentTurnStatus } from './types'
 
 const TURN_FAILED = '这一轮没有跑完'
+const TURN_RATE_LIMITED = '发送太频繁，稍后再试'
 
 const RECONNECT_DELAYS_MS = [0, 500, 2_000, 5_000]
 
@@ -24,6 +32,7 @@ export interface AgentState {
   open: boolean
   tab: AgentPanelTab
   conversationId: string | null
+  conversations: AgentConversationView[]
   messages: AgentPanelMessage[]
   turn: AgentTurnStatus
   /** 正在跟的那一轮；中止与插话都指向它。 */
@@ -35,8 +44,12 @@ export interface AgentState {
   setOpen(open: boolean): void
   setTab(tab: AgentPanelTab): void
   toggleExpanded(messageId: string): void
-  /** 读回上次会话的全部消息，并挂回仍在进行的那一轮。 */
+  /** 读回会话列表与上次那个会话的消息，并挂回仍在进行的那一轮。 */
   load(): Promise<void>
+  refreshConversations(): Promise<void>
+  selectConversation(conversationId: string): Promise<void>
+  deleteConversation(conversationId: string): Promise<void>
+  startNewConversation(): void
   /** 空闲时起一轮；轮进行中则是插话。 */
   send(text: string): Promise<void>
   abort(): Promise<void>
@@ -53,11 +66,11 @@ function replaceOrAppend(
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
-const failPatch = (state: AgentState) => ({
+const failPatch = (state: AgentState, message = TURN_FAILED) => ({
   turn: 'failed' as const,
   activeTurn: null,
-  error: TURN_FAILED,
-  messages: state.messages.filter((message) => !message.streaming),
+  error: message,
+  messages: state.messages.filter((one) => !one.streaming),
 })
 
 export const useAgentStore = create<AgentState>((set, get) => {
@@ -117,7 +130,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
     })
   }
 
-  const fail = () => set(failPatch)
+  const fail = (message = TURN_FAILED) => set((state) => failPatch(state, message))
 
   /** 跟一轮到底：流断了就带断点重连，直到读到终帧或者一直接不上。 */
   const follow = async (
@@ -142,6 +155,10 @@ export const useAgentStore = create<AgentState>((set, get) => {
       } catch (thrown) {
         // 轮已经不在了，再重连也接不上；其余的断流与请求失败都走重连。
         if (thrown instanceof AgentRequestError && thrown.status === 404) break
+        if (thrown instanceof AgentRequestError && thrown.status === 429) {
+          fail(TURN_RATE_LIMITED)
+          return
+        }
       }
       const active = get().activeTurn
       const delay = RECONNECT_DELAYS_MS[Math.max(attempt, 0)]
@@ -156,6 +173,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
     open: true,
     tab: 'chat',
     conversationId: null,
+    conversations: [],
     messages: [],
     turn: 'idle',
     activeTurn: null,
@@ -172,23 +190,35 @@ export const useAgentStore = create<AgentState>((set, get) => {
 
     async load() {
       if (get().loaded) return
+      set({ loaded: true })
       const conversationId = safeLocalStorage.getItem(conversationKey())
-      if (!conversationId) {
-        set({ loaded: true })
-        return
+      await Promise.all([
+        get().refreshConversations(),
+        conversationId ? get().selectConversation(conversationId) : Promise.resolve(),
+      ])
+    },
+
+    async refreshConversations() {
+      try {
+        set({ conversations: await fetchConversations() })
+      } catch {
+        // 列表读不回来不该拖垮面板，留着上一份。
       }
+    },
+
+    async selectConversation(conversationId) {
+      if (get().turn === 'running') return
+      safeLocalStorage.setItem(conversationKey(), conversationId)
+      set({ conversationId, messages: [], error: null })
       let state: Awaited<ReturnType<typeof fetchMessages>>
       try {
         state = await fetchMessages(conversationId)
       } catch {
         // 会话被删或换了身份：忘掉它，下一条消息开新会话。
-        safeLocalStorage.removeItem(conversationKey())
-        set({ conversationId: null, loaded: true })
+        get().startNewConversation()
         return
       }
       set({
-        conversationId,
-        loaded: true,
         messages: state.messages.map((message) => ({
           id: message.id,
           role: message.role,
@@ -199,6 +229,23 @@ export const useAgentStore = create<AgentState>((set, get) => {
       if (!state.activeTurn) return
       set({ turn: 'running', error: null, activeTurn: state.activeTurn })
       await follow(conversationId, resumeTurn(conversationId, state.activeTurn.turnId, 0), null)
+    },
+
+    async deleteConversation(conversationId) {
+      try {
+        await deleteConversation(conversationId)
+      } catch {
+        return
+      }
+      set((state) => ({
+        conversations: state.conversations.filter((one) => one.id !== conversationId),
+      }))
+      if (get().conversationId === conversationId) get().startNewConversation()
+    },
+
+    startNewConversation() {
+      safeLocalStorage.removeItem(conversationKey())
+      set({ conversationId: null, messages: [], error: null })
     },
 
     async send(text) {
@@ -225,6 +272,8 @@ export const useAgentStore = create<AgentState>((set, get) => {
         return
       }
       await follow(target, startTurn(target, trimmed), trimmed)
+      // 首轮定了标题，列表的标题与排序都要跟着走。
+      await get().refreshConversations()
     },
 
     async abort() {

@@ -1,5 +1,7 @@
 import type { AuthUserView } from '@image-playground/shared'
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
+import { adoptAgentConversations } from '../features/agent/lib/agentClient'
+import { agentPanelPresent } from '../features/agent/panelLayout'
 import {
   AUTH_SESSION_EXPIRED_EVENT,
   AuthRequestError,
@@ -54,6 +56,16 @@ function ProblemScreen({
   )
 }
 
+/** 会话存在服务端，所以本地那套领养搬不动它；登录这一刻另外让 BFF 改挂一次。 */
+async function adoptDeviceConversations(): Promise<void> {
+  if (!agentPanelPresent()) return
+  try {
+    await adoptAgentConversations()
+  } catch {
+    // 领养失败只是这次没搬成，不该把人挡在登录外；服务端幂等，下次登录接着搬。
+  }
+}
+
 export function AuthGate() {
   const runtime = getRuntimeConfig()
   const accountsLoginEnabled = isClientCapabilityEnabled('accounts:login')
@@ -77,6 +89,7 @@ export function AuthGate() {
         const [adopted] = await Promise.all([
           // 必须跑在 <App/> 之前：store 是 lazy 加载的，一旦求值就读走 IndexedDB 与 persist key。
           adoptAnonymousStorage(),
+          adoptDeviceConversations(),
           // 认证部署中 channel discovery 同样是受保护请求。这里不能静默降级：
           // session 若恰好过期，应停在登录页，不能把 stale user 标成 ready。
           bootstrapChannels(runtime.bff.enabled, runtime.bff.baseUrl, true),
