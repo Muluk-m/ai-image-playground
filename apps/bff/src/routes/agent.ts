@@ -16,8 +16,9 @@ import {
 import { agentTurnHasEvents, readAgentTurnEvents } from '../lib/agent/events'
 import { type RunningTurn, runningTurn } from '../lib/agent/runningTurns'
 import { agentReplayStream, agentTurnStream } from '../lib/agent/sse'
+import { agentTurnRateLimited } from '../lib/agent/turn-rate-limit'
 import { capabilityUnavailable, isCapabilityEnabled } from '../lib/capabilities'
-import { badRequestOnValidation, deviceIdSchema } from '../lib/http'
+import { badRequestOnValidation, clientAddress, deviceIdSchema } from '../lib/http'
 import { resolveAuthUser } from '../lib/user-auth'
 
 /** 归属不依赖登录能力：有会话 cookie 就挂用户，否则挂设备。 */
@@ -66,7 +67,12 @@ export const agentRoutes = new Elysia()
   )
   .post(
     '/api/agent/conversations/:id/turns',
-    async ({ params, body, authUser, status }) => {
+    async ({ params, body, authUser, request, server, status }) => {
+      const address = clientAddress(request, server?.requestIP(request)?.address ?? null)
+      if (agentTurnRateLimited(body.deviceId, address)) {
+        return status(429, { error: 'rate_limited' })
+      }
+
       const owner = ownerOf(authUser, body.deviceId)
       const conversation = await findAgentConversation(params.id, owner)
       if (!conversation) return status(404, NOT_FOUND)

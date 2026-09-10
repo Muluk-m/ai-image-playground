@@ -1,0 +1,9 @@
+{
+  "capabilities": {
+    "agent:chat": true
+  },
+  "quotas": {
+    "agent:turns-per-device-minute": 2,
+    "agent:turns-per-ip-hour": 3
+  }
+}
