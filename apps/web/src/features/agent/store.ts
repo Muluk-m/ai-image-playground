@@ -37,6 +37,7 @@ import type {
   AgentPanelMessage,
   AgentPanelTab,
   AgentToolMessage,
+  AgentTurnFooter,
   AgentTurnStatus,
 } from './types'
 
@@ -54,6 +55,8 @@ export interface AgentState {
   conversationId: string | null
   conversations: AgentConversationView[]
   messages: AgentPanelMessage[]
+  /** 每轮的页脚，按轮 id。 */
+  turns: Record<string, AgentTurnFooter>
   turn: AgentTurnStatus
   /** 正在跟的那一轮；中止与插话都指向它。 */
   activeTurn: AgentActiveTurnView | null
@@ -86,10 +89,11 @@ function replaceOrAppend(
   return messages.map((one, at) => (at === index ? message : one))
 }
 
-function toolCard(block: AgentToolResultBlock, id: string): AgentToolMessage {
+function toolCard(block: AgentToolResultBlock, id: string, turnId: string): AgentToolMessage {
   return {
     kind: 'tool',
     id,
+    turnId,
     toolCallId: block.toolCallId,
     title: block.title,
     status: block.status,
@@ -99,22 +103,27 @@ function toolCard(block: AgentToolResultBlock, id: string): AgentToolMessage {
   }
 }
 
-function clarificationCard(block: AgentClarificationBlock, id: string): AgentClarificationMessage {
-  return { kind: 'clarification', id, question: block.question, options: block.options }
+function clarificationCard(
+  block: AgentClarificationBlock,
+  id: string,
+  turnId: string,
+): AgentClarificationMessage {
+  return { kind: 'clarification', id, turnId, question: block.question, options: block.options }
 }
 
 function panelMessage(message: AgentMessageView): AgentPanelMessage {
   const result = message.content.find(
     (block): block is AgentToolResultBlock => block.type === 'toolResult',
   )
-  if (result) return toolCard(result, message.id)
+  if (result) return toolCard(result, message.id, message.turnId)
   const asked = message.content.find(
     (block): block is AgentClarificationBlock => block.type === 'clarification',
   )
-  if (asked) return clarificationCard(asked, message.id)
+  if (asked) return clarificationCard(asked, message.id, message.turnId)
   return {
     kind: 'text',
     id: message.id,
+    turnId: message.turnId,
     role: message.role,
     text: agentMessageText(message),
     streaming: false,
@@ -212,10 +221,22 @@ export const useAgentStore = create<AgentState>((set, get) => {
   /** 事件按 id 幂等：重连重发的帧、以及续播重放的整轮，都要落到同一个结果上。 */
   const apply = (event: AgentTurnEvent, pendingUserText: string | null) => {
     set((state) => {
+      // 事件里只有 turnStart 带轮 id，其余各帧靠正在跟的那一轮认领。
+      const turnId = event.type === 'turnStart' ? event.turnId : (state.activeTurn?.turnId ?? '')
       switch (event.type) {
         case 'turnStart':
           return {
             activeTurn: { turnId: event.turnId },
+            turns: {
+              ...state.turns,
+              [event.turnId]: {
+                ...state.turns[event.turnId],
+                turnId: event.turnId,
+                ...(event.reservedCredits === undefined
+                  ? {}
+                  : { reservedCredits: event.reservedCredits }),
+              },
+            },
             messages: state.messages.some((one) => one.id === event.userMessageId)
               ? state.messages
               : [
@@ -223,6 +244,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
                   {
                     kind: 'text' as const,
                     id: event.userMessageId,
+                    turnId,
                     role: 'user' as const,
                     text: pendingUserText ?? '',
                     streaming: false,
@@ -234,6 +256,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
             messages: replaceOrAppend(state.messages, {
               kind: 'text',
               id: event.messageId,
+              turnId,
               role: 'assistant',
               text: '',
               streaming: true,
@@ -244,6 +267,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
             messages: replaceOrAppend(state.messages, {
               kind: 'text',
               id: event.messageId,
+              turnId,
               role: 'user',
               text: event.text,
               streaming: false,
@@ -262,6 +286,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
             messages: replaceOrAppend(state.messages, {
               kind: 'tool',
               id: event.messageId,
+              turnId,
               toolCallId: event.toolCallId,
               title: event.title,
               status: 'running',
@@ -277,24 +302,39 @@ export const useAgentStore = create<AgentState>((set, get) => {
           }
         case 'clarification':
           return {
-            messages: replaceOrAppend(state.messages, clarificationCard(event, event.messageId)),
+            messages: replaceOrAppend(
+              state.messages,
+              clarificationCard(event, event.messageId, turnId),
+            ),
           }
         case 'toolEnd':
           return {
             messages: replaceOrAppend(
               state.messages,
-              toolCard({ ...event, type: 'toolResult' }, event.messageId),
+              toolCard({ ...event, type: 'toolResult' }, event.messageId, turnId),
             ),
           }
-        case 'turnEnd':
-          if (event.stopReason === 'failed') return failPatch(state)
+        case 'turnEnd': {
+          const turns = {
+            ...state.turns,
+            [event.turnId]: {
+              ...state.turns[event.turnId],
+              turnId: event.turnId,
+              durationMs: event.durationMs,
+              stopReason: event.stopReason,
+              ...(event.cost ? { cost: event.cost } : {}),
+            },
+          }
+          if (event.stopReason === 'failed') return { ...failPatch(state), turns }
           return {
             turn: 'idle' as const,
             activeTurn: null,
+            turns,
             messages: state.messages.map((one) =>
               one.kind === 'text' && one.streaming ? { ...one, streaming: false } : one,
             ),
           }
+        }
       }
     })
     if (event.type === 'toolEnd' && event.status === 'succeeded') {
@@ -353,6 +393,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
     conversationId: null,
     conversations: [],
     messages: [],
+    turns: {},
     turn: 'idle',
     activeTurn: null,
     error: null,
@@ -387,7 +428,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
     async selectConversation(conversationId) {
       if (get().turn === 'running') return
       safeLocalStorage.setItem(conversationKey(), conversationId)
-      set({ conversationId, messages: [], error: null })
+      set({ conversationId, messages: [], turns: {}, error: null })
       let state: Awaited<ReturnType<typeof fetchMessages>>
       try {
         state = await fetchMessages(conversationId)
@@ -396,7 +437,10 @@ export const useAgentStore = create<AgentState>((set, get) => {
         get().startNewConversation()
         return
       }
-      set({ messages: state.messages.map(panelMessage) })
+      set({
+        messages: state.messages.map(panelMessage),
+        turns: Object.fromEntries(state.turns.map((one) => [one.turnId, one])),
+      })
       if (!state.activeTurn) return
       set({ turn: 'running', error: null, activeTurn: state.activeTurn })
       takeBaseRevision()
@@ -417,7 +461,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
 
     startNewConversation() {
       safeLocalStorage.removeItem(conversationKey())
-      set({ conversationId: null, messages: [], error: null })
+      set({ conversationId: null, messages: [], turns: {}, error: null })
     },
 
     async send(text, references = []) {
