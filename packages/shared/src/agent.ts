@@ -3,6 +3,10 @@
 export const AGENT_CONVERSATION_TITLE_MAX_CHARS = 60
 export const AGENT_USER_MESSAGE_MAX_CHARS = 4_000
 
+/** 选项多到要挑就不叫澄清了；模型给多了这次调用作废，让它重问。 */
+export const AGENT_CLARIFICATION_MIN_OPTIONS = 2
+export const AGENT_CLARIFICATION_MAX_OPTIONS = 4
+
 export type AgentMessageRole = 'user' | 'assistant'
 
 export interface AgentTextBlock {
@@ -56,7 +60,14 @@ export interface AgentToolResultBlock {
   readonly message?: string
 }
 
-export type AgentContentBlock = AgentTextBlock | AgentToolResultBlock
+/** 一次澄清提问。落在助手消息里，所以重新打开会话还能看见、还能作答。 */
+export interface AgentClarificationBlock {
+  readonly type: 'clarification'
+  readonly question: string
+  readonly options: readonly string[]
+}
+
+export type AgentContentBlock = AgentTextBlock | AgentToolResultBlock | AgentClarificationBlock
 
 export interface AgentMessageView {
   readonly id: string
@@ -133,6 +144,12 @@ export type AgentToolEndEvent = Omit<AgentToolResultBlock, 'type'> & {
   readonly messageId: string
 }
 
+/** 与落库的澄清块同形，理由同 `toolEnd`。 */
+export type AgentClarificationEvent = Omit<AgentClarificationBlock, 'type'> & {
+  readonly type: 'clarification'
+  readonly messageId: string
+}
+
 /** 轮进行中追加的用户消息。 */
 export interface AgentInterjectionEvent {
   readonly type: 'interjection'
@@ -168,6 +185,7 @@ export type AgentTurnEvent =
   | AgentToolStartEvent
   | AgentToolProgressEvent
   | AgentToolEndEvent
+  | AgentClarificationEvent
   | AgentInterjectionEvent
   | AgentTurnEndEvent
 
@@ -232,6 +250,11 @@ export function agentToolResultSummary(block: AgentToolResultBlock): string {
   if (block.status === 'failed') return `${block.title}：失败（${block.message ?? '未知原因'}）`
   const ids = (block.images ?? []).map((image) => image.imageId).join(', ')
   return ids ? `${block.title}：完成，图片 ${ids}` : `${block.title}：完成`
+}
+
+/** 澄清回放给模型的形状：用户的下一条消息就是他选的那一项。 */
+export function agentClarificationSummary(block: AgentClarificationBlock): string {
+  return `向用户提问：${block.question}（选项：${block.options.join(' / ')}）`
 }
 
 /** 折行压成一行再截断，省略号占最后一格。 */
