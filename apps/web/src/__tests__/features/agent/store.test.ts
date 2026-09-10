@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import type { AgentTurnEvent } from '@image-playground/shared'
+import type { AgentConversationView, AgentTurnEvent } from '@image-playground/shared'
 import { encodeAgentFrame } from '@image-playground/shared'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useAgentStore } from '../../../features/agent/store'
@@ -44,6 +44,8 @@ function turnStream(...events: AgentTurnEvent[]): Response {
 
 let turnResponse: () => Response
 let messagesResponse: () => Response
+let conversationsResponse: () => Response
+let deleteResponse: () => Response
 
 const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
   const url = String(input)
@@ -52,9 +54,15 @@ const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit
       conversation: { id: CONVERSATION, title: '', createdAt: 1, updatedAt: 1 },
     })
   }
+  if (init?.method === 'DELETE') return deleteResponse()
+  if (url.includes('/api/agent/conversations?')) return conversationsResponse()
   if (url.includes('/turns')) return turnResponse()
   return messagesResponse()
 })
+
+function conversation(id: string, title: string): AgentConversationView {
+  return { id, title, createdAt: 1, updatedAt: 1 }
+}
 
 function state() {
   return useAgentStore.getState()
@@ -66,8 +74,11 @@ beforeEach(() => {
   localStorage.clear()
   turnResponse = () => turnStream(TURN_START)
   messagesResponse = () => Response.json({ messages: [], activeTurn: null })
+  conversationsResponse = () => Response.json({ conversations: [] })
+  deleteResponse = () => Response.json({ ok: true })
   useAgentStore.setState({
     conversationId: null,
+    conversations: [],
     messages: [],
     turn: 'idle',
     activeTurn: null,
@@ -191,5 +202,108 @@ describe('折叠', () => {
 
     state().toggleExpanded('assistant-1')
     expect(state().expanded['assistant-1']).toBe(false)
+  })
+})
+
+describe('会话列表', () => {
+  it('读回当前身份名下的会话', async () => {
+    conversationsResponse = () =>
+      Response.json({
+        conversations: [conversation('c-2', '第二件事'), conversation('c-1', '第一件事')],
+      })
+
+    await state().load()
+
+    expect(state().conversations.map((one) => one.title)).toEqual(['第二件事', '第一件事'])
+  })
+
+  it('切到另一个会话时读它的消息并记住它', async () => {
+    messagesResponse = () =>
+      Response.json({
+        activeTurn: null,
+        messages: [
+          {
+            id: 'user-9',
+            turnId: 'turn-9',
+            role: 'user',
+            content: [{ type: 'text', text: '上周那套图' }],
+            createdAt: 1,
+          },
+        ],
+      })
+
+    await state().selectConversation('c-2')
+
+    expect(state().conversationId).toBe('c-2')
+    expect(state().messages.map((message) => message.text)).toEqual(['上周那套图'])
+    expect(localStorage.getItem('image-playground.agent_conversation_id')).toBe('c-2')
+  })
+
+  it('删掉当前会话后回到空白的新会话', async () => {
+    useAgentStore.setState({
+      conversationId: 'c-1',
+      conversations: [conversation('c-1', '试错的一轮'), conversation('c-2', '留着的')],
+      messages: [{ id: 'user-1', role: 'user', text: '试试', streaming: false }],
+    })
+    localStorage.setItem('image-playground.agent_conversation_id', 'c-1')
+
+    await state().deleteConversation('c-1')
+
+    expect(state().conversations.map((one) => one.id)).toEqual(['c-2'])
+    expect(state().conversationId).toBeNull()
+    expect(state().messages).toEqual([])
+    expect(localStorage.getItem('image-playground.agent_conversation_id')).toBeNull()
+  })
+
+  it('删掉别的会话不动当前这个', async () => {
+    useAgentStore.setState({
+      conversationId: 'c-1',
+      conversations: [conversation('c-1', '当前'), conversation('c-2', '另一个')],
+      messages: [{ id: 'user-1', role: 'user', text: '试试', streaming: false }],
+    })
+
+    await state().deleteConversation('c-2')
+
+    expect(state().conversations.map((one) => one.id)).toEqual(['c-1'])
+    expect(state().conversationId).toBe('c-1')
+    expect(state().messages).toHaveLength(1)
+  })
+
+  it('第二轮之后不再重拉列表', async () => {
+    turnResponse = () => turnStream(TURN_START, TURN_END)
+    await state().send('第一句')
+    const afterFirst = fetchMock.mock.calls.length
+
+    await state().send('第二句')
+
+    const listCalls = fetchMock.mock.calls
+      .slice(afterFirst)
+      .filter(([input]) => String(input).includes('/api/agent/conversations?'))
+    expect(listCalls).toEqual([])
+  })
+
+  it('开新会话只清空当前，不建空会话', async () => {
+    useAgentStore.setState({
+      conversationId: 'c-1',
+      messages: [{ id: 'user-1', role: 'user', text: '试试', streaming: false }],
+    })
+    localStorage.setItem('image-playground.agent_conversation_id', 'c-1')
+
+    state().startNewConversation()
+
+    expect(state().conversationId).toBeNull()
+    expect(state().messages).toEqual([])
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('限流', () => {
+  it('被拦下时给一句可读提示', async () => {
+    turnResponse = () => new Response(JSON.stringify({ error: 'rate_limited' }), { status: 429 })
+
+    await state().send('再来一张')
+
+    expect(state().turn).toBe('failed')
+    expect(state().error).toBe('发送太频繁，稍后再试')
   })
 })

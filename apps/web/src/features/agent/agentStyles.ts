@@ -29,4 +29,9 @@ export const ABORT_BUTTON =
 
 export const ICON_BUTTON = `rounded-lg p-1 transition-colors ${INK_3} hover:bg-white/[0.08] hover:text-[#e8e8ea]`
 
+export const LIST_ROW =
+  'group flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs transition-colors hover:bg-white/[0.06]'
+
+export const ACTIVE_LIST_ROW = 'bg-white/[0.09]'
+
 export const GHOST_LINK = 'text-[11px] text-blue-300 transition-colors hover:text-blue-200'

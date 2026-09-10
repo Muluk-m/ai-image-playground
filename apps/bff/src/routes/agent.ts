@@ -4,17 +4,21 @@ import { Elysia, t } from 'elysia'
 import { db } from '../db/client'
 import {
   type AgentOwner,
+  adoptDeviceConversations,
   appendAgentMessage,
   createAgentConversation,
   findAgentConversation,
+  listAgentConversations,
   listAgentMessages,
   setAgentConversationTitle,
+  softDeleteAgentConversation,
 } from '../lib/agent/conversations'
 import { agentTurnHasEvents, readAgentTurnEvents } from '../lib/agent/events'
 import { type RunningTurn, runningTurn } from '../lib/agent/runningTurns'
 import { agentReplayStream, agentTurnStream } from '../lib/agent/sse'
+import { agentTurnRateLimited } from '../lib/agent/turn-rate-limit'
 import { capabilityUnavailable, isCapabilityEnabled } from '../lib/capabilities'
-import { badRequestOnValidation, deviceIdSchema } from '../lib/http'
+import { badRequestOnValidation, clientAddress, deviceIdSchema } from '../lib/http'
 import { resolveAuthUser } from '../lib/user-auth'
 
 /** 归属不依赖登录能力：有会话 cookie 就挂用户，否则挂设备。 */
@@ -54,7 +58,7 @@ export const agentRoutes = new Elysia()
       if (!conversation) return status(404, NOT_FOUND)
       const active = runningTurn(conversation.id)
       return {
-        messages: await listAgentMessages(conversation.id),
+        messages: await listAgentMessages(conversation.id, owner),
         // 刷新后的页面据此挂回仍在进行的那一轮。
         activeTurn: active ? { turnId: active.turnId } : null,
       }
@@ -63,15 +67,20 @@ export const agentRoutes = new Elysia()
   )
   .post(
     '/api/agent/conversations/:id/turns',
-    async ({ params, body, authUser, status }) => {
+    async ({ params, body, authUser, request, server, status }) => {
+      const address = clientAddress(request, server?.requestIP(request)?.address ?? null)
+      if (agentTurnRateLimited(body.deviceId, address)) {
+        return status(429, { error: 'rate_limited' })
+      }
+
       const owner = ownerOf(authUser, body.deviceId)
       const conversation = await findAgentConversation(params.id, owner)
       if (!conversation) return status(404, NOT_FOUND)
       if (runningTurn(conversation.id)) return status(409, { error: 'turn_already_running' })
 
-      const history = await listAgentMessages(conversation.id)
+      const history = await listAgentMessages(conversation.id, owner)
       if (history.length === 0) {
-        await setAgentConversationTitle(conversation.id, agentConversationTitle(body.text))
+        await setAgentConversationTitle(conversation.id, owner, agentConversationTitle(body.text))
       }
       const turnId = crypto.randomUUID()
       const userMessage = await appendAgentMessage(db, {
@@ -99,6 +108,32 @@ export const agentRoutes = new Elysia()
         text: t.String({ minLength: 1, maxLength: AGENT_USER_MESSAGE_MAX_CHARS }),
       }),
     },
+  )
+  .get(
+    '/api/agent/conversations',
+    async ({ query, authUser }) => ({
+      conversations: await listAgentConversations(ownerOf(authUser, query.deviceId)),
+    }),
+    { query: t.Object({ deviceId: deviceIdSchema() }) },
+  )
+  .delete(
+    '/api/agent/conversations/:id',
+    async ({ params, body, authUser, status }) => {
+      const owner = ownerOf(authUser, body.deviceId)
+      const conversation = await findAgentConversation(params.id, owner)
+      if (!conversation) return status(404, NOT_FOUND)
+      await softDeleteAgentConversation(conversation.id, owner)
+      return { ok: true }
+    },
+    { params: t.Object({ id: t.String() }), body: t.Object({ deviceId: deviceIdSchema() }) },
+  )
+  .post(
+    '/api/agent/conversations/adopt',
+    async ({ body, authUser, status }) => {
+      if (!authUser) return status(401, { error: 'unauthorized' })
+      return { adopted: await adoptDeviceConversations(body.deviceId, authUser.id) }
+    },
+    { body: t.Object({ deviceId: deviceIdSchema() }) },
   )
   .get(
     '/api/agent/conversations/:id/turns/:turnId/events',

@@ -8,4 +8,4 @@ export interface AgentPanelMessage {
   readonly streaming: boolean
 }
 
-export type AgentPanelTab = 'chat' | 'layers'
+export type AgentPanelTab = 'chat' | 'history' | 'layers'

@@ -12,6 +12,7 @@ const {
   findAgentConversation,
   listAgentMessages,
   loadAgentCompaction,
+  setAgentConversationTitle,
   saveAgentCompaction,
   softDeleteAgentConversation,
 } = await import('../../lib/agent/conversations')
@@ -76,8 +77,23 @@ describe('agent conversations', () => {
       content: [{ type: 'text', text: '好的' }],
     })
 
-    expect(await listAgentMessages(conversation.id)).toEqual([question, answer])
+    expect(await listAgentMessages(conversation.id, USER)).toEqual([question, answer])
     expect(answer.turnId).toBe('turn-1')
+  })
+
+  it('answers nothing to an owner the conversation does not belong to', async () => {
+    const conversation = await createAgentConversation(USER, '第一句')
+    await appendAgentMessage(db, {
+      conversationId: conversation.id,
+      turnId: 'turn-1',
+      role: 'user',
+      content: [{ type: 'text', text: '第一句' }],
+    })
+
+    expect(await listAgentMessages(conversation.id, DEVICE)).toEqual([])
+
+    await setAgentConversationTitle(conversation.id, DEVICE, '改成别的')
+    expect((await findAgentConversation(conversation.id, USER))!.title).toBe('第一句')
   })
 
   it('drops a soft deleted conversation from reads', async () => {
@@ -92,7 +108,7 @@ describe('agent conversations', () => {
     await softDeleteAgentConversation(conversation.id, USER)
 
     expect(await findAgentConversation(conversation.id, USER)).toBeNull()
-    expect(await listAgentMessages(conversation.id)).toEqual([])
+    expect(await listAgentMessages(conversation.id, USER)).toEqual([])
   })
 
   it('removes the conversations of a deleted user', async () => {
@@ -132,7 +148,7 @@ describe('agent conversations', () => {
       role: 'user',
       content: [{ type: 'text', text: '把背景换成浅木色' }],
     })
-    const before = await listAgentMessages(conversation.id)
+    const before = await listAgentMessages(conversation.id, USER)
 
     await saveAgentCompaction(conversation.id, {
       summary: { completed: 'a', inProgress: 'b', decisions: 'c', artifacts: 'd' },
@@ -142,7 +158,7 @@ describe('agent conversations', () => {
       openedAt: null,
     })
 
-    expect(await listAgentMessages(conversation.id)).toEqual(before)
+    expect(await listAgentMessages(conversation.id, USER)).toEqual(before)
   })
 
   it('refuses a row that claims both a user and a device', async () => {

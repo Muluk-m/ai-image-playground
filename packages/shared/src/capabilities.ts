@@ -40,6 +40,9 @@ export const QUOTAS = {
   'agent:compaction-max-folds': { defaultValue: 5 },
   'agent:compaction-output-reserve-tokens': { defaultValue: 20_000 },
   'agent:compaction-verbatim-tokens': { defaultValue: 20_000 },
+  /** 起一轮的速率限制，两维各一个阈值；0 关闭该维。 */
+  'agent:turns-per-device-minute': { defaultValue: 20 },
+  'agent:turns-per-ip-hour': { defaultValue: 600 },
   'generation:daily-images': { defaultValue: 0 },
   'sync:asset-image-bytes': { defaultValue: 10 * 1024 * 1024 },
   'sync:user-asset-bytes': { defaultValue: 500 * 1024 * 1024 },

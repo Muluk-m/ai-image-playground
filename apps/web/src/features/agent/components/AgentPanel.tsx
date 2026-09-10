@@ -1,12 +1,18 @@
 import { type KeyboardEvent, useEffect, useRef, useState } from 'react'
+import { PlusIcon, TrashIcon } from '../../../components/icons'
+import { useStore } from '../../../store'
 import type { CanvasDoc } from '../../canvas/lib/canvasDoc'
 import {
   ABORT_BUTTON,
+  ACTIVE_LIST_ROW,
   ACTIVE_TAB,
   FIELD,
+  GHOST_LINK,
   ICON_BUTTON,
   IDLE_TAB,
+  INK,
   INK_3,
+  LIST_ROW,
   PANEL_MARGIN,
   PANEL_SHADOW,
   PANEL_SURFACE,
@@ -24,6 +30,61 @@ const TABS = [
   { id: 'chat', label: '对话' },
   { id: 'layers', label: '图层' },
 ] as const
+
+const UNTITLED = '未命名'
+
+function ConversationList({ onPick }: { onPick: () => void }) {
+  const conversations = useAgentStore((state) => state.conversations)
+  const conversationId = useAgentStore((state) => state.conversationId)
+  const running = useAgentStore((state) => state.turn === 'running')
+  const { selectConversation, deleteConversation } = useAgentStore.getState()
+  const setConfirmDialog = useStore((state) => state.setConfirmDialog)
+
+  if (conversations.length === 0) {
+    return <p className={`px-3 text-xs ${INK_3}`}>还没有会话</p>
+  }
+
+  return (
+    <div className="flex flex-col gap-0.5 px-2">
+      {conversations.map((one) => {
+        const name = one.title || UNTITLED
+        return (
+          <div
+            key={one.id}
+            className={`${LIST_ROW} ${one.id === conversationId ? ACTIVE_LIST_ROW : ''}`}
+          >
+            <button
+              type="button"
+              disabled={running}
+              className={`min-w-0 flex-1 truncate text-left disabled:opacity-40 ${INK}`}
+              onClick={() => {
+                void selectConversation(one.id)
+                onPick()
+              }}
+            >
+              {name}
+            </button>
+            <button
+              type="button"
+              aria-label={`删除会话 ${name}`}
+              className={`${ICON_BUTTON} opacity-0 group-hover:opacity-100`}
+              onClick={() =>
+                setConfirmDialog({
+                  title: '删除会话',
+                  message: `确定删除「${name}」吗？这段对话不再出现在列表里。`,
+                  tone: 'danger',
+                  action: () => void deleteConversation(one.id),
+                })
+              }
+            >
+              <TrashIcon className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
 
 function CollapsedButton({ onOpen }: { onOpen: () => void }) {
   return (
@@ -44,7 +105,8 @@ export default function AgentPanel({ doc }: { doc: CanvasDoc }) {
   const messages = useAgentStore((state) => state.messages)
   const turn = useAgentStore((state) => state.turn)
   const error = useAgentStore((state) => state.error)
-  const { setOpen, setTab, load, send, abort } = useAgentStore.getState()
+  const { setOpen, setTab, load, send, abort, startNewConversation, refreshConversations } =
+    useAgentStore.getState()
   const [draft, setDraft] = useState('')
   const logRef = useRef<HTMLDivElement>(null)
 
@@ -89,7 +151,7 @@ export default function AgentPanel({ doc }: { doc: CanvasDoc }) {
               key={one.id}
               type="button"
               onClick={() => setTab(one.id)}
-              className={`${TAB} ${tab === one.id ? ACTIVE_TAB : IDLE_TAB}`}
+              className={`${TAB} ${(one.id === 'chat' ? tab !== 'layers' : tab === one.id) ? ACTIVE_TAB : IDLE_TAB}`}
             >
               {one.label}
             </button>
@@ -113,7 +175,41 @@ export default function AgentPanel({ doc }: { doc: CanvasDoc }) {
         </button>
       </div>
 
-      {tab === 'layers' ? (
+      {tab !== 'layers' && (
+        <div className="flex shrink-0 items-center justify-between gap-2 px-3 pb-1.5">
+          <button
+            type="button"
+            className={GHOST_LINK}
+            onClick={() => {
+              if (tab === 'history') {
+                setTab('chat')
+                return
+              }
+              setTab('history')
+              void refreshConversations()
+            }}
+          >
+            {tab === 'history' ? '返回对话' : '历史会话'}
+          </button>
+          <button
+            type="button"
+            aria-label="新对话"
+            className={ICON_BUTTON}
+            onClick={() => {
+              setTab('chat')
+              startNewConversation()
+            }}
+          >
+            <PlusIcon className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
+
+      {tab === 'history' ? (
+        <div className="min-h-0 flex-1 overflow-y-auto py-1">
+          <ConversationList onPick={() => setTab('chat')} />
+        </div>
+      ) : tab === 'layers' ? (
         <div className="min-h-0 flex-1 overflow-y-auto py-1">
           <AgentLayers doc={doc} />
         </div>

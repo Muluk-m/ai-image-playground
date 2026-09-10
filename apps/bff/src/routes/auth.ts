@@ -7,9 +7,9 @@ import {
 } from '@image-playground/shared'
 import { eq } from 'drizzle-orm'
 import { Elysia, t } from 'elysia'
-import { config } from '../config'
 import { db, schema } from '../db/client'
 import { capabilityUnavailable, isCapabilityEnabled } from '../lib/capabilities'
+import { clientAddress } from '../lib/http'
 import { createRateLimiter } from '../lib/rate-limit'
 import {
   listLoginMethods,
@@ -59,13 +59,6 @@ const passwordChangeLimiter = createRateLimiter({
   maxEntries: 2048,
 })
 
-function clientKey(request: Request, peerAddress: string | null): string {
-  if (config.network.clientIpSource === 'peer') return peerAddress ?? 'unknown'
-  const forwardedAddress = request.headers.get(config.network.clientIpSource)?.trim()
-  if (!forwardedAddress || forwardedAddress.includes(',')) return 'unknown'
-  return forwardedAddress
-}
-
 export const userAuthRoutes = new Elysia()
   .use(resolveAuthUser)
   .post(
@@ -75,7 +68,7 @@ export const userAuthRoutes = new Elysia()
         return capabilityUnavailable('accounts:self-register')
       }
 
-      const key = clientKey(request, server?.requestIP(request)?.address ?? null)
+      const key = clientAddress(request, server?.requestIP(request)?.address ?? null)
       if (registrationLimiter.isLocked(key) || registrationLimiter.recordFailure(key)) {
         return status(429, { error: 'rate_limited' })
       }
@@ -109,7 +102,7 @@ export const userAuthRoutes = new Elysia()
     async ({ body, cookie, request, server, status }) => {
       if (!isCapabilityEnabled('accounts:login')) return capabilityUnavailable('accounts:login')
 
-      const key = clientKey(request, server?.requestIP(request)?.address ?? null)
+      const key = clientAddress(request, server?.requestIP(request)?.address ?? null)
       const username = normalizeUsername(body.username)
       if (sourceLimiter.isLocked(key) || accountLimiter.isLocked(username)) {
         return status(429, { error: 'rate_limited' })

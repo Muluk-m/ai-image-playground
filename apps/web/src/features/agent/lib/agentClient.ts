@@ -22,12 +22,16 @@ function url(path: string): string {
   return `${bffBaseUrl()}/api/agent${path}`
 }
 
-function jsonInit(body: unknown): RequestInit {
+function jsonInit(body: unknown, method = 'POST'): RequestInit {
   return {
-    method: 'POST',
+    method,
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
   }
+}
+
+function deviceQuery(): string {
+  return new URLSearchParams({ deviceId: getDeviceId() }).toString()
 }
 
 export async function createConversation(
@@ -36,6 +40,33 @@ export async function createConversation(
   const response = await fetcher(url('/conversations'), jsonInit({ deviceId: getDeviceId() }))
   if (!response.ok) throw new AgentRequestError(response.status)
   return ((await response.json()) as { conversation: AgentConversationView }).conversation
+}
+
+export async function fetchConversations(
+  fetcher: Fetcher = authenticatedBffFetch,
+): Promise<AgentConversationView[]> {
+  const response = await fetcher(url(`/conversations?${deviceQuery()}`))
+  if (!response.ok) throw new AgentRequestError(response.status)
+  return ((await response.json()) as { conversations: AgentConversationView[] }).conversations
+}
+
+export async function removeConversation(
+  conversationId: string,
+  fetcher: Fetcher = authenticatedBffFetch,
+): Promise<void> {
+  const response = await fetcher(
+    url(`/conversations/${conversationId}`),
+    jsonInit({ deviceId: getDeviceId() }, 'DELETE'),
+  )
+  if (!response.ok) throw new AgentRequestError(response.status)
+}
+
+export async function adoptAgentConversations(
+  fetcher: Fetcher = authenticatedBffFetch,
+): Promise<number> {
+  const response = await fetcher(url('/conversations/adopt'), jsonInit({ deviceId: getDeviceId() }))
+  if (!response.ok) throw new AgentRequestError(response.status)
+  return ((await response.json()) as { adopted: number }).adopted
 }
 
 export interface AgentConversationState {
@@ -47,8 +78,7 @@ export async function fetchMessages(
   conversationId: string,
   fetcher: Fetcher = authenticatedBffFetch,
 ): Promise<AgentConversationState> {
-  const query = new URLSearchParams({ deviceId: getDeviceId() })
-  const response = await fetcher(url(`/conversations/${conversationId}/messages?${query}`))
+  const response = await fetcher(url(`/conversations/${conversationId}/messages?${deviceQuery()}`))
   if (!response.ok) throw new AgentRequestError(response.status)
   return (await response.json()) as AgentConversationState
 }
@@ -95,11 +125,10 @@ export async function* resumeTurn(
   lastEventId: number,
   fetcher: Fetcher = authenticatedBffFetch,
 ): AsyncGenerator<AgentFrame> {
-  const query = new URLSearchParams({ deviceId: getDeviceId() })
   const headers = new Headers()
   if (lastEventId > 0) headers.set('last-event-id', String(lastEventId))
   const response = await fetcher(
-    url(`/conversations/${conversationId}/turns/${turnId}/events?${query}`),
+    url(`/conversations/${conversationId}/turns/${turnId}/events?${deviceQuery()}`),
     { headers },
   )
   yield* readFrames(response)
