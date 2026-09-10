@@ -13,6 +13,13 @@ export type QueueProvider = 'openai-compat' | 'gemini'
 export const TASK_STATUSES = ['queued', 'in_progress', 'completed', 'failed', 'cancelled'] as const
 export type TaskStatus = (typeof TASK_STATUSES)[number]
 
+/**
+ * `queue` 是 worker 跑的生图 / 生视频任务；`chat` 是一轮对话的占用记录，worker 不碰它，
+ * 运营后台也不展示它——它只为「每笔积分占用都挂在一个任务上」这条不变量而存在。
+ */
+export const TASK_KINDS = ['queue', 'chat'] as const
+export type TaskKind = (typeof TASK_KINDS)[number]
+
 /** Server-side persisted image reference. Queue clients continue to submit data URL strings. */
 export interface StoredImageRef {
   object: string

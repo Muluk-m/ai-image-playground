@@ -20,9 +20,9 @@ function getTaskMetaCache() {
       load: async (taskId) => {
         const { db, schema } = getHandle()
         const rows = await db
-          .select({ id: schema.tasks.id })
-          .from(schema.tasks)
-          .where(eq(schema.tasks.id, taskId))
+          .select({ id: schema.queue_tasks.id })
+          .from(schema.queue_tasks)
+          .where(eq(schema.queue_tasks.id, taskId))
           .limit(1)
         return rows[0] ?? null
       },

@@ -20,7 +20,7 @@ import type {
 
 export type { Range, SortKey } from '../../contracts'
 
-import { eq, sql } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 import { getDbHandle as getHandle } from './db'
 
 function rangeMs(range: Range): number {
@@ -107,7 +107,7 @@ export async function listDevices(range: Range, sort: SortKey): Promise<ListDevi
       SUM(CASE WHEN t.status='failed' THEN 1 ELSE 0 END) AS fail_count,
       ARRAY_AGG(DISTINCT t.model) AS models,
       COALESCE(q.count, 0) AS today_count
-    FROM tasks t
+    FROM queue_tasks t
     LEFT JOIN daily_quota q ON q.device_id = t.device_id AND q.date = ${today}
     WHERE t.submitted_at >= ${new Date(since)} AND t.device_id IS NOT NULL
     GROUP BY t.device_id, q.count
@@ -181,7 +181,7 @@ export async function listUsers(search = ''): Promise<ListUsersResult> {
     ${ACTIVE_SESSION_JOIN}
     LEFT JOIN LATERAL (
       SELECT COUNT(*) AS task_count, MAX(t.submitted_at) AS last_task_at
-      FROM tasks t
+      FROM queue_tasks t
       WHERE t.user_id = u.id
     ) task_stats ON TRUE
     WHERE ${term} = ''
@@ -194,14 +194,14 @@ export async function listUsers(search = ''): Promise<ListUsersResult> {
     WITH user_activity AS (
       SELECT u.id, GREATEST(u.last_login_at, MAX(t.submitted_at)) AS last_activity_at
       FROM users u
-      LEFT JOIN tasks t ON t.user_id = u.id
+      LEFT JOIN queue_tasks t ON t.user_id = u.id
       GROUP BY u.id
     ),
     recent_tasks AS (
       SELECT
         COUNT(*) AS submissions,
         COUNT(*) FILTER (WHERE status = 'failed') AS failures
-      FROM tasks
+      FROM queue_tasks
       WHERE submitted_at >= NOW() - INTERVAL '24 hours'
     )
     SELECT
@@ -256,9 +256,10 @@ async function getTaskVolume(range: Range, userId?: string): Promise<TaskVolumeB
       COUNT(t.id) FILTER (WHERE t.status = 'completed') AS completed,
       COUNT(t.id) FILTER (WHERE t.status = 'failed') AS failed
     FROM buckets b
-    LEFT JOIN tasks t
+    LEFT JOIN queue_tasks t
       ON t.submitted_at >= b.bucket
      AND t.submitted_at < b.bucket + ${bucketStep}
+    
      ${ownerCondition}
     GROUP BY b.bucket
     ORDER BY b.bucket
@@ -288,13 +289,13 @@ export async function getOverview(range: Range): Promise<OverviewResult> {
           ORDER BY EXTRACT(EPOCH FROM (completed_at - started_at)) * 1000
         ) FILTER (WHERE started_at IS NOT NULL AND completed_at IS NOT NULL) AS p95_duration_ms,
         COALESCE(SUM(upstream_invocation_count), 0) AS upstream_invocations
-      FROM tasks
+      FROM queue_tasks
       WHERE submitted_at >= ${since}
     `),
     getTaskVolume(range),
     db.execute(sql`
       SELECT COALESCE(error_type, 'unknown') AS error_type, COUNT(*) AS count
-      FROM tasks
+      FROM queue_tasks
       WHERE submitted_at >= ${since} AND status = 'failed'
       GROUP BY COALESCE(error_type, 'unknown')
       ORDER BY count DESC, error_type
@@ -308,7 +309,7 @@ export async function getOverview(range: Range): Promise<OverviewResult> {
           upstream_invocation_count::double precision
             / GREATEST(COALESCE((request_payload->>'n')::integer, 1), 1)
         ) FILTER (WHERE status IN ('completed', 'failed', 'cancelled')) AS average_multiplier
-      FROM tasks
+      FROM queue_tasks
       WHERE submitted_at >= ${since}
       GROUP BY model
       ORDER BY count DESC, model
@@ -394,7 +395,7 @@ export async function getUserDetail(userId: string): Promise<UserDetailResult | 
       FROM users u
       CROSS JOIN LATERAL (
         SELECT COUNT(*) AS task_count, MAX(t.submitted_at) AS last_task_at
-        FROM tasks t
+        FROM queue_tasks t
         WHERE t.user_id = u.id
       ) task_stats
       ${ACTIVE_SESSION_JOIN}
@@ -431,7 +432,7 @@ export async function getUserTasks(
 
   const rows = (await db.execute(sql`
     SELECT ${TASK_LIST_COLUMNS}
-    FROM tasks t
+    FROM queue_tasks t
     WHERE t.user_id = ${userId}
       ${statusCondition}
       ${keyset}
@@ -476,7 +477,7 @@ export async function getDeviceDetail(
           SUM(CASE WHEN t.status='failed' THEN 1 ELSE 0 END) AS fail_count,
           ARRAY_AGG(DISTINCT t.model) AS models,
           COALESCE(q.count, 0) AS today_count
-        FROM tasks t
+        FROM queue_tasks t
         LEFT JOIN daily_quota q ON q.device_id = t.device_id AND q.date = ${today}
         WHERE t.device_id = ${deviceId} AND t.submitted_at >= ${new Date(since)}
         GROUP BY t.device_id, q.count
@@ -486,20 +487,20 @@ export async function getDeviceDetail(
   // the response; result_payload is never selected.
   const tasksPromise = db
     .select({
-      id: schema.tasks.id,
-      provider: schema.tasks.provider,
-      model: schema.tasks.model,
-      status: schema.tasks.status,
-      submitted_at: schema.tasks.submitted_at,
-      started_at: schema.tasks.started_at,
-      completed_at: schema.tasks.completed_at,
-      error_type: schema.tasks.error_type,
-      upstream_status: schema.tasks.upstream_status,
-      request_payload: schema.tasks.request_payload,
-      attempt_count: schema.tasks.attempt_count,
-      upstream_invocation_count: schema.tasks.upstream_invocation_count,
+      id: schema.queue_tasks.id,
+      provider: schema.queue_tasks.provider,
+      model: schema.queue_tasks.model,
+      status: schema.queue_tasks.status,
+      submitted_at: schema.queue_tasks.submitted_at,
+      started_at: schema.queue_tasks.started_at,
+      completed_at: schema.queue_tasks.completed_at,
+      error_type: schema.queue_tasks.error_type,
+      upstream_status: schema.queue_tasks.upstream_status,
+      request_payload: schema.queue_tasks.request_payload,
+      attempt_count: schema.queue_tasks.attempt_count,
+      upstream_invocation_count: schema.queue_tasks.upstream_invocation_count,
     })
-    .from(schema.tasks)
+    .from(schema.queue_tasks)
     .where(sql`device_id = ${deviceId} AND submitted_at >= ${new Date(since)} ${keyset}`)
     .orderBy(sql`submitted_at DESC, id DESC`)
     .limit(PAGE_SIZE + 1)
@@ -544,7 +545,11 @@ export async function getDeviceDetail(
 
 export async function getTask(taskId: string): Promise<TaskDetail | null> {
   const { db, schema } = getHandle()
-  const rows = await db.select().from(schema.tasks).where(eq(schema.tasks.id, taskId)).limit(1)
+  const rows = await db
+    .select()
+    .from(schema.queue_tasks)
+    .where(eq(schema.queue_tasks.id, taskId))
+    .limit(1)
   const task = rows[0]
   if (!task) return null
 
