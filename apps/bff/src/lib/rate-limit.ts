@@ -83,3 +83,33 @@ export function createRateLimiter(opts: RateLimiterOptions): RateLimiter {
     },
   }
 }
+
+export interface WindowLimiter {
+  /** 记一次并回答「超了没」。`max <= 0` 关闭这一维，一律不超。 */
+  over(key: string, max: number): boolean
+}
+
+/**
+ * 吞吐限速：固定窗口内数次数，超了就拒，不额外锁定。与上面按失败次数锁定的限速器
+ * 是两件事，别把成功的请求记成 failure。
+ */
+export function createWindowLimiter(windowMs: number, maxEntries = 1024): WindowLimiter {
+  const entries = new Map<string, { count: number; windowStart: number }>()
+
+  return {
+    over(key, max) {
+      if (max <= 0) return false
+      const now = Date.now()
+      const entry = entries.get(key)
+      const live =
+        entry && now - entry.windowStart <= windowMs ? entry : { count: 0, windowStart: now }
+      if (live.count >= max) return true
+      live.count += 1
+      // Map 的插入顺序即 LRU：伪造 key 灌不出无界内存。
+      entries.delete(key)
+      entries.set(key, live)
+      if (entries.size > maxEntries) entries.delete(entries.keys().next().value!)
+      return false
+    },
+  }
+}

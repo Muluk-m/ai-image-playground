@@ -5,7 +5,7 @@ import type {
   AgentMessageRole,
   AgentMessageView,
 } from '@image-playground/shared'
-import { and, asc, eq, isNull, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, isNull, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import type { BffTransaction } from '../private-overlay'
 
@@ -97,13 +97,46 @@ export async function findAgentConversation(
   return row ? conversationView(row) : null
 }
 
-export async function setAgentConversationTitle(id: string, title: string): Promise<void> {
+export async function listAgentConversations(owner: AgentOwner): Promise<AgentConversationView[]> {
+  // 显式列：整行会把会话上的压缩摘要一起拉回来，那是服务端私有状态，列表用不到。
+  const rows = await db
+    .select({
+      id: schema.agent_conversations.id,
+      title: schema.agent_conversations.title,
+      created_at: schema.agent_conversations.created_at,
+      updated_at: schema.agent_conversations.updated_at,
+    })
+    .from(schema.agent_conversations)
+    .where(and(ownerWhere(owner), isNull(schema.agent_conversations.deleted_at)))
+    .orderBy(desc(schema.agent_conversations.updated_at))
+  return rows.map(conversationView)
+}
+
+/** 幂等靠改挂本身：设备名下的行一次搬空，重复登录再扫就是空集。 */
+export async function adoptDeviceConversations(deviceId: string, userId: string): Promise<number> {
+  const rows = await db
+    .update(schema.agent_conversations)
+    .set({ user_id: userId, device_id: null })
+    .where(eq(schema.agent_conversations.device_id, deviceId))
+    .returning({ id: schema.agent_conversations.id })
+  return rows.length
+}
+
+export async function setAgentConversationTitle(
+  id: string,
+  owner: AgentOwner,
+  title: string,
+): Promise<void> {
   await db
     .update(schema.agent_conversations)
     .set({ title })
-    .where(eq(schema.agent_conversations.id, id))
+    .where(and(eq(schema.agent_conversations.id, id), ownerWhere(owner)))
 }
 
+/**
+ * 不收归属：轮跑到一半用户登录，领养会把行改挂到 user_id，按起轮时的归属限定就再也
+ * 匹配不上，收尾这一下会静默丢掉。会话 id 本身已由起轮时的确权给出。
+ */
 export async function touchAgentConversation(id: string, now = Date.now()): Promise<void> {
   await db
     .update(schema.agent_conversations)
@@ -160,7 +193,10 @@ export async function appendAgentMessage(
   return messageView(row!)
 }
 
-export async function listAgentMessages(conversationId: string): Promise<AgentMessageView[]> {
+export async function listAgentMessages(
+  conversationId: string,
+  owner: AgentOwner,
+): Promise<AgentMessageView[]> {
   const rows = await db
     .select()
     .from(schema.agent_messages)
@@ -171,6 +207,7 @@ export async function listAgentMessages(conversationId: string): Promise<AgentMe
     .where(
       and(
         eq(schema.agent_messages.conversation_id, conversationId),
+        ownerWhere(owner),
         isNull(schema.agent_messages.deleted_at),
         isNull(schema.agent_conversations.deleted_at),
       ),
