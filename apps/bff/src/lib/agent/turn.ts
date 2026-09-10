@@ -117,14 +117,20 @@ interface OpenAssistantMessage {
 }
 
 /**
+ * 一轮可以打好几次上游（工具循环、插话），用量按转录里的助手消息累加，只取末条会漏掉工具那几次。
+ * 回放进来的历史助手消息带的是占位零，加进来不影响；摘要走独立请求，压根不进转录。
  * 全零就是没报：中转网关吞掉 `stream_options` 时 pi 也只能填零，与真·零 token 不可区分。
- * 只认智能体转录里的用量：上下文压缩的摘要走独立请求，它的 token 不计入任何一轮，别加进来。
  */
-function reportedUsage(message: AgentMessage | undefined): AgentTurnUsage | null {
-  if (message?.role !== 'assistant') return null
-  const { input, output } = message.usage
-  if (!input && !output) return null
-  return { inputTokens: input, outputTokens: output }
+function reportedUsage(messages: readonly AgentMessage[]): AgentTurnUsage | null {
+  let inputTokens = 0
+  let outputTokens = 0
+  for (const message of messages) {
+    if (message.role !== 'assistant') continue
+    inputTokens += message.usage.input
+    outputTokens += message.usage.output
+  }
+  if (!inputTokens && !outputTokens) return null
+  return { inputTokens, outputTokens }
 }
 
 interface OpenToolCall {
@@ -358,7 +364,7 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
       await writes
       if (!error && !aborted && !storedAny) error = 'agent_run_failed'
 
-      const usage = reportedUsage(agent.state.messages.at(-1))
+      const usage = reportedUsage(agent.state.messages)
       const outcome: TaskOutcome = error ? 'failed' : aborted ? 'cancelled' : 'completed'
       try {
         await settle?.({
