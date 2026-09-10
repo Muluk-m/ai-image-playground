@@ -1,6 +1,6 @@
 import { IMAGE_DATA_URL_MAX_CHARS, type ProductBox } from '@image-playground/shared'
 import { getActiveApiProfile } from '../../../lib/apiProfiles'
-import { modelSupportsNativeMask } from '../../../lib/channels/profileSelectors'
+import { isModelKnown, modelSupportsNativeMask } from '../../../lib/channels/profileSelectors'
 import { getPublicChannels } from '../../../lib/channels/publicChannels'
 import { isClientCapabilityEnabled } from '../../../lib/clientCapabilities'
 import { storeImage } from '../../../lib/db'
@@ -265,6 +265,10 @@ export function createSourceMattes(host: SourceMatteHost) {
 
 export function maskSupported(settings: AppSettings = useStore.getState().settings): boolean {
   return modelSupportsNativeMask(getActiveApiProfile(settings), getPublicChannels())
+}
+
+export function modelKnown(settings: AppSettings = useStore.getState().settings): boolean {
+  return isModelKnown(getActiveApiProfile(settings), getPublicChannels())
 }
 
 /** 服务端抠图是等网络，浏览器链吃满设备：一个放三个进去，一个一次只放一个。 */
