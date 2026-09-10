@@ -27,6 +27,7 @@ type SettlementCall = {
   upstreamInvocationCount: number
   errorType: string | null
   upstreamStatus: number | null
+  actualUsage: { quantity: number; unitMultiplier: number } | null
 }
 
 let settlements: SettlementCall[]
@@ -44,6 +45,7 @@ function trackingOverlay(): PrivateBffOverlay {
           upstreamInvocationCount: input.upstreamInvocationCount,
           errorType: input.errorType ?? null,
           upstreamStatus: input.upstreamStatus ?? null,
+          actualUsage: input.actualUsage ?? null,
         })
       },
     },
@@ -94,6 +96,7 @@ describe('task settlement hook', () => {
         upstreamInvocationCount: 1,
         errorType: null,
         upstreamStatus: null,
+        actualUsage: null,
       },
     ])
   })
@@ -118,6 +121,7 @@ describe('task settlement hook', () => {
         upstreamInvocationCount: 2,
         errorType: 'upstream_error',
         upstreamStatus: 403,
+        actualUsage: null,
       },
     ])
   })
@@ -137,6 +141,30 @@ describe('task settlement hook', () => {
         upstreamInvocationCount: 1,
         errorType: null,
         upstreamStatus: null,
+        actualUsage: null,
+      },
+    ])
+  })
+
+  it('hands the settlement hook the actual usage a task reported', async () => {
+    await insertTask('settle-metered', 'in_progress', 1)
+
+    const written = await finishTask('settle-metered', {
+      status: 'completed',
+      resultPayload: { data: [{ url: 'https://example.invalid/image.png' }] },
+      completedAt: Date.now(),
+      actualUsage: { quantity: 1, unitMultiplier: 3.5 },
+    })
+
+    expect(written).toBe(true)
+    expect(settlements).toEqual([
+      {
+        taskId: 'settle-metered',
+        outcome: 'completed',
+        upstreamInvocationCount: 1,
+        errorType: null,
+        upstreamStatus: null,
+        actualUsage: { quantity: 1, unitMultiplier: 3.5 },
       },
     ])
   })
