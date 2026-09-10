@@ -1,0 +1,86 @@
+import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test'
+import { resolve } from 'node:path'
+import { resetTestDatabase } from '@image-playground/db/testing'
+import { Elysia } from 'elysia'
+import {
+  _setPrivateBffOverlayForTesting,
+  EMPTY_PRIVATE_BFF_OVERLAY,
+} from '../../lib/private-overlay'
+import { completionStream, parseFrames, recordingAgentFetch } from '../helpers/agentStubs'
+
+process.env.DATABASE_URL = await resetTestDatabase('agent_billing_a288_off')
+process.env.PORT = '0'
+process.env.UPSTREAM_BASE_URL = 'http://gateway.test'
+process.env.UPSTREAM_API_KEY = 'fixture-upstream-key'
+process.env.UPSTREAM_OPENAI_API_KEY = ''
+process.env.AGENT_CHAT_MODEL = 'fixture-agent-model'
+process.env.OPERATOR_CONFIG_FILE = resolve(import.meta.dir, '../agent-operator-config.json')
+
+const calledHooks: string[] = []
+
+// overlay 在场但 billing:credits 关着：这一组钉的是能力开关，不是 overlay 缺席。
+_setPrivateBffOverlayForTesting(
+  Object.freeze({
+    ...EMPTY_PRIVATE_BFF_OVERLAY,
+    present: true,
+    taskHooks: {
+      ...EMPTY_PRIVATE_BFF_OVERLAY.taskHooks,
+      async reserveTask() {
+        calledHooks.push('reserveTask')
+        return { kind: 'reserved' as const }
+      },
+      async finalizeTask() {
+        calledHooks.push('finalizeTask')
+      },
+    },
+  }),
+)
+
+const { agentRoutes } = await import('../../routes/agent')
+const { setAgentFetchForTesting } = await import('../../lib/agent/model')
+const { close: closeDb, db, schema } = await import('../../db/client')
+
+const app = new Elysia().use(agentRoutes)
+const DEVICE = 'device-abcdefgh'
+
+async function post(path: string, body: unknown): Promise<Response> {
+  return app.handle(
+    new Request(`http://localhost${path}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+  )
+}
+
+beforeEach(async () => {
+  calledHooks.length = 0
+  await db.delete(schema.agent_conversations)
+})
+
+afterEach(() => {
+  setAgentFetchForTesting()
+})
+
+afterAll(async () => {
+  _setPrivateBffOverlayForTesting()
+  await closeDb()
+})
+
+describe('billing:credits 关着的部署', () => {
+  it('匿名设备照常跑完一轮，一笔占用也不写', async () => {
+    setAgentFetchForTesting(recordingAgentFetch([], () => completionStream('好的，', '这就改')))
+    const created = await post('/api/agent/conversations', { deviceId: DEVICE })
+    const { conversation } = (await created.json()) as { conversation: { id: string } }
+
+    const response = await post(`/api/agent/conversations/${conversation.id}/turns`, {
+      deviceId: DEVICE,
+      text: '把背景换成浅木色',
+    })
+    const frames = parseFrames(await response.text())
+
+    expect(response.status).toBe(200)
+    expect(frames.at(-1)!.event).toMatchObject({ type: 'turnEnd', stopReason: 'completed' })
+    expect(calledHooks).toEqual([])
+  })
+})
