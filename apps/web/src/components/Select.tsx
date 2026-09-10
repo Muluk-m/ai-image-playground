@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { DEFAULT_DROPDOWN_MAX_HEIGHT, getDropdownMaxHeight } from '../lib/dropdown'
 import { ChevronDownIcon, DragHandleIcon, EditIcon, PlusIcon, TrashIcon } from './icons'
@@ -6,6 +6,9 @@ import { ChevronDownIcon, DragHandleIcon, EditIcon, PlusIcon, TrashIcon } from '
 interface Option {
   label: string
   value: string | number
+  icon?: ReactNode
+  description?: string
+  title?: string
   variant?: 'action' | 'danger'
   draggable?: boolean
   actions?: Array<{
@@ -23,7 +26,7 @@ interface SelectProps {
     targetValue: string | number,
     position: 'before' | 'after' | null,
   ) => void
-  options: Option[]
+  options: readonly Option[]
   disabled?: boolean
   className?: string
   /** 自定义 trigger 容器 class，默认 `relative w-full`；chip 模式用 `absolute inset-0` 让 chip 整块可点。 */
@@ -176,6 +179,7 @@ export default function Select({
     <div ref={containerRef} className={wrapperClassName ?? 'relative w-full'}>
       <div
         ref={triggerRef}
+        title={selectedOption?.title ?? selectedOption?.label}
         onClick={handleToggle}
         className={`flex items-center justify-between gap-1 w-full cursor-pointer select-none ${className ?? ''} ${
           disabled ? '!opacity-50 !cursor-not-allowed !bg-gray-100/50 dark:!bg-white/[0.05]' : ''
@@ -200,6 +204,7 @@ export default function Select({
             <div
               key={option.value}
               data-option-value={String(option.value)}
+              title={option.title ?? option.label}
               draggable={option.draggable}
               onDragStart={(e) => {
                 if (!option.draggable) return
@@ -398,7 +403,21 @@ export default function Select({
                     <DragHandleIcon className="h-3.5 w-3.5" />
                   </div>
                 )}
-                <span className="min-w-0 truncate">{option.label}</span>
+                {option.icon && (
+                  <span className="flex h-4 w-4 shrink-0 items-center justify-center" aria-hidden>
+                    {option.icon}
+                  </span>
+                )}
+                <span className="min-w-0">
+                  <span className={`block ${option.icon ? 'break-words' : 'truncate'}`}>
+                    {option.label}
+                  </span>
+                  {option.description && (
+                    <span className="mt-0.5 block truncate text-[10px] font-normal opacity-70">
+                      {option.description}
+                    </span>
+                  )}
+                </span>
               </div>
               {option.actions?.length ? (
                 <span className="ml-auto flex shrink-0 items-center gap-1">
