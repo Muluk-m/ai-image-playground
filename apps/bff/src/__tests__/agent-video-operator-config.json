@@ -3,7 +3,7 @@
     "accounts:login": true,
     "agent:chat": true,
     "billing:credits": true,
-    "generation:byok": false
+    "generation:video": true
   },
   "quotas": {
     "agent:turns-per-device-minute": 0,

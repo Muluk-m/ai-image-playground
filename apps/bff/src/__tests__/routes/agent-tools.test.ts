@@ -155,15 +155,16 @@ describe('智能体生图工具', () => {
       status: 'succeeded',
       title: '一只橘猫坐在窗台上',
     })
-    expect(end!.images).toHaveLength(1)
-    const image = end!.images![0]!
-    expect(image.outputIndex).toBe(0)
-    expect(image.mime).toBe('image/png')
-    expect(image.imageId).toBeTruthy()
+    expect(end!.artifacts).toHaveLength(1)
+    const artifact = end!.artifacts![0]!
+    expect(artifact.media).toBe('image')
+    expect(artifact.outputIndex).toBe(0)
+    expect(artifact.mime).toBe('image/png')
+    expect(artifact.artifactId).toBeTruthy()
 
     const turnStart = eventsOfType(frames, 'turnStart')[0]!
     const [task] = await db.select().from(schema.tasks)
-    expect(task!.id).toBe(image.taskId)
+    expect(task!.id).toBe(artifact.taskId)
     expect(task!.agent_conversation_id).toBe(conversationId)
     expect(task!.agent_turn_id).toBe(turnStart.turnId)
     expect(task!.model).toBe('gpt-image-2.5-flare')
@@ -179,7 +180,7 @@ describe('智能体生图工具', () => {
         toolName: 'generateImage',
         status: 'succeeded',
         title: '一只橘猫坐在窗台上',
-        images: [image],
+        artifacts: [artifact],
       },
     ])
     expect(messages[2]!.content).toEqual([{ type: 'text', text: '画好了' }])
@@ -238,8 +239,10 @@ describe('智能体生图工具', () => {
 
     const ends = eventsOfType(frames, 'toolEnd')
     expect(ends.map((event) => event.status)).toEqual(['succeeded', 'succeeded'])
-    const imageIds = ends.flatMap((event) => (event.images ?? []).map((image) => image.imageId))
-    expect(new Set(imageIds).size).toBe(2)
+    const artifactIds = ends.flatMap((event) =>
+      (event.artifacts ?? []).map((artifact) => artifact.artifactId),
+    )
+    expect(new Set(artifactIds).size).toBe(2)
 
     const tasks = await db.select().from(schema.tasks)
     expect(tasks).toHaveLength(2)
@@ -270,6 +273,21 @@ describe('智能体生图工具', () => {
 
     const [task] = await db.select().from(schema.tasks)
     expect(task!.status).toBe('failed')
+  })
+
+  it('keeps the video tool out of a deployment without generation:video', async () => {
+    const calls: AgentCall[] = []
+    setAgentFetchForTesting(scriptedAgentFetch(calls, [() => completionStream('好')]))
+    const conversationId = await startConversation()
+
+    await runTurn(conversationId, '你好')
+
+    expect(calls[0]!.tools?.map((tool) => tool.function.name).sort()).toEqual([
+      'askClarification',
+      'editImage',
+      'generateImage',
+      'readLibrary',
+    ])
   })
 
   it('replays a stored tool result to the model on the next turn', async () => {
