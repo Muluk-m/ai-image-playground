@@ -113,7 +113,7 @@ beforeEach(() => {
   useStoryboardStore.setState({
     storyboards: [],
     activeId: null,
-    loading: false,
+    loadingSince: null,
     draft: INITIAL_STORYBOARD_DRAFT,
   })
   planStoryboard.mockResolvedValue(PLAN)

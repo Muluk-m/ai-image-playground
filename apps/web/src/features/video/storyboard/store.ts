@@ -23,6 +23,9 @@ import {
 
 const NO_IMAGE = '这一镜还没有分镜图'
 
+/** 给用户的预期，不是超时。 */
+export const STORYBOARD_PLAN_TYPICAL_SECONDS = 60
+
 export const INITIAL_STORYBOARD_DRAFT: StoryboardDraft = {
   idea: '',
   shots: 3,
@@ -34,7 +37,7 @@ export const INITIAL_STORYBOARD_DRAFT: StoryboardDraft = {
 export interface StoryboardState {
   storyboards: StoryboardRecord[]
   activeId: string | null
-  loading: boolean
+  loadingSince: number | null
   draft: StoryboardDraft
 
   load(): Promise<void>
@@ -153,7 +156,7 @@ export const useStoryboardStore = create<StoryboardState>((set, get) => {
     input: StoryboardPlanInput,
     toRecord: (plan: StoryboardPlan) => StoryboardRecord,
   ): Promise<string | null> {
-    set({ loading: true })
+    set({ loadingSince: Date.now() })
     try {
       const reference = input.referenceImageId
         ? await ensureImageCached(input.referenceImageId)
@@ -175,14 +178,14 @@ export const useStoryboardStore = create<StoryboardState>((set, get) => {
       useStore.getState().showToast(errorMessage(err), 'error')
       return null
     } finally {
-      set({ loading: false })
+      set({ loadingSince: null })
     }
   }
 
   return {
     storyboards: [],
     activeId: null,
-    loading: false,
+    loadingSince: null,
     draft: INITIAL_STORYBOARD_DRAFT,
 
     async load() {
