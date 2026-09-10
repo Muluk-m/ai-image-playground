@@ -42,6 +42,7 @@ Three ways to work, one shared history:
 ### 🛠 Workbench mode
 
 - **Multiple models** — OpenAI, Gemini, custom HTTP endpoints; bring your own API key. The model picker uses compact names and brand icons, with full names and model IDs on hover; matching names are distinguished by their configuration.
+- **Predictable homepage** — every visit opens the workbench; page selection is session-only. Primary navigation is separate from the tools, and settings live in the top-right account/app menu.
 - **Reference images + masks** — up to 16 reference images; the OpenAI path includes a visual mask editor
 - **Waterfall history** — every generation saved locally with its effective parameters, favoritable and searchable
 - **Inspiration library** — hundreds of high-quality prompts you can apply with one click
@@ -73,7 +74,7 @@ pnpm install
 pnpm dev:web        # starts the frontend at http://localhost:5173
 ```
 
-Open the settings panel (top-right), drop in an OpenAI or Gemini API key (leave baseUrl as default), and you're ready to generate.
+Open the top-right account/app menu → Settings, drop in an OpenAI or Gemini API key (leave baseUrl as default), and you're ready to generate.
 
 ## 📦 Deploy
 

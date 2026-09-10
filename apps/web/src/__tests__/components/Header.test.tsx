@@ -95,7 +95,10 @@ describe('logging out', () => {
     const logout = vi.fn(async () => {})
     renderLoggedIn(logout)
 
-    click('退出')
+    act(() => {
+      host.querySelector<HTMLButtonElement>('button[aria-label="打开个人账户"]')?.click()
+    })
+    click('退出登录')
     expect(logout).not.toHaveBeenCalled()
     expect(document.body.textContent).toContain('同时清除本机数据')
 

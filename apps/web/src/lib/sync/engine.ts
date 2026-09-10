@@ -122,7 +122,6 @@ function onStoreChange(): void {
   const next = [
     state.settings,
     state.params,
-    state.appMode,
     state.pinnedInspirationIds,
     state.inspirationCoachDismissed,
     state.libraryCoachDismissed,

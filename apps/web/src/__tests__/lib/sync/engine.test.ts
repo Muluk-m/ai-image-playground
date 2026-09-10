@@ -101,7 +101,7 @@ describe('pulling on startup', () => {
     expect(readPendingChanges().version).toBe(4)
   })
 
-  it('takes in the user settings another device changed', async () => {
+  it('syncs user settings without restoring or uploading page selection', async () => {
     postSyncMock.mockResolvedValue(
       response({
         settings: {
@@ -116,8 +116,10 @@ describe('pulling on startup', () => {
     await vi.waitFor(() => {
       expect(useStore.getState().settings.enterSubmit).toBe(true)
     })
-    expect(useStore.getState().appMode).toBe('product')
+    expect(useStore.getState().appMode).toBe('browse')
     // 回传的设置不算本机改动，不能再被推回去。
+    expect(readPendingChanges().settingsUpdatedAt).toBeNull()
+    useStore.getState().setAppMode('product')
     expect(readPendingChanges().settingsUpdatedAt).toBeNull()
   })
 
