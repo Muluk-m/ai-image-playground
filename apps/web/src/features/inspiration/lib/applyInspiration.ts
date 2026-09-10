@@ -10,7 +10,7 @@ import { matchProfile } from './matchProfile'
  * 把灵感库示例应用到主 InputBar：
  * - 若主输入框已有内容，先弹 ConfirmDialog 确认覆盖
  * - 同步 setPrompt + setParams（仅覆盖 size/quality/n）
- * - 尝试切到匹配 provider+model 的 profile；找不到时 toast 警告但仍应用 prompt/params
+ * - 尝试切到匹配 provider+model 的 profile（同族模型可回退）；找不到时 toast 警告但仍应用 prompt/params
  * - 应用后关闭 Panel
  */
 export function applyInspiration(item: InspirationItem) {
@@ -55,11 +55,11 @@ function doApply(item: InspirationItem) {
 
   if (matched) {
     const nextProfiles: ClientProfile[] = main.settings.profiles.map((p) =>
-      p.id === matched.id ? updateSelectedModel(p, item.recommendedModel, publicChannels) : p,
+      p.id === matched.profile.id ? updateSelectedModel(p, matched.model, publicChannels) : p,
     )
     main.setSettings({
       profiles: nextProfiles,
-      activeProfileId: matched.id,
+      activeProfileId: matched.profile.id,
     })
     main.showToast('已应用灵感库示例', 'success')
   } else {
