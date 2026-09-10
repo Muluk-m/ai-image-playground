@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm'
+import { eq } from 'drizzle-orm'
 import { Elysia, t } from 'elysia'
 import { config } from '../config'
 import { getDbHandle as getHandle } from '../lib/db'
@@ -20,9 +20,9 @@ function getTaskMetaCache() {
       load: async (taskId) => {
         const { db, schema } = getHandle()
         const rows = await db
-          .select({ id: schema.tasks.id })
-          .from(schema.tasks)
-          .where(and(eq(schema.tasks.id, taskId), eq(schema.tasks.kind, 'queue')))
+          .select({ id: schema.queue_tasks.id })
+          .from(schema.queue_tasks)
+          .where(eq(schema.queue_tasks.id, taskId))
           .limit(1)
         return rows[0] ?? null
       },

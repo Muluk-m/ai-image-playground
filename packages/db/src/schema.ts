@@ -8,7 +8,7 @@ import type {
   TaskKind,
   TaskStatus,
 } from '@image-playground/shared'
-import { sql } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import {
   check,
   customType,
@@ -16,6 +16,7 @@ import {
   index,
   integer,
   pgTable,
+  pgView,
   primaryKey,
   text,
   uniqueIndex,
@@ -322,7 +323,6 @@ export const tasks = pgTable(
     /** 智能体工具提交的任务带上会话与轮；用户自己提交的任务两列都是 null。 */
     agent_conversation_id: text('agent_conversation_id'),
     agent_turn_id: text('agent_turn_id'),
-    /** `chat` 的行 worker 不碰、后台不展示；它只是让每笔积分占用挂得住的那个任务。 */
     kind: text('kind').$type<TaskKind>().notNull().default('queue'),
   },
   (t) => [
@@ -364,6 +364,14 @@ export const daily_quota = pgTable(
     count: integer('count').notNull().default(0),
   },
   (t) => [primaryKey({ columns: [t.device_id, t.date] })],
+)
+
+/**
+ * 后台与队列端点读这张视图，不读 `tasks`：对话轮的可见性靠这一层挡，不靠每条查询自觉。
+ * 真要看对话轮，显式写 `tasks`。
+ */
+export const queue_tasks = pgView('queue_tasks').as((qb) =>
+  qb.select().from(tasks).where(eq(tasks.kind, 'queue')),
 )
 
 export type Task = typeof tasks.$inferSelect

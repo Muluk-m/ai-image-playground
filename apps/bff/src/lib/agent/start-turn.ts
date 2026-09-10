@@ -38,8 +38,9 @@ export type StartConversationTurnResult =
  */
 async function insertChatTask(
   tx: BffTransaction,
-  input: { taskId: string; conversationId: string; userId: string; deviceId: string; now: number },
+  input: { taskId: string; conversationId: string; userId: string; deviceId: string },
 ): Promise<void> {
+  const now = Date.now()
   await tx.insert(schema.tasks).values({
     id: input.taskId,
     kind: 'chat',
@@ -48,8 +49,8 @@ async function insertChatTask(
     status: 'in_progress',
     // 会话内容不进后台，占位里只留设备号——它喂的是 device_id 那个生成列。
     request_payload: { prompt: '', device_id: input.deviceId },
-    submitted_at: input.now,
-    started_at: input.now,
+    submitted_at: now,
+    started_at: now,
     user_id: input.userId,
     agent_conversation_id: input.conversationId,
     agent_turn_id: input.taskId,
@@ -102,7 +103,6 @@ export async function startConversationTurn(
         conversationId,
         userId: reservation.userId,
         deviceId,
-        now: Date.now(),
       })
       const reserved = await overlay.taskHooks.reserveTask({ tx, ...reservation })
       if (reserved.kind !== 'reserved') {

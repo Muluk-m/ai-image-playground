@@ -311,10 +311,6 @@ describe('getTask', () => {
   })
 })
 
-afterAll(async () => {
-  await writer.close()
-})
-
 describe('对话轮不进运营后台', () => {
   it('任务详情、用户任务列表、设备任务列表都看不到它', async () => {
     expect(await getTask('chat-turn-1')).toBeNull()
@@ -329,4 +325,8 @@ describe('对话轮不进运营后台', () => {
     const overview = await getOverview('7d')
     expect(overview.models.map((entry) => entry.model)).not.toContain('fixture-agent-model')
   })
+})
+
+afterAll(async () => {
+  await writer.close()
 })
