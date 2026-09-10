@@ -15,6 +15,7 @@ import type {
   BuiltinEdgeProfile,
   ClientProfile,
   ProviderKind,
+  PublicChannel,
   UserByokPreferences,
   UserByokProfile,
 } from './channels/types'
@@ -554,9 +555,17 @@ function isUntouchedDefaultOpenAIByok(p: UserByokProfile): boolean {
 // ===== normalizeSettings =====
 
 // 已经经过 normalizeSettings 的对象短路返回自身，避免 store / UI / dispatch 路径上的重复正规化。
-const normalizedSettingsCache = new WeakSet<AppSettings>()
+// 缓存跟着 channel 列表走：store hydrate 早于 channel 装载，那一轮的结果既没有内置 profile
+// 也修不掉失效的 selectedModelId，列表换了就必须重算而不是命中缓存。
+let normalizedSettingsCache = new WeakSet<AppSettings>()
+let cachedAgainstChannels: PublicChannel[] | null = null
 
 export function normalizeSettings(input: Partial<AppSettings> | unknown): AppSettings {
+  const channels = getPublicChannels()
+  if (channels !== cachedAgainstChannels) {
+    normalizedSettingsCache = new WeakSet<AppSettings>()
+    cachedAgainstChannels = channels
+  }
   if (input && typeof input === 'object' && normalizedSettingsCache.has(input as AppSettings)) {
     return input as AppSettings
   }

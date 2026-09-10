@@ -61,6 +61,7 @@ import {
   createSourceMattes,
   type MaskAttempt,
   maskSupported,
+  modelKnown,
   NO_MASK,
   type SourceMatteRef,
 } from './lib/sourceMatte'
@@ -643,6 +644,7 @@ function matteBlockedFor(
     matte: draft.images.find((image) => image.imageId === imageId)?.sourceMatte,
     matting: get().mattingImageIds.includes(imageId),
     maskSupported: maskSupported(),
+    modelKnown: modelKnown(),
   })
   return blocked?.reason ?? null
 }
