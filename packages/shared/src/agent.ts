@@ -49,12 +49,25 @@ export interface AgentTurnStartEvent {
   readonly type: 'turnStart'
   readonly turnId: string
   readonly userMessageId: string
-  readonly assistantMessageId: string
+}
+
+/** 一轮里可以有多条助手消息：插话之后运行时会开新的一条。 */
+export interface AgentAssistantStartEvent {
+  readonly type: 'assistantStart'
+  readonly messageId: string
 }
 
 export interface AgentTextDeltaEvent {
   readonly type: 'textDelta'
+  readonly messageId: string
   readonly delta: string
+}
+
+/** 轮进行中追加的用户消息。 */
+export interface AgentInterjectionEvent {
+  readonly type: 'interjection'
+  readonly messageId: string
+  readonly text: string
 }
 
 /** 上游按 `stream_options.include_usage` 在末帧回的用量。中转网关不透传时是 null。 */
@@ -63,44 +76,68 @@ export interface AgentTurnUsage {
   readonly outputTokens: number
 }
 
+export type AgentTurnStopReason = 'completed' | 'aborted' | 'failed'
+
+export type AgentTurnErrorCode = 'agent_upstream_error' | 'agent_run_failed'
+
+/** 轮唯一的终帧。续播读到它就收流，不必再问轮是否还活着。 */
 export interface AgentTurnEndEvent {
   readonly type: 'turnEnd'
   readonly turnId: string
   readonly durationMs: number
+  readonly stopReason: AgentTurnStopReason
+  readonly error?: AgentTurnErrorCode
   /** 本轮对话 token 的结算依据；null 表示上游没报，这一轮按 token 结不了账。 */
   readonly usage: AgentTurnUsage | null
 }
 
-export interface AgentTurnErrorEvent {
-  readonly type: 'error'
-  readonly error: AgentTurnErrorCode
-}
-
-export type AgentTurnErrorCode = 'agent_upstream_error' | 'agent_run_failed'
-
 export type AgentTurnEvent =
   | AgentTurnStartEvent
+  | AgentAssistantStartEvent
   | AgentTextDeltaEvent
+  | AgentInterjectionEvent
   | AgentTurnEndEvent
-  | AgentTurnErrorEvent
 
-/** 帧 id 在一条响应内单调递增。编码与解码放一处，免得线格式在两端各写一遍。 */
+/** 进行中的轮，`GET .../messages` 用它告诉刷新后的前端该挂回哪一轮。 */
+export interface AgentActiveTurnView {
+  readonly turnId: string
+}
+
+/** 轮事件的保留窗口。过期即清，续播只保证窗口内的轮能接上。 */
+export const AGENT_TURN_EVENT_RETENTION_MS = 24 * 60 * 60 * 1_000
+
+/** Cloudflare 边缘对久无字节的响应判读超时（524），一轮的静默期靠注释帧续命。 */
+export const AGENT_SSE_HEARTBEAT_MS = 15_000
+
+/** 注释帧：解析器忽略它，也不占事件 id。 */
+export function agentHeartbeatFrame(): string {
+  return ': ping\n\n'
+}
+
+/** 帧 id 是轮事件表里的会话内序号，重连带 `Last-Event-ID` 从它续播。 */
 export function encodeAgentFrame(id: number, event: AgentTurnEvent): string {
   return `id: ${id}\nevent: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`
 }
 
 export const AGENT_FRAME_SEPARATOR = /\r?\n\r?\n/
 
+export interface AgentFrame {
+  readonly id: number | null
+  readonly event: AgentTurnEvent
+}
+
 /** 一帧可以有多行 `data:`，按 SSE 规范拼回去；形状不对就丢，不让半截 JSON 进状态机。 */
-export function parseAgentFrame(frame: string): AgentTurnEvent | null {
-  const data = frame
-    .split(/\r?\n/)
+export function parseAgentFrame(frame: string): AgentFrame | null {
+  const lines = frame.split(/\r?\n/)
+  const data = lines
     .filter((line) => line.startsWith('data:'))
     .map((line) => line.slice(5).trim())
     .join('\n')
   if (!data) return null
+  const idLine = lines.find((line) => line.startsWith('id:'))
+  const id = idLine ? Number(idLine.slice(3).trim()) : Number.NaN
   try {
-    return JSON.parse(data) as AgentTurnEvent
+    return { id: Number.isFinite(id) ? id : null, event: JSON.parse(data) as AgentTurnEvent }
   } catch {
     return null
   }

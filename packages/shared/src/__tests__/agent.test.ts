@@ -1,8 +1,12 @@
 import { describe, expect, it } from 'bun:test'
 import {
   AGENT_CONVERSATION_TITLE_MAX_CHARS,
+  type AgentTurnEvent,
   agentConversationTitle,
+  agentHeartbeatFrame,
   agentMessageText,
+  encodeAgentFrame,
+  parseAgentFrame,
 } from '../agent'
 
 describe('agentConversationTitle', () => {
@@ -30,5 +34,28 @@ describe('agentMessageText', () => {
       createdAt: 1,
     })
     expect(text).toBe('好的，我来处理')
+  })
+})
+
+describe('parseAgentFrame', () => {
+  it('reads the event id back out of an encoded frame', () => {
+    const frame = encodeAgentFrame(7, { type: 'textDelta', messageId: 'a1', delta: '好' })
+    expect(parseAgentFrame(frame.trim())).toEqual({
+      id: 7,
+      event: { type: 'textDelta', messageId: 'a1', delta: '好' },
+    })
+  })
+
+  it('reports a frame that carries no id', () => {
+    const event: AgentTurnEvent = { type: 'assistantStart', messageId: 'a1' }
+    expect(parseAgentFrame(`event: assistantStart\ndata: ${JSON.stringify(event)}`)).toEqual({
+      id: null,
+      event,
+    })
+  })
+
+  it('drops a heartbeat comment and a malformed frame', () => {
+    expect(parseAgentFrame(agentHeartbeatFrame().trim())).toBeNull()
+    expect(parseAgentFrame('id: 3\ndata: {oops')).toBeNull()
   })
 })
