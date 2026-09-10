@@ -34,6 +34,8 @@ export interface PrivateTaskHooks {
     upstreamInvocationCount: number
     errorType?: TaskErrorType
     upstreamStatus?: number | null
+    /** 上游返回的实际用量，口径同 reserveTask；缺席即按预留额全额结算。 */
+    actualUsage?: { quantity: number; unitMultiplier: number }
   }): Promise<void>
   onUserCreated(input: { tx: BffTransaction; userId: string }): Promise<void>
   runMaintenance(now: number): Promise<void>

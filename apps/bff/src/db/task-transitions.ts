@@ -61,6 +61,7 @@ export type TerminalTaskUpdate = {
   errorType?: TaskErrorType
   upstreamStatus?: number | null
   upstreamBody?: string | null
+  actualUsage?: { quantity: number; unitMultiplier: number }
 }
 
 /** 写终态并触发私有 overlay 的结算 / 退回。返回是否真的改到了行。 */
@@ -92,6 +93,7 @@ export async function finishTask(id: string, update: TerminalTaskUpdate): Promis
       upstreamInvocationCount: finished.upstreamInvocationCount,
       errorType: update.errorType,
       upstreamStatus: update.upstreamStatus ?? null,
+      actualUsage: update.actualUsage,
     })
     return true
   })
