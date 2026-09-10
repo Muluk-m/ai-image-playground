@@ -15,6 +15,7 @@ const TURN_END: AgentTurnEvent = {
   turnId: TURN,
   durationMs: 12,
   stopReason: 'completed',
+  usage: null,
 }
 
 /** 服务端的帧带的是会话内序号，不是响应内的计数。 */
@@ -200,6 +201,7 @@ describe('中止', () => {
                   turnId: TURN,
                   durationMs: 3,
                   stopReason: 'aborted',
+                  usage: null,
                 }),
               ),
             )

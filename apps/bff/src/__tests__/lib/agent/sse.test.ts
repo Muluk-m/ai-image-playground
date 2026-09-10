@@ -9,6 +9,7 @@ const TURN_END: AgentTurnEvent = {
   turnId: 'turn-1',
   durationMs: 5,
   stopReason: 'completed',
+  usage: null,
 }
 
 /** 一条前半段沉默的流：工具执行或模型迟迟不吐首字时就是这个形状。 */

@@ -122,6 +122,7 @@ describe('一轮对话', () => {
         durationMs: 8,
         stopReason: 'failed',
         error: 'agent_upstream_error',
+        usage: null,
       })
 
     await state().send('把背景换成浅木色')
