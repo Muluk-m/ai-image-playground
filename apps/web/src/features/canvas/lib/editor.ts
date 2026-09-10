@@ -237,9 +237,19 @@ export class CanvasEditor {
     this.doc.deleteElements([id])
   }
 
-  /** 把一组 dataUrl 图片放到指定位置（文件 + image 元素一并创建），返回新元素 id 列表。 */
+  /**
+   * 把一组 dataUrl 图片放到指定位置（文件 + image 元素一并创建），返回新元素 id 列表。
+   * `id` 用于调用方需要与画布之外的东西对上号时——智能体的结果卡与画布对象共用同一个 id。
+   */
   placeImages(
-    items: Array<{ dataUrl: string; x: number; y: number; width: number; height: number }>,
+    items: Array<{
+      dataUrl: string
+      x: number
+      y: number
+      width: number
+      height: number
+      id?: string
+    }>,
     meta?: Record<string, string>,
   ): string[] {
     if (items.length === 0) return []
@@ -248,7 +258,7 @@ export class CanvasEditor {
       const fileId = newElementId()
       files[fileId] = item.dataUrl
       return {
-        id: newElementId(),
+        id: item.id ?? newElementId(),
         type: 'image',
         x: item.x,
         y: item.y,

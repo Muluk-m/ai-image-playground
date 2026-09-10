@@ -50,18 +50,26 @@ export async function settleGeneration(
  * - 位置：居中于 target 框；多张按 target 宽度分格沿水平排开（与 fanOutTargets 对齐），
  *   彼此留 PLACEMENT_GAP 间距，各自在格内居中
  * - meta（可选）写到每个 image 元素上，承载生成溯源（prompt 等）
+ * - ids（可选）指定元素 id，供调用方与画布之外的东西对上号（智能体的结果卡）
  * 供「占位框替换为结果」与「工作台图片送进画布」两处复用（都不依赖占位框存在）。
  */
 export async function placeImagesOnCanvas(
   editor: CanvasEditor,
   dataUrls: string[],
   target: PlacementTarget,
-  meta?: Record<string, string>,
+  opts: { meta?: Record<string, string>; ids?: readonly string[] } = {},
 ): Promise<void> {
   const centerY = target.y + target.h / 2
   const sizes = await Promise.all(dataUrls.map(getImageDimensions))
 
-  const items: Array<{ dataUrl: string; x: number; y: number; width: number; height: number }> = []
+  const items: Array<{
+    dataUrl: string
+    x: number
+    y: number
+    width: number
+    height: number
+    id?: string
+  }> = []
   for (let i = 0; i < dataUrls.length; i++) {
     const { width, height } = sizes[i]
     const fitted = fitToTarget(width, height, target)
@@ -72,9 +80,10 @@ export async function placeImagesOnCanvas(
       y: centerY - fitted.h / 2,
       width: fitted.w,
       height: fitted.h,
+      ...(opts.ids?.[i] ? { id: opts.ids[i] } : {}),
     })
   }
-  const ids = editor.placeImages(items, meta)
+  const ids = editor.placeImages(items, opts.meta)
   if (ids.length === 0) return
   editor.setSelectedElements(ids)
 
@@ -101,6 +110,6 @@ async function placeResults(
   const anchor = placeholder ? targetFromShape(placeholder) : target
   const provenance = placeholder ? { prompt: placeholder.meta.prompt } : undefined
   // 放置成功后才删占位框：中途失败（如图片解码）时它得留着，错误态才有处可标
-  await placeImagesOnCanvas(editor, dataUrls, anchor, provenance)
+  await placeImagesOnCanvas(editor, dataUrls, anchor, { meta: provenance })
   if (placeholder) editor.deleteElement(placeholderId)
 }

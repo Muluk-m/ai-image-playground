@@ -110,8 +110,14 @@ describe('一轮对话', () => {
 
     expect(state().turn).toBe('idle')
     expect(state().messages).toEqual([
-      { id: 'user-1', role: 'user', text: '把背景换成浅木色', streaming: false },
-      { id: 'assistant-1', role: 'assistant', text: '好的，我把背景换成浅木色', streaming: false },
+      { kind: 'text', id: 'user-1', role: 'user', text: '把背景换成浅木色', streaming: false },
+      {
+        kind: 'text',
+        id: 'assistant-1',
+        role: 'assistant',
+        text: '好的，我把背景换成浅木色',
+        streaming: false,
+      },
     ])
   })
 
@@ -140,7 +146,9 @@ describe('一轮对话', () => {
 
     expect(state().turn).toBe('failed')
     expect(state().error).toBe('这一轮没有跑完')
-    expect(state().messages.map((message) => message.role)).toEqual(['user'])
+    expect(state().messages.map((message) => message.kind === 'text' && message.role)).toEqual([
+      'user',
+    ])
   })
 
   it('空白消息不发', async () => {
@@ -179,8 +187,8 @@ describe('读回历史', () => {
 
     expect(state().conversationId).toBe(CONVERSATION)
     expect(state().messages).toEqual([
-      { id: 'user-1', role: 'user', text: '第一句', streaming: false },
-      { id: 'assistant-1', role: 'assistant', text: '好的', streaming: false },
+      { kind: 'text', id: 'user-1', role: 'user', text: '第一句', streaming: false },
+      { kind: 'text', id: 'assistant-1', role: 'assistant', text: '好的', streaming: false },
     ])
   })
 
@@ -235,7 +243,9 @@ describe('会话列表', () => {
     await state().selectConversation('c-2')
 
     expect(state().conversationId).toBe('c-2')
-    expect(state().messages.map((message) => message.text)).toEqual(['上周那套图'])
+    expect(state().messages.map((message) => message.kind === 'text' && message.text)).toEqual([
+      '上周那套图',
+    ])
     expect(localStorage.getItem('image-playground.agent_conversation_id')).toBe('c-2')
   })
 
@@ -243,7 +253,7 @@ describe('会话列表', () => {
     useAgentStore.setState({
       conversationId: 'c-1',
       conversations: [conversation('c-1', '试错的一轮'), conversation('c-2', '留着的')],
-      messages: [{ id: 'user-1', role: 'user', text: '试试', streaming: false }],
+      messages: [{ kind: 'text', id: 'user-1', role: 'user', text: '试试', streaming: false }],
     })
     localStorage.setItem('image-playground.agent_conversation_id', 'c-1')
 
@@ -259,7 +269,7 @@ describe('会话列表', () => {
     useAgentStore.setState({
       conversationId: 'c-1',
       conversations: [conversation('c-1', '当前'), conversation('c-2', '另一个')],
-      messages: [{ id: 'user-1', role: 'user', text: '试试', streaming: false }],
+      messages: [{ kind: 'text', id: 'user-1', role: 'user', text: '试试', streaming: false }],
     })
 
     await state().deleteConversation('c-2')
@@ -285,7 +295,7 @@ describe('会话列表', () => {
   it('开新会话只清空当前，不建空会话', async () => {
     useAgentStore.setState({
       conversationId: 'c-1',
-      messages: [{ id: 'user-1', role: 'user', text: '试试', streaming: false }],
+      messages: [{ kind: 'text', id: 'user-1', role: 'user', text: '试试', streaming: false }],
     })
     localStorage.setItem('image-playground.agent_conversation_id', 'c-1')
 
