@@ -80,16 +80,17 @@ export async function startConversationTurn(
   if (billed && owner.kind !== 'user') return { kind: 'authentication_required' }
 
   // 动态引入：pi 的模块图有 60-90ms，`agent:chat` 关着的部署不该在启动时付。
-  const [{ estimateTurnInputTokens, startAgentTurn }, overlay, history] = await Promise.all([
-    import('./turn'),
-    loadPrivateBffOverlay(),
-    listAgentMessages(conversationId, owner),
-  ])
+  const overlayPromise = loadPrivateBffOverlay()
+  const [{ estimateTurnInputTokens, startAgentTurn }, overlay, history, configured] =
+    await Promise.all([
+      import('./turn'),
+      overlayPromise,
+      listAgentMessages(conversationId, owner),
+      billed ? overlayPromise.then((it) => it.taskHooks.chatPricing(config.agent.model)) : null,
+    ])
   const turnId = crypto.randomUUID()
   // 预扣与结算共用这一份快照：运营中途改价不该改写在途那一轮的账。
-  const pricing = billed
-    ? ((await overlay.taskHooks.chatPricing(config.agent.model)) ?? FALLBACK_CHAT_PRICING)
-    : FALLBACK_CHAT_PRICING
+  const pricing = configured ?? FALLBACK_CHAT_PRICING
   const reservation =
     billed && userId
       ? {

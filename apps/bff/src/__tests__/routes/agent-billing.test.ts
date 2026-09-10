@@ -126,6 +126,7 @@ describe('对话轮的预扣', () => {
     const conversationId = await startConversation()
 
     await runTurn(conversationId, '把背景换成浅木色')
+    // 等这一轮结算落定再收尾，否则 afterAll 关库时还有在途写入。
     await waitFor(async () => settlements.length === 1)
 
     // 预留 500 输出 token × 4 倍 = 固定 2；剩下的零头是这条短提示词的输入估算。

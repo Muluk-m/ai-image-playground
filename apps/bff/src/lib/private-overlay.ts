@@ -35,11 +35,10 @@ export interface TaskUsage {
   tokens?: { input: number; output: number }
 }
 
-/** 对话按 token 计费的两个参数，权威在私有单价表，运营改价即时生效。 */
+/** 对话按 token 计费的两个参数，权威在私有单价表。 */
 export interface ChatPricing {
-  /** 输出单价相对输入单价的倍数。 */
   readonly outputPriceRatio: number
-  /** 一轮预扣多少输出 token。 */
+  /** 一轮预扣多少输出 token；实际用量超过它就按预留封顶。 */
   readonly outputReserveTokens: number
 }
 

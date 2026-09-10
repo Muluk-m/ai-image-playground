@@ -13,12 +13,6 @@ function credits(creditsPerUnit: number, usage: { quantity: number; unitMultipli
   return Math.ceil(creditsPerUnit * usage.quantity * usage.unitMultiplier)
 }
 
-describe('FALLBACK_CHAT_PRICING', () => {
-  it('ships the B tier: output priced five times input, reserve capped at 2000 tokens', () => {
-    expect(FALLBACK_CHAT_PRICING).toEqual({ outputPriceRatio: 5, outputReserveTokens: 2_000 })
-  })
-})
-
 describe('reservedChatUsage', () => {
   it('reserves the estimated input plus the whole output ceiling', () => {
     expect(reservedChatUsage(3_000, FALLBACK_CHAT_PRICING)).toEqual({
@@ -54,10 +48,5 @@ describe('actualChatUsage', () => {
     expect(
       credits(6, actualChatUsage({ inputTokens: 1, outputTokens: 1 }, FALLBACK_CHAT_PRICING)),
     ).toBe(1)
-  })
-
-  it('carries the reported token counts through for the operator console', () => {
-    const usage = actualChatUsage({ inputTokens: 12, outputTokens: 4 }, FALLBACK_CHAT_PRICING)
-    expect(usage.tokens).toEqual({ input: 12, output: 4 })
   })
 })

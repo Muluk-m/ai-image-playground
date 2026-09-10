@@ -1,3 +1,4 @@
+import { FALLBACK_CHAT_PRICING } from '../../lib/agent/billing'
 import {
   _setPrivateBffOverlayForTesting,
   type ChatPricing,
@@ -5,8 +6,6 @@ import {
   type PrivateTaskHooks,
   type TaskReservationResult,
 } from '../../lib/private-overlay'
-
-const SHIPPED_CHAT_PRICING: ChatPricing = { outputPriceRatio: 5, outputReserveTokens: 2_000 }
 
 export type RecordedReservation = Omit<Parameters<PrivateTaskHooks['reserveTask']>[0], 'tx'>
 export type RecordedSettlement = Omit<Parameters<PrivateTaskHooks['finalizeTask']>[0], 'tx'>
@@ -30,12 +29,12 @@ export function installRecordingTaskHooks(): RecordedTaskHooks {
     reservations: [],
     settlements: [],
     answer: { kind: 'reserved' },
-    pricing: SHIPPED_CHAT_PRICING,
+    pricing: FALLBACK_CHAT_PRICING,
     reset() {
       recorded.reservations.length = 0
       recorded.settlements.length = 0
       recorded.answer = { kind: 'reserved' }
-      recorded.pricing = SHIPPED_CHAT_PRICING
+      recorded.pricing = FALLBACK_CHAT_PRICING
     },
   }
   _setPrivateBffOverlayForTesting(
