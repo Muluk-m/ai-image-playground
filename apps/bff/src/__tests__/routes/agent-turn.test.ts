@@ -92,15 +92,23 @@ describe('POST /api/agent/conversations/:id/turns', () => {
     const { response, frames } = await runTurn(conversationId, '把背景换成浅木色')
 
     expect(response.headers.get('content-type')).toContain('text/event-stream')
-    expect(types(frames)).toEqual(['turnStart', 'textDelta', 'textDelta', 'turnEnd'])
-    expect(frames.map((frame) => frame.id)).toEqual([1, 2, 3, 4])
+    expect(types(frames)).toEqual([
+      'turnStart',
+      'assistantStart',
+      'textDelta',
+      'textDelta',
+      'turnEnd',
+    ])
+    expect(frames.map((frame) => frame.id)).toEqual([1, 2, 3, 4, 5])
 
     const start = frames[0]!.event
-    const end = frames[3]!.event
+    const end = frames.at(-1)!.event
     expect(start.type === 'turnStart' && start.turnId).toBeTruthy()
-    expect(end.type === 'turnEnd' && end.turnId).toBe(
-      start.type === 'turnStart' ? start.turnId : '',
-    )
+    expect(end).toMatchObject({
+      type: 'turnEnd',
+      turnId: start.type === 'turnStart' ? start.turnId : '',
+      stopReason: 'completed',
+    })
 
     expect(calls).toHaveLength(1)
     expect(calls[0]!.url).toBe('http://gateway.test/v1/chat/completions')
