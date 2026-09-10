@@ -30,6 +30,30 @@ export interface StoryboardRecord {
   shotImagesRequested: boolean
   videoTaskId: string | null
   shots: StoryboardShotRecord[]
+  /** 单调递增的镜头身份，删除后不可复用给在途任务。 */
+  nextShotNo?: number
+  versions?: StoryboardVersion[]
+}
+
+export type StoryboardContent = Pick<
+  StoryboardRecord,
+  | 'title'
+  | 'summary'
+  | 'idea'
+  | 'aspectRatio'
+  | 'totalSeconds'
+  | 'videoPrompt'
+  | 'style'
+  | 'referenceImageIds'
+  | 'shots'
+>
+
+export interface StoryboardVersion {
+  id: string
+  name: string
+  number: number
+  savedAt: number
+  content: StoryboardContent
 }
 
 export const STORYBOARD_STYLES = ['写实', '杂志', '动画', '不限'] as const
@@ -52,5 +76,8 @@ export type StoryboardPlanInput = StoryboardDraft & {
 }
 
 export type StoryboardShotPatch = Partial<
-  Pick<StoryboardShotRecord, 'title' | 'description' | 'camera' | 'line' | 'videoPrompt'>
+  Pick<
+    StoryboardShotRecord,
+    'title' | 'description' | 'camera' | 'line' | 'videoPrompt' | 'imagePrompt' | 'seconds'
+  >
 >
