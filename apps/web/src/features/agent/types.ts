@@ -21,6 +21,8 @@ export interface AgentToolMessage {
   readonly stage?: AgentToolStage
   readonly images?: readonly AgentToolImage[]
   readonly message?: string
+  /** 画布冲突：产出没有自动写入画布，卡上给手动放入的入口。 */
+  readonly canvasConflict?: boolean
 }
 
 export type AgentPanelMessage = AgentTextMessage | AgentToolMessage

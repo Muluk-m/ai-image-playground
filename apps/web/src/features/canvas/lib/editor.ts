@@ -167,6 +167,10 @@ export class CanvasEditor {
     return this.doc.getElement(id)
   }
 
+  editRevision(): number {
+    return this.doc.editRevision
+  }
+
   getSelectedIds(): string[] {
     return [...this.doc.selection]
   }
