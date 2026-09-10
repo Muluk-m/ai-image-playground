@@ -111,6 +111,11 @@ export class CanvasDoc {
   editingTextId: string | null = null
   /** 单调递增版本号，驱动 useSyncExternalStore。 */
   version = 0
+  /**
+   * 元素与位图的单调递增修订号。相机、选区、工具这些瞬态不动它——
+   * 智能体的画布冲突判据要的是「画布内容被改过」，平移一下画布不算。
+   */
+  contentRevision = 0
 
   private listeners = new Set<() => void>()
   private undoStack: HistorySnapshot[] = []
@@ -124,6 +129,11 @@ export class CanvasDoc {
   private emit(): void {
     this.version += 1
     for (const cb of this.listeners) cb()
+  }
+
+  private emitContent(): void {
+    this.contentRevision += 1
+    this.emit()
   }
 
   // ===== 历史 =====
@@ -153,7 +163,7 @@ export class CanvasDoc {
     this.elements = snap.elements
     this.files = snap.files
     this.pruneSelection()
-    this.emit()
+    this.emitContent()
   }
 
   redo(): void {
@@ -163,7 +173,7 @@ export class CanvasDoc {
     this.elements = snap.elements
     this.files = snap.files
     this.pruneSelection()
-    this.emit()
+    this.emitContent()
   }
 
   private pruneSelection(): void {
@@ -187,7 +197,7 @@ export class CanvasDoc {
     if (opts.history !== false) this.captureHistory()
     this.elements = [...this.elements, ...els]
     if (opts.files) this.files = { ...this.files, ...opts.files }
-    this.emit()
+    this.emitContent()
   }
 
   /**
@@ -210,7 +220,7 @@ export class CanvasDoc {
     if (!changed) return
     if (opts.history) this.captureHistory()
     this.elements = next
-    this.emit()
+    this.emitContent()
   }
 
   /** history=false 用于手势内的回滚清理（过短的箭头 / 空文字），调用方已 capture。 */
@@ -221,7 +231,7 @@ export class CanvasDoc {
     if (opts.history !== false) this.captureHistory()
     this.elements = next
     this.pruneSelection()
-    this.emit()
+    this.emitContent()
   }
 
   // ===== 瞬态状态 =====
@@ -285,7 +295,7 @@ export class CanvasDoc {
     this.selection = new Set()
     this.undoStack = []
     this.redoStack = []
-    this.emit()
+    this.emitContent()
   }
 
   /** 图片位图异步加载完成后的重绘通知（不改文档，只推版本）。 */

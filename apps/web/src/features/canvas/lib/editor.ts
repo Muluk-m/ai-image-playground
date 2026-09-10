@@ -167,6 +167,11 @@ export class CanvasEditor {
     return this.doc.getElement(id)
   }
 
+  /** 元素与位图的修订号；相机、选区、工具这些瞬态不动它。 */
+  contentRevision(): number {
+    return this.doc.contentRevision
+  }
+
   getSelectedIds(): string[] {
     return [...this.doc.selection]
   }
