@@ -19,9 +19,8 @@ export function chatBillingSettings(
 }
 
 /**
- * 模型单价表的每单位积分数是正整数，装不下「输入 6 / 输出 30」这种按千 token 的小数单价。
- * 把「输入千 token 数 + 输出千 token 数 × 输出倍数」当单位倍率交给钩子，钩子里的
- * 「单价 × 数量 × 倍率后向上取整」正好算出这两档单价，不必改单价表的结构。
+ * 单价表的每单位积分数是正整数，装不下按千 token 的小数单价：把千 token 数塞进单位倍率，
+ * 钩子里的「单价 × 数量 × 倍率后向上取整」才算得出输入 6 / 输出 30 这两档。
  */
 function usageUnits(
   inputTokens: number,
@@ -42,7 +41,6 @@ export function reservedChatUsage(
   return usageUnits(estimatedInputTokens, settings.outputReserveTokens, settings)
 }
 
-/** 结算：两边都按上游末帧报的实际用量。 */
 export function actualChatUsage(
   usage: AgentTurnUsage,
   settings: ChatBillingSettings = chatBillingSettings(),

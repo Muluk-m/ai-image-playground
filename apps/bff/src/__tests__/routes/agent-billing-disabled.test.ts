@@ -2,11 +2,9 @@ import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
 import { Elysia } from 'elysia'
-import {
-  _setPrivateBffOverlayForTesting,
-  EMPTY_PRIVATE_BFF_OVERLAY,
-} from '../../lib/private-overlay'
+import { _setPrivateBffOverlayForTesting } from '../../lib/private-overlay'
 import { completionStream, parseFrames, recordingAgentFetch } from '../helpers/agentStubs'
+import { installRecordingTaskHooks } from '../helpers/privateOverlayStub'
 
 process.env.DATABASE_URL = await resetTestDatabase('agent_billing_a288_off')
 process.env.PORT = '0'
@@ -16,25 +14,8 @@ process.env.UPSTREAM_OPENAI_API_KEY = ''
 process.env.AGENT_CHAT_MODEL = 'fixture-agent-model'
 process.env.OPERATOR_CONFIG_FILE = resolve(import.meta.dir, '../agent-operator-config.json')
 
-const calledHooks: string[] = []
-
 // overlay 在场但 billing:credits 关着：这一组钉的是能力开关，不是 overlay 缺席。
-_setPrivateBffOverlayForTesting(
-  Object.freeze({
-    ...EMPTY_PRIVATE_BFF_OVERLAY,
-    present: true,
-    taskHooks: {
-      ...EMPTY_PRIVATE_BFF_OVERLAY.taskHooks,
-      async reserveTask() {
-        calledHooks.push('reserveTask')
-        return { kind: 'reserved' as const }
-      },
-      async finalizeTask() {
-        calledHooks.push('finalizeTask')
-      },
-    },
-  }),
-)
+const billing = installRecordingTaskHooks()
 
 const { agentRoutes } = await import('../../routes/agent')
 const { setAgentFetchForTesting } = await import('../../lib/agent/model')
@@ -54,7 +35,7 @@ async function post(path: string, body: unknown): Promise<Response> {
 }
 
 beforeEach(async () => {
-  calledHooks.length = 0
+  billing.reset()
   await db.delete(schema.agent_conversations)
 })
 
@@ -81,6 +62,7 @@ describe('billing:credits 关着的部署', () => {
 
     expect(response.status).toBe(200)
     expect(frames.at(-1)!.event).toMatchObject({ type: 'turnEnd', stopReason: 'completed' })
-    expect(calledHooks).toEqual([])
+    expect(billing.reservations).toEqual([])
+    expect(billing.settlements).toEqual([])
   })
 })

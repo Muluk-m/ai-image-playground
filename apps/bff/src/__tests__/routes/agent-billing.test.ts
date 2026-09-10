@@ -2,12 +2,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
 import { Elysia } from 'elysia'
-import {
-  _setPrivateBffOverlayForTesting,
-  EMPTY_PRIVATE_BFF_OVERLAY,
-  type PrivateTaskHooks,
-  type TaskReservationResult,
-} from '../../lib/private-overlay'
+import { _setPrivateBffOverlayForTesting } from '../../lib/private-overlay'
 import {
   type AgentCall,
   type ControlledCompletion,
@@ -16,8 +11,10 @@ import {
   controlledCompletion,
   parseFrames,
   type ReceivedFrame,
+  readFrames,
   recordingAgentFetch,
 } from '../helpers/agentStubs'
+import { installRecordingTaskHooks } from '../helpers/privateOverlayStub'
 import { waitFor } from '../helpers/upstreamStubs'
 
 process.env.DATABASE_URL = await resetTestDatabase('agent_billing_a288')
@@ -28,40 +25,18 @@ process.env.UPSTREAM_OPENAI_API_KEY = ''
 process.env.AGENT_CHAT_MODEL = 'fixture-agent-model'
 process.env.OPERATOR_CONFIG_FILE = resolve(import.meta.dir, '../agent-billing-operator-config.json')
 
-type Reservation = Omit<Parameters<PrivateTaskHooks['reserveTask']>[0], 'tx'>
-type Settlement = Omit<Parameters<PrivateTaskHooks['finalizeTask']>[0], 'tx'>
-
-const reservations: Reservation[] = []
-const settlements: Settlement[] = []
-let reservationAnswer: TaskReservationResult = { kind: 'reserved' }
-
-// billing:credits 要求 overlay 在场，桩必须在路由求值前装好。
-_setPrivateBffOverlayForTesting(
-  Object.freeze({
-    ...EMPTY_PRIVATE_BFF_OVERLAY,
-    present: true,
-    taskHooks: {
-      ...EMPTY_PRIVATE_BFF_OVERLAY.taskHooks,
-      async reserveTask({ tx: _tx, ...rest }: Parameters<PrivateTaskHooks['reserveTask']>[0]) {
-        reservations.push(rest)
-        return reservationAnswer
-      },
-      async finalizeTask({ tx: _tx, ...rest }: Parameters<PrivateTaskHooks['finalizeTask']>[0]) {
-        settlements.push(rest)
-      },
-    },
-  }),
-)
+const billing = installRecordingTaskHooks()
+const { reservations, settlements } = billing
 
 const { agentRoutes } = await import('../../routes/agent')
 const { setAgentFetchForTesting } = await import('../../lib/agent/model')
 const { close: closeDb, db, schema } = await import('../../db/client')
-const { hashSessionToken, USER_SESSION_COOKIE } = await import('../../lib/user-session')
+const { createUserSession, USER_SESSION_COOKIE } = await import('../../lib/user-session')
 
 const app = new Elysia().use(agentRoutes)
 const DEVICE = 'device-abcdefgh'
-const SESSION_TOKEN = 'agent-billing-session-token'
 const USER_ID = 'agent-billing-user'
+let sessionToken = ''
 
 async function post(path: string, body: unknown, signedIn = true): Promise<Response> {
   return app.handle(
@@ -69,7 +44,7 @@ async function post(path: string, body: unknown, signedIn = true): Promise<Respo
       method: 'POST',
       headers: {
         'content-type': 'application/json',
-        ...(signedIn ? { cookie: `${USER_SESSION_COOKIE}=${SESSION_TOKEN}` } : {}),
+        ...(signedIn ? { cookie: `${USER_SESSION_COOKIE}=${sessionToken}` } : {}),
       },
       body: JSON.stringify(body),
     }),
@@ -92,25 +67,15 @@ async function runTurn(conversationId: string, text: string, signedIn = true) {
   return { status: response.status, payload, frames: parseFrames(payload) }
 }
 
-async function readFrames(response: Response, count: number): Promise<ReceivedFrame[]> {
-  const reader = response.body!.getReader()
-  const decoder = new TextDecoder()
-  let buffered = ''
-  let frames: ReceivedFrame[] = []
-  while (frames.length < count) {
-    const { done, value } = await reader.read()
-    if (done) break
-    buffered += decoder.decode(value, { stream: true })
-    frames = parseFrames(buffered)
-  }
-  void reader.cancel()
-  return frames
+/** 首帧不是 turnStart 就是这一轮压根没起来，别让断言用空串蒙混过去。 */
+function turnIdOf(frames: readonly ReceivedFrame[]): string {
+  const first = frames[0]?.event
+  if (first?.type !== 'turnStart') throw new Error(`expected a turnStart frame, got ${first?.type}`)
+  return first.turnId
 }
 
 beforeEach(async () => {
-  reservations.length = 0
-  settlements.length = 0
-  reservationAnswer = { kind: 'reserved' }
+  billing.reset()
   await db.delete(schema.agent_conversations)
   await db.delete(schema.user_sessions)
   await db.delete(schema.users)
@@ -123,12 +88,7 @@ beforeEach(async () => {
     created_at: now,
     updated_at: now,
   })
-  await db.insert(schema.user_sessions).values({
-    token_hash: hashSessionToken(SESSION_TOKEN),
-    user_id: USER_ID,
-    created_at: now,
-    expires_at: now + 60_000,
-  })
+  sessionToken = await db.transaction((tx) => createUserSession(USER_ID, tx))
 })
 
 afterEach(() => {
@@ -147,11 +107,9 @@ describe('对话轮的预扣', () => {
 
     const { frames } = await runTurn(conversationId, '把背景换成浅木色')
 
-    const start = frames[0]!.event
-    expect(start.type).toBe('turnStart')
     expect(reservations).toHaveLength(1)
     expect(reservations[0]).toMatchObject({
-      taskId: start.type === 'turnStart' ? start.turnId : '',
+      taskId: turnIdOf(frames),
       userId: USER_ID,
       model: 'fixture-agent-model',
       quantity: 1,
@@ -164,7 +122,7 @@ describe('对话轮的预扣', () => {
   it('余额不足在发送前拦住：不落消息、不调上游、不留轮', async () => {
     const calls: AgentCall[] = []
     setAgentFetchForTesting(recordingAgentFetch(calls, () => completionStream('好')))
-    reservationAnswer = { kind: 'insufficient_credits', required: 78, available: 12 }
+    billing.answer = { kind: 'insufficient_credits', required: 78, available: 12 }
     const conversationId = await startConversation()
 
     const { status, payload } = await runTurn(conversationId, '把背景换成浅木色')
@@ -182,7 +140,7 @@ describe('对话轮的预扣', () => {
 
   it('对话模型没有有效单价时拒绝起轮', async () => {
     setAgentFetchForTesting(recordingAgentFetch([], () => completionStream('好')))
-    reservationAnswer = { kind: 'price_unavailable', model: 'fixture-agent-model' }
+    billing.answer = { kind: 'price_unavailable', model: 'fixture-agent-model' }
     const conversationId = await startConversation()
 
     const { status, payload } = await runTurn(conversationId, '把背景换成浅木色')
@@ -211,11 +169,10 @@ describe('对话轮的结算', () => {
     const conversationId = await startConversation()
 
     const { frames } = await runTurn(conversationId, '把背景换成浅木色')
-    const start = frames[0]!.event
 
     expect(settlements).toEqual([
       {
-        taskId: start.type === 'turnStart' ? start.turnId : '',
+        taskId: turnIdOf(frames),
         outcome: 'completed',
         upstreamInvocationCount: 1,
         // 上游报 12 输入 / 4 输出：(12 + 4 × 4) / 1000。
@@ -257,9 +214,7 @@ describe('对话轮的结算', () => {
       text: '画一只猫',
     })
     upstream.push('好的，我先')
-    const seen = await readFrames(live, 3)
-    const start = seen[0]!.event
-    const turnId = start.type === 'turnStart' ? start.turnId : ''
+    const turnId = turnIdOf(await readFrames(live, 3))
 
     const aborted = await post(`/api/agent/conversations/${conversationId}/turns/${turnId}/abort`, {
       deviceId: DEVICE,

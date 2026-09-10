@@ -41,7 +41,6 @@ const SYSTEM_PROMPT = [
   '工具产出会自动落到用户的画布上，不要让用户自己去保存。',
 ].join('\n')
 
-/** 收尾结算的入参。轮跑完才知道用量，所以结算与预扣不在同一事务里。 */
 export interface AgentTurnSettlement {
   readonly outcome: TaskOutcome
   readonly usage: AgentTurnUsage | null
@@ -163,32 +162,15 @@ function toolResultBlock(
   }
 }
 
-/** 回放进来的助手消息不是本轮打的：上游调用次数只数这一轮新增的那几条。 */
-function upstreamCallsOf(
-  messages: readonly AgentMessage[],
-  history: readonly AgentMessageView[],
-): number {
-  const assistants = messages.filter((message) => message.role === 'assistant').length
-  const replayedAssistants = history.filter((message) => message.role === 'assistant').length
-  return Math.max(0, assistants - replayedAssistants)
-}
-
-/** 结算失败不该把已经流给用户的这一轮拖成报错；占用留给运维扫，不在这里重试。 */
-async function settleTurn(
-  settle: StartAgentTurnInput['settle'],
-  settlement: AgentTurnSettlement,
-): Promise<void> {
-  if (!settle) return
-  try {
-    await settle(settlement)
-  } catch (thrown) {
-    log.error({ event: 'agent.turn_settle_failed', err: thrown }, 'agent turn settlement failed')
-  }
+function assistantCount(messages: readonly { readonly role: string }[]): number {
+  return messages.filter((message) => message.role === 'assistant').length
 }
 
 /** 起一轮并立刻返回把手；`read()` 可以被断开再重开。 */
 export async function startAgentTurn(input: StartAgentTurnInput): Promise<RunningTurn> {
-  const { conversationId, turnId, userMessageId, text: prompt } = input
+  const { conversationId, turnId, userMessageId, settle, text: prompt } = input
+  // 收尾闭包只留这个计数，不留 input：捕获它就等于把整段历史再钉住一份到轮结束。
+  const replayedAssistants = assistantCount(input.history)
   const startedAt = Date.now()
   const events = turnEventLog(conversationId, turnId, await lastAgentEventSeq(conversationId))
   const agent = new Agent({
@@ -378,11 +360,22 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
 
       const usage = reportedUsage(agent.state.messages.at(-1))
       const outcome: TaskOutcome = error ? 'failed' : aborted ? 'cancelled' : 'completed'
-      await settleTurn(input.settle, {
-        outcome,
-        usage,
-        upstreamInvocationCount: upstreamCallsOf(agent.state.messages, input.history),
-      })
+      try {
+        await settle?.({
+          outcome,
+          usage,
+          upstreamInvocationCount: Math.max(
+            0,
+            assistantCount(agent.state.messages) - replayedAssistants,
+          ),
+        })
+      } catch (thrown) {
+        // 结算失败不该把已经流给用户的这一轮拖成报错；占用留给运维扫，不在这里重试。
+        log.error(
+          { event: 'agent.turn_settle_failed', err: thrown },
+          'agent turn settlement failed',
+        )
+      }
       log.info(
         { event: 'agent.turn_settled', turnId, usage, error: error ?? null },
         'agent turn settled',
@@ -391,7 +384,7 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
         type: 'turnEnd',
         turnId,
         durationMs: Date.now() - startedAt,
-        stopReason: error ? 'failed' : aborted ? 'aborted' : 'completed',
+        stopReason: outcome === 'cancelled' ? 'aborted' : outcome,
         ...(error ? { error } : {}),
         usage,
       })

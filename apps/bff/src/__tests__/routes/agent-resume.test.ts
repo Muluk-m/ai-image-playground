@@ -9,6 +9,7 @@ import {
   controlledCompletion,
   parseFrames,
   type ReceivedFrame,
+  readFrames,
   recordingAgentFetch,
 } from '../helpers/agentStubs'
 import { waitFor } from '../helpers/upstreamStubs'
@@ -45,22 +46,6 @@ async function startConversation(): Promise<string> {
   const json = (await response.json()) as { conversation: { id: string } }
   opened.push(json.conversation.id)
   return json.conversation.id
-}
-
-/** 一个只读到前 `count` 帧就撒手的消费者，模拟断线。 */
-async function readFrames(response: Response, count: number): Promise<ReceivedFrame[]> {
-  const reader = response.body!.getReader()
-  const decoder = new TextDecoder()
-  let buffered = ''
-  let frames: ReceivedFrame[] = []
-  while (frames.length < count) {
-    const { done, value } = await reader.read()
-    if (done) break
-    buffered += decoder.decode(value, { stream: true })
-    frames = parseFrames(buffered)
-  }
-  await reader.cancel()
-  return frames.slice(0, count)
 }
 
 async function drainFrames(response: Response): Promise<ReceivedFrame[]> {

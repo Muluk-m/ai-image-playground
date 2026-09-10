@@ -17,6 +17,7 @@ import { startConversationTurn } from '../lib/agent/start-turn'
 import { agentTurnRateLimited } from '../lib/agent/turn-rate-limit'
 import { capabilityUnavailable, isCapabilityEnabled } from '../lib/capabilities'
 import { badRequestOnValidation, clientAddress, deviceIdSchema } from '../lib/http'
+import { reservationFailureResponse } from '../lib/private-overlay'
 import { resolveAuthUser } from '../lib/user-auth'
 
 /** 归属不依赖登录能力：有会话 cookie 就挂用户，否则挂设备。 */
@@ -77,23 +78,14 @@ export const agentRoutes = new Elysia()
       if (runningTurn(conversation.id)) return status(409, { error: 'turn_already_running' })
 
       const started = await startConversationTurn({
-        conversation,
+        conversationId: conversation.id,
         owner,
-        userId: authUser?.id ?? null,
         text: body.text,
         userId: authUser?.id ?? null,
         deviceId: body.deviceId,
       })
-      if (started.kind === 'authentication_required') {
-        return status(401, { error: 'unauthorized' })
-      }
-      if (started.kind === 'insufficient_credits') {
-        const { required, available } = started
-        return status(402, { error: 'insufficient_credits', required, available })
-      }
-      if (started.kind === 'price_unavailable') {
-        return status(422, { error: 'model_price_unavailable', model: started.model })
-      }
+      if (started.kind === 'authentication_required') return status(401, { error: 'unauthorized' })
+      if (started.kind !== 'started') return reservationFailureResponse(started)
       return agentTurnStream(started.turn.read(0))
     },
     {
