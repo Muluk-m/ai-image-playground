@@ -1,9 +1,12 @@
 import {
   _setPrivateBffOverlayForTesting,
+  type ChatPricing,
   EMPTY_PRIVATE_BFF_OVERLAY,
   type PrivateTaskHooks,
   type TaskReservationResult,
 } from '../../lib/private-overlay'
+
+const SHIPPED_CHAT_PRICING: ChatPricing = { outputPriceRatio: 5, outputReserveTokens: 2_000 }
 
 export type RecordedReservation = Omit<Parameters<PrivateTaskHooks['reserveTask']>[0], 'tx'>
 export type RecordedSettlement = Omit<Parameters<PrivateTaskHooks['finalizeTask']>[0], 'tx'>
@@ -13,6 +16,8 @@ export interface RecordedTaskHooks {
   readonly settlements: RecordedSettlement[]
   /** 下一次预扣的答复；测余额不足与缺单价时改它。 */
   answer: TaskReservationResult
+  /** 单价表交给公开树的对话定价；null 走公开树的兜底。 */
+  pricing: ChatPricing | null
   reset(): void
 }
 
@@ -25,10 +30,12 @@ export function installRecordingTaskHooks(): RecordedTaskHooks {
     reservations: [],
     settlements: [],
     answer: { kind: 'reserved' },
+    pricing: SHIPPED_CHAT_PRICING,
     reset() {
       recorded.reservations.length = 0
       recorded.settlements.length = 0
       recorded.answer = { kind: 'reserved' }
+      recorded.pricing = SHIPPED_CHAT_PRICING
     },
   }
   _setPrivateBffOverlayForTesting(
@@ -43,6 +50,9 @@ export function installRecordingTaskHooks(): RecordedTaskHooks {
         },
         async finalizeTask({ tx: _tx, ...rest }: Parameters<PrivateTaskHooks['finalizeTask']>[0]) {
           recorded.settlements.push(rest)
+        },
+        async chatPricing() {
+          return recorded.pricing
         },
       },
     }),
