@@ -103,10 +103,26 @@ export interface AgentConversationView {
   readonly updatedAt: number
 }
 
+/**
+ * 一轮的消耗明细，单位是积分。金额由后端按结算结果给出：单价在私有账本里，
+ * 前端自己折算会与结算漂移。
+ */
+export interface AgentTurnCost {
+  readonly chat: number
+  readonly image: number
+  readonly video: number
+}
+
+export function agentTurnCostTotal(cost: AgentTurnCost): number {
+  return cost.chat + cost.image + cost.video
+}
+
 export interface AgentTurnStartEvent {
   readonly type: 'turnStart'
   readonly turnId: string
   readonly userMessageId: string
+  /** 本轮预扣的积分；不计费的部署里缺席。 */
+  readonly reservedCredits?: number
 }
 
 /** 一轮里可以有多条助手消息：插话之后运行时会开新的一条。 */
@@ -176,6 +192,8 @@ export interface AgentTurnEndEvent {
   readonly error?: AgentTurnErrorCode
   /** 本轮对话 token 的结算依据；null 表示上游没报，这一轮按 token 结不了账。 */
   readonly usage: AgentTurnUsage | null
+  /** 结算后的实际消耗；不计费的部署里缺席。失败与中止的轮全是 0。 */
+  readonly cost?: AgentTurnCost
 }
 
 export type AgentTurnEvent =
@@ -188,6 +206,14 @@ export type AgentTurnEvent =
   | AgentClarificationEvent
   | AgentInterjectionEvent
   | AgentTurnEndEvent
+
+/** 翻历史时每轮页脚要的那几项。轮事件过了保留窗口就没有了，那些轮不带页脚。 */
+export interface AgentTurnSummaryView {
+  readonly turnId: string
+  readonly durationMs: number
+  readonly stopReason: AgentTurnStopReason
+  readonly cost?: AgentTurnCost
+}
 
 /** 进行中的轮，`GET .../messages` 用它告诉刷新后的前端该挂回哪一轮。 */
 export interface AgentActiveTurnView {
