@@ -493,7 +493,7 @@ export default function InputBar() {
     [],
   )
   useEffect(() => () => thumbLongPress.cancel(), [thumbLongPress])
-  const isUserInputRef = useRef(false)
+  const lastTypedRef = useRef<string | null>(null)
   const imageHintLockedRef = useRef(false)
   const imageHintReleaseRef = useRef<(() => void) | null>(null)
   const [cursorPos, setCursorPos] = useState(0)
@@ -585,7 +585,6 @@ export default function InputBar() {
         mentionLabels,
         nextLabelFor,
       )
-      isUserInputRef.current = false
       setPrompt(next.prompt)
       window.setTimeout(() => {
         if (textareaRef.current) {
@@ -644,7 +643,6 @@ export default function InputBar() {
       // 先抹掉 `/关键词`，否则套用会把它当成未保存的输入而弹覆盖确认框。
       const promptStart = getPromptIndexFromVisibleIndex(prompt, query.start, mentionLabels)
       const promptEnd = getPromptIndexFromVisibleIndex(prompt, cursor, mentionLabels)
-      isUserInputRef.current = false
       setPrompt(`${prompt.slice(0, promptStart)}${prompt.slice(promptEnd)}`)
       void applyTemplate(id)
     },
@@ -679,7 +677,6 @@ export default function InputBar() {
   )
 
   const handleClearPrompt = useCallback(() => {
-    isUserInputRef.current = false
     setPrompt('')
     setCursorPos(0)
     atImageMenu.dismiss()
@@ -1071,13 +1068,11 @@ export default function InputBar() {
 
   // 将 prompt 同步渲染到 contentEditable（含胶囊 tag）
   useEffect(() => {
+    // 只跳过用户刚打进去的那个值，避免光标跳动；粘性布尔会把外部设置的 prompt 一起吞掉。
+    const typed = lastTypedRef.current
+    lastTypedRef.current = null
     const el = textareaRef.current
-    if (!el) return
-    // 用户正在输入时不重新渲染 DOM，避免光标跳动
-    if (isUserInputRef.current) {
-      isUserInputRef.current = false
-      return
-    }
+    if (!el || prompt === typed) return
     const html = buildPromptEditorHtml(prompt, mentionLabels, slotValues)
     if (el.innerHTML !== html) {
       el.innerHTML = html
@@ -1900,7 +1895,7 @@ export default function InputBar() {
                     const slotsChanged =
                       JSON.stringify(getPromptSlotNames(text)) !==
                       JSON.stringify(getPromptSlotNames(prompt))
-                    isUserInputRef.current = !slotsChanged
+                    lastTypedRef.current = slotsChanged ? null : text
                     setPrompt(text)
                     if (slotsChanged) {
                       window.setTimeout(() => {
