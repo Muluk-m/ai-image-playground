@@ -77,7 +77,7 @@ channel kind `openai-queue` / `gemini-queue` 在前端层用，到 BFF URL 就�
         "secretRef": "MY_OPENAI_KEY"           // 环境变量名，UPPER_SNAKE_CASE
       },
       "models": [
-        { "id": "gpt-image-2", "label": "GPT Image 2", "capabilities": ["generate", "edit"] }
+        { "id": "gpt-image-2.5-flare", "label": "GPT Image 2.5 Flare", "capabilities": ["generate", "edit"] }
       ],
       "defaults": { "apiMode": "images", "codexCli": false, "timeout": 600 },
       "allowedPaths": ["images/generations", "images/edits"]
