@@ -19,6 +19,8 @@ function parseManifest(input: unknown): ClientCapabilityManifest | null {
   const manifest = { ...disabledManifest() }
   for (const [key, definition] of Object.entries(CAPABILITIES)) {
     if (!definition.clientExposed) continue
+    // Older BFFs omit newer flags; leave those disabled without hiding existing features.
+    if (!Object.prototype.hasOwnProperty.call(record, key)) continue
     if (typeof record[key] !== 'boolean') return null
     manifest[key as ClientCapabilityKey] = record[key]
   }
