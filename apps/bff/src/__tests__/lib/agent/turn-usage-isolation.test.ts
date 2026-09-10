@@ -108,6 +108,7 @@ describe('startAgentTurn usage', () => {
       deviceId: 'device-abcdefgh',
       settle: async (settlement) => {
         settlements.push(settlement)
+        return { chat: 0, image: 0, video: 0 }
       },
     })
 
