@@ -223,6 +223,14 @@ function draftFromJob(job: ProductShotJob): ProductShotsDraft {
   }
 }
 
+/** 版本级残留：预览、蒙版浮层、方案抽屉与本版说明都只对当前选中的那张图成立。 */
+const DROPPED_WITH_SELECTION = {
+  previewVersionId: null,
+  matteOverlayVersionId: null,
+  planVersionId: null,
+  swapNotice: null,
+} as const
+
 export const useProductShotsStore = create<ProductShotsState>((set, get) => ({
   jobs: [],
   activeJobId: null,
@@ -400,23 +408,17 @@ export const useProductShotsStore = create<ProductShotsState>((set, get) => ({
     if (jobId) sourceMattes.forget(jobId, imageId)
     set((s) => {
       const images = s.draft.images.filter((image) => image.imageId !== imageId)
+      const reselected = s.selectedImageId === imageId
       return {
         draft: { ...s.draft, images },
-        selectedImageId:
-          s.selectedImageId === imageId ? (images[0]?.imageId ?? null) : s.selectedImageId,
+        selectedImageId: reselected ? (images[0]?.imageId ?? null) : s.selectedImageId,
+        ...(reselected ? DROPPED_WITH_SELECTION : null),
       }
     })
     void persistDraft(set, get)
   },
 
-  selectImage: (selectedImageId) =>
-    set({
-      selectedImageId,
-      previewVersionId: null,
-      matteOverlayVersionId: null,
-      planVersionId: null,
-      swapNotice: null,
-    }),
+  selectImage: (selectedImageId) => set({ selectedImageId, ...DROPPED_WITH_SELECTION }),
 
   setPreference: (preference) => patchDraft(set, get, { preference }),
 
@@ -1104,6 +1106,7 @@ async function runBatchOver(
 
   const previous = new Map((batch?.items ?? []).map((item) => [item.imageId, item]))
   set({
+    swapNotice: null,
     batch: {
       items: listed.map((imageId) => {
         const kept = targets.includes(imageId) ? undefined : previous.get(imageId)
