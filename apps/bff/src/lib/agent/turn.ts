@@ -97,7 +97,10 @@ export interface AgentTurnResult {
   readonly error?: AgentTurnErrorCode
 }
 
-/** 全零就是没报：中转网关吞掉 `stream_options` 时 pi 也只能填零，与真·零 token 不可区分。 */
+/**
+ * 全零就是没报：中转网关吞掉 `stream_options` 时 pi 也只能填零，与真·零 token 不可区分。
+ * 只认智能体转录里的用量：上下文压缩的摘要走独立请求，它的 token 不计入任何一轮，别加进来。
+ */
 function reportedUsage(message: AgentMessage | undefined): AgentTurnUsage | null {
   if (message?.role !== 'assistant') return null
   const { input, output } = message.usage
