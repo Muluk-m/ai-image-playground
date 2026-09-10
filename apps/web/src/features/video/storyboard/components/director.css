@@ -1,9 +1,13 @@
 .video-director {
-  --vd-bg: #f5f6f2; --vd-panel: #ffffff; --vd-text: #273026; --vd-muted: #65705f;
-  --vd-line: #dce2d5; --vd-accent: #4d6835; --vd-on-accent: #ffffff; --vd-soft: #eaf0e1;
+  --vd-bg: #fafafa; --vd-panel: #ffffff; --vd-text: #18181b; --vd-muted: #71717a;
+  --vd-line: #e4e4e7; --vd-accent: #3b82f6; --vd-on-accent: #ffffff; --vd-soft: rgb(59 130 246 / .1);
   color: var(--vd-text); background: var(--vd-bg); border: 1px solid var(--vd-line); border-radius: 16px;
 }
-.dark .video-director { --vd-bg: #111611; --vd-panel: #1b211b; --vd-text: #edf1e8; --vd-muted: #a6b29e; --vd-line: #354030; --vd-accent: #d0e5a9; --vd-on-accent: #263519; --vd-soft: #283221; }
+/* Match Tailwind's media-based dark mode and shared zinc/blue palette. */
+@media (prefers-color-scheme: dark) {
+  .video-director { --vd-bg: #09090b; --vd-panel: #18181b; --vd-text: #f4f4f5; --vd-muted: #a1a1aa; --vd-line: #27272a; --vd-soft: rgb(59 130 246 / .15); }
+  .video-director .vd-error { color: #fca5a5; }
+}
 .video-director button { border: 1px solid var(--vd-line); border-radius: 8px; padding: 8px 12px; color: var(--vd-text); background: var(--vd-panel); font-size: 13px; transition: border-color .15s; }
 .video-director button:hover { border-color: var(--vd-accent); }
 .video-director button:disabled { opacity: .45; cursor: not-allowed; }
@@ -42,7 +46,7 @@
 .video-director details > :not(summary) { margin-top: 12px; }
 .vd-inset { padding: 13px; background: var(--vd-bg); border: 1px solid var(--vd-line); border-radius: 8px; display: grid; gap: 9px; }
 .vd-error { color: #c54232; }
-.dark .vd-error { color: #ff9c8b; }
+
 .vd-nav { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 24px; border-bottom: 1px solid var(--vd-line); }
 .video-director .vd-nav button { border-color: transparent; background: transparent; }
 .video-director .vd-nav button[aria-pressed="true"] { color: var(--vd-accent); background: var(--vd-soft); }
