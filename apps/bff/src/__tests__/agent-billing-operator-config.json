@@ -1,0 +1,14 @@
+{
+  "capabilities": {
+    "accounts:login": true,
+    "agent:chat": true,
+    "billing:credits": true,
+    "generation:byok": false
+  },
+  "quotas": {
+    "agent:chat-output-price-ratio": 4,
+    "agent:chat-output-reserve-tokens": 500,
+    "agent:turns-per-device-minute": 0,
+    "agent:turns-per-ip-hour": 0
+  }
+}

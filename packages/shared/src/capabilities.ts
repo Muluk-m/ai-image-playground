@@ -33,6 +33,9 @@ export interface AdminCapabilityManifest {
 }
 
 export const QUOTAS = {
+  /** 对话 token 计费：输出单价是输入单价的几倍，以及一轮预扣多少输出 token。 */
+  'agent:chat-output-price-ratio': { defaultValue: 5 },
+  'agent:chat-output-reserve-tokens': { defaultValue: 2_000 },
   'agent:compaction-buffer-tokens': { defaultValue: 13_000 },
   'agent:compaction-cooldown-minutes': { defaultValue: 6 * 60 },
   'agent:compaction-failure-threshold': { defaultValue: 3 },
