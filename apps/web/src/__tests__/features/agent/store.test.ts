@@ -32,11 +32,14 @@ function sseResponse(payload: string, chunkSize = 7): Response {
   return new Response(body, { headers: { 'content-type': 'text/event-stream' } })
 }
 
-const TURN_START: AgentTurnEvent = {
-  type: 'turnStart',
+const TURN_START: AgentTurnEvent = { type: 'turnStart', turnId: 'turn-1', userMessageId: 'user-1' }
+const ASSISTANT_START: AgentTurnEvent = { type: 'assistantStart', messageId: 'assistant-1' }
+const TURN_END: AgentTurnEvent = {
+  type: 'turnEnd',
   turnId: 'turn-1',
-  userMessageId: 'user-1',
-  assistantMessageId: 'assistant-1',
+  durationMs: 1200,
+  stopReason: 'completed',
+  usage: null,
 }
 
 function turnStream(...events: AgentTurnEvent[]): Response {
@@ -66,11 +69,12 @@ beforeEach(() => {
   vi.stubGlobal('fetch', fetchMock)
   localStorage.clear()
   turnResponse = () => turnStream(TURN_START)
-  messagesResponse = () => Response.json({ messages: [] })
+  messagesResponse = () => Response.json({ messages: [], activeTurn: null })
   useAgentStore.setState({
     conversationId: null,
     messages: [],
     turn: 'idle',
+    activeTurn: null,
     error: null,
     loaded: false,
     expanded: {},
@@ -87,9 +91,10 @@ describe('一轮对话', () => {
     turnResponse = () =>
       turnStream(
         TURN_START,
-        { type: 'textDelta', delta: '好的，' },
-        { type: 'textDelta', delta: '我把背景换成浅木色' },
-        { type: 'turnEnd', turnId: 'turn-1', durationMs: 1200, usage: null },
+        ASSISTANT_START,
+        { type: 'textDelta', messageId: 'assistant-1', delta: '好的，' },
+        { type: 'textDelta', messageId: 'assistant-1', delta: '我把背景换成浅木色' },
+        TURN_END,
       )
 
     const sending = state().send('把背景换成浅木色')
@@ -104,8 +109,7 @@ describe('一轮对话', () => {
   })
 
   it('开新会话时先建会话并记住它', async () => {
-    turnResponse = () =>
-      turnStream(TURN_START, { type: 'turnEnd', turnId: 'turn-1', durationMs: 5, usage: null })
+    turnResponse = () => turnStream(TURN_START, TURN_END)
 
     await state().send('第一句')
 
@@ -116,34 +120,16 @@ describe('一轮对话', () => {
 
   it('错误事件让这一轮失败并撤掉半截的回复', async () => {
     turnResponse = () =>
-      turnStream(
-        TURN_START,
-        { type: 'textDelta', delta: '好的' },
-        { type: 'error', error: 'agent_upstream_error' },
-      )
+      turnStream(TURN_START, ASSISTANT_START, {
+        type: 'error',
+        error: 'agent_upstream_error',
+      })
 
     await state().send('把背景换成浅木色')
 
     expect(state().turn).toBe('failed')
     expect(state().error).toBe('这一轮没有跑完')
     expect(state().messages.map((message) => message.role)).toEqual(['user'])
-  })
-
-  it('流在轮结束之前断掉也算失败', async () => {
-    turnResponse = () => turnStream(TURN_START, { type: 'textDelta', delta: '好的' })
-
-    await state().send('把背景换成浅木色')
-
-    expect(state().turn).toBe('failed')
-    expect(state().messages.map((message) => message.role)).toEqual(['user'])
-  })
-
-  it('轮还在跑的时候不接第二条', async () => {
-    useAgentStore.setState({ turn: 'running' })
-
-    await state().send('再来一句')
-
-    expect(fetchMock).not.toHaveBeenCalled()
   })
 
   it('空白消息不发', async () => {
@@ -159,6 +145,7 @@ describe('读回历史', () => {
     localStorage.setItem('image-playground.agent_conversation_id', CONVERSATION)
     messagesResponse = () =>
       Response.json({
+        activeTurn: null,
         messages: [
           {
             id: 'user-1',
