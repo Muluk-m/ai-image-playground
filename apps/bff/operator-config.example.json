@@ -22,8 +22,6 @@
     "remix:listing": false
   },
   "quotas": {
-    "agent:chat-output-price-ratio": 5,
-    "agent:chat-output-reserve-tokens": 2000,
     "agent:compaction-buffer-tokens": 13000,
     "agent:compaction-cooldown-minutes": 360,
     "agent:compaction-failure-threshold": 3,

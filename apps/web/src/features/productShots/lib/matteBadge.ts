@@ -33,7 +33,12 @@ export function sourceMatteBadge(
 ): MatteBadge | null {
   if (matting) return { text: '抠图中', tone: 'warn' }
   if (!matte) return null
-  if (matte.status === 'failed') return { text: '未抠', tone: 'warn' }
+  if (matte.status === 'failed') {
+    return {
+      text: matte.reason === 'missing' ? MATTE_FAILURE_LABELS.missing : '未抠',
+      tone: 'warn',
+    }
+  }
   if (matte.status === 'unusable') return { text: MATTE_FAILURE_LABELS[matte.reason], tone: 'warn' }
   if (matte.edited) return { text: '手改', tone: 'ok' }
   if (matte.agreement === 'box-mismatch') return { text: UNRELIABLE, tone: 'warn' }

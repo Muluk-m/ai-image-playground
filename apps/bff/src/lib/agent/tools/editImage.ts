@@ -1,9 +1,9 @@
 import type { AgentTool } from '@earendil-works/pi-agent-core'
 import { agentTitleLine } from '@image-playground/shared'
 import { Type } from 'typebox'
-import type { ResolvedAgentImage } from '../images'
-import { runImageTask } from './imageTask'
-import type { AgentToolContext, AgentToolDefinition, AgentToolDetails } from './types'
+import { requireAgentImages } from '../images'
+import { runQueueTask } from './queueTask'
+import type { AgentToolDefinition, AgentToolDetails } from './types'
 
 const TITLE_MAX_CHARS = 40
 const MAX_REFERENCES = 4
@@ -27,20 +27,10 @@ function title(args: unknown): string {
     : '改图'
 }
 
-async function resolveAll(
-  context: AgentToolContext,
-  imageIds: readonly string[],
-): Promise<ResolvedAgentImage[]> {
-  const resolved = await Promise.all(imageIds.map((id) => context.images.resolve(id)))
-  return resolved.map((image, at) => {
-    // 模型会顺着历史里的图片 id 猜，猜错时它得知道该让用户去输入框引用那张图。
-    if (!image) throw new Error(`拿不到图片 ${imageIds[at]}，请让用户在输入框里引用它`)
-    return image
-  })
-}
-
 export const editImage: AgentToolDefinition = {
   name: 'editImage',
+  guidance:
+    '用户指着某张图说要改时调改图工具，参考图用他引用的那张，产出会落在源图旁边，源图不动。',
   title,
   // 模型可以换一个图片 id 重试，所以拿不到图不该把整轮拖垮。
   onError: 'continue',
@@ -52,14 +42,15 @@ export const editImage: AgentToolDefinition = {
         '在已有的图上改一处，产出落到画布上源图旁边，源图不动。用户在这张图上画过遮罩时会自动只改遮罩内的部分。',
       parameters,
       async execute(_toolCallId, params, signal, onUpdate) {
-        const images = await resolveAll(context, params.imageIds)
-        return runImageTask(
+        const images = await requireAgentImages(context.images, params.imageIds)
+        return runQueueTask(
           context,
           {
+            media: 'image',
             prompt: params.prompt,
             inputImages: images.map((image) => image.dataUrl),
             ...(images[0]?.maskDataUrl ? { mask: images[0].maskDataUrl } : {}),
-            anchorImageId: params.imageIds[0],
+            anchorObjectId: params.imageIds[0],
           },
           signal,
           onUpdate,

@@ -1,5 +1,7 @@
+import { FALLBACK_CHAT_PRICING } from '../../lib/agent/billing'
 import {
   _setPrivateBffOverlayForTesting,
+  type ChatPricing,
   EMPTY_PRIVATE_BFF_OVERLAY,
   type PrivateTaskHooks,
   type TaskReservationResult,
@@ -13,6 +15,12 @@ export interface RecordedTaskHooks {
   readonly settlements: RecordedSettlement[]
   /** 下一次预扣的答复；测余额不足与缺单价时改它。 */
   answer: TaskReservationResult
+  /** 单价表交给公开树的对话定价；null 走公开树的兜底。 */
+  pricing: ChatPricing | null
+  /** 对话任务的实扣积分；退回的终态照真账本报 0。 */
+  settledCredits: number
+  /** 其余任务的实扣积分；工具提交的任务 id 测试事先不知道。 */
+  creditsPerTask: number
   reset(): void
 }
 
@@ -24,11 +32,17 @@ export function installRecordingTaskHooks(): RecordedTaskHooks {
   const recorded: RecordedTaskHooks = {
     reservations: [],
     settlements: [],
-    answer: { kind: 'reserved' },
+    answer: { kind: 'reserved', credits: 0 },
+    pricing: FALLBACK_CHAT_PRICING,
+    settledCredits: 0,
+    creditsPerTask: 0,
     reset() {
       recorded.reservations.length = 0
       recorded.settlements.length = 0
-      recorded.answer = { kind: 'reserved' }
+      recorded.answer = { kind: 'reserved', credits: 0 }
+      recorded.pricing = FALLBACK_CHAT_PRICING
+      recorded.settledCredits = 0
+      recorded.creditsPerTask = 0
     },
   }
   _setPrivateBffOverlayForTesting(
@@ -43,6 +57,20 @@ export function installRecordingTaskHooks(): RecordedTaskHooks {
         },
         async finalizeTask({ tx: _tx, ...rest }: Parameters<PrivateTaskHooks['finalizeTask']>[0]) {
           recorded.settlements.push(rest)
+        },
+        async taskCredits({ taskIds }: Parameters<PrivateTaskHooks['taskCredits']>[0]) {
+          const settled = new Map(
+            recorded.settlements.map((one) => [
+              one.taskId,
+              one.outcome === 'completed' ? recorded.settledCredits : 0,
+            ]),
+          )
+          return Object.fromEntries(
+            taskIds.map((id) => [id, settled.get(id) ?? recorded.creditsPerTask]),
+          )
+        },
+        async chatPricing() {
+          return recorded.pricing
         },
       },
     }),

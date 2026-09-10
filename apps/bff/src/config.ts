@@ -127,6 +127,8 @@ export const config = {
     summaryModel: env('AGENT_SUMMARY_MODEL', '') || env('AGENT_CHAT_MODEL', ''),
     /** 生图工具用的模型。留空跟随内置 channel 的默认图片模型。 */
     imageModel: env('AGENT_IMAGE_MODEL', ''),
+    /** 生视频工具用的模型。留空跟随内置 channel 的默认视频模型。 */
+    videoModel: env('AGENT_VIDEO_MODEL', ''),
   },
   matte: {
     /** 本部署对外可达、且所在 Cloudflare zone 已开图片变换的源；抠图 URL 两段都用它。 */

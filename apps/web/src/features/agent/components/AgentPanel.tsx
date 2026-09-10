@@ -1,10 +1,11 @@
-import { useEffect, useRef } from 'react'
+import { Fragment, useEffect, useMemo, useRef } from 'react'
 import { PlusIcon, TrashIcon } from '../../../components/icons'
 import { useStore } from '../../../store'
 import type { CanvasDoc } from '../../canvas/lib/canvasDoc'
 import {
   ACTIVE_LIST_ROW,
   ACTIVE_TAB,
+  CARD_NOTE,
   GHOST_LINK,
   ICON_BUTTON,
   IDLE_TAB,
@@ -18,13 +19,16 @@ import {
   TAB,
   USER_BUBBLE,
 } from '../agentStyles'
+import { agentSessionCredits } from '../lib/turnCost'
 import { agentPanelPresent } from '../panelLayout'
 import { answerableClarificationId, useAgentStore } from '../store'
+import type { AgentPanelMessage } from '../types'
 import AgentClarification from './AgentClarification'
 import AgentComposer from './AgentComposer'
 import AgentLayers from './AgentLayers'
 import AgentReply from './AgentReply'
 import AgentToolCard from './AgentToolCard'
+import AgentTurnCost, { Credits } from './AgentTurnCost'
 
 const TABS = [
   { id: 'chat', label: '对话' },
@@ -99,15 +103,30 @@ function CollapsedButton({ onOpen }: { onOpen: () => void }) {
   )
 }
 
+function renderMessage(message: AgentPanelMessage, answerableId: string | null) {
+  if (message.kind === 'tool') return <AgentToolCard message={message} />
+  if (message.kind === 'clarification') {
+    return <AgentClarification message={message} answered={message.id !== answerableId} />
+  }
+  if (message.role === 'user') return <p className={USER_BUBBLE}>{message.text}</p>
+  return <AgentReply messageId={message.id} text={message.text} streaming={message.streaming} />
+}
+
 export default function AgentPanel({ doc }: { doc: CanvasDoc }) {
   const open = useAgentStore((state) => state.open)
   const tab = useAgentStore((state) => state.tab)
   const messages = useAgentStore((state) => state.messages)
+  const turns = useAgentStore((state) => state.turns)
   const turn = useAgentStore((state) => state.turn)
   const error = useAgentStore((state) => state.error)
   const { setOpen, setTab, load, startNewConversation, refreshConversations } =
     useAgentStore.getState()
   const logRef = useRef<HTMLDivElement>(null)
+  // 流式输出时这个组件每个字都重渲染一次，别让它顺带把整张轮表遍历两遍。
+  const sessionCredits = useMemo(
+    () => (Object.values(turns).some((footer) => footer.cost) ? agentSessionCredits(turns) : null),
+    [turns],
+  )
 
   useEffect(() => {
     void load()
@@ -208,37 +227,27 @@ export default function AgentPanel({ doc }: { doc: CanvasDoc }) {
           className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto px-3 py-1"
         >
           {messages.length === 0 && <p className={`text-xs ${INK_3}`}>还没有对话</p>}
-          {messages.map((message) => {
-            if (message.kind === 'tool') return <AgentToolCard key={message.id} message={message} />
-            if (message.kind === 'clarification') {
-              return (
-                <AgentClarification
-                  key={message.id}
-                  message={message}
-                  answered={message.id !== answerableId}
-                />
-              )
-            }
-            if (message.role === 'user') {
-              return (
-                <p key={message.id} className={USER_BUBBLE}>
-                  {message.text}
-                </p>
-              )
-            }
+          {messages.map((message, index) => {
+            // 页脚跟在本轮最后一条消息后面，所以只在下一条换了轮时渲染。
+            const footer =
+              messages[index + 1]?.turnId === message.turnId ? null : turns[message.turnId]
             return (
-              <AgentReply
-                key={message.id}
-                messageId={message.id}
-                text={message.text}
-                streaming={message.streaming}
-              />
+              <Fragment key={message.id}>
+                {renderMessage(message, answerableId)}
+                {footer && <AgentTurnCost footer={footer} />}
+              </Fragment>
             )
           })}
           {error && <p className={`text-xs ${INK_3}`}>{error}</p>}
         </div>
       )}
 
+      {tab === 'chat' && sessionCredits !== null && (
+        <div className={`flex shrink-0 items-center justify-between px-3 pb-1 ${CARD_NOTE}`}>
+          <span>本次会话</span>
+          <Credits credits={sessionCredits} />
+        </div>
+      )}
       {tab === 'chat' && <AgentComposer doc={doc} />}
     </div>
   )

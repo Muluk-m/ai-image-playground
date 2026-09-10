@@ -1,4 +1,8 @@
 import { storyboardShotLabel } from '@image-playground/shared'
+import type { AssetRecord, Tombstone } from '../features/library/types'
+import type { ProductShotJob } from '../features/productShots/types'
+import type { StoryboardRecord } from '../features/video/storyboard/types'
+import type { VideoTask } from '../features/video/types'
 import type { StoredImage, StoredImageThumbnail, TaskRecord } from '../types'
 import { scopedStorageName } from './authScope'
 
@@ -254,6 +258,59 @@ export function getAllImageIds(): Promise<string[]> {
   return dbTransaction(STORE_IMAGES, 'readonly', (s) => s.getAllKeys()).then((keys) =>
     keys.map(String),
   )
+}
+
+/** 图片由各功能的持久化记录共同持有，不能只凭生成历史判成孤立图片。只读元数据，不读图片本体。 */
+export async function getReferencedImageIds(tasks: readonly TaskRecord[]): Promise<Set<string>> {
+  const [assets, jobs, videos, storyboards] = await Promise.all([
+    dbTransaction<Array<AssetRecord | Tombstone>>(STORE_ASSETS, 'readonly', (s) => s.getAll()),
+    dbTransaction<ProductShotJob[]>(STORE_BGSWAP_JOBS, 'readonly', (s) => s.getAll()),
+    dbTransaction<VideoTask[]>(STORE_VIDEO_TASKS, 'readonly', (s) => s.getAll()),
+    dbTransaction<StoryboardRecord[]>(STORE_STORYBOARDS, 'readonly', (s) => s.getAll()),
+  ])
+  const ids = new Set<string>()
+  const add = (id: string | null | undefined) => {
+    if (id) ids.add(id)
+  }
+  for (const task of tasks) {
+    for (const id of task.inputImageIds || []) add(id)
+    add(task.maskImageId)
+    add(task.maskTargetImageId)
+    for (const id of task.outputImages || []) add(id)
+    for (const id of task.transparentOriginalImages || []) add(id)
+  }
+  for (const asset of assets) {
+    if (!('deletedAt' in asset)) add(asset.imageId)
+  }
+  for (const job of jobs) {
+    for (const image of job.images) {
+      add(image.imageId)
+      const matte = image.sourceMatte
+      add(matte?.previewImageId)
+      if (matte && matte.status !== 'failed') {
+        add(matte.alphaImageId)
+        add(matte.targetImageId)
+      }
+      for (const version of image.versions) {
+        add(version.maskImageId)
+        add(version.maskTargetImageId)
+        add(version.mattePreviewImageId)
+        if (version.workflow) {
+          add(version.workflow.sourceImageId)
+          for (const id of version.workflow.inputImageIds) add(id)
+        }
+      }
+    }
+  }
+  for (const video of videos) {
+    add(video.firstFrameImageId)
+    add(video.lastFrameImageId)
+  }
+  for (const storyboard of storyboards) {
+    for (const imageId of storyboard.referenceImageIds) add(imageId)
+    for (const shot of storyboard.shots) add(shot.imageId)
+  }
+  return ids
 }
 
 export function putImage(image: StoredImage): Promise<IDBValidKey> {

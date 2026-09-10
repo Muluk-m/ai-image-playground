@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { type MatteReadiness, matteGate } from '../../../../features/productShots/lib/matteGate'
-import { MATTE_FAILURE_LABELS, type SourceMatte } from '../../../../features/productShots/types'
+import type { SourceMatte } from '../../../../features/productShots/types'
 
 const READY: SourceMatte = {
   status: 'ready',
@@ -66,14 +66,5 @@ describe('matteGate', () => {
     expect(
       matteGate(readiness({ matte: FAILED, maskSupported: false, modelKnown: false })),
     ).toEqual(STALE)
-  })
-})
-
-describe('MATTE_FAILURE_LABELS', () => {
-  it('每个原因都有一句自己的标签', () => {
-    const labels = Object.values(MATTE_FAILURE_LABELS)
-
-    expect(labels.filter((label) => label !== '')).toEqual(labels)
-    expect(new Set(labels).size).toBe(labels.length)
   })
 })

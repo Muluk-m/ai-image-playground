@@ -6,6 +6,7 @@ import {
   agentConversationTitle,
   agentHeartbeatFrame,
   agentMessageText,
+  agentTurnCostTotal,
   encodeAgentFrame,
   parseAgentFrame,
 } from '../agent'
@@ -69,5 +70,15 @@ describe('agentClarificationSummary', () => {
       options: ['写实照片', '扁平插画'],
     })
     expect(line).toBe('向用户提问：要哪种风格？（选项：写实照片 / 扁平插画）')
+  })
+})
+
+describe('agentTurnCostTotal', () => {
+  it('sums the per-kind breakdown into the one number the footer shows', () => {
+    expect(agentTurnCostTotal({ chat: 42, image: 85, video: 0 })).toBe(127)
+  })
+
+  it('counts a chat-only turn', () => {
+    expect(agentTurnCostTotal({ chat: 60, image: 0, video: 0 })).toBe(60)
   })
 })

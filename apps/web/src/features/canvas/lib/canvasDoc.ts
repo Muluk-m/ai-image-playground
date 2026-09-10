@@ -22,6 +22,8 @@ export interface ImageEl {
   fileId: string
   /** 生成溯源（prompt 等）。 */
   meta?: Record<string, string>
+  /** 有值即这张位图只是封面，真正的片子在服务端；播放地址现拼，存整条会随部署换源而死。 */
+  video?: { taskId: string; outputIndex: number }
 }
 
 export interface FreedrawEl {

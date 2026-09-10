@@ -73,7 +73,7 @@ beforeEach(() => {
   vi.stubGlobal('fetch', fetchMock)
   localStorage.clear()
   turnResponse = () => turnStream(TURN_START)
-  messagesResponse = () => Response.json({ messages: [], activeTurn: null })
+  messagesResponse = () => Response.json({ messages: [], activeTurn: null, turns: [] })
   conversationsResponse = () => Response.json({ conversations: [] })
   deleteResponse = () => Response.json({ ok: true })
   useAgentStore.setState({
@@ -82,6 +82,7 @@ beforeEach(() => {
     messages: [],
     turn: 'idle',
     activeTurn: null,
+    turns: {},
     error: null,
     loaded: false,
     expanded: {},
@@ -110,10 +111,18 @@ describe('一轮对话', () => {
 
     expect(state().turn).toBe('idle')
     expect(state().messages).toEqual([
-      { kind: 'text', id: 'user-1', role: 'user', text: '把背景换成浅木色', streaming: false },
+      {
+        kind: 'text',
+        id: 'user-1',
+        turnId: 'turn-1',
+        role: 'user',
+        text: '把背景换成浅木色',
+        streaming: false,
+      },
       {
         kind: 'text',
         id: 'assistant-1',
+        turnId: 'turn-1',
         role: 'assistant',
         text: '好的，我把背景换成浅木色',
         streaming: false,
@@ -165,6 +174,7 @@ describe('读回历史', () => {
     messagesResponse = () =>
       Response.json({
         activeTurn: null,
+        turns: [],
         messages: [
           {
             id: 'user-1',
@@ -187,8 +197,22 @@ describe('读回历史', () => {
 
     expect(state().conversationId).toBe(CONVERSATION)
     expect(state().messages).toEqual([
-      { kind: 'text', id: 'user-1', role: 'user', text: '第一句', streaming: false },
-      { kind: 'text', id: 'assistant-1', role: 'assistant', text: '好的', streaming: false },
+      {
+        kind: 'text',
+        id: 'user-1',
+        turnId: 'turn-1',
+        role: 'user',
+        text: '第一句',
+        streaming: false,
+      },
+      {
+        kind: 'text',
+        id: 'assistant-1',
+        turnId: 'turn-1',
+        role: 'assistant',
+        text: '好的',
+        streaming: false,
+      },
     ])
   })
 
@@ -229,6 +253,7 @@ describe('会话列表', () => {
     messagesResponse = () =>
       Response.json({
         activeTurn: null,
+        turns: [],
         messages: [
           {
             id: 'user-9',
@@ -253,7 +278,16 @@ describe('会话列表', () => {
     useAgentStore.setState({
       conversationId: 'c-1',
       conversations: [conversation('c-1', '试错的一轮'), conversation('c-2', '留着的')],
-      messages: [{ kind: 'text', id: 'user-1', role: 'user', text: '试试', streaming: false }],
+      messages: [
+        {
+          kind: 'text',
+          id: 'user-1',
+          turnId: 'turn-1',
+          role: 'user',
+          text: '试试',
+          streaming: false,
+        },
+      ],
     })
     localStorage.setItem('image-playground.agent_conversation_id', 'c-1')
 
@@ -269,7 +303,16 @@ describe('会话列表', () => {
     useAgentStore.setState({
       conversationId: 'c-1',
       conversations: [conversation('c-1', '当前'), conversation('c-2', '另一个')],
-      messages: [{ kind: 'text', id: 'user-1', role: 'user', text: '试试', streaming: false }],
+      messages: [
+        {
+          kind: 'text',
+          id: 'user-1',
+          turnId: 'turn-1',
+          role: 'user',
+          text: '试试',
+          streaming: false,
+        },
+      ],
     })
 
     await state().deleteConversation('c-2')
@@ -295,7 +338,16 @@ describe('会话列表', () => {
   it('开新会话只清空当前，不建空会话', async () => {
     useAgentStore.setState({
       conversationId: 'c-1',
-      messages: [{ kind: 'text', id: 'user-1', role: 'user', text: '试试', streaming: false }],
+      messages: [
+        {
+          kind: 'text',
+          id: 'user-1',
+          turnId: 'turn-1',
+          role: 'user',
+          text: '试试',
+          streaming: false,
+        },
+      ],
     })
     localStorage.setItem('image-playground.agent_conversation_id', 'c-1')
 
@@ -329,6 +381,7 @@ describe('澄清', () => {
   const CARD = {
     kind: 'clarification',
     id: 'clarify-1',
+    turnId: 'turn-1',
     question: '要哪种风格？',
     options: ['写实照片', '扁平插画'],
   }
@@ -340,7 +393,14 @@ describe('澄清', () => {
 
     expect(state().turn).toBe('idle')
     expect(state().messages).toEqual([
-      { kind: 'text', id: 'user-1', role: 'user', text: '给我画个杯子', streaming: false },
+      {
+        kind: 'text',
+        id: 'user-1',
+        turnId: 'turn-1',
+        role: 'user',
+        text: '给我画个杯子',
+        streaming: false,
+      },
       CARD,
     ])
     expect(answerableClarificationId(state().messages)).toBe('clarify-1')
@@ -356,10 +416,31 @@ describe('澄清', () => {
     await state().send('写实照片')
 
     expect(state().messages).toEqual([
-      { kind: 'text', id: 'user-1', role: 'user', text: '给我画个杯子', streaming: false },
+      {
+        kind: 'text',
+        id: 'user-1',
+        turnId: 'turn-1',
+        role: 'user',
+        text: '给我画个杯子',
+        streaming: false,
+      },
       CARD,
-      { kind: 'text', id: 'user-2', role: 'user', text: '写实照片', streaming: false },
-      { kind: 'text', id: 'assistant-2', role: 'assistant', text: '好的', streaming: false },
+      {
+        kind: 'text',
+        id: 'user-2',
+        turnId: 'turn-2',
+        role: 'user',
+        text: '写实照片',
+        streaming: false,
+      },
+      {
+        kind: 'text',
+        id: 'assistant-2',
+        turnId: 'turn-2',
+        role: 'assistant',
+        text: '好的',
+        streaming: false,
+      },
     ])
     // 后面已经有用户消息了，这条澄清作过答。
     expect(answerableClarificationId(state().messages)).toBeNull()
@@ -370,6 +451,7 @@ describe('澄清', () => {
     messagesResponse = () =>
       Response.json({
         activeTurn: null,
+        turns: [],
         messages: [
           {
             id: 'user-1',
@@ -397,7 +479,14 @@ describe('澄清', () => {
     await state().load()
 
     expect(state().messages).toEqual([
-      { kind: 'text', id: 'user-1', role: 'user', text: '给我画个杯子', streaming: false },
+      {
+        kind: 'text',
+        id: 'user-1',
+        turnId: 'turn-1',
+        role: 'user',
+        text: '给我画个杯子',
+        streaming: false,
+      },
       CARD,
     ])
     expect(answerableClarificationId(state().messages)).toBe('clarify-1')

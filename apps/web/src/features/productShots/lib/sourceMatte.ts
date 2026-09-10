@@ -37,6 +37,7 @@ const UNMASKED_FALLBACK = '本版未抠图'
 const MATTE_FAILED = `抠图失败，${UNMASKED_FALLBACK}`
 const MATTE_UNRELIABLE = `蒙版与产品框不符，${UNMASKED_FALLBACK}`
 const MASK_UNSUPPORTED = `当前模型不支持遮罩，${UNMASKED_FALLBACK}`
+const MATTE_MISSING = '本地蒙版数据已丢失，请重试抠图'
 
 type Mask = { imageId: string; targetImageId: string }
 
@@ -111,6 +112,17 @@ export function createSourceMattes(host: SourceMatteHost) {
     return entry.valid && host.read(entry.source) !== undefined
   }
 
+  async function markMissing(entry: SourceLifetime, matte: SourceMatte): Promise<void> {
+    await host.update(entry.source, (image) =>
+      live(entry) && image.sourceMatte === matte
+        ? {
+            ...image,
+            sourceMatte: { status: 'failed', reason: 'missing', previewImageId: null },
+          }
+        : image,
+    )
+  }
+
   async function run(entry: SourceLifetime): Promise<void> {
     let matte: SourceMatte
     try {
@@ -168,6 +180,10 @@ export function createSourceMattes(host: SourceMatteHost) {
       // 这份 alpha 是本次动作的快照，之后的手改只影响下一次动作。
       const attempt = await maskAttemptFor(matte, input.productBox, input.side)
       if (!live(entry)) throw new Error('原图已从任务移除')
+      if (attempt.matte?.ok === false && attempt.matte.reason === 'missing') {
+        await markMissing(entry, matte)
+        throw new Error(MATTE_MISSING)
+      }
       if (matte.status === 'ready' && attempt.agreement && attempt.agreement !== matte.agreement) {
         const agreement = attempt.agreement
         await host.update(source, (image) =>
@@ -199,7 +215,10 @@ export function createSourceMattes(host: SourceMatteHost) {
       if (!entry || !matteEditable(matte)) return null
       const maskDataUrl = await ensureImageCached(matte.alphaImageId)
       if (!live(entry)) return null
-      if (!maskDataUrl) throw new Error('蒙版图片已丢失')
+      if (!maskDataUrl) {
+        await markMissing(entry, matte)
+        throw new Error(MATTE_MISSING)
+      }
       return {
         maskDataUrl,
         targetImageId: matte.targetImageId,
@@ -400,7 +419,7 @@ async function maskAttemptFor(
 
   try {
     const raw = await readAlpha(matte.alphaImageId)
-    if (!raw) return unmasked(MATTE_FAILED, 'failed', matte.previewImageId)
+    if (!raw) return unmasked(MATTE_MISSING, 'missing', matte.previewImageId)
 
     // 手改的那份就是最终答案，既不回捞也不再校验。
     if (matte.edited) return await masked(matte, raw, side, 'ok')

@@ -12,7 +12,7 @@ import { createAgentCanvasSink } from '../../../../features/canvas/lib/agentCanv
 import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
 import { CanvasEditor } from '../../../../features/canvas/lib/editor'
 
-const IMAGES = [{ imageId: 'agent_image_1', dataUrl: 'data:image/png;base64,AQID' }]
+const IMAGES = [{ artifactId: 'agent_image_1', dataUrl: 'data:image/png;base64,AQID' }]
 
 let doc: CanvasDoc
 let editor: CanvasEditor
@@ -43,7 +43,7 @@ beforeEach(() => {
   placeImagesOnCanvasMock.mockReset()
   placeImagesOnCanvasMock.mockImplementation(async () => {
     editor.placeImages([
-      { dataUrl: IMAGES[0].dataUrl, x: 0, y: 0, width: 10, height: 10, id: IMAGES[0].imageId },
+      { dataUrl: IMAGES[0].dataUrl, x: 0, y: 0, width: 10, height: 10, id: IMAGES[0].artifactId },
     ])
   })
 })
@@ -129,5 +129,26 @@ describe('落画布', () => {
     await sink.place(IMAGES, { baseRevision: sink.revision() })
 
     expect(await sink.place(IMAGES, { baseRevision: sink.revision() })).toBe('placed')
+  })
+
+  it('视频产物把播放来源写在它自己那一项上', async () => {
+    await sink.place([
+      IMAGES[0]!,
+      {
+        artifactId: 'agent_video_1',
+        dataUrl: 'data:image/png;base64,UE9T',
+        video: { taskId: 'task-2', outputIndex: 0 },
+      },
+    ])
+
+    const [, placing] = placeImagesOnCanvasMock.mock.calls[0]!
+    expect(placing).toEqual([
+      { dataUrl: IMAGES[0]!.dataUrl, id: 'agent_image_1' },
+      {
+        dataUrl: 'data:image/png;base64,UE9T',
+        id: 'agent_video_1',
+        video: { taskId: 'task-2', outputIndex: 0 },
+      },
+    ])
   })
 })

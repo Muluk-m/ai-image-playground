@@ -1,13 +1,13 @@
-import type { AgentTurnReference } from '@image-playground/shared'
+import type { AgentTurnCost, AgentTurnReference } from '@image-playground/shared'
 import { agentConversationTitle } from '@image-playground/shared'
 import { eq } from 'drizzle-orm'
 import { config } from '../../config'
 import { db, schema } from '../../db/client'
 import { finishTask } from '../../db/task-transitions'
 import { isCapabilityEnabled } from '../capabilities'
-import type { BffTransaction, TaskReservationFailure } from '../private-overlay'
+import type { BffTransaction, ChatPricing, TaskReservationFailure } from '../private-overlay'
 import { loadPrivateBffOverlay } from '../private-overlay'
-import { actualChatUsage, reservedChatUsage } from './billing'
+import { actualChatUsage, FALLBACK_CHAT_PRICING, reservedChatUsage } from './billing'
 import {
   type AgentOwner,
   appendAgentMessage,
@@ -16,6 +16,7 @@ import {
 } from './conversations'
 import type { RunningTurn } from './runningTurns'
 import type { AgentTurnSettlement } from './turn'
+import { collectTurnCost } from './turn-cost'
 
 export interface StartConversationTurnInput {
   readonly conversationId: string
@@ -58,15 +59,16 @@ async function insertChatTask(
 }
 
 /** 结算是模块级工厂而不是用例里的闭包：闭包会把整段历史钉到轮结束。 */
-function chatSettlement(turnId: string) {
-  return async (settlement: AgentTurnSettlement) => {
+function chatSettlement(conversationId: string, turnId: string, pricing: ChatPricing) {
+  return async (settlement: AgentTurnSettlement): Promise<AgentTurnCost> => {
     await finishTask(turnId, {
       status: settlement.outcome,
       completedAt: Date.now(),
       upstreamInvocationCount: settlement.upstreamInvocationCount,
       // usage 为 null 是上游没报，缺席即按预留全额结算——退错方向就是凭空造积分。
-      ...(settlement.usage ? { actualUsage: actualChatUsage(settlement.usage) } : {}),
+      ...(settlement.usage ? { actualUsage: actualChatUsage(settlement.usage, pricing) } : {}),
     })
+    return collectTurnCost(conversationId, turnId)
   }
 }
 
@@ -80,23 +82,29 @@ export async function startConversationTurn(
   if (billed && owner.kind !== 'user') return { kind: 'authentication_required' }
 
   // 动态引入：pi 的模块图有 60-90ms，`agent:chat` 关着的部署不该在启动时付。
-  const [{ estimateTurnInputTokens, startAgentTurn }, overlay, history] = await Promise.all([
-    import('./turn'),
-    loadPrivateBffOverlay(),
-    listAgentMessages(conversationId, owner),
-  ])
+  const overlayPromise = loadPrivateBffOverlay()
+  const [{ estimateTurnInputTokens, startAgentTurn }, overlay, history, configured] =
+    await Promise.all([
+      import('./turn'),
+      overlayPromise,
+      listAgentMessages(conversationId, owner),
+      billed ? overlayPromise.then((it) => it.taskHooks.chatPricing(config.agent.model)) : null,
+    ])
   const turnId = crypto.randomUUID()
+  // 预扣与结算共用这一份快照：运营中途改价不该改写在途那一轮的账。
+  const pricing = configured ?? FALLBACK_CHAT_PRICING
   const reservation =
     billed && userId
       ? {
           taskId: turnId,
           userId,
           model: config.agent.model,
-          ...reservedChatUsage(estimateTurnInputTokens(history, text)),
+          ...reservedChatUsage(estimateTurnInputTokens(history, text), pricing),
         }
       : null
 
   const written = await db.transaction(async (tx) => {
+    let reservedCredits: number | undefined
     if (reservation) {
       await insertChatTask(tx, {
         taskId: turnId,
@@ -110,6 +118,7 @@ export async function startConversationTurn(
         await tx.delete(schema.tasks).where(eq(schema.tasks.id, turnId))
         return reserved
       }
+      reservedCredits = reserved.credits
     }
     if (history.length === 0) {
       await setAgentConversationTitle(tx, conversationId, owner, agentConversationTitle(text))
@@ -120,7 +129,7 @@ export async function startConversationTurn(
       role: 'user',
       content: [{ type: 'text', text }],
     })
-    return { kind: 'reserved' as const, userMessageId: userMessage.id }
+    return { kind: 'reserved' as const, userMessageId: userMessage.id, reservedCredits }
   })
   if (written.kind !== 'reserved') return written
 
@@ -135,7 +144,8 @@ export async function startConversationTurn(
       references,
       userId,
       deviceId,
-      settle: reservation ? chatSettlement(turnId) : undefined,
+      reservedCredits: written.reservedCredits,
+      settle: reservation ? chatSettlement(conversationId, turnId, pricing) : undefined,
     }),
   }
 }
