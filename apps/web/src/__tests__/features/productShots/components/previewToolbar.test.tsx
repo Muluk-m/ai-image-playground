@@ -85,7 +85,7 @@ afterEach(async () => {
   host.remove()
   vi.unstubAllGlobals()
 })
-it('opens editing and kit workflows for the visible version and hides actions without a completed output', async () => {
+it('opens editing and kit workflows for the visible version and disables actions without a completed output', async () => {
   await act(async () => root.render(<PreviewPanel />))
   await act(async () => button('局部编辑').click())
   expect(useWorkflowEditor.getState().session).toMatchObject({ kind: 'edit', versionId: 'edited' })
@@ -96,7 +96,12 @@ it('opens editing and kit workflows for the visible version and hides actions wi
       tasks: [{ ...task, status: 'running', outputImages: [] }],
     }),
   )
-  expect(host.querySelector('[aria-label="图像操作"]')).toBeNull()
+  expect(host.querySelector('[aria-label="图像操作"]')).not.toBeNull()
+  expect(
+    [...host.querySelectorAll('[aria-label="图像操作"] button')].every(
+      (el) => (el as HTMLButtonElement).disabled,
+    ),
+  ).toBe(true)
 })
 it('compares the immutable source with the visible result and clears comparison when returning to the original', async () => {
   await act(async () => root.render(<PreviewPanel />))
@@ -152,4 +157,18 @@ it('exports kit output with its saved title and composition', async () => {
   expect(renderKitImage).toHaveBeenCalledExactlyOnceWith('result', kit)
   expect(downloadBlob).toHaveBeenCalledWith(blob, expect.stringMatching(/\.png$/))
   expect(downloadImagesByIds).not.toHaveBeenCalled()
+})
+
+it('keeps the toolbar visible on an empty job and explains how to enable it', async () => {
+  useProductShotsStore.setState((s) => ({
+    draft: { ...s.draft, images: [] },
+    selectedImageId: null,
+    previewVersionId: null,
+  }))
+  await act(async () => root.render(<PreviewPanel />))
+  for (const label of ['局部编辑', '批量衍生', '对比', '导出'])
+    expect(button(label).disabled).toBe(true)
+  expect(host.textContent).toContain('上传原图并生成图片')
+  await act(async () => button('局部编辑').click())
+  expect(useWorkflowEditor.getState().session).toBeNull()
 })
