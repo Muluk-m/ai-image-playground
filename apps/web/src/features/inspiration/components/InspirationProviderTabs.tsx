@@ -2,7 +2,7 @@ import { type InspirationProviderFilter, useInspirationStore } from '../store'
 
 const TABS: Array<{ value: InspirationProviderFilter; label: string }> = [
   { value: 'all', label: '全部' },
-  { value: 'openai-compat', label: 'GPT Image 2' },
+  { value: 'openai-compat', label: 'GPT Image' },
   { value: 'gemini', label: 'Nano Banana 2' },
 ]
 
