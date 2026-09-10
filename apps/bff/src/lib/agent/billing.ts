@@ -1,21 +1,10 @@
-import type { AgentTurnUsage, QuotaValues } from '@image-playground/shared'
-import { config } from '../../config'
-import type { TaskUsage } from '../private-overlay'
+import type { AgentTurnUsage } from '@image-playground/shared'
+import type { ChatPricing, TaskUsage } from '../private-overlay'
 
-export interface ChatBillingSettings {
-  /** 输出单价相对输入单价的倍数。B 档是 6 / 30，即 5 倍。 */
-  readonly outputPriceRatio: number
-  /** 一轮预扣多少输出 token。实际用量超过它就按预留封顶。 */
-  readonly outputReserveTokens: number
-}
-
-export function chatBillingSettings(
-  quotas: QuotaValues = config.operator.quotas,
-): ChatBillingSettings {
-  return {
-    outputPriceRatio: quotas['agent:chat-output-price-ratio'],
-    outputReserveTokens: quotas['agent:chat-output-reserve-tokens'],
-  }
+/** 单价表没登记这个对话模型时的兜底：预扣照样算得出，reserveTask 会以缺单价拒掉这一轮。 */
+export const FALLBACK_CHAT_PRICING: ChatPricing = {
+  outputPriceRatio: 5,
+  outputReserveTokens: 2_000,
 }
 
 /**
@@ -25,25 +14,22 @@ export function chatBillingSettings(
 function usageUnits(
   inputTokens: number,
   outputTokens: number,
-  settings: ChatBillingSettings,
-): TaskUsage {
+  pricing: ChatPricing,
+): { quantity: number; unitMultiplier: number } {
   return {
     quantity: 1,
-    unitMultiplier: (inputTokens + outputTokens * settings.outputPriceRatio) / 1_000,
+    unitMultiplier: (inputTokens + outputTokens * pricing.outputPriceRatio) / 1_000,
   }
 }
 
 /** 预扣：输入按起轮前的估算，输出按预留上限。 */
-export function reservedChatUsage(
-  estimatedInputTokens: number,
-  settings: ChatBillingSettings = chatBillingSettings(),
-): TaskUsage {
-  return usageUnits(estimatedInputTokens, settings.outputReserveTokens, settings)
+export function reservedChatUsage(estimatedInputTokens: number, pricing: ChatPricing): TaskUsage {
+  return usageUnits(estimatedInputTokens, pricing.outputReserveTokens, pricing)
 }
 
-export function actualChatUsage(
-  usage: AgentTurnUsage,
-  settings: ChatBillingSettings = chatBillingSettings(),
-): TaskUsage {
-  return usageUnits(usage.inputTokens, usage.outputTokens, settings)
+export function actualChatUsage(usage: AgentTurnUsage, pricing: ChatPricing): TaskUsage {
+  return {
+    ...usageUnits(usage.inputTokens, usage.outputTokens, pricing),
+    tokens: { input: usage.inputTokens, output: usage.outputTokens },
+  }
 }

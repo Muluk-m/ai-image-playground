@@ -5,9 +5,9 @@ import { config } from '../../config'
 import { db, schema } from '../../db/client'
 import { finishTask } from '../../db/task-transitions'
 import { isCapabilityEnabled } from '../capabilities'
-import type { BffTransaction, TaskReservationFailure } from '../private-overlay'
+import type { BffTransaction, ChatPricing, TaskReservationFailure } from '../private-overlay'
 import { loadPrivateBffOverlay } from '../private-overlay'
-import { actualChatUsage, reservedChatUsage } from './billing'
+import { actualChatUsage, FALLBACK_CHAT_PRICING, reservedChatUsage } from './billing'
 import {
   type AgentOwner,
   appendAgentMessage,
@@ -58,14 +58,14 @@ async function insertChatTask(
 }
 
 /** 结算是模块级工厂而不是用例里的闭包：闭包会把整段历史钉到轮结束。 */
-function chatSettlement(turnId: string) {
+function chatSettlement(turnId: string, pricing: ChatPricing) {
   return async (settlement: AgentTurnSettlement) => {
     await finishTask(turnId, {
       status: settlement.outcome,
       completedAt: Date.now(),
       upstreamInvocationCount: settlement.upstreamInvocationCount,
       // usage 为 null 是上游没报，缺席即按预留全额结算——退错方向就是凭空造积分。
-      ...(settlement.usage ? { actualUsage: actualChatUsage(settlement.usage) } : {}),
+      ...(settlement.usage ? { actualUsage: actualChatUsage(settlement.usage, pricing) } : {}),
     })
   }
 }
@@ -80,19 +80,24 @@ export async function startConversationTurn(
   if (billed && owner.kind !== 'user') return { kind: 'authentication_required' }
 
   // 动态引入：pi 的模块图有 60-90ms，`agent:chat` 关着的部署不该在启动时付。
-  const [{ estimateTurnInputTokens, startAgentTurn }, overlay, history] = await Promise.all([
-    import('./turn'),
-    loadPrivateBffOverlay(),
-    listAgentMessages(conversationId, owner),
-  ])
+  const overlayPromise = loadPrivateBffOverlay()
+  const [{ estimateTurnInputTokens, startAgentTurn }, overlay, history, configured] =
+    await Promise.all([
+      import('./turn'),
+      overlayPromise,
+      listAgentMessages(conversationId, owner),
+      billed ? overlayPromise.then((it) => it.taskHooks.chatPricing(config.agent.model)) : null,
+    ])
   const turnId = crypto.randomUUID()
+  // 预扣与结算共用这一份快照：运营中途改价不该改写在途那一轮的账。
+  const pricing = configured ?? FALLBACK_CHAT_PRICING
   const reservation =
     billed && userId
       ? {
           taskId: turnId,
           userId,
           model: config.agent.model,
-          ...reservedChatUsage(estimateTurnInputTokens(history, text)),
+          ...reservedChatUsage(estimateTurnInputTokens(history, text), pricing),
         }
       : null
 
@@ -135,7 +140,7 @@ export async function startConversationTurn(
       references,
       userId,
       deviceId,
-      settle: reservation ? chatSettlement(turnId) : undefined,
+      settle: reservation ? chatSettlement(turnId, pricing) : undefined,
     }),
   }
 }

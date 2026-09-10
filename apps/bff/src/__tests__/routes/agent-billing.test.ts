@@ -115,6 +115,20 @@ describe('对话轮的预扣', () => {
       model: 'fixture-agent-model',
       quantity: 1,
     })
+    // 预留 2000 输出 token × 5 倍 = 固定 10；剩下的零头是这条短提示词的输入估算。
+    expect(reservations[0]!.unitMultiplier).toBeGreaterThan(10)
+    expect(reservations[0]!.unitMultiplier).toBeLessThan(10.5)
+  })
+
+  it('运营改了对话单价，下一轮就按新的输出倍数与预留预扣', async () => {
+    setAgentFetchForTesting(recordingAgentFetch([], () => completionStream('好')))
+    billing.pricing = { outputPriceRatio: 4, outputReserveTokens: 500 }
+    const conversationId = await startConversation()
+
+    await runTurn(conversationId, '把背景换成浅木色')
+    // 等这一轮结算落定再收尾，否则 afterAll 关库时还有在途写入。
+    await waitFor(async () => settlements.length === 1)
+
     // 预留 500 输出 token × 4 倍 = 固定 2；剩下的零头是这条短提示词的输入估算。
     expect(reservations[0]!.unitMultiplier).toBeGreaterThan(2)
     expect(reservations[0]!.unitMultiplier).toBeLessThan(2.5)
@@ -205,8 +219,8 @@ describe('对话轮的结算', () => {
       taskId: turnIdOf(frames),
       outcome: 'completed',
       upstreamInvocationCount: 1,
-      // 上游报 12 输入 / 4 输出：(12 + 4 × 4) / 1000。
-      actualUsage: { quantity: 1, unitMultiplier: 0.028 },
+      // 上游报 12 输入 / 4 输出：(12 + 4 × 5) / 1000。
+      actualUsage: { quantity: 1, unitMultiplier: 0.032, tokens: { input: 12, output: 4 } },
     })
   })
 
