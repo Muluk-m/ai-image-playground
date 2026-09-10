@@ -259,7 +259,7 @@ export default function DetailModal() {
     setDetailTaskId(null)
     setConfirmDialog({
       title: '删除记录',
-      message: '确定要删除这条记录吗？关联的图片资源也会被清理（如果没有其他任务引用）。',
+      message: '确定要删除这条记录吗？仅清理不再使用的关联图片。',
       action: () => removeTask(task),
     })
   }

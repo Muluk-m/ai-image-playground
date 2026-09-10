@@ -29,7 +29,13 @@ export function matteGate({
   if (!modelKnown) return { reason: STALE_MODEL, retry: false, edit: false }
   if (!maskSupported) return null
   if (matting || !matte) return { reason: MATTING, retry: false, edit: false }
-  if (matte.status === 'failed') return { reason: FAILED, retry: true, edit: false }
+  if (matte.status === 'failed') {
+    return {
+      reason: matte.reason === 'missing' ? MATTE_FAILURE_LABELS.missing : FAILED,
+      retry: true,
+      edit: false,
+    }
+  }
   if (matte.status === 'unusable') {
     return { reason: `抠图${MATTE_FAILURE_LABELS[matte.reason]}`, retry: true, edit: true }
   }

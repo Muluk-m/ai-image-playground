@@ -35,6 +35,7 @@ export type MatteFailureCause =
   | MatteCoverageReason
   | 'server'
   | 'box-mismatch'
+  | 'missing'
 
 export const EDIT_MASK_LABEL = '改蒙版'
 
@@ -44,6 +45,7 @@ export const MATTE_FAILURE_LABELS: Record<Exclude<MatteFailureCause, 'box-mismat
   unsupported: '不支持',
   failed: '运行错误',
   server: '服务端失败',
+  missing: '蒙版丢失',
   'too-small': '占比过小',
   'too-large': '占比过大',
 }
