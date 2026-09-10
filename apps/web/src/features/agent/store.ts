@@ -22,7 +22,7 @@ import {
   resumeTurn,
   startTurn,
 } from './lib/agentClient'
-import { agentCanvasSink } from './lib/canvasSink'
+import { type AgentPlaceOutcome, agentCanvasSink } from './lib/canvasSink'
 import type { AgentPanelMessage, AgentPanelTab, AgentToolMessage, AgentTurnStatus } from './types'
 
 const TURN_FAILED = '这一轮没有跑完'
@@ -58,6 +58,8 @@ export interface AgentState {
   /** 空闲时起一轮；轮进行中则是插话。 */
   send(text: string): Promise<void>
   abort(): Promise<void>
+  /** 画布冲突后由用户把那张结果卡的产出放进画布。 */
+  placeOnCanvas(messageId: string): Promise<void>
 }
 
 function replaceOrAppend(
@@ -104,12 +106,20 @@ const failPatch = (state: AgentState, message = TURN_FAILED) => ({
   messages: state.messages.filter((one) => one.kind !== 'text' || !one.streaming),
 })
 
-/** 画布上已经有的不再落一遍：续播会把同一条 `toolEnd` 重放给我们。 */
-async function landOnCanvas(images: readonly AgentToolImage[]): Promise<void> {
+/** `skipped`：没有画布，或这几张已经在上面了——续播会把同一条 `toolEnd` 重放给我们。 */
+type LandOutcome = AgentPlaceOutcome | 'skipped' | 'failed'
+
+/** 把还没落画布的那几张下载下来交给画布。 */
+async function writeToCanvas(
+  images: readonly AgentToolImage[],
+  baseRevision?: number,
+): Promise<LandOutcome> {
   const sink = agentCanvasSink()
-  if (!sink) return
+  if (!sink) return 'skipped'
   const missing = images.filter((image) => !sink.has(image.imageId))
-  if (missing.length === 0) return
+  if (missing.length === 0) return 'skipped'
+  // 判定归 place，这里只是别为一个已经定了的冲突白下几 MB。
+  if (baseRevision !== undefined && sink.revision() !== baseRevision) return 'conflict'
   try {
     const items = await Promise.all(
       missing.map(async (image) => ({
@@ -117,15 +127,39 @@ async function landOnCanvas(images: readonly AgentToolImage[]): Promise<void> {
         dataUrl: await fetchToolImage(image),
       })),
     )
-    await sink.place(items)
+    return sink.place(items, baseRevision)
   } catch (thrown) {
     console.warn('[agent] 产出没能落到画布上', thrown)
+    return 'failed'
   }
 }
 
 export const useAgentStore = create<AgentState>((set, get) => {
   // 落图排成一条链：帧循环不等它，文字流才不会被几 MB 的下载卡住；串起来则保住多张图的次序。
   let landing: Promise<void> = Promise.resolve()
+  // 画布冲突的基线：跟上这一轮时的画布编辑修订号。
+  let baseRevision: number | undefined
+
+  const takeBaseRevision = () => {
+    baseRevision = agentCanvasSink()?.revision()
+  }
+
+  const setConflict = (messageId: string, conflict: boolean) =>
+    set((state) => ({
+      messages: state.messages.map((one) =>
+        one.kind === 'tool' && one.id === messageId
+          ? { ...one, canvasConflict: conflict || undefined }
+          : one,
+      ),
+    }))
+
+  const land = async (images: readonly AgentToolImage[], messageId: string) => {
+    const outcome = await writeToCanvas(images, baseRevision)
+    if (outcome === 'conflict') setConflict(messageId, true)
+    // 智能体自己的写入不算用户改动，所以基线跟到写后的值：
+    // 不抬的话同一轮里的第二次落图会把第一次当成用户动了画布。
+    else if (outcome === 'placed') takeBaseRevision()
+  }
 
   /** 事件按 id 幂等：重连重发的帧、以及续播重放的整轮，都要落到同一个结果上。 */
   const apply = (event: AgentTurnEvent, pendingUserText: string | null) => {
@@ -213,7 +247,8 @@ export const useAgentStore = create<AgentState>((set, get) => {
     })
     if (event.type === 'toolEnd' && event.status === 'succeeded') {
       const images = event.images ?? []
-      landing = landing.then(() => landOnCanvas(images))
+      const messageId = event.messageId
+      landing = landing.then(() => land(images, messageId))
     }
   }
 
@@ -311,6 +346,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
       set({ messages: state.messages.map(panelMessage) })
       if (!state.activeTurn) return
       set({ turn: 'running', error: null, activeTurn: state.activeTurn })
+      takeBaseRevision()
       await follow(conversationId, resumeTurn(conversationId, state.activeTurn.turnId, 0), null)
     },
 
@@ -345,6 +381,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
       // 首轮才会定标题、才会有新会话进列表；之后每轮再拉一次是白拉。
       const firstTurn = get().messages.length === 0
       set({ turn: 'running', error: null, activeTurn: null })
+      takeBaseRevision()
       let target = conversationId
       try {
         if (!target) {
@@ -365,6 +402,14 @@ export const useAgentStore = create<AgentState>((set, get) => {
       const conversationId = get().conversationId
       if (!active || !conversationId) return
       await abortTurn(conversationId, active.turnId)
+    },
+
+    async placeOnCanvas(messageId) {
+      const message = get().messages.find((one) => one.id === messageId)
+      if (message?.kind !== 'tool') return
+      // 不带基线：用户点了这个按钮，写入就是他要的。
+      const outcome = await writeToCanvas(message.images ?? [])
+      if (outcome !== 'failed') setConflict(messageId, false)
     },
   }
 })

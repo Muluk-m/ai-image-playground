@@ -128,7 +128,10 @@ describe('AgentPanel', () => {
     const focused: string[] = []
     setAgentCanvasSink({
       has: () => true,
-      async place() {},
+      revision: () => 0,
+      async place() {
+        return 'placed'
+      },
       focus: (imageId) => focused.push(imageId),
       async thumbnail() {
         return 'data:image/png;base64,AQID'
@@ -159,6 +162,35 @@ describe('AgentPanel', () => {
     act(() => thumbnail.click())
 
     expect(focused).toEqual(['agent_image_1'])
+  })
+
+  it('画布冲突的结果卡写清没有自动写入，点一下手动放入', async () => {
+    const placeOnCanvas = vi.fn(async () => {})
+    useAgentStore.setState({
+      placeOnCanvas,
+      messages: [
+        {
+          kind: 'tool',
+          id: 'tool-1',
+          toolCallId: 'call-1',
+          title: '一只橘猫坐在窗台上',
+          status: 'succeeded',
+          canvasConflict: true,
+          images: [
+            { imageId: 'agent_image_1', taskId: 'task-1', outputIndex: 0, mime: 'image/png' },
+          ],
+        },
+      ],
+    })
+    render()
+
+    expect(host.textContent).toContain('生成期间画布有改动，本次结果没有自动写入画布。')
+    const place = [...host.querySelectorAll('button')].find(
+      (button) => button.textContent === '放入画布',
+    )!
+    act(() => place.click())
+
+    expect(placeOnCanvas).toHaveBeenCalledWith('tool-1')
   })
 
   it('能力关闭时什么都不渲染', async () => {
