@@ -71,10 +71,16 @@ export function AppSidebar() {
             <SidebarMenuButton size="lg" asChild>
               <Link to="/overview">
                 <div className="flex aspect-square size-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-                  <Activity className="size-4" />
+                  <img
+                    src="/favicon.svg"
+                    alt=""
+                    width="32"
+                    height="32"
+                    className="size-8 rounded-lg"
+                  />
                 </div>
                 <div className="grid flex-1 text-left leading-tight">
-                  <span className="truncate text-sm font-semibold">image-playground</span>
+                  <span className="truncate text-sm font-semibold">幕芽 Muvloom</span>
                   <span className="truncate text-xs text-muted-foreground">admin</span>
                 </div>
               </Link>

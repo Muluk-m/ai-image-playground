@@ -85,17 +85,19 @@ export default function Header() {
             <button
               type="button"
               onClick={() => setAppMode('browse')}
-              aria-label="Image Playground，返回工作台"
+              aria-label="幕芽 Muvloom，返回工作台"
               className="inline-flex max-w-full items-center gap-2.5 rounded-lg font-display text-[18px] font-medium tracking-wide text-gray-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:text-gray-50"
             >
               <img
-                src="/pwa-icon.svg"
+                src="/brand/muvloom-icon.svg"
                 alt=""
-                width="24"
-                height="24"
-                className="h-6 w-6 rounded-md shrink-0"
+                width="28"
+                height="28"
+                className="h-7 w-7 rounded-lg shrink-0"
               />
-              <span className="hidden truncate sm:inline">Image Playground</span>
+              <span className="truncate">
+                幕芽<span className="ml-2 hidden sm:inline">Muvloom</span>
+              </span>
             </button>
           </h1>
           <nav
