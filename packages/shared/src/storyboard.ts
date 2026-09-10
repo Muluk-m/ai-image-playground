@@ -9,6 +9,7 @@ export type StoryboardTotalSeconds = (typeof STORYBOARD_TOTAL_SECONDS)[number]
 
 export const STORYBOARD_IDEA_MAX_CHARS = 2000
 export const STORYBOARD_STYLE_MAX_CHARS = 100
+export const STORYBOARD_MAX_REFERENCE_IMAGES = 4
 
 export interface StoryboardSegment {
   readonly startSeconds: number
@@ -63,7 +64,7 @@ export interface StoryboardPlanRequest {
   readonly totalSeconds: StoryboardTotalSeconds
   readonly aspectRatio: VideoAspectRatio
   readonly style?: string
-  readonly referenceImage?: string
+  readonly referenceImages?: readonly string[]
 }
 
 function trimmed(value: unknown): string | null {
