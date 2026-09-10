@@ -238,6 +238,45 @@ describe('recoverAbandonedTasks', () => {
     })
   })
 
+  it('fails an abandoned chat turn and refunds it instead of requeueing it', async () => {
+    const settled: { taskId: string; outcome: string }[] = []
+    _setPrivateBffOverlayForTesting({
+      ...EMPTY_PRIVATE_BFF_OVERLAY,
+      present: true,
+      taskHooks: {
+        ...EMPTY_PRIVATE_BFF_OVERLAY.taskHooks,
+        async finalizeTask(input: { taskId: string; outcome: string }) {
+          settled.push({ taskId: input.taskId, outcome: input.outcome })
+        },
+      },
+    })
+    // attempt_count=0：重试预算是满的，所以「没回队」只能是 kind 判出来的。
+    await db.insert(schema.tasks).values({
+      id: 'chat-turn',
+      kind: 'chat',
+      provider: 'openai-compat',
+      model: 'fixture-agent-model',
+      status: 'in_progress',
+      request_payload: { prompt: '', device_id: 'device-abcdefgh' },
+      submitted_at: now - QUEUE_TIMEOUTS.STALE_IN_PROGRESS_MS - 1,
+      started_at: now - QUEUE_TIMEOUTS.STALE_IN_PROGRESS_MS - 1,
+    })
+
+    expect(await recoverAbandonedTasks([], now)).toEqual({
+      requeued: 0,
+      failed: 1,
+      resumedPolling: 0,
+    })
+
+    const [row] = await db
+      .select({ status: schema.tasks.status })
+      .from(schema.tasks)
+      .where(eq(schema.tasks.id, 'chat-turn'))
+    expect(row!.status).toBe('failed')
+    expect(settled).toEqual([{ taskId: 'chat-turn', outcome: 'failed' }])
+    _setPrivateBffOverlayForTesting(EMPTY_PRIVATE_BFF_OVERLAY)
+  })
+
   it('skips rows that are still young or still owned by this process', async () => {
     await insertInProgress('recent', now - 1_000)
     await insertInProgress('owned', now - QUEUE_TIMEOUTS.STALE_IN_PROGRESS_MS - 1)
