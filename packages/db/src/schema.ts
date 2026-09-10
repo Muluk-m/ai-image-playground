@@ -5,6 +5,7 @@ import type {
   AgentTurnEvent,
   PersistedSubmitRequest,
   QueueProvider,
+  TaskKind,
   TaskStatus,
 } from '@image-playground/shared'
 import { sql } from 'drizzle-orm'
@@ -321,8 +322,11 @@ export const tasks = pgTable(
     /** 智能体工具提交的任务带上会话与轮；用户自己提交的任务两列都是 null。 */
     agent_conversation_id: text('agent_conversation_id'),
     agent_turn_id: text('agent_turn_id'),
+    /** `chat` 的行 worker 不碰、后台不展示；它只是让每笔积分占用挂得住的那个任务。 */
+    kind: text('kind').$type<TaskKind>().notNull().default('queue'),
   },
   (t) => [
+    check('tasks_kind_check', sql`${t.kind} IN ('queue', 'chat')`),
     index('idx_tasks_status').on(t.status),
     index('idx_tasks_submitted_at').on(t.submitted_at),
     index('idx_tasks_next_retry_at').on(t.next_retry_at).where(sql`${t.next_retry_at} IS NOT NULL`),
