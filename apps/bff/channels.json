@@ -83,11 +83,6 @@
       },
       "models": [
         {
-          "id": "grok-imagine-image",
-          "label": "Grok Imagine Image 1.0",
-          "capabilities": ["generate", "edit", "n"]
-        },
-        {
           "id": "grok-imagine-image-2.0",
           "label": "Grok Imagine Image 2.0",
           "capabilities": ["generate", "edit", "n", "quality"]
