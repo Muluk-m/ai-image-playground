@@ -215,7 +215,7 @@ describe('智能体生图工具', () => {
     ])
     expect(messages[2]!.content).toEqual([{ type: 'text', text: '画好了' }])
 
-    expect(calls[0]!.tools?.map((tool) => tool.function.name)).toEqual(['generateImage'])
+    expect(calls[0]!.tools?.map((tool) => tool.function.name)).toContain('generateImage')
   })
 
   it('adds up the usage of every upstream call the tool loop makes', async () => {

@@ -1,11 +1,13 @@
 import type { AgentTool } from '@earendil-works/pi-agent-core'
 import type { AgentToolName } from '@image-playground/shared'
+import { editImage } from './editImage'
 import { generateImage } from './generateImage'
+import { readLibrary } from './readLibrary'
 import type { AgentToolContext, AgentToolDefinition } from './types'
 
 export type { AgentToolContext, AgentToolDetails } from './types'
 
-const TOOLS: readonly AgentToolDefinition[] = [generateImage]
+const TOOLS: readonly AgentToolDefinition[] = [generateImage, editImage, readLibrary]
 
 function find(name: string): AgentToolDefinition | undefined {
   return TOOLS.find((tool) => tool.name === name)

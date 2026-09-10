@@ -10,8 +10,24 @@ export interface AgentTextBlock {
   readonly text: string
 }
 
-/** 智能体可调用的工具。改图、生视频、读素材库各有独立的票，往这里追加。 */
-export type AgentToolName = 'generateImage'
+/** 智能体可调用的工具。生视频另有独立的票，往这里追加。 */
+export type AgentToolName = 'generateImage' | 'editImage' | 'readLibrary'
+
+/**
+ * 一轮里用户在输入框附上的参考图。数组下标加一就是提示词里 `[image N]` 的 N，
+ * 所以顺序不能在传输途中被重排。
+ */
+export interface AgentTurnReference {
+  /** 画布对象 id 或素材的图片 id；模型改图时用它指认要改哪一张。 */
+  readonly imageId: string
+  readonly dataUrl: string
+  /** 素材名，只用来让模型在回复里说人话。 */
+  readonly name?: string
+  /** 用户在这张图上画的遮罩；改图时自动带上，模型无从指定。 */
+  readonly maskDataUrl?: string
+}
+
+export const AGENT_TURN_MAX_REFERENCES = 8
 
 export type AgentToolStatus = 'succeeded' | 'failed'
 
@@ -34,6 +50,8 @@ export interface AgentToolResultBlock {
   /** 面板上这张卡的一行标签。 */
   readonly title: string
   readonly images?: readonly AgentToolImage[]
+  /** 产出落画布时贴着这个对象放；缺席就落在视口中央。 */
+  readonly anchorImageId?: string
   /** 失败原因，一句话。 */
   readonly message?: string
 }
