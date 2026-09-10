@@ -6,8 +6,6 @@ import { useStore } from '../../../store'
 import AssetThumb from '../../library/components/AssetThumb'
 import { useLibraryStore } from '../../library/store'
 import { assetSources, historySources } from '../lib/frameSources'
-import { useVideoStore } from '../store'
-import { VIDEO_FRAME_SLOT_LABELS, type VideoFrameSlot } from '../types'
 
 const TABS = ['library', 'history'] as const
 type PickerTab = (typeof TABS)[number]
@@ -19,12 +17,15 @@ const EMPTY: Record<PickerTab, string> = {
 }
 
 export default function FramePicker({
-  slot,
   label,
+  selectedImageIds,
+  onSelect,
   onClose,
 }: {
-  slot: VideoFrameSlot
-  label?: string
+  label: string
+  /** 给了就是多选：选中的图带上高亮环，关不关由调用方决定。 */
+  selectedImageIds?: readonly string[]
+  onSelect: (imageId: string) => void
   onClose: () => void
 }) {
   const [tab, setTab] = useState<PickerTab>('library')
@@ -39,7 +40,7 @@ export default function FramePicker({
     <Overlay onClose={onClose}>
       <div className="relative z-10 flex max-h-[80vh] w-full max-w-lg flex-col rounded-2xl border border-white/50 bg-white p-5 shadow-2xl ring-1 ring-black/5 animate-modal-in dark:border-white/[0.08] dark:bg-gray-900 dark:ring-white/10">
         <div className="mb-3 flex items-center justify-between gap-3">
-          <h3 className={PANEL_TITLE}>选{label ?? VIDEO_FRAME_SLOT_LABELS[slot]}</h3>
+          <h3 className={PANEL_TITLE}>选{label}</h3>
           <Segmented
             label="图片来源"
             options={TABS}
@@ -58,11 +59,15 @@ export default function FramePicker({
                 <li key={`${tab}-${item.imageId}`}>
                   <button
                     type="button"
-                    onClick={() => {
-                      useVideoStore.getState().setFrame(slot, item.imageId)
-                      onClose()
-                    }}
-                    className="w-full overflow-hidden rounded-xl border border-gray-200 transition hover:border-blue-400 dark:border-white/[0.08]"
+                    aria-pressed={
+                      selectedImageIds ? selectedImageIds.includes(item.imageId) : undefined
+                    }
+                    onClick={() => onSelect(item.imageId)}
+                    className={`w-full overflow-hidden rounded-xl border transition ${
+                      selectedImageIds?.includes(item.imageId)
+                        ? 'border-blue-400 ring-2 ring-blue-400/30'
+                        : 'border-gray-200 hover:border-blue-400 dark:border-white/[0.08]'
+                    }`}
                   >
                     <span className="block aspect-square">
                       <AssetThumb imageId={item.imageId} alt={item.name} />
