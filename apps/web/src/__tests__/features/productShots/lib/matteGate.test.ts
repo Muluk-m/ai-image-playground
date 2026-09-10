@@ -15,6 +15,8 @@ const FAILED: SourceMatte = { status: 'failed', reason: 'timeout', previewImageI
 
 const UNUSABLE: SourceMatte = { ...READY, status: 'unusable', reason: 'too-small' }
 
+const STALE = { reason: '模型信息已过期，请刷新页面', retry: false, edit: false }
+
 function readiness(over: Partial<MatteReadiness> = {}): MatteReadiness {
   return { matte: READY, matting: false, maskSupported: true, modelKnown: true, ...over }
 }
@@ -59,19 +61,11 @@ describe('matteGate', () => {
   })
 
   it('认不出模型时挡住，重试与改蒙版都解不开', () => {
-    expect(matteGate(readiness({ modelKnown: false }))).toEqual({
-      reason: '模型信息已过期，请刷新页面',
-      retry: false,
-      edit: false,
-    })
+    expect(matteGate(readiness({ modelKnown: false }))).toEqual(STALE)
     // maskSupported 此时是猜出来的 false，不能拿它当放行理由
     expect(
       matteGate(readiness({ matte: FAILED, maskSupported: false, modelKnown: false })),
-    ).toEqual({
-      reason: '模型信息已过期，请刷新页面',
-      retry: false,
-      edit: false,
-    })
+    ).toEqual(STALE)
   })
 })
 
