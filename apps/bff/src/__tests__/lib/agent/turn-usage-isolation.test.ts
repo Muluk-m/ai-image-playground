@@ -1,7 +1,7 @@
 import { afterAll, afterEach, describe, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
-import type { AgentMessageView, AgentTurnEvent } from '@image-playground/shared'
+import type { AgentMessageView, AgentTurnEvent, AgentTurnUsage } from '@image-playground/shared'
 import { completionStream, recordingAgentFetch } from '../../helpers/agentStubs'
 import { type ChatCall, chatCompletion, recordingChatFetch } from '../../helpers/chatStubs'
 
@@ -41,6 +41,38 @@ const HISTORY: AgentMessageView[] = ['a', 'b', 'c', 'd', 'e', 'f'].map((marker, 
   content: [{ type: 'text', text: marker.repeat(400) }],
   createdAt: 1,
 }))
+
+/** 短到不会触发压缩的历史，用户与助手各占一半。 */
+function shortHistory(pairs: number): AgentMessageView[] {
+  return Array.from({ length: pairs * 2 }, (_, index) => ({
+    id: `h${index + 1}`,
+    turnId: 'turn-old',
+    role: index % 2 === 0 ? ('user' as const) : ('assistant' as const),
+    content: [{ type: 'text' as const, text: `第${index + 1}句` }],
+    createdAt: 1,
+  }))
+}
+
+async function usageOfTurnAfter(history: AgentMessageView[]): Promise<AgentTurnUsage | null> {
+  const conversation = await createAgentConversation(
+    { kind: 'device', deviceId: 'device-abcdefgh' },
+    '第一句',
+  )
+  const turn = await startAgentTurn({
+    conversationId: conversation.id,
+    turnId: `turn-${history.length}`,
+    userMessageId: 'next',
+    history,
+    text: '再来一张',
+    userId: null,
+    deviceId: 'device-abcdefgh',
+  })
+  let usage: AgentTurnUsage | null = null
+  for await (const stored of turn.read(0)) {
+    if (stored.event.type === 'turnEnd') usage = stored.event.usage
+  }
+  return usage
+}
 
 afterEach(() => {
   setAgentFetchForTesting()
@@ -97,5 +129,19 @@ describe('startAgentTurn usage', () => {
     // 摘要只塑造送给模型的输入，不进事件流：轮事件表会原样发给前端。
     const streamed = JSON.stringify(events)
     for (const line of Object.values(NARRATIVE)) expect(streamed).not.toContain(line)
+  })
+
+  /**
+   * 用量按转录里的助手消息累加，而转录的前缀是回放进来的历史。历史那几条的用量是占位零，
+   * 一旦有人把每条消息的用量持久化下来、加载时还原回去，这个循环就会把旧账再算一遍。
+   */
+  it('bills one turn the same no matter how much history the transcript replays', async () => {
+    setAgentFetchForTesting(recordingAgentFetch([], () => completionStream('好')))
+
+    const withoutHistory = await usageOfTurnAfter([])
+    const withHistory = await usageOfTurnAfter(shortHistory(3))
+
+    expect(withoutHistory).toEqual({ inputTokens: 12, outputTokens: 4 })
+    expect(withHistory).toEqual(withoutHistory)
   })
 })
