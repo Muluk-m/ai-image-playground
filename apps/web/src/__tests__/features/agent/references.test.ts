@@ -36,6 +36,26 @@ describe('智能体输入框的引用', () => {
     expect(cursor).toBe('把@图1'.length)
   })
 
+  it('leaves the cursor right after the capsule it just inserted', () => {
+    const draft: AgentDraft = { prompt: '把 的背景换成浅木色', references: [] }
+
+    // `@` 触发的区间是 [1, 2)：从 `@` 起、到光标止，胶囊顶掉这一段。
+    const { draft: next, cursor } = attachReference(draft, CANVAS, 1, 2)
+
+    expect(visible(next)).toBe('把@图1的背景换成浅木色')
+    expect(cursor).toBe('把@图1'.length)
+  })
+
+  it('keeps the cursor in place when a named asset makes the capsule longer', () => {
+    const first = append(EMPTY_DRAFT, CANVAS)
+    const draft: AgentDraft = { ...first.draft, prompt: `${first.draft.prompt}和@` }
+
+    const { draft: next, cursor } = attachReference(draft, ASSET, 4, 5)
+
+    expect(visible(next)).toBe('@图1和@橘猫产品图')
+    expect(cursor).toBe('@图1和@橘猫产品图'.length)
+  })
+
   it('labels a library asset by its name', () => {
     const { draft } = append(EMPTY_DRAFT, ASSET)
 
