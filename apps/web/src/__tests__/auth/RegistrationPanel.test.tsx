@@ -123,7 +123,7 @@ describe('LoginScreen registration entry', () => {
 
     expect(host.querySelector('.auth-showcase')).toBeDefined()
     expect(host.querySelector('.auth-panel')).toBeDefined()
-    expect(host.textContent).toContain('释放创意，让想象成真')
+    expect(host.textContent).toContain('让灵感，长成画面')
     expect(host.textContent).toContain('邮箱地址')
 
     const registrationEntry = Array.from(host.querySelectorAll('button')).find(
