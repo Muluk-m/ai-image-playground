@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-05-14T03:26:03.493Z",
+  "updatedAt": "2026-09-10T05:01:19.451479Z",
   "categories": [
     "插画与艺术",
     "产品营销",
@@ -26,6 +26,245 @@
     "YouTube 缩略图"
   ],
   "items": [
+    {
+      "id": "i25-01",
+      "title": "街头潮牌广告 · 精准文字",
+      "prompt": "Create an in-culture fashion advertisement for a hip young street brand called \"Thread\". A group of four friends hanging out on a sunlit city stoop, candid energy, film-grain editorial photography. Render the tagline \"Yours to Create\" exactly once, clearly and legibly, integrated into the ad layout at the lower third. Keep the brand wordmark \"Thread\" small in the top-left corner. No other text anywhere.",
+      "thumbnailUrl": "https://cms-r2.deepclick.com/assets/i25-01-ed38ef508d5c.jpg?w=320&q=85",
+      "imageUrl": "https://cms-r2.deepclick.com/assets/i25-01-ed38ef508d5c.jpg",
+      "params": {
+        "size": "auto",
+        "n": 1
+      },
+      "recommendedModel": "gpt-image-2.5-sunburst",
+      "recommendedProvider": "openai-compat",
+      "category": "海报与字体",
+      "tags": [
+        "文字",
+        "品牌",
+        "商业",
+        "写实"
+      ],
+      "author": null,
+      "sourceUrl": "https://developers.openai.com/api/docs/guides/image-prompting"
+    },
+    {
+      "id": "i25-02",
+      "title": "白底产品图 · 透明背景",
+      "prompt": "A matte ceramic pour-over coffee dripper in warm sand color, isolated on a fully transparent background. Centered product, crisp silhouette, no halos or fringing, soft studio light from the upper left, subtle contact shadow omitted. Preserve exact geometry and material texture. No text, no props.",
+      "thumbnailUrl": "https://cms-r2.deepclick.com/assets/i25-02-746404067702.jpg?w=320&q=85",
+      "imageUrl": "https://cms-r2.deepclick.com/assets/i25-02-746404067702.jpg",
+      "params": {
+        "size": "auto",
+        "n": 1
+      },
+      "recommendedModel": "gpt-image-2.5-flare",
+      "recommendedProvider": "openai-compat",
+      "category": "产品与电商",
+      "tags": [
+        "电商",
+        "产品",
+        "干净",
+        "商业"
+      ],
+      "author": null,
+      "sourceUrl": "https://developers.openai.com/api/docs/guides/image-prompting"
+    },
+    {
+      "id": "i25-03",
+      "title": "教学图解 · 细胞呼吸",
+      "prompt": "A clean biology diagram titled \"Cellular Respiration at a Glance\" for high school students, flat vector style on off-white paper. Show glucose turning into energy inside a cell, arrows connecting the steps, and label these molecules exactly: glucose, pyruvate, ATP, NADH, FADH2, CO2, O2, H2O. Muted teal and amber palette, generous white space, every label legible.",
+      "thumbnailUrl": "https://cms-r2.deepclick.com/assets/i25-03-bd3389577da2.jpg?w=320&q=85",
+      "imageUrl": "https://cms-r2.deepclick.com/assets/i25-03-bd3389577da2.jpg",
+      "params": {
+        "size": "auto",
+        "n": 1
+      },
+      "recommendedModel": "gpt-image-2.5-sunburst",
+      "recommendedProvider": "openai-compat",
+      "category": "图表与信息图",
+      "tags": [
+        "信息图",
+        "教育",
+        "排版",
+        "文字"
+      ],
+      "author": null,
+      "sourceUrl": "https://developers.openai.com/api/docs/guides/image-prompting"
+    },
+    {
+      "id": "i25-04",
+      "title": "老船长 · 皮肤质感特写",
+      "prompt": "A photorealistic candid photograph of an elderly sailor standing on a small fishing boat at dawn. Weathered skin with visible wrinkles, pores and sun texture, a few faded traditional tattoos on his forearms, salt-stained wool sweater. Overcast north light, shallow depth of field, 85mm lens look, no text.",
+      "thumbnailUrl": "https://cms-r2.deepclick.com/assets/i25-04-7194e975e63f.jpg?w=320&q=85",
+      "imageUrl": "https://cms-r2.deepclick.com/assets/i25-04-7194e975e63f.jpg",
+      "params": {
+        "size": "auto",
+        "n": 1
+      },
+      "recommendedModel": "gpt-image-2.5-sunburst",
+      "recommendedProvider": "openai-compat",
+      "category": "摄影与写实",
+      "tags": [
+        "写实",
+        "人物",
+        "摄影"
+      ],
+      "author": null,
+      "sourceUrl": "https://developers.openai.com/api/docs/guides/image-prompting"
+    },
+    {
+      "id": "i25-05",
+      "title": "移动端记账 App 界面",
+      "prompt": "A mobile app UI screen for a personal budgeting app, presented as a clean flat mockup on a light neutral background. Top bar reads \"October\", a large balance figure \"¥12,480.00\", a horizontal spending bar, and a list of four transactions with merchant names and amounts. Rounded cards, 8px grid, soft shadows, single accent color teal. All text crisp and legible, no lorem ipsum.",
+      "thumbnailUrl": "https://cms-r2.deepclick.com/assets/i25-05-e8a2342733b8.jpg?w=320&q=85",
+      "imageUrl": "https://cms-r2.deepclick.com/assets/i25-05-e8a2342733b8.jpg",
+      "params": {
+        "size": "auto",
+        "n": 1
+      },
+      "recommendedModel": "gpt-image-2.5-flare",
+      "recommendedProvider": "openai-compat",
+      "category": "UI 与界面",
+      "tags": [
+        "UI",
+        "产品",
+        "排版",
+        "干净"
+      ],
+      "author": null,
+      "sourceUrl": "https://developers.openai.com/api/docs/guides/image-prompting"
+    },
+    {
+      "id": "i25-06",
+      "title": "极简咖啡品牌视觉",
+      "prompt": "A minimal brand identity sheet for a specialty coffee roaster named \"NORTHBOUND\". Show a wordmark, a simple compass-bean monogram, a two-color palette swatch row, and a coffee bag mockup, arranged on a warm paper background. Render the brand name exactly as \"NORTHBOUND\" wherever it appears. Swiss typographic grid, generous margins.",
+      "thumbnailUrl": "https://cms-r2.deepclick.com/assets/i25-06-002a877e3395.jpg?w=320&q=85",
+      "imageUrl": "https://cms-r2.deepclick.com/assets/i25-06-002a877e3395.jpg",
+      "params": {
+        "size": "auto",
+        "n": 1
+      },
+      "recommendedModel": "gpt-image-2.5-sunburst",
+      "recommendedProvider": "openai-compat",
+      "category": "品牌与 Logo",
+      "tags": [
+        "品牌",
+        "Logo",
+        "排版",
+        "干净"
+      ],
+      "author": null,
+      "sourceUrl": "https://developers.openai.com/api/docs/guides/image-prompting"
+    },
+    {
+      "id": "i25-07",
+      "title": "耳机主图 · 三视角组合",
+      "prompt": "An e-commerce hero image for wireless over-ear headphones in graphite, shown from three angles on a seamless light gray backdrop: three-quarter front, side profile, and folded flat. Even softbox lighting, accurate metallic and leather materials, subtle reflections, no text, no watermark, square composition.",
+      "thumbnailUrl": "https://cms-r2.deepclick.com/assets/i25-07-1b1f3592adb7.jpg?w=320&q=85",
+      "imageUrl": "https://cms-r2.deepclick.com/assets/i25-07-1b1f3592adb7.jpg",
+      "params": {
+        "size": "auto",
+        "n": 1
+      },
+      "recommendedModel": "gpt-image-2.5-flare",
+      "recommendedProvider": "openai-compat",
+      "category": "电商主图",
+      "tags": [
+        "电商",
+        "产品",
+        "商业"
+      ],
+      "author": null,
+      "sourceUrl": "https://developers.openai.com/api/docs/guides/image-prompting"
+    },
+    {
+      "id": "i25-08",
+      "title": "角色设定三视图",
+      "prompt": "A character design sheet for a young botanist explorer: front, side and back full-body views on a neutral studio background, consistent proportions and identical outfit across all three views. Field jacket with brass buttons, canvas satchel, short curly hair. Clean line art with soft cel shading, muted olive and rust palette, small label \"BOTANIST\" under the front view.",
+      "thumbnailUrl": "https://cms-r2.deepclick.com/assets/i25-08-7ccc34a00f1c.jpg?w=320&q=85",
+      "imageUrl": "https://cms-r2.deepclick.com/assets/i25-08-7ccc34a00f1c.jpg",
+      "params": {
+        "size": "auto",
+        "n": 1
+      },
+      "recommendedModel": "gpt-image-2.5-sunburst",
+      "recommendedProvider": "openai-compat",
+      "category": "人物与角色",
+      "tags": [
+        "角色",
+        "插画",
+        "设定"
+      ],
+      "author": null,
+      "sourceUrl": "https://developers.openai.com/api/docs/guides/image-prompting"
+    },
+    {
+      "id": "i25-09",
+      "title": "雨夜便利店 · 电影感",
+      "prompt": "A cinematic night photograph of a lone convenience store on a rainy street corner in Taipei, seen from across the road. Wet asphalt reflecting the store's fluorescent glow, a single customer at the counter, neon signage out of focus in the background. Anamorphic look, deep shadows, restrained color grade, no legible foreign text.",
+      "thumbnailUrl": "https://cms-r2.deepclick.com/assets/i25-09-4ed072054bc7.jpg?w=320&q=85",
+      "imageUrl": "https://cms-r2.deepclick.com/assets/i25-09-4ed072054bc7.jpg",
+      "params": {
+        "size": "auto",
+        "n": 1
+      },
+      "recommendedModel": "gpt-image-2.5-sunburst",
+      "recommendedProvider": "openai-compat",
+      "category": "场景与叙事",
+      "tags": [
+        "写实",
+        "叙事",
+        "摄影",
+        "夜景"
+      ],
+      "author": null,
+      "sourceUrl": "https://developers.openai.com/api/docs/guides/image-prompting"
+    },
+    {
+      "id": "i25-10",
+      "title": "节日促销贴 · 中文排版",
+      "prompt": "A square social media promo post for a home fragrance brand's autumn sale. Warm amber and cream palette, a single candle photographed from above on linen. Render the Chinese headline exactly as \"秋季新品 全场八折\" in a clean modern sans-serif, and a small line below reading \"10 月 1 日 - 10 月 7 日\". Text must be crisp and correctly formed, nothing else written.",
+      "thumbnailUrl": "https://cms-r2.deepclick.com/assets/i25-10-7bb1e7597567.jpg?w=320&q=85",
+      "imageUrl": "https://cms-r2.deepclick.com/assets/i25-10-7bb1e7597567.jpg",
+      "params": {
+        "size": "auto",
+        "n": 1
+      },
+      "recommendedModel": "gpt-image-2.5-flare",
+      "recommendedProvider": "openai-compat",
+      "category": "社交媒体帖子",
+      "tags": [
+        "社交",
+        "文字",
+        "商业",
+        "排版"
+      ],
+      "author": null,
+      "sourceUrl": "https://developers.openai.com/api/docs/guides/image-prompting"
+    },
+    {
+      "id": "i25-12",
+      "title": "复古旅行海报 · 山脉",
+      "prompt": "A vintage travel poster for a fictional national park, screen-print style with four flat colors and visible paper grain. Layered mountain ranges at sunrise, a lone pine in the foreground. Render the title exactly as \"CEDAR PASS\" across the lower band and \"NATIONAL PARK\" beneath it in smaller letterspaced type. 1930s WPA poster aesthetic.",
+      "thumbnailUrl": "https://cms-r2.deepclick.com/assets/i25-12-d88d3d8d51d8.jpg?w=320&q=85",
+      "imageUrl": "https://cms-r2.deepclick.com/assets/i25-12-d88d3d8d51d8.jpg",
+      "params": {
+        "size": "auto",
+        "n": 1
+      },
+      "recommendedModel": "gpt-image-2.5-flare",
+      "recommendedProvider": "openai-compat",
+      "category": "插画与艺术",
+      "tags": [
+        "插画",
+        "海报",
+        "复古",
+        "文字"
+      ],
+      "author": null,
+      "sourceUrl": "https://developers.openai.com/api/docs/guides/image-prompting"
+    },
     {
       "id": "awesome-427",
       "title": "9-frame 时尚人像拼贴",
