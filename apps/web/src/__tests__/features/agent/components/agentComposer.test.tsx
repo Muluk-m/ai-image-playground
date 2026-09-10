@@ -2,6 +2,7 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { AgentTurnReference } from '@image-playground/shared'
 import AgentComposer from '../../../../features/agent/components/AgentComposer'
 import { useAgentStore } from '../../../../features/agent/store'
 import { CanvasDoc, type ImageEl } from '../../../../features/canvas/lib/canvasDoc'
@@ -22,7 +23,7 @@ function imageElement(id: string, fileId: string): ImageEl {
 let host: HTMLDivElement
 let root: Root
 let doc: CanvasDoc
-let send: ReturnType<typeof vi.fn>
+let send: (text: string, references?: readonly AgentTurnReference[]) => Promise<void>
 
 function render(): void {
   act(() => {
@@ -73,7 +74,9 @@ function capsules(): string[] {
 beforeEach(() => {
   doc = new CanvasDoc()
   doc.restore([imageElement('canvas-1', 'file-1')], { 'file-1': PIXEL })
-  send = vi.fn(async () => {})
+  send = vi.fn<(text: string, references?: readonly AgentTurnReference[]) => Promise<void>>(
+    async () => {},
+  )
   useAgentStore.setState({ turn: 'idle', send })
   useLibraryStore.setState({ assets: [], loadAssets: async () => {} })
   host = document.createElement('div')
