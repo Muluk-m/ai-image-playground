@@ -16,6 +16,7 @@ import {
   TEST_RESULT_PAYLOAD,
   toolCallCompletion,
 } from '../helpers/agentStubs'
+import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
 import { installRecordingTaskHooks } from '../helpers/privateOverlayStub'
 
 process.env.DATABASE_URL = await resetTestDatabase('agent_cost_a292')
@@ -24,7 +25,8 @@ process.env.UPSTREAM_BASE_URL = 'http://gateway.test'
 process.env.UPSTREAM_API_KEY = 'fixture-upstream-key'
 process.env.UPSTREAM_OPENAI_API_KEY = ''
 process.env.AGENT_CHAT_MODEL = 'fixture-agent-model'
-process.env.OPERATOR_CONFIG_FILE = resolve(import.meta.dir, '../agent-billing-operator-config.json')
+// 生视频也开着：三档明细里的生视频那一档要有真任务才钉得住。
+process.env.OPERATOR_CONFIG_FILE = resolve(import.meta.dir, '../agent-video-operator-config.json')
 
 const billing = installRecordingTaskHooks()
 
@@ -32,8 +34,26 @@ const { agentRoutes } = await import('../../routes/agent')
 const { setAgentFetchForTesting } = await import('../../lib/agent/model')
 const { setQueueTaskPollingForTesting } = await import('../../lib/taskSubmission')
 const { _setChannelsForTesting } = await import('../../lib/channels')
+const { setObjectStoreForTesting } = await import('../../lib/objectStore')
 const { close: closeDb, db, schema } = await import('../../db/client')
 const { createUserSession, USER_SESSION_COOKIE } = await import('../../lib/user-session')
+
+type InternalChannel = import('../../lib/channels').InternalChannel
+
+const VIDEO_RESULT_PAYLOAD = {
+  data: [{ url: 'https://cdn.test/clip.mp4', mime: 'video/mp4', duration_seconds: 5 }],
+}
+
+const VIDEO_CHANNEL: InternalChannel = {
+  id: 'video-gateway',
+  kind: 'openai-queue',
+  label: 'Video',
+  baseUrl: 'https://gateway.example/v1',
+  auth: { type: 'bearer', secretRef: 'VIDEO_API_KEY', secret: 'k' },
+  allowedPaths: ['videos/generations'],
+  models: [{ id: 'grok-imagine-video', label: 'grok', media: 'video', capabilities: ['generate'] }],
+  defaults: { asyncTasks: true },
+}
 
 const app = new Elysia().use(agentRoutes)
 const DEVICE = 'device-abcdefgh'
@@ -79,13 +99,15 @@ async function readTurnSummaries(conversationId: string): Promise<AgentTurnSumma
 }
 
 /** 测试里的迷你 worker：把工具刚提交的任务推到完成，让工具循环能往下跑。 */
-function settleSubmittedTasks(): () => void {
+function settleSubmittedTasks(
+  resultPayload: (typeof schema.tasks.$inferInsert)['result_payload'] = TEST_RESULT_PAYLOAD,
+): () => void {
   let stopped = false
   void (async () => {
     while (!stopped) {
       await db
         .update(schema.tasks)
-        .set({ status: 'completed', result_payload: TEST_RESULT_PAYLOAD, completed_at: Date.now() })
+        .set({ status: 'completed', result_payload: resultPayload, completed_at: Date.now() })
         .where(eq(schema.tasks.status, 'queued'))
       await Bun.sleep(2)
     }
@@ -97,7 +119,8 @@ function settleSubmittedTasks(): () => void {
 
 beforeEach(async () => {
   billing.reset()
-  _setChannelsForTesting([TEST_IMAGE_CHANNEL])
+  _setChannelsForTesting([TEST_IMAGE_CHANNEL, VIDEO_CHANNEL])
+  setObjectStoreForTesting(new InMemoryObjectStore())
   setQueueTaskPollingForTesting({ intervalMs: 2, budgetMs: 30_000 })
   await db.delete(schema.tasks)
   await db.delete(schema.agent_conversations)
@@ -118,6 +141,7 @@ beforeEach(async () => {
 afterEach(() => {
   setAgentFetchForTesting()
   setQueueTaskPollingForTesting()
+  setObjectStoreForTesting()
 })
 
 afterAll(async () => {
@@ -170,6 +194,32 @@ describe('本轮消耗', () => {
     stop()
 
     expect(eventsOfType(frames, 'turnEnd')[0]!.cost).toEqual({ chat: 42, image: 85, video: 0 })
+  })
+
+  it('把本轮生视频任务的积分归集到生视频那一档', async () => {
+    setAgentFetchForTesting(
+      scriptedAgentFetch(
+        [],
+        [
+          () =>
+            toolCallCompletion({
+              id: 'call-1',
+              name: 'generateVideo',
+              args: { prompt: '海浪拍打礁石' },
+            }),
+          () => completionStream('视频好了'),
+        ],
+      ),
+    )
+    billing.settledCredits = 42
+    billing.creditsPerTask = 125
+    const stop = settleSubmittedTasks(VIDEO_RESULT_PAYLOAD)
+    const conversationId = await startConversation()
+
+    const frames = await runTurn(conversationId, '来一段海浪的视频')
+    stop()
+
+    expect(eventsOfType(frames, 'turnEnd')[0]!.cost).toEqual({ chat: 42, image: 0, video: 125 })
   })
 
   it('失败的轮消耗是零', async () => {
