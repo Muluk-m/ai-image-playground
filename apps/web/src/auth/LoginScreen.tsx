@@ -53,8 +53,8 @@ function AuthShowcase() {
   return (
     <section className="auth-showcase">
       <header className="auth-brand">
-        <img src="/pwa-icon.svg" alt="" width="30" height="30" />
-        <span>Image Playground</span>
+        <img src="/brand/muvloom-icon.svg" alt="" width="30" height="30" />
+        <span>幕芽 Muvloom</span>
       </header>
 
       <div className="auth-art-wall" aria-hidden>
@@ -87,11 +87,11 @@ function AuthShowcase() {
 
       <div className="auth-showcase-copy">
         <h2>
-          释放创意，
+          让灵感，
           <br />
-          让想象成真
+          长成画面
         </h2>
-        <p>使用先进的 AI 技术，将文字和灵感转化为精美的图像作品。</p>
+        <p>AI 图片与视频创作工作台，把你的想法变成图片、镜头与故事。</p>
       </div>
 
       <div className="auth-benefits">
@@ -103,7 +103,7 @@ function AuthShowcase() {
           <p>
             前沿 AI 模型
             <br />
-            生成高质量图像
+            图片与视频创作
           </p>
         </div>
         <div>
@@ -112,7 +112,7 @@ function AuthShowcase() {
           </span>
           <strong>快速生成</strong>
           <p>
-            秒级出图
+            多种创作方式
             <br />
             高效实现创意
           </p>
