@@ -83,6 +83,18 @@ await writer.db.insert(writer.schema.tasks).values([
     upstream_invocation_count: 1,
   },
   {
+    // 对话轮：归属和设备都跟真任务撞在一起，过滤漏一处，上面那些计数断言就会红。
+    id: 'chat-turn-1',
+    kind: 'chat' as const,
+    provider: 'openai-compat' as const,
+    model: 'fixture-agent-model',
+    status: 'completed' as const,
+    request_payload: { prompt: '', device_id: 'dev-A-aaaa' },
+    submitted_at: now,
+    completed_at: now + 1000,
+    upstream_invocation_count: 1,
+  },
+  {
     id: 'big-1',
     provider: 'openai-compat',
     model: 'gpt-image-2',
@@ -118,6 +130,7 @@ await writer.db.insert(writer.schema.users).values([
 ])
 await writer.client`UPDATE tasks SET user_id = 'user-page' WHERE id LIKE 'pg-%' OR id = 't3'`
 await writer.client`UPDATE tasks SET user_id = 'user-history' WHERE id = 'hist-60d'`
+await writer.client`UPDATE tasks SET user_id = 'user-page' WHERE id = 'chat-turn-1'`
 
 // Dynamic import keeps environment setup ahead of Admin configuration capture.
 const { listDevices, getDeviceDetail, getOverview, getTask, getUserDetail, getUserTasks } =
@@ -300,4 +313,20 @@ describe('getTask', () => {
 
 afterAll(async () => {
   await writer.close()
+})
+
+describe('对话轮不进运营后台', () => {
+  it('任务详情、用户任务列表、设备任务列表都看不到它', async () => {
+    expect(await getTask('chat-turn-1')).toBeNull()
+
+    const userTasks = await getUserTasks('user-page', 'all')
+    expect(userTasks.tasks.map((task) => task.id)).not.toContain('chat-turn-1')
+
+    const device = await getDeviceDetail('dev-A-aaaa', '7d')
+    expect(device.tasks.map((task) => task.id)).not.toContain('chat-turn-1')
+
+    // 概览的按模型统计也不该冒出对话模型。
+    const overview = await getOverview('7d')
+    expect(overview.models.map((entry) => entry.model)).not.toContain('fixture-agent-model')
+  })
 })

@@ -1,13 +1,12 @@
 import type { AgentTurnReference } from '@image-playground/shared'
 import { agentConversationTitle } from '@image-playground/shared'
+import { eq } from 'drizzle-orm'
 import { config } from '../../config'
-import { db } from '../../db/client'
+import { db, schema } from '../../db/client'
+import { finishTask } from '../../db/task-transitions'
 import { isCapabilityEnabled } from '../capabilities'
-import {
-  loadPrivateBffOverlay,
-  type PrivateTaskHooks,
-  type TaskReservationFailure,
-} from '../private-overlay'
+import type { BffTransaction, TaskReservationFailure } from '../private-overlay'
+import { loadPrivateBffOverlay } from '../private-overlay'
 import { actualChatUsage, reservedChatUsage } from './billing'
 import {
   type AgentOwner,
@@ -33,18 +32,39 @@ export type StartConversationTurnResult =
   | { readonly kind: 'authentication_required' }
   | TaskReservationFailure
 
+/**
+ * 积分占用挂在 task_id 上，而私有账本对 tasks 有外键，所以对话轮必须先有一条自己的任务行。
+ * 状态直接进 in_progress：worker 只 claim `queued`，这一行它永远捞不走。
+ */
+async function insertChatTask(
+  tx: BffTransaction,
+  input: { taskId: string; conversationId: string; userId: string; deviceId: string; now: number },
+): Promise<void> {
+  await tx.insert(schema.tasks).values({
+    id: input.taskId,
+    kind: 'chat',
+    provider: 'openai-compat',
+    model: config.agent.model,
+    status: 'in_progress',
+    // 会话内容不进后台，占位里只留设备号——它喂的是 device_id 那个生成列。
+    request_payload: { prompt: '', device_id: input.deviceId },
+    submitted_at: input.now,
+    started_at: input.now,
+    user_id: input.userId,
+    agent_conversation_id: input.conversationId,
+    agent_turn_id: input.taskId,
+  })
+}
+
 /** 结算是模块级工厂而不是用例里的闭包：闭包会把整段历史钉到轮结束。 */
-function chatSettlement(taskHooks: PrivateTaskHooks, turnId: string) {
+function chatSettlement(turnId: string) {
   return async (settlement: AgentTurnSettlement) => {
-    await db.transaction(async (tx) => {
-      await taskHooks.finalizeTask({
-        tx,
-        taskId: turnId,
-        outcome: settlement.outcome,
-        upstreamInvocationCount: settlement.upstreamInvocationCount,
-        // usage 为 null 是上游没报，缺席即按预留全额结算——退错方向就是凭空造积分。
-        ...(settlement.usage ? { actualUsage: actualChatUsage(settlement.usage) } : {}),
-      })
+    await finishTask(turnId, {
+      status: settlement.outcome,
+      completedAt: Date.now(),
+      upstreamInvocationCount: settlement.upstreamInvocationCount,
+      // usage 为 null 是上游没报，缺席即按预留全额结算——退错方向就是凭空造积分。
+      ...(settlement.usage ? { actualUsage: actualChatUsage(settlement.usage) } : {}),
     })
   }
 }
@@ -77,8 +97,19 @@ export async function startConversationTurn(
 
   const written = await db.transaction(async (tx) => {
     if (reservation) {
+      await insertChatTask(tx, {
+        taskId: turnId,
+        conversationId,
+        userId: reservation.userId,
+        deviceId,
+        now: Date.now(),
+      })
       const reserved = await overlay.taskHooks.reserveTask({ tx, ...reservation })
-      if (reserved.kind !== 'reserved') return reserved
+      if (reserved.kind !== 'reserved') {
+        // 余额不足的轮压根没发生过，别把这条任务行留给恢复扫描去收尸。
+        await tx.delete(schema.tasks).where(eq(schema.tasks.id, turnId))
+        return reserved
+      }
     }
     if (history.length === 0) {
       await setAgentConversationTitle(tx, conversationId, owner, agentConversationTitle(text))
@@ -104,7 +135,7 @@ export async function startConversationTurn(
       references,
       userId,
       deviceId,
-      settle: reservation ? chatSettlement(overlay.taskHooks, turnId) : undefined,
+      settle: reservation ? chatSettlement(turnId) : undefined,
     }),
   }
 }

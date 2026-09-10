@@ -53,9 +53,11 @@ export async function requeueTasksForPolling(ids: readonly string[]): Promise<nu
 }
 
 export type TerminalTaskUpdate = {
-  status: 'completed' | 'failed'
+  status: 'completed' | 'failed' | 'cancelled'
   completedAt: number
   attemptCount?: number
+  /** 对话轮自己数上游调了几次；生图任务不传，沿用行上累计的那个数。 */
+  upstreamInvocationCount?: number
   resultPayload?: (typeof schema.tasks.$inferInsert)['result_payload']
   errorMessage?: string
   errorType?: TaskErrorType
@@ -73,6 +75,7 @@ export async function finishTask(id: string, update: TerminalTaskUpdate): Promis
       .set({
         status: update.status,
         attempt_count: update.attemptCount,
+        upstream_invocation_count: update.upstreamInvocationCount,
         result_payload: update.resultPayload,
         error_message: update.errorMessage,
         error_type: update.errorType,

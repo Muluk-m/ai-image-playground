@@ -20,8 +20,15 @@ import type {
 
 export type { Range, SortKey } from '../../contracts'
 
-import { eq, sql } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 import { getDbHandle as getHandle } from './db'
+
+/**
+ * 对话轮也是 tasks 里的一行，但它不是运营看的东西：后台读任务一律排除它。
+ * 别名版与裸版各一个，SQL 里两种写法都有；新写查询忘了加，`queries.test.ts` 会红。
+ */
+const QUEUE_ONLY = sql`kind = 'queue'`
+const QUEUE_ONLY_T = sql`t.kind = 'queue'`
 
 function rangeMs(range: Range): number {
   return range === '1d' ? 24 * 3600_000 : range === '7d' ? 7 * 24 * 3600_000 : 30 * 24 * 3600_000
@@ -109,7 +116,7 @@ export async function listDevices(range: Range, sort: SortKey): Promise<ListDevi
       COALESCE(q.count, 0) AS today_count
     FROM tasks t
     LEFT JOIN daily_quota q ON q.device_id = t.device_id AND q.date = ${today}
-    WHERE t.submitted_at >= ${new Date(since)} AND t.device_id IS NOT NULL
+    WHERE ${QUEUE_ONLY_T} AND t.submitted_at >= ${new Date(since)} AND t.device_id IS NOT NULL
     GROUP BY t.device_id, q.count
     ORDER BY ${orderBy}
     LIMIT ${LIST_LIMIT + 1}
@@ -182,7 +189,7 @@ export async function listUsers(search = ''): Promise<ListUsersResult> {
     LEFT JOIN LATERAL (
       SELECT COUNT(*) AS task_count, MAX(t.submitted_at) AS last_task_at
       FROM tasks t
-      WHERE t.user_id = u.id
+      WHERE t.user_id = u.id AND ${QUEUE_ONLY_T}
     ) task_stats ON TRUE
     WHERE ${term} = ''
        OR POSITION(${term} IN LOWER(u.username)) > 0
@@ -194,7 +201,7 @@ export async function listUsers(search = ''): Promise<ListUsersResult> {
     WITH user_activity AS (
       SELECT u.id, GREATEST(u.last_login_at, MAX(t.submitted_at)) AS last_activity_at
       FROM users u
-      LEFT JOIN tasks t ON t.user_id = u.id
+      LEFT JOIN tasks t ON t.user_id = u.id AND ${QUEUE_ONLY_T}
       GROUP BY u.id
     ),
     recent_tasks AS (
@@ -202,7 +209,7 @@ export async function listUsers(search = ''): Promise<ListUsersResult> {
         COUNT(*) AS submissions,
         COUNT(*) FILTER (WHERE status = 'failed') AS failures
       FROM tasks
-      WHERE submitted_at >= NOW() - INTERVAL '24 hours'
+      WHERE ${QUEUE_ONLY} AND submitted_at >= NOW() - INTERVAL '24 hours'
     )
     SELECT
       (SELECT COUNT(*) FROM users) AS total_users,
@@ -259,6 +266,7 @@ async function getTaskVolume(range: Range, userId?: string): Promise<TaskVolumeB
     LEFT JOIN tasks t
       ON t.submitted_at >= b.bucket
      AND t.submitted_at < b.bucket + ${bucketStep}
+     AND ${QUEUE_ONLY_T}
      ${ownerCondition}
     GROUP BY b.bucket
     ORDER BY b.bucket
@@ -289,13 +297,13 @@ export async function getOverview(range: Range): Promise<OverviewResult> {
         ) FILTER (WHERE started_at IS NOT NULL AND completed_at IS NOT NULL) AS p95_duration_ms,
         COALESCE(SUM(upstream_invocation_count), 0) AS upstream_invocations
       FROM tasks
-      WHERE submitted_at >= ${since}
+      WHERE ${QUEUE_ONLY} AND submitted_at >= ${since}
     `),
     getTaskVolume(range),
     db.execute(sql`
       SELECT COALESCE(error_type, 'unknown') AS error_type, COUNT(*) AS count
       FROM tasks
-      WHERE submitted_at >= ${since} AND status = 'failed'
+      WHERE ${QUEUE_ONLY} AND submitted_at >= ${since} AND status = 'failed'
       GROUP BY COALESCE(error_type, 'unknown')
       ORDER BY count DESC, error_type
     `),
@@ -309,7 +317,7 @@ export async function getOverview(range: Range): Promise<OverviewResult> {
             / GREATEST(COALESCE((request_payload->>'n')::integer, 1), 1)
         ) FILTER (WHERE status IN ('completed', 'failed', 'cancelled')) AS average_multiplier
       FROM tasks
-      WHERE submitted_at >= ${since}
+      WHERE ${QUEUE_ONLY} AND submitted_at >= ${since}
       GROUP BY model
       ORDER BY count DESC, model
     `),
@@ -395,7 +403,7 @@ export async function getUserDetail(userId: string): Promise<UserDetailResult | 
       CROSS JOIN LATERAL (
         SELECT COUNT(*) AS task_count, MAX(t.submitted_at) AS last_task_at
         FROM tasks t
-        WHERE t.user_id = u.id
+        WHERE t.user_id = u.id AND ${QUEUE_ONLY_T}
       ) task_stats
       ${ACTIVE_SESSION_JOIN}
       WHERE u.id = ${userId}
@@ -432,7 +440,7 @@ export async function getUserTasks(
   const rows = (await db.execute(sql`
     SELECT ${TASK_LIST_COLUMNS}
     FROM tasks t
-    WHERE t.user_id = ${userId}
+    WHERE ${QUEUE_ONLY_T} AND t.user_id = ${userId}
       ${statusCondition}
       ${keyset}
     ORDER BY t.submitted_at DESC, t.id DESC
@@ -478,7 +486,7 @@ export async function getDeviceDetail(
           COALESCE(q.count, 0) AS today_count
         FROM tasks t
         LEFT JOIN daily_quota q ON q.device_id = t.device_id AND q.date = ${today}
-        WHERE t.device_id = ${deviceId} AND t.submitted_at >= ${new Date(since)}
+        WHERE ${QUEUE_ONLY_T} AND t.device_id = ${deviceId} AND t.submitted_at >= ${new Date(since)}
         GROUP BY t.device_id, q.count
       `) as unknown as Promise<Array<Record<string, unknown>>>)
 
@@ -500,7 +508,9 @@ export async function getDeviceDetail(
       upstream_invocation_count: schema.tasks.upstream_invocation_count,
     })
     .from(schema.tasks)
-    .where(sql`device_id = ${deviceId} AND submitted_at >= ${new Date(since)} ${keyset}`)
+    .where(
+      sql`${QUEUE_ONLY} AND device_id = ${deviceId} AND submitted_at >= ${new Date(since)} ${keyset}`,
+    )
     .orderBy(sql`submitted_at DESC, id DESC`)
     .limit(PAGE_SIZE + 1)
 
@@ -544,7 +554,11 @@ export async function getDeviceDetail(
 
 export async function getTask(taskId: string): Promise<TaskDetail | null> {
   const { db, schema } = getHandle()
-  const rows = await db.select().from(schema.tasks).where(eq(schema.tasks.id, taskId)).limit(1)
+  const rows = await db
+    .select()
+    .from(schema.tasks)
+    .where(and(eq(schema.tasks.id, taskId), eq(schema.tasks.kind, 'queue')))
+    .limit(1)
   const task = rows[0]
   if (!task) return null
 

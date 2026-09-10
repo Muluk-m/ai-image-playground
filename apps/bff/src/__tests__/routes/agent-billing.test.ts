@@ -76,6 +76,7 @@ function turnIdOf(frames: readonly ReceivedFrame[]): string {
 
 beforeEach(async () => {
   billing.reset()
+  await db.delete(schema.tasks)
   await db.delete(schema.agent_conversations)
   await db.delete(schema.user_sessions)
   await db.delete(schema.users)
@@ -117,6 +118,35 @@ describe('对话轮的预扣', () => {
     // 预留 500 输出 token × 4 倍 = 固定 2；剩下的零头是这条短提示词的输入估算。
     expect(reservations[0]!.unitMultiplier).toBeGreaterThan(2)
     expect(reservations[0]!.unitMultiplier).toBeLessThan(2.5)
+  })
+
+  it('预扣之前先落一条对话任务，占用才挂得住，且不带用户原话', async () => {
+    setAgentFetchForTesting(recordingAgentFetch([], () => completionStream('好')))
+    const conversationId = await startConversation()
+
+    const { frames } = await runTurn(conversationId, '把背景换成浅木色')
+
+    const [task] = await db.select().from(schema.tasks)
+    expect(task).toMatchObject({
+      id: turnIdOf(frames),
+      kind: 'chat',
+      user_id: USER_ID,
+      agent_conversation_id: conversationId,
+      agent_turn_id: turnIdOf(frames),
+    })
+    // worker 只 claim queued；这一行永远捞不走。
+    expect(task!.status).not.toBe('queued')
+    expect(JSON.stringify(task!.request_payload)).not.toContain('把背景换成浅木色')
+  })
+
+  it('余额不足时连那条对话任务也不留', async () => {
+    setAgentFetchForTesting(recordingAgentFetch([], () => completionStream('好')))
+    billing.answer = { kind: 'insufficient_credits', required: 78, available: 12 }
+    const conversationId = await startConversation()
+
+    await runTurn(conversationId, '把背景换成浅木色')
+
+    expect(await db.select().from(schema.tasks)).toEqual([])
   })
 
   it('余额不足在发送前拦住：不落消息、不调上游、不留轮', async () => {
@@ -170,15 +200,14 @@ describe('对话轮的结算', () => {
 
     const { frames } = await runTurn(conversationId, '把背景换成浅木色')
 
-    expect(settlements).toEqual([
-      {
-        taskId: turnIdOf(frames),
-        outcome: 'completed',
-        upstreamInvocationCount: 1,
-        // 上游报 12 输入 / 4 输出：(12 + 4 × 4) / 1000。
-        actualUsage: { quantity: 1, unitMultiplier: 0.028 },
-      },
-    ])
+    expect(settlements).toHaveLength(1)
+    expect(settlements[0]).toMatchObject({
+      taskId: turnIdOf(frames),
+      outcome: 'completed',
+      upstreamInvocationCount: 1,
+      // 上游报 12 输入 / 4 输出：(12 + 4 × 4) / 1000。
+      actualUsage: { quantity: 1, unitMultiplier: 0.028 },
+    })
   })
 
   it('上游没报用量时不带实际用量，按预留全额结算', async () => {

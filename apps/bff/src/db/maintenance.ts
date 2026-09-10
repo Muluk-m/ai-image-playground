@@ -3,7 +3,7 @@ import { and, eq, inArray, isNotNull, lt, notInArray, type SQL } from 'drizzle-o
 import { log } from '../lib/logger'
 import { objectStore } from '../lib/objectStore'
 import { loadPrivateBffOverlay } from '../lib/private-overlay'
-import { planNextAttempt } from '../lib/retry'
+import { planNextAttempt, type RetryPlan } from '../lib/retry'
 import { ASSET_OBJECT_ROOT, assetOwnerPrefix } from '../lib/sync-assets'
 import { db, schema } from './client'
 import { finishTask, requeueTask, requeueTasksForPolling } from './task-transitions'
@@ -49,6 +49,7 @@ async function recoverTasks(scope: SQL, now: number): Promise<RecoveredTasks> {
   const candidates = await db
     .select({
       id: schema.tasks.id,
+      kind: schema.tasks.kind,
       attemptCount: schema.tasks.attempt_count,
       upstreamTaskIds: schema.tasks.upstream_task_ids,
     })
@@ -65,7 +66,9 @@ async function recoverTasks(scope: SQL, now: number): Promise<RecoveredTasks> {
   for (const candidate of candidates) {
     if (candidate.upstreamTaskIds?.length) continue
     const attemptJustFailed = candidate.attemptCount + 1
-    const plan = planNextAttempt(attemptJustFailed, now)
+    // 对话轮不能回队：worker 会把它当生图任务重跑一遍。断了就是断了，退款收场。
+    const plan: RetryPlan =
+      candidate.kind === 'chat' ? { shouldRetry: false } : planNextAttempt(attemptJustFailed, now)
     const written = plan.shouldRetry
       ? await requeueTask(candidate.id, attemptJustFailed, plan.nextRetryAt)
       : await finishTask(candidate.id, {
