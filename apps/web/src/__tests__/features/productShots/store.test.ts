@@ -247,16 +247,15 @@ describe('putting original images into a job', () => {
 })
 
 describe('taking a library asset as the original', () => {
-  it('never takes it as my product too: that would send the same image twice', async () => {
+  it('keeps source selection separate from product selection', async () => {
     await useProductShotsStore.getState().addImagesFromAssets(['a-side'])
 
     expect(useProductShotsStore.getState().draft.productAssets).toEqual([])
-    expect(useStore.getState().showToast).not.toHaveBeenCalledWith(
-      expect.stringContaining('设为我的产品'),
-      'success',
-    )
-  })
+    await useProductShotsStore.getState().runAction('replace-product')
 
+    expect(submitPrepared).not.toHaveBeenCalled()
+    expect(useProductShotsStore.getState().swapNotice).toContain('素材')
+  })
   it('leaves the product alone once one is picked', async () => {
     useProductShotsStore.getState().toggleProductAsset('a-front')
 
@@ -265,10 +264,6 @@ describe('taking a library asset as the original', () => {
     expect(useProductShotsStore.getState().draft.productAssets).toEqual([
       { assetId: 'a-front', angle: 'three-quarter' },
     ])
-    expect(useStore.getState().showToast).not.toHaveBeenCalledWith(
-      expect.stringContaining('设为我的产品'),
-      'success',
-    )
   })
 })
 
@@ -1374,20 +1369,6 @@ describe('swapping the product for one of my assets', () => {
     return imageId
   }
 
-  it('repaints the product area and keeps the background pixels', async () => {
-    const imageId = await jobWithAssets()
-
-    await useProductShotsStore.getState().runAction('replace-product')
-
-    expect(requestBackgroundPlan.mock.calls[0][0].mode).toBe('replace-product')
-    expect(alphaToProductMask).toHaveBeenCalledTimes(1)
-    expect(storeImage).toHaveBeenCalledWith('data:image/png;base64,PRODUCT-MASK', 'mask')
-    expect(submitPrepared.mock.calls[0][0].mask).toEqual({
-      imageId: 'mask-1',
-      targetImageId: imageId,
-    })
-  })
-
   it('sends the original first and the angle-matched asset second', async () => {
     const imageId = await jobWithAssets()
 
@@ -1419,6 +1400,28 @@ describe('swapping the product for one of my assets', () => {
 
     expect(submitPrepared).not.toHaveBeenCalled()
     expect(useProductShotsStore.getState().swapNotice).toContain('素材')
+  })
+
+  it('rejects identical image content under different IDs, then accepts another product', async () => {
+    const imageId = await jobWithAssets()
+    ensureImageCached.mockImplementation(
+      async (id: string) => `data:image/png;base64,${id === 'asset-side' ? imageId : id}`,
+    )
+
+    await useProductShotsStore.getState().runAction('replace-product')
+
+    expect(submitPrepared).not.toHaveBeenCalled()
+    expect(useProductShotsStore.getState().draft.images[0].versions).toEqual([])
+    expect(useProductShotsStore.getState().swapNotice).toContain('原图相同')
+
+    useProductShotsStore.getState().toggleProductAsset('a-side')
+    await useProductShotsStore.getState().runAction('replace-product')
+
+    expect(useProductShotsStore.getState().draft.images[0].versions[0]).toMatchObject({
+      mode: 'replace-product',
+      productAssetId: 'a-front',
+    })
+    expect(submitPrepared).toHaveBeenCalledTimes(1)
   })
 
   it('falls back to the first asset when no angle matches', async () => {

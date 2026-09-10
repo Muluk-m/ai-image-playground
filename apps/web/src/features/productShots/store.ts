@@ -984,6 +984,14 @@ async function prepareSwap(
       )
     : null
 
+  if (
+    mode === 'replace-product' &&
+    product &&
+    (product.image.id === imageId || product.image.dataUrl === dataUrl)
+  ) {
+    throw new Error('产品素材与原图相同，请选择另一张产品图后再换产品')
+  }
+
   const side = maskSideFor(mode)
   if (side) stage('matte')
   const prepared = side

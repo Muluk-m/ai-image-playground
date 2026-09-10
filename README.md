@@ -27,7 +27,7 @@ English | [中文](./README.zh.md)
 
 ## ✨ Features
 
-Two ways to work, one shared history:
+Three ways to work, one shared history:
 
 ### 🎨 Create mode — infinite canvas
 
@@ -45,6 +45,11 @@ Two ways to work, one shared history:
 - **Reference images + masks** — up to 16 reference images; the OpenAI path includes a visual mask editor
 - **Waterfall history** — every generation saved locally with its effective parameters, favoritable and searchable
 - **Inspiration library** — hundreds of high-quality prompts you can apply with one click
+
+### Product shots
+
+- **Separate source and product selection** — adding an original from the asset library does not select it as the replacement product. Choose replacement material explicitly; using the same image ID or identical image data for both is rejected before image generation.
+- **Native mask editing** — masks guide product or background replacement, but do not guarantee pixel-identical preservation outside the edited area.
 
 ### ⚙️ Runs anywhere
 
