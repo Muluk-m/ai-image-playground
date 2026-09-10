@@ -6,6 +6,7 @@ import { formatImageRatio } from '../lib/size'
 import { retryTask, updateTaskInStore, useStore } from '../store'
 import type { TaskRecord } from '../types'
 import { CodeIcon } from './icons'
+import { compactModelName, ModelLogo } from './ModelIdentity'
 
 /** task-pop-in 入场动画窗口；超过这个秒数后 mount 的 task 视作历史回放，不再播。 */
 const FRESH_POP_IN_WINDOW_MS = 600
@@ -208,7 +209,8 @@ export default function TaskCard({
   const showN = task.params.n > 1 || nDisplay.isMismatch
 
   const showTransparentOutput = Boolean(task.transparentOutput || task.params.transparent_output)
-  const showModel = Boolean(task.apiModel)
+  const model = task.apiModel ?? ''
+  const showModel = Boolean(model)
 
   return (
     <div className="relative rounded-xl">
@@ -405,20 +407,8 @@ export default function TaskCard({
                     className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-gray-100 dark:bg-white/[0.04] text-gray-600 dark:text-gray-300 text-xs flex-shrink-0"
                     title={task.apiModel}
                   >
-                    <svg
-                      className="w-3 h-3 flex-shrink-0 text-gray-400"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"
-                      />
-                    </svg>
-                    <span>{task.apiModel}</span>
+                    <ModelLogo model={model} />
+                    <span>{compactModelName(model, model)}</span>
                   </span>
                 )}
                 {/* API Name */}
