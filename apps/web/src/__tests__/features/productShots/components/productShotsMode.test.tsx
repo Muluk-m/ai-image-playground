@@ -1,16 +1,21 @@
 // @vitest-environment jsdom
 import { IDBFactory } from 'fake-indexeddb'
-import { act } from 'react'
+import { act, StrictMode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useLibraryStore } from '../../../../features/library/store'
 import ProductShotsMode from '../../../../features/productShots/components/ProductShotsMode'
 import { useProductShotsStore } from '../../../../features/productShots/store'
-import type { SourceMatte } from '../../../../features/productShots/types'
+import type { ProductShotJob, SourceMatte } from '../../../../features/productShots/types'
 import { ProductMatteError } from '../../../../lib/productMatte'
 import { getPersistedState, useStore } from '../../../../store'
 import { silenceMatteLog } from '../../../helpers/matteLog'
-import { browserMatte, browserOnlyCapabilities, settleUntil as settleRounds } from '../fixtures'
+import {
+  browserMatte,
+  browserOnlyCapabilities,
+  productShotJob,
+  settleUntil as settleRounds,
+} from '../fixtures'
 
 declare global {
   // eslint-disable-next-line no-var
@@ -151,8 +156,9 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 
-function render() {
-  act(() => root.render(<ProductShotsMode />))
+function render({ strict = false } = {}) {
+  const tree = <ProductShotsMode />
+  act(() => root.render(strict ? <StrictMode>{tree}</StrictMode> : tree))
 }
 
 /** React 的每一轮都要包在 act 里，否则状态更新的警告会淹掉断言。 */
@@ -1573,5 +1579,95 @@ describe('the matte laid over the source image', () => {
 
     expect(rows[0].textContent).toContain('已抠 · U²-Netp · CPU')
     expect(rows[1].textContent).toContain('蒙版不可靠')
+  })
+})
+
+describe('entering the mode', () => {
+  const OLDER = productShotJob('job-a', '旧任务', 1_700_000_000_000)
+  const NEWER = productShotJob('job-b', '较新任务', 1_700_000_009_000)
+
+  /** 列表读回停在这里，用例自己决定它落地时用户已经做了什么。 */
+  function pendingLoad(...records: ProductShotJob[]) {
+    const gate = deferred<void>()
+    useProductShotsStore.setState({
+      loadJobs: vi.fn(async () => {
+        await gate.promise
+        useProductShotsStore.setState({ jobs: records })
+      }),
+    })
+    return async () => {
+      gate.resolve()
+      await settle()
+    }
+  }
+
+  function jobName(): string {
+    const element = document.querySelector<HTMLElement>('[data-job-name]')
+    if (!element) throw new Error('no job name')
+    return element.textContent ?? ''
+  }
+
+  function activeJobId(): string | null {
+    return useProductShotsStore.getState().activeJobId
+  }
+
+  it('opens the most recently updated job', async () => {
+    const landed = pendingLoad(OLDER, NEWER)
+    render()
+    await landed()
+
+    expect(activeJobId()).toBe('job-b')
+    expect(jobName()).toBe('较新任务')
+  })
+
+  it('leaves the job the user already had open', async () => {
+    useProductShotsStore.setState({ jobs: [OLDER, NEWER] })
+    act(() => useProductShotsStore.getState().selectJob('job-a'))
+    const landed = pendingLoad(OLDER, NEWER)
+    render()
+    await landed()
+
+    expect(activeJobId()).toBe('job-a')
+  })
+
+  it('leaves a draft that already has source images', async () => {
+    const landed = pendingLoad(OLDER, NEWER)
+    render()
+    upload('上传原图', new File(['x'], '主图.png', { type: 'image/png' }))
+    await settleUntil(() => useProductShotsStore.getState().draft.images.length > 0)
+    await landed()
+
+    expect(activeJobId()).not.toBe('job-b')
+    expect(useProductShotsStore.getState().draft.images).toHaveLength(1)
+  })
+
+  it('leaves a draft whose settings were already typed into', async () => {
+    const landed = pendingLoad(OLDER, NEWER)
+    render()
+    // 一张图都没有的草稿不落盘，被顶掉就找不回来了。
+    act(() => useProductShotsStore.getState().setPreference('北欧风，浅木色'))
+    await landed()
+
+    expect(activeJobId()).toBeNull()
+    expect(useProductShotsStore.getState().draft.preference).toBe('北欧风，浅木色')
+  })
+
+  it('stays on the empty draft when there is no job to open', async () => {
+    const landed = pendingLoad()
+    render()
+    await landed()
+
+    expect(activeJobId()).toBeNull()
+    expect(jobName()).toBe('新任务')
+  })
+
+  it('keeps the job the user picks while the list is still loading', async () => {
+    useProductShotsStore.setState({ jobs: [OLDER, NEWER] })
+    const landed = pendingLoad(OLDER, NEWER)
+    render({ strict: true })
+    act(() => useProductShotsStore.getState().selectJob('job-a'))
+    await landed()
+
+    expect(activeJobId()).toBe('job-a')
   })
 })

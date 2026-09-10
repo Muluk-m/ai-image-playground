@@ -147,6 +147,8 @@ export interface ProductShotsState {
 
   loadJobs: () => Promise<void>
   startNewJob: () => void
+  /** 进入模式时接着上次做。 */
+  openLatestJob: () => void
   selectJob: (id: string) => void
   renameJob: (id: string, name: string) => Promise<void>
   deleteJob: (id: string) => Promise<void>
@@ -224,6 +226,21 @@ function draftFromJob(job: ProductShotJob): ProductShotsDraft {
   }
 }
 
+/** 「最近」的唯一口径，任务列表与自动开任务同序。 */
+export function byRecency(a: ProductShotJob, b: ProductShotJob): number {
+  return b.updatedAt - a.updatedAt
+}
+
+/**
+ * 草稿还是刚打开那一份，自动开任务才可以顶上去。
+ * 整份比而不是逐字段列：往草稿加字段时这条保护要跟着覆盖，漏一个就会静默吞掉用户输入。
+ */
+function draftUntouched(state: ProductShotsState): boolean {
+  return (
+    state.listingUrl.trim() === '' && JSON.stringify(state.draft) === JSON.stringify(emptyDraft())
+  )
+}
+
 /** 版本级残留：预览、蒙版浮层、方案抽屉与本版说明都只对当前选中的那张图成立。 */
 const DROPPED_WITH_SELECTION = {
   previewVersionId: null,
@@ -275,6 +292,13 @@ export const useProductShotsStore = create<ProductShotsState>((set, get) => ({
       batch: null,
       mattingImageIds: [],
     }),
+
+  openLatestJob: () => {
+    const state = get()
+    if (state.activeJobId || !draftUntouched(state)) return
+    const [latest] = [...state.jobs].sort(byRecency)
+    if (latest) get().selectJob(latest.id)
+  },
 
   selectJob: (id) => {
     const target = get().jobs.find((job) => job.id === id)

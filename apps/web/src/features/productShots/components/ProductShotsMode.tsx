@@ -17,7 +17,8 @@ const STICKY_COLUMN = 'lg:sticky lg:self-start'
 
 export default function ProductShotsMode() {
   useEffect(() => {
-    void useProductShotsStore.getState().loadJobs()
+    const { loadJobs, openLatestJob } = useProductShotsStore.getState()
+    void loadJobs().then(openLatestJob)
     // 重开一个换产品的任务时，右栏的素材缩略图与提交都要现成的素材记录。
     void useLibraryStore.getState().loadAssets()
   }, [])
