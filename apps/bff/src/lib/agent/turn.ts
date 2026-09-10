@@ -7,10 +7,19 @@ import type {
   AgentTurnReference,
   AgentTurnUsage,
 } from '@image-playground/shared'
-import { agentTextFromBlocks, agentToolResultSummary } from '@image-playground/shared'
+import {
+  agentClarificationSummary,
+  agentTextFromBlocks,
+  agentToolResultSummary,
+} from '@image-playground/shared'
 import { db } from '../../db/client'
 import { log } from '../logger'
 import type { TaskOutcome } from '../private-overlay'
+import {
+  AGENT_CLARIFICATION_TOOL,
+  clarificationFromResult,
+  clarificationTool,
+} from './clarification'
 import { compactionBudget } from './compaction'
 import { compactionSettings } from './compaction-settings'
 import { createCompactionTransform } from './compaction-transform'
@@ -43,6 +52,7 @@ const SYSTEM_PROMPT = [
   '用户指着某张图说要改时调改图工具，参考图用他引用的那张，产出会落在源图旁边，源图不动。',
   '用户提到某个素材但没有引用它时，先用读素材库工具按名字查到图片 id，再拿去改图。',
   '工具产出会自动落到用户的画布上，不要让用户自己去保存。',
+  '拿不准他要哪一种时调澄清工具给出几个具体选项，不要反问一大段。',
 ].join('\n')
 
 export interface AgentTurnSettlement {
@@ -69,7 +79,11 @@ export interface StartAgentTurnInput {
 /** 工具结果块回放成一行文字：pi 的转录里没有历史轮的工具调用，配不成对的工具结果会被上游拒。 */
 function replayText(message: AgentMessageView): string {
   return message.content
-    .map((block) => (block.type === 'text' ? block.text : agentToolResultSummary(block)))
+    .map((block) => {
+      if (block.type === 'text') return block.text
+      if (block.type === 'clarification') return agentClarificationSummary(block)
+      return agentToolResultSummary(block)
+    })
     .join('\n')
     .trim()
 }
@@ -196,13 +210,16 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
       systemPrompt: SYSTEM_PROMPT,
       model: agentModel(),
       messages: replayed(input.history),
-      tools: agentTools({
-        conversationId: input.conversationId,
-        turnId: input.turnId,
-        userId: input.userId,
-        deviceId: input.deviceId,
-        images,
-      }),
+      tools: [
+        ...agentTools({
+          conversationId: input.conversationId,
+          turnId: input.turnId,
+          userId: input.userId,
+          deviceId: input.deviceId,
+          images,
+        }),
+        clarificationTool(),
+      ],
     },
     streamFn: agentStreamFn(),
     // 逐个跑：每次调用都是一条计费任务，并发起来事件次序也对不上产出落画布的顺序。
@@ -325,6 +342,24 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
           stage,
         })
       }
+    }
+    if (event.type === 'tool_execution_end' && event.toolName === AGENT_CLARIFICATION_TOOL) {
+      const block = event.isError ? null : clarificationFromResult(event.result)
+      if (!block) return
+      const messageId = crypto.randomUUID()
+      const { type: _asked, ...fields } = block
+      events.emit({ type: 'clarification', messageId, ...fields })
+      write(async () => {
+        await appendAgentMessage(db, {
+          id: messageId,
+          conversationId,
+          turnId,
+          role: 'assistant',
+          content: [block],
+        })
+        storedAny = true
+      })
+      return
     }
     if (event.type === 'tool_execution_end') {
       const pending = openTools.get(event.toolCallId)
