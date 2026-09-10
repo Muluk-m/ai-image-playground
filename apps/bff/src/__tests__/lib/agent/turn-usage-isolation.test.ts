@@ -78,5 +78,9 @@ describe('startAgentTurn usage', () => {
     expect(summaryCalls[0]!.model).toBe('fixture-summary-model')
     const end = events.at(-1)!
     expect(end.type === 'turnEnd' && end.usage).toEqual({ inputTokens: 12, outputTokens: 4 })
+
+    // 摘要只塑造送给模型的输入，不进事件流：轮事件表会原样发给前端。
+    const streamed = JSON.stringify(events)
+    for (const line of Object.values(NARRATIVE)) expect(streamed).not.toContain(line)
   })
 })
