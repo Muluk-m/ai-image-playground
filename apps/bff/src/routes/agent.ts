@@ -1,21 +1,19 @@
 import type { AuthUserView } from '@image-playground/shared'
-import { AGENT_USER_MESSAGE_MAX_CHARS, agentConversationTitle } from '@image-playground/shared'
+import { AGENT_USER_MESSAGE_MAX_CHARS } from '@image-playground/shared'
 import { Elysia, t } from 'elysia'
-import { db } from '../db/client'
 import {
   type AgentOwner,
   adoptDeviceConversations,
-  appendAgentMessage,
   createAgentConversation,
   findAgentConversation,
   listAgentConversations,
   listAgentMessages,
-  setAgentConversationTitle,
   softDeleteAgentConversation,
 } from '../lib/agent/conversations'
 import { agentTurnHasEvents, readAgentTurnEvents } from '../lib/agent/events'
 import { type RunningTurn, runningTurn } from '../lib/agent/runningTurns'
 import { agentReplayStream, agentTurnStream } from '../lib/agent/sse'
+import { startConversationTurn } from '../lib/agent/start-turn'
 import { agentTurnRateLimited } from '../lib/agent/turn-rate-limit'
 import { capabilityUnavailable, isCapabilityEnabled } from '../lib/capabilities'
 import { badRequestOnValidation, clientAddress, deviceIdSchema } from '../lib/http'
@@ -78,30 +76,25 @@ export const agentRoutes = new Elysia()
       if (!conversation) return status(404, NOT_FOUND)
       if (runningTurn(conversation.id)) return status(409, { error: 'turn_already_running' })
 
-      const history = await listAgentMessages(conversation.id, owner)
-      if (history.length === 0) {
-        await setAgentConversationTitle(conversation.id, owner, agentConversationTitle(body.text))
-      }
-      const turnId = crypto.randomUUID()
-      const userMessage = await appendAgentMessage(db, {
-        conversationId: conversation.id,
-        turnId,
-        role: 'user',
-        content: [{ type: 'text', text: body.text }],
-      })
-
-      // 动态引入：pi 的模块图有 60-90ms，`agent:chat` 关着的部署不该在启动时付。
-      const { startAgentTurn } = await import('../lib/agent/turn')
-      const turn = await startAgentTurn({
-        conversationId: conversation.id,
-        turnId,
-        userMessageId: userMessage.id,
-        history,
+      const started = await startConversationTurn({
+        conversation,
+        owner,
+        userId: authUser?.id ?? null,
         text: body.text,
         userId: authUser?.id ?? null,
         deviceId: body.deviceId,
       })
-      return agentTurnStream(turn.read(0))
+      if (started.kind === 'authentication_required') {
+        return status(401, { error: 'unauthorized' })
+      }
+      if (started.kind === 'insufficient_credits') {
+        const { required, available } = started
+        return status(402, { error: 'insufficient_credits', required, available })
+      }
+      if (started.kind === 'price_unavailable') {
+        return status(422, { error: 'model_price_unavailable', model: started.model })
+      }
+      return agentTurnStream(started.turn.read(0))
     },
     {
       params: t.Object({ id: t.String() }),

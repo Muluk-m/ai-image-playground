@@ -1,4 +1,4 @@
-import { Agent, type AgentMessage } from '@earendil-works/pi-agent-core'
+import { Agent, type AgentMessage, estimateTokens } from '@earendil-works/pi-agent-core'
 import type {
   AgentMessageView,
   AgentToolName,
@@ -9,6 +9,9 @@ import type {
 import { agentTextFromBlocks, agentToolResultSummary } from '@image-playground/shared'
 import { db } from '../../db/client'
 import { log } from '../logger'
+import type { TaskOutcome } from '../private-overlay'
+import { compactionBudget } from './compaction'
+import { compactionSettings } from './compaction-settings'
 import { createCompactionTransform } from './compaction-transform'
 import { appendAgentMessage, touchAgentConversation } from './conversations'
 import { lastAgentEventSeq } from './events'
@@ -38,6 +41,13 @@ const SYSTEM_PROMPT = [
   '工具产出会自动落到用户的画布上，不要让用户自己去保存。',
 ].join('\n')
 
+/** 收尾结算的入参。轮跑完才知道用量，所以结算与预扣不在同一事务里。 */
+export interface AgentTurnSettlement {
+  readonly outcome: TaskOutcome
+  readonly usage: AgentTurnUsage | null
+  readonly upstreamInvocationCount: number
+}
+
 export interface StartAgentTurnInput {
   readonly conversationId: string
   readonly turnId: string
@@ -47,6 +57,8 @@ export interface StartAgentTurnInput {
   /** 工具提交的图片任务归到这个身份下，计费与配额因此与用户自己提交的一致。 */
   readonly userId: string | null
   readonly deviceId: string
+  /** 收尾结算；缺席即这个部署不计费。 */
+  readonly settle?: (settlement: AgentTurnSettlement) => Promise<void>
 }
 
 /** 工具结果块回放成一行文字：pi 的转录里没有历史轮的工具调用，配不成对的工具结果会被上游拒。 */
@@ -80,6 +92,24 @@ function replayed(history: readonly AgentMessageView[]): AgentMessage[] {
     )
   }
   return messages
+}
+
+/**
+ * 预扣要在起轮前定额，只能估。上限取压缩阈值：压缩保证送出去的输入不超过它，
+ * 不封顶就会拿整段未压缩的历史去预扣，长会话每一轮都按上限占住余额。
+ */
+export function estimateTurnInputTokens(
+  history: readonly AgentMessageView[],
+  text: string,
+): number {
+  const now = Date.now()
+  const messages: AgentMessage[] = [
+    { role: 'user', content: [{ type: 'text', text: SYSTEM_PROMPT }], timestamp: now },
+    ...replayed(history),
+    { role: 'user', content: [{ type: 'text', text }], timestamp: now },
+  ]
+  const estimated = messages.reduce((total, message) => total + estimateTokens(message), 0)
+  return Math.min(estimated, compactionBudget(compactionSettings()).threshold)
 }
 
 interface OpenAssistantMessage {
@@ -130,6 +160,29 @@ function toolResultBlock(
     status: 'succeeded',
     title: pending.title,
     ...(details?.images?.length ? { images: details.images } : {}),
+  }
+}
+
+/** 回放进来的助手消息不是本轮打的：上游调用次数只数这一轮新增的那几条。 */
+function upstreamCallsOf(
+  messages: readonly AgentMessage[],
+  history: readonly AgentMessageView[],
+): number {
+  const assistants = messages.filter((message) => message.role === 'assistant').length
+  const replayedAssistants = history.filter((message) => message.role === 'assistant').length
+  return Math.max(0, assistants - replayedAssistants)
+}
+
+/** 结算失败不该把已经流给用户的这一轮拖成报错；占用留给运维扫，不在这里重试。 */
+async function settleTurn(
+  settle: StartAgentTurnInput['settle'],
+  settlement: AgentTurnSettlement,
+): Promise<void> {
+  if (!settle) return
+  try {
+    await settle(settlement)
+  } catch (thrown) {
+    log.error({ event: 'agent.turn_settle_failed', err: thrown }, 'agent turn settlement failed')
   }
 }
 
@@ -324,6 +377,12 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
       if (!error && !aborted && !storedAny) error = 'agent_run_failed'
 
       const usage = reportedUsage(agent.state.messages.at(-1))
+      const outcome: TaskOutcome = error ? 'failed' : aborted ? 'cancelled' : 'completed'
+      await settleTurn(input.settle, {
+        outcome,
+        usage,
+        upstreamInvocationCount: upstreamCallsOf(agent.state.messages, input.history),
+      })
       log.info(
         { event: 'agent.turn_settled', turnId, usage, error: error ?? null },
         'agent turn settled',
