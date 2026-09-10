@@ -33,10 +33,10 @@ function seedLegacyDb(records: Record<string, Array<Record<string, unknown>>>): 
   })
 }
 
-/** 整条视频之前的分镜：一镜一条视频，没有时间轴。 */
-function seedLegacyStoryboard(record: Record<string, unknown>): Promise<void> {
+/** version 之前的分镜：默认播到整条视频之前那一版。 */
+function seedLegacyStoryboard(record: Record<string, unknown>, version = 9): Promise<void> {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(BASE_DB_NAME, 9)
+    const request = indexedDB.open(BASE_DB_NAME, version)
     request.onupgradeneeded = () => {
       request.result.createObjectStore(STORE_STORYBOARDS, { keyPath: 'id' })
     }
@@ -134,6 +134,7 @@ describe('upgrading a storyboard written before whole-video generation', () => {
         '两镜讲清一杯冰饮\n镜头1（0-5秒）：空杯静置，缓慢推进\n镜头2（5-10秒）：气泡水注入，手持跟拍',
       shotImagesRequested: true,
       videoTaskId: null,
+      referenceImageIds: [],
       shots: [
         { no: 1, description: '空杯静置', camera: '缓慢推进', seconds: 5, startSeconds: 0 },
         { no: 2, description: '气泡水注入', camera: '手持跟拍', seconds: 5, startSeconds: 5 },
@@ -141,13 +142,54 @@ describe('upgrading a storyboard written before whole-video generation', () => {
     })
   })
 
-  it('leaves a storyboard that already carries a whole-video prompt alone', async () => {
+  it('leaves the shots of a storyboard that already carries a whole-video prompt alone', async () => {
     await seedLegacyStoryboard({ id: 'board-1', videoPrompt: '写好的整条提示词', shots: [] })
 
     expect((await readAll(STORE_STORYBOARDS))[0]).toEqual({
       id: 'board-1',
       videoPrompt: '写好的整条提示词',
+      referenceImageIds: [],
       shots: [],
+    })
+  })
+})
+
+describe('upgrading a storyboard written when there was one reference image', () => {
+  it('turns the single reference into a one-element list', async () => {
+    await seedLegacyStoryboard(
+      { id: 'board-1', videoPrompt: '写好的整条提示词', referenceImageId: 'ref-1', shots: [] },
+      10,
+    )
+
+    expect((await readAll(STORE_STORYBOARDS))[0]).toEqual({
+      id: 'board-1',
+      videoPrompt: '写好的整条提示词',
+      referenceImageIds: ['ref-1'],
+      shots: [],
+    })
+  })
+
+  it('turns a storyboard that had no reference into an empty list', async () => {
+    await seedLegacyStoryboard(
+      { id: 'board-1', videoPrompt: '写好的整条提示词', referenceImageId: null, shots: [] },
+      10,
+    )
+
+    expect((await readAll(STORE_STORYBOARDS))[0]!.referenceImageIds).toEqual([])
+  })
+
+  it('carries a pre-timeline storyboard through both upgrades in one pass', async () => {
+    await seedLegacyStoryboard({
+      id: 'board-1',
+      summary: '两镜讲清一杯冰饮',
+      referenceImageId: 'ref-1',
+      shots: [{ no: 1, description: '空杯静置', camera: '缓慢推进', seconds: 5 }],
+    })
+
+    expect((await readAll(STORE_STORYBOARDS))[0]).toMatchObject({
+      referenceImageIds: ['ref-1'],
+      totalSeconds: 5,
+      videoPrompt: '两镜讲清一杯冰饮\n镜头1（0-5秒）：空杯静置，缓慢推进',
     })
   })
 })

@@ -39,7 +39,7 @@ const RECORD: StoryboardRecord = {
   totalSeconds: 10,
   videoPrompt: '冰饮玻璃杯，吧台，晨光\n镜头1（0-5秒）：空杯静置，缓慢推进',
   style: '写实',
-  referenceImageId: null,
+  referenceImageIds: [],
   shotImagesRequested: true,
   videoTaskId: 'video-whole',
   shots: [

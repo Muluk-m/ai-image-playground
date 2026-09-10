@@ -17,11 +17,12 @@ import { isClientCapabilityEnabled } from '../../../lib/clientCapabilities'
 import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
 import { FOLLOWS_FIRST_FRAME } from '../lib/aspect'
 import { useVideoStore } from '../store'
-import StoryboardComposer, { REFERENCE_LABEL } from '../storyboard/components/StoryboardComposer'
+import StoryboardComposer from '../storyboard/components/StoryboardComposer'
 import {
   CAMERA_MOVES,
   VIDEO_COMPOSER_SOURCE_LABELS,
   VIDEO_COMPOSER_SOURCES,
+  VIDEO_FRAME_SLOT_LABELS,
   VIDEO_SOURCES,
   type VideoFrameSlot,
 } from '../types'
@@ -126,6 +127,8 @@ function VideoSubmitPanel({
           </div>
           <FrameSourceStrip
             showLastFrame={support.lastFrame}
+            selectedImageIds={draft.firstFrameImageId ? [draft.firstFrameImageId] : []}
+            onSelect={(imageId) => useVideoStore.getState().setFrame('first', imageId)}
             onPickAll={() => onPickFrame('first')}
           />
         </div>
@@ -279,15 +282,18 @@ export default function VideoComposer() {
       />
 
       {storyboard ? (
-        <StoryboardComposer support={support} onPickReference={() => setPickerSlot('first')} />
+        <StoryboardComposer support={support} />
       ) : (
         <VideoSubmitPanel support={support} options={options} onPickFrame={setPickerSlot} />
       )}
 
       {pickerSlot && (
         <FramePicker
-          slot={pickerSlot}
-          label={storyboard ? REFERENCE_LABEL : undefined}
+          label={VIDEO_FRAME_SLOT_LABELS[pickerSlot]}
+          onSelect={(imageId) => {
+            useVideoStore.getState().setFrame(pickerSlot, imageId)
+            setPickerSlot(null)
+          }}
           onClose={() => setPickerSlot(null)}
         />
       )}

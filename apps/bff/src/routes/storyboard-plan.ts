@@ -1,5 +1,6 @@
 import {
   STORYBOARD_IDEA_MAX_CHARS,
+  STORYBOARD_MAX_REFERENCE_IMAGES,
   STORYBOARD_SHOT_COUNTS,
   STORYBOARD_STYLE_MAX_CHARS,
   STORYBOARD_TOTAL_SECONDS,
@@ -20,7 +21,9 @@ const planBodySchema = t.Object({
   totalSeconds: t.UnionEnum(STORYBOARD_TOTAL_SECONDS),
   aspectRatio: t.UnionEnum(VIDEO_ASPECT_RATIOS),
   style: t.Optional(t.String({ maxLength: STORYBOARD_STYLE_MAX_CHARS })),
-  referenceImage: t.Optional(imageDataUrlSchema()),
+  referenceImages: t.Optional(
+    t.Array(imageDataUrlSchema(), { maxItems: STORYBOARD_MAX_REFERENCE_IMAGES }),
+  ),
 })
 
 // 每次调用都烧上游视觉模型额度，所以匿名请求不能进来。
