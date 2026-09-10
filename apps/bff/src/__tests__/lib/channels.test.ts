@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import { readFileSync } from 'node:fs'
-import { CHANNEL_CAPABILITIES } from '@image-playground/shared'
+import { CHANNEL_CAPABILITIES, type ChannelCapability } from '@image-playground/shared'
 import {
   _setChannelsForTesting,
   ChannelsLoadError,
@@ -411,6 +411,25 @@ describe('parseChannelsConfig', () => {
 
 describe('shipped channels.json', () => {
   const shipped: unknown = JSON.parse(readFileSync(defaultChannelsPath(), 'utf8'))
+
+  it('advertises both GPT Image 2.5 models with mask support, Flare first', () => {
+    const result = parseChannelsConfig(shipped, (key) =>
+      key === 'OPENAI_API_KEY' ? 'openai-key' : undefined,
+    )
+
+    const capabilities: ChannelCapability[] = [
+      'generate',
+      'edit',
+      'mask',
+      'quality',
+      'n',
+      'moderation',
+    ]
+    expect(result.channels.find((c) => c.id === 'openai-images')?.models).toEqual([
+      { id: 'gpt-image-2.5-flare', label: 'GPT Image 2.5 Flare', capabilities },
+      { id: 'gpt-image-2.5-sunburst', label: 'GPT Image 2.5 Sunburst', capabilities },
+    ])
+  })
 
   it('drops the Seedance channel when ARK_BASE_URL is unset', () => {
     const result = parseChannelsConfig(shipped, () => undefined)

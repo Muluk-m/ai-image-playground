@@ -122,6 +122,23 @@ describe('Astra 图片 Responses 调用', () => {
     expect(charged).toBe(2)
   })
 
+  it.each([
+    'gpt-image-2.5-flare',
+    'gpt-image-2.5-sunburst',
+  ])('%s 同样走 Responses 桥接，图片工具保留被选中的模型', async (model) => {
+    setUpstreamFetchForTesting(async (_url, init) => {
+      const body = JSON.parse(String(init?.body))
+      if (body.tools?.[0]?.model !== model) {
+        return jsonResponse({ error: { message: '未走 Responses 桥接' } }, 400)
+      }
+      return sse([completed])
+    })
+
+    const result = await callUpstream({ ...request, model, request: { prompt: '蓝色方块' } })
+
+    expect(extractMeta('openai-compat', result.payload).images).toHaveLength(1)
+  })
+
   it('跨 UTF-8 与 CRLF 分片、多行 data 仍能交付图片，不重复收取终态中的同一张图', async () => {
     const text = `: keepalive\r\n\r\ndata: {"type":"response.output_item.done",\r\ndata: "output_index":0,"item":${JSON.stringify(item)}}\r\n\r\ndata: ${JSON.stringify(completed)}\r\n\r\n`
     const bytes = new TextEncoder().encode(text)
