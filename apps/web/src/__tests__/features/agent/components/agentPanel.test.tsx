@@ -196,6 +196,51 @@ describe('AgentPanel', () => {
     expect(placeOnCanvas).toHaveBeenCalledWith('tool-1')
   })
 
+  it('澄清渲染成可点的单选，点一下把那一项发成下一条消息', () => {
+    const send = vi.fn(async () => {})
+    useAgentStore.setState({
+      send,
+      messages: [
+        {
+          kind: 'clarification',
+          id: 'clarify-1',
+          question: '要哪种风格？',
+          options: ['写实照片', '扁平插画'],
+        },
+      ],
+    })
+    render()
+
+    expect(host.textContent).toContain('要哪种风格？')
+    const option = [...host.querySelectorAll('button')].find(
+      (button) => button.textContent === '扁平插画',
+    )!
+    act(() => option.click())
+
+    expect(send).toHaveBeenCalledWith('扁平插画')
+  })
+
+  it('作过答的澄清只剩状态标签，选项不再可点', () => {
+    useAgentStore.setState({
+      messages: [
+        {
+          kind: 'clarification',
+          id: 'clarify-1',
+          question: '要哪种风格？',
+          options: ['写实照片', '扁平插画'],
+        },
+        { kind: 'text', id: 'user-2', role: 'user', text: '写实照片', streaming: false },
+      ],
+    })
+    render()
+
+    expect(host.textContent).toContain('已回答')
+    const option = [...host.querySelectorAll('button')].find(
+      (button) => button.textContent === '扁平插画',
+    ) as HTMLButtonElement
+    expect(option.disabled).toBe(true)
+  })
+
   it('能力关闭时什么都不渲染', async () => {
     await enableAgent(false)
     render()

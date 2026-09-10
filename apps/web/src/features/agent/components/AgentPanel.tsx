@@ -19,7 +19,8 @@ import {
   USER_BUBBLE,
 } from '../agentStyles'
 import { agentPanelPresent } from '../panelLayout'
-import { useAgentStore } from '../store'
+import { answerableClarificationId, useAgentStore } from '../store'
+import AgentClarification from './AgentClarification'
 import AgentComposer from './AgentComposer'
 import AgentLayers from './AgentLayers'
 import AgentReply from './AgentReply'
@@ -107,6 +108,7 @@ export default function AgentPanel({ doc }: { doc: CanvasDoc }) {
   const { setOpen, setTab, load, startNewConversation, refreshConversations } =
     useAgentStore.getState()
   const logRef = useRef<HTMLDivElement>(null)
+  const answerableId = answerableClarificationId(messages)
 
   useEffect(() => {
     void load()
@@ -207,6 +209,15 @@ export default function AgentPanel({ doc }: { doc: CanvasDoc }) {
           {messages.length === 0 && <p className={`text-xs ${INK_3}`}>还没有对话</p>}
           {messages.map((message) => {
             if (message.kind === 'tool') return <AgentToolCard key={message.id} message={message} />
+            if (message.kind === 'clarification') {
+              return (
+                <AgentClarification
+                  key={message.id}
+                  message={message}
+                  answered={message.id !== answerableId}
+                />
+              )
+            }
             if (message.role === 'user') {
               return (
                 <p key={message.id} className={USER_BUBBLE}>
