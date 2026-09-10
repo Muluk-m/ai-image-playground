@@ -2,6 +2,9 @@ import type {
   AgentActiveTurnView,
   AgentConversationView,
   AgentFrame,
+  AgentMessageView,
+  AgentToolImage,
+  AgentToolResultBlock,
   AgentTurnEvent,
 } from '@image-playground/shared'
 import { agentMessageText } from '@image-playground/shared'
@@ -13,12 +16,14 @@ import {
   createConversation,
   fetchConversations,
   fetchMessages,
+  fetchToolImage,
   interjectTurn,
   removeConversation,
   resumeTurn,
   startTurn,
 } from './lib/agentClient'
-import type { AgentPanelMessage, AgentPanelTab, AgentTurnStatus } from './types'
+import { agentCanvasSink } from './lib/canvasSink'
+import type { AgentPanelMessage, AgentPanelTab, AgentToolMessage, AgentTurnStatus } from './types'
 
 const TURN_FAILED = '这一轮没有跑完'
 const TURN_RATE_LIMITED = '发送太频繁，稍后再试'
@@ -64,16 +69,64 @@ function replaceOrAppend(
   return messages.map((one, at) => (at === index ? message : one))
 }
 
+function toolCard(block: AgentToolResultBlock, id: string): AgentToolMessage {
+  return {
+    kind: 'tool',
+    id,
+    toolCallId: block.toolCallId,
+    title: block.title,
+    status: block.status,
+    ...(block.images ? { images: block.images } : {}),
+    ...(block.message ? { message: block.message } : {}),
+  }
+}
+
+function panelMessage(message: AgentMessageView): AgentPanelMessage {
+  const result = message.content.find(
+    (block): block is AgentToolResultBlock => block.type === 'toolResult',
+  )
+  if (result) return toolCard(result, message.id)
+  return {
+    kind: 'text',
+    id: message.id,
+    role: message.role,
+    text: agentMessageText(message),
+    streaming: false,
+  }
+}
+
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
 const failPatch = (state: AgentState, message = TURN_FAILED) => ({
   turn: 'failed' as const,
   activeTurn: null,
   error: message,
-  messages: state.messages.filter((one) => !one.streaming),
+  messages: state.messages.filter((one) => one.kind !== 'text' || !one.streaming),
 })
 
+/** 画布上已经有的不再落一遍：续播会把同一条 `toolEnd` 重放给我们。 */
+async function landOnCanvas(images: readonly AgentToolImage[]): Promise<void> {
+  const sink = agentCanvasSink()
+  if (!sink) return
+  const missing = images.filter((image) => !sink.has(image.imageId))
+  if (missing.length === 0) return
+  try {
+    const items = await Promise.all(
+      missing.map(async (image) => ({
+        imageId: image.imageId,
+        dataUrl: await fetchToolImage(image),
+      })),
+    )
+    await sink.place(items)
+  } catch (thrown) {
+    console.warn('[agent] 产出没能落到画布上', thrown)
+  }
+}
+
 export const useAgentStore = create<AgentState>((set, get) => {
+  // 落图排成一条链：帧循环不等它，文字流才不会被几 MB 的下载卡住；串起来则保住多张图的次序。
+  let landing: Promise<void> = Promise.resolve()
+
   /** 事件按 id 幂等：重连重发的帧、以及续播重放的整轮，都要落到同一个结果上。 */
   const apply = (event: AgentTurnEvent, pendingUserText: string | null) => {
     set((state) => {
@@ -86,6 +139,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
               : [
                   ...state.messages,
                   {
+                    kind: 'text' as const,
                     id: event.userMessageId,
                     role: 'user' as const,
                     text: pendingUserText ?? '',
@@ -96,6 +150,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
         case 'assistantStart':
           return {
             messages: replaceOrAppend(state.messages, {
+              kind: 'text',
               id: event.messageId,
               role: 'assistant',
               text: '',
@@ -105,6 +160,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
         case 'interjection':
           return {
             messages: replaceOrAppend(state.messages, {
+              kind: 'text',
               id: event.messageId,
               role: 'user',
               text: event.text,
@@ -114,7 +170,34 @@ export const useAgentStore = create<AgentState>((set, get) => {
         case 'textDelta':
           return {
             messages: state.messages.map((one) =>
-              one.id === event.messageId ? { ...one, text: one.text + event.delta } : one,
+              one.kind === 'text' && one.id === event.messageId
+                ? { ...one, text: one.text + event.delta }
+                : one,
+            ),
+          }
+        case 'toolStart':
+          return {
+            messages: replaceOrAppend(state.messages, {
+              kind: 'tool',
+              id: event.messageId,
+              toolCallId: event.toolCallId,
+              title: event.title,
+              status: 'running',
+            }),
+          }
+        case 'toolProgress':
+          return {
+            messages: state.messages.map((one) =>
+              one.kind === 'tool' && one.id === event.messageId
+                ? { ...one, stage: event.stage }
+                : one,
+            ),
+          }
+        case 'toolEnd':
+          return {
+            messages: replaceOrAppend(
+              state.messages,
+              toolCard({ ...event, type: 'toolResult' }, event.messageId),
             ),
           }
         case 'turnEnd':
@@ -123,11 +206,15 @@ export const useAgentStore = create<AgentState>((set, get) => {
             turn: 'idle' as const,
             activeTurn: null,
             messages: state.messages.map((one) =>
-              one.streaming ? { ...one, streaming: false } : one,
+              one.kind === 'text' && one.streaming ? { ...one, streaming: false } : one,
             ),
           }
       }
     })
+    if (event.type === 'toolEnd' && event.status === 'succeeded') {
+      const images = event.images ?? []
+      landing = landing.then(() => landOnCanvas(images))
+    }
   }
 
   const fail = (message?: string) => set((state) => failPatch(state, message))
@@ -150,7 +237,10 @@ export const useAgentStore = create<AgentState>((set, get) => {
             attempt = -1
           }
           apply(frame.event, pendingUserText)
-          if (frame.event.type === 'turnEnd') return
+          if (frame.event.type === 'turnEnd') {
+            await landing
+            return
+          }
         }
       } catch (thrown) {
         // 轮已经不在了，再重连也接不上；其余的断流与请求失败都走重连。
@@ -218,14 +308,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
         get().startNewConversation()
         return
       }
-      set({
-        messages: state.messages.map((message) => ({
-          id: message.id,
-          role: message.role,
-          text: agentMessageText(message),
-          streaming: false,
-        })),
-      })
+      set({ messages: state.messages.map(panelMessage) })
       if (!state.activeTurn) return
       set({ turn: 'running', error: null, activeTurn: state.activeTurn })
       await follow(conversationId, resumeTurn(conversationId, state.activeTurn.turnId, 0), null)

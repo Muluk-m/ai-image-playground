@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import { HEADER_OFFSET } from '../../../components/panelStyles'
 import { useStore } from '../../../store'
 import AgentPanel from '../../agent/components/AgentPanel'
+import { setAgentCanvasSink } from '../../agent/lib/canvasSink'
+import { createAgentCanvasSink } from '../lib/agentCanvasSink'
 import { CanvasDoc } from '../lib/canvasDoc'
 import { CanvasEditor } from '../lib/editor'
 import { loadScene, PERSIST_DEBOUNCE_MS, saveScene } from '../lib/persistence'
@@ -25,6 +27,12 @@ export default function CanvasMode() {
     const canvasDoc = new CanvasDoc()
     return { doc: canvasDoc, editor: new CanvasEditor(canvasDoc) }
   })
+
+  // 智能体的产出经这个出口落到画布上；离开创作模式就没有画布可写了。
+  useEffect(() => {
+    setAgentCanvasSink(createAgentCanvasSink(editor))
+    return () => setAgentCanvasSink(null)
+  }, [editor])
 
   // DEV 调试出口：E2E / 排查用（生产构建剔除）。
   useEffect(() => {

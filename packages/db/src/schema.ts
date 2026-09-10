@@ -318,6 +318,9 @@ export const tasks = pgTable(
     upstream_invocation_count: integer('upstream_invocation_count').notNull().default(0),
     next_retry_at: epochMs('next_retry_at'),
     device_id: text('device_id').generatedAlwaysAs(sql`request_payload ->> 'device_id'`),
+    /** 智能体工具提交的任务带上会话与轮；用户自己提交的任务两列都是 null。 */
+    agent_conversation_id: text('agent_conversation_id'),
+    agent_turn_id: text('agent_turn_id'),
   },
   (t) => [
     index('idx_tasks_status').on(t.status),
@@ -336,6 +339,9 @@ export const tasks = pgTable(
     index('idx_tasks_user_status_time')
       .on(t.user_id, t.status, t.submitted_at.desc(), t.id.desc())
       .where(sql`${t.user_id} IS NOT NULL`),
+    index('idx_tasks_agent_turn')
+      .on(t.agent_conversation_id, t.agent_turn_id)
+      .where(sql`${t.agent_turn_id} IS NOT NULL`),
     index('idx_tasks_admin_device_time').on(
       t.device_id,
       t.submitted_at.desc(),

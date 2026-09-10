@@ -3,6 +3,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import AgentPanel from '../../../../features/agent/components/AgentPanel'
+import { setAgentCanvasSink } from '../../../../features/agent/lib/canvasSink'
 import { useAgentStore } from '../../../../features/agent/store'
 import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
 import { bootstrapClientCapabilities } from '../../../../lib/clientCapabilities'
@@ -70,6 +71,7 @@ beforeEach(async () => {
 afterEach(() => {
   act(() => root.unmount())
   host.remove()
+  setAgentCanvasSink(null)
   vi.unstubAllGlobals()
 })
 
@@ -104,7 +106,13 @@ describe('AgentPanel', () => {
   it('助手回复带展开入口，展开后收起', () => {
     useAgentStore.setState({
       messages: [
-        { id: 'assistant-1', role: 'assistant', text: '好'.repeat(400), streaming: false },
+        {
+          kind: 'text',
+          id: 'assistant-1',
+          role: 'assistant',
+          text: '好'.repeat(400),
+          streaming: false,
+        },
       ],
     })
     render()
@@ -114,6 +122,43 @@ describe('AgentPanel', () => {
     expect(texts('button')).toContain('收起')
     act(() => useAgentStore.getState().toggleExpanded('assistant-1'))
     expect(texts('button')).not.toContain('收起')
+  })
+
+  it('结果卡上的缩略图点一下定位到画布上的同一个对象', async () => {
+    const focused: string[] = []
+    setAgentCanvasSink({
+      has: () => true,
+      async place() {},
+      focus: (imageId) => focused.push(imageId),
+      async thumbnail() {
+        return 'data:image/png;base64,AQID'
+      },
+    })
+    useAgentStore.setState({
+      messages: [
+        {
+          kind: 'tool',
+          id: 'tool-1',
+          toolCallId: 'call-1',
+          title: '一只橘猫坐在窗台上',
+          status: 'succeeded',
+          images: [
+            { imageId: 'agent_image_1', taskId: 'task-1', outputIndex: 0, mime: 'image/png' },
+          ],
+        },
+      ],
+    })
+    render()
+    // 缩略图是画布异步渲出来的，等它落进 DOM。
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    expect(host.textContent).toContain('一只橘猫坐在窗台上')
+    const thumbnail = host.querySelector('img')!.closest('button') as HTMLButtonElement
+    act(() => thumbnail.click())
+
+    expect(focused).toEqual(['agent_image_1'])
   })
 
   it('能力关闭时什么都不渲染', async () => {

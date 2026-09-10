@@ -1,6 +1,6 @@
 import { getImageDimensions } from '../../../lib/canvasImage'
 import type { CallApiResult } from '../../../lib/imageApiShared'
-import type { CanvasEditor, CanvasTaskStatus, PlaceholderView } from './editor'
+import type { CanvasEditor, CanvasTaskStatus, PlacedImage, PlaceholderView } from './editor'
 import { Box } from './geometry'
 import { fitToTarget, PLACEMENT_GAP, type PlacementTarget } from './placement'
 
@@ -56,12 +56,12 @@ export async function placeImagesOnCanvas(
   editor: CanvasEditor,
   dataUrls: string[],
   target: PlacementTarget,
-  meta?: Record<string, string>,
+  opts: { meta?: Record<string, string>; ids?: readonly string[] } = {},
 ): Promise<void> {
   const centerY = target.y + target.h / 2
   const sizes = await Promise.all(dataUrls.map(getImageDimensions))
 
-  const items: Array<{ dataUrl: string; x: number; y: number; width: number; height: number }> = []
+  const items: PlacedImage[] = []
   for (let i = 0; i < dataUrls.length; i++) {
     const { width, height } = sizes[i]
     const fitted = fitToTarget(width, height, target)
@@ -72,9 +72,10 @@ export async function placeImagesOnCanvas(
       y: centerY - fitted.h / 2,
       width: fitted.w,
       height: fitted.h,
+      ...(opts.ids?.[i] ? { id: opts.ids[i] } : {}),
     })
   }
-  const ids = editor.placeImages(items, meta)
+  const ids = editor.placeImages(items, opts.meta)
   if (ids.length === 0) return
   editor.setSelectedElements(ids)
 
@@ -101,6 +102,6 @@ async function placeResults(
   const anchor = placeholder ? targetFromShape(placeholder) : target
   const provenance = placeholder ? { prompt: placeholder.meta.prompt } : undefined
   // 放置成功后才删占位框：中途失败（如图片解码）时它得留着，错误态才有处可标
-  await placeImagesOnCanvas(editor, dataUrls, anchor, provenance)
+  await placeImagesOnCanvas(editor, dataUrls, anchor, { meta: provenance })
   if (placeholder) editor.deleteElement(placeholderId)
 }

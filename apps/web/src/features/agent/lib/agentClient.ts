@@ -3,9 +3,11 @@ import type {
   AgentConversationView,
   AgentFrame,
   AgentMessageView,
+  AgentToolImage,
 } from '@image-playground/shared'
 import { AGENT_FRAME_SEPARATOR, parseAgentFrame } from '@image-playground/shared'
 import { authenticatedBffFetch } from '../../../lib/authClient'
+import { fetchImageDataUrl } from '../../../lib/channels/queueClient'
 import { getDeviceId } from '../../../lib/deviceId'
 import { bffBaseUrl } from '../../../lib/runtimeConfig'
 
@@ -155,4 +157,8 @@ export async function interjectTurn(
     url(`/conversations/${conversationId}/turns/${turnId}/interject`),
     jsonInit({ deviceId: getDeviceId(), text }),
   )
+}
+
+export function fetchToolImage(image: AgentToolImage): Promise<string> {
+  return fetchImageDataUrl(bffBaseUrl(), image.taskId, image.outputIndex, image.mime)
 }

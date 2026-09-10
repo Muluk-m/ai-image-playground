@@ -10,6 +10,7 @@ export interface AgentCall {
   readonly authorization: string | null
   readonly model: string
   readonly messages: { role: string; content: unknown }[]
+  readonly tools?: { function: { name: string } }[]
   readonly stream_options?: { include_usage?: boolean }
 }
 
@@ -38,6 +39,20 @@ export function completion({ deltas, usage }: CompletionOptions): Response {
   return stream.responseFor()
 }
 
+export interface ToolCallSpec {
+  readonly id: string
+  readonly name: string
+  readonly args: Record<string, unknown>
+}
+
+/** 上游要求调工具的那一条回复。一条消息里可以有多个调用，各占一个 `index`。 */
+export function toolCallCompletion(...calls: ToolCallSpec[]): Response {
+  const stream = controlledCompletion()
+  for (const [index, call] of calls.entries()) stream.pushToolCall(index, call)
+  stream.finish()
+  return stream.responseFor()
+}
+
 export function recordingAgentFetch(
   calls: AgentCall[],
   answer: (signal?: AbortSignal) => Response,
@@ -50,6 +65,7 @@ export function recordingAgentFetch(
       authorization: new Headers(request.headers).get('authorization'),
       model: sent.model,
       messages: sent.messages,
+      tools: sent.tools,
       stream_options: sent.stream_options,
     })
     return answer(request.signal)
@@ -74,6 +90,7 @@ export interface ControlledCompletion {
   /** 中止要靠 signal 把上游流打断，否则 pi 会一直等这条永不结束的流。 */
   responseFor(signal?: AbortSignal): Response
   push(content: string): void
+  pushToolCall(index: number, call: ToolCallSpec): void
   finish(): void
 }
 
@@ -104,6 +121,34 @@ export function controlledCompletion(
       })
       started = true
     },
+    pushToolCall(index, call) {
+      // 参数分两帧发：上游本来就是逐段吐 arguments，一帧发完测不到拼接。
+      const [head, tail] = splitArguments(call.args)
+      send({
+        id: 'completion-1',
+        choices: [
+          {
+            index: 0,
+            delta: {
+              ...(started ? {} : { role: 'assistant' }),
+              tool_calls: [
+                {
+                  index,
+                  id: call.id,
+                  type: 'function',
+                  function: { name: call.name, arguments: head },
+                },
+              ],
+            },
+          },
+        ],
+      })
+      started = true
+      send({
+        id: 'completion-1',
+        choices: [{ index: 0, delta: { tool_calls: [{ index, function: { arguments: tail } }] } }],
+      })
+    },
     finish() {
       send({
         id: 'completion-1',
@@ -114,4 +159,10 @@ export function controlledCompletion(
       controller.close()
     },
   }
+}
+
+function splitArguments(args: Record<string, unknown>): [string, string] {
+  const encoded = JSON.stringify(args)
+  const at = Math.floor(encoded.length / 2)
+  return [encoded.slice(0, at), encoded.slice(at)]
 }
