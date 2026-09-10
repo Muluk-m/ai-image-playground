@@ -101,7 +101,7 @@ function isUser(entry: CompactionMessage): boolean {
   return entry.message.role === 'user'
 }
 
-function messageText(entry: CompactionMessage): string {
+export function compactionMessageText(entry: CompactionMessage): string {
   const message = entry.message
   if (!('content' in message)) return ''
   const content: string | readonly unknown[] = message.content
@@ -165,7 +165,7 @@ function section(value: string): string {
  * 但不许消失——用户看不到自己说过的话被吞掉。
  */
 function verbatimSection(covered: readonly CompactionMessage[], budget: number): string {
-  const texts = covered.filter(isUser).map(messageText)
+  const texts = covered.filter(isUser).map(compactionMessageText)
   const kept = new Set<number>()
   let used = 0
   for (let index = texts.length - 1; index >= 0; index -= 1) {
