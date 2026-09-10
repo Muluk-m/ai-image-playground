@@ -269,6 +269,19 @@ describe('会话列表', () => {
     expect(state().messages).toHaveLength(1)
   })
 
+  it('第二轮之后不再重拉列表', async () => {
+    turnResponse = () => turnStream(TURN_START, TURN_END)
+    await state().send('第一句')
+    const afterFirst = fetchMock.mock.calls.length
+
+    await state().send('第二句')
+
+    const listCalls = fetchMock.mock.calls
+      .slice(afterFirst)
+      .filter(([input]) => String(input).includes('/api/agent/conversations?'))
+    expect(listCalls).toEqual([])
+  })
+
   it('开新会话只清空当前，不建空会话', async () => {
     useAgentStore.setState({
       conversationId: 'c-1',

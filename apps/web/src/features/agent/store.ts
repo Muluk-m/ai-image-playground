@@ -11,10 +11,10 @@ import {
   AgentRequestError,
   abortTurn,
   createConversation,
-  deleteConversation,
   fetchConversations,
   fetchMessages,
   interjectTurn,
+  removeConversation,
   resumeTurn,
   startTurn,
 } from './lib/agentClient'
@@ -130,7 +130,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
     })
   }
 
-  const fail = (message = TURN_FAILED) => set((state) => failPatch(state, message))
+  const fail = (message?: string) => set((state) => failPatch(state, message))
 
   /** 跟一轮到底：流断了就带断点重连，直到读到终帧或者一直接不上。 */
   const follow = async (
@@ -194,7 +194,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
       const conversationId = safeLocalStorage.getItem(conversationKey())
       await Promise.all([
         get().refreshConversations(),
-        conversationId ? get().selectConversation(conversationId) : Promise.resolve(),
+        ...(conversationId ? [get().selectConversation(conversationId)] : []),
       ])
     },
 
@@ -233,7 +233,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
 
     async deleteConversation(conversationId) {
       try {
-        await deleteConversation(conversationId)
+        await removeConversation(conversationId)
       } catch {
         return
       }
@@ -259,6 +259,8 @@ export const useAgentStore = create<AgentState>((set, get) => {
         return
       }
 
+      // 首轮才会定标题、才会有新会话进列表；之后每轮再拉一次是白拉。
+      const firstTurn = get().messages.length === 0
       set({ turn: 'running', error: null, activeTurn: null })
       let target = conversationId
       try {
@@ -272,8 +274,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
         return
       }
       await follow(target, startTurn(target, trimmed), trimmed)
-      // 首轮定了标题，列表的标题与排序都要跟着走。
-      await get().refreshConversations()
+      if (firstTurn) await get().refreshConversations()
     },
 
     async abort() {

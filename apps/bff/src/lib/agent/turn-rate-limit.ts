@@ -1,34 +1,18 @@
+import type { QuotaValues } from '@image-playground/shared'
 import { config } from '../../config'
-import { createRateLimiter, type RateLimiter } from '../rate-limit'
+import { createWindowLimiter } from '../rate-limit'
 
-const perDeviceMinute = config.operator.quotas['agent:turns-per-device-minute']
-const perAddressHour = config.operator.quotas['agent:turns-per-ip-hour']
+export type AgentTurnRateLimiter = (deviceId: string, address: string) => boolean
 
-const deviceLimiter = createRateLimiter({
-  maxFailures: perDeviceMinute,
-  windowMs: 60_000,
-  lockMs: 60_000,
-  maxEntries: 4096,
-})
-
-const addressLimiter = createRateLimiter({
-  maxFailures: perAddressHour,
-  windowMs: 60 * 60_000,
-  lockMs: 60 * 60_000,
-  maxEntries: 4096,
-})
-
-function over(limiter: RateLimiter, threshold: number, key: string): boolean {
-  if (threshold <= 0) return false
-  return limiter.isLocked(key) || limiter.recordFailure(key)
+/** 两维都要：设备 id 由浏览器自己生成，换一个就绕开设备维。 */
+export function createAgentTurnRateLimiter(
+  quotas: QuotaValues = config.operator.quotas,
+): AgentTurnRateLimiter {
+  const devices = createWindowLimiter(60_000, 4096)
+  const addresses = createWindowLimiter(60 * 60_000, 4096)
+  return (deviceId, address) =>
+    devices.over(deviceId, quotas['agent:turns-per-device-minute']) ||
+    addresses.over(address, quotas['agent:turns-per-ip-hour'])
 }
 
-/**
- * 两维都要：设备 id 是浏览器自己生成的，脚本换一个就绕开设备维；而一个出口 IP 后面
- * 可能坐着一屋子真人，所以 IP 维只能宽到防脚本。
- */
-export function agentTurnRateLimited(deviceId: string, address: string): boolean {
-  return (
-    over(deviceLimiter, perDeviceMinute, deviceId) || over(addressLimiter, perAddressHour, address)
-  )
-}
+export const agentTurnRateLimited = createAgentTurnRateLimiter()

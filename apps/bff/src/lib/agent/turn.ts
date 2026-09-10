@@ -4,7 +4,7 @@ import { agentMessageText } from '@image-playground/shared'
 import { db } from '../../db/client'
 import { log } from '../logger'
 import { createCompactionTransform } from './compaction-transform'
-import { type AgentOwner, appendAgentMessage, touchAgentConversation } from './conversations'
+import { appendAgentMessage, touchAgentConversation } from './conversations'
 import { lastAgentEventSeq } from './events'
 import { agentModel, agentStreamFn } from './model'
 import { type RunningTurn, registerRunningTurn, turnEventLog } from './runningTurns'
@@ -26,7 +26,6 @@ const SYSTEM_PROMPT = [
 
 export interface StartAgentTurnInput {
   readonly conversationId: string
-  readonly owner: AgentOwner
   readonly turnId: string
   readonly userMessageId: string
   readonly history: readonly AgentMessageView[]
@@ -75,7 +74,7 @@ function reportedUsage(message: AgentMessage | undefined): AgentTurnUsage | null
 
 /** 起一轮并立刻返回把手；`read()` 可以被断开再重开。 */
 export async function startAgentTurn(input: StartAgentTurnInput): Promise<RunningTurn> {
-  const { conversationId, owner, turnId, userMessageId, text: prompt } = input
+  const { conversationId, turnId, userMessageId, text: prompt } = input
   const startedAt = Date.now()
   const events = turnEventLog(conversationId, turnId, await lastAgentEventSeq(conversationId))
   const agent = new Agent({
@@ -215,7 +214,7 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
         ...(error ? { error } : {}),
         usage,
       })
-      await touchAgentConversation(conversationId, owner)
+      await touchAgentConversation(conversationId)
       await events.flush()
       unregister()
       events.close()

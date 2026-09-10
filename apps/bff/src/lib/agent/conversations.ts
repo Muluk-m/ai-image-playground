@@ -98,15 +98,21 @@ export async function findAgentConversation(
 }
 
 export async function listAgentConversations(owner: AgentOwner): Promise<AgentConversationView[]> {
+  // 显式列：整行会把会话上的压缩摘要一起拉回来，那是服务端私有状态，列表用不到。
   const rows = await db
-    .select()
+    .select({
+      id: schema.agent_conversations.id,
+      title: schema.agent_conversations.title,
+      created_at: schema.agent_conversations.created_at,
+      updated_at: schema.agent_conversations.updated_at,
+    })
     .from(schema.agent_conversations)
     .where(and(ownerWhere(owner), isNull(schema.agent_conversations.deleted_at)))
     .orderBy(desc(schema.agent_conversations.updated_at))
   return rows.map(conversationView)
 }
 
-/** 幂等靠改挂本身：设备名下的行一次搬空，重复登录再扫就是空集，不会搬出第二份。 */
+/** 幂等靠改挂本身：设备名下的行一次搬空，重复登录再扫就是空集。 */
 export async function adoptDeviceConversations(deviceId: string, userId: string): Promise<number> {
   const rows = await db
     .update(schema.agent_conversations)
@@ -127,15 +133,15 @@ export async function setAgentConversationTitle(
     .where(and(eq(schema.agent_conversations.id, id), ownerWhere(owner)))
 }
 
-export async function touchAgentConversation(
-  id: string,
-  owner: AgentOwner,
-  now = Date.now(),
-): Promise<void> {
+/**
+ * 不收归属：轮跑到一半用户登录，领养会把行改挂到 user_id，按起轮时的归属限定就再也
+ * 匹配不上，收尾这一下会静默丢掉。会话 id 本身已由起轮时的确权给出。
+ */
+export async function touchAgentConversation(id: string, now = Date.now()): Promise<void> {
   await db
     .update(schema.agent_conversations)
     .set({ updated_at: now })
-    .where(and(eq(schema.agent_conversations.id, id), ownerWhere(owner)))
+    .where(eq(schema.agent_conversations.id, id))
 }
 
 export async function softDeleteAgentConversation(id: string, owner: AgentOwner): Promise<void> {

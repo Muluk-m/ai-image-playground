@@ -57,12 +57,13 @@ describe('startAgentTurn usage', () => {
     setChatFetchForTesting(
       recordingChatFetch(summaryCalls, () => chatCompletion(JSON.stringify(NARRATIVE))),
     )
-    const owner = { kind: 'device', deviceId: 'device-abcdefgh' } as const
-    const conversation = await createAgentConversation(owner, '第一句')
+    const conversation = await createAgentConversation(
+      { kind: 'device', deviceId: 'device-abcdefgh' },
+      '第一句',
+    )
 
     const turn = await startAgentTurn({
       conversationId: conversation.id,
-      owner,
       turnId: 'turn-new',
       userMessageId: 'm7',
       history: HISTORY,

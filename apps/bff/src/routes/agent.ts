@@ -94,7 +94,6 @@ export const agentRoutes = new Elysia()
       const { startAgentTurn } = await import('../lib/agent/turn')
       const turn = await startAgentTurn({
         conversationId: conversation.id,
-        owner,
         turnId,
         userMessageId: userMessage.id,
         history,

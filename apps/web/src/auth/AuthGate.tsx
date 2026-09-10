@@ -1,7 +1,6 @@
 import type { AuthUserView } from '@image-playground/shared'
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import { adoptAgentConversations } from '../features/agent/lib/agentClient'
-import { agentPanelPresent } from '../features/agent/panelLayout'
 import {
   AUTH_SESSION_EXPIRED_EVENT,
   AuthRequestError,
@@ -56,13 +55,13 @@ function ProblemScreen({
   )
 }
 
-/** 会话存在服务端，所以本地那套领养搬不动它；登录这一刻另外让 BFF 改挂一次。 */
+/** 会话存在服务端，本地那套领养搬不动它，得让 BFF 另外改挂一次。 */
 async function adoptDeviceConversations(): Promise<void> {
-  if (!agentPanelPresent()) return
+  if (!isClientCapabilityEnabled('agent:chat')) return
   try {
     await adoptAgentConversations()
   } catch {
-    // 领养失败只是这次没搬成，不该把人挡在登录外；服务端幂等，下次登录接着搬。
+    // 搬不成不该把人挡在登录外，下次登录接着搬。
   }
 }
 
