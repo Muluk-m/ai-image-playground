@@ -1,18 +1,36 @@
 {
-  "name": "Image Playground",
-  "short_name": "Image",
-  "description": "Image Playground 图像生成工作台",
+  "name": "幕芽 Muvloom",
+  "short_name": "幕芽",
+  "description": "幕芽 Muvloom，AI 图片与视频创作工作台。让灵感，长成画面。",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#030712",
-  "theme_color": "#111827",
+  "background_color": "#23282b",
+  "theme_color": "#23282b",
   "icons": [
     {
-      "src": "./pwa-icon.svg",
+      "src": "./brand/muvloom-icon.svg",
       "sizes": "any",
       "type": "image/svg+xml",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "./brand/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./brand/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./brand/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ]
 }

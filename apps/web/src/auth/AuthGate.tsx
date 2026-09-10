@@ -23,7 +23,7 @@ type Phase = 'checking' | 'ready' | 'login' | 'unavailable'
 function LoadingScreen() {
   return (
     <main className="auth-status-screen" aria-live="polite">
-      <img src="/pwa-icon.svg" alt="" width="40" height="40" />
+      <img src="/brand/muvloom-icon.svg" alt="" width="40" height="40" />
       <div className="auth-status-line">
         <span />
       </div>
