@@ -88,7 +88,7 @@ export async function* startTurn(
   yield* readFrames(response)
 }
 
-/** `lastEventId` 为 0 表示从头要一遍这一轮：刷新后重新挂上走的就是这条。 */
+/** `lastEventId` 为 0 表示从头要一遍这一轮。 */
 export async function* resumeTurn(
   conversationId: string,
   turnId: string,

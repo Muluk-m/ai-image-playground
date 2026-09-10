@@ -1,5 +1,5 @@
-import type { AgentFrame, AgentTurnEvent } from '@image-playground/shared'
-import { agentMessageText, isAgentTurnTerminal } from '@image-playground/shared'
+import type { AgentActiveTurnView, AgentFrame, AgentTurnEvent } from '@image-playground/shared'
+import { agentMessageText } from '@image-playground/shared'
 import { create } from 'zustand'
 import { AGENT_CONVERSATION_KEY, safeLocalStorage, scopedStorageName } from '../../lib/authScope'
 import {
@@ -15,16 +15,10 @@ import type { AgentPanelMessage, AgentPanelTab, AgentTurnStatus } from './types'
 
 const TURN_FAILED = '这一轮没有跑完'
 
-/** 首次立刻重连：读超时或边缘断流时轮多半还在跑，等待只是白白让用户干看着。 */
 const RECONNECT_DELAYS_MS = [0, 500, 2_000, 5_000]
 
 /** 登录后 scope 会变，所以每次现算，不缓存。 */
 const conversationKey = () => scopedStorageName(AGENT_CONVERSATION_KEY)
-
-export interface AgentActiveTurn {
-  readonly turnId: string
-  readonly lastEventId: number
-}
 
 export interface AgentState {
   open: boolean
@@ -32,8 +26,8 @@ export interface AgentState {
   conversationId: string | null
   messages: AgentPanelMessage[]
   turn: AgentTurnStatus
-  /** 正在跟的那一轮与它的断点；重连带着 `lastEventId` 回去续播。 */
-  activeTurn: AgentActiveTurn | null
+  /** 正在跟的那一轮；中止与插话都指向它。 */
+  activeTurn: AgentActiveTurnView | null
   error: string | null
   loaded: boolean
   expanded: Record<string, boolean>
@@ -59,6 +53,13 @@ function replaceOrAppend(
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
+const failPatch = (state: AgentState) => ({
+  turn: 'failed' as const,
+  activeTurn: null,
+  error: TURN_FAILED,
+  messages: state.messages.filter((message) => !message.streaming),
+})
+
 export const useAgentStore = create<AgentState>((set, get) => {
   /** 事件按 id 幂等：重连重发的帧、以及续播重放的整轮，都要落到同一个结果上。 */
   const apply = (event: AgentTurnEvent, pendingUserText: string | null) => {
@@ -66,7 +67,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
       switch (event.type) {
         case 'turnStart':
           return {
-            activeTurn: { turnId: event.turnId, lastEventId: state.activeTurn?.lastEventId ?? 0 },
+            activeTurn: { turnId: event.turnId },
             messages: state.messages.some((one) => one.id === event.userMessageId)
               ? state.messages
               : [
@@ -104,6 +105,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
             ),
           }
         case 'turnEnd':
+          if (event.stopReason === 'failed') return failPatch(state)
           return {
             turn: 'idle' as const,
             activeTurn: null,
@@ -111,54 +113,41 @@ export const useAgentStore = create<AgentState>((set, get) => {
               one.streaming ? { ...one, streaming: false } : one,
             ),
           }
-        case 'error':
-          return {}
       }
     })
   }
 
-  const fail = () =>
-    set((state) => ({
-      turn: 'failed' as const,
-      activeTurn: null,
-      error: TURN_FAILED,
-      messages: state.messages.filter((message) => !message.streaming),
-    }))
+  const fail = () => set(failPatch)
 
-  /** 跟一轮到底：流断了就带断点重连，直到读到终帧或者重连次数用尽。 */
+  /** 跟一轮到底：流断了就带断点重连，直到读到终帧或者一直接不上。 */
   const follow = async (
     conversationId: string,
     frames: AsyncGenerator<AgentFrame>,
     pendingUserText: string | null,
   ) => {
-    let source: AsyncGenerator<AgentFrame> | null = frames
-    for (let attempt = 0; source; attempt += 1) {
+    let source = frames
+    let seen = 0
+    // 重连预算按「多久没有进展」算：长轮里断上几次但每次都续上，不该被判失败。
+    for (let attempt = 0; ; attempt += 1) {
       try {
         for await (const frame of source) {
-          const seen = get().activeTurn?.lastEventId ?? 0
           if (frame.id !== null && frame.id <= seen) continue
-          apply(frame.event, pendingUserText)
           if (frame.id !== null) {
-            set((state) =>
-              state.activeTurn
-                ? { activeTurn: { ...state.activeTurn, lastEventId: frame.id! } }
-                : {},
-            )
+            seen = frame.id
+            attempt = -1
           }
-          if (isAgentTurnTerminal(frame.event)) {
-            if (frame.event.type === 'error') fail()
-            return
-          }
+          apply(frame.event, pendingUserText)
+          if (frame.event.type === 'turnEnd') return
         }
       } catch (thrown) {
         // 轮已经不在了，再重连也接不上；其余的断流与请求失败都走重连。
         if (thrown instanceof AgentRequestError && thrown.status === 404) break
       }
       const active = get().activeTurn
-      const delay = RECONNECT_DELAYS_MS[attempt]
+      const delay = RECONNECT_DELAYS_MS[Math.max(attempt, 0)]
       if (!active || delay === undefined) break
       await sleep(delay)
-      source = resumeTurn(conversationId, active.turnId, active.lastEventId)
+      source = resumeTurn(conversationId, active.turnId, seen)
     }
     if (get().turn === 'running') fail()
   }
@@ -208,11 +197,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
         })),
       })
       if (!state.activeTurn) return
-      set({
-        turn: 'running',
-        error: null,
-        activeTurn: { turnId: state.activeTurn.turnId, lastEventId: 0 },
-      })
+      set({ turn: 'running', error: null, activeTurn: state.activeTurn })
       await follow(conversationId, resumeTurn(conversationId, state.activeTurn.turnId, 0), null)
     },
 

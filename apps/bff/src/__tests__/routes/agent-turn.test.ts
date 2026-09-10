@@ -182,8 +182,12 @@ describe('POST /api/agent/conversations/:id/turns', () => {
 
     const { frames } = await runTurn(conversationId, '把背景换成浅木色')
 
-    expect(types(frames)).toEqual(['turnStart', 'error'])
-    expect(frames[1]!.event).toEqual({ type: 'error', error: 'agent_upstream_error' })
+    expect(types(frames)).toEqual(['turnStart', 'turnEnd'])
+    expect(frames[1]!.event).toMatchObject({
+      type: 'turnEnd',
+      stopReason: 'failed',
+      error: 'agent_upstream_error',
+    })
 
     const messages = await readMessages(conversationId)
     expect(messages.map((message) => message.role)).toEqual(['user'])

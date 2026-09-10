@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import type { AgentTurnEvent } from '@image-playground/shared'
+import { encodeAgentFrame } from '@image-playground/shared'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useAgentStore } from '../../../features/agent/store'
 import { _setRuntimeConfigForTesting } from '../../../lib/runtimeConfig'
@@ -7,12 +8,7 @@ import { _setRuntimeConfigForTesting } from '../../../lib/runtimeConfig'
 const CONVERSATION = 'conversation-1'
 
 function frames(...events: AgentTurnEvent[]): string {
-  return events
-    .map(
-      (event, index) =>
-        `id: ${index + 1}\nevent: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`,
-    )
-    .join('')
+  return events.map((event, index) => encodeAgentFrame(index + 1, event)).join('')
 }
 
 /** 逐块投喂，把「一帧被拆到两个 chunk 里」这件事也走一遍。 */
@@ -121,7 +117,10 @@ describe('一轮对话', () => {
   it('错误事件让这一轮失败并撤掉半截的回复', async () => {
     turnResponse = () =>
       turnStream(TURN_START, ASSISTANT_START, {
-        type: 'error',
+        type: 'turnEnd',
+        turnId: 'turn-1',
+        durationMs: 8,
+        stopReason: 'failed',
         error: 'agent_upstream_error',
       })
 

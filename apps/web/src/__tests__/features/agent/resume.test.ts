@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import type { AgentTurnEvent } from '@image-playground/shared'
+import { encodeAgentFrame } from '@image-playground/shared'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useAgentStore } from '../../../features/agent/store'
 import { _setRuntimeConfigForTesting } from '../../../lib/runtimeConfig'
@@ -21,12 +22,7 @@ function sse(
   frames: readonly { id: number; event: AgentTurnEvent }[],
   truncated = false,
 ): Response {
-  const payload = frames
-    .map(
-      (frame) =>
-        `id: ${frame.id}\nevent: ${frame.event.type}\ndata: ${JSON.stringify(frame.event)}\n\n`,
-    )
-    .join('')
+  const payload = frames.map((frame) => encodeAgentFrame(frame.id, frame.event)).join('')
   let sent = false
   const body = new ReadableStream<Uint8Array>({
     pull(controller) {
@@ -188,26 +184,24 @@ describe('中止', () => {
         const body = new ReadableStream<Uint8Array>({
           async start(controller) {
             const encoder = new TextEncoder()
-            for (const frame of [
+            const opening: { id: number; event: AgentTurnEvent }[] = [
               { id: 1, event: TURN_START },
               { id: 2, event: ASSISTANT_START },
               { id: 3, event: { type: 'textDelta', messageId: 'assistant-1', delta: '好的' } },
-            ]) {
-              controller.enqueue(
-                encoder.encode(
-                  `id: ${frame.id}\nevent: ${frame.event.type}\ndata: ${JSON.stringify(frame.event)}\n\n`,
-                ),
-              )
+            ]
+            for (const frame of opening) {
+              controller.enqueue(encoder.encode(encodeAgentFrame(frame.id, frame.event)))
             }
             await abortSeen
-            const end: AgentTurnEvent = {
-              type: 'turnEnd',
-              turnId: TURN,
-              durationMs: 3,
-              stopReason: 'aborted',
-            }
             controller.enqueue(
-              encoder.encode(`id: 4\nevent: turnEnd\ndata: ${JSON.stringify(end)}\n\n`),
+              encoder.encode(
+                encodeAgentFrame(4, {
+                  type: 'turnEnd',
+                  turnId: TURN,
+                  durationMs: 3,
+                  stopReason: 'aborted',
+                }),
+              ),
             )
             controller.close()
           },
@@ -249,7 +243,7 @@ describe('插话', () => {
     useAgentStore.setState({
       conversationId: CONVERSATION,
       turn: 'running',
-      activeTurn: { turnId: TURN, lastEventId: 2 },
+      activeTurn: { turnId: TURN },
     })
 
     await state().send('改成狗')

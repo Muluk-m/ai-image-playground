@@ -2,9 +2,12 @@ import type { AgentTurnEvent } from '@image-playground/shared'
 import { log } from '../logger'
 import { appendAgentTurnEvents, type StoredAgentEvent } from './events'
 
+/** 落库攒批的窗口。进程被强杀时最多丢这么久的事件，实时那条路走内存缓冲不受影响。 */
+const PERSIST_DEBOUNCE_MS = 50
+
 /**
- * 一轮在 API 进程里的把手。轮独立于连接存活：消费者断开只是不再拉这个生成器，
- * 轮照跑，重连从事件表或这里的缓冲续上。
+ * 一轮在 API 进程里的把手。轮独立于连接存活，只有跑完、失败或显式中止才结束。
+ * 注册表是进程内的：BFF 多副本时续播会落到没有这一轮的进程上。
  */
 export interface RunningTurn {
   readonly conversationId: string
@@ -32,14 +35,13 @@ export function registerRunningTurn(turn: RunningTurn): () => void {
 export interface TurnEventLog {
   emit(event: AgentTurnEvent): void
   read(afterSeq: number): AsyncGenerator<StoredAgentEvent>
-  /** 终帧落库之后才收流：此后到达的重连走事件表，读到的必须是完整的一轮。 */
-  close(): Promise<void>
+  /** 把攒着的事件写完。 */
+  flush(): Promise<void>
+  /** 收流前必须先 flush 并摘掉注册，否则消费者会先于落库看到轮结束、重连读到半截。 */
+  close(): void
 }
 
-/**
- * 事件即产即落库，序号在内存里发。落库排在一条串行链上而不是逐条 await，
- * 否则每个字都要等一次数据库往返。
- */
+/** 事件即产即落库，序号在内存里发，攒批写以免每个字都付一次数据库往返。 */
 export function turnEventLog(
   conversationId: string,
   turnId: string,
@@ -47,51 +49,52 @@ export function turnEventLog(
 ): TurnEventLog {
   const buffered: StoredAgentEvent[] = []
   const waiting = new Set<() => void>()
-  let seq = baseSeq
   let closed = false
-  let pending: StoredAgentEvent[] = []
+  let persisted = 0
+  let timer: ReturnType<typeof setTimeout> | undefined
   let writes: Promise<void> = Promise.resolve()
 
-  const wake = () => {
-    for (const resolve of waiting) resolve()
-    waiting.clear()
+  const flush = () => {
+    timer = undefined
+    writes = writes.then(async () => {
+      const batch = buffered.slice(persisted)
+      if (batch.length === 0) return
+      persisted = buffered.length
+      try {
+        await appendAgentTurnEvents(conversationId, turnId, batch)
+      } catch (err) {
+        log.warn({ event: 'agent.event_persist_failed', turnId, err }, 'turn events not stored')
+      }
+    })
   }
 
   return {
     emit(event) {
-      seq += 1
-      const stored = { seq, event }
-      buffered.push(stored)
-      pending.push(stored)
-      writes = writes.then(async () => {
-        if (pending.length === 0) return
-        const batch = pending
-        pending = []
-        try {
-          await appendAgentTurnEvents(conversationId, turnId, batch)
-        } catch (err) {
-          log.warn({ event: 'agent.event_persist_failed', turnId, err }, 'turn event not stored')
-        }
-      })
-      wake()
+      buffered.push({ seq: baseSeq + buffered.length + 1, event })
+      timer ??= setTimeout(flush, PERSIST_DEBOUNCE_MS)
+      for (const resolve of waiting) resolve()
+      waiting.clear()
     },
 
     async *read(afterSeq) {
-      let cursor = Math.max(afterSeq, baseSeq)
+      let index = Math.max(afterSeq - baseSeq, 0)
       while (true) {
-        for (const stored of buffered.slice(cursor - baseSeq)) {
-          cursor = stored.seq
-          yield stored
-        }
+        while (index < buffered.length) yield buffered[index++]!
         if (closed) return
         await new Promise<void>((resolve) => waiting.add(resolve))
       }
     },
 
-    async close() {
-      closed = true
-      wake()
+    async flush() {
+      if (timer) clearTimeout(timer)
+      flush()
       await writes
+    },
+
+    close() {
+      closed = true
+      for (const resolve of waiting) resolve()
+      waiting.clear()
     },
   }
 }

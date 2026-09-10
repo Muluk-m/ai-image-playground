@@ -13,34 +13,29 @@ export interface AgentCall {
   readonly stream_options?: { include_usage?: boolean }
 }
 
-function sseBody(chunks: unknown[]): string {
-  return `${chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join('')}data: [DONE]\n\n`
+interface CompletionUsage {
+  readonly prompt_tokens: number
+  readonly completion_tokens: number
 }
+
+const REPORTED_USAGE: CompletionUsage = { prompt_tokens: 12, completion_tokens: 4 }
 
 interface CompletionOptions {
   readonly deltas: readonly string[]
   /** 缺席即模拟「中转网关吞掉 stream_options」：末帧不带用量。 */
-  readonly usage?: { readonly prompt_tokens: number; readonly completion_tokens: number }
+  readonly usage?: CompletionUsage
 }
 
 /** 上游把一条回复拆成若干 delta，末帧带 finish_reason —— 逐字流的最小可信形状。 */
 export function completionStream(...deltas: string[]): Response {
-  return completion({ deltas, usage: { prompt_tokens: 12, completion_tokens: 4 } })
+  return completion({ deltas, usage: REPORTED_USAGE })
 }
 
 export function completion({ deltas, usage }: CompletionOptions): Response {
-  const chunks: unknown[] = deltas.map((content, index) => ({
-    id: 'completion-1',
-    choices: [{ index: 0, delta: index === 0 ? { role: 'assistant', content } : { content } }],
-  }))
-  chunks.push({
-    id: 'completion-1',
-    choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
-    ...(usage ? { usage } : {}),
-  })
-  return new Response(sseBody(chunks), {
-    headers: { 'content-type': 'text/event-stream' },
-  })
+  const stream = controlledCompletion(usage ?? null)
+  for (const delta of deltas) stream.push(delta)
+  stream.finish()
+  return stream.responseFor()
 }
 
 export function recordingAgentFetch(
@@ -78,17 +73,14 @@ export function parseFrames(payload: string): ReceivedFrame[] {
 export interface ControlledCompletion {
   /** 中止要靠 signal 把上游流打断，否则 pi 会一直等这条永不结束的流。 */
   responseFor(signal?: AbortSignal): Response
-  /** 追加一段逐字增量。 */
   push(content: string): void
-  /** 收尾：带 finish_reason 的末帧 + [DONE]。 */
   finish(): void
 }
 
-/**
- * 上游流由测试逐段驱动。轮的生命周期不再绑在消费者身上，断线续播、中止与插话
- * 都要求这一轮在断言期间保持进行中。
- */
-export function controlledCompletion(): ControlledCompletion {
+/** 上游流由测试逐段驱动：断线续播、中止与插话都要求这一轮在断言期间保持进行中。 */
+export function controlledCompletion(
+  usage: CompletionUsage | null = REPORTED_USAGE,
+): ControlledCompletion {
   let controller: ReadableStreamDefaultController<Uint8Array>
   const encoder = new TextEncoder()
   const body = new ReadableStream<Uint8Array>({
@@ -116,7 +108,7 @@ export function controlledCompletion(): ControlledCompletion {
       send({
         id: 'completion-1',
         choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
-        usage: { prompt_tokens: 12, completion_tokens: 4 },
+        ...(usage ? { usage } : {}),
       })
       controller.enqueue(encoder.encode('data: [DONE]\n\n'))
       controller.close()

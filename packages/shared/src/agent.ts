@@ -76,23 +76,20 @@ export interface AgentTurnUsage {
   readonly outputTokens: number
 }
 
-export type AgentTurnStopReason = 'completed' | 'aborted'
+export type AgentTurnStopReason = 'completed' | 'aborted' | 'failed'
 
+export type AgentTurnErrorCode = 'agent_upstream_error' | 'agent_run_failed'
+
+/** 轮唯一的终帧。续播读到它就收流，不必再问轮是否还活着。 */
 export interface AgentTurnEndEvent {
   readonly type: 'turnEnd'
   readonly turnId: string
   readonly durationMs: number
   readonly stopReason: AgentTurnStopReason
+  readonly error?: AgentTurnErrorCode
   /** 本轮对话 token 的结算依据；null 表示上游没报，这一轮按 token 结不了账。 */
   readonly usage: AgentTurnUsage | null
 }
-
-export interface AgentTurnErrorEvent {
-  readonly type: 'error'
-  readonly error: AgentTurnErrorCode
-}
-
-export type AgentTurnErrorCode = 'agent_upstream_error' | 'agent_run_failed'
 
 export type AgentTurnEvent =
   | AgentTurnStartEvent
@@ -100,12 +97,6 @@ export type AgentTurnEvent =
   | AgentTextDeltaEvent
   | AgentInterjectionEvent
   | AgentTurnEndEvent
-  | AgentTurnErrorEvent
-
-/** 轮的最后一个事件。续播读到它就收流，不必再问轮是否还活着。 */
-export function isAgentTurnTerminal(event: AgentTurnEvent): boolean {
-  return event.type === 'turnEnd' || event.type === 'error'
-}
 
 /** 进行中的轮，`GET .../messages` 用它告诉刷新后的前端该挂回哪一轮。 */
 export interface AgentActiveTurnView {
@@ -115,13 +106,10 @@ export interface AgentActiveTurnView {
 /** 轮事件的保留窗口。过期即清，续播只保证窗口内的轮能接上。 */
 export const AGENT_TURN_EVENT_RETENTION_MS = 24 * 60 * 60 * 1_000
 
-/**
- * 心跳间隔。Cloudflare 边缘对无字节的响应有读超时（524），一轮里模型的首字或
- * 工具执行都可能静默超过它，靠注释帧续命。
- */
+/** Cloudflare 边缘对久无字节的响应判读超时（524），一轮的静默期靠注释帧续命。 */
 export const AGENT_SSE_HEARTBEAT_MS = 15_000
 
-/** SSE 注释帧：解析器忽略它，也不占事件 id。 */
+/** 注释帧：解析器忽略它，也不占事件 id。 */
 export function agentHeartbeatFrame(): string {
   return ': ping\n\n'
 }

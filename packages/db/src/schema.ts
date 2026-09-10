@@ -261,10 +261,7 @@ export const agent_messages = pgTable(
   ],
 )
 
-/**
- * 轮的流事件，为断线重放存在。`seq` 是会话内单调递增的事件序号，也就是 SSE 的 `id`：
- * 前端带 `Last-Event-ID` 重连时从它之后续播。有保留窗口，过期由 `purgeOldAgentTurnEvents` 清掉。
- */
+/** `seq` 是会话内单调递增的事件序号，也就是 SSE 的 `id`。行有保留窗口，过期会被清掉。 */
 export const agent_turn_events = pgTable(
   'agent_turn_events',
   {

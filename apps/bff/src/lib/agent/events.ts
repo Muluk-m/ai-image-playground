@@ -36,6 +36,21 @@ export async function appendAgentTurnEvents(
   )
 }
 
+/** 只问「有没有」：断点追平时不必把整轮的 jsonb 拉回来数长度。 */
+export async function agentTurnHasEvents(conversationId: string, turnId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ seq: schema.agent_turn_events.seq })
+    .from(schema.agent_turn_events)
+    .where(
+      and(
+        eq(schema.agent_turn_events.conversation_id, conversationId),
+        eq(schema.agent_turn_events.turn_id, turnId),
+      ),
+    )
+    .limit(1)
+  return row !== undefined
+}
+
 export async function readAgentTurnEvents(
   conversationId: string,
   turnId: string,

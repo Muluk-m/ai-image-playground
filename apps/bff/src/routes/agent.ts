@@ -10,8 +10,8 @@ import {
   listAgentMessages,
   setAgentConversationTitle,
 } from '../lib/agent/conversations'
-import { readAgentTurnEvents } from '../lib/agent/events'
-import { runningTurn } from '../lib/agent/runningTurns'
+import { agentTurnHasEvents, readAgentTurnEvents } from '../lib/agent/events'
+import { type RunningTurn, runningTurn } from '../lib/agent/runningTurns'
 import { agentReplayStream, agentTurnStream } from '../lib/agent/sse'
 import { capabilityUnavailable, isCapabilityEnabled } from '../lib/capabilities'
 import { badRequestOnValidation, deviceIdSchema } from '../lib/http'
@@ -26,8 +26,8 @@ const NOT_FOUND = { error: 'conversation_not_found' }
 const TURN_NOT_FOUND = { error: 'turn_not_found' }
 
 const turnParams = t.Object({ id: t.String(), turnId: t.String() })
+const turnBody = t.Object({ deviceId: deviceIdSchema() })
 
-/** `Last-Event-ID` 是 SSE 规范里的重连头；缺席就是从头要一遍这一轮。 */
 function lastEventId(headers: Record<string, string | undefined>): number {
   const parsed = Number(headers['last-event-id'])
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 0
@@ -113,38 +113,36 @@ export const agentRoutes = new Elysia()
 
       const stored = await readAgentTurnEvents(conversation.id, params.turnId, after)
       // 断点之后没有新事件不代表轮不存在；只有整轮都查不到才是没这一轮。
-      if (
-        stored.length === 0 &&
-        (await readAgentTurnEvents(conversation.id, params.turnId, 0)).length === 0
-      ) {
+      if (stored.length === 0 && !(await agentTurnHasEvents(conversation.id, params.turnId))) {
         return status(404, TURN_NOT_FOUND)
       }
       return agentReplayStream(stored)
     },
     { params: turnParams, query: t.Object({ deviceId: deviceIdSchema() }) },
   )
+  .resolve(async ({ params, body, authUser }) => {
+    // 轮级端点共用这段：归属查会话、会话查在跑的轮，两级都可能 404。
+    const record = params as { id?: string; turnId?: string }
+    const deviceId = (body as { deviceId?: string } | undefined)?.deviceId
+    if (!record.turnId || !deviceId) return { activeTurn: null as RunningTurn | null }
+    const conversation = await findAgentConversation(record.id!, ownerOf(authUser, deviceId))
+    const active = conversation ? runningTurn(conversation.id) : undefined
+    return { activeTurn: active?.turnId === record.turnId ? active : null }
+  })
   .post(
     '/api/agent/conversations/:id/turns/:turnId/abort',
-    async ({ params, body, authUser, status }) => {
-      const owner = ownerOf(authUser, body.deviceId)
-      const conversation = await findAgentConversation(params.id, owner)
-      if (!conversation) return status(404, NOT_FOUND)
-      const active = runningTurn(conversation.id)
-      if (active?.turnId !== params.turnId) return status(404, TURN_NOT_FOUND)
-      active.abort()
+    ({ activeTurn, status }) => {
+      if (!activeTurn) return status(404, TURN_NOT_FOUND)
+      activeTurn.abort()
       return { aborted: true }
     },
-    { params: turnParams, body: t.Object({ deviceId: deviceIdSchema() }) },
+    { params: turnParams, body: turnBody },
   )
   .post(
     '/api/agent/conversations/:id/turns/:turnId/interject',
-    async ({ params, body, authUser, status }) => {
-      const owner = ownerOf(authUser, body.deviceId)
-      const conversation = await findAgentConversation(params.id, owner)
-      if (!conversation) return status(404, NOT_FOUND)
-      const active = runningTurn(conversation.id)
-      if (active?.turnId !== params.turnId) return status(404, TURN_NOT_FOUND)
-      return { messageId: active.interject(body.text) }
+    ({ activeTurn, body, status }) => {
+      if (!activeTurn) return status(404, TURN_NOT_FOUND)
+      return { messageId: activeTurn.interject(body.text) }
     },
     {
       params: turnParams,

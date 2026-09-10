@@ -11,6 +11,7 @@ import {
   type ReceivedFrame,
   recordingAgentFetch,
 } from '../helpers/agentStubs'
+import { waitFor } from '../helpers/upstreamStubs'
 
 process.env.DATABASE_URL = await resetTestDatabase('bff_agent_resume')
 process.env.PORT = '0'
@@ -96,15 +97,6 @@ async function readState(conversationId: string): Promise<{
   }
 }
 
-/** 等一个条件成立；轮跑在进程内，落库与事件传播都是异步的。 */
-async function until(predicate: () => boolean | Promise<boolean>): Promise<void> {
-  for (let attempt = 0; attempt < 200; attempt += 1) {
-    if (await predicate()) return
-    await Bun.sleep(5)
-  }
-  throw new Error('condition never became true')
-}
-
 let upstream: ControlledCompletion
 let calls: AgentCall[]
 
@@ -123,7 +115,7 @@ afterEach(async () => {
     await post(`/api/agent/conversations/${conversationId}/turns/${activeTurn.turnId}/abort`, {
       deviceId: DEVICE,
     })
-    await until(async () => (await readState(conversationId)).activeTurn === null)
+    await waitFor(async () => (await readState(conversationId)).activeTurn === null)
   }
   setAgentFetchForTesting()
 })
@@ -264,7 +256,7 @@ describe('插话', () => {
 
     setAgentFetchForTesting(recordingAgentFetch(calls, (signal) => second.responseFor(signal)))
     upstream.finish()
-    await until(() => calls.length === 2)
+    await waitFor(() => calls.length === 2)
     second.push('好，改成狗')
     second.finish()
 

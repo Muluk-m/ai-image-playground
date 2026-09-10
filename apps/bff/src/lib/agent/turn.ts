@@ -63,7 +63,6 @@ function replayed(history: readonly AgentMessageView[]): AgentMessage[] {
 interface OpenAssistantMessage {
   readonly id: string
   text: string
-  announced: boolean
 }
 
 /**
@@ -77,12 +76,9 @@ function reportedUsage(message: AgentMessage | undefined): AgentTurnUsage | null
   return { inputTokens: input, outputTokens: output }
 }
 
-/**
- * 起一轮并立刻返回把手。轮跑在进程内、不等消费者：`read()` 可以被断开再重开，
- * 只有跑完、失败或显式中止才结束它。
- */
+/** 起一轮并立刻返回把手；`read()` 可以被断开再重开。 */
 export async function startAgentTurn(input: StartAgentTurnInput): Promise<RunningTurn> {
-  const { conversationId, turnId } = input
+  const { conversationId, turnId, userMessageId, text: prompt } = input
   const startedAt = Date.now()
   const events = turnEventLog(conversationId, turnId, await lastAgentEventSeq(conversationId))
   const agent = new Agent({
@@ -102,7 +98,7 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
 
   let error: AgentTurnErrorCode | undefined
   let aborted = false
-  let stored = 0
+  let storedAny = false
   let open: OpenAssistantMessage | null = null
   let queued: { readonly id: string; readonly text: string }[] = []
   // 消息表的读回顺序是插入顺序，所以落库排成一条链，不让插话抢在半截回复前面。
@@ -111,6 +107,12 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
   const write = (append: () => Promise<void>) => {
     writes = writes.then(append)
     return writes
+  }
+
+  const closeOpen = async () => {
+    const current = open
+    open = null
+    if (current) await store(current)
   }
 
   const flushQueued = () => {
@@ -139,21 +141,18 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
         role: 'assistant',
         content: [{ type: 'text', text: message.text }],
       })
-      stored += 1
+      storedAny = true
     })
 
   agent.subscribe(async (event) => {
     if (event.type === 'message_start' && event.message.role === 'assistant') {
-      open = { id: crypto.randomUUID(), text: '', announced: false }
+      open = { id: crypto.randomUUID(), text: '' }
     }
     if (event.type === 'message_update' && event.assistantMessageEvent.type === 'text_delta') {
       const current = open
       if (!current) return
       // 上游报错的那条助手消息一个字都没有，不为它开一个空气泡。
-      if (!current.announced) {
-        current.announced = true
-        events.emit({ type: 'assistantStart', messageId: current.id })
-      }
+      if (!current.text) events.emit({ type: 'assistantStart', messageId: current.id })
       current.text += event.assistantMessageEvent.delta
       events.emit({
         type: 'textDelta',
@@ -162,16 +161,15 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
       })
     }
     if (event.type === 'message_end' && event.message.role === 'assistant') {
-      const current = open
-      open = null
       // pi 不为上游失败抛异常，它把失败写进助手消息的停因。
       if (event.message.stopReason === 'error') error = 'agent_upstream_error'
-      else if (current) await store(current)
+      else await closeOpen()
+      open = null
       flushQueued()
     }
   })
 
-  events.emit({ type: 'turnStart', turnId, userMessageId: input.userMessageId })
+  events.emit({ type: 'turnStart', turnId, userMessageId })
 
   const turn: RunningTurn = {
     conversationId,
@@ -194,7 +192,7 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
   const unregister = registerRunningTurn(turn)
 
   void agent
-    .prompt(input.text)
+    .prompt(prompt)
     .catch((thrown) => {
       if (aborted) return
       log.warn({ event: 'agent.turn_failed', err: thrown }, 'agent turn failed')
@@ -202,32 +200,28 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
     })
     .then(async () => {
       // 中止时 pi 可能走不到 message_end，已经流给用户的半截回复要自己落库。
-      const trailing = open
-      open = null
-      if (trailing) await store(trailing)
+      await closeOpen()
       flushQueued()
       await writes
-      if (!error && !aborted && stored === 0) error = 'agent_run_failed'
+      if (!error && !aborted && !storedAny) error = 'agent_run_failed'
 
       const usage = reportedUsage(agent.state.messages.at(-1))
       log.info(
         { event: 'agent.turn_settled', turnId, usage, error: error ?? null },
         'agent turn settled',
       )
-      events.emit(
-        error
-          ? { type: 'error', error }
-          : {
-              type: 'turnEnd',
-              turnId,
-              durationMs: Date.now() - startedAt,
-              stopReason: aborted ? 'aborted' : 'completed',
-              usage,
-            },
-      )
+      events.emit({
+        type: 'turnEnd',
+        turnId,
+        durationMs: Date.now() - startedAt,
+        stopReason: error ? 'failed' : aborted ? 'aborted' : 'completed',
+        ...(error ? { error } : {}),
+        usage,
+      })
       await touchAgentConversation(conversationId)
-      await events.close()
+      await events.flush()
       unregister()
+      events.close()
     })
 
   return turn

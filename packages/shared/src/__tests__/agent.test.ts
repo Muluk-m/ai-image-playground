@@ -6,7 +6,6 @@ import {
   agentHeartbeatFrame,
   agentMessageText,
   encodeAgentFrame,
-  isAgentTurnTerminal,
   parseAgentFrame,
 } from '../agent'
 
@@ -47,31 +46,16 @@ describe('parseAgentFrame', () => {
     })
   })
 
-  it('joins multi-line data and reports a frame without an id', () => {
-    const event = { type: 'error', error: 'agent_run_failed' }
-    expect(parseAgentFrame(`event: error\ndata: ${JSON.stringify(event)}`)).toEqual({
+  it('reports a frame that carries no id', () => {
+    const event: AgentTurnEvent = { type: 'assistantStart', messageId: 'a1' }
+    expect(parseAgentFrame(`event: assistantStart\ndata: ${JSON.stringify(event)}`)).toEqual({
       id: null,
-      event: event as AgentTurnEvent,
+      event,
     })
   })
 
   it('drops a heartbeat comment and a malformed frame', () => {
     expect(parseAgentFrame(agentHeartbeatFrame().trim())).toBeNull()
     expect(parseAgentFrame('id: 3\ndata: {oops')).toBeNull()
-  })
-})
-
-describe('isAgentTurnTerminal', () => {
-  it('treats turn end and error as the last event of a turn', () => {
-    expect(
-      isAgentTurnTerminal({
-        type: 'turnEnd',
-        turnId: 't1',
-        durationMs: 1,
-        stopReason: 'completed',
-      }),
-    ).toBe(true)
-    expect(isAgentTurnTerminal({ type: 'error', error: 'agent_upstream_error' })).toBe(true)
-    expect(isAgentTurnTerminal({ type: 'textDelta', messageId: 'a1', delta: '好' })).toBe(false)
   })
 })

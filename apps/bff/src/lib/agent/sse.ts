@@ -5,10 +5,14 @@ import {
 } from '@image-playground/shared'
 import type { StoredAgentEvent } from './events'
 
-/**
- * 帧的 id 是轮事件表里的会话内序号，重连带着它回来续播。
- * 静默超过心跳间隔就补一个注释帧：Cloudflare 边缘对久无字节的响应会判读超时。
- */
+const SSE_HEADERS = {
+  'content-type': 'text/event-stream; charset=utf-8',
+  'cache-control': 'no-store',
+  // 反代默认按响应缓冲，逐字流会被攒成一坨。
+  'x-accel-buffering': 'no',
+}
+
+/** 静默超过心跳间隔就补一个注释帧。 */
 export function agentTurnStream(
   events: AsyncGenerator<StoredAgentEvent>,
   heartbeatMs = AGENT_SSE_HEARTBEAT_MS,
@@ -39,21 +43,11 @@ export function agentTurnStream(
       await events.return(undefined)
     },
   })
-  return new Response(body, {
-    headers: {
-      'content-type': 'text/event-stream; charset=utf-8',
-      'cache-control': 'no-store',
-      // 反代默认按响应缓冲，逐字流会被攒成一坨。
-      'x-accel-buffering': 'no',
-    },
-  })
+  return new Response(body, { headers: SSE_HEADERS })
 }
 
-/** 已经结束的轮：尾巴一次性发完就收流。 */
+/** 已经结束的轮：尾巴都在内存里，一次发完，不必走心跳那条路。 */
 export function agentReplayStream(events: readonly StoredAgentEvent[]): Response {
-  return agentTurnStream(
-    (async function* () {
-      yield* events
-    })(),
-  )
+  const payload = events.map((one) => encodeAgentFrame(one.seq, one.event)).join('')
+  return new Response(payload, { headers: SSE_HEADERS })
 }
