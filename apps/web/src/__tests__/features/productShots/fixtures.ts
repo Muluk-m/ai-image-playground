@@ -1,4 +1,5 @@
 import type { MatteResponse } from '@image-playground/shared'
+import type { ProductShotJob } from '../../../features/productShots/types'
 
 const ROUNDS = 40
 
@@ -39,4 +40,42 @@ export function serverMatteResponse(overrides: Partial<MatteResponse> = {}): Mat
 /** 服务端抠图默认关着，用例要走服务端那条路就自己打开。 */
 export function browserOnlyCapabilities(name: string): boolean {
   return name !== 'matte:server'
+}
+
+/** 一条已落盘的任务记录。蒙版给成就绪的：列出历史任务不该启动真实抠图。 */
+export function productShotJob(
+  id: string,
+  name: string,
+  updatedAt: number,
+  versions = 0,
+): ProductShotJob {
+  return {
+    id,
+    name,
+    images: [
+      {
+        imageId: `image-${id}`,
+        sourceMatte: {
+          status: 'ready',
+          backend: 'wasm-u2netp',
+          alphaImageId: `alpha-${id}`,
+          targetImageId: `image-${id}`,
+          previewImageId: `preview-${id}`,
+          edited: false,
+        },
+        versions: Array.from({ length: versions }, (_, index) => ({
+          id: `${id}-v${index}`,
+          taskId: `task-${id}-${index}`,
+          plan: '换背景',
+          prompt: '锁住产品',
+          masked: true,
+          createdAt: updatedAt,
+        })),
+      },
+    ],
+    preference: '',
+    versionsPerImage: 1,
+    createdAt: 1_700_000_000_000,
+    updatedAt,
+  }
 }
