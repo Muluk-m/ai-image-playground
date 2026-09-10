@@ -81,7 +81,6 @@ export const agentRoutes = new Elysia()
         conversationId: conversation.id,
         owner,
         text: body.text,
-        userId: authUser?.id ?? null,
         deviceId: body.deviceId,
       })
       if (started.kind === 'authentication_required') return status(401, { error: 'unauthorized' })

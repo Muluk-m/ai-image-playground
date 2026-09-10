@@ -21,6 +21,8 @@ export interface StartConversationTurnInput {
   readonly conversationId: string
   readonly owner: AgentOwner
   readonly text: string
+  /** 归属是用户时 owner 里没有设备，但工具提交的任务仍要按设备计日配额。 */
+  readonly deviceId: string
 }
 
 export type StartConversationTurnResult =
@@ -48,7 +50,8 @@ function chatSettlement(taskHooks: PrivateTaskHooks, turnId: string) {
 export async function startConversationTurn(
   input: StartConversationTurnInput,
 ): Promise<StartConversationTurnResult> {
-  const { conversationId, owner, text } = input
+  const { conversationId, owner, text, deviceId } = input
+  const userId = owner.kind === 'user' ? owner.userId : null
   const billed = isCapabilityEnabled('billing:credits')
   if (billed && owner.kind !== 'user') return { kind: 'authentication_required' }
 
@@ -60,10 +63,10 @@ export async function startConversationTurn(
   ])
   const turnId = crypto.randomUUID()
   const reservation =
-    billed && owner.kind === 'user'
+    billed && userId
       ? {
           taskId: turnId,
-          userId: owner.userId,
+          userId,
           model: config.agent.model,
           ...reservedChatUsage(estimateTurnInputTokens(history, text)),
         }
@@ -95,6 +98,8 @@ export async function startConversationTurn(
       userMessageId: written.userMessageId,
       history,
       text,
+      userId,
+      deviceId,
       settle: reservation ? chatSettlement(overlay.taskHooks, turnId) : undefined,
     }),
   }
