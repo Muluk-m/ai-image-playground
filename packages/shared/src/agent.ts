@@ -10,8 +10,35 @@ export interface AgentTextBlock {
   readonly text: string
 }
 
-/** 工具调用与工具结果块由后续的工具票追加，读路径按 `type` 分发。 */
-export type AgentContentBlock = AgentTextBlock
+/** 智能体可调用的工具。改图、生视频、读素材库各有独立的票，往这里追加。 */
+export type AgentToolName = 'generateImage'
+
+export type AgentToolStatus = 'succeeded' | 'failed'
+
+/** 工具产出的一张图。`imageId` 同时是画布对象的 id，结果卡凭它定位到画布上同一个对象。 */
+export interface AgentToolImage {
+  readonly imageId: string
+  readonly taskId: string
+  readonly outputIndex: number
+  readonly mime: string
+  readonly width?: number
+  readonly height?: number
+}
+
+/** 一次工具调用的最终结果。它单独占一条助手消息，所以翻历史时与文字回复各就各位。 */
+export interface AgentToolResultBlock {
+  readonly type: 'toolResult'
+  readonly toolCallId: string
+  readonly toolName: AgentToolName
+  readonly status: AgentToolStatus
+  /** 面板上这张卡的一行标签。 */
+  readonly title: string
+  readonly images?: readonly AgentToolImage[]
+  /** 失败原因，一句话。 */
+  readonly message?: string
+}
+
+export type AgentContentBlock = AgentTextBlock | AgentToolResultBlock
 
 export interface AgentMessageView {
   readonly id: string
@@ -63,6 +90,35 @@ export interface AgentTextDeltaEvent {
   readonly delta: string
 }
 
+/** 一次工具调用开始。`messageId` 是这次调用独占的助手消息，工具的三个事件都指向它。 */
+export interface AgentToolStartEvent {
+  readonly type: 'toolStart'
+  readonly messageId: string
+  readonly toolCallId: string
+  readonly toolName: AgentToolName
+  readonly title: string
+}
+
+/** 分钟级任务的中途进度。一轮里可以有多次工具调用，各自按 `toolCallId` 独立上报。 */
+export interface AgentToolProgressEvent {
+  readonly type: 'toolProgress'
+  readonly messageId: string
+  readonly toolCallId: string
+  readonly stage: AgentToolStage
+}
+
+export type AgentToolStage = 'submitted' | 'running'
+
+export interface AgentToolEndEvent {
+  readonly type: 'toolEnd'
+  readonly messageId: string
+  readonly toolCallId: string
+  readonly toolName: AgentToolName
+  readonly status: AgentToolStatus
+  readonly images?: readonly AgentToolImage[]
+  readonly message?: string
+}
+
 /** 轮进行中追加的用户消息。 */
 export interface AgentInterjectionEvent {
   readonly type: 'interjection'
@@ -78,7 +134,7 @@ export interface AgentTurnUsage {
 
 export type AgentTurnStopReason = 'completed' | 'aborted' | 'failed'
 
-export type AgentTurnErrorCode = 'agent_upstream_error' | 'agent_run_failed'
+export type AgentTurnErrorCode = 'agent_upstream_error' | 'agent_run_failed' | 'agent_tool_failed'
 
 /** 轮唯一的终帧。续播读到它就收流，不必再问轮是否还活着。 */
 export interface AgentTurnEndEvent {
@@ -95,6 +151,9 @@ export type AgentTurnEvent =
   | AgentTurnStartEvent
   | AgentAssistantStartEvent
   | AgentTextDeltaEvent
+  | AgentToolStartEvent
+  | AgentToolProgressEvent
+  | AgentToolEndEvent
   | AgentInterjectionEvent
   | AgentTurnEndEvent
 
@@ -152,6 +211,13 @@ export function agentTextFromBlocks(blocks: readonly { readonly type: string }[]
 
 export function agentMessageText(message: AgentMessageView): string {
   return agentTextFromBlocks(message.content)
+}
+
+/** 工具结果回放给模型的形状：图片 id 让它下一轮还能指着同一张图说话。 */
+export function agentToolResultSummary(block: AgentToolResultBlock): string {
+  if (block.status === 'failed') return `${block.title}：失败（${block.message ?? '未知原因'}）`
+  const ids = (block.images ?? []).map((image) => image.imageId).join(', ')
+  return ids ? `${block.title}：完成，图片 ${ids}` : `${block.title}：完成`
 }
 
 /** 首轮消息即标题，超长截断；会话不支持改名，所以这是标题的唯一来源。 */
