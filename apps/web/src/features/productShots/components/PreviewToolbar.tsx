@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useId, useRef, useState } from 'react'
 import { CopyIcon, DownloadIcon, EditIcon, SparkleIcon } from '../../../components/icons'
 import { downloadBlob, downloadImagesByIds } from '../../../lib/downloadImages'
 import { useStore } from '../../../store'
@@ -8,7 +8,7 @@ import { renderKitImage } from '../workflows/render'
 import { openWorkflow } from '../workflows/runtime'
 
 const BUTTON =
-  'inline-flex min-h-9 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border px-3 py-2 text-xs font-medium transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-400 disabled:cursor-wait disabled:opacity-50 [@media(pointer:coarse)]:min-h-11'
+  'inline-flex min-h-9 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border px-3 py-2 text-xs font-medium transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-400 disabled:cursor-not-allowed disabled:opacity-50 [@media(pointer:coarse)]:min-h-11'
 const SECONDARY =
   'border-gray-200 bg-white text-gray-700 hover:border-blue-300 dark:border-white/[0.12] dark:bg-white/[0.04] dark:text-gray-200 dark:hover:border-blue-400/50'
 
@@ -19,18 +19,22 @@ export default function PreviewToolbar({
   versionIndex,
   comparing,
   onCompare,
+  disabledReason,
 }: {
-  version: ProductShotVersion
-  imageId: string
+  version?: ProductShotVersion
+  imageId?: string
   imageIndex: number
   versionIndex: number
   comparing: boolean
   onCompare: () => void
+  disabledReason?: string
 }) {
+  const hintId = useId()
+  const available = Boolean(version && imageId)
   const [exporting, setExporting] = useState(false)
   const exportingRef = useRef(false)
   const exportImage = async () => {
-    if (exportingRef.current) return
+    if (!version || !imageId || exportingRef.current) return
     exportingRef.current = true
     setExporting(true)
     try {
@@ -57,13 +61,15 @@ export default function PreviewToolbar({
     <div
       role="group"
       aria-label="图像操作"
+      aria-describedby={!available && disabledReason ? hintId : undefined}
       className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-gray-200/70 pt-3 dark:border-white/[0.08]"
     >
       <div role="group" aria-label="创作工具" className="flex flex-wrap gap-2">
         <button
           type="button"
           className={`${BUTTON} border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 dark:border-blue-400/25 dark:bg-blue-400/10 dark:text-blue-300 dark:hover:bg-blue-400/20`}
-          onClick={() => openWorkflow('edit', version.id)}
+          disabled={!available}
+          onClick={() => version && openWorkflow('edit', version.id)}
         >
           <EditIcon className="h-4 w-4 shrink-0" aria-hidden="true" />
           局部编辑
@@ -71,15 +77,17 @@ export default function PreviewToolbar({
         <button
           type="button"
           className={`${BUTTON} ${SECONDARY}`}
-          onClick={() => openWorkflow('kit', version.id)}
+          disabled={!available}
+          onClick={() => version && openWorkflow('kit', version.id)}
         >
           <CopyIcon className="h-4 w-4 shrink-0" aria-hidden="true" />
           批量衍生
         </button>
-        {version.workflow?.spec.kind === 'draft' && (
+        {version?.workflow?.spec.kind === 'draft' && (
           <button
             type="button"
             className={`${BUTTON} ${SECONDARY}`}
+            disabled={!available}
             onClick={() => openWorkflow('refine', version.id)}
           >
             <SparkleIcon className="h-4 w-4 shrink-0" aria-hidden="true" />
@@ -91,6 +99,7 @@ export default function PreviewToolbar({
         <button
           type="button"
           aria-pressed={comparing}
+          disabled={!available}
           className={`${BUTTON} ${comparing ? 'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-400/25 dark:bg-blue-400/10 dark:text-blue-300' : 'border-transparent text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-white/[0.04]'}`}
           onClick={onCompare}
         >
@@ -111,7 +120,7 @@ export default function PreviewToolbar({
         <button
           type="button"
           aria-busy={exporting}
-          disabled={exporting}
+          disabled={!available || exporting}
           className={`${BUTTON} ${SECONDARY}`}
           onClick={() => void exportImage()}
         >
@@ -119,6 +128,11 @@ export default function PreviewToolbar({
           {exporting ? '导出中…' : '导出'}
         </button>
       </div>
+      {!available && disabledReason && (
+        <p id={hintId} className="w-full text-xs text-gray-500 dark:text-gray-400" role="status">
+          {disabledReason}
+        </p>
+      )}
     </div>
   )
 }
