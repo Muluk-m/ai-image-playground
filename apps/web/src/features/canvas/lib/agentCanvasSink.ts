@@ -15,12 +15,15 @@ export function createAgentCanvasSink(editor: CanvasEditor): AgentCanvasSink {
 
     revision: () => editor.editRevision(),
 
-    async place(images, baseRevision) {
-      if (baseRevision !== undefined && editor.editRevision() !== baseRevision) return 'conflict'
+    async place(images, options) {
+      const base = options?.baseRevision
+      if (base !== undefined && editor.editRevision() !== base) return 'conflict'
+      const anchor = options?.anchorImageId
+      const bounds = anchor ? (editor.getElementPageBounds(anchor) ?? null) : null
       await placeImagesOnCanvas(
         editor,
         images.map((image) => image.dataUrl),
-        computePlaceholderTarget(editor, null),
+        computePlaceholderTarget(editor, bounds),
         { ids: images.map((image) => image.imageId) },
       )
       return 'placed'

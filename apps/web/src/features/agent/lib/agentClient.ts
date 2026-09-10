@@ -4,6 +4,7 @@ import type {
   AgentFrame,
   AgentMessageView,
   AgentToolImage,
+  AgentTurnReference,
 } from '@image-playground/shared'
 import { AGENT_FRAME_SEPARATOR, parseAgentFrame } from '@image-playground/shared'
 import { authenticatedBffFetch } from '../../../lib/authClient'
@@ -111,11 +112,16 @@ async function* readFrames(response: Response): AsyncGenerator<AgentFrame> {
 export async function* startTurn(
   conversationId: string,
   text: string,
+  references: readonly AgentTurnReference[] = [],
   fetcher: Fetcher = authenticatedBffFetch,
 ): AsyncGenerator<AgentFrame> {
   const response = await fetcher(
     url(`/conversations/${conversationId}/turns`),
-    jsonInit({ deviceId: getDeviceId(), text }),
+    jsonInit({
+      deviceId: getDeviceId(),
+      text,
+      ...(references.length ? { references } : {}),
+    }),
   )
   yield* readFrames(response)
 }

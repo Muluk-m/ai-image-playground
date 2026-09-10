@@ -100,7 +100,7 @@ describe('画布编辑修订号', () => {
 
 describe('落画布', () => {
   it('基线与当前修订号一致时写入', async () => {
-    const outcome = await sink.place(IMAGES, sink.revision())
+    const outcome = await sink.place(IMAGES, { baseRevision: sink.revision() })
 
     expect(outcome).toBe('placed')
     expect(placeImagesOnCanvasMock).toHaveBeenCalledTimes(1)
@@ -110,7 +110,7 @@ describe('落画布', () => {
     const base = sink.revision()
     addText('text-1')
 
-    const outcome = await sink.place(IMAGES, base)
+    const outcome = await sink.place(IMAGES, { baseRevision: base })
 
     expect(outcome).toBe('conflict')
     expect(placeImagesOnCanvasMock).not.toHaveBeenCalled()
@@ -126,8 +126,8 @@ describe('落画布', () => {
   })
 
   it('写入后的修订号可以当作下一次的基线', async () => {
-    await sink.place(IMAGES, sink.revision())
+    await sink.place(IMAGES, { baseRevision: sink.revision() })
 
-    expect(await sink.place(IMAGES, sink.revision())).toBe('placed')
+    expect(await sink.place(IMAGES, { baseRevision: sink.revision() })).toBe('placed')
   })
 })
