@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   getProfileModels,
   getSelectedModel,
+  isModelKnown,
   modelSupportsNativeMask,
   updateProfileModels,
   updateSelectedModel,
@@ -168,5 +169,20 @@ describe('modelSupportsNativeMask', () => {
         publicChannels,
       ),
     ).toBe(false)
+  })
+})
+
+describe('isModelKnown', () => {
+  it('builtin-edge: 只认 channel 当前清单里的模型', () => {
+    expect(isModelKnown(makeBuiltin('gemini-a'), publicChannels)).toBe(true)
+    expect(isModelKnown(makeBuiltin('gemini-retired'), publicChannels)).toBe(false)
+  })
+
+  it('builtin-edge: channel 整个没了也算认不出', () => {
+    expect(isModelKnown(makeBuiltin(), [])).toBe(false)
+  })
+
+  it('user-byok: 模型清单由用户自己填，一律认', () => {
+    expect(isModelKnown(makeByok(['whatever']), [])).toBe(true)
   })
 })
