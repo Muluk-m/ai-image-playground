@@ -1273,6 +1273,35 @@ describe('submitPrepared 显式参数提交接缝', () => {
     expect(useStore.getState().settings.activeProfileId).toBe('default-openai')
   })
 
+  it('explicit model is used by dispatch without changing the selected model', async () => {
+    const profile = createDefaultOpenAIByokProfile({ apiKey: 'test-key' })
+    profile.models = ['gpt-image-1', 'gpt-image-2']
+    profile.selectedModelId = 'gpt-image-1'
+    useStore.setState({
+      settings: normalizeSettings({
+        ...DEFAULT_SETTINGS,
+        profiles: [profile],
+        activeProfileId: profile.id,
+      }),
+    })
+    await submitPrepared({
+      prompt: '商品',
+      inputImages: [],
+      params: { ...DEFAULT_PARAMS, n: 1 },
+      profileId: profile.id,
+      modelId: 'gpt-image-2',
+    })
+    await waitUntil(() => vi.mocked(callImageApi).mock.calls.length > 0, 'model dispatch missing')
+    expect(
+      vi.mocked(callImageApi).mock.calls[0][0].settings.profiles.find((p) => p.id === profile.id)
+        ?.selectedModelId,
+    ).toBe('gpt-image-2')
+    expect(useStore.getState().tasks[0].apiModel).toBe('gpt-image-2')
+    expect(
+      useStore.getState().settings.profiles.find((p) => p.id === profile.id)?.selectedModelId,
+    ).toBe('gpt-image-1')
+  })
+
   it('遮罩按显式参数写进任务记录', async () => {
     await submitPrepared({
       prompt: 'p',

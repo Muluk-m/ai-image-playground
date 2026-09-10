@@ -1,11 +1,15 @@
 import type { ExportPreset } from '@image-playground/shared'
 import { DownloadIcon, ZoomIcon } from '../../../components/icons'
+import { downloadBlob } from '../../../lib/downloadImages'
 import { downloadExportedImage, type ExportFit } from '../../../lib/imageExport'
 import { useStore } from '../../../store'
 import AssetThumb from '../../library/components/AssetThumb'
 import { type GalleryVersion, shotFileName } from '../lib/gallery'
 import { VERSION_STATE_LABELS } from '../lib/versionProgress'
 import { useProductShotsStore } from '../store'
+import { renderKitImage } from '../workflows/render'
+import { closeWorkflow, retryProductWorkflow } from '../workflows/runtime'
+import WorkflowImage from '../workflows/WorkflowImage'
 import IconButton from './IconButton'
 import MattedThumb from './MattedThumb'
 import {
@@ -52,6 +56,7 @@ export default function VersionCard({
 
   const preview = () => {
     // selectImage 会清掉预览，先切原图再落这一版。
+    closeWorkflow()
     selectImage(item.imageId)
     previewVersion(item.version.id)
   }
@@ -77,7 +82,16 @@ export default function VersionCard({
           {overlaid ? (
             <MattedThumb imageId={item.imageId} overlayImageId={matte} alt={label} />
           ) : first ? (
-            <AssetThumb imageId={first} alt={label} />
+            item.version.workflow?.spec.kind === 'kit' ? (
+              <WorkflowImage
+                imageId={first}
+                version={item.version}
+                alt={label}
+                className="h-full w-full object-contain"
+              />
+            ) : (
+              <AssetThumb imageId={first} alt={label} />
+            )
           ) : (
             <span className="flex h-full items-center justify-center text-xs text-gray-400 dark:text-gray-500">
               {VERSION_STATE_LABELS[item.state]}
@@ -115,13 +129,15 @@ export default function VersionCard({
       <VersionTags version={item.version} state={item.state} />
 
       <div className={`mt-auto ${VERSION_ACTION_ROW}`}>
-        <IconButton
-          onClick={() => openPlanDrawer(item.version.id)}
-          label="查看方案"
-          className={VERSION_ICON_BUTTON}
-        >
-          <PlanIcon className="h-4 w-4" />
-        </IconButton>
+        {!item.version.workflow && (
+          <IconButton
+            onClick={() => openPlanDrawer(item.version.id)}
+            label="查看方案"
+            className={VERSION_ICON_BUTTON}
+          >
+            <PlanIcon className="h-4 w-4" />
+          </IconButton>
+        )}
         {matte && (
           <IconButton
             onClick={() => toggleMatteOverlay(item.version.id)}
@@ -135,6 +151,14 @@ export default function VersionCard({
         {first && (
           <IconButton
             onClick={() => {
+              if (item.version.workflow?.spec.kind === 'kit') {
+                void renderKitImage(first, item.version)
+                  .then((blob) =>
+                    downloadBlob(blob, shotFileName(item.imageIndex, item.versionIndex)),
+                  )
+                  .catch((e) => showToast(String(e), 'error'))
+                return
+              }
               downloadExportedImage(
                 shotFileName(item.imageIndex, item.versionIndex),
                 first,
@@ -149,7 +173,18 @@ export default function VersionCard({
           </IconButton>
         )}
         {item.state === 'error' && (
-          <IconButton onClick={onRetry} label="重跑" className={VERSION_ICON_BUTTON}>
+          <IconButton
+            onClick={() => {
+              if (item.version.workflow)
+                void retryProductWorkflow(
+                  { jobId: useProductShotsStore.getState().draft.id ?? '', imageId: item.imageId },
+                  item.version,
+                ).catch((e) => showToast(String(e), 'error'))
+              else onRetry()
+            }}
+            label="重跑"
+            className={VERSION_ICON_BUTTON}
+          >
             <RetryIcon className="h-4 w-4" />
           </IconButton>
         )}

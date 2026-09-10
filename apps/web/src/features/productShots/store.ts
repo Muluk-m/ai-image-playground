@@ -1263,3 +1263,16 @@ async function persistDraft(set: SetState, get: GetState): Promise<string | null
   await productShotJobStore.put(record)
   return record.id
 }
+
+export async function recordWorkflowVersions(
+  jobId: string,
+  imageId: string,
+  versions: ProductShotVersion[],
+): Promise<void> {
+  await recordVersions(
+    useProductShotsStore.setState,
+    useProductShotsStore.getState,
+    { jobId, imageId },
+    versions,
+  )
+}

@@ -174,6 +174,7 @@ export interface ExportEntry {
   path: string
   imageId: string
   fit: ExportFit
+  render?: () => Promise<Blob>
 }
 
 export interface ExportResult {
@@ -203,7 +204,9 @@ export async function downloadExportZip(
 
   for (const entry of entries) {
     try {
-      const rendered = await exportedImage(entry.imageId, preset, offset, entry.fit)
+      const rendered = entry.render
+        ? await entry.render()
+        : await exportedImage(entry.imageId, preset, offset, entry.fit)
       packed[entry.path] = new Uint8Array(await rendered.arrayBuffer())
     } catch {
       failed++

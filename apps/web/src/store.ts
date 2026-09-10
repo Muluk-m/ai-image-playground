@@ -11,6 +11,7 @@ import {
 } from './lib/apiProfiles'
 import {
   getModelCapabilities,
+  getProfileModels,
   modelSupportsEdit,
   NO_EDIT_SUPPORT_MESSAGE,
 } from './lib/channels/profileSelectors'
@@ -1299,6 +1300,7 @@ export interface PreparedSubmission {
   mask?: { imageId: string; targetImageId: string } | null
   /** 提交所用的 API 配置；省略用当前活动配置。 */
   profileId?: string
+  modelId?: string
   /** 幂等键；只在本次提交恰好产出一条任务时生效。 */
   clientRequestId?: string
   /** 归属信息（套 / 镜头）；零散提交不带。 */
@@ -1312,9 +1314,20 @@ export interface PreparedSubmission {
 export async function submitPrepared(input: PreparedSubmission): Promise<string[]> {
   const { settings, showToast } = useStore.getState()
   const normalizedSettings = normalizeSettings(settings)
-  const profile =
+  const selectedProfile =
     normalizedSettings.profiles.find((item) => item.id === input.profileId) ??
     getActiveApiProfile(normalizedSettings)
+  if (
+    input.modelId &&
+    (!normalizedSettings.profiles.some((item) => item.id === input.profileId) ||
+      !getProfileModels(selectedProfile, getPublicChannels()).includes(input.modelId))
+  ) {
+    showToast('所选模型或配置已不可用，请重新选择', 'error')
+    return []
+  }
+  const profile = input.modelId
+    ? { ...selectedProfile, selectedModelId: input.modelId }
+    : selectedProfile
   const requestSettings = createSettingsForApiProfile(normalizedSettings, profile)
 
   if (!isByokGenerationEnabled() && profile.source !== 'builtin-edge') {
@@ -1542,7 +1555,10 @@ async function executeTask(taskId: string) {
     })
     return
   }
-  const activeProfile = taskProfile ?? getActiveApiProfile(settings)
+  const savedProfile = taskProfile ?? getActiveApiProfile(settings)
+  const activeProfile = task.apiModel
+    ? { ...savedProfile, selectedModelId: task.apiModel }
+    : savedProfile
   const activeView = clientProfileToApiProfile(activeProfile)
   const requestSettings = createSettingsForApiProfile(settings, activeProfile)
   const taskProvider = task.apiProvider ?? activeView.provider

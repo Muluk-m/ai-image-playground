@@ -3,6 +3,7 @@ import { actionLabel } from '../lib/actions'
 import { matteBadge } from '../lib/matteBadge'
 import { VERSION_STATE_LABELS, type VersionState } from '../lib/versionProgress'
 import type { ProductShotVersion } from '../types'
+import { workflowLabel } from '../workflows/plan'
 import BadgeTag from './BadgeTag'
 
 /** 图标操作行：指针悬停或键盘聚焦才露出，触摸屏没有 hover，常显。 */
@@ -98,7 +99,9 @@ export function VersionTitle({
           truncateAction ? 'truncate' : 'shrink-0'
         }`}
       >
-        {actionLabel(version.mode, version.level)}
+        {version.workflow
+          ? workflowLabel(version.workflow)
+          : actionLabel(version.mode, version.level)}
       </span>
       {trailing}
     </span>
@@ -122,7 +125,9 @@ export function VersionTags({
         <span className="shrink-0">{VERSION_STATE_LABELS[state]}</span>
       )}
       {/* 「未抠图 · 运行错误」比别的标签长，独占一行还放不下才省略。 */}
-      <BadgeTag badge={matteBadge(version)} className="min-w-0 truncate px-1" />
+      {!version.workflow && (
+        <BadgeTag badge={matteBadge(version)} className="min-w-0 truncate px-1" />
+      )}
       {version.lowResSource && <span className={AMBER_TAG}>源图分辨率低</span>}
       {version.promptEdited && <span className={AMBER_TAG}>手改</span>}
     </span>

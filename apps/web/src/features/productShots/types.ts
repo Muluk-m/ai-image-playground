@@ -12,6 +12,7 @@ import type {
   RemixShotCopy,
 } from '../../lib/shotTypes'
 import type { ProductShotAction } from './lib/actions'
+import type { WorkflowRecipe } from './workflows/plan'
 
 /** 旧任务记录里的两组分段，只用来把老记录读成一个动作。 */
 export type LegacyProductSource = 'original' | 'asset'
@@ -86,6 +87,8 @@ export type MatteWithAlpha = Extract<SourceMatte, { status: 'ready' | 'unusable'
 
 /** 一次动作的产出。`masked` 为假是蒙版失败的提示词版，产品像素没被锁住。 */
 export interface ProductShotVersion {
+  workflow?: WorkflowRecipe
+
   id: string
   taskId: string
   plan: string
