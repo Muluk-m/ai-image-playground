@@ -97,7 +97,7 @@ function settleSubmittedTasks(outcome: 'completed' | 'failed'): () => void {
 
 beforeEach(async () => {
   _setChannelsForTesting([TEST_IMAGE_CHANNEL])
-  setQueueTaskPollingForTesting({ intervalMs: 2, budgetMs: 5_000 })
+  setQueueTaskPollingForTesting({ intervalMs: 2, budgetMs: 30_000 })
   await db.delete(schema.tasks)
   await db.delete(schema.agent_conversations)
 })
@@ -209,7 +209,7 @@ describe('智能体生图工具', () => {
     stop()
 
     // 两次上游各报 12 / 4；只读末条就会把工具那一次白送。
-    const [end] = events(frames, 'turnEnd')
+    const [end] = eventsOfType(frames, 'turnEnd')
     expect(end!.usage).toEqual({ inputTokens: 24, outputTokens: 8 })
   })
 

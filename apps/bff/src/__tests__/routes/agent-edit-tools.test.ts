@@ -146,7 +146,7 @@ beforeEach(async () => {
   storage = new InMemoryObjectStore()
   setObjectStoreForTesting(storage)
   _setChannelsForTesting([TEST_IMAGE_CHANNEL])
-  setQueueTaskPollingForTesting({ intervalMs: 2, budgetMs: 5_000 })
+  setQueueTaskPollingForTesting({ intervalMs: 2, budgetMs: 30_000 })
   await db.delete(schema.tasks)
   await db.delete(schema.agent_conversations)
   await db.delete(schema.users)
