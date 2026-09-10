@@ -1,12 +1,10 @@
-import { type KeyboardEvent, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import { PlusIcon, TrashIcon } from '../../../components/icons'
 import { useStore } from '../../../store'
 import type { CanvasDoc } from '../../canvas/lib/canvasDoc'
 import {
-  ABORT_BUTTON,
   ACTIVE_LIST_ROW,
   ACTIVE_TAB,
-  FIELD,
   GHOST_LINK,
   ICON_BUTTON,
   IDLE_TAB,
@@ -17,12 +15,12 @@ import {
   PANEL_SHADOW,
   PANEL_SURFACE,
   PANEL_WIDTH,
-  SEND_BUTTON,
   TAB,
   USER_BUBBLE,
 } from '../agentStyles'
 import { agentPanelPresent } from '../panelLayout'
 import { useAgentStore } from '../store'
+import AgentComposer from './AgentComposer'
 import AgentLayers from './AgentLayers'
 import AgentReply from './AgentReply'
 import AgentToolCard from './AgentToolCard'
@@ -106,9 +104,8 @@ export default function AgentPanel({ doc }: { doc: CanvasDoc }) {
   const messages = useAgentStore((state) => state.messages)
   const turn = useAgentStore((state) => state.turn)
   const error = useAgentStore((state) => state.error)
-  const { setOpen, setTab, load, send, abort, startNewConversation, refreshConversations } =
+  const { setOpen, setTab, load, startNewConversation, refreshConversations } =
     useAgentStore.getState()
-  const [draft, setDraft] = useState('')
   const logRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -122,18 +119,6 @@ export default function AgentPanel({ doc }: { doc: CanvasDoc }) {
 
   if (!agentPanelPresent()) return null
   if (!open) return <CollapsedButton onOpen={() => setOpen(true)} />
-
-  const submit = () => {
-    const text = draft
-    setDraft('')
-    void send(text)
-  }
-
-  const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return
-    event.preventDefault()
-    submit()
-  }
 
   return (
     <div
@@ -242,28 +227,7 @@ export default function AgentPanel({ doc }: { doc: CanvasDoc }) {
         </div>
       )}
 
-      {tab === 'chat' && (
-        <div className="flex shrink-0 flex-col gap-2 px-3 pb-3 pt-2">
-          <textarea
-            rows={2}
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            onKeyDown={onKeyDown}
-            placeholder="说一句你想做什么"
-            className={FIELD}
-          />
-          <div className="flex items-center justify-end gap-2">
-            {turn === 'running' && (
-              <button type="button" className={ABORT_BUTTON} onClick={() => void abort()}>
-                中止
-              </button>
-            )}
-            <button type="button" className={SEND_BUTTON} disabled={!draft.trim()} onClick={submit}>
-              {turn === 'running' ? '插话' : '发送'}
-            </button>
-          </div>
-        </div>
-      )}
+      {tab === 'chat' && <AgentComposer doc={doc} />}
     </div>
   )
 }

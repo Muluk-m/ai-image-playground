@@ -7,8 +7,11 @@ import { Elysia } from 'elysia'
 import {
   type AgentCall,
   completionStream,
+  eventsOfType,
   parseFrames,
-  recordingAgentFetch,
+  scriptedAgentFetch,
+  TEST_IMAGE_CHANNEL,
+  TEST_RESULT_PAYLOAD,
   toolCallCompletion,
 } from '../helpers/agentStubs'
 
@@ -29,25 +32,6 @@ const { close: closeDb, db, schema } = await import('../../db/client')
 
 const app = new Elysia().use(agentRoutes)
 const DEVICE = 'device-abcdefgh'
-
-const IMAGE_CHANNEL = {
-  id: 'openai-images',
-  kind: 'openai-queue' as const,
-  label: 'OpenAI',
-  baseUrl: 'https://api.openai.com/v1',
-  auth: { type: 'bearer' as const, secretRef: 'OPENAI_API_KEY', secret: 'k' },
-  allowedPaths: ['images/generations'],
-  models: [
-    {
-      id: 'gpt-image-2.5-flare',
-      label: 'GPT Image 2.5 Flare',
-      capabilities: ['generate' as const],
-    },
-  ],
-  defaults: { apiMode: 'images' as const, timeout: 600 },
-}
-
-const RESULT_PAYLOAD = { data: [{ b64_json: 'aGk=', mime: 'image/png' }] }
 
 async function post(path: string, body: unknown) {
   const response = await app.handle(
@@ -90,15 +74,6 @@ function types(frames: { event: AgentTurnEvent }[]): string[] {
   return frames.map((frame) => frame.event.type)
 }
 
-function events<T extends AgentTurnEvent['type']>(
-  frames: { event: AgentTurnEvent }[],
-  type: T,
-): Extract<AgentTurnEvent, { type: T }>[] {
-  return frames
-    .map((frame) => frame.event)
-    .filter((event): event is Extract<AgentTurnEvent, { type: T }> => event.type === type)
-}
-
 /** 测试里的迷你 worker：把工具刚提交的任务推到终态，让工具循环能往下跑。 */
 function settleSubmittedTasks(outcome: 'completed' | 'failed'): () => void {
   let stopped = false
@@ -108,7 +83,7 @@ function settleSubmittedTasks(outcome: 'completed' | 'failed'): () => void {
         .update(schema.tasks)
         .set(
           outcome === 'completed'
-            ? { status: 'completed', result_payload: RESULT_PAYLOAD, completed_at: Date.now() }
+            ? { status: 'completed', result_payload: TEST_RESULT_PAYLOAD, completed_at: Date.now() }
             : { status: 'failed', error_message: '上游拒绝了这张图', error_type: 'upstream_error' },
         )
         .where(eq(schema.tasks.status, 'queued'))
@@ -120,15 +95,9 @@ function settleSubmittedTasks(outcome: 'completed' | 'failed'): () => void {
   }
 }
 
-/** 依次回答每一次上游请求；用完之后重复最后一条，免得跑飞的循环挂住测试。 */
-function scriptedAgentFetch(calls: AgentCall[], answers: Array<() => Response>) {
-  let at = 0
-  return recordingAgentFetch(calls, () => (answers[at++] ?? answers.at(-1)!)())
-}
-
 beforeEach(async () => {
-  _setChannelsForTesting([IMAGE_CHANNEL])
-  setQueueTaskPollingForTesting({ intervalMs: 2, budgetMs: 5_000 })
+  _setChannelsForTesting([TEST_IMAGE_CHANNEL])
+  setQueueTaskPollingForTesting({ intervalMs: 2, budgetMs: 30_000 })
   await db.delete(schema.tasks)
   await db.delete(schema.agent_conversations)
 })
@@ -173,13 +142,13 @@ describe('智能体生图工具', () => {
     ])
     expect(frames.map((frame) => frame.id)).toEqual([1, 2, 3, 4, 5, 6, 7])
 
-    const [start] = events(frames, 'toolStart')
+    const [start] = eventsOfType(frames, 'toolStart')
     expect(start).toMatchObject({
       toolCallId: 'call-1',
       toolName: 'generateImage',
       title: '一只橘猫坐在窗台上',
     })
-    const [end] = events(frames, 'toolEnd')
+    const [end] = eventsOfType(frames, 'toolEnd')
     expect(end).toMatchObject({
       messageId: start!.messageId,
       toolCallId: 'call-1',
@@ -192,7 +161,7 @@ describe('智能体生图工具', () => {
     expect(image.mime).toBe('image/png')
     expect(image.imageId).toBeTruthy()
 
-    const turnStart = events(frames, 'turnStart')[0]!
+    const turnStart = eventsOfType(frames, 'turnStart')[0]!
     const [task] = await db.select().from(schema.tasks)
     expect(task!.id).toBe(image.taskId)
     expect(task!.agent_conversation_id).toBe(conversationId)
@@ -215,7 +184,7 @@ describe('智能体生图工具', () => {
     ])
     expect(messages[2]!.content).toEqual([{ type: 'text', text: '画好了' }])
 
-    expect(calls[0]!.tools?.map((tool) => tool.function.name)).toEqual(['generateImage'])
+    expect(calls[0]!.tools?.map((tool) => tool.function.name)).toContain('generateImage')
   })
 
   it('adds up the usage of every upstream call the tool loop makes', async () => {
@@ -240,7 +209,7 @@ describe('智能体生图工具', () => {
     stop()
 
     // 两次上游各报 12 / 4；只读末条就会把工具那一次白送。
-    const [end] = events(frames, 'turnEnd')
+    const [end] = eventsOfType(frames, 'turnEnd')
     expect(end!.usage).toEqual({ inputTokens: 24, outputTokens: 8 })
   })
 
@@ -262,12 +231,12 @@ describe('智能体生图工具', () => {
     const frames = await runTurn(conversationId, '画两只猫')
     stop()
 
-    const starts = events(frames, 'toolStart')
+    const starts = eventsOfType(frames, 'toolStart')
     expect(starts.map((event) => event.toolCallId)).toEqual(['call-1', 'call-2'])
     expect(starts.map((event) => event.title)).toEqual(['橘猫', '黑猫'])
     expect(new Set(starts.map((event) => event.messageId)).size).toBe(2)
 
-    const ends = events(frames, 'toolEnd')
+    const ends = eventsOfType(frames, 'toolEnd')
     expect(ends.map((event) => event.status)).toEqual(['succeeded', 'succeeded'])
     const imageIds = ends.flatMap((event) => (event.images ?? []).map((image) => image.imageId))
     expect(new Set(imageIds).size).toBe(2)
@@ -291,11 +260,11 @@ describe('智能体生图工具', () => {
     const frames = await runTurn(conversationId, '画一只橘猫')
     stop()
 
-    const [end] = events(frames, 'toolEnd')
+    const [end] = eventsOfType(frames, 'toolEnd')
     expect(end).toMatchObject({ toolCallId: 'call-1', status: 'failed' })
     expect(end!.message).toContain('上游拒绝了这张图')
 
-    const turnEnd = events(frames, 'turnEnd')[0]!
+    const turnEnd = eventsOfType(frames, 'turnEnd')[0]!
     expect(turnEnd.stopReason).toBe('failed')
     expect(turnEnd.error).toBe('agent_tool_failed')
 

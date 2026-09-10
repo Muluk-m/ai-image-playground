@@ -1,5 +1,6 @@
 import type { AgentTool } from '@earendil-works/pi-agent-core'
 import type { AgentToolImage, AgentToolName, AgentToolStage } from '@image-playground/shared'
+import type { AgentImageSource } from '../images'
 
 /** 工具跑在 BFF 进程里，身份与轮的归属由这里带过去。 */
 export interface AgentToolContext {
@@ -7,12 +8,15 @@ export interface AgentToolContext {
   readonly turnId: string
   readonly userId: string | null
   readonly deviceId: string
+  /** 模型说的图片 id 到字节的唯一出口。 */
+  readonly images: AgentImageSource
 }
 
 /** 进行中的 `onUpdate` 只填 `stage`，终局填 `images`。 */
 export interface AgentToolDetails {
   readonly stage?: AgentToolStage
   readonly images?: readonly AgentToolImage[]
+  readonly anchorImageId?: string
 }
 
 export interface AgentToolDefinition {
