@@ -7,8 +7,8 @@ import type {
 } from '@image-playground/shared'
 import { AGENT_FRAME_SEPARATOR, parseAgentFrame } from '@image-playground/shared'
 import { authenticatedBffFetch } from '../../../lib/authClient'
+import { fetchImageDataUrl } from '../../../lib/channels/queueClient'
 import { getDeviceId } from '../../../lib/deviceId'
-import { bytesToDataUrl } from '../../../lib/imageApiShared'
 import { bffBaseUrl } from '../../../lib/runtimeConfig'
 
 type Fetcher = (input: string, init?: RequestInit) => Promise<Response>
@@ -159,17 +159,6 @@ export async function interjectTurn(
   )
 }
 
-/** 工具产出的字节走队列的结果端点，与用户自己提交的任务同一条路径。 */
-export async function fetchToolImage(
-  image: AgentToolImage,
-  fetcher: Fetcher = authenticatedBffFetch,
-): Promise<string> {
-  const response = await fetcher(
-    `${bffBaseUrl()}/v1/queue/requests/${image.taskId}/image/${image.outputIndex}`,
-  )
-  if (!response.ok) throw new AgentRequestError(response.status)
-  return bytesToDataUrl(
-    await response.arrayBuffer(),
-    response.headers.get('content-type') ?? image.mime,
-  )
+export function fetchToolImage(image: AgentToolImage): Promise<string> {
+  return fetchImageDataUrl(bffBaseUrl(), image.taskId, image.outputIndex, image.mime)
 }

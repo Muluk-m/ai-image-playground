@@ -58,8 +58,6 @@ export interface AgentState {
   /** 空闲时起一轮；轮进行中则是插话。 */
   send(text: string): Promise<void>
   abort(): Promise<void>
-  /** 点结果卡：把画布定位到同一个对象。 */
-  locateImage(imageId: string): void
 }
 
 function replaceOrAppend(
@@ -83,7 +81,6 @@ function toolCard(block: AgentToolResultBlock, id: string): AgentToolMessage {
   }
 }
 
-/** 存下来的助手消息要么是文字，要么是一次工具调用的结果，读路径按块类型分发。 */
 function panelMessage(message: AgentMessageView): AgentPanelMessage {
   const result = message.content.find(
     (block): block is AgentToolResultBlock => block.type === 'toolResult',
@@ -107,7 +104,7 @@ const failPatch = (state: AgentState, message = TURN_FAILED) => ({
   messages: state.messages.filter((one) => one.kind !== 'text' || !one.streaming),
 })
 
-/** 产出落画布。画布上已经有的不再落一遍：续播会把同一条 `toolEnd` 重放给我们。 */
+/** 画布上已经有的不再落一遍：续播会把同一条 `toolEnd` 重放给我们。 */
 async function landOnCanvas(images: readonly AgentToolImage[]): Promise<void> {
   const sink = agentCanvasSink()
   if (!sink) return
@@ -127,8 +124,11 @@ async function landOnCanvas(images: readonly AgentToolImage[]): Promise<void> {
 }
 
 export const useAgentStore = create<AgentState>((set, get) => {
+  // 落图排成一条链：帧循环不等它，文字流才不会被几 MB 的下载卡住；串起来则保住多张图的次序。
+  let landing: Promise<void> = Promise.resolve()
+
   /** 事件按 id 幂等：重连重发的帧、以及续播重放的整轮，都要落到同一个结果上。 */
-  const apply = async (event: AgentTurnEvent, pendingUserText: string | null) => {
+  const apply = (event: AgentTurnEvent, pendingUserText: string | null) => {
     set((state) => {
       switch (event.type) {
         case 'turnStart':
@@ -212,7 +212,8 @@ export const useAgentStore = create<AgentState>((set, get) => {
       }
     })
     if (event.type === 'toolEnd' && event.status === 'succeeded') {
-      await landOnCanvas(event.images ?? [])
+      const images = event.images ?? []
+      landing = landing.then(() => landOnCanvas(images))
     }
   }
 
@@ -235,8 +236,11 @@ export const useAgentStore = create<AgentState>((set, get) => {
             seen = frame.id
             attempt = -1
           }
-          await apply(frame.event, pendingUserText)
-          if (frame.event.type === 'turnEnd') return
+          apply(frame.event, pendingUserText)
+          if (frame.event.type === 'turnEnd') {
+            await landing
+            return
+          }
         }
       } catch (thrown) {
         // 轮已经不在了，再重连也接不上；其余的断流与请求失败都走重连。
@@ -273,8 +277,6 @@ export const useAgentStore = create<AgentState>((set, get) => {
       set((state) => ({
         expanded: { ...state.expanded, [messageId]: !state.expanded[messageId] },
       })),
-
-    locateImage: (imageId) => agentCanvasSink()?.focus(imageId),
 
     async load() {
       if (get().loaded) return

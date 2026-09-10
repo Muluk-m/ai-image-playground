@@ -350,12 +350,12 @@ async function fetchResultMeta(base: string, requestId: string): Promise<ResultR
   return json
 }
 
-async function fetchImageDataUrl(
+export async function fetchImageDataUrl(
   base: string,
   requestId: string,
   index: number,
   fallbackMime: string,
-  signal: AbortSignal,
+  signal?: AbortSignal,
 ): Promise<string> {
   const url = `${base}/v1/queue/requests/${requestId}/image/${index}`
   const res = await authenticatedBffFetch(url, { signal })

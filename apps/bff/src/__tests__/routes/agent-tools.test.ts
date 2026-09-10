@@ -23,7 +23,7 @@ process.env.OPERATOR_CONFIG_FILE = resolve(import.meta.dir, '../agent-operator-c
 // Dynamic imports keep environment setup ahead of modules that capture configuration.
 const { agentRoutes } = await import('../../routes/agent')
 const { setAgentFetchForTesting } = await import('../../lib/agent/model')
-const { setAgentImagePollingForTesting } = await import('../../lib/agent/tools/generateImage')
+const { setQueueTaskPollingForTesting } = await import('../../lib/taskSubmission')
 const { _setChannelsForTesting } = await import('../../lib/channels')
 const { close: closeDb, db, schema } = await import('../../db/client')
 
@@ -128,14 +128,14 @@ function scriptedAgentFetch(calls: AgentCall[], answers: Array<() => Response>) 
 
 beforeEach(async () => {
   _setChannelsForTesting([IMAGE_CHANNEL])
-  setAgentImagePollingForTesting({ intervalMs: 2, budgetMs: 5_000 })
+  setQueueTaskPollingForTesting({ intervalMs: 2, budgetMs: 5_000 })
   await db.delete(schema.tasks)
   await db.delete(schema.agent_conversations)
 })
 
 afterEach(() => {
   setAgentFetchForTesting()
-  setAgentImagePollingForTesting()
+  setQueueTaskPollingForTesting()
 })
 
 afterAll(async () => {
@@ -201,7 +201,6 @@ describe('智能体生图工具', () => {
     expect(task!.provider).toBe('openai-compat')
     expect(task!.request_payload.prompt).toBe('一只橘猫坐在窗台上')
 
-    // 工具结果自己占一条助手消息，翻历史时结果卡与文字回复各就各位。
     const messages = await readMessages(conversationId)
     expect(messages.map((message) => message.role)).toEqual(['user', 'assistant', 'assistant'])
     expect(messages[1]!.content).toEqual([
@@ -216,7 +215,6 @@ describe('智能体生图工具', () => {
     ])
     expect(messages[2]!.content).toEqual([{ type: 'text', text: '画好了' }])
 
-    // 工具清单随每次请求发上去，模型才知道有生图这件事可做。
     expect(calls[0]!.tools?.map((tool) => tool.function.name)).toEqual(['generateImage'])
   })
 
@@ -241,7 +239,6 @@ describe('智能体生图工具', () => {
     const starts = events(frames, 'toolStart')
     expect(starts.map((event) => event.toolCallId)).toEqual(['call-1', 'call-2'])
     expect(starts.map((event) => event.title)).toEqual(['橘猫', '黑猫'])
-    // 两次调用各占一条助手消息，结果卡因此不会互相覆盖。
     expect(new Set(starts.map((event) => event.messageId)).size).toBe(2)
 
     const ends = events(frames, 'toolEnd')
@@ -276,7 +273,6 @@ describe('智能体生图工具', () => {
     expect(turnEnd.stopReason).toBe('failed')
     expect(turnEnd.error).toBe('agent_tool_failed')
 
-    // 图片任务留在失败终态，退回由现有的结算路径负责，工具不另做一套。
     const [task] = await db.select().from(schema.tasks)
     expect(task!.status).toBe('failed')
   })

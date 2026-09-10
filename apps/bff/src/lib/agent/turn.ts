@@ -6,7 +6,7 @@ import type {
   AgentTurnErrorCode,
   AgentTurnUsage,
 } from '@image-playground/shared'
-import { agentToolResultSummary } from '@image-playground/shared'
+import { agentTextFromBlocks, agentToolResultSummary } from '@image-playground/shared'
 import { db } from '../../db/client'
 import { log } from '../logger'
 import { createCompactionTransform } from './compaction-transform'
@@ -14,7 +14,13 @@ import { appendAgentMessage, touchAgentConversation } from './conversations'
 import { lastAgentEventSeq } from './events'
 import { agentModel, agentStreamFn } from './model'
 import { type RunningTurn, registerRunningTurn, turnEventLog } from './runningTurns'
-import { type AgentToolDetails, agentTools, agentToolTitle, isAgentToolName } from './tools'
+import {
+  type AgentToolDetails,
+  agentToolAbortsTurn,
+  agentTools,
+  agentToolTitle,
+  isAgentToolName,
+} from './tools'
 
 const EMPTY_USAGE = {
   input: 0,
@@ -102,10 +108,10 @@ function toolDetails(result: unknown): AgentToolDetails | undefined {
   return (result as { details?: AgentToolDetails } | undefined)?.details
 }
 
-/** pi 把工具抛出的错误写成结果里的第一段文字。 */
+/** pi 把工具抛出的错误写成结果的文字块。 */
 function toolErrorText(result: unknown): string {
-  const content = (result as { content?: { type: string; text?: string }[] } | undefined)?.content
-  return content?.find((block) => block.type === 'text')?.text ?? '工具执行失败'
+  const content = (result as { content?: { type: string }[] } | undefined)?.content
+  return agentTextFromBlocks(content ?? []) || '工具执行失败'
 }
 
 function toolResultBlock(
@@ -122,7 +128,7 @@ function toolResultBlock(
   return {
     ...head,
     status: 'succeeded',
-    title: details?.title ?? pending.title,
+    title: pending.title,
     ...(details?.images?.length ? { images: details.images } : {}),
   }
 }
@@ -271,19 +277,10 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
       if (!pending) return
       openTools.delete(event.toolCallId)
       const block = toolResultBlock(pending, event.toolCallId, event.result, event.isError)
-      events.emit({
-        type: 'toolEnd',
-        messageId: pending.messageId,
-        toolCallId: block.toolCallId,
-        toolName: block.toolName,
-        status: block.status,
-        title: block.title,
-        ...(block.images ? { images: block.images } : {}),
-        ...(block.message ? { message: block.message } : {}),
-      })
+      const { type: _stored, ...fields } = block
+      events.emit({ type: 'toolEnd', messageId: pending.messageId, ...fields })
       await storeToolResult(block, pending.messageId)
-      if (event.isError) {
-        // 工具失败这一轮就到此为止：模型看到错误还会接着编，用户等来的是一段没有图的解释。
+      if (event.isError && agentToolAbortsTurn(event.toolName)) {
         error = 'agent_tool_failed'
         agent.abort()
       }

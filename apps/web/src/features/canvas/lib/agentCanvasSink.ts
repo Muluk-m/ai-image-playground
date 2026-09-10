@@ -6,8 +6,10 @@ import { computePlaceholderTarget } from './placement'
 /** 结果卡缩略图的缩放比。画布对象通常 360 页面单位宽，缩到面板里够看。 */
 const THUMBNAIL_SCALE = 0.25
 
-/** 智能体产出落画布的实现。产出的画布对象 id 就是结果卡上的 `imageId`。 */
 export function createAgentCanvasSink(editor: CanvasEditor): AgentCanvasSink {
+  // 面板折叠一次、切一次页签，每张卡都会重新问一遍缩略图；栅格化不便宜，存下来。
+  const thumbnails = new Map<string, string>()
+
   return {
     has: (imageId) => editor.getElement(imageId) !== undefined,
 
@@ -26,6 +28,12 @@ export function createAgentCanvasSink(editor: CanvasEditor): AgentCanvasSink {
       editor.scrollToElements([imageId])
     },
 
-    thumbnail: (imageId) => editor.toImage([imageId], { scale: THUMBNAIL_SCALE }),
+    async thumbnail(imageId) {
+      const cached = thumbnails.get(imageId)
+      if (cached) return cached
+      const rendered = await editor.toImage([imageId], { scale: THUMBNAIL_SCALE })
+      if (rendered) thumbnails.set(imageId, rendered)
+      return rendered
+    },
   }
 }

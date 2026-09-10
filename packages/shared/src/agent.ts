@@ -109,16 +109,10 @@ export interface AgentToolProgressEvent {
 
 export type AgentToolStage = 'submitted' | 'running'
 
-/** 带上 `title`：断线后只续播尾巴时，前端手上可能没有这次调用的 `toolStart`。 */
-export interface AgentToolEndEvent {
+/** 与落库的结果块同形：断线后只续播尾巴时，前端手上可能没有这次调用的 `toolStart`。 */
+export type AgentToolEndEvent = Omit<AgentToolResultBlock, 'type'> & {
   readonly type: 'toolEnd'
   readonly messageId: string
-  readonly toolCallId: string
-  readonly toolName: AgentToolName
-  readonly status: AgentToolStatus
-  readonly title: string
-  readonly images?: readonly AgentToolImage[]
-  readonly message?: string
 }
 
 /** 轮进行中追加的用户消息。 */
@@ -222,9 +216,14 @@ export function agentToolResultSummary(block: AgentToolResultBlock): string {
   return ids ? `${block.title}：完成，图片 ${ids}` : `${block.title}：完成`
 }
 
-/** 首轮消息即标题，超长截断；会话不支持改名，所以这是标题的唯一来源。 */
+/** 折行压成一行再截断，省略号占最后一格。 */
+export function agentTitleLine(text: string, maxChars: number): string {
+  const trimmed = text.trim().replace(/\s+/g, ' ')
+  if (trimmed.length <= maxChars) return trimmed
+  return `${trimmed.slice(0, maxChars - 1)}…`
+}
+
+/** 首轮消息即标题；会话不支持改名，所以这是标题的唯一来源。 */
 export function agentConversationTitle(firstUserMessage: string): string {
-  const trimmed = firstUserMessage.trim().replace(/\s+/g, ' ')
-  if (trimmed.length <= AGENT_CONVERSATION_TITLE_MAX_CHARS) return trimmed
-  return `${trimmed.slice(0, AGENT_CONVERSATION_TITLE_MAX_CHARS - 1)}…`
+  return agentTitleLine(firstUserMessage, AGENT_CONVERSATION_TITLE_MAX_CHARS)
 }

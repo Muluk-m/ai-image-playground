@@ -1,14 +1,5 @@
-import type {
-  PersistedSubmitRequest,
-  PersistedVideoRequest,
-  StoredImageRef,
-  VideoRequest,
-} from '@image-playground/shared'
-import {
-  validateVideoPrompt,
-  validateVideoRequest,
-  videoRateMultiplier,
-} from '@image-playground/shared'
+import type { PersistedVideoRequest, StoredImageRef, VideoRequest } from '@image-playground/shared'
+import { validateVideoPrompt, validateVideoRequest } from '@image-playground/shared'
 import { Elysia, t } from 'elysia'
 import { db, schema } from '../db/client'
 import { resolveModelMedia } from '../lib/channels'
@@ -143,19 +134,12 @@ export const submitRoutes = new Elysia()
       }
 
       const { video: _rawVideo, ...rest } = body
-      const n = body.n ?? 1
       const outcome = await createQueueTask({
         provider: queueProvider,
         model,
         request: rest,
         ...(persistedVideo ? { video: persistedVideo } : {}),
         userId: authUser?.id ?? null,
-        pricing: {
-          quantity: video ? video.duration_seconds : n,
-          unitMultiplier: video ? videoRateMultiplier(model, video.resolution) : 1,
-        },
-        // 免费部署的每日配额按输出计数：一条视频算一次，不按秒数放大。
-        quotaUnits: video ? 1 : n,
       })
 
       if (outcome.kind === 'invalid_input_image') {

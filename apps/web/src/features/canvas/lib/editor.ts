@@ -137,6 +137,16 @@ async function buildExportNode(
   }
 }
 
+/** 放图的一项。`id` 供调用方与画布之外的东西对上号，缺省即新铸一个。 */
+export interface PlacedImage {
+  dataUrl: string
+  x: number
+  y: number
+  width: number
+  height: number
+  id?: string
+}
+
 /** 相机平滑动画时长（scrollToElements）。 */
 const CAMERA_ANIMATION_MS = 300
 
@@ -237,21 +247,8 @@ export class CanvasEditor {
     this.doc.deleteElements([id])
   }
 
-  /**
-   * 把一组 dataUrl 图片放到指定位置（文件 + image 元素一并创建），返回新元素 id 列表。
-   * `id` 用于调用方需要与画布之外的东西对上号时——智能体的结果卡与画布对象共用同一个 id。
-   */
-  placeImages(
-    items: Array<{
-      dataUrl: string
-      x: number
-      y: number
-      width: number
-      height: number
-      id?: string
-    }>,
-    meta?: Record<string, string>,
-  ): string[] {
+  /** 把一组 dataUrl 图片放到指定位置（文件 + image 元素一并创建），返回新元素 id 列表。 */
+  placeImages(items: PlacedImage[], meta?: Record<string, string>): string[] {
     if (items.length === 0) return []
     const files: Record<string, string> = {}
     const els: ImageEl[] = items.map((item) => {

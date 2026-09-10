@@ -2,7 +2,6 @@ import type { AgentToolImage } from '@image-playground/shared'
 import { useEffect, useState } from 'react'
 import { CARD, CARD_NOTE, CARD_TITLE, THUMBNAIL } from '../agentStyles'
 import { agentCanvasSink } from '../lib/canvasSink'
-import { useAgentStore } from '../store'
 import type { AgentToolMessage } from '../types'
 
 const STAGE_LABEL = { submitted: '已排队', running: '生成中' } as const
@@ -14,10 +13,8 @@ function statusNote(message: AgentToolMessage): string | null {
 }
 
 function Thumbnail({ image }: { image: AgentToolImage }) {
-  const locateImage = useAgentStore((state) => state.locateImage)
   const [source, setSource] = useState<string | null>(null)
 
-  // 位图的单源是画布：对象被用户删掉之后就没有缩略图了，卡上只留标题。
   useEffect(() => {
     let alive = true
     void agentCanvasSink()
@@ -32,7 +29,11 @@ function Thumbnail({ image }: { image: AgentToolImage }) {
 
   if (!source) return null
   return (
-    <button type="button" className={THUMBNAIL} onClick={() => locateImage(image.imageId)}>
+    <button
+      type="button"
+      className={THUMBNAIL}
+      onClick={() => agentCanvasSink()?.focus(image.imageId)}
+    >
       <img src={source} alt="" className="h-full w-full object-cover" />
     </button>
   )

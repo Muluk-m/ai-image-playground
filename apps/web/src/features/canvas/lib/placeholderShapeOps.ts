@@ -1,6 +1,6 @@
 import { getImageDimensions } from '../../../lib/canvasImage'
 import type { CallApiResult } from '../../../lib/imageApiShared'
-import type { CanvasEditor, CanvasTaskStatus, PlaceholderView } from './editor'
+import type { CanvasEditor, CanvasTaskStatus, PlacedImage, PlaceholderView } from './editor'
 import { Box } from './geometry'
 import { fitToTarget, PLACEMENT_GAP, type PlacementTarget } from './placement'
 
@@ -50,7 +50,6 @@ export async function settleGeneration(
  * - 位置：居中于 target 框；多张按 target 宽度分格沿水平排开（与 fanOutTargets 对齐），
  *   彼此留 PLACEMENT_GAP 间距，各自在格内居中
  * - meta（可选）写到每个 image 元素上，承载生成溯源（prompt 等）
- * - ids（可选）指定元素 id，供调用方与画布之外的东西对上号（智能体的结果卡）
  * 供「占位框替换为结果」与「工作台图片送进画布」两处复用（都不依赖占位框存在）。
  */
 export async function placeImagesOnCanvas(
@@ -62,14 +61,7 @@ export async function placeImagesOnCanvas(
   const centerY = target.y + target.h / 2
   const sizes = await Promise.all(dataUrls.map(getImageDimensions))
 
-  const items: Array<{
-    dataUrl: string
-    x: number
-    y: number
-    width: number
-    height: number
-    id?: string
-  }> = []
+  const items: PlacedImage[] = []
   for (let i = 0; i < dataUrls.length; i++) {
     const { width, height } = sizes[i]
     const fitted = fitToTarget(width, height, target)

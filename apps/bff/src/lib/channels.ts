@@ -394,24 +394,23 @@ export function resolveModelMedia(model: string): ChannelMedia | undefined {
   return undefined
 }
 
-/**
- * 找一个图片模型：给了 id 就按 id 找，没给就取默认的那个。
- * 默认口径与前端一致——channels 数组顺序是产品契约，第一个图片模型就是新访客的默认模型。
- */
-export function resolveImageQueueModel(
+/** 给了 id 就按 id 找，没给就取该介质的默认模型——channels 数组顺序是产品契约。 */
+export function resolveQueueModel(
+  media: ChannelMedia,
   modelId?: string,
 ): { provider: QueueProvider; model: string } | undefined {
   for (const channel of loaded) {
     for (const model of channel.models) {
-      if ((model.media ?? 'image') !== 'image') continue
+      if ((model.media ?? 'image') !== media) continue
       if (modelId && model.id !== modelId) continue
-      return {
-        provider: channel.kind === 'gemini-queue' ? 'gemini' : 'openai-compat',
-        model: model.id,
-      }
+      return { provider: queueProviderOf(channel.kind), model: model.id }
     }
   }
   return undefined
+}
+
+function queueProviderOf(kind: ChannelKind): QueueProvider {
+  return kind === 'gemini-queue' ? 'gemini' : 'openai-compat'
 }
 
 function setLoaded(channels: InternalChannel[]): void {

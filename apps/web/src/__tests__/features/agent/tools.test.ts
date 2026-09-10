@@ -57,7 +57,6 @@ let turnResponse: () => Response
 let messagesResponse: () => Response
 const onCanvas = new Set<string>()
 const placed: { imageId: string; dataUrl: string }[] = []
-const focused: string[] = []
 
 const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
   const url = String(input)
@@ -87,7 +86,6 @@ beforeEach(() => {
   localStorage.clear()
   onCanvas.clear()
   placed.length = 0
-  focused.length = 0
   setAgentCanvasSink({
     has: (imageId) => onCanvas.has(imageId),
     async place(items) {
@@ -96,7 +94,7 @@ beforeEach(() => {
         onCanvas.add(item.imageId)
       }
     },
-    focus: (imageId) => focused.push(imageId),
+    focus() {},
     async thumbnail() {
       return null
     },
@@ -195,12 +193,6 @@ describe('工具事件', () => {
     expect(placed).toEqual([])
   })
 
-  it('点结果卡把画布定位到同一个对象', () => {
-    state().locateImage('agent_image_1')
-
-    expect(focused).toEqual(['agent_image_1'])
-  })
-
   it('读回历史时把存下来的工具结果还原成结果卡', async () => {
     messagesResponse = () =>
       Response.json({
@@ -237,7 +229,6 @@ describe('工具事件', () => {
         images: [IMAGE],
       },
     ])
-    // 历史里的产出早就在画布上了，读回不该再落一遍。
     expect(placed).toEqual([])
   })
 })
