@@ -89,7 +89,7 @@ describe('一轮对话', () => {
         TURN_START,
         { type: 'textDelta', delta: '好的，' },
         { type: 'textDelta', delta: '我把背景换成浅木色' },
-        { type: 'turnEnd', turnId: 'turn-1', durationMs: 1200 },
+        { type: 'turnEnd', turnId: 'turn-1', durationMs: 1200, usage: null },
       )
 
     const sending = state().send('把背景换成浅木色')
@@ -105,7 +105,7 @@ describe('一轮对话', () => {
 
   it('开新会话时先建会话并记住它', async () => {
     turnResponse = () =>
-      turnStream(TURN_START, { type: 'turnEnd', turnId: 'turn-1', durationMs: 5 })
+      turnStream(TURN_START, { type: 'turnEnd', turnId: 'turn-1', durationMs: 5, usage: null })
 
     await state().send('第一句')
 

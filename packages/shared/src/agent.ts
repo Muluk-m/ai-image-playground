@@ -40,10 +40,18 @@ export interface AgentTextDeltaEvent {
   readonly delta: string
 }
 
+/** 上游按 `stream_options.include_usage` 在末帧回的用量。中转网关不透传时是 null。 */
+export interface AgentTurnUsage {
+  readonly inputTokens: number
+  readonly outputTokens: number
+}
+
 export interface AgentTurnEndEvent {
   readonly type: 'turnEnd'
   readonly turnId: string
   readonly durationMs: number
+  /** 本轮对话 token 的结算依据；null 表示上游没报，这一轮按 token 结不了账。 */
+  readonly usage: AgentTurnUsage | null
 }
 
 export interface AgentTurnErrorEvent {

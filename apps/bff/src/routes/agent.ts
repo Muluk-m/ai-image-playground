@@ -76,7 +76,7 @@ export const agentRoutes = new Elysia()
           history,
           text: body.text,
         },
-        // 失败的轮只留用户那条消息，助手侧不落库。
+        // 失败的轮只留用户那条消息，助手侧不落库。用量按 token 结算是 #288 的事。
         async ({ text, error }) => {
           if (!error) {
             await appendAgentMessage(db, {
