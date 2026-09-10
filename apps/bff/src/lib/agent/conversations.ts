@@ -116,18 +116,26 @@ export async function adoptDeviceConversations(deviceId: string, userId: string)
   return rows.length
 }
 
-export async function setAgentConversationTitle(id: string, title: string): Promise<void> {
+export async function setAgentConversationTitle(
+  id: string,
+  owner: AgentOwner,
+  title: string,
+): Promise<void> {
   await db
     .update(schema.agent_conversations)
     .set({ title })
-    .where(eq(schema.agent_conversations.id, id))
+    .where(and(eq(schema.agent_conversations.id, id), ownerWhere(owner)))
 }
 
-export async function touchAgentConversation(id: string, now = Date.now()): Promise<void> {
+export async function touchAgentConversation(
+  id: string,
+  owner: AgentOwner,
+  now = Date.now(),
+): Promise<void> {
   await db
     .update(schema.agent_conversations)
     .set({ updated_at: now })
-    .where(eq(schema.agent_conversations.id, id))
+    .where(and(eq(schema.agent_conversations.id, id), ownerWhere(owner)))
 }
 
 export async function softDeleteAgentConversation(id: string, owner: AgentOwner): Promise<void> {
@@ -179,7 +187,10 @@ export async function appendAgentMessage(
   return messageView(row!)
 }
 
-export async function listAgentMessages(conversationId: string): Promise<AgentMessageView[]> {
+export async function listAgentMessages(
+  conversationId: string,
+  owner: AgentOwner,
+): Promise<AgentMessageView[]> {
   const rows = await db
     .select()
     .from(schema.agent_messages)
@@ -190,6 +201,7 @@ export async function listAgentMessages(conversationId: string): Promise<AgentMe
     .where(
       and(
         eq(schema.agent_messages.conversation_id, conversationId),
+        ownerWhere(owner),
         isNull(schema.agent_messages.deleted_at),
         isNull(schema.agent_conversations.deleted_at),
       ),

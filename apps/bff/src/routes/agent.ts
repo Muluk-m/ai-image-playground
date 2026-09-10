@@ -58,7 +58,7 @@ export const agentRoutes = new Elysia()
       if (!conversation) return status(404, NOT_FOUND)
       const active = runningTurn(conversation.id)
       return {
-        messages: await listAgentMessages(conversation.id),
+        messages: await listAgentMessages(conversation.id, owner),
         // 刷新后的页面据此挂回仍在进行的那一轮。
         activeTurn: active ? { turnId: active.turnId } : null,
       }
@@ -78,9 +78,9 @@ export const agentRoutes = new Elysia()
       if (!conversation) return status(404, NOT_FOUND)
       if (runningTurn(conversation.id)) return status(409, { error: 'turn_already_running' })
 
-      const history = await listAgentMessages(conversation.id)
+      const history = await listAgentMessages(conversation.id, owner)
       if (history.length === 0) {
-        await setAgentConversationTitle(conversation.id, agentConversationTitle(body.text))
+        await setAgentConversationTitle(conversation.id, owner, agentConversationTitle(body.text))
       }
       const turnId = crypto.randomUUID()
       const userMessage = await appendAgentMessage(db, {
@@ -94,6 +94,7 @@ export const agentRoutes = new Elysia()
       const { startAgentTurn } = await import('../lib/agent/turn')
       const turn = await startAgentTurn({
         conversationId: conversation.id,
+        owner,
         turnId,
         userMessageId: userMessage.id,
         history,
