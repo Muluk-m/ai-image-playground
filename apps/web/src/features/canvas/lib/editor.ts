@@ -145,6 +145,8 @@ export interface PlacedImage {
   width: number
   height: number
   id?: string
+  /** 有值即这张位图是视频封面。 */
+  video?: { taskId: string; outputIndex: number }
 }
 
 /** 相机平滑动画时长（scrollToElements）。 */
@@ -268,6 +270,7 @@ export class CanvasEditor {
         rotation: 0,
         fileId,
         ...(meta ? { meta: { ...meta } } : {}),
+        ...(item.video ? { video: item.video } : {}),
       }
     })
     this.doc.addElements(els, { files })

@@ -1,7 +1,7 @@
 import type { AgentTool } from '@earendil-works/pi-agent-core'
 import { agentTitleLine } from '@image-playground/shared'
 import { Type } from 'typebox'
-import { runImageTask } from './imageTask'
+import { runQueueTask } from './queueTask'
 import type { AgentToolDefinition, AgentToolDetails } from './types'
 
 const TITLE_MAX_CHARS = 40
@@ -21,6 +21,7 @@ function title(args: unknown): string {
 
 export const generateImage: AgentToolDefinition = {
   name: 'generateImage',
+  guidance: '用户要一张新图时调生图工具，把他的意图补成一条完整的提示词，不要反问他要什么风格。',
   title,
   onError: 'abort',
   create(context) {
@@ -31,7 +32,7 @@ export const generateImage: AgentToolDefinition = {
         '按提示词生成一张全新的图片，产出直接落到用户的画布上。用户想要一张新图时调用它；改已有的图用 editImage。',
       parameters,
       execute: (_toolCallId, params, signal, onUpdate) =>
-        runImageTask(context, { prompt: params.prompt }, signal, onUpdate),
+        runQueueTask(context, { media: 'image', prompt: params.prompt }, signal, onUpdate),
     }
     return tool as AgentTool
   },

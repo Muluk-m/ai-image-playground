@@ -1,4 +1,4 @@
-import type { AgentToolImage, AgentToolStage, AgentToolStatus } from '@image-playground/shared'
+import type { AgentToolArtifact, AgentToolStage, AgentToolStatus } from '@image-playground/shared'
 
 export type AgentTurnStatus = 'idle' | 'running' | 'failed'
 
@@ -19,10 +19,10 @@ export interface AgentToolMessage {
   readonly title: string
   readonly status: AgentToolStatus | 'running'
   readonly stage?: AgentToolStage
-  readonly images?: readonly AgentToolImage[]
+  readonly artifacts?: readonly AgentToolArtifact[]
   readonly message?: string
   /** 产出贴着这个画布对象放；手动放入时也照这个位置。 */
-  readonly anchorImageId?: string
+  readonly anchorObjectId?: string
   /** 画布冲突：产出没有自动写入画布，卡上给手动放入的入口。 */
   readonly canvasConflict?: boolean
 }

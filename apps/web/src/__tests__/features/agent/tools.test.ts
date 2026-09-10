@@ -1,24 +1,39 @@
 // @vitest-environment jsdom
 import type {
+  AgentToolArtifact,
   AgentToolEndEvent,
-  AgentToolImage,
   AgentToolStartEvent,
   AgentTurnEvent,
 } from '@image-playground/shared'
 import { encodeAgentFrame } from '@image-playground/shared'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+vi.mock('../../../features/agent/lib/videoPoster', () => ({
+  videoPosterDataUrl: async () => POSTER,
+}))
+
 import { setAgentCanvasSink } from '../../../features/agent/lib/canvasSink'
 import { useAgentStore } from '../../../features/agent/store'
 import type { AgentToolMessage } from '../../../features/agent/types'
 import { _setRuntimeConfigForTesting } from '../../../lib/runtimeConfig'
 
 const CONVERSATION = 'conversation-1'
+const POSTER = 'data:image/png;base64,UE9TVEVS'
 
-const IMAGE: AgentToolImage = {
-  imageId: 'agent_image_1',
+const IMAGE: AgentToolArtifact = {
+  artifactId: 'agent_image_1',
+  media: 'image',
   taskId: 'task-1',
   outputIndex: 0,
   mime: 'image/png',
+}
+
+const VIDEO: AgentToolArtifact = {
+  artifactId: 'agent_video_1',
+  media: 'video',
+  taskId: 'task-2',
+  outputIndex: 0,
+  mime: 'video/mp4',
 }
 
 const TURN_START: AgentTurnEvent = { type: 'turnStart', turnId: 'turn-1', userMessageId: 'user-1' }
@@ -42,7 +57,7 @@ const TOOL_END: AgentToolEndEvent = {
   toolName: 'generateImage',
   status: 'succeeded',
   title: '一只橘猫坐在窗台上',
-  images: [IMAGE],
+  artifacts: [IMAGE],
 }
 const TURN_END: AgentTurnEvent = {
   type: 'turnEnd',
@@ -54,13 +69,13 @@ const TURN_END: AgentTurnEvent = {
 
 /** 一轮里两次工具调用，各出一张图。 */
 function twoToolTurn(): AgentTurnEvent[] {
-  const second: AgentToolImage = { ...IMAGE, imageId: 'agent_image_2' }
+  const second: AgentToolArtifact = { ...IMAGE, artifactId: 'agent_image_2' }
   return [
     TURN_START,
     TOOL_START,
     TOOL_END,
     { ...TOOL_START, messageId: 'tool-2', toolCallId: 'call-2' },
-    { ...TOOL_END, messageId: 'tool-2', toolCallId: 'call-2', images: [second] },
+    { ...TOOL_END, messageId: 'tool-2', toolCallId: 'call-2', artifacts: [second] },
     TURN_END,
   ]
 }
@@ -74,7 +89,11 @@ function turnStream(...events: AgentTurnEvent[]): Response {
 let turnResponse: () => Response
 let messagesResponse: () => Response
 const onCanvas = new Set<string>()
-const placed: { imageId: string; dataUrl: string }[] = []
+const placed: {
+  artifactId: string
+  dataUrl: string
+  video?: { taskId: string; outputIndex: number }
+}[] = []
 /** 画布内容的修订号；测试里手动抬它就等于「用户动了画布」。 */
 let revision = 0
 const anchors: (string | undefined)[] = []
@@ -110,15 +129,15 @@ beforeEach(() => {
   revision = 0
   anchors.length = 0
   setAgentCanvasSink({
-    has: (imageId) => onCanvas.has(imageId),
+    has: (objectId) => onCanvas.has(objectId),
     revision: () => revision,
     async place(items, options) {
       const base = options?.baseRevision
       if (base !== undefined && base !== revision) return 'conflict'
-      anchors.push(options?.anchorImageId)
+      anchors.push(options?.anchorObjectId)
       for (const item of items) {
         placed.push(item)
-        onCanvas.add(item.imageId)
+        onCanvas.add(item.artifactId)
       }
       revision += 1
       return 'placed'
@@ -160,10 +179,10 @@ describe('工具事件', () => {
         toolCallId: 'call-1',
         title: '一只橘猫坐在窗台上',
         status: 'succeeded',
-        images: [IMAGE],
+        artifacts: [IMAGE],
       },
     ])
-    expect(placed).toEqual([{ imageId: 'agent_image_1', dataUrl: 'data:image/png;base64,AQID' }])
+    expect(placed).toEqual([{ artifactId: 'agent_image_1', dataUrl: 'data:image/png;base64,AQID' }])
     expect(fetchMock).toHaveBeenCalledWith(
       'http://bff.test/v1/queue/requests/task-1/image/0',
       expect.anything(),
@@ -182,8 +201,8 @@ describe('工具事件', () => {
           toolName: 'editImage',
           status: 'succeeded',
           title: '把背景换成浅木色',
-          images: [IMAGE],
-          anchorImageId: 'canvas-1',
+          artifacts: [IMAGE],
+          anchorObjectId: 'canvas-1',
         },
         TURN_END,
       )
@@ -191,7 +210,7 @@ describe('工具事件', () => {
     await state().send('把这张的背景换成浅木色')
 
     expect(anchors).toEqual(['canvas-1'])
-    expect(placed.map((one) => one.imageId)).toEqual(['agent_image_1'])
+    expect(placed.map((one) => one.artifactId)).toEqual(['agent_image_1'])
     expect(onCanvas.has('canvas-1')).toBe(true)
   })
 
@@ -218,7 +237,7 @@ describe('工具事件', () => {
   })
 
   it('画布上已经有这张图时不重复落一遍', async () => {
-    onCanvas.add(IMAGE.imageId)
+    onCanvas.add(IMAGE.artifactId)
     turnResponse = () => turnStream(TURN_START, TOOL_START, TOOL_END, TURN_END)
 
     await state().send('画一只橘猫')
@@ -266,8 +285,44 @@ describe('工具事件', () => {
 
     await state().send('画两只橘猫')
 
-    expect(placed.map((one) => one.imageId)).toEqual(['agent_image_1', 'agent_image_2'])
+    expect(placed.map((one) => one.artifactId)).toEqual(['agent_image_1', 'agent_image_2'])
     expect(toolMessages().every((one) => one.canvasConflict !== true)).toBe(true)
+  })
+})
+
+describe('视频产物', () => {
+  it('落画布的是封面加播放来源，mp4 不下载到本地', async () => {
+    onCanvas.add('canvas-1')
+    turnResponse = () =>
+      turnStream(
+        TURN_START,
+        {
+          type: 'toolEnd',
+          messageId: 'tool-1',
+          toolCallId: 'call-1',
+          toolName: 'generateVideo',
+          status: 'succeeded',
+          title: '视频：让这只猫眨眼',
+          artifacts: [VIDEO],
+          anchorObjectId: 'canvas-1',
+        },
+        TURN_END,
+      )
+
+    await state().send('让[image 1]动起来')
+
+    expect(placed).toEqual([
+      {
+        artifactId: 'agent_video_1',
+        dataUrl: POSTER,
+        video: { taskId: 'task-2', outputIndex: 0 },
+      },
+    ])
+    expect(anchors).toEqual(['canvas-1'])
+    const downloads = fetchMock.mock.calls.filter(([input]) =>
+      String(input).includes('/v1/queue/requests/'),
+    )
+    expect(downloads).toEqual([])
   })
 })
 
@@ -286,10 +341,10 @@ describe('画布冲突', () => {
     await state().send('画一只橘猫')
 
     expect(placed).toEqual([])
-    expect(onCanvas.has(IMAGE.imageId)).toBe(false)
+    expect(onCanvas.has(IMAGE.artifactId)).toBe(false)
     expect(toolMessages()[0]).toMatchObject({
       status: 'succeeded',
-      images: [IMAGE],
+      artifacts: [IMAGE],
       canvasConflict: true,
     })
   })
@@ -300,7 +355,7 @@ describe('画布冲突', () => {
 
     await state().placeOnCanvas('tool-1')
 
-    expect(placed).toEqual([{ imageId: 'agent_image_1', dataUrl: 'data:image/png;base64,AQID' }])
+    expect(placed).toEqual([{ artifactId: 'agent_image_1', dataUrl: 'data:image/png;base64,AQID' }])
     expect(toolMessages()[0]!.canvasConflict).toBeUndefined()
   })
 
@@ -331,7 +386,7 @@ describe('历史', () => {
                 toolName: 'generateImage',
                 status: 'succeeded',
                 title: '一只橘猫坐在窗台上',
-                images: [IMAGE],
+                artifacts: [IMAGE],
               },
             ],
             createdAt: 2,
@@ -348,7 +403,7 @@ describe('历史', () => {
         toolCallId: 'call-1',
         title: '一只橘猫坐在窗台上',
         status: 'succeeded',
-        images: [IMAGE],
+        artifacts: [IMAGE],
       },
     ])
     expect(placed).toEqual([])

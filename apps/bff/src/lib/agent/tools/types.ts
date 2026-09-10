@@ -1,5 +1,5 @@
 import type { AgentTool } from '@earendil-works/pi-agent-core'
-import type { AgentToolImage, AgentToolName, AgentToolStage } from '@image-playground/shared'
+import type { AgentToolArtifact, AgentToolName, AgentToolStage } from '@image-playground/shared'
 import type { AgentImageSource } from '../images'
 
 /** 工具跑在 BFF 进程里，身份与轮的归属由这里带过去。 */
@@ -12,15 +12,17 @@ export interface AgentToolContext {
   readonly images: AgentImageSource
 }
 
-/** 进行中的 `onUpdate` 只填 `stage`，终局填 `images`。 */
+/** 进行中的 `onUpdate` 只填 `stage`，终局填 `artifacts`。 */
 export interface AgentToolDetails {
   readonly stage?: AgentToolStage
-  readonly images?: readonly AgentToolImage[]
-  readonly anchorImageId?: string
+  readonly artifacts?: readonly AgentToolArtifact[]
+  readonly anchorObjectId?: string
 }
 
 export interface AgentToolDefinition {
   readonly name: AgentToolName
+  /** 进系统提示词的那一句用法指引。工具不在场时它跟着一起消失。 */
+  readonly guidance: string
   /** 面板上这次调用的一行标签，从模型给的参数算。 */
   title(args: unknown): string
   /**
@@ -28,5 +30,7 @@ export interface AgentToolDefinition {
    * 换成模型可以改参数重试的工具就填 `continue`。
    */
   readonly onError: 'abort' | 'continue'
+  /** 部署开关；缺席即到处都在。关掉时工具不进模型的清单，历史里的结果照样认得出来。 */
+  available?(): boolean
   create(context: AgentToolContext): AgentTool
 }
