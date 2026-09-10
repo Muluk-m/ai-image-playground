@@ -1,5 +1,6 @@
 import type {
   AgentActiveTurnView,
+  AgentClarificationBlock,
   AgentConversationView,
   AgentFrame,
   AgentMessageView,
@@ -24,7 +25,13 @@ import {
   startTurn,
 } from './lib/agentClient'
 import { type AgentPlaceOptions, type AgentPlaceOutcome, agentCanvasSink } from './lib/canvasSink'
-import type { AgentPanelMessage, AgentPanelTab, AgentToolMessage, AgentTurnStatus } from './types'
+import type {
+  AgentClarificationMessage,
+  AgentPanelMessage,
+  AgentPanelTab,
+  AgentToolMessage,
+  AgentTurnStatus,
+} from './types'
 
 const TURN_FAILED = '这一轮没有跑完'
 const TURN_RATE_LIMITED = '发送太频繁，稍后再试'
@@ -85,11 +92,19 @@ function toolCard(block: AgentToolResultBlock, id: string): AgentToolMessage {
   }
 }
 
+function clarificationCard(block: AgentClarificationBlock, id: string): AgentClarificationMessage {
+  return { kind: 'clarification', id, question: block.question, options: block.options }
+}
+
 function panelMessage(message: AgentMessageView): AgentPanelMessage {
   const result = message.content.find(
     (block): block is AgentToolResultBlock => block.type === 'toolResult',
   )
   if (result) return toolCard(result, message.id)
+  const asked = message.content.find(
+    (block): block is AgentClarificationBlock => block.type === 'clarification',
+  )
+  if (asked) return clarificationCard(asked, message.id)
   return {
     kind: 'text',
     id: message.id,
@@ -97,6 +112,19 @@ function panelMessage(message: AgentMessageView): AgentPanelMessage {
     text: agentMessageText(message),
     streaming: false,
   }
+}
+
+/**
+ * 可作答的只有末尾那一条：澄清之后一旦有用户消息，它就已经作过答。
+ * 回填的答案本身就是那条用户消息，所以不必另存作答状态。
+ */
+export function answerableClarificationId(messages: readonly AgentPanelMessage[]): string | null {
+  for (let at = messages.length - 1; at >= 0; at -= 1) {
+    const message = messages[at]!
+    if (message.kind === 'text' && message.role === 'user') return null
+    if (message.kind === 'clarification') return message.id
+  }
+  return null
 }
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -229,6 +257,10 @@ export const useAgentStore = create<AgentState>((set, get) => {
                 ? { ...one, stage: event.stage }
                 : one,
             ),
+          }
+        case 'clarification':
+          return {
+            messages: replaceOrAppend(state.messages, clarificationCard(event, event.messageId)),
           }
         case 'toolEnd':
           return {

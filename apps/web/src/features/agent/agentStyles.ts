@@ -43,5 +43,8 @@ export const CARD_TITLE = `text-xs leading-relaxed ${INK}`
 
 export const CARD_NOTE = `text-[11px] ${INK_3}`
 
+export const CHOICE =
+  'w-full rounded-lg border border-white/[0.12] px-2.5 py-1.5 text-left text-xs text-[#e8e8ea] transition enabled:hover:border-blue-500/60 enabled:hover:bg-white/[0.08] disabled:cursor-not-allowed disabled:opacity-45'
+
 export const THUMBNAIL =
   'h-16 w-16 overflow-hidden rounded-lg border border-white/[0.09] transition hover:border-blue-500/60'

@@ -1,5 +1,6 @@
 import { Agent, type AgentMessage, estimateTokens } from '@earendil-works/pi-agent-core'
 import type {
+  AgentContentBlock,
   AgentMessageView,
   AgentToolName,
   AgentToolResultBlock,
@@ -7,10 +8,19 @@ import type {
   AgentTurnReference,
   AgentTurnUsage,
 } from '@image-playground/shared'
-import { agentTextFromBlocks, agentToolResultSummary } from '@image-playground/shared'
+import {
+  agentClarificationSummary,
+  agentTextFromBlocks,
+  agentToolResultSummary,
+} from '@image-playground/shared'
 import { db } from '../../db/client'
 import { log } from '../logger'
 import type { TaskOutcome } from '../private-overlay'
+import {
+  AGENT_CLARIFICATION_TOOL,
+  clarificationFromResult,
+  clarificationTool,
+} from './clarification'
 import { compactionBudget } from './compaction'
 import { compactionSettings } from './compaction-settings'
 import { createCompactionTransform } from './compaction-transform'
@@ -43,6 +53,7 @@ const SYSTEM_PROMPT = [
   '用户指着某张图说要改时调改图工具，参考图用他引用的那张，产出会落在源图旁边，源图不动。',
   '用户提到某个素材但没有引用它时，先用读素材库工具按名字查到图片 id，再拿去改图。',
   '工具产出会自动落到用户的画布上，不要让用户自己去保存。',
+  '拿不准他要哪一种时调澄清工具给出几个具体选项，不要反问一大段。',
 ].join('\n')
 
 export interface AgentTurnSettlement {
@@ -69,7 +80,11 @@ export interface StartAgentTurnInput {
 /** 工具结果块回放成一行文字：pi 的转录里没有历史轮的工具调用，配不成对的工具结果会被上游拒。 */
 function replayText(message: AgentMessageView): string {
   return message.content
-    .map((block) => (block.type === 'text' ? block.text : agentToolResultSummary(block)))
+    .map((block) => {
+      if (block.type === 'text') return block.text
+      if (block.type === 'clarification') return agentClarificationSummary(block)
+      return agentToolResultSummary(block)
+    })
     .join('\n')
     .trim()
 }
@@ -191,22 +206,28 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
     history: input.history,
     userId: input.userId,
   })
+  let clarified = false
   const agent = new Agent({
     initialState: {
       systemPrompt: SYSTEM_PROMPT,
       model: agentModel(),
       messages: replayed(input.history),
-      tools: agentTools({
-        conversationId: input.conversationId,
-        turnId: input.turnId,
-        userId: input.userId,
-        deviceId: input.deviceId,
-        images,
-      }),
+      tools: [
+        ...agentTools({
+          conversationId: input.conversationId,
+          turnId: input.turnId,
+          userId: input.userId,
+          deviceId: input.deviceId,
+          images,
+        }),
+        clarificationTool,
+      ],
     },
     streamFn: agentStreamFn(),
     // 逐个跑：每次调用都是一条计费任务，并发起来事件次序也对不上产出落画布的顺序。
     toolExecution: 'sequential',
+    // 澄清即收尾：用户的选择是下一条用户消息，所以这一轮不再回上游要下一句。
+    shouldStopAfterTurn: () => clarified,
     transformContext: createCompactionTransform({
       conversationId: input.conversationId,
       turnId: input.turnId,
@@ -253,7 +274,7 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
   /** 一次工具调用独占一条助手消息，两次调用的结果卡因此不会互相覆盖。 */
   const openTools = new Map<string, OpenToolCall>()
 
-  const storeToolResult = (block: AgentToolResultBlock, messageId: string) =>
+  const storeBlock = (block: AgentContentBlock, messageId: string) =>
     write(async () => {
       await appendAgentMessage(db, {
         id: messageId,
@@ -326,6 +347,16 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
         })
       }
     }
+    // 澄清不出工具卡，所以它不在工具注册表里，`openTools` 也没有它的登记。
+    if (event.type === 'tool_execution_end' && event.toolName === AGENT_CLARIFICATION_TOOL) {
+      const block = event.isError ? null : clarificationFromResult(event.result)
+      if (!block) return
+      const messageId = crypto.randomUUID()
+      events.emit({ ...block, messageId })
+      await storeBlock(block, messageId)
+      clarified = true
+      return
+    }
     if (event.type === 'tool_execution_end') {
       const pending = openTools.get(event.toolCallId)
       if (!pending) return
@@ -333,7 +364,7 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
       const block = toolResultBlock(pending, event.toolCallId, event.result, event.isError)
       const { type: _stored, ...fields } = block
       events.emit({ type: 'toolEnd', messageId: pending.messageId, ...fields })
-      await storeToolResult(block, pending.messageId)
+      await storeBlock(block, pending.messageId)
       if (event.isError && agentToolAbortsTurn(event.toolName)) {
         error = 'agent_tool_failed'
         agent.abort()
