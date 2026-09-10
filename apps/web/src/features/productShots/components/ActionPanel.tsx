@@ -8,6 +8,7 @@ import {
   NOTICE,
   PANEL_SECTION,
   PANEL_TITLE,
+  PRIMARY_BUTTON,
 } from '../../../components/panelStyles'
 import Segmented from '../../../components/Segmented'
 import { REMIX_LEVELS } from '../../../lib/shotTypes'
@@ -22,6 +23,7 @@ import { productGateReason, usesProductAsset } from '../lib/productGate'
 import { maskSupported, modelKnown } from '../lib/sourceMatte'
 import { useProductShotsStore } from '../store'
 import { EDIT_MASK_LABEL, PRODUCT_SHOT_STAGE_LABELS, VERSIONS_PER_IMAGE_CHOICES } from '../types'
+import { openWorkflow } from '../workflows/runtime'
 
 const PICK_PRODUCT = '选产品素材'
 const NO_PRODUCT = '产品素材：未选'
@@ -231,6 +233,14 @@ export default function ActionPanel() {
         )}
         {swapNotice && <p className={NOTICE}>{swapNotice}</p>}
       </div>
+      <button
+        type="button"
+        className={PRIMARY_BUTTON}
+        disabled={!selectedImageId}
+        onClick={() => openWorkflow('draft')}
+      >
+        先出 3 个方案
+      </button>
     </section>
   )
 }

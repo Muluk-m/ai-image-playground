@@ -1,6 +1,7 @@
 import { type ExportEntry, type ExportFit, sanitizePathSegment } from '../../../lib/imageExport'
 import type { TaskRecord } from '../../../types'
 import type { ProductShotImage, ProductShotVersion } from '../types'
+import { renderKitImage } from '../workflows/render'
 import { type VersionState, versionProgress } from './versionProgress'
 
 export interface GalleryVersion {
@@ -125,6 +126,9 @@ export function exportPlan(
         path: shotEntryName(jobName, item.imageIndex, item.versionIndex, imageOffset),
         imageId,
         fit,
+        ...(item.version.workflow?.spec.kind === 'kit'
+          ? { render: () => renderKitImage(imageId, item.version) }
+          : {}),
       })),
     ),
     skipped: inScope.filter((item) => item.outputImageIds.length === 0).length,

@@ -12,6 +12,9 @@ import { DIAGRAM_LABEL, isDiagram } from '../lib/scene'
 import { VERSION_STATE_LABELS, type VersionProgress, versionProgress } from '../lib/versionProgress'
 import { useProductShotsStore } from '../store'
 import { matteEditable, type ProductShotVersion } from '../types'
+import { downloadKit } from '../workflows/render'
+import { closeWorkflow, openWorkflow, retryProductWorkflow } from '../workflows/runtime'
+import WorkflowImage from '../workflows/WorkflowImage'
 import IconButton from './IconButton'
 import MattedThumb from './MattedThumb'
 import {
@@ -129,6 +132,14 @@ function VersionRow({
 
   const download = async () => {
     if (!first) return
+    if (version.workflow?.spec.kind === 'kit') {
+      try {
+        await downloadKit(`v${index + 1}`, [{ version, imageId: first }])
+      } catch (error) {
+        showToast(String(error), 'error')
+      }
+      return
+    }
     const { failed } = await downloadImagesByIds([first], `v${index + 1}`)
     if (failed > 0) showToast('下载失败', 'error')
   }
@@ -145,7 +156,10 @@ function VersionRow({
       <button
         type="button"
         data-product-shots-version-preview
-        onClick={() => previewVersion(version.id)}
+        onClick={() => {
+          closeWorkflow()
+          previewVersion(version.id)
+        }}
         onDoubleClick={() => first && onOpen(first)}
         aria-pressed={previewing}
         aria-label={`预览${label}`}
@@ -158,7 +172,16 @@ function VersionRow({
         {overlaid ? (
           <MattedThumb imageId={imageId} overlayImageId={version.mattePreviewImageId} alt={label} />
         ) : first ? (
-          <AssetThumb imageId={first} alt={label} />
+          version.workflow?.spec.kind === 'kit' ? (
+            <WorkflowImage
+              imageId={first}
+              version={version}
+              alt={label}
+              className="h-full w-full object-contain"
+            />
+          ) : (
+            <AssetThumb imageId={first} alt={label} />
+          )
         ) : (
           <span className="flex h-full items-center justify-center text-[11px] text-gray-400 dark:text-gray-500">
             {VERSION_STATE_LABELS[progress.state]}
@@ -212,13 +235,15 @@ function VersionRow({
       </div>
 
       <div className={VERSION_ACTION_ROW}>
-        <IconButton
-          onClick={() => openPlanDrawer(version.id)}
-          label="查看方案"
-          className={VERSION_ICON_BUTTON}
-        >
-          <PlanIcon className="h-4 w-4" />
-        </IconButton>
+        {!version.workflow && (
+          <IconButton
+            onClick={() => openPlanDrawer(version.id)}
+            label="查看方案"
+            className={VERSION_ICON_BUTTON}
+          >
+            <PlanIcon className="h-4 w-4" />
+          </IconButton>
+        )}
         {version.mattePreviewImageId && (
           <IconButton
             onClick={() => toggleMatteOverlay(version.id)}
@@ -229,7 +254,7 @@ function VersionRow({
             <MatteIcon className="h-4 w-4" />
           </IconButton>
         )}
-        {matteEditable && (
+        {matteEditable && !version.workflow && (
           <IconButton
             onClick={() => void editSourceMask(imageId)}
             label="编辑蒙版"
@@ -238,7 +263,7 @@ function VersionRow({
             <EditIcon className="h-4 w-4" />
           </IconButton>
         )}
-        {matteReady && (
+        {matteReady && !version.workflow && (
           <IconButton
             onClick={() => void regenerateFromVersion(version.id, true)}
             label="用此蒙版重生成"
@@ -246,6 +271,15 @@ function VersionRow({
           >
             <MaskRetryIcon className="h-4 w-4" />
           </IconButton>
+        )}
+        {first && version.workflow?.spec.kind === 'draft' && (
+          <button
+            type="button"
+            className={GHOST_BUTTON}
+            onClick={() => openWorkflow('refine', version.id)}
+          >
+            精修
+          </button>
         )}
         {first && (
           <>
@@ -268,7 +302,14 @@ function VersionRow({
         )}
         {progress.state === 'error' && (
           <IconButton
-            onClick={() => void retryVersion(version.id)}
+            onClick={() => {
+              if (version.workflow)
+                void retryProductWorkflow(
+                  { jobId: useProductShotsStore.getState().draft.id ?? '', imageId },
+                  version,
+                ).catch((e) => showToast(String(e), 'error'))
+              else void retryVersion(version.id)
+            }}
             label="重跑"
             className={VERSION_ICON_BUTTON}
           >
