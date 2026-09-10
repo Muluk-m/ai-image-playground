@@ -1,12 +1,7 @@
-/**
- * 智能体对话协议（`/api/agent/*`）。一轮的事件流用 `text/event-stream`，
- * 每帧的 SSE id 是会话内单调递增的整数，供后续断线重放定位。
- */
+/** 智能体对话协议（`/api/agent/*`）。一轮的事件流走 `text/event-stream`。 */
 
 export const AGENT_CONVERSATION_TITLE_MAX_CHARS = 60
 export const AGENT_USER_MESSAGE_MAX_CHARS = 4_000
-export const AGENT_DEVICE_ID_MIN_CHARS = 8
-export const AGENT_DEVICE_ID_MAX_CHARS = 64
 
 export type AgentMessageRole = 'user' | 'assistant'
 
@@ -64,16 +59,37 @@ export type AgentTurnEvent =
   | AgentTurnEndEvent
   | AgentTurnErrorEvent
 
-export interface AgentTurnFrame {
-  readonly id: number
-  readonly event: AgentTurnEvent
+/** 帧 id 在一条响应内单调递增。编码与解码放一处，免得线格式在两端各写一遍。 */
+export function encodeAgentFrame(id: number, event: AgentTurnEvent): string {
+  return `id: ${id}\nevent: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`
 }
 
-export function agentMessageText(message: AgentMessageView): string {
-  return message.content
+export const AGENT_FRAME_SEPARATOR = /\r?\n\r?\n/
+
+/** 一帧可以有多行 `data:`，按 SSE 规范拼回去；形状不对就丢，不让半截 JSON 进状态机。 */
+export function parseAgentFrame(frame: string): AgentTurnEvent | null {
+  const data = frame
+    .split(/\r?\n/)
+    .filter((line) => line.startsWith('data:'))
+    .map((line) => line.slice(5).trim())
+    .join('\n')
+  if (!data) return null
+  try {
+    return JSON.parse(data) as AgentTurnEvent
+  } catch {
+    return null
+  }
+}
+
+export function agentTextFromBlocks(blocks: readonly { readonly type: string }[]): string {
+  return blocks
     .filter((block): block is AgentTextBlock => block.type === 'text')
     .map((block) => block.text)
     .join('')
+}
+
+export function agentMessageText(message: AgentMessageView): string {
+  return agentTextFromBlocks(message.content)
 }
 
 /** 首轮消息即标题，超长截断；会话不支持改名，所以这是标题的唯一来源。 */

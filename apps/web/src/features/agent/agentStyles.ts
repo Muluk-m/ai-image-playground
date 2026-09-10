@@ -1,7 +1,4 @@
-/**
- * 面板浮在创作模式画布上，而画布容器在任何主题下都是 `#101011`，所以这套色是恒定深色，
- * 不跟随系统主题，也不复用 `components/panelStyles` 里那套带 `dark:` 的常量。
- */
+/** 画布容器在任何主题下都是 `#101011`，所以这套色恒定深色，不复用跟随主题的 panelStyles。 */
 
 export const PANEL_WIDTH = 270
 export const PANEL_MARGIN = 10
@@ -11,7 +8,6 @@ export const PANEL_SURFACE = 'border border-white/[0.09] bg-[#17171a]'
 export const PANEL_SHADOW = 'shadow-[0_18px_60px_rgba(0,0,0,0.55)]'
 
 export const INK = 'text-[#e8e8ea]'
-export const INK_2 = 'text-[#8b8b93]'
 export const INK_3 = 'text-[#5f5f68]'
 
 export const TAB = 'pb-1 text-xs transition-colors'

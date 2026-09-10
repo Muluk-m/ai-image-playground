@@ -1,5 +1,9 @@
 import { mock } from 'bun:test'
-import type { AgentTurnEvent } from '@image-playground/shared'
+import {
+  AGENT_FRAME_SEPARATOR,
+  type AgentTurnEvent,
+  parseAgentFrame,
+} from '@image-playground/shared'
 
 export interface AgentCall {
   readonly url: string
@@ -53,20 +57,10 @@ export interface ReceivedFrame {
 /** 把 SSE 报文拆回 (id, 事件) 序列；断言 id 单调性靠它。 */
 export function parseFrames(payload: string): ReceivedFrame[] {
   return payload
-    .split('\n\n')
+    .split(AGENT_FRAME_SEPARATOR)
     .filter((block) => block.trim())
-    .map((block) => {
-      const lines = block.split('\n')
-      const id = Number(
-        lines
-          .find((line) => line.startsWith('id:'))!
-          .slice(3)
-          .trim(),
-      )
-      const data = lines
-        .find((line) => line.startsWith('data:'))!
-        .slice(5)
-        .trim()
-      return { id, event: JSON.parse(data) as AgentTurnEvent }
-    })
+    .map((block) => ({
+      id: Number(block.match(/^id:\s*(\d+)$/m)![1]),
+      event: parseAgentFrame(block)!,
+    }))
 }

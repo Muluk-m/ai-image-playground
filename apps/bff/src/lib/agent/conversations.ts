@@ -4,16 +4,16 @@ import type {
   AgentMessageRole,
   AgentMessageView,
 } from '@image-playground/shared'
-import { and, asc, eq, isNull, max } from 'drizzle-orm'
+import { and, asc, eq, isNull, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
+import type { BffTransaction } from '../private-overlay'
 
 /** 归属互斥由 `agent_conversations_owner_check` 兜底，这里用联合类型让调用方无从写出两者并存。 */
 export type AgentOwner =
   | { readonly kind: 'user'; readonly userId: string }
   | { readonly kind: 'device'; readonly deviceId: string }
 
-type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0]
-type Executor = typeof db | Transaction
+type Executor = typeof db | BffTransaction
 
 export interface AppendAgentMessage {
   readonly id?: string
@@ -123,17 +123,14 @@ export async function appendAgentMessage(
   message: AppendAgentMessage,
   now = Date.now(),
 ): Promise<AgentMessageView> {
-  const [highest] = await executor
-    .select({ seq: max(schema.agent_messages.seq) })
-    .from(schema.agent_messages)
-    .where(eq(schema.agent_messages.conversation_id, message.conversationId))
   const [row] = await executor
     .insert(schema.agent_messages)
     .values({
       conversation_id: message.conversationId,
       id: message.id ?? crypto.randomUUID(),
       turn_id: message.turnId,
-      seq: (highest?.seq ?? 0) + 1,
+      // 序号在插入语句里算，省掉一次往返；并发写靠会话内 seq 的唯一索引兜底。
+      seq: sql`(SELECT COALESCE(MAX(${schema.agent_messages.seq}), 0) + 1 FROM ${schema.agent_messages} WHERE ${schema.agent_messages.conversation_id} = ${message.conversationId})`,
       role: message.role,
       content: [...message.content],
       created_at: now,

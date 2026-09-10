@@ -19,7 +19,7 @@ CREATE TABLE "agent_messages" (
 	"created_at" timestamp with time zone NOT NULL,
 	"deleted_at" timestamp with time zone,
 	CONSTRAINT "agent_messages_conversation_id_id_pk" PRIMARY KEY("conversation_id","id"),
-	CONSTRAINT "agent_messages_role_check" CHECK ("agent_messages"."role" IN ('user', 'assistant', 'tool'))
+	CONSTRAINT "agent_messages_role_check" CHECK ("agent_messages"."role" IN ('user', 'assistant'))
 );
 --> statement-breakpoint
 ALTER TABLE "agent_conversations" ADD CONSTRAINT "agent_conversations_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint

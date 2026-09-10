@@ -249,7 +249,7 @@
       "checkConstraints": {
         "agent_messages_role_check": {
           "name": "agent_messages_role_check",
-          "value": "\"agent_messages\".\"role\" IN ('user', 'assistant', 'tool')"
+          "value": "\"agent_messages\".\"role\" IN ('user', 'assistant')"
         }
       },
       "isRLSEnabled": false

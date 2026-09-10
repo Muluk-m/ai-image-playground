@@ -1,5 +1,4 @@
 import { type KeyboardEvent, useEffect, useRef, useState } from 'react'
-import { isClientCapabilityEnabled } from '../../../lib/clientCapabilities'
 import type { CanvasDoc } from '../../canvas/lib/canvasDoc'
 import {
   ACTIVE_TAB,
@@ -15,6 +14,7 @@ import {
   TAB,
   USER_BUBBLE,
 } from '../agentStyles'
+import { agentPanelPresent } from '../panelLayout'
 import { useAgentStore } from '../store'
 import AgentLayers from './AgentLayers'
 import AgentReply from './AgentReply'
@@ -38,7 +38,12 @@ function CollapsedButton({ onOpen }: { onOpen: () => void }) {
 }
 
 export default function AgentPanel({ doc }: { doc: CanvasDoc }) {
-  const { open, tab, messages, turn, error, setOpen, setTab, load, send } = useAgentStore()
+  const open = useAgentStore((state) => state.open)
+  const tab = useAgentStore((state) => state.tab)
+  const messages = useAgentStore((state) => state.messages)
+  const turn = useAgentStore((state) => state.turn)
+  const error = useAgentStore((state) => state.error)
+  const { setOpen, setTab, load, send } = useAgentStore.getState()
   const [draft, setDraft] = useState('')
   const logRef = useRef<HTMLDivElement>(null)
 
@@ -49,9 +54,9 @@ export default function AgentPanel({ doc }: { doc: CanvasDoc }) {
   useEffect(() => {
     const log = logRef.current
     if (log) log.scrollTop = log.scrollHeight
-  }, [])
+  }, [messages])
 
-  if (!isClientCapabilityEnabled('agent:chat')) return null
+  if (!agentPanelPresent()) return null
   if (!open) return <CollapsedButton onOpen={() => setOpen(true)} />
 
   const submit = () => {
@@ -123,7 +128,12 @@ export default function AgentPanel({ doc }: { doc: CanvasDoc }) {
                 {message.text}
               </p>
             ) : (
-              <AgentReply key={message.id} messageId={message.id} text={message.text} />
+              <AgentReply
+                key={message.id}
+                messageId={message.id}
+                text={message.text}
+                streaming={message.streaming}
+              />
             ),
           )}
           {error && <p className={`text-xs ${INK_3}`}>{error}</p>}

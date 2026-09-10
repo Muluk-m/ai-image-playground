@@ -1,30 +1,13 @@
 import { agentMessageText } from '@image-playground/shared'
 import { create } from 'zustand'
-import { isClientCapabilityEnabled } from '../../lib/clientCapabilities'
-import { PANEL_MARGIN, PANEL_WIDTH } from './agentStyles'
+import { AGENT_CONVERSATION_KEY, safeLocalStorage, scopedStorageName } from '../../lib/authScope'
 import { createConversation, fetchMessages, streamTurn } from './lib/agentClient'
 import type { AgentPanelMessage, AgentPanelTab, AgentTurnStatus } from './types'
 
-const CONVERSATION_KEY = 'image-playground.agent_conversation_id'
-
 const TURN_FAILED = '这一轮没有跑完'
 
-function rememberConversation(id: string | null): void {
-  try {
-    if (id) localStorage.setItem(CONVERSATION_KEY, id)
-    else localStorage.removeItem(CONVERSATION_KEY)
-  } catch {
-    // 隐私模式下读写会抛；换个标签页就没有历史，可接受。
-  }
-}
-
-function rememberedConversation(): string | null {
-  try {
-    return localStorage.getItem(CONVERSATION_KEY)
-  } catch {
-    return null
-  }
-}
+/** 登录后 scope 会变，所以每次现算，不缓存。 */
+const conversationKey = () => scopedStorageName(AGENT_CONVERSATION_KEY)
 
 export interface AgentState {
   open: boolean
@@ -42,12 +25,6 @@ export interface AgentState {
   /** 读回上次会话的全部消息；没有会话则留空，等第一条消息再建。 */
   load(): Promise<void>
   send(text: string): Promise<void>
-}
-
-/** 面板浮在画布左侧，画布左下角的控件据此让开它；能力关闭时面板不存在，不让。 */
-export function useAgentPanelInset(): number {
-  const open = useAgentStore((state) => state.open)
-  return open && isClientCapabilityEnabled('agent:chat') ? PANEL_MARGIN * 2 + PANEL_WIDTH : 0
 }
 
 export const useAgentStore = create<AgentState>((set, get) => ({
@@ -69,7 +46,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
 
   async load() {
     if (get().loaded) return
-    const conversationId = rememberedConversation()
+    const conversationId = safeLocalStorage.getItem(conversationKey())
     if (!conversationId) {
       set({ loaded: true })
       return
@@ -88,7 +65,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       })
     } catch {
       // 会话被删或换了身份：忘掉它，下一条消息开新会话。
-      rememberConversation(null)
+      safeLocalStorage.removeItem(conversationKey())
       set({ conversationId: null, loaded: true })
     }
   },
@@ -97,12 +74,19 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     const trimmed = text.trim()
     if (!trimmed || get().turn === 'running') return
 
+    const fail = () =>
+      set((state) => ({
+        turn: 'failed' as const,
+        error: TURN_FAILED,
+        messages: state.messages.filter((message) => !message.streaming),
+      }))
+
     set({ turn: 'running', error: null })
     let conversationId = get().conversationId
     try {
       if (!conversationId) {
         conversationId = (await createConversation()).id
-        rememberConversation(conversationId)
+        safeLocalStorage.setItem(conversationKey(), conversationId)
         set({ conversationId })
       }
 
@@ -131,29 +115,11 @@ export const useAgentStore = create<AgentState>((set, get) => ({
             ),
           }))
         }
-        if (event.type === 'error') {
-          set((state) => ({
-            turn: 'failed',
-            error: TURN_FAILED,
-            messages: state.messages.filter((message) => !message.streaming),
-          }))
-        }
       }
     } catch {
-      set((state) => ({
-        turn: 'failed',
-        error: TURN_FAILED,
-        messages: state.messages.filter((message) => !message.streaming),
-      }))
-      return
+      // 落到下面那条收敛：流没走到 turnEnd 就是失败。
     }
-    // 流断在轮结束之前也算失败，状态机不能停在 running。
-    if (get().turn === 'running') {
-      set((state) => ({
-        turn: 'failed',
-        error: TURN_FAILED,
-        messages: state.messages.filter((message) => !message.streaming),
-      }))
-    }
+    // error 事件、异常、以及流在轮结束前断掉，三种情况都停在 running。
+    if (get().turn === 'running') fail()
   },
 }))

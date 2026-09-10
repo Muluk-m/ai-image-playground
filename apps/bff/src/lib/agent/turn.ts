@@ -1,6 +1,6 @@
 import { Agent, type AgentMessage } from '@earendil-works/pi-agent-core'
 import type { AgentMessageView, AgentTurnErrorCode, AgentTurnEvent } from '@image-playground/shared'
-import { agentMessageText } from '@image-playground/shared'
+import { agentMessageText, agentTextFromBlocks } from '@image-playground/shared'
 import { log } from '../logger'
 import { agentModel, agentStreamFn } from './model'
 
@@ -30,23 +30,24 @@ export interface AgentTurnInput {
 /** 历史消息回放成 pi 的形状；助手消息的用量与停因是回放占位，不进任何计费。 */
 function replayed(history: readonly AgentMessageView[]): AgentMessage[] {
   const model = agentModel()
-  return history.map((message) =>
-    message.role === 'user'
-      ? {
-          role: 'user',
-          content: [{ type: 'text', text: agentMessageText(message) }],
-          timestamp: message.createdAt,
-        }
-      : ({
-          role: 'assistant',
-          content: [{ type: 'text', text: agentMessageText(message) }],
-          api: model.api,
-          provider: model.provider,
-          model: model.id,
-          usage: EMPTY_USAGE,
-          stopReason: 'stop',
-          timestamp: message.createdAt,
-        } satisfies AgentMessage),
+  return history.map(
+    (message): AgentMessage =>
+      message.role === 'user'
+        ? {
+            role: 'user',
+            content: [{ type: 'text', text: agentMessageText(message) }],
+            timestamp: message.createdAt,
+          }
+        : {
+            role: 'assistant',
+            content: [{ type: 'text', text: agentMessageText(message) }],
+            api: model.api,
+            provider: model.provider,
+            model: model.id,
+            usage: EMPTY_USAGE,
+            stopReason: 'stop',
+            timestamp: message.createdAt,
+          },
   )
 }
 
@@ -88,10 +89,7 @@ export interface AgentTurnResult {
   readonly error?: AgentTurnErrorCode
 }
 
-/**
- * 跑一轮，把 pi 的事件翻成线协议事件。落库由调用方做：这里不碰数据库，
- * 结果通过 `onSettled` 交回去。
- */
+/** 这里不碰数据库：落库由调用方在 `onSettled` 里做。 */
 export async function* runAgentTurn(
   input: AgentTurnInput,
   onSettled: (result: AgentTurnResult) => Promise<void>,
@@ -126,31 +124,28 @@ export async function* runAgentTurn(
     })
     .finally(() => queue.finish())
 
-  yield {
-    type: 'turnStart',
-    turnId: input.turnId,
-    userMessageId: input.userMessageId,
-    assistantMessageId: input.assistantMessageId,
+  try {
+    yield {
+      type: 'turnStart',
+      turnId: input.turnId,
+      userMessageId: input.userMessageId,
+      assistantMessageId: input.assistantMessageId,
+    }
+    for await (const event of queue.drain()) yield event
+
+    const last = agent.state.messages.at(-1)
+    const text = last?.role === 'assistant' ? agentTextFromBlocks(last.content) : ''
+    if (!error && !text) error = 'agent_run_failed'
+
+    await onSettled({ text, error })
+    if (error) {
+      yield { type: 'error', error }
+      return
+    }
+    yield { type: 'turnEnd', turnId: input.turnId, durationMs: Date.now() - startedAt }
+  } finally {
+    // 客户端断开时消费者停止拉取，不中止上游就会把整轮 token 烧完。
+    agent.abort()
+    await running
   }
-  for await (const event of queue.drain()) yield event
-  await running
-
-  const last = agent.state.messages.at(-1)
-  const text = last?.role === 'assistant' ? assistantText(last) : ''
-  if (!error && !text) error = 'agent_run_failed'
-
-  await onSettled({ text, error })
-  if (error) {
-    yield { type: 'error', error }
-    return
-  }
-  yield { type: 'turnEnd', turnId: input.turnId, durationMs: Date.now() - startedAt }
-}
-
-function assistantText(message: AgentMessage): string {
-  if (message.role !== 'assistant') return ''
-  return message.content
-    .filter((block): block is { type: 'text'; text: string } => block.type === 'text')
-    .map((block) => block.text)
-    .join('')
 }

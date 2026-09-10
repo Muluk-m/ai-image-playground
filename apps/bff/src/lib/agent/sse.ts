@@ -1,9 +1,4 @@
-import type { AgentTurnEvent } from '@image-playground/shared'
-
-/** 每帧带会话内单调递增的 id，断线重连据此定位续播点。 */
-export function encodeAgentFrame(id: number, event: AgentTurnEvent): string {
-  return `id: ${id}\nevent: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`
-}
+import { type AgentTurnEvent, encodeAgentFrame } from '@image-playground/shared'
 
 export function agentTurnStream(events: AsyncGenerator<AgentTurnEvent>): Response {
   const encoder = new TextEncoder()

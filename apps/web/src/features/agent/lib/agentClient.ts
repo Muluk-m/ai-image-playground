@@ -3,6 +3,7 @@ import type {
   AgentMessageView,
   AgentTurnEvent,
 } from '@image-playground/shared'
+import { AGENT_FRAME_SEPARATOR, parseAgentFrame } from '@image-playground/shared'
 import { authenticatedBffFetch } from '../../../lib/authClient'
 import { getDeviceId } from '../../../lib/deviceId'
 import { bffBaseUrl } from '../../../lib/runtimeConfig'
@@ -42,21 +43,6 @@ export async function fetchMessages(
   return ((await response.json()) as { messages: AgentMessageView[] }).messages
 }
 
-/** SSE 帧只取 `data:`，事件类型已经在负载里；`id:` 留给后续的断线续播。 */
-function parseFrame(frame: string): AgentTurnEvent | null {
-  const data = frame
-    .split('\n')
-    .find((line) => line.startsWith('data:'))
-    ?.slice(5)
-    .trim()
-  if (!data) return null
-  try {
-    return JSON.parse(data) as AgentTurnEvent
-  } catch {
-    return null
-  }
-}
-
 export async function* streamTurn(
   conversationId: string,
   text: string,
@@ -72,16 +58,20 @@ export async function* streamTurn(
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
   let buffered = ''
+  const drain = function* (flush: boolean) {
+    const blocks = buffered.split(AGENT_FRAME_SEPARATOR)
+    // 末段可能是半帧，留着等下一个 chunk；流结束时它是最后一帧，得交出去。
+    buffered = flush ? '' : (blocks.pop() ?? '')
+    for (const block of blocks) {
+      const event = parseAgentFrame(block)
+      if (event) yield event
+    }
+  }
   while (true) {
     const { done, value } = await reader.read()
     if (done) break
     buffered += decoder.decode(value, { stream: true })
-    let boundary = buffered.indexOf('\n\n')
-    while (boundary !== -1) {
-      const event = parseFrame(buffered.slice(0, boundary))
-      buffered = buffered.slice(boundary + 2)
-      if (event) yield event
-      boundary = buffered.indexOf('\n\n')
-    }
+    yield* drain(false)
   }
+  yield* drain(true)
 }

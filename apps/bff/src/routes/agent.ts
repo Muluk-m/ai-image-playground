@@ -1,10 +1,5 @@
 import type { AuthUserView } from '@image-playground/shared'
-import {
-  AGENT_DEVICE_ID_MAX_CHARS,
-  AGENT_DEVICE_ID_MIN_CHARS,
-  AGENT_USER_MESSAGE_MAX_CHARS,
-  agentConversationTitle,
-} from '@image-playground/shared'
+import { AGENT_USER_MESSAGE_MAX_CHARS, agentConversationTitle } from '@image-playground/shared'
 import { Elysia, t } from 'elysia'
 import { db } from '../db/client'
 import {
@@ -17,15 +12,9 @@ import {
   touchAgentConversation,
 } from '../lib/agent/conversations'
 import { agentTurnStream } from '../lib/agent/sse'
-import { runAgentTurn } from '../lib/agent/turn'
 import { capabilityUnavailable, isCapabilityEnabled } from '../lib/capabilities'
-import { badRequestOnValidation } from '../lib/http'
+import { badRequestOnValidation, deviceIdSchema } from '../lib/http'
 import { resolveAuthUser } from '../lib/user-auth'
-
-const deviceIdSchema = t.String({
-  minLength: AGENT_DEVICE_ID_MIN_CHARS,
-  maxLength: AGENT_DEVICE_ID_MAX_CHARS,
-})
 
 /** 归属不依赖登录能力：有会话 cookie 就挂用户，否则挂设备。 */
 function ownerOf(authUser: AuthUserView | null, deviceId: string): AgentOwner {
@@ -45,7 +34,7 @@ export const agentRoutes = new Elysia()
     async ({ body, authUser }) => ({
       conversation: await createAgentConversation(ownerOf(authUser, body.deviceId), ''),
     }),
-    { body: t.Object({ deviceId: deviceIdSchema }) },
+    { body: t.Object({ deviceId: deviceIdSchema() }) },
   )
   .get(
     '/api/agent/conversations/:id/messages',
@@ -55,7 +44,7 @@ export const agentRoutes = new Elysia()
       if (!conversation) return status(404, NOT_FOUND)
       return { messages: await listAgentMessages(conversation.id) }
     },
-    { params: t.Object({ id: t.String() }), query: t.Object({ deviceId: deviceIdSchema }) },
+    { params: t.Object({ id: t.String() }), query: t.Object({ deviceId: deviceIdSchema() }) },
   )
   .post(
     '/api/agent/conversations/:id/turns',
@@ -77,6 +66,8 @@ export const agentRoutes = new Elysia()
         content: [{ type: 'text', text: body.text }],
       })
 
+      // 动态引入：pi 的模块图有 60-90ms，`agent:chat` 关着的部署不该在启动时付。
+      const { runAgentTurn } = await import('../lib/agent/turn')
       const events = runAgentTurn(
         {
           turnId,
@@ -104,7 +95,7 @@ export const agentRoutes = new Elysia()
     {
       params: t.Object({ id: t.String() }),
       body: t.Object({
-        deviceId: deviceIdSchema,
+        deviceId: deviceIdSchema(),
         text: t.String({ minLength: 1, maxLength: AGENT_USER_MESSAGE_MAX_CHARS }),
       }),
     },

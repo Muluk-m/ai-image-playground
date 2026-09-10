@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react'
-import { useAgentPanelInset } from '../../agent/store'
+import { useAgentPanelInset } from '../../agent/panelLayout'
 import { duplicateSelection } from '../lib/canvasClipboard'
 import type { CanvasDoc, Tool } from '../lib/canvasDoc'
 
