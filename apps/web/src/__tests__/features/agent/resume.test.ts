@@ -57,6 +57,7 @@ const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit
     if (url.endsWith('/turns')) return turnResponses.shift()!()
     return Response.json({ ok: true })
   }
+  if (url.endsWith('/api/agent/conversations')) return Response.json({ conversations: [] })
   if (url.includes('/events')) {
     resumeRequests.push({ url, lastEventId: new Headers(init?.headers).get('last-event-id') })
     return turnResponses.shift()!()
