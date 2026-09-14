@@ -4,6 +4,7 @@ import {
   VIDEO_RESOLUTION_LABELS,
 } from '@image-playground/shared'
 import { useEffect, useRef, useState } from 'react'
+import Credits from '../../../components/Credits'
 import Overlay from '../../../components/Overlay'
 import { LABEL, OUTLINE_BUTTON } from '../../../components/panelStyles'
 import { copyTextToClipboard, getClipboardFailureMessage } from '../../../lib/clipboard'
@@ -135,7 +136,11 @@ export default function VideoLightbox({ task, onClose }: { task: VideoTask; onCl
                 </button>
               </Row>
             )}
-            {task.credits !== undefined && <Row label="积分">{task.credits}</Row>}
+            {task.credits !== undefined && (
+              <Row label="积分">
+                <Credits credits={task.credits} />
+              </Row>
+            )}
             <Row label="时间">{timing(task)}</Row>
           </dl>
 

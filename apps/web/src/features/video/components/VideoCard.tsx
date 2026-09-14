@@ -1,6 +1,7 @@
 import { VIDEO_DERIVE_LABELS, VIDEO_MODEL_SUPPORT } from '@image-playground/shared'
 import { useState } from 'react'
 import ContextMenu, { ContextMenuItem } from '../../../components/ContextMenu'
+import Credits from '../../../components/Credits'
 import { TrashIcon } from '../../../components/icons'
 import { useStore } from '../../../store'
 import { videoAspectLabel, videoFrameAspect } from '../lib/aspect'
@@ -103,7 +104,9 @@ export default function VideoCard({ task, onOpen }: { task: VideoTask; onOpen: (
                 <b className="block text-sm font-medium text-gray-800 dark:text-gray-100">失败</b>
                 {task.error}
                 {task.credits !== undefined && (
-                  <small className="block">已退 {task.credits} 积分</small>
+                  <small className="block">
+                    已退 <Credits credits={task.credits} />
+                  </small>
                 )}
               </span>
             </span>
@@ -191,7 +194,7 @@ export default function VideoCard({ task, onOpen }: { task: VideoTask; onOpen: (
           <span>{task.duration} 秒</span>
           <span>{videoAspectLabel(task)}</span>
           {task.credits !== undefined && task.status !== 'error' && (
-            <span>{task.credits} 积分</span>
+            <Credits credits={task.credits} />
           )}
           {task.status === 'error' && (
             <button

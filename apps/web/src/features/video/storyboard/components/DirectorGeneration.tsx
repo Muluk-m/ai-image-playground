@@ -5,6 +5,7 @@ import {
   videoRateMultiplier,
 } from '@image-playground/shared'
 import { useState } from 'react'
+import Credits from '../../../../components/Credits'
 import SubmissionBillingAction from '../../../../components/SubmissionBillingAction'
 import { videoModelOptions } from '../../../../lib/channels/videoChannels'
 import { usePrivateSubmissionGuard } from '../../../../lib/privateOverlay'
@@ -151,7 +152,7 @@ export default function DirectorGeneration({
       {guard.estimatedCredits !== undefined && (
         <div className="vd-row vd-between">
           <span>预计积分</span>
-          <strong>{guard.estimatedCredits}</strong>
+          <Credits credits={guard.estimatedCredits} className="font-semibold" />
         </div>
       )}
       <button

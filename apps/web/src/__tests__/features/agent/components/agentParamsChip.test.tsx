@@ -88,3 +88,60 @@ describe('智能体输入框的生成参数', () => {
     expect(trigger().getAttribute('aria-expanded')).toBe('false')
   })
 })
+
+/** 换一个 BYOK profile：kind 决定协议，selectedModelId 决定模型。 */
+function useProfile(kind: 'gemini' | 'openai-compat', model: string): void {
+  act(() => {
+    useStore.setState({
+      settings: {
+        ...useStore.getState().settings,
+        activeProfileId: 'probe',
+        profiles: [
+          {
+            id: 'probe',
+            source: 'user-byok',
+            name: 'probe',
+            kind,
+            baseUrl: 'https://example.com/v1',
+            apiKey: 'k',
+            models: [model],
+            selectedModelId: model,
+            preferences: { apiMode: 'images', timeout: 600, codexCli: false, apiProxy: false },
+          },
+        ],
+      },
+    })
+  })
+}
+
+describe('gemini 专属参数跟着当前模型走', () => {
+  it('gemini 系模型才给分辨率与思考级别', () => {
+    useProfile('gemini', 'gemini-3.1-flash-image')
+    render()
+    toggle()
+
+    expect(host.textContent).toContain('比例')
+    expect(host.textContent).toContain('分辨率')
+    expect(host.textContent).toContain('思考')
+  })
+
+  // 同一个 Gemini profile 也能指到别的模型；分辨率与思考级别只有 Gemini 图像模型认。
+  it('gemini 协议但不是 gemini 系模型时收起这两项', () => {
+    useProfile('gemini', 'imagen-4.0-generate')
+    render()
+    toggle()
+
+    expect(host.textContent).toContain('比例')
+    expect(host.textContent).not.toContain('分辨率')
+    expect(host.textContent).not.toContain('思考')
+  })
+
+  it('不走 gemini 协议时一项都不给', () => {
+    useProfile('openai-compat', 'gpt-image-2.5-flare')
+    render()
+    toggle()
+
+    expect(host.textContent).not.toContain('分辨率')
+    expect(host.textContent).not.toContain('思考')
+  })
+})

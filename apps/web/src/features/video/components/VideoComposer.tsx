@@ -8,6 +8,7 @@ import {
   videoRateMultiplier,
 } from '@image-playground/shared'
 import { useEffect, useMemo, useState } from 'react'
+import Credits from '../../../components/Credits'
 import { CARD, FIELD, LABEL, PANEL_SECTION, PRIMARY_BUTTON } from '../../../components/panelStyles'
 import Segmented from '../../../components/Segmented'
 import SubmissionBillingAction from '../../../components/SubmissionBillingAction'
@@ -64,9 +65,13 @@ function ModelCard({
         {option.label}
       </span>
       <span className="block text-[11px] text-gray-500 dark:text-gray-400">
-        {guard.estimatedCredits === undefined
-          ? hint
-          : `${hint} · ${guard.estimatedCredits} 积分 / 秒`}
+        {guard.estimatedCredits === undefined ? (
+          hint
+        ) : (
+          <>
+            {hint} · <Credits credits={guard.estimatedCredits} /> / 秒
+          </>
+        )}
       </span>
     </button>
   )
@@ -220,9 +225,10 @@ function VideoSubmitPanel({
         <div className="mb-2 flex items-baseline justify-between text-xs text-gray-500 dark:text-gray-400">
           <span>{summary}</span>
           {guard.estimatedCredits !== undefined && (
-            <span className="font-medium text-gray-800 dark:text-gray-100">
-              {guard.estimatedCredits} 积分
-            </span>
+            <Credits
+              credits={guard.estimatedCredits}
+              className="font-medium text-gray-800 dark:text-gray-100"
+            />
           )}
         </div>
         {guard.blocked && guard.disabledReason && (
@@ -241,7 +247,13 @@ function VideoSubmitPanel({
           onClick={() => void useVideoStore.getState().submit()}
           className={`${PRIMARY_BUTTON} w-full disabled:cursor-not-allowed`}
         >
-          {guard.estimatedCredits === undefined ? '生成' : `生成 · ${guard.estimatedCredits} 积分`}
+          {guard.estimatedCredits === undefined ? (
+            '生成'
+          ) : (
+            <>
+              生成 · <Credits credits={guard.estimatedCredits} />
+            </>
+          )}
         </button>
       </div>
     </>

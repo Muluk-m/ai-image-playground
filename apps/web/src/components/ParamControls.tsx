@@ -71,6 +71,8 @@ const GEMINI_FIELDS: ReadonlyArray<{
   field: GeminiSelectField
   icon: ReactNode
   options: ReadonlyArray<{ label: string; value: string }>
+  /** 只有 Gemini 图像模型认的项；别的模型下走 capabilities.geminiImageTuning 收起来。 */
+  tuningOnly?: boolean
 }> = [
   {
     label: '比例',
@@ -83,12 +85,14 @@ const GEMINI_FIELDS: ReadonlyArray<{
     field: 'gemini_image_size',
     icon: ChipIcons.imageSize,
     options: buildAutoOptions(GEMINI_IMAGE_SIZES),
+    tuningOnly: true,
   },
   {
     label: '思考',
     field: 'gemini_thinking_level',
     icon: ChipIcons.thinking,
     options: buildAutoOptions(GEMINI_THINKING_LEVELS),
+    tuningOnly: true,
   },
 ]
 
@@ -133,6 +137,9 @@ export default function ParamControls({
   const activeView = clientProfileToApiProfile(activeProfile)
   const isGeminiProvider = activeView.provider === 'gemini'
   const capabilities = getParamCapabilities(activeProfile, params.output_format)
+  const geminiFields = isGeminiProvider
+    ? GEMINI_FIELDS.filter(({ tuningOnly }) => !tuningOnly || capabilities.geminiImageTuning)
+    : []
   const outputImageLimit = getOutputImageLimitForSettings(effectiveSettings)
   const displaySize = normalizeImageSize(params.size) || DEFAULT_PARAMS.size
   const qualityOptions = [
@@ -326,23 +333,22 @@ export default function ParamControls({
           }}
         />
       )}
-      {isGeminiProvider &&
-        GEMINI_FIELDS.map(({ label, field, icon, options }) => {
-          const currentValue = (params[field] as string | undefined) ?? 'auto'
-          return (
-            <ParamChip key={field} icon={icon} label={label} value={currentValue}>
-              <ChipSelect
-                value={currentValue}
-                onChange={(val) =>
-                  setParams({
-                    [field]: val === 'auto' ? undefined : val,
-                  } as Partial<TaskParams>)
-                }
-                options={options}
-              />
-            </ParamChip>
-          )
-        })}
+      {geminiFields.map(({ label, field, icon, options }) => {
+        const currentValue = (params[field] as string | undefined) ?? 'auto'
+        return (
+          <ParamChip key={field} icon={icon} label={label} value={currentValue}>
+            <ChipSelect
+              value={currentValue}
+              onChange={(val) =>
+                setParams({
+                  [field]: val === 'auto' ? undefined : val,
+                } as Partial<TaskParams>)
+              }
+              options={options}
+            />
+          </ParamChip>
+        )
+      })}
       {!isGeminiProvider && (
         <>
           {/* 不可用的参数 chip（codexCli / 模型不支持 quality；非 jpeg/webp 的压缩；

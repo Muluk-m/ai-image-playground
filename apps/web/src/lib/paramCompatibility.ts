@@ -17,6 +17,19 @@ export interface ParamCapabilities {
   transparentOutput: boolean
   compression: boolean
   moderation: boolean
+  /**
+   * 分辨率（gemini_image_size）与思考级别（gemini_thinking_level）。
+   * 比例不在此列：走 gemini 协议时它顶的是尺寸控件的位置，任何模型都得有一个。
+   */
+  geminiImageTuning: boolean
+}
+
+/**
+ * 是不是 Gemini 系的图像模型。同一个 gemini 协议下也能填 imagen 这类别的模型，
+ * 那些模型认不得分辨率与思考级别——显示了却不生效，比没有这个开关更糟。
+ */
+function isGeminiSeriesModel(model: string): boolean {
+  return model.trim().toLowerCase().startsWith('gemini')
 }
 
 /**
@@ -35,6 +48,7 @@ export function getParamCapabilities(
     transparentOutput: view.provider !== 'gemini' && outputFormat === 'png',
     compression: outputFormat !== 'png',
     moderation: view.apiMode !== 'responses' && (!modelCaps || modelCaps.has('moderation')),
+    geminiImageTuning: view.provider === 'gemini' && isGeminiSeriesModel(view.model),
   }
 }
 
