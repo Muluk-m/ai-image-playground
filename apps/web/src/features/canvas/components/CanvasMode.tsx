@@ -3,6 +3,7 @@ import { HEADER_OFFSET } from '../../../components/panelStyles'
 import { useStore } from '../../../store'
 import AgentPanel from '../../agent/components/AgentPanel'
 import { setAgentCanvasSink } from '../../agent/lib/canvasSink'
+import { agentPanelPresent } from '../../agent/panelLayout'
 import { createAgentCanvasSink } from '../lib/agentCanvasSink'
 import { CanvasDoc } from '../lib/canvasDoc'
 import { CanvasEditor } from '../lib/editor'
@@ -91,7 +92,9 @@ export default function CanvasMode() {
         <CanvasToolbar doc={doc} />
         <StylePanel doc={doc} />
         <CanvasShortcutsHint />
-        <CanvasGenerateBar editor={editor} />
+        {/* 智能体在场时输入框只留一个：参数收进面板输入框上方的浮层，创作走对话那条路。
+            能力关着的部署（免费形态）仍然靠这条生成条，不能删。 */}
+        {!agentPanelPresent() && <CanvasGenerateBar editor={editor} />}
         <AgentPanel doc={doc} editor={editor} />
       </div>
     </div>
