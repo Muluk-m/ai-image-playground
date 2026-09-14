@@ -50,12 +50,12 @@ async function startConversation(): Promise<string> {
   return (json as { conversation: { id: string } }).conversation.id
 }
 
-async function runTurn(conversationId: string, text: string) {
+async function runTurn(conversationId: string, text: string, params?: Record<string, unknown>) {
   const response = await app.handle(
     new Request(`http://localhost/api/agent/conversations/${conversationId}/turns`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ deviceId: DEVICE, text }),
+      body: JSON.stringify({ deviceId: DEVICE, text, ...(params ? { params } : {}) }),
     }),
   )
   return parseFrames(await response.text())
@@ -112,6 +112,59 @@ afterAll(async () => {
 })
 
 describe('智能体生图工具', () => {
+  it('把这一轮选的生成参数填进生图任务', async () => {
+    const calls: AgentCall[] = []
+    setAgentFetchForTesting(
+      scriptedAgentFetch(calls, [
+        () =>
+          toolCallCompletion({ id: 'call-1', name: 'generateImage', args: { prompt: '一只橘猫' } }),
+        () => completionStream('画好了'),
+      ]),
+    )
+    const stop = settleSubmittedTasks('completed')
+    const conversationId = await startConversation()
+
+    await runTurn(conversationId, '画一只橘猫', {
+      size: '1024x1536',
+      quality: 'high',
+      output_format: 'webp',
+      output_compression: 80,
+      n: 2,
+    })
+    stop()
+
+    const [task] = await db.select().from(schema.tasks)
+    expect(task!.request_payload).toMatchObject({
+      prompt: '一只橘猫',
+      size: '1024x1536',
+      quality: 'high',
+      output_format: 'webp',
+      output_compression: 80,
+      n: 2,
+    })
+  })
+
+  it('没选参数时还是一张，不把前端的默认值当成用户的选择', async () => {
+    const calls: AgentCall[] = []
+    setAgentFetchForTesting(
+      scriptedAgentFetch(calls, [
+        () =>
+          toolCallCompletion({ id: 'call-1', name: 'generateImage', args: { prompt: '一只黑猫' } }),
+        () => completionStream('画好了'),
+      ]),
+    )
+    const stop = settleSubmittedTasks('completed')
+    const conversationId = await startConversation()
+
+    await runTurn(conversationId, '画一只黑猫')
+    stop()
+
+    const [task] = await db.select().from(schema.tasks)
+    expect(task!.request_payload.n).toBe(1)
+    expect(task!.request_payload.size).toBeUndefined()
+    expect(task!.request_payload.quality).toBeUndefined()
+  })
+
   it('reports one tool call and links the image task to the turn', async () => {
     const calls: AgentCall[] = []
     setAgentFetchForTesting(

@@ -1,6 +1,7 @@
 import type { AgentToolResult } from '@earendil-works/pi-agent-core'
 import type {
   AgentToolArtifact,
+  AgentTurnParams,
   ChannelMedia,
   PersistedVideoRequest,
   QueueProvider,
@@ -9,6 +10,7 @@ import { AGENT_ARTIFACT_NOUN } from '@image-playground/shared'
 import { config } from '../../../config'
 import { resolveQueueModel } from '../../channels'
 import { awaitQueueTask, type CreateQueueTaskOutcome, createQueueTask } from '../../taskSubmission'
+import { queueParamsFor } from './queueParams'
 import type { AgentToolContext, AgentToolDetails } from './types'
 
 interface MediaWords {
@@ -46,8 +48,18 @@ export interface QueueTaskInput {
   readonly anchorObjectId?: string
 }
 
-/** 该介质的模型；运营没指定就取内置 channel 里这一介质的第一个。 */
-export function resolveAgentModel(media: ChannelMedia): QueueTarget | undefined {
+/**
+ * 该介质的模型。优先用这一轮里用户选的，解析不出来（模型下线、介质不符）就退回运营配置的，
+ * 再没有就取内置 channel 里这一介质的第一个。用户选错模型不该让整轮失败。
+ */
+export function resolveAgentModel(
+  media: ChannelMedia,
+  preferred?: string,
+): QueueTarget | undefined {
+  if (preferred) {
+    const chosen = resolveQueueModel(media, preferred)
+    if (chosen) return chosen
+  }
   const configured = media === 'video' ? config.agent.videoModel : config.agent.imageModel
   return resolveQueueModel(media, configured || undefined)
 }
@@ -65,7 +77,7 @@ export async function runQueueTask(
   onUpdate: ((partial: AgentToolResult<AgentToolDetails>) => void) | undefined,
 ): Promise<AgentToolResult<AgentToolDetails>> {
   const words = WORDS[input.media]
-  const target = input.target ?? resolveAgentModel(input.media)
+  const target = input.target ?? resolveAgentModel(input.media, context.params?.model)
   if (!target) throw new Error(noModelMessage(input.media))
 
   const submitted = await createQueueTask({
@@ -73,8 +85,9 @@ export async function runQueueTask(
     model: target.model,
     request: {
       prompt: input.prompt,
-      n: 1,
       device_id: context.deviceId,
+      // 视频档位由 input.video 自己带，图片参数对它没有意义。
+      ...(input.media === 'image' ? queueParamsFor(target.provider, context.params) : { n: 1 }),
       ...(input.inputImages?.length ? { input_images: [...input.inputImages] } : {}),
       ...(input.mask ? { mask: input.mask } : {}),
     },

@@ -1,5 +1,10 @@
 import type { AgentTool } from '@earendil-works/pi-agent-core'
-import type { AgentToolArtifact, AgentToolName, AgentToolStage } from '@image-playground/shared'
+import type {
+  AgentToolArtifact,
+  AgentToolName,
+  AgentToolStage,
+  AgentTurnParams,
+} from '@image-playground/shared'
 import type { AgentImageSource } from '../images'
 
 /** 工具跑在 BFF 进程里，身份与轮的归属由这里带过去。 */
@@ -10,6 +15,8 @@ export interface AgentToolContext {
   readonly deviceId: string
   /** 模型说的图片 id 到字节的唯一出口。 */
   readonly images: AgentImageSource
+  /** 这一轮用户在参数浮层里选的生成参数；缺席即全部按部署默认。 */
+  readonly params?: AgentTurnParams
 }
 
 /** 进行中的 `onUpdate` 只填 `stage`，终局填 `artifacts`。 */

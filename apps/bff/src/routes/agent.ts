@@ -1,5 +1,9 @@
 import type { AuthUserView } from '@image-playground/shared'
-import { AGENT_TURN_MAX_REFERENCES, AGENT_USER_MESSAGE_MAX_CHARS } from '@image-playground/shared'
+import {
+  AGENT_TURN_MAX_N,
+  AGENT_TURN_MAX_REFERENCES,
+  AGENT_USER_MESSAGE_MAX_CHARS,
+} from '@image-playground/shared'
 import { Elysia, t } from 'elysia'
 import {
   type AgentOwner,
@@ -38,6 +42,25 @@ const NOT_FOUND = { error: 'conversation_not_found' }
 const TURN_NOT_FOUND = { error: 'turn_not_found' }
 
 /** 参考图按数组顺序编号，提示词里的 `[image N]` 就是这里的第 N 项。 */
+/**
+ * 参数浮层里选的生成参数。全部可选：没选的项由部署默认补齐，选了坏值也不该让整轮失败——
+ * 映射那一步会把认不得的值丢掉（见 `lib/agent/tools/queueParams.ts`）。
+ */
+const paramsSchema = t.Optional(
+  t.Object({
+    model: t.Optional(t.String({ maxLength: 128 })),
+    size: t.Optional(t.String({ maxLength: 32 })),
+    quality: t.Optional(t.String({ maxLength: 16 })),
+    output_format: t.Optional(t.String({ maxLength: 16 })),
+    output_compression: t.Optional(t.Integer({ minimum: 0, maximum: 100 })),
+    moderation: t.Optional(t.String({ maxLength: 16 })),
+    n: t.Optional(t.Integer({ minimum: 1, maximum: AGENT_TURN_MAX_N })),
+    gemini_aspect_ratio: t.Optional(t.String({ maxLength: 16 })),
+    gemini_image_size: t.Optional(t.String({ maxLength: 16 })),
+    gemini_thinking_level: t.Optional(t.String({ maxLength: 16 })),
+  }),
+)
+
 const referencesSchema = t.Optional(
   t.Array(
     t.Object({
@@ -110,6 +133,7 @@ export const agentRoutes = new Elysia()
         text: body.text,
         references: body.references ?? [],
         deviceId: body.deviceId,
+        ...(body.params ? { params: body.params } : {}),
       })
       if (started.kind === 'authentication_required') return status(401, { error: 'unauthorized' })
       if (started.kind !== 'started') return reservationFailureResponse(started)
@@ -121,6 +145,7 @@ export const agentRoutes = new Elysia()
         deviceId: deviceIdSchema(),
         text: t.String({ minLength: 1, maxLength: AGENT_USER_MESSAGE_MAX_CHARS }),
         references: referencesSchema,
+        params: paramsSchema,
       }),
     },
   )

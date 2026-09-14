@@ -7,6 +7,7 @@ import type {
   AgentToolResultBlock,
   AgentTurnCost,
   AgentTurnErrorCode,
+  AgentTurnParams,
   AgentTurnReference,
   AgentTurnUsage,
 } from '@image-playground/shared'
@@ -83,6 +84,8 @@ export interface StartAgentTurnInput {
   /** 工具提交的图片任务归到这个身份下，计费与配额因此与用户自己提交的一致。 */
   readonly userId: string | null
   readonly deviceId: string
+  /** 用户在输入框的参数浮层里选的生成参数；缺席即全部按部署默认。 */
+  readonly params?: AgentTurnParams
   /** 起轮时预扣的积分；缺席即这个部署不计费。 */
   readonly reservedCredits?: number
   /** 收尾结算，回报本轮结算后的消耗；缺席即这个部署不计费。 */
@@ -244,6 +247,7 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
           userId: input.userId,
           deviceId: input.deviceId,
           images,
+          ...(input.params ? { params: input.params } : {}),
         }),
         clarificationTool,
       ],

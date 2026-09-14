@@ -1,3 +1,5 @@
+export { nearestAspectRatio } from '@image-playground/shared'
+
 const SIZE_PATTERN = /^\s*(\d+)\s*[xX×]\s*(\d+)\s*$/
 const RATIO_PATTERN = /^\s*(\d+(?:\.\d+)?)\s*[:xX×]\s*(\d+(?:\.\d+)?)\s*$/
 const SIZE_MULTIPLE = 16
@@ -212,36 +214,6 @@ export function buildAspectInstruction(size: string): string | null {
   return width > height
     ? `Composition: a wide ${ratio} landscape frame, horizontal orientation.`
     : `Composition: a tall ${ratio} vertical frame, portrait orientation.`
-}
-
-const ASPECT_RATIOS: Array<{ label: string; value: number }> = [
-  { label: '1:1', value: 1 },
-  { label: '16:9', value: 16 / 9 },
-  { label: '9:16', value: 9 / 16 },
-  { label: '4:3', value: 4 / 3 },
-  { label: '3:4', value: 3 / 4 },
-]
-
-/** Gemini 只接受固定几档 aspectRatio，这里把 OpenAI 的 `宽x高` size 归到最接近的一档。 */
-export function nearestAspectRatio(size: string): string | undefined {
-  const match = size.match(/^(\d+)x(\d+)$/i)
-  if (!match) return undefined
-
-  const width = Number(match[1])
-  const height = Number(match[2])
-  if (!width || !height) return undefined
-
-  const ratio = width / height
-  let best = ASPECT_RATIOS[0]
-  let bestDelta = Number.POSITIVE_INFINITY
-  for (const candidate of ASPECT_RATIOS) {
-    const delta = Math.abs(candidate.value - ratio)
-    if (delta < bestDelta) {
-      best = candidate
-      bestDelta = delta
-    }
-  }
-  return best.label
 }
 
 /**

@@ -97,7 +97,16 @@ const GEMINI_FIELDS: ReadonlyArray<{
  * 全部读写全局 store（settings/params 等），两个宿主（工作台 InputBar、创作模式 CanvasGenerateBar）
  * 天然共享同一份状态。数量 n chip 仅在 showCount 时渲染（创作模式 n 恒为 1，不显示）。
  */
-export default function ParamControls({ showCount = false }: { showCount?: boolean }) {
+/** 某条提交路径做不到的参数。chip 直接不出现——显示了却不生效，比没有这个开关更糟。 */
+export type UnsupportedParam = 'transparent' | 'noRewrite'
+
+export default function ParamControls({
+  showCount = false,
+  unsupported,
+}: {
+  showCount?: boolean
+  unsupported?: ReadonlySet<UnsupportedParam>
+}) {
   const params = useStore((s) => s.params)
   const setParams = useStore((s) => s.setParams)
   const settings = useStore((s) => s.settings)
@@ -367,7 +376,7 @@ export default function ParamControls({ showCount = false }: { showCount?: boole
               ]}
             />
           </ParamChip>
-          {capabilities.transparentOutput && (
+          {capabilities.transparentOutput && !unsupported?.has('transparent') && (
             <ParamChip
               icon={ChipIcons.format}
               label="透明"
@@ -386,17 +395,19 @@ export default function ParamControls({ showCount = false }: { showCount?: boole
             </ParamChip>
           )}
           {/* 防改写：prompt 前加 guard 前缀阻止 Codex 系网关重写提示词。默认开启。 */}
-          <ParamChip
-            icon={ChipIcons.noRewrite}
-            label="防改写"
-            value={params.no_rewrite ? 'on' : 'off'}
-          >
-            <ChipSelect
+          {!unsupported?.has('noRewrite') && (
+            <ParamChip
+              icon={ChipIcons.noRewrite}
+              label="防改写"
               value={params.no_rewrite ? 'on' : 'off'}
-              onChange={(val) => setParams({ no_rewrite: val === 'on' })}
-              options={ON_OFF_OPTIONS}
-            />
-          </ParamChip>
+            >
+              <ChipSelect
+                value={params.no_rewrite ? 'on' : 'off'}
+                onChange={(val) => setParams({ no_rewrite: val === 'on' })}
+                options={ON_OFF_OPTIONS}
+              />
+            </ParamChip>
+          )}
           {capabilities.compression && (
             <ParamChip icon={ChipIcons.compression} label="压缩">
               <input

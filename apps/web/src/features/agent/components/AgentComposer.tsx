@@ -38,6 +38,7 @@ import {
   removeReference,
 } from '../lib/references'
 import { useAgentStore } from '../store'
+import AgentParamsChip from './AgentParamsChip'
 
 const EDITOR_CLASS =
   'max-h-28 w-full overflow-y-auto whitespace-pre-wrap break-words bg-transparent text-xs leading-relaxed text-[#e8e8ea] outline-none empty:before:pointer-events-none empty:before:text-[#5f5f68] empty:before:content-[attr(data-placeholder)]'
@@ -215,24 +216,27 @@ export default function AgentComposer({ doc }: { doc: CanvasDoc }) {
         />
       </div>
 
-      <div className="flex items-center justify-end gap-2">
-        {running && (
+      <div className="flex items-center justify-between gap-2">
+        <AgentParamsChip />
+        <div className="flex shrink-0 items-center gap-2">
+          {running && (
+            <button
+              type="button"
+              className={ABORT_BUTTON}
+              onClick={() => void useAgentStore.getState().abort()}
+            >
+              中止
+            </button>
+          )}
           <button
             type="button"
-            className={ABORT_BUTTON}
-            onClick={() => void useAgentStore.getState().abort()}
+            className={SEND_BUTTON}
+            disabled={!draft.prompt.trim()}
+            onClick={submit}
           >
-            中止
+            {running ? '插话' : '发送'}
           </button>
-        )}
-        <button
-          type="button"
-          className={SEND_BUTTON}
-          disabled={!draft.prompt.trim()}
-          onClick={submit}
-        >
-          {running ? '插话' : '发送'}
-        </button>
+        </div>
       </div>
     </div>
   )
