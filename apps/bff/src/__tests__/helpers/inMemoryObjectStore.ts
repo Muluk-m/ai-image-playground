@@ -1,4 +1,4 @@
-import type { ObjectStore } from '../../lib/objectStore'
+import type { ObjectRangeReader, ObjectStore } from '../../lib/objectStore'
 
 export class InMemoryObjectStore implements ObjectStore {
   readonly objects = new Map<string, { bytes: Uint8Array<ArrayBuffer>; contentType: string }>()
@@ -26,6 +26,24 @@ export class InMemoryObjectStore implements ObjectStore {
     const stored = this.objects.get(key)
     if (!stored) throw new Error(`missing object: ${key}`)
     return stored.bytes.slice()
+  }
+
+  async open(key: string): Promise<ObjectRangeReader> {
+    this.events.push(`open:${key}`)
+    if (this.readFailuresRemaining > 0) {
+      this.readFailuresRemaining--
+      throw new Error('in-memory read failure')
+    }
+    const stored = this.objects.get(key)
+    if (!stored) throw new Error(`missing object: ${key}`)
+    const { bytes } = stored
+    return {
+      size: bytes.length,
+      stream: (start, end) => {
+        this.events.push(`stream:${key}:${start}-${end}`)
+        return new Blob([bytes.slice(start, end + 1)]).stream()
+      },
+    }
   }
 
   async listPrefix(prefix: string): Promise<string[]> {

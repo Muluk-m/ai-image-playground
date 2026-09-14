@@ -8,6 +8,9 @@ import {
 } from '../../lib/private-overlay'
 import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
 
+type ObjectRangeReader = import('../../lib/objectStore').ObjectRangeReader
+type ObjectStore = import('../../lib/objectStore').ObjectStore
+
 const TEST_DB = await resetTestDatabase('bff_video_routes')
 
 process.env.PORT = '0'
@@ -161,6 +164,21 @@ async function insertCompletedVideo(
     submitted_at: now,
     completed_at: now,
     ...overrides,
+  })
+}
+
+/** 结果还没归档进对象存储，`data[].url` 直接指向上游。 */
+async function insertUrlVideo(id: string): Promise<void> {
+  const now = Date.now()
+  await db.insert(schema.tasks).values({
+    id,
+    provider: 'openai-compat',
+    model: 'grok-imagine-video',
+    status: 'completed',
+    request_payload: { prompt: 'a cat surfing', device_id: 'test-device-aaaa-bbbb-cccc' },
+    result_payload: { data: [{ url: 'https://upstream.example/clip.mp4', mime: 'video/mp4' }] },
+    submitted_at: now,
+    completed_at: now,
   })
 }
 
@@ -512,6 +530,75 @@ describe('video output endpoint', () => {
     expect(res.headers.get('accept-ranges')).toBeNull()
   })
 
+  it('only pulls the asked-for span out of storage', async () => {
+    await insertCompletedVideo('video-span')
+    storage.events.length = 0
+
+    const res = await app.handle(
+      new Request('http://localhost/v1/queue/requests/video-span/output/0', {
+        headers: { range: 'bytes=4-7' },
+      }),
+    )
+
+    expect(res.status).toBe(206)
+    expect(storage.events).toEqual(['open:video-span/out/0', 'stream:video-span/out/0:4-7'])
+    expect(storage.events).not.toContain('read:video-span/out/0')
+  })
+
+  it('serves a range out of a 4 GiB video without ever holding it', async () => {
+    await insertCompletedVideo('video-huge')
+    const huge = new HugeVideoStore()
+    setObjectStoreForTesting(huge)
+
+    const start = 2 * 1024 ** 3
+    const res = await app.handle(
+      new Request('http://localhost/v1/queue/requests/video-huge/output/0', {
+        headers: { range: `bytes=${start}-${start + 15}` },
+      }),
+    )
+
+    expect(res.status).toBe(206)
+    expect(res.headers.get('content-range')).toBe(
+      `bytes ${start}-${start + 15}/${HugeVideoStore.SIZE}`,
+    )
+    expect(res.headers.get('content-length')).toBe('16')
+    // 唯一一次向存储要的字节数就是这 16 个：内存占用与 4 GiB 总大小无关。
+    expect(huge.streamedByteCounts).toEqual([16])
+    expect((await res.arrayBuffer()).byteLength).toBe(16)
+  })
+
+  it('hands an upstream URL video its own range instead of downloading the file', async () => {
+    await insertUrlVideo('video-url')
+    const realFetch = globalThis.fetch
+    const seen: (string | null)[] = []
+    globalThis.fetch = (async (input: Request | string | URL, init?: RequestInit) => {
+      seen.push(new Headers(init?.headers).get('range'))
+      return new Response(new Blob([MP4_BYTES.slice(4, 8)]).stream(), {
+        status: 206,
+        headers: {
+          'content-type': 'video/mp4',
+          'content-range': 'bytes 4-7/12',
+          'content-length': '4',
+        },
+      })
+    }) as typeof fetch
+
+    try {
+      const res = await app.handle(
+        new Request('http://localhost/v1/queue/requests/video-url/output/0', {
+          headers: { range: 'bytes=4-7' },
+        }),
+      )
+
+      expect(seen).toEqual(['bytes=4-7'])
+      expect(res.status).toBe(206)
+      expect(res.headers.get('content-range')).toBe('bytes 4-7/12')
+      expect(new Uint8Array(await res.arrayBuffer())).toEqual(MP4_BYTES.slice(4, 8))
+    } finally {
+      globalThis.fetch = realFetch
+    }
+  })
+
   it('reports the duration in the result metadata', async () => {
     await insertCompletedVideo('video-meta')
 
@@ -523,3 +610,35 @@ describe('video output endpoint', () => {
     })
   })
 })
+
+/**
+ * 一份 4 GiB 的假视频。整份 `read` 直接抛错——真把它读进内存就是这张票要根治的行为，
+ * 路由若退回旧实现，这条测试会以 502 立刻变红。
+ */
+class HugeVideoStore implements ObjectStore {
+  static readonly SIZE = 4 * 1024 ** 3
+  readonly streamedByteCounts: number[] = []
+
+  async write(): Promise<void> {}
+
+  async read(key: string): Promise<Uint8Array<ArrayBuffer>> {
+    throw new Error(`whole-object read of ${key} would buffer ${HugeVideoStore.SIZE} bytes`)
+  }
+
+  async open(): Promise<ObjectRangeReader> {
+    return {
+      size: HugeVideoStore.SIZE,
+      stream: (start, end) => {
+        const length = end - start + 1
+        this.streamedByteCounts.push(length)
+        return new Blob([new Uint8Array(length)]).stream()
+      },
+    }
+  }
+
+  async listPrefix(): Promise<string[]> {
+    return []
+  }
+
+  async deletePrefix(): Promise<void> {}
+}

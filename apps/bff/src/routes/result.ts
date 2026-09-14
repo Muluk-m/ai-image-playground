@@ -4,7 +4,7 @@ import { db, schema } from '../db/client'
 import { extractMeta, resolveImageBytesRef } from '../lib/extractImages'
 import { jsonResponse } from '../lib/gzipResponse'
 import { isStoredImageRef } from '../lib/imageArchive'
-import { objectStore } from '../lib/objectStore'
+import { type ObjectRangeReader, objectStore } from '../lib/objectStore'
 import { asQueueProvider } from '../lib/queueProvider'
 import { taskAccessWhere } from '../lib/task-access'
 import { requireUserOrService } from '../lib/user-auth'
@@ -147,28 +147,66 @@ async function serveOutput(
   }
   if (ref.kind === 'object') {
     try {
-      return mediaResponse(await objectStore().read(ref.data), ref.mime, cacheControl, range)
+      // 图片整份读省一次元信息往返；视频只按 Range 取那一段，内存与片长无关。
+      if (!isSeekable(ref.mime)) {
+        return mediaResponse(await objectStore().read(ref.data), ref.mime, cacheControl, range)
+      }
+      return rangeStreamResponse(await objectStore().open(ref.data), ref.mime, cacheControl, range)
     } catch {
       return Response.json({ error: 'object_storage_error' }, { status: 502 })
     }
   }
-  // kind === 'url'：上游返回了 http 地址，BFF 现拉回来透传给客户端
-  const upstream = await fetch(ref.data)
-  if (!upstream.ok || !upstream.body) {
+  // kind === 'url'：上游返回了 http 地址，BFF 现拉回来透传给客户端。
+  // Range 原样转给上游，它回哪一段就透哪一段；BFF 只转发流，不把整份视频拉进内存。
+  const upstream = await fetch(ref.data, range === null ? undefined : { headers: { range } })
+  if (!upstream.ok && upstream.status !== 416) {
     return Response.json({ error: `upstream_image_${upstream.status}` }, { status: 502 })
   }
   const mime = upstream.headers.get('content-type') ?? ref.mime
-  if (!isSeekable(mime)) {
-    return new Response(upstream.body, {
-      headers: { 'content-type': mime, 'cache-control': cacheControl },
-    })
+  const headers: Record<string, string> = { 'content-type': mime, 'cache-control': cacheControl }
+  if (isSeekable(mime)) headers['accept-ranges'] = 'bytes'
+  // 定位头必须跟着 body 一起透传，否则客户端会把一段字节当成整份。
+  for (const name of ['content-range', 'content-length']) {
+    const value = upstream.headers.get(name)
+    if (value !== null) headers[name] = value
   }
-  return mediaResponse(new Uint8Array(await upstream.arrayBuffer()), mime, cacheControl, range)
+  if (upstream.status === 416) return new Response(null, { status: 416, headers })
+  if (!upstream.body) {
+    return Response.json({ error: `upstream_image_${upstream.status}` }, { status: 502 })
+  }
+  return new Response(upstream.body, { status: upstream.status === 206 ? 206 : 200, headers })
 }
 
 /** `<video>` 拖进度条要靠 Range；图片全量返回即可，不必声明可寻址。 */
 function isSeekable(mime: string): boolean {
   return mime.startsWith('video/')
+}
+
+/**
+ * 与 `mediaResponse` 同一套 Range 语义，但字节是边读边发的：进程内存只吃当前 chunk，
+ * 与对象总大小无关。视频走这条。
+ */
+function rangeStreamResponse(
+  object: ObjectRangeReader,
+  mime: string,
+  cacheControl: string,
+  range: string | null,
+): Response {
+  const headers: Record<string, string> = {
+    'content-type': mime,
+    'cache-control': cacheControl,
+    'accept-ranges': 'bytes',
+  }
+  const span = range === null ? null : parseByteRange(range, object.size)
+  if (span === 'unsatisfiable') {
+    headers['content-range'] = `bytes */${object.size}`
+    return new Response(null, { status: 416, headers })
+  }
+  const { start, end } = span ?? { start: 0, end: object.size - 1 }
+  headers['content-length'] = String(end - start + 1)
+  if (span === null) return new Response(object.stream(start, end), { headers })
+  headers['content-range'] = `bytes ${start}-${end}/${object.size}`
+  return new Response(object.stream(start, end), { status: 206, headers })
 }
 
 function mediaResponse(
