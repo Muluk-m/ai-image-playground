@@ -1,83 +1,114 @@
 import type { AgentToolArtifact } from '@image-playground/shared'
 import { useEffect, useState } from 'react'
 import PlayBadge from '../../video/components/PlayBadge'
-import { CARD, CARD_NOTE, CARD_TITLE, GHOST_LINK, THUMBNAIL } from '../agentStyles'
+import {
+  CARD,
+  CARD_NOTE,
+  CARD_TITLE,
+  GHOST_LINK,
+  THUMBNAIL,
+  THUMBNAIL_STATIC,
+} from '../agentStyles'
+import { type AgentArtifactPreview, artifactPreview } from '../lib/artifactPreview'
 import { agentCanvasSink } from '../lib/canvasSink'
 import { useAgentStore } from '../store'
 import type { AgentDeliveryStatus, AgentToolMessage } from '../types'
 
 const STAGE_LABEL = { submitted: '已排队', running: '生成中' } as const
 
-const DELIVERY_NOTE: Record<AgentDeliveryStatus, string | null> = {
-  pending: '产物已生成，正在放入画布…',
-  placed: null,
+const DELIVERING = '产物已生成，正在放入画布…'
+const OFF_CANVAS = '产物尚未放入当前画布，可手动放入。'
+const DELIVERY_NOTE: Partial<Record<AgentDeliveryStatus, string>> = {
   conflict: '生成期间画布有改动，本次结果没有自动写入画布。',
-  unavailable: '产物尚未放入当前画布，可手动放入。',
   failed: '产物已生成，但放入画布失败，可以重试。',
 }
 
-function statusNote(message: AgentToolMessage): string | null {
+const NO_ARTIFACTS: readonly AgentToolArtifact[] = []
+
+function statusNote(message: AgentToolMessage, offCanvas: boolean): string | null {
   if (message.status === 'running') return message.stage ? STAGE_LABEL[message.stage] : '准备中'
   if (message.status === 'failed') return message.message ?? '没有完成'
-  return message.delivery ? DELIVERY_NOTE[message.delivery] : null
+  if (message.delivery === 'pending') return DELIVERING
+  // 冲突与失败要说清为什么没自动写入；其余只说画布上现在有没有它。
+  return (message.delivery && DELIVERY_NOTE[message.delivery]) ?? (offCanvas ? OFF_CANVAS : null)
 }
 
-function Thumbnail({ artifact }: { artifact: AgentToolArtifact }) {
-  const [source, setSource] = useState<string | null>(null)
+/** 交付还在途时不取图：那一份正在下载，结果卡等它落画布。 */
+function previewable(message: AgentToolMessage): readonly AgentToolArtifact[] {
+  if (message.status !== 'succeeded') return NO_ARTIFACTS
+  if (message.delivery === undefined || message.delivery === 'pending') return NO_ARTIFACTS
+  return message.artifacts ?? NO_ARTIFACTS
+}
+
+function useArtifactPreviews(message: AgentToolMessage): readonly AgentArtifactPreview[] {
+  const [previews, setPreviews] = useState<readonly AgentArtifactPreview[]>([])
+  const artifacts = previewable(message)
+  // 交付状态变了就重问一遍；卡重新挂载（折叠面板、切页签）也重问，所以画布上删掉的图能被发现。
+  const key = `${message.delivery}:${artifacts.map((one) => one.artifactId).join(' ')}`
 
   useEffect(() => {
     let alive = true
-    void agentCanvasSink()
-      ?.thumbnail(artifact.artifactId)
-      .then((data) => {
-        if (alive) setSource(data)
-      })
-      .catch((error) => {
-        console.warn('[agent] 产物缩略图读取失败', error)
-        if (alive) setSource(null)
-      })
+    if (!artifacts.length) {
+      setPreviews([])
+      return
+    }
+    void Promise.all(artifacts.map(artifactPreview)).then((next) => {
+      if (alive) setPreviews(next)
+    })
     return () => {
       alive = false
     }
-  }, [artifact.artifactId])
+    // artifacts 每次渲染都是新数组，用它的 id 与交付状态合成的 key 当依赖。
+  }, [key])
 
+  return previews
+}
+
+function Thumbnail({ preview }: { preview: AgentArtifactPreview }) {
+  const { artifact, source, onCanvas } = preview
   if (!source) return null
+  const badge = artifact.media === 'video' && (
+    <span className="absolute inset-0 grid scale-50 place-items-center">
+      <PlayBadge />
+    </span>
+  )
+  const image = <img src={source} alt="" className="h-full w-full object-cover" />
+  // 不在画布上就没有可定位的对象，那张图只是看一眼，不做成按钮。
+  if (!onCanvas)
+    return (
+      <span className={THUMBNAIL_STATIC}>
+        {image}
+        {badge}
+      </span>
+    )
   return (
     <button
       type="button"
-      className={`relative ${THUMBNAIL}`}
+      className={THUMBNAIL}
       onClick={() => agentCanvasSink()?.focus(artifact.artifactId)}
     >
-      <img src={source} alt="" className="h-full w-full object-cover" />
-      {artifact.media === 'video' && (
-        <span className="absolute inset-0 grid scale-50 place-items-center">
-          <PlayBadge />
-        </span>
-      )}
+      {image}
+      {badge}
     </button>
   )
 }
 
 export default function AgentToolCard({ message }: { message: AgentToolMessage }) {
-  const note = statusNote(message)
-  const hasArtifacts = message.status === 'succeeded' && Boolean(message.artifacts?.length)
-  const canPlace =
-    hasArtifacts &&
-    message.delivery !== undefined &&
-    message.delivery !== 'pending' &&
-    message.delivery !== 'placed'
+  const previews = useArtifactPreviews(message)
+  const offCanvas = previews.some((preview) => !preview.onCanvas)
+  const note = statusNote(message, offCanvas)
   return (
     <div className={CARD}>
       <p className={CARD_TITLE}>{message.title}</p>
       {note && <p className={CARD_NOTE}>{note}</p>}
-      {message.delivery === 'placed' && message.artifacts && (
+      {previews.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
-          {message.artifacts.map((artifact) => (
-            <Thumbnail key={artifact.artifactId} artifact={artifact} />
+          {previews.map((preview) => (
+            <Thumbnail key={preview.artifact.artifactId} preview={preview} />
           ))}
         </div>
       )}
-      {canPlace && (
+      {offCanvas && (
         <button
           type="button"
           className={`self-start ${GHOST_LINK}`}
