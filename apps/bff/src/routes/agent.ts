@@ -1,4 +1,4 @@
-import type { AuthUserView } from '@image-playground/shared'
+import type { AgentTurnAlreadyRunningBody, AuthUserView } from '@image-playground/shared'
 import {
   AGENT_TURN_MAX_N,
   AGENT_TURN_MAX_REFERENCES,
@@ -124,7 +124,15 @@ export const agentRoutes = new Elysia()
       const owner = ownerOf(authUser, body.deviceId)
       const conversation = await findAgentConversation(params.id, owner)
       if (!conversation) return status(404, NOT_FOUND)
-      if (runningTurn(conversation.id)) return status(409, { error: 'turn_already_running' })
+      // 409 带上在跑的那一轮：另一个标签页占着会话时，客户端据此转去续播而不是报错。
+      const active = runningTurn(conversation.id)
+      if (active) {
+        const body: AgentTurnAlreadyRunningBody = {
+          error: 'turn_already_running',
+          turnId: active.turnId,
+        }
+        return status(409, body)
+      }
 
       const started = await startConversationTurn({
         conversationId: conversation.id,

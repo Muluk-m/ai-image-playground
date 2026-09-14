@@ -258,6 +258,15 @@ export interface AgentActiveTurnView {
   readonly turnId: string
 }
 
+/**
+ * 起轮撞上同会话已经在跑的那一轮时的 409 响应体。带着轮标识，客户端据此转去续播——
+ * 两个标签页开着同一个会话时，后发的那个看到的是那一轮接着流，而不是一个错误。
+ */
+export interface AgentTurnAlreadyRunningBody {
+  readonly error: 'turn_already_running'
+  readonly turnId: string
+}
+
 /** 轮事件的保留窗口。过期即清，续播只保证窗口内的轮能接上。 */
 export const AGENT_TURN_EVENT_RETENTION_MS = 24 * 60 * 60 * 1_000
 
