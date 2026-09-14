@@ -1,4 +1,5 @@
 import { Agent, type AgentMessage, estimateTokens } from '@earendil-works/pi-agent-core'
+import type { ImageContent } from '@earendil-works/pi-ai'
 import type {
   AgentContentBlock,
   AgentMessageView,
@@ -27,7 +28,12 @@ import { compactionSettings } from './compaction-settings'
 import { createCompactionTransform } from './compaction-transform'
 import { appendAgentMessage, touchAgentConversation } from './conversations'
 import { lastAgentEventSeq } from './events'
-import { createAgentImageSource, referenceManifest } from './images'
+import {
+  activeAgentReferences,
+  createAgentImageSource,
+  referenceManifest,
+  requireAgentImages,
+} from './images'
 import { agentModel, agentStreamFn } from './model'
 import { type RunningTurn, registerRunningTurn, turnEventLog } from './runningTurns'
 import {
@@ -55,7 +61,8 @@ function systemPrompt(): string {
     // 逐工具那几句跟着清单走：关掉的工具连同它的用法一起消失，否则模型会承诺它调不了的事。
     ...agentToolGuidance(),
     '工具产出会自动落到用户的画布上，不要让用户自己去保存。',
-    '拿不准他要哪一种时调澄清工具给出几个具体选项，不要反问一大段。',
+    '先结合参考图和对话上下文执行；只有缺少会阻止执行的信息时才调用澄清工具。用户回答后直接继续，不要让他重复引用已有的图。',
+    '只能使用清单中的工具；交互设计图不等于可运行网页或交互代码，不要把前者说成后者。',
   ].join('\n')
 }
 
@@ -86,7 +93,10 @@ export interface StartAgentTurnInput {
 function replayText(message: AgentMessageView): string {
   return message.content
     .map((block) => {
-      if (block.type === 'text') return block.text
+      if (block.type === 'text')
+        return (
+          block.text + (message.role === 'user' ? referenceManifest(block.references ?? []) : '')
+        )
       if (block.type === 'clarification') return agentClarificationSummary(block)
       return agentToolResultSummary(block)
     })
@@ -126,12 +136,22 @@ function replayed(history: readonly AgentMessageView[]): AgentMessage[] {
 export function estimateTurnInputTokens(
   history: readonly AgentMessageView[],
   text: string,
+  references: readonly AgentTurnReference[],
 ): number {
   const now = Date.now()
+  const active = activeAgentReferences(references, history)
   const messages: AgentMessage[] = [
     { role: 'user', content: [{ type: 'text', text: systemPrompt() }], timestamp: now },
     ...replayed(history),
-    { role: 'user', content: [{ type: 'text', text }], timestamp: now },
+    {
+      role: 'user',
+      content: [
+        { type: 'text', text: text + referenceManifest(active) },
+        // pi 按图片块数量估 token，无需为预扣读取或复制图片字节。
+        ...active.map((): ImageContent => ({ type: 'image', data: '', mimeType: 'image/png' })),
+      ],
+      timestamp: now,
+    },
   ]
   const estimated = messages.reduce((total, message) => total + estimateTokens(message), 0)
   return Math.min(estimated, compactionBudget(compactionSettings()).threshold)
@@ -404,8 +424,21 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
   }
   const unregister = registerRunningTurn(turn)
 
-  void agent
-    .prompt(`${prompt}${referenceManifest(input.references)}`)
+  void requireAgentImages(
+    images,
+    images.references.map((reference) => reference.imageId),
+  )
+    .then((references) => {
+      if (aborted) return
+      const content = references.map(
+        (image): ImageContent => ({
+          type: 'image',
+          mimeType: image.dataUrl.slice(5, image.dataUrl.indexOf(';')),
+          data: image.dataUrl.slice(image.dataUrl.indexOf(',') + 1),
+        }),
+      )
+      return agent.prompt(`${prompt}${referenceManifest(images.references)}`, content)
+    })
     .catch((thrown) => {
       if (aborted || error) return
       log.warn({ event: 'agent.turn_failed', err: thrown }, 'agent turn failed')
