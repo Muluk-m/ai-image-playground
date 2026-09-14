@@ -49,7 +49,8 @@ const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit
       conversation: { id: CONVERSATION, title: '', createdAt: 1, updatedAt: 1 },
     })
   }
-  if (url.includes('/api/agent/conversations?')) return Response.json({ conversations: [] })
+  // 列会话跟建会话同一个 URL，设备标识在头里；只有方法能分开两者。
+  if (url.endsWith('/api/agent/conversations')) return Response.json({ conversations: [] })
   if (url.includes('/turns')) return (turnResponses.shift() ?? (() => sseResponse('')))()
   return Response.json(messagesPayload)
 })

@@ -47,6 +47,11 @@ let messagesResponse: () => Response
 let conversationsResponse: () => Response
 let deleteResponse: () => Response
 
+/** 建会话与列会话同一个 URL，只有方法不同——设备标识在头里，URL 上认不出来。 */
+function isListCall([input, init]: [unknown, RequestInit?]): boolean {
+  return String(input).endsWith('/api/agent/conversations') && init?.method === undefined
+}
+
 const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
   const url = String(input)
   if (url.endsWith('/api/agent/conversations') && init?.method === 'POST') {
@@ -55,7 +60,7 @@ const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit
     })
   }
   if (init?.method === 'DELETE') return deleteResponse()
-  if (url.includes('/api/agent/conversations?')) return conversationsResponse()
+  if (isListCall([input, init])) return conversationsResponse()
   if (url.includes('/turns')) return turnResponse()
   return messagesResponse()
 })
@@ -329,9 +334,7 @@ describe('会话列表', () => {
 
     await state().send('第二句')
 
-    const listCalls = fetchMock.mock.calls
-      .slice(afterFirst)
-      .filter(([input]) => String(input).includes('/api/agent/conversations?'))
+    const listCalls = fetchMock.mock.calls.slice(afterFirst).filter(isListCall)
     expect(listCalls).toEqual([])
   })
 
