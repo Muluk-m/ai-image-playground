@@ -2,7 +2,9 @@ import type {
   AgentCompactionRecord,
   AgentContentBlock,
   AgentMessageRole,
+  AgentTurnCost,
   AgentTurnEvent,
+  AgentTurnStopReason,
   PersistedSubmitRequest,
   QueueProvider,
   TaskKind,
@@ -282,6 +284,32 @@ export const agent_turn_events = pgTable(
   ],
 )
 
+/**
+ * 每轮的持久事实：耗时、停因与结算后的消耗。翻历史时的页脚读这张表，不读轮事件——
+ * 事件是为断线续播存的，有 24 小时保留窗口；这张表跟着会话活，会话删了才跟着删。
+ */
+export const agent_turns = pgTable(
+  'agent_turns',
+  {
+    conversation_id: text('conversation_id')
+      .notNull()
+      .references(() => agent_conversations.id, { onDelete: 'cascade' }),
+    turn_id: text('turn_id').notNull(),
+    duration_ms: integer('duration_ms').notNull(),
+    stop_reason: text('stop_reason').$type<AgentTurnStopReason>().notNull(),
+    /** 结算后的实际消耗；不计费的部署里是 null，那里的页脚只有耗时。 */
+    cost: bunJsonb('cost').$type<AgentTurnCost>(),
+    created_at: epochMs('created_at').notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.conversation_id, t.turn_id] }),
+    check(
+      'agent_turns_stop_reason_check',
+      sql`${t.stop_reason} IN ('completed', 'aborted', 'failed')`,
+    ),
+  ],
+)
+
 export const tasks = pgTable(
   'tasks',
   {
@@ -390,3 +418,4 @@ export type UserAssetObjectRow = typeof user_asset_objects.$inferSelect
 export type AgentConversationRow = typeof agent_conversations.$inferSelect
 export type AgentMessageRow = typeof agent_messages.$inferSelect
 export type AgentTurnEventRow = typeof agent_turn_events.$inferSelect
+export type AgentTurnRow = typeof agent_turns.$inferSelect
