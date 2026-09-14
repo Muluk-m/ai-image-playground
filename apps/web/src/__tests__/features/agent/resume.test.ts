@@ -139,6 +139,19 @@ describe('断线重连', () => {
     ])
   })
 
+  it('起轮的请求压根没发出去时直接判失败，不停在进行中', async () => {
+    turnResponses = [
+      () => {
+        throw new TypeError('offline')
+      },
+    ]
+
+    await state().send('你好')
+
+    expect(state().turn).toBe('failed')
+    expect(state().error).toBe('这一轮没有跑完')
+  })
+
   it('轮已经不在了就不再重连，直接判失败', async () => {
     turnResponses = [
       () => sse([{ id: 1, event: TURN_START }], true),
@@ -201,6 +214,94 @@ describe('刷新后重新挂上', () => {
       },
     ])
     expect(state().turn).toBe('idle')
+  })
+})
+
+describe('另一个标签页占着这个会话', () => {
+  const OTHER_TAB_HISTORY = () =>
+    Response.json({
+      messages: [
+        {
+          id: 'user-1',
+          turnId: TURN,
+          role: 'user',
+          content: [{ type: 'text', text: '把背景换成浅木色' }],
+          createdAt: 1,
+        },
+      ],
+      activeTurn: { turnId: TURN },
+      turns: [],
+    })
+
+  it('起轮拿到 409 时不报错，转去续播 409 带回来的那一轮', async () => {
+    useAgentStore.setState({ conversationId: CONVERSATION })
+    messagesResponse = OTHER_TAB_HISTORY
+    turnResponses = [
+      () => Response.json({ error: 'turn_already_running', turnId: TURN }, { status: 409 }),
+      () =>
+        sse([
+          { id: 1, event: TURN_START },
+          { id: 2, event: ASSISTANT_START },
+          { id: 3, event: { type: 'textDelta', messageId: 'assistant-1', delta: '好的' } },
+          { id: 4, event: TURN_END },
+        ]),
+    ]
+
+    await state().send('再画一只猫')
+
+    expect(state().error).toBeNull()
+    expect(state().turn).toBe('idle')
+    expect(resumeRequests).toHaveLength(1)
+    expect(resumeRequests[0]!.url).toContain(`/turns/${TURN}/events`)
+    // 那一轮的用户消息只在服务端，续播前得把历史读回来，否则面板上是个空气泡。
+    expect(state().messages).toEqual([
+      {
+        kind: 'text',
+        id: 'user-1',
+        turnId: TURN,
+        role: 'user',
+        text: '把背景换成浅木色',
+        streaming: false,
+      },
+      {
+        kind: 'text',
+        id: 'assistant-1',
+        turnId: TURN,
+        role: 'assistant',
+        text: '好的',
+        streaming: false,
+      },
+    ])
+  })
+
+  it('历史读回来时那一轮刚好跑完，仍按 409 给的轮标识重放它的内容', async () => {
+    useAgentStore.setState({ conversationId: CONVERSATION })
+    messagesResponse = () => Response.json({ messages: [], activeTurn: null, turns: [] })
+    turnResponses = [
+      () => Response.json({ error: 'turn_already_running', turnId: TURN }, { status: 409 }),
+      () =>
+        sse([
+          { id: 1, event: TURN_START },
+          { id: 2, event: ASSISTANT_START },
+          { id: 3, event: { type: 'textDelta', messageId: 'assistant-1', delta: '好的' } },
+          { id: 4, event: TURN_END },
+        ]),
+    ]
+
+    await state().send('再画一只猫')
+
+    expect(resumeRequests[0]!.url).toContain(`/turns/${TURN}/events`)
+    expect(state().error).toBeNull()
+  })
+
+  it('409 没带轮标识时仍按失败处理', async () => {
+    useAgentStore.setState({ conversationId: CONVERSATION })
+    turnResponses = [() => Response.json({ error: 'turn_already_running' }, { status: 409 })]
+
+    await state().send('再画一只猫')
+
+    expect(resumeRequests).toHaveLength(0)
+    expect(state().turn).toBe('failed')
   })
 })
 

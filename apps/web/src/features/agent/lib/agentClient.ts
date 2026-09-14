@@ -4,6 +4,7 @@ import type {
   AgentFrame,
   AgentMessageView,
   AgentToolArtifact,
+  AgentTurnAlreadyRunningBody,
   AgentTurnParams,
   AgentTurnReference,
   AgentTurnSummaryView,
@@ -119,13 +120,31 @@ async function* readFrames(response: Response): AsyncGenerator<AgentFrame> {
   yield* drain(true)
 }
 
-export async function* startTurn(
+/**
+ * 起轮的两种结局。`alreadyRunning` 是别的标签页正占着这个会话的轮：服务端在 409 里
+ * 给出那一轮，调用方转去续播它，而不是把并发当失败。
+ */
+export type StartTurnOutcome =
+  | { readonly kind: 'frames'; readonly frames: AsyncGenerator<AgentFrame> }
+  | { readonly kind: 'alreadyRunning'; readonly turnId: string }
+
+/** 409 没带轮标识时按普通失败处理：帧生成器会在第一次读取时抛 `AgentRequestError`。 */
+async function alreadyRunningTurnId(response: Response): Promise<string | null> {
+  try {
+    const body = (await response.json()) as Partial<AgentTurnAlreadyRunningBody>
+    return typeof body.turnId === 'string' && body.turnId ? body.turnId : null
+  } catch {
+    return null
+  }
+}
+
+export async function startTurn(
   conversationId: string,
   text: string,
   references: readonly AgentTurnReference[] = [],
   params?: AgentTurnParams,
   fetcher: Fetcher = authenticatedBffFetch,
-): AsyncGenerator<AgentFrame> {
+): Promise<StartTurnOutcome> {
   const response = await fetcher(
     url(`/conversations/${conversationId}/turns`),
     jsonInit({
@@ -135,7 +154,11 @@ export async function* startTurn(
       ...(params ? { params } : {}),
     }),
   )
-  yield* readFrames(response)
+  if (response.status === 409) {
+    const turnId = await alreadyRunningTurnId(response)
+    if (turnId) return { kind: 'alreadyRunning', turnId }
+  }
+  return { kind: 'frames', frames: readFrames(response) }
 }
 
 /** `lastEventId` 为 0 表示从头要一遍这一轮。 */
