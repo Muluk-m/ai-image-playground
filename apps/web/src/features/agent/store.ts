@@ -22,6 +22,7 @@ import {
   interjectTurn,
   removeConversation,
   resumeTurn,
+  type StartTurnOutcome,
   startTurn,
 } from './lib/agentClient'
 import { createArtifactDelivery, type TurnArtifactDelivery } from './lib/artifactDelivery'
@@ -331,6 +332,36 @@ export const useAgentStore = create<AgentState>((set, get) => {
     }
   }
 
+  /**
+   * 读回会话历史并挂上仍在跑的那一轮。切会话、以及起轮撞上别的标签页时走的都是这一条。
+   * `turnId` 是起轮的 409 给出的兜底：历史里的 activeTurn 更新，但那一轮可能在这次读取之前
+   * 刚好跑完——续播端点对已经结束的轮同样重放，用户照样看得到它的内容。
+   */
+  const openConversation = async (conversationId: string, turnId?: string) => {
+    const isCurrent = delivery.reset()
+    set({ conversationId, messages: [], turns: {}, error: null })
+    let state: Awaited<ReturnType<typeof fetchMessages>>
+    try {
+      state = await fetchMessages(conversationId)
+      if (!isCurrent()) return
+    } catch {
+      if (!isCurrent()) return
+      // 会话被删或换了身份：忘掉它，下一条消息开新会话。
+      get().startNewConversation()
+      return
+    }
+    set({
+      messages: state.messages.map(panelMessage),
+      turns: Object.fromEntries(state.turns.map((one) => [one.turnId, one])),
+    })
+    void delivery.restore(get().messages)
+    const active = state.activeTurn?.turnId ?? turnId
+    if (!active) return
+    set({ turn: 'running', error: null, activeTurn: { turnId: active } })
+    const turnDelivery = delivery.beginTurn()
+    await follow(conversationId, resumeTurn(conversationId, active, 0), null, turnDelivery, active)
+  }
+
   return {
     open: true,
     tab: 'chat',
@@ -371,34 +402,8 @@ export const useAgentStore = create<AgentState>((set, get) => {
 
     async selectConversation(conversationId) {
       if (get().turn === 'running') return
-      const isCurrent = delivery.reset()
       safeLocalStorage.setItem(conversationKey(), conversationId)
-      set({ conversationId, messages: [], turns: {}, error: null })
-      let state: Awaited<ReturnType<typeof fetchMessages>>
-      try {
-        state = await fetchMessages(conversationId)
-        if (!isCurrent()) return
-      } catch {
-        if (!isCurrent()) return
-        // 会话被删或换了身份：忘掉它，下一条消息开新会话。
-        get().startNewConversation()
-        return
-      }
-      set({
-        messages: state.messages.map(panelMessage),
-        turns: Object.fromEntries(state.turns.map((one) => [one.turnId, one])),
-      })
-      void delivery.restore(get().messages)
-      if (!state.activeTurn) return
-      set({ turn: 'running', error: null, activeTurn: state.activeTurn })
-      const turnDelivery = delivery.beginTurn()
-      await follow(
-        conversationId,
-        resumeTurn(conversationId, state.activeTurn.turnId, 0),
-        null,
-        turnDelivery,
-        state.activeTurn.turnId,
-      )
+      await openConversation(conversationId)
     },
 
     async deleteConversation(conversationId) {
@@ -461,12 +466,22 @@ export const useAgentStore = create<AgentState>((set, get) => {
       const { params, settings } = useStore.getState()
       const model = clientProfileToApiProfile(getActiveApiProfile(settings)).model
       const turnParams = toAgentTurnParams(params, model)
-      await follow(
-        target,
-        startTurn(target, trimmed, references, turnParams),
-        trimmed,
-        turnDelivery,
-      )
+      // 起轮这一步的失败不在 `follow` 的重连范围里：请求没发出去就没有轮可以接。
+      let outcome: StartTurnOutcome
+      try {
+        outcome = await startTurn(target, trimmed, references, turnParams)
+      } catch {
+        if (turnDelivery.isCurrent()) fail()
+        await turnDelivery.settled()
+        return
+      }
+      if (outcome.kind === 'alreadyRunning') {
+        // 别的标签页已经在这个会话里跑轮了。它那条用户消息只在服务端，先把历史读回来再续播。
+        await turnDelivery.settled()
+        await openConversation(target, outcome.turnId)
+        return
+      }
+      await follow(target, outcome.frames, trimmed, turnDelivery)
       if (firstTurn) await get().refreshConversations()
     },
 
