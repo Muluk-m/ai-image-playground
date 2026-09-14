@@ -37,6 +37,7 @@ const { _setChannelsForTesting } = await import('../../lib/channels')
 const { setObjectStoreForTesting } = await import('../../lib/objectStore')
 const { close: closeDb, db, schema } = await import('../../db/client')
 const { createUserSession, USER_SESSION_COOKIE } = await import('../../lib/user-session')
+const { purgeOldAgentTurnEvents } = await import('../../lib/agent/events')
 
 type InternalChannel = import('../../lib/channels').InternalChannel
 
@@ -249,5 +250,24 @@ describe('本轮消耗', () => {
       cost: { chat: 42, image: 0, video: 0 },
     })
     expect(turns[0]!.durationMs).toBeGreaterThanOrEqual(0)
+  })
+
+  it('轮事件过了保留窗口被清掉，昨天以前的轮翻回去仍有耗时与消耗', async () => {
+    setAgentFetchForTesting(recordingAgentFetch([], () => completionStream('好')))
+    billing.settledCredits = 42
+    const conversationId = await startConversation()
+
+    const frames = await runTurn(conversationId, '把背景换成浅木色')
+    const turnId = eventsOfType(frames, 'turnStart')[0]!.turnId
+    // 保留窗口给 0：这一轮的事件立刻算过期，等同于隔天再翻回来。
+    expect(await purgeOldAgentTurnEvents(0, Date.now() + 1_000)).toBeGreaterThan(0)
+
+    const turns = await readTurnSummaries(conversationId)
+    expect(turns).toHaveLength(1)
+    expect(turns[0]).toMatchObject({
+      turnId,
+      stopReason: 'completed',
+      cost: { chat: 42, image: 0, video: 0 },
+    })
   })
 })

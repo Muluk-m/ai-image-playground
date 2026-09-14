@@ -45,6 +45,7 @@ import {
   agentToolTitle,
   isAgentToolName,
 } from './tools'
+import { recordAgentTurnSummary } from './turn-summary'
 
 const EMPTY_USAGE = {
   input: 0,
@@ -478,11 +479,29 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
         { event: 'agent.turn_settled', turnId, usage, error: error ?? null },
         'agent turn settled',
       )
+      const durationMs = Date.now() - startedAt
+      const stopReason = outcome === 'cancelled' ? 'aborted' : outcome
+      try {
+        // 先落持久事实再发终帧：终帧要过保留窗口就没了，页脚不能只靠它。
+        await recordAgentTurnSummary({
+          conversationId,
+          turnId,
+          durationMs,
+          stopReason,
+          ...(cost ? { cost } : {}),
+        })
+      } catch (thrown) {
+        // 页脚丢一轮不该把已经流给用户的这一轮拖成报错。
+        log.error(
+          { event: 'agent.turn_summary_failed', turnId, err: thrown },
+          'agent turn summary not stored',
+        )
+      }
       events.emit({
         type: 'turnEnd',
         turnId,
-        durationMs: Date.now() - startedAt,
-        stopReason: outcome === 'cancelled' ? 'aborted' : outcome,
+        durationMs,
+        stopReason,
         ...(error ? { error } : {}),
         usage,
         cost,
