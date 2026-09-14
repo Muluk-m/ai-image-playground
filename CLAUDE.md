@@ -58,6 +58,13 @@ CI 一概不跑**（要 PostgreSQL，且 `private/` 不在 CI 里）。改到这
   - 源 `apps/bff/src/routes/submit.ts` → 测 `apps/bff/src/__tests__/routes/submit.test.ts`
 - 测试文件命名 `*.test.ts(x)`；Vitest 默认配置自动发现，不需要单独注册
 - 私有树包不强制使用 `src/` 目录；其测试放在相邻模块的 `__tests__/` 下（例如 `private/apps/bff/billing/__tests__/`）。
+- **数据库测试一个文件一个进程**：`apps/bff`、`apps/admin`、`packages/db` 与私有 BFF 的 `pnpm test`
+  都走 [`scripts/run-bun-tests-isolated.ts`](./scripts/run-bun-tests-isolated.ts)，逐文件 spawn 一个 bun 进程。
+  这些测试在模块顶层把 `DATABASE_URL`、`OPERATOR_CONFIG_FILE` 之类 env 定死，再 import `app`、
+  `db/client`、`operator-config` 这些模块单例；同一个 bun 进程里跑多个文件，后导入的文件只会拿到
+  先导入者绑好的库和配置。所以**跑包级别的 `pnpm test`，不要用 `bun test <过滤词>`**——后者一次
+  加载多个文件。真这么跑时，`resetTestDatabase` 会在第二个 suite 上立刻抛错并指回 `pnpm test`，
+  不再伪装成一串 `PostgresError: Connection closed`。
 - 外部网络 / 上游 API 必须 mock，测试不能依赖在线服务或宿主机固定文件。PostgreSQL 集成测试可通过 `TEST_DATABASE_URL` 创建并清理独立测试库；文件存在性接缝测试可使用测试进程创建并清理的临时目录。
 - `vi.mock` 的字符串路径用相对路径从测试文件位置出发；测试位于 `__tests__/` 下时，到 source 的相对路径要回上若干层，例如 `apps/web/src/__tests__/lib/api.test.ts` 里 mock 源代码：
   ```ts
