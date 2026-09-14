@@ -92,7 +92,7 @@ export default function CanvasMode() {
         <StylePanel doc={doc} />
         <CanvasShortcutsHint />
         <CanvasGenerateBar editor={editor} />
-        <AgentPanel doc={doc} />
+        <AgentPanel doc={doc} editor={editor} />
       </div>
     </div>
   )

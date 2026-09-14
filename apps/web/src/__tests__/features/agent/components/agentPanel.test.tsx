@@ -6,6 +6,7 @@ import AgentPanel from '../../../../features/agent/components/AgentPanel'
 import { setAgentCanvasSink } from '../../../../features/agent/lib/canvasSink'
 import { useAgentStore } from '../../../../features/agent/store'
 import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
+import type { CanvasEditor } from '../../../../features/canvas/lib/editor'
 import { useLibraryStore } from '../../../../features/library/store'
 import { bootstrapClientCapabilities } from '../../../../lib/clientCapabilities'
 
@@ -44,7 +45,9 @@ async function enableAgent(enabled: boolean): Promise<void> {
 
 function render(): void {
   act(() => {
-    root.render(<AgentPanel doc={new CanvasDoc()} />)
+    // 面板只把 editor 转交给图层页签；这些用例不点图层，给个空壳就够。
+    const editor = { scrollToElements: () => {} } as unknown as CanvasEditor
+    root.render(<AgentPanel doc={new CanvasDoc()} editor={editor} />)
   })
 }
 
