@@ -43,7 +43,12 @@ pnpm workspace + Turbo v2 + Biome：
 2. `pnpm typecheck` — TypeScript 跨包 build 检查
 3. **测试**：顶层 `pnpm test`，或在改动涉及的 app 目录里跑 `pnpm test`。PostgreSQL 集成测试需要 `TEST_DATABASE_URL`（本机例：`TEST_DATABASE_URL=postgres://qiqian@127.0.0.1:5432/aip_test`），未设置会直接报错失败。
 
-任一项不过就不要 push。本地是唯一关卡，没有 CI 兜底。
+任一项不过就不要 push。
+
+CI（`.github/workflows/web.yml`，PR 与 push 到 main 都跑）只兜前两项加 `apps/web`：
+`pnpm lint`、`pnpm typecheck`、`apps/web` 的测试与构建。**`apps/bff`、`apps/admin` 与私有包的测试
+CI 一概不跑**（要 PostgreSQL，且 `private/` 不在 CI 里）。改到这三处时本地就是唯一关卡，
+别指望 PR 变绿说明测试过了。
 
 ## 测试约定
 
