@@ -2,6 +2,7 @@ import { Fragment, useEffect, useMemo, useRef } from 'react'
 import { PlusIcon, TrashIcon } from '../../../components/icons'
 import { useStore } from '../../../store'
 import type { CanvasDoc } from '../../canvas/lib/canvasDoc'
+import type { CanvasEditor } from '../../canvas/lib/editor'
 import {
   ACTIVE_LIST_ROW,
   ACTIVE_TAB,
@@ -112,7 +113,7 @@ function renderMessage(message: AgentPanelMessage, answerableId: string | null) 
   return <AgentReply messageId={message.id} text={message.text} streaming={message.streaming} />
 }
 
-export default function AgentPanel({ doc }: { doc: CanvasDoc }) {
+export default function AgentPanel({ doc, editor }: { doc: CanvasDoc; editor: CanvasEditor }) {
   const open = useAgentStore((state) => state.open)
   const tab = useAgentStore((state) => state.tab)
   const messages = useAgentStore((state) => state.messages)
@@ -219,7 +220,7 @@ export default function AgentPanel({ doc }: { doc: CanvasDoc }) {
         </div>
       ) : tab === 'layers' ? (
         <div className="min-h-0 flex-1 overflow-y-auto py-1">
-          <AgentLayers doc={doc} />
+          <AgentLayers doc={doc} editor={editor} />
         </div>
       ) : (
         <div
