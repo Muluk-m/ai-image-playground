@@ -17,9 +17,16 @@ describe('formatting an elapsed span', () => {
   })
 
   it('reads minutes and seconds from a minute on', () => {
-    expect(formatElapsed(60_000)).toBe('1:00')
-    expect(formatElapsed(65_000)).toBe('1:05')
-    expect(formatElapsed(3_725_000)).toBe('62:05')
+    expect(formatElapsed(60_000)).toBe('1m 0s')
+    expect(formatElapsed(65_000)).toBe('1m 5s')
+    expect(formatElapsed(70_000)).toBe('1m 10s')
+    expect(formatElapsed(3_725_000)).toBe('1h 2m 5s')
+  })
+
+  // `2:05:30` 要读者先判断这是时分秒还是分秒，`2h 5m 30s` 不用判断。
+  it('spells the hour out once a span runs past one', () => {
+    expect(formatElapsed(3_600_000)).toBe('1h 0m 0s')
+    expect(formatElapsed(7_530_000)).toBe('2h 5m 30s')
   })
 
   it('never reads negative', () => {

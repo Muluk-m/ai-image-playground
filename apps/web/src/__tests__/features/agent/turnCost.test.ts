@@ -2,11 +2,7 @@
 import type { AgentTurnEvent, AgentTurnSummaryView } from '@image-playground/shared'
 import { encodeAgentFrame } from '@image-playground/shared'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import {
-  agentSessionCredits,
-  formatCredits,
-  formatTurnDuration,
-} from '../../../features/agent/lib/turnCost'
+import { agentSessionCredits } from '../../../features/agent/lib/turnCost'
 import { useAgentStore } from '../../../features/agent/store'
 import { _setRuntimeConfigForTesting } from '../../../lib/runtimeConfig'
 
@@ -203,17 +199,5 @@ describe('会话合计', () => {
         'turn-3': { turnId: 'turn-3', reservedCredits: 60 },
       }),
     ).toBe(312)
-  })
-})
-
-describe('积分与耗时的写法', () => {
-  it('积分带千分位', () => {
-    expect(formatCredits(1_234)).toBe('1,234')
-    expect(formatCredits(127)).toBe('127')
-  })
-
-  it('耗时按分秒写', () => {
-    expect(formatTurnDuration(70_000)).toBe('1m 10s')
-    expect(formatTurnDuration(12_300)).toBe('12s')
   })
 })
