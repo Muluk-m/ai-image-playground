@@ -32,6 +32,7 @@ const { _setChannelsForTesting } = await import('../../lib/channels')
 const { setObjectStoreForTesting } = await import('../../lib/objectStore')
 const { createUserSession, USER_SESSION_COOKIE } = await import('../../lib/user-session')
 const { close: closeDb, db, schema } = await import('../../db/client')
+const { hydrateInputImages } = await import('../../lib/imageArchive')
 
 const app = new Elysia().use(agentRoutes)
 const DEVICE = 'device-abcdefgh'
@@ -163,6 +164,155 @@ afterAll(async () => {
 })
 
 describe('智能体改图工具', () => {
+  it('edits the original image after clarification without attaching it again', async () => {
+    const calls: AgentCall[] = []
+    setAgentFetchForTesting(
+      scriptedAgentFetch(calls, [
+        () =>
+          toolCallCompletion({
+            id: 'clarify',
+            name: 'askClarification',
+            args: {
+              question: '想设计哪类新交互？',
+              options: ['悬浮卡片与展开详情', '完整的页面交互流程'],
+            },
+          }),
+        () =>
+          toolCallCompletion({
+            id: 'edit-after-answer',
+            name: 'editImage',
+            args: { prompt: '基于原图设计悬浮卡片与展开详情', imageIds: ['canvas-original'] },
+          }),
+        () => completionStream('已生成新的设计图'),
+      ]),
+    )
+    const conversationId = await startConversation()
+    const first = await runTurn(conversationId, '[image 1] 基于它设计一个新的交互', {
+      references: [{ imageId: 'canvas-original', dataUrl: PIXEL, maskDataUrl: MASK }],
+    })
+    expect(eventsOfType(first, 'clarification')).toHaveLength(1)
+    const stop = settleSubmittedTasks('completed')
+    try {
+      const second = await runTurn(conversationId, '悬浮卡片与展开详情')
+      expect(eventsOfType(second, 'toolEnd')[0]).toMatchObject({
+        status: 'succeeded',
+        anchorObjectId: 'canvas-original',
+      })
+      const [task] = await db.select().from(schema.tasks)
+      const submitted = await hydrateInputImages(task!.request_payload)
+      expect(submitted.input_images).toEqual([PIXEL])
+      expect(submitted.mask).toBe(MASK)
+      expect(calls[1]!.messages.at(-1)!.content).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: 'image_url',
+            image_url: expect.objectContaining({ url: PIXEL }),
+          }),
+        ]),
+      )
+    } finally {
+      stop()
+    }
+  })
+
+  it('lets the model see the reference and resolves its displayed image number', async () => {
+    const calls: AgentCall[] = []
+    setAgentFetchForTesting(
+      scriptedAgentFetch(calls, [
+        () =>
+          toolCallCompletion({
+            id: 'edit-by-number',
+            name: 'editImage',
+            args: { prompt: '保留原图主体设计新界面', imageIds: ['image 1'] },
+          }),
+        () => completionStream('已生成'),
+      ]),
+    )
+    const conversationId = await startConversation()
+    const stop = settleSubmittedTasks('completed')
+    try {
+      const frames = await runTurn(conversationId, '[image 1] 设计新界面', {
+        references: [{ imageId: 'canvas-original', dataUrl: PIXEL }],
+      })
+      expect(calls[0]!.messages.at(-1)!.content).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: 'image_url',
+            image_url: expect.objectContaining({ url: PIXEL }),
+          }),
+        ]),
+      )
+      expect(eventsOfType(frames, 'toolEnd')[0]).toMatchObject({
+        status: 'succeeded',
+        anchorObjectId: 'canvas-original',
+      })
+    } finally {
+      stop()
+    }
+  })
+
+  it('rebinds image numbers to new attachments without losing old ids or leaking across conversations', async () => {
+    const conversationId = await startConversation()
+    const otherPixel = 'data:image/png;base64,Ynk='
+    setAgentFetchForTesting(scriptedAgentFetch([], [() => completionStream('已看到参考图')]))
+    await runTurn(conversationId, '[image 1] 原图', {
+      references: [{ imageId: 'original-a', dataUrl: PIXEL, maskDataUrl: MASK }],
+    })
+    const edit = async (target: string, id: string, references?: TurnOptions['references']) => {
+      setAgentFetchForTesting(
+        scriptedAgentFetch(
+          [],
+          [
+            () =>
+              toolCallCompletion({
+                id: crypto.randomUUID(),
+                name: 'editImage',
+                args: { prompt: '保留主体改背景', imageIds: [id] },
+              }),
+            () => completionStream('完成'),
+          ],
+        ),
+      )
+      return runTurn(target, '修改这张', { references })
+    }
+    const stop = settleSubmittedTasks('completed')
+    try {
+      const replacement = await edit(conversationId, '[image 1]', [
+        { imageId: 'original-b', dataUrl: otherPixel },
+      ])
+      const result = eventsOfType(replacement, 'toolEnd')[0]!
+      expect(result).toMatchObject({ status: 'succeeded', anchorObjectId: 'original-b' })
+      const [replacementTask] = await db
+        .select()
+        .from(schema.tasks)
+        .where(eq(schema.tasks.id, result.artifacts![0]!.taskId))
+      const request = await hydrateInputImages(replacementTask!.request_payload)
+      expect(request.input_images).toEqual([otherPixel])
+      expect(request.mask).toBeUndefined()
+
+      const old = await edit(conversationId, 'original-a')
+      const oldResult = eventsOfType(old, 'toolEnd')[0]!
+      expect(oldResult).toMatchObject({ status: 'succeeded', anchorObjectId: 'original-a' })
+      const [oldTask] = await db
+        .select()
+        .from(schema.tasks)
+        .where(eq(schema.tasks.id, oldResult.artifacts![0]!.taskId))
+      expect((await hydrateInputImages(oldTask!.request_payload)).mask).toBe(MASK)
+
+      const otherConversation = await startConversation()
+      const inaccessible = await edit(otherConversation, 'original-a')
+      expect(eventsOfType(inaccessible, 'toolEnd')[0]!.status).toBe('failed')
+      expect(
+        await db
+          .select()
+          .from(schema.tasks)
+          .where(eq(schema.tasks.agent_conversation_id, otherConversation)),
+      ).toEqual([])
+    } finally {
+      stop()
+    }
+  })
+
   it('submits the referenced image and anchors the output to it', async () => {
     const calls: AgentCall[] = []
     setAgentFetchForTesting(

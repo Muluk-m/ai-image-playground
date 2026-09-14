@@ -14,6 +14,7 @@ import {
   readFrames,
   recordingAgentFetch,
 } from '../helpers/agentStubs'
+import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
 import { installRecordingTaskHooks } from '../helpers/privateOverlayStub'
 import { waitFor } from '../helpers/upstreamStubs'
 
@@ -32,11 +33,14 @@ const { agentRoutes } = await import('../../routes/agent')
 const { setAgentFetchForTesting } = await import('../../lib/agent/model')
 const { close: closeDb, db, schema } = await import('../../db/client')
 const { createUserSession, USER_SESSION_COOKIE } = await import('../../lib/user-session')
+const { setObjectStoreForTesting } = await import('../../lib/objectStore')
 
 const app = new Elysia().use(agentRoutes)
 const DEVICE = 'device-abcdefgh'
 const USER_ID = 'agent-billing-user'
 let sessionToken = ''
+let storage: InMemoryObjectStore
+const REFERENCE = { imageId: 'canvas-original', dataUrl: 'data:image/png;base64,aGk=' }
 
 async function post(path: string, body: unknown, signedIn = true): Promise<Response> {
   return app.handle(
@@ -76,6 +80,8 @@ function turnIdOf(frames: readonly ReceivedFrame[]): string {
 
 beforeEach(async () => {
   billing.reset()
+  storage = new InMemoryObjectStore()
+  setObjectStoreForTesting(storage)
   await db.delete(schema.tasks)
   await db.delete(schema.agent_conversations)
   await db.delete(schema.user_sessions)
@@ -94,6 +100,7 @@ beforeEach(async () => {
 
 afterEach(() => {
   setAgentFetchForTesting()
+  setObjectStoreForTesting()
 })
 
 afterAll(async () => {
@@ -158,9 +165,14 @@ describe('对话轮的预扣', () => {
     billing.answer = { kind: 'insufficient_credits', required: 78, available: 12 }
     const conversationId = await startConversation()
 
-    await runTurn(conversationId, '把背景换成浅木色')
+    await post(`/api/agent/conversations/${conversationId}/turns`, {
+      deviceId: DEVICE,
+      text: '把背景换成浅木色',
+      references: [REFERENCE],
+    })
 
     expect(await db.select().from(schema.tasks)).toEqual([])
+    expect(await storage.listPrefix(`agent/${conversationId}/`)).toEqual([])
   })
 
   it('余额不足在发送前拦住：不落消息、不调上游、不留轮', async () => {
@@ -180,6 +192,28 @@ describe('对话轮的预扣', () => {
     expect(calls).toHaveLength(0)
     expect(settlements).toHaveLength(0)
     expect(await db.select().from(schema.agent_messages)).toHaveLength(0)
+  })
+
+  it('历史参考图读取失败时退回本轮预扣且不发送上游请求', async () => {
+    const calls: AgentCall[] = []
+    setAgentFetchForTesting(recordingAgentFetch(calls, () => completionStream('已看到参考图')))
+    const conversationId = await startConversation()
+    const initial = await post(`/api/agent/conversations/${conversationId}/turns`, {
+      deviceId: DEVICE,
+      text: '[image 1] 看这张图',
+      references: [REFERENCE],
+    })
+    await initial.text()
+    storage.readFailuresRemaining = 1
+
+    const { frames } = await runTurn(conversationId, '继续修改这张图')
+    const failedTurnId = turnIdOf(frames)
+    expect(frames.at(-1)!.event).toMatchObject({ type: 'turnEnd', stopReason: 'failed' })
+    expect(settlements.find((one) => one.taskId === failedTurnId)?.outcome).toBe('failed')
+    expect(
+      (await db.select().from(schema.tasks)).find((task) => task.id === failedTurnId)?.status,
+    ).toBe('failed')
+    expect(calls).toHaveLength(1)
   })
 
   it('对话模型没有有效单价时拒绝起轮', async () => {

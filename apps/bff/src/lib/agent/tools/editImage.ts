@@ -50,7 +50,7 @@ export const editImage: AgentToolDefinition = {
             prompt: params.prompt,
             inputImages: images.map((image) => image.dataUrl),
             ...(images[0]?.maskDataUrl ? { mask: images[0].maskDataUrl } : {}),
-            anchorObjectId: params.imageIds[0],
+            anchorObjectId: images[0]!.imageId,
           },
           signal,
           onUpdate,

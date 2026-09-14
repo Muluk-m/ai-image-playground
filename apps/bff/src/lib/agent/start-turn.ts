@@ -14,6 +14,7 @@ import {
   listAgentMessages,
   setAgentConversationTitle,
 } from './conversations'
+import { archiveAgentReferences, removeAgentTurnReferences } from './images'
 import type { RunningTurn } from './runningTurns'
 import type { AgentTurnSettlement } from './turn'
 import { collectTurnCost } from './turn-cost'
@@ -99,39 +100,54 @@ export async function startConversationTurn(
           taskId: turnId,
           userId,
           model: config.agent.model,
-          ...reservedChatUsage(estimateTurnInputTokens(history, text), pricing),
+          ...reservedChatUsage(estimateTurnInputTokens(history, text, references), pricing),
         }
       : null
+  const storedReferences = await archiveAgentReferences(conversationId, turnId, references)
 
-  const written = await db.transaction(async (tx) => {
-    let reservedCredits: number | undefined
-    if (reservation) {
-      await insertChatTask(tx, {
-        taskId: turnId,
-        conversationId,
-        userId: reservation.userId,
-        deviceId,
-      })
-      const reserved = await overlay.taskHooks.reserveTask({ tx, ...reservation })
-      if (reserved.kind !== 'reserved') {
-        // 余额不足的轮压根没发生过，别把这条任务行留给恢复扫描去收尸。
-        await tx.delete(schema.tasks).where(eq(schema.tasks.id, turnId))
-        return reserved
+  const written = await db
+    .transaction(async (tx) => {
+      let reservedCredits: number | undefined
+      if (reservation) {
+        await insertChatTask(tx, {
+          taskId: turnId,
+          conversationId,
+          userId: reservation.userId,
+          deviceId,
+        })
+        const reserved = await overlay.taskHooks.reserveTask({ tx, ...reservation })
+        if (reserved.kind !== 'reserved') {
+          // 余额不足的轮压根没发生过，别把这条任务行留给恢复扫描去收尸。
+          await tx.delete(schema.tasks).where(eq(schema.tasks.id, turnId))
+          return reserved
+        }
+        reservedCredits = reserved.credits
       }
-      reservedCredits = reserved.credits
-    }
-    if (history.length === 0) {
-      await setAgentConversationTitle(tx, conversationId, owner, agentConversationTitle(text))
-    }
-    const userMessage = await appendAgentMessage(tx, {
-      conversationId,
-      turnId,
-      role: 'user',
-      content: [{ type: 'text', text }],
+      if (history.length === 0) {
+        await setAgentConversationTitle(tx, conversationId, owner, agentConversationTitle(text))
+      }
+      const userMessage = await appendAgentMessage(tx, {
+        conversationId,
+        turnId,
+        role: 'user',
+        content: [
+          {
+            type: 'text',
+            text,
+            ...(storedReferences.length ? { references: storedReferences } : {}),
+          },
+        ],
+      })
+      return { kind: 'reserved' as const, userMessageId: userMessage.id, reservedCredits }
     })
-    return { kind: 'reserved' as const, userMessageId: userMessage.id, reservedCredits }
-  })
-  if (written.kind !== 'reserved') return written
+    .catch(async (error) => {
+      if (storedReferences.length) await removeAgentTurnReferences(conversationId, turnId)
+      throw error
+    })
+  if (written.kind !== 'reserved') {
+    if (storedReferences.length) await removeAgentTurnReferences(conversationId, turnId)
+    return written
+  }
 
   return {
     kind: 'started',
