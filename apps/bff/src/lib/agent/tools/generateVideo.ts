@@ -85,7 +85,7 @@ export const generateVideo: AgentToolDefinition = {
           resolution: params.resolution,
         })
         const source = params.imageId
-          ? (await requireAgentImages(context.images, [params.imageId]))[0]!.dataUrl
+          ? (await requireAgentImages(context.images, [params.imageId]))[0]!
           : null
         return runQueueTask(
           context,
@@ -93,14 +93,14 @@ export const generateVideo: AgentToolDefinition = {
             media: 'video',
             target: resolved.target,
             prompt: params.prompt,
-            ...(source ? { inputImages: [source] } : {}),
+            ...(source ? { inputImages: [source.dataUrl] } : {}),
             video: {
               duration_seconds: preset.duration,
               aspect_ratio: preset.aspectRatio,
               resolution: preset.resolution,
               ...(source ? { first_frame_index: 0 } : {}),
             },
-            ...(params.imageId ? { anchorObjectId: params.imageId } : {}),
+            ...(source ? { anchorObjectId: source.imageId } : {}),
           },
           signal,
           onUpdate,

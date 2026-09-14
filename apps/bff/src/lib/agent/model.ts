@@ -30,7 +30,7 @@ function gatewayModel(): Model<'openai-completions'> {
     provider: PROVIDER_ID,
     baseUrl: `${config.upstream.baseUrl}/v1`,
     reasoning: false,
-    input: ['text'],
+    input: ['text', 'image'],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: config.agent.contextWindow,
     maxTokens: config.agent.maxTokens,

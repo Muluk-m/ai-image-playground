@@ -1,6 +1,7 @@
 /** 智能体对话协议（`/api/agent/*`）。一轮的事件流走 `text/event-stream`。 */
 
 import type { ChannelMedia } from './channel-discovery'
+import type { StoredImageRef } from './queue-protocol'
 
 export const AGENT_CONVERSATION_TITLE_MAX_CHARS = 60
 export const AGENT_USER_MESSAGE_MAX_CHARS = 4_000
@@ -10,6 +11,8 @@ export type AgentMessageRole = 'user' | 'assistant'
 export interface AgentTextBlock {
   readonly type: 'text'
   readonly text: string
+  /** 用户消息的参考图快照；字节存对象存储，跨轮与重开会话仍可用。 */
+  readonly references?: readonly AgentStoredReference[]
 }
 
 /** 智能体可调用的工具。 */
@@ -27,6 +30,13 @@ export interface AgentTurnReference {
   readonly name?: string
   /** 用户在这张图上画的遮罩；改图时自动带上，模型无从指定。 */
   readonly maskDataUrl?: string
+}
+
+export interface AgentStoredReference {
+  readonly imageId: string
+  readonly name?: string
+  readonly image: StoredImageRef
+  readonly mask?: StoredImageRef
 }
 
 export const AGENT_TURN_MAX_REFERENCES = 8
