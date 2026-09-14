@@ -54,7 +54,7 @@ cp -a $d/operator-config.json  $d/operator-config.json.bak-agent-$ts
 insert into billing_model_prices
   (model, credits_per_image, unit, output_credits_per_unit, output_reserve_tokens, active, updated_at)
 values
-  ('<对话模型>', 6, 'kilo_token', 30, 2000, true, now())
+  ('<对话模型>', 2, 'kilo_token', 10, 1500, true, now())
 on conflict (model) do update set
   credits_per_image       = excluded.credits_per_image,
   unit                    = excluded.unit,
@@ -66,8 +66,16 @@ on conflict (model) do update set
 
 `credits_per_image` 在 `unit='kilo_token'` 这行表示**每千输入 token 的积分数**，列名是历史遗留。
 `outputPriceRatio` 由 `output_credits_per_unit / credits_per_image` 推出，
-6 / 30 得 5，与 `FALLBACK_CHAT_PRICING` 的 5 一致。档位依据见
-[`docs/research/agent-token-pricing.md`](../research/agent-token-pricing.md) 的 B 档。
+2 / 10 得 5，与 `FALLBACK_CHAT_PRICING` 的 5 一致。档位依据见
+[`docs/research/agent-token-pricing.md`](../research/agent-token-pricing.md) 的 C 档。
+
+**为什么是 C 档而不是调研推荐的 B 档。** 调研成文时智能体还是一个独立功能，一轮对话对标
+一次出图，B 档的 60 积分（0.6 张图）合理。但创作模式的输入框合一之后（#351），出图要先过
+一轮对话，两笔钱叠在一起：B 档下一张图从 100 变成 160，贵六成，用户会觉得对话在收过路费。
+C 档一轮 20 积分，同一张图变成 120，多付两成，这个量级才不影响出图这个主业。
+
+调研里 C 档标注为「贴钱」，那是按上游**官方价**算的。本项目走中转网关，图片单价当初也是按
+中转价（官方价的 5~10%）定的，同一条基准下 C 档仍有正毛利。真要核准得拿到网关的实际计费口径。
 
 只有收费部署需要这一步。免费部署没有计费表，跳过。
 
