@@ -46,6 +46,11 @@ function render(task: VideoTask) {
   act(() => root.render(<VideoCard task={task} onOpen={vi.fn()} />))
 }
 
+/** 积分是闪电 + 数字，「积分」两个字只留在读屏标签里。 */
+function creditsLabel(): string | null {
+  return host.querySelector('[role="img"]')?.getAttribute('aria-label') ?? null
+}
+
 function button(text: string): HTMLButtonElement | undefined {
   return [...host.querySelectorAll('button')].find((item) => item.textContent?.trim() === text)
 }
@@ -89,7 +94,7 @@ describe('a finished card', () => {
     expect(host.textContent).toContain('Grok')
     expect(host.textContent).toContain('5 秒')
     expect(host.textContent).toContain('16:9')
-    expect(host.textContent).toContain('300 积分')
+    expect(creditsLabel()).toBe('300 积分')
   })
 
   it('reads the actual output size when the queue returned one', () => {
@@ -149,7 +154,8 @@ describe('a failed card', () => {
 
     expect(host.textContent).toContain('失败')
     expect(host.textContent).toContain('上游未返回视频')
-    expect(host.textContent).toContain('已退 400 积分')
+    expect(host.textContent).toContain('已退 400')
+    expect(creditsLabel()).toBe('400 积分')
     expect(button('重试')).toBeDefined()
   })
 

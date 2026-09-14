@@ -107,6 +107,18 @@ function libraryAsset(name: string, imageId: string) {
   return { id: `asset-${imageId}`, name, imageId, createdAt: 1, updatedAt: 1, lastUsedAt: 1 }
 }
 
+/** 每秒单价那几张模型卡。积分数字旁边只有闪电，文案里不再出现「积分」两个字。 */
+function rateCards(): HTMLElement[] {
+  return [...document.querySelectorAll<HTMLElement>('button')].filter((button) =>
+    button.textContent?.includes('/ 秒'),
+  )
+}
+
+/** 闪电旁边的数字读屏读出来是什么。 */
+function creditsLabel(root: HTMLElement): string | null {
+  return root.querySelector('[role="img"]')?.getAttribute('aria-label') ?? null
+}
+
 function submitButton(): HTMLElement {
   const buttons = [...document.querySelectorAll<HTMLElement>('button')]
   const found = buttons.find((button) => button.textContent?.startsWith('生成'))
@@ -155,24 +167,23 @@ describe('VideoComposer', () => {
 
   it('模型卡片标每秒积分', () => {
     render()
-    const cards = [...document.querySelectorAll('button')].filter((button) =>
-      button.textContent?.includes('积分 / 秒'),
-    )
-    expect(cards.map((card) => card.textContent)).toEqual([
-      'Grok高清 · 60 积分 / 秒',
-      'Agnes 2.5 Flash首尾帧 · 80 积分 / 秒',
+    expect(rateCards().map((card) => card.textContent)).toEqual([
+      'Grok高清 · 60 / 秒',
+      'Agnes 2.5 Flash首尾帧 · 80 / 秒',
     ])
+    expect(rateCards().map(creditsLabel)).toEqual(['60 积分', '80 积分'])
   })
 
   it('估算随时长与清晰度变化', () => {
     render()
-    expect(submitButton().textContent).toBe('生成 · 300 积分')
+    expect(submitButton().textContent).toBe('生成 · 300')
+    expect(creditsLabel(submitButton())).toBe('300 积分')
 
     click(chip('时长', '8 秒'))
-    expect(submitButton().textContent).toBe('生成 · 480 积分')
+    expect(submitButton().textContent).toBe('生成 · 480')
 
     click(chip('清晰度', '1080p ×1.6'))
-    expect(submitButton().textContent).toBe('生成 · 768 积分')
+    expect(submitButton().textContent).toBe('生成 · 768')
   })
 
   it('没有计费时按钮只写生成', () => {
@@ -180,7 +191,7 @@ describe('VideoComposer', () => {
     render()
 
     expect(submitButton().textContent).toBe('生成')
-    expect(document.body.textContent).not.toContain('积分')
+    expect(document.querySelector('[role="img"]')).toBeNull()
   })
 
   it('运镜片段把文字追加到描述', () => {
@@ -268,13 +279,9 @@ describe('VideoComposer 上的 Veo', () => {
 
   it('两个模型带各自的定位与每秒积分进选择器', () => {
     render()
-    const cards = [...document.querySelectorAll('button')].filter((button) =>
-      button.textContent?.includes('积分 / 秒'),
-    )
-
-    expect(cards.map((card) => card.textContent)).toEqual([
-      'Veo 3.1 Fast原生音频 · 60 积分 / 秒',
-      'Veo 3.1 Lite经济档 · 30 积分 / 秒',
+    expect(rateCards().map((card) => card.textContent)).toEqual([
+      'Veo 3.1 Fast原生音频 · 60 / 秒',
+      'Veo 3.1 Lite经济档 · 30 / 秒',
     ])
   })
 
@@ -299,10 +306,10 @@ describe('VideoComposer 上的 Veo', () => {
   it('预估按该模型自己的清晰度倍率', () => {
     render()
     click(chip('时长', '8 秒'))
-    expect(submitButton().textContent).toBe('生成 · 480 积分')
+    expect(submitButton().textContent).toBe('生成 · 480')
 
     click(chip('清晰度', '1080p ×1.2'))
-    expect(submitButton().textContent).toBe('生成 · 576 积分')
+    expect(submitButton().textContent).toBe('生成 · 576')
   })
 
   it('描述超长时标出字数并禁止提交', () => {

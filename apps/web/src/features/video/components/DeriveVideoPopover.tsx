@@ -4,6 +4,7 @@ import {
   videoRateMultiplier,
 } from '@image-playground/shared'
 import { useState } from 'react'
+import Credits from '../../../components/Credits'
 import Overlay from '../../../components/Overlay'
 import {
   FIELD,
@@ -109,9 +110,13 @@ export default function DeriveVideoPopover({
             onClick={() => void submit()}
             className={`${PRIMARY_BUTTON} w-full disabled:cursor-not-allowed`}
           >
-            {guard.estimatedCredits === undefined
-              ? label
-              : `${label} · ${guard.estimatedCredits} 积分`}
+            {guard.estimatedCredits === undefined ? (
+              label
+            ) : (
+              <>
+                {label} · <Credits credits={guard.estimatedCredits} />
+              </>
+            )}
           </button>
         </div>
       </div>

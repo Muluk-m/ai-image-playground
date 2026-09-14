@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef } from 'react'
+import Credits from '../../../components/Credits'
 import { PlusIcon, TrashIcon } from '../../../components/icons'
 import { useStore } from '../../../store'
 import type { CanvasDoc } from '../../canvas/lib/canvasDoc'
@@ -29,7 +30,7 @@ import AgentComposer from './AgentComposer'
 import AgentLayers from './AgentLayers'
 import AgentReply from './AgentReply'
 import AgentToolCard from './AgentToolCard'
-import AgentTurnCost, { Credits } from './AgentTurnCost'
+import AgentTurnCost from './AgentTurnCost'
 
 const TABS = [
   { id: 'chat', label: '对话' },

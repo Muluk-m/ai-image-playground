@@ -109,6 +109,7 @@ describe('getParamCapabilities', () => {
       transparentOutput: true,
       compression: false,
       moderation: true,
+      geminiImageTuning: false,
     })
   })
 
@@ -122,6 +123,22 @@ describe('getParamCapabilities', () => {
     expect(getParamCapabilities(byokProfile({ kind: 'gemini' }), 'png').transparentOutput).toBe(
       false,
     )
+  })
+
+  it('gemini profile on a gemini model: image size and thinking level are offered', () => {
+    const profile = byokProfile({ kind: 'gemini', models: ['gemini-3.1-flash-image'] })
+    expect(getParamCapabilities(profile, 'png').geminiImageTuning).toBe(true)
+  })
+
+  // 同一条 gemini 协议也能指到 imagen 这类模型，那些认不得分辨率与思考级别。
+  it('gemini profile on a non-gemini model: image size and thinking level are withheld', () => {
+    const profile = byokProfile({ kind: 'gemini', models: ['imagen-4.0-generate'] })
+    expect(getParamCapabilities(profile, 'png').geminiImageTuning).toBe(false)
+  })
+
+  it('a gemini model behind an openai-compatible gateway: still withheld', () => {
+    const profile = byokProfile({ kind: 'openai-compat', models: ['gemini-3.1-flash-image'] })
+    expect(getParamCapabilities(profile, 'png').geminiImageTuning).toBe(false)
   })
 
   it('codexCli profile: quality off', () => {

@@ -1,0 +1,42 @@
+/**
+ * 全站唯一的积分写法：闪电 + 千分位，`⚡1,234`。
+ *
+ * 选图标版不是因为好看，是因为私有树 Header 一直这么写，而那里是用户最常看积分的位置；
+ * 别处再换一套写法，用户就要在同一屏里认两种「积分」。图标也更装得进页脚、明细行、
+ * 工具卡这些窄位置。
+ *
+ * 但图标不能是唯一信息来源：整块挂 `role="img"` 与写着「积分」两个字的 `aria-label`，
+ * 首次见到闪电的用户不靠猜。
+ */
+
+export function formatCredits(credits: number): string {
+  return Math.round(credits).toLocaleString('en-US')
+}
+
+function BoltIcon() {
+  return (
+    <svg viewBox="0 0 12 12" className="h-3 w-3 shrink-0" fill="currentColor" aria-hidden="true">
+      <path d="M7.1 1 2.5 7.1h2.4L4.5 11l4.6-6.1H6.7z" />
+    </svg>
+  )
+}
+
+export default function Credits({
+  credits,
+  className = '',
+}: {
+  credits: number
+  className?: string
+}) {
+  const amount = formatCredits(credits)
+  return (
+    <span
+      role="img"
+      aria-label={`${amount} 积分`}
+      className={`inline-flex items-center gap-0.5 tabular-nums ${className}`}
+    >
+      <BoltIcon />
+      <span aria-hidden="true">{amount}</span>
+    </span>
+  )
+}
