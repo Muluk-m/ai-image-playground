@@ -1,4 +1,4 @@
-import { IMAGE_DATA_URL_MAX_CHARS } from '@image-playground/shared'
+import { DEVICE_ID_HEADER, IMAGE_DATA_URL_MAX_CHARS } from '@image-playground/shared'
 import { Elysia, t } from 'elysia'
 import { config } from '../config'
 
@@ -18,6 +18,12 @@ export const imageDataUrlSchema = () =>
 
 /** 浏览器持久化的匿名设备 ID，见 apps/web/src/lib/deviceId.ts。 */
 export const deviceIdSchema = () => t.String({ minLength: 8, maxLength: 64 })
+
+/**
+ * GET 端点取设备 ID 的位置。它是纯 bearer，放 query string 等于抄进访问日志、
+ * 代理日志和浏览器历史，所以只认请求头。
+ */
+export const deviceIdHeaderSchema = () => t.Object({ [DEVICE_ID_HEADER]: deviceIdSchema() })
 
 /** Elysia 默认对 body schema 校验失败返 422；规范要求 400，统一在路由作用域拦截。 */
 export const badRequestOnValidation = () =>

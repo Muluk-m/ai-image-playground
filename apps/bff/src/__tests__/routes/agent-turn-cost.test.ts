@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
-import type { AgentTurnSummaryView } from '@image-playground/shared'
+import { type AgentTurnSummaryView, DEVICE_ID_HEADER } from '@image-playground/shared'
 import { eq } from 'drizzle-orm'
 import { Elysia } from 'elysia'
 import { _setPrivateBffOverlayForTesting } from '../../lib/private-overlay'
@@ -90,10 +90,9 @@ async function runTurn(conversationId: string, text: string): Promise<ReceivedFr
 
 async function readTurnSummaries(conversationId: string): Promise<AgentTurnSummaryView[]> {
   const response = await app.handle(
-    new Request(
-      `http://localhost/api/agent/conversations/${conversationId}/messages?deviceId=${DEVICE}`,
-      { headers: cookie() },
-    ),
+    new Request(`http://localhost/api/agent/conversations/${conversationId}/messages`, {
+      headers: { ...cookie(), [DEVICE_ID_HEADER]: DEVICE },
+    }),
   )
   return ((await response.json()) as { turns: AgentTurnSummaryView[] }).turns
 }
