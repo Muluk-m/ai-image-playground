@@ -7,6 +7,7 @@ import type {
 } from '@image-playground/shared'
 
 export type AgentTurnStatus = 'idle' | 'running' | 'failed'
+export type AgentDeliveryStatus = 'pending' | 'placed' | 'conflict' | 'unavailable' | 'failed'
 
 export interface AgentTextMessage {
   readonly kind: 'text'
@@ -31,8 +32,8 @@ export interface AgentToolMessage {
   readonly message?: string
   /** 产出贴着这个画布对象放；手动放入时也照这个位置。 */
   readonly anchorObjectId?: string
-  /** 画布冲突：产出没有自动写入画布，卡上给手动放入的入口。 */
-  readonly canvasConflict?: boolean
+  /** 本机产物交付与工具生成分别完成，不改写工具状态或本轮消耗。 */
+  readonly delivery?: AgentDeliveryStatus
 }
 
 /** 一次澄清提问。末尾那条还没作答，可以点；它之后有用户消息的就是作过答的。 */
