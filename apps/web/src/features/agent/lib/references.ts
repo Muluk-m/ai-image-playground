@@ -69,6 +69,41 @@ export function removeReference(draft: AgentDraft, index: number): AgentDraft {
   }
 }
 
+/**
+ * 换掉一张参考图上的遮罩。按 `id` 认领而不是下标：编辑器开着的时候用户可能又加又删，
+ * 回来时下标早就不是原来那个了。图一并换成编辑器交回来的那张——为对齐遮罩它可能改过尺寸。
+ * 认不到就原样返回，宁可这次白画也不能写到别人身上。
+ */
+export function setReferenceMask(
+  draft: AgentDraft,
+  id: string,
+  mask: { readonly maskDataUrl: string; readonly dataUrl: string },
+): AgentDraft {
+  return mapReference(draft, id, (reference) => ({
+    ...reference,
+    dataUrl: mask.dataUrl,
+    maskDataUrl: mask.maskDataUrl,
+  }))
+}
+
+/** 去掉遮罩，参考图本身留着——图仍是编辑器那张，尺寸换回去反而对不上后续重画。 */
+export function clearReferenceMask(draft: AgentDraft, id: string): AgentDraft {
+  return mapReference(draft, id, ({ maskDataUrl: _dropped, ...rest }) => rest)
+}
+
+function mapReference(
+  draft: AgentDraft,
+  id: string,
+  transform: (reference: AgentReference) => AgentReference,
+): AgentDraft {
+  const at = draft.references.findIndex((one) => one.id === id)
+  if (at < 0) return draft
+  return {
+    ...draft,
+    references: draft.references.map((one, index) => (index === at ? transform(one) : one)),
+  }
+}
+
 export interface AgentSubmission {
   readonly text: string
   readonly references: readonly AgentTurnReference[]

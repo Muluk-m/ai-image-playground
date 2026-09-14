@@ -151,6 +151,20 @@ export function EditIcon(props: SVGProps<SVGSVGElement>) {
   )
 }
 
+/** 遮罩编辑的入口图标：一支笔，与工作台输入框上的遮罩按钮同一支。 */
+export function MaskBrushIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" {...props}>
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={2}
+        d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"
+      />
+    </svg>
+  )
+}
+
 export function CodeIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" {...props}>

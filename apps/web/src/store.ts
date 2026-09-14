@@ -43,6 +43,7 @@ import { callImageApi, resumeQueueImageApi } from './lib/api'
 import { STORE_PERSIST_KEY, scopedLocalStorage } from './lib/authScope'
 import { validateMaskMatchesImage } from './lib/canvasImage'
 import { isByokGenerationEnabled, isClientCapabilityEnabled } from './lib/clientCapabilities'
+import { composerMaskSession } from './lib/composerMaskSession'
 import { compressInputImageDataUrls } from './lib/compressInputImage'
 import {
   CURRENT_THUMBNAIL_VERSION,
@@ -717,8 +718,11 @@ export const useStore = create<AppState>()(
       maskEditorImageId: null,
       setMaskEditorImageId: (maskEditorImageId) => {
         if (maskEditorImageId) dismissAllTooltips()
-        // 这是 composer 的入口：会话一律清掉，否则保存会写到别人那里去。
-        set({ maskEditorImageId, maskEditorSession: null })
+        // 这是 composer 的入口：会话一律换成 composer 自己那份，否则保存会写到别人那里去。
+        set({
+          maskEditorImageId,
+          maskEditorSession: maskEditorImageId ? composerMaskSession(maskEditorImageId) : null,
+        })
       },
       maskEditorSession: null,
       openMaskEditorSession: (imageId, maskEditorSession) => {

@@ -6,7 +6,7 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react'
-import { CloseIcon } from '../../../components/icons'
+import { CloseIcon, MaskBrushIcon } from '../../../components/icons'
 import SuggestionMenu, { useSuggestionMenu } from '../../../components/SuggestionMenu'
 import {
   getContentEditableCursor,
@@ -23,7 +23,7 @@ import {
   isCursorInSelectedImageMention,
 } from '../../../lib/promptImageMentions'
 import { ensureAssetImage } from '../../../lib/sync/assetImages'
-import { ensureImageCached } from '../../../store'
+import { ensureImageCached, useStore } from '../../../store'
 import type { CanvasDoc } from '../../canvas/lib/canvasDoc'
 import { useLibraryStore } from '../../library/store'
 import { ABORT_BUTTON, ICON_BUTTON, INK_3, SEND_BUTTON } from '../agentStyles'
@@ -32,10 +32,12 @@ import {
   type AgentDraft,
   type AgentReference,
   attachReference,
+  clearReferenceMask,
   draftForSubmit,
   EMPTY_DRAFT,
   referenceLabels,
   removeReference,
+  setReferenceMask,
 } from '../lib/references'
 import { useAgentStore } from '../store'
 import AgentParamsChip from './AgentParamsChip'
@@ -143,6 +145,26 @@ export default function AgentComposer({ doc }: { doc: CanvasDoc }) {
     onClose: () => editorRef.current?.blur(),
   })
 
+  /**
+   * 遮罩编辑器是工作台那台，这里只借会话：图直接交过去（画布对象的 id 进不了图片存储），
+   * 画完的遮罩回到这份草稿里，工作台自己的遮罩草稿一概不动。
+   */
+  const editMask = (reference: AgentReference) => {
+    useStore.getState().openMaskEditorSession(reference.id, {
+      maskDataUrl: reference.maskDataUrl ?? null,
+      keepSemantics: false,
+      targetDataUrl: reference.dataUrl,
+      onSave: ({ maskDataUrl, targetDataUrl }) => {
+        setDraft((current) =>
+          setReferenceMask(current, reference.id, { maskDataUrl, dataUrl: targetDataUrl }),
+        )
+      },
+      onRemove: () => {
+        setDraft((current) => clearReferenceMask(current, reference.id))
+      },
+    })
+  }
+
   const submit = () => {
     const submission = draftForSubmit(draft)
     if (!submission.text.trim()) return
@@ -162,22 +184,45 @@ export default function AgentComposer({ doc }: { doc: CanvasDoc }) {
     <div className="relative flex shrink-0 flex-col gap-2 px-3 pb-3 pt-2">
       {draft.references.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
-          {draft.references.map((reference, index) => (
-            <div key={reference.id} className="group relative">
-              <img src={reference.dataUrl} className={STRIP_THUMB} alt="" />
-              <span className={`block max-w-10 truncate pt-0.5 text-[10px] ${INK_3}`}>
-                {reference.name ?? getImageMentionLabel(index)}
-              </span>
-              <button
-                type="button"
-                aria-label={`移除参考图 ${reference.name ?? getImageMentionLabel(index)}`}
-                className={`absolute -right-1 -top-1 bg-[#17171a] opacity-0 group-hover:opacity-100 ${ICON_BUTTON}`}
-                onClick={() => setDraft(removeReference(draft, index))}
-              >
-                <CloseIcon className="h-3 w-3" />
-              </button>
-            </div>
-          ))}
+          {draft.references.map((reference, index) => {
+            const label = reference.name ?? getImageMentionLabel(index)
+            const masked = Boolean(reference.maskDataUrl)
+            return (
+              <div key={reference.id} className="group relative">
+                <div className="relative">
+                  <img
+                    src={reference.dataUrl}
+                    className={`${STRIP_THUMB} ${masked ? 'ring-1 ring-blue-500/70' : ''}`}
+                    alt=""
+                  />
+                  {masked && (
+                    <span className="pointer-events-none absolute left-0.5 top-0.5 rounded bg-blue-500/90 px-1 py-px text-[7px] font-bold leading-none tracking-wider text-white">
+                      MASK
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    aria-label={masked ? `修改参考图 ${label} 的遮罩` : `给参考图 ${label} 画遮罩`}
+                    className={`absolute -bottom-1 -left-1 bg-[#17171a] opacity-0 group-hover:opacity-100 ${ICON_BUTTON}`}
+                    onClick={() => editMask(reference)}
+                  >
+                    <MaskBrushIcon className="h-3 w-3" />
+                  </button>
+                </div>
+                <span className={`block max-w-10 truncate pt-0.5 text-[10px] ${INK_3}`}>
+                  {label}
+                </span>
+                <button
+                  type="button"
+                  aria-label={`移除参考图 ${label}`}
+                  className={`absolute -right-1 -top-1 bg-[#17171a] opacity-0 group-hover:opacity-100 ${ICON_BUTTON}`}
+                  onClick={() => setDraft(removeReference(draft, index))}
+                >
+                  <CloseIcon className="h-3 w-3" />
+                </button>
+              </div>
+            )
+          })}
         </div>
       )}
 

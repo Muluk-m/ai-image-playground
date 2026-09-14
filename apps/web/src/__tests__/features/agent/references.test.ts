@@ -3,10 +3,12 @@ import {
   type AgentDraft,
   type AgentReference,
   attachReference,
+  clearReferenceMask,
   draftForSubmit,
   EMPTY_DRAFT,
   referenceLabels,
   removeReference,
+  setReferenceMask,
 } from '../../../features/agent/lib/references'
 import { getVisiblePrompt } from '../../../lib/promptImageMentions'
 
@@ -117,5 +119,48 @@ describe('智能体输入框的引用', () => {
     const { draft } = append(EMPTY_DRAFT, { ...CANVAS, maskDataUrl: 'data:image/png;base64,bQ==' })
 
     expect(draftForSubmit(draft).references[0]!.maskDataUrl).toBe('data:image/png;base64,bQ==')
+  })
+
+  it('画完遮罩后按 id 认领，图换成编辑器给的那张', () => {
+    const first = append(EMPTY_DRAFT, CANVAS)
+    const second = append({ ...first.draft, prompt: `${first.draft.prompt} 和 ` }, ASSET)
+
+    const next = setReferenceMask(second.draft, 'canvas-1', {
+      maskDataUrl: 'data:image/png;base64,bQ==',
+      dataUrl: 'data:image/png;base64,cmVzaXplZA==',
+    })
+
+    expect(next.references[0]).toEqual({
+      id: 'canvas-1',
+      dataUrl: 'data:image/png;base64,cmVzaXplZA==',
+      maskDataUrl: 'data:image/png;base64,bQ==',
+    })
+    expect(next.references[1]).toEqual(ASSET)
+    expect(visible(next)).toBe(visible(second.draft))
+  })
+
+  it('参考图在编辑遮罩期间被移掉，保存就落空而不是写到别人身上', () => {
+    const first = append(EMPTY_DRAFT, CANVAS)
+    const second = append({ ...first.draft, prompt: `${first.draft.prompt} 换成 ` }, ASSET)
+    const left = removeReference(second.draft, 0)
+
+    const next = setReferenceMask(left, 'canvas-1', {
+      maskDataUrl: 'data:image/png;base64,bQ==',
+      dataUrl: 'data:image/png;base64,cmVzaXplZA==',
+    })
+
+    expect(next).toBe(left)
+  })
+
+  it('移除遮罩只去掉遮罩，参考图本身留着', () => {
+    const { draft } = append(EMPTY_DRAFT, { ...CANVAS, maskDataUrl: 'data:image/png;base64,bQ==' })
+
+    const next = clearReferenceMask(draft, 'canvas-1')
+
+    expect(next.references).toEqual([CANVAS])
+    expect(draftForSubmit(next).references[0]).toEqual({
+      imageId: 'canvas-1',
+      dataUrl: CANVAS.dataUrl,
+    })
   })
 })

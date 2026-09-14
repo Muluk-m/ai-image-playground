@@ -145,6 +145,13 @@ export interface MaskEditorSession {
   maskDataUrl: string | null
   /** 画笔涂的是保留区，与 composer 里「涂掉 = 重绘」相反。 */
   keepSemantics: boolean
+  /**
+   * 待编辑图片本身。给了就直接拿它打底，不再按 id 回图片存储里找——画布对象的 id
+   * 不是图片存储的 id，这是它进遮罩编辑器的唯一通路。
+   */
+  targetDataUrl?: string
+  /** 给了才出「移除遮罩」按钮；遮罩存哪由发起方决定，清除也一样。 */
+  onRemove?: () => void | Promise<void>
   onSave: (result: {
     maskDataUrl: string
     targetImageId: string
