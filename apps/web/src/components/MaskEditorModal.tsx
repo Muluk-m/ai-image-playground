@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom'
 import { canvasToBlob, loadImage } from '../lib/canvasImage'
 import { storeImage } from '../lib/db'
 import { maskPaintOperation } from '../lib/mask'
-import { prepareMaskTargetDataUrl, replaceMaskTargetImage } from '../lib/maskPreprocess'
+import { prepareMaskTargetDataUrl } from '../lib/maskPreprocess'
 import {
   clampViewTransform,
   clientPointToCanvasPoint,
@@ -106,10 +106,7 @@ function blobToDataUrl(blob: Blob): Promise<string> {
 export default function MaskEditorModal() {
   const imageId = useStore((s) => s.maskEditorImageId)
   const setMaskEditorImageId = useStore((s) => s.setMaskEditorImageId)
-  const maskDraft = useStore((s) => s.maskDraft)
   const session = useStore((s) => s.maskEditorSession)
-  const setMaskDraft = useStore((s) => s.setMaskDraft)
-  const clearMaskDraft = useStore((s) => s.clearMaskDraft)
   const setConfirmDialog = useStore((s) => s.setConfirmDialog)
   const showToast = useStore((s) => s.showToast)
 
@@ -186,13 +183,17 @@ export default function MaskEditorModal() {
     }, 450)
   }
 
+  // 遮罩存哪、怎么清，一概由开会话的那一方决定。
+  const removeMask = session?.onRemove
+
   const handleRemoveMask = () => {
+    if (!removeMask) return
     setConfirmDialog({
       title: '移除遮罩',
       message: '确定要撤销对这张图片的所有涂抹并移除遮罩吗？',
       tone: 'danger',
       action: () => {
-        clearMaskDraft()
+        void removeMask()
         setMaskEditorImageId(null)
         showToast('已移除遮罩', 'success')
       },
@@ -503,7 +504,7 @@ export default function MaskEditorModal() {
 
     async function loadCanvases() {
       try {
-        const dataUrl = await ensureImageCached(targetImageId)
+        const dataUrl = session?.targetDataUrl ?? (await ensureImageCached(targetImageId))
         if (cancelled) return
         if (!dataUrl) {
           showToast('图片已不存在，无法编辑遮罩', 'error')
@@ -533,11 +534,7 @@ export default function MaskEditorModal() {
 
         fillWhiteMask(maskCanvas)
 
-        const initialMask = session
-          ? session.maskDataUrl
-          : maskDraft?.targetImageId === targetImageId
-            ? maskDraft.maskDataUrl
-            : null
+        const initialMask = session?.maskDataUrl ?? null
         if (initialMask) {
           try {
             const draftImage = await loadImage(initialMask)
@@ -587,7 +584,7 @@ export default function MaskEditorModal() {
       panGestureRef.current = null
       setIsPanning(false)
     }
-  }, [imageId, maskDraft, session, setMaskEditorImageId, showToast])
+  }, [imageId, session, setMaskEditorImageId, showToast])
 
   useEffect(() => {
     if (isAltKeyPressed) {
@@ -828,7 +825,16 @@ export default function MaskEditorModal() {
   const handleSave = async () => {
     const canvas = maskCanvasRef.current
     const savingSessionId = activeSessionIdRef.current
-    if (!canvas || !sourceDataUrl || !imageId || !isReady || isSaving || !savingSessionId) return
+    if (
+      !canvas ||
+      !sourceDataUrl ||
+      !imageId ||
+      !session ||
+      !isReady ||
+      isSaving ||
+      !savingSessionId
+    )
+      return
 
     const token = ++saveTokenRef.current
     const savingImageId = imageId
@@ -844,27 +850,11 @@ export default function MaskEditorModal() {
       )
         return
 
-      if (session) {
-        await session.onSave({
-          maskDataUrl,
-          targetImageId: workingTargetId,
-          targetDataUrl: sourceDataUrl,
-        })
-      } else {
-        const latestStore = useStore.getState()
-        latestStore.setInputImages(
-          replaceMaskTargetImage(latestStore.inputImages, savingImageId, {
-            id: workingTargetId,
-            dataUrl: sourceDataUrl,
-          }),
-          { equivalentImageIds: { [savingImageId]: workingTargetId } },
-        )
-        setMaskDraft({
-          targetImageId: workingTargetId,
-          maskDataUrl,
-          updatedAt: Date.now(),
-        })
-      }
+      await session.onSave({
+        maskDataUrl,
+        targetImageId: workingTargetId,
+        targetDataUrl: sourceDataUrl,
+      })
       setMaskEditorImageId(null)
       showToast('遮罩已保存', 'success')
     } catch (err) {
@@ -954,7 +944,7 @@ export default function MaskEditorModal() {
               </div>
             </div>
             <div className="flex items-center gap-2">
-              {maskDraft?.targetImageId === imageId && (
+              {removeMask && (
                 <button
                   onClick={handleRemoveMask}
                   className="flex h-8 items-center gap-1.5 px-4 text-sm font-medium text-white bg-red-500 hover:bg-red-600 rounded-lg transition"
