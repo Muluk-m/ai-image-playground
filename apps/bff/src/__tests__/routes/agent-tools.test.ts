@@ -1,7 +1,11 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
-import type { AgentMessageView, AgentTurnEvent } from '@image-playground/shared'
+import {
+  type AgentMessageView,
+  type AgentTurnEvent,
+  DEVICE_ID_HEADER,
+} from '@image-playground/shared'
 import { eq } from 'drizzle-orm'
 import { Elysia } from 'elysia'
 import {
@@ -63,9 +67,9 @@ async function runTurn(conversationId: string, text: string, params?: Record<str
 
 async function readMessages(conversationId: string): Promise<AgentMessageView[]> {
   const response = await app.handle(
-    new Request(
-      `http://localhost/api/agent/conversations/${conversationId}/messages?deviceId=${DEVICE}`,
-    ),
+    new Request(`http://localhost/api/agent/conversations/${conversationId}/messages`, {
+      headers: { [DEVICE_ID_HEADER]: DEVICE },
+    }),
   )
   return ((await response.json()) as { messages: AgentMessageView[] }).messages
 }

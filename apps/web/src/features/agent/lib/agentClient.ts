@@ -8,7 +8,7 @@ import type {
   AgentTurnReference,
   AgentTurnSummaryView,
 } from '@image-playground/shared'
-import { AGENT_FRAME_SEPARATOR, parseAgentFrame } from '@image-playground/shared'
+import { AGENT_FRAME_SEPARATOR, DEVICE_ID_HEADER, parseAgentFrame } from '@image-playground/shared'
 import { authenticatedBffFetch } from '../../../lib/authClient'
 import { fetchImageDataUrl } from '../../../lib/channels/queueClient'
 import { getDeviceId } from '../../../lib/deviceId'
@@ -36,8 +36,12 @@ function jsonInit(body: unknown, method = 'POST'): RequestInit {
   }
 }
 
-function deviceQuery(): string {
-  return new URLSearchParams({ deviceId: getDeviceId() }).toString()
+/**
+ * GET 端点的设备标识走请求头：它是纯 bearer，放 query string 会被抄进访问日志、
+ * 代理日志和浏览器历史。POST 的设备标识在 body 里，同样不进 URL。
+ */
+function deviceHeaders(): Record<string, string> {
+  return { [DEVICE_ID_HEADER]: getDeviceId() }
 }
 
 export async function createConversation(
@@ -51,7 +55,7 @@ export async function createConversation(
 export async function fetchConversations(
   fetcher: Fetcher = authenticatedBffFetch,
 ): Promise<AgentConversationView[]> {
-  const response = await fetcher(url(`/conversations?${deviceQuery()}`))
+  const response = await fetcher(url('/conversations'), { headers: deviceHeaders() })
   if (!response.ok) throw new AgentRequestError(response.status)
   return ((await response.json()) as { conversations: AgentConversationView[] }).conversations
 }
@@ -85,7 +89,9 @@ export async function fetchMessages(
   conversationId: string,
   fetcher: Fetcher = authenticatedBffFetch,
 ): Promise<AgentConversationState> {
-  const response = await fetcher(url(`/conversations/${conversationId}/messages?${deviceQuery()}`))
+  const response = await fetcher(url(`/conversations/${conversationId}/messages`), {
+    headers: deviceHeaders(),
+  })
   if (!response.ok) throw new AgentRequestError(response.status)
   return (await response.json()) as AgentConversationState
 }
@@ -139,12 +145,11 @@ export async function* resumeTurn(
   lastEventId: number,
   fetcher: Fetcher = authenticatedBffFetch,
 ): AsyncGenerator<AgentFrame> {
-  const headers = new Headers()
+  const headers = new Headers(deviceHeaders())
   if (lastEventId > 0) headers.set('last-event-id', String(lastEventId))
-  const response = await fetcher(
-    url(`/conversations/${conversationId}/turns/${turnId}/events?${deviceQuery()}`),
-    { headers },
-  )
+  const response = await fetcher(url(`/conversations/${conversationId}/turns/${turnId}/events`), {
+    headers,
+  })
   yield* readFrames(response)
 }
 

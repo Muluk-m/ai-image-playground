@@ -3,6 +3,7 @@ import {
   AGENT_TURN_MAX_N,
   AGENT_TURN_MAX_REFERENCES,
   AGENT_USER_MESSAGE_MAX_CHARS,
+  DEVICE_ID_HEADER,
 } from '@image-playground/shared'
 import { Elysia, t } from 'elysia'
 import {
@@ -27,6 +28,7 @@ import { capabilityUnavailable, isCapabilityEnabled } from '../lib/capabilities'
 import {
   badRequestOnValidation,
   clientAddress,
+  deviceIdHeaderSchema,
   deviceIdSchema,
   imageDataUrlSchema,
 } from '../lib/http'
@@ -76,8 +78,8 @@ const referencesSchema = t.Optional(
 const turnParams = t.Object({ id: t.String(), turnId: t.String() })
 const turnBody = t.Object({ deviceId: deviceIdSchema() })
 
-function lastEventId(headers: Record<string, string | undefined>): number {
-  const parsed = Number(headers['last-event-id'])
+function lastEventId(raw: string | undefined): number {
+  const parsed = Number(raw)
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 0
 }
 
@@ -96,8 +98,8 @@ export const agentRoutes = new Elysia()
   )
   .get(
     '/api/agent/conversations/:id/messages',
-    async ({ params, query, authUser, status }) => {
-      const owner = ownerOf(authUser, query.deviceId)
+    async ({ params, headers, authUser, status }) => {
+      const owner = ownerOf(authUser, headers[DEVICE_ID_HEADER])
       const conversation = await findAgentConversation(params.id, owner)
       if (!conversation) return status(404, NOT_FOUND)
       const active = runningTurn(conversation.id)
@@ -112,7 +114,7 @@ export const agentRoutes = new Elysia()
         activeTurn: active ? { turnId: active.turnId } : null,
       }
     },
-    { params: t.Object({ id: t.String() }), query: t.Object({ deviceId: deviceIdSchema() }) },
+    { params: t.Object({ id: t.String() }), headers: deviceIdHeaderSchema() },
   )
   .post(
     '/api/agent/conversations/:id/turns',
@@ -151,10 +153,10 @@ export const agentRoutes = new Elysia()
   )
   .get(
     '/api/agent/conversations',
-    async ({ query, authUser }) => ({
-      conversations: await listAgentConversations(ownerOf(authUser, query.deviceId)),
+    async ({ headers, authUser }) => ({
+      conversations: await listAgentConversations(ownerOf(authUser, headers[DEVICE_ID_HEADER])),
     }),
-    { query: t.Object({ deviceId: deviceIdSchema() }) },
+    { headers: deviceIdHeaderSchema() },
   )
   .delete(
     '/api/agent/conversations/:id',
@@ -177,12 +179,12 @@ export const agentRoutes = new Elysia()
   )
   .get(
     '/api/agent/conversations/:id/turns/:turnId/events',
-    async ({ params, query, headers, authUser, status }) => {
-      const owner = ownerOf(authUser, query.deviceId)
+    async ({ params, headers, authUser, status }) => {
+      const owner = ownerOf(authUser, headers[DEVICE_ID_HEADER])
       const conversation = await findAgentConversation(params.id, owner)
       if (!conversation) return status(404, NOT_FOUND)
 
-      const after = lastEventId(headers)
+      const after = lastEventId(headers['last-event-id'])
       const active = runningTurn(conversation.id)
       if (active?.turnId === params.turnId) return agentTurnStream(active.read(after))
 
@@ -193,7 +195,14 @@ export const agentRoutes = new Elysia()
       }
       return agentReplayStream(stored)
     },
-    { params: turnParams, query: t.Object({ deviceId: deviceIdSchema() }) },
+    {
+      params: turnParams,
+      // 断点头得进 schema：没声明的头会被 Elysia 归一化掉，续播就从头重放。
+      headers: t.Object({
+        [DEVICE_ID_HEADER]: deviceIdSchema(),
+        'last-event-id': t.Optional(t.String()),
+      }),
+    },
   )
   .resolve(async ({ params, body, authUser }) => {
     // 轮级端点共用这段：归属查会话、会话查在跑的轮，两级都可能 404。

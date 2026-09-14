@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
-import type { AgentConversationView } from '@image-playground/shared'
+import { type AgentConversationView, DEVICE_ID_HEADER } from '@image-playground/shared'
 import { Elysia } from 'elysia'
 import { completionStream, recordingAgentFetch } from '../helpers/agentStubs'
 
@@ -102,9 +102,9 @@ describe('起一轮的速率限制', () => {
     await runTurn(conversationId, device, address)
 
     const messages = await app.handle(
-      new Request(
-        `http://localhost/api/agent/conversations/${conversationId}/messages?deviceId=${device}`,
-      ),
+      new Request(`http://localhost/api/agent/conversations/${conversationId}/messages`, {
+        headers: { [DEVICE_ID_HEADER]: device },
+      }),
     )
     const body = (await messages.json()) as { messages: unknown[] }
     expect(body.messages).toHaveLength(4)

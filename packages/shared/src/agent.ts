@@ -3,6 +3,12 @@
 import type { ChannelMedia } from './channel-discovery'
 import type { StoredImageRef } from './queue-protocol'
 
+/**
+ * 匿名设备标识的传输位置。它是纯 bearer——知道就等于持有，所以只走请求头或请求体：
+ * query string 会落进访问日志、代理日志、浏览器历史和 Referer。
+ */
+export const DEVICE_ID_HEADER = 'x-device-id'
+
 export const AGENT_CONVERSATION_TITLE_MAX_CHARS = 60
 export const AGENT_USER_MESSAGE_MAX_CHARS = 4_000
 
