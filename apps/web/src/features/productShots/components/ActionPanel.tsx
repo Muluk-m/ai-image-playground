@@ -27,7 +27,8 @@ import { openWorkflow } from '../workflows/runtime'
 
 const PICK_PRODUCT = '选产品素材'
 const NO_PRODUCT = '产品素材：未选'
-const NEEDS_PRODUCT = '换产品与借创意重做需要先选产品素材'
+const NEEDS_PRODUCT = '请先选产品素材'
+const PRODUCT_HINT_ID = 'product-shots-product-hint'
 const RETRY_MATTE = '重试抠图'
 
 /** 三个动作挤在一排里，PRIMARY_BUTTON 的字号与内边距放不下最长的那个标签。 */
@@ -83,6 +84,7 @@ export default function ActionPanel() {
     assets,
     sourceImageId: selectedImageId,
   })
+  const productActionReason = hasProduct ? productBlocked : NEEDS_PRODUCT
 
   return (
     <section data-product-shots-column="actions" className={`${CARD} flex flex-col gap-4`}>
@@ -158,6 +160,15 @@ export default function ActionPanel() {
             {hasProduct ? '更换' : PICK_PRODUCT}
           </button>
         </div>
+        <p
+          id={PRODUCT_HINT_ID}
+          className="text-xs leading-relaxed text-gray-500 dark:text-gray-400"
+        >
+          换背景无需产品素材。
+          {productBlocked
+            ? `换产品 / 借创意重做：${productBlocked}。`
+            : '仅换产品、借创意重做时需要选择。'}
+        </p>
       </div>
 
       <div className={`${PANEL_SECTION} flex flex-col gap-2`}>
@@ -175,11 +186,17 @@ export default function ActionPanel() {
               key={action.mode}
               type="button"
               data-product-shots-action={action.mode}
+              aria-describedby={action.needsProduct ? PRODUCT_HINT_ID : undefined}
+              title={
+                action.needsProduct && productActionReason
+                  ? `${ACTION_LABELS[action.mode]}：${productActionReason}`
+                  : undefined
+              }
               onClick={() => void runAction(action.mode)}
               disabled={
                 busy ||
                 !selectedImageId ||
-                (action.needsProduct && (!hasProduct || productBlocked !== null)) ||
+                (action.needsProduct && productActionReason !== null) ||
                 (action.needsMatte && matteBlocked !== null)
               }
               className={ACTION_BUTTON}
@@ -216,19 +233,6 @@ export default function ActionPanel() {
                 {EDIT_MASK_LABEL}
               </button>
             )}
-          </p>
-        )}
-        {!hasProduct && (
-          <p data-product-shots-action-reason className={NOTICE}>
-            {NEEDS_PRODUCT}
-          </p>
-        )}
-        {productBlocked && (
-          <p data-product-shots-action-reason className={`${NOTICE} flex items-center gap-2`}>
-            {productBlocked}
-            <button type="button" onClick={openProductPicker} className={GHOST_BUTTON}>
-              {PICK_PRODUCT}
-            </button>
           </p>
         )}
         {swapNotice && <p className={NOTICE}>{swapNotice}</p>}

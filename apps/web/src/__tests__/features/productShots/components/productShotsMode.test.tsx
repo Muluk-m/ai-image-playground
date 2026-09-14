@@ -5,6 +5,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useLibraryStore } from '../../../../features/library/store'
 import ProductShotsMode from '../../../../features/productShots/components/ProductShotsMode'
+import { PRODUCT_IS_SOURCE_REASON } from '../../../../features/productShots/lib/productGate'
 import { useProductShotsStore } from '../../../../features/productShots/store'
 import type { ProductShotJob, SourceMatte } from '../../../../features/productShots/types'
 import { ProductMatteError } from '../../../../lib/productMatte'
@@ -718,20 +719,6 @@ describe('the product picked once for the whole job', () => {
     return button
   }
 
-  it('holds the product swap back until a product asset is picked', () => {
-    render()
-
-    expect(actionButton('replace-product').disabled).toBe(true)
-    expect(pickProductButton()).toBeTruthy()
-  })
-
-  it('holds the creative remix back until a product asset is picked', () => {
-    render()
-
-    expect(actionButton('remix').disabled).toBe(true)
-    expect(pickProductButton()).toBeTruthy()
-  })
-
   it('opens the picker from the reason a held back action gives', async () => {
     render()
 
@@ -739,12 +726,6 @@ describe('the product picked once for the whole job', () => {
     await settle()
 
     expect(document.querySelector('[data-product-shots-product-picker]')).not.toBeNull()
-  })
-
-  it('says what the product at the top is used for', () => {
-    render()
-
-    expect(productBar().textContent).toContain('换产品 / 借创意重做时放进画面的产品')
   })
 
   it('picks how far the remix goes from the competitor', () => {
@@ -871,35 +852,28 @@ describe('the product picked once for the whole job', () => {
   })
 })
 
-describe('the right column grouped into settings and generation', () => {
-  const PRODUCT_REASON = '换产品与借创意重做需要先选产品素材'
+describe('action-specific product requirements', () => {
+  it('allows background planning without a product asset or unrelated product warnings', async () => {
+    await withMattedOriginal()
+    const planning = deferred<typeof PLAN>()
+    requestBackgroundPlan.mockReturnValueOnce(planning.promise)
 
-  function headings(): string[] {
-    return [...column('actions').querySelectorAll('h2')].map((item) => item.textContent ?? '')
-  }
+    expect(actionButton('background').disabled).toBe(false)
+    expect(actionButton('replace-product').disabled).toBe(true)
+    expect(actionButton('remix').disabled).toBe(true)
+    expect(actionButton('background').getAttribute('aria-describedby')).toBeNull()
+    expect(actionReasons()).toEqual([])
 
-  it('orders the column as settings and generation', () => {
-    render()
+    click(actionButton('background'))
+    await settleUntil(() => useProductShotsStore.getState().swapStage === 'plan')
+    expect(useProductShotsStore.getState().swapStage).toBe('plan')
+    expect(actionReasons()).toEqual([])
 
-    expect(headings()).toEqual(['设置', '生成'])
+    planning.resolve(PLAN)
+    await settle()
   })
 
-  it('puts the three actions on one row', () => {
-    render()
-
-    const row = actionButton('background').parentElement
-    expect(actionButton('replace-product').parentElement).toBe(row)
-    expect(actionButton('remix').parentElement).toBe(row)
-  })
-
-  it('gives the held back actions one reason, not one per button', () => {
-    render()
-
-    expect(actionReasons().map((item) => item.textContent)).toEqual([PRODUCT_REASON])
-    expect(column('actions').textContent?.split(PRODUCT_REASON)).toHaveLength(2)
-  })
-
-  it('drops the reason once a product asset is picked', () => {
+  it('enables the product actions only after a usable product asset is picked', async () => {
     useLibraryStore.setState({
       assets: [
         {
@@ -912,25 +886,54 @@ describe('the right column grouped into settings and generation', () => {
         },
       ],
     })
-    render()
+    await withMattedOriginal()
 
-    expect(column('actions').textContent).toContain('产品素材：未选')
+    const descriptionId = actionButton('replace-product').getAttribute('aria-describedby')
+    expect(descriptionId).not.toBeNull()
+    expect(document.getElementById(descriptionId!)).not.toBeNull()
+    expect(actionButton('remix').getAttribute('aria-describedby')).toBe(descriptionId)
+    expect(actionButton('replace-product').disabled).toBe(true)
+    expect(actionButton('remix').disabled).toBe(true)
 
     act(() => {
       useProductShotsStore.getState().toggleProductAsset('a1')
     })
 
+    expect(actionButton('background').disabled).toBe(false)
+    expect(actionButton('replace-product').disabled).toBe(false)
+    expect(actionButton('remix').disabled).toBe(false)
     expect(actionReasons()).toEqual([])
-    expect(column('actions').textContent).toContain('更换')
   })
 
-  it('keeps the settings where they are', () => {
-    render()
+  it('scopes an unusable product asset reason to product actions, not background generation', async () => {
+    await withMattedOriginal()
+    act(() => {
+      useLibraryStore.setState({
+        assets: [
+          {
+            id: 'same-source',
+            name: '原图',
+            imageId: useProductShotsStore.getState().selectedImageId!,
+            createdAt: 1,
+            updatedAt: 1,
+            lastUsedAt: 1,
+          },
+        ],
+      })
+      useProductShotsStore.getState().toggleProductAsset('same-source')
+    })
 
-    const settings = column('actions').querySelector('[data-product-shots-settings]')
-    expect(settings?.textContent).toContain('偏好')
-    expect(settings?.textContent).toContain('每张几版')
-    expect(settings?.querySelector('[role="group"][aria-label="与竞品的距离"]')).not.toBeNull()
+    expect(actionButton('background').disabled).toBe(false)
+    expect(actionButton('background').title).toBe('')
+    expect(actionReasons()).toEqual([])
+    for (const action of ['replace-product', 'remix'] as const) {
+      const button = actionButton(action)
+      expect(button.disabled).toBe(true)
+      expect(button.title).toContain(PRODUCT_IS_SOURCE_REASON)
+      expect(
+        document.getElementById(button.getAttribute('aria-describedby')!)?.textContent,
+      ).toContain(PRODUCT_IS_SOURCE_REASON)
+    }
   })
 })
 
