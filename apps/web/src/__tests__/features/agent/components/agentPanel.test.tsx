@@ -9,6 +9,7 @@ import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
 import type { CanvasEditor } from '../../../../features/canvas/lib/editor'
 import { useLibraryStore } from '../../../../features/library/store'
 import { bootstrapClientCapabilities } from '../../../../lib/clientCapabilities'
+import { _setRuntimeConfigForTesting } from '../../../../lib/runtimeConfig'
 
 declare global {
   // eslint-disable-next-line no-var
@@ -59,6 +60,8 @@ beforeEach(async () => {
   await enableAgent(true)
   // 输入框要素材名做胶囊标签，jsdom 里没有 IndexedDB 可读。
   useLibraryStore.setState({ assets: [], loadAssets: async () => {} })
+  _setRuntimeConfigForTesting({ bff: { enabled: true, baseUrl: 'http://bff.test' } })
+  useAgentStore.getState().startNewConversation()
   useAgentStore.setState({
     open: true,
     tab: 'chat',
@@ -132,7 +135,7 @@ describe('AgentPanel', () => {
     expect(texts('button')).not.toContain('收起')
   })
 
-  it('结果卡上的缩略图点一下定位到画布上的同一个对象', async () => {
+  it('产物真正落画布后才显示可定位缩略图，不必重新挂载面板', async () => {
     const focused: string[] = []
     setAgentCanvasSink({
       has: () => true,
@@ -154,6 +157,7 @@ describe('AgentPanel', () => {
           toolCallId: 'call-1',
           title: '一只橘猫坐在窗台上',
           status: 'succeeded',
+          delivery: 'pending',
           artifacts: [
             {
               artifactId: 'agent_image_1',
@@ -171,6 +175,15 @@ describe('AgentPanel', () => {
     await act(async () => {
       await Promise.resolve()
     })
+    expect(host.querySelector('img')).toBeNull()
+    await act(async () => {
+      useAgentStore.setState((state) => ({
+        messages: state.messages.map((message) =>
+          message.kind === 'tool' ? { ...message, delivery: 'placed' } : message,
+        ),
+      }))
+      await Promise.resolve()
+    })
 
     expect(host.textContent).toContain('一只橘猫坐在窗台上')
     const thumbnail = host.querySelector('img')!.closest('button') as HTMLButtonElement
@@ -179,10 +192,27 @@ describe('AgentPanel', () => {
     expect(focused).toEqual(['agent_image_1'])
   })
 
-  it('画布冲突的结果卡写清没有自动写入，点一下手动放入', async () => {
-    const placeOnCanvas = vi.fn(async () => {})
+  it('手动交付把冲突产物放入画布，并用可定位的缩略图替换入口', async () => {
+    const onCanvas = new Set<string>()
+    setAgentCanvasSink({
+      has: (id) => onCanvas.has(id),
+      revision: () => 0,
+      async place(items, options) {
+        if (options?.isCurrent && !options.isCurrent()) return 'unavailable'
+        for (const item of items) onCanvas.add(item.artifactId)
+        return 'placed'
+      },
+      focus() {},
+      async thumbnail(id) {
+        return onCanvas.has(id) ? 'data:image/png;base64,AQID' : null
+      },
+    })
+    vi.stubGlobal(
+      'fetch',
+      async () =>
+        new Response(new Uint8Array([1, 2, 3]), { headers: { 'content-type': 'image/png' } }),
+    )
     useAgentStore.setState({
-      placeOnCanvas,
       messages: [
         {
           kind: 'tool',
@@ -191,7 +221,7 @@ describe('AgentPanel', () => {
           toolCallId: 'call-1',
           title: '一只橘猫坐在窗台上',
           status: 'succeeded',
-          canvasConflict: true,
+          delivery: 'conflict',
           artifacts: [
             {
               artifactId: 'agent_image_1',
@@ -205,14 +235,20 @@ describe('AgentPanel', () => {
       ],
     })
     render()
-
-    expect(host.textContent).toContain('生成期间画布有改动，本次结果没有自动写入画布。')
     const place = [...host.querySelectorAll('button')].find(
       (button) => button.textContent === '放入画布',
     )!
-    act(() => place.click())
+    await act(async () => {
+      place.click()
+      await vi.waitFor(() => expect(onCanvas.has('agent_image_1')).toBe(true))
+    })
 
-    expect(placeOnCanvas).toHaveBeenCalledWith('tool-1')
+    expect(host.querySelector('img')).not.toBeNull()
+    expect(texts('button')).not.toContain('放入画布')
+    expect(useAgentStore.getState().messages[0]).toMatchObject({
+      status: 'succeeded',
+      delivery: 'placed',
+    })
   })
 
   it('澄清渲染成可点的单选，点一下把那一项发成下一条消息', () => {

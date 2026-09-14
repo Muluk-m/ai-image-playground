@@ -1,12 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-
-const { placeImagesOnCanvasMock } = vi.hoisted(() => ({
-  placeImagesOnCanvasMock: vi.fn(),
-}))
-
-vi.mock('../../../../features/canvas/lib/placeholderShapeOps', () => ({
-  placeImagesOnCanvas: placeImagesOnCanvasMock,
-}))
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { createAgentCanvasSink } from '../../../../features/canvas/lib/agentCanvasSink'
 import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
@@ -17,6 +9,8 @@ const IMAGES = [{ artifactId: 'agent_image_1', dataUrl: 'data:image/png;base64,A
 let doc: CanvasDoc
 let editor: CanvasEditor
 let sink: ReturnType<typeof createAgentCanvasSink>
+let holdSizing = false
+const sizing: (() => void)[] = []
 
 function addText(id: string): void {
   doc.addElements([
@@ -39,14 +33,24 @@ beforeEach(() => {
   doc.setViewport(800, 600)
   editor = new CanvasEditor(doc)
   sink = createAgentCanvasSink(editor)
-  // 真实写入会改元素，修订号得跟着动：基线刷新那条断言靠它才有意义。
-  placeImagesOnCanvasMock.mockReset()
-  placeImagesOnCanvasMock.mockImplementation(async () => {
-    editor.placeImages([
-      { dataUrl: IMAGES[0].dataUrl, x: 0, y: 0, width: 10, height: 10, id: IMAGES[0].artifactId },
-    ])
-  })
+  holdSizing = false
+  sizing.length = 0
+  vi.stubGlobal(
+    'Image',
+    class {
+      naturalWidth = 64
+      naturalHeight = 64
+      onload: (() => void) | null = null
+      set src(_value: string) {
+        const loaded = () => this.onload?.()
+        if (holdSizing) sizing.push(loaded)
+        else queueMicrotask(loaded)
+      }
+    },
+  )
 })
+
+afterEach(() => vi.unstubAllGlobals())
 
 describe('画布编辑修订号', () => {
   it('平移、缩放、选区与工具不算编辑', () => {
@@ -103,7 +107,7 @@ describe('落画布', () => {
     const outcome = await sink.place(IMAGES, { baseRevision: sink.revision() })
 
     expect(outcome).toBe('placed')
-    expect(placeImagesOnCanvasMock).toHaveBeenCalledTimes(1)
+    expect(editor.getElement('agent_image_1')).toMatchObject({ type: 'image' })
   })
 
   it('基线过期时判为画布冲突，一张都不写', async () => {
@@ -113,7 +117,7 @@ describe('落画布', () => {
     const outcome = await sink.place(IMAGES, { baseRevision: base })
 
     expect(outcome).toBe('conflict')
-    expect(placeImagesOnCanvasMock).not.toHaveBeenCalled()
+    expect(editor.getElement('agent_image_1')).toBeUndefined()
   })
 
   it('不带基线时无条件写入', async () => {
@@ -122,13 +126,18 @@ describe('落画布', () => {
     const outcome = await sink.place(IMAGES)
 
     expect(outcome).toBe('placed')
-    expect(placeImagesOnCanvasMock).toHaveBeenCalledTimes(1)
+    expect(editor.getElement('agent_image_1')).toMatchObject({ type: 'image' })
   })
 
   it('写入后的修订号可以当作下一次的基线', async () => {
     await sink.place(IMAGES, { baseRevision: sink.revision() })
 
-    expect(await sink.place(IMAGES, { baseRevision: sink.revision() })).toBe('placed')
+    const second = [{ ...IMAGES[0]!, artifactId: 'agent_image_2' }]
+    expect(await sink.place(second, { baseRevision: sink.revision() })).toBe('placed')
+    expect(editor.getElements().map((element) => element.id)).toEqual([
+      'agent_image_1',
+      'agent_image_2',
+    ])
   })
 
   it('视频产物把播放来源写在它自己那一项上', async () => {
@@ -141,14 +150,53 @@ describe('落画布', () => {
       },
     ])
 
-    const [, placing] = placeImagesOnCanvasMock.mock.calls[0]!
-    expect(placing).toEqual([
-      { dataUrl: IMAGES[0]!.dataUrl, id: 'agent_image_1' },
-      {
-        dataUrl: 'data:image/png;base64,UE9T',
-        id: 'agent_video_1',
-        video: { taskId: 'task-2', outputIndex: 0 },
-      },
+    expect(editor.getElement('agent_video_1')).toMatchObject({
+      type: 'image',
+      video: { taskId: 'task-2', outputIndex: 0 },
+    })
+    expect(editor.getElement('agent_image_1')).not.toHaveProperty('video')
+  })
+
+  it('图片尺寸晚到期间用户编辑，真正插入前仍判为冲突', async () => {
+    holdSizing = true
+    const placing = sink.place(IMAGES, { baseRevision: sink.revision() })
+    await vi.waitFor(() => expect(sizing).toHaveLength(1))
+    addText('user-edit')
+    sizing[0]!()
+
+    expect(await placing).toBe('conflict')
+    expect(editor.getElement('agent_image_1')).toBeUndefined()
+    expect(editor.getElement('user-edit')).toMatchObject({ type: 'text' })
+  })
+
+  it('尺寸加载期间原画布失效，不再写入离开的画布', async () => {
+    holdSizing = true
+    let current = true
+    const placing = sink.place(IMAGES, { isCurrent: () => current })
+    await vi.waitFor(() => expect(sizing).toHaveLength(1))
+    current = false
+    sizing[0]!()
+
+    expect(await placing).toBe('unavailable')
+    expect(editor.getElement('agent_image_1')).toBeUndefined()
+  })
+
+  it('先恢复场景再交付，已恢复的产物不重复插入', async () => {
+    let restore!: () => void
+    const ready = new Promise<void>((resolve) => {
+      restore = resolve
+    })
+    sink = createAgentCanvasSink(editor, ready)
+    const placing = sink.place(IMAGES)
+    await Promise.resolve()
+    expect(editor.getElement('agent_image_1')).toBeUndefined()
+    editor.placeImages([
+      { id: 'agent_image_1', dataUrl: IMAGES[0]!.dataUrl, x: 10, y: 20, width: 30, height: 40 },
     ])
+    restore()
+
+    expect(await placing).toBe('placed')
+    expect(editor.getElements().map((element) => element.id)).toEqual(['agent_image_1'])
+    expect(editor.getElement('agent_image_1')).toMatchObject({ x: 10, y: 20 })
   })
 })
