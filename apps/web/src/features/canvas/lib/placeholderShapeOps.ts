@@ -59,10 +59,11 @@ export async function placeImagesOnCanvas(
   editor: CanvasEditor,
   placing: readonly PlaceItem[],
   target: PlacementTarget,
-  opts: { meta?: Record<string, string> } = {},
+  opts: { meta?: Record<string, string>; canPlace?: () => boolean } = {},
 ): Promise<void> {
   const centerY = target.y + target.h / 2
   const sizes = await Promise.all(placing.map((one) => getImageDimensions(one.dataUrl)))
+  if (opts.canPlace && !opts.canPlace()) return
 
   const items: PlacedImage[] = []
   for (let i = 0; i < placing.length; i++) {

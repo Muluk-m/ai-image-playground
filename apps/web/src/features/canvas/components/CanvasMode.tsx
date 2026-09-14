@@ -30,12 +30,6 @@ export default function CanvasMode() {
     return { doc: canvasDoc, editor: new CanvasEditor(canvasDoc) }
   })
 
-  // 智能体的产出经这个出口落到画布上；离开创作模式就没有画布可写了。
-  useEffect(() => {
-    setAgentCanvasSink(createAgentCanvasSink(editor))
-    return () => setAgentCanvasSink(null)
-  }, [editor])
-
   // DEV 调试出口：E2E / 排查用（生产构建剔除）。
   useEffect(() => {
     if (!import.meta.env.DEV) return
@@ -50,8 +44,10 @@ export default function CanvasMode() {
     let loaded = false
     let timer: number | undefined
     let unsubscribe: (() => void) | undefined
+    const ready = loadScene(editor)
+    setAgentCanvasSink(createAgentCanvasSink(editor, ready))
     void (async () => {
-      await loadScene(editor)
+      await ready
       if (disposed) return
       loaded = true
       recoverCanvasTasks(editor)
@@ -76,6 +72,7 @@ export default function CanvasMode() {
     })()
     return () => {
       disposed = true
+      setAgentCanvasSink(null)
       unsubscribe?.()
       window.clearTimeout(timer)
       // 卸载前把最后的变更落盘（切回工作台不丢内容）；未完成加载则不写，防覆盖。

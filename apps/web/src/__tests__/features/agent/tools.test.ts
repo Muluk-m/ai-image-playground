@@ -12,7 +12,7 @@ vi.mock('../../../features/agent/lib/videoPoster', () => ({
   videoPosterDataUrl: async () => POSTER,
 }))
 
-import { setAgentCanvasSink } from '../../../features/agent/lib/canvasSink'
+import { agentCanvasSink, setAgentCanvasSink } from '../../../features/agent/lib/canvasSink'
 import { useAgentStore } from '../../../features/agent/store'
 import type { AgentToolMessage } from '../../../features/agent/types'
 import { _setRuntimeConfigForTesting } from '../../../lib/runtimeConfig'
@@ -88,6 +88,7 @@ function turnStream(...events: AgentTurnEvent[]): Response {
 
 let turnResponse: () => Response
 let messagesResponse: () => Response
+let imageResponse: () => Response | Promise<Response>
 const onCanvas = new Set<string>()
 const placed: {
   artifactId: string
@@ -107,7 +108,7 @@ const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit
   }
   if (url.includes('/turns')) return turnResponse()
   if (url.includes('/v1/queue/requests/')) {
-    return new Response(new Uint8Array([1, 2, 3]), { headers: { 'content-type': 'image/png' } })
+    return imageResponse()
   }
   return messagesResponse()
 })
@@ -124,14 +125,18 @@ beforeEach(() => {
   _setRuntimeConfigForTesting({ bff: { enabled: true, baseUrl: 'http://bff.test' } })
   vi.stubGlobal('fetch', fetchMock)
   localStorage.clear()
+  state().startNewConversation()
   onCanvas.clear()
   placed.length = 0
   revision = 0
   anchors.length = 0
+  imageResponse = () =>
+    new Response(new Uint8Array([1, 2, 3]), { headers: { 'content-type': 'image/png' } })
   setAgentCanvasSink({
     has: (objectId) => onCanvas.has(objectId),
     revision: () => revision,
     async place(items, options) {
+      if (options?.isCurrent && !options.isCurrent()) return 'unavailable'
       const base = options?.baseRevision
       if (base !== undefined && base !== revision) return 'conflict'
       anchors.push(options?.anchorObjectId)
@@ -182,13 +187,10 @@ describe('工具事件', () => {
         title: '一只橘猫坐在窗台上',
         status: 'succeeded',
         artifacts: [IMAGE],
+        delivery: 'placed',
       },
     ])
     expect(placed).toEqual([{ artifactId: 'agent_image_1', dataUrl: 'data:image/png;base64,AQID' }])
-    expect(fetchMock).toHaveBeenCalledWith(
-      'http://bff.test/v1/queue/requests/task-1/image/0',
-      expect.anything(),
-    )
   })
 
   it('改图的产出贴着源图放，源图仍留在画布上', async () => {
@@ -288,7 +290,64 @@ describe('工具事件', () => {
     await state().send('画两只橘猫')
 
     expect(placed.map((one) => one.artifactId)).toEqual(['agent_image_1', 'agent_image_2'])
-    expect(toolMessages().every((one) => one.canvasConflict !== true)).toBe(true)
+    expect(toolMessages().map((one) => one.delivery)).toEqual(['placed', 'placed'])
+  })
+})
+
+describe('产物交付', () => {
+  it('下载期间离开画布，晚到的产物不再写入旧画布', async () => {
+    let finishDownload!: (response: Response) => void
+    imageResponse = () =>
+      new Promise<Response>((resolve) => {
+        finishDownload = resolve
+      })
+    turnResponse = () => turnStream(TURN_START, TOOL_START, TOOL_END, TURN_END)
+
+    const sending = state().send('画一只橘猫')
+    await vi.waitFor(() => expect(finishDownload).toBeTypeOf('function'))
+    setAgentCanvasSink(null)
+    finishDownload(
+      new Response(new Uint8Array([1, 2, 3]), { headers: { 'content-type': 'image/png' } }),
+    )
+    await sending
+
+    expect(placed).toEqual([])
+    expect(toolMessages()[0]).toMatchObject({
+      status: 'succeeded',
+      artifacts: [IMAGE],
+      delivery: 'unavailable',
+    })
+  })
+  it('生成完成后文字与下一轮不等交付，切会话使旧下载失效', async () => {
+    let finishDownload!: (response: Response) => void
+    imageResponse = () =>
+      new Promise<Response>((resolve) => {
+        finishDownload = resolve
+      })
+    turnResponse = () =>
+      turnStream(
+        TURN_START,
+        TOOL_START,
+        TOOL_END,
+        { type: 'assistantStart', messageId: 'assistant-1' },
+        { type: 'textDelta', messageId: 'assistant-1', delta: '已生成，请看画布。' },
+        TURN_END,
+      )
+    const sending = state().send('画一只橘猫')
+    await vi.waitFor(() => expect(state().turn).toBe('idle'))
+    expect(state().messages).toContainEqual(
+      expect.objectContaining({ text: '已生成，请看画布。', streaming: false }),
+    )
+    expect(toolMessages()[0]).toMatchObject({ status: 'succeeded', delivery: 'pending' })
+
+    state().startNewConversation()
+    finishDownload(
+      new Response(new Uint8Array([1, 2, 3]), { headers: { 'content-type': 'image/png' } }),
+    )
+    await sending
+    expect(placed).toEqual([])
+    expect(state().messages).toEqual([])
+    expect(state().conversationId).toBeNull()
   })
 })
 
@@ -347,7 +406,7 @@ describe('画布冲突', () => {
     expect(toolMessages()[0]).toMatchObject({
       status: 'succeeded',
       artifacts: [IMAGE],
-      canvasConflict: true,
+      delivery: 'conflict',
     })
   })
 
@@ -358,7 +417,7 @@ describe('画布冲突', () => {
     await state().placeOnCanvas('tool-1')
 
     expect(placed).toEqual([{ artifactId: 'agent_image_1', dataUrl: 'data:image/png;base64,AQID' }])
-    expect(toolMessages()[0]!.canvasConflict).toBeUndefined()
+    expect(toolMessages()[0]!.delivery).toBe('placed')
   })
 
   it('冲突之后这一轮的后续产出照样不写入', async () => {
@@ -367,12 +426,17 @@ describe('画布冲突', () => {
     await state().send('画两只橘猫')
 
     expect(placed).toEqual([])
-    expect(toolMessages().map((one) => one.canvasConflict)).toEqual([true, true])
+    expect(toolMessages().map((one) => one.delivery)).toEqual(['conflict', 'conflict'])
   })
 })
 
 describe('历史', () => {
-  it('读回历史时把存下来的工具结果还原成结果卡', async () => {
+  it('历史文字先显示，场景恢复后已有产物显示为已交付且不重复落图', async () => {
+    let restored!: () => void
+    const ready = new Promise<void>((resolve) => {
+      restored = resolve
+    })
+    setAgentCanvasSink({ ...agentCanvasSink()!, ready })
     messagesResponse = () =>
       Response.json({
         activeTurn: null,
@@ -398,6 +462,10 @@ describe('历史', () => {
       })
 
     await state().selectConversation(CONVERSATION)
+    expect(toolMessages()[0]).toMatchObject({ status: 'succeeded', artifacts: [IMAGE] })
+    onCanvas.add(IMAGE.artifactId)
+    restored()
+    await ready
 
     expect(toolMessages()).toEqual([
       {
@@ -408,6 +476,7 @@ describe('历史', () => {
         title: '一只橘猫坐在窗台上',
         status: 'succeeded',
         artifacts: [IMAGE],
+        delivery: 'placed',
       },
     ])
     expect(placed).toEqual([])

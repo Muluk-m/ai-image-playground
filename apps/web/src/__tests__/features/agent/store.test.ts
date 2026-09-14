@@ -55,7 +55,7 @@ const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit
     })
   }
   if (init?.method === 'DELETE') return deleteResponse()
-  if (url.includes('/api/agent/conversations?')) return conversationsResponse()
+  if (url.endsWith('/api/agent/conversations')) return conversationsResponse()
   if (url.includes('/turns')) return turnResponse()
   return messagesResponse()
 })
@@ -331,7 +331,7 @@ describe('会话列表', () => {
 
     const listCalls = fetchMock.mock.calls
       .slice(afterFirst)
-      .filter(([input]) => String(input).includes('/api/agent/conversations?'))
+      .filter(([input]) => String(input).endsWith('/api/agent/conversations'))
     expect(listCalls).toEqual([])
   })
 

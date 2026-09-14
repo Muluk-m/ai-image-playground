@@ -7,16 +7,20 @@ export interface AgentPlacedArtifact {
   readonly video?: { readonly taskId: string; readonly outputIndex: number }
 }
 
-export type AgentPlaceOutcome = 'placed' | 'conflict'
+export type AgentPlaceOutcome = 'placed' | 'conflict' | 'unavailable'
 
 export interface AgentPlaceOptions {
   /** 跟上这一轮时的画布修订号；与当前对不上就一张都不写。省略即无条件写入（用户手动放入）。 */
   readonly baseRevision?: number
   /** 贴着这个对象放；它不在画布上就落在视口中央。 */
   readonly anchorObjectId?: string
+  /** 异步准备结束后、真正写入前，交付仍属于当前会话与画布。 */
+  readonly isCurrent?: () => boolean
 }
 
 export interface AgentCanvasSink {
+  /** 场景恢复完成；同步画布不需要等待。观察历史产物也必须等这个边界。 */
+  readonly ready?: Promise<unknown>
   has(objectId: string): boolean
   /** 用户编辑的修订号，画布冲突判据的取值。 */
   revision(): number
