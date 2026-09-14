@@ -4,6 +4,7 @@ import type {
   AgentFrame,
   AgentMessageView,
   AgentToolArtifact,
+  AgentTurnParams,
   AgentTurnReference,
   AgentTurnSummaryView,
 } from '@image-playground/shared'
@@ -116,6 +117,7 @@ export async function* startTurn(
   conversationId: string,
   text: string,
   references: readonly AgentTurnReference[] = [],
+  params?: AgentTurnParams,
   fetcher: Fetcher = authenticatedBffFetch,
 ): AsyncGenerator<AgentFrame> {
   const response = await fetcher(
@@ -124,6 +126,7 @@ export async function* startTurn(
       deviceId: getDeviceId(),
       text,
       ...(references.length ? { references } : {}),
+      ...(params ? { params } : {}),
     }),
   )
   yield* readFrames(response)
