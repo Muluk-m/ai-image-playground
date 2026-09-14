@@ -14,19 +14,27 @@ class FakeS3Client {
   readonly objects = new Map<string, Uint8Array>()
   readonly listCalls: ListCall[] = []
   readonly deleted: string[] = []
+  readonly statted: string[] = []
   pageSize = 1_000
 
   async write(key: string, bytes: Uint8Array): Promise<void> {
     this.objects.set(key, Uint8Array.from(bytes))
   }
 
-  file(key: string) {
+  file(key: string, span?: { begin: number; end: number }) {
+    const bytes = () => {
+      const stored = this.objects.get(key)
+      if (!stored) throw new Error(`missing object: ${key}`)
+      return span ? stored.slice(span.begin, span.end) : stored.slice()
+    }
     return {
-      arrayBuffer: async () => {
-        const stored = this.objects.get(key)
-        if (!stored) throw new Error(`missing object: ${key}`)
-        return stored.slice().buffer
+      arrayBuffer: async () => bytes().buffer,
+      stat: async () => {
+        this.statted.push(key)
+        return { size: bytes().length }
       },
+      slice: (begin: number, end: number) => this.file(key, { begin, end }),
+      stream: () => new Blob([bytes()]).stream(),
     }
   }
 
@@ -65,6 +73,21 @@ describe('S3ObjectStore key prefix', () => {
     expect(await subject.read('task-1/out/0')).toEqual(new Uint8Array([1, 2]))
     expect(await subject.listPrefix('task-1/')).toEqual(['task-1/out/0'])
     expect(client.listCalls[0]?.prefix).toBe('image-playground/task-1/')
+  })
+
+  it('open 也走同一套前缀，只取请求的那一段', async () => {
+    const client = new FakeS3Client()
+    const subject = store(client, 'image-playground/')
+    await subject.write('task-1/out/0', new Uint8Array([1, 2, 3, 4, 5]), 'video/mp4')
+
+    const object = await subject.open('task-1/out/0')
+
+    expect(client.statted).toEqual(['image-playground/task-1/out/0'])
+    expect(object.size).toBe(5)
+    // 闭区间 [1, 3] 要落在 S3File 的开区间 slice(1, 4) 上。
+    expect(new Uint8Array(await new Response(object.stream(1, 3)).arrayBuffer())).toEqual(
+      new Uint8Array([2, 3, 4]),
+    )
   })
 
   it('空前缀保持原样', async () => {
