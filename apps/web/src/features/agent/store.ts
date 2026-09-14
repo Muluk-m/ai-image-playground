@@ -4,7 +4,6 @@ import type {
   AgentConversationView,
   AgentFrame,
   AgentMessageView,
-  AgentToolArtifact,
   AgentToolResultBlock,
   AgentTurnEvent,
   AgentTurnReference,
@@ -20,21 +19,13 @@ import {
   createConversation,
   fetchConversations,
   fetchMessages,
-  fetchToolImage,
   interjectTurn,
   removeConversation,
   resumeTurn,
   startTurn,
-  toolArtifactUrl,
 } from './lib/agentClient'
-import {
-  type AgentPlacedArtifact,
-  type AgentPlaceOptions,
-  type AgentPlaceOutcome,
-  agentCanvasSink,
-} from './lib/canvasSink'
+import { createArtifactDelivery, type TurnArtifactDelivery } from './lib/artifactDelivery'
 import { toAgentTurnParams } from './lib/turnParams'
-import { videoPosterDataUrl } from './lib/videoPoster'
 import type {
   AgentClarificationMessage,
   AgentPanelMessage,
@@ -162,74 +153,24 @@ const failPatch = (state: AgentState, message = TURN_FAILED) => ({
   messages: state.messages.filter((one) => one.kind !== 'text' || !one.streaming),
 })
 
-/** `skipped`：没有画布，或这几张已经在上面了——续播会把同一条 `toolEnd` 重放给我们。 */
-type LandOutcome = AgentPlaceOutcome | 'skipped' | 'failed'
-
-/** 视频只取封面，mp4 留在服务端；图片整张下下来。 */
-async function placeable(artifact: AgentToolArtifact): Promise<AgentPlacedArtifact> {
-  const { artifactId, taskId, outputIndex } = artifact
-  if (artifact.media !== 'video') return { artifactId, dataUrl: await fetchToolImage(artifact) }
-  return {
-    artifactId,
-    dataUrl: await videoPosterDataUrl(toolArtifactUrl(artifact), artifact),
-    video: { taskId, outputIndex },
-  }
-}
-
-/** 把还没落画布的那几件产物取回来交给画布。 */
-async function writeToCanvas(
-  artifacts: readonly AgentToolArtifact[],
-  options: AgentPlaceOptions,
-): Promise<LandOutcome> {
-  const sink = agentCanvasSink()
-  if (!sink) return 'skipped'
-  const missing = artifacts.filter((artifact) => !sink.has(artifact.artifactId))
-  if (missing.length === 0) return 'skipped'
-  // 判定归 place，这里只是别为一个已经定了的冲突白下几 MB。
-  const { baseRevision } = options
-  if (baseRevision !== undefined && sink.revision() !== baseRevision) return 'conflict'
-  try {
-    const items = await Promise.all(missing.map(placeable))
-    return sink.place(items, options)
-  } catch (thrown) {
-    console.warn('[agent] 产出没能落到画布上', thrown)
-    return 'failed'
-  }
-}
-
 export const useAgentStore = create<AgentState>((set, get) => {
-  // 落图排成一条链：帧循环不等它，文字流才不会被几 MB 的下载卡住；串起来则保住多张图的次序。
-  let landing: Promise<void> = Promise.resolve()
-  // 画布冲突的基线：跟上这一轮时的画布编辑修订号。
-  let baseRevision: number | undefined
-
-  const takeBaseRevision = () => {
-    baseRevision = agentCanvasSink()?.revision()
-  }
-
-  const setConflict = (messageId: string, conflict: boolean) =>
+  const delivery = createArtifactDelivery((messageId, status) =>
     set((state) => ({
-      messages: state.messages.map((one) =>
-        one.kind === 'tool' && one.id === messageId
-          ? { ...one, canvasConflict: conflict || undefined }
-          : one,
+      messages: state.messages.map((message) =>
+        message.kind === 'tool' && message.id === messageId
+          ? { ...message, delivery: status }
+          : message,
       ),
-    }))
-
-  const land = async (
-    artifacts: readonly AgentToolArtifact[],
-    messageId: string,
-    anchor?: string,
-  ) => {
-    const outcome = await writeToCanvas(artifacts, { baseRevision, anchorObjectId: anchor })
-    if (outcome === 'conflict') setConflict(messageId, true)
-    // 智能体自己的写入不算用户改动，所以基线跟到写后的值：
-    // 不抬的话同一轮里的第二次落图会把第一次当成用户动了画布。
-    else if (outcome === 'placed') takeBaseRevision()
-  }
+    })),
+  )
 
   /** 事件按 id 幂等：重连重发的帧、以及续播重放的整轮，都要落到同一个结果上。 */
-  const apply = (event: AgentTurnEvent, pendingUserText: string | null, turnId: string) => {
+  const apply = (
+    event: AgentTurnEvent,
+    pendingUserText: string | null,
+    turnId: string,
+    turnDelivery: TurnArtifactDelivery,
+  ) => {
     set((state) => {
       switch (event.type) {
         case 'turnStart':
@@ -336,10 +277,8 @@ export const useAgentStore = create<AgentState>((set, get) => {
       }
     })
     if (event.type === 'toolEnd' && event.status === 'succeeded') {
-      const artifacts = event.artifacts ?? []
-      const messageId = event.messageId
-      const anchor = event.anchorObjectId
-      landing = landing.then(() => land(artifacts, messageId, anchor))
+      const message = get().messages.find((one) => one.id === event.messageId)
+      if (message?.kind === 'tool') turnDelivery.enqueue(message)
     }
   }
 
@@ -350,43 +289,46 @@ export const useAgentStore = create<AgentState>((set, get) => {
     conversationId: string,
     frames: AsyncGenerator<AgentFrame>,
     pendingUserText: string | null,
+    turnDelivery: TurnArtifactDelivery,
     resumedTurnId = '',
   ) => {
     let source = frames
     let seen = 0
-    // 只有 turnStart 带轮 id；续播接在半截上时它已经播过了，所以从调用方拿。
     let turnId = resumedTurnId
-    // 重连预算按「多久没有进展」算：长轮里断上几次但每次都续上，不该被判失败。
-    for (let attempt = 0; ; attempt += 1) {
-      try {
-        for await (const frame of source) {
-          if (frame.id !== null && frame.id <= seen) continue
-          if (frame.id !== null) {
-            seen = frame.id
-            attempt = -1
+    try {
+      for (let attempt = 0; ; attempt += 1) {
+        if (!turnDelivery.isCurrent()) return
+        try {
+          for await (const frame of source) {
+            if (!turnDelivery.isCurrent()) return
+            if (frame.id !== null && frame.id <= seen) continue
+            if (frame.id !== null) {
+              seen = frame.id
+              attempt = -1
+            }
+            if (frame.event.type === 'turnStart') turnId = frame.event.turnId
+            apply(frame.event, pendingUserText, turnId, turnDelivery)
+            if (frame.event.type === 'turnEnd') return
           }
-          if (frame.event.type === 'turnStart') turnId = frame.event.turnId
-          apply(frame.event, pendingUserText, turnId)
-          if (frame.event.type === 'turnEnd') {
-            await landing
+        } catch (thrown) {
+          if (!turnDelivery.isCurrent()) return
+          if (thrown instanceof AgentRequestError && thrown.status === 404) break
+          if (thrown instanceof AgentRequestError && thrown.status === 429) {
+            fail(TURN_RATE_LIMITED)
             return
           }
         }
-      } catch (thrown) {
-        // 轮已经不在了，再重连也接不上；其余的断流与请求失败都走重连。
-        if (thrown instanceof AgentRequestError && thrown.status === 404) break
-        if (thrown instanceof AgentRequestError && thrown.status === 429) {
-          fail(TURN_RATE_LIMITED)
-          return
-        }
+        const active = get().activeTurn
+        const delay = RECONNECT_DELAYS_MS[Math.max(attempt, 0)]
+        if (!active || delay === undefined) break
+        await sleep(delay)
+        if (!turnDelivery.isCurrent()) return
+        source = resumeTurn(conversationId, active.turnId, seen)
       }
-      const active = get().activeTurn
-      const delay = RECONNECT_DELAYS_MS[Math.max(attempt, 0)]
-      if (!active || delay === undefined) break
-      await sleep(delay)
-      source = resumeTurn(conversationId, active.turnId, seen)
+      if (get().turn === 'running') fail()
+    } finally {
+      await turnDelivery.settled()
     }
-    if (get().turn === 'running') fail()
   }
 
   return {
@@ -429,12 +371,15 @@ export const useAgentStore = create<AgentState>((set, get) => {
 
     async selectConversation(conversationId) {
       if (get().turn === 'running') return
+      const isCurrent = delivery.reset()
       safeLocalStorage.setItem(conversationKey(), conversationId)
       set({ conversationId, messages: [], turns: {}, error: null })
       let state: Awaited<ReturnType<typeof fetchMessages>>
       try {
         state = await fetchMessages(conversationId)
+        if (!isCurrent()) return
       } catch {
+        if (!isCurrent()) return
         // 会话被删或换了身份：忘掉它，下一条消息开新会话。
         get().startNewConversation()
         return
@@ -443,13 +388,15 @@ export const useAgentStore = create<AgentState>((set, get) => {
         messages: state.messages.map(panelMessage),
         turns: Object.fromEntries(state.turns.map((one) => [one.turnId, one])),
       })
+      void delivery.restore(get().messages)
       if (!state.activeTurn) return
       set({ turn: 'running', error: null, activeTurn: state.activeTurn })
-      takeBaseRevision()
+      const turnDelivery = delivery.beginTurn()
       await follow(
         conversationId,
         resumeTurn(conversationId, state.activeTurn.turnId, 0),
         null,
+        turnDelivery,
         state.activeTurn.turnId,
       )
     },
@@ -467,8 +414,16 @@ export const useAgentStore = create<AgentState>((set, get) => {
     },
 
     startNewConversation() {
+      delivery.reset()
       safeLocalStorage.removeItem(conversationKey())
-      set({ conversationId: null, messages: [], turns: {}, error: null })
+      set({
+        conversationId: null,
+        messages: [],
+        turns: {},
+        error: null,
+        turn: 'idle',
+        activeTurn: null,
+      })
     },
 
     async send(text, references = []) {
@@ -485,23 +440,33 @@ export const useAgentStore = create<AgentState>((set, get) => {
       // 首轮才会定标题、才会有新会话进列表；之后每轮再拉一次是白拉。
       const firstTurn = get().messages.length === 0
       set({ turn: 'running', error: null, activeTurn: null })
-      takeBaseRevision()
+      const turnDelivery = delivery.beginTurn()
       let target = conversationId
       try {
         if (!target) {
           target = (await createConversation()).id
+          if (!turnDelivery.isCurrent()) {
+            await turnDelivery.settled()
+            return
+          }
           safeLocalStorage.setItem(conversationKey(), target)
           set({ conversationId: target })
         }
       } catch {
-        fail()
+        if (turnDelivery.isCurrent()) fail()
+        await turnDelivery.settled()
         return
       }
       // 起轮这一刻的参数快照：轮跑到一半用户改了 chip，改的是下一轮，不该追改这一轮。
       const { params, settings } = useStore.getState()
       const model = clientProfileToApiProfile(getActiveApiProfile(settings)).model
       const turnParams = toAgentTurnParams(params, model)
-      await follow(target, startTurn(target, trimmed, references, turnParams), trimmed)
+      await follow(
+        target,
+        startTurn(target, trimmed, references, turnParams),
+        trimmed,
+        turnDelivery,
+      )
       if (firstTurn) await get().refreshConversations()
     },
 
@@ -515,11 +480,8 @@ export const useAgentStore = create<AgentState>((set, get) => {
     async placeOnCanvas(messageId) {
       const message = get().messages.find((one) => one.id === messageId)
       if (message?.kind !== 'tool') return
-      // 不带基线：用户点了这个按钮，写入就是他要的。
-      const outcome = await writeToCanvas(message.artifacts ?? [], {
-        ...(message.anchorObjectId ? { anchorObjectId: message.anchorObjectId } : {}),
-      })
-      if (outcome !== 'failed') setConflict(messageId, false)
+      if (message.status === 'succeeded' && message.artifacts?.length)
+        await delivery.placeOnCanvas(message)
     },
   }
 })
