@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import AgentPanel from '../../../../features/agent/components/AgentPanel'
 import { setAgentCanvasSink } from '../../../../features/agent/lib/canvasSink'
 import { useAgentStore } from '../../../../features/agent/store'
+import type { AgentDeliveryStatus, AgentToolMessage } from '../../../../features/agent/types'
 import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
 import type { CanvasEditor } from '../../../../features/canvas/lib/editor'
 import { useLibraryStore } from '../../../../features/library/store'
@@ -32,6 +33,10 @@ const MANIFEST = {
   'remix:listing': false,
 }
 
+/** 画布渲出来的缩略图；服务端回退取回来的是 SERVER_IMAGE。 */
+const CANVAS_THUMBNAIL = 'data:image/png;base64,Q0FOVkFT'
+const SERVER_IMAGE = 'data:image/png;base64,AQID'
+
 let host: HTMLDivElement
 let root: Root
 
@@ -54,6 +59,31 @@ function render(): void {
 
 function texts(selector: string): string[] {
   return [...host.querySelectorAll(selector)].map((node) => node.textContent ?? '')
+}
+
+/** 缩略图是异步取回来的：等它取完，act 退出时这一批更新才刷进 DOM。 */
+async function settle(): Promise<void> {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  })
+}
+
+function toolMessage(
+  delivery: AgentDeliveryStatus,
+  artifactId = 'agent_image_1',
+): AgentToolMessage {
+  return {
+    kind: 'tool',
+    id: 'tool-1',
+    turnId: 'turn-1',
+    toolCallId: 'call-1',
+    title: '一只橘猫坐在窗台上',
+    status: 'succeeded',
+    delivery,
+    artifacts: [
+      { artifactId, media: 'image', taskId: 'task-1', outputIndex: 0, mime: 'image/png' },
+    ],
+  }
 }
 
 beforeEach(async () => {
@@ -145,31 +175,10 @@ describe('AgentPanel', () => {
       },
       focus: (objectId) => focused.push(objectId),
       async thumbnail() {
-        return 'data:image/png;base64,AQID'
+        return CANVAS_THUMBNAIL
       },
     })
-    useAgentStore.setState({
-      messages: [
-        {
-          kind: 'tool',
-          id: 'tool-1',
-          turnId: 'turn-1',
-          toolCallId: 'call-1',
-          title: '一只橘猫坐在窗台上',
-          status: 'succeeded',
-          delivery: 'pending',
-          artifacts: [
-            {
-              artifactId: 'agent_image_1',
-              media: 'image',
-              taskId: 'task-1',
-              outputIndex: 0,
-              mime: 'image/png',
-            },
-          ],
-        },
-      ],
-    })
+    useAgentStore.setState({ messages: [toolMessage('pending')] })
     render()
     // 缩略图是画布异步渲出来的，等它落进 DOM。
     await act(async () => {
@@ -203,8 +212,9 @@ describe('AgentPanel', () => {
         return 'placed'
       },
       focus() {},
+      // 与服务端回退取回来的那份区分开，好看出缩略图究竟来自哪一边。
       async thumbnail(id) {
-        return onCanvas.has(id) ? 'data:image/png;base64,AQID' : null
+        return onCanvas.has(id) ? CANVAS_THUMBNAIL : null
       },
     })
     vi.stubGlobal(
@@ -212,29 +222,10 @@ describe('AgentPanel', () => {
       async () =>
         new Response(new Uint8Array([1, 2, 3]), { headers: { 'content-type': 'image/png' } }),
     )
-    useAgentStore.setState({
-      messages: [
-        {
-          kind: 'tool',
-          id: 'tool-1',
-          turnId: 'turn-1',
-          toolCallId: 'call-1',
-          title: '一只橘猫坐在窗台上',
-          status: 'succeeded',
-          delivery: 'conflict',
-          artifacts: [
-            {
-              artifactId: 'agent_image_1',
-              media: 'image',
-              taskId: 'task-1',
-              outputIndex: 0,
-              mime: 'image/png',
-            },
-          ],
-        },
-      ],
-    })
+    useAgentStore.setState({ messages: [toolMessage('conflict')] })
     render()
+    // 入口从画布反查，反查是异步的。
+    await settle()
     const place = [...host.querySelectorAll('button')].find(
       (button) => button.textContent === '放入画布',
     )!
@@ -242,13 +233,79 @@ describe('AgentPanel', () => {
       place.click()
       await vi.waitFor(() => expect(onCanvas.has('agent_image_1')).toBe(true))
     })
+    await settle()
 
-    expect(host.querySelector('img')).not.toBeNull()
+    expect(host.querySelector('img')?.getAttribute('src')).toBe(CANVAS_THUMBNAIL)
     expect(texts('button')).not.toContain('放入画布')
     expect(useAgentStore.getState().messages[0]).toMatchObject({
       status: 'succeeded',
       delivery: 'placed',
     })
+  })
+
+  it('刷新后没落画布的产出仍看得见，并留着放入画布的入口', async () => {
+    const onCanvas = new Set<string>()
+    setAgentCanvasSink({
+      has: (id) => onCanvas.has(id),
+      revision: () => 0,
+      async place(items) {
+        for (const item of items) onCanvas.add(item.artifactId)
+        return 'placed'
+      },
+      focus() {},
+      // 画布上没有这个对象，画布给不出缩略图。
+      async thumbnail(id) {
+        return onCanvas.has(id) ? CANVAS_THUMBNAIL : null
+      },
+    })
+    vi.stubGlobal(
+      'fetch',
+      async () =>
+        new Response(new Uint8Array([1, 2, 3]), { headers: { 'content-type': 'image/png' } }),
+    )
+    // 刷新后交付状态是从画布反查出来的：这张图不在画布上。
+    useAgentStore.setState({ messages: [toolMessage('unavailable', 'agent_image_refresh')] })
+    render()
+    await settle()
+
+    expect(host.querySelector('img')?.getAttribute('src')).toBe(SERVER_IMAGE)
+    expect(host.textContent).toContain('产物尚未放入当前画布，可手动放入。')
+    expect(texts('button')).toContain('放入画布')
+  })
+
+  it('入口从画布反查：在画布上就不给，被删掉后重新给', async () => {
+    const onCanvas = new Set(['agent_image_1'])
+    setAgentCanvasSink({
+      has: (id) => onCanvas.has(id),
+      revision: () => 0,
+      async place() {
+        return 'placed'
+      },
+      focus() {},
+      async thumbnail(id) {
+        return onCanvas.has(id) ? CANVAS_THUMBNAIL : null
+      },
+    })
+    vi.stubGlobal(
+      'fetch',
+      async () =>
+        new Response(new Uint8Array([1, 2, 3]), { headers: { 'content-type': 'image/png' } }),
+    )
+    useAgentStore.setState({ messages: [toolMessage('placed')] })
+    render()
+    await settle()
+
+    expect(host.querySelector('img')?.getAttribute('src')).toBe(CANVAS_THUMBNAIL)
+    expect(texts('button')).not.toContain('放入画布')
+
+    // 用户把这张图从画布上删了，再折叠展开一次面板。
+    onCanvas.delete('agent_image_1')
+    act(() => (host.querySelector('button[aria-label="收起面板"]') as HTMLButtonElement).click())
+    act(() => (host.querySelector('button') as HTMLButtonElement).click())
+    await settle()
+
+    expect(host.querySelector('img')?.getAttribute('src')).toBe(SERVER_IMAGE)
+    expect(texts('button')).toContain('放入画布')
   })
 
   it('澄清渲染成可点的单选，点一下把那一项发成下一条消息', () => {
