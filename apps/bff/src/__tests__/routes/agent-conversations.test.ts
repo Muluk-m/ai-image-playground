@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
-import type { AgentConversationView } from '@image-playground/shared'
+import { type AgentConversationView, DEVICE_ID_HEADER } from '@image-playground/shared'
 import { eq } from 'drizzle-orm'
 import { Elysia } from 'elysia'
 import { completionStream, recordingAgentFetch } from '../helpers/agentStubs'
@@ -27,11 +27,12 @@ const OTHER_DEVICE = 'device-zzzzzzzz'
 async function request(
   method: string,
   path: string,
-  options: { body?: unknown; cookie?: string } = {},
+  options: { body?: unknown; cookie?: string; deviceId?: string } = {},
 ) {
   const headers: Record<string, string> = {}
   if (options.body !== undefined) headers['content-type'] = 'application/json'
   if (options.cookie) headers.cookie = options.cookie
+  if (options.deviceId) headers[DEVICE_ID_HEADER] = options.deviceId
   const response = await app.handle(
     new Request(`http://localhost${path}`, {
       method,
@@ -69,11 +70,10 @@ async function listConversations(
   deviceId = DEVICE,
   cookie?: string,
 ): Promise<AgentConversationView[]> {
-  const { status, json } = await request(
-    'GET',
-    `/api/agent/conversations?deviceId=${deviceId}`,
-    cookie ? { cookie } : {},
-  )
+  const { status, json } = await request('GET', '/api/agent/conversations', {
+    deviceId,
+    ...(cookie ? { cookie } : {}),
+  })
   expect(status).toBe(200)
   return (json as { conversations: AgentConversationView[] }).conversations
 }
@@ -139,6 +139,13 @@ describe('GET /api/agent/conversations', () => {
     expect((await listConversations(OTHER_DEVICE)).map((one) => one.id)).toEqual([theirs])
   })
 
+  it('refuses the device id in the query string', async () => {
+    // 设备标识是纯 bearer，query string 会进访问日志 / 代理日志 / 浏览器历史。
+    const { status } = await request('GET', `/api/agent/conversations?deviceId=${DEVICE}`)
+
+    expect(status).toBe(400)
+  })
+
   it('hides the conversations of the device once signed in', async () => {
     const anonymous = await startConversation()
     await runTurn(anonymous, '匿名的')
@@ -163,10 +170,9 @@ describe('DELETE /api/agent/conversations/:id', () => {
     const [row] = await db.select().from(schema.agent_conversations)
     expect(row!.deleted_at).toBeGreaterThan(0)
 
-    const messages = await request(
-      'GET',
-      `/api/agent/conversations/${conversationId}/messages?deviceId=${DEVICE}`,
-    )
+    const messages = await request('GET', `/api/agent/conversations/${conversationId}/messages`, {
+      deviceId: DEVICE,
+    })
     expect(messages.status).toBe(404)
   })
 

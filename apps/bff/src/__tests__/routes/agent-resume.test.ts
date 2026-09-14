@@ -1,7 +1,11 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
-import type { AgentActiveTurnView, AgentMessageView } from '@image-playground/shared'
+import {
+  type AgentActiveTurnView,
+  type AgentMessageView,
+  DEVICE_ID_HEADER,
+} from '@image-playground/shared'
 import { Elysia } from 'elysia'
 import {
   type AgentCall,
@@ -57,11 +61,11 @@ function startTurn(conversationId: string, text: string): Promise<Response> {
 }
 
 function resume(conversationId: string, turnId: string, lastEventId?: number): Promise<Response> {
-  const headers = new Headers()
+  const headers = new Headers({ [DEVICE_ID_HEADER]: DEVICE })
   if (lastEventId !== undefined) headers.set('last-event-id', String(lastEventId))
   return app.handle(
     new Request(
-      `http://localhost/api/agent/conversations/${conversationId}/turns/${turnId}/events?deviceId=${DEVICE}`,
+      `http://localhost/api/agent/conversations/${conversationId}/turns/${turnId}/events`,
       { headers },
     ),
   )
@@ -72,9 +76,9 @@ async function readState(conversationId: string): Promise<{
   activeTurn: AgentActiveTurnView | null
 }> {
   const response = await app.handle(
-    new Request(
-      `http://localhost/api/agent/conversations/${conversationId}/messages?deviceId=${DEVICE}`,
-    ),
+    new Request(`http://localhost/api/agent/conversations/${conversationId}/messages`, {
+      headers: { [DEVICE_ID_HEADER]: DEVICE },
+    }),
   )
   return (await response.json()) as {
     messages: AgentMessageView[]
