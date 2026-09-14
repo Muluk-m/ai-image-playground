@@ -25,7 +25,7 @@ describe('runMigrations', () => {
     const rows = await connection.client.unsafe(
       'SELECT id, hash, created_at FROM drizzle.__drizzle_migrations ORDER BY id',
     )
-    expect(rows).toHaveLength(15)
+    expect(rows).toHaveLength(16)
     expect(rows[0]).toMatchObject({ id: 1 })
     expect(rows[1]).toMatchObject({ id: 2 })
     expect(rows[2]).toMatchObject({ id: 3 })
@@ -89,12 +89,58 @@ describe('runMigrations', () => {
     const rows = await connection.client.unsafe(
       'SELECT id FROM drizzle.__drizzle_migrations ORDER BY id',
     )
-    expect(rows).toHaveLength(15)
+    expect(rows).toHaveLength(16)
+  })
+
+  it('backfills turn footers from turn-end events still inside the event window', async () => {
+    // 直接跑迁移文件里的回填语句：钉的是真正会在部署上跑的那段 SQL。
+    const migration = await Bun.file(
+      new URL('../../drizzle/0016_agent_turn_summaries.sql', import.meta.url),
+    ).text()
+    const backfill = migration.split('--> statement-breakpoint').at(-1)!
+    const now = new Date().toISOString()
+    await connection.client.unsafe(`
+      INSERT INTO agent_conversations (id, device_id, title, created_at, updated_at)
+      VALUES ('conv-backfill', 'device-abcdefgh', '', '${now}', '${now}')
+    `)
+    await connection.client.unsafe(`
+      INSERT INTO agent_turn_events (conversation_id, seq, turn_id, event, created_at)
+      VALUES
+        ('conv-backfill', 1, 'turn-1',
+         '{"type":"turnStart","turnId":"turn-1","userMessageId":"u1"}'::jsonb, '${now}'),
+        ('conv-backfill', 2, 'turn-1',
+         '{"type":"turnEnd","turnId":"turn-1","durationMs":1200,"stopReason":"completed","usage":null,"cost":{"chat":42,"image":0,"video":0}}'::jsonb,
+         '${now}'),
+        ('conv-backfill', 3, 'turn-2',
+         '{"type":"turnEnd","turnId":"turn-2","durationMs":300,"stopReason":"aborted","usage":null}'::jsonb,
+         '${now}')
+    `)
+    await connection.client.unsafe('DELETE FROM agent_turns')
+
+    await connection.client.unsafe(backfill)
+
+    const rows = await connection.client.unsafe(`
+      SELECT turn_id, duration_ms, stop_reason, cost
+      FROM agent_turns
+      WHERE conversation_id = 'conv-backfill'
+      ORDER BY turn_id
+    `)
+    expect(rows).toEqual([
+      {
+        turn_id: 'turn-1',
+        duration_ms: 1200,
+        stop_reason: 'completed',
+        cost: { chat: 42, image: 0, video: 0 },
+      },
+      { turn_id: 'turn-2', duration_ms: 300, stop_reason: 'aborted', cost: null },
+    ])
+    await connection.client.unsafe(`DELETE FROM agent_conversations WHERE id = 'conv-backfill'`)
   })
 
   it('applies every rollback in reverse order and can migrate forward again', async () => {
     const rollbackDirectory = new URL('../../drizzle/rollback/', import.meta.url)
     for (const file of [
+      '0016_agent_turn_summaries.down.sql',
       '0015_chat_task_kind.down.sql',
       '0014_agent_task_link.down.sql',
       '0012_flowery_viper.down.sql',
@@ -134,6 +180,6 @@ describe('runMigrations', () => {
     const restored = await connection.client.unsafe(
       'SELECT id FROM drizzle.__drizzle_migrations ORDER BY id',
     )
-    expect(restored).toHaveLength(15)
+    expect(restored).toHaveLength(16)
   })
 })

@@ -1,7 +1,12 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
-import type { AgentTurnEndEvent, AgentTurnStartEvent } from '@image-playground/shared'
+import type {
+  AgentTurnEndEvent,
+  AgentTurnStartEvent,
+  AgentTurnSummaryView,
+} from '@image-playground/shared'
+import { DEVICE_ID_HEADER } from '@image-playground/shared'
 import { Elysia } from 'elysia'
 import { _setPrivateBffOverlayForTesting } from '../../lib/private-overlay'
 import { completionStream, parseFrames, recordingAgentFetch } from '../helpers/agentStubs'
@@ -21,6 +26,7 @@ const billing = installRecordingTaskHooks()
 const { agentRoutes } = await import('../../routes/agent')
 const { setAgentFetchForTesting } = await import('../../lib/agent/model')
 const { close: closeDb, db, schema } = await import('../../db/client')
+const { purgeOldAgentTurnEvents } = await import('../../lib/agent/events')
 
 const app = new Elysia().use(agentRoutes)
 const DEVICE = 'device-abcdefgh'
@@ -35,8 +41,18 @@ async function post(path: string, body: unknown): Promise<Response> {
   )
 }
 
+async function readTurnSummaries(conversationId: string): Promise<AgentTurnSummaryView[]> {
+  const response = await app.handle(
+    new Request(`http://localhost/api/agent/conversations/${conversationId}/messages`, {
+      headers: { [DEVICE_ID_HEADER]: DEVICE },
+    }),
+  )
+  return ((await response.json()) as { turns: AgentTurnSummaryView[] }).turns
+}
+
 beforeEach(async () => {
   billing.reset()
+  await db.delete(schema.tasks)
   await db.delete(schema.agent_conversations)
 })
 
@@ -82,5 +98,38 @@ describe('billing:credits 关着的部署', () => {
     const end = frames.at(-1)!.event as AgentTurnEndEvent
     expect(start.reservedCredits).toBeUndefined()
     expect(end.cost).toBeUndefined()
+  })
+
+  it('事件过期后翻回去只剩耗时，没有消耗可显示', async () => {
+    setAgentFetchForTesting(recordingAgentFetch([], () => completionStream('好')))
+    const created = await post('/api/agent/conversations', { deviceId: DEVICE })
+    const { conversation } = (await created.json()) as { conversation: { id: string } }
+
+    const response = await post(`/api/agent/conversations/${conversation.id}/turns`, {
+      deviceId: DEVICE,
+      text: '把背景换成浅木色',
+    })
+    const frames = parseFrames(await response.text())
+    const turnId = (frames[0]!.event as AgentTurnStartEvent).turnId
+    await purgeOldAgentTurnEvents(0, Date.now() + 1_000)
+
+    const turns = await readTurnSummaries(conversation.id)
+    expect(turns).toHaveLength(1)
+    expect(turns[0]).toMatchObject({ turnId, stopReason: 'completed' })
+    expect(turns[0]!.cost).toBeUndefined()
+    expect(turns[0]!.durationMs).toBeGreaterThanOrEqual(0)
+  })
+
+  it('不计费的轮不写任何任务行，worker 与恢复扫描照旧看不到对话轮', async () => {
+    setAgentFetchForTesting(recordingAgentFetch([], () => completionStream('好')))
+    const created = await post('/api/agent/conversations', { deviceId: DEVICE })
+    const { conversation } = (await created.json()) as { conversation: { id: string } }
+
+    await post(`/api/agent/conversations/${conversation.id}/turns`, {
+      deviceId: DEVICE,
+      text: '把背景换成浅木色',
+    })
+
+    expect(await db.select().from(schema.tasks)).toEqual([])
   })
 })
