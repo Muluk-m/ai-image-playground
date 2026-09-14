@@ -11,7 +11,9 @@ import type {
 } from '@image-playground/shared'
 import { agentMessageText } from '@image-playground/shared'
 import { create } from 'zustand'
+import { clientProfileToApiProfile, getActiveApiProfile } from '../../lib/apiProfiles'
 import { AGENT_CONVERSATION_KEY, safeLocalStorage, scopedStorageName } from '../../lib/authScope'
+import { useStore } from '../../store'
 import {
   AgentRequestError,
   abortTurn,
@@ -31,6 +33,7 @@ import {
   type AgentPlaceOutcome,
   agentCanvasSink,
 } from './lib/canvasSink'
+import { toAgentTurnParams } from './lib/turnParams'
 import { videoPosterDataUrl } from './lib/videoPoster'
 import type {
   AgentClarificationMessage,
@@ -494,7 +497,11 @@ export const useAgentStore = create<AgentState>((set, get) => {
         fail()
         return
       }
-      await follow(target, startTurn(target, trimmed, references), trimmed)
+      // 起轮这一刻的参数快照：轮跑到一半用户改了 chip，改的是下一轮，不该追改这一轮。
+      const { params, settings } = useStore.getState()
+      const model = clientProfileToApiProfile(getActiveApiProfile(settings)).model
+      const turnParams = toAgentTurnParams(params, model)
+      await follow(target, startTurn(target, trimmed, references, turnParams), trimmed)
       if (firstTurn) await get().refreshConversations()
     },
 
