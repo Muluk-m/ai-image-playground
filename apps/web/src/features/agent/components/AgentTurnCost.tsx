@@ -16,15 +16,10 @@ export default function AgentTurnCost({ footer }: { footer: AgentTurnFooter }) {
   const cost = footer.cost
   const total = cost ? agentTurnCostTotal(cost) : null
 
+  // 进行中不写预扣：那是内部记账，用户只关心结算后的实际消耗；进行中由状态行表达。
   const parts: ReactNode[] = []
   if (footer.durationMs !== undefined) {
     parts.push(<span>本轮耗时 {formatElapsed(footer.durationMs)}</span>)
-  } else if (footer.reservedCredits !== undefined) {
-    parts.push(
-      <span className="inline-flex items-center gap-1">
-        预扣 <Credits credits={footer.reservedCredits} />
-      </span>,
-    )
   }
   if (total === 0) parts.push(<span>本轮免费，未扣积分</span>)
   if (total) {

@@ -54,12 +54,23 @@ export function rectsBounds(rects: readonly MinimapRect[]): Box | null {
 }
 
 /**
- * 小地图要装下的页面范围 = 元素公共包围盒 ∪ 当前视口。
- * 视口在内容之内时结果就是内容包围盒（常态）；用户把镜头拖到内容之外时，
- * 并上视口才不会让视口框滑出小地图——滑出去就点不回来了。
+ * 视口框在小地图里最多占的比例：装下的范围至少是视口的 3 倍宽、3 倍高。
+ * 视口把内容整个装进来时（常态），不撑开的话视口框会铺满整张小地图，
+ * 看不出自己在哪、也没有可以点过去的空白，小地图就失去意义了。
+ */
+export const MINIMAP_VIEWPORT_RATIO = 3
+
+/**
+ * 小地图要装下的页面范围 = (元素公共包围盒 ∪ 当前视口)，再撑到至少视口的
+ * `MINIMAP_VIEWPORT_RATIO` 倍。并上视口是为了用户把镜头拖到内容之外时，
+ * 视口框不会滑出小地图——滑出去就点不回来了；撑开围绕并集中心对称进行，
+ * 所以并集里的内容与视口都仍在范围内。内容远大于视口时范围就是内容包围盒。
  */
 export function minimapSourceBox(content: Box | null, viewport: Box): Box {
-  return content ? Box.Common([content, viewport]) : viewport
+  const union = content ? Box.Common([content, viewport]) : viewport
+  const w = Math.max(union.w, viewport.w * MINIMAP_VIEWPORT_RATIO)
+  const h = Math.max(union.h, viewport.h * MINIMAP_VIEWPORT_RATIO)
+  return new Box(union.x - (w - union.w) / 2, union.y - (h - union.h) / 2, w, h)
 }
 
 /** 页面坐标 → 小地图坐标的仿射变换：`mx = x * scale + tx`。 */
