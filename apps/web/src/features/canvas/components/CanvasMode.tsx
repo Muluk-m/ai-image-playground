@@ -12,6 +12,7 @@ import { placeImagesIntoTargets } from '../lib/placeholderShapeOps'
 import { computePlaceholderTargets } from '../lib/placement'
 import { recoverCanvasTasks } from '../lib/recoverCanvasTasks'
 import CanvasGenerateBar from './CanvasGenerateBar'
+import CanvasMinimap from './CanvasMinimap'
 import CanvasShortcutsHint from './CanvasShortcutsHint'
 import CanvasToolbar from './CanvasToolbar'
 import CanvasVideoOverlay from './CanvasVideoOverlay'
@@ -88,7 +89,12 @@ export default function CanvasMode() {
         <CanvasVideoOverlay editor={editor} />
         <CanvasToolbar doc={doc} />
         <StylePanel doc={doc} />
-        <CanvasShortcutsHint />
+        {/* 右下角控件栈：小地图贴角，快捷键速查叠在它上面。两者共用一列，天然不重叠；
+            底部工具条居中、智能体面板在左，都不落在这一列里。 */}
+        <div className="pointer-events-none absolute bottom-4 right-4 z-[400] hidden flex-col items-end gap-2 sm:flex">
+          <CanvasShortcutsHint />
+          <CanvasMinimap editor={editor} />
+        </div>
         {/* 智能体在场时输入框只留一个：参数收进面板输入框上方的浮层，创作走对话那条路。
             能力关着的部署（免费形态）仍然靠这条生成条，不能删。 */}
         {!agentPanelPresent() && <CanvasGenerateBar editor={editor} />}

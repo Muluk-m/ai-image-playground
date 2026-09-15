@@ -23,8 +23,10 @@ const SHORTCUT_ROWS: Array<{ label: string; keys: string[] }> = [
 const COLLAPSED_STORAGE_KEY = 'canvas-shortcuts-collapsed'
 
 /**
- * 画布右下角的快捷键引导：**默认展开**做新手引导，可一键收起（收起后记住，
- * 之后默认只剩一颗 28px 圆形图标钮）。桌面端专属（移动端无键盘）。
+ * 快捷键引导：**默认展开**做新手引导，可一键收起（收起后记住，之后默认只剩一颗
+ * 28px 圆形图标钮）。桌面端专属（移动端无键盘）。
+ * 定位由 CanvasMode 的右下角控件栈负责——它和小地图共用一列，自己不占绝对定位，
+ * 免得两个都往角上贴、糊在一起。
  */
 export default function CanvasShortcutsHint() {
   const [open, setOpen] = useState(() => localStorage.getItem(COLLAPSED_STORAGE_KEY) !== '1')
@@ -37,10 +39,7 @@ export default function CanvasShortcutsHint() {
   }
 
   return (
-    <div
-      className="pointer-events-none absolute bottom-4 right-4 z-[400] hidden flex-col items-end gap-1.5 sm:flex"
-      onPointerDown={(e) => e.stopPropagation()}
-    >
+    <div className="flex flex-col items-end gap-1.5" onPointerDown={(e) => e.stopPropagation()}>
       {open && (
         <div className="pointer-events-auto w-52 rounded-xl border border-white/10 bg-gray-900/95 px-2.5 py-2 shadow-xl backdrop-blur">
           {SHORTCUT_ROWS.map((row) => (
