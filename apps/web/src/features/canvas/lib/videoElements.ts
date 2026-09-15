@@ -1,4 +1,4 @@
-import { queueOutputUrl } from '../../video/lib/playback'
+import { queueOutputUrl } from '../../../lib/channels/queueClient'
 import type { CanvasEditor } from './editor'
 
 /** 画布上的一个可播放对象。位图是封面，片子在服务端。 */
