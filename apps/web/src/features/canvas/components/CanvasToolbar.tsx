@@ -130,126 +130,134 @@ function ToolButton({
   )
 }
 
-/** 底部居中工具条 + 左下角缩放控件（快捷键速查在 CanvasShortcutsHint）。 */
+const PILL =
+  'pointer-events-auto rounded-2xl border border-white/10 bg-gray-900/95 p-1.5 shadow-lg backdrop-blur'
+
+/**
+ * 工具条。对话面板开着时贴在面板右缘竖着排（工具、撤销重做、选区操作、缩放一列到底），
+ * 操作区离对话和引用区都近；面板收起或没有智能体时退回底部横排。
+ */
 export default function CanvasToolbar({ doc }: { doc: CanvasDoc }) {
   useSyncExternalStore(doc.subscribe, () => doc.version)
   const agentPanelInset = useAgentPanelInset()
   const { tool, selection, camera, viewport } = doc
+  const docked = agentPanelInset > 0
 
   const zoomStep = (dir: 1 | -1) => {
     doc.zoomAt(viewport.width / 2, viewport.height / 2, camera.zoom * (dir === 1 ? 1.25 : 0.8))
   }
 
-  return (
-    // 底部一整行：缩放控件靠左、工具条在剩余宽度里居中。对话面板拖宽后整行从面板右缘起算，
-    // 三列网格保证两组控件永远各占一格，不会像两个各自定位的浮层那样叠到一起。
-    <div
-      style={{ left: agentPanelInset }}
-      className="pointer-events-none absolute bottom-4 right-0 z-[400] grid grid-cols-[1fr_auto_1fr] items-center gap-3 px-4"
+  const tools = TOOLS.map(({ tool: t, label, hotkey, icon }) => (
+    <ToolButton
+      key={t}
+      active={tool === t}
+      title={`${label}（${hotkey}）`}
+      onClick={() => doc.setTool(t)}
     >
-      {/* 缩放控件：左下角，让开浮层对话面板 */}
-      <div className="justify-self-start">
-        <div className="pointer-events-auto flex items-center rounded-xl border border-white/10 bg-gray-900/95 shadow-lg backdrop-blur">
-          <button
-            type="button"
-            title="缩小"
-            onClick={() => zoomStep(-1)}
-            className="px-3 py-2 text-gray-300 hover:bg-white/10"
-          >
-            −
-          </button>
-          <button
-            type="button"
-            title="重置为 100%"
-            onClick={() => doc.zoomAt(viewport.width / 2, viewport.height / 2, 1)}
-            className="min-w-14 px-1 py-2 text-center text-xs text-gray-300 tabular-nums hover:bg-white/10"
-          >
-            {Math.round(camera.zoom * 100)}%
-          </button>
-          <button
-            type="button"
-            title="放大"
-            onClick={() => zoomStep(1)}
-            className="px-3 py-2 text-gray-300 hover:bg-white/10"
-          >
-            ＋
-          </button>
+      {icon}
+    </ToolButton>
+  ))
+  const history = (
+    <>
+      <ToolButton title="撤销（⌘Z）" disabled={!doc.canUndo} onClick={() => doc.undo()}>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path
+            d="M8 5L4 9l4 4M4 9h10a6 6 0 016 6v1"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </ToolButton>
+      <ToolButton title="重做（⌘⇧Z）" disabled={!doc.canRedo} onClick={() => doc.redo()}>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path
+            d="M16 5l4 4-4 4M20 9H10a6 6 0 00-6 6v1"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </ToolButton>
+    </>
+  )
+  const selectionActions = selection.size > 0 && (
+    <>
+      <ToolButton title="复制一份（⌘D）" onClick={() => duplicateSelection(doc)}>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <rect x="8" y="8" width="12" height="12" rx="2" stroke="currentColor" strokeWidth="1.7" />
+          <path
+            d="M16 4H6a2 2 0 00-2 2v10"
+            stroke="currentColor"
+            strokeWidth="1.7"
+            strokeLinecap="round"
+          />
+        </svg>
+      </ToolButton>
+      <ToolButton title="删除所选（Del）" onClick={() => doc.deleteElements([...doc.selection])}>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path
+            d="M5 7h14M9 7V5h6v2m-8 0l1 13h8l1-13"
+            stroke="currentColor"
+            strokeWidth="1.7"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </ToolButton>
+    </>
+  )
+  const zoom = (
+    <>
+      <ToolButton title="缩小" onClick={() => zoomStep(-1)}>
+        <span className="text-base leading-none">−</span>
+      </ToolButton>
+      <button
+        type="button"
+        title="重置为 100%"
+        onClick={() => doc.zoomAt(viewport.width / 2, viewport.height / 2, 1)}
+        className={`rounded-xl text-xs text-gray-300 tabular-nums transition-colors hover:bg-white/10 ${docked ? 'h-9 w-9' : 'h-9 min-w-14 px-1'}`}
+      >
+        {Math.round(camera.zoom * 100)}%
+      </button>
+      <ToolButton title="放大" onClick={() => zoomStep(1)}>
+        <span className="text-base leading-none">＋</span>
+      </ToolButton>
+    </>
+  )
+
+  if (docked) {
+    return (
+      <div
+        style={{ left: agentPanelInset }}
+        className="pointer-events-none absolute top-1/2 z-[400] flex max-h-[calc(100%-32px)] -translate-y-1/2 flex-col gap-2 overflow-y-auto"
+        data-canvas-toolbar="docked"
+      >
+        <div className={`${PILL} flex flex-col items-center gap-1`}>
+          {tools}
+          <div className="my-1 h-px w-6 bg-white/10" />
+          {history}
+          {selectionActions}
         </div>
+        <div className={`${PILL} flex flex-col items-center gap-1`}>{zoom}</div>
       </div>
-      {/* 工具条：居中 */}
-      <div className="justify-self-center">
-        <div className="pointer-events-auto flex items-center gap-1 rounded-2xl border border-white/10 bg-gray-900/95 p-1.5 shadow-lg backdrop-blur">
-          {TOOLS.map(({ tool: t, label, hotkey, icon }) => (
-            <ToolButton
-              key={t}
-              active={tool === t}
-              title={`${label}（${hotkey}）`}
-              onClick={() => doc.setTool(t)}
-            >
-              {icon}
-            </ToolButton>
-          ))}
-          <div className="mx-1 h-6 w-px bg-white/10" />
-          <ToolButton title="撤销（⌘Z）" disabled={!doc.canUndo} onClick={() => doc.undo()}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-              <path
-                d="M8 5L4 9l4 4M4 9h10a6 6 0 016 6v1"
-                stroke="currentColor"
-                strokeWidth="1.8"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          </ToolButton>
-          <ToolButton title="重做（⌘⇧Z）" disabled={!doc.canRedo} onClick={() => doc.redo()}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-              <path
-                d="M16 5l4 4-4 4M20 9H10a6 6 0 00-6 6v1"
-                stroke="currentColor"
-                strokeWidth="1.8"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          </ToolButton>
-          {selection.size > 0 && (
-            <>
-              <ToolButton title="复制一份（⌘D）" onClick={() => duplicateSelection(doc)}>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                  <rect
-                    x="8"
-                    y="8"
-                    width="12"
-                    height="12"
-                    rx="2"
-                    stroke="currentColor"
-                    strokeWidth="1.7"
-                  />
-                  <path
-                    d="M16 4H6a2 2 0 00-2 2v10"
-                    stroke="currentColor"
-                    strokeWidth="1.7"
-                    strokeLinecap="round"
-                  />
-                </svg>
-              </ToolButton>
-              <ToolButton
-                title="删除所选（Del）"
-                onClick={() => doc.deleteElements([...doc.selection])}
-              >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                  <path
-                    d="M5 7h14M9 7V5h6v2m-8 0l1 13h8l1-13"
-                    stroke="currentColor"
-                    strokeWidth="1.7"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-              </ToolButton>
-            </>
-          )}
-        </div>
+    )
+  }
+
+  return (
+    // 底部一整行：缩放控件靠左、工具条在剩余宽度里居中。三列网格保证两组控件各占一格，不会叠到一起。
+    <div
+      className="pointer-events-none absolute bottom-4 left-0 right-0 z-[400] grid grid-cols-[1fr_auto_1fr] items-center gap-3 px-4"
+      data-canvas-toolbar="bottom"
+    >
+      <div className={`${PILL} flex items-center justify-self-start`}>{zoom}</div>
+      <div className={`${PILL} flex items-center gap-1 justify-self-center`}>
+        {tools}
+        <div className="mx-1 h-6 w-px bg-white/10" />
+        {history}
+        {selectionActions}
       </div>
       <div />
     </div>
