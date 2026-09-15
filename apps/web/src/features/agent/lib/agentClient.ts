@@ -157,6 +157,7 @@ export async function startTurn(
     const turnId = await alreadyRunningTurnId(response)
     if (turnId) return { kind: 'alreadyRunning', turnId }
   }
+  if (!response.ok || !response.body) throw new AgentRequestError(response.status)
   return { kind: 'frames', frames: readFrames(response) }
 }
 
@@ -190,12 +191,14 @@ export async function interjectTurn(
   conversationId: string,
   turnId: string,
   text: string,
+  references: readonly AgentTurnReference[] = [],
   fetcher: Fetcher = authenticatedBffFetch,
 ): Promise<void> {
-  await fetcher(
+  const response = await fetcher(
     url(`/conversations/${conversationId}/turns/${turnId}/interject`),
-    jsonInit({ deviceId: getDeviceId(), text }),
+    jsonInit({ deviceId: getDeviceId(), text, references }),
   )
+  if (!response.ok) throw new AgentRequestError(response.status)
 }
 
 export function fetchToolImage(artifact: AgentToolArtifact): Promise<string> {

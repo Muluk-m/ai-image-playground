@@ -229,15 +229,17 @@ export const agentRoutes = new Elysia()
   )
   .post(
     '/api/agent/conversations/:id/turns/:turnId/interject',
-    ({ activeTurn, body, status }) => {
+    async ({ activeTurn, body, status }) => {
       if (!activeTurn) return status(404, TURN_NOT_FOUND)
-      return { messageId: activeTurn.interject(body.text) }
+      const messageId = await activeTurn.interject(body.text, body.references)
+      return messageId ? { messageId } : status(409, { error: 'turn_finished' })
     },
     {
       params: turnParams,
       body: t.Object({
         deviceId: deviceIdSchema(),
         text: t.String({ minLength: 1, maxLength: AGENT_USER_MESSAGE_MAX_CHARS }),
+        references: referencesSchema,
       }),
     },
   )
