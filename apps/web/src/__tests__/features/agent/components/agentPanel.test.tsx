@@ -164,7 +164,7 @@ describe('AgentPanel', () => {
       async place() {
         return 'placed'
       },
-      focus: (objectId) => focused.push(objectId),
+      focus: (objectIds) => focused.push(...objectIds),
       async thumbnail() {
         return CANVAS_THUMBNAIL
       },
@@ -190,9 +190,15 @@ describe('AgentPanel', () => {
     act(() => thumbnail.click())
 
     expect(focused).toEqual(['agent_image_1'])
+
+    // 点标题把这一次的产物全部定位、选中。
+    focused.length = 0
+    const title = host.querySelector('button[title="在画布上定位这些产物"]') as HTMLButtonElement
+    act(() => title.click())
+    expect(focused).toEqual(['agent_image_1'])
   })
 
-  it('手动交付把冲突产物放入画布，并用可定位的缩略图替换入口', async () => {
+  it('不在画布上的产物可以再放入，放入后换成可定位的缩略图', async () => {
     const onCanvas = new Set<string>()
     stubCanvasSink({
       has: (id) => onCanvas.has(id),
@@ -213,7 +219,7 @@ describe('AgentPanel', () => {
       async () =>
         new Response(new Uint8Array([1, 2, 3]), { headers: { 'content-type': 'image/png' } }),
     )
-    useAgentStore.setState({ messages: [toolMessage('conflict')] })
+    useAgentStore.setState({ messages: [toolMessage('unavailable')] })
     render()
     // 入口从画布反查，反查是异步的。
     await settle()
@@ -260,7 +266,7 @@ describe('AgentPanel', () => {
     await settle()
 
     expect(host.querySelector('img')?.getAttribute('src')).toBe(SERVER_IMAGE)
-    expect(host.textContent).toContain('产物尚未放入当前画布，可手动放入。')
+    expect(host.textContent).toContain('产物不在当前画布上，可以再放入。')
     expect(texts('button')).toContain('放入画布')
   })
 

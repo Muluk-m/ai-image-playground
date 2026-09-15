@@ -7,7 +7,7 @@ import type {
 } from '@image-playground/shared'
 
 export type AgentTurnStatus = 'idle' | 'running' | 'failed'
-export type AgentDeliveryStatus = 'pending' | 'placed' | 'conflict' | 'unavailable' | 'failed'
+export type AgentDeliveryStatus = 'pending' | 'placed' | 'unavailable' | 'failed'
 
 export interface AgentTextMessage {
   readonly kind: 'text'
