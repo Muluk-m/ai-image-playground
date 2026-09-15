@@ -27,11 +27,12 @@ import {
 } from '../../../lib/promptImageMentions'
 import { ensureAssetImage } from '../../../lib/sync/assetImages'
 import { ensureImageCached, useStore } from '../../../store'
-import type { CanvasDoc } from '../../canvas/lib/canvasDoc'
+import type { CanvasDoc, ImageEl } from '../../canvas/lib/canvasDoc'
 import { useLibraryStore } from '../../library/store'
 import { ABORT_BUTTON, ICON_BUTTON, INK_3, SEND_BUTTON } from '../agentStyles'
 import { type AgentMentionValue, buildAgentMentionGroups, canvasImages } from '../lib/agentMentions'
 import { attachReferences, filesToReferences, setAgentComposerAttach } from '../lib/attachments'
+import { type MarkRenderer, renderMarkedImage, selectedMarkIds } from '../lib/markedReferences'
 import {
   type AgentDraft,
   type AgentReference,
@@ -52,7 +53,14 @@ const EDITOR_CLASS =
 
 const STRIP_THUMB = 'h-10 w-10 overflow-hidden rounded-lg border border-white/[0.09] object-cover'
 
-export default function AgentComposer({ doc }: { doc: CanvasDoc }) {
+export default function AgentComposer({
+  doc,
+  editor,
+}: {
+  doc: CanvasDoc
+  /** 把选中的批注烧进参考图要它来栅格化；没有就只带原图。 */
+  editor?: MarkRenderer
+}) {
   const running = useAgentStore((state) => state.turn === 'running')
   const assets = useLibraryStore((state) => state.assets)
   const loadAssets = useLibraryStore((state) => state.loadAssets)
@@ -95,16 +103,43 @@ export default function AgentComposer({ doc }: { doc: CanvasDoc }) {
 
   // 画布上选中的图直接进引用区：选了几张就是要对这几张说话，不必再逐张 `@`。
   // 自动带进来的按 id 记着，取消选中就撤走；用户手动 `@` 进来的不归它管。
-  const selectedImageIds = useMemo(
-    () => canvas.filter((image) => doc.selection.has(image.imageId)).map((one) => one.imageId),
+  // 每张选中的图带上压在它上面、也被选中的批注：用户圈了一块，模型就该看到那个圈。
+  const selectedImages = useMemo(
+    () =>
+      canvas.flatMap((image) => {
+        if (!doc.selection.has(image.imageId)) return []
+        const element = doc.elements.find((el) => el.id === image.imageId)
+        if (element?.type !== 'image') return []
+        return [{ imageId: image.imageId, element, marks: selectedMarkIds(doc, element) }]
+      }),
     [canvas, doc, version],
   )
-  const selectionKey = selectedImageIds.join(' ')
+  const selectionKey = selectedImages
+    .map((one) => `${one.imageId}:${one.marks.join(',')}`)
+    .join(' ')
   const autoRef = useRef<Set<string>>(new Set())
+  const selectionKeyRef = useRef(selectionKey)
+  selectionKeyRef.current = selectionKey
   useEffect(() => {
-    const selected = new Set(selectedImageIds)
+    const selected = new Set(selectedImages.map((one) => one.imageId))
+    // 先按原图同步（去掉批注的那一刻立刻回到原图），烧了批注的版本随后替换进来。
     setDraft((current) => syncSelectedReferences(current, canvas, selected, autoRef.current))
-    // 只在选区变化时同步；canvas 的引用变化不该触发（那会把手动移除的又加回来）。
+    if (!editor) return
+    for (const { imageId, element, marks } of selectedImages) {
+      // 是否自动带进来的要等上面那个 updater 跑过才知道，所以在替换那一步再判。
+      if (marks.length === 0) continue
+      void renderMarkedImage(editor, element as ImageEl, marks).then((dataUrl) => {
+        // 渲完之前选区又变了：这张图的批注不再是这一组，丢掉。
+        if (!dataUrl || selectionKeyRef.current !== selectionKey) return
+        setDraft((current) => ({
+          ...current,
+          references: current.references.map((one) =>
+            one.id === imageId && autoRef.current.has(imageId) ? { ...one, dataUrl } : one,
+          ),
+        }))
+      })
+    }
+    // 只在选区（含批注）变化时同步；canvas 的引用变化不该触发（那会把手动移除的又加回来）。
   }, [selectionKey])
 
   // contentEditable 的 onSelect 不可靠，光标位置只能靠 selectionchange 跟。

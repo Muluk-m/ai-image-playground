@@ -141,9 +141,43 @@ export default function CanvasToolbar({ doc }: { doc: CanvasDoc }) {
   }
 
   return (
-    <>
-      {/* 工具条：底部居中 */}
-      <div className="pointer-events-none absolute inset-x-0 bottom-4 z-[400] flex justify-center">
+    // 底部一整行：缩放控件靠左、工具条在剩余宽度里居中。对话面板拖宽后整行从面板右缘起算，
+    // 三列网格保证两组控件永远各占一格，不会像两个各自定位的浮层那样叠到一起。
+    <div
+      style={{ left: agentPanelInset }}
+      className="pointer-events-none absolute bottom-4 right-0 z-[400] grid grid-cols-[1fr_auto_1fr] items-center gap-3 px-4"
+    >
+      {/* 缩放控件：左下角，让开浮层对话面板 */}
+      <div className="justify-self-start">
+        <div className="pointer-events-auto flex items-center rounded-xl border border-white/10 bg-gray-900/95 shadow-lg backdrop-blur">
+          <button
+            type="button"
+            title="缩小"
+            onClick={() => zoomStep(-1)}
+            className="px-3 py-2 text-gray-300 hover:bg-white/10"
+          >
+            −
+          </button>
+          <button
+            type="button"
+            title="重置为 100%"
+            onClick={() => doc.zoomAt(viewport.width / 2, viewport.height / 2, 1)}
+            className="min-w-14 px-1 py-2 text-center text-xs text-gray-300 tabular-nums hover:bg-white/10"
+          >
+            {Math.round(camera.zoom * 100)}%
+          </button>
+          <button
+            type="button"
+            title="放大"
+            onClick={() => zoomStep(1)}
+            className="px-3 py-2 text-gray-300 hover:bg-white/10"
+          >
+            ＋
+          </button>
+        </div>
+      </div>
+      {/* 工具条：居中 */}
+      <div className="justify-self-center">
         <div className="pointer-events-auto flex items-center gap-1 rounded-2xl border border-white/10 bg-gray-900/95 p-1.5 shadow-lg backdrop-blur">
           {TOOLS.map(({ tool: t, label, hotkey, icon }) => (
             <ToolButton
@@ -217,38 +251,7 @@ export default function CanvasToolbar({ doc }: { doc: CanvasDoc }) {
           )}
         </div>
       </div>
-      {/* 缩放控件：左下角，让开浮层对话面板 */}
-      <div
-        style={{ left: 16 + agentPanelInset }}
-        className="pointer-events-none absolute bottom-4 z-[400]"
-      >
-        <div className="pointer-events-auto flex items-center rounded-xl border border-white/10 bg-gray-900/95 shadow-lg backdrop-blur">
-          <button
-            type="button"
-            title="缩小"
-            onClick={() => zoomStep(-1)}
-            className="px-3 py-2 text-gray-300 hover:bg-white/10"
-          >
-            −
-          </button>
-          <button
-            type="button"
-            title="重置为 100%"
-            onClick={() => doc.zoomAt(viewport.width / 2, viewport.height / 2, 1)}
-            className="min-w-14 px-1 py-2 text-center text-xs text-gray-300 tabular-nums hover:bg-white/10"
-          >
-            {Math.round(camera.zoom * 100)}%
-          </button>
-          <button
-            type="button"
-            title="放大"
-            onClick={() => zoomStep(1)}
-            className="px-3 py-2 text-gray-300 hover:bg-white/10"
-          >
-            ＋
-          </button>
-        </div>
-      </div>
-    </>
+      <div />
+    </div>
   )
 }
