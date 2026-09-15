@@ -47,7 +47,7 @@ async function prepare(artifact: AgentToolArtifact): Promise<AgentPlacedArtifact
     : { artifactId, dataUrl: await fetchToolImage(artifact) }
 }
 
-/** 交付串行，文字流不等它；每轮独立持有原画布和基线，切会话使旧交付失效。 */
+/** 交付串行，文字流不等它；每轮持有原画布，持久化文档可在切换后完成交付。 */
 export function createArtifactDelivery(
   changed: (messageId: string, status: AgentDeliveryStatus) => void,
 ) {
@@ -59,7 +59,9 @@ export function createArtifactDelivery(
   const belongs = (origin: DeliveryOrigin) =>
     origin.generation === generation && origin.scope === scope()
   const current = (origin: DeliveryOrigin) =>
-    belongs(origin) && origin.canvas !== null && agentCanvasSink() === origin.canvas
+    origin.scope === scope() &&
+    origin.canvas !== null &&
+    (origin.canvas.background === true || (belongs(origin) && agentCanvasSink() === origin.canvas))
 
   const capture = (): DeliveryOrigin => {
     const canvas = agentCanvasSink()

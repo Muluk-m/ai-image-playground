@@ -1,16 +1,17 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useSyncExternalStore } from 'react'
 import { HEADER_OFFSET } from '../../../components/panelStyles'
 import { useStore } from '../../../store'
 import AgentPanel from '../../agent/components/AgentPanel'
-import { setAgentCanvasSink } from '../../agent/lib/canvasSink'
 import { agentPanelPresent } from '../../agent/panelLayout'
-import { createAgentCanvasSink } from '../lib/agentCanvasSink'
-import { CanvasDoc } from '../lib/canvasDoc'
-import { CanvasEditor } from '../lib/editor'
-import { loadScene, PERSIST_DEBOUNCE_MS, saveScene } from '../lib/persistence'
+import type { CanvasEditor } from '../lib/editor'
 import { placeImagesIntoTargets } from '../lib/placeholderShapeOps'
 import { computePlaceholderTargets } from '../lib/placement'
-import { recoverCanvasTasks } from '../lib/recoverCanvasTasks'
+import {
+  type CanvasWorkspace,
+  currentCanvasWorkspace,
+  showCanvasWorkspace,
+  subscribeCanvasWorkspace,
+} from '../lib/workspaces'
 import CanvasGenerateBar from './CanvasGenerateBar'
 import CanvasMinimap from './CanvasMinimap'
 import CanvasShortcutsHint from './CanvasShortcutsHint'
@@ -26,83 +27,44 @@ import StylePanel from './StylePanel'
  * - 暗色 + 点阵网格；占位框状态 UI 由 PlaceholderOverlay 浮层渲染
  */
 export default function CanvasMode() {
-  const [{ doc, editor }] = useState(() => {
-    const canvasDoc = new CanvasDoc()
-    return { doc: canvasDoc, editor: new CanvasEditor(canvasDoc) }
-  })
+  const workspace = useSyncExternalStore(subscribeCanvasWorkspace, currentCanvasWorkspace)
+  useEffect(() => {
+    showCanvasWorkspace(true)
+    return () => showCanvasWorkspace(false)
+  }, [])
+  return <CanvasWorkspaceView key={workspace.id} workspace={workspace} />
+}
 
-  const [saveFailed, setSaveFailed] = useState(false)
-  const saveAttempt = useRef(0)
-  const save = useCallback(async () => {
-    const attempt = ++saveAttempt.current
-    const saved = await saveScene(editor)
-    if (attempt === saveAttempt.current) setSaveFailed(!saved)
-  }, [editor])
+function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
+  const { doc, editor } = workspace
+  const { loading, loadFailed, saveFailed } = useSyncExternalStore(
+    workspace.subscribe,
+    workspace.getSnapshot,
+  )
 
-  // DEV 调试出口：E2E / 排查用（生产构建剔除）。
   useEffect(() => {
     if (!import.meta.env.DEV) return
     ;(window as unknown as { __canvasEditor?: CanvasEditor }).__canvasEditor = editor
   }, [editor])
 
-  // 挂载后按序：恢复持久化场景 → 续接 / 失效未完成任务（决策 7）→ 消费「工作台图片 →
-  // 画布」handoff 队列 → 订阅变更防抖落盘。落盘订阅在恢复完成后才挂上，避免把
-  // 「尚未加载完的空场景」写回覆盖存档。
   useEffect(() => {
-    let disposed = false
-    let loaded = false
-    let timer: number | undefined
-    let unsubscribe: (() => void) | undefined
-    const ready = loadScene(editor)
-    setAgentCanvasSink(createAgentCanvasSink(editor, ready))
-    void (async () => {
-      await ready
-      if (disposed) return
-      loaded = true
-      recoverCanvasTasks(editor)
-      const pending = useStore.getState().consumeCanvasImages()
-      if (pending.length > 0) {
-        placeImagesIntoTargets(
-          editor,
-          pending.map((dataUrl) => ({ dataUrl })),
-          computePlaceholderTargets(editor, null, pending.length),
-        ).then(
-          // 放置若在卸载后才完成，最终落盘已错过 → 补存一次
-          () => {
-            if (disposed) void save()
-          },
-          (err) => console.warn('[canvas] 工作台图片放置失败', err),
-        )
-      }
-      unsubscribe = editor.onChange(() => {
-        window.clearTimeout(timer)
-        timer = window.setTimeout(() => void save(), PERSIST_DEBOUNCE_MS)
-      })
-    })()
-    // 刷新 / 关标签页 / 切后台不等防抖：更新提示点「刷新」时刚落进画布的图不能丢在半秒窗口里。
-    const flush = () => {
-      if (!loaded || document.visibilityState !== 'hidden') return
-      window.clearTimeout(timer)
-      void save()
-    }
-    document.addEventListener('visibilitychange', flush)
-    window.addEventListener('pagehide', flush)
-    return () => {
-      disposed = true
-      document.removeEventListener('visibilitychange', flush)
-      window.removeEventListener('pagehide', flush)
-      setAgentCanvasSink(null)
-      unsubscribe?.()
-      window.clearTimeout(timer)
-      // 卸载前把最后的变更落盘（切回工作台不丢内容）；未完成加载则不写，防覆盖。
-      if (loaded) void save()
-    }
-  }, [editor, save])
+    if (loading || loadFailed) return
+    const pending = useStore.getState().consumeCanvasImages()
+    if (!pending.length) return
+    void placeImagesIntoTargets(
+      editor,
+      pending.map((dataUrl) => ({ dataUrl })),
+      computePlaceholderTargets(editor, null, pending.length),
+    ).then(
+      () => workspace.flush(),
+      (error) => console.warn('[canvas] 工作台图片放置失败', error),
+    )
+  }, [editor, workspace, loading, loadFailed])
 
   return (
     <div className="fixed inset-x-0 bottom-0 z-30 bg-[#101011]" style={{ top: HEADER_OFFSET }}>
-      <div className="relative h-full w-full">
-        <KonvaCanvas editor={editor} />
+      <div className="relative h-full w-full" inert={loading || loadFailed}>
+        {!loading && !loadFailed && <KonvaCanvas editor={editor} />}
         <PlaceholderOverlay editor={editor} />
         <CanvasVideoOverlay editor={editor} />
         <CanvasToolbar doc={doc} />
@@ -113,7 +75,7 @@ export default function CanvasMode() {
             className="absolute right-4 top-4 z-[410] max-w-xs rounded-xl border border-amber-400/40 bg-gray-900 p-3 text-xs text-amber-200 shadow-lg"
           >
             <p>画布保存失败，内容仍在当前页面。请重试，成功前不要刷新或关闭。</p>
-            <button type="button" className="mt-2 underline" onClick={() => void save()}>
+            <button type="button" className="mt-2 underline" onClick={() => void workspace.flush()}>
               重试保存
             </button>
           </div>
@@ -129,6 +91,23 @@ export default function CanvasMode() {
         {!agentPanelPresent() && <CanvasGenerateBar editor={editor} />}
         <AgentPanel doc={doc} editor={editor} />
       </div>
+      {(loading || loadFailed) && (
+        <div
+          role={loadFailed ? 'alert' : 'status'}
+          className="absolute inset-0 z-[420] flex items-center justify-center bg-gray-950/80 text-sm text-gray-200"
+        >
+          {loadFailed ? (
+            <div>
+              <p>画布读取失败，原内容已保留，请重试。</p>
+              <button type="button" className="mt-2 underline" onClick={workspace.retryLoad}>
+                重新读取
+              </button>
+            </div>
+          ) : (
+            '正在恢复画布…'
+          )}
+        </div>
+      )}
     </div>
   )
 }
