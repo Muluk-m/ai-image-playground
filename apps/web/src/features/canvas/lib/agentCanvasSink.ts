@@ -97,10 +97,11 @@ export function createAgentCanvasSink(
       return outcome
     },
 
-    focus(objectId) {
-      if (!editor.getElement(objectId)) return
-      editor.setSelectedElements([objectId])
-      editor.scrollToElements([objectId])
+    focus(objectIds) {
+      const present = objectIds.filter((id) => editor.getElement(id))
+      if (present.length === 0) return
+      editor.setSelectedElements(present)
+      editor.scrollToElements(present)
     },
 
     async thumbnail(objectId) {

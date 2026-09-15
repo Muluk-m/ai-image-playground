@@ -10,7 +10,10 @@ export interface AgentPlacedArtifact {
 export type AgentPlaceOutcome = 'placed' | 'conflict' | 'unavailable'
 
 export interface AgentPlaceOptions {
-  /** 跟上这一轮时的画布修订号；与当前对不上就一张都不写。省略即无条件写入（用户手动放入）。 */
+  /**
+   * 画布修订号门槛：与当前对不上就一张都不写。智能体交付不再传它——产物落的是起跑时
+   * 占好的位，不会盖到用户的东西；留着给需要「画布没动过才写」的调用方。
+   */
   readonly baseRevision?: number
   /** 贴着这个对象放；它不在画布上就落在视口中央。 */
   readonly anchorObjectId?: string
@@ -54,7 +57,8 @@ export interface AgentCanvasSink {
   discard(placeholderIds: readonly string[]): void
   /** 工具失败：占位框转错误态留在原地，告诉用户这里本来要出一张图。 */
   markFailed(placeholderIds: readonly string[], message: string): void
-  focus(objectId: string): void
+  /** 选中这些对象并把镜头带过去；不在画布上的跳过。 */
+  focus(objectIds: readonly string[]): void
   /** 画布是位图的单源，对象被删掉就没有缩略图了。 */
   thumbnail(objectId: string): Promise<string | null>
 }

@@ -17,9 +17,8 @@ import type { AgentDeliveryStatus, AgentToolMessage } from '../types'
 const STAGE_LABEL = { submitted: '已排队', running: '生成中' } as const
 
 const DELIVERING = '产物已生成，正在放入画布…'
-const OFF_CANVAS = '产物尚未放入当前画布，可手动放入。'
+const OFF_CANVAS = '产物不在当前画布上，可以再放入。'
 const DELIVERY_NOTE: Partial<Record<AgentDeliveryStatus, string>> = {
-  conflict: '生成期间画布有改动，本次结果没有自动写入画布。',
   failed: '产物已生成，但放入画布失败，可以重试。',
 }
 
@@ -29,7 +28,7 @@ function statusNote(message: AgentToolMessage, offCanvas: boolean): string | nul
   if (message.status === 'running') return message.stage ? STAGE_LABEL[message.stage] : '准备中'
   if (message.status === 'failed') return message.message ?? '没有完成'
   if (message.delivery === 'pending') return DELIVERING
-  // 冲突与失败要说清为什么没自动写入；其余只说画布上现在有没有它。
+  // 失败要说清为什么没写入；其余只说画布上现在有没有它（切过画布、或用户删掉了）。
   return (message.delivery && DELIVERY_NOTE[message.delivery]) ?? (offCanvas ? OFF_CANVAS : null)
 }
 
@@ -85,7 +84,7 @@ function Thumbnail({ preview }: { preview: AgentArtifactPreview }) {
     <button
       type="button"
       className={THUMBNAIL}
-      onClick={() => agentCanvasSink()?.focus(artifact.artifactId)}
+      onClick={() => agentCanvasSink()?.focus([artifact.artifactId])}
     >
       {image}
       {badge}
@@ -96,10 +95,25 @@ function Thumbnail({ preview }: { preview: AgentArtifactPreview }) {
 export default function AgentToolCard({ message }: { message: AgentToolMessage }) {
   const previews = useArtifactPreviews(message)
   const offCanvas = previews.some((preview) => !preview.onCanvas)
+  const onCanvas = previews
+    .filter((preview) => preview.onCanvas)
+    .map((one) => one.artifact.artifactId)
   const note = statusNote(message, offCanvas)
   return (
     <div className={CARD}>
-      <p className={CARD_TITLE}>{message.title}</p>
+      {onCanvas.length > 0 ? (
+        // 点标题就到画布上把这一次的产物全选中、镜头带过去；缩略图则各定位各的。
+        <button
+          type="button"
+          title="在画布上定位这些产物"
+          className={`${CARD_TITLE} text-left transition-colors hover:text-blue-200`}
+          onClick={() => agentCanvasSink()?.focus(onCanvas)}
+        >
+          {message.title}
+        </button>
+      ) : (
+        <p className={CARD_TITLE}>{message.title}</p>
+      )}
       {note && <p className={CARD_NOTE}>{note}</p>}
       {previews.length > 0 && (
         <div className="flex flex-wrap gap-1.5">

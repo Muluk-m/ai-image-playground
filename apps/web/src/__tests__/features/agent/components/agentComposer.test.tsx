@@ -120,6 +120,29 @@ describe('智能体输入框', () => {
     expect(capsules()).toEqual(['@图1'])
   })
 
+  it('画布上选中的图直接进引用区，取消选中就撤走', () => {
+    doc.restore([imageElement('canvas-1', 'file-1'), imageElement('canvas-2', 'file-2')], {
+      'file-1': PIXEL,
+      'file-2': PREPARED,
+    })
+    render()
+
+    act(() => doc.setSelection(['canvas-1', 'canvas-2']))
+    expect([...host.querySelectorAll('img')].map((img) => img.getAttribute('src'))).toEqual([
+      PREPARED,
+      PIXEL,
+    ])
+
+    act(() => doc.setSelection(['canvas-1']))
+    expect([...host.querySelectorAll('img')].map((img) => img.getAttribute('src'))).toEqual([PIXEL])
+
+    type('把它的背景换成浅木色')
+    click('发送')
+    expect(send).toHaveBeenCalledWith('把它的背景换成浅木色', [
+      { imageId: 'canvas-1', dataUrl: PIXEL },
+    ])
+  })
+
   it('发送时把胶囊转成按序号的引用，参考图一起带上', () => {
     render()
     type('把@')

@@ -38,6 +38,7 @@ import {
   referenceLabels,
   removeReference,
   setReferenceMask,
+  syncSelectedReferences,
 } from '../lib/references'
 import { useAgentStore } from '../store'
 import AgentParamsChip from './AgentParamsChip'
@@ -65,6 +66,20 @@ export default function AgentComposer({ doc }: { doc: CanvasDoc }) {
   const labels = useMemo(() => referenceLabels(draft.references), [draft.references])
   const version = useSyncExternalStore(doc.subscribe, () => doc.version)
   const canvas = useMemo(() => canvasImages(doc), [doc, version])
+
+  // 画布上选中的图直接进引用区：选了几张就是要对这几张说话，不必再逐张 `@`。
+  // 自动带进来的按 id 记着，取消选中就撤走；用户手动 `@` 进来的不归它管。
+  const selectedImageIds = useMemo(
+    () => canvas.filter((image) => doc.selection.has(image.imageId)).map((one) => one.imageId),
+    [canvas, doc, version],
+  )
+  const selectionKey = selectedImageIds.join(' ')
+  const autoRef = useRef<Set<string>>(new Set())
+  useEffect(() => {
+    const selected = new Set(selectedImageIds)
+    setDraft((current) => syncSelectedReferences(current, canvas, selected, autoRef.current))
+    // 只在选区变化时同步；canvas 的引用变化不该触发（那会把手动移除的又加回来）。
+  }, [selectionKey])
 
   // contentEditable 的 onSelect 不可靠，光标位置只能靠 selectionchange 跟。
   useEffect(() => {

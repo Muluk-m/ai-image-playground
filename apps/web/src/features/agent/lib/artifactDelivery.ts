@@ -14,7 +14,6 @@ interface DeliveryOrigin {
   readonly generation: number
   readonly scope: string
   readonly canvas: AgentCanvasSink | null
-  baseRevision: number | undefined
   pending: Promise<void>
   /** 每次工具调用在画布上占下的位，按那条结果卡的 messageId 索引。 */
   readonly reserved: Map<string, Promise<readonly string[]>>
@@ -68,7 +67,6 @@ export function createArtifactDelivery(
       generation,
       scope: scope(),
       canvas,
-      baseRevision: canvas?.revision(),
       pending: Promise.resolve(),
       reserved: new Map(),
     }
@@ -83,10 +81,14 @@ export function createArtifactDelivery(
     return pending
   }
 
+  /**
+   * 产物一到就落画布，不问用户中途动没动过画布：它落的是起跑时占好的位，
+   * 盖不到别人的东西。以前的「画布有改动就不写、让用户手动放入」只会留下一个
+   * 永远转圈的占位框和一张要人再点一下的卡。
+   */
   const place = async (
     origin: DeliveryOrigin,
     message: AgentToolMessage,
-    manual: boolean,
   ): Promise<AgentDeliveryStatus> => {
     const canvas = origin.canvas
     if (!canvas || !current(origin)) return 'unavailable'
@@ -97,28 +99,15 @@ export function createArtifactDelivery(
       canvas.discard(placeholderIds)
       return 'placed'
     }
-    if (!manual && canvas.revision() !== origin.baseRevision) {
-      canvas.discard(placeholderIds)
-      return 'conflict'
-    }
     const items = await Promise.all(missing.map(prepare))
     if (!current(origin)) return 'unavailable'
-    const before = canvas.revision()
     const outcome = await canvas.place(items, {
       anchorObjectId: message.anchorObjectId,
       ...(placeholderIds.length ? { placeholderIds } : {}),
-      ...(!manual ? { baseRevision: origin.baseRevision } : {}),
       isCurrent: () => current(origin),
     })
     if (outcome !== 'placed') canvas.discard(placeholderIds)
-    if (outcome === 'placed' && !manual) {
-      // 同一画布上仍在交付的轮都认得这次智能体写入；用户修改过的基线不能被洗掉。
-      for (const other of origins) {
-        if (other.canvas === canvas && other.baseRevision === before && belongs(other))
-          other.baseRevision = canvas.revision()
-      }
-    }
-    return outcome
+    return outcome === 'conflict' ? 'unavailable' : outcome
   }
 
   /**
@@ -167,7 +156,7 @@ export function createArtifactDelivery(
     if (belongs(origin)) changed(message.id, 'pending')
     record.pending = queue = queue.then(async () => {
       try {
-        record.status = await place(origin, message, manual)
+        record.status = await place(origin, message)
       } catch (error) {
         console.warn('[agent] 产物交付失败', error)
         record.status = 'failed'

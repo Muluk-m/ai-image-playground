@@ -498,8 +498,8 @@ describe('视频产物', () => {
   })
 })
 
-describe('画布冲突', () => {
-  /** 起完这一轮之后用户动了画布：基线取在 send 里，所以这里抬修订号就是冲突。 */
+describe('生成期间画布有改动', () => {
+  /** 起完这一轮之后用户动了画布：修订号抬了，产物照样落进起跑时占的位。 */
   function editCanvasDuringTurn(...events: AgentTurnEvent[]): void {
     turnResponse = () => {
       revision += 1
@@ -507,37 +507,27 @@ describe('画布冲突', () => {
     }
   }
 
-  it('生成期间画布被改过就不写入，结果卡留住产出并给出手动放入的入口', async () => {
+  it('产物照样写入画布，不留手动放入的入口', async () => {
     editCanvasDuringTurn(TURN_START, TOOL_START, TOOL_END, TURN_END)
 
     await state().send('画一只橘猫')
 
-    expect(placed).toEqual([])
-    expect(onCanvas.has(IMAGE.artifactId)).toBe(false)
+    expect(placed).toEqual([{ artifactId: 'agent_image_1', dataUrl: 'data:image/png;base64,AQID' }])
+    expect(onCanvas.has(IMAGE.artifactId)).toBe(true)
     expect(toolMessages()[0]).toMatchObject({
       status: 'succeeded',
       artifacts: [IMAGE],
-      delivery: 'conflict',
+      delivery: 'placed',
     })
   })
 
-  it('手动放入把产出写进画布并撤掉提示', async () => {
-    editCanvasDuringTurn(TURN_START, TOOL_START, TOOL_END, TURN_END)
-    await state().send('画一只橘猫')
-
-    await state().placeOnCanvas('tool-1')
-
-    expect(placed).toEqual([{ artifactId: 'agent_image_1', dataUrl: 'data:image/png;base64,AQID' }])
-    expect(toolMessages()[0]!.delivery).toBe('placed')
-  })
-
-  it('冲突之后这一轮的后续产出照样不写入', async () => {
+  it('这一轮的每一次产出都写入', async () => {
     editCanvasDuringTurn(...twoToolTurn())
 
     await state().send('画两只橘猫')
 
-    expect(placed).toEqual([])
-    expect(toolMessages().map((one) => one.delivery)).toEqual(['conflict', 'conflict'])
+    expect(placed).toHaveLength(2)
+    expect(toolMessages().map((one) => one.delivery)).toEqual(['placed', 'placed'])
   })
 })
 
