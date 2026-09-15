@@ -248,7 +248,7 @@ describe('另一个标签页占着这个会话', () => {
 
     await state().send('再画一只猫')
 
-    expect(state().error).toBeNull()
+    expect(state().error).toContain('本次消息未发送')
     expect(state().turn).toBe('idle')
     expect(resumeRequests).toHaveLength(1)
     expect(resumeRequests[0]!.url).toContain(`/turns/${TURN}/events`)
@@ -290,7 +290,7 @@ describe('另一个标签页占着这个会话', () => {
     await state().send('再画一只猫')
 
     expect(resumeRequests[0]!.url).toContain(`/turns/${TURN}/events`)
-    expect(state().error).toBeNull()
+    expect(state().error).toContain('本次消息未发送')
   })
 
   it('409 没带轮标识时仍按失败处理', async () => {

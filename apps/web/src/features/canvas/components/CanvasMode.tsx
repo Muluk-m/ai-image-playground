@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { HEADER_OFFSET } from '../../../components/panelStyles'
 import { useStore } from '../../../store'
 import AgentPanel from '../../agent/components/AgentPanel'
@@ -31,6 +31,14 @@ export default function CanvasMode() {
     return { doc: canvasDoc, editor: new CanvasEditor(canvasDoc) }
   })
 
+  const [saveFailed, setSaveFailed] = useState(false)
+  const saveAttempt = useRef(0)
+  const save = useCallback(async () => {
+    const attempt = ++saveAttempt.current
+    const saved = await saveScene(editor)
+    if (attempt === saveAttempt.current) setSaveFailed(!saved)
+  }, [editor])
+
   // DEV 调试出口：E2E / 排查用（生产构建剔除）。
   useEffect(() => {
     if (!import.meta.env.DEV) return
@@ -61,21 +69,21 @@ export default function CanvasMode() {
         ).then(
           // 放置若在卸载后才完成，最终落盘已错过 → 补存一次
           () => {
-            if (disposed) void saveScene(editor)
+            if (disposed) void save()
           },
           (err) => console.warn('[canvas] 工作台图片放置失败', err),
         )
       }
       unsubscribe = editor.onChange(() => {
         window.clearTimeout(timer)
-        timer = window.setTimeout(() => void saveScene(editor), PERSIST_DEBOUNCE_MS)
+        timer = window.setTimeout(() => void save(), PERSIST_DEBOUNCE_MS)
       })
     })()
     // 刷新 / 关标签页 / 切后台不等防抖：更新提示点「刷新」时刚落进画布的图不能丢在半秒窗口里。
     const flush = () => {
       if (!loaded || document.visibilityState !== 'hidden') return
       window.clearTimeout(timer)
-      void saveScene(editor)
+      void save()
     }
     document.addEventListener('visibilitychange', flush)
     window.addEventListener('pagehide', flush)
@@ -87,9 +95,9 @@ export default function CanvasMode() {
       unsubscribe?.()
       window.clearTimeout(timer)
       // 卸载前把最后的变更落盘（切回工作台不丢内容）；未完成加载则不写，防覆盖。
-      if (loaded) void saveScene(editor)
+      if (loaded) void save()
     }
-  }, [editor])
+  }, [editor, save])
 
   return (
     <div className="fixed inset-x-0 bottom-0 z-30 bg-[#101011]" style={{ top: HEADER_OFFSET }}>
@@ -99,6 +107,17 @@ export default function CanvasMode() {
         <CanvasVideoOverlay editor={editor} />
         <CanvasToolbar doc={doc} />
         <StylePanel doc={doc} />
+        {saveFailed && (
+          <div
+            role="alert"
+            className="absolute right-4 top-4 z-[410] max-w-xs rounded-xl border border-amber-400/40 bg-gray-900 p-3 text-xs text-amber-200 shadow-lg"
+          >
+            <p>画布保存失败，内容仍在当前页面。请重试，成功前不要刷新或关闭。</p>
+            <button type="button" className="mt-2 underline" onClick={() => void save()}>
+              重试保存
+            </button>
+          </div>
+        )}
         {/* 右下角控件栈：小地图贴角，快捷键速查叠在它上面。两者共用一列，天然不重叠；
             底部工具条居中、智能体面板在左，都不落在这一列里。 */}
         <div className="pointer-events-none absolute bottom-4 right-4 z-[400] hidden flex-col items-end gap-2 sm:flex">

@@ -1,10 +1,13 @@
 // @vitest-environment jsdom
 
+import 'fake-indexeddb/auto'
 import type { AgentTurnReference } from '@image-playground/shared'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import AgentComposer from '../../../../features/agent/components/AgentComposer'
+import { agentDraft } from '../../../../features/agent/lib/drafts'
+import { EMPTY_DRAFT } from '../../../../features/agent/lib/references'
 import { useAgentStore } from '../../../../features/agent/store'
 import { CanvasDoc, type ImageEl } from '../../../../features/canvas/lib/canvasDoc'
 import { useLibraryStore } from '../../../../features/library/store'
@@ -86,13 +89,24 @@ function capsules(): string[] {
   return [...host.querySelectorAll('.mention-tag')].map((node) => node.textContent ?? '')
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+  const session = agentDraft(null)
+  await vi.waitFor(() => expect(session.getSnapshot().loading).toBe(false))
+  session.update(EMPTY_DRAFT)
+  session.setSubmitting(false)
   doc = new CanvasDoc()
   doc.restore([imageElement('canvas-1', 'file-1')], { 'file-1': PIXEL })
   send = vi.fn<(text: string, references?: readonly AgentTurnReference[]) => Promise<void>>(
     async () => {},
   )
-  useAgentStore.setState({ turn: 'idle', send })
+  useAgentStore.setState({
+    turn: 'idle',
+    conversationId: null,
+    send: async (text, references, accepted) => {
+      await send(text, references)
+      accepted?.()
+    },
+  })
   useStore.setState({ maskEditorImageId: null, maskEditorSession: null })
   useLibraryStore.setState({ assets: [], loadAssets: async () => {} })
   host = document.createElement('div')
@@ -171,6 +185,38 @@ describe('智能体输入框', () => {
 
     expect(await attached()).toHaveLength(1)
     expect(useStore.getState().toast?.message).toBe('只支持图片文件')
+  })
+
+  it('输入框卸载再挂载后保留文字、引用和遮罩', async () => {
+    render()
+    type('把@')
+    pick('画布图1')
+    click('给参考图 @图1 画遮罩')
+    await save({ maskDataUrl: MASK, targetImageId: 'prepared', targetDataUrl: PREPARED })
+    act(() => root.render(null))
+    render()
+    expect(capsules()).toEqual(['@图1'])
+    expect(host.querySelector('img')?.getAttribute('src')).toBe(PREPARED)
+    expect(host.textContent).toContain('MASK')
+    click('发送')
+    expect(send).toHaveBeenCalledWith('把[image 1]', [
+      { imageId: 'canvas-1', dataUrl: PREPARED, maskDataUrl: MASK },
+    ])
+  })
+
+  it('请求失败保留草稿，服务端接收后才清空', async () => {
+    useAgentStore.setState({ send: async () => {} })
+    render()
+    type('重试这段内容')
+    await act(async () => click('发送'))
+    expect(editor().textContent).toBe('重试这段内容')
+    useAgentStore.setState({
+      send: async (_text, _references, accepted) => {
+        accepted?.()
+      },
+    })
+    await act(async () => click('发送'))
+    expect(editor().textContent).toBe('')
   })
 
   it('`@` 从画布挑一张图，插成引用胶囊', () => {
