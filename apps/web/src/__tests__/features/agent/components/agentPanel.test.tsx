@@ -156,6 +156,23 @@ describe('AgentPanel', () => {
     expect(texts('button')).toEqual(['对话'])
   })
 
+  it('文件拖到对话记录上也进输入框的引用区', async () => {
+    render()
+    const log = host.querySelector('[data-image-dropzone]')!
+    const file = new File([new Uint8Array([137, 80, 78, 71])], 'ref.png', { type: 'image/png' })
+    const event = new Event('drop', { bubbles: true, cancelable: true })
+    Object.defineProperty(event, 'dataTransfer', { value: { files: [file], types: ['Files'] } })
+    act(() => {
+      log.dispatchEvent(event)
+    })
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    })
+
+    expect(host.querySelector('img')?.getAttribute('src')).toMatch(/^data:image\/png;base64,/)
+    expect(host.textContent).toContain('ref')
+  })
+
   it('产物真正落画布后才显示可定位缩略图，不必重新挂载面板', async () => {
     const focused: string[] = []
     stubCanvasSink({
