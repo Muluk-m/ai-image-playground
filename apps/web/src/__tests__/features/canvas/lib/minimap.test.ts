@@ -7,6 +7,7 @@ import {
   isInsideBox,
   MINIMAP_HEIGHT,
   MINIMAP_PADDING,
+  MINIMAP_VIEWPORT_RATIO,
   MINIMAP_WIDTH,
   minimapPointToPage,
   minimapRects,
@@ -84,21 +85,39 @@ describe('minimapRects', () => {
 })
 
 describe('minimapSourceBox', () => {
-  it('视口在内容内时就是内容包围盒', () => {
-    const content = new Box(0, 0, 1000, 800)
+  it('内容远大于视口时就是内容包围盒', () => {
+    const content = new Box(0, 0, 3000, 2400)
     const source = minimapSourceBox(content, new Box(100, 100, 400, 300))
-    expect([source.x, source.y, source.w, source.h]).toEqual([0, 0, 1000, 800])
+    expect([source.x, source.y, source.w, source.h]).toEqual([0, 0, 3000, 2400])
   })
 
-  it('视口跑到内容外时并上视口，视口框不会滑出小地图', () => {
+  it('视口装下全部内容时撑到视口的 3 倍，视口框只占小地图的一小块', () => {
+    const content = new Box(100, 100, 200, 100)
+    const viewport = new Box(0, 0, 400, 300)
+    const source = minimapSourceBox(content, viewport)
+    expect([source.w, source.h]).toEqual([
+      400 * MINIMAP_VIEWPORT_RATIO,
+      300 * MINIMAP_VIEWPORT_RATIO,
+    ])
+    // 围绕并集中心撑开：内容与视口都还在范围内
+    expect([source.x, source.y, source.maxX, source.maxY]).toEqual([-400, -300, 800, 600])
+  })
+
+  it('视口跑到内容外时先并上视口再撑开，视口框不会滑出小地图', () => {
     const content = new Box(0, 0, 100, 100)
-    const source = minimapSourceBox(content, new Box(500, 500, 200, 200))
-    expect([source.x, source.y, source.maxX, source.maxY]).toEqual([0, 0, 700, 700])
+    const viewport = new Box(500, 500, 200, 200)
+    const source = minimapSourceBox(content, viewport)
+    expect(source.w).toBe(700)
+    expect(source.h).toBe(700)
+    expect(isInsideBox(source, { x: viewport.x, y: viewport.y })).toBe(true)
+    expect(isInsideBox(source, { x: viewport.maxX, y: viewport.maxY })).toBe(true)
+    expect(isInsideBox(source, { x: content.x, y: content.y })).toBe(true)
   })
 
-  it('画布为空时退化成视口本身', () => {
+  it('画布为空时是以视口为中心、视口 3 倍大的范围', () => {
     const source = minimapSourceBox(null, new Box(10, 20, 30, 40))
-    expect([source.x, source.y, source.w, source.h]).toEqual([10, 20, 30, 40])
+    expect([source.w, source.h]).toEqual([90, 120])
+    expect([source.x + source.w / 2, source.y + source.h / 2]).toEqual([25, 40])
   })
 })
 
