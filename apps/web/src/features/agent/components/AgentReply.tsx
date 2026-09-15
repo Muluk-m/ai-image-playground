@@ -1,36 +1,16 @@
-import { useLayoutEffect, useRef, useState } from 'react'
-import { GHOST_LINK, REPLY } from '../agentStyles'
-import { useAgentStore } from '../store'
+import { REPLY } from '../agentStyles'
+import AgentMarkdown from './AgentMarkdown'
 
 interface Props {
-  messageId: string
   text: string
   streaming: boolean
 }
 
-export default function AgentReply({ messageId, text, streaming }: Props) {
-  const expanded = useAgentStore((state) => state.expanded[messageId] ?? false)
-  const toggleExpanded = useAgentStore((state) => state.toggleExpanded)
-  const bodyRef = useRef<HTMLParagraphElement>(null)
-  const [clipped, setClipped] = useState(false)
-
-  useLayoutEffect(() => {
-    const body = bodyRef.current
-    // 量高度会强制重排，逐字流期间每个 token 量一次太贵；文字长完再量。
-    if (!body || expanded || streaming) return
-    setClipped(body.scrollHeight > body.clientHeight + 1)
-  }, [expanded, streaming, text])
-
+/** 助手回复整段展示、按 Markdown 渲染；对话面板不折叠回复，折叠只会让人多点一下。 */
+export default function AgentReply({ text, streaming }: Props) {
   return (
-    <div className="flex flex-col items-start gap-0.5">
-      <p ref={bodyRef} className={`${REPLY} ${expanded ? '' : 'line-clamp-3'}`}>
-        {text}
-      </p>
-      {(clipped || expanded) && (
-        <button type="button" className={GHOST_LINK} onClick={() => toggleExpanded(messageId)}>
-          {expanded ? '收起' : '展开'}
-        </button>
-      )}
+    <div className={`${REPLY} break-words`} data-streaming={streaming || undefined}>
+      <AgentMarkdown text={text} />
     </div>
   )
 }

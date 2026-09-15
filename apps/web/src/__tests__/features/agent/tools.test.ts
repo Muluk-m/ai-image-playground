@@ -188,7 +188,6 @@ beforeEach(() => {
     turns: {},
     error: null,
     loaded: false,
-    expanded: {},
   })
 })
 

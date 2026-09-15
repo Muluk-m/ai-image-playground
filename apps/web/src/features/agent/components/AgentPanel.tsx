@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useRef } from 'react'
+import { Fragment, type PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef } from 'react'
 import Credits from '../../../components/Credits'
 import { PlusIcon, TrashIcon } from '../../../components/icons'
 import { useStore } from '../../../store'
@@ -17,7 +17,6 @@ import {
   PANEL_MARGIN,
   PANEL_SHADOW,
   PANEL_SURFACE,
-  PANEL_WIDTH,
   TAB,
   USER_BUBBLE,
 } from '../agentStyles'
@@ -25,6 +24,7 @@ import { agentSessionCredits } from '../lib/turnCost'
 import { agentPanelPresent } from '../panelLayout'
 import { answerableClarificationId, useAgentStore } from '../store'
 import type { AgentPanelMessage } from '../types'
+import AgentActivity from './AgentActivity'
 import AgentClarification from './AgentClarification'
 import AgentComposer from './AgentComposer'
 import AgentLayers from './AgentLayers'
@@ -111,7 +111,7 @@ function renderMessage(message: AgentPanelMessage, answerableId: string | null) 
     return <AgentClarification message={message} answered={message.id !== answerableId} />
   }
   if (message.role === 'user') return <p className={USER_BUBBLE}>{message.text}</p>
-  return <AgentReply messageId={message.id} text={message.text} streaming={message.streaming} />
+  return <AgentReply text={message.text} streaming={message.streaming} />
 }
 
 export default function AgentPanel({ doc, editor }: { doc: CanvasDoc; editor: CanvasEditor }) {
@@ -121,7 +121,8 @@ export default function AgentPanel({ doc, editor }: { doc: CanvasDoc; editor: Ca
   const turns = useAgentStore((state) => state.turns)
   const turn = useAgentStore((state) => state.turn)
   const error = useAgentStore((state) => state.error)
-  const { setOpen, setTab, load, startNewConversation, refreshConversations } =
+  const panelWidth = useAgentStore((state) => state.panelWidth)
+  const { setOpen, setTab, load, startNewConversation, refreshConversations, setPanelWidth } =
     useAgentStore.getState()
   const logRef = useRef<HTMLDivElement>(null)
   // 流式输出时这个组件每个字都重渲染一次，别让它顺带把整张轮表遍历两遍。
@@ -139,6 +140,24 @@ export default function AgentPanel({ doc, editor }: { doc: CanvasDoc; editor: Ca
     if (log) log.scrollTop = log.scrollHeight
   }, [messages])
 
+  /** 右缘拖宽：按下即捕获指针，宽度跟手，松开时的值已经在 store 里记住了。 */
+  const startResize = (event: ReactPointerEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    const handle = event.currentTarget
+    const originX = event.clientX
+    const originWidth = panelWidth
+    handle.setPointerCapture(event.pointerId)
+    const onMove = (move: PointerEvent) => setPanelWidth(originWidth + move.clientX - originX)
+    const onUp = () => {
+      handle.removeEventListener('pointermove', onMove)
+      handle.removeEventListener('pointerup', onUp)
+      handle.removeEventListener('pointercancel', onUp)
+    }
+    handle.addEventListener('pointermove', onMove)
+    handle.addEventListener('pointerup', onUp)
+    handle.addEventListener('pointercancel', onUp)
+  }
+
   if (!agentPanelPresent()) return null
   if (!open) return <CollapsedButton onOpen={() => setOpen(true)} />
 
@@ -150,10 +169,18 @@ export default function AgentPanel({ doc, editor }: { doc: CanvasDoc; editor: Ca
         left: PANEL_MARGIN,
         top: PANEL_MARGIN,
         bottom: PANEL_MARGIN,
-        width: PANEL_WIDTH,
+        width: panelWidth,
       }}
       className={`absolute z-[400] flex flex-col rounded-2xl ${PANEL_SURFACE} ${PANEL_SHADOW}`}
     >
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="拖动调整面板宽度"
+        title="拖动调整宽度"
+        onPointerDown={startResize}
+        className="absolute -right-1.5 top-6 bottom-6 z-10 w-3 cursor-col-resize touch-none rounded-full transition-colors hover:bg-blue-500/40 active:bg-blue-500/60"
+      />
       <div className="flex shrink-0 items-center justify-between gap-3 px-3 pb-1.5 pt-2">
         <div className="flex items-center gap-3">
           {TABS.map((one) => (
@@ -240,6 +267,7 @@ export default function AgentPanel({ doc, editor }: { doc: CanvasDoc; editor: Ca
               </Fragment>
             )
           })}
+          <AgentActivity />
           {error && <p className={`text-xs ${INK_3}`}>{error}</p>}
         </div>
       )}

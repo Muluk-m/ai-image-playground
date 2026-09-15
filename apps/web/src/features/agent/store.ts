@@ -13,6 +13,7 @@ import { create } from 'zustand'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../lib/apiProfiles'
 import { AGENT_CONVERSATION_KEY, safeLocalStorage, scopedStorageName } from '../../lib/authScope'
 import { useStore } from '../../store'
+import { clampPanelWidth, PANEL_WIDTH } from './agentStyles'
 import {
   AgentRequestError,
   abortTurn,
@@ -57,11 +58,12 @@ export interface AgentState {
   activeTurn: AgentActiveTurnView | null
   error: string | null
   loaded: boolean
-  expanded: Record<string, boolean>
+  /** 对话面板宽度（CSS 像素），用户拖过就记住。 */
+  panelWidth: number
 
   setOpen(open: boolean): void
   setTab(tab: AgentPanelTab): void
-  toggleExpanded(messageId: string): void
+  setPanelWidth(width: number): void
   /** 读回会话列表与上次那个会话的消息，并挂回仍在进行的那一轮。 */
   load(): Promise<void>
   refreshConversations(): Promise<void>
@@ -155,6 +157,33 @@ const failPatch = (state: AgentState, message = TURN_FAILED) => ({
   messages: state.messages.filter((one) => one.kind !== 'text' || !one.streaming),
 })
 
+export type AgentActivityPhase = 'sending' | 'thinking' | 'executing'
+
+/**
+ * 进行中这一轮此刻在干什么，给对话末尾的状态行用。文字一旦在流就返回 null：
+ * 正文自己就是最好的进度。
+ */
+export function agentActivityPhase(
+  state: Pick<AgentState, 'turn' | 'activeTurn' | 'messages'>,
+): AgentActivityPhase | null {
+  if (state.turn !== 'running') return null
+  if (!state.activeTurn) return 'sending'
+  const last = state.messages[state.messages.length - 1]
+  if (last?.kind === 'tool' && last.status === 'running') return 'executing'
+  if (last?.kind === 'text' && last.role === 'assistant' && last.streaming && last.text) return null
+  return 'thinking'
+}
+
+let pendingSeq = 0
+const PENDING_PREFIX = 'pending_'
+
+const PANEL_WIDTH_KEY = 'image-playground.agent_panel_width'
+
+function readPanelWidth(): number {
+  const raw = Number(safeLocalStorage.getItem(PANEL_WIDTH_KEY))
+  return Number.isFinite(raw) && raw > 0 ? clampPanelWidth(raw) : PANEL_WIDTH
+}
+
 export const useAgentStore = create<AgentState>((set, get) => {
   const delivery = createArtifactDelivery((messageId, status) =>
     set((state) => ({
@@ -186,7 +215,8 @@ export const useAgentStore = create<AgentState>((set, get) => {
             messages: state.messages.some((one) => one.id === event.userMessageId)
               ? state.messages
               : [
-                  ...state.messages,
+                  // 先上屏的那条换成服务端的 id；同一轮不会有第二条待确认的。
+                  ...state.messages.filter((one) => one.kind !== 'text' || !one.pending),
                   {
                     kind: 'text' as const,
                     id: event.userMessageId,
@@ -389,14 +419,15 @@ export const useAgentStore = create<AgentState>((set, get) => {
     activeTurn: null,
     error: null,
     loaded: false,
-    expanded: {},
+    panelWidth: readPanelWidth(),
 
     setOpen: (open) => set({ open }),
     setTab: (tab) => set({ tab }),
-    toggleExpanded: (messageId) =>
-      set((state) => ({
-        expanded: { ...state.expanded, [messageId]: !state.expanded[messageId] },
-      })),
+    setPanelWidth: (width) => {
+      const next = clampPanelWidth(width)
+      safeLocalStorage.setItem(PANEL_WIDTH_KEY, String(next))
+      set({ panelWidth: next })
+    },
 
     async load() {
       if (get().loaded) return
@@ -460,7 +491,25 @@ export const useAgentStore = create<AgentState>((set, get) => {
 
       // 首轮才会定标题、才会有新会话进列表；之后每轮再拉一次是白拉。
       const firstTurn = get().messages.length === 0
-      set({ turn: 'running', error: null, activeTurn: null })
+      // 敲下回车这一刻消息就上屏，不等服务端：起轮要过网络，空着几秒像没反应。
+      pendingSeq += 1
+      set((state) => ({
+        turn: 'running',
+        error: null,
+        activeTurn: null,
+        messages: [
+          ...state.messages.filter((one) => one.kind !== 'text' || !one.pending),
+          {
+            kind: 'text',
+            id: `${PENDING_PREFIX}${pendingSeq}`,
+            turnId: `${PENDING_PREFIX}${pendingSeq}`,
+            role: 'user',
+            text: trimmed,
+            streaming: false,
+            pending: true,
+          },
+        ],
+      }))
       const turnDelivery = delivery.beginTurn()
       let target = conversationId
       try {
