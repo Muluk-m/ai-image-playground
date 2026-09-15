@@ -406,6 +406,29 @@ describe('工具事件', () => {
 })
 
 describe('产物交付', () => {
+  it('会话持有的画布在切换后接收晚到产物，不写新会话也不恢复旧消息', async () => {
+    let finishDownload!: (response: Response) => void
+    imageResponse = () =>
+      new Promise<Response>((resolve) => {
+        finishDownload = resolve
+      })
+    turnResponse = () => turnStream(TURN_START, TOOL_START, TOOL_END, TURN_END)
+    const original = agentCanvasSink()!
+    original.background = true
+    const sending = state().send('画一只橘猫')
+    await vi.waitFor(() => expect(state().turn).toBe('idle'))
+    state().startNewConversation()
+    const nextPlace = vi.fn()
+    setAgentCanvasSink({ ...original, place: nextPlace })
+    finishDownload(
+      new Response(new Uint8Array([1, 2, 3]), { headers: { 'content-type': 'image/png' } }),
+    )
+    await sending
+    expect(placed.map((one) => one.artifactId)).toEqual([IMAGE.artifactId])
+    expect(nextPlace).not.toHaveBeenCalled()
+    expect(state().messages).toEqual([])
+  })
+
   it('下载期间离开画布，晚到的产物不再写入旧画布', async () => {
     let finishDownload!: (response: Response) => void
     imageResponse = () =>

@@ -35,6 +35,8 @@ export interface AgentReservation {
 }
 
 export interface AgentCanvasSink {
+  /** 会话文档在视图切走后仍存活并持久化，允许原任务完成交付。 */
+  background?: boolean
   /** 场景恢复完成；同步画布不需要等待。观察历史产物也必须等这个边界。 */
   readonly ready?: Promise<unknown>
   has(objectId: string): boolean
