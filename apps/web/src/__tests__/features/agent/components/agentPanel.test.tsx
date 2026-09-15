@@ -101,7 +101,6 @@ beforeEach(async () => {
     turn: 'idle',
     error: null,
     loaded: true,
-    expanded: {},
   })
   host = document.createElement('div')
   document.body.appendChild(host)
@@ -155,28 +154,6 @@ describe('AgentPanel', () => {
 
     expect(host.querySelector('textarea')).toBeNull()
     expect(texts('button')).toEqual(['对话'])
-  })
-
-  it('助手回复带展开入口，展开后收起', () => {
-    useAgentStore.setState({
-      messages: [
-        {
-          kind: 'text',
-          id: 'assistant-1',
-          turnId: 'turn-1',
-          role: 'assistant',
-          text: '好'.repeat(400),
-          streaming: false,
-        },
-      ],
-    })
-    render()
-    // jsdom 不排版，折叠判定量不出溢出；直接从展开态验证入口的两个状态。
-    act(() => useAgentStore.getState().toggleExpanded('assistant-1'))
-
-    expect(texts('button')).toContain('收起')
-    act(() => useAgentStore.getState().toggleExpanded('assistant-1'))
-    expect(texts('button')).not.toContain('收起')
   })
 
   it('产物真正落画布后才显示可定位缩略图，不必重新挂载面板', async () => {
@@ -409,7 +386,7 @@ describe('AgentPanel', () => {
     expect(host.textContent).toContain('对话 42 · 生图 85')
   })
 
-  it('进行中的轮写预扣数', () => {
+  it('进行中的轮不写预扣，末尾亮状态行', () => {
     useAgentStore.setState({
       messages: [
         {
@@ -423,11 +400,47 @@ describe('AgentPanel', () => {
       ],
       turns: { 'turn-1': { turnId: 'turn-1', reservedCredits: 60 } },
       turn: 'running',
+      activeTurn: { turnId: 'turn-1' },
     })
     render()
 
-    expect(host.textContent).toContain('预扣 60')
+    expect(host.textContent).not.toContain('预扣')
     expect(host.textContent).not.toContain('本轮耗时')
+    expect(host.querySelector('[data-phase]')?.getAttribute('data-phase')).toBe('thinking')
+    expect(host.textContent).toContain('思考中')
+  })
+
+  it('助手回复按 Markdown 渲染，不折叠', () => {
+    useAgentStore.setState({
+      messages: [
+        {
+          kind: 'text',
+          id: 'assistant-1',
+          turnId: 'turn-1',
+          role: 'assistant',
+          text:
+            '可以整理。\n\n- **横向一排**：5 个并列\n- **两行网格**：上 3 下 2\n\n' +
+            '很长的一段。'.repeat(40),
+          streaming: false,
+        },
+      ],
+      turns: {},
+    })
+    render()
+
+    expect(host.querySelectorAll('li')).toHaveLength(2)
+    expect(host.querySelector('strong')?.textContent).toBe('横向一排')
+    expect(host.textContent).not.toContain('**')
+    expect(host.textContent).not.toContain('展开')
+  })
+
+  it('面板宽度跟着 store，右缘有拖宽手柄', () => {
+    useAgentStore.setState({ panelWidth: 420 })
+    render()
+
+    const panel = host.querySelector('[role="separator"]')?.parentElement as HTMLElement
+    expect(panel.style.width).toBe('420px')
+    expect(host.querySelector('[aria-label="拖动调整面板宽度"]')).not.toBeNull()
   })
 
   it('失败的轮写本轮免费', () => {

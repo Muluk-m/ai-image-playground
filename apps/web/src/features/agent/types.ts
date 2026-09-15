@@ -17,6 +17,8 @@ export interface AgentTextMessage {
   readonly text: string
   /** 本轮还在流的那条助手消息。 */
   readonly streaming: boolean
+  /** 刚发出、服务端还没回 turnStart 的用户消息：先上屏，等到真 id 再换掉。 */
+  readonly pending?: true
 }
 
 /** 一次工具调用在对话流里的那张结果卡。 */

@@ -69,7 +69,6 @@ beforeEach(() => {
     activeTurn: null,
     error: null,
     loaded: false,
-    expanded: {},
   })
 })
 

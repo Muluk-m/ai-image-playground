@@ -1,7 +1,18 @@
 /** 画布容器在任何主题下都是 `#101011`，所以这套色恒定深色，不复用跟随主题的 panelStyles。 */
 
+/** 面板默认宽度，也是能拖到的最窄。 */
 export const PANEL_WIDTH = 270
+/** 最宽拖到视口的六成：再宽画布就没地方了。 */
+export const PANEL_MAX_WIDTH_RATIO = 0.6
 export const PANEL_MARGIN = 10
+
+export function clampPanelWidth(
+  width: number,
+  viewportWidth: number = globalThis.innerWidth || Number.POSITIVE_INFINITY,
+): number {
+  const max = Math.max(PANEL_WIDTH, Math.floor(viewportWidth * PANEL_MAX_WIDTH_RATIO))
+  return Math.min(max, Math.max(PANEL_WIDTH, Math.round(width)))
+}
 
 export const PANEL_SURFACE = 'border border-white/[0.09] bg-[#17171a]'
 

@@ -1033,6 +1033,36 @@ input[type="number"] {
   border-radius: 0.5rem;
 }
 
+/* 智能体状态行的文字流光：照 assistant-ui 的 shimmer，一道亮光从左扫到右。 */
+@keyframes agent-shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+.agent-shimmer {
+  color: transparent;
+  background-image: linear-gradient(
+    100deg,
+    rgba(201, 201, 208, 0.45) 30%,
+    rgba(232, 232, 234, 1) 50%,
+    rgba(201, 201, 208, 0.45) 70%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation: agent-shimmer 1.8s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .agent-shimmer {
+    animation: none;
+    color: inherit;
+    background-image: none;
+  }
+}
+
 @keyframes coach-pop-in {
   from { opacity: 0; transform: translateY(-6px) scale(0.96); }
   to   { opacity: 1; transform: translateY(0) scale(1); }

@@ -2,7 +2,12 @@
 import type { AgentConversationView, AgentTurnEvent } from '@image-playground/shared'
 import { encodeAgentFrame } from '@image-playground/shared'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { answerableClarificationId, useAgentStore } from '../../../features/agent/store'
+import { PANEL_WIDTH } from '../../../features/agent/agentStyles'
+import {
+  agentActivityPhase,
+  answerableClarificationId,
+  useAgentStore,
+} from '../../../features/agent/store'
 import { _setRuntimeConfigForTesting } from '../../../lib/runtimeConfig'
 
 const CONVERSATION = 'conversation-1'
@@ -42,7 +47,7 @@ function turnStream(...events: AgentTurnEvent[]): Response {
   return sseResponse(frames(...events))
 }
 
-let turnResponse: () => Response
+let turnResponse: () => Response | Promise<Response>
 let messagesResponse: () => Response
 let conversationsResponse: () => Response
 let deleteResponse: () => Response
@@ -85,7 +90,6 @@ beforeEach(() => {
     turns: {},
     error: null,
     loaded: false,
-    expanded: {},
   })
 })
 
@@ -260,13 +264,84 @@ describe('读回历史', () => {
   })
 })
 
-describe('折叠', () => {
-  it('展开状态按消息切换', () => {
-    state().toggleExpanded('assistant-1')
-    expect(state().expanded['assistant-1']).toBe(true)
+describe('发送反馈', () => {
+  it('敲下回车消息立刻上屏，turnStart 到了换成服务端的 id', async () => {
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    turnResponse = async () => {
+      await gate
+      return turnStream(TURN_START, TURN_END)
+    }
 
-    state().toggleExpanded('assistant-1')
-    expect(state().expanded['assistant-1']).toBe(false)
+    const sending = state().send('把背景换成浅木色')
+    await Promise.resolve()
+    expect(state().turn).toBe('running')
+    expect(state().activeTurn).toBeNull()
+    expect(agentActivityPhase(state())).toBe('sending')
+    const pending = state().messages.filter((one) => one.kind === 'text' && one.pending)
+    expect(pending).toHaveLength(1)
+    expect(pending[0]).toMatchObject({ role: 'user', text: '把背景换成浅木色' })
+
+    release()
+    await sending
+    expect(state().messages.map((one) => one.id)).toEqual(['user-1'])
+    expect(state().messages.some((one) => one.kind === 'text' && one.pending)).toBe(false)
+  })
+
+  it('状态相位：起轮前发送中，等模型时思考中，工具跑着执行中，文字在流就让位', () => {
+    const user = {
+      kind: 'text' as const,
+      id: 'user-1',
+      turnId: 'turn-1',
+      role: 'user' as const,
+      text: '画',
+      streaming: false,
+    }
+    expect(agentActivityPhase({ turn: 'idle', activeTurn: null, messages: [user] })).toBeNull()
+    expect(agentActivityPhase({ turn: 'running', activeTurn: null, messages: [user] })).toBe(
+      'sending',
+    )
+    const active = { turnId: 'turn-1' }
+    expect(agentActivityPhase({ turn: 'running', activeTurn: active, messages: [user] })).toBe(
+      'thinking',
+    )
+    const tool = {
+      kind: 'tool' as const,
+      id: 'tool-1',
+      turnId: 'turn-1',
+      toolCallId: 'call-1',
+      title: '生成图片',
+      status: 'running' as const,
+    }
+    expect(
+      agentActivityPhase({ turn: 'running', activeTurn: active, messages: [user, tool] }),
+    ).toBe('executing')
+    const reply = { ...user, id: 'assistant-1', role: 'assistant' as const, streaming: true }
+    expect(
+      agentActivityPhase({ turn: 'running', activeTurn: active, messages: [user, reply] }),
+    ).toBeNull()
+    expect(
+      agentActivityPhase({
+        turn: 'running',
+        activeTurn: active,
+        messages: [user, { ...reply, text: '' }],
+      }),
+    ).toBe('thinking')
+  })
+})
+
+describe('面板宽度', () => {
+  it('拖过的宽度夹在最窄与视口六成之间并记进 localStorage', () => {
+    vi.stubGlobal('innerWidth', 1000)
+    state().setPanelWidth(100)
+    expect(state().panelWidth).toBe(PANEL_WIDTH)
+    state().setPanelWidth(5000)
+    expect(state().panelWidth).toBe(600)
+    state().setPanelWidth(420.4)
+    expect(state().panelWidth).toBe(420)
+    expect(localStorage.getItem('image-playground.agent_panel_width')).toBe('420')
   })
 })
 
