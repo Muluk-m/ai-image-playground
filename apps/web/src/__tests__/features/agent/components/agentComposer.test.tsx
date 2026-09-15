@@ -109,7 +109,70 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
+function png(name = 'photo.png'): File {
+  return new File([new Uint8Array([137, 80, 78, 71])], name, { type: 'image/png' })
+}
+
+function fireDrag(target: Element, type: string, files: File[]): void {
+  const event = new Event(type, { bubbles: true, cancelable: true })
+  Object.defineProperty(event, 'dataTransfer', {
+    value: {
+      files,
+      types: ['Files'],
+      items: files.map((file) => ({ kind: 'file', type: file.type, getAsFile: () => file })),
+    },
+  })
+  act(() => {
+    target.dispatchEvent(event)
+  })
+}
+
+/** 读文件与压缩都是异步的，等它们落进引用区。 */
+async function attached(): Promise<string[]> {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  })
+  return [...host.querySelectorAll('img')].map((img) => img.getAttribute('src') ?? '')
+}
+
 describe('智能体输入框', () => {
+  it('图片文件拖进输入框就成为参考图，名字用文件名', async () => {
+    render()
+    const zone = host.querySelector('[data-image-dropzone]')!
+
+    fireDrag(zone, 'dragenter', [png()])
+    expect(host.textContent).toContain('松开即作为参考图')
+    fireDrag(zone, 'drop', [png('海报底图.png')])
+
+    const sources = await attached()
+    expect(sources).toHaveLength(1)
+    expect(sources[0]).toMatch(/^data:image\/png;base64,/)
+    expect(host.textContent).toContain('海报底图')
+    expect(host.textContent).not.toContain('松开即作为参考图')
+
+    type('把它放到浴缸旁边')
+    click('发送')
+    expect(send).toHaveBeenCalledWith('把它放到浴缸旁边', [
+      expect.objectContaining({ imageId: expect.stringMatching(/^file_/), name: '海报底图' }),
+    ])
+  })
+
+  it('粘贴图片同样进引用区；非图片文件不收', async () => {
+    render()
+    const event = new Event('paste', { bubbles: true, cancelable: true })
+    Object.defineProperty(event, 'clipboardData', {
+      value: {
+        files: [png('clip.png'), new File(['%PDF'], 'brief.pdf', { type: 'application/pdf' })],
+      },
+    })
+    act(() => {
+      editor().dispatchEvent(event)
+    })
+
+    expect(await attached()).toHaveLength(1)
+    expect(useStore.getState().toast?.message).toBe('只支持图片文件')
+  })
+
   it('`@` 从画布挑一张图，插成引用胶囊', () => {
     render()
     type('把@')

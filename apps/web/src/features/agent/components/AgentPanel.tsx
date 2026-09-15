@@ -1,6 +1,7 @@
 import { Fragment, type PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef } from 'react'
 import Credits from '../../../components/Credits'
 import { PlusIcon, TrashIcon } from '../../../components/icons'
+import { useImageDropZone } from '../../../hooks/useImageDropZone'
 import { useStore } from '../../../store'
 import type { CanvasDoc } from '../../canvas/lib/canvasDoc'
 import type { CanvasEditor } from '../../canvas/lib/editor'
@@ -20,6 +21,7 @@ import {
   TAB,
   USER_BUBBLE,
 } from '../agentStyles'
+import { attachFilesToComposer } from '../lib/attachments'
 import { agentSessionCredits } from '../lib/turnCost'
 import { agentPanelPresent } from '../panelLayout'
 import { answerableClarificationId, useAgentStore } from '../store'
@@ -125,6 +127,10 @@ export default function AgentPanel({ doc, editor }: { doc: CanvasDoc; editor: Ca
   const { setOpen, setTab, load, startNewConversation, refreshConversations, setPanelWidth } =
     useAgentStore.getState()
   const logRef = useRef<HTMLDivElement>(null)
+  // 文件拖到对话记录上也算数：草稿归输入框管，这里只把文件递过去。
+  const { dragging, dropZoneProps } = useImageDropZone((files) => {
+    attachFilesToComposer(files)
+  })
   // 流式输出时这个组件每个字都重渲染一次，别让它顺带把整张轮表遍历两遍。
   const sessionCredits = useMemo(
     () => (Object.values(turns).some((footer) => footer.cost) ? agentSessionCredits(turns) : null),
@@ -253,7 +259,8 @@ export default function AgentPanel({ doc, editor }: { doc: CanvasDoc; editor: Ca
       ) : (
         <div
           ref={logRef}
-          className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto px-3 py-1"
+          className={`relative flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto px-3 py-1 ${dragging ? 'rounded-xl outline-dashed outline-1 outline-blue-400/70' : ''}`}
+          {...dropZoneProps}
         >
           {messages.length === 0 && <p className={`text-xs ${INK_3}`}>还没有对话</p>}
           {messages.map((message, index) => {
