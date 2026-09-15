@@ -57,7 +57,8 @@ describe('submitFromCanvas billing reservation', () => {
       createPlaceholder: createPlaceholderMock,
       updatePlaceholder: vi.fn(),
       getSelectedIds: () => [],
-      getViewportPageBounds: () => ({ midX: 500, midY: 400 }),
+      getViewportPageBounds: () => ({ midX: 500, midY: 400, w: 4000 }),
+      getOccupiedBounds: () => [],
     } as unknown as CanvasEditor
 
     await submitFromCanvas(editor, 'draw')

@@ -1,16 +1,23 @@
 import { describe, expect, it } from 'vitest'
 import type { CanvasEditor } from '../../../../features/canvas/lib/editor'
-import type { Box } from '../../../../features/canvas/lib/geometry'
+import { Box } from '../../../../features/canvas/lib/geometry'
 import {
   computePlaceholderTarget,
-  fanOutTargets,
+  computePlaceholderTargets,
+  findFreeTarget,
   fitToTarget,
   PLACEMENT_GAP,
 } from '../../../../features/canvas/lib/placement'
 
-/** placement 是纯函数，只读 editor.getViewportPageBounds / bounds 的几个字段。 */
-function makeEditor(viewport: { midX: number; midY: number }): CanvasEditor {
-  return { getViewportPageBounds: () => viewport } as unknown as CanvasEditor
+/** placement 是纯函数，只读 editor 的视口与元素包围盒。 */
+function makeEditor(
+  viewport: { midX: number; midY: number; w?: number },
+  occupied: Box[] = [],
+): CanvasEditor {
+  return {
+    getViewportPageBounds: () => ({ w: 4000, ...viewport }),
+    getOccupiedBounds: () => [...occupied],
+  } as unknown as CanvasEditor
 }
 
 function makeBounds(b: { maxX: number; midX: number; midY: number }): Box {
@@ -42,27 +49,90 @@ describe('computePlaceholderTarget', () => {
   })
 })
 
-describe('fanOutTargets', () => {
-  const base = { x: 100, y: 50, w: 360, h: 360 }
+describe('findFreeTarget', () => {
+  const start = { x: 0, y: 0, w: 100, h: 100 }
+  const row = { x: 0, width: 400 }
 
-  it('n 个目标沿水平方向排开，彼此留间距', () => {
-    const targets = fanOutTargets(base, 3)
+  const cases: { name: string; obstacles: Box[]; expected: { x: number; y: number } }[] = [
+    { name: '没人挡就留在原位', obstacles: [], expected: { x: 0, y: 0 } },
+    {
+      name: '被挡就跳到挡路者右边界加一个间距',
+      obstacles: [new Box(-10, -10, 60, 200)],
+      expected: { x: 50 + PLACEMENT_GAP, y: 0 },
+    },
+    {
+      name: '连着两个挡路者就一路往右让',
+      obstacles: [new Box(0, 0, 50, 100), new Box(50 + PLACEMENT_GAP, 0, 50, 100)],
+      expected: { x: 100 + 2 * PLACEMENT_GAP, y: 0 },
+    },
+    {
+      name: '这一行放不下就回到行首、往下挪一行',
+      obstacles: [new Box(0, 0, 380, 100)],
+      expected: { x: 0, y: 100 + PLACEMENT_GAP },
+    },
+    {
+      name: '挨着边不算相交，贴边的空位照用',
+      obstacles: [new Box(-100, 0, 100, 100)],
+      expected: { x: 0, y: 0 },
+    },
+  ]
+
+  for (const { name, obstacles, expected } of cases) {
+    it(name, () => {
+      expect(findFreeTarget(start, obstacles, row)).toEqual({ ...start, ...expected })
+    })
+  }
+
+  it('行列都走完时落到所有元素下方，保证返回的位置是空的', () => {
+    // 一整片密不透风的障碍：每一行每一列都被占满。
+    const wall = Array.from({ length: 200 }, (_, i) => new Box(-5000, i * 10, 10_000, 10))
+
+    const target = findFreeTarget(start, wall, row)
+
+    expect(wall.some((one) => one.collides(new Box(target.x, target.y, target.w, target.h)))).toBe(
+      false,
+    )
+  })
+})
+
+describe('computePlaceholderTargets', () => {
+  it('画布空着时 n 个目标沿水平方向等距排开', () => {
+    const editor = makeEditor({ midX: 180, midY: 180 })
+
+    const targets = computePlaceholderTargets(editor, null, 3)
 
     expect(targets).toHaveLength(3)
-    expect(targets[0]).toEqual(base)
-    expect(targets[1].x).toBe(100 + 360 + PLACEMENT_GAP)
-    expect(targets[2].x).toBe(100 + 2 * (360 + PLACEMENT_GAP))
-    // y/w/h 不变
-    for (const t of targets) {
-      expect(t.y).toBe(50)
-      expect(t.w).toBe(360)
-      expect(t.h).toBe(360)
+    expect(targets[1].x).toBe(targets[0].x + targets[0].w + PLACEMENT_GAP)
+    expect(targets[2].x).toBe(targets[0].x + 2 * (targets[0].w + PLACEMENT_GAP))
+    expect(targets.map((one) => one.y)).toEqual([targets[0].y, targets[0].y, targets[0].y])
+  })
+
+  it('理想位置被已有元素占住时让开，不压住它', () => {
+    const blocker = new Box(0, 0, 360, 360)
+    const editor = makeEditor({ midX: 180, midY: 180 }, [blocker])
+
+    const [target] = computePlaceholderTargets(editor, null, 1)
+
+    expect(new Box(target.x, target.y, target.w, target.h).collides(blocker)).toBe(false)
+  })
+
+  it('多个目标彼此不重叠', () => {
+    const editor = makeEditor({ midX: 180, midY: 180 }, [new Box(0, 0, 500, 100)])
+
+    const targets = computePlaceholderTargets(editor, null, 4)
+
+    const boxes = targets.map((one) => new Box(one.x, one.y, one.w, one.h))
+    for (let i = 0; i < boxes.length; i += 1) {
+      for (let j = i + 1; j < boxes.length; j += 1) {
+        expect(boxes[i].collides(boxes[j])).toBe(false)
+      }
     }
   })
 
-  it('n<=1 时只有 base 一个目标', () => {
-    expect(fanOutTargets(base, 1)).toEqual([base])
-    expect(fanOutTargets(base, 0)).toEqual([base])
+  it('count<=0 也至少给一个目标', () => {
+    const editor = makeEditor({ midX: 180, midY: 180 })
+
+    expect(computePlaceholderTargets(editor, null, 0)).toHaveLength(1)
   })
 })
 

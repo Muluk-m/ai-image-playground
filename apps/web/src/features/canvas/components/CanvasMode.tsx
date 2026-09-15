@@ -8,8 +8,8 @@ import { createAgentCanvasSink } from '../lib/agentCanvasSink'
 import { CanvasDoc } from '../lib/canvasDoc'
 import { CanvasEditor } from '../lib/editor'
 import { loadScene, PERSIST_DEBOUNCE_MS, saveScene } from '../lib/persistence'
-import { placeImagesOnCanvas } from '../lib/placeholderShapeOps'
-import { computePlaceholderTarget } from '../lib/placement'
+import { placeImagesIntoTargets } from '../lib/placeholderShapeOps'
+import { computePlaceholderTargets } from '../lib/placement'
 import { recoverCanvasTasks } from '../lib/recoverCanvasTasks'
 import CanvasGenerateBar from './CanvasGenerateBar'
 import CanvasShortcutsHint from './CanvasShortcutsHint'
@@ -53,10 +53,10 @@ export default function CanvasMode() {
       recoverCanvasTasks(editor)
       const pending = useStore.getState().consumeCanvasImages()
       if (pending.length > 0) {
-        placeImagesOnCanvas(
+        placeImagesIntoTargets(
           editor,
           pending.map((dataUrl) => ({ dataUrl })),
-          computePlaceholderTarget(editor, null),
+          computePlaceholderTargets(editor, null, pending.length),
         ).then(
           // 放置若在卸载后才完成，最终落盘已错过 → 补存一次
           () => {

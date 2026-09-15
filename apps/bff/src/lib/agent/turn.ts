@@ -40,7 +40,9 @@ import { type RunningTurn, registerRunningTurn, turnEventLog } from './runningTu
 import {
   type AgentToolDetails,
   agentToolAbortsTurn,
+  agentToolAnchor,
   agentToolGuidance,
+  agentToolOutputCount,
   agentTools,
   agentToolTitle,
   isAgentToolName,
@@ -226,6 +228,7 @@ function assistantCount(messages: readonly { readonly role: string }[]): number 
 /** 起一轮并立刻返回把手；`read()` 可以被断开再重开。 */
 export async function startAgentTurn(input: StartAgentTurnInput): Promise<RunningTurn> {
   const { conversationId, turnId, userMessageId, settle, text: prompt } = input
+  const turnParams = input.params
   // 收尾闭包只留这个计数，不留 input：捕获它就等于把整段历史再钉住一份到轮结束。
   const replayedAssistants = assistantCount(input.history)
   const startedAt = Date.now()
@@ -357,12 +360,18 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
       const messageId = crypto.randomUUID()
       const title = agentToolTitle(event.toolName, event.args)
       openTools.set(event.toolCallId, { messageId, toolName: event.toolName, title })
+      // 画布要在工具跑完之前就占好位，所以这里把「占几个、占在哪」一并发出去：
+      // 参数快照与锚点这一刻都在手上，等到 toolEnd 再说就晚了整整一次生成。
+      const outputCount = agentToolOutputCount(event.toolName, turnParams)
+      const anchorObjectId = agentToolAnchor(event.toolName, event.args, images)
       events.emit({
         type: 'toolStart',
         messageId,
         toolCallId: event.toolCallId,
         toolName: event.toolName,
         title,
+        ...(outputCount ? { outputCount } : {}),
+        ...(anchorObjectId ? { anchorObjectId } : {}),
       })
     }
     if (event.type === 'tool_execution_update') {

@@ -245,6 +245,36 @@ describe('智能体生图工具', () => {
     expect(calls[0]!.tools?.map((tool) => tool.function.name)).toContain('generateImage')
   })
 
+  it('tells the canvas how many slots to reserve before the tool finishes', async () => {
+    setAgentFetchForTesting(
+      scriptedAgentFetch(
+        [],
+        [
+          () =>
+            toolCallCompletion({
+              id: 'call-1',
+              name: 'generateImage',
+              args: { prompt: '一只橘猫坐在窗台上' },
+            }),
+          () => completionStream('画好了'),
+        ],
+      ),
+    )
+    const stop = settleSubmittedTasks('completed')
+    const conversationId = await startConversation()
+
+    const frames = await runTurn(conversationId, '画三张橘猫', { n: 3 })
+    stop()
+
+    // 占位数量来自这一轮的参数，和队列请求里的 n 是同一个算式。
+    const [start] = eventsOfType(frames, 'toolStart')
+    expect(start).toMatchObject({ toolName: 'generateImage', outputCount: 3 })
+    // 文生图没有源图可贴，锚点缺席即落在视口中央。
+    expect(start!.anchorObjectId).toBeUndefined()
+    const [task] = await db.select().from(schema.tasks)
+    expect(task!.request_payload.n).toBe(3)
+  })
+
   it('adds up the usage of every upstream call the tool loop makes', async () => {
     setAgentFetchForTesting(
       scriptedAgentFetch(

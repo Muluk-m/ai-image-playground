@@ -8,7 +8,7 @@ import type {
   AgentTurnEvent,
   AgentTurnReference,
 } from '@image-playground/shared'
-import { agentMessageText } from '@image-playground/shared'
+import { AGENT_TURN_MAX_N, agentMessageText } from '@image-playground/shared'
 import { create } from 'zustand'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../lib/apiProfiles'
 import { AGENT_CONVERSATION_KEY, safeLocalStorage, scopedStorageName } from '../../lib/authScope'
@@ -235,6 +235,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
               toolCallId: event.toolCallId,
               title: event.title,
               status: 'running',
+              ...(event.anchorObjectId ? { anchorObjectId: event.anchorObjectId } : {}),
             }),
           }
         case 'toolProgress':
@@ -277,9 +278,19 @@ export const useAgentStore = create<AgentState>((set, get) => {
         }
       }
     })
-    if (event.type === 'toolEnd' && event.status === 'succeeded') {
+    // 工具一起跑画布就占好位、镜头跟过去；产物到了落进这些位，没跑成就在原地标错。
+    if (event.type === 'toolStart' && event.outputCount) {
+      turnDelivery.reserve(event.messageId, {
+        // 数量来自服务端；按协议上限收口，坏值不会在画布上铺出一片空框。
+        count: Math.min(AGENT_TURN_MAX_N, event.outputCount),
+        ...(event.anchorObjectId ? { anchorObjectId: event.anchorObjectId } : {}),
+      })
+    }
+    if (event.type === 'toolEnd') {
       const message = get().messages.find((one) => one.id === event.messageId)
-      if (message?.kind === 'tool') turnDelivery.enqueue(message)
+      if (event.status === 'failed') turnDelivery.failed(event.messageId, event.message)
+      else if (message?.kind === 'tool' && message.artifacts?.length) turnDelivery.enqueue(message)
+      else turnDelivery.discard(event.messageId)
     }
   }
 

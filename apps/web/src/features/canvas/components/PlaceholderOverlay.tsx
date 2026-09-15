@@ -72,25 +72,28 @@ export default function PlaceholderOverlay({ editor }: { editor: CanvasEditor })
                   {p.message && (
                     <span style={{ maxWidth: '100%', wordBreak: 'break-word' }}>{p.message}</span>
                   )}
-                  <button
-                    type="button"
-                    onPointerDown={(e) => e.stopPropagation()}
-                    onClick={() => retryCanvasTask(editor, p)}
-                    style={{
-                      marginTop: 4,
-                      padding: '4px 14px',
-                      fontSize: 13,
-                      fontWeight: 500,
-                      color: '#fff',
-                      background: accent,
-                      border: 'none',
-                      borderRadius: 8,
-                      cursor: 'pointer',
-                      pointerEvents: 'all',
-                    }}
-                  >
-                    重试
-                  </button>
+                  {/* 智能体占的位没有可重发的画布任务：重试在对话里说一句，不在这个框上。 */}
+                  {!p.meta.agent && (
+                    <button
+                      type="button"
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={() => retryCanvasTask(editor, p)}
+                      style={{
+                        marginTop: 4,
+                        padding: '4px 14px',
+                        fontSize: 13,
+                        fontWeight: 500,
+                        color: '#fff',
+                        background: accent,
+                        border: 'none',
+                        borderRadius: 8,
+                        cursor: 'pointer',
+                        pointerEvents: 'all',
+                      }}
+                    >
+                      重试
+                    </button>
+                  )}
                 </>
               )}
             </div>
