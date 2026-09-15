@@ -1,5 +1,5 @@
 import type { CanvasEditor } from './editor'
-import type { Box } from './geometry'
+import { Box } from './geometry'
 
 /** 结果 / 占位框与源选区之间、以及多张结果彼此之间的留白（页面坐标单位）。 */
 export const PLACEMENT_GAP = 48
@@ -28,20 +28,10 @@ export function fitToTarget(
 }
 
 /**
- * n>1 变体 fan-out 的占位目标：以 base 为首，沿水平方向依次排开，彼此留间距。
- * 与工作台「n 张拆 n 条任务」语义一致，画布上表现为一排独立占位框。
- */
-export function fanOutTargets(base: PlacementTarget, n: number): PlacementTarget[] {
-  return Array.from({ length: Math.max(1, n) }, (_, i) => ({
-    ...base,
-    x: base.x + i * (base.w + PLACEMENT_GAP),
-  }))
-}
-
-/**
- * 计算占位框目标位置（抽成独立函数，便于未来换动态寻空位）：
- * - 有选区：选区包围盒右侧、垂直居中于包围盒
- * - 无选区（文生图）：当前视口中心
+ * 空位搜索的起点：
+ * - 有锚点（选区 / 改图的源图）：锚点包围盒右侧、垂直居中于包围盒
+ * - 无锚点（文生图）：当前视口中心
+ * 这里只给出「理想位置」，是否被占由 `findFreeTarget` 判。
  */
 export function computePlaceholderTarget(
   editor: CanvasEditor,
@@ -58,4 +48,75 @@ export function computePlaceholderTarget(
   }
   const viewport = editor.getViewportPageBounds()
   return { x: viewport.midX - size / 2, y: viewport.midY - size / 2, w: size, h: size }
+}
+
+export function boxOfTarget(target: PlacementTarget): Box {
+  return new Box(target.x, target.y, target.w, target.h)
+}
+
+/** 一行横向能铺到哪：`x` 是行首，`width` 是从行首起算的可用宽度。 */
+export interface PlacementRow {
+  readonly x: number
+  readonly width: number
+}
+
+/** 搜索的横向步数与换行次数上限；超出即走「落到所有元素下方」的兜底，保证函数一定返回空位。 */
+const MAX_STEPS_PER_ROW = 64
+const MAX_ROWS = 64
+
+function bottomOf(obstacles: readonly Box[]): number {
+  return obstacles.reduce((lowest, one) => Math.max(lowest, one.maxY), Number.NEGATIVE_INFINITY)
+}
+
+/**
+ * 从 `start` 出发找一个与任何障碍物都不相交的同尺寸位置（纯几何，不碰画布）：
+ * 被挡就跳到挡路者右边界加一个 `PLACEMENT_GAP` 继续试；这一行放不下就回到行首、
+ * 往下挪一行再来。行列都走完（画布密到离谱）时落到所有元素下方——那里一定是空的。
+ */
+export function findFreeTarget(
+  start: PlacementTarget,
+  obstacles: readonly Box[],
+  row: PlacementRow,
+): PlacementTarget {
+  const limitX = row.x + Math.max(row.width, start.w)
+  let y = start.y
+  for (let attempt = 0; attempt < MAX_ROWS; attempt += 1) {
+    let x = attempt === 0 ? start.x : row.x
+    for (let step = 0; step < MAX_STEPS_PER_ROW; step += 1) {
+      const candidate = { ...start, x, y }
+      const blocked = obstacles.find((one) => one.collides(boxOfTarget(candidate)))
+      if (!blocked) return candidate
+      const next = blocked.maxX + PLACEMENT_GAP
+      if (next + start.w > limitX) break
+      x = next
+    }
+    y += start.h + PLACEMENT_GAP
+  }
+  return { ...start, x: row.x, y: bottomOf(obstacles) + PLACEMENT_GAP }
+}
+
+/**
+ * 一次生成要占的 n 个目标位置：从锚点右侧（无锚点则视口中心）起，依次找互不重叠、
+ * 也不压住画布上任何已有元素的空位。直接生成与智能体两条路共用这一个入口，
+ * 所以「多张排开」与「避让已有元素」两边行为一致。
+ */
+export function computePlaceholderTargets(
+  editor: CanvasEditor,
+  anchorBounds: Box | null,
+  count: number,
+): PlacementTarget[] {
+  const base = computePlaceholderTarget(editor, anchorBounds)
+  const viewport = editor.getViewportPageBounds()
+  const row: PlacementRow = { x: base.x, width: viewport.w }
+  const obstacles = editor.getOccupiedBounds()
+  const targets: PlacementTarget[] = []
+  let start = base
+  for (let index = 0; index < Math.max(1, count); index += 1) {
+    const target = findFreeTarget(start, obstacles, row)
+    targets.push(target)
+    obstacles.push(boxOfTarget(target))
+    // 下一个从上一个右边一个间距处起步：画布空时退化成一排等距占位框。
+    start = { ...base, x: target.x + target.w + PLACEMENT_GAP, y: target.y }
+  }
+  return targets
 }

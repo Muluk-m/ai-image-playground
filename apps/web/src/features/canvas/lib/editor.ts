@@ -44,6 +44,11 @@ export interface CanvasTaskMeta {
   params?: TaskParams
   /** 发起时的 profile 身份快照，恢复完成落历史保真（缺失兜底当前 active profile）。 */
   profileView?: CanvasProfileSnapshot
+  /**
+   * 智能体工具起跑时占的位。它不是画布任务：没有 BFF 请求可续、也不能在画布上重试，
+   * 产物由智能体面板那条交付链路送达。刷新后残留的这种占位框直接清掉。
+   */
+  agent?: true
 }
 
 /** 占位框的业务视图：几何 + 状态 + 恢复元数据（屏蔽底层元素结构）。 */
@@ -189,6 +194,11 @@ export class CanvasEditor {
     return new Box(camera.x, camera.y, viewport.width / camera.zoom, viewport.height / camera.zoom)
   }
 
+  /** 画布上每个元素的页面坐标包围盒：放置算法搜索空位时的障碍物集合。 */
+  getOccupiedBounds(): Box[] {
+    return this.doc.elements.map(elementBounds)
+  }
+
   isPlaceholder(el: CanvasEl): boolean {
     return el.type === 'placeholder'
   }
@@ -209,10 +219,15 @@ export class CanvasEditor {
 
   // ===== 变更 =====
 
-  /** 创建 loading 占位框（虚线矩形），返回元素 id。 */
+  /**
+   * 创建 loading 占位框（虚线矩形），返回元素 id。
+   * `history: false` 给智能体用：它的占位框是机器搭的脚手架，既不该进 undo 栈，
+   * 也不该抬 editRevision——那条线是「用户动过画布」的判据，抬了智能体会判自己冲突。
+   */
   createPlaceholder(
     target: { x: number; y: number; w: number; h: number },
     meta: CanvasTaskMeta,
+    opts: { history?: boolean } = {},
   ): string {
     const el: PlaceholderEl = {
       id: newElementId(),
@@ -225,7 +240,7 @@ export class CanvasEditor {
       message: '',
       meta,
     }
-    this.doc.addElements([el])
+    this.doc.addElements([el], opts.history === false ? { history: false } : {})
     return el.id
   }
 
@@ -248,9 +263,9 @@ export class CanvasEditor {
     ])
   }
 
-  /** 删除元素（占位框被替换 / 重试时删旧）。不存在则 no-op。 */
-  deleteElement(id: string): void {
-    this.doc.deleteElements([id])
+  /** 删除元素（占位框被替换 / 重试时删旧）。不存在则 no-op。`history: false` 同 createPlaceholder。 */
+  deleteElement(id: string, opts: { history?: boolean } = {}): void {
+    this.doc.deleteElements([id], opts.history === false ? { history: false } : {})
   }
 
   /** 把一组 dataUrl 图片放到指定位置（文件 + image 元素一并创建），返回新元素 id 列表。 */

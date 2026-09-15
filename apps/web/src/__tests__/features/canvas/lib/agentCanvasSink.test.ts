@@ -35,6 +35,9 @@ beforeEach(() => {
   sink = createAgentCanvasSink(editor)
   holdSizing = false
   sizing.length = 0
+  // 相机动画走 rAF；node 环境里没有它，这里只需要它不抛。
+  vi.stubGlobal('requestAnimationFrame', () => 0)
+  vi.stubGlobal('cancelAnimationFrame', () => {})
   vi.stubGlobal(
     'Image',
     class {
@@ -198,5 +201,106 @@ describe('落画布', () => {
     expect(await placing).toBe('placed')
     expect(editor.getElements().map((element) => element.id)).toEqual(['agent_image_1'])
     expect(editor.getElement('agent_image_1')).toMatchObject({ x: 10, y: 20 })
+  })
+})
+
+describe('工具起跑占位', () => {
+  /** 画布上的一张图，用来把理想位置占掉。 */
+  function addImage(id: string, box: { x: number; y: number; w: number; h: number }): void {
+    doc.addElements([
+      {
+        id,
+        type: 'image',
+        x: box.x,
+        y: box.y,
+        width: box.w,
+        height: box.h,
+        rotation: 0,
+        fileId: `${id}-file`,
+      },
+    ])
+  }
+
+  it('按数量建互不重叠的占位框，并把镜头带过去', async () => {
+    const scrolled: string[][] = []
+    editor.scrollToElements = (ids) => scrolled.push([...ids])
+
+    const ids = await sink.reserve({ count: 3 })
+
+    expect(ids).toHaveLength(3)
+    const boxes = ids.map((id) => editor.getElementPageBounds(id)!)
+    for (let i = 0; i < boxes.length; i += 1) {
+      for (let j = i + 1; j < boxes.length; j += 1)
+        expect(boxes[i]!.collides(boxes[j]!)).toBe(false)
+    }
+    expect(scrolled).toEqual([[...ids]])
+  })
+
+  it('占位不算用户编辑：修订号不动，智能体不会判自己冲突', async () => {
+    const before = sink.revision()
+
+    const ids = await sink.reserve({ count: 2 })
+    sink.discard(ids)
+
+    expect(sink.revision()).toBe(before)
+  })
+
+  it('占位框让开画布上已有的元素', async () => {
+    // 视口中心正被一张图压着。
+    const viewport = editor.getViewportPageBounds()
+    addImage('existing', { x: viewport.midX - 400, y: viewport.midY - 400, w: 800, h: 800 })
+
+    const [id] = await sink.reserve({ count: 1 })
+
+    expect(
+      editor.getElementPageBounds(id!)!.collides(editor.getElementPageBounds('existing')!),
+    ).toBe(false)
+  })
+
+  it('产物落进起跑时占的那个框，随后框消失', async () => {
+    const [id] = await sink.reserve({ count: 1 })
+    const reserved = editor.getPlaceholder(id!)!
+
+    const outcome = await sink.place(IMAGES, { placeholderIds: [id!] })
+
+    expect(outcome).toBe('placed')
+    expect(editor.getPlaceholder(id!)).toBeUndefined()
+    const placed = editor.getElementPageBounds('agent_image_1')!
+    expect(placed.midX).toBeCloseTo(reserved.x + reserved.w / 2)
+    expect(placed.midY).toBeCloseTo(reserved.y + reserved.h / 2)
+  })
+
+  it('占位框比产物少时，多出来的现找空位，产物不丢', async () => {
+    const [id] = await sink.reserve({ count: 1 })
+
+    const outcome = await sink.place(
+      [IMAGES[0]!, { artifactId: 'agent_image_2', dataUrl: IMAGES[0]!.dataUrl }],
+      { placeholderIds: [id!] },
+    )
+
+    expect(outcome).toBe('placed')
+    const first = editor.getElementPageBounds('agent_image_1')!
+    const second = editor.getElementPageBounds('agent_image_2')!
+    expect(first.collides(second)).toBe(false)
+  })
+
+  it('落图被判冲突时占位框留在原地，不把它连同产物一起吞掉', async () => {
+    const [id] = await sink.reserve({ count: 1 })
+    const base = sink.revision()
+    addText('user-edit')
+
+    expect(await sink.place(IMAGES, { baseRevision: base, placeholderIds: [id!] })).toBe('conflict')
+    expect(editor.getPlaceholder(id!)).toBeDefined()
+  })
+
+  it('工具失败时占位框转错误态，带上原因', async () => {
+    const [id] = await sink.reserve({ count: 1 })
+
+    sink.markFailed([id!], '上游拒绝了这张图')
+
+    expect(editor.getPlaceholder(id!)).toMatchObject({
+      status: 'error',
+      message: '上游拒绝了这张图',
+    })
   })
 })

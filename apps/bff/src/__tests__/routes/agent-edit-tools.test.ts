@@ -313,6 +313,36 @@ describe('智能体改图工具', () => {
     }
   })
 
+  it('names the anchor on toolStart so the canvas reserves next to the source image', async () => {
+    setAgentFetchForTesting(
+      scriptedAgentFetch(
+        [],
+        [
+          () =>
+            toolCallCompletion({
+              id: 'call-1',
+              // 模型常常报编号而不是 id；占位要用的是翻译回来的画布对象 id。
+              name: 'editImage',
+              args: { prompt: '把背景换成浅木色', imageIds: ['image 1'] },
+            }),
+          () => completionStream('改好了'),
+        ],
+      ),
+    )
+    const stop = settleSubmittedTasks('completed')
+    const conversationId = await startConversation()
+
+    const frames = await runTurn(conversationId, '把 [image 1] 的背景换成浅木色', {
+      references: [{ imageId: 'canvas-1', dataUrl: PIXEL }],
+    })
+    stop()
+
+    const [start] = eventsOfType(frames, 'toolStart')
+    expect(start).toMatchObject({ toolName: 'editImage', anchorObjectId: 'canvas-1' })
+    // 起跑时说的锚点和跑完时说的必须是同一个，否则产物会换个地方落。
+    expect(eventsOfType(frames, 'toolEnd')[0]!.anchorObjectId).toBe('canvas-1')
+  })
+
   it('submits the referenced image and anchors the output to it', async () => {
     const calls: AgentCall[] = []
     setAgentFetchForTesting(

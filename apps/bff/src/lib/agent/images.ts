@@ -26,6 +26,11 @@ export interface ResolvedAgentImage {
 /** 模型只会说图片 id，字节从哪来由这里决定。 */
 export interface AgentImageSource {
   readonly references: readonly AgentImageReference[]
+  /**
+   * 模型说的那个 id 对应的真 id（把 `image 2` 这类编号翻回去），不读字节。
+   * 工具起跑时要立刻把锚点告诉画布，那一刻等不起一次对象存储往返。
+   */
+  identify(imageId: string): string
   resolve(imageId: string): Promise<ResolvedAgentImage | null>
   /** 记下工具刚产出的图，同一轮里下一个工具才能接着改它。视频不进这里：它取不出可编辑的位图。 */
   note(artifacts: readonly AgentToolArtifact[]): void
@@ -228,21 +233,27 @@ export function createAgentImageSource(input: {
     return asset ? { imageId, dataUrl: dataUrl(asset.bytes, asset.contentType) } : null
   }
 
+  const identify = (imageId: string): string => {
+    if (references.has(imageId) || outputs.has(imageId)) return imageId
+    const ordinal = /^(?:image\s+([1-9]\d*)|\[image\s+([1-9]\d*)\])$/i.exec(imageId.trim())
+    if (!ordinal) return imageId
+    return active[Number(ordinal[1] ?? ordinal[2]) - 1]?.imageId ?? imageId
+  }
+
   return {
     references: active,
     note(artifacts) {
       rememberImages(outputs, artifacts)
     },
 
+    identify,
+
     resolve(imageId) {
-      if (!references.has(imageId) && !outputs.has(imageId)) {
-        const ordinal = /^(?:image\s+([1-9]\d*)|\[image\s+([1-9]\d*)\])$/i.exec(imageId.trim())
-        if (ordinal) imageId = active[Number(ordinal[1] ?? ordinal[2]) - 1]?.imageId ?? imageId
-      }
-      const running = resolving.get(imageId)
+      const id = identify(imageId)
+      const running = resolving.get(id)
       if (running) return running
-      const started = read(imageId)
-      resolving.set(imageId, started)
+      const started = read(id)
+      resolving.set(id, started)
       return started
     },
   }

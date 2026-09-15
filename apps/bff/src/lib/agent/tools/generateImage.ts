@@ -1,6 +1,7 @@
 import type { AgentTool } from '@earendil-works/pi-agent-core'
 import { agentTitleLine } from '@image-playground/shared'
 import { Type } from 'typebox'
+import { agentImageCount } from './queueParams'
 import { runQueueTask } from './queueTask'
 import type { AgentToolDefinition, AgentToolDetails } from './types'
 
@@ -23,6 +24,7 @@ export const generateImage: AgentToolDefinition = {
   name: 'generateImage',
   guidance: '用户要一张新图时调生图工具，把他的意图补成一条完整的提示词，不要反问他要什么风格。',
   title,
+  outputCount: agentImageCount,
   onError: 'abort',
   create(context) {
     const tool: AgentTool<typeof parameters, AgentToolDetails> = {

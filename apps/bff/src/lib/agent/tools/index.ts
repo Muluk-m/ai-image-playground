@@ -1,5 +1,6 @@
 import type { AgentTool } from '@earendil-works/pi-agent-core'
-import type { AgentToolName } from '@image-playground/shared'
+import type { AgentToolName, AgentTurnParams } from '@image-playground/shared'
+import type { AgentImageSource } from '../images'
 import { editImage } from './editImage'
 import { generateImage } from './generateImage'
 import { generateVideo } from './generateVideo'
@@ -37,4 +38,19 @@ export function agentToolTitle(name: string, args: unknown): string {
 
 export function agentToolAbortsTurn(name: string): boolean {
   return find(name)?.onError === 'abort'
+}
+
+/** 工具起跑时画布要先占几个位；0 即这个工具不落画布。 */
+export function agentToolOutputCount(name: string, params: AgentTurnParams | undefined): number {
+  return find(name)?.outputCount?.(params) ?? 0
+}
+
+/** 工具起跑时就能算出的锚点画布对象 id：占位框贴着它放。取不到就让画布落在视口中央。 */
+export function agentToolAnchor(
+  name: string,
+  args: unknown,
+  images: AgentImageSource,
+): string | undefined {
+  const spoken = find(name)?.anchor?.(args)
+  return spoken ? images.identify(spoken) : undefined
 }

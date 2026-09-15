@@ -2,6 +2,7 @@ import type { AgentTool } from '@earendil-works/pi-agent-core'
 import { agentTitleLine } from '@image-playground/shared'
 import { Type } from 'typebox'
 import { requireAgentImages } from '../images'
+import { agentImageCount } from './queueParams'
 import { runQueueTask } from './queueTask'
 import type { AgentToolDefinition, AgentToolDetails } from './types'
 
@@ -27,11 +28,20 @@ function title(args: unknown): string {
     : '改图'
 }
 
+/** 第一张参考图就是被改的那张，产出贴着它放——与执行时的 `anchorObjectId` 取同一项。 */
+function anchor(args: unknown): string | undefined {
+  const first = (args as { imageIds?: unknown } | null)?.imageIds
+  const id = Array.isArray(first) ? first[0] : undefined
+  return typeof id === 'string' && id ? id : undefined
+}
+
 export const editImage: AgentToolDefinition = {
   name: 'editImage',
   guidance:
     '用户指着某张图说要改时调改图工具，参考图用他引用的那张，产出会落在源图旁边，源图不动。',
   title,
+  outputCount: agentImageCount,
+  anchor,
   // 模型可以换一个图片 id 重试，所以拿不到图不该把整轮拖垮。
   onError: 'continue',
   create(context) {

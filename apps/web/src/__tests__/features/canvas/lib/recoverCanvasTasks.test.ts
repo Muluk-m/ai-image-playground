@@ -23,12 +23,14 @@ function ph(id: string, status: PlaceholderView['status'], meta: CanvasTaskMeta)
 
 function makeEditor(placeholders: PlaceholderView[]) {
   const updatePlaceholder = vi.fn()
+  const deleteElement = vi.fn()
   const editor = {
     getPlaceholders: () => placeholders,
     getPlaceholder: (id: string) => placeholders.find((p) => p.id === id),
     updatePlaceholder,
+    deleteElement,
   } as unknown as CanvasEditor
-  return { editor, updatePlaceholder }
+  return { editor, updatePlaceholder, deleteElement }
 }
 
 beforeEach(() => {
@@ -98,6 +100,24 @@ describe('recoverCanvasTasks 恢复分支判定（决策 7）', () => {
     const patch = updatePlaceholder.mock.calls[0][1] as { status: string; message: string }
     expect(patch.status).toBe('stale')
     expect(patch.message).toContain('BYOK')
+  })
+
+  it('智能体占的位 → 直接删掉，不当成可续的画布任务', () => {
+    const { editor, updatePlaceholder, deleteElement } = makeEditor([
+      ph('el:agent', 'loading', {
+        taskId: '',
+        clientRequestId: '',
+        source: 'builtin-edge',
+        prompt: '',
+        agent: true,
+      }),
+    ])
+
+    recoverCanvasTasks(editor)
+
+    expect(resumeMock).not.toHaveBeenCalled()
+    expect(updatePlaceholder).not.toHaveBeenCalled()
+    expect(deleteElement).toHaveBeenCalledWith('el:agent', { history: false })
   })
 
   it('非运行态占位框（error）→ 跳过，不动它', () => {

@@ -98,6 +98,12 @@ const placed: {
 /** 画布内容的修订号；测试里手动抬它就等于「用户动了画布」。 */
 let revision = 0
 const anchors: (string | undefined)[] = []
+/** 工具起跑时占的位：每次 reserve 记一条，落图时按 placeholderIds 认回去。 */
+const reserved: { count: number; anchorObjectId?: string; ids: string[] }[] = []
+const discarded: string[] = []
+const failed: { id: string; message: string }[] = []
+const placedInto: (readonly string[] | undefined)[] = []
+let placeholderSeq = 0
 
 const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
   const url = String(input)
@@ -130,16 +136,36 @@ beforeEach(() => {
   placed.length = 0
   revision = 0
   anchors.length = 0
+  reserved.length = 0
+  discarded.length = 0
+  failed.length = 0
+  placedInto.length = 0
+  placeholderSeq = 0
   imageResponse = () =>
     new Response(new Uint8Array([1, 2, 3]), { headers: { 'content-type': 'image/png' } })
   setAgentCanvasSink({
     has: (objectId) => onCanvas.has(objectId),
     revision: () => revision,
+    async reserve(request) {
+      const ids = Array.from(
+        { length: request.count },
+        (_, index) => `placeholder-${++placeholderSeq}`,
+      )
+      reserved.push({ ...request, ids })
+      return ids
+    },
+    discard(ids) {
+      discarded.push(...ids)
+    },
+    markFailed(ids, message) {
+      for (const id of ids) failed.push({ id, message })
+    },
     async place(items, options) {
       if (options?.isCurrent && !options.isCurrent()) return 'unavailable'
       const base = options?.baseRevision
       if (base !== undefined && base !== revision) return 'conflict'
       anchors.push(options?.anchorObjectId)
+      placedInto.push(options?.placeholderIds)
       for (const item of items) {
         placed.push(item)
         onCanvas.add(item.artifactId)
@@ -216,6 +242,92 @@ describe('工具事件', () => {
     expect(anchors).toEqual(['canvas-1'])
     expect(placed.map((one) => one.artifactId)).toEqual(['agent_image_1'])
     expect(onCanvas.has('canvas-1')).toBe(true)
+  })
+
+  it('工具一起跑就按数量占位，产物到了落进这些位', async () => {
+    const second = { ...IMAGE, artifactId: 'agent_image_2' }
+    turnResponse = () =>
+      turnStream(
+        TURN_START,
+        { ...TOOL_START, outputCount: 2 },
+        { ...TOOL_END, artifacts: [IMAGE, second] },
+        TURN_END,
+      )
+
+    await state().send('画两只橘猫')
+
+    expect(reserved).toEqual([{ count: 2, ids: ['placeholder-1', 'placeholder-2'] }])
+    expect(placedInto).toEqual([['placeholder-1', 'placeholder-2']])
+    expect(placed.map((one) => one.artifactId)).toEqual(['agent_image_1', 'agent_image_2'])
+    expect(discarded).toEqual([])
+  })
+
+  it('改图的占位贴着被改的那张放', async () => {
+    onCanvas.add('canvas-1')
+    turnResponse = () =>
+      turnStream(
+        TURN_START,
+        { ...TOOL_START, toolName: 'editImage', outputCount: 1, anchorObjectId: 'canvas-1' },
+        { ...TOOL_END, toolName: 'editImage', anchorObjectId: 'canvas-1' },
+        TURN_END,
+      )
+
+    await state().send('把这张的背景换成浅木色')
+
+    expect(reserved).toEqual([{ count: 1, anchorObjectId: 'canvas-1', ids: ['placeholder-1'] }])
+    expect(anchors).toEqual(['canvas-1'])
+  })
+
+  it('工具失败时占的位就地标错，不留着转圈', async () => {
+    turnResponse = () =>
+      turnStream(
+        TURN_START,
+        { ...TOOL_START, outputCount: 2 },
+        {
+          type: 'toolEnd',
+          messageId: 'tool-1',
+          toolCallId: 'call-1',
+          toolName: 'generateImage',
+          status: 'failed',
+          title: '一只橘猫坐在窗台上',
+          message: '上游拒绝了这张图',
+        },
+        TURN_END,
+      )
+
+    await state().send('画一只橘猫')
+
+    expect(failed).toEqual([
+      { id: 'placeholder-1', message: '上游拒绝了这张图' },
+      { id: 'placeholder-2', message: '上游拒绝了这张图' },
+    ])
+    expect(discarded).toEqual([])
+  })
+
+  it('续播只收到尾巴、没有 toolStart 时仍然落图', async () => {
+    turnResponse = () => turnStream(TURN_START, TOOL_END, TURN_END)
+
+    await state().send('画一只橘猫')
+
+    expect(reserved).toEqual([])
+    expect(placedInto).toEqual([undefined])
+    expect(placed.map((one) => one.artifactId)).toEqual(['agent_image_1'])
+  })
+
+  it('轮中止时没等到产物的占位框被收掉', async () => {
+    turnResponse = () =>
+      turnStream(
+        TURN_START,
+        { ...TOOL_START, outputCount: 2 },
+        {
+          ...TURN_END,
+          stopReason: 'aborted',
+        },
+      )
+
+    await state().send('画一只橘猫')
+
+    expect(discarded).toEqual(['placeholder-1', 'placeholder-2'])
   })
 
   it('起一轮时把输入框附上的参考图一起发过去', async () => {
