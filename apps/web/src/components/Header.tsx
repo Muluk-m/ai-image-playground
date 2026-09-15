@@ -4,7 +4,7 @@ import { useAuth } from '../auth/AuthContext'
 import { LoginMethodsPanel } from '../auth/LoginMethodsPanel'
 import InspirationCoach from '../features/inspiration/components/InspirationCoach'
 import { useInspirationStore } from '../features/inspiration/store'
-import LibraryCoach, { useLibraryCoachActive } from '../features/library/components/LibraryCoach'
+import LibraryCoach, { useLibraryCoach } from '../features/library/components/LibraryCoach'
 import { useLibraryStore } from '../features/library/store'
 import { useTooltip } from '../hooks/useTooltip'
 import {
@@ -36,7 +36,7 @@ export default function Header() {
   const inspirationCoachActive = useStore(
     (s) => !s.inspirationCoachDismissed && s.tasks.length === 0,
   )
-  const libraryCoachActive = useLibraryCoachActive()
+  const { active: libraryCoachActive, dismiss: dismissLibraryCoach } = useLibraryCoach()
   const inspirationTooltip = useTooltip()
   const libraryTooltip = useTooltip()
   const syncPending = useSyncStatus((s) => s.enabled && (s.pending > 0 || s.status === 'error'))
@@ -158,7 +158,7 @@ export default function Header() {
               <ViewportTooltip visible={libraryTooltip.visible} className="whitespace-nowrap">
                 素材与模板
               </ViewportTooltip>
-              <LibraryCoach />
+              {libraryCoachActive && <LibraryCoach onDismiss={dismissLibraryCoach} />}
             </div>
             <div className="ml-2 flex items-center gap-2 border-l border-gray-200 pl-3 dark:border-white/[0.08]">
               <PrivateWebHeaderCreditAction />

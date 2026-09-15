@@ -570,7 +570,7 @@ interface AppState {
   /** 新人引导：第一次访问、还没生成过图时在 Header 灵感库按钮上引出气泡。 */
   inspirationCoachDismissed: boolean
   dismissInspirationCoach: () => void
-  /** 素材与模板引导卡：灵感库引导让位后才出，dismiss 或打开过面板即永久收起。 */
+  /** 素材与模板引导：出现即持久化为不再自动展示，本次气泡由 Header 本地状态控制。 */
   libraryCoachDismissed: boolean
   dismissLibraryCoach: () => void
   libraryPanelOpened: boolean

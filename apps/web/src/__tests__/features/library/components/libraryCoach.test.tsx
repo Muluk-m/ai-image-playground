@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
-import { act } from 'react'
+import { act, StrictMode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import LibraryCoach from '../../../../features/library/components/LibraryCoach'
+import LibraryCoach, { useLibraryCoach } from '../../../../features/library/components/LibraryCoach'
+import { assetStore } from '../../../../features/library/lib/assetStore'
+import { templateStore } from '../../../../features/library/lib/templateStore'
 import { useLibraryStore } from '../../../../features/library/store'
 import { useStore } from '../../../../store'
 
@@ -16,13 +18,16 @@ let host: HTMLDivElement
 let root: Root
 
 beforeEach(() => {
+  localStorage.clear()
+  vi.spyOn(assetStore, 'list').mockResolvedValue([])
+  vi.spyOn(templateStore, 'list').mockResolvedValue([])
   useStore.setState({
     tasks: [],
     inspirationCoachDismissed: true,
     libraryCoachDismissed: false,
     libraryPanelOpened: false,
   })
-  useLibraryStore.setState({ openPanel: vi.fn() })
+  useLibraryStore.setState({ panelOpen: false })
   host = document.createElement('div')
   document.body.appendChild(host)
   root = createRoot(host)
@@ -35,8 +40,32 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
+function CoachHost() {
+  const { active, dismiss } = useLibraryCoach()
+  return active ? <LibraryCoach onDismiss={dismiss} /> : null
+}
+
 function render() {
-  act(() => root.render(<LibraryCoach />))
+  act(() =>
+    root.render(
+      <StrictMode>
+        <CoachHost />
+      </StrictMode>,
+    ),
+  )
+}
+
+async function reload() {
+  const { storage, name } = useStore.persist.getOptions()
+  if (!storage || !name) throw new Error('store persistence is not configured')
+  const saved = await storage.getItem(name)
+  if (!saved) throw new Error('store state was not persisted')
+  act(() => root.unmount())
+  useStore.setState({ libraryCoachDismissed: false, libraryPanelOpened: false })
+  await storage.setItem(name, saved)
+  await useStore.persist.rehydrate()
+  root = createRoot(host)
+  render()
 }
 
 function findButton(label: string): HTMLButtonElement {
@@ -52,39 +81,45 @@ function click(element: Element) {
 }
 
 describe('the library coach card', () => {
-  it('walks the four steps', () => {
+  it('does not return on reload even when neither coach button was clicked', async () => {
     render()
+    expect(host.querySelector('[role="dialog"]')).not.toBeNull()
 
-    const text = host.textContent ?? ''
-    expect(text).toContain('存为素材')
-    expect(text).toContain('@')
-    expect(text).toContain('{槽位}')
-    expect(text).toContain('/')
+    await reload()
+
+    expect(host.querySelector('[role="dialog"]')).toBeNull()
   })
 
-  it('goes away for good once dismissed', () => {
+  it('can be dismissed immediately and stays dismissed after reload', async () => {
     render()
 
     click(findButton('知道了'))
 
-    expect(useStore.getState().libraryCoachDismissed).toBe(true)
-    expect(host.textContent).toBe('')
+    expect(host.querySelector('[role="dialog"]')).toBeNull()
+    await reload()
+    expect(host.querySelector('[role="dialog"]')).toBeNull()
   })
 
-  it('opens the panel from 看看', () => {
+  it('opens the library and closes the coach from 看看', async () => {
     render()
 
-    click(findButton('看看'))
+    await act(async () => click(findButton('看看')))
 
-    expect(useLibraryStore.getState().openPanel).toHaveBeenCalled()
-    expect(useStore.getState().libraryCoachDismissed).toBe(true)
+    expect(useLibraryStore.getState().panelOpen).toBe(true)
+    expect(host.querySelector('[role="dialog"]')).toBeNull()
   })
 
-  it('stays away while the inspiration coach still has the floor', () => {
+  it('does not consume its appearance until the inspiration coach gives way', async () => {
     useStore.setState({ inspirationCoachDismissed: false, tasks: [] })
     render()
+    expect(host.querySelector('[role="dialog"]')).toBeNull()
 
-    expect(host.textContent).toBe('')
+    await reload()
+    act(() => useStore.getState().dismissInspirationCoach())
+    expect(host.querySelector('[role="dialog"]')).not.toBeNull()
+
+    await reload()
+    expect(host.querySelector('[role="dialog"]')).toBeNull()
   })
 
   it('stays away once the panel has been opened', () => {
@@ -94,10 +129,12 @@ describe('the library coach card', () => {
     expect(host.textContent).toBe('')
   })
 
-  it('stays away after a reload that restored the dismissal', () => {
-    useStore.setState({ libraryCoachDismissed: true })
+  it('closes when the library is opened from another entry point', async () => {
     render()
 
-    expect(host.textContent).toBe('')
+    await act(async () => useLibraryStore.getState().openPanel())
+    act(() => useLibraryStore.getState().closePanel())
+
+    expect(host.querySelector('[role="dialog"]')).toBeNull()
   })
 })
