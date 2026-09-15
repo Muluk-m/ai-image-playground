@@ -32,14 +32,13 @@ import { useLibraryStore } from '../../library/store'
 import { ABORT_BUTTON, ICON_BUTTON, INK_3, SEND_BUTTON } from '../agentStyles'
 import { type AgentMentionValue, buildAgentMentionGroups, canvasImages } from '../lib/agentMentions'
 import { attachReferences, filesToReferences, setAgentComposerAttach } from '../lib/attachments'
+import { agentDraft } from '../lib/drafts'
 import { type MarkRenderer, renderMarkedImage, selectedMarkIds } from '../lib/markedReferences'
 import {
-  type AgentDraft,
   type AgentReference,
   attachReference,
   clearReferenceMask,
   draftForSubmit,
-  EMPTY_DRAFT,
   referenceLabels,
   removeReference,
   setReferenceMask,
@@ -64,13 +63,37 @@ export default function AgentComposer({
   const running = useAgentStore((state) => state.turn === 'running')
   const assets = useLibraryStore((state) => state.assets)
   const loadAssets = useLibraryStore((state) => state.loadAssets)
-  const [draft, setDraft] = useState<AgentDraft>(EMPTY_DRAFT)
+  const conversationId = useAgentStore((state) => state.conversationId)
+  const session = agentDraft(conversationId)
+  const {
+    draft,
+    loading,
+    submitting,
+    error: draftError,
+  } = useSyncExternalStore(session.subscribe, session.getSnapshot)
+  const setDraft = session.update
+  useEffect(() => {
+    const flush = () => {
+      void session.flush()
+    }
+    window.addEventListener('pagehide', flush)
+    document.addEventListener('visibilitychange', flush)
+    return () => {
+      flush()
+      window.removeEventListener('pagehide', flush)
+      document.removeEventListener('visibilitychange', flush)
+    }
+  }, [session])
   const [cursor, setCursor] = useState(0)
   const editorRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   // 拖进来、粘贴进来、点回形针选进来的图片都走这一条：读文件 → 压缩 → 进引用区。
   const attachFiles = (files: File[]) => {
+    if (loading) {
+      useStore.getState().showToast('草稿正在恢复，请稍后添加图片。', 'info')
+      return
+    }
     const images = acceptImageFiles(files)
     if (images.length === 0) return
     void filesToReferences(images).then((added) => {
@@ -121,6 +144,7 @@ export default function AgentComposer({
   const selectionKeyRef = useRef(selectionKey)
   selectionKeyRef.current = selectionKey
   useEffect(() => {
+    if (loading) return
     const selected = new Set(selectedImages.map((one) => one.imageId))
     // 先按原图同步（去掉批注的那一刻立刻回到原图），烧了批注的版本随后替换进来。
     setDraft((current) => syncSelectedReferences(current, canvas, selected, autoRef.current))
@@ -140,7 +164,7 @@ export default function AgentComposer({
       })
     }
     // 只在选区（含批注）变化时同步；canvas 的引用变化不该触发（那会把手动移除的又加回来）。
-  }, [selectionKey])
+  }, [selectionKey, loading, session])
 
   // contentEditable 的 onSelect 不可靠，光标位置只能靠 selectionchange 跟。
   useEffect(() => {
@@ -242,11 +266,22 @@ export default function AgentComposer({
   }
 
   const submit = () => {
+    if (loading || submitting) return
     const submission = draftForSubmit(draft)
     if (!submission.text.trim()) return
-    setDraft(EMPTY_DRAFT)
-    setCursor(0)
-    void useAgentStore.getState().send(submission.text, submission.references)
+    const releaseSubmission = session.beginSubmission()
+    void session.flush()
+    void useAgentStore
+      .getState()
+      .send(submission.text, submission.references, () => {
+        session.accept(draft)
+        releaseSubmission()
+        setCursor(0)
+      })
+      .catch(() => {
+        useStore.getState().showToast('消息未发送成功，草稿已保留，请重试。', 'error')
+      })
+      .finally(releaseSubmission)
   }
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -262,6 +297,11 @@ export default function AgentComposer({
         <div className="pointer-events-none absolute inset-1 z-20 grid place-items-center rounded-xl border border-dashed border-blue-400/70 bg-[#17171a]/90 text-xs text-blue-200">
           松开即作为参考图
         </div>
+      )}
+      {draftError && (
+        <p role="alert" className="text-xs text-amber-300">
+          {draftError}
+        </p>
       )}
       {draft.references.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
@@ -322,7 +362,8 @@ export default function AgentComposer({
           role="textbox"
           tabIndex={0}
           aria-label="对智能体说"
-          contentEditable
+          contentEditable={!loading}
+          aria-busy={loading}
           suppressContentEditableWarning
           data-placeholder="说一句你想做什么，@ 引用画布或素材"
           className={EDITOR_CLASS}
@@ -381,10 +422,10 @@ export default function AgentComposer({
           <button
             type="button"
             className={SEND_BUTTON}
-            disabled={!draft.prompt.trim()}
+            disabled={loading || submitting || !draft.prompt.trim()}
             onClick={submit}
           >
-            {running ? '插话' : '发送'}
+            {submitting ? '发送中…' : running ? '插话' : '发送'}
           </button>
         </div>
       </div>

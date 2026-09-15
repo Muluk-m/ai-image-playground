@@ -3,6 +3,7 @@ import type { ImageContent } from '@earendil-works/pi-ai'
 import type {
   AgentContentBlock,
   AgentMessageView,
+  AgentStoredReference,
   AgentToolName,
   AgentToolResultBlock,
   AgentTurnCost,
@@ -31,8 +32,10 @@ import { appendAgentMessage, touchAgentConversation } from './conversations'
 import { lastAgentEventSeq } from './events'
 import {
   activeAgentReferences,
+  archiveAgentReferences,
   createAgentImageSource,
   referenceManifest,
+  removeAgentTurnReferences,
   requireAgentImages,
 } from './images'
 import { agentModel, agentStreamFn } from './model'
@@ -273,7 +276,13 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
   let aborted = false
   let storedAny = false
   let open: OpenAssistantMessage | null = null
-  let queued: { readonly id: string; readonly text: string }[] = []
+  let acceptingInterjections = true
+  const steeringReferences = new Map<string, (readonly AgentTurnReference[])[]>()
+  let queued: {
+    readonly id: string
+    readonly text: string
+    readonly references: readonly AgentStoredReference[]
+  }[] = []
   // 消息表的读回顺序是插入顺序，所以落库排成一条链，不让插话抢在半截回复前面。
   let writes: Promise<void> = Promise.resolve()
 
@@ -298,7 +307,13 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
           conversationId,
           turnId,
           role: 'user',
-          content: [{ type: 'text', text: message.text }],
+          content: [
+            {
+              type: 'text',
+              text: message.text,
+              ...(message.references.length ? { references: [...message.references] } : {}),
+            },
+          ],
         })
       })
     }
@@ -333,6 +348,20 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
     })
 
   agent.subscribe(async (event) => {
+    if (event.type === 'message_start' && event.message.role === 'user') {
+      const content = event.message.content
+      const text =
+        typeof content === 'string'
+          ? content
+          : content
+              .filter((block) => block.type === 'text')
+              .map((block) => block.text)
+              .join('')
+      const pending = steeringReferences.get(text)
+      const references = pending?.shift()
+      if (references) images.attach(references)
+      if (pending?.length === 0) steeringReferences.delete(text)
+    }
     if (event.type === 'message_start' && event.message.role === 'assistant') {
       open = { id: crypto.randomUUID(), text: '' }
     }
@@ -422,13 +451,37 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
     conversationId,
     turnId,
     read: (afterSeq) => events.read(afterSeq),
-    interject(text) {
+    async interject(text, references = []) {
+      if (!acceptingInterjections || aborted) return null
       const messageId = crypto.randomUUID()
-      // 插话要等当前这条助手消息落库；pi 也是等它跑完才把插话喂进去。
-      queued.push({ id: messageId, text })
+      const archiveId = `${turnId}/interjections/${messageId}`
+      const stored = await archiveAgentReferences(conversationId, archiveId, references)
+      // 上传期间本轮可能已结束；拒收并只清理本次上传，不能误删首轮或其它插话的引用。
+      if (!acceptingInterjections || aborted) {
+        if (stored.length) await removeAgentTurnReferences(conversationId, archiveId)
+        return null
+      }
+      const contentText = text + referenceManifest(references)
+      const pending = steeringReferences.get(contentText) ?? []
+      pending.push(references)
+      steeringReferences.set(contentText, pending)
+      queued.push({ id: messageId, text, references: stored })
       if (!open) flushQueued()
       events.emit({ type: 'interjection', messageId, text })
-      agent.steer({ role: 'user', content: [{ type: 'text', text }], timestamp: Date.now() })
+      agent.steer({
+        role: 'user',
+        content: [
+          { type: 'text', text: contentText },
+          ...references.map(
+            (reference): ImageContent => ({
+              type: 'image',
+              mimeType: reference.dataUrl.slice(5, reference.dataUrl.indexOf(';')),
+              data: reference.dataUrl.slice(reference.dataUrl.indexOf(',') + 1),
+            }),
+          ),
+        ],
+        timestamp: Date.now(),
+      })
       return messageId
     },
     abort() {
@@ -459,6 +512,7 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
       error = 'agent_run_failed'
     })
     .then(async () => {
+      acceptingInterjections = false
       // 中止时 pi 可能走不到 message_end，已经流给用户的半截回复要自己落库。
       await closeOpen()
       flushQueued()

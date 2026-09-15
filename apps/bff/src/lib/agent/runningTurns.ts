@@ -1,4 +1,4 @@
-import type { AgentTurnEvent } from '@image-playground/shared'
+import type { AgentTurnEvent, AgentTurnReference } from '@image-playground/shared'
 import { log } from '../logger'
 import { appendAgentTurnEvents, type StoredAgentEvent } from './events'
 
@@ -14,7 +14,7 @@ export interface RunningTurn {
   readonly turnId: string
   read(afterSeq: number): AsyncGenerator<StoredAgentEvent>
   /** 返回插话那条用户消息的 id；它也随 `interjection` 事件发给所有连着的消费者。 */
-  interject(text: string): string
+  interject(text: string, references?: readonly AgentTurnReference[]): Promise<string | null>
   abort(): void
 }
 

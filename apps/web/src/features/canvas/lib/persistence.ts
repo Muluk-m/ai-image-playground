@@ -63,18 +63,20 @@ function dbPut(scene: PersistedScene): Promise<void> {
   return openDB().then(
     (db) =>
       new Promise((resolve, reject) => {
-        const req = db.transaction(STORE, 'readwrite').objectStore(STORE).put(scene, SCENE_KEY)
-        req.onsuccess = () => resolve()
-        req.onerror = () => reject(req.error)
+        const transaction = db.transaction(STORE, 'readwrite')
+        transaction.objectStore(STORE).put(scene, SCENE_KEY)
+        transaction.oncomplete = () => resolve()
+        transaction.onabort = () => reject(transaction.error)
+        transaction.onerror = () => reject(transaction.error)
       }),
   )
 }
 
 /**
  * 把当前场景写入 IndexedDB。files 只保留仍被 image 元素引用的（删图后不积累孤儿大文件）。
- * best-effort：失败只告警，不打断画布操作。
+ * 返回事务是否提交成功，由界面提供重试入口。
  */
-export async function saveScene(editor: CanvasEditor): Promise<void> {
+export async function saveScene(editor: CanvasEditor): Promise<boolean> {
   try {
     const { elements, files, camera } = editor.doc
     const kept: Record<string, string> = {}
@@ -87,8 +89,10 @@ export async function saveScene(editor: CanvasEditor): Promise<void> {
       files: kept,
       camera: { ...camera },
     })
+    return true
   } catch (err) {
     console.warn('[canvas] 场景持久化失败', err)
+    return false
   }
 }
 

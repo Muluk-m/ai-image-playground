@@ -1,4 +1,11 @@
-import { Fragment, type PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef } from 'react'
+import {
+  Fragment,
+  type PointerEvent as ReactPointerEvent,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+} from 'react'
 import Credits from '../../../components/Credits'
 import { PlusIcon, TrashIcon } from '../../../components/icons'
 import { useImageDropZone } from '../../../hooks/useImageDropZone'
@@ -127,6 +134,11 @@ export default function AgentPanel({ doc, editor }: { doc: CanvasDoc; editor: Ca
   const { setOpen, setTab, load, startNewConversation, refreshConversations, setPanelWidth } =
     useAgentStore.getState()
   const logRef = useRef<HTMLDivElement>(null)
+  const followLatest = useRef(true)
+  const conversationId = useAgentStore((state) => state.conversationId)
+  useLayoutEffect(() => {
+    followLatest.current = true
+  }, [conversationId, open, tab])
   // 文件拖到对话记录上也算数：草稿归输入框管，这里只把文件递过去。
   const { dragging, dropZoneProps } = useImageDropZone((files) => {
     attachFilesToComposer(files)
@@ -141,10 +153,10 @@ export default function AgentPanel({ doc, editor }: { doc: CanvasDoc; editor: Ca
     void load()
   }, [load])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const log = logRef.current
-    if (log) log.scrollTop = log.scrollHeight
-  }, [messages])
+    if (log && followLatest.current) log.scrollTop = log.scrollHeight
+  }, [messages, open, tab, conversationId])
 
   /** 右缘拖宽：按下即捕获指针，宽度跟手，松开时的值已经在 store 里记住了。 */
   const startResize = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -259,6 +271,11 @@ export default function AgentPanel({ doc, editor }: { doc: CanvasDoc; editor: Ca
       ) : (
         <div
           ref={logRef}
+          aria-label="对话记录"
+          onScroll={(event) => {
+            const log = event.currentTarget
+            followLatest.current = log.scrollHeight - log.clientHeight - log.scrollTop <= 48
+          }}
           className={`relative flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto px-3 py-1 ${dragging ? 'rounded-xl outline-dashed outline-1 outline-blue-400/70' : ''}`}
           {...dropZoneProps}
         >

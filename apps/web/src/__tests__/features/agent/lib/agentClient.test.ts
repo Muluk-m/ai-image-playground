@@ -9,6 +9,7 @@ vi.mock('../../../../lib/runtimeConfig', () => ({ bffBaseUrl: () => 'https://bff
 import {
   fetchConversations,
   fetchMessages,
+  interjectTurn,
   resumeTurn,
 } from '../../../../features/agent/lib/agentClient'
 
@@ -61,5 +62,33 @@ describe('agentClient 的设备标识传输位置', () => {
     )
     expect(headerOf(calls[0]!.init, DEVICE_ID_HEADER)).toBe(DEVICE)
     expect(headerOf(calls[0]!.init, 'last-event-id')).toBe('12')
+  })
+})
+
+describe('插话请求', () => {
+  it('携带图片和遮罩，并检查服务端拒收', async () => {
+    const references = [
+      {
+        imageId: 'new-image',
+        dataUrl: 'data:image/png;base64,aGk=',
+        maskDataUrl: 'data:image/png;base64,bWFzaw==',
+      },
+    ]
+    const { calls, fetcher } = recordingFetcher({ messageId: 'm1' })
+    await interjectTurn('conv-1', 'turn-1', '改这张', references, fetcher)
+    expect(JSON.parse(String(calls[0]!.init?.body))).toEqual({
+      deviceId: DEVICE,
+      text: '改这张',
+      references,
+    })
+    await expect(
+      interjectTurn(
+        'conv-1',
+        'turn-1',
+        '改这张',
+        references,
+        async () => new Response(null, { status: 409 }),
+      ),
+    ).rejects.toMatchObject({ status: 409 })
   })
 })

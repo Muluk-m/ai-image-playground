@@ -600,3 +600,34 @@ describe('澄清', () => {
     expect(answerableClarificationId(state().messages)).toBe('clarify-1')
   })
 })
+
+describe('发送确认', () => {
+  it('插话携带引用，拒收时不清草稿也不结束正在运行的轮', async () => {
+    useAgentStore.setState({
+      conversationId: CONVERSATION,
+      turn: 'running',
+      activeTurn: { turnId: 'turn-1' },
+    })
+    turnResponse = () => new Response(null, { status: 409 })
+    const accepted = vi.fn()
+    const references = [{ imageId: 'new-image', dataUrl: 'data:image/png;base64,aGk=' }]
+    await state().send('修改这张', references, accepted)
+    expect(accepted).not.toHaveBeenCalled()
+    expect(state().turn).toBe('running')
+    expect(state().error).toContain('草稿已保留')
+    const request = fetchMock.mock.calls[fetchMock.mock.calls.length - 1]!
+    expect(JSON.parse(String(request[1]?.body)).references).toEqual(references)
+    turnResponse = () => Response.json({ messageId: 'user-2' })
+    await state().send('修改这张', references, accepted)
+    expect(accepted).toHaveBeenCalledOnce()
+  })
+  it('起轮失败时不确认发送，成功响应后才确认', async () => {
+    turnResponse = () => new Response(null, { status: 429 })
+    const accepted = vi.fn()
+    await state().send('画一只猫', [], accepted)
+    expect(accepted).not.toHaveBeenCalled()
+    turnResponse = () => turnStream(TURN_START, TURN_END)
+    await state().send('画一只猫', [], accepted)
+    expect(accepted).toHaveBeenCalledOnce()
+  })
+})

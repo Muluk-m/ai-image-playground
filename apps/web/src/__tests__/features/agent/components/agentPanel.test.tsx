@@ -1,9 +1,12 @@
 // @vitest-environment jsdom
+import 'fake-indexeddb/auto'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import AgentPanel from '../../../../features/agent/components/AgentPanel'
 import { type AgentCanvasSink, setAgentCanvasSink } from '../../../../features/agent/lib/canvasSink'
+import { agentDraft } from '../../../../features/agent/lib/drafts'
+import { EMPTY_DRAFT } from '../../../../features/agent/lib/references'
 import { useAgentStore } from '../../../../features/agent/store'
 import type { AgentDeliveryStatus, AgentToolMessage } from '../../../../features/agent/types'
 import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
@@ -87,6 +90,10 @@ function toolMessage(
 }
 
 beforeEach(async () => {
+  const session = agentDraft(null)
+  await vi.waitFor(() => expect(session.getSnapshot().loading).toBe(false))
+  session.update(EMPTY_DRAFT)
+  session.setSubmitting(false)
   await enableAgent(true)
   // 输入框要素材名做胶囊标签，jsdom 里没有 IndexedDB 可读。
   useLibraryStore.setState({ assets: [], loadAssets: async () => {} })
@@ -129,6 +136,50 @@ afterEach(() => {
 })
 
 describe('AgentPanel', () => {
+  it('上翻阅读历史时保留位置，回到底部后继续跟随流式回复', () => {
+    render()
+    const log = host.querySelector<HTMLElement>('[aria-label="对话记录"]')!
+    Object.defineProperties(log, {
+      scrollHeight: { configurable: true, value: 1000 },
+      clientHeight: { value: 200 },
+    })
+    log.scrollTop = 100
+    act(() => log.dispatchEvent(new Event('scroll', { bubbles: true })))
+    act(() =>
+      useAgentStore.setState({
+        messages: [
+          {
+            kind: 'text',
+            id: 'reply',
+            turnId: 't',
+            role: 'assistant',
+            text: '新回复',
+            streaming: true,
+          },
+        ],
+      }),
+    )
+    expect(log.scrollTop).toBe(100)
+    log.scrollTop = 800
+    act(() => log.dispatchEvent(new Event('scroll', { bubbles: true })))
+    Object.defineProperty(log, 'scrollHeight', { value: 1200 })
+    act(() =>
+      useAgentStore.setState({
+        messages: [
+          {
+            kind: 'text',
+            id: 'reply',
+            turnId: 't',
+            role: 'assistant',
+            text: '新回复继续',
+            streaming: true,
+          },
+        ],
+      }),
+    )
+    expect(log.scrollTop).toBe(1200)
+  })
+
   it('渲染对话与图层两个页签', () => {
     render()
 

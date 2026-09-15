@@ -28,6 +28,7 @@ import {
 } from './lib/agentClient'
 import { createArtifactDelivery, type TurnArtifactDelivery } from './lib/artifactDelivery'
 import { onAgentCanvasSinkChange } from './lib/canvasSink'
+import { bindNewAgentDraft } from './lib/drafts'
 import { toAgentTurnParams } from './lib/turnParams'
 import type {
   AgentClarificationMessage,
@@ -71,8 +72,12 @@ export interface AgentState {
   selectConversation(conversationId: string): Promise<void>
   deleteConversation(conversationId: string): Promise<void>
   startNewConversation(): void
-  /** 空闲时起一轮；轮进行中则是插话（插话不带参考图）。 */
-  send(text: string, references?: readonly AgentTurnReference[]): Promise<void>
+  /** onAccepted 只在服务端接收后触发，输入框此时才清掉已提交草稿。 */
+  send(
+    text: string,
+    references?: readonly AgentTurnReference[],
+    onAccepted?: () => void,
+  ): Promise<void>
   abort(): Promise<void>
   /** 画布冲突后由用户把那张结果卡的产出放进画布。 */
   placeOnCanvas(messageId: string): Promise<void>
@@ -483,16 +488,24 @@ export const useAgentStore = create<AgentState>((set, get) => {
       })
     },
 
-    async send(text, references = []) {
+    async send(text, references = [], onAccepted) {
       const trimmed = text.trim()
       if (!trimmed) return
 
       const active = get().activeTurn
       const conversationId = get().conversationId
       if (get().turn === 'running' && active && conversationId) {
-        await interjectTurn(conversationId, active.turnId, trimmed)
+        try {
+          await interjectTurn(conversationId, active.turnId, trimmed, references)
+          onAccepted?.()
+          if (get().conversationId === conversationId) set({ error: null })
+        } catch {
+          if (get().conversationId === conversationId)
+            set({ error: '插话未发送成功，草稿已保留，请重试。' })
+        }
         return
       }
+      if (get().turn === 'running') return
 
       // 首轮才会定标题、才会有新会话进列表；之后每轮再拉一次是白拉。
       const firstTurn = get().messages.length === 0
@@ -525,6 +538,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
             return
           }
           safeLocalStorage.setItem(conversationKey(), target)
+          bindNewAgentDraft(target)
           set({ conversationId: target })
         }
       } catch {
@@ -540,8 +554,13 @@ export const useAgentStore = create<AgentState>((set, get) => {
       let outcome: StartTurnOutcome
       try {
         outcome = await startTurn(target, trimmed, references, turnParams)
-      } catch {
-        if (turnDelivery.isCurrent()) fail()
+      } catch (thrown) {
+        if (turnDelivery.isCurrent())
+          fail(
+            thrown instanceof AgentRequestError && thrown.status === 429
+              ? TURN_RATE_LIMITED
+              : undefined,
+          )
         await turnDelivery.settled()
         return
       }
@@ -549,8 +568,11 @@ export const useAgentStore = create<AgentState>((set, get) => {
         // 别的标签页已经在这个会话里跑轮了。它那条用户消息只在服务端，先把历史读回来再续播。
         await turnDelivery.settled()
         await openConversation(target, outcome.turnId)
+        if (get().conversationId === target)
+          set({ error: '会话中已有任务运行，本次消息未发送，草稿已保留。' })
         return
       }
+      onAccepted?.()
       await follow(target, outcome.frames, trimmed, turnDelivery)
       if (firstTurn) await get().refreshConversations()
     },
