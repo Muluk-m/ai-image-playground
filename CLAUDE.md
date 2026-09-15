@@ -50,6 +50,8 @@ CI（`.github/workflows/web.yml`，PR 与 push 到 main 都跑）只兜前两项
 CI 一概不跑**（要 PostgreSQL，且 `private/` 不在 CI 里）。改到这三处时本地就是唯一关卡，
 别指望 PR 变绿说明测试过了。
 
+**默认交付到生产。** 代码修改通过检查后，继续创建 PR、等 CI、合并 `main`，通过现有发布脚本部署受影响的内部版与付费版服务，并核验线上版本和行为。除非用户明确要求仅本地修改或暂不部署，否则直接完成整条链路，无需再次询问是否部署。
+
 ## 测试约定
 
 - **BFF / Admin 后端测试使用 `bun:test`**：数据库与对象存储客户端依赖 Bun runtime，不要换成 Vitest。前端测试继续使用 [Vitest](https://vitest.dev/) 4。不要在同一测试文件混用两套 API。
