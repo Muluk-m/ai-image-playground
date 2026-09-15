@@ -82,6 +82,7 @@ function ConversationList({ onPick }: { onPick: () => void }) {
             <button
               type="button"
               aria-label={`删除会话 ${name}`}
+              disabled={running && one.id === conversationId}
               className={`${ICON_BUTTON} opacity-0 group-hover:opacity-100`}
               onClick={() =>
                 setConfirmDialog({
@@ -249,6 +250,7 @@ export default function AgentPanel({ doc, editor }: { doc: CanvasDoc; editor: Ca
           <button
             type="button"
             aria-label="新对话"
+            disabled={turn === 'running'}
             className={ICON_BUTTON}
             onClick={() => {
               setTab('chat')

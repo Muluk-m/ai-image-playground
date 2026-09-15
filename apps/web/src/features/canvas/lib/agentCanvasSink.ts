@@ -8,7 +8,7 @@ const THUMBNAIL_SCALE = 0.25
 
 export function createAgentCanvasSink(
   editor: CanvasEditor,
-  ready?: Promise<unknown>,
+  ready?: Promise<unknown> | (() => Promise<unknown>),
 ): AgentCanvasSink {
   // 面板折叠一次、切一次页签，每张卡都会重新问一遍缩略图；栅格化不便宜，存下来。
   const thumbnails = new Map<string, string>()
@@ -17,13 +17,15 @@ export function createAgentCanvasSink(
     anchorObjectId ? (editor.getElementPageBounds(anchorObjectId) ?? null) : null
 
   return {
-    ready,
+    get ready() {
+      return typeof ready === 'function' ? ready() : ready
+    },
     has: (objectId) => editor.getElement(objectId) !== undefined,
 
     revision: () => editor.editRevision(),
 
     async reserve({ count, anchorObjectId }) {
-      if (ready) await ready
+      if (ready) await (typeof ready === 'function' ? ready() : ready)
       if (count <= 0) return []
       // history: false —— 智能体的占位框不是用户编辑，抬了 editRevision 它会判自己冲突。
       const ids = computePlaceholderTargets(editor, anchorBounds(anchorObjectId), count).map(
@@ -54,7 +56,7 @@ export function createAgentCanvasSink(
     },
 
     async place(artifacts, options) {
-      if (ready) await ready
+      if (ready) await (typeof ready === 'function' ? ready() : ready)
       let outcome: AgentPlaceOutcome = 'placed'
       const canPlace = () => {
         const base = options?.baseRevision
@@ -105,7 +107,7 @@ export function createAgentCanvasSink(
     },
 
     async thumbnail(objectId) {
-      if (ready) await ready
+      if (ready) await (typeof ready === 'function' ? ready() : ready)
       const cached = thumbnails.get(objectId)
       if (cached) return cached
       const rendered = await editor.toImage([objectId], { scale: THUMBNAIL_SCALE })
