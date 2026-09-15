@@ -35,6 +35,7 @@ import {
   type SnapTargets,
   selectionBounds,
 } from '../lib/snapping'
+import CanvasImageMenu, { type CanvasImageMenuState } from './CanvasImageMenu'
 
 /** 手势里判定「有效箭头 / 笔画」的最小长度（页面单位），低于则丢弃。 */
 const MIN_GESTURE_LEN = 3
@@ -119,6 +120,7 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
   const [panning, setPanning] = useState(false)
   const [marquee, setMarquee] = useState<Box | null>(null)
   const [hoveredId, setHoveredId] = useState<string | null>(null)
+  const [imageMenu, setImageMenu] = useState<CanvasImageMenuState | null>(null)
   // 拖拽中隐藏虚线选中框：它按模型位置画，而节点位移在 dragend 才落模型，中途会滞留原地
   const [dragging, setDragging] = useState(false)
 
@@ -638,6 +640,17 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
       ref={containerRef}
       className="absolute inset-0 overflow-hidden"
       style={{ cursor }}
+      onContextMenu={(e) => {
+        // 原生菜单在画布上只会抓到空的顶层图层，一律拦掉；指在图片上就给自己的菜单。
+        e.preventDefault()
+        const stage = stageRef.current
+        const rect = containerRef.current?.getBoundingClientRect()
+        if (!stage || !rect) return
+        const node = stage.getIntersection({ x: e.clientX - rect.left, y: e.clientY - rect.top })
+        const el = node?.id() ? doc.getElement(node.id()) : undefined
+        if (el?.type !== 'image') return
+        setImageMenu({ id: el.id, x: e.clientX, y: e.clientY })
+      }}
       onDragOver={(e) => {
         if (e.dataTransfer.types.includes('Files')) e.preventDefault()
       }}
@@ -810,6 +823,7 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
           />
         </Layer>
       </Stage>
+      <CanvasImageMenu menu={imageMenu} doc={doc} onClose={() => setImageMenu(null)} />
       {editingText && (
         <textarea
           autoFocus
