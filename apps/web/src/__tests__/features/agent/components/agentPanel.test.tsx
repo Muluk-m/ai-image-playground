@@ -3,7 +3,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import AgentPanel from '../../../../features/agent/components/AgentPanel'
-import { setAgentCanvasSink } from '../../../../features/agent/lib/canvasSink'
+import { type AgentCanvasSink, setAgentCanvasSink } from '../../../../features/agent/lib/canvasSink'
 import { useAgentStore } from '../../../../features/agent/store'
 import type { AgentDeliveryStatus, AgentToolMessage } from '../../../../features/agent/types'
 import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
@@ -108,6 +108,20 @@ beforeEach(async () => {
   root = createRoot(host)
 })
 
+/** 这几个用例只看结果卡与手动放入，占位那三个方法给个不动画布的空实现。 */
+function stubCanvasSink(
+  partial: Pick<AgentCanvasSink, 'has' | 'revision' | 'place' | 'focus' | 'thumbnail'>,
+): void {
+  setAgentCanvasSink({
+    async reserve() {
+      return []
+    },
+    discard() {},
+    markFailed() {},
+    ...partial,
+  })
+}
+
 afterEach(() => {
   act(() => root.unmount())
   host.remove()
@@ -167,7 +181,7 @@ describe('AgentPanel', () => {
 
   it('产物真正落画布后才显示可定位缩略图，不必重新挂载面板', async () => {
     const focused: string[] = []
-    setAgentCanvasSink({
+    stubCanvasSink({
       has: () => true,
       revision: () => 0,
       async place() {
@@ -203,7 +217,7 @@ describe('AgentPanel', () => {
 
   it('手动交付把冲突产物放入画布，并用可定位的缩略图替换入口', async () => {
     const onCanvas = new Set<string>()
-    setAgentCanvasSink({
+    stubCanvasSink({
       has: (id) => onCanvas.has(id),
       revision: () => 0,
       async place(items, options) {
@@ -245,7 +259,7 @@ describe('AgentPanel', () => {
 
   it('刷新后没落画布的产出仍看得见，并留着放入画布的入口', async () => {
     const onCanvas = new Set<string>()
-    setAgentCanvasSink({
+    stubCanvasSink({
       has: (id) => onCanvas.has(id),
       revision: () => 0,
       async place(items) {
@@ -275,7 +289,7 @@ describe('AgentPanel', () => {
 
   it('入口从画布反查：在画布上就不给，被删掉后重新给', async () => {
     const onCanvas = new Set(['agent_image_1'])
-    setAgentCanvasSink({
+    stubCanvasSink({
       has: (id) => onCanvas.has(id),
       revision: () => 0,
       async place() {

@@ -22,7 +22,7 @@ import {
   settleGeneration,
   targetFromShape,
 } from './placeholderShapeOps'
-import { computePlaceholderTarget, fanOutTargets } from './placement'
+import { computePlaceholderTargets } from './placement'
 import { analyzeSelection, rasterizeSelection } from './rasterizeSelection'
 
 /**
@@ -152,7 +152,8 @@ export async function submitFromCanvas(editor: CanvasEditor, userPrompt: string)
 
   // BYOK 保持一图一任务。计费内置渠道必须用一个 n=N 的 BFF 任务，让积分预留覆盖整批。
   const specParams = snapshotParams()
-  const base = computePlaceholderTarget(editor, selection?.bounds ?? null)
+  // 空位搜索与智能体那条路同一个入口：目标彼此不重叠，也不压住画布上已有的元素。
+  const targets = computePlaceholderTargets(editor, selection?.bounds ?? null, quantity)
   if (
     profile.source === 'builtin-edge' &&
     isClientCapabilityEnabled('billing:credits') &&
@@ -163,12 +164,12 @@ export async function submitFromCanvas(editor: CanvasEditor, userPrompt: string)
       annotated: selection?.annotated ?? false,
       inputImageDataUrls,
       params: { ...specParams, n: quantity },
-      target: base,
+      target: targets[0]!,
     })
     return
   }
 
-  for (const target of fanOutTargets(base, quantity)) {
+  for (const target of targets) {
     void launchCanvasTask(editor, {
       prompt,
       annotated: selection?.annotated ?? false,

@@ -2,7 +2,12 @@ import type { AgentToolArtifact } from '@image-playground/shared'
 import { AGENT_CONVERSATION_KEY, scopedStorageName } from '../../../lib/authScope'
 import type { AgentDeliveryStatus, AgentPanelMessage, AgentToolMessage } from '../types'
 import { fetchToolImage, toolArtifactUrl } from './agentClient'
-import { type AgentCanvasSink, type AgentPlacedArtifact, agentCanvasSink } from './canvasSink'
+import {
+  type AgentCanvasSink,
+  type AgentPlacedArtifact,
+  type AgentReservation,
+  agentCanvasSink,
+} from './canvasSink'
 import { videoPosterDataUrl } from './videoPoster'
 
 interface DeliveryOrigin {
@@ -11,6 +16,8 @@ interface DeliveryOrigin {
   readonly canvas: AgentCanvasSink | null
   baseRevision: number | undefined
   pending: Promise<void>
+  /** 每次工具调用在画布上占下的位，按那条结果卡的 messageId 索引。 */
+  readonly reserved: Map<string, Promise<readonly string[]>>
 }
 
 interface DeliveryRecord {
@@ -20,7 +27,13 @@ interface DeliveryRecord {
 
 export interface TurnArtifactDelivery {
   isCurrent(): boolean
+  /** 工具起跑：先在画布上占位，镜头跟过去。产物到了落进这些位。 */
+  reserve(messageId: string, request: AgentReservation): void
   enqueue(message: AgentToolMessage): void
+  /** 工具失败：占的位转错误态，不再转圈。 */
+  failed(messageId: string, message: string | undefined): void
+  /** 工具跑完了但没有产物：占的位直接收掉。 */
+  discard(messageId: string): void
   settled(): Promise<void>
 }
 
@@ -51,15 +64,23 @@ export function createArtifactDelivery(
 
   const capture = (): DeliveryOrigin => {
     const canvas = agentCanvasSink()
-    const origin = {
+    const origin: DeliveryOrigin = {
       generation,
       scope: scope(),
       canvas,
       baseRevision: canvas?.revision(),
       pending: Promise.resolve(),
+      reserved: new Map(),
     }
     origins.add(origin)
     return origin
+  }
+
+  /** 取走某次调用占的位并从登记表移除：终局只能有一个处置者。 */
+  const claim = (origin: DeliveryOrigin, messageId: string) => {
+    const pending = origin.reserved.get(messageId)
+    origin.reserved.delete(messageId)
+    return pending
   }
 
   const place = async (
@@ -69,17 +90,27 @@ export function createArtifactDelivery(
   ): Promise<AgentDeliveryStatus> => {
     const canvas = origin.canvas
     if (!canvas || !current(origin)) return 'unavailable'
+    // 起跑时占的位先认领回来：它决定产物落在哪，也决定这一轮结束时谁该被收掉。
+    const placeholderIds = (await claim(origin, message.id)) ?? []
     const missing = (message.artifacts ?? []).filter((artifact) => !canvas.has(artifact.artifactId))
-    if (!missing.length) return 'placed'
-    if (!manual && canvas.revision() !== origin.baseRevision) return 'conflict'
+    if (!missing.length) {
+      canvas.discard(placeholderIds)
+      return 'placed'
+    }
+    if (!manual && canvas.revision() !== origin.baseRevision) {
+      canvas.discard(placeholderIds)
+      return 'conflict'
+    }
     const items = await Promise.all(missing.map(prepare))
     if (!current(origin)) return 'unavailable'
     const before = canvas.revision()
     const outcome = await canvas.place(items, {
       anchorObjectId: message.anchorObjectId,
+      ...(placeholderIds.length ? { placeholderIds } : {}),
       ...(!manual ? { baseRevision: origin.baseRevision } : {}),
       isCurrent: () => current(origin),
     })
+    if (outcome !== 'placed') canvas.discard(placeholderIds)
     if (outcome === 'placed' && !manual) {
       // 同一画布上仍在交付的轮都认得这次智能体写入；用户修改过的基线不能被洗掉。
       for (const other of origins) {
@@ -88,6 +119,40 @@ export function createArtifactDelivery(
       }
     }
     return outcome
+  }
+
+  /**
+   * 占位与产物交付不在同一条队列上：占位要在工具起跑那一刻就看得见，
+   * 排在上一次交付（要下载图片字节）后面就白占了。交付侧 await 这个 promise 取回 id。
+   */
+  const reserve = (origin: DeliveryOrigin, messageId: string, request: AgentReservation) => {
+    const canvas = origin.canvas
+    // 事件按 id 幂等重放，续播会把同一条 toolStart 再喂一遍：占过的位不再占第二次。
+    if (!canvas || origin.reserved.has(messageId) || !current(origin)) return
+    origin.reserved.set(
+      messageId,
+      canvas.reserve(request).then(
+        (ids) => {
+          // 等画布恢复场景期间用户切走了：框已经建在那块画布上，就地收掉，别留成孤儿。
+          if (current(origin)) return ids
+          canvas.discard(ids)
+          return []
+        },
+        (error) => {
+          console.warn('[agent] 画布占位失败', error)
+          return []
+        },
+      ),
+    )
+  }
+
+  const releaseAll = async (origin: DeliveryOrigin) => {
+    const canvas = origin.canvas
+    const pending = [...origin.reserved.values()]
+    origin.reserved.clear()
+    if (!canvas) return
+    // 轮中止 / 失败时工具永远等不到 toolEnd，占的位不收就是一屏僵尸转圈。
+    for (const ids of await Promise.all(pending)) canvas.discard(ids)
   }
 
   const enqueue = (origin: DeliveryOrigin, message: AgentToolMessage, manual = false) => {
@@ -147,11 +212,23 @@ export function createArtifactDelivery(
       const origin = capture()
       return {
         isCurrent: () => belongs(origin),
+        reserve(messageId: string, request: AgentReservation) {
+          reserve(origin, messageId, request)
+        },
         enqueue(message: AgentToolMessage) {
           if (message.artifacts?.length) void enqueue(origin, message)
         },
+        failed(messageId: string, message: string | undefined) {
+          void claim(origin, messageId)?.then((ids) =>
+            origin.canvas?.markFailed(ids, message ?? '生成失败'),
+          )
+        },
+        discard(messageId: string) {
+          void claim(origin, messageId)?.then((ids) => origin.canvas?.discard(ids))
+        },
         async settled() {
           await origin.pending
+          await releaseAll(origin)
           origins.delete(origin)
         },
       }

@@ -49,32 +49,30 @@ export async function settleGeneration(
 /**
  * 把 dataUrl 列表作为新的 image 元素放到画布并选中；结果落在视口外时平滑移动镜头带到眼前
  * （在视口内则不动镜头，避免打断用户正在进行的操作）。
- * - 尺寸：按 target 框 contain 适配（dataUrl 保留原始分辨率），不按原始像素落图
- * - 位置：居中于 target 框；多张按 target 宽度分格沿水平排开（与 fanOutTargets 对齐），
- *   彼此留 PLACEMENT_GAP 间距，各自在格内居中
+ * - 尺寸：按各自的目标框 contain 适配（dataUrl 保留原始分辨率），不按原始像素落图
+ * - 位置：居中于目标框
  * - meta（可选）写到每个 image 元素上，承载生成溯源（prompt 等）
- * 供「占位框替换为结果」与「工作台图片送进画布」两处复用（都不依赖占位框存在）。
+ * 一件产物一个目标框，两者数量必须相等；调用方决定这些框是占位框的几何还是现算的空位。
  */
-export async function placeImagesOnCanvas(
+export async function placeImagesIntoTargets(
   editor: CanvasEditor,
   placing: readonly PlaceItem[],
-  target: PlacementTarget,
+  targets: readonly PlacementTarget[],
   opts: { meta?: Record<string, string>; canPlace?: () => boolean } = {},
 ): Promise<void> {
-  const centerY = target.y + target.h / 2
   const sizes = await Promise.all(placing.map((one) => getImageDimensions(one.dataUrl)))
   if (opts.canPlace && !opts.canPlace()) return
 
   const items: PlacedImage[] = []
   for (let i = 0; i < placing.length; i++) {
     const one = placing[i]!
+    const target = targets[i]!
     const { width, height } = sizes[i]
     const fitted = fitToTarget(width, height, target)
-    const cellX = target.x + i * (target.w + PLACEMENT_GAP)
     items.push({
       dataUrl: one.dataUrl,
-      x: cellX + (target.w - fitted.w) / 2,
-      y: centerY - fitted.h / 2,
+      x: target.x + (target.w - fitted.w) / 2,
+      y: target.y + (target.h - fitted.h) / 2,
       width: fitted.w,
       height: fitted.h,
       ...(one.id ? { id: one.id } : {}),
@@ -91,6 +89,27 @@ export async function placeImagesOnCanvas(
   if (!editor.getViewportPageBounds().collides(placed)) {
     editor.scrollToElements(ids)
   }
+}
+
+/**
+ * 单个目标框里放一批结果：多张按框宽分格沿水平排开，彼此留 PLACEMENT_GAP 间距。
+ * 「一个占位框收一条 n>1 的任务」时用它（计费内置渠道的整批预留）。
+ */
+export function spreadTargets(target: PlacementTarget, count: number): PlacementTarget[] {
+  return Array.from({ length: count }, (_, i) => ({
+    ...target,
+    x: target.x + i * (target.w + PLACEMENT_GAP),
+  }))
+}
+
+/** 供「占位框替换为结果」与「工作台图片送进画布」两处复用（都不依赖占位框存在）。 */
+export async function placeImagesOnCanvas(
+  editor: CanvasEditor,
+  placing: readonly PlaceItem[],
+  target: PlacementTarget,
+  opts: { meta?: Record<string, string>; canPlace?: () => boolean } = {},
+): Promise<void> {
+  await placeImagesIntoTargets(editor, placing, spreadTargets(target, placing.length), opts)
 }
 
 /**

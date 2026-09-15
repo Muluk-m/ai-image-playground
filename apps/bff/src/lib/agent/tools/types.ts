@@ -33,6 +33,16 @@ export interface AgentToolDefinition {
   /** 面板上这次调用的一行标签，从模型给的参数算。 */
   title(args: unknown): string
   /**
+   * 这次调用会落几件产物。工具还没跑完时画布就照这个数先占位，所以它必须和真正提交的
+   * 张数同一个算式。缺席即这个工具不落画布（查素材库），画布不占位。
+   */
+  outputCount?(params: AgentTurnParams | undefined): number
+  /**
+   * 模型给的参数里那张「产出要贴着放」的图，返回它在模型词汇里的 id（可能是 `image 2`
+   * 这类编号，由 `AgentImageSource.identify` 翻成真 id）。与结果里的 `anchorObjectId` 同源。
+   */
+  anchor?(args: unknown): string | undefined
+  /**
    * 这个工具失败时整轮是不是就该停。生图失败停下，因为模型会绕着缺掉的图接着编；
    * 换成模型可以改参数重试的工具就填 `continue`。
    */

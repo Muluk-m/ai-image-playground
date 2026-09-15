@@ -62,10 +62,19 @@ function videoModel(): { target: QueueTarget; support: VideoModelSupport } | nul
   return target && support ? { target, support } : null
 }
 
+/** 给了起始帧就贴着它放——与执行时的 `anchorObjectId` 取同一项。 */
+function anchor(args: unknown): string | undefined {
+  const imageId = (args as { imageId?: unknown } | null)?.imageId
+  return typeof imageId === 'string' && imageId ? imageId : undefined
+}
+
 export const generateVideo: AgentToolDefinition = {
   name: 'generateVideo',
   guidance: '用户要让画面动起来时调生视频工具；视频慢也贵，他没明说要视频就别自作主张。',
   title,
+  // 视频任务一次只出一段，图片参数里的 n 对它没有意义。
+  outputCount: () => 1,
+  anchor,
   // 视频是这里最贵的一件事，失败让模型接着重试等于再扣一次费；停下来交给用户定夺。
   onError: 'abort',
   available: () => isCapabilityEnabled('generation:video') && videoModel() !== null,

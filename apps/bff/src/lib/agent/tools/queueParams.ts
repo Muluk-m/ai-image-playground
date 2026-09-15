@@ -2,6 +2,14 @@ import type { AgentTurnParams, QueueProvider, SubmitRequest } from '@image-playg
 import { AGENT_TURN_MAX_N, nearestAspectRatio } from '@image-playground/shared'
 
 /**
+ * 这一轮的图片工具一次出几张。画布起跑时按它占位，队列请求按它填 `n`——
+ * 两处同一个算式，占位框数量才不会和真正出的张数对不上。
+ */
+export function agentImageCount(params: AgentTurnParams | undefined): number {
+  return Math.min(AGENT_TURN_MAX_N, Math.max(1, params?.n ?? 1))
+}
+
+/**
  * 轮上的生成参数 → 队列请求字段。
  *
  * 分支必须与 web 的 `lib/channels/queueClient.ts` 里 `submit()` 那段保持一致：同一组参数
@@ -12,9 +20,7 @@ export function queueParamsFor(
   provider: QueueProvider,
   params: AgentTurnParams | undefined,
 ): Partial<SubmitRequest> {
-  const mapped: Partial<SubmitRequest> = {
-    n: Math.min(AGENT_TURN_MAX_N, Math.max(1, params?.n ?? 1)),
-  }
+  const mapped: Partial<SubmitRequest> = { n: agentImageCount(params) }
   if (!params) return mapped
 
   if (params.size && params.size !== 'auto') mapped.size = params.size

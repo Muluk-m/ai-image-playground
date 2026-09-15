@@ -175,13 +175,20 @@ export interface AgentTextDeltaEvent {
   readonly delta: string
 }
 
-/** 一次工具调用开始。`messageId` 是这次调用独占的助手消息，工具的三个事件都指向它。 */
+/**
+ * 一次工具调用开始。`messageId` 是这次调用独占的助手消息，工具的三个事件都指向它。
+ * 后两项让画布在工具还没跑完时就能占好位：知道占几个、占在哪。
+ */
 export interface AgentToolStartEvent {
   readonly type: 'toolStart'
   readonly messageId: string
   readonly toolCallId: string
   readonly toolName: AgentToolName
   readonly title: string
+  /** 这次调用会落几件产物；缺席即这个工具不落画布（查素材库），画布不必占位。 */
+  readonly outputCount?: number
+  /** 占位框贴着这个画布对象放；缺席就落在视口中央。与结果里的 `anchorObjectId` 同源。 */
+  readonly anchorObjectId?: string
 }
 
 /** 分钟级任务的中途进度。一轮里可以有多次工具调用，各自按 `toolCallId` 独立上报。 */

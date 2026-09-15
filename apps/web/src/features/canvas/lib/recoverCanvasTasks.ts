@@ -51,6 +51,7 @@ async function resumeOne(
 
 /**
  * 画布挂载时扫描所有**运行态**占位框，按决策 7 收敛，杜绝僵尸 loading：
+ * | 智能体占的位                      | 直接删掉，没有可续的画布任务    |
  * | builtin-edge + bffRequestId       | resume 续 poll，完成替换      |
  * | builtin-edge 仅 clientRequestId   | 标记「未确认，请手动重试」     |
  * | user-byok（无恢复能力）           | 标记失效 + 重试入口            |
@@ -61,7 +62,11 @@ export function recoverCanvasTasks(editor: CanvasEditor): void {
     if (placeholder.status !== 'loading') continue
     const meta = placeholder.meta
 
-    if (meta.source === 'builtin-edge' && meta.bffRequestId) {
+    if (meta.agent) {
+      // 智能体的占位框只是那一轮的脚手架：这里没有 BFF 请求可续、画布上也没法重试，
+      // 产物由智能体面板那条交付链路补送。留着它就是个永远转圈的空框。
+      editor.deleteElement(placeholder.id, { history: false })
+    } else if (meta.source === 'builtin-edge' && meta.bffRequestId) {
       void resumeOne(editor, placeholder, meta.bffRequestId)
     } else if (meta.source === 'builtin-edge') {
       // submit 未确认窗口：不自动重提交（决策 6），标记需手动重试。
