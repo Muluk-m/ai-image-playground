@@ -1,14 +1,9 @@
 import { authenticatedBffFetch } from '../../../lib/authClient'
+import { queueOutputUrl } from '../../../lib/channels/queueClient'
 import { downloadBlob } from '../../../lib/downloadImages'
-import { bffBaseUrl } from '../../../lib/runtimeConfig'
 import { storeImageFromUrl } from '../../../store'
 import { useVideoStore } from '../store'
 import type { VideoTask } from '../types'
-
-/** 队列产出的字节地址；mp4 不落 IndexedDB，播放与下载都打这里。 */
-export function queueOutputUrl(taskId: string, outputIndex: number): string {
-  return `${bffBaseUrl()}/v1/queue/requests/${taskId}/output/${outputIndex}`
-}
 
 export function videoOutputUrl(task: VideoTask): string | null {
   if (!task.bffRequestId || task.outputIndex === undefined) return null

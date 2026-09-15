@@ -11,10 +11,9 @@ import type {
 } from '@image-playground/shared'
 import { AGENT_FRAME_SEPARATOR, DEVICE_ID_HEADER, parseAgentFrame } from '@image-playground/shared'
 import { authenticatedBffFetch } from '../../../lib/authClient'
-import { fetchImageDataUrl } from '../../../lib/channels/queueClient'
+import { fetchImageDataUrl, queueOutputUrl } from '../../../lib/channels/queueClient'
 import { getDeviceId } from '../../../lib/deviceId'
 import { bffBaseUrl } from '../../../lib/runtimeConfig'
-import { queueOutputUrl } from '../../video/lib/playback'
 
 type Fetcher = (input: string, init?: RequestInit) => Promise<Response>
 
