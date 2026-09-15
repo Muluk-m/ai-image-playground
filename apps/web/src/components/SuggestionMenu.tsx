@@ -1,4 +1,11 @@
-import { type KeyboardEvent, type ReactNode, useCallback, useState } from 'react'
+import {
+  type KeyboardEvent,
+  type ReactNode,
+  useCallback,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react'
 import ComposerPopover from './ComposerPopover'
 
 export interface SuggestionMenuOption<T> {
@@ -38,9 +45,23 @@ export default function SuggestionMenu<T>({
   onActiveIndexChange,
   onSelect,
 }: SuggestionMenuProps<T>) {
+  const listRef = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    const list = listRef.current
+    const active = list?.querySelector<HTMLElement>('[aria-selected="true"]')
+    if (!list || !active) return
+    const viewport = list.getBoundingClientRect()
+    const item = active.getBoundingClientRect()
+    const top = viewport.top + list.clientTop
+    const bottom = top + list.clientHeight
+    // Scroll only the menu, leaving the canvas and input focus in place.
+    if (item.top < top) list.scrollTop += item.top - top
+    else if (item.bottom > bottom) list.scrollTop += item.bottom - bottom
+  }, [activeIndex, groups])
+
   return (
     <ComposerPopover offsetLeft={offsetLeft}>
-      <div className="max-h-56 overflow-y-auto custom-scrollbar" role="listbox">
+      <div ref={listRef} className="max-h-56 overflow-y-auto custom-scrollbar" role="listbox">
         {groups.map((group, groupIndex) => (
           <div key={group.key}>
             <div className="px-2 pb-1 pt-0.5 text-[11px] text-gray-400 dark:text-gray-500">

@@ -110,6 +110,37 @@ describe('SuggestionMenu', () => {
     expect(activeLabel()).toBe('@图3')
   })
 
+  it('keeps keyboard navigation visible without scrolling already visible options', () => {
+    act(() => root.render(<Harness onSelect={() => {}} />))
+    const list = host.querySelector<HTMLElement>('[role="listbox"]')!
+    Object.defineProperty(list, 'clientHeight', { value: 80 })
+    vi.spyOn(list, 'getBoundingClientRect').mockImplementation(
+      () => ({ top: 100, bottom: 180 }) as DOMRect,
+    )
+    optionButtons().forEach((button, index) => {
+      vi.spyOn(button, 'getBoundingClientRect').mockImplementation(
+        () =>
+          ({
+            top: 100 + index * 40 - list.scrollTop,
+            bottom: 140 + index * 40 - list.scrollTop,
+          }) as DOMRect,
+      )
+    })
+
+    pressKey('ArrowDown') // already fully visible
+    expect(list.scrollTop).toBe(0)
+    pressKey('ArrowDown')
+    expect(list.scrollTop).toBe(40)
+    pressKey('ArrowDown') // wrap to the first option
+    expect(list.scrollTop).toBe(0)
+    pressKey('ArrowUp') // wrap back to the last option
+    expect(list.scrollTop).toBe(40)
+    pressKey('ArrowUp') // already fully visible
+    expect(list.scrollTop).toBe(40)
+    pressKey('ArrowUp')
+    expect(list.scrollTop).toBe(0)
+  })
+
   it('selects the highlighted candidate on Enter', () => {
     const onSelect = vi.fn()
     act(() => root.render(<Harness onSelect={onSelect} />))
