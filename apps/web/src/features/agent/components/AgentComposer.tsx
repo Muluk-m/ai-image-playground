@@ -1,4 +1,5 @@
 import {
+  type ClipboardEvent,
   type KeyboardEvent,
   useEffect,
   useMemo,
@@ -6,8 +7,10 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react'
-import { CloseIcon, MaskBrushIcon } from '../../../components/icons'
+import { CloseIcon, MaskBrushIcon, PaperclipIcon } from '../../../components/icons'
 import SuggestionMenu, { useSuggestionMenu } from '../../../components/SuggestionMenu'
+import { useImageDropZone } from '../../../hooks/useImageDropZone'
+import { acceptImageFiles } from '../../../lib/imageFiles'
 import {
   getContentEditableCursor,
   getContentEditablePlainText,
@@ -28,6 +31,7 @@ import type { CanvasDoc } from '../../canvas/lib/canvasDoc'
 import { useLibraryStore } from '../../library/store'
 import { ABORT_BUTTON, ICON_BUTTON, INK_3, SEND_BUTTON } from '../agentStyles'
 import { type AgentMentionValue, buildAgentMentionGroups, canvasImages } from '../lib/agentMentions'
+import { attachReferences, filesToReferences, setAgentComposerAttach } from '../lib/attachments'
 import {
   type AgentDraft,
   type AgentReference,
@@ -55,6 +59,28 @@ export default function AgentComposer({ doc }: { doc: CanvasDoc }) {
   const [draft, setDraft] = useState<AgentDraft>(EMPTY_DRAFT)
   const [cursor, setCursor] = useState(0)
   const editorRef = useRef<HTMLDivElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // 拖进来、粘贴进来、点回形针选进来的图片都走这一条：读文件 → 压缩 → 进引用区。
+  const attachFiles = (files: File[]) => {
+    const images = acceptImageFiles(files)
+    if (images.length === 0) return
+    void filesToReferences(images).then((added) => {
+      setDraft((current) => attachReferences(current, added))
+    })
+  }
+  const { dragging, dropZoneProps } = useImageDropZone(attachFiles)
+  // 面板把落在对话记录上的文件递过来。
+  useEffect(() => {
+    setAgentComposerAttach(attachFiles)
+    return () => setAgentComposerAttach(null)
+  })
+  const onPaste = (event: ClipboardEvent<HTMLDivElement>) => {
+    const files = [...event.clipboardData.files]
+    if (files.length === 0) return
+    event.preventDefault()
+    attachFiles(files)
+  }
   // 用户刚打进去的那个值不回写 DOM，否则每敲一个字光标都会跳到末尾。
   const typedRef = useRef<string | null>(null)
 
@@ -196,7 +222,12 @@ export default function AgentComposer({ doc }: { doc: CanvasDoc }) {
   }
 
   return (
-    <div className="relative flex shrink-0 flex-col gap-2 px-3 pb-3 pt-2">
+    <div className="relative flex shrink-0 flex-col gap-2 px-3 pb-3 pt-2" {...dropZoneProps}>
+      {dragging && (
+        <div className="pointer-events-none absolute inset-1 z-20 grid place-items-center rounded-xl border border-dashed border-blue-400/70 bg-[#17171a]/90 text-xs text-blue-200">
+          松开即作为参考图
+        </div>
+      )}
       {draft.references.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
           {draft.references.map((reference, index) => {
@@ -273,11 +304,35 @@ export default function AgentComposer({ doc }: { doc: CanvasDoc }) {
             menu.open()
           }}
           onKeyDown={onKeyDown}
+          onPaste={onPaste}
         />
       </div>
 
       <div className="flex items-center justify-between gap-2">
-        <AgentParamsChip />
+        <div className="flex min-w-0 items-center gap-1">
+          <AgentParamsChip />
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            className="hidden"
+            aria-label="选择参考图"
+            onChange={(event) => {
+              attachFiles([...(event.currentTarget.files ?? [])])
+              event.currentTarget.value = ''
+            }}
+          />
+          <button
+            type="button"
+            aria-label="添加参考图"
+            title="添加参考图（也可以拖进来或粘贴）"
+            className={ICON_BUTTON}
+            onClick={() => fileInputRef.current?.click()}
+          >
+            <PaperclipIcon className="h-3.5 w-3.5" />
+          </button>
+        </div>
         <div className="flex shrink-0 items-center gap-2">
           {running && (
             <button
