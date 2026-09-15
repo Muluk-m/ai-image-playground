@@ -230,6 +230,17 @@ export function createArtifactDelivery(
         origins.delete(origin)
       }
     },
+    /**
+     * 画布回来了：这个会话里因为画布不在（切去了别的模式、画布正在重挂）而没落下去的
+     * 产物，现在补落。只补本会话交付过的那些——历史里被用户删掉的不在此列，那是他的决定。
+     */
+    async redeliverUnavailable(messages: readonly AgentPanelMessage[]) {
+      for (const message of messages) {
+        if (message.kind !== 'tool' || !message.artifacts?.length) continue
+        if (records.get(message.id)?.status !== 'unavailable') continue
+        await this.placeOnCanvas(message)
+      }
+    },
     reset() {
       generation += 1
       origins.clear()
