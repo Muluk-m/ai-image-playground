@@ -13,6 +13,7 @@ import { create } from 'zustand'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../lib/apiProfiles'
 import { AGENT_CONVERSATION_KEY, safeLocalStorage, scopedStorageName } from '../../lib/authScope'
 import { useStore } from '../../store'
+import { bindNewCanvasWorkspace, selectCanvasWorkspace } from '../canvas/lib/workspaces'
 import { clampPanelWidth, PANEL_WIDTH } from './agentStyles'
 import {
   AgentRequestError,
@@ -391,7 +392,8 @@ export const useAgentStore = create<AgentState>((set, get) => {
    */
   const openConversation = async (conversationId: string, turnId?: string) => {
     const isCurrent = delivery.reset()
-    set({ conversationId, messages: [], turns: {}, error: null })
+    selectCanvasWorkspace(conversationId)
+    set({ conversationId, messages: [], turns: {}, error: null, turn: 'idle', activeTurn: null })
     let state: Awaited<ReturnType<typeof fetchMessages>>
     try {
       state = await fetchMessages(conversationId)
@@ -464,6 +466,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
     },
 
     async deleteConversation(conversationId) {
+      if (get().turn === 'running' && get().conversationId === conversationId) return
       try {
         await removeConversation(conversationId)
       } catch {
@@ -476,7 +479,9 @@ export const useAgentStore = create<AgentState>((set, get) => {
     },
 
     startNewConversation() {
+      if (get().turn === 'running') return
       delivery.reset()
+      selectCanvasWorkspace(null)
       safeLocalStorage.removeItem(conversationKey())
       set({
         conversationId: null,
@@ -534,6 +539,11 @@ export const useAgentStore = create<AgentState>((set, get) => {
         if (!target) {
           target = (await createConversation()).id
           if (!turnDelivery.isCurrent()) {
+            await turnDelivery.settled()
+            return
+          }
+          if (!(await bindNewCanvasWorkspace(target))) {
+            fail('画布未能保存到新会话，请重试。原画布和草稿已保留。')
             await turnDelivery.settled()
             return
           }

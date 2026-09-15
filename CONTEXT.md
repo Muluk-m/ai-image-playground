@@ -317,3 +317,7 @@ _Avoid_: 覆盖、合并、自动重放
 - **`getParamCapabilities(profile, outputFormat)`** — 能力查询。UI chip 显隐（ParamControls / InputBar）与归一化共用同一判定，禁止在组件里重新推导（codexCli 或 channel 未声明 quality capability→无 quality、gemini/非 png→无透明输出、png→无压缩、responses→无审核）
 - **`normalizeParamsForSettings(params, settings)`** — 归一化，幂等。在分发层（`callImageApi` / `resumeQueueImageApi`）**强制执行**：任何提交路径（工作台 / canvas / 恢复 / 重试）到达 adapter 前必过，调用方不需要自觉
 - store 提交路径与 InputBar effect 里的归一化调用是另一层职责（任务记录保真 + UI 回写），不是第二套约定
+
+## 会话画布（conversation canvas）
+
+一个智能体会话对应一个按账号隔离的浏览器本地画布。首次发送前先保存在草稿画布，创建会话后原子绑定；切换视图不会改变异步生成的归属。此阶段没有跨设备画布同步。详见 [ADR 0005](docs/adr/0005-conversation-canvases.md)。
