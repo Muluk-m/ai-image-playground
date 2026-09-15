@@ -38,6 +38,7 @@ import type {
 
 const TURN_FAILED = '这一轮没有跑完'
 const TURN_RATE_LIMITED = '发送太频繁，稍后再试'
+const CONVERSATION_UNREADABLE = '这个会话读不回来，稍后再试'
 
 const RECONNECT_DELAYS_MS = [0, 500, 2_000, 5_000]
 
@@ -355,10 +356,14 @@ export const useAgentStore = create<AgentState>((set, get) => {
     try {
       state = await fetchMessages(conversationId)
       if (!isCurrent()) return
-    } catch {
+    } catch (thrown) {
       if (!isCurrent()) return
-      // 会话被删或换了身份：忘掉它，下一条消息开新会话。
-      get().startNewConversation()
+      // 只有服务端明说「没有」或「不是你的」才忘掉会话：其它失败（旧 bundle 打新服务端的 400、
+      // 5xx、断网）里会话还在，忘掉它等于把用户的历史无声弄丢，报错让用户知道是读不到。
+      const gone =
+        thrown instanceof AgentRequestError && (thrown.status === 404 || thrown.status === 403)
+      if (gone) get().startNewConversation()
+      else fail(CONVERSATION_UNREADABLE)
       return
     }
     set({
