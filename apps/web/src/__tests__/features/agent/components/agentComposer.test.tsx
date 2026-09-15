@@ -183,6 +183,42 @@ describe('智能体输入框', () => {
     expect(capsules()).toEqual(['@图1'])
   })
 
+  it('选中的批注烧进参考图；批注取消选中就回到原图', async () => {
+    const COMPOSITE = 'data:image/png;base64,bWFya2Vk'
+    const toImage = vi.fn(async () => COMPOSITE)
+    doc.restore(
+      [
+        imageElement('canvas-1', 'file-1'),
+        {
+          id: 'circle',
+          type: 'freedraw',
+          points: [2, 2, 6, 6, 2, 6],
+          stroke: '#f00',
+          strokeWidth: 2,
+        },
+      ],
+      { 'file-1': PIXEL },
+    )
+    act(() => {
+      root.render(<AgentComposer doc={doc} editor={{ toImage }} />)
+    })
+
+    act(() => doc.setSelection(['canvas-1', 'circle']))
+    expect(await attached()).toEqual([COMPOSITE])
+    expect(toImage).toHaveBeenCalledWith(['canvas-1', 'circle'], {
+      bounds: expect.objectContaining({ x: 0, y: 0, w: 10, h: 10 }),
+    })
+
+    act(() => doc.setSelection(['canvas-1']))
+    expect(await attached()).toEqual([PIXEL])
+
+    type('把圈出来的地方换成木纹')
+    click('发送')
+    expect(send).toHaveBeenCalledWith('把圈出来的地方换成木纹', [
+      { imageId: 'canvas-1', dataUrl: PIXEL },
+    ])
+  })
+
   it('画布上选中的图直接进引用区，取消选中就撤走', () => {
     doc.restore([imageElement('canvas-1', 'file-1'), imageElement('canvas-2', 'file-2')], {
       'file-1': PIXEL,

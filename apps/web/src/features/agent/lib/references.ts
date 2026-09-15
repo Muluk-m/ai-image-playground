@@ -141,7 +141,18 @@ export function syncSelectedReferences(
   }
   for (const image of canvas) {
     if (!selected.has(image.imageId)) continue
-    if (next.references.some((one) => one.id === image.imageId)) continue
+    const at = next.references.findIndex((one) => one.id === image.imageId)
+    if (at >= 0) {
+      // 自动带进来的回到原图（批注取消了）；用户手动 `@` 的不动。
+      if (!auto.has(image.imageId) || next.references[at]!.dataUrl === image.dataUrl) continue
+      next = {
+        ...next,
+        references: next.references.map((one, index) =>
+          index === at ? { ...one, dataUrl: image.dataUrl } : one,
+        ),
+      }
+      continue
+    }
     auto.add(image.imageId)
     next = {
       ...next,
