@@ -30,6 +30,7 @@ export interface AgentImageSource {
    * 模型说的那个 id 对应的真 id（把 `image 2` 这类编号翻回去），不读字节。
    * 工具起跑时要立刻把锚点告诉画布，那一刻等不起一次对象存储往返。
    */
+  attach(references: readonly AgentTurnReference[]): void
   identify(imageId: string): string
   resolve(imageId: string): Promise<ResolvedAgentImage | null>
   /** 记下工具刚产出的图，同一轮里下一个工具才能接着改它。视频不进这里：它取不出可编辑的位图。 */
@@ -192,7 +193,7 @@ export function createAgentImageSource(input: {
   readonly userId: string | null
 }): AgentImageSource {
   const { userId } = input
-  const active = activeAgentReferences(input.references, input.history)
+  let active = activeAgentReferences(input.references, input.history)
   const references = new Map<string, AgentImageReference>()
   for (const message of input.history) {
     if (message.role !== 'user') continue
@@ -241,7 +242,17 @@ export function createAgentImageSource(input: {
   }
 
   return {
-    references: active,
+    get references() {
+      return active
+    },
+    attach(added) {
+      if (!added.length) return
+      active = added
+      for (const reference of added) {
+        references.set(reference.imageId, reference)
+        resolving.delete(reference.imageId)
+      }
+    },
     note(artifacts) {
       rememberImages(outputs, artifacts)
     },
