@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { LibraryIcon } from '../../../components/icons'
 import { useStore } from '../../../store'
 import { useLibraryStore } from '../store'
@@ -9,23 +10,31 @@ const STEPS = [
   { token: '/', text: '调用模板' },
 ]
 
-export function useLibraryCoachActive(): boolean {
-  return useStore(
+/** Header 共用这一份状态驱动气泡与按钮高亮，出现即消耗自动展示机会。 */
+export function useLibraryCoach() {
+  const allowed = useStore(
     (s) =>
-      !s.libraryCoachDismissed &&
       !s.libraryPanelOpened &&
       // 灵感库引导的出现条件，两张卡不同屏。
       !(!s.inspirationCoachDismissed && s.tasks.length === 0),
   )
+  const dismissed = useStore((s) => s.libraryCoachDismissed)
+  const eligible = allowed && !dismissed
+  const [visible, setVisible] = useState(eligible)
+
+  useEffect(() => {
+    if (!eligible) return
+    // 持久化只管下次不再弹；这一次仍留在屏幕上，直到用户关闭或打开面板。
+    useStore.getState().dismissLibraryCoach()
+    setVisible(true)
+  }, [eligible])
+
+  return { active: visible && allowed, dismiss: () => setVisible(false) }
 }
 
 /** 只渲染气泡本身；按钮的脉冲动画与定位锚点由 Header 控制。 */
-export default function LibraryCoach() {
-  const active = useLibraryCoachActive()
-  const dismiss = useStore((s) => s.dismissLibraryCoach)
+export default function LibraryCoach({ onDismiss }: { onDismiss: () => void }) {
   const openLibrary = useLibraryStore((s) => s.openPanel)
-
-  if (!active) return null
 
   return (
     <div
@@ -60,7 +69,7 @@ export default function LibraryCoach() {
       <div className="mt-3 flex items-center justify-end gap-2">
         <button
           type="button"
-          onClick={dismiss}
+          onClick={onDismiss}
           className="rounded-md px-2.5 py-1 text-xs text-gray-500 transition hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-white/[0.06] dark:hover:text-gray-200"
         >
           知道了
@@ -68,7 +77,7 @@ export default function LibraryCoach() {
         <button
           type="button"
           onClick={() => {
-            dismiss()
+            onDismiss()
             openLibrary()
           }}
           className="inline-flex items-center gap-1 rounded-md bg-blue-500 px-2.5 py-1 text-xs font-medium text-white shadow-sm transition hover:bg-blue-600"
