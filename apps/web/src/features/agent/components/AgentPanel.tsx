@@ -285,7 +285,7 @@ export default function AgentPanel({ doc, editor }: { doc: CanvasDoc; editor: Ca
           <Credits credits={sessionCredits} />
         </div>
       )}
-      {tab === 'chat' && <AgentComposer doc={doc} />}
+      {tab === 'chat' && <AgentComposer doc={doc} editor={editor} />}
     </div>
   )
 }
