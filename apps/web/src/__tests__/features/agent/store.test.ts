@@ -225,6 +225,39 @@ describe('读回历史', () => {
     expect(state().conversationId).toBeNull()
     expect(localStorage.getItem('image-playground.agent_conversation_id')).toBeNull()
   })
+
+  it('身份对不上时也忘掉它', async () => {
+    localStorage.setItem('image-playground.agent_conversation_id', CONVERSATION)
+    messagesResponse = () => new Response('{}', { status: 403 })
+
+    await state().load()
+
+    expect(state().conversationId).toBeNull()
+    expect(localStorage.getItem('image-playground.agent_conversation_id')).toBeNull()
+  })
+
+  it('读不回来但会话还在时留着它并报错', async () => {
+    localStorage.setItem('image-playground.agent_conversation_id', CONVERSATION)
+    messagesResponse = () => new Response('{}', { status: 400 })
+
+    await state().load()
+
+    expect(state().conversationId).toBe(CONVERSATION)
+    expect(localStorage.getItem('image-playground.agent_conversation_id')).toBe(CONVERSATION)
+    expect(state().error).toBe('这个会话读不回来，稍后再试')
+  })
+
+  it('网络断了同样留着会话', async () => {
+    localStorage.setItem('image-playground.agent_conversation_id', CONVERSATION)
+    messagesResponse = () => {
+      throw new TypeError('Failed to fetch')
+    }
+
+    await state().load()
+
+    expect(state().conversationId).toBe(CONVERSATION)
+    expect(state().error).toBe('这个会话读不回来，稍后再试')
+  })
 })
 
 describe('折叠', () => {
