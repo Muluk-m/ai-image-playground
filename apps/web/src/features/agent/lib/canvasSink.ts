@@ -64,9 +64,22 @@ export interface AgentCanvasSink {
 }
 
 let sink: AgentCanvasSink | null = null
+const listeners = new Set<(sink: AgentCanvasSink | null) => void>()
 
 export function setAgentCanvasSink(next: AgentCanvasSink | null): void {
+  if (sink === next) return
   sink = next
+  for (const listener of listeners) listener(next)
+}
+
+/** 画布挂上 / 卸下时通知；交付层靠它把画布不在时错过的产物补落回去。 */
+export function onAgentCanvasSinkChange(
+  listener: (sink: AgentCanvasSink | null) => void,
+): () => void {
+  listeners.add(listener)
+  return () => {
+    listeners.delete(listener)
+  }
 }
 
 export function agentCanvasSink(): AgentCanvasSink | null {

@@ -27,6 +27,7 @@ import {
   startTurn,
 } from './lib/agentClient'
 import { createArtifactDelivery, type TurnArtifactDelivery } from './lib/artifactDelivery'
+import { onAgentCanvasSinkChange } from './lib/canvasSink'
 import { toAgentTurnParams } from './lib/turnParams'
 import type {
   AgentClarificationMessage,
@@ -194,6 +195,10 @@ export const useAgentStore = create<AgentState>((set, get) => {
       ),
     })),
   )
+  // 画布挂回来（切回创作模式、画布重挂）就把它不在时错过的产物补落上去。
+  onAgentCanvasSinkChange((sink) => {
+    if (sink) void delivery.redeliverUnavailable(get().messages)
+  })
 
   /** 事件按 id 幂等：重连重发的帧、以及续播重放的整轮，都要落到同一个结果上。 */
   const apply = (

@@ -71,8 +71,18 @@ export default function CanvasMode() {
         timer = window.setTimeout(() => void saveScene(editor), PERSIST_DEBOUNCE_MS)
       })
     })()
+    // 刷新 / 关标签页 / 切后台不等防抖：更新提示点「刷新」时刚落进画布的图不能丢在半秒窗口里。
+    const flush = () => {
+      if (!loaded || document.visibilityState !== 'hidden') return
+      window.clearTimeout(timer)
+      void saveScene(editor)
+    }
+    document.addEventListener('visibilitychange', flush)
+    window.addEventListener('pagehide', flush)
     return () => {
       disposed = true
+      document.removeEventListener('visibilitychange', flush)
+      window.removeEventListener('pagehide', flush)
       setAgentCanvasSink(null)
       unsubscribe?.()
       window.clearTimeout(timer)

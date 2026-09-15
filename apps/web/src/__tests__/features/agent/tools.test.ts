@@ -429,6 +429,32 @@ describe('产物交付', () => {
       delivery: 'unavailable',
     })
   })
+  it('画布挂回来后，它不在时错过的产物自动补落，不用手动放入', async () => {
+    let finishDownload!: (response: Response) => void
+    imageResponse = () =>
+      new Promise<Response>((resolve) => {
+        finishDownload = resolve
+      })
+    turnResponse = () => turnStream(TURN_START, TOOL_START, TOOL_END, TURN_END)
+    const sink = agentCanvasSink()!
+
+    const sending = state().send('画一只橘猫')
+    await vi.waitFor(() => expect(finishDownload).toBeTypeOf('function'))
+    setAgentCanvasSink(null)
+    finishDownload(
+      new Response(new Uint8Array([1, 2, 3]), { headers: { 'content-type': 'image/png' } }),
+    )
+    await sending
+    expect(toolMessages()[0]!.delivery).toBe('unavailable')
+
+    imageResponse = () =>
+      new Response(new Uint8Array([1, 2, 3]), { headers: { 'content-type': 'image/png' } })
+    setAgentCanvasSink(sink)
+    await vi.waitFor(() => expect(toolMessages()[0]!.delivery).toBe('placed'))
+    expect(placed.map((one) => one.artifactId)).toEqual(['agent_image_1'])
+    expect(onCanvas.has(IMAGE.artifactId)).toBe(true)
+  })
+
   it('生成完成后文字与下一轮不等交付，切会话使旧下载失效', async () => {
     let finishDownload!: (response: Response) => void
     imageResponse = () =>
