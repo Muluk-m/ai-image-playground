@@ -24,20 +24,28 @@ export function createAgentCanvasSink(
 
     revision: () => editor.editRevision(),
 
-    async reserve({ count, anchorObjectId }) {
+    async reserve({ count, anchorObjectId, title, messageId }) {
       if (ready) await (typeof ready === 'function' ? ready() : ready)
       if (count <= 0) return []
+      if (messageId) {
+        const existing = editor
+          .getPlaceholders()
+          .filter((one) => one.meta.agentMessageId === messageId)
+        if (existing.length) return existing.map((one) => one.id)
+      }
       // history: false —— 智能体的占位框不是用户编辑，抬了 editRevision 它会判自己冲突。
+      const groupId = crypto.randomUUID()
       const ids = computePlaceholderTargets(editor, anchorBounds(anchorObjectId), count).map(
         (target) =>
           editor.createPlaceholder(
             target,
             {
               taskId: '',
-              clientRequestId: '',
+              clientRequestId: groupId,
               source: 'builtin-edge',
-              prompt: '',
+              prompt: title ?? '',
               agent: true,
+              agentMessageId: messageId,
             },
             { history: false },
           ),
@@ -87,10 +95,12 @@ export function createAgentCanvasSink(
         missing.map((artifact) => ({
           dataUrl: artifact.dataUrl,
           id: artifact.artifactId,
+          groupId: artifact.taskId,
+          name: artifact.name,
           ...(artifact.video ? { video: artifact.video } : {}),
         })),
         targets,
-        { canPlace },
+        { canPlace, meta: { prompt: missing[0]?.name?.replace(/\s+\d+$/, '') || '生成任务' } },
       )
       // 落图成功才收占位框：中途被判冲突时它得留着，用户点「放入画布」还认得这个位置。
       if (outcome === 'placed') {

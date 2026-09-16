@@ -37,6 +37,8 @@ import {
 import { ensureAssetImage } from '../../../lib/sync/assetImages'
 import { ensureImageCached, useStore } from '../../../store'
 import type { CanvasDoc, ImageEl } from '../../canvas/lib/canvasDoc'
+import { canvasSceneKey } from '../../canvas/lib/workspaces'
+import { currentCanvasProject } from '../../canvas/projectStore'
 import { useLibraryStore } from '../../library/store'
 import { ABORT_BUTTON, ICON_BUTTON } from '../agentStyles'
 import { type AgentMentionValue, buildAgentMentionGroups, canvasImages } from '../lib/agentMentions'
@@ -64,16 +66,24 @@ const STRIP_THUMB = 'h-8 w-8 shrink-0 overflow-hidden rounded-md object-cover'
 export default function AgentComposer({
   doc,
   editor,
+  welcome = false,
 }: {
+  welcome?: boolean
   doc: CanvasDoc
   /** 把选中的批注烧进参考图要它来栅格化；没有就只带原图。 */
   editor?: MarkRenderer
 }) {
+  const historyBlocked = useAgentStore((state) => state.historyLoading || state.historyFailed)
   const running = useAgentStore((state) => state.turn === 'running')
   const assets = useLibraryStore((state) => state.assets)
   const loadAssets = useLibraryStore((state) => state.loadAssets)
   const conversationId = useAgentStore((state) => state.conversationId)
-  const session = agentDraft(conversationId)
+  const project = currentCanvasProject()
+  const session = agentDraft(
+    conversationId,
+    project?.id,
+    project?.sceneKey === canvasSceneKey(null),
+  )
   const {
     draft,
     loading,
@@ -275,7 +285,7 @@ export default function AgentComposer({
   }
 
   const submit = () => {
-    if (loading || submitting) return
+    if (loading || submitting || historyBlocked) return
     const submission = draftForSubmit(draft)
     if (!submission.text.trim()) return
     const releaseSubmission = session.beginSubmission()
@@ -301,7 +311,10 @@ export default function AgentComposer({
   }
 
   return (
-    <Composer className="studio-agent-composer shrink-0 px-3 pb-3 pt-2" {...dropZoneProps}>
+    <Composer
+      className={`studio-agent-composer shrink-0 ${welcome ? 'w-full' : 'px-3 pb-3 pt-2'}`}
+      {...dropZoneProps}
+    >
       {dragging && (
         <div className="pointer-events-none absolute inset-1 z-20 grid place-items-center rounded-xl border border-dashed border-primary/70 bg-sidebar/90 text-xs text-primary">
           松开即作为参考图
@@ -431,10 +444,10 @@ export default function AgentComposer({
             )}
             <ComposerSend
               streaming={false}
-              idle={!loading && !submitting && Boolean(draft.prompt.trim())}
+              idle={!historyBlocked && !loading && !submitting && Boolean(draft.prompt.trim())}
               aria-label={submitting ? '发送中…' : running ? '插话' : '发送并创作'}
               title={running ? '插话' : '发送并创作'}
-              disabled={loading || submitting || !draft.prompt.trim()}
+              disabled={historyBlocked || loading || submitting || !draft.prompt.trim()}
               onClick={submit}
             />
           </ComposerActions>

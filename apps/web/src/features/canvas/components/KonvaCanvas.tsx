@@ -26,6 +26,7 @@ import {
   selectionBounds,
 } from '../lib/snapping'
 import CanvasImageMenu, { type CanvasImageMenuState } from './CanvasImageMenu'
+import SelectionInfo from './SelectionInfo'
 
 /** 手势里判定「有效箭头 / 笔画」的最小长度（页面单位），低于则丢弃。 */
 const MIN_GESTURE_LEN = 3
@@ -618,6 +619,7 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
         void importImageFiles(editor, [...e.dataTransfer.files], drop)
       }}
     >
+      {!dragging && !panning && <SelectionInfo doc={doc} />}
       <Stage
         ref={stageRef}
         width={viewport.width}

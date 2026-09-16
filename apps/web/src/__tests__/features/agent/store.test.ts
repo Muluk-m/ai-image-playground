@@ -90,6 +90,8 @@ beforeEach(() => {
     turns: {},
     error: null,
     loaded: false,
+    historyLoading: false,
+    historyFailed: false,
   })
 })
 
@@ -248,7 +250,7 @@ describe('读回历史', () => {
 
     expect(state().conversationId).toBe(CONVERSATION)
     expect(localStorage.getItem('image-playground.agent_conversation_id')).toBe(CONVERSATION)
-    expect(state().error).toBe('这个会话读不回来，稍后再试')
+    expect(state().error).toBe('对话暂时未能加载，请重新加载。')
   })
 
   it('网络断了同样留着会话', async () => {
@@ -260,7 +262,7 @@ describe('读回历史', () => {
     await state().load()
 
     expect(state().conversationId).toBe(CONVERSATION)
-    expect(state().error).toBe('这个会话读不回来，稍后再试')
+    expect(state().error).toBe('对话暂时未能加载，请重新加载。')
   })
 })
 
@@ -629,5 +631,25 @@ describe('发送确认', () => {
     turnResponse = () => turnStream(TURN_START, TURN_END)
     await state().send('画一只猫', [], accepted)
     expect(accepted).toHaveBeenCalledOnce()
+  })
+})
+
+describe('历史读取重试', () => {
+  it('失败后仅重读当前会话，期间禁止发送，不新建会话或发起轮', async () => {
+    localStorage.setItem('image-playground.agent_conversation_id', CONVERSATION)
+    messagesResponse = () => new Response('{}', { status: 503 })
+    await state().load()
+    expect(state().historyFailed).toBe(true)
+    expect(state().conversationId).toBe(CONVERSATION)
+    const calls = fetchMock.mock.calls.length
+    await state().send('草稿不能误发')
+    expect(fetchMock).toHaveBeenCalledTimes(calls)
+    messagesResponse = () => Response.json({ messages: [], activeTurn: null, turns: [] })
+    await state().retryHistory()
+    expect(state().historyFailed).toBe(false)
+    expect(state().historyLoading).toBe(false)
+    expect(state().error).toBeNull()
+    expect(state().conversationId).toBe(CONVERSATION)
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false)
   })
 })

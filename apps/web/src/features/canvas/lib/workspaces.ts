@@ -1,15 +1,16 @@
 import { AGENT_CONVERSATION_KEY, safeLocalStorage, scopedStorageName } from '../../../lib/authScope'
 import { useStore } from '../../../store'
 import { setAgentCanvasSink } from '../../agent/lib/canvasSink'
+import { currentCanvasProject, useCanvasProjectStore } from '../projectStore'
 import { createAgentCanvasSink } from './agentCanvasSink'
 import { CanvasDoc } from './canvasDoc'
 import { CanvasEditor } from './editor'
 import { loadScene, PERSIST_DEBOUNCE_MS, saveScene } from './persistence'
 import { recoverCanvasTasks } from './recoverCanvasTasks'
 
-export function canvasSceneKey(conversationId: string | null): string {
-  return `${scopedStorageName('canvas')}:${conversationId ? `conversation:${encodeURIComponent(conversationId)}` : 'draft'}`
-}
+import { canvasSceneKey } from './workspaceKeys'
+
+export { canvasSceneKey } from './workspaceKeys'
 
 /** 生命周期属于会话，切模式/切会话只换视图，异步任务仍写原文档并自动保存。 */
 export class CanvasWorkspace {
@@ -22,6 +23,7 @@ export class CanvasWorkspace {
   private listeners = new Set<() => void>()
   private timer: ReturnType<typeof setTimeout> | undefined
   private writes: Promise<unknown> = Promise.resolve()
+  private disposed = false
   private revision = 0
   private savedRevision = 0
 
@@ -82,16 +84,29 @@ export class CanvasWorkspace {
   flush = (): Promise<boolean> => {
     clearTimeout(this.timer)
     const save = this.writes.then(async () => {
-      if (this.state.loading || this.state.loadFailed) return false
+      if (this.disposed || this.state.loading || this.state.loadFailed) return false
       if (this.savedRevision === this.revision && !this.state.saveFailed) return true
       const revision = this.revision
-      const saved = await saveScene(this.editor, this.key)
+      let saved = await saveScene(this.editor, this.key)
+      if (saved) {
+        try {
+          await useCanvasProjectStore.getState().recordScene(this.key, this.doc)
+        } catch {
+          saved = false
+        }
+      }
       if (saved) this.savedRevision = revision
       this.update({ saveFailed: !saved })
       return saved
     })
     this.writes = save
     return save
+  }
+  dispose() {
+    this.disposed = true
+    clearTimeout(this.timer)
+    this.sink.background = false
+    this.listeners.clear()
   }
   /** 先原子提交新会话存档并移走草稿，再改内存键；失败时继续保留原草稿。 */
   bind(key: string): Promise<boolean> {
@@ -134,7 +149,7 @@ function workspace(key: string, migrateLegacy = false): CanvasWorkspace {
 export function currentCanvasWorkspace(): CanvasWorkspace {
   if (!current) {
     const remembered = safeLocalStorage.getItem(scopedStorageName(AGENT_CONVERSATION_KEY))
-    current = workspace(canvasSceneKey(remembered), true)
+    current = workspace(currentCanvasProject()?.sceneKey ?? canvasSceneKey(remembered), true)
   }
   if (!lifecycleInstalled) {
     lifecycleInstalled = true
@@ -166,12 +181,34 @@ export function selectCanvasWorkspace(conversationId: string | null): void {
   // 不在画布里时无需加载图片；下次打开画布从记住的会话初始化。
   if (!current) return
   void current.flush()
-  current = workspace(canvasSceneKey(conversationId))
+  const project = currentCanvasProject()
+  current = workspace(
+    project?.conversationId === conversationId ? project.sceneKey : canvasSceneKey(conversationId),
+  )
   if (visible) setAgentCanvasSink(current.sink)
   for (const listener of listeners) listener()
 }
 
 export async function bindNewCanvasWorkspace(conversationId: string): Promise<boolean> {
+  const project = currentCanvasProject()
+  if (project) {
+    if (project.conversationId && project.conversationId !== conversationId) return false
+    const original = current
+    if (original) {
+      try {
+        await original.ready
+      } catch {
+        return false
+      }
+      if (!(await original.flush())) return false
+    }
+    try {
+      await useCanvasProjectStore.getState().update(project.id, { conversationId })
+      return true
+    } catch {
+      return false
+    }
+  }
   if (!current) return true
   const draftKey = canvasSceneKey(null)
   const draft = workspaces.get(draftKey)
@@ -181,4 +218,17 @@ export async function bindNewCanvasWorkspace(conversationId: string): Promise<bo
   workspaces.delete(draftKey)
   workspaces.set(key, draft)
   return true
+}
+
+export async function prepareCanvasRemoval(key: string): Promise<void> {
+  const target = workspace(key)
+  await target.ready
+  if (target.doc.elements.some((one) => one.type === 'placeholder' && one.status === 'loading'))
+    throw new Error('busy')
+  if (!(await target.flush())) throw new Error('save_failed')
+}
+
+export function forgetCanvasWorkspace(key: string): void {
+  workspaces.get(key)?.dispose()
+  workspaces.delete(key)
 }

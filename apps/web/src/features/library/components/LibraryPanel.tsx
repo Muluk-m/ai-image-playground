@@ -1,10 +1,12 @@
-import { useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import DropOverlay from '../../../components/DropOverlay'
 import { CloseIcon, LibraryIcon } from '../../../components/icons'
 import Overlay from '../../../components/Overlay'
 import { useImageDropZone } from '../../../hooks/useImageDropZone'
 import { usePasteImageFiles } from '../../../hooks/usePasteImageFiles'
+import ProjectGrid from '../../canvas/components/ProjectGrid'
+import { useCanvasProjectStore } from '../../canvas/projectStore'
 import {
   type LibraryTab,
   selectVisibleAssets,
@@ -18,6 +20,7 @@ import TemplateCard from './TemplateCard'
 import TemplateDetail from './TemplateDetail'
 
 const TABS: Array<{ id: LibraryTab; label: string }> = [
+  { id: 'projects', label: '我的项目' },
   { id: 'assets', label: '素材' },
   { id: 'templates', label: '模板' },
 ]
@@ -35,13 +38,28 @@ export default function LibraryPanel() {
   const templateCount = useLibraryStore((s) => s.templates.length)
   const importAssetFiles = useLibraryStore((s) => s.importAssetFiles)
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const saveAssets = (files: File[]) => void importAssetFiles(files)
+  const projects = useCanvasProjectStore((state) => state.projects)
+  const projectError = useCanvasProjectStore((state) => state.error)
+  useEffect(() => {
+    if (panelOpen)
+      void useCanvasProjectStore
+        .getState()
+        .load()
+        .catch(() => {})
+  }, [panelOpen])
+  const saveAssets = (files: File[]) => {
+    if (panelOpen && tab === 'assets') void importAssetFiles(files)
+  }
   const { dragging, dropZoneProps } = useImageDropZone(saveAssets)
   usePasteImageFiles('library', saveAssets)
 
   if (!panelOpen) return null
 
-  const counts: Record<LibraryTab, number> = { assets: assetCount, templates: templateCount }
+  const counts: Record<LibraryTab, number> = {
+    projects: projects.length,
+    assets: assetCount,
+    templates: templateCount,
+  }
   const openFilePicker = () => fileInputRef.current?.click()
 
   const renderAssets = () => {
@@ -73,12 +91,12 @@ export default function LibraryPanel() {
   }
 
   return (
-    <Overlay onClose={closePanel} tier="modal">
-      <div className="relative z-10 flex h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-3xl border border-white/50 bg-card/95 shadow-2xl ring-1 ring-black/5 animate-modal-in sm:h-[680px] border-border dark:ring-white/10">
-        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border p-5">
+    <Overlay onClose={closePanel} tier="modal" layout="fill" backdrop="none">
+      <div className="relative z-10 flex h-dvh w-full flex-col overflow-hidden bg-background text-foreground">
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-5 py-5 sm:px-10">
           <h3 className="flex shrink-0 items-center gap-2 text-lg font-bold text-foreground">
             <LibraryIcon className="h-5 w-5 text-primary" />
-            素材与模板
+            我的资产
           </h3>
 
           <div className="relative w-full max-w-xs">
@@ -86,7 +104,13 @@ export default function LibraryPanel() {
               type="search"
               value={searchKeyword}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder={tab === 'templates' ? '搜索模板名' : '搜索素材名'}
+              placeholder={
+                tab === 'projects'
+                  ? '搜索项目名'
+                  : tab === 'templates'
+                    ? '搜索模板名'
+                    : '搜索素材名'
+              }
               className="w-full rounded-lg border border-border bg-card px-3 py-1.5 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-ring"
             />
           </div>
@@ -101,7 +125,7 @@ export default function LibraryPanel() {
           </button>
         </div>
 
-        <div className="flex shrink-0 items-center gap-1 border-b border-border px-5 py-2">
+        <div className="flex shrink-0 items-center gap-2 px-5 py-5 sm:px-10">
           {TABS.map(({ id, label }) => (
             <button
               key={id}
@@ -139,7 +163,29 @@ export default function LibraryPanel() {
           )}
         </div>
 
-        {tab === 'templates' ? (
+        {tab === 'projects' ? (
+          <div className="custom-scrollbar min-h-0 flex-1 overflow-y-auto px-5 pb-10 sm:px-10">
+            {projectError ? (
+              <div role="alert" className="py-10 text-sm text-muted-foreground">
+                {projectError}
+                <button
+                  type="button"
+                  className="ml-3 text-primary underline"
+                  onClick={() =>
+                    void useCanvasProjectStore
+                      .getState()
+                      .load()
+                      .catch(() => {})
+                  }
+                >
+                  重新加载
+                </button>
+              </div>
+            ) : (
+              <ProjectGrid search={searchKeyword} />
+            )}
+          </div>
+        ) : tab === 'templates' ? (
           <div className="custom-scrollbar min-h-0 flex-1 overflow-y-auto p-5">
             {renderTemplates()}
           </div>

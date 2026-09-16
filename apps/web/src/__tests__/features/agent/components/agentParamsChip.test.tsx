@@ -4,6 +4,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import AgentParamsChip from '../../../../features/agent/components/AgentParamsChip'
+import { setChannels } from '../../../../lib/channels/channelStore'
 import { useStore } from '../../../../store'
 import { DEFAULT_PARAMS } from '../../../../types'
 
@@ -29,6 +30,7 @@ function toggle(): void {
 }
 
 beforeEach(() => {
+  setChannels([])
   useStore.setState({ params: { ...DEFAULT_PARAMS } })
   host = document.createElement('div')
   document.body.appendChild(host)
@@ -115,6 +117,15 @@ function useProfile(kind: 'gemini' | 'openai-compat', model: string): void {
 }
 
 describe('gemini 专属参数跟着当前模型走', () => {
+  it('摘要展示实际的 Gemini 比例，不读取另一种协议的尺寸', () => {
+    useProfile('gemini', 'gemini-3.1-flash-image')
+    useStore.setState({
+      params: { ...DEFAULT_PARAMS, size: '1536x1024', gemini_aspect_ratio: '9:16' },
+    })
+    render()
+    expect(trigger().textContent).toContain('9:16')
+    expect(trigger().textContent).not.toContain('1536x1024')
+  })
   it('gemini 系模型才给分辨率与思考级别', () => {
     useProfile('gemini', 'gemini-3.1-flash-image')
     render()
@@ -144,6 +155,38 @@ describe('gemini 专属参数跟着当前模型走', () => {
     expect(host.textContent).not.toContain('分辨率')
     expect(host.textContent).not.toContain('思考')
   })
+})
+
+it('仅支持比例的模型在参数摘要和面板中都显示比例', () => {
+  setChannels([
+    {
+      id: 'ratio',
+      kind: 'openai-queue',
+      label: 'Ratio',
+      models: [{ id: 'flare', label: 'Flare', capabilities: ['quality'] }],
+      defaults: { apiMode: 'images', timeout: 600 },
+    },
+  ])
+  useStore.setState({
+    settings: {
+      ...useStore.getState().settings,
+      activeProfileId: 'ratio-profile',
+      profiles: [
+        {
+          id: 'ratio-profile',
+          source: 'builtin-edge',
+          channelId: 'ratio',
+          selectedModelId: 'flare',
+        },
+      ],
+    },
+    params: { ...DEFAULT_PARAMS, size: '1536x1024' },
+  })
+  render()
+  expect(trigger().textContent).toContain('3:2')
+  expect(trigger().textContent).not.toContain('1536x1024')
+  toggle()
+  expect(host.querySelector('button[title="比例: 3:2"]')).not.toBeNull()
 })
 
 function clickWithPointer(element: Element) {

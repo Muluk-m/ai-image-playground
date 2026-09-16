@@ -13,7 +13,15 @@ import { create } from 'zustand'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../lib/apiProfiles'
 import { AGENT_CONVERSATION_KEY, safeLocalStorage, scopedStorageName } from '../../lib/authScope'
 import { useStore } from '../../store'
-import { bindNewCanvasWorkspace, selectCanvasWorkspace } from '../canvas/lib/workspaces'
+import {
+  bindNewCanvasWorkspace,
+  canvasSceneKey,
+  currentCanvasWorkspace,
+  forgetCanvasWorkspace,
+  prepareCanvasRemoval,
+  selectCanvasWorkspace,
+} from '../canvas/lib/workspaces'
+import { currentCanvasProject, useCanvasProjectStore } from '../canvas/projectStore'
 import { clampPanelWidth, PANEL_WIDTH } from './agentStyles'
 import {
   AgentRequestError,
@@ -29,7 +37,7 @@ import {
 } from './lib/agentClient'
 import { createArtifactDelivery, type TurnArtifactDelivery } from './lib/artifactDelivery'
 import { onAgentCanvasSinkChange } from './lib/canvasSink'
-import { bindNewAgentDraft } from './lib/drafts'
+import { agentDraft, bindNewAgentDraft, removeProjectDraft } from './lib/drafts'
 import { toAgentTurnParams } from './lib/turnParams'
 import type {
   AgentClarificationMessage,
@@ -42,7 +50,7 @@ import type {
 
 const TURN_FAILED = '这一轮没有跑完'
 const TURN_RATE_LIMITED = '发送太频繁，稍后再试'
-const CONVERSATION_UNREADABLE = '这个会话读不回来，稍后再试'
+const CONVERSATION_UNREADABLE = '对话暂时未能加载，请重新加载。'
 
 const RECONNECT_DELAYS_MS = [0, 500, 2_000, 5_000]
 
@@ -61,6 +69,8 @@ export interface AgentState {
   activeTurn: AgentActiveTurnView | null
   error: string | null
   loaded: boolean
+  historyLoading: boolean
+  historyFailed: boolean
   /** 对话面板宽度（CSS 像素），用户拖过就记住。 */
   panelWidth: number
 
@@ -73,6 +83,10 @@ export interface AgentState {
   selectConversation(conversationId: string): Promise<void>
   deleteConversation(conversationId: string): Promise<void>
   startNewConversation(): void
+  retryHistory(): Promise<void>
+  createProject(): Promise<boolean>
+  selectProject(projectId: string): Promise<boolean>
+  deleteProject(projectId: string): Promise<boolean>
   /** onAccepted 只在服务端接收后触发，输入框此时才清掉已提交草稿。 */
   send(
     text: string,
@@ -213,123 +227,127 @@ export const useAgentStore = create<AgentState>((set, get) => {
     turnId: string,
     turnDelivery: TurnArtifactDelivery,
   ) => {
-    set((state) => {
-      switch (event.type) {
-        case 'turnStart':
-          return {
-            activeTurn: { turnId: event.turnId },
-            turns: mergeTurn(
-              state.turns,
-              event.turnId,
-              event.reservedCredits === undefined ? {} : { reservedCredits: event.reservedCredits },
-            ),
-            messages: state.messages.some((one) => one.id === event.userMessageId)
-              ? state.messages
-              : [
-                  // 先上屏的那条换成服务端的 id；同一轮不会有第二条待确认的。
-                  ...state.messages.filter((one) => one.kind !== 'text' || !one.pending),
-                  {
-                    kind: 'text' as const,
-                    id: event.userMessageId,
-                    turnId,
-                    role: 'user' as const,
-                    text: pendingUserText ?? '',
-                    streaming: false,
-                  },
-                ],
-          }
-        case 'assistantStart':
-          return {
-            messages: replaceOrAppend(state.messages, {
-              kind: 'text',
-              id: event.messageId,
-              turnId,
-              role: 'assistant',
-              text: '',
-              streaming: true,
-            }),
-          }
-        case 'interjection':
-          return {
-            messages: replaceOrAppend(state.messages, {
-              kind: 'text',
-              id: event.messageId,
-              turnId,
-              role: 'user',
-              text: event.text,
-              streaming: false,
-            }),
-          }
-        case 'textDelta':
-          return {
-            messages: state.messages.map((one) =>
-              one.kind === 'text' && one.id === event.messageId
-                ? { ...one, text: one.text + event.delta }
-                : one,
-            ),
-          }
-        case 'toolStart':
-          return {
-            messages: replaceOrAppend(state.messages, {
-              kind: 'tool',
-              id: event.messageId,
-              turnId,
-              toolCallId: event.toolCallId,
-              title: event.title,
-              status: 'running',
-              ...(event.anchorObjectId ? { anchorObjectId: event.anchorObjectId } : {}),
-            }),
-          }
-        case 'toolProgress':
-          return {
-            messages: state.messages.map((one) =>
-              one.kind === 'tool' && one.id === event.messageId
-                ? { ...one, stage: event.stage }
-                : one,
-            ),
-          }
-        case 'clarification':
-          return {
-            messages: replaceOrAppend(
-              state.messages,
-              clarificationCard(event, event.messageId, turnId),
-            ),
-          }
-        case 'toolEnd':
-          return {
-            messages: replaceOrAppend(
-              state.messages,
-              toolCard({ ...event, type: 'toolResult' }, event.messageId, turnId),
-            ),
-          }
-        case 'turnEnd': {
-          const turns = mergeTurn(state.turns, event.turnId, {
-            durationMs: event.durationMs,
-            stopReason: event.stopReason,
-            ...(event.cost ? { cost: event.cost } : {}),
-          })
-          if (event.stopReason === 'failed') return { ...failPatch(state), turns }
-          return {
-            turn: 'idle' as const,
-            activeTurn: null,
-            turns,
-            messages: state.messages.map((one) =>
-              one.kind === 'text' && one.streaming ? { ...one, streaming: false } : one,
-            ),
+    if (turnDelivery.isCurrent())
+      set((state) => {
+        switch (event.type) {
+          case 'turnStart':
+            return {
+              activeTurn: { turnId: event.turnId },
+              turns: mergeTurn(
+                state.turns,
+                event.turnId,
+                event.reservedCredits === undefined
+                  ? {}
+                  : { reservedCredits: event.reservedCredits },
+              ),
+              messages: state.messages.some((one) => one.id === event.userMessageId)
+                ? state.messages
+                : [
+                    // 先上屏的那条换成服务端的 id；同一轮不会有第二条待确认的。
+                    ...state.messages.filter((one) => one.kind !== 'text' || !one.pending),
+                    {
+                      kind: 'text' as const,
+                      id: event.userMessageId,
+                      turnId,
+                      role: 'user' as const,
+                      text: pendingUserText ?? '',
+                      streaming: false,
+                    },
+                  ],
+            }
+          case 'assistantStart':
+            return {
+              messages: replaceOrAppend(state.messages, {
+                kind: 'text',
+                id: event.messageId,
+                turnId,
+                role: 'assistant',
+                text: '',
+                streaming: true,
+              }),
+            }
+          case 'interjection':
+            return {
+              messages: replaceOrAppend(state.messages, {
+                kind: 'text',
+                id: event.messageId,
+                turnId,
+                role: 'user',
+                text: event.text,
+                streaming: false,
+              }),
+            }
+          case 'textDelta':
+            return {
+              messages: state.messages.map((one) =>
+                one.kind === 'text' && one.id === event.messageId
+                  ? { ...one, text: one.text + event.delta }
+                  : one,
+              ),
+            }
+          case 'toolStart':
+            return {
+              messages: replaceOrAppend(state.messages, {
+                kind: 'tool',
+                id: event.messageId,
+                turnId,
+                toolCallId: event.toolCallId,
+                title: event.title,
+                status: 'running',
+                ...(event.anchorObjectId ? { anchorObjectId: event.anchorObjectId } : {}),
+              }),
+            }
+          case 'toolProgress':
+            return {
+              messages: state.messages.map((one) =>
+                one.kind === 'tool' && one.id === event.messageId
+                  ? { ...one, stage: event.stage }
+                  : one,
+              ),
+            }
+          case 'clarification':
+            return {
+              messages: replaceOrAppend(
+                state.messages,
+                clarificationCard(event, event.messageId, turnId),
+              ),
+            }
+          case 'toolEnd':
+            return {
+              messages: replaceOrAppend(
+                state.messages,
+                toolCard({ ...event, type: 'toolResult' }, event.messageId, turnId),
+              ),
+            }
+          case 'turnEnd': {
+            const turns = mergeTurn(state.turns, event.turnId, {
+              durationMs: event.durationMs,
+              stopReason: event.stopReason,
+              ...(event.cost ? { cost: event.cost } : {}),
+            })
+            if (event.stopReason === 'failed') return { ...failPatch(state), turns }
+            return {
+              turn: 'idle' as const,
+              activeTurn: null,
+              turns,
+              messages: state.messages.map((one) =>
+                one.kind === 'text' && one.streaming ? { ...one, streaming: false } : one,
+              ),
+            }
           }
         }
-      }
-    })
+      })
     // 工具一起跑画布就占好位、镜头跟过去；产物到了落进这些位，没跑成就在原地标错。
     if (event.type === 'toolStart' && event.outputCount) {
       turnDelivery.reserve(event.messageId, {
         // 数量来自服务端；按协议上限收口，坏值不会在画布上铺出一片空框。
         count: Math.min(AGENT_TURN_MAX_N, event.outputCount),
+        title: event.title,
         ...(event.anchorObjectId ? { anchorObjectId: event.anchorObjectId } : {}),
       })
     }
     if (event.type === 'toolEnd') {
-      const message = get().messages.find((one) => one.id === event.messageId)
+      const message = toolCard({ ...event, type: 'toolResult' }, event.messageId, turnId)
       if (event.status === 'failed') turnDelivery.failed(event.messageId, event.message)
       else if (message?.kind === 'tool' && message.artifacts?.length) turnDelivery.enqueue(message)
       else turnDelivery.discard(event.messageId)
@@ -337,6 +355,8 @@ export const useAgentStore = create<AgentState>((set, get) => {
   }
 
   const fail = (message?: string) => set((state) => failPatch(state, message))
+
+  const followers = new Map<string, TurnArtifactDelivery>()
 
   /** 跟一轮到底：流断了就带断点重连，直到读到终帧或者一直接不上。 */
   const follow = async (
@@ -346,15 +366,20 @@ export const useAgentStore = create<AgentState>((set, get) => {
     turnDelivery: TurnArtifactDelivery,
     resumedTurnId = '',
   ) => {
+    const previous = followers.get(conversationId)
+    followers.set(conversationId, turnDelivery)
+    if (previous && previous !== turnDelivery) await previous.settled()
+    const canContinue = () =>
+      followers.get(conversationId) === turnDelivery && turnDelivery.canContinue()
     let source = frames
     let seen = 0
     let turnId = resumedTurnId
     try {
       for (let attempt = 0; ; attempt += 1) {
-        if (!turnDelivery.isCurrent()) return
+        if (!canContinue()) return
         try {
           for await (const frame of source) {
-            if (!turnDelivery.isCurrent()) return
+            if (!canContinue()) return
             if (frame.id !== null && frame.id <= seen) continue
             if (frame.id !== null) {
               seen = frame.id
@@ -365,23 +390,24 @@ export const useAgentStore = create<AgentState>((set, get) => {
             if (frame.event.type === 'turnEnd') return
           }
         } catch (thrown) {
-          if (!turnDelivery.isCurrent()) return
+          if (!canContinue()) return
           if (thrown instanceof AgentRequestError && thrown.status === 404) break
           if (thrown instanceof AgentRequestError && thrown.status === 429) {
-            fail(TURN_RATE_LIMITED)
+            if (turnDelivery.isCurrent()) fail(TURN_RATE_LIMITED)
             return
           }
         }
-        const active = get().activeTurn
+        const active = turnId ? { turnId } : null
         const delay = RECONNECT_DELAYS_MS[Math.max(attempt, 0)]
         if (!active || delay === undefined) break
         await sleep(delay)
-        if (!turnDelivery.isCurrent()) return
+        if (!canContinue()) return
         source = resumeTurn(conversationId, active.turnId, seen)
       }
-      if (get().turn === 'running') fail()
+      if (turnDelivery.isCurrent() && get().turn === 'running') fail()
     } finally {
       await turnDelivery.settled()
+      if (followers.get(conversationId) === turnDelivery) followers.delete(conversationId)
     }
   }
 
@@ -392,8 +418,17 @@ export const useAgentStore = create<AgentState>((set, get) => {
    */
   const openConversation = async (conversationId: string, turnId?: string) => {
     const isCurrent = delivery.reset()
+    const same = get().conversationId === conversationId
+    set({
+      conversationId,
+      ...(!same ? { messages: [], turns: {} } : {}),
+      error: null,
+      turn: 'idle',
+      activeTurn: null,
+      historyLoading: true,
+      historyFailed: false,
+    })
     selectCanvasWorkspace(conversationId)
-    set({ conversationId, messages: [], turns: {}, error: null, turn: 'idle', activeTurn: null })
     let state: Awaited<ReturnType<typeof fetchMessages>>
     try {
       state = await fetchMessages(conversationId)
@@ -404,11 +439,36 @@ export const useAgentStore = create<AgentState>((set, get) => {
       // 5xx、断网）里会话还在，忘掉它等于把用户的历史无声弄丢，报错让用户知道是读不到。
       const gone =
         thrown instanceof AgentRequestError && (thrown.status === 404 || thrown.status === 403)
-      if (gone) get().startNewConversation()
+      if (!gone) set({ historyLoading: false, historyFailed: true })
+      const project = currentCanvasProject()
+      if (gone && project?.conversationId === conversationId) {
+        try {
+          await useCanvasProjectStore.getState().update(project.id, { conversationId: null })
+          if (!isCurrent()) return
+          useCanvasProjectStore.getState().activate(project.id)
+          set({
+            historyLoading: false,
+            historyFailed: false,
+            conversationId: null,
+            messages: [],
+            turns: {},
+            turn: 'idle',
+            activeTurn: null,
+            error: '这段对话已不可用，画布和草稿仍保留，可以继续创作。',
+          })
+        } catch {
+          if (isCurrent()) {
+            set({ historyLoading: false, historyFailed: true })
+            fail(CONVERSATION_UNREADABLE)
+          }
+        }
+      } else if (gone) get().startNewConversation()
       else fail(CONVERSATION_UNREADABLE)
       return
     }
     set({
+      historyLoading: false,
+      historyFailed: false,
       messages: state.messages.map(panelMessage),
       turns: Object.fromEntries(state.turns.map((one) => [one.turnId, one])),
     })
@@ -418,6 +478,58 @@ export const useAgentStore = create<AgentState>((set, get) => {
     set({ turn: 'running', error: null, activeTurn: { turnId: active } })
     const turnDelivery = delivery.beginTurn()
     await follow(conversationId, resumeTurn(conversationId, active, 0), null, turnDelivery, active)
+  }
+
+  let conversationListRevision = 0
+  let changingProject = false
+  const changeProject = async (action: () => Promise<boolean>) => {
+    if (changingProject) return false
+    changingProject = true
+    try {
+      return await action()
+    } finally {
+      changingProject = false
+    }
+  }
+  const showProject = (project: { id: string; conversationId: string | null }) => {
+    delivery.reset()
+    useCanvasProjectStore.getState().activate(project.id)
+    // 清掉旧消息后再发布新画布，挂载通知不会把旧产物投到新项目。
+    set({
+      conversationId: project.conversationId,
+      messages: [],
+      turns: {},
+      turn: 'idle',
+      activeTurn: null,
+      error: null,
+      historyFailed: false,
+      historyLoading: false,
+      loaded: true,
+      tab: 'chat',
+      open: true,
+    })
+    selectCanvasWorkspace(project.conversationId)
+    if (project.conversationId) void openConversation(project.conversationId)
+  }
+  const saveCurrentProject = async () => {
+    const project = currentCanvasProject()
+    const draft = agentDraft(
+      get().conversationId,
+      project?.id,
+      project?.sceneKey === canvasSceneKey(null),
+    )
+    await draft.ready
+    await draft.flush()
+    if (draft.getSnapshot().error) throw new Error('draft_save_failed')
+    const workspace = currentCanvasWorkspace()
+    await workspace.ready
+    if (!(await workspace.flush())) throw new Error('save_failed')
+  }
+  const createProject = async () => {
+    await saveCurrentProject()
+    const project = await useCanvasProjectStore.getState().create()
+    showProject(project)
+    return true
   }
 
   return {
@@ -431,6 +543,8 @@ export const useAgentStore = create<AgentState>((set, get) => {
     activeTurn: null,
     error: null,
     loaded: false,
+    historyLoading: false,
+    historyFailed: false,
     panelWidth: readPanelWidth(),
 
     setOpen: (open) => set({ open }),
@@ -447,13 +561,23 @@ export const useAgentStore = create<AgentState>((set, get) => {
       const conversationId = safeLocalStorage.getItem(conversationKey())
       await Promise.all([
         get().refreshConversations(),
-        ...(conversationId ? [get().selectConversation(conversationId)] : []),
+        ...(conversationId ? [openConversation(conversationId)] : []),
       ])
     },
 
     async refreshConversations() {
+      const revision = conversationListRevision
       try {
-        set({ conversations: await fetchConversations() })
+        const conversations = await fetchConversations()
+        if (changingProject || revision !== conversationListRevision) return
+        set({ conversations })
+        if (useCanvasProjectStore.getState().loaded)
+          await useCanvasProjectStore
+            .getState()
+            .importConversations(
+              conversations,
+              () => !changingProject && revision === conversationListRevision,
+            )
       } catch {
         // 列表读不回来不该拖垮面板，留着上一份。
       }
@@ -461,6 +585,13 @@ export const useAgentStore = create<AgentState>((set, get) => {
 
     async selectConversation(conversationId) {
       if (get().turn === 'running') return
+      const project = useCanvasProjectStore
+        .getState()
+        .projects.find((one) => one.conversationId === conversationId)
+      if (project) {
+        await get().selectProject(project.id)
+        return
+      }
       safeLocalStorage.setItem(conversationKey(), conversationId)
       await openConversation(conversationId)
     },
@@ -479,7 +610,10 @@ export const useAgentStore = create<AgentState>((set, get) => {
     },
 
     startNewConversation() {
-      if (get().turn === 'running') return
+      if (useCanvasProjectStore.getState().loaded) {
+        void get().createProject()
+        return
+      }
       delivery.reset()
       selectCanvasWorkspace(null)
       safeLocalStorage.removeItem(conversationKey())
@@ -490,10 +624,94 @@ export const useAgentStore = create<AgentState>((set, get) => {
         error: null,
         turn: 'idle',
         activeTurn: null,
+        historyLoading: false,
+        historyFailed: false,
+      })
+    },
+
+    async retryHistory() {
+      if (get().historyLoading) return
+      const id = get().conversationId
+      if (id) await openConversation(id)
+      else {
+        set({ loaded: false })
+        await get().load()
+      }
+    },
+
+    async createProject() {
+      return changeProject(async () => {
+        try {
+          return await createProject()
+        } catch {
+          useStore.getState().showToast('项目创建失败，当前内容已保留，请重试。', 'error')
+          return false
+        }
+      })
+    },
+
+    async selectProject(projectId) {
+      return changeProject(async () => {
+        const project = useCanvasProjectStore
+          .getState()
+          .projects.find((one) => one.id === projectId)
+        if (!project) return false
+        try {
+          await saveCurrentProject()
+        } catch {
+          useStore.getState().showToast('当前项目未能保存，内容已保留，请重试。', 'error')
+          return false
+        }
+        showProject(project)
+        return true
+      })
+    },
+
+    async deleteProject(projectId) {
+      return changeProject(async () => {
+        conversationListRevision += 1
+        const projects = useCanvasProjectStore.getState()
+        const project = projects.projects.find((one) => one.id === projectId)
+        if (!project) return false
+        try {
+          if (project.id === projects.activeId && get().turn === 'running') throw new Error('busy')
+          await saveCurrentProject()
+          await prepareCanvasRemoval(project.sceneKey)
+          if (project.conversationId) {
+            try {
+              const history = await fetchMessages(project.conversationId)
+              if (history.activeTurn) throw new Error('busy')
+              await removeConversation(project.conversationId)
+            } catch (error) {
+              if (!(error instanceof AgentRequestError && error.status === 404)) throw error
+            }
+          }
+          if (project.id === projects.activeId) await createProject()
+          await removeProjectDraft(projectId, project.conversationId)
+          await projects.remove(projectId)
+          forgetCanvasWorkspace(project.sceneKey)
+          set((state) => ({
+            conversations: state.conversations.filter((one) => one.id !== project.conversationId),
+          }))
+          return true
+        } catch (error) {
+          useStore
+            .getState()
+            .showToast(
+              error instanceof Error && error.message === 'busy'
+                ? '项目仍有任务运行，完成后再删除。'
+                : '项目删除失败，请重试。',
+              'error',
+            )
+          return false
+        } finally {
+          conversationListRevision += 1
+        }
       })
     },
 
     async send(text, references = [], onAccepted) {
+      if (changingProject || get().historyLoading || get().historyFailed) return
       const trimmed = text.trim()
       if (!trimmed) return
 
@@ -513,6 +731,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
       if (get().turn === 'running') return
 
       // 首轮才会定标题、才会有新会话进列表；之后每轮再拉一次是白拉。
+      const sourceProject = currentCanvasProject()
       const firstTurn = get().messages.length === 0
       // 敲下回车这一刻消息就上屏，不等服务端：起轮要过网络，空着几秒像没反应。
       pendingSeq += 1
@@ -543,12 +762,16 @@ export const useAgentStore = create<AgentState>((set, get) => {
             return
           }
           if (!(await bindNewCanvasWorkspace(target))) {
-            fail('画布未能保存到新会话，请重试。原画布和草稿已保留。')
+            if (turnDelivery.isCurrent()) fail('画布未能保存到新会话，请重试。原画布和草稿已保留。')
+            await turnDelivery.settled()
+            return
+          }
+          if (!turnDelivery.isCurrent()) {
             await turnDelivery.settled()
             return
           }
           safeLocalStorage.setItem(conversationKey(), target)
-          bindNewAgentDraft(target)
+          bindNewAgentDraft(target, currentCanvasProject()?.id)
           set({ conversationId: target })
         }
       } catch {
@@ -572,6 +795,18 @@ export const useAgentStore = create<AgentState>((set, get) => {
               : undefined,
           )
         await turnDelivery.settled()
+        return
+      }
+      if (outcome.kind !== 'alreadyRunning' && sourceProject)
+        void useCanvasProjectStore
+          .getState()
+          .update(sourceProject.id, { hasContent: true, updatedAt: Date.now() })
+          .catch(() => {})
+      if (!turnDelivery.isCurrent()) {
+        if (outcome.kind !== 'alreadyRunning') {
+          onAccepted?.()
+          await follow(target, outcome.frames, trimmed, turnDelivery)
+        } else await turnDelivery.settled()
         return
       }
       if (outcome.kind === 'alreadyRunning') {

@@ -136,15 +136,16 @@ export default function Header() {
                 type="button"
                 onClick={() => {
                   dismissAllTooltips()
-                  openLibrary()
+                  openLibrary('projects')
                 }}
-                className={`grid h-9 w-9 place-items-center rounded-lg hover:bg-muted transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring `}
-                aria-label="素材与模板"
+                className={`flex h-9 items-center gap-2 px-2.5 rounded-lg hover:bg-muted transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring `}
+                aria-label="我的资产"
               >
                 <LibraryIcon className={`h-[18px] w-[18px] text-muted-foreground`} />
+                <span className="hidden text-xs text-muted-foreground sm:inline">我的资产</span>
               </button>
               <ViewportTooltip visible={libraryTooltip.visible} className="whitespace-nowrap">
-                素材与模板
+                我的资产
               </ViewportTooltip>
             </div>
             <div className="ml-2 flex items-center gap-2 border-l border-border pl-3">

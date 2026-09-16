@@ -28,6 +28,7 @@ export const STATUS_ACCENT: Record<CanvasTaskStatus, string> = {
  * 不另设独立任务表。只存轻量 id / 标识，**绝不**把输入图塞进来（决策 2 / 决策 6）。
  */
 export interface CanvasTaskMeta {
+  createdAt?: number
   taskId: string
   clientRequestId: string
   /** BFF submit 成功后经 onQueueSubmitted 回填；有它才能 resume 续 poll。 */
@@ -48,6 +49,7 @@ export interface CanvasTaskMeta {
    * 智能体工具起跑时占的位。它不是画布任务：没有 BFF 请求可续、也不能在画布上重试，
    * 产物由智能体面板那条交付链路送达。刷新后残留的这种占位框直接清掉。
    */
+  agentMessageId?: string
   agent?: true
 }
 
@@ -143,7 +145,8 @@ async function buildExportNode(
 }
 
 /** 放图的一项。`id` 供调用方与画布之外的东西对上号，缺省即新铸一个。 */
-export interface PlacedImage {
+export interface PlacedImage
+  extends Pick<ImageEl, 'name' | 'naturalWidth' | 'naturalHeight' | 'createdAt' | 'groupId'> {
   dataUrl: string
   x: number
   y: number
@@ -238,7 +241,7 @@ export class CanvasEditor {
       height: target.h,
       status: 'loading',
       message: '',
-      meta,
+      meta: { ...meta, createdAt: meta.createdAt ?? Date.now() },
     }
     this.doc.addElements([el], opts.history === false ? { history: false } : {})
     return el.id
@@ -271,6 +274,8 @@ export class CanvasEditor {
   /** 把一组 dataUrl 图片放到指定位置（文件 + image 元素一并创建），返回新元素 id 列表。 */
   placeImages(items: PlacedImage[], meta?: Record<string, string>): string[] {
     if (items.length === 0) return []
+    const groupId = meta?.taskId || crypto.randomUUID()
+    const createdAt = Date.now()
     const files: Record<string, string> = {}
     const els: ImageEl[] = items.map((item) => {
       const fileId = newElementId()
@@ -284,6 +289,11 @@ export class CanvasEditor {
         height: item.height,
         rotation: 0,
         fileId,
+        name: item.name,
+        naturalWidth: item.naturalWidth,
+        naturalHeight: item.naturalHeight,
+        createdAt: item.createdAt ?? createdAt,
+        groupId: item.groupId ?? groupId,
         ...(meta ? { meta: { ...meta } } : {}),
         ...(item.video ? { video: item.video } : {}),
       }
