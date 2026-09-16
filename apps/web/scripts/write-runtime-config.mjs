@@ -53,7 +53,25 @@ export function buildRuntimeConfig(env) {
     throw new Error('BFF_BASE_URL must not carry a query string or fragment')
   }
 
-  return { bff: { enabled: true, baseUrl, ...(baseUrlsByOrigin ? { baseUrlsByOrigin } : {}) } }
+  let localCompatibility
+  if (env.LOCAL_COMPATIBILITY) {
+    localCompatibility = JSON.parse(env.LOCAL_COMPATIBILITY)
+    for (const key of ['sourceOrigin', 'targetOrigin']) {
+      const origin = localCompatibility[key]
+      if (
+        typeof origin !== 'string' ||
+        !origin.startsWith('https://') ||
+        new URL(origin).origin !== origin
+      )
+        throw new Error('LOCAL_COMPATIBILITY requires exact HTTPS origins')
+    }
+    if (localCompatibility.sourceOrigin === localCompatibility.targetOrigin)
+      throw new Error('LOCAL_COMPATIBILITY origins must differ')
+  }
+  return {
+    bff: { enabled: true, baseUrl, ...(baseUrlsByOrigin ? { baseUrlsByOrigin } : {}) },
+    ...(localCompatibility ? { localCompatibility } : {}),
+  }
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

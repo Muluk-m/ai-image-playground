@@ -110,6 +110,13 @@ export class CloudProjectSession {
       this.initialized = true
     }
     const local = this.document()
+    // Text-only cloud documents cannot replace a locally restored drawing containing media.
+    if (hasLocalScene && !local) {
+      this.writable = true
+      await this.persist()
+      this.update('media-local', '画布含尚未同步的媒体或不支持的内容，仅保存在此设备。')
+      return
+    }
     const dirty =
       !retryingRead &&
       hasLocalScene &&
