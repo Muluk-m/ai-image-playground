@@ -113,6 +113,13 @@
       "when": 1789385488738,
       "tag": "0016_agent_turn_summaries",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1789527085982,
+      "tag": "0017_agent_model_calls",
+      "breakpoints": true
     }
   ]
 }

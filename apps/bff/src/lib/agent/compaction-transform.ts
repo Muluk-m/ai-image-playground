@@ -1,5 +1,6 @@
 import type { AgentMessage } from '@earendil-works/pi-agent-core'
 import type { AgentCompactionRecord } from '@image-playground/shared'
+import type { ChatAttempt } from '../chatCompletion'
 import { log } from '../logger'
 import type { CompactionBreaker, CompactionMessage, CompactionState } from './compaction'
 import { shapeAgentContext } from './compaction'
@@ -14,6 +15,7 @@ export interface CompactionTransformInput {
   readonly historyIds: readonly string[]
   /** 本轮那条用户消息，紧接在历史之后。 */
   readonly userMessageId: string
+  readonly onSummaryAttempt?: (attempt: ChatAttempt) => Promise<void>
 }
 
 interface Persisted {
@@ -81,7 +83,7 @@ export function createCompactionTransform(
         breaker: current.breaker,
         settings: compactionSettings(),
         now: Date.now(),
-        summarize: summarizeCompaction,
+        summarize: (request) => summarizeCompaction(request, input.onSummaryAttempt),
       })
 
       const next: Persisted = { state: result.state, breaker: result.breaker }
