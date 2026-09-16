@@ -238,7 +238,7 @@
   height: 40px;
   padding: 0 13px;
   border: 1px solid hsl(var(--border));
-  border-radius: 9px;
+  border-radius: 12px;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -270,12 +270,12 @@
 }
 
 .auth-form-view {
-  width: min(100%, 490px);
+  width: min(100%, 380px);
 }
 
 .auth-form-heading {
-  margin-bottom: 29px;
-  text-align: center;
+  margin-bottom: 28px;
+  text-align: left;
 }
 
 .auth-form-heading h1 {
@@ -302,10 +302,10 @@
 }
 
 .auth-providers button {
-  height: 50px;
+  height: 48px;
   padding: 0 14px;
   border: 1px solid hsl(var(--border));
-  border-radius: 9px;
+  border-radius: 12px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -347,7 +347,7 @@
   display: flex;
   align-items: center;
   gap: 15px;
-  margin: 34px 0 30px;
+  margin: 24px 0;
   color: hsl(var(--muted-foreground));
   font-size: 12px;
   white-space: nowrap;
@@ -384,11 +384,11 @@
 
 .auth-field input {
   width: 100%;
-  height: 49px;
+  height: 48px;
   box-sizing: border-box;
   padding: 0 14px;
   border: 1px solid hsl(var(--border));
-  border-radius: 9px;
+  border-radius: 12px;
   outline: 0;
   color: hsl(var(--foreground));
   background: hsl(var(--card));
@@ -411,7 +411,7 @@
 
 .auth-field input:focus {
   border-color: hsl(var(--primary));
-  box-shadow: 0 0 0 3px hsl(var(--primary) / 0.13);
+  box-shadow: 0 0 0 2px hsl(var(--primary) / 0.08);
   background: hsl(var(--card));
 }
 
@@ -470,16 +470,16 @@
 
 .auth-submit {
   width: 100%;
-  height: 53px;
+  height: 48px;
   border: 0;
-  border-radius: 9px;
+  border-radius: 12px;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 9px;
   color: hsl(var(--primary-foreground));
   background: linear-gradient(100deg, hsl(var(--primary)), hsl(var(--primary)) 53%, hsl(var(--primary)));
-  box-shadow: 0 10px 30px hsl(var(--primary) / 0.18);
+  box-shadow: none;
   font-family: inherit;
   font-size: 14px;
   font-weight: 680;
@@ -492,7 +492,7 @@
 
 .auth-submit:hover:not(:disabled) {
   filter: brightness(1.08);
-  box-shadow: 0 12px 34px hsl(var(--primary) / 0.28);
+  box-shadow: 0 4px 14px hsl(var(--primary) / 0.12);
   transform: translateY(-1px);
 }
 
@@ -547,7 +547,7 @@
 }
 
 .auth-terms {
-  margin: 35px 0 0;
+  margin: 24px 0 0;
   color: hsl(var(--muted-foreground));
   font-size: 10px;
   line-height: 1.55;
@@ -603,6 +603,39 @@
 
 .auth-registration .auth-terms {
   margin-top: 20px;
+}
+
+.auth-referral {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid hsl(var(--border) / 0.6);
+}
+
+.auth-referral summary {
+  width: fit-content;
+  color: hsl(var(--muted-foreground));
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.auth-referral summary span {
+  margin-left: 8px;
+  font-size: 11px;
+  opacity: 0.7;
+}
+
+.auth-referral summary:hover {
+  color: hsl(var(--foreground));
+}
+
+.auth-referral summary:focus-visible {
+  outline: 2px solid hsl(var(--primary));
+  outline-offset: 4px;
+  border-radius: 3px;
+}
+
+.auth-referral .auth-field {
+  margin-top: 14px;
 }
 
 .auth-status-screen {
@@ -858,7 +891,7 @@
   }
 
   .auth-submit {
-    height: 50px;
+    height: 48px;
   }
 
   .auth-switch {
