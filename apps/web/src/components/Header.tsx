@@ -4,6 +4,7 @@ import { useAuth } from '../auth/AuthContext'
 import { LoginMethodsPanel } from '../auth/LoginMethodsPanel'
 import { useInspirationStore } from '../features/inspiration/store'
 import { useLibraryStore } from '../features/library/store'
+import { useWorkspaceViewport } from '../hooks/useMobileWorkspace'
 import { useTooltip } from '../hooks/useTooltip'
 import {
   PrivateWebHeaderAccountActions,
@@ -19,6 +20,7 @@ import LogoutDialog from './LogoutDialog'
 import ViewportTooltip from './ViewportTooltip'
 
 export default function Header() {
+  useWorkspaceViewport()
   const setShowSettings = useStore((s) => s.setShowSettings)
   const appMode = useStore((s) => s.appMode)
   const setAppMode = useStore((s) => s.setAppMode)
@@ -89,14 +91,14 @@ export default function Header() {
                 height="28"
                 className="h-7 w-7 rounded-lg shrink-0"
               />
-              <span className="hidden sm:inline truncate">
+              <span className="truncate">
                 幕芽<span className="ml-2 hidden sm:inline">Muvloom</span>
               </span>
             </button>
           </h1>
           <nav
             aria-label="主导航"
-            className="flex items-center gap-0.5 rounded-lg bg-muted p-1 sm:ml-4"
+            className="studio-main-nav flex items-center gap-0.5 rounded-lg bg-muted p-1 sm:ml-4"
           >
             {visibleAppModes().map((mode) => (
               <button

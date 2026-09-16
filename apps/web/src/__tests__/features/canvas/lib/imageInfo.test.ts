@@ -23,3 +23,12 @@ it('图片缩放后名称和原始像素保持不变', () => {
     height: 2623,
   })
 })
+
+it('uses original metadata filenames and distinct stable names for legacy unnamed files', () => {
+  const image = { id: 'a', fileId: 'el_old_1', type: 'image' } as ImageEl
+  expect(canvasImageName({ ...image, meta: { filename: '浴缸.png', prompt: '提示词' } })).toBe(
+    '浴缸.png',
+  )
+  expect(canvasImageName(image)).toBe('图片-old_1')
+  expect(canvasImageName({ ...image, fileId: 'el_old_2' })).toBe('图片-old_2')
+})

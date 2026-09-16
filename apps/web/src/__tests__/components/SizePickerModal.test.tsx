@@ -62,6 +62,19 @@ function setInputValue(input: HTMLInputElement, value: string) {
 }
 
 describe('SizePickerModal', () => {
+  it('selects auto in ratio-only mode instead of retaining the previous ratio', () => {
+    const { onSelect } = renderPicker({ currentSize: '1536x1024', ratioOnly: true })
+    click(button('智能比例 Auto'))
+    click(button('确定'))
+    expect(onSelect).toHaveBeenCalledWith('auto')
+  })
+
+  it('keeps auto selected when reopening ratio-only mode', () => {
+    const { onSelect } = renderPicker({ currentSize: 'auto', ratioOnly: true })
+    click(button('确定'))
+    expect(onSelect).toHaveBeenCalledWith('auto')
+  })
+
   it('keeps the size workflow and limits only larger tiers in Codex mode', () => {
     renderPicker({ limitTo1K: true })
 
@@ -82,8 +95,8 @@ describe('SizePickerModal', () => {
     })
 
     expect(document.body.querySelector('h3')?.textContent).toBe('设置画面比例')
-    expect(findButton('自动')).toBeUndefined()
-    expect(findButton('按比例')).toBeUndefined()
+    expect(findButton('智能比例 Auto')).toBeTruthy()
+    expect(findButton('按比例')).toBeTruthy()
     expect(findButton('自定义宽高')).toBeUndefined()
     expect(findButton('1K')).toBeUndefined()
     expect(document.body.querySelectorAll('input[type="number"]')).toHaveLength(0)

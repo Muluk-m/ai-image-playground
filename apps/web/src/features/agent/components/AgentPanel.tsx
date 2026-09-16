@@ -58,7 +58,17 @@ function renderMessage(message: AgentPanelMessage, answerableId: string | null) 
   return <AgentReply text={message.text} streaming={message.streaming} />
 }
 
-export default function AgentPanel({ doc, editor }: { doc: CanvasDoc; editor: CanvasEditor }) {
+export default function AgentPanel({
+  doc,
+  editor,
+  mobile = false,
+  onViewCanvas,
+}: {
+  doc: CanvasDoc
+  editor: CanvasEditor
+  mobile?: boolean
+  onViewCanvas?: () => void
+}) {
   const open = useAgentStore((state) => state.open)
   const tab = useAgentStore((state) => state.tab)
   const messages = useAgentStore((state) => state.messages)
@@ -115,7 +125,7 @@ export default function AgentPanel({ doc, editor }: { doc: CanvasDoc; editor: Ca
   }
 
   if (!agentPanelPresent()) return null
-  if (!open) return <CollapsedButton onOpen={() => setOpen(true)} />
+  if (!open && !mobile) return <CollapsedButton onOpen={() => setOpen(true)} />
 
   const answerableId = answerableClarificationId(messages)
 
@@ -129,7 +139,7 @@ export default function AgentPanel({ doc, editor }: { doc: CanvasDoc; editor: Ca
         onPointerDown={startResize}
         className="absolute -right-1.5 top-6 bottom-6 z-10 hidden md:block w-3 cursor-col-resize touch-none rounded-full transition-colors hover:bg-primary/40 active:bg-primary/60"
       />
-      <div className="flex shrink-0 items-center justify-between gap-3 px-4 pb-3 pt-2">
+      <div className="studio-agent-tabs flex shrink-0 items-center justify-between gap-3 px-4 pb-3 pt-2">
         <div className="flex items-center gap-3">
           {TABS.map((one) => (
             <button
@@ -145,7 +155,7 @@ export default function AgentPanel({ doc, editor }: { doc: CanvasDoc; editor: Ca
         <button
           type="button"
           aria-label="收起面板"
-          className={ICON_BUTTON}
+          className={`${ICON_BUTTON} hidden md:inline-flex`}
           onClick={() => setOpen(false)}
         >
           <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" aria-hidden="true">
@@ -160,7 +170,7 @@ export default function AgentPanel({ doc, editor }: { doc: CanvasDoc; editor: Ca
         </button>
       </div>
 
-      <div className="flex shrink-0 items-center gap-2 px-4 pb-3">
+      <div className="studio-agent-project flex shrink-0 items-center gap-2 px-4 pb-3">
         <div className="min-w-0 flex-1">
           <button
             type="button"
@@ -190,7 +200,7 @@ export default function AgentPanel({ doc, editor }: { doc: CanvasDoc; editor: Ca
       </div>
       {tab === 'layers' ? (
         <div className="min-h-0 flex-1 overflow-y-auto py-1">
-          <AgentCreations doc={doc} editor={editor} />
+          <AgentCreations doc={doc} editor={editor} onSelect={mobile ? onViewCanvas : undefined} />
         </div>
       ) : (
         <div
@@ -207,9 +217,7 @@ export default function AgentPanel({ doc, editor }: { doc: CanvasDoc; editor: Ca
             <div className="studio-chat-empty">
               <span className="studio-spark">✧</span>
               <h3>今天，想创作什么？</h3>
-              <p>
-                描述你的想法，或添加一张参考图。生成的作品会出现在右侧画布，选中后可以继续修改。
-              </p>
+              <p>描述你的想法，或添加一张参考图。生成后切换到画布，选中作品就能继续修改。</p>
               <div className="studio-example">试着描述画面中的主体、风格和氛围。</div>
             </div>
           )}

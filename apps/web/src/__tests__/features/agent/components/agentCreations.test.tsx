@@ -83,11 +83,11 @@ describe('创作记录', () => {
     expect(names()).toEqual(['一只戴眼镜的橘猫'])
   })
 
-  it('没有生成溯源的图片退回「图片」', () => {
+  it('历史图片缺少名称时使用稳定的文件标识', () => {
     put([image('a')])
     render()
 
-    expect(names()).toEqual(['未命名图片'])
+    expect(names()).toEqual(['图片-file-1'])
   })
 
   it('图片行显示缩略图，取自画布自己的位图表', () => {
