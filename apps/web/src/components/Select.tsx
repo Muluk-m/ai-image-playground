@@ -182,7 +182,7 @@ export default function Select({
         title={selectedOption?.title ?? selectedOption?.label}
         onClick={handleToggle}
         className={`flex items-center justify-between gap-1 w-full cursor-pointer select-none ${className ?? ''} ${
-          disabled ? '!opacity-50 !cursor-not-allowed !bg-muted/50 dark:!bg-white/[0.05]' : ''
+          disabled ? '!opacity-50 !cursor-not-allowed !bg-muted/50' : ''
         }`}
       >
         {!hideSelectedLabel && <span className="truncate">{selectedOption?.label ?? value}</span>}
@@ -193,7 +193,7 @@ export default function Select({
 
       {isOpen && (
         <div
-          className={`absolute z-50 w-full overflow-hidden overflow-y-auto rounded-xl border border-border/60 bg-white/95 py-1 shadow-[0_8px_30px_rgb(0,0,0,0.12)] ring-1 ring-black/5 backdrop-blur-xl border-border bg-muted dark:shadow-[0_8px_30px_rgb(0,0,0,0.3)] dark:ring-white/10 custom-scrollbar ${
+          className={`absolute z-50 w-full overflow-hidden overflow-y-auto rounded-xl border border-border bg-popover text-popover-foreground py-1 shadow-[0_8px_30px_rgb(0,0,0,0.12)] ring-1 ring-black/5 backdrop-blur-xl dark:shadow-[0_8px_30px_rgb(0,0,0,0.3)] dark:ring-white/10 custom-scrollbar ${
             placement === 'top'
               ? 'bottom-full mb-1.5 animate-dropdown-up'
               : 'top-full mt-1.5 animate-dropdown-down'

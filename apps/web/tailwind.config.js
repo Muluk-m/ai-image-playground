@@ -54,6 +54,7 @@ export default {
         'sidebar-ring': 'hsl(var(--sidebar-ring) / <alpha-value>)',
         'success': 'hsl(var(--success) / <alpha-value>)',
         'warning': 'hsl(var(--warning) / <alpha-value>)',
+        'warning-foreground': 'hsl(var(--warning-foreground) / <alpha-value>)',
         'info': 'hsl(var(--info) / <alpha-value>)',
 
       },

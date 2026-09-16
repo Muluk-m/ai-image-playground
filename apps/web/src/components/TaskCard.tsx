@@ -221,7 +221,7 @@ export default function TaskCard({
         } ${swipeBgClass} ${swipeOffset > 0 ? 'justify-start pl-6' : 'justify-end pr-6'}`}
       >
         <svg
-          className={`w-8 h-8 transition-transform duration-150 ${showSwipeAction ? 'scale-110 text-white' : 'scale-90 text-white/60'}`}
+          className={`w-8 h-8 transition-transform duration-150 ${showSwipeAction ? 'scale-110' : 'scale-90'} ${showSwipeAction && !swipeStartedSelected ? 'text-primary-foreground' : 'text-muted-foreground'}`}
           fill="none"
           stroke="currentColor"
           viewBox="0 0 24 24"
@@ -240,7 +240,7 @@ export default function TaskCard({
       </div>
 
       <div
-        className={`relative bg-white dark:bg-card rounded-xl border overflow-hidden cursor-pointer duration-200 hover:shadow-lg dark:hover:bg-muted/80 ${
+        className={`relative bg-card rounded-xl border overflow-hidden cursor-pointer duration-200 hover:shadow-lg dark:hover:bg-muted/80 ${
           !isSwiping
             ? 'transition-[box-shadow,border-color,background-color,transform]'
             : 'transition-[box-shadow,border-color,background-color]'
@@ -271,7 +271,7 @@ export default function TaskCard({
         {isSelected && (
           <div className="absolute top-2 right-2 z-10 w-5 h-5 bg-primary rounded-full flex items-center justify-center shadow-sm">
             <svg
-              className="w-3 h-3 text-white"
+              className="w-3 h-3 text-primary-foreground"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"

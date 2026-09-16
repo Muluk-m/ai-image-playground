@@ -1249,9 +1249,9 @@ export default function SettingsModal() {
   return (
     <>
       <Overlay onClose={handleClose} tier="modal">
-        <div className="relative z-10 w-full max-w-3xl rounded-3xl border border-white/50 bg-card/95 shadow-2xl ring-1 ring-black/5 animate-modal-in dark:border-white/[0.08] dark:ring-white/10 flex h-[85vh] sm:h-[600px] flex-col overflow-hidden">
+        <div className="relative z-10 w-full max-w-3xl rounded-3xl border border-white/50 bg-card/95 shadow-2xl ring-1 ring-black/5 animate-modal-in border-border dark:ring-white/10 flex h-[85vh] sm:h-[600px] flex-col overflow-hidden">
           {/* Header */}
-          <div className="flex items-center justify-between shrink-0 p-5 border-b border-border dark:border-white/[0.08]">
+          <div className="flex items-center justify-between shrink-0 p-5 border-b border-border border-border">
             <h3 className="text-lg font-bold text-foreground flex items-center gap-2">
               <svg
                 className="w-5 h-5 text-primary"
@@ -1280,7 +1280,7 @@ export default function SettingsModal() {
               </span>
               <button
                 onClick={handleClose}
-                className="rounded-full p-1 text-muted-foreground transition hover:bg-muted hover:text-muted-foreground dark:hover:bg-white/[0.06]"
+                className="rounded-full p-1 text-muted-foreground transition hover:bg-muted hover:text-muted-foreground hover:bg-accent"
                 aria-label="关闭"
               >
                 <CloseIcon className="h-5 w-5" />
@@ -1290,11 +1290,11 @@ export default function SettingsModal() {
 
           <div className="flex flex-1 min-h-0 flex-col sm:flex-row">
             {/* Sidebar */}
-            <div className="w-full sm:w-48 shrink-0 flex flex-col border-b sm:border-b-0 sm:border-r border-border dark:border-white/[0.08] bg-card/50">
+            <div className="w-full sm:w-48 shrink-0 flex flex-col border-b sm:border-b-0 sm:border-r border-border border-border bg-card/50">
               <nav className="flex-1 overflow-x-auto sm:overflow-y-auto custom-scrollbar p-3 space-x-1 sm:space-x-0 sm:space-y-1 flex sm:flex-col">
                 <button
                   onClick={() => setActiveTab('general')}
-                  className={`whitespace-nowrap flex-shrink-0 flex items-center gap-2.5 px-3 py-2.5 text-sm rounded-xl transition-colors ${activeTab === 'general' ? 'bg-card dark:bg-card/[0.08] shadow-sm text-primary dark:text-primary font-medium' : 'text-muted-foreground dark:text-muted-foreground hover:bg-muted/80 dark:hover:bg-white/[0.04]'}`}
+                  className={`whitespace-nowrap flex-shrink-0 flex items-center gap-2.5 px-3 py-2.5 text-sm rounded-xl transition-colors ${activeTab === 'general' ? 'bg-accent shadow-sm text-primary dark:text-primary font-medium' : 'text-muted-foreground dark:text-muted-foreground hover:bg-muted/80 hover:bg-accent'}`}
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path
@@ -1309,7 +1309,7 @@ export default function SettingsModal() {
                 {isByokGenerationEnabled() && (
                   <button
                     onClick={() => setActiveTab('api')}
-                    className={`whitespace-nowrap flex-shrink-0 flex items-center gap-2.5 px-3 py-2.5 text-sm rounded-xl transition-colors ${activeTab === 'api' ? 'bg-card dark:bg-card/[0.08] shadow-sm text-primary dark:text-primary font-medium' : 'text-muted-foreground dark:text-muted-foreground hover:bg-muted/80 dark:hover:bg-white/[0.04]'}`}
+                    className={`whitespace-nowrap flex-shrink-0 flex items-center gap-2.5 px-3 py-2.5 text-sm rounded-xl transition-colors ${activeTab === 'api' ? 'bg-accent shadow-sm text-primary dark:text-primary font-medium' : 'text-muted-foreground dark:text-muted-foreground hover:bg-muted/80 hover:bg-accent'}`}
                   >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path
@@ -1324,7 +1324,7 @@ export default function SettingsModal() {
                 )}
                 <button
                   onClick={() => setActiveTab('data')}
-                  className={`whitespace-nowrap flex-shrink-0 flex items-center gap-2.5 px-3 py-2.5 text-sm rounded-xl transition-colors ${activeTab === 'data' ? 'bg-card dark:bg-card/[0.08] shadow-sm text-primary dark:text-primary font-medium' : 'text-muted-foreground dark:text-muted-foreground hover:bg-muted/80 dark:hover:bg-white/[0.04]'}`}
+                  className={`whitespace-nowrap flex-shrink-0 flex items-center gap-2.5 px-3 py-2.5 text-sm rounded-xl transition-colors ${activeTab === 'data' ? 'bg-accent shadow-sm text-primary dark:text-primary font-medium' : 'text-muted-foreground dark:text-muted-foreground hover:bg-muted/80 hover:bg-accent'}`}
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path
@@ -1362,7 +1362,7 @@ export default function SettingsModal() {
                                 value: 'ctrl-enter',
                               },
                             ]}
-                            className="w-full px-3 py-1.5 rounded-xl border border-border/60 dark:border-white/[0.08] bg-card/50 hover:bg-card text-xs transition-all duration-200 shadow-sm text-foreground outline-none"
+                            className="w-full px-3 py-1.5 rounded-xl border border-border/60 border-border bg-card/50 hover:bg-card text-xs transition-all duration-200 shadow-sm text-foreground outline-none"
                           />
                         </div>
                       </div>
@@ -1389,7 +1389,7 @@ export default function SettingsModal() {
                           aria-label="提交任务后清空输入框"
                         >
                           <span
-                            className={`inline-block h-3 w-3 transform rounded-full bg-white shadow transition-transform ${draft.clearInputAfterSubmit ? 'translate-x-[14px]' : 'translate-x-[2px]'}`}
+                            className={`inline-block h-3 w-3 transform rounded-full bg-background shadow transition-transform ${draft.clearInputAfterSubmit ? 'translate-x-[14px]' : 'translate-x-[2px]'}`}
                           />
                         </button>
                       </div>
@@ -1416,7 +1416,7 @@ export default function SettingsModal() {
                           aria-label="重启后加载上次的输入框"
                         >
                           <span
-                            className={`inline-block h-3 w-3 transform rounded-full bg-white shadow transition-transform ${draft.persistInputOnRestart ? 'translate-x-[14px]' : 'translate-x-[2px]'}`}
+                            className={`inline-block h-3 w-3 transform rounded-full bg-background shadow transition-transform ${draft.persistInputOnRestart ? 'translate-x-[14px]' : 'translate-x-[2px]'}`}
                           />
                         </button>
                       </div>
@@ -1443,7 +1443,7 @@ export default function SettingsModal() {
                           aria-label="复用配置时临时复用该任务的 API 配置"
                         >
                           <span
-                            className={`inline-block h-3 w-3 transform rounded-full bg-white shadow transition-transform ${draft.reuseTaskApiProfileTemporarily ? 'translate-x-[14px]' : 'translate-x-[2px]'}`}
+                            className={`inline-block h-3 w-3 transform rounded-full bg-background shadow transition-transform ${draft.reuseTaskApiProfileTemporarily ? 'translate-x-[14px]' : 'translate-x-[2px]'}`}
                           />
                         </button>
                       </div>
@@ -1471,7 +1471,7 @@ export default function SettingsModal() {
                           aria-label="成功任务仍然展示重试按钮"
                         >
                           <span
-                            className={`inline-block h-3 w-3 transform rounded-full bg-white shadow transition-transform ${draft.alwaysShowRetryButton ? 'translate-x-[14px]' : 'translate-x-[2px]'}`}
+                            className={`inline-block h-3 w-3 transform rounded-full bg-background shadow transition-transform ${draft.alwaysShowRetryButton ? 'translate-x-[14px]' : 'translate-x-[2px]'}`}
                           />
                         </button>
                       </div>
@@ -1504,7 +1504,7 @@ export default function SettingsModal() {
                             }}
                             onTouchEnd={clearProfileImportUrlTooltipTimer}
                             onTouchCancel={clearProfileImportUrlTooltipTimer}
-                            className="flex h-5 w-5 items-center justify-center rounded-md text-muted-foreground transition hover:bg-muted hover:text-muted-foreground dark:hover:bg-white/[0.08]"
+                            className="flex h-5 w-5 items-center justify-center rounded-md text-muted-foreground transition hover:bg-muted hover:text-muted-foreground hover:bg-accent"
                             aria-label={`复制导入配置「${activeProfile.name}」的 URL`}
                           >
                             <LinkIcon className="h-3.5 w-3.5" />
@@ -1534,7 +1534,7 @@ export default function SettingsModal() {
                               }}
                               onTouchEnd={clearDuplicateProfileTooltipTimer}
                               onTouchCancel={clearDuplicateProfileTooltipTimer}
-                              className="flex h-5 w-5 items-center justify-center rounded-md text-muted-foreground transition hover:bg-muted hover:text-muted-foreground dark:hover:bg-white/[0.08]"
+                              className="flex h-5 w-5 items-center justify-center rounded-md text-muted-foreground transition hover:bg-muted hover:text-muted-foreground hover:bg-accent"
                               aria-label={`复制一份配置「${activeProfile.name}」`}
                             >
                               <CopyIcon className="h-3.5 w-3.5" />
@@ -1556,7 +1556,7 @@ export default function SettingsModal() {
                             if (!showProfileMenu) updateProfileMenuMaxHeight()
                             setShowProfileMenu(!showProfileMenu)
                           }}
-                          className="flex w-full min-w-0 items-center justify-between gap-2 rounded-xl border border-border/70 bg-card/60 px-3 py-2 text-sm text-foreground outline-none transition hover:bg-card dark:border-white/[0.08]"
+                          className="flex w-full min-w-0 items-center justify-between gap-2 rounded-xl border border-border/70 bg-card/60 px-3 py-2 text-sm text-foreground outline-none transition hover:bg-card border-border"
                           title={activeProfile.name}
                         >
                           <span className="flex min-w-0 items-center gap-2">
@@ -1573,7 +1573,7 @@ export default function SettingsModal() {
                         {showProfileMenu && (
                           <>
                             <div
-                              className="absolute right-0 top-full z-50 mt-1.5 w-full overflow-hidden overflow-y-auto rounded-xl border border-border/60 bg-card/95 py-1 shadow-[0_8px_30px_rgb(0,0,0,0.12)] ring-1 ring-black/5 backdrop-blur-xl animate-dropdown-down dark:border-white/[0.08] dark:shadow-[0_8px_30px_rgb(0,0,0,0.3)] dark:ring-white/10 custom-scrollbar"
+                              className="absolute right-0 top-full z-50 mt-1.5 w-full overflow-hidden overflow-y-auto rounded-xl border border-border/60 bg-card/95 py-1 shadow-[0_8px_30px_rgb(0,0,0,0.12)] ring-1 ring-black/5 backdrop-blur-xl animate-dropdown-down border-border dark:shadow-[0_8px_30px_rgb(0,0,0,0.3)] dark:ring-white/10 custom-scrollbar"
                               style={{ maxHeight: profileMenuMaxHeight }}
                             >
                               <button
@@ -1611,7 +1611,7 @@ export default function SettingsModal() {
                                       e.preventDefault()
                                       switchProfile(profile.id)
                                     }}
-                                    className={`relative group flex w-full cursor-pointer items-center justify-between px-3 py-2 text-left text-xs transition-colors ${draggedProfileId === profile.id ? 'opacity-40 bg-muted dark:bg-card/[0.04]' : profile.id === activeProfile.id ? 'bg-primary/10 font-medium text-primary dark:bg-primary/10 dark:text-primary' : 'text-foreground hover:bg-card dark:text-foreground dark:hover:bg-white/[0.06]'}`}
+                                    className={`relative group flex w-full cursor-pointer items-center justify-between px-3 py-2 text-left text-xs transition-colors ${draggedProfileId === profile.id ? 'opacity-40 bg-muted bg-accent' : profile.id === activeProfile.id ? 'bg-primary/10 font-medium text-primary dark:bg-primary/10 dark:text-primary' : 'text-foreground hover:bg-card dark:text-foreground hover:bg-accent'}`}
                                   >
                                     {dragOverProfileId === profile.id &&
                                       dragDropPosition === 'before' &&
@@ -1639,7 +1639,7 @@ export default function SettingsModal() {
                                         </span>
                                       )}
                                       <span
-                                        className={`rounded px-1.5 py-0.5 text-[10px] shrink-0 ${profile.id === activeProfile.id ? 'bg-primary/10 text-primary dark:bg-primary/20 dark:text-primary' : 'bg-muted text-muted-foreground dark:bg-card/[0.08] dark:text-muted-foreground'}`}
+                                        className={`rounded px-1.5 py-0.5 text-[10px] shrink-0 ${profile.id === activeProfile.id ? 'bg-primary/10 text-primary dark:bg-primary/20 dark:text-primary' : 'bg-muted text-muted-foreground bg-accent dark:text-muted-foreground'}`}
                                       >
                                         {getApiProviderLabel(draft, profile.provider)}
                                       </span>
@@ -1654,7 +1654,7 @@ export default function SettingsModal() {
                                             e.stopPropagation()
                                             confirmCopyProfileImportUrl(profile)
                                           }}
-                                          className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground opacity-60 transition-all hover:bg-muted hover:text-muted-foreground hover:opacity-100 dark:hover:bg-white/[0.08]"
+                                          className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground opacity-60 transition-all hover:bg-muted hover:text-muted-foreground hover:opacity-100 hover:bg-accent"
                                           aria-label={`复制导入配置「${profile.name}」的 URL`}
                                           title="复制导入 URL"
                                         >
@@ -1706,7 +1706,7 @@ export default function SettingsModal() {
                             onBlur={(e) => commitActiveProfilePatch({ name: e.target.value })}
                             type="text"
                             readOnly={activeIsBuiltin}
-                            className={`w-full rounded-xl border border-border/70 bg-white/60 px-3 py-2.5 text-sm text-foreground outline-none transition focus:border-primary dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-foreground dark:focus:border-primary/50 ${activeIsBuiltin ? 'cursor-not-allowed opacity-60' : ''}`}
+                            className={`w-full rounded-xl border border-border/70 bg-background px-3 py-2.5 text-sm text-foreground outline-none transition focus:border-primary border-border dark:text-foreground dark:focus:border-primary/50 ${activeIsBuiltin ? 'cursor-not-allowed opacity-60' : ''}`}
                           />
                         </label>
 
@@ -1719,7 +1719,7 @@ export default function SettingsModal() {
                             onChange={handleProviderTypeChange}
                             onReorder={handleProviderReorder}
                             options={providerOptions}
-                            className="w-full rounded-xl border border-border/70 bg-card/60 px-3 py-2.5 text-sm text-foreground outline-none transition focus:border-primary dark:border-white/[0.08]"
+                            className="w-full rounded-xl border border-border/70 bg-card/60 px-3 py-2.5 text-sm text-foreground outline-none transition focus:border-primary border-border"
                           />
                         </div>
 
@@ -1736,7 +1736,7 @@ export default function SettingsModal() {
                               disabled={apiProxyEnabled}
                               readOnly={activeIsBuiltin}
                               placeholder={DEFAULT_BYOK_BASEURL}
-                              className={`w-full rounded-xl border border-border/70 bg-white/60 px-3 py-2.5 text-sm text-foreground outline-none transition focus:border-primary dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-foreground dark:focus:border-primary/50 ${apiProxyEnabled || activeIsBuiltin ? 'opacity-50 cursor-not-allowed' : ''}`}
+                              className={`w-full rounded-xl border border-border/70 bg-background px-3 py-2.5 text-sm text-foreground outline-none transition focus:border-primary border-border dark:text-foreground dark:focus:border-primary/50 ${apiProxyEnabled || activeIsBuiltin ? 'opacity-50 cursor-not-allowed' : ''}`}
                             />
                             <div
                               data-selectable-text
@@ -1773,7 +1773,7 @@ export default function SettingsModal() {
                                 aria-label="Codex CLI 兼容模式"
                               >
                                 <span
-                                  className={`inline-block h-3 w-3 transform rounded-full bg-white shadow transition-transform ${activeProfile.codexCli ? 'translate-x-[14px]' : 'translate-x-[2px]'}`}
+                                  className={`inline-block h-3 w-3 transform rounded-full bg-background shadow transition-transform ${activeProfile.codexCli ? 'translate-x-[14px]' : 'translate-x-[2px]'}`}
                                 />
                               </button>
                             </div>
@@ -1799,7 +1799,7 @@ export default function SettingsModal() {
                                 aria-label="API 代理"
                               >
                                 <span
-                                  className={`inline-block h-3 w-3 transform rounded-full bg-white shadow transition-transform ${apiProxyChecked ? 'translate-x-[14px]' : 'translate-x-[2px]'}`}
+                                  className={`inline-block h-3 w-3 transform rounded-full bg-background shadow transition-transform ${apiProxyChecked ? 'translate-x-[14px]' : 'translate-x-[2px]'}`}
                                 />
                               </button>
                             </div>
@@ -1822,7 +1822,7 @@ export default function SettingsModal() {
                               type={showApiKey ? 'text' : 'password'}
                               readOnly={activeIsBuiltin}
                               placeholder="sk-..."
-                              className={`w-full rounded-xl border border-border/70 bg-white/60 px-3 py-2.5 pr-10 text-sm text-foreground outline-none transition focus:border-primary dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-foreground dark:focus:border-primary/50 ${activeIsBuiltin ? 'opacity-50 cursor-not-allowed' : ''}`}
+                              className={`w-full rounded-xl border border-border/70 bg-background px-3 py-2.5 pr-10 text-sm text-foreground outline-none transition focus:border-primary border-border dark:text-foreground dark:focus:border-primary/50 ${activeIsBuiltin ? 'opacity-50 cursor-not-allowed' : ''}`}
                             />
                             <button
                               type="button"
@@ -1890,7 +1890,7 @@ export default function SettingsModal() {
                                 { label: 'Images API (/v1/images)', value: 'images' },
                                 { label: 'Responses API (/v1/responses)', value: 'responses' },
                               ]}
-                              className="w-full rounded-xl border border-border/70 bg-card/60 px-3 py-2.5 text-sm text-foreground outline-none transition focus:border-primary dark:border-white/[0.08]"
+                              className="w-full rounded-xl border border-border/70 bg-card/60 px-3 py-2.5 text-sm text-foreground outline-none transition focus:border-primary border-border"
                             />
                             <div
                               data-selectable-text
@@ -1957,7 +1957,7 @@ export default function SettingsModal() {
                                     type="button"
                                     onClick={handleRefresh}
                                     disabled={refreshingModels}
-                                    className="shrink-0 rounded-xl border border-border/70 bg-card/60 px-3 py-2.5 text-xs text-muted-foreground transition hover:border-primary hover:text-primary disabled:opacity-50 disabled:cursor-not-allowed dark:border-white/[0.08]"
+                                    className="shrink-0 rounded-xl border border-border/70 bg-card/60 px-3 py-2.5 text-xs text-muted-foreground transition hover:border-primary hover:text-primary disabled:opacity-50 disabled:cursor-not-allowed border-border"
                                     title="从上游 API /models 拉取模型列表"
                                   >
                                     {refreshingModels ? '拉取中…' : '拉取模型'}
@@ -2033,7 +2033,7 @@ export default function SettingsModal() {
                                 aria-label="返回 Base64 图片数据"
                               >
                                 <span
-                                  className={`inline-block h-3 w-3 transform rounded-full bg-white shadow transition-transform ${activeProfile.responseFormatB64Json ? 'translate-x-[14px]' : 'translate-x-[2px]'}`}
+                                  className={`inline-block h-3 w-3 transform rounded-full bg-background shadow transition-transform ${activeProfile.responseFormatB64Json ? 'translate-x-[14px]' : 'translate-x-[2px]'}`}
                                 />
                               </button>
                             </div>
@@ -2059,7 +2059,7 @@ export default function SettingsModal() {
                               type="number"
                               min={10}
                               max={600}
-                              className="w-full rounded-xl border border-border/70 bg-card/60 px-3 py-2.5 text-sm text-foreground outline-none transition focus:border-primary dark:border-white/[0.08]"
+                              className="w-full rounded-xl border border-border/70 bg-card/60 px-3 py-2.5 text-sm text-foreground outline-none transition focus:border-primary border-border"
                             />
                           </label>
                         )}
@@ -2071,7 +2071,7 @@ export default function SettingsModal() {
                 {activeTab === 'data' && (
                   <div className="space-y-4">
                     <SyncStatusPanel />
-                    <div className="rounded-2xl bg-card/80 p-4 border border-border/60 dark:border-white/[0.05] flex items-start gap-3">
+                    <div className="rounded-2xl bg-card/80 p-4 border border-border/60 border-border flex items-start gap-3">
                       <svg
                         className="w-5 h-5 text-primary shrink-0 mt-0.5"
                         fill="none"
@@ -2090,7 +2090,7 @@ export default function SettingsModal() {
                       </div>
                     </div>
 
-                    <div className="rounded-2xl border border-border bg-card p-4 dark:border-white/[0.06] space-y-4 shadow-sm">
+                    <div className="rounded-2xl border border-border bg-card p-4 border-border space-y-4 shadow-sm">
                       <div className="flex items-center gap-2 mb-1">
                         <ExportIcon className="w-4 h-4 text-foreground" />
                         <h4 className="text-sm font-bold text-foreground">导出数据</h4>
@@ -2116,7 +2116,7 @@ export default function SettingsModal() {
                       </button>
                     </div>
 
-                    <div className="rounded-2xl border border-border bg-card p-4 dark:border-white/[0.06] space-y-4 shadow-sm">
+                    <div className="rounded-2xl border border-border bg-card p-4 border-border space-y-4 shadow-sm">
                       <div className="flex items-center gap-2 mb-1">
                         <ImportIcon className="w-4 h-4 text-foreground" />
                         <h4 className="text-sm font-bold text-foreground">导入数据</h4>
@@ -2221,7 +2221,7 @@ export default function SettingsModal() {
           }}
           tier="raised"
         >
-          <div className="relative z-10 w-full max-w-md rounded-3xl border border-white/50 bg-card/95 p-5 shadow-2xl ring-1 ring-black/5 animate-modal-in dark:border-white/[0.08] dark:ring-white/10 flex flex-col h-[85vh] sm:h-[680px] max-h-[90vh] overflow-hidden">
+          <div className="relative z-10 w-full max-w-md rounded-3xl border border-white/50 bg-card/95 p-5 shadow-2xl ring-1 ring-black/5 animate-modal-in border-border dark:ring-white/10 flex flex-col h-[85vh] sm:h-[680px] max-h-[90vh] overflow-hidden">
             <div className="mb-5 flex items-center justify-between gap-4 shrink-0">
               <h3 className="text-base font-bold text-foreground">
                 {editingCustomProviderId ? '编辑自定义服务商' : '创建自定义服务商'}
@@ -2233,7 +2233,7 @@ export default function SettingsModal() {
                     setShowCustomProviderImport(false)
                     setEditingCustomProviderId(null)
                   }}
-                  className="rounded-full p-1 text-muted-foreground transition hover:bg-muted hover:text-muted-foreground dark:hover:bg-white/[0.06]"
+                  className="rounded-full p-1 text-muted-foreground transition hover:bg-muted hover:text-muted-foreground hover:bg-accent"
                   aria-label="关闭"
                 >
                   <CloseIcon className="h-5 w-5" />
@@ -2242,7 +2242,7 @@ export default function SettingsModal() {
             </div>
 
             <div className="flex-1 flex flex-col min-h-0 px-1 -mx-1 pb-2">
-              <div className="mb-6 shrink-0 rounded-2xl bg-card/80 p-4 border border-border/60 dark:border-white/[0.05]">
+              <div className="mb-6 shrink-0 rounded-2xl bg-card/80 p-4 border border-border/60 border-border">
                 <div className="mb-1.5 flex items-center gap-1.5 text-sm font-medium text-foreground">
                   <svg
                     className="h-4 w-4 text-primary"
@@ -2285,7 +2285,7 @@ export default function SettingsModal() {
                       }}
                       onTouchEnd={clearLlmPromptTooltipTimer}
                       onTouchCancel={clearLlmPromptTooltipTimer}
-                      className="flex items-center gap-1.5 rounded-xl bg-card px-3 py-2 text-xs font-medium text-foreground shadow-sm border border-border/80 transition hover:bg-card hover:text-foreground dark:border-white/[0.08] dark:hover:text-white"
+                      className="flex items-center gap-1.5 rounded-xl bg-card px-3 py-2 text-xs font-medium text-foreground shadow-sm border border-border/80 transition hover:bg-card hover:text-foreground border-border dark:hover:text-white"
                     >
                       <LinkIcon className="h-3.5 w-3.5" />
                       复制生成提示词
@@ -2301,7 +2301,7 @@ export default function SettingsModal() {
                     type="button"
                     onClick={handleCustomProviderJsonPaste}
                     disabled={isImportingJson}
-                    className="flex items-center gap-1.5 rounded-xl bg-card px-3 py-2 text-xs font-medium text-foreground shadow-sm border border-border/80 transition hover:bg-card hover:text-foreground disabled:opacity-50 disabled:cursor-not-allowed dark:border-white/[0.08] dark:hover:text-white"
+                    className="flex items-center gap-1.5 rounded-xl bg-card px-3 py-2 text-xs font-medium text-foreground shadow-sm border border-border/80 transition hover:bg-card hover:text-foreground disabled:opacity-50 disabled:cursor-not-allowed border-border dark:hover:text-white"
                   >
                     {isImportingJson ? (
                       <>
@@ -2338,7 +2338,7 @@ export default function SettingsModal() {
                     value={customProviderForm.json}
                     onChange={(e) => updateCustomProviderForm({ json: e.target.value })}
                     spellCheck={false}
-                    className="flex-1 min-h-[150px] w-full resize-none rounded-xl border border-border/70 bg-card/60 px-3 py-2 font-mono text-xs leading-relaxed text-foreground outline-none transition focus:border-primary dark:border-white/[0.08] custom-scrollbar"
+                    className="flex-1 min-h-[150px] w-full resize-none rounded-xl border border-border/70 bg-card/60 px-3 py-2 font-mono text-xs leading-relaxed text-foreground outline-none transition focus:border-primary border-border custom-scrollbar"
                   />
                 </label>
               </div>
@@ -2397,11 +2397,11 @@ export default function SettingsModal() {
         )}
       {copyImportUrlProfile && (
         <Overlay onClose={() => setCopyImportUrlProfile(null)} tier="raised">
-          <div className="relative bg-card/90 backdrop-blur-xl border border-white/50 dark:border-white/[0.08] rounded-3xl shadow-[0_8px_40px_rgb(0,0,0,0.12)] dark:shadow-[0_8px_40px_rgb(0,0,0,0.4)] max-w-sm w-full p-6 z-10 ring-1 ring-black/5 dark:ring-white/10 animate-confirm-in">
+          <div className="relative bg-card/90 backdrop-blur-xl border border-white/50 border-border rounded-3xl shadow-[0_8px_40px_rgb(0,0,0,0.12)] dark:shadow-[0_8px_40px_rgb(0,0,0,0.4)] max-w-sm w-full p-6 z-10 ring-1 ring-black/5 dark:ring-white/10 animate-confirm-in">
             <button
               type="button"
               onClick={() => setCopyImportUrlProfile(null)}
-              className="absolute right-4 top-4 shrink-0 rounded-full p-1.5 text-muted-foreground transition hover:bg-muted hover:text-muted-foreground dark:hover:bg-white/[0.06]"
+              className="absolute right-4 top-4 shrink-0 rounded-full p-1.5 text-muted-foreground transition hover:bg-muted hover:text-muted-foreground hover:bg-accent"
               aria-label="关闭"
             >
               <CloseIcon className="h-5 w-5" />
@@ -2468,7 +2468,7 @@ export default function SettingsModal() {
                   const options = { ...copyImportUrlOptions, includeApiKey: false }
                   copyProfileImportUrl(copyImportUrlProfile, options)
                 }}
-                className="flex-1 py-2 rounded-xl border border-border dark:border-white/[0.08] text-sm text-muted-foreground hover:bg-card dark:hover:bg-white/[0.06] transition"
+                className="flex-1 py-2 rounded-xl border border-border border-border text-sm text-muted-foreground hover:bg-card hover:bg-accent transition"
               >
                 不包含
               </button>
