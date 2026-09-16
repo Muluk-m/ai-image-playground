@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronDownIcon, SettingsIcon } from '../../../components/icons'
 import { compactModelName } from '../../../components/ModelIdentity'
 import ParamControls, { type UnsupportedParam } from '../../../components/ParamControls'
+import { useCloseOnEscape } from '../../../hooks/useCloseOnEscape'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/apiProfiles'
 import { useStore } from '../../../store'
 import { INK, INK_3, PANEL_SHADOW, PANEL_SURFACE } from '../agentStyles'
@@ -29,26 +30,31 @@ export default function AgentParamsChip() {
   const [open, setOpen] = useState(false)
   const wrapperRef = useRef<HTMLDivElement>(null)
   const summary = useSummary()
+  const insidePointerRef = useRef<Event | null>(null)
+  useCloseOnEscape(open, () => setOpen(false))
 
   // 点到面板外面就收起来；浮层盖在画布上，不收起会一直挡着。
   useEffect(() => {
     if (!open) return
     const onPointerDown = (event: PointerEvent) => {
+      if (insidePointerRef.current === event) return
       if (!wrapperRef.current?.contains(event.target as Node)) setOpen(false)
     }
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpen(false)
-    }
     document.addEventListener('pointerdown', onPointerDown)
-    document.addEventListener('keydown', onKeyDown)
     return () => {
       document.removeEventListener('pointerdown', onPointerDown)
-      document.removeEventListener('keydown', onKeyDown)
     }
   }, [open])
 
   return (
-    <div ref={wrapperRef} className="relative min-w-0">
+    <div
+      ref={wrapperRef}
+      className="relative min-w-0"
+      onPointerDownCapture={(event) => {
+        // React capture includes child portals, unlike DOM contains().
+        insidePointerRef.current = event.nativeEvent
+      }}
+    >
       <button
         type="button"
         aria-expanded={open}
