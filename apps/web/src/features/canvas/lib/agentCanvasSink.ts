@@ -24,9 +24,15 @@ export function createAgentCanvasSink(
 
     revision: () => editor.editRevision(),
 
-    async reserve({ count, anchorObjectId, title }) {
+    async reserve({ count, anchorObjectId, title, messageId }) {
       if (ready) await (typeof ready === 'function' ? ready() : ready)
       if (count <= 0) return []
+      if (messageId) {
+        const existing = editor
+          .getPlaceholders()
+          .filter((one) => one.meta.agentMessageId === messageId)
+        if (existing.length) return existing.map((one) => one.id)
+      }
       // history: false —— 智能体的占位框不是用户编辑，抬了 editRevision 它会判自己冲突。
       const groupId = crypto.randomUUID()
       const ids = computePlaceholderTargets(editor, anchorBounds(anchorObjectId), count).map(
@@ -39,6 +45,7 @@ export function createAgentCanvasSink(
               source: 'builtin-edge',
               prompt: title ?? '',
               agent: true,
+              agentMessageId: messageId,
             },
             { history: false },
           ),

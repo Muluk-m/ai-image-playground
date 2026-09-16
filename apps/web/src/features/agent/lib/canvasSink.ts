@@ -30,6 +30,7 @@ export interface AgentPlaceOptions {
 
 /** 工具起跑时要在画布上占的位。 */
 export interface AgentReservation {
+  readonly messageId?: string
   readonly title?: string
   /** 这次调用会出几件产物，就占几个框。 */
   readonly count: number

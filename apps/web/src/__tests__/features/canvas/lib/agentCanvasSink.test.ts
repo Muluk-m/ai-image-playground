@@ -304,3 +304,18 @@ describe('工具起跑占位', () => {
     })
   })
 })
+
+it('重放已失败工具时复用原占位，刷新恢复后仍然幂等', async () => {
+  const ids = await sink.reserve({ count: 2, messageId: 'tool-failed', title: '失败任务' })
+  sink.markFailed(ids, '上游失败')
+  const restored = new CanvasDoc()
+  restored.restore([...doc.elements], doc.files)
+  const resumed = createAgentCanvasSink(new CanvasEditor(restored))
+  const replay = await resumed.reserve({ count: 2, messageId: 'tool-failed', title: '失败任务' })
+  resumed.markFailed(replay, '上游失败')
+  expect(replay).toEqual(ids)
+  expect(restored.elements).toHaveLength(2)
+  expect(
+    restored.elements.every((one) => one.type === 'placeholder' && one.status === 'error'),
+  ).toBe(true)
+})

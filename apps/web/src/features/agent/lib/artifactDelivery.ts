@@ -129,7 +129,7 @@ export function createArtifactDelivery(
     if (!canvas || origin.reserved.has(messageId) || !current(origin)) return
     origin.reserved.set(
       messageId,
-      canvas.reserve(request).then(
+      canvas.reserve({ ...request, messageId }).then(
         (ids) => {
           // 等画布恢复场景期间用户切走了：框已经建在那块画布上，就地收掉，别留成孤儿。
           if (current(origin)) return ids

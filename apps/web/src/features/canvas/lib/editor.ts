@@ -49,6 +49,7 @@ export interface CanvasTaskMeta {
    * 智能体工具起跑时占的位。它不是画布任务：没有 BFF 请求可续、也不能在画布上重试，
    * 产物由智能体面板那条交付链路送达。刷新后残留的这种占位框直接清掉。
    */
+  agentMessageId?: string
   agent?: true
 }
 

@@ -263,7 +263,12 @@ describe('工具事件', () => {
     await state().send('画两只橘猫')
 
     expect(reserved).toEqual([
-      { count: 2, title: TOOL_START.title, ids: ['placeholder-1', 'placeholder-2'] },
+      {
+        count: 2,
+        title: TOOL_START.title,
+        messageId: TOOL_START.messageId,
+        ids: ['placeholder-1', 'placeholder-2'],
+      },
     ])
     expect(placedInto).toEqual([['placeholder-1', 'placeholder-2']])
     expect(placed.map((one) => one.artifactId)).toEqual(['agent_image_1', 'agent_image_2'])
@@ -283,7 +288,13 @@ describe('工具事件', () => {
     await state().send('把这张的背景换成浅木色')
 
     expect(reserved).toEqual([
-      { count: 1, title: TOOL_START.title, anchorObjectId: 'canvas-1', ids: ['placeholder-1'] },
+      {
+        count: 1,
+        title: TOOL_START.title,
+        messageId: TOOL_START.messageId,
+        anchorObjectId: 'canvas-1',
+        ids: ['placeholder-1'],
+      },
     ])
     expect(anchors).toEqual(['canvas-1'])
   })
