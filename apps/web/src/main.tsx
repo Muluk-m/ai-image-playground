@@ -28,7 +28,11 @@ const runtime = await loadRuntimeConfig()
 const restored =
   !runtime.localCompatibility || (await restoreLocalStorage(runtime.localCompatibility))
 if (!restored && runtime.localCompatibility) {
-  location.replace(runtime.localCompatibility.sourceOrigin)
+  const fallback = new URL(runtime.localCompatibility.sourceOrigin)
+  fallback.pathname = location.pathname
+  fallback.search = location.search
+  fallback.hash = location.hash
+  location.replace(fallback.href)
 } else {
   const [{ AuthGate }, { bootstrapChannels }, { bootstrapClientCapabilities }] = await Promise.all([
     import('./auth/AuthGate'),

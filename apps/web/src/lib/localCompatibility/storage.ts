@@ -321,6 +321,84 @@ function recoverCanvas(store: IDBObjectStore, key: IDBValidKey, source: unknown)
   }
 }
 
+function canvasContent(value: Record<string, unknown>): string {
+  return JSON.stringify([value.elements, value.files ?? {}])
+}
+
+const unchangedProjectScenes = new Set<string>()
+
+function repairCanvas(
+  store: IDBObjectStore,
+  key: IDBValidKey,
+  source: unknown,
+  target: unknown,
+): void {
+  if (!source || !target || typeof source !== 'object' || typeof target !== 'object') return
+  const old = source as Record<string, unknown>,
+    current = target as Record<string, unknown>
+  if (
+    typeof old.sceneKey === 'string' &&
+    old.id === current.id &&
+    old.sceneKey === current.sceneKey
+  ) {
+    if (typeof old.updatedAt === 'number' && old.updatedAt === current.updatedAt) {
+      unchangedProjectScenes.add(old.sceneKey)
+    } else unchangedProjectScenes.delete(old.sceneKey)
+    store.put(
+      {
+        ...current,
+        ...(current.cover ? {} : old.cover ? { cover: old.cover } : {}),
+        ...(current.conversationId
+          ? {}
+          : old.conversationId
+            ? { conversationId: old.conversationId }
+            : {}),
+      },
+      key,
+    )
+    return
+  }
+  if (
+    old.version !== 2 ||
+    current.version !== 2 ||
+    !Array.isArray(old.elements) ||
+    !Array.isArray(current.elements)
+  )
+    return
+  const same = canvasContent(old) === canvasContent(current)
+  const emptyLocal = current.elements.length === 0 && !current.cloud
+  if (typeof key !== 'string') return
+  const scope = /^canvas(:user-[^:]+)?:/.exec(key)?.[1] ?? ''
+  const id = `local-recovery:${encodeURIComponent(key)}`
+  const projectKey = `canvas-project${scope}:project:${id}`
+  const recoveredKey = `canvas${scope}:project:${id}`
+  const project = store.get(projectKey),
+    recovered = store.get(recoveredKey)
+  recovered.onsuccess = () => {
+    // Only repair a v1 copy whose original metadata still matches the source edit.
+    const originalCopy =
+      project.result?.name === '旧站画布' &&
+      Math.abs(project.result.createdAt - project.result.updatedAt) <= 1 &&
+      recovered.result &&
+      canvasContent(recovered.result) === canvasContent(old)
+    const placeholder =
+      originalCopy &&
+      emptyLocal &&
+      unchangedProjectScenes.has(key) &&
+      project.result &&
+      typeof project.result.createdAt === 'number'
+    if (!same && !placeholder) {
+      recoverCanvas(store, key, old)
+      return
+    }
+    if (placeholder) store.put(old, key)
+    if (originalCopy) {
+      store.delete(projectKey)
+      store.delete(recoveredKey)
+    }
+  }
+}
+
 export async function importEntry(entry: StorageEntry): Promise<void> {
   if (entry.kind === 'local') {
     if (!appStorageKey(entry.key)) throw new Error('Unknown storage key')
@@ -381,9 +459,7 @@ export async function importEntry(entry: StorageEntry): Promise<void> {
             }
           }
         } else if (entry.database === 'image-playground-canvas' && entry.store === 'scene') {
-          const source = unpack(entry.value)
-          if (JSON.stringify(source) !== JSON.stringify(existingValue.result))
-            recoverCanvas(s, key, source)
+          repairCanvas(s, key, unpack(entry.value), existingValue.result)
         }
       } catch {
         tx.abort()

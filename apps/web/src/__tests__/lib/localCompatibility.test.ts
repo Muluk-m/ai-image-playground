@@ -255,3 +255,78 @@ it('never requests storage permission when silent access is unavailable', async 
   expect(result).toBeNull()
   expect(requestStorageAccess).not.toHaveBeenCalled()
 })
+
+it.each([
+  false,
+  true,
+])('repairs unchanged placeholders but preserves a later clear (edited=%s)', async (edited) => {
+  const meta: StorageEntry = {
+    kind: 'database',
+    name: 'image-playground-canvas',
+    version: 1,
+    stores: [{ name: 'scene', keyPath: null, autoIncrement: false, indexes: [] }],
+  }
+  await importEntry(meta)
+  const sceneKey = 'canvas:user-repair:conversation:chat'
+  const projectKey = 'canvas-project:user-repair:project:legacy'
+  const row = async (key: string, value: unknown) =>
+    importEntry({
+      kind: 'record',
+      database: meta.name,
+      store: 'scene',
+      key: await pack(key),
+      value: await pack(value),
+    })
+  await row(projectKey, {
+    id: 'legacy',
+    name: '原项目',
+    updatedAt: edited ? 200 : 100,
+    sceneKey,
+    conversationId: 'chat',
+    hasContent: true,
+  })
+  await row(sceneKey, { version: 2, elements: [], files: {}, camera: { x: 0, y: 0, zoom: 1 } })
+  const source = {
+    version: 2,
+    elements: [{ id: 'photo', type: 'image', fileId: 'f' }],
+    files: { f: 'data:image/png;base64,b2xk' },
+    camera: { x: 0, y: 0, zoom: 1 },
+  }
+  const originalProject = {
+    id: 'legacy',
+    name: '原项目',
+    updatedAt: 100,
+    sceneKey,
+    conversationId: 'chat',
+    hasContent: true,
+    cover: 'data:image/webp;base64,Y292ZXI=',
+  }
+  const recoveryId = `local-recovery:${encodeURIComponent(sceneKey)}`
+  const recoveryKey = `canvas:user-repair:project:${recoveryId}`
+  await row(`canvas-project:user-repair:project:${recoveryId}`, {
+    id: recoveryId,
+    name: '旧站画布',
+    sceneKey: recoveryKey,
+    createdAt: 1,
+    updatedAt: 1,
+  })
+  await row(recoveryKey, source)
+  await row(projectKey, originalProject)
+  await row(sceneKey, source)
+  const values: unknown[] = []
+  for await (const entry of exportStorage())
+    if (entry.kind === 'record') values.push(unpack(entry.value))
+  const projects = values.filter(
+    (v): v is typeof originalProject => !!v && typeof v === 'object' && 'sceneKey' in v,
+  )
+  expect(projects).toHaveLength(edited ? 2 : 1)
+  expect(projects).toContainEqual({ ...originalProject, updatedAt: edited ? 200 : 100 })
+  expect(values).toContainEqual(source)
+  if (edited)
+    expect(values).toContainEqual({
+      version: 2,
+      elements: [],
+      files: {},
+      camera: { x: 0, y: 0, zoom: 1 },
+    })
+})
