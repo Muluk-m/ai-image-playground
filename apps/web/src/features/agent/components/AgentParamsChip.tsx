@@ -49,7 +49,7 @@ export default function AgentParamsChip() {
   return (
     <div
       ref={wrapperRef}
-      className="relative min-w-0"
+      className="min-w-0"
       onPointerDownCapture={(event) => {
         // React capture includes child portals, unlike DOM contains().
         insidePointerRef.current = event.nativeEvent
@@ -59,17 +59,19 @@ export default function AgentParamsChip() {
         type="button"
         aria-expanded={open}
         aria-label="生成参数"
-        className={`flex min-w-0 max-w-full items-center gap-1.5 rounded-full border border-border px-2.5 py-1 text-[11px] transition-colors hover:bg-muted ${INK_3}`}
+        className={`flex min-w-0 max-w-full items-center h-8 gap-1.5 rounded-full bg-muted px-2.5 text-[11px] transition-colors hover:bg-muted ${INK_3}`}
         onClick={() => setOpen((was) => !was)}
       >
         <SettingsIcon aria-hidden="true" className="h-3 w-3 shrink-0" />
-        <span className="truncate">{summary.join(' · ')}</span>
+        <span className="truncate" title={summary.join(' · ')}>
+          {summary.join(' · ')}
+        </span>
         <ChevronDownIcon aria-hidden="true" className="h-3 w-3 shrink-0" />
       </button>
 
       {open && (
         <div
-          className={`absolute bottom-full left-0 z-10 mb-2 w-[19rem] rounded-xl p-3 ${PANEL_SURFACE} ${PANEL_SHADOW}`}
+          className={`absolute bottom-full right-0 z-10 mb-2 w-[19rem] max-w-[calc(100vw-2rem)] rounded-xl p-3 ${PANEL_SURFACE} ${PANEL_SHADOW}`}
         >
           <p className={`mb-2 text-xs font-semibold ${INK}`}>生成参数</p>
           <div className="flex flex-wrap items-center gap-1.5">

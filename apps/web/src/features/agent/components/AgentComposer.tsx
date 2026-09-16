@@ -7,7 +7,16 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react'
-import { CloseIcon, MaskBrushIcon, PaperclipIcon } from '../../../components/icons'
+import {
+  Composer,
+  ComposerActions,
+  ComposerAttachButton,
+  ComposerAttachments,
+  ComposerBar,
+  ComposerSend,
+  ComposerToolbar,
+} from '../../../components/assistant-ui/elements/composer'
+import { CloseIcon, MaskBrushIcon } from '../../../components/icons'
 import SuggestionMenu, { useSuggestionMenu } from '../../../components/SuggestionMenu'
 import { useImageDropZone } from '../../../hooks/useImageDropZone'
 import { acceptImageFiles } from '../../../lib/imageFiles'
@@ -29,7 +38,7 @@ import { ensureAssetImage } from '../../../lib/sync/assetImages'
 import { ensureImageCached, useStore } from '../../../store'
 import type { CanvasDoc, ImageEl } from '../../canvas/lib/canvasDoc'
 import { useLibraryStore } from '../../library/store'
-import { ABORT_BUTTON, ICON_BUTTON, INK_3, SEND_BUTTON } from '../agentStyles'
+import { ABORT_BUTTON, ICON_BUTTON } from '../agentStyles'
 import { type AgentMentionValue, buildAgentMentionGroups, canvasImages } from '../lib/agentMentions'
 import { attachReferences, filesToReferences, setAgentComposerAttach } from '../lib/attachments'
 import { agentDraft } from '../lib/drafts'
@@ -48,9 +57,9 @@ import { useAgentStore } from '../store'
 import AgentParamsChip from './AgentParamsChip'
 
 const EDITOR_CLASS =
-  'min-h-20 max-h-44 w-full overflow-y-auto whitespace-pre-wrap break-words bg-transparent text-xs leading-relaxed text-foreground outline-none empty:before:pointer-events-none empty:before:text-muted-foreground empty:before:content-[attr(data-placeholder)]'
+  'min-h-16 max-h-44 w-full overflow-y-auto whitespace-pre-wrap break-words bg-transparent px-1 pt-1 text-sm leading-relaxed text-foreground outline-none empty:before:pointer-events-none empty:before:text-muted-foreground empty:before:content-[attr(data-placeholder)]'
 
-const STRIP_THUMB = 'h-10 w-10 overflow-hidden rounded-lg border border-border object-cover'
+const STRIP_THUMB = 'h-8 w-8 shrink-0 overflow-hidden rounded-md object-cover'
 
 export default function AgentComposer({
   doc,
@@ -292,10 +301,7 @@ export default function AgentComposer({
   }
 
   return (
-    <div
-      className="studio-agent-composer relative flex shrink-0 flex-col gap-3 px-4 pb-4 pt-3"
-      {...dropZoneProps}
-    >
+    <Composer className="studio-agent-composer shrink-0 px-3 pb-3 pt-2" {...dropZoneProps}>
       {dragging && (
         <div className="pointer-events-none absolute inset-1 z-20 grid place-items-center rounded-xl border border-dashed border-primary/70 bg-sidebar/90 text-xs text-primary">
           松开即作为参考图
@@ -306,132 +312,134 @@ export default function AgentComposer({
           {draftError}
         </p>
       )}
-      {draft.references.length > 0 && (
-        <div className="flex flex-wrap gap-1.5">
-          {draft.references.map((reference, index) => {
-            const label = reference.name ?? getImageMentionLabel(index)
-            const masked = Boolean(reference.maskDataUrl)
-            return (
-              <div key={reference.id} className="group relative">
-                <div className="relative">
-                  <img
-                    src={reference.dataUrl}
-                    className={`${STRIP_THUMB} ${masked ? 'ring-1 ring-ring/70' : ''}`}
-                    alt=""
-                  />
-                  {masked && (
-                    <span className="pointer-events-none absolute left-0.5 top-0.5 rounded bg-primary/90 px-1 py-px text-[7px] font-bold leading-none tracking-wider text-primary-foreground">
-                      MASK
-                    </span>
-                  )}
+      <ComposerBar dragActive={dragging}>
+        {draft.references.length > 0 && (
+          <ComposerAttachments>
+            {draft.references.map((reference, index) => {
+              const label = reference.name ?? getImageMentionLabel(index)
+              const masked = Boolean(reference.maskDataUrl)
+              return (
+                <div
+                  key={reference.id}
+                  className="group flex max-w-full items-center gap-2 rounded-lg border border-border bg-muted/60 p-1 pr-1.5"
+                >
+                  <div className="relative">
+                    <img
+                      src={reference.dataUrl}
+                      className={`${STRIP_THUMB} ${masked ? 'ring-1 ring-ring/70' : ''}`}
+                      alt=""
+                    />
+                    {masked && (
+                      <span className="pointer-events-none absolute left-0.5 top-0.5 rounded bg-primary/90 px-1 py-px text-[7px] font-bold leading-none tracking-wider text-primary-foreground">
+                        MASK
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      aria-label={
+                        masked ? `修改参考图 ${label} 的遮罩` : `给参考图 ${label} 画遮罩`
+                      }
+                      className={`absolute bottom-0 left-0 bg-card opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 ${ICON_BUTTON}`}
+                      onClick={() => editMask(reference)}
+                    >
+                      <MaskBrushIcon className="h-3 w-3" />
+                    </button>
+                  </div>
+                  <span className="max-w-28 truncate text-xs text-foreground">{label}</span>
                   <button
                     type="button"
-                    aria-label={masked ? `修改参考图 ${label} 的遮罩` : `给参考图 ${label} 画遮罩`}
-                    className={`absolute -bottom-1 -left-1 bg-sidebar opacity-0 group-hover:opacity-100 ${ICON_BUTTON}`}
-                    onClick={() => editMask(reference)}
+                    aria-label={`移除参考图 ${label}`}
+                    className={`shrink-0 ${ICON_BUTTON}`}
+                    onClick={() => setDraft(removeReference(draft, index))}
                   >
-                    <MaskBrushIcon className="h-3 w-3" />
+                    <CloseIcon className="h-3 w-3" />
                   </button>
                 </div>
-                <span className={`block max-w-10 truncate pt-0.5 text-[10px] ${INK_3}`}>
-                  {label}
-                </span>
-                <button
-                  type="button"
-                  aria-label={`移除参考图 ${label}`}
-                  className={`absolute -right-1 -top-1 bg-sidebar opacity-0 group-hover:opacity-100 ${ICON_BUTTON}`}
-                  onClick={() => setDraft(removeReference(draft, index))}
-                >
-                  <CloseIcon className="h-3 w-3" />
-                </button>
-              </div>
-            )
-          })}
-        </div>
-      )}
-
-      <div className="relative rounded-xl border border-input bg-background px-3 py-3 transition-shadow focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/20">
-        {menu.visible && (
-          <SuggestionMenu
-            groups={groups}
-            activeIndex={menu.activeIndex}
-            offsetLeft={0}
-            onActiveIndexChange={menu.setActiveIndex}
-            onSelect={menu.select}
-          />
+              )
+            })}
+          </ComposerAttachments>
         )}
-        <div
-          ref={editorRef}
-          role="textbox"
-          tabIndex={0}
-          aria-label="对智能体说"
-          contentEditable={!loading}
-          aria-busy={loading}
-          suppressContentEditableWarning
-          data-placeholder="说一句你想做什么，@ 引用画布或素材"
-          className={EDITOR_CLASS}
-          onInput={(event) => {
-            const el = event.currentTarget
-            // 删完最后一个字后浏览器常留 <br>，:empty 不再匹配 → placeholder 消失。
-            if (!el.textContent && el.innerHTML) el.innerHTML = ''
-            const range = getContentEditableSelection(el)
-            setCursor(range.start)
-            syncMentionTagSelection(el)
-            const text = getContentEditablePlainText(el)
-            typedRef.current = text
-            setDraft((current) => ({ ...current, prompt: text }))
-            menu.open()
-          }}
-          onKeyDown={onKeyDown}
-          onPaste={onPaste}
-        />
-      </div>
 
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex min-w-0 items-center gap-1">
-          <AgentParamsChip />
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            multiple
-            className="hidden"
-            aria-label="选择参考图"
-            onChange={(event) => {
-              attachFiles([...(event.currentTarget.files ?? [])])
-              event.currentTarget.value = ''
-            }}
-          />
-          <button
-            type="button"
-            aria-label="添加参考图"
-            title="添加参考图（也可以拖进来或粘贴）"
-            className={ICON_BUTTON}
-            onClick={() => fileInputRef.current?.click()}
-          >
-            <PaperclipIcon className="h-3.5 w-3.5" />
-          </button>
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          {running && (
-            <button
-              type="button"
-              className={ABORT_BUTTON}
-              onClick={() => void useAgentStore.getState().abort()}
-            >
-              中止
-            </button>
+        <div className="relative">
+          {menu.visible && (
+            <SuggestionMenu
+              groups={groups}
+              activeIndex={menu.activeIndex}
+              offsetLeft={0}
+              onActiveIndexChange={menu.setActiveIndex}
+              onSelect={menu.select}
+            />
           )}
-          <button
-            type="button"
-            className={SEND_BUTTON}
-            disabled={loading || submitting || !draft.prompt.trim()}
-            onClick={submit}
-          >
-            {submitting ? '发送中…' : running ? '插话' : '发送并创作'}
-          </button>
+          <div
+            ref={editorRef}
+            role="textbox"
+            tabIndex={0}
+            aria-label="对智能体说"
+            contentEditable={!loading}
+            aria-busy={loading}
+            suppressContentEditableWarning
+            data-placeholder="说一句你想做什么，@ 引用画布或素材"
+            className={EDITOR_CLASS}
+            onInput={(event) => {
+              const el = event.currentTarget
+              // 删完最后一个字后浏览器常留 <br>，:empty 不再匹配 → placeholder 消失。
+              if (!el.textContent && el.innerHTML) el.innerHTML = ''
+              const range = getContentEditableSelection(el)
+              setCursor(range.start)
+              syncMentionTagSelection(el)
+              const text = getContentEditablePlainText(el)
+              typedRef.current = text
+              setDraft((current) => ({ ...current, prompt: text }))
+              menu.open()
+            }}
+            onKeyDown={onKeyDown}
+            onPaste={onPaste}
+          />
         </div>
-      </div>
-    </div>
+
+        <ComposerToolbar className="gap-2">
+          <div className="flex min-w-0 items-center gap-1">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              className="hidden"
+              aria-label="选择参考图"
+              onChange={(event) => {
+                attachFiles([...(event.currentTarget.files ?? [])])
+                event.currentTarget.value = ''
+              }}
+            />
+            <ComposerAttachButton
+              aria-label="添加参考图"
+              title="添加参考图（也可以拖进来或粘贴）"
+              disabled={loading}
+              onClick={() => fileInputRef.current?.click()}
+            />
+          </div>
+          <ComposerActions className="min-w-0">
+            <AgentParamsChip />
+            {running && (
+              <button
+                type="button"
+                className={ABORT_BUTTON}
+                onClick={() => void useAgentStore.getState().abort()}
+              >
+                中止
+              </button>
+            )}
+            <ComposerSend
+              streaming={false}
+              idle={!loading && !submitting && Boolean(draft.prompt.trim())}
+              aria-label={submitting ? '发送中…' : running ? '插话' : '发送并创作'}
+              title={running ? '插话' : '发送并创作'}
+              disabled={loading || submitting || !draft.prompt.trim()}
+              onClick={submit}
+            />
+          </ComposerActions>
+        </ComposerToolbar>
+      </ComposerBar>
+    </Composer>
   )
 }

@@ -1482,7 +1482,7 @@ export default function InputBar() {
         )}
         <div
           ref={cardRef}
-          className={`relative bg-white/70 bg-muted backdrop-blur-2xl border border-white/50 border-border shadow-[0_8px_30px_rgb(0,0,0,0.08)] dark:shadow-[0_8px_30px_rgb(0,0,0,0.3)] rounded-2xl sm:rounded-3xl ring-1 ring-black/5 dark:ring-white/10 ${barCollapsed ? 'p-2' : 'p-3 sm:p-4'}`}
+          className={`relative bg-card text-card-foreground backdrop-blur-2xl border border-border shadow-[0_8px_30px_rgb(0,0,0,0.08)] dark:shadow-[0_8px_30px_rgb(0,0,0,0.3)] rounded-2xl sm:rounded-3xl ring-1 ring-black/5 dark:ring-white/10 ${barCollapsed ? 'p-2' : 'p-3 sm:p-4'}`}
         >
           {barCollapsed ? (
             <div className="flex items-center gap-2">
@@ -1532,7 +1532,7 @@ export default function InputBar() {
                   className={`inline-flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-xl px-4 text-sm font-medium shadow-sm transition-all duration-150 active:scale-[0.97] ${
                     !hasSubmitApiConfig
                       ? 'bg-muted text-muted-foreground'
-                      : 'bg-primary text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground disabled:shadow-none disabled:active:scale-100 dark:disabled:bg-white/10'
+                      : 'bg-primary text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground disabled:shadow-none disabled:active:scale-100'
                   }`}
                   title={
                     submissionGuard.disabledReason ??
@@ -1781,7 +1781,7 @@ export default function InputBar() {
                       className={`group/gen relative inline-flex h-12 items-center justify-center gap-1.5 overflow-hidden rounded-xl pl-3.5 pr-5 text-sm font-semibold leading-none transition-all duration-200 active:scale-[0.97] ${
                         !hasSubmitApiConfig
                           ? 'bg-muted text-muted-foreground'
-                          : 'bg-primary text-primary-foreground shadow-lg shadow-primary/30 ring-1 ring-inset ring-white/20 hover:bg-primary/90 hover:shadow-primary/40 hover:shadow-xl disabled:cursor-not-allowed disabled:bg-muted disabled:bg-none disabled:text-muted-foreground disabled:shadow-none disabled:ring-0 disabled:active:scale-100 dark:disabled:bg-white/10'
+                          : 'bg-primary text-primary-foreground shadow-lg shadow-primary/30 ring-1 ring-inset ring-white/20 hover:bg-primary/90 hover:shadow-primary/40 hover:shadow-xl disabled:cursor-not-allowed disabled:bg-muted disabled:bg-none disabled:text-muted-foreground disabled:shadow-none disabled:ring-0 disabled:active:scale-100'
                       }`}
                       title={
                         submissionGuard.disabledReason ??
@@ -1886,7 +1886,7 @@ export default function InputBar() {
                         className={`w-full inline-flex h-10 items-center justify-center gap-1.5 rounded-xl px-3.5 text-xs font-medium shadow-sm transition-all duration-150 active:scale-[0.97] ${
                           !hasSubmitApiConfig
                             ? 'bg-muted text-muted-foreground'
-                            : 'bg-primary text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground disabled:shadow-none disabled:active:scale-100 dark:disabled:bg-white/10'
+                            : 'bg-primary text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground disabled:shadow-none disabled:active:scale-100'
                         }`}
                       >
                         {ChipIcons.sparkles}
