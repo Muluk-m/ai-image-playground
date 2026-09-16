@@ -8,7 +8,7 @@ import type {
   AgentTurnEvent,
   AgentTurnReference,
 } from '@image-playground/shared'
-import { AGENT_TURN_MAX_N, agentMessageText } from '@image-playground/shared'
+import { AGENT_IMAGE_MAX_N, agentMessageText } from '@image-playground/shared'
 import { create } from 'zustand'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../lib/apiProfiles'
 import { AGENT_CONVERSATION_KEY, safeLocalStorage, scopedStorageName } from '../../lib/authScope'
@@ -343,7 +343,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
     if (event.type === 'toolStart' && event.outputCount) {
       turnDelivery.reserve(event.messageId, {
         // 数量来自服务端；按协议上限收口，坏值不会在画布上铺出一片空框。
-        count: Math.min(AGENT_TURN_MAX_N, event.outputCount),
+        count: Math.min(AGENT_IMAGE_MAX_N, event.outputCount),
         title: event.title,
         ...(event.anchorObjectId ? { anchorObjectId: event.anchorObjectId } : {}),
       })

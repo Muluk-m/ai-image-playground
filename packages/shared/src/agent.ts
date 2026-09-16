@@ -47,7 +47,7 @@ export interface AgentStoredReference {
 
 /**
  * 一轮里生效的生成参数：用户在输入框的参数浮层里选，随起轮一起送到服务端，
- * 生图与改图工具提交队列任务时按它填。
+ * 生图与改图工具提交队列任务时按它填。张数由每次工具调用决定，审核使用上游默认。
  *
  * 字段名对齐 `SubmitRequest`，避免在途中翻译两次；但 `gemini_*` 三项保持前缀，
  * 因为它们只对 gemini 系模型成立，往队列请求里填哪一支由服务端按 provider 决定。
@@ -59,16 +59,13 @@ export interface AgentTurnParams {
   readonly quality?: string
   readonly output_format?: string
   readonly output_compression?: number
-  readonly moderation?: string
-  /** 一次出几张。缺席按 1。 */
-  readonly n?: number
   readonly gemini_aspect_ratio?: string
   readonly gemini_image_size?: string
   readonly gemini_thinking_level?: string
 }
 
-/** 一次提交最多出几张：和输入框的数量 chip 同一上限，服务端不认更大的数。 */
-export const AGENT_TURN_MAX_N = 10
+/** 图片工具单次调用的产出上限；模型参数与画布占位共用。 */
+export const AGENT_IMAGE_MAX_N = 10
 
 export const AGENT_TURN_MAX_REFERENCES = 8
 

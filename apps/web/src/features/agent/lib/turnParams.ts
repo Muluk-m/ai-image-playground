@@ -7,6 +7,7 @@ import { DEFAULT_PARAMS } from '../../../types'
  *
  * 只带用户真正改过的项：服务端缺席即按部署默认，送一份全是默认值的对象等于把
  * 前端的默认值强加给后端，两边改默认值的节奏就再也对不上了。
+ * 张数由工具参数决定，审核使用上游默认；不继承直接生成或旧版本留下的选择。
  *
  * **透明输出与防改写不在这里**，不是漏了：
  * - 透明是往提示词注绿幕再在本地抠色（`lib/transparentImage.ts`），整条流水线在浏览器里；
@@ -33,8 +34,6 @@ export function toAgentTurnParams(
   ) {
     next.output_compression = params.output_compression
   }
-  if (params.moderation !== DEFAULT_PARAMS.moderation) next.moderation = params.moderation
-  if (params.n > 1) next.n = params.n
   if (params.gemini_aspect_ratio) next.gemini_aspect_ratio = params.gemini_aspect_ratio
   if (params.gemini_image_size) next.gemini_image_size = params.gemini_image_size
   if (params.gemini_thinking_level) next.gemini_thinking_level = params.gemini_thinking_level

@@ -1,6 +1,5 @@
 import type { AgentTurnAlreadyRunningBody, AuthUserView } from '@image-playground/shared'
 import {
-  AGENT_TURN_MAX_N,
   AGENT_TURN_MAX_REFERENCES,
   AGENT_USER_MESSAGE_MAX_CHARS,
   DEVICE_ID_HEADER,
@@ -52,8 +51,6 @@ const paramsSchema = t.Optional(
     quality: t.Optional(t.String({ maxLength: 16 })),
     output_format: t.Optional(t.String({ maxLength: 16 })),
     output_compression: t.Optional(t.Integer({ minimum: 0, maximum: 100 })),
-    moderation: t.Optional(t.String({ maxLength: 16 })),
-    n: t.Optional(t.Integer({ minimum: 1, maximum: AGENT_TURN_MAX_N })),
     gemini_aspect_ratio: t.Optional(t.String({ maxLength: 16 })),
     gemini_image_size: t.Optional(t.String({ maxLength: 16 })),
     gemini_thinking_level: t.Optional(t.String({ maxLength: 16 })),

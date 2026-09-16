@@ -15,7 +15,7 @@ import { INK, INK_3, PANEL_SHADOW, PANEL_SURFACE } from '../agentStyles'
  */
 const UNSUPPORTED: ReadonlySet<UnsupportedParam> = new Set(['transparent', 'noRewrite'])
 
-/** 收起时只给一行摘要：当前打哪个模型、出多大、出几张。 */
+/** 收起时只给一行摘要：当前打哪个模型、出多大。张数由智能体按需求决定。 */
 function useSummary(): string[] {
   const params = useStore((state) => state.params)
   const settings = useStore((state) => state.settings)
@@ -35,7 +35,6 @@ function useSummary(): string[] {
             ? '自动尺寸'
             : '自动比例',
     )
-    if (params.n > 1) parts.push(`${params.n} 张`)
     return parts
   }, [params, settings])
 }
@@ -99,10 +98,10 @@ export default function AgentParamsChip() {
             </button>
           </div>
           <div className="flex flex-wrap items-center gap-1.5">
-            <ParamControls showCount unsupported={UNSUPPORTED} />
+            <ParamControls unsupported={UNSUPPORTED} />
           </div>
           <p className={`mt-2 text-[11px] leading-relaxed ${INK_3}`}>
-            改完下一轮生效，跑着的这一轮按起轮时的参数走。
+            张数由智能体按需求决定。参数改动从下一轮生效。
           </p>
         </div>
       )}
