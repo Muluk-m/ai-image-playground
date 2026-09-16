@@ -102,7 +102,15 @@ const WorkCard = memo(function WorkCard({
   )
 })
 
-export default function AgentCreations({ doc, editor }: { doc: CanvasDoc; editor: CanvasEditor }) {
+export default function AgentCreations({
+  doc,
+  editor,
+  onSelect: onSelectWork,
+}: {
+  doc: CanvasDoc
+  editor: CanvasEditor
+  onSelect?: () => void
+}) {
   useSyncExternalStore(doc.subscribe, () => doc.version)
   const groups = useMemo(() => groupsFor(doc.elements), [doc.elements])
   const marks = doc.elements.filter(
@@ -110,10 +118,11 @@ export default function AgentCreations({ doc, editor }: { doc: CanvasDoc; editor
   )
   const onSelect = useCallback(
     (id: string) => {
+      onSelectWork?.()
       editor.setSelectedElements([id])
       editor.scrollToElements([id])
     },
-    [editor],
+    [editor, onSelectWork],
   )
   if (!groups.length && !marks.length)
     return (

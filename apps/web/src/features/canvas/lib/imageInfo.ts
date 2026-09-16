@@ -2,7 +2,12 @@ import type { CanvasDoc, CanvasEl, ImageEl } from './canvasDoc'
 import { getLoadedImage } from './imageCache'
 
 export function canvasImageName(image: ImageEl): string {
-  return image.name?.trim() || image.meta?.prompt?.trim() || (image.video ? '视频' : '未命名图片')
+  return (
+    image.name?.trim() ||
+    image.meta?.filename?.trim() ||
+    image.meta?.prompt?.trim() ||
+    `${image.video ? '视频' : '图片'}-${(image.fileId || image.id).replace(/^el_/, '')}`
+  )
 }
 
 /** 原始像素与画布显示尺寸分开；缩放对象不会改变这里的尺寸。 */

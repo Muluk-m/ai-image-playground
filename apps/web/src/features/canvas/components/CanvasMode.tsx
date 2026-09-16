@@ -1,5 +1,6 @@
-import { useEffect, useRef, useSyncExternalStore } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { HEADER_OFFSET } from '../../../components/panelStyles'
+import { useMobileWorkspace } from '../../../hooks/useMobileWorkspace'
 import { useStore } from '../../../store'
 import AgentPanel from '../../agent/components/AgentPanel'
 import { agentPanelPresent } from '../../agent/panelLayout'
@@ -69,6 +70,8 @@ export default function CanvasMode() {
 }
 
 function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
+  const mobile = useMobileWorkspace()
+  const [mobileView, setMobileView] = useState<'chat' | 'canvas'>('chat')
   const { doc, editor } = workspace
   const hasContent = useSyncExternalStore(doc.subscribe, () => doc.elements.length > 0)
   const open = useAgentStore((state) => state.open)
@@ -111,13 +114,34 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
 
   return (
     <div className="studio-shell fixed inset-x-0 bottom-0 z-30" style={{ top: HEADER_OFFSET }}>
-      {showWelcome && !loading && !loadFailed ? (
+      {showWelcome && !mobile && !loading && !loadFailed ? (
         <ProjectWelcome workspace={workspace} />
       ) : (
-        <div className="studio-layout" inert={loading || loadFailed}>
+        <div className="studio-layout" data-mobile-view={mobileView} inert={loading || loadFailed}>
+          <div className="studio-mobile-switch" role="group" aria-label="创作视图">
+            <button
+              type="button"
+              aria-pressed={mobileView === 'chat'}
+              onClick={() => setMobileView('chat')}
+            >
+              对话
+            </button>
+            <button
+              type="button"
+              aria-pressed={mobileView === 'canvas'}
+              onClick={() => setMobileView('canvas')}
+            >
+              画布
+            </button>
+          </div>
           {hasAgent ? (
-            <AgentPanel doc={doc} editor={editor} />
-          ) : open ? (
+            <AgentPanel
+              doc={doc}
+              editor={editor}
+              mobile={mobile}
+              onViewCanvas={() => setMobileView('canvas')}
+            />
+          ) : open || mobile ? (
             <aside
               className="studio-sidebar studio-sidebar--direct"
               style={{ width: 340 }}
@@ -141,7 +165,11 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
               展开创作
             </button>
           )}
-          <section className="studio-canvas" aria-label="创作画布">
+          <section
+            className="studio-canvas"
+            aria-label="创作画布"
+            inert={mobile && mobileView !== 'canvas'}
+          >
             <div className="studio-canvas-heading">
               <strong>{project?.name ?? '我的画布'}</strong>
               <span>
@@ -179,9 +207,7 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                 <img src="/brand/muvloom-icon.svg" alt="" />
                 <h2>给想象，一个画面。</h2>
                 <p>
-                  {hasAgent
-                    ? '在左侧描述你的想法，作品会在这里展开。'
-                    : '在左侧输入画面描述，开始你的创作。'}
+                  {hasAgent ? '描述你的想法，作品会在这里展开。' : '输入画面描述，开始你的创作。'}
                   <br />
                   也可以拖入图片，继续探索新的可能。
                 </p>
