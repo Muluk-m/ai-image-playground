@@ -9,6 +9,7 @@ import type { CanvasEditor } from '../lib/editor'
 import { importImageFiles } from '../lib/importImages'
 import { placeImagesIntoTargets } from '../lib/placeholderShapeOps'
 import { computePlaceholderTargets } from '../lib/placement'
+import { writeProjectRoute } from '../lib/projectRoute'
 import {
   type CanvasWorkspace,
   currentCanvasWorkspace,
@@ -36,6 +37,7 @@ import StylePanel from './StylePanel'
 export default function CanvasMode() {
   const workspace = useSyncExternalStore(subscribeCanvasWorkspace, currentCanvasWorkspace)
   const projectsLoaded = useCanvasProjectStore((state) => state.loaded)
+  const routeError = useCanvasProjectStore((state) => state.routeError)
   const projectError = useCanvasProjectStore((state) => state.error)
   const initialize = () =>
     useCanvasProjectStore
@@ -54,6 +56,27 @@ export default function CanvasMode() {
     showCanvasWorkspace(true)
     return () => showCanvasWorkspace(false)
   }, [])
+  if (routeError)
+    return (
+      <div className="studio-canvas-status" role="alert">
+        <div>
+          {routeError}
+          <button
+            type="button"
+            className="ml-3 underline"
+            onClick={() => {
+              const active = useCanvasProjectStore.getState().activeId
+              if (active) {
+                writeProjectRoute(active, true)
+                useCanvasProjectStore.setState({ routeError: null })
+              } else location.assign('/')
+            }}
+          >
+            返回项目
+          </button>
+        </div>
+      </div>
+    )
   if (!projectsLoaded)
     return (
       <div className="studio-canvas-status" role={projectError ? 'alert' : 'status'}>

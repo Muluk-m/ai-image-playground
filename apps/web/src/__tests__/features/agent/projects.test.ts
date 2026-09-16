@@ -24,6 +24,7 @@ const fetchMock = vi.fn(async (input: unknown, init?: RequestInit) => {
   return Response.json({ messages: [], turns: [], activeTurn: null })
 })
 beforeEach(async () => {
+  history.replaceState(null, '', '/')
   setClientStorageScope(crypto.randomUUID())
   _setRuntimeConfigForTesting({ bff: { enabled: true, baseUrl: 'http://bff.test' } })
   vi.stubGlobal('fetch', fetchMock)

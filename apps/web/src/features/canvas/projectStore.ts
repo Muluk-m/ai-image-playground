@@ -8,8 +8,9 @@ import {
 } from '../../lib/authScope'
 import type { CanvasDoc } from './lib/canvasDoc'
 import { getLoadedImage } from './lib/imageCache'
-import { cloudProjectsEnabled, listCloudProjects } from './lib/projectClient'
+import { cloudProjectsEnabled, getCloudProject, listCloudProjects } from './lib/projectClient'
 import { type CanvasProject, projectRepository } from './lib/projectRepository'
+import { readProjectRoute, writeProjectRoute } from './lib/projectRoute'
 import { canvasSceneKey } from './lib/workspaceKeys'
 
 interface ProjectState {
@@ -17,6 +18,7 @@ interface ProjectState {
   activeId: string | null
   loaded: boolean
   error: string | null
+  routeError: string | null
   cloudError: string | null
   cloudLoading: boolean
   cloudCursor: string | null
@@ -24,7 +26,8 @@ interface ProjectState {
   refreshCloud(more?: boolean): Promise<void>
   load(): Promise<void>
   create(): Promise<CanvasProject>
-  activate(id: string): void
+  activate(id: string, replaceRoute?: boolean): void
+  resolve(id: string): Promise<CanvasProject>
   update(id: string, patch: Parameters<typeof projectRepository.update>[1]): Promise<void>
   remove(id: string): Promise<void>
   importConversations(
@@ -56,6 +59,7 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
   activeId: null,
   loaded: false,
   error: null,
+  routeError: null,
   cloudError: null,
   cloudLoading: false,
   cloudCursor: null,
@@ -105,7 +109,17 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
         projects = [...get().projects]
         const remembered = safeLocalStorage.getItem(scopedStorageName(CANVAS_PROJECT_KEY))
         const conversationId = safeLocalStorage.getItem(scopedStorageName(AGENT_CONVERSATION_KEY))
+        const routeId = readProjectRoute()
+        if (routeId && !projects.some((one) => one.id === routeId)) {
+          if (!cloudProjectsEnabled()) throw new Error('Project not available on this device')
+          projects.push(
+            await projectRepository.importCloud(
+              await getCloudProject(routeId, AbortSignal.timeout(10000)),
+            ),
+          )
+        }
         let active =
+          projects.find((one) => one.id === routeId) ??
           projects.find((one) => one.id === remembered) ??
           projects.find((one) => conversationId && one.conversationId === conversationId)
         active ??= projects.find((one) => one.sceneKey === canvasSceneKey(conversationId))
@@ -121,7 +135,7 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
           projects.push(active)
         }
         set({ projects, loaded: true, error: null })
-        get().activate(active.id)
+        if (readProjectRoute() === routeId) get().activate(active.id, true)
       } catch {
         set({ error: '项目读取失败，原内容已保留，请重新加载。' })
         throw new Error('Project catalog unavailable')
@@ -138,10 +152,22 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
     get().activate(project.id)
     return project
   },
-  activate(id) {
+  async resolve(id) {
+    await get().load()
+    const existing = get().projects.find((one) => one.id === id)
+    if (existing) return existing
+    if (!cloudProjectsEnabled()) throw new Error('Project not available on this device')
+    const project = await projectRepository.importCloud(
+      await getCloudProject(id, AbortSignal.timeout(10000)),
+    )
+    set((state) => ({ projects: [...state.projects, project] }))
+    return project
+  },
+  activate(id, replaceRoute = false) {
     const project = get().projects.find((one) => one.id === id)
     if (!project) return
     set({ activeId: id })
+    writeProjectRoute(id, replaceRoute)
     safeLocalStorage.setItem(scopedStorageName(CANVAS_PROJECT_KEY), id)
     if (project.conversationId)
       safeLocalStorage.setItem(scopedStorageName(AGENT_CONVERSATION_KEY), project.conversationId)

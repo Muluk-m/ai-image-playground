@@ -5,7 +5,7 @@ export interface CompatibilityConfig {
   targetOrigin: string
 }
 const PROTOCOL = 'muvloom-local-storage-v1'
-const DONE = 'muvloom-local-compatibility-v1'
+const DONE = 'muvloom-local-compatibility-v2'
 const IDLE_MS = 15_000
 
 type StorageDocument = Document & {

@@ -85,7 +85,7 @@ export interface AgentState {
   startNewConversation(): void
   retryHistory(): Promise<void>
   createProject(): Promise<boolean>
-  selectProject(projectId: string): Promise<boolean>
+  selectProject(projectId: string, isCurrent?: () => boolean): Promise<boolean>
   deleteProject(projectId: string): Promise<boolean>
   /** onAccepted 只在服务端接收后触发，输入框此时才清掉已提交草稿。 */
   send(
@@ -652,7 +652,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
       })
     },
 
-    async selectProject(projectId) {
+    async selectProject(projectId, isCurrent = () => true) {
       return changeProject(async () => {
         const project = useCanvasProjectStore
           .getState()
@@ -664,6 +664,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
           useStore.getState().showToast('当前项目未能保存，内容已保留，请重试。', 'error')
           return false
         }
+        if (!isCurrent()) return false
         showProject(project)
         return true
       })
