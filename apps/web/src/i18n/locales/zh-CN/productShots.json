@@ -358,5 +358,11 @@
     "jobDeleted": "商品图任务已删除",
     "productIsSource": "产品素材与原图相同，请选择另一张产品图后再换产品",
     "defaultJobName": "商品图 {{index}}"
+  },
+  "exportPreset": {
+    "amazon": "亚马逊 2000×2000",
+    "alibaba": "阿里巴巴 800×800",
+    "pinduoduo": "拼多多 750×1000",
+    "site": "独立站 1200×1200"
   }
 }

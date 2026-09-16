@@ -117,7 +117,9 @@
     "noModel": "当前部署没有支持{{label}}的模型",
     "notDone": "这条还没生成完",
     "tooShort": "源片不足 {{seconds}} 秒",
-    "tooLong": "源片超过 {{seconds}} 秒"
+    "tooLong": "源片超过 {{seconds}} 秒",
+    "extend": "续写",
+    "edit": "改视频"
   },
   "download": {
     "progressPercent": "下载中 {{percent}}%",
@@ -303,5 +305,28 @@
     "noLine": "（无）",
     "shotFile": "镜{{no}}",
     "zipName": "{{title}}-分镜"
+  },
+  "tagline": {
+    "grok": "高清",
+    "agnesFlash": "首尾帧",
+    "seedance": "多镜头",
+    "veoFast": "原生音频",
+    "veoLite": "经济档"
+  },
+  "reject": {
+    "promptTooLong": "{{label}} 描述最多 {{max}} 字",
+    "modelUnsupported": "该模型不支持视频生成",
+    "modeUnsupported": "不支持的视频模式",
+    "durationUnsupported": "{{label}} 时长只支持 {{durations}} 秒",
+    "extendDurationOutOfRange": "续写时长只支持 {{min}}-{{max}} 秒",
+    "editDurationMissing": "改视频缺少源片时长",
+    "aspectRatioUnsupported": "{{label}} 画幅只支持 {{allowed}}",
+    "resolutionUnsupported": "{{label}} 清晰度只支持 {{allowed}}",
+    "durationForResolutionUnsupported": "{{label}} {{resolution}} 只支持 {{durations}} 秒",
+    "frameUnsupported": "{{label}} 不支持{{frame}}",
+    "frameImageMissing": "{{frame}}图片不存在",
+    "deriveModeUnsupported": "{{label}} 不支持{{mode}}",
+    "deriveFramesRejected": "续写和改视频不接受首尾帧",
+    "deriveSourceMissing": "{{mode}}缺少源视频"
   }
 }

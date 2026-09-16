@@ -261,3 +261,54 @@ describe('callQueueChannelApi submit body', () => {
     }
   })
 })
+
+/**
+ * BFF 的 400 响应里 `message` 是中文的。前端按稳定的 `error` 码取译文，认不出来的码才退回
+ * 服务端原文——否则英文用户会看到 `Submit failed: 该模型不支持视频生成`。
+ *
+ * 两个 import 都走动态 import：上面的 describe 会 `vi.resetModules()`，静态 import 拿到的
+ * i18next 与被测模块里的可能不是同一个实例，语言就切不动了。
+ */
+describe('提交失败时的 BFF 错误码文案', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  async function submitAgainst(body: unknown): Promise<string> {
+    const call = await loadCallQueueChannelApi()
+    vi.spyOn(globalThis, 'fetch').mockImplementationOnce(
+      async () => new Response(JSON.stringify(body), { status: 400 }),
+    )
+    try {
+      await call(mockOpts(), mockProfile('openai-compat'), mockChannel('openai-compat'))
+    } catch (error) {
+      return error instanceof Error ? error.message : String(error)
+    }
+    throw new Error('expected the submit to reject')
+  }
+
+  it('认得的码在英文下给英文，不漏服务端中文', async () => {
+    const { setLocale } = await import('../../../i18n')
+    await setLocale('en')
+
+    const message = await submitAgainst({
+      error: 'video_not_supported',
+      message: '该模型不支持视频生成',
+    })
+
+    expect(message).toContain('This model cannot generate video')
+    expect(message).not.toContain('该模型不支持视频生成')
+
+    await setLocale('zh-CN')
+  })
+
+  it('认不得的码退回 getApiErrorMessage 的结果', async () => {
+    // getApiErrorMessage 对字符串形式的 `error` 优先级高于 `message`，所以这里回吐的是码本身。
+    // 这是既有行为，不是本次引入的：好处是 BFF 新增错误码时也不会把中文 message 漏给英文用户，
+    // 代价是用户看到一个机器码。真要给它一句人话，就把码加进 BFF_SUBMIT_ERROR_KEYS。
+    const message = await submitAgainst({ error: 'some_new_code', message: '服务端说了句新话' })
+
+    expect(message).toContain('some_new_code')
+    expect(message).not.toContain('服务端说了句新话')
+  })
+})

@@ -117,7 +117,9 @@
     "noModel": "No model in this deployment supports {{label}}",
     "notDone": "This one hasn't finished yet",
     "tooShort": "Source is under {{seconds}}s",
-    "tooLong": "Source is over {{seconds}}s"
+    "tooLong": "Source is over {{seconds}}s",
+    "extend": "Extend",
+    "edit": "Edit"
   },
   "download": {
     "progressPercent": "Downloading {{percent}}%",
@@ -306,5 +308,28 @@
     "noLine": "(none)",
     "shotFile": "shot{{no}}",
     "zipName": "{{title}}-storyboard"
+  },
+  "tagline": {
+    "grok": "HD",
+    "agnesFlash": "First & last frame",
+    "seedance": "Multi-shot",
+    "veoFast": "Native audio",
+    "veoLite": "Budget"
+  },
+  "reject": {
+    "promptTooLong": "{{label}} allows at most {{max}} characters",
+    "modelUnsupported": "This model cannot generate video",
+    "modeUnsupported": "Unsupported video mode",
+    "durationUnsupported": "{{label}} only supports {{durations}} seconds",
+    "extendDurationOutOfRange": "Extend only supports {{min}}-{{max}} seconds",
+    "editDurationMissing": "Edit is missing the source duration",
+    "aspectRatioUnsupported": "{{label}} only supports {{allowed}}",
+    "resolutionUnsupported": "{{label}} only supports {{allowed}}",
+    "durationForResolutionUnsupported": "{{label}} {{resolution}} only supports {{durations}} seconds",
+    "frameUnsupported": "{{frame}} is not supported by {{label}}",
+    "frameImageMissing": "{{frame}} image is gone",
+    "deriveModeUnsupported": "{{label}} does not support {{mode}}",
+    "deriveFramesRejected": "Extend and edit take no first or last frame",
+    "deriveSourceMissing": "{{mode}} is missing its source video"
   }
 }

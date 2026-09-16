@@ -53,3 +53,13 @@ export function formatNumber(value: number, options?: Intl.NumberFormatOptions):
 export function formatCount(value: number): string {
   return formatNumber(Math.round(value), { maximumFractionDigits: 0 })
 }
+
+/** 顿号在英文里不存在。列举的分隔符跟着 locale 走，别把中文标点带进英文界面。 */
+export function joinList(items: readonly string[]): string {
+  return items.join(currentLocale() === 'zh-CN' ? '、' : ', ')
+}
+
+/** 两条各自独立的提示并排显示时的分隔。 */
+export function joinNotices(items: readonly string[]): string {
+  return items.join(currentLocale() === 'zh-CN' ? '；' : '; ')
+}

@@ -369,5 +369,11 @@
     "jobDeleted": "The product shot task was deleted",
     "productIsSource": "The product asset is the same as the source image, pick another product image before swapping",
     "defaultJobName": "Product shots {{index}}"
+  },
+  "exportPreset": {
+    "amazon": "Amazon 2000×2000",
+    "alibaba": "Alibaba 800×800",
+    "pinduoduo": "Pinduoduo 750×1000",
+    "site": "Own site 1200×1200"
   }
 }

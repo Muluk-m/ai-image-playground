@@ -24,6 +24,18 @@ import { bffBaseUrl } from '../runtimeConfig'
 import { nearestAspectRatio } from '../size'
 import type { BuiltinEdgeProfile, ProviderKind, PublicChannel } from './types'
 
+/**
+ * BFF 400 响应里 `message` 是中文的，直接显示就会把中文漏给英文用户。`error` 码是稳定的，
+ * 按码取译文。这里只收会带中文 message 的那几个；其余码（配额、鉴权等）各有自己的分支。
+ */
+const BFF_SUBMIT_ERROR_KEYS = {
+  video_not_supported: 'queue.bffVideoNotSupported',
+  video_params_required: 'queue.bffVideoParamsRequired',
+  invalid_video_request: 'queue.bffInvalidVideoRequest',
+  invalid_video_source: 'queue.bffInvalidVideoSource',
+  invalid_input_image: 'queue.bffInvalidInputImage',
+} as const
+
 const { POLL_BACKOFF_MS, POLL_MAX_MS, POLL_MAX_CONSECUTIVE_FAILURES } = QUEUE_TIMEOUTS
 
 /** 队列产出的字节地址。留在传输层，避免认证启动时提前加载用户 store。 */
@@ -196,6 +208,10 @@ async function postSubmit(
     }
   }
   if (!res.ok) {
+    // BFF 的 400 里 message 是中文的（`该模型不支持视频生成` 之类），它会直接显示给用户。
+    // 前端按稳定的 error 码取译文，认不出来的码才退回服务端原文。克隆一份读，
+    // 别把下面 429 分支和 getApiErrorMessage 要用的 body 吃掉。
+    const coded = res.clone()
     if (res.status === 429) {
       const json = (await res.json().catch(() => null)) as {
         error?: string
@@ -218,9 +234,15 @@ async function postSubmit(
         throw err
       }
     }
-    throw new Error(
-      i18next.t('queue.submitFailed', { ns: 'lib', reason: await getApiErrorMessage(res) }),
-    )
+    const code = ((await coded.json().catch(() => null)) as { error?: string } | null)?.error
+    // `as const` 不能省：退化成 `string` 就过不了 t() 的字面量 key 检查，
+    // 拼错的 key 也就不会在 typecheck 红了。
+    const localized =
+      code && code in BFF_SUBMIT_ERROR_KEYS
+        ? BFF_SUBMIT_ERROR_KEYS[code as keyof typeof BFF_SUBMIT_ERROR_KEYS]
+        : undefined
+    const reason = localized ? i18next.t(localized, { ns: 'lib' }) : await getApiErrorMessage(res)
+    throw new Error(i18next.t('queue.submitFailed', { ns: 'lib', reason }))
   }
   const json = (await res.json()) as SubmitResponse
   if (!json.request_id) throw new Error(i18next.t('queue.submitMissingRequestId', { ns: 'lib' }))

@@ -1,4 +1,4 @@
-import { VIDEO_DERIVE_LABELS, VIDEO_MODEL_SUPPORT } from '@image-playground/shared'
+import { VIDEO_MODEL_SUPPORT } from '@image-playground/shared'
 import { useState } from 'react'
 import ContextMenu, { ContextMenuItem } from '../../../components/ContextMenu'
 import Credits from '../../../components/Credits'
@@ -9,6 +9,7 @@ import { useStore } from '../../../store'
 import { videoAspectLabel, videoFrameAspect } from '../lib/aspect'
 import { deriveOptions, type VideoDeriveOption } from '../lib/derive'
 import { isVideoTaskActive } from '../lib/feed'
+import { videoDeriveLabel } from '../lib/labels'
 import { adoptAsFirstFrame, captureVideoFrame, clockLabel, videoOutputUrl } from '../lib/playback'
 import { useVideoStore } from '../store'
 import type { VideoTask } from '../types'
@@ -156,7 +157,7 @@ export default function VideoCard({ task, onOpen }: { task: VideoTask; onOpen: (
                 title={option.disabledReason}
                 onClick={() => setDerive(option)}
               >
-                {VIDEO_DERIVE_LABELS[option.mode]}
+                {videoDeriveLabel(option.mode)}
               </button>
             ))}
             <button
@@ -210,7 +211,7 @@ export default function VideoCard({ task, onOpen }: { task: VideoTask; onOpen: (
         )}
         <div className="mt-0.5 flex flex-wrap items-center gap-2">
           {task.derived && (
-            <span className={LINEAGE_CHIP}>{VIDEO_DERIVE_LABELS[task.derived.mode]}</span>
+            <span className={LINEAGE_CHIP}>{videoDeriveLabel(task.derived.mode)}</span>
           )}
           <span>{modelLabel}</span>
           <span>{t('shared.seconds', { seconds: task.duration })}</span>

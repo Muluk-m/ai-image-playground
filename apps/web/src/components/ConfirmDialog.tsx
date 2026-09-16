@@ -73,8 +73,11 @@ export default function ConfirmDialog() {
       : confirmTone === 'danger'
         ? 'bg-red-500 hover:bg-red-600'
         : 'bg-blue-500 hover:bg-blue-600'
+  // 按钮文案跟着最终语气走，不再单独看标题：调用方显式传了 tone 时，标题里没有「删除」二字
+  // 也应当给出「确认删除」。否则显式 tone 只改颜色不改文案，两者会对不上。
   const confirmText =
-    confirmDialog.confirmText ?? t(isDestructive ? 'confirm.deleteConfirm' : 'confirm.confirm')
+    confirmDialog.confirmText ??
+    t(confirmTone === 'danger' ? 'confirm.deleteConfirm' : 'confirm.confirm')
   const cancelText = confirmDialog.cancelText ?? t('common:action.cancel')
 
   return (

@@ -68,7 +68,12 @@
     "pollTimeout": "The BFF task did not finish within {{seconds}}s{{trailing}}",
     "resultMetaFailed": "Could not fetch the BFF result meta: {{reason}}",
     "notCompleted": "The BFF returned a non-completed status: {{status}}",
-    "imageFetchFailed": "Could not fetch BFF image #{{index}}: {{reason}}"
+    "imageFetchFailed": "Could not fetch BFF image #{{index}}: {{reason}}",
+    "bffVideoNotSupported": "This model cannot generate video",
+    "bffVideoParamsRequired": "The video task is missing its video parameters",
+    "bffInvalidVideoRequest": "These video settings are outside what the model allows, adjust them and retry",
+    "bffInvalidVideoSource": "That source video cannot be used, pick another one",
+    "bffInvalidInputImage": "That reference image cannot be used, pick another one"
   },
   "dispatch": {
     "builtinOnly": "This deployment only allows built-in models",
@@ -138,7 +143,8 @@
     "unsupported": "This browser cannot run a local cutout",
     "localFailed": "Local cutout failed",
     "workerStartFailed": "The cutout worker failed to start",
-    "backendServer": "Server"
+    "backendServer": "Server",
+    "localFailedWithReason": "Local cutout failed: {{reason}}"
   },
   "transparent": {
     "pixelSizeMismatch": "Transparent-background pixel data size mismatch",

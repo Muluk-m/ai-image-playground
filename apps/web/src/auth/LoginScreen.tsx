@@ -1,12 +1,7 @@
 import { OAUTH_ERROR_QUERY_PARAM, type OAuthProviderView } from '@image-playground/shared'
 import { type FormEvent, useEffect, useState } from 'react'
-import {
-  type AppLocale,
-  currentLocale,
-  SUPPORTED_LOCALES,
-  setLocale,
-  useTranslation,
-} from '../i18n'
+import { type AppLocale, SUPPORTED_LOCALES, useTranslation } from '../i18n'
+import { useLocalePicker } from '../i18n/useLocalePicker'
 import {
   AuthRequestError,
   fetchOAuthProviders,
@@ -194,7 +189,7 @@ function registrationErrorKey(error: unknown): LoginErrorKey {
 
 function LanguagePicker() {
   const { t } = useTranslation('common')
-  const active = currentLocale()
+  const { locale, change } = useLocalePicker()
   return (
     <label className="auth-language">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
@@ -203,8 +198,8 @@ function LanguagePicker() {
       </svg>
       <select
         aria-label={t('locale.label')}
-        value={active}
-        onChange={(event) => void setLocale(event.currentTarget.value as AppLocale)}
+        value={locale}
+        onChange={(event) => change(event.currentTarget.value as AppLocale)}
       >
         {SUPPORTED_LOCALES.map((locale) => (
           <option key={locale} value={locale}>

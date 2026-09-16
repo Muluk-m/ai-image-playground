@@ -1,4 +1,4 @@
-import { i18next } from '../../i18n'
+import { describeError, i18next } from '../../i18n'
 import { eligibleBackends, type MatteBackend, type MatteBackendId } from './backends'
 import { logMatteFailure } from './matteLog'
 import type { ProductAlpha } from './types'
@@ -77,7 +77,15 @@ export async function segmentProduct(
       failure =
         error instanceof ProductMatteError
           ? error
-          : new ProductMatteError('failed', error instanceof Error ? error.message : String(error))
+          : // worker 里的报错是不翻译的英文技术串（那边不引 i18n，否则整份语料会被打进 worker
+            // chunk）。它会一路兜到界面上，所以在这里套一层译文，别让中文用户看到英文。
+            new ProductMatteError(
+              'failed',
+              i18next.t('matte.localFailedWithReason', {
+                ns: 'lib',
+                reason: describeError(error),
+              }),
+            )
       logMatteFailure({
         backend: backend.id,
         reason: failure.reason,

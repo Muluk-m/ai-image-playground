@@ -3,8 +3,8 @@ import {
   VIDEO_MODEL_SUPPORT,
   VIDEO_RESOLUTION_LABELS,
   type VideoModelSupport,
-  validateVideoPrompt,
   videoDurationsForResolution,
+  videoPromptRejection,
   videoRateMultiplier,
 } from '@image-playground/shared'
 import { useEffect, useMemo, useState } from 'react'
@@ -17,6 +17,7 @@ import { useTranslation } from '../../../i18n'
 import { type VideoModelOption, videoModelOptions } from '../../../lib/channels/videoChannels'
 import { isClientCapabilityEnabled } from '../../../lib/clientCapabilities'
 import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
+import { videoRejectionText, videoTaglineLabel } from '../lib/labels'
 import { useVideoStore } from '../store'
 import StoryboardComposer from '../storyboard/components/StoryboardComposer'
 import {
@@ -106,7 +107,7 @@ function VideoSubmitPanel({
   const lastFrameReason = support.lastFrame
     ? undefined
     : t('composer.lastFrameUnsupported', { model: support.label })
-  const promptCheck = validateVideoPrompt(draft.model, draft.prompt)
+  const promptRejection = videoPromptRejection(draft.model, draft.prompt)
   const durations = videoDurationsForResolution(support, draft.resolution)
   const summary = t('composer.summary', {
     model: support.label,
@@ -150,13 +151,13 @@ function VideoSubmitPanel({
       <div>
         <div className="mb-1.5 flex items-baseline justify-between">
           <span className={LABEL}>{t('field.description')}</span>
-          {promptCheck.ok ? (
-            <span className="text-[11px] text-gray-400 dark:text-gray-500">
-              {t('composer.promptHint')}
-            </span>
-          ) : (
+          {promptRejection ? (
             <span className="text-[11px] text-red-600 dark:text-red-400">
               {draft.prompt.length} / {support.promptMaxChars}
+            </span>
+          ) : (
+            <span className="text-[11px] text-gray-400 dark:text-gray-500">
+              {t('composer.promptHint')}
             </span>
           )}
         </div>
@@ -189,7 +190,7 @@ function VideoSubmitPanel({
             <ModelCard
               key={option.modelId}
               option={option}
-              hint={option.support.tagline}
+              hint={videoTaglineLabel(option.modelId)}
               selected={option.modelId === draft.model}
               onSelect={() => useVideoStore.getState().setModel(option.modelId)}
             />
@@ -252,8 +253,8 @@ function VideoSubmitPanel({
         />
         <button
           type="button"
-          disabled={guard.blocked || !promptCheck.ok}
-          title={promptCheck.ok ? guard.disabledReason : promptCheck.reason}
+          disabled={guard.blocked || !!promptRejection}
+          title={promptRejection ? videoRejectionText(promptRejection) : guard.disabledReason}
           onClick={() => void useVideoStore.getState().submit()}
           className={`${PRIMARY_BUTTON} w-full disabled:cursor-not-allowed`}
         >

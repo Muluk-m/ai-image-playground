@@ -1,8 +1,8 @@
 import {
   VIDEO_RESOLUTION_LABELS,
-  validateVideoPrompt,
-  validateVideoRequest,
+  videoPromptRejection,
   videoRateMultiplier,
+  videoRequestRejection,
 } from '@image-playground/shared'
 import { useState } from 'react'
 import Credits from '../../../../components/Credits'
@@ -11,6 +11,7 @@ import { describeError, useTranslation } from '../../../../i18n'
 import { videoModelOptions } from '../../../../lib/channels/videoChannels'
 import { usePrivateSubmissionGuard } from '../../../../lib/privateOverlay'
 import { useStore } from '../../../../store'
+import { videoRejectionText } from '../../lib/labels'
 import { useVideoStore } from '../../store'
 import { useStoryboardStore, wholeVideoFrameId } from '../store'
 import type { StoryboardRecord, StoryboardShotRecord } from '../types'
@@ -40,7 +41,7 @@ export default function DirectorGeneration({
   const seconds = scope === 'shot' ? (shot?.seconds ?? 0) : record.totalSeconds
   const imageId = scope === 'shot' ? shot?.imageId : wholeVideoFrameId(record)
   const prompt = scope === 'shot' ? (shot?.videoPrompt ?? '') : record.videoPrompt
-  const check = validateVideoRequest(
+  const requestRejection = videoRequestRejection(
     draft.model,
     {
       duration_seconds: seconds,
@@ -50,7 +51,7 @@ export default function DirectorGeneration({
     },
     imageId ? 1 : 0,
   )
-  const promptCheck = validateVideoPrompt(draft.model, prompt)
+  const promptRejection = videoPromptRejection(draft.model, prompt)
   const guard = usePrivateSubmissionGuard({
     model: draft.model,
     quantity: seconds,
@@ -60,10 +61,10 @@ export default function DirectorGeneration({
     ? t('generation.needModel')
     : scope === 'shot' && !imageId
       ? t('generation.needShotImage')
-      : !check.ok
-        ? check.reason
-        : !promptCheck.ok
-          ? promptCheck.reason
+      : requestRejection
+        ? videoRejectionText(requestRejection)
+        : promptRejection
+          ? videoRejectionText(promptRejection)
           : guard.disabledReason
   const submit = async () => {
     setSubmitting(true)
@@ -168,8 +169,8 @@ export default function DirectorGeneration({
         disabled={
           submitting ||
           !option ||
-          !check.ok ||
-          !promptCheck.ok ||
+          !!requestRejection ||
+          !!promptRejection ||
           guard.blocked ||
           (scope === 'shot' && !imageId)
         }

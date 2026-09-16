@@ -27,7 +27,10 @@ export default function StoryboardBoard({
   const [selected, setSelected] = useState<number | null>(null)
   const [panel, setPanel] = useState<'detail' | 'save' | 'versions' | 'generate'>('detail')
   const [scope, setScope] = useState<'whole' | 'shot'>('whole')
-  const [name, setName] = useState(() => t('board.defaultVersionName'))
+  // 存 null 表示「还没改过，用默认名」。惰性初始器只在挂载时求值一次，分镜板是常驻视图，
+  // 切完语言不会重挂，预填的名字会停在旧语言上，保存后还会以旧语言落进 version.name。
+  const [editedName, setEditedName] = useState<string | null>(null)
+  const name = editedName ?? t('board.defaultVersionName')
   const [saving, setSaving] = useState(false)
   const [preview, setPreview] = useState(false)
   const record = storyboards.find((item) => item.id === activeId)
@@ -300,7 +303,7 @@ export default function StoryboardBoard({
                 <input
                   aria-label={t('board.versionNameLabel')}
                   value={name}
-                  onChange={(e) => setName(e.target.value)}
+                  onChange={(e) => setEditedName(e.target.value)}
                 />
               </label>
               <p className="vd-muted">{t('board.saveVersionNote')}</p>

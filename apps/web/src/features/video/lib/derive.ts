@@ -1,5 +1,4 @@
 import {
-  VIDEO_DERIVE_LABELS,
   VIDEO_DERIVE_MODES,
   type VideoDeriveMode,
   type VideoResolution,
@@ -7,6 +6,7 @@ import {
 import { i18next } from '../../../i18n'
 import { type VideoModelOption, videoModelOptions } from '../../../lib/channels/videoChannels'
 import type { VideoTask } from '../types'
+import { videoDeriveLabel } from './labels'
 
 export const VIDEO_EXTEND_SECONDS = [2, 5, 8, 10] as const
 export const DEFAULT_EXTEND_SECONDS = 5
@@ -34,7 +34,7 @@ export function checkDerive(task: VideoTask, mode: VideoDeriveMode): VideoDerive
   if (!option)
     return {
       ok: false,
-      reason: i18next.t('derive.noModel', { ns: 'video', label: VIDEO_DERIVE_LABELS[mode] }),
+      reason: i18next.t('derive.noModel', { ns: 'video', label: videoDeriveLabel(mode) }),
     }
   if (task.status !== 'done' || !task.bffRequestId || task.outputIndex === undefined)
     return { ok: false, reason: i18next.t('derive.notDone', { ns: 'video' }) }

@@ -1,3 +1,4 @@
+import type { ExportPreset } from '@image-playground/shared'
 import { i18next } from '../../../i18n'
 import { type ExportEntry, type ExportFit, sanitizePathSegment } from '../../../lib/imageExport'
 import type { TaskRecord } from '../../../types'
@@ -30,6 +31,23 @@ export function exportScopeLabels(): Record<ExportScope, string> {
     chosen: i18next.t('gallery.scope.chosen', { ns: 'productShots' }),
     all: i18next.t('gallery.scope.all', { ns: 'productShots' }),
   }
+}
+
+/**
+ * 导出尺寸的界面标签。`packages/shared` 那份 `label` 是中文常量，界面按 preset id 查译文，
+ * 尺寸数字写在译文里。`ExportPreset.id` 是 string，拼不出 i18next 要的字面量 key，显式列一遍。
+ */
+export function exportPresetLabels(): Record<string, string> {
+  return {
+    amazon: i18next.t('exportPreset.amazon', { ns: 'productShots' }),
+    alibaba: i18next.t('exportPreset.alibaba', { ns: 'productShots' }),
+    pinduoduo: i18next.t('exportPreset.pinduoduo', { ns: 'productShots' }),
+    site: i18next.t('exportPreset.site', { ns: 'productShots' }),
+  }
+}
+
+export function exportPresetLabel(preset: ExportPreset): string {
+  return exportPresetLabels()[preset.id] ?? ''
 }
 
 /** 出过版本的原图才进总览，一张一行。 */

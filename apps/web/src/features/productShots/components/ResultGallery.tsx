@@ -18,6 +18,7 @@ import {
   type ExportScope,
   exportBlockedReason,
   exportPlan,
+  exportPresetLabel,
   exportScopeLabels,
   flatVersions,
   galleryImageIds,
@@ -119,7 +120,7 @@ export default function ResultGallery() {
         >
           {EXPORT_PRESETS.map((option) => (
             <option key={option.id} value={option.id}>
-              {option.label}
+              {exportPresetLabel(option)}
             </option>
           ))}
         </select>

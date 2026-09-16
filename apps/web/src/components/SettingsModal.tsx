@@ -1,12 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import {
-  type AppLocale,
-  currentLocale,
-  SUPPORTED_LOCALES,
-  setLocale,
-  useTranslation,
-} from '../i18n'
+import { type AppLocale, SUPPORTED_LOCALES, useTranslation } from '../i18n'
+import { useLocalePicker } from '../i18n/useLocalePicker'
 import { normalizeBaseUrl } from '../lib/api'
 import {
   type ApiProfile,
@@ -407,6 +402,7 @@ profiles 中不要包含 apiKey（用户导入后自行填写）。
 export default function SettingsModal() {
   const { t } = useTranslation('settings')
   const { t: tCommon } = useTranslation('common')
+  const localePicker = useLocalePicker()
   const showSettings = useStore((s) => s.showSettings)
   const setShowSettings = useStore((s) => s.setShowSettings)
   const settings = useStore((s) => s.settings)
@@ -1365,9 +1361,9 @@ export default function SettingsModal() {
                         <div className="w-32">
                           <select
                             aria-label={tCommon('locale.label')}
-                            value={currentLocale()}
+                            value={localePicker.locale}
                             onChange={(event) =>
-                              void setLocale(event.currentTarget.value as AppLocale)
+                              localePicker.change(event.currentTarget.value as AppLocale)
                             }
                             className="w-full px-3 py-1.5 rounded-xl border border-gray-200/60 dark:border-white/[0.08] bg-white/50 dark:bg-white/[0.03] hover:bg-white dark:hover:bg-white/[0.06] text-xs transition-all duration-200 shadow-sm text-gray-700 dark:text-gray-200 outline-none"
                           >

@@ -1,8 +1,4 @@
-import {
-  VIDEO_DERIVE_LABELS,
-  type VideoDeriveMode,
-  videoRateMultiplier,
-} from '@image-playground/shared'
+import { type VideoDeriveMode, videoRateMultiplier } from '@image-playground/shared'
 import { useState } from 'react'
 import Credits from '../../../components/Credits'
 import Overlay from '../../../components/Overlay'
@@ -18,6 +14,7 @@ import { useTranslation } from '../../../i18n'
 import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
 import { useStore } from '../../../store'
 import { DEFAULT_EXTEND_SECONDS, DERIVE_RESOLUTION, VIDEO_EXTEND_SECONDS } from '../lib/derive'
+import { videoDeriveLabel } from '../lib/labels'
 import { useVideoStore } from '../store'
 import type { VideoTask } from '../types'
 import ChipRow from './ChipRow'
@@ -39,7 +36,7 @@ export default function DeriveVideoPopover({
   const [prompt, setPrompt] = useState('')
   const [extendSeconds, setExtendSeconds] = useState<number>(DEFAULT_EXTEND_SECONDS)
   const seconds = mode === 'edit' ? task.duration : extendSeconds
-  const label = VIDEO_DERIVE_LABELS[mode]
+  const label = videoDeriveLabel(mode)
   const title = mode === 'extend' ? t('derive.titleExtend') : t('derive.titleEdit')
   const placeholder =
     mode === 'extend' ? t('derive.placeholderExtend') : t('derive.placeholderEdit')

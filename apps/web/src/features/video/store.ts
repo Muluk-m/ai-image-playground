@@ -9,9 +9,9 @@ import {
   type VideoDuration,
   type VideoRequest,
   type VideoResolution,
-  validateVideoPrompt,
-  validateVideoRequest,
+  videoPromptRejection,
   videoRateMultiplier,
+  videoRequestRejection,
 } from '@image-playground/shared'
 import { create } from 'zustand'
 import { i18next } from '../../i18n'
@@ -33,6 +33,7 @@ import {
 import { ensureImageCached, storeImageFromFile, useStore } from '../../store'
 import { checkDerive, DERIVE_RESOLUTION } from './lib/derive'
 import { appendCameraMove, clampDraftToSupport, videoDraftFromTask } from './lib/draft'
+import { videoRejectionText } from './lib/labels'
 import { videoTaskStore } from './lib/videoStore'
 import type { VideoDraft, VideoFrameSlot, VideoSource, VideoTask } from './types'
 
@@ -251,12 +252,12 @@ export const useVideoStore = create<VideoState>((set, get) => {
       return null
     }
     const frameCount = [task.firstFrameImageId, task.lastFrameImageId].filter(Boolean).length
-    for (const check of [
-      validateVideoRequest(task.model, video, frameCount),
-      validateVideoPrompt(task.model, prompt),
+    for (const found of [
+      videoRequestRejection(task.model, video, frameCount),
+      videoPromptRejection(task.model, prompt),
     ]) {
-      if (!check.ok) {
-        showToast(check.reason, 'error')
+      if (found) {
+        showToast(videoRejectionText(found), 'error')
         return null
       }
     }

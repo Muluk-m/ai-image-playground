@@ -8,6 +8,7 @@ import {
 } from '@image-playground/shared'
 import { create } from 'zustand'
 import { i18next } from '../../i18n'
+import { joinNotices } from '../../i18n/format'
 import { analyzeCompetitorImages } from '../../lib/analyzeClient'
 import { getActiveApiProfile } from '../../lib/apiProfiles'
 import { authenticatedBffFetch } from '../../lib/authClient'
@@ -1045,7 +1046,7 @@ async function prepareSwap(
 
   return {
     ...attempt,
-    notice: [product?.notice, attempt.notice].filter(Boolean).join('；') || null,
+    notice: joinNotices([product?.notice, attempt.notice].filter(Boolean) as string[]) || null,
     lowResSource: await isLowResSource(dataUrl),
     imageId,
     plan: planned.plan,

@@ -1,8 +1,4 @@
-import {
-  VIDEO_DERIVE_LABELS,
-  VIDEO_MODEL_SUPPORT,
-  VIDEO_RESOLUTION_LABELS,
-} from '@image-playground/shared'
+import { VIDEO_MODEL_SUPPORT, VIDEO_RESOLUTION_LABELS } from '@image-playground/shared'
 import { useEffect, useRef, useState } from 'react'
 import Credits from '../../../components/Credits'
 import Overlay from '../../../components/Overlay'
@@ -13,6 +9,7 @@ import { copyTextToClipboard, getClipboardFailureMessage } from '../../../lib/cl
 import { useStore } from '../../../store'
 import { videoAspectLabel, videoFrameAspect } from '../lib/aspect'
 import { deriveOptions, type VideoDeriveOption } from '../lib/derive'
+import { videoDeriveLabel } from '../lib/labels'
 import { adoptAsFirstFrame, captureVideoFrame, videoOutputUrl } from '../lib/playback'
 import { cancelVideoDownload } from '../lib/useVideoDownload'
 import { useVideoStore } from '../store'
@@ -194,7 +191,7 @@ export default function VideoLightbox({ task, onClose }: { task: VideoTask; onCl
                 title={option.disabledReason}
                 onClick={() => setDerive(option)}
               >
-                {VIDEO_DERIVE_LABELS[option.mode]}
+                {videoDeriveLabel(option.mode)}
               </button>
             ))}
           </div>

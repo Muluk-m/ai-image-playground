@@ -5,6 +5,7 @@ import {
   type ShotType,
 } from '@image-playground/shared'
 import { i18next } from '../../../i18n'
+import { joinList } from '../../../i18n/format'
 import { buildShotPrompt, isRenderableShotType } from '../../../lib/shotPrompt'
 import {
   type RemixBrief,
@@ -102,5 +103,5 @@ export function parseTextList(text: string): string[] {
 }
 
 export function formatTextList(items: readonly string[]): string {
-  return items.join('、')
+  return joinList(items)
 }
