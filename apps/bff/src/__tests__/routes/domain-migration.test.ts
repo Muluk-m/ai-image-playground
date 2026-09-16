@@ -177,3 +177,13 @@ it('returns explicit JSON null for deployments with migration disabled', async (
     process.env.DOMAIN_MIGRATION_CONFIG_FILE = configured
   }
 })
+
+it('accounts for UTF-8 bytes rather than string length when enforcing relay capacity', async () => {
+  const transfer = await start()
+  await db
+    .update(schema.domain_migrations)
+    .set({ bytes: 1024 * 1024 * 1024 - 4 })
+    .where(eq(schema.domain_migrations.id, transfer.id))
+  const response = await call('upload', { ...transfer, sequence: 0, ciphertext: '画画' })
+  expect(response.status).toBe(413)
+})
