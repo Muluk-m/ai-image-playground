@@ -5,7 +5,7 @@ import {
   PASSWORD_MAX_LENGTH,
   PASSWORD_MIN_LENGTH,
 } from '@image-playground/shared'
-import { type FormEvent, useState } from 'react'
+import { type FormEvent, type ReactNode, useState } from 'react'
 
 export interface RegistrationCredentials {
   username: string
@@ -17,6 +17,7 @@ interface RegistrationPanelProps {
   error: string | null
   onBack: () => void
   onRegister: (credentials: RegistrationCredentials) => void
+  children?: ReactNode
 }
 
 function EyeIcon({ crossed = false }: { crossed?: boolean }) {
@@ -29,7 +30,13 @@ function EyeIcon({ crossed = false }: { crossed?: boolean }) {
   )
 }
 
-export function RegistrationPanel({ pending, error, onBack, onRegister }: RegistrationPanelProps) {
+export function RegistrationPanel({
+  pending,
+  error,
+  onBack,
+  onRegister,
+  children,
+}: RegistrationPanelProps) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
@@ -69,6 +76,7 @@ export function RegistrationPanel({ pending, error, onBack, onRegister }: Regist
         <h1>创建账户</h1>
         <p>注册后即可开始你的创作旅程</p>
       </div>
+      {children}
 
       <form onSubmit={submit} className="auth-form" noValidate>
         <label className="auth-field" htmlFor="registration-email">

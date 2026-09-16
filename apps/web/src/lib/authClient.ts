@@ -56,11 +56,15 @@ export async function loginUser(username: string, password: string): Promise<Aut
   return result.user
 }
 
-export async function registerUser(username: string, password: string): Promise<AuthUserView> {
+export async function registerUser(
+  username: string,
+  password: string,
+  referralCode?: string,
+): Promise<AuthUserView> {
   const result = await authJson<{ user: AuthUserView }>('/api/auth/register', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ username, password }),
+    body: JSON.stringify({ username, password, referral_code: referralCode?.trim() || undefined }),
   })
   return result.user
 }
@@ -82,8 +86,11 @@ export async function fetchOAuthProviders(): Promise<OAuthProviderView[]> {
   }
 }
 
-export function oauthStartUrl(provider: string): string {
-  return bffUrl(`/api/auth/oauth/${provider}/start`)
+export function oauthStartUrl(provider: string, referralCode?: string): string {
+  const code = referralCode?.trim()
+  return bffUrl(
+    `/api/auth/oauth/${provider}/start${code ? `?ref=${encodeURIComponent(code)}` : ''}`,
+  )
 }
 
 export async function logoutUser(): Promise<void> {

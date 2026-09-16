@@ -20,6 +20,8 @@ export type UserOperationErrorCode =
   | 'account_disabled'
   | 'current_password_required'
   | 'invalid_credentials'
+  | 'invalid_referral_code'
+  | 'registration_reward_unavailable'
 
 export class UserOperationError extends Error {
   constructor(readonly code: UserOperationErrorCode) {
@@ -71,6 +73,7 @@ async function provisionUser(
   usernameInput: string,
   password: string,
   source: 'operator' | 'self-registration',
+  referralCode?: string,
 ): Promise<{ user: OperationalUser; sessionToken: string | null }> {
   const username = normalizeUsername(usernameInput)
   if (!isValidUsername(username)) throw new UserOperationError('invalid_username')
@@ -108,7 +111,7 @@ async function provisionUser(
               operator_id: id,
             },
       )
-      await taskHooks.onUserCreated({ tx, userId: id })
+      await taskHooks.onUserCreated({ tx, userId: id, source, referralCode })
       const sessionToken = source === 'self-registration' ? await createUserSession(id, tx) : null
       return { user: created, sessionToken }
     })
@@ -128,8 +131,9 @@ export async function createUser(
 export async function registerUser(
   usernameInput: string,
   password: string,
+  referralCode?: string,
 ): Promise<{ user: OperationalUser; sessionToken: string }> {
-  const result = await provisionUser(usernameInput, password, 'self-registration')
+  const result = await provisionUser(usernameInput, password, 'self-registration', referralCode)
   if (!result.sessionToken) throw new Error('registered user session missing')
   return { user: result.user, sessionToken: result.sessionToken }
 }
@@ -208,7 +212,7 @@ async function firstFreeUsernames(candidates: string[]): Promise<string[]> {
 /** Signs in a third-party subject, provisioning an account on first sight. */
 export async function loginWithOAuthIdentity(
   identity: OAuthIdentityInput,
-  options: { allowRegistration: boolean },
+  options: { allowRegistration: boolean; referralCode?: string },
 ): Promise<OAuthLoginOutcome> {
   const email = identity.email ? normalizeUsername(identity.email) : null
   const existingUserId = await findIdentityUserId(identity)
@@ -252,7 +256,12 @@ export async function loginWithOAuthIdentity(
           operator_id: created.id,
         })
         // Shares the password-signup hook so a paid deployment still grants the signup credits.
-        await taskHooks.onUserCreated({ tx, userId: created.id })
+        await taskHooks.onUserCreated({
+          tx,
+          userId: created.id,
+          source: 'self-registration',
+          referralCode: options.referralCode,
+        })
         return { user: created, sessionToken: await createUserSession(created.id, tx) }
       })
     } catch (error) {
