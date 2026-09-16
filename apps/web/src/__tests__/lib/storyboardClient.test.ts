@@ -83,6 +83,13 @@ describe('asking the BFF for a storyboard', () => {
     await expect(planStoryboard(REQUEST, empty)).rejects.toThrow('分镜脚本没有生成成功')
   })
 
+  // 超时是「再试一次多半就成了」，跟上游故障的处置完全不同，别都说成没生成成功。
+  it('says the model ran long when the BFF reports a deadline', async () => {
+    const slow = vi.fn().mockResolvedValue(jsonResponse({ error: 'storyboard_timeout' }, 504))
+
+    await expect(planStoryboard(REQUEST, slow)).rejects.toThrow('分镜脚本生成超时，请重试')
+  })
+
   it('sends the cookie by default so a logged-in deployment lets the call through', async () => {
     const sent = vi.fn().mockResolvedValue(jsonResponse({ plan: PLAN }))
     vi.stubGlobal('fetch', sent)

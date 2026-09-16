@@ -9,6 +9,8 @@ import { bffBaseUrl } from './runtimeConfig'
 type Fetcher = (input: string, init?: RequestInit) => Promise<Response>
 
 const UNAVAILABLE = '分镜脚本没有生成成功'
+/** BFF 的 504：模型没答完，不是这条路走不通——催一次通常就有了。 */
+const TIMED_OUT = '分镜脚本生成超时，请重试'
 
 export async function planStoryboard(
   request: StoryboardPlanRequest,
@@ -19,6 +21,7 @@ export async function planStoryboard(
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(request),
   })
+  if (response.status === 504) throw new Error(TIMED_OUT)
   const plan = response.ok ? parsePlan(await response.json(), request) : null
   if (!plan) throw new Error(UNAVAILABLE)
   return plan
