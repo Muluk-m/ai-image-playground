@@ -41,6 +41,7 @@ it('roundtrips binary images and structured values without collisions with user 
   const original = {
     id: 'image',
     blob: new Blob(['pixels'], { type: 'image/png' }),
+    file: new File(['draft pixels'], 'reference.png', { type: 'image/png', lastModified: 12345 }),
     date: new Date('2026-09-16'),
     type: 'blob',
     map: new Map([['id', 3]]),
@@ -50,6 +51,9 @@ it('roundtrips binary images and structured values without collisions with user 
   const decoded = unpack(JSON.parse(JSON.stringify(await pack(original)))) as typeof original
   expect(await decoded.blob.text()).toBe('pixels')
   expect(decoded.blob.type).toBe('image/png')
+  expect(decoded.file.name).toBe('reference.png')
+  expect(decoded.file.lastModified).toBe(12345)
+  expect(await decoded.file.text()).toBe('draft pixels')
   expect(decoded.date).toEqual(original.date)
   expect(decoded.map).toEqual(original.map)
   expect(decoded.bytes).toEqual(original.bytes)
