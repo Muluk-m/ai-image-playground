@@ -29,7 +29,7 @@ export const remixAnalyzeRoutes = new Elysia()
       } catch (error) {
         log.warn({ event: 'remix.vision_failed', err: error }, 'vision analysis failed')
         const failure = chatFailure(error, 'vision')
-        if (failure) return status(502, failure)
+        if (failure) return status(failure.status, failure.body)
         throw error
       }
     },

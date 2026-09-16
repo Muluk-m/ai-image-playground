@@ -49,7 +49,7 @@ export const bgswapPlanRoutes = new Elysia()
       } catch (error) {
         log.warn({ event: 'bgswap.vision_failed', err: error }, 'background planning failed')
         const failure = chatFailure(error, 'vision')
-        if (failure) return status(502, failure)
+        if (failure) return status(failure.status, failure.body)
         throw error
       }
     },
@@ -63,7 +63,7 @@ export const bgswapPlanRoutes = new Elysia()
       } catch (error) {
         log.warn({ event: 'bgswap.scan_failed', err: error }, 'scene scan failed')
         const failure = chatFailure(error, 'vision')
-        if (failure) return status(502, failure)
+        if (failure) return status(failure.status, failure.body)
         throw error
       }
     },

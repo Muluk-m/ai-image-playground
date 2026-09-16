@@ -49,7 +49,7 @@ export const storyboardPlanRoutes = new Elysia()
       } catch (error) {
         log.warn({ event: 'storyboard.plan_failed', err: error }, 'storyboard planning failed')
         const failure = chatFailure(error, 'storyboard')
-        if (failure) return status(502, failure)
+        if (failure) return status(failure.status, failure.body)
         throw error
       }
     },
