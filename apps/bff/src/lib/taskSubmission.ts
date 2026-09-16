@@ -5,7 +5,11 @@ import type {
   SubmitRequest,
   TaskStatus,
 } from '@image-playground/shared'
-import { QUEUE_TIMEOUTS, videoRateMultiplier } from '@image-playground/shared'
+import {
+  DEFAULT_IMAGE_MODERATION,
+  QUEUE_TIMEOUTS,
+  videoRateMultiplier,
+} from '@image-playground/shared'
 import { and, eq, isNull } from 'drizzle-orm'
 import { config } from '../config'
 import { db, schema } from '../db/client'
@@ -82,6 +86,9 @@ export async function createQueueTask(
       message:
         error instanceof ObjectStorageError ? error.message : 'Object storage input archive failed',
     }
+  }
+  if (input.provider === 'openai-compat' && !input.video) {
+    requestPayload.moderation ??= DEFAULT_IMAGE_MODERATION
   }
 
   const now = Date.now()

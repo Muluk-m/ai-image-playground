@@ -45,7 +45,7 @@ Three ways to work, one shared history:
 - **Multiple models** — OpenAI, Gemini, custom HTTP endpoints; bring your own API key. The model picker uses compact names and brand icons, with full names and model IDs on hover; matching names are distinguished by their configuration.
 - **Predictable homepage** — every visit opens the workbench; page selection is session-only. Primary navigation is separate from the tools, and settings live in the top-right account/app menu.
 - **Reference images + masks** — up to 16 reference images; the OpenAI path includes a visual mask editor
-- **Automatic moderation** — generation uses upstream automatic/default moderation without a user-facing moderation-strength selector.
+- **Relaxed moderation by default** — ordinary and Agent image generation use `low` on supported providers, without a user-facing strength selector. Upstream content policies still apply.
 - **Waterfall history** — every generation saved locally with its effective parameters, favoritable and searchable
 - **Inspiration library** — hundreds of high-quality prompts you can apply with one click
 
