@@ -2,12 +2,12 @@
 export function projectRouteSegment(id: string): string {
   if (/^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i.test(id)) {
     const bytes = id
-      .replaceAll('-', '')
+      .replace(/-/g, '')
       .match(/../g)!
       .map((hex) => Number.parseInt(hex, 16))
     return btoa(String.fromCharCode(...bytes))
-      .replaceAll('+', '-')
-      .replaceAll('/', '_')
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
       .replace(/=+$/, '')
   }
   // Legacy storage keys must remain unchanged; their address is resolved from the project catalog.
@@ -33,7 +33,7 @@ export function readProjectRoute(pathname = globalThis.location?.pathname ?? '/'
   try {
     const segment = decodeURIComponent(match[1]!)
     if (/^[A-Za-z0-9_-]{22}$/.test(segment)) {
-      const bytes = atob(segment.replaceAll('-', '+').replaceAll('_', '/') + '==')
+      const bytes = atob(segment.replace(/-/g, '+').replace(/_/g, '/') + '==')
       const hex = Array.from(bytes, (byte) =>
         byte.charCodeAt(0).toString(16).padStart(2, '0'),
       ).join('')
