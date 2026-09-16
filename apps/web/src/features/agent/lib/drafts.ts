@@ -43,8 +43,13 @@ export class DraftSession {
   private submission = 0
   private previousKey: string | undefined
 
-  constructor(public key: string) {
-    void this.restore()
+  readonly ready: Promise<void>
+
+  constructor(
+    public key: string,
+    private fallbackKey?: string,
+  ) {
+    this.ready = this.restore()
   }
 
   getSnapshot = () => this.snapshot
@@ -65,7 +70,15 @@ export class DraftSession {
       const db = await openDatabase()
       const stored = await new Promise<AgentDraft | undefined>((resolve, reject) => {
         const request = db.transaction('drafts').objectStore('drafts').get(this.key)
-        request.onsuccess = () => resolve(request.result)
+        request.onsuccess = () => {
+          if (request.result || !this.fallbackKey) {
+            resolve(request.result)
+            return
+          }
+          const fallback = db.transaction('drafts').objectStore('drafts').get(this.fallbackKey)
+          fallback.onsuccess = () => resolve(fallback.result)
+          fallback.onerror = () => reject(fallback.error)
+        }
         request.onerror = () => reject(request.error)
       })
       if (
@@ -148,18 +161,27 @@ export class DraftSession {
   }
 }
 
-export function agentDraft(conversationId: string | null): DraftSession {
-  const key = scopedStorageName(`agent-draft:${conversationId ?? 'new'}`)
+export function agentDraft(
+  conversationId: string | null,
+  projectId?: string,
+  legacyDraft = false,
+): DraftSession {
+  const legacyKey = scopedStorageName(`agent-draft:${conversationId ?? 'new'}`)
+  const key = projectId ? scopedStorageName(`agent-project-draft:${projectId}`) : legacyKey
   let session = sessions.get(key)
   if (!session) {
-    session = new DraftSession(key)
+    session = new DraftSession(
+      key,
+      projectId && (conversationId || legacyDraft) ? legacyKey : undefined,
+    )
     sessions.set(key, session)
   }
   return session
 }
 
 /** 首条消息创建会话时沿用同一份草稿，避免上传中的输入突然切到空草稿。 */
-export function bindNewAgentDraft(conversationId: string): void {
+export function bindNewAgentDraft(conversationId: string, projectId?: string): void {
+  if (projectId) return
   const oldKey = scopedStorageName('agent-draft:new')
   const session = sessions.get(oldKey)
   if (!session) return
@@ -167,4 +189,24 @@ export function bindNewAgentDraft(conversationId: string): void {
   session.moveTo(key)
   sessions.set(key, session)
   sessions.delete(oldKey)
+}
+
+export async function removeProjectDraft(
+  projectId: string,
+  conversationId: string | null,
+): Promise<void> {
+  const key = scopedStorageName(`agent-project-draft:${projectId}`)
+  const legacyKey = conversationId ? scopedStorageName(`agent-draft:${conversationId}`) : null
+  const session = sessions.get(key)
+  if (session) await session.flush()
+  const db = await openDatabase()
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction('drafts', 'readwrite')
+    tx.objectStore('drafts').delete(key)
+    if (legacyKey) tx.objectStore('drafts').delete(legacyKey)
+    tx.oncomplete = () => resolve()
+    tx.onabort = () => reject(tx.error)
+    tx.onerror = () => reject(tx.error)
+  })
+  sessions.delete(key)
 }

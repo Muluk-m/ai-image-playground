@@ -1742,7 +1742,7 @@ export default function InputBar() {
                   </div>
                   <button
                     type="button"
-                    onClick={openLibrary}
+                    onClick={() => openLibrary('assets')}
                     className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl border border-border/80 bg-card/70 text-muted-foreground transition-colors duration-150 hover:border-border/80 hover:bg-card dark:hover:border-white/[0.20]"
                     title="素材与模板"
                   >
@@ -1849,7 +1849,7 @@ export default function InputBar() {
                     </div>
                     <button
                       type="button"
-                      onClick={openLibrary}
+                      onClick={() => openLibrary('assets')}
                       className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl border border-border/80 bg-card/70 text-muted-foreground transition-colors duration-150"
                       title="素材与模板"
                     >
