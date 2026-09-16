@@ -21,6 +21,7 @@ const USER = { kind: 'user', userId: 'owner-user' } as const
 const DEVICE = { kind: 'device', deviceId: 'device-abcdefgh' } as const
 
 beforeEach(async () => {
+  await db.delete(schema.tasks)
   await db.delete(schema.agent_conversations)
   await db.delete(schema.users)
   const now = Date.now()
@@ -39,6 +40,46 @@ afterAll(async () => {
 })
 
 describe('agent conversations', () => {
+  it('recovers legacy full prompts only from tasks in the authorized conversation', async () => {
+    const conversation = await createAgentConversation(USER, '生成设计')
+    const foreign = await createAgentConversation(DEVICE, '别人的设计')
+    for (const [id, conversationId, prompt] of [
+      ['own', conversation.id, '完整提示词\n保留所有细节'],
+      ['foreign', foreign.id, '不可泄露'],
+    ] as const) {
+      await db.insert(schema.tasks).values({
+        id,
+        provider: 'openai-compat',
+        model: 'gpt-image-1',
+        status: 'completed',
+        submitted_at: Date.now(),
+        agent_conversation_id: conversationId,
+        request_payload: { device_id: DEVICE.deviceId, prompt },
+      })
+      await appendAgentMessage(db, {
+        conversationId: conversation.id,
+        turnId: 'turn-1',
+        role: 'assistant',
+        content: [
+          {
+            type: 'toolResult',
+            toolCallId: id,
+            toolName: 'generateImage',
+            status: 'succeeded',
+            title: '摘要…',
+            artifacts: [
+              { artifactId: id, taskId: id, media: 'image', outputIndex: 0, mime: 'image/png' },
+            ],
+          },
+        ],
+      })
+    }
+    const messages = await listAgentMessages(conversation.id, USER)
+    expect(messages[0]?.content[0]).toMatchObject({ prompt: '完整提示词\n保留所有细节' })
+    expect(messages[1]?.content[0]).not.toHaveProperty('prompt')
+    expect(await listAgentMessages(conversation.id, DEVICE)).toEqual([])
+  })
+
   it('reads back a conversation owned by a user', async () => {
     const created = await createAgentConversation(USER, '把背景换成浅木色')
 
