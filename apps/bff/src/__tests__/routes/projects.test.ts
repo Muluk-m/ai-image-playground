@@ -1,0 +1,221 @@
+import { afterAll, beforeEach, expect, it } from 'bun:test'
+import { resolve } from 'node:path'
+import { resetTestDatabase } from '@image-playground/db/testing'
+import { PROJECT_DOCUMENT_MAX_BYTES, PROJECT_ELEMENT_MAX_COUNT } from '@image-playground/shared'
+
+process.env.PORT = '0'
+process.env.DATABASE_URL = await resetTestDatabase('bff_cloud_projects')
+process.env.OPERATOR_CONFIG_FILE = resolve(import.meta.dir, '../projects-operator-config.json')
+
+const { app } = await import('../../app')
+const { close, db, schema } = await import('../../db/client')
+const { createUserSession, USER_SESSION_COOKIE } = await import('../../lib/user-session')
+
+let deviceA: string
+let deviceB: string
+beforeEach(async () => {
+  await db.delete(schema.users)
+  const now = Date.now()
+  await db.insert(schema.users).values({
+    id: 'project-owner',
+    username: 'project-owner',
+    password_hash: 'fixture-hash',
+    status: 'active',
+    created_at: now,
+    updated_at: now,
+  })
+  const session = async () =>
+    `${USER_SESSION_COOKIE}=${await db.transaction((tx) => createUserSession('project-owner', tx))}`
+  deviceA = await session()
+  deviceB = await session()
+})
+afterAll(close)
+
+const document = {
+  version: 1,
+  elements: [
+    {
+      id: 'title',
+      type: 'text',
+      x: 120,
+      y: -30,
+      text: '夏日海报',
+      fontSize: 64,
+      fill: '#ef4444',
+      width: 300,
+      height: 80,
+    },
+  ],
+}
+
+function request(path: string, cookie: string, body?: unknown) {
+  return app.handle(
+    new Request(`http://localhost/api/projects${path}`, {
+      method: body ? 'PUT' : 'GET',
+      headers: { cookie, 'content-type': 'application/json' },
+      ...(body ? { body: JSON.stringify(body) } : {}),
+    }),
+  )
+}
+
+it('同一用户的另一设备恢复文字画布与名称，目录不携带场景', async () => {
+  const id = crypto.randomUUID()
+  const saved = await request(`/${id}`, deviceA, {
+    requestId: crypto.randomUUID(),
+    baseRevision: 0,
+    name: '海报项目',
+    document,
+  })
+  expect(saved.status).toBe(200)
+  expect(await saved.json()).toMatchObject({ id, name: '海报项目', revision: 1 })
+  const reopened = await request(`/${id}`, deviceB)
+  expect(reopened.status).toBe(200)
+  expect(await reopened.json()).toMatchObject({ id, name: '海报项目', revision: 1, document })
+  const list = await (await request('', deviceB)).json()
+  expect(list.projects).toHaveLength(1)
+  expect(list.projects[0]).toMatchObject({ id, name: '海报项目' })
+  expect(list.projects[0]).not.toHaveProperty('document')
+})
+
+it('拒绝不完整媒体、未知格式及超出边界的结构，保留原文档', async () => {
+  const id = crypto.randomUUID()
+  const write = (doc: unknown) =>
+    request(`/${id}`, deviceA, {
+      requestId: crypto.randomUUID(),
+      baseRevision: 0,
+      name: '结构校验',
+      document: doc,
+    })
+  for (const invalid of [
+    { version: 2, elements: [] },
+    { version: 1, elements: [{ id: 'image', type: 'image', fileId: 'local-only' }] },
+    { version: 1, elements: [document.elements[0], document.elements[0]] },
+    { version: 1, elements: [{ ...document.elements[0], x: 'broken' }] },
+    { version: 1, elements: [{ ...document.elements[0], text: 'x'.repeat(10001) }] },
+    { version: 1, elements: [], files: { secret: 'data:image/png;base64,AAAA' } },
+  ]) {
+    expect((await write(invalid)).status).toBe(400)
+  }
+  expect((await request(`/${id}`, deviceB)).status).toBe(404)
+})
+
+it('并发旧版本只有一份写入成功，重复请求重放原确认且不能复用请求身份改内容', async () => {
+  const id = crypto.randomUUID()
+  const original = { requestId: crypto.randomUUID(), baseRevision: 0, name: '原项目', document }
+  const first = await (await request(`/${id}`, deviceA, original)).json()
+  const competing = await Promise.all([
+    request(`/${id}`, deviceA, {
+      ...original,
+      requestId: crypto.randomUUID(),
+      baseRevision: 1,
+      name: '设备 A',
+    }),
+    request(`/${id}`, deviceB, {
+      ...original,
+      requestId: crypto.randomUUID(),
+      baseRevision: 1,
+      name: '设备 B',
+    }),
+  ])
+  expect(competing.map((one) => one.status).sort()).toEqual([200, 409])
+  expect(await (await request(`/${id}`, deviceA, original)).json()).toEqual(first)
+  expect((await request(`/${id}`, deviceA, { ...original, name: '偷换请求' })).status).toBe(409)
+  expect(await (await request(`/${id}`, deviceB)).json()).toMatchObject({ revision: 2 })
+})
+
+it('项目只归所有者，匿名和其他用户不能读取或覆盖，不能伪造归属字段', async () => {
+  const id = crypto.randomUUID()
+  const write = { requestId: crypto.randomUUID(), baseRevision: 0, name: '私有项目', document }
+  await request(`/${id}`, deviceA, write)
+  const now = Date.now()
+  await db.insert(schema.users).values({
+    id: 'outsider',
+    username: 'outsider',
+    password_hash: 'fixture',
+    status: 'active',
+    created_at: now,
+    updated_at: now,
+  })
+  const stranger = `${USER_SESSION_COOKIE}=${await db.transaction((tx) => createUserSession('outsider', tx))}`
+  expect((await request(`/${id}`, '')).status).toBe(401)
+  expect((await request(`/${id}`, '', write)).status).toBe(401)
+  expect((await request(`/${id}`, stranger)).status).toBe(404)
+  expect((await request(`/${id}`, stranger, write)).status).toBe(404)
+  expect(await (await request('', stranger)).json()).toMatchObject({ projects: [] })
+  expect(
+    (await request(`/${crypto.randomUUID()}`, deviceA, { ...write, user_id: 'outsider' })).status,
+  ).toBe(400)
+  expect(await (await request(`/${id}`, deviceB)).json()).toMatchObject({
+    revision: 1,
+    name: '私有项目',
+  })
+})
+
+it('目录分页有上界且只返回摘要，结构总字节与元素数有界', async () => {
+  for (let n = 0; n < 3; n++)
+    await request(`/${crypto.randomUUID()}`, deviceA, {
+      requestId: crypto.randomUUID(),
+      baseRevision: 0,
+      name: `项目 ${n}`,
+      document,
+    })
+  const page = await (await request('?limit=2', deviceB)).json()
+  expect(page.projects).toHaveLength(2)
+  const second = await (await request(`?limit=2&cursor=${page.nextCursor}`, deviceB)).json()
+  expect(second.projects).toHaveLength(1)
+  expect(second.nextCursor).toBeNull()
+  expect(
+    new Set([...page.projects, ...second.projects].map((one: { id: string }) => one.id)).size,
+  ).toBe(3)
+  for (const query of ['?limit=0', '?limit=101', '?limit=1.5', '?cursor=bad'])
+    expect((await request(query, deviceB)).status).toBe(400)
+  const id = crypto.randomUUID()
+  const write = (elements: unknown[]) =>
+    request(`/${id}`, deviceA, {
+      requestId: crypto.randomUUID(),
+      baseRevision: 0,
+      name: '超限',
+      document: { version: 1, elements },
+    })
+  expect(
+    (
+      await write(
+        Array.from({ length: PROJECT_ELEMENT_MAX_COUNT + 1 }, (_, i) => ({
+          ...document.elements[0],
+          id: `e${i}`,
+        })),
+      )
+    ).status,
+  ).toBe(400)
+  const tooBig = Array.from({ length: 60 }, (_, i) => ({
+    ...document.elements[0],
+    id: `e${i}`,
+    text: 'x'.repeat(10000),
+  }))
+  expect(JSON.stringify(tooBig).length).toBeGreaterThan(PROJECT_DOCUMENT_MAX_BYTES)
+  expect((await write(tooBig)).status).toBe(400)
+  expect((await request(`/${id}`, deviceB)).status).toBe(404)
+})
+
+it('并发创建不能突破用户项目数量配额，原有项目仍可编辑', async () => {
+  const write = { requestId: crypto.randomUUID(), baseRevision: 0, name: '容量测试', document }
+  const original = crypto.randomUUID()
+  await request(`/${original}`, deviceA, write)
+  const results = await Promise.all(
+    Array.from({ length: 3 }, () =>
+      request(`/${crypto.randomUUID()}`, deviceB, { ...write, requestId: crypto.randomUUID() }),
+    ),
+  )
+  expect(results.map((one) => one.status).sort()).toEqual([200, 200, 413])
+  expect(
+    (
+      await request(`/${original}`, deviceA, {
+        ...write,
+        requestId: crypto.randomUUID(),
+        baseRevision: 1,
+        name: '已重命名',
+      })
+    ).status,
+  ).toBe(200)
+  expect((await (await request('', deviceB)).json()).projects).toHaveLength(3)
+})

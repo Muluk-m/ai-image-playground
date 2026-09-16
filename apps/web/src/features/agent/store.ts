@@ -676,6 +676,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
         const project = projects.projects.find((one) => one.id === projectId)
         if (!project) return false
         try {
+          if (project.cloud) throw new Error('cloud_project_delete_unavailable')
           if (project.id === projects.activeId && get().turn === 'running') throw new Error('busy')
           await saveCurrentProject()
           await prepareCanvasRemoval(project.sceneKey)

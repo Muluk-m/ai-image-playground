@@ -1,3 +1,4 @@
+import type { CloudProjectSummary } from '@image-playground/shared'
 import { scopedStorageName } from '../../../lib/authScope'
 import { openCanvasDatabase } from './persistence'
 
@@ -11,6 +12,7 @@ export interface CanvasProject {
   readonly updatedAt: number
   readonly hasContent: boolean
   readonly cover?: string
+  readonly cloud?: { revision: number; nameDirty?: boolean }
 }
 
 const prefix = () => `${scopedStorageName('canvas-project')}:project:`
@@ -67,6 +69,7 @@ export const projectRepository = {
   async create(
     name = '未命名项目',
     legacy?: { sceneKey: string; conversationId: string | null },
+    cloud = false,
   ): Promise<CanvasProject> {
     const id = legacy ? `legacy:${legacy.sceneKey}` : crypto.randomUUID()
     const now = Date.now()
@@ -79,6 +82,7 @@ export const projectRepository = {
       createdAt: now,
       updatedAt: now,
       hasContent: Boolean(legacy?.conversationId),
+      ...(cloud ? { cloud: { revision: 0 } } : {}),
     }
     const storageKey = key(id)
     const db = await openCanvasDatabase()
@@ -97,12 +101,42 @@ export const projectRepository = {
     })
   },
 
+  async importCloud(summary: CloudProjectSummary): Promise<CanvasProject> {
+    const storageKey = key(summary.id)
+    const scope = scopedStorageName('canvas')
+    const db = await openCanvasDatabase()
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('scene', 'readwrite')
+      const store = tx.objectStore('scene')
+      const request = store.get(storageKey)
+      let result: CanvasProject
+      request.onsuccess = () => {
+        // 列表不能覆盖本机尚未同步的名称或文档；打开项目时再核对修订。
+        result = request.result ?? {
+          id: summary.id,
+          name: summary.name,
+          customName: true,
+          conversationId: null,
+          sceneKey: `${scope}:project:${summary.id}`,
+          createdAt: summary.createdAt,
+          updatedAt: summary.updatedAt,
+          hasContent: summary.elementCount > 0,
+          cloud: { revision: summary.revision },
+        }
+        if (!request.result) store.add(result, storageKey)
+      }
+      tx.oncomplete = () => resolve(result)
+      tx.onabort = () => reject(tx.error)
+      tx.onerror = () => reject(tx.error)
+    })
+  },
+
   async update(
     id: string,
     patch: Partial<
       Pick<
         CanvasProject,
-        'name' | 'customName' | 'conversationId' | 'updatedAt' | 'hasContent' | 'cover'
+        'name' | 'customName' | 'conversationId' | 'updatedAt' | 'hasContent' | 'cover' | 'cloud'
       >
     >,
   ): Promise<CanvasProject> {

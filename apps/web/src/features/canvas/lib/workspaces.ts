@@ -4,8 +4,11 @@ import { setAgentCanvasSink } from '../../agent/lib/canvasSink'
 import { currentCanvasProject, useCanvasProjectStore } from '../projectStore'
 import { createAgentCanvasSink } from './agentCanvasSink'
 import { CanvasDoc } from './canvasDoc'
+import { CloudProjectSession } from './cloudProjects'
 import { CanvasEditor } from './editor'
 import { loadScene, PERSIST_DEBOUNCE_MS, saveScene } from './persistence'
+import { cloudProjectsEnabled } from './projectClient'
+import type { CanvasProject } from './projectRepository'
 import { recoverCanvasTasks } from './recoverCanvasTasks'
 
 import { canvasSceneKey } from './workspaceKeys'
@@ -18,6 +21,8 @@ export class CanvasWorkspace {
   readonly doc = new CanvasDoc()
   readonly editor = new CanvasEditor(this.doc)
   readonly sink = createAgentCanvasSink(this.editor, () => this.ready)
+  cloud: CloudProjectSession | undefined
+  needsInitialFit = false
   ready: Promise<unknown>
   private state = { loading: true, loadFailed: false, saveFailed: false }
   private listeners = new Set<() => void>()
@@ -26,6 +31,7 @@ export class CanvasWorkspace {
   private disposed = false
   private revision = 0
   private savedRevision = 0
+  private stopChanges: (() => void) | undefined
 
   constructor(
     private key: string,
@@ -56,15 +62,40 @@ export class CanvasWorkspace {
   private async load() {
     this.update({ loading: true, loadFailed: false })
     try {
-      await loadScene(this.editor, this.key, this.migrateLegacy)
+      const hasLocal = await loadScene(this.editor, this.key, this.migrateLegacy)
+      const project = useCanvasProjectStore
+        .getState()
+        .projects.find((one) => one.sceneKey === this.key)
+      if (project?.cloud && cloudProjectsEnabled()) {
+        this.cloud ??= new CloudProjectSession(project, this.editor, (updated) => {
+          useCanvasProjectStore.setState((state) => ({
+            projects: state.projects.map((one) => (one.id === updated.id ? updated : one)),
+            cloudCatalog: state.cloudCatalog[updated.id]
+              ? {
+                  ...state.cloudCatalog,
+                  [updated.id]: {
+                    ...state.cloudCatalog[updated.id],
+                    name: updated.name,
+                    updatedAt: updated.updatedAt,
+                  },
+                }
+              : state.cloudCatalog,
+          }))
+        })
+        await this.cloud.load(hasLocal)
+        this.needsInitialFit = !hasLocal && this.doc.elements.length > 0
+      }
       let { elements, files, camera } = this.doc
-      this.editor.onChange(() => {
+      this.stopChanges?.()
+      this.stopChanges = this.editor.onChange(() => {
+        if (this.state.loading) return
         if (
           elements === this.doc.elements &&
           files === this.doc.files &&
           camera === this.doc.camera
         )
           return
+        if (elements !== this.doc.elements) this.cloud?.markChanged()
         ;({ elements, files, camera } = this.doc)
         this.revision += 1
         clearTimeout(this.timer)
@@ -79,6 +110,21 @@ export class CanvasWorkspace {
   }
   retryLoad = () => {
     this.ready = this.load()
+    void this.ready.catch(() => {})
+  }
+  refreshCloud() {
+    if (!this.cloud || this.state.loading || this.state.loadFailed) return
+    this.ready = this.ready.then(async () => {
+      if (!(await this.flush())) return
+      this.update({ loading: true })
+      try {
+        await this.cloud!.load(true)
+        this.update({ loading: false, loadFailed: false })
+      } catch (error) {
+        this.update({ loading: false, loadFailed: true })
+        throw error
+      }
+    })
     void this.ready.catch(() => {})
   }
   flush = (): Promise<boolean> => {
@@ -97,6 +143,7 @@ export class CanvasWorkspace {
       }
       if (saved) this.savedRevision = revision
       this.update({ saveFailed: !saved })
+      if (saved) void this.cloud?.sync().catch(() => {})
       return saved
     })
     this.writes = save
@@ -107,6 +154,8 @@ export class CanvasWorkspace {
     clearTimeout(this.timer)
     this.sink.background = false
     this.listeners.clear()
+    this.stopChanges?.()
+    this.cloud?.dispose()
   }
   /** 先原子提交新会话存档并移走草稿，再改内存键；失败时继续保留原草稿。 */
   bind(key: string): Promise<boolean> {
@@ -128,6 +177,13 @@ export class CanvasWorkspace {
     this.writes = bind
     return bind
   }
+}
+
+export async function renameCloudProject(project: CanvasProject, name: string): Promise<void> {
+  const target = workspace(project.sceneKey)
+  await target.ready
+  if (!target.cloud) throw new Error('cloud_project_unavailable')
+  await target.cloud.rename(name)
 }
 
 const workspaces = new Map<string, CanvasWorkspace>()
@@ -185,6 +241,7 @@ export function selectCanvasWorkspace(conversationId: string | null): void {
   current = workspace(
     project?.conversationId === conversationId ? project.sceneKey : canvasSceneKey(conversationId),
   )
+  current.refreshCloud()
   if (visible) setAgentCanvasSink(current.sink)
   for (const listener of listeners) listener()
 }
