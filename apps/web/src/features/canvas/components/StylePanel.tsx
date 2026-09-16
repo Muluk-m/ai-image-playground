@@ -46,9 +46,7 @@ function SizeChip({
       type="button"
       onClick={onClick}
       className={`h-8 flex-1 rounded-lg text-xs font-medium transition-colors ${
-        active
-          ? 'bg-[var(--studio-accent)] text-[var(--studio-on-accent)]'
-          : 'text-[var(--studio-text-secondary)] hover:bg-[var(--studio-raised)]'
+        active ? 'bg-primary text-primary-foreground' : 'text-foreground hover:bg-muted'
       }`}
     >
       {label}
@@ -112,7 +110,7 @@ export default function StylePanel({ doc }: { doc: CanvasDoc }) {
 
   return (
     <div className="pointer-events-none absolute right-4 top-4 z-[400]">
-      <div className="pointer-events-auto w-40 rounded-2xl border border-[var(--studio-border)] bg-[var(--studio-panel)] p-2.5 shadow-lg backdrop-blur">
+      <div className="pointer-events-auto w-40 rounded-2xl border border-border bg-sidebar p-2.5 shadow-lg backdrop-blur">
         <div className="grid grid-cols-4 gap-1.5">
           {COLORS.map((color) => (
             <button
@@ -122,9 +120,7 @@ export default function StylePanel({ doc }: { doc: CanvasDoc }) {
               aria-label={`标注颜色 ${color}`}
               onClick={() => applyColor(color)}
               className={`mx-auto h-6 w-6 rounded-full border-2 transition-transform ${
-                doc.penColor === color
-                  ? 'scale-110 border-[var(--studio-text)]'
-                  : 'border-transparent'
+                doc.penColor === color ? 'scale-110 border-foreground' : 'border-transparent'
               }`}
               style={{ background: color }}
             />

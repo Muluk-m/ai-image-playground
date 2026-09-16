@@ -34,7 +34,7 @@ export default function AgentActivity() {
     >
       <span
         aria-hidden="true"
-        className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-blue-400 motion-reduce:animate-none"
+        className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-primary motion-reduce:animate-none"
       />
       <span
         key={phase}
@@ -43,7 +43,7 @@ export default function AgentActivity() {
         {LABEL[phase]}
       </span>
       {elapsed !== null && elapsed >= 1000 && (
-        <span className="font-mono text-[10px] tabular-nums text-[var(--studio-muted)]/70">
+        <span className="font-mono text-[10px] tabular-nums text-muted-foreground/70">
           {formatElapsed(elapsed)}
         </span>
       )}

@@ -32,7 +32,7 @@ export default function StoryboardReferences() {
         {referenceImageIds.map((imageId) => (
           <li
             key={imageId}
-            className="relative aspect-square overflow-hidden rounded-xl border border-gray-200 dark:border-white/[0.08]"
+            className="relative aspect-square overflow-hidden rounded-xl border border-border"
           >
             <AssetThumb imageId={imageId} alt={REFERENCE_LABEL} />
             <button
@@ -49,9 +49,7 @@ export default function StoryboardReferences() {
           <li
             {...dropZoneProps}
             className={`flex aspect-square flex-col items-center justify-center gap-1 rounded-xl border border-dashed text-center transition ${
-              dragging
-                ? 'border-blue-400 bg-blue-500/5'
-                : 'border-gray-300 dark:border-white/[0.14]'
+              dragging ? 'border-primary bg-primary/5' : 'border-border'
             }`}
           >
             <button

@@ -16,8 +16,8 @@ export default function SearchBar() {
           onClick={() => setFilterFavorite(!filterFavorite)}
           className={`p-2.5 rounded-xl border transition-all ${
             filterFavorite
-              ? 'border-yellow-400 bg-yellow-50 dark:bg-yellow-500/10 text-yellow-500'
-              : 'border-gray-200 dark:border-white/[0.08] bg-white dark:bg-gray-900 text-gray-400 hover:bg-gray-50 dark:hover:bg-white/[0.06]'
+              ? 'border-warning bg-warning/10 dark:bg-warning/10 text-warning'
+              : 'border-border bg-card text-muted-foreground hover:bg-card'
           }`}
           title={filterFavorite ? '取消只看收藏' : '只看收藏'}
         >
@@ -45,13 +45,13 @@ export default function SearchBar() {
               { label: '生成中', value: 'running' },
               { label: '失败', value: 'error' },
             ]}
-            className="px-3 py-2.5 rounded-xl border border-gray-200 dark:border-white/[0.08] bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-white/[0.06] text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400 transition"
+            className="px-3 py-2.5 rounded-xl border border-border bg-card hover:bg-card text-sm focus:outline-none focus:ring-2 focus:ring-ring/30 focus:border-primary transition"
           />
         </div>
       </div>
       <div className="relative flex-1 z-10">
         <svg
-          className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-gray-500"
+          className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground"
           fill="none"
           stroke="currentColor"
           viewBox="0 0 24 24"
@@ -68,7 +68,7 @@ export default function SearchBar() {
           onChange={(e) => setSearchQuery(e.target.value)}
           type="text"
           placeholder="搜索提示词、参数..."
-          className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-gray-200 dark:border-white/[0.08] bg-white dark:bg-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400 transition"
+          className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-border bg-card text-sm focus:outline-none focus:ring-2 focus:ring-ring/30 focus:border-primary transition"
         />
       </div>
     </div>

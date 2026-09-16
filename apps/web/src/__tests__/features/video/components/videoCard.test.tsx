@@ -67,7 +67,7 @@ describe('a card still generating', () => {
   it('fills the progress bar against the typical run', () => {
     render(videoTask({ status: 'running', createdAt: NOW - 20_000, completedAt: null }))
 
-    const bar = host.querySelector<HTMLElement>('.bg-blue-500')
+    const bar = host.querySelector<HTMLElement>('[role=progressbar]')
 
     expect(bar?.style.width).toBe('50%')
   })

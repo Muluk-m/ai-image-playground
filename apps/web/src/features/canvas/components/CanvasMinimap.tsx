@@ -103,14 +103,7 @@ export default function CanvasMinimap({ editor }: { editor: CanvasEditor }) {
     const draw = () => {
       frame = 0
       const { proj, rects, viewport } = currentFrame()
-      paint(
-        target,
-        proj,
-        rects,
-        viewport,
-        getComputedStyle(canvas).getPropertyValue('--studio-text').trim() ||
-          getComputedStyle(canvas).color,
-      )
+      paint(target, proj, rects, viewport, getComputedStyle(canvas).color)
     }
 
     draw()
@@ -138,7 +131,7 @@ export default function CanvasMinimap({ editor }: { editor: CanvasEditor }) {
   }
 
   return (
-    <div className="pointer-events-auto overflow-hidden rounded-xl border border-[var(--studio-border)] bg-[var(--studio-panel)] shadow-lg backdrop-blur">
+    <div className="pointer-events-auto overflow-hidden rounded-xl border border-border bg-sidebar shadow-lg backdrop-blur">
       <canvas
         ref={canvasRef}
         style={{ width: MINIMAP_WIDTH, height: MINIMAP_HEIGHT }}

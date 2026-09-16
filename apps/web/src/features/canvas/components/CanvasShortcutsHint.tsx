@@ -41,15 +41,15 @@ export default function CanvasShortcutsHint() {
   return (
     <div className="flex flex-col items-end gap-1.5" onPointerDown={(e) => e.stopPropagation()}>
       {open && (
-        <div className="pointer-events-auto w-52 rounded-xl border border-[var(--studio-border)] bg-[var(--studio-panel)] px-2.5 py-2 shadow-xl backdrop-blur">
+        <div className="pointer-events-auto w-52 rounded-xl border border-border bg-sidebar px-2.5 py-2 shadow-xl backdrop-blur">
           {SHORTCUT_ROWS.map((row) => (
             <div key={row.label} className="flex items-center justify-between gap-2 py-[3px]">
-              <span className="text-[11px] text-[var(--studio-text-secondary)]">{row.label}</span>
+              <span className="text-[11px] text-foreground">{row.label}</span>
               <span className="flex shrink-0 items-center gap-1">
                 {row.keys.map((key) => (
                   <kbd
                     key={key}
-                    className="rounded border border-[var(--studio-border)] bg-[var(--studio-raised)] px-1 py-px font-mono text-[10px] leading-none text-[var(--studio-text-secondary)]"
+                    className="rounded border border-border bg-muted px-1 py-px font-mono text-[10px] leading-none text-foreground"
                   >
                     {key}
                   </kbd>
@@ -64,8 +64,8 @@ export default function CanvasShortcutsHint() {
         onClick={toggle}
         className={`pointer-events-auto flex h-7 w-7 items-center justify-center rounded-full border shadow-lg backdrop-blur transition-colors ${
           open
-            ? 'border-blue-500/40 bg-blue-500/15 text-[var(--studio-accent)]'
-            : 'border-[var(--studio-border)] bg-[var(--studio-panel)] text-[var(--studio-muted)] hover:text-[var(--studio-text)]'
+            ? 'border-primary/40 bg-primary/15 text-primary'
+            : 'border-border bg-sidebar text-muted-foreground hover:text-foreground'
         }`}
         title={open ? '收起快捷键' : '查看快捷键'}
         aria-label="快捷键速查"

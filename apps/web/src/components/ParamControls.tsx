@@ -424,7 +424,7 @@ export default function ParamControls({
                 min={0}
                 max={100}
                 placeholder="0-100"
-                className="w-12 bg-transparent text-xs font-medium text-gray-700 outline-none dark:text-gray-200"
+                className="w-12 bg-transparent text-xs font-medium text-foreground outline-none"
               />
             </ParamChip>
           )}
@@ -465,7 +465,7 @@ export default function ParamControls({
             type="number"
             min={1}
             max={outputImageLimit}
-            className="w-7 bg-transparent text-xs font-medium text-gray-500 outline-none dark:text-gray-400"
+            className="w-7 bg-transparent text-xs font-medium text-muted-foreground outline-none"
           />
         </ParamChip>
       )}

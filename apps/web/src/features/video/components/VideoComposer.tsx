@@ -56,15 +56,11 @@ function ModelCard({
       aria-pressed={selected}
       onClick={onSelect}
       className={`rounded-xl border px-2.5 py-2 text-left transition ${
-        selected
-          ? 'border-blue-400 bg-blue-500/10'
-          : 'border-gray-200 hover:border-blue-300 dark:border-white/[0.12]'
+        selected ? 'border-primary bg-primary/10' : 'border-border hover:border-primary'
       }`}
     >
-      <span className="block text-[13px] font-medium text-gray-800 dark:text-gray-100">
-        {option.label}
-      </span>
-      <span className="block text-[11px] text-gray-500 dark:text-gray-400">
+      <span className="block text-[13px] font-medium text-foreground">{option.label}</span>
+      <span className="block text-[11px] text-muted-foreground">
         {guard.estimatedCredits === undefined ? (
           hint
         ) : (
@@ -112,9 +108,7 @@ function VideoSubmitPanel({
         <div>
           <div className="mb-1.5 flex items-baseline justify-between">
             <span className={LABEL}>首帧 · 尾帧</span>
-            <span className="text-[11px] text-gray-400 dark:text-gray-500">
-              拖入 · 粘贴 · 下方直接点
-            </span>
+            <span className="text-[11px] text-muted-foreground">拖入 · 粘贴 · 下方直接点</span>
           </div>
           <div className="grid grid-cols-2 gap-2">
             <FrameSlot
@@ -143,9 +137,9 @@ function VideoSubmitPanel({
         <div className="mb-1.5 flex items-baseline justify-between">
           <span className={LABEL}>描述</span>
           {promptCheck.ok ? (
-            <span className="text-[11px] text-gray-400 dark:text-gray-500">动作 · 镜头 · 光线</span>
+            <span className="text-[11px] text-muted-foreground">动作 · 镜头 · 光线</span>
           ) : (
-            <span className="text-[11px] text-red-600 dark:text-red-400">
+            <span className="text-[11px] text-destructive dark:text-destructive">
               {draft.prompt.length} / {support.promptMaxChars}
             </span>
           )}
@@ -222,17 +216,14 @@ function VideoSubmitPanel({
       </div>
 
       <div className={PANEL_SECTION}>
-        <div className="mb-2 flex items-baseline justify-between text-xs text-gray-500 dark:text-gray-400">
+        <div className="mb-2 flex items-baseline justify-between text-xs text-muted-foreground">
           <span>{summary}</span>
           {guard.estimatedCredits !== undefined && (
-            <Credits
-              credits={guard.estimatedCredits}
-              className="font-medium text-gray-800 dark:text-gray-100"
-            />
+            <Credits credits={guard.estimatedCredits} className="font-medium text-foreground" />
           )}
         </div>
         {guard.blocked && guard.disabledReason && (
-          <p className="mb-1.5 text-[11px] text-red-600 dark:text-red-400">
+          <p className="mb-1.5 text-[11px] text-destructive dark:text-destructive">
             {guard.disabledReason}
           </p>
         )}

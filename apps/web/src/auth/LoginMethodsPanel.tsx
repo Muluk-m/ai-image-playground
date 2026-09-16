@@ -54,7 +54,7 @@ function noticeText(notice: PanelNotice, providers: OAuthProviderView[]): string
 }
 
 const FIELD_CLASS =
-  'w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 outline-none transition-colors focus:border-violet-400 disabled:opacity-50 dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-100'
+  'w-full rounded-xl border border-border bg-card px-3 py-2 text-sm text-foreground outline-none transition-colors focus:border-primary disabled:opacity-50'
 
 export function LoginMethodsPanel({ onClose }: { onClose: () => void }) {
   const [methods, setMethods] = useState<LoginMethodsView | null>(null)
@@ -151,51 +151,46 @@ export function LoginMethodsPanel({ onClose }: { onClose: () => void }) {
         role="dialog"
         aria-modal="true"
         aria-labelledby="login-methods-title"
-        className="relative z-10 flex max-h-[85vh] w-full max-w-md flex-col overflow-y-auto rounded-3xl border border-white/50 bg-white/95 p-5 shadow-2xl ring-1 ring-black/5 animate-modal-in custom-scrollbar dark:border-white/[0.08] dark:bg-gray-900/95 dark:ring-white/10"
+        className="relative z-10 flex max-h-[85vh] w-full max-w-md flex-col overflow-y-auto rounded-3xl border border-white/50 bg-card/95 p-5 shadow-2xl ring-1 ring-black/5 animate-modal-in custom-scrollbar border-border dark:ring-white/10"
       >
         <div className="mb-5 flex items-center justify-between gap-4">
-          <h3
-            id="login-methods-title"
-            className="text-base font-semibold text-gray-800 dark:text-gray-100"
-          >
+          <h3 id="login-methods-title" className="text-base font-semibold text-foreground">
             登录方式
           </h3>
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg px-2 py-1 text-sm text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-800 dark:text-gray-400 dark:hover:bg-white/10 dark:hover:text-gray-100"
+            className="rounded-lg px-2 py-1 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           >
             关闭
           </button>
         </div>
 
         {notice ? (
-          <p className="mb-4 rounded-xl bg-emerald-50 px-3 py-2 text-[13px] text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
+          <p className="mb-4 rounded-xl bg-success/10 px-3 py-2 text-[13px] text-success dark:bg-success/10 dark:text-success">
             {noticeText(notice, providers)}
           </p>
         ) : null}
         {error ? (
           <p
             role="alert"
-            className="mb-4 rounded-xl bg-red-50 px-3 py-2 text-[13px] text-red-600 dark:bg-red-500/10 dark:text-red-300"
+            className="mb-4 rounded-xl bg-destructive/10 px-3 py-2 text-[13px] text-destructive dark:bg-destructive/10 dark:text-destructive"
           >
             {error}
           </p>
         ) : null}
 
         {loadFailed ? (
-          <p className="text-[13px] text-gray-500 dark:text-gray-400">
-            暂时无法读取登录方式，请稍后重试
-          </p>
+          <p className="text-[13px] text-muted-foreground">暂时无法读取登录方式，请稍后重试</p>
         ) : !methods ? (
-          <p className="text-[13px] text-gray-500 dark:text-gray-400">加载中</p>
+          <p className="text-[13px] text-muted-foreground">加载中</p>
         ) : (
           <>
             <section className="mb-6">
-              <h4 className="mb-1 text-sm font-medium text-gray-700 dark:text-gray-200">
+              <h4 className="mb-1 text-sm font-medium text-foreground">
                 {methods.password ? '修改密码' : '设置密码'}
               </h4>
-              <p className="mb-3 text-[12px] text-gray-500 dark:text-gray-400">
+              <p className="mb-3 text-[12px] text-muted-foreground">
                 {methods.password ? '用邮箱与密码登录' : '设置后即可用邮箱与密码登录'}
               </p>
               <form className="space-y-2" onSubmit={(event) => void submitPassword(event)}>
@@ -240,7 +235,7 @@ export function LoginMethodsPanel({ onClose }: { onClose: () => void }) {
                 <button
                   type="submit"
                   disabled={pending}
-                  className="w-full rounded-xl bg-gray-900 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-gray-800 disabled:cursor-wait disabled:opacity-50 dark:bg-white dark:text-gray-950 dark:hover:bg-gray-100"
+                  className="w-full rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-muted disabled:cursor-wait disabled:opacity-50"
                 >
                   {methods.password ? '更新密码' : '设置密码'}
                 </button>
@@ -249,9 +244,7 @@ export function LoginMethodsPanel({ onClose }: { onClose: () => void }) {
 
             {providers.length > 0 ? (
               <section>
-                <h4 className="mb-3 text-sm font-medium text-gray-700 dark:text-gray-200">
-                  第三方账号
-                </h4>
+                <h4 className="mb-3 text-sm font-medium text-foreground">第三方账号</h4>
                 <ul className="space-y-2">
                   {providers.map((provider) => {
                     const identity = methods.identities.find(
@@ -260,13 +253,11 @@ export function LoginMethodsPanel({ onClose }: { onClose: () => void }) {
                     return (
                       <li
                         key={provider.id}
-                        className="flex items-center justify-between gap-3 rounded-xl border border-gray-200 px-3 py-2 dark:border-white/10"
+                        className="flex items-center justify-between gap-3 rounded-xl border border-border px-3 py-2"
                       >
                         <span className="min-w-0">
-                          <span className="block text-sm text-gray-800 dark:text-gray-100">
-                            {provider.label}
-                          </span>
-                          <span className="block truncate text-[12px] text-gray-500 dark:text-gray-400">
+                          <span className="block text-sm text-foreground">{provider.label}</span>
+                          <span className="block truncate text-[12px] text-muted-foreground">
                             {identity ? (identity.email ?? '已绑定') : '未绑定'}
                           </span>
                         </span>
@@ -275,7 +266,7 @@ export function LoginMethodsPanel({ onClose }: { onClose: () => void }) {
                             type="button"
                             disabled={pending}
                             onClick={() => void unlink(provider.id)}
-                            className="shrink-0 rounded-lg px-3 py-1.5 text-[13px] font-medium text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-800 disabled:cursor-wait disabled:opacity-50 dark:text-gray-400 dark:hover:bg-white/10 dark:hover:text-gray-100"
+                            className="shrink-0 rounded-lg px-3 py-1.5 text-[13px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-wait disabled:opacity-50"
                           >
                             解绑
                           </button>
@@ -286,7 +277,7 @@ export function LoginMethodsPanel({ onClose }: { onClose: () => void }) {
                             onClick={() => {
                               window.location.href = oauthLinkUrl(provider.id)
                             }}
-                            className="shrink-0 rounded-lg border border-gray-200 px-3 py-1.5 text-[13px] font-medium text-gray-700 transition-colors hover:bg-gray-100 disabled:cursor-wait disabled:opacity-50 dark:border-white/10 dark:text-gray-200 dark:hover:bg-white/10"
+                            className="shrink-0 rounded-lg border border-border px-3 py-1.5 text-[13px] font-medium text-foreground transition-colors hover:bg-muted disabled:cursor-wait disabled:opacity-50"
                           >
                             绑定
                           </button>
