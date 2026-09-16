@@ -18,7 +18,6 @@ import { initHashRoute } from './features/inspiration/lib/hashRoute'
 import LibraryPanel from './features/library/components/LibraryPanel'
 import SaveAssetDialog from './features/library/components/SaveAssetDialog'
 import SaveTemplateDialog from './features/library/components/SaveTemplateDialog'
-import ProductShotsMode from './features/productShots/components/ProductShotsMode'
 import VideoMode from './features/video/components/VideoMode'
 import { isByokGenerationEnabled } from './lib/clientCapabilities'
 import { startSyncEngine } from './lib/sync/engine'
@@ -90,8 +89,6 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
       <Header />
       {appMode === 'create' ? (
         <CanvasMode />
-      ) : appMode === 'product' ? (
-        <ProductShotsMode />
       ) : appMode === 'video' ? (
         <VideoMode />
       ) : (

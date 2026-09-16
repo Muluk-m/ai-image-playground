@@ -48,9 +48,10 @@ import { useAgentStore } from '../store'
 import AgentParamsChip from './AgentParamsChip'
 
 const EDITOR_CLASS =
-  'max-h-28 w-full overflow-y-auto whitespace-pre-wrap break-words bg-transparent text-xs leading-relaxed text-[#e8e8ea] outline-none empty:before:pointer-events-none empty:before:text-[#5f5f68] empty:before:content-[attr(data-placeholder)]'
+  'min-h-24 max-h-44 w-full overflow-y-auto whitespace-pre-wrap break-words bg-transparent text-xs leading-relaxed text-[var(--studio-text)] outline-none empty:before:pointer-events-none empty:before:text-[var(--studio-muted)] empty:before:content-[attr(data-placeholder)]'
 
-const STRIP_THUMB = 'h-10 w-10 overflow-hidden rounded-lg border border-white/[0.09] object-cover'
+const STRIP_THUMB =
+  'h-10 w-10 overflow-hidden rounded-lg border border-[var(--studio-border)] object-cover'
 
 export default function AgentComposer({
   doc,
@@ -292,9 +293,12 @@ export default function AgentComposer({
   }
 
   return (
-    <div className="relative flex shrink-0 flex-col gap-2 px-3 pb-3 pt-2" {...dropZoneProps}>
+    <div
+      className="studio-agent-composer relative flex shrink-0 flex-col gap-3 px-4 pb-4 pt-3"
+      {...dropZoneProps}
+    >
       {dragging && (
-        <div className="pointer-events-none absolute inset-1 z-20 grid place-items-center rounded-xl border border-dashed border-blue-400/70 bg-[#17171a]/90 text-xs text-blue-200">
+        <div className="pointer-events-none absolute inset-1 z-20 grid place-items-center rounded-xl border border-dashed border-blue-400/70 bg-[var(--studio-panel)]/90 text-xs text-[var(--studio-accent)]">
           松开即作为参考图
         </div>
       )}
@@ -317,14 +321,14 @@ export default function AgentComposer({
                     alt=""
                   />
                   {masked && (
-                    <span className="pointer-events-none absolute left-0.5 top-0.5 rounded bg-blue-500/90 px-1 py-px text-[7px] font-bold leading-none tracking-wider text-white">
+                    <span className="pointer-events-none absolute left-0.5 top-0.5 rounded bg-blue-500/90 px-1 py-px text-[7px] font-bold leading-none tracking-wider text-[var(--studio-on-accent)]">
                       MASK
                     </span>
                   )}
                   <button
                     type="button"
                     aria-label={masked ? `修改参考图 ${label} 的遮罩` : `给参考图 ${label} 画遮罩`}
-                    className={`absolute -bottom-1 -left-1 bg-[#17171a] opacity-0 group-hover:opacity-100 ${ICON_BUTTON}`}
+                    className={`absolute -bottom-1 -left-1 bg-[var(--studio-panel)] opacity-0 group-hover:opacity-100 ${ICON_BUTTON}`}
                     onClick={() => editMask(reference)}
                   >
                     <MaskBrushIcon className="h-3 w-3" />
@@ -336,7 +340,7 @@ export default function AgentComposer({
                 <button
                   type="button"
                   aria-label={`移除参考图 ${label}`}
-                  className={`absolute -right-1 -top-1 bg-[#17171a] opacity-0 group-hover:opacity-100 ${ICON_BUTTON}`}
+                  className={`absolute -right-1 -top-1 bg-[var(--studio-panel)] opacity-0 group-hover:opacity-100 ${ICON_BUTTON}`}
                   onClick={() => setDraft(removeReference(draft, index))}
                 >
                   <CloseIcon className="h-3 w-3" />
@@ -347,7 +351,7 @@ export default function AgentComposer({
         </div>
       )}
 
-      <div className="relative rounded-xl border border-white/[0.09] bg-white/[0.05] px-2.5 py-2 focus-within:border-blue-500/50">
+      <div className="relative rounded-xl border border-[var(--studio-border)] bg-[var(--studio-raised)] px-2.5 py-2 focus-within:border-[var(--studio-accent)]">
         {menu.visible && (
           <SuggestionMenu
             groups={groups}
@@ -425,7 +429,7 @@ export default function AgentComposer({
             disabled={loading || submitting || !draft.prompt.trim()}
             onClick={submit}
           >
-            {submitting ? '发送中…' : running ? '插话' : '发送'}
+            {submitting ? '发送中…' : running ? '插话' : '发送并创作'}
           </button>
         </div>
       </div>

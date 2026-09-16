@@ -1,10 +1,10 @@
 import { storyboardShotLabel } from '@image-playground/shared'
 import type { AssetRecord, Tombstone } from '../features/library/types'
-import type { ProductShotJob } from '../features/productShots/types'
 import type { StoryboardRecord } from '../features/video/storyboard/types'
 import type { VideoTask } from '../features/video/types'
 import type { StoredImage, StoredImageThumbnail, TaskRecord } from '../types'
 import { scopedStorageName } from './authScope'
+import type { LegacyProductJob } from './legacyProductHistory'
 
 /** 匿名 scope 下的 DB 名，其它 scope 由 scopedStorageName 派生。 */
 export const BASE_DB_NAME = 'image-playground'
@@ -264,7 +264,7 @@ export function getAllImageIds(): Promise<string[]> {
 export async function getReferencedImageIds(tasks: readonly TaskRecord[]): Promise<Set<string>> {
   const [assets, jobs, videos, storyboards] = await Promise.all([
     dbTransaction<Array<AssetRecord | Tombstone>>(STORE_ASSETS, 'readonly', (s) => s.getAll()),
-    dbTransaction<ProductShotJob[]>(STORE_BGSWAP_JOBS, 'readonly', (s) => s.getAll()),
+    dbTransaction<LegacyProductJob[]>(STORE_BGSWAP_JOBS, 'readonly', (s) => s.getAll()),
     dbTransaction<VideoTask[]>(STORE_VIDEO_TASKS, 'readonly', (s) => s.getAll()),
     dbTransaction<StoryboardRecord[]>(STORE_STORYBOARDS, 'readonly', (s) => s.getAll()),
   ])

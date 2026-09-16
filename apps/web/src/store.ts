@@ -394,13 +394,12 @@ function orderImagesWithMaskFirst(
   return next
 }
 
-export const APP_MODES = ['browse', 'create', 'product', 'video'] as const
+export const APP_MODES = ['create', 'browse', 'video'] as const
 export type AppMode = (typeof APP_MODES)[number]
 
 export const APP_MODE_LABELS: Record<AppMode, string> = {
-  browse: '工作台',
+  browse: '作品',
   create: '创作',
-  product: '商品图',
   video: '视频',
 }
 
@@ -789,7 +788,7 @@ export const useStore = create<AppState>()(
           lightboxImageList: list ?? (lightboxImageId ? [lightboxImageId] : []),
         })
       },
-      appMode: 'browse',
+      appMode: 'create',
       setAppMode: (appMode) => set({ appMode }),
       pendingCanvasImages: [],
       queueCanvasImages: (dataUrls) =>

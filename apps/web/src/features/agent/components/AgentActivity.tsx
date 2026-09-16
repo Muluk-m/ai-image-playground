@@ -43,7 +43,7 @@ export default function AgentActivity() {
         {LABEL[phase]}
       </span>
       {elapsed !== null && elapsed >= 1000 && (
-        <span className="font-mono text-[10px] tabular-nums text-[#5f5f68]/70">
+        <span className="font-mono text-[10px] tabular-nums text-[var(--studio-muted)]/70">
           {formatElapsed(elapsed)}
         </span>
       )}

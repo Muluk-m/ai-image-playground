@@ -204,7 +204,7 @@ describe('AgentPanel', () => {
     act(() => collapse.click())
 
     expect(host.querySelector('textarea')).toBeNull()
-    expect(texts('button')).toEqual(['对话'])
+    expect(texts('button')).toEqual(['展开对话'])
   })
 
   it('文件拖到对话记录上也进输入框的引用区', async () => {
