@@ -468,6 +468,7 @@ export async function revokeUserSessions(userId: string): Promise<number> {
       .from(schema.users)
       .where(eq(schema.users.id, userId))
       .limit(1)
+      .for('update')
     if (!user) throw new UserOperationError('user_not_found')
     const revoked = await tx
       .delete(schema.user_sessions)
