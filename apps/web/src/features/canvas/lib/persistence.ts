@@ -1,3 +1,4 @@
+import type { ProjectWrite } from '@image-playground/shared'
 import type { Camera, CanvasEl } from './canvasDoc'
 import type { CanvasEditor } from './editor'
 
@@ -20,6 +21,16 @@ interface PersistedScene {
   /** fileId → dataUrl，只存仍被引用的。 */
   files: Record<string, string>
   camera: Camera
+  cloud?: CloudSceneCheckpoint
+}
+
+export interface CloudSceneCheckpoint {
+  version: 1
+  name: string
+  revision: number
+  savedContent: string | null
+  pending: ProjectWrite | null
+  conflict: boolean
 }
 
 /** 连接缓存：防抖落盘高频调用，每次新开连接会积累未关闭句柄。失败/被关则下次重开。 */
@@ -80,12 +91,25 @@ function dbGet(key: string, migrateLegacy: boolean): Promise<unknown> {
   )
 }
 
-function dbPut(scene: PersistedScene, key: string, removeKey?: string): Promise<void> {
+function dbPut(
+  scene: PersistedScene,
+  key: string,
+  removeKey?: string,
+  preserveStructure = false,
+): Promise<void> {
   return openCanvasDatabase().then(
     (db) =>
       new Promise((resolve, reject) => {
         const transaction = db.transaction(STORE, 'readwrite')
-        transaction.objectStore(STORE).put(scene, key)
+        const store = transaction.objectStore(STORE)
+        if (preserveStructure) {
+          const request = store.get(key)
+          request.onsuccess = () => {
+            const previous = request.result as PersistedScene | undefined
+            // 旧标签页的相机保存不能把另一标签页的新结构和修订基线写回旧值。
+            store.put(previous ? { ...previous, camera: scene.camera } : scene, key)
+          }
+        } else store.put(scene, key)
         if (removeKey && removeKey !== key) transaction.objectStore(STORE).delete(removeKey)
         transaction.oncomplete = () => resolve()
         transaction.onabort = () => reject(transaction.error)
@@ -102,6 +126,7 @@ export async function saveScene(
   editor: CanvasEditor,
   key = SCENE_KEY,
   removeKey?: string,
+  options: { cloud?: CloudSceneCheckpoint; preserveStructure?: boolean } = {},
 ): Promise<boolean> {
   try {
     const { elements, files, camera } = editor.doc
@@ -115,9 +140,11 @@ export async function saveScene(
         elements: [...elements],
         files: kept,
         camera: { ...camera },
+        ...(options.cloud ? { cloud: options.cloud } : {}),
       },
       key,
       removeKey,
+      options.preserveStructure,
     )
     return true
   } catch (err) {
@@ -132,11 +159,20 @@ export async function loadScene(
   key = SCENE_KEY,
   migrateLegacy = false,
 ): Promise<boolean> {
-  const stored = (await dbGet(key, migrateLegacy)) as Partial<PersistedScene> | undefined
-  if (stored === undefined) return false
+  const stored = await readPersistedScene(key, migrateLegacy)
+  if (!stored) return false
+  editor.doc.restore([...stored.elements], stored.files ?? {}, stored.camera)
+  return true
+}
+
+export async function readPersistedScene(
+  key: string,
+  migrateLegacy = false,
+): Promise<PersistedScene | undefined> {
+  const stored = (await dbGet(key, migrateLegacy)) as PersistedScene | undefined
+  if (stored === undefined) return
   if (stored.version !== SCENE_FORMAT || !Array.isArray(stored.elements)) {
     throw new Error('Unsupported canvas scene')
   }
-  editor.doc.restore(stored.elements, stored.files ?? {}, stored.camera)
-  return true
+  return stored
 }

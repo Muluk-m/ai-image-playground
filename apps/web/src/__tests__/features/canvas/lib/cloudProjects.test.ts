@@ -95,7 +95,8 @@ it('读取错误保留原画布，重试成功前不发送空文档', async () =
   await expect(session.load(true)).rejects.toThrow()
   expect(editor.doc.elements[0]).toMatchObject({ text: '本机原稿' })
   expect(fetcher.mock.calls).toHaveLength(1)
-  expect(session.getSnapshot().status).toBe('error')
+  expect(session.getSnapshot().status).toBe('load-error')
+  await expect(session.sync()).rejects.toThrow('project_not_loaded')
 })
 
 it('图片未上传时不提交残缺场景，也不报告完整同步', async () => {
@@ -194,4 +195,47 @@ it('较早确认不能把同步期间的新编辑标成已同步', async () => {
   await loading
   expect(session.getSnapshot().status).toBe('pending')
   expect(editor.doc.elements[0]).toMatchObject({ text: '请求期间的新稿' })
+})
+
+it('旧标签页仅平移后刷新不能借用新修订覆盖另一标签页的内容', async () => {
+  const { project, editor } = await fresh()
+  let remote = {
+    ...receipt(project.id, {
+      name: project.name,
+      baseRevision: 0,
+      document: { elements: editor.doc.elements as unknown[] },
+    }),
+    document: { version: 1, elements: structuredClone(editor.doc.elements) },
+  }
+  let writes = 0
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (_url: string, init: RequestInit) => {
+      if (init.method !== 'PUT') return Response.json(remote)
+      const body = JSON.parse(init.body as string)
+      writes++
+      remote = { ...receipt(project.id, body), document: body.document }
+      return Response.json(remote)
+    }),
+  )
+  const existing = { ...project, cloud: { revision: 1 } }
+  const first = new CloudProjectSession(existing, editor)
+  await first.load()
+  const oldEditor = new CanvasEditor(new CanvasDoc())
+  await loadScene(oldEditor, project.sceneKey)
+  const oldTab = new CloudProjectSession(existing, oldEditor)
+  await oldTab.load(true)
+  editor.doc.updateElements([{ id: 'note', patch: { text: '另一标签页的新内容' } }], {
+    history: true,
+  })
+  await first.sync()
+  oldEditor.doc.setCamera({ x: 456 })
+  await oldTab.saveLocal(true)
+  await oldTab.sync()
+  const restored = new CanvasEditor(new CanvasDoc())
+  await loadScene(restored, project.sceneKey)
+  const reopened = new CloudProjectSession(existing, restored)
+  await reopened.load(true)
+  expect(restored.doc.elements[0]).toMatchObject({ text: '另一标签页的新内容' })
+  expect(writes).toBe(1)
 })

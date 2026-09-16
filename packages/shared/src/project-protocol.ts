@@ -100,7 +100,7 @@ function element(value: unknown): value is ProjectElement {
       value.strokeWidth > 0 &&
       value.strokeWidth <= 1000 &&
       Array.isArray(value.points) &&
-      value.points.length >= 4 &&
+      value.points.length >= (value.type === 'arrow' ? 4 : 2) &&
       value.points.length % 2 === 0 &&
       value.points.length <= (value.type === 'arrow' ? 4 : 20000) &&
       value.points.every(coordinate)

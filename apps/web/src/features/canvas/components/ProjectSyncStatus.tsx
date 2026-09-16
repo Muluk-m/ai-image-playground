@@ -7,6 +7,7 @@ const labels: Record<ProjectSyncStatus, string> = {
   syncing: '画布正在同步',
   saved: '画布已同步',
   error: '画布同步失败',
+  'load-error': '画布读取失败',
   conflict: '画布同步冲突',
   'media-local': '画布尚未完整同步',
 }

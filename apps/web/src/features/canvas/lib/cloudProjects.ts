@@ -2,26 +2,21 @@ import {
   isProjectDocument,
   PROJECT_NAME_MAX_LENGTH,
   type ProjectDocument,
-  type ProjectWrite,
 } from '@image-playground/shared'
 import { scopedStorageName } from '../../../lib/authScope'
 import type { CanvasEditor } from './editor'
-import { openCanvasDatabase, saveScene } from './persistence'
+import { type CloudSceneCheckpoint, readPersistedScene, saveScene } from './persistence'
 import { getCloudProject, ProjectRequestError, putCloudProject } from './projectClient'
 import { type CanvasProject, projectRepository } from './projectRepository'
 
-interface Checkpoint {
-  revision: number
-  savedContent: string | null
-  pending: ProjectWrite | null
-  conflict: boolean
-}
+type Checkpoint = Omit<CloudSceneCheckpoint, 'version' | 'name'>
 export type ProjectSyncStatus =
   | 'loading'
   | 'pending'
   | 'syncing'
   | 'saved'
   | 'error'
+  | 'load-error'
   | 'conflict'
   | 'media-local'
 
@@ -33,25 +28,14 @@ function content(name: string, document: ProjectDocument): string {
       : value,
   )
 }
-async function checkpoint(key: string, value?: Checkpoint): Promise<Checkpoint | undefined> {
-  const db = await openCanvasDatabase()
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction('scene', value ? 'readwrite' : 'readonly')
-    const store = tx.objectStore('scene')
-    const request = value ? store.put(value, key) : store.get(key)
-    tx.oncomplete = () => resolve(value ?? request.result)
-    tx.onabort = () => reject(tx.error)
-    tx.onerror = () => reject(tx.error)
-  })
-}
 
 /** 一个已打开项目的同步会话持有自己的基线，不能借用另一标签页的新修订覆盖旧文档。 */
 export class CloudProjectSession {
   private baseline: Checkpoint = { revision: 0, savedContent: null, pending: null, conflict: false }
   private initialized = false
+  private writable = false
   private queue: Promise<unknown> = Promise.resolve()
   private readonly scope = scopedStorageName('canvas-cloud')
-  private readonly storageKey: string
   private readonly controller = new AbortController()
   private state: { status: ProjectSyncStatus; message: string | null } = {
     status: 'loading',
@@ -63,9 +47,7 @@ export class CloudProjectSession {
     private project: CanvasProject,
     private readonly editor: CanvasEditor,
     private readonly publish: (project: CanvasProject) => void = () => {},
-  ) {
-    this.storageKey = `${this.scope}:${project.id}`
-  }
+  ) {}
   getSnapshot = () => this.state
   subscribe = (listener: () => void) => {
     this.listeners.add(listener)
@@ -87,9 +69,16 @@ export class CloudProjectSession {
     return isProjectDocument(value) ? value : null
   }
   private async persist() {
+    if (!(await this.saveLocal())) throw new Error('local_save_failed')
+  }
+  async saveLocal(preserveStructure = false): Promise<boolean> {
     this.current()
-    await checkpoint(this.storageKey, this.baseline)
+    const saved = await saveScene(this.editor, this.project.sceneKey, undefined, {
+      cloud: { version: 1, ...this.baseline, name: this.project.name },
+      preserveStructure,
+    })
     this.current()
+    return saved
   }
   private async metadata(patch: Parameters<typeof projectRepository.update>[1]) {
     this.current()
@@ -103,8 +92,17 @@ export class CloudProjectSession {
   private async loadCurrent(hasLocalScene: boolean): Promise<void> {
     this.current()
     if (!this.initialized) {
-      this.baseline = (await checkpoint(this.storageKey)) ?? this.baseline
+      const cached = await readPersistedScene(this.project.sceneKey)
       this.current()
+      if (cached?.cloud) {
+        if (cached.cloud.version !== 1 || !Number.isSafeInteger(cached.cloud.revision))
+          throw new Error('unsupported_cloud_cache')
+        const { version: _version, name, ...baseline } = cached.cloud
+        this.baseline = baseline
+        this.project = { ...this.project, name }
+        this.editor.doc.restore([...cached.elements], cached.files, cached.camera)
+        hasLocalScene = true
+      }
       this.initialized = true
     }
     const local = this.document()
@@ -118,10 +116,12 @@ export class CloudProjectSession {
       dirty ||
       (this.project.cloud?.revision === 0 && this.baseline.revision === 0)
     ) {
+      this.writable = true
       await this.push()
       return
     }
     this.update('loading')
+    this.writable = false
     try {
       const remote = await getCloudProject(this.project.id, this.controller.signal)
       this.current()
@@ -134,8 +134,6 @@ export class CloudProjectSession {
         throw new Error('unsupported_project')
       if (!hasLocalScene || remote.revision !== this.baseline.revision) {
         this.editor.doc.restore(remote.document.elements, {}, this.editor.doc.camera)
-        if (!(await saveScene(this.editor, this.project.sceneKey)))
-          throw new Error('local_save_failed')
       }
       await this.metadata({
         name: remote.name,
@@ -151,9 +149,10 @@ export class CloudProjectSession {
         conflict: false,
       }
       await this.persist()
+      this.writable = true
       this.update('saved')
     } catch (error) {
-      this.update('error', '云端项目读取失败，原内容已保留，请重新读取。')
+      this.update('load-error', '云端项目读取失败，原内容已保留，请重新读取。')
       throw error
     }
   }
@@ -199,6 +198,7 @@ export class CloudProjectSession {
   }
   private async push(): Promise<void> {
     this.current()
+    if (!this.writable) throw new Error('project_not_loaded')
     if (this.baseline.conflict) {
       this.update('conflict', '另一设备已修改此项目，已暂停同步。本机内容已保留。')
       return
@@ -212,8 +212,6 @@ export class CloudProjectSession {
         return
       }
       if (content(this.project.name, document) !== this.baseline.savedContent) {
-        if (!(await saveScene(this.editor, this.project.sceneKey)))
-          throw new Error('local_save_failed')
         this.baseline.pending = {
           requestId: crypto.randomUUID(),
           baseRevision: this.baseline.revision,

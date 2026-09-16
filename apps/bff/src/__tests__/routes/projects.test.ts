@@ -219,3 +219,29 @@ it('并发创建不能突破用户项目数量配额，原有项目仍可编辑'
   ).toBe(200)
   expect((await (await request('', deviceB)).json()).projects).toHaveLength(3)
 })
+
+it('单击画笔产生的圆点可连同文字恢复，箭头仍需两个端点', async () => {
+  const id = crypto.randomUUID()
+  const dot = { id: 'dot', type: 'freedraw', points: [20, 30], stroke: '#ef4444', strokeWidth: 12 }
+  const body = {
+    requestId: crypto.randomUUID(),
+    baseRevision: 0,
+    name: '圆点标注',
+    document: { version: 1, elements: [document.elements[0], dot] },
+  }
+  expect((await request(`/${id}`, deviceA, body)).status).toBe(200)
+  expect((await (await request(`/${id}`, deviceB)).json()).document.elements).toEqual([
+    document.elements[0],
+    dot,
+  ])
+  expect(
+    (
+      await request(`/${id}`, deviceA, {
+        ...body,
+        requestId: crypto.randomUUID(),
+        baseRevision: 1,
+        document: { version: 1, elements: [{ ...dot, type: 'arrow' }] },
+      })
+    ).status,
+  ).toBe(400)
+})

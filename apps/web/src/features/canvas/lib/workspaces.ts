@@ -31,6 +31,8 @@ export class CanvasWorkspace {
   private disposed = false
   private revision = 0
   private savedRevision = 0
+  private structureRevision = 0
+  private savedStructureRevision = 0
   private stopChanges: (() => void) | undefined
 
   constructor(
@@ -95,7 +97,10 @@ export class CanvasWorkspace {
           camera === this.doc.camera
         )
           return
-        if (elements !== this.doc.elements) this.cloud?.markChanged()
+        if (elements !== this.doc.elements || files !== this.doc.files) {
+          this.structureRevision += 1
+          this.cloud?.markChanged()
+        }
         ;({ elements, files, camera } = this.doc)
         this.revision += 1
         clearTimeout(this.timer)
@@ -133,7 +138,11 @@ export class CanvasWorkspace {
       if (this.disposed || this.state.loading || this.state.loadFailed) return false
       if (this.savedRevision === this.revision && !this.state.saveFailed) return true
       const revision = this.revision
-      let saved = await saveScene(this.editor, this.key)
+      const structureRevision = this.structureRevision
+      const preserveStructure = structureRevision === this.savedStructureRevision
+      let saved = this.cloud
+        ? await this.cloud.saveLocal(preserveStructure)
+        : await saveScene(this.editor, this.key, undefined, { preserveStructure })
       if (saved) {
         try {
           await useCanvasProjectStore.getState().recordScene(this.key, this.doc)
@@ -141,7 +150,10 @@ export class CanvasWorkspace {
           saved = false
         }
       }
-      if (saved) this.savedRevision = revision
+      if (saved) {
+        this.savedRevision = revision
+        this.savedStructureRevision = structureRevision
+      }
       this.update({ saveFailed: !saved })
       if (saved) void this.cloud?.sync().catch(() => {})
       return saved
