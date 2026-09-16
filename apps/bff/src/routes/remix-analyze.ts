@@ -1,6 +1,6 @@
 import { Elysia, t } from 'elysia'
 import { capabilityUnavailable, isCapabilityEnabled } from '../lib/capabilities'
-import { chatFailure } from '../lib/chatCompletion'
+import { respondChatFailure } from '../lib/chatCompletion'
 import { badRequestOnValidation, imageDataUrlSchema } from '../lib/http'
 import { log } from '../lib/logger'
 import { requireUserOrService } from '../lib/user-auth'
@@ -28,9 +28,7 @@ export const remixAnalyzeRoutes = new Elysia()
         return { briefs: await analyzeCompetitorImages(body.images, body.product) }
       } catch (error) {
         log.warn({ event: 'remix.vision_failed', err: error }, 'vision analysis failed')
-        const failure = chatFailure(error, 'vision')
-        if (failure) return status(failure.status, failure.body)
-        throw error
+        return respondChatFailure(error, 'vision', status)
       }
     },
     { body: analyzeBodySchema },

@@ -59,6 +59,20 @@ export function chatFailure(error: unknown, feature: string): ChatFailure | null
   return null
 }
 
+/**
+ * 每条 chat 路由的 catch 都长一个样。收在这里，下次再添一种失败状态就只改一处，
+ * 不用把四个 catch 块挨个翻一遍。不是 chat 失败的原样抛出，交给上层。
+ */
+export function respondChatFailure<R>(
+  error: unknown,
+  feature: string,
+  status: (code: ChatFailure['status'], body: Record<string, unknown>) => R,
+): R {
+  const failure = chatFailure(error, feature)
+  if (!failure) throw error
+  return status(failure.status, failure.body)
+}
+
 interface ChatResponse {
   readonly ok: boolean
   readonly status: number
