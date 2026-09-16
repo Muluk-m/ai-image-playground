@@ -8,6 +8,7 @@ import {
   registerUser,
 } from '../lib/authClient'
 import { isClientCapabilityEnabled } from '../lib/clientCapabilities'
+import { PrivateWebSupportsReferrals } from '../lib/privateOverlay'
 import { type RegistrationCredentials, RegistrationPanel } from './RegistrationPanel'
 
 function EyeIcon({ crossed = false }: { crossed?: boolean }) {
@@ -143,6 +144,9 @@ function errorMessage(error: unknown): string {
 
 function oauthErrorMessage(code: string): string {
   if (code === 'registration_closed') return '注册暂未开放，请联系管理员开通账户'
+  if (code === 'invalid_referral_code') return '邀请码无效或已不可用，请修改或清空后重试'
+  if (code === 'registration_reward_unavailable')
+    return '邀请奖励暂时无法发放，请稍后重试或清空邀请码'
   if (code === 'account_disabled') return '该账户已被停用'
   if (code === 'access_denied') return '你取消了第三方授权'
   return '第三方登录失败，请重试或改用邮箱登录'
@@ -154,19 +158,33 @@ function registrationErrorMessage(error: unknown): string {
     if (error.code === 'invalid_username') return '邮箱地址格式不正确'
     if (error.code === 'invalid_password') return '密码格式不正确'
     if (error.code === 'rate_limited') return '注册尝试过于频繁，请稍后再试'
+    if (error.code === 'invalid_referral_code') return '邀请码无效或已不可用，请修改或清空后重试'
+    if (error.code === 'registration_reward_unavailable')
+      return '邀请奖励暂时无法发放，请稍后重试或清空邀请码'
   }
   return '暂时无法创建账户，请检查网络后重试'
 }
 
 export function LoginScreen() {
+  const registrationEnabled = isClientCapabilityEnabled('accounts:self-register')
+  const referralEnabled =
+    PrivateWebSupportsReferrals &&
+    registrationEnabled &&
+    isClientCapabilityEnabled('billing:credits')
+  const [referralCode, setReferralCode] = useState(() =>
+    typeof window === 'undefined'
+      ? ''
+      : (new URLSearchParams(window.location.search).get('ref') ?? ''),
+  )
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [view, setView] = useState<'login' | 'registration'>('login')
+  const [view, setView] = useState<'login' | 'registration'>(
+    referralEnabled && referralCode ? 'registration' : 'login',
+  )
   const [providers, setProviders] = useState<OAuthProviderView[]>([])
-  const registrationEnabled = isClientCapabilityEnabled('accounts:self-register')
 
   useEffect(() => {
     let cancelled = false
@@ -207,13 +225,69 @@ export function LoginScreen() {
     setPending(true)
     setError(null)
     try {
-      await registerUser(credentials.username, credentials.password)
+      await registerUser(
+        credentials.username,
+        credentials.password,
+        referralEnabled ? referralCode : undefined,
+      )
       window.location.reload()
     } catch (err) {
       setError(registrationErrorMessage(err))
       setPending(false)
     }
   }
+
+  const invitationField = referralEnabled ? (
+    <div className="auth-form mb-4">
+      <label className="auth-field">
+        <span>邀请码（选填）</span>
+        <input
+          name="referral_code"
+          value={referralCode}
+          maxLength={64}
+          onChange={(event) => {
+            setReferralCode(event.currentTarget.value)
+            setError(null)
+          }}
+          autoCapitalize="none"
+          spellCheck={false}
+          autoComplete="off"
+          disabled={pending}
+          placeholder="填写或清空邀请码"
+          aria-describedby="referral-code-hint"
+        />
+      </label>
+      <p id="referral-code-hint" className="text-xs text-muted-foreground">
+        仅在首次注册时确定邀请关系，已有账户登录不会补绑。
+      </p>
+    </div>
+  ) : null
+  const providerButtons =
+    providers.length > 0 ? (
+      <>
+        <div className="auth-providers">
+          {providers.map((provider) => (
+            <button
+              key={provider.id}
+              type="button"
+              disabled={pending}
+              onClick={() => {
+                window.location.href = oauthStartUrl(
+                  provider.id,
+                  referralEnabled ? referralCode : undefined,
+                )
+              }}
+            >
+              <ProviderMark provider={provider} />
+              <span>{provider.label}</span>
+            </button>
+          ))}
+        </div>
+        <div className="auth-divider">
+          <span>或使用邮箱{view === 'registration' ? '注册' : '登录'}</span>
+        </div>
+      </>
+    ) : null
 
   return (
     <main className={`auth-shell${view === 'registration' ? ' auth-shell--registration' : ''}`}>
@@ -247,7 +321,10 @@ export function LoginScreen() {
                   setView('login')
                 }}
                 onRegister={(credentials) => void submitRegistration(credentials)}
-              />
+              >
+                {invitationField}
+                {providerButtons}
+              </RegistrationPanel>
             ) : (
               <div className="auth-form-view auth-login">
                 <div className="auth-form-heading">
@@ -255,29 +332,8 @@ export function LoginScreen() {
                   <p>登录你的账户，继续创作</p>
                 </div>
 
-                {providers.length > 0 ? (
-                  <>
-                    <div className="auth-providers">
-                      {providers.map((provider) => (
-                        <button
-                          key={provider.id}
-                          type="button"
-                          disabled={pending}
-                          onClick={() => {
-                            window.location.href = oauthStartUrl(provider.id)
-                          }}
-                        >
-                          <ProviderMark provider={provider} />
-                          <span>{provider.label}</span>
-                        </button>
-                      ))}
-                    </div>
-
-                    <div className="auth-divider">
-                      <span>或使用邮箱登录</span>
-                    </div>
-                  </>
-                ) : null}
+                {providers.length > 0 ? invitationField : null}
+                {providerButtons}
 
                 <form
                   className="auth-form"

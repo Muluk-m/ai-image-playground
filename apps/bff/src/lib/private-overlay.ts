@@ -70,7 +70,12 @@ export interface PrivateTaskHooks {
    * 积分只有私有账本算得出，公开树一律问它，绝不自己按单价折算。
    */
   taskCredits(input: { taskIds: readonly string[] }): Promise<Readonly<Record<string, number>>>
-  onUserCreated(input: { tx: BffTransaction; userId: string }): Promise<void>
+  onUserCreated(input: {
+    tx: BffTransaction
+    userId: string
+    source: 'operator' | 'self-registration'
+    referralCode?: string
+  }): Promise<void>
   runMaintenance(now: number): Promise<void>
 }
 

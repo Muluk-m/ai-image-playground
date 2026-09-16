@@ -43,6 +43,8 @@ type CallbackErrorCode =
   | 'exchange_failed'
   | 'identity_failed'
   | 'registration_closed'
+  | 'invalid_referral_code'
+  | 'registration_reward_unavailable'
 
 type LinkErrorCode =
   | 'access_denied'
@@ -76,9 +78,14 @@ function redirectTo(target: string): Response {
   return new Response(null, { status: 302, headers: { location: target } })
 }
 
-function failureRedirect(request: Request, code: CallbackErrorCode): Response {
+function failureRedirect(
+  request: Request,
+  code: CallbackErrorCode,
+  referralCode?: string,
+): Response {
   const url = new URL(`${frontendOrigin(request)}/`)
   url.searchParams.set(OAUTH_ERROR_QUERY_PARAM, code)
+  if (referralCode) url.searchParams.set('ref', referralCode)
   return redirectTo(url.toString())
 }
 
@@ -106,7 +113,7 @@ function authorizeRedirect(
 }
 
 type ParsedState =
-  | { readonly mode: 'login'; readonly state: string }
+  | { readonly mode: 'login'; readonly state: string; readonly referralCode?: string }
   | { readonly mode: 'link'; readonly userId: string; readonly state: string }
 
 /**
@@ -117,7 +124,13 @@ function parseState(issued: unknown, providerId: string): ParsedState | null {
   if (typeof issued !== 'string') return null
   const loginPrefix = `${providerId}:login:`
   if (issued.startsWith(loginPrefix)) {
-    return { mode: 'login', state: issued.slice(loginPrefix.length) }
+    const state = issued.slice(loginPrefix.length)
+    const separator = state.indexOf(':')
+    return {
+      mode: 'login',
+      state,
+      referralCode: separator < 0 ? undefined : state.slice(separator + 1),
+    }
   }
   const linkPrefix = `${providerId}:link:`
   if (!issued.startsWith(linkPrefix)) return null
@@ -135,19 +148,25 @@ export const oauthRoutes = new Elysia()
   })
   .get(
     '/api/auth/oauth/:provider/start',
-    ({ cookie, params, request, status }) => {
+    ({ cookie, params, query, request, status }) => {
       if (!isCapabilityEnabled('accounts:login')) return capabilityUnavailable('accounts:login')
       const resolved = resolveOAuthProvider(params.provider)
       if (!resolved) return status(404, { error: 'provider_unavailable' })
 
-      const state = randomBytes(32).toString('base64url')
+      const nonce = randomBytes(32).toString('base64url')
+      const referralCode = query.ref?.trim()
+      // The complete state is compared at callback, binding attribution to the same nonce.
+      const state = referralCode ? `${nonce}:${referralCode}` : nonce
       cookie[STATE_COOKIE].set({
         ...STATE_COOKIE_OPTIONS,
         value: `${resolved.definition.id}:login:${state}`,
       })
       return authorizeRedirect(request, resolved, state)
     },
-    { params: t.Object({ provider: t.String() }) },
+    {
+      params: t.Object({ provider: t.String() }),
+      query: t.Object({ ref: t.Optional(t.String({ maxLength: 64 })) }),
+    },
   )
   .get(
     '/api/auth/oauth/:provider/link',
@@ -193,6 +212,7 @@ export const oauthRoutes = new Elysia()
         return status(403, { error: 'state_mismatch' })
       }
 
+      const referralCode = issued.mode === 'login' ? issued.referralCode : undefined
       let linkingUserId: string | null = null
       if (issued.mode === 'link') {
         // 绑定只能落在发起它的那个账号上；中途换号登录不算。
@@ -203,7 +223,7 @@ export const oauthRoutes = new Elysia()
       if (query.error || !query.code) {
         return linkingUserId
           ? linkRedirect(request, 'access_denied')
-          : failureRedirect(request, 'access_denied')
+          : failureRedirect(request, 'access_denied', referralCode)
       }
 
       let identity: OAuthIdentity
@@ -216,7 +236,9 @@ export const oauthRoutes = new Elysia()
         })
       } catch (error) {
         const code = error instanceof OAuthExchangeError ? error.code : 'exchange_failed'
-        return linkingUserId ? linkRedirect(request, code) : failureRedirect(request, code)
+        return linkingUserId
+          ? linkRedirect(request, code)
+          : failureRedirect(request, code, referralCode)
       }
 
       const claim = {
@@ -238,15 +260,21 @@ export const oauthRoutes = new Elysia()
       try {
         result = await loginWithOAuthIdentity(claim, {
           allowRegistration: isCapabilityEnabled('accounts:self-register'),
+          referralCode,
         })
       } catch (error) {
-        if (error instanceof UserOperationError && error.code === 'account_disabled') {
-          return failureRedirect(request, 'account_disabled')
+        if (
+          error instanceof UserOperationError &&
+          (error.code === 'account_disabled' ||
+            error.code === 'invalid_referral_code' ||
+            error.code === 'registration_reward_unavailable')
+        ) {
+          return failureRedirect(request, error.code, referralCode)
         }
         throw error
       }
       if ('registrationClosed' in result) {
-        return failureRedirect(request, 'registration_closed')
+        return failureRedirect(request, 'registration_closed', referralCode)
       }
 
       setUserSessionCookie(cookie, result.sessionToken)
