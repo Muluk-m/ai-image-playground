@@ -194,13 +194,22 @@ export async function migrateDomain(api: string): Promise<boolean> {
     location.origin,
   )
   if (currentUrl.searchParams.get('__migration_skip') === '1') {
+    let destination = currentUrl
     try {
+      const stored = JSON.parse(sessionStorage.getItem(PENDING) ?? '{}') as Partial<Pending>
+      if (currentUrl.pathname === BRIDGE)
+        destination = new URL(stored.returnPath ?? '/', location.origin)
       sessionStorage.setItem('muvloom.domain-migration.defer', '1')
     } catch {
-      /* Continue this visit without storage. */
+      if (currentUrl.pathname === BRIDGE) destination = new URL('/', location.origin)
     }
-    currentUrl.searchParams.delete('__migration_skip')
-    history.replaceState(null, '', `${currentUrl.pathname}${currentUrl.search}${currentUrl.hash}`)
+    if (destination.origin !== location.origin) destination = new URL('/', location.origin)
+    destination.searchParams.delete('__migration_skip')
+    history.replaceState(
+      null,
+      '',
+      `${destination.pathname}${destination.search}${destination.hash}`,
+    )
     return false
   }
   let config: MigrationConfig | null
@@ -287,18 +296,7 @@ export async function migrateDomain(api: string): Promise<boolean> {
     }
     const proceed = document.createElement('button')
     proceed.textContent = '稍后再试，先进入工作台'
-    proceed.onclick = () => {
-      let returnPath = '/'
-      try {
-        returnPath = JSON.parse(sessionStorage.getItem(PENDING) ?? '{}').returnPath ?? '/'
-      } catch {
-        /* Keep the safe default. */
-      }
-      const destination = new URL(returnPath, config!.targetOrigin)
-      if (destination.origin !== config!.targetOrigin) return
-      destination.searchParams.set('__migration_skip', '1')
-      location.replace(destination.href)
-    }
+    proceed.onclick = () => location.replace(`${config!.targetOrigin}${BRIDGE}?__migration_skip=1`)
     view.append(retry, proceed)
   }
   return true

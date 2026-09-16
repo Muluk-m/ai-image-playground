@@ -160,3 +160,26 @@ it('blocks app initialization if migration configuration cannot be loaded', asyn
   expect(document.body.textContent).toContain('请重试')
   document.body.replaceChildren()
 })
+
+it('recovers the destination deep link when skipping a failed legacy export', async () => {
+  const targetSession = storage()
+  targetSession.setItem(
+    'muvloom.domain-migration.pending',
+    JSON.stringify({
+      secret: 'a'.repeat(64),
+      returnPath: '/?ref=keep#canvas',
+      created: Date.now(),
+    }),
+  )
+  vi.stubGlobal('sessionStorage', targetSession)
+  vi.stubGlobal('location', {
+    origin: 'https://new.example',
+    pathname: '/__domain-migration',
+    search: '?__migration_skip=1',
+    hash: '',
+  })
+  const replaceState = vi.fn()
+  vi.stubGlobal('history', { replaceState })
+  expect(await migrateDomain('https://api.new.example')).toBe(false)
+  expect(replaceState).toHaveBeenCalledWith(null, '', '/?ref=keep#canvas')
+})
