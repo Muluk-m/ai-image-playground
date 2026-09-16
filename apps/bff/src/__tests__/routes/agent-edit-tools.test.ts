@@ -93,14 +93,30 @@ function settleSubmittedTasks(outcome: 'completed' | 'failed'): () => void {
   let stopped = false
   void (async () => {
     while (!stopped) {
-      await db
-        .update(schema.tasks)
-        .set(
-          outcome === 'completed'
-            ? { status: 'completed', result_payload: TEST_RESULT_PAYLOAD, completed_at: Date.now() }
-            : { status: 'failed', error_message: '上游拒绝了这张图', error_type: 'upstream_error' },
-        )
-        .where(eq(schema.tasks.status, 'queued'))
+      const queued = await db.select().from(schema.tasks).where(eq(schema.tasks.status, 'queued'))
+      for (const task of queued) {
+        await db
+          .update(schema.tasks)
+          .set(
+            outcome === 'completed'
+              ? {
+                  status: 'completed',
+                  result_payload: {
+                    data: Array.from(
+                      { length: task.request_payload.n ?? 1 },
+                      () => TEST_RESULT_PAYLOAD.data[0]!,
+                    ),
+                  },
+                  completed_at: Date.now(),
+                }
+              : {
+                  status: 'failed',
+                  error_message: '上游拒绝了这张图',
+                  error_type: 'upstream_error',
+                },
+          )
+          .where(eq(schema.tasks.id, task.id))
+      }
       await Bun.sleep(2)
     }
   })()
@@ -184,7 +200,7 @@ describe('智能体改图工具', () => {
           toolCallCompletion({
             id: 'edit-after-answer',
             name: 'editImage',
-            args: { prompt: '基于原图设计悬浮卡片与展开详情', imageIds: ['canvas-original'] },
+            args: { prompt: '基于原图设计悬浮卡片与展开详情', imageIds: ['canvas-original'], n: 2 },
           }),
         () => completionStream('已生成新的设计图'),
       ]),
@@ -196,11 +212,16 @@ describe('智能体改图工具', () => {
     expect(eventsOfType(first, 'clarification')).toHaveLength(1)
     const stop = settleSubmittedTasks('completed')
     try {
-      const second = await runTurn(conversationId, '悬浮卡片与展开详情')
+      const second = await runTurn(conversationId, '悬浮卡片与展开详情，给我两个版本')
+      expect(eventsOfType(second, 'toolStart')[0]).toMatchObject({
+        outputCount: 2,
+        anchorObjectId: 'canvas-original',
+      })
       expect(eventsOfType(second, 'toolEnd')[0]).toMatchObject({
         status: 'succeeded',
         anchorObjectId: 'canvas-original',
       })
+      expect(eventsOfType(second, 'toolEnd')[0]?.artifacts).toHaveLength(2)
       const [task] = await db.select().from(schema.tasks)
       const submitted = await hydrateInputImages(task!.request_payload)
       expect(submitted.input_images).toEqual([PIXEL])

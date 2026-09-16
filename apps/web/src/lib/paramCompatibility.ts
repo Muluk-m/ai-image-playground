@@ -16,7 +16,6 @@ export interface ParamCapabilities {
   size: boolean
   transparentOutput: boolean
   compression: boolean
-  moderation: boolean
   /**
    * 分辨率（gemini_image_size）与思考级别（gemini_thinking_level）。
    * 比例不在此列：走 gemini 协议时它顶的是尺寸控件的位置，任何模型都得有一个。
@@ -47,7 +46,6 @@ export function getParamCapabilities(
     size: !modelCaps || modelCaps.has('size'),
     transparentOutput: view.provider !== 'gemini' && outputFormat === 'png',
     compression: outputFormat !== 'png',
-    moderation: view.apiMode !== 'responses' && (!modelCaps || modelCaps.has('moderation')),
     geminiImageTuning: view.provider === 'gemini' && isGeminiSeriesModel(view.model),
   }
 }
@@ -61,6 +59,7 @@ export function normalizeParamsForSettings(
   const outputImageLimit = getOutputImageLimitForSettings(settings)
   const nextParams: TaskParams = {
     ...params,
+    moderation: DEFAULT_PARAMS.moderation,
     size: normalizeImageSize(params.size) || DEFAULT_PARAMS.size,
     n: Math.min(outputImageLimit, Math.max(1, params.n || DEFAULT_PARAMS.n)),
   }

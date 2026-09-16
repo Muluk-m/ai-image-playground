@@ -1,7 +1,7 @@
 import type { AgentTool } from '@earendil-works/pi-agent-core'
 import { agentTitleLine } from '@image-playground/shared'
 import { Type } from 'typebox'
-import { agentImageCount } from './queueParams'
+import { agentImageCount, imageCountParameter } from './queueParams'
 import { runQueueTask } from './queueTask'
 import type { AgentToolDefinition, AgentToolDetails } from './types'
 
@@ -11,6 +11,7 @@ const parameters = Type.Object({
   prompt: Type.String({
     description: '完整描述要画的画面，包含主体、场景与风格。用用户说话的语言写。',
   }),
+  n: imageCountParameter,
 })
 
 function title(args: unknown): string {
@@ -22,7 +23,8 @@ function title(args: unknown): string {
 
 export const generateImage: AgentToolDefinition = {
   name: 'generateImage',
-  guidance: '用户要一张新图时调生图工具，把他的意图补成一条完整的提示词，不要反问他要什么风格。',
+  guidance:
+    '用户要新图时调生图工具，把意图补成完整提示词，不要反问风格。张数按用户需求选，未要求多张时只出一张；同一画面的多个版本用 n，不同画面分别调用。',
   title,
   outputCount: agentImageCount,
   onError: 'abort',
@@ -31,10 +33,15 @@ export const generateImage: AgentToolDefinition = {
       name: 'generateImage',
       label: '生图',
       description:
-        '按提示词生成一张全新的图片，产出直接落到用户的画布上。用户想要一张新图时调用它；改已有的图用 editImage。',
+        '按提示词生成全新的图片，产出直接落到用户的画布上。可用 n 指定同一画面的版本数；改已有的图用 editImage。',
       parameters,
       execute: (_toolCallId, params, signal, onUpdate) =>
-        runQueueTask(context, { media: 'image', prompt: params.prompt }, signal, onUpdate),
+        runQueueTask(
+          context,
+          { media: 'image', prompt: params.prompt, n: params.n },
+          signal,
+          onUpdate,
+        ),
     }
     return tool as AgentTool
   },

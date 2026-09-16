@@ -460,7 +460,7 @@ function mergePersistedState(persistedState: unknown, currentState: AppState): A
     ...persisted,
     settings,
     // 旧版本持久化的 params 可能缺新增字段，与 DEFAULT_PARAMS 合并补齐
-    params: { ...DEFAULT_PARAMS, ...persisted.params },
+    params: { ...DEFAULT_PARAMS, ...persisted.params, moderation: DEFAULT_PARAMS.moderation },
     inspirationCoachDismissed: Boolean(persisted.inspirationCoachDismissed),
     libraryCoachDismissed: Boolean(persisted.libraryCoachDismissed),
     libraryPanelOpened: Boolean(persisted.libraryPanelOpened),
@@ -731,7 +731,8 @@ export const useStore = create<AppState>()(
 
       // Params
       params: { ...DEFAULT_PARAMS },
-      setParams: (p) => set((s) => ({ params: { ...s.params, ...p } })),
+      setParams: (p) =>
+        set((s) => ({ params: { ...s.params, ...p, moderation: DEFAULT_PARAMS.moderation } })),
       reusedTaskApiProfileId: null,
       reusedTaskApiProfileName: null,
       reusedTaskApiProfileMissing: false,

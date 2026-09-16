@@ -43,29 +43,11 @@ afterEach(() => {
 })
 
 describe('智能体输入框的生成参数', () => {
-  it('收起时只给一行摘要，没选尺寸就说自动尺寸', () => {
-    render()
-    expect(trigger().textContent).toContain('自动尺寸')
-    expect(trigger().getAttribute('aria-expanded')).toBe('false')
-  })
-
-  it('摘要跟着当前参数走', () => {
-    act(() => {
-      useStore.setState({ params: { ...DEFAULT_PARAMS, size: '1024x1536', n: 3 } })
-    })
-    render()
-
-    expect(trigger().textContent).toContain('1024x1536')
-    expect(trigger().textContent).toContain('3 张')
-  })
-
   it('点开才出现参数面板，再点收起', () => {
     render()
-    expect(host.textContent).not.toContain('生成参数改完')
 
     toggle()
     expect(trigger().getAttribute('aria-expanded')).toBe('true')
-    expect(host.textContent).toContain('改完下一轮生效')
 
     toggle()
     expect(trigger().getAttribute('aria-expanded')).toBe('false')

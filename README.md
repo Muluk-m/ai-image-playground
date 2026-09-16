@@ -35,6 +35,7 @@ Three ways to work, one shared history:
 - **Merge images** — box-select multiple images and they're sent together as references ("put the kitten next to the puppy")
 - **Generate in place** — with nothing selected, your prompt is plain text-to-image; results land right on the canvas next to your material
 - **Fire-and-forget concurrency** — every generation gets a live placeholder frame; keep working while multiple tasks run in parallel, with n>1 fan-out for variants
+- **Agent-selected image counts** — when Agent mode is enabled, describe how many images or variants you need instead of setting a batch-size control. Image generation and editing default to one output, with a maximum of ten per tool call; direct workbench generation keeps its manual count.
 - **Refresh-safe** — the canvas persists locally; in backend mode, in-flight generations resume automatically after a page reload
 - **Connected to the workbench** — canvas results land in the shared history (favorite / search / reuse), and any workbench image can be sent onto the canvas to keep iterating
 - **Keyboard-first** — full shortcut support with a built-in cheat sheet (⌘⏎ to generate, V/H/D/E tool switching, undo/redo…)
@@ -44,6 +45,7 @@ Three ways to work, one shared history:
 - **Multiple models** — OpenAI, Gemini, custom HTTP endpoints; bring your own API key. The model picker uses compact names and brand icons, with full names and model IDs on hover; matching names are distinguished by their configuration.
 - **Predictable homepage** — every visit opens the workbench; page selection is session-only. Primary navigation is separate from the tools, and settings live in the top-right account/app menu.
 - **Reference images + masks** — up to 16 reference images; the OpenAI path includes a visual mask editor
+- **Automatic moderation** — generation uses upstream automatic/default moderation without a user-facing moderation-strength selector.
 - **Waterfall history** — every generation saved locally with its effective parameters, favoritable and searchable
 - **Inspiration library** — hundreds of high-quality prompts you can apply with one click
 

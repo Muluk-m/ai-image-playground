@@ -22,11 +22,7 @@ import { getSafeBoundingClientRect } from '../lib/domRect'
 import { downloadImagesByIds } from '../lib/downloadImages'
 import { API_MAX_IMAGES, MAX_INPUT_IMAGES_MESSAGE } from '../lib/inputImageLimit'
 import { createLongPress } from '../lib/longPress'
-import {
-  getChangedParams,
-  getParamCapabilities,
-  normalizeParamsForSettings,
-} from '../lib/paramCompatibility'
+import { getChangedParams, normalizeParamsForSettings } from '../lib/paramCompatibility'
 import { usePrivateSubmissionGuard } from '../lib/privateOverlay'
 import {
   getContentEditableCursor,
@@ -210,7 +206,6 @@ export default function InputBar() {
   const [submitHover, setSubmitHover] = useState(false)
   const [attachHover, setAttachHover] = useState(false)
   const [compressionHintVisible, setCompressionHintVisible] = useState(false)
-  const [moderationHintVisible, setModerationHintVisible] = useState(false)
   const [sizeHintVisible, setSizeHintVisible] = useState(false)
   const [qualityHintVisible, setQualityHintVisible] = useState(false)
   const [imageHintId, setImageHintId] = useState<string | null>(null)
@@ -263,7 +258,6 @@ export default function InputBar() {
   const [menuLeft, setMenuLeft] = useState(0)
   const maskConflictNoticeShownRef = useRef(false)
   const compressionHintTimerRef = useRef<number | null>(null)
-  const moderationHintTimerRef = useRef<number | null>(null)
   const sizeHintTimerRef = useRef<number | null>(null)
   const qualityHintTimerRef = useRef<number | null>(null)
   const imageHintTimerRef = useRef<number | null>(null)
@@ -300,7 +294,6 @@ export default function InputBar() {
     [activeProfile],
   )
   const supportsEdit = !modelCaps || modelCaps.has('edit')
-  const moderationDisabled = !getParamCapabilities(activeProfile, params.output_format).moderation
   const atImageLimit = inputImages.length >= API_MAX_IMAGES
   // 参考图入口：模型不支持 edit（如 Agnes 之前只声明 generate）则禁用附图，
   // 否则会让用户附了图提交、到上游才报错。达上限同样禁用。
@@ -469,9 +462,6 @@ export default function InputBar() {
       if (compressionHintTimerRef.current != null) {
         window.clearTimeout(compressionHintTimerRef.current)
       }
-      if (moderationHintTimerRef.current != null) {
-        window.clearTimeout(moderationHintTimerRef.current)
-      }
       if (qualityHintTimerRef.current != null) {
         window.clearTimeout(qualityHintTimerRef.current)
       }
@@ -505,30 +495,6 @@ export default function InputBar() {
       cancelled = true
     }
   }, [maskDraft, maskTargetImage?.id, maskTargetImage?.dataUrl])
-
-  const showModerationHint = () => {
-    if (moderationDisabled) setModerationHintVisible(true)
-  }
-
-  const hideModerationHint = () => {
-    setModerationHintVisible(false)
-    clearModerationHintTimer()
-  }
-
-  const clearModerationHintTimer = () => {
-    if (moderationHintTimerRef.current != null) {
-      window.clearTimeout(moderationHintTimerRef.current)
-      moderationHintTimerRef.current = null
-    }
-  }
-
-  const startModerationHintTouch = () => {
-    if (!moderationDisabled) return
-    moderationHintTimerRef.current = window.setTimeout(() => {
-      setModerationHintVisible(true)
-      moderationHintTimerRef.current = null
-    }, 450)
-  }
 
   const showCompressionHint = () => setCompressionHintVisible(true)
 

@@ -102,17 +102,6 @@ describe('parameter compatibility', () => {
 })
 
 describe('getParamCapabilities', () => {
-  it('png on openai profile: transparent toggle on, compression off', () => {
-    expect(getParamCapabilities(byokProfile(), 'png')).toEqual({
-      quality: true,
-      size: true,
-      transparentOutput: true,
-      compression: false,
-      moderation: true,
-      geminiImageTuning: false,
-    })
-  })
-
   it('jpeg: transparent toggle off, compression on', () => {
     const caps = getParamCapabilities(byokProfile(), 'jpeg')
     expect(caps.transparentOutput).toBe(false)
@@ -146,11 +135,6 @@ describe('getParamCapabilities', () => {
     expect(getParamCapabilities(profile, 'png').quality).toBe(false)
   })
 
-  it('responses apiMode: moderation off', () => {
-    const profile = byokProfile({ preferences: { apiMode: 'responses' } })
-    expect(getParamCapabilities(profile, 'png').moderation).toBe(false)
-  })
-
   it('builtin-edge channel without quality capability: quality off', () => {
     mockChannels.list = [
       {
@@ -179,19 +163,6 @@ describe('getParamCapabilities', () => {
     const profile = builtinProfile(['generate', 'edit', 'size'])
 
     expect(getParamCapabilities(profile, 'png').size).toBe(true)
-  })
-
-  // grok-imagine-image 的真实声明形状：没有 moderation，带上提交上游必 403。
-  it('builtin-edge channel without moderation capability: moderation off', () => {
-    const profile = builtinProfile(['generate', 'edit', 'n'])
-
-    expect(getParamCapabilities(profile, 'png').moderation).toBe(false)
-  })
-
-  it('builtin-edge channel with moderation capability: moderation on', () => {
-    const profile = builtinProfile(['generate', 'edit', 'moderation'])
-
-    expect(getParamCapabilities(profile, 'png').moderation).toBe(true)
   })
 
   it('BYOK profile without declared capabilities: size on', () => {
