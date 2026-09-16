@@ -165,7 +165,7 @@ describe('智能体输入框', () => {
     expect(host.textContent).not.toContain('松开即作为参考图')
 
     type('把它放到浴缸旁边')
-    click('发送')
+    click('发送并创作')
     expect(send).toHaveBeenCalledWith('把它放到浴缸旁边', [
       expect.objectContaining({ imageId: expect.stringMatching(/^file_/), name: '海报底图' }),
     ])
@@ -198,7 +198,7 @@ describe('智能体输入框', () => {
     expect(capsules()).toEqual(['@图1'])
     expect(host.querySelector('img')?.getAttribute('src')).toBe(PREPARED)
     expect(host.textContent).toContain('MASK')
-    click('发送')
+    click('发送并创作')
     expect(send).toHaveBeenCalledWith('把[image 1]', [
       { imageId: 'canvas-1', dataUrl: PREPARED, maskDataUrl: MASK },
     ])
@@ -208,14 +208,14 @@ describe('智能体输入框', () => {
     useAgentStore.setState({ send: async () => {} })
     render()
     type('重试这段内容')
-    await act(async () => click('发送'))
+    await act(async () => click('发送并创作'))
     expect(editor().textContent).toBe('重试这段内容')
     useAgentStore.setState({
       send: async (_text, _references, accepted) => {
         accepted?.()
       },
     })
-    await act(async () => click('发送'))
+    await act(async () => click('发送并创作'))
     expect(editor().textContent).toBe('')
   })
 
@@ -259,7 +259,7 @@ describe('智能体输入框', () => {
     expect(await attached()).toEqual([PIXEL])
 
     type('把圈出来的地方换成木纹')
-    click('发送')
+    click('发送并创作')
     expect(send).toHaveBeenCalledWith('把圈出来的地方换成木纹', [
       { imageId: 'canvas-1', dataUrl: PIXEL },
     ])
@@ -282,7 +282,7 @@ describe('智能体输入框', () => {
     expect([...host.querySelectorAll('img')].map((img) => img.getAttribute('src'))).toEqual([PIXEL])
 
     type('把它的背景换成浅木色')
-    click('发送')
+    click('发送并创作')
     expect(send).toHaveBeenCalledWith('把它的背景换成浅木色', [
       { imageId: 'canvas-1', dataUrl: PIXEL },
     ])
@@ -294,7 +294,7 @@ describe('智能体输入框', () => {
     pick('画布图1')
     type('的背景换成浅木色')
 
-    click('发送')
+    click('发送并创作')
 
     expect(send).toHaveBeenCalledWith('把[image 1]的背景换成浅木色', [
       { imageId: 'canvas-1', dataUrl: PIXEL },
@@ -310,7 +310,7 @@ describe('智能体输入框', () => {
 
     expect(capsules()).toEqual(['@图1', '@图1'])
 
-    click('发送')
+    click('发送并创作')
     expect(send).toHaveBeenCalledWith('把[image 1] 和 [image 1]', [
       { imageId: 'canvas-1', dataUrl: PIXEL },
     ])
@@ -339,7 +339,7 @@ describe('智能体输入框', () => {
     click('给参考图 @图1 画遮罩')
     await save({ maskDataUrl: MASK, targetImageId: 'img-prepared', targetDataUrl: PREPARED })
 
-    click('发送')
+    click('发送并创作')
     expect(send).toHaveBeenCalledWith('把[image 1]的桌面换成木纹', [
       { imageId: 'canvas-1', dataUrl: PREPARED, maskDataUrl: MASK },
     ])
@@ -359,7 +359,7 @@ describe('智能体输入框', () => {
       await useStore.getState().maskEditorSession?.onRemove?.()
     })
 
-    click('发送')
+    click('发送并创作')
     expect(send).toHaveBeenCalledWith('把[image 1]', [{ imageId: 'canvas-1', dataUrl: PREPARED }])
   })
 
@@ -372,7 +372,7 @@ describe('智能体输入框', () => {
     click('移除参考图 @图1')
 
     expect(capsules()).toEqual([])
-    click('发送')
+    click('发送并创作')
     expect(send).toHaveBeenCalledWith('把@已移除图片改成木色', [])
   })
 })

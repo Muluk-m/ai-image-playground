@@ -78,14 +78,14 @@ export default function Header() {
     <>
       <header
         data-no-drag-select
-        className="safe-area-top fixed top-0 left-0 right-0 z-40 bg-white/90 dark:bg-gray-950/90 backdrop-blur border-b border-gray-200 dark:border-white/[0.08]"
+        className="studio-header safe-area-top fixed top-0 left-0 right-0 z-40 border-b"
       >
-        <div className="safe-area-x safe-header-inner max-w-7xl mx-auto grid grid-cols-[minmax(0,1fr)_auto] grid-rows-[3.5rem_2.5rem] items-center gap-x-4 lg:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] lg:grid-rows-[4rem]">
+        <div className="safe-area-x safe-header-inner w-full px-5 grid grid-cols-[minmax(0,1fr)_auto] grid-rows-[3.5rem_2.5rem] items-center gap-x-4 lg:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] lg:grid-rows-[4rem]">
           <h1 className="min-w-0">
             <button
               type="button"
-              onClick={() => setAppMode('browse')}
-              aria-label="幕芽 Muvloom，返回工作台"
+              onClick={() => setAppMode('create')}
+              aria-label="幕芽 Muvloom，返回创作"
               className="inline-flex max-w-full items-center gap-2.5 rounded-lg font-display text-[18px] font-medium tracking-wide text-gray-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:text-gray-50"
             >
               <img

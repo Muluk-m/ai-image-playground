@@ -22,9 +22,6 @@ import {
   INK,
   INK_3,
   LIST_ROW,
-  PANEL_MARGIN,
-  PANEL_SHADOW,
-  PANEL_SURFACE,
   TAB,
   USER_BUBBLE,
 } from '../agentStyles'
@@ -104,13 +101,8 @@ function ConversationList({ onPick }: { onPick: () => void }) {
 
 function CollapsedButton({ onOpen }: { onOpen: () => void }) {
   return (
-    <button
-      type="button"
-      onClick={onOpen}
-      style={{ left: PANEL_MARGIN, top: PANEL_MARGIN }}
-      className={`absolute z-[400] rounded-xl px-3 py-1.5 text-xs ${PANEL_SURFACE} ${PANEL_SHADOW} text-[#e8e8ea]`}
-    >
-      对话
+    <button type="button" onClick={onOpen} className="studio-open-chat">
+      展开对话
     </button>
   )
 }
@@ -183,24 +175,20 @@ export default function AgentPanel({ doc, editor }: { doc: CanvasDoc; editor: Ca
   const answerableId = answerableClarificationId(messages)
 
   return (
-    <div
-      style={{
-        left: PANEL_MARGIN,
-        top: PANEL_MARGIN,
-        bottom: PANEL_MARGIN,
-        width: panelWidth,
-      }}
-      className={`absolute z-[400] flex flex-col rounded-2xl ${PANEL_SURFACE} ${PANEL_SHADOW}`}
-    >
+    <div aria-label="创作对话" style={{ width: panelWidth }} className="studio-sidebar">
       <div
         role="separator"
         aria-orientation="vertical"
         aria-label="拖动调整面板宽度"
         title="拖动调整宽度"
         onPointerDown={startResize}
-        className="absolute -right-1.5 top-6 bottom-6 z-10 w-3 cursor-col-resize touch-none rounded-full transition-colors hover:bg-blue-500/40 active:bg-blue-500/60"
+        className="absolute -right-1.5 top-6 bottom-6 z-10 hidden md:block w-3 cursor-col-resize touch-none rounded-full transition-colors hover:bg-[var(--studio-accent-hover)]/40 active:bg-blue-500/60"
       />
-      <div className="flex shrink-0 items-center justify-between gap-3 px-3 pb-1.5 pt-2">
+      <div className="studio-sidebar-heading">
+        <span className="studio-kicker">CREATIVE STUDIO</span>
+        <h2>一起，把想法变成画面。</h2>
+      </div>
+      <div className="flex shrink-0 items-center justify-between gap-3 px-4 pb-3 pt-2">
         <div className="flex items-center gap-3">
           {TABS.map((one) => (
             <button
@@ -281,7 +269,16 @@ export default function AgentPanel({ doc, editor }: { doc: CanvasDoc; editor: Ca
           className={`relative flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto px-3 py-1 ${dragging ? 'rounded-xl outline-dashed outline-1 outline-blue-400/70' : ''}`}
           {...dropZoneProps}
         >
-          {messages.length === 0 && <p className={`text-xs ${INK_3}`}>还没有对话</p>}
+          {messages.length === 0 && (
+            <div className="studio-chat-empty">
+              <span className="studio-spark">✧</span>
+              <h3>今天，想创作什么？</h3>
+              <p>
+                描述你的想法，或添加一张参考图。生成的作品会出现在右侧画布，选中后可以继续修改。
+              </p>
+              <div className="studio-example">试着描述画面中的主体、风格和氛围。</div>
+            </div>
+          )}
           {messages.map((message, index) => {
             // 页脚跟在本轮最后一条消息后面，所以只在下一条换了轮时渲染。
             const footer =

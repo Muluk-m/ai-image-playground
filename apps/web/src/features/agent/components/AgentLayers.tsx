@@ -50,7 +50,7 @@ function Thumbnail({ element, src }: { element: CanvasEl; src?: string }) {
         {element.video && (
           <VideoIcon
             aria-hidden="true"
-            className="absolute right-0 bottom-0 h-3 w-3 rounded-br bg-black/70 text-white"
+            className="absolute right-0 bottom-0 h-3 w-3 rounded-br bg-black/70 text-[var(--studio-on-accent)]"
           />
         )}
       </span>
@@ -59,7 +59,7 @@ function Thumbnail({ element, src }: { element: CanvasEl; src?: string }) {
   return (
     <span
       aria-hidden="true"
-      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded bg-white/[0.06] text-[11px] ${INK_3}`}
+      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded bg-[var(--studio-raised)] text-[11px] ${INK_3}`}
     >
       {element.type === 'image' ? '□' : GLYPHS[element.type]}
     </span>
@@ -88,7 +88,7 @@ const LayerRow = memo(function LayerRow({
         type="button"
         aria-current={selected ? 'true' : undefined}
         aria-label={`选中图层 ${name}`}
-        className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-white/[0.06] ${selected ? ACTIVE_LIST_ROW : ''}`}
+        className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-[var(--studio-raised)] ${selected ? ACTIVE_LIST_ROW : ''}`}
         onClick={() => onSelect(element.id)}
       >
         <Thumbnail element={element} src={src} />
