@@ -80,7 +80,7 @@ export default function Header() {
               type="button"
               onClick={() => setAppMode('create')}
               aria-label="幕芽 Muvloom，返回创作"
-              className="inline-flex max-w-full items-center gap-2.5 rounded-lg font-display text-[18px] font-medium tracking-wide text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="flex max-w-full items-center gap-2.5 rounded-lg font-display text-[18px] font-medium tracking-wide text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <img
                 src="/brand/muvloom-icon.svg"
