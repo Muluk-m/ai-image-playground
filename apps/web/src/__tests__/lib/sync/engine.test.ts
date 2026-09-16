@@ -119,7 +119,7 @@ describe('pulling on startup', () => {
     expect(useStore.getState().appMode).toBe('browse')
     // 回传的设置不算本机改动，不能再被推回去。
     expect(readPendingChanges().settingsUpdatedAt).toBeNull()
-    useStore.getState().setAppMode('product')
+    useStore.getState().setAppMode('create')
     expect(readPendingChanges().settingsUpdatedAt).toBeNull()
   })
 

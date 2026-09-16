@@ -4,7 +4,13 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import TaskGrid from '../../components/TaskGrid'
-import { useProductShotsStore } from '../../features/productShots/store'
+import { readLegacyProductJobs } from '../../lib/legacyProductHistory'
+
+vi.mock('../../lib/legacyProductHistory', async (original) => ({
+  ...(await original<object>()),
+  readLegacyProductJobs: vi.fn(),
+}))
+
 import { useStore } from '../../store'
 import type { TaskOrigin, TaskRecord } from '../../types'
 
@@ -44,20 +50,9 @@ beforeEach(() => {
     showToast: vi.fn(),
     setConfirmDialog: vi.fn(),
   })
-  useProductShotsStore.setState({
-    loadJobs: vi.fn().mockResolvedValue(undefined),
-    jobs: [
-      {
-        id: 'set-1',
-        name: '奶油浴缸',
-        images: [],
-        preference: '',
-        versionsPerImage: 1,
-        createdAt: 1,
-        updatedAt: 1,
-      },
-    ],
-  })
+  vi.mocked(readLegacyProductJobs).mockResolvedValue([
+    { id: 'set-1', name: '奶油浴缸', images: [] },
+  ])
   host = document.createElement('div')
   document.body.appendChild(host)
   root = createRoot(host)
@@ -71,8 +66,8 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-function render() {
-  act(() => root.render(<TaskGrid />))
+async function render() {
+  await act(async () => root.render(<TaskGrid />))
 }
 
 function cardIds(): string[] {
@@ -82,7 +77,7 @@ function cardIds(): string[] {
 }
 
 describe('the history folded by set', () => {
-  it('shows one card for a set instead of its separate tasks', () => {
+  it('shows one card for a set instead of its separate tasks', async () => {
     useStore.setState({
       tasks: [
         task('a1', 5, { setId: 'set-1', shotId: 's1' }),
@@ -90,21 +85,21 @@ describe('the history folded by set', () => {
         task('a2', 3, { setId: 'set-1', shotId: 's2' }),
       ],
     })
-    render()
+    await render()
 
     expect(document.body.textContent).toContain('奶油浴缸')
     expect(document.body.textContent).toContain('完成 2/2')
     expect(cardIds()).toEqual(['loose'])
   })
 
-  it('reveals the tasks of the set once it is expanded', () => {
+  it('reveals the tasks of the set once it is expanded', async () => {
     useStore.setState({
       tasks: [
         task('a1', 5, { setId: 'set-1', shotId: 's1' }),
         task('a2', 3, { setId: 'set-1', shotId: 's2' }),
       ],
     })
-    render()
+    await render()
 
     const toggle = document.querySelector('button[aria-expanded="false"]')
     if (!toggle) throw new Error('no expand button')

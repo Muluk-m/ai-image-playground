@@ -56,13 +56,13 @@ afterEach(() => {
 })
 
 describe('画布工具条', () => {
-  it('对话面板开着时贴在面板右缘竖排，面板多宽就让多远', async () => {
+  it('对话与画布分栏后，工具条不再重复预留面板宽度', async () => {
     await enableAgent(true)
     useAgentStore.setState({ open: true, panelWidth: 300 })
     render()
 
-    expect(toolbar().dataset.canvasToolbar).toBe('docked')
-    expect(toolbar().style.left).toBe('320px')
+    expect(toolbar().dataset.canvasToolbar).toBe('bottom')
+    expect(toolbar().style.left).toBe('')
     expect(toolbar().querySelector('button[title="选择（V）"]')).not.toBeNull()
     expect(toolbar().querySelector('button[title="缩小"]')).not.toBeNull()
   })

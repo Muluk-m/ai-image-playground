@@ -424,7 +424,7 @@ describe('the persisted app mode', () => {
   })
 
   it('does not save the current page for the next visit', () => {
-    useStore.getState().setAppMode('product')
+    useStore.getState().setAppMode('browse')
     expect(getPersistedState(useStore.getState())).not.toHaveProperty('appMode')
   })
 })

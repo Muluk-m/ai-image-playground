@@ -34,12 +34,12 @@ function pasteEvent(files: File[], strings: string[]) {
 }
 
 const browse = vi.fn()
-const product = vi.fn()
+const video = vi.fn()
 const library = vi.fn()
 
 function Consumers() {
   usePasteImageFiles('browse', browse)
-  usePasteImageFiles('product', product)
+  usePasteImageFiles('video', video)
   usePasteImageFiles('library', library)
   return null
 }
@@ -73,31 +73,31 @@ describe('routing a pasted image to one place at a time', () => {
     paste([image()])
 
     expect(browse).toHaveBeenCalledTimes(1)
-    expect(product).not.toHaveBeenCalled()
+    expect(video).not.toHaveBeenCalled()
     expect(library).not.toHaveBeenCalled()
   })
 
-  it('hands the image to the product shots mode instead while it is in front', () => {
+  it('hands the image to the video mode instead while it is in front', () => {
     act(() => {
-      useStore.setState({ appMode: 'product' })
+      useStore.setState({ appMode: 'video' })
     })
 
     paste([image()])
 
-    expect(product).toHaveBeenCalledTimes(1)
+    expect(video).toHaveBeenCalledTimes(1)
     expect(browse).not.toHaveBeenCalled()
   })
 
   it('lets the asset panel take over from whatever mode is behind it', () => {
     act(() => {
-      useStore.setState({ appMode: 'product' })
+      useStore.setState({ appMode: 'video' })
       useLibraryStore.setState({ panelOpen: true, tab: 'assets' })
     })
 
     paste([image()])
 
     expect(library).toHaveBeenCalledTimes(1)
-    expect(product).not.toHaveBeenCalled()
+    expect(video).not.toHaveBeenCalled()
     expect(browse).not.toHaveBeenCalled()
   })
 
