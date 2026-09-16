@@ -1,5 +1,4 @@
 import { useSyncExternalStore } from 'react'
-import { useAgentPanelInset } from '../../agent/panelLayout'
 import { duplicateSelection } from '../lib/canvasClipboard'
 import type { CanvasDoc, Tool } from '../lib/canvasDoc'
 
@@ -121,8 +120,8 @@ function ToolButton({
       onClick={onClick}
       className={`flex h-9 w-9 items-center justify-center rounded-xl transition-colors ${
         active
-          ? 'bg-blue-600 text-white'
-          : 'text-gray-300 hover:bg-white/10 disabled:opacity-30 disabled:hover:bg-transparent'
+          ? 'bg-[var(--studio-accent)] text-[var(--studio-on-accent)]'
+          : 'text-[var(--studio-text-secondary)] hover:bg-[var(--studio-raised)] disabled:opacity-30 disabled:hover:bg-transparent'
       }`}
     >
       {children}
@@ -131,17 +130,12 @@ function ToolButton({
 }
 
 const PILL =
-  'pointer-events-auto rounded-2xl border border-white/10 bg-gray-900/95 p-1.5 shadow-lg backdrop-blur'
+  'pointer-events-auto rounded-2xl border border-[var(--studio-border)] bg-[var(--studio-panel)] p-1.5 shadow-lg backdrop-blur'
 
-/**
- * 工具条。对话面板开着时贴在面板右缘竖着排（工具、撤销重做、选区操作、缩放一列到底），
- * 操作区离对话和引用区都近；面板收起或没有智能体时退回底部横排。
- */
+/** 工具条固定在画布底部，缩放独立放在左下角。 */
 export default function CanvasToolbar({ doc }: { doc: CanvasDoc }) {
   useSyncExternalStore(doc.subscribe, () => doc.version)
-  const agentPanelInset = useAgentPanelInset()
   const { tool, selection, camera, viewport } = doc
-  const docked = agentPanelInset > 0
 
   const zoomStep = (dir: 1 | -1) => {
     doc.zoomAt(viewport.width / 2, viewport.height / 2, camera.zoom * (dir === 1 ? 1.25 : 0.8))
@@ -218,7 +212,7 @@ export default function CanvasToolbar({ doc }: { doc: CanvasDoc }) {
         type="button"
         title="重置为 100%"
         onClick={() => doc.zoomAt(viewport.width / 2, viewport.height / 2, 1)}
-        className={`rounded-xl text-xs text-gray-300 tabular-nums transition-colors hover:bg-white/10 ${docked ? 'h-9 w-9' : 'h-9 min-w-14 px-1'}`}
+        className={`rounded-xl text-xs text-[var(--studio-text-secondary)] tabular-nums transition-colors hover:bg-[var(--studio-raised)] h-9 min-w-14 px-1`}
       >
         {Math.round(camera.zoom * 100)}%
       </button>
@@ -228,34 +222,13 @@ export default function CanvasToolbar({ doc }: { doc: CanvasDoc }) {
     </>
   )
 
-  if (docked) {
-    return (
-      <div
-        style={{ left: agentPanelInset }}
-        className="pointer-events-none absolute top-1/2 z-[400] flex max-h-[calc(100%-32px)] -translate-y-1/2 flex-col gap-2 overflow-y-auto"
-        data-canvas-toolbar="docked"
-      >
-        <div className={`${PILL} flex flex-col items-center gap-1`}>
-          {tools}
-          <div className="my-1 h-px w-6 bg-white/10" />
-          {history}
-          {selectionActions}
-        </div>
-        <div className={`${PILL} flex flex-col items-center gap-1`}>{zoom}</div>
-      </div>
-    )
-  }
-
   return (
-    // 底部一整行：缩放控件靠左、工具条在剩余宽度里居中。三列网格保证两组控件各占一格，不会叠到一起。
-    <div
-      className="pointer-events-none absolute bottom-4 left-0 right-0 z-[400] grid grid-cols-[1fr_auto_1fr] items-center gap-3 px-4"
-      data-canvas-toolbar="bottom"
-    >
-      <div className={`${PILL} flex items-center justify-self-start`}>{zoom}</div>
-      <div className={`${PILL} flex items-center gap-1 justify-self-center`}>
+    // Canvas coordinates are local to the visible workspace, independent of the sidebar.
+    <div className="studio-toolbar" data-canvas-toolbar="bottom">
+      <div className={`${PILL} studio-zoom flex items-center`}>{zoom}</div>
+      <div className={`${PILL} studio-tools flex items-center gap-1`}>
         {tools}
-        <div className="mx-1 h-6 w-px bg-white/10" />
+        <div className="mx-1 h-6 w-px bg-[var(--studio-raised)]" />
         {history}
         {selectionActions}
       </div>

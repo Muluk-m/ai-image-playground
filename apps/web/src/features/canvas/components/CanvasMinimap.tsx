@@ -25,6 +25,7 @@ function paint(
   proj: MinimapProjection,
   rects: readonly MinimapRect[],
   viewport: Box,
+  viewportColor: string,
 ): void {
   ctx.clearRect(0, 0, MINIMAP_WIDTH, MINIMAP_HEIGHT)
   for (const rect of rects) {
@@ -43,7 +44,7 @@ function paint(
     }
   }
   const vp = projectBox(proj, viewport)
-  ctx.strokeStyle = 'rgba(255,255,255,0.92)'
+  ctx.strokeStyle = viewportColor
   ctx.lineWidth = 1.5
   ctx.strokeRect(vp.x, vp.y, Math.max(3, vp.w), Math.max(3, vp.h))
 }
@@ -102,15 +103,25 @@ export default function CanvasMinimap({ editor }: { editor: CanvasEditor }) {
     const draw = () => {
       frame = 0
       const { proj, rects, viewport } = currentFrame()
-      paint(target, proj, rects, viewport)
+      paint(
+        target,
+        proj,
+        rects,
+        viewport,
+        getComputedStyle(canvas).getPropertyValue('--studio-text').trim() ||
+          getComputedStyle(canvas).color,
+      )
     }
 
     draw()
+    const theme = window.matchMedia?.('(prefers-color-scheme: dark)')
+    theme?.addEventListener('change', draw)
     const unsubscribe = doc.subscribe(() => {
       if (!frame) frame = requestAnimationFrame(draw)
     })
     return () => {
       unsubscribe()
+      theme?.removeEventListener('change', draw)
       if (frame) cancelAnimationFrame(frame)
     }
   }, [doc, currentFrame, hasContent])
@@ -127,7 +138,7 @@ export default function CanvasMinimap({ editor }: { editor: CanvasEditor }) {
   }
 
   return (
-    <div className="pointer-events-auto overflow-hidden rounded-xl border border-white/10 bg-gray-900/95 shadow-lg backdrop-blur">
+    <div className="pointer-events-auto overflow-hidden rounded-xl border border-[var(--studio-border)] bg-[var(--studio-panel)] shadow-lg backdrop-blur">
       <canvas
         ref={canvasRef}
         style={{ width: MINIMAP_WIDTH, height: MINIMAP_HEIGHT }}

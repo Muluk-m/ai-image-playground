@@ -106,7 +106,7 @@ export default function AgentToolCard({ message }: { message: AgentToolMessage }
         <button
           type="button"
           title="在画布上定位这些产物"
-          className={`${CARD_TITLE} text-left transition-colors hover:text-blue-200`}
+          className={`${CARD_TITLE} text-left transition-colors hover:text-[var(--studio-accent)]`}
           onClick={() => agentCanvasSink()?.focus(onCanvas)}
         >
           {message.title}

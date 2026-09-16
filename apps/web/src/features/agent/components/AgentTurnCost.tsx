@@ -27,7 +27,7 @@ export default function AgentTurnCost({ footer }: { footer: AgentTurnFooter }) {
       <button
         type="button"
         aria-expanded={open}
-        className="inline-flex items-center gap-1 transition-colors hover:text-[#8b8b93]"
+        className="inline-flex items-center gap-1 transition-colors hover:text-[var(--studio-text)]"
         onClick={() => setOpen(!open)}
       >
         消耗 <Credits credits={total} />
