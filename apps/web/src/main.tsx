@@ -1,7 +1,7 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
-import { migrateDomain } from './lib/domainMigration/bootstrap'
+import { hasPendingDomainMigration, migrateDomain } from './lib/domainMigration/bootstrap'
 import { loadRuntimeConfig } from './lib/runtimeConfig'
 import { installMobileViewportGuards } from './lib/viewport'
 
@@ -25,7 +25,10 @@ if ('serviceWorker' in navigator) {
 // Capabilities and channel discovery share one startup round trip. The channel request can return
 // 401 before login; AuthGate retries it after establishing an authenticated session.
 const runtime = await loadRuntimeConfig()
-if (!runtime.bff.enabled || !(await migrateDomain(runtime.bff.baseUrl))) {
+if (
+  (!runtime.bff.enabled && !hasPendingDomainMigration()) ||
+  !(await migrateDomain(runtime.bff.baseUrl))
+) {
   const [{ AuthGate }, { bootstrapChannels }, { bootstrapClientCapabilities }] = await Promise.all([
     import('./auth/AuthGate'),
     import('./lib/channels/bootstrapChannels'),

@@ -274,7 +274,7 @@ export async function importEntry(entry: StorageEntry): Promise<void> {
   }
   if (entry.kind === 'database') {
     if (!appDatabase(entry.name)) throw new Error('Unknown database')
-    const current = await open(entry.name)
+    const current = await open(entry.name, undefined, entry.stores)
     const missing = entry.stores.some((s) => !current.objectStoreNames.contains(s.name))
     const version = Math.max(entry.version, current.version + (missing ? 1 : 0))
     current.close()
@@ -290,6 +290,7 @@ export async function importEntry(entry: StorageEntry): Promise<void> {
     const done = completed(tx),
       key = unpack(entry.key) as IDBValidKey
     let collision = false
+    const existingValue = s.get(key)
     const count = s.count(key)
     count.onsuccess = () => {
       try {
@@ -304,7 +305,12 @@ export async function importEntry(entry: StorageEntry): Promise<void> {
       }
     }
     await done
-    if (collision) await archiveConflict(entry)
+    if (
+      collision &&
+      JSON.stringify(await pack(existingValue.result)) !== JSON.stringify(entry.value)
+    ) {
+      await archiveConflict(entry)
+    }
   } finally {
     db.close()
   }

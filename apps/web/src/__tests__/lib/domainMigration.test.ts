@@ -89,3 +89,30 @@ it('does not import foreign storage or database namespaces', async () => {
   await expect(importEntry({ kind: 'local', key: 'another-app', value: 'x' })).rejects.toThrow()
   await expect(importEntry({ ...database, name: 'another-app' })).rejects.toThrow()
 })
+
+it('preserves the fixed v1 canvas schema and does not archive identical records on retry', async () => {
+  const meta: StorageEntry = {
+    kind: 'database',
+    name: 'image-playground-canvas',
+    version: 1,
+    stores: [{ name: 'scene', keyPath: null, autoIncrement: false, indexes: [] }],
+  }
+  await importEntry(meta)
+  const row: StorageEntry = {
+    kind: 'record',
+    database: meta.name,
+    store: 'scene',
+    key: await pack('scene'),
+    value: await pack({ version: 2, elements: [{ id: 'legacy' }], files: {} }),
+  }
+  await importEntry(row)
+  await importEntry(row)
+  const opened = await new Promise<IDBDatabase>((resolve, reject) => {
+    const req = indexedDB.open('image-playground-canvas', 1)
+    req.onsuccess = () => resolve(req.result)
+    req.onerror = () => reject(req.error)
+  })
+  expect(opened.version).toBe(1)
+  opened.close()
+  expect((await indexedDB.databases()).some((d) => d.name === 'muvloom-legacy-backup')).toBe(false)
+})

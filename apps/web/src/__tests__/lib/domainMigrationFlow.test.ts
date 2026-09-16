@@ -46,7 +46,8 @@ it('automatically navigates legacy storage, imports encrypted images and finishe
   vi.stubGlobal('crypto', webcrypto)
   vi.stubGlobal('IDBKeyRange', IDBKeyRange)
   let next = '',
-    finished = false
+    finished = false,
+    failRead = true
   function enter(url: string, side: typeof source) {
     const u = new URL(url)
     vi.stubGlobal('location', {
@@ -54,6 +55,9 @@ it('automatically navigates legacy storage, imports encrypted images and finishe
       pathname: u.pathname,
       search: u.search,
       hash: u.hash,
+      reload: () => {
+        next = u.href
+      },
       replace: (s: string) => {
         next = s
       },
@@ -75,6 +79,10 @@ it('automatically navigates legacy storage, imports encrypted images and finishe
         return Response.json({ ok: true })
       }
       if (route === 'seal') return Response.json({ ok: true })
+      if (route === 'read' && body.sequence === 1 && failRead) {
+        failRead = false
+        return Response.json({ error: 'migration_network' }, { status: 503 })
+      }
       if (route === 'read')
         return Response.json({ chunks: ciphertext.length, ciphertext: ciphertext[body.sequence] })
       if (route === 'finish') {
@@ -110,6 +118,12 @@ it('automatically navigates legacy storage, imports encrypted images and finishe
   expect(ciphertext.join('')).not.toContain('private pixels')
   enter(next, target)
   expect(await migrateDomain(config.targetApi)).toBe(true)
+  expect(finished).toBe(false)
+  const retry = [...document.querySelectorAll('button')].find((b) => b.textContent === '重试')!
+  retry.click()
+  expect(next).toContain('/__domain-migration#ticket=')
+  enter(next, target)
+  expect(await migrateDomain(config.targetApi)).toBe(true)
   expect(next).toBe(`${config.targetOrigin}/?ref=invite#canvas`)
   expect(finished).toBe(true)
   expect(ciphertext.length).toBeGreaterThan(1)
@@ -124,5 +138,25 @@ it('automatically navigates legacy storage, imports encrypted images and finishe
   expect(await (unpack(row.value) as { blob: Blob }).blob.text()).toBe('private pixels')
   enter(next, target)
   expect(await migrateDomain(config.targetApi)).toBe(false)
+  document.body.replaceChildren()
+})
+
+it('blocks app initialization if migration configuration cannot be loaded', async () => {
+  document.body.innerHTML = '<div id="root"></div>'
+  vi.stubGlobal('location', {
+    origin: 'https://new.example',
+    pathname: '/__domain-migration',
+    search: '',
+    hash: '#ticket=abc',
+    reload: vi.fn(),
+  })
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => {
+      throw new Error('offline')
+    }),
+  )
+  expect(await migrateDomain('https://api.new.example')).toBe(true)
+  expect(document.body.textContent).toContain('请重试')
   document.body.replaceChildren()
 })

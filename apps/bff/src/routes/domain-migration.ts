@@ -186,6 +186,13 @@ export const domainMigrationRoutes = new Elysia()
           return { error: 'migration_account_conflict' } as const
         let session: string | null = null
         if (row.source_session_hash && !authUser) {
+          // Same user lock as password reset, disable and revoke-all; session issuance cannot race them.
+          await tx
+            .select({ id: schema.users.id })
+            .from(schema.users)
+            .where(eq(schema.users.id, row.source_user_id!))
+            .for('update')
+
           const [source] = await tx
             .select({ id: schema.users.id, expires: schema.user_sessions.expires_at })
             .from(schema.user_sessions)
@@ -197,6 +204,7 @@ export const domainMigrationRoutes = new Elysia()
                 eq(schema.users.status, 'active'),
               ),
             )
+            .for('update', { of: schema.user_sessions })
           if (!source) return { error: 'migration_session_expired' } as const
           session = await createUserSession(source.id, tx)
           await tx

@@ -178,39 +178,56 @@ async function importAtTarget(
   sessionStorage.removeItem(PENDING)
   location.replace(destination.href)
 }
+export function hasPendingDomainMigration(): boolean {
+  if (location.pathname === BRIDGE) return true
+  try {
+    return Boolean(sessionStorage.getItem(PENDING))
+  } catch {
+    return false
+  }
+}
+
 /** Returns true only when migration owns the page; normal application startup must wait. */
 export async function migrateDomain(api: string): Promise<boolean> {
+  const currentUrl = new URL(
+    `${location.pathname}${location.search}${location.hash}`,
+    location.origin,
+  )
+  if (currentUrl.searchParams.get('__migration_skip') === '1') {
+    try {
+      sessionStorage.setItem('muvloom.domain-migration.defer', '1')
+    } catch {
+      /* Continue this visit without storage. */
+    }
+    currentUrl.searchParams.delete('__migration_skip')
+    history.replaceState(null, '', `${currentUrl.pathname}${currentUrl.search}${currentUrl.hash}`)
+    return false
+  }
   let config: MigrationConfig | null
   try {
     const r = await fetch(`${api}/api/domain-migration/config`, {
       signal: AbortSignal.timeout(5000),
       cache: 'no-store',
     })
-    if (!r.ok) return false
-    config = await r.json()
+    if (r.status === 404) config = null
+    else {
+      if (!r.ok) throw new Error('migration_config_unavailable')
+      config = await r.json()
+    }
+    if (!config && (location.pathname === BRIDGE || sessionStorage.getItem(PENDING)))
+      throw new Error('migration_config_unavailable')
   } catch {
-    return false
+    const view = preparing()
+    view.querySelector('p')!.textContent = '暂时无法连接服务，原数据仍保留。请重试。'
+    const retry = document.createElement('button')
+    retry.textContent = '重试'
+    retry.onclick = () => location.reload()
+    view.append(retry)
+    return true
   }
   if (!config || ![config.sourceOrigin, config.targetOrigin].includes(location.origin)) return false
   const view = preparing()
   try {
-    const pageUrl = new URL(
-      `${location.pathname}${location.search}${location.hash}`,
-      location.origin,
-    )
-    if (
-      location.origin === config.targetOrigin &&
-      pageUrl.searchParams.get('__migration_skip') === '1'
-    ) {
-      try {
-        sessionStorage.setItem('muvloom.domain-migration.defer', '1')
-      } catch {
-        /* This one visit can continue without persistent storage. */
-      }
-      pageUrl.searchParams.delete('__migration_skip')
-      history.replaceState(null, '', `${pageUrl.pathname}${pageUrl.search}${pageUrl.hash}`)
-      return false
-    }
     if (sessionStorage.getItem('muvloom.domain-migration.defer') === '1') return false
     if (
       location.origin === config.targetOrigin &&
@@ -232,11 +249,13 @@ export async function migrateDomain(api: string): Promise<boolean> {
         if (!stored) throw new Error('migration_missing_browser_state')
         await importAtTarget(config, ticket, JSON.parse(stored))
       } else {
+        const saved = sessionStorage.getItem(PENDING)
+        const previous = saved ? (JSON.parse(saved) as Pending) : null
         const pending: Pending = {
           secret: hex(crypto.getRandomValues(new Uint8Array(32))),
           returnPath:
             location.pathname === BRIDGE
-              ? '/'
+              ? (previous?.returnPath ?? '/')
               : `${location.pathname}${location.search}${location.hash}`,
           created: Date.now(),
         }
@@ -250,10 +269,36 @@ export async function migrateDomain(api: string): Promise<boolean> {
     const retry = document.createElement('button')
     retry.className = 'auth-submit'
     retry.textContent = '重试'
-    retry.onclick = () => location.replace(config!.targetOrigin)
+    retry.onclick = () => {
+      if (
+        location.origin === config!.targetOrigin &&
+        location.pathname === BRIDGE &&
+        !(
+          error instanceof Error &&
+          [
+            'migration_expired',
+            'migration_missing_browser_state',
+            'migration_session_expired',
+          ].includes(error.message)
+        )
+      )
+        location.reload()
+      else location.replace(`${config!.targetOrigin}${BRIDGE}`)
+    }
     const proceed = document.createElement('button')
     proceed.textContent = '稍后再试，先进入工作台'
-    proceed.onclick = () => location.replace(`${config!.targetOrigin}/?__migration_skip=1`)
+    proceed.onclick = () => {
+      let returnPath = '/'
+      try {
+        returnPath = JSON.parse(sessionStorage.getItem(PENDING) ?? '{}').returnPath ?? '/'
+      } catch {
+        /* Keep the safe default. */
+      }
+      const destination = new URL(returnPath, config!.targetOrigin)
+      if (destination.origin !== config!.targetOrigin) return
+      destination.searchParams.set('__migration_skip', '1')
+      location.replace(destination.href)
+    }
     view.append(retry, proceed)
   }
   return true
