@@ -217,7 +217,6 @@ function toolResultBlock(
 /** 起一轮并立刻返回把手；`read()` 可以被断开再重开。 */
 export async function startAgentTurn(input: StartAgentTurnInput): Promise<RunningTurn> {
   const { conversationId, turnId, userMessageId, settle, text: prompt } = input
-  const turnParams = input.params
   const ledger = createAgentUsageLedger({
     conversationId,
     turnId,
@@ -393,8 +392,8 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
         event.toolName !== 'readLibrary' && typeof rawPrompt === 'string' ? rawPrompt : undefined
       openTools.set(event.toolCallId, { messageId, toolName: event.toolName, title, prompt })
       // 画布要在工具跑完之前就占好位，所以这里把「占几个、占在哪」一并发出去：
-      // 参数快照与锚点这一刻都在手上，等到 toolEnd 再说就晚了整整一次生成。
-      const outputCount = agentToolOutputCount(event.toolName, turnParams)
+      // 工具参数与锚点这一刻都在手上，等到 toolEnd 再说就晚了整整一次生成。
+      const outputCount = agentToolOutputCount(event.toolName, event.args)
       const anchorObjectId = agentToolAnchor(event.toolName, event.args, images)
       events.emit({
         type: 'toolStart',

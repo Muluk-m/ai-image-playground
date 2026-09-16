@@ -2,7 +2,7 @@ import type { AgentTool } from '@earendil-works/pi-agent-core'
 import { agentTitleLine } from '@image-playground/shared'
 import { Type } from 'typebox'
 import { requireAgentImages } from '../images'
-import { agentImageCount } from './queueParams'
+import { agentImageCount, imageCountParameter } from './queueParams'
 import { runQueueTask } from './queueTask'
 import type { AgentToolDefinition, AgentToolDetails } from './types'
 
@@ -19,6 +19,7 @@ const parameters = Type.Object({
     description:
       '参考图的图片 id，第一张是要改的那张，产出会放在它旁边。id 来自用户引用的图、readLibrary 查到的素材，或本轮刚生成的图。',
   }),
+  n: imageCountParameter,
 })
 
 function title(args: unknown): string {
@@ -38,7 +39,7 @@ function anchor(args: unknown): string | undefined {
 export const editImage: AgentToolDefinition = {
   name: 'editImage',
   guidance:
-    '用户指着某张图说要改时调改图工具，参考图用他引用的那张，产出会落在源图旁边，源图不动。',
+    '用户指着某张图说要改时调改图工具，参考图用他引用的那张，产出落在源图旁边，源图不动。版本数按需求用 n 指定，未要求多张时只出一张；不同修改方案分别调用。',
   title,
   outputCount: agentImageCount,
   anchor,
@@ -58,6 +59,7 @@ export const editImage: AgentToolDefinition = {
           {
             media: 'image',
             prompt: params.prompt,
+            n: params.n,
             inputImages: images.map((image) => image.dataUrl),
             ...(images[0]?.maskDataUrl ? { mask: images[0].maskDataUrl } : {}),
             anchorObjectId: images[0]!.imageId,

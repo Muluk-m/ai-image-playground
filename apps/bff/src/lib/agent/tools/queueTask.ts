@@ -10,7 +10,7 @@ import { AGENT_ARTIFACT_NOUN } from '@image-playground/shared'
 import { config } from '../../../config'
 import { resolveQueueModel } from '../../channels'
 import { awaitQueueTask, type CreateQueueTaskOutcome, createQueueTask } from '../../taskSubmission'
-import { queueParamsFor } from './queueParams'
+import { agentImageCount, queueParamsFor } from './queueParams'
 import type { AgentToolContext, AgentToolDetails } from './types'
 
 interface MediaWords {
@@ -40,6 +40,8 @@ export interface QueueTaskInput {
   /** 已经解析好的模型；缺席就按介质现解析。 */
   readonly target?: QueueTarget
   readonly prompt: string
+  /** 图片工具选择的产出张数；与轮上的用户偏好无关。 */
+  readonly n?: number
   readonly inputImages?: readonly string[]
   readonly mask?: string
   /** 视频档位；缺席即这是一条图片任务。 */
@@ -87,7 +89,8 @@ export async function runQueueTask(
       prompt: input.prompt,
       device_id: context.deviceId,
       // 视频档位由 input.video 自己带，图片参数对它没有意义。
-      ...(input.media === 'image' ? queueParamsFor(target.provider, context.params) : { n: 1 }),
+      ...(input.media === 'image' ? queueParamsFor(target.provider, context.params) : {}),
+      n: input.media === 'image' ? agentImageCount(input) : 1,
       ...(input.inputImages?.length ? { input_images: [...input.inputImages] } : {}),
       ...(input.mask ? { mask: input.mask } : {}),
     },
