@@ -10,7 +10,7 @@ import type { CanvasDoc } from './lib/canvasDoc'
 import { getLoadedImage } from './lib/imageCache'
 import { cloudProjectsEnabled, getCloudProject, listCloudProjects } from './lib/projectClient'
 import { type CanvasProject, projectRepository } from './lib/projectRepository'
-import { readProjectRoute, writeProjectRoute } from './lib/projectRoute'
+import { readProjectRoute, resolveProjectRoute, writeProjectRoute } from './lib/projectRoute'
 import { canvasSceneKey } from './lib/workspaceKeys'
 
 interface ProjectState {
@@ -109,7 +109,8 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
         projects = [...get().projects]
         const remembered = safeLocalStorage.getItem(scopedStorageName(CANVAS_PROJECT_KEY))
         const conversationId = safeLocalStorage.getItem(scopedStorageName(AGENT_CONVERSATION_KEY))
-        const routeId = readProjectRoute()
+        const route = readProjectRoute()
+        const routeId = route ? resolveProjectRoute(route, projects) : null
         if (routeId && !projects.some((one) => one.id === routeId)) {
           if (!cloudProjectsEnabled()) throw new Error('Project not available on this device')
           projects.push(
@@ -135,7 +136,7 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
           projects.push(active)
         }
         set({ projects, loaded: true, error: null })
-        if (readProjectRoute() === routeId) get().activate(active.id, true)
+        if (readProjectRoute() === route) get().activate(active.id, true)
       } catch {
         set({ error: '项目读取失败，原内容已保留，请重新加载。' })
         throw new Error('Project catalog unavailable')
@@ -154,6 +155,7 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
   },
   async resolve(id) {
     await get().load()
+    id = resolveProjectRoute(id, get().projects)
     const existing = get().projects.find((one) => one.id === id)
     if (existing) return existing
     if (!cloudProjectsEnabled()) throw new Error('Project not available on this device')
