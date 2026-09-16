@@ -35,10 +35,10 @@ export default function LogoutDialog({ onCancel, onConfirm }: LogoutDialogProps)
           <button
             type="button"
             onClick={() => onConfirm(clearLocalData)}
-            className={`rounded-xl px-4 py-2 text-sm font-medium text-white shadow-sm transition ${
+            className={`rounded-xl px-4 py-2 text-sm font-medium shadow-sm transition ${
               clearLocalData
-                ? 'bg-destructive hover:bg-destructive/90'
-                : 'bg-primary hover:bg-primary/90'
+                ? 'bg-destructive text-destructive-foreground hover:bg-destructive/90'
+                : 'bg-primary text-primary-foreground hover:bg-primary/90'
             }`}
           >
             退出

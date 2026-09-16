@@ -50,7 +50,7 @@ function Thumbnail({ element, src }: { element: CanvasEl; src?: string }) {
         {element.video && (
           <VideoIcon
             aria-hidden="true"
-            className="absolute right-0 bottom-0 h-3 w-3 rounded-br bg-black/70 text-primary-foreground"
+            className="absolute right-0 bottom-0 h-3 w-3 rounded-br bg-black/70 text-white"
           />
         )}
       </span>

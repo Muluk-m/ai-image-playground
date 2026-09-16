@@ -31,6 +31,7 @@
   --sidebar-ring: var(--ring);
   --success: 142 65% 30%;
   --warning: 35 90% 35%;
+  --warning-foreground: 0 0% 100%;
   --info: var(--primary);
   /* Canvas geometry and compatibility aliases share the same theme. */
   --studio-shadow: 0 8px 24px rgb(0 0 0 / 8%);
@@ -55,6 +56,7 @@
     --border: 110 4% 20%;
     --success: 142 55% 65%;
     --warning: 40 90% 65%;
+    --warning-foreground: 35 60% 10%;
   }
 }
 @layer base {

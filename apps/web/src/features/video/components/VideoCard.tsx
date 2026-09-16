@@ -55,7 +55,7 @@ export default function VideoCard({ task, onOpen }: { task: VideoTask; onOpen: (
   return (
     <li
       data-video-card
-      className={`group relative overflow-hidden rounded-xl border bg-white/70 bg-muted ${
+      className={`group relative overflow-hidden rounded-xl border bg-card text-card-foreground ${
         task.status === 'error' ? 'border-destructive/50' : 'border-border/70'
       }`}
     >

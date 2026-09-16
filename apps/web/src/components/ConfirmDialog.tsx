@@ -57,7 +57,7 @@ export default function ConfirmDialog() {
   const confirmTone = confirmDialog.tone ?? (isDestructive ? 'danger' : undefined)
   const confirmClassName =
     confirmTone === 'warning'
-      ? 'bg-warning text-white hover:bg-warning/90'
+      ? 'bg-warning text-warning-foreground hover:bg-warning/90'
       : confirmTone === 'danger'
         ? 'bg-destructive text-destructive-foreground hover:bg-destructive/90'
         : 'bg-primary text-primary-foreground hover:bg-primary/90'

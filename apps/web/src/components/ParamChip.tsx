@@ -27,7 +27,7 @@ export default function ParamChip({
     <Wrapper
       {...(onClick ? { type: 'button' as const, onClick, disabled } : {})}
       title={tooltipText}
-      className={`relative inline-flex h-10 items-center gap-2 rounded-xl border border-border/80 bg-white/70 px-3 text-left text-xs font-medium transition-colors duration-150 hover:border-border/80 hover:bg-white border-border bg-muted dark:hover:border-white/[0.20] hover:bg-muted ${
+      className={`relative inline-flex h-10 items-center gap-2 rounded-xl border border-input bg-background px-3 text-left text-xs font-medium transition-colors duration-150 hover:border-ring/40 hover:bg-accent ${
         disabled ? 'cursor-not-allowed opacity-50' : ''
       } ${className ?? ''}`}
     >
