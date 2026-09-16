@@ -2,7 +2,7 @@ import { useStore } from '../../../store'
 import { useAgentStore } from '../../agent/store'
 import { useLibraryStore } from '../../library/store'
 import { useCanvasProjectStore } from '../projectStore'
-import { readProjectRoute, writeProjectRoute } from './projectRoute'
+import { readProjectRoute, resolveProjectRoute, writeProjectRoute } from './projectRoute'
 
 /** Browser navigation uses the same save/switch boundary as the project picker. */
 export function installProjectNavigation(): () => void {
@@ -12,15 +12,23 @@ export function installProjectNavigation(): () => void {
     const current = ++revision
     const id = readProjectRoute()
     if (!id) return
-    const isCurrent = () => current === revision && readProjectRoute() === id
+    const isCurrent = () => {
+      const route = readProjectRoute()
+      const projects = useCanvasProjectStore.getState().projects
+      return (
+        current === revision &&
+        route !== null &&
+        resolveProjectRoute(route, projects) === resolveProjectRoute(id, projects)
+      )
+    }
     pending = pending.then(async () => {
       if (!isCurrent()) return
       useCanvasProjectStore.setState({ routeError: null })
       useStore.getState().setAppMode('create')
       try {
-        await useCanvasProjectStore.getState().resolve(id)
+        const project = await useCanvasProjectStore.getState().resolve(id)
         if (!isCurrent()) return
-        const opened = await useAgentStore.getState().selectProject(id, isCurrent)
+        const opened = await useAgentStore.getState().selectProject(project.id, isCurrent)
         if (!isCurrent()) return
         if (opened) useLibraryStore.getState().closePanel()
         else {
