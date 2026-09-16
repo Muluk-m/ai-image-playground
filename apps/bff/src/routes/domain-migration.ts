@@ -36,7 +36,7 @@ export const domainMigrationRoutes = new Elysia()
   .use(resolveAuthUser)
   .get('/api/domain-migration/config', ({ set }) => {
     set.headers['cache-control'] = 'no-store'
-    return domainMigrationConfig()
+    return Response.json(domainMigrationConfig())
   })
   .post(
     '/api/domain-migration/start',

@@ -162,3 +162,18 @@ it('does not seal incomplete uploads or let a retry replace an accepted chunk', 
     410,
   )
 })
+
+it('returns explicit JSON null for deployments with migration disabled', async () => {
+  const configured = process.env.DOMAIN_MIGRATION_CONFIG_FILE
+  delete process.env.DOMAIN_MIGRATION_CONFIG_FILE
+  try {
+    const response = await app.handle(
+      new Request('https://api.new.example/api/domain-migration/config'),
+    )
+    expect(response.status).toBe(200)
+    expect(await response.json()).toBeNull()
+    expect((await call('start', { challenge: proof })).status).toBe(403)
+  } finally {
+    process.env.DOMAIN_MIGRATION_CONFIG_FILE = configured
+  }
+})
