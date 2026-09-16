@@ -1,6 +1,6 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useIsFetching, useMutation, useQueryClient } from '@tanstack/react-query'
 import { createFileRoute, notFound, useNavigate } from '@tanstack/react-router'
-import { KeyRound, LogOut, ShieldCheck, ShieldOff } from 'lucide-react'
+import { KeyRound, LogOut, RefreshCw, ShieldCheck, ShieldOff } from 'lucide-react'
 import { useMemo, useState } from 'react'
 
 import { FuzzyTime } from '@/components/FuzzyTime'
@@ -151,6 +151,8 @@ function UserDetailContent({
   userId: string
 }) {
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
+  const refreshing = useIsFetching({ queryKey: ['user', userId] }) > 0
   const syncEnabled = Route.useRouteContext({ select: (c) => c.adminSession.accounts_sync })
   const tasksQuery = useUserTasks(userId, status)
   const tasks = useMemo(
@@ -222,12 +224,27 @@ function UserDetailContent({
                 已加载 {tasks.length} 条 · 从新到旧
               </span>
             </CardTitle>
-            <SegmentedControl
-              options={TASK_FILTERS}
-              value={status}
-              onChange={updateStatus}
-              label="任务状态筛选"
-            />
+            <div className="flex flex-wrap items-center gap-2">
+              <SegmentedControl
+                options={TASK_FILTERS}
+                value={status}
+                onChange={updateStatus}
+                label="任务状态筛选"
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                aria-label="刷新任务记录"
+                aria-busy={refreshing}
+                disabled={refreshing}
+                onClick={() => {
+                  void queryClient.invalidateQueries({ queryKey: ['user', userId] })
+                }}
+              >
+                <RefreshCw className={refreshing ? 'animate-spin' : undefined} />
+                {refreshing ? '刷新中…' : '刷新'}
+              </Button>
+            </div>
           </CardHeader>
           <CardContent className="space-y-3 p-4 pt-0">
             <p className="text-[11px] text-muted-foreground">
