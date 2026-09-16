@@ -227,6 +227,15 @@ export class CanvasDoc {
     this.emit()
   }
 
+  /** Refresh derived video covers without changing geometry or adding an undo step. */
+  replaceVideoPoster(id: string, expectedFileId: string, dataUrl: string): void {
+    const element = this.getElement(id)
+    if (element?.type !== 'image' || !element.video || element.fileId !== expectedFileId) return
+    const fileId = newElementId()
+    this.files = { ...this.files, [fileId]: dataUrl }
+    this.updateElements([{ id, patch: { fileId } }])
+  }
+
   /** history=false 用于手势内的回滚清理（过短的箭头 / 空文字），调用方已 capture。 */
   deleteElements(ids: string[], opts: { history?: boolean } = {}): void {
     const idSet = new Set(ids)

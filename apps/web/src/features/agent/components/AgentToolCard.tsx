@@ -1,7 +1,5 @@
 import type { AgentToolArtifact } from '@image-playground/shared'
 import { useEffect, useState } from 'react'
-import { copyTextToClipboard, getClipboardFailureMessage } from '../../../lib/clipboard'
-import { useStore } from '../../../store'
 import PlayBadge from '../../video/components/PlayBadge'
 import {
   CARD,
@@ -15,6 +13,7 @@ import { type AgentArtifactPreview, artifactPreview } from '../lib/artifactPrevi
 import { agentCanvasSink } from '../lib/canvasSink'
 import { useAgentStore } from '../store'
 import type { AgentDeliveryStatus, AgentToolMessage } from '../types'
+import AgentPromptDialog from './AgentPromptDialog'
 
 const STAGE_LABEL = { submitted: '已排队', running: '生成中' } as const
 
@@ -95,72 +94,41 @@ function Thumbnail({ preview }: { preview: AgentArtifactPreview }) {
 }
 
 export default function AgentToolCard({ message }: { message: AgentToolMessage }) {
-  const [copied, setCopied] = useState(false)
+  const [promptOpen, setPromptOpen] = useState(false)
   const previews = useArtifactPreviews(message)
   const offCanvas = previews.some((preview) => !preview.onCanvas)
-  const onCanvas = previews
-    .filter((preview) => preview.onCanvas)
-    .map((one) => one.artifact.artifactId)
   const note = statusNote(message, offCanvas)
   return (
     <div className={CARD}>
-      {message.prompt ? (
-        <>
-          <details className="group text-xs text-muted-foreground">
-            <summary className="cursor-pointer list-none rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
-              <span className={`${CARD_TITLE} block transition-colors hover:text-primary`}>
-                {message.title}
-              </span>
-              <span className="mt-1 block text-primary group-open:hidden">展开完整提示词</span>
-              <span className="mt-1 hidden text-primary group-open:block">收起提示词</span>
-            </summary>
-            <p className="mt-2 max-h-64 overflow-y-auto whitespace-pre-wrap break-words rounded-lg bg-background p-3 text-foreground leading-relaxed">
-              {message.prompt}
-            </p>
-          </details>
-          <div className="flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              className={GHOST_LINK}
-              onClick={() => {
-                void copyTextToClipboard(message.prompt!).then(
-                  () => setCopied(true),
-                  (error) => {
-                    setCopied(false)
-                    useStore
-                      .getState()
-                      .showToast(
-                        getClipboardFailureMessage('复制失败，请选择提示词手动复制', error),
-                        'error',
-                      )
-                  },
-                )
-              }}
-            >
-              {copied ? '已复制' : '复制提示词'}
-            </button>
-            {onCanvas.length > 0 && (
-              <button
-                type="button"
-                className={GHOST_LINK}
-                onClick={() => agentCanvasSink()?.focus(onCanvas)}
-              >
-                在画布中查看
-              </button>
-            )}
-          </div>
-        </>
-      ) : onCanvas.length > 0 ? (
+      {!message.prompt && previews.some((preview) => preview.onCanvas) ? (
         <button
           type="button"
           title="在画布上定位这些产物"
-          className={`${CARD_TITLE} text-left transition-colors hover:text-primary`}
-          onClick={() => agentCanvasSink()?.focus(onCanvas)}
+          className={`${CARD_TITLE} text-left`}
+          onClick={() =>
+            agentCanvasSink()?.focus(
+              previews
+                .filter((preview) => preview.onCanvas)
+                .map((preview) => preview.artifact.artifactId),
+            )
+          }
         >
           {message.title}
         </button>
       ) : (
         <p className={CARD_TITLE}>{message.title}</p>
+      )}
+      {message.prompt && (
+        <button
+          type="button"
+          className={`self-start ${GHOST_LINK}`}
+          onClick={() => setPromptOpen(true)}
+        >
+          查看提示词
+        </button>
+      )}
+      {promptOpen && message.prompt && (
+        <AgentPromptDialog prompt={message.prompt} onClose={() => setPromptOpen(false)} />
       )}
       {note && <p className={CARD_NOTE}>{note}</p>}
       {previews.length > 0 && (

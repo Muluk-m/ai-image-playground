@@ -1,7 +1,8 @@
+import { AGENT_CONVERSATION_KEY, scopedStorageName } from '../../../lib/authScope'
 import { captureVideoFrame } from '../../video/lib/playback'
 
 /** 上游慢或跨域没配好时，抓封面不该把整次落画布拖住。 */
-const CAPTURE_TIMEOUT_MS = 8_000
+const CAPTURE_TIMEOUT_MS = 30_000
 const FALLBACK_WIDTH = 640
 const FALLBACK_HEIGHT = 360
 const FALLBACK_FILL = '#17171a'
@@ -35,7 +36,7 @@ function captureFirstFrame(url: string): Promise<string | null> {
     }
     const timer = window.setTimeout(() => settle(null), CAPTURE_TIMEOUT_MS)
     video.crossOrigin = 'use-credentials'
-    video.preload = 'metadata'
+    video.preload = 'auto'
     video.muted = true
     video.addEventListener(
       'loadeddata',
@@ -46,6 +47,7 @@ function captureFirstFrame(url: string): Promise<string | null> {
     )
     video.addEventListener('error', () => settle(null), { signal: listeners.signal })
     video.src = url
+    video.load()
   })
 }
 
@@ -54,6 +56,42 @@ export async function videoPosterDataUrl(
   url: string,
   size: { readonly width?: number; readonly height?: number },
 ): Promise<string> {
-  const captured = await captureFirstFrame(url)
+  const captured = await capturedVideoPoster(url)
   return captured ?? blankPoster(size.width ?? FALLBACK_WIDTH, size.height ?? FALLBACK_HEIGHT)
+}
+
+const capturedPosters = new Map<string, Promise<string | null>>()
+export function capturedVideoPoster(url: string): Promise<string | null> {
+  const key = `${scopedStorageName(AGENT_CONVERSATION_KEY)}:${url}`
+  const hit = capturedPosters.get(key)
+  if (hit) return hit
+  const pending = captureFirstFrame(url).then((poster) => {
+    if (!poster) capturedPosters.delete(key)
+    return poster
+  })
+  capturedPosters.set(key, pending)
+  if (capturedPosters.size > 12) capturedPosters.delete(capturedPosters.keys().next().value!)
+  return pending
+}
+
+/** Only replace the exact legacy solid placeholder, never a user's real cover. */
+export function isBlankVideoPoster(source: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const image = new Image()
+    image.onerror = () => resolve(false)
+    image.onload = () => {
+      try {
+        const canvas = document.createElement('canvas')
+        canvas.width = canvas.height = 4
+        const ctx = canvas.getContext('2d')
+        if (!ctx) return resolve(false)
+        ctx.drawImage(image, 0, 0, 4, 4)
+        const pixels = ctx.getImageData(0, 0, 4, 4).data
+        resolve(pixels.every((value, index) => value === [23, 23, 26, 255][index % 4]))
+      } catch {
+        resolve(false)
+      }
+    }
+    image.src = source
+  })
 }

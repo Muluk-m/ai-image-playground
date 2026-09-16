@@ -528,3 +528,14 @@ describe('record timestamps', () => {
     expect(useStore.getState().prompt).toBe('')
   })
 })
+
+it('saves a tool prompt as a reusable template without borrowing or replacing the composer', async () => {
+  useStore.setState({ prompt: '正在编辑的草稿', params: { ...DEFAULT_PARAMS, n: 4 } })
+  const prompt = '完整工具提示词\n保留第二段'
+  await useLibraryStore.getState().savePromptTemplate('  视频演示  ', prompt)
+  await useLibraryStore.getState().loadTemplates()
+  const saved = useLibraryStore.getState().templates[0]
+  expect(saved).toMatchObject({ name: '视频演示', prompt, assetIds: [] })
+  expect(saved.params.n).toBe(DEFAULT_PARAMS.n)
+  expect(useStore.getState().prompt).toBe('正在编辑的草稿')
+})
