@@ -26,6 +26,7 @@ interface DeliveryRecord {
 
 export interface TurnArtifactDelivery {
   isCurrent(): boolean
+  canContinue(): boolean
   /** 工具起跑：先在画布上占位，镜头跟过去。产物到了落进这些位。 */
   reserve(messageId: string, request: AgentReservation): void
   enqueue(message: AgentToolMessage): void
@@ -101,7 +102,13 @@ export function createArtifactDelivery(
       canvas.discard(placeholderIds)
       return 'placed'
     }
-    const items = await Promise.all(missing.map(prepare))
+    const items = await Promise.all(
+      missing.map(async (artifact) => ({
+        ...(await prepare(artifact)),
+        taskId: artifact.taskId,
+        name: `${message.title || '生成作品'} ${artifact.outputIndex + 1}`,
+      })),
+    )
     if (!current(origin)) return 'unavailable'
     const outcome = await canvas.place(items, {
       anchorObjectId: message.anchorObjectId,
@@ -150,8 +157,10 @@ export function createArtifactDelivery(
     const previous = records.get(message.id)
     if (previous && (!manual || previous.status === 'pending')) {
       if (belongs(origin)) changed(message.id, previous.status)
-      origin.pending = previous.pending
-      return previous.pending
+      origin.pending = previous.pending.then(() => {
+        if (belongs(origin)) changed(message.id, previous.status)
+      })
+      return origin.pending
     }
     const record: DeliveryRecord = { status: 'pending', pending: Promise.resolve() }
     records.set(message.id, record)
@@ -203,6 +212,7 @@ export function createArtifactDelivery(
       const origin = capture()
       return {
         isCurrent: () => belongs(origin),
+        canContinue: () => belongs(origin) || current(origin),
         reserve(messageId: string, request: AgentReservation) {
           reserve(origin, messageId, request)
         },

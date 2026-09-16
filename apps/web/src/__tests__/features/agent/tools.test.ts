@@ -215,7 +215,14 @@ describe('工具事件', () => {
         delivery: 'placed',
       },
     ])
-    expect(placed).toEqual([{ artifactId: 'agent_image_1', dataUrl: 'data:image/png;base64,AQID' }])
+    expect(placed).toEqual([
+      {
+        artifactId: 'agent_image_1',
+        dataUrl: 'data:image/png;base64,AQID',
+        taskId: 'task-1',
+        name: '一只橘猫坐在窗台上 1',
+      },
+    ])
   })
 
   it('改图的产出贴着源图放，源图仍留在画布上', async () => {
@@ -255,7 +262,9 @@ describe('工具事件', () => {
 
     await state().send('画两只橘猫')
 
-    expect(reserved).toEqual([{ count: 2, ids: ['placeholder-1', 'placeholder-2'] }])
+    expect(reserved).toEqual([
+      { count: 2, title: TOOL_START.title, ids: ['placeholder-1', 'placeholder-2'] },
+    ])
     expect(placedInto).toEqual([['placeholder-1', 'placeholder-2']])
     expect(placed.map((one) => one.artifactId)).toEqual(['agent_image_1', 'agent_image_2'])
     expect(discarded).toEqual([])
@@ -273,7 +282,9 @@ describe('工具事件', () => {
 
     await state().send('把这张的背景换成浅木色')
 
-    expect(reserved).toEqual([{ count: 1, anchorObjectId: 'canvas-1', ids: ['placeholder-1'] }])
+    expect(reserved).toEqual([
+      { count: 1, title: TOOL_START.title, anchorObjectId: 'canvas-1', ids: ['placeholder-1'] },
+    ])
     expect(anchors).toEqual(['canvas-1'])
   })
 
@@ -536,6 +547,8 @@ describe('视频产物', () => {
       {
         artifactId: 'agent_video_1',
         dataUrl: POSTER,
+        taskId: 'task-2',
+        name: '视频：让这只猫眨眼 1',
         video: { taskId: 'task-2', outputIndex: 0 },
       },
     ])
@@ -561,7 +574,14 @@ describe('生成期间画布有改动', () => {
 
     await state().send('画一只橘猫')
 
-    expect(placed).toEqual([{ artifactId: 'agent_image_1', dataUrl: 'data:image/png;base64,AQID' }])
+    expect(placed).toEqual([
+      {
+        artifactId: 'agent_image_1',
+        dataUrl: 'data:image/png;base64,AQID',
+        taskId: 'task-1',
+        name: '一只橘猫坐在窗台上 1',
+      },
+    ])
     expect(onCanvas.has(IMAGE.artifactId)).toBe(true)
     expect(toolMessages()[0]).toMatchObject({
       status: 'succeeded',
@@ -631,4 +651,78 @@ describe('历史', () => {
     ])
     expect(placed).toEqual([])
   })
+})
+
+it('工具完成帧在切项目后才到，仍投递原画布而不污染当前会话', async () => {
+  let stream!: ReadableStreamDefaultController<Uint8Array>
+  const encoder = new TextEncoder()
+  turnResponse = () =>
+    new Response(
+      new ReadableStream({
+        start(controller) {
+          stream = controller
+          controller.enqueue(
+            encoder.encode(
+              encodeAgentFrame(1, TURN_START) +
+                encodeAgentFrame(2, { ...TOOL_START, outputCount: 1 }),
+            ),
+          )
+        },
+      }),
+      { headers: { 'content-type': 'text/event-stream' } },
+    )
+  const original = agentCanvasSink()!
+  original.background = true
+  const sending = state().send('画一只橘猫')
+  await vi.waitFor(() => expect(reserved).toHaveLength(1))
+  state().startNewConversation()
+  const nextPlace = vi.fn()
+  setAgentCanvasSink({ ...original, place: nextPlace })
+  stream.enqueue(encoder.encode(encodeAgentFrame(3, TOOL_END) + encodeAgentFrame(4, TURN_END)))
+  stream.close()
+  await sending
+  expect(placed.map((one) => one.artifactId)).toEqual([IMAGE.artifactId])
+  expect(nextPlace).not.toHaveBeenCalled()
+  expect(state().messages).toEqual([])
+  expect(state().turn).toBe('idle')
+})
+
+it('运行中的项目往返切换只保留一份失败占位', async () => {
+  let stream!: ReadableStreamDefaultController<Uint8Array>
+  const encoder = new TextEncoder()
+  turnResponse = () =>
+    new Response(
+      new ReadableStream({
+        start(controller) {
+          stream = controller
+          controller.enqueue(
+            encoder.encode(
+              encodeAgentFrame(1, TURN_START) +
+                encodeAgentFrame(2, { ...TOOL_START, outputCount: 1 }),
+            ),
+          )
+        },
+      }),
+      { headers: { 'content-type': 'text/event-stream' } },
+    )
+  const original = agentCanvasSink()!
+  original.background = true
+  const sending = state().send('画一只橘猫')
+  await vi.waitFor(() => expect(reserved).toHaveLength(1))
+  state().startNewConversation()
+  messagesResponse = () =>
+    Response.json({ messages: [], turns: [], activeTurn: { turnId: TURN_START.turnId } })
+  const failure = {
+    ...TOOL_END,
+    status: 'failed' as const,
+    artifacts: undefined,
+    message: '上游失败',
+  }
+  turnResponse = () => turnStream(TURN_START, { ...TOOL_START, outputCount: 1 }, failure, TURN_END)
+  await state().selectConversation(CONVERSATION)
+  stream.enqueue(encoder.encode(encodeAgentFrame(3, failure) + encodeAgentFrame(4, TURN_END)))
+  stream.close()
+  await sending
+  expect(failed).toHaveLength(1)
+  expect(discarded).toContain('placeholder-1')
 })

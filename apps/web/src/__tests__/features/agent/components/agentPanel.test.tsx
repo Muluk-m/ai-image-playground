@@ -54,7 +54,7 @@ async function enableAgent(enabled: boolean): Promise<void> {
 
 function render(): void {
   act(() => {
-    // 面板只把 editor 转交给图层页签；这些用例不点图层，给个空壳就够。
+    // 面板只把 editor 转交给创作记录页签；这些用例不点创作记录，给个空壳就够。
     const editor = { scrollToElements: () => {} } as unknown as CanvasEditor
     root.render(<AgentPanel doc={new CanvasDoc()} editor={editor} />)
   })
@@ -108,6 +108,8 @@ beforeEach(async () => {
     turn: 'idle',
     error: null,
     loaded: true,
+    historyLoading: false,
+    historyFailed: false,
   })
   host = document.createElement('div')
   document.body.appendChild(host)
@@ -180,21 +182,21 @@ describe('AgentPanel', () => {
     expect(log.scrollTop).toBe(1200)
   })
 
-  it('渲染对话与图层两个页签', () => {
+  it('渲染对话与创作记录两个页签', () => {
     render()
 
     expect(texts('button')).toContain('对话')
-    expect(texts('button')).toContain('图层')
+    expect(texts('button')).toContain('创作记录')
   })
 
-  it('切到图层页签显示画布对象', () => {
+  it('切到创作记录页签显示画布对象', () => {
     render()
     const layers = [...host.querySelectorAll('button')].find(
-      (button) => button.textContent === '图层',
+      (button) => button.textContent === '创作记录',
     )!
     act(() => layers.click())
 
-    expect(host.textContent).toContain('画布还是空的')
+    expect(host.textContent).toContain('还没有创作记录')
     expect(host.querySelector('textarea')).toBeNull()
   })
 
@@ -543,7 +545,7 @@ describe('AgentPanel', () => {
     expect(host.textContent).toContain('本轮免费，未扣积分')
   })
 
-  it('面板底部写本次会话的合计消耗', () => {
+  it('项目标题旁显示已用积分', () => {
     useAgentStore.setState({
       messages: [
         {
@@ -580,7 +582,7 @@ describe('AgentPanel', () => {
     })
     render()
 
-    expect(host.textContent).toContain('本次会话')
+    expect(host.textContent).toContain('已用')
     expect(host.textContent).toContain('312')
   })
 
@@ -602,7 +604,7 @@ describe('AgentPanel', () => {
 
     expect(host.textContent).toContain('本轮耗时 12s')
     expect(host.textContent).not.toContain('消耗')
-    expect(host.textContent).not.toContain('本次会话')
+    expect(host.textContent).not.toContain('已用')
   })
 
   it('能力关闭时什么都不渲染', async () => {

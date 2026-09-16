@@ -1,6 +1,8 @@
 /** 智能体产出落画布的出口。创作模式挂载时把实现塞进来。 */
 export interface AgentPlacedArtifact {
   readonly artifactId: string
+  readonly taskId?: string
+  readonly name?: string
   /** 落到画布上的位图；视频产物给的是封面。 */
   readonly dataUrl: string
   /** 视频产物的播放来源。mp4 不进画布存档，播放时现拼地址。 */
@@ -28,6 +30,7 @@ export interface AgentPlaceOptions {
 
 /** 工具起跑时要在画布上占的位。 */
 export interface AgentReservation {
+  readonly title?: string
   /** 这次调用会出几件产物，就占几个框。 */
   readonly count: number
   /** 贴着这个对象占；它不在画布上就从视口中央找空位。 */

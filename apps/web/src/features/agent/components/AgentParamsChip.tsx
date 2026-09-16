@@ -4,6 +4,8 @@ import { compactModelName } from '../../../components/ModelIdentity'
 import ParamControls, { type UnsupportedParam } from '../../../components/ParamControls'
 import { useCloseOnEscape } from '../../../hooks/useCloseOnEscape'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/apiProfiles'
+import { getParamCapabilities } from '../../../lib/paramCompatibility'
+import { normalizeImageSize, sizeRatioLabel } from '../../../lib/size'
 import { useStore } from '../../../store'
 import { INK, INK_3, PANEL_SHADOW, PANEL_SURFACE } from '../agentStyles'
 
@@ -18,12 +20,24 @@ function useSummary(): string[] {
   const params = useStore((state) => state.params)
   const settings = useStore((state) => state.settings)
   return useMemo(() => {
-    const profile = clientProfileToApiProfile(getActiveApiProfile(settings))
+    const active = getActiveApiProfile(settings)
+    const profile = clientProfileToApiProfile(active)
+    const capabilities = getParamCapabilities(active, params.output_format)
     const parts = [compactModelName(profile.model, profile.model)]
-    parts.push(params.size && params.size !== 'auto' ? params.size : '自动尺寸')
+    parts.push(
+      profile.provider === 'gemini'
+        ? params.gemini_aspect_ratio || '自动比例'
+        : params.size && params.size !== 'auto'
+          ? capabilities.size
+            ? normalizeImageSize(params.size)
+            : sizeRatioLabel(params.size)
+          : capabilities.size
+            ? '自动尺寸'
+            : '自动比例',
+    )
     if (params.n > 1) parts.push(`${params.n} 张`)
     return parts
-  }, [params.size, params.n, settings])
+  }, [params, settings])
 }
 
 export default function AgentParamsChip() {

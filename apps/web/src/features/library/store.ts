@@ -13,7 +13,7 @@ import {
 } from './lib/templates'
 import type { AssetRecord, PendingAssetName, TemplateRecord } from './types'
 
-export type LibraryTab = 'assets' | 'templates'
+export type LibraryTab = 'projects' | 'assets' | 'templates'
 
 type OnAssetSaved = (asset: AssetRecord) => void
 
@@ -30,7 +30,7 @@ export interface LibraryState {
   /** 正在为当前 composer 状态取模板名。 */
   namingTemplate: boolean
 
-  openPanel: () => void
+  openPanel: (tab?: LibraryTab) => void
   closePanel: () => void
   setTab: (tab: LibraryTab) => void
   setSearch: (keyword: string) => void
@@ -70,8 +70,8 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
   pendingAssetNames: [],
   namingTemplate: false,
 
-  openPanel: () => {
-    set({ panelOpen: true })
+  openPanel: (tab) => {
+    set({ panelOpen: true, ...(tab ? { tab, searchKeyword: '' } : {}) })
     useStore.getState().markLibraryPanelOpened()
     void get().loadAssets()
     void get().loadTemplates()

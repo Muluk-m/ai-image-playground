@@ -25,7 +25,7 @@ interface PersistedScene {
 /** 连接缓存：防抖落盘高频调用，每次新开连接会积累未关闭句柄。失败/被关则下次重开。 */
 let dbPromise: Promise<IDBDatabase> | null = null
 
-function openDB(): Promise<IDBDatabase> {
+export function openCanvasDatabase(): Promise<IDBDatabase> {
   if (!dbPromise) {
     dbPromise = new Promise((resolve, reject) => {
       const req = indexedDB.open(DB_NAME, DB_VERSION)
@@ -49,7 +49,7 @@ function openDB(): Promise<IDBDatabase> {
 }
 
 function dbGet(key: string, migrateLegacy: boolean): Promise<unknown> {
-  return openDB().then(
+  return openCanvasDatabase().then(
     (db) =>
       new Promise((resolve, reject) => {
         const transaction = db.transaction(STORE, migrateLegacy ? 'readwrite' : 'readonly')
@@ -81,7 +81,7 @@ function dbGet(key: string, migrateLegacy: boolean): Promise<unknown> {
 }
 
 function dbPut(scene: PersistedScene, key: string, removeKey?: string): Promise<void> {
-  return openDB().then(
+  return openCanvasDatabase().then(
     (db) =>
       new Promise((resolve, reject) => {
         const transaction = db.transaction(STORE, 'readwrite')

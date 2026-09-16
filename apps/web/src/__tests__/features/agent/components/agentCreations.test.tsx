@@ -3,7 +3,7 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import AgentLayers from '../../../../features/agent/components/AgentLayers'
+import AgentCreations from '../../../../features/agent/components/AgentCreations'
 import { CanvasDoc, type CanvasEl, type ImageEl } from '../../../../features/canvas/lib/canvasDoc'
 import { CanvasEditor } from '../../../../features/canvas/lib/editor'
 
@@ -38,16 +38,16 @@ let scrollToElements: ReturnType<typeof vi.spyOn>
 
 function render(): void {
   act(() => {
-    root.render(<AgentLayers doc={doc} editor={editor} />)
+    root.render(<AgentCreations doc={doc} editor={editor} />)
   })
 }
 
 function rows(): HTMLButtonElement[] {
-  return [...host.querySelectorAll<HTMLButtonElement>('li button')]
+  return [...host.querySelectorAll<HTMLButtonElement>('section button, details button')]
 }
 
 function names(): string[] {
-  return rows().map((one) => one.querySelector('[data-layer-name]')?.textContent ?? '')
+  return rows().map((one) => one.querySelector('span[title]')?.textContent ?? one.textContent ?? '')
 }
 
 function put(elements: CanvasEl[], files: Record<string, string> = { 'file-1': PIXEL }): void {
@@ -69,10 +69,10 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-describe('智能体图层面板', () => {
+describe('创作记录', () => {
   it('画布为空时说画布是空的', () => {
     render()
-    expect(host.textContent).toContain('画布还是空的')
+    expect(host.textContent).toContain('还没有创作记录')
     expect(rows()).toHaveLength(0)
   })
 
@@ -87,14 +87,14 @@ describe('智能体图层面板', () => {
     put([image('a')])
     render()
 
-    expect(names()).toEqual(['图片'])
+    expect(names()).toEqual(['未命名图片'])
   })
 
   it('图片行显示缩略图，取自画布自己的位图表', () => {
     put([image('a', { meta: { prompt: '橘猫' } })])
     render()
 
-    const thumb = host.querySelector<HTMLImageElement>('li img')
+    const thumb = host.querySelector<HTMLImageElement>('section img')
     expect(thumb?.getAttribute('src')).toBe(PIXEL)
   })
 
@@ -106,7 +106,7 @@ describe('智能体图层面板', () => {
     render()
 
     const [clip, still] = rows()
-    expect(clip.textContent).toContain('视频')
+    expect(clip.querySelector('svg')).not.toBeNull()
     expect(still.textContent).not.toContain('视频')
   })
 
@@ -158,6 +158,28 @@ describe('智能体图层面板', () => {
     ])
     render()
 
-    expect(names()).toEqual(['标题写在这里', '箭头', '画笔'])
+    expect(names()).toEqual(['画笔', '箭头', '标题写在这里'])
   })
+})
+
+it('任务按时间倒序分组，同批图片放在一起，预览不裁切', () => {
+  put([
+    image('new-a', {
+      name: '新版 A',
+      groupId: 'new',
+      createdAt: 200,
+      naturalWidth: 1500,
+      naturalHeight: 1000,
+    }),
+    image('old', { name: '旧版', groupId: 'old', createdAt: 100 }),
+    image('new-b', { name: '新版 B', groupId: 'new', createdAt: 200 }),
+  ])
+  render()
+  const groups = [...host.querySelectorAll('section')]
+  expect(groups).toHaveLength(2)
+  expect(groups[0].textContent).toContain('新版 A')
+  expect(groups[0].textContent).toContain('新版 B')
+  expect(groups[1].textContent).toContain('旧版')
+  expect(groups[0].querySelector('img')?.className).toContain('h-auto')
+  expect(groups[0].textContent).toContain('1500 × 1000')
 })

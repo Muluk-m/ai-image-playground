@@ -20,6 +20,11 @@ export interface ImageEl {
   /** 旋转角度（度），绕左上角。 */
   rotation: number
   fileId: string
+  name?: string
+  naturalWidth?: number
+  naturalHeight?: number
+  createdAt?: number
+  groupId?: string
   /** 生成溯源（prompt 等）。 */
   meta?: Record<string, string>
   /** 有值即这张位图只是封面，真正的片子在服务端；播放地址现拼，存整条会随部署换源而死。 */
