@@ -28,10 +28,15 @@ it('keeps the complete multiline prompt available and copies it without the titl
       ),
     )
     expect(host.querySelector('details p')?.textContent).toBe(prompt)
-    expect(host.querySelector('summary')?.textContent).toBe('查看完整提示词')
-    await act(async () => host.querySelector<HTMLButtonElement>('details button')!.click())
+    expect(host.querySelector('summary')?.textContent).toContain('摘要…')
+    expect(host.querySelector('details')?.open).toBe(false)
+    await act(async () => host.querySelector<HTMLButtonElement>('button')!.click())
     expect(writeText).toHaveBeenCalledWith(prompt)
     expect(host.textContent).toContain('已复制')
+    act(() => host.querySelector('summary')!.click())
+    expect(host.querySelector('details')?.open).toBe(true)
+    act(() => host.querySelector('summary')!.click())
+    expect(host.querySelector('details')?.open).toBe(false)
   } finally {
     act(() => root.unmount())
     vi.unstubAllGlobals()
