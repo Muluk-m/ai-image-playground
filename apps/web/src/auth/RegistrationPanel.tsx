@@ -75,7 +75,7 @@ export function RegistrationPanel({
       </button>
 
       <div className="auth-form-heading">
-        <h1>创建账户</h1>
+        <h1 tabIndex={-1}>创建账户</h1>
         <p>注册后即可开始你的创作旅程</p>
       </div>
       {children}

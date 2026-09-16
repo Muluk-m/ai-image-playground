@@ -1,5 +1,5 @@
 import { OAUTH_ERROR_QUERY_PARAM, type OAuthProviderView } from '@image-playground/shared'
-import { type FormEvent, useEffect, useState } from 'react'
+import { type FormEvent, useEffect, useRef, useState } from 'react'
 import {
   AuthRequestError,
   fetchOAuthProviders,
@@ -185,6 +185,14 @@ export function LoginScreen() {
   const [view, setView] = useState<'login' | 'registration'>(
     referralEnabled && referralCode ? 'registration' : 'login',
   )
+  const panelRef = useRef<HTMLDivElement>(null)
+  const previousView = useRef(view)
+  useEffect(() => {
+    if (previousView.current !== view) {
+      panelRef.current?.querySelector('h1')?.focus({ preventScroll: true })
+      previousView.current = view
+    }
+  }, [view])
   const [providers, setProviders] = useState<OAuthProviderView[]>([])
 
   useEffect(() => {
@@ -315,7 +323,7 @@ export function LoginScreen() {
             </select>
           </label>
 
-          <div className="auth-panel-content">
+          <div className="auth-panel-content" ref={panelRef}>
             {view === 'registration' ? (
               <RegistrationPanel
                 pending={pending}
@@ -332,7 +340,7 @@ export function LoginScreen() {
             ) : (
               <div className="auth-form-view auth-login">
                 <div className="auth-form-heading">
-                  <h1>欢迎回来</h1>
+                  <h1 tabIndex={-1}>欢迎回来</h1>
                   <p>登录你的账户，继续创作</p>
                 </div>
 
