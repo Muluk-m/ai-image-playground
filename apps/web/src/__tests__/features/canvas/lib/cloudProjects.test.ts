@@ -4,7 +4,7 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
 import { CloudProjectSession } from '../../../../features/canvas/lib/cloudProjects'
 import { CanvasEditor } from '../../../../features/canvas/lib/editor'
-import { loadScene } from '../../../../features/canvas/lib/persistence'
+import { loadScene, saveScene } from '../../../../features/canvas/lib/persistence'
 import { projectRepository } from '../../../../features/canvas/lib/projectRepository'
 import { setClientStorageScope } from '../../../../lib/authScope'
 
@@ -238,4 +238,94 @@ it('旧标签页仅平移后刷新不能借用新修订覆盖另一标签页的�
   await reopened.load(true)
   expect(restored.doc.elements[0]).toMatchObject({ text: '另一标签页的新内容' })
   expect(writes).toBe(1)
+})
+
+it('云端读取成功但本机落盘失败后重试读取，不上传旧缓存', async () => {
+  const { project, editor } = await fresh()
+  let remote = {
+    ...receipt(project.id, {
+      name: project.name,
+      baseRevision: 0,
+      document: { elements: editor.doc.elements as unknown[] },
+    }),
+    document: { version: 1, elements: structuredClone(editor.doc.elements) },
+  }
+  let writes = 0
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (_url: string, init: RequestInit) => {
+      if (init.method === 'PUT') {
+        writes++
+        const body = JSON.parse(init.body as string)
+        return Response.json(receipt(project.id, body))
+      }
+      return Response.json(remote)
+    }),
+  )
+  const existing = { ...project, cloud: { revision: 1 } }
+  await new CloudProjectSession(existing, editor).load()
+  remote = {
+    ...remote,
+    revision: 2,
+    document: {
+      version: 1,
+      elements: [
+        { ...remote.document.elements[0], text: '云端新稿' },
+      ] as typeof remote.document.elements,
+    },
+  }
+  const secondEditor = new CanvasEditor(new CanvasDoc())
+  await loadScene(secondEditor, project.sceneKey)
+  const second = new CloudProjectSession(existing, secondEditor)
+  const originalPut = IDBObjectStore.prototype.put
+  const spy = vi.spyOn(IDBObjectStore.prototype, 'put').mockImplementation(function (
+    this: IDBObjectStore,
+    ...args: Parameters<IDBObjectStore['put']>
+  ) {
+    const result = originalPut.apply(this, args)
+    if (args[1] === project.sceneKey) this.transaction.abort()
+    return result
+  })
+  await expect(second.load(true)).rejects.toThrow()
+  spy.mockRestore()
+  await loadScene(secondEditor, project.sceneKey)
+  await second.load(true)
+  expect(secondEditor.doc.elements[0]).toMatchObject({ text: '云端新稿' })
+  expect(writes).toBe(0)
+})
+
+it('本地模式保存保留云端基线，重新启用后不覆盖未同步修改', async () => {
+  const { project, editor } = await fresh()
+  const initial = {
+    ...receipt(project.id, {
+      name: project.name,
+      baseRevision: 0,
+      document: { elements: editor.doc.elements as unknown[] },
+    }),
+    document: { version: 1, elements: structuredClone(editor.doc.elements) },
+  }
+  const saved: unknown[] = []
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (_url: string, init: RequestInit) => {
+      if (init.method === 'PUT') {
+        const body = JSON.parse(init.body as string)
+        saved.push(body)
+        return Response.json(receipt(project.id, body))
+      }
+      return Response.json(initial)
+    }),
+  )
+  const existing = { ...project, cloud: { revision: 1 } }
+  await new CloudProjectSession(existing, editor).load()
+  editor.doc.updateElements([{ id: 'note', patch: { text: '关闭同步期间的修改' } }], {
+    history: true,
+  })
+  await saveScene(editor, project.sceneKey)
+  const restored = new CanvasEditor(new CanvasDoc())
+  await loadScene(restored, project.sceneKey)
+  await new CloudProjectSession(existing, restored).load(true)
+  expect(restored.doc.elements[0]).toMatchObject({ text: '关闭同步期间的修改' })
+  expect(saved).toHaveLength(1)
+  expect(saved[0]).toMatchObject({ baseRevision: 1 })
 })

@@ -6,7 +6,12 @@ import { createAgentCanvasSink } from './agentCanvasSink'
 import { CanvasDoc } from './canvasDoc'
 import { CloudProjectSession } from './cloudProjects'
 import { CanvasEditor } from './editor'
-import { loadScene, PERSIST_DEBOUNCE_MS, saveScene } from './persistence'
+import {
+  type CloudSceneCheckpoint,
+  PERSIST_DEBOUNCE_MS,
+  readPersistedScene,
+  saveScene,
+} from './persistence'
 import { cloudProjectsEnabled } from './projectClient'
 import type { CanvasProject } from './projectRepository'
 import { recoverCanvasTasks } from './recoverCanvasTasks'
@@ -33,6 +38,7 @@ export class CanvasWorkspace {
   private savedRevision = 0
   private structureRevision = 0
   private savedStructureRevision = 0
+  private localCloudCheckpoint: CloudSceneCheckpoint | undefined
   private stopChanges: (() => void) | undefined
 
   constructor(
@@ -64,7 +70,14 @@ export class CanvasWorkspace {
   private async load() {
     this.update({ loading: true, loadFailed: false })
     try {
-      const hasLocal = await loadScene(this.editor, this.key, this.migrateLegacy)
+      let hasLocal = true
+      // 已打开的云端会话持有完整快照；读取重试不能只恢复磁盘场景而留下旧内存基线。
+      if (!this.cloud) {
+        const stored = await readPersistedScene(this.key, this.migrateLegacy)
+        hasLocal = Boolean(stored)
+        this.localCloudCheckpoint = stored?.cloud
+        if (stored) this.doc.restore([...stored.elements], stored.files ?? {}, stored.camera)
+      }
       const project = useCanvasProjectStore
         .getState()
         .projects.find((one) => one.sceneKey === this.key)
@@ -140,9 +153,18 @@ export class CanvasWorkspace {
       const revision = this.revision
       const structureRevision = this.structureRevision
       const preserveStructure = structureRevision === this.savedStructureRevision
+      const localProject = useCanvasProjectStore
+        .getState()
+        .projects.find((one) => one.sceneKey === this.key)
+      const cloud = this.localCloudCheckpoint
+        ? {
+            ...this.localCloudCheckpoint,
+            name: localProject?.name ?? this.localCloudCheckpoint.name,
+          }
+        : undefined
       let saved = this.cloud
         ? await this.cloud.saveLocal(preserveStructure)
-        : await saveScene(this.editor, this.key, undefined, { preserveStructure })
+        : await saveScene(this.editor, this.key, undefined, { preserveStructure, cloud })
       if (saved) {
         try {
           await useCanvasProjectStore.getState().recordScene(this.key, this.doc)

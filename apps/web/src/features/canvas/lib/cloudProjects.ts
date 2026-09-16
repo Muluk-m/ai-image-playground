@@ -91,6 +91,7 @@ export class CloudProjectSession {
   }
   private async loadCurrent(hasLocalScene: boolean): Promise<void> {
     this.current()
+    const retryingRead = this.state.status === 'load-error'
     if (!this.initialized) {
       const cached = await readPersistedScene(this.project.sceneKey)
       this.current()
@@ -99,7 +100,10 @@ export class CloudProjectSession {
           throw new Error('unsupported_cloud_cache')
         const { version: _version, name, ...baseline } = cached.cloud
         this.baseline = baseline
-        this.project = { ...this.project, name }
+        this.project = {
+          ...this.project,
+          name: this.project.cloud?.nameDirty ? this.project.name : name,
+        }
         this.editor.doc.restore([...cached.elements], cached.files, cached.camera)
         hasLocalScene = true
       }
@@ -107,6 +111,7 @@ export class CloudProjectSession {
     }
     const local = this.document()
     const dirty =
+      !retryingRead &&
       hasLocalScene &&
       this.baseline.savedContent !== null &&
       (!local || content(this.project.name, local) !== this.baseline.savedContent)
@@ -132,7 +137,7 @@ export class CloudProjectSession {
         remote.revision < 1
       )
         throw new Error('unsupported_project')
-      if (!hasLocalScene || remote.revision !== this.baseline.revision) {
+      if (retryingRead || !hasLocalScene || remote.revision !== this.baseline.revision) {
         this.editor.doc.restore(remote.document.elements, {}, this.editor.doc.camera)
       }
       await this.metadata({

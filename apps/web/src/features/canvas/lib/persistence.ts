@@ -102,12 +102,19 @@ function dbPut(
       new Promise((resolve, reject) => {
         const transaction = db.transaction(STORE, 'readwrite')
         const store = transaction.objectStore(STORE)
-        if (preserveStructure) {
+        if (preserveStructure || !scene.cloud) {
           const request = store.get(key)
           request.onsuccess = () => {
             const previous = request.result as PersistedScene | undefined
             // 旧标签页的相机保存不能把另一标签页的新结构和修订基线写回旧值。
-            store.put(previous ? { ...previous, camera: scene.camera } : scene, key)
+            store.put(
+              previous && preserveStructure
+                ? { ...previous, camera: scene.camera }
+                : previous?.cloud && !scene.cloud
+                  ? { ...scene, cloud: previous.cloud }
+                  : scene,
+              key,
+            )
           }
         } else store.put(scene, key)
         if (removeKey && removeKey !== key) transaction.objectStore(STORE).delete(removeKey)

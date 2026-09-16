@@ -154,7 +154,12 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
       await renameCloudProject(current, patch.name)
       return
     }
-    const project = await projectRepository.update(id, patch)
+    const project = await projectRepository.update(id, {
+      ...patch,
+      ...(current?.cloud && patch.name !== undefined
+        ? { cloud: { ...current.cloud, nameDirty: true } }
+        : {}),
+    })
     set((state) => ({ projects: state.projects.map((one) => (one.id === id ? project : one)) }))
   },
   async remove(id) {
