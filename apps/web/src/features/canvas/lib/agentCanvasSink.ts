@@ -2,6 +2,7 @@ import type { AgentCanvasSink, AgentPlaceOutcome } from '../../agent/lib/canvasS
 import type { CanvasEditor } from './editor'
 import { markPlaceholderStatus, placeImagesIntoTargets } from './placeholderShapeOps'
 import { computePlaceholderTargets, type PlacementTarget } from './placement'
+import { recoverVideoPoster } from './recoverVideoPoster'
 
 /** 结果卡缩略图的缩放比。画布对象通常 360 页面单位宽，缩到面板里够看。 */
 const THUMBNAIL_SCALE = 0.25
@@ -118,10 +119,13 @@ export function createAgentCanvasSink(
 
     async thumbnail(objectId) {
       if (ready) await (typeof ready === 'function' ? ready() : ready)
-      const cached = thumbnails.get(objectId)
+      await recoverVideoPoster(editor, objectId)
+      const element = editor.getElement(objectId)
+      const cacheKey = element?.type === 'image' ? `${objectId}:${element.fileId}` : objectId
+      const cached = thumbnails.get(cacheKey)
       if (cached) return cached
       const rendered = await editor.toImage([objectId], { scale: THUMBNAIL_SCALE })
-      if (rendered) thumbnails.set(objectId, rendered)
+      if (rendered) thumbnails.set(cacheKey, rendered)
       return rendered
     },
   }
