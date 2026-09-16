@@ -176,6 +176,7 @@ export function LoginScreen() {
       ? ''
       : (new URLSearchParams(window.location.search).get('ref') ?? ''),
   )
+  const [referralExpanded, setReferralExpanded] = useState(Boolean(referralCode))
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
@@ -238,7 +239,14 @@ export function LoginScreen() {
   }
 
   const invitationField = referralEnabled ? (
-    <div className="auth-form mb-4">
+    <details
+      className="auth-referral"
+      open={referralExpanded}
+      onToggle={(event) => setReferralExpanded(event.currentTarget.open)}
+    >
+      <summary>
+        有邀请码？<span>选填</span>
+      </summary>
       <label className="auth-field">
         <span>邀请码（选填）</span>
         <input
@@ -253,14 +261,10 @@ export function LoginScreen() {
           spellCheck={false}
           autoComplete="off"
           disabled={pending}
-          placeholder="填写或清空邀请码"
-          aria-describedby="referral-code-hint"
+          placeholder="输入邀请码"
         />
       </label>
-      <p id="referral-code-hint" className="text-xs text-muted-foreground">
-        仅在首次注册时确定邀请关系，已有账户登录不会补绑。
-      </p>
-    </div>
+    </details>
   ) : null
   const providerButtons =
     providers.length > 0 ? (
@@ -274,7 +278,7 @@ export function LoginScreen() {
               onClick={() => {
                 window.location.href = oauthStartUrl(
                   provider.id,
-                  referralEnabled ? referralCode : undefined,
+                  view === 'registration' && referralEnabled ? referralCode : undefined,
                 )
               }}
             >
@@ -320,9 +324,9 @@ export function LoginScreen() {
                   setError(null)
                   setView('login')
                 }}
+                invitationField={invitationField}
                 onRegister={(credentials) => void submitRegistration(credentials)}
               >
-                {invitationField}
                 {providerButtons}
               </RegistrationPanel>
             ) : (
@@ -332,7 +336,6 @@ export function LoginScreen() {
                   <p>登录你的账户，继续创作</p>
                 </div>
 
-                {providers.length > 0 ? invitationField : null}
                 {providerButtons}
 
                 <form
@@ -351,7 +354,6 @@ export function LoginScreen() {
                       autoComplete="username"
                       autoCapitalize="none"
                       spellCheck={false}
-                      autoFocus
                       disabled={pending}
                       placeholder="请输入您的邮箱地址"
                     />

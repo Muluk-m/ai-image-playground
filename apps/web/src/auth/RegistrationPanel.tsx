@@ -18,6 +18,7 @@ interface RegistrationPanelProps {
   onBack: () => void
   onRegister: (credentials: RegistrationCredentials) => void
   children?: ReactNode
+  invitationField?: ReactNode
 }
 
 function EyeIcon({ crossed = false }: { crossed?: boolean }) {
@@ -36,6 +37,7 @@ export function RegistrationPanel({
   onBack,
   onRegister,
   children,
+  invitationField,
 }: RegistrationPanelProps) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -93,7 +95,6 @@ export function RegistrationPanel({
             disabled={pending}
             autoCapitalize="none"
             spellCheck={false}
-            autoFocus
             required
           />
         </label>
@@ -151,6 +152,8 @@ export function RegistrationPanel({
             </button>
           </div>
         </label>
+
+        {invitationField}
 
         <div className="auth-message-slot" aria-live="polite">
           {visibleError ? (
