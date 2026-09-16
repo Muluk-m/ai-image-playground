@@ -31,8 +31,11 @@ it('keeps the complete multiline prompt available and copies it without the titl
     expect(host.textContent).not.toContain('存为模板')
     act(() => host.querySelector<HTMLButtonElement>('button')!.click())
     const dialog = document.querySelector('[role="dialog"]')!
-    expect(dialog.querySelector('p')?.textContent).toBe(prompt)
-    await act(async () => dialog.querySelector<HTMLButtonElement>('button')!.click())
+    expect(dialog.querySelector('[aria-label="完整提示词"]')?.textContent).toBe(prompt)
+    const copy = Array.from(dialog.querySelectorAll('button')).find(
+      (button) => button.textContent === '复制',
+    )!
+    await act(async () => copy.click())
     expect(writeText).toHaveBeenCalledWith(prompt)
     expect(dialog.textContent).toContain('已复制')
     act(() => dialog.querySelector<HTMLButtonElement>('[aria-label="关闭提示词"]')!.click())
