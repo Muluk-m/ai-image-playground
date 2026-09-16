@@ -91,10 +91,11 @@ export const domainMigrationRoutes = new Elysia()
             ? { ok: true }
             : status(409, { error: 'migration_sequence' })
         if (body.sequence !== row.chunks) return status(409, { error: 'migration_sequence' })
+        const ciphertextBytes = Buffer.byteLength(body.ciphertext, 'utf8')
         const [total] = await tx.select({ bytes: sum(transfers.bytes) }).from(transfers)
         if (
-          row.bytes + body.ciphertext.length > 1024 * 1024 * 1024 ||
-          Number(total?.bytes ?? 0) + body.ciphertext.length > 2 * 1024 * 1024 * 1024
+          row.bytes + ciphertextBytes > 1024 * 1024 * 1024 ||
+          Number(total?.bytes ?? 0) + ciphertextBytes > 2 * 1024 * 1024 * 1024
         ) {
           return status(413, { error: 'migration_capacity' })
         }
@@ -103,7 +104,7 @@ export const domainMigrationRoutes = new Elysia()
           .values({ migration_id: body.id, sequence: body.sequence, ciphertext: body.ciphertext })
         await tx
           .update(transfers)
-          .set({ chunks: row.chunks + 1, bytes: row.bytes + body.ciphertext.length })
+          .set({ chunks: row.chunks + 1, bytes: row.bytes + ciphertextBytes })
           .where(eq(transfers.id, body.id))
         return { ok: true }
       })
