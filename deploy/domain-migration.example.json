@@ -1,6 +1,0 @@
-{
-  "sourceOrigin": "https://legacy.example.com",
-  "targetOrigin": "https://example.net",
-  "sourceApi": "https://api.legacy.example.com",
-  "targetApi": "https://api.example.net"
-}
