@@ -39,7 +39,8 @@ export default function StoryboardReferences() {
               type="button"
               onClick={() => useStoryboardStore.getState().removeReference(imageId)}
               aria-label={`移除${REFERENCE_LABEL}`}
-              className="absolute right-1 top-1 grid h-5 w-5 place-items-center rounded-full bg-black/55 text-[11px] text-white"
+              // p-0/border-0 是给导演台的 button reset 兜底：它按文字按钮给内边距和描边。
+              className="absolute right-1 top-1 grid h-5 w-5 place-items-center rounded-full border-0 bg-black/55 p-0 text-[11px] text-white"
             >
               ×
             </button>
