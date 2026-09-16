@@ -5,6 +5,7 @@ import type {
   AgentTurnCost,
   AgentTurnEvent,
   AgentTurnStopReason,
+  AgentTurnUsage,
   PersistedSubmitRequest,
   QueueProvider,
   TaskKind,
@@ -306,6 +307,41 @@ export const agent_turns = pgTable(
     check(
       'agent_turns_stop_reason_check',
       sql`${t.stop_reason} IN ('completed', 'aborted', 'failed')`,
+    ),
+  ],
+)
+
+/** 每次模型请求的独立用量；摘要由平台承担，不混入对话任务结算。 */
+export const agent_model_calls = pgTable(
+  'agent_model_calls',
+  {
+    id: text('id').primaryKey(),
+    conversation_id: text('conversation_id')
+      .notNull()
+      .references(() => agent_conversations.id, { onDelete: 'cascade' }),
+    turn_id: text('turn_id').notNull(),
+    user_id: text('user_id'),
+    device_id: text('device_id').notNull(),
+    purpose: text('purpose').$type<'conversation' | 'compaction' | 'handoff'>().notNull(),
+    model: text('model').notNull(),
+    input_image_count: integer('input_image_count').notNull().default(0),
+    status: text('status').$type<'in_progress' | 'completed' | 'failed' | 'cancelled'>().notNull(),
+    usage: bunJsonb('usage').$type<AgentTurnUsage>(),
+    cache_read_tokens: integer('cache_read_tokens'),
+    cache_write_tokens: integer('cache_write_tokens'),
+    tool_calls: bunJsonb('tool_calls').$type<{ id: string; name: string }[]>(),
+    started_at: epochMs('started_at').notNull(),
+    finished_at: epochMs('finished_at'),
+  },
+  (t) => [
+    index('idx_agent_model_calls_turn').on(t.conversation_id, t.turn_id),
+    check(
+      'agent_model_calls_purpose_check',
+      sql`${t.purpose} IN ('conversation', 'compaction', 'handoff')`,
+    ),
+    check(
+      'agent_model_calls_status_check',
+      sql`${t.status} IN ('in_progress', 'completed', 'failed', 'cancelled')`,
     ),
   ],
 )
