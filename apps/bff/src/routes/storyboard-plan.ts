@@ -9,7 +9,7 @@ import {
 import { Elysia, t } from 'elysia'
 
 import { capabilityUnavailable, isCapabilityEnabled } from '../lib/capabilities'
-import { chatFailure } from '../lib/chatCompletion'
+import { respondChatFailure } from '../lib/chatCompletion'
 import { badRequestOnValidation, imageDataUrlSchema } from '../lib/http'
 import { log } from '../lib/logger'
 import { planStoryboard } from '../lib/storyboard'
@@ -48,9 +48,7 @@ export const storyboardPlanRoutes = new Elysia()
         return { plan }
       } catch (error) {
         log.warn({ event: 'storyboard.plan_failed', err: error }, 'storyboard planning failed')
-        const failure = chatFailure(error, 'storyboard')
-        if (failure) return status(502, failure)
-        throw error
+        return respondChatFailure(error, 'storyboard', status)
       }
     },
     { body: planBodySchema },

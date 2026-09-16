@@ -8,7 +8,7 @@ import {
 import { Elysia, t } from 'elysia'
 
 import { capabilityUnavailable, isCapabilityEnabled } from '../lib/capabilities'
-import { chatFailure } from '../lib/chatCompletion'
+import { respondChatFailure } from '../lib/chatCompletion'
 import { badRequestOnValidation, imageDataUrlSchema } from '../lib/http'
 import { log } from '../lib/logger'
 import { requireUserOrService } from '../lib/user-auth'
@@ -48,9 +48,7 @@ export const bgswapPlanRoutes = new Elysia()
         } satisfies BackgroundPlanResult
       } catch (error) {
         log.warn({ event: 'bgswap.vision_failed', err: error }, 'background planning failed')
-        const failure = chatFailure(error, 'vision')
-        if (failure) return status(502, failure)
-        throw error
+        return respondChatFailure(error, 'vision', status)
       }
     },
     { body: planBodySchema },
@@ -62,9 +60,7 @@ export const bgswapPlanRoutes = new Elysia()
         return (await scanScene(body.image)) satisfies SceneScan
       } catch (error) {
         log.warn({ event: 'bgswap.scan_failed', err: error }, 'scene scan failed')
-        const failure = chatFailure(error, 'vision')
-        if (failure) return status(502, failure)
-        throw error
+        return respondChatFailure(error, 'vision', status)
       }
     },
     { body: t.Object({ image: imageSchema }) },
