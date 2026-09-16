@@ -116,6 +116,7 @@ function ToolButton({
       type="button"
       title={title}
       aria-label={title}
+      aria-pressed={active}
       disabled={disabled}
       onClick={onClick}
       className={`flex h-9 w-9 items-center justify-center rounded-xl transition-colors ${
@@ -132,7 +133,7 @@ function ToolButton({
 const PILL =
   'pointer-events-auto rounded-2xl border border-border bg-sidebar p-1.5 shadow-lg backdrop-blur'
 
-/** 工具条固定在画布底部，缩放独立放在左下角。 */
+/** 工具与缩放共用画布左侧工具栏，窄矮视口内可滚动。 */
 export default function CanvasToolbar({ doc }: { doc: CanvasDoc }) {
   useSyncExternalStore(doc.subscribe, () => doc.version)
   const { tool, selection, camera, viewport } = doc
@@ -212,7 +213,7 @@ export default function CanvasToolbar({ doc }: { doc: CanvasDoc }) {
         type="button"
         title="重置为 100%"
         onClick={() => doc.zoomAt(viewport.width / 2, viewport.height / 2, 1)}
-        className={`rounded-xl text-xs text-foreground tabular-nums transition-colors hover:bg-muted h-9 min-w-14 px-1`}
+        className={`rounded-xl text-xs text-foreground tabular-nums transition-colors hover:bg-muted h-9 w-9 px-0 text-[10px]`}
       >
         {Math.round(camera.zoom * 100)}%
       </button>
@@ -224,15 +225,19 @@ export default function CanvasToolbar({ doc }: { doc: CanvasDoc }) {
 
   return (
     // Canvas coordinates are local to the visible workspace, independent of the sidebar.
-    <div className="studio-toolbar" data-canvas-toolbar="bottom">
-      <div className={`${PILL} studio-zoom flex items-center`}>{zoom}</div>
-      <div className={`${PILL} studio-tools flex items-center gap-1`}>
+    <div className="studio-toolbar" data-canvas-toolbar="side">
+      <div
+        className={`${PILL} studio-tools flex flex-col items-center gap-1`}
+        role="group"
+        aria-label="画布工具"
+      >
         {tools}
-        <div className="mx-1 h-6 w-px bg-muted" />
+        <div className="my-1 h-px w-6 shrink-0 bg-border" />
         {history}
         {selectionActions}
+        <div className="my-1 h-px w-6 shrink-0 bg-border" />
+        {zoom}
       </div>
-      <div />
     </div>
   )
 }

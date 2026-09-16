@@ -61,25 +61,25 @@ describe('画布工具条', () => {
     useAgentStore.setState({ open: true, panelWidth: 300 })
     render()
 
-    expect(toolbar().dataset.canvasToolbar).toBe('bottom')
+    expect(toolbar().dataset.canvasToolbar).toBe('side')
     expect(toolbar().style.left).toBe('')
     expect(toolbar().querySelector('button[title="选择（V）"]')).not.toBeNull()
     expect(toolbar().querySelector('button[title="缩小"]')).not.toBeNull()
   })
 
-  it('面板收起后退回底部横排', async () => {
+  it('面板收起后仍位于画布侧边', async () => {
     await enableAgent(true)
     useAgentStore.setState({ open: false })
     render()
 
-    expect(toolbar().dataset.canvasToolbar).toBe('bottom')
+    expect(toolbar().dataset.canvasToolbar).toBe('side')
   })
 
-  it('没有智能体时一直在底部', async () => {
+  it('没有智能体时同样位于侧边', async () => {
     await enableAgent(false)
     useAgentStore.setState({ open: true, panelWidth: 300 })
     render()
 
-    expect(toolbar().dataset.canvasToolbar).toBe('bottom')
+    expect(toolbar().dataset.canvasToolbar).toBe('side')
   })
 })

@@ -30,10 +30,10 @@
 .studio-primary:hover { background: hsl(var(--primary)); }
 .studio-primary:disabled { opacity: .45; cursor: not-allowed; }
 .studio-shell button:focus-visible, .studio-shell textarea:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 3px; }
-.studio-toolbar { position: absolute; bottom: 18px; left: 16px; right: 16px; z-index: 400; display: flex; justify-content: center; pointer-events: none; }
-.studio-tools { max-width: 100%; overflow-x: auto; box-shadow: var(--studio-shadow); border-radius: var(--studio-radius); }
+.studio-toolbar { position: absolute; top: 104px; bottom: 16px; left: 16px; z-index: 400; display: flex; flex-direction: column; justify-content: center; pointer-events: none; }
+.studio-tools { max-height: 100%; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; box-shadow: var(--studio-shadow); border-radius: var(--studio-radius); }
+.studio-tools::-webkit-scrollbar { display: none; }
 .studio-tools button { flex-shrink: 0; }
-.studio-zoom { position: absolute; bottom: 64px; left: 0; box-shadow: var(--studio-shadow); border-radius: var(--studio-radius); }
 .studio-direct-composer { margin-top: auto; padding: var(--studio-space-4); }
 .studio-direct-card { display: flex; flex-direction: column; gap: 14px; }
 .studio-direct-card textarea { background: hsl(var(--background)); border: 1px solid hsl(var(--border)); color: hsl(var(--foreground)); border-radius: var(--studio-radius); padding: 12px; margin-top: 12px; }
@@ -47,7 +47,7 @@
   .studio-canvas-heading span { display: none; }
   .studio-tools { gap: 0; padding: 4px; }
   .studio-tools button { width: 32px; }
-  .studio-toolbar { left: 8px; right: 8px; bottom: 12px; }
+  .studio-toolbar { left: 8px; bottom: 12px; }
 }
 @media (prefers-reduced-motion: reduce) { .studio-shell * { transition: none !important; } }
 /* Keep canvas controls below the mobile conversation drawer. */
