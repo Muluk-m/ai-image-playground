@@ -40,23 +40,21 @@ export default function LibraryCoach({ onDismiss }: { onDismiss: () => void }) {
     <div
       role="dialog"
       aria-label="素材与模板引导"
-      className="animate-coach-pop-in absolute right-0 top-full z-50 mt-3 w-72 rounded-2xl border border-blue-100 bg-white p-4 shadow-xl ring-1 ring-black/5 dark:border-blue-500/20 dark:bg-gray-900 dark:ring-white/10"
+      className="animate-coach-pop-in absolute right-0 top-full z-50 mt-3 w-72 rounded-2xl border border-primary bg-card p-4 shadow-xl ring-1 ring-black/5 dark:ring-white/10"
     >
       <span
         aria-hidden
-        className="absolute -top-1.5 right-4 h-3 w-3 rotate-45 border-l border-t border-blue-100 bg-white dark:border-blue-500/20 dark:bg-gray-900"
+        className="absolute -top-1.5 right-4 h-3 w-3 rotate-45 border-l border-t border-primary bg-card"
       />
 
       <div className="flex items-start gap-2">
-        <LibraryIcon className="mt-0.5 h-4 w-4 shrink-0 text-blue-500" />
+        <LibraryIcon className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
         <div className="flex-1">
-          <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">
-            同一批图、同一段提示词
-          </div>
-          <ol className="mt-2 space-y-1.5 text-xs text-gray-600 dark:text-gray-400">
+          <div className="text-sm font-semibold text-foreground">同一批图、同一段提示词</div>
+          <ol className="mt-2 space-y-1.5 text-xs text-muted-foreground">
             {STEPS.map((step) => (
               <li key={step.token} className="flex items-center gap-1.5">
-                <span className="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-[11px] text-gray-700 dark:bg-white/[0.08] dark:text-gray-200">
+                <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-foreground">
                   {step.token}
                 </span>
                 {step.text}
@@ -70,7 +68,7 @@ export default function LibraryCoach({ onDismiss }: { onDismiss: () => void }) {
         <button
           type="button"
           onClick={onDismiss}
-          className="rounded-md px-2.5 py-1 text-xs text-gray-500 transition hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-white/[0.06] dark:hover:text-gray-200"
+          className="rounded-md px-2.5 py-1 text-xs text-muted-foreground transition hover:bg-muted hover:text-foreground"
         >
           知道了
         </button>
@@ -80,7 +78,7 @@ export default function LibraryCoach({ onDismiss }: { onDismiss: () => void }) {
             onDismiss()
             openLibrary()
           }}
-          className="inline-flex items-center gap-1 rounded-md bg-blue-500 px-2.5 py-1 text-xs font-medium text-white shadow-sm transition hover:bg-blue-600"
+          className="inline-flex items-center gap-1 rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground shadow-sm transition hover:bg-primary/90"
         >
           <LibraryIcon className="h-3 w-3" />
           看看

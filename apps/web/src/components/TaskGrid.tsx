@@ -340,7 +340,7 @@ export default function TaskGrid() {
   if (!filteredTasks.length) {
     if (searchQuery || filterFavorite || filterStatus !== 'all') {
       return (
-        <div className="text-center py-20 text-gray-400 dark:text-gray-500">
+        <div className="text-center py-20 text-muted-foreground">
           <p className="text-sm">没有找到匹配的记录</p>
         </div>
       )
@@ -377,7 +377,7 @@ export default function TaskGrid() {
       </div>
       {selectionBox && (
         <div
-          className="fixed bg-blue-500/20 border border-blue-500/50 pointer-events-none z-[30]"
+          className="fixed bg-primary/20 border border-primary/50 pointer-events-none z-[30]"
           style={{
             left: Math.min(selectionBox.startPageX, selectionBox.currentPageX) - window.scrollX,
             top: Math.min(selectionBox.startPageY, selectionBox.currentPageY) - window.scrollY,

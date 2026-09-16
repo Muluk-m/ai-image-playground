@@ -137,14 +137,14 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
                 key={i}
                 src={src}
                 alt={`输入 ${i + 1}`}
-                className="h-12 w-12 rounded-md border border-gray-200 object-cover dark:border-white/10"
+                className="h-12 w-12 rounded-md border border-border object-cover"
               />
             ))}
             {previews.length === 0 && (
-              <span className="text-[11px] text-gray-400 dark:text-gray-500">预览生成中…</span>
+              <span className="text-[11px] text-muted-foreground">预览生成中…</span>
             )}
             {annotationText && (
-              <span className="max-w-[50%] truncate text-[11px] text-amber-600 dark:text-amber-400">
+              <span className="max-w-[50%] truncate text-[11px] text-warning dark:text-warning">
                 文字标注 → 修改要求：{annotationText}
               </span>
             )}
@@ -152,13 +152,13 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
         )}
         <div className="flex flex-col gap-3">
           <div className="flex w-full flex-1 flex-col">
-            <span className="px-2 pt-1 text-[11px] text-gray-400 dark:text-gray-500">{hint}</span>
+            <span className="px-2 pt-1 text-[11px] text-muted-foreground">{hint}</span>
             <SubmissionBillingAction
               blockedAction={submissionGuard.blockedAction}
               className="px-2 text-[11px]"
             />
             {submissionGuard.blocked && submissionGuard.disabledReason ? (
-              <span className="px-2 text-[11px] text-red-600 dark:text-red-400">
+              <span className="px-2 text-[11px] text-destructive dark:text-destructive">
                 {submissionGuard.disabledReason}
               </span>
             ) : null}
@@ -179,7 +179,7 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
               placeholder="描述想生成 / 想怎么改…（⌘/Ctrl + Enter 生成）"
               aria-label="创作描述"
               rows={5}
-              className="max-h-32 min-h-[2.25rem] resize-none bg-transparent px-2 py-1.5 text-sm text-gray-900 outline-none placeholder:text-gray-400 dark:text-gray-50"
+              className="max-h-32 min-h-[2.25rem] resize-none bg-transparent px-2 py-1.5 text-sm text-foreground outline-none placeholder:text-muted-foreground"
             />
           </div>
           <button

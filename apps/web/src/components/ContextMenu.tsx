@@ -70,7 +70,7 @@ export default function ContextMenu({
   return createPortal(
     <div
       ref={menuRef}
-      className="fixed z-[9999] min-w-[120px] overflow-hidden rounded-lg border border-gray-100 bg-white py-1 shadow-xl animate-fade-in dark:border-gray-700 dark:bg-gray-800"
+      className="fixed z-[9999] min-w-[120px] overflow-hidden rounded-lg border border-border bg-card py-1 shadow-xl animate-fade-in"
       style={{ left: position.left, top: position.top }}
       onContextMenu={(e) => e.preventDefault()}
     >
@@ -93,7 +93,7 @@ export function ContextMenuItem({
     <button
       type="button"
       onClick={onClick}
-      className="flex w-full items-center gap-2 px-4 py-2 text-left text-sm text-gray-700 transition-colors hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-700/50"
+      className="flex w-full items-center gap-2 px-4 py-2 text-left text-sm text-foreground transition-colors hover:bg-card"
     >
       {icon}
       {label}

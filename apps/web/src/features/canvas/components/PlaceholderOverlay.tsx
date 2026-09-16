@@ -44,7 +44,7 @@ export default function PlaceholderOverlay({ editor }: { editor: CanvasEditor })
                 gap: 12,
                 padding: 16,
                 boxSizing: 'border-box',
-                color: 'var(--studio-text-secondary)',
+                color: 'hsl(var(--foreground))',
                 textAlign: 'center',
                 fontSize: 13,
                 lineHeight: 1.4,

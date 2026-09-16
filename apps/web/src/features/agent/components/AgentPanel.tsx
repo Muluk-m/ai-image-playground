@@ -182,12 +182,8 @@ export default function AgentPanel({ doc, editor }: { doc: CanvasDoc; editor: Ca
         aria-label="拖动调整面板宽度"
         title="拖动调整宽度"
         onPointerDown={startResize}
-        className="absolute -right-1.5 top-6 bottom-6 z-10 hidden md:block w-3 cursor-col-resize touch-none rounded-full transition-colors hover:bg-[var(--studio-accent-hover)]/40 active:bg-blue-500/60"
+        className="absolute -right-1.5 top-6 bottom-6 z-10 hidden md:block w-3 cursor-col-resize touch-none rounded-full transition-colors hover:bg-primary/40 active:bg-primary/60"
       />
-      <div className="studio-sidebar-heading">
-        <span className="studio-kicker">CREATIVE STUDIO</span>
-        <h2>一起，把想法变成画面。</h2>
-      </div>
       <div className="flex shrink-0 items-center justify-between gap-3 px-4 pb-3 pt-2">
         <div className="flex items-center gap-3">
           {TABS.map((one) => (
@@ -266,7 +262,7 @@ export default function AgentPanel({ doc, editor }: { doc: CanvasDoc; editor: Ca
             const log = event.currentTarget
             followLatest.current = log.scrollHeight - log.clientHeight - log.scrollTop <= 48
           }}
-          className={`relative flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto px-3 py-1 ${dragging ? 'rounded-xl outline-dashed outline-1 outline-blue-400/70' : ''}`}
+          className={`relative flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto px-3 py-1 ${dragging ? 'rounded-xl outline-dashed outline-1 outline-ring/70' : ''}`}
           {...dropZoneProps}
         >
           {messages.length === 0 && (

@@ -48,7 +48,7 @@ export default function VideoFeed() {
       </div>
 
       {visible.length === 0 ? (
-        <p className="text-sm text-gray-500 dark:text-gray-400">
+        <p className="text-sm text-muted-foreground">
           {tasks.length === 0 ? '还没有生成过视频' : '没有匹配的结果'}
         </p>
       ) : (
