@@ -204,7 +204,7 @@ function LanguagePicker() {
       <select
         aria-label={t('locale.label')}
         value={active}
-        onChange={(event) => setLocale(event.currentTarget.value as AppLocale)}
+        onChange={(event) => void setLocale(event.currentTarget.value as AppLocale)}
       >
         {SUPPORTED_LOCALES.map((locale) => (
           <option key={locale} value={locale}>

@@ -1,13 +1,6 @@
 import i18next from 'i18next'
 import { initReactI18next, useTranslation } from 'react-i18next'
-import authEn from './locales/en/auth.json'
-import commonEn from './locales/en/common.json'
-import errorsEn from './locales/en/errors.json'
-import taskEn from './locales/en/task.json'
-import authZh from './locales/zh-CN/auth.json'
-import commonZh from './locales/zh-CN/common.json'
-import errorsZh from './locales/zh-CN/errors.json'
-import taskZh from './locales/zh-CN/task.json'
+import { zhCN } from './locales/zh-CN'
 
 // 把中文 catalog 的形状喂给 i18next：写错 key 或漏建 key 在 `pnpm typecheck` 就红，不用等运行时
 // 把 key 原样渲染给用户。这段必须留在本文件里——放进独立的 .d.ts 就要靠各 tsconfig 的 include
@@ -15,12 +8,7 @@ import taskZh from './locales/zh-CN/task.json'
 declare module 'i18next' {
   interface CustomTypeOptions {
     defaultNS: 'common'
-    resources: {
-      common: typeof commonZh
-      auth: typeof authZh
-      errors: typeof errorsZh
-      task: typeof taskZh
-    }
+    resources: typeof zhCN
   }
 }
 
@@ -30,14 +18,11 @@ export type AppLocale = (typeof SUPPORTED_LOCALES)[number]
 /** 回退语言：英文缺 key 时显示中文，而不是把 key 本身漏给用户。 */
 export const DEFAULT_LOCALE: AppLocale = 'zh-CN'
 
-export const I18N_NAMESPACES = ['common', 'auth', 'errors', 'task'] as const
+export type I18nNamespace = keyof typeof zhCN
+
+export const I18N_NAMESPACES = Object.keys(zhCN) as I18nNamespace[]
 
 const LOCALE_STORAGE_KEY = 'aip.locale'
-
-export const resources = {
-  'zh-CN': { common: commonZh, auth: authZh, errors: errorsZh, task: taskZh },
-  en: { common: commonEn, auth: authEn, errors: errorsEn, task: taskEn },
-} as const
 
 function isSupported(value: string): value is AppLocale {
   return (SUPPORTED_LOCALES as readonly string[]).includes(value)
@@ -80,40 +65,76 @@ function applyDocumentLocale(locale: AppLocale): void {
 }
 
 /**
- * 同步初始化。i18next 默认把资源加载塞进 setTimeout，`initAsync: false`（v25 之前叫
- * `initImmediate`）让 init 在本次调用内完成，组件首帧就能拿到译文——`main.tsx` 与现有测试
- * 都是 import 完直接 render，异步初始化会让首帧渲染出 key 而不是文案。
+ * 同步初始化，只带中文。i18next 默认把资源加载塞进 setTimeout，`initAsync: false`（v25 之前叫
+ * `initImmediate`）让 init 在本次调用内完成，组件首帧就能拿到译文——`main.tsx` 与现有测试都是
+ * import 完直接 render，异步初始化会让首帧渲染出 key 而不是文案。
  */
-export function initI18n(locale: AppLocale = detectLocale()): typeof i18next {
+export function initI18n(): typeof i18next {
   if (!i18next.isInitialized) {
     void i18next.use(initReactI18next).init({
-      resources,
-      lng: locale,
+      resources: { 'zh-CN': zhCN },
+      lng: DEFAULT_LOCALE,
       fallbackLng: DEFAULT_LOCALE,
       supportedLngs: [...SUPPORTED_LOCALES],
-      ns: [...I18N_NAMESPACES],
+      ns: I18N_NAMESPACES,
       defaultNS: 'common',
       interpolation: { escapeValue: false },
       initAsync: false,
       react: { useSuspense: false },
     })
   }
-  applyDocumentLocale(locale)
   return i18next
+}
+
+let englishBundle: Promise<void> | null = null
+
+/**
+ * 英文语料只在真的切过去时才拉。中文是默认语言又兼 fallback，必须随首屏一起到；英文全量
+ * catalog 是同一个量级的净增重量，让只用中文的人也背着它不划算。
+ */
+export async function ensureLocaleLoaded(locale: AppLocale): Promise<void> {
+  if (locale === DEFAULT_LOCALE) return
+  if (!englishBundle) {
+    englishBundle = import('./locales/en').then(({ en }) => {
+      for (const [namespace, bundle] of Object.entries(en)) {
+        i18next.addResourceBundle('en', namespace, bundle, true, true)
+      }
+    })
+  }
+  await englishBundle
 }
 
 export function currentLocale(): AppLocale {
   return normalizeLocale(i18next.resolvedLanguage ?? i18next.language) ?? DEFAULT_LOCALE
 }
 
-export function setLocale(locale: AppLocale): void {
+export async function setLocale(locale: AppLocale): Promise<void> {
   try {
     localStorage.setItem(LOCALE_STORAGE_KEY, locale)
   } catch {
     // 存不下也要让本次切换生效，只是刷新后回到检测结果。
   }
-  void i18next.changeLanguage(locale)
+  await ensureLocaleLoaded(locale)
+  await i18next.changeLanguage(locale)
   applyDocumentLocale(locale)
+}
+
+/** 启动时按探测结果切一次。`main.tsx` 是 top-level await，能在首帧之前等英文 chunk 落地。 */
+export async function bootstrapLocale(): Promise<void> {
+  const locale = detectLocale()
+  applyDocumentLocale(locale)
+  if (locale === DEFAULT_LOCALE) return
+  await ensureLocaleLoaded(locale)
+  await i18next.changeLanguage(locale)
+}
+
+/**
+ * 上游异常没有译文，只能原样透出。所以它永远是**插值参数**，不是文案本身——
+ * 外层那句「××失败：{{reason}}」才是要翻译的部分。
+ */
+export function describeError(error: unknown): string {
+  if (error instanceof Error && error.message) return error.message
+  return String(error)
 }
 
 // 导入本模块即完成初始化：组件只从这里取 useTranslation，就不会出现「先渲染后初始化」。

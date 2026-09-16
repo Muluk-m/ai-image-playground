@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_LOCALE, I18N_NAMESPACES, i18next, resources, SUPPORTED_LOCALES } from '../../i18n'
+import { DEFAULT_LOCALE, I18N_NAMESPACES, i18next, SUPPORTED_LOCALES } from '../../i18n'
+import { en } from '../../i18n/locales/en'
+import { zhCN } from '../../i18n/locales/zh-CN'
+
+const catalogs: Record<string, Record<string, unknown>> = { 'zh-CN': zhCN, en }
 
 const PLURAL_SUFFIX = /_(zero|one|two|few|many|other)$/
 
@@ -31,7 +35,7 @@ function placeholders(value: string): string[] {
 }
 
 function catalog(locale: string, namespace: string): unknown {
-  return (resources as Record<string, Record<string, unknown>>)[locale][namespace]
+  return catalogs[locale][namespace]
 }
 
 describe('i18n runtime', () => {

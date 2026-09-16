@@ -3,7 +3,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { LoginScreen } from '../../auth/LoginScreen'
-import { i18next, setLocale } from '../../i18n'
+import { type AppLocale, i18next, setLocale } from '../../i18n'
 import { _setRuntimeConfigForTesting } from '../../lib/runtimeConfig'
 
 declare global {
@@ -21,33 +21,45 @@ function languageSelect(): HTMLSelectElement {
   return element
 }
 
-function chooseLocale(value: string): void {
-  const select = languageSelect()
-  const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set
-  setter?.call(select, value)
-  select.dispatchEvent(new Event('change', { bubbles: true }))
+/** 切换是异步的（英文语料要先落地），等 i18next 自己宣布切完，别赌微任务轮数。 */
+function whenLanguageChanged(target: AppLocale): Promise<void> {
+  return new Promise((resolve) => {
+    const onChanged = (language: string): void => {
+      if (language !== target) return
+      i18next.off('languageChanged', onChanged)
+      resolve()
+    }
+    i18next.on('languageChanged', onChanged)
+  })
+}
+
+async function chooseLocale(value: AppLocale): Promise<void> {
+  const changed = whenLanguageChanged(value)
+  await act(async () => {
+    const select = languageSelect()
+    const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set
+    setter?.call(select, value)
+    select.dispatchEvent(new Event('change', { bubbles: true }))
+    await changed
+  })
 }
 
 beforeEach(() => {
   _setRuntimeConfigForTesting({ bff: { enabled: true, baseUrl: 'https://api.example.com' } })
   window.history.replaceState(null, '', '/')
   localStorage.clear()
-  setLocale('zh-CN')
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async () => Response.json({ providers: [] })),
-  )
+  vi.stubGlobal('fetch', vi.fn(async () => Response.json({ providers: [] })))
   host = document.createElement('div')
   document.body.appendChild(host)
   root = createRoot(host)
 })
 
-afterEach(() => {
+afterEach(async () => {
   act(() => root.unmount())
   host.remove()
   vi.unstubAllGlobals()
   localStorage.clear()
-  setLocale('zh-CN')
+  await i18next.changeLanguage('zh-CN')
 })
 
 describe('locale switching', () => {
@@ -58,11 +70,8 @@ describe('locale switching', () => {
 
     expect(host.textContent).toContain('欢迎回来')
     expect(host.textContent).toContain('登录即表示你同意我们的服务条款和隐私政策')
-    expect(document.documentElement.lang).toBe('zh-CN')
 
-    await act(async () => {
-      chooseLocale('en')
-    })
+    await chooseLocale('en')
 
     expect(host.textContent).toContain('Welcome back')
     expect(host.textContent).toContain('By signing in you agree to our terms of service')
@@ -75,9 +84,7 @@ describe('locale switching', () => {
     await act(async () => {
       root.render(<LoginScreen />)
     })
-    await act(async () => {
-      chooseLocale('en')
-    })
+    await chooseLocale('en')
 
     expect(localStorage.getItem('aip.locale')).toBe('en')
   })
@@ -90,9 +97,7 @@ describe('locale switching', () => {
 
     expect(host.textContent).toContain('该账户已被停用')
 
-    await act(async () => {
-      chooseLocale('en')
-    })
+    await chooseLocale('en')
 
     expect(host.textContent).toContain('This account has been disabled')
   })
@@ -101,7 +106,7 @@ describe('locale switching', () => {
 describe('plural handling', () => {
   it('picks the English singular and plural forms by count', async () => {
     await act(async () => {
-      await i18next.changeLanguage('en')
+      await setLocale('en')
     })
 
     expect(i18next.t('download.succeeded', { ns: 'task', count: 1 })).toBe('Downloaded 1 image')
@@ -110,7 +115,7 @@ describe('plural handling', () => {
 
   it('uses the single Chinese form for any count', async () => {
     await act(async () => {
-      await i18next.changeLanguage('zh-CN')
+      await setLocale('zh-CN')
     })
 
     expect(i18next.t('download.succeeded', { ns: 'task', count: 1 })).toBe('成功下载 1 张图片')

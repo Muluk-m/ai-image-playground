@@ -1,0 +1,42 @@
+import { currentLocale } from './index'
+
+/**
+ * 日期与数字一律走这里，不要再写 `toLocaleString('zh-CN')`。写死 locale 的地方在切到英文后
+ * 仍然吐中文格式，是最容易漏掉的一类「没翻干净」。
+ */
+
+const DATE_TIME: Intl.DateTimeFormatOptions = {
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+}
+
+const DATE_ONLY: Intl.DateTimeFormatOptions = {
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+}
+
+function toDate(value: Date | number | string): Date {
+  return value instanceof Date ? value : new Date(value)
+}
+
+export function formatDateTime(value: Date | number | string): string {
+  return new Intl.DateTimeFormat(currentLocale(), DATE_TIME).format(toDate(value))
+}
+
+export function formatDate(value: Date | number | string): string {
+  return new Intl.DateTimeFormat(currentLocale(), DATE_ONLY).format(toDate(value))
+}
+
+export function formatNumber(value: number, options?: Intl.NumberFormatOptions): string {
+  return new Intl.NumberFormat(currentLocale(), options).format(value)
+}
+
+/** 整数计数，例如积分余额。千分位跟着 locale 走。 */
+export function formatCount(value: number): string {
+  return formatNumber(Math.round(value), { maximumFractionDigits: 0 })
+}

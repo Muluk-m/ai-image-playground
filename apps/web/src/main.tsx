@@ -1,7 +1,7 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { AuthGate } from './auth/AuthGate'
-import './i18n'
+import { bootstrapLocale } from './i18n'
 import './index.css'
 import { bootstrapChannels } from './lib/channels/bootstrapChannels'
 import { bootstrapClientCapabilities } from './lib/clientCapabilities'
@@ -29,6 +29,8 @@ if ('serviceWorker' in navigator) {
 // 401 before login; AuthGate retries it after establishing an authenticated session.
 const runtime = await loadRuntimeConfig()
 await Promise.all([
+  // 英文语料是按需 chunk，首帧之前就得落地，否则登录页会先闪一遍中文。
+  bootstrapLocale(),
   bootstrapClientCapabilities(runtime.bff.enabled, runtime.bff.baseUrl),
   bootstrapChannels(runtime.bff.enabled, runtime.bff.baseUrl),
 ])
