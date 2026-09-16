@@ -1,5 +1,7 @@
 import type { AgentToolArtifact } from '@image-playground/shared'
 import { useEffect, useState } from 'react'
+import { copyTextToClipboard, getClipboardFailureMessage } from '../../../lib/clipboard'
+import { useStore } from '../../../store'
 import PlayBadge from '../../video/components/PlayBadge'
 import {
   CARD,
@@ -93,6 +95,7 @@ function Thumbnail({ preview }: { preview: AgentArtifactPreview }) {
 }
 
 export default function AgentToolCard({ message }: { message: AgentToolMessage }) {
+  const [copied, setCopied] = useState(false)
   const previews = useArtifactPreviews(message)
   const offCanvas = previews.some((preview) => !preview.onCanvas)
   const onCanvas = previews
@@ -113,6 +116,34 @@ export default function AgentToolCard({ message }: { message: AgentToolMessage }
         </button>
       ) : (
         <p className={CARD_TITLE}>{message.title}</p>
+      )}
+      {message.prompt && (
+        <details className="text-xs text-muted-foreground">
+          <summary className="cursor-pointer py-2 text-primary">查看完整提示词</summary>
+          <p className="max-h-64 overflow-y-auto whitespace-pre-wrap break-words rounded-lg bg-background p-3 text-foreground leading-relaxed">
+            {message.prompt}
+          </p>
+          <button
+            type="button"
+            className={`mt-2 ${GHOST_LINK}`}
+            onClick={() => {
+              void copyTextToClipboard(message.prompt!).then(
+                () => setCopied(true),
+                (error) => {
+                  setCopied(false)
+                  useStore
+                    .getState()
+                    .showToast(
+                      getClipboardFailureMessage('复制失败，请选择提示词手动复制', error),
+                      'error',
+                    )
+                },
+              )
+            }}
+          >
+            {copied ? '已复制' : '复制提示词'}
+          </button>
+        </details>
       )}
       {note && <p className={CARD_NOTE}>{note}</p>}
       {previews.length > 0 && (

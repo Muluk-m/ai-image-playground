@@ -96,6 +96,8 @@ export interface AgentToolResultBlock {
   readonly status: AgentToolStatus
   /** 面板上这张卡的一行标签。 */
   readonly title: string
+  /** 完整生成提示词，标题仅用于摘要。旧记录可能缺席。 */
+  readonly prompt?: string
   readonly artifacts?: readonly AgentToolArtifact[]
   /** 产出落画布时贴着这个画布对象放；缺席就落在视口中央。 */
   readonly anchorObjectId?: string
@@ -185,6 +187,8 @@ export interface AgentToolStartEvent {
   readonly toolCallId: string
   readonly toolName: AgentToolName
   readonly title: string
+  /** 完整生成提示词，标题仅用于摘要。旧记录可能缺席。 */
+  readonly prompt?: string
   /** 这次调用会落几件产物；缺席即这个工具不落画布（查素材库），画布不必占位。 */
   readonly outputCount?: number
   /** 占位框贴着这个画布对象放；缺席就落在视口中央。与结果里的 `anchorObjectId` 同源。 */
