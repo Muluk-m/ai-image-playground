@@ -2,7 +2,7 @@
 export default function BrandAvatar() {
   return (
     <img
-      src="/brand/avatar-sprout.png"
+      src="/brand/avatar-artist-192.png"
       alt=""
       aria-hidden="true"
       className="h-full w-full rounded-full object-cover"
