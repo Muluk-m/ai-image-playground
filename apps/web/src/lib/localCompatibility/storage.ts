@@ -341,7 +341,10 @@ function repairCanvas(
     old.id === current.id &&
     old.sceneKey === current.sceneKey
   ) {
-    if (typeof old.updatedAt === 'number' && old.updatedAt === current.updatedAt) {
+    if (
+      typeof current.updatedAt === 'number' &&
+      (old.updatedAt === current.updatedAt || current.createdAt === current.updatedAt)
+    ) {
       unchangedProjectScenes.add(old.sceneKey)
     } else unchangedProjectScenes.delete(old.sceneKey)
     store.put(

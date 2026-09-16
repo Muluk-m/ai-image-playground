@@ -280,7 +280,8 @@ it.each([
   await row(projectKey, {
     id: 'legacy',
     name: '原项目',
-    updatedAt: edited ? 200 : 100,
+    createdAt: 50,
+    updatedAt: edited ? 200 : 50,
     sceneKey,
     conversationId: 'chat',
     hasContent: true,
@@ -295,6 +296,7 @@ it.each([
   const originalProject = {
     id: 'legacy',
     name: '原项目',
+    createdAt: 50,
     updatedAt: 100,
     sceneKey,
     conversationId: 'chat',
@@ -320,7 +322,7 @@ it.each([
     (v): v is typeof originalProject => !!v && typeof v === 'object' && 'sceneKey' in v,
   )
   expect(projects).toHaveLength(edited ? 2 : 1)
-  expect(projects).toContainEqual({ ...originalProject, updatedAt: edited ? 200 : 100 })
+  expect(projects).toContainEqual({ ...originalProject, updatedAt: edited ? 200 : 50 })
   expect(values).toContainEqual(source)
   if (edited)
     expect(values).toContainEqual({
