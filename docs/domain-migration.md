@@ -17,6 +17,8 @@ Acceptance: existing session survives the origin change; app settings, image blo
 4. Verify local images, canvas, settings and an existing source session in a controlled browser. Do not enable a global redirect until this passes.
 5. A later redirect may cover old document URLs but must exclude `/__domain-migration`, `/assets/*`, `/runtime-config.json`, `/sw.js`, `/brand/*`, and the old API hostname. The migration endpoint must render the application entry point on the old origin, never redirect to the new origin.
 
-The relay is capped at 512 MiB per migration / 1 GiB overall (base64 ciphertext), 32 live transfers and 10 starts per source IP per hour. Transfers expire after one hour; successful completion immediately deletes all relay rows. Expired transfers are removed on the next start and during task retention maintenance. Disabled/revoked/expired source sessions cannot produce a new session. New session lifetime never exceeds the source session lifetime.
+The relay is capped at 1 GiB per migration / 2 GiB overall (base64 ciphertext), 32 live transfers and 10 starts per source IP per hour. Transfers expire after one hour; successful completion immediately deletes all relay rows. Expired transfers are removed on the next start and during task retention maintenance. Disabled/revoked/expired source sessions cannot produce a new session. New session lifetime never exceeds the source session lifetime.
 
 Rollback: disable the configured migration file, restore the prior Pages deployment and origin configuration. Do not drop either domain or browser data. Added database tables are additive and may remain until expired data is purged.
+
+Transfer frames batch small records and use authenticated gzip framing when supported; transport retries reuse the same ciphertext for uploads and never repeat session completion automatically.

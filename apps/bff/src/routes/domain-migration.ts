@@ -93,8 +93,8 @@ export const domainMigrationRoutes = new Elysia()
         if (body.sequence !== row.chunks) return status(409, { error: 'migration_sequence' })
         const [total] = await tx.select({ bytes: sum(transfers.bytes) }).from(transfers)
         if (
-          row.bytes + body.ciphertext.length > 512 * 1024 * 1024 ||
-          Number(total?.bytes ?? 0) + body.ciphertext.length > 1024 * 1024 * 1024
+          row.bytes + body.ciphertext.length > 1024 * 1024 * 1024 ||
+          Number(total?.bytes ?? 0) + body.ciphertext.length > 2 * 1024 * 1024 * 1024
         ) {
           return status(413, { error: 'migration_capacity' })
         }
@@ -112,7 +112,7 @@ export const domainMigrationRoutes = new Elysia()
       body: t.Object({
         ...uploadBody,
         sequence: t.Integer({ minimum: 0, maximum: 10000 }),
-        ciphertext: t.String({ maxLength: 1_500_000, minLength: 1 }),
+        ciphertext: t.String({ maxLength: 4_500_000, minLength: 1 }),
       }),
     },
   )

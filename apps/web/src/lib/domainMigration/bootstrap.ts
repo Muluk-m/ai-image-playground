@@ -29,17 +29,34 @@ const keyFor = (s: string) =>
   )
 
 async function post<T>(api: string, route: string, body: unknown): Promise<T> {
-  const r = await fetch(`${api}/api/domain-migration/${route}`, {
-    method: 'POST',
-    credentials: 'include',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(60_000),
-    cache: 'no-store',
-  })
-  if (!r.ok) throw new Error((await r.json().catch(() => null))?.error ?? 'migration_network')
-  return r.json()
+  const attempts = ['upload', 'read', 'seal'].includes(route) ? 3 : 1
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    let response: Response
+    try {
+      response = await fetch(`${api}/api/domain-migration/${route}`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(60_000),
+        cache: 'no-store',
+      })
+    } catch (error) {
+      if (attempt + 1 === attempts) throw error
+      await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)))
+      continue
+    }
+    if (response.status >= 500 && attempt + 1 < attempts) {
+      await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)))
+      continue
+    }
+    if (!response.ok)
+      throw new Error((await response.json().catch(() => null))?.error ?? 'migration_network')
+    return response.json()
+  }
+  throw new Error('migration_network')
 }
+
 function preparing(): HTMLElement {
   const view = document.createElement('main')
   view.className = 'auth-status-screen'
@@ -67,14 +84,14 @@ async function exportAtSource(config: MigrationConfig, proof: string): Promise<v
     let size = 0
     for await (const entry of exportStorage()) {
       const length = JSON.stringify(entry).length
-      if (size + length > 150_000 && batch.length) {
+      if (size + length > 1_000_000 && batch.length) {
         yield JSON.stringify(batch)
         batch = []
         size = 0
       }
       batch.push(entry)
       size += length
-      if (size >= 150_000) {
+      if (size >= 1_000_000) {
         yield JSON.stringify(batch)
         batch = []
         size = 0
@@ -83,27 +100,35 @@ async function exportAtSource(config: MigrationConfig, proof: string): Promise<v
     if (batch.length) yield JSON.stringify(batch)
   }
   for await (const json of batches()) {
-    const parts = Math.max(1, Math.ceil(json.length / 150_000))
+    const parts = Math.max(1, Math.ceil(json.length / 1_000_000))
     for (let part = 0; part < parts; part++) {
       const plaintext = JSON.stringify({
         record,
         part,
         parts,
-        text: json.slice(part * 150_000, (part + 1) * 150_000),
+        text: json.slice(part * 1_000_000, (part + 1) * 1_000_000),
       })
       const iv = crypto.getRandomValues(new Uint8Array(12))
+      const compressed =
+        typeof CompressionStream === 'function' && typeof DecompressionStream === 'function' ? 1 : 0
+      const payload = compressed
+        ? await new Response(
+            new Blob([plaintext]).stream().pipeThrough(new CompressionStream('gzip')),
+          ).arrayBuffer()
+        : new TextEncoder().encode(plaintext)
       const encrypted = await crypto.subtle.encrypt(
         {
           name: 'AES-GCM',
           iv,
-          additionalData: new TextEncoder().encode(`${transfer.id}:${sequence}`),
+          additionalData: new TextEncoder().encode(`${transfer.id}:${sequence}:${compressed}`),
         },
         key,
-        new TextEncoder().encode(plaintext),
+        payload,
       )
-      const bytes = new Uint8Array(12 + encrypted.byteLength)
-      bytes.set(iv)
-      bytes.set(new Uint8Array(encrypted), 12)
+      const bytes = new Uint8Array(13 + encrypted.byteLength)
+      bytes[0] = compressed
+      bytes.set(iv, 1)
+      bytes.set(new Uint8Array(encrypted), 13)
       await post(config.sourceApi, 'upload', { ...transfer, sequence, ciphertext: toBase64(bytes) })
       sequence++
     }
@@ -143,15 +168,22 @@ async function importAtTarget(
     if (total === 0) break
     if (!chunk.ciphertext) throw new Error('migration_incomplete')
     const bytes = fromBase64(chunk.ciphertext)
-    const plain = await crypto.subtle.decrypt(
+    const compressed = bytes[0]
+    if (compressed !== 0 && compressed !== 1) throw new Error('migration_invalid')
+    const decrypted = await crypto.subtle.decrypt(
       {
         name: 'AES-GCM',
-        iv: bytes.slice(0, 12),
-        additionalData: new TextEncoder().encode(`${id}:${sequence}`),
+        iv: bytes.slice(1, 13),
+        additionalData: new TextEncoder().encode(`${id}:${sequence}:${compressed}`),
       },
       key,
-      bytes.slice(12),
+      bytes.slice(13),
     )
+    const plain = compressed
+      ? await new Response(
+          new Blob([decrypted]).stream().pipeThrough(new DecompressionStream('gzip')),
+        ).arrayBuffer()
+      : decrypted
     const part = JSON.parse(new TextDecoder().decode(plain)) as {
       record: number
       part: number

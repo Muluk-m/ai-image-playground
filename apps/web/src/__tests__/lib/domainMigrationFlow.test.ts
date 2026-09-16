@@ -47,7 +47,7 @@ it('automatically navigates legacy storage, imports encrypted images and finishe
   vi.stubGlobal('IDBKeyRange', IDBKeyRange)
   let next = '',
     finished = false,
-    failRead = true
+    failRead = 3
   function enter(url: string, side: typeof source) {
     const u = new URL(url)
     vi.stubGlobal('location', {
@@ -82,7 +82,7 @@ it('automatically navigates legacy storage, imports encrypted images and finishe
       }
       if (route === 'seal') return Response.json({ ok: true })
       if (route === 'read' && body.sequence === 1 && failRead) {
-        failRead = false
+        failRead--
         return Response.json({ error: 'migration_network' }, { status: 503 })
       }
       if (route === 'read')
@@ -96,7 +96,7 @@ it('automatically navigates legacy storage, imports encrypted images and finishe
   )
   enter(config.sourceOrigin, source)
   source.local.setItem('image-playground:user-owner', 'old settings')
-  source.local.setItem('image-playground.large', '画'.repeat(180_000))
+  source.local.setItem('image-playground.large', '画'.repeat(1_100_000))
   const meta: StorageEntry = {
     kind: 'database',
     name: 'image-playground:user-owner',
@@ -131,7 +131,7 @@ it('automatically navigates legacy storage, imports encrypted images and finishe
   expect(finished).toBe(true)
   expect(JSON.stringify(requestBodies)).not.toContain(encryptionSecret)
   expect(ciphertext.length).toBeGreaterThan(1)
-  expect(target.local.getItem('image-playground.large')).toBe('画'.repeat(180_000))
+  expect(target.local.getItem('image-playground.large')).toBe('画'.repeat(1_100_000))
   expect(target.local.getItem('image-playground:user-owner')).toBe('old settings')
   expect(source.local.getItem('image-playground:user-owner')).toBe('old settings')
   const entries: StorageEntry[] = []
