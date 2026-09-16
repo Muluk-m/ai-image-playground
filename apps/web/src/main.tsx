@@ -1,6 +1,7 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { AuthGate } from './auth/AuthGate'
+import './i18n'
 import './index.css'
 import { bootstrapChannels } from './lib/channels/bootstrapChannels'
 import { bootstrapClientCapabilities } from './lib/clientCapabilities'

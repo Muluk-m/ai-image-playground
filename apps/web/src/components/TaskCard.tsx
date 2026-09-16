@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useImageThumbnail } from '../hooks/useImageThumbnail'
+import { useTranslation } from '../i18n'
 import { downloadImagesByIds } from '../lib/downloadImages'
 import { ActualValueBadge, getParamDisplay } from '../lib/paramDisplay'
 import { formatImageRatio } from '../lib/size'
@@ -30,6 +31,7 @@ export default function TaskCard({
   onClick,
   isSelected,
 }: Props) {
+  const { t } = useTranslation('task')
   const thumbnail = useImageThumbnail(task.outputImages?.[0])
   const thumbSrc = thumbnail?.dataUrl ?? ''
   const coverRatio =
@@ -57,12 +59,12 @@ export default function TaskCard({
     if (ids.length === 0 || isDownloading) return
     setIsDownloading(true)
     try {
-      if (ids.length > 1) showToast(`开始下载 ${ids.length} 张图片...`, 'info')
+      if (ids.length > 1) showToast(t('download.started', { count: ids.length }), 'info')
       const { success, failed } = await downloadImagesByIds(ids)
       if (failed > 0) {
-        showToast(`下载完成: 成功 ${success}，失败 ${failed}`, 'info')
+        showToast(t('download.partial', { success, failed }), 'info')
       } else if (ids.length > 1) {
-        showToast(`成功下载 ${success} 张图片`, 'success')
+        showToast(t('download.succeeded', { count: success }), 'success')
       }
     } finally {
       setIsDownloading(false)

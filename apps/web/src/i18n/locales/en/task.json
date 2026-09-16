@@ -1,0 +1,9 @@
+{
+  "download": {
+    "started_one": "Downloading {{count}} image...",
+    "started_other": "Downloading {{count}} images...",
+    "partial": "Download finished: {{success}} succeeded, {{failed}} failed",
+    "succeeded_one": "Downloaded {{count}} image",
+    "succeeded_other": "Downloaded {{count}} images"
+  }
+}

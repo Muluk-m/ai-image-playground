@@ -1,0 +1,42 @@
+{
+  "login": {
+    "invalid_credentials": "邮箱地址或密码不正确",
+    "rate_limited": "尝试次数过多，请稍后再试",
+    "fallback": "暂时无法登录，请检查网络后重试"
+  },
+  "oauth": {
+    "registration_closed": "注册暂未开放，请联系管理员开通账户",
+    "invalid_referral_code": "邀请码无效或已不可用，请修改或清空后重试",
+    "registration_reward_unavailable": "邀请奖励暂时无法发放，请稍后重试或清空邀请码",
+    "account_disabled": "该账户已被停用",
+    "access_denied": "你取消了第三方授权",
+    "fallback": "第三方登录失败，请重试或改用邮箱登录"
+  },
+  "registration": {
+    "username_taken": "该邮箱地址已注册",
+    "invalid_username": "邮箱地址格式不正确",
+    "invalid_password": "密码格式不正确",
+    "rate_limited": "注册尝试过于频繁，请稍后再试",
+    "invalid_referral_code": "邀请码无效或已不可用，请修改或清空后重试",
+    "registration_reward_unavailable": "邀请奖励暂时无法发放，请稍后重试或清空邀请码",
+    "fallback": "暂时无法创建账户，请检查网络后重试"
+  },
+  "link": {
+    "identity_taken": "该第三方账号已绑定到其他账户",
+    "unauthenticated": "登录状态已失效，请重新登录后再绑定",
+    "access_denied": "你取消了第三方授权",
+    "fallback": "绑定失败，请稍后重试"
+  },
+  "password": {
+    "invalid_credentials": "当前密码不正确",
+    "current_password_required": "请填写当前密码",
+    "invalid_password": "密码需为 {{min}}-{{max}} 位",
+    "rate_limited": "尝试次数过多，请稍后再试",
+    "fallback": "暂时无法修改密码，请稍后重试"
+  },
+  "unlink": {
+    "last_login_method": "解绑后将无法登录，请先设置密码",
+    "not_linked": "该账号尚未绑定",
+    "fallback": "暂时无法解绑，请稍后重试"
+  }
+}

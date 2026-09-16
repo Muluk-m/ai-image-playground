@@ -9,6 +9,7 @@ import {
 } from '@image-playground/shared'
 import { type FormEvent, useEffect, useState } from 'react'
 import Overlay from '../components/Overlay'
+import { useTranslation } from '../i18n'
 import {
   AuthRequestError,
   fetchLoginMethods,
@@ -18,45 +19,62 @@ import {
   updateOwnPassword,
 } from '../lib/authClient'
 
-function linkErrorMessage(code: string): string {
-  if (code === 'identity_taken') return '该第三方账号已绑定到其他账户'
-  if (code === 'unauthenticated') return '登录状态已失效，请重新登录后再绑定'
-  if (code === 'access_denied') return '你取消了第三方授权'
-  return '绑定失败，请稍后重试'
+/**
+ * 错误一律以 key 的形式在 state 里流转，渲染时才翻译：切语言后已经显示的报错会跟着变，
+ * 且 `errors:<flow>.<code>` 的叶子名与 BFF 返回的 `error.code` 同名，对不上时一眼可见。
+ */
+type PanelErrorKey =
+  | 'errors:link.identity_taken'
+  | 'errors:link.unauthenticated'
+  | 'errors:link.access_denied'
+  | 'errors:link.fallback'
+  | 'errors:password.invalid_credentials'
+  | 'errors:password.current_password_required'
+  | 'errors:password.invalid_password'
+  | 'errors:password.rate_limited'
+  | 'errors:password.fallback'
+  | 'errors:unlink.last_login_method'
+  | 'errors:unlink.not_linked'
+  | 'errors:unlink.fallback'
+  | 'auth:validation.passwordLength'
+  | 'auth:validation.passwordMismatch'
+
+function linkErrorKey(code: string): PanelErrorKey {
+  if (code === 'identity_taken') return 'errors:link.identity_taken'
+  if (code === 'unauthenticated') return 'errors:link.unauthenticated'
+  if (code === 'access_denied') return 'errors:link.access_denied'
+  return 'errors:link.fallback'
 }
 
-function passwordErrorMessage(error: unknown): string {
+function passwordErrorKey(error: unknown): PanelErrorKey {
   if (error instanceof AuthRequestError) {
-    if (error.code === 'invalid_credentials') return '当前密码不正确'
-    if (error.code === 'current_password_required') return '请填写当前密码'
-    if (error.code === 'invalid_password') {
-      return `密码需为 ${PASSWORD_MIN_LENGTH}-${PASSWORD_MAX_LENGTH} 位`
+    if (error.code === 'invalid_credentials') return 'errors:password.invalid_credentials'
+    if (error.code === 'current_password_required') {
+      return 'errors:password.current_password_required'
     }
-    if (error.code === 'rate_limited') return '尝试次数过多，请稍后再试'
+    if (error.code === 'invalid_password') return 'errors:password.invalid_password'
+    if (error.code === 'rate_limited') return 'errors:password.rate_limited'
   }
-  return '暂时无法修改密码，请稍后重试'
+  return 'errors:password.fallback'
 }
 
-function unlinkErrorMessage(error: unknown): string {
+function unlinkErrorKey(error: unknown): PanelErrorKey {
   if (error instanceof AuthRequestError) {
-    if (error.code === 'last_login_method') return '解绑后将无法登录，请先设置密码'
-    if (error.code === 'not_linked') return '该账号尚未绑定'
+    if (error.code === 'last_login_method') return 'errors:unlink.last_login_method'
+    if (error.code === 'not_linked') return 'errors:unlink.not_linked'
   }
-  return '暂时无法解绑，请稍后重试'
+  return 'errors:unlink.fallback'
 }
 
-type PanelNotice = { readonly text: string } | { readonly linkedProvider: string }
+type PanelNoticeKey = 'methods.passwordUpdated' | 'methods.passwordSet' | 'methods.unlinked'
 
-function noticeText(notice: PanelNotice, providers: OAuthProviderView[]): string {
-  if ('text' in notice) return notice.text
-  const label = providers.find((provider) => provider.id === notice.linkedProvider)?.label
-  return `已绑定 ${label ?? notice.linkedProvider}`
-}
+type PanelNotice = { readonly key: PanelNoticeKey } | { readonly linkedProvider: string }
 
 const FIELD_CLASS =
   'w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 outline-none transition-colors focus:border-violet-400 disabled:opacity-50 dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-100'
 
 export function LoginMethodsPanel({ onClose }: { onClose: () => void }) {
+  const { t } = useTranslation(['auth', 'errors'])
   const [methods, setMethods] = useState<LoginMethodsView | null>(null)
   const [providers, setProviders] = useState<OAuthProviderView[]>([])
   const [loadFailed, setLoadFailed] = useState(false)
@@ -65,7 +83,16 @@ export function LoginMethodsPanel({ onClose }: { onClose: () => void }) {
   const [confirmation, setConfirmation] = useState('')
   const [pending, setPending] = useState(false)
   const [notice, setNotice] = useState<PanelNotice | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [errorKey, setErrorKey] = useState<PanelErrorKey | null>(null)
+
+  const noticeText = (value: PanelNotice): string => {
+    if ('key' in value) return t(value.key)
+    const label = providers.find((provider) => provider.id === value.linkedProvider)?.label
+    return t('methods.linkedProvider', { provider: label ?? value.linkedProvider })
+  }
+  const errorText = errorKey
+    ? t(errorKey, { min: PASSWORD_MIN_LENGTH, max: PASSWORD_MAX_LENGTH })
+    : null
 
   useEffect(() => {
     let cancelled = false
@@ -89,7 +116,7 @@ export function LoginMethodsPanel({ onClose }: { onClose: () => void }) {
     const linked = url.searchParams.get(OAUTH_LINK_QUERY_PARAM)
     const failed = url.searchParams.get(OAUTH_LINK_ERROR_QUERY_PARAM)
     if (!linked && !failed) return
-    if (failed) setError(linkErrorMessage(failed))
+    if (failed) setErrorKey(linkErrorKey(failed))
     else if (linked) setNotice({ linkedProvider: linked })
     // Strip the parameters so a reload does not resurface an outcome the user already saw.
     url.searchParams.delete(OAUTH_LINK_QUERY_PARAM)
@@ -102,16 +129,16 @@ export function LoginMethodsPanel({ onClose }: { onClose: () => void }) {
     if (pending || !methods) return
     setNotice(null)
     if (!isValidPassword(newPassword)) {
-      setError(`密码需为 ${PASSWORD_MIN_LENGTH}-${PASSWORD_MAX_LENGTH} 位`)
+      setErrorKey('auth:validation.passwordLength')
       return
     }
     if (newPassword !== confirmation) {
-      setError('两次输入的密码不一致')
+      setErrorKey('auth:validation.passwordMismatch')
       return
     }
 
     setPending(true)
-    setError(null)
+    setErrorKey(null)
     try {
       await updateOwnPassword({
         currentPassword: methods.password ? currentPassword : undefined,
@@ -120,10 +147,10 @@ export function LoginMethodsPanel({ onClose }: { onClose: () => void }) {
       setCurrentPassword('')
       setNewPassword('')
       setConfirmation('')
-      setNotice({ text: methods.password ? '密码已更新' : '密码已设置' })
+      setNotice({ key: methods.password ? 'methods.passwordUpdated' : 'methods.passwordSet' })
       setMethods(await fetchLoginMethods())
     } catch (err) {
-      setError(passwordErrorMessage(err))
+      setErrorKey(passwordErrorKey(err))
     } finally {
       setPending(false)
     }
@@ -132,14 +159,14 @@ export function LoginMethodsPanel({ onClose }: { onClose: () => void }) {
   async function unlink(provider: string): Promise<void> {
     if (pending) return
     setPending(true)
-    setError(null)
+    setErrorKey(null)
     setNotice(null)
     try {
       await unlinkOAuthProvider(provider)
-      setNotice({ text: '已解绑' })
+      setNotice({ key: 'methods.unlinked' })
       setMethods(await fetchLoginMethods())
     } catch (err) {
-      setError(unlinkErrorMessage(err))
+      setErrorKey(unlinkErrorKey(err))
     } finally {
       setPending(false)
     }
@@ -158,45 +185,43 @@ export function LoginMethodsPanel({ onClose }: { onClose: () => void }) {
             id="login-methods-title"
             className="text-base font-semibold text-gray-800 dark:text-gray-100"
           >
-            登录方式
+            {t('methods.title')}
           </h3>
           <button
             type="button"
             onClick={onClose}
             className="rounded-lg px-2 py-1 text-sm text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-800 dark:text-gray-400 dark:hover:bg-white/10 dark:hover:text-gray-100"
           >
-            关闭
+            {t('methods.close')}
           </button>
         </div>
 
         {notice ? (
           <p className="mb-4 rounded-xl bg-emerald-50 px-3 py-2 text-[13px] text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
-            {noticeText(notice, providers)}
+            {noticeText(notice)}
           </p>
         ) : null}
-        {error ? (
+        {errorText ? (
           <p
             role="alert"
             className="mb-4 rounded-xl bg-red-50 px-3 py-2 text-[13px] text-red-600 dark:bg-red-500/10 dark:text-red-300"
           >
-            {error}
+            {errorText}
           </p>
         ) : null}
 
         {loadFailed ? (
-          <p className="text-[13px] text-gray-500 dark:text-gray-400">
-            暂时无法读取登录方式，请稍后重试
-          </p>
+          <p className="text-[13px] text-gray-500 dark:text-gray-400">{t('methods.loadFailed')}</p>
         ) : !methods ? (
-          <p className="text-[13px] text-gray-500 dark:text-gray-400">加载中</p>
+          <p className="text-[13px] text-gray-500 dark:text-gray-400">{t('methods.loading')}</p>
         ) : (
           <>
             <section className="mb-6">
               <h4 className="mb-1 text-sm font-medium text-gray-700 dark:text-gray-200">
-                {methods.password ? '修改密码' : '设置密码'}
+                {methods.password ? t('methods.changePassword') : t('methods.setPassword')}
               </h4>
               <p className="mb-3 text-[12px] text-gray-500 dark:text-gray-400">
-                {methods.password ? '用邮箱与密码登录' : '设置后即可用邮箱与密码登录'}
+                {methods.password ? t('methods.changePasswordHint') : t('methods.setPasswordHint')}
               </p>
               <form className="space-y-2" onSubmit={(event) => void submitPassword(event)}>
                 {methods.password ? (
@@ -204,8 +229,8 @@ export function LoginMethodsPanel({ onClose }: { onClose: () => void }) {
                     name="current-password"
                     type="password"
                     autoComplete="current-password"
-                    placeholder="当前密码"
-                    aria-label="当前密码"
+                    placeholder={t('methods.currentPassword')}
+                    aria-label={t('methods.currentPassword')}
                     maxLength={PASSWORD_MAX_LENGTH}
                     value={currentPassword}
                     onChange={(event) => setCurrentPassword(event.currentTarget.value)}
@@ -217,8 +242,8 @@ export function LoginMethodsPanel({ onClose }: { onClose: () => void }) {
                   name="new-password"
                   type="password"
                   autoComplete="new-password"
-                  placeholder="新密码"
-                  aria-label="新密码"
+                  placeholder={t('methods.newPassword')}
+                  aria-label={t('methods.newPassword')}
                   maxLength={PASSWORD_MAX_LENGTH}
                   value={newPassword}
                   onChange={(event) => setNewPassword(event.currentTarget.value)}
@@ -229,8 +254,8 @@ export function LoginMethodsPanel({ onClose }: { onClose: () => void }) {
                   name="confirm-password"
                   type="password"
                   autoComplete="new-password"
-                  placeholder="确认新密码"
-                  aria-label="确认新密码"
+                  placeholder={t('methods.confirmNewPassword')}
+                  aria-label={t('methods.confirmNewPassword')}
                   maxLength={PASSWORD_MAX_LENGTH}
                   value={confirmation}
                   onChange={(event) => setConfirmation(event.currentTarget.value)}
@@ -242,7 +267,7 @@ export function LoginMethodsPanel({ onClose }: { onClose: () => void }) {
                   disabled={pending}
                   className="w-full rounded-xl bg-gray-900 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-gray-800 disabled:cursor-wait disabled:opacity-50 dark:bg-white dark:text-gray-950 dark:hover:bg-gray-100"
                 >
-                  {methods.password ? '更新密码' : '设置密码'}
+                  {methods.password ? t('methods.updatePassword') : t('methods.setPassword')}
                 </button>
               </form>
             </section>
@@ -250,7 +275,7 @@ export function LoginMethodsPanel({ onClose }: { onClose: () => void }) {
             {providers.length > 0 ? (
               <section>
                 <h4 className="mb-3 text-sm font-medium text-gray-700 dark:text-gray-200">
-                  第三方账号
+                  {t('methods.providersTitle')}
                 </h4>
                 <ul className="space-y-2">
                   {providers.map((provider) => {
@@ -267,7 +292,9 @@ export function LoginMethodsPanel({ onClose }: { onClose: () => void }) {
                             {provider.label}
                           </span>
                           <span className="block truncate text-[12px] text-gray-500 dark:text-gray-400">
-                            {identity ? (identity.email ?? '已绑定') : '未绑定'}
+                            {identity
+                              ? (identity.email ?? t('methods.linked'))
+                              : t('methods.notLinked')}
                           </span>
                         </span>
                         {identity ? (
@@ -277,7 +304,7 @@ export function LoginMethodsPanel({ onClose }: { onClose: () => void }) {
                             onClick={() => void unlink(provider.id)}
                             className="shrink-0 rounded-lg px-3 py-1.5 text-[13px] font-medium text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-800 disabled:cursor-wait disabled:opacity-50 dark:text-gray-400 dark:hover:bg-white/10 dark:hover:text-gray-100"
                           >
-                            解绑
+                            {t('methods.unlink')}
                           </button>
                         ) : (
                           <button
@@ -288,7 +315,7 @@ export function LoginMethodsPanel({ onClose }: { onClose: () => void }) {
                             }}
                             className="shrink-0 rounded-lg border border-gray-200 px-3 py-1.5 text-[13px] font-medium text-gray-700 transition-colors hover:bg-gray-100 disabled:cursor-wait disabled:opacity-50 dark:border-white/10 dark:text-gray-200 dark:hover:bg-white/10"
                           >
-                            绑定
+                            {t('methods.link')}
                           </button>
                         )}
                       </li>

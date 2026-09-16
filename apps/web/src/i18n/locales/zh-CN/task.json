@@ -1,0 +1,7 @@
+{
+  "download": {
+    "started_other": "开始下载 {{count}} 张图片...",
+    "partial": "下载完成: 成功 {{success}}，失败 {{failed}}",
+    "succeeded_other": "成功下载 {{count}} 张图片"
+  }
+}
