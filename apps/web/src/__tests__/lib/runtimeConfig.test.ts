@@ -1,5 +1,6 @@
 import { BAKED_DEFAULTS, type RuntimeConfig } from '@image-playground/shared'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { getCurrentUser } from '../../lib/authClient'
 import {
   _setRuntimeConfigForTesting,
   getRuntimeConfig,
@@ -31,7 +32,34 @@ describe('loadRuntimeConfig', () => {
     _setRuntimeConfigForTesting(BAKED_DEFAULTS)
   })
   afterEach(() => {
+    vi.unstubAllGlobals()
     _setRuntimeConfigForTesting(BAKED_DEFAULTS)
+  })
+
+  it('共享发布包在旧站使用原 API 恢复已有登录，在新站使用新 API', async () => {
+    const config = {
+      bff: {
+        enabled: true,
+        baseUrl: 'https://api.muvloom.online',
+        baseUrlsByOrigin: { 'https://image.nainma.online': 'https://api.nainma.online' },
+      },
+    }
+    vi.stubGlobal('location', { origin: 'https://image.nainma.online' })
+    const legacy = await loadRuntimeConfig(mockFetch(200, config))
+    expect(legacy.bff.baseUrl).toBe('https://api.nainma.online')
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init: RequestInit) => {
+        if (url === 'https://api.nainma.online/api/auth/me' && init.credentials === 'include')
+          return Response.json({ user: { id: 'existing-user', username: 'existing@example.test' } })
+        return Response.json({ error: 'unauthorized' }, { status: 401 })
+      }),
+    )
+    expect(await getCurrentUser()).toMatchObject({ id: 'existing-user' })
+    vi.stubGlobal('location', { origin: 'https://muvloom.online' })
+    expect((await loadRuntimeConfig(mockFetch(200, config))).bff.baseUrl).toBe(
+      'https://api.muvloom.online',
+    )
   })
 
   it('returns the parsed config when file present and valid', async () => {

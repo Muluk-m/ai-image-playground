@@ -74,7 +74,8 @@ case "$public_origin" in
 esac
 
 BFF_ENABLED=true
-export BFF_ENABLED BFF_BASE_URL CLOUDFLARE_ACCOUNT_ID
+BFF_BASE_URLS_BY_ORIGIN=$(edition_var "$prefix" BFF_BASE_URLS_BY_ORIGIN)
+export BFF_ENABLED BFF_BASE_URL BFF_BASE_URLS_BY_ORIGIN CLOUDFLARE_ACCOUNT_ID
 extra_assets_dir=$(edition_var "$prefix" EXTRA_ASSETS_DIR)
 if [ -n "$extra_assets_dir" ]; then
   EXTRA_ASSETS_DIR=$extra_assets_dir
