@@ -10,6 +10,9 @@ import type { VideoRequest } from './video-presets'
 
 export type QueueProvider = 'openai-compat' | 'gemini'
 
+/** 普通生图与 Agent 共用的默认审核强度；上游仍会执行自身的内容安全策略。 */
+export const DEFAULT_IMAGE_MODERATION = 'low' as const
+
 export const TASK_STATUSES = ['queued', 'in_progress', 'completed', 'failed', 'cancelled'] as const
 export type TaskStatus = (typeof TASK_STATUSES)[number]
 
@@ -64,7 +67,7 @@ export interface SubmitRequest {
   output_format?: string
   /** OpenAI Images 使用的输出压缩率（0-100）。 */
   output_compression?: number
-  /** OpenAI Images 使用的内容审核级别。 */
+  /** OpenAI Images 使用的内容审核级别；缺省使用 DEFAULT_IMAGE_MODERATION。 */
   moderation?: string
   /** Gemini imageConfig 使用的宽高比。 */
   aspect_ratio?: string
