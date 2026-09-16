@@ -18,10 +18,12 @@ export default function AgentTurnCost({ footer }: { footer: AgentTurnFooter }) {
 
   // 进行中不写预扣：那是内部记账，用户只关心结算后的实际消耗；进行中由状态行表达。
   const parts: ReactNode[] = []
+  const failed = footer.stopReason === 'failed'
+  if (failed) parts.push(<span>本轮失败</span>)
   if (footer.durationMs !== undefined) {
     parts.push(<span>本轮耗时 {formatElapsed(footer.durationMs)}</span>)
   }
-  if (total === 0) parts.push(<span>本轮免费，未扣积分</span>)
+  if (total === 0) parts.push(<span>{failed ? '未扣积分' : '本轮免费，未扣积分'}</span>)
   if (total) {
     parts.push(
       <button
