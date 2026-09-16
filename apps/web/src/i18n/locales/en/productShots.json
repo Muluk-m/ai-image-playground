@@ -1,0 +1,373 @@
+{
+  "kind": {
+    "edit": "Local edit",
+    "kit": "Kit variants",
+    "draft": "Draft plans",
+    "refine": "Refine final"
+  },
+  "label": {
+    "settings": "Settings",
+    "preference": "Preference (optional)",
+    "title": "Title"
+  },
+  "tag": {
+    "edited": "Edited"
+  },
+  "mode": {
+    "background": "Background",
+    "replaceProduct": "Swap product",
+    "replaceAndBackground": "Swap both",
+    "remix": "Remix"
+  },
+  "direction": {
+    "warmStone": "Warm stone",
+    "nordicWood": "Nordic light wood",
+    "daylight": "Natural daylight"
+  },
+  "remixLevel": {
+    "low": "Close",
+    "high": "Loose"
+  },
+  "promptLanguage": {
+    "zh": "Chinese",
+    "en": "English"
+  },
+  "stage": {
+    "plan": "Planning"
+  },
+  "scene": {
+    "diagram": "Has caption text, a new background will drop it"
+  },
+  "error": {
+    "sourceGone": "The source image is no longer stored locally"
+  },
+  "source": {
+    "original": "Source",
+    "label": "Source {{index}}",
+    "count_one": "{{count}} image",
+    "count_other": "{{count}} images",
+    "modeLabel": "Image source",
+    "mode": {
+      "upload": "Upload",
+      "listing": "Amazon link",
+      "library": "Library"
+    },
+    "listingUrl": "Product link",
+    "fetching": "Fetching",
+    "fetchGallery": "Fetch gallery",
+    "upload": "Upload source",
+    "pickFromLibrary": "Pick from library",
+    "libraryEmpty": "The library is still empty",
+    "addCount_one": "Add {{count}} image",
+    "addCount_other": "Add {{count}} images",
+    "dropHint": "Drop images here, or click to upload",
+    "dropToUpload": "Release to upload",
+    "remove": "Remove source {{index}}"
+  },
+  "matte": {
+    "mask": "Mask",
+    "editMask": "Edit mask",
+    "matting": "Cutting out",
+    "failed": "Cutout failed",
+    "unreliable": "Mask unreliable",
+    "notCut": "No cutout",
+    "notCutWith": "No cutout · {{reason}}",
+    "notMatted": "Not cut",
+    "cutWith": "Cut out · {{backend}}",
+    "staleModel": "Model info is stale, refresh the page",
+    "blockedCoverage": "Cutout: {{reason}}",
+    "dataMissing": "Local mask data is gone, run the cutout again",
+    "noticeFailed": "Cutout failed, this version has no cutout",
+    "noticeUnreliable": "Mask does not match the product box, this version has no cutout",
+    "noticeUnsupported": "This model has no mask support, this version has no cutout",
+    "failure": {
+      "timeout": "Timed out",
+      "unsupported": "Unsupported",
+      "failed": "Runtime error",
+      "server": "Server failed",
+      "missing": "Mask missing",
+      "tooSmall": "Coverage too small",
+      "tooLarge": "Coverage too large"
+    },
+    "error": {
+      "removed": "The source image was removed from the task",
+      "maskSourceGone": "The image behind the mask is no longer stored locally",
+      "serverFailed": "Server cutout failed"
+    }
+  },
+  "version": {
+    "title": "Versions",
+    "empty": "No versions yet",
+    "label": "Version {{index}}",
+    "cardLabel": "Source {{image}}, version {{version}}",
+    "preview": "Preview {{label}}",
+    "choose": "Use this one",
+    "chosen": "In use",
+    "unchoose": "Unselect",
+    "zoom": "Zoom in",
+    "viewPlan": "View plan",
+    "viewMask": "Show mask",
+    "editMask": "Edit mask",
+    "regenWithMask": "Regenerate with this mask",
+    "refine": "Refine",
+    "retry": "Run again",
+    "lowRes": "Low-res source",
+    "downloadFailed": "Download failed",
+    "downloadFailedReason": "Download failed: {{reason}}",
+    "state": {
+      "queued": "Queued"
+    }
+  },
+  "batch": {
+    "progress": "Batch {{done}}/{{total}}",
+    "progressCurrent": "Batch {{done}}/{{total}} · source {{index}}",
+    "remaining_one": "Run the same on the remaining {{count}} image",
+    "remaining_other": "Run the same on the remaining {{count}} images",
+    "skipped_one": "Skipped {{count}} diagram",
+    "skipped_other": "Skipped {{count}} diagrams",
+    "running": "Batch running",
+    "stop": "Stop",
+    "stopAfterCurrent": "Stops after this one",
+    "run": "Run batch",
+    "retryOne": "Rerun this one",
+    "state": {
+      "pending": "Pending",
+      "running": "Running"
+    }
+  },
+  "panel": {
+    "preferencePlaceholder": "e.g. Nordic style, light wood",
+    "versionsPerImage": "Versions each",
+    "remixDistance": "Distance from the reference",
+    "noProduct": "Product asset: none",
+    "pickProduct": "Pick product asset",
+    "replaceProduct": "Change",
+    "needsProduct": "Pick a product asset first",
+    "retryMatte": "Retry cutout",
+    "hintLead": "A new background needs no product asset.",
+    "hintBlocked": "Swap product / remix: {{reason}}.",
+    "hintNeed": "Only needed to swap the product or remix.",
+    "actionReason": "{{action}}: {{reason}}",
+    "draftThree": "Draft 3 plans first"
+  },
+  "product": {
+    "title": "My product",
+    "subtitle": "The product placed in the shot when swapping or remixing",
+    "empty": "No product asset picked yet",
+    "describe": "Product details",
+    "pick": "Pick asset",
+    "change": "Change asset",
+    "assets": "Product assets",
+    "uploadAsset": "Upload product asset",
+    "done": "Done",
+    "name": "Product name",
+    "namePlaceholder": "Defaults to the asset name",
+    "features": "Shape",
+    "featuresPlaceholder": "e.g. egg-shaped, single strap",
+    "mainColor": "Main color",
+    "mainColorPlaceholder": "e.g. matte gray-brown",
+    "noMainColor": "No main color, the color may drift",
+    "forbiddenColors": "Banned colors",
+    "forbiddenColorsPlaceholder": "e.g. off-white, light gray",
+    "missing": "The product asset is gone",
+    "sameAsSource": "The product asset is the same as the source image"
+  },
+  "plan": {
+    "title": "Plan",
+    "unavailable": "No usable background plan came back",
+    "scanUnavailable": "Could not tell what kind of shot this is",
+    "textLanguage": "Copy language",
+    "prompt": "Prompt",
+    "resetPrompt": "Reset to the AI version",
+    "regenerate": "Regenerate from this",
+    "sentence": "Plan sentence",
+    "productBox": "Product box",
+    "noBox": "The plan did not box the product",
+    "inventory": "Product list",
+    "inventoryPlaceholder": "Add, press enter",
+    "removeItem": "Remove {{name}}",
+    "references": "Reference images",
+    "zoom": "Zoom {{label}}",
+    "field": {
+      "composition": "Composition",
+      "camera": "Camera",
+      "lighting": "Lighting",
+      "background": "Background",
+      "props": "Props",
+      "palette": "Palette",
+      "title": "Title",
+      "subtitle": "Subtitle"
+    },
+    "box": {
+      "x": "Product box left",
+      "y": "Product box top",
+      "w": "Product box width",
+      "h": "Product box height"
+    },
+    "reference": {
+      "product": "Product"
+    }
+  },
+  "remix": {
+    "notRenderable": "{{shot}} cannot be generated, try another image"
+  },
+  "preview": {
+    "title": "Preview",
+    "maskLabel": "Source {{index}} mask",
+    "currentVersion": "Version",
+    "compare": "Version comparison",
+    "noVersionImage": "This version has no image yet",
+    "noSource": "No source image",
+    "showMask": "Show mask",
+    "disabled": {
+      "noSource": "Upload a source image and generate to use these tools.",
+      "noVersion": "Pick a generated version to use these tools.",
+      "running": "Once generation finishes you can edit, derive, compare and export.",
+      "noResult": "This version has no result yet, generate an image or pick another version."
+    }
+  },
+  "toolbar": {
+    "group": "Image actions",
+    "createTools": "Create tools",
+    "viewExport": "View and export",
+    "compare": "Compare",
+    "exporting": "Exporting…",
+    "imageUnavailable": "The image is not available, try again",
+    "exportFailed": "Export failed: {{reason}}"
+  },
+  "gallery": {
+    "title": "Results",
+    "layout": "Result layout",
+    "empty": "No results yet",
+    "exportSize": "Export size",
+    "exportScope": "Export scope",
+    "exportFit": "Export fit",
+    "notChosenHint": "Nothing in use, exporting all",
+    "packCount_one": "Download {{count}} image",
+    "packCount_other": "Download {{count}} images",
+    "packing": "Packing",
+    "packed_one": "Packed {{count}} image{{missing}}",
+    "packed_other": "Packed {{count}} images{{missing}}",
+    "nothingToExport": "Nothing to export{{missing}}",
+    "skippedSuffix_one": ", skipped {{count}} unfinished version",
+    "skippedSuffix_other": ", skipped {{count}} unfinished versions",
+    "packFailed": "Packing failed: {{reason}}",
+    "previewSource": "Preview source {{index}}",
+    "view": {
+      "grouped": "Grouped",
+      "flat": "Flat"
+    },
+    "scope": {
+      "chosen": "In use",
+      "all": "All"
+    },
+    "blocked": {
+      "notChosen": "No version in use",
+      "empty": "No finished image"
+    }
+  },
+  "job": {
+    "label": "Task",
+    "unsaved": "New task",
+    "nameLabel": "Task name",
+    "rename": "Rename task",
+    "search": "Search tasks",
+    "noMatch": "No matching task",
+    "meta": "{{date}} · {{images}} · {{versions}}",
+    "imageCount_one": "{{count}} image",
+    "imageCount_other": "{{count}} images",
+    "versionCount_one": "{{count}} version",
+    "versionCount_other": "{{count}} versions",
+    "delete": "Delete task {{name}}",
+    "deleteTitle": "Delete task",
+    "deleteMessage": "Delete the task “{{name}}”? Images and generated history are kept.",
+    "new": "New task"
+  },
+  "workspace": {
+    "before": "Before",
+    "after": "After",
+    "compareHandle": "Before/after position",
+    "resultAlt": "Generated result",
+    "sourceAlt": "Source image",
+    "runningHint": "Generating, you can keep browsing other versions",
+    "generateFailed": "Generation failed",
+    "confirmResult": "Confirm result",
+    "model": "Model",
+    "formats": "Which images",
+    "overlayText": "Text on image",
+    "titleFor": "{{language}} title",
+    "titlePlaceholder": "Title (optional)",
+    "instructionEdit": "What to change",
+    "instructionRefine": "Anything else to tweak (optional)",
+    "instructionEditPlaceholder": "e.g. remove the plant on the right, fill the wall",
+    "instructionOtherPlaceholder": "e.g. soft daylight, keep the tub shape",
+    "boxHint": "Drag on the image to box the area to change. Pixels outside can shift too, compare before you accept.",
+    "clearBox": "Clear box",
+    "finalSize": "Final size",
+    "submitting": "Submitting",
+    "generateCount_one": "Generate {{count}} image",
+    "generateCount_other": "Generate {{count}} images",
+    "refineChosen": "Refine the chosen plan",
+    "generateEdit": "Generate edit",
+    "sliderCompare": "Slider compare",
+    "sideCompare": "Side by side",
+    "continueEditing": "Keep editing",
+    "retryOne": "Retry this one",
+    "downloadDone": "Download finished images",
+    "backToShots": "Back to product shots",
+    "editText": "Edit text",
+    "redoOne": "Redo this one",
+    "saveText": "Save text",
+    "imageLoading": "Loading image",
+    "needBoxAndInstruction": "Box the area to change and say what you want",
+    "error": {
+      "jobGone": "The source image or product shot task was deleted",
+      "pickDoneVersion": "Pick a finished version first",
+      "sourceLost": "The source image is gone, import it again",
+      "maskFailed": "Could not build the edit area",
+      "pickModel": "Pick a usable image model first",
+      "countRange": "Pick 1 to 6 images",
+      "notSubmitted": "Nothing was submitted, check the model config or your credits"
+    }
+  },
+  "kit": {
+    "title": "Image kits",
+    "setLabel": "Kit {{index}}",
+    "downloadBySize": "Download at each size",
+    "planKit": "{{format}} · {{language}}",
+    "planDraft": "Plan · {{direction}}",
+    "planEdit": "Local change",
+    "format": {
+      "square": "Square hero",
+      "portrait": "Portrait poster",
+      "wide": "Wide banner"
+    },
+    "error": {
+      "notKit": "This is not a derived image",
+      "imageGone": "The image is gone",
+      "decodeFailed": "Could not decode the image",
+      "exportUnavailable": "Could not export the image",
+      "exportFailed": "Export failed",
+      "nothingDone": "No finished derived image"
+    }
+  },
+  "store": {
+    "listingDisabled": "Link fetching is off, upload the source image directly",
+    "listingFailed": "{{reason}}, upload the source image directly",
+    "pulled_one": "Pulled in {{count}} image",
+    "pulled_other": "Pulled in {{count}} images",
+    "imageAddFailed": "Could not add the image: {{reason}}",
+    "notSubmitted": "This one was not submitted",
+    "noAssetPicked": "Pick a product asset first",
+    "analyzeOff": "Reference analysis is off, this one cannot be remixed",
+    "noBrief": "No usable brief came out of this one",
+    "noAngleMatch": "No asset matches the camera angle, used the first one",
+    "assetMissing": "The asset image is gone",
+    "diagramTitle": "This one is a diagram",
+    "diagramMessage": "{{hint}}.",
+    "diagramConfirm": "{{action}} anyway",
+    "jobDeleted": "The product shot task was deleted",
+    "productIsSource": "The product asset is the same as the source image, pick another product image before swapping",
+    "defaultJobName": "Product shots {{index}}"
+  }
+}

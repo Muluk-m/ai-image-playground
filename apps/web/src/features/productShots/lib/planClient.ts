@@ -6,13 +6,11 @@ import {
   parseBackgroundPlan,
   parseSceneScan,
 } from '@image-playground/shared'
+import { i18next } from '../../../i18n'
 import { authenticatedBffFetch } from '../../../lib/authClient'
 import { bffBaseUrl } from '../../../lib/runtimeConfig'
 
 type Fetcher = (input: string, init?: RequestInit) => Promise<Response>
-
-const UNAVAILABLE = '没拿到可用的背景方案'
-const SCAN_UNAVAILABLE = '没认出这张图的画面类型'
 
 export interface BackgroundPlanRequest {
   image: string
@@ -37,7 +35,7 @@ export async function requestBackgroundPlan(
     }),
   })
   const result = response.ok ? parsePlanResult(await response.json()) : null
-  if (!result) throw new Error(UNAVAILABLE)
+  if (!result) throw new Error(i18next.t('plan.unavailable', { ns: 'productShots' }))
   return result
 }
 
@@ -52,7 +50,7 @@ export async function requestSceneScan(
     body: JSON.stringify({ image }),
   })
   const scan = response.ok ? parseSceneScan(await response.json()) : null
-  if (!scan) throw new Error(SCAN_UNAVAILABLE)
+  if (!scan) throw new Error(i18next.t('plan.scanUnavailable', { ns: 'productShots' }))
   return scan.sceneType
 }
 

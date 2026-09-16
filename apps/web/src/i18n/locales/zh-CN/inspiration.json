@@ -1,0 +1,52 @@
+{
+  "panel": {
+    "title": "灵感库",
+    "count_other": "{{count}} 条",
+    "searchPlaceholder": "搜索标题 / 提示词 / 标签"
+  },
+  "filter": {
+    "all": "全部"
+  },
+  "list": {
+    "loading": "加载中…",
+    "empty": "没有符合条件的灵感"
+  },
+  "card": {
+    "titleHint": "{{title}}\n推荐模型：{{model}}",
+    "pin": "置顶",
+    "unpin": "取消置顶"
+  },
+  "detail": {
+    "back": "返回列表",
+    "openOriginalHint": "点击在新标签查看原图",
+    "openOriginal": "查看原图 ↗",
+    "promptLabel": "完整提示词",
+    "copyPrompt": "复制提示词",
+    "apply": "使用此提示词",
+    "promptCopied": "提示词已复制",
+    "copyFailed": "复制失败，请手动选择文本"
+  },
+  "coach": {
+    "label": "灵感库引导",
+    "title": "不知道画什么？",
+    "body": "灵感库里有几百个可一键套用的高质量示例，挑一张开始最快。",
+    "dismiss": "知道了",
+    "explore": "看看"
+  },
+  "hero": {
+    "title": "灵感探索",
+    "viewAll": "查看全部"
+  },
+  "apply": {
+    "confirmTitle": "替换当前输入？",
+    "confirmMessage": "将丢失输入框中未提交的提示词。继续将以本条灵感的提示词、参数与推荐模型覆盖。",
+    "confirmAction": "替换并应用",
+    "succeeded": "已应用灵感库示例",
+    "noProfile": "未找到 {{provider}} / {{model}} 的可用配置，请先在设置中添加"
+  },
+  "manifest": {
+    "loadFailed": "远程灵感清单加载失败：{{reason}}",
+    "notJson": "远程灵感清单返回非 JSON 内容",
+    "invalid": "远程灵感清单结构无效"
+  }
+}

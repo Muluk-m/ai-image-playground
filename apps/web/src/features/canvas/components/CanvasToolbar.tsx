@@ -1,12 +1,12 @@
 import { useSyncExternalStore } from 'react'
+import { useTranslation } from '../../../i18n'
 import { useAgentPanelInset } from '../../agent/panelLayout'
 import { duplicateSelection } from '../lib/canvasClipboard'
 import type { CanvasDoc, Tool } from '../lib/canvasDoc'
 
-const TOOLS: Array<{ tool: Tool; label: string; hotkey: string; icon: React.ReactNode }> = [
+const TOOLS: Array<{ tool: Tool; hotkey: string; icon: React.ReactNode }> = [
   {
     tool: 'select',
-    label: '选择',
     hotkey: 'V',
     icon: (
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -21,7 +21,6 @@ const TOOLS: Array<{ tool: Tool; label: string; hotkey: string; icon: React.Reac
   },
   {
     tool: 'hand',
-    label: '抓手',
     hotkey: 'H',
     icon: (
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -37,7 +36,6 @@ const TOOLS: Array<{ tool: Tool; label: string; hotkey: string; icon: React.Reac
   },
   {
     tool: 'pen',
-    label: '画笔',
     hotkey: 'D',
     icon: (
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -52,7 +50,6 @@ const TOOLS: Array<{ tool: Tool; label: string; hotkey: string; icon: React.Reac
   },
   {
     tool: 'eraser',
-    label: '橡皮',
     hotkey: 'E',
     icon: (
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -68,7 +65,6 @@ const TOOLS: Array<{ tool: Tool; label: string; hotkey: string; icon: React.Reac
   },
   {
     tool: 'arrow',
-    label: '箭头',
     hotkey: 'A',
     icon: (
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -84,7 +80,6 @@ const TOOLS: Array<{ tool: Tool; label: string; hotkey: string; icon: React.Reac
   },
   {
     tool: 'text',
-    label: '文字',
     hotkey: 'T',
     icon: (
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -133,8 +128,18 @@ function ToolButton({
 /** 底部居中工具条 + 左下角缩放控件（快捷键速查在 CanvasShortcutsHint）。 */
 export default function CanvasToolbar({ doc }: { doc: CanvasDoc }) {
   useSyncExternalStore(doc.subscribe, () => doc.version)
+  const { t } = useTranslation('canvas')
   const agentPanelInset = useAgentPanelInset()
   const { tool, selection, camera, viewport } = doc
+
+  const toolLabels: Record<Tool, string> = {
+    select: t('toolbar.tool.select'),
+    hand: t('toolbar.tool.hand'),
+    pen: t('toolbar.tool.pen'),
+    eraser: t('toolbar.tool.eraser'),
+    arrow: t('toolbar.tool.arrow'),
+    text: t('toolbar.tool.text'),
+  }
 
   const zoomStep = (dir: 1 | -1) => {
     doc.zoomAt(viewport.width / 2, viewport.height / 2, camera.zoom * (dir === 1 ? 1.25 : 0.8))
@@ -145,18 +150,18 @@ export default function CanvasToolbar({ doc }: { doc: CanvasDoc }) {
       {/* 工具条：底部居中 */}
       <div className="pointer-events-none absolute inset-x-0 bottom-4 z-[400] flex justify-center">
         <div className="pointer-events-auto flex items-center gap-1 rounded-2xl border border-white/10 bg-gray-900/95 p-1.5 shadow-lg backdrop-blur">
-          {TOOLS.map(({ tool: t, label, hotkey, icon }) => (
+          {TOOLS.map(({ tool: candidate, hotkey, icon }) => (
             <ToolButton
-              key={t}
-              active={tool === t}
-              title={`${label}（${hotkey}）`}
-              onClick={() => doc.setTool(t)}
+              key={candidate}
+              active={tool === candidate}
+              title={t('toolbar.toolTitle', { label: toolLabels[candidate], hotkey })}
+              onClick={() => doc.setTool(candidate)}
             >
               {icon}
             </ToolButton>
           ))}
           <div className="mx-1 h-6 w-px bg-white/10" />
-          <ToolButton title="撤销（⌘Z）" disabled={!doc.canUndo} onClick={() => doc.undo()}>
+          <ToolButton title={t('toolbar.undo')} disabled={!doc.canUndo} onClick={() => doc.undo()}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
               <path
                 d="M8 5L4 9l4 4M4 9h10a6 6 0 016 6v1"
@@ -167,7 +172,7 @@ export default function CanvasToolbar({ doc }: { doc: CanvasDoc }) {
               />
             </svg>
           </ToolButton>
-          <ToolButton title="重做（⌘⇧Z）" disabled={!doc.canRedo} onClick={() => doc.redo()}>
+          <ToolButton title={t('toolbar.redo')} disabled={!doc.canRedo} onClick={() => doc.redo()}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
               <path
                 d="M16 5l4 4-4 4M20 9H10a6 6 0 00-6 6v1"
@@ -180,7 +185,7 @@ export default function CanvasToolbar({ doc }: { doc: CanvasDoc }) {
           </ToolButton>
           {selection.size > 0 && (
             <>
-              <ToolButton title="复制一份（⌘D）" onClick={() => duplicateSelection(doc)}>
+              <ToolButton title={t('toolbar.duplicate')} onClick={() => duplicateSelection(doc)}>
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                   <rect
                     x="8"
@@ -200,7 +205,7 @@ export default function CanvasToolbar({ doc }: { doc: CanvasDoc }) {
                 </svg>
               </ToolButton>
               <ToolButton
-                title="删除所选（Del）"
+                title={t('toolbar.deleteSelected')}
                 onClick={() => doc.deleteElements([...doc.selection])}
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -225,7 +230,7 @@ export default function CanvasToolbar({ doc }: { doc: CanvasDoc }) {
         <div className="pointer-events-auto flex items-center rounded-xl border border-white/10 bg-gray-900/95 shadow-lg backdrop-blur">
           <button
             type="button"
-            title="缩小"
+            title={t('toolbar.zoomOut')}
             onClick={() => zoomStep(-1)}
             className="px-3 py-2 text-gray-300 hover:bg-white/10"
           >
@@ -233,7 +238,7 @@ export default function CanvasToolbar({ doc }: { doc: CanvasDoc }) {
           </button>
           <button
             type="button"
-            title="重置为 100%"
+            title={t('toolbar.resetZoom')}
             onClick={() => doc.zoomAt(viewport.width / 2, viewport.height / 2, 1)}
             className="min-w-14 px-1 py-2 text-center text-xs text-gray-300 tabular-nums hover:bg-white/10"
           >
@@ -241,7 +246,7 @@ export default function CanvasToolbar({ doc }: { doc: CanvasDoc }) {
           </button>
           <button
             type="button"
-            title="放大"
+            title={t('toolbar.zoomIn')}
             onClick={() => zoomStep(1)}
             className="px-3 py-2 text-gray-300 hover:bg-white/10"
           >

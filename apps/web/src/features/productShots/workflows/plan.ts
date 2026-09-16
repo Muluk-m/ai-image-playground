@@ -1,12 +1,48 @@
 import type { ProductBox, PromptLanguage } from '@image-playground/shared'
+import { i18next } from '../../../i18n'
 import type { TaskParams } from '../../../types'
+import { promptLanguageLabels } from '../lib/actions'
 
+// `getFixedT(null, ns)` 把命名空间钉死、语言不钉：key 受 productShots 的类型约束，
+// 每次调用仍取当前语言。手写 `Parameters<typeof i18next.t>[0]` 拿到的是全部命名空间的
+// 并集，配上 `ns` 反而对不上，key 也就失去了编译期检查。
+const t = i18next.getFixedT(null, 'productShots')
+
+/** `label` 是拼进提示词的措辞，跟着提示词语言走，不随界面语言变；界面上的名字见 `kitFormatLabels`。 */
 export const KIT_FORMATS = {
   square: { label: '方形主图', size: '1024x1024', ratio: '1:1' },
   portrait: { label: '竖版海报', size: '1024x1536', ratio: '2:3' },
   wide: { label: '横版广告', size: '1536x1024', ratio: '3:2' },
 } as const
 export type KitFormat = keyof typeof KIT_FORMATS
+
+/** 界面上的画幅名。发给模型的仍是 `KIT_FORMATS[*].label`，两者互不影响。 */
+export function kitFormatLabels(): Record<KitFormat, string> {
+  return {
+    square: t('kit.format.square'),
+    portrait: t('kit.format.portrait'),
+    wide: t('kit.format.wide'),
+  }
+}
+
+/** 先看方案的三个方向。值是拼进提示词的中文，一个字都不能改；界面上的名字查 `directionLabel`。 */
+export const DIRECTIONS = ['暖色石材', '北欧浅木', '自然日光'] as const
+
+const DIRECTION_KEYS = {
+  暖色石材: 'direction.warmStone',
+  北欧浅木: 'direction.nordicWood',
+  自然日光: 'direction.daylight',
+} as const
+
+function isKnownDirection(value: string): value is keyof typeof DIRECTION_KEYS {
+  return value in DIRECTION_KEYS
+}
+
+/** 只管显示。旧记录里存过别的方向词时查不到，原样摆出来。 */
+export function directionLabel(direction: string): string {
+  return isKnownDirection(direction) ? t(DIRECTION_KEYS[direction]) : direction
+}
+
 export type WorkflowSpec =
   | { kind: 'edit'; instruction: string; box: ProductBox }
   | { kind: 'kit'; format: KitFormat; language: PromptLanguage; title: string }
@@ -55,7 +91,7 @@ export function buildWorkflowPrompt(spec: WorkflowSpec): string {
         y + h > 1.001 ||
         !spec.instruction.trim()
       )
-        throw new Error('请圈选修改区域并填写要求')
+        throw new Error(t('workspace.needBoxAndInstruction'))
       return `${preserve}\n只修改主图中左 ${Math.round(x * 100)}%、上 ${Math.round(y * 100)}%、宽 ${Math.round(w * 100)}%、高 ${Math.round(h * 100)}% 的区域，区域外尽量保持一致。不要画出圈选框。\n修改要求：${spec.instruction.trim()}`
     }
     case 'kit':
@@ -100,10 +136,17 @@ export function workflowParams(params: TaskParams, spec: WorkflowSpec): TaskPara
 export function workflowLabel(recipe: WorkflowRecipe): string {
   const spec = recipe.spec
   return spec.kind === 'kit'
-    ? `${KIT_FORMATS[spec.format].label} · ${spec.language === 'zh' ? '中文' : '英文'}`
+    ? i18next.t('kit.planKit', {
+        ns: 'productShots',
+        format: kitFormatLabels()[spec.format],
+        language: promptLanguageLabels()[spec.language],
+      })
     : spec.kind === 'draft'
-      ? `方案 · ${spec.direction}`
+      ? i18next.t('kit.planDraft', {
+          ns: 'productShots',
+          direction: directionLabel(spec.direction),
+        })
       : spec.kind === 'edit'
-        ? '局部修改'
-        : '精修成品'
+        ? t('kit.planEdit')
+        : t('kind.refine')
 }

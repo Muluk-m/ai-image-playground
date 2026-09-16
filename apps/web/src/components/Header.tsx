@@ -7,6 +7,7 @@ import { useInspirationStore } from '../features/inspiration/store'
 import LibraryCoach, { useLibraryCoach } from '../features/library/components/LibraryCoach'
 import { useLibraryStore } from '../features/library/store'
 import { useTooltip } from '../hooks/useTooltip'
+import { useTranslation } from '../i18n'
 import {
   PrivateWebHeaderAccountActions,
   PrivateWebHeaderCreditAction,
@@ -20,6 +21,7 @@ import LogoutDialog from './LogoutDialog'
 import ViewportTooltip from './ViewportTooltip'
 
 export default function Header() {
+  const { t } = useTranslation('shell')
   const setShowSettings = useStore((s) => s.setShowSettings)
   const appMode = useStore((s) => s.appMode)
   const setAppMode = useStore((s) => s.setAppMode)
@@ -40,6 +42,8 @@ export default function Header() {
   const inspirationTooltip = useTooltip()
   const libraryTooltip = useTooltip()
   const syncPending = useSyncStatus((s) => s.enabled && (s.pending > 0 || s.status === 'error'))
+  // 中文品牌名后面还跟一个拉丁字标；英文里字标就是品牌名本身，没有第二段可跟。
+  const brandWordmark = t('header.brandWordmark')
 
   // 绑定回跳只回到工作台，面板得靠回跳参数自己重开。
   useEffect(() => {
@@ -85,7 +89,7 @@ export default function Header() {
             <button
               type="button"
               onClick={() => setAppMode('browse')}
-              aria-label="幕芽 Muvloom，返回工作台"
+              aria-label={t('header.homeAria')}
               className="inline-flex max-w-full items-center gap-2.5 rounded-lg font-display text-[18px] font-medium tracking-wide text-gray-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:text-gray-50"
             >
               <img
@@ -96,12 +100,15 @@ export default function Header() {
                 className="h-7 w-7 rounded-lg shrink-0"
               />
               <span className="truncate">
-                幕芽<span className="ml-2 hidden sm:inline">Muvloom</span>
+                {t('header.brandName')}
+                {brandWordmark ? (
+                  <span className="ml-2 hidden sm:inline">{brandWordmark}</span>
+                ) : null}
               </span>
             </button>
           </h1>
           <nav
-            aria-label="主导航"
+            aria-label={t('header.nav')}
             className="col-span-2 row-start-2 mb-2 flex items-center justify-self-center gap-0.5 rounded-xl bg-gray-100/80 p-1 dark:bg-white/[0.04] lg:col-span-1 lg:col-start-2 lg:row-start-1 lg:mb-0"
           >
             {visibleAppModes().map((mode) => (
@@ -130,14 +137,14 @@ export default function Header() {
                   openInspiration()
                 }}
                 className={`grid h-9 w-9 place-items-center rounded-lg hover:bg-gray-100 dark:hover:bg-gray-900 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${inspirationCoachActive ? 'animate-coach-pulse' : ''}`}
-                aria-label="灵感库"
+                aria-label={t('header.inspiration')}
               >
                 <SparkleIcon
                   className={`h-[18px] w-[18px] ${inspirationCoachActive ? 'text-blue-500' : 'text-gray-600 dark:text-gray-400'}`}
                 />
               </button>
               <ViewportTooltip visible={inspirationTooltip.visible} className="whitespace-nowrap">
-                灵感库
+                {t('header.inspiration')}
               </ViewportTooltip>
               {inspirationCoachActive && <InspirationCoach />}
             </div>
@@ -149,14 +156,14 @@ export default function Header() {
                   openLibrary()
                 }}
                 className={`grid h-9 w-9 place-items-center rounded-lg hover:bg-gray-100 dark:hover:bg-gray-900 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${libraryCoachActive ? 'animate-coach-pulse' : ''}`}
-                aria-label="素材与模板"
+                aria-label={t('header.library')}
               >
                 <LibraryIcon
                   className={`h-[18px] w-[18px] ${libraryCoachActive ? 'text-blue-500' : 'text-gray-600 dark:text-gray-400'}`}
                 />
               </button>
               <ViewportTooltip visible={libraryTooltip.visible} className="whitespace-nowrap">
-                素材与模板
+                {t('header.library')}
               </ViewportTooltip>
               {libraryCoachActive && <LibraryCoach onDismiss={dismissLibraryCoach} />}
             </div>
@@ -174,7 +181,7 @@ export default function Header() {
                   <button
                     type="button"
                     onClick={() => setAccountMenuOpen((open) => !open)}
-                    aria-label={auth.user ? '打开个人账户' : '打开应用菜单'}
+                    aria-label={auth.user ? t('header.accountMenu') : t('header.appMenu')}
                     aria-expanded={accountMenuOpen}
                     className="relative grid h-8 w-8 place-items-center rounded-full bg-gradient-to-br from-blue-500 to-violet-600 text-xs font-semibold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
                   >
@@ -186,7 +193,7 @@ export default function Header() {
                     {syncPending ? (
                       <span
                         role="img"
-                        aria-label="有未同步项"
+                        aria-label={t('header.unsynced')}
                         className="absolute right-0 top-0 h-2 w-2 rounded-full bg-amber-500 ring-2 ring-white dark:ring-gray-950"
                       />
                     ) : null}
@@ -204,11 +211,11 @@ export default function Header() {
                         className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-white/[0.06]"
                       >
                         <SettingsIcon className="h-[18px] w-[18px]" aria-hidden="true" />
-                        <span>设置</span>
+                        <span>{t('header.settings')}</span>
                         {syncPending ? (
                           <span
                             role="img"
-                            aria-label="有未同步项"
+                            aria-label={t('header.unsynced')}
                             className="ml-auto h-1.5 w-1.5 rounded-full bg-amber-500"
                           />
                         ) : null}
@@ -223,7 +230,7 @@ export default function Header() {
                             }}
                             className="block w-full rounded-lg px-3 py-2.5 text-left text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-white/[0.06]"
                           >
-                            登录方式
+                            {t('header.loginMethods')}
                           </button>
                           <button
                             type="button"
@@ -234,7 +241,7 @@ export default function Header() {
                             }}
                             className="block w-full rounded-lg px-3 py-2.5 text-left text-gray-600 hover:bg-gray-100 disabled:cursor-wait disabled:opacity-50 dark:text-gray-300 dark:hover:bg-white/[0.06]"
                           >
-                            {loggingOut ? '退出中' : '退出登录'}
+                            {loggingOut ? t('header.loggingOut') : t('logout.title')}
                           </button>
                         </>
                       ) : null}

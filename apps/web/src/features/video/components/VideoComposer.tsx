@@ -13,19 +13,19 @@ import { CARD, FIELD, LABEL, PANEL_SECTION, PRIMARY_BUTTON } from '../../../comp
 import Segmented from '../../../components/Segmented'
 import SubmissionBillingAction from '../../../components/SubmissionBillingAction'
 import { usePasteImageFiles } from '../../../hooks/usePasteImageFiles'
+import { useTranslation } from '../../../i18n'
 import { type VideoModelOption, videoModelOptions } from '../../../lib/channels/videoChannels'
 import { isClientCapabilityEnabled } from '../../../lib/clientCapabilities'
 import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
-import { FOLLOWS_FIRST_FRAME } from '../lib/aspect'
 import { useVideoStore } from '../store'
 import StoryboardComposer from '../storyboard/components/StoryboardComposer'
 import {
   CAMERA_MOVES,
-  VIDEO_COMPOSER_SOURCE_LABELS,
   VIDEO_COMPOSER_SOURCES,
-  VIDEO_FRAME_SLOT_LABELS,
   VIDEO_SOURCES,
   type VideoFrameSlot,
+  videoComposerSourceLabels,
+  videoFrameSlotLabel,
 } from '../types'
 import ChipRow from './ChipRow'
 import { SUGGESTION_CHIP } from './chipStyles'
@@ -45,6 +45,7 @@ function ModelCard({
   selected: boolean
   onSelect: () => void
 }) {
+  const { t } = useTranslation(['video', 'common'])
   const guard = usePrivateSubmissionGuard({
     model: option.modelId,
     quantity: 1,
@@ -69,7 +70,7 @@ function ModelCard({
           hint
         ) : (
           <>
-            {hint} · <Credits credits={guard.estimatedCredits} /> / 秒
+            {hint} · <Credits credits={guard.estimatedCredits} /> {t('composer.perSecond')}
           </>
         )}
       </span>
@@ -87,6 +88,7 @@ function VideoSubmitPanel({
   options: readonly VideoModelOption[]
   onPickFrame: (slot: VideoFrameSlot) => void
 }) {
+  const { t } = useTranslation(['video', 'common'])
   const draft = useVideoStore((s) => s.draft)
   const guard = usePrivateSubmissionGuard({
     model: draft.model,
@@ -101,19 +103,25 @@ function VideoSubmitPanel({
     void useVideoStore.getState().addFrameFromFile(slot, files[0])
   })
 
-  const lastFrameReason = support.lastFrame ? undefined : `${support.label} 不支持尾帧`
+  const lastFrameReason = support.lastFrame
+    ? undefined
+    : t('composer.lastFrameUnsupported', { model: support.label })
   const promptCheck = validateVideoPrompt(draft.model, draft.prompt)
   const durations = videoDurationsForResolution(support, draft.resolution)
-  const summary = `${support.label} · ${draft.duration} 秒 · ${VIDEO_RESOLUTION_LABELS[draft.resolution]}`
+  const summary = t('composer.summary', {
+    model: support.label,
+    seconds: draft.duration,
+    resolution: VIDEO_RESOLUTION_LABELS[draft.resolution],
+  })
 
   return (
     <>
       {draft.source === 'image' && (
         <div>
           <div className="mb-1.5 flex items-baseline justify-between">
-            <span className={LABEL}>首帧 · 尾帧</span>
+            <span className={LABEL}>{t('composer.framesLabel')}</span>
             <span className="text-[11px] text-gray-400 dark:text-gray-500">
-              拖入 · 粘贴 · 下方直接点
+              {t('composer.framesHint')}
             </span>
           </div>
           <div className="grid grid-cols-2 gap-2">
@@ -125,7 +133,7 @@ function VideoSubmitPanel({
             <FrameSlot
               slot="last"
               imageId={draft.lastFrameImageId}
-              hint="可选"
+              hint={t('composer.lastFrameOptional')}
               disabledReason={lastFrameReason}
               onPick={() => onPickFrame('last')}
             />
@@ -141,9 +149,11 @@ function VideoSubmitPanel({
 
       <div>
         <div className="mb-1.5 flex items-baseline justify-between">
-          <span className={LABEL}>描述</span>
+          <span className={LABEL}>{t('field.description')}</span>
           {promptCheck.ok ? (
-            <span className="text-[11px] text-gray-400 dark:text-gray-500">动作 · 镜头 · 光线</span>
+            <span className="text-[11px] text-gray-400 dark:text-gray-500">
+              {t('composer.promptHint')}
+            </span>
           ) : (
             <span className="text-[11px] text-red-600 dark:text-red-400">
               {draft.prompt.length} / {support.promptMaxChars}
@@ -154,8 +164,8 @@ function VideoSubmitPanel({
           value={draft.prompt}
           onChange={(event) => useVideoStore.getState().setPrompt(event.target.value)}
           rows={4}
-          aria-label="描述"
-          placeholder="画面里发生什么，镜头怎么动"
+          aria-label={t('field.description')}
+          placeholder={t('composer.promptPlaceholder')}
           className={`${FIELD} resize-none`}
         />
         <div className="mt-1.5 flex flex-wrap gap-1.5">
@@ -173,7 +183,7 @@ function VideoSubmitPanel({
       </div>
 
       <div>
-        <div className={`${LABEL} mb-1.5`}>模型</div>
+        <div className={`${LABEL} mb-1.5`}>{t('field.model')}</div>
         <div className="grid grid-cols-2 gap-2">
           {options.map((option) => (
             <ModelCard
@@ -189,24 +199,24 @@ function VideoSubmitPanel({
 
       <div className="flex flex-col gap-2.5">
         <ChipRow
-          label="时长"
+          label={t('composer.durationLabel')}
           options={support.durations}
           value={draft.duration}
-          render={(duration) => `${duration} 秒`}
+          render={(duration) => t('shared.seconds', { seconds: duration })}
           optionDisabled={(duration) => !durations.includes(duration)}
           onChange={(duration) => useVideoStore.getState().setDuration(duration)}
         />
         <ChipRow
-          label="比例"
+          label={t('field.aspectRatio')}
           options={VIDEO_ASPECT_RATIOS.filter((ratio) => support.aspectRatios.includes(ratio))}
           value={draft.aspectRatio}
           render={(ratio) => ratio}
           onChange={(ratio) => useVideoStore.getState().setAspectRatio(ratio)}
           disabled={draft.source === 'image'}
-          note={draft.source === 'image' ? FOLLOWS_FIRST_FRAME : undefined}
+          note={draft.source === 'image' ? t('aspect.followsFirstFrame') : undefined}
         />
         <ChipRow
-          label="清晰度"
+          label={t('field.resolution')}
           options={support.resolutions}
           value={draft.resolution}
           render={(resolution) => {
@@ -248,10 +258,10 @@ function VideoSubmitPanel({
           className={`${PRIMARY_BUTTON} w-full disabled:cursor-not-allowed`}
         >
           {guard.estimatedCredits === undefined ? (
-            '生成'
+            t('common:action.generate')
           ) : (
             <>
-              生成 · <Credits credits={guard.estimatedCredits} />
+              {t('common:action.generate')} · <Credits credits={guard.estimatedCredits} />
             </>
           )}
         </button>
@@ -261,6 +271,7 @@ function VideoSubmitPanel({
 }
 
 export default function VideoComposer() {
+  const { t } = useTranslation(['video', 'common'])
   const draft = useVideoStore((s) => s.draft)
   const options = useMemo(() => videoModelOptions(), [])
   const [pickerSlot, setPickerSlot] = useState<VideoFrameSlot | null>(null)
@@ -273,7 +284,7 @@ export default function VideoComposer() {
   }, [support])
 
   if (!support) {
-    return options.length === 0 ? <div className={CARD}>当前部署没有可用的视频模型</div> : null
+    return options.length === 0 ? <div className={CARD}>{t('error.noModel')}</div> : null
   }
 
   const sources = isClientCapabilityEnabled('generation:storyboard')
@@ -283,9 +294,9 @@ export default function VideoComposer() {
   return (
     <div className={`${CARD} flex flex-col gap-4`}>
       <Segmented
-        label="视频来源"
+        label={t('composer.sourceLabel')}
         options={sources}
-        labels={VIDEO_COMPOSER_SOURCE_LABELS}
+        labels={videoComposerSourceLabels()}
         value={storyboard ? 'storyboard' : draft.source}
         onChange={(source) => {
           setStoryboard(source === 'storyboard')
@@ -301,7 +312,7 @@ export default function VideoComposer() {
 
       {pickerSlot && (
         <FramePicker
-          label={VIDEO_FRAME_SLOT_LABELS[pickerSlot]}
+          label={videoFrameSlotLabel(pickerSlot)}
           onSelect={(imageId) => {
             useVideoStore.getState().setFrame(pickerSlot, imageId)
             setPickerSlot(null)

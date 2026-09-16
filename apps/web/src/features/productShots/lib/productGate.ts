@@ -1,9 +1,15 @@
+import { i18next } from '../../../i18n'
 import type { ProductAsset } from '../../../lib/productAngle'
 import type { AssetRecord } from '../../library/types'
 import type { ProductShotAction } from './actions'
 
-export const PRODUCT_MISSING_REASON = '产品素材已丢失'
-export const PRODUCT_IS_SOURCE_REASON = '产品素材与原图相同'
+/** `export let` 的 live binding：语言切换后已 import 这两句的模块读到的是新一份。 */
+export let PRODUCT_MISSING_REASON = i18next.t('product.missing', { ns: 'productShots' })
+export let PRODUCT_IS_SOURCE_REASON = i18next.t('product.sameAsSource', { ns: 'productShots' })
+i18next.on('languageChanged', () => {
+  PRODUCT_MISSING_REASON = i18next.t('product.missing', { ns: 'productShots' })
+  PRODUCT_IS_SOURCE_REASON = i18next.t('product.sameAsSource', { ns: 'productShots' })
+})
 
 /** 只换背景不带产品参考图，其余动作都要。 */
 export function usesProductAsset(mode: ProductShotAction): boolean {

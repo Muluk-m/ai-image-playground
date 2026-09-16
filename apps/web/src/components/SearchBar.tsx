@@ -1,7 +1,9 @@
+import { useTranslation } from '../i18n'
 import { useStore } from '../store'
 import Select from './Select'
 
 export default function SearchBar() {
+  const { t } = useTranslation(['composer', 'common'])
   const searchQuery = useStore((s) => s.searchQuery)
   const setSearchQuery = useStore((s) => s.setSearchQuery)
   const filterStatus = useStore((s) => s.filterStatus)
@@ -19,7 +21,7 @@ export default function SearchBar() {
               ? 'border-yellow-400 bg-yellow-50 dark:bg-yellow-500/10 text-yellow-500'
               : 'border-gray-200 dark:border-white/[0.08] bg-white dark:bg-gray-900 text-gray-400 hover:bg-gray-50 dark:hover:bg-white/[0.06]'
           }`}
-          title={filterFavorite ? '取消只看收藏' : '只看收藏'}
+          title={filterFavorite ? t('search.favoriteOnlyOff') : t('search.favoriteOnly')}
         >
           <svg
             className="w-5 h-5"
@@ -40,10 +42,10 @@ export default function SearchBar() {
             value={filterStatus}
             onChange={(val) => setFilterStatus(val as any)}
             options={[
-              { label: '全部状态', value: 'all' },
-              { label: '已完成', value: 'done' },
-              { label: '生成中', value: 'running' },
-              { label: '失败', value: 'error' },
+              { label: t('search.statusAll'), value: 'all' },
+              { label: t('search.statusDone'), value: 'done' },
+              { label: t('common:state.generating'), value: 'running' },
+              { label: t('common:state.failed'), value: 'error' },
             ]}
             className="px-3 py-2.5 rounded-xl border border-gray-200 dark:border-white/[0.08] bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-white/[0.06] text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400 transition"
           />
@@ -67,7 +69,7 @@ export default function SearchBar() {
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           type="text"
-          placeholder="搜索提示词、参数..."
+          placeholder={t('search.placeholder')}
           className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-gray-200 dark:border-white/[0.08] bg-white dark:bg-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400 transition"
         />
       </div>

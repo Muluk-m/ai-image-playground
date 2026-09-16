@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import {
+  type AppLocale,
+  currentLocale,
+  SUPPORTED_LOCALES,
+  setLocale,
+  useTranslation,
+} from '../i18n'
 import { normalizeBaseUrl } from '../lib/api'
 import {
   type ApiProfile,
@@ -398,6 +405,8 @@ profiles 中不要包含 apiKey（用户导入后自行填写）。
 {"customProviders":[{"id":"custom-example-task","name":"示例任务服务商","submit":{"path":"images/generations","method":"POST","contentType":"json","body":{"model":"$profile.model","prompt":"$prompt","n":"$params.n","size":"$params.size","resolution":"2k","quality":"$params.quality","image_urls":"$inputImages.dataUrls"},"taskIdPath":"data.0.task_id"},"poll":{"path":"tasks/{task_id}","method":"GET","query":{"language":"zh"},"intervalSeconds":5,"statusPath":"data.status","successValues":["completed"],"failureValues":["failed","cancelled"],"errorPath":"data.error.message","result":{"imageUrlPaths":["data.result.images.*.url.*"],"b64JsonPaths":[]}}}],"profiles":[{"name":"示例任务服务商","provider":"custom-example-task","baseUrl":"","model":"${DEFAULT_IMAGES_MODEL}","apiMode":"images"}]}`
 
 export default function SettingsModal() {
+  const { t } = useTranslation('settings')
+  const { t: tCommon } = useTranslation('common')
   const showSettings = useStore((s) => s.showSettings)
   const setShowSettings = useStore((s) => s.setShowSettings)
   const settings = useStore((s) => s.settings)
@@ -487,16 +496,16 @@ export default function SettingsModal() {
   const providerOrder = draft.providerOrder || defaultProviderOrder
 
   const unorderedProviderOptions = [
-    { label: 'OpenAI 兼容接口', value: 'openai', draggable: true },
+    { label: t('provider.openaiCompatible'), value: 'openai', draggable: true },
     { label: 'Gemini', value: 'gemini', draggable: true },
     ...draft.customProviders.map((provider) => ({
       label: provider.name,
       value: provider.id,
       draggable: true,
       actions: [
-        { label: '编辑', onClick: () => openEditCustomProvider(provider) },
+        { label: tCommon('action.edit'), onClick: () => openEditCustomProvider(provider) },
         {
-          label: '删除',
+          label: tCommon('action.delete'),
           variant: 'danger' as const,
           onClick: () => confirmDeleteCustomProvider(provider),
         },
@@ -505,7 +514,11 @@ export default function SettingsModal() {
   ]
 
   const providerOptions = [
-    { label: '创建自定义服务商', value: ADD_CUSTOM_PROVIDER_VALUE, variant: 'action' as const },
+    {
+      label: t('provider.createCustom'),
+      value: ADD_CUSTOM_PROVIDER_VALUE,
+      variant: 'action' as const,
+    },
     ...unorderedProviderOptions.sort((a, b) => {
       const aIndex = providerOrder.indexOf(String(a.value))
       const bIndex = providerOrder.indexOf(String(b.value))
@@ -737,12 +750,12 @@ export default function SettingsModal() {
     try {
       await copyTextToClipboard(createProfileImportUrl(profile, options))
       showToast(
-        options.includeApiKey ? '导入 URL 已复制（包含 API Key）' : '导入 URL 已复制',
+        options.includeApiKey ? t('toast.importUrlCopiedWithKey') : t('toast.importUrlCopied'),
         'success',
       )
       setCopyImportUrlProfile(null)
     } catch (err) {
-      showToast(getClipboardFailureMessage('复制导入 URL 失败', err), 'error')
+      showToast(getClipboardFailureMessage(t('toast.copyImportUrlFailed'), err), 'error')
     }
   }
 
@@ -1084,7 +1097,7 @@ export default function SettingsModal() {
         : input,
       usedIds,
     )
-    if (!provider) throw new Error('自定义服务商配置无效')
+    if (!provider) throw new Error(t('customProvider.invalid'))
     return provider
   }
 
@@ -1109,7 +1122,7 @@ export default function SettingsModal() {
         setShowCustomProviderImport(false)
         setEditingCustomProviderId(null)
         setCustomProviderImportError(null)
-        showToast('服务商配置已更新', 'success')
+        showToast(t('toast.providerUpdated'), 'success')
         return
       }
 
@@ -1132,8 +1145,8 @@ export default function SettingsModal() {
 
   function confirmDeleteCustomProvider(provider: CustomProviderDefinition) {
     setConfirmDialog({
-      title: '删除服务商',
-      message: `确定要删除自定义服务商「${provider.name}」吗？正在使用它的配置会切回 OpenAI 兼容接口。`,
+      title: t('provider.deleteTitle'),
+      message: t('provider.deleteMessage', { name: provider.name }),
       action: () => deleteCustomProvider(provider),
     })
   }
@@ -1148,15 +1161,15 @@ export default function SettingsModal() {
       ),
     })
     commitSettings(nextDraft)
-    showToast('服务商已删除', 'success')
+    showToast(t('toast.providerDeleted'), 'success')
   }
 
   const copyCustomProviderLlmPrompt = async () => {
     try {
       await copyTextToClipboard(CUSTOM_PROVIDER_LLM_PROMPT)
-      showToast('LLM 生成提示词已复制', 'success')
+      showToast(t('toast.llmPromptCopied'), 'success')
     } catch (err) {
-      showToast(getClipboardFailureMessage('复制 LLM 生成提示词失败', err), 'error')
+      showToast(getClipboardFailureMessage(t('toast.copyLlmPromptFailed'), err), 'error')
     }
   }
 
@@ -1165,7 +1178,7 @@ export default function SettingsModal() {
     try {
       const text = await navigator.clipboard.readText()
       if (!text.trim()) {
-        throw new Error('剪贴板为空')
+        throw new Error(t('toast.clipboardEmpty'))
       }
       const importedRaw = importCustomProviderSettingsFromJson(text, draft.customProviders)
       // Convert ApiProfile[] from importer to be compatible with draft (ApiProfile[]); ImportedProviderSettings.profiles is ClientProfile[]
@@ -1220,10 +1233,10 @@ export default function SettingsModal() {
         setCustomProviderImportError(null)
         showToast(
           shouldReplaceActiveProfile
-            ? '已覆盖当前空配置'
+            ? t('toast.overwroteEmptyProfile')
             : switchedToExistingProfile
-              ? '已存在相同配置，已切换到已有配置'
-              : 'JSON 配置已导入并切换',
+              ? t('toast.switchedToExisting')
+              : t('toast.jsonImportedAndSwitched'),
           'success',
         )
         return
@@ -1232,12 +1245,12 @@ export default function SettingsModal() {
       const provider = imported.customProviders[0]
       setCustomProviderForm(customProviderToForm(provider))
       setCustomProviderImportError(null)
-      showToast('JSON 配置已导入', 'success')
+      showToast(t('toast.jsonImported'), 'success')
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       setCustomProviderImportError(null)
       if (err instanceof Error && err.name === 'NotAllowedError') {
-        showToast('无法读取剪贴板，请允许浏览器访问剪贴板，或直接粘贴到输入框中', 'error')
+        showToast(t('toast.clipboardBlocked'), 'error')
       } else {
         showToast(msg, 'error')
       }
@@ -1272,7 +1285,7 @@ export default function SettingsModal() {
                   d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
                 />
               </svg>
-              设置
+              {t('modal.title')}
             </h3>
             <div className="flex items-center gap-3">
               <span className="text-sm text-gray-400 dark:text-gray-500 font-mono select-none">
@@ -1281,7 +1294,7 @@ export default function SettingsModal() {
               <button
                 onClick={handleClose}
                 className="rounded-full p-1 text-gray-400 transition hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-white/[0.06] dark:hover:text-gray-200"
-                aria-label="关闭"
+                aria-label={tCommon('action.close')}
               >
                 <CloseIcon className="h-5 w-5" />
               </button>
@@ -1304,7 +1317,7 @@ export default function SettingsModal() {
                       d="M12 6v6l4 2m6-2a10 10 0 11-20 0 10 10 0 0120 0z"
                     />
                   </svg>
-                  习惯配置
+                  {t('tab.general')}
                 </button>
                 {isByokGenerationEnabled() && (
                   <button
@@ -1319,7 +1332,7 @@ export default function SettingsModal() {
                         d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"
                       />
                     </svg>
-                    API 配置
+                    {t('tab.api')}
                   </button>
                 )}
                 <button
@@ -1334,7 +1347,7 @@ export default function SettingsModal() {
                       d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4"
                     />
                   </svg>
-                  数据管理
+                  {t('tab.data')}
                 </button>
               </nav>
             </div>
@@ -1344,10 +1357,33 @@ export default function SettingsModal() {
               <div className="flex-1 overflow-y-auto overscroll-contain custom-scrollbar p-5 sm:p-6">
                 {activeTab === 'general' && (
                   <div className="space-y-4">
+                    <div className="block">
+                      <div className="mb-1 flex items-center justify-between">
+                        <span className="block text-sm text-gray-600 dark:text-gray-300">
+                          {tCommon('locale.label')}
+                        </span>
+                        <div className="w-32">
+                          <select
+                            aria-label={tCommon('locale.label')}
+                            value={currentLocale()}
+                            onChange={(event) =>
+                              void setLocale(event.currentTarget.value as AppLocale)
+                            }
+                            className="w-full px-3 py-1.5 rounded-xl border border-gray-200/60 dark:border-white/[0.08] bg-white/50 dark:bg-white/[0.03] hover:bg-white dark:hover:bg-white/[0.06] text-xs transition-all duration-200 shadow-sm text-gray-700 dark:text-gray-200 outline-none"
+                          >
+                            {SUPPORTED_LOCALES.map((locale) => (
+                              <option key={locale} value={locale}>
+                                {tCommon(`locale.${locale}` as const)}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                    </div>
                     <div className="hidden sm:block">
                       <div className="mb-1 flex items-center justify-between">
                         <span className="block text-sm text-gray-600 dark:text-gray-300">
-                          任务提交方式
+                          {t('general.submitShortcut')}
                         </span>
                         <div className="w-32">
                           <Select
@@ -1372,13 +1408,13 @@ export default function SettingsModal() {
                         data-selectable-text
                         className="text-xs text-gray-500 dark:text-gray-500"
                       >
-                        选择 Enter 提交时，使用 Shift + Enter 换行；否则直接 Enter 换行。
+                        {t('general.submitShortcutHint')}
                       </div>
                     </div>
                     <div className="block">
                       <div className="mb-1 flex items-center justify-between">
                         <span className="block text-sm text-gray-600 dark:text-gray-300">
-                          提交任务后清空输入框
+                          {t('general.clearInputAfterSubmit')}
                         </span>
                         <button
                           type="button"
@@ -1391,7 +1427,7 @@ export default function SettingsModal() {
                           className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${draft.clearInputAfterSubmit ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'}`}
                           role="switch"
                           aria-checked={draft.clearInputAfterSubmit}
-                          aria-label="提交任务后清空输入框"
+                          aria-label={t('general.clearInputAfterSubmit')}
                         >
                           <span
                             className={`inline-block h-3 w-3 transform rounded-full bg-white shadow transition-transform ${draft.clearInputAfterSubmit ? 'translate-x-[14px]' : 'translate-x-[2px]'}`}
@@ -1402,13 +1438,13 @@ export default function SettingsModal() {
                         data-selectable-text
                         className="text-xs text-gray-500 dark:text-gray-500"
                       >
-                        开启后，提交成功创建任务时会清空提示词和参考图。
+                        {t('general.clearInputAfterSubmitHint')}
                       </div>
                     </div>
                     <div className="block">
                       <div className="mb-1 flex items-center justify-between">
                         <span className="block text-sm text-gray-600 dark:text-gray-300">
-                          重启后加载上次的输入框
+                          {t('general.persistInput')}
                         </span>
                         <button
                           type="button"
@@ -1421,7 +1457,7 @@ export default function SettingsModal() {
                           className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${draft.persistInputOnRestart ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'}`}
                           role="switch"
                           aria-checked={draft.persistInputOnRestart}
-                          aria-label="重启后加载上次的输入框"
+                          aria-label={t('general.persistInput')}
                         >
                           <span
                             className={`inline-block h-3 w-3 transform rounded-full bg-white shadow transition-transform ${draft.persistInputOnRestart ? 'translate-x-[14px]' : 'translate-x-[2px]'}`}
@@ -1432,13 +1468,13 @@ export default function SettingsModal() {
                         data-selectable-text
                         className="text-xs text-gray-500 dark:text-gray-500"
                       >
-                        关闭后，不再持久化提示词和参考图，下次启动会使用空输入框。
+                        {t('general.persistInputHint')}
                       </div>
                     </div>
                     <div className="block">
                       <div className="mb-1 flex items-center justify-between">
                         <span className="block text-sm text-gray-600 dark:text-gray-300">
-                          复用配置时临时复用该任务的 API 配置
+                          {t('general.reuseTaskProfile')}
                         </span>
                         <button
                           type="button"
@@ -1451,7 +1487,7 @@ export default function SettingsModal() {
                           className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${draft.reuseTaskApiProfileTemporarily ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'}`}
                           role="switch"
                           aria-checked={draft.reuseTaskApiProfileTemporarily}
-                          aria-label="复用配置时临时复用该任务的 API 配置"
+                          aria-label={t('general.reuseTaskProfile')}
                         >
                           <span
                             className={`inline-block h-3 w-3 transform rounded-full bg-white shadow transition-transform ${draft.reuseTaskApiProfileTemporarily ? 'translate-x-[14px]' : 'translate-x-[2px]'}`}
@@ -1462,14 +1498,13 @@ export default function SettingsModal() {
                         data-selectable-text
                         className="text-xs text-gray-500 dark:text-gray-500"
                       >
-                        开启后，复用历史任务时会临时使用该任务的 API
-                        配置，找不到该配置时提交会提示；关闭后，会继续使用当前的 API 配置。
+                        {t('general.reuseTaskProfileHint')}
                       </div>
                     </div>
                     <div className="block">
                       <div className="mb-1 flex items-center justify-between">
                         <span className="block text-sm text-gray-600 dark:text-gray-300">
-                          成功任务仍然展示重试按钮
+                          {t('general.alwaysShowRetry')}
                         </span>
                         <button
                           type="button"
@@ -1482,7 +1517,7 @@ export default function SettingsModal() {
                           className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${draft.alwaysShowRetryButton ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'}`}
                           role="switch"
                           aria-checked={draft.alwaysShowRetryButton}
-                          aria-label="成功任务仍然展示重试按钮"
+                          aria-label={t('general.alwaysShowRetry')}
                         >
                           <span
                             className={`inline-block h-3 w-3 transform rounded-full bg-white shadow transition-transform ${draft.alwaysShowRetryButton ? 'translate-x-[14px]' : 'translate-x-[2px]'}`}
@@ -1493,7 +1528,7 @@ export default function SettingsModal() {
                         data-selectable-text
                         className="text-xs text-gray-500 dark:text-gray-500"
                       >
-                        开启后，即使任务成功生成，也会在任务卡片和详情页显示重试按钮。
+                        {t('general.alwaysShowRetryHint')}
                       </div>
                     </div>
                   </div>
@@ -1504,7 +1539,7 @@ export default function SettingsModal() {
                     <div>
                       <div className="mb-1.5 flex items-center gap-1.5">
                         <span className="block text-sm text-gray-600 dark:text-gray-300">
-                          当前配置
+                          {t('profile.current')}
                         </span>
                         <span className="relative inline-flex">
                           <button
@@ -1524,7 +1559,7 @@ export default function SettingsModal() {
                             onTouchEnd={clearProfileImportUrlTooltipTimer}
                             onTouchCancel={clearProfileImportUrlTooltipTimer}
                             className="flex h-5 w-5 items-center justify-center rounded-md text-gray-400 transition hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-white/[0.08] dark:hover:text-gray-200"
-                            aria-label={`复制导入配置「${activeProfile.name}」的 URL`}
+                            aria-label={t('profile.copyImportUrlFor', { name: activeProfile.name })}
                           >
                             <LinkIcon className="h-3.5 w-3.5" />
                           </button>
@@ -1532,7 +1567,7 @@ export default function SettingsModal() {
                             visible={profileImportUrlTooltipVisible}
                             className="whitespace-nowrap"
                           >
-                            复制导入 URL
+                            {t('profile.copyImportUrl')}
                           </ViewportTooltip>
                         </span>
                         {!activeIsBuiltin && (
@@ -1554,7 +1589,7 @@ export default function SettingsModal() {
                               onTouchEnd={clearDuplicateProfileTooltipTimer}
                               onTouchCancel={clearDuplicateProfileTooltipTimer}
                               className="flex h-5 w-5 items-center justify-center rounded-md text-gray-400 transition hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-white/[0.08] dark:hover:text-gray-200"
-                              aria-label={`复制一份配置「${activeProfile.name}」`}
+                              aria-label={t('profile.duplicateAria', { name: activeProfile.name })}
                             >
                               <CopyIcon className="h-3.5 w-3.5" />
                             </button>
@@ -1562,7 +1597,7 @@ export default function SettingsModal() {
                               visible={duplicateProfileTooltipVisible}
                               className="whitespace-nowrap"
                             >
-                              复制当前配置
+                              {t('profile.duplicate')}
                             </ViewportTooltip>
                           </span>
                         )}
@@ -1603,7 +1638,9 @@ export default function SettingsModal() {
                                 }}
                                 className="flex w-full cursor-pointer items-center justify-between gap-2 px-3 py-2 text-left text-xs font-medium text-blue-600 transition-colors hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-500/10"
                               >
-                                <span className="truncate font-semibold">创建新配置</span>
+                                <span className="truncate font-semibold">
+                                  {t('profile.create')}
+                                </span>
                                 <span className="flex h-5 w-5 shrink-0 items-center justify-center">
                                   <PlusIcon className="h-4 w-4" />
                                 </span>
@@ -1647,14 +1684,14 @@ export default function SettingsModal() {
                                         data-drag-handle
                                         className="flex cursor-grab active:cursor-grabbing items-center justify-center text-gray-400 opacity-60 transition-opacity hover:opacity-100 dark:text-gray-500"
                                         style={{ touchAction: 'none' }}
-                                        title="拖拽排序"
+                                        title={t('profile.dragToReorder')}
                                       >
                                         <DragHandleIcon className="h-3.5 w-3.5" />
                                       </div>
                                       <span className="min-w-0 truncate">{profile.name}</span>
                                       {isBuiltinDraftProfile(profile) && (
                                         <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] shrink-0 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300">
-                                          内置
+                                          {t('profile.builtinBadge')}
                                         </span>
                                       )}
                                       <span
@@ -1674,8 +1711,10 @@ export default function SettingsModal() {
                                             confirmCopyProfileImportUrl(profile)
                                           }}
                                           className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-gray-400 opacity-60 transition-all hover:bg-gray-100 hover:text-gray-600 hover:opacity-100 dark:hover:bg-white/[0.08] dark:hover:text-gray-200"
-                                          aria-label={`复制导入配置「${profile.name}」的 URL`}
-                                          title="复制导入 URL"
+                                          aria-label={t('profile.copyImportUrlFor', {
+                                            name: profile.name,
+                                          })}
+                                          title={t('profile.copyImportUrl')}
                                         >
                                           <LinkIcon className="h-3.5 w-3.5" />
                                         </button>
@@ -1688,13 +1727,15 @@ export default function SettingsModal() {
                                               e.preventDefault()
                                               e.stopPropagation()
                                               setConfirmDialog({
-                                                title: '删除配置',
-                                                message: `确定要删除配置「${profile.name}」吗？`,
+                                                title: t('profile.delete'),
+                                                message: t('profile.deleteMessage', {
+                                                  name: profile.name,
+                                                }),
                                                 action: () => deleteProfile(profile.id),
                                               })
                                             }}
                                             className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-gray-400 opacity-60 transition-all hover:bg-red-50 hover:text-red-500 hover:opacity-100 dark:hover:bg-red-500/10"
-                                            aria-label="删除配置"
+                                            aria-label={t('profile.delete')}
                                           >
                                             <TrashIcon className="h-3.5 w-3.5" />
                                           </button>
@@ -1711,13 +1752,13 @@ export default function SettingsModal() {
 
                     {activeIsBuiltin ? (
                       <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
-                        内置模型
+                        {t('profile.builtinModel')}
                       </div>
                     ) : (
                       <>
                         <label className="block">
                           <span className="mb-1.5 block text-sm text-gray-600 dark:text-gray-300">
-                            配置名称
+                            {t('profile.name')}
                           </span>
                           <input
                             value={activeProfile.name}
@@ -1731,7 +1772,7 @@ export default function SettingsModal() {
 
                         <div className="block">
                           <span className="mb-1.5 block text-sm text-gray-600 dark:text-gray-300">
-                            服务商类型
+                            {t('provider.type')}
                           </span>
                           <Select
                             value={activeProfile.provider}
@@ -1765,11 +1806,11 @@ export default function SettingsModal() {
                             >
                               {apiProxyEnabled ? (
                                 <span className="text-yellow-600 dark:text-yellow-500">
-                                  已开启代理，实际请求目标由部署端决定，此处设置被忽略。
+                                  {t('apiUrl.proxyIgnored')}
                                 </span>
                               ) : (
                                 <span>
-                                  支持通过查询参数覆盖：
+                                  {t('hint.queryOverride')}
                                   <code className="bg-gray-100 dark:bg-white/[0.06] px-1 py-0.5 rounded">
                                     ?apiUrl=
                                   </code>
@@ -1783,7 +1824,7 @@ export default function SettingsModal() {
                           <div className="block">
                             <div className="mb-1.5 flex items-center justify-between">
                               <span className="block text-sm text-gray-600 dark:text-gray-300">
-                                Codex CLI 兼容模式
+                                {t('codexCli.label')}
                               </span>
                               <button
                                 type="button"
@@ -1793,7 +1834,7 @@ export default function SettingsModal() {
                                 className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${activeProfile.codexCli ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'}`}
                                 role="switch"
                                 aria-checked={activeProfile.codexCli}
-                                aria-label="Codex CLI 兼容模式"
+                                aria-label={t('codexCli.label')}
                               >
                                 <span
                                   className={`inline-block h-3 w-3 transform rounded-full bg-white shadow transition-transform ${activeProfile.codexCli ? 'translate-x-[14px]' : 'translate-x-[2px]'}`}
@@ -1804,11 +1845,11 @@ export default function SettingsModal() {
                               data-selectable-text
                               className="text-xs text-gray-500 dark:text-gray-500"
                             >
-                              开启后应用 Codex CLI 实际支持的参数。支持查询参数覆盖：
+                              {t('codexCli.hint')}
                               <code className="bg-gray-100 dark:bg-white/[0.06] px-1 py-0.5 rounded">
                                 codexCli=true
                               </code>
-                              。
+                              {t('hint.period')}
                             </div>
                           </div>
                         )}
@@ -1817,7 +1858,7 @@ export default function SettingsModal() {
                           <div className="block">
                             <div className="mb-1.5 flex items-center justify-between">
                               <span className="block text-sm text-gray-600 dark:text-gray-300">
-                                API 代理
+                                {t('apiProxy.label')}
                               </span>
                               <button
                                 type="button"
@@ -1827,7 +1868,7 @@ export default function SettingsModal() {
                                 className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${apiProxyChecked ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'}`}
                                 role="switch"
                                 aria-checked={apiProxyChecked}
-                                aria-label="API 代理"
+                                aria-label={t('apiProxy.label')}
                               >
                                 <span
                                   className={`inline-block h-3 w-3 transform rounded-full bg-white shadow transition-transform ${apiProxyChecked ? 'translate-x-[14px]' : 'translate-x-[2px]'}`}
@@ -1838,8 +1879,7 @@ export default function SettingsModal() {
                               data-selectable-text
                               className="text-xs text-gray-500 dark:text-gray-500"
                             >
-                              当前部署提供同源代理时默认开启，可手动关闭。开启后用于解决浏览器跨域限制，API
-                              URL 设置会被忽略。
+                              {t('apiProxy.hint')}
                             </div>
                           </div>
                         )}
@@ -1899,7 +1939,7 @@ export default function SettingsModal() {
                             data-selectable-text
                             className="mt-1.5 text-xs text-gray-500 dark:text-gray-500"
                           >
-                            支持通过查询参数覆盖：
+                            {t('hint.queryOverride')}
                             <code className="bg-gray-100 dark:bg-white/[0.06] px-1 py-0.5 rounded">
                               ?apiKey=
                             </code>
@@ -1909,7 +1949,7 @@ export default function SettingsModal() {
                         {activeProfile.provider === 'openai' && (
                           <div className="block">
                             <span className="mb-1.5 block text-sm text-gray-600 dark:text-gray-300">
-                              API 接口
+                              {t('apiMode.label')}
                             </span>
                             <Select
                               value={activeProfile.apiMode ?? ('images' as const)}
@@ -1932,22 +1972,22 @@ export default function SettingsModal() {
                               data-selectable-text
                               className="mt-1.5 text-xs text-gray-500 dark:text-gray-500"
                             >
-                              支持通过查询参数覆盖：
+                              {t('hint.queryOverride')}
                               <code className="rounded bg-gray-100 px-1 py-0.5 dark:bg-white/[0.06]">
                                 apiMode=images
                               </code>{' '}
-                              或{' '}
+                              {t('hint.or')}{' '}
                               <code className="rounded bg-gray-100 px-1 py-0.5 dark:bg-white/[0.06]">
                                 apiMode=responses
                               </code>
-                              。
+                              {t('hint.period')}
                             </div>
                           </div>
                         )}
 
                         <label className="block">
                           <span className="mb-1.5 block text-sm text-gray-600 dark:text-gray-300">
-                            模型 ID
+                            {t('model.label')}
                           </span>
                           {(() => {
                             const fallbackOptions = getProviderModelOptions(activeProfile.provider)
@@ -1967,10 +2007,10 @@ export default function SettingsModal() {
                                   kind,
                                 })
                                 setProfileModelCache(activeProfile.id, models)
-                                showToast(`已拉取 ${models.length} 个模型`, 'success')
+                                showToast(t('model.fetched', { count: models.length }), 'success')
                               } catch (err) {
                                 showToast(
-                                  err instanceof Error ? err.message : '拉取模型失败',
+                                  err instanceof Error ? err.message : t('model.fetchFailed'),
                                   'error',
                                 )
                               } finally {
@@ -1996,14 +2036,14 @@ export default function SettingsModal() {
                                     onClick={handleRefresh}
                                     disabled={refreshingModels}
                                     className="shrink-0 rounded-xl border border-gray-200/70 bg-white/60 px-3 py-2.5 text-xs text-gray-600 transition hover:border-blue-300 hover:text-blue-600 disabled:opacity-50 disabled:cursor-not-allowed dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-gray-300"
-                                    title="从上游 API /models 拉取模型列表"
+                                    title={t('model.fetchTitle')}
                                   >
-                                    {refreshingModels ? '拉取中…' : '拉取模型'}
+                                    {refreshingModels ? t('model.fetching') : t('model.fetch')}
                                   </button>
                                 </div>
                                 {cached.length > 0 && (
                                   <div className="mt-1 text-xs text-gray-500 dark:text-gray-500">
-                                    上游接口共 {cached.length} 个模型
+                                    {t('model.cachedCount', { count: cached.length })}
                                   </div>
                                 )}
                               </>
@@ -2015,40 +2055,40 @@ export default function SettingsModal() {
                           >
                             {activeCustomProvider ? (
                               <>
-                                当前使用{' '}
+                                {t('model.usingProvider')}{' '}
                                 <code className="rounded bg-gray-100 px-1 py-0.5 dark:bg-white/[0.06]">
                                   {activeCustomProvider.name}
                                 </code>
-                                。
+                                {t('hint.period')}
                               </>
                             ) : (activeProfile.apiMode ?? ('images' as const)) === 'responses' ? (
                               <>
-                                Responses API 需要使用支持{' '}
+                                {t('model.responsesHintPrefix')}{' '}
                                 <code className="rounded bg-gray-100 px-1 py-0.5 dark:bg-white/[0.06]">
                                   image_generation
                                 </code>{' '}
-                                工具的文本模型，例如{' '}
+                                {t('model.responsesHintSuffix')}{' '}
                                 <code className="rounded bg-gray-100 px-1 py-0.5 dark:bg-white/[0.06]">
                                   {DEFAULT_RESPONSES_MODEL}
                                 </code>
-                                。
+                                {t('hint.period')}
                               </>
                             ) : (
                               <>
-                                Images API 需要使用 GPT Image 模型，例如{' '}
+                                {t('model.imagesHint')}{' '}
                                 <code className="rounded bg-gray-100 px-1 py-0.5 dark:bg-white/[0.06]">
                                   {DEFAULT_IMAGES_MODEL}
                                 </code>
-                                。
+                                {t('hint.period')}
                               </>
                             )}
                             {activeProfile.provider === 'openai' && (
                               <>
-                                支持通过查询参数覆盖：
+                                {t('hint.queryOverride')}
                                 <code className="rounded bg-gray-100 px-1 py-0.5 dark:bg-white/[0.06]">
                                   ?model=
                                 </code>
-                                。
+                                {t('hint.period')}
                               </>
                             )}
                           </div>
@@ -2058,7 +2098,7 @@ export default function SettingsModal() {
                           <div className="block">
                             <div className="mb-1.5 flex items-center justify-between">
                               <span className="block text-sm text-gray-600 dark:text-gray-300">
-                                返回 Base64 图片数据
+                                {t('b64.label')}
                               </span>
                               <button
                                 type="button"
@@ -2071,7 +2111,7 @@ export default function SettingsModal() {
                                 className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${activeProfile.responseFormatB64Json ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'}`}
                                 role="switch"
                                 aria-checked={!!activeProfile.responseFormatB64Json}
-                                aria-label="返回 Base64 图片数据"
+                                aria-label={t('b64.label')}
                               >
                                 <span
                                   className={`inline-block h-3 w-3 transform rounded-full bg-white shadow transition-transform ${activeProfile.responseFormatB64Json ? 'translate-x-[14px]' : 'translate-x-[2px]'}`}
@@ -2082,11 +2122,11 @@ export default function SettingsModal() {
                               data-selectable-text
                               className="text-xs text-gray-500 dark:text-gray-500"
                             >
-                              开启后在请求体中追加{' '}
+                              {t('b64.hintPrefix')}{' '}
                               <code className="bg-gray-100 dark:bg-white/[0.06] px-1 py-0.5 rounded">
                                 response_format: b64_json
                               </code>
-                              ，尝试使接口直接返回 Base64 编码的图片数据而非 URL。
+                              {t('b64.hintSuffix')}
                             </div>
                           </div>
                         )}
@@ -2094,7 +2134,7 @@ export default function SettingsModal() {
                         {activeProviderIsOpenAICompatible && (
                           <label className="block">
                             <span className="mb-1.5 block text-sm text-gray-600 dark:text-gray-300">
-                              请求超时 (秒)
+                              {t('timeout.label')}
                             </span>
                             <input
                               value={timeoutInput}
@@ -2130,7 +2170,7 @@ export default function SettingsModal() {
                         />
                       </svg>
                       <div className="text-[13px] leading-relaxed text-gray-500 dark:text-gray-400">
-                        所有的配置、任务记录和生成的图片均仅保存在您的浏览器本地（除非您使用的服务商存储了它们）。如果您需要清理浏览器站点数据、重置浏览器或使用其他设备，请先导出备份。
+                        {t('data.notice')}
                       </div>
                     </div>
 
@@ -2138,19 +2178,19 @@ export default function SettingsModal() {
                       <div className="flex items-center gap-2 mb-1">
                         <ExportIcon className="w-4 h-4 text-gray-700 dark:text-gray-300" />
                         <h4 className="text-sm font-bold text-gray-800 dark:text-gray-100">
-                          导出数据
+                          {t('data.exportTitle')}
                         </h4>
                       </div>
                       <div className="flex flex-wrap gap-x-6 gap-y-3">
                         <Checkbox
                           checked={exportConfig}
                           onChange={setExportConfig}
-                          label="包含配置"
+                          label={t('data.includeConfig')}
                         />
                         <Checkbox
                           checked={exportTasks}
                           onChange={setExportTasks}
-                          label="包含任务和图片"
+                          label={t('data.includeTasks')}
                         />
                       </div>
                       <button
@@ -2158,7 +2198,7 @@ export default function SettingsModal() {
                         disabled={!exportConfig && !exportTasks}
                         className="w-full rounded-xl bg-gray-100/80 px-4 py-2.5 text-sm font-medium text-gray-700 transition-all hover:bg-gray-200 hover:text-gray-900 disabled:opacity-50 disabled:hover:bg-gray-100/80 disabled:hover:text-gray-700 dark:bg-white/[0.06] dark:text-gray-300 dark:hover:bg-white/[0.1] dark:hover:text-white dark:disabled:hover:bg-white/[0.06] dark:disabled:hover:text-gray-300 flex items-center justify-center gap-2"
                       >
-                        导出所选数据
+                        {t('data.exportSelected')}
                       </button>
                     </div>
 
@@ -2166,19 +2206,19 @@ export default function SettingsModal() {
                       <div className="flex items-center gap-2 mb-1">
                         <ImportIcon className="w-4 h-4 text-gray-700 dark:text-gray-300" />
                         <h4 className="text-sm font-bold text-gray-800 dark:text-gray-100">
-                          导入数据
+                          {t('data.importTitle')}
                         </h4>
                       </div>
                       <div className="flex flex-wrap gap-x-6 gap-y-3">
                         <Checkbox
                           checked={importConfig}
                           onChange={setImportConfig}
-                          label="包含配置"
+                          label={t('data.includeConfig')}
                         />
                         <Checkbox
                           checked={importTasks}
                           onChange={setImportTasks}
-                          label="包含任务和图片"
+                          label={t('data.includeTasks')}
                         />
                       </div>
                       <button
@@ -2203,10 +2243,10 @@ export default function SettingsModal() {
                                 d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
                               ></path>
                             </svg>
-                            导入中...
+                            {t('data.importing')}
                           </>
                         ) : (
-                          '从 ZIP 导入所选数据'
+                          t('data.importFromZip')
                         )}
                       </button>
                       <input
@@ -2222,35 +2262,35 @@ export default function SettingsModal() {
                       <div className="flex items-center gap-2 mb-1">
                         <TrashIcon className="w-4 h-4 text-red-500/90 dark:text-red-400" />
                         <h4 className="text-sm font-bold text-red-500/90 dark:text-red-400">
-                          清除数据
+                          {t('data.clearTitle')}
                         </h4>
                       </div>
                       <div className="flex flex-wrap gap-x-6 gap-y-3">
                         <Checkbox
                           checked={clearConfig}
                           onChange={setClearConfig}
-                          label="包含配置"
+                          label={t('data.includeConfig')}
                           tone="danger"
                         />
                         <Checkbox
                           checked={clearTasks}
                           onChange={setClearTasks}
-                          label="包含任务和图片"
+                          label={t('data.includeTasks')}
                           tone="danger"
                         />
                       </div>
                       <button
                         onClick={() =>
                           setConfirmDialog({
-                            title: '清空所选数据',
-                            message: `确定要清空所选的数据吗？此操作不可恢复。`,
+                            title: t('data.clearSelected'),
+                            message: t('data.clearMessage'),
                             action: () => handleClearAllData(),
                           })
                         }
                         disabled={!clearConfig && !clearTasks}
                         className="w-full rounded-xl border border-red-200/60 bg-red-50/50 px-4 py-2.5 text-sm font-medium text-red-500 transition-all hover:bg-red-50 hover:border-red-200 hover:text-red-600 disabled:opacity-50 disabled:hover:bg-red-50/50 disabled:hover:border-red-200/60 disabled:hover:text-red-500 dark:border-red-500/15 dark:bg-red-500/5 dark:text-red-400 dark:hover:bg-red-500/10 dark:hover:border-red-500/30 dark:hover:text-red-300 dark:disabled:hover:bg-red-500/5 dark:disabled:hover:border-red-500/15 dark:disabled:hover:text-red-400"
                       >
-                        清空所选数据
+                        {t('data.clearSelected')}
                       </button>
                     </div>
                   </div>
@@ -2272,7 +2312,7 @@ export default function SettingsModal() {
           <div className="relative z-10 w-full max-w-md rounded-3xl border border-white/50 bg-white/95 p-5 shadow-2xl ring-1 ring-black/5 animate-modal-in dark:border-white/[0.08] dark:bg-gray-900/95 dark:ring-white/10 flex flex-col h-[85vh] sm:h-[680px] max-h-[90vh] overflow-hidden">
             <div className="mb-5 flex items-center justify-between gap-4 shrink-0">
               <h3 className="text-base font-bold text-gray-800 dark:text-gray-100">
-                {editingCustomProviderId ? '编辑自定义服务商' : '创建自定义服务商'}
+                {editingCustomProviderId ? t('provider.editCustom') : t('provider.createCustom')}
               </h3>
               <div className="flex items-center gap-3">
                 <button
@@ -2282,7 +2322,7 @@ export default function SettingsModal() {
                     setEditingCustomProviderId(null)
                   }}
                   className="rounded-full p-1 text-gray-400 transition hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-white/[0.06] dark:hover:text-gray-200"
-                  aria-label="关闭"
+                  aria-label={tCommon('action.close')}
                 >
                   <CloseIcon className="h-5 w-5" />
                 </button>
@@ -2305,21 +2345,20 @@ export default function SettingsModal() {
                       d="M13 10V3L4 14h7v7l9-11h-7z"
                     />
                   </svg>
-                  AI 一键生成与导入
+                  {t('customProvider.aiGenerate')}
                 </div>
                 <div
                   data-selectable-text
                   className="mb-4 text-xs leading-relaxed text-gray-500 dark:text-gray-400"
                 >
-                  复制提示词发给 LLM，可根据 API 文档自动生成完整的配置（包含服务商、模型、URL
-                  等）。复制 LLM 输出的 JSON 后，点击“从剪贴板粘贴并导入”即可一键生效。
+                  {t('customProvider.aiGenerateHint')}
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="relative inline-flex">
                     <button
                       type="button"
                       onClick={copyCustomProviderLlmPrompt}
-                      aria-label="复制用于生成完整导入 JSON 的 LLM 提示词"
+                      aria-label={t('customProvider.copyPromptAria')}
                       onMouseEnter={() => setLlmPromptTooltipVisible(true)}
                       onMouseLeave={() => setLlmPromptTooltipVisible(false)}
                       onFocus={() => setLlmPromptTooltipVisible(true)}
@@ -2336,13 +2375,13 @@ export default function SettingsModal() {
                       className="flex items-center gap-1.5 rounded-xl bg-white px-3 py-2 text-xs font-medium text-gray-700 shadow-sm border border-gray-200/80 transition hover:bg-gray-50 hover:text-gray-900 dark:bg-white/[0.05] dark:border-white/[0.08] dark:text-gray-300 dark:hover:bg-white/[0.08] dark:hover:text-white"
                     >
                       <LinkIcon className="h-3.5 w-3.5" />
-                      复制生成提示词
+                      {t('customProvider.copyPrompt')}
                     </button>
                     <ViewportTooltip
                       visible={llmPromptTooltipVisible}
                       className="w-56 whitespace-normal text-center"
                     >
-                      生成完整的服务商和配置信息，包含模型和接口地址，导入后只需填入 API Key。
+                      {t('customProvider.copyPromptTooltip')}
                     </ViewportTooltip>
                   </span>
                   <button
@@ -2368,10 +2407,10 @@ export default function SettingsModal() {
                             d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
                           ></path>
                         </svg>
-                        导入中...
+                        {t('data.importing')}
                       </>
                     ) : (
-                      '从剪贴板粘贴并导入'
+                      t('customProvider.pasteImport')
                     )}
                   </button>
                 </div>
@@ -2380,7 +2419,7 @@ export default function SettingsModal() {
               <div className="flex-1 flex flex-col min-h-0">
                 <label className="flex-1 flex flex-col min-h-0">
                   <span className="mb-1 shrink-0 block text-xs text-gray-500 dark:text-gray-400">
-                    手动编辑 (仅接口映射 Manifest)
+                    {t('customProvider.manualEdit')}
                   </span>
                   <textarea
                     value={customProviderForm.json}
@@ -2409,14 +2448,16 @@ export default function SettingsModal() {
                 }}
                 className="rounded-xl bg-gray-100 px-4 py-2 text-sm text-gray-600 transition hover:bg-gray-200 dark:bg-white/[0.06] dark:text-gray-300 dark:hover:bg-white/[0.1]"
               >
-                取消
+                {tCommon('action.cancel')}
               </button>
               <button
                 type="button"
                 onClick={saveCustomProvider}
                 className="rounded-xl bg-blue-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-600"
               >
-                {editingCustomProviderId ? '保存修改' : '创建并使用'}
+                {editingCustomProviderId
+                  ? t('customProvider.saveEdit')
+                  : t('customProvider.createAndUse')}
               </button>
             </div>
           </div>
@@ -2450,23 +2491,23 @@ export default function SettingsModal() {
               type="button"
               onClick={() => setCopyImportUrlProfile(null)}
               className="absolute right-4 top-4 shrink-0 rounded-full p-1.5 text-gray-400 transition hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-white/[0.06] dark:hover:text-gray-200"
-              aria-label="关闭"
+              aria-label={tCommon('action.close')}
             >
               <CloseIcon className="h-5 w-5" />
             </button>
 
             <h3 className="mb-3 pr-8 flex items-start gap-2.5 text-base font-bold text-gray-800 dark:text-gray-100 leading-snug">
               <CopyIcon className="h-5 w-5 shrink-0 text-blue-500 mt-0.5" />
-              <span>复制导入配置「{copyImportUrlProfile.name}」的 URL</span>
+              <span>{t('profile.copyImportUrlFor', { name: copyImportUrlProfile.name })}</span>
             </h3>
             <div className="text-[13px] text-gray-500 dark:text-gray-400 mb-5 leading-relaxed">
-              是否包含 API Key？如果选择「不包含」，可额外配置是否使用 New API 变量。
+              {t('importUrl.question')}
             </div>
 
             {!copyImportUrlOptions.includeApiKey && (
               <div className="mb-6 rounded-2xl bg-gray-50/80 p-4 dark:bg-white/[0.03] ring-1 ring-black/5 dark:ring-white/5">
                 <div className="text-[13px] font-bold text-gray-700 dark:text-gray-300 mb-3.5">
-                  New API 变量配置
+                  {t('importUrl.newApiVars')}
                 </div>
                 <div className="space-y-3">
                   <Checkbox
@@ -2476,11 +2517,11 @@ export default function SettingsModal() {
                     }
                     label={
                       <>
-                        使用{' '}
+                        {t('importUrl.use')}{' '}
                         <code className="mx-0.5 rounded bg-gray-100 px-1.5 py-0.5 text-[0.85em] font-mono text-gray-700 dark:bg-white/[0.08] dark:text-gray-200">
                           {'{address}'}
                         </code>{' '}
-                        (不含 /v1)
+                        {t('importUrl.addressSuffix')}
                       </>
                     }
                   />
@@ -2489,7 +2530,7 @@ export default function SettingsModal() {
                     onChange={(checked) => updateCopyImportUrlOptions({ useNewApiKey: checked })}
                     label={
                       <>
-                        使用{' '}
+                        {t('importUrl.use')}{' '}
                         <code className="mx-0.5 rounded bg-gray-100 px-1.5 py-0.5 text-[0.85em] font-mono text-gray-700 dark:bg-white/[0.08] dark:text-gray-200">
                           {'{key}'}
                         </code>
@@ -2501,7 +2542,7 @@ export default function SettingsModal() {
                     onChange={(checked) => updateCopyImportUrlOptions({ useNewApiModel: checked })}
                     label={
                       <>
-                        使用{' '}
+                        {t('importUrl.use')}{' '}
                         <code className="mx-0.5 rounded bg-gray-100 px-1.5 py-0.5 text-[0.85em] font-mono text-gray-700 dark:bg-white/[0.08] dark:text-gray-200">
                           {'{model}'}
                         </code>
@@ -2520,7 +2561,7 @@ export default function SettingsModal() {
                 }}
                 className="flex-1 py-2 rounded-xl border border-gray-200 dark:border-white/[0.08] text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-white/[0.06] transition"
               >
-                不包含
+                {t('importUrl.exclude')}
               </button>
               <button
                 onClick={() => {
@@ -2529,7 +2570,7 @@ export default function SettingsModal() {
                 }}
                 className="flex-1 py-2 rounded-xl bg-blue-500 text-white text-sm font-medium hover:bg-blue-600 transition shadow-sm shadow-blue-500/20"
               >
-                包含 API Key
+                {t('importUrl.include')}
               </button>
             </div>
           </div>

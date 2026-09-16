@@ -4,6 +4,7 @@ import {
   type PromptLanguage,
   type ShotType,
 } from '@image-playground/shared'
+import { i18next } from '../../../i18n'
 import { buildShotPrompt, isRenderableShotType } from '../../../lib/shotPrompt'
 import {
   type RemixBrief,
@@ -69,7 +70,9 @@ export function buildRemixPlan({
 }: RemixPlanInput): RemixPlanned {
   const { shotType, suggestedTitle, ...rest } = brief
   if (!isRenderableShotType(shotType)) {
-    throw new Error(`${SHOT_TYPE_LABELS[shotType]}生不出来，换一张图`)
+    throw new Error(
+      i18next.t('remix.notRenderable', { ns: 'productShots', shot: SHOT_TYPE_LABELS[shotType] }),
+    )
   }
 
   const copy = { title: suggestedTitle ?? '', subtitle: rest.textZones[0] ?? '' }

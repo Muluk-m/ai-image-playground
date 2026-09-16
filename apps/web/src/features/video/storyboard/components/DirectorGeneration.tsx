@@ -7,6 +7,7 @@ import {
 import { useState } from 'react'
 import Credits from '../../../../components/Credits'
 import SubmissionBillingAction from '../../../../components/SubmissionBillingAction'
+import { describeError, useTranslation } from '../../../../i18n'
 import { videoModelOptions } from '../../../../lib/channels/videoChannels'
 import { usePrivateSubmissionGuard } from '../../../../lib/privateOverlay'
 import { useStore } from '../../../../store'
@@ -29,6 +30,7 @@ export default function DirectorGeneration({
   onLibrary: () => void
   onSubmitted: () => void
 }) {
+  const { t } = useTranslation('video')
   const [scope, setScope] = useState(initialScope)
   const [submitting, setSubmitting] = useState(false)
   const draft = useVideoStore((s) => s.draft)
@@ -55,9 +57,9 @@ export default function DirectorGeneration({
     unitMultiplier: videoRateMultiplier(draft.model, draft.resolution),
   })
   const reason = !option
-    ? '请选择可用的视频模型'
+    ? t('generation.needModel')
     : scope === 'shot' && !imageId
-      ? '请先生成当前镜头的分镜图'
+      ? t('generation.needShotImage')
       : !check.ok
         ? check.reason
         : !promptCheck.ok
@@ -74,7 +76,10 @@ export default function DirectorGeneration({
     } catch (error) {
       useStore
         .getState()
-        .showToast(error instanceof Error ? error.message : '视频提交失败，请重试', 'error')
+        .showToast(
+          error instanceof Error ? describeError(error) : t('generation.submitFailed'),
+          'error',
+        )
     } finally {
       setSubmitting(false)
     }
@@ -82,21 +87,21 @@ export default function DirectorGeneration({
   return (
     <div className="vd-stack">
       <div className="vd-row vd-between">
-        <h3>生成视频</h3>
+        <h3>{t('action.generateVideo')}</h3>
         <button type="button" onClick={onClose}>
-          返回编辑
+          {t('action.backToEdit')}
         </button>
       </div>
       <div className="vd-inset">
         <strong>{record.title}</strong>
-        <p>来源：当前分镜 · 提交时保存版本快照</p>
+        <p>{t('generation.sourceNote')}</p>
         <button type="button" onClick={onLibrary}>
-          更换分镜
+          {t('generation.changeBoard')}
         </button>
       </div>
-      <div className="vd-stack" role="group" aria-label="生成范围">
+      <div className="vd-stack" role="group" aria-label={t('generation.scopeLabel')}>
         <button type="button" aria-pressed={scope === 'whole'} onClick={() => setScope('whole')}>
-          整条视频 · {record.totalSeconds} 秒
+          {t('generation.wholeScope', { seconds: record.totalSeconds })}
         </button>
         <button
           type="button"
@@ -104,17 +109,17 @@ export default function DirectorGeneration({
           aria-pressed={scope === 'shot'}
           onClick={() => setScope('shot')}
         >
-          当前镜头 · {shot?.seconds ?? 0} 秒
+          {t('generation.shotScope', { seconds: shot?.seconds ?? 0 })}
         </button>
       </div>
       <label>
-        视频模型
+        {t('generation.modelLabel')}
         <select
-          aria-label="分镜视频模型"
+          aria-label={t('generation.modelAria')}
           value={draft.model}
           onChange={(e) => useVideoStore.getState().setModel(e.target.value)}
         >
-          {!option && <option value="">选择模型</option>}
+          {!option && <option value="">{t('generation.selectModel')}</option>}
           {options.map((item) => (
             <option key={item.modelId} value={item.modelId}>
               {item.label}
@@ -123,9 +128,9 @@ export default function DirectorGeneration({
         </select>
       </label>
       <label>
-        清晰度
+        {t('field.resolution')}
         <select
-          aria-label="分镜视频清晰度"
+          aria-label={t('generation.resolutionAria')}
           value={draft.resolution}
           onChange={(e) =>
             useVideoStore.getState().setResolution(e.target.value as typeof draft.resolution)
@@ -139,19 +144,21 @@ export default function DirectorGeneration({
         </select>
       </label>
       <p className="vd-muted">
-        {record.aspectRatio} ·{' '}
-        {imageId ? '使用首张画面作为视频首帧，其余镜头通过脚本描述' : '根据完整脚本文生视频'}
+        {t('generation.hint', {
+          aspect: record.aspectRatio,
+          mode: imageId ? t('generation.withFirstFrame') : t('generation.textOnly'),
+        })}
       </p>
       {reason && (
         <p className="vd-error" role="status">
           {reason}
         </p>
       )}
-      {saveState === 'error' && <p className="vd-error">分镜尚未保存成功；重试保存后才能生成。</p>}
+      {saveState === 'error' && <p className="vd-error">{t('generation.saveError')}</p>}
       <SubmissionBillingAction blockedAction={guard.blockedAction} />
       {guard.estimatedCredits !== undefined && (
         <div className="vd-row vd-between">
-          <span>预计积分</span>
+          <span>{t('generation.estimatedCredits')}</span>
           <Credits credits={guard.estimatedCredits} className="font-semibold" />
         </div>
       )}
@@ -168,7 +175,7 @@ export default function DirectorGeneration({
         }
         onClick={() => void submit()}
       >
-        {submitting ? '提交中…' : `生成 ${seconds} 秒视频`}
+        {submitting ? t('generation.submitting') : t('generation.submit', { seconds })}
       </button>
     </div>
   )

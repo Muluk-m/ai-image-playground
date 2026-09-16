@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react'
 import { formatElapsed, useElapsed } from '../../../hooks/useElapsed'
+import { useTranslation } from '../../../i18n'
 import { INK_3 } from '../agentStyles'
 import { type AgentActivityPhase, agentActivityPhase, useAgentStore } from '../store'
 
-const LABEL: Record<AgentActivityPhase, string> = {
-  sending: '发送中',
-  thinking: '思考中',
-  executing: '执行中',
-}
+const LABEL_KEY = {
+  sending: 'activity.sending',
+  thinking: 'activity.thinking',
+  executing: 'activity.executing',
+} as const satisfies Record<AgentActivityPhase, string>
 
 /**
  * 一轮进行中、还没有文字在流的时候，对话末尾亮一行状态：敲了回车立刻有回应，
@@ -16,6 +17,7 @@ const LABEL: Record<AgentActivityPhase, string> = {
  * 样子照 assistant-ui 的 ThinkingIndicator：脉冲的蓝点、流光扫过的标签、等宽的耗时。
  */
 export default function AgentActivity() {
+  const { t } = useTranslation('agent')
   const phase = useAgentStore((state) => agentActivityPhase(state))
   const active = phase !== null
   const [startedAt, setStartedAt] = useState<number | null>(null)
@@ -40,7 +42,7 @@ export default function AgentActivity() {
         key={phase}
         className="agent-shimmer animate-fade-in relative inline-block leading-none"
       >
-        {LABEL[phase]}
+        {t(LABEL_KEY[phase])}
       </span>
       {elapsed !== null && elapsed >= 1000 && (
         <span className="font-mono text-[10px] tabular-nums text-[#5f5f68]/70">

@@ -7,6 +7,7 @@ import {
   type ShotType,
 } from '@image-playground/shared'
 import { create } from 'zustand'
+import { i18next } from '../../i18n'
 import { analyzeCompetitorImages } from '../../lib/analyzeClient'
 import { getActiveApiProfile } from '../../lib/apiProfiles'
 import { authenticatedBffFetch } from '../../lib/authClient'
@@ -42,7 +43,7 @@ import {
 } from '../../store'
 import type { InputImage, TaskParams } from '../../types'
 import { useLibraryStore } from '../library/store'
-import { ACTION_LABELS, type ProductShotAction } from './lib/actions'
+import { actionLabels, type ProductShotAction } from './lib/actions'
 import { pendingBatchImageIds } from './lib/batch'
 import { productShotJobStore } from './lib/jobStore'
 import { matteGate } from './lib/matteGate'
@@ -56,7 +57,7 @@ import {
   type RemixPlanned,
   remixProductDescription,
 } from './lib/remixPlan'
-import { DIAGRAM_LABEL, isDiagram } from './lib/scene'
+import { diagramLabel, isDiagram } from './lib/scene'
 import {
   createSourceMattes,
   type MaskAttempt,
@@ -81,15 +82,13 @@ import type {
   SourceMode,
 } from './types'
 
-const UPLOAD_FALLBACK = '请直接上传原图'
-const NOT_SUBMITTED = '这张没有提交成功'
+// `getFixedT(null, ns)` 把命名空间钉死、语言不钉：key 受 productShots 的类型约束，
+// 每次调用仍取当前语言。手写 `Parameters<typeof i18next.t>[0]` 拿到的是全部命名空间的
+// 并集，配上 `ns` 反而对不上，key 也就失去了编译期检查。
+const t = i18next.getFixedT(null, 'productShots')
+
 /** 短边低于这个像素数就算低分辨率源图。 */
 const LOW_RES_SHORT_EDGE = 1200
-const NO_ASSET_PICKED = '请先选一张产品素材'
-const ANALYZE_OFF = '竞品图分析未开启，这张跑不了借创意重做'
-const NO_BRIEF = '这张没分析出可用的简报'
-const NO_ANGLE_MATCH = '没有与机位相符的素材，用了第一张'
-const ASSET_MISSING = '素材图片已丢失'
 
 export interface ProductShotsDraft {
   /** 已保存的任务 id；null 表示还没落盘。 */
@@ -352,7 +351,7 @@ export const useProductShotsStore = create<ProductShotsState>((set, get) => ({
     const url = get().listingUrl.trim()
     if (!url) return
     if (!isClientCapabilityEnabled('remix:listing')) {
-      set({ listingNotice: `链接抓取未开启，${UPLOAD_FALLBACK}` })
+      set({ listingNotice: t('store.listingDisabled') })
       return
     }
 
@@ -375,12 +374,19 @@ export const useProductShotsStore = create<ProductShotsState>((set, get) => ({
       pulled = added.length
       jobId = await persistDraft(set, get)
     } catch (error) {
-      set({ listingNotice: `${reasonOf(error)}，${UPLOAD_FALLBACK}` })
+      set({
+        listingNotice: i18next.t('store.listingFailed', {
+          ns: 'productShots',
+          reason: reasonOf(error),
+        }),
+      })
     } finally {
       set({ listingLoading: false, listingStartedAt: null })
     }
     if (pulled === 0 || !jobId) return
-    useStore.getState().showToast(`已拉入 ${pulled} 张`, 'success')
+    useStore
+      .getState()
+      .showToast(i18next.t('store.pulled', { ns: 'productShots', count: pulled }), 'success')
     // 预检逐张打上游，必须留在按钮复位之后：挪回 try 里图集已到齐按钮还在读秒。
     const matting = matteNewImages(jobId)
     await scanScenes(set, get, jobId)
@@ -393,7 +399,12 @@ export const useProductShotsStore = create<ProductShotsState>((set, get) => ({
         const stored = await storeImageFromFile(file, { compress: true })
         addImages(set, [{ imageId: stored.id, versions: [] }])
       } catch (error) {
-        useStore.getState().showToast(`图片添加失败：${reasonOf(error)}`, 'error')
+        useStore
+          .getState()
+          .showToast(
+            i18next.t('store.imageAddFailed', { ns: 'productShots', reason: reasonOf(error) }),
+            'error',
+          )
       }
     }
     const jobId = await persistDraft(set, get)
@@ -493,10 +504,13 @@ export const useProductShotsStore = create<ProductShotsState>((set, get) => ({
 
     if (isDiagram(image.sceneType)) {
       useStore.getState().setConfirmDialog({
-        title: '这张是示意图',
-        message: `${DIAGRAM_LABEL}。`,
-        confirmText: `仍要${ACTION_LABELS[mode]}`,
-        cancelText: '取消',
+        title: t('store.diagramTitle'),
+        message: i18next.t('store.diagramMessage', { ns: 'productShots', hint: diagramLabel() }),
+        confirmText: i18next.t('store.diagramConfirm', {
+          ns: 'productShots',
+          action: actionLabels()[mode],
+        }),
+        cancelText: i18next.t('action.cancel', { ns: 'common' }),
         showCancel: true,
         tone: 'warning',
         action: () => void swapOneVersion(set, get, jobId, image.imageId),
@@ -755,7 +769,7 @@ async function scanScenes(set: SetState, get: GetState, jobId: string): Promise<
 
 async function loadOriginal(imageId: string): Promise<string> {
   const dataUrl = await ensureImageCached(imageId)
-  if (!dataUrl) throw new Error('原图已不在本地')
+  if (!dataUrl) throw new Error(t('error.sourceGone'))
   return dataUrl
 }
 
@@ -878,19 +892,19 @@ async function loadProductAsset(
     ? (draft.productAssets.find((item) => item.assetId === reuseAssetId) ?? null)
     : matchProductAsset(cameraToAngle(camera), draft.productAssets)
   const picked = matched ?? draft.productAssets[0]
-  if (!picked) throw new Error(NO_ASSET_PICKED)
+  if (!picked) throw new Error(t('store.noAssetPicked'))
 
   const record = useLibraryStore.getState().assets.find((item) => item.id === picked.assetId)
-  if (!record) throw new Error(ASSET_MISSING)
+  if (!record) throw new Error(t('store.assetMissing'))
   // 别的设备存的素材本地还没有字节，先拉回来再读缓存。
   await ensureAssetImage(record.imageId)
   const dataUrl = await ensureImageCached(record.imageId)
-  if (!dataUrl) throw new Error(ASSET_MISSING)
+  if (!dataUrl) throw new Error(t('store.assetMissing'))
 
   return {
     assetId: picked.assetId,
     image: { id: record.imageId, dataUrl },
-    notice: matched ? null : NO_ANGLE_MATCH,
+    notice: matched ? null : t('store.noAngleMatch'),
   }
 }
 
@@ -972,13 +986,13 @@ async function planRemix(
   dataUrl: string,
   level: RemixLevel,
 ): Promise<RemixPlanned> {
-  if (!isClientCapabilityEnabled('remix:analyze')) throw new Error(ANALYZE_OFF)
+  if (!isClientCapabilityEnabled('remix:analyze')) throw new Error(t('store.analyzeOff'))
   const product = remixProductDescription(draft.product, firstAssetName(draft), draft.name)
   const [brief] = await analyzeCompetitorImages([dataUrl], {
     name: product.name,
     description: productContextDescription(product),
   })
-  if (!brief) throw new Error(NO_BRIEF)
+  if (!brief) throw new Error(t('store.noBrief'))
   return buildRemixPlan({ brief, product, level, language: draft.language })
 }
 
@@ -997,7 +1011,7 @@ async function prepareSwap(
   mode: BgSwapMode,
   reuse?: ProductShotVersion,
 ): Promise<PreparedImage> {
-  if (!draft.id) throw new Error('商品图任务已删除')
+  if (!draft.id) throw new Error(t('store.jobDeleted'))
   if (!reuse) stage('plan')
   const dataUrl = await loadOriginal(imageId)
   const planned =
@@ -1017,7 +1031,7 @@ async function prepareSwap(
     product &&
     (product.image.id === imageId || product.image.dataUrl === dataUrl)
   ) {
-    throw new Error('产品素材与原图相同，请选择另一张产品图后再换产品')
+    throw new Error(t('store.productIsSource'))
   }
 
   const side = maskSideFor(mode)
@@ -1178,7 +1192,7 @@ async function runOneOfBatch(
       ),
     )
     const versions = submitted.filter((version) => version !== null)
-    if (versions.length === 0) throw new Error(NOT_SUBMITTED)
+    if (versions.length === 0) throw new Error(t('store.notSubmitted'))
     await recordVersions(set, get, { jobId, imageId }, versions)
     patchBatchItem(set, imageId, 'done', null)
   } catch (error) {
@@ -1240,7 +1254,9 @@ async function persistDraft(set: SetState, get: GetState): Promise<string | null
   const now = Date.now()
   const record: ProductShotJob = {
     id: draft.id ?? crypto.randomUUID(),
-    name: draft.name.trim() || `商品图 ${jobs.length + 1}`,
+    name:
+      draft.name.trim() ||
+      i18next.t('store.defaultJobName', { ns: 'productShots', index: jobs.length + 1 }),
     images: draft.images,
     preference: draft.preference,
     versionsPerImage: draft.versionsPerImage,

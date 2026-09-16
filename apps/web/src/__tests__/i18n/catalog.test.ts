@@ -94,22 +94,34 @@ describe('i18n catalogs', () => {
   })
 
   it('declares every plural category each locale actually uses', () => {
-    for (const locale of SUPPORTED_LOCALES) {
-      const categories = new Intl.PluralRules(locale).resolvedOptions().pluralCategories
-      for (const namespace of I18N_NAMESPACES) {
-        const paths = leafPaths(catalog(locale, namespace))
-        const bases = new Set(
-          paths.filter((path) => PLURAL_SUFFIX.test(path)).map(withoutPluralSuffix),
-        )
+    for (const namespace of I18N_NAMESPACES) {
+      const pathsByLocale = new Map(
+        SUPPORTED_LOCALES.map((locale) => [locale, leafPaths(catalog(locale, namespace))]),
+      )
+      // 复数 base 取两种语言的并集。只按各自的 base 找会漏掉一种不对称：一边写了
+      // `x_one`/`x_other`，另一边写成无后缀的单条 `x`。这种情况前两条断言都抓不到
+      // （剥掉后缀后 base 一样），但运行时缺后缀那一边查 `x_other` 会落空。
+      const bases = new Set(
+        [...pathsByLocale.values()]
+          .flat()
+          .filter((path) => PLURAL_SUFFIX.test(path))
+          .map(withoutPluralSuffix),
+      )
+      for (const locale of SUPPORTED_LOCALES) {
+        const categories = [
+          ...new Intl.PluralRules(locale).resolvedOptions().pluralCategories,
+        ].sort()
+        const paths = pathsByLocale.get(locale) ?? []
         for (const base of bases) {
           const present = paths
             .filter((path) => withoutPluralSuffix(path) === base)
             .map((path) => path.slice(base.length + 1))
             .sort()
-          expect({ locale, base, present }).toEqual({
+          expect({ namespace, locale, base, present }).toEqual({
+            namespace,
             locale,
             base,
-            present: [...categories].sort(),
+            present: categories,
           })
         }
       }

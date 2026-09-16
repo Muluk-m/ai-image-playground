@@ -9,7 +9,8 @@ import {
   PRIMARY_BUTTON,
 } from '../../../components/panelStyles'
 import Segmented from '../../../components/Segmented'
-import { actionLabel, PROMPT_LANGUAGE_LABELS } from '../lib/actions'
+import { useTranslation } from '../../../i18n'
+import { actionLabel, promptLanguageLabels } from '../lib/actions'
 import { changesBackground } from '../lib/mode'
 import { formatTextList, parseTextList } from '../lib/remixPlan'
 import type { VersionPlanPatch } from '../lib/versionPlan'
@@ -20,15 +21,15 @@ import PlanReferences from './PlanReferences'
 import TextField from './TextField'
 
 const BADGE = 'rounded px-1.5 py-0.5 text-xs'
-const NO_BOX = '方案没框出产品'
-const BOX_SIDES: Array<{ key: keyof ProductBox; label: string }> = [
-  { key: 'x', label: '产品框左' },
-  { key: 'y', label: '产品框上' },
-  { key: 'w', label: '产品框宽' },
-  { key: 'h', label: '产品框高' },
-]
+const BOX_SIDES = [
+  { key: 'x', labelKey: 'plan.box.x' },
+  { key: 'y', labelKey: 'plan.box.y' },
+  { key: 'w', labelKey: 'plan.box.w' },
+  { key: 'h', labelKey: 'plan.box.h' },
+] as const satisfies ReadonlyArray<{ key: keyof ProductBox; labelKey: string }>
 
 export default function PlanDrawer() {
+  const { t } = useTranslation(['productShots', 'common'])
   const versionId = useProductShotsStore((s) => s.planVersionId)
   const found = useProductShotsStore(
     useShallow((s) => {
@@ -61,17 +62,19 @@ export default function PlanDrawer() {
         className="fixed inset-x-0 bottom-0 flex max-h-[85vh] flex-col rounded-t-2xl border border-gray-200/70 bg-white shadow-2xl animate-modal-in dark:border-white/[0.08] dark:bg-gray-900 sm:inset-y-0 sm:left-auto sm:right-0 sm:max-h-none sm:w-[26rem] sm:rounded-none sm:rounded-l-2xl"
       >
         <div className="flex flex-wrap items-center gap-2 border-b border-gray-200/70 p-4 dark:border-white/[0.08]">
-          <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100">方案</h3>
+          <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100">
+            {t('plan.title')}
+          </h3>
           <span className={`${BADGE} bg-violet-500/10 text-violet-700 dark:text-violet-300`}>
             {actionLabel(version.mode, version.level)}
           </span>
           {version.promptEdited && (
             <span className={`${BADGE} bg-amber-500/10 text-amber-700 dark:text-amber-300`}>
-              手改
+              {t('tag.edited')}
             </span>
           )}
           <button type="button" onClick={closePlanDrawer} className={`ml-auto ${GHOST_BUTTON}`}>
-            收起
+            {t('common:action.collapse')}
           </button>
         </div>
 
@@ -79,11 +82,11 @@ export default function PlanDrawer() {
           <PlanReferences imageId={imageId} version={version} />
 
           <div className="flex items-center gap-2">
-            <span className={LABEL}>文案语言</span>
+            <span className={LABEL}>{t('plan.textLanguage')}</span>
             <Segmented
-              label="文案语言"
+              label={t('plan.textLanguage')}
               options={PROMPT_LANGUAGES}
-              labels={PROMPT_LANGUAGE_LABELS}
+              labels={promptLanguageLabels()}
               value={language}
               onChange={setPromptLanguage}
             />
@@ -97,19 +100,19 @@ export default function PlanDrawer() {
 
           <div>
             <div className="flex items-center gap-2">
-              <span className={LABEL}>提示词</span>
+              <span className={LABEL}>{t('plan.prompt')}</span>
               {version.promptEdited && (
                 <button
                   type="button"
                   onClick={() => resetVersionPrompt(version.id)}
                   className={GHOST_BUTTON}
                 >
-                  重置为 AI 版本
+                  {t('plan.resetPrompt')}
                 </button>
               )}
             </div>
             <textarea
-              aria-label="提示词"
+              aria-label={t('plan.prompt')}
               value={version.prompt}
               rows={10}
               onChange={(e) => edit({ prompt: e.target.value })}
@@ -125,10 +128,10 @@ export default function PlanDrawer() {
             disabled={busy}
             className={PRIMARY_BUTTON}
           >
-            按此重生成
+            {t('plan.regenerate')}
           </button>
           <button type="button" onClick={closePlanDrawer} className={OUTLINE_BUTTON}>
-            关闭
+            {t('common:action.close')}
           </button>
         </div>
       </div>
@@ -142,6 +145,7 @@ interface FieldsProps {
 }
 
 function RemixBriefFields({ version, onEdit }: FieldsProps) {
+  const { t } = useTranslation('productShots')
   const brief = version.brief
   if (!brief) return null
   const copy = version.copy ?? { title: '', subtitle: '' }
@@ -149,45 +153,45 @@ function RemixBriefFields({ version, onEdit }: FieldsProps) {
   return (
     <div className="grid gap-3 sm:grid-cols-2">
       <TextField
-        label="构图"
+        label={t('plan.field.composition')}
         value={brief.composition}
         onChange={(composition) => onEdit({ brief: { composition } })}
       />
       <TextField
-        label="机位"
+        label={t('plan.field.camera')}
         value={brief.camera}
         onChange={(camera) => onEdit({ brief: { camera } })}
       />
       <TextField
-        label="光线"
+        label={t('plan.field.lighting')}
         value={brief.lighting}
         onChange={(lighting) => onEdit({ brief: { lighting } })}
       />
       <TextField
-        label="背景"
+        label={t('plan.field.background')}
         value={brief.background}
         onChange={(background) => onEdit({ brief: { background } })}
       />
       <TextField
         // 不受控，所以换版本时要靠 key 重挂。
         key={`props-${version.id}`}
-        label="道具"
+        label={t('plan.field.props')}
         defaultValue={formatTextList(brief.props)}
         onChange={(text) => onEdit({ brief: { props: parseTextList(text) } })}
       />
       <TextField
         key={`palette-${version.id}`}
-        label="配色"
+        label={t('plan.field.palette')}
         defaultValue={formatTextList(brief.palette)}
         onChange={(text) => onEdit({ brief: { palette: parseTextList(text) } })}
       />
       <TextField
-        label="标题"
+        label={t('plan.field.title')}
         value={copy.title}
         onChange={(title) => onEdit({ copy: { title } })}
       />
       <TextField
-        label="副标题"
+        label={t('plan.field.subtitle')}
         value={copy.subtitle}
         onChange={(subtitle) => onEdit({ copy: { subtitle } })}
       />
@@ -196,6 +200,7 @@ function RemixBriefFields({ version, onEdit }: FieldsProps) {
 }
 
 function SwapPlanFields({ version, onEdit }: FieldsProps) {
+  const { t } = useTranslation('productShots')
   const box = version.productBox
 
   return (
@@ -210,9 +215,9 @@ function SwapPlanFields({ version, onEdit }: FieldsProps) {
             onChange={(inventory) => onEdit({ inventory })}
           />
           <div>
-            <span className={LABEL}>方案句</span>
+            <span className={LABEL}>{t('plan.sentence')}</span>
             <textarea
-              aria-label="方案句"
+              aria-label={t('plan.sentence')}
               value={version.plan}
               rows={3}
               onChange={(e) => onEdit({ plan: e.target.value })}
@@ -222,7 +227,7 @@ function SwapPlanFields({ version, onEdit }: FieldsProps) {
         </>
       )}
       <div>
-        <span className={LABEL}>产品框</span>
+        <span className={LABEL}>{t('plan.productBox')}</span>
         {box ? (
           <div className="mt-1 grid grid-cols-4 gap-2">
             {BOX_SIDES.map((side) => (
@@ -232,7 +237,7 @@ function SwapPlanFields({ version, onEdit }: FieldsProps) {
                 step="0.01"
                 min="0"
                 max="1"
-                aria-label={side.label}
+                aria-label={t(side.labelKey)}
                 defaultValue={box[side.key]}
                 onChange={(e) =>
                   onEdit({ productBox: { ...box, [side.key]: Number(e.target.value) } })
@@ -242,7 +247,7 @@ function SwapPlanFields({ version, onEdit }: FieldsProps) {
             ))}
           </div>
         ) : (
-          <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">{NO_BOX}</p>
+          <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">{t('plan.noBox')}</p>
         )}
       </div>
     </div>

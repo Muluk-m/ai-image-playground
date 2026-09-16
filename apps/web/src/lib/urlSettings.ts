@@ -1,3 +1,4 @@
+import { i18next } from '../i18n'
 import type { ApiMode, AppSettings } from '../types'
 import {
   createDefaultOpenAIByokProfile,
@@ -111,7 +112,7 @@ export function buildSettingsFromUrlParams(
 
     const profile: UserByokProfile = createDefaultOpenAIByokProfile({
       id: createUrlProfileId(new Set(settings.profiles.map((item) => item.id))),
-      name: 'URL 参数配置',
+      name: i18next.t('profile.urlParamName', { ns: 'lib' }),
       apiKey,
       ...(baseUrl ? { baseUrl } : {}),
       models: [model],

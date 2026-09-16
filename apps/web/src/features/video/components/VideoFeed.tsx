@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { CARD, FIELD } from '../../../components/panelStyles'
+import { useTranslation } from '../../../i18n'
 import { ALL_FILTER, filterVideoTasks, videoFeedFilters } from '../lib/feed'
 import { useVideoStore } from '../store'
 import { ACTIVE_CHIP, CHIP, IDLE_CHIP } from './chipStyles'
@@ -7,6 +8,7 @@ import VideoCard from './VideoCard'
 import VideoLightbox from './VideoLightbox'
 
 export default function VideoFeed() {
+  const { t } = useTranslation('video')
   const tasks = useVideoStore((s) => s.tasks)
   const [query, setQuery] = useState('')
   const [filterId, setFilterId] = useState(ALL_FILTER)
@@ -28,11 +30,11 @@ export default function VideoFeed() {
           type="search"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          aria-label="搜索描述"
-          placeholder="搜索描述"
+          aria-label={t('feed.searchLabel')}
+          placeholder={t('feed.searchLabel')}
           className={`${FIELD} w-full max-w-xs`}
         />
-        <div role="group" aria-label="结果筛选" className="flex flex-wrap gap-1.5">
+        <div role="group" aria-label={t('feed.filterLabel')} className="flex flex-wrap gap-1.5">
           {filters.map((filter) => (
             <button
               key={filter.id}
@@ -49,7 +51,7 @@ export default function VideoFeed() {
 
       {visible.length === 0 ? (
         <p className="text-sm text-gray-500 dark:text-gray-400">
-          {tasks.length === 0 ? '还没有生成过视频' : '没有匹配的结果'}
+          {tasks.length === 0 ? t('feed.empty') : t('feed.noMatch')}
         </p>
       ) : (
         <ul className="grid grid-cols-2 gap-3 lg:grid-cols-3">

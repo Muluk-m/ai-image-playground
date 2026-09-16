@@ -1,0 +1,75 @@
+{
+  "toolbar": {
+    "toolTitle": "{{label}}（{{hotkey}}）",
+    "tool": {
+      "select": "选择",
+      "hand": "抓手",
+      "pen": "画笔",
+      "eraser": "橡皮",
+      "arrow": "箭头",
+      "text": "文字"
+    },
+    "undo": "撤销（⌘Z）",
+    "redo": "重做（⌘⇧Z）",
+    "duplicate": "复制一份（⌘D）",
+    "deleteSelected": "删除所选（Del）",
+    "zoomOut": "缩小",
+    "zoomIn": "放大",
+    "resetZoom": "重置为 100%"
+  },
+  "shortcuts": {
+    "title": "快捷键速查",
+    "collapse": "收起快捷键",
+    "expand": "查看快捷键",
+    "row": {
+      "copyPaste": "复制 / 粘贴",
+      "delete": "删除",
+      "selectAll": "全选 / 加选",
+      "duplicate": "复制一份",
+      "undoRedo": "撤销 / 重做",
+      "selectHand": "选择 / 抓手",
+      "penEraser": "画笔 / 橡皮",
+      "arrowText": "箭头 / 文字",
+      "zoomPan": "缩放 / 临时抓手",
+      "freeDrag": "拖动禁用吸附",
+      "submitBack": "发起生成 / 回画布"
+    },
+    "key": {
+      "click": "点击",
+      "wheel": "滚轮",
+      "drag": "拖动"
+    }
+  },
+  "generate": {
+    "hintAnnotated_other": "已选中 {{count}} 张图片 + 手绘标注 · 将按标注迭代（输出不含标注线条）",
+    "hintSelected_other": "已选中 {{count}} 张图片 · 各自作为独立参考图迭代",
+    "hintEmpty": "未选中图片时为文生图；选中图片后可在图上手绘标注一起迭代",
+    "inputAlt": "输入 {{index}}",
+    "previewPending": "预览生成中…",
+    "annotationHint": "文字标注 → 修改要求：{{text}}",
+    "promptPlaceholder": "描述想生成 / 想怎么改…（⌘/Ctrl + Enter 生成）"
+  },
+  "submit": {
+    "blocked": "当前无法生成",
+    "rasterizeFailed": "选中图片处理失败，请重试",
+    "emptyInput": "请输入提示词，或先在画布上选中图片",
+    "inputsLost": "原任务的输入图已随页面关闭丢失，请重新选中图片后发起生成"
+  },
+  "placeholder": {
+    "generating": "生成中…",
+    "failed": "生成失败",
+    "stale": "任务失效",
+    "noImages": "生成完成但未返回图片",
+    "unconfirmed": "任务未确认，请手动重试",
+    "byokUnrecoverable": "BYOK 任务无法跨会话恢复，请重试"
+  },
+  "style": {
+    "color": "标注颜色 {{color}}"
+  },
+  "minimap": {
+    "label": "画布小地图"
+  },
+  "videoOverlay": {
+    "play": "播放"
+  }
+}

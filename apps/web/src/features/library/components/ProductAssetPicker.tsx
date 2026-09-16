@@ -1,5 +1,6 @@
 import { useRef } from 'react'
 import { FIELD, OUTLINE_BUTTON } from '../../../components/panelStyles'
+import { useTranslation } from '../../../i18n'
 import {
   PRODUCT_ANGLE_LABELS,
   PRODUCT_ANGLES,
@@ -27,6 +28,7 @@ export default function ProductAssetPicker({
   onAngleChange,
   onUpload,
 }: ProductAssetPickerProps) {
+  const { t } = useTranslation('library')
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const angleOf = (assetId: string): ProductAngle | null =>
@@ -42,7 +44,9 @@ export default function ProductAssetPicker({
         >
           {uploadLabel}
         </button>
-        <span className="text-xs text-gray-400 dark:text-gray-500">已选 {selected.length} 张</span>
+        <span className="text-xs text-gray-400 dark:text-gray-500">
+          {t('picker.selectedCount', { count: selected.length })}
+        </span>
         <input
           ref={fileInputRef}
           type="file"
@@ -58,7 +62,7 @@ export default function ProductAssetPicker({
       </div>
 
       {assets.length === 0 ? (
-        <p className="text-sm text-gray-500 dark:text-gray-400">素材库还是空的</p>
+        <p className="text-sm text-gray-500 dark:text-gray-400">{t('picker.empty')}</p>
       ) : (
         <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           {assets.map((asset) => {
@@ -86,7 +90,7 @@ export default function ProductAssetPicker({
                   <select
                     value={angle}
                     data-angle-for={asset.id}
-                    aria-label={`${asset.name} 角度`}
+                    aria-label={t('picker.angleLabel', { name: asset.name })}
                     onChange={(e) => onAngleChange(asset.id, e.target.value as ProductAngle)}
                     className={FIELD}
                   >

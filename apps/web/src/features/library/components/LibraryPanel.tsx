@@ -5,6 +5,7 @@ import { CloseIcon, LibraryIcon } from '../../../components/icons'
 import Overlay from '../../../components/Overlay'
 import { useImageDropZone } from '../../../hooks/useImageDropZone'
 import { usePasteImageFiles } from '../../../hooks/usePasteImageFiles'
+import { useTranslation } from '../../../i18n'
 import {
   type LibraryTab,
   selectVisibleAssets,
@@ -17,12 +18,13 @@ import NewAssetButton from './NewAssetButton'
 import TemplateCard from './TemplateCard'
 import TemplateDetail from './TemplateDetail'
 
-const TABS: Array<{ id: LibraryTab; label: string }> = [
-  { id: 'assets', label: '素材' },
-  { id: 'templates', label: '模板' },
+const TABS: Array<{ id: LibraryTab; labelKey: 'panel.tabAssets' | 'panel.tabTemplates' }> = [
+  { id: 'assets', labelKey: 'panel.tabAssets' },
+  { id: 'templates', labelKey: 'panel.tabTemplates' },
 ]
 
 export default function LibraryPanel() {
+  const { t } = useTranslation(['library', 'common'])
   const panelOpen = useLibraryStore((s) => s.panelOpen)
   const closePanel = useLibraryStore((s) => s.closePanel)
   const tab = useLibraryStore((s) => s.tab)
@@ -54,7 +56,7 @@ export default function LibraryPanel() {
         </div>
       )
     }
-    if (assetCount > 0) return <NoMatch label="没有匹配的素材" />
+    if (assetCount > 0) return <NoMatch label={t('panel.noMatchAssets')} />
     return <AssetsEmpty onImport={openFilePicker} />
   }
 
@@ -68,7 +70,7 @@ export default function LibraryPanel() {
         </div>
       )
     }
-    if (templateCount > 0) return <NoMatch label="没有匹配的模板" />
+    if (templateCount > 0) return <NoMatch label={t('panel.noMatchTemplates')} />
     return <TemplatesEmpty />
   }
 
@@ -78,7 +80,7 @@ export default function LibraryPanel() {
         <div className="flex shrink-0 items-center justify-between gap-3 border-b border-gray-100 p-5 dark:border-white/[0.08]">
           <h3 className="flex shrink-0 items-center gap-2 text-lg font-bold text-gray-800 dark:text-gray-100">
             <LibraryIcon className="h-5 w-5 text-blue-500" />
-            素材与模板
+            {t('panel.title')}
           </h3>
 
           <div className="relative w-full max-w-xs">
@@ -86,7 +88,9 @@ export default function LibraryPanel() {
               type="search"
               value={searchKeyword}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder={tab === 'templates' ? '搜索模板名' : '搜索素材名'}
+              placeholder={
+                tab === 'templates' ? t('panel.searchTemplates') : t('panel.searchAssets')
+              }
               className="w-full rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-800 placeholder:text-gray-400 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100 dark:border-white/[0.08] dark:bg-white/[0.04] dark:text-gray-100 dark:focus:border-blue-500/50 dark:focus:ring-blue-500/15"
             />
           </div>
@@ -95,14 +99,14 @@ export default function LibraryPanel() {
             type="button"
             onClick={closePanel}
             className="shrink-0 rounded-full p-1 text-gray-400 transition hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-white/[0.06] dark:hover:text-gray-200"
-            aria-label="关闭"
+            aria-label={t('common:action.close')}
           >
             <CloseIcon className="h-5 w-5" />
           </button>
         </div>
 
         <div className="flex shrink-0 items-center gap-1 border-b border-gray-100 px-5 py-2 dark:border-white/[0.08]">
-          {TABS.map(({ id, label }) => (
+          {TABS.map(({ id, labelKey }) => (
             <button
               key={id}
               type="button"
@@ -114,7 +118,7 @@ export default function LibraryPanel() {
                   : 'text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-white/[0.04]'
               }`}
             >
-              {label}
+              {t(labelKey)}
               {counts[id] > 0 && (
                 <span className="ml-1.5 text-xs text-gray-400 dark:text-gray-500">
                   {counts[id]}
@@ -151,7 +155,7 @@ export default function LibraryPanel() {
             <div className="custom-scrollbar min-h-0 flex-1 overflow-y-auto p-5">
               {renderAssets()}
             </div>
-            {dragging && <DropOverlay label="松开即存为素材" />}
+            {dragging && <DropOverlay label={t('panel.dropToSave')} />}
           </div>
         )}
       </div>

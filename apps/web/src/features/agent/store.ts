@@ -10,6 +10,7 @@ import type {
 } from '@image-playground/shared'
 import { AGENT_TURN_MAX_N, agentMessageText } from '@image-playground/shared'
 import { create } from 'zustand'
+import { i18next } from '../../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../lib/apiProfiles'
 import { AGENT_CONVERSATION_KEY, safeLocalStorage, scopedStorageName } from '../../lib/authScope'
 import { useStore } from '../../store'
@@ -37,9 +38,10 @@ import type {
   AgentTurnStatus,
 } from './types'
 
-const TURN_FAILED = '这一轮没有跑完'
-const TURN_RATE_LIMITED = '发送太频繁，稍后再试'
-const CONVERSATION_UNREADABLE = '这个会话读不回来，稍后再试'
+// 文案按调用时取，不在模块加载时定死：切语言之后新出的报错要跟着换语言。
+const TURN_FAILED = () => i18next.t('error.turnFailed', { ns: 'agent' })
+const TURN_RATE_LIMITED = () => i18next.t('error.rateLimited', { ns: 'agent' })
+const CONVERSATION_UNREADABLE = () => i18next.t('error.conversationUnreadable', { ns: 'agent' })
 
 const RECONNECT_DELAYS_MS = [0, 500, 2_000, 5_000]
 
@@ -150,7 +152,7 @@ export function answerableClarificationId(messages: readonly AgentPanelMessage[]
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
-const failPatch = (state: AgentState, message = TURN_FAILED) => ({
+const failPatch = (state: AgentState, message = TURN_FAILED()) => ({
   turn: 'failed' as const,
   activeTurn: null,
   error: message,
@@ -357,7 +359,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
           if (!turnDelivery.isCurrent()) return
           if (thrown instanceof AgentRequestError && thrown.status === 404) break
           if (thrown instanceof AgentRequestError && thrown.status === 429) {
-            fail(TURN_RATE_LIMITED)
+            fail(TURN_RATE_LIMITED())
             return
           }
         }
@@ -393,7 +395,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
       const gone =
         thrown instanceof AgentRequestError && (thrown.status === 404 || thrown.status === 403)
       if (gone) get().startNewConversation()
-      else fail(CONVERSATION_UNREADABLE)
+      else fail(CONVERSATION_UNREADABLE())
       return
     }
     set({

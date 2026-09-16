@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { i18next } from '../../../i18n'
 import { getActiveApiProfile, normalizeSettings } from '../../../lib/apiProfiles'
 import { scopedStorageName } from '../../../lib/authScope'
 import { getImageDimensions } from '../../../lib/canvasImage'
@@ -17,6 +18,11 @@ import {
   workflowParams,
 } from './plan'
 import { renderKitImage } from './render'
+
+// `getFixedT(null, ns)` 把命名空间钉死、语言不钉：key 受 productShots 的类型约束，
+// 每次调用仍取当前语言。手写 `Parameters<typeof i18next.t>[0]` 拿到的是全部命名空间的
+// 并集，配上 `ns` 反而对不上，key 也就失去了编译期检查。
+const t = i18next.getFixedT(null, 'productShots')
 
 export interface WorkflowTarget {
   jobId: string
@@ -80,19 +86,19 @@ export function workflowSource(target: WorkflowTarget) {
       ? state.draft.images
       : state.jobs.find((j) => j.id === target.jobId)?.images
   const image = images?.find((i) => i.imageId === target.imageId)
-  if (!image) throw new Error('原图或商品图任务已删除')
+  if (!image) throw new Error(t('workspace.error.jobGone'))
   const version = target.versionId
     ? image.versions.find((v) => v.id === target.versionId)
     : undefined
   const task = version ? useStore.getState().tasks.find((t) => t.id === version.taskId) : undefined
   if (target.versionId && (!version || task?.status !== 'done' || !task.outputImages[0]))
-    throw new Error('请先选一张已完成的版本')
+    throw new Error(t('workspace.error.pickDoneVersion'))
   return { image, version, task, sourceImageId: task?.outputImages[0] ?? target.imageId }
 }
 
 async function inputImage(id: string): Promise<InputImage> {
   const dataUrl = await ensureImageCached(id)
-  if (!dataUrl) throw new Error('来源图片已丢失，请重新导入')
+  if (!dataUrl) throw new Error(t('workspace.error.sourceLost'))
   return { id, dataUrl }
 }
 async function editMask(image: InputImage, spec: WorkflowSpec) {
@@ -102,7 +108,7 @@ async function editMask(image: InputImage, spec: WorkflowSpec) {
   canvas.width = width
   canvas.height = height
   const context = canvas.getContext('2d')
-  if (!context) throw new Error('无法创建修改区域')
+  if (!context) throw new Error(t('workspace.error.maskFailed'))
   context.fillStyle = '#fff'
   context.fillRect(0, 0, width, height)
   const { x, y, w, h } = spec.box
@@ -118,8 +124,8 @@ export async function submitProductWorkflow(
 ): Promise<void> {
   await withSubmission(async (scope) => {
     const model = workflowModels().find((m) => m.key === modelKey)
-    if (!model) throw new Error('请先选择可用的图片模型')
-    if (specs.length === 0 || specs.length > 6) throw new Error('请选择 1 到 6 张图片')
+    if (!model) throw new Error(t('workspace.error.pickModel'))
+    if (specs.length === 0 || specs.length > 6) throw new Error(t('workspace.error.countRange'))
     specs.forEach(buildWorkflowPrompt)
     const source = workflowSource(target)
     const { version, task } = source
@@ -178,7 +184,7 @@ async function submitRecipes(
       mask,
       origin: { setId: target.jobId, shotId: `${target.imageId}:${id}` },
     })
-    if (!taskId) throw new Error('生成未提交，请检查模型配置或积分')
+    if (!taskId) throw new Error(t('workspace.error.notSubmitted'))
     if (scopedStorageName('workflow') !== scope) break
     const version: ProductShotVersion = {
       id,

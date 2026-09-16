@@ -15,17 +15,19 @@ import {
 import Segmented from '../../../components/Segmented'
 import { useImageDropZone } from '../../../hooks/useImageDropZone'
 import { usePasteImageFiles } from '../../../hooks/usePasteImageFiles'
+import { useTranslation } from '../../../i18n'
 import { isClientCapabilityEnabled } from '../../../lib/clientCapabilities'
 import { sourceMatteBadge } from '../lib/matteBadge'
-import { DIAGRAM_LABEL, isDiagram } from '../lib/scene'
+import { diagramLabel, isDiagram } from '../lib/scene'
 import { useProductShotsStore } from '../store'
-import { SOURCE_MODE_LABELS, SOURCE_MODES } from '../types'
+import { SOURCE_MODES, sourceModeLabels } from '../types'
 import BadgeTag from './BadgeTag'
 import IconButton from './IconButton'
 import MattedThumb from './MattedThumb'
 import SourceLibraryPicker from './SourceLibraryPicker'
 
 export default function SourcePanel() {
+  const { t } = useTranslation('productShots')
   const images = useProductShotsStore(useShallow((s) => s.draft.images))
   const selectedImageId = useProductShotsStore((s) => s.selectedImageId)
   const sourcePickerOpen = useProductShotsStore((s) => s.sourcePickerOpen)
@@ -60,14 +62,16 @@ export default function SourcePanel() {
   return (
     <section data-product-shots-column="sources" className={CARD}>
       <div className="mb-3 flex items-baseline gap-2">
-        <h2 className={PANEL_TITLE}>原图</h2>
-        <span className="text-xs text-gray-400 dark:text-gray-500">{images.length} 张</span>
+        <h2 className={PANEL_TITLE}>{t('source.original')}</h2>
+        <span className="text-xs text-gray-400 dark:text-gray-500">
+          {t('source.count', { count: images.length })}
+        </span>
       </div>
 
       <Segmented
-        label="图片来源"
+        label={t('source.modeLabel')}
         options={offered}
-        labels={SOURCE_MODE_LABELS}
+        labels={sourceModeLabels()}
         value={sourceMode}
         onChange={setSourceMode}
       />
@@ -75,7 +79,7 @@ export default function SourcePanel() {
       {sourceMode === 'listing' && (
         <div className="mt-3">
           <label className={LABEL} htmlFor="product-shots-listing-url">
-            商品链接
+            {t('source.listingUrl')}
           </label>
           <div className="mt-1.5 flex flex-col gap-2">
             <input
@@ -92,9 +96,9 @@ export default function SourcePanel() {
               className={PRIMARY_BUTTON}
             >
               {listingLoading ? (
-                <Pending label="抓取中" startedAt={listingStartedAt} />
+                <Pending label={t('source.fetching')} startedAt={listingStartedAt} />
               ) : (
-                '抓取图集'
+                t('source.fetchGallery')
               )}
             </button>
           </div>
@@ -105,7 +109,7 @@ export default function SourcePanel() {
       {sourceMode === 'upload' && (
         <div className="mt-3">
           <button type="button" onClick={openFilePicker} className={`w-full ${OUTLINE_BUTTON}`}>
-            上传原图
+            {t('source.upload')}
           </button>
         </div>
       )}
@@ -116,7 +120,7 @@ export default function SourcePanel() {
         accept="image/*"
         multiple
         hidden
-        aria-label="上传原图"
+        aria-label={t('source.upload')}
         onChange={(e) => {
           void importFiles([...(e.target.files ?? [])])
           e.target.value = ''
@@ -126,7 +130,7 @@ export default function SourcePanel() {
       {sourceMode === 'library' && (
         <div className="mt-3">
           <button type="button" onClick={openSourcePicker} className={`w-full ${OUTLINE_BUTTON}`}>
-            从素材库选原图
+            {t('source.pickFromLibrary')}
           </button>
         </div>
       )}
@@ -140,7 +144,7 @@ export default function SourcePanel() {
             onClick={openFilePicker}
             className="w-full rounded-xl border border-dashed border-gray-300 px-3 py-8 text-xs text-gray-500 transition hover:border-blue-400 hover:text-blue-600 dark:border-white/[0.15] dark:text-gray-400 dark:hover:border-blue-500/50"
           >
-            拖入图片，或点击上传
+            {t('source.dropHint')}
           </button>
         ) : (
           <ul className="flex max-h-96 flex-col gap-1.5 overflow-y-auto">
@@ -160,16 +164,16 @@ export default function SourcePanel() {
                     <MattedThumb
                       imageId={image.imageId}
                       overlayImageId={image.sourceMatte?.previewImageId}
-                      alt={`原图 ${index + 1}`}
+                      alt={t('source.label', { index: index + 1 })}
                     />
                   </span>
                   <span className="flex min-w-0 flex-col gap-0.5">
                     <span className="truncate text-xs text-gray-700 dark:text-gray-200">
-                      原图 {index + 1}
+                      {t('source.label', { index: index + 1 })}
                     </span>
                     {isDiagram(image.sceneType) && (
                       <span className="truncate rounded bg-amber-500/10 px-1 py-0.5 text-[11px] text-amber-700 dark:text-amber-300">
-                        {DIAGRAM_LABEL}
+                        {diagramLabel()}
                       </span>
                     )}
                     <BadgeTag
@@ -180,7 +184,7 @@ export default function SourcePanel() {
                 </button>
                 <IconButton
                   onClick={() => removeImage(image.imageId)}
-                  label={`移除原图 ${index + 1}`}
+                  label={t('source.remove', { index: index + 1 })}
                   className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-full bg-black/45 p-1 text-white transition hover:bg-black/65"
                 >
                   <CloseIcon className="h-3 w-3" />
@@ -189,7 +193,7 @@ export default function SourcePanel() {
             ))}
           </ul>
         )}
-        {dragging && <DropOverlay label="松开即上传" />}
+        {dragging && <DropOverlay label={t('source.dropToUpload')} />}
       </div>
     </section>
   )

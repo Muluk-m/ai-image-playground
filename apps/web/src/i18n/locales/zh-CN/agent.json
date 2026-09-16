@@ -1,0 +1,85 @@
+{
+  "label": {
+    "chat": "对话",
+    "layers": "图层"
+  },
+  "panel": {
+    "untitled": "未命名",
+    "noConversations": "还没有会话",
+    "noMessages": "还没有对话",
+    "deleteConversationAria": "删除会话 {{name}}",
+    "deleteConversationTitle": "删除会话",
+    "deleteConversationMessage": "确定删除「{{name}}」吗？这段对话不再出现在列表里。",
+    "resizeAria": "拖动调整面板宽度",
+    "resizeTitle": "拖动调整宽度",
+    "collapseAria": "收起面板",
+    "backToChat": "返回对话",
+    "history": "历史会话",
+    "newConversationAria": "新对话",
+    "sessionTotal": "本次会话"
+  },
+  "tool": {
+    "stageSubmitted": "已排队",
+    "preparing": "准备中",
+    "notFinished": "没有完成",
+    "delivering": "产物已生成，正在放入画布…",
+    "offCanvas": "产物不在当前画布上，可以再放入。",
+    "deliveryFailed": "产物已生成，但放入画布失败，可以重试。",
+    "locateTitle": "在画布上定位这些产物",
+    "place": "放入画布"
+  },
+  "layers": {
+    "empty": "画布还是空的",
+    "selectAria": "选中图层 {{name}}",
+    "typeImage": "图片",
+    "typeFreedraw": "画笔",
+    "typeArrow": "箭头",
+    "typeText": "文字",
+    "typeVideo": "视频"
+  },
+  "cost": {
+    "duration": "本轮耗时 {{duration}}",
+    "free": "本轮免费，未扣积分",
+    "spent": "消耗",
+    "image": "生图",
+    "video": "生视频"
+  },
+  "composer": {
+    "placeholder": "说一句你想做什么，@ 引用画布或素材",
+    "editorAria": "对智能体说",
+    "drawMaskAria": "给参考图 {{label}} 画遮罩",
+    "editMaskAria": "修改参考图 {{label}} 的遮罩",
+    "removeReferenceAria": "移除参考图 {{label}}",
+    "abort": "中止",
+    "interject": "插话",
+    "send": "发送"
+  },
+  "params": {
+    "title": "生成参数",
+    "autoSize": "自动尺寸",
+    "imageCount_other": "{{count}} 张",
+    "note": "改完下一轮生效，跑着的这一轮按起轮时的参数走。"
+  },
+  "mentions": {
+    "canvasImage": "画布图{{index}}",
+    "headingReferences": "本次参考图",
+    "headingCanvas": "画布",
+    "headingAssets": "素材"
+  },
+  "activity": {
+    "sending": "发送中",
+    "thinking": "思考中",
+    "executing": "执行中"
+  },
+  "clarification": {
+    "answered": "已回答"
+  },
+  "delivery": {
+    "generateFailed": "生成失败"
+  },
+  "error": {
+    "turnFailed": "这一轮没有跑完",
+    "rateLimited": "发送太频繁，稍后再试",
+    "conversationUnreadable": "这个会话读不回来，稍后再试"
+  }
+}

@@ -1,13 +1,14 @@
 import { useShallow } from 'zustand/react/shallow'
 import Pending from '../../../components/Pending'
 import { CARD, GHOST_BUTTON, OUTLINE_BUTTON, PRIMARY_BUTTON } from '../../../components/panelStyles'
+import { useTranslation } from '../../../i18n'
 import { batchDoneCount, pendingBatchImageIds, skippedDiagramImageIds } from '../lib/batch'
 import { sourceMatteBadge } from '../lib/matteBadge'
 import { useProductShotsStore } from '../store'
 import {
-  PRODUCT_SHOT_BATCH_STATE_LABELS,
-  PRODUCT_SHOT_STAGE_LABELS,
   type ProductShotBatchItemState,
+  productShotBatchStateLabels,
+  productShotStageLabels,
 } from '../types'
 import BadgeTag from './BadgeTag'
 
@@ -19,6 +20,7 @@ const STATE_STYLES: Record<ProductShotBatchItemState, string> = {
 }
 
 export default function BatchBar() {
+  const { t } = useTranslation('productShots')
   const images = useProductShotsStore(useShallow((s) => s.draft.images))
   const selectedImageId = useProductShotsStore((s) => s.selectedImageId)
   const swapStage = useProductShotsStore((s) => s.swapStage)
@@ -39,13 +41,20 @@ export default function BatchBar() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-gray-700 dark:text-gray-200">
           {running
-            ? `批量 ${batchDoneCount(batch.items)}/${batch.items.length}${
-                current ? ` · 原图 ${orderOf(current.imageId)}` : ''
-              }`
-            : `对剩下的 ${remaining.length} 张全部按同样方式跑`}
+            ? current
+              ? t('batch.progressCurrent', {
+                  done: batchDoneCount(batch.items),
+                  total: batch.items.length,
+                  index: orderOf(current.imageId),
+                })
+              : t('batch.progress', {
+                  done: batchDoneCount(batch.items),
+                  total: batch.items.length,
+                })
+            : t('batch.remaining', { count: remaining.length })}
           {!running && skipped.length > 0 && (
             <span className="ml-2 text-xs text-amber-700 dark:text-amber-300">
-              已跳过 {skipped.length} 张示意图
+              {t('batch.skipped', { count: skipped.length })}
             </span>
           )}
         </p>
@@ -53,7 +62,7 @@ export default function BatchBar() {
           {running && (
             <span className="text-xs text-gray-500 dark:text-gray-400">
               <Pending
-                label={batch.stage ? PRODUCT_SHOT_STAGE_LABELS[batch.stage] : '批量中'}
+                label={batch.stage ? productShotStageLabels()[batch.stage] : t('batch.running')}
                 startedAt={batch.startedAt}
               />
             </span>
@@ -65,7 +74,7 @@ export default function BatchBar() {
               disabled={batch.stopRequested}
               className={OUTLINE_BUTTON}
             >
-              {batch.stopRequested ? '本张跑完即停' : '停止'}
+              {batch.stopRequested ? t('batch.stopAfterCurrent') : t('batch.stop')}
             </button>
           ) : (
             <button
@@ -74,7 +83,7 @@ export default function BatchBar() {
               disabled={remaining.length === 0 || swapStage !== null}
               className={PRIMARY_BUTTON}
             >
-              批量跑
+              {t('batch.run')}
             </button>
           )}
         </div>
@@ -88,9 +97,11 @@ export default function BatchBar() {
               data-product-shots-batch-item
               className="flex flex-wrap items-center gap-2 text-xs"
             >
-              <span className="text-gray-700 dark:text-gray-200">原图 {orderOf(item.imageId)}</span>
+              <span className="text-gray-700 dark:text-gray-200">
+                {t('source.label', { index: orderOf(item.imageId) })}
+              </span>
               <span className={STATE_STYLES[item.state]}>
-                {PRODUCT_SHOT_BATCH_STATE_LABELS[item.state]}
+                {productShotBatchStateLabels()[item.state]}
               </span>
               <BadgeTag
                 badge={sourceMatteBadge(matteOf(item.imageId), matting.includes(item.imageId))}
@@ -108,7 +119,7 @@ export default function BatchBar() {
                   disabled={running}
                   className={GHOST_BUTTON}
                 >
-                  重跑这张
+                  {t('batch.retryOne')}
                 </button>
               )}
             </li>

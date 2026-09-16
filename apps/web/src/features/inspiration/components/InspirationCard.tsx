@@ -1,5 +1,6 @@
 import type { KeyboardEvent, MouseEvent } from 'react'
 import { StarIcon } from '../../../components/icons'
+import { useTranslation } from '../../../i18n'
 import { useStore } from '../../../store'
 import type { InspirationItem } from '../types'
 
@@ -16,6 +17,7 @@ interface Props {
  */
 export default function InspirationCard({ item, pinned, onClick }: Props) {
   const togglePin = useStore((s) => s.toggleInspirationPin)
+  const { t } = useTranslation('inspiration')
 
   const handlePinClick = (e: MouseEvent<HTMLButtonElement>) => {
     e.stopPropagation()
@@ -35,7 +37,7 @@ export default function InspirationCard({ item, pinned, onClick }: Props) {
       tabIndex={0}
       onClick={onClick}
       onKeyDown={handleKeyDown}
-      title={`${item.title}\n推荐模型：${item.recommendedModel}`}
+      title={t('card.titleHint', { title: item.title, model: item.recommendedModel })}
       className="group relative flex w-full cursor-pointer flex-col overflow-hidden rounded-2xl border border-gray-200/60 bg-gray-50/40 text-left transition-all duration-300 hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-blue-400/60 dark:border-white/[0.06] dark:bg-white/[0.02] dark:hover:border-blue-500/40 dark:hover:shadow-blue-500/10"
     >
       <div className="relative aspect-[3/4] overflow-hidden bg-gray-200 dark:bg-white/[0.05]">
@@ -54,7 +56,7 @@ export default function InspirationCard({ item, pinned, onClick }: Props) {
           type="button"
           onClick={handlePinClick}
           aria-pressed={pinned}
-          aria-label={pinned ? '取消置顶' : '置顶'}
+          aria-label={pinned ? t('card.unpin') : t('card.pin')}
           className={`absolute right-2 top-2 inline-flex h-7 w-7 items-center justify-center rounded-full backdrop-blur-sm transition-all duration-200 ${
             pinned
               ? 'bg-amber-400/90 text-white opacity-100 shadow-sm'

@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react'
+import { useTranslation } from '../../../i18n'
 import { type CanvasEditor, STATUS_ACCENT } from '../lib/editor'
 import { retryCanvasTask } from '../lib/submitFromCanvas'
 
@@ -9,6 +10,7 @@ import { retryCanvasTask } from '../lib/submitFromCanvas'
  * 位置随相机 scroll / zoom 实时换算，内容用 scale(zoom) 与页面坐标系同步缩放。
  */
 export default function PlaceholderOverlay({ editor }: { editor: CanvasEditor }) {
+  const { t } = useTranslation(['canvas', 'common'])
   useSyncExternalStore(editor.doc.subscribe, () => editor.doc.version)
   const { camera } = editor.doc
   const placeholders = editor.getPlaceholders()
@@ -62,12 +64,12 @@ export default function PlaceholderOverlay({ editor }: { editor: CanvasEditor })
                       animation: 'canvas-placeholder-spin 0.8s linear infinite',
                     }}
                   />
-                  <span>生成中…</span>
+                  <span>{t('placeholder.generating')}</span>
                 </>
               ) : (
                 <>
                   <span style={{ color: accent, fontWeight: 600 }}>
-                    {p.status === 'error' ? '生成失败' : '任务失效'}
+                    {p.status === 'error' ? t('placeholder.failed') : t('placeholder.stale')}
                   </span>
                   {p.message && (
                     <span style={{ maxWidth: '100%', wordBreak: 'break-word' }}>{p.message}</span>
@@ -91,7 +93,7 @@ export default function PlaceholderOverlay({ editor }: { editor: CanvasEditor })
                         pointerEvents: 'all',
                       }}
                     >
-                      重试
+                      {t('common:action.retry')}
                     </button>
                   )}
                 </>

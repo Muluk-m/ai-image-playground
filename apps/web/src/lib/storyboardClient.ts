@@ -3,12 +3,13 @@ import {
   type StoryboardPlan,
   type StoryboardPlanRequest,
 } from '@image-playground/shared'
+import { i18next } from '../i18n'
 import { authenticatedBffFetch } from './authClient'
 import { bffBaseUrl } from './runtimeConfig'
 
 type Fetcher = (input: string, init?: RequestInit) => Promise<Response>
 
-const UNAVAILABLE = '分镜脚本没有生成成功'
+const unavailable = (): string => i18next.t('bffClient.storyboardUnavailable', { ns: 'lib' })
 
 export async function planStoryboard(
   request: StoryboardPlanRequest,
@@ -20,7 +21,7 @@ export async function planStoryboard(
     body: JSON.stringify(request),
   })
   const plan = response.ok ? parsePlan(await response.json(), request) : null
-  if (!plan) throw new Error(UNAVAILABLE)
+  if (!plan) throw new Error(unavailable())
   return plan
 }
 

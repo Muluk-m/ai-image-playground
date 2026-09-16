@@ -1,18 +1,24 @@
 import { zipSync } from 'fflate'
+import { i18next } from '../../../i18n'
 import { downloadBlob, imageDataUrl } from '../../../lib/downloadImages'
 import { sanitizePathSegment } from '../../../lib/imageExport'
 import type { ProductShotVersion } from '../types'
 import { KIT_FORMATS } from './plan'
 
+// `getFixedT(null, ns)` 把命名空间钉死、语言不钉：key 受 productShots 的类型约束，
+// 每次调用仍取当前语言。手写 `Parameters<typeof i18next.t>[0]` 拿到的是全部命名空间的
+// 并集，配上 `ns` 反而对不上，key 也就失去了编译期检查。
+const t = i18next.getFixedT(null, 'productShots')
+
 export async function renderKitImage(imageId: string, version: ProductShotVersion): Promise<Blob> {
   const spec = version.workflow?.spec
-  if (spec?.kind !== 'kit') throw new Error('这不是派生图片')
+  if (spec?.kind !== 'kit') throw new Error(t('kit.error.notKit'))
   const src = await imageDataUrl(imageId)
-  if (!src) throw new Error('图片已丢失')
+  if (!src) throw new Error(t('kit.error.imageGone'))
   const image = await new Promise<HTMLImageElement>((resolve, reject) => {
     const img = new Image()
     img.onload = () => resolve(img)
-    img.onerror = () => reject(new Error('图片解码失败'))
+    img.onerror = () => reject(new Error(t('kit.error.decodeFailed')))
     img.src = src
   })
   const [width, height] = KIT_FORMATS[spec.format].size.split('x').map(Number)
@@ -20,7 +26,7 @@ export async function renderKitImage(imageId: string, version: ProductShotVersio
   canvas.width = width
   canvas.height = height
   const ctx = canvas.getContext('2d')
-  if (!ctx) throw new Error('无法导出图片')
+  if (!ctx) throw new Error(t('kit.error.exportUnavailable'))
   ctx.fillStyle = '#f2eee6'
   ctx.fillRect(0, 0, width, height)
   const scale = Math.min(width / image.naturalWidth, height / image.naturalHeight),
@@ -50,7 +56,10 @@ export async function renderKitImage(imageId: string, version: ProductShotVersio
     )
   }
   return new Promise((resolve, reject) =>
-    canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error('导出失败'))), 'image/png'),
+    canvas.toBlob(
+      (blob) => (blob ? resolve(blob) : reject(new Error(t('kit.error.exportFailed')))),
+      'image/png',
+    ),
   )
 }
 export async function downloadKit(
@@ -66,7 +75,7 @@ export async function downloadKit(
       await blob.arrayBuffer(),
     )
   }
-  if (!Object.keys(files).length) throw new Error('没有已完成的派生图')
+  if (!Object.keys(files).length) throw new Error(t('kit.error.nothingDone'))
   downloadBlob(
     new Blob([new Uint8Array(zipSync(files)).buffer], { type: 'application/zip' }),
     `${sanitizePathSegment(name)}.zip`,

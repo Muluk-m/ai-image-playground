@@ -1,0 +1,86 @@
+{
+  "label": {
+    "chat": "Chat",
+    "layers": "Layers"
+  },
+  "panel": {
+    "untitled": "Untitled",
+    "noConversations": "No conversations yet",
+    "noMessages": "No messages yet",
+    "deleteConversationAria": "Delete conversation {{name}}",
+    "deleteConversationTitle": "Delete conversation",
+    "deleteConversationMessage": "Delete “{{name}}”? It will no longer appear in the list.",
+    "resizeAria": "Drag to resize the panel",
+    "resizeTitle": "Drag to resize",
+    "collapseAria": "Collapse panel",
+    "backToChat": "Back to chat",
+    "history": "History",
+    "newConversationAria": "New chat",
+    "sessionTotal": "This session"
+  },
+  "tool": {
+    "stageSubmitted": "Queued",
+    "preparing": "Preparing",
+    "notFinished": "Did not finish",
+    "delivering": "Generated, adding to the canvas…",
+    "offCanvas": "Not on the current canvas. You can add it again.",
+    "deliveryFailed": "Generated, but could not be added to the canvas. You can retry.",
+    "locateTitle": "Find these results on the canvas",
+    "place": "Add to canvas"
+  },
+  "layers": {
+    "empty": "The canvas is empty",
+    "selectAria": "Select layer {{name}}",
+    "typeImage": "Image",
+    "typeFreedraw": "Brush",
+    "typeArrow": "Arrow",
+    "typeText": "Text",
+    "typeVideo": "Video"
+  },
+  "cost": {
+    "duration": "Took {{duration}}",
+    "free": "Free turn, no credits used",
+    "spent": "Used",
+    "image": "Image",
+    "video": "Video"
+  },
+  "composer": {
+    "placeholder": "Say what you want, @ for canvas or assets",
+    "editorAria": "Message the agent",
+    "drawMaskAria": "Draw a mask on {{label}}",
+    "editMaskAria": "Edit the mask on {{label}}",
+    "removeReferenceAria": "Remove reference image {{label}}",
+    "abort": "Stop",
+    "interject": "Interject",
+    "send": "Send"
+  },
+  "params": {
+    "title": "Generation settings",
+    "autoSize": "Auto size",
+    "imageCount_one": "{{count}} image",
+    "imageCount_other": "{{count}} images",
+    "note": "Changes apply to the next turn. The running turn keeps the settings it started with."
+  },
+  "mentions": {
+    "canvasImage": "Canvas {{index}}",
+    "headingReferences": "Reference images",
+    "headingCanvas": "Canvas",
+    "headingAssets": "Assets"
+  },
+  "activity": {
+    "sending": "Sending",
+    "thinking": "Thinking",
+    "executing": "Running"
+  },
+  "clarification": {
+    "answered": "Answered"
+  },
+  "delivery": {
+    "generateFailed": "Generation failed"
+  },
+  "error": {
+    "turnFailed": "This turn did not finish",
+    "rateLimited": "Too many messages. Try again shortly.",
+    "conversationUnreadable": "Could not load this conversation. Try again shortly."
+  }
+}

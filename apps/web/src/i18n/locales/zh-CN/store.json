@@ -1,0 +1,73 @@
+{
+  "appMode": {
+    "browse": "工作台",
+    "create": "创作",
+    "product": "商品图",
+    "video": "视频"
+  },
+  "task": {
+    "interrupted": "请求中断",
+    "timeout": "请求超时：超过 {{timeoutSeconds}} 秒仍未完成，请稍后重试或提高超时时间。",
+    "profileMissing": "找不到此任务所使用的 API 配置。",
+    "inputImageMissing": "输入图片已不存在",
+    "maskImageMissing": "遮罩图片已不存在",
+    "customDisconnected": "与自定义异步任务的连接已断开，之后会继续查询任务结果。"
+  },
+  "profile": {
+    "unknown": "未知配置"
+  },
+  "codexCli": {
+    "title": "检测到 Codex CLI API",
+    "message": "{{reason}}，当前 API 来源很可能是 Codex CLI。\n\n是否开启 Codex CLI 兼容模式？开启后会禁用在此处无效的质量参数，并在 Images API 多图生成时使用并发请求，解决该 API 数量参数无效的问题。提示词防改写由输入栏参数中的「防改写」开关控制（默认开启）。",
+    "confirm": "开启"
+  },
+  "networkHint": {
+    "proxyDown": "提示：请求立即失败，请检查 API 代理服务是否正常运行。",
+    "cors": "提示：接口可能不支持浏览器跨域请求，可开启 API 代理解决。",
+    "reverseProxy60s": "提示：请求等待约 60 秒后被断开，这通常是 Nginx 等反向代理的默认超时，而非接口本身报错。可调大代理的超时时间（如 proxy_read_timeout），或降低图片尺寸/质量后重试。",
+    "cdn120s": "提示：请求等待约 120 秒后被断开，这通常是 Cloudflare 等 CDN/网关的超时限制，而非接口本身报错。如果使用 Cloudflare，可考虑升级套餐或使用不经过 CDN 的直连地址。",
+    "generic": "提示：请求等待较长时间后被断开，通常是反向代理或网关的超时限制，而非接口本身报错。可检查代理超时设置，或降低图片尺寸/质量后重试。"
+  },
+  "submit": {
+    "modelUnavailable": "所选模型或配置已不可用，请重新选择",
+    "builtinOnly": "当前部署只允许使用内置模型",
+    "invalidProfile": "请先完善请求 API 配置：{{reason}}",
+    "promptRequired": "请输入提示词",
+    "blocked": "当前无法生成",
+    "slotUnfilled": "槽位 {{slot}} 未填值",
+    "batchLimit": "单次最多 {{max}} 张"
+  },
+  "reuseProfile": {
+    "missingTitle": "找不到 API 配置",
+    "missingMessage": "找不到复用任务所使用的 API 配置「{{taskProfile}}」，要使用当前的 API 配置「{{currentProfile}}」提交任务吗？",
+    "confirm": "使用当前配置提交",
+    "cancel": "放弃提交"
+  },
+  "mask": {
+    "fullTitle": "确认编辑整张图片？",
+    "fullMessage": "当前遮罩覆盖了整张图片，提交后可能会重绘全部内容。是否继续？",
+    "fullConfirm": "继续提交"
+  },
+  "error": {
+    "manifestMissing": "ZIP 中缺少 manifest.json",
+    "notAnImage": "不是有效的图片"
+  },
+  "toast": {
+    "openaiTimeout": "OpenAI 任务请求超时",
+    "generateDone_other": "生成完成，共 {{count}} 张图片",
+    "customTaskRecovered_other": "自定义异步任务已恢复，共 {{count}} 张图片",
+    "profileReused": "已临时复用该任务的 API 配置「{{profile}}」",
+    "configReused": "已复用配置到输入框",
+    "imageMissingForEdit": "图片已不存在，无法编辑",
+    "imageMissingForCanvas": "图片已不存在，无法送入画布",
+    "tasksDeleted_other": "已删除 {{count}} 条记录",
+    "taskDeleted": "记录已删除",
+    "dataCleared": "所选数据已清空",
+    "exported": "数据已导出",
+    "exportFailed": "导出失败：{{reason}}",
+    "imported": "数据已成功导入",
+    "importedTasks_other": "已导入 {{count}} 条记录",
+    "importedConfig": "配置已成功导入",
+    "importFailed": "导入失败：{{reason}}"
+  }
+}

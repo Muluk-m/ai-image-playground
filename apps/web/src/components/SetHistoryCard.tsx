@@ -1,4 +1,5 @@
 import AssetThumb from '../features/library/components/AssetThumb'
+import { useTranslation } from '../i18n'
 import type { TaskRecord } from '../types'
 
 const PREVIEW_LIMIT = 4
@@ -17,6 +18,7 @@ export default function SetHistoryCard({
   expanded: boolean
   onToggle: () => void
 }) {
+  const { t } = useTranslation(['task', 'common'])
   const done = tasks.filter((task) => task.status === 'done').length
   const failed = tasks.filter((task) => task.status === 'error').length
   const previews = tasks.flatMap((task) => task.outputImages).slice(0, PREVIEW_LIMIT)
@@ -43,8 +45,8 @@ export default function SetHistoryCard({
             </div>
           )}
           <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-            完成 {done}/{tasks.length}
-            {failed > 0 ? ` · 失败 ${failed}` : ''}
+            {t('set.doneCount', { done, total: tasks.length })}
+            {failed > 0 ? ` · ${t('set.failedCount', { failed })}` : ''}
           </p>
         </div>
         <button
@@ -53,7 +55,7 @@ export default function SetHistoryCard({
           aria-expanded={expanded}
           className="shrink-0 rounded-lg px-2 py-1 text-xs text-blue-600 transition hover:bg-blue-500/10 dark:text-blue-300"
         >
-          {expanded ? '收起' : '展开查看'}
+          {expanded ? t('common:action.collapse') : t('set.expandToView')}
         </button>
       </div>
 
@@ -64,7 +66,7 @@ export default function SetHistoryCard({
               key={imageId}
               className="aspect-square overflow-hidden rounded-lg border border-gray-200 dark:border-white/[0.08]"
             >
-              <AssetThumb imageId={imageId} alt={`${name} 结果`} />
+              <AssetThumb imageId={imageId} alt={t('set.resultAlt', { name })} />
             </div>
           ))}
         </div>

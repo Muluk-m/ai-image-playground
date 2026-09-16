@@ -1,3 +1,4 @@
+import { i18next } from '../../../i18n'
 import { type ExportEntry, type ExportFit, sanitizePathSegment } from '../../../lib/imageExport'
 import type { TaskRecord } from '../../../types'
 import type { ProductShotImage, ProductShotVersion } from '../types'
@@ -24,7 +25,12 @@ export interface GalleryRow {
 
 export const EXPORT_SCOPES = ['chosen', 'all'] as const
 export type ExportScope = (typeof EXPORT_SCOPES)[number]
-export const EXPORT_SCOPE_LABELS: Record<ExportScope, string> = { chosen: '选用版', all: '全部版' }
+export function exportScopeLabels(): Record<ExportScope, string> {
+  return {
+    chosen: i18next.t('gallery.scope.chosen', { ns: 'productShots' }),
+    all: i18next.t('gallery.scope.all', { ns: 'productShots' }),
+  }
+}
 
 /** 出过版本的原图才进总览，一张一行。 */
 export function galleryRows(
@@ -89,7 +95,9 @@ export function exportBlockedReason(
   count: number,
 ): string | null {
   if (count > 0) return null
-  return scope === 'chosen' && !hasChosen ? '未选用版本' : '暂无成图'
+  return scope === 'chosen' && !hasChosen
+    ? i18next.t('gallery.blocked.notChosen', { ns: 'productShots' })
+    : i18next.t('gallery.blocked.empty', { ns: 'productShots' })
 }
 
 export function shotFileName(imageIndex: number, versionIndex: number, imageOffset = 0): string {

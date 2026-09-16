@@ -1,6 +1,7 @@
 import { Fragment, type PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef } from 'react'
 import Credits from '../../../components/Credits'
 import { PlusIcon, TrashIcon } from '../../../components/icons'
+import { useTranslation } from '../../../i18n'
 import { useStore } from '../../../store'
 import type { CanvasDoc } from '../../canvas/lib/canvasDoc'
 import type { CanvasEditor } from '../../canvas/lib/editor'
@@ -33,13 +34,12 @@ import AgentToolCard from './AgentToolCard'
 import AgentTurnCost from './AgentTurnCost'
 
 const TABS = [
-  { id: 'chat', label: '对话' },
-  { id: 'layers', label: '图层' },
+  { id: 'chat', labelKey: 'label.chat' },
+  { id: 'layers', labelKey: 'label.layers' },
 ] as const
 
-const UNTITLED = '未命名'
-
 function ConversationList({ onPick }: { onPick: () => void }) {
+  const { t } = useTranslation('agent')
   const conversations = useAgentStore((state) => state.conversations)
   const conversationId = useAgentStore((state) => state.conversationId)
   const running = useAgentStore((state) => state.turn === 'running')
@@ -47,13 +47,13 @@ function ConversationList({ onPick }: { onPick: () => void }) {
   const setConfirmDialog = useStore((state) => state.setConfirmDialog)
 
   if (conversations.length === 0) {
-    return <p className={`px-3 text-xs ${INK_3}`}>还没有会话</p>
+    return <p className={`px-3 text-xs ${INK_3}`}>{t('panel.noConversations')}</p>
   }
 
   return (
     <div className="flex flex-col gap-0.5 px-2">
       {conversations.map((one) => {
-        const name = one.title || UNTITLED
+        const name = one.title || t('panel.untitled')
         return (
           <div
             key={one.id}
@@ -72,12 +72,12 @@ function ConversationList({ onPick }: { onPick: () => void }) {
             </button>
             <button
               type="button"
-              aria-label={`删除会话 ${name}`}
+              aria-label={t('panel.deleteConversationAria', { name })}
               className={`${ICON_BUTTON} opacity-0 group-hover:opacity-100`}
               onClick={() =>
                 setConfirmDialog({
-                  title: '删除会话',
-                  message: `确定删除「${name}」吗？这段对话不再出现在列表里。`,
+                  title: t('panel.deleteConversationTitle'),
+                  message: t('panel.deleteConversationMessage', { name }),
                   tone: 'danger',
                   action: () => void deleteConversation(one.id),
                 })
@@ -93,6 +93,7 @@ function ConversationList({ onPick }: { onPick: () => void }) {
 }
 
 function CollapsedButton({ onOpen }: { onOpen: () => void }) {
+  const { t } = useTranslation('agent')
   return (
     <button
       type="button"
@@ -100,7 +101,7 @@ function CollapsedButton({ onOpen }: { onOpen: () => void }) {
       style={{ left: PANEL_MARGIN, top: PANEL_MARGIN }}
       className={`absolute z-[400] rounded-xl px-3 py-1.5 text-xs ${PANEL_SURFACE} ${PANEL_SHADOW} text-[#e8e8ea]`}
     >
-      对话
+      {t('label.chat')}
     </button>
   )
 }
@@ -115,6 +116,7 @@ function renderMessage(message: AgentPanelMessage, answerableId: string | null) 
 }
 
 export default function AgentPanel({ doc, editor }: { doc: CanvasDoc; editor: CanvasEditor }) {
+  const { t } = useTranslation('agent')
   const open = useAgentStore((state) => state.open)
   const tab = useAgentStore((state) => state.tab)
   const messages = useAgentStore((state) => state.messages)
@@ -176,8 +178,8 @@ export default function AgentPanel({ doc, editor }: { doc: CanvasDoc; editor: Ca
       <div
         role="separator"
         aria-orientation="vertical"
-        aria-label="拖动调整面板宽度"
-        title="拖动调整宽度"
+        aria-label={t('panel.resizeAria')}
+        title={t('panel.resizeTitle')}
         onPointerDown={startResize}
         className="absolute -right-1.5 top-6 bottom-6 z-10 w-3 cursor-col-resize touch-none rounded-full transition-colors hover:bg-blue-500/40 active:bg-blue-500/60"
       />
@@ -190,13 +192,13 @@ export default function AgentPanel({ doc, editor }: { doc: CanvasDoc; editor: Ca
               onClick={() => setTab(one.id)}
               className={`${TAB} ${(one.id === 'chat' ? tab !== 'layers' : tab === one.id) ? ACTIVE_TAB : IDLE_TAB}`}
             >
-              {one.label}
+              {t(one.labelKey)}
             </button>
           ))}
         </div>
         <button
           type="button"
-          aria-label="收起面板"
+          aria-label={t('panel.collapseAria')}
           className={ICON_BUTTON}
           onClick={() => setOpen(false)}
         >
@@ -226,11 +228,11 @@ export default function AgentPanel({ doc, editor }: { doc: CanvasDoc; editor: Ca
               void refreshConversations()
             }}
           >
-            {tab === 'history' ? '返回对话' : '历史会话'}
+            {tab === 'history' ? t('panel.backToChat') : t('panel.history')}
           </button>
           <button
             type="button"
-            aria-label="新对话"
+            aria-label={t('panel.newConversationAria')}
             className={ICON_BUTTON}
             onClick={() => {
               setTab('chat')
@@ -255,7 +257,7 @@ export default function AgentPanel({ doc, editor }: { doc: CanvasDoc; editor: Ca
           ref={logRef}
           className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto px-3 py-1"
         >
-          {messages.length === 0 && <p className={`text-xs ${INK_3}`}>还没有对话</p>}
+          {messages.length === 0 && <p className={`text-xs ${INK_3}`}>{t('panel.noMessages')}</p>}
           {messages.map((message, index) => {
             // 页脚跟在本轮最后一条消息后面，所以只在下一条换了轮时渲染。
             const footer =
@@ -274,7 +276,7 @@ export default function AgentPanel({ doc, editor }: { doc: CanvasDoc; editor: Ca
 
       {tab === 'chat' && sessionCredits !== null && (
         <div className={`flex shrink-0 items-center justify-between px-3 pb-1 ${CARD_NOTE}`}>
-          <span>本次会话</span>
+          <span>{t('panel.sessionTotal')}</span>
           <Credits credits={sessionCredits} />
         </div>
       )}

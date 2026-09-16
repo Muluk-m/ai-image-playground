@@ -1,10 +1,11 @@
+import { i18next } from '../i18n'
 import type { InputImage } from '../types'
 
 export type MaskCoverage = 'empty' | 'partial' | 'full'
 
 export function validateMaskTarget(inputImages: InputImage[], targetImageId: string): InputImage {
   const target = inputImages.find((img) => img.id === targetImageId)
-  if (!target) throw new Error('遮罩主图已不存在，请重新选择遮罩区域')
+  if (!target) throw new Error(i18next.t('mask.baseImageMissing', { ns: 'lib' }))
   return target
 }
 
@@ -44,6 +45,6 @@ export function classifyMaskAlpha(imageData: Pick<ImageData, 'data'>): MaskCover
 
 export function assertUsableMaskCoverage(coverage: MaskCoverage): void {
   if (coverage === 'empty') {
-    throw new Error('请先涂抹需要编辑的区域')
+    throw new Error(i18next.t('mask.emptySelection', { ns: 'lib' }))
   }
 }

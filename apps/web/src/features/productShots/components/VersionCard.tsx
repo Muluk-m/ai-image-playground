@@ -1,11 +1,12 @@
 import type { ExportPreset } from '@image-playground/shared'
 import { DownloadIcon, ZoomIcon } from '../../../components/icons'
+import { useTranslation } from '../../../i18n'
 import { downloadBlob } from '../../../lib/downloadImages'
 import { downloadExportedImage, type ExportFit } from '../../../lib/imageExport'
 import { useStore } from '../../../store'
 import AssetThumb from '../../library/components/AssetThumb'
 import { type GalleryVersion, shotFileName } from '../lib/gallery'
-import { VERSION_STATE_LABELS } from '../lib/versionProgress'
+import { versionStateLabels } from '../lib/versionProgress'
 import { useProductShotsStore } from '../store'
 import { renderKitImage } from '../workflows/render'
 import { closeWorkflow, retryProductWorkflow } from '../workflows/runtime'
@@ -43,6 +44,7 @@ export default function VersionCard({
   onChoose: () => void
   onRetry: () => void
 }) {
+  const { t } = useTranslation(['productShots', 'common'])
   const showToast = useStore((s) => s.showToast)
   const matteOverlayVersionId = useProductShotsStore((s) => s.matteOverlayVersionId)
   const toggleMatteOverlay = useProductShotsStore((s) => s.toggleMatteOverlay)
@@ -50,7 +52,10 @@ export default function VersionCard({
   const selectImage = useProductShotsStore((s) => s.selectImage)
   const previewVersion = useProductShotsStore((s) => s.previewVersion)
   const [first] = item.outputImageIds
-  const label = `原图 ${item.imageIndex + 1} 第 ${item.versionIndex + 1} 版`
+  const label = t('version.cardLabel', {
+    image: item.imageIndex + 1,
+    version: item.versionIndex + 1,
+  })
   const matte = item.version.mattePreviewImageId
   const overlaid = matte !== undefined && matteOverlayVersionId === item.version.id
 
@@ -76,7 +81,7 @@ export default function VersionCard({
           data-product-shots-preview
           onClick={preview}
           onDoubleClick={() => first && onOpen(first)}
-          aria-label={`预览${label}`}
+          aria-label={t('version.preview', { label })}
           className="block h-full w-full"
         >
           {overlaid ? (
@@ -94,7 +99,7 @@ export default function VersionCard({
             )
           ) : (
             <span className="flex h-full items-center justify-center text-xs text-gray-400 dark:text-gray-500">
-              {VERSION_STATE_LABELS[item.state]}
+              {versionStateLabels()[item.state]}
             </span>
           )}
         </button>
@@ -104,7 +109,7 @@ export default function VersionCard({
               data-product-shots-choose
               onClick={onChoose}
               aria-pressed={item.chosen}
-              label={item.chosen ? '取消选用' : '用这版'}
+              label={item.chosen ? t('version.unchoose') : t('version.choose')}
               className={`absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full border transition ${
                 item.chosen
                   ? 'border-blue-500 bg-blue-500 text-white'
@@ -116,7 +121,7 @@ export default function VersionCard({
             <IconButton
               data-product-shots-zoom
               onClick={() => onOpen(first)}
-              label="放大查看"
+              label={t('version.zoom')}
               className="absolute bottom-1 right-1 flex h-6 w-6 items-center justify-center rounded-full bg-black/45 text-white opacity-0 transition hover:bg-black/70 group-hover:opacity-100 group-focus-within:opacity-100 [@media(pointer:coarse)]:opacity-100"
             >
               <ZoomIcon className="h-3.5 w-3.5" />
@@ -132,7 +137,7 @@ export default function VersionCard({
         {!item.version.workflow && (
           <IconButton
             onClick={() => openPlanDrawer(item.version.id)}
-            label="查看方案"
+            label={t('version.viewPlan')}
             className={VERSION_ICON_BUTTON}
           >
             <PlanIcon className="h-4 w-4" />
@@ -142,7 +147,7 @@ export default function VersionCard({
           <IconButton
             onClick={() => toggleMatteOverlay(item.version.id)}
             aria-pressed={overlaid}
-            label="看蒙版"
+            label={t('version.viewMask')}
             className={`${VERSION_ICON_BUTTON} ${overlaid ? 'bg-blue-500/10 text-blue-600 dark:text-blue-300' : ''}`}
           >
             <MatteIcon className="h-4 w-4" />
@@ -164,9 +169,11 @@ export default function VersionCard({
                 first,
                 fit,
                 preset,
-              ).catch((error: unknown) => showToast(`下载失败：${reasonOf(error)}`, 'error'))
+              ).catch((error: unknown) =>
+                showToast(t('version.downloadFailedReason', { reason: reasonOf(error) }), 'error'),
+              )
             }}
-            label="下载"
+            label={t('common:action.download')}
             className={VERSION_ICON_BUTTON}
           >
             <DownloadIcon className="h-4 w-4" />
@@ -182,7 +189,7 @@ export default function VersionCard({
                 ).catch((e) => showToast(String(e), 'error'))
               else onRetry()
             }}
-            label="重跑"
+            label={t('version.retry')}
             className={VERSION_ICON_BUTTON}
           >
             <RetryIcon className="h-4 w-4" />

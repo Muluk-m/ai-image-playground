@@ -1,0 +1,100 @@
+{
+  "action": {
+    "rename": "Rename"
+  },
+  "panel": {
+    "title": "Assets and templates",
+    "tabAssets": "Assets",
+    "tabTemplates": "Templates",
+    "searchAssets": "Search asset names",
+    "searchTemplates": "Search template names",
+    "noMatchAssets": "No matching assets",
+    "noMatchTemplates": "No matching templates",
+    "dropToSave": "Drop to save as an asset"
+  },
+  "asset": {
+    "new": "New asset",
+    "unsynced": "Unsynced",
+    "useAsFirstFrame": "First frame",
+    "addAsReference": "Add reference",
+    "zoom": "Zoom in",
+    "makeVideo": "Make a video",
+    "deleted": "Asset deleted",
+    "deleteTitle": "Delete asset",
+    "deleteMessage": "Delete the asset “{{name}}”? The image itself is kept."
+  },
+  "template": {
+    "apply": "Apply",
+    "viewDetail": "View details",
+    "menuHeading": "Templates",
+    "paramSize": "Size",
+    "paramQuality": "Quality",
+    "paramCount": "Count",
+    "paramCountValue_one": "{{count}} image",
+    "paramCountValue_other": "{{count}} images",
+    "deleteTitle": "Delete template",
+    "deleteMessage": "Delete the template “{{name}}”?",
+    "replaceTitle": "Replace the current input?",
+    "replaceMessage": "The prompt, reference images and params of the template “{{name}}” will overwrite your current input.",
+    "replaceConfirm": "Replace and apply"
+  },
+  "templateDetail": {
+    "fullPrompt": "Full prompt",
+    "referencedAssets": "Referenced assets",
+    "params": "Params",
+    "createdAt": "Created {{time}}",
+    "lastUsedAt": "Last used {{time}}"
+  },
+  "saveAsset": {
+    "title": "Save as asset",
+    "placeholder": "Asset name",
+    "remaining_one": "{{count}} image left",
+    "remaining_other": "{{count}} images left"
+  },
+  "saveTemplate": {
+    "title": "Save as template",
+    "description": "Saves the current prompt, referenced assets and size / quality / count",
+    "placeholder": "Template name"
+  },
+  "picker": {
+    "selectedCount_one": "{{count}} selected",
+    "selectedCount_other": "{{count}} selected",
+    "empty": "The asset library is empty",
+    "angleLabel": "{{name}} angle"
+  },
+  "empty": {
+    "assetsTitle": "Drop or paste an image, or right-click a reference thumbnail to save it as an asset",
+    "assetsMobile": "On mobile, long-press the thumbnail",
+    "templates": "Write a prompt, save it as a template, then type / to use it"
+  },
+  "coach": {
+    "ariaLabel": "Assets and templates tour",
+    "title": "Same images, same prompt",
+    "tokenRightClick": "Right-click",
+    "tokenSlot": "{slot}",
+    "stepSave": "save a reference as an asset",
+    "stepMention": "mention an asset",
+    "stepSlot": "generate several at once",
+    "stepTemplate": "use a template",
+    "gotIt": "Got it",
+    "view": "Take a look"
+  },
+  "hint": {
+    "rightClickToSave": "Right-click to save as an asset",
+    "close": "Dismiss hint"
+  },
+  "mention": {
+    "headingImages": "References",
+    "headingAssets": "Assets",
+    "assetsEmptyNote": "No assets yet — right-click a reference to save one"
+  },
+  "toast": {
+    "assetSaved": "Saved as an asset",
+    "templateSaved": "Saved as a template",
+    "firstFrameFilled": "Set as the first frame",
+    "assetImageMissing": "The asset image is gone",
+    "alreadyInReferences": "Already in the references",
+    "addedToReferences": "Added to the references",
+    "imageAddFailed": "Could not add the image: {{reason}}"
+  }
+}

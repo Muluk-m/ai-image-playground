@@ -2,6 +2,7 @@ import { storyboardRangeLabel } from '@image-playground/shared'
 import { useState } from 'react'
 import Pending from '../../../../components/Pending'
 import { FIELD, GHOST_BUTTON } from '../../../../components/panelStyles'
+import { i18next, useTranslation } from '../../../../i18n'
 import { copyTextToClipboard, getClipboardFailureMessage } from '../../../../lib/clipboard'
 import { useStore } from '../../../../store'
 import type { TaskRecord } from '../../../../types'
@@ -17,24 +18,28 @@ import type { StoryboardRecord, StoryboardShotPatch, StoryboardShotRecord } from
 const ACTION = 'rounded-md px-1.5 py-1 text-[11px] transition disabled:opacity-40'
 
 const EDIT_FIELDS = [
-  { key: 'title', label: '标题' },
-  { key: 'description', label: '画面', rows: 3 },
-  { key: 'camera', label: '运镜' },
-  { key: 'line', label: '台词' },
-  { key: 'videoPrompt', label: '视频提示词', rows: 3 },
-] as const satisfies ReadonlyArray<{ key: keyof StoryboardShotPatch; label: string; rows?: number }>
+  { key: 'title', labelKey: 'shotCard.fieldTitle' },
+  { key: 'description', labelKey: 'shotCard.fieldDescription', rows: 3 },
+  { key: 'camera', labelKey: 'shotCard.fieldCamera' },
+  { key: 'line', labelKey: 'shotCard.fieldLine' },
+  { key: 'videoPrompt', labelKey: 'shotCard.fieldVideoPrompt', rows: 3 },
+] as const satisfies ReadonlyArray<{
+  key: keyof StoryboardShotPatch
+  labelKey: string
+  rows?: number
+}>
 
 function badgeLabel(
   shot: StoryboardShotRecord,
   imageTask?: TaskRecord,
   videoTask?: VideoTask,
 ): string | null {
-  if (videoTask?.status === 'done') return '视频 ✓'
-  if (videoTask?.status === 'error') return '视频失败'
+  if (videoTask?.status === 'done') return i18next.t('shotCard.badgeVideoDone', { ns: 'video' })
+  if (videoTask?.status === 'error') return i18next.t('shotCard.badgeVideoFailed', { ns: 'video' })
   // 还在跑的视频由读秒遮罩说明状态。
   if (videoTask) return null
-  if (shot.imageId) return '分镜图'
-  if (imageTask?.status === 'error') return '出图失败'
+  if (shot.imageId) return i18next.t('shotCard.badgeFrame', { ns: 'video' })
+  if (imageTask?.status === 'error') return i18next.t('shotCard.badgeImageFailed', { ns: 'video' })
   return null
 }
 
@@ -52,6 +57,7 @@ export default function StoryboardShotCard({
   videoTask?: VideoTask
   onPlay: () => void
 }) {
+  const { t } = useTranslation(['video', 'common'])
   const [editing, setEditing] = useState<'description' | 'all' | null>(null)
   const showToast = useStore((s) => s.showToast)
   const imagePending = !shot.imageId && shot.imageTaskId !== null && imageTask?.status !== 'error'
@@ -68,9 +74,9 @@ export default function StoryboardShotCard({
   const copyPrompt = async () => {
     try {
       await copyTextToClipboard(shot.videoPrompt)
-      showToast('已复制', 'success')
+      showToast(t('shotCard.copied'), 'success')
     } catch (err) {
-      showToast(getClipboardFailureMessage('复制失败', err), 'error')
+      showToast(getClipboardFailureMessage(t('common:toast.copyFailed'), err), 'error')
     }
   }
 
@@ -89,7 +95,7 @@ export default function StoryboardShotCard({
           <button
             type="button"
             onClick={onPlay}
-            aria-label={`播放 镜 ${shot.no}`}
+            aria-label={t('shotCard.playAria', { no: shot.no })}
             className="absolute inset-0 grid place-items-center"
           >
             <PlayBadge />
@@ -98,13 +104,18 @@ export default function StoryboardShotCard({
 
         {imagePending && !videoTask && (
           <span className="absolute inset-0 grid place-items-center text-xs text-gray-500 dark:text-gray-400">
-            <Pending label="分镜图生成中" startedAt={imageTask?.createdAt ?? null} />
+            <Pending
+              label={t('shared.shotImagePending')}
+              startedAt={imageTask?.createdAt ?? null}
+            />
           </span>
         )}
 
         {videoPending && <RunningOverlay task={videoPending} />}
 
-        <span className={`${BADGE} left-1.5 top-1.5`}>镜 {shot.no}</span>
+        <span className={`${BADGE} left-1.5 top-1.5`}>
+          {t('shared.shotBadge', { no: shot.no })}
+        </span>
         {label && <span className={`${BADGE} right-1.5 top-1.5`}>{label}</span>}
       </div>
 
@@ -117,7 +128,7 @@ export default function StoryboardShotCard({
                   <textarea
                     key={field.key}
                     defaultValue={shot[field.key]}
-                    aria-label={field.label}
+                    aria-label={t(field.labelKey)}
                     rows={field.rows}
                     onBlur={(event) => patch(field.key, event.target.value.trim())}
                     className={`${FIELD} resize-none`}
@@ -126,14 +137,14 @@ export default function StoryboardShotCard({
                   <input
                     key={field.key}
                     defaultValue={shot[field.key]}
-                    aria-label={field.label}
+                    aria-label={t(field.labelKey)}
                     onBlur={(event) => patch(field.key, event.target.value.trim())}
                     className={FIELD}
                   />
                 ),
             )}
             <button type="button" className={GHOST_BUTTON} onClick={() => setEditing(null)}>
-              完成
+              {t('common:state.done')}
             </button>
           </div>
         ) : (
@@ -150,15 +161,17 @@ export default function StoryboardShotCard({
             </button>
             <div className="flex flex-wrap items-center gap-2">
               <span>{shot.camera}</span>
-              <span>{storyboardRangeLabel(shot)} 秒</span>
-              {shot.line && <span className="truncate">「{shot.line}」</span>}
+              <span>{t('shared.seconds', { seconds: storyboardRangeLabel(shot) })}</span>
+              {shot.line && (
+                <span className="truncate">{t('shotCard.line', { line: shot.line })}</span>
+              )}
             </div>
           </>
         )}
 
         <div className="flex flex-wrap items-center gap-1">
           <button type="button" className={ACTION} onClick={() => setEditing('all')}>
-            改文案
+            {t('shotCard.edit')}
           </button>
           <button
             type="button"
@@ -167,10 +180,10 @@ export default function StoryboardShotCard({
               void useStoryboardStore.getState().regenerateShotImage(record.id, shot.no)
             }
           >
-            {shot.imageTaskId ? '重出图' : '出分镜图'}
+            {shot.imageTaskId ? t('shotCard.regenerateImage') : t('shotCard.generateImage')}
           </button>
           <button type="button" className={ACTION} onClick={() => void copyPrompt()}>
-            复制提示词
+            {t('shotCard.copyPrompt')}
           </button>
           <button
             type="button"
@@ -178,7 +191,7 @@ export default function StoryboardShotCard({
             className={ACTION}
             onClick={() => void useStoryboardStore.getState().generateShotVideo(record.id, shot.no)}
           >
-            生视频
+            {t('shotCard.generateVideo')}
           </button>
         </div>
       </div>

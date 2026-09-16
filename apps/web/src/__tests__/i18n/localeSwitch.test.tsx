@@ -48,7 +48,10 @@ beforeEach(() => {
   _setRuntimeConfigForTesting({ bff: { enabled: true, baseUrl: 'https://api.example.com' } })
   window.history.replaceState(null, '', '/')
   localStorage.clear()
-  vi.stubGlobal('fetch', vi.fn(async () => Response.json({ providers: [] })))
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => Response.json({ providers: [] })),
+  )
   host = document.createElement('div')
   document.body.appendChild(host)
   root = createRoot(host)

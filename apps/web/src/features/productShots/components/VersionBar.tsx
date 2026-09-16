@@ -4,12 +4,13 @@ import { DownloadIcon, EditIcon } from '../../../components/icons'
 import Pending from '../../../components/Pending'
 import { CARD, GHOST_BUTTON, NOTICE, PANEL_TITLE } from '../../../components/panelStyles'
 import { formatElapsed } from '../../../hooks/useElapsed'
+import { useTranslation } from '../../../i18n'
 import { downloadImagesByIds } from '../../../lib/downloadImages'
 import { useStore } from '../../../store'
 import AssetThumb from '../../library/components/AssetThumb'
 import { changesBackground } from '../lib/mode'
-import { DIAGRAM_LABEL, isDiagram } from '../lib/scene'
-import { VERSION_STATE_LABELS, type VersionProgress, versionProgress } from '../lib/versionProgress'
+import { diagramLabel, isDiagram } from '../lib/scene'
+import { type VersionProgress, versionProgress, versionStateLabels } from '../lib/versionProgress'
 import { useProductShotsStore } from '../store'
 import { matteEditable, type ProductShotVersion } from '../types'
 import { downloadKit } from '../workflows/render'
@@ -34,6 +35,7 @@ const CHOSEN_ICON =
   'bg-blue-500 text-white hover:bg-blue-500 hover:text-white dark:text-white dark:hover:bg-blue-500 dark:hover:text-white'
 
 export default function VersionBar() {
+  const { t } = useTranslation('productShots')
   const selected = useProductShotsStore(
     useShallow((s) => s.draft.images.find((image) => image.imageId === s.selectedImageId)),
   )
@@ -49,14 +51,14 @@ export default function VersionBar() {
 
   return (
     <section data-product-shots-version-panel className={CARD}>
-      <h2 className={PANEL_TITLE}>版本</h2>
+      <h2 className={PANEL_TITLE}>{t('version.title')}</h2>
       {selected && isDiagram(selected.sceneType) && (
         <p className="mt-1.5 rounded bg-amber-500/10 px-1.5 py-0.5 text-xs text-amber-700 dark:text-amber-300">
-          {DIAGRAM_LABEL}
+          {diagramLabel()}
         </p>
       )}
       {!selected || rows.length === 0 ? (
-        <p className="mt-1.5 text-xs text-gray-400 dark:text-gray-500">暂无版本</p>
+        <p className="mt-1.5 text-xs text-gray-400 dark:text-gray-500">{t('version.empty')}</p>
       ) : (
         <ul data-product-shots-versions className="mt-1.5 flex flex-col gap-1.5">
           {rows.map((row, index) => (
@@ -83,8 +85,8 @@ function statusLabel(progress: VersionProgress): string {
   const elapsed = progress.elapsed === null ? '' : formatElapsed(progress.elapsed)
   if (progress.state === 'done' && elapsed) return elapsed
   return elapsed
-    ? `${VERSION_STATE_LABELS[progress.state]} ${elapsed}`
-    : VERSION_STATE_LABELS[progress.state]
+    ? `${versionStateLabels()[progress.state]} ${elapsed}`
+    : versionStateLabels()[progress.state]
 }
 
 function VersionRow({
@@ -109,6 +111,7 @@ function VersionRow({
   chosen: boolean
   onOpen: (imageId: string) => void
 }) {
+  const { t } = useTranslation(['productShots', 'common'])
   const previewing = useProductShotsStore((s) => s.previewVersionId === version.id)
   const overlaid = useProductShotsStore(
     (s) => s.matteOverlayVersionId === version.id && version.mattePreviewImageId !== undefined,
@@ -127,8 +130,8 @@ function VersionRow({
   const [unfoldedError, setUnfoldedError] = useState(false)
 
   const [first] = progress.outputImageIds
-  const label = `第 ${index + 1} 版`
-  const chooseLabel = chosen ? '取消选用' : '用这版'
+  const label = t('version.label', { index: index + 1 })
+  const chooseLabel = chosen ? t('version.unchoose') : t('version.choose')
 
   const download = async () => {
     if (!first) return
@@ -141,7 +144,7 @@ function VersionRow({
       return
     }
     const { failed } = await downloadImagesByIds([first], `v${index + 1}`)
-    if (failed > 0) showToast('下载失败', 'error')
+    if (failed > 0) showToast(t('version.downloadFailed'), 'error')
   }
 
   return (
@@ -162,7 +165,7 @@ function VersionRow({
         }}
         onDoubleClick={() => first && onOpen(first)}
         aria-pressed={previewing}
-        aria-label={`预览${label}`}
+        aria-label={t('version.preview', { label })}
         className={`relative block aspect-square w-full overflow-hidden rounded-lg border ${
           previewing
             ? 'border-blue-400 ring-1 ring-blue-400'
@@ -184,7 +187,7 @@ function VersionRow({
           )
         ) : (
           <span className="flex h-full items-center justify-center text-[11px] text-gray-400 dark:text-gray-500">
-            {VERSION_STATE_LABELS[progress.state]}
+            {versionStateLabels()[progress.state]}
           </span>
         )}
       </button>
@@ -197,7 +200,7 @@ function VersionRow({
           trailing={
             <span className="shrink-0 text-gray-500 dark:text-gray-400">
               {progress.state === 'running' ? (
-                <Pending label="生成中" startedAt={progress.startedAt} />
+                <Pending label={t('common:state.generating')} startedAt={progress.startedAt} />
               ) : (
                 statusLabel(progress)
               )}
@@ -228,7 +231,7 @@ function VersionRow({
               aria-expanded={unfoldedError}
               className={`shrink-0 ${GHOST_BUTTON}`}
             >
-              {unfoldedError ? '收起' : '展开'}
+              {unfoldedError ? t('common:action.collapse') : t('common:action.expand')}
             </button>
           </p>
         )}
@@ -238,7 +241,7 @@ function VersionRow({
         {!version.workflow && (
           <IconButton
             onClick={() => openPlanDrawer(version.id)}
-            label="查看方案"
+            label={t('version.viewPlan')}
             className={VERSION_ICON_BUTTON}
           >
             <PlanIcon className="h-4 w-4" />
@@ -248,7 +251,7 @@ function VersionRow({
           <IconButton
             onClick={() => toggleMatteOverlay(version.id)}
             aria-pressed={overlaid}
-            label="看蒙版"
+            label={t('version.viewMask')}
             className={`${VERSION_ICON_BUTTON} ${overlaid ? 'bg-blue-500/10 text-blue-600 dark:text-blue-300' : ''}`}
           >
             <MatteIcon className="h-4 w-4" />
@@ -257,7 +260,7 @@ function VersionRow({
         {matteEditable && !version.workflow && (
           <IconButton
             onClick={() => void editSourceMask(imageId)}
-            label="编辑蒙版"
+            label={t('version.editMask')}
             className={VERSION_ICON_BUTTON}
           >
             <EditIcon className="h-4 w-4" />
@@ -266,7 +269,7 @@ function VersionRow({
         {matteReady && !version.workflow && (
           <IconButton
             onClick={() => void regenerateFromVersion(version.id, true)}
-            label="用此蒙版重生成"
+            label={t('version.regenWithMask')}
             className={VERSION_ICON_BUTTON}
           >
             <MaskRetryIcon className="h-4 w-4" />
@@ -278,7 +281,7 @@ function VersionRow({
             className={GHOST_BUTTON}
             onClick={() => openWorkflow('refine', version.id)}
           >
-            精修
+            {t('version.refine')}
           </button>
         )}
         {first && (
@@ -293,7 +296,7 @@ function VersionRow({
             </IconButton>
             <IconButton
               onClick={() => void download()}
-              label="下载"
+              label={t('common:action.download')}
               className={VERSION_ICON_BUTTON}
             >
               <DownloadIcon className="h-4 w-4" />
@@ -310,7 +313,7 @@ function VersionRow({
                 ).catch((e) => showToast(String(e), 'error'))
               else void retryVersion(version.id)
             }}
-            label="重跑"
+            label={t('version.retry')}
             className={VERSION_ICON_BUTTON}
           >
             <RetryIcon className="h-4 w-4" />

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronDownIcon, SettingsIcon } from '../../../components/icons'
 import { compactModelName } from '../../../components/ModelIdentity'
 import ParamControls, { type UnsupportedParam } from '../../../components/ParamControls'
+import { useTranslation } from '../../../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/apiProfiles'
 import { useStore } from '../../../store'
 import { INK, INK_3, PANEL_SHADOW, PANEL_SURFACE } from '../agentStyles'
@@ -14,18 +15,20 @@ const UNSUPPORTED: ReadonlySet<UnsupportedParam> = new Set(['transparent', 'noRe
 
 /** 收起时只给一行摘要：当前打哪个模型、出多大、出几张。 */
 function useSummary(): string[] {
+  const { t } = useTranslation('agent')
   const params = useStore((state) => state.params)
   const settings = useStore((state) => state.settings)
   return useMemo(() => {
     const profile = clientProfileToApiProfile(getActiveApiProfile(settings))
     const parts = [compactModelName(profile.model, profile.model)]
-    parts.push(params.size && params.size !== 'auto' ? params.size : '自动尺寸')
-    if (params.n > 1) parts.push(`${params.n} 张`)
+    parts.push(params.size && params.size !== 'auto' ? params.size : t('params.autoSize'))
+    if (params.n > 1) parts.push(t('params.imageCount', { count: params.n }))
     return parts
-  }, [params.size, params.n, settings])
+  }, [params.size, params.n, settings, t])
 }
 
 export default function AgentParamsChip() {
+  const { t } = useTranslation('agent')
   const [open, setOpen] = useState(false)
   const wrapperRef = useRef<HTMLDivElement>(null)
   const summary = useSummary()
@@ -52,7 +55,7 @@ export default function AgentParamsChip() {
       <button
         type="button"
         aria-expanded={open}
-        aria-label="生成参数"
+        aria-label={t('params.title')}
         className={`flex min-w-0 max-w-full items-center gap-1.5 rounded-full border border-white/[0.09] px-2.5 py-1 text-[11px] transition-colors hover:bg-white/[0.06] ${INK_3}`}
         onClick={() => setOpen((was) => !was)}
       >
@@ -65,13 +68,11 @@ export default function AgentParamsChip() {
         <div
           className={`absolute bottom-full left-0 z-10 mb-2 w-[19rem] rounded-xl p-3 ${PANEL_SURFACE} ${PANEL_SHADOW}`}
         >
-          <p className={`mb-2 text-xs font-semibold ${INK}`}>生成参数</p>
+          <p className={`mb-2 text-xs font-semibold ${INK}`}>{t('params.title')}</p>
           <div className="flex flex-wrap items-center gap-1.5">
             <ParamControls showCount unsupported={UNSUPPORTED} />
           </div>
-          <p className={`mt-2 text-[11px] leading-relaxed ${INK_3}`}>
-            改完下一轮生效，跑着的这一轮按起轮时的参数走。
-          </p>
+          <p className={`mt-2 text-[11px] leading-relaxed ${INK_3}`}>{t('params.note')}</p>
         </div>
       )}
     </div>

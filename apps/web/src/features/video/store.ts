@@ -14,6 +14,7 @@ import {
   videoRateMultiplier,
 } from '@image-playground/shared'
 import { create } from 'zustand'
+import { i18next } from '../../i18n'
 import { getStoredChannel } from '../../lib/channels/channelStore'
 import { awaitQueueOutputs, submitVideoRequest } from '../../lib/channels/queueClient'
 import {
@@ -35,14 +36,14 @@ import { appendCameraMove, clampDraftToSupport, videoDraftFromTask } from './lib
 import { videoTaskStore } from './lib/videoStore'
 import type { VideoDraft, VideoFrameSlot, VideoSource, VideoTask } from './types'
 
-const EMPTY_PROMPT = '请先写一句描述'
-const NO_FIRST_FRAME = '请先放一张首帧图'
-const NO_MODEL = '当前部署没有可用的视频模型'
-const FRAME_MISSING = '首尾帧图片已丢失'
-const SOURCE_GONE = '源视频已不在'
+const EMPTY_PROMPT = () => i18next.t('store.emptyPrompt', { ns: 'video' })
+const NO_FIRST_FRAME = () => i18next.t('store.noFirstFrame', { ns: 'video' })
+const NO_MODEL = () => i18next.t('error.noModel', { ns: 'video' })
+const FRAME_MISSING = () => i18next.t('store.frameMissing', { ns: 'video' })
+const SOURCE_GONE = () => i18next.t('store.sourceGone', { ns: 'video' })
 
 export function unsupportedDurationReason(seconds: number): string {
-  return `当前模型不支持 ${seconds} 秒`
+  return i18next.t('store.unsupportedDuration', { ns: 'video', seconds })
 }
 
 export const INITIAL_VIDEO_DRAFT: VideoDraft = {
@@ -131,7 +132,7 @@ function videoRequestOf(task: VideoTask, tasks: VideoTask[]): VideoRequest {
   if (task.derived) {
     const { mode, sourceTaskId } = task.derived
     const origin = tasks.find((item) => item.id === sourceTaskId)
-    if (!origin?.bffRequestId || origin.outputIndex === undefined) throw new Error(SOURCE_GONE)
+    if (!origin?.bffRequestId || origin.outputIndex === undefined) throw new Error(SOURCE_GONE())
     request.mode = mode
     request.source_task_id = origin.bffRequestId
     request.source_output_index = origin.outputIndex
@@ -171,7 +172,7 @@ export const useVideoStore = create<VideoState>((set, get) => {
     return await Promise.all(
       ids.map(async (id) => {
         const dataUrl = await ensureImageCached(id)
-        if (!dataUrl) throw new Error(FRAME_MISSING)
+        if (!dataUrl) throw new Error(FRAME_MISSING())
         return dataUrl
       }),
     )
@@ -185,7 +186,7 @@ export const useVideoStore = create<VideoState>((set, get) => {
       let requestId = task.bffRequestId
       if (!requestId) {
         const channel = getStoredChannel(task.channelId)
-        if (!channel) throw new Error(NO_MODEL)
+        if (!channel) throw new Error(NO_MODEL())
         requestId = await submitVideoRequest({
           channel,
           model: task.model,
@@ -219,7 +220,7 @@ export const useVideoStore = create<VideoState>((set, get) => {
     const { showToast } = useStore.getState()
     const prompt = input.prompt.trim()
     if (!prompt) {
-      showToast(EMPTY_PROMPT, 'error')
+      showToast(EMPTY_PROMPT(), 'error')
       return null
     }
     const task: VideoTask = {
@@ -302,7 +303,10 @@ export const useVideoStore = create<VideoState>((set, get) => {
     ) {
       useStore
         .getState()
-        .showToast(`当前模型不支持 ${input.seconds} 秒或所选比例、清晰度，请调整生成设置`, 'error')
+        .showToast(
+          i18next.t('store.unsupportedPreset', { ns: 'video', seconds: input.seconds }),
+          'error',
+        )
       return Promise.resolve(null)
     }
     return enqueue({
@@ -325,14 +329,14 @@ export const useVideoStore = create<VideoState>((set, get) => {
     const { showToast } = useStore.getState()
     const option = videoModelOptions().find((item) => item.modelId === draft.model)
     if (!option) {
-      showToast(NO_MODEL, 'error')
+      showToast(NO_MODEL(), 'error')
       return null
     }
     const firstFrameImageId = draft.source === 'image' ? draft.firstFrameImageId : null
     const lastFrameImageId =
       draft.source === 'image' && option.support.lastFrame ? draft.lastFrameImageId : null
     if (draft.source === 'image' && !firstFrameImageId) {
-      showToast(NO_FIRST_FRAME, 'error')
+      showToast(NO_FIRST_FRAME(), 'error')
       return null
     }
 
@@ -428,7 +432,7 @@ export const useVideoStore = create<VideoState>((set, get) => {
           )
         : firstFrameModelOption(get().draft.model)
       if (!option) {
-        useStore.getState().showToast(NO_MODEL, 'error')
+        useStore.getState().showToast(NO_MODEL(), 'error')
         return Promise.resolve(null)
       }
       return enqueueStoryboard(option, input)
@@ -475,7 +479,7 @@ export const useVideoStore = create<VideoState>((set, get) => {
       if (task.derived) {
         const option = videoModelOptions().find((item) => item.modelId === task.model)
         if (!option) {
-          useStore.getState().showToast(NO_MODEL, 'error')
+          useStore.getState().showToast(NO_MODEL(), 'error')
           return Promise.resolve(null)
         }
         return enqueue({
@@ -491,7 +495,7 @@ export const useVideoStore = create<VideoState>((set, get) => {
       if (task.storyboardId) {
         const option = videoModelOptions().find((item) => item.modelId === task.model)
         if (!option) {
-          useStore.getState().showToast(NO_MODEL, 'error')
+          useStore.getState().showToast(NO_MODEL(), 'error')
           return Promise.resolve(null)
         }
         return enqueue({

@@ -1,3 +1,4 @@
+import { i18next } from '../../../i18n'
 import type { TaskRecord } from '../../../types'
 
 /** `queued` 是已提交但任务记录还没到手的那一瞬，或记录已被历史清理带走。 */
@@ -13,11 +14,13 @@ export interface VersionProgress {
   elapsed: number | null
 }
 
-export const VERSION_STATE_LABELS: Record<VersionState, string> = {
-  queued: '排队',
-  running: '生成中',
-  done: '完成',
-  error: '失败',
+export function versionStateLabels(): Record<VersionState, string> {
+  return {
+    queued: i18next.t('version.state.queued', { ns: 'productShots' }),
+    running: i18next.t('state.generating', { ns: 'common' }),
+    done: i18next.t('state.done', { ns: 'common' }),
+    error: i18next.t('state.failed', { ns: 'common' }),
+  }
 }
 
 export function versionProgress(task: TaskRecord | undefined): VersionProgress {

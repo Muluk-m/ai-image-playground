@@ -1,3 +1,4 @@
+import { useTranslation } from '../../../i18n'
 import { CARD, CARD_NOTE, CARD_TITLE, CHOICE } from '../agentStyles'
 import { useAgentStore } from '../store'
 import type { AgentClarificationMessage } from '../types'
@@ -9,6 +10,7 @@ export default function AgentClarification({
   message: AgentClarificationMessage
   answered: boolean
 }) {
+  const { t } = useTranslation('agent')
   const running = useAgentStore((state) => state.turn === 'running')
   return (
     <div className={CARD}>
@@ -26,7 +28,7 @@ export default function AgentClarification({
           </button>
         ))}
       </div>
-      {answered && <p className={CARD_NOTE}>已回答</p>}
+      {answered && <p className={CARD_NOTE}>{t('clarification.answered')}</p>}
     </div>
   )
 }

@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react'
+import { i18next } from '../../../i18n'
 import { useStore } from '../../../store'
 import type { VideoTask } from '../types'
 import { downloadProgressLabel, downloadVideoTask, type VideoDownloadProgress } from './playback'
@@ -37,7 +38,7 @@ export function useVideoDownload(task: VideoTask, idleLabel: string) {
     publish({ received: 0, total: null })
     try {
       await downloadVideoTask(task, { signal: controller.signal, onProgress: publish })
-      showToast('开始下载', 'success')
+      showToast(i18next.t('download.started', { ns: 'video' }), 'success')
     } catch (error) {
       if (!controller.signal.aborted) {
         showToast(error instanceof Error ? error.message : String(error), 'error')

@@ -1,18 +1,11 @@
 import { memo, useCallback, useMemo, useSyncExternalStore } from 'react'
 import { VideoIcon } from '../../../components/icons'
+import { useTranslation } from '../../../i18n'
 import type { CanvasDoc, CanvasEl } from '../../canvas/lib/canvasDoc'
 import type { CanvasEditor } from '../../canvas/lib/editor'
 import { ACTIVE_LIST_ROW, INK, INK_3 } from '../agentStyles'
 
 const NAME_MAX_CHARS = 24
-
-const TYPE_LABELS: Record<CanvasEl['type'], string> = {
-  image: '图片',
-  freedraw: '画笔',
-  arrow: '箭头',
-  text: '文字',
-  placeholder: '生成中',
-}
 
 function shorten(text: string): string {
   const trimmed = text.trim().replace(/\s+/g, ' ')
@@ -21,18 +14,22 @@ function shorten(text: string): string {
 }
 
 /** 一行的主名：认得出是哪一个，而不是一列一模一样的类型名。 */
-function displayName(element: CanvasEl): string {
-  if (element.type === 'text') return shorten(element.text) || TYPE_LABELS.text
-  if (element.type === 'image') return shorten(element.meta?.prompt ?? '') || TYPE_LABELS.image
-  if (element.type === 'placeholder') return shorten(element.meta.prompt) || TYPE_LABELS.placeholder
-  return TYPE_LABELS[element.type]
+function useDisplayName(element: CanvasEl): string {
+  const { t } = useTranslation(['agent', 'common'])
+  if (element.type === 'text') return shorten(element.text) || t('layers.typeText')
+  if (element.type === 'image') return shorten(element.meta?.prompt ?? '') || t('layers.typeImage')
+  if (element.type === 'placeholder')
+    return shorten(element.meta.prompt) || t('common:state.generating')
+  return element.type === 'freedraw' ? t('layers.typeFreedraw') : t('layers.typeArrow')
 }
 
 /** 副标题：这一行是什么东西。视频与静态图共用 image 类型，靠它区分。 */
-function kindLabel(element: CanvasEl): string {
-  if (element.type === 'image' && element.video) return '视频'
-  if (element.type === 'placeholder') return element.message || TYPE_LABELS.placeholder
-  return TYPE_LABELS[element.type]
+function useKindLabel(element: CanvasEl): string {
+  const { t } = useTranslation(['agent', 'common'])
+  if (element.type === 'image') return element.video ? t('layers.typeVideo') : t('layers.typeImage')
+  if (element.type === 'placeholder') return element.message || t('common:state.generating')
+  if (element.type === 'text') return t('layers.typeText')
+  return element.type === 'freedraw' ? t('layers.typeFreedraw') : t('layers.typeArrow')
 }
 
 const GLYPHS: Record<Exclude<CanvasEl['type'], 'image'>, string> = {
@@ -81,13 +78,15 @@ const LayerRow = memo(function LayerRow({
   selected: boolean
   onSelect: (id: string) => void
 }) {
-  const name = displayName(element)
+  const { t } = useTranslation(['agent', 'common'])
+  const name = useDisplayName(element)
+  const kind = useKindLabel(element)
   return (
     <li>
       <button
         type="button"
         aria-current={selected ? 'true' : undefined}
-        aria-label={`选中图层 ${name}`}
+        aria-label={t('layers.selectAria', { name })}
         className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-white/[0.06] ${selected ? ACTIVE_LIST_ROW : ''}`}
         onClick={() => onSelect(element.id)}
       >
@@ -96,7 +95,7 @@ const LayerRow = memo(function LayerRow({
           <span data-layer-name className={`truncate text-xs ${INK}`}>
             {name}
           </span>
-          <span className={`truncate text-[11px] ${INK_3}`}>{kindLabel(element)}</span>
+          <span className={`truncate text-[11px] ${INK_3}`}>{kind}</span>
         </span>
       </button>
     </li>
@@ -104,6 +103,7 @@ const LayerRow = memo(function LayerRow({
 })
 
 export default function AgentLayers({ doc, editor }: { doc: CanvasDoc; editor: CanvasEditor }) {
+  const { t } = useTranslation(['agent', 'common'])
   const version = useSyncExternalStore(doc.subscribe, () => doc.version)
   // 最上层的元素排在最前。反转的是副本而不是 CSS：DOM 顺序要和看到的顺序一致，
   // 否则读屏和键盘 Tab 的次序跟视觉是反的。
@@ -119,7 +119,7 @@ export default function AgentLayers({ doc, editor }: { doc: CanvasDoc; editor: C
   )
 
   if (rows.length === 0) {
-    return <p className={`px-3 py-2 text-xs ${INK_3}`}>画布还是空的</p>
+    return <p className={`px-3 py-2 text-xs ${INK_3}`}>{t('layers.empty')}</p>
   }
 
   return (

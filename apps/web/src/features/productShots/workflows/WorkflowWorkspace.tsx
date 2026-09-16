@@ -9,11 +9,19 @@ import {
   PRIMARY_BUTTON,
   SELECT,
 } from '../../../components/panelStyles'
+import { useTranslation } from '../../../i18n'
 import { useStore } from '../../../store'
 import VersionBar from '../components/VersionBar'
 import { useProductShotsStore } from '../store'
 import type { ProductShotVersion } from '../types'
-import { KIT_FORMATS, type KitFormat, kitSpecs, type WorkflowSpec } from './plan'
+import {
+  DIRECTIONS,
+  KIT_FORMATS,
+  type KitFormat,
+  kitFormatLabels,
+  kitSpecs,
+  type WorkflowSpec,
+} from './plan'
 import { downloadKit } from './render'
 import {
   closeWorkflow,
@@ -28,13 +36,18 @@ import {
 } from './runtime'
 import WorkflowImage from './WorkflowImage'
 
-const DIRECTIONS = ['暖色石材', '北欧浅木', '自然日光']
-const KINDS = { edit: '局部编辑', kit: '批量衍生', draft: '先看方案', refine: '精修成品' }
+const KIND_KEYS = {
+  edit: 'kind.edit',
+  kit: 'kind.kit',
+  draft: 'kind.draft',
+  refine: 'kind.refine',
+} as const
 function report(error: unknown) {
   useStore.getState().showToast(error instanceof Error ? error.message : String(error), 'error')
 }
 
 export default function WorkflowWorkspace({ session }: { session: WorkflowSession }) {
+  const { t } = useTranslation(['productShots', 'common'])
   const draft = useProductShotsStore((s) => s.draft)
   const tasks = useStore((s) => s.tasks)
   const busy = useWorkflowEditor((s) => s.submitting)
@@ -124,10 +137,10 @@ export default function WorkflowWorkspace({ session }: { session: WorkflowSessio
         <section className={CARD}>
           <div className="mb-3 flex items-center justify-between">
             <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-100">
-              {KINDS[session.kind]}
+              {t(KIND_KEYS[session.kind])}
             </h2>
             <button type="button" className={GHOST_BUTTON} onClick={closeWorkflow}>
-              返回
+              {t('common:action.back')}
             </button>
           </div>
           {session.kind === 'kit' && versions.length > 0 && submitted ? (
@@ -147,7 +160,7 @@ export default function WorkflowWorkspace({ session }: { session: WorkflowSessio
               >
                 <WorkflowImage
                   imageId={shown?.workflow?.sourceImageId ?? sourceImageId}
-                  alt="修改前"
+                  alt={t('workspace.before')}
                 />
                 <div
                   className={compare === 'side' ? '' : 'absolute inset-0'}
@@ -156,7 +169,7 @@ export default function WorkflowWorkspace({ session }: { session: WorkflowSessio
                   <WorkflowImage
                     imageId={resultId}
                     version={shown}
-                    alt="修改后"
+                    alt={t('workspace.after')}
                     className="h-full w-full rounded-lg object-contain"
                   />
                 </div>
@@ -168,12 +181,12 @@ export default function WorkflowWorkspace({ session }: { session: WorkflowSessio
                 )}
               </div>
               <div className="mt-2 flex justify-between text-xs text-gray-500">
-                <span>修改前</span>
-                <span>修改后</span>
+                <span>{t('workspace.before')}</span>
+                <span>{t('workspace.after')}</span>
               </div>
               {compare === 'slider' && (
                 <input
-                  aria-label="前后对比位置"
+                  aria-label={t('workspace.compareHandle')}
                   type="range"
                   min={0}
                   max={100}
@@ -212,7 +225,7 @@ export default function WorkflowWorkspace({ session }: { session: WorkflowSessio
               <WorkflowImage
                 imageId={submitted && resultId ? resultId : sourceImageId}
                 version={submitted && resultId ? shown : parent}
-                alt={submitted && resultId ? '生成结果' : '来源图片'}
+                alt={submitted && resultId ? t('workspace.resultAlt') : t('workspace.sourceAlt')}
               />
               {localEdit && box && (
                 <div
@@ -228,7 +241,7 @@ export default function WorkflowWorkspace({ session }: { session: WorkflowSessio
             </div>
           )}
           {submitted && result?.status === 'running' && (
-            <p className="mt-3 text-sm text-blue-500">生成中，可继续查看其他版本</p>
+            <p className="mt-3 text-sm text-blue-500">{t('workspace.runningHint')}</p>
           )}
           {submitted && result?.status === 'error' && (
             <p role="alert" className="mt-3 text-sm text-red-500">
@@ -254,7 +267,9 @@ export default function WorkflowWorkspace({ session }: { session: WorkflowSessio
                     <span className="mt-1 block text-gray-700 dark:text-gray-200">
                       {version.plan}
                     </span>
-                    {task?.status === 'error' && <span className="text-red-500">生成失败</span>}
+                    {task?.status === 'error' && (
+                      <span className="text-red-500">{t('workspace.generateFailed')}</span>
+                    )}
                   </button>
                 )
               })}
@@ -265,12 +280,12 @@ export default function WorkflowWorkspace({ session }: { session: WorkflowSessio
       </div>
       <aside className={`${CARD} flex h-fit flex-col gap-3`}>
         <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-100">
-          {submitted && resultId ? '确认结果' : '设置'}
+          {submitted && resultId ? t('workspace.confirmResult') : t('label.settings')}
         </h2>
         {(!submitted || session.kind === 'kit') && (
           <>
             <label className={LABEL}>
-              生成模型
+              {t('workspace.model')}
               <select
                 className={`${SELECT} mt-1 w-full`}
                 value={model}
@@ -285,7 +300,7 @@ export default function WorkflowWorkspace({ session }: { session: WorkflowSessio
             </label>
             {session.kind === 'kit' ? (
               <>
-                <span className={LABEL}>需要哪些图</span>
+                <span className={LABEL}>{t('workspace.formats')}</span>
                 {(Object.keys(KIT_FORMATS) as KitFormat[]).map((format) => (
                   <label
                     key={format}
@@ -302,11 +317,11 @@ export default function WorkflowWorkspace({ session }: { session: WorkflowSessio
                         )
                       }
                     />
-                    {KIT_FORMATS[format].label}{' '}
+                    {kitFormatLabels()[format]}{' '}
                     <span className="text-xs text-gray-500">{KIT_FORMATS[format].size}</span>
                   </label>
                 ))}
-                <span className={LABEL}>图上文字</span>
+                <span className={LABEL}>{t('workspace.overlayText')}</span>
                 {(['zh', 'en'] as const).map((language) => (
                   <div key={language}>
                     <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200">
@@ -321,14 +336,16 @@ export default function WorkflowWorkspace({ session }: { session: WorkflowSessio
                           )
                         }
                       />
-                      {language === 'zh' ? '中文' : '英文'}
+                      {t(`promptLanguage.${language}`)}
                     </label>
                     {languages.includes(language) && (
                       <input
                         className={`${FIELD} mt-2`}
-                        aria-label={`${language === 'zh' ? '中文' : '英文'}标题`}
+                        aria-label={t('workspace.titleFor', {
+                          language: t(`promptLanguage.${language}`),
+                        })}
                         maxLength={120}
-                        placeholder="标题（可空）"
+                        placeholder={t('workspace.titlePlaceholder')}
                         value={titles[language]}
                         onChange={(e) => setTitles({ ...titles, [language]: e.target.value })}
                       />
@@ -339,33 +356,33 @@ export default function WorkflowWorkspace({ session }: { session: WorkflowSessio
             ) : (
               <label className={LABEL}>
                 {session.kind === 'edit'
-                  ? '怎么改'
+                  ? t('workspace.instructionEdit')
                   : session.kind === 'draft'
-                    ? '偏好（可空）'
-                    : '还想调整什么（可空）'}
+                    ? t('label.preference')
+                    : t('workspace.instructionRefine')}
                 <textarea
                   className={`${FIELD} mt-1 min-h-24`}
                   value={instruction}
                   onChange={(e) => setInstruction(e.target.value)}
                   placeholder={
                     session.kind === 'edit'
-                      ? '例：去掉右边绿植，补齐墙面'
-                      : '例：柔和日光，保持浴缸形状'
+                      ? t('workspace.instructionEditPlaceholder')
+                      : t('workspace.instructionOtherPlaceholder')
                   }
                 />
               </label>
             )}
             {session.kind === 'edit' && (
               <>
-                <p className={LABEL}>在图上拖动框选修改区域。框外也可能变化，请对比确认。</p>
+                <p className={LABEL}>{t('workspace.boxHint')}</p>
                 <button type="button" className={GHOST_BUTTON} onClick={() => setBox(null)}>
-                  清除框选
+                  {t('workspace.clearBox')}
                 </button>
               </>
             )}
             {session.kind === 'refine' && (
               <label className={LABEL}>
-                成品尺寸
+                {t('workspace.finalSize')}
                 <select
                   className={`${SELECT} mt-1 w-full`}
                   value={size}
@@ -391,14 +408,14 @@ export default function WorkflowWorkspace({ session }: { session: WorkflowSessio
               onClick={() => void launch()}
             >
               {busy
-                ? '提交中'
+                ? t('workspace.submitting')
                 : session.kind === 'kit'
-                  ? `生成 ${formats.length * languages.length} 张`
+                  ? t('workspace.generateCount', { count: formats.length * languages.length })
                   : session.kind === 'draft'
-                    ? '先出 3 个方案'
+                    ? t('panel.draftThree')
                     : session.kind === 'refine'
-                      ? '精修选中方案'
-                      : '生成修改版'}
+                      ? t('workspace.refineChosen')
+                      : t('workspace.generateEdit')}
             </button>
           </>
         )}
@@ -406,10 +423,10 @@ export default function WorkflowWorkspace({ session }: { session: WorkflowSessio
           <>
             <div className="flex gap-2">
               <button type="button" className={OUTLINE_BUTTON} onClick={() => setCompare('slider')}>
-                滑动对比
+                {t('workspace.sliderCompare')}
               </button>
               <button type="button" className={OUTLINE_BUTTON} onClick={() => setCompare('side')}>
-                并排对比
+                {t('workspace.sideCompare')}
               </button>
             </div>
             <button
@@ -419,7 +436,7 @@ export default function WorkflowWorkspace({ session }: { session: WorkflowSessio
                 if (shown) openWorkflow('edit', shown.id)
               }}
             >
-              继续修改
+              {t('workspace.continueEditing')}
             </button>
           </>
         )}
@@ -429,7 +446,7 @@ export default function WorkflowWorkspace({ session }: { session: WorkflowSessio
             className={PRIMARY_BUTTON}
             onClick={() => openWorkflow('refine', shown.id)}
           >
-            精修选中方案
+            {t('workspace.refineChosen')}
           </button>
         )}
         {submitted && resultId && shown && session.kind !== 'kit' && session.kind !== 'draft' && (
@@ -439,14 +456,14 @@ export default function WorkflowWorkspace({ session }: { session: WorkflowSessio
               className={PRIMARY_BUTTON}
               onClick={() => useProductShotsStore.getState().chooseVersion(shown.id)}
             >
-              {selected ? '已选用' : '用这版'}
+              {selected ? t('version.chosen') : t('version.choose')}
             </button>
             <button
               type="button"
               className={OUTLINE_BUTTON}
               onClick={() => openWorkflow('kit', shown.id)}
             >
-              批量衍生
+              {t('kind.kit')}
             </button>
           </>
         )}
@@ -457,16 +474,16 @@ export default function WorkflowWorkspace({ session }: { session: WorkflowSessio
             className={OUTLINE_BUTTON}
             onClick={() => void retryProductWorkflow(session, shown).catch(report)}
           >
-            重试这张
+            {t('workspace.retryOne')}
           </button>
         )}
         {submitted && session.kind === 'kit' && versions.length > 0 && (
           <button type="button" className={OUTLINE_BUTTON} onClick={() => void download()}>
-            打包下载已完成图片
+            {t('workspace.downloadDone')}
           </button>
         )}
         <button type="button" className={GHOST_BUTTON} onClick={closeWorkflow}>
-          返回商品图
+          {t('workspace.backToShots')}
         </button>
       </aside>
     </div>
@@ -480,6 +497,7 @@ export function KitResult({
   session: WorkflowSession
   version: ProductShotVersion
 }) {
+  const { t } = useTranslation(['productShots', 'common'])
   const task = useStore((s) => s.tasks.find((t) => t.id === version.taskId))
   const busy = useWorkflowEditor((s) => s.submitting)
   const [editing, setEditing] = useState(false)
@@ -490,11 +508,11 @@ export function KitResult({
     <article className="rounded-xl border border-gray-200 p-2 dark:border-gray-700">
       <WorkflowImage imageId={task?.outputImages[0]} version={version} alt={version.plan} />
       <h3 className="mt-2 text-xs font-medium text-gray-800 dark:text-gray-100">{version.plan}</h3>
-      {task?.status === 'running' && <p className={LABEL}>生成中</p>}
+      {task?.status === 'running' && <p className={LABEL}>{t('common:state.generating')}</p>}
       {task?.status === 'error' && <p className="text-xs text-red-500">{task.error}</p>}
       <div className="mt-2 flex flex-wrap gap-1">
         <button type="button" className={GHOST_BUTTON} onClick={() => setEditing(!editing)}>
-          改文字
+          {t('workspace.editText')}
         </button>
         <button
           type="button"
@@ -502,7 +520,7 @@ export function KitResult({
           disabled={busy || task?.status === 'running'}
           onClick={() => void retryProductWorkflow(session, version).catch(report)}
         >
-          重做这张
+          {t('workspace.redoOne')}
         </button>
         <button
           type="button"
@@ -513,13 +531,13 @@ export function KitResult({
             openWorkflow('edit', version.id)
           }}
         >
-          局部编辑
+          {t('kind.edit')}
         </button>
       </div>
       {editing && (
         <div className="mt-2">
           <input
-            aria-label="标题"
+            aria-label={t('label.title')}
             className={FIELD}
             value={title}
             maxLength={120}
@@ -534,7 +552,7 @@ export function KitResult({
                 .catch(report)
             }
           >
-            保存文字
+            {t('workspace.saveText')}
           </button>
         </div>
       )}

@@ -8,15 +8,17 @@ import {
   SEGMENT,
 } from '../../../components/panelStyles'
 import { useImageThumbnail } from '../../../hooks/useImageThumbnail'
+import { useTranslation } from '../../../i18n'
 import { useStore } from '../../../store'
 import { sourceMatteBadge } from '../lib/matteBadge'
 import { useProductShotsStore } from '../store'
-import { EDIT_MASK_LABEL, matteEditable } from '../types'
+import { editMaskLabel, matteEditable } from '../types'
 import WorkflowImage from '../workflows/WorkflowImage'
 import BadgeTag from './BadgeTag'
 import PreviewToolbar from './PreviewToolbar'
 
 export default function PreviewPanel() {
+  const { t } = useTranslation('productShots')
   const images = useProductShotsStore(useShallow((s) => s.draft.images))
   const selectedImageId = useProductShotsStore((s) => s.selectedImageId)
   const previewVersionId = useProductShotsStore((s) => s.previewVersionId)
@@ -47,10 +49,10 @@ export default function PreviewPanel() {
   )
   const shownImageId = previewed && !overlaid ? previewTask?.outputImages[0] : selected?.imageId
   const label = overlaid
-    ? `原图 ${index + 1} 蒙版`
+    ? t('preview.maskLabel', { index: index + 1 })
     : previewed
-      ? `第 ${versions.indexOf(previewed) + 1} 版`
-      : `原图 ${index + 1}`
+      ? t('version.label', { index: versions.indexOf(previewed) + 1 })
+      : t('source.label', { index: index + 1 })
   const matte = selected?.sourceMatte
   const onOriginal = selected !== undefined && previewed === undefined && overlaid === undefined
   const thumbnail = useImageThumbnail(shownImageId)
@@ -64,7 +66,7 @@ export default function PreviewPanel() {
     <section data-product-shots-column="preview" className={CARD}>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-100">
-          {selected ? label : '预览'}
+          {selected ? label : t('preview.title')}
         </h2>
         <div className="flex items-center gap-0.5 rounded-lg bg-gray-100 p-0.5 dark:bg-gray-900">
           <button
@@ -73,7 +75,7 @@ export default function PreviewPanel() {
             aria-pressed={previewed === undefined}
             className={`${SEGMENT} ${previewed ? IDLE_SEGMENT : ACTIVE_SEGMENT}`}
           >
-            原图
+            {t('source.original')}
           </button>
           <button
             type="button"
@@ -82,21 +84,21 @@ export default function PreviewPanel() {
             aria-pressed={previewed !== undefined}
             className={`${SEGMENT} ${previewed ? ACTIVE_SEGMENT : IDLE_SEGMENT}`}
           >
-            当前版
+            {t('preview.currentVersion')}
           </button>
         </div>
       </div>
 
       {comparing && canUseResult ? (
-        <div aria-label="版本对比" className="grid grid-cols-2 gap-2">
+        <div aria-label={t('preview.compare')} className="grid grid-cols-2 gap-2">
           <figure className="min-w-0">
             <WorkflowImage
               imageId={previewed?.workflow?.sourceImageId ?? selected?.imageId}
-              alt="修改前"
+              alt={t('workspace.before')}
               className="aspect-[3/4] max-h-[min(50dvh,32rem)] w-full rounded-xl border border-gray-200 bg-gray-50 object-contain dark:border-white/[0.08] dark:bg-white/[0.02]"
             />
             <figcaption className="mt-2 text-center text-xs text-gray-500 dark:text-gray-400">
-              {previewed?.workflow ? '修改前' : '原图'}
+              {previewed?.workflow ? t('workspace.before') : t('source.original')}
             </figcaption>
           </figure>
           <figure className="min-w-0">
@@ -124,14 +126,14 @@ export default function PreviewPanel() {
               {overlay?.dataUrl && (
                 <img
                   src={overlay.dataUrl}
-                  alt="蒙版"
+                  alt={t('matte.mask')}
                   className="absolute inset-0 h-full w-full object-contain"
                 />
               )}
             </span>
           ) : (
             <span className="text-xs text-gray-400 dark:text-gray-500">
-              {previewed ? '这版还没有图' : '暂无原图'}
+              {previewed ? t('preview.noVersionImage') : t('preview.noSource')}
             </span>
           )}
         </div>
@@ -146,12 +148,12 @@ export default function PreviewPanel() {
         onCompare={() => setComparing((value) => !value)}
         disabledReason={
           !selected
-            ? '上传原图并生成图片后，可使用这些工具。'
+            ? t('preview.disabled.noSource')
             : !previewed || overlaid
-              ? '选择已生成的版本，可使用这些工具。'
+              ? t('preview.disabled.noVersion')
               : previewTask?.status === 'running'
-                ? '生成完成后，可编辑、衍生、对比和导出。'
-                : '当前版本暂无结果，请生成图片或选择其他版本。'
+                ? t('preview.disabled.running')
+                : t('preview.disabled.noResult')
         }
       />
 
@@ -164,7 +166,7 @@ export default function PreviewPanel() {
                 checked={!matteOverlayHidden}
                 onChange={(e) => setMatteOverlayHidden(!e.target.checked)}
               />
-              显示蒙版
+              {t('preview.showMask')}
             </label>
           )}
           <BadgeTag
@@ -177,7 +179,7 @@ export default function PreviewPanel() {
               onClick={() => void editSourceMask(selected.imageId)}
               className={`ml-auto ${GHOST_BUTTON}`}
             >
-              {EDIT_MASK_LABEL}
+              {editMaskLabel()}
             </button>
           )}
         </div>

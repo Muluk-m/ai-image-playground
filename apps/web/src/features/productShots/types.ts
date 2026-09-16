@@ -1,4 +1,5 @@
 import type { BgSceneType, ProductBox, PromptLanguage, ShotType } from '@image-playground/shared'
+import { i18next } from '../../i18n'
 import type { ProductAsset } from '../../lib/productAngle'
 import type {
   MatteBackendId,
@@ -14,6 +15,11 @@ import type {
 import type { ProductShotAction } from './lib/actions'
 import type { WorkflowRecipe } from './workflows/plan'
 
+// `getFixedT(null, ns)` 把命名空间钉死、语言不钉：key 受 productShots 的类型约束，
+// 每次调用仍取当前语言。手写 `Parameters<typeof i18next.t>[0]` 拿到的是全部命名空间的
+// 并集，配上 `ns` 反而对不上，key 也就失去了编译期检查。
+const t = i18next.getFixedT(null, 'productShots')
+
 /** 旧任务记录里的两组分段，只用来把老记录读成一个动作。 */
 export type LegacyProductSource = 'original' | 'asset'
 export type LegacyTarget = 'product-only' | 'product-and-background'
@@ -23,10 +29,12 @@ export const SOURCE_MODES = ['upload', 'listing', 'library'] as const
 /** 原图从哪来：自己上传、贴商品链接抓、还是从素材库里挑。 */
 export type SourceMode = (typeof SOURCE_MODES)[number]
 
-export const SOURCE_MODE_LABELS: Record<SourceMode, string> = {
-  upload: '上传',
-  listing: '亚马逊链接',
-  library: '素材库',
+export function sourceModeLabels(): Record<SourceMode, string> {
+  return {
+    upload: t('source.mode.upload'),
+    listing: t('source.mode.listing'),
+    library: t('source.mode.library'),
+  }
 }
 
 /** 抠图没用上的原因：浏览器链跑不出来、服务端挂了、占比不对，或抠出来的框跟产品框对不上。 */
@@ -37,17 +45,21 @@ export type MatteFailureCause =
   | 'box-mismatch'
   | 'missing'
 
-export const EDIT_MASK_LABEL = '改蒙版'
+export function editMaskLabel(): string {
+  return t('matte.editMask')
+}
 
 /** box-mismatch 自带一句「蒙版不可靠」，不在这张表里。 */
-export const MATTE_FAILURE_LABELS: Record<Exclude<MatteFailureCause, 'box-mismatch'>, string> = {
-  timeout: '超时',
-  unsupported: '不支持',
-  failed: '运行错误',
-  server: '服务端失败',
-  missing: '蒙版丢失',
-  'too-small': '占比过小',
-  'too-large': '占比过大',
+export function matteFailureLabels(): Record<Exclude<MatteFailureCause, 'box-mismatch'>, string> {
+  return {
+    timeout: t('matte.failure.timeout'),
+    unsupported: t('matte.failure.unsupported'),
+    failed: t('matte.failure.failed'),
+    server: t('matte.failure.server'),
+    missing: t('matte.failure.missing'),
+    'too-small': t('matte.failure.tooSmall'),
+    'too-large': t('matte.failure.tooLarge'),
+  }
 }
 
 /** 蒙版编辑器与门禁都问这一条：抠出来的 alpha 还在不在。 */
@@ -130,10 +142,12 @@ export interface ProductShotVersion {
 /** 出一版要走的三段，读秒按段切换。 */
 export type ProductShotStage = 'plan' | 'matte' | 'generate'
 
-export const PRODUCT_SHOT_STAGE_LABELS: Record<ProductShotStage, string> = {
-  plan: '方案中',
-  matte: '抠图中',
-  generate: '生成中',
+export function productShotStageLabels(): Record<ProductShotStage, string> {
+  return {
+    plan: t('stage.plan'),
+    matte: t('matte.matting'),
+    generate: i18next.t('state.generating', { ns: 'common' }),
+  }
 }
 
 export interface ProductShotImage {
@@ -175,11 +189,13 @@ export const VERSIONS_PER_IMAGE_CHOICES = [1, 2, 3] as const
 
 export type ProductShotBatchItemState = 'pending' | 'running' | 'done' | 'error'
 
-export const PRODUCT_SHOT_BATCH_STATE_LABELS: Record<ProductShotBatchItemState, string> = {
-  pending: '待跑',
-  running: '进行中',
-  done: '完成',
-  error: '失败',
+export function productShotBatchStateLabels(): Record<ProductShotBatchItemState, string> {
+  return {
+    pending: t('batch.state.pending'),
+    running: t('batch.state.running'),
+    done: i18next.t('state.done', { ns: 'common' }),
+    error: i18next.t('state.failed', { ns: 'common' }),
+  }
 }
 
 export interface ProductShotBatchItem {

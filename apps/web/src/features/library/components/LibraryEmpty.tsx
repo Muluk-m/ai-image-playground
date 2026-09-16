@@ -1,3 +1,4 @@
+import { useTranslation } from '../../../i18n'
 import NewAssetButton from './NewAssetButton'
 
 /** 参考图缩略图 + 右键菜单：告诉用户素材从哪来。 */
@@ -37,13 +38,15 @@ function SaveAssetIllustration() {
 }
 
 export function AssetsEmpty({ onImport }: { onImport: () => void }) {
+  const { t } = useTranslation('library')
+
   return (
     <div className="flex flex-col items-center gap-4 pt-12 text-center">
       <SaveAssetIllustration />
       <p className="text-sm text-gray-500 dark:text-gray-400">
-        拖入或粘贴图片，或右键参考图缩略图存为素材
+        {t('empty.assetsTitle')}
         <span className="mt-1 block text-xs text-gray-400 dark:text-gray-500">
-          手机上长按缩略图
+          {t('empty.assetsMobile')}
         </span>
       </p>
       <NewAssetButton onClick={onImport} />
@@ -52,9 +55,11 @@ export function AssetsEmpty({ onImport }: { onImport: () => void }) {
 }
 
 export function TemplatesEmpty() {
+  const { t } = useTranslation('library')
+
   return (
     <p className="pt-16 text-center text-sm text-gray-500 dark:text-gray-400">
-      写好提示词后点存为模板，输入 / 调用
+      {t('empty.templates')}
     </p>
   )
 }

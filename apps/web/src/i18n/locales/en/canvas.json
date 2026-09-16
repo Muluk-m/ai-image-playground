@@ -1,0 +1,77 @@
+{
+  "toolbar": {
+    "toolTitle": "{{label}} ({{hotkey}})",
+    "tool": {
+      "select": "Select",
+      "hand": "Hand",
+      "pen": "Pen",
+      "eraser": "Eraser",
+      "arrow": "Arrow",
+      "text": "Text"
+    },
+    "undo": "Undo (⌘Z)",
+    "redo": "Redo (⌘⇧Z)",
+    "duplicate": "Duplicate (⌘D)",
+    "deleteSelected": "Delete selection (Del)",
+    "zoomOut": "Zoom out",
+    "zoomIn": "Zoom in",
+    "resetZoom": "Reset to 100%"
+  },
+  "shortcuts": {
+    "title": "Shortcuts",
+    "collapse": "Hide shortcuts",
+    "expand": "Show shortcuts",
+    "row": {
+      "copyPaste": "Copy / paste",
+      "delete": "Delete",
+      "selectAll": "Select all / add",
+      "undoRedo": "Undo / redo",
+      "duplicate": "Duplicate",
+      "selectHand": "Select / hand",
+      "penEraser": "Pen / eraser",
+      "arrowText": "Arrow / text",
+      "zoomPan": "Zoom / pan",
+      "freeDrag": "Drag, no snap",
+      "submitBack": "Generate / back"
+    },
+    "key": {
+      "click": "click",
+      "wheel": "wheel",
+      "drag": "drag"
+    }
+  },
+  "generate": {
+    "hintAnnotated_one": "{{count}} image + markup selected · follows the markup, no lines in the output",
+    "hintAnnotated_other": "{{count}} images + markup selected · follows the markup, no lines in the output",
+    "hintSelected_one": "{{count}} image selected · used as its own reference image",
+    "hintSelected_other": "{{count}} images selected · each used as its own reference image",
+    "hintEmpty": "With nothing selected this generates from text; select images to mark them up and iterate",
+    "inputAlt": "Input {{index}}",
+    "previewPending": "Building preview…",
+    "annotationHint": "Text markup → change request: {{text}}",
+    "promptPlaceholder": "Describe what to create or change… (⌘/Ctrl + Enter)"
+  },
+  "submit": {
+    "blocked": "Can't generate right now",
+    "rasterizeFailed": "Could not process the selected images, please retry",
+    "emptyInput": "Enter a prompt, or select images on the canvas first",
+    "inputsLost": "The original input images were lost when the page closed; select the images again to generate"
+  },
+  "placeholder": {
+    "generating": "Generating…",
+    "failed": "Generation failed",
+    "stale": "Task expired",
+    "noImages": "Finished without returning an image",
+    "unconfirmed": "Task unconfirmed, retry manually",
+    "byokUnrecoverable": "BYOK tasks can't resume across sessions, please retry"
+  },
+  "style": {
+    "color": "Annotation color {{color}}"
+  },
+  "minimap": {
+    "label": "Canvas minimap"
+  },
+  "videoOverlay": {
+    "play": "Play"
+  }
+}

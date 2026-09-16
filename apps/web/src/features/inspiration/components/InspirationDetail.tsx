@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
 import { CopyIcon, SparkleIcon } from '../../../components/icons'
+import { useTranslation } from '../../../i18n'
 import { useStore } from '../../../store'
 import { applyInspiration } from '../lib/applyInspiration'
 import { useInspirationStore } from '../store'
@@ -9,6 +10,7 @@ export default function InspirationDetail() {
   const closeDetail = useInspirationStore((s) => s.closeDetail)
   const items = useInspirationStore((s) => s.items)
   const showToast = useStore((s) => s.showToast)
+  const { t } = useTranslation(['inspiration', 'common'])
 
   const item = useMemo(
     () => items.find((i) => i.id === detailItemId) ?? null,
@@ -22,9 +24,9 @@ export default function InspirationDetail() {
   const handleCopy = async () => {
     try {
       await navigator.clipboard.writeText(item.prompt)
-      showToast('提示词已复制', 'success')
+      showToast(t('detail.promptCopied'), 'success')
     } catch {
-      showToast('复制失败，请手动选择文本', 'error')
+      showToast(t('detail.copyFailed'), 'error')
     }
   }
 
@@ -46,7 +48,7 @@ export default function InspirationDetail() {
           >
             <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
           </svg>
-          返回列表
+          {t('detail.back')}
         </button>
         <div className="text-xs text-gray-400 dark:text-gray-500">{item.recommendedProvider}</div>
       </div>
@@ -60,7 +62,7 @@ export default function InspirationDetail() {
             target="_blank"
             rel="noopener noreferrer"
             className="group relative block overflow-hidden rounded-2xl bg-gray-100 dark:bg-white/[0.04]"
-            title="点击在新标签查看原图"
+            title={t('detail.openOriginalHint')}
           >
             <img
               src={item.imageUrl ?? item.thumbnailUrl}
@@ -69,7 +71,7 @@ export default function InspirationDetail() {
               loading="lazy"
             />
             <span className="pointer-events-none absolute right-2 top-2 rounded-md bg-black/50 px-2 py-1 text-[10px] font-medium text-white opacity-0 transition-opacity group-hover:opacity-100">
-              查看原图 ↗
+              {t('detail.openOriginal')}
             </span>
           </a>
 
@@ -108,15 +110,15 @@ export default function InspirationDetail() {
 
             <div>
               <div className="mb-1.5 flex items-center justify-between text-xs font-medium text-gray-600 dark:text-gray-300">
-                <span>完整提示词</span>
+                <span>{t('detail.promptLabel')}</span>
                 <button
                   type="button"
                   onClick={handleCopy}
                   className="flex items-center gap-1 rounded-md px-2 py-1 text-gray-500 transition hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-white/[0.06] dark:hover:text-gray-200"
-                  aria-label="复制提示词"
+                  aria-label={t('detail.copyPrompt')}
                 >
                   <CopyIcon className="h-3.5 w-3.5" />
-                  复制
+                  {t('common:action.copy')}
                 </button>
               </div>
               <pre
@@ -150,7 +152,7 @@ export default function InspirationDetail() {
           onClick={closeDetail}
           className="rounded-xl px-4 py-2 text-sm text-gray-600 transition hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-white/[0.06]"
         >
-          关闭
+          {t('common:action.close')}
         </button>
         <button
           type="button"
@@ -158,7 +160,7 @@ export default function InspirationDetail() {
           className="flex items-center gap-1.5 rounded-xl bg-blue-500 px-5 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-blue-600"
         >
           <SparkleIcon className="h-4 w-4" />
-          使用此提示词
+          {t('detail.apply')}
         </button>
       </div>
     </div>

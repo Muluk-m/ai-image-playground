@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import ParamControls from '../../../components/ParamControls'
 import SubmissionBillingAction from '../../../components/SubmissionBillingAction'
+import { useTranslation } from '../../../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/apiProfiles'
 import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
 import { useStore } from '../../../store'
@@ -67,6 +68,7 @@ function useSelectionInfo(editor: CanvasEditor): SelectionInfo {
  * 发起即返回（无全局 busy 锁），任务由画布上的占位框反馈状态，支持并发。
  */
 export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) {
+  const { t } = useTranslation(['canvas', 'common'])
   const [prompt, setPrompt] = useState('')
   const [previews, setPreviews] = useState<string[]>([])
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -106,10 +108,10 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
   const canSubmit = (prompt.trim().length > 0 || imageCount > 0) && !submissionGuard.blocked
 
   const hint = annotated
-    ? `已选中 ${imageCount} 张图片 + 手绘标注 · 将按标注迭代（输出不含标注线条）`
+    ? t('generate.hintAnnotated', { count: imageCount })
     : imageCount > 0
-      ? `已选中 ${imageCount} 张图片 · 各自作为独立参考图迭代`
-      : '未选中图片时为文生图；选中图片后可在图上手绘标注一起迭代'
+      ? t('generate.hintSelected', { count: imageCount })
+      : t('generate.hintEmpty')
 
   const run = () => {
     if (!canSubmit) return
@@ -139,16 +141,18 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
               <img
                 key={i}
                 src={src}
-                alt={`输入 ${i + 1}`}
+                alt={t('generate.inputAlt', { index: i + 1 })}
                 className="h-12 w-12 rounded-md border border-gray-200 object-cover dark:border-white/10"
               />
             ))}
             {previews.length === 0 && (
-              <span className="text-[11px] text-gray-400 dark:text-gray-500">预览生成中…</span>
+              <span className="text-[11px] text-gray-400 dark:text-gray-500">
+                {t('generate.previewPending')}
+              </span>
             )}
             {annotationText && (
               <span className="max-w-[50%] truncate text-[11px] text-amber-600 dark:text-amber-400">
-                文字标注 → 修改要求：{annotationText}
+                {t('generate.annotationHint', { text: annotationText })}
               </span>
             )}
           </div>
@@ -179,7 +183,7 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
                   e.currentTarget.blur()
                 }
               }}
-              placeholder="描述想生成 / 想怎么改…（⌘/Ctrl + Enter 生成）"
+              placeholder={t('generate.promptPlaceholder')}
               rows={1}
               className="max-h-32 min-h-[2.25rem] resize-none bg-transparent px-2 py-1.5 text-sm text-gray-900 outline-none placeholder:text-gray-400 dark:text-gray-50"
             />
@@ -191,7 +195,7 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
             title={submissionGuard.disabledReason}
             className="shrink-0 rounded-xl bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:bg-gray-200 disabled:text-gray-400 dark:disabled:bg-white/10 dark:disabled:text-gray-500"
           >
-            生成
+            {t('common:action.generate')}
           </button>
         </div>
       </div>

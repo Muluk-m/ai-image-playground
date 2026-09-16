@@ -11,25 +11,22 @@ import {
   PRIMARY_BUTTON,
 } from '../../../components/panelStyles'
 import Segmented from '../../../components/Segmented'
+import { useTranslation } from '../../../i18n'
 import { REMIX_LEVELS } from '../../../lib/shotTypes'
 import { useStore } from '../../../store'
 import AssetThumb from '../../library/components/AssetThumb'
 import { useLibraryStore } from '../../library/store'
-import { ACTION_LABELS, type ProductShotAction, REMIX_LEVEL_LABELS } from '../lib/actions'
+import { actionLabels, type ProductShotAction, remixLevelLabels } from '../lib/actions'
 import { sourceMatteNotice } from '../lib/matteBadge'
 import { matteGate } from '../lib/matteGate'
 import { maskSideFor } from '../lib/mode'
 import { productGateReason, usesProductAsset } from '../lib/productGate'
 import { maskSupported, modelKnown } from '../lib/sourceMatte'
 import { useProductShotsStore } from '../store'
-import { EDIT_MASK_LABEL, PRODUCT_SHOT_STAGE_LABELS, VERSIONS_PER_IMAGE_CHOICES } from '../types'
+import { editMaskLabel, productShotStageLabels, VERSIONS_PER_IMAGE_CHOICES } from '../types'
 import { openWorkflow } from '../workflows/runtime'
 
-const PICK_PRODUCT = '选产品素材'
-const NO_PRODUCT = '产品素材：未选'
-const NEEDS_PRODUCT = '请先选产品素材'
 const PRODUCT_HINT_ID = 'product-shots-product-hint'
-const RETRY_MATTE = '重试抠图'
 
 /** 三个动作挤在一排里，PRIMARY_BUTTON 的字号与内边距放不下最长的那个标签。 */
 const ACTION_BUTTON =
@@ -44,6 +41,7 @@ const ACTIONS = (['background', 'replace-product', 'remix'] satisfies ProductSho
 )
 
 export default function ActionPanel() {
+  const { t } = useTranslation(['productShots', 'common'])
   const preference = useProductShotsStore((s) => s.draft.preference)
   const versionsPerImage = useProductShotsStore((s) => s.draft.versionsPerImage)
   const level = useProductShotsStore((s) => s.draft.level)
@@ -84,28 +82,29 @@ export default function ActionPanel() {
     assets,
     sourceImageId: selectedImageId,
   })
-  const productActionReason = hasProduct ? productBlocked : NEEDS_PRODUCT
+  const productActionReason = hasProduct ? productBlocked : t('panel.needsProduct')
+  const labels = actionLabels()
 
   return (
     <section data-product-shots-column="actions" className={`${CARD} flex flex-col gap-4`}>
       <div data-product-shots-settings className="flex flex-col gap-3">
-        <h2 className={PANEL_TITLE}>设置</h2>
+        <h2 className={PANEL_TITLE}>{t('label.settings')}</h2>
 
         <div>
           <label className={LABEL} htmlFor="product-shots-preference">
-            偏好（可空）
+            {t('label.preference')}
           </label>
           <input
             id="product-shots-preference"
             value={preference}
             onChange={(e) => setPreference(e.target.value)}
-            placeholder="例：北欧风，浅木色"
+            placeholder={t('panel.preferencePlaceholder')}
             className={`mt-1.5 ${FIELD}`}
           />
         </div>
 
         <div>
-          <span className={LABEL}>每张几版</span>
+          <span className={LABEL}>{t('panel.versionsPerImage')}</span>
           <div className="mt-1.5 flex gap-1.5">
             {VERSIONS_PER_IMAGE_CHOICES.map((count) => (
               <button
@@ -126,12 +125,12 @@ export default function ActionPanel() {
         </div>
 
         <div>
-          <span className={LABEL}>与竞品的距离</span>
+          <span className={LABEL}>{t('panel.remixDistance')}</span>
           <div className="mt-1.5 w-fit">
             <Segmented
-              label="与竞品的距离"
+              label={t('panel.remixDistance')}
               options={REMIX_LEVELS}
-              labels={REMIX_LEVEL_LABELS}
+              labels={remixLevelLabels()}
               value={level}
               onChange={setRemixLevel}
             />
@@ -154,25 +153,25 @@ export default function ActionPanel() {
               })}
             </ul>
           ) : (
-            <span className={LABEL}>{NO_PRODUCT}</span>
+            <span className={LABEL}>{t('panel.noProduct')}</span>
           )}
           <button type="button" onClick={openProductPicker} className={`ml-auto ${GHOST_BUTTON}`}>
-            {hasProduct ? '更换' : PICK_PRODUCT}
+            {hasProduct ? t('panel.replaceProduct') : t('panel.pickProduct')}
           </button>
         </div>
         <p
           id={PRODUCT_HINT_ID}
           className="text-xs leading-relaxed text-gray-500 dark:text-gray-400"
         >
-          换背景无需产品素材。
+          {t('panel.hintLead')}
           {productBlocked
-            ? `换产品 / 借创意重做：${productBlocked}。`
-            : '仅换产品、借创意重做时需要选择。'}
+            ? t('panel.hintBlocked', { reason: productBlocked })
+            : t('panel.hintNeed')}
         </p>
       </div>
 
       <div className={`${PANEL_SECTION} flex flex-col gap-2`}>
-        <h2 className={PANEL_TITLE}>生成</h2>
+        <h2 className={PANEL_TITLE}>{t('common:action.generate')}</h2>
 
         {matteNotice && (
           <p data-product-shots-matte-notice className={NOTICE}>
@@ -189,7 +188,10 @@ export default function ActionPanel() {
               aria-describedby={action.needsProduct ? PRODUCT_HINT_ID : undefined}
               title={
                 action.needsProduct && productActionReason
-                  ? `${ACTION_LABELS[action.mode]}：${productActionReason}`
+                  ? t('panel.actionReason', {
+                      action: labels[action.mode],
+                      reason: productActionReason,
+                    })
                   : undefined
               }
               onClick={() => void runAction(action.mode)}
@@ -201,14 +203,14 @@ export default function ActionPanel() {
               }
               className={ACTION_BUTTON}
             >
-              {ACTION_LABELS[action.mode]}
+              {labels[action.mode]}
             </button>
           ))}
         </div>
 
         {swapStage && (
           <p data-product-shots-progress className="text-xs text-gray-500 dark:text-gray-400">
-            <Pending label={PRODUCT_SHOT_STAGE_LABELS[swapStage]} startedAt={swapStartedAt} />
+            <Pending label={productShotStageLabels()[swapStage]} startedAt={swapStartedAt} />
           </p>
         )}
 
@@ -221,7 +223,7 @@ export default function ActionPanel() {
                 onClick={() => void retryMatte(selectedImageId)}
                 className={GHOST_BUTTON}
               >
-                {RETRY_MATTE}
+                {t('panel.retryMatte')}
               </button>
             )}
             {matteBlocked.edit && (
@@ -230,7 +232,7 @@ export default function ActionPanel() {
                 onClick={() => void editSourceMask(selectedImageId)}
                 className={GHOST_BUTTON}
               >
-                {EDIT_MASK_LABEL}
+                {editMaskLabel()}
               </button>
             )}
           </p>
@@ -243,7 +245,7 @@ export default function ActionPanel() {
         disabled={!selectedImageId}
         onClick={() => openWorkflow('draft')}
       >
-        先出 3 个方案
+        {t('panel.draftThree')}
       </button>
     </section>
   )

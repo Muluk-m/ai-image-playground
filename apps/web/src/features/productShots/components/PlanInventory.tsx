@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { FIELD_BOX, LABEL } from '../../../components/panelStyles'
+import { useTranslation } from '../../../i18n'
 
 const CHIP =
   'inline-flex items-center gap-1 rounded-md bg-indigo-500/10 py-0.5 pl-2 pr-1 text-xs text-indigo-700 dark:text-indigo-300'
@@ -12,6 +13,7 @@ interface PlanInventoryProps {
 }
 
 export default function PlanInventory({ inventory, onChange }: PlanInventoryProps) {
+  const { t } = useTranslation('productShots')
   const [draft, setDraft] = useState('')
 
   const add = () => {
@@ -22,7 +24,7 @@ export default function PlanInventory({ inventory, onChange }: PlanInventoryProp
 
   return (
     <div>
-      <span className={LABEL}>产品清单</span>
+      <span className={LABEL}>{t('plan.inventory')}</span>
       <div data-product-shots-plan-inventory className={`mt-1 ${FIELD_BOX}`}>
         {/* 清单写进版本前已去重，所以名字可以既当 key 又当删除的判据。 */}
         {inventory.map((name) => (
@@ -30,7 +32,7 @@ export default function PlanInventory({ inventory, onChange }: PlanInventoryProp
             {name}
             <button
               type="button"
-              aria-label={`删除 ${name}`}
+              aria-label={t('plan.removeItem', { name })}
               onClick={() => onChange(inventory.filter((item) => item !== name))}
               className={REMOVE}
             >
@@ -40,8 +42,8 @@ export default function PlanInventory({ inventory, onChange }: PlanInventoryProp
         ))}
         <input
           type="text"
-          aria-label="产品清单"
-          placeholder="添加，回车确认"
+          aria-label={t('plan.inventory')}
+          placeholder={t('plan.inventoryPlaceholder')}
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {

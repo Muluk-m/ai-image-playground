@@ -9,7 +9,7 @@
     "invalid_referral_code": "That invite code is invalid or no longer usable, edit or clear it and retry",
     "registration_reward_unavailable": "The invite reward cannot be granted right now, retry later or clear the invite code",
     "account_disabled": "This account has been disabled",
-    "access_denied": "You cancelled the third-party authorization",
+    "access_denied": "You canceled the third-party authorization",
     "fallback": "Third-party sign-in failed, retry or use your email instead"
   },
   "registration": {
@@ -24,7 +24,7 @@
   "link": {
     "identity_taken": "That third-party account is already linked to another account",
     "unauthenticated": "Your session expired, sign in again before linking",
-    "access_denied": "You cancelled the third-party authorization",
+    "access_denied": "You canceled the third-party authorization",
     "fallback": "Linking failed, please try again later"
   },
   "password": {

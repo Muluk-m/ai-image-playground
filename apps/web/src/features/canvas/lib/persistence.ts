@@ -88,7 +88,7 @@ export async function saveScene(editor: CanvasEditor): Promise<void> {
       camera: { ...camera },
     })
   } catch (err) {
-    console.warn('[canvas] 场景持久化失败', err)
+    console.warn('[canvas] failed to persist the scene', err)
   }
 }
 
@@ -103,7 +103,7 @@ export async function loadScene(editor: CanvasEditor): Promise<boolean> {
     editor.doc.restore(stored.elements, stored.files ?? {}, stored.camera)
     return true
   } catch (err) {
-    console.warn('[canvas] 场景恢复失败', err)
+    console.warn('[canvas] failed to restore the scene', err)
     return false
   }
 }

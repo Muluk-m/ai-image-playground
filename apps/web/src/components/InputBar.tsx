@@ -10,6 +10,7 @@ import { buildTemplateMenuGroups, getSlashTemplateQuery } from '../features/libr
 import { useLibraryStore } from '../features/library/store'
 import { useImageInputScope } from '../hooks/useImageInputScope'
 import { usePasteImageFiles } from '../hooks/usePasteImageFiles'
+import { describeError, useTranslation } from '../i18n'
 import {
   clientProfileToApiProfile,
   getActiveApiProfile,
@@ -92,6 +93,7 @@ function useIsMobile() {
 }
 
 export default function InputBar() {
+  const { t } = useTranslation(['composer', 'common'])
   const prompt = useStore((s) => s.prompt)
   const setPrompt = useStore((s) => s.setPrompt)
   const inputImages = useStore((s) => s.inputImages)
@@ -151,11 +153,11 @@ export default function InputBar() {
     const allFavorite = selectedTasks.length > 0 && selectedTasks.every((t) => t.isFavorite)
     const newFavoriteState = !allFavorite
     setConfirmDialog({
-      title: newFavoriteState ? '批量收藏' : '批量取消收藏',
+      title: newFavoriteState ? t('bulk.favoriteTitle') : t('bulk.unfavoriteTitle'),
       message: newFavoriteState
-        ? `确定要收藏选中的 ${selectedTaskIds.length} 条记录吗？`
-        : `确定要取消收藏选中的 ${selectedTaskIds.length} 条记录吗？`,
-      confirmText: newFavoriteState ? '确认收藏' : '确认取消',
+        ? t('bulk.favoriteMessage', { count: selectedTaskIds.length })
+        : t('bulk.unfavoriteMessage', { count: selectedTaskIds.length }),
+      confirmText: newFavoriteState ? t('bulk.confirmFavorite') : t('bulk.confirmUnfavorite'),
       action: () => {
         selectedTaskIds.forEach((id) => {
           updateTaskInStore(id, { isFavorite: newFavoriteState })
@@ -163,35 +165,35 @@ export default function InputBar() {
         clearSelection()
       },
     })
-  }, [tasks, selectedTaskIds, clearSelection, setConfirmDialog])
+  }, [tasks, selectedTaskIds, clearSelection, setConfirmDialog, t])
 
   const handleDeleteSelected = useCallback(() => {
     setConfirmDialog({
-      title: '批量删除',
-      message: `确定要删除选中的 ${selectedTaskIds.length} 条记录吗？`,
+      title: t('bulk.deleteTitle'),
+      message: t('bulk.deleteMessage', { count: selectedTaskIds.length }),
       action: () => {
         removeMultipleTasks(selectedTaskIds)
       },
     })
-  }, [selectedTaskIds, setConfirmDialog])
+  }, [selectedTaskIds, setConfirmDialog, t])
 
   const handleDownloadSelected = useCallback(async () => {
     const selectedTasks = tasks.filter((t) => selectedTaskIds.includes(t.id))
     const imageIds = selectedTasks.flatMap((t) => t.outputImages || [])
     if (imageIds.length === 0) {
-      showToast('选中的记录没有图片', 'info')
+      showToast(t('bulk.noImages'), 'info')
       return
     }
 
-    showToast(`开始下载 ${imageIds.length} 张图片...`, 'info')
+    showToast(t('bulk.downloadStarted', { count: imageIds.length }), 'info')
     const { success, failed } = await downloadImagesByIds(imageIds)
     if (failed > 0) {
-      showToast(`下载完成: 成功 ${success}，失败 ${failed}`, 'info')
+      showToast(t('bulk.downloadPartial', { success, failed }), 'info')
     } else {
-      showToast(`成功下载 ${success} 张图片`, 'success')
+      showToast(t('bulk.downloadSucceeded', { count: success }), 'success')
     }
     clearSelection()
-  }, [tasks, selectedTaskIds, showToast, clearSelection])
+  }, [tasks, selectedTaskIds, showToast, clearSelection, t])
 
   const slotValues = useStore((s) => s.slotValues)
   const setSlotValues = useStore((s) => s.setSlotValues)
@@ -289,7 +291,10 @@ export default function InputBar() {
   const activeView = clientProfileToApiProfile(activeProfile)
   const hasSubmitApiConfig = activeProfile.source === 'builtin-edge' || Boolean(activeView.apiKey)
   const submitImageCount = getSubmissionImageCount(prompt, slotValues, params.n)
-  const generateLabel = submitImageCount > 1 ? `生成 ${submitImageCount} 张` : '生成'
+  const generateLabel =
+    submitImageCount > 1
+      ? t('submit.generateCount', { count: submitImageCount })
+      : t('common:action.generate')
   const submissionInput = { model: activeView.model, quantity: submitImageCount }
   const submissionGuard = usePrivateSubmissionGuard(submissionInput)
   const canSubmit = Boolean(prompt.trim() && hasSubmitApiConfig && !submissionGuard.blocked)
@@ -666,12 +671,10 @@ export default function InputBar() {
       if (discarded > 0) {
         useStore
           .getState()
-          .showToast(`已达上限 ${API_MAX_IMAGES} 张，${discarded} 张图片被丢弃`, 'error')
+          .showToast(t('image.discarded', { limit: API_MAX_IMAGES, count: discarded }), 'error')
       }
     } catch (err) {
-      useStore
-        .getState()
-        .showToast(`图片添加失败：${err instanceof Error ? err.message : String(err)}`, 'error')
+      useStore.getState().showToast(t('image.addFailed', { reason: describeError(err) }), 'error')
     }
   }
 
@@ -1005,7 +1008,7 @@ export default function InputBar() {
   const renderImageThumb = (img: (typeof inputImages)[number], idx: number) => {
     const isMaskTarget = maskDraft?.targetImageId === img.id
     const canEdit = !maskTargetImage || isMaskTarget
-    const imageHintText = isMaskTarget ? '遮罩图必须为第一张图' : ''
+    const imageHintText = isMaskTarget ? t('image.maskFirstHint') : ''
     const displaySrc = isMaskTarget && maskPreviewUrl ? maskPreviewUrl : img.dataUrl
     const isImageDragging = imageDragIndex === idx
     const isLast = idx === inputImages.length - 1
@@ -1167,7 +1170,7 @@ export default function InputBar() {
             }
             if (maskTargetImage && !maskConflictNoticeShownRef.current) {
               maskConflictNoticeShownRef.current = true
-              showToast('只能有一张遮罩图', 'info')
+              showToast(t('image.onlyOneMask'), 'info')
             }
             setLightboxImageId(
               img.id,
@@ -1201,7 +1204,7 @@ export default function InputBar() {
                 e.stopPropagation()
                 setMaskEditorImageId(img.id)
               }}
-              title={isMaskTarget ? '编辑遮罩' : '添加遮罩'}
+              title={isMaskTarget ? t('mask.title') : t('image.addMask')}
             >
               <MaskBrushIcon className="w-5 h-5 text-white" />
             </button>
@@ -1233,15 +1236,15 @@ export default function InputBar() {
     <button
       onClick={() =>
         setConfirmDialog({
-          title: maskTargetImage ? '清空全部输入图' : '清空参考图',
+          title: maskTargetImage ? t('image.clearAllTitle') : t('image.clearReferencesTitle'),
           message: maskTargetImage
-            ? `确定要清空遮罩主图、${referenceImages.length} 张参考图和当前遮罩吗？`
-            : `确定要清空全部 ${inputImages.length} 张参考图吗？`,
+            ? t('image.clearWithMaskMessage', { count: referenceImages.length })
+            : t('image.clearReferencesMessage', { count: inputImages.length }),
           action: () => clearInputImages(),
         })
       }
       className="w-[52px] h-[52px] rounded-xl border border-dashed border-gray-300 dark:border-white/[0.08] flex flex-col items-center justify-center gap-0.5 text-gray-400 dark:text-gray-500 hover:text-red-500 hover:border-red-300 hover:bg-red-50/50 dark:hover:bg-red-950/30 transition-all cursor-pointer flex-shrink-0"
-      title={maskTargetImage ? '清空遮罩主图、参考图和遮罩' : '清空全部参考图'}
+      title={maskTargetImage ? t('image.clearAllTooltip') : t('image.clearReferencesTooltip')}
     >
       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path
@@ -1251,7 +1254,9 @@ export default function InputBar() {
           d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
         />
       </svg>
-      <span className="text-[8px] leading-none">{maskTargetImage ? '清空全部' : '清空'}</span>
+      <span className="text-[8px] leading-none">
+        {maskTargetImage ? t('image.clearAllLabel') : t('common:action.clear')}
+      </span>
     </button>
   )
 
@@ -1281,7 +1286,7 @@ export default function InputBar() {
           <ContextMenu x={thumbMenu.x} y={thumbMenu.y} onClose={() => setThumbMenu(null)}>
             <ContextMenuItem
               icon={<LinkIcon className="h-4 w-4 flex-shrink-0" />}
-              label="插入引用"
+              label={t('image.insertMention')}
               onClick={() => {
                 insertImageMentionAtCursor(thumbMenu.index)
                 setThumbMenu(null)
@@ -1289,7 +1294,7 @@ export default function InputBar() {
             />
             <ContextMenuItem
               icon={<LibraryIcon className="h-4 w-4 flex-shrink-0" />}
-              label="存为素材"
+              label={t('image.saveAsAsset')}
               onClick={() => {
                 startNamingAsset(thumbMenu.imageId)
                 setThumbMenu(null)
@@ -1347,15 +1352,17 @@ export default function InputBar() {
             <div className="text-center">
               {atImageLimit ? (
                 <>
-                  <p className="text-lg font-semibold text-red-500">已达上限 {API_MAX_IMAGES} 张</p>
-                  <p className="text-sm text-gray-400 mt-1">请先移除部分参考图后再添加</p>
+                  <p className="text-lg font-semibold text-red-500">
+                    {t('image.limitReached', { count: API_MAX_IMAGES })}
+                  </p>
+                  <p className="text-sm text-gray-400 mt-1">{t('image.limitHint')}</p>
                 </>
               ) : (
                 <>
                   <p className="text-lg font-semibold text-gray-700 dark:text-gray-200">
-                    释放以添加参考图
+                    {t('image.dropToAdd')}
                   </p>
-                  <p className="text-sm text-gray-400 mt-1">支持 JPG、PNG、WebP 等格式</p>
+                  <p className="text-sm text-gray-400 mt-1">{t('image.dropFormats')}</p>
                 </>
               )}
             </div>
@@ -1373,7 +1380,7 @@ export default function InputBar() {
               <button
                 onClick={clearSelection}
                 className="p-2 text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors"
-                title="取消选择"
+                title={t('bulk.clearSelection')}
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path
@@ -1390,8 +1397,8 @@ export default function InputBar() {
                 className="p-2 text-blue-500 dark:text-blue-400 hover:text-blue-600 dark:hover:text-blue-300 transition-colors"
                 title={
                   selectedTaskIds.length === filteredTasks.length && filteredTasks.length > 0
-                    ? '取消全选'
-                    : '全选当前可见'
+                    ? t('bulk.deselectAll')
+                    : t('bulk.selectAllVisible')
                 }
               >
                 {selectedTaskIds.length === filteredTasks.length && filteredTasks.length > 0 ? (
@@ -1428,7 +1435,7 @@ export default function InputBar() {
               <button
                 onClick={handleToggleFavorite}
                 className="p-2 text-yellow-500 dark:text-yellow-400 hover:text-yellow-600 dark:hover:text-yellow-300 transition-colors"
-                title="收藏/取消收藏"
+                title={t('bulk.toggleFavorite')}
               >
                 {selectedTaskIds.length > 0 &&
                 selectedTaskIds.every((id) => tasks.find((t) => t.id === id)?.isFavorite) ? (
@@ -1453,7 +1460,7 @@ export default function InputBar() {
               <button
                 onClick={handleDownloadSelected}
                 className="p-2 text-green-500 dark:text-green-400 hover:text-green-600 dark:hover:text-green-300 transition-colors"
-                title="批量下载"
+                title={t('bulk.download')}
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path
@@ -1468,7 +1475,7 @@ export default function InputBar() {
               <button
                 onClick={handleDeleteSelected}
                 className="p-2 text-red-500 dark:text-red-400 hover:text-red-600 dark:hover:text-red-300 transition-colors"
-                title="删除选中"
+                title={t('bulk.delete')}
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path
@@ -1492,7 +1499,7 @@ export default function InputBar() {
                 type="button"
                 onClick={() => setBarCollapsed(false)}
                 className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-gray-500 hover:bg-gray-100/80 dark:text-gray-300 dark:hover:bg-white/[0.06]"
-                title="展开输入框"
+                title={t('bar.expand')}
               >
                 <svg
                   className="h-4 w-4"
@@ -1508,9 +1515,9 @@ export default function InputBar() {
                 type="button"
                 onClick={() => setBarCollapsed(false)}
                 className="min-w-0 flex-1 truncate rounded-xl bg-gray-100/60 px-3 py-2 text-left text-sm text-gray-600 hover:bg-gray-100 dark:bg-white/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.07]"
-                title="点击展开输入框"
+                title={t('bar.expandHint')}
               >
-                {prompt.trim() ? visiblePrompt : '点击展开输入框，输入新的 prompt...'}
+                {prompt.trim() ? visiblePrompt : t('bar.emptyPromptHint')}
               </button>
               <div
                 className="relative flex items-center gap-2"
@@ -1523,9 +1530,7 @@ export default function InputBar() {
                 />
                 <ButtonTooltip
                   visible={(!hasSubmitApiConfig || submissionGuard.blocked) && submitHover}
-                  text={
-                    submissionGuard.disabledReason ?? '尚未完成 API 配置，请打开右上角菜单 → 设置'
-                  }
+                  text={submissionGuard.disabledReason ?? t('submit.apiNotConfigured')}
                 />
                 <button
                   type="button"
@@ -1540,13 +1545,13 @@ export default function InputBar() {
                     submissionGuard.disabledReason ??
                     (hasSubmitApiConfig
                       ? maskDraft
-                        ? '遮罩编辑 (Ctrl+Enter)'
-                        : '生成 (Ctrl+Enter)'
-                      : '请先配置 API')
+                        ? t('submit.maskEditShortcut')
+                        : t('submit.generateShortcut')
+                      : t('submit.configureApiFirst'))
                   }
                 >
                   {ChipIcons.sparkles}
-                  <span>{maskDraft ? '遮罩编辑' : generateLabel}</span>
+                  <span>{maskDraft ? t('submit.maskEdit') : generateLabel}</span>
                 </button>
               </div>
             </div>
@@ -1556,7 +1561,7 @@ export default function InputBar() {
                 type="button"
                 onClick={() => setBarCollapsed(true)}
                 className="absolute right-2 top-2 z-20 flex h-6 w-6 items-center justify-center rounded-md bg-white/60 text-gray-400 backdrop-blur-sm hover:bg-gray-100/80 hover:text-gray-600 dark:bg-gray-900/40 dark:hover:bg-white/[0.06] dark:hover:text-gray-200"
-                title="收起输入框（折叠成 mini bar）"
+                title={t('bar.collapse')}
               >
                 <svg
                   className="h-4 w-4"
@@ -1589,8 +1594,8 @@ export default function InputBar() {
                     {mobileCollapsed && (
                       <div className="text-xs text-gray-400 dark:text-gray-500 mb-2 ml-1">
                         {maskDraft
-                          ? `1 张遮罩主图 · ${referenceImages.length} 张参考图`
-                          : `${inputImages.length} 张参考图`}
+                          ? t('image.summaryWithMask', { count: referenceImages.length })
+                          : t('image.summary', { count: inputImages.length })}
                       </div>
                     )}
                   </>
@@ -1700,7 +1705,7 @@ export default function InputBar() {
 
                     syncMentionTagSelection(el)
                   }}
-                  data-placeholder="描述你想生成的图片，@ 指定参考图，{槽位} 批量生成..."
+                  data-placeholder={t('editor.placeholder')}
                   className={TEXTAREA_CLASS}
                 />
                 {prompt.length > 0 && (
@@ -1709,8 +1714,8 @@ export default function InputBar() {
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={handleClearPrompt}
                     className="absolute right-1 top-1 flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 dark:text-gray-500 dark:hover:bg-white/[0.06] dark:hover:text-gray-200"
-                    title="清空提示词"
-                    aria-label="清空提示词"
+                    title={t('editor.clearPrompt')}
+                    aria-label={t('editor.clearPrompt')}
                   >
                     <CloseIcon className="h-4 w-4" />
                   </button>
@@ -1737,7 +1742,7 @@ export default function InputBar() {
                           ? 'border-gray-200/60 bg-gray-100/60 text-gray-300 cursor-not-allowed dark:border-white/[0.08] dark:bg-white/[0.04] dark:text-gray-500'
                           : 'border-gray-300/80 bg-white/70 text-gray-500 hover:border-gray-400/80 hover:bg-white dark:border-white/[0.12] dark:bg-white/[0.04] dark:text-gray-300 dark:hover:border-white/[0.20] dark:hover:bg-white/[0.07]'
                       }`}
-                      title={attachDisabled ? attachDisabledReason : '添加参考图'}
+                      title={attachDisabled ? attachDisabledReason : t('image.attach')}
                     >
                       {ChipIcons.imageAttach}
                     </button>
@@ -1746,7 +1751,7 @@ export default function InputBar() {
                     type="button"
                     onClick={openLibrary}
                     className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl border border-gray-300/80 bg-white/70 text-gray-500 transition-colors duration-150 hover:border-gray-400/80 hover:bg-white dark:border-white/[0.12] dark:bg-white/[0.04] dark:text-gray-300 dark:hover:border-white/[0.20] dark:hover:bg-white/[0.07]"
-                    title="素材与模板"
+                    title={t('bar.library')}
                   >
                     <LibraryIcon className="h-5 w-5" />
                   </button>
@@ -1755,7 +1760,7 @@ export default function InputBar() {
                     onClick={startNamingTemplate}
                     disabled={!prompt.trim()}
                     className={SAVE_TEMPLATE_BUTTON_CLASS}
-                    title="存为模板"
+                    title={t('bar.saveTemplate')}
                   >
                     <BookmarkIcon className="h-5 w-5" />
                   </button>
@@ -1772,10 +1777,7 @@ export default function InputBar() {
                     />
                     <ButtonTooltip
                       visible={(!hasSubmitApiConfig || submissionGuard.blocked) && submitHover}
-                      text={
-                        submissionGuard.disabledReason ??
-                        '尚未完成 API 配置，请打开右上角菜单 → 设置'
-                      }
+                      text={submissionGuard.disabledReason ?? t('submit.apiNotConfigured')}
                     />
                     <button
                       onClick={() => (hasSubmitApiConfig ? submitTask() : setShowSettings(true))}
@@ -1789,9 +1791,9 @@ export default function InputBar() {
                         submissionGuard.disabledReason ??
                         (hasSubmitApiConfig
                           ? maskDraft
-                            ? '遮罩编辑 (Ctrl+Enter)'
-                            : '生成 (Ctrl+Enter)'
-                          : '请先配置 API')
+                            ? t('submit.maskEditShortcut')
+                            : t('submit.generateShortcut')
+                          : t('submit.configureApiFirst'))
                       }
                     >
                       {hasSubmitApiConfig && (
@@ -1810,7 +1812,7 @@ export default function InputBar() {
                           d="M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5L12 3zM19 14l.7 2.1L22 17l-2.3.9L19 20l-.7-2.1L16 17l2.3-.9L19 14z"
                         />
                       </svg>
-                      <span>{maskDraft ? '遮罩编辑' : generateLabel}</span>
+                      <span>{maskDraft ? t('submit.maskEdit') : generateLabel}</span>
                     </button>
                   </div>
                 </div>
@@ -1844,7 +1846,7 @@ export default function InputBar() {
                             ? 'border-gray-200/60 bg-gray-100/60 text-gray-300 cursor-not-allowed dark:border-white/[0.08] dark:bg-white/[0.04] dark:text-gray-500'
                             : 'border-gray-300/80 bg-white/70 text-gray-500 hover:border-gray-400/80 hover:bg-white dark:border-white/[0.12] dark:bg-white/[0.04] dark:text-gray-300 dark:hover:border-white/[0.20] dark:hover:bg-white/[0.07]'
                         }`}
-                        title={attachDisabled ? attachDisabledReason : '添加参考图'}
+                        title={attachDisabled ? attachDisabledReason : t('image.attach')}
                       >
                         {ChipIcons.imageAttach}
                       </button>
@@ -1853,7 +1855,7 @@ export default function InputBar() {
                       type="button"
                       onClick={openLibrary}
                       className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl border border-gray-300/80 bg-white/70 text-gray-500 transition-colors duration-150 dark:border-white/[0.12] dark:bg-white/[0.04] dark:text-gray-300"
-                      title="素材与模板"
+                      title={t('bar.library')}
                     >
                       <LibraryIcon className="h-5 w-5" />
                     </button>
@@ -1862,7 +1864,7 @@ export default function InputBar() {
                       onClick={startNamingTemplate}
                       disabled={!prompt.trim()}
                       className={SAVE_TEMPLATE_BUTTON_CLASS}
-                      title="存为模板"
+                      title={t('bar.saveTemplate')}
                     >
                       <BookmarkIcon className="h-5 w-5" />
                     </button>
@@ -1877,10 +1879,7 @@ export default function InputBar() {
                       />
                       <ButtonTooltip
                         visible={(!hasSubmitApiConfig || submissionGuard.blocked) && submitHover}
-                        text={
-                          submissionGuard.disabledReason ??
-                          '尚未完成 API 配置，请打开右上角菜单 → 设置'
-                        }
+                        text={submissionGuard.disabledReason ?? t('submit.apiNotConfigured')}
                       />
                       <button
                         onClick={() => (hasSubmitApiConfig ? submitTask() : setShowSettings(true))}
@@ -1894,10 +1893,10 @@ export default function InputBar() {
                         {ChipIcons.sparkles}
                         <span>
                           {maskDraft
-                            ? '遮罩编辑'
+                            ? t('submit.maskEdit')
                             : submitImageCount > 1
                               ? generateLabel
-                              : '生成图像'}
+                              : t('submit.generateImage')}
                         </span>
                       </button>
                     </div>

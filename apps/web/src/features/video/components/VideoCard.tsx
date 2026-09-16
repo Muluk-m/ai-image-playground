@@ -3,6 +3,8 @@ import { useState } from 'react'
 import ContextMenu, { ContextMenuItem } from '../../../components/ContextMenu'
 import Credits from '../../../components/Credits'
 import { TrashIcon } from '../../../components/icons'
+import { i18next, useTranslation } from '../../../i18n'
+import { formatDateTime } from '../../../i18n/format'
 import { useStore } from '../../../store'
 import { videoAspectLabel, videoFrameAspect } from '../lib/aspect'
 import { deriveOptions, type VideoDeriveOption } from '../lib/derive'
@@ -23,10 +25,13 @@ const HOVER_BUTTON =
 
 function frameBadge(task: VideoTask): string | null {
   if (task.source !== 'image') return null
-  return task.lastFrameImageId ? '首帧 · 尾帧' : '首帧'
+  return task.lastFrameImageId
+    ? i18next.t('frameSlot.both', { ns: 'video' })
+    : i18next.t('frameSlot.first', { ns: 'video' })
 }
 
 export default function VideoCard({ task, onOpen }: { task: VideoTask; onOpen: () => void }) {
+  const { t } = useTranslation(['video', 'common'])
   const showToast = useStore((s) => s.showToast)
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const [derive, setDerive] = useState<VideoDeriveOption | null>(null)
@@ -46,11 +51,11 @@ export default function VideoCard({ task, onOpen }: { task: VideoTask; onOpen: (
 
   const useAsFirstFrame = async () => {
     if (!task.thumbnailDataUrl) {
-      showToast('这条还没有可用的首帧', 'error')
+      showToast(t('card.noFirstFrame'), 'error')
       return
     }
     await adoptAsFirstFrame(task.thumbnailDataUrl)
-    showToast('已填入首帧', 'success')
+    showToast(t('toast.firstFrameAdopted'), 'success')
   }
 
   return (
@@ -67,7 +72,7 @@ export default function VideoCard({ task, onOpen }: { task: VideoTask; onOpen: (
           type="button"
           onClick={onOpen}
           disabled={!done}
-          aria-label={done ? `播放 ${task.prompt}` : task.prompt}
+          aria-label={done ? t('card.playAria', { prompt: task.prompt }) : task.prompt}
           className="relative block aspect-video w-full overflow-hidden bg-gray-900 disabled:cursor-default dark:bg-black"
         >
           {/* 输出比例的画框居中放进 16:9 容器，竖版与方图自然留出黑边。 */}
@@ -101,11 +106,13 @@ export default function VideoCard({ task, onOpen }: { task: VideoTask; onOpen: (
               className={`${OVERLAY} bg-gray-100 px-3 text-gray-600 dark:bg-white/[0.04] dark:text-gray-300`}
             >
               <span>
-                <b className="block text-sm font-medium text-gray-800 dark:text-gray-100">失败</b>
+                <b className="block text-sm font-medium text-gray-800 dark:text-gray-100">
+                  {t('common:state.failed')}
+                </b>
                 {task.error}
                 {task.credits !== undefined && (
                   <small className="block">
-                    已退 <Credits credits={task.credits} />
+                    {t('card.refunded')} <Credits credits={task.credits} />
                   </small>
                 )}
               </span>
@@ -114,7 +121,9 @@ export default function VideoCard({ task, onOpen }: { task: VideoTask; onOpen: (
 
           {badge && <span className={`${BADGE} left-1.5 top-1.5`}>{badge}</span>}
           {task.shotNo !== undefined && (
-            <span className={`${BADGE} left-1.5 top-7`}>镜 {displayShotNo}</span>
+            <span className={`${BADGE} left-1.5 top-7`}>
+              {t('shared.shotBadge', { no: displayShotNo })}
+            </span>
           )}
           {done && (
             <span className={`${BADGE} bottom-1.5 right-1.5`}>{clockLabel(task.duration)}</span>
@@ -123,16 +132,20 @@ export default function VideoCard({ task, onOpen }: { task: VideoTask; onOpen: (
 
         {done && (
           <div className="pointer-events-none absolute inset-x-1.5 bottom-1.5 grid grid-cols-3 gap-1 opacity-0 transition group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100">
-            <VideoDownloadButton task={task} className={HOVER_BUTTON} idleLabel="下载" />
+            <VideoDownloadButton
+              task={task}
+              className={HOVER_BUTTON}
+              idleLabel={t('card.download')}
+            />
             <button
               type="button"
               className={HOVER_BUTTON}
               onClick={() => void useVideoStore.getState().regenerate(task)}
             >
-              重生成
+              {t('action.regenerate')}
             </button>
             <button type="button" className={HOVER_BUTTON} onClick={() => void useAsFirstFrame()}>
-              用作首帧
+              {t('action.useAsFirstFrame')}
             </button>
             {derivations.map((option) => (
               <button
@@ -148,7 +161,7 @@ export default function VideoCard({ task, onOpen }: { task: VideoTask; onOpen: (
             ))}
             <button
               type="button"
-              aria-label="更多"
+              aria-label={t('card.more')}
               className={HOVER_BUTTON}
               onClick={(event) => setMenu({ x: event.clientX, y: event.clientY })}
             >
@@ -168,17 +181,26 @@ export default function VideoCard({ task, onOpen }: { task: VideoTask; onOpen: (
         {task.storyboardVersion && (
           <details className="mt-2 text-xs">
             <summary className="cursor-pointer">
-              来源：{task.storyboardVersion.content.title} · v{task.storyboardVersion.number}
+              {t('card.source', {
+                title: task.storyboardVersion.content.title,
+                version: task.storyboardVersion.number,
+              })}
             </summary>
             <p className="mt-2">
-              {task.storyboardVersion.name} ·{' '}
-              {new Date(task.storyboardVersion.savedAt).toLocaleString()}
+              {t('card.versionMeta', {
+                name: task.storyboardVersion.name,
+                savedAt: formatDateTime(task.storyboardVersion.savedAt),
+              })}
             </p>
             <ol className="mt-2 space-y-2">
               {task.storyboardVersion.content.shots.map((shot, index) => (
                 <li key={shot.no}>
                   <strong>
-                    {index + 1}. {shot.title} · {shot.seconds} 秒
+                    {t('card.shotLine', {
+                      index: index + 1,
+                      title: shot.title,
+                      seconds: shot.seconds,
+                    })}
                   </strong>
                   <p>{shot.description}</p>
                 </li>
@@ -191,7 +213,7 @@ export default function VideoCard({ task, onOpen }: { task: VideoTask; onOpen: (
             <span className={LINEAGE_CHIP}>{VIDEO_DERIVE_LABELS[task.derived.mode]}</span>
           )}
           <span>{modelLabel}</span>
-          <span>{task.duration} 秒</span>
+          <span>{t('shared.seconds', { seconds: task.duration })}</span>
           <span>{videoAspectLabel(task)}</span>
           {task.credits !== undefined && task.status !== 'error' && (
             <Credits credits={task.credits} />
@@ -202,7 +224,7 @@ export default function VideoCard({ task, onOpen }: { task: VideoTask; onOpen: (
               className="rounded border border-gray-200 px-1.5 text-[11px] text-gray-600 transition hover:border-blue-400 hover:text-blue-600 dark:border-white/[0.12] dark:text-gray-300"
               onClick={() => void useVideoStore.getState().regenerate(task)}
             >
-              重试
+              {t('common:action.retry')}
             </button>
           )}
         </div>
@@ -239,7 +261,7 @@ export default function VideoCard({ task, onOpen }: { task: VideoTask; onOpen: (
         <ContextMenu x={menu.x} y={menu.y} onClose={() => setMenu(null)}>
           <ContextMenuItem
             icon={<TrashIcon className="h-4 w-4" />}
-            label="删除"
+            label={t('common:action.delete')}
             onClick={() => {
               setMenu(null)
               void useVideoStore.getState().removeTask(task.id)

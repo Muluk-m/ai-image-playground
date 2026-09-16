@@ -4,6 +4,7 @@ import { useShallow } from 'zustand/react/shallow'
 import Pending from '../../../components/Pending'
 import { CARD, LABEL, PRIMARY_BUTTON, SELECT } from '../../../components/panelStyles'
 import Segmented from '../../../components/Segmented'
+import { i18next, useTranslation } from '../../../i18n'
 import {
   downloadExportZip,
   EXPORT_FIT_LABELS,
@@ -13,11 +14,11 @@ import {
 import { useStore } from '../../../store'
 import AssetThumb from '../../library/components/AssetThumb'
 import {
-  EXPORT_SCOPE_LABELS,
   EXPORT_SCOPES,
   type ExportScope,
   exportBlockedReason,
   exportPlan,
+  exportScopeLabels,
   flatVersions,
   galleryImageIds,
   galleryRows,
@@ -30,7 +31,12 @@ import VersionCard from './VersionCard'
 
 const VIEWS = ['grouped', 'flat'] as const
 type GalleryView = (typeof VIEWS)[number]
-const VIEW_LABELS: Record<GalleryView, string> = { grouped: '分组', flat: '平铺' }
+function viewLabels(): Record<GalleryView, string> {
+  return {
+    grouped: i18next.t('gallery.view.grouped', { ns: 'productShots' }),
+    flat: i18next.t('gallery.view.flat', { ns: 'productShots' }),
+  }
+}
 
 const HINT = 'rounded bg-amber-500/10 px-1 text-xs text-amber-700 dark:text-amber-300'
 
@@ -42,6 +48,7 @@ function reasonOf(error: unknown): string {
 }
 
 export default function ResultGallery() {
+  const { t } = useTranslation(['productShots', 'common'])
   const images = useProductShotsStore(useShallow((s) => s.draft.images))
   const jobName = useProductShotsStore((s) => s.draft.name)
   const tasks = useStore((s) => s.tasks)
@@ -73,13 +80,15 @@ export default function ResultGallery() {
       const result = await downloadExportZip(jobName, plan.entries, preset)
       // 渲染失败的那几张与本来就没出图的版本对用户是同一件事：这次没打进去。
       const left = plan.skipped + result.failed
-      const missing = left > 0 ? `，已跳过 ${left} 个未完成版本` : ''
+      const missing = left > 0 ? t('gallery.skippedSuffix', { count: left }) : ''
       showToast(
-        result.count > 0 ? `已打包 ${result.count} 张${missing}` : `没有可导出的图${missing}`,
+        result.count > 0
+          ? t('gallery.packed', { count: result.count, missing })
+          : t('gallery.nothingToExport', { missing }),
         result.count > 0 ? 'success' : 'error',
       )
     } catch (error) {
-      showToast(`打包失败：${reasonOf(error)}`, 'error')
+      showToast(t('gallery.packFailed', { reason: reasonOf(error) }), 'error')
     } finally {
       setExportStartedAt(null)
     }
@@ -88,21 +97,23 @@ export default function ResultGallery() {
   return (
     <section data-product-shots-gallery className={`${CARD} mt-4 flex flex-col gap-3`}>
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-100">结果总览</h2>
+        <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-100">
+          {t('gallery.title')}
+        </h2>
         <Segmented
-          label="总览排布"
+          label={t('gallery.layout')}
           options={VIEWS}
-          labels={VIEW_LABELS}
+          labels={viewLabels()}
           value={view}
           onChange={setView}
         />
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <span className={LABEL}>导出</span>
+        <span className={LABEL}>{t('common:action.export')}</span>
         <select
           value={presetId}
-          aria-label="导出尺寸"
+          aria-label={t('gallery.exportSize')}
           onChange={(event) => setPresetId(event.target.value)}
           className={SELECT}
         >
@@ -113,17 +124,17 @@ export default function ResultGallery() {
           ))}
         </select>
         <Segmented
-          label="导出范围"
+          label={t('gallery.exportScope')}
           options={EXPORT_SCOPES}
-          labels={EXPORT_SCOPE_LABELS}
+          labels={exportScopeLabels()}
           value={scope}
           onChange={(option: ExportScope) => setManualScope({ scope: option, hasChosen })}
         />
         {!hasChosen && scope === 'all' && !blocked && (
-          <span className={HINT}>未选用，导出全部</span>
+          <span className={HINT}>{t('gallery.notChosenHint')}</span>
         )}
         <Segmented
-          label="导出方式"
+          label={t('gallery.exportFit')}
           options={EXPORT_FITS}
           labels={EXPORT_FIT_LABELS}
           value={fit}
@@ -136,16 +147,16 @@ export default function ResultGallery() {
           className={PRIMARY_BUTTON}
         >
           {exportStartedAt === null ? (
-            `打包下载 ${plan.entries.length} 张`
+            t('gallery.packCount', { count: plan.entries.length })
           ) : (
-            <Pending label="打包中" startedAt={exportStartedAt} />
+            <Pending label={t('gallery.packing')} startedAt={exportStartedAt} />
           )}
         </button>
         {blocked && rows.length > 0 && <span className={HINT}>{blocked}</span>}
       </div>
 
       {rows.length === 0 ? (
-        <p className="text-xs text-gray-400 dark:text-gray-500">暂无结果</p>
+        <p className="text-xs text-gray-400 dark:text-gray-500">{t('gallery.empty')}</p>
       ) : view === 'flat' ? (
         <ul className={CARD_GRID}>
           {flatVersions(rows).map((item) => (
@@ -172,14 +183,17 @@ export default function ResultGallery() {
                 type="button"
                 data-product-shots-gallery-source
                 onClick={() => selectImage(row.imageId)}
-                aria-label={`预览原图 ${row.imageIndex + 1}`}
+                aria-label={t('gallery.previewSource', { index: row.imageIndex + 1 })}
                 className="flex w-28 shrink-0 flex-col gap-1 text-left"
               >
                 <span className="block aspect-square overflow-hidden rounded-xl border border-gray-200 dark:border-white/[0.08]">
-                  <AssetThumb imageId={row.imageId} alt={`原图 ${row.imageIndex + 1}`} />
+                  <AssetThumb
+                    imageId={row.imageId}
+                    alt={t('source.label', { index: row.imageIndex + 1 })}
+                  />
                 </span>
                 <span className="text-xs text-gray-500 dark:text-gray-400">
-                  原图 {row.imageIndex + 1}
+                  {t('source.label', { index: row.imageIndex + 1 })}
                 </span>
               </button>
               <ul className={`min-w-0 flex-1 ${CARD_GRID}`}>

@@ -3,5 +3,33 @@
     "label": "界面语言",
     "zh-CN": "中文",
     "en": "English"
+  },
+  "action": {
+    "confirm": "确定",
+    "cancel": "取消",
+    "close": "关闭",
+    "delete": "删除",
+    "edit": "编辑",
+    "retry": "重试",
+    "copy": "复制",
+    "clear": "清空",
+    "save": "保存",
+    "download": "下载",
+    "upload": "上传",
+    "export": "导出",
+    "collapse": "收起",
+    "expand": "展开",
+    "back": "返回",
+    "generate": "生成"
+  },
+  "state": {
+    "generating": "生成中",
+    "done": "完成",
+    "failed": "失败",
+    "unknown": "未知"
+  },
+  "toast": {
+    "copySucceeded": "复制成功",
+    "copyFailed": "复制失败"
   }
 }

@@ -1,3 +1,4 @@
+import { i18next } from '../i18n'
 import { assertUsableMaskCoverage, classifyMaskAlpha, type MaskCoverage } from './mask'
 
 export interface ImageDimensions {
@@ -32,7 +33,7 @@ export async function loadImage(dataUrl: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const image = new Image()
     image.onload = () => resolve(image)
-    image.onerror = () => reject(new Error('图片加载失败'))
+    image.onerror = () => reject(new Error(i18next.t('image.loadFailed', { ns: 'lib' })))
     image.src = dataUrl
   })
 }
@@ -54,7 +55,7 @@ export async function imageDataUrlToPngBlob(dataUrl: string): Promise<Blob> {
   canvas.width = image.naturalWidth
   canvas.height = image.naturalHeight
   const ctx = canvas.getContext('2d')
-  if (!ctx) throw new Error('当前浏览器不支持 Canvas')
+  if (!ctx) throw new Error(i18next.t('canvas.unsupported', { ns: 'lib' }))
   ctx.drawImage(image, 0, 0)
   return canvasToBlob(canvas, 'image/png')
 }
@@ -75,7 +76,7 @@ export async function canvasToBlob(
   return new Promise((resolve, reject) => {
     canvas.toBlob(
       (blob) => {
-        if (!blob) reject(new Error('图片导出失败'))
+        if (!blob) reject(new Error(i18next.t('image.exportFailed', { ns: 'lib' })))
         else resolve(blob)
       },
       type,
@@ -96,14 +97,14 @@ export async function validateMaskMatchesImage(
     maskImage.naturalWidth !== sourceImage.naturalWidth ||
     maskImage.naturalHeight !== sourceImage.naturalHeight
   ) {
-    throw new Error('遮罩尺寸与遮罩主图不一致，请重新绘制遮罩')
+    throw new Error(i18next.t('mask.sizeMismatch', { ns: 'lib' }))
   }
 
   const canvas = document.createElement('canvas')
   canvas.width = maskImage.naturalWidth
   canvas.height = maskImage.naturalHeight
   const ctx = canvas.getContext('2d', { willReadFrequently: true })
-  if (!ctx) throw new Error('当前浏览器不支持 Canvas')
+  if (!ctx) throw new Error(i18next.t('canvas.unsupported', { ns: 'lib' }))
   ctx.drawImage(maskImage, 0, 0)
   const coverage = classifyMaskAlpha(ctx.getImageData(0, 0, canvas.width, canvas.height))
   assertUsableMaskCoverage(coverage)
@@ -116,14 +117,14 @@ export async function createMaskPreviewDataUrl(
 ): Promise<string> {
   const [image, mask] = await Promise.all([loadImage(imageDataUrl), loadImage(maskDataUrl)])
   if (image.naturalWidth !== mask.naturalWidth || image.naturalHeight !== mask.naturalHeight) {
-    throw new Error('遮罩尺寸与遮罩主图不一致，请重新绘制遮罩')
+    throw new Error(i18next.t('mask.sizeMismatch', { ns: 'lib' }))
   }
 
   const canvas = document.createElement('canvas')
   canvas.width = image.naturalWidth
   canvas.height = image.naturalHeight
   const ctx = canvas.getContext('2d', { willReadFrequently: true })
-  if (!ctx) throw new Error('当前浏览器不支持 Canvas')
+  if (!ctx) throw new Error(i18next.t('canvas.unsupported', { ns: 'lib' }))
 
   ctx.drawImage(image, 0, 0)
 
@@ -131,7 +132,7 @@ export async function createMaskPreviewDataUrl(
   maskCanvas.width = mask.naturalWidth
   maskCanvas.height = mask.naturalHeight
   const maskCtx = maskCanvas.getContext('2d', { willReadFrequently: true })
-  if (!maskCtx) throw new Error('当前浏览器不支持 Canvas')
+  if (!maskCtx) throw new Error(i18next.t('canvas.unsupported', { ns: 'lib' }))
   maskCtx.drawImage(mask, 0, 0)
   const maskPixels = maskCtx.getImageData(0, 0, maskCanvas.width, maskCanvas.height)
 
@@ -148,7 +149,7 @@ export async function createMaskPreviewDataUrl(
   overlayCanvas.width = canvas.width
   overlayCanvas.height = canvas.height
   const overlayCtx = overlayCanvas.getContext('2d')
-  if (!overlayCtx) throw new Error('当前浏览器不支持 Canvas')
+  if (!overlayCtx) throw new Error(i18next.t('canvas.unsupported', { ns: 'lib' }))
   overlayCtx.putImageData(overlay, 0, 0)
   ctx.drawImage(overlayCanvas, 0, 0)
   return canvas.toDataURL('image/png')

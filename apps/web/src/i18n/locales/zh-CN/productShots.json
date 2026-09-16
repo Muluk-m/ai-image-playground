@@ -1,0 +1,362 @@
+{
+  "kind": {
+    "edit": "局部编辑",
+    "kit": "批量衍生",
+    "draft": "先看方案",
+    "refine": "精修成品"
+  },
+  "label": {
+    "settings": "设置",
+    "preference": "偏好（可空）",
+    "title": "标题"
+  },
+  "tag": {
+    "edited": "手改"
+  },
+  "mode": {
+    "background": "换背景",
+    "replaceProduct": "换产品",
+    "replaceAndBackground": "换产品并换背景",
+    "remix": "借创意重做"
+  },
+  "direction": {
+    "warmStone": "暖色石材",
+    "nordicWood": "北欧浅木",
+    "daylight": "自然日光"
+  },
+  "remixLevel": {
+    "low": "像",
+    "high": "不像"
+  },
+  "promptLanguage": {
+    "zh": "中文",
+    "en": "英文"
+  },
+  "stage": {
+    "plan": "方案中"
+  },
+  "scene": {
+    "diagram": "含说明文字，换背景会丢失"
+  },
+  "error": {
+    "sourceGone": "原图已不在本地"
+  },
+  "source": {
+    "original": "原图",
+    "label": "原图 {{index}}",
+    "count_other": "{{count}} 张",
+    "modeLabel": "图片来源",
+    "mode": {
+      "upload": "上传",
+      "listing": "亚马逊链接",
+      "library": "素材库"
+    },
+    "listingUrl": "商品链接",
+    "fetching": "抓取中",
+    "fetchGallery": "抓取图集",
+    "upload": "上传原图",
+    "pickFromLibrary": "从素材库选原图",
+    "libraryEmpty": "素材库还是空的",
+    "addCount_other": "加入 {{count}} 张",
+    "dropHint": "拖入图片，或点击上传",
+    "dropToUpload": "松开即上传",
+    "remove": "移除原图 {{index}}"
+  },
+  "matte": {
+    "mask": "蒙版",
+    "editMask": "改蒙版",
+    "matting": "抠图中",
+    "failed": "抠图失败",
+    "unreliable": "蒙版不可靠",
+    "notCut": "未抠图",
+    "notCutWith": "未抠图 · {{reason}}",
+    "notMatted": "未抠",
+    "cutWith": "已抠 · {{backend}}",
+    "staleModel": "模型信息已过期，请刷新页面",
+    "blockedCoverage": "抠图{{reason}}",
+    "dataMissing": "本地蒙版数据已丢失，请重试抠图",
+    "noticeFailed": "抠图失败，本版未抠图",
+    "noticeUnreliable": "蒙版与产品框不符，本版未抠图",
+    "noticeUnsupported": "当前模型不支持遮罩，本版未抠图",
+    "failure": {
+      "timeout": "超时",
+      "unsupported": "不支持",
+      "failed": "运行错误",
+      "server": "服务端失败",
+      "missing": "蒙版丢失",
+      "tooSmall": "占比过小",
+      "tooLarge": "占比过大"
+    },
+    "error": {
+      "removed": "原图已从任务移除",
+      "maskSourceGone": "蒙版对应的原图已不在本地",
+      "serverFailed": "服务端抠图失败"
+    }
+  },
+  "version": {
+    "title": "版本",
+    "empty": "暂无版本",
+    "label": "第 {{index}} 版",
+    "cardLabel": "原图 {{image}} 第 {{version}} 版",
+    "preview": "预览{{label}}",
+    "choose": "用这版",
+    "chosen": "已选用",
+    "unchoose": "取消选用",
+    "zoom": "放大查看",
+    "viewPlan": "查看方案",
+    "viewMask": "看蒙版",
+    "editMask": "编辑蒙版",
+    "regenWithMask": "用此蒙版重生成",
+    "refine": "精修",
+    "retry": "重跑",
+    "lowRes": "源图分辨率低",
+    "downloadFailed": "下载失败",
+    "downloadFailedReason": "下载失败：{{reason}}",
+    "state": {
+      "queued": "排队"
+    }
+  },
+  "batch": {
+    "progress": "批量 {{done}}/{{total}}",
+    "progressCurrent": "批量 {{done}}/{{total}} · 原图 {{index}}",
+    "remaining_other": "对剩下的 {{count}} 张全部按同样方式跑",
+    "skipped_other": "已跳过 {{count}} 张示意图",
+    "running": "批量中",
+    "stop": "停止",
+    "stopAfterCurrent": "本张跑完即停",
+    "run": "批量跑",
+    "retryOne": "重跑这张",
+    "state": {
+      "pending": "待跑",
+      "running": "进行中"
+    }
+  },
+  "panel": {
+    "preferencePlaceholder": "例：北欧风，浅木色",
+    "versionsPerImage": "每张几版",
+    "remixDistance": "与竞品的距离",
+    "noProduct": "产品素材：未选",
+    "pickProduct": "选产品素材",
+    "replaceProduct": "更换",
+    "needsProduct": "请先选产品素材",
+    "retryMatte": "重试抠图",
+    "hintLead": "换背景无需产品素材。",
+    "hintBlocked": "换产品 / 借创意重做：{{reason}}。",
+    "hintNeed": "仅换产品、借创意重做时需要选择。",
+    "actionReason": "{{action}}：{{reason}}",
+    "draftThree": "先出 3 个方案"
+  },
+  "product": {
+    "title": "我的产品",
+    "subtitle": "换产品 / 借创意重做时放进画面的产品",
+    "empty": "还没选产品素材",
+    "describe": "产品描述",
+    "pick": "选素材",
+    "change": "换素材",
+    "assets": "产品素材",
+    "uploadAsset": "上传产品素材",
+    "done": "完成",
+    "name": "产品名",
+    "namePlaceholder": "默认用素材名",
+    "features": "外形特征",
+    "featuresPlaceholder": "例：蛋形单边斜背",
+    "mainColor": "主色",
+    "mainColorPlaceholder": "例：哑光灰棕",
+    "noMainColor": "未填主色，颜色可能漂",
+    "forbiddenColors": "禁止色",
+    "forbiddenColorsPlaceholder": "例：米白、浅灰",
+    "missing": "产品素材已丢失",
+    "sameAsSource": "产品素材与原图相同"
+  },
+  "plan": {
+    "title": "方案",
+    "unavailable": "没拿到可用的背景方案",
+    "scanUnavailable": "没认出这张图的画面类型",
+    "textLanguage": "文案语言",
+    "prompt": "提示词",
+    "resetPrompt": "重置为 AI 版本",
+    "regenerate": "按此重生成",
+    "sentence": "方案句",
+    "productBox": "产品框",
+    "noBox": "方案没框出产品",
+    "inventory": "产品清单",
+    "inventoryPlaceholder": "添加，回车确认",
+    "removeItem": "删除 {{name}}",
+    "references": "参考图",
+    "zoom": "放大{{label}}",
+    "field": {
+      "composition": "构图",
+      "camera": "机位",
+      "lighting": "光线",
+      "background": "背景",
+      "props": "道具",
+      "palette": "配色",
+      "title": "标题",
+      "subtitle": "副标题"
+    },
+    "box": {
+      "x": "产品框左",
+      "y": "产品框上",
+      "w": "产品框宽",
+      "h": "产品框高"
+    },
+    "reference": {
+      "product": "产品"
+    }
+  },
+  "remix": {
+    "notRenderable": "{{shot}}生不出来，换一张图"
+  },
+  "preview": {
+    "title": "预览",
+    "maskLabel": "原图 {{index}} 蒙版",
+    "currentVersion": "当前版",
+    "compare": "版本对比",
+    "noVersionImage": "这版还没有图",
+    "noSource": "暂无原图",
+    "showMask": "显示蒙版",
+    "disabled": {
+      "noSource": "上传原图并生成图片后，可使用这些工具。",
+      "noVersion": "选择已生成的版本，可使用这些工具。",
+      "running": "生成完成后，可编辑、衍生、对比和导出。",
+      "noResult": "当前版本暂无结果，请生成图片或选择其他版本。"
+    }
+  },
+  "toolbar": {
+    "group": "图像操作",
+    "createTools": "创作工具",
+    "viewExport": "查看与导出",
+    "compare": "对比",
+    "exporting": "导出中…",
+    "imageUnavailable": "图片暂不可用，请重试",
+    "exportFailed": "导出失败：{{reason}}"
+  },
+  "gallery": {
+    "title": "结果总览",
+    "layout": "总览排布",
+    "empty": "暂无结果",
+    "exportSize": "导出尺寸",
+    "exportScope": "导出范围",
+    "exportFit": "导出方式",
+    "notChosenHint": "未选用，导出全部",
+    "packCount_other": "打包下载 {{count}} 张",
+    "packing": "打包中",
+    "packed_other": "已打包 {{count}} 张{{missing}}",
+    "nothingToExport": "没有可导出的图{{missing}}",
+    "skippedSuffix_other": "，已跳过 {{count}} 个未完成版本",
+    "packFailed": "打包失败：{{reason}}",
+    "previewSource": "预览原图 {{index}}",
+    "view": {
+      "grouped": "分组",
+      "flat": "平铺"
+    },
+    "scope": {
+      "chosen": "选用版",
+      "all": "全部版"
+    },
+    "blocked": {
+      "notChosen": "未选用版本",
+      "empty": "暂无成图"
+    }
+  },
+  "job": {
+    "label": "任务",
+    "unsaved": "新任务",
+    "nameLabel": "任务名",
+    "rename": "重命名任务",
+    "search": "搜索任务",
+    "noMatch": "没有匹配的任务",
+    "meta": "{{date}} · {{images}} · {{versions}}",
+    "imageCount_other": "{{count}} 图",
+    "versionCount_other": "{{count}} 版",
+    "delete": "删除任务 {{name}}",
+    "deleteTitle": "删除任务",
+    "deleteMessage": "确定删除任务「{{name}}」吗？图片与已生成的历史保留。",
+    "new": "新建任务"
+  },
+  "workspace": {
+    "before": "修改前",
+    "after": "修改后",
+    "compareHandle": "前后对比位置",
+    "resultAlt": "生成结果",
+    "sourceAlt": "来源图片",
+    "runningHint": "生成中，可继续查看其他版本",
+    "generateFailed": "生成失败",
+    "confirmResult": "确认结果",
+    "model": "生成模型",
+    "formats": "需要哪些图",
+    "overlayText": "图上文字",
+    "titleFor": "{{language}}标题",
+    "titlePlaceholder": "标题（可空）",
+    "instructionEdit": "怎么改",
+    "instructionRefine": "还想调整什么（可空）",
+    "instructionEditPlaceholder": "例：去掉右边绿植，补齐墙面",
+    "instructionOtherPlaceholder": "例：柔和日光，保持浴缸形状",
+    "boxHint": "在图上拖动框选修改区域。框外也可能变化，请对比确认。",
+    "clearBox": "清除框选",
+    "finalSize": "成品尺寸",
+    "submitting": "提交中",
+    "generateCount_other": "生成 {{count}} 张",
+    "refineChosen": "精修选中方案",
+    "generateEdit": "生成修改版",
+    "sliderCompare": "滑动对比",
+    "sideCompare": "并排对比",
+    "continueEditing": "继续修改",
+    "retryOne": "重试这张",
+    "downloadDone": "打包下载已完成图片",
+    "backToShots": "返回商品图",
+    "editText": "改文字",
+    "redoOne": "重做这张",
+    "saveText": "保存文字",
+    "imageLoading": "图片加载中",
+    "needBoxAndInstruction": "请圈选修改区域并填写要求",
+    "error": {
+      "jobGone": "原图或商品图任务已删除",
+      "pickDoneVersion": "请先选一张已完成的版本",
+      "sourceLost": "来源图片已丢失，请重新导入",
+      "maskFailed": "无法创建修改区域",
+      "pickModel": "请先选择可用的图片模型",
+      "countRange": "请选择 1 到 6 张图片",
+      "notSubmitted": "生成未提交，请检查模型配置或积分"
+    }
+  },
+  "kit": {
+    "title": "成套图片",
+    "setLabel": "第 {{index}} 套",
+    "downloadBySize": "按各自尺寸打包下载",
+    "planKit": "{{format}} · {{language}}",
+    "planDraft": "方案 · {{direction}}",
+    "planEdit": "局部修改",
+    "format": {
+      "square": "方形主图",
+      "portrait": "竖版海报",
+      "wide": "横版广告"
+    },
+    "error": {
+      "notKit": "这不是派生图片",
+      "imageGone": "图片已丢失",
+      "decodeFailed": "图片解码失败",
+      "exportUnavailable": "无法导出图片",
+      "exportFailed": "导出失败",
+      "nothingDone": "没有已完成的派生图"
+    }
+  },
+  "store": {
+    "listingDisabled": "链接抓取未开启，请直接上传原图",
+    "listingFailed": "{{reason}}，请直接上传原图",
+    "pulled_other": "已拉入 {{count}} 张",
+    "imageAddFailed": "图片添加失败：{{reason}}",
+    "notSubmitted": "这张没有提交成功",
+    "noAssetPicked": "请先选一张产品素材",
+    "analyzeOff": "竞品图分析未开启，这张跑不了借创意重做",
+    "noBrief": "这张没分析出可用的简报",
+    "noAngleMatch": "没有与机位相符的素材，用了第一张",
+    "assetMissing": "素材图片已丢失",
+    "diagramTitle": "这张是示意图",
+    "diagramMessage": "{{hint}}。",
+    "diagramConfirm": "仍要{{action}}",
+    "jobDeleted": "商品图任务已删除",
+    "productIsSource": "产品素材与原图相同，请选择另一张产品图后再换产品",
+    "defaultJobName": "商品图 {{index}}"
+  }
+}

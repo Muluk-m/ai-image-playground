@@ -1,9 +1,11 @@
 import { storyboardRangeLabel } from '@image-playground/shared'
 import { useEffect, useState } from 'react'
 import Pending from '../../../../components/Pending'
+import { useTranslation } from '../../../../i18n'
+import { formatDateTime } from '../../../../i18n/format'
 import { useVideoStore } from '../../store'
 import { STORYBOARD_PLAN_TYPICAL_SECONDS, useStoryboardStore } from '../store'
-import type { StoryboardShotPatch, StoryboardShotRecord } from '../types'
+import { type StoryboardShotPatch, type StoryboardShotRecord, storyboardStyleLabel } from '../types'
 import DirectorFrame from './DirectorFrame'
 import DirectorGeneration from './DirectorGeneration'
 import './director.css'
@@ -17,6 +19,7 @@ export default function StoryboardBoard({
   onSubmitted?: () => void
   generating?: boolean
 }) {
+  const { t } = useTranslation(['video', 'common'])
   const storyboards = useStoryboardStore((s) => s.storyboards)
   const activeId = useStoryboardStore((s) => s.activeId)
   const loadingSince = useStoryboardStore((s) => s.loadingSince)
@@ -24,7 +27,7 @@ export default function StoryboardBoard({
   const [selected, setSelected] = useState<number | null>(null)
   const [panel, setPanel] = useState<'detail' | 'save' | 'versions' | 'generate'>('detail')
   const [scope, setScope] = useState<'whole' | 'shot'>('whole')
-  const [name, setName] = useState('精修版')
+  const [name, setName] = useState(() => t('board.defaultVersionName'))
   const [saving, setSaving] = useState(false)
   const [preview, setPreview] = useState(false)
   const record = storyboards.find((item) => item.id === activeId)
@@ -52,10 +55,10 @@ export default function StoryboardBoard({
   if (!record)
     return (
       <div className="vd-empty">
-        <h2>从一个故事开始</h2>
-        <p>新建分镜，或从分镜库载入已有作品。</p>
+        <h2>{t('board.emptyTitle')}</h2>
+        <p>{t('board.emptyDescription')}</p>
         <button type="button" onClick={onLibrary}>
-          打开分镜库
+          {t('board.emptyAction')}
         </button>
       </div>
     )
@@ -78,29 +81,31 @@ export default function StoryboardBoard({
     <section className="vd-project">
       <div className="vd-row vd-between vd-heading">
         <div>
-          <small className="vd-muted">视频项目 / {record.style}风格</small>
+          <small className="vd-muted">
+            {t('board.kicker', { style: storyboardStyleLabel(record.style) })}
+          </small>
           <h2>{record.title}</h2>
           <div className="vd-row vd-muted" aria-live="polite">
             <span>
               {saveState === 'error'
-                ? '保存失败，更改尚未写入本机'
+                ? t('board.saveError')
                 : saveState === 'saving'
-                  ? '正在保存…'
-                  : '草稿已保存到本机'}
+                  ? t('board.saving')
+                  : t('board.saved')}
             </span>
             {saveState === 'error' && (
               <button type="button" onClick={() => void store().retrySave(record.id)}>
-                重试保存
+                {t('board.retrySave')}
               </button>
             )}
           </div>
         </div>
         <div className="vd-row">
           <button type="button" onClick={() => setPanel('versions')}>
-            版本记录
+            {t('board.versionsTab')}
           </button>
           <button type="button" onClick={() => setPanel('save')}>
-            保存版本
+            {t('board.saveVersionTab')}
           </button>
           <button
             type="button"
@@ -110,21 +115,24 @@ export default function StoryboardBoard({
               setPanel('generate')
             }}
           >
-            生成视频
+            {t('action.generateVideo')}
           </button>
         </div>
       </div>
       <div className="vd-layout">
         <aside className="vd-rail">
           <small className="vd-muted">
-            {record.shots.length} 个镜头 · {record.totalSeconds} 秒
+            {t('board.railSummary', {
+              count: record.shots.length,
+              seconds: record.totalSeconds,
+            })}
           </small>
           {record.shots.map((item, i) => (
             <button
               key={item.no}
               type="button"
               aria-pressed={shot?.no === item.no}
-              aria-label={`选择镜头 ${i + 1}`}
+              aria-label={t('board.selectShotAria', { index: i + 1 })}
               onClick={() => choose(item)}
             >
               <DirectorFrame shot={item} />
@@ -135,16 +143,19 @@ export default function StoryboardBoard({
             </button>
           ))}
           <button type="button" onClick={() => void store().addShot(record.id)}>
-            ＋ 添加镜头
+            {t('board.addShot')}
           </button>
         </aside>
         <div className="vd-stage">
           {shot ? (
             <>
               <div className="vd-row vd-between">
-                <h3>镜头 {index + 1}</h3>
+                <h3>{t('board.shotHeading', { index: index + 1 })}</h3>
                 <small className="vd-muted">
-                  {preview ? '分镜序列预览 · 静帧' : '分镜参考画面'} · {record.aspectRatio}
+                  {t('board.stageMeta', {
+                    mode: preview ? t('board.previewMode') : t('board.referenceMode'),
+                    aspect: record.aspectRatio,
+                  })}
                 </small>
               </div>
               <div className="vd-hero">
@@ -153,7 +164,7 @@ export default function StoryboardBoard({
               <div className="vd-row vd-between">
                 <h3>{shot.title}</h3>
                 <span className="vd-muted">
-                  {shot.camera} · {storyboardRangeLabel(shot)} 秒
+                  {t('board.shotMeta', { camera: shot.camera, range: storyboardRangeLabel(shot) })}
                 </span>
               </div>
               <p className="vd-muted">{shot.description}</p>
@@ -165,19 +176,21 @@ export default function StoryboardBoard({
                     setPreview(!preview)
                   }}
                 >
-                  {preview ? '暂停预览' : '预览分镜'}
+                  {preview ? t('board.pausePreview') : t('board.startPreview')}
                 </button>
                 <button
                   type="button"
                   onClick={() => void store().regenerateShotImage(record.id, shot.no)}
                 >
-                  {shot.imageId ? '重新生成分镜图' : '生成分镜图'}
+                  {shot.imageId ? t('board.regenerateFrame') : t('board.generateFrame')}
                 </button>
               </div>
               <div className="vd-divider" />
               <div className="vd-row vd-between">
-                <h3>故事时间线</h3>
-                <small className="vd-muted">{record.totalSeconds} 秒</small>
+                <h3>{t('board.timelineTitle')}</h3>
+                <small className="vd-muted">
+                  {t('shared.seconds', { seconds: record.totalSeconds })}
+                </small>
               </div>
               <div className="vd-timeline">
                 {record.shots.map((item, i) => (
@@ -201,33 +214,33 @@ export default function StoryboardBoard({
                   disabled={index === 0}
                   onClick={() => void store().moveShot(record.id, shot.no, -1)}
                 >
-                  ← 前移
+                  {t('board.moveBack')}
                 </button>
                 <button
                   type="button"
                   disabled={index === record.shots.length - 1}
                   onClick={() => void store().moveShot(record.id, shot.no, 1)}
                 >
-                  后移 →
+                  {t('board.moveForward')}
                 </button>
               </div>
             </>
           ) : (
-            <p>这份分镜还没有镜头，可以添加镜头或重写脚本。</p>
+            <p>{t('board.noShots')}</p>
           )}
           <details>
-            <summary>全片风格与高级提示词</summary>
+            <summary>{t('board.advancedSummary')}</summary>
             <p>{record.summary}</p>
             <label>
-              整条视频提示词
+              {t('board.videoPromptLabel')}
               <textarea
-                aria-label="整条视频提示词"
+                aria-label={t('board.videoPromptLabel')}
                 value={record.videoPrompt}
                 onChange={(e) => void store().updateVideoPrompt(record.id, e.target.value)}
                 rows={6}
               />
             </label>
-            <p className="vd-muted">编辑镜头内容或顺序后，会重新组织这里的镜头段落。</p>
+            <p className="vd-muted">{t('board.advancedNote')}</p>
           </details>
           <div className="vd-row">
             <button
@@ -236,20 +249,22 @@ export default function StoryboardBoard({
               onClick={() => void store().replan(record.id)}
             >
               {loadingSince === null ? (
-                '重写脚本'
+                t('board.replan')
               ) : (
-                <Pending label="生成中" startedAt={loadingSince} />
+                <Pending label={t('common:state.generating')} startedAt={loadingSince} />
               )}
             </button>
             <button type="button" onClick={() => void store().generateMissingShotImages(record.id)}>
-              补齐分镜图
+              {t('board.fillFrames')}
             </button>
             <button type="button" onClick={() => void store().exportZip(record.id)}>
-              导出分镜
+              {t('board.export')}
             </button>
           </div>
           {loadingSince !== null && (
-            <p className="vd-muted">通常 {STORYBOARD_PLAN_TYPICAL_SECONDS} 秒</p>
+            <p className="vd-muted">
+              {t('shared.typicalSeconds', { seconds: STORYBOARD_PLAN_TYPICAL_SECONDS })}
+            </p>
           )}
         </div>
         <aside className="vd-inspector">
@@ -271,72 +286,75 @@ export default function StoryboardBoard({
                 void save()
               }}
             >
-              <h3>保存分镜版本</h3>
+              <h3>{t('board.saveVersionTitle')}</h3>
               <label>
-                分镜名称
+                {t('board.boardNameLabel')}
                 <input
-                  aria-label="分镜名称"
+                  aria-label={t('board.boardNameLabel')}
                   value={record.title}
                   onChange={(e) => void store().rename(record.id, e.target.value)}
                 />
               </label>
               <label>
-                版本名称
+                {t('board.versionNameLabel')}
                 <input
-                  aria-label="版本名称"
+                  aria-label={t('board.versionNameLabel')}
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                 />
               </label>
-              <p className="vd-muted">保存脚本、镜头顺序与参考画面，可在分镜库恢复。</p>
+              <p className="vd-muted">{t('board.saveVersionNote')}</p>
               <button type="submit" className="vd-primary" disabled={saving}>
-                {saving ? '保存中…' : '保存新版本'}
+                {saving ? t('board.savingVersion') : t('board.saveNewVersion')}
               </button>
               <button type="button" onClick={() => setPanel('detail')}>
-                返回编辑
+                {t('action.backToEdit')}
               </button>
             </form>
           ) : panel === 'versions' ? (
             <div className="vd-stack">
               <div className="vd-row vd-between">
-                <h3>版本记录</h3>
+                <h3>{t('board.versionsTab')}</h3>
                 <button type="button" onClick={() => setPanel('detail')}>
-                  返回编辑
+                  {t('action.backToEdit')}
                 </button>
               </div>
-              {!record.versions?.length && <p>还没有命名版本。草稿已自动保存在本机。</p>}
+              {!record.versions?.length && <p>{t('board.noVersions')}</p>}
               {[...(record.versions ?? [])].reverse().map((version) => (
                 <div key={version.id} className="vd-inset">
                   <strong>
                     v{version.number} · {version.name}
                   </strong>
                   <p>
-                    {new Date(version.savedAt).toLocaleString()} · {version.content.totalSeconds} 秒
+                    {t('board.versionMeta', {
+                      savedAt: formatDateTime(version.savedAt),
+                      seconds: version.content.totalSeconds,
+                    })}
                   </p>
                   <button
                     type="button"
                     onClick={() => void store().restoreVersion(record.id, version.id)}
                   >
-                    恢复此版本
+                    {t('board.restoreVersion')}
                   </button>
                 </div>
               ))}
             </div>
           ) : shot ? (
             <div className="vd-stack">
-              <h3>镜头详情</h3>
+              <h3>{t('board.shotDetail')}</h3>
               <label>
-                镜头名称
+                {t('board.shotNameLabel')}
                 <input
-                  aria-label="镜头名称"
+                  aria-label={t('board.shotNameLabel')}
                   value={shot.title}
                   onChange={(e) => patch('title', e.target.value)}
                 />
               </label>
               <label>
-                画面描述
+                {t('board.shotDescriptionLabel')}
                 <textarea
-                  aria-label="画面描述"
+                  aria-label={t('board.shotDescriptionLabel')}
                   value={shot.description}
                   onChange={(e) => patch('description', e.target.value)}
                   rows={4}
@@ -344,49 +362,49 @@ export default function StoryboardBoard({
               </label>
               <div className="vd-fields">
                 <label>
-                  运镜
+                  {t('board.cameraLabel')}
                   <input
-                    aria-label="运镜"
+                    aria-label={t('board.cameraLabel')}
                     value={shot.camera}
                     onChange={(e) => patch('camera', e.target.value)}
                   />
                 </label>
                 <label>
-                  时长 / 秒
+                  {t('board.durationLabel')}
                   <input
                     type="number"
                     min="0.5"
                     max="30"
                     step="0.5"
-                    aria-label="镜头时长"
+                    aria-label={t('board.durationAria')}
                     value={shot.seconds}
                     onChange={(e) => patch('seconds', Number(e.target.value))}
                   />
                 </label>
               </div>
               <label>
-                对白 / 声音
+                {t('board.lineLabel')}
                 <textarea
-                  aria-label="对白"
+                  aria-label={t('board.lineAria')}
                   value={shot.line}
                   onChange={(e) => patch('line', e.target.value)}
                   rows={2}
                 />
               </label>
               <details>
-                <summary>单镜头提示词</summary>
+                <summary>{t('board.shotPromptsSummary')}</summary>
                 <label>
-                  图片提示词
+                  {t('board.imagePromptLabel')}
                   <textarea
-                    aria-label="图片提示词"
+                    aria-label={t('board.imagePromptLabel')}
                     value={shot.imagePrompt}
                     onChange={(e) => patch('imagePrompt', e.target.value)}
                   />
                 </label>
                 <label>
-                  视频提示词
+                  {t('board.shotVideoPromptLabel')}
                   <textarea
-                    aria-label="视频提示词"
+                    aria-label={t('board.shotVideoPromptLabel')}
                     value={shot.videoPrompt}
                     onChange={(e) => patch('videoPrompt', e.target.value)}
                   />
@@ -399,23 +417,23 @@ export default function StoryboardBoard({
                   setPanel('generate')
                 }}
               >
-                仅生成当前镜头
+                {t('board.generateThisShot')}
               </button>
               <div className="vd-row">
                 <button type="button" onClick={() => void store().addShot(record.id, shot.no)}>
-                  复制镜头
+                  {t('board.duplicateShot')}
                 </button>
                 <button
                   type="button"
                   disabled={record.shots.length === 1}
                   onClick={() => void store().removeShot(record.id, shot.no)}
                 >
-                  删除镜头
+                  {t('board.removeShot')}
                 </button>
               </div>
             </div>
           ) : (
-            <p>先添加一个镜头</p>
+            <p>{t('board.noShotSelected')}</p>
           )}
         </aside>
       </div>

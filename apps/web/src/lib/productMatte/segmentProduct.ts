@@ -1,3 +1,4 @@
+import { i18next } from '../../i18n'
 import { eligibleBackends, type MatteBackend, type MatteBackendId } from './backends'
 import { logMatteFailure } from './matteLog'
 import type { ProductAlpha } from './types'
@@ -38,7 +39,10 @@ function runWithTimeout(
   dataUrl: string,
 ): Promise<ProductAlpha> {
   const controller = new AbortController()
-  const timeout = new ProductMatteError('timeout', `${backend.id} 抠图超时`)
+  const timeout = new ProductMatteError(
+    'timeout',
+    i18next.t('matte.timeout', { ns: 'lib', backend: backend.id }),
+  )
   let timer: ReturnType<typeof setTimeout>
   const expired = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
@@ -58,11 +62,11 @@ export async function segmentProduct(
 ): Promise<SegmentedProduct> {
   const chain = await eligibleBackends(options.backends)
   if (chain.length === 0) {
-    throw new ProductMatteError('unsupported', '当前浏览器跑不了本地抠图')
+    throw new ProductMatteError('unsupported', i18next.t('matte.unsupported', { ns: 'lib' }))
   }
 
   const run = options.run ?? (await import('./segmentWorkerClient')).runInWorker
-  let failure = new ProductMatteError('failed', '本地抠图失败')
+  let failure = new ProductMatteError('failed', i18next.t('matte.localFailed', { ns: 'lib' }))
 
   for (const backend of chain) {
     const startedAt = Date.now()

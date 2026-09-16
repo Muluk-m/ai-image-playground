@@ -1,6 +1,7 @@
 import type { ProductBox } from '@image-playground/shared'
 import { LABEL } from '../../../components/panelStyles'
 import { useImageThumbnail } from '../../../hooks/useImageThumbnail'
+import { useTranslation } from '../../../i18n'
 import { useStore } from '../../../store'
 import { useLibraryStore } from '../../library/store'
 import type { ProductShotVersion } from '../types'
@@ -19,21 +20,26 @@ export default function PlanReferences({
   imageId: string
   version: ProductShotVersion
 }) {
+  const { t } = useTranslation('productShots')
   const productImageId = useLibraryStore(
     (s) => s.assets.find((item) => item.id === version.productAssetId)?.imageId,
   )
   const setLightboxImageId = useStore((s) => s.setLightboxImageId)
 
   const matteImageId = version.mattePreviewImageId ?? version.maskImageId
-  const references: Reference[] = [{ label: '原图', imageId, box: version.productBox }]
-  if (productImageId) references.push({ label: '产品', imageId: productImageId })
-  if (matteImageId) references.push({ label: '蒙版', imageId: matteImageId })
+  const references: Reference[] = [
+    { label: t('source.original'), imageId, box: version.productBox },
+  ]
+  if (productImageId) {
+    references.push({ label: t('plan.reference.product'), imageId: productImageId })
+  }
+  if (matteImageId) references.push({ label: t('matte.mask'), imageId: matteImageId })
 
   const imageIds = references.map((item) => item.imageId)
 
   return (
     <div data-product-shots-plan-references>
-      <span className={LABEL}>参考图</span>
+      <span className={LABEL}>{t('plan.references')}</span>
       <ul className="mt-1 flex flex-wrap items-start gap-2">
         {references.map((item) => (
           <li key={item.label} className="max-w-[8rem]">
@@ -50,13 +56,14 @@ export default function PlanReferences({
 
 /** 容器尺寸随图片比例走：`object-cover` 裁过的图上，百分比产品框会落错位置。 */
 function Thumb({ reference, onOpen }: { reference: Reference; onOpen: () => void }) {
+  const { t } = useTranslation('productShots')
   const thumbnail = useImageThumbnail(reference.imageId)
 
   return (
     <button
       type="button"
       onClick={onOpen}
-      aria-label={`放大${reference.label}`}
+      aria-label={t('plan.zoom', { label: reference.label })}
       className="relative inline-block h-16 overflow-hidden rounded-lg border border-gray-200 dark:border-white/[0.08]"
     >
       {thumbnail?.dataUrl ? (

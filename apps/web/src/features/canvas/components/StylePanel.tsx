@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react'
+import { useTranslation } from '../../../i18n'
 import type { ArrowEl, CanvasDoc, FreedrawEl, TextEl } from '../lib/canvasDoc'
 import { measureText } from '../lib/konvaShapes'
 
@@ -60,6 +61,7 @@ function SizeChip({
  * 点选样式 = 设为默认（后续新建沿用）+ 就地套用到当前选中元素（入 undo 历史）。
  */
 export default function StylePanel({ doc }: { doc: CanvasDoc }) {
+  const { t } = useTranslation('canvas')
   useSyncExternalStore(doc.subscribe, () => doc.version)
   const { tool, selection } = doc
 
@@ -116,8 +118,8 @@ export default function StylePanel({ doc }: { doc: CanvasDoc }) {
             <button
               key={color}
               type="button"
-              title={`标注颜色 ${color}`}
-              aria-label={`标注颜色 ${color}`}
+              title={t('style.color', { color })}
+              aria-label={t('style.color', { color })}
               onClick={() => applyColor(color)}
               className={`mx-auto h-6 w-6 rounded-full border-2 transition-transform ${
                 doc.penColor === color ? 'scale-110 border-white' : 'border-transparent'

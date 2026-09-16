@@ -3,5 +3,33 @@
     "label": "Interface language",
     "zh-CN": "中文",
     "en": "English"
+  },
+  "action": {
+    "confirm": "Confirm",
+    "cancel": "Cancel",
+    "close": "Close",
+    "delete": "Delete",
+    "edit": "Edit",
+    "retry": "Retry",
+    "copy": "Copy",
+    "clear": "Clear",
+    "save": "Save",
+    "download": "Download",
+    "upload": "Upload",
+    "export": "Export",
+    "collapse": "Collapse",
+    "expand": "Expand",
+    "back": "Back",
+    "generate": "Generate"
+  },
+  "state": {
+    "generating": "Generating",
+    "done": "Done",
+    "failed": "Failed",
+    "unknown": "Unknown"
+  },
+  "toast": {
+    "copySucceeded": "Copied",
+    "copyFailed": "Copy failed"
   }
 }

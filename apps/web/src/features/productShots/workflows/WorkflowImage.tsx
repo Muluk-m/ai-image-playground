@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useImageThumbnail } from '../../../hooks/useImageThumbnail'
+import { useTranslation } from '../../../i18n'
 import type { ProductShotVersion } from '../types'
 import { renderKitImage } from './render'
 
@@ -14,6 +15,7 @@ export default function WorkflowImage({
   alt: string
   className?: string
 }) {
+  const { t } = useTranslation('productShots')
   const thumbnail = useImageThumbnail(imageId)
   const [rendered, setRendered] = useState<{ key: string; url: string } | null>(null)
   const spec = version?.workflow?.spec
@@ -39,7 +41,7 @@ export default function WorkflowImage({
     <img draggable={false} src={src} alt={alt} className={className} />
   ) : (
     <div className="flex aspect-square items-center justify-center rounded-lg bg-gray-100 text-xs text-gray-500 dark:bg-gray-800">
-      图片加载中
+      {t('workspace.imageLoading')}
     </div>
   )
 }

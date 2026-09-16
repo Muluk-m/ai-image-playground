@@ -1,4 +1,5 @@
 import { IMAGE_DATA_URL_MAX_CHARS, type ProductBox } from '@image-playground/shared'
+import { i18next } from '../../../i18n'
 import { getActiveApiProfile } from '../../../lib/apiProfiles'
 import { isModelKnown, modelSupportsNativeMask } from '../../../lib/channels/profileSelectors'
 import { getPublicChannels } from '../../../lib/channels/publicChannels'
@@ -33,11 +34,15 @@ import {
 } from '../types'
 import type { MaskSide } from './mode'
 
-const UNMASKED_FALLBACK = '本版未抠图'
-const MATTE_FAILED = `抠图失败，${UNMASKED_FALLBACK}`
-const MATTE_UNRELIABLE = `蒙版与产品框不符，${UNMASKED_FALLBACK}`
-const MASK_UNSUPPORTED = `当前模型不支持遮罩，${UNMASKED_FALLBACK}`
-const MATTE_MISSING = '本地蒙版数据已丢失，请重试抠图'
+// `getFixedT(null, ns)` 把命名空间钉死、语言不钉：key 受 productShots 的类型约束，
+// 每次调用仍取当前语言。手写 `Parameters<typeof i18next.t>[0]` 拿到的是全部命名空间的
+// 并集，配上 `ns` 反而对不上，key 也就失去了编译期检查。
+const t = i18next.getFixedT(null, 'productShots')
+
+const MATTE_FAILED = () => t('matte.noticeFailed')
+const MATTE_UNRELIABLE = () => t('matte.noticeUnreliable')
+const MASK_UNSUPPORTED = () => t('matte.noticeUnsupported')
+const MATTE_MISSING = () => t('matte.dataMissing')
 
 type Mask = { imageId: string; targetImageId: string }
 
@@ -128,7 +133,7 @@ export function createSourceMattes(host: SourceMatteHost) {
     try {
       const dataUrl = await ensureImageCached(entry.source.imageId)
       if (!live(entry)) return
-      if (!dataUrl) throw new Error('原图已不在本地')
+      if (!dataUrl) throw new Error(t('error.sourceGone'))
       matte = await runSourceMatte(entry.source.imageId, dataUrl)
     } catch {
       matte = { status: 'failed', reason: 'failed', previewImageId: null }
@@ -167,22 +172,22 @@ export function createSourceMattes(host: SourceMatteHost) {
       input: { dataUrl: string; productBox: ProductBox | null; side: MaskSide },
     ): Promise<MaskAttempt & { image: InputImage }> {
       const entry = lifetime(source)
-      if (!entry) throw new Error('原图已从任务移除')
+      if (!entry) throw new Error(t('matte.error.removed'))
       const original = { id: source.imageId, dataUrl: input.dataUrl }
       if (!maskSupported()) {
-        return { ...unmasked(MASK_UNSUPPORTED, 'unsupported', null), image: original }
+        return { ...unmasked(MASK_UNSUPPORTED(), 'unsupported', null), image: original }
       }
       await ensure(source)
-      if (!live(entry)) throw new Error('原图已从任务移除')
+      if (!live(entry)) throw new Error(t('matte.error.removed'))
       const matte = host.read(source)?.sourceMatte
-      if (!matte) return { ...unmasked(MATTE_FAILED, 'failed', null), image: original }
+      if (!matte) return { ...unmasked(MATTE_FAILED(), 'failed', null), image: original }
 
       // 这份 alpha 是本次动作的快照，之后的手改只影响下一次动作。
       const attempt = await maskAttemptFor(matte, input.productBox, input.side)
-      if (!live(entry)) throw new Error('原图已从任务移除')
+      if (!live(entry)) throw new Error(t('matte.error.removed'))
       if (attempt.matte?.ok === false && attempt.matte.reason === 'missing') {
         await markMissing(entry, matte)
-        throw new Error(MATTE_MISSING)
+        throw new Error(MATTE_MISSING())
       }
       if (matte.status === 'ready' && attempt.agreement && attempt.agreement !== matte.agreement) {
         const agreement = attempt.agreement
@@ -196,10 +201,10 @@ export function createSourceMattes(host: SourceMatteHost) {
       let image = original
       if (attempt.mask && attempt.mask.targetImageId !== source.imageId) {
         const dataUrl = await ensureImageCached(attempt.mask.targetImageId)
-        if (!dataUrl) throw new Error('蒙版对应的原图已不在本地')
+        if (!dataUrl) throw new Error(t('matte.error.maskSourceGone'))
         image = { id: attempt.mask.targetImageId, dataUrl }
       }
-      if (!live(entry)) throw new Error('原图已从任务移除')
+      if (!live(entry)) throw new Error(t('matte.error.removed'))
       return {
         mask: attempt.mask,
         notice: attempt.notice,
@@ -217,7 +222,7 @@ export function createSourceMattes(host: SourceMatteHost) {
       if (!live(entry)) return null
       if (!maskDataUrl) {
         await markMissing(entry, matte)
-        throw new Error(MATTE_MISSING)
+        throw new Error(MATTE_MISSING())
       }
       return {
         maskDataUrl,
@@ -329,7 +334,7 @@ async function segment(dataUrl: string): Promise<RawMatte> {
     return await browserSlots(() => browserMatte(dataUrl))
   } catch (error) {
     if (error instanceof ProductMatteError && error.reason === 'unsupported') {
-      throw new ServerMatteFailure('服务端抠图失败')
+      throw new ServerMatteFailure(t('matte.error.serverFailed'))
     }
     throw error
   }
@@ -414,12 +419,12 @@ async function maskAttemptFor(
   side: MaskSide,
 ): Promise<DerivedMask> {
   if (matte.status !== 'ready') {
-    return unmasked(MATTE_FAILED, matte.reason, matte.previewImageId)
+    return unmasked(MATTE_FAILED(), matte.reason, matte.previewImageId)
   }
 
   try {
     const raw = await readAlpha(matte.alphaImageId)
-    if (!raw) return unmasked(MATTE_MISSING, 'missing', matte.previewImageId)
+    if (!raw) return unmasked(MATTE_MISSING(), 'missing', matte.previewImageId)
 
     // 手改的那份就是最终答案，既不回捞也不再校验。
     if (matte.edited) return await masked(matte, raw, side, 'ok')
@@ -431,11 +436,11 @@ async function maskAttemptFor(
         : 'box-mismatch'
       : undefined
     if (agreement === 'box-mismatch') {
-      return { ...unmasked(MATTE_UNRELIABLE, 'box-mismatch', matte.previewImageId), agreement }
+      return { ...unmasked(MATTE_UNRELIABLE(), 'box-mismatch', matte.previewImageId), agreement }
     }
     return await masked(matte, expandProductAlpha(product, { productBox }), side, agreement)
   } catch {
-    return unmasked(MATTE_FAILED, 'failed', matte.previewImageId)
+    return unmasked(MATTE_FAILED(), 'failed', matte.previewImageId)
   }
 }
 

@@ -8,6 +8,7 @@ import {
 } from 'react'
 import { CloseIcon, MaskBrushIcon } from '../../../components/icons'
 import SuggestionMenu, { useSuggestionMenu } from '../../../components/SuggestionMenu'
+import { useTranslation } from '../../../i18n'
 import {
   getContentEditableCursor,
   getContentEditablePlainText,
@@ -49,6 +50,7 @@ const EDITOR_CLASS =
 const STRIP_THUMB = 'h-10 w-10 overflow-hidden rounded-lg border border-white/[0.09] object-cover'
 
 export default function AgentComposer({ doc }: { doc: CanvasDoc }) {
+  const { t, i18n } = useTranslation('agent')
   const running = useAgentStore((state) => state.turn === 'running')
   const assets = useLibraryStore((state) => state.assets)
   const loadAssets = useLibraryStore((state) => state.loadAssets)
@@ -65,7 +67,8 @@ export default function AgentComposer({ doc }: { doc: CanvasDoc }) {
 
   const labels = useMemo(() => referenceLabels(draft.references), [draft.references])
   const version = useSyncExternalStore(doc.subscribe, () => doc.version)
-  const canvas = useMemo(() => canvasImages(doc), [doc, version])
+  // `@` 候选里的「画布图 n」是界面文案，切语言要跟着换，所以语言也是这份缓存的入参。
+  const canvas = useMemo(() => canvasImages(doc), [doc, version, i18n.language])
 
   // 画布上选中的图直接进引用区：选了几张就是要对这几张说话，不必再逐张 `@`。
   // 自动带进来的按 id 记着，取消选中就撤走；用户手动 `@` 进来的不归它管。
@@ -217,7 +220,11 @@ export default function AgentComposer({ doc }: { doc: CanvasDoc }) {
                   )}
                   <button
                     type="button"
-                    aria-label={masked ? `修改参考图 ${label} 的遮罩` : `给参考图 ${label} 画遮罩`}
+                    aria-label={
+                      masked
+                        ? t('composer.editMaskAria', { label })
+                        : t('composer.drawMaskAria', { label })
+                    }
                     className={`absolute -bottom-1 -left-1 bg-[#17171a] opacity-0 group-hover:opacity-100 ${ICON_BUTTON}`}
                     onClick={() => editMask(reference)}
                   >
@@ -229,7 +236,7 @@ export default function AgentComposer({ doc }: { doc: CanvasDoc }) {
                 </span>
                 <button
                   type="button"
-                  aria-label={`移除参考图 ${label}`}
+                  aria-label={t('composer.removeReferenceAria', { label })}
                   className={`absolute -right-1 -top-1 bg-[#17171a] opacity-0 group-hover:opacity-100 ${ICON_BUTTON}`}
                   onClick={() => setDraft(removeReference(draft, index))}
                 >
@@ -255,10 +262,10 @@ export default function AgentComposer({ doc }: { doc: CanvasDoc }) {
           ref={editorRef}
           role="textbox"
           tabIndex={0}
-          aria-label="对智能体说"
+          aria-label={t('composer.editorAria')}
           contentEditable
           suppressContentEditableWarning
-          data-placeholder="说一句你想做什么，@ 引用画布或素材"
+          data-placeholder={t('composer.placeholder')}
           className={EDITOR_CLASS}
           onInput={(event) => {
             const el = event.currentTarget
@@ -285,7 +292,7 @@ export default function AgentComposer({ doc }: { doc: CanvasDoc }) {
               className={ABORT_BUTTON}
               onClick={() => void useAgentStore.getState().abort()}
             >
-              中止
+              {t('composer.abort')}
             </button>
           )}
           <button
@@ -294,7 +301,7 @@ export default function AgentComposer({ doc }: { doc: CanvasDoc }) {
             disabled={!draft.prompt.trim()}
             onClick={submit}
           >
-            {running ? '插话' : '发送'}
+            {running ? t('composer.interject') : t('composer.send')}
           </button>
         </div>
       </div>

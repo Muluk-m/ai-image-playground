@@ -1,9 +1,11 @@
 import Pending from '../../../../components/Pending'
+import { useTranslation } from '../../../../i18n'
 import { useStore } from '../../../../store'
 import AssetThumb from '../../../library/components/AssetThumb'
 import type { StoryboardShotRecord } from '../types'
 
 export default function DirectorFrame({ shot }: { shot: StoryboardShotRecord }) {
+  const { t } = useTranslation('video')
   const task = useStore((state) => state.tasks.find((item) => item.id === shot.imageTaskId))
   return (
     <div className="vd-frame">
@@ -12,11 +14,11 @@ export default function DirectorFrame({ shot }: { shot: StoryboardShotRecord }) 
       ) : (
         <div className="vd-placeholder">
           {task?.status === 'error' ? (
-            '出图失败，可重新生成'
+            t('directorFrame.failed')
           ) : task && task.status !== 'done' ? (
-            <Pending label="分镜图生成中" startedAt={task.createdAt} />
+            <Pending label={t('shared.shotImagePending')} startedAt={task.createdAt} />
           ) : (
-            '待生成分镜图'
+            t('directorFrame.idle')
           )}
         </div>
       )}

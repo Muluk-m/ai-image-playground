@@ -63,7 +63,7 @@ export default function CanvasMode() {
           () => {
             if (disposed) void saveScene(editor)
           },
-          (err) => console.warn('[canvas] 工作台图片放置失败', err),
+          (err) => console.warn('[canvas] failed to place workspace images', err),
         )
       }
       unsubscribe = editor.onChange(() => {

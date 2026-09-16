@@ -1,3 +1,4 @@
+import { i18next } from '../i18n'
 import type { TaskParams } from '../types'
 import {
   assertImageInputPayloadSize,
@@ -101,7 +102,7 @@ export function parseGeminiResponse(payload: GeminiResponse): GeminiParseResult 
   }
 
   if (!images.length) {
-    const err = new Error('Gemini 未返回可用图片数据')
+    const err = new Error(i18next.t('imageApi.geminiNoImageData', { ns: 'lib' }))
     ;(err as unknown as { rawResponsePayload: string }).rawResponsePayload = JSON.stringify(
       payload,
       null,
@@ -122,7 +123,7 @@ export async function callGeminiImageApi(
   profile: BYOKAdapterProfile,
 ): Promise<CallApiResult> {
   if (opts.maskDataUrl) {
-    throw new Error('Gemini 服务商不支持遮罩编辑，请改用 OpenAI 服务商')
+    throw new Error(i18next.t('imageApi.geminiNoMaskEdit', { ns: 'lib' }))
   }
 
   assertImageInputPayloadSize(

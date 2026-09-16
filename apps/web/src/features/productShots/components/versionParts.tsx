@@ -1,7 +1,8 @@
 import type { ReactNode, SVGProps } from 'react'
+import { useTranslation } from '../../../i18n'
 import { actionLabel } from '../lib/actions'
 import { matteBadge } from '../lib/matteBadge'
-import { VERSION_STATE_LABELS, type VersionState } from '../lib/versionProgress'
+import { type VersionState, versionStateLabels } from '../lib/versionProgress'
 import type { ProductShotVersion } from '../types'
 import { workflowLabel } from '../workflows/plan'
 import BadgeTag from './BadgeTag'
@@ -88,12 +89,13 @@ export function VersionTitle({
   /** 总览卡的格子窄，动作标签放不下就省略；版本条宽，整个放出来。 */
   truncateAction?: boolean
 }) {
+  const { t } = useTranslation('productShots')
   return (
     <span
       data-product-shots-version-title
       className="flex items-center gap-1 overflow-hidden whitespace-nowrap text-xs text-gray-700 dark:text-gray-200"
     >
-      <span className="shrink-0 font-medium">第 {index + 1} 版</span>
+      <span className="shrink-0 font-medium">{t('version.label', { index: index + 1 })}</span>
       <span
         className={`rounded bg-violet-500/10 px-1 text-[11px] text-violet-700 dark:text-violet-300 ${
           truncateAction ? 'truncate' : 'shrink-0'
@@ -116,20 +118,21 @@ export function VersionTags({
   version: ProductShotVersion
   state?: VersionState
 }) {
+  const { t } = useTranslation('productShots')
   return (
     <span
       data-product-shots-version-tags
       className="flex flex-wrap items-center gap-x-1 gap-y-0.5 text-[11px] text-gray-500 dark:text-gray-400"
     >
       {state !== undefined && state !== 'done' && (
-        <span className="shrink-0">{VERSION_STATE_LABELS[state]}</span>
+        <span className="shrink-0">{versionStateLabels()[state]}</span>
       )}
       {/* 「未抠图 · 运行错误」比别的标签长，独占一行还放不下才省略。 */}
       {!version.workflow && (
         <BadgeTag badge={matteBadge(version)} className="min-w-0 truncate px-1" />
       )}
-      {version.lowResSource && <span className={AMBER_TAG}>源图分辨率低</span>}
-      {version.promptEdited && <span className={AMBER_TAG}>手改</span>}
+      {version.lowResSource && <span className={AMBER_TAG}>{t('version.lowRes')}</span>}
+      {version.promptEdited && <span className={AMBER_TAG}>{t('tag.edited')}</span>}
     </span>
   )
 }

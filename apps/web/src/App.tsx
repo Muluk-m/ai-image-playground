@@ -20,6 +20,7 @@ import SaveAssetDialog from './features/library/components/SaveAssetDialog'
 import SaveTemplateDialog from './features/library/components/SaveTemplateDialog'
 import ProductShotsMode from './features/productShots/components/ProductShotsMode'
 import VideoMode from './features/video/components/VideoMode'
+import { i18next } from './i18n'
 import { isByokGenerationEnabled } from './lib/clientCapabilities'
 import { startSyncEngine } from './lib/sync/engine'
 import {
@@ -59,7 +60,12 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
     initHashRoute()
 
     if (adoptedTaskCount > 0) {
-      useStore.getState().showToast(`已找回登录前的 ${adoptedTaskCount} 条历史`, 'success')
+      useStore
+        .getState()
+        .showToast(
+          i18next.t('toast.historyAdopted', { ns: 'shell', count: adoptedTaskCount }),
+          'success',
+        )
     }
   }, [setSettings, adoptedTaskCount])
 

@@ -1,5 +1,6 @@
 import { CloseIcon, SparkleIcon } from '../../../components/icons'
 import Overlay from '../../../components/Overlay'
+import { useTranslation } from '../../../i18n'
 import { useInspirationStore } from '../store'
 import InspirationCategoryFilter from './InspirationCategoryFilter'
 import InspirationDetail from './InspirationDetail'
@@ -13,6 +14,7 @@ export default function InspirationPanel() {
   const detailItemId = useInspirationStore((s) => s.detailItemId)
   const searchKeyword = useInspirationStore((s) => s.searchKeyword)
   const setSearch = useInspirationStore((s) => s.setSearch)
+  const { t } = useTranslation(['inspiration', 'common'])
 
   if (!panelOpen) return null
 
@@ -23,9 +25,9 @@ export default function InspirationPanel() {
         <div className="flex items-center justify-between gap-3 shrink-0 p-5 border-b border-gray-100 dark:border-white/[0.08]">
           <h3 className="text-lg font-bold text-gray-800 dark:text-gray-100 flex items-center gap-2 shrink-0">
             <SparkleIcon className="w-5 h-5 text-blue-500" />
-            灵感库
+            {t('panel.title')}
             <span className="ml-1 text-xs font-normal text-gray-400 dark:text-gray-500">
-              {items.length > 0 ? `${items.length} 条` : '加载中…'}
+              {items.length > 0 ? t('panel.count', { count: items.length }) : t('list.loading')}
             </span>
           </h3>
 
@@ -48,7 +50,7 @@ export default function InspirationPanel() {
                 type="search"
                 value={searchKeyword}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="搜索标题 / 提示词 / 标签"
+                placeholder={t('panel.searchPlaceholder')}
                 className="w-full rounded-lg border border-gray-200 bg-white py-1.5 pl-8 pr-3 text-sm text-gray-800 placeholder:text-gray-400 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100 dark:border-white/[0.08] dark:bg-white/[0.04] dark:text-gray-100 dark:focus:border-blue-500/50 dark:focus:ring-blue-500/15"
               />
             </div>
@@ -58,7 +60,7 @@ export default function InspirationPanel() {
             type="button"
             onClick={closePanel}
             className="rounded-full p-1 text-gray-400 transition hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-white/[0.06] dark:hover:text-gray-200 shrink-0"
-            aria-label="关闭"
+            aria-label={t('common:action.close')}
           >
             <CloseIcon className="h-5 w-5" />
           </button>

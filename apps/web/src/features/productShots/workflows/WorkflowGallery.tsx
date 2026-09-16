@@ -1,10 +1,12 @@
 import { CARD, OUTLINE_BUTTON } from '../../../components/panelStyles'
+import { useTranslation } from '../../../i18n'
 import { useStore } from '../../../store'
 import { useProductShotsStore } from '../store'
 import { downloadKit } from './render'
 import { KitResult } from './WorkflowWorkspace'
 
 export default function WorkflowGallery() {
+  const { t } = useTranslation('productShots')
   const draft = useProductShotsStore((s) => s.draft)
   const tasks = useStore((s) => s.tasks)
   const groups = draft.images.flatMap((image) => {
@@ -19,11 +21,13 @@ export default function WorkflowGallery() {
   if (!groups.length || !jobId) return null
   return (
     <section className={`${CARD} mt-4`}>
-      <h2 className="mb-3 text-sm font-semibold text-gray-800 dark:text-gray-100">成套图片</h2>
+      <h2 className="mb-3 text-sm font-semibold text-gray-800 dark:text-gray-100">
+        {t('kit.title')}
+      </h2>
       {groups.map((group, index) => (
         <div key={group.groupId} className="mb-4 last:mb-0">
           <div className="mb-2 flex items-center justify-between">
-            <h3 className="text-xs text-gray-500">第 {index + 1} 套</h3>
+            <h3 className="text-xs text-gray-500">{t('kit.setLabel', { index: index + 1 })}</h3>
             <button
               type="button"
               className={OUTLINE_BUTTON}
@@ -39,7 +43,7 @@ export default function WorkflowGallery() {
                 ).catch((e) => useStore.getState().showToast(String(e), 'error'))
               }
             >
-              按各自尺寸打包下载
+              {t('kit.downloadBySize')}
             </button>
           </div>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">

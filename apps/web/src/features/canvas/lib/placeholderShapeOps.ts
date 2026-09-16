@@ -1,3 +1,4 @@
+import { i18next } from '../../../i18n'
 import { getImageDimensions } from '../../../lib/canvasImage'
 import type { CallApiResult } from '../../../lib/imageApiShared'
 import type { CanvasEditor, CanvasTaskStatus, PlacedImage, PlaceholderView } from './editor'
@@ -39,7 +40,12 @@ export async function settleGeneration(
   result: CallApiResult,
 ): Promise<boolean> {
   if (result.images.length === 0) {
-    markPlaceholderStatus(editor, placeholderId, 'error', '生成完成但未返回图片')
+    markPlaceholderStatus(
+      editor,
+      placeholderId,
+      'error',
+      i18next.t('placeholder.noImages', { ns: 'canvas' }),
+    )
     return false
   }
   await placeResults(editor, placeholderId, target, result.images)

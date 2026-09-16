@@ -1,4 +1,5 @@
 import { SparkleIcon } from '../../../components/icons'
+import { useTranslation } from '../../../i18n'
 import { useStore } from '../../../store'
 import { useInspirationStore } from '../store'
 
@@ -15,6 +16,7 @@ export default function InspirationCoach() {
   const dismiss = useStore((s) => s.dismissInspirationCoach)
   const openInspiration = useInspirationStore((s) => s.openPanel)
   const panelOpen = useInspirationStore((s) => s.panelOpen)
+  const { t } = useTranslation('inspiration')
 
   if (dismissed) return null
   if (tasksCount > 0) return null
@@ -28,7 +30,7 @@ export default function InspirationCoach() {
   return (
     <div
       role="dialog"
-      aria-label="灵感库引导"
+      aria-label={t('coach.label')}
       className="animate-coach-pop-in absolute right-0 top-full z-50 mt-3 w-72 rounded-2xl border border-blue-100 bg-white p-4 shadow-xl ring-1 ring-black/5 dark:border-blue-500/20 dark:bg-gray-900 dark:ring-white/10"
     >
       {/* 气泡尖角，指向上方的按钮 */}
@@ -41,10 +43,10 @@ export default function InspirationCoach() {
         <SparkleIcon className="mt-0.5 h-4 w-4 shrink-0 text-blue-500" />
         <div className="flex-1">
           <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">
-            不知道画什么？
+            {t('coach.title')}
           </div>
           <p className="mt-1 text-xs leading-relaxed text-gray-600 dark:text-gray-400">
-            灵感库里有几百个可一键套用的高质量示例，挑一张开始最快。
+            {t('coach.body')}
           </p>
         </div>
       </div>
@@ -55,7 +57,7 @@ export default function InspirationCoach() {
           onClick={dismiss}
           className="rounded-md px-2.5 py-1 text-xs text-gray-500 transition hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-white/[0.06] dark:hover:text-gray-200"
         >
-          知道了
+          {t('coach.dismiss')}
         </button>
         <button
           type="button"
@@ -63,7 +65,7 @@ export default function InspirationCoach() {
           className="inline-flex items-center gap-1 rounded-md bg-blue-500 px-2.5 py-1 text-xs font-medium text-white shadow-sm transition hover:bg-blue-600"
         >
           <SparkleIcon className="h-3 w-3" />
-          看看
+          {t('coach.explore')}
         </button>
       </div>
     </div>
