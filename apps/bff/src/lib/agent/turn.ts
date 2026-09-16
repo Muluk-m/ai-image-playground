@@ -51,6 +51,7 @@ import {
   isAgentToolName,
 } from './tools'
 import { recordAgentTurnSummary } from './turn-summary'
+import { createAgentUsageLedger } from './usage-ledger'
 
 const EMPTY_USAGE = {
   input: 0,
@@ -171,23 +172,6 @@ interface OpenAssistantMessage {
   text: string
 }
 
-/**
- * 一轮可以打好几次上游（工具循环、插话），用量按转录里的助手消息累加，只取末条会漏掉工具那几次。
- * 回放进来的历史助手消息带的是占位零，加进来不影响；摘要走独立请求，压根不进转录。
- * 全零就是没报：中转网关吞掉 `stream_options` 时 pi 也只能填零，与真·零 token 不可区分。
- */
-function reportedUsage(messages: readonly AgentMessage[]): AgentTurnUsage | null {
-  let inputTokens = 0
-  let outputTokens = 0
-  for (const message of messages) {
-    if (message.role !== 'assistant') continue
-    inputTokens += message.usage.input
-    outputTokens += message.usage.output
-  }
-  if (!inputTokens && !outputTokens) return null
-  return { inputTokens, outputTokens }
-}
-
 interface OpenToolCall {
   readonly messageId: string
   readonly toolName: AgentToolName
@@ -224,16 +208,18 @@ function toolResultBlock(
   }
 }
 
-function assistantCount(messages: readonly { readonly role: string }[]): number {
-  return messages.filter((message) => message.role === 'assistant').length
-}
-
 /** 起一轮并立刻返回把手；`read()` 可以被断开再重开。 */
 export async function startAgentTurn(input: StartAgentTurnInput): Promise<RunningTurn> {
   const { conversationId, turnId, userMessageId, settle, text: prompt } = input
   const turnParams = input.params
-  // 收尾闭包只留这个计数，不留 input：捕获它就等于把整段历史再钉住一份到轮结束。
-  const replayedAssistants = assistantCount(input.history)
+  const ledger = createAgentUsageLedger({
+    conversationId,
+    turnId,
+    userId: input.userId,
+    deviceId: input.deviceId,
+  })
+  let modelCallId: string | null = null
+  const stream = agentStreamFn()
   const startedAt = Date.now()
   const events = turnEventLog(conversationId, turnId, await lastAgentEventSeq(conversationId))
   const images = createAgentImageSource({
@@ -259,7 +245,10 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
         clarificationTool,
       ],
     },
-    streamFn: agentStreamFn(),
+    streamFn: async (model, context, options) => {
+      modelCallId = await ledger.begin('conversation', model.id, context)
+      return stream(model, context, options)
+    },
     // 逐个跑：每次调用都是一条计费任务，并发起来事件次序也对不上产出落画布的顺序。
     toolExecution: 'sequential',
     // 澄清即收尾：用户的选择是下一条用户消息，所以这一轮不再回上游要下一句。
@@ -269,6 +258,7 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
       turnId: input.turnId,
       historyIds: input.history.map((message) => message.id),
       userMessageId: input.userMessageId,
+      onSummaryAttempt: ledger.recordSummary,
     }),
   })
 
@@ -378,6 +368,10 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
       })
     }
     if (event.type === 'message_end' && event.message.role === 'assistant') {
+      if (modelCallId) {
+        await ledger.finish(modelCallId, event.message)
+        modelCallId = null
+      }
       // pi 不为上游失败抛异常，它把失败写进助手消息的停因。工具失败时的中止也走这里，
       // 那时 error 已经写好，别让它把更准的那个原因盖掉。
       if (event.message.stopReason === 'error') error ??= 'agent_upstream_error'
@@ -519,17 +513,14 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
       await writes
       if (!error && !aborted && !storedAny) error = 'agent_run_failed'
 
-      const usage = reportedUsage(agent.state.messages)
+      const { usage, upstreamInvocationCount } = ledger.settlement()
       const outcome: TaskOutcome = error ? 'failed' : aborted ? 'cancelled' : 'completed'
       let cost: AgentTurnCost | undefined
       try {
         cost = await settle?.({
           outcome,
           usage,
-          upstreamInvocationCount: Math.max(
-            0,
-            assistantCount(agent.state.messages) - replayedAssistants,
-          ),
+          upstreamInvocationCount,
         })
       } catch (thrown) {
         // 结算失败不该把已经流给用户的这一轮拖成报错；占用留给运维扫，不在这里重试。

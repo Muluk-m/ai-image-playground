@@ -84,12 +84,23 @@ export function extractJson(content: string): unknown {
   }
 }
 
+export interface ChatAttempt {
+  readonly id: string
+  readonly model: string
+  readonly startedAt: number
+  readonly finishedAt: number
+  readonly status: 'completed' | 'failed'
+  readonly usage: { readonly inputTokens: number; readonly outputTokens: number } | null
+}
+
 export interface ChatAsk {
   readonly model: string
   readonly prompt: string
   readonly images?: readonly string[]
   readonly maxTokens: number
   readonly timeoutMs: number
+  /** 每次真实请求（包括解析重试）各报告一次，不包含提示词或回复正文。 */
+  readonly onAttempt?: (attempt: ChatAttempt) => Promise<void>
 }
 
 function requestBody({ model, prompt, images = [], maxTokens }: ChatAsk): string {
@@ -108,21 +119,63 @@ function requestBody({ model, prompt, images = [], maxTokens }: ChatAsk): string
   })
 }
 
-function requestContent(body: string, timeoutMs: number): Promise<string | undefined> {
-  return withDeadline(timeoutMs, async (signal) => {
-    const response = await chatTransport.current(`${config.upstream.baseUrl}/v1/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        authorization: `Bearer ${resolveApiKey('openai-compat')}`,
-      },
-      body,
-      signal,
-      dispatcher: chatDispatcher,
+function responseUsage(raw: string): ChatAttempt['usage'] {
+  let payload: unknown
+  try {
+    payload = JSON.parse(raw)
+  } catch {
+    return null
+  }
+  if (!isObject(payload) || !isObject(payload.usage)) return null
+  const { prompt_tokens: input, completion_tokens: output } = payload.usage
+  if (
+    typeof input !== 'number' ||
+    typeof output !== 'number' ||
+    !Number.isSafeInteger(input) ||
+    !Number.isSafeInteger(output) ||
+    input < 0 ||
+    output < 0
+  )
+    return null
+  return { inputTokens: input, outputTokens: output }
+}
+
+async function requestContent(body: string, ask: ChatAsk): Promise<string | undefined> {
+  const id = crypto.randomUUID()
+  const startedAt = Date.now()
+  let usage: ChatAttempt['usage'] = null
+  let status: ChatAttempt['status'] = 'failed'
+  try {
+    return await withDeadline(ask.timeoutMs, async (signal) => {
+      const response = await chatTransport.current(
+        `${config.upstream.baseUrl}/v1/chat/completions`,
+        {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            authorization: `Bearer ${resolveApiKey('openai-compat')}`,
+          },
+          body,
+          signal,
+          dispatcher: chatDispatcher,
+        },
+      )
+      if (!response.ok) throw new ChatUpstreamError(response.status)
+      const raw = await response.text()
+      usage = responseUsage(raw)
+      status = 'completed'
+      return messageContent(raw)
     })
-    if (!response.ok) throw new ChatUpstreamError(response.status)
-    return messageContent(await response.text())
-  })
+  } finally {
+    await ask.onAttempt?.({
+      id,
+      model: ask.model,
+      startedAt,
+      finishedAt: Date.now(),
+      status,
+      usage,
+    })
+  }
 }
 
 /** 上游偶发不回 JSON，重试一次；第二次仍不可用就是硬失败。 */
@@ -133,7 +186,7 @@ export async function askChatModel<T>(
   // 请求体只序列化一次：参考图是 data URL，重试时重新转义要多花一整份内存。
   const body = requestBody(ask)
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    const content = await requestContent(body, ask.timeoutMs)
+    const content = await requestContent(body, ask)
     const parsed = content === undefined ? null : parse(extractJson(content))
     if (parsed) return parsed
   }

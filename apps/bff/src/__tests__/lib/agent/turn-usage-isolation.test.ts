@@ -1,9 +1,10 @@
-import { afterAll, afterEach, describe, expect, it } from 'bun:test'
+import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
 import type { AgentMessageView, AgentTurnEvent, AgentTurnUsage } from '@image-playground/shared'
+import { eq } from 'drizzle-orm'
 import { completionStream, recordingAgentFetch } from '../../helpers/agentStubs'
-import { type ChatCall, chatCompletion, recordingChatFetch } from '../../helpers/chatStubs'
+import { type ChatCall, recordingChatFetch } from '../../helpers/chatStubs'
 
 process.env.DATABASE_URL = await resetTestDatabase('agent_turn_usage')
 process.env.PORT = '0'
@@ -23,7 +24,7 @@ const { setAgentFetchForTesting } = await import('../../../lib/agent/model')
 const { setChatFetchForTesting } = await import('../../../lib/chatCompletion')
 const { startAgentTurn } = await import('../../../lib/agent/turn')
 const { createAgentConversation } = await import('../../../lib/agent/conversations')
-const { close: closeDb } = await import('../../../db/client')
+const { close: closeDb, db, schema } = await import('../../../db/client')
 type AgentTurnSettlement = import('../../../lib/agent/turn').AgentTurnSettlement
 
 const NARRATIVE = {
@@ -75,6 +76,10 @@ async function usageOfTurnAfter(history: AgentMessageView[]): Promise<AgentTurnU
   return usage
 }
 
+beforeEach(async () => {
+  await db.delete(schema.agent_conversations)
+})
+
 afterEach(() => {
   setAgentFetchForTesting()
   setChatFetchForTesting()
@@ -89,7 +94,16 @@ describe('startAgentTurn usage', () => {
     setAgentFetchForTesting(recordingAgentFetch([], () => completionStream('好')))
     const summaryCalls: ChatCall[] = []
     setChatFetchForTesting(
-      recordingChatFetch(summaryCalls, () => chatCompletion(JSON.stringify(NARRATIVE))),
+      recordingChatFetch(
+        summaryCalls,
+        () =>
+          new Response(
+            JSON.stringify({
+              choices: [{ message: { content: JSON.stringify(NARRATIVE) } }],
+              usage: { prompt_tokens: 100, completion_tokens: 20 },
+            }),
+          ),
+      ),
     )
     const conversation = await createAgentConversation(
       { kind: 'device', deviceId: 'device-abcdefgh' },
@@ -129,15 +143,68 @@ describe('startAgentTurn usage', () => {
       },
     ])
 
+    const summaryUsage = await db
+      .select()
+      .from(schema.agent_model_calls)
+      .where(eq(schema.agent_model_calls.purpose, 'compaction'))
+    expect(summaryUsage).toHaveLength(1)
+    expect(summaryUsage[0]).toMatchObject({
+      conversation_id: conversation.id,
+      turn_id: 'turn-new',
+      device_id: 'device-abcdefgh',
+      model: 'fixture-summary-model',
+      status: 'completed',
+      usage: { inputTokens: 100, outputTokens: 20 },
+    })
+
     // 摘要只塑造送给模型的输入，不进事件流：轮事件表会原样发给前端。
     const streamed = JSON.stringify(events)
     for (const line of Object.values(NARRATIVE)) expect(streamed).not.toContain(line)
   })
 
-  /**
-   * 用量按转录里的助手消息累加，而转录的前缀是回放进来的历史。历史那几条的用量是占位零，
-   * 一旦有人把每条消息的用量持久化下来、加载时还原回去，这个循环就会把旧账再算一遍。
-   */
+  it('records every summary retry without billing its tokens to the conversation', async () => {
+    setAgentFetchForTesting(recordingAgentFetch([], () => completionStream('好')))
+    let attempt = 0
+    setChatFetchForTesting(
+      recordingChatFetch([], () => {
+        attempt += 1
+        return new Response(
+          JSON.stringify({
+            choices: [
+              { message: { content: attempt === 1 ? '不是 JSON' : JSON.stringify(NARRATIVE) } },
+            ],
+            usage: { prompt_tokens: attempt * 100, completion_tokens: attempt * 20 },
+          }),
+        )
+      }),
+    )
+
+    expect(await usageOfTurnAfter(HISTORY)).toEqual({ inputTokens: 12, outputTokens: 4 })
+    const records = await db
+      .select()
+      .from(schema.agent_model_calls)
+      .where(eq(schema.agent_model_calls.purpose, 'compaction'))
+      .orderBy(schema.agent_model_calls.started_at)
+    expect(records).toHaveLength(2)
+    expect(records.map((record) => record.usage)).toEqual([
+      { inputTokens: 100, outputTokens: 20 },
+      { inputTokens: 200, outputTokens: 40 },
+    ])
+    expect(records[0]?.id).not.toBe(records[1]?.id)
+  })
+
+  it('records failed summary requests as unknown usage while the turn continues', async () => {
+    setAgentFetchForTesting(recordingAgentFetch([], () => completionStream('好')))
+    setChatFetchForTesting(recordingChatFetch([], () => new Response('error', { status: 503 })))
+    expect(await usageOfTurnAfter(HISTORY)).toEqual({ inputTokens: 12, outputTokens: 4 })
+    const records = await db
+      .select()
+      .from(schema.agent_model_calls)
+      .where(eq(schema.agent_model_calls.purpose, 'compaction'))
+    expect(records).toHaveLength(1)
+    expect(records[0]).toMatchObject({ status: 'failed', usage: null })
+  })
+
   it('bills one turn the same no matter how much history the transcript replays', async () => {
     setAgentFetchForTesting(recordingAgentFetch([], () => completionStream('好')))
 
