@@ -2,6 +2,7 @@ import {
   VIDEO_RESOLUTION_LABELS,
   validateVideoPrompt,
   validateVideoRequest,
+  videoDurationsForResolution,
   videoRateMultiplier,
 } from '@image-playground/shared'
 import { useState } from 'react'
@@ -11,6 +12,7 @@ import { videoModelOptions } from '../../../../lib/channels/videoChannels'
 import { usePrivateSubmissionGuard } from '../../../../lib/privateOverlay'
 import { useStore } from '../../../../store'
 import { useVideoStore } from '../../store'
+import { promptAtDuration } from '../lib/director'
 import { useStoryboardStore, wholeVideoFrameId } from '../store'
 import type { StoryboardRecord, StoryboardShotRecord } from '../types'
 
@@ -30,14 +32,26 @@ export default function DirectorGeneration({
   onSubmitted: () => void
 }) {
   const [scope, setScope] = useState(initialScope)
+  const [selectedSeconds, setSelectedSeconds] = useState<number | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const draft = useVideoStore((s) => s.draft)
   const saveState = useStoryboardStore((s) => s.saveStates[record.id])
   const options = videoModelOptions()
   const option = options.find((item) => item.modelId === draft.model)
-  const seconds = scope === 'shot' ? (shot?.seconds ?? 0) : record.totalSeconds
+  const sourceSeconds = scope === 'shot' ? (shot?.seconds ?? 0) : record.totalSeconds
+  const durations = option ? videoDurationsForResolution(option.support, draft.resolution) : []
+  const preferredSeconds = selectedSeconds ?? sourceSeconds
+  const seconds = durations.reduce<number>(
+    (nearest, value) =>
+      Math.abs(value - preferredSeconds) < Math.abs(nearest - preferredSeconds) ? value : nearest,
+    durations[0] ?? sourceSeconds,
+  )
   const imageId = scope === 'shot' ? shot?.imageId : wholeVideoFrameId(record)
-  const prompt = scope === 'shot' ? (shot?.videoPrompt ?? '') : record.videoPrompt
+  const prompt = promptAtDuration(
+    scope === 'shot' ? (shot?.videoPrompt ?? '') : record.videoPrompt,
+    sourceSeconds,
+    seconds,
+  )
   const check = validateVideoRequest(
     draft.model,
     {
@@ -68,8 +82,8 @@ export default function DirectorGeneration({
     try {
       const taskId =
         scope === 'shot' && shot
-          ? await useStoryboardStore.getState().generateShotVideo(record.id, shot.no)
-          : await useStoryboardStore.getState().generateWholeVideo(record.id)
+          ? await useStoryboardStore.getState().generateShotVideo(record.id, shot.no, seconds)
+          : await useStoryboardStore.getState().generateWholeVideo(record.id, seconds)
       if (taskId) onSubmitted()
     } catch (error) {
       useStore
@@ -95,14 +109,24 @@ export default function DirectorGeneration({
         </button>
       </div>
       <div className="vd-stack" role="group" aria-label="生成范围">
-        <button type="button" aria-pressed={scope === 'whole'} onClick={() => setScope('whole')}>
+        <button
+          type="button"
+          aria-pressed={scope === 'whole'}
+          onClick={() => {
+            setScope('whole')
+            setSelectedSeconds(null)
+          }}
+        >
           整条视频 · {record.totalSeconds} 秒
         </button>
         <button
           type="button"
           disabled={!shot}
           aria-pressed={scope === 'shot'}
-          onClick={() => setScope('shot')}
+          onClick={() => {
+            setScope('shot')
+            setSelectedSeconds(null)
+          }}
         >
           当前镜头 · {shot?.seconds ?? 0} 秒
         </button>
@@ -138,6 +162,25 @@ export default function DirectorGeneration({
           ))}
         </select>
       </label>
+      <label>
+        视频时长
+        <select
+          aria-label="分镜视频时长"
+          value={seconds}
+          onChange={(e) => setSelectedSeconds(Number(e.target.value))}
+        >
+          {durations.map((duration) => (
+            <option key={duration} value={duration}>
+              {duration} 秒
+            </option>
+          ))}
+        </select>
+      </label>
+      {seconds !== sourceSeconds && (
+        <p className="vd-muted">
+          原分镜 {sourceSeconds} 秒，本次按 {seconds} 秒生成，镜头节奏将相应调整。
+        </p>
+      )}
       <p className="vd-muted">
         {record.aspectRatio} ·{' '}
         {imageId ? '使用首张画面作为视频首帧，其余镜头通过脚本描述' : '根据完整脚本文生视频'}

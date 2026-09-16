@@ -2,6 +2,7 @@ import type { StoryboardPlan } from '@image-playground/shared'
 import { IDBFactory } from 'fake-indexeddb'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { INITIAL_VIDEO_DRAFT, useVideoStore } from '../../../../features/video/store'
+import { promptAtDuration } from '../../../../features/video/storyboard/lib/director'
 import { storyboardStore } from '../../../../features/video/storyboard/lib/storyboardStore'
 import {
   INITIAL_STORYBOARD_DRAFT,
@@ -320,6 +321,27 @@ describe('生视频', () => {
     expect(board().videoTaskId).toBe(task.id)
   })
 
+  it('按选择的时长提交并缩放时间轴，保留原分镜与快照', async () => {
+    const id = await plannedWithImages()
+    setChannels([IMAGE_CHANNEL, AGNES_CHANNEL])
+    useVideoStore.getState().setModel('agnes-video-2.5-flash')
+    await useStoryboardStore.getState().generateWholeVideo(id, 5)
+    await settle()
+    const task = useVideoStore.getState().tasks[0]!
+    expect(task.duration).toBe(5)
+    expect(task.prompt).toContain('镜头1（0-2.5秒）')
+    expect(task.prompt).toContain('镜头2（2.5-5秒）')
+    expect(task.prompt).toContain('空杯静置，缓慢推进')
+    expect(submitVideoRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        video: expect.objectContaining({ duration_seconds: 5 }),
+      }),
+    )
+    expect(board().totalSeconds).toBe(10)
+    expect(board().videoPrompt).toBe(PLAN.videoPrompt)
+    expect(task.storyboardVersion?.content.totalSeconds).toBe(10)
+  })
+
   it('没有分镜图时整条视频退到参考图', async () => {
     const id = await useStoryboardStore
       .getState()
@@ -531,4 +553,8 @@ it('恢复过程中出现新的编辑时保留它，不覆盖未备份的更改'
   expect(board().title).toBe('恢复期间的新修改')
   expect(showToast).toHaveBeenCalledWith(expect.stringContaining('草稿在恢复期间有新修改'), 'error')
   put.mockRestore()
+})
+
+it('调整时长不会把空脚本变成可提交的提示词', () => {
+  expect(promptAtDuration('  ', 15, 10)).toBe('  ')
 })
