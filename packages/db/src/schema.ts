@@ -455,3 +455,29 @@ export type AgentConversationRow = typeof agent_conversations.$inferSelect
 export type AgentMessageRow = typeof agent_messages.$inferSelect
 export type AgentTurnEventRow = typeof agent_turn_events.$inferSelect
 export type AgentTurnRow = typeof agent_turns.$inferSelect
+
+/** Short-lived encrypted cross-origin handoff; source browser retains its original data. */
+export const domain_migrations = pgTable('domain_migrations', {
+  id: text('id').primaryKey(),
+  proof_hash: text('proof_hash').notNull(),
+  upload_hash: text('upload_hash').notNull(),
+  source_session_hash: text('source_session_hash'),
+  source_user_id: text('source_user_id'),
+  created_at: epochMs('created_at').notNull(),
+  expires_at: epochMs('expires_at').notNull(),
+  chunks: integer('chunks').notNull().default(0),
+  bytes: integer('bytes').notNull().default(0),
+  sealed: integer('sealed').notNull().default(0),
+})
+
+export const domain_migration_chunks = pgTable(
+  'domain_migration_chunks',
+  {
+    migration_id: text('migration_id')
+      .notNull()
+      .references(() => domain_migrations.id, { onDelete: 'cascade' }),
+    sequence: integer('sequence').notNull(),
+    ciphertext: text('ciphertext').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.migration_id, t.sequence] })],
+)

@@ -11,6 +11,7 @@ import { bgswapPlanRoutes } from './routes/bgswap-plan'
 import { cancelRoutes } from './routes/cancel'
 import { capabilitiesRoutes, internalCapabilitiesRoutes } from './routes/capabilities'
 import { channelsRoutes } from './routes/channels'
+import { domainMigrationRoutes } from './routes/domain-migration'
 import { internalUserRoutes } from './routes/internal-users'
 import { matteRoutes } from './routes/matte'
 import { oauthRoutes } from './routes/oauth'
@@ -126,6 +127,7 @@ export const app = new Elysia()
   .use(cors({ origin: corsOrigin, credentials: true }))
   .get('/health', () => ({ ok: true }))
   .use(userAuthRoutes)
+  .use(domainMigrationRoutes)
   .use(oauthRoutes)
   .use(capabilitiesRoutes)
   .use(channelsRoutes)
