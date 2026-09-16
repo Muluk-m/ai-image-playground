@@ -45,3 +45,15 @@ export function sequencePrompt(record: StoryboardRecord, shots: StoryboardShotRe
     .filter(Boolean)
     .join('\n')
 }
+
+/** 只重排提示词中的镜头时间标记，保留用户编辑的描述和原分镜。 */
+export function promptAtDuration(prompt: string, sourceSeconds: number, seconds: number): string {
+  if (!prompt.trim() || seconds === sourceSeconds || sourceSeconds <= 0) return prompt
+  const scale = (value: string) => Math.round((Number(value) * seconds * 100) / sourceSeconds) / 100
+  const retimed = prompt.replace(
+    /(镜头\s*\d+[（(])(\d+(?:\.\d+)?)\s*[-–]\s*(\d+(?:\.\d+)?)(\s*秒[）)])/g,
+    (_, prefix: string, start: string, end: string, suffix: string) =>
+      `${prefix}${scale(start)}-${scale(end)}${suffix}`,
+  )
+  return `视频总时长为 ${seconds} 秒，按此时长完整呈现以下内容。\n${retimed}`
+}
