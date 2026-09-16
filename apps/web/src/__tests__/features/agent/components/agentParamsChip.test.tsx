@@ -83,7 +83,7 @@ describe('智能体输入框的生成参数', () => {
     expect(trigger().getAttribute('aria-expanded')).toBe('true')
 
     act(() => {
-      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
     })
     expect(trigger().getAttribute('aria-expanded')).toBe('false')
   })
@@ -144,4 +144,52 @@ describe('gemini 专属参数跟着当前模型走', () => {
     expect(host.textContent).not.toContain('分辨率')
     expect(host.textContent).not.toContain('思考')
   })
+})
+
+function clickWithPointer(element: Element) {
+  act(() => element.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true })))
+  act(() => element.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+}
+
+function buttonWithText(text: string) {
+  const button = Array.from(document.body.querySelectorAll('button')).find(
+    (node) => node.textContent?.trim() === text,
+  )
+  if (!button) throw new Error(`Missing button: ${text}`)
+  return button
+}
+
+function openRatio() {
+  useProfile('openai-compat', 'gpt-image-2.5-flare')
+  render()
+  toggle()
+  const chip = host.querySelector<HTMLButtonElement>('button[title^="尺寸:"]')!
+  clickWithPointer(chip)
+  expect(document.body.querySelector('h3')?.textContent).toBe('设置图像尺寸')
+  clickWithPointer(buttonWithText('按比例'))
+}
+
+it('keeps the portalled ratio picker open until confirmation and applies the selection', () => {
+  openRatio()
+  clickWithPointer(buttonWithText('16:9'))
+  expect(document.body.querySelector('h3')?.textContent).toBe('设置图像尺寸')
+  expect(useStore.getState().params.size).toBe('auto')
+  clickWithPointer(buttonWithText('确定'))
+  expect(useStore.getState().params.size).toBe('1280x720')
+  expect(trigger().textContent).toContain('1280x720')
+  expect(trigger().getAttribute('aria-expanded')).toBe('true')
+  expect(document.body.querySelector('h3')).toBeNull()
+  act(() => document.body.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true })))
+  expect(trigger().getAttribute('aria-expanded')).toBe('false')
+})
+
+it('Escape dismisses only the topmost picker and leaves unconfirmed parameters unchanged', () => {
+  openRatio()
+  clickWithPointer(buttonWithText('9:16'))
+  act(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
+  expect(document.body.querySelector('h3')).toBeNull()
+  expect(trigger().getAttribute('aria-expanded')).toBe('true')
+  expect(useStore.getState().params.size).toBe('auto')
+  act(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
+  expect(trigger().getAttribute('aria-expanded')).toBe('false')
 })
