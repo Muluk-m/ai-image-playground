@@ -27,18 +27,18 @@
 .vd-heading { margin-bottom: 26px; }
 .vd-layout { display: grid; grid-template-columns: 160px minmax(0,1fr) 280px; gap: 24px; align-items: start; }
 .vd-rail { display: grid; gap: 10px; }
-.video-director .vd-rail > button { padding: 7px; text-align: left; }
-.vd-rail small, .vd-rail span { display: block; margin: 5px 2px 0; }
+:where(.video-director .vd-rail) > button { padding: 7px; text-align: left; }
+:where(.vd-rail) :is(small, span) { display: block; margin: 5px 2px 0; }
 .vd-frame { aspect-ratio: 16/9; overflow: hidden; background: hsl(var(--accent)); border-radius: 6px; }
-.vd-frame img { object-fit: contain; }
+:where(.vd-frame) img { object-fit: contain; }
 .vd-placeholder { display: grid; place-items: center; height: 100%; padding: 8px; font-size: 12px; color: hsl(var(--muted-foreground)); text-align: center; }
 .vd-stage { min-width: 0; display: grid; gap: 13px; }
 .vd-hero .vd-frame { border-radius: 10px; }
 .vd-inspector { min-width: 0; padding: 18px; background: hsl(var(--card)); border: 1px solid hsl(var(--border)); border-radius: 12px; }
 .vd-fields { display: grid; grid-template-columns: minmax(0,1fr) 75px; gap: 12px; }
 .vd-timeline { display: flex; flex-wrap: wrap; gap: 8px; }
-.video-director .vd-timeline button { flex-basis: 90px; min-width: 0; padding: 5px; text-align: left; }
-.vd-timeline small { display: block; margin: 5px 2px; }
+:where(.video-director .vd-timeline) button { flex-basis: 90px; min-width: 0; padding: 5px; text-align: left; }
+:where(.vd-timeline) small { display: block; margin: 5px 2px; }
 .vd-divider { height: 1px; background: hsl(var(--border)); margin: 3px 0; }
 :where(.video-director) details { margin: 6px 0; color: hsl(var(--muted-foreground)); font-size: 12px; }
 :where(.video-director) summary { cursor: pointer; }
@@ -47,14 +47,19 @@
 .vd-error { color: hsl(var(--destructive)); }
 
 .vd-nav { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 24px; border-bottom: 1px solid hsl(var(--border)); }
-.video-director .vd-nav button { border-color: transparent; background: transparent; }
-.video-director .vd-nav button[aria-pressed="true"] { color: hsl(var(--primary)); background: hsl(var(--accent)); }
+:where(.video-director .vd-nav) button { border-color: transparent; background: transparent; }
+:where(.video-director .vd-nav) button:where([aria-pressed="true"]) { color: hsl(var(--primary)); background: hsl(var(--accent)); }
 .vd-library { display: grid; grid-template-columns: repeat(auto-fill,minmax(230px,1fr)); gap: 20px; }
-.vd-library article { border: 1px solid hsl(var(--border)); border-radius: 12px; overflow: hidden; background: hsl(var(--card)); }
-.vd-library article > div:last-child { padding: 18px; display: grid; gap: 12px; }
+:where(.vd-library) article { border: 1px solid hsl(var(--border)); border-radius: 12px; overflow: hidden; background: hsl(var(--card)); }
+:where(.vd-library) article > div:where(:last-child) { padding: 18px; display: grid; gap: 12px; }
 .vd-empty { padding: 36px; display: grid; gap: 15px; justify-items: start; }
 .vd-new { max-width: 680px; margin: 0 auto; padding: 28px; display: grid; gap: 18px; }
 @media(max-width:1100px) { .vd-layout { grid-template-columns: 125px minmax(0,1fr) 240px; gap: 16px; } .vd-project { padding: 18px; } }
 @media(max-width:850px) { .vd-layout { grid-template-columns: 120px minmax(0,1fr); } .vd-inspector { grid-column: 1/-1; } }
-@media(max-width:540px) { .vd-layout { display: block; } .vd-rail { grid-template-columns: repeat(3,minmax(0,1fr)); margin-bottom: 20px; } .vd-rail > small, .vd-rail > button:last-child { grid-column: 1/-1; } .vd-inspector { margin-top: 20px; } .vd-nav { padding: 12px; } .vd-project { padding: 14px; } :where(.video-director) :is(input, textarea, select) { font-size: 16px; } }
+/*
+ * 唯一破例用 !important 的地方：iOS Safari 在 font-size < 16px 的控件上聚焦时会自动放大
+ * 页面。这条是可用性兜底而不是外观，必须赢过 `FIELD` 的 `text-sm`——上面那套让 utility
+ * 优先的规矩在这里正好是反的。
+ */
+@media(max-width:540px) { .vd-layout { display: block; } .vd-rail { grid-template-columns: repeat(3,minmax(0,1fr)); margin-bottom: 20px; } :where(.vd-rail) > :is(small, button:where(:last-child)) { grid-column: 1/-1; } .vd-inspector { margin-top: 20px; } .vd-nav { padding: 12px; } .vd-project { padding: 14px; } :where(.video-director) :is(input, textarea, select) { font-size: 16px !important; } }
 @media(prefers-reduced-motion:reduce) { :where(.video-director) button { transition: none; } }
