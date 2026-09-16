@@ -4,6 +4,7 @@ import { resetTestDatabase } from '@image-playground/db/testing'
 import type { AgentTurnEvent } from '@image-playground/shared'
 import { eq } from 'drizzle-orm'
 import { Elysia } from 'elysia'
+import sharp from 'sharp'
 import {
   type AgentCall,
   completionStream,
@@ -82,7 +83,9 @@ async function runTurn(conversationId: string, text: string, options: TurnOption
       }),
     }),
   )
-  return parseFrames(await response.text())
+  const body = await response.text()
+  if (!response.ok) throw new Error(`turn returned ${response.status}: ${body}`)
+  return parseFrames(body)
 }
 
 /** 测试里的迷你 worker：把工具刚提交的任务推到终态，让工具循环能往下跑。 */
@@ -245,6 +248,63 @@ describe('智能体改图工具', () => {
       expect(eventsOfType(frames, 'toolEnd')[0]).toMatchObject({
         status: 'succeeded',
         anchorObjectId: 'canvas-original',
+      })
+    } finally {
+      stop()
+    }
+  })
+
+  it('rasterizes SVG references for both the model and tools when continuing a stored conversation', async () => {
+    const svg = `data:image/svg+xml;base64,${Buffer.from(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="16"><rect width="24" height="16" fill="red"/></svg>',
+    ).toString('base64')}`
+    const calls: AgentCall[] = []
+    setAgentFetchForTesting(
+      scriptedAgentFetch(calls, [
+        () => completionStream('已看到参考图'),
+        () =>
+          toolCallCompletion({
+            id: 'edit-svg',
+            name: 'editImage',
+            args: { prompt: '修改背景', imageIds: ['image 1'] },
+          }),
+        () => completionStream('已完成'),
+      ]),
+    )
+    const conversationId = await startConversation()
+    const first = await runTurn(conversationId, '参考这张图', {
+      references: [{ imageId: 'canvas-svg', dataUrl: svg }],
+    })
+    expect(eventsOfType(first, 'turnEnd')[0]).toMatchObject({ stopReason: 'completed' })
+    const stop = settleSubmittedTasks('completed')
+    try {
+      const continued = await runTurn(conversationId, '继续修改')
+      expect(eventsOfType(continued, 'toolEnd')[0]).toMatchObject({
+        status: 'succeeded',
+        anchorObjectId: 'canvas-svg',
+      })
+      for (const call of calls.slice(0, 2)) {
+        const content = call.messages.at(-1)!.content as {
+          type: string
+          image_url?: { url: string }
+        }[]
+        const image = content.find((block) => block.type === 'image_url')!.image_url!.url
+        expect(image).toStartWith('data:image/png;base64,')
+        expect(await sharp(Buffer.from(image.split(',')[1]!, 'base64')).metadata()).toMatchObject({
+          format: 'png',
+          width: 24,
+          height: 16,
+        })
+      }
+      const [task] = await db.select().from(schema.tasks)
+      const submitted = await hydrateInputImages(task!.request_payload)
+      expect(submitted.input_images![0]).toStartWith('data:image/png;base64,')
+      const [stored] = await db
+        .select()
+        .from(schema.agent_messages)
+        .where(eq(schema.agent_messages.conversation_id, conversationId))
+      expect(stored!.content[0]).toMatchObject({
+        references: [{ imageId: 'canvas-svg', image: { mime: 'image/svg+xml' } }],
       })
     } finally {
       stop()
