@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { isClientCapabilityEnabled } from '../../../lib/clientCapabilities'
 import { useStore } from '../../../store'
 import { useLibraryStore } from '../../library/store'
+import { isVideoTaskActive } from '../lib/feed'
 import { useVideoStore } from '../store'
 import StoryboardBoard from '../storyboard/components/StoryboardBoard'
 import StoryboardComposer from '../storyboard/components/StoryboardComposer'
@@ -27,6 +28,9 @@ export default function VideoMode() {
   const loadError = useStoryboardStore((s) => s.loadError)
   const model = useVideoStore((s) => s.draft.model)
   const support = VIDEO_MODEL_SUPPORT[model]
+  // 结果流只挂在两个视图下，切走就连同在跑的任务一起卸载。跑着的活得在每个视图都有入口。
+  const running = useVideoStore((s) => s.tasks.filter(isVideoTaskActive).length)
+  const showRunning = running > 0 && view !== 'results' && view !== 'quick'
   useEffect(() => {
     void useVideoStore.getState().loadTasks()
     void useStoryboardStore.getState().load()
@@ -41,6 +45,17 @@ export default function VideoMode() {
   }
   return (
     <main className="safe-area-x mx-auto max-w-[1500px] px-4 pb-24 pt-4">
+      {showRunning && (
+        <button
+          type="button"
+          aria-label="查看生成中的视频"
+          onClick={() => setView('results')}
+          className="mb-3 flex w-full items-center justify-between gap-3 rounded-xl border border-border bg-card px-4 py-2.5 text-left text-sm text-foreground transition hover:border-primary"
+        >
+          <span>{running} 个视频生成中</span>
+          <span className="text-xs text-muted-foreground">查看进度 →</span>
+        </button>
+      )}
       <div className="video-director">
         <nav className="vd-nav" aria-label="视频工作区">
           <div className="vd-row">
