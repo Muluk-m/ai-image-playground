@@ -52,6 +52,7 @@ export interface CustomProviderDefinition {
   poll?: CustomProviderPollMapping
 }
 
+import { DEFAULT_IMAGE_MODERATION } from '@image-playground/shared'
 import type { ClientProfile } from './lib/channels/types'
 
 export interface AppSettings {
@@ -115,7 +116,7 @@ export const DEFAULT_PARAMS: TaskParams = {
   quality: 'auto',
   output_format: 'png',
   output_compression: null,
-  moderation: 'auto',
+  moderation: DEFAULT_IMAGE_MODERATION,
   n: 1,
   transparent_output: false,
   no_rewrite: true,
