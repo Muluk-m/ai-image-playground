@@ -519,7 +519,7 @@ describe('AgentPanel', () => {
     expect(host.querySelector('[aria-label="拖动调整面板宽度"]')).not.toBeNull()
   })
 
-  it('失败的轮写本轮免费', () => {
+  it('失败的轮明确标出失败和未扣积分，不显示为免费完成', () => {
     useAgentStore.setState({
       messages: [
         {
@@ -542,7 +542,9 @@ describe('AgentPanel', () => {
     })
     render()
 
-    expect(host.textContent).toContain('本轮免费，未扣积分')
+    expect(host.textContent).toContain('本轮失败')
+    expect(host.textContent).toContain('未扣积分')
+    expect(host.textContent).not.toContain('本轮免费')
   })
 
   it('项目标题旁显示已用积分', () => {

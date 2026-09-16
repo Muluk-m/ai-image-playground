@@ -5,9 +5,10 @@ import type {
   AgentTurnReference,
   StoredImageRef,
 } from '@image-playground/shared'
+import sharp from 'sharp'
 import { db, schema } from '../../db/client'
 import { resolveImageBytesRef } from '../extractImages'
-import { archiveInputImages, hydrateInputImages } from '../imageArchive'
+import { archiveInputImages, decodeDataUrl, hydrateInputImages } from '../imageArchive'
 import { log } from '../logger'
 import { objectStore } from '../objectStore'
 import { asQueueProvider } from '../queueProvider'
@@ -62,6 +63,14 @@ interface TaskOutput {
 function dataUrl(bytes: Uint8Array, mime: string): string {
   const view = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength)
   return `data:${mime};base64,${view.toString('base64')}`
+}
+
+/** 画布可存 SVG，但对话和生图上游只接收位图；读取时转换也能修复历史会话。 */
+async function modelImage(image: ResolvedAgentImage | null): Promise<ResolvedAgentImage | null> {
+  if (!image || !/^data:image\/svg\+xml;/i.test(image.dataUrl)) return image
+  const { bytes } = decodeDataUrl(image.dataUrl)
+  const png = await sharp(bytes).png().toBuffer()
+  return { ...image, dataUrl: dataUrl(png, 'image/png') }
 }
 
 async function readTaskOutput(
@@ -263,7 +272,7 @@ export function createAgentImageSource(input: {
       const id = identify(imageId)
       const running = resolving.get(id)
       if (running) return running
-      const started = read(id)
+      const started = read(id).then(modelImage)
       resolving.set(id, started)
       return started
     },
