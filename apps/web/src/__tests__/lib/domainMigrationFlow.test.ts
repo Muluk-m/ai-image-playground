@@ -67,11 +67,13 @@ it('automatically navigates legacy storage, imports encrypted images and finishe
     vi.stubGlobal('indexedDB', side.db)
   }
   const ciphertext: string[] = []
+  const requestBodies: unknown[] = []
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string, options?: RequestInit) => {
       const route = url.split('/').pop()
       const body = options?.body ? JSON.parse(String(options.body)) : null
+      if (body) requestBodies.push(body)
       if (route === 'config') return Response.json(config)
       if (route === 'start') return Response.json({ id: 'a'.repeat(64), uploadKey: 'b'.repeat(64) })
       if (route === 'upload') {
@@ -112,6 +114,7 @@ it('automatically navigates legacy storage, imports encrypted images and finishe
   enter(`${config.targetOrigin}/?ref=invite#canvas`, target)
   expect(await migrateDomain(config.targetApi)).toBe(true)
   expect(next.startsWith(`${config.sourceOrigin}/__domain-migration#proof=`)).toBe(true)
+  const encryptionSecret = new URLSearchParams(new URL(next).hash.slice(1)).get('proof')!
   enter(next, source)
   expect(await migrateDomain(config.targetApi)).toBe(true)
   expect(next).toBe(`${config.targetOrigin}/__domain-migration#ticket=${'a'.repeat(64)}`)
@@ -126,6 +129,7 @@ it('automatically navigates legacy storage, imports encrypted images and finishe
   expect(await migrateDomain(config.targetApi)).toBe(true)
   expect(next).toBe(`${config.targetOrigin}/?ref=invite#canvas`)
   expect(finished).toBe(true)
+  expect(JSON.stringify(requestBodies)).not.toContain(encryptionSecret)
   expect(ciphertext.length).toBeGreaterThan(1)
   expect(target.local.getItem('image-playground.large')).toBe('画'.repeat(180_000))
   expect(target.local.getItem('image-playground:user-owner')).toBe('old settings')

@@ -17,6 +17,8 @@ const BRIDGE = '/__domain-migration'
 const hex = (b: Uint8Array) => [...b].map((x) => x.toString(16).padStart(2, '0')).join('')
 const sha = async (s: string) =>
   hex(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s))))
+// The server receives a possession verifier, never the AES key used for browser data.
+const proofFor = (secret: string) => sha(`domain-migration-proof:${secret}`)
 const keyFor = (s: string) =>
   crypto.subtle.importKey(
     'raw',
@@ -56,7 +58,7 @@ async function exportAtSource(config: MigrationConfig, proof: string): Promise<v
   if (!/^[a-f0-9]{64}$/.test(proof)) throw new Error('migration_invalid')
   const key = await keyFor(proof)
   const transfer = await post<{ id: string; uploadKey: string }>(config.sourceApi, 'start', {
-    challenge: await sha(proof),
+    challenge: await sha(await proofFor(proof)),
   })
   let sequence = 0,
     record = 0
@@ -125,6 +127,7 @@ async function importAtTarget(
   if (destination.origin !== config.targetOrigin || destination.pathname === BRIDGE)
     throw new Error('migration_invalid_return')
   const key = await keyFor(pending.secret)
+  const verifier = await proofFor(pending.secret)
   let text = '',
     record = 0,
     nextPart = 0,
@@ -134,7 +137,7 @@ async function importAtTarget(
     const chunk = await post<{ chunks: number; ciphertext: string | null }>(
       config.targetApi,
       'read',
-      { id, proof: pending.secret, sequence },
+      { id, proof: verifier, sequence },
     )
     total = chunk.chunks
     if (total === 0) break
@@ -173,7 +176,7 @@ async function importAtTarget(
     }
   }
   if (nextPart) throw new Error('migration_incomplete')
-  await post(config.targetApi, 'finish', { id, proof: pending.secret })
+  await post(config.targetApi, 'finish', { id, proof: verifier })
   localStorage.setItem(DONE, config.sourceOrigin)
   sessionStorage.removeItem(PENDING)
   location.replace(destination.href)
