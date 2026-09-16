@@ -23,7 +23,6 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
       - run: pnpm typecheck
-      - run: pnpm --dir apps/web test --maxWorkers=1
       - run: pnpm --dir apps/web build
   bff:
     runs-on: ubuntu-latest
@@ -44,6 +43,7 @@ jobs:
           --health-retries 10
     env:
       TEST_DATABASE_URL: postgres://postgres@127.0.0.1:5432/aip_test
+      VITEST_MAX_WORKERS: 1
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -53,4 +53,5 @@ jobs:
           cache: pnpm
       - uses: oven-sh/setup-bun@v2
       - run: pnpm install --frozen-lockfile
-      - run: pnpm --dir apps/bff test
+      - run: pnpm typecheck
+      - run: pnpm test --concurrency=1 --env-mode=loose

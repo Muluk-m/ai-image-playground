@@ -25,7 +25,7 @@ describe('runMigrations', () => {
     const rows = await connection.client.unsafe(
       'SELECT id, hash, created_at FROM drizzle.__drizzle_migrations ORDER BY id',
     )
-    expect(rows).toHaveLength(16)
+    expect(rows).toHaveLength(17)
     expect(rows[0]).toMatchObject({ id: 1 })
     expect(rows[1]).toMatchObject({ id: 2 })
     expect(rows[2]).toMatchObject({ id: 3 })
@@ -89,7 +89,7 @@ describe('runMigrations', () => {
     const rows = await connection.client.unsafe(
       'SELECT id FROM drizzle.__drizzle_migrations ORDER BY id',
     )
-    expect(rows).toHaveLength(16)
+    expect(rows).toHaveLength(17)
   })
 
   it('backfills turn footers from turn-end events still inside the event window', async () => {
@@ -140,6 +140,7 @@ describe('runMigrations', () => {
   it('applies every rollback in reverse order and can migrate forward again', async () => {
     const rollbackDirectory = new URL('../../drizzle/rollback/', import.meta.url)
     for (const file of [
+      '0017_agent_model_calls.down.sql',
       '0016_agent_turn_summaries.down.sql',
       '0015_chat_task_kind.down.sql',
       '0014_agent_task_link.down.sql',
@@ -166,20 +167,28 @@ describe('runMigrations', () => {
         audits: string | null
         templates: string | null
         migrations: string | null
+        model_calls: string | null
       }[]
     >`
       SELECT
         to_regclass('public.tasks')::text AS tasks,
         to_regclass('public.operator_audits')::text AS audits,
         to_regclass('public.user_templates')::text AS templates,
-        to_regclass('drizzle.__drizzle_migrations')::text AS migrations
+        to_regclass('drizzle.__drizzle_migrations')::text AS migrations,
+        to_regclass('public.agent_model_calls')::text AS model_calls
     `
-    expect(rolledBack).toEqual({ tasks: null, audits: null, templates: null, migrations: null })
+    expect(rolledBack).toEqual({
+      tasks: null,
+      audits: null,
+      templates: null,
+      migrations: null,
+      model_calls: null,
+    })
 
     await runMigrations(databaseUrl)
     const restored = await connection.client.unsafe(
       'SELECT id FROM drizzle.__drizzle_migrations ORDER BY id',
     )
-    expect(restored).toHaveLength(16)
+    expect(restored).toHaveLength(17)
   })
 })
