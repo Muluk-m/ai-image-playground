@@ -33,6 +33,7 @@ export interface PrivateWebOverlay {
   HeaderCreditAction: ComponentType
   HeaderAccountActions: ComponentType<PrivateHeaderActionsProps>
   replacesAuthActions: boolean
+  supportsReferrals: boolean
   useSubmissionGuard(input: PrivateSubmissionInput): PrivateSubmissionGuard
   getSubmissionGuard(input: PrivateSubmissionInput): PrivateSubmissionGuard
   onSubmissionError(error: unknown): void
@@ -45,6 +46,7 @@ const EMPTY_OVERLAY: PrivateWebOverlay = Object.freeze({
   HeaderCreditAction: EmptyComponent,
   HeaderAccountActions: EmptyComponent,
   replacesAuthActions: false,
+  supportsReferrals: false,
   useSubmissionGuard: () => ({ blocked: false }),
   getSubmissionGuard: () => ({ blocked: false }),
   onSubmissionError: () => {},
@@ -73,6 +75,8 @@ function resolveOverlay(): PrivateWebOverlay {
     typeof overlay.HeaderAccountActions !== 'function' ||
     !('replacesAuthActions' in overlay) ||
     typeof overlay.replacesAuthActions !== 'boolean' ||
+    !('supportsReferrals' in overlay) ||
+    typeof overlay.supportsReferrals !== 'boolean' ||
     !('useSubmissionGuard' in overlay) ||
     !('getSubmissionGuard' in overlay) ||
     typeof overlay.getSubmissionGuard !== 'function' ||
@@ -94,6 +98,7 @@ const overlay = resolveOverlay()
 export const PrivateWebHeaderCreditAction = overlay.HeaderCreditAction
 export const PrivateWebHeaderAccountActions = overlay.HeaderAccountActions
 export const PrivateWebReplacesAuthActions = overlay.replacesAuthActions
+export const PrivateWebSupportsReferrals = overlay.supportsReferrals
 
 export function usePrivateSubmissionGuard(input: PrivateSubmissionInput): PrivateSubmissionGuard {
   return overlay.useSubmissionGuard(input)

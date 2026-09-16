@@ -75,11 +75,16 @@ export const userAuthRoutes = new Elysia()
 
       let registration: Awaited<ReturnType<typeof registerUser>>
       try {
-        registration = await registerUser(body.username, body.password)
+        registration = await registerUser(body.username, body.password, body.referral_code)
       } catch (error) {
         if (error instanceof UserOperationError) {
           if (error.code === 'username_taken') return status(409, { error: error.code })
-          if (error.code === 'invalid_username' || error.code === 'invalid_password') {
+          if (
+            error.code === 'invalid_username' ||
+            error.code === 'invalid_password' ||
+            error.code === 'invalid_referral_code' ||
+            error.code === 'registration_reward_unavailable'
+          ) {
             return status(400, { error: error.code })
           }
         }
@@ -94,6 +99,7 @@ export const userAuthRoutes = new Elysia()
       body: t.Object({
         username: t.String({ minLength: 1, maxLength: EMAIL_MAX_LENGTH }),
         password: t.String({ minLength: 1, maxLength: PASSWORD_MAX_LENGTH }),
+        referral_code: t.Optional(t.String({ maxLength: 64 })),
       }),
     },
   )
