@@ -76,7 +76,9 @@ CI（`.github/workflows/web.yml`，PR 与 push 到 main 都跑）执行 `pnpm li
 ## Runtime 配置
 
 [`packages/shared/src/runtime-config.ts`](./packages/shared/src/runtime-config.ts) 定义 schema。
-`runtime-config.json` 只包含连接 BFF 前必须知道的 `bff.enabled` 与 `bff.baseUrl`；schema
+`runtime-config.json` 只保存连接 BFF 前必须知道的启用状态与地址：`bff.enabled`、默认
+`bff.baseUrl`，以及可选的 `bff.baseUrlsByOrigin`。多个前端域名共享发布包时，按当前前端
+origin 精确选择映射中的 API；未匹配时沿用默认地址，以保留各域名原有的第一方登录 Cookie。schema
 无效或文件不存在时回退到 `BAKED_DEFAULTS`（`bff.enabled=false`）。能力只能由 BFF 求值，前端并行读取
 `/api/capabilities` 与 channel 列表，清单不可用时全部按关闭处理，禁止把能力写回 runtime
 配置。Docker entrypoint 从 env 生成 runtime 配置；裸跑或纯静态部署可自行生成。
