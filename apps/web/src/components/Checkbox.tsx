@@ -18,8 +18,8 @@ export function Checkbox({
 }: CheckboxProps) {
   const toneClasses =
     tone === 'danger'
-      ? 'border-red-300/60 checked:bg-red-500 checked:border-red-500 focus:ring-red-500/20 dark:border-red-500/30'
-      : 'border-gray-300 checked:bg-blue-500 checked:border-blue-500 focus:ring-blue-500/20 dark:border-white/15'
+      ? 'border-destructive/60 checked:bg-destructive checked:border-destructive focus:ring-destructive/20 dark:border-destructive/30'
+      : 'border-border checked:bg-primary checked:border-primary focus:ring-ring/20'
 
   return (
     <label className={`flex items-center gap-2 cursor-pointer group ${className || ''}`}>
@@ -28,11 +28,11 @@ export function Checkbox({
           type="checkbox"
           checked={checked}
           onChange={(e) => onChange(e.target.checked)}
-          className={`peer appearance-none w-4 h-4 rounded-[4px] border bg-white focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-offset-white dark:bg-white/5 dark:focus:ring-offset-gray-900 transition-all cursor-pointer ${toneClasses}`}
+          className={`peer appearance-none w-4 h-4 rounded-[4px] border bg-background focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-offset-background transition-all cursor-pointer ${toneClasses}`}
           {...props}
         />
         <svg
-          className="absolute w-2.5 h-2.5 pointer-events-none opacity-0 peer-checked:opacity-100 text-white"
+          className={`absolute w-2.5 h-2.5 pointer-events-none opacity-0 peer-checked:opacity-100 ${tone === 'danger' ? 'text-destructive-foreground' : 'text-primary-foreground'}`}
           fill="none"
           viewBox="0 0 24 24"
           stroke="currentColor"
@@ -42,7 +42,7 @@ export function Checkbox({
         </svg>
       </div>
       {label && (
-        <span className="text-[13px] font-medium text-gray-700 dark:text-gray-200 group-hover:text-gray-900 dark:group-hover:text-white transition-colors">
+        <span className="text-[13px] font-medium text-foreground group-hover:text-foreground dark:group-hover:text-white transition-colors">
           {label}
         </span>
       )}

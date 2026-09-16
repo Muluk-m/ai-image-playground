@@ -36,9 +36,9 @@ export default function InspirationCard({ item, pinned, onClick }: Props) {
       onClick={onClick}
       onKeyDown={handleKeyDown}
       title={`${item.title}\n推荐模型：${item.recommendedModel}`}
-      className="group relative flex w-full cursor-pointer flex-col overflow-hidden rounded-2xl border border-gray-200/60 bg-gray-50/40 text-left transition-all duration-300 hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-blue-400/60 dark:border-white/[0.06] dark:bg-white/[0.02] dark:hover:border-blue-500/40 dark:hover:shadow-blue-500/10"
+      className="group relative flex w-full cursor-pointer flex-col overflow-hidden rounded-2xl border border-border/60 bg-card/40 text-left transition-all duration-300 hover:-translate-y-0.5 hover:border-primary hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-ring/60 dark:hover:shadow-blue-500/10"
     >
-      <div className="relative aspect-[3/4] overflow-hidden bg-gray-200 dark:bg-white/[0.05]">
+      <div className="relative aspect-[3/4] overflow-hidden bg-muted">
         <img
           src={item.thumbnailUrl}
           alt={item.title}
@@ -57,7 +57,7 @@ export default function InspirationCard({ item, pinned, onClick }: Props) {
           aria-label={pinned ? '取消置顶' : '置顶'}
           className={`absolute right-2 top-2 inline-flex h-7 w-7 items-center justify-center rounded-full backdrop-blur-sm transition-all duration-200 ${
             pinned
-              ? 'bg-amber-400/90 text-white opacity-100 shadow-sm'
+              ? 'bg-warning/90 text-white opacity-100 shadow-sm'
               : 'bg-black/45 text-white opacity-0 hover:bg-black/65 group-hover:opacity-100'
           }`}
         >
@@ -72,7 +72,7 @@ export default function InspirationCard({ item, pinned, onClick }: Props) {
       </div>
 
       <div className="px-3 py-2.5">
-        <div className="line-clamp-2 text-sm font-medium leading-snug text-gray-800 transition group-hover:text-blue-600 dark:text-gray-100 dark:group-hover:text-blue-300">
+        <div className="line-clamp-2 text-sm font-medium leading-snug text-foreground transition group-hover:text-primary">
           {item.title}
         </div>
       </div>

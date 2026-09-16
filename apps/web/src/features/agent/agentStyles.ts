@@ -11,52 +11,51 @@ export function clampPanelWidth(
   return Math.min(max, Math.max(PANEL_WIDTH, Math.round(width)))
 }
 
-export const PANEL_SURFACE = 'border border-[var(--studio-border)] bg-[var(--studio-panel)]'
+export const PANEL_SURFACE = 'border border-border bg-sidebar'
 
 export const PANEL_SHADOW = 'shadow-[var(--studio-shadow)]'
 
-export const INK = 'text-[var(--studio-text)]'
-export const INK_3 = 'text-[var(--studio-muted)]'
+export const INK = 'text-foreground'
+export const INK_3 = 'text-muted-foreground'
 
 export const TAB = 'pb-1 text-xs transition-colors'
 export const ACTIVE_TAB = `${INK} border-b-[1.5px] border-current font-semibold`
-export const IDLE_TAB = `${INK_3} hover:text-[var(--studio-text)]`
+export const IDLE_TAB = `${INK_3} hover:text-foreground`
 
-export const USER_BUBBLE = `max-w-[86%] self-end rounded-xl bg-[var(--studio-raised)] px-2.5 py-1.5 text-xs leading-relaxed ${INK}`
+export const USER_BUBBLE = `max-w-[86%] self-end rounded-xl bg-muted px-2.5 py-1.5 text-xs leading-relaxed ${INK}`
 
-export const REPLY = 'max-w-full text-xs leading-relaxed text-[var(--studio-text-secondary)]'
+export const REPLY = 'max-w-full text-xs leading-relaxed text-foreground'
 
 export const FIELD =
-  'w-full resize-none rounded-xl border border-[var(--studio-border)] bg-[var(--studio-raised)] px-2.5 py-2 text-xs text-[var(--studio-text)] placeholder:text-[var(--studio-muted)] focus:border-[var(--studio-accent)] focus:outline-none'
+  'w-full resize-none rounded-xl border border-border bg-muted px-2.5 py-2 text-xs text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none'
 
 export const SEND_BUTTON =
-  'h-9 rounded-lg bg-[var(--studio-accent)] text-[var(--studio-on-accent)] px-3 text-xs font-semibold transition hover:bg-[var(--studio-accent-hover)] disabled:cursor-not-allowed disabled:opacity-40'
+  'h-9 rounded-lg bg-primary text-primary-foreground px-3 text-xs font-semibold transition hover:bg-primary disabled:cursor-not-allowed disabled:opacity-40'
 
 export const ABORT_BUTTON =
-  'h-7 rounded-lg border border-[var(--studio-border)] px-3 text-xs text-[var(--studio-text-secondary)] transition hover:bg-[var(--studio-raised)]'
+  'h-7 rounded-lg border border-border px-3 text-xs text-foreground transition hover:bg-muted'
 
-export const ICON_BUTTON = `rounded-lg p-1 transition-colors ${INK_3} hover:bg-[var(--studio-raised)] hover:text-[var(--studio-text)]`
+export const ICON_BUTTON = `rounded-lg p-1 transition-colors ${INK_3} hover:bg-muted hover:text-foreground`
 
 export const LIST_ROW =
-  'group flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs transition-colors hover:bg-[var(--studio-raised)]'
+  'group flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs transition-colors hover:bg-muted'
 
-export const ACTIVE_LIST_ROW = 'bg-[var(--studio-raised)]'
+export const ACTIVE_LIST_ROW = 'bg-muted'
 
-export const GHOST_LINK =
-  'text-[11px] text-[var(--studio-accent)] transition-colors hover:text-[var(--studio-accent)]'
+export const GHOST_LINK = 'text-[11px] text-primary transition-colors hover:text-primary'
 
 export const CARD =
-  'flex max-w-full flex-col gap-1.5 rounded-xl border border-[var(--studio-border)] bg-[var(--studio-raised)] px-2.5 py-2'
+  'flex max-w-full flex-col gap-1.5 rounded-xl border border-border bg-muted px-2.5 py-2'
 
 export const CARD_TITLE = `text-xs leading-relaxed ${INK}`
 
 export const CARD_NOTE = `text-[11px] ${INK_3}`
 
 export const CHOICE =
-  'w-full rounded-lg border border-[var(--studio-border)] px-2.5 py-1.5 text-left text-xs text-[var(--studio-text)] transition enabled:hover:border-[var(--studio-accent)] enabled:hover:bg-[var(--studio-raised)] disabled:cursor-not-allowed disabled:opacity-45'
+  'w-full rounded-lg border border-border px-2.5 py-1.5 text-left text-xs text-foreground transition enabled:hover:border-primary enabled:hover:bg-muted disabled:cursor-not-allowed disabled:opacity-45'
 
 /** 产出缩略图的底座。不在画布上的那些点了也定位不到，用这个不带悬停反馈的版本。 */
 export const THUMBNAIL_STATIC =
-  'relative block h-16 w-16 overflow-hidden rounded-lg border border-[var(--studio-border)]'
+  'relative block h-16 w-16 overflow-hidden rounded-lg border border-border'
 
-export const THUMBNAIL = `${THUMBNAIL_STATIC} transition hover:border-[var(--studio-accent)]`
+export const THUMBNAIL = `${THUMBNAIL_STATIC} transition hover:border-primary`

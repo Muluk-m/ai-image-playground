@@ -120,8 +120,8 @@ function ToolButton({
       onClick={onClick}
       className={`flex h-9 w-9 items-center justify-center rounded-xl transition-colors ${
         active
-          ? 'bg-[var(--studio-accent)] text-[var(--studio-on-accent)]'
-          : 'text-[var(--studio-text-secondary)] hover:bg-[var(--studio-raised)] disabled:opacity-30 disabled:hover:bg-transparent'
+          ? 'bg-primary text-primary-foreground'
+          : 'text-foreground hover:bg-muted disabled:opacity-30 disabled:hover:bg-transparent'
       }`}
     >
       {children}
@@ -130,7 +130,7 @@ function ToolButton({
 }
 
 const PILL =
-  'pointer-events-auto rounded-2xl border border-[var(--studio-border)] bg-[var(--studio-panel)] p-1.5 shadow-lg backdrop-blur'
+  'pointer-events-auto rounded-2xl border border-border bg-sidebar p-1.5 shadow-lg backdrop-blur'
 
 /** 工具条固定在画布底部，缩放独立放在左下角。 */
 export default function CanvasToolbar({ doc }: { doc: CanvasDoc }) {
@@ -212,7 +212,7 @@ export default function CanvasToolbar({ doc }: { doc: CanvasDoc }) {
         type="button"
         title="重置为 100%"
         onClick={() => doc.zoomAt(viewport.width / 2, viewport.height / 2, 1)}
-        className={`rounded-xl text-xs text-[var(--studio-text-secondary)] tabular-nums transition-colors hover:bg-[var(--studio-raised)] h-9 min-w-14 px-1`}
+        className={`rounded-xl text-xs text-foreground tabular-nums transition-colors hover:bg-muted h-9 min-w-14 px-1`}
       >
         {Math.round(camera.zoom * 100)}%
       </button>
@@ -228,7 +228,7 @@ export default function CanvasToolbar({ doc }: { doc: CanvasDoc }) {
       <div className={`${PILL} studio-zoom flex items-center`}>{zoom}</div>
       <div className={`${PILL} studio-tools flex items-center gap-1`}>
         {tools}
-        <div className="mx-1 h-6 w-px bg-[var(--studio-raised)]" />
+        <div className="mx-1 h-6 w-px bg-muted" />
         {history}
         {selectionActions}
       </div>

@@ -27,17 +27,15 @@ export default function ParamChip({
     <Wrapper
       {...(onClick ? { type: 'button' as const, onClick, disabled } : {})}
       title={tooltipText}
-      className={`relative inline-flex h-10 items-center gap-2 rounded-xl border border-gray-300/80 bg-white/70 px-3 text-left text-xs font-medium transition-colors duration-150 hover:border-gray-400/80 hover:bg-white dark:border-white/[0.12] dark:bg-white/[0.04] dark:hover:border-white/[0.20] dark:hover:bg-white/[0.07] ${
+      className={`relative inline-flex h-10 items-center gap-2 rounded-xl border border-border/80 bg-white/70 px-3 text-left text-xs font-medium transition-colors duration-150 hover:border-border/80 hover:bg-white border-border bg-muted dark:hover:border-white/[0.20] hover:bg-muted ${
         disabled ? 'cursor-not-allowed opacity-50' : ''
       } ${className ?? ''}`}
     >
-      <span className="flex shrink-0 items-center justify-center text-gray-500 dark:text-gray-400">
+      <span className="flex shrink-0 items-center justify-center text-muted-foreground">
         {icon}
       </span>
-      <span className="min-w-0 truncate text-gray-700 dark:text-gray-200">{label}</span>
-      {hasValue && (
-        <span className="min-w-0 truncate text-gray-400 dark:text-gray-500">{value}</span>
-      )}
+      <span className="min-w-0 truncate text-foreground">{label}</span>
+      {hasValue && <span className="min-w-0 truncate text-muted-foreground">{value}</span>}
       {children}
     </Wrapper>
   )

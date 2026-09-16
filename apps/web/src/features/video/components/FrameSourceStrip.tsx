@@ -45,8 +45,8 @@ export default function FrameSourceStrip({
               title={source.name || fillLabel}
               className={`block h-[62px] w-[62px] overflow-hidden rounded-lg border transition ${
                 selectedImageIds.includes(source.imageId)
-                  ? 'border-blue-400 ring-2 ring-blue-400/30'
-                  : 'border-gray-200 hover:border-blue-300 dark:border-white/[0.08]'
+                  ? 'border-primary ring-2 ring-ring/30'
+                  : 'border-border hover:border-primary'
               }`}
             >
               <AssetThumb imageId={source.imageId} alt={source.name} />

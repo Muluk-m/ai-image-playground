@@ -12,11 +12,11 @@ export default function SyncStatusPanel() {
 
   const failed = status === 'error'
   return (
-    <div className="rounded-2xl border border-gray-100 bg-white p-4 dark:border-white/[0.06] dark:bg-white/[0.02] shadow-sm flex items-center justify-between gap-3">
+    <div className="rounded-2xl border border-border bg-card p-4 shadow-sm flex items-center justify-between gap-3">
       <div className="min-w-0">
-        <h4 className="text-sm font-bold text-gray-800 dark:text-gray-100">同步</h4>
+        <h4 className="text-sm font-bold text-foreground">同步</h4>
         <p
-          className={`mt-1 text-[13px] ${failed ? 'text-red-500 dark:text-red-400' : 'text-gray-500 dark:text-gray-400'}`}
+          className={`mt-1 text-[13px] ${failed ? 'text-destructive dark:text-destructive' : 'text-muted-foreground dark:text-muted-foreground'}`}
         >
           {syncLabel({ status, pending, lastSyncedAt, uploads })}
         </p>
@@ -25,7 +25,7 @@ export default function SyncStatusPanel() {
         <button
           type="button"
           onClick={() => void syncNow()}
-          className="shrink-0 rounded-xl bg-gray-100/80 px-3 py-1.5 text-xs font-medium text-gray-700 transition-all hover:bg-gray-200 hover:text-gray-900 dark:bg-white/[0.06] dark:text-gray-300 dark:hover:bg-white/[0.1] dark:hover:text-white"
+          className="shrink-0 rounded-xl bg-muted/80 px-3 py-1.5 text-xs font-medium text-foreground transition-all hover:bg-muted hover:text-foreground dark:hover:text-white"
         >
           立即重试
         </button>

@@ -24,7 +24,7 @@ export default function InspirationGrid() {
 
   if (ordered.length === 0) {
     return (
-      <div className="flex h-64 items-center justify-center text-sm text-gray-400 dark:text-gray-500">
+      <div className="flex h-64 items-center justify-center text-sm text-muted-foreground">
         {items.length === 0 ? '加载中…' : '没有符合条件的灵感'}
       </div>
     )

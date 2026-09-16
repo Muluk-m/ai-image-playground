@@ -182,18 +182,18 @@ export default function Select({
         title={selectedOption?.title ?? selectedOption?.label}
         onClick={handleToggle}
         className={`flex items-center justify-between gap-1 w-full cursor-pointer select-none ${className ?? ''} ${
-          disabled ? '!opacity-50 !cursor-not-allowed !bg-gray-100/50 dark:!bg-white/[0.05]' : ''
+          disabled ? '!opacity-50 !cursor-not-allowed !bg-muted/50 dark:!bg-white/[0.05]' : ''
         }`}
       >
         {!hideSelectedLabel && <span className="truncate">{selectedOption?.label ?? value}</span>}
         <ChevronDownIcon
-          className={`w-3.5 h-3.5 flex-shrink-0 text-gray-400 dark:text-gray-500 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}
+          className={`w-3.5 h-3.5 flex-shrink-0 text-muted-foreground transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}
         />
       </div>
 
       {isOpen && (
         <div
-          className={`absolute z-50 w-full overflow-hidden overflow-y-auto rounded-xl border border-gray-200/60 bg-white/95 py-1 shadow-[0_8px_30px_rgb(0,0,0,0.12)] ring-1 ring-black/5 backdrop-blur-xl dark:border-white/[0.08] dark:bg-gray-900/95 dark:shadow-[0_8px_30px_rgb(0,0,0,0.3)] dark:ring-white/10 custom-scrollbar ${
+          className={`absolute z-50 w-full overflow-hidden overflow-y-auto rounded-xl border border-border/60 bg-white/95 py-1 shadow-[0_8px_30px_rgb(0,0,0,0.12)] ring-1 ring-black/5 backdrop-blur-xl border-border bg-muted dark:shadow-[0_8px_30px_rgb(0,0,0,0.3)] dark:ring-white/10 custom-scrollbar ${
             placement === 'top'
               ? 'bottom-full mb-1.5 animate-dropdown-up'
               : 'top-full mt-1.5 animate-dropdown-down'
@@ -372,31 +372,31 @@ export default function Select({
               }}
               className={`relative flex cursor-pointer items-center justify-between gap-2 px-3 py-2 text-xs transition-colors ${
                 draggedValue === option.value
-                  ? 'opacity-40 bg-gray-100 dark:bg-white/[0.04]'
+                  ? 'opacity-40 bg-muted'
                   : option.variant === 'action'
-                    ? 'font-semibold text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-500/10'
+                    ? 'font-semibold text-primary hover:bg-primary/10'
                     : option.variant === 'danger'
-                      ? 'font-semibold text-red-500 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-500/10'
+                      ? 'font-semibold text-destructive hover:bg-destructive/10 dark:text-destructive dark:hover:bg-destructive/10'
                       : option.value === value
-                        ? 'bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 font-medium'
-                        : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/[0.06]'
+                        ? 'bg-primary/10 text-primary font-medium'
+                        : 'text-foreground hover:bg-card'
               }`}
             >
               {dragOverValue === option.value &&
                 dragDropPosition === 'before' &&
                 draggedValue !== option.value && (
-                  <div className="absolute -top-[1px] left-0 right-0 h-[2px] bg-blue-500 rounded-full z-40 shadow-sm pointer-events-none" />
+                  <div className="absolute -top-[1px] left-0 right-0 h-[2px] bg-primary rounded-full z-40 shadow-sm pointer-events-none" />
                 )}
               {dragOverValue === option.value &&
                 dragDropPosition === 'after' &&
                 draggedValue !== option.value && (
-                  <div className="absolute -bottom-[1px] left-0 right-0 h-[2px] bg-blue-500 rounded-full z-40 shadow-sm pointer-events-none" />
+                  <div className="absolute -bottom-[1px] left-0 right-0 h-[2px] bg-primary rounded-full z-40 shadow-sm pointer-events-none" />
                 )}
               <div className="flex min-w-0 flex-1 items-center gap-2 pr-2">
                 {option.draggable && (
                   <div
                     data-drag-handle
-                    className="flex cursor-grab active:cursor-grabbing items-center justify-center text-gray-400 opacity-60 transition-opacity hover:opacity-100 dark:text-gray-500"
+                    className="flex cursor-grab active:cursor-grabbing items-center justify-center text-muted-foreground opacity-60 transition-opacity hover:opacity-100"
                     style={{ touchAction: 'none' }}
                     title="拖拽排序"
                   >
@@ -437,8 +437,8 @@ export default function Select({
                       }}
                       className={`rounded-md p-1.5 transition flex items-center justify-center ${
                         action.variant === 'danger'
-                          ? 'text-red-500 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-500/10'
-                          : 'text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-white/[0.08] dark:hover:text-gray-200'
+                          ? 'text-destructive hover:bg-destructive/10 dark:text-destructive dark:hover:bg-destructive/10'
+                          : 'text-muted-foreground hover:bg-muted hover:text-muted-foreground'
                       }`}
                     >
                       {action.label === '编辑' ? (
@@ -466,7 +466,7 @@ export default function Select({
         createPortal(
           <div
             id="touch-drag-preview"
-            className="fixed pointer-events-none z-[110] flex items-center justify-between gap-2 rounded-xl bg-white/95 px-3 py-2 text-xs text-gray-700 shadow-xl ring-1 ring-black/5 backdrop-blur-xl dark:bg-gray-900/95 dark:text-gray-300 dark:ring-white/10"
+            className="fixed pointer-events-none z-[110] flex items-center justify-between gap-2 rounded-xl bg-card/95 px-3 py-2 text-xs text-foreground shadow-xl ring-1 ring-black/5 backdrop-blur-xl dark:ring-white/10"
             style={{
               left: touchDragPreview.x - touchDragPreview.offsetX,
               top: touchDragPreview.y - touchDragPreview.offsetY,
@@ -475,7 +475,7 @@ export default function Select({
             }}
           >
             <div className="flex min-w-0 flex-1 items-center gap-2 pr-2">
-              <DragHandleIcon className="h-3.5 w-3.5 shrink-0 text-gray-400 dark:text-gray-500" />
+              <DragHandleIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
               <span className="min-w-0 truncate">{touchDragPreview.label}</span>
             </div>
           </div>,

@@ -71,7 +71,7 @@ export default function ModelCombobox({
         type="text"
         disabled={disabled}
         placeholder={placeholder}
-        className={`w-full rounded-xl border border-gray-200/70 bg-white/60 px-3 py-2.5 pr-10 text-sm text-gray-700 outline-none transition focus:border-blue-300 dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-gray-200 dark:focus:border-blue-500/50 ${disabled ? 'opacity-50 cursor-not-allowed' : ''} ${className ?? ''}`}
+        className={`w-full rounded-xl border border-border/70 bg-white/60 px-3 py-2.5 pr-10 text-sm text-foreground outline-none transition focus:border-primary dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-foreground dark:focus:border-primary/50 ${disabled ? 'opacity-50 cursor-not-allowed' : ''} ${className ?? ''}`}
       />
       {options.length > 0 && (
         <button
@@ -83,7 +83,7 @@ export default function ModelCombobox({
           }}
           disabled={disabled}
           aria-label="展开模型候选"
-          className="absolute right-2 top-1/2 -translate-y-1/2 flex h-6 w-6 items-center justify-center rounded text-gray-400 transition hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-white/[0.08] dark:hover:text-gray-200"
+          className="absolute right-2 top-1/2 -translate-y-1/2 flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition hover:bg-muted hover:text-muted-foreground dark:hover:bg-white/[0.08]"
         >
           <ChevronDownIcon
             className={`h-3.5 w-3.5 transition-transform ${isOpen ? 'rotate-180' : ''}`}
@@ -91,7 +91,7 @@ export default function ModelCombobox({
         </button>
       )}
       {showDropdown && (
-        <div className="absolute left-0 right-0 top-full mt-1 z-50 max-h-60 overflow-y-auto rounded-xl border border-gray-200/80 bg-white shadow-lg dark:border-white/[0.08] dark:bg-zinc-900">
+        <div className="absolute left-0 right-0 top-full mt-1 z-50 max-h-60 overflow-y-auto rounded-xl border border-border/80 bg-card shadow-lg dark:border-white/[0.08]">
           {options.map((option) => {
             const isSelected = option === value
             return (
@@ -104,8 +104,8 @@ export default function ModelCombobox({
                 }}
                 className={`flex w-full items-center px-3 py-2 text-left text-sm font-mono transition ${
                   isSelected
-                    ? 'bg-blue-50 text-blue-700 dark:bg-blue-500/10 dark:text-blue-300'
-                    : 'text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-white/[0.04]'
+                    ? 'bg-primary/10 text-primary'
+                    : 'text-foreground hover:bg-card dark:hover:bg-white/[0.04]'
                 }`}
               >
                 {option}

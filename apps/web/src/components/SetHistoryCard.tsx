@@ -24,25 +24,25 @@ export default function SetHistoryCard({
   return (
     <div
       data-set-history-card
-      className="flex h-full flex-col gap-3 rounded-2xl border border-gray-200/70 bg-white/70 p-4 dark:border-white/[0.08] dark:bg-white/[0.02]"
+      className="flex h-full flex-col gap-3 rounded-2xl border border-border/70 bg-card/70 p-4"
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <p className="truncate text-sm font-semibold text-gray-800 dark:text-gray-100">{name}</p>
+          <p className="truncate text-sm font-semibold text-foreground">{name}</p>
           {actions.length > 0 && (
             <div className="mt-1 flex flex-wrap gap-1">
               {actions.map((action) => (
                 <span
                   key={action}
                   data-set-history-action
-                  className="rounded bg-blue-500/10 px-1.5 py-0.5 text-xs text-blue-700 dark:text-blue-300"
+                  className="rounded bg-primary/10 px-1.5 py-0.5 text-xs text-primary"
                 >
                   {action}
                 </span>
               ))}
             </div>
           )}
-          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+          <p className="mt-1 text-xs text-muted-foreground">
             完成 {done}/{tasks.length}
             {failed > 0 ? ` · 失败 ${failed}` : ''}
           </p>
@@ -51,7 +51,7 @@ export default function SetHistoryCard({
           type="button"
           onClick={onToggle}
           aria-expanded={expanded}
-          className="shrink-0 rounded-lg px-2 py-1 text-xs text-blue-600 transition hover:bg-blue-500/10 dark:text-blue-300"
+          className="shrink-0 rounded-lg px-2 py-1 text-xs text-primary transition hover:bg-primary/10"
         >
           {expanded ? '收起' : '展开查看'}
         </button>
@@ -62,7 +62,7 @@ export default function SetHistoryCard({
           {previews.map((imageId) => (
             <div
               key={imageId}
-              className="aspect-square overflow-hidden rounded-lg border border-gray-200 dark:border-white/[0.08]"
+              className="aspect-square overflow-hidden rounded-lg border border-border"
             >
               <AssetThumb imageId={imageId} alt={`${name} 结果`} />
             </div>
