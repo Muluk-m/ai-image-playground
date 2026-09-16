@@ -1,3 +1,5 @@
+import { PROJECT_DOCUMENT_MAX_BYTES, PROJECT_ELEMENT_MAX_COUNT } from './project-protocol'
+
 export const CAPABILITIES = {
   'accounts:login': { defaultValue: false, clientExposed: true },
   'accounts:self-register': { defaultValue: false, clientExposed: true },
@@ -46,6 +48,9 @@ export const QUOTAS = {
   'generation:daily-images': { defaultValue: 0 },
   'sync:asset-image-bytes': { defaultValue: 10 * 1024 * 1024 },
   'sync:user-asset-bytes': { defaultValue: 500 * 1024 * 1024 },
+  'sync:project-document-bytes': { defaultValue: PROJECT_DOCUMENT_MAX_BYTES },
+  'sync:project-elements': { defaultValue: PROJECT_ELEMENT_MAX_COUNT },
+  'sync:user-projects': { defaultValue: 100 },
 } as const satisfies Record<`${string}:${string}`, QuotaDefinition>
 
 export interface QuotaDefinition {

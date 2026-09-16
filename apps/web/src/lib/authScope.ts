@@ -39,6 +39,10 @@ export function scopedStorageName(baseName: string): string {
   return currentScope === ANONYMOUS_SCOPE ? baseName : `${baseName}:${currentScope}`
 }
 
+export function isUserStorageScope(): boolean {
+  return currentScope !== ANONYMOUS_SCOPE
+}
+
 interface SyncStorage {
   getItem(name: string): string | null
   setItem(name: string, value: string): void

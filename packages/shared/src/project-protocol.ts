@@ -1,0 +1,137 @@
+export const PROJECT_NAME_MAX_LENGTH = 120
+export const PROJECT_PAGE_SIZE = 30
+export const PROJECT_PAGE_MAX_SIZE = 100
+export const PROJECT_DOCUMENT_MAX_BYTES = 512 * 1024
+export const PROJECT_ELEMENT_MAX_COUNT = 1000
+export const PROJECT_RECEIPT_COUNT = 128
+
+export type ProjectElement =
+  | {
+      id: string
+      type: 'text'
+      x: number
+      y: number
+      text: string
+      fontSize: number
+      fill: string
+      width: number
+      height: number
+    }
+  | {
+      id: string
+      type: 'arrow'
+      points: [number, number, number, number]
+      stroke: string
+      strokeWidth: number
+    }
+  | { id: string; type: 'freedraw'; points: number[]; stroke: string; strokeWidth: number }
+
+/** 云端结构不包含位图、相机、选区或撤销历史。 */
+export interface ProjectDocument {
+  version: 1
+  elements: ProjectElement[]
+}
+
+export interface CloudProjectSummary {
+  id: string
+  name: string
+  revision: number
+  createdAt: number
+  updatedAt: number
+  elementCount: number
+}
+export interface CloudProject extends CloudProjectSummary {
+  document: ProjectDocument
+}
+export interface ProjectWrite {
+  requestId: string
+  baseRevision: number
+  name: string
+  document: ProjectDocument
+}
+export interface ProjectPage {
+  projects: CloudProjectSummary[]
+  nextCursor: string | null
+}
+export interface ProjectReceipt {
+  requestId: string
+  digest: string
+  result: CloudProjectSummary
+}
+
+function object(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+function keys(value: Record<string, unknown>, allowed: string[]): boolean {
+  return Object.keys(value).every((key) => allowed.includes(key))
+}
+function coordinate(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && Math.abs(value) <= 10_000_000
+}
+function size(value: unknown): boolean {
+  return coordinate(value) && value >= 0
+}
+function color(value: unknown): boolean {
+  return typeof value === 'string' && /^#[0-9a-f]{3,8}$/i.test(value)
+}
+function element(value: unknown): value is ProjectElement {
+  if (!object(value) || typeof value.id !== 'string' || !value.id.length || value.id.length > 128)
+    return false
+  if (value.type === 'text') {
+    return (
+      keys(value, ['id', 'type', 'x', 'y', 'text', 'fontSize', 'fill', 'width', 'height']) &&
+      coordinate(value.x) &&
+      coordinate(value.y) &&
+      size(value.width) &&
+      size(value.height) &&
+      coordinate(value.fontSize) &&
+      value.fontSize > 0 &&
+      value.fontSize <= 4096 &&
+      color(value.fill) &&
+      typeof value.text === 'string' &&
+      value.text.length <= 10000
+    )
+  }
+  if (value.type === 'arrow' || value.type === 'freedraw') {
+    return (
+      keys(value, ['id', 'type', 'points', 'stroke', 'strokeWidth']) &&
+      color(value.stroke) &&
+      coordinate(value.strokeWidth) &&
+      value.strokeWidth > 0 &&
+      value.strokeWidth <= 1000 &&
+      Array.isArray(value.points) &&
+      value.points.length >= (value.type === 'arrow' ? 4 : 2) &&
+      value.points.length % 2 === 0 &&
+      value.points.length <= (value.type === 'arrow' ? 4 : 20000) &&
+      value.points.every(coordinate)
+    )
+  }
+  return false
+}
+export function isProjectDocument(value: unknown): value is ProjectDocument {
+  return (
+    object(value) &&
+    keys(value, ['version', 'elements']) &&
+    value.version === 1 &&
+    Array.isArray(value.elements) &&
+    value.elements.length <= PROJECT_ELEMENT_MAX_COUNT &&
+    value.elements.every(element) &&
+    new Set(value.elements.map((one) => one.id)).size === value.elements.length
+  )
+}
+export function isProjectWrite(value: unknown): value is ProjectWrite {
+  return (
+    object(value) &&
+    keys(value, ['requestId', 'baseRevision', 'name', 'document']) &&
+    typeof value.requestId === 'string' &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value.requestId) &&
+    typeof value.baseRevision === 'number' &&
+    Number.isInteger(value.baseRevision) &&
+    value.baseRevision >= 0 &&
+    value.baseRevision < 2147483647 &&
+    typeof value.name === 'string' &&
+    value.name.trim().length > 0 &&
+    value.name.length <= PROJECT_NAME_MAX_LENGTH &&
+    isProjectDocument(value.document)
+  )
+}

@@ -24,6 +24,7 @@ import CanvasToolbar from './CanvasToolbar'
 import CanvasVideoOverlay from './CanvasVideoOverlay'
 import KonvaCanvas from './KonvaCanvas'
 import PlaceholderOverlay from './PlaceholderOverlay'
+import ProjectSyncStatus from './ProjectSyncStatus'
 import ProjectWelcome from './ProjectWelcome'
 import StylePanel from './StylePanel'
 
@@ -99,6 +100,19 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
   }, [editor])
 
   useEffect(() => {
+    if (!workspace.needsInitialFit) return
+    const fit = () => {
+      if (doc.viewport.width <= 1 || doc.viewport.height <= 1) return
+      workspace.needsInitialFit = false
+      unsubscribe()
+      editor.scrollToElements(doc.elements.map((one) => one.id))
+    }
+    const unsubscribe = doc.subscribe(fit)
+    fit()
+    return unsubscribe
+  }, [doc, editor, workspace, loading])
+
+  useEffect(() => {
     if (loading || loadFailed) return
     const pending = useStore.getState().consumeCanvasImages()
     if (!pending.length) return
@@ -172,9 +186,14 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
           >
             <div className="studio-canvas-heading">
               <strong>{project?.name ?? '我的画布'}</strong>
-              <span>
-                {saveFailed ? '保存失败' : loading ? '正在恢复' : '自动保存'} · 拖入图片开始创作
-              </span>
+              {workspace.cloud ? (
+                <ProjectSyncStatus session={workspace.cloud} />
+              ) : (
+                <span>
+                  {saveFailed ? '本机保存失败' : loading ? '正在恢复' : '本机自动保存'} ·
+                  拖入图片开始创作
+                </span>
+              )}
             </div>
             {!loading && !loadFailed && <KonvaCanvas editor={editor} />}
             <PlaceholderOverlay editor={editor} />

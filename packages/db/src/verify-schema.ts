@@ -6,6 +6,7 @@ export const EXPECTED_TABLES = [
   'agent_model_calls',
   'agent_turn_events',
   'agent_turns',
+  'canvas_projects',
   'daily_quota',
   'operator_audits',
   'tasks',
@@ -26,6 +27,8 @@ export const EXPECTED_INDEXES = [
   'agent_messages_conversation_id_id_pk',
   'agent_turn_events_conversation_id_seq_pk',
   'agent_turns_conversation_id_turn_id_pk',
+  'canvas_projects_pkey',
+  'idx_canvas_projects_owner_id',
   'daily_quota_device_id_date_pk',
   'idx_agent_conversations_device_time',
   'idx_agent_conversations_user_time',
@@ -63,7 +66,7 @@ export const EXPECTED_INDEXES = [
   'users_pkey',
 ] as const
 
-const EXPECTED_MIGRATION_COUNT = 17
+const EXPECTED_MIGRATION_COUNT = 18
 
 export interface SchemaVerificationResult {
   tables: number

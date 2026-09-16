@@ -4,6 +4,7 @@ import { useStore } from '../../../store'
 import { useAgentStore } from '../../agent/store'
 import NamingDialog from '../../library/components/NamingDialog'
 import { useLibraryStore } from '../../library/store'
+import { cloudProjectsEnabled } from '../lib/projectClient'
 import type { CanvasProject } from '../lib/projectRepository'
 import { useCanvasProjectStore } from '../projectStore'
 
@@ -16,9 +17,24 @@ export default function ProjectGrid({
 }) {
   const projects = useCanvasProjectStore((state) => state.projects)
   const activeId = useCanvasProjectStore((state) => state.activeId)
+  const cloudError = useCanvasProjectStore((state) => state.cloudError)
+  const cloudLoading = useCanvasProjectStore((state) => state.cloudLoading)
+  const cloudCursor = useCanvasProjectStore((state) => state.cloudCursor)
+  const cloudCatalog = useCanvasProjectStore((state) => state.cloudCatalog)
   const [renaming, setRenaming] = useState<CanvasProject | null>(null)
   const [busy, setBusy] = useState(false)
   const visible = [...projects]
+    .map((project) => {
+      const remote = cloudCatalog[project.id]
+      return remote && !project.cloud?.nameDirty
+        ? {
+            ...project,
+            name: remote.name,
+            updatedAt: Math.max(project.updatedAt, remote.updatedAt),
+            hasContent: project.hasContent || remote.elementCount > 0,
+          }
+        : project
+    })
     .filter(
       (project) =>
         project.name.toLowerCase().includes(search.trim().toLowerCase()) &&
@@ -43,6 +59,29 @@ export default function ProjectGrid({
   }
   return (
     <>
+      {cloudProjectsEnabled() && (
+        <div className="mb-4 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+          {cloudError && <span role="alert">{cloudError}</span>}
+          <button
+            type="button"
+            disabled={cloudLoading}
+            className="underline disabled:opacity-50"
+            onClick={() => void useCanvasProjectStore.getState().refreshCloud()}
+          >
+            {cloudLoading ? '正在读取项目…' : cloudError ? '重试读取云端项目' : '刷新云端项目'}
+          </button>
+          {cloudCursor && (
+            <button
+              type="button"
+              disabled={cloudLoading}
+              className="underline disabled:opacity-50"
+              onClick={() => void useCanvasProjectStore.getState().refreshCloud(true)}
+            >
+              加载更多项目
+            </button>
+          )}
+        </div>
+      )}
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {!search && (
           <button
@@ -100,6 +139,13 @@ export default function ProjectGrid({
               >
                 {new Date(project.updatedAt).toLocaleDateString('zh-CN')} 更新
               </time>
+              <span>
+                {project.cloud
+                  ? project.cloud.revision > 0
+                    ? '云端项目'
+                    : '等待同步'
+                  : '仅此设备'}
+              </span>
               <button
                 type="button"
                 className="rounded px-1.5 py-1 hover:bg-muted hover:text-foreground"
@@ -108,7 +154,7 @@ export default function ProjectGrid({
               >
                 重命名
               </button>
-              {!recent && (
+              {!recent && !project.cloud && (
                 <button
                   type="button"
                   className="rounded p-1 hover:bg-muted hover:text-destructive"
