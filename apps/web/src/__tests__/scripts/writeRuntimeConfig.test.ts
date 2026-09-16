@@ -76,3 +76,36 @@ describe('buildRuntimeConfig', () => {
     }
   })
 })
+
+it('publishes only exact HTTPS origins for browser-local compatibility', async () => {
+  const { parseRuntimeConfig } = await import('@image-playground/shared')
+  const localCompatibility = {
+    sourceOrigin: 'https://old.example.test',
+    targetOrigin: 'https://new.example.test',
+  }
+  const config = buildRuntimeConfig({
+    BFF_ENABLED: 'true',
+    BFF_BASE_URL: 'https://api.example.test',
+    LOCAL_COMPATIBILITY: JSON.stringify(localCompatibility),
+  })
+  expect(parseRuntimeConfig(config).localCompatibility).toEqual(localCompatibility)
+  for (const sourceOrigin of [
+    'https://old.example.test/path',
+    'http://old.example.test',
+    localCompatibility.targetOrigin,
+  ]) {
+    expect(() =>
+      buildRuntimeConfig({
+        BFF_ENABLED: 'true',
+        BFF_BASE_URL: 'https://api.example.test',
+        LOCAL_COMPATIBILITY: JSON.stringify({ ...localCompatibility, sourceOrigin }),
+      }),
+    ).toThrow()
+    expect(() =>
+      parseRuntimeConfig({
+        ...config,
+        localCompatibility: { ...localCompatibility, sourceOrigin },
+      }),
+    ).toThrow()
+  }
+})

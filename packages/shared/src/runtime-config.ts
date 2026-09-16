@@ -9,6 +9,7 @@ import { parseRuntimeOrigins } from './runtime-origins.mjs'
 
 export interface RuntimeConfig {
   bff: RuntimeBffConfig
+  localCompatibility?: { sourceOrigin: string; targetOrigin: string }
 }
 
 export interface RuntimeBffConfig {
@@ -53,7 +54,25 @@ export function parseRuntimeConfig(input: unknown): RuntimeConfig {
     throw new RuntimeConfigParseError((error as Error).message)
   }
 
+  let localCompatibility: RuntimeConfig['localCompatibility']
+  if (input.localCompatibility !== undefined) {
+    const value = input.localCompatibility
+    if (!isObject(value)) throw new RuntimeConfigParseError('Invalid localCompatibility')
+    for (const key of ['sourceOrigin', 'targetOrigin']) {
+      const origin = value[key]
+      if (
+        typeof origin !== 'string' ||
+        !/^https:\/\//.test(origin) ||
+        new URL(origin).origin !== origin
+      )
+        throw new RuntimeConfigParseError('Compatibility requires exact HTTPS origins')
+    }
+    if (value.sourceOrigin === value.targetOrigin)
+      throw new RuntimeConfigParseError('Compatibility origins must differ')
+    localCompatibility = value as { sourceOrigin: string; targetOrigin: string }
+  }
   return {
+    ...(localCompatibility ? { localCompatibility } : {}),
     bff: {
       enabled: bffRaw.enabled,
       baseUrl: bffRaw.baseUrl.replace(/\/+$/, ''),

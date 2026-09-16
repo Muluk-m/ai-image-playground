@@ -99,7 +99,7 @@ it('读取错误保留原画布，重试成功前不发送空文档', async () =
   await expect(session.sync()).rejects.toThrow('project_not_loaded')
 })
 
-it('图片未上传时不提交残缺场景，也不报告完整同步', async () => {
+it.each([0, 3])('图片未上传时保留本地场景，即使云端已有修订 %s', async (revision) => {
   const { project, editor } = await fresh()
   editor.doc.addElements(
     [
@@ -118,7 +118,8 @@ it('图片未上传时不提交残缺场景，也不报告完整同步', async (
   )
   const fetcher = vi.fn()
   vi.stubGlobal('fetch', fetcher)
-  const session = new CloudProjectSession(project, editor)
+  await saveScene(editor, project.sceneKey)
+  const session = new CloudProjectSession({ ...project, cloud: { revision } }, editor)
   await session.load(true)
   expect(session.getSnapshot().status).toBe('media-local')
   expect(fetcher).not.toHaveBeenCalled()
