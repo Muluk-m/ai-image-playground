@@ -1,4 +1,4 @@
-import type { AgentConversationView } from '@image-playground/shared'
+import type { AgentConversationView, CloudProjectSummary } from '@image-playground/shared'
 import { create } from 'zustand'
 import {
   AGENT_CONVERSATION_KEY,
@@ -8,6 +8,7 @@ import {
 } from '../../lib/authScope'
 import type { CanvasDoc } from './lib/canvasDoc'
 import { getLoadedImage } from './lib/imageCache'
+import { cloudProjectsEnabled, listCloudProjects } from './lib/projectClient'
 import { type CanvasProject, projectRepository } from './lib/projectRepository'
 import { canvasSceneKey } from './lib/workspaceKeys'
 
@@ -16,6 +17,11 @@ interface ProjectState {
   activeId: string | null
   loaded: boolean
   error: string | null
+  cloudError: string | null
+  cloudLoading: boolean
+  cloudCursor: string | null
+  cloudCatalog: Record<string, CloudProjectSummary>
+  refreshCloud(more?: boolean): Promise<void>
   load(): Promise<void>
   create(): Promise<CanvasProject>
   activate(id: string): void
@@ -50,16 +56,53 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
   activeId: null,
   loaded: false,
   error: null,
+  cloudError: null,
+  cloudLoading: false,
+  cloudCursor: null,
+  cloudCatalog: {},
+  async refreshCloud(more = false) {
+    if (!cloudProjectsEnabled() || get().cloudLoading) return
+    const scope = scopedStorageName(CANVAS_PROJECT_KEY)
+    set({ cloudLoading: true, cloudError: null })
+    try {
+      const page = await listCloudProjects(more ? (get().cloudCursor ?? undefined) : undefined)
+      if (scopedStorageName(CANVAS_PROJECT_KEY) !== scope) return
+      set((state) => ({
+        cloudCatalog: {
+          ...state.cloudCatalog,
+          ...Object.fromEntries(page.projects.map((one) => [one.id, one])),
+        },
+      }))
+      for (const summary of page.projects) {
+        const project = await projectRepository.importCloud(summary)
+        if (scopedStorageName(CANVAS_PROJECT_KEY) !== scope) return
+        set((state) => ({
+          projects: state.projects.some((one) => one.id === project.id)
+            ? state.projects
+            : [...state.projects, project],
+        }))
+      }
+      set({ cloudCursor: page.nextCursor })
+    } catch {
+      if (scopedStorageName(CANVAS_PROJECT_KEY) === scope)
+        set({ cloudError: '云端项目列表读取失败，本机项目仍可使用。' })
+    } finally {
+      if (scopedStorageName(CANVAS_PROJECT_KEY) === scope) set({ cloudLoading: false })
+    }
+  },
   async load() {
     if (get().loaded) return
     if (loading) return loading
     loading = (async () => {
       try {
-        const projects = await projectRepository.list()
+        let projects = await projectRepository.list()
         for (const legacy of await projectRepository.legacyScenes()) {
           if (!projects.some((one) => one.sceneKey === legacy.sceneKey))
             projects.push(await projectRepository.create('未命名项目', legacy))
         }
+        set({ projects })
+        await get().refreshCloud()
+        projects = [...get().projects]
         const remembered = safeLocalStorage.getItem(scopedStorageName(CANVAS_PROJECT_KEY))
         const conversationId = safeLocalStorage.getItem(scopedStorageName(AGENT_CONVERSATION_KEY))
         let active =
@@ -68,10 +111,13 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
         active ??= projects.find((one) => one.sceneKey === canvasSceneKey(conversationId))
         active ??= projects[0]
         if (!active) {
-          active = await projectRepository.create('未命名项目', {
-            sceneKey: canvasSceneKey(conversationId),
-            conversationId,
-          })
+          active =
+            cloudProjectsEnabled() && !conversationId
+              ? await projectRepository.create('未命名项目', undefined, true)
+              : await projectRepository.create('未命名项目', {
+                  sceneKey: canvasSceneKey(conversationId),
+                  conversationId,
+                })
           projects.push(active)
         }
         set({ projects, loaded: true, error: null })
@@ -87,7 +133,7 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
   },
   async create() {
     await get().load()
-    const project = await projectRepository.create()
+    const project = await projectRepository.create('未命名项目', undefined, cloudProjectsEnabled())
     set((state) => ({ projects: [project, ...state.projects] }))
     get().activate(project.id)
     return project
@@ -102,10 +148,23 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
     else safeLocalStorage.removeItem(scopedStorageName(AGENT_CONVERSATION_KEY))
   },
   async update(id, patch) {
-    const project = await projectRepository.update(id, patch)
+    const current = get().projects.find((one) => one.id === id)
+    if (current?.cloud && patch.name !== undefined && cloudProjectsEnabled()) {
+      const { renameCloudProject } = await import('./lib/workspaces')
+      await renameCloudProject(current, patch.name)
+      return
+    }
+    const project = await projectRepository.update(id, {
+      ...patch,
+      ...(current?.cloud && patch.name !== undefined
+        ? { cloud: { ...current.cloud, nameDirty: true } }
+        : {}),
+    })
     set((state) => ({ projects: state.projects.map((one) => (one.id === id ? project : one)) }))
   },
   async remove(id) {
+    if (get().projects.find((one) => one.id === id)?.cloud)
+      throw new Error('cloud_project_delete_unavailable')
     await projectRepository.remove(id)
     set((state) => ({
       projects: state.projects.filter((one) => one.id !== id),
