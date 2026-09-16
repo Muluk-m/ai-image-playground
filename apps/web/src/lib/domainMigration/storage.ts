@@ -15,6 +15,7 @@ export function appDatabase(name: string): boolean {
   return (
     name === 'image-playground' ||
     name === 'image-playground-canvas' ||
+    name === 'image-playground-agent-drafts' ||
     /^image-playground:user-[^\s]{1,256}$/.test(name)
   )
 }
