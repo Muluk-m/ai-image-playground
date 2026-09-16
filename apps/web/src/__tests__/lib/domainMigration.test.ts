@@ -90,25 +90,28 @@ it('does not import foreign storage or database namespaces', async () => {
   await expect(importEntry({ ...database, name: 'another-app' })).rejects.toThrow()
 })
 
-it('preserves the fixed v1 canvas schema and does not archive identical records on retry', async () => {
+it.each([
+  ['image-playground-canvas', 'scene'],
+  ['image-playground-agent-drafts', 'drafts'],
+])('preserves the fixed v1 schema of %s without duplicate retry backups', async (databaseName, storeName) => {
   const meta: StorageEntry = {
     kind: 'database',
-    name: 'image-playground-canvas',
+    name: databaseName,
     version: 1,
-    stores: [{ name: 'scene', keyPath: null, autoIncrement: false, indexes: [] }],
+    stores: [{ name: storeName, keyPath: null, autoIncrement: false, indexes: [] }],
   }
   await importEntry(meta)
   const row: StorageEntry = {
     kind: 'record',
     database: meta.name,
-    store: 'scene',
+    store: storeName,
     key: await pack('scene'),
     value: await pack({ version: 2, elements: [{ id: 'legacy' }], files: {} }),
   }
   await importEntry(row)
   await importEntry(row)
   const opened = await new Promise<IDBDatabase>((resolve, reject) => {
-    const req = indexedDB.open('image-playground-canvas', 1)
+    const req = indexedDB.open(databaseName, 1)
     req.onsuccess = () => resolve(req.result)
     req.onerror = () => reject(req.error)
   })
