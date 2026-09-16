@@ -142,9 +142,6 @@ export async function purgeOrphanedAssetObjects(): Promise<number> {
 export async function purgeOldTasks(
   retentionMs = QUEUE_TIMEOUTS.TASK_RETENTION_MS,
 ): Promise<number> {
-  await db
-    .delete(schema.domain_migrations)
-    .where(lt(schema.domain_migrations.expires_at, Date.now()))
   const threshold = Date.now() - retentionMs
   const deleted = await db
     .delete(schema.tasks)

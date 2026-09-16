@@ -1,8 +1,6 @@
 import { SQL } from 'bun'
 
 export const EXPECTED_TABLES = [
-  'domain_migrations',
-  'domain_migration_chunks',
   'agent_conversations',
   'agent_messages',
   'agent_model_calls',
@@ -68,7 +66,7 @@ export const EXPECTED_INDEXES = [
   'users_pkey',
 ] as const
 
-const EXPECTED_MIGRATION_COUNT = 19
+const EXPECTED_MIGRATION_COUNT = 18
 
 export interface SchemaVerificationResult {
   tables: number
