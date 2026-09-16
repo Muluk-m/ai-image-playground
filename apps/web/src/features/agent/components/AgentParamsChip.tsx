@@ -85,9 +85,19 @@ export default function AgentParamsChip() {
 
       {open && (
         <div
-          className={`absolute bottom-full right-0 z-10 mb-2 w-[19rem] max-w-[calc(100vw-2rem)] rounded-xl p-3 ${PANEL_SURFACE} ${PANEL_SHADOW}`}
+          className={`studio-agent-params absolute bottom-full right-0 z-10 mb-2 w-[19rem] max-w-[calc(100vw-2rem)] rounded-xl p-3 ${PANEL_SURFACE} ${PANEL_SHADOW}`}
         >
-          <p className={`mb-2 text-xs font-semibold ${INK}`}>生成参数</p>
+          <div className="mb-2 flex items-center justify-between">
+            <p className={`text-xs font-semibold ${INK}`}>生成参数</p>
+            <button
+              type="button"
+              aria-label="关闭生成参数"
+              onClick={() => setOpen(false)}
+              className="rounded-lg px-3 py-2 text-sm text-muted-foreground"
+            >
+              完成
+            </button>
+          </div>
           <div className="flex flex-wrap items-center gap-1.5">
             <ParamControls showCount unsupported={UNSUPPORTED} />
           </div>

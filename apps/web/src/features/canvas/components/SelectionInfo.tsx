@@ -11,18 +11,29 @@ export default function SelectionInfo({ doc }: { doc: CanvasDoc }) {
   const bounds = elementBounds(element)
   const { camera } = doc
   const left = (bounds.x - camera.x) * camera.zoom
-  const top = (bounds.y - camera.y) * camera.zoom - 28
+  const imageTop = (bounds.y - camera.y) * camera.zoom
+  const imageBottom = imageTop + bounds.h * camera.zoom
+  const labelWidth = Math.min(240, Math.max(120, bounds.w * camera.zoom), doc.viewport.width - 16)
   const width = bounds.w * camera.zoom
   const dimensions = canvasImageDimensions(element, doc)
-  if (left + width < 0 || left > doc.viewport.width || top > doc.viewport.height || top < -28)
+  if (
+    left + width < 0 ||
+    left > doc.viewport.width ||
+    imageTop > doc.viewport.height ||
+    imageBottom < 0
+  )
     return null
   return (
     <div
       data-selection-info
-      className="pointer-events-none absolute z-10 flex items-center justify-between gap-3 text-xs font-medium"
-      style={{ left, top: Math.max(2, top), width: Math.max(160, width) }}
+      className="pointer-events-none absolute z-10 flex items-center gap-2 rounded-md border border-border bg-card/95 px-2 py-1 text-[11px] font-medium shadow-sm"
+      style={{
+        left: Math.max(8, Math.min(left, doc.viewport.width - labelWidth - 8)),
+        top: Math.max(8, Math.min(imageBottom + 10, doc.viewport.height - 36)),
+        width: labelWidth,
+      }}
     >
-      <span className="truncate text-sky-500" title={canvasImageName(element)}>
+      <span className="min-w-0 flex-1 truncate text-foreground" title={canvasImageName(element)}>
         {canvasImageName(element)}
       </span>
       {dimensions && (

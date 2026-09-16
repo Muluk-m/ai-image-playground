@@ -84,9 +84,8 @@ export default function SizePickerModal({
   const currentPreset = findPresetForSize(currentSize, ratioOnly || limitTo1K)
   const currentParsedSize = parseSize(currentSize)
   const [mode, setMode] = useState<Mode>(() => {
-    if (ratioOnly) return 'ratio'
     if (!currentSize || currentSize === 'auto') return allowAuto ? 'auto' : 'ratio'
-    if (currentPreset) return 'ratio'
+    if (ratioOnly || currentPreset) return 'ratio'
     return 'resolution'
   })
 
@@ -235,14 +234,14 @@ export default function SizePickerModal({
         </div>
 
         <div className="space-y-6">
-          {!ratioOnly && (
+          {(allowAuto || !ratioOnly) && (
             <div className="flex rounded-xl bg-muted/80 p-1">
               {allowAuto && (
                 <button
                   onClick={() => setMode('auto')}
                   className={`flex-1 rounded-lg py-1.5 text-sm font-medium transition ${mode === 'auto' ? 'bg-card text-foreground shadow-sm bg-muted dark:text-foreground' : 'text-muted-foreground hover:text-foreground dark:hover:text-foreground'}`}
                 >
-                  自动
+                  {ratioOnly ? '智能比例 Auto' : '自动'}
                 </button>
               )}
               <button
@@ -251,16 +250,18 @@ export default function SizePickerModal({
               >
                 按比例
               </button>
-              <button
-                onClick={() => setMode('resolution')}
-                className={`flex-1 rounded-lg py-1.5 text-sm font-medium transition ${mode === 'resolution' ? 'bg-card text-foreground shadow-sm bg-muted dark:text-foreground' : 'text-muted-foreground hover:text-foreground dark:hover:text-foreground'}`}
-              >
-                自定义宽高
-              </button>
+              {!ratioOnly && (
+                <button
+                  onClick={() => setMode('resolution')}
+                  className={`flex-1 rounded-lg py-1.5 text-sm font-medium transition ${mode === 'resolution' ? 'bg-card text-foreground shadow-sm bg-muted dark:text-foreground' : 'text-muted-foreground hover:text-foreground dark:hover:text-foreground'}`}
+                >
+                  自定义宽高
+                </button>
+              )}
             </div>
           )}
 
-          <div className="h-[380px] max-h-[55vh] overflow-y-auto scrollbar-thin scrollbar-thumb-gray-200 dark:scrollbar-thumb-white/10 pr-1 -mr-1 pb-2">
+          <div className="max-h-[55vh] overflow-y-auto scrollbar-thin scrollbar-thumb-gray-200 dark:scrollbar-thumb-white/10 pr-1 -mr-1 pb-2">
             {mode === 'auto' && (
               <div className="flex h-full animate-fade-in items-center justify-center pt-8 pb-4 text-center">
                 <div>
@@ -274,7 +275,9 @@ export default function SizePickerModal({
                       />
                     </svg>
                   </div>
-                  <h4 className="text-sm font-medium text-foreground">自动尺寸</h4>
+                  <h4 className="text-sm font-medium text-foreground">
+                    {ratioOnly ? '智能比例' : '自动尺寸'}
+                  </h4>
                   <p className="mt-2 text-xs text-muted-foreground leading-relaxed">
                     不向模型传递具体的分辨率参数
                     <br />

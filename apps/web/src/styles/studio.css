@@ -56,3 +56,66 @@
 .studio-sidebar--direct > * { flex-shrink: 0; }
 
 .studio-agent-composer [role="textbox"]:focus-visible { outline: none; box-shadow: none; }
+
+.studio-mobile-switch { display: none; }
+@media (max-width: 767px) {
+  :root { --mobile-nav-height: calc(56px + env(safe-area-inset-bottom, 0px)); }
+  .studio-header { top: var(--workspace-viewport-top, 0px); }
+  .studio-header h1 button { min-height: 44px; }
+  .studio-header .ml-auto > div > button { min-width: 44px; min-height: 44px; }
+  .studio-main-nav {
+    position: fixed; inset: auto 0 0; margin: 0; padding: 4px 16px calc(4px + env(safe-area-inset-bottom, 0px));
+    height: var(--mobile-nav-height); border-radius: 0; border-top: 1px solid hsl(var(--border));
+    background: hsl(var(--card)); justify-content: space-around;
+  }
+  .studio-main-nav button { flex: 1; min-height: 44px; font-size: 14px; }
+  .studio-header .studio-main-nav button[aria-pressed="true"] { color: hsl(var(--primary)); background: hsl(var(--primary) / .1); box-shadow: none; }
+  .studio-shell {
+    top: calc(var(--workspace-viewport-top, 0px) + var(--safe-area-top) + var(--header-height)) !important;
+    bottom: auto; height: calc(var(--workspace-viewport-height, 100dvh) - var(--safe-area-top) - var(--header-height) - var(--mobile-nav-height));
+  }
+  .studio-layout { padding-top: 56px; }
+  .studio-mobile-switch { position: absolute; inset: 4px 16px auto; display: flex; height: 48px; gap: 4px; padding: 2px; border-radius: 12px; background: hsl(var(--muted)); }
+  .studio-mobile-switch button { flex: 1; min-height: 44px; border-radius: 10px; color: hsl(var(--muted-foreground)); font-size: 14px; font-weight: 500; }
+  .studio-mobile-switch button[aria-pressed="true"] { background: hsl(var(--card)); color: hsl(var(--foreground)); box-shadow: 0 1px 3px hsl(var(--foreground) / .06); }
+  .studio-sidebar { position: relative; inset: auto; width: 100% !important; max-width: 100%; height: 100%; border: 0; box-shadow: none; }
+  .studio-layout[data-mobile-view="canvas"] > .studio-sidebar { display: none; }
+  .studio-layout > .studio-canvas { position: absolute; inset: 56px 0 0; height: calc(100% - 56px); }
+  .studio-layout[data-mobile-view="chat"] > .studio-canvas { visibility: hidden; pointer-events: none; }
+  .studio-sidebar button { min-height: 44px; min-width: 44px; }
+  .studio-agent-tabs { padding-bottom: 0; }
+  .studio-sidebar--direct > div:first-child button { display: none; }
+  .studio-chat-empty { padding: 24px 12px; }
+  .studio-chat-empty h3 { font-size: 22px; }
+  .studio-chat-empty p { font-size: 14px; line-height: 1.8; }
+  .studio-agent-composer { padding: 8px 12px 12px; }
+  .studio-agent-composer [role="textbox"] { font-size: 16px; min-height: 64px; max-height: min(160px, 25dvh); }
+  .studio-agent-composer button { min-height: 44px; }
+  .studio-agent-composer button[aria-label="发送"],
+  .studio-agent-composer button[aria-label="添加附件"] { min-width: 44px; }
+  .studio-agent-params { max-height: min(400px, 55dvh); overflow-y: auto; overscroll-behavior: contain; width: calc(100vw - 24px); max-width: calc(100vw - 24px); }
+  .studio-toolbar { top: 64px; left: 8px; bottom: 12px; }
+  .studio-tools button { min-width: 44px; min-height: 44px; }
+  .studio-canvas .studio-empty { padding-left: 68px; padding-right: 16px; }
+  .studio-canvas .studio-empty h2 { font-size: 22px; }
+  .studio-canvas-heading { top: 16px; }
+  html[data-workspace-keyboard="true"] { --mobile-nav-height: 0px; }
+  html[data-workspace-keyboard="true"] .studio-main-nav,
+  html[data-workspace-keyboard="true"] .studio-agent-tabs,
+  html[data-workspace-keyboard="true"] .studio-agent-project { display: none; }
+  html[data-workspace-keyboard="true"] .studio-chat-empty { padding-top: 8px; }
+  html[data-workspace-keyboard="true"] .studio-chat-empty .studio-spark,
+  html[data-workspace-keyboard="true"] .studio-example { display: none; }
+}
+@media (max-width: 767px) {
+  .studio-agent-composer [data-slot="composer-send"],
+  .studio-agent-composer [data-slot="composer-attach"] { min-width: 44px; }
+  .studio-history-composer { bottom: calc(var(--mobile-nav-height) + 8px); }
+  [data-home-main] { padding-bottom: calc(12rem + var(--mobile-nav-height)); }
+}
+@media (max-width: 767px) {
+  .studio-header button[aria-haspopup="menu"],
+  .studio-header button[aria-label="打开应用菜单"],
+  .studio-header button[aria-label="打开个人账户"] { width: 44px; height: 44px; }
+  .studio-direct-card textarea { font-size: 16px; }
+}

@@ -33,7 +33,7 @@ export const SEND_BUTTON =
   'h-9 rounded-lg bg-primary text-primary-foreground px-3 text-xs font-semibold transition hover:bg-primary disabled:cursor-not-allowed disabled:opacity-40'
 
 export const ABORT_BUTTON =
-  'h-7 rounded-lg border border-border px-3 text-xs text-foreground transition hover:bg-muted'
+  'h-8 min-w-12 shrink-0 whitespace-nowrap rounded-lg border border-border px-3 text-xs text-foreground transition hover:bg-muted'
 
 export const ICON_BUTTON = `rounded-lg p-1 transition-colors ${INK_3} hover:bg-muted hover:text-foreground`
 

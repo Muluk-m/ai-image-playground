@@ -347,18 +347,16 @@ export default function AgentComposer({
                         MASK
                       </span>
                     )}
-                    <button
-                      type="button"
-                      aria-label={
-                        masked ? `修改参考图 ${label} 的遮罩` : `给参考图 ${label} 画遮罩`
-                      }
-                      className={`absolute bottom-0 left-0 bg-card opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 ${ICON_BUTTON}`}
-                      onClick={() => editMask(reference)}
-                    >
-                      <MaskBrushIcon className="h-3 w-3" />
-                    </button>
                   </div>
                   <span className="max-w-28 truncate text-xs text-foreground">{label}</span>
+                  <button
+                    type="button"
+                    aria-label={masked ? `修改参考图 ${label} 的遮罩` : `给参考图 ${label} 画遮罩`}
+                    className={`shrink-0 ${ICON_BUTTON}`}
+                    onClick={() => editMask(reference)}
+                  >
+                    <MaskBrushIcon className="h-3 w-3" />
+                  </button>
                   <button
                     type="button"
                     aria-label={`移除参考图 ${label}`}

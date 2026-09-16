@@ -1,8 +1,11 @@
-import { dirname } from 'node:path';
+import { existsSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import colors from 'tailwindcss/colors';
 
-const privateWebOverlayEntry = process.env.PRIVATE_WEB_OVERLAY_ENTRY;
+const defaultOverlayEntry = resolve(dirname(fileURLToPath(import.meta.url)), '../../private/apps/web/index.tsx');
+const privateWebOverlayEntry = process.env.PRIVATE_WEB_OVERLAY_ENTRY || (existsSync(defaultOverlayEntry) ? defaultOverlayEntry : undefined);
 const privateWebOverlayRoot = privateWebOverlayEntry
   ? dirname(privateWebOverlayEntry)
   : undefined;
