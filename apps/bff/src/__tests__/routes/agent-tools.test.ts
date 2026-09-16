@@ -204,6 +204,7 @@ describe('智能体生图工具', () => {
       toolCallId: 'call-1',
       toolName: 'generateImage',
       title: '一只橘猫坐在窗台上',
+      prompt: '一只橘猫坐在窗台上',
     })
     const [end] = eventsOfType(frames, 'toolEnd')
     expect(end).toMatchObject({
@@ -211,6 +212,7 @@ describe('智能体生图工具', () => {
       toolCallId: 'call-1',
       status: 'succeeded',
       title: '一只橘猫坐在窗台上',
+      prompt: '一只橘猫坐在窗台上',
     })
     expect(end!.artifacts).toHaveLength(1)
     const artifact = end!.artifacts![0]!
@@ -237,6 +239,7 @@ describe('智能体生图工具', () => {
         toolName: 'generateImage',
         status: 'succeeded',
         title: '一只橘猫坐在窗台上',
+        prompt: '一只橘猫坐在窗台上',
         artifacts: [artifact],
       },
     ])

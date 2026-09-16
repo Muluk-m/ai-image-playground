@@ -5,7 +5,7 @@ import type {
   AgentMessageRole,
   AgentMessageView,
 } from '@image-playground/shared'
-import { and, asc, desc, eq, isNull, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import type { BffTransaction } from '../private-overlay'
 
@@ -214,5 +214,38 @@ export async function listAgentMessages(
       ),
     )
     .orderBy(asc(schema.agent_messages.seq))
-  return rows.map((row) => messageView(row.agent_messages))
+  const messages = rows.map((row) => messageView(row.agent_messages))
+  const taskIds = [
+    ...new Set(
+      messages.flatMap((message) =>
+        message.content.flatMap((block) =>
+          block.type === 'toolResult' && !block.prompt
+            ? (block.artifacts ?? []).map((artifact) => artifact.taskId)
+            : [],
+        ),
+      ),
+    ),
+  ]
+  if (!taskIds.length) return messages
+  // Only recover tasks tied to this already-authorized conversation; never trust artifact IDs alone.
+  const tasks = await db
+    .select({ id: schema.tasks.id, request: schema.tasks.request_payload })
+    .from(schema.tasks)
+    .where(
+      and(
+        inArray(schema.tasks.id, taskIds),
+        eq(schema.tasks.agent_conversation_id, conversationId),
+      ),
+    )
+  const prompts = new Map(tasks.map((task) => [task.id, task.request.prompt]))
+  return messages.map((message) => ({
+    ...message,
+    content: message.content.map((block) => {
+      if (block.type !== 'toolResult' || block.prompt) return block
+      const prompt = (block.artifacts ?? [])
+        .map((artifact) => prompts.get(artifact.taskId))
+        .find(Boolean)
+      return prompt ? { ...block, prompt } : block
+    }),
+  }))
 }

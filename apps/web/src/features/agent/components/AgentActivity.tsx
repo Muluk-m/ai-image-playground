@@ -13,7 +13,7 @@ const LABEL: Record<AgentActivityPhase, string> = {
  * 一轮进行中、还没有文字在流的时候，对话末尾亮一行状态：敲了回车立刻有回应，
  * 模型在想、工具在跑也看得见。文字一开始流就让位，别跟正文抢。
  *
- * 样子照 assistant-ui 的 ThinkingIndicator：脉冲的蓝点、流光扫过的标签、等宽的耗时。
+ * 样子照 assistant-ui 的 ThinkingIndicator：脉冲的状态点、流光扫过的标签、等宽的耗时。
  */
 export default function AgentActivity() {
   const phase = useAgentStore((state) => agentActivityPhase(state))
@@ -36,10 +36,7 @@ export default function AgentActivity() {
         aria-hidden="true"
         className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-primary motion-reduce:animate-none"
       />
-      <span
-        key={phase}
-        className="agent-shimmer animate-fade-in relative inline-block leading-none"
-      >
+      <span key={phase} className="agent-shimmer relative inline-block leading-none">
         {LABEL[phase]}
       </span>
       {elapsed !== null && elapsed >= 1000 && (

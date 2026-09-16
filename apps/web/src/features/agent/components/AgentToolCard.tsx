@@ -1,5 +1,7 @@
 import type { AgentToolArtifact } from '@image-playground/shared'
 import { useEffect, useState } from 'react'
+import { copyTextToClipboard, getClipboardFailureMessage } from '../../../lib/clipboard'
+import { useStore } from '../../../store'
 import PlayBadge from '../../video/components/PlayBadge'
 import {
   CARD,
@@ -93,6 +95,7 @@ function Thumbnail({ preview }: { preview: AgentArtifactPreview }) {
 }
 
 export default function AgentToolCard({ message }: { message: AgentToolMessage }) {
+  const [copied, setCopied] = useState(false)
   const previews = useArtifactPreviews(message)
   const offCanvas = previews.some((preview) => !preview.onCanvas)
   const onCanvas = previews
@@ -101,8 +104,53 @@ export default function AgentToolCard({ message }: { message: AgentToolMessage }
   const note = statusNote(message, offCanvas)
   return (
     <div className={CARD}>
-      {onCanvas.length > 0 ? (
-        // 点标题就到画布上把这一次的产物全选中、镜头带过去；缩略图则各定位各的。
+      {message.prompt ? (
+        <>
+          <details className="group text-xs text-muted-foreground">
+            <summary className="cursor-pointer list-none rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
+              <span className={`${CARD_TITLE} block transition-colors hover:text-primary`}>
+                {message.title}
+              </span>
+              <span className="mt-1 block text-primary group-open:hidden">展开完整提示词</span>
+              <span className="mt-1 hidden text-primary group-open:block">收起提示词</span>
+            </summary>
+            <p className="mt-2 max-h-64 overflow-y-auto whitespace-pre-wrap break-words rounded-lg bg-background p-3 text-foreground leading-relaxed">
+              {message.prompt}
+            </p>
+          </details>
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              className={GHOST_LINK}
+              onClick={() => {
+                void copyTextToClipboard(message.prompt!).then(
+                  () => setCopied(true),
+                  (error) => {
+                    setCopied(false)
+                    useStore
+                      .getState()
+                      .showToast(
+                        getClipboardFailureMessage('复制失败，请选择提示词手动复制', error),
+                        'error',
+                      )
+                  },
+                )
+              }}
+            >
+              {copied ? '已复制' : '复制提示词'}
+            </button>
+            {onCanvas.length > 0 && (
+              <button
+                type="button"
+                className={GHOST_LINK}
+                onClick={() => agentCanvasSink()?.focus(onCanvas)}
+              >
+                在画布中查看
+              </button>
+            )}
+          </div>
+        </>
+      ) : onCanvas.length > 0 ? (
         <button
           type="button"
           title="在画布上定位这些产物"

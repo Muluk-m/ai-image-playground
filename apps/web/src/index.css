@@ -1038,10 +1038,10 @@ input[type="number"] {
 /* 智能体状态行的文字流光：照 assistant-ui 的 shimmer，一道亮光从左扫到右。 */
 @keyframes agent-shimmer {
   from {
-    background-position: 200% 0;
+    background-position: 100% 0;
   }
   to {
-    background-position: -200% 0;
+    background-position: -100% 0;
   }
 }
 .agent-shimmer {
@@ -1053,6 +1053,8 @@ input[type="number"] {
     hsl(var(--muted-foreground) / .7) 70%
   );
   background-size: 200% 100%;
+  background-repeat: no-repeat;
+  background-color: hsl(var(--muted-foreground) / .7);
   -webkit-background-clip: text;
   background-clip: text;
   animation: agent-shimmer 1.8s linear infinite;

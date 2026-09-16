@@ -28,6 +28,7 @@ export interface AgentToolMessage {
   readonly turnId: string
   readonly toolCallId: string
   readonly title: string
+  readonly prompt?: string
   readonly status: AgentToolStatus | 'running'
   readonly stage?: AgentToolStage
   readonly artifacts?: readonly AgentToolArtifact[]

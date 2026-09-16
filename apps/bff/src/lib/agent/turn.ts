@@ -173,6 +173,7 @@ interface OpenAssistantMessage {
 }
 
 interface OpenToolCall {
+  readonly prompt?: string
   readonly messageId: string
   readonly toolName: AgentToolName
   readonly title: string
@@ -194,7 +195,12 @@ function toolResultBlock(
   result: unknown,
   isError: boolean,
 ): AgentToolResultBlock {
-  const head = { type: 'toolResult', toolCallId, toolName: pending.toolName } as const
+  const head = {
+    type: 'toolResult',
+    toolCallId,
+    toolName: pending.toolName,
+    ...(pending.prompt ? { prompt: pending.prompt } : {}),
+  } as const
   if (isError) {
     return { ...head, status: 'failed', title: pending.title, message: toolErrorText(result) }
   }
@@ -382,7 +388,10 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
     if (event.type === 'tool_execution_start' && isAgentToolName(event.toolName)) {
       const messageId = crypto.randomUUID()
       const title = agentToolTitle(event.toolName, event.args)
-      openTools.set(event.toolCallId, { messageId, toolName: event.toolName, title })
+      const rawPrompt = (event.args as { prompt?: unknown } | null)?.prompt
+      const prompt =
+        event.toolName !== 'readLibrary' && typeof rawPrompt === 'string' ? rawPrompt : undefined
+      openTools.set(event.toolCallId, { messageId, toolName: event.toolName, title, prompt })
       // 画布要在工具跑完之前就占好位，所以这里把「占几个、占在哪」一并发出去：
       // 参数快照与锚点这一刻都在手上，等到 toolEnd 再说就晚了整整一次生成。
       const outputCount = agentToolOutputCount(event.toolName, turnParams)
@@ -393,6 +402,7 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
         toolCallId: event.toolCallId,
         toolName: event.toolName,
         title,
+        ...(prompt ? { prompt } : {}),
         ...(outputCount ? { outputCount } : {}),
         ...(anchorObjectId ? { anchorObjectId } : {}),
       })
