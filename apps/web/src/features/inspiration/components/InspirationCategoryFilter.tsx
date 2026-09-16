@@ -50,9 +50,7 @@ function CategoryButton({
       type="button"
       onClick={onClick}
       className={`rounded-lg px-3 py-2 text-left text-sm transition ${
-        active
-          ? 'bg-blue-500/10 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300 font-medium'
-          : 'text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-white/[0.04]'
+        active ? 'bg-primary/10 text-primary font-medium' : 'text-muted-foreground hover:bg-muted'
       }`}
     >
       {label}

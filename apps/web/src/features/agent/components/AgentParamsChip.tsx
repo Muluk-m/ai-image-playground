@@ -59,7 +59,7 @@ export default function AgentParamsChip() {
         type="button"
         aria-expanded={open}
         aria-label="生成参数"
-        className={`flex min-w-0 max-w-full items-center gap-1.5 rounded-full border border-[var(--studio-border)] px-2.5 py-1 text-[11px] transition-colors hover:bg-[var(--studio-raised)] ${INK_3}`}
+        className={`flex min-w-0 max-w-full items-center gap-1.5 rounded-full border border-border px-2.5 py-1 text-[11px] transition-colors hover:bg-muted ${INK_3}`}
         onClick={() => setOpen((was) => !was)}
       >
         <SettingsIcon aria-hidden="true" className="h-3 w-3 shrink-0" />

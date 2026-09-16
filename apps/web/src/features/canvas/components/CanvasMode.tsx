@@ -79,10 +79,6 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
             style={{ width: 340 }}
             aria-label="图片创作"
           >
-            <div className="studio-sidebar-heading">
-              <span className="studio-kicker">CREATIVE STUDIO</span>
-              <h2>一起，把想法变成画面。</h2>
-            </div>
             <div className="flex justify-between px-4 text-xs">
               <span>图片创作</span>
               <button type="button" onClick={() => setOpen(false)} aria-label="收起面板">
@@ -116,7 +112,7 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
           {saveFailed && (
             <div
               role="alert"
-              className="absolute right-4 top-4 z-[410] max-w-xs rounded-xl border border-amber-400/40 bg-gray-900 p-3 text-xs text-amber-200 shadow-lg"
+              className="absolute right-4 top-4 z-[410] max-w-xs rounded-xl border border-warning/40 bg-muted p-3 text-xs text-warning shadow-lg"
             >
               <p>画布保存失败，内容仍在当前页面。请重试，成功前不要刷新或关闭。</p>
               <button

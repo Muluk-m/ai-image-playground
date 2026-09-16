@@ -589,7 +589,7 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
       className="absolute inset-0 overflow-hidden"
       style={{
         cursor,
-        backgroundImage: 'radial-gradient(var(--studio-grid) 1px, transparent 1px)',
+        backgroundImage: 'radial-gradient(hsl(var(--border)) 1px, transparent 1px)',
         backgroundSize: '20px 20px',
         backgroundPosition: `${-camera.x * camera.zoom}px ${-camera.y * camera.zoom}px`,
       }}

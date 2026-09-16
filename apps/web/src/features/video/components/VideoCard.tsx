@@ -16,8 +16,7 @@ import PlayBadge from './PlayBadge'
 import RunningOverlay from './RunningOverlay'
 import VideoDownloadButton from './VideoDownloadButton'
 
-const LINEAGE_CHIP =
-  'rounded border border-gray-200 px-1 text-[10px] text-gray-500 dark:border-white/[0.12] dark:text-gray-400'
+const LINEAGE_CHIP = 'rounded border border-border px-1 text-[10px] text-muted-foreground'
 const HOVER_BUTTON =
   'rounded-md bg-black/65 px-1 py-1 text-[11px] text-white transition hover:bg-black/80'
 
@@ -56,10 +55,8 @@ export default function VideoCard({ task, onOpen }: { task: VideoTask; onOpen: (
   return (
     <li
       data-video-card
-      className={`group relative overflow-hidden rounded-xl border bg-white/70 dark:bg-white/[0.02] ${
-        task.status === 'error'
-          ? 'border-red-400/50'
-          : 'border-gray-200/70 dark:border-white/[0.08]'
+      className={`group relative overflow-hidden rounded-xl border bg-white/70 bg-muted ${
+        task.status === 'error' ? 'border-destructive/50' : 'border-border/70'
       }`}
     >
       <div className="relative">
@@ -68,7 +65,7 @@ export default function VideoCard({ task, onOpen }: { task: VideoTask; onOpen: (
           onClick={onOpen}
           disabled={!done}
           aria-label={done ? `播放 ${task.prompt}` : task.prompt}
-          className="relative block aspect-video w-full overflow-hidden bg-gray-900 disabled:cursor-default dark:bg-black"
+          className="relative block aspect-video w-full overflow-hidden bg-muted disabled:cursor-default dark:bg-black"
         >
           {/* 输出比例的画框居中放进 16:9 容器，竖版与方图自然留出黑边。 */}
           <span className={OVERLAY}>
@@ -97,11 +94,9 @@ export default function VideoCard({ task, onOpen }: { task: VideoTask; onOpen: (
 
           {isVideoTaskActive(task) && <RunningOverlay task={task} />}
           {task.status === 'error' && (
-            <span
-              className={`${OVERLAY} bg-gray-100 px-3 text-gray-600 dark:bg-white/[0.04] dark:text-gray-300`}
-            >
+            <span className={`${OVERLAY} bg-muted px-3 text-muted-foreground`}>
               <span>
-                <b className="block text-sm font-medium text-gray-800 dark:text-gray-100">失败</b>
+                <b className="block text-sm font-medium text-foreground">失败</b>
                 {task.error}
                 {task.credits !== undefined && (
                   <small className="block">
@@ -158,11 +153,8 @@ export default function VideoCard({ task, onOpen }: { task: VideoTask; onOpen: (
         )}
       </div>
 
-      <div className="px-2.5 py-2 text-xs text-gray-500 dark:text-gray-400">
-        <b
-          data-video-card-prompt
-          className="block truncate font-medium text-gray-800 dark:text-gray-100"
-        >
+      <div className="px-2.5 py-2 text-xs text-muted-foreground">
+        <b data-video-card-prompt className="block truncate font-medium text-foreground">
           {task.prompt}
         </b>
         {task.storyboardVersion && (
@@ -199,7 +191,7 @@ export default function VideoCard({ task, onOpen }: { task: VideoTask; onOpen: (
           {task.status === 'error' && (
             <button
               type="button"
-              className="rounded border border-gray-200 px-1.5 text-[11px] text-gray-600 transition hover:border-blue-400 hover:text-blue-600 dark:border-white/[0.12] dark:text-gray-300"
+              className="rounded border border-border px-1.5 text-[11px] text-muted-foreground transition hover:border-primary hover:text-primary"
               onClick={() => void useVideoStore.getState().regenerate(task)}
             >
               重试

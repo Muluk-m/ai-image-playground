@@ -48,10 +48,9 @@ import { useAgentStore } from '../store'
 import AgentParamsChip from './AgentParamsChip'
 
 const EDITOR_CLASS =
-  'min-h-24 max-h-44 w-full overflow-y-auto whitespace-pre-wrap break-words bg-transparent text-xs leading-relaxed text-[var(--studio-text)] outline-none empty:before:pointer-events-none empty:before:text-[var(--studio-muted)] empty:before:content-[attr(data-placeholder)]'
+  'min-h-20 max-h-44 w-full overflow-y-auto whitespace-pre-wrap break-words bg-transparent text-xs leading-relaxed text-foreground outline-none empty:before:pointer-events-none empty:before:text-muted-foreground empty:before:content-[attr(data-placeholder)]'
 
-const STRIP_THUMB =
-  'h-10 w-10 overflow-hidden rounded-lg border border-[var(--studio-border)] object-cover'
+const STRIP_THUMB = 'h-10 w-10 overflow-hidden rounded-lg border border-border object-cover'
 
 export default function AgentComposer({
   doc,
@@ -298,12 +297,12 @@ export default function AgentComposer({
       {...dropZoneProps}
     >
       {dragging && (
-        <div className="pointer-events-none absolute inset-1 z-20 grid place-items-center rounded-xl border border-dashed border-blue-400/70 bg-[var(--studio-panel)]/90 text-xs text-[var(--studio-accent)]">
+        <div className="pointer-events-none absolute inset-1 z-20 grid place-items-center rounded-xl border border-dashed border-primary/70 bg-sidebar/90 text-xs text-primary">
           松开即作为参考图
         </div>
       )}
       {draftError && (
-        <p role="alert" className="text-xs text-amber-300">
+        <p role="alert" className="text-xs text-warning">
           {draftError}
         </p>
       )}
@@ -317,18 +316,18 @@ export default function AgentComposer({
                 <div className="relative">
                   <img
                     src={reference.dataUrl}
-                    className={`${STRIP_THUMB} ${masked ? 'ring-1 ring-blue-500/70' : ''}`}
+                    className={`${STRIP_THUMB} ${masked ? 'ring-1 ring-ring/70' : ''}`}
                     alt=""
                   />
                   {masked && (
-                    <span className="pointer-events-none absolute left-0.5 top-0.5 rounded bg-blue-500/90 px-1 py-px text-[7px] font-bold leading-none tracking-wider text-[var(--studio-on-accent)]">
+                    <span className="pointer-events-none absolute left-0.5 top-0.5 rounded bg-primary/90 px-1 py-px text-[7px] font-bold leading-none tracking-wider text-primary-foreground">
                       MASK
                     </span>
                   )}
                   <button
                     type="button"
                     aria-label={masked ? `修改参考图 ${label} 的遮罩` : `给参考图 ${label} 画遮罩`}
-                    className={`absolute -bottom-1 -left-1 bg-[var(--studio-panel)] opacity-0 group-hover:opacity-100 ${ICON_BUTTON}`}
+                    className={`absolute -bottom-1 -left-1 bg-sidebar opacity-0 group-hover:opacity-100 ${ICON_BUTTON}`}
                     onClick={() => editMask(reference)}
                   >
                     <MaskBrushIcon className="h-3 w-3" />
@@ -340,7 +339,7 @@ export default function AgentComposer({
                 <button
                   type="button"
                   aria-label={`移除参考图 ${label}`}
-                  className={`absolute -right-1 -top-1 bg-[var(--studio-panel)] opacity-0 group-hover:opacity-100 ${ICON_BUTTON}`}
+                  className={`absolute -right-1 -top-1 bg-sidebar opacity-0 group-hover:opacity-100 ${ICON_BUTTON}`}
                   onClick={() => setDraft(removeReference(draft, index))}
                 >
                   <CloseIcon className="h-3 w-3" />
@@ -351,7 +350,7 @@ export default function AgentComposer({
         </div>
       )}
 
-      <div className="relative rounded-xl border border-[var(--studio-border)] bg-[var(--studio-raised)] px-2.5 py-2 focus-within:border-[var(--studio-accent)]">
+      <div className="relative rounded-xl border border-input bg-background px-3 py-3 transition-shadow focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/20">
         {menu.visible && (
           <SuggestionMenu
             groups={groups}

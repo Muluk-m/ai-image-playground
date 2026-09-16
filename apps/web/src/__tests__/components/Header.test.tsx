@@ -69,6 +69,13 @@ function modeButton(label: string): HTMLButtonElement {
 }
 
 describe('the mode switch', () => {
+  it('does not auto-open onboarding prompts for a fresh empty account', () => {
+    useStore.setState({ inspirationCoachDismissed: false, tasks: [] })
+    act(() => root.render(<Header />))
+    expect(document.body.textContent).not.toContain('不知道画什么')
+    expect(document.querySelector('.animate-coach-pulse')).toBeNull()
+    expect(document.querySelector('button[aria-label="灵感库"]')).not.toBeNull()
+  })
   it('starts in creation and the brand returns there', () => {
     expect(useStore.getInitialState().appMode).toBe('create')
     act(() => root.render(<Header />))

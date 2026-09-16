@@ -27,8 +27,8 @@ function timing(task: VideoTask): string {
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <>
-      <dt className="text-gray-500 dark:text-gray-400">{label}</dt>
-      <dd className="text-gray-800 dark:text-gray-100">{children}</dd>
+      <dt className="text-muted-foreground">{label}</dt>
+      <dd className="text-foreground">{children}</dd>
     </>
   )
 }
@@ -71,7 +71,7 @@ export default function VideoLightbox({ task, onClose }: { task: VideoTask; onCl
     <Overlay onClose={onClose} tier="raised">
       <div
         data-video-lightbox
-        className="relative z-10 grid max-h-[88vh] w-full max-w-5xl overflow-hidden rounded-2xl border border-white/50 bg-white shadow-2xl ring-1 ring-black/5 animate-modal-in dark:border-white/[0.08] dark:bg-gray-900 dark:ring-white/10 lg:grid-cols-[minmax(0,1fr)_20rem]"
+        className="relative z-10 grid max-h-[88vh] w-full max-w-5xl overflow-hidden rounded-2xl border border-white/50 bg-card shadow-2xl ring-1 ring-black/5 animate-modal-in border-border dark:ring-white/10 lg:grid-cols-[minmax(0,1fr)_20rem]"
       >
         <div className="grid min-h-[16rem] place-items-center bg-black p-4">
           {playbackUrl ? (
@@ -100,20 +100,20 @@ export default function VideoLightbox({ task, onClose }: { task: VideoTask; onCl
               <track kind="captions" />
             </video>
           ) : (
-            <p className="text-sm text-gray-400">这条还没有可播放的视频</p>
+            <p className="text-sm text-muted-foreground">这条还没有可播放的视频</p>
           )}
         </div>
 
-        <div className="flex flex-col gap-3 overflow-y-auto border-t border-gray-200/70 p-4 text-sm dark:border-white/[0.08] lg:border-l lg:border-t-0">
+        <div className="flex flex-col gap-3 overflow-y-auto border-t border-border/70 p-4 text-sm lg:border-l lg:border-t-0">
           <div>
             <div className="mb-1.5 flex items-baseline justify-between">
               <span className={LABEL}>描述</span>
-              <span className="text-[11px] text-gray-400 dark:text-gray-500">点击复制</span>
+              <span className="text-[11px] text-muted-foreground">点击复制</span>
             </div>
             <button
               type="button"
               onClick={() => void copyPrompt()}
-              className="w-full rounded-lg border border-gray-200 bg-gray-50 px-2.5 py-2 text-left text-xs text-gray-700 transition hover:border-blue-400 dark:border-white/[0.08] dark:bg-white/[0.04] dark:text-gray-200"
+              className="w-full rounded-lg border border-border bg-card px-2.5 py-2 text-left text-xs text-foreground transition hover:border-primary"
             >
               {task.prompt}
             </button>
@@ -129,7 +129,7 @@ export default function VideoLightbox({ task, onClose }: { task: VideoTask; onCl
               <Row label="首帧">
                 <button
                   type="button"
-                  className="text-blue-600 transition hover:underline dark:text-blue-300"
+                  className="text-primary transition hover:underline"
                   onClick={() => useStore.getState().setLightboxImageId(firstFrame, [firstFrame])}
                 >
                   查看原图
@@ -185,7 +185,7 @@ export default function VideoLightbox({ task, onClose }: { task: VideoTask; onCl
 
           <button
             type="button"
-            className="mt-auto self-start rounded-lg px-2 py-1 text-xs text-gray-500 transition hover:text-red-600 dark:text-gray-400 dark:hover:text-red-400"
+            className="mt-auto self-start rounded-lg px-2 py-1 text-xs text-muted-foreground transition hover:text-destructive dark:hover:text-destructive"
             onClick={() => {
               void useVideoStore.getState().removeTask(task.id)
               onClose()

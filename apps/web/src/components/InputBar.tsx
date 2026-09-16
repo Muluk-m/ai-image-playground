@@ -65,7 +65,7 @@ import SuggestionMenu, { useSuggestionMenu } from './SuggestionMenu'
 import ViewportTooltip from './ViewportTooltip'
 
 const TEXTAREA_CLASS =
-  'min-h-[42px] w-full whitespace-pre-wrap break-words bg-transparent px-1 py-1 pr-9 text-sm leading-relaxed outline-none empty:before:pointer-events-none empty:before:text-gray-400 empty:before:content-[attr(data-placeholder)] dark:text-gray-100 dark:empty:before:text-gray-400'
+  'min-h-[42px] w-full whitespace-pre-wrap break-words bg-transparent px-1 py-1 pr-9 text-sm leading-relaxed outline-none empty:before:pointer-events-none empty:before:text-muted-foreground empty:before:content-[attr(data-placeholder)] text-foreground'
 
 /** 通用悬浮气泡提示 */
 function ButtonTooltip({ visible, text }: { visible: boolean; text: ReactNode }) {
@@ -79,7 +79,7 @@ function ButtonTooltip({ visible, text }: { visible: boolean; text: ReactNode })
 }
 
 const SAVE_TEMPLATE_BUTTON_CLASS =
-  'flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl border border-gray-300/80 bg-white/70 text-gray-500 transition-colors duration-150 hover:border-gray-400/80 hover:bg-white disabled:cursor-not-allowed disabled:border-gray-200/60 disabled:bg-gray-100/60 disabled:text-gray-300 dark:border-white/[0.12] dark:bg-white/[0.04] dark:text-gray-300 dark:hover:border-white/[0.20] dark:hover:bg-white/[0.07] dark:disabled:border-white/[0.08] dark:disabled:bg-white/[0.04] dark:disabled:text-gray-500'
+  'flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl border border-border/80 bg-card/70 text-muted-foreground transition-colors duration-150 hover:border-border/80 hover:bg-card disabled:cursor-not-allowed disabled:border-border/60 disabled:bg-muted/60 disabled:text-foreground dark:hover:border-white/[0.20] dark:disabled:border-white/[0.08]'
 
 function useIsMobile() {
   const [isMobile, setIsMobile] = useState(window.innerWidth < 640)
@@ -1148,16 +1148,14 @@ export default function InputBar() {
           text={imageHintText}
         />
         {showDropBefore && (
-          <div className="absolute -left-[5px] top-0 bottom-0 w-[2px] bg-blue-500 rounded-full z-40 shadow-sm pointer-events-none" />
+          <div className="absolute -left-[5px] top-0 bottom-0 w-[2px] bg-primary rounded-full z-40 shadow-sm pointer-events-none" />
         )}
         {showDropAfter && (
-          <div className="absolute -right-[5px] top-0 bottom-0 w-[2px] bg-blue-500 rounded-full z-40 shadow-sm pointer-events-none" />
+          <div className="absolute -right-[5px] top-0 bottom-0 w-[2px] bg-primary rounded-full z-40 shadow-sm pointer-events-none" />
         )}
         <div
           className={`relative w-[52px] h-[52px] rounded-xl overflow-hidden shadow-sm cursor-grab active:cursor-grabbing select-none ${
-            isMaskTarget
-              ? 'border-2 border-blue-500'
-              : 'border border-gray-200 dark:border-white/[0.08]'
+            isMaskTarget ? 'border-2 border-primary' : 'border border-border'
           }`}
           onClick={() => {
             if (suppressImageClickRef.current) return
@@ -1185,7 +1183,7 @@ export default function InputBar() {
             </div>
           )}
           {isMaskTarget && (
-            <span className="absolute left-1 top-1 rounded bg-blue-500/90 px-1.5 py-0.5 text-[8px] leading-none text-white font-bold tracking-wider backdrop-blur-sm z-10 pointer-events-none">
+            <span className="absolute left-1 top-1 rounded bg-primary/90 px-1.5 py-0.5 text-[8px] leading-none text-primary-foreground font-bold tracking-wider backdrop-blur-sm z-10 pointer-events-none">
               MASK
             </span>
           )}
@@ -1209,7 +1207,7 @@ export default function InputBar() {
         </div>
         {!isMaskTarget && (
           <span
-            className="absolute right-0 top-0 flex h-5 w-5 translate-x-1/2 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full bg-red-500 text-white opacity-0 shadow-md transition-opacity hover:bg-red-600 group-hover:opacity-100 z-30"
+            className="absolute right-0 top-0 flex h-5 w-5 translate-x-1/2 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full bg-destructive text-white opacity-0 shadow-md transition-opacity hover:bg-destructive/90 group-hover:opacity-100 z-30"
             onClick={(e) => {
               e.stopPropagation()
               removeInputImage(idx)
@@ -1240,7 +1238,7 @@ export default function InputBar() {
           action: () => clearInputImages(),
         })
       }
-      className="w-[52px] h-[52px] rounded-xl border border-dashed border-gray-300 dark:border-white/[0.08] flex flex-col items-center justify-center gap-0.5 text-gray-400 dark:text-gray-500 hover:text-red-500 hover:border-red-300 hover:bg-red-50/50 dark:hover:bg-red-950/30 transition-all cursor-pointer flex-shrink-0"
+      className="w-[52px] h-[52px] rounded-xl border border-dashed border-border flex flex-col items-center justify-center gap-0.5 text-muted-foreground hover:text-destructive hover:border-destructive hover:bg-destructive/50 dark:hover:bg-destructive/30 transition-all cursor-pointer flex-shrink-0"
       title={maskTargetImage ? '清空遮罩主图、参考图和遮罩' : '清空全部参考图'}
     >
       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1305,18 +1303,18 @@ export default function InputBar() {
     <>
       {/* 全屏拖拽遮罩 */}
       {isDragging && (
-        <div className="fixed inset-0 z-[100] bg-white/60 dark:bg-gray-900/60 backdrop-blur-md flex flex-col items-center justify-center pointer-events-none">
+        <div className="fixed inset-0 z-[100] bg-card/60 backdrop-blur-md flex flex-col items-center justify-center pointer-events-none">
           <div className="flex flex-col items-center gap-4 p-8 rounded-3xl">
             <div
               className={`w-20 h-20 rounded-full border-2 border-dashed flex items-center justify-center ${
                 atImageLimit
-                  ? 'bg-red-50 dark:bg-red-500/10 border-red-300'
-                  : 'bg-blue-50 dark:bg-blue-500/10 border-blue-400'
+                  ? 'bg-destructive/10 dark:bg-destructive/10 border-destructive'
+                  : 'bg-primary/10 border-primary'
               }`}
             >
               {atImageLimit ? (
                 <svg
-                  className="w-10 h-10 text-red-400"
+                  className="w-10 h-10 text-destructive"
                   fill="none"
                   stroke="currentColor"
                   viewBox="0 0 24 24"
@@ -1330,7 +1328,7 @@ export default function InputBar() {
                 </svg>
               ) : (
                 <svg
-                  className="w-10 h-10 text-blue-500"
+                  className="w-10 h-10 text-primary"
                   fill="none"
                   stroke="currentColor"
                   viewBox="0 0 24 24"
@@ -1347,15 +1345,15 @@ export default function InputBar() {
             <div className="text-center">
               {atImageLimit ? (
                 <>
-                  <p className="text-lg font-semibold text-red-500">已达上限 {API_MAX_IMAGES} 张</p>
-                  <p className="text-sm text-gray-400 mt-1">请先移除部分参考图后再添加</p>
+                  <p className="text-lg font-semibold text-destructive">
+                    已达上限 {API_MAX_IMAGES} 张
+                  </p>
+                  <p className="text-sm text-muted-foreground mt-1">请先移除部分参考图后再添加</p>
                 </>
               ) : (
                 <>
-                  <p className="text-lg font-semibold text-gray-700 dark:text-gray-200">
-                    释放以添加参考图
-                  </p>
-                  <p className="text-sm text-gray-400 mt-1">支持 JPG、PNG、WebP 等格式</p>
+                  <p className="text-lg font-semibold text-foreground">释放以添加参考图</p>
+                  <p className="text-sm text-muted-foreground mt-1">支持 JPG、PNG、WebP 等格式</p>
                 </>
               )}
             </div>
@@ -1369,10 +1367,10 @@ export default function InputBar() {
       >
         {selectedTaskIds.length > 0 && (
           <div className="flex justify-center mb-3">
-            <div className="bg-white/90 dark:bg-gray-800/90 backdrop-blur shadow-[0_8px_30px_rgb(0,0,0,0.12)] dark:shadow-lg rounded-full flex items-center p-1 border border-gray-200/50 dark:border-white/10 pointer-events-auto">
+            <div className="bg-card/90 backdrop-blur shadow-[0_8px_30px_rgb(0,0,0,0.12)] dark:shadow-lg rounded-full flex items-center p-1 border border-border/50 pointer-events-auto">
               <button
                 onClick={clearSelection}
-                className="p-2 text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors"
+                className="p-2 text-muted-foreground hover:text-foreground dark:hover:text-white transition-colors"
                 title="取消选择"
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1384,10 +1382,10 @@ export default function InputBar() {
                   />
                 </svg>
               </button>
-              <div className="w-px h-5 bg-gray-200 dark:bg-white/20 mx-1"></div>
+              <div className="w-px h-5 bg-muted mx-1"></div>
               <button
                 onClick={handleSelectAllToggle}
-                className="p-2 text-blue-500 dark:text-blue-400 hover:text-blue-600 dark:hover:text-blue-300 transition-colors"
+                className="p-2 text-primary hover:text-primary transition-colors"
                 title={
                   selectedTaskIds.length === filteredTasks.length && filteredTasks.length > 0
                     ? '取消全选'
@@ -1424,10 +1422,10 @@ export default function InputBar() {
                   </svg>
                 )}
               </button>
-              <div className="w-px h-5 bg-gray-200 dark:bg-white/20 mx-1"></div>
+              <div className="w-px h-5 bg-muted mx-1"></div>
               <button
                 onClick={handleToggleFavorite}
-                className="p-2 text-yellow-500 dark:text-yellow-400 hover:text-yellow-600 dark:hover:text-yellow-300 transition-colors"
+                className="p-2 text-warning dark:text-warning hover:text-warning dark:hover:text-warning transition-colors"
                 title="收藏/取消收藏"
               >
                 {selectedTaskIds.length > 0 &&
@@ -1449,10 +1447,10 @@ export default function InputBar() {
                   </svg>
                 )}
               </button>
-              <div className="w-px h-5 bg-gray-200 dark:bg-white/20 mx-1"></div>
+              <div className="w-px h-5 bg-muted mx-1"></div>
               <button
                 onClick={handleDownloadSelected}
-                className="p-2 text-green-500 dark:text-green-400 hover:text-green-600 dark:hover:text-green-300 transition-colors"
+                className="p-2 text-success dark:text-success hover:text-success dark:hover:text-success transition-colors"
                 title="批量下载"
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1464,10 +1462,10 @@ export default function InputBar() {
                   />
                 </svg>
               </button>
-              <div className="w-px h-5 bg-gray-200 dark:bg-white/20 mx-1"></div>
+              <div className="w-px h-5 bg-muted mx-1"></div>
               <button
                 onClick={handleDeleteSelected}
-                className="p-2 text-red-500 dark:text-red-400 hover:text-red-600 dark:hover:text-red-300 transition-colors"
+                className="p-2 text-destructive dark:text-destructive hover:text-destructive dark:hover:text-destructive transition-colors"
                 title="删除选中"
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1484,14 +1482,14 @@ export default function InputBar() {
         )}
         <div
           ref={cardRef}
-          className={`relative bg-white/70 dark:bg-gray-900/70 backdrop-blur-2xl border border-white/50 dark:border-white/[0.08] shadow-[0_8px_30px_rgb(0,0,0,0.08)] dark:shadow-[0_8px_30px_rgb(0,0,0,0.3)] rounded-2xl sm:rounded-3xl ring-1 ring-black/5 dark:ring-white/10 ${barCollapsed ? 'p-2' : 'p-3 sm:p-4'}`}
+          className={`relative bg-white/70 bg-muted backdrop-blur-2xl border border-white/50 border-border shadow-[0_8px_30px_rgb(0,0,0,0.08)] dark:shadow-[0_8px_30px_rgb(0,0,0,0.3)] rounded-2xl sm:rounded-3xl ring-1 ring-black/5 dark:ring-white/10 ${barCollapsed ? 'p-2' : 'p-3 sm:p-4'}`}
         >
           {barCollapsed ? (
             <div className="flex items-center gap-2">
               <button
                 type="button"
                 onClick={() => setBarCollapsed(false)}
-                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-gray-500 hover:bg-gray-100/80 dark:text-gray-300 dark:hover:bg-white/[0.06]"
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-muted-foreground hover:bg-muted/80"
                 title="展开输入框"
               >
                 <svg
@@ -1507,7 +1505,7 @@ export default function InputBar() {
               <button
                 type="button"
                 onClick={() => setBarCollapsed(false)}
-                className="min-w-0 flex-1 truncate rounded-xl bg-gray-100/60 px-3 py-2 text-left text-sm text-gray-600 hover:bg-gray-100 dark:bg-white/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.07]"
+                className="min-w-0 flex-1 truncate rounded-xl bg-muted/60 px-3 py-2 text-left text-sm text-muted-foreground hover:bg-muted"
                 title="点击展开输入框"
               >
                 {prompt.trim() ? visiblePrompt : '点击展开输入框，输入新的 prompt...'}
@@ -1533,8 +1531,8 @@ export default function InputBar() {
                   disabled={hasSubmitApiConfig ? !canSubmit : false}
                   className={`inline-flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-xl px-4 text-sm font-medium shadow-sm transition-all duration-150 active:scale-[0.97] ${
                     !hasSubmitApiConfig
-                      ? 'bg-gray-200 text-gray-500 dark:bg-white/10 dark:text-gray-400'
-                      : 'bg-blue-500 text-white hover:bg-blue-600 disabled:cursor-not-allowed disabled:bg-gray-200 disabled:text-gray-400 disabled:shadow-none disabled:active:scale-100 dark:disabled:bg-white/10 dark:disabled:text-gray-500'
+                      ? 'bg-muted text-muted-foreground'
+                      : 'bg-primary text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground disabled:shadow-none disabled:active:scale-100 dark:disabled:bg-white/10'
                   }`}
                   title={
                     submissionGuard.disabledReason ??
@@ -1555,7 +1553,7 @@ export default function InputBar() {
               <button
                 type="button"
                 onClick={() => setBarCollapsed(true)}
-                className="absolute right-2 top-2 z-20 flex h-6 w-6 items-center justify-center rounded-md bg-white/60 text-gray-400 backdrop-blur-sm hover:bg-gray-100/80 hover:text-gray-600 dark:bg-gray-900/40 dark:hover:bg-white/[0.06] dark:hover:text-gray-200"
+                className="absolute right-2 top-2 z-20 flex h-6 w-6 items-center justify-center rounded-md bg-card/60 text-muted-foreground backdrop-blur-sm hover:bg-muted/80 hover:text-muted-foreground"
                 title="收起输入框（折叠成 mini bar）"
               >
                 <svg
@@ -1575,7 +1573,7 @@ export default function InputBar() {
                 onClick={() => setMobileCollapsed((v) => !v)}
               >
                 <div
-                  className={`w-10 h-1 rounded-full bg-gray-300 dark:bg-white/[0.06] transition-transform duration-200 ${mobileCollapsed ? 'scale-x-75' : ''}`}
+                  className={`w-10 h-1 rounded-full bg-muted transition-transform duration-200 ${mobileCollapsed ? 'scale-x-75' : ''}`}
                 />
               </div>
 
@@ -1587,7 +1585,7 @@ export default function InputBar() {
                       <div className="collapse-inner">{renderImageThumbs()}</div>
                     </div>
                     {mobileCollapsed && (
-                      <div className="text-xs text-gray-400 dark:text-gray-500 mb-2 ml-1">
+                      <div className="text-xs text-muted-foreground mb-2 ml-1">
                         {maskDraft
                           ? `1 张遮罩主图 · ${referenceImages.length} 张参考图`
                           : `${inputImages.length} 张参考图`}
@@ -1708,7 +1706,7 @@ export default function InputBar() {
                     type="button"
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={handleClearPrompt}
-                    className="absolute right-1 top-1 flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 dark:text-gray-500 dark:hover:bg-white/[0.06] dark:hover:text-gray-200"
+                    className="absolute right-1 top-1 flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-muted-foreground"
                     title="清空提示词"
                     aria-label="清空提示词"
                   >
@@ -1734,8 +1732,8 @@ export default function InputBar() {
                       onClick={() => !attachDisabled && fileInputRef.current?.click()}
                       className={`flex h-10 w-10 items-center justify-center rounded-xl border transition-colors duration-150 ${
                         attachDisabled
-                          ? 'border-gray-200/60 bg-gray-100/60 text-gray-300 cursor-not-allowed dark:border-white/[0.08] dark:bg-white/[0.04] dark:text-gray-500'
-                          : 'border-gray-300/80 bg-white/70 text-gray-500 hover:border-gray-400/80 hover:bg-white dark:border-white/[0.12] dark:bg-white/[0.04] dark:text-gray-300 dark:hover:border-white/[0.20] dark:hover:bg-white/[0.07]'
+                          ? 'border-border/60 bg-muted/60 text-foreground cursor-not-allowed'
+                          : 'border-border/80 bg-card/70 text-muted-foreground hover:border-border/80 hover:bg-card dark:hover:border-white/[0.20]'
                       }`}
                       title={attachDisabled ? attachDisabledReason : '添加参考图'}
                     >
@@ -1745,7 +1743,7 @@ export default function InputBar() {
                   <button
                     type="button"
                     onClick={openLibrary}
-                    className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl border border-gray-300/80 bg-white/70 text-gray-500 transition-colors duration-150 hover:border-gray-400/80 hover:bg-white dark:border-white/[0.12] dark:bg-white/[0.04] dark:text-gray-300 dark:hover:border-white/[0.20] dark:hover:bg-white/[0.07]"
+                    className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl border border-border/80 bg-card/70 text-muted-foreground transition-colors duration-150 hover:border-border/80 hover:bg-card dark:hover:border-white/[0.20]"
                     title="素材与模板"
                   >
                     <LibraryIcon className="h-5 w-5" />
@@ -1782,8 +1780,8 @@ export default function InputBar() {
                       disabled={hasSubmitApiConfig ? !canSubmit : false}
                       className={`group/gen relative inline-flex h-12 items-center justify-center gap-1.5 overflow-hidden rounded-xl pl-3.5 pr-5 text-sm font-semibold leading-none transition-all duration-200 active:scale-[0.97] ${
                         !hasSubmitApiConfig
-                          ? 'bg-gray-200 text-gray-500 dark:bg-white/10 dark:text-gray-400'
-                          : 'bg-gradient-to-b from-blue-400 to-blue-600 text-white shadow-lg shadow-blue-500/30 ring-1 ring-inset ring-white/20 hover:from-blue-400 hover:to-blue-500 hover:shadow-blue-500/40 hover:shadow-xl disabled:cursor-not-allowed disabled:bg-gray-200 disabled:bg-none disabled:text-gray-400 disabled:shadow-none disabled:ring-0 disabled:active:scale-100 dark:disabled:bg-white/10 dark:disabled:text-gray-500'
+                          ? 'bg-muted text-muted-foreground'
+                          : 'bg-primary text-primary-foreground shadow-lg shadow-primary/30 ring-1 ring-inset ring-white/20 hover:bg-primary/90 hover:shadow-primary/40 hover:shadow-xl disabled:cursor-not-allowed disabled:bg-muted disabled:bg-none disabled:text-muted-foreground disabled:shadow-none disabled:ring-0 disabled:active:scale-100 dark:disabled:bg-white/10'
                       }`}
                       title={
                         submissionGuard.disabledReason ??
@@ -1841,8 +1839,8 @@ export default function InputBar() {
                         onClick={() => !attachDisabled && fileInputRef.current?.click()}
                         className={`flex h-10 w-10 items-center justify-center rounded-xl border transition-colors duration-150 flex-shrink-0 ${
                           attachDisabled
-                            ? 'border-gray-200/60 bg-gray-100/60 text-gray-300 cursor-not-allowed dark:border-white/[0.08] dark:bg-white/[0.04] dark:text-gray-500'
-                            : 'border-gray-300/80 bg-white/70 text-gray-500 hover:border-gray-400/80 hover:bg-white dark:border-white/[0.12] dark:bg-white/[0.04] dark:text-gray-300 dark:hover:border-white/[0.20] dark:hover:bg-white/[0.07]'
+                            ? 'border-border/60 bg-muted/60 text-foreground cursor-not-allowed'
+                            : 'border-border/80 bg-card/70 text-muted-foreground hover:border-border/80 hover:bg-card dark:hover:border-white/[0.20]'
                         }`}
                         title={attachDisabled ? attachDisabledReason : '添加参考图'}
                       >
@@ -1852,7 +1850,7 @@ export default function InputBar() {
                     <button
                       type="button"
                       onClick={openLibrary}
-                      className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl border border-gray-300/80 bg-white/70 text-gray-500 transition-colors duration-150 dark:border-white/[0.12] dark:bg-white/[0.04] dark:text-gray-300"
+                      className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl border border-border/80 bg-card/70 text-muted-foreground transition-colors duration-150"
                       title="素材与模板"
                     >
                       <LibraryIcon className="h-5 w-5" />
@@ -1887,8 +1885,8 @@ export default function InputBar() {
                         disabled={hasSubmitApiConfig ? !canSubmit : false}
                         className={`w-full inline-flex h-10 items-center justify-center gap-1.5 rounded-xl px-3.5 text-xs font-medium shadow-sm transition-all duration-150 active:scale-[0.97] ${
                           !hasSubmitApiConfig
-                            ? 'bg-gray-200 text-gray-500 dark:bg-white/10 dark:text-gray-400'
-                            : 'bg-blue-500 text-white hover:bg-blue-600 disabled:cursor-not-allowed disabled:bg-gray-200 disabled:text-gray-400 disabled:shadow-none disabled:active:scale-100 dark:disabled:bg-white/10 dark:disabled:text-gray-500'
+                            ? 'bg-muted text-muted-foreground'
+                            : 'bg-primary text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground disabled:shadow-none disabled:active:scale-100 dark:disabled:bg-white/10'
                         }`}
                       >
                         {ChipIcons.sparkles}
