@@ -41,6 +41,7 @@ it('roundtrips binary images and structured values without collisions with user 
   const original = {
     id: 'image',
     blob: new Blob(['pixels'], { type: 'image/png' }),
+    file: new File(['draft pixels'], 'reference.png', { type: 'image/png', lastModified: 12345 }),
     date: new Date('2026-09-16'),
     type: 'blob',
     map: new Map([['id', 3]]),
@@ -50,6 +51,9 @@ it('roundtrips binary images and structured values without collisions with user 
   const decoded = unpack(JSON.parse(JSON.stringify(await pack(original)))) as typeof original
   expect(await decoded.blob.text()).toBe('pixels')
   expect(decoded.blob.type).toBe('image/png')
+  expect(decoded.file.name).toBe('reference.png')
+  expect(decoded.file.lastModified).toBe(12345)
+  expect(await decoded.file.text()).toBe('draft pixels')
   expect(decoded.date).toEqual(original.date)
   expect(decoded.map).toEqual(original.map)
   expect(decoded.bytes).toEqual(original.bytes)
@@ -90,25 +94,28 @@ it('does not import foreign storage or database namespaces', async () => {
   await expect(importEntry({ ...database, name: 'another-app' })).rejects.toThrow()
 })
 
-it('preserves the fixed v1 canvas schema and does not archive identical records on retry', async () => {
+it.each([
+  ['image-playground-canvas', 'scene'],
+  ['image-playground-agent-drafts', 'drafts'],
+])('preserves the fixed v1 schema of %s without duplicate retry backups', async (databaseName, storeName) => {
   const meta: StorageEntry = {
     kind: 'database',
-    name: 'image-playground-canvas',
+    name: databaseName,
     version: 1,
-    stores: [{ name: 'scene', keyPath: null, autoIncrement: false, indexes: [] }],
+    stores: [{ name: storeName, keyPath: null, autoIncrement: false, indexes: [] }],
   }
   await importEntry(meta)
   const row: StorageEntry = {
     kind: 'record',
     database: meta.name,
-    store: 'scene',
+    store: storeName,
     key: await pack('scene'),
     value: await pack({ version: 2, elements: [{ id: 'legacy' }], files: {} }),
   }
   await importEntry(row)
   await importEntry(row)
   const opened = await new Promise<IDBDatabase>((resolve, reject) => {
-    const req = indexedDB.open('image-playground-canvas', 1)
+    const req = indexedDB.open(databaseName, 1)
     req.onsuccess = () => resolve(req.result)
     req.onerror = () => reject(req.error)
   })
