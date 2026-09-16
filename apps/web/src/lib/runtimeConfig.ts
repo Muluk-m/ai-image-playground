@@ -32,6 +32,9 @@ export async function loadRuntimeConfig(fetcher: Fetcher = fetch): Promise<Runti
     })
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
     cached = parseRuntimeConfig(await res.json())
+    const origin = globalThis.location?.origin
+    const scopedBaseUrl = origin && cached.bff.baseUrlsByOrigin?.[origin]
+    if (scopedBaseUrl) cached = { ...cached, bff: { ...cached.bff, baseUrl: scopedBaseUrl } }
   } catch (err) {
     if (import.meta.env.MODE !== 'test') {
       console.info(

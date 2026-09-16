@@ -5,6 +5,8 @@
  *
  * operator 通过这个文件显式 opt-in BFF 功能。文件不存在 = 纯静态 BYOK 模式。
  */
+import { parseRuntimeOrigins } from './runtime-origins.mjs'
+
 export interface RuntimeConfig {
   bff: RuntimeBffConfig
 }
@@ -17,6 +19,8 @@ export interface RuntimeBffConfig {
    * 跨域部署（如 cf tunnel）时填具体 origin（不带尾斜杠）。
    */
   baseUrl: string
+  /** 多个前端域名共享发布包时，各自保持原 API 的第一方登录 Cookie。 */
+  baseUrlsByOrigin?: Record<string, string>
 }
 
 /**
@@ -42,10 +46,18 @@ export function parseRuntimeConfig(input: unknown): RuntimeConfig {
   if (typeof bffRaw.baseUrl !== 'string')
     throw new RuntimeConfigParseError('bff.baseUrl must be string')
 
+  let baseUrlsByOrigin: Record<string, string> | undefined
+  try {
+    baseUrlsByOrigin = parseRuntimeOrigins(bffRaw.baseUrlsByOrigin)
+  } catch (error) {
+    throw new RuntimeConfigParseError((error as Error).message)
+  }
+
   return {
     bff: {
       enabled: bffRaw.enabled,
       baseUrl: bffRaw.baseUrl.replace(/\/+$/, ''),
+      ...(baseUrlsByOrigin ? { baseUrlsByOrigin } : {}),
     },
   }
 }
