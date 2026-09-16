@@ -13,6 +13,7 @@ import {
 import { useSyncStatus } from '../lib/sync/status'
 import { dismissAllTooltips } from '../lib/tooltipDismiss'
 import { APP_MODE_LABELS, useStore, visibleAppModes } from '../store'
+import BrandAvatar from './BrandAvatar'
 import { LibraryIcon, SettingsIcon, SparkleIcon } from './icons'
 import LogoutDialog from './LogoutDialog'
 import ViewportTooltip from './ViewportTooltip'
@@ -166,7 +167,7 @@ export default function Header() {
                     className="relative grid h-8 w-8 place-items-center rounded-full bg-primary text-xs font-semibold text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                   >
                     {auth.user ? (
-                      Array.from(auth.user.username)[0]?.toUpperCase()
+                      <BrandAvatar />
                     ) : (
                       <SettingsIcon className="h-4 w-4" aria-hidden="true" />
                     )}
