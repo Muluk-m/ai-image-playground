@@ -7,6 +7,8 @@ import type {
   AgentTurnStopReason,
   AgentTurnUsage,
   PersistedSubmitRequest,
+  ProjectDocument,
+  ProjectReceipt,
   QueueProvider,
   TaskKind,
   TaskStatus,
@@ -208,6 +210,24 @@ export const user_sync_state = pgTable('user_sync_state', {
     .references(() => users.id, { onDelete: 'cascade' }),
   version: integer('version').notNull().default(0),
 })
+
+export const canvas_projects = pgTable(
+  'canvas_projects',
+  {
+    id: text('id').primaryKey(),
+    user_id: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    revision: integer('revision').notNull(),
+    document: bunJsonb('document').$type<ProjectDocument>().notNull(),
+    element_count: integer('element_count').notNull(),
+    receipts: bunJsonb('receipts').$type<ProjectReceipt[]>().notNull(),
+    created_at: epochMs('created_at').notNull(),
+    updated_at: epochMs('updated_at').notNull(),
+  },
+  (t) => [index('idx_canvas_projects_owner_id').on(t.user_id, t.id)],
+)
 
 /**
  * 智能体会话。归属 `user_id` 或 `device_id`，二者互斥：设备登录后会话改挂到用户。

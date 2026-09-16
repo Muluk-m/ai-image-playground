@@ -15,6 +15,7 @@ import { domainMigrationRoutes } from './routes/domain-migration'
 import { internalUserRoutes } from './routes/internal-users'
 import { matteRoutes } from './routes/matte'
 import { oauthRoutes } from './routes/oauth'
+import { projectRoutes } from './routes/projects'
 import { remixAnalyzeRoutes } from './routes/remix-analyze'
 import { remixListingRoutes } from './routes/remix-listing'
 import { resultRoutes } from './routes/result'
@@ -142,6 +143,7 @@ export const app = new Elysia()
   .use(storyboardPlanRoutes)
   .use(agentRoutes)
   .use(syncRoutes)
+  .use(projectRoutes)
   .use(internalUserRoutes)
   .use(internalCapabilitiesRoutes)
   .use(privateBffOverlay.routes)

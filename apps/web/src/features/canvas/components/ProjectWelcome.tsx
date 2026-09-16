@@ -4,6 +4,7 @@ import { useAgentStore } from '../../agent/store'
 import { useLibraryStore } from '../../library/store'
 import type { CanvasWorkspace } from '../lib/workspaces'
 import ProjectGrid from './ProjectGrid'
+import ProjectSyncStatus from './ProjectSyncStatus'
 
 export default function ProjectWelcome({ workspace }: { workspace: CanvasWorkspace }) {
   const error = useAgentStore((state) => state.error)
@@ -30,6 +31,11 @@ export default function ProjectWelcome({ workspace }: { workspace: CanvasWorkspa
           </p>
         </div>
         <div className="w-full">
+          {workspace.cloud && (
+            <div className="mb-3">
+              <ProjectSyncStatus session={workspace.cloud} />
+            </div>
+          )}
           <AgentComposer doc={workspace.doc} editor={workspace.editor} welcome />
           <AgentHistoryStatus />
           {error && !historyFailed && (
