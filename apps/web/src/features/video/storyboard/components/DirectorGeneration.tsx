@@ -7,7 +7,15 @@ import {
 } from '@image-playground/shared'
 import { useState } from 'react'
 import Credits from '../../../../components/Credits'
+import Field from '../../../../components/Field'
 import SubmissionBillingAction from '../../../../components/SubmissionBillingAction'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../../../../components/ui/select'
 import { videoModelOptions } from '../../../../lib/channels/videoChannels'
 import { usePrivateSubmissionGuard } from '../../../../lib/privateOverlay'
 import { useStore } from '../../../../store'
@@ -131,51 +139,59 @@ export default function DirectorGeneration({
           当前镜头 · {shot?.seconds ?? 0} 秒
         </button>
       </div>
-      <label>
-        视频模型
-        <select
-          aria-label="分镜视频模型"
+      <Field label="视频模型">
+        <Select
           value={draft.model}
-          onChange={(e) => useVideoStore.getState().setModel(e.target.value)}
+          onValueChange={(value) => useVideoStore.getState().setModel(value)}
         >
-          {!option && <option value="">选择模型</option>}
-          {options.map((item) => (
-            <option key={item.modelId} value={item.modelId}>
-              {item.label}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label>
-        清晰度
-        <select
-          aria-label="分镜视频清晰度"
+          <SelectTrigger aria-label="分镜视频模型">
+            <SelectValue placeholder="选择模型" />
+          </SelectTrigger>
+          <SelectContent>
+            {options.map((item) => (
+              <SelectItem key={item.modelId} value={item.modelId}>
+                {item.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </Field>
+      <Field label="清晰度">
+        <Select
           value={draft.resolution}
-          onChange={(e) =>
-            useVideoStore.getState().setResolution(e.target.value as typeof draft.resolution)
+          onValueChange={(value) =>
+            useVideoStore.getState().setResolution(value as typeof draft.resolution)
           }
         >
-          {option?.support.resolutions.map((r) => (
-            <option key={r} value={r}>
-              {VIDEO_RESOLUTION_LABELS[r]}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label>
-        视频时长
-        <select
-          aria-label="分镜视频时长"
-          value={seconds}
-          onChange={(e) => setSelectedSeconds(Number(e.target.value))}
+          <SelectTrigger aria-label="分镜视频清晰度">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {option?.support.resolutions.map((r) => (
+              <SelectItem key={r} value={r}>
+                {VIDEO_RESOLUTION_LABELS[r]}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </Field>
+      <Field label="视频时长">
+        <Select
+          value={String(seconds)}
+          onValueChange={(value) => setSelectedSeconds(Number(value))}
         >
-          {durations.map((duration) => (
-            <option key={duration} value={duration}>
-              {duration} 秒
-            </option>
-          ))}
-        </select>
-      </label>
+          <SelectTrigger aria-label="分镜视频时长">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {durations.map((duration) => (
+              <SelectItem key={duration} value={String(duration)}>
+                {duration} 秒
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </Field>
       {seconds !== sourceSeconds && (
         <p className="vd-muted">
           原分镜 {sourceSeconds} 秒，本次按 {seconds} 秒生成，镜头节奏将相应调整。

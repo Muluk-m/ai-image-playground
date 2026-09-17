@@ -44,9 +44,64 @@ const record: StoryboardRecord = {
     },
   ],
 }
+
+// Radix 的下拉要用 pointer capture 和 scrollIntoView，jsdom 两样都没有；补上之后才能
+// 像真人一样打开它、点一项。选项渲染在 portal 里，所以从 document 找而不是从 host 找。
+function stubPointerApis(): void {
+  const proto = Element.prototype as unknown as Record<string, unknown>
+  proto.hasPointerCapture = () => false
+  proto.setPointerCapture = () => {}
+  proto.releasePointerCapture = () => {}
+  proto.scrollIntoView = () => {}
+  const globals = globalThis as unknown as Record<string, unknown>
+  globals.ResizeObserver ??= class {
+    observe(): void {}
+    unobserve(): void {}
+    disconnect(): void {}
+  }
+  globals.DOMRect ??= class {
+    constructor(
+      readonly x = 0,
+      readonly y = 0,
+      readonly width = 0,
+      readonly height = 0,
+    ) {}
+  }
+}
+
+// Radix 只认 pointerType 是 mouse 的指针事件，而 jsdom 既没有 PointerEvent 也不会给
+// MouseEvent 补这个属性。
+function pointer(type: string): MouseEvent {
+  const event = new MouseEvent(type, { bubbles: true, button: 0 })
+  Object.defineProperty(event, 'pointerType', { value: 'mouse' })
+  Object.defineProperty(event, 'pointerId', { value: 1 })
+  return event
+}
+
+function chooseOption(triggerLabel: string, optionText: string): void {
+  const trigger = document.querySelector<HTMLElement>(`[aria-label="${triggerLabel}"]`)
+  if (!trigger) throw new Error(`no trigger ${triggerLabel}`)
+  act(() => {
+    trigger.dispatchEvent(pointer('pointerdown'))
+  })
+  const option = Array.from(document.querySelectorAll('[role="option"]')).find(
+    (node) => node.textContent?.trim() === optionText,
+  )
+  if (!option) throw new Error(`no option ${optionText}`)
+  act(() => {
+    option.dispatchEvent(pointer('pointermove'))
+    option.dispatchEvent(pointer('pointerup'))
+  })
+}
+
+function triggerText(label: string): string {
+  return document.querySelector<HTMLElement>(`[aria-label="${label}"]`)?.textContent?.trim() ?? ''
+}
+
 let host: HTMLDivElement
 let root: Root
 beforeEach(() => {
+  stubPointerApis()
   vi.stubGlobal('indexedDB', new IDBFactory())
   setChannels([AGNES_CHANNEL])
   useVideoStore.setState({
@@ -76,16 +131,11 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 it('15秒分镜在Agnes下默认10秒，提供模型支持的时长并按所选时长计费和提交', async () => {
-  const select = host.querySelector<HTMLSelectElement>('[aria-label="分镜视频时长"]')!
-  expect(Array.from(select.options, (option) => option.value)).toEqual(['5', '8', '10'])
-  expect(select.value).toBe('10')
+  expect(triggerText('分镜视频时长')).toBe('10 秒')
   expect(host.textContent).toContain('原分镜 15 秒，本次按 10 秒生成')
   expect(host.textContent).not.toContain('时长只支持')
   expect(guard).toHaveBeenLastCalledWith(expect.objectContaining({ quantity: 10 }))
-  act(() => {
-    select.value = '8'
-    select.dispatchEvent(new Event('change', { bubbles: true }))
-  })
+  chooseOption('分镜视频时长', '8 秒')
   expect(guard).toHaveBeenLastCalledWith(expect.objectContaining({ quantity: 8 }))
   const submit = vi
     .spyOn(useStoryboardStore.getState(), 'generateWholeVideo')
@@ -103,11 +153,7 @@ it('切换到单镜时采用镜头时长，仍可选择10秒', () => {
       .find((button) => button.textContent?.includes('当前镜头'))!
       .click(),
   )
-  const select = host.querySelector<HTMLSelectElement>('[aria-label="分镜视频时长"]')!
-  expect(select.value).toBe('5')
-  act(() => {
-    select.value = '10'
-    select.dispatchEvent(new Event('change', { bubbles: true }))
-  })
+  expect(triggerText('分镜视频时长')).toBe('5 秒')
+  chooseOption('分镜视频时长', '10 秒')
   expect(host.textContent).toContain('生成 10 秒视频')
 })
