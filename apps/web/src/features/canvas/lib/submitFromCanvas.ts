@@ -1,3 +1,4 @@
+import { i18next } from '../../../i18n'
 import { callImageApi } from '../../../lib/api'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/apiProfiles'
 import { isClientCapabilityEnabled } from '../../../lib/clientCapabilities'
@@ -128,7 +129,10 @@ export async function submitFromCanvas(editor: CanvasEditor, userPrompt: string)
     quantity,
   })
   if (submissionGuard.blocked) {
-    showToast(submissionGuard.disabledReason ?? '当前无法生成', 'error')
+    showToast(
+      submissionGuard.disabledReason ?? i18next.t('submit.blocked', { ns: 'canvas' }),
+      'error',
+    )
     return
   }
   const trimmed = userPrompt.trim()
@@ -136,12 +140,12 @@ export async function submitFromCanvas(editor: CanvasEditor, userPrompt: string)
   const selection = await rasterizeSelection(editor)
   // 守卫：选中了图片但栅格化全部失败 → 明确报错，绝不静默降级成文生图。
   if (!selection && analyzeSelection(editor)) {
-    showToast('选中图片处理失败，请重试', 'error')
+    showToast(i18next.t('submit.rasterizeFailed', { ns: 'canvas' }), 'error')
     return
   }
   const inputImageDataUrls = selection?.dataUrls ?? []
   if (!trimmed && inputImageDataUrls.length === 0) {
-    showToast('请输入提示词，或先在画布上选中图片', 'error')
+    showToast(i18next.t('submit.emptyInput', { ns: 'canvas' }), 'error')
     return
   }
 
@@ -194,7 +198,12 @@ export function retryCanvasTask(editor: CanvasEditor, placeholder: PlaceholderVi
     quantity: retryQuantity,
   })
   if (submissionGuard.blocked) {
-    useStore.getState().showToast(submissionGuard.disabledReason ?? '当前无法生成', 'error')
+    useStore
+      .getState()
+      .showToast(
+        submissionGuard.disabledReason ?? i18next.t('submit.blocked', { ns: 'canvas' }),
+        'error',
+      )
     return
   }
   const runtime = getCanvasTask(meta.taskId)
@@ -203,9 +212,7 @@ export function retryCanvasTask(editor: CanvasEditor, placeholder: PlaceholderVi
   // 守卫：原任务带输入图但运行态已随页面关闭清空（输入图刻意不持久化，决策 2/6）——
   // 此时静默重发会退化成文生图、产出与原意无关的垃圾结果。明确报错，让用户重新选图发起。
   if ((meta.inputCount ?? 0) > 0 && inputImageDataUrls.length === 0) {
-    useStore
-      .getState()
-      .showToast('原任务的输入图已随页面关闭丢失，请重新选中图片后发起生成', 'error')
+    useStore.getState().showToast(i18next.t('submit.inputsLost', { ns: 'canvas' }), 'error')
     return
   }
 

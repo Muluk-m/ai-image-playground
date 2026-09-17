@@ -1,4 +1,5 @@
 import { type FormEvent, useState } from 'react'
+import { useTranslation } from '../../../i18n'
 import { CARD, CARD_NOTE, CARD_TITLE, CHOICE, CHOICE_FIELD, CHOICE_SUBMIT } from '../agentStyles'
 import { useAgentStore } from '../store'
 import type { AgentClarificationMessage } from '../types'
@@ -10,6 +11,7 @@ export default function AgentClarification({
   message: AgentClarificationMessage
   answered: boolean
 }) {
+  const { t } = useTranslation('agent')
   const running = useAgentStore((state) => state.turn === 'running')
   const [writing, setWriting] = useState(false)
   const [other, setOther] = useState('')
@@ -43,10 +45,10 @@ export default function AgentClarification({
             <input
               // 用户刚点了「其他」，下一步就是打字。
               autoFocus
-              aria-label="其他回答"
+              aria-label={t('clarification.otherAria')}
               value={other}
               disabled={running}
-              placeholder="说说你想要的"
+              placeholder={t('clarification.otherPlaceholder')}
               className={CHOICE_FIELD}
               onChange={(event) => setOther(event.target.value)}
               // 输入法选词的回车不是提交。
@@ -55,7 +57,7 @@ export default function AgentClarification({
               }}
             />
             <button type="submit" disabled={locked || !answer} className={CHOICE_SUBMIT}>
-              发送
+              {t('composer.send')}
             </button>
           </form>
         ) : (
@@ -65,11 +67,11 @@ export default function AgentClarification({
             className={`${CHOICE} text-muted-foreground`}
             onClick={() => setWriting(true)}
           >
-            其他…
+            {t('clarification.other')}
           </button>
         )}
       </div>
-      {answered && <p className={CARD_NOTE}>已回答</p>}
+      {answered && <p className={CARD_NOTE}>{t('clarification.answered')}</p>}
     </div>
   )
 }

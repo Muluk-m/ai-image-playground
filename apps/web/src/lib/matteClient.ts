@@ -1,10 +1,11 @@
 import { type MatteResponse, parseMatteResponse } from '@image-playground/shared'
+import { i18next } from '../i18n'
 import { authenticatedBffFetch } from './authClient'
 import { bffBaseUrl } from './runtimeConfig'
 
 type Fetcher = (input: string, init?: RequestInit) => Promise<Response>
 
-const UNAVAILABLE = '服务端抠图没有返回可用的蒙版'
+const unavailable = (): string => i18next.t('bffClient.matteUnavailable', { ns: 'lib' })
 
 export async function requestServerMatte(
   image: string,
@@ -33,6 +34,6 @@ export async function requestServerMatte(
 
 async function parseResponse(response: Response): Promise<MatteResponse> {
   const parsed = response.ok ? parseMatteResponse(await response.json()) : null
-  if (!parsed) throw new Error(UNAVAILABLE)
+  if (!parsed) throw new Error(unavailable())
   return parsed
 }

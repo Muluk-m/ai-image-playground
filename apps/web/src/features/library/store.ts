@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { describeError, i18next } from '../../i18n'
 import { API_MAX_IMAGES, MAX_INPUT_IMAGES_MESSAGE } from '../../lib/inputImageLimit'
 import { ensureAssetImage } from '../../lib/sync/assetImages'
 import { ensureImageCached, storeImageFromFile, useStore } from '../../store'
@@ -111,7 +112,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     await assetStore.put(asset)
     set((s) => ({ assets: [...s.assets, asset], pendingAssetNames: s.pendingAssetNames.slice(1) }))
     if (pending?.imageId === imageId) pending.onSaved?.(asset)
-    useStore.getState().showToast('已存为素材', 'success')
+    useStore.getState().showToast(i18next.t('library:toast.assetSaved'), 'success')
   },
 
   renameAsset: async (id, name) => {
@@ -137,7 +138,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
       await writeAsset(set, { ...asset, lastUsedAt: Date.now() })
       if (get().panelOpen) {
         get().closePanel()
-        main.showToast('已填入首帧', 'success')
+        main.showToast(i18next.t('library:toast.firstFrameFilled'), 'success')
       }
       return null
     }
@@ -152,7 +153,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
       await ensureAssetImage(asset.imageId)
       const dataUrl = await ensureImageCached(asset.imageId)
       if (!dataUrl) {
-        main.showToast('素材图片已丢失', 'error')
+        main.showToast(i18next.t('library:toast.assetImageMissing'), 'error')
         return null
       }
       main.addInputImage({ id: asset.imageId, dataUrl })
@@ -162,7 +163,12 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     // 面板外（composer 的 `@` 菜单）插入的引用胶囊本身就是反馈，再 toast 是噪音。
     if (get().panelOpen) {
       get().closePanel()
-      main.showToast(already ? '已在参考图中' : '已加入参考图', already ? 'info' : 'success')
+      main.showToast(
+        already
+          ? i18next.t('library:toast.alreadyInReferences')
+          : i18next.t('library:toast.addedToReferences'),
+        already ? 'info' : 'success',
+      )
     }
     const index = useStore.getState().inputImages.findIndex((img) => img.id === asset.imageId)
     return index >= 0 ? index : null
@@ -181,7 +187,10 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
       } catch (e) {
         useStore
           .getState()
-          .showToast(`图片添加失败：${e instanceof Error ? e.message : String(e)}`, 'error')
+          .showToast(
+            i18next.t('library:toast.imageAddFailed', { reason: describeError(e) }),
+            'error',
+          )
       }
     }
   },
@@ -207,7 +216,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     }
     await templateStore.put(template)
     set((s) => ({ templates: [...s.templates, template], namingTemplate: false }))
-    main.showToast('已存为模板', 'success')
+    main.showToast(i18next.t('library:toast.templateSaved'), 'success')
   },
 
   savePromptTemplate: async (name, prompt) => {
@@ -226,7 +235,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     }
     await templateStore.put(template)
     set((s) => ({ templates: [...s.templates, template] }))
-    useStore.getState().showToast('已存为模板，可在我的资产中查看', 'success')
+    useStore.getState().showToast(i18next.t('library:toast.promptTemplateSaved'), 'success')
   },
 
   renameTemplate: async (id, name) => {
@@ -251,10 +260,10 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
 
     if (main.prompt.trim()) {
       main.setConfirmDialog({
-        title: '替换当前输入？',
-        message: `将以模板「${template.name}」的提示词、参考图与参数覆盖当前输入。`,
-        confirmText: '替换并套用',
-        cancelText: '取消',
+        title: i18next.t('library:template.replaceTitle'),
+        message: i18next.t('library:template.replaceMessage', { name: template.name }),
+        confirmText: i18next.t('library:template.replaceConfirm'),
+        cancelText: i18next.t('action.cancel'),
         showCancel: true,
         tone: 'warning',
         action: () => void writeTemplateIntoComposer(set, get, template),

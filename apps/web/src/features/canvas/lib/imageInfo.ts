@@ -1,3 +1,4 @@
+import { i18next } from '../../../i18n'
 import type { CanvasDoc, CanvasEl, ImageEl } from './canvasDoc'
 import { getLoadedImage } from './imageCache'
 
@@ -6,7 +7,7 @@ export function canvasImageName(image: ImageEl): string {
     image.name?.trim() ||
     image.meta?.filename?.trim() ||
     image.meta?.prompt?.trim() ||
-    `${image.video ? '视频' : '图片'}-${(image.fileId || image.id).replace(/^el_/, '')}`
+    `${i18next.t(image.video ? 'imageName.video' : 'imageName.image', { ns: 'canvas' })}-${(image.fileId || image.id).replace(/^el_/, '')}`
   )
 }
 

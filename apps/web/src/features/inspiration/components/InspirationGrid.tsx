@@ -1,4 +1,5 @@
 import { useMemo } from 'react'
+import { useTranslation } from '../../../i18n'
 import { useStore } from '../../../store'
 import { type InspirationProviderFilter, useInspirationStore } from '../store'
 import type { InspirationItem } from '../types'
@@ -11,6 +12,7 @@ export default function InspirationGrid() {
   const searchKeyword = useInspirationStore((s) => s.searchKeyword)
   const showDetail = useInspirationStore((s) => s.showDetail)
   const pinnedIds = useStore((s) => s.pinnedInspirationIds)
+  const { t } = useTranslation('inspiration')
 
   const ordered = useMemo(
     () =>
@@ -25,7 +27,7 @@ export default function InspirationGrid() {
   if (ordered.length === 0) {
     return (
       <div className="flex h-64 items-center justify-center text-sm text-muted-foreground">
-        {items.length === 0 ? '加载中…' : '没有符合条件的灵感'}
+        {items.length === 0 ? t('list.loading') : t('list.empty')}
       </div>
     )
   }

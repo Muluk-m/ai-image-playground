@@ -1,5 +1,6 @@
 import { storyboardRangeLabel } from '@image-playground/shared'
 import { zipSync } from 'fflate'
+import { i18next } from '../../../../i18n'
 import { dataUrlToBlob } from '../../../../lib/canvasImage'
 import { downloadBlob } from '../../../../lib/downloadImages'
 import { sanitizePathSegment } from '../../../../lib/imageExport'
@@ -18,21 +19,24 @@ export function storyboardMarkdown(record: StoryboardRecord): string {
     '',
     record.summary,
     '',
-    `## 整条视频提示词 · ${record.totalSeconds} 秒`,
+    `## ${i18next.t('export.videoPromptHeading', { ns: 'video', seconds: record.totalSeconds })}`,
     '',
     record.videoPrompt,
     '',
   ]
   for (const shot of record.shots) {
     lines.push(
-      `## 镜 ${shot.no} · ${shot.title}`,
+      `## ${i18next.t('export.shotHeading', { ns: 'video', no: shot.no, title: shot.title })}`,
       '',
-      `- 时间：${storyboardRangeLabel(shot)} 秒`,
-      `- 画面：${shot.description}`,
-      `- 运镜：${shot.camera}`,
-      `- 台词：${shot.line || '（无）'}`,
-      `- 图片提示词：${shot.imagePrompt}`,
-      `- 视频提示词：${shot.videoPrompt}`,
+      `- ${i18next.t('export.time', { ns: 'video', value: storyboardRangeLabel(shot) })}`,
+      `- ${i18next.t('export.frame', { ns: 'video', value: shot.description })}`,
+      `- ${i18next.t('export.camera', { ns: 'video', value: shot.camera })}`,
+      `- ${i18next.t('export.line', {
+        ns: 'video',
+        value: shot.line || i18next.t('export.noLine', { ns: 'video' }),
+      })}`,
+      `- ${i18next.t('export.imagePrompt', { ns: 'video', value: shot.imagePrompt })}`,
+      `- ${i18next.t('export.videoPrompt', { ns: 'video', value: shot.videoPrompt })}`,
       '',
     )
   }
@@ -50,7 +54,8 @@ export function storyboardExportJson(record: StoryboardRecord): string {
 
 function shotFileName(no: number, mime: string): string {
   const extension = MIME_EXTENSIONS[mime] ?? mime.split('/')[1] ?? 'png'
-  return `镜${String(no).padStart(2, '0')}.${extension}`
+  const stem = i18next.t('export.shotFile', { ns: 'video', no: String(no).padStart(2, '0') })
+  return `${stem}.${extension}`
 }
 
 export async function storyboardZipFiles(
@@ -79,6 +84,9 @@ export async function downloadStoryboardZip(
   const zipped = zipSync(files, { level: 0 })
   downloadBlob(
     new Blob([zipped as BlobPart], { type: 'application/zip' }),
-    `${sanitizePathSegment(record.title)}-分镜.zip`,
+    `${i18next.t('export.zipName', {
+      ns: 'video',
+      title: sanitizePathSegment(record.title),
+    })}.zip`,
   )
 }

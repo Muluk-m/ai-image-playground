@@ -1,11 +1,13 @@
 import { useState } from 'react'
 import { PlusIcon, TrashIcon } from '../../../components/icons'
+import { useTranslation } from '../../../i18n'
+import { formatDate } from '../../../i18n/format'
 import { useStore } from '../../../store'
 import { useAgentStore } from '../../agent/store'
 import NamingDialog from '../../library/components/NamingDialog'
 import { useLibraryStore } from '../../library/store'
 import { cloudProjectsEnabled } from '../lib/projectClient'
-import type { CanvasProject } from '../lib/projectRepository'
+import { type CanvasProject, projectDisplayName } from '../lib/projectRepository'
 import { useCanvasProjectStore } from '../projectStore'
 
 export default function ProjectGrid({
@@ -15,6 +17,7 @@ export default function ProjectGrid({
   search?: string
   recent?: boolean
 }) {
+  const { t } = useTranslation('canvas')
   const projects = useCanvasProjectStore((state) => state.projects)
   const activeId = useCanvasProjectStore((state) => state.activeId)
   const cloudError = useCanvasProjectStore((state) => state.cloudError)
@@ -68,7 +71,11 @@ export default function ProjectGrid({
             className="underline disabled:opacity-50"
             onClick={() => void useCanvasProjectStore.getState().refreshCloud()}
           >
-            {cloudLoading ? '正在读取项目…' : cloudError ? '重试读取云端项目' : '刷新云端项目'}
+            {cloudLoading
+              ? t('grid.loadingCloud')
+              : cloudError
+                ? t('grid.retryCloud')
+                : t('grid.refreshCloud')}
           </button>
           {cloudCursor && (
             <button
@@ -77,7 +84,7 @@ export default function ProjectGrid({
               className="underline disabled:opacity-50"
               onClick={() => void useCanvasProjectStore.getState().refreshCloud(true)}
             >
-              加载更多项目
+              {t('grid.loadMore')}
             </button>
           )}
         </div>
@@ -91,7 +98,7 @@ export default function ProjectGrid({
             className="group flex min-h-48 flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-border bg-muted/30 text-muted-foreground transition hover:border-primary/60 hover:bg-muted disabled:opacity-50"
           >
             <PlusIcon className="h-8 w-8 transition group-hover:text-primary" />
-            <span className="text-sm font-medium">新建项目</span>
+            <span className="text-sm font-medium">{t('grid.newProject')}</span>
           </button>
         )}
         {visible.map((project) => (
@@ -102,7 +109,7 @@ export default function ProjectGrid({
             <button
               type="button"
               disabled={busy}
-              aria-label={`打开项目 ${project.name}`}
+              aria-label={t('grid.openAria', { name: projectDisplayName(project.name) })}
               onClick={() => void enter(project)}
               className="block w-full text-left disabled:opacity-50"
             >
@@ -121,15 +128,15 @@ export default function ProjectGrid({
                 )}
                 {project.id === activeId && (
                   <span className="absolute left-3 top-3 rounded-full bg-background/90 px-2 py-1 text-[10px] text-muted-foreground">
-                    当前项目
+                    {t('grid.current')}
                   </span>
                 )}
               </div>
               <h3
                 className="truncate px-4 pt-3 text-sm font-medium text-foreground"
-                title={project.name}
+                title={projectDisplayName(project.name)}
               >
-                {project.name}
+                {projectDisplayName(project.name)}
               </h3>
             </button>
             <div className="flex items-center gap-2 px-4 pb-3 pt-1.5 text-xs text-muted-foreground">
@@ -137,32 +144,34 @@ export default function ProjectGrid({
                 className="min-w-0 flex-1 truncate"
                 dateTime={new Date(project.updatedAt).toISOString()}
               >
-                {new Date(project.updatedAt).toLocaleDateString('zh-CN')} 更新
+                {t('grid.updatedAt', { date: formatDate(project.updatedAt) })}
               </time>
               <span>
                 {project.cloud
                   ? project.cloud.revision > 0
-                    ? '云端项目'
-                    : '等待同步'
-                  : '仅此设备'}
+                    ? t('grid.cloud')
+                    : t('grid.pendingSync')
+                  : t('grid.localOnly')}
               </span>
               <button
                 type="button"
                 className="rounded px-1.5 py-1 hover:bg-muted hover:text-foreground"
                 onClick={() => setRenaming(project)}
-                aria-label={`重命名项目 ${project.name}`}
+                aria-label={t('grid.renameAria', { name: projectDisplayName(project.name) })}
               >
-                重命名
+                {t('grid.rename')}
               </button>
               {!recent && !project.cloud && (
                 <button
                   type="button"
                   className="rounded p-1 hover:bg-muted hover:text-destructive"
-                  aria-label={`删除项目 ${project.name}`}
+                  aria-label={t('grid.deleteAria', { name: projectDisplayName(project.name) })}
                   onClick={() =>
                     useStore.getState().setConfirmDialog({
-                      title: '删除项目',
-                      message: `删除“${project.name}”及其画布和会话？此操作无法撤销。`,
+                      title: t('grid.deleteTitle'),
+                      message: t('grid.deleteMessage', {
+                        name: projectDisplayName(project.name),
+                      }),
                       action: () => {
                         void useAgentStore.getState().deleteProject(project.id)
                       },
@@ -177,13 +186,13 @@ export default function ProjectGrid({
         ))}
       </div>
       {search && !visible.length && (
-        <p className="py-16 text-center text-sm text-muted-foreground">没有找到匹配的项目</p>
+        <p className="py-16 text-center text-sm text-muted-foreground">{t('grid.noMatch')}</p>
       )}
       {renaming && (
         <NamingDialog
-          title="重命名项目"
-          placeholder="给项目起个名字"
-          defaultName={renaming.name}
+          title={t('grid.renameTitle')}
+          placeholder={t('grid.renamePlaceholder')}
+          defaultName={projectDisplayName(renaming.name)}
           onCancel={() => setRenaming(null)}
           onSave={(name) => {
             void useCanvasProjectStore
@@ -191,7 +200,7 @@ export default function ProjectGrid({
               .update(renaming.id, { name, customName: true })
               .then(
                 () => setRenaming(null),
-                () => useStore.getState().showToast('项目名称保存失败，请重试。', 'error'),
+                () => useStore.getState().showToast(t('grid.renameFailed'), 'error'),
               )
           }}
         />

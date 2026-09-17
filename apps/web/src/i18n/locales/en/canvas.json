@@ -1,0 +1,191 @@
+{
+  "toolbar": {
+    "toolTitle": "{{label}} ({{hotkey}})",
+    "tool": {
+      "select": "Select",
+      "hand": "Hand",
+      "pen": "Pen",
+      "eraser": "Eraser",
+      "arrow": "Arrow",
+      "text": "Text"
+    },
+    "undo": "Undo (⌘Z)",
+    "redo": "Redo (⌘⇧Z)",
+    "duplicate": "Duplicate (⌘D)",
+    "deleteSelected": "Delete selection (Del)",
+    "zoomOut": "Zoom out",
+    "zoomIn": "Zoom in",
+    "resetZoom": "Reset to 100%",
+    "groupAria": "Canvas tools"
+  },
+  "shortcuts": {
+    "title": "Shortcuts",
+    "collapse": "Hide shortcuts",
+    "expand": "Show shortcuts",
+    "row": {
+      "copyPaste": "Copy / paste",
+      "delete": "Delete",
+      "selectAll": "Select all / add",
+      "undoRedo": "Undo / redo",
+      "duplicate": "Duplicate",
+      "selectHand": "Select / hand",
+      "penEraser": "Pen / eraser",
+      "arrowText": "Arrow / text",
+      "zoomPan": "Zoom / pan",
+      "freeDrag": "Drag, no snap",
+      "submitBack": "Generate / back to canvas"
+    },
+    "key": {
+      "click": "click",
+      "wheel": "wheel",
+      "drag": "drag"
+    }
+  },
+  "generate": {
+    "hintAnnotated_one": "{{count}} image + markup selected · follows the markup, no lines in the output",
+    "hintAnnotated_other": "{{count}} images + markup selected · follows the markup, no lines in the output",
+    "hintSelected_one": "{{count}} image selected · used as its own reference image",
+    "hintSelected_other": "{{count}} images selected · each used as its own reference image",
+    "hintEmpty": "With nothing selected this generates from text; select images to mark them up and iterate",
+    "inputAlt": "Input {{index}}",
+    "previewPending": "Building preview…",
+    "annotationHint": "Text markup → change request: {{text}}",
+    "promptPlaceholder": "Describe what to create or change… (⌘/Ctrl + Enter)",
+    "promptAria": "Creation prompt"
+  },
+  "submit": {
+    "blocked": "Can't generate right now",
+    "rasterizeFailed": "Could not process the selected images, please retry",
+    "emptyInput": "Enter a prompt, or select images on the canvas first",
+    "inputsLost": "The original input images were lost when the page closed; select the images again to generate"
+  },
+  "placeholder": {
+    "generating": "Generating…",
+    "failed": "Generation failed",
+    "stale": "Task expired",
+    "noImages": "Finished without returning an image",
+    "unconfirmed": "Task unconfirmed, retry manually",
+    "byokUnrecoverable": "BYOK tasks can't resume across sessions, please retry"
+  },
+  "style": {
+    "color": "Annotation color {{color}}"
+  },
+  "minimap": {
+    "label": "Canvas minimap"
+  },
+  "videoOverlay": {
+    "play": "Play"
+  },
+  "project": {
+    "backToProjects": "Back to projects",
+    "restoring": "Restoring your projects…",
+    "reload": "Reload",
+    "untitled": "Untitled project",
+    "routeUnavailable": "This project can't be opened right now. Check the account, or try again on the original device.",
+    "cloudListFailed": "Could not load the cloud project list. Local projects still work.",
+    "loadFailed": "Could not load the projects. Your content is kept, please reload."
+  },
+  "mobileSwitch": {
+    "aria": "Creation view",
+    "chat": "Chat",
+    "canvas": "Canvas"
+  },
+  "sidebar": {
+    "title": "Image creation",
+    "collapseAria": "Collapse panel",
+    "collapse": "Collapse ←",
+    "emptyTitle": "Start from an idea",
+    "emptyBody": "Describe the image, or drop a reference onto the canvas. Select an image to generate a new version of it.",
+    "openChat": "Open creation panel"
+  },
+  "workspace": {
+    "canvasAria": "Creation canvas",
+    "untitled": "My canvas",
+    "saveFailed": "Local save failed",
+    "restoring": "Restoring",
+    "autoSaved": "Auto-saved on this device",
+    "dropHint": "Drop an image to start"
+  },
+  "saveError": {
+    "message": "The canvas could not be saved. Your content is still on this page. Retry, and do not refresh or close until it succeeds.",
+    "messageDetailed": "The canvas could not be saved. Your content is still on this page. Go back to that conversation and retry the save; do not refresh or close until it succeeds.",
+    "retry": "Retry save"
+  },
+  "empty": {
+    "title": "Give your imagination a picture.",
+    "bodyAgent": "Describe your idea and the results appear here.",
+    "bodyDirect": "Describe the image to start creating.",
+    "bodyDrop": "You can also drop in an image and explore from there.",
+    "import": "＋ Import reference images"
+  },
+  "import": {
+    "inputAria": "Import canvas images",
+    "noneImported": "No images imported. Choose a valid image file.",
+    "failed": "Image import failed, please retry"
+  },
+  "loadError": {
+    "message": "Could not load the canvas. Your content is kept, please retry.",
+    "retry": "Reload"
+  },
+  "loading": {
+    "restoring": "Restoring the canvas…"
+  },
+  "sync": {
+    "loading": "Loading the cloud canvas",
+    "pending": "Canvas waiting to sync",
+    "syncing": "Canvas syncing",
+    "saved": "Canvas synced",
+    "error": "Canvas sync failed",
+    "loadError": "Canvas load failed",
+    "conflict": "Canvas sync conflict",
+    "mediaLocal": "Canvas not fully synced",
+    "retry": "Retry sync",
+    "localOnly": "Draft saved on this device only"
+  },
+  "welcome": {
+    "aria": "Start a new project",
+    "title": "Let the idea unfold here.",
+    "subtitle": "Describe the image you want, or add a reference.",
+    "recent": "Recent projects",
+    "allProjects": "All projects →"
+  },
+  "imageMenu": {
+    "copied": "Image copied",
+    "downloadFailed": "Download failed",
+    "copy": "Copy image",
+    "download": "Download image"
+  },
+  "grid": {
+    "loadingCloud": "Loading projects…",
+    "retryCloud": "Retry loading cloud projects",
+    "refreshCloud": "Refresh cloud projects",
+    "loadMore": "Load more projects",
+    "newProject": "New project",
+    "openAria": "Open project {{name}}",
+    "current": "Current project",
+    "updatedAt": "Updated {{date}}",
+    "cloud": "Cloud project",
+    "pendingSync": "Waiting to sync",
+    "localOnly": "This device only",
+    "rename": "Rename",
+    "renameAria": "Rename project {{name}}",
+    "deleteAria": "Delete project {{name}}",
+    "deleteTitle": "Delete project",
+    "deleteMessage": "Delete “{{name}}” along with its canvas and conversation? This cannot be undone.",
+    "noMatch": "No matching projects",
+    "renameTitle": "Rename project",
+    "renamePlaceholder": "Give the project a name",
+    "renameFailed": "Could not save the project name. Please retry."
+  },
+  "cloud": {
+    "mediaLocal": "The canvas has media that hasn't synced yet or content that can't be synced, so it is saved on this device only.",
+    "loadFailed": "Could not load the cloud project. Your content is kept, please reload.",
+    "conflict": "Another device changed this project, so syncing is paused. Your local content is kept.",
+    "quotaExceeded": "Cloud storage or canvas size limit exceeded. Your local content is kept.",
+    "syncFailed": "Cloud sync failed. Your local content is kept, please retry."
+  },
+  "imageName": {
+    "video": "Video",
+    "image": "Image"
+  }
+}

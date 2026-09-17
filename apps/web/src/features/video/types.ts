@@ -5,40 +5,46 @@ import type {
   VideoResolution,
 } from '@image-playground/shared'
 
+import { i18next } from '../../i18n'
 import type { StoryboardVersion } from './storyboard/types'
 
 export const VIDEO_SOURCES = ['text', 'image'] as const
 export type VideoSource = (typeof VIDEO_SOURCES)[number]
 
-export const VIDEO_SOURCE_LABELS: Record<VideoSource, string> = {
-  text: '文生视频',
-  image: '图生视频',
+export function videoSourceLabels(): Record<VideoSource, string> {
+  return {
+    text: i18next.t('source.text', { ns: 'video' }),
+    image: i18next.t('source.image', { ns: 'video' }),
+  }
 }
 
 /** 左栏的第三格只是页签：分镜自己出图，出的视频仍记成图生。 */
 export const VIDEO_COMPOSER_SOURCES = [...VIDEO_SOURCES, 'storyboard'] as const
 export type VideoComposerSource = (typeof VIDEO_COMPOSER_SOURCES)[number]
 
-export const VIDEO_COMPOSER_SOURCE_LABELS: Record<VideoComposerSource, string> = {
-  ...VIDEO_SOURCE_LABELS,
-  storyboard: '分镜',
+export function videoComposerSourceLabels(): Record<VideoComposerSource, string> {
+  return {
+    ...videoSourceLabels(),
+    storyboard: i18next.t('source.storyboard', { ns: 'video' }),
+  }
 }
 
 export const VIDEO_FRAME_SLOTS = ['first', 'last'] as const
 export type VideoFrameSlot = (typeof VIDEO_FRAME_SLOTS)[number]
 
-export const VIDEO_FRAME_SLOT_LABELS: Record<VideoFrameSlot, string> = {
-  first: '首帧',
-  last: '尾帧',
+export function videoFrameSlotLabel(slot: VideoFrameSlot): string {
+  return slot === 'first'
+    ? i18next.t('frameSlot.first', { ns: 'video' })
+    : i18next.t('frameSlot.last', { ns: 'video' })
 }
 
 export type VideoTaskStatus = 'queued' | 'running' | 'done' | 'error'
 
-export const VIDEO_TASK_STATUS_LABELS: Record<VideoTaskStatus, string> = {
-  queued: '排队',
-  running: '生成中',
-  done: '完成',
-  error: '失败',
+export function videoTaskStatusLabel(status: VideoTaskStatus): string {
+  if (status === 'queued') return i18next.t('status.queued', { ns: 'video' })
+  if (status === 'running') return i18next.t('state.generating', { ns: 'common' })
+  if (status === 'done') return i18next.t('state.done', { ns: 'common' })
+  return i18next.t('state.failed', { ns: 'common' })
 }
 
 /** 一条视频任务。mp4 不进这里 —— 播放地址由 bffRequestId 与 outputIndex 拼出来。 */
@@ -92,5 +98,14 @@ export interface VideoDraft {
   lastFrameImageId: string | null
 }
 
-/** 点一下把文字追加到描述末尾，用户看得见它只是提示词。 */
-export const CAMERA_MOVES = ['缓慢推进', '环绕半圈', '手持跟拍', '光线流动', '静态微动'] as const
+/**
+ * 点一下把文字追加到描述末尾，用户看得见它只是提示词。追加的是初值文案：
+ * 按点下去那一刻的界面语言写，写完就是用户描述里的普通文字。
+ */
+export const CAMERA_MOVE_KEYS = [
+  'cameraMove.slowPush',
+  'cameraMove.halfOrbit',
+  'cameraMove.handheldFollow',
+  'cameraMove.flowingLight',
+  'cameraMove.subtleStill',
+] as const

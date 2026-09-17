@@ -1,3 +1,4 @@
+import { i18next } from '../../../i18n'
 import { authenticatedBffFetch } from '../../../lib/authClient'
 import { queueOutputUrl } from '../../../lib/channels/queueClient'
 import { downloadBlob } from '../../../lib/downloadImages'
@@ -30,8 +31,15 @@ export interface VideoDownloadProgress {
 }
 
 export function downloadProgressLabel({ received, total }: VideoDownloadProgress): string {
-  if (total) return `下载中 ${Math.min(100, Math.round((received / total) * 100))}%`
-  return `下载中 ${(received / 1_048_576).toFixed(1)} MB`
+  if (total)
+    return i18next.t('download.progressPercent', {
+      ns: 'video',
+      percent: Math.min(100, Math.round((received / total) * 100)),
+    })
+  return i18next.t('download.progressBytes', {
+    ns: 'video',
+    mb: (received / 1_048_576).toFixed(1),
+  })
 }
 
 async function readWithProgress(
@@ -71,9 +79,10 @@ export async function downloadVideoTask(
   } = {},
 ): Promise<void> {
   const url = videoOutputUrl(task)
-  if (!url) throw new Error('这条还没有可下载的视频')
+  if (!url) throw new Error(i18next.t('download.unavailable', { ns: 'video' }))
   const res = await authenticatedBffFetch(url, { signal: options.signal })
-  if (!res.ok) throw new Error(`视频拉取失败：${res.status}`)
+  if (!res.ok)
+    throw new Error(i18next.t('download.fetchFailed', { ns: 'video', status: res.status }))
   downloadBlob(await readWithProgress(res, options.onProgress), videoFileName(task))
 }
 

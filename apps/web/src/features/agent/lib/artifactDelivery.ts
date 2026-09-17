@@ -1,4 +1,5 @@
 import type { AgentToolArtifact } from '@image-playground/shared'
+import { i18next } from '../../../i18n'
 import { AGENT_CONVERSATION_KEY, scopedStorageName } from '../../../lib/authScope'
 import type { AgentDeliveryStatus, AgentPanelMessage, AgentToolMessage } from '../types'
 import { fetchToolImage, toolArtifactUrl } from './agentClient'
@@ -106,7 +107,7 @@ export function createArtifactDelivery(
       missing.map(async (artifact) => ({
         ...(await prepare(artifact)),
         taskId: artifact.taskId,
-        name: `${message.title || '生成作品'} ${artifact.outputIndex + 1}`,
+        name: `${message.title || i18next.t('delivery.artifactName', { ns: 'agent' })} ${artifact.outputIndex + 1}`,
       })),
     )
     if (!current(origin)) return 'unavailable'
@@ -137,7 +138,7 @@ export function createArtifactDelivery(
           return []
         },
         (error) => {
-          console.warn('[agent] 画布占位失败', error)
+          console.warn('[agent] canvas reservation failed', error)
           return []
         },
       ),
@@ -169,7 +170,7 @@ export function createArtifactDelivery(
       try {
         record.status = await place(origin, message)
       } catch (error) {
-        console.warn('[agent] 产物交付失败', error)
+        console.warn('[agent] artifact delivery failed', error)
         record.status = 'failed'
       }
       if (belongs(origin)) changed(message.id, record.status)
@@ -187,7 +188,7 @@ export function createArtifactDelivery(
       try {
         if (canvas?.ready) await canvas.ready
       } catch (error) {
-        console.warn('[agent] 画布恢复失败', error)
+        console.warn('[agent] canvas restore failed', error)
         canvas = null
       }
       if (generation !== owner || scope() !== ownerScope) return
@@ -220,9 +221,8 @@ export function createArtifactDelivery(
           if (message.artifacts?.length) void enqueue(origin, message)
         },
         failed(messageId: string, message: string | undefined) {
-          void claim(origin, messageId)?.then((ids) =>
-            origin.canvas?.markFailed(ids, message ?? '生成失败'),
-          )
+          const note = message ?? i18next.t('delivery.generateFailed', { ns: 'agent' })
+          void claim(origin, messageId)?.then((ids) => origin.canvas?.markFailed(ids, note))
         },
         discard(messageId: string) {
           void claim(origin, messageId)?.then((ids) => origin.canvas?.discard(ids))

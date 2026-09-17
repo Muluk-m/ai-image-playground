@@ -1,3 +1,4 @@
+import { describeError, i18next } from '../../i18n'
 import { eligibleBackends, type MatteBackend, type MatteBackendId } from './backends'
 import { logMatteFailure } from './matteLog'
 import type { ProductAlpha } from './types'
@@ -38,7 +39,10 @@ function runWithTimeout(
   dataUrl: string,
 ): Promise<ProductAlpha> {
   const controller = new AbortController()
-  const timeout = new ProductMatteError('timeout', `${backend.id} 抠图超时`)
+  const timeout = new ProductMatteError(
+    'timeout',
+    i18next.t('matte.timeout', { ns: 'lib', backend: backend.id }),
+  )
   let timer: ReturnType<typeof setTimeout>
   const expired = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
@@ -58,11 +62,11 @@ export async function segmentProduct(
 ): Promise<SegmentedProduct> {
   const chain = await eligibleBackends(options.backends)
   if (chain.length === 0) {
-    throw new ProductMatteError('unsupported', '当前浏览器跑不了本地抠图')
+    throw new ProductMatteError('unsupported', i18next.t('matte.unsupported', { ns: 'lib' }))
   }
 
   const run = options.run ?? (await import('./segmentWorkerClient')).runInWorker
-  let failure = new ProductMatteError('failed', '本地抠图失败')
+  let failure = new ProductMatteError('failed', i18next.t('matte.localFailed', { ns: 'lib' }))
 
   for (const backend of chain) {
     const startedAt = Date.now()
@@ -73,7 +77,15 @@ export async function segmentProduct(
       failure =
         error instanceof ProductMatteError
           ? error
-          : new ProductMatteError('failed', error instanceof Error ? error.message : String(error))
+          : // worker 里的报错是不翻译的英文技术串（那边不引 i18n，否则整份语料会被打进 worker
+            // chunk）。它会一路兜到界面上，所以在这里套一层译文，别让中文用户看到英文。
+            new ProductMatteError(
+              'failed',
+              i18next.t('matte.localFailedWithReason', {
+                ns: 'lib',
+                reason: describeError(error),
+              }),
+            )
       logMatteFailure({
         backend: backend.id,
         reason: failure.reason,

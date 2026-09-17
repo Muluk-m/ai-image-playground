@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { useTranslation } from '../../../i18n'
 import PlayBadge from '../../video/components/PlayBadge'
 import type { CanvasEditor } from '../lib/editor'
 import { recoverVideoPoster } from '../lib/recoverVideoPoster'
@@ -9,6 +10,7 @@ import { type CanvasVideo, canvasVideos } from '../lib/videoElements'
  * 只有播放键与播放器本身收指针，其余穿透——整块收指针会让画布上的视频选不中、拖不动。
  */
 export default function CanvasVideoOverlay({ editor }: { editor: CanvasEditor }) {
+  const { t } = useTranslation('canvas')
   useSyncExternalStore(editor.doc.subscribe, () => editor.doc.version)
   const [playingId, setPlayingId] = useState<string | null>(null)
   const { camera } = editor.doc
@@ -54,7 +56,7 @@ export default function CanvasVideoOverlay({ editor }: { editor: CanvasEditor })
           ) : (
             <button
               type="button"
-              aria-label="播放"
+              aria-label={t('videoOverlay.play')}
               className="pointer-events-auto"
               onPointerDown={(event) => event.stopPropagation()}
               onClick={() => setPlayingId(video.id)}

@@ -1,3 +1,4 @@
+import { i18next } from '../../i18n'
 import { loadImage } from '../canvasImage'
 import { encodeRgbaPngDataUrl, packRgba, WHITE } from './pngEncode'
 import type { ProductAlpha } from './types'
@@ -9,7 +10,7 @@ export async function maskDataUrlToAlpha(maskDataUrl: string): Promise<ProductAl
   canvas.width = image.naturalWidth
   canvas.height = image.naturalHeight
   const ctx = canvas.getContext('2d', { willReadFrequently: true })
-  if (!ctx) throw new Error('当前浏览器不支持 Canvas')
+  if (!ctx) throw new Error(i18next.t('canvas.unsupported', { ns: 'lib' }))
 
   ctx.drawImage(image, 0, 0)
   const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height)

@@ -1,15 +1,24 @@
+import { i18next } from '../i18n'
 /** 产品素材的拍摄角度。按机位挑同角度的底图，角度不匹配时模型会改产品。 */
 export const PRODUCT_ANGLES = ['front', 'three-quarter', 'high-angle', 'top-down', 'side'] as const
 
 export type ProductAngle = (typeof PRODUCT_ANGLES)[number]
 
-export const PRODUCT_ANGLE_LABELS: Record<ProductAngle, string> = {
-  front: '正面',
-  'three-quarter': '3/4 侧',
-  'high-angle': '俯拍',
-  'top-down': '正顶',
-  side: '侧面',
+function buildAngleLabels(): Record<ProductAngle, string> {
+  return {
+    front: i18next.t('angle.front', { ns: 'lib' }),
+    'three-quarter': i18next.t('angle.threeQuarter', { ns: 'lib' }),
+    'high-angle': i18next.t('angle.highAngle', { ns: 'lib' }),
+    'top-down': i18next.t('angle.topDown', { ns: 'lib' }),
+    side: i18next.t('angle.side', { ns: 'lib' }),
+  }
 }
+
+/** `export let` 的 live binding：语言切换后已 import 这张表的模块读到的是新一份。 */
+export let PRODUCT_ANGLE_LABELS: Record<ProductAngle, string> = buildAngleLabels()
+i18next.on('languageChanged', () => {
+  PRODUCT_ANGLE_LABELS = buildAngleLabels()
+})
 
 /** 一张标了角度的素材。 */
 export interface ProductAsset {

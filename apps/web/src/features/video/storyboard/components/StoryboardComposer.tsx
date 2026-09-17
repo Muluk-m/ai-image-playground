@@ -7,17 +7,19 @@ import {
 import { Checkbox } from '../../../../components/Checkbox'
 import Pending from '../../../../components/Pending'
 import { FIELD, LABEL, PANEL_SECTION, PRIMARY_BUTTON } from '../../../../components/panelStyles'
+import { useTranslation } from '../../../../i18n'
 import ChipRow from '../../components/ChipRow'
 import { useVideoStore } from '../../store'
 import { STORYBOARD_PLAN_TYPICAL_SECONDS, useStoryboardStore } from '../store'
-import { STORYBOARD_STYLES } from '../types'
+import { STORYBOARD_STYLES, storyboardStyleLabel } from '../types'
 import StoryboardReferences from './StoryboardReferences'
 
 export default function StoryboardComposer({ support }: { support: VideoModelSupport }) {
+  const { t } = useTranslation(['video', 'common'])
   const videoDraft = useVideoStore((s) => s.draft)
   const draft = useStoryboardStore((s) => s.draft)
   const loadingSince = useStoryboardStore((s) => s.loadingSince)
-  const idleLabel = draft.shotImages ? '生成脚本与分镜图' : '生成脚本'
+  const idleLabel = draft.shotImages ? t('plan.submitWithImages') : t('plan.submit')
 
   const submit = () =>
     void useStoryboardStore.getState().plan({ ...draft, aspectRatio: videoDraft.aspectRatio })
@@ -25,13 +27,13 @@ export default function StoryboardComposer({ support }: { support: VideoModelSup
   return (
     <>
       <div>
-        <div className={`${LABEL} mb-1.5`}>创意</div>
+        <div className={`${LABEL} mb-1.5`}>{t('plan.ideaLabel')}</div>
         <textarea
           value={draft.idea}
           onChange={(event) => useStoryboardStore.getState().setIdea(event.target.value)}
           rows={4}
-          aria-label="创意"
-          placeholder="一句话或一段脚本"
+          aria-label={t('plan.ideaLabel')}
+          placeholder={t('plan.ideaPlaceholder')}
           className={`${FIELD} resize-none`}
         />
       </div>
@@ -40,31 +42,31 @@ export default function StoryboardComposer({ support }: { support: VideoModelSup
 
       <div className="flex flex-col gap-2.5">
         <ChipRow
-          label="总时长"
+          label={t('plan.totalSecondsLabel')}
           options={STORYBOARD_TOTAL_SECONDS}
           value={draft.totalSeconds}
-          render={(seconds) => `${seconds} 秒`}
+          render={(seconds) => t('shared.seconds', { seconds })}
           onChange={(seconds) => useStoryboardStore.getState().setTotalSeconds(seconds)}
         />
         <ChipRow
-          label="镜数"
+          label={t('plan.shotsLabel')}
           options={STORYBOARD_SHOT_COUNTS}
           value={draft.shots}
           render={(count) => `${count}`}
           onChange={(count) => useStoryboardStore.getState().setShots(count)}
         />
         <ChipRow
-          label="比例"
+          label={t('field.aspectRatio')}
           options={VIDEO_ASPECT_RATIOS.filter((ratio) => support.aspectRatios.includes(ratio))}
           value={videoDraft.aspectRatio}
           render={(ratio) => ratio}
           onChange={(ratio) => useVideoStore.getState().setAspectRatio(ratio)}
         />
         <ChipRow
-          label="风格"
+          label={t('plan.styleLabel')}
           options={STORYBOARD_STYLES}
           value={draft.style}
-          render={(style) => style}
+          render={storyboardStyleLabel}
           onChange={(style) => useStoryboardStore.getState().setStyle(style)}
         />
       </div>
@@ -72,7 +74,7 @@ export default function StoryboardComposer({ support }: { support: VideoModelSup
       <Checkbox
         checked={draft.shotImages}
         onChange={(checked) => useStoryboardStore.getState().setShotImages(checked)}
-        label="先出分镜图"
+        label={t('plan.shotImages')}
       />
 
       <div className={PANEL_SECTION}>
@@ -82,10 +84,16 @@ export default function StoryboardComposer({ support }: { support: VideoModelSup
           onClick={submit}
           className={`${PRIMARY_BUTTON} w-full disabled:cursor-not-allowed`}
         >
-          {loadingSince === null ? idleLabel : <Pending label="生成中" startedAt={loadingSince} />}
+          {loadingSince === null ? (
+            idleLabel
+          ) : (
+            <Pending label={t('common:state.generating')} startedAt={loadingSince} />
+          )}
         </button>
         {loadingSince !== null && (
-          <p className={`${LABEL} mt-1.5 text-center`}>通常 {STORYBOARD_PLAN_TYPICAL_SECONDS} 秒</p>
+          <p className={`${LABEL} mt-1.5 text-center`}>
+            {t('shared.typicalSeconds', { seconds: STORYBOARD_PLAN_TYPICAL_SECONDS })}
+          </p>
         )}
       </div>
     </>

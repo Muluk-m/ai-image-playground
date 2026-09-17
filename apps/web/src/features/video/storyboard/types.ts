@@ -4,6 +4,7 @@ import type {
   StoryboardTotalSeconds,
   VideoAspectRatio,
 } from '@image-playground/shared'
+import { i18next } from '../../../i18n'
 
 /** 一镜的脚本加它在工作台里的三条产物。文案字段可编辑，任务 id 由生成流程写。 */
 export type StoryboardShotRecord = StoryboardShot & {
@@ -56,9 +57,23 @@ export interface StoryboardVersion {
   content: StoryboardContent
 }
 
+// 风格值随计划请求发给模型，也跟着记录一起存，所以留中文原样；界面只查它的译名。
 export const STORYBOARD_STYLES = ['写实', '杂志', '动画', '不限'] as const
 export type StoryboardStyle = (typeof STORYBOARD_STYLES)[number]
 export const STORYBOARD_FREE_STYLE: StoryboardStyle = '不限'
+
+const STYLE_KEYS = {
+  写实: 'style.realistic',
+  杂志: 'style.magazine',
+  动画: 'style.animation',
+  不限: 'style.any',
+} as const satisfies Record<StoryboardStyle, string>
+
+/** 旧记录可能带着已下线的风格值，查不到译名就原样显示。 */
+export function storyboardStyleLabel(style: string): string {
+  const key = STYLE_KEYS[style as StoryboardStyle]
+  return key ? i18next.t(key, { ns: 'video' }) : style
+}
 
 /** 左栏这一刻的分镜参数。参考图是分镜自己的，不跟图生视频的首帧共用。 */
 export interface StoryboardDraft {

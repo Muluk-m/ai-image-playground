@@ -1,24 +1,27 @@
 import { useSyncExternalStore } from 'react'
+import { useTranslation } from '../../../i18n'
 import type { CloudProjectSession, ProjectSyncStatus } from '../lib/cloudProjects'
 
-const labels: Record<ProjectSyncStatus, string> = {
-  loading: '正在读取云端画布',
-  pending: '画布等待同步',
-  syncing: '画布正在同步',
-  saved: '画布已同步',
-  error: '画布同步失败',
-  'load-error': '画布读取失败',
-  conflict: '画布同步冲突',
-  'media-local': '画布尚未完整同步',
-}
+const LABEL_KEY = {
+  loading: 'sync.loading',
+  pending: 'sync.pending',
+  syncing: 'sync.syncing',
+  saved: 'sync.saved',
+  error: 'sync.error',
+  'load-error': 'sync.loadError',
+  conflict: 'sync.conflict',
+  'media-local': 'sync.mediaLocal',
+} as const satisfies Record<ProjectSyncStatus, string>
+
 export default function ProjectSyncStatus({ session }: { session: CloudProjectSession }) {
+  const { t } = useTranslation('canvas')
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot)
   return (
     <div
       className="pointer-events-auto max-w-sm text-xs text-muted-foreground"
       role={state.status === 'error' || state.status === 'conflict' ? 'alert' : 'status'}
     >
-      <p>{labels[state.status]}</p>
+      <p>{t(LABEL_KEY[state.status])}</p>
       {state.message && <p className="mt-1">{state.message}</p>}
       {(state.status === 'error' || state.status === 'pending') && (
         <button
@@ -26,10 +29,10 @@ export default function ProjectSyncStatus({ session }: { session: CloudProjectSe
           className="ml-2 underline"
           onClick={() => void session.sync().catch(() => {})}
         >
-          重试同步
+          {t('sync.retry')}
         </button>
       )}
-      {state.status === 'saved' && <small>草稿仅保存在此设备</small>}
+      {state.status === 'saved' && <small>{t('sync.localOnly')}</small>}
     </div>
   )
 }

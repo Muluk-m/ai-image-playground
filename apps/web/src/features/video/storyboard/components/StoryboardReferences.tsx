@@ -2,13 +2,12 @@ import { STORYBOARD_MAX_REFERENCE_IMAGES } from '@image-playground/shared'
 import { useRef, useState } from 'react'
 import { GHOST_BUTTON, LABEL } from '../../../../components/panelStyles'
 import { useImageDropZone } from '../../../../hooks/useImageDropZone'
+import { useTranslation } from '../../../../i18n'
 import { acceptImageFiles } from '../../../../lib/imageFiles'
 import AssetThumb from '../../../library/components/AssetThumb'
 import FramePicker from '../../components/FramePicker'
 import FrameSourceStrip from '../../components/FrameSourceStrip'
 import { useStoryboardStore } from '../store'
-
-const REFERENCE_LABEL = '参考图'
 
 function addFiles(files: File[]): void {
   void useStoryboardStore.getState().addReferencesFromFiles(files)
@@ -16,6 +15,8 @@ function addFiles(files: File[]): void {
 
 /** 分镜自己的参考图：最多 4 张，加、减都在这里，和图生视频的首帧互不相干。 */
 export default function StoryboardReferences() {
+  const { t } = useTranslation(['video', 'common'])
+  const referenceLabel = t('references.label')
   const referenceImageIds = useStoryboardStore((s) => s.draft.referenceImageIds)
   const [picking, setPicking] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -26,19 +27,19 @@ export default function StoryboardReferences() {
   return (
     <div>
       <div className={`${LABEL} mb-1.5`}>
-        {REFERENCE_LABEL} · 可选 · 最多 {STORYBOARD_MAX_REFERENCE_IMAGES} 张
+        {t('references.caption', { max: STORYBOARD_MAX_REFERENCE_IMAGES })}
       </div>
-      <ul aria-label={REFERENCE_LABEL} className="grid grid-cols-4 gap-2">
+      <ul aria-label={referenceLabel} className="grid grid-cols-4 gap-2">
         {referenceImageIds.map((imageId) => (
           <li
             key={imageId}
             className="relative aspect-square overflow-hidden rounded-xl border border-border"
           >
-            <AssetThumb imageId={imageId} alt={REFERENCE_LABEL} />
+            <AssetThumb imageId={imageId} alt={referenceLabel} />
             <button
               type="button"
               onClick={() => useStoryboardStore.getState().removeReference(imageId)}
-              aria-label={`移除${REFERENCE_LABEL}`}
+              aria-label={t('frameSlot.removeAria', { label: referenceLabel })}
               // p-0/border-0 是给导演台的 button reset 兜底：它按文字按钮给内边距和描边。
               className="absolute right-1 top-1 grid h-5 w-5 place-items-center rounded-full border-0 bg-black/55 p-0 text-[11px] text-white"
             >
@@ -58,10 +59,10 @@ export default function StoryboardReferences() {
               className={GHOST_BUTTON}
               onClick={() => inputRef.current?.click()}
             >
-              上传
+              {t('common:action.upload')}
             </button>
             <button type="button" className={GHOST_BUTTON} onClick={() => setPicking(true)}>
-              选图
+              {t('action.pickImage')}
             </button>
           </li>
         )}
@@ -69,7 +70,7 @@ export default function StoryboardReferences() {
 
       <FrameSourceStrip
         showLastFrame={false}
-        fillLabel={`填入${REFERENCE_LABEL}`}
+        fillLabel={t('frameStrip.fill', { label: referenceLabel })}
         selectedImageIds={referenceImageIds}
         onSelect={toggle}
         onPickAll={() => setPicking(true)}
@@ -89,7 +90,7 @@ export default function StoryboardReferences() {
 
       {picking && (
         <FramePicker
-          label={REFERENCE_LABEL}
+          label={referenceLabel}
           selectedImageIds={referenceImageIds}
           onSelect={toggle}
           onClose={() => setPicking(false)}

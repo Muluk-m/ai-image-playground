@@ -1,5 +1,6 @@
 import type { AgentToolArtifact } from '@image-playground/shared'
 import { useEffect, useState } from 'react'
+import { useTranslation } from '../../../i18n'
 import PlayBadge from '../../video/components/PlayBadge'
 import {
   CARD,
@@ -12,25 +13,23 @@ import {
 import { type AgentArtifactPreview, artifactPreview } from '../lib/artifactPreview'
 import { agentCanvasSink } from '../lib/canvasSink'
 import { useAgentStore } from '../store'
-import type { AgentDeliveryStatus, AgentToolMessage } from '../types'
+import type { AgentToolMessage } from '../types'
 import AgentPromptDialog from './AgentPromptDialog'
-
-const STAGE_LABEL = { submitted: '已排队', running: '生成中' } as const
-
-const DELIVERING = '产物已生成，正在放入画布…'
-const OFF_CANVAS = '产物不在当前画布上，可以再放入。'
-const DELIVERY_NOTE: Partial<Record<AgentDeliveryStatus, string>> = {
-  failed: '产物已生成，但放入画布失败，可以重试。',
-}
 
 const NO_ARTIFACTS: readonly AgentToolArtifact[] = []
 
-function statusNote(message: AgentToolMessage, offCanvas: boolean): string | null {
-  if (message.status === 'running') return message.stage ? STAGE_LABEL[message.stage] : '准备中'
-  if (message.status === 'failed') return message.message ?? '没有完成'
-  if (message.delivery === 'pending') return DELIVERING
+function useStatusNote(message: AgentToolMessage, offCanvas: boolean): string | null {
+  const { t } = useTranslation(['agent', 'common'])
+  if (message.status === 'running') {
+    if (message.stage === 'submitted') return t('tool.stageSubmitted')
+    if (message.stage === 'running') return t('common:state.generating')
+    return t('tool.preparing')
+  }
+  if (message.status === 'failed') return message.message ?? t('tool.notFinished')
+  if (message.delivery === 'pending') return t('tool.delivering')
   // 失败要说清为什么没写入；其余只说画布上现在有没有它（切过画布、或用户删掉了）。
-  return (message.delivery && DELIVERY_NOTE[message.delivery]) ?? (offCanvas ? OFF_CANVAS : null)
+  if (message.delivery === 'failed') return t('tool.deliveryFailed')
+  return offCanvas ? t('tool.offCanvas') : null
 }
 
 /** 交付还在途时不取图：那一份正在下载，结果卡等它落画布。 */
@@ -94,16 +93,17 @@ function Thumbnail({ preview }: { preview: AgentArtifactPreview }) {
 }
 
 export default function AgentToolCard({ message }: { message: AgentToolMessage }) {
+  const { t } = useTranslation(['agent', 'common'])
   const [promptOpen, setPromptOpen] = useState(false)
   const previews = useArtifactPreviews(message)
   const offCanvas = previews.some((preview) => !preview.onCanvas)
-  const note = statusNote(message, offCanvas)
+  const note = useStatusNote(message, offCanvas)
   return (
     <div className={CARD}>
       {!message.prompt && previews.some((preview) => preview.onCanvas) ? (
         <button
           type="button"
-          title="在画布上定位这些产物"
+          title={t('tool.locateTitle')}
           className={`${CARD_TITLE} text-left`}
           onClick={() =>
             agentCanvasSink()?.focus(
@@ -124,7 +124,7 @@ export default function AgentToolCard({ message }: { message: AgentToolMessage }
           className={`self-start ${GHOST_LINK}`}
           onClick={() => setPromptOpen(true)}
         >
-          查看提示词
+          {t('tool.viewPrompt')}
         </button>
       )}
       {promptOpen && message.prompt && (
@@ -144,7 +144,7 @@ export default function AgentToolCard({ message }: { message: AgentToolMessage }
           className={`self-start ${GHOST_LINK}`}
           onClick={() => void useAgentStore.getState().placeOnCanvas(message.id)}
         >
-          放入画布
+          {t('tool.place')}
         </button>
       )}
     </div>

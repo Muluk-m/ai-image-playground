@@ -47,7 +47,8 @@ export async function importImageFiles(
     }),
   )
   for (const r of results) {
-    if (r.status === 'rejected') console.warn('[canvas] 图片导入失败，已跳过', r.reason)
+    if (r.status === 'rejected')
+      console.warn('[canvas] skipped an image that failed to import', r.reason)
   }
   const entries = results
     .filter(

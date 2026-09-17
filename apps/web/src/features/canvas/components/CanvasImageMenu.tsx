@@ -1,5 +1,6 @@
 import ContextMenu, { ContextMenuItem } from '../../../components/ContextMenu'
 import { CopyIcon, DownloadIcon } from '../../../components/icons'
+import { useTranslation } from '../../../i18n'
 import { dataUrlToBlob } from '../../../lib/canvasImage'
 import { copyBlobToClipboard, getClipboardFailureMessage } from '../../../lib/clipboard'
 import { downloadBlob } from '../../../lib/downloadImages'
@@ -26,6 +27,7 @@ export default function CanvasImageMenu({
   doc: CanvasDoc
   onClose: () => void
 }) {
+  const { t } = useTranslation(['canvas', 'common'])
   if (!menu) return null
   const element = doc.getElement(menu.id)
   const dataUrl = element?.type === 'image' ? doc.files[element.fileId] : undefined
@@ -36,9 +38,9 @@ export default function CanvasImageMenu({
     onClose()
     try {
       await copyBlobToClipboard(await dataUrlToBlob(dataUrl))
-      showToast('图片已复制', 'success')
+      showToast(t('imageMenu.copied'), 'success')
     } catch (err) {
-      showToast(getClipboardFailureMessage('复制失败', err), 'error')
+      showToast(getClipboardFailureMessage(t('common:toast.copyFailed'), err), 'error')
     }
   }
   const download = async () => {
@@ -48,7 +50,7 @@ export default function CanvasImageMenu({
       const ext = blob.type === 'image/jpeg' ? 'jpg' : blob.type === 'image/webp' ? 'webp' : 'png'
       downloadBlob(blob, `canvas-${menu.id}.${ext}`)
     } catch {
-      showToast('下载失败', 'error')
+      showToast(t('imageMenu.downloadFailed'), 'error')
     }
   }
 
@@ -56,12 +58,12 @@ export default function CanvasImageMenu({
     <ContextMenu x={menu.x} y={menu.y} onClose={onClose}>
       <ContextMenuItem
         icon={<CopyIcon className="h-4 w-4" />}
-        label="复制图片"
+        label={t('imageMenu.copy')}
         onClick={() => void copy()}
       />
       <ContextMenuItem
         icon={<DownloadIcon className="h-4 w-4" />}
-        label="下载图片"
+        label={t('imageMenu.download')}
         onClick={() => void download()}
       />
     </ContextMenu>

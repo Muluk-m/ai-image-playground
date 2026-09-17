@@ -25,7 +25,7 @@ function remotePreview(artifact: AgentToolArtifact): Promise<string | null> {
       ? videoPosterDataUrl(toolArtifactUrl(artifact), artifact)
       : fetchToolImage(artifact)
   ).catch((error) => {
-    console.warn('[agent] 产物取图失败', error)
+    console.warn('[agent] artifact preview fetch failed', error)
     // 失败的不留在缓存里，下次渲染还能再试。
     remote.delete(artifact.artifactId)
     return null

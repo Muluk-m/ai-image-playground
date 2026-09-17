@@ -1,3 +1,4 @@
+import { i18next } from '../i18n'
 import { dbTransaction, STORE_BGSWAP_JOBS } from './db'
 
 /** Retired product workflows remain readable so history and image retention stay intact. */
@@ -27,11 +28,12 @@ export function readLegacyProductJobs(): Promise<LegacyProductJob[]> {
 }
 
 export function legacyActionLabels(job: LegacyProductJob | undefined): string[] {
+  const t = i18next.getFixedT(null, 'lib')
   const labels: Record<string, string> = {
-    background: '换背景',
-    'replace-product': '换产品',
-    'replace-and-background': '换产品并换背景',
-    remix: '借创意重做',
+    background: t('legacyProduct.background'),
+    'replace-product': t('legacyProduct.replaceProduct'),
+    'replace-and-background': t('legacyProduct.replaceAndBackground'),
+    remix: t('legacyProduct.remix'),
   }
   const used = new Set(
     job?.images.flatMap((image) => image.versions.map((v) => v.mode ?? 'background')),

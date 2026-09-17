@@ -11,6 +11,7 @@ import type {
 } from '@image-playground/shared'
 import { AGENT_IMAGE_MAX_N, agentMessageText } from '@image-playground/shared'
 import { create } from 'zustand'
+import { i18next } from '../../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../lib/apiProfiles'
 import { AGENT_CONVERSATION_KEY, safeLocalStorage, scopedStorageName } from '../../lib/authScope'
 import { useStore } from '../../store'
@@ -49,9 +50,11 @@ import type {
   AgentTurnStatus,
 } from './types'
 
-const TURN_FAILED = '这一轮没有跑完'
-const TURN_RATE_LIMITED = '发送太频繁，稍后再试'
-const CONVERSATION_UNREADABLE = '对话暂时未能加载，请重新加载。'
+// 文案按调用时取，不在模块加载时定死：切语言之后新出的报错要跟着换语言。
+const TURN_FAILED = () => i18next.t('error.turnFailed', { ns: 'agent' })
+const TURN_RATE_LIMITED = () => i18next.t('error.rateLimited', { ns: 'agent' })
+const CONVERSATION_UNREADABLE = () => i18next.t('error.conversationUnreadable', { ns: 'agent' })
+const CONVERSATION_GONE = () => i18next.t('error.conversationGone', { ns: 'agent' })
 
 const RECONNECT_DELAYS_MS = [0, 500, 2_000, 5_000]
 
@@ -182,7 +185,7 @@ export function answerableClarificationId(messages: readonly AgentPanelMessage[]
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
-const failPatch = (state: AgentState, message = TURN_FAILED) => ({
+const failPatch = (state: AgentState, message = TURN_FAILED()) => ({
   turn: 'failed' as const,
   stopping: false,
   activeTurn: null,
@@ -430,7 +433,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
           if (!canContinue()) return
           if (thrown instanceof AgentRequestError && thrown.status === 404) break
           if (thrown instanceof AgentRequestError && thrown.status === 429) {
-            if (turnDelivery.isCurrent()) fail(TURN_RATE_LIMITED)
+            if (turnDelivery.isCurrent()) fail(TURN_RATE_LIMITED())
             return
           }
         }
@@ -493,16 +496,16 @@ export const useAgentStore = create<AgentState>((set, get) => {
             turn: 'idle',
             stopping: false,
             activeTurn: null,
-            error: '这段对话已不可用，画布和草稿仍保留，可以继续创作。',
+            error: CONVERSATION_GONE(),
           })
         } catch {
           if (isCurrent()) {
             set({ historyLoading: false, historyFailed: true })
-            fail(CONVERSATION_UNREADABLE)
+            fail(CONVERSATION_UNREADABLE())
           }
         }
       } else if (gone) get().startNewConversation()
-      else fail(CONVERSATION_UNREADABLE)
+      else fail(CONVERSATION_UNREADABLE())
       return
     }
     set({
@@ -551,7 +554,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
           /* 保留在运行的轮，让用户重试。 */
         }
       }
-      if (current()) set({ stopping: false, error: '中止未成功，请点击中止重试。' })
+      if (current()) set({ stopping: false, error: i18next.t('error.stopFailed', { ns: 'agent' }) })
     }
   }
 
@@ -727,7 +730,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
         try {
           return await createProject()
         } catch {
-          useStore.getState().showToast('项目创建失败，当前内容已保留，请重试。', 'error')
+          useStore.getState().showToast(i18next.t('project.createFailed', { ns: 'agent' }), 'error')
           return false
         }
       })
@@ -742,7 +745,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
         try {
           await saveCurrentProject()
         } catch {
-          useStore.getState().showToast('当前项目未能保存，内容已保留，请重试。', 'error')
+          useStore.getState().showToast(i18next.t('project.saveFailed', { ns: 'agent' }), 'error')
           return false
         }
         if (!isCurrent()) return false
@@ -784,8 +787,8 @@ export const useAgentStore = create<AgentState>((set, get) => {
             .getState()
             .showToast(
               error instanceof Error && error.message === 'busy'
-                ? '项目仍有任务运行，完成后再删除。'
-                : '项目删除失败，请重试。',
+                ? i18next.t('project.deleteBusy', { ns: 'agent' })
+                : i18next.t('project.deleteFailed', { ns: 'agent' }),
               'error',
             )
           return false
@@ -812,8 +815,8 @@ export const useAgentStore = create<AgentState>((set, get) => {
             set({
               error:
                 thrown instanceof AgentRequestError && thrown.code === 'invalid_selection'
-                  ? '选区无法使用，请重新圈选。草稿已保留。'
-                  : '插话未发送成功，草稿已保留，请重试。',
+                  ? i18next.t('error.invalidSelection', { ns: 'agent' })
+                  : i18next.t('error.interjectFailed', { ns: 'agent' }),
             })
         }
         return
@@ -870,7 +873,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
             }
             if (!(await bindNewCanvasWorkspace(target))) {
               if (turnDelivery.isCurrent())
-                fail('画布未能保存到新会话，请重试。原画布和草稿已保留。')
+                fail(i18next.t('error.canvasBindFailed', { ns: 'agent' }))
               await turnDelivery.settled()
               return
             }
@@ -903,9 +906,9 @@ export const useAgentStore = create<AgentState>((set, get) => {
           if (turnDelivery.isCurrent())
             fail(
               thrown instanceof AgentRequestError && thrown.status === 429
-                ? TURN_RATE_LIMITED
+                ? TURN_RATE_LIMITED()
                 : thrown instanceof AgentRequestError && thrown.code === 'invalid_selection'
-                  ? '选区无法使用，请重新圈选。草稿已保留。'
+                  ? i18next.t('error.invalidSelection', { ns: 'agent' })
                   : undefined,
             )
           await turnDelivery.settled()
@@ -931,7 +934,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
           set({ stopping: false })
           await openConversation(target, outcome.turnId)
           if (get().conversationId === target)
-            set({ error: '会话中已有任务运行，本次消息未发送，草稿已保留。' })
+            set({ error: i18next.t('error.turnAlreadyRunning', { ns: 'agent' }) })
           return
         }
         onAccepted?.()

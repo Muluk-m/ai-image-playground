@@ -1,3 +1,4 @@
+import { i18next } from '../../../i18n'
 import { AGENT_CONVERSATION_KEY, safeLocalStorage, scopedStorageName } from '../../../lib/authScope'
 import { useStore } from '../../../store'
 import { setAgentCanvasSink } from '../../agent/lib/canvasSink'
@@ -60,10 +61,7 @@ export class CanvasWorkspace {
     if (patch.saveFailed && !this.state.saveFailed)
       useStore
         .getState()
-        .showToast(
-          '画布保存失败，内容仍在当前页面。请回到对应会话重试保存，成功前不要刷新或关闭。',
-          'error',
-        )
+        .showToast(i18next.t('saveError.messageDetailed', { ns: 'canvas' }), 'error')
     this.state = { ...this.state, ...patch }
     for (const listener of this.listeners) listener()
   }

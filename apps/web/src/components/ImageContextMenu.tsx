@@ -2,6 +2,7 @@ import type React from 'react'
 import { useEffect, useState } from 'react'
 import { useLibraryStore } from '../features/library/store'
 import { startVideoFromImage } from '../features/video/lib/entry'
+import { describeError, useTranslation } from '../i18n'
 import { getActiveApiProfile } from '../lib/apiProfiles'
 import { modelSupportsEdit, NO_EDIT_SUPPORT_MESSAGE } from '../lib/channels/profileSelectors'
 import { getPublicChannels } from '../lib/channels/publicChannels'
@@ -12,6 +13,7 @@ import ContextMenu, { ContextMenuItem } from './ContextMenu'
 import { CopyIcon, DownloadIcon, EditIcon, LibraryIcon, VideoIcon } from './icons'
 
 export default function ImageContextMenu() {
+  const { t } = useTranslation(['task', 'common'])
   const [menuInfo, setMenuInfo] = useState<{
     src: string
     imageId?: string
@@ -75,10 +77,10 @@ export default function ImageContextMenu() {
       const res = await fetch(src)
       const blob = await res.blob()
       await copyBlobToClipboard(blob)
-      showToast('图片已复制', 'success')
+      showToast(t('menu.imageCopied'), 'success')
     } catch (err) {
       console.error(err)
-      showToast(getClipboardFailureMessage('复制失败', err), 'error')
+      showToast(getClipboardFailureMessage(t('common:toast.copyFailed'), err), 'error')
     }
   }
 
@@ -98,10 +100,10 @@ export default function ImageContextMenu() {
       a.click()
       document.body.removeChild(a)
       URL.revokeObjectURL(url)
-      showToast('开始下载', 'success')
+      showToast(t('download.start'), 'success')
     } catch (err) {
       console.error(err)
-      showToast('下载失败', 'error')
+      showToast(t('download.failed'), 'error')
     }
   }
 
@@ -113,7 +115,7 @@ export default function ImageContextMenu() {
       return
     }
     if (inputImages.length >= 16) {
-      showToast('参考图数量已达上限（16 张），无法继续添加', 'error')
+      showToast(t('menu.referenceLimit'), 'error')
       return
     }
 
@@ -126,12 +128,15 @@ export default function ImageContextMenu() {
       setMaskEditorImageId(id)
     } catch (err) {
       console.error(err)
-      showToast(`加入参考图失败：${err instanceof Error ? err.message : String(err)}`, 'error')
+      showToast(t('menu.addReferenceFailed', { reason: describeError(err) }), 'error')
     }
   }
 
   // 菜单是全局的，右键的图未必进过 image store，落盘拿到 id 才能交给下一步。
-  const withStoredImage = (label: string, run: (imageId: string) => void) => {
+  const withStoredImage = (
+    describeFailure: (reason: string) => string,
+    run: (imageId: string) => void,
+  ) => {
     return async (e: React.MouseEvent) => {
       e.stopPropagation()
       const { imageId, src } = menuInfo
@@ -140,7 +145,7 @@ export default function ImageContextMenu() {
         run(imageId ?? (await storeImageFromUrl(src)).id)
       } catch (err) {
         console.error(err)
-        showToast(`${label}失败：${err instanceof Error ? err.message : String(err)}`, 'error')
+        showToast(describeFailure(describeError(err)), 'error')
       }
     }
   }
@@ -158,29 +163,35 @@ export default function ImageContextMenu() {
     >
       <ContextMenuItem
         icon={<CopyIcon className="w-4 h-4 flex-shrink-0" />}
-        label="复制"
+        label={t('common:action.copy')}
         onClick={handleCopy}
       />
       <ContextMenuItem
         icon={<DownloadIcon className="w-4 h-4 flex-shrink-0" />}
-        label="下载"
+        label={t('common:action.download')}
         onClick={handleDownload}
       />
       <ContextMenuItem
         icon={<EditIcon className="w-4 h-4 flex-shrink-0" />}
-        label="编辑"
+        label={t('common:action.edit')}
         onClick={handleEdit}
       />
       <ContextMenuItem
         icon={<LibraryIcon className="w-4 h-4 flex-shrink-0" />}
-        label="存为素材"
-        onClick={withStoredImage('存为素材', startNamingAsset)}
+        label={t('menu.saveAsAsset')}
+        onClick={withStoredImage(
+          (reason) => t('menu.saveAsAssetFailed', { reason }),
+          startNamingAsset,
+        )}
       />
       {isVideoModeAvailable() && (
         <ContextMenuItem
           icon={<VideoIcon className="w-4 h-4 flex-shrink-0" />}
-          label="做成视频"
-          onClick={withStoredImage('做成视频', startVideoFromImage)}
+          label={t('menu.makeVideo')}
+          onClick={withStoredImage(
+            (reason) => t('menu.makeVideoFailed', { reason }),
+            startVideoFromImage,
+          )}
         />
       )}
     </ContextMenu>

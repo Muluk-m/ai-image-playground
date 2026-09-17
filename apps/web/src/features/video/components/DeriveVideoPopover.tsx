@@ -1,8 +1,4 @@
-import {
-  VIDEO_DERIVE_LABELS,
-  type VideoDeriveMode,
-  videoRateMultiplier,
-} from '@image-playground/shared'
+import { type VideoDeriveMode, videoRateMultiplier } from '@image-playground/shared'
 import { useState } from 'react'
 import Credits from '../../../components/Credits'
 import Overlay from '../../../components/Overlay'
@@ -14,22 +10,14 @@ import {
   PRIMARY_BUTTON,
 } from '../../../components/panelStyles'
 import SubmissionBillingAction from '../../../components/SubmissionBillingAction'
+import { useTranslation } from '../../../i18n'
 import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
 import { useStore } from '../../../store'
 import { DEFAULT_EXTEND_SECONDS, DERIVE_RESOLUTION, VIDEO_EXTEND_SECONDS } from '../lib/derive'
+import { videoDeriveLabel } from '../lib/labels'
 import { useVideoStore } from '../store'
 import type { VideoTask } from '../types'
 import ChipRow from './ChipRow'
-
-const TITLES: Record<VideoDeriveMode, string> = {
-  extend: '续写 · 从最后一帧往后',
-  edit: '改视频 · 保留画面改内容',
-}
-
-const PLACEHOLDERS: Record<VideoDeriveMode, string> = {
-  extend: '接下来发生什么，镜头怎么动',
-  edit: '改什么，保留什么',
-}
 
 export default function DeriveVideoPopover({
   task,
@@ -44,10 +32,14 @@ export default function DeriveVideoPopover({
   tier?: 'raised' | 'alert'
   onClose: () => void
 }) {
+  const { t } = useTranslation('video')
   const [prompt, setPrompt] = useState('')
   const [extendSeconds, setExtendSeconds] = useState<number>(DEFAULT_EXTEND_SECONDS)
   const seconds = mode === 'edit' ? task.duration : extendSeconds
-  const label = VIDEO_DERIVE_LABELS[mode]
+  const label = videoDeriveLabel(mode)
+  const title = mode === 'extend' ? t('derive.titleExtend') : t('derive.titleEdit')
+  const placeholder =
+    mode === 'extend' ? t('derive.placeholderExtend') : t('derive.placeholderEdit')
 
   const guard = usePrivateSubmissionGuard({
     model: modelId,
@@ -58,37 +50,40 @@ export default function DeriveVideoPopover({
   const submit = async () => {
     const id = await useVideoStore.getState().deriveVideo(task, { mode, prompt, seconds })
     if (!id) return
-    useStore.getState().showToast(`已提交${label}`, 'success')
+    useStore.getState().showToast(t('derive.submitted', { label }), 'success')
     onClose()
   }
 
   return (
     <Overlay onClose={onClose} tier={tier}>
       <div className="relative z-10 w-full max-w-sm rounded-2xl border border-white/50 bg-card p-4 shadow-2xl ring-1 ring-black/5 animate-modal-in border-border dark:ring-white/10">
-        <h3 className={`${PANEL_TITLE} mb-3`}>{TITLES[mode]}</h3>
+        <h3 className={`${PANEL_TITLE} mb-3`}>{title}</h3>
 
-        <div className={`${LABEL} mb-1.5`}>描述</div>
+        <div className={`${LABEL} mb-1.5`}>{t('field.description')}</div>
         <textarea
           value={prompt}
           onChange={(event) => setPrompt(event.target.value)}
           rows={3}
-          aria-label="描述"
-          placeholder={PLACEHOLDERS[mode]}
+          aria-label={t('field.description')}
+          placeholder={placeholder}
           className={`${FIELD} resize-none`}
         />
 
         <div className="mt-3">
           {mode === 'extend' ? (
             <ChipRow
-              label="接多长"
+              label={t('derive.extendLabel')}
               options={VIDEO_EXTEND_SECONDS}
               value={extendSeconds}
-              render={(option) => `${option} 秒`}
+              render={(option) => t('shared.seconds', { seconds: option })}
               onChange={setExtendSeconds}
             />
           ) : (
             <p className="text-xs text-muted-foreground">
-              沿用 {task.duration} 秒 · 最高 {DERIVE_RESOLUTION}
+              {t('derive.keepDuration', {
+                seconds: task.duration,
+                resolution: DERIVE_RESOLUTION,
+              })}
             </p>
           )}
         </div>

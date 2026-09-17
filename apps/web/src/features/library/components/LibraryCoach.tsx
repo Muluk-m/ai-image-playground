@@ -1,14 +1,8 @@
 import { useEffect, useState } from 'react'
 import { LibraryIcon } from '../../../components/icons'
+import { useTranslation } from '../../../i18n'
 import { useStore } from '../../../store'
 import { useLibraryStore } from '../store'
-
-const STEPS = [
-  { token: '右键', text: '参考图存为素材' },
-  { token: '@', text: '引用素材' },
-  { token: '{槽位}', text: '一次生成多张' },
-  { token: '/', text: '调用模板' },
-]
 
 /** Header 共用这一份状态驱动气泡与按钮高亮，出现即消耗自动展示机会。 */
 export function useLibraryCoach() {
@@ -34,12 +28,19 @@ export function useLibraryCoach() {
 
 /** 只渲染气泡本身；按钮的脉冲动画与定位锚点由 Header 控制。 */
 export default function LibraryCoach({ onDismiss }: { onDismiss: () => void }) {
+  const { t } = useTranslation('library')
   const openLibrary = useLibraryStore((s) => s.openPanel)
+  const steps = [
+    { token: t('coach.tokenRightClick'), text: t('coach.stepSave') },
+    { token: '@', text: t('coach.stepMention') },
+    { token: t('coach.tokenSlot'), text: t('coach.stepSlot') },
+    { token: '/', text: t('coach.stepTemplate') },
+  ]
 
   return (
     <div
       role="dialog"
-      aria-label="素材与模板引导"
+      aria-label={t('coach.ariaLabel')}
       className="animate-coach-pop-in absolute right-0 top-full z-50 mt-3 w-72 rounded-2xl border border-primary bg-card p-4 shadow-xl ring-1 ring-black/5 dark:ring-white/10"
     >
       <span
@@ -50,9 +51,9 @@ export default function LibraryCoach({ onDismiss }: { onDismiss: () => void }) {
       <div className="flex items-start gap-2">
         <LibraryIcon className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
         <div className="flex-1">
-          <div className="text-sm font-semibold text-foreground">同一批图、同一段提示词</div>
+          <div className="text-sm font-semibold text-foreground">{t('coach.title')}</div>
           <ol className="mt-2 space-y-1.5 text-xs text-muted-foreground">
-            {STEPS.map((step) => (
+            {steps.map((step) => (
               <li key={step.token} className="flex items-center gap-1.5">
                 <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-foreground">
                   {step.token}
@@ -70,7 +71,7 @@ export default function LibraryCoach({ onDismiss }: { onDismiss: () => void }) {
           onClick={onDismiss}
           className="rounded-md px-2.5 py-1 text-xs text-muted-foreground transition hover:bg-muted hover:text-foreground"
         >
-          知道了
+          {t('coach.gotIt')}
         </button>
         <button
           type="button"
@@ -81,7 +82,7 @@ export default function LibraryCoach({ onDismiss }: { onDismiss: () => void }) {
           className="inline-flex items-center gap-1 rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground shadow-sm transition hover:bg-primary/90"
         >
           <LibraryIcon className="h-3 w-3" />
-          看看
+          {t('coach.view')}
         </button>
       </div>
     </div>

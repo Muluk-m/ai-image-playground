@@ -1,9 +1,9 @@
 import {
   VIDEO_RESOLUTION_LABELS,
-  validateVideoPrompt,
-  validateVideoRequest,
   videoDurationsForResolution,
+  videoPromptRejection,
   videoRateMultiplier,
+  videoRequestRejection,
 } from '@image-playground/shared'
 import { useState } from 'react'
 import Credits from '../../../../components/Credits'
@@ -16,9 +16,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../../../../components/ui/select'
+import { describeError, useTranslation } from '../../../../i18n'
 import { videoModelOptions } from '../../../../lib/channels/videoChannels'
 import { usePrivateSubmissionGuard } from '../../../../lib/privateOverlay'
 import { useStore } from '../../../../store'
+import { videoRejectionText } from '../../lib/labels'
 import { useVideoStore } from '../../store'
 import { promptAtDuration } from '../lib/director'
 import { useStoryboardStore, wholeVideoFrameId } from '../store'
@@ -39,6 +41,7 @@ export default function DirectorGeneration({
   onLibrary: () => void
   onSubmitted: () => void
 }) {
+  const { t } = useTranslation('video')
   const [scope, setScope] = useState(initialScope)
   const [selectedSeconds, setSelectedSeconds] = useState<number | null>(null)
   const [submitting, setSubmitting] = useState(false)
@@ -60,7 +63,7 @@ export default function DirectorGeneration({
     sourceSeconds,
     seconds,
   )
-  const check = validateVideoRequest(
+  const requestRejection = videoRequestRejection(
     draft.model,
     {
       duration_seconds: seconds,
@@ -70,20 +73,20 @@ export default function DirectorGeneration({
     },
     imageId ? 1 : 0,
   )
-  const promptCheck = validateVideoPrompt(draft.model, prompt)
+  const promptRejection = videoPromptRejection(draft.model, prompt)
   const guard = usePrivateSubmissionGuard({
     model: draft.model,
     quantity: seconds,
     unitMultiplier: videoRateMultiplier(draft.model, draft.resolution),
   })
   const reason = !option
-    ? '请选择可用的视频模型'
+    ? t('generation.needModel')
     : scope === 'shot' && !imageId
-      ? '请先生成当前镜头的分镜图'
-      : !check.ok
-        ? check.reason
-        : !promptCheck.ok
-          ? promptCheck.reason
+      ? t('generation.needShotImage')
+      : requestRejection
+        ? videoRejectionText(requestRejection)
+        : promptRejection
+          ? videoRejectionText(promptRejection)
           : guard.disabledReason
   const submit = async () => {
     setSubmitting(true)
@@ -96,7 +99,10 @@ export default function DirectorGeneration({
     } catch (error) {
       useStore
         .getState()
-        .showToast(error instanceof Error ? error.message : '视频提交失败，请重试', 'error')
+        .showToast(
+          error instanceof Error ? describeError(error) : t('generation.submitFailed'),
+          'error',
+        )
     } finally {
       setSubmitting(false)
     }
@@ -104,19 +110,19 @@ export default function DirectorGeneration({
   return (
     <div className="vd-stack">
       <div className="vd-row vd-between">
-        <h3>生成视频</h3>
+        <h3>{t('action.generateVideo')}</h3>
         <button type="button" onClick={onClose}>
-          返回编辑
+          {t('action.backToEdit')}
         </button>
       </div>
       <div className="vd-inset">
         <strong>{record.title}</strong>
-        <p>来源：当前分镜 · 提交时保存版本快照</p>
+        <p>{t('generation.sourceNote')}</p>
         <button type="button" onClick={onLibrary}>
-          更换分镜
+          {t('generation.changeBoard')}
         </button>
       </div>
-      <div className="vd-stack" role="group" aria-label="生成范围">
+      <div className="vd-stack" role="group" aria-label={t('generation.scopeLabel')}>
         <button
           type="button"
           aria-pressed={scope === 'whole'}
@@ -125,7 +131,7 @@ export default function DirectorGeneration({
             setSelectedSeconds(null)
           }}
         >
-          整条视频 · {record.totalSeconds} 秒
+          {t('generation.wholeScope', { seconds: record.totalSeconds })}
         </button>
         <button
           type="button"
@@ -136,16 +142,16 @@ export default function DirectorGeneration({
             setSelectedSeconds(null)
           }}
         >
-          当前镜头 · {shot?.seconds ?? 0} 秒
+          {t('generation.shotScope', { seconds: shot?.seconds ?? 0 })}
         </button>
       </div>
-      <Field label="视频模型">
+      <Field label={t('generation.modelLabel')}>
         <Select
           value={draft.model}
           onValueChange={(value) => useVideoStore.getState().setModel(value)}
         >
-          <SelectTrigger aria-label="分镜视频模型" className="text-foreground">
-            <SelectValue placeholder="选择模型" />
+          <SelectTrigger aria-label={t('generation.modelAria')} className="text-foreground">
+            <SelectValue placeholder={t('generation.selectModel')} />
           </SelectTrigger>
           <SelectContent>
             {options.map((item) => (
@@ -156,14 +162,14 @@ export default function DirectorGeneration({
           </SelectContent>
         </Select>
       </Field>
-      <Field label="清晰度">
+      <Field label={t('field.resolution')}>
         <Select
           value={draft.resolution}
           onValueChange={(value) =>
             useVideoStore.getState().setResolution(value as typeof draft.resolution)
           }
         >
-          <SelectTrigger aria-label="分镜视频清晰度" className="text-foreground">
+          <SelectTrigger aria-label={t('generation.resolutionAria')} className="text-foreground">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -175,18 +181,18 @@ export default function DirectorGeneration({
           </SelectContent>
         </Select>
       </Field>
-      <Field label="视频时长">
+      <Field label={t('generation.durationLabel')}>
         <Select
           value={String(seconds)}
           onValueChange={(value) => setSelectedSeconds(Number(value))}
         >
-          <SelectTrigger aria-label="分镜视频时长" className="text-foreground">
+          <SelectTrigger aria-label={t('generation.durationAria')} className="text-foreground">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
             {durations.map((duration) => (
               <SelectItem key={duration} value={String(duration)}>
-                {duration} 秒
+                {t('shared.seconds', { seconds: duration })}
               </SelectItem>
             ))}
           </SelectContent>
@@ -194,23 +200,25 @@ export default function DirectorGeneration({
       </Field>
       {seconds !== sourceSeconds && (
         <p className="vd-muted">
-          原分镜 {sourceSeconds} 秒，本次按 {seconds} 秒生成，镜头节奏将相应调整。
+          {t('generation.durationAdjusted', { source: sourceSeconds, target: seconds })}
         </p>
       )}
       <p className="vd-muted">
-        {record.aspectRatio} ·{' '}
-        {imageId ? '使用首张画面作为视频首帧，其余镜头通过脚本描述' : '根据完整脚本文生视频'}
+        {t('generation.hint', {
+          aspect: record.aspectRatio,
+          mode: imageId ? t('generation.withFirstFrame') : t('generation.textOnly'),
+        })}
       </p>
       {reason && (
         <p className="vd-error" role="status">
           {reason}
         </p>
       )}
-      {saveState === 'error' && <p className="vd-error">分镜尚未保存成功；重试保存后才能生成。</p>}
+      {saveState === 'error' && <p className="vd-error">{t('generation.saveError')}</p>}
       <SubmissionBillingAction blockedAction={guard.blockedAction} />
       {guard.estimatedCredits !== undefined && (
         <div className="vd-row vd-between">
-          <span>预计积分</span>
+          <span>{t('generation.estimatedCredits')}</span>
           <Credits credits={guard.estimatedCredits} className="font-semibold" />
         </div>
       )}
@@ -220,14 +228,14 @@ export default function DirectorGeneration({
         disabled={
           submitting ||
           !option ||
-          !check.ok ||
-          !promptCheck.ok ||
+          !!requestRejection ||
+          !!promptRejection ||
           guard.blocked ||
           (scope === 'shot' && !imageId)
         }
         onClick={() => void submit()}
       >
-        {submitting ? '提交中…' : `生成 ${seconds} 秒视频`}
+        {submitting ? t('generation.submitting') : t('generation.submit', { seconds })}
       </button>
     </div>
   )

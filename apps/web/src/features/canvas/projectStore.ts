@@ -1,5 +1,6 @@
 import type { AgentConversationView, CloudProjectSummary } from '@image-playground/shared'
 import { create } from 'zustand'
+import { i18next } from '../../i18n'
 import {
   AGENT_CONVERSATION_KEY,
   CANVAS_PROJECT_KEY,
@@ -9,7 +10,7 @@ import {
 import type { CanvasDoc } from './lib/canvasDoc'
 import { getLoadedImage } from './lib/imageCache'
 import { cloudProjectsEnabled, getCloudProject, listCloudProjects } from './lib/projectClient'
-import { type CanvasProject, projectRepository } from './lib/projectRepository'
+import { type CanvasProject, projectRepository, UNTITLED_PROJECT } from './lib/projectRepository'
 import { readProjectRoute, resolveProjectRoute, writeProjectRoute } from './lib/projectRoute'
 import { canvasSceneKey } from './lib/workspaceKeys'
 
@@ -89,7 +90,7 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
       set({ cloudCursor: page.nextCursor })
     } catch {
       if (scopedStorageName(CANVAS_PROJECT_KEY) === scope)
-        set({ cloudError: '云端项目列表读取失败，本机项目仍可使用。' })
+        set({ cloudError: i18next.t('project.cloudListFailed', { ns: 'canvas' }) })
     } finally {
       if (scopedStorageName(CANVAS_PROJECT_KEY) === scope) set({ cloudLoading: false })
     }
@@ -102,7 +103,7 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
         let projects = await projectRepository.list()
         for (const legacy of await projectRepository.legacyScenes()) {
           if (!projects.some((one) => one.sceneKey === legacy.sceneKey))
-            projects.push(await projectRepository.create('未命名项目', legacy))
+            projects.push(await projectRepository.create(UNTITLED_PROJECT, legacy))
         }
         set({ projects })
         await get().refreshCloud()
@@ -128,8 +129,8 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
         if (!active) {
           active =
             cloudProjectsEnabled() && !conversationId
-              ? await projectRepository.create('未命名项目', undefined, true)
-              : await projectRepository.create('未命名项目', {
+              ? await projectRepository.create(UNTITLED_PROJECT, undefined, true)
+              : await projectRepository.create(UNTITLED_PROJECT, {
                   sceneKey: canvasSceneKey(conversationId),
                   conversationId,
                 })
@@ -138,7 +139,7 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
         set({ projects, loaded: true, error: null })
         if (readProjectRoute() === route) get().activate(active.id, true)
       } catch {
-        set({ error: '项目读取失败，原内容已保留，请重新加载。' })
+        set({ error: i18next.t('project.loadFailed', { ns: 'canvas' }) })
         throw new Error('Project catalog unavailable')
       } finally {
         loading = undefined
@@ -148,7 +149,11 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
   },
   async create() {
     await get().load()
-    const project = await projectRepository.create('未命名项目', undefined, cloudProjectsEnabled())
+    const project = await projectRepository.create(
+      UNTITLED_PROJECT,
+      undefined,
+      cloudProjectsEnabled(),
+    )
     set((state) => ({ projects: [project, ...state.projects] }))
     get().activate(project.id)
     return project
@@ -209,7 +214,7 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
           await get().update(existing.id, { name: conversation.title, hasContent: true })
         continue
       }
-      const project = await projectRepository.create(conversation.title || '未命名项目', {
+      const project = await projectRepository.create(conversation.title || UNTITLED_PROJECT, {
         sceneKey: canvasSceneKey(conversation.id),
         conversationId: conversation.id,
       })

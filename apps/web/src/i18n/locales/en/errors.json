@@ -1,0 +1,42 @@
+{
+  "login": {
+    "invalid_credentials": "That email address or password is not correct",
+    "rate_limited": "Too many attempts, please try again later",
+    "fallback": "Cannot sign in right now, check your connection and retry"
+  },
+  "oauth": {
+    "registration_closed": "Sign-up is closed, ask an administrator to open an account for you",
+    "invalid_referral_code": "That invite code is invalid or no longer usable, edit or clear it and retry",
+    "registration_reward_unavailable": "The invite reward cannot be granted right now, retry later or clear the invite code",
+    "account_disabled": "This account has been disabled",
+    "access_denied": "You canceled the third-party authorization",
+    "fallback": "Third-party sign-in failed, retry or use your email instead"
+  },
+  "registration": {
+    "username_taken": "That email address is already registered",
+    "invalid_username": "That email address is not formatted correctly",
+    "invalid_password": "That password is not formatted correctly",
+    "rate_limited": "Too many sign-up attempts, please try again later",
+    "invalid_referral_code": "That invite code is invalid or no longer usable, edit or clear it and retry",
+    "registration_reward_unavailable": "The invite reward cannot be granted right now, retry later or clear the invite code",
+    "fallback": "Cannot create the account right now, check your connection and retry"
+  },
+  "link": {
+    "identity_taken": "That third-party account is already linked to another account",
+    "unauthenticated": "Your session expired, sign in again before linking",
+    "access_denied": "You canceled the third-party authorization",
+    "fallback": "Linking failed, please try again later"
+  },
+  "password": {
+    "invalid_credentials": "The current password is not correct",
+    "current_password_required": "Enter your current password",
+    "invalid_password": "Password must be {{min}}-{{max}} characters",
+    "rate_limited": "Too many attempts, please try again later",
+    "fallback": "Cannot change the password right now, please try again later"
+  },
+  "unlink": {
+    "last_login_method": "Unlinking would leave you unable to sign in, set a password first",
+    "not_linked": "That account is not linked",
+    "fallback": "Cannot unlink right now, please try again later"
+  }
+}

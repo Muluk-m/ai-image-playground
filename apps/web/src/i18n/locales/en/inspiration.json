@@ -1,0 +1,53 @@
+{
+  "panel": {
+    "title": "Inspiration",
+    "count_one": "{{count}} item",
+    "count_other": "{{count}} items",
+    "searchPlaceholder": "Search title / prompt / tag"
+  },
+  "filter": {
+    "all": "All"
+  },
+  "list": {
+    "loading": "Loading…",
+    "empty": "No matching inspiration"
+  },
+  "card": {
+    "titleHint": "{{title}}\nSuggested model: {{model}}",
+    "pin": "Pin",
+    "unpin": "Unpin"
+  },
+  "detail": {
+    "back": "Back to list",
+    "openOriginalHint": "Open the original in a new tab",
+    "openOriginal": "Original ↗",
+    "promptLabel": "Full prompt",
+    "copyPrompt": "Copy prompt",
+    "apply": "Use this prompt",
+    "promptCopied": "Prompt copied",
+    "copyFailed": "Could not copy. Select the text manually."
+  },
+  "coach": {
+    "label": "Inspiration guide",
+    "title": "Need an idea?",
+    "body": "The inspiration library has hundreds of high-quality examples you can apply in one click. Picking one is the fastest start.",
+    "dismiss": "Got it",
+    "explore": "Browse"
+  },
+  "hero": {
+    "title": "Inspiration",
+    "viewAll": "View all"
+  },
+  "apply": {
+    "confirmTitle": "Replace the current input?",
+    "confirmMessage": "The unsubmitted prompt in the input box will be lost. Continuing overwrites it with this item's prompt, parameters and suggested model.",
+    "confirmAction": "Replace and apply",
+    "succeeded": "Inspiration example applied",
+    "noProfile": "No usable configuration for {{provider}} / {{model}}. Add one in settings first."
+  },
+  "manifest": {
+    "loadFailed": "Could not load the remote inspiration manifest: {{reason}}",
+    "notJson": "The remote inspiration manifest did not return JSON",
+    "invalid": "The remote inspiration manifest has an invalid structure"
+  }
+}

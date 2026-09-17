@@ -1,5 +1,6 @@
 import type { ExportPreset } from '@image-playground/shared'
 import { zipSync } from 'fflate'
+import { i18next } from '../i18n'
 import { downloadBlob, imageDataUrl } from './downloadImages'
 
 export interface Size {
@@ -48,7 +49,18 @@ export function computeCenterCrop(
 export const EXPORT_FITS = ['crop', 'letterbox'] as const
 export type ExportFit = (typeof EXPORT_FITS)[number]
 
-export const EXPORT_FIT_LABELS: Record<ExportFit, string> = { crop: '裁切', letterbox: '留白' }
+function buildExportFitLabels(): Record<ExportFit, string> {
+  return {
+    crop: i18next.t('export.fitCrop', { ns: 'lib' }),
+    letterbox: i18next.t('export.fitLetterbox', { ns: 'lib' }),
+  }
+}
+
+/** `export let` 的 live binding：语言切换后已 import 这张表的模块读到的是新一份。 */
+export let EXPORT_FIT_LABELS: Record<ExportFit, string> = buildExportFitLabels()
+i18next.on('languageChanged', () => {
+  EXPORT_FIT_LABELS = buildExportFitLabels()
+})
 
 export interface FitRect {
   dx: number
@@ -101,14 +113,14 @@ export function edgeAverageColor(pixels: Uint8ClampedArray, size: Size): string 
 
 export function sanitizePathSegment(name: string): string {
   const cleaned = name.replace(/[\\/:*?"<>|]/g, '-').trim()
-  return cleaned || '未命名'
+  return cleaned || i18next.t('export.untitled', { ns: 'lib' })
 }
 
 function loadImage(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const image = new Image()
     image.onload = () => resolve(image)
-    image.onerror = () => reject(new Error('图片解码失败'))
+    image.onerror = () => reject(new Error(i18next.t('image.decodeFailed', { ns: 'lib' })))
     image.src = src
   })
 }
@@ -143,7 +155,7 @@ async function renderToPreset(
   canvas.width = preset.width
   canvas.height = preset.height
   const ctx = canvas.getContext('2d')
-  if (!ctx) throw new Error('画布不可用')
+  if (!ctx) throw new Error(i18next.t('canvas.unavailable', { ns: 'lib' }))
   if (fit === 'letterbox') {
     const box = computeLetterbox(source, preset)
     ctx.fillStyle = paddingColor(image, source)
@@ -154,7 +166,7 @@ async function renderToPreset(
     ctx.drawImage(image, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, preset.width, preset.height)
   }
   const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'))
-  if (!blob) throw new Error('导出失败')
+  if (!blob) throw new Error(i18next.t('export.failed', { ns: 'lib' }))
   return blob
 }
 
@@ -165,7 +177,7 @@ async function exportedImage(
   fit: ExportFit,
 ): Promise<Blob> {
   const dataUrl = await imageDataUrl(imageId)
-  if (!dataUrl) throw new Error('找不到这张图')
+  if (!dataUrl) throw new Error(i18next.t('export.imageNotFound', { ns: 'lib' }))
   return renderToPreset(dataUrl, preset, offset, fit)
 }
 

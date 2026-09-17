@@ -1,3 +1,4 @@
+import { i18next } from '../../../i18n'
 import { scopedStorageName } from '../../../lib/authScope'
 import { type AgentDraft, EMPTY_DRAFT } from './references'
 
@@ -90,7 +91,7 @@ export class DraftSession {
         this.publish({ draft: stored })
       }
     } catch {
-      this.publish({ error: '草稿暂时无法读取或保存，刷新前请复制输入内容。' })
+      this.publish({ error: i18next.t('draft.unreadable', { ns: 'agent' }) })
     } finally {
       this.publish({ loading: false })
     }
@@ -154,7 +155,7 @@ export class DraftSession {
         if (this.previousKey === previousKey) this.previousKey = undefined
         this.publish({ error: null })
       } catch {
-        this.publish({ error: '草稿保存失败，内容仍在当前页面，刷新前请复制。' })
+        this.publish({ error: i18next.t('draft.saveFailed', { ns: 'agent' }) })
       }
     })
     return this.writes

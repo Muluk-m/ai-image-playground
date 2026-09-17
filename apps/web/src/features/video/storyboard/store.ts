@@ -5,6 +5,7 @@ import {
   type StoryboardTotalSeconds,
 } from '@image-playground/shared'
 import { create } from 'zustand'
+import { describeError, i18next } from '../../../i18n'
 import { planStoryboard } from '../../../lib/storyboardClient'
 import { ensureImageCached, storeImageFromFile, submitPrepared, useStore } from '../../../store'
 import type { InputImage, TaskRecord } from '../../../types'
@@ -31,8 +32,12 @@ import {
   type StoryboardVersion,
 } from './types'
 
-const NO_IMAGE = '这一镜还没有分镜图'
-const TOO_MANY_REFERENCES = `最多 ${STORYBOARD_MAX_REFERENCE_IMAGES} 张参考图`
+const NO_IMAGE = () => i18next.t('storyboardStore.noImage', { ns: 'video' })
+const TOO_MANY_REFERENCES = () =>
+  i18next.t('storyboardStore.tooManyReferences', {
+    ns: 'video',
+    max: STORYBOARD_MAX_REFERENCE_IMAGES,
+  })
 
 /** 给用户的预期，不是超时。 */
 export const STORYBOARD_PLAN_TYPICAL_SECONDS = 60
@@ -93,10 +98,6 @@ function byNewest(records: StoryboardRecord[]): StoryboardRecord[] {
   return [...records].sort((a, b) => b.createdAt - a.createdAt)
 }
 
-function errorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err)
-}
-
 function shotsFromPlan(plan: StoryboardPlan): StoryboardShotRecord[] {
   return plan.shots.map((shot) => ({
     ...shot,
@@ -116,7 +117,7 @@ export const useStoryboardStore = create<StoryboardState>((set, get) => {
 
   function roomForReference(): boolean {
     if (get().draft.referenceImageIds.length < STORYBOARD_MAX_REFERENCE_IMAGES) return true
-    useStore.getState().showToast(TOO_MANY_REFERENCES, 'error')
+    useStore.getState().showToast(TOO_MANY_REFERENCES(), 'error')
     return false
   }
 
@@ -146,7 +147,12 @@ export const useStoryboardStore = create<StoryboardState>((set, get) => {
       } catch (err) {
         if (saveSequence.get(record.id) === sequence) {
           set((state) => ({ saveStates: { ...state.saveStates, [record.id]: 'error' } }))
-          useStore.getState().showToast(`分镜保存失败：${errorMessage(err)}`, 'error')
+          useStore
+            .getState()
+            .showToast(
+              i18next.t('storyboardStore.saveFailed', { ns: 'video', reason: describeError(err) }),
+              'error',
+            )
         }
         return false
       }
@@ -162,7 +168,8 @@ export const useStoryboardStore = create<StoryboardState>((set, get) => {
     if (!record) return null
     const content = storyboardContent(record)
     const existing = record.versions?.find((version) => sameStoryboard(version.content, content))
-    if (!existing) return get().saveVersion(id, '生成前快照')
+    if (!existing)
+      return get().saveVersion(id, i18next.t('storyboardStore.snapshotName', { ns: 'video' }))
     return (await persist(record)) ? structuredClone(existing) : null
   }
 
@@ -255,7 +262,7 @@ export const useStoryboardStore = create<StoryboardState>((set, get) => {
       if (record.shotImagesRequested) await submitShotImages(record.id, () => true)
       return record.id
     } catch (err) {
-      useStore.getState().showToast(errorMessage(err), 'error')
+      useStore.getState().showToast(describeError(err), 'error')
       return null
     } finally {
       set({ loadingSince: null })
@@ -275,7 +282,9 @@ export const useStoryboardStore = create<StoryboardState>((set, get) => {
       if (record) await persist(record)
     },
     rename(id, title) {
-      return patchBoard(id, { title: title.trim() || '未命名分镜' })
+      return patchBoard(id, {
+        title: title.trim() || i18next.t('storyboardStore.untitledBoard', { ns: 'video' }),
+      })
     },
     async saveVersion(id, name) {
       const record = boardOf(id)
@@ -283,7 +292,7 @@ export const useStoryboardStore = create<StoryboardState>((set, get) => {
       const versions = record.versions ?? []
       const version: StoryboardVersion = {
         id: crypto.randomUUID(),
-        name: name.trim() || '未命名版本',
+        name: name.trim() || i18next.t('storyboardStore.untitledVersion', { ns: 'video' }),
         number: versions.length + 1,
         savedAt: Date.now(),
         content: storyboardContent(record),
@@ -297,13 +306,16 @@ export const useStoryboardStore = create<StoryboardState>((set, get) => {
       const version = record?.versions?.find((item) => item.id === versionId)
       if (!record || !version) return
       if (!sameStoryboard(storyboardContent(record), version.content)) {
-        const backup = await get().saveVersion(id, '恢复前草稿')
+        const backup = await get().saveVersion(
+          id,
+          i18next.t('storyboardStore.restoreBackup', { ns: 'video' }),
+        )
         if (!backup) return
         const current = boardOf(id)
         if (!current || !sameStoryboard(storyboardContent(current), backup.content)) {
           useStore
             .getState()
-            .showToast('草稿在恢复期间有新修改，已保留新修改，请重新选择恢复版本', 'error')
+            .showToast(i18next.t('storyboardStore.restoreConflict', { ns: 'video' }), 'error')
           return
         }
       }
@@ -325,9 +337,11 @@ export const useStoryboardStore = create<StoryboardState>((set, get) => {
       const origin = record.shots.find((shot) => shot.no === copyNo)
       const next: StoryboardShotRecord = {
         no: Math.max(record.nextShotNo ?? 1, ...record.shots.map((shot) => shot.no + 1)),
-        title: origin ? `${origin.title} · 副本` : '新镜头',
+        title: origin
+          ? i18next.t('storyboardStore.shotCopy', { ns: 'video', title: origin.title })
+          : i18next.t('storyboardStore.newShot', { ns: 'video' }),
         description: origin?.description ?? '',
-        camera: origin?.camera ?? '固定镜头',
+        camera: origin?.camera ?? i18next.t('storyboardStore.defaultCamera', { ns: 'video' }),
         line: origin?.line ?? '',
         seconds: origin?.seconds ?? 5,
         startSeconds: 0,
@@ -363,7 +377,12 @@ export const useStoryboardStore = create<StoryboardState>((set, get) => {
           loadError: null,
         }))
       } catch (err) {
-        set({ loadError: `分镜读取失败：${errorMessage(err)}` })
+        set({
+          loadError: i18next.t('storyboardStore.loadFailed', {
+            ns: 'video',
+            reason: describeError(err),
+          }),
+        })
       }
     },
 
@@ -474,7 +493,12 @@ export const useStoryboardStore = create<StoryboardState>((set, get) => {
               : state.activeId,
         }))
       } catch (err) {
-        useStore.getState().showToast(`删除失败：${errorMessage(err)}`, 'error')
+        useStore
+          .getState()
+          .showToast(
+            i18next.t('storyboardStore.deleteFailed', { ns: 'video', reason: describeError(err) }),
+            'error',
+          )
       } finally {
         deleting.delete(id)
       }
@@ -524,7 +548,7 @@ export const useStoryboardStore = create<StoryboardState>((set, get) => {
       const shot = record?.shots.find((item) => item.no === no)
       if (!record || !shot) return null
       if (!shot.imageId) {
-        useStore.getState().showToast(NO_IMAGE, 'error')
+        useStore.getState().showToast(NO_IMAGE(), 'error')
         return null
       }
       const { model, resolution } = useVideoStore.getState().draft
@@ -588,9 +612,9 @@ export const useStoryboardStore = create<StoryboardState>((set, get) => {
       if (!record) return
       try {
         await downloadStoryboardZip(record)
-        useStore.getState().showToast('开始下载', 'success')
+        useStore.getState().showToast(i18next.t('download.started', { ns: 'video' }), 'success')
       } catch (err) {
-        useStore.getState().showToast(errorMessage(err), 'error')
+        useStore.getState().showToast(describeError(err), 'error')
       }
     },
   }
