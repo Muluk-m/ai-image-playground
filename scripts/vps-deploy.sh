@@ -42,6 +42,8 @@ INTERNAL_PROJECT=${INTERNAL_PROJECT:-image-playground-internal}
 INTERNAL_IMAGE=${INTERNAL_IMAGE:-ai-image-playground:vps-main}
 PAID_PROJECT=${PAID_PROJECT:-image-playground-paid}
 PAID_IMAGE=${PAID_IMAGE:-ai-image-playground:paid}
+DEPLOY_KEEP_IMAGES=${DEPLOY_KEEP_IMAGES:-5}
+DEPLOY_MIN_FREE_GB=${DEPLOY_MIN_FREE_GB:-8}
 
 public_sha=-
 private_sha=-
@@ -89,6 +91,28 @@ update_private() {
   unset T
 }
 
+# prune_old_images <moving-alias> <tag-just-rolled-out>
+#
+# Every deploy leaves a commit-qualified image behind as a rollback target, and nothing used to
+# remove them: the host filled up. Keep the newest $DEPLOY_KEEP_IMAGES per edition, plus whatever
+# is still running. A failed removal is reported and ignored; the rollout already succeeded.
+prune_old_images() {
+  running=$(docker ps --format '{{.Image}}' | sort -u | tr '\n' ' ')
+  stale=$(docker images --format '{{.Repository}}:{{.Tag}}' "${1%%:*}" |
+    select_stale_images "$1" "$DEPLOY_KEEP_IMAGES" "$2 $running")
+  if [ -z "$stale" ]; then
+    echo "no images to prune for $1 (keeping $DEPLOY_KEEP_IMAGES)"
+    return 0
+  fi
+  for image in $stale; do
+    if docker rmi "$image" >/dev/null 2>&1; then
+      echo "pruned $image"
+    else
+      echo "could not prune $image; leaving it" >&2
+    fi
+  done
+}
+
 stage "Sync the checkout to $ref"
 if [ -n "$(git -C "$repo_root" status --porcelain --untracked-files=no)" ]; then
   echo "Refusing to deploy: tracked files are modified in $repo_root." >&2
@@ -116,6 +140,20 @@ case "$editions" in
     echo "Skipped: the internal edition builds without ./private."
     ;;
 esac
+
+# A build that fills the disk takes PostgreSQL down with it: both share this filesystem. Refuse
+# while there is still room to recover, instead of finding out halfway through a layer export.
+stage "Check free space for the build"
+free_gb=$(docker_root_free_gb)
+echo "${free_gb}G free, ${DEPLOY_MIN_FREE_GB}G required"
+if [ "$free_gb" -lt "$DEPLOY_MIN_FREE_GB" ]; then
+  echo "Refusing to build: less than ${DEPLOY_MIN_FREE_GB}G free where Docker keeps its data." >&2
+  echo "Old commit-qualified images are the usual cause. List them with" >&2
+  echo "  docker images 'ai-image-playground'" >&2
+  echo "remove the ones no rollback needs, then deploy again. DEPLOY_MIN_FREE_GB in" >&2
+  echo "$deploy_env overrides the threshold." >&2
+  exit 1
+fi
 
 stage "Build the images"
 for edition in $editions; do
@@ -148,6 +186,7 @@ for edition in $editions; do
   append_deploy_log "$edition" "$tag" ok
   current_edition=
   echo "recorded in $deployments_log"
+  prune_old_images "$(edition_var "$prefix" IMAGE)" "$tag"
 done
 
 printf '\nDeployed public=%s private=%s\n' "$public_sha" "$private_sha"
