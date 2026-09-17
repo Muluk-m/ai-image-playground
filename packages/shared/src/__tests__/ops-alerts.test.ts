@@ -146,10 +146,55 @@ describe('数据缺失', () => {
 
   it('还没有过任何备份、还没见过心跳，不算告警：新部署的头一天本来就是这样', () => {
     expect(
-      run([
-        [T0, { backup: { latest_modified_at: null }, heartbeats: { bff: null, worker: null } }],
-      ]),
+      run([[T0, { backup: { latest_modified_at: null }, heartbeats: { bff: null } }]]),
     ).toEqual([[]])
+  })
+})
+
+describe('报过之后读数消失', () => {
+  it('后端断到连旧心跳都被清掉：继续按没好处理，到点再提醒，回来时发已恢复', () => {
+    expect(
+      run([
+        [T0, { heartbeats: { bff: T0 - 10 * minute } }],
+        [T0 + 25 * hour, { heartbeats: { bff: null } }],
+        [T0 + 25 * hour + 5 * minute, { heartbeats: { bff: null } }],
+        [T0 + 26 * hour, { heartbeats: { bff: T0 + 26 * hour } }],
+      ]),
+    ).toEqual([['firing:heartbeat:bff'], ['firing:heartbeat:bff'], [], ['resolved:heartbeat:bff']])
+  })
+
+  it('报过备份过期之后桶被清空：不当成从来没有过', () => {
+    expect(
+      run([
+        [T0, { backup: { latest_modified_at: T0 - 30 * hour } }],
+        [T0 + 2 * hour, { backup: { latest_modified_at: null } }],
+        [T0 + 3 * hour, { backup: { latest_modified_at: T0 + 3 * hour } }],
+      ]),
+    ).toEqual([['firing:backup'], ['firing:backup'], ['resolved:backup']])
+  })
+})
+
+describe('观测缺失不打断计时', () => {
+  it('内存吃紧的持续期跨过一轮缺失，照样到点触发', () => {
+    const tight = { host: host(30, 0.05) }
+    expect(
+      run([
+        [T0, tight],
+        [T0 + 2 * minute, {}],
+        [T0 + 5 * minute, tight],
+      ]),
+    ).toEqual([[], [], ['firing:memory']])
+  })
+
+  it('该再提醒的那一轮恰好没取到，下一轮取到就补发', () => {
+    const full = { host: host(2) }
+    expect(
+      run([
+        [T0, full],
+        [T0 + 60 * minute, {}],
+        [T0 + 61 * minute, full],
+      ]),
+    ).toEqual([['firing:disk'], [], ['firing:disk']])
   })
 })
 
