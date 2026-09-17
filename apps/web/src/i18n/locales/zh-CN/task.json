@@ -115,6 +115,10 @@
     },
     "pages": "记录分页",
     "previous": "上一页",
-    "next": "下一页"
+    "next": "下一页",
+    "reuse": "复用参数",
+    "preparing": "正在准备…",
+    "reuseFailed": "未能恢复全部参考图和参数，请重试。",
+    "modelUnavailable": "原模型当前不可用，请稍后重试。"
   }
 }

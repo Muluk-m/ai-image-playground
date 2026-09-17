@@ -4,12 +4,23 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import CloudGenerationHistory from '../../components/CloudGenerationHistory'
 import { setClientStorageScope } from '../../lib/authScope'
+import { setChannels } from '../../lib/channels/channelStore'
+import { useStore } from '../../store'
+import { DEFAULT_PARAMS } from '../../types'
 
 let host: HTMLDivElement
 let root: Root
 beforeEach(() => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true
   setClientStorageScope('owner')
+  setChannels([])
+  useStore.setState({
+    prompt: '',
+    params: { ...DEFAULT_PARAMS },
+    inputImages: [],
+    maskDraft: null,
+    tasks: [],
+  })
   host = document.createElement('div')
   document.body.append(host)
   root = createRoot(host)
@@ -34,7 +45,17 @@ it('空白设备能查看云端任务及提示词，刷新显示最新状态', a
   const fetcher = vi
     .fn()
     .mockResolvedValueOnce(Response.json({ items: [item], nextCursor: null }))
-    .mockResolvedValueOnce(Response.json({ ...item, prompt: '一只在阳光下睡觉的猫' }))
+    .mockResolvedValueOnce(
+      Response.json({
+        ...item,
+        prompt: '一只在阳光下睡觉的猫',
+        parameters: {},
+        actualParameters: {},
+        inputs: [],
+        mask: null,
+        outputs: [],
+      }),
+    )
     .mockResolvedValueOnce(
       Response.json({ items: [{ ...item, status: 'completed', revision: '3' }], nextCursor: null }),
     )
@@ -137,4 +158,62 @@ it('云端列表展示封面时只读取预览，原件留到用户明确下载'
   await act(async () => root.render(<CloudGenerationHistory />))
   expect(fetcher.mock.calls.map(([url]) => url)).toContain('https://media.example/preview.webp')
   expect(fetcher.mock.calls.map(([url]) => url)).not.toContain('https://media.example/original.png')
+})
+
+it('复用云端记录恢复相同模型与参数，进入创作但不自动提交生成', async () => {
+  setChannels([
+    {
+      id: 'openai-images',
+      kind: 'openai-queue',
+      label: 'Image',
+      defaults: {},
+      models: [{ id: 'gpt-image-2', label: 'GPT Image', capabilities: ['generate'] }],
+    },
+  ])
+  const fetcher = vi
+    .fn()
+    .mockResolvedValueOnce(Response.json({ items: [item], nextCursor: null }))
+    .mockResolvedValueOnce(
+      Response.json({
+        ...item,
+        prompt: '一只猫',
+        parameters: {
+          size: '1536x1024',
+          quality: 'high',
+          n: 2,
+          output_format: 'webp',
+          output_compression: 90,
+        },
+        actualParameters: {},
+        inputs: [],
+        mask: null,
+        outputs: [],
+      }),
+    )
+  vi.stubGlobal('fetch', fetcher)
+  await act(async () => root.render(<CloudGenerationHistory />))
+  const click = async (label: string) => {
+    const button = [...host.querySelectorAll('button')].find((node) =>
+      node.textContent?.includes(label),
+    )
+    expect(button).toBeDefined()
+    await act(async () => button!.click())
+  }
+  await click('查看详情')
+  await click('复用参数')
+  expect(useStore.getState().prompt).toBe('一只猫')
+  expect(useStore.getState().params).toMatchObject({
+    size: '1536x1024',
+    quality: 'high',
+    n: 2,
+    output_format: 'webp',
+    output_compression: 90,
+  })
+  const settings = useStore.getState().settings
+  expect(
+    settings.profiles.find((profile) => profile.id === settings.activeProfileId),
+  ).toMatchObject({ source: 'builtin-edge', selectedModelId: 'gpt-image-2' })
+  expect(useStore.getState().appMode).toBe('create')
+  expect(useStore.getState().tasks).toHaveLength(0)
+  expect(fetcher).toHaveBeenCalledTimes(2)
 })

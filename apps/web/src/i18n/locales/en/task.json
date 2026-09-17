@@ -117,6 +117,10 @@
     },
     "pages": "History pages",
     "previous": "Previous",
-    "next": "Next"
+    "next": "Next",
+    "reuse": "Reuse settings",
+    "preparing": "Preparing…",
+    "reuseFailed": "Could not restore all references and settings. Please retry.",
+    "modelUnavailable": "The original model is currently unavailable. Please retry later."
   }
 }

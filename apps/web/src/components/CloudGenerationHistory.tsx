@@ -5,6 +5,7 @@ import { useTranslation } from '../i18n'
 import { authenticatedBffFetch } from '../lib/authClient'
 import { scopedStorageName } from '../lib/authScope'
 import { bffBaseUrl } from '../lib/runtimeConfig'
+import CloudGenerationDetail from './CloudGenerationDetail'
 import MediaImage from './MediaImage'
 import { Button } from './ui/button'
 
@@ -128,11 +129,7 @@ export default function CloudGenerationHistory() {
                 </Button>
               </div>
             </div>
-            {detail?.id === item.id && (
-              <p className="mt-4 whitespace-pre-wrap break-words border-t border-border pt-4 text-sm">
-                {detail.prompt}
-              </p>
-            )}
+            {detail?.id === item.id && <CloudGenerationDetail key={detail.id} detail={detail} />}
           </li>
         ))}
       </ul>
