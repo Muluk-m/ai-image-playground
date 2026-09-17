@@ -376,6 +376,22 @@ it('删除绑了会话的项目：会话一起删掉，面板的列表也摘掉�
   expect((await projectRepository.list()).map((one) => one.id)).not.toContain(target.id)
 })
 
+it('删除项目：服务端说这个会话还有一轮在跑时不删', async () => {
+  const target = await projectWithContent('别的标签页正用着', 45)
+  await useCanvasProjectStore.getState().update(target.id, { conversationId: 'conversation-busy' })
+  await projectWithContent('当前项目的草稿', 3)
+  const { seen, panel } = deletePanel(target.id)
+  fetchMock.mockImplementationOnce(async () =>
+    Response.json({ messages: [], turns: [], activeTurn: { id: 'turn-1' } }),
+  )
+
+  expect(await deleteProject(target.id, panel)).toEqual({ ok: false, reason: 'busy' })
+
+  expect(conversationDeleted('conversation-busy')).toBe(false)
+  expect((await projectRepository.list()).map((one) => one.id)).toContain(target.id)
+  expect(seen).toEqual([])
+})
+
 it('删除项目：会话在服务端已经没了也照删不误', async () => {
   const target = await projectWithContent('会话已经没了', 66)
   await useCanvasProjectStore.getState().update(target.id, { conversationId: 'conversation-gone' })

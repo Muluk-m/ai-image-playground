@@ -43,10 +43,10 @@ import {
   reduceAgentPanelEvent,
 } from './lib/panelMessages'
 import {
-  type AgentPanelSeam,
   currentProjectDraft,
   type DeleteProjectPanel,
   deleteProject,
+  type ShowProjectPanel,
   saveCurrentProject,
   showProject,
 } from './lib/projectLifecycle'
@@ -358,7 +358,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
     }
   }
   /** 展示项目时属于面板自己的那几步；次序归 `projectLifecycle`。 */
-  const panelSeam: AgentPanelSeam = {
+  const showPanel: ShowProjectPanel = {
     resetDelivery: () => void delivery.reset(),
     reset: (project) =>
       set({
@@ -396,15 +396,15 @@ export const useAgentStore = create<AgentState>((set, get) => {
       !draft.references.length
     ) {
       await useCanvasProjectStore.getState().update(current.id, { workspaceOpened: true })
-      showProject(current, panelSeam)
+      showProject(current, showPanel)
       return true
     }
     const project = await useCanvasProjectStore.getState().create()
-    showProject(project, panelSeam)
+    showProject(project, showPanel)
     return true
   }
   /** 删除时属于面板的那两步，外加它此刻的两件事实。 */
-  const deleteSeam: DeleteProjectPanel = {
+  const deletePanel: DeleteProjectPanel = {
     get conversationId() {
       return get().conversationId
     },
@@ -565,7 +565,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
           return false
         }
         if (!isCurrent()) return false
-        showProject(project, panelSeam)
+        showProject(project, showPanel)
         return true
       })
     },
@@ -575,7 +575,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
         // 成对的两次自增作废在途的会话列表：删之前发出的那一份不能把项目重新导回来。
         conversationListRevision += 1
         try {
-          const result = await deleteProject(projectId, deleteSeam)
+          const result = await deleteProject(projectId, deletePanel)
           if (result.ok) return true
           // 项目本来就不在了，没什么好说的；其余按「在忙」与「没删成」两句文案分。
           if (result.reason !== 'not_found')

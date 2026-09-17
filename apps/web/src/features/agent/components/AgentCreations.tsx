@@ -62,16 +62,24 @@ function bitmapKey(element: ImageEl): string {
 }
 
 /**
- * 作品的缩略图与结果卡走同一条出口：栅格化、视频封面恢复和按 `objectId:fileId` 的缓存
- * 都在 sink 里，这里只管什么时候问、问回来的图还算不算数。
+ * 作品的缩略图走画布出口：栅格化、视频封面恢复和按 `objectId:fileId` 的缓存都在 sink 里。
  * 值是 `string` 表示取到了，`null` 表示取不到（对象已删、位图缺失），键不在表示还在取。
+ * 出口不在时退回文档里的全尺寸位图——骨架屏等不到画布挂上来。
  */
-function useCanvasThumbnails(works: readonly ImageEl[]): ReadonlyMap<string, string | null> {
+function useCanvasThumbnails(
+  doc: CanvasDoc,
+  works: readonly ImageEl[],
+): ReadonlyMap<string, string | null> {
   const sink = useSyncExternalStore(onAgentCanvasSinkChange, agentCanvasSink)
   const cache = useRef<ReadonlyMap<string, string | null>>(NO_THUMBNAILS)
   const cacheSink = useRef<AgentCanvasSink | null>(sink)
   const [thumbnails, setThumbnails] = useState(cache.current)
   const signature = works.map(bitmapKey).join(' ')
+  const files = doc.files
+  const fallback = useMemo(
+    () => new Map(works.map((work) => [bitmapKey(work), files[work.fileId] ?? null])),
+    [files, signature],
+  )
 
   useEffect(() => {
     // 画布换了（切项目、画布卸载）：上一块画布的位图作废。
@@ -79,6 +87,13 @@ function useCanvasThumbnails(works: readonly ImageEl[]): ReadonlyMap<string, str
       cacheSink.current = sink
       cache.current = NO_THUMBNAILS
       setThumbnails(NO_THUMBNAILS)
+    }
+    // 删掉的作品不留在缓存里：同一个 id 配同一张位图再出现时要重新问一次画布。
+    const live = new Set(works.map(bitmapKey))
+    const kept = new Map([...cache.current].filter(([key]) => live.has(key)))
+    if (kept.size !== cache.current.size) {
+      cache.current = kept
+      setThumbnails(kept)
     }
     if (!sink) return
     let alive = true
@@ -102,7 +117,30 @@ function useCanvasThumbnails(works: readonly ImageEl[]): ReadonlyMap<string, str
     // works 每次渲染都是新数组，用位图身份合成的 signature 当依赖。
   }, [sink, signature])
 
-  return thumbnails
+  return sink ? thumbnails : fallback
+}
+
+/**
+ * 定位交给画布出口。出口还没注册（画布正在挂载 / 移动端刚切过去）时记下这一件，
+ * 等它注册再补上——否则用户到了画布，那件作品却没被选中。
+ */
+function useLocateOnCanvas(): (objectId: string) => void {
+  const pending = useRef<string | null>(null)
+  useEffect(
+    () =>
+      onAgentCanvasSinkChange((sink) => {
+        const objectId = pending.current
+        if (!sink || !objectId) return
+        pending.current = null
+        sink.focus([objectId])
+      }),
+    [],
+  )
+  return useCallback((objectId: string) => {
+    const sink = agentCanvasSink()
+    if (sink) sink.focus([objectId])
+    else pending.current = objectId
+  }, [])
 }
 
 const WorkCard = memo(function WorkCard({
@@ -196,17 +234,18 @@ export default function AgentCreations({
         .filter((element): element is ImageEl => element.type === 'image'),
     [groups],
   )
-  const thumbnails = useCanvasThumbnails(works)
+  const thumbnails = useCanvasThumbnails(doc, works)
   const marks = doc.elements.filter(
     (element) => element.type !== 'image' && element.type !== 'placeholder',
   )
+  const locate = useLocateOnCanvas()
   const onSelect = useCallback(
     (id: string) => {
       onSelectWork?.()
       // 定位与结果卡同一条出口：不在画布上的对象由 sink 过滤掉。
-      agentCanvasSink()?.focus([id])
+      locate(id)
     },
-    [onSelectWork],
+    [onSelectWork, locate],
   )
   if (!groups.length && !marks.length)
     return (

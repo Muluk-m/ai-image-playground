@@ -71,8 +71,8 @@ function render(): void {
 }
 
 /** 缩略图是逐件取的，每件至少要放过一轮微任务。 */
-async function settle(turns = 8): Promise<void> {
-  for (let i = 0; i < turns; i += 1) await act(async () => {})
+async function settle(ticks = 8): Promise<void> {
+  for (let i = 0; i < ticks; i += 1) await act(async () => {})
 }
 
 function rows(): HTMLButtonElement[] {
@@ -276,21 +276,99 @@ describe('创作记录', () => {
     expect(sources()).toEqual(['thumb:next'])
   })
 
-  it('画布没挂上时仍然列出作品', async () => {
+  it('画布没挂上时仍然列出作品，缩略图退回文档里的位图', async () => {
     put([image('a', { meta: { prompt: '猫' } })])
     setAgentCanvasSink(null)
     render()
     await settle()
 
     expect(names()).toEqual(['猫'])
-    expect(sources()).toEqual([])
+    // 出口不在，图源只剩画布文档：宁可是全尺寸位图，也好过永远的骨架屏。
+    expect(sources()).toEqual([PIXEL])
     expect(thumbnail).not.toHaveBeenCalled()
-    // 没有出口就无处可去，点一下也不能炸。
     expect(() => {
       act(() => {
         rows()[0].dispatchEvent(new MouseEvent('click', { bubbles: true }))
       })
     }).not.toThrow()
+  })
+
+  it('画布没挂上、文档里也没有位图时说预览不可用', async () => {
+    put([image('a', { meta: { prompt: '猫' }, fileId: 'missing' })])
+    setAgentCanvasSink(null)
+    render()
+    await settle()
+
+    expect(sources()).toEqual([])
+    expect(host.textContent).toContain('预览不可用')
+  })
+
+  it('画布挂上之后缩略图换成出口给的那张', async () => {
+    put([image('a', { meta: { prompt: '猫' } })])
+    setAgentCanvasSink(null)
+    render()
+    await settle()
+    expect(sources()).toEqual([PIXEL])
+
+    act(() => {
+      stubSink()
+    })
+    await settle()
+
+    expect(thumbnail).toHaveBeenCalledWith('a')
+    expect(sources()).toEqual(['thumb:a'])
+  })
+
+  it('画布没挂上时点选先记下，画布挂上后补一次定位', async () => {
+    put([image('a', { meta: { prompt: '猫' } }), image('b', { meta: { prompt: '狗' } })])
+    setAgentCanvasSink(null)
+    render()
+    await settle()
+
+    act(() => {
+      rows()[0].dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    expect(focus).not.toHaveBeenCalled()
+
+    act(() => {
+      stubSink()
+    })
+    await settle()
+
+    expect(focus.mock.calls).toEqual([[['b']]])
+  })
+
+  it('画布没挂上时连点两件，只定位最后点的那件', async () => {
+    put([image('a', { meta: { prompt: '猫' } }), image('b', { meta: { prompt: '狗' } })])
+    setAgentCanvasSink(null)
+    render()
+    await settle()
+
+    act(() => {
+      rows()[0].dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      rows()[1].dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    act(() => {
+      stubSink()
+    })
+    await settle()
+
+    expect(focus.mock.calls).toEqual([[['a']]])
+  })
+
+  it('作品从画布上删掉后，缩略图缓存不替它留着位置', async () => {
+    put([image('a', { meta: { prompt: '猫' } })])
+    render()
+    await settle()
+    expect(thumbnail).toHaveBeenCalledTimes(1)
+
+    act(() => put([]))
+    await settle()
+    act(() => put([image('a', { meta: { prompt: '猫' } })]))
+    await settle()
+
+    expect(thumbnail).toHaveBeenCalledTimes(2)
+    expect(sources()).toEqual(['thumb:a'])
   })
 
   it('文字、画笔、箭头各有自己的名字', () => {
