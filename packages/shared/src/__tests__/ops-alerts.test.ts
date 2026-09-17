@@ -111,6 +111,23 @@ describe('去重与恢复', () => {
     ).toEqual([['firing:disk'], ['resolved:disk'], ['firing:disk']])
   })
 
+  it('读数贴着告警线浮动时不来回刷屏：回落够多才算恢复', () => {
+    // 50G 的盘：剩 7.4G 是 85.2%，剩 7.6G 是 84.8%，剩 9G 是 82%。
+    expect(
+      run([
+        [T0, { host: host(7.4) }],
+        [T0 + minute, { host: host(7.6) }],
+        [T0 + 2 * minute, { host: host(7.4) }],
+        [T0 + 3 * minute, { host: host(7.6) }],
+        [T0 + 4 * minute, { host: host(9) }],
+      ]),
+    ).toEqual([['firing:disk'], [], [], [], ['resolved:disk']])
+  })
+
+  it('没报过的规则不受恢复线影响：停在两条线之间不算告警', () => {
+    expect(run([[T0, { host: host(7.6) }]])).toEqual([[]])
+  })
+
   it('从没报过的规则不会凭空发已恢复', () => {
     expect(run([[T0, fine]])).toEqual([[]])
   })

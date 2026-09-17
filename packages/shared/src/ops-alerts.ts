@@ -48,6 +48,8 @@ const REMIND_AFTER_MS = 60 * 60 * 1000
 
 interface Reading {
   breached: boolean
+  /** 已经在报的规则要满足这一条才算恢复；不写就是「不再越线」。 */
+  recovered?: boolean
   /** 越线后要持续多久才算数。 */
   sustainMs: number
   firingText: string
@@ -88,6 +90,7 @@ function readings(observation: AlertObservation, now: number): Partial<Record<Al
     const used = 1 - host.disk_available_bytes / host.disk_total_bytes
     out.disk = {
       breached: used >= OPS_THRESHOLDS.DISK_USED_RATIO,
+      recovered: used < OPS_THRESHOLDS.DISK_USED_RATIO - OPS_THRESHOLDS.HOST_RECOVERY_MARGIN_RATIO,
       sustainMs: 0,
       firingText: `磁盘已用 ${percent(used)}，只剩 ${gb(host.disk_available_bytes)}（告警线 ${percent(OPS_THRESHOLDS.DISK_USED_RATIO)}）`,
       resolvedText: `已恢复：磁盘已用 ${percent(used)}`,
@@ -95,6 +98,9 @@ function readings(observation: AlertObservation, now: number): Partial<Record<Al
     const available = host.mem_available_bytes / host.mem_total_bytes
     out.memory = {
       breached: available < OPS_THRESHOLDS.MEMORY_AVAILABLE_RATIO,
+      recovered:
+        available >=
+        OPS_THRESHOLDS.MEMORY_AVAILABLE_RATIO + OPS_THRESHOLDS.HOST_RECOVERY_MARGIN_RATIO,
       sustainMs: OPS_THRESHOLDS.MEMORY_SUSTAIN_MS,
       firingText: `可用内存只剩 ${percent(available)}（${gb(host.mem_available_bytes)}），已持续 ${span(OPS_THRESHOLDS.MEMORY_SUSTAIN_MS)}以上（告警线 ${percent(OPS_THRESHOLDS.MEMORY_AVAILABLE_RATIO)}）`,
       resolvedText: `已恢复：可用内存 ${percent(available)}`,
@@ -145,7 +151,10 @@ export function evaluateAlerts(
   >) {
     const previous = state[rule] ?? { breachedSince: null, firing: false, lastSentAt: null }
 
-    if (!reading.breached) {
+    // 报过的规则停在告警线与恢复线之间时，按「还没好」处理：不发已恢复，到点照常再提醒。
+    const breached =
+      reading.breached || (previous.firing && !(reading.recovered ?? !reading.breached))
+    if (!breached) {
       if (previous.firing) messages.push({ rule, kind: 'resolved', text: reading.resolvedText })
       next[rule] = { breachedSince: null, firing: false, lastSentAt: null }
       continue
