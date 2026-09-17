@@ -118,7 +118,7 @@ beforeEach(async () => {
 
 /** 这几个用例只看结果卡与手动放入，占位那三个方法给个不动画布的空实现。 */
 function stubCanvasSink(
-  partial: Pick<AgentCanvasSink, 'has' | 'revision' | 'place' | 'focus' | 'thumbnail'>,
+  partial: Pick<AgentCanvasSink, 'has' | 'place' | 'focus' | 'thumbnail'>,
 ): void {
   setAgentCanvasSink({
     async reserve() {
@@ -251,7 +251,6 @@ describe('AgentPanel', () => {
     const focused: string[] = []
     stubCanvasSink({
       has: () => true,
-      revision: () => 0,
       async place() {
         return 'placed'
       },
@@ -293,7 +292,6 @@ describe('AgentPanel', () => {
     const onCanvas = new Set<string>()
     stubCanvasSink({
       has: (id) => onCanvas.has(id),
-      revision: () => 0,
       async place(items, options) {
         if (options?.isCurrent && !options.isCurrent()) return 'unavailable'
         for (const item of items) onCanvas.add(item.artifactId)
@@ -335,7 +333,6 @@ describe('AgentPanel', () => {
     const onCanvas = new Set<string>()
     stubCanvasSink({
       has: (id) => onCanvas.has(id),
-      revision: () => 0,
       async place(items) {
         for (const item of items) onCanvas.add(item.artifactId)
         return 'placed'
@@ -365,7 +362,6 @@ describe('AgentPanel', () => {
     const onCanvas = new Set(['agent_image_1'])
     stubCanvasSink({
       has: (id) => onCanvas.has(id),
-      revision: () => 0,
       async place() {
         return 'placed'
       },

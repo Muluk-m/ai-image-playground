@@ -9,14 +9,9 @@ export interface AgentPlacedArtifact {
   readonly video?: { readonly taskId: string; readonly outputIndex: number }
 }
 
-export type AgentPlaceOutcome = 'placed' | 'conflict' | 'unavailable'
+export type AgentPlaceOutcome = 'placed' | 'unavailable'
 
 export interface AgentPlaceOptions {
-  /**
-   * 画布修订号门槛：与当前对不上就一张都不写。智能体交付不再传它——产物落的是起跑时
-   * 占好的位，不会盖到用户的东西；留着给需要「画布没动过才写」的调用方。
-   */
-  readonly baseRevision?: number
   /** 贴着这个对象放；它不在画布上就落在视口中央。 */
   readonly anchorObjectId?: string
   /** 异步准备结束后、真正写入前，交付仍属于当前会话与画布。 */
@@ -44,11 +39,9 @@ export interface AgentCanvasSink {
   /** 场景恢复完成；同步画布不需要等待。观察历史产物也必须等这个边界。 */
   readonly ready?: Promise<unknown>
   has(objectId: string): boolean
-  /** 用户编辑的修订号，画布冲突判据的取值。 */
-  revision(): number
   /**
-   * 画布对象的 id 就是 `artifactId`。写入的唯一入口，画布冲突也判在这里。
-   * 源对象一个像素不动，产出只是新增。
+   * 画布对象的 id 就是 `artifactId`。写入的唯一入口。产物落的是起跑时占好的位，
+   * 用户中途编辑画布不会拦下它；源对象一个像素不动，产出只是新增。
    */
   place(
     artifacts: readonly AgentPlacedArtifact[],
@@ -59,7 +52,7 @@ export interface AgentCanvasSink {
    * 并把镜头带到它们所在的区域，返回它们的 id。画布还在恢复场景时会先等它。
    */
   reserve(request: AgentReservation): Promise<readonly string[]>
-  /** 收掉没用上的占位框（轮中止、画布冲突、产物比预占少）。 */
+  /** 收掉没用上的占位框（轮中止、画布已离开、产物比预占少）。 */
   discard(placeholderIds: readonly string[]): void
   /** 工具失败：占位框转错误态留在原地，告诉用户这里本来要出一张图。 */
   markFailed(placeholderIds: readonly string[], message: string): void

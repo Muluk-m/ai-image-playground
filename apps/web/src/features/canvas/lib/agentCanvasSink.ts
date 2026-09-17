@@ -24,8 +24,6 @@ export function createAgentCanvasSink(
     },
     has: (objectId) => editor.getElement(objectId) !== undefined,
 
-    revision: () => editor.editRevision(),
-
     async reserve({ count, anchorObjectId, title, messageId }) {
       if (ready) await (typeof ready === 'function' ? ready() : ready)
       if (count <= 0) return []
@@ -35,7 +33,7 @@ export function createAgentCanvasSink(
           .filter((one) => one.meta.agentMessageId === messageId)
         if (existing.length) return existing.map((one) => one.id)
       }
-      // history: false —— 智能体的占位框不是用户编辑，抬了 editRevision 它会判自己冲突。
+      // history: false —— 智能体的占位框是机器搭的脚手架，不是用户编辑，不该进 undo 栈。
       const groupId = crypto.randomUUID()
       const ids = computePlaceholderTargets(editor, anchorBounds(anchorObjectId), count).map(
         (target) =>
@@ -69,13 +67,7 @@ export function createAgentCanvasSink(
       if (ready) await (typeof ready === 'function' ? ready() : ready)
       let outcome: AgentPlaceOutcome = 'placed'
       const canPlace = () => {
-        const base = options?.baseRevision
-        outcome =
-          options?.isCurrent && !options.isCurrent()
-            ? 'unavailable'
-            : base !== undefined && editor.editRevision() !== base
-              ? 'conflict'
-              : 'placed'
+        outcome = options?.isCurrent && !options.isCurrent() ? 'unavailable' : 'placed'
         return outcome === 'placed'
       }
       if (!canPlace()) return outcome
@@ -111,7 +103,7 @@ export function createAgentCanvasSink(
           },
         },
       )
-      // 落图成功才收占位框：中途被判冲突时它得留着，用户点「放入画布」还认得这个位置。
+      // 落图成功才收占位框：中途画布离开时它得留着，用户点「放入画布」还认得这个位置。
       if (outcome === 'placed') {
         for (const id of reserved) editor.deleteElement(id, { history: false })
       }
