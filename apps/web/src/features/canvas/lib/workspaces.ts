@@ -248,6 +248,19 @@ let current: CanvasWorkspace | undefined
 let visible = false
 let lifecycleInstalled = false
 let refreshTimer: ReturnType<typeof setInterval> | undefined
+let workspaceScope = scopedStorageName('canvas')
+
+function ensureWorkspaceScope() {
+  const scope = scopedStorageName('canvas')
+  if (scope === workspaceScope) return
+  for (const item of workspaces.values()) item.dispose()
+  workspaces.clear()
+  current = undefined
+  workspaceScope = scope
+  clearInterval(refreshTimer)
+  refreshTimer = undefined
+  setAgentCanvasSink(null)
+}
 
 function refreshVisibleWorkspace() {
   clearInterval(refreshTimer)
@@ -258,6 +271,7 @@ function refreshVisibleWorkspace() {
 }
 
 function workspace(key: string, migrateLegacy = false): CanvasWorkspace {
+  ensureWorkspaceScope()
   let value = workspaces.get(key)
   if (!value) {
     value = new CanvasWorkspace(key, migrateLegacy)
@@ -268,9 +282,19 @@ function workspace(key: string, migrateLegacy = false): CanvasWorkspace {
 }
 
 export function currentCanvasWorkspace(): CanvasWorkspace {
+  ensureWorkspaceScope()
   if (!current) {
     const remembered = safeLocalStorage.getItem(scopedStorageName(AGENT_CONVERSATION_KEY))
     current = workspace(currentCanvasProject()?.sceneKey ?? canvasSceneKey(remembered), true)
+    const opened = current
+    void opened.ready
+      .then(() => {
+        if (current === opened && visible) {
+          setAgentCanvasSink(opened.sink)
+          refreshVisibleWorkspace()
+        }
+      })
+      .catch(() => {})
   }
   if (!lifecycleInstalled) {
     lifecycleInstalled = true
@@ -299,6 +323,7 @@ export function showCanvasWorkspace(show: boolean): void {
 }
 
 export function selectCanvasWorkspace(conversationId: string | null): void {
+  ensureWorkspaceScope()
   // 不在画布里时无需加载图片；下次打开画布从记住的会话初始化。
   if (!current) return
   void current.flush()

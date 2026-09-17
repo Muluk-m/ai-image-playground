@@ -266,7 +266,7 @@ it('持续前台的当前项目定期发现远端变更，隐藏后停止检查'
     }),
   )
   await bootstrapClientCapabilities(true, 'http://bff.test')
-  const project = await projectRepository.create('持续前台', undefined, true)
+  let project = await projectRepository.create('持续前台', undefined, true)
   useCanvasProjectStore.setState({ projects: [project], activeId: project.id })
   currentCanvasWorkspace()
   selectCanvasWorkspace(null)
@@ -287,10 +287,21 @@ it('持续前台的当前项目定期发现远端变更，隐藏后停止检查'
       expect(workspace.doc.elements[0]).toMatchObject({ text: '另一台设备的新稿' }),
     )
     expect(reads).toBe(1)
+    await workspace.ready
+    setClientStorageScope(crypto.randomUUID())
+    project = await projectRepository.create('切账号后仍检查', undefined, true)
+    useCanvasProjectStore.setState({ projects: [project], activeId: project.id })
+    const next = currentCanvasWorkspace()
+    await next.ready
+    await vi.advanceTimersByTimeAsync(15000)
+    await vi.waitFor(() => expect(reads).toBe(2))
+    finishRead!()
+    await next.ready
+    expect(next.doc.elements[0]).toMatchObject({ text: '另一台设备的新稿' })
     visibility.mockReturnValue('hidden')
     document.dispatchEvent(new Event('visibilitychange'))
     await vi.advanceTimersByTimeAsync(60000)
-    expect(reads).toBe(1)
+    expect(reads).toBe(2)
   } finally {
     finishRead?.()
     await workspace.ready
