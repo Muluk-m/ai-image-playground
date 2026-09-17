@@ -10,7 +10,6 @@ import {
 import { VideoIcon } from '../../../components/icons'
 import { currentLocale, i18next, useTranslation } from '../../../i18n'
 import type { CanvasDoc, CanvasEl, ImageEl, PlaceholderEl } from '../../canvas/lib/canvasDoc'
-import type { CanvasEditor } from '../../canvas/lib/editor'
 import { canvasElementCreatedAt, canvasImageName } from '../../canvas/lib/imageInfo'
 import { type AgentCanvasSink, agentCanvasSink, onAgentCanvasSinkChange } from '../lib/canvasSink'
 
@@ -184,8 +183,6 @@ export default function AgentCreations({
   onSelect: onSelectWork,
 }: {
   doc: CanvasDoc
-  /** 定位与缩略图都改走 sink 之后没人用了；#522 合并后从 AgentPanel 的调用处一并去掉。 */
-  editor?: CanvasEditor
   onSelect?: () => void
 }) {
   const { t, i18n } = useTranslation('agent')
