@@ -1,6 +1,7 @@
 import type { SubmitRequest, TaskStatus } from './queue-protocol'
 
 export interface GenerationSummary {
+  cover: GenerationImage | null
   id: string
   provider: string
   model: string
