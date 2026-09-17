@@ -93,9 +93,9 @@ export const editImage = defineAgentTool({
     }
   },
   execute(context) {
-    const originalInstructions = context.editRequest?.().instructions
+    const originalAuthorization = context.authorization?.().instructions
     return async (toolCallId, params, signal, onUpdate) => {
-      const snapshot = context.editRequest?.()
+      const snapshot = context.authorization?.()
       const images = await requireAgentImages(context.images, params.imageIds)
       if (
         (context.maskedEditPlan?.protected || context.images.masked) &&
@@ -111,7 +111,7 @@ export const editImage = defineAgentTool({
         snapshot?.instructions ?? '',
         params.requestQuote,
       )
-      if (signal?.aborted || snapshot !== context.editRequest?.())
+      if (signal?.aborted || snapshot !== context.authorization?.())
         throw new Error('修改要求已更新，请按最新要求核对后执行')
       return runQueueTask(
         context,
@@ -126,7 +126,7 @@ export const editImage = defineAgentTool({
                   ...(params.selectionBindings
                     ? { selectionBindings: params.selectionBindings }
                     : {}),
-                  quote: params.requestQuote ?? originalInstructions,
+                  quote: params.requestQuote ?? originalAuthorization,
                 },
               }
             : {}),
