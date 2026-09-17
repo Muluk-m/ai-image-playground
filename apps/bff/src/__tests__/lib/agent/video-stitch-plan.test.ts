@@ -44,6 +44,39 @@ describe('parseStitchProbe', () => {
     expect(parseStitchProbe(json)).toMatchObject({ durationSeconds: 6, hasAudio: false })
   })
 
+  it('prefers the average frame rate: r_frame_rate is an upper bound, not the real rate', () => {
+    // 变帧率的片子 `r_frame_rate` 常是 1000/1 这种荒唐值，照它归一等于凭空插帧。
+    const json = JSON.stringify({
+      streams: [
+        {
+          codec_type: 'video',
+          width: 640,
+          height: 360,
+          duration: '3',
+          r_frame_rate: '1000/1',
+          avg_frame_rate: '30/1',
+        },
+      ],
+    })
+    expect(parseStitchProbe(json)?.fps).toBe(30)
+  })
+
+  it('falls back to r_frame_rate when the average is the unset 0/0', () => {
+    const json = JSON.stringify({
+      streams: [
+        {
+          codec_type: 'video',
+          width: 640,
+          height: 360,
+          duration: '3',
+          r_frame_rate: '25/1',
+          avg_frame_rate: '0/0',
+        },
+      ],
+    })
+    expect(parseStitchProbe(json)?.fps).toBe(25)
+  })
+
   it('assumes a frame rate when ffprobe reports none, instead of dropping the segment', () => {
     const json = JSON.stringify({
       streams: [{ codec_type: 'video', width: 640, height: 360, duration: '3' }],
@@ -87,6 +120,16 @@ describe('stitchTarget', () => {
       width: 1280,
       height: 720,
     })
+  })
+
+  it.each([
+    ['an absurd rate no player wants', 1000, 24],
+    ['a rate that is merely high but real', 50, 50],
+    ['a rate right at the ceiling', 60, 60],
+  ])('takes %s as %p and writes %p', (_label, fps, expected) => {
+    // 超出上限时回落到默认帧率，**不是** clamp 到 60：1000fps 的片子按 60 归一
+    // 只是换一个同样离谱的数，默认档至少是个正常片子的帧率。
+    expect(stitchTarget([probe({ fps })]).fps).toBe(expected)
   })
 
   it('leaves the film silent when no segment carries audio', () => {

@@ -93,7 +93,10 @@ export function parseStitchProbe(stdout: string): StitchProbe | null {
   const height = numeric(video.height)
   const duration = numeric(video.duration) ?? numeric(payload.format?.duration)
   if (!width || !height || !duration) return null
-  const fps = parseFrameRate(video.r_frame_rate) ?? parseFrameRate(video.avg_frame_rate)
+  // `avg_frame_rate` 才是这一段真正的平均帧率；`r_frame_rate` 是容器声明的上界，
+  // 变帧率的片子常写成 1000/1 这种荒唐值，照它归一等于凭空插帧。未设时它是 `0/0`，
+  // `parseFrameRate` 把它当读不到，于是退回 `r_frame_rate`。
+  const fps = parseFrameRate(video.avg_frame_rate) ?? parseFrameRate(video.r_frame_rate)
   return {
     width: Math.round(width),
     height: Math.round(height),
@@ -108,6 +111,17 @@ function even(value: number): number {
   return Math.max(2, value - (value % 2))
 }
 
+/**
+ * 成片的帧率。取第一段的，但**超出正常范围时回落到默认档，不是 clamp 到上限**：
+ * 一段自称 1000fps 的片子按 60 归一只是换一个同样离谱的数，而默认档至少是个
+ * 真片子的帧率。
+ */
+function targetFrameRate(fps: number): number {
+  const rounded = Math.round(fps)
+  if (!Number.isFinite(rounded) || rounded < FPS_MIN || rounded > FPS_MAX) return FPS_FALLBACK
+  return rounded
+}
+
 export function stitchTarget(probes: readonly StitchProbe[]): StitchTarget {
   const first = probes[0]
   if (!first) throw new Error('没有可拼接的片段')
@@ -116,7 +130,7 @@ export function stitchTarget(probes: readonly StitchProbe[]): StitchTarget {
   return {
     width: even(first.width),
     height: even(first.height),
-    fps: Math.min(FPS_MAX, Math.max(FPS_MIN, Math.round(first.fps) || FPS_FALLBACK)),
+    fps: targetFrameRate(first.fps),
     withAudio,
     // 静音那路是最后一个输入：前面的下标必须与 `-i` 的顺序逐一对应。
     ...(needsSilence ? { silentInputIndex: probes.length } : {}),
