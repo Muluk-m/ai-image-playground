@@ -4,6 +4,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import CloudGenerationHistory from '../../components/CloudGenerationHistory'
+import InputBar from '../../components/InputBar'
 import { setClientStorageScope } from '../../lib/authScope'
 import { setChannels } from '../../lib/channels/channelStore'
 import { getImage, hashDataUrl, putImage } from '../../lib/db'
@@ -162,7 +163,20 @@ it('云端列表展示封面时只读取预览，原件留到用户明确下载'
   expect(fetcher.mock.calls.map(([url]) => url)).not.toContain('https://media.example/original.png')
 })
 
-it('复用云端记录恢复相同模型与参数，进入创作但不自动提交生成', async () => {
+it('复用云端记录在当前作品输入框显示提示词与参数，不自动提交生成', async () => {
+  vi.stubGlobal('indexedDB', new IDBFactory())
+  useStore.setState({ appMode: 'browse' })
+  function HistoryWithComposer() {
+    const mode = useStore((state) => state.appMode)
+    return mode === 'browse' ? (
+      <>
+        <CloudGenerationHistory />
+        <InputBar />
+      </>
+    ) : (
+      <div>画布</div>
+    )
+  }
   setChannels([
     {
       id: 'openai-images',
@@ -193,7 +207,7 @@ it('复用云端记录恢复相同模型与参数，进入创作但不自动提�
       }),
     )
   vi.stubGlobal('fetch', fetcher)
-  await act(async () => root.render(<CloudGenerationHistory />))
+  await act(async () => root.render(<HistoryWithComposer />))
   const click = async (label: string) => {
     const button = [...host.querySelectorAll('button')].find((node) =>
       node.textContent?.includes(label),
@@ -215,7 +229,8 @@ it('复用云端记录恢复相同模型与参数，进入创作但不自动提�
   expect(
     settings.profiles.find((profile) => profile.id === settings.activeProfileId),
   ).toMatchObject({ source: 'builtin-edge', selectedModelId: 'gpt-image-2' })
-  expect(useStore.getState().appMode).toBe('create')
+  expect(host.querySelector('[contenteditable]')?.textContent).toBe('一只猫')
+  expect(useStore.getState().appMode).toBe('browse')
   expect(useStore.getState().tasks).toHaveLength(0)
   expect(fetcher).toHaveBeenCalledTimes(2)
 })

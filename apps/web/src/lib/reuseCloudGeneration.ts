@@ -99,5 +99,6 @@ export async function reuseCloudGeneration(detail: GenerationDetail, signal: Abo
     maskDataUrl ? { targetImageId: inputs[0]!.id, maskDataUrl, updatedAt: Date.now() } : null,
   )
   state.setPrompt(guarded ? detail.prompt.slice(guard.length) : detail.prompt)
-  state.setAppMode('create')
+  // The works composer owns this prompt, reference list and mask; the canvas has a separate draft.
+  state.setAppMode('browse')
 }
