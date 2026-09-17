@@ -2,6 +2,7 @@ import type { TaskErrorType } from '@image-playground/shared'
 import { and, eq, inArray, type SQL } from 'drizzle-orm'
 import { loadPrivateBffOverlay, type TaskUsage } from '../lib/private-overlay'
 import { db, schema } from './client'
+import { publishGenerations } from './generation-events'
 
 /**
  * 每个状态写入都带 `status='in_progress'` 守卫：cancel route 已经把 status 写成
@@ -30,12 +31,18 @@ export async function requeueTask(
   attemptJustFailed: number,
   nextRetryAt: number,
 ): Promise<boolean> {
-  const updated = await db
-    .update(schema.tasks)
-    .set({ ...CLEARED_ON_REQUEUE, attempt_count: attemptJustFailed, next_retry_at: nextRetryAt })
-    .where(stillRunning(id))
-    .returning({ id: schema.tasks.id })
-  return updated.length > 0
+  return db.transaction(async (tx) => {
+    const updated = await tx
+      .update(schema.tasks)
+      .set({ ...CLEARED_ON_REQUEUE, attempt_count: attemptJustFailed, next_retry_at: nextRetryAt })
+      .where(stillRunning(id))
+      .returning({ id: schema.tasks.id })
+    await publishGenerations(
+      tx,
+      updated.map((row) => row.id),
+    )
+    return updated.length > 0
+  })
 }
 
 /**
@@ -44,12 +51,18 @@ export async function requeueTask(
  */
 export async function requeueTasksForPolling(ids: readonly string[]): Promise<number> {
   if (ids.length === 0) return 0
-  const updated = await db
-    .update(schema.tasks)
-    .set({ ...CLEARED_ON_REQUEUE, next_retry_at: null })
-    .where(and(inArray(schema.tasks.id, [...ids]), eq(schema.tasks.status, 'in_progress')))
-    .returning({ id: schema.tasks.id })
-  return updated.length
+  return db.transaction(async (tx) => {
+    const updated = await tx
+      .update(schema.tasks)
+      .set({ ...CLEARED_ON_REQUEUE, next_retry_at: null })
+      .where(and(inArray(schema.tasks.id, [...ids]), eq(schema.tasks.status, 'in_progress')))
+      .returning({ id: schema.tasks.id })
+    await publishGenerations(
+      tx,
+      updated.map((row) => row.id),
+    )
+    return updated.length
+  })
 }
 
 export type TerminalTaskUpdate = {
@@ -98,6 +111,7 @@ export async function finishTask(id: string, update: TerminalTaskUpdate): Promis
       upstreamStatus: update.upstreamStatus ?? null,
       actualUsage: update.actualUsage,
     })
+    await publishGenerations(tx, [finished.id])
     return true
   })
 }
@@ -122,6 +136,10 @@ export async function cancelTasks(access: SQL) {
         upstreamInvocationCount: row.upstreamInvocationCount,
       })
     }
+    await publishGenerations(
+      tx,
+      rows.map((row) => row.id),
+    )
     return rows
   })
 }

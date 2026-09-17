@@ -38,5 +38,8 @@
     "last_login_method": "Unlinking would leave you unable to sign in, set a password first",
     "not_linked": "That account is not linked",
     "fallback": "Cannot unlink right now, please try again later"
+  },
+  "generations": {
+    "fallback": "Unable to load cloud history. Please refresh and try again."
   }
 }

@@ -1,5 +1,16 @@
 import { QUEUE_TIMEOUTS } from '@image-playground/shared'
-import { and, eq, inArray, isNotNull, lt, notInArray, type SQL } from 'drizzle-orm'
+import {
+  and,
+  eq,
+  exists,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  notInArray,
+  or,
+  type SQL,
+} from 'drizzle-orm'
 import { log } from '../lib/logger'
 import { objectStore } from '../lib/objectStore'
 import { loadPrivateBffOverlay } from '../lib/private-overlay'
@@ -150,6 +161,23 @@ export async function purgeOldTasks(
         inArray(schema.tasks.status, ['completed', 'failed', 'cancelled']),
         isNotNull(schema.tasks.completed_at),
         lt(schema.tasks.completed_at, threshold),
+        // Old owned commands must remain replayable until their durable receipt is adopted.
+        or(
+          isNull(schema.tasks.user_id),
+          isNull(schema.tasks.client_request_id),
+          exists(
+            db
+              .select({ id: schema.generation_commands.task_id })
+              .from(schema.generation_commands)
+              .where(
+                and(
+                  eq(schema.generation_commands.user_id, schema.tasks.user_id),
+                  eq(schema.generation_commands.command_id, schema.tasks.client_request_id),
+                  eq(schema.generation_commands.task_id, schema.tasks.id),
+                ),
+              ),
+          ),
+        ),
       ),
     )
     .returning({ id: schema.tasks.id })

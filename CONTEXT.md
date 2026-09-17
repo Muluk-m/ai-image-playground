@@ -422,3 +422,10 @@ _Avoid_: 网络错误、生成失败
 
 **画布已同步（canvas synchronized）**：
 当前画布结构及必要媒体已获云端确认。它不表示未发送草稿、会话关联或尚未完成的生成产物也已同步。
+
+
+## 创作云同步（creation cloud sync）
+
+平台执行的生成任务属于登录用户，创作记录与临时执行任务分开保留。浏览器直连生成由用户选择上传，API Key 不进入同步数据。完整范围与原件保留决定见 [ADR-0007](docs/adr/0007-durable-generation-cloud-ownership.md) 和 [#483](https://github.com/Muluk-m/ai-image-playground/issues/483)。
+
+生成档案（generation record）使用稳定任务身份；命令回执（generation command receipt）保存请求摘要和结果身份，执行任务过期不删除回执。一个事务内的创作变化组成持久批次，按用户事务计数器排序；计数器锁在业务与计费锁之后获取并持有到提交。临时游标、选区、相机和撤销栈不在云同步范围内。
