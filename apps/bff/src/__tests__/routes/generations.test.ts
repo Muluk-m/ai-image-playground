@@ -850,3 +850,102 @@ it('混合内联和 URL 多图中断后恢复，第二张不会覆盖已经保�
     restore()
   }
 })
+
+it('URL 原件已落盘后链接过期，恢复直接使用已保存原件', async () => {
+  const first = await sharp({ create: { width: 8, height: 6, channels: 3, background: '#ff0000' } })
+    .png()
+    .toBuffer()
+  const second = await sharp({
+    create: { width: 8, height: 6, channels: 3, background: '#0000ff' },
+  })
+    .png()
+    .toBuffer()
+  let calls = 0
+  setUpstreamFetchForTesting((async () => {
+    calls++
+    return Response.json({
+      data: [
+        { url: 'https://upstream.example/first.png' },
+        { url: 'https://upstream.example/second.png' },
+      ],
+    })
+  }) as NonNullable<Parameters<typeof setUpstreamFetchForTesting>[0]>)
+  let firstAvailable = true
+  const restore = stubGlobalFetch(async (url: string | URL | Request) =>
+    String(url).endsWith('first.png')
+      ? firstAvailable
+        ? new Response(first)
+        : new Response('expired', { status: 403 })
+      : new Response(second),
+  )
+  const { request_id: id } = await (
+    await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, input)
+  ).json()
+  const { abortRunningTask } = await import('../../workers/task-runner')
+  durable.afterWrite = (key) => {
+    if (key === `${id}/out/0`) {
+      abortRunningTask(id)
+      throw new DOMException('Interrupted', 'AbortError')
+    }
+  }
+  try {
+    await runTask(id)
+    durable.afterWrite = undefined
+    firstAvailable = false
+    const { recoverTasksByIds } = await import('../../db/maintenance')
+    await recoverTasksByIds([id])
+    await runTask(id)
+    const detail = await (await request(`/api/generations/${id}`, deviceB)).json()
+    expect(detail.status).toBe('completed')
+    expect(detail.outputs).toHaveLength(2)
+    for (const [index, bytes] of [first, second].entries()) {
+      const { originalUrl } = await (
+        await request(`/api/media/${detail.outputs[index].mediaId}/access`, deviceB)
+      ).json()
+      expect(await durable.read(new URL(originalUrl).pathname.slice(1))).toEqual(
+        new Uint8Array(bytes),
+      )
+    }
+    expect(calls).toBe(1)
+  } finally {
+    restore()
+  }
+})
+
+it('上游原图下载在读取响应体前拒绝超限长度，重试保存不重新生成', async () => {
+  const png = await sharp({ create: { width: 8, height: 6, channels: 3, background: '#33aacc' } })
+    .png()
+    .toBuffer()
+  let calls = 0
+  let oversized = true
+  setUpstreamFetchForTesting((async () => {
+    calls++
+    return Response.json({ data: [{ url: 'https://upstream.example/large.png' }] })
+  }) as NonNullable<Parameters<typeof setUpstreamFetchForTesting>[0]>)
+  const restore = stubGlobalFetch(
+    async () =>
+      new Response(png, {
+        headers: { 'content-length': String(oversized ? Number.MAX_SAFE_INTEGER : png.length) },
+      }),
+  )
+  const { request_id: id } = await (
+    await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, input)
+  ).json()
+  try {
+    await runTask(id)
+    expect((await (await request(`/api/generations/${id}`, deviceB)).json()).status).toBe('queued')
+    oversized = false
+    const clock = spyOn(Date, 'now').mockReturnValue(Date.now() + 61000)
+    try {
+      await runTask(id)
+    } finally {
+      clock.mockRestore()
+    }
+    expect((await (await request(`/api/generations/${id}`, deviceB)).json()).status).toBe(
+      'completed',
+    )
+    expect(calls).toBe(1)
+  } finally {
+    restore()
+  }
+})

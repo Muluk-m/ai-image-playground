@@ -107,20 +107,36 @@ export async function spoolGenerationOutputs(
   transform: OutputTransform | undefined,
   signal: AbortSignal,
 ) {
+  if (
+    provider === 'openai-compat' &&
+    payload &&
+    typeof payload === 'object' &&
+    'archive_store' in payload &&
+    payload.archive_store === 'durable'
+  ) {
+    const next = structuredClone(payload) as { data?: Record<string, unknown>[] }
+    const keys = new Set(await durableMediaStore().listPrefix(`${id}/out/`))
+    for (const [index, item] of (next.data ?? []).entries()) {
+      const key = `${id}/out/${index}`
+      if (typeof item.url === 'string' && keys.has(key)) {
+        item.object = key
+        delete item.url
+      }
+    }
+    payload = next
+  }
   const deadline = performance.now() + 15 * 60_000
   let attempt = 0
   while (true) {
     signal.throwIfAborted()
     try {
       const archived = await withMediaTransfer(() =>
-        archiveOutputImages(
-          id,
-          provider,
-          structuredClone(payload),
-          transform,
-          durableMediaStore(),
-          true,
-        ),
+        archiveOutputImages(id, provider, structuredClone(payload), transform, {
+          store: durableMediaStore(),
+          retainOnFailure: true,
+          maxBytes: config.operator.quotas['sync:asset-image-bytes'],
+          signal,
+        }),
       )
       return { ...archived, archive_store: 'durable' }
     } catch (error) {
