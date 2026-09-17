@@ -130,6 +130,7 @@ export class CloudProjectSession {
   private retries = 0
   private editVersion = 0
   private lastCheck = 0
+  private recoveryMetadata: Parameters<typeof projectRepository.update>[1] | undefined
 
   start() {
     if (this.started) return
@@ -366,6 +367,7 @@ export class CloudProjectSession {
     return this.serialize(async () => {
       if (!name.trim() || name.length > PROJECT_NAME_MAX_LENGTH)
         throw new Error('invalid_project_name')
+      await this.saveRecoveryMetadata()
       await this.metadata({
         name,
         customName: true,
@@ -388,9 +390,11 @@ export class CloudProjectSession {
   }
   private runSync(): Promise<void> {
     if (this.scheduled) return this.scheduled
-    const operation = this.serialize(() =>
-      this.readRequired ? this.loadCurrent(true) : this.push(),
-    )
+    const operation = this.serialize(async () => {
+      await this.saveRecoveryMetadata()
+      if (this.readRequired) await this.loadCurrent(true)
+      else await this.push()
+    })
     this.scheduled = operation
     void operation
       .finally(() => {
@@ -477,6 +481,16 @@ export class CloudProjectSession {
       }
     }
   }
+  private async saveRecoveryMetadata() {
+    if (!this.recoveryMetadata) return
+    try {
+      await this.metadata(this.recoveryMetadata)
+      this.recoveryMetadata = undefined
+    } catch (error) {
+      this.update('local-error', 'errors:projectSync.local_save_failed')
+      throw error
+    }
+  }
   async resolveConflict(choice: 'cloud' | 'copy'): Promise<CanvasProject | undefined> {
     let copy: CanvasProject | undefined
     await this.serialize(async () => {
@@ -534,14 +548,15 @@ export class CloudProjectSession {
         pending: null,
         conflict: false,
       }
-      await this.persist()
-      await this.metadata({
+      this.recoveryMetadata = {
         name: remote.name,
         customName: true,
         cloud: { revision: remote.revision },
         updatedAt: remote.updatedAt,
         hasContent: remote.elementCount > 0,
-      })
+      }
+      await this.persist()
+      await this.saveRecoveryMetadata()
       this.writable = true
       this.readRequired = false
       const current = this.document()

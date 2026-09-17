@@ -1190,3 +1190,52 @@ it('采用云端稿落盘期间的新修改不能被标成已同步', async () =
   expect(editor.doc.elements[0]).toMatchObject({ text: '采用云端后新编辑' })
   expect(session.getSnapshot().status).toBe('pending')
 })
+
+it.each([
+  'sync',
+  'rename',
+] as const)('采用云端稿后项目索引写入失败仍可恢复且不覆盖新名称：%s', async (action) => {
+  vi.stubGlobal('crypto', webcrypto)
+  const { project, editor } = await fresh()
+  const remote = {
+    ...receipt(project.id, { name: '云端新名称', baseRevision: 2, document: { elements: [] } }),
+    document: { version: 1, elements: [] },
+  }
+  let allowWrite = false
+  const fetcher = vi.fn(async (_url: string, init?: RequestInit) =>
+    init?.method === 'PUT'
+      ? allowWrite
+        ? Response.json(receipt(project.id, JSON.parse(init.body as string)))
+        : Response.json({ error: 'project_conflict' }, { status: 409 })
+      : Response.json(remote),
+  )
+  vi.stubGlobal('fetch', fetcher)
+  const session = new CloudProjectSession(project, editor)
+  await session.load(true)
+  const originalPut = IDBObjectStore.prototype.put
+  const fault = vi.spyOn(IDBObjectStore.prototype, 'put').mockImplementation(function (
+    this: IDBObjectStore,
+    ...args: Parameters<IDBObjectStore['put']>
+  ) {
+    const request = originalPut.apply(this, args)
+    if (args[0]?.id === project.id && args[0]?.name === '云端新名称') this.transaction.abort()
+    return request
+  })
+  try {
+    await expect(session.resolveConflict('cloud')).rejects.toBeDefined()
+  } finally {
+    fault.mockRestore()
+  }
+  expect(session.getSnapshot().status).toBe('local-error')
+  allowWrite = true
+  if (action === 'rename') await session.rename('恢复后的新名称')
+  await session.sync()
+  expect(session.getSnapshot().status).toBe('saved')
+  expect((await projectRepository.list()).find((one) => one.id === project.id)).toMatchObject({
+    name: action === 'rename' ? '恢复后的新名称' : '云端新名称',
+    cloud: { revision: action === 'rename' ? 4 : 3 },
+  })
+  expect(fetcher.mock.calls.filter(([, init]) => init?.method === 'PUT')).toHaveLength(
+    action === 'rename' ? 2 : 1,
+  )
+})
