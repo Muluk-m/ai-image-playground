@@ -13,8 +13,13 @@ import {
   referenceManifest,
 } from './images'
 import { agentModel } from './model'
-import { evidenceBlocks, referenceEvidence } from './selection-preview'
-import { agentToolGuidance } from './tools'
+import {
+  type EvidenceListing,
+  evidenceBlocks,
+  evidenceManifest,
+  referenceEvidence,
+} from './selection-preview'
+import { agentToolDeclarations, agentToolGuidance } from './tools'
 
 /**
  * 「这一轮送给模型的输入长什么样」只由本模块回答，因为它有两个读者：起轮前的预扣估算
@@ -32,6 +37,40 @@ const EMPTY_USAGE = {
 
 /** pi 按图片块的数量估 token，所以预扣用得起一个没有字节的占位块。 */
 const PLACEHOLDER_IMAGE: ImageContent = { type: 'image', data: '', mimeType: 'image/png' }
+
+/**
+ * 清单里的选区 ID 与位置要读图片字节才算得出来，预扣只能代入等长占位：
+ * ID 的长度是定死的（`selection_` + sha256 的 64 位十六进制，见 `selection-preview.ts`），
+ * bounds 取画布上最常见的 1024² 满图选区——四个字段名与真值一模一样，数字位数取上界，
+ * 真选区更小的时候占位只会略微多估几个字符。
+ */
+const PLACEHOLDER_SELECTION = {
+  id: `selection_${'0'.repeat(64)}`,
+  bounds: { left: 0, top: 0, width: 1024, height: 1024 },
+} as const
+
+/** 预扣路径的清单：张数与有没有选区是真的，选区 ID 与位置是占位。 */
+function estimatedListings(references: readonly AgentImageReference[]): EvidenceListing[] {
+  return references.map((reference) => ({
+    imageId: reference.imageId,
+    ...(referenceHasMask(reference) ? { selection: PLACEHOLDER_SELECTION } : {}),
+  }))
+}
+
+/**
+ * 每次模型请求都带着整份工具清单（名称、说明、参数 schema），它是本轮输入里最大的一块固定开销。
+ * pi 的 `estimateTokens` 只认消息，所以把清单的 JSON 序列化当成一条文本消息交给它，用的
+ * 就是同一条「字符数 / 4」启发式（pi-agent-core 0.85.1
+ * `dist/harness/compaction/compaction.js:150-171`）。这只是启发式：上游真按自己的词表分词，
+ * JSON 的结构符号与中文说明都会与这里有出入，预扣本来也只求同量级。
+ */
+export function estimateToolDeclarationTokens(): number {
+  return estimateTokens({
+    role: 'user',
+    content: [{ type: 'text', text: JSON.stringify(agentToolDeclarations()) }],
+    timestamp: 0,
+  })
+}
 
 function systemPrompt(): string {
   return [
@@ -129,8 +168,9 @@ export function turnModelPrompt(
 }
 
 /**
- * 预扣估算看到的那一份本轮输入：系统提示词、历史回放、本轮 prompt 与图片块，
- * 形状与实发同源，只是图片块是占位——预扣定额要在起轮之前算完，读不起字节。
+ * 预扣估算看到的那一份本轮输入：系统提示词、历史回放、本轮 prompt（连同视觉证据清单）与图片块，
+ * 形状与实发同源，只是图片块与清单里的选区值是占位——预扣定额要在起轮之前算完，读不起字节。
+ * 不进这里的只有工具清单：它不是消息，单独由 `estimateToolDeclarationTokens` 折算。
  */
 export function estimatedTurnInput(
   history: readonly AgentMessageView[],
@@ -146,7 +186,11 @@ export function estimatedTurnInput(
     {
       role: 'user',
       content: [
-        { type: 'text', text: turnPromptText(text, active) },
+        // 实发的那一份也是文字后面接清单（`turnModelPrompt`），这里照同一条规则拼。
+        {
+          type: 'text',
+          text: turnPromptText(text, active) + evidenceManifest(estimatedListings(active)),
+        },
         ...active.flatMap((reference) =>
           evidenceBlocks(
             PLACEHOLDER_IMAGE,
@@ -170,9 +214,10 @@ export function estimateTurnInputTokens(
   text: string,
   references: readonly AgentTurnReference[],
 ): number {
-  const estimated = estimatedTurnInput(history, text, references).reduce(
-    (total, message) => total + estimateTokens(message),
-    0,
-  )
+  const estimated =
+    estimatedTurnInput(history, text, references).reduce(
+      (total, message) => total + estimateTokens(message),
+      0,
+    ) + estimateToolDeclarationTokens()
   return Math.min(estimated, reservationCeiling(compactionSettings()))
 }

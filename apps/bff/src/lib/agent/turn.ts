@@ -13,11 +13,7 @@ import { agentClarificationSummary } from '@image-playground/shared'
 import { db } from '../../db/client'
 import { log } from '../logger'
 import type { TaskOutcome } from '../private-overlay'
-import {
-  AGENT_CLARIFICATION_TOOL,
-  clarificationFromResult,
-  clarificationTool,
-} from './clarification'
+import { AGENT_CLARIFICATION_TOOL, clarificationFromResult } from './clarification'
 import { createCompactionTransform } from './compaction-transform'
 import { appendAgentMessage, touchAgentConversation } from './conversations'
 import { openTurnEventLog } from './events'
@@ -37,7 +33,7 @@ import {
   agentToolEnd,
   agentToolStage,
   agentToolStart,
-  agentTools,
+  agentTurnTools,
   isAgentToolName,
 } from './tools'
 import {
@@ -141,19 +137,17 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
       ...turnInitialState(input.history),
       model: agentModel(input.params?.thinkingDepth),
       thinkingLevel: agentThinking(input.params?.thinkingDepth).effort,
-      tools: [
-        ...agentTools({
-          conversationId: input.conversationId,
-          turnId: input.turnId,
-          userId: input.userId,
-          deviceId: input.deviceId,
-          images,
-          editRequest: () => editRequest,
-          maskedEditPlan,
-          ...(input.params ? { params: input.params } : {}),
-        }),
-        clarificationTool,
-      ],
+      // 清单与预扣估算读的是同一份声明：`agentToolDeclarations()` 与这里同源。
+      tools: agentTurnTools({
+        conversationId: input.conversationId,
+        turnId: input.turnId,
+        userId: input.userId,
+        deviceId: input.deviceId,
+        images,
+        editRequest: () => editRequest,
+        maskedEditPlan,
+        ...(input.params ? { params: input.params } : {}),
+      }),
     },
     streamFn: async (model, context, options) => {
       modelCallId = await ledger.begin('conversation', model.id, context)
