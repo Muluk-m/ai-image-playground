@@ -96,7 +96,7 @@ frontmatter 字段，写 `SKILL.md` 的人本来就会给正文写标题。标�
 `docs/research/flyelep-product-notes.md` 的产品走查，没有经过真实用户与投放数据验证。
 
 技能一多，`<available_skills>` 这块常驻开销就跟着涨：从 4 条加到 13 条把每轮预扣的
-`unitMultiplier` 又抬了约 0.39（`agent-billing.test.ts` 的两条区间随之上移一档）。
+`unitMultiplier` 又抬了约 0.62（按 CJK 校正后的 token 估算口径；旧的 pi 口径下是约 0.39。`agent-billing.test.ts` 的两条区间随之上移一档）。
 这还在可接受范围内，但它验证了上面那句话——**到某个数量就该改成按 mode 再细分，
 或者先给模型一层目录**。另有一份体检测试（`src/__tests__/lib/agent/shipped-skills.test.ts`）
 守着这些技能的格式：零 diagnostic、中文一级标题、`description` 的「何时用 / 不处理」与 120 字上限、
