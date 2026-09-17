@@ -66,6 +66,18 @@ export async function requeueTasksForPolling(ids: readonly string[]): Promise<nu
   })
 }
 
+export async function saveArchiveCheckpoint(
+  id: string,
+  payload: (typeof schema.tasks.$inferInsert)['archive_payload'],
+) {
+  const updated = await db
+    .update(schema.tasks)
+    .set({ archive_payload: payload })
+    .where(stillRunning(id))
+    .returning({ id: schema.tasks.id })
+  return updated.length > 0
+}
+
 /** Archive retries keep the successful result and never consume model attempts. */
 export async function requeueTaskArchive(
   id: string,

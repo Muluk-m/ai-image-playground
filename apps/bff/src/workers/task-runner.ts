@@ -2,7 +2,12 @@ import { QUEUE_TIMEOUTS, type TaskErrorType } from '@image-playground/shared'
 import { and, eq, sql } from 'drizzle-orm'
 import { claimQueuedTask } from '../db/claim-task'
 import { db, schema } from '../db/client'
-import { finishTask, requeueTask, requeueTaskArchive } from '../db/task-transitions'
+import {
+  finishTask,
+  requeueTask,
+  requeueTaskArchive,
+  saveArchiveCheckpoint,
+} from '../db/task-transitions'
 import { protectMaskedOutput } from '../lib/agent/masked-output'
 import { isCapabilityEnabled } from '../lib/capabilities'
 import { describeEmptyResult, extractMeta } from '../lib/extractImages'
@@ -177,6 +182,7 @@ export async function runTask(id: string): Promise<void> {
         structuredClone(archivePayload),
         protectOutput,
       )
+      if (!(await saveArchiveCheckpoint(id, archivePayload))) return
       const media = await archiveGenerationOutputs(
         task.userId!,
         task.provider,
@@ -242,23 +248,13 @@ export async function runTask(id: string): Promise<void> {
     if (cloudArchive) {
       archivePayload = generationSourceCheckpoint(task.provider, payload)
       if (archivePayload) {
-        const stored = await db
-          .update(schema.tasks)
-          .set({ archive_payload: archivePayload })
-          .where(and(eq(schema.tasks.id, id), eq(schema.tasks.status, 'in_progress')))
-          .returning({ id: schema.tasks.id })
-        if (!stored.length) return
+        if (!(await saveArchiveCheckpoint(id, archivePayload))) return
       }
     }
     const archivedPayload = await archiveOutputImages(id, task.provider, payload, protectOutput)
     if (cloudArchive) {
       archivePayload = archivedPayload
-      const stored = await db
-        .update(schema.tasks)
-        .set({ archive_payload: archivePayload })
-        .where(and(eq(schema.tasks.id, id), eq(schema.tasks.status, 'in_progress')))
-        .returning({ id: schema.tasks.id })
-      if (!stored.length) return
+      if (!(await saveArchiveCheckpoint(id, archivePayload))) return
     }
     const media = cloudArchive
       ? await archiveGenerationOutputs(
