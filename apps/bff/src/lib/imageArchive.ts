@@ -187,20 +187,24 @@ async function archiveOutputs(
     dataKey: string
     mimeKey: string
     source: StoredImageRef
+    index: number
   }[] = []
   const candidates: StoredImageRef[] = []
+  let imageIndex = 0
   try {
     for (const { item, dataKey, mimeKey } of entries) {
       const encoded = typeof item[dataKey] === 'string' ? (item[dataKey] as string) : undefined
       const sourceUrl =
         typeof item.url === 'string' && /^https?:\/\//i.test(item.url) ? item.url : undefined
+      if (!encoded && !sourceUrl && !item.object) continue
+      const index = imageIndex++
       if (!encoded && !sourceUrl) continue
       const source = encoded
         ? { bytes: Buffer.from(encoded, 'base64'), mime: undefined }
         : await fetchSourceImage(sourceUrl!)
       const declared = typeof item[mimeKey] === 'string' ? (item[mimeKey] as string) : undefined
       const mime = detectMediaMime(source.bytes) ?? declared ?? source.mime ?? fallbackMime
-      const ref = { object: `${taskId}/${transform ? 'candidate' : 'out'}/${pending.length}`, mime }
+      const ref = { object: `${taskId}/${transform ? 'candidate' : 'out'}/${index}`, mime }
       await writeWithRetry(ref.object, source.bytes, mime, store)
       if (transform) candidates.push(ref)
       else {
@@ -210,11 +214,11 @@ async function archiveOutputs(
         delete item[dataKey]
         delete item.url
       }
-      pending.push({ item, dataKey, mimeKey, source: ref })
+      pending.push({ item, dataKey, mimeKey, source: ref, index })
     }
     // 全部原始候选先落盘；一张无法应用时，其余已生成的候选仍可追查。
     if (!transform) return
-    for (const [index, { item, dataKey, mimeKey, source }] of pending.entries()) {
+    for (const { index, item, dataKey, mimeKey, source } of pending) {
       const output = await transform(await store.read(source.object))
       const key = `${taskId}/out/${index}`
       await writeWithRetry(key, output.bytes, output.mime, store)

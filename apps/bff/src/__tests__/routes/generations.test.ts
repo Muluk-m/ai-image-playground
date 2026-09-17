@@ -797,3 +797,56 @@ it('多图响应中途重启时保留已保存的原件，缺失部分明确失�
   expect(status.error.type).toBe('upstream_result_unknown')
   expect(calls).toBe(2)
 })
+
+it('混合内联和 URL 多图中断后恢复，第二张不会覆盖已经保存的第一张', async () => {
+  const first = await sharp({ create: { width: 8, height: 6, channels: 3, background: '#ff0000' } })
+    .png()
+    .toBuffer()
+  const second = await sharp({
+    create: { width: 8, height: 6, channels: 3, background: '#0000ff' },
+  })
+    .png()
+    .toBuffer()
+  let calls = 0
+  setUpstreamFetchForTesting((async () => {
+    calls++
+    return Response.json({
+      data: [
+        { b64_json: first.toString('base64') },
+        { url: 'https://upstream.example/second.png' },
+      ],
+    })
+  }) as NonNullable<Parameters<typeof setUpstreamFetchForTesting>[0]>)
+  const restore = stubGlobalFetch(async () => new Response(second))
+  const { request_id: id } = await (
+    await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, input)
+  ).json()
+  const { abortRunningTask } = await import('../../workers/task-runner')
+  durable.afterWrite = (key) => {
+    if (key === `${id}/out/0`) {
+      abortRunningTask(id)
+      throw new DOMException('Interrupted', 'AbortError')
+    }
+  }
+  try {
+    await runTask(id)
+    durable.afterWrite = undefined
+    const { recoverTasksByIds } = await import('../../db/maintenance')
+    await recoverTasksByIds([id])
+    await runTask(id)
+    const detail = await (await request(`/api/generations/${id}`, deviceB)).json()
+    expect(detail.status).toBe('completed')
+    expect(detail.outputs).toHaveLength(2)
+    for (const [index, bytes] of [first, second].entries()) {
+      const { originalUrl } = await (
+        await request(`/api/media/${detail.outputs[index].mediaId}/access`, deviceB)
+      ).json()
+      expect(await durable.read(new URL(originalUrl).pathname.slice(1))).toEqual(
+        new Uint8Array(bytes),
+      )
+    }
+    expect(calls).toBe(1)
+  } finally {
+    restore()
+  }
+})
