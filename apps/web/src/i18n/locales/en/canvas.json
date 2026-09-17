@@ -131,6 +131,7 @@
     "restoring": "Restoring the canvas…"
   },
   "sync": {
+    "offline": "Saved on this device · waiting for connection",
     "loading": "Loading the cloud canvas",
     "pending": "Canvas waiting to sync",
     "syncing": "Canvas syncing",
@@ -140,7 +141,13 @@
     "conflict": "Canvas sync conflict",
     "mediaLocal": "Canvas not fully synced",
     "retry": "Retry sync",
-    "localOnly": "Draft saved on this device only"
+    "localOnly": "Draft saved on this device only",
+    "localError": "Not saved on this device",
+    "authError": "Sign in again to sync",
+    "permissionError": "Project cannot be synced",
+    "quotaError": "Cloud storage or canvas limit exceeded",
+    "formatError": "This canvas cannot be synced",
+    "local": "Saved on this device · waiting to sync"
   },
   "welcome": {
     "aria": "Start a new project",
@@ -183,13 +190,6 @@
     "renameTitle": "Rename project",
     "renamePlaceholder": "Give the project a name",
     "renameFailed": "Could not save the project name. Please retry."
-  },
-  "cloud": {
-    "mediaLocal": "The canvas has media that hasn't synced yet or content that can't be synced, so it is saved on this device only.",
-    "loadFailed": "Could not load the cloud project. Your content is kept, please reload.",
-    "conflict": "Another device changed this project, so syncing is paused. Your local content is kept.",
-    "quotaExceeded": "Cloud storage or canvas size limit exceeded. Your local content is kept.",
-    "syncFailed": "Cloud sync failed. Your local content is kept, please retry."
   },
   "imageName": {
     "video": "Video",

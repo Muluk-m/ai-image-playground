@@ -129,6 +129,7 @@
     "restoring": "正在恢复画布…"
   },
   "sync": {
+    "offline": "已保存到本机，等待联网",
     "loading": "正在读取云端画布",
     "pending": "画布等待同步",
     "syncing": "画布正在同步",
@@ -138,7 +139,13 @@
     "conflict": "画布同步冲突",
     "mediaLocal": "画布尚未完整同步",
     "retry": "重试同步",
-    "localOnly": "草稿仅保存在此设备"
+    "localOnly": "草稿仅保存在此设备",
+    "localError": "尚未保存到本机",
+    "authError": "请重新登录后同步",
+    "permissionError": "项目暂时无法同步",
+    "quotaError": "云端容量或画布大小超出限制",
+    "formatError": "此画布无法同步",
+    "local": "已保存到本机，等待同步"
   },
   "welcome": {
     "aria": "开始新项目",
@@ -181,13 +188,6 @@
     "renameTitle": "重命名项目",
     "renamePlaceholder": "给项目起个名字",
     "renameFailed": "项目名称保存失败，请重试。"
-  },
-  "cloud": {
-    "mediaLocal": "画布含尚未同步的媒体或不支持的内容，仅保存在此设备。",
-    "loadFailed": "云端项目读取失败，原内容已保留，请重新读取。",
-    "conflict": "另一设备已修改此项目，已暂停同步。本机内容已保留。",
-    "quotaExceeded": "云端容量或画布大小超出限制，本机内容已保留。",
-    "syncFailed": "云端同步失败，本机内容已保留，请重试。"
   },
   "imageName": {
     "video": "视频",
