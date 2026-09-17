@@ -409,6 +409,13 @@ by default), fast-forwards `./private` for the paid edition, builds, rolls out t
 with read access to the private repository in `$config_root/secrets/private-repo-token` to
 fast-forward `./private` without a prompt.
 
+Only one rollout runs at a time. Before touching anything the script takes `$config_root/deploy.lock`
+(an atomic `mkdir`) and writes who holds it; a second rollout fails immediately, printing that
+owner, instead of queuing — queuing would move production onto the other rollout's commit as soon
+as the first one finished. A lock whose process is gone is taken over automatically; nothing is
+taken over on age alone, because a rollout legitimately runs for a quarter of an hour. If a host
+is left with a lock nobody holds (a kill -9, say), remove the directory.
+
 Each build is tagged with the commits it came from, which is what `app-compose.sh rollback`
 rolls back to. After a successful rollout the script keeps the newest `DEPLOY_KEEP_IMAGES`
 commit-qualified images per edition (default 5) plus whatever a container still runs, and removes

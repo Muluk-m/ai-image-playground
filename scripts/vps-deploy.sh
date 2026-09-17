@@ -57,11 +57,19 @@ edition_tag() {
 }
 
 on_exit() {
-  if [ "$?" -ne 0 ] && [ -n "$current_edition" ]; then
+  status=$?
+  if [ "$status" -ne 0 ] && [ -n "$current_edition" ]; then
     append_deploy_log "$current_edition" "$(edition_tag "$current_edition")" failed || true
   fi
+  release_deploy_lock "$deploy_lock" || true
 }
 trap on_exit EXIT
+# A rollout that is killed must still drop the lock. The ssh session that started the
+# 2026-09-18 deploy was cut halfway through, which reaches the remote shell as HUP; exiting from
+# these traps runs the EXIT trap above.
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 update_private() {
   set --
@@ -124,6 +132,14 @@ prune_build_cache() {
     echo "could not prune the build cache; leaving it" >&2
   fi
 }
+
+# Everything below touches this host: the checkout gets detached onto $ref, Docker builds, the
+# running services are replaced. Two rollouts doing that at once is what took the machine down on
+# 2026-09-18 — different commits, one checkout, two builds. Take the lock first, before the first
+# step with a side effect, and give up immediately if someone else holds it.
+stage "Take the deploy lock"
+acquire_deploy_lock "$deploy_lock" "editions=$editions ref=$ref"
+echo "holding $deploy_lock"
 
 stage "Sync the checkout to $ref"
 if [ -n "$(git -C "$repo_root" status --porcelain --untracked-files=no)" ]; then
