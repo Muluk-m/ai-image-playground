@@ -59,6 +59,11 @@ export default function CloudGenerationDetail({ detail }: { detail: GenerationDe
   }
   return (
     <div className="mt-4 space-y-4 border-t border-border pt-4">
+      {detail.archiveStatus === 'unavailable' && (
+        <p role="status" className="text-sm text-muted-foreground">
+          {t('cloudHistory.unavailable')}
+        </p>
+      )}
       <p className="whitespace-pre-wrap break-words text-sm">{detail.prompt}</p>
       {detail.outputs.length > 0 && (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">

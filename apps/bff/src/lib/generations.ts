@@ -8,6 +8,8 @@ const columns = {
   provider: table.provider,
   model: table.model,
   status: table.status,
+  archiveStatus: table.archive_status,
+  errorType: table.error_type,
   createdAt: table.created_at,
   startedAt: table.started_at,
   completedAt: table.completed_at,

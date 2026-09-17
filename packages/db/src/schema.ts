@@ -7,10 +7,12 @@ import type {
   AgentTurnStopReason,
   AgentTurnUsage,
   GenerationParameters,
+  GenerationSummary,
   PersistedSubmitRequest,
   ProjectDocument,
   ProjectReceipt,
   QueueProvider,
+  TaskErrorType,
   TaskKind,
   TaskStatus,
 } from '@image-playground/shared'
@@ -517,6 +519,11 @@ export const generation_records = pgTable(
     provider: text('provider').notNull(),
     model: text('model').notNull(),
     status: text('status').$type<TaskStatus>().notNull(),
+    archive_status: text('archive_status')
+      .$type<GenerationSummary['archiveStatus']>()
+      .notNull()
+      .default('none'),
+    error_type: text('error_type').$type<TaskErrorType>(),
     prompt: text('prompt').notNull(),
     parameters: bunJsonb('parameters')
       .$type<GenerationParameters>()
