@@ -6,6 +6,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import CloudGenerationHistory from '../../components/CloudGenerationHistory'
 import { setClientStorageScope } from '../../lib/authScope'
 import { setChannels } from '../../lib/channels/channelStore'
+import { getImage, hashDataUrl, putImage } from '../../lib/db'
 import { useStore } from '../../store'
 import { DEFAULT_PARAMS } from '../../types'
 
@@ -348,4 +349,83 @@ it('复用参考图下载期间切换账号，不覆盖新账号的创作内容'
   })
   expect(useStore.getState().prompt).toBe('新账号草稿')
   expect(useStore.getState().inputImages).toEqual([])
+})
+
+it('复用完整参考图和蒙版，不改写本机已有原图的来源和创建时间', async () => {
+  vi.stubGlobal('indexedDB', new IDBFactory())
+  setChannels([
+    {
+      id: 'openai-images',
+      kind: 'openai-queue',
+      label: 'Image',
+      defaults: {},
+      models: [
+        { id: 'gpt-image-2', label: 'GPT Image', capabilities: ['generate', 'edit', 'mask'] },
+      ],
+    },
+  ])
+  const inputId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+  const maskId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+  const dataUrl = `data:image/png;base64,${btoa('input-original')}`
+  const storedId = await hashDataUrl(dataUrl)
+  await putImage({
+    id: storedId,
+    dataUrl,
+    source: 'generated',
+    createdAt: 123,
+    width: 8,
+    height: 6,
+  })
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string) => {
+      if (url.includes('/access')) {
+        const kind = url.includes(inputId) ? 'input' : 'mask'
+        return Response.json({
+          previewUrl: `https://media.example/${kind}-preview`,
+          originalUrl: `https://media.example/${kind}-original`,
+          expiresAt: Date.now() + 600000,
+        })
+      }
+      if (url.startsWith('https://media.example/'))
+        return {
+          ok: true,
+          status: 200,
+          blob: async () => new Blob([url.split('/').slice(-1)[0]!], { type: 'image/png' }),
+        } as Response
+      if (url.includes('?')) return Response.json({ items: [item], nextCursor: null })
+      return Response.json({
+        ...item,
+        prompt: '带蒙版',
+        parameters: {},
+        actualParameters: {},
+        inputs: [{ index: 0, mediaId: inputId, width: 8, height: 6, contentType: 'image/png' }],
+        mask: { index: 0, mediaId: maskId, width: 8, height: 6, contentType: 'image/png' },
+        outputs: [],
+      })
+    }),
+  )
+  await act(async () => root.render(<CloudGenerationHistory />))
+  await act(async () =>
+    [...host.querySelectorAll('button')]
+      .find((node) => node.textContent?.includes('查看详情'))!
+      .click(),
+  )
+  await act(async () => {
+    ;[...host.querySelectorAll('button')]
+      .find((node) => node.textContent?.includes('复用参数'))!
+      .click()
+    await vi.waitFor(() => expect(useStore.getState().prompt).toBe('带蒙版'))
+  })
+  expect(useStore.getState().inputImages).toEqual([{ id: storedId, dataUrl }])
+  expect(useStore.getState().maskDraft).toMatchObject({
+    targetImageId: storedId,
+    maskDataUrl: `data:image/png;base64,${btoa('mask-original')}`,
+  })
+  expect(await getImage(storedId)).toMatchObject({
+    source: 'generated',
+    createdAt: 123,
+    width: 8,
+    height: 6,
+  })
 })
