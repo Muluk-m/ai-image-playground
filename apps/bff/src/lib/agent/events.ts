@@ -110,7 +110,7 @@ export async function appendAgentTurnEvents(
 
 /**
  * 开一轮的事件日志：基线序号自己去表里取，事件即产即落库，序号在内存里发，
- * 攒批写以免每个字都付一次数据库往返。开着的日志同时是读路径认得的实时流。
+ * 攒批写以免每个字都付一次数据库往返。发出第一条事件起，它就是读路径认得的实时流。
  */
 export async function openTurnEventLog(
   conversationId: string,
@@ -140,6 +140,8 @@ export async function openTurnEventLog(
 
   const entry: TurnEventLog = {
     emit(event) {
+      // 发了第一条才登记：建轮半路抛错的日志没人会 close，登记了续播就永远等不到头。
+      if (buffered.length === 0 && !closed) openLogs.set(logKey(conversationId, turnId), entry)
       buffered.push({ seq: baseSeq + buffered.length + 1, event })
       timer ??= setTimeout(persist, PERSIST_DEBOUNCE_MS)
       for (const resolve of waiting) resolve()
@@ -170,7 +172,6 @@ export async function openTurnEventLog(
     },
   }
 
-  openLogs.set(logKey(conversationId, turnId), entry)
   return entry
 }
 

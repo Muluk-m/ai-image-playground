@@ -131,6 +131,13 @@ describe('轮事件日志', () => {
     expect((await readTurnEvents(conversationId, 'turn-missing', 0)).kind).toBe('no-such-turn')
   })
 
+  it('开了日志却一条事件都没发的轮不算在跑', async () => {
+    const conversationId = await conversation()
+    await openTurnEventLog(conversationId, 'turn-stillborn')
+
+    expect((await readTurnEvents(conversationId, 'turn-stillborn', 0)).kind).toBe('no-such-turn')
+  })
+
   it('保留窗口之外的事件被清掉，窗口内的留着', async () => {
     const now = Date.now()
     const conversationId = await conversation()
