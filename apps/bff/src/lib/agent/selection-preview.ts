@@ -128,8 +128,11 @@ export interface EvidenceListing {
 /**
  * 清单文本怎么写只写在这里：实发路径代入真的选区 ID 与位置，预扣估算代入等长占位。
  * 序号跟着 `evidenceBlocks` 数出来的块数走，两边不会各数各的；改措辞两边一起跟着变。
+ *
+ * 没有引用就没有清单：只剩一个清单头接在 prompt 末尾，既白费 token，也给模型留了一句没有下文的话。
  */
 export function evidenceManifest(references: readonly EvidenceListing[]): string {
+  if (references.length === 0) return ''
   const descriptions: string[] = []
   let blocks = 0
   for (const { imageId, selection } of references) {

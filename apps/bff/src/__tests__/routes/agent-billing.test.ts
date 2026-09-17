@@ -126,12 +126,12 @@ describe('对话轮的预扣', () => {
       model: 'fixture-agent-model',
       quantity: 1,
     })
-    // 预留 2000 输出 token × 5 倍 = 固定 10；剩下的是这条短提示词的输入估算，现在约 1.28。
-    // 原区间 (10, 10.5)：那时输入估算只算了系统提示词与提示词本身（约 0.32）。预扣口径补上
-    // 每次请求都带的工具声明（约 674 token）与视觉证据清单后整体上移了约 0.68；技能清单与
-    // 多出来的那条 loadSkill 声明又添了约 0.28，仍落在同一个区间里。
-    expect(reservations[0]!.unitMultiplier).toBeGreaterThan(11)
-    expect(reservations[0]!.unitMultiplier).toBeLessThan(11.5)
+    // 预留 2000 输出 token × 5 倍 = 固定 10；剩下的是这条短提示词的输入估算，现在约 2.74。
+    // 原区间 (11, 11.5)：那时输入按 pi 的「字符数 / 4」算，中文被系统性低估约 4 倍——同一轮
+    // 在 pi 口径下只有约 1.28。改按 CJK 校正后（见 `token-estimate.ts`）整体上移了约 1.46：
+    // 系统提示词、整份工具声明与技能清单几乎全是中文，校正落在的正是这三块。
+    expect(reservations[0]!.unitMultiplier).toBeGreaterThan(12.5)
+    expect(reservations[0]!.unitMultiplier).toBeLessThan(13)
   })
 
   it('运营改了对话单价，下一轮就按新的输出倍数与预留预扣', async () => {
@@ -143,10 +143,10 @@ describe('对话轮的预扣', () => {
     // 等这一轮结算落定再收尾，否则 afterAll 关库时还有在途写入。
     await waitFor(async () => settlements.length === 1)
 
-    // 预留 500 输出 token × 4 倍 = 固定 2；剩下的是同一条提示词的输入估算，现在约 1.28。
-    // 随上面那条同样的口径补正上移；变的只是输入这一半，输出预留没动。
-    expect(reservations[0]!.unitMultiplier).toBeGreaterThan(3)
-    expect(reservations[0]!.unitMultiplier).toBeLessThan(3.5)
+    // 预留 500 输出 token × 4 倍 = 固定 2；剩下的是同一条提示词的输入估算，现在约 2.74。
+    // 原区间 (3, 3.5)，随上面那条同样的 CJK 校正上移；变的只是输入这一半，输出预留没动。
+    expect(reservations[0]!.unitMultiplier).toBeGreaterThan(4.5)
+    expect(reservations[0]!.unitMultiplier).toBeLessThan(5)
   })
 
   it('预扣之前先落一条对话任务，占用才挂得住，且不带用户原话', async () => {

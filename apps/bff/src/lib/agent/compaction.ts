@@ -1,6 +1,7 @@
-import { type AgentMessage, estimateTokens } from '@earendil-works/pi-agent-core'
+import type { AgentMessage } from '@earendil-works/pi-agent-core'
 import { contentText } from '@earendil-works/pi-ai'
 import type { AgentCompactionNarrative } from '@image-playground/shared'
+import { estimateMessageTokens } from './token-estimate'
 
 /**
  * 上下文压缩：消息与锚点进，塑形后的消息与新锚点出。纯模块，不碰数据库也不发请求——
@@ -104,7 +105,7 @@ const tokenCache = new WeakMap<AgentMessage, number>()
 function tokens(message: AgentMessage): number {
   const cached = tokenCache.get(message)
   if (cached !== undefined) return cached
-  const estimated = estimateTokens(message)
+  const estimated = estimateMessageTokens(message)
   tokenCache.set(message, estimated)
   return estimated
 }
