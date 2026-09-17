@@ -13,6 +13,7 @@ import {
   completionStream,
   eventsOfType,
   parseFrames,
+  replyThenToolCall,
   scriptedAgentFetch,
   TEST_IMAGE_CHANNEL,
   TEST_RESULT_PAYLOAD,
@@ -367,6 +368,39 @@ describe('智能体生图工具', () => {
 
     const [task] = await db.select().from(schema.tasks)
     expect(task!.status).toBe('failed')
+  })
+
+  it('keeps the settled reply and tool card of a failed turn', async () => {
+    setAgentFetchForTesting(
+      scriptedAgentFetch(
+        [],
+        [
+          () =>
+            replyThenToolCall('我先画一张', {
+              id: 'call-1',
+              name: 'generateImage',
+              args: { prompt: '橘猫' },
+            }),
+          () => completionStream('不该走到这里'),
+        ],
+      ),
+    )
+    const stop = settleSubmittedTasks('failed')
+    const conversationId = await startConversation()
+
+    const frames = await runTurn(conversationId, '画一只橘猫')
+    stop()
+
+    expect(eventsOfType(frames, 'turnEnd')[0]).toMatchObject({
+      stopReason: 'failed',
+      error: 'agent_tool_failed',
+    })
+
+    // 轮失败，但这一轮里已经收尾的回复与工具结果是既成事实，照旧留在历史里。
+    const messages = await readMessages(conversationId)
+    expect(messages.map((message) => message.role)).toEqual(['user', 'assistant', 'assistant'])
+    expect(messages[1]!.content).toEqual([{ type: 'text', text: '我先画一张' }])
+    expect(messages[2]!.content[0]).toMatchObject({ type: 'toolResult', status: 'failed' })
   })
 
   it('keeps the video tool out of a deployment without generation:video', async () => {
