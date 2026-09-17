@@ -1,6 +1,7 @@
 import { PROJECT_DOCUMENT_MAX_BYTES, PROJECT_ELEMENT_MAX_COUNT } from './project-protocol'
 
 export const CAPABILITIES = {
+  'accounts:local-recovery': { defaultValue: false, clientExposed: true },
   'accounts:login': { defaultValue: false, clientExposed: true },
   'accounts:self-register': { defaultValue: false, clientExposed: true },
   'accounts:sync': { defaultValue: false, clientExposed: true },

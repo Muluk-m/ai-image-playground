@@ -1,6 +1,6 @@
 import type { CloudProjectSummary } from '@image-playground/shared'
 import { i18next } from '../../../i18n'
-import { scopedStorageName } from '../../../lib/authScope'
+import { getRecoveryBackend, scopedStorageName } from '../../../lib/authScope'
 import { openCanvasDatabase } from './persistence'
 
 /**
@@ -29,6 +29,15 @@ export interface CanvasProject {
   readonly cloud?: { revision: number; nameDirty?: boolean }
 }
 
+type StoredProject = CanvasProject & { recoveryConversations?: Record<string, string | null> }
+
+function projectView(project: StoredProject): CanvasProject {
+  const backend = getRecoveryBackend()
+  return backend
+    ? { ...project, conversationId: project.recoveryConversations?.[backend] ?? null }
+    : project
+}
+
 const prefix = () => `${scopedStorageName('canvas-project')}:project:`
 const key = (id: string) => `${prefix()}${id}`
 
@@ -42,7 +51,7 @@ export const projectRepository = {
       const request = transaction
         .objectStore('scene')
         .getAll(IDBKeyRange.bound(start, `${start}\uffff`))
-      transaction.oncomplete = () => resolve(request.result)
+      transaction.oncomplete = () => resolve(request.result.map(projectView))
       transaction.onabort = () => reject(transaction.error)
       transaction.onerror = () => reject(transaction.error)
     })
@@ -111,7 +120,7 @@ export const projectRepository = {
         if (existing.result) result = existing.result
         else store.add(project, storageKey)
       }
-      transaction.oncomplete = () => resolve(result)
+      transaction.oncomplete = () => resolve(projectView(result))
       transaction.onabort = () => reject(transaction.error)
       transaction.onerror = () => reject(transaction.error)
     })
@@ -142,7 +151,7 @@ export const projectRepository = {
         }
         if (!request.result) store.add(result, storageKey)
       }
-      tx.oncomplete = () => resolve(result)
+      tx.oncomplete = () => resolve(projectView(result))
       tx.onabort = () => reject(tx.error)
       tx.onerror = () => reject(tx.error)
     })
@@ -176,10 +185,23 @@ export const projectRepository = {
           transaction.abort()
           return
         }
-        result = { ...request.result, ...patch }
+        const stored = request.result as StoredProject
+        const backend = getRecoveryBackend()
+        result =
+          backend && 'conversationId' in patch
+            ? ({
+                ...stored,
+                ...patch,
+                conversationId: stored.conversationId,
+                recoveryConversations: {
+                  ...stored.recoveryConversations,
+                  [backend]: patch.conversationId ?? null,
+                },
+              } as StoredProject)
+            : { ...stored, ...patch }
         store.put(result, storageKey)
       }
-      transaction.oncomplete = () => resolve(result)
+      transaction.oncomplete = () => resolve(projectView(result))
       transaction.onabort = () => reject(transaction.error ?? new Error('Project not found'))
       transaction.onerror = () => reject(transaction.error)
     })

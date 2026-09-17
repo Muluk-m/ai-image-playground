@@ -178,11 +178,7 @@ export default function Header() {
                     aria-expanded={accountMenuOpen}
                     className="relative grid h-8 w-8 place-items-center rounded-full bg-primary text-xs font-semibold text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                   >
-                    {auth.user ? (
-                      <BrandAvatar />
-                    ) : (
-                      <SettingsIcon className="h-4 w-4" aria-hidden="true" />
-                    )}
+                    <BrandAvatar />
                     {syncPending ? (
                       <span
                         role="img"
@@ -196,11 +192,10 @@ export default function Header() {
                       role="menu"
                       className="absolute right-0 top-[calc(100%+0.75rem)] z-50 w-56 max-w-[calc(100vw-2rem)] rounded-xl border border-border bg-card p-1.5 text-sm shadow-xl"
                     >
-                      {auth.user ? (
-                        <div className="truncate px-3 py-2 font-medium text-foreground">
-                          {auth.user.username}
-                        </div>
-                      ) : null}
+                      <div className="truncate px-3 py-2 font-medium text-foreground">
+                        {auth.user?.username ??
+                          `${t('header.brandName')}${brandNeedsWordmark() ? ` ${BRAND_WORDMARK}` : ''}`}
+                      </div>
                       <DisplaySettingsMenuItems
                         itemClassName="flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-muted-foreground hover:bg-muted"
                         iconClassName="h-[18px] w-[18px]"

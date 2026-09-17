@@ -107,3 +107,25 @@ describe('authenticated startup coach state', () => {
     expect(host.querySelector('[aria-label="素材与模板引导"]')).not.toBeNull()
   })
 })
+
+describe('fallback startup', () => {
+  it('opens the existing user workspace without requesting login or adoption', async () => {
+    saveCoachState('image-playground', false)
+    saveCoachState('image-playground:user-alice', true)
+    const fetchMock = vi.mocked(fetch)
+    const original = fetchMock.getMockImplementation()!
+    fetchMock.mockImplementation(async (...args) => {
+      if (String(args[0]).endsWith('/api/capabilities'))
+        return Response.json({ ...allCapabilitiesOff(), 'accounts:local-recovery': true })
+      return original(...args)
+    })
+    await boot()
+    expect(host.querySelector('[aria-label="素材与模板引导"]')).toBeNull()
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/api/auth/'))).toBe(false)
+    const { scopedStorageName } = await import('../../lib/authScope')
+    expect(scopedStorageName('image-playground')).toBe('image-playground:user-alice')
+    const { AUTH_SESSION_EXPIRED_EVENT } = await import('../../lib/authClient')
+    await act(async () => window.dispatchEvent(new Event(AUTH_SESSION_EXPIRED_EVENT)))
+    expect(host.querySelector('[data-testid="workspace"]')).not.toBeNull()
+  })
+})
