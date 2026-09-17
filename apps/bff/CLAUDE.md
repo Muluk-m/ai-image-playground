@@ -44,3 +44,29 @@ BFF 的公开核心只做四件事：
 - channel kind 在前端层叫 `openai-queue` / `gemini-queue`；到 BFF URL 段 `/v1/queue/{provider}/{model}/submit` 时映射为 `openai-compat` / `gemini`（参见 `queueClient.ts` 的 `toQueueProvider`）
 - 协议 types 在 [`packages/shared/src/queue-protocol.ts`](../../packages/shared/src/queue-protocol.ts)
 - BFF channel 发现协议 types 在 [`packages/shared/src/channel-discovery.ts`](../../packages/shared/src/channel-discovery.ts)
+
+## 智能体技能（Agent Skills）
+
+代码：[`src/lib/agent/skills.ts`](./src/lib/agent/skills.ts) + [`src/lib/agent/tools/loadSkill.ts`](./src/lib/agent/tools/loadSkill.ts)。
+设计与否决方案见 [ADR 0007](../../docs/adr/0007-agent-skills-progressive-loading.md)。
+
+- 目录约定 `skills/<image|video|shared>/<skill-name>/SKILL.md`，按
+  [agentskills.io](https://agentskills.io) 标准。`shared/` 下的两个 mode 都看得见；同名时
+  mode 专属的那份胜出。同目录可放 `references/*.md` 这类附属文件。
+- frontmatter 只认 `name` 与 `description`。**`name` 必须与父目录同名且是 kebab-case**（框架
+  loader 会校验，不符只记 diagnostic 不丢弃）；**`description` 缺席那条技能直接被丢掉**。
+- **`description` 写成「何时用 / 不处理什么」**，这是 Agent Skills 的惯例，也是常驻上下文里
+  唯一进模型眼睛的东西——它决定模型会不会在对的时候调 `loadSkill` 把正文读进来。写成一句功能
+  介绍等于关掉这条技能。
+- **正文只能引用该 mode 下真实存在的工具名与参数**。图片轮是 generateImage / editImage /
+  readLibrary，视频轮多一个 generateVideo。写了不存在的工具，模型会照着编。
+- 启动时加载一次并缓存（`ensureAgentSkills()`），diagnostics 打 warn 不 fatal。测试用
+  `setAgentSkillsRootForTesting(dir)` 换根目录并丢缓存。
+- **加目录记得同时看 `.dockerignore`**：那是 allowlist，`!apps/bff/skills` 那一行不在就打不进镜像，
+  而且构建与启动都不会报错，只会一条技能都没有。路径一律 `import.meta.dir` 解析，镜像里 cwd 是
+  `/app`，靠不住。
+- 怎么测：加载与 diagnostics 用临时目录（`src/__tests__/lib/agent/skills.test.ts`），
+  按 mode 过滤工具与系统提示词（`src/__tests__/lib/agent/tools/modes.test.ts`），
+  端点与 `/skill-name` 显式调用（`src/__tests__/routes/agent-skills.test.ts`）。
+  **改 `skills/` 下随仓库发的那几条技能会动到路由测试里的工具清单断言**——`loadSkill` 只在
+  该 mode 有技能时才进清单。
