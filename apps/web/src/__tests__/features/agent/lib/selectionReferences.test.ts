@@ -4,6 +4,7 @@ import {
   attachReference,
   EMPTY_DRAFT,
   referenceLabels,
+  removeReference,
 } from '../../../../features/agent/lib/references'
 import { createSelectionReferences } from '../../../../features/agent/lib/selectionReferences'
 import { CanvasDoc, type CanvasEl } from '../../../../features/canvas/lib/canvasDoc'
@@ -171,6 +172,84 @@ describe('跟着画布选区走的引用', () => {
     selection.follow(doc, draft.update)
 
     expect(draft.sources).toEqual([PIXEL])
+  })
+
+  it('用户点掉的那张，只要还选着就不会被选区变化塞回来', () => {
+    const doc = canvas([image('canvas-1', 'file-1'), image('canvas-2', 'file-2')])
+    const selection = createSelectionReferences()
+    const draft = drafts()
+
+    doc.setSelection(['canvas-1'])
+    selection.follow(doc, draft.update)
+    expect(draft.ids).toEqual(['canvas-1'])
+    // 用户点 × 把它从引用区拿掉，画布上它还选着。
+    draft.update((current) => removeReference(current, 0))
+
+    // 加选另一张：选区变了，但被拒绝过的那张不该跟着回来。
+    doc.setSelection(['canvas-1', 'canvas-2'])
+    selection.follow(doc, draft.update)
+
+    expect(draft.ids).toEqual(['canvas-2'])
+  })
+
+  it('点掉后取消选中再选回来，算一次新的选择，重新自动带入', () => {
+    const doc = canvas([image('canvas-1', 'file-1'), image('canvas-2', 'file-2')])
+    const selection = createSelectionReferences()
+    const draft = drafts()
+
+    doc.setSelection(['canvas-1'])
+    selection.follow(doc, draft.update)
+    draft.update((current) => removeReference(current, 0))
+    doc.setSelection(['canvas-1', 'canvas-2'])
+    selection.follow(doc, draft.update)
+    expect(draft.ids).toEqual(['canvas-2'])
+
+    // 取消选中就翻篇。
+    doc.setSelection(['canvas-2'])
+    selection.follow(doc, draft.update)
+    doc.setSelection(['canvas-1', 'canvas-2'])
+    selection.follow(doc, draft.update)
+
+    expect(draft.ids).toEqual(['canvas-2', 'canvas-1'])
+  })
+
+  it('点掉后又手动 `@` 回来的那张不归选区管，取消选中也留着', () => {
+    const doc = canvas([image('canvas-1', 'file-1'), image('canvas-2', 'file-2')])
+    const selection = createSelectionReferences()
+    const draft = drafts()
+
+    doc.setSelection(['canvas-1'])
+    selection.follow(doc, draft.update)
+    draft.update((current) => removeReference(current, 0))
+    doc.setSelection(['canvas-1', 'canvas-2'])
+    selection.follow(doc, draft.update)
+    expect(draft.ids).toEqual(['canvas-2'])
+
+    // 用户自己把它 `@` 回来了：这是手动引用。
+    draft.update(
+      (current) => attachReference(current, { id: 'canvas-1', dataUrl: PIXEL }, 0, 0).draft,
+    )
+    doc.setSelection([])
+    selection.follow(doc, draft.update)
+
+    expect(draft.ids).toEqual(['canvas-1'])
+  })
+
+  it('发送把草稿整份收走不算用户拒绝，仍选着的图下次照样带进来', () => {
+    const doc = canvas([image('canvas-1', 'file-1'), image('canvas-2', 'file-2')])
+    const selection = createSelectionReferences()
+    const draft = drafts()
+
+    doc.setSelection(['canvas-1'])
+    selection.follow(doc, draft.update)
+    // 乐观发送：输入框连同引用区一起清空。
+    draft.update(() => EMPTY_DRAFT)
+    selection.sent()
+
+    doc.setSelection(['canvas-1', 'canvas-2'])
+    selection.follow(doc, draft.update)
+
+    expect(draft.ids).toEqual(['canvas-2', 'canvas-1'])
   })
 
   it('选区的钥匙认批注：图没换、圈的地方换了也算变了', () => {

@@ -348,6 +348,7 @@ export default function AgentComposer({
     // 乐观发送：敲下回车输入框立刻清空，那句话已经在对话里了；服务端没收下再把草稿放回来。
     const snapshot = draft
     session.accept(snapshot)
+    selection.sent()
     setCursor(0)
     const releaseSubmission = session.beginSubmission()
     let accepted = false

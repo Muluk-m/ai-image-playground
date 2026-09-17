@@ -27,27 +27,40 @@ function selectedImages(doc: CanvasDoc): SelectedImage[] {
 interface Synced {
   readonly draft: AgentDraft
   readonly auto: ReadonlySet<string>
+  readonly dismissed: ReadonlySet<string>
 }
 
 /**
  * 让引用区跟着画布选区走。选中、草稿里还没有的加进来并记为自动带的；记为自动带的、
  * 现在又没选中的撤掉（指向它的引用降级）。用户手动 `@` 进来的一律不动。
+ *
+ * 自动带进来的那张还选着、草稿里却没了，只能是用户点掉的：记成拒绝过，往后的选区
+ * 变化不再把它塞回去，取消选中才算翻篇。
  */
 function syncSelected(
   draft: AgentDraft,
   selected: readonly SelectedImage[],
   auto: ReadonlySet<string>,
+  dismissed: ReadonlySet<string>,
 ): Synced {
   const ids = new Set(selected.map((one) => one.imageId))
   const next = new Set(auto)
+  // 取消选中就翻篇：下次再选中它算一次新的选择。
+  const refused = new Set([...dismissed].filter((id) => ids.has(id)))
   let result = draft
   for (const id of auto) {
-    if (ids.has(id)) continue
+    if (ids.has(id)) {
+      if (result.references.some((one) => one.id === id)) continue
+      next.delete(id)
+      refused.add(id)
+      continue
+    }
     next.delete(id)
     const index = result.references.findIndex((one) => one.id === id)
     if (index >= 0) result = removeReference(result, index)
   }
   for (const image of selected) {
+    if (refused.has(image.imageId)) continue
     const at = result.references.findIndex((one) => one.id === image.imageId)
     if (at >= 0) {
       // 自动带进来的回到原图（批注取消了）；用户手动 `@` 的不动。
@@ -61,7 +74,7 @@ function syncSelected(
       references: [...result.references, { id: image.imageId, dataUrl: image.dataUrl }],
     }
   }
-  return { draft: result, auto: next }
+  return { draft: result, auto: next, dismissed: refused }
 }
 
 /** 换掉某张自动带进来的参考图的位图；手动 `@` 的那张不归选区管，原样返回。 */
@@ -88,14 +101,20 @@ export interface SelectionReferences {
     update: (change: (draft: AgentDraft) => AgentDraft) => void,
     renderer?: MarkRenderer,
   ): void
+  /**
+   * 草稿整份被发送收走了。引用区跟着空掉不是用户在拒绝，所以只作废 auto 记账，
+   * 仍选中的图下一次同步照常带回来；用户拒绝过的那几张仍然算数。
+   */
+  sent(): void
 }
 
 /**
- * 「哪些引用是跟着选区自动带进来的」归这里管：auto 集合是本模块的私有状态，
+ * 「哪些引用是跟着选区自动带进来的」归这里管：auto 与 dismissed 两个集合是本模块的私有状态，
  * 调用方拿到的只是一个句柄。它跟着输入框的挂载周期活，不进草稿、不持久化。
  */
 export function createSelectionReferences(): SelectionReferences {
   let auto: ReadonlySet<string> = new Set()
+  let dismissed: ReadonlySet<string> = new Set()
   let current: string | undefined
 
   return {
@@ -103,13 +122,18 @@ export function createSelectionReferences(): SelectionReferences {
       return selectionKey(selectedImages(doc))
     },
 
+    sent() {
+      auto = new Set()
+    },
+
     follow(doc, update, renderer) {
       const selected = selectedImages(doc)
       const key = selectionKey(selected)
       current = key
       update((draft) => {
-        const synced = syncSelected(draft, selected, auto)
+        const synced = syncSelected(draft, selected, auto, dismissed)
         auto = synced.auto
+        dismissed = synced.dismissed
         return synced.draft
       })
       if (!renderer) return
