@@ -217,3 +217,63 @@ it('复用云端记录恢复相同模型与参数，进入创作但不自动提�
   expect(useStore.getState().tasks).toHaveLength(0)
   expect(fetcher).toHaveBeenCalledTimes(2)
 })
+
+it('展开输出只加载预览，点击下载原图后才取原件并保留文件格式', async () => {
+  const mediaId = '88888888-8888-4888-8888-888888888888'
+  const urls: string[] = []
+  const nativeFetch = globalThis.fetch
+  const download = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+  vi.stubGlobal(
+    'URL',
+    class extends URL {
+      static createObjectURL = () => 'blob:download'
+      static revokeObjectURL = () => {}
+    },
+  )
+  const fetcher = vi.fn(async (url: string) => {
+    urls.push(url)
+    if (url.startsWith('data:')) return nativeFetch(url)
+    if (url.includes('/access'))
+      return Response.json({
+        previewUrl: 'https://media.example/output-preview.webp',
+        originalUrl: 'https://media.example/output-original.png',
+        expiresAt: Date.now() + 600000,
+      })
+    if (url.startsWith('https://media.example'))
+      return {
+        ok: true,
+        status: 200,
+        blob: async () => new Blob(['exact original'], { type: 'image/png' }),
+      } as Response
+    if (url.includes('?')) return Response.json({ items: [item], nextCursor: null })
+    return Response.json({
+      ...item,
+      prompt: '原图',
+      parameters: {},
+      actualParameters: {},
+      inputs: [],
+      mask: null,
+      outputs: [{ index: 0, mediaId, width: 8, height: 6, contentType: 'image/png' }],
+    })
+  })
+  vi.stubGlobal('fetch', fetcher)
+  await act(async () => root.render(<CloudGenerationHistory />))
+  await act(async () =>
+    [...host.querySelectorAll('button')]
+      .find((node) => node.textContent?.includes('查看详情'))!
+      .click(),
+  )
+  expect(urls).toContain('https://media.example/output-preview.webp')
+  expect(urls).not.toContain('https://media.example/output-original.png')
+  const button = [...host.querySelectorAll('button')].find((node) =>
+    node.textContent?.includes('下载原图'),
+  )
+  expect(button).toBeDefined()
+  await act(async () => {
+    button!.click()
+    await vi.waitFor(() => expect(download).toHaveBeenCalledOnce())
+  })
+  expect(urls).toContain('https://media.example/output-original.png')
+  expect((download.mock.instances[0] as HTMLAnchorElement | undefined)?.download).toMatch(/\.png$/)
+  download.mockRestore()
+})
