@@ -1,5 +1,6 @@
 import { OAUTH_ERROR_QUERY_PARAM, type OAuthProviderView } from '@image-playground/shared'
 import { type FormEvent, useEffect, useRef, useState } from 'react'
+import ThemeToggleButton from '../components/ThemeToggleButton'
 import { type AppLocale, SUPPORTED_LOCALES, useTranslation } from '../i18n'
 import { useLocalePicker } from '../i18n/useLocalePicker'
 import {
@@ -359,7 +360,11 @@ export function LoginScreen() {
         <AuthShowcase />
 
         <section className="auth-panel">
-          <LanguagePicker />
+          {/* 显示设置在登录前就要能改：这里没有头像菜单，所以语言与主题各放一个控件。 */}
+          <div className="auth-display">
+            <LanguagePicker />
+            <ThemeToggleButton className="auth-theme" />
+          </div>
 
           <div className="auth-panel-content" ref={panelRef}>
             {view === 'registration' ? (

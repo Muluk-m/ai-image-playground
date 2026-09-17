@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AuthContextProvider } from '../../auth/AuthContext'
 import Header from '../../components/Header'
 import { type AppLocale, i18next, setLocale } from '../../i18n'
+import { setThemeChoice } from '../../theme'
 
 // 测的是公开树自己的头像菜单；私有 overlay 接管账号区时渲染的是同一个 DisplaySettingsMenuItems。
 vi.mock('../../lib/privateOverlay', async (importOriginal) => ({
@@ -89,7 +90,7 @@ describe('头像菜单里的界面语言', () => {
     })
 
     expect(localStorage.getItem('aip.locale')).toBe('en')
-    expect(localeRow().textContent).toContain('Interface language')
+    expect(localeRow().textContent).toContain('Language')
     expect(localeRow().textContent).toContain('English')
     expect(localeRow().getAttribute('aria-label')).toBe('Language: English. Switch to 中文')
   })
@@ -103,5 +104,32 @@ describe('头像菜单里的界面语言', () => {
     })
 
     expect(brand()).toBe('Muvloom')
+  })
+})
+
+describe('头像菜单里的主题', () => {
+  function themeRow(): HTMLButtonElement {
+    const row = host.querySelector<HTMLButtonElement>('[data-display-setting="theme"]')
+    if (!row) throw new Error('missing theme row')
+    return row
+  }
+
+  afterEach(() => {
+    act(() => setThemeChoice('system'))
+    document.documentElement.classList.remove('dark')
+  })
+
+  it('标出当前生效的一套，点一下翻到另一套并固定在本机', () => {
+    openAccountMenu()
+    expect(themeRow().textContent).toContain('主题')
+    expect(themeRow().textContent).toContain('亮色')
+    expect(themeRow().getAttribute('aria-label')).toBe('切到暗色')
+
+    act(() => themeRow().dispatchEvent(new MouseEvent('click', { bubbles: true })))
+
+    expect(document.documentElement.classList.contains('dark')).toBe(true)
+    expect(localStorage.getItem('aip.theme')).toBe('dark')
+    expect(themeRow().textContent).toContain('暗色')
+    expect(themeRow().getAttribute('aria-label')).toBe('切到亮色')
   })
 })
