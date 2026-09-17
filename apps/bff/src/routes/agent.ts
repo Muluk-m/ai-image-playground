@@ -14,7 +14,7 @@ import {
   listAgentMessages,
   softDeleteAgentConversation,
 } from '../lib/agent/conversations'
-import { agentTurnHasEvents, readAgentTurnEvents } from '../lib/agent/events'
+import { readTurnEvents } from '../lib/agent/events'
 import { type RunningTurn, runningTurn } from '../lib/agent/runningTurns'
 import { InvalidSelectionError, validateSelections } from '../lib/agent/selection-preview'
 import { agentReplayStream, agentTurnStream } from '../lib/agent/sse'
@@ -73,6 +73,17 @@ const referencesSchema = t.Optional(
 
 const turnParams = t.Object({ id: t.String(), turnId: t.String() })
 const turnBody = t.Object({ deviceId: deviceIdSchema() })
+
+/** 轮级端点共用这段：归属查会话、会话查在跑的轮，两级查不到都是同一个 404。 */
+async function activeTurnOf(
+  params: { id: string; turnId: string },
+  deviceId: string,
+  authUser: AuthUserView | null,
+): Promise<RunningTurn | null> {
+  const conversation = await findAgentConversation(params.id, ownerOf(authUser, deviceId))
+  const active = conversation ? runningTurn(conversation.id) : undefined
+  return active?.turnId === params.turnId ? active : null
+}
 
 function lastEventId(raw: string | undefined): number {
   const parsed = Number(raw)
@@ -195,16 +206,13 @@ export const agentRoutes = new Elysia()
       const conversation = await findAgentConversation(params.id, owner)
       if (!conversation) return status(404, NOT_FOUND)
 
-      const after = lastEventId(headers['last-event-id'])
-      const active = runningTurn(conversation.id)
-      if (active?.turnId === params.turnId) return agentTurnStream(active.read(after))
-
-      const stored = await readAgentTurnEvents(conversation.id, params.turnId, after)
-      // 断点之后没有新事件不代表轮不存在；只有整轮都查不到才是没这一轮。
-      if (stored.length === 0 && !(await agentTurnHasEvents(conversation.id, params.turnId))) {
-        return status(404, TURN_NOT_FOUND)
-      }
-      return agentReplayStream(stored)
+      const feed = await readTurnEvents(
+        conversation.id,
+        params.turnId,
+        lastEventId(headers['last-event-id']),
+      )
+      if (feed.kind === 'no-such-turn') return status(404, TURN_NOT_FOUND)
+      return feed.kind === 'live' ? agentTurnStream(feed.events) : agentReplayStream(feed.events)
     },
     {
       params: turnParams,
@@ -215,18 +223,10 @@ export const agentRoutes = new Elysia()
       }),
     },
   )
-  .resolve(async ({ params, body, authUser }) => {
-    // 轮级端点共用这段：归属查会话、会话查在跑的轮，两级都可能 404。
-    const record = params as { id?: string; turnId?: string }
-    const deviceId = (body as { deviceId?: string } | undefined)?.deviceId
-    if (!record.turnId || !deviceId) return { activeTurn: null as RunningTurn | null }
-    const conversation = await findAgentConversation(record.id!, ownerOf(authUser, deviceId))
-    const active = conversation ? runningTurn(conversation.id) : undefined
-    return { activeTurn: active?.turnId === record.turnId ? active : null }
-  })
   .post(
     '/api/agent/conversations/:id/turns/:turnId/abort',
-    ({ activeTurn, status }) => {
+    async ({ params, body, authUser, status }) => {
+      const activeTurn = await activeTurnOf(params, body.deviceId, authUser)
       if (!activeTurn) return status(404, TURN_NOT_FOUND)
       activeTurn.abort()
       return { aborted: true }
@@ -235,7 +235,8 @@ export const agentRoutes = new Elysia()
   )
   .post(
     '/api/agent/conversations/:id/turns/:turnId/interject',
-    async ({ activeTurn, body, status }) => {
+    async ({ params, body, authUser, status }) => {
+      const activeTurn = await activeTurnOf(params, body.deviceId, authUser)
       if (!activeTurn) return status(404, TURN_NOT_FOUND)
       let messageId: string | null
       try {
