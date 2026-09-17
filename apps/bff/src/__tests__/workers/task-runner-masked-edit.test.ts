@@ -197,3 +197,24 @@ it('cloud archive resumes a saved masked candidate and keeps protected pixels un
   ]).toEqual([0, 0, 255, 255, 0, 255, 0, 255])
   expect(calls).toBe(1)
 })
+
+it('cloud archive terminates an incompatible masked candidate without repeating generation', async () => {
+  const id = crypto.randomUUID()
+  const candidate = await sharp({
+    create: { width: 1, height: 1, channels: 4, background: 'blue' },
+  })
+    .png()
+    .toBuffer()
+  let calls = 0
+  setUpstreamFetchForTesting((async () => {
+    calls++
+    return Response.json({ data: [{ b64_json: candidate.toString('base64') }] })
+  }) as NonNullable<Parameters<typeof setUpstreamFetchForTesting>[0]>)
+  await submit(id, true)
+  await runTask(id)
+  expect((await task(id)).status).toBe('failed')
+  expect((await task(id)).error_message).toContain('尺寸与原图不一致')
+  expect(await durable.read(`${id}/candidate/0`)).toEqual(new Uint8Array(candidate))
+  await runTask(id)
+  expect(calls).toBe(1)
+})
