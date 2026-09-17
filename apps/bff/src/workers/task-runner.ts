@@ -257,7 +257,7 @@ export async function runTask(id: string): Promise<void> {
     }
     receivedImages = true
     if (cloudArchive) {
-      archivePayload = generationSourceCheckpoint(task.provider, payload)
+      archivePayload = generationSourceCheckpoint(id, task.provider, payload)
       if (archivePayload) {
         if (!(await saveArchiveCheckpoint(id, archivePayload))) return
       }
