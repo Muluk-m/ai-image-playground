@@ -43,13 +43,26 @@ export type AgentToolName =
   | 'loadSkill'
 
 /**
- * 技能清单端点给前端的那一份：只有标识、标题和「何时用」，正文由模型自己去读。
+ * 技能没写 `meta.json`、或写坏了时用的图标。技能不会因此被丢掉，只是长得一样。
+ * 前端的白名单映射表必须收着它，否则回退还得再回退一次。
+ */
+export const DEFAULT_AGENT_SKILL_ICON = 'sparkles'
+
+/**
+ * 技能清单端点给前端的那一份：标识、标题、「何时用」，外加界面用的图标与一句话简介。
  * `name` 是 Agent Skills 标准的 kebab-case 标识，服务端只认它；`title` 是给人看的那个名字。
+ *
+ * `icon` / `summary` 来自技能目录里的 `meta.json`，**只走界面**：它们不进系统提示词、
+ * 不进任何给模型的文本（见 `apps/bff/src/lib/agent/turn-input.ts` 的 `<available_skills>`）。
  */
 export interface AgentSkillSummary {
   readonly name: string
   readonly title: string
   readonly description: string
+  /** lucide 图标名，kebab-case。前端按白名单映射成组件，不认识的名字回退默认图标。 */
+  readonly icon: string
+  /** 写给用户的一句话简介；空串表示这条技能没写，界面回退到去掉「何时用：」的 description。 */
+  readonly summary: string
 }
 
 /**
@@ -142,6 +155,11 @@ export interface AgentToolResultBlock {
 export interface AgentSkillOutcome {
   readonly label: string
   readonly found: boolean
+  /**
+   * 这条技能的图标名，与 `/` 菜单用同一张白名单映射表。老消息里没有这一位（这个字段是后加的），
+   * 没找到技能的那次也没有——两种情况界面都退回默认图标。
+   */
+  readonly icon?: string
 }
 
 /** 一次澄清提问。落在助手消息里，所以重新打开会话还能看见、还能作答。 */

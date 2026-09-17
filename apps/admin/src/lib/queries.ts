@@ -5,6 +5,7 @@ import type {
   DeviceDetailResult,
   ListDevicesResult,
   ListUsersResult,
+  OpsSnapshot,
   OverviewResult,
   Range,
   SortKey,
@@ -82,5 +83,14 @@ export function useOverview(range: Range) {
   return useQuery({
     queryKey: ['overview', { range }],
     queryFn: () => apiClient.get<OverviewResult>(`/api/overview?range=${range}`),
+  })
+}
+
+/** 看板是开在一边盯着看的，所以自己定时重拉；切到后台标签页时停，回来立刻补一次。 */
+export function useOps() {
+  return useQuery({
+    queryKey: ['ops'],
+    queryFn: () => apiClient.get<OpsSnapshot>('/api/ops'),
+    refetchInterval: 30_000,
   })
 }

@@ -13,15 +13,33 @@ vi.mock('../../../../lib/channels/videoChannels', async (importOriginal) => ({
   isVideoModeAvailable: () => videoAvailable.value,
 }))
 
+type SkillFixture = {
+  name: string
+  title: string
+  description: string
+  icon: string
+  summary: string
+}
+
 const skills = vi.hoisted(() => ({
-  image: [] as { name: string; title: string; description: string }[],
+  image: [] as SkillFixture[],
   video: [
     {
       name: 'storyboard-short',
       title: '分镜短片',
-      description: '何时用：一句话要一条多镜短片。',
+      description: '何时用：一句话要一条多镜短片。不处理：单张图。',
+      icon: 'clapperboard',
+      summary: '一句话生成多镜头短片，自动产出分镜脚本与成片',
     },
-  ],
+    // 没写 summary 的那条：次行要退回 description，并且不带「何时用：」这个给模型的路牌。
+    {
+      name: 'image-to-video',
+      title: '让图动起来',
+      description: '何时用：让一张已有的图动起来。不处理：多镜成片。',
+      icon: 'image-play',
+      summary: '',
+    },
+  ] as SkillFixture[],
 }))
 
 vi.mock('../../../../features/agent/lib/agentClient', async () => {
@@ -178,7 +196,7 @@ describe('部署做不了视频时', () => {
 })
 
 describe('`/` 技能候选', () => {
-  it('视频轮打 `/` 弹出中文标题与「何时用」，选中后补成 `/name`', async () => {
+  it('视频轮打 `/` 弹出图标、中文标题与用户向简介，选中后补成 `/name`', async () => {
     render()
     await settle()
     chooseOption('创作类型', '视频')
@@ -187,10 +205,15 @@ describe('`/` 技能候选', () => {
     type('/story')
     const option = [...host.querySelectorAll<HTMLElement>('[role="option"]')][0]
     expect(option).toBeDefined()
-    // 主行是人看的标题，次行是「何时用」；kebab-case 的标识不该露在面上。
+    // 主行是人看的标题，次行是写给用户的那句话；kebab-case 的标识不该露在面上。
     expect(option!.textContent).toContain('分镜短片')
-    expect(option!.textContent).toContain('何时用：一句话要一条多镜短片。')
+    expect(option!.textContent).toContain('一句话生成多镜头短片，自动产出分镜脚本与成片')
     expect(option!.textContent).not.toContain('storyboard-short')
+    // 写给模型的「何时用 / 不处理」不该露给用户。
+    expect(option!.textContent).not.toContain('何时用')
+    expect(option!.textContent).not.toContain('不处理')
+    // 每一行左侧都有图标，而且不同技能不是同一个。
+    expect(option!.querySelector('[data-skill-icon="clapperboard"]')).not.toBeNull()
 
     act(() => {
       option!.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
@@ -200,6 +223,20 @@ describe('`/` 技能候选', () => {
     expect(agentDraft(null).getSnapshot().draft.prompt).toBe('/storyboard-short ')
   })
 
+  it('技能没写简介时次行退回 description，并去掉开头的「何时用：」', async () => {
+    render()
+    await settle()
+    chooseOption('创作类型', '视频')
+    await settle()
+
+    type('/image')
+    const option = [...host.querySelectorAll<HTMLElement>('[role="option"]')][0]
+    expect(option).toBeDefined()
+    expect(option!.textContent).toContain('让一张已有的图动起来。')
+    expect(option!.textContent).not.toContain('何时用：')
+    expect(option!.querySelector('[data-skill-icon="image-play"]')).not.toBeNull()
+  })
+
   it('只打一个 `/` 就列出这个 mode 的全部技能', async () => {
     render()
     await settle()
@@ -207,7 +244,7 @@ describe('`/` 技能候选', () => {
     await settle()
 
     type('/')
-    expect(host.querySelectorAll('[role="option"]')).toHaveLength(1)
+    expect(host.querySelectorAll('[role="option"]')).toHaveLength(2)
   })
 
   it('草稿里已经有图片引用时，打 `/` 照样弹得出来', async () => {

@@ -1,6 +1,7 @@
 import type { AgentSkillSummary } from '@image-playground/shared'
 import type { SuggestionMenuGroup } from '../../../components/SuggestionMenu'
 import { i18next } from '../../../i18n'
+import AgentSkillIcon from './agentSkillIcons'
 
 /**
  * 技能的显式调用写成 `/skill-name 其余文字`，且**只认开头**：斜杠出现在句中时用户在写正经话，
@@ -56,18 +57,29 @@ export function applySkillCommand(
   return { prompt: head + rest, cursor: head.length }
 }
 
+/**
+ * 菜单第二行的那句话。**优先 `summary`**：`description` 是写给模型看的「何时用 / 不处理」，
+ * 露在用户面前既难读又必然被截断。技能没写 summary 时才退回 description，并把开头那个
+ * 「何时用：」的标签去掉——它是给模型的路牌，不是给人的。
+ */
+export function skillMenuDescription(skill: AgentSkillSummary): string {
+  if (skill.summary.trim()) return skill.summary.trim()
+  return skill.description.replace(/^\s*何时用\s*[：:]\s*/, '')
+}
+
 export function buildAgentSkillGroups<T>(
   query: string,
   skills: readonly AgentSkillSummary[],
   toValue: (skill: AgentSkillSummary) => T,
 ): SuggestionMenuGroup<T>[] {
-  // 主行是人看的标题，次行是「何时用」；插进输入框的仍是 `/name`，服务端只认它。
+  // 行首是图标，主行是人看的标题，次行是写给用户的一句话；插进输入框的仍是 `/name`，服务端只认它。
   const options = skills
     .filter((skill) => skillMatches(query, skill))
     .map((skill) => ({
       key: `skill:${skill.name}`,
       label: skill.title,
-      description: skill.description,
+      description: skillMenuDescription(skill),
+      icon: <AgentSkillIcon name={skill.icon} />,
       value: toValue(skill),
     }))
   if (options.length === 0) return []
