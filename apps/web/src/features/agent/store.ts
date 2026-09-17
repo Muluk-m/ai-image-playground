@@ -419,6 +419,10 @@ export const useAgentStore = create<AgentState>((set, get) => {
         // 轮没了或者一直接不上：面板还停在进行中就得给个交代。
         if (turnDelivery.isCurrent() && get().turn === 'running') fail()
       }
+    } catch (thrown) {
+      // 归约自己出了错：不能让面板永远停在进行中。
+      if (turnDelivery.isCurrent() && get().turn === 'running') fail()
+      throw thrown
     } finally {
       await turnDelivery.settled()
       if (followers.get(conversationId) === turnDelivery) followers.delete(conversationId)
