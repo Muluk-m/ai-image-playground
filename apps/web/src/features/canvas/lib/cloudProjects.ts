@@ -226,9 +226,9 @@ export class CloudProjectSession {
     this.lastCheck = Date.now()
     return this.serialize(() => this.loadCurrent(hasLocalScene))
   }
-  refresh(): Promise<void> {
+  refresh(force = false): Promise<void> {
     if (
-      Date.now() - this.lastCheck < 5000 ||
+      (!force && Date.now() - this.lastCheck < 5000) ||
       STOPPED.has(this.state.status) ||
       this.state.status === 'error'
     )

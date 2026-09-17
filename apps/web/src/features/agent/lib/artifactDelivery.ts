@@ -90,11 +90,19 @@ export function createArtifactDelivery(
   const place = async (
     origin: DeliveryOrigin,
     message: AgentToolMessage,
+    manual: boolean,
   ): Promise<AgentDeliveryStatus> => {
     const canvas = origin.canvas
     if (!canvas || !current(origin)) return 'unavailable'
     // 起跑时占的位先认领回来：它决定产物落在哪，也决定这一轮结束时谁该被收掉。
     const placeholderIds = (await claim(origin, message.id)) ?? []
+    if (!manual && canvas.syncArtifacts) {
+      const outcome = await canvas.syncArtifacts(message.artifacts ?? [])
+      if (outcome !== null) {
+        canvas.discard(placeholderIds)
+        return current(origin) ? outcome : 'unavailable'
+      }
+    }
     const missing = (message.artifacts ?? []).filter((artifact) => !canvas.has(artifact.artifactId))
     if (!missing.length) {
       canvas.discard(placeholderIds)
@@ -151,9 +159,14 @@ export function createArtifactDelivery(
     for (const ids of await Promise.all(pending)) canvas.discard(ids)
   }
 
-  const enqueue = (origin: DeliveryOrigin, message: AgentToolMessage, manual = false) => {
+  const enqueue = (
+    origin: DeliveryOrigin,
+    message: AgentToolMessage,
+    manual = false,
+    retry = false,
+  ) => {
     const previous = records.get(message.id)
-    if (previous && (!manual || previous.status === 'pending')) {
+    if (previous && ((!manual && !retry) || previous.status === 'pending')) {
       if (belongs(origin)) changed(message.id, previous.status)
       origin.pending = previous.pending.then(() => {
         if (belongs(origin)) changed(message.id, previous.status)
@@ -165,7 +178,7 @@ export function createArtifactDelivery(
     if (belongs(origin)) changed(message.id, 'pending')
     record.pending = queue = queue.then(async () => {
       try {
-        record.status = await place(origin, message)
+        record.status = await place(origin, message, manual)
       } catch (error) {
         console.warn('[agent] artifact delivery failed', error)
         record.status = 'failed'
@@ -247,7 +260,12 @@ export function createArtifactDelivery(
       for (const message of messages) {
         if (message.kind !== 'tool' || !message.artifacts?.length) continue
         if (records.get(message.id)?.status !== 'unavailable') continue
-        await this.placeOnCanvas(message)
+        const origin = capture()
+        try {
+          await enqueue(origin, message, false, true)
+        } finally {
+          origins.delete(origin)
+        }
       }
     },
     reset() {

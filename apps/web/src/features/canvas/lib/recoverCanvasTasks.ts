@@ -62,6 +62,7 @@ export function recoverCanvasTasks(editor: CanvasEditor): void {
   for (const placeholder of editor.getPlaceholders()) {
     if (placeholder.status !== 'loading') continue
     const meta = placeholder.meta
+    if (meta.cloudGeneration) continue
 
     if (meta.agent) {
       // 智能体的占位框只是那一轮的脚手架：这里没有 BFF 请求可续、画布上也没法重试，

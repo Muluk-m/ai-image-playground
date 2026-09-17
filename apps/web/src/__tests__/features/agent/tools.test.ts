@@ -261,6 +261,7 @@ describe('工具事件', () => {
       {
         count: 2,
         title: TOOL_START.title,
+        media: 'image',
         messageId: TOOL_START.messageId,
         ids: ['placeholder-1', 'placeholder-2'],
       },
@@ -286,6 +287,7 @@ describe('工具事件', () => {
       {
         count: 1,
         title: TOOL_START.title,
+        media: 'image',
         messageId: TOOL_START.messageId,
         anchorObjectId: 'canvas-1',
         ids: ['placeholder-1'],
@@ -684,4 +686,26 @@ it('运行中的项目往返切换只保留一份失败占位', async () => {
   await sending
   expect(failed).toHaveLength(1)
   expect(discarded).toContain('placeholder-1')
+})
+
+it('云端交付只刷新原项目，不下载和重复放图；已删占位仅手动放入才恢复', async () => {
+  const syncArtifacts = vi.fn(async () => 'unavailable' as const)
+  const original = agentCanvasSink()!
+  setAgentCanvasSink({ ...original, syncArtifacts })
+  turnResponse = () => turnStream(TURN_START, TOOL_START, TOOL_END, TURN_END)
+  await state().send('云端生成一张图')
+  expect(toolMessages()[0]?.delivery).toBe('unavailable')
+  expect(syncArtifacts).toHaveBeenCalledOnce()
+  expect(placed).toEqual([])
+  expect(
+    fetchMock.mock.calls.some(([input]) => String(input).includes('/v1/queue/requests/')),
+  ).toBe(false)
+  // 卸载重挂是自动恢复，不等于用户点了“放入画布”。
+  setAgentCanvasSink(null)
+  setAgentCanvasSink({ ...original, syncArtifacts })
+  await vi.waitFor(() => expect(syncArtifacts).toHaveBeenCalledTimes(2))
+  expect(placed).toEqual([])
+  await state().placeOnCanvas('tool-1')
+  expect(toolMessages()[0]?.delivery).toBe('placed')
+  expect(placed).toHaveLength(1)
 })

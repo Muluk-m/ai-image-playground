@@ -28,6 +28,7 @@ export const STATUS_ACCENT: Record<CanvasTaskStatus, string> = {
  * 不另设独立任务表。只存轻量 id / 标识，**绝不**把输入图塞进来（决策 2 / 决策 6）。
  */
 export interface CanvasTaskMeta {
+  cloudGeneration?: { id: string; position: number }
   createdAt?: number
   taskId: string
   clientRequestId: string
