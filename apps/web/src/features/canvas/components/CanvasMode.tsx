@@ -112,7 +112,8 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
   )
   // 敲下回车就切到工作区：消息先上屏、状态行亮「发送中」，不等服务端回 turnStart。
   const started = useAgentStore((state) => conversationStarted(state.messages))
-  const showWelcome = hasAgent && !hasContent && !project?.hasContent && !started
+  const showWelcome =
+    hasAgent && !hasContent && !project?.hasContent && !project?.workspaceOpened && !started
   useEffect(() => {
     if (hasAgent) void useAgentStore.getState().load()
   }, [hasAgent])

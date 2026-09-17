@@ -109,7 +109,8 @@
     "createFailed": "项目创建失败，当前内容已保留，请重试。",
     "saveFailed": "当前项目未能保存，内容已保留，请重试。",
     "deleteBusy": "项目仍有任务运行，完成后再删除。",
-    "deleteFailed": "项目删除失败，请重试。"
+    "deleteFailed": "项目删除失败，请重试。",
+    "openFailed": "项目暂时无法打开，请重试。"
   },
   "draft": {
     "unreadable": "草稿暂时无法读取或保存，刷新前请复制输入内容。",
@@ -149,5 +150,15 @@
     "loading": "正在加载对话…",
     "failed": "对话暂时未能加载，项目和草稿已保留。",
     "retry": "重新加载"
+  },
+  "navigation": {
+    "back": "返回项目列表",
+    "switchAria": "切换项目，当前：{{name}}",
+    "switchTitle": "切换项目",
+    "search": "搜索项目",
+    "recent": "最近项目",
+    "results": "搜索结果",
+    "newHint": "开启独立的对话与画布",
+    "all": "查看全部项目"
   }
 }

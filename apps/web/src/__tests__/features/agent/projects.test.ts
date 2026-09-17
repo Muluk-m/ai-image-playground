@@ -214,3 +214,50 @@ it('草稿保存失败时拒绝切项目，错误与内容保留', async () => {
   expect(await state().createProject()).toBe(false)
   expect(useCanvasProjectStore.getState().activeId).toBe(id)
 })
+
+it('主动新建的空项目保持画布视图，重复新建不堆积空项目', async () => {
+  const first = useCanvasProjectStore.getState().activeId!
+  expect(await state().createProject()).toBe(true)
+  expect(useCanvasProjectStore.getState().activeId).toBe(first)
+  expect(
+    useCanvasProjectStore.getState().projects.find((one) => one.id === first)?.workspaceOpened,
+  ).toBe(true)
+  expect(await state().createProject()).toBe(true)
+  expect(useCanvasProjectStore.getState().projects).toHaveLength(1)
+  const { projectRepository } = await import('../../../features/canvas/lib/projectRepository')
+  expect((await projectRepository.list()).find((one) => one.id === first)?.workspaceOpened).toBe(
+    true,
+  )
+})
+
+it('尚未对话但画布已有内容时，新建必须保留原画布并创建独立项目', async () => {
+  const first = useCanvasProjectStore.getState().activeId!
+  currentCanvasWorkspace().doc.addElements([
+    {
+      id: 'original',
+      type: 'image',
+      x: 20,
+      y: 30,
+      width: 100,
+      height: 100,
+      rotation: 0,
+      fileId: 'original-file',
+    },
+  ])
+  expect(await state().createProject()).toBe(true)
+  const second = useCanvasProjectStore.getState().activeId!
+  expect(second).not.toBe(first)
+  await currentCanvasWorkspace().ready
+  expect(currentCanvasWorkspace().doc.elements).toHaveLength(0)
+  expect(await state().selectProject(first)).toBe(true)
+  expect(currentCanvasWorkspace().doc.elements).toHaveLength(1)
+})
+
+it('删除当前空项目时必须切换到另一个项目，不能复用即将删除的项目', async () => {
+  const first = useCanvasProjectStore.getState().activeId!
+  expect(await state().deleteProject(first)).toBe(true)
+  const next = useCanvasProjectStore.getState().activeId
+  expect(next).toBeTruthy()
+  expect(next).not.toBe(first)
+  expect(useCanvasProjectStore.getState().projects.some((one) => one.id === next)).toBe(true)
+})

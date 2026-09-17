@@ -373,8 +373,27 @@ export const useAgentStore = create<AgentState>((set, get) => {
     await workspace.ready
     if (!(await workspace.flush())) throw new Error('save_failed')
   }
-  const createProject = async () => {
+  const createProject = async (reuseEmpty = true) => {
     await saveCurrentProject()
+    const current = currentCanvasProject()
+    const draft = agentDraft(get().conversationId, current?.id).getSnapshot().draft
+    // 重复点击不制造空壳；有引用、草稿、画布或正在提交的内容都必须新建。
+    if (
+      reuseEmpty &&
+      current &&
+      !current.conversationId &&
+      !current.hasContent &&
+      !current.customName &&
+      get().turn !== 'running' &&
+      !get().messages.length &&
+      !currentCanvasWorkspace().doc.elements.length &&
+      !draft.prompt.trim() &&
+      !draft.references.length
+    ) {
+      await useCanvasProjectStore.getState().update(current.id, { workspaceOpened: true })
+      showProject(current)
+      return true
+    }
     const project = await useCanvasProjectStore.getState().create()
     showProject(project)
     return true
@@ -518,6 +537,13 @@ export const useAgentStore = create<AgentState>((set, get) => {
           return false
         }
         if (!isCurrent()) return false
+        try {
+          await useCanvasProjectStore.getState().update(project.id, { workspaceOpened: true })
+        } catch {
+          useStore.getState().showToast(i18next.t('project.openFailed', { ns: 'agent' }), 'error')
+          return false
+        }
+        if (!isCurrent()) return false
         showProject(project)
         return true
       })
@@ -543,7 +569,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
               if (!(error instanceof AgentRequestError && error.status === 404)) throw error
             }
           }
-          if (project.id === projects.activeId) await createProject()
+          if (project.id === projects.activeId) await createProject(false)
           await removeProjectDraft(projectId, project.conversationId)
           await projects.remove(projectId)
           forgetCanvasWorkspace(project.sceneKey)

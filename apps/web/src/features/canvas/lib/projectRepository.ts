@@ -23,6 +23,8 @@ export interface CanvasProject {
   readonly createdAt: number
   readonly updatedAt: number
   readonly hasContent: boolean
+  /** 主动打开的空项目保持画布布局，初次进入仍可展示欢迎页。 */
+  readonly workspaceOpened?: boolean
   readonly cover?: string
   readonly cloud?: { revision: number; nameDirty?: boolean }
 }
@@ -82,6 +84,7 @@ export const projectRepository = {
     name = UNTITLED_PROJECT,
     legacy?: { sceneKey: string; conversationId: string | null },
     cloud = false,
+    workspaceOpened = false,
   ): Promise<CanvasProject> {
     const id = legacy ? `legacy:${legacy.sceneKey}` : crypto.randomUUID()
     const now = Date.now()
@@ -94,6 +97,7 @@ export const projectRepository = {
       createdAt: now,
       updatedAt: now,
       hasContent: Boolean(legacy?.conversationId),
+      workspaceOpened,
       ...(cloud ? { cloud: { revision: 0 } } : {}),
     }
     const storageKey = key(id)
@@ -148,7 +152,14 @@ export const projectRepository = {
     patch: Partial<
       Pick<
         CanvasProject,
-        'name' | 'customName' | 'conversationId' | 'updatedAt' | 'hasContent' | 'cover' | 'cloud'
+        | 'name'
+        | 'customName'
+        | 'conversationId'
+        | 'updatedAt'
+        | 'hasContent'
+        | 'workspaceOpened'
+        | 'cover'
+        | 'cloud'
       >
     >,
   ): Promise<CanvasProject> {
