@@ -11,6 +11,7 @@ import {
   or,
   type SQL,
 } from 'drizzle-orm'
+import { isCapabilityEnabled } from '../lib/capabilities'
 import { log } from '../lib/logger'
 import { objectStore } from '../lib/objectStore'
 import { loadPrivateBffOverlay } from '../lib/private-overlay'
@@ -69,6 +70,8 @@ async function recoverTasks(scope: SQL, now: number): Promise<RecoveredTasks> {
       attemptCount: schema.tasks.attempt_count,
       upstreamTaskIds: schema.tasks.upstream_task_ids,
       archivePayload: schema.tasks.archive_payload,
+      userId: schema.tasks.user_id,
+      invocations: schema.tasks.upstream_invocation_count,
     })
     .from(schema.tasks)
     .where(and(eq(schema.tasks.status, 'in_progress'), scope))
@@ -86,6 +89,23 @@ async function recoverTasks(scope: SQL, now: number): Promise<RecoveredTasks> {
       continue
     }
     if (candidate.upstreamTaskIds?.length) continue
+    if (
+      candidate.userId &&
+      candidate.invocations > 0 &&
+      candidate.kind === 'queue' &&
+      isCapabilityEnabled('accounts:sync')
+    ) {
+      if (
+        await finishTask(candidate.id, {
+          status: 'failed',
+          errorType: 'upstream_result_unknown',
+          errorMessage: '生成请求已发出，但结果尚未确认，请勿重复提交',
+          completedAt: now,
+        })
+      )
+        failed++
+      continue
+    }
     const attemptJustFailed = candidate.attemptCount + 1
     // 对话轮不能回队：worker 会把它当生图任务重跑一遍。断了就是断了，退款收场。
     const plan: RetryPlan =

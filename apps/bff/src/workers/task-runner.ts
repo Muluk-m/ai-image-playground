@@ -6,7 +6,7 @@ import { finishTask, requeueTask, requeueTaskArchive } from '../db/task-transiti
 import { protectMaskedOutput } from '../lib/agent/masked-output'
 import { isCapabilityEnabled } from '../lib/capabilities'
 import { describeEmptyResult, extractMeta } from '../lib/extractImages'
-import { archiveGenerationOutputs } from '../lib/generationMedia'
+import { archiveGenerationOutputs, generationSourceCheckpoint } from '../lib/generationMedia'
 import {
   archiveOutputImages,
   hydrateInputImages,
@@ -159,17 +159,8 @@ export async function runTask(id: string): Promise<void> {
     task.userId && !task.request_payload.video && isCapabilityEnabled('accounts:sync'),
   )
   let archivePayload = task.archive_payload
+  let receivedImages = false
   try {
-    if (archivePayload) {
-      const media = await archiveGenerationOutputs(task.userId!, task.provider, archivePayload)
-      await finishTask(id, {
-        status: 'completed',
-        media,
-        resultPayload: archivePayload,
-        completedAt: now(),
-      })
-      return
-    }
     const hydratedRequest = await hydrateInputImages(task.request_payload)
     // 老任务只有 preserve_outside_mask、没有 masked_original_size：那时不补边，交付时也不裁边。
     const protectOutput = task.request_payload.preserve_outside_mask
@@ -179,6 +170,22 @@ export async function runTask(id: string): Promise<void> {
           task.request_payload.masked_original_size,
         )
       : undefined
+    if (archivePayload) {
+      archivePayload = await archiveOutputImages(
+        id,
+        task.provider,
+        structuredClone(archivePayload),
+        protectOutput,
+      )
+      const media = await archiveGenerationOutputs(task.userId!, task.provider, archivePayload)
+      await finishTask(id, {
+        status: 'completed',
+        media,
+        resultPayload: archivePayload,
+        completedAt: now(),
+      })
+      return
+    }
     const { payload } = await callUpstream({
       provider: task.provider,
       model: task.model,
@@ -226,6 +233,18 @@ export async function runTask(id: string): Promise<void> {
       )
       return
     }
+    receivedImages = true
+    if (cloudArchive) {
+      archivePayload = generationSourceCheckpoint(task.provider, payload)
+      if (archivePayload) {
+        const stored = await db
+          .update(schema.tasks)
+          .set({ archive_payload: archivePayload })
+          .where(and(eq(schema.tasks.id, id), eq(schema.tasks.status, 'in_progress')))
+          .returning({ id: schema.tasks.id })
+        if (!stored.length) return
+      }
+    }
     const archivedPayload = await archiveOutputImages(id, task.provider, payload, protectOutput)
     if (cloudArchive) {
       archivePayload = archivedPayload
@@ -258,7 +277,7 @@ export async function runTask(id: string): Promise<void> {
       return
     }
     if (archivePayload) {
-      await requeueTaskArchive(id)
+      await requeueTaskArchive(id, Date.now() + 60_000, archivePayload)
       log.warn(
         { event: 'task.archive_retry', taskId: id, err: String(err) },
         'generated output awaiting durable archive',
@@ -282,7 +301,12 @@ export async function runTask(id: string): Promise<void> {
     const attemptJustFailed = task.attempt_count + 1
     if (
       !task.request_payload.preserve_outside_mask &&
-      (await tryScheduleRetry(id, attemptJustFailed, isRetryableError(err), message))
+      (await tryScheduleRetry(
+        id,
+        attemptJustFailed,
+        !(cloudArchive && receivedImages) && isRetryableError(err),
+        message,
+      ))
     ) {
       return
     }
