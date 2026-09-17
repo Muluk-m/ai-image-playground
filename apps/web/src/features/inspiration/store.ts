@@ -104,8 +104,7 @@ export const useInspirationStore = create<InspirationState>((set, get) => ({
 
   openPanel: () => {
     set({ panelOpen: true })
-    // 首次开面板才拉远程清单（872KB）；之后 5 分钟内由 localStorage cache 兜底。
-    // 不开面板的会话完全免下载。
+    // 首页或面板共用同一清单与缓存，已加载时不会重复下载。
     void get().loadRemote()
   },
   closePanel: () => set({ panelOpen: false, detailItemId: null }),

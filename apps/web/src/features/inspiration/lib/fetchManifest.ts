@@ -29,7 +29,10 @@ export async function fetchRemoteManifest(
   url: string,
   signal?: AbortSignal,
 ): Promise<InspirationManifest> {
-  const response = await fetch(url, { method: 'GET', signal })
+  const response = await fetch(url, {
+    method: 'GET',
+    signal: signal ?? AbortSignal.timeout(10_000),
+  })
   if (!response.ok) {
     throw new Error(
       i18next.t('manifest.loadFailed', {
