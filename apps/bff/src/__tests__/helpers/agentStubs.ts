@@ -41,6 +41,15 @@ export function completion({ deltas, usage }: CompletionOptions): Response {
   return stream.responseFor()
 }
 
+/** 先说一句再调工具：多步轮里那条既有正文又有工具调用的回复。 */
+export function replyThenToolCall(text: string, call: ToolCallSpec): Response {
+  const stream = controlledCompletion()
+  stream.push(text)
+  stream.pushToolCall(0, call)
+  stream.finish()
+  return stream.responseFor()
+}
+
 export interface ToolCallSpec {
   readonly id: string
   readonly name: string
@@ -146,6 +155,8 @@ export interface ControlledCompletion {
   push(content: string): void
   pushToolCall(index: number, call: ToolCallSpec): void
   finish(): void
+  /** 上游流到一半断掉：已推的帧读完之后才报错，所以要等消费者收到它们再调。 */
+  fail(message?: string): void
 }
 
 /** 上游流由测试逐段驱动：断线续播、中止与插话都要求这一轮在断言期间保持进行中。 */
@@ -211,6 +222,9 @@ export function controlledCompletion(
       })
       controller.enqueue(encoder.encode('data: [DONE]\n\n'))
       controller.close()
+    },
+    fail(message = 'upstream stream failed') {
+      controller.error(new Error(message))
     },
   }
 }
