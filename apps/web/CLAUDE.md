@@ -72,7 +72,8 @@
   **不要再写 `@media (prefers-color-scheme)`**，也不要在 JS 里读系统明暗，要重画就 `subscribeTheme`。
   首帧脚本 `bootScript.ts` 由 Vite 插件内联进 head，它与 `resolveTheme` 是同一条规则的两份实现，
   `theme.test.ts` 逐格比对；改一边必须改另一边。头像菜单与登录页只做亮暗翻转，
-  「跟随系统」只在设置面板里。
+  「跟随系统」只在设置面板里。 `theme-color` 由首帧脚本创建并随主题更新；PWA 清单里的颜色改不了，
+  安装态的启动画面固定是暗色，不是 bug。
 - 界面语言（以及主题）是**显示设置**：只存本机、登录前生效、不进同步。登录后的入口在头像菜单的
   [`DisplaySettingsMenuItems`](./src/components/DisplaySettingsMenuItems.tsx)，公开树与私有 overlay
   的两个头像菜单渲染同一个组件；登录页与设置面板另有入口。标签页标题随语言变，静态 meta 不变。

@@ -1051,6 +1051,7 @@ body.drag-selecting * {
   user-select: none !important;
 }
 
+.dark,
 .dark * {
   scrollbar-color: hsl(var(--border)) transparent;
 }
@@ -1070,7 +1071,9 @@ input[type="number"] {
   -moz-appearance: textfield;
 }
 
+.dark::-webkit-scrollbar-thumb,
 .dark ::-webkit-scrollbar-thumb { background: hsl(var(--border)); }
+.dark::-webkit-scrollbar-thumb:hover,
 .dark ::-webkit-scrollbar-thumb:hover { background: hsl(var(--muted-foreground)); }
 
 @keyframes pulse-border {
@@ -1327,23 +1330,23 @@ input[type="number"] {
   border-color: hsl(var(--primary) / 0.2);
 }
 
-.mention-tag::selection,
-.mention-tag *::selection {
+.dark .mention-tag::selection,
+.dark .mention-tag *::selection {
   background: transparent !important;
   color: inherit !important;
 }
 
-[contenteditable]::selection,
-[contenteditable] *::selection {
+.dark [contenteditable]::selection,
+.dark [contenteditable] *::selection {
   background: hsl(var(--primary) / 0.3);
   color: inherit;
 }
 
-.mention-tag:hover {
+.dark .mention-tag:hover {
   background: hsl(var(--primary) / 0.2);
 }
 
-.mention-tag.selected {
+.dark .mention-tag.selected {
   background: hsl(var(--primary));
   color: hsl(var(--primary-foreground));
   border-color: hsl(var(--primary));
@@ -1383,11 +1386,11 @@ input[type="number"] {
   border-color: hsl(var(--primary) / 0.2);
 }
 
-.slot-tag:hover {
+.dark .slot-tag:hover {
   background: hsl(var(--primary) / 0.2);
 }
 
-.slot-tag.selected {
+.dark .slot-tag.selected {
   background: hsl(var(--primary));
   color: hsl(var(--primary-foreground));
   border-color: hsl(var(--primary));

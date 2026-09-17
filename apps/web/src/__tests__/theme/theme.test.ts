@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   getTheme,
@@ -46,7 +48,8 @@ let dispose: (() => void) | undefined
 beforeEach(() => {
   localStorage.clear()
   document.documentElement.className = ''
-  document.head.innerHTML = '<meta name="theme-color" content="#000000" />'
+  // 真实页面里首帧脚本排在 head 最前面，那一刻还没有任何 meta，所以这里也从空的 head 起步。
+  document.head.innerHTML = ''
 })
 
 afterEach(() => {
@@ -167,6 +170,26 @@ describe('首帧脚本', () => {
     const expected = resolveTheme(stored, systemDark)
     expect(document.documentElement.classList.contains('dark')).toBe(expected === 'dark')
     expect(themeColor()).toBe(THEME_COLORS[expected])
+  })
+
+  it('index.html 不再写死 theme-color，也不再有任何跟随系统配色的样式', () => {
+    const html = readFileSync(resolve(__dirname, '../../../index.html'), 'utf8')
+    expect(html).not.toContain('theme-color')
+    for (const file of ['../../index.css', '../../styles/theme.css']) {
+      expect(readFileSync(resolve(__dirname, file), 'utf8')).not.toContain('prefers-color-scheme')
+    }
+  })
+
+  it.each([
+    '.mention-tag:hover',
+    '.mention-tag.selected',
+    '.slot-tag:hover',
+    '.slot-tag.selected',
+    '[contenteditable]::selection',
+  ])('%s 的暗色写法关在 .dark 里，不会漏到亮色', (selector) => {
+    const css = readFileSync(resolve(__dirname, '../../index.css'), 'utf8')
+    const lines = css.split('\n').filter((line) => line.replace(/[,{\s]+$/, '').endsWith(selector))
+    expect(lines.map((line) => line.trim().startsWith('.dark ')).sort()).toEqual([false, true])
   })
 
   it('由构建插件塞进 head 最前面，赶在样式与应用脚本之前执行', () => {

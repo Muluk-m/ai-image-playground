@@ -34,11 +34,21 @@ let choice: ThemeChoice = 'system'
 let theme: Theme = 'light'
 const listeners = new Set<() => void>()
 
+/** 正常由首帧脚本建好；测试环境或脚本被拦掉时这里补一个。 */
+function themeColorMeta(): HTMLMetaElement {
+  const existing = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')
+  if (existing) return existing
+  const created = document.createElement('meta')
+  created.name = 'theme-color'
+  document.head.appendChild(created)
+  return created
+}
+
 function apply(): void {
   theme = resolveTheme(choice, systemDark())
   if (typeof document !== 'undefined') {
     document.documentElement.classList.toggle('dark', theme === 'dark')
-    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', THEME_COLORS[theme])
+    themeColorMeta().setAttribute('content', THEME_COLORS[theme])
   }
   for (const listener of listeners) listener()
 }
