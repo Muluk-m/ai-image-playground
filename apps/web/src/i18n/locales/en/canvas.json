@@ -153,7 +153,10 @@
     "copied": "Image copied",
     "downloadFailed": "Download failed",
     "copy": "Copy image",
-    "download": "Download image"
+    "download": "Download image",
+    "preview": "View original / hold to save",
+    "previewFailed": "Could not load the original. Close and try again.",
+    "loading": "Loading original…"
   },
   "grid": {
     "loadingCloud": "Loading projects…",
@@ -191,5 +194,11 @@
   "imageName": {
     "video": "Video",
     "image": "Image"
+  },
+  "touch": {
+    "hint": "Drag to pan · Pinch to zoom · Tap, then drag an element",
+    "editText": "Edit text",
+    "edit": "Edit",
+    "imageActions": "Image actions"
   }
 }

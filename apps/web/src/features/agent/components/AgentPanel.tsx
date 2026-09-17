@@ -176,7 +176,7 @@ export default function AgentPanel({
             const log = event.currentTarget
             followLatest.current = log.scrollHeight - log.clientHeight - log.scrollTop <= 48
           }}
-          className={`relative flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto px-3 py-1 ${dragging ? 'rounded-xl outline-dashed outline-1 outline-ring/70' : ''}`}
+          className={`relative flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto overscroll-contain px-3 py-1 ${dragging ? 'rounded-xl outline-dashed outline-1 outline-ring/70' : ''}`}
           {...dropZoneProps}
         >
           {messages.length === 0 && !historyLoading && !historyFailed && (
