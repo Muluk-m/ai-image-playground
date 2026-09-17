@@ -25,7 +25,7 @@ const parameters = Type.Object({
   title: Type.Optional(Type.String({ description: '成片的名字，一句话。用用户说话的语言写。' })),
 })
 
-const GUIDANCE = `各镜都出完之后，在同一轮里调拼接工具把它们接成一条成片交付，不要让用户自己去接，也不要等他说「继续」。拼接不花钱、不调模型：它把已经出好的几段按你给的顺序重编码接起来，成片照常落画布。分辨率取第一段，画幅不同的段会补黑边——工具回执里逐段写明它被怎么适配了，如实转达给用户。一次最多 ${STITCH_LIMITS.maxSegments} 段、总时长 ${STITCH_LIMITS.maxTotalSeconds} 秒。`
+const GUIDANCE = `各镜都出完之后，在同一轮里调拼接工具把它们接成一条成片交付，不要让用户自己去接，也不要等他说「继续」。拼接不花钱、不调模型：它把已经出好的几段按你给的顺序重编码接起来，成片照常落画布。分辨率取第一段，画幅不同的段会补黑边——工具回执里逐段写明它被怎么适配了，如实转达给用户。一次最多 ${STITCH_LIMITS.maxSegments} 段、总时长 ${STITCH_LIMITS.maxTotalSeconds} 秒、整次最多跑 ${Math.round(STITCH_LIMITS.totalBudgetMs / 1000)} 秒，一轮里最多拼 ${STITCH_LIMITS.maxPerTurn} 次。超了工具会如实说，分批拼再把成片接起来——成片本身也可以当一段接着拼。`
 
 /** 逐段说清它是怎么被接进去的。用户看得见这句话，所以「补了黑边」不能藏着。 */
 function adaptationLines(

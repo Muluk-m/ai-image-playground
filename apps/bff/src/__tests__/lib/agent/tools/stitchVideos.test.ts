@@ -19,6 +19,7 @@ const { agentToolDeclarations, agentToolGuidance, agentTurnTools } = await impor
   '../../../../lib/agent/tools'
 )
 const { setFfmpegForTesting } = await import('../../../../lib/ffmpeg')
+const { estimateTurnInputTokens } = await import('../../../../lib/agent/turn-input')
 const { _setChannelsForTesting } = await import('../../../../lib/channels')
 
 type InternalChannel = import('../../../../lib/channels').InternalChannel
@@ -186,5 +187,38 @@ describe('references the model got wrong', () => {
     const result = await run(sourceWith({ agent_ok: READY }), { videoIds: ['agent_ok'] })
     expect(JSON.stringify(result.content)).toContain('至少要 2 段')
     expect(result.details.artifacts).toBeUndefined()
+  })
+})
+
+/**
+ * 视频轮每一轮都要为这个工具付一点常驻上下文，预扣跟着涨。区间宽到不会因为改几个字
+ * 就变红，窄到「又往清单里塞了一整个工具」一定顶穿——那时如实调区间并写清为什么。
+ */
+describe('这个工具在视频轮上的常驻成本', () => {
+  const ask = () => estimateTurnInputTokens([], '把背景换成浅木色', [], 'video')
+
+  it('pins what a video turn reserves for its input', () => {
+    // 3138 = 不带拼接工具的 2800 + 工具声明 179 + 系统提示词里那句逐工具指引 159。
+    expect(ask()).toBeGreaterThan(3_050)
+    expect(ask()).toBeLessThan(3_250)
+  })
+
+  it('charges nothing where the tool is not offered', () => {
+    const withTool = ask()
+    setFfmpegForTesting({ available: false })
+    const withoutTool = ask()
+    expect(withTool - withoutTool).toBeGreaterThan(250)
+    expect(withTool - withoutTool).toBeLessThan(450)
+    expect(withoutTool).toBeLessThan(2_900)
+  })
+
+  it('reads the same answer for the estimate and for the tools actually sent', () => {
+    // 预扣估算与真正发出去的清单是两个时刻读同一个标志。探测只在启动做一次、
+    // 之后不再翻面，这条不变量才成立（`lib/ffmpeg.ts`）。
+    const declared = agentToolDeclarations('video').map((tool) => tool.name)
+    expect(declared.includes('stitchVideos')).toBe(toolNames('video').includes('stitchVideos'))
+    setFfmpegForTesting({ available: false })
+    const off = agentToolDeclarations('video').map((tool) => tool.name)
+    expect(off.includes('stitchVideos')).toBe(toolNames('video').includes('stitchVideos'))
   })
 })
