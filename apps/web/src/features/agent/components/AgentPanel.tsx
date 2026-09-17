@@ -164,7 +164,7 @@ export default function AgentPanel({
 
       {tab === 'layers' ? (
         <div className="min-h-0 flex-1 overflow-y-auto py-1">
-          <AgentCreations doc={doc} editor={editor} onSelect={mobile ? onViewCanvas : undefined} />
+          <AgentCreations doc={doc} onSelect={mobile ? onViewCanvas : undefined} />
         </div>
       ) : (
         <div
