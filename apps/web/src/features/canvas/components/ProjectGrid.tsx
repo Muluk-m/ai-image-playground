@@ -1,5 +1,8 @@
+import { MoreHorizontal, Pencil } from 'lucide-react'
 import { useState } from 'react'
 import { PlusIcon, TrashIcon } from '../../../components/icons'
+import { Button } from '../../../components/ui/button'
+import { Popover, PopoverContent, PopoverTrigger } from '../../../components/ui/popover'
 import { useTranslation } from '../../../i18n'
 import { formatDate } from '../../../i18n/format'
 import { useStore } from '../../../store'
@@ -26,6 +29,7 @@ export default function ProjectGrid({
   const cloudCursor = useCanvasProjectStore((state) => state.cloudCursor)
   const cloudCatalog = useCanvasProjectStore((state) => state.cloudCatalog)
   const [renaming, setRenaming] = useState<CanvasProject | null>(null)
+  const [menuProjectId, setMenuProjectId] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const visible = projectCatalog(projects, cloudCatalog)
     .filter(
@@ -93,7 +97,7 @@ export default function ProjectGrid({
         {visible.map((project) => (
           <article
             key={project.id}
-            className="group overflow-hidden rounded-2xl border border-border bg-card transition hover:border-primary/50"
+            className="group relative overflow-hidden rounded-2xl border border-border bg-card transition hover:border-primary/50"
           >
             <button
               type="button"
@@ -135,42 +139,65 @@ export default function ProjectGrid({
               >
                 {t('grid.updatedAt', { date: formatDate(project.updatedAt) })}
               </time>
-              <span>
-                {project.cloud
-                  ? project.cloud.revision > 0
-                    ? t('grid.cloud')
-                    : t('grid.pendingSync')
-                  : t('grid.localOnly')}
-              </span>
-              <button
-                type="button"
-                className="rounded px-1.5 py-1 hover:bg-muted hover:text-foreground"
-                onClick={() => setRenaming(project)}
-                aria-label={t('grid.renameAria', { name: projectDisplayName(project.name) })}
-              >
-                {t('grid.rename')}
-              </button>
-              {!recent && !project.cloud && (
-                <button
-                  type="button"
-                  className="rounded p-1 hover:bg-muted hover:text-destructive"
-                  aria-label={t('grid.deleteAria', { name: projectDisplayName(project.name) })}
-                  onClick={() =>
-                    useStore.getState().setConfirmDialog({
-                      title: t('grid.deleteTitle'),
-                      message: t('grid.deleteMessage', {
-                        name: projectDisplayName(project.name),
-                      }),
-                      action: () => {
-                        void useAgentStore.getState().deleteProject(project.id)
-                      },
-                    })
-                  }
-                >
-                  <TrashIcon className="h-3.5 w-3.5" />
-                </button>
-              )}
             </div>
+            <Popover
+              open={menuProjectId === project.id}
+              onOpenChange={(open) => setMenuProjectId(open ? project.id : null)}
+            >
+              <PopoverTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="absolute right-2 top-2 rounded-xl bg-background/90 text-foreground shadow-sm hover:bg-background"
+                  aria-label={t('grid.actionsAria', { name: projectDisplayName(project.name) })}
+                >
+                  <MoreHorizontal />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent
+                align="end"
+                collisionPadding={12}
+                className="z-[600] w-56 rounded-xl p-1.5"
+              >
+                <p className="border-b border-border px-3 py-2 text-xs leading-relaxed text-muted-foreground">
+                  {project.cloud
+                    ? project.cloud.revision > 0
+                      ? t('grid.cloudHint')
+                      : t('grid.pendingSyncHint')
+                    : t('grid.localOnlyHint')}
+                </p>
+                <Button
+                  variant="ghost"
+                  className="mt-1 w-full justify-start gap-3 px-3"
+                  onClick={() => {
+                    setMenuProjectId(null)
+                    setRenaming(project)
+                  }}
+                >
+                  <Pencil /> {t('grid.rename')}
+                </Button>
+                {!recent && !project.cloud && (
+                  <Button
+                    variant="ghost"
+                    className="w-full justify-start gap-3 px-3 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                    onClick={() => {
+                      setMenuProjectId(null)
+                      useStore.getState().setConfirmDialog({
+                        title: t('grid.deleteTitle'),
+                        message: t('grid.deleteMessage', {
+                          name: projectDisplayName(project.name),
+                        }),
+                        action: () => {
+                          void useAgentStore.getState().deleteProject(project.id)
+                        },
+                      })
+                    }}
+                  >
+                    <TrashIcon className="h-4 w-4" /> {t('grid.deleteTitle')}
+                  </Button>
+                )}
+              </PopoverContent>
+            </Popover>
           </article>
         ))}
       </div>
