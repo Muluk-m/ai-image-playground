@@ -650,3 +650,21 @@ export const media_references = pgTable(
     ),
   ],
 )
+
+export const generation_images = pgTable(
+  'generation_images',
+  {
+    generation_id: text('generation_id')
+      .notNull()
+      .references(() => generation_records.id, { onDelete: 'cascade' }),
+    role: text('role').$type<'input' | 'mask' | 'output'>().notNull(),
+    position: integer('position').notNull(),
+    media_id: text('media_id')
+      .notNull()
+      .references(() => media_objects.id, { onDelete: 'restrict' }),
+  },
+  (t) => [
+    primaryKey({ columns: [t.generation_id, t.role, t.position] }),
+    check('generation_images_role_check', sql`${t.role} IN ('input', 'mask', 'output')`),
+  ],
+)

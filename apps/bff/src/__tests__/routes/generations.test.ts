@@ -1,6 +1,7 @@
 import { afterAll, afterEach, beforeEach, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
+import sharp from 'sharp'
 import {
   _setPrivateBffOverlayForTesting,
   EMPTY_PRIVATE_BFF_OVERLAY,
@@ -19,11 +20,20 @@ const { createUserSession, USER_SESSION_COOKIE } = await import('../../lib/user-
 const { runTask } = await import('../../workers/task-runner')
 const { setUpstreamFetchForTesting } = await import('../../lib/upstream')
 const { setObjectStoreForTesting } = await import('../../lib/objectStore')
+const { setDurableMediaStoreForTesting } = await import('../../lib/durableMediaStore')
+class DurableFixture extends InMemoryObjectStore {
+  sign(key: string) {
+    return `https://durable.example/${key}`
+  }
+}
+let durable: DurableFixture
 let deviceA: string
 let deviceB: string
 let stranger: string
 beforeEach(async () => {
   setObjectStoreForTesting(new InMemoryObjectStore())
+  durable = new DurableFixture()
+  setDurableMediaStoreForTesting(durable)
   await db.delete(schema.tasks)
   await db.delete(schema.users)
   for (const id of ['owner', 'stranger']) {
@@ -45,6 +55,7 @@ beforeEach(async () => {
 afterEach(() => {
   setUpstreamFetchForTesting()
   setObjectStoreForTesting()
+  setDurableMediaStoreForTesting()
 })
 afterAll(close)
 function request(path: string, cookie: string, body?: unknown) {
@@ -278,6 +289,11 @@ it('worker 意外退出后，云端历史也结束任务', async () => {
 })
 
 it('完成记录与命令回执不会随临时任务过期而消失', async () => {
+  const encoded = (
+    await sharp({ create: { width: 1, height: 1, channels: 3, background: '#112233' } })
+      .png()
+      .toBuffer()
+  ).toString('base64')
   const { purgeOldTasks } = await import('../../db/maintenance')
   setUpstreamFetchForTesting(
     (async () =>
@@ -285,8 +301,7 @@ it('完成记录与命令回执不会随临时任务过期而消失', async () =
         JSON.stringify({
           data: [
             {
-              b64_json:
-                'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgAAIAAAUAAeImBZsAAAAASUVORK5CYII=',
+              b64_json: encoded,
             },
           ],
         }),
@@ -363,4 +378,44 @@ it('历史按有界页遍历，页面之间新提交不会造成重复或漏掉�
   expect(seen.sort()).toEqual(ids.sort())
   expect((await request('/api/generations?limit=101', deviceB)).status).not.toBe(200)
   expect((await request('/api/generations', '')).status).toBe(401)
+})
+
+it('没有项目的生成原件在临时任务清理后仍可跨设备读取', async () => {
+  const original = await sharp({
+    create: { width: 8, height: 6, channels: 3, background: '#77aa44' },
+  })
+    .png()
+    .toBuffer()
+  let calls = 0
+  setUpstreamFetchForTesting((async () => {
+    calls++
+    return Response.json({ data: [{ b64_json: original.toString('base64') }] })
+  }) as NonNullable<Parameters<typeof setUpstreamFetchForTesting>[0]>)
+  const submitted = await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, input)
+  const { request_id: id } = await submitted.json()
+  await runTask(id)
+  const detail = await (await request(`/api/generations/${id}`, deviceB)).json()
+  expect(detail.status).toBe('completed')
+  expect(detail.outputs).toHaveLength(1)
+  const mediaId = detail.outputs[0].mediaId
+  expect(detail.outputs[0]).toMatchObject({ index: 0, width: 8, height: 6 })
+  const { purgeOldTasks } = await import('../../db/maintenance')
+  expect(await purgeOldTasks(-1)).toBe(1)
+  const retained = await (await request(`/api/generations/${id}`, deviceB)).json()
+  expect(retained.outputs[0].mediaId).toBe(mediaId)
+  const access = await request(`/api/media/${mediaId}/access`, deviceB)
+  expect(access.status).toBe(200)
+  const { originalUrl } = await access.json()
+  expect(await durable.read(new URL(originalUrl).pathname.slice(1))).toEqual(
+    new Uint8Array(original),
+  )
+  expect((await request(`/api/media/${mediaId}/access`, stranger)).status).toBe(404)
+  const legacy = await request(`/v1/queue/requests/${id}`, deviceB)
+  expect(legacy.status).toBe(200)
+  expect((await legacy.json()).images).toHaveLength(1)
+  const legacyImage = await request(`/v1/queue/requests/${id}/output/0`, deviceB)
+  expect(legacyImage.status).toBe(200)
+  expect(new Uint8Array(await legacyImage.arrayBuffer())).toEqual(new Uint8Array(original))
+  expect((await request(`/v1/queue/requests/${id}/image/0`, stranger)).status).toBe(404)
+  expect(calls).toBe(1)
 })

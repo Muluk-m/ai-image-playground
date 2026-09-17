@@ -11,7 +11,16 @@ export interface GenerationSummary {
   revision: string
 }
 
+export interface GenerationImage {
+  index: number
+  mediaId: string
+  width: number | null
+  height: number | null
+  contentType: string
+}
+
 export interface GenerationDetail extends GenerationSummary {
+  outputs: GenerationImage[]
   prompt: string
 }
 

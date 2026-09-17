@@ -55,5 +55,24 @@ export async function readGeneration(
     .select({ ...columns, prompt: table.prompt })
     .from(table)
     .where(and(eq(table.user_id, userId), eq(table.id, id)))
-  return record
+  if (!record) return undefined
+  const outputs = await db
+    .select({
+      index: schema.generation_images.position,
+      mediaId: schema.media_objects.id,
+      width: schema.media_objects.width,
+      height: schema.media_objects.height,
+      contentType: schema.media_objects.content_type,
+    })
+    .from(schema.generation_images)
+    .innerJoin(schema.media_objects, eq(schema.generation_images.media_id, schema.media_objects.id))
+    .where(
+      and(
+        eq(schema.generation_images.generation_id, id),
+        eq(schema.generation_images.role, 'output'),
+        eq(schema.media_objects.user_id, userId),
+      ),
+    )
+    .orderBy(schema.generation_images.position)
+  return { ...record, outputs }
 }

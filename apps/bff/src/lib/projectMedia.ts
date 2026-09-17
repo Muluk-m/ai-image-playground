@@ -223,3 +223,15 @@ export async function accessMedia(userId: string, id: string) {
     expiresAt: Date.now() + 600_000,
   }
 }
+
+export async function storeMedia(userId: string, bytes: Uint8Array, contentType: string) {
+  const reserved = await reserveMedia(userId, {
+    sha256: createHash('sha256').update(bytes).digest('hex'),
+    bytes: bytes.length,
+    contentType,
+  })
+  if (reserved.status === 'ready') return reserved
+  const row = await ownedMedia(userId, reserved.id)
+  await durableMediaStore().write(row.staging_key, bytes, contentType)
+  return completeMedia(userId, row.id)
+}
