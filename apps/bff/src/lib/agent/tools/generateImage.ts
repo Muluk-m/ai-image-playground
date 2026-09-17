@@ -24,7 +24,7 @@ function title(args: unknown): string {
 export const generateImage: AgentToolDefinition = {
   name: 'generateImage',
   guidance:
-    '用户要新图时调生图工具，把意图补成完整提示词，不要反问风格。张数按用户需求选，未要求多张时只出一张；同一画面的多个版本用 n，不同画面分别调用。',
+    '用户要新图时调生图工具，把意图补成完整提示词；细节自行补全，不要用开放式问题反问。方向本身拿不准时用澄清工具给出具体方案让他选。张数按用户需求选，未要求多张时只出一张；同一画面的多个版本用 n，不同画面分别调用。',
   title,
   outputCount: agentImageCount,
   onError: 'abort',
