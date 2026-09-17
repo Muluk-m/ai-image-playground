@@ -7,7 +7,10 @@ import type {
   QueueProvider,
 } from '@image-playground/shared'
 import { AGENT_ARTIFACT_NOUN } from '@image-playground/shared'
+import { and, eq } from 'drizzle-orm'
 import { config } from '../../../config'
+import { schema } from '../../../db/client'
+import { cancelTasks } from '../../../db/task-transitions'
 import { resolveQueueModel } from '../../channels'
 import { awaitQueueTask, type CreateQueueTaskOutcome, createQueueTask } from '../../taskSubmission'
 import type { MaskedOperation } from '../masked-plan'
@@ -130,6 +133,17 @@ export async function runQueueTask(
     onStatus: (status) => {
       if (status === 'in_progress') onUpdate?.({ content: [], details: { stage: 'running' } })
     },
+  }).catch(async (error) => {
+    if (signal?.aborted) {
+      await cancelTasks(
+        and(
+          eq(schema.tasks.id, submitted.taskId),
+          eq(schema.tasks.agent_turn_id, context.turnId),
+          eq(schema.tasks.agent_conversation_id, context.conversationId),
+        )!,
+      )
+    }
+    throw error
   })
   if (outcome.kind !== 'completed') throw new Error(outcome.reason)
 

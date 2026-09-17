@@ -305,8 +305,8 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
     },
     // 逐个跑：每次调用都是一条计费任务，并发起来事件次序也对不上产出落画布的顺序。
     toolExecution: 'sequential',
-    // 澄清即收尾：用户的选择是下一条用户消息，所以这一轮不再回上游要下一句。
-    shouldStopAfterTurn: () => clarified,
+    // 澄清或用户中止后，不再回上游追加一次模型调用。
+    shouldStopAfterTurn: () => clarified || aborted,
     transformContext: createCompactionTransform({
       conversationId: input.conversationId,
       turnId: input.turnId,
@@ -444,7 +444,7 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
       }
       // pi 不为上游失败抛异常，它把失败写进助手消息的停因。工具失败时的中止也走这里，
       // 那时 error 已经写好，别让它把更准的那个原因盖掉。
-      if (event.message.stopReason === 'error') error ??= 'agent_upstream_error'
+      if (event.message.stopReason === 'error' && !aborted) error ??= 'agent_upstream_error'
       else await closeOpen()
       open = null
       flushQueued()
@@ -501,7 +501,7 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
       const { type: _stored, ...fields } = block
       events.emit({ type: 'toolEnd', messageId: pending.messageId, ...fields })
       await storeBlock(block, pending.messageId)
-      if (event.isError && agentToolAbortsTurn(event.toolName)) {
+      if (!aborted && event.isError && agentToolAbortsTurn(event.toolName)) {
         error = 'agent_tool_failed'
         agent.abort()
       }
