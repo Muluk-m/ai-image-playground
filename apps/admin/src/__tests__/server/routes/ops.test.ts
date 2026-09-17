@@ -86,6 +86,8 @@ await writer.db.insert(writer.schema.service_heartbeats).values([
 
 // 宿主机采样：两天前磁盘还宽裕，现在快满了。看板要的是这条趋势，不只是最后一个数。
 const GB = 1024 ** 3
+// Anchor the old pair inside one half-hour bucket, even when CI starts at :29 or :59.
+const oldHostBucket = Math.floor((now - 48 * 3600_000) / 1800_000) * 1800_000
 const hostSample = (at: number, diskAvailable: number) => ({
   sampled_at: at,
   disk_total_bytes: 50 * GB,
@@ -96,8 +98,8 @@ const hostSample = (at: number, diskAvailable: number) => ({
 await writer.db
   .insert(writer.schema.host_samples)
   .values([
-    hostSample(now - 48 * 3600_000, 30 * GB),
-    hostSample(now - 48 * 3600_000 + 60_000, 30 * GB),
+    hostSample(oldHostBucket + 60_000, 30 * GB),
+    hostSample(oldHostBucket + 120_000, 30 * GB),
     hostSample(now - 3600_000, 10 * GB),
     hostSample(now - 30_000, 5 * GB),
   ])
