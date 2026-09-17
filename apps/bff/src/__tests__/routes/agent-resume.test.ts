@@ -232,6 +232,30 @@ describe('中止', () => {
   })
 })
 
+describe('失败', () => {
+  it('上游流到一半报错，半截回复不进历史', async () => {
+    const conversationId = await startConversation()
+    const live = await startTurn(conversationId, '画一只猫')
+    upstream.push('好的，我先')
+    const seen = await readFrames(live, 3)
+    const turnStart = seen[0]!.event
+    const turnId = turnStart.type === 'turnStart' ? turnStart.turnId : ''
+
+    const resumed = resume(conversationId, turnId, seen.at(-1)!.id)
+    upstream.fail()
+
+    const rest = await drainFrames(await resumed)
+    const end = rest.at(-1)!.event
+    expect(end).toMatchObject({ type: 'turnEnd', turnId, stopReason: 'failed' })
+
+    // 面板在 turnEnd failed 时撤掉这段没收尾的文字，历史里也不能留着它。
+    const { messages, activeTurn } = await readState(conversationId)
+    expect(activeTurn).toBeNull()
+    expect(messages.map((message) => message.role)).toEqual(['user'])
+    expect(messages[0]!.content).toEqual([{ type: 'text', text: '画一只猫' }])
+  })
+})
+
 describe('插话', () => {
   it('新参考图与遮罩随插话归档，模型可见，下一轮仍可改图', async () => {
     const second = controlledCompletion()

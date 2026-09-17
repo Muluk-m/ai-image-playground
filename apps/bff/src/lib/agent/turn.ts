@@ -410,11 +410,18 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
     })
     .then(async () => {
       acceptingInterjections = false
+      // 已经排队的落库先等定，「这一轮写出过东西没有」才算得准。
+      await writes
+      // 没收尾的半截回复也算产出，空轮兜底连它一起看：失败与否必须在决定落不落它之前定死，
+      // 否则就成了「因为没落所以判失败、因为失败所以不落」。
+      if (!error && !aborted && !storedAny && !open?.text) error = 'agent_run_failed'
+      // 失败的轮不留这段没收尾的回复：面板在 turnEnd failed 时把它撤掉，历史要跟着撤，
+      // 不然刷新回来它又冒出来。中止不在此列——那段话用户还看得见，照旧落库。
+      if (error) open = null
       // 中止时 pi 可能走不到 message_end，已经流给用户的半截回复要自己落库。
       await closeOpen()
       flushQueued()
       await writes
-      if (!error && !aborted && !storedAny) error = 'agent_run_failed'
 
       const { usage, upstreamInvocationCount } = ledger.settlement()
       const outcome: TaskOutcome = error ? 'failed' : aborted ? 'cancelled' : 'completed'
