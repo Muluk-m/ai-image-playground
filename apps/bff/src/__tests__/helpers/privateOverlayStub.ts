@@ -1,4 +1,3 @@
-import { FALLBACK_CHAT_PRICING } from '../../lib/agent/billing'
 import {
   _setPrivateBffOverlayForTesting,
   type ChatPricing,
@@ -15,7 +14,7 @@ export interface RecordedTaskHooks {
   readonly settlements: RecordedSettlement[]
   /** 下一次预扣的答复；测余额不足与缺单价时改它。 */
   answer: TaskReservationResult
-  /** 单价表交给公开树的对话定价；null 走公开树的兜底。 */
+  /** 单价表交给公开树的对话定价；默认 null，让公开树用它自己的兜底那档。 */
   pricing: ChatPricing | null
   /** 对话任务的实扣积分；退回的终态照真账本报 0。 */
   settledCredits: number
@@ -33,14 +32,14 @@ export function installRecordingTaskHooks(): RecordedTaskHooks {
     reservations: [],
     settlements: [],
     answer: { kind: 'reserved', credits: 0 },
-    pricing: FALLBACK_CHAT_PRICING,
+    pricing: null,
     settledCredits: 0,
     creditsPerTask: 0,
     reset() {
       recorded.reservations.length = 0
       recorded.settlements.length = 0
       recorded.answer = { kind: 'reserved', credits: 0 }
-      recorded.pricing = FALLBACK_CHAT_PRICING
+      recorded.pricing = null
       recorded.settledCredits = 0
       recorded.creditsPerTask = 0
     },

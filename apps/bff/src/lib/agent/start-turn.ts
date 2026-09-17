@@ -1,12 +1,10 @@
-import type { AgentTurnCost, AgentTurnParams, AgentTurnReference } from '@image-playground/shared'
+import type { AgentTurnParams, AgentTurnReference } from '@image-playground/shared'
 import { agentConversationTitle } from '@image-playground/shared'
-import { eq } from 'drizzle-orm'
-import { db, schema } from '../../db/client'
-import { finishTask } from '../../db/task-transitions'
+import { db } from '../../db/client'
 import { isCapabilityEnabled } from '../capabilities'
-import type { BffTransaction, ChatPricing, TaskReservationFailure } from '../private-overlay'
+import type { TaskReservationFailure } from '../private-overlay'
 import { loadPrivateBffOverlay } from '../private-overlay'
-import { actualChatUsage, FALLBACK_CHAT_PRICING, reservedChatUsage } from './billing'
+import { type ChatTaskReserved, chatTaskPricing, reserveChatTask } from './chat-task'
 import {
   type AgentOwner,
   appendAgentMessage,
@@ -16,8 +14,6 @@ import {
 import { archiveAgentReferences, removeAgentTurnReferences } from './images'
 import type { RunningTurn } from './runningTurns'
 import { agentThinking } from './thinking'
-import type { AgentTurnSettlement } from './turn'
-import { collectTurnCost } from './turn-cost'
 
 export interface StartConversationTurnInput {
   readonly conversationId: string
@@ -36,51 +32,6 @@ export type StartConversationTurnResult =
   | { readonly kind: 'authentication_required' }
   | TaskReservationFailure
 
-/**
- * 积分占用挂在 task_id 上，而私有账本对 tasks 有外键，所以对话轮必须先有一条自己的任务行。
- * 状态直接进 in_progress：worker 只 claim `queued`，这一行它永远捞不走。
- */
-async function insertChatTask(
-  tx: BffTransaction,
-  input: {
-    taskId: string
-    conversationId: string
-    userId: string
-    deviceId: string
-    model: string
-  },
-): Promise<void> {
-  const now = Date.now()
-  await tx.insert(schema.tasks).values({
-    id: input.taskId,
-    kind: 'chat',
-    provider: 'openai-compat',
-    model: input.model,
-    status: 'in_progress',
-    // 会话内容不进后台，占位里只留设备号——它喂的是 device_id 那个生成列。
-    request_payload: { prompt: '', device_id: input.deviceId },
-    submitted_at: now,
-    started_at: now,
-    user_id: input.userId,
-    agent_conversation_id: input.conversationId,
-    agent_turn_id: input.taskId,
-  })
-}
-
-/** 结算是模块级工厂而不是用例里的闭包：闭包会把整段历史钉到轮结束。 */
-function chatSettlement(conversationId: string, turnId: string, pricing: ChatPricing) {
-  return async (settlement: AgentTurnSettlement): Promise<AgentTurnCost> => {
-    await finishTask(turnId, {
-      status: settlement.outcome,
-      completedAt: Date.now(),
-      upstreamInvocationCount: settlement.upstreamInvocationCount,
-      // usage 为 null 是上游没报，缺席即按预留全额结算——退错方向就是凭空造积分。
-      ...(settlement.usage ? { actualUsage: actualChatUsage(settlement.usage, pricing) } : {}),
-    })
-    return collectTurnCost(conversationId, turnId)
-  }
-}
-
 /** 改标题、落用户消息、预扣积分在同一个事务里，任一步失败整笔不落地。 */
 export async function startConversationTurn(
   input: StartConversationTurnInput,
@@ -94,46 +45,37 @@ export async function startConversationTurn(
   // 动态引入：pi 的模块图有 60-90ms，`agent:chat` 关着的部署不该在启动时付。
   // `turn-input` 也静态依赖 pi，所以它同样只能晚到这里，且与 `turn` 并排等在同一组里。
   const overlayPromise = loadPrivateBffOverlay()
-  const [{ estimateTurnInputTokens }, { startAgentTurn }, overlay, history, configured] =
+  const [{ estimateTurnInputTokens }, { startAgentTurn }, overlay, history, pricing] =
     await Promise.all([
       import('./turn-input'),
       import('./turn'),
       overlayPromise,
       listAgentMessages(conversationId, owner),
-      billed ? overlayPromise.then((it) => it.taskHooks.chatPricing(selectedModel)) : null,
+      billed ? overlayPromise.then((it) => chatTaskPricing(it.taskHooks, selectedModel)) : null,
     ])
   const turnId = crypto.randomUUID()
-  // 预扣与结算共用这一份快照：运营中途改价不该改写在途那一轮的账。
-  const pricing = configured ?? FALLBACK_CHAT_PRICING
-  const reservation =
-    billed && userId
+  const chatTask =
+    pricing && userId
       ? {
-          taskId: turnId,
+          taskHooks: overlay.taskHooks,
+          conversationId,
+          turnId,
           userId,
+          deviceId,
           model: selectedModel,
-          ...reservedChatUsage(estimateTurnInputTokens(history, text, references), pricing),
+          estimatedInputTokens: estimateTurnInputTokens(history, text, references),
+          pricing,
         }
       : null
   const storedReferences = await archiveAgentReferences(conversationId, turnId, references)
 
   const written = await db
     .transaction(async (tx) => {
-      let reservedCredits: number | undefined
-      if (reservation) {
-        await insertChatTask(tx, {
-          taskId: turnId,
-          conversationId,
-          userId: reservation.userId,
-          model: selectedModel,
-          deviceId,
-        })
-        const reserved = await overlay.taskHooks.reserveTask({ tx, ...reservation })
-        if (reserved.kind !== 'reserved') {
-          // 余额不足的轮压根没发生过，别把这条任务行留给恢复扫描去收尸。
-          await tx.delete(schema.tasks).where(eq(schema.tasks.id, turnId))
-          return reserved
-        }
-        reservedCredits = reserved.credits
+      let reserved: ChatTaskReserved | undefined
+      if (chatTask) {
+        const reservation = await reserveChatTask({ tx, ...chatTask })
+        if (reservation.kind !== 'reserved') return reservation
+        reserved = reservation
       }
       if (history.length === 0) {
         await setAgentConversationTitle(tx, conversationId, owner, agentConversationTitle(text))
@@ -150,7 +92,7 @@ export async function startConversationTurn(
           },
         ],
       })
-      return { kind: 'reserved' as const, userMessageId: userMessage.id, reservedCredits }
+      return { kind: 'reserved' as const, userMessageId: userMessage.id, reserved }
     })
     .catch(async (error) => {
       if (storedReferences.length) await removeAgentTurnReferences(conversationId, turnId)
@@ -173,8 +115,8 @@ export async function startConversationTurn(
       userId,
       deviceId,
       ...(params ? { params } : {}),
-      reservedCredits: written.reservedCredits,
-      settle: reservation ? chatSettlement(conversationId, turnId, pricing) : undefined,
+      reservedCredits: written.reserved?.reservedCredits,
+      settle: written.reserved?.settle,
     }),
   }
 }
