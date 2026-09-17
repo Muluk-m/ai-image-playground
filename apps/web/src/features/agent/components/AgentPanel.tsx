@@ -6,24 +6,12 @@ import {
   useMemo,
   useRef,
 } from 'react'
-import Credits from '../../../components/Credits'
-import { PlusIcon } from '../../../components/icons'
+import ProjectNavigation from '../../../components/ProjectNavigation'
 import { useImageDropZone } from '../../../hooks/useImageDropZone'
 import { useTranslation } from '../../../i18n'
 import type { CanvasDoc } from '../../canvas/lib/canvasDoc'
 import type { CanvasEditor } from '../../canvas/lib/editor'
-import { projectDisplayName, UNTITLED_PROJECT } from '../../canvas/lib/projectRepository'
-import { useCanvasProjectStore } from '../../canvas/projectStore'
-import { useLibraryStore } from '../../library/store'
-import {
-  ACTIVE_TAB,
-  GHOST_LINK,
-  ICON_BUTTON,
-  IDLE_TAB,
-  INK_3,
-  TAB,
-  USER_BUBBLE,
-} from '../agentStyles'
+import { ACTIVE_TAB, ICON_BUTTON, IDLE_TAB, INK_3, TAB, USER_BUBBLE } from '../agentStyles'
 import { attachFilesToComposer } from '../lib/attachments'
 import { answerableClarificationId } from '../lib/panelMessages'
 import { agentSessionCredits } from '../lib/turnCost'
@@ -80,12 +68,9 @@ export default function AgentPanel({
   const turns = useAgentStore((state) => state.turns)
   const error = useAgentStore((state) => state.error)
   const panelWidth = useAgentStore((state) => state.panelWidth)
-  const { setOpen, setTab, load, createProject, setPanelWidth } = useAgentStore.getState()
+  const { setOpen, setTab, load, setPanelWidth } = useAgentStore.getState()
   const historyLoading = useAgentStore((state) => state.historyLoading)
   const historyFailed = useAgentStore((state) => state.historyFailed)
-  const projectName = useCanvasProjectStore(
-    (state) => state.projects.find((one) => one.id === state.activeId)?.name ?? UNTITLED_PROJECT,
-  )
   const logRef = useRef<HTMLDivElement>(null)
   const followLatest = useRef(true)
   const conversationId = useAgentStore((state) => state.conversationId)
@@ -144,6 +129,7 @@ export default function AgentPanel({
         onPointerDown={startResize}
         className="absolute -right-1.5 top-6 bottom-6 z-10 hidden md:block w-3 cursor-col-resize touch-none rounded-full transition-colors hover:bg-primary/40 active:bg-primary/60"
       />
+      <ProjectNavigation credits={sessionCredits} />
       <div className="studio-agent-tabs flex shrink-0 items-center justify-between gap-3 px-4 pb-3 pt-2">
         <div className="flex items-center gap-3">
           {TABS.map((one) => (
@@ -175,35 +161,6 @@ export default function AgentPanel({
         </button>
       </div>
 
-      <div className="studio-agent-project flex shrink-0 items-center gap-2 px-4 pb-3">
-        <div className="min-w-0 flex-1">
-          <button
-            type="button"
-            className={`${GHOST_LINK} block max-w-full truncate text-left`}
-            title={projectDisplayName(projectName)}
-            onClick={() => useLibraryStore.getState().openPanel('projects')}
-          >
-            {projectDisplayName(projectName)}
-          </button>
-          {sessionCredits !== null && (
-            <span
-              className="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground"
-              aria-label={t('panel.creditsUsedAria', { credits: sessionCredits.toLocaleString() })}
-            >
-              {t('panel.creditsUsedPrefix')} <Credits credits={sessionCredits} />{' '}
-              {t('panel.creditsUsedSuffix')}
-            </span>
-          )}
-        </div>
-        <button
-          type="button"
-          aria-label={t('panel.newProjectAria')}
-          className={ICON_BUTTON}
-          onClick={() => void createProject()}
-        >
-          <PlusIcon className="h-3.5 w-3.5" />
-        </button>
-      </div>
       {tab === 'layers' ? (
         <div className="min-h-0 flex-1 overflow-y-auto py-1">
           <AgentCreations doc={doc} editor={editor} onSelect={mobile ? onViewCanvas : undefined} />

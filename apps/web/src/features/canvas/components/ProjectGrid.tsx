@@ -6,6 +6,7 @@ import { useStore } from '../../../store'
 import { useAgentStore } from '../../agent/store'
 import NamingDialog from '../../library/components/NamingDialog'
 import { useLibraryStore } from '../../library/store'
+import { projectCatalog } from '../lib/projectCatalog'
 import { cloudProjectsEnabled } from '../lib/projectClient'
 import { type CanvasProject, projectDisplayName } from '../lib/projectRepository'
 import { useCanvasProjectStore } from '../projectStore'
@@ -26,24 +27,12 @@ export default function ProjectGrid({
   const cloudCatalog = useCanvasProjectStore((state) => state.cloudCatalog)
   const [renaming, setRenaming] = useState<CanvasProject | null>(null)
   const [busy, setBusy] = useState(false)
-  const visible = [...projects]
-    .map((project) => {
-      const remote = cloudCatalog[project.id]
-      return remote && !project.cloud?.nameDirty
-        ? {
-            ...project,
-            name: remote.name,
-            updatedAt: Math.max(project.updatedAt, remote.updatedAt),
-            hasContent: project.hasContent || remote.elementCount > 0,
-          }
-        : project
-    })
+  const visible = projectCatalog(projects, cloudCatalog)
     .filter(
       (project) =>
         project.name.toLowerCase().includes(search.trim().toLowerCase()) &&
         (!recent || project.hasContent),
     )
-    .sort((a, b) => b.updatedAt - a.updatedAt)
     .slice(0, recent ? 5 : undefined)
   const enter = async (project?: CanvasProject) => {
     if (busy) return
