@@ -1,7 +1,9 @@
 import { AGENT_TURN_MAX_REFERENCES } from '@image-playground/shared'
 import { i18next } from '../../../i18n'
 import { compressInputImageDataUrls } from '../../../lib/compressInputImage'
-import { useStore } from '../../../store'
+import { ensureAssetImage } from '../../../lib/sync/assetImages'
+import { ensureImageCached, useStore } from '../../../store'
+import { useLibraryStore } from '../../library/store'
 import type { AgentDraft, AgentReference } from './references'
 
 // 文案按调用时取，不在模块加载时定死：切语言之后新出的提示要跟着换语言。
@@ -40,6 +42,22 @@ export async function filesToReferences(files: readonly File[]): Promise<AgentRe
     dataUrl: compressed[at]!,
     name: fileStem(file.name),
   }))
+}
+
+/**
+ * 素材 → 参考图。图可能还没下到本机，先取回来；取不到就没有这条引用（`@` 落空，
+ * 用户看到的还是刚才那句话）。id 用素材的 `imageId`：同一张图从画布进来还是从素材库
+ * 进来都是同一条引用。
+ */
+export async function assetToReference(assetId: string): Promise<AgentReference | undefined> {
+  const asset = useLibraryStore.getState().assets.find((one) => one.id === assetId)
+  if (!asset) return undefined
+  await ensureAssetImage(asset.imageId)
+  const dataUrl = await ensureImageCached(asset.imageId)
+  if (!dataUrl) return undefined
+  // 读素材库工具按「最近用过」排序，不记这一笔它就永远看不见智能体这边的使用。
+  void useLibraryStore.getState().noteAssetUsed(asset.id)
+  return { id: asset.imageId, dataUrl, name: asset.name }
 }
 
 /** 附到草稿末尾；超出上限的丢掉并提示一次。 */

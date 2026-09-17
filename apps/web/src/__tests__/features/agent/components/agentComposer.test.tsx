@@ -258,7 +258,9 @@ describe('智能体输入框', () => {
     expect(capsules()).toEqual(['@图1'])
   })
 
-  it('选中的批注烧进参考图；批注取消选中就回到原图', async () => {
+  // 选区带进来的引用有自己的一套规则（撤走、手动移除、批注的竞态），归
+  // `lib/selectionReferences` 与它的用例管；这里只验输入框把画布接上去了。
+  it('画布选区接到引用区上：选中的图连同压着的批注成为这一轮的参考图', async () => {
     const COMPOSITE = 'data:image/png;base64,bWFya2Vk'
     const toImage = vi.fn(async () => COMPOSITE)
     doc.restore(
@@ -284,36 +286,10 @@ describe('智能体输入框', () => {
       bounds: expect.objectContaining({ x: 0, y: 0, w: 10, h: 10 }),
     })
 
-    act(() => doc.setSelection(['canvas-1']))
-    expect(await attached()).toEqual([PIXEL])
-
     type('把圈出来的地方换成木纹')
     click('发送并创作')
     expect(send).toHaveBeenCalledWith('把圈出来的地方换成木纹', [
-      { imageId: 'canvas-1', dataUrl: PIXEL },
-    ])
-  })
-
-  it('画布上选中的图直接进引用区，取消选中就撤走', () => {
-    doc.restore([imageElement('canvas-1', 'file-1'), imageElement('canvas-2', 'file-2')], {
-      'file-1': PIXEL,
-      'file-2': PREPARED,
-    })
-    render()
-
-    act(() => doc.setSelection(['canvas-1', 'canvas-2']))
-    expect([...host.querySelectorAll('img')].map((img) => img.getAttribute('src'))).toEqual([
-      PREPARED,
-      PIXEL,
-    ])
-
-    act(() => doc.setSelection(['canvas-1']))
-    expect([...host.querySelectorAll('img')].map((img) => img.getAttribute('src'))).toEqual([PIXEL])
-
-    type('把它的背景换成浅木色')
-    click('发送并创作')
-    expect(send).toHaveBeenCalledWith('把它的背景换成浅木色', [
-      { imageId: 'canvas-1', dataUrl: PIXEL },
+      { imageId: 'canvas-1', dataUrl: COMPOSITE },
     ])
   })
 
