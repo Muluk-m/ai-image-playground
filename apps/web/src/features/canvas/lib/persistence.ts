@@ -16,7 +16,7 @@ const SCENE_FORMAT = 2
 /** 变更高频触发（拖拽 / 画笔每帧都算），落盘防抖窗口。 */
 export const PERSIST_DEBOUNCE_MS = 500
 
-interface PersistedScene {
+export interface PersistedScene {
   version: typeof SCENE_FORMAT
   elements: readonly CanvasEl[]
   /** fileId → dataUrl，只存仍被引用的。 */
