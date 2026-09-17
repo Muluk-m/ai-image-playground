@@ -1,6 +1,7 @@
 import type { AgentTool, AgentToolResult } from '@earendil-works/pi-agent-core'
 import type { AgentClarificationBlock } from '@image-playground/shared'
 import { Type } from 'typebox'
+import { asPiTool, piToolResult } from './tools/adapter'
 
 export const AGENT_CLARIFICATION_TOOL = 'askClarification'
 
@@ -44,8 +45,8 @@ const tool: AgentTool<typeof parameters, ClarificationDetails> = {
   execute: async (_toolCallId, params) => clarify(params.question, params.options),
 }
 
-export const clarificationTool = tool as AgentTool
+export const clarificationTool = asPiTool(tool)
 
 export function clarificationFromResult(result: unknown): AgentClarificationBlock | null {
-  return (result as { details?: ClarificationDetails } | undefined)?.details?.clarification ?? null
+  return piToolResult<ClarificationDetails>(result).details?.clarification ?? null
 }
