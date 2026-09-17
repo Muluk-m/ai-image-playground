@@ -78,7 +78,9 @@ BFF 的公开核心只做四件事：
     （界面自己回退到去掉「何时用：」的 `description`），并打一条 `agent.skill_meta_*` 的 warn。
     为什么是旁路文件而不是 frontmatter，见 [ADR 0007](../../docs/adr/0007-agent-skills-progressive-loading.md)。
 - **正文只能引用该 mode 下真实存在的工具名与参数**。图片轮是 generateImage / editImage /
-  readLibrary，视频轮多一个 generateVideo。写了不存在的工具，模型会照着编。
+  readLibrary，视频轮多 generateVideo 与 stitchVideos（后者还要本机装了 ffmpeg，
+  见 [ADR 0009](../../docs/adr/0009-agent-stitches-video-in-process.md)）。
+  写了不存在的工具，模型会照着编。
 - 启动时加载一次并缓存（`ensureAgentSkills()`），diagnostics 打 warn 不 fatal。测试用
   `setAgentSkillsRootForTesting(dir)` 换根目录并丢缓存。
 - **加目录记得同时看 `.dockerignore`**：那是 allowlist，`!apps/bff/skills` 那一行不在就打不进镜像，
