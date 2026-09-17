@@ -70,9 +70,21 @@ export interface AgentToolDefinition<P extends TSchema = TSchema> {
   readonly label: string
   /** 给模型看的工具说明。 */
   readonly description: string
-  /** 进系统提示词的那一句用法指引。工具不在场时它跟着一起消失。 */
-  readonly guidance: string
+  /**
+   * 进系统提示词的那一句用法指引。工具不在场时它跟着一起消失。
+   * 写成函数就是「这一句随部署变」——生视频的档位跟着运行期解析到的那个模型走。
+   */
+  readonly guidance: string | (() => string)
   readonly parameters: P
+  /**
+   * 这个部署此刻要发给模型的那一份参数 schema：形状与 `parameters` 完全一致，只有各字段的
+   * 说明随运行期解析到的模型变；缺席即原样发 `parameters`。模型收到的清单、预扣估算读的声明
+   * 与系统提示词里的指引都从这一处出，三者仍是同一份。
+   *
+   * **值的集合不许在这里收窄。** 收窄了模型就只能替用户挑一个别的档位，而那正是要治的病：
+   * 用户明说的约束被静默换掉。留着它填得出来，执行时才有机会如实说「这个模型做不到」。
+   */
+  currentParameters?(): P
   /**
    * 这个工具失败时整轮是不是就该停。生图失败停下，因为模型会绕着缺掉的图接着编；
    * 换成模型可以改参数重试的工具就填 `continue`。
@@ -103,10 +115,11 @@ export interface AgentToolDeclaration<P extends TSchema = TSchema> {
 export interface AgentToolSpec {
   readonly name: AgentToolName
   readonly modes: readonly AgentMode[]
-  readonly guidance: string
+  /** 系统提示词里的那一句。随部署变，所以每次现问，不缓存成常量。 */
+  guidance(): string
   readonly onError: 'abort' | 'continue'
   /** `create` 出来的工具照它填，估算也读它：同一份声明，不会各说各的。 */
-  readonly declaration: AgentToolDeclaration
+  declaration(): AgentToolDeclaration
   available?(mode: AgentMode): boolean
   call(args: unknown, mode: AgentMode): AgentToolCall
   create(context: AgentToolContext): AgentTool

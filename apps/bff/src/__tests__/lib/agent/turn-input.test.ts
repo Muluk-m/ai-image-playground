@@ -182,7 +182,8 @@ describe('estimateTurnInputTokens', () => {
    * 而 #522 之后还没有新的线上数据点，W 没有重新校准。
    *
    * 这个文件没加载技能目录，所以清单里既没有 loadSkill 也没有 `<available_skills>`。真开了
-   * generation:video 的部署，工具清单再多 299；视频轮的模式说明再多 19，都还在区间里。
+   * generation:video 的部署，工具清单再多 419（档位说明改成按解析到的模型写，原先是 299）；
+   * 视频轮的模式说明再多 19，都还在区间里。
    */
   it('lands on the calibrated size for a short first turn', () => {
     const estimated = estimateTurnInputTokens([], '你好', [])
@@ -190,6 +191,12 @@ describe('estimateTurnInputTokens', () => {
     expect(estimated).toBeLessThan(2_608)
   })
 })
+
+/**
+ * 生视频那一份声明的增量。原值 299；档位说明改成按解析到的模型写之后，兜底那一份也长了
+ * （三个档位参数各多一句「填不了就照原话填，工具会告诉你做得到什么」）。
+ */
+const VIDEO_DECLARATION_TOKENS = 419
 
 /** 模型每次请求都收到整份工具清单；预扣不算它就是漏掉本轮输入里最大的一块固定开销。 */
 describe('tool declarations in the estimate', () => {
@@ -225,13 +232,13 @@ describe('tool declarations in the estimate', () => {
     ])
   })
 
-  // 多出来的那份声明让 JSON 长 766 字符、多 197 个 CJK：字符那半仍是 191，CJK 校正再补 108。
+  // 这个文件没有视频 channel，所以拿到的是「解析不出模型」那一份兜底说明。
   it('grows by exactly one declaration where the video tool is on', () => {
     const withVideo = declarationTokens([
       ...agentToolDeclarations('image'),
-      generateVideo.declaration,
+      generateVideo.declaration(),
     ])
-    expect(withVideo - estimateToolDeclarationTokens('image')).toBe(299)
+    expect(withVideo - estimateToolDeclarationTokens('image')).toBe(VIDEO_DECLARATION_TOKENS)
   })
 })
 

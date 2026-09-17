@@ -255,6 +255,65 @@ export function clampVideoPreset(
   }
 }
 
+/** 退档动了哪一项。字段名与 `VideoPreset` 同名，调用方不用再翻一次。 */
+export type VideoPresetField = keyof VideoPreset
+
+/** 一项明说了却落不到该模型合法档位上的约束。 */
+export interface VideoPresetConflict {
+  readonly field: VideoPresetField
+  /** 要的那个值，原样回给调用方——说清楚「要的是什么」靠它。 */
+  readonly asked: string | number
+  /** 退档之后真会用的值。 */
+  readonly used: string | number
+  /** 这个模型在这一项上支持的全部值。 */
+  readonly supported: readonly (string | number)[]
+  /** 只有时长有：`supported` 是这个清晰度下的档位（见 `durationsByResolution`）。 */
+  readonly resolution?: VideoResolution
+}
+
+/**
+ * `clampVideoPreset` 的诚实版本：明说了却做不到的那几项。**没填的项不算**——按默认退档
+ * 不是丢掉用户的约束，把它也报出来只会让调用方为每一次生成都道歉一遍。
+ *
+ * 用的是 `clampVideoPreset` 本身，所以「会退成什么」两处永远是同一个答案。
+ */
+export function videoPresetConflicts(
+  support: VideoModelSupport,
+  asked: {
+    readonly duration?: number | undefined
+    readonly aspectRatio?: VideoAspectRatio | undefined
+    readonly resolution?: VideoResolution | undefined
+  },
+): VideoPresetConflict[] {
+  const used = clampVideoPreset(support, asked)
+  const conflicts: VideoPresetConflict[] = []
+  if (asked.duration !== undefined && asked.duration !== used.duration)
+    conflicts.push({
+      field: 'duration',
+      asked: asked.duration,
+      used: used.duration,
+      // 时长的可选项跟着清晰度走，所以报的是「真会用的那个清晰度」下的档位：
+      // 报模型的全部时长，等于把用户导向另一个同样做不到的值。
+      supported: videoDurationsForResolution(support, used.resolution),
+      resolution: used.resolution,
+    })
+  if (asked.resolution !== undefined && asked.resolution !== used.resolution)
+    conflicts.push({
+      field: 'resolution',
+      asked: asked.resolution,
+      used: used.resolution,
+      supported: support.resolutions,
+    })
+  if (asked.aspectRatio !== undefined && asked.aspectRatio !== used.aspectRatio)
+    conflicts.push({
+      field: 'aspectRatio',
+      asked: asked.aspectRatio,
+      used: used.aspectRatio,
+      supported: support.aspectRatios,
+    })
+  return conflicts
+}
+
 export function videoRateMultiplier(modelId: string, resolution: VideoResolution): number {
   return VIDEO_MODEL_SUPPORT[modelId]?.resolutionMultipliers[resolution] ?? 1
 }

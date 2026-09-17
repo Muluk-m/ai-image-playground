@@ -45,6 +45,7 @@ const PIXEL = 'data:image/png;base64,aGk='
 
 const GROK = 'grok-imagine-video'
 const VEO = 'veo-3.1-lite-generate-preview'
+const AGNES = 'agnes-video-2.5-flash'
 
 const VIDEO_RESULT_PAYLOAD = {
   data: [{ url: 'https://cdn.test/clip.mp4', mime: 'video/mp4', duration_seconds: 5 }],
@@ -103,6 +104,11 @@ async function runTurn(conversationId: string, text: string, references: unknown
 
 function types(frames: { event: AgentTurnEvent }[]): string[] {
   return frames.map((frame) => frame.event.type)
+}
+
+/** 工具收尾之后模型收到的那一份对话，工具结果就在里面。 */
+function modelReport(calls: AgentCall[]): string {
+  return JSON.stringify(calls.at(-1)!.messages)
 }
 
 /** 测试里的迷你 worker：把工具刚提交的任务推到终态，让工具循环能往下跑。 */
@@ -277,15 +283,15 @@ describe('智能体生视频工具', () => {
     })
   })
 
-  it('falls back to what the resolved model supports', async () => {
+  it('falls back for what the model never asked, and says which preset it used', async () => {
     _setChannelsForTesting([TEST_IMAGE_CHANNEL, videoChannel(VEO)])
     const calls: AgentCall[] = []
-    // Veo 只有 4 / 6 / 8 秒，也没有 1:1。
-    videoTurn(calls, { prompt: '一杯咖啡冒热气', durationSeconds: 10, aspectRatio: '1:1' })
+    // 模型一个档位都没填：默认 5 秒 Veo 做不到，按它的矩阵退到 4 秒。没有用户约束被丢掉。
+    videoTurn(calls, { prompt: '一杯咖啡冒热气' })
     const stop = settleSubmittedTasks()
     const conversationId = await startConversation()
 
-    await runTurn(conversationId, '来一段方形的咖啡视频')
+    const frames = await runTurn(conversationId, '来一段咖啡视频')
     stop()
 
     const [task] = await db.select().from(schema.tasks)
@@ -295,6 +301,49 @@ describe('智能体生视频工具', () => {
       aspect_ratio: '16:9',
       resolution: '720p',
     })
+    expect(eventsOfType(frames, 'toolEnd')[0]!.status).toBe('succeeded')
+    // 退档也要说出口：模型照着这句话才讲得出「我替你定了 4 秒」。
+    const report = modelReport(calls)
+    expect(report).toContain('4 秒')
+    expect(report).toContain('720p')
+    expect(report).toContain('16:9')
+  })
+
+  it.each([
+    // Veo 只有 4 / 6 / 8 秒：10 秒是用户明说的，退到 4 秒等于花钱交付他没要的东西。
+    [VEO, { durationSeconds: 10 }, ['durationSeconds', '4 / 6 / 8 秒', 'Veo 3.1 Lite']],
+    // Agnes 只有 720p。
+    [AGNES, { resolution: '1080p' }, ['resolution', '720p', 'Agnes 2.5 Flash']],
+    // Veo 没有 1:1。
+    [VEO, { aspectRatio: '1:1' }, ['aspectRatio', '16:9 / 9:16']],
+    // 1080p 这一档只配 8 秒；这条走的是 durationsByResolution。
+    [VEO, { durationSeconds: 6, resolution: '1080p' }, ['durationSeconds', '1080p 下 8 秒']],
+  ] as const)('refuses to submit %s when the model asked for %o, and tells it what is possible', async (modelId, asked, expected) => {
+    _setChannelsForTesting([TEST_IMAGE_CHANNEL, videoChannel(modelId)])
+    const calls: AgentCall[] = []
+    videoTurn(calls, { prompt: '一杯咖啡冒热气', ...asked })
+    const stop = settleSubmittedTasks()
+    const conversationId = await startConversation()
+
+    const frames = await runTurn(conversationId, '来一段咖啡视频')
+    stop()
+
+    // 视频任务一条都没落库、一分都没预扣：没提交就没花钱，这正是「宁可不花钱先说」。
+    // （对话轮自己那条任务与预扣照常，所以按模型筛。）
+    const tasks = await db.select().from(schema.tasks)
+    expect(tasks.filter((task) => task.model === modelId)).toHaveLength(0)
+    expect(billing.reservations.filter((one) => one.model === modelId)).toHaveLength(0)
+    const [end] = eventsOfType(frames, 'toolEnd')
+    // 不算失败：`onError: 'abort'` 会把整轮停掉，模型就没机会把实话讲给用户。
+    expect(end!.status).toBe('succeeded')
+    expect(end!.artifacts ?? []).toHaveLength(0)
+    // 不会有产物的调用不占画布的位，否则那个框永远填不上。
+    expect(eventsOfType(frames, 'toolStart')[0]!.outputCount).toBeUndefined()
+    // 模型照旧收到最后一句话，回复里才讲得出「这个模型做不到，你要哪个」。
+    expect(types(frames).at(-1)).toBe('turnEnd')
+
+    const report = modelReport(calls)
+    for (const fragment of expected) expect(report).toContain(fragment)
   })
 
   it('charges the video task by seconds and the resolution multiplier', async () => {

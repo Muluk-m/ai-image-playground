@@ -64,12 +64,12 @@ export function agentTurnTools(context: AgentToolContext): AgentTool[] {
  * 就定了，而且正是它决定清单里有哪几个工具。
  */
 export function agentToolDeclarations(mode: AgentMode): AgentToolDeclaration[] {
-  return [...present(mode).map((tool) => tool.declaration), toolDeclaration(clarificationTool)]
+  return [...present(mode).map((tool) => tool.declaration()), toolDeclaration(clarificationTool)]
 }
 
 /** 系统提示词里逐工具的那几句。与模型收到的清单同一份过滤，两边不会各说各的。 */
 export function agentToolGuidance(mode: AgentMode): string[] {
-  return present(mode).map((tool) => tool.guidance)
+  return present(mode).map((tool) => tool.guidance())
 }
 
 export function isAgentToolName(name: string): name is AgentToolName {
