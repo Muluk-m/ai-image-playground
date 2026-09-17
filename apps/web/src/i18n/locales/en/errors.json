@@ -41,5 +41,16 @@
   },
   "generations": {
     "fallback": "Unable to load cloud history. Please refresh and try again."
+  },
+  "projectSync": {
+    "local_save_failed": "Local save failed. Keep this page open and retry.",
+    "load_failed": "Could not load the cloud project. Your content is kept, please reload.",
+    "project_conflict": "Another device changed this project, so syncing is paused. Your local content is kept.",
+    "project_document_too_large": "Cloud storage or canvas size limit exceeded. Your local content is kept.",
+    "fallback": "Cloud sync failed. Your local content is kept, please retry.",
+    "media_local": "The canvas has media that hasn't synced yet or content that can't be synced, so it is saved on this device only.",
+    "unauthorized": "Your session expired. Local content is retained. Sign in again.",
+    "project_not_found": "This project is unavailable or you do not have access. Local content is retained.",
+    "invalid_project_document": "This canvas format is not supported. Local content is retained. Update the page and retry."
   }
 }

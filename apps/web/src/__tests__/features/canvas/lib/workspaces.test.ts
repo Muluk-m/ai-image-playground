@@ -145,3 +145,161 @@ describe('会话画布', () => {
     expect(canvasSceneKey(null)).not.toBe(canvasSceneKey('draft'))
   })
 })
+
+it('真实工作区断网自动保存，联网无需手动点击即可续传', async () => {
+  const { _setRuntimeConfigForTesting } = await import('../../../../lib/runtimeConfig')
+  const { bootstrapClientCapabilities } = await import('../../../../lib/clientCapabilities')
+  const { projectRepository } = await import('../../../../features/canvas/lib/projectRepository')
+  const { useCanvasProjectStore } = await import('../../../../features/canvas/projectStore')
+  setClientStorageScope(crypto.randomUUID())
+  _setRuntimeConfigForTesting({ bff: { enabled: true, baseUrl: 'http://bff.test' } })
+  const online = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
+  const writes: unknown[] = []
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith('/api/capabilities')) return Response.json({ 'accounts:sync': true })
+      const body = JSON.parse(init!.body as string)
+      writes.push(body)
+      return Response.json({
+        id: project.id,
+        name: body.name,
+        revision: body.baseRevision + 1,
+        createdAt: 1,
+        updatedAt: 2,
+        elementCount: body.document.elements.length,
+      })
+    }),
+  )
+  await bootstrapClientCapabilities(true, 'http://bff.test')
+  const project = await projectRepository.create('离线工作区', undefined, true)
+  useCanvasProjectStore.setState({ projects: [project] })
+  const workspace = new CanvasWorkspace(project.sceneKey)
+  try {
+    await workspace.ready
+    workspace.doc.addElements([
+      {
+        id: 'note',
+        type: 'text',
+        text: '自动恢复',
+        x: 0,
+        y: 0,
+        width: 100,
+        height: 30,
+        fontSize: 24,
+        fill: '#000',
+      },
+    ])
+    await workspace.flush()
+    await workspace.cloud!.sync()
+    expect(writes).toHaveLength(0)
+    online.mockReturnValue(true)
+    window.dispatchEvent(new Event('online'))
+    await vi.waitFor(() => expect(workspace.cloud?.getSnapshot().status).toBe('saved'), {
+      timeout: 3000,
+    })
+    expect(writes).toHaveLength(1)
+    expect(writes[0]).toMatchObject({ document: { elements: [{ text: '自动恢复' }] } })
+  } finally {
+    workspace.dispose()
+    useCanvasProjectStore.setState({ projects: [] })
+    _setRuntimeConfigForTesting({ bff: { enabled: false, baseUrl: '' } })
+    await bootstrapClientCapabilities(false, '')
+    vi.unstubAllGlobals()
+  }
+})
+
+it('持续前台的当前项目定期发现远端变更，隐藏后停止检查', async () => {
+  const { _setRuntimeConfigForTesting } = await import('../../../../lib/runtimeConfig')
+  const { bootstrapClientCapabilities } = await import('../../../../lib/clientCapabilities')
+  const { projectRepository } = await import('../../../../features/canvas/lib/projectRepository')
+  const { useCanvasProjectStore } = await import('../../../../features/canvas/projectStore')
+  const { forgetCanvasWorkspace } = await import('../../../../features/canvas/lib/workspaces')
+  setClientStorageScope(crypto.randomUUID())
+  _setRuntimeConfigForTesting({ bff: { enabled: true, baseUrl: 'http://bff.test' } })
+  const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible')
+  let reads = 0
+  let finishRead: (() => void) | undefined
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith('/api/capabilities')) return Response.json({ 'accounts:sync': true })
+      if (init?.method === 'PUT')
+        return Response.json({
+          id: project.id,
+          name: project.name,
+          revision: 1,
+          createdAt: 1,
+          updatedAt: 2,
+          elementCount: 0,
+        })
+      reads++
+      return new Promise<Response>((resolve) => {
+        finishRead = () =>
+          resolve(
+            Response.json({
+              id: project.id,
+              name: project.name,
+              revision: 2,
+              createdAt: 1,
+              updatedAt: 3,
+              elementCount: 1,
+              document: {
+                version: 1,
+                elements: [
+                  {
+                    id: 'remote',
+                    type: 'text',
+                    text: '另一台设备的新稿',
+                    x: 0,
+                    y: 0,
+                    width: 100,
+                    height: 30,
+                    fontSize: 24,
+                    fill: '#000',
+                  },
+                ],
+              },
+            }),
+          )
+      })
+    }),
+  )
+  await bootstrapClientCapabilities(true, 'http://bff.test')
+  const project = await projectRepository.create('持续前台', undefined, true)
+  useCanvasProjectStore.setState({ projects: [project], activeId: project.id })
+  currentCanvasWorkspace()
+  selectCanvasWorkspace(null)
+  const workspace = currentCanvasWorkspace()
+  await workspace.ready
+  showCanvasWorkspace(false)
+  vi.useFakeTimers({
+    toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'],
+  })
+  try {
+    showCanvasWorkspace(true)
+    await workspace.ready
+    await vi.advanceTimersByTimeAsync(15000)
+    await vi.waitFor(() => expect(reads).toBe(1))
+    expect(workspace.getSnapshot().loading).toBe(false)
+    finishRead!()
+    await vi.waitFor(() =>
+      expect(workspace.doc.elements[0]).toMatchObject({ text: '另一台设备的新稿' }),
+    )
+    expect(reads).toBe(1)
+    visibility.mockReturnValue('hidden')
+    document.dispatchEvent(new Event('visibilitychange'))
+    await vi.advanceTimersByTimeAsync(60000)
+    expect(reads).toBe(1)
+  } finally {
+    finishRead?.()
+    await workspace.ready
+    showCanvasWorkspace(false)
+    forgetCanvasWorkspace(project.sceneKey)
+    vi.useRealTimers()
+    useCanvasProjectStore.setState({ projects: [], activeId: null })
+    _setRuntimeConfigForTesting({ bff: { enabled: false, baseUrl: '' } })
+    await bootstrapClientCapabilities(false, '')
+    vi.unstubAllGlobals()
+  }
+})
