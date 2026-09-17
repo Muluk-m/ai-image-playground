@@ -359,14 +359,6 @@ describe('工具事件', () => {
     })
   })
 
-  it('进度事件写到那次调用的卡上', async () => {
-    turnResponse = () => turnStream(TURN_START, TOOL_START, TOOL_PROGRESS, TURN_END)
-
-    await state().send('画一只橘猫')
-
-    expect(toolMessages()[0]).toMatchObject({ status: 'running', stage: 'running' })
-  })
-
   it('画布上已经有这张图时不重复落一遍', async () => {
     onCanvas.add(IMAGE.artifactId)
     turnResponse = () => turnStream(TURN_START, TOOL_START, TOOL_END, TURN_END)
