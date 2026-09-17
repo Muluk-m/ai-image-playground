@@ -16,9 +16,9 @@ export const imageCountParameter = Type.Optional(
  * 这次图片工具调用出几张。画布起跑时按它占位，队列请求按它填 `n`——
  * 两处同一个算式，占位框数量才不会和真正出的张数对不上。
  */
-export function agentImageCount(args: unknown): number {
+export function agentImageCount(args: { readonly n?: unknown } | null | undefined): number {
   // toolStart 早于 pi 的参数校验；沿用同一转换，避免 "3" 被执行为三张却只占一个位。
-  const n = Value.Convert(imageCountParameter, (args as { n?: unknown } | null)?.n)
+  const n = Value.Convert(imageCountParameter, args?.n)
   return typeof n === 'number' && Number.isInteger(n)
     ? Math.min(AGENT_IMAGE_MAX_N, Math.max(1, n))
     : 1

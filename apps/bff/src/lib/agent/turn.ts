@@ -3,15 +3,13 @@ import type {
   AgentContentBlock,
   AgentMessageView,
   AgentStoredReference,
-  AgentToolName,
-  AgentToolResultBlock,
   AgentTurnCost,
   AgentTurnErrorCode,
   AgentTurnParams,
   AgentTurnReference,
   AgentTurnUsage,
 } from '@image-playground/shared'
-import { agentClarificationSummary, agentTextFromBlocks } from '@image-playground/shared'
+import { agentClarificationSummary } from '@image-playground/shared'
 import { db } from '../../db/client'
 import { log } from '../logger'
 import type { TaskOutcome } from '../private-overlay'
@@ -35,12 +33,11 @@ import { agentModel, agentStreamFn } from './model'
 import { type RunningTurn, registerRunningTurn } from './runningTurns'
 import { agentThinking } from './thinking'
 import {
-  type AgentToolDetails,
-  agentToolAbortsTurn,
-  agentToolAnchor,
-  agentToolOutputCount,
+  type AgentToolStart,
+  agentToolEnd,
+  agentToolStage,
+  agentToolStart,
   agentTools,
-  agentToolTitle,
   isAgentToolName,
 } from './tools'
 import {
@@ -84,46 +81,9 @@ interface OpenAssistantMessage {
 }
 
 interface OpenToolCall {
-  readonly prompt?: string
   readonly messageId: string
-  readonly toolName: AgentToolName
-  readonly title: string
-}
-
-function toolDetails(result: unknown): AgentToolDetails | undefined {
-  return (result as { details?: AgentToolDetails } | undefined)?.details
-}
-
-/** pi 把工具抛出的错误写成结果的文字块。 */
-function toolErrorText(result: unknown): string {
-  const content = (result as { content?: { type: string }[] } | undefined)?.content
-  return agentTextFromBlocks(content ?? []) || '工具执行失败'
-}
-
-function toolResultBlock(
-  pending: OpenToolCall,
-  toolCallId: string,
-  result: unknown,
-  isError: boolean,
-): AgentToolResultBlock {
-  const head = {
-    type: 'toolResult',
-    toolCallId,
-    toolName: pending.toolName,
-    ...(pending.prompt ? { prompt: pending.prompt } : {}),
-  } as const
-  if (isError) {
-    return { ...head, status: 'failed', title: pending.title, message: toolErrorText(result) }
-  }
-  const details = toolDetails(result)
-  return {
-    ...head,
-    status: 'succeeded',
-    ...(details?.executedPrompt ? { prompt: details.executedPrompt } : {}),
-    title: pending.title,
-    ...(details?.artifacts?.length ? { artifacts: details.artifacts } : {}),
-    ...(details?.anchorObjectId ? { anchorObjectId: details.anchorObjectId } : {}),
-  }
+  /** 起跑那一刻工具的自述；结果卡照它出，中途不再重算。 */
+  readonly start: AgentToolStart
 }
 
 /** 起一轮并立刻返回把手；`read()` 可以被断开再重开。 */
@@ -346,29 +306,13 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
     }
     if (event.type === 'tool_execution_start' && isAgentToolName(event.toolName)) {
       const messageId = crypto.randomUUID()
-      const title = agentToolTitle(event.toolName, event.args)
-      const rawPrompt = (event.args as { prompt?: unknown } | null)?.prompt
-      const prompt =
-        event.toolName !== 'readLibrary' && typeof rawPrompt === 'string' ? rawPrompt : undefined
-      openTools.set(event.toolCallId, { messageId, toolName: event.toolName, title, prompt })
-      // 画布要在工具跑完之前就占好位，所以这里把「占几个、占在哪」一并发出去：
-      // 工具参数与锚点这一刻都在手上，等到 toolEnd 再说就晚了整整一次生成。
-      const outputCount = agentToolOutputCount(event.toolName, event.args)
-      const anchorObjectId = agentToolAnchor(event.toolName, event.args, images)
-      events.emit({
-        type: 'toolStart',
-        messageId,
-        toolCallId: event.toolCallId,
-        toolName: event.toolName,
-        title,
-        ...(prompt ? { prompt } : {}),
-        ...(outputCount ? { outputCount } : {}),
-        ...(anchorObjectId ? { anchorObjectId } : {}),
-      })
+      const start = agentToolStart(event.toolName, event.toolCallId, event.args, images)
+      openTools.set(event.toolCallId, { messageId, start })
+      events.emit({ type: 'toolStart', messageId, ...start })
     }
     if (event.type === 'tool_execution_update') {
       const pending = openTools.get(event.toolCallId)
-      const stage = toolDetails(event.partialResult)?.stage
+      const stage = agentToolStage(event.partialResult)
       if (pending && stage) {
         events.emit({
           type: 'toolProgress',
@@ -392,11 +336,11 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
       const pending = openTools.get(event.toolCallId)
       if (!pending) return
       openTools.delete(event.toolCallId)
-      const block = toolResultBlock(pending, event.toolCallId, event.result, event.isError)
+      const { block, abortsTurn } = agentToolEnd(pending.start, event.result, event.isError)
       const { type: _stored, ...fields } = block
       events.emit({ type: 'toolEnd', messageId: pending.messageId, ...fields })
       await storeBlock(block, pending.messageId)
-      if (!aborted && event.isError && agentToolAbortsTurn(event.toolName)) {
+      if (!aborted && abortsTurn) {
         error = 'agent_tool_failed'
         agent.abort()
       }

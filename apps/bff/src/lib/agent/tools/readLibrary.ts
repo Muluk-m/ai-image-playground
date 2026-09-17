@@ -1,9 +1,9 @@
-import type { AgentTool } from '@earendil-works/pi-agent-core'
 import { agentTitleLine } from '@image-playground/shared'
 import { and, desc, eq, ilike, isNull } from 'drizzle-orm'
 import { Type } from 'typebox'
 import { db, schema } from '../../../db/client'
-import type { AgentToolContext, AgentToolDefinition, AgentToolDetails } from './types'
+import { defineAgentTool } from './adapter'
+import type { AgentToolContext } from './types'
 
 const TITLE_MAX_CHARS = 24
 const RESULT_LIMIT = 20
@@ -13,13 +13,6 @@ const parameters = Type.Object({
     Type.String({ description: '按名字里的关键词筛，留空就列最近用过的那些。' }),
   ),
 })
-
-function title(args: unknown): string {
-  const query = (args as { query?: unknown } | null)?.query
-  return typeof query === 'string' && query.trim()
-    ? `素材：${agentTitleLine(query, TITLE_MAX_CHARS)}`
-    : '查素材库'
-}
 
 /**
  * 素材是按用户存的，没登录的设备在服务端没有素材库。归属条件只有这一条，
@@ -49,25 +42,23 @@ async function describe(context: AgentToolContext, query: string | undefined): P
   return `找到 ${rows.length} 条素材：\n${lines.join('\n')}`
 }
 
-export const readLibrary: AgentToolDefinition = {
+export const readLibrary = defineAgentTool({
   name: 'readLibrary',
+  label: '查素材库',
+  description:
+    '按名字或关键词查用户素材库里的素材，返回名字与图片 id。用户提到某个素材但没有在输入框里引用它时调用；查到的图片 id 可以直接交给 editImage。',
   guidance: '用户提到某个素材但没有引用它时，先用读素材库工具按名字查到图片 id，再拿去改图。',
-  title,
+  parameters,
   onError: 'continue',
-  create(context) {
-    const tool: AgentTool<typeof parameters, AgentToolDetails> = {
-      name: 'readLibrary',
-      label: '查素材库',
-      description:
-        '按名字或关键词查用户素材库里的素材，返回名字与图片 id。用户提到某个素材但没有在输入框里引用它时调用；查到的图片 id 可以直接交给 editImage。',
-      parameters,
-      async execute(_toolCallId, params) {
-        return {
-          content: [{ type: 'text', text: await describe(context, params.query) }],
-          details: {},
-        }
-      },
-    }
-    return tool as AgentTool
-  },
-}
+  // 查素材库不落画布，也没有送进上游的提示词，所以起跑时只有一行标题。
+  call: ({ query }) => ({
+    title:
+      typeof query === 'string' && query.trim()
+        ? `素材：${agentTitleLine(query, TITLE_MAX_CHARS)}`
+        : '查素材库',
+  }),
+  execute: (context) => async (_toolCallId, params) => ({
+    content: [{ type: 'text', text: await describe(context, params.query) }],
+    details: {},
+  }),
+})
