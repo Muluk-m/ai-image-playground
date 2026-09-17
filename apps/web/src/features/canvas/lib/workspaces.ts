@@ -85,7 +85,9 @@ export class CanvasWorkspace {
       if (project?.cloud && cloudProjectsEnabled()) {
         this.cloud ??= new CloudProjectSession(project, this.editor, (updated) => {
           useCanvasProjectStore.setState((state) => ({
-            projects: state.projects.map((one) => (one.id === updated.id ? updated : one)),
+            projects: state.projects.some((one) => one.id === updated.id)
+              ? state.projects.map((one) => (one.id === updated.id ? updated : one))
+              : [...state.projects, updated],
             cloudCatalog: state.cloudCatalog[updated.id]
               ? {
                   ...state.cloudCatalog,

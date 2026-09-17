@@ -1,7 +1,7 @@
-import type { CloudProjectSummary } from '@image-playground/shared'
+import { type CloudProjectSummary, PROJECT_NAME_MAX_LENGTH } from '@image-playground/shared'
 import { i18next } from '../../../i18n'
 import { getRecoveryBackend, scopedStorageName } from '../../../lib/authScope'
-import { openCanvasDatabase } from './persistence'
+import { openCanvasDatabase, type PersistedScene } from './persistence'
 
 /**
  * 新项目的默认名。它被写进 IndexedDB、同步到云端，还参与 `customName` 的相等比较，
@@ -123,6 +123,96 @@ export const projectRepository = {
       transaction.oncomplete = () => resolve(projectView(result))
       transaction.onabort = () => reject(transaction.error)
       transaction.onerror = () => reject(transaction.error)
+    })
+  },
+
+  async createRecoveryCopy(source: CanvasProject, scene: PersistedScene): Promise<CanvasProject> {
+    const scope = scopedStorageName('canvas')
+    const elements = scene.elements.map((element) =>
+      element.type === 'placeholder'
+        ? {
+            id: element.id,
+            type: 'text' as const,
+            x: element.x,
+            y: element.y,
+            width: element.width,
+            height: element.height,
+            fontSize: 16,
+            fill: '#888888',
+            text: [element.message, element.meta.prompt].filter(Boolean).join('\n'),
+          }
+        : element,
+    )
+    const signature = JSON.stringify([source.name, elements, scene.files])
+    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(signature))
+    if (scope !== scopedStorageName('canvas')) throw new Error('project_scope_changed')
+    const fingerprint = Array.from(new Uint8Array(digest), (byte) =>
+      byte.toString(16).padStart(2, '0'),
+    ).join('')
+    const copyKey = `${scopedStorageName('canvas-recovery')}:${source.id}:${fingerprint}`
+    const id = crypto.randomUUID()
+    const suffix = ` (${i18next.getFixedT(null, 'canvas')('sync.copySuffix')})`
+    const now = Date.now()
+    const project: CanvasProject = {
+      id,
+      name: `${source.name.slice(0, PROJECT_NAME_MAX_LENGTH - suffix.length)}${suffix}`,
+      customName: true,
+      conversationId: null,
+      sceneKey: `${scopedStorageName('canvas')}:project:${id}`,
+      createdAt: now,
+      updatedAt: now,
+      hasContent: scene.elements.length > 0,
+      workspaceOpened: true,
+      cloud: { revision: 0 },
+    }
+    const storageKey = key(id)
+    const db = await openCanvasDatabase()
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('scene', 'readwrite')
+      const store = tx.objectStore('scene')
+      let result = project
+      const insert = () => {
+        store.add(project, storageKey)
+        store.add(
+          {
+            ...scene,
+            elements,
+            cloud: {
+              version: 1,
+              name: project.name,
+              revision: 0,
+              savedContent: null,
+              pending: null,
+              conflict: false,
+              media: scene.cloud?.media,
+            },
+          },
+          project.sceneKey,
+        )
+        store.put(storageKey, copyKey)
+      }
+      const prior = store.get(copyKey)
+      prior.onsuccess = () => {
+        if (!prior.result) return insert()
+        const existing = store.get(prior.result)
+        existing.onsuccess = () => {
+          if (!existing.result) return insert()
+          const previous = store.get((existing.result as CanvasProject).sceneKey)
+          previous.onsuccess = () => {
+            const saved = previous.result as PersistedScene | undefined
+            if (
+              saved &&
+              JSON.stringify([saved.elements, saved.files]) ===
+                JSON.stringify([elements, scene.files])
+            )
+              result = projectView(existing.result)
+            else insert()
+          }
+        }
+      }
+      tx.oncomplete = () => resolve(result)
+      tx.onabort = () => reject(tx.error ?? new Error('local_save_failed'))
+      tx.onerror = () => reject(tx.error ?? new Error('local_save_failed'))
     })
   },
 

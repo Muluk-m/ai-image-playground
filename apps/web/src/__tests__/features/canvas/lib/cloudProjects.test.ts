@@ -931,3 +931,311 @@ it('后台读取被拒后继续编辑，权限恢复重试不会用旧云端内�
   expect(session.getSnapshot().status).toBe('saved')
   session.dispose()
 })
+
+it('使用云端版前保存可重新打开的独立本机副本，重复操作不重复建项目', async () => {
+  vi.stubGlobal('crypto', webcrypto)
+  const { project, editor } = await fresh()
+  await projectRepository.update(project.id, { conversationId: 'original-conversation' })
+  const remote = {
+    ...receipt(project.id, { name: '云端新稿', baseRevision: 3, document: { elements: [] } }),
+    document: { version: 1, elements: [] },
+  }
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (_url: string, init?: RequestInit) =>
+      init?.method === 'PUT'
+        ? Response.json({ error: 'project_conflict' }, { status: 409 })
+        : Response.json(remote),
+    ),
+  )
+  const session = new CloudProjectSession(project, editor)
+  await session.load(true)
+  expect(session.getSnapshot().status).toBe('conflict')
+  const copy = await session.resolveConflict('cloud')
+  expect(copy?.id).not.toBe(project.id)
+  expect(copy?.conversationId).toBeNull()
+  const reopened = new CanvasEditor(new CanvasDoc())
+  expect(await loadScene(reopened, copy!.sceneKey)).toBe(true)
+  expect(reopened.doc.elements[0]).toMatchObject({ text: '本机原稿' })
+  expect(editor.doc.elements).toEqual([])
+  expect(session.getSnapshot().status).toBe('saved')
+  await session.resolveConflict('cloud')
+  expect(await projectRepository.list()).toHaveLength(2)
+})
+
+it('本机副本操作在刷新后重复也复用同一副本，后续新编辑另存且保留两稿', async () => {
+  vi.stubGlobal('crypto', webcrypto)
+  const { project, editor } = await fresh()
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => Response.json({ error: 'project_conflict' }, { status: 409 })),
+  )
+  const first = new CloudProjectSession(project, editor)
+  await first.load(true)
+  const copy = await first.resolveConflict('copy')
+  first.dispose()
+  const reloaded = new CanvasEditor(new CanvasDoc())
+  await loadScene(reloaded, project.sceneKey)
+  const second = new CloudProjectSession(project, reloaded)
+  await second.load(true)
+  const again = await second.resolveConflict('copy')
+  expect(again?.id).toBe(copy?.id)
+  reloaded.doc.updateElements([{ id: 'note', patch: { text: '副本之后继续编辑' } }])
+  second.markChanged()
+  const newer = await second.resolveConflict('copy')
+  expect(newer?.id).not.toBe(copy?.id)
+  expect(await projectRepository.list()).toHaveLength(3)
+})
+
+it('恢复副本不接管原项目正在生成的占位任务或会话执行上下文', async () => {
+  vi.stubGlobal('crypto', webcrypto)
+  const { project, editor } = await fresh()
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => Response.json({ error: 'project_conflict' }, { status: 409 })),
+  )
+  const session = new CloudProjectSession(project, editor)
+  await session.load(true)
+  editor.doc.addElements([
+    {
+      id: 'running',
+      type: 'placeholder',
+      x: 1,
+      y: 2,
+      width: 200,
+      height: 120,
+      status: 'loading',
+      message: '生成中',
+      meta: {
+        taskId: 'task',
+        clientRequestId: 'client',
+        prompt: '新图片',
+        source: 'builtin-edge',
+        bffRequestId: 'original-job',
+        agent: true,
+      },
+    },
+  ])
+  session.markChanged()
+  const copy = await session.resolveConflict('copy')
+  const restored = new CanvasEditor(new CanvasDoc())
+  await loadScene(restored, copy!.sceneKey)
+  expect(restored.doc.elements).toHaveLength(2)
+  expect(restored.doc.elements[1]).toMatchObject({ type: 'text', text: '生成中\n新图片' })
+  expect(JSON.stringify(restored.doc.elements)).not.toContain('original-job')
+  expect(editor.doc.elements[1]).toMatchObject({ type: 'placeholder', status: 'loading' })
+})
+
+it('恢复副本事务中止时不替换原稿，刷新后仍可恢复并显示保存失败', async () => {
+  vi.stubGlobal('crypto', webcrypto)
+  const { project, editor } = await fresh()
+  const remote = {
+    ...receipt(project.id, { name: '云端', baseRevision: 2, document: { elements: [] } }),
+    document: { version: 1, elements: [] },
+  }
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (_url: string, init?: RequestInit) =>
+      init?.method === 'PUT'
+        ? Response.json({ error: 'project_conflict' }, { status: 409 })
+        : Response.json(remote),
+    ),
+  )
+  const session = new CloudProjectSession(project, editor)
+  await session.load(true)
+  const originalAdd = IDBObjectStore.prototype.add
+  const fault = vi.spyOn(IDBObjectStore.prototype, 'add').mockImplementation(function (
+    this: IDBObjectStore,
+    ...args: Parameters<IDBObjectStore['add']>
+  ) {
+    const request = originalAdd.apply(this, args)
+    this.transaction.abort()
+    return request
+  })
+  try {
+    await expect(session.resolveConflict('cloud')).rejects.toBeDefined()
+  } finally {
+    fault.mockRestore()
+  }
+  expect(session.getSnapshot()).toMatchObject({
+    status: 'conflict',
+    message: 'errors:projectSync.recovery_copy_failed',
+  })
+  expect(editor.doc.elements[0]).toMatchObject({ text: '本机原稿' })
+  const reopened = new CanvasEditor(new CanvasDoc())
+  await loadScene(reopened, project.sceneKey)
+  expect(reopened.doc.elements[0]).toMatchObject({ text: '本机原稿' })
+  expect(await projectRepository.list()).toHaveLength(1)
+})
+
+it('已有副本被继续编辑后，再次解决原冲突会重新保全原稿', async () => {
+  vi.stubGlobal('crypto', webcrypto)
+  const { project, editor } = await fresh()
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => Response.json({ error: 'project_conflict' }, { status: 409 })),
+  )
+  const session = new CloudProjectSession(project, editor)
+  await session.load(true)
+  const copy = await session.resolveConflict('copy')
+  const copyEditor = new CanvasEditor(new CanvasDoc())
+  await loadScene(copyEditor, copy!.sceneKey)
+  copyEditor.doc.updateElements([{ id: 'note', patch: { text: '已改掉的副本内容' } }])
+  await saveScene(copyEditor, copy!.sceneKey)
+  const recovered = await session.resolveConflict('copy')
+  expect(recovered?.id).not.toBe(copy?.id)
+  const original = new CanvasEditor(new CanvasDoc())
+  await loadScene(original, recovered!.sceneKey)
+  expect(original.doc.elements[0]).toMatchObject({ text: '本机原稿' })
+  await loadScene(copyEditor, copy!.sceneKey)
+  expect(copyEditor.doc.elements[0]).toMatchObject({ text: '已改掉的副本内容' })
+})
+
+it.each([
+  'cloud',
+  'copy',
+] as const)('恢复副本保存期间继续编辑时不替换新稿或跳离当前画布：%s', async (choice) => {
+  vi.stubGlobal('crypto', webcrypto)
+  const { project, editor } = await fresh()
+  const remote = {
+    ...receipt(project.id, { name: '云端', baseRevision: 2, document: { elements: [] } }),
+    document: { version: 1, elements: [] },
+  }
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (_url: string, init?: RequestInit) =>
+      init?.method === 'PUT'
+        ? Response.json({ error: 'project_conflict' }, { status: 409 })
+        : Response.json(remote),
+    ),
+  )
+  const session = new CloudProjectSession(project, editor)
+  await session.load(true)
+  const originalAdd = IDBObjectStore.prototype.add
+  let edited = false
+  const duringSave = vi.spyOn(IDBObjectStore.prototype, 'add').mockImplementation(function (
+    this: IDBObjectStore,
+    ...args: Parameters<IDBObjectStore['add']>
+  ) {
+    if (!edited) {
+      edited = true
+      editor.doc.updateElements([{ id: 'note', patch: { text: '保存期间的新编辑' } }])
+      session.markChanged()
+    }
+    return originalAdd.apply(this, args)
+  })
+  try {
+    expect(await session.resolveConflict(choice)).toBeUndefined()
+  } finally {
+    duringSave.mockRestore()
+  }
+  expect(editor.doc.elements[0]).toMatchObject({ text: '保存期间的新编辑' })
+  expect(session.getSnapshot()).toMatchObject({
+    status: 'conflict',
+    message: 'errors:projectSync.recovery_changed',
+  })
+  await session.saveLocal()
+  const reopened = new CanvasEditor(new CanvasDoc())
+  await loadScene(reopened, project.sceneKey)
+  expect(reopened.doc.elements[0]).toMatchObject({ text: '保存期间的新编辑' })
+})
+
+it('采用云端稿落盘期间的新修改不能被标成已同步', async () => {
+  vi.stubGlobal('crypto', webcrypto)
+  const { project, editor } = await fresh()
+  const remote = {
+    ...receipt(project.id, { name: '云端', baseRevision: 2, document: { elements: [] } }),
+    document: { version: 1, elements: [] },
+  }
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (_url: string, init?: RequestInit) =>
+      init?.method === 'PUT'
+        ? Response.json({ error: 'project_conflict' }, { status: 409 })
+        : Response.json(remote),
+    ),
+  )
+  const session = new CloudProjectSession(project, editor)
+  await session.load(true)
+  const originalPut = IDBObjectStore.prototype.put
+  let edited = false
+  const duringSave = vi.spyOn(IDBObjectStore.prototype, 'put').mockImplementation(function (
+    this: IDBObjectStore,
+    ...args: Parameters<IDBObjectStore['put']>
+  ) {
+    if (!edited && args[1] === project.sceneKey && args[0]?.cloud?.revision === 3) {
+      edited = true
+      editor.doc.addElements([
+        {
+          id: 'later',
+          type: 'text',
+          x: 0,
+          y: 0,
+          width: 80,
+          height: 40,
+          text: '采用云端后新编辑',
+          fontSize: 24,
+          fill: '#000',
+        },
+      ])
+      session.markChanged()
+    }
+    return originalPut.apply(this, args)
+  })
+  try {
+    await session.resolveConflict('cloud')
+  } finally {
+    duringSave.mockRestore()
+  }
+  expect(editor.doc.elements[0]).toMatchObject({ text: '采用云端后新编辑' })
+  expect(session.getSnapshot().status).toBe('pending')
+})
+
+it.each([
+  'sync',
+  'rename',
+] as const)('采用云端稿后项目索引写入失败仍可恢复且不覆盖新名称：%s', async (action) => {
+  vi.stubGlobal('crypto', webcrypto)
+  const { project, editor } = await fresh()
+  const remote = {
+    ...receipt(project.id, { name: '云端新名称', baseRevision: 2, document: { elements: [] } }),
+    document: { version: 1, elements: [] },
+  }
+  let allowWrite = false
+  const fetcher = vi.fn(async (_url: string, init?: RequestInit) =>
+    init?.method === 'PUT'
+      ? allowWrite
+        ? Response.json(receipt(project.id, JSON.parse(init.body as string)))
+        : Response.json({ error: 'project_conflict' }, { status: 409 })
+      : Response.json(remote),
+  )
+  vi.stubGlobal('fetch', fetcher)
+  const session = new CloudProjectSession(project, editor)
+  await session.load(true)
+  const originalPut = IDBObjectStore.prototype.put
+  const fault = vi.spyOn(IDBObjectStore.prototype, 'put').mockImplementation(function (
+    this: IDBObjectStore,
+    ...args: Parameters<IDBObjectStore['put']>
+  ) {
+    const request = originalPut.apply(this, args)
+    if (args[0]?.id === project.id && args[0]?.name === '云端新名称') this.transaction.abort()
+    return request
+  })
+  try {
+    await expect(session.resolveConflict('cloud')).rejects.toBeDefined()
+  } finally {
+    fault.mockRestore()
+  }
+  expect(session.getSnapshot().status).toBe('local-error')
+  allowWrite = true
+  if (action === 'rename') await session.rename('恢复后的新名称')
+  await session.sync()
+  expect(session.getSnapshot().status).toBe('saved')
+  expect((await projectRepository.list()).find((one) => one.id === project.id)).toMatchObject({
+    name: action === 'rename' ? '恢复后的新名称' : '云端新名称',
+    cloud: { revision: action === 'rename' ? 4 : 3 },
+  })
+  expect(fetcher.mock.calls.filter(([, init]) => init?.method === 'PUT')).toHaveLength(
+    action === 'rename' ? 2 : 1,
+  )
+})

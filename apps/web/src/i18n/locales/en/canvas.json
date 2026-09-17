@@ -147,7 +147,11 @@
     "permissionError": "Project cannot be synced",
     "quotaError": "Cloud storage or canvas limit exceeded",
     "formatError": "This canvas cannot be synced",
-    "local": "Saved on this device · waiting to sync"
+    "local": "Saved on this device · waiting to sync",
+    "copySuffix": "Local recovery copy",
+    "conflictHelp": "This project was changed on two devices. Your local changes will be saved as a separate recovery copy before using the cloud version.",
+    "useCloud": "Use cloud version",
+    "saveCopy": "Save local version as a project"
   },
   "welcome": {
     "aria": "Start a new project",

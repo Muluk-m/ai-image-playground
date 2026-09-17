@@ -145,7 +145,11 @@
     "permissionError": "项目暂时无法同步",
     "quotaError": "云端容量或画布大小超出限制",
     "formatError": "此画布无法同步",
-    "local": "已保存到本机，等待同步"
+    "local": "已保存到本机，等待同步",
+    "copySuffix": "本机恢复副本",
+    "conflictHelp": "两台设备都修改了这个项目。选择云端版前，会把本机修改保留为独立恢复副本。",
+    "useCloud": "使用云端版",
+    "saveCopy": "本机版另存为项目"
   },
   "welcome": {
     "aria": "开始新项目",
