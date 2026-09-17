@@ -87,6 +87,7 @@ beforeEach(() => {
     conversations: [],
     messages: [],
     turn: 'idle',
+    stopping: false,
     activeTurn: null,
     turns: {},
     error: null,
@@ -268,6 +269,95 @@ describe('读回历史', () => {
 })
 
 describe('发送反馈', () => {
+  it('创建会话期间中止，不提交模型任务且让输入框恢复草稿', async () => {
+    let release!: (response: Response) => void
+    fetchMock.mockImplementationOnce(
+      () =>
+        new Promise<Response>((resolve) => {
+          release = resolve
+        }),
+    )
+    const accepted = vi.fn()
+    const sending = state().send('还没发出的草稿', [], accepted)
+    await state().abort()
+    release(Response.json({ conversation: conversation(CONVERSATION, '') }))
+    expect(await sending).toBe('cancelled')
+    expect(accepted).not.toHaveBeenCalled()
+    expect(state().turn).toBe('idle')
+    expect(state().stopping).toBe(false)
+    expect(state().messages).toEqual([])
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/turns'))).toBe(false)
+  })
+
+  it('连续中止只提交一次；网络失败后可再次中止', async () => {
+    useAgentStore.setState({
+      conversationId: CONVERSATION,
+      turn: 'running',
+      activeTurn: { turnId: 'turn-1' },
+    })
+    let reject!: (error: Error) => void
+    turnResponse = () =>
+      new Promise<Response>((_, fail) => {
+        reject = fail
+      })
+    const stopping = state().abort()
+    await state().abort()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    reject(new TypeError('offline'))
+    await stopping
+    expect(state().stopping).toBe(false)
+    turnResponse = () => Response.json({ aborted: true })
+    await state().abort()
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(state().error).toBeNull()
+  })
+
+  it('中止遇到已结束的轮，按历史恢复结束状态', async () => {
+    useAgentStore.setState({
+      conversationId: CONVERSATION,
+      turn: 'running',
+      activeTurn: { turnId: 'turn-1' },
+    })
+    turnResponse = () => Response.json({ error: 'turn_not_found' }, { status: 404 })
+    await state().abort()
+    expect(state().turn).toBe('idle')
+    expect(state().stopping).toBe(false)
+    expect(state().error).toBeNull()
+  })
+
+  it('发送响应尚未到达时记住中止，收到轮标识后立即中止该轮', async () => {
+    useAgentStore.setState({ conversationId: CONVERSATION })
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    turnResponse = async () => {
+      await gate
+      return turnStream(TURN_START, TURN_END)
+    }
+    const sending = state().send('画一只橘猫')
+    await state().abort()
+    const phaseAfterClick = agentActivityPhase(state())
+    release()
+    await sending
+    expect(phaseAfterClick).toBe('stopping')
+    expect(
+      fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/turn-1/abort')),
+    ).toHaveLength(1)
+  })
+
+  it('服务端拒绝中止时保留运行状态并提供重试提示', async () => {
+    useAgentStore.setState({
+      conversationId: CONVERSATION,
+      turn: 'running',
+      activeTurn: { turnId: 'turn-1' },
+    })
+    turnResponse = () => Response.json({ error: 'unavailable' }, { status: 503 })
+    await state().abort()
+    expect(state().turn).toBe('running')
+    expect(state().error).toContain('中止未成功')
+  })
+
   it('先上屏的那条就算会话开始了；起轮失败时撤掉它，欢迎页回来', async () => {
     let release!: () => void
     const gate = new Promise<void>((resolve) => {

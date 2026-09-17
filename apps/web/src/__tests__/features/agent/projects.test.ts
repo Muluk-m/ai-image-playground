@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import 'fake-indexeddb/auto'
+import { encodeAgentFrame } from '@image-playground/shared'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { agentDraft } from '../../../features/agent/lib/drafts'
 import { useAgentStore } from '../../../features/agent/store'
@@ -15,6 +16,7 @@ const state = () => useAgentStore.getState()
 let turnResponse: () => Promise<Response>
 const fetchMock = vi.fn(async (input: unknown, init?: RequestInit) => {
   const url = String(input)
+  if (url.endsWith('/abort')) return Response.json({ aborted: true })
   if (url.endsWith('/conversations') && init?.method === 'POST')
     return Response.json({
       conversation: { id: crypto.randomUUID(), title: '', createdAt: 1, updatedAt: 1 },
@@ -38,6 +40,7 @@ beforeEach(async () => {
     messages: [],
     turns: {},
     turn: 'idle',
+    stopping: false,
     activeTurn: null,
     error: null,
     historyFailed: false,
@@ -50,6 +53,73 @@ afterEach(async () => {
   vi.unstubAllGlobals()
   fetchMock.mockClear()
   setClientStorageScope(null)
+})
+it.each([false, true])('发送中点中止后切项目，重新订阅=%s 时仍会取消旧轮', async (reopen) => {
+  let release!: (response: Response) => void
+  turnResponse = () =>
+    new Promise((resolve) => {
+      release = resolve
+    })
+  const sending = state().send('旧项目生成')
+  await vi.waitFor(() => expect(release).toBeTypeOf('function'))
+  const oldConversation = state().conversationId
+  await state().abort()
+  expect(await state().createProject()).toBe(true)
+  let resumed: ReadableStreamDefaultController<Uint8Array> | undefined
+  if (reopen) {
+    fetchMock.mockImplementationOnce(async () =>
+      Response.json({ messages: [], turns: [], activeTurn: { turnId: 'old-turn' } }),
+    )
+    fetchMock.mockImplementationOnce(
+      async () =>
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              resumed = controller
+              controller.enqueue(
+                new TextEncoder().encode(
+                  encodeAgentFrame(1, {
+                    type: 'turnStart',
+                    turnId: 'old-turn',
+                    userMessageId: 'old-user',
+                  }),
+                ),
+              )
+            },
+          }),
+        ),
+    )
+    await state().selectConversation(oldConversation!)
+    await vi.waitFor(() => expect(state().activeTurn?.turnId).toBe('old-turn'))
+  }
+  release(
+    new Response(
+      encodeAgentFrame(1, { type: 'turnStart', turnId: 'old-turn', userMessageId: 'old-user' }),
+    ),
+  )
+  await sending
+  expect(
+    fetchMock.mock.calls.some(([url]) =>
+      String(url).endsWith(`${oldConversation}/turns/old-turn/abort`),
+    ),
+  ).toBe(true)
+  expect(state().conversationId).toBe(reopen ? oldConversation : null)
+  if (resumed) {
+    resumed.enqueue(
+      new TextEncoder().encode(
+        encodeAgentFrame(2, {
+          type: 'turnEnd',
+          turnId: 'old-turn',
+          stopReason: 'aborted',
+          durationMs: 1,
+          usage: null,
+        }),
+      ),
+    )
+    resumed.close()
+    await vi.waitFor(() => expect(state().turn).toBe('idle'))
+  } else expect(state().messages).toEqual([])
+  expect(state().stopping).toBe(false)
 })
 it('两个空项目的输入和画布独立，往返切换可恢复', async () => {
   const first = useCanvasProjectStore.getState().activeId!
