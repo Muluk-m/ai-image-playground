@@ -1,4 +1,4 @@
-import type { TaskStatus } from './queue-protocol'
+import type { SubmitRequest, TaskStatus } from './queue-protocol'
 
 export interface GenerationSummary {
   id: string
@@ -19,7 +19,24 @@ export interface GenerationImage {
   contentType: string
 }
 
+export type GenerationParameters = Pick<
+  SubmitRequest,
+  | 'size'
+  | 'quality'
+  | 'output_format'
+  | 'output_compression'
+  | 'moderation'
+  | 'aspect_ratio'
+  | 'image_size'
+  | 'thinking_level'
+  | 'n'
+>
+
 export interface GenerationDetail extends GenerationSummary {
+  inputs: GenerationImage[]
+  mask: GenerationImage | null
+  parameters: GenerationParameters
+  actualParameters: Pick<GenerationParameters, 'size' | 'quality' | 'output_format'>
   outputs: GenerationImage[]
   prompt: string
 }

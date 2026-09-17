@@ -7,3 +7,4 @@ CREATE TABLE generation_images (
 );
 
 ALTER TABLE tasks ADD COLUMN archive_payload jsonb;
+ALTER TABLE generation_records ADD COLUMN parameters jsonb NOT NULL DEFAULT '{}'::jsonb, ADD COLUMN actual_parameters jsonb NOT NULL DEFAULT '{}'::jsonb;
