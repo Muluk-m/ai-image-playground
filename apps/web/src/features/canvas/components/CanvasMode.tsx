@@ -10,6 +10,7 @@ import type { CanvasEditor } from '../lib/editor'
 import { importImageFiles } from '../lib/importImages'
 import { placeImagesIntoTargets } from '../lib/placeholderShapeOps'
 import { computePlaceholderTargets } from '../lib/placement'
+import { projectDisplayName } from '../lib/projectRepository'
 import { writeProjectRoute } from '../lib/projectRoute'
 import {
   type CanvasWorkspace,
@@ -214,7 +215,9 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
             inert={mobile && mobileView !== 'canvas'}
           >
             <div className="studio-canvas-heading">
-              <strong>{project?.name ?? t('workspace.untitled')}</strong>
+              <strong>
+                {project ? projectDisplayName(project.name) : t('workspace.untitled')}
+              </strong>
               {workspace.cloud ? (
                 <ProjectSyncStatus session={workspace.cloud} />
               ) : (

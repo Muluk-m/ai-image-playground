@@ -20,7 +20,10 @@ export function useLocalePicker(): LocalePicker {
   const [pending, setPending] = useState<AppLocale | null>(null)
   const change = useCallback((next: AppLocale) => {
     setPending(next)
-    void setLocale(next).finally(() => setPending(null))
+    // 语料拉不到时 setLocale 会 reject 且不切换：放下在途值，控件回到当前语言即可。
+    setLocale(next)
+      .catch(() => {})
+      .finally(() => setPending(null))
   }, [])
   return { locale: pending ?? currentLocale(), change }
 }

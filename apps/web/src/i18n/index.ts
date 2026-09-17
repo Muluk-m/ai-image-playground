@@ -116,6 +116,10 @@ export async function ensureLocaleLoaded(locale: AppLocale): Promise<void> {
         i18next.addResourceBundle('en', namespace, bundle, true, true)
       }
     })
+    // 失败的 promise 不能留着：发版换了 chunk 哈希或一时断网之后，下一次切换要能重新拉。
+    englishBundle.catch(() => {
+      englishBundle = null
+    })
   }
   await englishBundle
 }
@@ -125,22 +129,30 @@ export function currentLocale(): AppLocale {
 }
 
 export async function setLocale(locale: AppLocale): Promise<void> {
+  // 语料没到位就不切，也不记：先记后拉的话，一次失败的切换会把选择钉死，此后每次启动都去拉同一个拉不到的 chunk。
+  await ensureLocaleLoaded(locale)
+  await i18next.changeLanguage(locale)
   try {
     localStorage.setItem(LOCALE_STORAGE_KEY, locale)
   } catch {
     // 存不下也要让本次切换生效，只是刷新后回到检测结果。
   }
-  await ensureLocaleLoaded(locale)
-  await i18next.changeLanguage(locale)
   applyDocumentLocale(locale)
 }
 
 /** 启动时按探测结果切一次。`main.tsx` 是 top-level await，能在首帧之前等英文 chunk 落地。 */
 export async function bootstrapLocale(): Promise<void> {
-  const locale = detectLocale()
-  if (locale !== DEFAULT_LOCALE) {
-    await ensureLocaleLoaded(locale)
-    await i18next.changeLanguage(locale)
+  const detected = detectLocale()
+  let locale: AppLocale = DEFAULT_LOCALE
+  if (detected !== DEFAULT_LOCALE) {
+    try {
+      await ensureLocaleLoaded(detected)
+      await i18next.changeLanguage(detected)
+      locale = detected
+    } catch {
+      // `main.tsx` 在首帧之前等这一步。语料拉不到时退回随包的中文，也好过整页白屏；
+      // 已保存的选择不动，下次启动或手动切换再试。
+    }
   }
   applyDocumentLocale(locale)
 }

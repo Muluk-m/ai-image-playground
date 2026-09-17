@@ -33,7 +33,7 @@
       "arrowText": "Arrow / text",
       "zoomPan": "Zoom / pan",
       "freeDrag": "Drag, no snap",
-      "submitBack": "Generate / back"
+      "submitBack": "Generate / back to canvas"
     },
     "key": {
       "click": "click",
@@ -178,7 +178,7 @@
     "renameFailed": "Could not save the project name. Please retry."
   },
   "cloud": {
-    "mediaLocal": "The canvas has media or content that cannot be synced, so it is saved on this device only.",
+    "mediaLocal": "The canvas has media that hasn't synced yet or content that can't be synced, so it is saved on this device only.",
     "loadFailed": "Could not load the cloud project. Your content is kept, please reload.",
     "conflict": "Another device changed this project, so syncing is paused. Your local content is kept.",
     "quotaExceeded": "Cloud storage or canvas size limit exceeded. Your local content is kept.",

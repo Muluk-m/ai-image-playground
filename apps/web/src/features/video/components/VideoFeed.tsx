@@ -8,13 +8,14 @@ import VideoCard from './VideoCard'
 import VideoLightbox from './VideoLightbox'
 
 export default function VideoFeed() {
-  const { t } = useTranslation('video')
+  const { t, i18n } = useTranslation('video')
   const tasks = useVideoStore((s) => s.tasks)
   const [query, setQuery] = useState('')
   const [filterId, setFilterId] = useState(ALL_FILTER)
   const [openTaskId, setOpenTaskId] = useState<string | null>(null)
 
-  const filters = useMemo(() => videoFeedFilters(tasks), [tasks])
+  // 筛选芯片的标签是译文，语言也是这份缓存的入参。
+  const filters = useMemo(() => videoFeedFilters(tasks), [tasks, i18n.language])
   const visible = useMemo(() => filterVideoTasks(tasks, filterId, query), [tasks, filterId, query])
   const openTask = tasks.find((task) => task.id === openTaskId) ?? null
 

@@ -71,8 +71,8 @@
     "placeholder": "One value per line"
   },
   "submit": {
-    "generateCount_one": "Generate {{count}}",
-    "generateCount_other": "Generate {{count}}",
+    "generateCount_one": "Generate {{count}} image",
+    "generateCount_other": "Generate {{count}} images",
     "generateImage": "Generate image",
     "maskEdit": "Edit mask",
     "maskEditShortcut": "Edit mask (Ctrl+Enter)",
@@ -96,7 +96,7 @@
     "format": "Format",
     "transparent": "Alpha",
     "noRewrite": "No rewrite",
-    "compression": "Compress",
+    "compression": "Compression",
     "moderation": "Moderation",
     "count": "Count",
     "noModel": "Not selected"

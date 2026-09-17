@@ -98,5 +98,14 @@ export interface VideoDraft {
   lastFrameImageId: string | null
 }
 
-/** 点一下把文字追加到描述末尾，用户看得见它只是提示词。 */
-export const CAMERA_MOVES = ['缓慢推进', '环绕半圈', '手持跟拍', '光线流动', '静态微动'] as const
+/**
+ * 点一下把文字追加到描述末尾，用户看得见它只是提示词。追加的是初值文案：
+ * 按点下去那一刻的界面语言写，写完就是用户描述里的普通文字。
+ */
+export const CAMERA_MOVE_KEYS = [
+  'cameraMove.slowPush',
+  'cameraMove.halfOrbit',
+  'cameraMove.handheldFollow',
+  'cameraMove.flowingLight',
+  'cameraMove.subtleStill',
+] as const

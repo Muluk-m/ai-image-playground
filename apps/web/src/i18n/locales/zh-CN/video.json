@@ -335,5 +335,12 @@
     "deriveModeUnsupported": "{{label}} 不支持{{mode}}",
     "deriveFramesRejected": "续写和改视频不接受首尾帧",
     "deriveSourceMissing": "{{mode}}缺少源视频"
+  },
+  "cameraMove": {
+    "slowPush": "缓慢推进",
+    "halfOrbit": "环绕半圈",
+    "handheldFollow": "手持跟拍",
+    "flowingLight": "光线流动",
+    "subtleStill": "静态微动"
   }
 }

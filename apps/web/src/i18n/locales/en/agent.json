@@ -32,7 +32,7 @@
   "cost": {
     "duration": "Took {{duration}}",
     "free": "Free turn, no credits used",
-    "spent": "Used",
+    "spent": "Spent",
     "image": "Image",
     "video": "Video",
     "failed": "Turn failed",
@@ -74,7 +74,7 @@
     "done": "Done"
   },
   "mentions": {
-    "canvasImage": "Canvas {{index}}",
+    "canvasImage": "Canvas image {{index}}",
     "headingReferences": "Reference images",
     "headingCanvas": "Canvas",
     "headingAssets": "Assets"

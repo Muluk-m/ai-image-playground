@@ -56,7 +56,7 @@
     "framesLabel": "First · last frame",
     "framesHint": "Drop · paste · pick below",
     "lastFrameOptional": "Optional",
-    "lastFrameUnsupported": "{{model}} has no last frame",
+    "lastFrameUnsupported": "{{model}} does not support a last frame",
     "promptHint": "Action · camera · light",
     "promptPlaceholder": "What happens in frame, how the camera moves",
     "durationLabel": "Duration",
@@ -331,13 +331,20 @@
     "durationUnsupported": "{{label}} only supports {{durations}} seconds",
     "extendDurationOutOfRange": "Extend only supports {{min}}-{{max}} seconds",
     "editDurationMissing": "Edit is missing the source duration",
-    "aspectRatioUnsupported": "{{label}} only supports {{allowed}}",
-    "resolutionUnsupported": "{{label}} only supports {{allowed}}",
+    "aspectRatioUnsupported": "{{label}} only supports these aspect ratios: {{allowed}}",
+    "resolutionUnsupported": "{{label}} only supports these resolutions: {{allowed}}",
     "durationForResolutionUnsupported": "{{label}} {{resolution}} only supports {{durations}} seconds",
     "frameUnsupported": "{{frame}} is not supported by {{label}}",
     "frameImageMissing": "{{frame}} image is gone",
     "deriveModeUnsupported": "{{label}} does not support {{mode}}",
     "deriveFramesRejected": "Extend and edit take no first or last frame",
     "deriveSourceMissing": "{{mode}} is missing its source video"
+  },
+  "cameraMove": {
+    "slowPush": "slow push-in",
+    "halfOrbit": "half orbit",
+    "handheldFollow": "handheld follow",
+    "flowingLight": "flowing light",
+    "subtleStill": "subtle motion, locked camera"
   }
 }

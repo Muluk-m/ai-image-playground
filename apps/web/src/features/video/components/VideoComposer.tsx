@@ -21,7 +21,7 @@ import { videoRejectionText, videoTaglineLabel } from '../lib/labels'
 import { useVideoStore } from '../store'
 import StoryboardComposer from '../storyboard/components/StoryboardComposer'
 import {
-  CAMERA_MOVES,
+  CAMERA_MOVE_KEYS,
   VIDEO_COMPOSER_SOURCES,
   VIDEO_SOURCES,
   type VideoFrameSlot,
@@ -67,7 +67,8 @@ function ModelCard({
           hint
         ) : (
           <>
-            {hint} · <Credits credits={guard.estimatedCredits} /> {t('composer.perSecond')}
+            {hint ? `${hint} · ` : null}
+            <Credits credits={guard.estimatedCredits} /> {t('composer.perSecond')}
           </>
         )}
       </span>
@@ -162,14 +163,14 @@ function VideoSubmitPanel({
           className={`${FIELD} resize-none`}
         />
         <div className="mt-1.5 flex flex-wrap gap-1.5">
-          {CAMERA_MOVES.map((move) => (
+          {CAMERA_MOVE_KEYS.map((key) => (
             <button
-              key={move}
+              key={key}
               type="button"
-              onClick={() => useVideoStore.getState().addCameraMove(move)}
+              onClick={() => useVideoStore.getState().addCameraMove(t(key))}
               className={SUGGESTION_CHIP}
             >
-              + {move}
+              + {t(key)}
             </button>
           ))}
         </div>
