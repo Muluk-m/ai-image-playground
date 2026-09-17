@@ -7,24 +7,21 @@ import { type HostSample, OPS_THRESHOLDS } from './ops'
  * 只有少数几条「不处理就会出事故」的固定规则，阈值与运维看板变红的线是同一组常量。
  */
 
-export type AlertRule =
-  | 'disk'
-  | 'memory'
-  | 'queue'
-  | 'backup'
-  | 'heartbeat:bff'
-  | 'heartbeat:worker'
+export type AlertRule = 'disk' | 'memory' | 'queue' | 'backup' | 'heartbeat:bff'
 
 /**
  * 这一轮看到的现状。某一块没取到就别给它：缺失既不触发，也不会被当成已恢复。
  * 里面的 `null` 表示「取到了，但还从来没有过」（没有任何备份、没见过心跳），同样不告警——
- * 新部署的头一天本来就是这样，看板会照实显示。
+ * 新部署的头一天本来就是这样，看板会照实显示。已经在报的规则例外：报过「备份过期」之后桶被清空、
+ * 报过「心跳中断」之后那一行被清理掉，读数同样变成 `null`，那是还没好，不是从来没有过。
+ *
+ * 没有 worker 的心跳：发应用告警的就是 worker，它挂了这条也发不出来。
  */
 export interface AlertObservation {
   host?: HostSample
   queue?: { oldest_queued_wait_ms: number | null }
   backup?: { latest_modified_at: number | null }
-  heartbeats?: { bff?: number | null; worker?: number | null }
+  heartbeats?: { bff?: number | null }
 }
 
 interface RuleState {
@@ -82,7 +79,11 @@ function heartbeatReading(label: string, lastSeenAt: number, now: number): Readi
   }
 }
 
-function readings(observation: AlertObservation, now: number): Partial<Record<AlertRule, Reading>> {
+function readings(
+  observation: AlertObservation,
+  state: AlertState,
+  now: number,
+): Partial<Record<AlertRule, Reading>> {
   const out: Partial<Record<AlertRule, Reading>> = {}
   const { host, queue, backup, heartbeats } = observation
 
@@ -125,11 +126,25 @@ function readings(observation: AlertObservation, now: number): Partial<Record<Al
       firingText: `最新的数据库备份是 ${span(age)}前的（告警线 ${span(OPS_THRESHOLDS.BACKUP_MAX_AGE_MS)}）`,
       resolvedText: '已恢复：有了新的数据库备份',
     }
+  } else if (backup && state.backup?.firing) {
+    out.backup = {
+      breached: true,
+      sustainMs: 0,
+      firingText: '备份前缀下已经找不到任何数据库备份',
+      resolvedText: '已恢复：有了新的数据库备份',
+    }
   }
 
-  if (heartbeats?.bff != null) out['heartbeat:bff'] = heartbeatReading('后端', heartbeats.bff, now)
-  if (heartbeats?.worker != null) {
-    out['heartbeat:worker'] = heartbeatReading('worker', heartbeats.worker, now)
+  if (heartbeats?.bff != null) {
+    out['heartbeat:bff'] = heartbeatReading('后端', heartbeats.bff, now)
+  } else if (heartbeats && state['heartbeat:bff']?.firing) {
+    // 断得够久，旧心跳那一行已经被清理掉了。
+    out['heartbeat:bff'] = {
+      breached: true,
+      sustainMs: 0,
+      firingText: '后端的心跳一直没有回来，连上一次的记录都已经过期清掉了',
+      resolvedText: '已恢复：后端的心跳回来了',
+    }
   }
   return out
 }
@@ -146,7 +161,7 @@ export function evaluateAlerts(
   const next: AlertState = { ...state }
   const messages: AlertMessage[] = []
 
-  for (const [rule, reading] of Object.entries(readings(observation, now)) as Array<
+  for (const [rule, reading] of Object.entries(readings(observation, state, now)) as Array<
     [AlertRule, Reading]
   >) {
     const previous = state[rule] ?? { breachedSince: null, firing: false, lastSentAt: null }

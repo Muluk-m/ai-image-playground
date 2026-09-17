@@ -18,7 +18,7 @@ export interface HostTrendChartProps {
 
 const CHART_CONFIG = {
   disk: { label: '磁盘已用', color: 'hsl(var(--danger))' },
-  memory: { label: '内存已用', color: 'hsl(var(--info))' },
+  memory: { label: '内存已用', color: 'hsl(var(--success))' },
 } satisfies ChartConfig
 
 function dayTick(at: number): string {
