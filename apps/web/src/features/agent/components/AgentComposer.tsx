@@ -35,17 +35,26 @@ import {
   getVisiblePrompt,
   isCursorInSelectedImageMention,
 } from '../../../lib/promptImageMentions'
-import { ensureAssetImage } from '../../../lib/sync/assetImages'
-import { ensureImageCached, useStore } from '../../../store'
-import type { CanvasDoc, ImageEl } from '../../canvas/lib/canvasDoc'
+import { useStore } from '../../../store'
+import type { CanvasDoc } from '../../canvas/lib/canvasDoc'
 import { canvasSceneKey } from '../../canvas/lib/workspaces'
 import { currentCanvasProject } from '../../canvas/projectStore'
 import { useLibraryStore } from '../../library/store'
 import { ABORT_BUTTON, ICON_BUTTON } from '../agentStyles'
-import { type AgentMentionValue, buildAgentMentionGroups, canvasImages } from '../lib/agentMentions'
-import { attachReferences, filesToReferences, setAgentComposerAttach } from '../lib/attachments'
+import {
+  type AgentMentionValue,
+  buildAgentMentionGroups,
+  type CanvasImage,
+  canvasImages,
+} from '../lib/agentMentions'
+import {
+  assetToReference,
+  attachReferences,
+  filesToReferences,
+  setAgentComposerAttach,
+} from '../lib/attachments'
 import { agentDraft } from '../lib/drafts'
-import { type MarkRenderer, renderMarkedImage, selectedMarkIds } from '../lib/markedReferences'
+import type { MarkRenderer } from '../lib/markedReferences'
 import {
   type AgentReference,
   attachReference,
@@ -54,8 +63,8 @@ import {
   referenceLabels,
   removeReference,
   setReferenceMask,
-  syncSelectedReferences,
 } from '../lib/references'
+import { createSelectionReferences } from '../lib/selectionReferences'
 import { useAgentStore } from '../store'
 import AgentParamsChip from './AgentParamsChip'
 
@@ -63,6 +72,15 @@ const EDITOR_CLASS =
   'min-h-16 max-h-44 w-full overflow-y-auto whitespace-pre-wrap break-words bg-transparent px-1 pt-1 text-sm leading-relaxed text-foreground outline-none empty:before:pointer-events-none empty:before:text-muted-foreground empty:before:content-[attr(data-placeholder)]'
 
 const STRIP_THUMB = 'h-8 w-8 shrink-0 overflow-hidden rounded-md object-cover'
+
+/** 画布对象 → 参考图：位图就在画布文档里，不必回存储里找。 */
+function canvasReference(
+  canvas: readonly CanvasImage[],
+  imageId: string,
+): AgentReference | undefined {
+  const image = canvas.find((one) => one.imageId === imageId)
+  return image && { id: image.imageId, dataUrl: image.dataUrl }
+}
 
 export default function AgentComposer({
   doc,
@@ -149,46 +167,14 @@ export default function AgentComposer({
   const canvas = useMemo(() => canvasImages(doc), [doc, version, i18n.language])
 
   // 画布上选中的图直接进引用区：选了几张就是要对这几张说话，不必再逐张 `@`。
-  // 自动带进来的按 id 记着，取消选中就撤走；用户手动 `@` 进来的不归它管。
-  // 每张选中的图带上压在它上面、也被选中的批注：用户圈了一块，模型就该看到那个圈。
-  const selectedImages = useMemo(
-    () =>
-      canvas.flatMap((image) => {
-        if (!doc.selection.has(image.imageId)) return []
-        const element = doc.elements.find((el) => el.id === image.imageId)
-        if (element?.type !== 'image') return []
-        return [{ imageId: image.imageId, element, marks: selectedMarkIds(doc, element) }]
-      }),
-    [canvas, doc, version],
-  )
-  const selectionKey = selectedImages
-    .map((one) => `${one.imageId}:${one.marks.join(',')}`)
-    .join(' ')
-  const autoRef = useRef<Set<string>>(new Set())
-  const selectionKeyRef = useRef(selectionKey)
-  selectionKeyRef.current = selectionKey
+  // 哪些是这么带进来的归 selection 自己记，输入框只管把画布和草稿的入口交给它。
+  const [selection] = useState(createSelectionReferences)
+  const selectionKey = useMemo(() => selection.key(doc), [selection, doc, version])
   useEffect(() => {
     if (loading) return
-    const selected = new Set(selectedImages.map((one) => one.imageId))
-    // 先按原图同步（去掉批注的那一刻立刻回到原图），烧了批注的版本随后替换进来。
-    setDraft((current) => syncSelectedReferences(current, canvas, selected, autoRef.current))
-    if (!editor) return
-    for (const { imageId, element, marks } of selectedImages) {
-      // 是否自动带进来的要等上面那个 updater 跑过才知道，所以在替换那一步再判。
-      if (marks.length === 0) continue
-      void renderMarkedImage(editor, element as ImageEl, marks).then((dataUrl) => {
-        // 渲完之前选区又变了：这张图的批注不再是这一组，丢掉。
-        if (!dataUrl || selectionKeyRef.current !== selectionKey) return
-        setDraft((current) => ({
-          ...current,
-          references: current.references.map((one) =>
-            one.id === imageId && autoRef.current.has(imageId) ? { ...one, dataUrl } : one,
-          ),
-        }))
-      })
-    }
-    // 只在选区（含批注）变化时同步；canvas 的引用变化不该触发（那会把手动移除的又加回来）。
-  }, [selectionKey, loading, session])
+    selection.follow(doc, setDraft, editor)
+    // 只在选区（含批注）变化时同步；画布内容变化不该触发（那会把手动移除的又加回来）。
+  }, [selection, selectionKey, loading, session])
 
   // contentEditable 的 onSelect 不可靠，光标位置只能靠 selectionchange 跟。
   useEffect(() => {
@@ -243,24 +229,14 @@ export default function AgentComposer({
     const active = getAtImageQuery(getVisiblePrompt(draft.prompt, labels), at)
     if (!active) return
 
-    if (value.type === 'reference') {
-      const reference = draft.references[value.index]
-      if (reference) applyAttach(reference, active.start, at)
-      return
-    }
-    if (value.type === 'canvas') {
-      const image = canvas.find((one) => one.imageId === value.imageId)
-      if (image) applyAttach({ id: image.imageId, dataUrl: image.dataUrl }, active.start, at)
-      return
-    }
-    const asset = assets.find((one) => one.id === value.id)
-    if (!asset) return
-    await ensureAssetImage(asset.imageId)
-    const dataUrl = await ensureImageCached(asset.imageId)
-    if (!dataUrl) return
-    // 读素材库工具按「最近用过」排序，不记这一笔它就永远看不见智能体这边的使用。
-    void useLibraryStore.getState().noteAssetUsed(asset.id)
-    applyAttach({ id: asset.imageId, dataUrl, name: asset.name }, active.start, at)
+    // 只有素材要等图取回来；另外两支就在手边，别让它们也隔一个微任务才插胶囊。
+    const reference =
+      value.type === 'asset'
+        ? await assetToReference(value.id)
+        : value.type === 'reference'
+          ? draft.references[value.index]
+          : canvasReference(canvas, value.imageId)
+    if (reference) applyAttach(reference, active.start, at)
   }
 
   const menu = useSuggestionMenu({
