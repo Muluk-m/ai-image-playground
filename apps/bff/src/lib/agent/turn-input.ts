@@ -1,5 +1,4 @@
 import type { AgentMessage } from '@earendil-works/pi-agent-core'
-import { estimateTokens } from '@earendil-works/pi-agent-core'
 import type { ImageContent } from '@earendil-works/pi-ai'
 import type { AgentMessageView, AgentMode, AgentTurnReference } from '@image-playground/shared'
 import { agentClarificationSummary, agentToolResultSummary } from '@image-playground/shared'
@@ -20,6 +19,7 @@ import {
   referenceEvidence,
 } from './selection-preview'
 import { type AgentSkill, agentSkillInvocation, agentSkillLocation, agentSkills } from './skills'
+import { estimateMessageTokens } from './token-estimate'
 import { agentToolDeclarations, agentToolGuidance } from './tools'
 
 /**
@@ -60,13 +60,12 @@ function estimatedListings(references: readonly AgentImageReference[]): Evidence
 
 /**
  * 每次模型请求都带着整份工具清单（名称、说明、参数 schema），它是本轮输入里最大的一块固定开销。
- * pi 的 `estimateTokens` 只认消息，所以把清单的 JSON 序列化当成一条文本消息交给它，用的
- * 就是同一条「字符数 / 4」启发式（pi-agent-core 0.85.1
- * `dist/harness/compaction/compaction.js:150-171`）。这只是启发式：上游真按自己的词表分词，
- * JSON 的结构符号与中文说明都会与这里有出入，预扣本来也只求同量级。
+ * 估算只认消息，所以把清单的 JSON 序列化当成一条文本消息交给它，用的就是同一条
+ * 「字符数 / 4 再按 CJK 校正」的口径（见 `token-estimate.ts`）。这只是启发式：上游真按
+ * 自己的词表分词，JSON 的结构符号都会与这里有出入，预扣本来也只求同量级。
  */
 export function estimateToolDeclarationTokens(mode: AgentMode): number {
-  return estimateTokens({
+  return estimateMessageTokens({
     role: 'user',
     content: [{ type: 'text', text: JSON.stringify(agentToolDeclarations(mode)) }],
     timestamp: 0,
@@ -279,7 +278,7 @@ export function estimateTurnInputTokens(
 ): number {
   const estimated =
     estimatedTurnInput(history, text, references, mode).reduce(
-      (total, message) => total + estimateTokens(message),
+      (total, message) => total + estimateMessageTokens(message),
       0,
     ) + estimateToolDeclarationTokens(mode)
   return Math.min(estimated, reservationCeiling(compactionSettings()))
