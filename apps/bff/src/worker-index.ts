@@ -1,7 +1,7 @@
 import { QUEUE_TIMEOUTS } from '@image-playground/shared'
 import { config } from './config'
 import { close as closeDb } from './db/client'
-import { recoverAbandonedTasks, recoverTasksByIds } from './db/maintenance'
+import { purgeOldHostSamples, recoverAbandonedTasks, recoverTasksByIds } from './db/maintenance'
 import { isCapabilityEnabled } from './lib/capabilities'
 import { initChannels } from './lib/channels'
 import { purgeStaleHeartbeats, startHeartbeat } from './lib/heartbeat'
@@ -32,13 +32,11 @@ const stopHeartbeat = startHeartbeat({
   detail: () => ({ last_successful_poll_at: scheduler.lastSuccessfulPollAt() }),
 })
 const staleScanTimer = setInterval(() => {
-  purgeStaleHeartbeats().catch((err) => {
+  // 运维看板的两张小表都靠这个循环保持小：过期的心跳实例，和 7 天前的宿主机采样。
+  Promise.all([purgeStaleHeartbeats(), purgeOldHostSamples()]).catch((err) => {
     log.warn(
-      {
-        event: 'worker.heartbeat_purge_failed',
-        err: err instanceof Error ? err.message : String(err),
-      },
-      'stale heartbeat purge failed',
+      { event: 'worker.ops_purge_failed', err: err instanceof Error ? err.message : String(err) },
+      'operations board table purge failed',
     )
   })
   recoverAbandonedTasks(runningTaskIds()).catch((err) => {

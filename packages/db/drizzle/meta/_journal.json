@@ -141,6 +141,13 @@
       "when": 1789647900311,
       "tag": "0020_service_heartbeats",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1789648819573,
+      "tag": "0021_host_samples",
+      "breakpoints": true
     }
   ]
 }

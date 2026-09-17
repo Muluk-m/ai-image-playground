@@ -187,6 +187,16 @@ workloads. Each project also runs a `pg-backup` sidecar that uploads a daily `pg
 own database to `<S3_KEY_PREFIX>pg/<UTC date>.dump`, and `matte:server` caches each cutout under
 `<S3_KEY_PREFIX>matte/<sha256 of the source image>/`. Retention belongs to a bucket lifecycle
 rule, not to the sidecar.
+
+Each project also runs a `host-collector` sidecar that reads the host's disk and memory once a
+minute for the admin's operations board, which draws the last seven days. It receives exactly two
+read-only files from the host and no Docker socket: `/proc/meminfo`, and one file on the
+filesystem to watch (`/etc/hostname` by default), because `statfs` on a bind-mounted file reports
+the filesystem behind it. If Docker's data lives on its own partition, point
+`HOST_DISK_PROBE_SOURCE` at a file there. Without `INTERNAL_API_TOKEN` it still runs; its readings
+just never reach the board. See
+[`docs/adr/0007`](./docs/adr/0007-host-sampling-without-the-docker-socket.md) for the trade-off.
+
 The browser probes `GET /api/matte/:hash` with the SHA-256 hex digest of the original image bytes
 before uploading to `POST /api/matte`. A hit returns the alpha with one object read and no source
 upload or transform. Both endpoints enforce `matte:server` and the same session/service guard.

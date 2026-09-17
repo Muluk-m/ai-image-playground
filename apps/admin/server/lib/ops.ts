@@ -1,9 +1,11 @@
 import { QUEUE_TIMEOUTS } from '@image-playground/shared'
 import { sql } from 'drizzle-orm'
 import type {
+  HostSample,
   OpsBackups,
   OpsBlock,
   OpsDatabase,
+  OpsHost,
   OpsQueue,
   OpsServices,
   OpsSnapshot,
@@ -36,13 +38,14 @@ async function settle<T>(source: () => Promise<T>): Promise<OpsBlock<T>> {
  * 各块并行取、各自失败。出事的时候恰恰最需要看其余几块，所以任何一块抛错都只落在它自己身上。
  */
 export async function buildOpsSnapshot(sources: OpsSources = defaultSources): Promise<OpsSnapshot> {
-  const [queue, database, backup, services] = await Promise.all([
+  const [queue, database, backup, services, host] = await Promise.all([
     settle(sources.queue),
     settle(sources.database),
     settle(sources.backup),
     settle(sources.services),
+    settle(sources.host),
   ])
-  return { generated_at: Date.now(), services, queue, database, backup }
+  return { generated_at: Date.now(), host, services, queue, database, backup }
 }
 
 async function readQueue(): Promise<OpsQueue> {
@@ -80,6 +83,49 @@ async function readQueue(): Promise<OpsQueue> {
       id: String(row.id),
       model: String(row.model),
       started_at: Math.round(Number(row.started_at)),
+    })),
+  }
+}
+
+/** 每分钟一条、留 7 天，原样给前端是一万个点；按半小时取平均后三百多个，趋势一点不少。 */
+async function readHost(): Promise<OpsHost> {
+  const { db } = getDbHandle()
+  const [latestRaw, seriesRaw] = await Promise.all([
+    db.execute(sql`
+      SELECT
+        EXTRACT(EPOCH FROM sampled_at) * 1000 AS sampled_ms,
+        disk_total_bytes, disk_available_bytes, mem_total_bytes, mem_available_bytes
+      FROM host_samples
+      ORDER BY sampled_at DESC
+      LIMIT 1
+    `),
+    db.execute(sql`
+      SELECT
+        EXTRACT(EPOCH FROM date_bin('30 minutes', sampled_at, TIMESTAMPTZ '2000-01-01')) * 1000 AS at,
+        AVG(1 - disk_available_bytes::double precision / disk_total_bytes) AS disk_used_ratio,
+        AVG(mem_available_bytes::double precision / mem_total_bytes) AS mem_available_ratio
+      FROM host_samples
+      WHERE sampled_at >= NOW() - INTERVAL '7 days'
+      GROUP BY 1
+      ORDER BY 1 ASC
+    `),
+  ])
+  const row = (latestRaw as unknown as Array<Record<string, unknown>>)[0]
+  const latest: HostSample | null = row
+    ? {
+        sampled_at: Math.round(Number(row.sampled_ms)),
+        disk_total_bytes: Number(row.disk_total_bytes),
+        disk_available_bytes: Number(row.disk_available_bytes),
+        mem_total_bytes: Number(row.mem_total_bytes),
+        mem_available_bytes: Number(row.mem_available_bytes),
+      }
+    : null
+  return {
+    latest,
+    series: (seriesRaw as unknown as Array<Record<string, unknown>>).map((point) => ({
+      at: Math.round(Number(point.at)),
+      disk_used_ratio: Number(point.disk_used_ratio),
+      mem_available_ratio: Number(point.mem_available_ratio),
     })),
   }
 }
@@ -152,4 +198,5 @@ const defaultSources: OpsSources = {
   database: readDatabase,
   backup: () => readFromBff<OpsBackups>('/backups'),
   services: readServices,
+  host: readHost,
 }

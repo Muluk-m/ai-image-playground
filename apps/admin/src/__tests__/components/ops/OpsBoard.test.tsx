@@ -11,11 +11,16 @@ vi.mock('@tanstack/react-router', () => ({
   ),
 }))
 
+vi.mock('../../../components/ops/LazyHostTrendChart', () => ({
+  LazyHostTrendChart: ({ label }: { label: string }) => <div role="img" aria-label={label} />,
+}))
+
 const { OpsBoard } = await import('../../../components/ops/OpsBoard')
 
 const minute = 60_000
 const hour = 60 * minute
 const NOW = Date.now()
+const GB = 1024 ** 3
 
 function snapshot(patch: Partial<OpsSnapshot> = {}): OpsSnapshot {
   return {
@@ -37,6 +42,22 @@ function snapshot(patch: Partial<OpsSnapshot> = {}): OpsSnapshot {
         tables: [
           { name: 'tasks', bytes: 2 * 1024 ** 3 },
           { name: 'agent_turn_events', bytes: 512 * 1024 ** 2 },
+        ],
+      },
+    },
+    host: {
+      ok: true,
+      data: {
+        latest: {
+          sampled_at: NOW - 40_000,
+          disk_total_bytes: 50 * GB,
+          disk_available_bytes: 18 * GB,
+          mem_total_bytes: 4 * GB,
+          mem_available_bytes: 1.5 * GB,
+        },
+        series: [
+          { at: NOW - 2 * hour, disk_used_ratio: 0.6, mem_available_ratio: 0.4 },
+          { at: NOW - hour, disk_used_ratio: 0.64, mem_available_ratio: 0.38 },
         ],
       },
     },
@@ -296,5 +317,70 @@ describe('运维看板', () => {
       />,
     )
     expect(within(block('服务')).getByRole('alert').textContent).toContain('版本不一致')
+  })
+
+  it('宿主机一栏给出磁盘和内存的现状与趋势', () => {
+    render(<OpsBoard snapshot={snapshot()} />)
+    const host = block('宿主机')
+    expect(within(host).getByText('64%')).toBeTruthy()
+    expect(within(host).getByText(/剩 18\.0 GB/)).toBeTruthy()
+    expect(within(host).getByText('1.5 GB')).toBeTruthy()
+    expect(within(host).getByRole('img', { name: /磁盘用量/ })).toBeTruthy()
+    expect(within(host).queryByRole('alert')).toBeNull()
+  })
+
+  it('磁盘用到 85% 就报警', () => {
+    render(
+      <OpsBoard
+        snapshot={snapshot({
+          host: {
+            ok: true,
+            data: {
+              latest: {
+                sampled_at: NOW - 40_000,
+                disk_total_bytes: 50 * GB,
+                disk_available_bytes: 5 * GB,
+                mem_total_bytes: 4 * GB,
+                mem_available_bytes: 1.5 * GB,
+              },
+              series: [],
+            },
+          },
+        })}
+      />,
+    )
+    expect(within(block('宿主机')).getByRole('alert').textContent).toContain('磁盘已用 90%')
+  })
+
+  it('采样断了就说曲线过期了，而不是让人对着旧数字放心', () => {
+    render(
+      <OpsBoard
+        snapshot={snapshot({
+          host: {
+            ok: true,
+            data: {
+              latest: {
+                sampled_at: NOW - 20 * minute,
+                disk_total_bytes: 50 * GB,
+                disk_available_bytes: 18 * GB,
+                mem_total_bytes: 4 * GB,
+                mem_available_bytes: 1.5 * GB,
+              },
+              series: [],
+            },
+          },
+        })}
+      />,
+    )
+    expect(within(block('宿主机')).getByRole('alert').textContent).toContain('20 分钟没有新的采样')
+  })
+
+  it('没启用采集容器时照实说未启用，不算出事', () => {
+    render(
+      <OpsBoard snapshot={snapshot({ host: { ok: true, data: { latest: null, series: [] } } })} />,
+    )
+    const host = block('宿主机')
+    expect(within(host).getByText('未启用')).toBeTruthy()
+    expect(within(host).queryByRole('alert')).toBeNull()
   })
 })

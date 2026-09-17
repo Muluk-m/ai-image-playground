@@ -5,6 +5,10 @@
 export const OPS_THRESHOLDS = {
   /** 最老的排队任务等待超过这个时长即视为积压。worker 每秒都在轮询，正常排队以秒计。 */
   QUEUE_WAIT_MS: 10 * 60 * 1000,
+  /** 磁盘用量到这个比例就该处理了。50G 的盘上约剩 7G，与部署脚本 8G 的拒绝线基本对齐。 */
+  DISK_USED_RATIO: 0.85,
+  /** 采集每分钟一次；超过这个时长没有新读数，说明采集方自己出了问题，曲线已经过期。 */
+  HOST_SAMPLE_MAX_AGE_MS: 5 * 60 * 1000,
   /** 心跳每 30 秒一次；超过这个时长没更新就当服务断了，也就是容忍连续丢 3 次。 */
   HEARTBEAT_MAX_AGE_MS: 2 * 60 * 1000,
   /** 备份每天一次；超过这个时长没有新文件就是断了。与备份容器自己的健康探针同一个数。 */
@@ -24,4 +28,13 @@ export interface OpsBackupObject {
 export interface OpsBackups {
   latest: OpsBackupObject | null
   previous: OpsBackupObject | null
+}
+
+/** 宿主机资源的一次读数。字节数；`sampled_at` 是毫秒时间戳。 */
+export interface HostSample {
+  sampled_at: number
+  disk_total_bytes: number
+  disk_available_bytes: number
+  mem_total_bytes: number
+  mem_available_bytes: number
 }

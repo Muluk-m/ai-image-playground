@@ -21,6 +21,7 @@ describe('buildOpsSnapshot', () => {
       database: async () => ({ size_bytes: 42, tables: [] }),
       backup: async () => ({ latest: null, previous: null }),
       services: async () => ({ services: [] }),
+      host: async () => ({ latest: null, series: [] }),
     })
 
     expect(snapshot.queue).toEqual({ ok: false, error: 'connection reset' })
@@ -54,7 +55,11 @@ describe('buildOpsSnapshot', () => {
         started.push('services')
         return { services: [] }
       },
+      host: async () => {
+        started.push('host')
+        return { latest: null, series: [] }
+      },
     })
-    expect(started).toEqual(['queue', 'database', 'backup', 'services'])
+    expect(started).toEqual(['queue', 'database', 'backup', 'services', 'host'])
   })
 })

@@ -84,6 +84,24 @@ await writer.db.insert(writer.schema.service_heartbeats).values([
   },
 ])
 
+// 宿主机采样：两天前磁盘还宽裕，现在快满了。看板要的是这条趋势，不只是最后一个数。
+const GB = 1024 ** 3
+const hostSample = (at: number, diskAvailable: number) => ({
+  sampled_at: at,
+  disk_total_bytes: 50 * GB,
+  disk_available_bytes: diskAvailable,
+  mem_total_bytes: 4 * GB,
+  mem_available_bytes: 1 * GB,
+})
+await writer.db
+  .insert(writer.schema.host_samples)
+  .values([
+    hostSample(now - 48 * 3600_000, 30 * GB),
+    hostSample(now - 48 * 3600_000 + 60_000, 30 * GB),
+    hostSample(now - 3600_000, 10 * GB),
+    hostSample(now - 30_000, 5 * GB),
+  ])
+
 const { app } = await import('../../../../server/app')
 
 afterAll(async () => {
@@ -186,5 +204,25 @@ describe('GET /api/ops', () => {
         last_successful_poll_at: now - 1_000,
       },
     ])
+  })
+
+  it('reports the latest host reading and a downsampled week, oldest first', async () => {
+    const cookie = await login()
+    const response = await app.handle(
+      new Request('http://localhost/api/ops', { headers: { cookie } }),
+    )
+    const body = (await response.json()) as OpsSnapshot
+
+    if (!body.host.ok) throw new Error(body.host.error)
+    const { latest, series } = body.host.data
+    expect(latest).toEqual(hostSample(now - 30_000, 5 * GB))
+    // 同一个半小时桶里的两条读数并成一个点。
+    expect(series.length).toBe(3)
+    expect(series.map((point) => point.at)).toEqual(
+      [...series.map((point) => point.at)].sort((a, b) => a - b),
+    )
+    expect(series[0]?.disk_used_ratio).toBeCloseTo(0.4, 5)
+    expect(series.at(-1)?.disk_used_ratio).toBeGreaterThan(0.8)
+    expect(series[0]?.mem_available_ratio).toBeCloseTo(0.25, 5)
   })
 })

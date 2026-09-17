@@ -11,6 +11,7 @@ export const EXPECTED_TABLES = [
   'canvas_projects',
   'daily_quota',
   'operator_audits',
+  'host_samples',
   'service_heartbeats',
   'tasks',
   'user_asset_objects',
@@ -41,6 +42,7 @@ export const EXPECTED_INDEXES = [
   'idx_agent_turn_events_turn',
   'idx_operator_audits_created_at',
   'idx_operator_audits_target',
+  'host_samples_pkey',
   'idx_service_heartbeats_seen',
   'idx_tasks_admin_device_time',
   'idx_tasks_agent_turn',
@@ -71,7 +73,7 @@ export const EXPECTED_INDEXES = [
   'users_pkey',
 ] as const
 
-const EXPECTED_MIGRATION_COUNT = 20
+const EXPECTED_MIGRATION_COUNT = 21
 
 export interface SchemaVerificationResult {
   tables: number

@@ -1,4 +1,4 @@
-import type { OpsBackups, TaskStatus } from '@image-playground/shared'
+import type { HostSample, OpsBackups, TaskStatus } from '@image-playground/shared'
 
 export const RANGES = ['1d', '7d', '30d'] as const
 export type Range = (typeof RANGES)[number]
@@ -205,7 +205,7 @@ export interface OpsDatabase {
   tables: Array<{ name: string; bytes: number }>
 }
 
-export type { OpsBackupObject, OpsBackups } from '@image-playground/shared'
+export type { HostSample, OpsBackupObject, OpsBackups } from '@image-playground/shared'
 
 export type OpsServiceName = 'bff' | 'worker'
 
@@ -224,8 +224,23 @@ export interface OpsServices {
   services: OpsService[]
 }
 
+export interface OpsHostPoint {
+  at: number
+  /** 0 到 1。 */
+  disk_used_ratio: number
+  mem_available_ratio: number
+}
+
+export interface OpsHost {
+  /** 最近一次读数；一条采样都没有（采集容器没启用）时是 null。 */
+  latest: HostSample | null
+  /** 近 7 天，按半小时取平均，从旧到新。看的是趋势：一直这么高，还是一天涨了十几个 G。 */
+  series: OpsHostPoint[]
+}
+
 export interface OpsSnapshot {
   generated_at: number
+  host: OpsBlock<OpsHost>
   services: OpsBlock<OpsServices>
   queue: OpsBlock<OpsQueue>
   database: OpsBlock<OpsDatabase>

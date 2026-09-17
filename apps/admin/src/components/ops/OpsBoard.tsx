@@ -2,16 +2,83 @@ import { OPS_THRESHOLDS } from '@image-playground/shared'
 import { Link } from '@tanstack/react-router'
 
 import { Kpi } from '@/components/Kpi'
+import { LazyHostTrendChart } from '@/components/ops/LazyHostTrendChart'
 import { OpsBlockCard } from '@/components/ops/OpsBlockCard'
 import { bytes, elapsed, fuzzyTime, shortId } from '@/lib/format'
 import type {
   OpsBackups,
   OpsDatabase,
+  OpsHost,
   OpsQueue,
   OpsServiceName,
   OpsServices,
   OpsSnapshot,
 } from '@/lib/types'
+
+function percent(ratio: number): string {
+  return `${Math.round(ratio * 100)}%`
+}
+
+function diskUsedRatio(host: NonNullable<OpsHost['latest']>): number {
+  return 1 - host.disk_available_bytes / host.disk_total_bytes
+}
+
+/** 没启用采集容器不算出事：它是可选的。启用了却断了采样，才是。 */
+function hostProblems({ latest }: OpsHost, now: number): string[] {
+  if (!latest) return []
+  const problems: string[] = []
+  const used = diskUsedRatio(latest)
+  if (used >= OPS_THRESHOLDS.DISK_USED_RATIO) {
+    problems.push(`磁盘已用 ${percent(used)}，只剩 ${bytes(latest.disk_available_bytes)}`)
+  }
+  const silence = now - latest.sampled_at
+  if (silence > OPS_THRESHOLDS.HOST_SAMPLE_MAX_AGE_MS) {
+    problems.push(`已经 ${elapsed(silence)}没有新的采样，下面的数字是旧的`)
+  }
+  return problems
+}
+
+function HostBody({ host, now }: { host: OpsHost; now: number }) {
+  const { latest, series } = host
+  if (!latest) {
+    return (
+      <div>
+        <p className="text-sm font-medium text-muted-foreground">未启用</p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          采集容器没有在跑，所以看不到宿主机的磁盘与内存。
+        </p>
+      </div>
+    )
+  }
+  return (
+    <>
+      <div className="grid grid-cols-3 gap-4">
+        <Kpi
+          variant="inline"
+          label="磁盘已用"
+          value={percent(diskUsedRatio(latest))}
+          note={`剩 ${bytes(latest.disk_available_bytes)} / 共 ${bytes(latest.disk_total_bytes)}`}
+        />
+        <Kpi
+          variant="inline"
+          label="可用内存"
+          value={bytes(latest.mem_available_bytes)}
+          note={`共 ${bytes(latest.mem_total_bytes)}`}
+        />
+        <Kpi variant="inline" label="最近采样" value={fuzzyTime(latest.sampled_at, now)} />
+      </div>
+      {series.length > 1 ? (
+        <LazyHostTrendChart
+          series={series}
+          diskAlertRatio={OPS_THRESHOLDS.DISK_USED_RATIO}
+          label="近 7 天的磁盘用量与内存用量"
+        />
+      ) : (
+        <p className="border-t pt-3 text-xs text-muted-foreground">采样还不够画出趋势。</p>
+      )}
+    </>
+  )
+}
 
 const SERVICE_LABEL: Record<OpsServiceName, string> = { bff: '后端', worker: 'worker' }
 const EXPECTED_SERVICES: readonly OpsServiceName[] = ['bff', 'worker']
@@ -176,6 +243,13 @@ function BackupBody({ backup, now }: { backup: OpsBackups; now: number }) {
 export function OpsBoard({ snapshot }: { snapshot: OpsSnapshot }) {
   return (
     <section className="grid gap-4 xl:grid-cols-2">
+      <OpsBlockCard
+        title="宿主机"
+        block={snapshot.host}
+        problems={(host) => hostProblems(host, snapshot.generated_at)}
+      >
+        {(host) => <HostBody host={host} now={snapshot.generated_at} />}
+      </OpsBlockCard>
       <OpsBlockCard
         title="服务"
         block={snapshot.services}

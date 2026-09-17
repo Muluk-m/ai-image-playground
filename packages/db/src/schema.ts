@@ -15,6 +15,7 @@ import type {
 } from '@image-playground/shared'
 import { eq, sql } from 'drizzle-orm'
 import {
+  bigint,
   check,
   customType,
   date,
@@ -521,3 +522,15 @@ export const service_heartbeats = pgTable(
     index('idx_service_heartbeats_seen').on(t.service, t.last_seen_at.desc()),
   ],
 )
+
+/**
+ * 宿主机资源的一次读数。按时间成序列、只留近几天，用来看趋势而不只是当前值。
+ * 由采集容器经后端内部接口写入；同一台宿主机上的每套部署各存各的一份。
+ */
+export const host_samples = pgTable('host_samples', {
+  sampled_at: epochMs('sampled_at').primaryKey(),
+  disk_total_bytes: bigint('disk_total_bytes', { mode: 'number' }).notNull(),
+  disk_available_bytes: bigint('disk_available_bytes', { mode: 'number' }).notNull(),
+  mem_total_bytes: bigint('mem_total_bytes', { mode: 'number' }).notNull(),
+  mem_available_bytes: bigint('mem_available_bytes', { mode: 'number' }).notNull(),
+})
