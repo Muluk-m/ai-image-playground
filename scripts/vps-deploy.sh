@@ -44,6 +44,7 @@ PAID_PROJECT=${PAID_PROJECT:-image-playground-paid}
 PAID_IMAGE=${PAID_IMAGE:-ai-image-playground:paid}
 DEPLOY_KEEP_IMAGES=${DEPLOY_KEEP_IMAGES:-5}
 DEPLOY_MIN_FREE_GB=${DEPLOY_MIN_FREE_GB:-8}
+DEPLOY_PRUNE_CACHE_BELOW_GB=${DEPLOY_PRUNE_CACHE_BELOW_GB:-15}
 
 public_sha=-
 private_sha=-
@@ -57,11 +58,18 @@ edition_tag() {
 }
 
 on_exit() {
-  if [ "$?" -ne 0 ] && [ -n "$current_edition" ]; then
+  status=$?
+  if [ "$status" -ne 0 ] && [ -n "$current_edition" ]; then
     append_deploy_log "$current_edition" "$(edition_tag "$current_edition")" failed || true
   fi
+  release_deploy_lock "$deploy_lock" || true
 }
 trap on_exit EXIT
+# A rollout that is killed must still drop the lock: a cut ssh session reaches the remote shell
+# as HUP. Exiting from these traps runs the EXIT trap above.
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 update_private() {
   set --
@@ -116,7 +124,8 @@ prune_old_images() {
 # Image pruning alone does not keep the disk in check: BuildKit keeps every superseded layer in
 # its cache, and that is what actually fills the host (27G of cache next to 4G of images, 17G of
 # it referenced by nothing). Drop only the unreferenced part; the cache the next build reuses
-# stays. A failure here is reported and ignored: the rollout already succeeded.
+# stays. Called only when the disk is short (see should_prune_build_cache). A failure here is
+# reported and ignored: the rollout already succeeded.
 prune_build_cache() {
   if reclaimed=$(docker builder prune -f 2>/dev/null | tail -n 1); then
     echo "build cache: ${reclaimed:-nothing to reclaim}"
@@ -124,6 +133,13 @@ prune_build_cache() {
     echo "could not prune the build cache; leaving it" >&2
   fi
 }
+
+# Everything below touches this host: the checkout gets detached onto $ref, Docker builds, the
+# running services are replaced. Two rollouts at once would detach one checkout onto two commits
+# and build from a mixed tree, so take the lock before the first step with a side effect.
+stage "Take the deploy lock"
+acquire_deploy_lock "$deploy_lock" "editions=$editions ref=$ref"
+echo "holding $deploy_lock"
 
 stage "Sync the checkout to $ref"
 if [ -n "$(git -C "$repo_root" status --porcelain --untracked-files=no)" ]; then
@@ -209,8 +225,14 @@ for edition in $editions; do
   prune_old_images "$(edition_var "$prefix" IMAGE)" "$tag"
 done
 
-stage "Prune the unreferenced build cache"
-prune_build_cache
+stage "Check the build cache"
+free_gb=$(docker_root_free_gb)
+if should_prune_build_cache "$free_gb" "$DEPLOY_PRUNE_CACHE_BELOW_GB"; then
+  echo "${free_gb}G free, below ${DEPLOY_PRUNE_CACHE_BELOW_GB}G"
+  prune_build_cache
+else
+  echo "build cache left alone (${free_gb}G free)"
+fi
 
 printf '\nDeployed public=%s private=%s\n' "$public_sha" "$private_sha"
 for edition in $editions; do
