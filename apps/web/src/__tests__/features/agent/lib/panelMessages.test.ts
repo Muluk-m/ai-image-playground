@@ -13,6 +13,7 @@ import {
   agentActivityPhase,
   answerableClarificationId,
   conversationStarted,
+  dropUnsettledMessages,
   panelStateFromHistory,
   reduceAgentPanelEvent,
 } from '../../../../features/agent/lib/panelMessages'
@@ -155,6 +156,41 @@ const HISTORY = {
   ] satisfies AgentTurnSummaryView[],
 }
 
+const OPENING = '我先画一张。'
+
+/** 多步失败轮：助手先说一句 → 起工具 → 工具失败中止整轮。 */
+const FAILED_LIVE: AgentTurnEvent[] = [
+  { type: 'turnStart', turnId: TURN, userMessageId: 'user-1' },
+  { type: 'assistantStart', messageId: 'assistant-1' },
+  { type: 'textDelta', messageId: 'assistant-1', delta: OPENING },
+  {
+    type: 'toolStart',
+    messageId: 'tool-2',
+    toolCallId: 'call-2',
+    toolName: 'generateVideo',
+    title: FAILED.title,
+  },
+  toolEnd(FAILED, 'tool-2'),
+  {
+    type: 'turnEnd',
+    turnId: TURN,
+    durationMs: 8,
+    stopReason: 'failed',
+    error: 'agent_tool_failed',
+    usage: null,
+  },
+]
+
+/** 同一轮后端真正落下去的：开场白在 `message_end` 就落库了，只有没收尾的那段不落。 */
+const FAILED_HISTORY = {
+  messages: [
+    stored('user-1', [{ type: 'text', text: USER_TEXT }], 'user'),
+    stored('assistant-1', [{ type: 'text', text: OPENING }]),
+    stored('tool-2', [FAILED]),
+  ],
+  turns: [{ turnId: TURN, durationMs: 8, stopReason: 'failed' }] satisfies AgentTurnSummaryView[],
+}
+
 describe('历史与直播同源', () => {
   it('同一轮的事件序列与它落库的那几条消息归约出同一份面板', () => {
     const live = replay(LIVE, USER_TEXT)
@@ -198,6 +234,14 @@ describe('历史与直播同源', () => {
       status: 'failed',
       message: FAILED.message,
     })
+  })
+
+  it('失败的一轮也同源：撤掉半截之后，与后端落库的那几条归约出同一份面板', () => {
+    const live = replay(FAILED_LIVE, USER_TEXT)
+
+    expect(dropUnsettledMessages(live.messages)).toEqual(
+      panelStateFromHistory(FAILED_HISTORY).messages,
+    )
   })
 
   it('澄清落在助手消息里，重新打开会话还能作答', () => {
@@ -308,6 +352,94 @@ describe('直播专属', () => {
       text: '改成狗',
       streaming: false,
     })
+  })
+
+  it('工具起跑、澄清与下一条回复都让此前那段话定稿', () => {
+    const open: AgentTurnEvent[] = [
+      START,
+      { type: 'assistantStart', messageId: 'assistant-1' },
+      { type: 'textDelta', messageId: 'assistant-1', delta: OPENING },
+    ]
+
+    const started = replay([
+      ...open,
+      {
+        type: 'toolStart',
+        messageId: 'tool-2',
+        toolCallId: 'call-2',
+        toolName: 'generateVideo',
+        title: FAILED.title,
+      },
+    ])
+    expect(started.messages[1]).toMatchObject({ text: OPENING, streaming: false })
+
+    const asked = replay([...open, { ...ASKED, messageId: 'clarify-1' }])
+    expect(asked.messages[1]).toMatchObject({ text: OPENING, streaming: false })
+
+    const next = replay([...open, { type: 'assistantStart', messageId: 'assistant-2' }])
+    expect(next.messages[1]).toMatchObject({ text: OPENING, streaming: false })
+    expect(next.messages[2]).toMatchObject({ id: 'assistant-2', text: '', streaming: true })
+  })
+
+  it('重放同一个 assistantStart 不把那条正在流的话定稿，也不复制一条', () => {
+    const streaming = replay([
+      START,
+      { type: 'assistantStart', messageId: 'assistant-1' },
+      { type: 'textDelta', messageId: 'assistant-1', delta: OPENING },
+      { type: 'assistantStart', messageId: 'assistant-1' },
+      { type: 'textDelta', messageId: 'assistant-1', delta: OPENING },
+    ])
+
+    expect(streaming.messages.map((one) => one.id)).toEqual(['user-1', 'assistant-1'])
+    expect(streaming.messages[1]).toMatchObject({ text: OPENING, streaming: true })
+  })
+
+  it('多步失败轮只撤没说完的那段，已经落库的开场白留在面板上', () => {
+    const state = replay(FAILED_LIVE, USER_TEXT, { messages: [pending], turns: {} })
+    const messages = dropUnsettledMessages(state.messages)
+
+    expect(messages.map((one) => one.id)).toEqual(['user-1', 'assistant-1', 'tool-2'])
+    expect(messages[1]).toMatchObject({ text: OPENING, streaming: false })
+    expect(messages[2]).toMatchObject({ kind: 'tool', status: 'failed' })
+  })
+
+  it('单步失败轮里那段半截的话照旧撤掉', () => {
+    const state = replay(
+      [
+        START,
+        { type: 'assistantStart', messageId: 'assistant-1' },
+        { type: 'textDelta', messageId: 'assistant-1', delta: '我先画' },
+        {
+          type: 'turnEnd',
+          turnId: TURN,
+          durationMs: 8,
+          stopReason: 'failed',
+          error: 'agent_upstream_error',
+          usage: null,
+        },
+      ],
+      USER_TEXT,
+      { messages: [pending], turns: {} },
+    )
+
+    expect(dropUnsettledMessages(state.messages).map((one) => one.id)).toEqual(['user-1'])
+  })
+
+  it('只有工具调用、一个字都没有的那张卡失败时仍然撤掉', () => {
+    const state = replay([
+      START,
+      { type: 'assistantStart', messageId: 'assistant-1' },
+      {
+        type: 'toolStart',
+        messageId: 'tool-2',
+        toolCallId: 'call-2',
+        toolName: 'generateVideo',
+        title: FAILED.title,
+      },
+      toolEnd(FAILED, 'tool-2'),
+    ])
+
+    expect(dropUnsettledMessages(state.messages).map((one) => one.id)).toEqual(['user-1', 'tool-2'])
   })
 
   it('轮失败时撤掉半截的回复与还没确认的那条', () => {

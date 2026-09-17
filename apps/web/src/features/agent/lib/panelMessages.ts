@@ -146,6 +146,32 @@ function runningToolCard(event: AgentToolStartEvent, turnId: string): AgentToolM
 }
 
 /**
+ * 本轮此前那段助手文字说完了，把它定稿。线协议里没有「说完了」这个事件，所以拿后续事件当边界：
+ * 后端 `toolExecution: 'sequential'`，pi 的 `message_end` 一定先于工具起跑，收到 `toolStart`、
+ * `clarification` 或下一条 `assistantStart` 时，此前那段话在服务端已经落库。定了稿，这一轮再失败
+ * 也不会被 {@link dropUnsettledMessages} 当半截撤掉——撤掉它直播与刷新就不是同一个面板。
+ *
+ * 插话不是边界：`turn.ts` 的 `interject` 在助手消息还开着时就发事件（那条用户消息进 `queued`，
+ * 等 `message_end` 才落库），事件之后同一条文字还会来增量。
+ *
+ * 一个字都没有的那张卡不定稿：服务端不为它落库，失败时照旧撤掉。
+ */
+function settleOpenReplies(
+  messages: readonly AgentPanelMessage[],
+  turnId: string,
+): AgentPanelMessage[] {
+  return messages.map((one) =>
+    one.kind === 'text' &&
+    one.role === 'assistant' &&
+    one.streaming &&
+    one.text !== '' &&
+    one.turnId === turnId
+      ? { ...one, streaming: false }
+      : one,
+  )
+}
+
+/**
  * 一个事件归约进面板。事件按 id 幂等：重连重发的帧、以及续播重放的整轮，都落到同一个结果上。
  *
  * 凡是「这个块已经定稿」的时点（`toolEnd`、澄清、插话）都走 {@link panelMessage}，与历史同源；
@@ -177,9 +203,10 @@ export function reduceAgentPanelEvent(
             ],
       }
     case 'assistantStart':
+      // 先定稿再替换：重放同一条 `assistantStart` 时，替换会原样还它 `streaming: true`。
       return {
         ...state,
-        messages: replaceOrAppend(state.messages, {
+        messages: replaceOrAppend(settleOpenReplies(state.messages, turnId), {
           ...textCard(event.messageId, turnId, 'assistant', ''),
           streaming: true,
         }),
@@ -204,7 +231,10 @@ export function reduceAgentPanelEvent(
     case 'toolStart':
       return {
         ...state,
-        messages: replaceOrAppend(state.messages, runningToolCard(event, turnId)),
+        messages: replaceOrAppend(
+          settleOpenReplies(state.messages, turnId),
+          runningToolCard(event, turnId),
+        ),
       }
     case 'toolProgress':
       return {
@@ -218,7 +248,7 @@ export function reduceAgentPanelEvent(
       return {
         ...state,
         messages: replaceOrAppend(
-          state.messages,
+          settleOpenReplies(state.messages, turnId),
           panelMessage(messageId, turnId, 'assistant', [block]),
         ),
       }
