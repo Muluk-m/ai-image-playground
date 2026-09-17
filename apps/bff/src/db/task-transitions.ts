@@ -1,5 +1,6 @@
 import type { TaskErrorType } from '@image-playground/shared'
 import { and, eq, inArray, type SQL } from 'drizzle-orm'
+import { type GenerationMediaLink, publishGenerationImages } from '../lib/generationMedia'
 import { loadPrivateBffOverlay, type TaskUsage } from '../lib/private-overlay'
 import { db, schema } from './client'
 import { publishGenerations } from './generation-events'
@@ -77,6 +78,7 @@ export type TerminalTaskUpdate = {
   upstreamStatus?: number | null
   upstreamBody?: string | null
   actualUsage?: TaskUsage
+  media?: GenerationMediaLink[]
 }
 
 /** 写终态并触发私有 overlay 的结算 / 退回。返回是否真的改到了行。 */
@@ -99,9 +101,12 @@ export async function finishTask(id: string, update: TerminalTaskUpdate): Promis
       .where(stillRunning(id))
       .returning({
         id: schema.tasks.id,
+        userId: schema.tasks.user_id,
         upstreamInvocationCount: schema.tasks.upstream_invocation_count,
       })
     if (!finished) return false
+    if (update.status === 'completed' && finished.userId && update.media)
+      await publishGenerationImages(tx, finished.userId, id, update.media)
     await taskHooks.finalizeTask({
       tx,
       taskId: finished.id,

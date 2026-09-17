@@ -1,6 +1,7 @@
 import { SQL } from 'bun'
 
 export const EXPECTED_TABLES = [
+  'generation_images',
   'media_objects',
   'media_references',
   'generation_commands',
@@ -31,6 +32,7 @@ export const EXPECTED_TABLES = [
 ] as const
 
 export const EXPECTED_INDEXES = [
+  'generation_images_generation_id_role_position_pk',
   'media_objects_pkey',
   'media_references_user_id_owner_kind_owner_id_media_id_pk',
   'idx_media_objects_owner_hash',
@@ -89,7 +91,7 @@ export const EXPECTED_INDEXES = [
   'users_pkey',
 ] as const
 
-const EXPECTED_MIGRATION_COUNT = 23
+const EXPECTED_MIGRATION_COUNT = 24
 
 export interface SchemaVerificationResult {
   tables: number

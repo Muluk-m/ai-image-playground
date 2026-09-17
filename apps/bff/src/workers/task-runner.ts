@@ -5,6 +5,7 @@ import { db, schema } from '../db/client'
 import { finishTask, requeueTask } from '../db/task-transitions'
 import { protectMaskedOutput } from '../lib/agent/masked-output'
 import { describeEmptyResult, extractMeta } from '../lib/extractImages'
+import { archiveGenerationOutputs } from '../lib/generationMedia'
 import {
   archiveOutputImages,
   hydrateInputImages,
@@ -129,6 +130,7 @@ export async function runTask(id: string): Promise<void> {
       provider: schema.tasks.provider,
       model: schema.tasks.model,
       request_payload: schema.tasks.request_payload,
+      userId: schema.tasks.user_id,
       attempt_count: schema.tasks.attempt_count,
       upstream_task_ids: schema.tasks.upstream_task_ids,
       upstream_submitted_at: schema.tasks.upstream_submitted_at,
@@ -209,8 +211,13 @@ export async function runTask(id: string): Promise<void> {
       return
     }
     const archivedPayload = await archiveOutputImages(id, task.provider, payload, protectOutput)
+    const media =
+      task.userId && !task.request_payload.video
+        ? await archiveGenerationOutputs(task.userId, task.provider, archivedPayload)
+        : undefined
     await finishTask(id, {
       status: 'completed',
+      media,
       resultPayload: archivedPayload,
       completedAt: now(),
     })
