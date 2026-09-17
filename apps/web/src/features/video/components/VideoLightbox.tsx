@@ -1,16 +1,15 @@
-import {
-  VIDEO_DERIVE_LABELS,
-  VIDEO_MODEL_SUPPORT,
-  VIDEO_RESOLUTION_LABELS,
-} from '@image-playground/shared'
+import { VIDEO_MODEL_SUPPORT, VIDEO_RESOLUTION_LABELS } from '@image-playground/shared'
 import { useEffect, useRef, useState } from 'react'
 import Credits from '../../../components/Credits'
 import Overlay from '../../../components/Overlay'
 import { LABEL, OUTLINE_BUTTON } from '../../../components/panelStyles'
+import { i18next, useTranslation } from '../../../i18n'
+import { formatDateTime } from '../../../i18n/format'
 import { copyTextToClipboard, getClipboardFailureMessage } from '../../../lib/clipboard'
 import { useStore } from '../../../store'
 import { videoAspectLabel, videoFrameAspect } from '../lib/aspect'
 import { deriveOptions, type VideoDeriveOption } from '../lib/derive'
+import { videoDeriveLabel } from '../lib/labels'
 import { adoptAsFirstFrame, captureVideoFrame, videoOutputUrl } from '../lib/playback'
 import { cancelVideoDownload } from '../lib/useVideoDownload'
 import { useVideoStore } from '../store'
@@ -19,9 +18,13 @@ import DeriveVideoPopover from './DeriveVideoPopover'
 import VideoDownloadButton from './VideoDownloadButton'
 
 function timing(task: VideoTask): string {
-  const at = new Date(task.createdAt).toLocaleString('zh-CN')
+  const at = formatDateTime(task.createdAt)
   if (!task.completedAt) return at
-  return `${at} · 用时 ${Math.max(0, Math.round((task.completedAt - task.createdAt) / 1000))} 秒`
+  return i18next.t('lightbox.timing', {
+    ns: 'video',
+    at,
+    seconds: Math.max(0, Math.round((task.completedAt - task.createdAt) / 1000)),
+  })
 }
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
@@ -34,6 +37,7 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 }
 
 export default function VideoLightbox({ task, onClose }: { task: VideoTask; onClose: () => void }) {
+  const { t } = useTranslation(['video', 'common'])
   const videoRef = useRef<HTMLVideoElement>(null)
   const [derive, setDerive] = useState<VideoDeriveOption | null>(null)
   const showToast = useStore((s) => s.showToast)
@@ -49,9 +53,9 @@ export default function VideoLightbox({ task, onClose }: { task: VideoTask; onCl
   const copyPrompt = async () => {
     try {
       await copyTextToClipboard(task.prompt)
-      showToast('已复制描述', 'success')
+      showToast(t('lightbox.copied'), 'success')
     } catch (error) {
-      showToast(getClipboardFailureMessage('复制失败', error), 'error')
+      showToast(getClipboardFailureMessage(t('common:toast.copyFailed'), error), 'error')
     }
   }
 
@@ -59,11 +63,11 @@ export default function VideoLightbox({ task, onClose }: { task: VideoTask; onCl
     const video = videoRef.current
     const dataUrl = (video && captureVideoFrame(video)) ?? task.thumbnailDataUrl
     if (!dataUrl) {
-      showToast('这一帧取不到，先播放一下再试', 'error')
+      showToast(t('lightbox.frameUnavailable'), 'error')
       return
     }
     await adoptAsFirstFrame(dataUrl)
-    showToast('已填入首帧', 'success')
+    showToast(t('toast.firstFrameAdopted'), 'success')
     onClose()
   }
 
@@ -100,15 +104,15 @@ export default function VideoLightbox({ task, onClose }: { task: VideoTask; onCl
               <track kind="captions" />
             </video>
           ) : (
-            <p className="text-sm text-muted-foreground">这条还没有可播放的视频</p>
+            <p className="text-sm text-muted-foreground">{t('lightbox.noPlayback')}</p>
           )}
         </div>
 
         <div className="flex flex-col gap-3 overflow-y-auto border-t border-border/70 p-4 text-sm lg:border-l lg:border-t-0">
           <div>
             <div className="mb-1.5 flex items-baseline justify-between">
-              <span className={LABEL}>描述</span>
-              <span className="text-[11px] text-muted-foreground">点击复制</span>
+              <span className={LABEL}>{t('field.description')}</span>
+              <span className="text-[11px] text-muted-foreground">{t('lightbox.copyHint')}</span>
             </div>
             <button
               type="button"
@@ -120,32 +124,39 @@ export default function VideoLightbox({ task, onClose }: { task: VideoTask; onCl
           </div>
 
           <dl className="grid grid-cols-[3.5rem_minmax(0,1fr)] gap-x-2 gap-y-1 text-xs">
-            <Row label="模型">{modelLabel}</Row>
-            <Row label="参数">
-              {task.duration} 秒 · {videoAspectLabel(task)} ·{' '}
-              {VIDEO_RESOLUTION_LABELS[task.resolution]}
+            <Row label={t('field.model')}>{modelLabel}</Row>
+            <Row label={t('lightbox.rowParams')}>
+              {t('lightbox.params', {
+                duration: task.duration,
+                aspect: videoAspectLabel(task),
+                resolution: VIDEO_RESOLUTION_LABELS[task.resolution],
+              })}
             </Row>
             {firstFrame && (
-              <Row label="首帧">
+              <Row label={t('frameSlot.first')}>
                 <button
                   type="button"
                   className="text-primary transition hover:underline"
                   onClick={() => useStore.getState().setLightboxImageId(firstFrame, [firstFrame])}
                 >
-                  查看原图
+                  {t('lightbox.viewOriginal')}
                 </button>
               </Row>
             )}
             {task.credits !== undefined && (
-              <Row label="积分">
+              <Row label={t('lightbox.rowCredits')}>
                 <Credits credits={task.credits} />
               </Row>
             )}
-            <Row label="时间">{timing(task)}</Row>
+            <Row label={t('lightbox.rowTime')}>{timing(task)}</Row>
           </dl>
 
           <div className="grid grid-cols-2 gap-2">
-            <VideoDownloadButton task={task} className={OUTLINE_BUTTON} idleLabel="下载 mp4" />
+            <VideoDownloadButton
+              task={task}
+              className={OUTLINE_BUTTON}
+              idleLabel={t('lightbox.downloadMp4')}
+            />
             <button
               type="button"
               className={OUTLINE_BUTTON}
@@ -154,10 +165,10 @@ export default function VideoLightbox({ task, onClose }: { task: VideoTask; onCl
                 onClose()
               }}
             >
-              重生成
+              {t('action.regenerate')}
             </button>
             <button type="button" className={OUTLINE_BUTTON} onClick={() => void useAsFirstFrame()}>
-              用作首帧
+              {t('action.useAsFirstFrame')}
             </button>
             <button
               type="button"
@@ -167,7 +178,7 @@ export default function VideoLightbox({ task, onClose }: { task: VideoTask; onCl
                 onClose()
               }}
             >
-              相同参数再来一条
+              {t('lightbox.sameParams')}
             </button>
             {derivations.map((option) => (
               <button
@@ -178,7 +189,7 @@ export default function VideoLightbox({ task, onClose }: { task: VideoTask; onCl
                 title={option.disabledReason}
                 onClick={() => setDerive(option)}
               >
-                {VIDEO_DERIVE_LABELS[option.mode]}
+                {videoDeriveLabel(option.mode)}
               </button>
             ))}
           </div>
@@ -191,7 +202,7 @@ export default function VideoLightbox({ task, onClose }: { task: VideoTask; onCl
               onClose()
             }}
           >
-            删除
+            {t('common:action.delete')}
           </button>
         </div>
       </div>

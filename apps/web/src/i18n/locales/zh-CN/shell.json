@@ -1,0 +1,49 @@
+{
+  "header": {
+    "brandName": "幕芽",
+    "homeAria": "幕芽 Muvloom，返回创作",
+    "nav": "主导航",
+    "inspiration": "灵感库",
+    "library": "我的资产",
+    "accountMenu": "打开个人账户",
+    "appMenu": "打开应用菜单",
+    "unsynced": "有未同步项",
+    "settings": "设置",
+    "loginMethods": "登录方式",
+    "loggingOut": "退出中"
+  },
+  "logout": {
+    "title": "退出登录",
+    "clearLocalData": "同时清除本机数据",
+    "confirm": "退出"
+  },
+  "sync": {
+    "title": "同步",
+    "retryNow": "立即重试",
+    "failed": "同步失败",
+    "syncing": "同步中",
+    "uploading": "上传素材图 {{done}}/{{total}}",
+    "pending_other": "{{count}} 项待同步",
+    "never": "尚未同步",
+    "syncedAt": "已同步 · {{relative}}",
+    "justNow": "刚刚",
+    "minutesAgo_other": "{{count}} 分钟前",
+    "hoursAgo_other": "{{count}} 小时前",
+    "daysAgo_other": "{{count}} 天前"
+  },
+  "update": {
+    "available": "有新版本可用",
+    "refresh": "刷新",
+    "skip": "跳过此版本"
+  },
+  "confirm": {
+    "confirm": "确认",
+    "deleteConfirm": "确认删除"
+  },
+  "credits": {
+    "ariaLabel": "{{amount}} 积分"
+  },
+  "toast": {
+    "historyAdopted_other": "已找回登录前的 {{count}} 条历史"
+  }
+}

@@ -1,5 +1,6 @@
 import { VIDEO_MODEL_SUPPORT } from '@image-playground/shared'
 import { useEffect, useState } from 'react'
+import { useTranslation } from '../../../i18n'
 import { isClientCapabilityEnabled } from '../../../lib/clientCapabilities'
 import { useStore } from '../../../store'
 import { useLibraryStore } from '../../library/store'
@@ -14,6 +15,7 @@ import VideoFeed from './VideoFeed'
 
 type View = 'director' | 'library' | 'results' | 'quick' | 'new'
 export default function VideoMode() {
+  const { t } = useTranslation('video')
   const enabled = isClientCapabilityEnabled('generation:storyboard')
   const [view, setView] = useState<View>(enabled ? 'director' : 'quick')
   const [generate, setGenerate] = useState(false)
@@ -48,16 +50,16 @@ export default function VideoMode() {
       {showRunning && (
         <button
           type="button"
-          aria-label="查看生成中的视频"
+          aria-label={t('mode.viewRunningAria')}
           onClick={() => setView('results')}
           className="mb-3 flex w-full items-center justify-between gap-3 rounded-xl border border-border bg-card px-4 py-2.5 text-left text-sm text-foreground transition hover:border-primary"
         >
-          <span>{runningCount} 个视频生成中</span>
-          <span className="text-xs text-muted-foreground">查看进度 →</span>
+          <span>{t('mode.runningCount', { count: runningCount })}</span>
+          <span className="text-xs text-muted-foreground">{t('mode.viewProgress')}</span>
         </button>
       )}
       <div className="video-director">
-        <nav className="vd-nav" aria-label="视频工作区">
+        <nav className="vd-nav" aria-label={t('mode.navLabel')}>
           <div className="vd-row">
             {enabled && (
               <>
@@ -66,14 +68,14 @@ export default function VideoMode() {
                   aria-pressed={view === 'director'}
                   onClick={() => open(false)}
                 >
-                  导演台
+                  {t('mode.tabDirector')}
                 </button>
                 <button
                   type="button"
                   aria-pressed={view === 'library'}
                   onClick={() => setView('library')}
                 >
-                  分镜库
+                  {t('mode.tabLibrary')}
                 </button>
               </>
             )}
@@ -82,15 +84,15 @@ export default function VideoMode() {
               aria-pressed={view === 'results'}
               onClick={() => setView('results')}
             >
-              生成与成片
+              {t('mode.tabResults')}
             </button>
             <button type="button" aria-pressed={view === 'quick'} onClick={() => setView('quick')}>
-              快速生成
+              {t('mode.tabQuick')}
             </button>
           </div>
           {enabled && (
             <button type="button" onClick={() => setView('new')}>
-              ＋ 新建分镜
+              {t('action.newStoryboard')}
             </button>
           )}
         </nav>
@@ -98,7 +100,7 @@ export default function VideoMode() {
           <div className="vd-empty" role="alert">
             <p>{loadError}</p>
             <button type="button" onClick={() => void useStoryboardStore.getState().load()}>
-              重新读取
+              {t('mode.reload')}
             </button>
           </div>
         )}
@@ -111,10 +113,10 @@ export default function VideoMode() {
             />
           ) : (
             <div className="vd-empty">
-              <h2>把故事变成一条影片</h2>
-              <p>创建分镜后，在导演台里打磨画面、保存版本并生成视频。</p>
+              <h2>{t('mode.emptyTitle')}</h2>
+              <p>{t('mode.emptyDescription')}</p>
               <button type="button" className="vd-primary" onClick={() => setView('new')}>
-                创建第一个分镜
+                {t('mode.emptyAction')}
               </button>
             </div>
           ))}
@@ -132,9 +134,9 @@ export default function VideoMode() {
         )}
         {view === 'new' && (
           <section className="vd-new">
-            <h2>你的故事，从这里开始</h2>
-            <p className="vd-muted">描述创意、添加参考图，再到导演台逐镜打磨。</p>
-            {support ? <StoryboardComposer support={support} /> : <p>当前没有可用的视频模型</p>}
+            <h2>{t('mode.newTitle')}</h2>
+            <p className="vd-muted">{t('mode.newDescription')}</p>
+            {support ? <StoryboardComposer support={support} /> : <p>{t('mode.noModel')}</p>}
           </section>
         )}
       </div>

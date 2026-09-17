@@ -4,6 +4,7 @@ import { compactModelName } from '../../../components/ModelIdentity'
 import ParamControls, { type UnsupportedParam } from '../../../components/ParamControls'
 import { Button } from '../../../components/ui/button'
 import { useCloseOnEscape } from '../../../hooks/useCloseOnEscape'
+import { useTranslation } from '../../../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/apiProfiles'
 import { getParamCapabilities } from '../../../lib/paramCompatibility'
 import { normalizeImageSize, sizeRatioLabel } from '../../../lib/size'
@@ -19,6 +20,7 @@ const UNSUPPORTED: ReadonlySet<UnsupportedParam> = new Set(['transparent', 'noRe
 
 /** 收起时只给一行摘要：当前打哪个模型、出多大。张数由智能体按需求决定。 */
 function useSummary(): string[] {
+  const { t } = useTranslation('agent')
   const params = useStore((state) => state.params)
   const settings = useStore((state) => state.settings)
   return useMemo(() => {
@@ -28,27 +30,32 @@ function useSummary(): string[] {
     const parts = [compactModelName(profile.model, profile.model)]
     parts.push(
       profile.provider === 'gemini'
-        ? params.gemini_aspect_ratio || '自动比例'
+        ? params.gemini_aspect_ratio || t('params.autoRatio')
         : params.size && params.size !== 'auto'
           ? capabilities.size
             ? normalizeImageSize(params.size)
             : sizeRatioLabel(params.size)
           : capabilities.size
-            ? '自动尺寸'
-            : '自动比例',
+            ? t('params.autoSize')
+            : t('params.autoRatio'),
     )
     return parts
-  }, [params, settings])
+  }, [params, settings, t])
 }
 
 export default function AgentParamsChip() {
+  const { t } = useTranslation('agent')
   const [open, setOpen] = useState(false)
   const wrapperRef = useRef<HTMLDivElement>(null)
   const generationSummary = useSummary()
   const depth = useAgentStore((state) => state.thinkingDepth)
   const setDepth = useAgentStore((state) => state.setThinkingDepth)
-  const labels = { fast: '快速', medium: '中等', deep: '深度' }
-  const summary = [`思考：${labels[depth]}`, ...generationSummary]
+  const labels = {
+    fast: t('params.thinkingFast'),
+    medium: t('params.thinkingMedium'),
+    deep: t('params.thinkingDeep'),
+  }
+  const summary = [t('params.thinkingSummary', { label: labels[depth] }), ...generationSummary]
   const insidePointerRef = useRef<Event | null>(null)
   useCloseOnEscape(open, () => setOpen(false))
 
@@ -77,7 +84,7 @@ export default function AgentParamsChip() {
       <button
         type="button"
         aria-expanded={open}
-        aria-label="生成参数"
+        aria-label={t('params.title')}
         className={`flex min-w-0 max-w-full items-center h-8 gap-1.5 rounded-full bg-muted px-2.5 text-[11px] transition-colors hover:bg-muted ${INK_3}`}
         onClick={() => setOpen((was) => !was)}
       >
@@ -93,18 +100,20 @@ export default function AgentParamsChip() {
           className={`studio-agent-params absolute bottom-full right-0 z-10 mb-2 w-[19rem] max-w-[calc(100vw-2rem)] rounded-xl p-3 ${PANEL_SURFACE} ${PANEL_SHADOW}`}
         >
           <div className="mb-2 flex items-center justify-between">
-            <p className={`text-xs font-semibold ${INK}`}>生成参数</p>
+            <p className={`text-xs font-semibold ${INK}`}>{t('params.title')}</p>
             <button
               type="button"
-              aria-label="关闭生成参数"
+              aria-label={t('params.closeAria')}
               onClick={() => setOpen(false)}
               className="rounded-lg px-3 py-2 text-sm text-muted-foreground"
             >
-              完成
+              {t('params.done')}
             </button>
           </div>
           <fieldset className="mb-3">
-            <legend className={`mb-2 text-xs font-semibold ${INK}`}>思考深度</legend>
+            <legend className={`mb-2 text-xs font-semibold ${INK}`}>
+              {t('params.thinkingLegend')}
+            </legend>
             <div className="flex gap-1">
               {(['fast', 'medium', 'deep'] as const).map((value) => (
                 <Button
@@ -124,9 +133,7 @@ export default function AgentParamsChip() {
           <div className="flex flex-wrap items-center gap-1.5">
             <ParamControls unsupported={UNSUPPORTED} />
           </div>
-          <p className={`mt-2 text-[11px] leading-relaxed ${INK_3}`}>
-            张数由智能体按需求决定。参数改动从下一轮生效。
-          </p>
+          <p className={`mt-2 text-[11px] leading-relaxed ${INK_3}`}>{t('params.note')}</p>
         </div>
       )}
     </div>

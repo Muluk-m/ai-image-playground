@@ -1,0 +1,76 @@
+{
+  "appMode": {
+    "browse": "Gallery",
+    "create": "Create",
+    "video": "Video"
+  },
+  "task": {
+    "interrupted": "Request interrupted",
+    "timeout": "Request timed out: still unfinished after {{timeoutSeconds}} seconds. Retry later or raise the timeout.",
+    "profileMissing": "Cannot find the API profile this task used.",
+    "inputImageMissing": "The input image no longer exists",
+    "maskImageMissing": "The mask image no longer exists",
+    "customDisconnected": "Lost the connection to the custom async task; its result will keep being polled."
+  },
+  "profile": {
+    "unknown": "Unknown profile"
+  },
+  "codexCli": {
+    "title": "Codex CLI API detected",
+    "message": "{{reason}}, so this API most likely comes from Codex CLI.\n\nTurn on Codex CLI compatibility? It disables the quality parameters that do nothing here, and sends concurrent requests for multi-image Images API generations to work around the ignored count parameter. Prompt rewrite protection stays on the “no rewrite” switch in the input bar (on by default).",
+    "confirm": "Turn on"
+  },
+  "networkHint": {
+    "proxyDown": "Hint: the request failed instantly. Check that the API proxy service is running.",
+    "cors": "Hint: this endpoint may not allow cross-origin browser requests. Turning on the API proxy usually fixes it.",
+    "reverseProxy60s": "Hint: the request was cut off after about 60 seconds, which is usually the default timeout of a reverse proxy such as Nginx rather than an error from the endpoint. Raise the proxy timeout (proxy_read_timeout, for example), or lower the image size/quality and retry.",
+    "cdn120s": "Hint: the request was cut off after about 120 seconds, which is usually a CDN or gateway timeout such as Cloudflare's rather than an error from the endpoint. On Cloudflare, consider a higher plan or a direct address that skips the CDN.",
+    "generic": "Hint: the request was cut off after a long wait, usually a reverse proxy or gateway timeout rather than an error from the endpoint. Check the proxy timeout settings, or lower the image size/quality and retry."
+  },
+  "submit": {
+    "modelUnavailable": "That model or profile is no longer available. Pick another one.",
+    "builtinOnly": "This deployment only allows the built-in models",
+    "invalidProfile": "Complete the request API profile first: {{reason}}",
+    "promptRequired": "Enter a prompt",
+    "blocked": "Generation is unavailable right now",
+    "slotUnfilled": "Slot {{slot}} has no value",
+    "batchLimit": "At most {{max}} images per submission"
+  },
+  "reuseProfile": {
+    "missingTitle": "API profile not found",
+    "missingMessage": "The API profile “{{taskProfile}}” this task used is gone. Submit with the current API profile “{{currentProfile}}” instead?",
+    "confirm": "Use current profile",
+    "cancel": "Discard"
+  },
+  "mask": {
+    "fullTitle": "Edit the whole image?",
+    "fullMessage": "The mask covers the whole image, so submitting may repaint all of it. Continue?",
+    "fullConfirm": "Submit anyway"
+  },
+  "error": {
+    "manifestMissing": "The ZIP has no manifest.json",
+    "notAnImage": "Not a valid image"
+  },
+  "toast": {
+    "openaiTimeout": "The OpenAI task request timed out",
+    "generateDone_one": "Generated {{count}} image",
+    "generateDone_other": "Generated {{count}} images",
+    "customTaskRecovered_one": "Custom async task recovered with {{count}} image",
+    "customTaskRecovered_other": "Custom async task recovered with {{count}} images",
+    "profileReused": "Temporarily reusing this task's API profile “{{profile}}”",
+    "configReused": "Settings reused in the input bar",
+    "imageMissingForEdit": "That image no longer exists, so it cannot be edited",
+    "imageMissingForCanvas": "That image no longer exists, so it cannot go to the canvas",
+    "tasksDeleted_one": "Deleted {{count}} record",
+    "tasksDeleted_other": "Deleted {{count}} records",
+    "taskDeleted": "Record deleted",
+    "dataCleared": "The selected data has been cleared",
+    "exported": "Data exported",
+    "exportFailed": "Export failed: {{reason}}",
+    "imported": "Data imported",
+    "importedTasks_one": "Imported {{count}} record",
+    "importedTasks_other": "Imported {{count}} records",
+    "importedConfig": "Settings imported",
+    "importFailed": "Import failed: {{reason}}"
+  }
+}

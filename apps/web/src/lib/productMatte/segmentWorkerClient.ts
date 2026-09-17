@@ -1,3 +1,4 @@
+import { i18next } from '../../i18n'
 import type { MatteBackend } from './backends'
 import type { MatteWorkerRequest, MatteWorkerResponse } from './segmentWorker'
 import type { ProductAlpha } from './types'
@@ -29,7 +30,9 @@ export function runInWorker(
       settle(() => (data.ok ? resolve(data.matte) : reject(new Error(data.message))))
     }
     worker.onerror = (event) => {
-      settle(() => reject(new Error(event.message || '抠图 worker 启动失败')))
+      settle(() =>
+        reject(new Error(event.message || i18next.t('matte.workerStartFailed', { ns: 'lib' }))),
+      )
     }
 
     worker.postMessage({ backend, dataUrl } satisfies MatteWorkerRequest)

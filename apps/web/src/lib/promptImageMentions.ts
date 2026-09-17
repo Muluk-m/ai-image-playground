@@ -1,3 +1,4 @@
+import { i18next } from '../i18n'
 import type { InputImage } from '../types'
 
 const MENTION_START = '\u2063'
@@ -12,12 +13,14 @@ export interface AtImageQuery {
 /** 胶囊的显示文本；null 表示该序号没有对应参考图，按普通文本渲染。 */
 export type MentionLabelResolver = (imageIndex: number) => string | null
 
+/** 胶囊上显示的序号标签，界面文案，随界面语言变。写进提示词的永远是下面的哨兵。 */
 export function getImageMentionLabel(index: number) {
-  return `@图${index + 1}`
+  return i18next.t('mention.imageLabel', { ns: 'lib', n: index + 1 })
 }
 
+/** 哨兵标记：存储格式，`@图N` 与界面语言无关，改它等于改历史记录、模板和同步数据的格式。 */
 export function getSelectedImageMentionLabel(index: number) {
-  return `${MENTION_START}${getImageMentionLabel(index)}${MENTION_END}`
+  return `${MENTION_START}@图${index + 1}${MENTION_END}`
 }
 
 /** `labelByImageId` 给图片起的名字优先于序号；提示词里存的仍是按序号的哨兵标记。 */
@@ -138,9 +141,11 @@ export function imageMentionMatches(query: string, index: number) {
   const normalized = query.trim().toLowerCase()
   if (!normalized) return true
 
+  // 不分界面语言：中文用户会打 image，英文用户也可能从别处学来「图」。
   const oneBasedIndex = String(index + 1)
-  const label = `图${oneBasedIndex}`
-  return oneBasedIndex.includes(normalized) || label.toLowerCase().includes(normalized)
+  return [oneBasedIndex, `图${oneBasedIndex}`, `image${oneBasedIndex}`].some((candidate) =>
+    candidate.includes(normalized),
+  )
 }
 
 /**
@@ -175,7 +180,10 @@ export function remapImageMentions(
   return prompt.replace(SELECTED_IMAGE_MENTION_RE, (text, n) => {
     const nextIndex = nextIndexOf(Number(n) - 1)
     if (nextIndex == null) return text
-    return nextIndex >= 0 ? getSelectedImageMentionLabel(nextIndex) : '@已移除图片'
+    // 初值文案：按写入这一刻的界面语言写，写完就是用户提示词里的普通文字。
+    return nextIndex >= 0
+      ? getSelectedImageMentionLabel(nextIndex)
+      : i18next.t('mention.removedImage', { ns: 'lib' })
   })
 }
 

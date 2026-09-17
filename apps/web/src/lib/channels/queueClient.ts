@@ -8,6 +8,7 @@ import {
   type SubmitResponse,
   type VideoRequest,
 } from '@image-playground/shared'
+import { describeError, i18next } from '../../i18n'
 import type { TaskParams } from '../../types'
 import { authenticatedBffFetch } from '../authClient'
 import { getDeviceId } from '../deviceId'
@@ -22,6 +23,18 @@ import {
 import { bffBaseUrl } from '../runtimeConfig'
 import { nearestAspectRatio } from '../size'
 import type { BuiltinEdgeProfile, ProviderKind, PublicChannel } from './types'
+
+/**
+ * BFF 400 响应里 `message` 是中文的，直接显示就会把中文漏给英文用户。`error` 码是稳定的，
+ * 按码取译文。这里只收会带中文 message 的那几个；其余码（配额、鉴权等）各有自己的分支。
+ */
+const BFF_SUBMIT_ERROR_KEYS = {
+  video_not_supported: 'queue.bffVideoNotSupported',
+  video_params_required: 'queue.bffVideoParamsRequired',
+  invalid_video_request: 'queue.bffInvalidVideoRequest',
+  invalid_video_source: 'queue.bffInvalidVideoSource',
+  invalid_input_image: 'queue.bffInvalidInputImage',
+} as const
 
 const { POLL_BACKOFF_MS, POLL_MAX_MS, POLL_MAX_CONSECUTIVE_FAILURES } = QUEUE_TIMEOUTS
 
@@ -44,7 +57,7 @@ export async function callQueueChannelApi(
 ): Promise<CallApiResult> {
   const provider = toQueueProvider(channel.kind)
   if (!provider) {
-    throw new Error(`callQueueChannelApi: 不支持的 channel kind ${channel.kind}`)
+    throw new Error(i18next.t('queue.unsupportedKindCall', { ns: 'lib', kind: channel.kind }))
   }
   assertImageInputPayloadSize(
     opts.inputImageDataUrls.reduce((sum, url) => sum + getDataUrlEncodedByteSize(url), 0),
@@ -71,7 +84,7 @@ export async function resumeQueueChannelApi(
   // 校验 kind 合法但 resume 本身只用 channel + requestId — provider/opts/profile
   // 仅为跟 callQueueChannelApi 保持调用签名一致，恢复路径不需要重新构造请求。
   if (!toQueueProvider(channel.kind)) {
-    throw new Error(`resumeQueueChannelApi: 不支持的 channel kind ${channel.kind}`)
+    throw new Error(i18next.t('queue.unsupportedKindResume', { ns: 'lib', kind: channel.kind }))
   }
   return await pollAndFetch(channel, bffBaseUrl(), requestId)
 }
@@ -86,7 +99,7 @@ async function pollAndFetch(
   const inlined = await poll(base, requestId)
   const meta = inlined ?? (await fetchResultMeta(base, requestId))
   if (!meta.images?.length) {
-    throw new Error('BFF 返回 completed 但 images 列表为空')
+    throw new Error(i18next.t('queue.completedWithoutImages', { ns: 'lib' }))
   }
 
   // 并发拉所有图片二进制，转 data URL 给上游既有存储路径用。
@@ -183,7 +196,7 @@ async function postSubmit(
       available?: number
     } | null
     if (json?.error === 'insufficient_credits') {
-      const err = new Error('积分不足，请充值或开通套餐后再生成') as Error & {
+      const err = new Error(i18next.t('queue.insufficientCredits', { ns: 'lib' })) as Error & {
         insufficientCredits: true
         required?: number
         available?: number
@@ -195,6 +208,10 @@ async function postSubmit(
     }
   }
   if (!res.ok) {
+    // BFF 的 400 里 message 是中文的（`该模型不支持视频生成` 之类），它会直接显示给用户。
+    // 前端按稳定的 error 码取译文，认不出来的码才退回服务端原文。克隆一份读，
+    // 别把下面 429 分支和 getApiErrorMessage 要用的 body 吃掉。
+    const coded = res.clone()
     if (res.status === 429) {
       const json = (await res.json().catch(() => null)) as {
         error?: string
@@ -204,9 +221,11 @@ async function postSubmit(
       if (json?.error === 'daily_quota_exceeded') {
         const exhausted =
           typeof json.quota === 'number' && Number.isSafeInteger(json.quota) && json.quota >= 0
-            ? `今日 ${json.quota} 张已用完`
-            : '今日生成额度已用完'
-        const err = new Error(`${exhausted}，UTC 0 点（北京 8 点）后重置`) as Error & {
+            ? i18next.t('queue.dailyQuotaUsed', { ns: 'lib', quota: json.quota })
+            : i18next.t('queue.dailyQuotaExhausted', { ns: 'lib' })
+        const err = new Error(
+          i18next.t('queue.quotaResetHint', { ns: 'lib', exhausted }),
+        ) as Error & {
           quotaExceeded: boolean
           resetAt?: string
         }
@@ -215,10 +234,18 @@ async function postSubmit(
         throw err
       }
     }
-    throw new Error(`BFF submit 失败：${await getApiErrorMessage(res)}`)
+    const code = ((await coded.json().catch(() => null)) as { error?: string } | null)?.error
+    // `as const` 不能省：退化成 `string` 就过不了 t() 的字面量 key 检查，
+    // 拼错的 key 也就不会在 typecheck 红了。
+    const localized =
+      code && code in BFF_SUBMIT_ERROR_KEYS
+        ? BFF_SUBMIT_ERROR_KEYS[code as keyof typeof BFF_SUBMIT_ERROR_KEYS]
+        : undefined
+    const reason = localized ? i18next.t(localized, { ns: 'lib' }) : await getApiErrorMessage(res)
+    throw new Error(i18next.t('queue.submitFailed', { ns: 'lib', reason }))
   }
   const json = (await res.json()) as SubmitResponse
-  if (!json.request_id) throw new Error('BFF submit 响应缺少 request_id')
+  if (!json.request_id) throw new Error(i18next.t('queue.submitMissingRequestId', { ns: 'lib' }))
   return json.request_id
 }
 
@@ -235,7 +262,9 @@ export interface VideoSubmitInput {
 export async function submitVideoRequest(input: VideoSubmitInput): Promise<string> {
   const provider = toQueueProvider(input.channel.kind)
   if (!provider) {
-    throw new Error(`submitVideoRequest: 不支持的 channel kind ${input.channel.kind}`)
+    throw new Error(
+      i18next.t('queue.unsupportedKindVideo', { ns: 'lib', kind: input.channel.kind }),
+    )
   }
   assertImageInputPayloadSize(
     input.inputImageDataUrls.reduce((sum, url) => sum + getDataUrlEncodedByteSize(url), 0),
@@ -259,7 +288,7 @@ export async function awaitQueueOutputs(requestId: string): Promise<ResultImageM
   const inlined = await poll(base, requestId)
   const meta = inlined ?? (await fetchResultMeta(base, requestId))
   if (!meta.images?.length) {
-    throw new Error('BFF 返回 completed 但输出列表为空')
+    throw new Error(i18next.t('queue.completedWithoutOutputs', { ns: 'lib' }))
   }
   return meta.images
 }
@@ -289,7 +318,10 @@ async function classifyPollResponse(url: string): Promise<PollOutcome> {
   const json = (await res.json()) as StatusResponse
   if (json.status === 'completed') return { kind: 'done', result: json.result }
   if (json.status === 'failed')
-    return { kind: 'failed', message: json.error?.message ?? 'BFF 任务执行失败' }
+    return {
+      kind: 'failed',
+      message: json.error?.message ?? i18next.t('queue.taskFailed', { ns: 'lib' }),
+    }
   if (json.status === 'cancelled') return { kind: 'cancelled' }
   return { kind: 'pending' }
 }
@@ -314,15 +346,21 @@ async function poll(base: string, requestId: string): Promise<StatusResultMeta |
       case 'failed':
         throw new Error(outcome.message)
       case 'cancelled':
-        throw new Error('BFF 任务被取消')
+        throw new Error(i18next.t('queue.cancelled', { ns: 'lib' }))
       case 'fatal':
-        throw new Error(`BFF status 查询失败：${outcome.message}`)
+        throw new Error(i18next.t('queue.statusFailed', { ns: 'lib', reason: outcome.message }))
       case 'transient': {
         consecutiveFailures++
         lastTransientError = outcome.error
         if (consecutiveFailures >= POLL_MAX_CONSECUTIVE_FAILURES) {
           const msg = outcome.error instanceof Error ? outcome.error.message : String(outcome.error)
-          throw new Error(`BFF 连续 ${POLL_MAX_CONSECUTIVE_FAILURES} 次连不上：${msg}`)
+          throw new Error(
+            i18next.t('queue.consecutiveFailures', {
+              ns: 'lib',
+              attempts: POLL_MAX_CONSECUTIVE_FAILURES,
+              reason: msg,
+            }),
+          )
         }
         break
       }
@@ -334,23 +372,27 @@ async function poll(base: string, requestId: string): Promise<StatusResultMeta |
   }
 
   const trailing = lastTransientError
-    ? `，最后一次错误：${lastTransientError instanceof Error ? lastTransientError.message : String(lastTransientError)}`
+    ? i18next.t('queue.pollLastError', { ns: 'lib', reason: describeError(lastTransientError) })
     : ''
-  throw new Error(`BFF 任务超过 ${POLL_MAX_MS / 1000}s 未完成${trailing}`)
+  throw new Error(
+    i18next.t('queue.pollTimeout', { ns: 'lib', seconds: POLL_MAX_MS / 1000, trailing }),
+  )
 }
 
 async function fetchResultMeta(base: string, requestId: string): Promise<ResultResponse> {
   const url = `${base}/v1/queue/requests/${requestId}`
   const res = await authenticatedBffFetch(url)
   if (!res.ok) {
-    throw new Error(`BFF result meta 拉取失败：${await getApiErrorMessage(res)}`)
+    throw new Error(
+      i18next.t('queue.resultMetaFailed', { ns: 'lib', reason: await getApiErrorMessage(res) }),
+    )
   }
   const json = (await res.json()) as ResultResponse
   if (json.status === 'failed') {
-    throw new Error(json.error?.message ?? 'BFF 任务执行失败')
+    throw new Error(json.error?.message ?? i18next.t('queue.taskFailed', { ns: 'lib' }))
   }
   if (json.status !== 'completed') {
-    throw new Error(`BFF 返回非 completed 状态：${json.status}`)
+    throw new Error(i18next.t('queue.notCompleted', { ns: 'lib', status: json.status }))
   }
   return json
 }
@@ -365,7 +407,13 @@ export async function fetchImageDataUrl(
   const url = `${base}/v1/queue/requests/${requestId}/image/${index}`
   const res = await authenticatedBffFetch(url, { signal })
   if (!res.ok) {
-    throw new Error(`BFF image #${index} 拉取失败：${await getApiErrorMessage(res)}`)
+    throw new Error(
+      i18next.t('queue.imageFetchFailed', {
+        ns: 'lib',
+        index,
+        reason: await getApiErrorMessage(res),
+      }),
+    )
   }
   const mime = res.headers.get('content-type') ?? fallbackMime
   return bytesToDataUrl(await res.arrayBuffer(), mime)

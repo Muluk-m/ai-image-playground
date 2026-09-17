@@ -1,5 +1,6 @@
 import { CloseIcon, SparkleIcon } from '../../../components/icons'
 import Overlay from '../../../components/Overlay'
+import { useTranslation } from '../../../i18n'
 import { useInspirationStore } from '../store'
 import InspirationCategoryFilter from './InspirationCategoryFilter'
 import InspirationDetail from './InspirationDetail'
@@ -13,6 +14,7 @@ export default function InspirationPanel() {
   const detailItemId = useInspirationStore((s) => s.detailItemId)
   const searchKeyword = useInspirationStore((s) => s.searchKeyword)
   const setSearch = useInspirationStore((s) => s.setSearch)
+  const { t } = useTranslation(['inspiration', 'common'])
 
   if (!panelOpen) return null
 
@@ -23,9 +25,9 @@ export default function InspirationPanel() {
         <div className="flex items-center justify-between gap-3 shrink-0 p-5 border-b border-border">
           <h3 className="text-lg font-bold text-foreground flex items-center gap-2 shrink-0">
             <SparkleIcon className="w-5 h-5 text-primary" />
-            灵感库
+            {t('panel.title')}
             <span className="ml-1 text-xs font-normal text-muted-foreground">
-              {items.length > 0 ? `${items.length} 条` : '加载中…'}
+              {items.length > 0 ? t('panel.count', { count: items.length }) : t('list.loading')}
             </span>
           </h3>
 
@@ -48,7 +50,7 @@ export default function InspirationPanel() {
                 type="search"
                 value={searchKeyword}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="搜索标题 / 提示词 / 标签"
+                placeholder={t('panel.searchPlaceholder')}
                 className="w-full rounded-lg border border-border bg-card py-1.5 pl-8 pr-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-ring"
               />
             </div>
@@ -58,7 +60,7 @@ export default function InspirationPanel() {
             type="button"
             onClick={closePanel}
             className="rounded-full p-1 text-muted-foreground transition hover:bg-muted hover:text-muted-foreground shrink-0"
-            aria-label="关闭"
+            aria-label={t('common:action.close')}
           >
             <CloseIcon className="h-5 w-5" />
           </button>

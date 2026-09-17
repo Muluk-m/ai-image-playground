@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
+import { describeError, i18next } from './i18n'
 import {
   clientProfileToApiProfile,
   DEFAULT_SETTINGS,
@@ -111,10 +112,13 @@ const CUSTOM_RECOVERY_POLL_MS = 10_000
 const SUBMIT_SCROLL_TO_TOP_THRESHOLD_PX = 80
 const customRecoveryTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const openAIWatchdogTimers = new Map<string, ReturnType<typeof setTimeout>>()
-const OPENAI_INTERRUPTED_ERROR = '请求中断'
+/** 任务文案在写进任务那一刻才求值：模块级常量会被之后的语言切换甩在身后。 */
+function createOpenAIInterruptedError() {
+  return i18next.t('task.interrupted', { ns: 'store' })
+}
 
 function createOpenAITimeoutError(timeoutSeconds: number) {
-  return `请求超时：超过 ${timeoutSeconds} 秒仍未完成，请稍后重试或提高超时时间。`
+  return i18next.t('task.timeout', { ns: 'store', timeoutSeconds })
 }
 
 export function getCachedImage(id: string): string | undefined {
@@ -161,7 +165,7 @@ async function storeGeneratedImages(
         outputDataUrl = await removeKeyedBackgroundFromDataUrl(dataUrl)
         transparentOriginalImageIds.push(originalId)
       } catch (err) {
-        console.warn('透明背景后处理失败，已回退为原始输出', err)
+        console.warn('transparent background post-processing failed, kept the raw output', err)
         outputIds.push(originalId)
         outputDataUrls.push(dataUrl)
         transparentOriginalImageIds.push('')
@@ -292,7 +296,7 @@ function scheduleThumbnailBackfillTick() {
     thumbnailBackfillScheduled = false
     // The tick can outlive its page, so a rejection here has nowhere to go.
     processNextThumbnailBackfill().catch((err) => {
-      console.warn('缩略图补齐调度失败', err)
+      console.warn('thumbnail backfill scheduling failed', err)
     })
   }
 
@@ -397,10 +401,20 @@ function orderImagesWithMaskFirst(
 export const APP_MODES = ['create', 'browse', 'video'] as const
 export type AppMode = (typeof APP_MODES)[number]
 
+/**
+ * 取值时才翻译：模块加载那一刻语言可能还没切完，而写死的字面量在切换后也不会跟着变。
+ * 消费方（Header）用 `useTranslation` 订阅语言变化，重渲染时会重新读到当前语言的标签。
+ */
 export const APP_MODE_LABELS: Record<AppMode, string> = {
-  browse: '作品',
-  create: '创作',
-  video: '视频',
+  get browse() {
+    return i18next.t('appMode.browse', { ns: 'store' })
+  },
+  get create() {
+    return i18next.t('appMode.create', { ns: 'store' })
+  },
+  get video() {
+    return i18next.t('appMode.video', { ns: 'store' })
+  },
 }
 
 /** 分段控件与模式分发都只认这份列表。视频要 BFF 频道加能力开关，纯静态形态没有。 */
@@ -912,7 +926,7 @@ export function markInterruptedOpenAIRunningTasks(tasks: TaskRecord[], now = Dat
     const updated: TaskRecord = {
       ...task,
       status: 'error',
-      error: OPENAI_INTERRUPTED_ERROR,
+      error: createOpenAIInterruptedError(),
       finishedAt: now,
       elapsed: Math.max(0, now - task.createdAt),
     }
@@ -952,7 +966,8 @@ function scheduleOpenAIWatchdog(taskId: string, timeoutSeconds: number) {
   const timer = setTimeout(() => {
     openAIWatchdogTimers.delete(taskId)
     const failed = failOpenAITaskIfStillRunning(taskId, createOpenAITimeoutError(timeoutSeconds))
-    if (failed) useStore.getState().showToast('OpenAI 任务请求超时', 'error')
+    if (failed)
+      useStore.getState().showToast(i18next.t('toast.openaiTimeout', { ns: 'store' }), 'error')
   }, remainingMs)
   openAIWatchdogTimers.set(taskId, timer)
 }
@@ -963,9 +978,9 @@ export function showCodexCliPrompt(reason: string) {
   const promptKey = getCodexCliPromptKey(settings)
 
   state.setConfirmDialog({
-    title: '检测到 Codex CLI API',
-    message: `${reason}，当前 API 来源很可能是 Codex CLI。\n\n是否开启 Codex CLI 兼容模式？开启后会禁用在此处无效的质量参数，并在 Images API 多图生成时使用并发请求，解决该 API 数量参数无效的问题。提示词防改写由输入栏参数中的「防改写」开关控制（默认开启）。`,
-    confirmText: '开启',
+    title: i18next.t('codexCli.title', { ns: 'store' }),
+    message: i18next.t('codexCli.message', { ns: 'store', reason }),
+    confirmText: i18next.t('codexCli.confirm', { ns: 'store' }),
     action: () => {
       const state = useStore.getState()
       state.dismissCodexCliPrompt(promptKey)
@@ -1053,7 +1068,7 @@ function getReusedTaskApiProfile(
 }
 
 function getTaskApiProfileName(task: TaskRecord) {
-  return task.apiProfileName || task.apiModel || '未知配置'
+  return task.apiProfileName || task.apiModel || i18next.t('profile.unknown', { ns: 'store' })
 }
 
 function isConnectionRecoverableError(err: unknown) {
@@ -1094,20 +1109,20 @@ function getApiRequestNetworkErrorHint(
 
   if (elapsedSeconds <= 15) {
     if (usesApiProxy) {
-      return '提示：请求立即失败，请检查 API 代理服务是否正常运行。'
+      return i18next.t('networkHint.proxyDown', { ns: 'store' })
     }
-    return '提示：接口可能不支持浏览器跨域请求，可开启 API 代理解决。'
+    return i18next.t('networkHint.cors', { ns: 'store' })
   }
 
   if (elapsedSeconds >= 55 && elapsedSeconds <= 75) {
-    return '提示：请求等待约 60 秒后被断开，这通常是 Nginx 等反向代理的默认超时，而非接口本身报错。可调大代理的超时时间（如 proxy_read_timeout），或降低图片尺寸/质量后重试。'
+    return i18next.t('networkHint.reverseProxy60s', { ns: 'store' })
   }
 
   if (elapsedSeconds >= 110 && elapsedSeconds <= 140) {
-    return '提示：请求等待约 120 秒后被断开，这通常是 Cloudflare 等 CDN/网关的超时限制，而非接口本身报错。如果使用 Cloudflare，可考虑升级套餐或使用不经过 CDN 的直连地址。'
+    return i18next.t('networkHint.cdn120s', { ns: 'store' })
   }
 
-  return '提示：请求等待较长时间后被断开，通常是反向代理或网关的超时限制，而非接口本身报错。可检查代理超时设置，或降低图片尺寸/质量后重试。'
+  return i18next.t('networkHint.generic', { ns: 'store' })
 }
 
 function getRawErrorPayload(
@@ -1325,7 +1340,7 @@ export async function submitPrepared(input: PreparedSubmission): Promise<string[
     (!normalizedSettings.profiles.some((item) => item.id === input.profileId) ||
       !getProfileModels(selectedProfile, getPublicChannels()).includes(input.modelId))
   ) {
-    showToast('所选模型或配置已不可用，请重新选择', 'error')
+    showToast(i18next.t('submit.modelUnavailable', { ns: 'store' }), 'error')
     return []
   }
   const profile = input.modelId
@@ -1334,20 +1349,20 @@ export async function submitPrepared(input: PreparedSubmission): Promise<string[
   const requestSettings = createSettingsForApiProfile(normalizedSettings, profile)
 
   if (!isByokGenerationEnabled() && profile.source !== 'builtin-edge') {
-    showToast('当前部署只允许使用内置模型', 'error')
+    showToast(i18next.t('submit.builtinOnly', { ns: 'store' }), 'error')
     return []
   }
 
   const validationError = validateClientProfile(profile)
   if (validationError) {
-    showToast(`请先完善请求 API 配置：${validationError}`, 'error')
+    showToast(i18next.t('submit.invalidProfile', { ns: 'store', reason: validationError }), 'error')
     useStore.getState().setShowSettings(true)
     return []
   }
 
   const trimmedPrompt = input.prompt.trim()
   if (!trimmedPrompt) {
-    showToast('请输入提示词', 'error')
+    showToast(i18next.t('submit.promptRequired', { ns: 'store' }), 'error')
     return []
   }
 
@@ -1361,7 +1376,10 @@ export async function submitPrepared(input: PreparedSubmission): Promise<string[
     quantity: prompts.length * Math.max(1, taskParams.n),
   })
   if (submissionGuard.blocked) {
-    showToast(submissionGuard.disabledReason ?? '当前无法生成', 'error')
+    showToast(
+      submissionGuard.disabledReason ?? i18next.t('submit.blocked', { ns: 'store' }),
+      'error',
+    )
     return []
   }
 
@@ -1450,10 +1468,14 @@ export async function submitTask(
         useStore.getState().setReusedTaskApiProfile(null)
       } else {
         setConfirmDialog({
-          title: '找不到 API 配置',
-          message: `找不到复用任务所使用的 API 配置「${reusedTaskApiProfileName || '未知配置'}」，要使用当前的 API 配置「${clientProfileToApiProfile(activeProfile).name}」提交任务吗？`,
-          confirmText: '使用当前配置提交',
-          cancelText: '放弃提交',
+          title: i18next.t('reuseProfile.missingTitle', { ns: 'store' }),
+          message: i18next.t('reuseProfile.missingMessage', {
+            ns: 'store',
+            taskProfile: reusedTaskApiProfileName || i18next.t('profile.unknown', { ns: 'store' }),
+            currentProfile: clientProfileToApiProfile(activeProfile).name,
+          }),
+          confirmText: i18next.t('reuseProfile.confirm', { ns: 'store' }),
+          cancelText: i18next.t('reuseProfile.cancel', { ns: 'store' }),
           action: () => {
             void submitTask({ ...options, useCurrentApiProfileWhenReusedMissing: true })
           },
@@ -1468,7 +1490,10 @@ export async function submitTask(
 
   const unfilledSlots = getUnfilledPromptSlots(prompt, slotValues)
   if (unfilledSlots.length > 0) {
-    showToast(`槽位 {${unfilledSlots[0]}} 未填值`, 'error')
+    showToast(
+      i18next.t('submit.slotUnfilled', { ns: 'store', slot: `{${unfilledSlots[0]}}` }),
+      'error',
+    )
     return
   }
 
@@ -1485,9 +1510,9 @@ export async function submitTask(
       )
       if (coverage === 'full' && !options.allowFullMask) {
         setConfirmDialog({
-          title: '确认编辑整张图片？',
-          message: '当前遮罩覆盖了整张图片，提交后可能会重绘全部内容。是否继续？',
-          confirmText: '继续提交',
+          title: i18next.t('mask.fullTitle', { ns: 'store' }),
+          message: i18next.t('mask.fullMessage', { ns: 'store' }),
+          confirmText: i18next.t('mask.fullConfirm', { ns: 'store' }),
           tone: 'warning',
           action: () => {
             void submitTask({ allowFullMask: true })
@@ -1514,7 +1539,7 @@ export async function submitTask(
   }
 
   if (getSubmissionImageCount(prompt.trim(), slotValues, taskParams.n) > MAX_BATCH_IMAGES) {
-    showToast(`单次最多 ${MAX_BATCH_IMAGES} 张`, 'error')
+    showToast(i18next.t('submit.batchLimit', { ns: 'store', max: MAX_BATCH_IMAGES }), 'error')
     return
   }
 
@@ -1551,7 +1576,7 @@ async function executeTask(taskId: string) {
   if (!taskProfile && task.apiProfileId) {
     updateTaskInStore(taskId, {
       status: 'error',
-      error: '找不到此任务所使用的 API 配置。',
+      error: i18next.t('task.profileMissing', { ns: 'store' }),
       customRecoverable: false,
       finishedAt: Date.now(),
       elapsed: Date.now() - task.createdAt,
@@ -1602,12 +1627,12 @@ async function executeTask(taskId: string) {
       const inputDataUrls: string[] = []
       for (const imgId of task.inputImageIds) {
         const dataUrl = await ensureImageCached(imgId)
-        if (!dataUrl) throw new Error('输入图片已不存在')
+        if (!dataUrl) throw new Error(i18next.t('task.inputImageMissing', { ns: 'store' }))
         inputDataUrls.push(dataUrl)
       }
       if (task.maskImageId) {
         maskDataUrl = await ensureImageCached(task.maskImageId)
-        if (!maskDataUrl) throw new Error('遮罩图片已不存在')
+        if (!maskDataUrl) throw new Error(i18next.t('task.maskImageMissing', { ns: 'store' }))
       }
 
       const requestPrompt =
@@ -1679,7 +1704,12 @@ async function executeTask(taskId: string) {
       customRecoverable: false,
     })
 
-    useStore.getState().showToast(`生成完成，共 ${outputIds.length} 张图片`, 'success')
+    useStore
+      .getState()
+      .showToast(
+        i18next.t('toast.generateDone', { ns: 'store', count: outputIds.length }),
+        'success',
+      )
     const currentMask = useStore.getState().maskDraft
     if (
       maskDataUrl &&
@@ -1699,7 +1729,7 @@ async function executeTask(taskId: string) {
     if (latestCustomTaskInfo && isConnectionRecoverableError(err)) {
       updateTaskInStore(taskId, {
         status: 'error',
-        error: '与自定义异步任务的连接已断开，之后会继续查询任务结果。',
+        error: i18next.t('task.customDisconnected', { ns: 'store' }),
         customTaskId: latestCustomTaskInfo.taskId,
         customRecoverable: true,
         finishedAt: Date.now(),
@@ -1851,10 +1881,14 @@ export async function reuseConfig(task: TaskRecord) {
   }
   if (missingReusedProfile) {
     setConfirmDialog({
-      title: '找不到 API 配置',
-      message: `找不到复用任务所使用的 API 配置「${taskProfileName}」，要使用当前的 API 配置「${currentView.name}」提交任务吗？`,
-      confirmText: '使用当前配置提交',
-      cancelText: '放弃提交',
+      title: i18next.t('reuseProfile.missingTitle', { ns: 'store' }),
+      message: i18next.t('reuseProfile.missingMessage', {
+        ns: 'store',
+        taskProfile: taskProfileName,
+        currentProfile: currentView.name,
+      }),
+      confirmText: i18next.t('reuseProfile.confirm', { ns: 'store' }),
+      cancelText: i18next.t('reuseProfile.cancel', { ns: 'store' }),
       action: () => {
         void submitTask({ useCurrentApiProfileWhenReusedMissing: true })
       },
@@ -1864,8 +1898,8 @@ export async function reuseConfig(task: TaskRecord) {
 
   showToast(
     shouldTemporarilyReuseProfile && matchedView
-      ? `已临时复用该任务的 API 配置「${matchedView.name}」`
-      : '已复用配置到输入框',
+      ? i18next.t('toast.profileReused', { ns: 'store', profile: matchedView.name })
+      : i18next.t('toast.configReused', { ns: 'store' }),
     'success',
   )
 }
@@ -1888,7 +1922,7 @@ export async function editOutputImage(task: TaskRecord, imageId?: string) {
 
   const dataUrl = await ensureImageCached(targetId)
   if (!dataUrl) {
-    showToast('图片已不存在，无法编辑', 'error')
+    showToast(i18next.t('toast.imageMissingForEdit', { ns: 'store' }), 'error')
     return
   }
   if (!inputImages.find((i) => i.id === targetId)) {
@@ -1964,7 +1998,7 @@ export async function sendTaskToCanvas(task: TaskRecord, imageId?: string) {
 
   const dataUrl = await ensureImageCached(targetId)
   if (!dataUrl) {
-    showToast('图片已不存在，无法送入画布', 'error')
+    showToast(i18next.t('toast.imageMissingForCanvas', { ns: 'store' }), 'error')
     return
   }
   queueCanvasImages([dataUrl])
@@ -2015,7 +2049,7 @@ export async function removeMultipleTasks(taskIds: string[]) {
     useStore.getState().setSelectedTaskIds(newSelection)
   }
 
-  showToast(`已删除 ${taskIds.length} 条记录`, 'success')
+  showToast(i18next.t('toast.tasksDeleted', { ns: 'store', count: taskIds.length }), 'success')
 }
 
 /** 删除单条任务 */
@@ -2046,7 +2080,7 @@ export async function removeTask(task: TaskRecord) {
     }
   }
 
-  showToast('记录已删除', 'success')
+  showToast(i18next.t('toast.taskDeleted', { ns: 'store' }), 'success')
 }
 
 /** 清空数据选项 */
@@ -2077,7 +2111,7 @@ export async function clearData(options: ClearOptions = { clearConfig: true, cle
     setParams({ ...DEFAULT_PARAMS })
   }
 
-  showToast('所选数据已清空', 'success')
+  showToast(i18next.t('toast.dataCleared', { ns: 'store' }), 'success')
 }
 
 /** 从 dataUrl 解析出 MIME 扩展名和二进制数据 */
@@ -2128,7 +2162,12 @@ async function completeRecoveredCustomTask(
     finishedAt: Date.now(),
     elapsed: Date.now() - task.createdAt,
   })
-  useStore.getState().showToast(`自定义异步任务已恢复，共 ${outputIds.length} 张图片`, 'success')
+  useStore
+    .getState()
+    .showToast(
+      i18next.t('toast.customTaskRecovered', { ns: 'store', count: outputIds.length }),
+      'success',
+    )
 }
 
 async function recoverCustomTask(taskId: string) {
@@ -2293,11 +2332,14 @@ export async function exportData(
     a.download = `image-playground-${formatExportFileTime(new Date(exportedAt))}.zip`
     a.click()
     URL.revokeObjectURL(url)
-    useStore.getState().showToast('数据已导出', 'success')
+    useStore.getState().showToast(i18next.t('toast.exported', { ns: 'store' }), 'success')
   } catch (e) {
     useStore
       .getState()
-      .showToast(`导出失败：${e instanceof Error ? e.message : String(e)}`, 'error')
+      .showToast(
+        i18next.t('toast.exportFailed', { ns: 'store', reason: describeError(e) }),
+        'error',
+      )
   }
 }
 
@@ -2317,7 +2359,7 @@ export async function importData(
     const unzipped = unzipSync(new Uint8Array(buffer))
 
     const manifestBytes = unzipped['manifest.json']
-    if (!manifestBytes) throw new Error('ZIP 中缺少 manifest.json')
+    if (!manifestBytes) throw new Error(i18next.t('error.manifestMissing', { ns: 'store' }))
 
     const data: ExportData = JSON.parse(strFromU8(manifestBytes))
 
@@ -2373,11 +2415,11 @@ export async function importData(
       state.setSettings(mergeImportedSettings(state.settings, data.settings))
     }
 
-    let msg = '数据已成功导入'
+    let msg = i18next.t('toast.imported', { ns: 'store' })
     if (options.importTasks && data.tasks) {
-      msg = `已导入 ${data.tasks.length} 条记录`
+      msg = i18next.t('toast.importedTasks', { ns: 'store', count: data.tasks.length })
     } else if (options.importConfig && data.settings) {
-      msg = '配置已成功导入'
+      msg = i18next.t('toast.importedConfig', { ns: 'store' })
     }
 
     useStore.getState().showToast(msg, 'success')
@@ -2385,7 +2427,10 @@ export async function importData(
   } catch (e) {
     useStore
       .getState()
-      .showToast(`导入失败：${e instanceof Error ? e.message : String(e)}`, 'error')
+      .showToast(
+        i18next.t('toast.importFailed', { ns: 'store', reason: describeError(e) }),
+        'error',
+      )
     return false
   }
 }
@@ -2415,7 +2460,8 @@ export async function storeImageFromUrl(
 ): Promise<{ id: string; dataUrl: string }> {
   const res = await fetcher(src)
   const blob = await res.blob()
-  if (!blob.type.startsWith('image/')) throw new Error('不是有效的图片')
+  if (!blob.type.startsWith('image/'))
+    throw new Error(i18next.t('error.notAnImage', { ns: 'store' }))
   const dataUrl = await blobToDataUrl(blob)
   const id = await storeImage(dataUrl, 'upload')
   cacheImage(id, dataUrl)

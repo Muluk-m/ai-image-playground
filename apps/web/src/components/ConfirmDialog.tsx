@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react'
+import { useTranslation } from '../i18n'
 import { useStore } from '../store'
 import { CopyIcon } from './icons'
 import Overlay from './Overlay'
 
 function renderMessage(message: string) {
-  return message.split(/(`[^`]+`|「[^」]+」)/g).map((part, index) => {
+  // 强调段两种写法：中文用「」，英文用弯引号，同一条消息翻过去后还是会被加粗。
+  return message.split(/(`[^`]+`|「[^」]+」|“[^”]+”)/g).map((part, index) => {
     if (part.startsWith('`') && part.endsWith('`')) {
       return (
         <code key={index} className="rounded bg-muted px-1 py-0.5 text-[0.85em] text-foreground">
@@ -13,7 +15,10 @@ function renderMessage(message: string) {
       )
     }
 
-    if (part.startsWith('「') && part.endsWith('」')) {
+    if (
+      (part.startsWith('「') && part.endsWith('」')) ||
+      (part.startsWith('“') && part.endsWith('”'))
+    ) {
       return (
         <strong key={index} className="font-semibold text-foreground">
           {part}
@@ -26,6 +31,7 @@ function renderMessage(message: string) {
 }
 
 export default function ConfirmDialog() {
+  const { t } = useTranslation(['shell', 'common'])
   const confirmDialog = useStore((s) => s.confirmDialog)
   const setConfirmDialog = useStore((s) => s.setConfirmDialog)
   const [canConfirm, setCanConfirm] = useState(true)
@@ -53,7 +59,10 @@ export default function ConfirmDialog() {
   }
 
   if (!confirmDialog) return null
-  const isDestructive = confirmDialog.title.includes('删除') || confirmDialog.title.includes('清空')
+  // 破坏性语气靠标题里的动词认出来。调用方传的是已翻译的标题，所以动词也取当前语言的那份。
+  const isDestructive = [t('common:action.delete'), t('common:action.clear')].some((verb) =>
+    confirmDialog.title.includes(verb),
+  )
   const confirmTone = confirmDialog.tone ?? (isDestructive ? 'danger' : undefined)
   const confirmClassName =
     confirmTone === 'warning'
@@ -61,8 +70,12 @@ export default function ConfirmDialog() {
       : confirmTone === 'danger'
         ? 'bg-destructive text-destructive-foreground hover:bg-destructive/90'
         : 'bg-primary text-primary-foreground hover:bg-primary/90'
-  const confirmText = confirmDialog.confirmText ?? (isDestructive ? '确认删除' : '确认')
-  const cancelText = confirmDialog.cancelText ?? '取消'
+  // 按钮文案跟着最终语气走，不再单独看标题：调用方显式传了 tone 时，标题里没有「删除」二字
+  // 也应当给出「确认删除」。否则显式 tone 只改颜色不改文案，两者会对不上。
+  const confirmText =
+    confirmDialog.confirmText ??
+    t(confirmTone === 'danger' ? 'confirm.deleteConfirm' : 'confirm.confirm')
+  const cancelText = confirmDialog.cancelText ?? t('common:action.cancel')
 
   return (
     <Overlay onClose={handleClose} tier="alert">

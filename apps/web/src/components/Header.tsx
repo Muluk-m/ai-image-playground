@@ -6,6 +6,7 @@ import { useInspirationStore } from '../features/inspiration/store'
 import { useLibraryStore } from '../features/library/store'
 import { useWorkspaceViewport } from '../hooks/useMobileWorkspace'
 import { useTooltip } from '../hooks/useTooltip'
+import { BRAND_WORDMARK, brandNeedsWordmark, useTranslation } from '../i18n'
 import {
   PrivateWebHeaderAccountActions,
   PrivateWebHeaderCreditAction,
@@ -15,11 +16,13 @@ import { useSyncStatus } from '../lib/sync/status'
 import { dismissAllTooltips } from '../lib/tooltipDismiss'
 import { APP_MODE_LABELS, useStore, visibleAppModes } from '../store'
 import BrandAvatar from './BrandAvatar'
+import DisplaySettingsMenuItems from './DisplaySettingsMenuItems'
 import { LibraryIcon, SettingsIcon, SparkleIcon } from './icons'
 import LogoutDialog from './LogoutDialog'
 import ViewportTooltip from './ViewportTooltip'
 
 export default function Header() {
+  const { t } = useTranslation('shell')
   useWorkspaceViewport()
   const setShowSettings = useStore((s) => s.setShowSettings)
   const appMode = useStore((s) => s.appMode)
@@ -36,6 +39,7 @@ export default function Header() {
   const inspirationTooltip = useTooltip()
   const libraryTooltip = useTooltip()
   const syncPending = useSyncStatus((s) => s.enabled && (s.pending > 0 || s.status === 'error'))
+  // 中文品牌名后面还跟一个拉丁字标；英文里字标就是品牌名本身，没有第二段可跟。
 
   // 绑定回跳只回到工作台，面板得靠回跳参数自己重开。
   useEffect(() => {
@@ -81,7 +85,7 @@ export default function Header() {
             <button
               type="button"
               onClick={() => setAppMode('create')}
-              aria-label="幕芽 Muvloom，返回创作"
+              aria-label={t('header.homeAria')}
               className="flex max-w-full items-center gap-2.5 rounded-lg font-display text-[18px] font-medium tracking-wide text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <img
@@ -92,12 +96,15 @@ export default function Header() {
                 className="h-7 w-7 rounded-lg shrink-0"
               />
               <span className="truncate">
-                幕芽<span className="ml-2 hidden sm:inline">Muvloom</span>
+                {t('header.brandName')}
+                {brandNeedsWordmark() ? (
+                  <span className="ml-2 hidden sm:inline">{BRAND_WORDMARK}</span>
+                ) : null}
               </span>
             </button>
           </h1>
           <nav
-            aria-label="主导航"
+            aria-label={t('header.nav')}
             className="studio-main-nav flex items-center gap-0.5 rounded-lg bg-muted p-1 sm:ml-4"
           >
             {visibleAppModes().map((mode) => (
@@ -124,13 +131,13 @@ export default function Header() {
                   dismissAllTooltips()
                   openInspiration()
                 }}
-                className={`grid h-9 w-9 place-items-center rounded-lg hover:bg-muted transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring `}
-                aria-label="灵感库"
+                className="grid h-9 w-9 place-items-center rounded-lg hover:bg-muted transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                aria-label={t('header.inspiration')}
               >
                 <SparkleIcon className={`h-[18px] w-[18px] text-muted-foreground`} />
               </button>
               <ViewportTooltip visible={inspirationTooltip.visible} className="whitespace-nowrap">
-                灵感库
+                {t('header.inspiration')}
               </ViewportTooltip>
             </div>
             <div className="relative" {...libraryTooltip.handlers}>
@@ -140,14 +147,16 @@ export default function Header() {
                   dismissAllTooltips()
                   openLibrary('projects')
                 }}
-                className={`flex h-9 items-center gap-2 px-2.5 rounded-lg hover:bg-muted transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring `}
-                aria-label="我的资产"
+                className="flex h-9 items-center gap-2 px-2.5 rounded-lg hover:bg-muted transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                aria-label={t('header.library')}
               >
                 <LibraryIcon className={`h-[18px] w-[18px] text-muted-foreground`} />
-                <span className="hidden text-xs text-muted-foreground sm:inline">我的资产</span>
+                <span className="hidden text-xs text-muted-foreground sm:inline">
+                  {t('header.library')}
+                </span>
               </button>
               <ViewportTooltip visible={libraryTooltip.visible} className="whitespace-nowrap">
-                我的资产
+                {t('header.library')}
               </ViewportTooltip>
             </div>
             <div className="ml-2 flex items-center gap-2 border-l border-border pl-3">
@@ -164,7 +173,8 @@ export default function Header() {
                   <button
                     type="button"
                     onClick={() => setAccountMenuOpen((open) => !open)}
-                    aria-label={auth.user ? '打开个人账户' : '打开应用菜单'}
+                    aria-label={auth.user ? t('header.accountMenu') : t('header.appMenu')}
+                    aria-haspopup="menu"
                     aria-expanded={accountMenuOpen}
                     className="relative grid h-8 w-8 place-items-center rounded-full bg-primary text-xs font-semibold text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                   >
@@ -176,29 +186,37 @@ export default function Header() {
                     {syncPending ? (
                       <span
                         role="img"
-                        aria-label="有未同步项"
+                        aria-label={t('header.unsynced')}
                         className="absolute right-0 top-0 h-2 w-2 rounded-full bg-warning ring-2 ring-white dark:ring-border"
                       />
                     ) : null}
                   </button>
                   {accountMenuOpen ? (
-                    <div className="absolute right-0 top-[calc(100%+0.75rem)] z-50 w-56 max-w-[calc(100vw-2rem)] rounded-xl border border-border bg-card p-1.5 text-sm shadow-xl">
+                    <div
+                      role="menu"
+                      className="absolute right-0 top-[calc(100%+0.75rem)] z-50 w-56 max-w-[calc(100vw-2rem)] rounded-xl border border-border bg-card p-1.5 text-sm shadow-xl"
+                    >
                       {auth.user ? (
                         <div className="truncate px-3 py-2 font-medium text-foreground">
                           {auth.user.username}
                         </div>
                       ) : null}
+                      <DisplaySettingsMenuItems
+                        itemClassName="flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-muted-foreground hover:bg-muted"
+                        iconClassName="h-[18px] w-[18px]"
+                      />
                       <button
                         type="button"
+                        role="menuitem"
                         onClick={openSettings}
                         className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-muted-foreground hover:bg-muted"
                       >
                         <SettingsIcon className="h-[18px] w-[18px]" aria-hidden="true" />
-                        <span>设置</span>
+                        <span>{t('header.settings')}</span>
                         {syncPending ? (
                           <span
                             role="img"
-                            aria-label="有未同步项"
+                            aria-label={t('header.unsynced')}
                             className="ml-auto h-1.5 w-1.5 rounded-full bg-warning"
                           />
                         ) : null}
@@ -207,16 +225,18 @@ export default function Header() {
                         <>
                           <button
                             type="button"
+                            role="menuitem"
                             onClick={() => {
                               setAccountMenuOpen(false)
                               setLoginMethodsOpen(true)
                             }}
                             className="block w-full rounded-lg px-3 py-2.5 text-left text-muted-foreground hover:bg-muted"
                           >
-                            登录方式
+                            {t('header.loginMethods')}
                           </button>
                           <button
                             type="button"
+                            role="menuitem"
                             disabled={loggingOut}
                             onClick={() => {
                               setAccountMenuOpen(false)
@@ -224,7 +244,7 @@ export default function Header() {
                             }}
                             className="block w-full rounded-lg px-3 py-2.5 text-left text-muted-foreground hover:bg-muted disabled:cursor-wait disabled:opacity-50"
                           >
-                            {loggingOut ? '退出中' : '退出登录'}
+                            {loggingOut ? t('header.loggingOut') : t('logout.title')}
                           </button>
                         </>
                       ) : null}

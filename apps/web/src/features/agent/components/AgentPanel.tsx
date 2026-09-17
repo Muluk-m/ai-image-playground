@@ -9,8 +9,10 @@ import {
 import Credits from '../../../components/Credits'
 import { PlusIcon } from '../../../components/icons'
 import { useImageDropZone } from '../../../hooks/useImageDropZone'
+import { useTranslation } from '../../../i18n'
 import type { CanvasDoc } from '../../canvas/lib/canvasDoc'
 import type { CanvasEditor } from '../../canvas/lib/editor'
+import { projectDisplayName, UNTITLED_PROJECT } from '../../canvas/lib/projectRepository'
 import { useCanvasProjectStore } from '../../canvas/projectStore'
 import { useLibraryStore } from '../../library/store'
 import {
@@ -37,14 +39,15 @@ import AgentToolCard from './AgentToolCard'
 import AgentTurnCost from './AgentTurnCost'
 
 const TABS = [
-  { id: 'chat', label: '对话' },
-  { id: 'layers', label: '创作记录' },
+  { id: 'chat', labelKey: 'label.chat' },
+  { id: 'layers', labelKey: 'label.layers' },
 ] as const
 
 function CollapsedButton({ onOpen }: { onOpen: () => void }) {
+  const { t } = useTranslation('agent')
   return (
     <button type="button" onClick={onOpen} className="studio-open-chat">
-      展开对话
+      {t('panel.expand')}
     </button>
   )
 }
@@ -69,6 +72,7 @@ export default function AgentPanel({
   mobile?: boolean
   onViewCanvas?: () => void
 }) {
+  const { t } = useTranslation('agent')
   const open = useAgentStore((state) => state.open)
   const tab = useAgentStore((state) => state.tab)
   const messages = useAgentStore((state) => state.messages)
@@ -79,7 +83,7 @@ export default function AgentPanel({
   const historyLoading = useAgentStore((state) => state.historyLoading)
   const historyFailed = useAgentStore((state) => state.historyFailed)
   const projectName = useCanvasProjectStore(
-    (state) => state.projects.find((one) => one.id === state.activeId)?.name ?? '未命名项目',
+    (state) => state.projects.find((one) => one.id === state.activeId)?.name ?? UNTITLED_PROJECT,
   )
   const logRef = useRef<HTMLDivElement>(null)
   const followLatest = useRef(true)
@@ -130,12 +134,12 @@ export default function AgentPanel({
   const answerableId = answerableClarificationId(messages)
 
   return (
-    <div aria-label="创作对话" style={{ width: panelWidth }} className="studio-sidebar">
+    <div aria-label={t('panel.aria')} style={{ width: panelWidth }} className="studio-sidebar">
       <div
         role="separator"
         aria-orientation="vertical"
-        aria-label="拖动调整面板宽度"
-        title="拖动调整宽度"
+        aria-label={t('panel.resizeAria')}
+        title={t('panel.resizeTitle')}
         onPointerDown={startResize}
         className="absolute -right-1.5 top-6 bottom-6 z-10 hidden md:block w-3 cursor-col-resize touch-none rounded-full transition-colors hover:bg-primary/40 active:bg-primary/60"
       />
@@ -148,13 +152,13 @@ export default function AgentPanel({
               onClick={() => setTab(one.id)}
               className={`${TAB} ${(one.id === 'chat' ? tab !== 'layers' : tab === one.id) ? ACTIVE_TAB : IDLE_TAB}`}
             >
-              {one.label}
+              {t(one.labelKey)}
             </button>
           ))}
         </div>
         <button
           type="button"
-          aria-label="收起面板"
+          aria-label={t('panel.collapseAria')}
           className={`${ICON_BUTTON} hidden md:inline-flex`}
           onClick={() => setOpen(false)}
         >
@@ -175,23 +179,24 @@ export default function AgentPanel({
           <button
             type="button"
             className={`${GHOST_LINK} block max-w-full truncate text-left`}
-            title={projectName}
+            title={projectDisplayName(projectName)}
             onClick={() => useLibraryStore.getState().openPanel('projects')}
           >
-            {projectName}
+            {projectDisplayName(projectName)}
           </button>
           {sessionCredits !== null && (
             <span
               className="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground"
-              aria-label={`已用 ${sessionCredits.toLocaleString()} 积分`}
+              aria-label={t('panel.creditsUsedAria', { credits: sessionCredits.toLocaleString() })}
             >
-              已用 <Credits credits={sessionCredits} /> 积分
+              {t('panel.creditsUsedPrefix')} <Credits credits={sessionCredits} />{' '}
+              {t('panel.creditsUsedSuffix')}
             </span>
           )}
         </div>
         <button
           type="button"
-          aria-label="新建项目"
+          aria-label={t('panel.newProjectAria')}
           className={ICON_BUTTON}
           onClick={() => void createProject()}
         >
@@ -207,7 +212,7 @@ export default function AgentPanel({
           ref={logRef}
           // 全站默认禁止选中文字（画布拖拽不能拖出一片高亮）；对话记录是要被复制的，放开。
           data-selectable-text
-          aria-label="对话记录"
+          aria-label={t('panel.logAria')}
           onScroll={(event) => {
             const log = event.currentTarget
             followLatest.current = log.scrollHeight - log.clientHeight - log.scrollTop <= 48
@@ -218,9 +223,9 @@ export default function AgentPanel({
           {messages.length === 0 && !historyLoading && !historyFailed && (
             <div className="studio-chat-empty">
               <span className="studio-spark">✧</span>
-              <h3>今天，想创作什么？</h3>
-              <p>描述你的想法，或添加一张参考图。生成后切换到画布，选中作品就能继续修改。</p>
-              <div className="studio-example">试着描述画面中的主体、风格和氛围。</div>
+              <h3>{t('panel.emptyTitle')}</h3>
+              <p>{t('panel.emptyBody')}</p>
+              <div className="studio-example">{t('panel.emptyExample')}</div>
             </div>
           )}
           {messages.map((message, index) => {

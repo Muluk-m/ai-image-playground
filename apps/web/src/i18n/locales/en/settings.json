@@ -1,0 +1,134 @@
+{
+  "modal": {
+    "title": "Settings"
+  },
+  "tab": {
+    "general": "Preferences",
+    "api": "API settings",
+    "data": "Data management"
+  },
+  "general": {
+    "submitShortcut": "Submit shortcut",
+    "submitShortcutHint": "With Enter to submit, use Shift + Enter for a new line; otherwise Enter inserts a new line.",
+    "clearInputAfterSubmit": "Clear the input after submitting",
+    "clearInputAfterSubmitHint": "When on, a successful submission clears the prompt and reference images.",
+    "persistInput": "Restore the last input on restart",
+    "persistInputHint": "When off, the prompt and reference images are not kept, and the next launch starts empty.",
+    "reuseTaskProfile": "Reuse the task's API profile temporarily",
+    "reuseTaskProfileHint": "When on, reusing a past task temporarily switches to that task's API profile, and submitting warns you if the profile is gone; when off, the current API profile stays in use.",
+    "alwaysShowRetry": "Keep retry on successful tasks",
+    "alwaysShowRetryHint": "When on, the retry button stays on the task card and the detail view even after a task succeeds."
+  },
+  "profile": {
+    "current": "Current profile",
+    "name": "Profile name",
+    "create": "New profile",
+    "duplicate": "Duplicate this profile",
+    "duplicateAria": "Duplicate the profile “{{name}}”",
+    "copyImportUrl": "Copy import URL",
+    "copyImportUrlFor": "Copy the import URL for the profile “{{name}}”",
+    "dragToReorder": "Drag to reorder",
+    "builtinBadge": "Built-in",
+    "builtinModel": "Built-in model",
+    "delete": "Delete profile",
+    "deleteMessage": "Delete the profile “{{name}}”?"
+  },
+  "provider": {
+    "type": "Provider type",
+    "openaiCompatible": "OpenAI-compatible API",
+    "createCustom": "Create a custom provider",
+    "editCustom": "Edit custom provider",
+    "deleteTitle": "Delete provider",
+    "deleteMessage": "Delete the custom provider “{{name}}”? Profiles using it fall back to the OpenAI-compatible API."
+  },
+  "apiUrl": {
+    "proxyIgnored": "The proxy is on, so the deployment decides the real request target and this setting is ignored."
+  },
+  "codexCli": {
+    "label": "Codex CLI compatibility",
+    "hint": "When on, only the parameters Codex CLI really supports are sent. Query parameter override: "
+  },
+  "apiProxy": {
+    "label": "API proxy",
+    "hint": "On by default when the deployment offers a same-origin proxy, and you can turn it off. It works around the browser's cross-origin limits, and the API URL setting is ignored."
+  },
+  "apiMode": {
+    "label": "API endpoint"
+  },
+  "model": {
+    "label": "Model ID",
+    "fetch": "Fetch models",
+    "fetching": "Fetching…",
+    "fetchTitle": "Fetch the model list from the upstream /models API",
+    "fetched_one": "Fetched {{count}} model",
+    "fetched_other": "Fetched {{count}} models",
+    "fetchFailed": "Could not fetch models",
+    "cachedCount_one": "{{count}} model upstream",
+    "cachedCount_other": "{{count}} models upstream",
+    "usingProvider": "Currently using",
+    "responsesHintPrefix": "The Responses API needs a text model that supports the",
+    "responsesHintSuffix": "tool, for example",
+    "imagesHint": "The Images API needs a GPT Image model, for example"
+  },
+  "b64": {
+    "label": "Return Base64 image data",
+    "hintPrefix": "When on, the request body also carries",
+    "hintSuffix": ", asking the API to return Base64-encoded image data instead of a URL."
+  },
+  "timeout": {
+    "label": "Request timeout (s)"
+  },
+  "hint": {
+    "queryOverride": "Query parameter override: ",
+    "or": "or",
+    "period": "."
+  },
+  "customProvider": {
+    "invalid": "Invalid custom provider configuration",
+    "aiGenerate": "Generate and import with AI",
+    "aiGenerateHint": "Copy the prompt, send it to an LLM, and it builds a full configuration from the API docs (provider, model, URL and more). Copy the JSON the LLM returns, then click “Paste from clipboard and import” to apply it.",
+    "copyPrompt": "Copy the prompt",
+    "copyPromptAria": "Copy the LLM prompt that generates a full import JSON",
+    "copyPromptTooltip": "Generates the full provider and profile details, including model and endpoint, so you only fill in the API key after importing.",
+    "pasteImport": "Paste from clipboard and import",
+    "manualEdit": "Manual edit (endpoint mapping manifest only)",
+    "saveEdit": "Save changes",
+    "createAndUse": "Create and use"
+  },
+  "data": {
+    "notice": "Settings, task history and generated images stay only in your browser (unless your provider stores them). Export a backup before you clear site data, reset the browser, or move to another device.",
+    "exportTitle": "Export data",
+    "importTitle": "Import data",
+    "clearTitle": "Clear data",
+    "includeConfig": "Include settings",
+    "includeTasks": "Include tasks and images",
+    "exportSelected": "Export selected data",
+    "importFromZip": "Import selected data from ZIP",
+    "importing": "Importing...",
+    "clearSelected": "Clear selected data",
+    "clearMessage": "Clear the selected data? This cannot be undone."
+  },
+  "importUrl": {
+    "question": "Include the API key? If you choose “Exclude”, you can also switch on New API variables.",
+    "newApiVars": "New API variables",
+    "use": "Use",
+    "addressSuffix": "(without /v1)",
+    "exclude": "Exclude",
+    "include": "Include API key"
+  },
+  "toast": {
+    "importUrlCopied": "Import URL copied",
+    "importUrlCopiedWithKey": "Import URL copied (with API key)",
+    "copyImportUrlFailed": "Could not copy the import URL",
+    "llmPromptCopied": "Prompt copied",
+    "copyLlmPromptFailed": "Could not copy the prompt",
+    "providerUpdated": "Provider updated",
+    "providerDeleted": "Provider deleted",
+    "clipboardEmpty": "The clipboard is empty",
+    "clipboardBlocked": "Could not read the clipboard. Allow clipboard access in your browser, or paste into the box directly.",
+    "overwroteEmptyProfile": "Replaced the empty profile",
+    "switchedToExisting": "An identical profile already exists, switched to it",
+    "jsonImportedAndSwitched": "JSON imported and activated",
+    "jsonImported": "JSON imported"
+  }
+}

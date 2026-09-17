@@ -1,5 +1,6 @@
 import { memo, useCallback, useMemo, useSyncExternalStore } from 'react'
 import { VideoIcon } from '../../../components/icons'
+import { currentLocale, i18next, useTranslation } from '../../../i18n'
 import type { CanvasDoc, CanvasEl, ImageEl, PlaceholderEl } from '../../canvas/lib/canvasDoc'
 import type { CanvasEditor } from '../../canvas/lib/editor'
 import { canvasElementCreatedAt, canvasImageName } from '../../canvas/lib/imageInfo'
@@ -29,7 +30,11 @@ function groupsFor(elements: readonly CanvasEl[]): CreationGroup[] {
         id,
         title:
           prompt ||
-          (element.type === 'placeholder' ? '生成任务' : explicit ? '导入图片' : '较早的内容'),
+          (element.type === 'placeholder'
+            ? i18next.t('creations.taskTitle', { ns: 'agent' })
+            : explicit
+              ? i18next.t('creations.importedTitle', { ns: 'agent' })
+              : i18next.t('creations.earlierTitle', { ns: 'agent' })),
         createdAt,
         items: [],
       }
@@ -52,13 +57,16 @@ const WorkCard = memo(function WorkCard({
   selected: boolean
   onSelect: (id: string) => void
 }) {
+  const { t } = useTranslation('agent')
   const name =
-    element.type === 'image' ? canvasImageName(element) : element.meta.prompt || '生成任务'
+    element.type === 'image'
+      ? canvasImageName(element)
+      : element.meta.prompt || t('creations.taskTitle')
   const loading = element.type === 'placeholder' && element.status === 'loading'
   return (
     <button
       type="button"
-      aria-label={`定位 ${name}`}
+      aria-label={t('creations.locateAria', { name })}
       aria-current={selected ? 'true' : undefined}
       onClick={() => onSelect(element.id)}
       className={`group mb-3 block w-full break-inside-avoid overflow-hidden rounded-xl border text-left transition ${selected ? 'border-primary ring-1 ring-primary' : 'border-border hover:border-primary/60'} bg-card`}
@@ -83,10 +91,10 @@ const WorkCard = memo(function WorkCard({
           </span>
           <span>
             {loading
-              ? '正在生成'
+              ? t('creations.generating')
               : element.type === 'placeholder'
-                ? element.message || '生成未完成'
-                : '预览不可用'}
+                ? element.message || t('creations.notFinished')
+                : t('creations.previewUnavailable')}
           </span>
         </div>
       )}
@@ -111,8 +119,10 @@ export default function AgentCreations({
   editor: CanvasEditor
   onSelect?: () => void
 }) {
+  const { t, i18n } = useTranslation('agent')
   useSyncExternalStore(doc.subscribe, () => doc.version)
-  const groups = useMemo(() => groupsFor(doc.elements), [doc.elements])
+  // 分组标题里的兜底文案是界面文案，切语言要跟着换，所以语言也是这份缓存的入参。
+  const groups = useMemo(() => groupsFor(doc.elements), [doc.elements, i18n.language])
   const marks = doc.elements.filter(
     (element) => element.type !== 'image' && element.type !== 'placeholder',
   )
@@ -127,9 +137,9 @@ export default function AgentCreations({
   if (!groups.length && !marks.length)
     return (
       <div className="px-5 py-10 text-center text-xs leading-relaxed text-muted-foreground">
-        还没有创作记录
+        {t('creations.emptyTitle')}
         <br />
-        生成作品或导入图片后，会按任务显示在这里。
+        {t('creations.emptyBody')}
       </div>
     )
   return (
@@ -141,17 +151,17 @@ export default function AgentCreations({
               {group.title}
             </h3>
             <span className="shrink-0 text-[10px] text-muted-foreground">
-              {group.items.length} 项
+              {t('creations.itemCount', { count: group.items.length })}
             </span>
           </div>
           {group.createdAt > 0 && (
             <p className="mb-2 text-[10px] text-muted-foreground">
-              {new Date(group.createdAt).toLocaleString('zh-CN', {
+              {new Intl.DateTimeFormat(currentLocale(), {
                 month: 'numeric',
                 day: 'numeric',
                 hour: '2-digit',
                 minute: '2-digit',
-              })}
+              }).format(new Date(group.createdAt))}
             </p>
           )}
           <div className="columns-2 gap-2.5">
@@ -169,7 +179,9 @@ export default function AgentCreations({
       ))}
       {marks.length > 0 && (
         <details className="border-t border-border pt-3 text-xs text-muted-foreground">
-          <summary className="cursor-pointer">画布标注 · {marks.length}</summary>
+          <summary className="cursor-pointer">
+            {t('creations.marks')} · {marks.length}
+          </summary>
           <div className="mt-2 flex flex-wrap gap-2">
             {marks.map((element) => (
               <button
@@ -180,10 +192,10 @@ export default function AgentCreations({
                 aria-current={doc.selection.has(element.id) ? 'true' : undefined}
               >
                 {element.type === 'text'
-                  ? element.text || '文字'
+                  ? element.text || t('creations.markText')
                   : element.type === 'arrow'
-                    ? '箭头'
-                    : '画笔'}
+                    ? t('creations.markArrow')
+                    : t('creations.markPen')}
               </button>
             ))}
           </div>

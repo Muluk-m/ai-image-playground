@@ -1,9 +1,15 @@
 import { AGENT_TURN_MAX_REFERENCES } from '@image-playground/shared'
+import { i18next } from '../../../i18n'
 import { compressInputImageDataUrls } from '../../../lib/compressInputImage'
 import { useStore } from '../../../store'
 import type { AgentDraft, AgentReference } from './references'
 
-const TOO_MANY = `一轮最多带 ${AGENT_TURN_MAX_REFERENCES} 张参考图`
+// 文案按调用时取，不在模块加载时定死：切语言之后新出的提示要跟着换语言。
+const TOO_MANY = () =>
+  i18next.t('composer.tooManyReferences', {
+    ns: 'agent',
+    count: AGENT_TURN_MAX_REFERENCES,
+  })
 
 function fileToDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -39,7 +45,7 @@ export async function filesToReferences(files: readonly File[]): Promise<AgentRe
 /** 附到草稿末尾；超出上限的丢掉并提示一次。 */
 export function attachReferences(draft: AgentDraft, added: readonly AgentReference[]): AgentDraft {
   const room = Math.max(0, AGENT_TURN_MAX_REFERENCES - draft.references.length)
-  if (added.length > room) useStore.getState().showToast(TOO_MANY, 'error')
+  if (added.length > room) useStore.getState().showToast(TOO_MANY(), 'error')
   const kept = added.slice(0, room)
   return kept.length ? { ...draft, references: [...draft.references, ...kept] } : draft
 }

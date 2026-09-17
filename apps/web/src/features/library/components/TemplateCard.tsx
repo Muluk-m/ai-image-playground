@@ -1,4 +1,5 @@
 import type { KeyboardEvent } from 'react'
+import { useTranslation } from '../../../i18n'
 import {
   getTemplateAssetRefs,
   getTemplateParamEntries,
@@ -11,6 +12,7 @@ import AssetThumb from './AssetThumb'
 const STRIP_LIMIT = 4
 
 export default function TemplateCard({ template }: { template: TemplateRecord }) {
+  const { t } = useTranslation('library')
   const assets = useLibraryStore((s) => s.assets)
   const applyTemplate = useLibraryStore((s) => s.applyTemplate)
   const openTemplateDetail = useLibraryStore((s) => s.openTemplateDetail)
@@ -34,7 +36,7 @@ export default function TemplateCard({ template }: { template: TemplateRecord })
         tabIndex={0}
         onClick={() => openTemplateDetail(template.id)}
         onKeyDown={handleKeyDown}
-        title="查看详情"
+        title={t('template.viewDetail')}
         className="flex cursor-pointer flex-col gap-2 rounded-xl focus:outline-none focus:ring-2 focus:ring-ring/60"
       >
         <span className="truncate text-sm font-medium text-foreground">{template.name}</span>
@@ -55,8 +57,8 @@ export default function TemplateCard({ template }: { template: TemplateRecord })
                     <AssetThumb imageId={ref.asset.imageId} alt={ref.asset.name} />
                   ) : (
                     <span
-                      title="素材已删除"
-                      aria-label="素材已删除"
+                      title={t('asset.deleted')}
+                      aria-label={t('asset.deleted')}
                       className="block h-full w-full bg-[repeating-linear-gradient(45deg,transparent,transparent_4px,rgba(120,120,120,0.18)_4px,rgba(120,120,120,0.18)_8px)]"
                     />
                   )}
@@ -81,7 +83,7 @@ export default function TemplateCard({ template }: { template: TemplateRecord })
           onClick={() => void applyTemplate(template.id)}
           className="shrink-0 rounded-lg bg-primary/10 px-2.5 py-1 text-[11px] font-medium text-primary transition hover:bg-primary/20"
         >
-          套用
+          {t('template.apply')}
         </button>
       </div>
     </div>

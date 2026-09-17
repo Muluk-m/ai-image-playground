@@ -1,3 +1,4 @@
+import { i18next } from '../i18n'
 import { authenticatedBffFetch } from './authClient'
 import { bffBaseUrl } from './runtimeConfig'
 
@@ -9,7 +10,7 @@ export interface ListingImages {
 
 type Fetcher = (input: string, init?: RequestInit) => Promise<Response>
 
-const UNAVAILABLE = '抓不到这条链接的图集'
+const unavailable = (): string => i18next.t('bffClient.listingUnavailable', { ns: 'lib' })
 
 /** 图片字节走 BFF 代理：亚马逊图床不发 CORS 头，浏览器直接取不到像素。 */
 export function listingImageProxyUrl(imageUrl: string): string {
@@ -26,7 +27,7 @@ export async function fetchListingImages(
     body: JSON.stringify({ url }),
   })
   const listing = response.ok ? parseListing(await response.json()) : null
-  if (!listing) throw new Error(UNAVAILABLE)
+  if (!listing) throw new Error(unavailable())
   return listing
 }
 

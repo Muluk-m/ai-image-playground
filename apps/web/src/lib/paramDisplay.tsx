@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import ViewportTooltip from '../components/ViewportTooltip'
+import { useTranslation } from '../i18n'
 import type { TaskParams, TaskRecord } from '../types'
 import { sameAspectRatio } from './size'
 
@@ -23,6 +24,7 @@ export function ActualValueBadge({
   className = '',
   variant = 'highlight',
 }: ActualValueBadgeProps) {
+  const { t } = useTranslation('lib')
   const [tooltipVisible, setTooltipVisible] = useState(false)
   const touchTimerRef = useRef<number | null>(null)
   const colorClass =
@@ -66,7 +68,7 @@ export function ActualValueBadge({
     >
       {value}
       <ViewportTooltip visible={tooltipVisible} className="whitespace-nowrap">
-        API 实际响应值
+        {t('param.actualResponseValue')}
       </ViewportTooltip>
     </span>
   )

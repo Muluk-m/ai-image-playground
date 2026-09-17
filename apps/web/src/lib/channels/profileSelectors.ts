@@ -1,3 +1,4 @@
+import { i18next } from '../../i18n'
 import type { ChannelCapability, ClientProfile, PublicChannel } from './types'
 
 /**
@@ -42,7 +43,10 @@ export function isModelKnown(profile: ClientProfile, publicChannels: PublicChann
 }
 
 /** 模型不支持参考图（图生图）时的统一提示文案，多处编辑入口复用。 */
-export const NO_EDIT_SUPPORT_MESSAGE = '当前模型不支持参考图（图生图），切换模型后可用'
+export let NO_EDIT_SUPPORT_MESSAGE = i18next.t('model.noEditSupport', { ns: 'lib' })
+i18next.on('languageChanged', () => {
+  NO_EDIT_SUPPORT_MESSAGE = i18next.t('model.noEditSupport', { ns: 'lib' })
+})
 
 /** 当前模型是否支持 edit（参考图/图生图）。BYOK（capabilities=null）默认放开。 */
 export function modelSupportsEdit(

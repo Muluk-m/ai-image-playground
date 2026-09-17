@@ -1,3 +1,4 @@
+import { i18next } from '../i18n'
 import type { ProviderKind } from './channels/types'
 import { getApiErrorMessage } from './imageApiShared'
 
@@ -23,8 +24,8 @@ export async function fetchProfileModels(
   signal?: AbortSignal,
 ): Promise<string[]> {
   const baseUrl = input.baseUrl.trim().replace(/\/+$/, '')
-  if (!baseUrl) throw new Error('请先填写 API URL')
-  if (!input.apiKey.trim()) throw new Error('请先填写 API Key')
+  if (!baseUrl) throw new Error(i18next.t('profile.needApiUrl', { ns: 'lib' }))
+  if (!input.apiKey.trim()) throw new Error(i18next.t('profile.needApiKey', { ns: 'lib' }))
 
   const url = `${baseUrl}/models`
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
@@ -42,7 +43,7 @@ export async function fetchProfileModels(
   const payload = (await response.json()) as unknown
   const ids = extractModelIds(payload)
   if (!ids.length) {
-    throw new Error('接口返回中未找到可识别的模型列表')
+    throw new Error(i18next.t('profile.noModelList', { ns: 'lib' }))
   }
   return ids
 }

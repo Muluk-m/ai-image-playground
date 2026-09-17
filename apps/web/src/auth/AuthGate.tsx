@@ -1,6 +1,7 @@
 import type { AuthUserView } from '@image-playground/shared'
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import { adoptAgentConversations } from '../features/agent/lib/agentClient'
+import { useTranslation } from '../i18n'
 import {
   AUTH_SESSION_EXPIRED_EVENT,
   AuthRequestError,
@@ -21,13 +22,14 @@ const App = lazy(() => import('../App'))
 type Phase = 'checking' | 'ready' | 'login' | 'unavailable'
 
 function LoadingScreen() {
+  const { t } = useTranslation('auth')
   return (
     <main className="auth-status-screen" aria-live="polite">
       <img src="/brand/muvloom-icon.svg" alt="" width="40" height="40" />
       <div className="auth-status-line">
         <span />
       </div>
-      <p>正在准备工作台</p>
+      <p>{t('status.preparing')}</p>
     </main>
   )
 }
@@ -41,6 +43,7 @@ function ProblemScreen({
   description: string
   retry?: () => void
 }) {
+  const { t } = useTranslation('auth')
   return (
     <main className="auth-status-screen">
       <div className="auth-problem-mark">!</div>
@@ -48,7 +51,7 @@ function ProblemScreen({
       <p>{description}</p>
       {retry ? (
         <button type="button" onClick={retry}>
-          重新连接
+          {t('status.retry')}
         </button>
       ) : null}
     </main>
@@ -66,6 +69,7 @@ async function adoptDeviceConversations(): Promise<void> {
 }
 
 export function AuthGate() {
+  const { t } = useTranslation('auth')
   const runtime = getRuntimeConfig()
   const accountsLoginEnabled = isClientCapabilityEnabled('accounts:login')
   const [phase, setPhase] = useState<Phase>('checking')
@@ -136,8 +140,8 @@ export function AuthGate() {
   if (phase === 'unavailable') {
     return (
       <ProblemScreen
-        title="暂时无法连接服务"
-        description="工作台没有进入匿名模式。请确认服务运行正常后重试。"
+        title={t('status.unavailableTitle')}
+        description={t('status.unavailableDescription')}
         retry={() => {
           setPhase('checking')
           setAttempt((value) => value + 1)

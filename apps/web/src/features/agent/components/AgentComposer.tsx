@@ -19,6 +19,7 @@ import {
 import { CloseIcon, MaskBrushIcon } from '../../../components/icons'
 import SuggestionMenu, { useSuggestionMenu } from '../../../components/SuggestionMenu'
 import { useImageDropZone } from '../../../hooks/useImageDropZone'
+import { useTranslation } from '../../../i18n'
 import { acceptImageFiles } from '../../../lib/imageFiles'
 import {
   getContentEditableCursor,
@@ -73,6 +74,7 @@ export default function AgentComposer({
   /** 把选中的批注烧进参考图要它来栅格化；没有就只带原图。 */
   editor?: MarkRenderer
 }) {
+  const { t, i18n } = useTranslation('agent')
   const historyBlocked = useAgentStore((state) => state.historyLoading || state.historyFailed)
   const running = useAgentStore((state) => state.turn === 'running')
   const stopping = useAgentStore((state) => state.stopping)
@@ -111,7 +113,7 @@ export default function AgentComposer({
   // 拖进来、粘贴进来、点回形针选进来的图片都走这一条：读文件 → 压缩 → 进引用区。
   const attachFiles = (files: File[]) => {
     if (loading) {
-      useStore.getState().showToast('草稿正在恢复，请稍后添加图片。', 'info')
+      useStore.getState().showToast(t('composer.draftLoadingToast'), 'info')
       return
     }
     const images = acceptImageFiles(files)
@@ -140,9 +142,11 @@ export default function AgentComposer({
     void loadAssets()
   }, [loadAssets])
 
-  const labels = useMemo(() => referenceLabels(draft.references), [draft.references])
+  // 序号胶囊的显示标签随界面语言变，下游按这份解析器缓存的渲染要跟着重算。
+  const labels = useMemo(() => referenceLabels(draft.references), [draft.references, i18n.language])
   const version = useSyncExternalStore(doc.subscribe, () => doc.version)
-  const canvas = useMemo(() => canvasImages(doc), [doc, version])
+  // `@` 候选里的「画布图 n」是界面文案，切语言要跟着换，所以语言也是这份缓存的入参。
+  const canvas = useMemo(() => canvasImages(doc), [doc, version, i18n.language])
 
   // 画布上选中的图直接进引用区：选了几张就是要对这几张说话，不必再逐张 `@`。
   // 自动带进来的按 id 记着，取消选中就撤走；用户手动 `@` 进来的不归它管。
@@ -299,7 +303,7 @@ export default function AgentComposer({
       useStore
         .getState()
         .showToast(
-          cancelled ? '已中止，草稿已放回输入框。' : '消息未发送成功，草稿已放回输入框，请重试。',
+          cancelled ? t('composer.abortedToast') : t('composer.sendFailedToast'),
           cancelled ? 'info' : 'error',
         )
       // 这几秒里用户要是已经开始打下一句，别把它冲掉。
@@ -336,7 +340,7 @@ export default function AgentComposer({
     >
       {dragging && (
         <div className="pointer-events-none absolute inset-1 z-20 grid place-items-center rounded-xl border border-dashed border-primary/70 bg-sidebar/90 text-xs text-primary">
-          松开即作为参考图
+          {t('composer.dropHint')}
         </div>
       )}
       {draftError && (
@@ -370,7 +374,11 @@ export default function AgentComposer({
                   <span className="max-w-28 truncate text-xs text-foreground">{label}</span>
                   <button
                     type="button"
-                    aria-label={masked ? `修改参考图 ${label} 的遮罩` : `给参考图 ${label} 画遮罩`}
+                    aria-label={
+                      masked
+                        ? t('composer.editMaskAria', { label })
+                        : t('composer.drawMaskAria', { label })
+                    }
                     className={`shrink-0 ${ICON_BUTTON}`}
                     onClick={() => editMask(reference)}
                   >
@@ -378,7 +386,7 @@ export default function AgentComposer({
                   </button>
                   <button
                     type="button"
-                    aria-label={`移除参考图 ${label}`}
+                    aria-label={t('composer.removeReferenceAria', { label })}
                     className={`shrink-0 ${ICON_BUTTON}`}
                     onClick={() => setDraft(removeReference(draft, index))}
                   >
@@ -404,11 +412,11 @@ export default function AgentComposer({
             ref={editorRef}
             role="textbox"
             tabIndex={0}
-            aria-label="对智能体说"
+            aria-label={t('composer.editorAria')}
             contentEditable={!loading}
             aria-busy={loading}
             suppressContentEditableWarning
-            data-placeholder="说一句你想做什么，@ 引用画布或素材"
+            data-placeholder={t('composer.placeholder')}
             className={EDITOR_CLASS}
             onInput={(event) => {
               const el = event.currentTarget
@@ -435,15 +443,15 @@ export default function AgentComposer({
               accept="image/*"
               multiple
               className="hidden"
-              aria-label="选择参考图"
+              aria-label={t('composer.fileInputAria')}
               onChange={(event) => {
                 attachFiles([...(event.currentTarget.files ?? [])])
                 event.currentTarget.value = ''
               }}
             />
             <ComposerAttachButton
-              aria-label="添加参考图"
-              title="添加参考图（也可以拖进来或粘贴）"
+              aria-label={t('composer.attachAria')}
+              title={t('composer.attachTitle')}
               disabled={loading}
               onClick={() => fileInputRef.current?.click()}
             />
@@ -457,7 +465,7 @@ export default function AgentComposer({
                 disabled={stopping}
                 onClick={() => void useAgentStore.getState().abort()}
               >
-                {stopping ? '正在中止…' : '中止'}
+                {stopping ? t('composer.aborting') : t('composer.abort')}
               </button>
             )}
             <ComposerSend
@@ -469,8 +477,14 @@ export default function AgentComposer({
                 !submitting &&
                 Boolean(draft.prompt.trim())
               }
-              aria-label={submitting ? '发送中…' : running ? '插话' : '发送并创作'}
-              title={running ? '插话' : '发送并创作'}
+              aria-label={
+                submitting
+                  ? t('composer.sending')
+                  : running
+                    ? t('composer.interject')
+                    : t('composer.sendAndCreate')
+              }
+              title={running ? t('composer.interject') : t('composer.sendAndCreate')}
               disabled={historyBlocked || loading || submitting || !draft.prompt.trim()}
               onClick={submit}
             />

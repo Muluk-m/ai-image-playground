@@ -1,3 +1,4 @@
+import { i18next } from '../../../i18n'
 import { updateSelectedModel } from '../../../lib/channels/profileSelectors'
 import { getPublicChannels } from '../../../lib/channels/publicChannels'
 import type { ClientProfile } from '../../../lib/channels/types'
@@ -19,10 +20,10 @@ export function applyInspiration(item: InspirationItem) {
 
   if (hasUnsavedInput) {
     main.setConfirmDialog({
-      title: '替换当前输入？',
-      message: '将丢失输入框中未提交的提示词。继续将以本条灵感的提示词、参数与推荐模型覆盖。',
-      confirmText: '替换并应用',
-      cancelText: '取消',
+      title: i18next.t('apply.confirmTitle', { ns: 'inspiration' }),
+      message: i18next.t('apply.confirmMessage', { ns: 'inspiration' }),
+      confirmText: i18next.t('apply.confirmAction', { ns: 'inspiration' }),
+      cancelText: i18next.t('action.cancel'),
       showCancel: true,
       tone: 'warning',
       action: () => doApply(item),
@@ -61,10 +62,14 @@ function doApply(item: InspirationItem) {
       profiles: nextProfiles,
       activeProfileId: matched.profile.id,
     })
-    main.showToast('已应用灵感库示例', 'success')
+    main.showToast(i18next.t('apply.succeeded', { ns: 'inspiration' }), 'success')
   } else {
     main.showToast(
-      `未找到 ${item.recommendedProvider} / ${item.recommendedModel} 的可用配置，请先在设置中添加`,
+      i18next.t('apply.noProfile', {
+        ns: 'inspiration',
+        provider: item.recommendedProvider,
+        model: item.recommendedModel,
+      }),
       'info',
     )
   }

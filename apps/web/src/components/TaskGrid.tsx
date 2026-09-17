@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import InspirationEmptyHero from '../features/inspiration/components/InspirationEmptyHero'
 import { useStoryboardStore } from '../features/video/storyboard/store'
+import { i18next, useTranslation } from '../i18n'
 import {
   type LegacyProductJob,
   legacyActionLabels,
@@ -14,10 +15,13 @@ import TaskCard from './TaskCard'
 
 /** 套的名字要落在它自己的记录上；记录还没加载时至少不能把分镜说成商品图。 */
 function setFallbackName(task: TaskRecord | undefined): string {
-  return task?.origin?.kind === 'storyboard' ? '分镜' : '商品图任务'
+  return task?.origin?.kind === 'storyboard'
+    ? i18next.t('set.storyboardFallback', { ns: 'task' })
+    : i18next.t('set.productShotFallback', { ns: 'task' })
 }
 
 export default function TaskGrid() {
+  const { t } = useTranslation('task')
   const tasks = useStore((s) => s.tasks)
   const searchQuery = useStore((s) => s.searchQuery)
   const filterStatus = useStore((s) => s.filterStatus)
@@ -84,8 +88,8 @@ export default function TaskGrid() {
 
   const handleDelete = (task: (typeof tasks)[0]) => {
     setConfirmDialog({
-      title: '删除记录',
-      message: '确定要删除这条记录吗？仅清理不再使用的关联图片。',
+      title: t('action.deleteRecord'),
+      message: t('confirm.deleteMessage'),
       action: () => removeTask(task),
     })
   }
@@ -285,7 +289,9 @@ export default function TaskGrid() {
       if (now - lastToastTimeRef.current > 3000) {
         lastToastTimeRef.current = now
         const keyName = isMac ? '⌘' : 'Ctrl'
-        useStore.getState().showToast(`松开 ${keyName} 键使用滚轮，或拖至边缘自动滚动`, 'info')
+        useStore
+          .getState()
+          .showToast(i18next.t('grid.releaseKeyHint', { ns: 'task', key: keyName }), 'info')
       }
     }
 
@@ -341,7 +347,7 @@ export default function TaskGrid() {
     if (searchQuery || filterFavorite || filterStatus !== 'all') {
       return (
         <div className="text-center py-20 text-muted-foreground">
-          <p className="text-sm">没有找到匹配的记录</p>
+          <p className="text-sm">{t('grid.noMatches')}</p>
         </div>
       )
     }

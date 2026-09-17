@@ -1,5 +1,6 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
+import { bootstrapLocale } from './i18n'
 import './index.css'
 import { restoreLocalStorage } from './lib/localCompatibility/bridge'
 import { loadRuntimeConfig } from './lib/runtimeConfig'
@@ -40,6 +41,8 @@ if (!restored && runtime.localCompatibility) {
     import('./lib/clientCapabilities'),
   ])
   await Promise.all([
+    // 英文语料是按需 chunk，首帧之前就得落地，否则登录页会先闪一遍中文。
+    bootstrapLocale(),
     bootstrapClientCapabilities(runtime.bff.enabled, runtime.bff.baseUrl),
     bootstrapChannels(runtime.bff.enabled, runtime.bff.baseUrl),
   ])

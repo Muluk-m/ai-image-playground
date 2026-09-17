@@ -1,3 +1,4 @@
+import { i18next } from '../i18n'
 import type {
   ApiMode,
   AppSettings,
@@ -312,7 +313,9 @@ export function normalizeCustomProviderDefinition(
   if (!template || !isRecord(record.submit)) return null
 
   const rawName =
-    typeof record.name === 'string' && record.name.trim() ? record.name.trim() : '自定义服务商'
+    typeof record.name === 'string' && record.name.trim()
+      ? record.name.trim()
+      : i18next.t('profile.customProviderName', { ns: 'lib' })
   const id =
     typeof record.id === 'string' &&
     record.id.trim() &&
@@ -375,7 +378,7 @@ export function createDefaultOpenAIByokProfile(
   return {
     id: DEFAULT_OPENAI_PROFILE_ID,
     source: 'user-byok',
-    name: '默认',
+    name: i18next.t('profile.defaultName', { ns: 'lib' }),
     kind: 'openai-compat',
     baseUrl: DEFAULT_BASE_URL,
     apiKey: '',
@@ -392,7 +395,7 @@ export function createDefaultGeminiByokProfile(
   return {
     id: `gemini-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
     source: 'user-byok',
-    name: '新配置',
+    name: i18next.t('profile.newName', { ns: 'lib' }),
     kind: 'gemini',
     baseUrl: DEFAULT_GEMINI_BASE_URL,
     apiKey: '',
@@ -463,7 +466,10 @@ export function normalizeClientProfile(input: unknown): ClientProfile | null {
   if (input.source !== 'user-byok') return null
 
   const kind = normalizeProviderKind(input.kind)
-  const name = typeof input.name === 'string' && input.name.trim() ? input.name : '新配置'
+  const name =
+    typeof input.name === 'string' && input.name.trim()
+      ? input.name
+      : i18next.t('profile.newName', { ns: 'lib' })
   const id =
     typeof input.id === 'string' && input.id.trim()
       ? input.id
@@ -629,7 +635,7 @@ export function getCustomProviderDefinition(
 export function getProviderKindLabel(kind: ProviderKind): string {
   if (kind === 'gemini') return 'Gemini'
   if (kind === 'openai-compat') return 'OpenAI'
-  return 'HTTP 模板'
+  return i18next.t('profile.httpTemplate', { ns: 'lib' })
 }
 
 export function getApiProviderLabel(
@@ -645,13 +651,13 @@ export function getApiProviderLabel(
 
 export function validateClientProfile(profile: ClientProfile): string | null {
   if (profile.source === 'builtin-edge') {
-    if (!profile.selectedModelId.trim()) return '缺少模型 ID'
+    if (!profile.selectedModelId.trim()) return i18next.t('profile.missingModelId', { ns: 'lib' })
     return null
   }
-  if (!profile.name.trim()) return '缺少名称'
-  if (!profile.baseUrl.trim()) return '缺少 API URL'
-  if (!profile.apiKey.trim()) return '缺少 API Key'
-  if (!profile.selectedModelId.trim()) return '缺少模型 ID'
+  if (!profile.name.trim()) return i18next.t('profile.missingName', { ns: 'lib' })
+  if (!profile.baseUrl.trim()) return i18next.t('profile.missingApiUrl', { ns: 'lib' })
+  if (!profile.apiKey.trim()) return i18next.t('profile.missingApiKey', { ns: 'lib' })
+  if (!profile.selectedModelId.trim()) return i18next.t('profile.missingModelId', { ns: 'lib' })
   return null
 }
 
@@ -862,14 +868,14 @@ function validateImportedProfileRecord(input: unknown) {
   if (!isRecord(input)) return
   const baseUrl = typeof input.baseUrl === 'string' ? input.baseUrl.trim() : ''
   if (baseUrl && (baseUrl.startsWith('[') || baseUrl.includes(']('))) {
-    throw new Error('JSON 包含 Markdown 链接，请粘贴纯文本')
+    throw new Error(i18next.t('profile.importMarkdownLink', { ns: 'lib' }))
   }
   if (
     typeof input.apiMode === 'string' &&
     input.apiMode !== 'images' &&
     input.apiMode !== 'responses'
   ) {
-    throw new Error('apiMode 格式无效，应为 images 或 responses')
+    throw new Error(i18next.t('profile.importBadApiMode', { ns: 'lib' }))
   }
 }
 
@@ -883,7 +889,10 @@ function legacyProfileRecordToByok(record: Record<string, unknown>): UserByokPro
         ? DEFAULT_GEMINI_BASE_URL
         : DEFAULT_BASE_URL
   const apiKey = typeof record.apiKey === 'string' ? record.apiKey : ''
-  const name = typeof record.name === 'string' && record.name.trim() ? record.name : '导入配置'
+  const name =
+    typeof record.name === 'string' && record.name.trim()
+      ? record.name
+      : i18next.t('profile.importedName', { ns: 'lib' })
   const model =
     typeof record.model === 'string' && record.model.trim()
       ? record.model.trim()
@@ -916,17 +925,17 @@ export function importCustomProviderSettingsFromJson(
   try {
     parsed = JSON.parse(stripMarkdownCodeFence(jsonText))
   } catch {
-    throw new Error('JSON 格式无效')
+    throw new Error(i18next.t('profile.importInvalidJson', { ns: 'lib' }))
   }
   if (!parsed || typeof parsed !== 'object') {
-    throw new Error('JSON 根节点必须是对象')
+    throw new Error(i18next.t('profile.importRootNotObject', { ns: 'lib' }))
   }
   const record = parsed as Record<string, unknown>
 
   if (Array.isArray(record.customProviders)) {
     const customProviders = normalizeCustomProviderDefinitions(record.customProviders)
     if (customProviders.length === 0) {
-      throw new Error('customProviders 数组中没有有效的服务商配置')
+      throw new Error(i18next.t('profile.importNoValidProviders', { ns: 'lib' }))
     }
     const profiles: ClientProfile[] = Array.isArray(record.profiles)
       ? record.profiles
@@ -950,7 +959,7 @@ export function importCustomProviderSettingsFromJson(
   const direct = normalizeCustomProviderDefinition(parsed, usedIds)
   if (direct) return { customProviders: [direct], profiles: [] }
 
-  throw new Error('无法识别该 JSON。请粘贴自定义服务商配置。')
+  throw new Error(i18next.t('profile.importUnrecognized', { ns: 'lib' }))
 }
 
 export function importCustomProviderDefinitionFromJson(

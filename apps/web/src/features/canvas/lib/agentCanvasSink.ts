@@ -1,3 +1,4 @@
+import { i18next } from '../../../i18n'
 import type { AgentCanvasSink, AgentPlaceOutcome } from '../../agent/lib/canvasSink'
 import type { CanvasEditor } from './editor'
 import { markPlaceholderStatus, placeImagesIntoTargets } from './placeholderShapeOps'
@@ -101,7 +102,14 @@ export function createAgentCanvasSink(
           ...(artifact.video ? { video: artifact.video } : {}),
         })),
         targets,
-        { canPlace, meta: { prompt: missing[0]?.name?.replace(/\s+\d+$/, '') || '生成任务' } },
+        {
+          canPlace,
+          meta: {
+            prompt:
+              missing[0]?.name?.replace(/\s+\d+$/, '') ||
+              i18next.t('creations.taskTitle', { ns: 'agent' }),
+          },
+        },
       )
       // 落图成功才收占位框：中途被判冲突时它得留着，用户点「放入画布」还认得这个位置。
       if (outcome === 'placed') {

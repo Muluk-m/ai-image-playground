@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
 } from 'react'
+import { useTranslation } from '../i18n'
 import {
   clientProfileToApiProfile,
   getActiveApiProfile,
@@ -67,7 +68,7 @@ const ON_OFF_OPTIONS = [
 ]
 
 const GEMINI_FIELDS: ReadonlyArray<{
-  label: string
+  labelKey: 'param.aspectRatio' | 'param.resolution' | 'param.thinking'
   field: GeminiSelectField
   icon: ReactNode
   options: ReadonlyArray<{ label: string; value: string }>
@@ -75,20 +76,20 @@ const GEMINI_FIELDS: ReadonlyArray<{
   tuningOnly?: boolean
 }> = [
   {
-    label: '比例',
+    labelKey: 'param.aspectRatio',
     field: 'gemini_aspect_ratio',
     icon: ChipIcons.aspect,
     options: buildAutoOptions(GEMINI_ASPECT_RATIOS),
   },
   {
-    label: '分辨率',
+    labelKey: 'param.resolution',
     field: 'gemini_image_size',
     icon: ChipIcons.imageSize,
     options: buildAutoOptions(GEMINI_IMAGE_SIZES),
     tuningOnly: true,
   },
   {
-    label: '思考',
+    labelKey: 'param.thinking',
     field: 'gemini_thinking_level',
     icon: ChipIcons.thinking,
     options: buildAutoOptions(GEMINI_THINKING_LEVELS),
@@ -110,6 +111,7 @@ export default function ParamControls({
   showCount?: boolean
   unsupported?: ReadonlySet<UnsupportedParam>
 }) {
+  const { t } = useTranslation('composer')
   const params = useStore((s) => s.params)
   const setParams = useStore((s) => s.setParams)
   const settings = useStore((s) => s.settings)
@@ -304,7 +306,7 @@ export default function ParamControls({
 
   // 品牌图标 + 短名称；重名选项补充来源，完整名称与模型 ID 留在 tooltip。
   const currentModel = globalModelOptions.find((option) => option.value === currentModelValue)
-  const modelLine = currentModel?.label ?? '未选择'
+  const modelLine = currentModel?.label ?? t('param.noModel')
 
   return (
     <>
@@ -324,7 +326,7 @@ export default function ParamControls({
       {!isGeminiProvider && (
         <ParamChip
           icon={ChipIcons.size}
-          label={capabilities.size ? '尺寸' : '比例'}
+          label={capabilities.size ? t('param.size') : t('param.aspectRatio')}
           value={capabilities.size ? displaySize : sizeRatioLabel(params.size)}
           onClick={() => {
             dismissAllTooltips()
@@ -332,10 +334,10 @@ export default function ParamControls({
           }}
         />
       )}
-      {geminiFields.map(({ label, field, icon, options }) => {
+      {geminiFields.map(({ labelKey, field, icon, options }) => {
         const currentValue = (params[field] as string | undefined) ?? 'auto'
         return (
-          <ParamChip key={field} icon={icon} label={label} value={currentValue}>
+          <ParamChip key={field} icon={icon} label={t(labelKey)} value={currentValue}>
             <ChipSelect
               value={currentValue}
               onChange={(val) =>
@@ -352,7 +354,7 @@ export default function ParamControls({
         <>
           {/* 不可用的质量、压缩参数直接不渲染，避免占位挤掉单行布局。 */}
           {capabilities.quality && (
-            <ParamChip icon={ChipIcons.quality} label="质量" value={params.quality}>
+            <ParamChip icon={ChipIcons.quality} label={t('param.quality')} value={params.quality}>
               <ChipSelect
                 value={params.quality}
                 onChange={(val) => setParams({ quality: val as any })}
@@ -362,7 +364,7 @@ export default function ParamControls({
           )}
           <ParamChip
             icon={ChipIcons.format}
-            label="格式"
+            label={t('param.format')}
             value={params.output_format.toUpperCase()}
           >
             <ChipSelect
@@ -383,7 +385,7 @@ export default function ParamControls({
           {capabilities.transparentOutput && !unsupported?.has('transparent') && (
             <ParamChip
               icon={ChipIcons.format}
-              label="透明"
+              label={t('param.transparent')}
               value={params.transparent_output ? 'on' : 'off'}
             >
               <ChipSelect
@@ -402,7 +404,7 @@ export default function ParamControls({
           {!unsupported?.has('noRewrite') && (
             <ParamChip
               icon={ChipIcons.noRewrite}
-              label="防改写"
+              label={t('param.noRewrite')}
               value={params.no_rewrite ? 'on' : 'off'}
             >
               <ChipSelect
@@ -413,7 +415,7 @@ export default function ParamControls({
             </ParamChip>
           )}
           {capabilities.compression && (
-            <ParamChip icon={ChipIcons.compression} label="压缩">
+            <ParamChip icon={ChipIcons.compression} label={t('param.compression')}>
               <input
                 value={outputCompressionInput}
                 onChange={(e) => setOutputCompressionInput(e.target.value)}
@@ -429,7 +431,7 @@ export default function ParamControls({
         </>
       )}
       {showCount && (
-        <ParamChip icon={ChipIcons.count} label="数量">
+        <ParamChip icon={ChipIcons.count} label={t('param.count')}>
           <input
             value={nInput}
             onChange={(e) => handleNInputChange(e.target.value)}

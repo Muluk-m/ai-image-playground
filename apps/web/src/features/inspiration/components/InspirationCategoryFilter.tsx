@@ -1,4 +1,5 @@
 import { useMemo } from 'react'
+import { useTranslation } from '../../../i18n'
 import { useInspirationStore } from '../store'
 
 export default function InspirationCategoryFilter() {
@@ -6,6 +7,7 @@ export default function InspirationCategoryFilter() {
   const selectedProvider = useInspirationStore((s) => s.selectedProvider)
   const selectedCategory = useInspirationStore((s) => s.selectedCategory)
   const setCategory = useInspirationStore((s) => s.setCategory)
+  const { t } = useTranslation('inspiration')
 
   // 分类列表跟随当前 provider 过滤——只看到对应模型下实际存在的分类
   const visibleCategories = useMemo(() => {
@@ -20,7 +22,7 @@ export default function InspirationCategoryFilter() {
   return (
     <nav className="flex flex-col gap-1 p-2">
       <CategoryButton
-        label="全部"
+        label={t('filter.all')}
         active={selectedCategory === null}
         onClick={() => setCategory(null)}
       />

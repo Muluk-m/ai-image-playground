@@ -1,4 +1,5 @@
 import type { SuggestionMenuGroup, SuggestionMenuOption } from '../../../components/SuggestionMenu'
+import { i18next } from '../../../i18n'
 import { getImageMentionLabel, imageMentionMatches } from '../../../lib/promptImageMentions'
 import type { InputImage } from '../../../types'
 import AssetThumb from '../components/AssetThumb'
@@ -96,10 +97,21 @@ export function buildAtMentionGroups({
 
   // 一条素材都没有时留住空组当引导；有素材只是被查询过滤光则照旧收起。
   const assetsEmptyNote =
-    canAttachAssets && assets.length === 0 ? '还没有素材，右键参考图可保存' : undefined
+    canAttachAssets && assets.length === 0
+      ? i18next.t('mention.assetsEmptyNote', { ns: 'library' })
+      : undefined
 
   return [
-    { key: 'images', heading: '本次参考图', options: imageOptions },
-    { key: 'assets', heading: '素材', options: pickedAssets, emptyNote: assetsEmptyNote },
+    {
+      key: 'images',
+      heading: i18next.t('mention.headingImages', { ns: 'library' }),
+      options: imageOptions,
+    },
+    {
+      key: 'assets',
+      heading: i18next.t('mention.headingAssets', { ns: 'library' }),
+      options: pickedAssets,
+      emptyNote: assetsEmptyNote,
+    },
   ].filter((group) => group.options.length > 0 || group.emptyNote)
 }

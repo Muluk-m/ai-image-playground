@@ -1,3 +1,4 @@
+import { i18next } from '../../../i18n'
 import { resumeQueueImageApi } from '../../../lib/api'
 import { addCompletedCanvasTask, useStore } from '../../../store'
 import { snapshotParams } from './canvasTaskRuntime'
@@ -70,10 +71,20 @@ export function recoverCanvasTasks(editor: CanvasEditor): void {
       void resumeOne(editor, placeholder, meta.bffRequestId)
     } else if (meta.source === 'builtin-edge') {
       // submit 未确认窗口：不自动重提交（决策 6），标记需手动重试。
-      markPlaceholderStatus(editor, placeholder.id, 'stale', '任务未确认，请手动重试')
+      markPlaceholderStatus(
+        editor,
+        placeholder.id,
+        'stale',
+        i18next.t('placeholder.unconfirmed', { ns: 'canvas' }),
+      )
     } else {
       // BYOK 不经 BFF、无跨会话恢复能力：诚实标失效并给重试，而非僵尸转圈。
-      markPlaceholderStatus(editor, placeholder.id, 'stale', 'BYOK 任务无法跨会话恢复，请重试')
+      markPlaceholderStatus(
+        editor,
+        placeholder.id,
+        'stale',
+        i18next.t('placeholder.byokUnrecoverable', { ns: 'canvas' }),
+      )
     }
   }
 }

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useTranslation } from '../i18n'
 import { Checkbox } from './Checkbox'
 import Overlay from './Overlay'
 
@@ -9,17 +10,18 @@ interface LogoutDialogProps {
 
 /** 退出登录的确认框。勾选后连同当前用户 scope 的本机缓存一起删掉。 */
 export default function LogoutDialog({ onCancel, onConfirm }: LogoutDialogProps) {
+  const { t } = useTranslation(['shell', 'common'])
   const [clearLocalData, setClearLocalData] = useState(false)
 
   return (
     <Overlay onClose={onCancel} tier="alert">
       <div className="relative z-10 w-full max-w-sm rounded-2xl border border-white/50 bg-card p-5 shadow-2xl ring-1 ring-black/5 animate-modal-in border-border dark:ring-white/10">
-        <h3 className="text-base font-semibold text-foreground">退出登录</h3>
+        <h3 className="text-base font-semibold text-foreground">{t('logout.title')}</h3>
 
         <Checkbox
           checked={clearLocalData}
           onChange={setClearLocalData}
-          label="同时清除本机数据"
+          label={t('logout.clearLocalData')}
           tone="danger"
           className="mt-4"
         />
@@ -30,7 +32,7 @@ export default function LogoutDialog({ onCancel, onConfirm }: LogoutDialogProps)
             onClick={onCancel}
             className="rounded-xl px-4 py-2 text-sm text-muted-foreground transition hover:bg-muted"
           >
-            取消
+            {t('common:action.cancel')}
           </button>
           <button
             type="button"
@@ -41,7 +43,7 @@ export default function LogoutDialog({ onCancel, onConfirm }: LogoutDialogProps)
                 : 'bg-primary text-primary-foreground hover:bg-primary/90'
             }`}
           >
-            退出
+            {t('logout.confirm')}
           </button>
         </div>
       </div>

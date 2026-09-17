@@ -1,0 +1,189 @@
+{
+  "toolbar": {
+    "toolTitle": "{{label}}（{{hotkey}}）",
+    "tool": {
+      "select": "选择",
+      "hand": "抓手",
+      "pen": "画笔",
+      "eraser": "橡皮",
+      "arrow": "箭头",
+      "text": "文字"
+    },
+    "undo": "撤销（⌘Z）",
+    "redo": "重做（⌘⇧Z）",
+    "duplicate": "复制一份（⌘D）",
+    "deleteSelected": "删除所选（Del）",
+    "zoomOut": "缩小",
+    "zoomIn": "放大",
+    "resetZoom": "重置为 100%",
+    "groupAria": "画布工具"
+  },
+  "shortcuts": {
+    "title": "快捷键速查",
+    "collapse": "收起快捷键",
+    "expand": "查看快捷键",
+    "row": {
+      "copyPaste": "复制 / 粘贴",
+      "delete": "删除",
+      "selectAll": "全选 / 加选",
+      "duplicate": "复制一份",
+      "undoRedo": "撤销 / 重做",
+      "selectHand": "选择 / 抓手",
+      "penEraser": "画笔 / 橡皮",
+      "arrowText": "箭头 / 文字",
+      "zoomPan": "缩放 / 临时抓手",
+      "freeDrag": "拖动禁用吸附",
+      "submitBack": "发起生成 / 回画布"
+    },
+    "key": {
+      "click": "点击",
+      "wheel": "滚轮",
+      "drag": "拖动"
+    }
+  },
+  "generate": {
+    "hintAnnotated_other": "已选中 {{count}} 张图片 + 手绘标注 · 将按标注迭代（输出不含标注线条）",
+    "hintSelected_other": "已选中 {{count}} 张图片 · 各自作为独立参考图迭代",
+    "hintEmpty": "未选中图片时为文生图；选中图片后可在图上手绘标注一起迭代",
+    "inputAlt": "输入 {{index}}",
+    "previewPending": "预览生成中…",
+    "annotationHint": "文字标注 → 修改要求：{{text}}",
+    "promptPlaceholder": "描述想生成 / 想怎么改…（⌘/Ctrl + Enter 生成）",
+    "promptAria": "创作描述"
+  },
+  "submit": {
+    "blocked": "当前无法生成",
+    "rasterizeFailed": "选中图片处理失败，请重试",
+    "emptyInput": "请输入提示词，或先在画布上选中图片",
+    "inputsLost": "原任务的输入图已随页面关闭丢失，请重新选中图片后发起生成"
+  },
+  "placeholder": {
+    "generating": "生成中…",
+    "failed": "生成失败",
+    "stale": "任务失效",
+    "noImages": "生成完成但未返回图片",
+    "unconfirmed": "任务未确认，请手动重试",
+    "byokUnrecoverable": "BYOK 任务无法跨会话恢复，请重试"
+  },
+  "style": {
+    "color": "标注颜色 {{color}}"
+  },
+  "minimap": {
+    "label": "画布小地图"
+  },
+  "videoOverlay": {
+    "play": "播放"
+  },
+  "project": {
+    "backToProjects": "返回项目",
+    "restoring": "正在恢复项目…",
+    "reload": "重新加载",
+    "untitled": "未命名项目",
+    "routeUnavailable": "此项目暂时无法打开，请确认账号或在原设备重试。",
+    "cloudListFailed": "云端项目列表读取失败，本机项目仍可使用。",
+    "loadFailed": "项目读取失败，原内容已保留，请重新加载。"
+  },
+  "mobileSwitch": {
+    "aria": "创作视图",
+    "chat": "对话",
+    "canvas": "画布"
+  },
+  "sidebar": {
+    "title": "图片创作",
+    "collapseAria": "收起面板",
+    "collapse": "收起 ←",
+    "emptyTitle": "从一个想法开始",
+    "emptyBody": "描述画面，或将参考图拖入右侧画布。选中图片后，可以继续生成新的版本。",
+    "openChat": "展开创作"
+  },
+  "workspace": {
+    "canvasAria": "创作画布",
+    "untitled": "我的画布",
+    "saveFailed": "本机保存失败",
+    "restoring": "正在恢复",
+    "autoSaved": "本机自动保存",
+    "dropHint": "拖入图片开始创作"
+  },
+  "saveError": {
+    "message": "画布保存失败，内容仍在当前页面。请重试，成功前不要刷新或关闭。",
+    "messageDetailed": "画布保存失败，内容仍在当前页面。请回到对应会话重试保存，成功前不要刷新或关闭。",
+    "retry": "重试保存"
+  },
+  "empty": {
+    "title": "给想象，一个画面。",
+    "bodyAgent": "描述你的想法，作品会在这里展开。",
+    "bodyDirect": "输入画面描述，开始你的创作。",
+    "bodyDrop": "也可以拖入图片，继续探索新的可能。",
+    "import": "＋ 导入参考图片"
+  },
+  "import": {
+    "inputAria": "导入画布图片",
+    "noneImported": "未能导入图片，请选择有效的图片文件",
+    "failed": "图片导入失败，请重试"
+  },
+  "loadError": {
+    "message": "画布读取失败，原内容已保留，请重试。",
+    "retry": "重新读取"
+  },
+  "loading": {
+    "restoring": "正在恢复画布…"
+  },
+  "sync": {
+    "loading": "正在读取云端画布",
+    "pending": "画布等待同步",
+    "syncing": "画布正在同步",
+    "saved": "画布已同步",
+    "error": "画布同步失败",
+    "loadError": "画布读取失败",
+    "conflict": "画布同步冲突",
+    "mediaLocal": "画布尚未完整同步",
+    "retry": "重试同步",
+    "localOnly": "草稿仅保存在此设备"
+  },
+  "welcome": {
+    "aria": "开始新项目",
+    "title": "让想法，从这里展开。",
+    "subtitle": "描述你想创作的画面，或添加一张参考图。",
+    "recent": "最近项目",
+    "allProjects": "全部项目 →"
+  },
+  "imageMenu": {
+    "copied": "图片已复制",
+    "downloadFailed": "下载失败",
+    "copy": "复制图片",
+    "download": "下载图片"
+  },
+  "grid": {
+    "loadingCloud": "正在读取项目…",
+    "retryCloud": "重试读取云端项目",
+    "refreshCloud": "刷新云端项目",
+    "loadMore": "加载更多项目",
+    "newProject": "新建项目",
+    "openAria": "打开项目 {{name}}",
+    "current": "当前项目",
+    "updatedAt": "{{date}} 更新",
+    "cloud": "云端项目",
+    "pendingSync": "等待同步",
+    "localOnly": "仅此设备",
+    "rename": "重命名",
+    "renameAria": "重命名项目 {{name}}",
+    "deleteAria": "删除项目 {{name}}",
+    "deleteTitle": "删除项目",
+    "deleteMessage": "删除“{{name}}”及其画布和会话？此操作无法撤销。",
+    "noMatch": "没有找到匹配的项目",
+    "renameTitle": "重命名项目",
+    "renamePlaceholder": "给项目起个名字",
+    "renameFailed": "项目名称保存失败，请重试。"
+  },
+  "cloud": {
+    "mediaLocal": "画布含尚未同步的媒体或不支持的内容，仅保存在此设备。",
+    "loadFailed": "云端项目读取失败，原内容已保留，请重新读取。",
+    "conflict": "另一设备已修改此项目，已暂停同步。本机内容已保留。",
+    "quotaExceeded": "云端容量或画布大小超出限制，本机内容已保留。",
+    "syncFailed": "云端同步失败，本机内容已保留，请重试。"
+  },
+  "imageName": {
+    "video": "视频",
+    "image": "图片"
+  }
+}

@@ -1,3 +1,4 @@
+import { i18next } from '../i18n'
 export async function copyTextToClipboard(text: string) {
   let asyncClipboardError: unknown = null
 
@@ -36,10 +37,14 @@ async function transcodeImageBlobToPng(blob: Blob): Promise<Blob> {
     canvas.width = bitmap.width
     canvas.height = bitmap.height
     const ctx = canvas.getContext('2d')
-    if (!ctx) throw new Error('当前浏览器不支持 Canvas')
+    if (!ctx) throw new Error(i18next.t('canvas.unsupported', { ns: 'lib' }))
     ctx.drawImage(bitmap, 0, 0)
     return await new Promise<Blob>((resolve, reject) => {
-      canvas.toBlob((png) => (png ? resolve(png) : reject(new Error('图片转码失败'))), 'image/png')
+      canvas.toBlob(
+        (png) =>
+          png ? resolve(png) : reject(new Error(i18next.t('image.transcodeFailed', { ns: 'lib' }))),
+        'image/png',
+      )
     })
   } finally {
     bitmap.close()
@@ -48,7 +53,7 @@ async function transcodeImageBlobToPng(blob: Blob): Promise<Blob> {
 
 export function getClipboardFailureMessage(fallback: string, err: unknown) {
   if (isEmbeddedPage() && isClipboardPermissionError(err)) {
-    return '复制失败：内嵌页面未授予剪贴板权限'
+    return i18next.t('clipboard.iframeDenied', { ns: 'lib' })
   }
 
   return fallback

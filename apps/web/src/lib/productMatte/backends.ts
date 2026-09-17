@@ -1,3 +1,4 @@
+import { i18next } from '../../i18n'
 export type BrowserMatteBackendId = 'webgpu-birefnet' | 'webgpu-u2netp' | 'wasm-u2netp'
 
 /** 抠出这份 alpha 的是谁：服务端那一个不在浏览器回落链里。 */
@@ -62,12 +63,20 @@ export const MATTE_BACKENDS: readonly MatteBackend[] = [
   },
 ]
 
-export const MATTE_BACKEND_LABELS: Record<MatteBackendId, string> = {
-  'cloudflare-birefnet': '服务端',
-  'webgpu-birefnet': 'BiRefNet · GPU',
-  'webgpu-u2netp': 'U²-Netp · GPU',
-  'wasm-u2netp': 'U²-Netp · CPU',
+function buildBackendLabels(): Record<MatteBackendId, string> {
+  return {
+    'cloudflare-birefnet': i18next.t('matte.backendServer', { ns: 'lib' }),
+    'webgpu-birefnet': 'BiRefNet · GPU',
+    'webgpu-u2netp': 'U²-Netp · GPU',
+    'wasm-u2netp': 'U²-Netp · CPU',
+  }
 }
+
+/** `export let` 的 live binding：语言切换后已 import 这张表的模块读到的是新一份。 */
+export let MATTE_BACKEND_LABELS: Record<MatteBackendId, string> = buildBackendLabels()
+i18next.on('languageChanged', () => {
+  MATTE_BACKEND_LABELS = buildBackendLabels()
+})
 
 type MatteAdapter = { limits?: { maxStorageBuffersPerShaderStage?: number } }
 type MatteGpu = { requestAdapter(): Promise<MatteAdapter | null> }

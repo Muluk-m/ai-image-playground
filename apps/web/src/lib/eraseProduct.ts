@@ -1,4 +1,5 @@
 import type { ProductBox } from '@image-playground/shared'
+import { i18next } from '../i18n'
 import { loadImage } from './canvasImage'
 
 export interface PixelRect {
@@ -40,7 +41,7 @@ export async function eraseProductArea(dataUrl: string, box: ProductBox): Promis
   canvas.width = size.width
   canvas.height = size.height
   const ctx = canvas.getContext('2d')
-  if (!ctx) throw new Error('当前浏览器不支持 Canvas')
+  if (!ctx) throw new Error(i18next.t('canvas.unsupported', { ns: 'lib' }))
 
   ctx.drawImage(image, 0, 0)
   const rect = productBoxToPixelRect(box, size, PRODUCT_ERASE_PADDING)

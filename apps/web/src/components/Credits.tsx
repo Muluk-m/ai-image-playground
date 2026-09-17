@@ -9,8 +9,11 @@
  * 首次见到闪电的用户不靠猜。
  */
 
+import { useTranslation } from '../i18n'
+import { formatCount } from '../i18n/format'
+
 export function formatCredits(credits: number): string {
-  return Math.round(credits).toLocaleString('en-US')
+  return formatCount(credits)
 }
 
 function BoltIcon() {
@@ -28,11 +31,12 @@ export default function Credits({
   credits: number
   className?: string
 }) {
+  const { t } = useTranslation('shell')
   const amount = formatCredits(credits)
   return (
     <span
       role="img"
-      aria-label={`${amount} 积分`}
+      aria-label={t('credits.ariaLabel', { amount })}
       className={`inline-flex items-center gap-0.5 tabular-nums ${className}`}
     >
       <BoltIcon />

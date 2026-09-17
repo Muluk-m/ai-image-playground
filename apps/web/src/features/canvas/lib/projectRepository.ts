@@ -1,6 +1,18 @@
 import type { CloudProjectSummary } from '@image-playground/shared'
+import { i18next } from '../../../i18n'
 import { scopedStorageName } from '../../../lib/authScope'
 import { openCanvasDatabase } from './persistence'
+
+/**
+ * 新项目的默认名。它被写进 IndexedDB、同步到云端，还参与 `customName` 的相等比较，
+ * 所以是数据不是文案，一律保持中文原样；要显示给用户时走 `projectDisplayName`。
+ */
+export const UNTITLED_PROJECT = '未命名项目'
+
+/** 只管显示的查表：默认名按当前语言译，用户自己起的名字原样出。 */
+export function projectDisplayName(name: string): string {
+  return name === UNTITLED_PROJECT ? i18next.t('project.untitled', { ns: 'canvas' }) : name
+}
 
 export interface CanvasProject {
   readonly id: string
@@ -67,7 +79,7 @@ export const projectRepository = {
   },
 
   async create(
-    name = '未命名项目',
+    name = UNTITLED_PROJECT,
     legacy?: { sceneKey: string; conversationId: string | null },
     cloud = false,
   ): Promise<CanvasProject> {
@@ -76,7 +88,7 @@ export const projectRepository = {
     const project: CanvasProject = {
       id,
       name,
-      customName: name !== '未命名项目',
+      customName: name !== UNTITLED_PROJECT,
       conversationId: legacy?.conversationId ?? null,
       sceneKey: legacy?.sceneKey ?? `${scopedStorageName('canvas')}:project:${id}`,
       createdAt: now,

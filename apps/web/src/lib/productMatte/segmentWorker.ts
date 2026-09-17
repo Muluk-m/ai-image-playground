@@ -15,7 +15,7 @@ async function toSquareInput(dataUrl: string, size: number) {
   const bitmap = await createImageBitmap(await (await fetch(dataUrl)).blob())
   const canvas = new OffscreenCanvas(size, size)
   const context = canvas.getContext('2d')
-  if (!context) throw new Error('OffscreenCanvas 2d 上下文不可用')
+  if (!context) throw new Error('OffscreenCanvas 2d context is unavailable')
   context.drawImage(bitmap, 0, 0, size, size)
   const rgba = context.getImageData(0, 0, size, size).data
   return { input: rgbaToNchw(rgba, size), width: bitmap.width, height: bitmap.height }
@@ -32,7 +32,7 @@ function resizeAlpha(
   const sourceContext = source.getContext('2d')
   const target = new OffscreenCanvas(width, height)
   const targetContext = target.getContext('2d')
-  if (!sourceContext || !targetContext) throw new Error('OffscreenCanvas 2d 上下文不可用')
+  if (!sourceContext || !targetContext) throw new Error('OffscreenCanvas 2d context is unavailable')
 
   const image = sourceContext.createImageData(size, size)
   for (let i = 0; i < alpha.length; i++) {

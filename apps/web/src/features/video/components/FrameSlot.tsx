@@ -1,10 +1,11 @@
 import { useRef } from 'react'
 import { GHOST_BUTTON } from '../../../components/panelStyles'
 import { useImageDropZone } from '../../../hooks/useImageDropZone'
+import { useTranslation } from '../../../i18n'
 import { acceptImageFiles } from '../../../lib/imageFiles'
 import AssetThumb from '../../library/components/AssetThumb'
 import { useVideoStore } from '../store'
-import { VIDEO_FRAME_SLOT_LABELS, type VideoFrameSlot } from '../types'
+import { type VideoFrameSlot, videoFrameSlotLabel } from '../types'
 
 interface FrameSlotProps {
   slot: VideoFrameSlot
@@ -16,7 +17,8 @@ interface FrameSlotProps {
 }
 
 export default function FrameSlot({ slot, imageId, disabledReason, hint, onPick }: FrameSlotProps) {
-  const label = VIDEO_FRAME_SLOT_LABELS[slot]
+  const { t } = useTranslation(['video', 'common'])
+  const label = videoFrameSlotLabel(slot)
   const inputRef = useRef<HTMLInputElement>(null)
   const disabled = Boolean(disabledReason)
   const { dragging, dropZoneProps } = useImageDropZone((files) => {
@@ -43,7 +45,7 @@ export default function FrameSlot({ slot, imageId, disabledReason, hint, onPick 
           <button
             type="button"
             onClick={() => useVideoStore.getState().setFrame(slot, null)}
-            aria-label={`移除${label}`}
+            aria-label={t('frameSlot.removeAria', { label })}
             className="absolute right-1.5 top-1.5 grid h-5 w-5 place-items-center rounded-full bg-black/55 text-[11px] text-white"
           >
             ×
@@ -72,10 +74,10 @@ export default function FrameSlot({ slot, imageId, disabledReason, hint, onPick 
       {!disabled && (
         <div className="flex items-center gap-1">
           <button type="button" className={GHOST_BUTTON} onClick={() => inputRef.current?.click()}>
-            上传
+            {t('common:action.upload')}
           </button>
           <button type="button" className={GHOST_BUTTON} onClick={onPick}>
-            选图
+            {t('action.pickImage')}
           </button>
         </div>
       )}

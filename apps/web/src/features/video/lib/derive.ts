@@ -1,11 +1,12 @@
 import {
-  VIDEO_DERIVE_LABELS,
   VIDEO_DERIVE_MODES,
   type VideoDeriveMode,
   type VideoResolution,
 } from '@image-playground/shared'
+import { i18next } from '../../../i18n'
 import { type VideoModelOption, videoModelOptions } from '../../../lib/channels/videoChannels'
 import type { VideoTask } from '../types'
+import { videoDeriveLabel } from './labels'
 
 export const VIDEO_EXTEND_SECONDS = [2, 5, 8, 10] as const
 export const DEFAULT_EXTEND_SECONDS = 5
@@ -30,13 +31,23 @@ export interface VideoDeriveOption {
 
 export function checkDerive(task: VideoTask, mode: VideoDeriveMode): VideoDeriveCheck {
   const option = videoModelOptions().find((item) => item.support[mode])
-  if (!option) return { ok: false, reason: `当前部署没有支持${VIDEO_DERIVE_LABELS[mode]}的模型` }
+  if (!option)
+    return {
+      ok: false,
+      reason: i18next.t('derive.noModel', { ns: 'video', label: videoDeriveLabel(mode) }),
+    }
   if (task.status !== 'done' || !task.bffRequestId || task.outputIndex === undefined)
-    return { ok: false, reason: '这条还没生成完' }
+    return { ok: false, reason: i18next.t('derive.notDone', { ns: 'video' }) }
   if (task.duration < MIN_SOURCE_SECONDS)
-    return { ok: false, reason: `源片不足 ${MIN_SOURCE_SECONDS} 秒` }
+    return {
+      ok: false,
+      reason: i18next.t('derive.tooShort', { ns: 'video', seconds: MIN_SOURCE_SECONDS }),
+    }
   if (task.duration > MAX_SOURCE_SECONDS[mode])
-    return { ok: false, reason: `源片超过 ${MAX_SOURCE_SECONDS[mode]} 秒` }
+    return {
+      ok: false,
+      reason: i18next.t('derive.tooLong', { ns: 'video', seconds: MAX_SOURCE_SECONDS[mode] }),
+    }
   return { ok: true, option }
 }
 

@@ -1,4 +1,5 @@
 import { VIDEO_MODEL_SUPPORT } from '@image-playground/shared'
+import { i18next } from '../../../i18n'
 import { VIDEO_SOURCES, type VideoSource, type VideoTask } from '../types'
 
 export const ALL_FILTER = 'all'
@@ -8,7 +9,11 @@ const SOURCE_PREFIX = 'source:'
 const MODEL_PREFIX = 'model:'
 
 /** 工具条上的短标签，区别于左栏的「文生视频 / 图生视频」。 */
-const FEED_SOURCE_LABELS: Record<VideoSource, string> = { text: '文生', image: '图生' }
+function feedSourceLabel(source: VideoSource): string {
+  return source === 'text'
+    ? i18next.t('feed.filterText', { ns: 'video' })
+    : i18next.t('feed.filterImage', { ns: 'video' })
+}
 
 export interface VideoFeedFilter {
   id: string
@@ -22,18 +27,25 @@ export function isVideoTaskActive(task: VideoTask): boolean {
 
 /** 只列出结果流里真有的来源与模型，避免出现点了必然空的筛选。 */
 export function videoFeedFilters(tasks: readonly VideoTask[]): VideoFeedFilter[] {
-  const filters: VideoFeedFilter[] = [{ id: ALL_FILTER, label: '全部', count: tasks.length }]
+  const filters: VideoFeedFilter[] = [
+    { id: ALL_FILTER, label: i18next.t('feed.filterAll', { ns: 'video' }), count: tasks.length },
+  ]
   const count = (match: (task: VideoTask) => boolean) => tasks.filter(match).length
 
   const running = count(isVideoTaskActive)
-  if (running > 0) filters.push({ id: RUNNING_FILTER, label: '生成中', count: running })
+  if (running > 0)
+    filters.push({
+      id: RUNNING_FILTER,
+      label: i18next.t('state.generating', { ns: 'common' }),
+      count: running,
+    })
 
   for (const source of VIDEO_SOURCES) {
     const total = count((task) => task.source === source)
     if (total > 0) {
       filters.push({
         id: `${SOURCE_PREFIX}${source}`,
-        label: FEED_SOURCE_LABELS[source],
+        label: feedSourceLabel(source),
         count: total,
       })
     }

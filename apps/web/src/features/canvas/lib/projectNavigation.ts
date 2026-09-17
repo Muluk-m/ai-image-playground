@@ -1,3 +1,4 @@
+import { i18next } from '../../../i18n'
 import { useStore } from '../../../store'
 import { useAgentStore } from '../../agent/store'
 import { useLibraryStore } from '../../library/store'
@@ -38,7 +39,7 @@ export function installProjectNavigation(): () => void {
       } catch {
         if (!isCurrent()) return
         useCanvasProjectStore.setState({
-          routeError: '此项目暂时无法打开，请确认账号或在原设备重试。',
+          routeError: i18next.t('project.routeUnavailable', { ns: 'canvas' }),
         })
       }
     })

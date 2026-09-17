@@ -158,6 +158,63 @@ export const VIDEO_MODEL_SUPPORT: Record<string, VideoModelSupport> = {
 
 export type VideoValidationResult = { ok: true } | { ok: false; reason: string }
 
+/** 一条驳回一个 code。`reason` 是给 BFF 的中文回执，`code` 才是界面查译文用的键。 */
+export type VideoRejectionCode =
+  | 'promptTooLong'
+  | 'modelUnsupported'
+  | 'modeUnsupported'
+  | 'durationUnsupported'
+  | 'extendDurationOutOfRange'
+  | 'editDurationMissing'
+  | 'aspectRatioUnsupported'
+  | 'resolutionUnsupported'
+  | 'durationForResolutionUnsupported'
+  | 'frameUnsupported'
+  | 'frameImageMissing'
+  | 'deriveModeUnsupported'
+  | 'deriveFramesRejected'
+  | 'deriveSourceMissing'
+
+/**
+ * 渲染驳回文案要的原始数据。这里一律不放译好的词 —— 首帧/尾帧、续写/改视频只给枚举值，
+ * 由界面自己查译文，否则英文界面会渲染出夹着中文的句子。
+ */
+export interface VideoRejectionParams {
+  /** 模型的用户可读名，本来就是英文或品牌名。 */
+  readonly label?: string
+  readonly min?: number
+  readonly max?: number
+  /** 已经 join 好的时长列表，例如 `5 / 8 / 10`。 */
+  readonly durations?: string
+  /** 已经 join 好的允许值列表：画幅或清晰度。 */
+  readonly allowed?: string
+  readonly resolution?: string
+  readonly frame?: 'first' | 'last'
+  readonly mode?: VideoDeriveMode
+}
+
+export interface VideoRejection {
+  readonly code: VideoRejectionCode
+  readonly params: VideoRejectionParams
+  /** 中文回执，BFF 直接当错误消息返回；界面不要渲染它。 */
+  readonly reason: string
+}
+
+const FRAME_NAMES: Record<'first' | 'last', string> = { first: '首帧', last: '尾帧' }
+
+function rejection(
+  code: VideoRejectionCode,
+  params: VideoRejectionParams,
+  reason: string,
+): VideoRejection {
+  return { code, params, reason }
+}
+
+/** 驳回对象压回 BFF 认识的窄形状；`packages/shared` 之外只有 BFF 该用它。 */
+function toValidationResult(found: VideoRejection | null): VideoValidationResult {
+  return found ? { ok: false, reason: found.reason } : { ok: true }
+}
+
 /** 落不到该模型的合法档位上就退到它的第一档。 */
 export function clampToSupported<T>(allowed: readonly T[], value: T): T {
   return allowed.includes(value) ? value : allowed[0]!
@@ -210,10 +267,15 @@ export function videoDurationsForResolution(
 }
 
 export function validateVideoPrompt(modelId: string, prompt: string): VideoValidationResult {
+  return toValidationResult(videoPromptRejection(modelId, prompt))
+}
+
+export function videoPromptRejection(modelId: string, prompt: string): VideoRejection | null {
   const support = VIDEO_MODEL_SUPPORT[modelId]
   const max = support?.promptMaxChars
-  if (max === undefined || prompt.length <= max) return { ok: true }
-  return { ok: false, reason: `${support.label} 描述最多 ${max} 字` }
+  if (max === undefined || prompt.length <= max) return null
+  const { label } = support
+  return rejection('promptTooLong', { label, max }, `${label} 描述最多 ${max} 字`)
 }
 
 export function validateVideoRequest(
@@ -221,18 +283,32 @@ export function validateVideoRequest(
   video: VideoRequest,
   inputImageCount: number,
 ): VideoValidationResult {
+  return toValidationResult(videoRequestRejection(modelId, video, inputImageCount))
+}
+
+export function videoRequestRejection(
+  modelId: string,
+  video: VideoRequest,
+  inputImageCount: number,
+): VideoRejection | null {
   const support = VIDEO_MODEL_SUPPORT[modelId]
-  if (!support) return { ok: false, reason: '该模型不支持视频生成' }
+  if (!support) return rejection('modelUnsupported', {}, '该模型不支持视频生成')
 
   const { label } = support
   const mode = video.mode ?? 'generate'
-  if (!VIDEO_MODES.includes(mode)) return { ok: false, reason: '不支持的视频模式' }
-  const sourceCheck = validateVideoSource(support, mode, video)
+  if (!VIDEO_MODES.includes(mode)) return rejection('modeUnsupported', {}, '不支持的视频模式')
+  const sourceCheck = videoSourceRejection(support, mode, video)
   if (sourceCheck) return sourceCheck
 
   if (mode === 'generate') {
-    if (!(support.durations as readonly number[]).includes(video.duration_seconds))
-      return { ok: false, reason: `${label} 时长只支持 ${support.durations.join(' / ')} 秒` }
+    if (!(support.durations as readonly number[]).includes(video.duration_seconds)) {
+      const durations = support.durations.join(' / ')
+      return rejection(
+        'durationUnsupported',
+        { label, durations },
+        `${label} 时长只支持 ${durations} 秒`,
+      )
+    }
   } else if (mode === 'extend') {
     const { duration_seconds: seconds } = video
     if (
@@ -240,58 +316,71 @@ export function validateVideoRequest(
       seconds < VIDEO_EXTEND_MIN_SECONDS ||
       seconds > VIDEO_EXTEND_MAX_SECONDS
     )
-      return {
-        ok: false,
-        reason: `续写时长只支持 ${VIDEO_EXTEND_MIN_SECONDS}-${VIDEO_EXTEND_MAX_SECONDS} 秒`,
-      }
+      return rejection(
+        'extendDurationOutOfRange',
+        { min: VIDEO_EXTEND_MIN_SECONDS, max: VIDEO_EXTEND_MAX_SECONDS },
+        `续写时长只支持 ${VIDEO_EXTEND_MIN_SECONDS}-${VIDEO_EXTEND_MAX_SECONDS} 秒`,
+      )
   } else if (!(video.duration_seconds > 0)) {
-    return { ok: false, reason: '改视频缺少源片时长' }
+    return rejection('editDurationMissing', {}, '改视频缺少源片时长')
   }
 
-  if (!support.aspectRatios.includes(video.aspect_ratio))
-    return { ok: false, reason: `${label} 画幅只支持 ${support.aspectRatios.join(' / ')}` }
+  if (!support.aspectRatios.includes(video.aspect_ratio)) {
+    const allowed = support.aspectRatios.join(' / ')
+    return rejection('aspectRatioUnsupported', { label, allowed }, `${label} 画幅只支持 ${allowed}`)
+  }
 
   if (!support.resolutions.includes(video.resolution)) {
     const allowed = support.resolutions.map((r) => VIDEO_RESOLUTION_LABELS[r]).join(' / ')
-    return { ok: false, reason: `${label} 清晰度只支持 ${allowed}` }
+    return rejection(
+      'resolutionUnsupported',
+      { label, allowed },
+      `${label} 清晰度只支持 ${allowed}`,
+    )
   }
 
   if (mode === 'generate') {
-    const allowed = videoDurationsForResolution(support, video.resolution)
-    if (!(allowed as readonly number[]).includes(video.duration_seconds))
-      return {
-        ok: false,
-        reason: `${label} ${VIDEO_RESOLUTION_LABELS[video.resolution]} 只支持 ${allowed.join(' / ')} 秒`,
-      }
+    const supported = videoDurationsForResolution(support, video.resolution)
+    if (!(supported as readonly number[]).includes(video.duration_seconds)) {
+      const resolution = VIDEO_RESOLUTION_LABELS[video.resolution]
+      const durations = supported.join(' / ')
+      return rejection(
+        'durationForResolutionUnsupported',
+        { label, resolution, durations },
+        `${label} ${resolution} 只支持 ${durations} 秒`,
+      )
+    }
   }
 
   const frames = [
-    { index: video.first_frame_index, supported: support.firstFrame, name: '首帧' },
-    { index: video.last_frame_index, supported: support.lastFrame, name: '尾帧' },
-  ]
-  for (const frame of frames) {
-    if (frame.index === undefined) continue
-    if (!frame.supported) return { ok: false, reason: `${label} 不支持${frame.name}` }
-    if (!Number.isInteger(frame.index) || frame.index < 0 || frame.index >= inputImageCount)
-      return { ok: false, reason: `${frame.name}图片不存在` }
+    { index: video.first_frame_index, supported: support.firstFrame, frame: 'first' },
+    { index: video.last_frame_index, supported: support.lastFrame, frame: 'last' },
+  ] as const
+  for (const { index, supported, frame } of frames) {
+    if (index === undefined) continue
+    if (!supported)
+      return rejection('frameUnsupported', { label, frame }, `${label} 不支持${FRAME_NAMES[frame]}`)
+    if (!Number.isInteger(index) || index < 0 || index >= inputImageCount)
+      return rejection('frameImageMissing', { frame }, `${FRAME_NAMES[frame]}图片不存在`)
   }
 
-  return { ok: true }
+  return null
 }
 
-function validateVideoSource(
+function videoSourceRejection(
   support: VideoModelSupport,
   mode: VideoMode,
   video: VideoRequest,
-): VideoValidationResult | null {
+): VideoRejection | null {
   if (mode === 'generate') return null
+  const { label } = support
   const name = VIDEO_DERIVE_LABELS[mode]
   if (!(mode === 'extend' ? support.extend : support.edit))
-    return { ok: false, reason: `${support.label} 不支持${name}` }
+    return rejection('deriveModeUnsupported', { label, mode }, `${label} 不支持${name}`)
   if (video.first_frame_index !== undefined || video.last_frame_index !== undefined)
-    return { ok: false, reason: '续写和改视频不接受首尾帧' }
+    return rejection('deriveFramesRejected', {}, '续写和改视频不接受首尾帧')
   const index = video.source_output_index
   if (!video.source_task_id || index === undefined || !Number.isInteger(index) || index < 0)
-    return { ok: false, reason: `${name}缺少源视频` }
+    return rejection('deriveSourceMissing', { mode }, `${name}缺少源视频`)
   return null
 }

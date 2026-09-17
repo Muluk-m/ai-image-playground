@@ -3,12 +3,13 @@ import {
   type ProductContext,
   parseCompetitorBrief,
 } from '@image-playground/shared'
+import { i18next } from '../i18n'
 import { authenticatedBffFetch } from './authClient'
 import { bffBaseUrl } from './runtimeConfig'
 
 type Fetcher = (input: string, init?: RequestInit) => Promise<Response>
 
-const UNAVAILABLE = '竞品图分析没有返回可用的简报'
+const unavailable = (): string => i18next.t('bffClient.analyzeUnavailable', { ns: 'lib' })
 
 export async function analyzeCompetitorImages(
   images: readonly string[],
@@ -21,7 +22,7 @@ export async function analyzeCompetitorImages(
     body: JSON.stringify({ images, product }),
   })
   const briefs = response.ok ? parseBriefs(await response.json()) : null
-  if (!briefs) throw new Error(UNAVAILABLE)
+  if (!briefs) throw new Error(unavailable())
   return briefs
 }
 

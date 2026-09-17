@@ -3,6 +3,7 @@ import {
   PROJECT_NAME_MAX_LENGTH,
   type ProjectDocument,
 } from '@image-playground/shared'
+import { i18next } from '../../../i18n'
 import { scopedStorageName } from '../../../lib/authScope'
 import type { CanvasEditor } from './editor'
 import { type CloudSceneCheckpoint, readPersistedScene, saveScene } from './persistence'
@@ -114,7 +115,7 @@ export class CloudProjectSession {
     if (hasLocalScene && !local) {
       this.writable = true
       await this.persist()
-      this.update('media-local', '画布含尚未同步的媒体或不支持的内容，仅保存在此设备。')
+      this.update('media-local', i18next.t('cloud.mediaLocal', { ns: 'canvas' }))
       return
     }
     const dirty =
@@ -164,7 +165,7 @@ export class CloudProjectSession {
       this.writable = true
       this.update('saved')
     } catch (error) {
-      this.update('load-error', '云端项目读取失败，原内容已保留，请重新读取。')
+      this.update('load-error', i18next.t('cloud.loadFailed', { ns: 'canvas' }))
       throw error
     }
   }
@@ -212,7 +213,7 @@ export class CloudProjectSession {
     this.current()
     if (!this.writable) throw new Error('project_not_loaded')
     if (this.baseline.conflict) {
-      this.update('conflict', '另一设备已修改此项目，已暂停同步。本机内容已保留。')
+      this.update('conflict', i18next.t('cloud.conflict', { ns: 'canvas' }))
       return
     }
     try {
@@ -220,7 +221,7 @@ export class CloudProjectSession {
       if (this.baseline.pending) await this.commitPending()
       const document = this.document()
       if (!document) {
-        this.update('media-local', '画布含尚未同步的媒体或不支持的内容，仅保存在此设备。')
+        this.update('media-local', i18next.t('cloud.mediaLocal', { ns: 'canvas' }))
         return
       }
       if (content(this.project.name, document) !== this.baseline.savedContent) {
@@ -244,13 +245,13 @@ export class CloudProjectSession {
       if (error instanceof ProjectRequestError && error.status === 409) {
         this.baseline.conflict = true
         await this.persist()
-        this.update('conflict', '另一设备已修改此项目，已暂停同步。本机内容已保留。')
+        this.update('conflict', i18next.t('cloud.conflict', { ns: 'canvas' }))
       } else {
         this.update(
           'error',
           error instanceof ProjectRequestError && error.status === 413
-            ? '云端容量或画布大小超出限制，本机内容已保留。'
-            : '云端同步失败，本机内容已保留，请重试。',
+            ? i18next.t('cloud.quotaExceeded', { ns: 'canvas' })
+            : i18next.t('cloud.syncFailed', { ns: 'canvas' }),
         )
       }
     }

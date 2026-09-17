@@ -1,4 +1,5 @@
 import type { SuggestionMenuGroup } from '../../../components/SuggestionMenu'
+import { i18next } from '../../../i18n'
 import {
   createMentionLabels,
   getMentionedImageIndexes,
@@ -92,9 +93,12 @@ export function getTemplateParamEntries(
   params: TemplateParams,
 ): Array<{ label: string; value: string }> {
   return [
-    { label: '尺寸', value: params.size },
-    { label: '质量', value: params.quality },
-    { label: '数量', value: `${params.n} 张` },
+    { label: i18next.t('template.paramSize', { ns: 'library' }), value: params.size },
+    { label: i18next.t('template.paramQuality', { ns: 'library' }), value: params.quality },
+    {
+      label: i18next.t('template.paramCount', { ns: 'library' }),
+      value: i18next.t('template.paramCountValue', { ns: 'library', count: params.n }),
+    },
   ]
 }
 
@@ -136,5 +140,7 @@ export function buildTemplateMenuGroups({
     label: template.name,
     value: template.id,
   }))
-  return options.length > 0 ? [{ key: 'templates', heading: '模板', options }] : []
+  return options.length > 0
+    ? [{ key: 'templates', heading: i18next.t('template.menuHeading', { ns: 'library' }), options }]
+    : []
 }

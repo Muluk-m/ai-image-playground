@@ -1,3 +1,5 @@
+import { useTranslation } from '../../../../i18n'
+import { formatDate } from '../../../../i18n/format'
 import { useStore } from '../../../../store'
 import { useStoryboardStore } from '../store'
 import DirectorFrame from './DirectorFrame'
@@ -9,6 +11,7 @@ export default function StoryboardLibrary({
   onOpen: (generate: boolean) => void
   onNew: () => void
 }) {
+  const { t } = useTranslation('video')
   const records = useStoryboardStore((s) => s.storyboards)
   const open = (id: string, generate: boolean) => {
     useStoryboardStore.getState().select(id)
@@ -18,18 +21,18 @@ export default function StoryboardLibrary({
     <section className="vd-project vd-stack">
       <div className="vd-row vd-between">
         <div>
-          <h2>我的分镜</h2>
-          <p className="vd-muted">保存在当前浏览器，可载入编辑或直接生成视频</p>
+          <h2>{t('library.title')}</h2>
+          <p className="vd-muted">{t('library.subtitle')}</p>
         </div>
         <button type="button" className="vd-primary" onClick={onNew}>
-          ＋ 新建分镜
+          {t('action.newStoryboard')}
         </button>
       </div>
       {records.length === 0 ? (
         <div className="vd-empty">
-          <p>还没有分镜，先创建你的第一个故事。</p>
+          <p>{t('library.empty')}</p>
           <button type="button" onClick={onNew}>
-            新建分镜
+            {t('library.new')}
           </button>
         </div>
       ) : (
@@ -40,37 +43,41 @@ export default function StoryboardLibrary({
               <div>
                 <h3>{record.title}</h3>
                 <small>
-                  {record.shots.length} 镜头 · {record.totalSeconds} 秒 · {record.aspectRatio}
+                  {t('library.meta', {
+                    count: record.shots.length,
+                    seconds: record.totalSeconds,
+                    aspect: record.aspectRatio,
+                  })}
                 </small>
                 <small>
-                  {record.versions?.length ?? 0} 个保存版本 ·{' '}
-                  {new Date(record.updatedAt).toLocaleDateString()}
+                  {t('library.versions', { count: record.versions?.length ?? 0 })} ·{' '}
+                  {formatDate(record.updatedAt)}
                 </small>
                 <div className="vd-row">
                   <button type="button" onClick={() => open(record.id, false)}>
-                    载入编辑
+                    {t('library.load')}
                   </button>
                   <button
                     type="button"
                     className="vd-primary"
                     onClick={() => open(record.id, true)}
                   >
-                    生成视频
+                    {t('action.generateVideo')}
                   </button>
                 </div>
                 <button
                   type="button"
                   onClick={() =>
                     useStore.getState().setConfirmDialog({
-                      title: '删除分镜',
-                      message: `将删除「${record.title}」及其保存版本。已生成视频和任务来源快照会保留。`,
+                      title: t('library.delete'),
+                      message: t('library.deleteMessage', { title: record.title }),
                       action: () => {
                         void useStoryboardStore.getState().remove(record.id)
                       },
                     })
                   }
                 >
-                  删除分镜
+                  {t('library.delete')}
                 </button>
               </div>
             </article>

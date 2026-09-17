@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { startVideoFromImage } from '../features/video/lib/entry'
+import { useTranslation } from '../i18n'
 import { createMaskPreviewDataUrl } from '../lib/canvasImage'
 import { isVideoModeAvailable } from '../lib/channels/videoChannels'
 import { downloadBlob } from '../lib/downloadImages'
@@ -192,6 +193,7 @@ function LightboxInner({
   onPrev,
   onNext,
 }: LightboxInnerProps) {
+  const { t } = useTranslation('task')
   const containerRef = useRef<HTMLDivElement>(null)
   const showToast = useStore((s) => s.showToast)
   const [coarsePointer] = useState(() => window.matchMedia('(pointer: coarse)').matches)
@@ -392,17 +394,17 @@ function LightboxInner({
         const filename = `image-${Date.now()}.${blob.type.split('/')[1] || 'png'}`
         if ('download' in document.createElement('a')) {
           downloadBlob(blob, filename)
-          showToast('开始下载', 'success')
+          showToast(t('download.start'), 'success')
         } else {
           // iOS 13 之前忽略 download 属性，只能把图打开让用户长按保存
           window.open(URL.createObjectURL(blob), '_blank')
         }
       } catch (err) {
         console.error(err)
-        showToast('保存失败', 'error')
+        showToast(t('lightbox.saveFailed'), 'error')
       }
     },
-    [src, showToast],
+    [src, showToast, t],
   )
 
   // ====== 触控事件 ======
@@ -602,13 +604,13 @@ function LightboxInner({
                 className={actionBtnClass}
               >
                 <VideoIcon className="w-4 h-4" />
-                做成视频
+                {t('menu.makeVideo')}
               </button>
             )}
             {coarsePointer && (
               <button data-save-image onClick={handleSave} className={actionBtnClass}>
                 <DownloadIcon className="w-4 h-4" />
-                保存图片
+                {t('lightbox.saveImage')}
               </button>
             )}
           </div>

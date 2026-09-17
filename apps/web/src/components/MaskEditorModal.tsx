@@ -1,6 +1,7 @@
 import type { PointerEvent as ReactPointerEvent, WheelEvent as ReactWheelEvent } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { describeError, i18next, useTranslation } from '../i18n'
 import { canvasToBlob, loadImage } from '../lib/canvasImage'
 import { storeImage } from '../lib/db'
 import {
@@ -79,7 +80,7 @@ function firstTwoPointers(points: Map<number, Point>): [Point, Point] | null {
 
 function fillWhiteMask(canvas: HTMLCanvasElement) {
   const ctx = canvas.getContext('2d', { willReadFrequently: true })
-  if (!ctx) throw new Error('当前浏览器不支持 Canvas')
+  if (!ctx) throw new Error(i18next.t('mask.canvasUnsupported', { ns: 'composer' }))
   ctx.globalCompositeOperation = 'source-over'
   ctx.clearRect(0, 0, canvas.width, canvas.height)
   ctx.fillStyle = '#fff'
@@ -90,11 +91,11 @@ function drawMaskImageToCanvas(maskImage: HTMLImageElement, maskCanvas: HTMLCanv
   const maskAspect = maskImage.naturalWidth / maskImage.naturalHeight
   const canvasAspect = maskCanvas.width / maskCanvas.height
   if (Math.abs(maskAspect - canvasAspect) > 0.001) {
-    throw new Error('遮罩尺寸与当前图片不一致')
+    throw new Error(i18next.t('mask.sizeMismatch', { ns: 'composer' }))
   }
 
   const maskCtx = maskCanvas.getContext('2d', { willReadFrequently: true })
-  if (!maskCtx) throw new Error('当前浏览器不支持 Canvas')
+  if (!maskCtx) throw new Error(i18next.t('mask.canvasUnsupported', { ns: 'composer' }))
   maskCtx.clearRect(0, 0, maskCanvas.width, maskCanvas.height)
   maskCtx.imageSmoothingEnabled = true
   maskCtx.imageSmoothingQuality = 'high'
@@ -105,12 +106,14 @@ function blobToDataUrl(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
     reader.onload = () => resolve(String(reader.result))
-    reader.onerror = () => reject(reader.error ?? new Error('图片导出失败'))
+    reader.onerror = () =>
+      reject(reader.error ?? new Error(i18next.t('mask.exportFailed', { ns: 'composer' })))
     reader.readAsDataURL(blob)
   })
 }
 
 export default function MaskEditorModal() {
+  const { t } = useTranslation(['composer', 'common'])
   const imageId = useStore((s) => s.maskEditorImageId)
   const setMaskEditorImageId = useStore((s) => s.setMaskEditorImageId)
   const session = useStore((s) => s.maskEditorSession)
@@ -197,13 +200,13 @@ export default function MaskEditorModal() {
   const handleRemoveMask = () => {
     if (!removeMask) return
     setConfirmDialog({
-      title: '移除遮罩',
-      message: '确定要撤销对这张图片的所有涂抹并移除遮罩吗？',
+      title: t('mask.remove'),
+      message: t('mask.removeMessage'),
       tone: 'danger',
       action: () => {
         void removeMask()
         setMaskEditorImageId(null)
-        showToast('已移除遮罩', 'success')
+        showToast(t('mask.removed'), 'success')
       },
     })
   }
@@ -538,7 +541,7 @@ export default function MaskEditorModal() {
         const dataUrl = session?.targetDataUrl ?? (await ensureImageCached(targetImageId))
         if (cancelled) return
         if (!dataUrl) {
-          showToast('图片已不存在，无法编辑遮罩', 'error')
+          showToast(t('mask.imageMissing'), 'error')
           setMaskEditorImageId(null)
           return
         }
@@ -559,7 +562,7 @@ export default function MaskEditorModal() {
         }
 
         const imageCtx = imageCanvas.getContext('2d')
-        if (!imageCtx) throw new Error('当前浏览器不支持 Canvas')
+        if (!imageCtx) throw new Error(t('mask.canvasUnsupported'))
         imageCtx.clearRect(0, 0, imageCanvas.width, imageCanvas.height)
         imageCtx.drawImage(image, 0, 0)
 
@@ -573,10 +576,7 @@ export default function MaskEditorModal() {
             drawMaskImageToCanvas(draftImage, maskCanvas)
           } catch (err) {
             fillWhiteMask(maskCanvas)
-            showToast(
-              `遮罩草稿加载失败，已重置为空白遮罩：${err instanceof Error ? err.message : String(err)}`,
-              'error',
-            )
+            showToast(t('mask.draftLoadFailed', { reason: describeError(err) }), 'error')
           }
         }
 
@@ -585,14 +585,17 @@ export default function MaskEditorModal() {
         setSize(nextSize)
         if (preparedTarget.wasResized) {
           showToast(
-            `已为遮罩编辑按官方要求调整图片尺寸：\n${preparedTarget.originalWidth}×${preparedTarget.originalHeight} → ${preparedTarget.width}×${preparedTarget.height}`,
+            t('mask.resized', {
+              original: `${preparedTarget.originalWidth}×${preparedTarget.originalHeight}`,
+              resized: `${preparedTarget.width}×${preparedTarget.height}`,
+            }),
             'info',
           )
         }
         requestAnimationFrame(() => resetViewTransform())
       } catch (err) {
         if (!cancelled) {
-          showToast(err instanceof Error ? err.message : String(err), 'error')
+          showToast(describeError(err), 'error')
           setMaskEditorImageId(null)
         }
       } finally {
@@ -897,7 +900,7 @@ export default function MaskEditorModal() {
     try {
       setIsSaving(true)
       const ctx = canvas.getContext('2d', { willReadFrequently: true })
-      if (!ctx) throw new Error('当前浏览器不支持 Canvas')
+      if (!ctx) throw new Error(t('mask.canvasUnsupported'))
       if (!session.keepSemantics)
         assertUsableMaskCoverage(
           classifyMaskAlpha(ctx.getImageData(0, 0, canvas.width, canvas.height)),
@@ -918,7 +921,7 @@ export default function MaskEditorModal() {
         targetDataUrl: sourceDataUrl,
       })
       setMaskEditorImageId(null)
-      showToast('遮罩已保存', 'success')
+      showToast(t('mask.saved'), 'success')
     } catch (err) {
       if (
         saveTokenRef.current !== token ||
@@ -926,7 +929,7 @@ export default function MaskEditorModal() {
         useStore.getState().maskEditorImageId !== savingImageId
       )
         return
-      showToast(err instanceof Error ? err.message : String(err), 'error')
+      showToast(describeError(err), 'error')
     } finally {
       if (saveTokenRef.current === token) setIsSaving(false)
     }
@@ -958,7 +961,7 @@ export default function MaskEditorModal() {
                 onClick={close}
                 disabled={isSaving}
                 className="p-2 -ml-2 text-muted-foreground hover:bg-muted rounded-lg transition"
-                title="取消"
+                title={t('common:action.cancel')}
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path
@@ -971,7 +974,7 @@ export default function MaskEditorModal() {
               </button>
               <div className="relative flex items-center gap-1.5">
                 <h2 className="text-sm font-medium text-foreground" id="mask-editor-title">
-                  选择区域
+                  {t('mask.panelTitle')}
                 </h2>
                 <button
                   type="button"
@@ -982,8 +985,8 @@ export default function MaskEditorModal() {
                   onTouchEnd={clearMaskInfoTimer}
                   onTouchCancel={hideMaskInfoPopover}
                   className="flex h-6 w-6 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted hover:text-muted-foreground"
-                  aria-label="遮罩编辑说明"
-                  title="遮罩编辑说明"
+                  aria-label={t('mask.infoLabel')}
+                  title={t('mask.infoLabel')}
                 >
                   <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path
@@ -997,9 +1000,7 @@ export default function MaskEditorModal() {
                 {showMaskInfo && (
                   <div className="absolute left-0 top-full mt-2 w-64 rounded-xl border border-border/80 bg-card px-3 py-2 text-xs leading-5 text-muted-foreground shadow-lg">
                     <div className="absolute -top-1.5 left-16 h-3 w-3 rotate-45 border-l border-t border-border/80 bg-card" />
-                    {session?.keepSemantics
-                      ? '涂抹要保留的区域，擦除可移出保留区。'
-                      : '圈选会选中圈内区域，涂抹只选中笔刷经过的位置。蓝色覆盖处就是实际选区。'}
+                    {session?.keepSemantics ? t('mask.infoTextKeep') : t('mask.infoText')}
                   </div>
                 )}
               </div>
@@ -1010,7 +1011,7 @@ export default function MaskEditorModal() {
                   onClick={handleRemoveMask}
                   className="flex h-8 items-center gap-1.5 px-4 text-sm font-medium text-white bg-destructive hover:bg-destructive/90 rounded-lg transition"
                 >
-                  移除遮罩
+                  {t('mask.remove')}
                 </button>
               )}
               <button
@@ -1018,7 +1019,7 @@ export default function MaskEditorModal() {
                 disabled={!isReady || isSaving}
                 className="flex h-8 items-center gap-1.5 px-4 text-sm font-medium text-primary-foreground bg-primary hover:bg-primary/90 rounded-lg disabled:opacity-50 transition"
               >
-                {isSaving ? '保存中...' : '保存'}
+                {isSaving ? t('mask.saving') : t('common:action.save')}
               </button>
             </div>
           </div>
@@ -1030,11 +1031,11 @@ export default function MaskEditorModal() {
               aria-live="polite"
             >
               {tool === 'lasso'
-                ? '圈出区域，松手后自动闭合并选中内部'
+                ? t('mask.hintLasso')
                 : tool === 'brush'
-                  ? '涂抹要选中的区域；只画圈线不会选中内部'
-                  : '擦除不需要修改的选区'}{' '}
-              · 蓝色为选中范围
+                  ? t('mask.hintBrush')
+                  : t('mask.hintEraser')}{' '}
+              · {t('mask.hintSelectionColor')}
             </p>
           )}
           <div
@@ -1044,7 +1045,7 @@ export default function MaskEditorModal() {
           >
             {isLoading && (
               <div className="absolute inset-0 z-20 flex items-center justify-center bg-card/50 text-sm text-muted-foreground backdrop-blur-sm">
-                正在载入图片...
+                {t('mask.loading')}
               </div>
             )}
             <div
@@ -1109,7 +1110,7 @@ export default function MaskEditorModal() {
                       onClick={() => setTool('lasso')}
                       disabled={!isReady || isSaving}
                     >
-                      圈选
+                      {t('mask.lasso')}
                     </Button>
                   )}
                   <Button
@@ -1118,7 +1119,7 @@ export default function MaskEditorModal() {
                     aria-pressed={tool === 'brush'}
                     onClick={() => setTool('brush')}
                     disabled={!isReady || isSaving}
-                    title={session?.keepSemantics ? '涂成保留区' : '涂抹'}
+                    title={session?.keepSemantics ? t('mask.brushKeep') : t('mask.brush')}
                   >
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path
@@ -1129,7 +1130,7 @@ export default function MaskEditorModal() {
                       />
                     </svg>
                     <span className="hidden sm:inline">
-                      {session?.keepSemantics ? '保留' : '涂抹'}
+                      {session?.keepSemantics ? t('mask.brushKeepLabel') : t('mask.brush')}
                     </span>
                   </Button>
                   <Button
@@ -1138,7 +1139,7 @@ export default function MaskEditorModal() {
                     aria-pressed={tool === 'eraser'}
                     onClick={() => setTool('eraser')}
                     disabled={!isReady || isSaving}
-                    title={session?.keepSemantics ? '移出保留区' : '橡皮'}
+                    title={session?.keepSemantics ? t('mask.eraserKeep') : t('mask.eraser')}
                   >
                     <svg
                       className="w-5 h-5"
@@ -1155,7 +1156,7 @@ export default function MaskEditorModal() {
                       </g>
                       <path d="M8 21h12" />
                     </svg>
-                    <span className="hidden sm:inline">擦除</span>
+                    <span className="hidden sm:inline">{t('mask.eraserLabel')}</span>
                   </Button>
                 </div>
 
@@ -1168,7 +1169,7 @@ export default function MaskEditorModal() {
                     onClick={toggleBrushControls}
                     className={`flex items-center justify-center w-10 h-10 sm:w-[46px] sm:h-[46px] rounded-xl sm:rounded-[14px] transition-all border ${showBrushControls ? 'bg-primary/10 border-primary text-primary bg-card dark:text-primary' : 'bg-card hover:bg-card dark:bg-transparent border-border text-muted-foreground dark:hover:border-border'}`}
                     disabled={!isReady || isSaving || tool === 'lasso'}
-                    title="调节笔刷大小"
+                    title={t('mask.brushSize')}
                   >
                     <span className="text-[14px] sm:text-[15px] font-semibold tracking-tight">
                       {brushSize}
@@ -1182,7 +1183,7 @@ export default function MaskEditorModal() {
                   onClick={handleUndo}
                   disabled={!canUndo}
                   className="p-2 sm:p-2.5 text-muted-foreground hover:bg-muted rounded-lg sm:rounded-xl disabled:opacity-30 hover:text-foreground transition-all"
-                  title="撤销"
+                  title={t('mask.undo')}
                 >
                   <svg
                     className="w-5 h-5"
@@ -1201,7 +1202,7 @@ export default function MaskEditorModal() {
                   onClick={handleRedo}
                   disabled={!canRedo}
                   className="p-2 sm:p-2.5 text-muted-foreground hover:bg-muted rounded-lg sm:rounded-xl disabled:opacity-30 hover:text-foreground transition-all"
-                  title="重做"
+                  title={t('mask.redo')}
                 >
                   <svg
                     className="w-5 h-5"
@@ -1221,7 +1222,7 @@ export default function MaskEditorModal() {
                   onClick={resetViewTransform}
                   disabled={!isReady || isSaving || !isZoomed}
                   className="p-2 sm:p-2.5 text-muted-foreground hover:bg-muted rounded-lg sm:rounded-xl disabled:opacity-30 hover:text-foreground transition-all"
-                  title="重置视图"
+                  title={t('mask.resetView')}
                 >
                   <svg
                     className="w-5 h-5"
@@ -1242,7 +1243,7 @@ export default function MaskEditorModal() {
                   onClick={handleClear}
                   disabled={!isReady || isSaving}
                   className="p-2 sm:p-2.5 text-muted-foreground hover:bg-muted rounded-lg sm:rounded-xl disabled:opacity-30 hover:text-foreground transition-all"
-                  title="清空遮罩"
+                  title={t('mask.clear')}
                 >
                   <svg
                     className="w-5 h-5"

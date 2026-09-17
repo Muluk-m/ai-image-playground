@@ -1,3 +1,4 @@
+import { i18next } from '../i18n'
 import type {
   CustomProviderDefinition,
   CustomProviderPollMapping,
@@ -118,7 +119,9 @@ function getStreamEventErrorMessage(event: Record<string, unknown>): string | nu
 
   const type = getStringValue(event, 'type')
   if (type?.endsWith('.failed')) {
-    return getStringValue(event, 'message') ?? '流式请求失败'
+    return (
+      getStringValue(event, 'message') ?? i18next.t('imageApi.streamRequestFailed', { ns: 'lib' })
+    )
   }
   return null
 }
@@ -140,7 +143,7 @@ async function readJsonServerSentEvents(
   response: Response,
   onEvent: (event: Record<string, unknown>) => void | Promise<void>,
 ): Promise<void> {
-  if (!response.body) throw new Error('接口未返回可读取的流式响应')
+  if (!response.body) throw new Error(i18next.t('imageApi.streamNoBody', { ns: 'lib' }))
 
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
@@ -156,7 +159,7 @@ async function readJsonServerSentEvents(
     try {
       event = JSON.parse(data)
     } catch {
-      throw new Error('流式接口返回了无法解析的 JSON 事件')
+      throw new Error(i18next.t('imageApi.streamBadJsonEvent', { ns: 'lib' }))
     }
     if (!isRecordValue(event)) return
 
@@ -183,7 +186,7 @@ async function readJsonServerSentEvents(
 
   buffer += decoder.decode()
   if (buffer.trim()) await processBlock(buffer)
-  if (!hasDataLine) throw new Error('未从流式响应中解析到有效的 data 事件')
+  if (!hasDataLine) throw new Error(i18next.t('imageApi.streamNoDataEvent', { ns: 'lib' }))
 }
 
 function createResponsesImageTool(
@@ -243,7 +246,7 @@ function parseResponsesImageResults(
 }> {
   const output = payload.output
   if (!Array.isArray(output) || !output.length) {
-    const err = new Error('接口未返回图片数据')
+    const err = new Error(i18next.t('imageApi.noImageData', { ns: 'lib' }))
     ;(err as any).rawResponsePayload = JSON.stringify(payload, null, 2)
     throw err
   }
@@ -268,9 +271,7 @@ function parseResponsesImageResults(
   }
 
   if (!results.length) {
-    const err = new Error(
-      '接口没有返回可识别的图片数据，请查看原始响应内容确认服务商实际返回的数据结构。如果使用的是中转或兼容接口，建议创建并使用「自定义服务商」配置。',
-    )
+    const err = new Error(i18next.t('imageApi.unrecognizedShapeProvider', { ns: 'lib' }))
     ;(err as any).rawResponsePayload = JSON.stringify(payload, null, 2)
     throw err
   }
@@ -285,9 +286,7 @@ async function parseImagesApiResponse(
 ): Promise<CallApiResult> {
   const data = payload.data
   if (!Array.isArray(data) || !data.length) {
-    const err = new Error(
-      '接口没有返回图片数据，请查看原始响应内容确认服务商实际返回的数据结构。如果使用的是中转或兼容接口，建议创建并使用「自定义服务商」配置。',
-    )
+    const err = new Error(i18next.t('imageApi.noImageDataProvider', { ns: 'lib' }))
     ;(err as any).rawResponsePayload = JSON.stringify(payload, null, 2)
     throw err
   }
@@ -321,9 +320,7 @@ async function parseImagesApiResponse(
   }
 
   if (!images.length) {
-    const err = new Error(
-      '接口没有返回可识别的图片数据，请查看原始响应内容确认服务商实际返回的数据结构。如果使用的是中转或兼容接口，建议创建并使用「自定义服务商」配置。',
-    )
+    const err = new Error(i18next.t('imageApi.unrecognizedShapeProvider', { ns: 'lib' }))
     ;(err as any).rawResponsePayload = JSON.stringify(payload, null, 2)
     throw err
   }
@@ -381,14 +378,14 @@ async function parseImagesApiStreamResponse(
   }
 
   if (!completedItems.length) {
-    throw new Error('流式接口未返回最终图片数据')
+    throw new Error(i18next.t('imageApi.streamNoFinalImage', { ns: 'lib' }))
   }
 
   // 只保留带 b64_json 的事件，保证 images / actualParamsList / revisedPrompts 三个数组逐图对齐
   const imageItems = completedItems.filter(
     (item): item is ImageResponseItem & { b64_json: string } => Boolean(item.b64_json),
   )
-  if (!imageItems.length) throw new Error('流式接口未返回可用图片数据')
+  if (!imageItems.length) throw new Error(i18next.t('imageApi.streamNoUsableImage', { ns: 'lib' }))
 
   const images = imageItems.map((item) => normalizeBase64Image(item.b64_json, mime))
   const actualParamsList = imageItems.map((item) => mergeActualParams(pickActualParams(item)))
@@ -449,7 +446,7 @@ async function callImagesApiConcurrent(
   if (successfulResults.length === 0) {
     const firstError = results.find((r): r is PromiseRejectedResult => r.status === 'rejected')
     if (firstError) throw firstError.reason
-    throw new Error('所有并发请求均失败')
+    throw new Error(i18next.t('imageApi.allConcurrentFailed', { ns: 'lib' }))
   }
 
   const images = successfulResults.flatMap((r) => r.images)
@@ -525,8 +522,11 @@ async function callImagesApiSingle(
 
       const maskBlob = opts.maskDataUrl ? await maskDataUrlToPngBlob(opts.maskDataUrl) : null
       if (opts.maskDataUrl) {
-        assertMaskEditFileSize('遮罩主图文件', imageBlobs[0]?.size ?? 0)
-        assertMaskEditFileSize('遮罩文件', maskBlob?.size ?? 0)
+        assertMaskEditFileSize(
+          i18next.t('size.maskBaseFile', { ns: 'lib' }),
+          imageBlobs[0]?.size ?? 0,
+        )
+        assertMaskEditFileSize(i18next.t('size.maskFile', { ns: 'lib' }), maskBlob?.size ?? 0)
       }
       assertImageInputPayloadSize(
         imageBlobs.reduce((sum, blob) => sum + blob.size, 0) + (maskBlob?.size ?? 0),
@@ -741,8 +741,8 @@ async function createCustomMultipartBody(
   const maskBlob =
     needsMask && opts.maskDataUrl ? await maskDataUrlToPngBlob(opts.maskDataUrl) : null
   if (opts.maskDataUrl && (needsInputImages || needsMask)) {
-    assertMaskEditFileSize('遮罩主图文件', imageBlobs[0]?.size ?? 0)
-    assertMaskEditFileSize('遮罩文件', maskBlob?.size ?? 0)
+    assertMaskEditFileSize(i18next.t('size.maskBaseFile', { ns: 'lib' }), imageBlobs[0]?.size ?? 0)
+    assertMaskEditFileSize(i18next.t('size.maskFile', { ns: 'lib' }), maskBlob?.size ?? 0)
   }
   assertImageInputPayloadSize(
     imageBlobs.reduce((sum, blob) => sum + blob.size, 0) + (maskBlob?.size ?? 0),
@@ -794,9 +794,7 @@ async function extractCustomImages(
   }
 
   if (!images.length) {
-    const err = new Error(
-      '接口没有返回可识别的图片数据，请查看原始响应内容确认接口实际返回的数据结构，并根据 API 文档调整「自定义服务商」配置中的结果提取路径。',
-    )
+    const err = new Error(i18next.t('imageApi.unrecognizedShapeCustom', { ns: 'lib' }))
     ;(err as any).rawResponsePayload = JSON.stringify(payload, null, 2)
     throw err
   }
@@ -906,7 +904,11 @@ async function pollCustomTaskResult(
         getByPath(taskPayload, 'message') ||
         getByPath(taskPayload, 'data.fail_reason') ||
         getByPath(taskPayload, 'error.message')
-      throw new Error(typeof message === 'string' && message.trim() ? message : '异步任务失败')
+      throw new Error(
+        typeof message === 'string' && message.trim()
+          ? message
+          : i18next.t('imageApi.asyncTaskFailed', { ns: 'lib' }),
+      )
     }
     if (state === 'success') {
       try {
@@ -925,7 +927,7 @@ export async function getCustomQueuedImageResult(
   taskId: string,
   params: TaskParams,
 ): Promise<CallApiResult> {
-  if (!customProvider.poll) throw new Error('自定义异步任务缺少 poll 配置')
+  if (!customProvider.poll) throw new Error(i18next.t('imageApi.asyncMissingPoll', { ns: 'lib' }))
   const mime = MIME_MAP[params.output_format] || 'image/png'
   return pollCustomTaskResult(profile, customProvider.poll, taskId, mime)
 }
@@ -954,15 +956,14 @@ async function callCustomHttpImageApi(
     const taskId =
       typeof taskIdValue === 'string' ? taskIdValue.trim() : String(taskIdValue ?? '').trim()
     if (submitMapping.taskIdPath && !taskId) {
-      const err = new Error(
-        '无法从响应中提取异步任务 ID，请查看原始响应内容确认接口实际返回的数据结构，并根据 API 文档调整「自定义服务商」配置中的 taskIdPath。',
-      )
+      const err = new Error(i18next.t('imageApi.asyncMissingTaskId', { ns: 'lib' }))
       ;(err as any).rawResponsePayload = JSON.stringify(submitPayload, null, 2)
       throw err
     }
     if (!taskId)
       return extractCustomImages(submitPayload, submitMapping.result ?? {}, mime, controller.signal)
-    if (!customProvider.poll) throw new Error('异步接口返回了 task_id，但服务商配置缺少 poll')
+    if (!customProvider.poll)
+      throw new Error(i18next.t('imageApi.asyncTaskIdWithoutPoll', { ns: 'lib' }))
     opts.onCustomTaskEnqueued?.({ taskId })
     if (timeoutId) {
       clearTimeout(timeoutId)
@@ -993,7 +994,7 @@ async function callResponsesImageApi(
   if (successfulResults.length === 0) {
     const firstError = results.find((r): r is PromiseRejectedResult => r.status === 'rejected')
     if (firstError) throw firstError.reason
-    throw new Error('所有并发请求均失败')
+    throw new Error(i18next.t('imageApi.allConcurrentFailed', { ns: 'lib' }))
   }
 
   const images = successfulResults.flatMap((r) => r.images)
@@ -1032,8 +1033,14 @@ async function callResponsesImageApiSingle(
 
   try {
     if (opts.maskDataUrl) {
-      assertMaskEditFileSize('遮罩主图文件', getDataUrlDecodedByteSize(inputImageDataUrls[0] ?? ''))
-      assertMaskEditFileSize('遮罩文件', getDataUrlDecodedByteSize(opts.maskDataUrl))
+      assertMaskEditFileSize(
+        i18next.t('size.maskBaseFile', { ns: 'lib' }),
+        getDataUrlDecodedByteSize(inputImageDataUrls[0] ?? ''),
+      )
+      assertMaskEditFileSize(
+        i18next.t('size.maskFile', { ns: 'lib' }),
+        getDataUrlDecodedByteSize(opts.maskDataUrl),
+      )
     }
     assertImageInputPayloadSize(
       inputImageDataUrls.reduce((sum, dataUrl) => sum + getDataUrlEncodedByteSize(dataUrl), 0) +
