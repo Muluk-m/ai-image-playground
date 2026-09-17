@@ -23,8 +23,10 @@
 token 在 [`src/styles/theme.css`](./src/styles/theme.css)（见
 [`docs/design/creation-studio.md`](../../docs/design/creation-studio.md)），
 `tailwind.config.js` 把它们映射成 `bg-primary` / `border-input` / `ring` 这些类。
-目前有 checkbox、select、label、input、textarea；`select.tsx` 与 `label.tsx` 和
-`apps/admin` 是同一份，改动请同步两边。加组件用 `pnpm dlx shadcn@latest add <name>`，
+目前有 checkbox、select、label、input、textarea。**`ui/` 下与 `apps/admin` 同名的文件一律
+保持逐字节相同**（现在是 select / label / input / textarea，外加 `src/lib/utils.ts`），
+由 [`parity.test.ts`](./src/__tests__/components/ui/parity.test.ts) 守着，改一边就会失败。
+需要改行为时改调用点，别改原语。加组件用 `pnpm dlx shadcn@latest add <name>`，
 **加依赖必须带着 `private/` 重新生成 lockfile**，见仓库根 `CLAUDE.md`。
 
 分两层：`src/components/ui/` 是 shadcn 原语，按上游约定用 `@/` 别名，尽量不改，方便

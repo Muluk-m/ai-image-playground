@@ -223,6 +223,7 @@ export default function StoryboardBoard({
             <p>{record.summary}</p>
             <Field label="整条视频提示词">
               <Textarea
+                className="min-h-0 resize-y"
                 aria-label="整条视频提示词"
                 value={record.videoPrompt}
                 onChange={(e) => void store().updateVideoPrompt(record.id, e.target.value)}
@@ -334,6 +335,7 @@ export default function StoryboardBoard({
               </Field>
               <Field label="画面描述">
                 <Textarea
+                  className="min-h-0 resize-y"
                   aria-label="画面描述"
                   value={shot.description}
                   onChange={(e) => patch('description', e.target.value)}
@@ -354,7 +356,6 @@ export default function StoryboardBoard({
                     min="0.5"
                     max="30"
                     step="0.5"
-                    aria-label="镜头时长"
                     value={shot.seconds}
                     onChange={(e) => patch('seconds', Number(e.target.value))}
                   />
@@ -362,7 +363,7 @@ export default function StoryboardBoard({
               </div>
               <Field label="对白 / 声音">
                 <Textarea
-                  aria-label="对白"
+                  className="min-h-0 resize-y"
                   value={shot.line}
                   onChange={(e) => patch('line', e.target.value)}
                   rows={2}
@@ -372,6 +373,7 @@ export default function StoryboardBoard({
                 <summary>单镜头提示词</summary>
                 <Field label="图片提示词">
                   <Textarea
+                    className="min-h-0 resize-y"
                     aria-label="图片提示词"
                     value={shot.imagePrompt}
                     onChange={(e) => patch('imagePrompt', e.target.value)}
@@ -379,6 +381,7 @@ export default function StoryboardBoard({
                 </Field>
                 <Field label="视频提示词">
                   <Textarea
+                    className="min-h-0 resize-y"
                     aria-label="视频提示词"
                     value={shot.videoPrompt}
                     onChange={(e) => patch('videoPrompt', e.target.value)}

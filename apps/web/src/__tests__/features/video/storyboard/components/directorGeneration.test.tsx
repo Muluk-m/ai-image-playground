@@ -8,6 +8,7 @@ import DirectorGeneration from '../../../../../features/video/storyboard/compone
 import { useStoryboardStore } from '../../../../../features/video/storyboard/store'
 import type { StoryboardRecord } from '../../../../../features/video/storyboard/types'
 import { setChannels } from '../../../../../lib/channels/channelStore'
+import { chooseOption, stubPointerApis, triggerText } from '../../../../helpers/radix'
 import { AGNES_CHANNEL } from '../../fixtures'
 
 const guard = vi.hoisted(() => vi.fn(() => ({ blocked: false, estimatedCredits: 300 })))
@@ -43,59 +44,6 @@ const record: StoryboardRecord = {
       videoTaskId: null,
     },
   ],
-}
-
-// Radix 的下拉要用 pointer capture 和 scrollIntoView，jsdom 两样都没有；补上之后才能
-// 像真人一样打开它、点一项。选项渲染在 portal 里，所以从 document 找而不是从 host 找。
-function stubPointerApis(): void {
-  const proto = Element.prototype as unknown as Record<string, unknown>
-  proto.hasPointerCapture = () => false
-  proto.setPointerCapture = () => {}
-  proto.releasePointerCapture = () => {}
-  proto.scrollIntoView = () => {}
-  const globals = globalThis as unknown as Record<string, unknown>
-  globals.ResizeObserver ??= class {
-    observe(): void {}
-    unobserve(): void {}
-    disconnect(): void {}
-  }
-  globals.DOMRect ??= class {
-    constructor(
-      readonly x = 0,
-      readonly y = 0,
-      readonly width = 0,
-      readonly height = 0,
-    ) {}
-  }
-}
-
-// Radix 只认 pointerType 是 mouse 的指针事件，而 jsdom 既没有 PointerEvent 也不会给
-// MouseEvent 补这个属性。
-function pointer(type: string): MouseEvent {
-  const event = new MouseEvent(type, { bubbles: true, button: 0 })
-  Object.defineProperty(event, 'pointerType', { value: 'mouse' })
-  Object.defineProperty(event, 'pointerId', { value: 1 })
-  return event
-}
-
-function chooseOption(triggerLabel: string, optionText: string): void {
-  const trigger = document.querySelector<HTMLElement>(`[aria-label="${triggerLabel}"]`)
-  if (!trigger) throw new Error(`no trigger ${triggerLabel}`)
-  act(() => {
-    trigger.dispatchEvent(pointer('pointerdown'))
-  })
-  const option = Array.from(document.querySelectorAll('[role="option"]')).find(
-    (node) => node.textContent?.trim() === optionText,
-  )
-  if (!option) throw new Error(`no option ${optionText}`)
-  act(() => {
-    option.dispatchEvent(pointer('pointermove'))
-    option.dispatchEvent(pointer('pointerup'))
-  })
-}
-
-function triggerText(label: string): string {
-  return document.querySelector<HTMLElement>(`[aria-label="${label}"]`)?.textContent?.trim() ?? ''
 }
 
 let host: HTMLDivElement

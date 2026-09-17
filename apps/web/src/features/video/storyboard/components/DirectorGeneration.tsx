@@ -144,7 +144,7 @@ export default function DirectorGeneration({
           value={draft.model}
           onValueChange={(value) => useVideoStore.getState().setModel(value)}
         >
-          <SelectTrigger aria-label="分镜视频模型">
+          <SelectTrigger aria-label="分镜视频模型" className="text-foreground">
             <SelectValue placeholder="选择模型" />
           </SelectTrigger>
           <SelectContent>
@@ -163,7 +163,7 @@ export default function DirectorGeneration({
             useVideoStore.getState().setResolution(value as typeof draft.resolution)
           }
         >
-          <SelectTrigger aria-label="分镜视频清晰度">
+          <SelectTrigger aria-label="分镜视频清晰度" className="text-foreground">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -180,7 +180,7 @@ export default function DirectorGeneration({
           value={String(seconds)}
           onValueChange={(value) => setSelectedSeconds(Number(value))}
         >
-          <SelectTrigger aria-label="分镜视频时长">
+          <SelectTrigger aria-label="分镜视频时长" className="text-foreground">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
