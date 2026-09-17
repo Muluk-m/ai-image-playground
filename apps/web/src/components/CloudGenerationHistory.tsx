@@ -122,7 +122,11 @@ export default function CloudGenerationHistory() {
               </div>
               <div className="flex items-center gap-3">
                 <span className="rounded-full bg-muted px-3 py-1 text-xs">
-                  {t(`cloudHistory.status.${item.status}`)}
+                  {t(
+                    item.archiveStatus === 'pending'
+                      ? 'cloudHistory.archiving'
+                      : `cloudHistory.status.${item.status}`,
+                  )}
                 </span>
                 <Button variant="ghost" disabled={loading} onClick={() => void open(item.id)}>
                   {t('cloudHistory.details')}

@@ -1,6 +1,8 @@
-import type { SubmitRequest, TaskStatus } from './queue-protocol'
+import type { SubmitRequest, TaskErrorType, TaskStatus } from './queue-protocol'
 
 export interface GenerationSummary {
+  archiveStatus: 'none' | 'pending' | 'ready' | 'unavailable'
+  errorType: TaskErrorType | null
   cover: GenerationImage | null
   id: string
   provider: string

@@ -127,6 +127,8 @@
     "output": "Generated image {{number}}",
     "references": "References",
     "reference": "Reference {{number}}",
-    "mask": "Mask"
+    "mask": "Mask",
+    "archiving": "Saving",
+    "unavailable": "Some originals could not be saved. Recoverable images are retained; generation will not restart automatically."
   }
 }

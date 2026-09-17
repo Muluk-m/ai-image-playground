@@ -792,6 +792,8 @@ it('多图响应中途重启时保留已保存的原件，缺失部分明确失�
   await runTask(id)
   const detail = await (await request(`/api/generations/${id}`, deviceB)).json()
   expect(detail.status).toBe('failed')
+  expect(detail.archiveStatus).toBe('unavailable')
+  expect(detail.errorType).toBe('upstream_result_unknown')
   expect(detail.outputs).toHaveLength(1)
   const status = await (await request(`/v1/queue/requests/${id}/status`, deviceB)).json()
   expect(status.error.type).toBe('upstream_result_unknown')
