@@ -25,6 +25,7 @@ export type TaskKind = (typeof TASK_KINDS)[number]
 
 /** Server-side persisted image reference. Queue clients continue to submit data URL strings. */
 export interface StoredImageRef {
+  store?: 'durable'
   object: string
   mime: string
 }

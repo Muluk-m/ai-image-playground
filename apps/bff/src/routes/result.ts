@@ -121,7 +121,10 @@ export const resultRoutes = new Elysia()
         return new Response(Buffer.from(input.data, 'base64'), { headers })
       }
       try {
-        return new Response(await objectStore().read(input.data), { headers })
+        return new Response(
+          await (input.store === 'durable' ? durableMediaStore() : objectStore()).read(input.data),
+          { headers },
+        )
       } catch {
         return status(502, { error: 'object_storage_error' })
       }
@@ -206,9 +209,19 @@ async function serveOutput(
     try {
       // 图片整份读省一次元信息往返；视频只按 Range 取那一段，内存与片长无关。
       if (!isSeekable(ref.mime)) {
-        return mediaResponse(await objectStore().read(ref.data), ref.mime, cacheControl, range)
+        return mediaResponse(
+          await (ref.store === 'durable' ? durableMediaStore() : objectStore()).read(ref.data),
+          ref.mime,
+          cacheControl,
+          range,
+        )
       }
-      return rangeStreamResponse(await objectStore().open(ref.data), ref.mime, cacheControl, range)
+      return rangeStreamResponse(
+        await (ref.store === 'durable' ? durableMediaStore() : objectStore()).open(ref.data),
+        ref.mime,
+        cacheControl,
+        range,
+      )
     } catch {
       return Response.json({ error: 'object_storage_error' }, { status: 502 })
     }
@@ -312,7 +325,7 @@ function parseByteRange(
 
 type InputImage =
   | { kind: 'b64'; data: string; mime: string }
-  | { kind: 'object'; data: string; mime: string }
+  | { kind: 'object'; data: string; mime: string; store?: 'durable' }
 
 function resolveInputImage(provider: string, payload: unknown, index: number): InputImage | null {
   if (!payload || typeof payload !== 'object') return null
@@ -322,7 +335,7 @@ function resolveInputImage(provider: string, payload: unknown, index: number): I
   if (archived.length > 0) {
     const value = archived[index]
     if (isStoredImageRef(value)) {
-      return { kind: 'object', data: value.object, mime: value.mime }
+      return { kind: 'object', data: value.object, mime: value.mime, store: value.store }
     }
     return typeof value === 'string' ? parseDataUrl(value) : null
   }
