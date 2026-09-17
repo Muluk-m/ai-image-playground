@@ -109,26 +109,34 @@ export async function hydrateInputImages(
   return hydrated
 }
 
+interface ArchiveOptions {
+  store?: ObjectStore
+  retainOnFailure?: boolean
+  maxBytes?: number
+  signal?: AbortSignal
+}
+type ArchiveContext = ArchiveOptions & { store: ObjectStore }
+
 export async function archiveOutputImages(
   taskId: string,
   provider: QueueProvider,
   payload: unknown,
   transform?: OutputTransform,
-  store: ObjectStore = objectStore(),
-  retainOnFailure = false,
+  options: ArchiveOptions = {},
 ): Promise<Record<string, unknown>> {
   if (!payload || typeof payload !== 'object') {
     throw new ObjectStorageError('Object storage archive failed: upstream payload is not an object')
   }
 
+  const context = { ...options, store: options.store ?? objectStore() }
   try {
-    if (provider === 'openai-compat') await archiveOpenAIOutput(taskId, payload, transform, store)
-    else await archiveGeminiOutput(taskId, payload, transform, store)
+    if (provider === 'openai-compat') await archiveOpenAIOutput(taskId, payload, transform, context)
+    else await archiveGeminiOutput(taskId, payload, transform, context)
     return payload as Record<string, unknown>
   } catch (error) {
-    if (!retainOnFailure) {
+    if (!options.retainOnFailure) {
       try {
-        await store.deletePrefix(`${taskId}/out/`)
+        await context.store.deletePrefix(`${taskId}/out/`)
       } catch {
         // Legacy unreferenced objects remain covered by lifecycle cleanup.
       }
@@ -154,7 +162,7 @@ async function archiveOpenAIOutput(
   taskId: string,
   payload: object,
   transform: OutputTransform | undefined,
-  store: ObjectStore,
+  context: ArchiveContext,
 ): Promise<void> {
   const response = payload as {
     data?: Array<Record<string, unknown>>
@@ -166,7 +174,7 @@ async function archiveOpenAIOutput(
     (response.data ?? []).map((item) => ({ item, dataKey: 'b64_json', mimeKey: 'mime' })),
     openAIOutputMime(response.output_format),
     transform,
-    store,
+    context,
   )
   if (transform) {
     response.output_format = 'png'
@@ -180,8 +188,9 @@ async function archiveOutputs(
   entries: { item: Record<string, unknown>; dataKey: string; mimeKey: string }[],
   fallbackMime: string,
   transform: OutputTransform | undefined,
-  store: ObjectStore,
+  context: ArchiveContext,
 ) {
+  const { store } = context
   const pending: {
     item: Record<string, unknown>
     dataKey: string
@@ -201,7 +210,7 @@ async function archiveOutputs(
       if (!encoded && !sourceUrl) continue
       const source = encoded
         ? { bytes: Buffer.from(encoded, 'base64'), mime: undefined }
-        : await fetchSourceImage(sourceUrl!)
+        : await fetchSourceImage(sourceUrl!, context)
       const declared = typeof item[mimeKey] === 'string' ? (item[mimeKey] as string) : undefined
       const mime = detectMediaMime(source.bytes) ?? declared ?? source.mime ?? fallbackMime
       const ref = { object: `${taskId}/${transform ? 'candidate' : 'out'}/${index}`, mime }
@@ -242,12 +251,45 @@ async function archiveOutputs(
   }
 }
 
-async function fetchSourceImage(url: string): Promise<{ bytes: Uint8Array; mime?: string }> {
+async function fetchSourceImage(
+  url: string,
+  context: ArchiveContext,
+): Promise<{ bytes: Uint8Array; mime?: string }> {
   try {
-    const source = await fetch(url)
+    const signal = context.signal
+      ? AbortSignal.any([context.signal, AbortSignal.timeout(30_000)])
+      : AbortSignal.timeout(30_000)
+    const source = await fetch(url, { signal })
     if (!source.ok) throw new SourceImageFetchError(`source image HTTP ${source.status}`)
+    const limit = context.maxBytes ?? Number.POSITIVE_INFINITY
+    if (Number(source.headers.get('content-length') ?? 0) > limit) {
+      await source.body?.cancel()
+      throw new SourceImageFetchError('source image exceeds size limit')
+    }
+    if (!source.body) throw new SourceImageFetchError('source image body missing')
+    const reader = source.body.getReader()
+    const chunks: Uint8Array[] = []
+    let length = 0
+    try {
+      while (true) {
+        const part = await reader.read()
+        if (part.done) break
+        length += part.value.length
+        if (length > limit) throw new SourceImageFetchError('source image exceeds size limit')
+        chunks.push(part.value)
+      }
+    } finally {
+      await reader.cancel()
+      reader.releaseLock()
+    }
+    const bytes = new Uint8Array(length)
+    let offset = 0
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset)
+      offset += chunk.length
+    }
     return {
-      bytes: new Uint8Array(await source.arrayBuffer()),
+      bytes,
       mime: source.headers.get('content-type') ?? undefined,
     }
   } catch (error) {
@@ -261,7 +303,7 @@ async function archiveGeminiOutput(
   taskId: string,
   payload: object,
   transform: OutputTransform | undefined,
-  store: ObjectStore,
+  context: ArchiveContext,
 ): Promise<void> {
   const response = payload as {
     candidates?: Array<{ content?: { parts?: Array<{ inlineData?: Record<string, unknown> }> } }>
@@ -271,7 +313,7 @@ async function archiveGeminiOutput(
       part.inlineData ? [{ item: part.inlineData, dataKey: 'data', mimeKey: 'mimeType' }] : [],
     ),
   )
-  await archiveOutputs(taskId, entries, 'image/png', transform, store)
+  await archiveOutputs(taskId, entries, 'image/png', transform, context)
 }
 
 async function hydrateObjectRef(ref: StoredImageRef): Promise<string> {
