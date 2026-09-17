@@ -22,6 +22,8 @@ import { describeEmptyResult, type ExtractedResult, extractMeta } from './extrac
 import { archiveInputImages, hydrateInputImages, ObjectStorageError } from './imageArchive'
 import { objectStore } from './objectStore'
 import { loadPrivateBffOverlay } from './private-overlay'
+import { reserveProjectOutputs } from './projectArchive'
+import { lockMediaOwner } from './projectMedia'
 import { asQueueProvider } from './queueProvider'
 import { type QuotaConsumeResult, tryConsumeQuotaInTransaction } from './quota'
 
@@ -248,6 +250,9 @@ export async function createQueueTask(
   const dailyQuotaEnabled = isCapabilityEnabled('quota:daily')
   const dailyImageQuota = config.operator.quotas['generation:daily-images']
   const outcome = await db.transaction(async (tx) => {
+    const projectOutput =
+      input.userId && input.agent && !input.video && isCapabilityEnabled('accounts:sync')
+    if (projectOutput) await lockMediaOwner(tx, input.userId!)
     if (input.userId && commandId) {
       // A per-command transaction lock also covers the first submission, before a receipt exists.
       await tx.execute(
@@ -311,6 +316,14 @@ export async function createQueueTask(
         request_hash: hash,
         task_id: id,
         submitted_at: now,
+      })
+    if (projectOutput)
+      await reserveProjectOutputs(tx, {
+        userId: input.userId!,
+        generationId: id,
+        conversationId: input.agent!.conversationId,
+        turnId: input.agent!.turnId,
+        count: input.request.n ?? 1,
       })
     await publishGenerations(tx, [id])
     return {

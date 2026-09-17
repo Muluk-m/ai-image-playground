@@ -2,6 +2,7 @@ import type { TaskErrorType } from '@image-playground/shared'
 import { and, eq, inArray, type SQL } from 'drizzle-orm'
 import { type GenerationMediaLink, publishGenerationImages } from '../lib/generationMedia'
 import { loadPrivateBffOverlay, type TaskUsage } from '../lib/private-overlay'
+import { publishProjectOutputs } from '../lib/projectArchive'
 import { db, schema } from './client'
 import { publishGenerations } from './generation-events'
 
@@ -150,8 +151,10 @@ export async function finishTask(id: string, update: TerminalTaskUpdate): Promis
         upstreamInvocationCount: schema.tasks.upstream_invocation_count,
       })
     if (!finished) return false
-    if (finished.userId && update.media)
+    if (finished.userId && update.media) {
       await publishGenerationImages(tx, finished.userId, id, update.media)
+    }
+    if (finished.userId) await publishProjectOutputs(tx, finished.userId, id, update.media ?? [])
     await taskHooks.finalizeTask({
       tx,
       taskId: finished.id,
@@ -176,9 +179,11 @@ export async function cancelTasks(access: SQL) {
       .where(and(access, inArray(schema.tasks.status, ['queued', 'in_progress'])))
       .returning({
         id: schema.tasks.id,
+        userId: schema.tasks.user_id,
         upstreamInvocationCount: schema.tasks.upstream_invocation_count,
       })
     for (const row of rows) {
+      if (row.userId) await publishProjectOutputs(tx, row.userId, row.id, [])
       await taskHooks.finalizeTask({
         tx,
         taskId: row.id,

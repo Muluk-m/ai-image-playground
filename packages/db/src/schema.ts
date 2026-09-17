@@ -551,6 +551,29 @@ export const generation_records = pgTable(
   ],
 )
 
+export const project_generation_outputs = pgTable(
+  'project_generation_outputs',
+  {
+    generation_id: text('generation_id')
+      .notNull()
+      .references(() => generation_records.id, { onDelete: 'cascade' }),
+    position: integer('position').notNull(),
+    user_id: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    project_id: text('project_id')
+      .notNull()
+      .references(() => canvas_projects.id, { onDelete: 'cascade' }),
+    conversation_id: text('conversation_id').notNull(),
+    turn_id: text('turn_id').notNull(),
+    object_id: text('object_id').notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.generation_id, t.position] }),
+    uniqueIndex('idx_project_generation_objects').on(t.project_id, t.object_id),
+  ],
+)
+
 export const user_change_heads = pgTable('user_change_heads', {
   user_id: text('user_id')
     .primaryKey()

@@ -6,7 +6,7 @@ import type {
   PersistedVideoRequest,
   QueueProvider,
 } from '@image-playground/shared'
-import { AGENT_ARTIFACT_NOUN } from '@image-playground/shared'
+import { AGENT_ARTIFACT_NOUN, projectArtifactId } from '@image-playground/shared'
 import { and, eq } from 'drizzle-orm'
 import { config } from '../../../config'
 import { schema } from '../../../db/client'
@@ -159,7 +159,7 @@ export async function runQueueTask(
 
   const artifacts: AgentToolArtifact[] = outcome.result.images.map((output) => ({
     // 画布对象与结果卡共用这个 id，点卡才能定位到同一个对象。
-    artifactId: `agent_${crypto.randomUUID()}`,
+    artifactId: projectArtifactId(submitted.taskId, output.index),
     media: input.media,
     taskId: submitted.taskId,
     outputIndex: output.index,

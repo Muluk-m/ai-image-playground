@@ -880,7 +880,7 @@ it('executes a predeclared dependent edit after its reference artifact exists', 
           },
         }),
       () => {
-        const match = JSON.stringify(calls.at(-1)!.messages).match(/agent_[0-9a-f-]{36}/)
+        const match = JSON.stringify(calls.at(-1)!.messages).match(/agent_[0-9a-f-]{36}_\d+/)
         if (!match) throw new Error('missing generated reference')
         return toolCallCompletion({
           id: 'dependent',
