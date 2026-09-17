@@ -119,7 +119,7 @@ describe('logging out', () => {
     expect(logout).not.toHaveBeenCalled()
     expect(document.body.textContent).toContain('同时清除本机数据')
 
-    const box = document.querySelector<HTMLInputElement>('input[type="checkbox"]')
+    const box = document.querySelector<HTMLButtonElement>('[role="checkbox"]')
     act(() => box?.dispatchEvent(new MouseEvent('click', { bubbles: true })))
     click('退出', 'dialog')
 

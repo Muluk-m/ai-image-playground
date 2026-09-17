@@ -3,6 +3,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import colors from 'tailwindcss/colors';
+import animate from 'tailwindcss-animate';
 
 const defaultOverlayEntry = resolve(dirname(fileURLToPath(import.meta.url)), '../../private/apps/web/index.tsx');
 const privateWebOverlayEntry = process.env.PRIVATE_WEB_OVERLAY_ENTRY || (existsSync(defaultOverlayEntry) ? defaultOverlayEntry : undefined);
@@ -69,5 +70,6 @@ export default {
       },
     },
   },
-  plugins: [],
+  // shadcn 的浮层用 animate-in / fade-out 这些类，没有这个插件它们就是死类。
+  plugins: [animate],
 }
