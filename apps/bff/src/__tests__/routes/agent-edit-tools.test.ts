@@ -34,12 +34,21 @@ const { setObjectStoreForTesting } = await import('../../lib/objectStore')
 const { createUserSession, USER_SESSION_COOKIE } = await import('../../lib/user-session')
 const { close: closeDb, db, schema } = await import('../../db/client')
 const { hydrateInputImages } = await import('../../lib/imageArchive')
+const { selectionPreview } = await import('../../lib/agent/selection-preview')
 
 const app = new Elysia().use(agentRoutes)
 const DEVICE = 'device-abcdefgh'
 
-const PIXEL = 'data:image/png;base64,aGk='
-const MASK = 'data:image/png;base64,bWFzaw=='
+const PIXEL = `data:image/png;base64,${(
+  await sharp({ create: { width: 2, height: 2, channels: 4, background: '#ffffff' } })
+    .png()
+    .toBuffer()
+).toString('base64')}`
+const MASK = `data:image/png;base64,${(
+  await sharp({ create: { width: 2, height: 2, channels: 4, background: '#00000000' } })
+    .png()
+    .toBuffer()
+).toString('base64')}`
 
 let storage: InMemoryObjectStore
 
@@ -66,6 +75,7 @@ async function startConversation(cookie?: string): Promise<string> {
 interface TurnOptions {
   readonly references?: unknown[]
   readonly cookie?: string
+  readonly params?: { thinkingDepth: 'fast' | 'medium' | 'deep' }
 }
 
 async function runTurn(conversationId: string, text: string, options: TurnOptions = {}) {
@@ -79,6 +89,7 @@ async function runTurn(conversationId: string, text: string, options: TurnOption
       body: JSON.stringify({
         deviceId: DEVICE,
         text,
+        params: options.params,
         ...(options.references ? { references: options.references } : {}),
       }),
     }),
@@ -230,7 +241,9 @@ describe('智能体改图工具', () => {
         expect.arrayContaining([
           expect.objectContaining({
             type: 'image_url',
-            image_url: expect.objectContaining({ url: PIXEL }),
+            image_url: expect.objectContaining({
+              url: `data:image/png;base64,${(await selectionPreview({ dataUrl: PIXEL, maskDataUrl: MASK })).data}`,
+            }),
           }),
         ]),
       )
@@ -604,3 +617,18 @@ describe('智能体读素材库工具', () => {
     expect(task!.user_id).toBe('user-a')
   })
 })
+
+for (const [depth, model, effort] of [
+  ['fast', 'gpt-5.6-luna', 'low'],
+  ['medium', 'gpt-5.6-sol', 'medium'],
+  ['deep', 'gpt-6-astra', 'high'],
+] as const) {
+  it(`sends the ${depth} model and reasoning effort to the gateway`, async () => {
+    const calls: AgentCall[] = []
+    setAgentFetchForTesting(scriptedAgentFetch(calls, [() => completionStream('你好')]))
+    const id = await startConversation()
+    await runTurn(id, '你好', { params: { thinkingDepth: depth } })
+    expect(calls[0]?.model).toBe(model)
+    expect(calls[0]?.reasoning_effort).toBe(effort)
+  })
+}

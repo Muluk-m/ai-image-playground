@@ -40,6 +40,8 @@ import {
 } from './images'
 import { agentModel, agentStreamFn } from './model'
 import { type RunningTurn, registerRunningTurn, turnEventLog } from './runningTurns'
+import { selectionPreview } from './selection-preview'
+import { agentThinking } from './thinking'
 import {
   type AgentToolDetails,
   agentToolAbortsTurn,
@@ -69,6 +71,10 @@ function systemPrompt(): string {
     // 逐工具那几句跟着清单走：关掉的工具连同它的用法一起消失，否则模型会承诺它调不了的事。
     ...agentToolGuidance(),
     '工具产出会自动落到用户的画布上，不要让用户自己去保存。',
+    '遮罩编辑必须忠实保留用户意图：目标图圈选范围只限定允许编辑的边界，具体修改对象和动作仍以用户原话为准；参考图圈选范围用于定位参考对象。只做必要的指代消歧，不得添加用户未说的上移、下移、安装位置、材质、造型或其他设计要求。',
+    '用户说其他不变时，保留所有未被要求修改的内容，包括圈选区内的文字、背景和其它对象。不得把用户明确要改的卡片或示意图局部列为保留项；用户要求修改多个圈选对象时不能擅自遗漏。',
+    '如果看不到圈选位置或无法确定目标与参考关系，不要根据画面显著主体猜测，先澄清。调用改图工具前核对：目标图片、圈选对象、用户要求、参考来源、保留范围五者一致。参考图的遮罩不直接提交给生图模型，必须在工具提示词中准确描述参考选区的位置和对象；不能仅写参考第几张图，也不能臆造看不清的细节。',
+    '生成工具成功只代表返回了候选图。没有检查生成结果时只说已生成供查看，不得声称已准确修改某部位或其他内容完全不变。',
     '先结合参考图和对话上下文执行；只有缺少会阻止执行的信息时才调用澄清工具。用户回答后直接继续，不要让他重复引用已有的图。',
     '只能使用清单中的工具；交互设计图不等于可运行网页或交互代码，不要把前者说成后者。',
   ].join('\n')
@@ -224,7 +230,7 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
     deviceId: input.deviceId,
   })
   let modelCallId: string | null = null
-  const stream = agentStreamFn()
+  const stream = agentStreamFn(input.params?.thinkingDepth)
   const startedAt = Date.now()
   const events = turnEventLog(conversationId, turnId, await lastAgentEventSeq(conversationId))
   const images = createAgentImageSource({
@@ -236,7 +242,8 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
   const agent = new Agent({
     initialState: {
       systemPrompt: systemPrompt(),
-      model: agentModel(),
+      model: agentModel(input.params?.thinkingDepth),
+      thinkingLevel: agentThinking(input.params?.thinkingDepth).effort,
       messages: replayed(input.history),
       tools: [
         ...agentTools({
@@ -456,6 +463,8 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
     read: (afterSeq) => events.read(afterSeq),
     async interject(text, references = []) {
       if (!acceptingInterjections || aborted) return null
+      const previews = await Promise.all(references.map(selectionPreview))
+      if (!acceptingInterjections || aborted) return null
       const messageId = crypto.randomUUID()
       const archiveId = `${turnId}/interjections/${messageId}`
       const stored = await archiveAgentReferences(conversationId, archiveId, references)
@@ -473,16 +482,7 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
       events.emit({ type: 'interjection', messageId, text })
       agent.steer({
         role: 'user',
-        content: [
-          { type: 'text', text: contentText },
-          ...references.map(
-            (reference): ImageContent => ({
-              type: 'image',
-              mimeType: reference.dataUrl.slice(5, reference.dataUrl.indexOf(';')),
-              data: reference.dataUrl.slice(reference.dataUrl.indexOf(',') + 1),
-            }),
-          ),
-        ],
+        content: [{ type: 'text', text: contentText }, ...previews],
         timestamp: Date.now(),
       })
       return messageId
@@ -498,15 +498,10 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
     images,
     images.references.map((reference) => reference.imageId),
   )
-    .then((references) => {
+    .then(async (references) => {
       if (aborted) return
-      const content = references.map(
-        (image): ImageContent => ({
-          type: 'image',
-          mimeType: image.dataUrl.slice(5, image.dataUrl.indexOf(';')),
-          data: image.dataUrl.slice(image.dataUrl.indexOf(',') + 1),
-        }),
-      )
+      const content = await Promise.all(references.map(selectionPreview))
+      if (aborted) return
       return agent.prompt(`${prompt}${referenceManifest(images.references)}`, content)
     })
     .catch((thrown) => {

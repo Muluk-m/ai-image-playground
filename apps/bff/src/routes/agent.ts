@@ -46,6 +46,7 @@ const TURN_NOT_FOUND = { error: 'turn_not_found' }
  */
 const paramsSchema = t.Optional(
   t.Object({
+    thinkingDepth: t.Optional(t.Union([t.Literal('fast'), t.Literal('medium'), t.Literal('deep')])),
     model: t.Optional(t.String({ maxLength: 128 })),
     size: t.Optional(t.String({ maxLength: 32 })),
     quality: t.Optional(t.String({ maxLength: 16 })),

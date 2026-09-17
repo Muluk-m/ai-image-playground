@@ -4,6 +4,7 @@ import type {
   AgentConversationView,
   AgentFrame,
   AgentMessageView,
+  AgentThinkingDepth,
   AgentToolResultBlock,
   AgentTurnEvent,
   AgentTurnReference,
@@ -57,7 +58,15 @@ const RECONNECT_DELAYS_MS = [0, 500, 2_000, 5_000]
 /** 登录后 scope 会变，所以每次现算，不缓存。 */
 const conversationKey = () => scopedStorageName(AGENT_CONVERSATION_KEY)
 
+const THINKING_DEPTH_KEY = 'image-playground-agent-thinking-depth'
+function readThinkingDepth(): AgentThinkingDepth {
+  const value = safeLocalStorage.getItem(THINKING_DEPTH_KEY)
+  return value === 'fast' || value === 'deep' ? value : 'medium'
+}
+
 export interface AgentState {
+  thinkingDepth: AgentThinkingDepth
+  setThinkingDepth(depth: AgentThinkingDepth): void
   open: boolean
   tab: AgentPanelTab
   conversationId: string | null
@@ -558,6 +567,11 @@ export const useAgentStore = create<AgentState>((set, get) => {
     historyLoading: false,
     historyFailed: false,
     panelWidth: readPanelWidth(),
+    thinkingDepth: readThinkingDepth(),
+    setThinkingDepth: (thinkingDepth) => {
+      safeLocalStorage.setItem(THINKING_DEPTH_KEY, thinkingDepth)
+      set({ thinkingDepth })
+    },
 
     setOpen: (open) => set({ open }),
     setTab: (tab) => set({ tab }),
@@ -796,7 +810,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
       // 起轮这一刻的参数快照：轮跑到一半用户改了 chip，改的是下一轮，不该追改这一轮。
       const { params, settings } = useStore.getState()
       const model = clientProfileToApiProfile(getActiveApiProfile(settings)).model
-      const turnParams = toAgentTurnParams(params, model)
+      const turnParams = { ...toAgentTurnParams(params, model), thinkingDepth: get().thinkingDepth }
       // 起轮这一步的失败不在 `follow` 的重连范围里：请求没发出去就没有轮可以接。
       let outcome: StartTurnOutcome
       try {
