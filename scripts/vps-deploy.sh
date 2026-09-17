@@ -179,7 +179,9 @@ for edition in $editions; do
       APP_VERSION=$public_sha "$repo_root/scripts/app-compose.sh" build "$tag"
       ;;
     *)
-      APP_VERSION="$public_sha+$private_sha" "$repo_root/scripts/app-compose.sh" build-private "$tag"
+      paid_version=$public_sha
+      [ "$private_sha" = "-" ] || paid_version="$public_sha+$private_sha"
+      APP_VERSION=$paid_version "$repo_root/scripts/app-compose.sh" build-private "$tag"
       ;;
   esac
   moving_alias=$(edition_var "$prefix" IMAGE)

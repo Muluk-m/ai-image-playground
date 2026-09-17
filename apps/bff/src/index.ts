@@ -5,7 +5,7 @@ import { purgeOldTasks, purgeOrphanedAssetObjects, runPrivateMaintenance } from 
 import { purgeOldAgentTurnEvents } from './lib/agent/events'
 import { isCapabilityEnabled } from './lib/capabilities'
 import { initChannels } from './lib/channels'
-import { startHeartbeat } from './lib/heartbeat'
+import { purgeStaleHeartbeats, startHeartbeat } from './lib/heartbeat'
 import { log } from './lib/logger'
 
 const MAX_REQUEST_BODY_SIZE_BYTES = 600 * 1024 * 1024
@@ -75,6 +75,8 @@ if (purgeStartup > 0) log.info({ event: 'startup.purged', count: purgeStartup },
 setInterval(async () => {
   const removed = await purgeOldTasks()
   await runPrivateMaintenance()
+  // worker 的维护循环也清；没有 worker 的部署只有这里清。
+  await purgeStaleHeartbeats()
   if (removed > 0) log.info({ event: 'periodic.purged', count: removed }, 'purged old tasks')
   if (syncEnabled) {
     const orphaned = await purgeOrphanedAssetObjects()

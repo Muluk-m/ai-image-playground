@@ -32,6 +32,10 @@ export function createAlertSender(options: AlertSenderOptions): AlertSender {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ msg_type: 'text', content: { text } }),
       signal: AbortSignal.timeout(10_000),
+    }).catch((error: unknown) => {
+      // fetch 自己的报错会带上地址（`Failed to parse URL from …`），而调用方会把报错写进日志。
+      const reason = error instanceof Error ? `${error.name}: ${error.message}` : String(error)
+      throw new Error(`alert webhook request failed: ${reason.replaceAll(url, '<webhook>')}`)
     })
     if (!response.ok) throw new Error(`alert webhook answered ${response.status}`)
     // 被关键词或签名校验拦下的消息，飞书回的是 200，错误在 body 里。

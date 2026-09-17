@@ -78,4 +78,18 @@ describe('createAlertSender', () => {
     const error = await send([firing]).catch((thrown: Error) => thrown)
     expect(String(error)).not.toContain('secret-token')
   })
+
+  it('keeps the address out of the error when the request itself fails', async () => {
+    const send = createAlertSender({
+      webhookUrl: 'https://hook.test/secret-token',
+      deployment: 'paid',
+      fetchImpl: (async (url: string | URL | Request) => {
+        throw new TypeError(`Failed to parse URL from ${String(url)}`)
+      }) as unknown as typeof fetch,
+    })
+    const error = await send([firing]).catch((thrown: Error) => thrown)
+    expect(error).toBeInstanceOf(Error)
+    expect(String(error)).not.toContain('secret-token')
+    expect(String(error)).toContain('TypeError')
+  })
 })
