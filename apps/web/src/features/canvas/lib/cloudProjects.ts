@@ -49,6 +49,8 @@ export type ProjectSyncStatus =
   | 'format-error'
 
 type SyncMessage =
+  | 'errors:projectSync.recovery_changed'
+  | 'errors:projectSync.recovery_copy_failed'
   | 'errors:projectSync.local_save_failed'
   | 'errors:projectSync.unauthorized'
   | 'errors:projectSync.project_not_found'
@@ -474,6 +476,83 @@ export class CloudProjectSession {
         this.update(failure.status, failure.message)
       }
     }
+  }
+  async resolveConflict(choice: 'cloud' | 'copy'): Promise<CanvasProject | undefined> {
+    let copy: CanvasProject | undefined
+    await this.serialize(async () => {
+      this.current()
+      if (!this.baseline.conflict) return
+      const remote =
+        choice === 'cloud'
+          ? await getCloudProject(this.project.id, this.controller.signal).catch(
+              (error: unknown) => {
+                this.update('conflict', classifyFailure(error).message)
+                throw error
+              },
+            )
+          : undefined
+      this.current()
+      if (
+        remote &&
+        (!isProjectDocument(remote.document) ||
+          remote.id !== this.project.id ||
+          !Number.isSafeInteger(remote.revision) ||
+          remote.revision < 1)
+      )
+        throw new Error('unsupported_project')
+      const version = this.editVersion
+      const { elements, files, camera } = this.editor.doc
+      copy = await projectRepository
+        .createRecoveryCopy(
+          this.project,
+          structuredClone({
+            version: 2,
+            elements,
+            files,
+            camera,
+            cloud: { version: 1, ...this.baseline, name: this.project.name },
+          }),
+        )
+        .catch((error: unknown) => {
+          this.update('conflict', 'errors:projectSync.recovery_copy_failed')
+          throw error
+        })
+      this.current()
+      this.publish(copy)
+      if (version !== this.editVersion) {
+        this.update('conflict', 'errors:projectSync.recovery_changed')
+        copy = undefined
+        return
+      }
+      if (!remote) return
+      const scene = projectScene(remote.document, this.mediaBindings)
+      this.editor.doc.restore(scene.elements, scene.files, this.editor.doc.camera)
+      this.project = { ...this.project, name: remote.name }
+      this.baseline = {
+        revision: remote.revision,
+        savedContent: content(remote.name, remote.document),
+        pending: null,
+        conflict: false,
+      }
+      await this.persist()
+      await this.metadata({
+        name: remote.name,
+        customName: true,
+        cloud: { revision: remote.revision },
+        updatedAt: remote.updatedAt,
+        hasContent: remote.elementCount > 0,
+      })
+      this.writable = true
+      this.readRequired = false
+      const current = this.document()
+      this.update(
+        current && content(this.project.name, current) === this.baseline.savedContent
+          ? 'saved'
+          : 'pending',
+      )
+      this.requestSync()
+    })
+    return copy
   }
   dispose() {
     this.started = false
