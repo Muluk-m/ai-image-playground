@@ -288,18 +288,31 @@ export default function AgentComposer({
     if (loading || submitting || historyBlocked) return
     const submission = draftForSubmit(draft)
     if (!submission.text.trim()) return
+    // 乐观发送：敲下回车输入框立刻清空，那句话已经在对话里了；服务端没收下再把草稿放回来。
+    const snapshot = draft
+    session.accept(snapshot)
+    setCursor(0)
     const releaseSubmission = session.beginSubmission()
-    void session.flush()
+    let accepted = false
+    const restore = () => {
+      useStore.getState().showToast('消息未发送成功，草稿已放回输入框，请重试。', 'error')
+      // 这几秒里用户要是已经开始打下一句，别把它冲掉。
+      setDraft((current) =>
+        current.prompt.trim() || current.references.length ? current : snapshot,
+      )
+    }
     void useAgentStore
       .getState()
       .send(submission.text, submission.references, () => {
-        session.accept(draft)
+        accepted = true
         releaseSubmission()
-        setCursor(0)
       })
-      .catch(() => {
-        useStore.getState().showToast('消息未发送成功，草稿已保留，请重试。', 'error')
-      })
+      .then(
+        () => {
+          if (!accepted) restore()
+        },
+        () => restore(),
+      )
       .finally(releaseSubmission)
   }
 
