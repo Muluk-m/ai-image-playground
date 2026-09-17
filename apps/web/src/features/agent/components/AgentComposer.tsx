@@ -129,18 +129,13 @@ export default function AgentComposer({
     error: draftError,
   } = useSyncExternalStore(session.subscribe, session.getSnapshot)
   const setDraft = session.update
-  useEffect(() => {
-    const flush = () => {
+  // 卸载即落盘。页面隐藏时的冲盘不在这里：草稿活得比输入框久，那一笔由 `drafts.ts` 自己登记。
+  useEffect(
+    () => () => {
       void session.flush()
-    }
-    window.addEventListener('pagehide', flush)
-    document.addEventListener('visibilitychange', flush)
-    return () => {
-      flush()
-      window.removeEventListener('pagehide', flush)
-      document.removeEventListener('visibilitychange', flush)
-    }
-  }, [session])
+    },
+    [session],
+  )
   const [cursor, setCursor] = useState(0)
   const editorRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
