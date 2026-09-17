@@ -176,8 +176,18 @@ const failPatch = (state: AgentState, message = TURN_FAILED) => ({
   turn: 'failed' as const,
   activeTurn: null,
   error: message,
-  messages: state.messages.filter((one) => one.kind !== 'text' || !one.streaming),
+  // 半截的回复撤掉；起轮前就失败的那条先上屏的用户消息也撤掉——草稿还在输入框里，
+  // 留着它屏幕上就有两份同样的话。
+  messages: state.messages.filter((one) => one.kind !== 'text' || (!one.streaming && !one.pending)),
 })
+
+/**
+ * 这个会话有没有"开始"：敲下回车那条先上屏的消息也算。欢迎页据此让位——
+ * 发送是乐观的，视图不等服务端确认；起轮失败会把那条撤回，欢迎页随之回来。
+ */
+export function conversationStarted(messages: readonly AgentPanelMessage[]): boolean {
+  return messages.length > 0
+}
 
 export type AgentActivityPhase = 'sending' | 'thinking' | 'executing'
 
