@@ -29,7 +29,7 @@ import { compactionBudget } from './compaction'
 import { compactionSettings } from './compaction-settings'
 import { createCompactionTransform } from './compaction-transform'
 import { appendAgentMessage, touchAgentConversation } from './conversations'
-import { lastAgentEventSeq } from './events'
+import { openTurnEventLog } from './events'
 import {
   activeAgentReferences,
   archiveAgentReferences,
@@ -40,7 +40,7 @@ import {
 } from './images'
 import { createMaskedEditPlan } from './masked-plan'
 import { agentModel, agentStreamFn } from './model'
-import { type RunningTurn, registerRunningTurn, turnEventLog } from './runningTurns'
+import { type RunningTurn, registerRunningTurn } from './runningTurns'
 import { referenceEvidence } from './selection-preview'
 import { agentThinking } from './thinking'
 import {
@@ -241,7 +241,7 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
   let modelCallId: string | null = null
   const stream = agentStreamFn(input.params?.thinkingDepth)
   const startedAt = Date.now()
-  const events = turnEventLog(conversationId, turnId, await lastAgentEventSeq(conversationId))
+  const events = await openTurnEventLog(conversationId, turnId)
   const images = createAgentImageSource({
     references: input.references,
     history: input.history,
