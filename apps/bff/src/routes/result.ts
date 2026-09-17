@@ -38,6 +38,7 @@ export const resultRoutes = new Elysia()
             {
               request_id: generation.id,
               status: 'completed',
+              actual_params: generation.actualParameters,
               images: generation.outputs.map((image) => ({
                 index: image.index,
                 mime: image.contentType,
@@ -144,7 +145,7 @@ async function serveOutput(
     .from(schema.tasks)
     .where(taskAccessWhere(params.id, userId, serviceIdentity))
     .limit(1)
-  if (!task && userId) {
+  if (userId) {
     const index = Number(params.index)
     if (!Number.isInteger(index) || index < 0)
       return Response.json({ error: 'bad_index' }, { status: 400 })
