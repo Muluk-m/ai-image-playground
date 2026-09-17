@@ -21,9 +21,7 @@ const {
   agentToolStart,
   agentTurnTools,
   isAgentToolName,
-} = await import(
-  '../../../../lib/agent/tools'
-)
+} = await import('../../../../lib/agent/tools')
 const { turnInitialState, expandSkillInvocation, estimatedTurnInput } = await import(
   '../../../../lib/agent/turn-input'
 )

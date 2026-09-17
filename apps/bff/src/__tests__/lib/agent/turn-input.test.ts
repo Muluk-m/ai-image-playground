@@ -192,13 +192,18 @@ describe('tool declarations in the estimate', () => {
       (total, message) => total + estimateTokens(message),
       0,
     )
-    expect(estimateTurnInputTokens([], '你好', []) - messages).toBe(estimateToolDeclarationTokens())
-    expect(declarationTokens(agentToolDeclarations())).toBe(estimateToolDeclarationTokens())
+    expect(estimateTurnInputTokens([], '你好', []) - messages).toBe(
+      estimateToolDeclarationTokens('image'),
+    )
+    expect(declarationTokens(agentToolDeclarations('image'))).toBe(
+      estimateToolDeclarationTokens('image'),
+    )
   })
 
   it('registers the same list the turn hands the model, clarification included', () => {
-    // 这个文件的部署没开 generation:video，所以清单里没有 generateVideo。
-    expect(agentToolDeclarations().map((declaration) => declaration.name)).toEqual([
+    // 这个文件的部署没开 generation:video，所以清单里没有 generateVideo；
+    // 也没加载技能目录，所以 loadSkill 同样不在。
+    expect(agentToolDeclarations('image').map((declaration) => declaration.name)).toEqual([
       'generateImage',
       'editImage',
       'readLibrary',
@@ -207,8 +212,11 @@ describe('tool declarations in the estimate', () => {
   })
 
   it('grows by exactly one declaration where the video tool is on', () => {
-    const withVideo = declarationTokens([...agentToolDeclarations(), generateVideo.declaration])
-    expect(withVideo - estimateToolDeclarationTokens()).toBe(191)
+    const withVideo = declarationTokens([
+      ...agentToolDeclarations('image'),
+      generateVideo.declaration,
+    ])
+    expect(withVideo - estimateToolDeclarationTokens('image')).toBe(191)
   })
 })
 
