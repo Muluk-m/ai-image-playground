@@ -15,7 +15,6 @@ import { notifyPrivateSubmissionSettled } from '../../lib/privateOverlay'
 import { useStore } from '../../store'
 import {
   bindNewCanvasWorkspace,
-  canvasSceneKey,
   currentCanvasWorkspace,
   forgetCanvasWorkspace,
   prepareCanvasRemoval,
@@ -38,13 +37,14 @@ import {
 } from './lib/agentClient'
 import { createArtifactDelivery, type TurnArtifactDelivery } from './lib/artifactDelivery'
 import { onAgentCanvasSinkChange } from './lib/canvasSink'
-import { agentDraft, bindNewAgentDraft, removeProjectDraft } from './lib/drafts'
+import { bindNewAgentDraft, removeProjectDraft } from './lib/drafts'
 import {
   dropUnsettledMessages,
   panelMessage,
   panelStateFromHistory,
   reduceAgentPanelEvent,
 } from './lib/panelMessages'
+import { currentProjectDraft, saveCurrentProject } from './lib/projectLifecycle'
 import { toAgentTurnParams } from './lib/turnParams'
 import type { AgentPanelMessage, AgentPanelTab, AgentTurnFooter, AgentTurnStatus } from './types'
 
@@ -373,24 +373,11 @@ export const useAgentStore = create<AgentState>((set, get) => {
     selectCanvasWorkspace(project.conversationId)
     if (project.conversationId) void openConversation(project.conversationId)
   }
-  const saveCurrentProject = async () => {
-    const project = currentCanvasProject()
-    const draft = agentDraft(
-      get().conversationId,
-      project?.id,
-      project?.sceneKey === canvasSceneKey(null),
-    )
-    await draft.ready
-    await draft.flush()
-    if (draft.getSnapshot().error) throw new Error('draft_save_failed')
-    const workspace = currentCanvasWorkspace()
-    await workspace.ready
-    if (!(await workspace.flush())) throw new Error('save_failed')
-  }
   const createProject = async (reuseEmpty = true) => {
-    await saveCurrentProject()
+    const saved = await saveCurrentProject(get().conversationId)
+    if (!saved.ok) throw new Error(saved.reason)
     const current = currentCanvasProject()
-    const draft = agentDraft(get().conversationId, current?.id).getSnapshot().draft
+    const draft = currentProjectDraft(get().conversationId).getSnapshot().draft
     // 重复点击不制造空壳；有引用、草稿、画布或正在提交的内容都必须新建。
     if (
       reuseEmpty &&
@@ -548,9 +535,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
           .getState()
           .projects.find((one) => one.id === projectId)
         if (!project) return false
-        try {
-          await saveCurrentProject()
-        } catch {
+        if (!(await saveCurrentProject(get().conversationId)).ok) {
           useStore.getState().showToast(i18next.t('project.saveFailed', { ns: 'agent' }), 'error')
           return false
         }
@@ -576,7 +561,8 @@ export const useAgentStore = create<AgentState>((set, get) => {
         try {
           if (project.cloud) throw new Error('cloud_project_delete_unavailable')
           if (project.id === projects.activeId && get().turn === 'running') throw new Error('busy')
-          await saveCurrentProject()
+          const saved = await saveCurrentProject(get().conversationId)
+          if (!saved.ok) throw new Error(saved.reason)
           await prepareCanvasRemoval(project.sceneKey)
           if (project.conversationId) {
             try {

@@ -49,8 +49,6 @@ import {
 } from '../../../lib/promptImageMentions'
 import { useStore } from '../../../store'
 import type { CanvasDoc } from '../../canvas/lib/canvasDoc'
-import { canvasSceneKey } from '../../canvas/lib/workspaces'
-import { currentCanvasProject } from '../../canvas/projectStore'
 import { useLibraryStore } from '../../library/store'
 import { ABORT_BUTTON, ICON_BUTTON } from '../agentStyles'
 import { fetchAgentSkills } from '../lib/agentClient'
@@ -71,8 +69,8 @@ import {
   filesToReferences,
   setAgentComposerAttach,
 } from '../lib/attachments'
-import { agentDraft } from '../lib/drafts'
 import type { MarkRenderer } from '../lib/markedReferences'
+import { currentProjectDraft } from '../lib/projectLifecycle'
 import {
   type AgentReference,
   attachReference,
@@ -121,12 +119,7 @@ export default function AgentComposer({
   const assets = useLibraryStore((state) => state.assets)
   const loadAssets = useLibraryStore((state) => state.loadAssets)
   const conversationId = useAgentStore((state) => state.conversationId)
-  const project = currentCanvasProject()
-  const session = agentDraft(
-    conversationId,
-    project?.id,
-    project?.sceneKey === canvasSceneKey(null),
-  )
+  const session = currentProjectDraft(conversationId)
   const {
     draft,
     loading,
