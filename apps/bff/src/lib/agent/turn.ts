@@ -10,7 +10,6 @@ import type {
   AgentTurnReference,
   AgentTurnUsage,
 } from '@image-playground/shared'
-import { agentClarificationSummary } from '@image-playground/shared'
 import { db } from '../../db/client'
 import { log } from '../logger'
 import type { TaskOutcome } from '../private-overlay'
@@ -19,6 +18,7 @@ import { createCompactionTransform } from './compaction-transform'
 import { appendAgentMessage, touchAgentConversation } from './conversations'
 import { openTurnEventLog } from './events'
 import {
+  type AgentImageReference,
   archiveAgentReferences,
   createAgentImageSource,
   removeAgentTurnReferences,
@@ -36,9 +36,9 @@ import {
   agentTurnTools,
   isAgentToolName,
 } from './tools'
+import { createTurnAuthorization } from './turn-authorization'
 import {
   expandSkillInvocation,
-  replayTurnText,
   turnInitialState,
   turnModelPrompt,
   turnPromptText,
@@ -103,35 +103,15 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
     history: input.history,
     userId: input.userId,
   })
-  // 仅未完成的澄清链进入执行原文；已完成任务仍可供 LLM 阅读，但不是本轮授权。
-  let referenceStart = input.history.length
-  while (referenceStart > 0) {
-    const tail = input.history.slice(0, referenceStart)
-    const last = tail[tail.length - 1]!
-    if (!last.content.some((block) => block.type === 'clarification')) break
-    let userIndex = tail.length - 2
-    while (userIndex >= 0 && tail[userIndex]!.role !== 'user') userIndex--
-    if (userIndex < 0) break
-    referenceStart = userIndex
-  }
-  let editRequest = {
-    revision: 0,
-    instructions: [
-      ...input.history
-        .slice(referenceStart)
-        .flatMap((message) =>
-          message.role === 'user'
-            ? [replayTurnText(message)]
-            : message.content.flatMap((block) =>
-                block.type === 'clarification' ? [agentClarificationSummary(block)] : [],
-              ),
-        ),
-      turnPromptText(prompt, images.references),
-    ].join('\n'),
-  }
+  // 本轮的授权原文是这段历史的第三种读法，拼法与澄清链回溯都在 `turn-authorization.ts`。
+  const authorization = createTurnAuthorization({
+    history: input.history,
+    prompt,
+    references: images.references,
+  })
   let clarified = false
   const maskedEditPlan = createMaskedEditPlan(
-    () => editRequest.instructions,
+    () => authorization.current().instructions,
     images.identify,
     images.masked,
   )
@@ -148,7 +128,7 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
         userId: input.userId,
         deviceId: input.deviceId,
         images,
-        editRequest: () => editRequest,
+        editRequest: () => authorization.current(),
         maskedEditPlan,
         ...(input.params ? { params: input.params } : {}),
       }),
@@ -177,7 +157,12 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
   let acceptingInterjections = true
   const steeringReferences = new Map<
     string,
-    { references: readonly AgentTurnReference[]; instructions: string }[]
+    {
+      references: readonly AgentTurnReference[]
+      text: string
+      /** 插话那一刻本轮认的引用；授权原文的清单按它拼。 */
+      active: readonly AgentImageReference[]
+    }[]
   >()
   let queued: {
     readonly id: string
@@ -264,10 +249,7 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
         maskedEditPlan.interjected()
         images.attach(steering.references)
         if (images.masked) maskedEditPlan.protect()
-        editRequest = {
-          revision: editRequest.revision + 1,
-          instructions: `${editRequest.instructions}\n用户补充：${steering.instructions}`,
-        }
+        authorization.amend(steering.text, steering.active)
       }
       if (pending?.length === 0) steeringReferences.delete(text)
     }
@@ -370,14 +352,13 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
         return null
       }
       const active = references.length ? references : images.references
-      // 执行原文仍是用户打的那句：`/skill-name` 是给模型看的指引，不是他授权的修改要求。
-      const instructions = turnPromptText(text, active)
       const steered = turnModelPrompt(
         turnPromptText(expandSkillInvocation(text, input.mode), active),
         evidence,
       )
       const pending = steeringReferences.get(steered.text) ?? []
-      pending.push({ references, instructions })
+      // 授权原文仍是用户打的那句：`/skill-name` 是给模型看的指引，不是他授权的修改要求。
+      pending.push({ references, text, active })
       steeringReferences.set(steered.text, pending)
       queued.push({ id: messageId, text, references: stored })
       if (!open) flushQueued()
