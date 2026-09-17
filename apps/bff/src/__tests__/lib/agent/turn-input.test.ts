@@ -136,29 +136,30 @@ describe('estimateTurnInputTokens', () => {
     expect(added(RICH_HISTORY, '再来一张', [])).toBe(16)
   })
 
-  // 1 个图片块（4800 字符）+ 提示词里的 `[image 1]` 引用行 + 视觉证据清单里这张图的一行（18 字符）。
+  // 1 个图片块（4800 字符）+ 提示词里的 `[image 1]` 引用行 + 整个视觉证据清单。
+  // 清单头现在只有带引用时才拼，所以它整块算进这条增量里，不再在两边对消。
   it('charges one image block for a plain reference', () => {
-    expect(added([], '换成夜景', [PLAIN])).toBe(1219)
+    expect(added([], '换成夜景', [PLAIN])).toBe(1226)
   })
 
   // 3 个图片块（14400 字符）+ 带选区说明的引用行 + 清单里带选区 ID 与 bounds 的那一行（188 字符）。
   it('charges three image blocks for a masked reference', () => {
-    expect(added([], '换成夜景', [MASKED])).toBe(3676)
+    expect(added([], '换成夜景', [MASKED])).toBe(3683)
   })
 
   // 上面两条各自的块与清单行加在一起，清单头只写一次。
   it('adds the blocks of every active reference', () => {
-    expect(added([], '换成夜景', [PLAIN, MASKED])).toBe(4887)
+    expect(added([], '换成夜景', [PLAIN, MASKED])).toBe(4894)
   })
 
   // 历史里那张带遮罩的图照遮罩引用算：3 个图片块 + 清单里的遮罩行 + 回放这两条历史消息。
   it('falls back to the last batch of references in history when this turn attaches none', () => {
-    expect(added(OLD_REFERENCE_HISTORY, '再改一次', [])).toBe(3707)
+    expect(added(OLD_REFERENCE_HISTORY, '再改一次', [])).toBe(3714)
   })
 
   // 本轮自己带了图，历史那批不再编号：1 个图片块 + 普通引用的清单行 + 回放这两条历史消息。
   it('numbers only this turn references when the turn attaches its own', () => {
-    expect(added(OLD_REFERENCE_HISTORY, '再改一次', [PLAIN])).toBe(1250)
+    expect(added(OLD_REFERENCE_HISTORY, '再改一次', [PLAIN])).toBe(1257)
   })
 
   it('caps a long history at the compaction threshold', () => {
