@@ -400,7 +400,11 @@ with read access to the private repository in `$config_root/secrets/private-repo
 fast-forward `./private` without a prompt.
 
 Each build is tagged with the commits it came from, which is what `app-compose.sh rollback`
-rolls back to. `app-compose.sh` and `infra-compose.sh` remain the building blocks underneath,
+rolls back to. After a successful rollout the script keeps the newest `DEPLOY_KEEP_IMAGES`
+commit-qualified images per edition (default 5) plus whatever a container still runs, and removes
+the older ones; hand-named images are left alone. Before building it checks the free space where
+Docker keeps its data and refuses below `DEPLOY_MIN_FREE_GB` (default 8): PostgreSQL shares that
+filesystem, so a build that fills it is an outage. `app-compose.sh` and `infra-compose.sh` remain the building blocks underneath,
 for rollback, stopping a project, and ad-hoc Compose commands.
 
 Point the hostnames at the tunnel, from the account that owns them:
