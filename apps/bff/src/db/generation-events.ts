@@ -37,7 +37,7 @@ export async function publishGenerations(tx: Transaction, taskIds: string[]) {
     for (let offset = 0; offset < ids.length; offset += TASK_BATCH_SIZE) {
       await tx.execute(sql`
         INSERT INTO ${schema.generation_records}
-          (id, user_id, provider, model, status, archive_status, error_type, prompt, parameters, actual_parameters, created_at, started_at, completed_at, revision)
+          (id, user_id, provider, model, status, archive_status, error_type, prompt, parameters, actual_parameters, created_at, started_at, completed_at, revision, source)
         SELECT id, user_id, provider, model, status,
           CASE WHEN status IN ('queued', 'in_progress') AND archive_payload IS NOT NULL THEN 'pending'
             WHEN status = 'failed' AND error_type = 'upstream_result_unknown' THEN 'unavailable'
@@ -46,7 +46,12 @@ export async function publishGenerations(tx: Transaction, taskIds: string[]) {
           error_type, request_payload ->> 'prompt',
           jsonb_strip_nulls(jsonb_build_object('size', request_payload -> 'size','quality', request_payload -> 'quality','output_format', request_payload -> 'output_format','output_compression', request_payload -> 'output_compression','moderation', request_payload -> 'moderation','aspect_ratio', request_payload -> 'aspect_ratio','image_size', request_payload -> 'image_size','thinking_level', request_payload -> 'thinking_level','n', request_payload -> 'n')),
           jsonb_strip_nulls(jsonb_build_object('size', result_payload -> 'size', 'quality', result_payload -> 'quality', 'output_format', result_payload -> 'output_format')),
-          submitted_at, started_at, completed_at, ${head!.sequence.toString()}::bigint
+          submitted_at, started_at, completed_at, ${head!.sequence.toString()}::bigint,
+          CASE WHEN agent_conversation_id IS NOT NULL AND agent_turn_id IS NOT NULL THEN
+            jsonb_build_object('kind', 'agent', 'conversationId', agent_conversation_id,
+              'turnId', agent_turn_id, 'projectId', (SELECT project_id FROM project_generation_outputs
+                WHERE generation_id = tasks.id AND user_id = tasks.user_id LIMIT 1))
+          ELSE jsonb_build_object('kind', 'studio') END
         FROM ${schema.tasks}
         WHERE ${schema.tasks.user_id} = ${userId}
           AND ${inArray(schema.tasks.id, ids.slice(offset, offset + TASK_BATCH_SIZE))}
