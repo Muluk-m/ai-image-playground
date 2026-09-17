@@ -4,6 +4,8 @@ import { CartesianGrid, Line, LineChart, ReferenceLine, XAxis, YAxis } from 'rec
 import {
   type ChartConfig,
   ChartContainer,
+  ChartLegend,
+  ChartLegendContent,
   ChartTooltip,
   ChartTooltipContent,
 } from '@/components/ui/chart'
@@ -21,9 +23,23 @@ const CHART_CONFIG = {
   memory: { label: '内存已用', color: 'hsl(var(--success))' },
 } satisfies ChartConfig
 
-function dayTick(at: number): string {
+const HOUR_MS = 60 * 60 * 1000
+
+function pad(value: number): string {
+  return String(value).padStart(2, '0')
+}
+
+/**
+ * 刻度的写法跟着曲线的跨度走。采集容器刚启用的头几天，整条曲线都在一两天之内，
+ * 按「月-日」标出来的刻度全是同一个日期，等于没标。
+ */
+export function trendTick(at: number, spanMs: number): string {
   const date = new Date(at)
-  return `${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+  const day = `${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+  const time = `${pad(date.getHours())}:${pad(date.getMinutes())}`
+  if (spanMs <= 24 * HOUR_MS) return time
+  if (spanMs <= 72 * HOUR_MS) return `${day} ${time}`
+  return day
 }
 
 function HostTrendChartImpl({ series, diskAlertRatio, label }: HostTrendChartProps) {
@@ -32,12 +48,13 @@ function HostTrendChartImpl({ series, diskAlertRatio, label }: HostTrendChartPro
     disk: Math.round(point.disk_used_ratio * 1000) / 10,
     memory: Math.round((1 - point.mem_available_ratio) * 1000) / 10,
   }))
+  const spanMs = data.length > 1 ? data[data.length - 1].at - data[0].at : 0
   return (
     <ChartContainer
       config={CHART_CONFIG}
       role="img"
       aria-label={label}
-      className="aspect-auto h-40 w-full"
+      className="aspect-auto h-48 w-full"
     >
       <LineChart data={data} margin={{ left: 4, right: 4, top: 4 }}>
         <CartesianGrid vertical={false} strokeDasharray="3 3" />
@@ -50,7 +67,7 @@ function HostTrendChartImpl({ series, diskAlertRatio, label }: HostTrendChartPro
           axisLine={false}
           tickMargin={8}
           minTickGap={40}
-          tickFormatter={dayTick}
+          tickFormatter={(at: number) => trendTick(at, spanMs)}
         />
         <YAxis width={36} domain={[0, 100]} tickLine={false} axisLine={false} unit="%" />
         <ReferenceLine y={diskAlertRatio * 100} stroke="hsl(var(--danger))" strokeDasharray="4 4" />
@@ -63,6 +80,7 @@ function HostTrendChartImpl({ series, diskAlertRatio, label }: HostTrendChartPro
             />
           }
         />
+        <ChartLegend content={<ChartLegendContent />} />
         <Line
           dataKey="disk"
           stroke="var(--color-disk)"
