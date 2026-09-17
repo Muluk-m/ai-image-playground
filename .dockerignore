@@ -39,6 +39,9 @@
 !apps/admin/server
 !apps/admin/contracts.ts
 !apps/bff/channels.json
+# 智能体技能目录：`SKILL.md` 与附属文件是运行时读盘的，不进模块图，
+# 漏掉这一行镜像照样构建成功、容器照样起得来，只是一条技能都没有。
+!apps/bff/skills
 
 
 # ── Optional private overlay ──────────────────────────────────────

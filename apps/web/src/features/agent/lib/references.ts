@@ -1,4 +1,4 @@
-import type { AgentTurnReference } from '@image-playground/shared'
+import type { AgentMode, AgentTurnReference } from '@image-playground/shared'
 import {
   createMentionLabels,
   insertImageMentionAtVisibleRange,
@@ -18,9 +18,15 @@ export interface AgentReference extends InputImage {
 export interface AgentDraft {
   readonly prompt: string
   readonly references: readonly AgentReference[]
+  /** 这份草稿发出去时要创作什么。老草稿里没有这一项，读回来按图片算。 */
+  readonly mode?: AgentMode
 }
 
 export const EMPTY_DRAFT: AgentDraft = { prompt: '', references: [] }
+
+export function draftMode(draft: AgentDraft): AgentMode {
+  return draft.mode === 'video' ? 'video' : 'image'
+}
 
 export function referenceLabels(references: readonly AgentReference[]): MentionLabelResolver {
   const named: Record<string, string> = {}

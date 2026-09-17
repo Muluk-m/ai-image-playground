@@ -71,6 +71,9 @@ const referencesSchema = t.Optional(
   ),
 )
 
+/** 创作类型。缺席即图片：老客户端不发这一项，它们要的从来都是图。 */
+const modeSchema = t.Optional(t.Union([t.Literal('image'), t.Literal('video')]))
+
 const turnParams = t.Object({ id: t.String(), turnId: t.String() })
 const turnBody = t.Object({ deviceId: deviceIdSchema() })
 
@@ -157,6 +160,7 @@ export const agentRoutes = new Elysia()
         text: body.text,
         references: body.references ?? [],
         deviceId: body.deviceId,
+        ...(body.mode ? { mode: body.mode } : {}),
         ...(body.params ? { params: body.params } : {}),
       })
       if (started.kind === 'authentication_required') return status(401, { error: 'unauthorized' })
@@ -169,9 +173,25 @@ export const agentRoutes = new Elysia()
         deviceId: deviceIdSchema(),
         text: t.String({ minLength: 1, maxLength: AGENT_USER_MESSAGE_MAX_CHARS }),
         references: referencesSchema,
+        mode: modeSchema,
         params: paramsSchema,
       }),
     },
+  )
+  .get(
+    // 输入框打 `/` 时的候选。只有名字与「何时用」：正文是给模型读的，不是给这个弹层读的。
+    '/api/agent/skills',
+    async ({ query }) => {
+      // 动态引入：`skills` 与 `tools` 静态依赖 pi，模块图不该因为一条清单端点被提到路由加载时。
+      const [{ agentSkillSummaries, ensureAgentSkills }, { resolveAgentMode }] = await Promise.all([
+        import('../lib/agent/skills'),
+        import('../lib/agent/tools'),
+      ])
+      await ensureAgentSkills()
+      // 做不了视频的部署里没有视频轮，所以也没有只有视频轮看得见的技能。
+      return { skills: agentSkillSummaries(resolveAgentMode(query.mode ?? 'image')) }
+    },
+    { query: t.Object({ mode: modeSchema }) },
   )
   .get(
     '/api/agent/conversations',

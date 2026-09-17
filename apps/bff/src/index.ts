@@ -52,6 +52,18 @@ log.info(
     : 'no channels loaded (BYOK-only deployment)',
 )
 
+// 技能目录读一次就缓存。放在启动而不是第一轮：镜像漏打 `apps/bff/skills` 时，
+// loader 只会静默跳过缺席目录，起跑时的这条日志是唯一看得见的信号。
+if (agentEnabled) {
+  // 动态引入：`skills` 静态依赖 pi，`agent:chat` 关着的部署不该在启动时付那 60-90ms。
+  const { ensureAgentSkills } = await import('./lib/agent/skills')
+  const skills = await ensureAgentSkills()
+  log.info(
+    { event: 'agent.skills_ready', image: skills.image.length, video: skills.video.length },
+    'agent skills ready',
+  )
+}
+
 // Importing the app loads optional private routes. Public migrations and
 // channel discovery must be ready before that overlay initializes.
 const { app } = await import('./app')

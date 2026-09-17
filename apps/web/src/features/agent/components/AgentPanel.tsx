@@ -24,6 +24,7 @@ import AgentComposer from './AgentComposer'
 import AgentCreations from './AgentCreations'
 import AgentHistoryStatus from './AgentHistoryStatus'
 import AgentReply from './AgentReply'
+import AgentSkillStep from './AgentSkillStep'
 import AgentToolCard from './AgentToolCard'
 import AgentTurnCost from './AgentTurnCost'
 
@@ -42,7 +43,14 @@ function CollapsedButton({ onOpen }: { onOpen: () => void }) {
 }
 
 function renderMessage(message: AgentPanelMessage, answerableId: string | null) {
-  if (message.kind === 'tool') return <AgentToolCard message={message} />
+  if (message.kind === 'tool') {
+    // 读取技能只是一步，不是一件产出；它走不到结果卡那条路。
+    return message.toolName === 'loadSkill' ? (
+      <AgentSkillStep message={message} />
+    ) : (
+      <AgentToolCard message={message} />
+    )
+  }
   if (message.kind === 'clarification') {
     return <AgentClarification message={message} answered={message.id !== answerableId} />
   }

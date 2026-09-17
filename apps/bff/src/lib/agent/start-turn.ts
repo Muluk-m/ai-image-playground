@@ -1,4 +1,4 @@
-import type { AgentTurnParams, AgentTurnReference } from '@image-playground/shared'
+import type { AgentMode, AgentTurnParams, AgentTurnReference } from '@image-playground/shared'
 import { agentConversationTitle } from '@image-playground/shared'
 import { db } from '../../db/client'
 import { isCapabilityEnabled } from '../capabilities'
@@ -23,6 +23,8 @@ export interface StartConversationTurnInput {
   readonly references: readonly AgentTurnReference[]
   /** 归属是用户时 owner 里没有设备，但工具提交的任务仍要按设备计日配额。 */
   readonly deviceId: string
+  /** 这一轮要创作什么；缺席即图片，老客户端不知道有这回事。 */
+  readonly mode?: AgentMode
   /** 用户在输入框的参数浮层里选的生成参数；缺席即全部按部署默认。 */
   readonly params?: AgentTurnParams
 }
@@ -45,14 +47,25 @@ export async function startConversationTurn(
   // 动态引入：pi 的模块图有 60-90ms，`agent:chat` 关着的部署不该在启动时付。
   // `turn-input` 也静态依赖 pi，所以它同样只能晚到这里，且与 `turn` 并排等在同一组里。
   const overlayPromise = loadPrivateBffOverlay()
-  const [{ estimateTurnInputTokens }, { startAgentTurn }, overlay, history, pricing] =
-    await Promise.all([
-      import('./turn-input'),
-      import('./turn'),
-      overlayPromise,
-      listAgentMessages(conversationId, owner),
-      billed ? overlayPromise.then((it) => chatTaskPricing(it.taskHooks, selectedModel)) : null,
-    ])
+  // `skills` 与 `tools` 也静态依赖 pi，所以同样只能晚到这里。技能清单进系统提示词，
+  // 预扣估算之前就得读完盘；加载只发生一次，之后都是缓存。
+  const [
+    { estimateTurnInputTokens },
+    { startAgentTurn },
+    { resolveAgentMode },
+    overlay,
+    history,
+    pricing,
+  ] = await Promise.all([
+    import('./turn-input'),
+    import('./turn'),
+    import('./tools'),
+    overlayPromise,
+    listAgentMessages(conversationId, owner),
+    billed ? overlayPromise.then((it) => chatTaskPricing(it.taskHooks, selectedModel)) : null,
+    import('./skills').then((it) => it.ensureAgentSkills()),
+  ])
+  const mode: AgentMode = resolveAgentMode(input.mode ?? 'image')
   const turnId = crypto.randomUUID()
   const chatTask =
     pricing && userId
@@ -63,7 +76,7 @@ export async function startConversationTurn(
           userId,
           deviceId,
           model: selectedModel,
-          estimatedInputTokens: estimateTurnInputTokens(history, text, references),
+          estimatedInputTokens: estimateTurnInputTokens(history, text, references, mode),
           pricing,
         }
       : null
@@ -112,6 +125,7 @@ export async function startConversationTurn(
       history,
       text,
       references,
+      mode,
       userId,
       deviceId,
       ...(params ? { params } : {}),

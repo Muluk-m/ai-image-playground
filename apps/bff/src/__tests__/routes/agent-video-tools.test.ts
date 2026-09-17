@@ -94,7 +94,8 @@ async function runTurn(conversationId: string, text: string, references: unknown
         'content-type': 'application/json',
         cookie: `${USER_SESSION_COOKIE}=${sessionToken}`,
       },
-      body: JSON.stringify({ deviceId: DEVICE, text, references }),
+      // 生视频工具只在视频轮进模型的清单，所以这一整份用例都按视频轮起。
+      body: JSON.stringify({ deviceId: DEVICE, text, references, mode: 'video' }),
     }),
   )
   return parseFrames(await response.text())
@@ -176,11 +177,14 @@ describe('智能体生视频工具', () => {
 
     await runTurn(conversationId, '你好')
 
+    // 视频轮照样带着生图与改图：首帧要先画出来、改到位，再让它动起来。
+    // `loadSkill` 在场是因为 `apps/bff/skills/video` 里有随仓库发的技能。
     expect(calls[0]!.tools?.map((tool) => tool.function.name).sort()).toEqual([
       'askClarification',
       'editImage',
       'generateImage',
       'generateVideo',
+      'loadSkill',
       'readLibrary',
     ])
   })

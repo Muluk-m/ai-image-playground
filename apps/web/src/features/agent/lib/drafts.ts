@@ -129,7 +129,10 @@ export class DraftSession {
   }
 
   accept(draft: AgentDraft) {
-    if (this.snapshot.draft === draft) this.update(EMPTY_DRAFT)
+    // 创作类型跟着这个会话走，发出去一条不该把它弹回图片。
+    if (this.snapshot.draft === draft) {
+      this.update({ ...EMPTY_DRAFT, ...(draft.mode ? { mode: draft.mode } : {}) })
+    }
     void this.flush()
   }
 
