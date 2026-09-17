@@ -7,6 +7,7 @@ import {
 import { Elysia, t } from 'elysia'
 import { config } from '../config'
 import { capabilityUnavailable, isCapabilityEnabled } from '../lib/capabilities'
+import { ensureProjectConversation } from '../lib/projectConversations'
 import { listProjects, readProject, writeProject } from '../lib/projects'
 import { resolveAuthUser } from '../lib/user-auth'
 
@@ -73,6 +74,18 @@ export const projectRoutes = new Elysia()
       return project ?? status(404, { error: 'project_not_found' })
     },
     { params: t.Object({ id }) },
+  )
+  .put(
+    '/api/projects/:id/conversation',
+    async ({ authUser, params, body, status }) => {
+      if (!authUser) return status(401, { error: 'unauthorized' })
+      if (!isCapabilityEnabled('agent:chat')) return capabilityUnavailable('agent:chat')
+      const result = await ensureProjectConversation(authUser.id, params.id, body.conversationId)
+      return result.ok
+        ? { conversation: result.conversation }
+        : status(result.status, { error: result.error })
+    },
+    { params: t.Object({ id }), body: t.Object({ conversationId: t.Optional(id) }) },
   )
   .put(
     '/api/projects/:id',

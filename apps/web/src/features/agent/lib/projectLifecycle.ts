@@ -1,3 +1,8 @@
+import { scopedStorageName } from '../../../lib/authScope'
+import {
+  cloudProjectsEnabled,
+  ensureCloudProjectConversation,
+} from '../../canvas/lib/projectClient'
 import {
   canvasSceneKey,
   currentCanvasWorkspace,
@@ -6,7 +11,12 @@ import {
   selectCanvasWorkspace,
 } from '../../canvas/lib/workspaces'
 import { currentCanvasProject, useCanvasProjectStore } from '../../canvas/projectStore'
-import { AgentRequestError, fetchMessages, removeConversation } from './agentClient'
+import {
+  AgentRequestError,
+  createConversation,
+  fetchMessages,
+  removeConversation,
+} from './agentClient'
 import { agentDraft, type DraftSession, removeProjectDraft } from './drafts'
 
 /**
@@ -143,4 +153,21 @@ function failureReason(error: unknown): 'busy' | 'save_failed' | 'failed' {
   const thrown = error instanceof Error ? error.message : ''
   if (thrown === 'busy') return 'busy'
   return thrown === 'save_failed' ? 'save_failed' : 'failed'
+}
+
+export async function createProjectConversation(): Promise<string> {
+  const project = currentCanvasProject()
+  if (!project?.cloud || !cloudProjectsEnabled()) return (await createConversation()).id
+  const scope = scopedStorageName('canvas')
+  const workspace = currentCanvasWorkspace()
+  await workspace.ready
+  if (!(await workspace.flush())) throw new Error('local_save_failed')
+  await workspace.cloud?.sync()
+  if (currentCanvasProject()?.id !== project.id || scopedStorageName('canvas') !== scope)
+    throw new Error('project_changed')
+  if (!currentCanvasProject()?.cloud?.revision) throw new Error('project_not_synced')
+  const result = await ensureCloudProjectConversation(project.id)
+  if (currentCanvasProject()?.id !== project.id || scopedStorageName('canvas') !== scope)
+    throw new Error('project_changed')
+  return result.conversation.id
 }

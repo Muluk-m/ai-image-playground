@@ -64,8 +64,9 @@ export async function createAgentConversation(
   owner: AgentOwner,
   title: string,
   now = Date.now(),
+  executor: Executor = db,
 ): Promise<AgentConversationView> {
-  const [row] = await db
+  const [row] = await executor
     .insert(schema.agent_conversations)
     .values({
       id: crypto.randomUUID(),
@@ -82,8 +83,9 @@ export async function createAgentConversation(
 export async function findAgentConversation(
   id: string,
   owner: AgentOwner,
+  executor: Executor = db,
 ): Promise<AgentConversationView | null> {
-  const [row] = await db
+  const [row] = await executor
     .select()
     .from(schema.agent_conversations)
     .where(
