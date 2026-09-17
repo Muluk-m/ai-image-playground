@@ -227,11 +227,17 @@ export const canvas_projects = pgTable(
     document: bunJsonb('document').$type<ProjectDocument>().notNull(),
     element_count: integer('element_count').notNull(),
     cover_media_id: text('cover_media_id'),
+    conversation_id: text('conversation_id').references(() => agent_conversations.id, {
+      onDelete: 'set null',
+    }),
     receipts: bunJsonb('receipts').$type<ProjectReceipt[]>().notNull(),
     created_at: epochMs('created_at').notNull(),
     updated_at: epochMs('updated_at').notNull(),
   },
-  (t) => [index('idx_canvas_projects_owner_id').on(t.user_id, t.id)],
+  (t) => [
+    index('idx_canvas_projects_owner_id').on(t.user_id, t.id),
+    uniqueIndex('idx_canvas_projects_conversation').on(t.conversation_id),
+  ],
 )
 
 /**

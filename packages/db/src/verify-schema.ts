@@ -51,6 +51,7 @@ export const EXPECTED_INDEXES = [
   'agent_turns_conversation_id_turn_id_pk',
   'canvas_projects_pkey',
   'idx_canvas_projects_owner_id',
+  'idx_canvas_projects_conversation',
   'daily_quota_device_id_date_pk',
   'idx_agent_conversations_device_time',
   'idx_agent_conversations_user_time',
