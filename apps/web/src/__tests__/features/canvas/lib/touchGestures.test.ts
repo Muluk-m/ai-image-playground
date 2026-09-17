@@ -133,6 +133,22 @@ describe('canvas touch navigation', () => {
     vi.advanceTimersByTime(600)
     expect(menu).not.toHaveBeenCalled()
   })
+  it('can pinch after a long press without waiting for all fingers to lift', () => {
+    hit.mockReturnValue('image')
+    touch('touchstart', [[30, 40]])
+    vi.advanceTimersByTime(500)
+    touch('touchstart', [
+      [30, 40],
+      [130, 40],
+    ])
+    touch('touchmove', [
+      [30, 40],
+      [230, 40],
+    ])
+    touch('touchend', [])
+    expect(doc.camera.zoom).toBe(2)
+  })
+
   it('cancels without selecting and allows the next gesture to start fresh', () => {
     hit.mockReturnValue('image')
     touch('touchstart', [[30, 40]])

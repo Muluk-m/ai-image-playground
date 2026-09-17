@@ -93,6 +93,7 @@ export function bindCanvasTouch(
           : []
     } else {
       owned = true
+      held = false
       moved = true
       dragged = []
       cancelHold()
