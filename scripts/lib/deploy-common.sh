@@ -23,3 +23,36 @@ edition_var() {
 stage() {
   printf '\n==> %s\n' "$1"
 }
+
+# select_stale_images <moving-alias> <keep> <protected-tags>
+#
+# Reads one edition's image references on stdin, newest first, and prints the ones to delete.
+# Only commit-qualified tags are candidates (<alias>-<sha> or <alias>-<sha>-<sha>): the moving
+# alias itself and hand-named images such as <alias>-relay-removal are never touched. A
+# protected tag (the one just rolled out, or one a container still runs) is kept without using
+# up one of the <keep> slots, so a rollback target never disappears because of it.
+select_stale_images() {
+  awk -v alias="$1" -v keep="$2" -v protected="$3" '
+    BEGIN {
+      n = split(protected, list, " ")
+      for (i = 1; i <= n; i++) guard[list[i]] = 1
+      prefix = alias "-"
+    }
+    {
+      if (index($0, prefix) != 1) next
+      suffix = substr($0, length(prefix) + 1)
+      if (suffix !~ /^[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]+(-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]+)?$/) next
+      if ($0 in guard) next
+      kept++
+      if (kept > keep) print $0
+    }
+  '
+}
+
+# docker_root_free_gb prints the whole gigabytes free on the filesystem holding Docker data.
+docker_root_free_gb() {
+  docker_root=$(docker info --format '{{.DockerRootDir}}' 2>/dev/null || printf '')
+  [ -d "$docker_root" ] || docker_root=/var/lib/docker
+  [ -d "$docker_root" ] || docker_root=/
+  df -Pk "$docker_root" | awk 'NR == 2 { printf "%d", $4 / 1024 / 1024 }'
+}
