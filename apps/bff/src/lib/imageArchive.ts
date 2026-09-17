@@ -242,7 +242,7 @@ async function archiveOutputs(
       delete item.source_url
     }
   } catch (error) {
-    if (!transform) throw error
+    if (!transform || isAbortError(error)) throw error
     throw new MaskedOutputArchiveError(
       error instanceof Error ? error.message : '局部编辑结果无法应用',
       candidates,
