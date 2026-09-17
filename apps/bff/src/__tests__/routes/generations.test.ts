@@ -24,6 +24,14 @@ const { setUpstreamFetchForTesting } = await import('../../lib/upstream')
 const { setObjectStoreForTesting } = await import('../../lib/objectStore')
 const { setDurableMediaStoreForTesting } = await import('../../lib/durableMediaStore')
 class DurableFixture extends InMemoryObjectStore {
+  interruptNextWrite = false
+  override async write(key: string, bytes: Uint8Array, contentType: string) {
+    if (this.interruptNextWrite) {
+      this.interruptNextWrite = false
+      throw new DOMException('Worker stopped', 'AbortError')
+    }
+    return super.write(key, bytes, contentType)
+  }
   sign(key: string) {
     return `https://durable.example/${key}`
   }
@@ -553,5 +561,44 @@ it('临时数据清理后仍保留参考图、蒙版和可复用参数，不携�
   for (const mediaId of [detail.inputs[0].mediaId, detail.mask.mediaId]) {
     const { originalUrl } = await (await request(`/api/media/${mediaId}/access`, deviceB)).json()
     expect(await durable.read(new URL(originalUrl).pathname.slice(1))).toEqual(new Uint8Array(png))
+  }
+})
+
+it('归档重试下载成功后重启，即使原链接过期也能用已保存原件完成', async () => {
+  const png = await sharp({ create: { width: 8, height: 6, channels: 3, background: '#779944' } })
+    .png()
+    .toBuffer()
+  let calls = 0
+  setUpstreamFetchForTesting((async () => {
+    calls++
+    return Response.json({ data: [{ url: 'https://fixture.example/short-lived.png' }] })
+  }) as NonNullable<Parameters<typeof setUpstreamFetchForTesting>[0]>)
+  let available = false
+  const restore = stubGlobalFetch(() =>
+    available ? new Response(png) : new Response('expired', { status: 403 }),
+  )
+  const { request_id: id } = await (
+    await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, input)
+  ).json()
+  try {
+    await runTask(id)
+    available = true
+    durable.interruptNextWrite = true
+    const clock = spyOn(Date, 'now').mockReturnValue(Date.now() + 61_000)
+    try {
+      await runTask(id)
+      available = false
+      const { recoverTasksByIds } = await import('../../db/maintenance')
+      await recoverTasksByIds([id])
+      await runTask(id)
+    } finally {
+      clock.mockRestore()
+    }
+    expect((await (await request(`/api/generations/${id}`, deviceB)).json()).status).toBe(
+      'completed',
+    )
+    expect(calls).toBe(1)
+  } finally {
+    restore()
   }
 })
