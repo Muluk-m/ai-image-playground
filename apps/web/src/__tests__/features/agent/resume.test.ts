@@ -92,52 +92,9 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 
+// 去重、断点续播与退避本身归 agentClient 管，测在 lib/agentClient.test.ts；
+// 这里只钉住面板对各种终局的反应。
 describe('断线重连', () => {
-  it('流断在轮结束之前时带 Last-Event-ID 续播，不重复渲染已收到的片段', async () => {
-    turnResponses = [
-      () =>
-        sse(
-          [
-            { id: 1, event: TURN_START },
-            { id: 2, event: ASSISTANT_START },
-            { id: 3, event: { type: 'textDelta', messageId: 'assistant-1', delta: '好的，' } },
-          ],
-          true,
-        ),
-      () =>
-        sse([
-          { id: 3, event: { type: 'textDelta', messageId: 'assistant-1', delta: '好的，' } },
-          { id: 4, event: { type: 'textDelta', messageId: 'assistant-1', delta: '这就来' } },
-          { id: 5, event: TURN_END },
-        ]),
-    ]
-
-    await state().send('把背景换成浅木色')
-
-    expect(resumeRequests).toHaveLength(1)
-    expect(resumeRequests[0]!.lastEventId).toBe('3')
-    expect(resumeRequests[0]!.url).toContain(`/turns/${TURN}/events`)
-    expect(state().turn).toBe('idle')
-    expect(state().messages).toEqual([
-      {
-        kind: 'text',
-        id: 'user-1',
-        turnId: 'turn-1',
-        role: 'user',
-        text: '把背景换成浅木色',
-        streaming: false,
-      },
-      {
-        kind: 'text',
-        id: 'assistant-1',
-        turnId: 'turn-1',
-        role: 'assistant',
-        text: '好的，这就来',
-        streaming: false,
-      },
-    ])
-  })
-
   it('起轮的请求压根没发出去时直接判失败，不停在进行中', async () => {
     turnResponses = [
       () => {

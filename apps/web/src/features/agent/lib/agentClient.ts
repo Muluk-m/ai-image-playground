@@ -5,6 +5,7 @@ import type {
   AgentMessageView,
   AgentToolArtifact,
   AgentTurnAlreadyRunningBody,
+  AgentTurnEvent,
   AgentTurnParams,
   AgentTurnReference,
   AgentTurnSummaryView,
@@ -173,7 +174,7 @@ export async function startTurn(
 }
 
 /** `lastEventId` 为 0 表示从头要一遍这一轮。 */
-export async function* resumeTurn(
+async function* resumeTurn(
   conversationId: string,
   turnId: string,
   lastEventId: number,
@@ -185,6 +186,111 @@ export async function* resumeTurn(
     headers,
   })
   yield* readFrames(response)
+}
+
+/** 断了之后隔多久再续播。第一次立刻重试：多数断流是中间设备掐的，续播马上就接上了。 */
+const RECONNECT_DELAYS_MS = [0, 500, 2_000, 5_000]
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+/**
+ * 跟一轮到底之后这一轮是怎么收的场：读到终帧、这一轮不在了、被限流、一直接不上，
+ * 或者调用方自己叫停。
+ */
+export type AgentTurnOutcome = 'ended' | 'gone' | 'rateLimited' | 'unreachable' | 'stopped'
+
+/** 从哪儿开始跟：起轮拿到的那条流，或者已知轮标识时从头续播。 */
+export type AgentTurnSource =
+  | { readonly frames: AsyncGenerator<AgentFrame> }
+  | { readonly turnId: string }
+
+export interface FollowTurnOptions {
+  /** 叫停的唯一入口：转假之后不再重连、不再续播，流就此收束。 */
+  readonly shouldContinue?: () => boolean
+  /** 重连退避表，测试用来跳过等待。 */
+  readonly delaysMs?: readonly number[]
+  readonly fetcher?: Fetcher
+}
+
+export interface AgentTurnStream {
+  /** 已按帧标识去重、断了自己带断点重连的事件流。 */
+  readonly events: AsyncGenerator<AgentTurnEvent>
+  /** 流走完之后的终局；走完之前是 `null`。 */
+  readonly outcome: AgentTurnOutcome | null
+}
+
+/**
+ * 跟一轮到底：流断了就带 `Last-Event-ID` 续播，重发与重放的帧按帧标识丢掉，直到读到终帧
+ * 或者一直接不上。调用方只看事件与终局，不必知道断点、帧标识与退避表。
+ */
+export function followTurn(
+  conversationId: string,
+  source: AgentTurnSource,
+  {
+    shouldContinue = () => true,
+    delaysMs = RECONNECT_DELAYS_MS,
+    fetcher = authenticatedBffFetch,
+  }: FollowTurnOptions = {},
+): AgentTurnStream {
+  let outcome: AgentTurnOutcome | null = null
+  async function* follow(): AsyncGenerator<AgentTurnEvent> {
+    // 续播要有轮标识：起轮那条流得先从 `turnStart` 里学到它。
+    let turnId = 'turnId' in source ? source.turnId : ''
+    let frames = 'frames' in source ? source.frames : resumeTurn(conversationId, turnId, 0, fetcher)
+    // 见过的最大帧标识，就是续播的断点。
+    let seen = 0
+    try {
+      for (let attempt = 0; ; attempt += 1) {
+        if (!shouldContinue()) return
+        try {
+          for await (const frame of frames) {
+            if (!shouldContinue()) return
+            if (frame.id !== null && frame.id <= seen) continue
+            if (frame.id !== null) {
+              seen = frame.id
+              // 有进展就说明这次连接是好的，退避从头算。
+              attempt = -1
+            }
+            if (frame.event.type === 'turnStart') turnId = frame.event.turnId
+            yield frame.event
+            if (frame.event.type === 'turnEnd') {
+              outcome = 'ended'
+              return
+            }
+          }
+        } catch (thrown) {
+          if (!shouldContinue()) return
+          if (thrown instanceof AgentRequestError && thrown.status === 404) {
+            outcome = 'gone'
+            return
+          }
+          if (thrown instanceof AgentRequestError && thrown.status === 429) {
+            outcome = 'rateLimited'
+            return
+          }
+          // 其余都当断流：接着往下重连。
+        }
+        const delay = delaysMs[Math.max(attempt, 0)]
+        // 轮标识还没学到就没有轮可以接；退避表用尽同理。
+        if (!turnId || delay === undefined) {
+          outcome = 'unreachable'
+          return
+        }
+        await sleep(delay)
+        if (!shouldContinue()) return
+        frames = resumeTurn(conversationId, turnId, seen, fetcher)
+      }
+    } finally {
+      // 叫停与调用方自己走掉（break / return）都收在这里。
+      outcome ??= 'stopped'
+    }
+  }
+  return {
+    events: follow(),
+    get outcome() {
+      return outcome
+    },
+  }
 }
 
 export async function abortTurn(
