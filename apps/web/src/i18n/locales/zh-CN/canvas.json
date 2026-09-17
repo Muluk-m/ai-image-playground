@@ -151,7 +151,10 @@
     "copied": "图片已复制",
     "downloadFailed": "下载失败",
     "copy": "复制图片",
-    "download": "下载图片"
+    "download": "下载图片",
+    "preview": "查看原图 / 长按保存",
+    "previewFailed": "原图加载失败，请关闭后重试",
+    "loading": "正在加载原图…"
   },
   "grid": {
     "loadingCloud": "正在读取项目…",
@@ -189,5 +192,11 @@
   "imageName": {
     "video": "视频",
     "image": "图片"
+  },
+  "touch": {
+    "hint": "拖动画布 · 双指缩放 · 轻点选中后拖动元素",
+    "editText": "编辑文字",
+    "edit": "编辑",
+    "imageActions": "图片操作"
   }
 }

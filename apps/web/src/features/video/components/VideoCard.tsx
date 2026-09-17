@@ -127,7 +127,7 @@ export default function VideoCard({ task, onOpen }: { task: VideoTask; onOpen: (
         </button>
 
         {done && (
-          <div className="pointer-events-none absolute inset-x-1.5 bottom-1.5 grid grid-cols-3 gap-1 opacity-0 transition group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100">
+          <div className="pointer-events-none absolute inset-x-1.5 bottom-1.5 grid grid-cols-3 gap-1 opacity-0 transition group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100">
             <VideoDownloadButton
               task={task}
               className={HOVER_BUTTON}

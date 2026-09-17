@@ -60,13 +60,13 @@ export default function InspirationCard({ item, pinned, onClick }: Props) {
           className={`absolute right-2 top-2 inline-flex h-7 w-7 items-center justify-center rounded-full backdrop-blur-sm transition-all duration-200 ${
             pinned
               ? 'bg-warning/90 text-white opacity-100 shadow-sm'
-              : 'bg-black/45 text-white opacity-0 hover:bg-black/65 group-hover:opacity-100'
+              : 'bg-black/45 text-white opacity-0 hover:bg-black/65 group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100'
           }`}
         >
           <StarIcon width={14} height={14} filled={pinned} aria-hidden />
         </button>
 
-        <div className="pointer-events-none absolute inset-0 flex items-end bg-gradient-to-t from-black/85 via-black/45 to-transparent opacity-0 transition duration-300 group-hover:opacity-100">
+        <div className="pointer-events-none absolute inset-0 flex items-end bg-gradient-to-t from-black/85 via-black/45 to-transparent opacity-0 transition duration-300 group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100">
           <p className="line-clamp-6 p-3 text-[11px] leading-relaxed text-white/95">
             {item.prompt}
           </p>

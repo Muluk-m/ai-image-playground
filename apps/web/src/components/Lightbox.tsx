@@ -169,6 +169,22 @@ export default function Lightbox() {
   )
 }
 
+/** A canvas original can be previewed without importing it into generation history. */
+export function ImagePreview({ src, onClose }: { src: string; onClose: () => void }) {
+  return (
+    <LightboxInner
+      src={src}
+      imageId=""
+      onClose={onClose}
+      showNav={false}
+      currentIndex={0}
+      total={1}
+      onPrev={() => {}}
+      onNext={() => {}}
+    />
+  )
+}
+
 interface LightboxInnerProps {
   src: string
   imageId: string
@@ -198,7 +214,7 @@ function LightboxInner({
   const showToast = useStore((s) => s.showToast)
   const [coarsePointer] = useState(() => window.matchMedia('(pointer: coarse)').matches)
   // 这个组件每帧重渲染（缩放/平移），频道列表 boot 后不变，只问一次。
-  const videoAvailable = useMemo(() => isVideoModeAvailable(), [])
+  const videoAvailable = useMemo(() => Boolean(imageId) && isVideoModeAvailable(), [imageId])
 
   // 用 ref 追踪最新变换，避免闭包过期
   const scaleRef = useRef(1)

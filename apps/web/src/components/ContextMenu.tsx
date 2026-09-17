@@ -93,7 +93,7 @@ export function ContextMenuItem({
     <button
       type="button"
       onClick={onClick}
-      className="flex w-full items-center gap-2 px-4 py-2 text-left text-sm text-foreground transition-colors hover:bg-card"
+      className="flex min-h-11 w-full items-center gap-2 px-4 py-2 text-left text-sm text-foreground transition-colors hover:bg-card"
     >
       {icon}
       {label}
