@@ -1,11 +1,21 @@
+import { setTimeout as delay } from 'node:timers/promises'
 import type { PersistedSubmitRequest, QueueProvider } from '@image-playground/shared'
 import { and, eq, inArray } from 'drizzle-orm'
 import { db, schema } from '../db/client'
 import { durableMediaStore } from './durableMediaStore'
 import { extractMeta, resolveImageBytesRef } from './extractImages'
+import {
+  archiveOutputImages,
+  MaskedOutputArchiveError,
+  ObjectStorageError,
+  type OutputTransform,
+  SourceImageFetchError,
+} from './imageArchive'
+import { log } from './logger'
 import { objectStore } from './objectStore'
 import type { BffTransaction } from './private-overlay'
 import { lockMediaOwner, storeMedia } from './projectMedia'
+import { UpstreamResultUnknownError } from './upstream'
 
 export interface GenerationMediaLink {
   role: 'input' | 'mask' | 'output'
@@ -20,6 +30,48 @@ export function generationSourceCheckpoint(provider: QueueProvider, payload: unk
   const refs = meta.images.map((image) => resolveImageBytesRef(provider, payload, image.index))
   if (!refs.length || refs.some((ref) => ref?.kind !== 'url')) return null
   return { ...meta.actual_params, data: refs.map((ref) => ({ url: ref!.data, mime: ref!.mime })) }
+}
+
+/** A successful inline response remains in its worker slot until safely spooled or interrupted. */
+export async function spoolGenerationOutputs(
+  id: string,
+  provider: QueueProvider,
+  payload: unknown,
+  transform: OutputTransform | undefined,
+  signal: AbortSignal,
+) {
+  const deadline = performance.now() + 15 * 60_000
+  let attempt = 0
+  while (true) {
+    signal.throwIfAborted()
+    try {
+      const archived = await archiveOutputImages(
+        id,
+        provider,
+        structuredClone(payload),
+        transform,
+        durableMediaStore(),
+      )
+      return { ...archived, archive_store: 'durable' }
+    } catch (error) {
+      if (
+        !(error instanceof ObjectStorageError) ||
+        error instanceof SourceImageFetchError ||
+        error instanceof MaskedOutputArchiveError
+      )
+        throw error
+      if (performance.now() >= deadline)
+        throw new UpstreamResultUnknownError(
+          '图片已生成，但存储持续不可用，无法确认原件已保存；不会自动重新生成',
+          { cause: error },
+        )
+      log.warn(
+        { event: 'task.spool_retry', taskId: id, attempt: ++attempt },
+        'retaining successful response while object storage recovers',
+      )
+      await delay(Math.min(30_000, 250 * 2 ** Math.min(attempt - 1, 7)), undefined, { signal })
+    }
+  }
 }
 
 export async function preserveGenerationInputs(id: string, request: PersistedSubmitRequest) {
