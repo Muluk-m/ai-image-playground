@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test'
 import {
+  clampVideoPreset,
   VIDEO_MODEL_SUPPORT,
   VIDEO_RESOLUTIONS,
   type VideoModelSupport,
@@ -7,6 +8,7 @@ import {
   validateVideoPrompt,
   validateVideoRequest,
   videoDurationsForResolution,
+  videoPresetConflicts,
   videoRateMultiplier,
 } from '../video-presets'
 
@@ -403,5 +405,70 @@ describe('validateVideoPrompt', () => {
     expect(VIDEO_MODEL_SUPPORT[GROK].promptMaxChars).toBeUndefined()
     expect(validateVideoPrompt(GROK, '光'.repeat(9000))).toEqual({ ok: true })
     expect(validateVideoPrompt('gpt-image-2', '光'.repeat(9000))).toEqual({ ok: true })
+  })
+})
+
+describe('videoPresetConflicts', () => {
+  const veo = VIDEO_MODEL_SUPPORT[VEO_FAST]
+  const grok = VIDEO_MODEL_SUPPORT[GROK]
+  const agnes = VIDEO_MODEL_SUPPORT[AGNES]
+
+  it('stays silent about what the caller never asked for', () => {
+    // 没填的项按默认退档，那不是丢掉用户的约束，不该报冲突。
+    expect(videoPresetConflicts(veo, {})).toEqual([])
+    expect(videoPresetConflicts(agnes, {})).toEqual([])
+  })
+
+  it('stays silent when every asked value lands as asked', () => {
+    expect(
+      videoPresetConflicts(grok, { duration: 10, resolution: '1080p', aspectRatio: '9:16' }),
+    ).toEqual([])
+  })
+
+  it('names the duration this model cannot do, and what it can', () => {
+    expect(videoPresetConflicts(grok, { duration: 6 })).toEqual([
+      { field: 'duration', asked: 6, used: 5, supported: [5, 8, 10, 15], resolution: '720p' },
+    ])
+  })
+
+  it('reports the duration against the resolution that would actually be used', () => {
+    // Veo 的 1080p 只配 8 秒；报 4 / 6 / 8 等于把用户导向另一个做不到的值。
+    expect(videoPresetConflicts(veo, { duration: 6, resolution: '1080p' })).toEqual([
+      { field: 'duration', asked: 6, used: 8, supported: [8], resolution: '1080p' },
+    ])
+  })
+
+  it('names an unsupported resolution', () => {
+    expect(videoPresetConflicts(agnes, { resolution: '1080p' })).toEqual([
+      { field: 'resolution', asked: '1080p', used: '720p', supported: ['720p'] },
+    ])
+  })
+
+  it('names an unsupported aspect ratio', () => {
+    expect(videoPresetConflicts(veo, { aspectRatio: '1:1' })).toEqual([
+      { field: 'aspectRatio', asked: '1:1', used: '16:9', supported: ['16:9', '9:16'] },
+    ])
+  })
+
+  it('reports every asked value that misses, not just the first', () => {
+    expect(
+      videoPresetConflicts(veo, { duration: 15, resolution: '2k', aspectRatio: '1:1' }).map(
+        (conflict) => conflict.field,
+      ),
+    ).toEqual(['duration', 'resolution', 'aspectRatio'])
+  })
+
+  it('agrees with clampVideoPreset on what would be submitted', () => {
+    const asked = { duration: 15, aspectRatio: '1:1', resolution: '2k' } as const
+    const preset = clampVideoPreset(veo, asked)
+    for (const conflict of videoPresetConflicts(veo, asked)) {
+      expect(conflict.used).toBe(
+        conflict.field === 'duration'
+          ? preset.duration
+          : conflict.field === 'resolution'
+            ? preset.resolution
+            : preset.aspectRatio,
+      )
+    }
   })
 })
