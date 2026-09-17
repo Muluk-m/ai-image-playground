@@ -177,6 +177,37 @@ async function adoptLegacyCommand(
   })
 }
 
+/**
+ * 「这是不是一次遮罩提交」只在这里判一次：是的话，补边后的请求与落库的那对事实一起产出。
+ * `preserve_outside_mask` 让 worker 保护选区外的像素，`masked_original_size` 让它交付前把补边
+ * 裁回原尺寸——两个字段描述同一个判定，所以要么都写、要么都不写，由这里的返回值保证。
+ * `prepareMaskedInput` 不合规时抛 `TypeError`，由调用方翻成 `invalid_input_image`。
+ */
+async function prepareMaskedSubmission(input: CreateQueueTaskInput) {
+  const request = input.request
+  if (!input.agent || !request.mask || input.video) return undefined
+  const strict = await prepareMaskedInput(
+    input.model,
+    request.input_images?.[0] ?? '',
+    request.mask,
+  )
+  const { output_compression: _compression, ...rest } = request
+  return {
+    request: {
+      ...rest,
+      input_images: [strict.source, ...request.input_images!.slice(1)],
+      mask: strict.mask,
+      size: strict.size,
+      // 保护选区外像素要逐像素比对，有损格式与压缩会把它毁掉。
+      output_format: 'png' as const,
+    },
+    facts: {
+      preserve_outside_mask: true as const,
+      masked_original_size: strict.originalSize,
+    },
+  }
+}
+
 export async function createQueueTask(
   input: CreateQueueTaskInput,
 ): Promise<CreateQueueTaskOutcome> {
@@ -191,28 +222,11 @@ export async function createQueueTask(
   const id = crypto.randomUUID()
   let requestPayload: PersistedSubmitRequest
   try {
-    let request = input.request
-    const strict =
-      input.agent && request.mask && !input.video
-        ? await prepareMaskedInput(input.model, request.input_images?.[0] ?? '', request.mask)
-        : undefined
-    if (strict) {
-      const { output_compression: _compression, ...rest } = request
-      request = {
-        ...rest,
-        input_images: [strict.source, ...request.input_images!.slice(1)],
-        mask: strict.mask,
-        size: strict.size,
-        output_format: 'png',
-      }
-    }
+    const masked = await prepareMaskedSubmission(input)
     requestPayload = {
-      ...(await archiveInputImages(id, request)),
+      ...(await archiveInputImages(id, masked?.request ?? input.request)),
       ...(input.video ? { video: input.video } : {}),
-      ...(input.agent && input.request.mask && !input.video
-        ? { preserve_outside_mask: true as const }
-        : {}),
-      ...(strict ? { masked_original_size: strict.originalSize } : {}),
+      ...masked?.facts,
     }
   } catch (error) {
     await discardArchivedInputs(id)
