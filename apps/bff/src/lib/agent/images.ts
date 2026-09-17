@@ -28,6 +28,11 @@ export interface ResolvedAgentImage {
 export interface AgentImageSource {
   readonly references: readonly AgentImageReference[]
   /**
+   * 这一轮是不是遮罩轮：当前这批引用里有没有用户画的遮罩。插话换掉引用后跟着变，
+   * 「本轮存在用户选区」的判断只问这一处。
+   */
+  readonly masked: boolean
+  /**
    * 模型说的那个 id 对应的真 id（把 `image 2` 这类编号翻回去），不读字节。
    * 工具起跑时要立刻把锚点告诉画布，那一刻等不起一次对象存储往返。
    */
@@ -258,6 +263,9 @@ export function createAgentImageSource(input: {
   return {
     get references() {
       return active
+    },
+    get masked() {
+      return active.some(referenceHasMask)
     },
     attach(added) {
       if (!added.length) return

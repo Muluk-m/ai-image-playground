@@ -89,9 +89,7 @@ export async function runQueueTask(
   const target = input.target ?? resolveAgentModel(input.media, context.params?.model)
   if (!target) throw new Error(noModelMessage(input.media))
 
-  const hasSelection = context.images.references.some((ref) =>
-    Boolean('dataUrl' in ref ? ref.maskDataUrl : ref.mask),
-  )
+  const hasSelection = context.images.masked
   if (hasSelection) context.maskedEditPlan?.protect()
   const maskedTurn = input.media === 'image' && (hasSelection || context.maskedEditPlan?.protected)
   if (maskedTurn && !input.inputImages?.length)

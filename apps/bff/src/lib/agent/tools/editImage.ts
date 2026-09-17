@@ -99,10 +99,7 @@ export const editImage = defineAgentTool({
       const snapshot = context.editRequest?.()
       const images = await requireAgentImages(context.images, params.imageIds)
       if (
-        (context.maskedEditPlan?.protected ||
-          context.images.references.some((ref) =>
-            Boolean('dataUrl' in ref ? ref.maskDataUrl : ref.mask),
-          )) &&
+        (context.maskedEditPlan?.protected || context.images.masked) &&
         !images.some((image) => image.maskDataUrl)
       ) {
         throw new Error(

@@ -21,7 +21,6 @@ import { openTurnEventLog } from './events'
 import {
   archiveAgentReferences,
   createAgentImageSource,
-  referenceHasMask,
   removeAgentTurnReferences,
   requireAgentImages,
 } from './images'
@@ -134,7 +133,7 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
   const maskedEditPlan = createMaskedEditPlan(
     () => editRequest.instructions,
     images.identify,
-    images.references.some(referenceHasMask),
+    images.masked,
   )
   const agent = new Agent({
     initialState: {
@@ -264,7 +263,7 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
       if (steering) {
         maskedEditPlan.interjected()
         images.attach(steering.references)
-        if (images.references.some(referenceHasMask)) maskedEditPlan.protect()
+        if (images.masked) maskedEditPlan.protect()
         editRequest = {
           revision: editRequest.revision + 1,
           instructions: `${editRequest.instructions}\n用户补充：${steering.instructions}`,
