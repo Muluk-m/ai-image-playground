@@ -13,7 +13,6 @@ import {
 } from './conversations'
 import { archiveAgentReferences, removeAgentTurnReferences } from './images'
 import type { RunningTurn } from './runningTurns'
-import { ensureAgentSkills } from './skills'
 import { agentThinking } from './thinking'
 
 export interface StartConversationTurnInput {
@@ -40,7 +39,6 @@ export async function startConversationTurn(
   input: StartConversationTurnInput,
 ): Promise<StartConversationTurnResult> {
   const { conversationId, owner, text, references, deviceId, params } = input
-  const mode: AgentMode = input.mode ?? 'image'
   const selectedModel = agentThinking(params?.thinkingDepth).model
   const userId = owner.kind === 'user' ? owner.userId : null
   const billed = isCapabilityEnabled('billing:credits')
@@ -49,16 +47,25 @@ export async function startConversationTurn(
   // 动态引入：pi 的模块图有 60-90ms，`agent:chat` 关着的部署不该在启动时付。
   // `turn-input` 也静态依赖 pi，所以它同样只能晚到这里，且与 `turn` 并排等在同一组里。
   const overlayPromise = loadPrivateBffOverlay()
-  // 技能清单进系统提示词，所以预扣估算之前就得读完盘；加载只发生一次，之后都是缓存。
-  const [{ estimateTurnInputTokens }, { startAgentTurn }, overlay, history, pricing] =
-    await Promise.all([
-      import('./turn-input'),
-      import('./turn'),
-      overlayPromise,
-      listAgentMessages(conversationId, owner),
-      billed ? overlayPromise.then((it) => chatTaskPricing(it.taskHooks, selectedModel)) : null,
-      ensureAgentSkills(),
-    ])
+  // `skills` 与 `tools` 也静态依赖 pi，所以同样只能晚到这里。技能清单进系统提示词，
+  // 预扣估算之前就得读完盘；加载只发生一次，之后都是缓存。
+  const [
+    { estimateTurnInputTokens },
+    { startAgentTurn },
+    { resolveAgentMode },
+    overlay,
+    history,
+    pricing,
+  ] = await Promise.all([
+    import('./turn-input'),
+    import('./turn'),
+    import('./tools'),
+    overlayPromise,
+    listAgentMessages(conversationId, owner),
+    billed ? overlayPromise.then((it) => chatTaskPricing(it.taskHooks, selectedModel)) : null,
+    import('./skills').then((it) => it.ensureAgentSkills()),
+  ])
+  const mode: AgentMode = resolveAgentMode(input.mode ?? 'image')
   const turnId = crypto.randomUUID()
   const chatTask =
     pricing && userId

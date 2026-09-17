@@ -10,6 +10,7 @@ import {
   completionStream,
   parseFrames,
   scriptedAgentFetch,
+  toolCallCompletion,
 } from '../helpers/agentStubs'
 
 process.env.DATABASE_URL = await resetTestDatabase('agent_skills_a297')
@@ -19,12 +20,14 @@ process.env.UPSTREAM_API_KEY = 'fixture-upstream-key'
 process.env.UPSTREAM_OPENAI_API_KEY = ''
 process.env.AGENT_CHAT_MODEL = 'fixture-agent-model'
 process.env.LOG_LEVEL = 'silent'
-process.env.OPERATOR_CONFIG_FILE = resolve(import.meta.dir, '../agent-operator-config.json')
+// 这个部署做得了视频，所以视频轮真的是视频轮；做不了的那种在 agent-skills-no-video 里。
+process.env.OPERATOR_CONFIG_FILE = resolve(import.meta.dir, '../agent-skills-operator-config.json')
 
 // Dynamic imports keep environment setup ahead of modules that capture configuration.
 const { agentRoutes } = await import('../../routes/agent')
 const { setAgentFetchForTesting } = await import('../../lib/agent/model')
 const { ensureAgentSkills, setAgentSkillsRootForTesting } = await import('../../lib/agent/skills')
+const { _setChannelsForTesting } = await import('../../lib/channels')
 const { close: closeDb } = await import('../../db/client')
 const { _setPrivateBffOverlayForTesting, EMPTY_PRIVATE_BFF_OVERLAY } = await import(
   '../../lib/private-overlay'
@@ -35,6 +38,26 @@ const app = new Elysia().use(agentRoutes)
 const DEVICE = 'device-abcdefgh'
 const TITLE = '分镜短片'
 const BODY = `# ${TITLE}\n\n分镜表每行写：序号、时长、画面、引用。`
+
+type InternalChannel = import('../../lib/channels').InternalChannel
+
+const VIDEO_CHANNEL: InternalChannel = {
+  id: 'video-gateway',
+  kind: 'openai-queue',
+  label: 'Video',
+  baseUrl: 'https://gateway.example/v1',
+  auth: { type: 'bearer', secretRef: 'VIDEO_API_KEY', secret: 'k' },
+  allowedPaths: ['videos/generations'],
+  models: [
+    {
+      id: 'grok-imagine-video',
+      label: 'grok-imagine-video',
+      media: 'video',
+      capabilities: ['generate'],
+    },
+  ],
+  defaults: { asyncTasks: true },
+}
 
 let root = ''
 const calls: AgentCall[] = []
@@ -94,12 +117,14 @@ beforeAll(async () => {
     `---\nname: storyboard-short\ndescription: 何时用：一句话要一条多镜短片。不处理：单张图。\n---\n\n${BODY}\n`,
     'utf8',
   )
+  _setChannelsForTesting([VIDEO_CHANNEL])
   setAgentSkillsRootForTesting(root)
   await ensureAgentSkills()
   setAgentFetchForTesting(scriptedAgentFetch(calls, [() => completionStream('好的')]))
 })
 
 afterAll(async () => {
+  _setChannelsForTesting([])
   setAgentSkillsRootForTesting(null)
   setAgentFetchForTesting()
   if (root) await rm(root, { recursive: true, force: true })
@@ -157,6 +182,45 @@ describe('a turn that names a skill with a slash', () => {
     await runTurn(conversationId, '/nope 做个片子', 'video')
     expect(lastUserText(calls[0]!)).toContain('/nope 做个片子')
     expect(lastUserText(calls[0]!)).not.toContain(BODY)
+  })
+})
+
+describe('what a loadSkill call reports back', () => {
+  async function loadSkillResult(args: Record<string, unknown>) {
+    calls.length = 0
+    setAgentFetchForTesting(
+      scriptedAgentFetch(calls, [
+        () => toolCallCompletion({ id: 'call-1', name: 'loadSkill', args }),
+        () => completionStream('好的'),
+      ]),
+    )
+    const conversationId = await startConversation()
+    await runTurn(conversationId, '做个片子', 'video')
+    setAgentFetchForTesting(scriptedAgentFetch(calls, [() => completionStream('好的')]))
+    const messages = await readMessages(conversationId)
+    return messages
+      .flatMap((message) => message.content)
+      .find((block) => block.type === 'toolResult' && block.toolName === 'loadSkill')
+  }
+
+  it('marks a hit so the panel can say it actually read something', async () => {
+    const block = await loadSkillResult({ name: 'storyboard-short' })
+    expect(block).toMatchObject({
+      status: 'succeeded',
+      title: '读取技能：分镜短片',
+      skill: { label: '分镜短片', found: true },
+    })
+  })
+
+  it('marks a miss so the panel does not show it as read', async () => {
+    // 面板据这一位分辨「读到了」与「没找到」，不去匹配工具返回的那段中文。
+    const block = await loadSkillResult({ name: 'nope' })
+    expect(block).toMatchObject({ status: 'succeeded', skill: { label: 'nope', found: false } })
+  })
+
+  it('marks a missing attachment as a miss too', async () => {
+    const block = await loadSkillResult({ name: 'storyboard-short', file: 'references/nope.md' })
+    expect(block).toMatchObject({ skill: { label: '分镜短片', found: false } })
   })
 })
 

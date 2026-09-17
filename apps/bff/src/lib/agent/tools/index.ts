@@ -40,6 +40,17 @@ function present(mode: AgentMode): AgentToolSpec[] {
 }
 
 /**
+ * 这一轮实际按什么装配。**做不了视频的部署里，视频轮就不是视频轮**：与其给模型挂一份
+ * 它调不了的技能清单、再让它承诺一件做不到的事，不如整轮按图片装配——工具、技能与
+ * 逐工具指引一起对齐，只有一个不变量要记：mode 是视频，当且仅当这个部署出得了视频。
+ * 起轮与技能清单端点都从这里过一道，两边不会各说各的。
+ */
+export function resolveAgentMode(mode: AgentMode): AgentMode {
+  if (mode !== 'video') return mode
+  return (generateVideo.available?.('video') ?? true) ? 'video' : 'image'
+}
+
+/**
  * 这一轮注册给模型的整份工具清单：注册表里此刻可用的那些，加上澄清工具——它不出工具卡，
  * 所以不在注册表里（`isAgentToolName` 认不出它），但模型每次请求都收到它的声明。
  */
@@ -71,12 +82,13 @@ export function isAgentToolName(name: string): name is AgentToolName {
  * 结果块后面照这份自述出，所以一次调用只问这一次。
  */
 export function agentToolStart(
+  mode: AgentMode,
   toolName: AgentToolName,
   toolCallId: string,
   args: unknown,
   images: AgentImageSource,
 ): AgentToolStart {
-  const call = find(toolName)?.call(args)
+  const call = find(toolName)?.call(args, mode)
   const anchorObjectId = call?.anchor ? images.identify(call.anchor) : undefined
   return {
     toolCallId,
