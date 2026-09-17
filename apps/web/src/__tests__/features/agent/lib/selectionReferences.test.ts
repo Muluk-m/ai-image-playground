@@ -252,6 +252,38 @@ describe('跟着画布选区走的引用', () => {
     expect(draft.ids).toEqual(['canvas-2', 'canvas-1'])
   })
 
+  it('换一份草稿就清空自己的记账：上一份的自动引用不会撤走新草稿里手动 `@` 的同一张', () => {
+    const doc = canvas([image('canvas-1', 'file-1'), image('canvas-2', 'file-2')])
+    const selection = createSelectionReferences()
+    const first = drafts()
+
+    doc.setSelection(['canvas-1'])
+    selection.follow(doc, first.update, undefined, 'draft:a')
+    expect(first.ids).toEqual(['canvas-1'])
+
+    // 切会话：新草稿里同一张图是用户手动 `@` 进来的，而且现在没选中。
+    const second = drafts({ prompt: '', references: [{ id: 'canvas-1', dataUrl: PIXEL }] })
+    doc.setSelection([])
+    selection.follow(doc, second.update, undefined, 'draft:b')
+
+    expect(second.ids).toEqual(['canvas-1'])
+  })
+
+  it('草稿没换就照旧：自动带进来的那张取消选中还是要撤走', () => {
+    const doc = canvas()
+    const selection = createSelectionReferences()
+    const draft = drafts()
+
+    doc.setSelection(['canvas-1'])
+    selection.follow(doc, draft.update, undefined, 'draft:a')
+    expect(draft.ids).toEqual(['canvas-1'])
+
+    doc.setSelection([])
+    selection.follow(doc, draft.update, undefined, 'draft:a')
+
+    expect(draft.ids).toEqual([])
+  })
+
   it('选区的钥匙认批注：图没换、圈的地方换了也算变了', () => {
     const doc = canvas([image('canvas-1', 'file-1'), CIRCLE])
     const selection = createSelectionReferences()

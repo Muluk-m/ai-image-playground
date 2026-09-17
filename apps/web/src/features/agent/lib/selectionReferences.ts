@@ -95,11 +95,15 @@ export interface SelectionReferences {
    * 把引用区带到 `doc` 当下的选区：先按原图同步（批注一取消立刻回到原图），
    * 选中的图上压着批注的，烧一张带批注的版本随后替换回来。替换落地前选区又变了就丢掉——
    * 那组批注已经不是用户圈的那组了。没有 `renderer` 就只带原图。
+   *
+   * `scope` 是这份草稿的身份。这套记账只对当初那份草稿成立，`scope` 一变先全部归零再同步：
+   * 换了草稿还拿旧账去对，同一个 id 在新草稿里被手动 `@` 过就会被当成自动引用撤走。
    */
   follow(
     doc: CanvasDoc,
     update: (change: (draft: AgentDraft) => AgentDraft) => void,
     renderer?: MarkRenderer,
+    scope?: string,
   ): void
   /**
    * 草稿整份被发送收走了。引用区跟着空掉不是用户在拒绝，所以只作废 auto 记账，
@@ -116,6 +120,7 @@ export function createSelectionReferences(): SelectionReferences {
   let auto: ReadonlySet<string> = new Set()
   let dismissed: ReadonlySet<string> = new Set()
   let current: string | undefined
+  let scoped: string | undefined
 
   return {
     key(doc) {
@@ -126,7 +131,12 @@ export function createSelectionReferences(): SelectionReferences {
       auto = new Set()
     },
 
-    follow(doc, update, renderer) {
+    follow(doc, update, renderer, scope) {
+      if (scope !== scoped) {
+        scoped = scope
+        auto = new Set()
+        dismissed = new Set()
+      }
       const selected = selectedImages(doc)
       const key = selectionKey(selected)
       current = key

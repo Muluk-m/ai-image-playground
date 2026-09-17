@@ -194,7 +194,7 @@ export default function AgentComposer({
   const selectionKey = useMemo(() => selection.key(doc), [selection, doc, version])
   useEffect(() => {
     if (loading) return
-    selection.follow(doc, setDraft, editor)
+    selection.follow(doc, setDraft, editor, session.key)
     // 只在选区（含批注）变化时同步；画布内容变化不该触发（那会把手动移除的又加回来）。
   }, [selection, selectionKey, loading, session])
 
