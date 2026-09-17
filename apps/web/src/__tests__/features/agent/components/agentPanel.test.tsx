@@ -209,6 +209,27 @@ describe('AgentPanel', () => {
     expect(texts('button')).toEqual(['展开对话'])
   })
 
+  it('对话记录里的文字可以选中复制', () => {
+    useAgentStore.setState({
+      messages: [
+        {
+          kind: 'text',
+          id: 'user-1',
+          turnId: 'turn-1',
+          role: 'user',
+          text: '修改这个扶手部分',
+          streaming: false,
+        },
+      ],
+    })
+    render()
+
+    const bubble = [...host.querySelectorAll('p')].find(
+      (one) => one.textContent === '修改这个扶手部分',
+    )!
+    expect(bubble.closest('[data-selectable-text]')).not.toBeNull()
+  })
+
   it('文件拖到对话记录上也进输入框的引用区', async () => {
     render()
     const log = host.querySelector('[data-image-dropzone]')!

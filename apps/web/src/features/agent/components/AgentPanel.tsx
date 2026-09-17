@@ -205,6 +205,8 @@ export default function AgentPanel({
       ) : (
         <div
           ref={logRef}
+          // 全站默认禁止选中文字（画布拖拽不能拖出一片高亮）；对话记录是要被复制的，放开。
+          data-selectable-text
           aria-label="对话记录"
           onScroll={(event) => {
             const log = event.currentTarget
