@@ -1,9 +1,17 @@
-import { memo, useCallback, useMemo, useSyncExternalStore } from 'react'
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react'
 import { VideoIcon } from '../../../components/icons'
 import { currentLocale, i18next, useTranslation } from '../../../i18n'
 import type { CanvasDoc, CanvasEl, ImageEl, PlaceholderEl } from '../../canvas/lib/canvasDoc'
-import type { CanvasEditor } from '../../canvas/lib/editor'
 import { canvasElementCreatedAt, canvasImageName } from '../../canvas/lib/imageInfo'
+import { type AgentCanvasSink, agentCanvasSink, onAgentCanvasSinkChange } from '../lib/canvasSink'
 
 type Work = ImageEl | PlaceholderEl
 interface CreationGroup {
@@ -46,6 +54,57 @@ function groupsFor(elements: readonly CanvasEl[]): CreationGroup[] {
   return [...groups.values()].sort((a, b) => b.createdAt - a.createdAt)
 }
 
+const NO_THUMBNAILS: ReadonlyMap<string, string | null> = new Map()
+
+/** 位图身份。`doc.version` 每帧都可能变，只有对象换了图才该重取缩略图。 */
+function bitmapKey(element: ImageEl): string {
+  return `${element.id}:${element.fileId}`
+}
+
+/**
+ * 作品的缩略图与结果卡走同一条出口：栅格化、视频封面恢复和按 `objectId:fileId` 的缓存
+ * 都在 sink 里，这里只管什么时候问、问回来的图还算不算数。
+ * 值是 `string` 表示取到了，`null` 表示取不到（对象已删、位图缺失），键不在表示还在取。
+ */
+function useCanvasThumbnails(works: readonly ImageEl[]): ReadonlyMap<string, string | null> {
+  const sink = useSyncExternalStore(onAgentCanvasSinkChange, agentCanvasSink)
+  const cache = useRef<ReadonlyMap<string, string | null>>(NO_THUMBNAILS)
+  const cacheSink = useRef<AgentCanvasSink | null>(sink)
+  const [thumbnails, setThumbnails] = useState(cache.current)
+  const signature = works.map(bitmapKey).join(' ')
+
+  useEffect(() => {
+    // 画布换了（切项目、画布卸载）：上一块画布的位图作废。
+    if (cacheSink.current !== sink) {
+      cacheSink.current = sink
+      cache.current = NO_THUMBNAILS
+      setThumbnails(NO_THUMBNAILS)
+    }
+    if (!sink) return
+    let alive = true
+    void (async () => {
+      // 一屏可能有几十件作品，栅格化不便宜：按列表顺序逐件取，不一次并发几十张占死主线程。
+      // sink 自己按位图身份缓存，所以反复折叠面板 / 切页签只有新作品要真取。
+      for (const work of works) {
+        const key = bitmapKey(work)
+        if (cache.current.has(key)) continue
+        const thumbnail = await sink.thumbnail(work.id)
+        // 迟到的图既不能落到已卸载的组件上，也不能落到换掉的画布上。
+        if (!alive || agentCanvasSink() !== sink) return
+        const next = new Map(cache.current).set(key, thumbnail)
+        cache.current = next
+        setThumbnails(next)
+      }
+    })()
+    return () => {
+      alive = false
+    }
+    // works 每次渲染都是新数组，用位图身份合成的 signature 当依赖。
+  }, [sink, signature])
+
+  return thumbnails
+}
+
 const WorkCard = memo(function WorkCard({
   element,
   src,
@@ -53,7 +112,8 @@ const WorkCard = memo(function WorkCard({
   onSelect,
 }: {
   element: Work
-  src?: string
+  /** `undefined` 表示缩略图还在取，`null` 表示取不到。 */
+  src?: string | null
   selected: boolean
   onSelect: (id: string) => void
 }) {
@@ -63,6 +123,7 @@ const WorkCard = memo(function WorkCard({
       ? canvasImageName(element)
       : element.meta.prompt || t('creations.taskTitle')
   const loading = element.type === 'placeholder' && element.status === 'loading'
+  const pending = element.type === 'image' && src === undefined
   return (
     <button
       type="button"
@@ -81,6 +142,13 @@ const WorkCard = memo(function WorkCard({
             />
           )}
         </div>
+      ) : pending ? (
+        // 取图期间先占住位：用画布上的比例画一块骨架，图到了不会把整列推一下。
+        <div
+          style={{ aspectRatio: `${element.width} / ${element.height}` }}
+          className="min-h-24 animate-pulse bg-muted"
+          aria-hidden="true"
+        />
       ) : (
         <div
           style={{ aspectRatio: `${element.width} / ${element.height}` }}
@@ -112,27 +180,33 @@ const WorkCard = memo(function WorkCard({
 
 export default function AgentCreations({
   doc,
-  editor,
   onSelect: onSelectWork,
 }: {
   doc: CanvasDoc
-  editor: CanvasEditor
   onSelect?: () => void
 }) {
   const { t, i18n } = useTranslation('agent')
   useSyncExternalStore(doc.subscribe, () => doc.version)
   // 分组标题里的兜底文案是界面文案，切语言要跟着换，所以语言也是这份缓存的入参。
   const groups = useMemo(() => groupsFor(doc.elements), [doc.elements, i18n.language])
+  const works = useMemo(
+    () =>
+      groups
+        .flatMap((group) => group.items)
+        .filter((element): element is ImageEl => element.type === 'image'),
+    [groups],
+  )
+  const thumbnails = useCanvasThumbnails(works)
   const marks = doc.elements.filter(
     (element) => element.type !== 'image' && element.type !== 'placeholder',
   )
   const onSelect = useCallback(
     (id: string) => {
       onSelectWork?.()
-      editor.setSelectedElements([id])
-      editor.scrollToElements([id])
+      // 定位与结果卡同一条出口：不在画布上的对象由 sink 过滤掉。
+      agentCanvasSink()?.focus([id])
     },
-    [editor, onSelectWork],
+    [onSelectWork],
   )
   if (!groups.length && !marks.length)
     return (
@@ -169,7 +243,7 @@ export default function AgentCreations({
               <WorkCard
                 key={element.id}
                 element={element}
-                src={element.type === 'image' ? doc.files[element.fileId] : undefined}
+                src={element.type === 'image' ? thumbnails.get(bitmapKey(element)) : null}
                 selected={doc.selection.has(element.id)}
                 onSelect={onSelect}
               />
