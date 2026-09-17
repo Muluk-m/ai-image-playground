@@ -81,10 +81,15 @@ async function startConversation(): Promise<string> {
   return json.conversation.id
 }
 
-async function runTurn(conversationId: string, text: string): Promise<ReceivedFrame[]> {
+async function runTurn(
+  conversationId: string,
+  text: string,
+  mode?: 'image' | 'video',
+): Promise<ReceivedFrame[]> {
   const response = await post(`/api/agent/conversations/${conversationId}/turns`, {
     deviceId: DEVICE,
     text,
+    ...(mode ? { mode } : {}),
   })
   return parseFrames(await response.text())
 }
@@ -216,7 +221,8 @@ describe('本轮消耗', () => {
     const stop = settleSubmittedTasks(VIDEO_RESULT_PAYLOAD)
     const conversationId = await startConversation()
 
-    const frames = await runTurn(conversationId, '来一段海浪的视频')
+    // 生视频工具只在视频轮进模型的清单。
+    const frames = await runTurn(conversationId, '来一段海浪的视频', 'video')
     stop()
 
     expect(eventsOfType(frames, 'turnEnd')[0]!.cost).toEqual({ chat: 42, image: 0, video: 125 })

@@ -1,5 +1,5 @@
 import type { AgentTool } from '@earendil-works/pi-agent-core'
-import type { AgentToolName } from '@image-playground/shared'
+import type { AgentMode, AgentToolName } from '@image-playground/shared'
 import { clarificationTool } from '../clarification'
 import type { AgentImageSource } from '../images'
 import {
@@ -11,6 +11,7 @@ import {
 import { editImage } from './editImage'
 import { generateImage } from './generateImage'
 import { generateVideo } from './generateVideo'
+import { loadSkill } from './loadSkill'
 import { readLibrary } from './readLibrary'
 import type { AgentToolContext, AgentToolDeclaration, AgentToolSpec } from './types'
 
@@ -18,14 +19,24 @@ export type { AgentToolOutcome, AgentToolStart } from './adapter'
 export { agentToolStage } from './adapter'
 export type { AgentToolContext, AgentToolDeclaration, AgentToolDetails } from './types'
 
-const TOOLS: readonly AgentToolSpec[] = [generateImage, editImage, readLibrary, generateVideo]
+const TOOLS: readonly AgentToolSpec[] = [
+  generateImage,
+  editImage,
+  readLibrary,
+  generateVideo,
+  loadSkill,
+]
 
 function find(name: string): AgentToolSpec | undefined {
   return TOOLS.find((tool) => tool.name === name)
 }
 
-function present(): AgentToolSpec[] {
-  return TOOLS.filter((tool) => tool.available?.() ?? true)
+/**
+ * 这一轮模型看得见的工具：先按创作类型过滤，再按部署开关。两道筛子都只管「这一轮」，
+ * 历史里已有的工具结果照样认得出来（`isAgentToolName` 与 `agentToolStart/End` 不过筛）。
+ */
+function present(mode: AgentMode): AgentToolSpec[] {
+  return TOOLS.filter((tool) => tool.modes.includes(mode) && (tool.available?.(mode) ?? true))
 }
 
 /**
@@ -33,20 +44,21 @@ function present(): AgentToolSpec[] {
  * 所以不在注册表里（`isAgentToolName` 认不出它），但模型每次请求都收到它的声明。
  */
 export function agentTurnTools(context: AgentToolContext): AgentTool[] {
-  return [...present().map((tool) => tool.create(context)), clarificationTool]
+  return [...present(context.mode).map((tool) => tool.create(context)), clarificationTool]
 }
 
 /**
  * 同一份清单里随请求发出去的那部分声明，不需要运行期 context——预扣估算发生在起轮之前，
- * 拿不到 images / 事件这些东西，但清单的 token 照样得算进去。
+ * 拿不到 images / 事件这些东西，但清单的 token 照样得算进去。创作类型是例外：它在起轮前
+ * 就定了，而且正是它决定清单里有哪几个工具。
  */
-export function agentToolDeclarations(): AgentToolDeclaration[] {
-  return [...present().map((tool) => tool.declaration), toolDeclaration(clarificationTool)]
+export function agentToolDeclarations(mode: AgentMode): AgentToolDeclaration[] {
+  return [...present(mode).map((tool) => tool.declaration), toolDeclaration(clarificationTool)]
 }
 
 /** 系统提示词里逐工具的那几句。与模型收到的清单同一份过滤，两边不会各说各的。 */
-export function agentToolGuidance(): string[] {
-  return present().map((tool) => tool.guidance)
+export function agentToolGuidance(mode: AgentMode): string[] {
+  return present(mode).map((tool) => tool.guidance)
 }
 
 export function isAgentToolName(name: string): name is AgentToolName {

@@ -64,6 +64,7 @@ export function defineAgentTool<P extends TSchema>(
   }
   return {
     name: definition.name,
+    modes: definition.modes,
     guidance: definition.guidance,
     onError: definition.onError,
     declaration,

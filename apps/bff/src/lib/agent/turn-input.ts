@@ -1,7 +1,7 @@
 import type { AgentMessage } from '@earendil-works/pi-agent-core'
 import { estimateTokens } from '@earendil-works/pi-agent-core'
 import type { ImageContent } from '@earendil-works/pi-ai'
-import type { AgentMessageView, AgentTurnReference } from '@image-playground/shared'
+import type { AgentMessageView, AgentMode, AgentTurnReference } from '@image-playground/shared'
 import { agentClarificationSummary, agentToolResultSummary } from '@image-playground/shared'
 import { reservationCeiling } from './compaction'
 import { compactionSettings } from './compaction-settings'
@@ -19,6 +19,7 @@ import {
   evidenceManifest,
   referenceEvidence,
 } from './selection-preview'
+import { type AgentSkill, agentSkillInvocation, agentSkillLocation, agentSkills } from './skills'
 import { agentToolDeclarations, agentToolGuidance } from './tools'
 
 /**
@@ -64,20 +65,62 @@ function estimatedListings(references: readonly AgentImageReference[]): Evidence
  * `dist/harness/compaction/compaction.js:150-171`）。这只是启发式：上游真按自己的词表分词，
  * JSON 的结构符号与中文说明都会与这里有出入，预扣本来也只求同量级。
  */
-export function estimateToolDeclarationTokens(): number {
+export function estimateToolDeclarationTokens(mode: AgentMode): number {
   return estimateTokens({
     role: 'user',
-    content: [{ type: 'text', text: JSON.stringify(agentToolDeclarations()) }],
+    content: [{ type: 'text', text: JSON.stringify(agentToolDeclarations(mode)) }],
     timestamp: 0,
   })
 }
 
-function systemPrompt(): string {
+function escapeXml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;')
+}
+
+/**
+ * 常驻上下文的第一层：只有 name 与 description，一条几十个 token。正文要模型调 `loadSkill`
+ * 才进上下文。位置写虚拟路径——服务器绝对路径对模型没用，写出去只会诱它去猜一个读文件的工具，
+ * 所以这里不复用框架的 `formatSkillsForSystemPrompt`（它直接印 `filePath`，指引也写着「读文件」）。
+ */
+function skillsBlock(skills: readonly AgentSkill[]): string[] {
+  if (skills.length === 0) return []
+  const lines = ['<available_skills>']
+  for (const skill of skills) {
+    lines.push('  <skill>')
+    lines.push(`    <name>${escapeXml(skill.name)}</name>`)
+    lines.push(`    <description>${escapeXml(skill.description)}</description>`)
+    lines.push(`    <location>${escapeXml(agentSkillLocation(skill))}</location>`)
+    lines.push('  </skill>')
+  }
+  lines.push('</available_skills>')
+  return [
+    '下面是这一轮可用的技能，每条写明了它何时适用。任务匹配某条技能的适用场景时，先调用 loadSkill 工具把它的正文读进来，按正文执行；不要凭名字猜内容。',
+    lines.join('\n'),
+  ]
+}
+
+/**
+ * 模式说明只有一句，但它决定模型往哪儿使劲。真正的约束在工具清单里：图片轮压根没有生视频工具，
+ * 所以这句话不是「别做视频」的唯一防线。
+ */
+const MODE_LINE: Readonly<Record<AgentMode, string>> = {
+  image: '这一轮用户要的是图片。',
+  video: '这一轮用户要的是视频。视频慢也贵：先把首帧画出来、改到位，再让它动起来。',
+}
+
+function systemPrompt(mode: AgentMode): string {
   return [
     '你是创作模式画布旁的助手，帮用户把想法变成画布上的图。',
     '用中文回答，简短、具体，不要复述用户的话。',
+    MODE_LINE[mode],
     // 逐工具那几句跟着清单走：关掉的工具连同它的用法一起消失，否则模型会承诺它调不了的事。
-    ...agentToolGuidance(),
+    ...agentToolGuidance(mode),
+    ...skillsBlock(agentSkills(mode)),
     '工具产出会自动落到用户的画布上，不要让用户自己去保存。',
     '按用户原话及已确认补充执行编辑。区分修改对象、允许变化范围和参考来源；选区限定范围，不表示其中所有内容都要改变。只修改指定实例与属性，保留其余内容；用户明确委托的自由设计应在其授权范围内执行。',
     '参考仅提供用户指定或明确委托的属性。目标、范围、参考用途或必要动作存在实质冲突时，先提出一个具体澄清；信息明确则直接执行。保留要求不得覆盖本次修改目标。',
@@ -131,11 +174,29 @@ function replayed(history: readonly AgentMessageView[]): AgentMessage[] {
 }
 
 /** pi 起轮时的 initialState 里属于「输入长什么样」的那两项。 */
-export function turnInitialState(history: readonly AgentMessageView[]): {
+export function turnInitialState(
+  history: readonly AgentMessageView[],
+  mode: AgentMode,
+): {
   readonly systemPrompt: string
   readonly messages: AgentMessage[]
 } {
-  return { systemPrompt: systemPrompt(), messages: replayed(history) }
+  return { systemPrompt: systemPrompt(mode), messages: replayed(history) }
+}
+
+/** `/skill-name` 后面跟着的其余文字：名字与正文之间只吃一个空白。 */
+const SKILL_COMMAND_RE = /^\/([a-z0-9-]+)(?:\s+([\s\S]*))?$/
+
+/**
+ * 用户打 `/skill-name …` 时把该技能全文注入给模型。**只改送给模型的那一份**：落库与回显
+ * 的用户消息保持原文，否则对话记录里会突然多出一大段他没写过的指引。
+ * 认不出的名字按普通文字处理——用户本来就可能拿斜杠开头写正经话。
+ */
+export function expandSkillInvocation(text: string, mode: AgentMode): string {
+  const match = SKILL_COMMAND_RE.exec(text.trim())
+  if (!match) return text
+  const skill = agentSkills(mode).find((one) => one.name === match[1])
+  return skill ? agentSkillInvocation(skill, match[2]) : text
 }
 
 /**
@@ -176,10 +237,11 @@ export function estimatedTurnInput(
   history: readonly AgentMessageView[],
   text: string,
   references: readonly AgentTurnReference[],
+  mode: AgentMode = 'image',
 ): AgentMessage[] {
   const now = Date.now()
   const active = activeAgentReferences(references, history)
-  const state = turnInitialState(history)
+  const state = turnInitialState(history, mode)
   return [
     { role: 'user', content: [{ type: 'text', text: state.systemPrompt }], timestamp: now },
     ...state.messages,
@@ -189,7 +251,9 @@ export function estimatedTurnInput(
         // 实发的那一份也是文字后面接清单（`turnModelPrompt`），这里照同一条规则拼。
         {
           type: 'text',
-          text: turnPromptText(text, active) + evidenceManifest(estimatedListings(active)),
+          text:
+            turnPromptText(expandSkillInvocation(text, mode), active) +
+            evidenceManifest(estimatedListings(active)),
         },
         ...active.flatMap((reference) =>
           evidenceBlocks(
@@ -213,11 +277,12 @@ export function estimateTurnInputTokens(
   history: readonly AgentMessageView[],
   text: string,
   references: readonly AgentTurnReference[],
+  mode: AgentMode = 'image',
 ): number {
   const estimated =
-    estimatedTurnInput(history, text, references).reduce(
+    estimatedTurnInput(history, text, references, mode).reduce(
       (total, message) => total + estimateTokens(message),
       0,
-    ) + estimateToolDeclarationTokens()
+    ) + estimateToolDeclarationTokens(mode)
   return Math.min(estimated, reservationCeiling(compactionSettings()))
 }

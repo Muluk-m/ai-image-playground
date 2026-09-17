@@ -21,8 +21,32 @@ export interface AgentTextBlock {
   readonly references?: readonly AgentStoredReference[]
 }
 
+/**
+ * 这一轮要创作什么。它决定模型收到哪些工具、系统提示词里列哪些技能，
+ * 不决定历史怎么渲染——旧轮的工具结果在任何创作类型下都照样认得出来。
+ * 请求里缺席即 `image`：老客户端不知道有这回事。
+ */
+export type AgentMode = 'image' | 'video'
+
+export const AGENT_MODES: readonly AgentMode[] = ['image', 'video']
+
+export function isAgentMode(value: unknown): value is AgentMode {
+  return value === 'image' || value === 'video'
+}
+
 /** 智能体可调用的工具。 */
-export type AgentToolName = 'generateImage' | 'editImage' | 'readLibrary' | 'generateVideo'
+export type AgentToolName =
+  | 'generateImage'
+  | 'editImage'
+  | 'readLibrary'
+  | 'generateVideo'
+  | 'loadSkill'
+
+/** 技能清单端点给前端的那一份：只有名字和「何时用」，正文由模型自己去读。 */
+export interface AgentSkillSummary {
+  readonly name: string
+  readonly description: string
+}
 
 /**
  * 一轮里用户在输入框附上的参考图。数组下标加一就是提示词里 `[image N]` 的 N，

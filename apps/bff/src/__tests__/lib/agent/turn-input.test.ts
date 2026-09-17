@@ -244,12 +244,12 @@ const REAL_MASKED = {
 describe('estimated and sent turn input', () => {
   it('opens with the same system prompt the agent starts from', () => {
     const estimated = estimatedTurnInput(RICH_HISTORY, '再来一张', [])
-    expect(textOf(estimated[0]!)).toBe(turnInitialState(RICH_HISTORY).systemPrompt)
+    expect(textOf(estimated[0]!)).toBe(turnInitialState(RICH_HISTORY, 'image').systemPrompt)
   })
 
   it('replays history exactly as the agent initial state does', () => {
     const estimated = estimatedTurnInput(RICH_HISTORY, '再来一张', [])
-    expect(estimated.slice(1, -1)).toEqual(turnInitialState(RICH_HISTORY).messages)
+    expect(estimated.slice(1, -1)).toEqual(turnInitialState(RICH_HISTORY, 'image').messages)
   })
 
   it('writes this turn prompt text the same way on both paths', () => {

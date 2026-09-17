@@ -126,11 +126,11 @@ describe('对话轮的预扣', () => {
       model: 'fixture-agent-model',
       quantity: 1,
     })
-    // 预留 2000 输出 token × 5 倍 = 固定 10；剩下的是这条短提示词的输入估算，现在约 1.0。
-    // 原区间 (10, 10.5)：那时输入估算只算了系统提示词与提示词本身（约 0.32）。预扣口径补上
-    // 每次请求都带的工具声明（约 674 token）与视觉证据清单后整体上移了约 0.68。
+    // 预留 2000 输出 token × 5 倍 = 固定 10；剩下的是这条短提示词的输入估算。
+    // 口径每补一项它就上移一次：工具声明与视觉证据清单（约 +0.68），再加上系统提示词里
+    // 这个 mode 的技能清单与多出来的那个 loadSkill 声明。
     expect(reservations[0]!.unitMultiplier).toBeGreaterThan(11)
-    expect(reservations[0]!.unitMultiplier).toBeLessThan(11.5)
+    expect(reservations[0]!.unitMultiplier).toBeLessThan(13)
   })
 
   it('运营改了对话单价，下一轮就按新的输出倍数与预留预扣', async () => {
@@ -142,10 +142,10 @@ describe('对话轮的预扣', () => {
     // 等这一轮结算落定再收尾，否则 afterAll 关库时还有在途写入。
     await waitFor(async () => settlements.length === 1)
 
-    // 预留 500 输出 token × 4 倍 = 固定 2；剩下的是同一条提示词的输入估算，现在约 1.0。
-    // 原区间 (2, 2.5)，随上面那条同样的口径补正上移；变的只是输入这一半，输出预留没动。
+    // 预留 500 输出 token × 4 倍 = 固定 2；剩下的是同一条提示词的输入估算。
+    // 随上面那条同样的口径补正上移；变的只是输入这一半，输出预留没动。
     expect(reservations[0]!.unitMultiplier).toBeGreaterThan(3)
-    expect(reservations[0]!.unitMultiplier).toBeLessThan(3.5)
+    expect(reservations[0]!.unitMultiplier).toBeLessThan(5)
   })
 
   it('预扣之前先落一条对话任务，占用才挂得住，且不带用户原话', async () => {
