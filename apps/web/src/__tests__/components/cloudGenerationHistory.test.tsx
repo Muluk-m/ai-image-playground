@@ -110,3 +110,31 @@ it('断网显示可恢复错误，刷新后能看到记录', async () => {
   expect(host.querySelector('[role="alert"]')).toBeNull()
   expect(host.textContent).toContain('gpt-image-2')
 })
+
+it('云端列表展示封面时只读取预览，原件留到用户明确下载', async () => {
+  const mediaId = '77777777-7777-4777-8777-777777777777'
+  const fetcher = vi.fn(async (url: string) => {
+    if (url.startsWith('/api/generations'))
+      return Response.json({
+        items: [
+          {
+            ...item,
+            status: 'completed',
+            cover: { index: 0, mediaId, width: 8, height: 6, contentType: 'image/png' },
+          },
+        ],
+        nextCursor: null,
+      })
+    if (url === `/api/media/${mediaId}/access`)
+      return Response.json({
+        previewUrl: 'https://media.example/preview.webp',
+        originalUrl: 'https://media.example/original.png',
+        expiresAt: Date.now() + 600000,
+      })
+    return new Response('image bytes')
+  })
+  vi.stubGlobal('fetch', fetcher)
+  await act(async () => root.render(<CloudGenerationHistory />))
+  expect(fetcher.mock.calls.map(([url]) => url)).toContain('https://media.example/preview.webp')
+  expect(fetcher.mock.calls.map(([url]) => url)).not.toContain('https://media.example/original.png')
+})
