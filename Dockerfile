@@ -101,6 +101,12 @@ ENV STATIC_DIR=
 ENV BFF_ENABLED=true
 ENV ADMIN_DIST_DIR=/app/apps/admin/dist
 
+# The commits this image was built from. Services report it in their heartbeat so the operations
+# board can show what is actually running. Declared last: it changes every build, and nothing
+# after it is worth caching.
+ARG APP_VERSION=unknown
+ENV APP_VERSION=$APP_VERSION
+
 EXPOSE 8080 37377 37378 37379
 
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]

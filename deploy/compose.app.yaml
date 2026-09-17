@@ -208,6 +208,43 @@ services:
     networks:
       - application
 
+  # Samples the host's disk and memory for the operations board (docs/adr/0007). It gets exactly
+  # two read-only files from the host and no Docker socket: /proc/meminfo, and one file that lives
+  # on the filesystem to watch, because statfs on a bind-mounted file reports the filesystem behind
+  # it. If Docker's data sits on a separate partition, point HOST_DISK_PROBE_SOURCE at a file
+  # there. Named variables instead of app.env, like pg-backup: no provider, database or object
+  # store credential belongs in here.
+  host-collector:
+    image: ${APP_IMAGE:-ai-image-playground:local}
+    init: true
+    restart: unless-stopped
+    environment:
+      APP_ROLE: host-collector
+      BFF_INTERNAL_URL: http://bff:37377
+      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:-}
+      # Disk and memory alerts go out from here, not through the BFF: a full disk is exactly when
+      # the BFF and the database stop answering.
+      OPS_ALERT_WEBHOOK_URL: ${OPS_ALERT_WEBHOOK_URL:-}
+      OPS_HOST_ALERTS: ${OPS_HOST_ALERTS:-true}
+      OPS_DEPLOYMENT_NAME: ${OPS_DEPLOYMENT_NAME:-${COMPOSE_PROJECT_NAME:-deployment}}
+    command:
+      - bun
+      - run
+      - /app/apps/bff/src/host-collector-index.ts
+    volumes:
+      - type: bind
+        source: ${HOST_DISK_PROBE_SOURCE:-/etc/hostname}
+        target: /host/disk-probe
+        read_only: true
+      - type: bind
+        source: /proc/meminfo
+        target: /host/meminfo
+        read_only: true
+    # Deliberately no depends_on: a BFF that never turns healthy is one of the moments the disk
+    # and memory alerts are for. Reports to it simply fail and are retried on the next sample.
+    networks:
+      - application
+
   pg-backup:
     build: ./backup
     image: ${BACKUP_IMAGE:-ai-image-playground-pg-backup:local}

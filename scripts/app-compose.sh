@@ -38,10 +38,11 @@ if [ "$command" = build ] || [ "$command" = build-private ]; then
       --no-cache-filter private-manifests,deps \
       --build-context private-overlay="$repo_root/private" \
       --build-arg PRIVATE_OVERLAY_PRESENT=true \
+      --build-arg APP_VERSION="${APP_VERSION:-unknown}" \
       --tag "$image" \
       "$repo_root"
   else
-    docker build --tag "$image" "$repo_root"
+    docker build --build-arg APP_VERSION="${APP_VERSION:-unknown}" --tag "$image" "$repo_root"
   fi
   exit 0
 fi
@@ -105,6 +106,9 @@ require_tunnel_credentials() {
 activate_backend_then_ingress() {
   compose up --detach --wait "$@" dependency-check bff worker admin
   compose up --detach --wait "$@" cloudflared pg-backup
+  # Started last and not waited on: the collector watches the deployment, it is not part of it,
+  # so a collector that cannot start must not fail a rollout. The board shows it as missing.
+  compose up --detach "$@" host-collector
 }
 
 case "$command" in

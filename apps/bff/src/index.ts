@@ -5,6 +5,7 @@ import { purgeOldTasks, purgeOrphanedAssetObjects, runPrivateMaintenance } from 
 import { purgeOldAgentTurnEvents } from './lib/agent/events'
 import { isCapabilityEnabled } from './lib/capabilities'
 import { initChannels } from './lib/channels'
+import { startHeartbeat } from './lib/heartbeat'
 import { log } from './lib/logger'
 
 const MAX_REQUEST_BODY_SIZE_BYTES = 600 * 1024 * 1024
@@ -117,6 +118,9 @@ app.listen(
   },
 )
 
+// 运维看板靠心跳判断后端死活与线上版本；写失败只记日志，不影响请求处理。
+const stopHeartbeat = startHeartbeat({ service: 'bff' })
+
 let shuttingDown = false
 
 async function finalize(exitCode = 0): Promise<never> {
@@ -130,6 +134,7 @@ async function gracefulShutdown(signal: string): Promise<void> {
   if (shuttingDown) return
   shuttingDown = true
   log.info({ event: 'shutdown.start', signal }, 'stopping bff')
+  stopHeartbeat()
 
   try {
     await app.stop?.()
