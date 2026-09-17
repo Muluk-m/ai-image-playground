@@ -56,3 +56,57 @@ docker_root_free_gb() {
   [ -d "$docker_root" ] || docker_root=/
   df -Pk "$docker_root" | awk 'NR == 2 { printf "%d", $4 / 1024 / 1024 }'
 }
+
+# acquire_deploy_lock <lock-dir> <what>
+#
+# One rollout at a time on this host. Two overlapping `vps-deploy.sh all` runs build four images
+# next to PostgreSQL, both backends and cloudflared, and that took the host down (SSH and the
+# tunnel stopped answering, the API returned 530). The second caller is refused, never queued:
+# a queue would start the next build the moment this one ends, which is the same pile-up.
+#
+# `mkdir` is the atomic step and works in plain sh on Linux and macOS alike (flock is util-linux
+# only). A lock whose holder is gone is reclaimed; a lock with no pid yet is a holder still
+# starting up, and is only considered abandoned once it is older than a minute.
+acquire_deploy_lock() {
+  deploy_lock_dir=$1
+  mkdir -p "$(dirname "$deploy_lock_dir")"
+  if ! mkdir "$deploy_lock_dir" 2>/dev/null; then
+    holder=$(cat "$deploy_lock_dir/pid" 2>/dev/null || printf '')
+    if [ -n "$holder" ] && kill -0 "$holder" 2>/dev/null; then
+      echo "Refusing to deploy: another deploy is running on this host." >&2
+      sed 's/^/  /' "$deploy_lock_dir/info" >&2 2>/dev/null || true
+      echo "Wait for it to finish; do not start a second build next to it." >&2
+      return 1
+    fi
+    if [ -z "$holder" ] && [ -z "$(find "$deploy_lock_dir" -maxdepth 0 -mmin +1 2>/dev/null)" ]; then
+      echo "Refusing to deploy: another deploy is starting on this host." >&2
+      return 1
+    fi
+    echo "Reclaiming a deploy lock left behind by pid ${holder:-unknown}, which is gone." >&2
+    rm -rf "$deploy_lock_dir"
+    if ! mkdir "$deploy_lock_dir" 2>/dev/null; then
+      echo "Refusing to deploy: another deploy took the lock first." >&2
+      return 1
+    fi
+  fi
+  printf '%s\n' "$$" >"$deploy_lock_dir/pid"
+  printf 'pid=%s started=%s by=%s@%s what=%s\n' "$$" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    "$(whoami)" "$(hostname)" "$2" >"$deploy_lock_dir/info"
+}
+
+# release_deploy_lock removes the lock only if this process holds it, so a refused second caller
+# cannot delete the first one's lock on its way out.
+release_deploy_lock() {
+  [ -n "${deploy_lock_dir:-}" ] || return 0
+  if [ "$(cat "$deploy_lock_dir/pid" 2>/dev/null || printf '')" = "$$" ]; then
+    rm -rf "$deploy_lock_dir"
+  fi
+}
+
+# available_memory_mb prints MemAvailable in whole megabytes, or nothing where /proc/meminfo is
+# missing (macOS): the caller then skips the check rather than guessing.
+available_memory_mb() {
+  meminfo=${DEPLOY_MEMINFO_FILE:-/proc/meminfo}
+  [ -r "$meminfo" ] || return 0
+  awk '$1 == "MemAvailable:" { printf "%d", $2 / 1024 }' "$meminfo"
+}

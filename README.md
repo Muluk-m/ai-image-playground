@@ -415,7 +415,17 @@ commit-qualified images per edition (default 5) plus whatever a container still 
 the older ones; hand-named images are left alone. It then drops the build cache nothing references
 any more — the superseded layers, not the images, are what actually fills the disk. Before building it checks the free space where
 Docker keeps its data and refuses below `DEPLOY_MIN_FREE_GB` (default 8): PostgreSQL shares that
-filesystem, so a build that fills it is an outage. `app-compose.sh` and `infra-compose.sh` remain the building blocks underneath,
+filesystem, so a build that fills it is an outage. It also refuses below
+`DEPLOY_MIN_FREE_MEMORY_MB` of available memory (default 1024): the build runs inside dockerd next
+to PostgreSQL, both backends and the tunnel.
+
+Only one rollout runs on a host at a time. The script takes `$config_root/deploy.lock` before it
+touches the checkout and a second caller is refused, not queued, with the holder's pid, start time
+and target printed. Two overlapping `all` rollouts once built four images at the same time and the
+host stopped answering, SSH and the tunnel included. A lock whose holder is gone is reclaimed on
+the next run. If a deploy is refused, wait for the other one; never start a second build beside it.
+
+`app-compose.sh` and `infra-compose.sh` remain the building blocks underneath,
 for rollback, stopping a project, and ad-hoc Compose commands.
 
 Point the hostnames at the tunnel, from the account that owns them:

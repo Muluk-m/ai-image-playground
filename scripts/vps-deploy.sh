@@ -44,6 +44,7 @@ PAID_PROJECT=${PAID_PROJECT:-image-playground-paid}
 PAID_IMAGE=${PAID_IMAGE:-ai-image-playground:paid}
 DEPLOY_KEEP_IMAGES=${DEPLOY_KEEP_IMAGES:-5}
 DEPLOY_MIN_FREE_GB=${DEPLOY_MIN_FREE_GB:-8}
+DEPLOY_MIN_FREE_MEMORY_MB=${DEPLOY_MIN_FREE_MEMORY_MB:-1024}
 
 public_sha=-
 private_sha=-
@@ -60,8 +61,18 @@ on_exit() {
   if [ "$?" -ne 0 ] && [ -n "$current_edition" ]; then
     append_deploy_log "$current_edition" "$(edition_tag "$current_edition")" failed || true
   fi
+  release_deploy_lock
 }
 trap on_exit EXIT
+# A dropped SSH session or Ctrl-C kills a plain sh without running the EXIT trap, which would
+# leave the lock behind. Turn the signals into exits so the trap always runs.
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+stage "Take the deploy lock"
+acquire_deploy_lock "$config_root/deploy.lock" "$target $ref"
+echo "held by pid $$"
 
 update_private() {
   set --
@@ -165,6 +176,22 @@ if [ "$free_gb" -lt "$DEPLOY_MIN_FREE_GB" ]; then
   echo "remove the ones no rollback needs, then deploy again. DEPLOY_MIN_FREE_GB in" >&2
   echo "$deploy_env overrides the threshold." >&2
   exit 1
+fi
+
+# The build runs inside dockerd next to PostgreSQL and both backends. With too little memory
+# left it pushes the host into swap and everything on it stops answering, the tunnel included.
+stage "Check free memory for the build"
+free_mb=$(available_memory_mb)
+if [ -z "$free_mb" ]; then
+  echo "Skipped: no /proc/meminfo on this host."
+else
+  echo "${free_mb}M available, ${DEPLOY_MIN_FREE_MEMORY_MB}M required"
+  if [ "$free_mb" -lt "$DEPLOY_MIN_FREE_MEMORY_MB" ]; then
+    echo "Refusing to build: less than ${DEPLOY_MIN_FREE_MEMORY_MB}M of memory is available." >&2
+    echo "Something else is already loading this host. DEPLOY_MIN_FREE_MEMORY_MB in" >&2
+    echo "$deploy_env overrides the threshold." >&2
+    exit 1
+  fi
 fi
 
 stage "Build the images"
