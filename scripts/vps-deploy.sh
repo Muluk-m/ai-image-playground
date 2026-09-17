@@ -44,6 +44,7 @@ PAID_PROJECT=${PAID_PROJECT:-image-playground-paid}
 PAID_IMAGE=${PAID_IMAGE:-ai-image-playground:paid}
 DEPLOY_KEEP_IMAGES=${DEPLOY_KEEP_IMAGES:-5}
 DEPLOY_MIN_FREE_GB=${DEPLOY_MIN_FREE_GB:-8}
+DEPLOY_PRUNE_CACHE_BELOW_GB=${DEPLOY_PRUNE_CACHE_BELOW_GB:-15}
 
 public_sha=-
 private_sha=-
@@ -124,7 +125,9 @@ prune_old_images() {
 # Image pruning alone does not keep the disk in check: BuildKit keeps every superseded layer in
 # its cache, and that is what actually fills the host (27G of cache next to 4G of images, 17G of
 # it referenced by nothing). Drop only the unreferenced part; the cache the next build reuses
-# stays. A failure here is reported and ignored: the rollout already succeeded.
+# stays. Called only when the disk is short (see should_prune_build_cache): doing it after every
+# rollout makes the next build cold for space the host was not missing. A failure here is
+# reported and ignored: the rollout already succeeded.
 prune_build_cache() {
   if reclaimed=$(docker builder prune -f 2>/dev/null | tail -n 1); then
     echo "build cache: ${reclaimed:-nothing to reclaim}"
@@ -225,8 +228,14 @@ for edition in $editions; do
   prune_old_images "$(edition_var "$prefix" IMAGE)" "$tag"
 done
 
-stage "Prune the unreferenced build cache"
-prune_build_cache
+stage "Check the build cache"
+free_gb=$(docker_root_free_gb)
+if should_prune_build_cache "$free_gb" "$DEPLOY_PRUNE_CACHE_BELOW_GB"; then
+  echo "${free_gb}G free, below ${DEPLOY_PRUNE_CACHE_BELOW_GB}G"
+  prune_build_cache
+else
+  echo "build cache left alone (${free_gb}G free)"
+fi
 
 printf '\nDeployed public=%s private=%s\n' "$public_sha" "$private_sha"
 for edition in $editions; do

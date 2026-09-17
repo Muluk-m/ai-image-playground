@@ -420,7 +420,9 @@ Each build is tagged with the commits it came from, which is what `app-compose.s
 rolls back to. After a successful rollout the script keeps the newest `DEPLOY_KEEP_IMAGES`
 commit-qualified images per edition (default 5) plus whatever a container still runs, and removes
 the older ones; hand-named images are left alone. It then drops the build cache nothing references
-any more — the superseded layers, not the images, are what actually fills the disk. Before building it checks the free space where
+any more — the superseded layers, not the images, are what actually fills the disk — but only when
+free space is below `DEPLOY_PRUNE_CACHE_BELOW_GB` (default 15, room for one `all` build on top of
+the refusal threshold below); above that the cache is left for the next build to reuse. Before building it checks the free space where
 Docker keeps its data and refuses below `DEPLOY_MIN_FREE_GB` (default 8): PostgreSQL shares that
 filesystem, so a build that fills it is an outage. `app-compose.sh` and `infra-compose.sh` remain the building blocks underneath,
 for rollback, stopping a project, and ad-hoc Compose commands.

@@ -355,7 +355,9 @@ fast-forward `./private`，然后构建、经 `app-compose.sh up` 滚动，最�
 
 每次构建都按来源提交打 tag，那正是 `app-compose.sh rollback` 的回滚目标。滚动成功后，每个形态只保留最近
 `DEPLOY_KEEP_IMAGES` 代（默认 5）外加仍在运行的那一代，更旧的按提交打出的 tag 会被删掉；手工起名的
-镜像不受影响。随后清掉已经没有任何引用的构建缓存——真正把盘写满的是被替换下来的层，不是镜像。构建前还会检查 Docker 数据所在分区的可用空间，少于 `DEPLOY_MIN_FREE_GB`（默认 8）就
+镜像不受影响。随后只在可用空间低于 `DEPLOY_PRUNE_CACHE_BELOW_GB`（默认 15，够下一次 `all` 构建
+再垫上拒绝线）时才清掉已经没有任何引用的构建缓存——真正把盘写满的是被替换下来的层，不是镜像；
+空间充裕就把缓存留给下一次构建复用。构建前还会检查 Docker 数据所在分区的可用空间，少于 `DEPLOY_MIN_FREE_GB`（默认 8）就
 拒绝执行：PostgreSQL 与镜像共用这块盘，构建把它写满就是一次事故。底下的构件仍是
 `app-compose.sh` 与 `infra-compose.sh`：回滚、停项目、临时 compose 命令都走它们。
 

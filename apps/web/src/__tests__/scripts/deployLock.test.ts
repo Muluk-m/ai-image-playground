@@ -234,3 +234,23 @@ describe('两个部署同时抢锁', () => {
     }
   })
 })
+
+describe('should_prune_build_cache', () => {
+  const decide = (freeGb: number, thresholdGb: number) =>
+    sh('if should_prune_build_cache "$1" "$2"; then echo prune; else echo keep; fi', [
+      String(freeGb),
+      String(thresholdGb),
+    ]).stdout.trim()
+
+  it('空间低于门槛才清', () => {
+    expect(decide(14, 15)).toBe('prune')
+  })
+
+  it('刚好等于门槛就留着', () => {
+    expect(decide(15, 15)).toBe('keep')
+  })
+
+  it('空间充裕时不动缓存', () => {
+    expect(decide(40, 15)).toBe('keep')
+  })
+})

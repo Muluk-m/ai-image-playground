@@ -141,6 +141,16 @@ release_deploy_lock() {
   return 0
 }
 
+# should_prune_build_cache <free-gb> <threshold-gb>
+#
+# The rollout used to drop the build cache every time. That reclaims space the next build would
+# otherwise reuse, turning every rollout into a cold build, so it is worth doing only while the
+# disk is actually short. The threshold sits above DEPLOY_MIN_FREE_GB so that a pruned host still
+# clears the pre-build check after the next build has written its layers.
+should_prune_build_cache() {
+  [ "$1" -lt "$2" ]
+}
+
 # docker_root_free_gb prints the whole gigabytes free on the filesystem holding Docker data.
 docker_root_free_gb() {
   docker_root=$(docker info --format '{{.DockerRootDir}}' 2>/dev/null || printf '')
