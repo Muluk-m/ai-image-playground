@@ -2,7 +2,6 @@
 import type { AgentTurnEvent, AgentTurnSummaryView } from '@image-playground/shared'
 import { encodeAgentFrame } from '@image-playground/shared'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { agentSessionCredits } from '../../../features/agent/lib/turnCost'
 import { useAgentStore } from '../../../features/agent/store'
 import { _setRuntimeConfigForTesting } from '../../../lib/runtimeConfig'
 
@@ -167,7 +166,6 @@ describe('本轮消耗', () => {
       durationMs: 1_200,
       stopReason: 'completed',
     })
-    expect(agentSessionCredits(state().turns)).toBe(0)
   })
 
   it('读回历史时把每轮的页脚带回来', async () => {
@@ -186,17 +184,5 @@ describe('本轮消耗', () => {
 
     expect(state().turns['turn-1']).toEqual(turns[0])
     expect(state().turns['turn-2']).toEqual(turns[1])
-  })
-})
-
-describe('会话合计', () => {
-  it('把各轮的消耗加起来', () => {
-    expect(
-      agentSessionCredits({
-        'turn-1': { turnId: 'turn-1', cost: { chat: 42, image: 85, video: 0 } },
-        'turn-2': { turnId: 'turn-2', cost: { chat: 60, image: 0, video: 125 } },
-        'turn-3': { turnId: 'turn-3', reservedCredits: 60 },
-      }),
-    ).toBe(312)
   })
 })

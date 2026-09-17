@@ -605,7 +605,7 @@ describe('AgentPanel', () => {
     expect(host.textContent).not.toContain('本轮免费')
   })
 
-  it('项目标题旁显示已用积分', () => {
+  it('项目标题保持单行，消耗只出现在每轮页脚', () => {
     useAgentStore.setState({
       messages: [
         {
@@ -642,8 +642,10 @@ describe('AgentPanel', () => {
     })
     render()
 
-    expect(host.textContent).toContain('已用')
-    expect(host.textContent).toContain('312')
+    expect(host.querySelector('.studio-agent-project')?.textContent).not.toContain('已用')
+    expect(host.textContent).not.toContain('312')
+    expect(host.textContent).toContain('127')
+    expect(host.textContent).toContain('185')
   })
 
   it('计费关着的部署里页脚只剩耗时，会话合计不出现', () => {
