@@ -38,4 +38,74 @@ describe('buildRuntimeConfig', () => {
   it('rejects a non-boolean switch instead of guessing', () => {
     expect(() => buildRuntimeConfig({ BFF_ENABLED: '1' })).toThrow(/must be true or false/)
   })
+
+  it('publishes validated per-origin API routing in the shared bundle', () => {
+    expect(
+      buildRuntimeConfig({
+        BFF_ENABLED: 'true',
+        BFF_BASE_URL: 'https://api.new.test',
+        BFF_BASE_URLS_BY_ORIGIN: JSON.stringify({
+          'https://legacy.old.test/': 'https://api.old.test/',
+        }),
+      }),
+    ).toEqual({
+      bff: {
+        enabled: true,
+        baseUrl: 'https://api.new.test',
+        baseUrlsByOrigin: { 'https://legacy.old.test': 'https://api.old.test' },
+      },
+    })
+  })
+
+  it('rejects invalid origin maps before publishing a broken login configuration', () => {
+    for (const value of [
+      null,
+      [],
+      { 'https://old.test': 'javascript:alert(1)' },
+      { 'https://old.test': 'https://user:password@api.old.test' },
+      { 'https://old.test/path': 'https://api.old.test' },
+      { 'https://old.test': 42 },
+    ]) {
+      expect(() =>
+        buildRuntimeConfig({
+          BFF_ENABLED: 'true',
+          BFF_BASE_URL: 'https://api.new.test',
+          BFF_BASE_URLS_BY_ORIGIN: JSON.stringify(value),
+        }),
+      ).toThrow()
+    }
+  })
+})
+
+it('publishes only exact HTTPS origins for browser-local compatibility', async () => {
+  const { parseRuntimeConfig } = await import('@image-playground/shared')
+  const localCompatibility = {
+    sourceOrigin: 'https://old.example.test',
+    targetOrigin: 'https://new.example.test',
+  }
+  const config = buildRuntimeConfig({
+    BFF_ENABLED: 'true',
+    BFF_BASE_URL: 'https://api.example.test',
+    LOCAL_COMPATIBILITY: JSON.stringify(localCompatibility),
+  })
+  expect(parseRuntimeConfig(config).localCompatibility).toEqual(localCompatibility)
+  for (const sourceOrigin of [
+    'https://old.example.test/path',
+    'http://old.example.test',
+    localCompatibility.targetOrigin,
+  ]) {
+    expect(() =>
+      buildRuntimeConfig({
+        BFF_ENABLED: 'true',
+        BFF_BASE_URL: 'https://api.example.test',
+        LOCAL_COMPATIBILITY: JSON.stringify({ ...localCompatibility, sourceOrigin }),
+      }),
+    ).toThrow()
+    expect(() =>
+      parseRuntimeConfig({
+        ...config,
+        localCompatibility: { ...localCompatibility, sourceOrigin },
+      }),
+    ).toThrow()
+  }
 })

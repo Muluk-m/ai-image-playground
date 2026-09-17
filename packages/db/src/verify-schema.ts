@@ -1,10 +1,14 @@
 import { SQL } from 'bun'
 
 export const EXPECTED_TABLES = [
+  'domain_migrations',
+  'domain_migration_chunks',
   'agent_conversations',
   'agent_messages',
+  'agent_model_calls',
   'agent_turn_events',
   'agent_turns',
+  'canvas_projects',
   'daily_quota',
   'operator_audits',
   'tasks',
@@ -20,9 +24,13 @@ export const EXPECTED_TABLES = [
 
 export const EXPECTED_INDEXES = [
   'agent_conversations_pkey',
+  'agent_model_calls_pkey',
+  'idx_agent_model_calls_turn',
   'agent_messages_conversation_id_id_pk',
   'agent_turn_events_conversation_id_seq_pk',
   'agent_turns_conversation_id_turn_id_pk',
+  'canvas_projects_pkey',
+  'idx_canvas_projects_owner_id',
   'daily_quota_device_id_date_pk',
   'idx_agent_conversations_device_time',
   'idx_agent_conversations_user_time',
@@ -60,7 +68,7 @@ export const EXPECTED_INDEXES = [
   'users_pkey',
 ] as const
 
-const EXPECTED_MIGRATION_COUNT = 13
+const EXPECTED_MIGRATION_COUNT = 19
 
 export interface SchemaVerificationResult {
   tables: number

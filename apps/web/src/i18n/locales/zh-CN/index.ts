@@ -7,7 +7,6 @@ import errors from './errors.json'
 import inspiration from './inspiration.json'
 import lib from './lib.json'
 import library from './library.json'
-import productShots from './productShots.json'
 import settings from './settings.json'
 import shell from './shell.json'
 import store from './store.json'
@@ -28,7 +27,6 @@ export const zhCN = {
   shell,
   store,
   lib,
-  productShots,
   video,
   library,
   canvas,

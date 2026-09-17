@@ -1,5 +1,7 @@
 {
+  "documentTitle": "Muvloom · AI image and video studio",
   "locale": {
+    "switchAria": "Language: {{current}}. Switch to {{next}}",
     "label": "Interface language",
     "zh-CN": "中文",
     "en": "English"
@@ -16,9 +18,7 @@
     "save": "Save",
     "download": "Download",
     "upload": "Upload",
-    "export": "Export",
     "collapse": "Collapse",
-    "expand": "Expand",
     "back": "Back",
     "generate": "Generate"
   },

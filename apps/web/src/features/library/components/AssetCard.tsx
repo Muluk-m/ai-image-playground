@@ -10,7 +10,7 @@ import type { AssetRecord } from '../types'
 import AssetThumb from './AssetThumb'
 
 const ICON_BUTTON =
-  'shrink-0 rounded-md p-1 text-gray-400 transition hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-white/[0.06] dark:hover:text-gray-200'
+  'shrink-0 rounded-md p-1 text-muted-foreground transition hover:bg-muted hover:text-muted-foreground'
 
 export default function AssetCard({ asset }: { asset: AssetRecord }) {
   const { t } = useTranslation(['library', 'common'])
@@ -37,7 +37,7 @@ export default function AssetCard({ asset }: { asset: AssetRecord }) {
   }
 
   return (
-    <div className="group relative flex flex-col overflow-hidden rounded-2xl border border-gray-200/60 bg-gray-50/40 transition-all duration-300 hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-lg dark:border-white/[0.06] dark:bg-white/[0.02] dark:hover:border-blue-500/40">
+    <div className="group relative flex flex-col overflow-hidden rounded-2xl border border-border/60 bg-card/40 transition-all duration-300 hover:-translate-y-0.5 hover:border-primary hover:shadow-lg">
       {/* 外层不是 <button>：卡片内还有放大、重命名与删除按钮，嵌套 button 是 invalid HTML。 */}
       <div
         role="button"
@@ -45,7 +45,7 @@ export default function AssetCard({ asset }: { asset: AssetRecord }) {
         onClick={() => void attachAsset(asset.id)}
         onKeyDown={handleKeyDown}
         title={asset.name}
-        className="relative aspect-square cursor-pointer overflow-hidden bg-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-400/60 dark:bg-white/[0.05]"
+        className="relative aspect-square cursor-pointer overflow-hidden bg-muted focus:outline-none focus:ring-2 focus:ring-ring/60"
       >
         <AssetThumb imageId={asset.imageId} alt={asset.name} />
         {unsynced && (
@@ -71,7 +71,7 @@ export default function AssetCard({ asset }: { asset: AssetRecord }) {
 
       <div className="flex items-center gap-1 px-2.5 py-2">
         {draftName === null ? (
-          <span className="min-w-0 flex-1 truncate text-xs font-medium text-gray-800 dark:text-gray-100">
+          <span className="min-w-0 flex-1 truncate text-xs font-medium text-foreground">
             {asset.name}
           </span>
         ) : (
@@ -84,7 +84,7 @@ export default function AssetCard({ asset }: { asset: AssetRecord }) {
               if (e.key === 'Escape') setDraftName(null)
             }}
             maxLength={40}
-            className="min-w-0 flex-1 rounded-md border border-blue-300 bg-white px-1.5 py-0.5 text-xs text-gray-800 focus:outline-none dark:border-blue-500/50 dark:bg-white/[0.06] dark:text-gray-100"
+            className="min-w-0 flex-1 rounded-md border border-primary bg-card px-1.5 py-0.5 text-xs text-foreground focus:outline-none"
           />
         )}
 
@@ -117,7 +117,7 @@ export default function AssetCard({ asset }: { asset: AssetRecord }) {
             })
           }
           aria-label={t('common:action.delete')}
-          className="shrink-0 rounded-md p-1 text-gray-400 transition hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-500/10"
+          className="shrink-0 rounded-md p-1 text-muted-foreground transition hover:bg-destructive/10 hover:text-destructive dark:hover:bg-destructive/10"
         >
           <TrashIcon className="h-3.5 w-3.5" />
         </button>

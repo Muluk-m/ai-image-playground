@@ -3,6 +3,7 @@ import { describeError, i18next } from '../../i18n'
 import { API_MAX_IMAGES, MAX_INPUT_IMAGES_MESSAGE } from '../../lib/inputImageLimit'
 import { ensureAssetImage } from '../../lib/sync/assetImages'
 import { ensureImageCached, storeImageFromFile, useStore } from '../../store'
+import { DEFAULT_PARAMS } from '../../types'
 import { useVideoStore } from '../video/store'
 import { assetStore } from './lib/assetStore'
 import { templateStore } from './lib/templateStore'
@@ -14,7 +15,7 @@ import {
 } from './lib/templates'
 import type { AssetRecord, PendingAssetName, TemplateRecord } from './types'
 
-export type LibraryTab = 'assets' | 'templates'
+export type LibraryTab = 'projects' | 'assets' | 'templates'
 
 type OnAssetSaved = (asset: AssetRecord) => void
 
@@ -31,7 +32,7 @@ export interface LibraryState {
   /** 正在为当前 composer 状态取模板名。 */
   namingTemplate: boolean
 
-  openPanel: () => void
+  openPanel: (tab?: LibraryTab) => void
   closePanel: () => void
   setTab: (tab: LibraryTab) => void
   setSearch: (keyword: string) => void
@@ -55,6 +56,7 @@ export interface LibraryState {
 
   loadTemplates: () => Promise<void>
   saveTemplate: (name: string) => Promise<void>
+  savePromptTemplate: (name: string, prompt: string) => Promise<void>
   renameTemplate: (id: string, name: string) => Promise<void>
   deleteTemplate: (id: string) => Promise<void>
   /** 当前提示词非空时先询问是否覆盖，确认后才写入。 */
@@ -71,8 +73,8 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
   pendingAssetNames: [],
   namingTemplate: false,
 
-  openPanel: () => {
-    set({ panelOpen: true })
+  openPanel: (tab) => {
+    set({ panelOpen: true, ...(tab ? { tab, searchKeyword: '' } : {}) })
     useStore.getState().markLibraryPanelOpened()
     void get().loadAssets()
     void get().loadTemplates()
@@ -215,6 +217,25 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     await templateStore.put(template)
     set((s) => ({ templates: [...s.templates, template], namingTemplate: false }))
     main.showToast(i18next.t('library:toast.templateSaved'), 'success')
+  },
+
+  savePromptTemplate: async (name, prompt) => {
+    const trimmed = name.trim()
+    if (!trimmed || !prompt.trim()) return
+    const now = Date.now()
+    const template: TemplateRecord = {
+      id: crypto.randomUUID(),
+      name: trimmed,
+      prompt,
+      assetIds: [],
+      params: pickTemplateParams(DEFAULT_PARAMS),
+      createdAt: now,
+      updatedAt: now,
+      lastUsedAt: now,
+    }
+    await templateStore.put(template)
+    set((s) => ({ templates: [...s.templates, template] }))
+    useStore.getState().showToast(i18next.t('library:toast.promptTemplateSaved'), 'success')
   },
 
   renameTemplate: async (id, name) => {

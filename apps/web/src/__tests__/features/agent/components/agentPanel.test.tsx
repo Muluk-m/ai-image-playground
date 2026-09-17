@@ -1,9 +1,12 @@
 // @vitest-environment jsdom
+import 'fake-indexeddb/auto'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import AgentPanel from '../../../../features/agent/components/AgentPanel'
 import { type AgentCanvasSink, setAgentCanvasSink } from '../../../../features/agent/lib/canvasSink'
+import { agentDraft } from '../../../../features/agent/lib/drafts'
+import { EMPTY_DRAFT } from '../../../../features/agent/lib/references'
 import { useAgentStore } from '../../../../features/agent/store'
 import type { AgentDeliveryStatus, AgentToolMessage } from '../../../../features/agent/types'
 import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
@@ -51,7 +54,7 @@ async function enableAgent(enabled: boolean): Promise<void> {
 
 function render(): void {
   act(() => {
-    // 面板只把 editor 转交给图层页签；这些用例不点图层，给个空壳就够。
+    // 面板只把 editor 转交给创作记录页签；这些用例不点创作记录，给个空壳就够。
     const editor = { scrollToElements: () => {} } as unknown as CanvasEditor
     root.render(<AgentPanel doc={new CanvasDoc()} editor={editor} />)
   })
@@ -87,6 +90,10 @@ function toolMessage(
 }
 
 beforeEach(async () => {
+  const session = agentDraft(null)
+  await vi.waitFor(() => expect(session.getSnapshot().loading).toBe(false))
+  session.update(EMPTY_DRAFT)
+  session.setSubmitting(false)
   await enableAgent(true)
   // 输入框要素材名做胶囊标签，jsdom 里没有 IndexedDB 可读。
   useLibraryStore.setState({ assets: [], loadAssets: async () => {} })
@@ -101,6 +108,8 @@ beforeEach(async () => {
     turn: 'idle',
     error: null,
     loaded: true,
+    historyLoading: false,
+    historyFailed: false,
   })
   host = document.createElement('div')
   document.body.appendChild(host)
@@ -129,21 +138,65 @@ afterEach(() => {
 })
 
 describe('AgentPanel', () => {
-  it('渲染对话与图层两个页签', () => {
+  it('上翻阅读历史时保留位置，回到底部后继续跟随流式回复', () => {
+    render()
+    const log = host.querySelector<HTMLElement>('[aria-label="对话记录"]')!
+    Object.defineProperties(log, {
+      scrollHeight: { configurable: true, value: 1000 },
+      clientHeight: { value: 200 },
+    })
+    log.scrollTop = 100
+    act(() => log.dispatchEvent(new Event('scroll', { bubbles: true })))
+    act(() =>
+      useAgentStore.setState({
+        messages: [
+          {
+            kind: 'text',
+            id: 'reply',
+            turnId: 't',
+            role: 'assistant',
+            text: '新回复',
+            streaming: true,
+          },
+        ],
+      }),
+    )
+    expect(log.scrollTop).toBe(100)
+    log.scrollTop = 800
+    act(() => log.dispatchEvent(new Event('scroll', { bubbles: true })))
+    Object.defineProperty(log, 'scrollHeight', { value: 1200 })
+    act(() =>
+      useAgentStore.setState({
+        messages: [
+          {
+            kind: 'text',
+            id: 'reply',
+            turnId: 't',
+            role: 'assistant',
+            text: '新回复继续',
+            streaming: true,
+          },
+        ],
+      }),
+    )
+    expect(log.scrollTop).toBe(1200)
+  })
+
+  it('渲染对话与创作记录两个页签', () => {
     render()
 
     expect(texts('button')).toContain('对话')
-    expect(texts('button')).toContain('图层')
+    expect(texts('button')).toContain('创作记录')
   })
 
-  it('切到图层页签显示画布对象', () => {
+  it('切到创作记录页签显示画布对象', () => {
     render()
     const layers = [...host.querySelectorAll('button')].find(
-      (button) => button.textContent === '图层',
+      (button) => button.textContent === '创作记录',
     )!
     act(() => layers.click())
 
-    expect(host.textContent).toContain('画布还是空的')
+    expect(host.textContent).toContain('还没有创作记录')
     expect(host.querySelector('textarea')).toBeNull()
   })
 
@@ -153,7 +206,45 @@ describe('AgentPanel', () => {
     act(() => collapse.click())
 
     expect(host.querySelector('textarea')).toBeNull()
-    expect(texts('button')).toEqual(['对话'])
+    expect(texts('button')).toEqual(['展开对话'])
+  })
+
+  it('对话记录里的文字可以选中复制', () => {
+    useAgentStore.setState({
+      messages: [
+        {
+          kind: 'text',
+          id: 'user-1',
+          turnId: 'turn-1',
+          role: 'user',
+          text: '修改这个扶手部分',
+          streaming: false,
+        },
+      ],
+    })
+    render()
+
+    const bubble = [...host.querySelectorAll('p')].find(
+      (one) => one.textContent === '修改这个扶手部分',
+    )!
+    expect(bubble.closest('[data-selectable-text]')).not.toBeNull()
+  })
+
+  it('文件拖到对话记录上也进输入框的引用区', async () => {
+    render()
+    const log = host.querySelector('[data-image-dropzone]')!
+    const file = new File([new Uint8Array([137, 80, 78, 71])], 'ref.png', { type: 'image/png' })
+    const event = new Event('drop', { bubbles: true, cancelable: true })
+    Object.defineProperty(event, 'dataTransfer', { value: { files: [file], types: ['Files'] } })
+    act(() => {
+      log.dispatchEvent(event)
+    })
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    })
+
+    expect(host.querySelector('img')?.getAttribute('src')).toMatch(/^data:image\/png;base64,/)
+    expect(host.textContent).toContain('ref')
   })
 
   it('产物真正落画布后才显示可定位缩略图，不必重新挂载面板', async () => {
@@ -330,6 +421,43 @@ describe('AgentPanel', () => {
     expect(send).toHaveBeenCalledWith('扁平插画')
   })
 
+  it('方案都不对时点「其他」，在卡片里写一句就是下一条消息', () => {
+    const send = vi.fn(async () => {})
+    useAgentStore.setState({
+      send,
+      messages: [
+        {
+          kind: 'clarification',
+          id: 'clarify-1',
+          turnId: 'turn-1',
+          question: '要哪种风格？',
+          options: ['写实照片', '扁平插画'],
+        },
+      ],
+    })
+    render()
+
+    const other = [...host.querySelectorAll('button')].find(
+      (button) => button.textContent === '其他…',
+    )!
+    act(() => other.click())
+    const field = host.querySelector('input[aria-label="其他回答"]') as HTMLInputElement
+    const submit = [...host.querySelectorAll('button')].find(
+      (button) => button.textContent === '发送' && button.getAttribute('type') === 'submit',
+    ) as HTMLButtonElement
+    // 空着不能发：一条空回答只会让助手再问一遍。
+    expect(submit.disabled).toBe(true)
+
+    const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+    act(() => {
+      setValue.call(field, '  水墨国风  ')
+      field.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    act(() => field.form!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })))
+
+    expect(send).toHaveBeenCalledWith('水墨国风')
+  })
+
   it('作过答的澄清只剩状态标签，选项不再可点', () => {
     useAgentStore.setState({
       messages: [
@@ -357,6 +485,10 @@ describe('AgentPanel', () => {
       (button) => button.textContent === '扁平插画',
     ) as HTMLButtonElement
     expect(option.disabled).toBe(true)
+    const other = [...host.querySelectorAll('button')].find(
+      (button) => button.textContent === '其他…',
+    ) as HTMLButtonElement
+    expect(other.disabled).toBe(true)
   })
 
   it('每轮页脚写耗时与合计消耗，点开看明细', () => {
@@ -449,7 +581,7 @@ describe('AgentPanel', () => {
     expect(host.querySelector('[aria-label="拖动调整面板宽度"]')).not.toBeNull()
   })
 
-  it('失败的轮写本轮免费', () => {
+  it('失败的轮明确标出失败和未扣积分，不显示为免费完成', () => {
     useAgentStore.setState({
       messages: [
         {
@@ -472,10 +604,12 @@ describe('AgentPanel', () => {
     })
     render()
 
-    expect(host.textContent).toContain('本轮免费，未扣积分')
+    expect(host.textContent).toContain('本轮失败')
+    expect(host.textContent).toContain('未扣积分')
+    expect(host.textContent).not.toContain('本轮免费')
   })
 
-  it('面板底部写本次会话的合计消耗', () => {
+  it('项目标题旁显示已用积分', () => {
     useAgentStore.setState({
       messages: [
         {
@@ -512,7 +646,7 @@ describe('AgentPanel', () => {
     })
     render()
 
-    expect(host.textContent).toContain('本次会话')
+    expect(host.textContent).toContain('已用')
     expect(host.textContent).toContain('312')
   })
 
@@ -534,7 +668,7 @@ describe('AgentPanel', () => {
 
     expect(host.textContent).toContain('本轮耗时 12s')
     expect(host.textContent).not.toContain('消耗')
-    expect(host.textContent).not.toContain('本次会话')
+    expect(host.textContent).not.toContain('已用')
   })
 
   it('能力关闭时什么都不渲染', async () => {

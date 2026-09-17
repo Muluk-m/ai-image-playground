@@ -45,6 +45,9 @@
   "toast": {
     "firstFrameAdopted": "Set as the first frame"
   },
+  "overlay": {
+    "progressAria": "Video generation progress"
+  },
   "aspect": {
     "followsFirstFrame": "Follows first frame"
   },
@@ -148,7 +151,11 @@
     "emptyAction": "Create your first storyboard",
     "newTitle": "Your story starts here",
     "newDescription": "Describe the idea, add reference images, then polish it shot by shot in the director.",
-    "noModel": "No video model available"
+    "noModel": "No video model available",
+    "viewRunningAria": "View videos being generated",
+    "runningCount_one": "{{count}} video generating",
+    "runningCount_other": "{{count}} videos generating",
+    "viewProgress": "View progress →"
   },
   "library": {
     "title": "My storyboards",
@@ -226,9 +233,7 @@
     "shotDescriptionLabel": "Frame description",
     "cameraLabel": "Camera",
     "durationLabel": "Length / s",
-    "durationAria": "Shot length",
     "lineLabel": "Dialogue / sound",
-    "lineAria": "Dialogue",
     "shotPromptsSummary": "Shot prompts",
     "imagePromptLabel": "Image prompt",
     "shotVideoPromptLabel": "Video prompt",
@@ -269,6 +274,9 @@
     "modelLabel": "Video model",
     "modelAria": "Storyboard video model",
     "resolutionAria": "Storyboard video resolution",
+    "durationLabel": "Duration",
+    "durationAria": "Storyboard video duration",
+    "durationAdjusted": "The storyboard runs {{source}}s; this render uses {{target}}s, so the shot pacing is adjusted to match.",
     "selectModel": "Select a model",
     "withFirstFrame": "Uses the first frame as the video's first frame; later shots come from the script",
     "textOnly": "Text to video from the whole script",

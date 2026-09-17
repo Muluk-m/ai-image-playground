@@ -1,11 +1,10 @@
 {
   "header": {
     "brandName": "幕芽",
-    "brandWordmark": "Muvloom",
-    "homeAria": "幕芽 Muvloom，返回工作台",
+    "homeAria": "幕芽 Muvloom，返回创作",
     "nav": "主导航",
     "inspiration": "灵感库",
-    "library": "素材与模板",
+    "library": "我的资产",
     "accountMenu": "打开个人账户",
     "appMenu": "打开应用菜单",
     "unsynced": "有未同步项",

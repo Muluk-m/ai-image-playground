@@ -25,8 +25,8 @@
   调用处要 `void setLocale(...)` 或 `await`。启动时 `main.tsx` 会 `await bootstrapLocale()`。
 - **组件从 `../i18n` 取 `useTranslation`，不要直接 import `react-i18next`**：导入我们这个模块
   才会触发初始化，绕过去就会出现「先渲染后初始化」。
-- 命名空间即语料文件，现有 15 个：`common` `auth` `errors` `task` `settings` `composer`
-  `shell` `store` `lib` `productShots` `video` `library` `canvas` `agent` `inspiration`。
+- 命名空间即语料文件，现有 14 个：`common` `auth` `errors` `task` `settings` `composer`
+  `shell` `store` `lib` `video` `library` `canvas` `agent` `inspiration`。
   新 feature 加一个同名 namespace 并在两个 `locales/*/index.ts` 聚合入口里登记，别往 `common` 里堆。
 - key 形如 `<component>.<intent>`，例如 `auth:login.emailPlaceholder`。
 - **跨命名空间取词要把 `common` 一起声明**：`useTranslation('task')` 返回的 `t` 只接受 task 的 key，
@@ -58,6 +58,20 @@
 - **这些中文不要翻**，它们是数据不是文案，翻了会静默改行为：发给大模型的提示词与其中的枚举值、
   被持久化且参与相等比较的配置名、匹配上游中文报错的正则、写进提示词再被正则反解析的哨兵。
   界面要显示它们时，另建一张只管显示的查表函数，数据值原样保留。
+- **存储格式与显示标签分开**：引用的哨兵 `@图N` 是存储格式，由 `getSelectedImageMentionLabel` 产出，
+  永不随语言变；胶囊上显示的序号标签由 `getImageMentionLabel` 产出，是界面文案（英文 `@Image 1`）。
+  按标签解析器做缓存的 `useMemo` 要把 `i18n.language` 列进依赖。`@` 菜单匹配不分语言。
+- **初值文案**（系统替用户写进数据的第一份文字）按写入那一刻的界面语言取，写完不再翻译、不迁移。
+  配置档案的默认名、复制后缀在 [`src/lib/profileSeedNames.ts`](./src/lib/profileSeedNames.ts)，
+  刻意不进按需加载的语料：判断「没动过的新配置」要同时认所有语言的默认名。
+  例外是「未命名项目」：它表示「没有名字」，存的是固定哨兵，显示时才查译文。
+- **语料里不允许空值**，空字符串一律当漏翻（`catalog.test.ts` 守着）。要按语言隐藏某段界面，
+  写显式规则，例如品牌字标的 `brandNeedsWordmark()`。
+- 界面语言（以及主题）是**显示设置**：只存本机、登录前生效、不进同步。登录后的入口在头像菜单的
+  [`DisplaySettingsMenuItems`](./src/components/DisplaySettingsMenuItems.tsx)，公开树与私有 overlay
+  的两个头像菜单渲染同一个组件；登录页与设置面板另有入口。标签页标题随语言变，静态 meta 不变。
+- `lib/localCompatibility/` 刻意零依赖（它在 App 与 store 之前跑，还单独打进旧域名的入口），
+  里面的两条中文报错不迁移。
 - 语言选择存 `localStorage` 的 `aip.locale`；没存过时按 `navigator.languages` 探测。
   切换时同步更新 `document.documentElement.lang`（`index.html` 里写死的 `zh-CN` 只是初值）。
 - **测试里 locale 必须钉死**：jsdom 的 `navigator.languages` 是 `['en-US']`，不钉死的话所有断言
@@ -67,14 +81,53 @@
   **写错 key 或漏建 key 在 `pnpm typecheck` 就红**，不用等运行时。因此新增文案要先加中文
   catalog 再写调用。这段**必须留在 `index.ts` 里**——独立的 `.d.ts` 要靠各 tsconfig 的
   `include` 捞进来，`private/apps/web/tsconfig.json` 没有捞，那个工程里 key 会退回无类型。
-- [`src/__tests__/i18n/catalog.test.ts`](./src/__tests__/i18n/catalog.test.ts) 守三件事：
-  两种语言 key 集合一致、插值占位符一致、复数后缀覆盖该 locale 的全部 plural category。
+- [`src/__tests__/i18n/catalog.test.ts`](./src/__tests__/i18n/catalog.test.ts) 守四件事：
+  两种语言 key 集合一致、插值占位符一致、复数后缀覆盖该 locale 的全部 plural category、没有空值。
   复数那条取**两种语言 plural base 的并集**再逐 locale 检查——只看各自的 base 会漏掉
   「一边写 `x_one`/`x_other`、另一边写成无后缀的 `x`」这种不对称，运行时缺后缀那边会落空。
-- `pnpm i18n:check` 体检死 key（语料里有、代码里没人引用）。反方向由类型增强在 typecheck 兜住。
+- `pnpm i18n:check` 体检死 key（语料里有、代码里没人引用）。按稳定 id 用模板拼出来的 key
+  字面量搜不到，要把前缀登记进脚本的 `DYNAMIC_PREFIXES`。反方向由类型增强在 typecheck 兜住。
 - 私有 overlay 自带语料与接缝：`private/apps/web/i18n.ts` 导出 `tBilling`，在 overlay 加载时
   把 `billing` 命名空间注册进同一个 i18next 实例。它不复用公开树的 `declare module`——
   `CustomTypeOptions.resources` 只能声明一次，两处声明会冲突。
+
+## UI 组件与样式
+
+**交互控件一律用 shadcn 组件，不要手搓原生控件。** 复选框、下拉、对话框、开关这类东西
+自己拿 `<input type="checkbox">` + `appearance-none` 拼，拼出来的既没有统一状态样式，
+也扛不住任何作用域 CSS。
+
+[`components.json`](./components.json) 与 [`src/components/ui/`](./src/components/ui) 已就位，
+token 在 [`src/styles/theme.css`](./src/styles/theme.css)（见
+[`docs/design/creation-studio.md`](../../docs/design/creation-studio.md)），
+`tailwind.config.js` 把它们映射成 `bg-primary` / `border-input` / `ring` 这些类。
+目前有 checkbox、select、label、input、textarea。**`ui/` 下与 `apps/admin` 同名的文件一律
+保持逐字节相同**（现在是 select / label / input / textarea，外加 `src/lib/utils.ts`），
+由 [`parity.test.ts`](./src/__tests__/components/ui/parity.test.ts) 守着，改一边就会失败。
+需要改行为时改调用点，别改原语。加组件用 `pnpm dlx shadcn@latest add <name>`，
+**加依赖必须带着 `private/` 重新生成 lockfile**，见仓库根 `CLAUDE.md`。
+
+分两层：`src/components/ui/` 是 shadcn 原语，按上游约定用 `@/` 别名，尽量不改，方便
+CLI 覆盖更新；`src/components/` 下是项目自己的组合层（`Checkbox` 管勾选框加标签、
+`Field` 管标签加控件），用相对路径，业务代码只引这一层。
+
+**测 Radix 组件要给 jsdom 补三样东西**：pointer capture、`ResizeObserver`，以及带
+`pointerType: 'mouse'` 的指针事件——Radix 的下拉只认这一种，拿 `MouseEvent` 直接派发
+`pointerdown` 打不开它。勾选框渲染成 `[role="checkbox"]` 的 button 而不是 `<input>`，
+选项渲染在 portal 里要从 `document` 找。现成写法见
+[`directorGeneration.test.tsx`](./src/__tests__/features/video/storyboard/components/directorGeneration.test.tsx)。
+
+**作用域 CSS 不要用裸元素选择器。** `.video-director button { padding: 8px 12px }` 的
+specificity 是 (0,1,1)，压得过 `.h-5`、`.flex` 这类 (0,1,0) 的 utility，容器里所有复用组件
+会被一起压散（2026-09 导演台事故：Checkbox 被拉成全宽长条、参考图删除按钮变形）。
+必须写成 `:where(.video-director) button`，把 class 那一位让出去：(0,0,1) 仍然压得过
+preflight，但任何一个 utility 都能覆盖它。约束由
+[`src/__tests__/features/video/storyboard/components/directorCss.test.ts`](./src/__tests__/features/video/storyboard/components/directorCss.test.ts) 守着。
+
+`director.css` 里表单那几类 reset 已经拆掉了——控件改用组件，样式跟着组件走。
+剩下的是 `button` 与 h2/h3/p/small 这些排版，等 78 个裸 `<button>` 迁到组件后一并收掉。
+在那之前，新组件落进导演台要显式声明自己的 `padding` / `background`，`button` reset
+会漏进 Radix 渲染出来的按钮（`ui/checkbox.tsx` 的 `p-0 bg-background` 就是为此）。
 
 ## 其它要点
 

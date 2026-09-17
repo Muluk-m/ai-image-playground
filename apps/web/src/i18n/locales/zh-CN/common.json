@@ -1,5 +1,7 @@
 {
+  "documentTitle": "幕芽 Muvloom · AI 图片与视频创作工作台",
   "locale": {
+    "switchAria": "界面语言：{{current}}，点击切换到 {{next}}",
     "label": "界面语言",
     "zh-CN": "中文",
     "en": "English"
@@ -16,9 +18,7 @@
     "save": "保存",
     "download": "下载",
     "upload": "上传",
-    "export": "导出",
     "collapse": "收起",
-    "expand": "展开",
     "back": "返回",
     "generate": "生成"
   },

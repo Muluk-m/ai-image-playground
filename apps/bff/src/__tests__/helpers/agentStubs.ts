@@ -8,6 +8,7 @@ import {
 export interface AgentCall {
   readonly url: string
   readonly authorization: string | null
+  readonly reasoning_effort?: string
   readonly model: string
   readonly messages: { role: string; content: unknown }[]
   readonly tools?: { function: { name: string } }[]
@@ -17,6 +18,7 @@ export interface AgentCall {
 interface CompletionUsage {
   readonly prompt_tokens: number
   readonly completion_tokens: number
+  readonly prompt_tokens_details?: { cached_tokens?: number; cache_write_tokens?: number }
 }
 
 const REPORTED_USAGE: CompletionUsage = { prompt_tokens: 12, completion_tokens: 4 }
@@ -99,6 +101,7 @@ export function recordingAgentFetch(
       url: String(input),
       authorization: new Headers(request.headers).get('authorization'),
       model: sent.model,
+      reasoning_effort: sent.reasoning_effort,
       messages: sent.messages,
       tools: sent.tools,
       stream_options: sent.stream_options,

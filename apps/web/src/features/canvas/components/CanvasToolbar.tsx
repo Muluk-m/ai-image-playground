@@ -1,6 +1,5 @@
 import { useSyncExternalStore } from 'react'
 import { useTranslation } from '../../../i18n'
-import { useAgentPanelInset } from '../../agent/panelLayout'
 import { duplicateSelection } from '../lib/canvasClipboard'
 import type { CanvasDoc, Tool } from '../lib/canvasDoc'
 
@@ -112,12 +111,13 @@ function ToolButton({
       type="button"
       title={title}
       aria-label={title}
+      aria-pressed={active}
       disabled={disabled}
       onClick={onClick}
       className={`flex h-9 w-9 items-center justify-center rounded-xl transition-colors ${
         active
-          ? 'bg-blue-600 text-white'
-          : 'text-gray-300 hover:bg-white/10 disabled:opacity-30 disabled:hover:bg-transparent'
+          ? 'bg-primary text-primary-foreground'
+          : 'text-foreground hover:bg-muted disabled:opacity-30 disabled:hover:bg-transparent'
       }`}
     >
       {children}
@@ -125,11 +125,13 @@ function ToolButton({
   )
 }
 
-/** 底部居中工具条 + 左下角缩放控件（快捷键速查在 CanvasShortcutsHint）。 */
+const PILL =
+  'pointer-events-auto rounded-2xl border border-border bg-sidebar p-1.5 shadow-lg backdrop-blur'
+
+/** 工具与缩放共用画布左侧工具栏，窄矮视口内可滚动。 */
 export default function CanvasToolbar({ doc }: { doc: CanvasDoc }) {
   useSyncExternalStore(doc.subscribe, () => doc.version)
   const { t } = useTranslation('canvas')
-  const agentPanelInset = useAgentPanelInset()
   const { tool, selection, camera, viewport } = doc
 
   const toolLabels: Record<Tool, string> = {
@@ -145,115 +147,105 @@ export default function CanvasToolbar({ doc }: { doc: CanvasDoc }) {
     doc.zoomAt(viewport.width / 2, viewport.height / 2, camera.zoom * (dir === 1 ? 1.25 : 0.8))
   }
 
-  return (
+  const tools = TOOLS.map(({ tool: candidate, hotkey, icon }) => (
+    <ToolButton
+      key={candidate}
+      active={tool === candidate}
+      title={t('toolbar.toolTitle', { label: toolLabels[candidate], hotkey })}
+      onClick={() => doc.setTool(candidate)}
+    >
+      {icon}
+    </ToolButton>
+  ))
+  const history = (
     <>
-      {/* 工具条：底部居中 */}
-      <div className="pointer-events-none absolute inset-x-0 bottom-4 z-[400] flex justify-center">
-        <div className="pointer-events-auto flex items-center gap-1 rounded-2xl border border-white/10 bg-gray-900/95 p-1.5 shadow-lg backdrop-blur">
-          {TOOLS.map(({ tool: candidate, hotkey, icon }) => (
-            <ToolButton
-              key={candidate}
-              active={tool === candidate}
-              title={t('toolbar.toolTitle', { label: toolLabels[candidate], hotkey })}
-              onClick={() => doc.setTool(candidate)}
-            >
-              {icon}
-            </ToolButton>
-          ))}
-          <div className="mx-1 h-6 w-px bg-white/10" />
-          <ToolButton title={t('toolbar.undo')} disabled={!doc.canUndo} onClick={() => doc.undo()}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-              <path
-                d="M8 5L4 9l4 4M4 9h10a6 6 0 016 6v1"
-                stroke="currentColor"
-                strokeWidth="1.8"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          </ToolButton>
-          <ToolButton title={t('toolbar.redo')} disabled={!doc.canRedo} onClick={() => doc.redo()}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-              <path
-                d="M16 5l4 4-4 4M20 9H10a6 6 0 00-6 6v1"
-                stroke="currentColor"
-                strokeWidth="1.8"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          </ToolButton>
-          {selection.size > 0 && (
-            <>
-              <ToolButton title={t('toolbar.duplicate')} onClick={() => duplicateSelection(doc)}>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                  <rect
-                    x="8"
-                    y="8"
-                    width="12"
-                    height="12"
-                    rx="2"
-                    stroke="currentColor"
-                    strokeWidth="1.7"
-                  />
-                  <path
-                    d="M16 4H6a2 2 0 00-2 2v10"
-                    stroke="currentColor"
-                    strokeWidth="1.7"
-                    strokeLinecap="round"
-                  />
-                </svg>
-              </ToolButton>
-              <ToolButton
-                title={t('toolbar.deleteSelected')}
-                onClick={() => doc.deleteElements([...doc.selection])}
-              >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                  <path
-                    d="M5 7h14M9 7V5h6v2m-8 0l1 13h8l1-13"
-                    stroke="currentColor"
-                    strokeWidth="1.7"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-              </ToolButton>
-            </>
-          )}
-        </div>
-      </div>
-      {/* 缩放控件：左下角，让开浮层对话面板 */}
-      <div
-        style={{ left: 16 + agentPanelInset }}
-        className="pointer-events-none absolute bottom-4 z-[400]"
-      >
-        <div className="pointer-events-auto flex items-center rounded-xl border border-white/10 bg-gray-900/95 shadow-lg backdrop-blur">
-          <button
-            type="button"
-            title={t('toolbar.zoomOut')}
-            onClick={() => zoomStep(-1)}
-            className="px-3 py-2 text-gray-300 hover:bg-white/10"
-          >
-            −
-          </button>
-          <button
-            type="button"
-            title={t('toolbar.resetZoom')}
-            onClick={() => doc.zoomAt(viewport.width / 2, viewport.height / 2, 1)}
-            className="min-w-14 px-1 py-2 text-center text-xs text-gray-300 tabular-nums hover:bg-white/10"
-          >
-            {Math.round(camera.zoom * 100)}%
-          </button>
-          <button
-            type="button"
-            title={t('toolbar.zoomIn')}
-            onClick={() => zoomStep(1)}
-            className="px-3 py-2 text-gray-300 hover:bg-white/10"
-          >
-            ＋
-          </button>
-        </div>
-      </div>
+      <ToolButton title={t('toolbar.undo')} disabled={!doc.canUndo} onClick={() => doc.undo()}>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path
+            d="M8 5L4 9l4 4M4 9h10a6 6 0 016 6v1"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </ToolButton>
+      <ToolButton title={t('toolbar.redo')} disabled={!doc.canRedo} onClick={() => doc.redo()}>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path
+            d="M16 5l4 4-4 4M20 9H10a6 6 0 00-6 6v1"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </ToolButton>
     </>
+  )
+  const selectionActions = selection.size > 0 && (
+    <>
+      <ToolButton title={t('toolbar.duplicate')} onClick={() => duplicateSelection(doc)}>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <rect x="8" y="8" width="12" height="12" rx="2" stroke="currentColor" strokeWidth="1.7" />
+          <path
+            d="M16 4H6a2 2 0 00-2 2v10"
+            stroke="currentColor"
+            strokeWidth="1.7"
+            strokeLinecap="round"
+          />
+        </svg>
+      </ToolButton>
+      <ToolButton
+        title={t('toolbar.deleteSelected')}
+        onClick={() => doc.deleteElements([...doc.selection])}
+      >
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path
+            d="M5 7h14M9 7V5h6v2m-8 0l1 13h8l1-13"
+            stroke="currentColor"
+            strokeWidth="1.7"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </ToolButton>
+    </>
+  )
+  const zoom = (
+    <>
+      <ToolButton title={t('toolbar.zoomOut')} onClick={() => zoomStep(-1)}>
+        <span className="text-base leading-none">−</span>
+      </ToolButton>
+      <button
+        type="button"
+        title={t('toolbar.resetZoom')}
+        onClick={() => doc.zoomAt(viewport.width / 2, viewport.height / 2, 1)}
+        className={`rounded-xl text-xs text-foreground tabular-nums transition-colors hover:bg-muted h-9 w-9 px-0 text-[10px]`}
+      >
+        {Math.round(camera.zoom * 100)}%
+      </button>
+      <ToolButton title={t('toolbar.zoomIn')} onClick={() => zoomStep(1)}>
+        <span className="text-base leading-none">＋</span>
+      </ToolButton>
+    </>
+  )
+
+  return (
+    // Canvas coordinates are local to the visible workspace, independent of the sidebar.
+    <div className="studio-toolbar" data-canvas-toolbar="side">
+      <div
+        className={`${PILL} studio-tools flex flex-col items-center gap-1`}
+        role="group"
+        aria-label={t('toolbar.groupAria')}
+      >
+        {tools}
+        <div className="my-1 h-px w-6 shrink-0 bg-border" />
+        {history}
+        {selectionActions}
+        <div className="my-1 h-px w-6 shrink-0 bg-border" />
+        {zoom}
+      </div>
+    </div>
   )
 }

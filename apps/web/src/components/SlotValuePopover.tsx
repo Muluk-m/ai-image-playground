@@ -54,7 +54,7 @@ export default function SlotValuePopover({
             onClose()
           }
         }}
-        className="custom-scrollbar w-full resize-none rounded-xl bg-gray-50 px-2 py-1.5 text-xs leading-relaxed text-gray-700 outline-none placeholder:text-gray-400 focus:bg-gray-100 dark:bg-white/[0.04] dark:text-gray-200 dark:placeholder:text-gray-500 dark:focus:bg-white/[0.07]"
+        className="custom-scrollbar w-full resize-none rounded-xl bg-card px-2 py-1.5 text-xs leading-relaxed text-foreground outline-none placeholder:text-muted-foreground focus:bg-muted"
       />
     </ComposerPopover>
   )

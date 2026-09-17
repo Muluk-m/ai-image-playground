@@ -98,9 +98,8 @@ const GEMINI_FIELDS: ReadonlyArray<{
 ]
 
 /**
- * 参数控制条：自包含的 chip 列表（模型 / 尺寸 / Gemini 三件套 / 质量 / 格式 / 压缩 / 审核 / 数量）。
- * 全部读写全局 store（settings/params 等），两个宿主（工作台 InputBar、创作模式 CanvasGenerateBar）
- * 天然共享同一份状态。数量 n chip 仅在 showCount 时渲染（创作模式 n 恒为 1，不显示）。
+ * 参数控制条：自包含的 chip 列表（模型 / 尺寸 / Gemini 三件套 / 质量 / 格式 / 压缩 / 数量）。
+ * 全部读写全局 store。数量 n 仅在 showCount 时出现：直接生成可手选，智能体由工具调用决定。
  */
 /** 某条提交路径做不到的参数。chip 直接不出现——显示了却不生效，比没有这个开关更糟。 */
 export type UnsupportedParam = 'transparent' | 'noRewrite'
@@ -353,8 +352,7 @@ export default function ParamControls({
       })}
       {!isGeminiProvider && (
         <>
-          {/* 不可用的参数 chip（codexCli / 模型不支持 quality；非 jpeg/webp 的压缩；
-              Responses API 下的审核）直接不渲染，避免「灰着但点不开」的占位挤掉单行布局。 */}
+          {/* 不可用的质量、压缩参数直接不渲染，避免占位挤掉单行布局。 */}
           {capabilities.quality && (
             <ParamChip icon={ChipIcons.quality} label={t('param.quality')} value={params.quality}>
               <ChipSelect
@@ -426,23 +424,7 @@ export default function ParamControls({
                 min={0}
                 max={100}
                 placeholder="0-100"
-                className="w-12 bg-transparent text-xs font-medium text-gray-700 outline-none dark:text-gray-200"
-              />
-            </ParamChip>
-          )}
-          {capabilities.moderation && (
-            <ParamChip
-              icon={ChipIcons.moderation}
-              label={t('param.moderation')}
-              value={params.moderation}
-            >
-              <ChipSelect
-                value={params.moderation}
-                onChange={(val) => setParams({ moderation: val as any })}
-                options={[
-                  { label: 'auto', value: 'auto' },
-                  { label: 'low', value: 'low' },
-                ]}
+                className="w-12 bg-transparent text-xs font-medium text-foreground outline-none"
               />
             </ParamChip>
           )}
@@ -471,7 +453,7 @@ export default function ParamControls({
             type="number"
             min={1}
             max={outputImageLimit}
-            className="w-7 bg-transparent text-xs font-medium text-gray-500 outline-none dark:text-gray-400"
+            className="w-7 bg-transparent text-xs font-medium text-muted-foreground outline-none"
           />
         </ParamChip>
       )}

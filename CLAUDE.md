@@ -45,10 +45,10 @@ pnpm workspace + Turbo v2 + Biome：
 
 任一项不过就不要 push。
 
-CI（`.github/workflows/web.yml`，PR 与 push 到 main 都跑）只兜前两项加 `apps/web`：
-`pnpm lint`、`pnpm typecheck`、`apps/web` 的测试与构建。**`apps/bff`、`apps/admin` 与私有包的测试
-CI 一概不跑**（要 PostgreSQL，且 `private/` 不在 CI 里）。改到这三处时本地就是唯一关卡，
-别指望 PR 变绿说明测试过了。
+CI（`.github/workflows/web.yml`，PR 与 push 到 main 都跑）执行 `pnpm lint`、`pnpm typecheck`、
+`apps/web` 构建，并在带 PostgreSQL 的 job 中串行执行公开 workspace 的完整 `pnpm test`，
+包含 BFF、Admin 和数据库迁移回滚测试。**私有包不在公开 CI 中**；涉及私有接缝时仍需在
+带 `private/` 的环境中完成对应测试，不能只凭 PR 变绿判断。
 
 **默认交付到生产。** 代码修改通过检查后，继续创建 PR、等 CI、合并 `main`，通过现有发布脚本部署受影响的内部版与付费版服务，并核验线上版本和行为。除非用户明确要求仅本地修改或暂不部署，否则直接完成整条链路，无需再次询问是否部署。
 
@@ -76,7 +76,9 @@ CI 一概不跑**（要 PostgreSQL，且 `private/` 不在 CI 里）。改到这
 ## Runtime 配置
 
 [`packages/shared/src/runtime-config.ts`](./packages/shared/src/runtime-config.ts) 定义 schema。
-`runtime-config.json` 只包含连接 BFF 前必须知道的 `bff.enabled` 与 `bff.baseUrl`；schema
+`runtime-config.json` 只保存连接 BFF 前必须知道的启用状态与地址：`bff.enabled`、默认
+`bff.baseUrl`，以及可选的 `bff.baseUrlsByOrigin`。多个前端域名共享发布包时，按当前前端
+origin 精确选择映射中的 API；未匹配时沿用默认地址，以保留各域名原有的第一方登录 Cookie。schema
 无效或文件不存在时回退到 `BAKED_DEFAULTS`（`bff.enabled=false`）。能力只能由 BFF 求值，前端并行读取
 `/api/capabilities` 与 channel 列表，清单不可用时全部按关闭处理，禁止把能力写回 runtime
 配置。Docker entrypoint 从 env 生成 runtime 配置；裸跑或纯静态部署可自行生成。

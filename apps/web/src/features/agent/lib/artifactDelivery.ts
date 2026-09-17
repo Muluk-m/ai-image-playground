@@ -27,6 +27,7 @@ interface DeliveryRecord {
 
 export interface TurnArtifactDelivery {
   isCurrent(): boolean
+  canContinue(): boolean
   /** 工具起跑：先在画布上占位，镜头跟过去。产物到了落进这些位。 */
   reserve(messageId: string, request: AgentReservation): void
   enqueue(message: AgentToolMessage): void
@@ -48,7 +49,7 @@ async function prepare(artifact: AgentToolArtifact): Promise<AgentPlacedArtifact
     : { artifactId, dataUrl: await fetchToolImage(artifact) }
 }
 
-/** 交付串行，文字流不等它；每轮独立持有原画布和基线，切会话使旧交付失效。 */
+/** 交付串行，文字流不等它；每轮持有原画布，持久化文档可在切换后完成交付。 */
 export function createArtifactDelivery(
   changed: (messageId: string, status: AgentDeliveryStatus) => void,
 ) {
@@ -60,7 +61,9 @@ export function createArtifactDelivery(
   const belongs = (origin: DeliveryOrigin) =>
     origin.generation === generation && origin.scope === scope()
   const current = (origin: DeliveryOrigin) =>
-    belongs(origin) && origin.canvas !== null && agentCanvasSink() === origin.canvas
+    origin.scope === scope() &&
+    origin.canvas !== null &&
+    (origin.canvas.background === true || (belongs(origin) && agentCanvasSink() === origin.canvas))
 
   const capture = (): DeliveryOrigin => {
     const canvas = agentCanvasSink()
@@ -100,7 +103,13 @@ export function createArtifactDelivery(
       canvas.discard(placeholderIds)
       return 'placed'
     }
-    const items = await Promise.all(missing.map(prepare))
+    const items = await Promise.all(
+      missing.map(async (artifact) => ({
+        ...(await prepare(artifact)),
+        taskId: artifact.taskId,
+        name: `${message.title || i18next.t('delivery.artifactName', { ns: 'agent' })} ${artifact.outputIndex + 1}`,
+      })),
+    )
     if (!current(origin)) return 'unavailable'
     const outcome = await canvas.place(items, {
       anchorObjectId: message.anchorObjectId,
@@ -121,7 +130,7 @@ export function createArtifactDelivery(
     if (!canvas || origin.reserved.has(messageId) || !current(origin)) return
     origin.reserved.set(
       messageId,
-      canvas.reserve(request).then(
+      canvas.reserve({ ...request, messageId }).then(
         (ids) => {
           // 等画布恢复场景期间用户切走了：框已经建在那块画布上，就地收掉，别留成孤儿。
           if (current(origin)) return ids
@@ -149,8 +158,10 @@ export function createArtifactDelivery(
     const previous = records.get(message.id)
     if (previous && (!manual || previous.status === 'pending')) {
       if (belongs(origin)) changed(message.id, previous.status)
-      origin.pending = previous.pending
-      return previous.pending
+      origin.pending = previous.pending.then(() => {
+        if (belongs(origin)) changed(message.id, previous.status)
+      })
+      return origin.pending
     }
     const record: DeliveryRecord = { status: 'pending', pending: Promise.resolve() }
     records.set(message.id, record)
@@ -202,6 +213,7 @@ export function createArtifactDelivery(
       const origin = capture()
       return {
         isCurrent: () => belongs(origin),
+        canContinue: () => belongs(origin) || current(origin),
         reserve(messageId: string, request: AgentReservation) {
           reserve(origin, messageId, request)
         },
@@ -228,6 +240,17 @@ export function createArtifactDelivery(
         await enqueue(origin, message, true)
       } finally {
         origins.delete(origin)
+      }
+    },
+    /**
+     * 画布回来了：这个会话里因为画布不在（切去了别的模式、画布正在重挂）而没落下去的
+     * 产物，现在补落。只补本会话交付过的那些——历史里被用户删掉的不在此列，那是他的决定。
+     */
+    async redeliverUnavailable(messages: readonly AgentPanelMessage[]) {
+      for (const message of messages) {
+        if (message.kind !== 'tool' || !message.artifacts?.length) continue
+        if (records.get(message.id)?.status !== 'unavailable') continue
+        await this.placeOnCanvas(message)
       }
     },
     reset() {

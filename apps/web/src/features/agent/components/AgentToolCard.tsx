@@ -14,6 +14,7 @@ import { type AgentArtifactPreview, artifactPreview } from '../lib/artifactPrevi
 import { agentCanvasSink } from '../lib/canvasSink'
 import { useAgentStore } from '../store'
 import type { AgentToolMessage } from '../types'
+import AgentPromptDialog from './AgentPromptDialog'
 
 const NO_ARTIFACTS: readonly AgentToolArtifact[] = []
 
@@ -93,26 +94,41 @@ function Thumbnail({ preview }: { preview: AgentArtifactPreview }) {
 
 export default function AgentToolCard({ message }: { message: AgentToolMessage }) {
   const { t } = useTranslation(['agent', 'common'])
+  const [promptOpen, setPromptOpen] = useState(false)
   const previews = useArtifactPreviews(message)
   const offCanvas = previews.some((preview) => !preview.onCanvas)
-  const onCanvas = previews
-    .filter((preview) => preview.onCanvas)
-    .map((one) => one.artifact.artifactId)
   const note = useStatusNote(message, offCanvas)
   return (
     <div className={CARD}>
-      {onCanvas.length > 0 ? (
-        // 点标题就到画布上把这一次的产物全选中、镜头带过去；缩略图则各定位各的。
+      {!message.prompt && previews.some((preview) => preview.onCanvas) ? (
         <button
           type="button"
           title={t('tool.locateTitle')}
-          className={`${CARD_TITLE} text-left transition-colors hover:text-blue-200`}
-          onClick={() => agentCanvasSink()?.focus(onCanvas)}
+          className={`${CARD_TITLE} text-left`}
+          onClick={() =>
+            agentCanvasSink()?.focus(
+              previews
+                .filter((preview) => preview.onCanvas)
+                .map((preview) => preview.artifact.artifactId),
+            )
+          }
         >
           {message.title}
         </button>
       ) : (
         <p className={CARD_TITLE}>{message.title}</p>
+      )}
+      {message.prompt && (
+        <button
+          type="button"
+          className={`self-start ${GHOST_LINK}`}
+          onClick={() => setPromptOpen(true)}
+        >
+          {t('tool.viewPrompt')}
+        </button>
+      )}
+      {promptOpen && message.prompt && (
+        <AgentPromptDialog prompt={message.prompt} onClose={() => setPromptOpen(false)} />
       )}
       {note && <p className={CARD_NOTE}>{note}</p>}
       {previews.length > 0 && (

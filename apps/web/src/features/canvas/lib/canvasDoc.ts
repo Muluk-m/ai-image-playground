@@ -20,6 +20,11 @@ export interface ImageEl {
   /** 旋转角度（度），绕左上角。 */
   rotation: number
   fileId: string
+  name?: string
+  naturalWidth?: number
+  naturalHeight?: number
+  createdAt?: number
+  groupId?: string
   /** 生成溯源（prompt 等）。 */
   meta?: Record<string, string>
   /** 有值即这张位图只是封面，真正的片子在服务端；播放地址现拼，存整条会随部署换源而死。 */
@@ -220,6 +225,15 @@ export class CanvasDoc {
     if (opts.history) this.captureHistory()
     this.elements = next
     this.emit()
+  }
+
+  /** Refresh derived video covers without changing geometry or adding an undo step. */
+  replaceVideoPoster(id: string, expectedFileId: string, dataUrl: string): void {
+    const element = this.getElement(id)
+    if (element?.type !== 'image' || !element.video || element.fileId !== expectedFileId) return
+    const fileId = newElementId()
+    this.files = { ...this.files, [fileId]: dataUrl }
+    this.updateElements([{ id, patch: { fileId } }])
   }
 
   /** history=false 用于手势内的回滚清理（过短的箭头 / 空文字），调用方已 capture。 */

@@ -31,13 +31,13 @@ export default function InspirationDetail() {
   }
 
   return (
-    <div className="absolute inset-0 z-10 flex flex-col overflow-hidden rounded-3xl bg-white dark:bg-gray-900 animate-modal-in">
+    <div className="absolute inset-0 z-10 flex flex-col overflow-hidden rounded-3xl bg-card animate-modal-in">
       {/* Header */}
-      <div className="flex items-center justify-between shrink-0 border-b border-gray-100 p-5 dark:border-white/[0.08]">
+      <div className="flex items-center justify-between shrink-0 border-b border-border p-5">
         <button
           type="button"
           onClick={closeDetail}
-          className="flex items-center gap-1.5 text-sm text-gray-500 transition hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200"
+          className="flex items-center gap-1.5 text-sm text-muted-foreground transition hover:text-foreground"
         >
           <svg
             className="h-4 w-4"
@@ -50,7 +50,7 @@ export default function InspirationDetail() {
           </svg>
           {t('detail.back')}
         </button>
-        <div className="text-xs text-gray-400 dark:text-gray-500">{item.recommendedProvider}</div>
+        <div className="text-xs text-muted-foreground">{item.recommendedProvider}</div>
       </div>
 
       {/* Body */}
@@ -61,7 +61,7 @@ export default function InspirationDetail() {
             href={item.imageUrl ?? item.thumbnailUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="group relative block overflow-hidden rounded-2xl bg-gray-100 dark:bg-white/[0.04]"
+            className="group relative block overflow-hidden rounded-2xl bg-muted"
             title={t('detail.openOriginalHint')}
           >
             <img
@@ -78,43 +78,41 @@ export default function InspirationDetail() {
           {/* 右：信息 */}
           <div className="flex flex-col gap-4">
             <div>
-              <h4 className="text-xl font-bold text-gray-800 dark:text-gray-100">{item.title}</h4>
+              <h4 className="text-xl font-bold text-foreground">{item.title}</h4>
               {item.description && (
-                <p className="mt-1.5 text-sm text-gray-500 dark:text-gray-400">
-                  {item.description}
-                </p>
+                <p className="mt-1.5 text-sm text-muted-foreground">{item.description}</p>
               )}
             </div>
 
             <div className="flex flex-wrap gap-2 text-xs">
-              <span className="rounded-md bg-blue-50 px-2 py-1 text-blue-700 dark:bg-blue-500/10 dark:text-blue-300">
+              <span className="rounded-md bg-primary/10 px-2 py-1 text-primary">
                 {item.category}
               </span>
-              <span className="rounded-md bg-gray-100 px-2 py-1 text-gray-600 dark:bg-white/[0.06] dark:text-gray-300">
+              <span className="rounded-md bg-muted px-2 py-1 text-muted-foreground">
                 {item.recommendedModel}
               </span>
-              <span className="rounded-md bg-gray-100 px-2 py-1 text-gray-600 dark:bg-white/[0.06] dark:text-gray-300">
+              <span className="rounded-md bg-muted px-2 py-1 text-muted-foreground">
                 {item.params.size}
               </span>
               {item.params.quality && (
-                <span className="rounded-md bg-gray-100 px-2 py-1 text-gray-600 dark:bg-white/[0.06] dark:text-gray-300">
+                <span className="rounded-md bg-muted px-2 py-1 text-muted-foreground">
                   quality: {item.params.quality}
                 </span>
               )}
               {item.params.n && item.params.n > 1 && (
-                <span className="rounded-md bg-gray-100 px-2 py-1 text-gray-600 dark:bg-white/[0.06] dark:text-gray-300">
+                <span className="rounded-md bg-muted px-2 py-1 text-muted-foreground">
                   n: {item.params.n}
                 </span>
               )}
             </div>
 
             <div>
-              <div className="mb-1.5 flex items-center justify-between text-xs font-medium text-gray-600 dark:text-gray-300">
+              <div className="mb-1.5 flex items-center justify-between text-xs font-medium text-muted-foreground">
                 <span>{t('detail.promptLabel')}</span>
                 <button
                   type="button"
                   onClick={handleCopy}
-                  className="flex items-center gap-1 rounded-md px-2 py-1 text-gray-500 transition hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-white/[0.06] dark:hover:text-gray-200"
+                  className="flex items-center gap-1 rounded-md px-2 py-1 text-muted-foreground transition hover:bg-muted hover:text-foreground"
                   aria-label={t('detail.copyPrompt')}
                 >
                   <CopyIcon className="h-3.5 w-3.5" />
@@ -123,19 +121,16 @@ export default function InspirationDetail() {
               </div>
               <pre
                 data-selectable-text
-                className="max-h-[40vh] overflow-auto rounded-xl border border-gray-200/60 bg-gray-50/80 p-3 text-xs leading-relaxed text-gray-800 dark:border-white/[0.06] dark:bg-white/[0.02] dark:text-gray-100"
+                className="max-h-[40vh] overflow-auto rounded-xl border border-border/60 bg-card/80 p-3 text-xs leading-relaxed text-foreground"
               >
                 <code>{promptDisplay}</code>
               </pre>
             </div>
 
             {item.tags && item.tags.length > 0 && (
-              <div className="flex flex-wrap gap-1.5 text-[11px] text-gray-500 dark:text-gray-400">
+              <div className="flex flex-wrap gap-1.5 text-[11px] text-muted-foreground">
                 {item.tags.map((tag) => (
-                  <span
-                    key={tag}
-                    className="rounded-full bg-gray-100 px-2 py-0.5 dark:bg-white/[0.06]"
-                  >
+                  <span key={tag} className="rounded-full bg-muted px-2 py-0.5">
                     #{tag}
                   </span>
                 ))}
@@ -146,18 +141,18 @@ export default function InspirationDetail() {
       </div>
 
       {/* Footer */}
-      <div className="flex items-center justify-end gap-3 shrink-0 border-t border-gray-100 p-4 dark:border-white/[0.08]">
+      <div className="flex items-center justify-end gap-3 shrink-0 border-t border-border p-4">
         <button
           type="button"
           onClick={closeDetail}
-          className="rounded-xl px-4 py-2 text-sm text-gray-600 transition hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-white/[0.06]"
+          className="rounded-xl px-4 py-2 text-sm text-muted-foreground transition hover:bg-muted"
         >
           {t('common:action.close')}
         </button>
         <button
           type="button"
           onClick={() => applyInspiration(item)}
-          className="flex items-center gap-1.5 rounded-xl bg-blue-500 px-5 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-blue-600"
+          className="flex items-center gap-1.5 rounded-xl bg-primary px-5 py-2 text-sm font-medium text-primary-foreground shadow-sm transition hover:bg-primary/90"
         >
           <SparkleIcon className="h-4 w-4" />
           {t('detail.apply')}

@@ -45,6 +45,9 @@
   "toast": {
     "firstFrameAdopted": "已填入首帧"
   },
+  "overlay": {
+    "progressAria": "视频生成进度"
+  },
   "aspect": {
     "followsFirstFrame": "随首帧"
   },
@@ -148,7 +151,10 @@
     "emptyAction": "创建第一个分镜",
     "newTitle": "你的故事，从这里开始",
     "newDescription": "描述创意、添加参考图，再到导演台逐镜打磨。",
-    "noModel": "当前没有可用的视频模型"
+    "noModel": "当前没有可用的视频模型",
+    "viewRunningAria": "查看生成中的视频",
+    "runningCount_other": "{{count}} 个视频生成中",
+    "viewProgress": "查看进度 →"
   },
   "library": {
     "title": "我的分镜",
@@ -223,9 +229,7 @@
     "shotDescriptionLabel": "画面描述",
     "cameraLabel": "运镜",
     "durationLabel": "时长 / 秒",
-    "durationAria": "镜头时长",
     "lineLabel": "对白 / 声音",
-    "lineAria": "对白",
     "shotPromptsSummary": "单镜头提示词",
     "imagePromptLabel": "图片提示词",
     "shotVideoPromptLabel": "视频提示词",
@@ -266,6 +270,9 @@
     "modelLabel": "视频模型",
     "modelAria": "分镜视频模型",
     "resolutionAria": "分镜视频清晰度",
+    "durationLabel": "视频时长",
+    "durationAria": "分镜视频时长",
+    "durationAdjusted": "原分镜 {{source}} 秒，本次按 {{target}} 秒生成，镜头节奏将相应调整。",
     "selectModel": "选择模型",
     "withFirstFrame": "使用首张画面作为视频首帧，其余镜头通过脚本描述",
     "textOnly": "根据完整脚本文生视频",

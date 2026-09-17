@@ -398,7 +398,7 @@ function orderImagesWithMaskFirst(
   return next
 }
 
-export const APP_MODES = ['browse', 'create', 'product', 'video'] as const
+export const APP_MODES = ['create', 'browse', 'video'] as const
 export type AppMode = (typeof APP_MODES)[number]
 
 /**
@@ -411,9 +411,6 @@ export const APP_MODE_LABELS: Record<AppMode, string> = {
   },
   get create() {
     return i18next.t('appMode.create', { ns: 'store' })
-  },
-  get product() {
-    return i18next.t('appMode.product', { ns: 'store' })
   },
   get video() {
     return i18next.t('appMode.video', { ns: 'store' })
@@ -477,7 +474,7 @@ function mergePersistedState(persistedState: unknown, currentState: AppState): A
     ...persisted,
     settings,
     // 旧版本持久化的 params 可能缺新增字段，与 DEFAULT_PARAMS 合并补齐
-    params: { ...DEFAULT_PARAMS, ...persisted.params },
+    params: { ...DEFAULT_PARAMS, ...persisted.params, moderation: DEFAULT_PARAMS.moderation },
     inspirationCoachDismissed: Boolean(persisted.inspirationCoachDismissed),
     libraryCoachDismissed: Boolean(persisted.libraryCoachDismissed),
     libraryPanelOpened: Boolean(persisted.libraryPanelOpened),
@@ -748,7 +745,8 @@ export const useStore = create<AppState>()(
 
       // Params
       params: { ...DEFAULT_PARAMS },
-      setParams: (p) => set((s) => ({ params: { ...s.params, ...p } })),
+      setParams: (p) =>
+        set((s) => ({ params: { ...s.params, ...p, moderation: DEFAULT_PARAMS.moderation } })),
       reusedTaskApiProfileId: null,
       reusedTaskApiProfileName: null,
       reusedTaskApiProfileMissing: false,
@@ -805,7 +803,7 @@ export const useStore = create<AppState>()(
           lightboxImageList: list ?? (lightboxImageId ? [lightboxImageId] : []),
         })
       },
-      appMode: 'browse',
+      appMode: 'create',
       setAppMode: (appMode) => set({ appMode }),
       pendingCanvasImages: [],
       queueCanvasImages: (dataUrls) =>

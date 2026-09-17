@@ -1,6 +1,9 @@
 import { storyboardRangeLabel } from '@image-playground/shared'
 import { useEffect, useState } from 'react'
+import Field from '../../../../components/Field'
 import Pending from '../../../../components/Pending'
+import { Input } from '../../../../components/ui/input'
+import { Textarea } from '../../../../components/ui/textarea'
 import { useTranslation } from '../../../../i18n'
 import { formatDateTime } from '../../../../i18n/format'
 import { useVideoStore } from '../../store'
@@ -234,15 +237,15 @@ export default function StoryboardBoard({
           <details>
             <summary>{t('board.advancedSummary')}</summary>
             <p>{record.summary}</p>
-            <label>
-              {t('board.videoPromptLabel')}
-              <textarea
+            <Field label={t('board.videoPromptLabel')}>
+              <Textarea
+                className="min-h-0 resize-y"
                 aria-label={t('board.videoPromptLabel')}
                 value={record.videoPrompt}
                 onChange={(e) => void store().updateVideoPrompt(record.id, e.target.value)}
                 rows={6}
               />
-            </label>
+            </Field>
             <p className="vd-muted">{t('board.advancedNote')}</p>
           </details>
           <div className="vd-row">
@@ -290,22 +293,20 @@ export default function StoryboardBoard({
               }}
             >
               <h3>{t('board.saveVersionTitle')}</h3>
-              <label>
-                {t('board.boardNameLabel')}
-                <input
+              <Field label={t('board.boardNameLabel')}>
+                <Input
                   aria-label={t('board.boardNameLabel')}
                   value={record.title}
                   onChange={(e) => void store().rename(record.id, e.target.value)}
                 />
-              </label>
-              <label>
-                {t('board.versionNameLabel')}
-                <input
+              </Field>
+              <Field label={t('board.versionNameLabel')}>
+                <Input
                   aria-label={t('board.versionNameLabel')}
                   value={name}
                   onChange={(e) => setEditedName(e.target.value)}
                 />
-              </label>
+              </Field>
               <p className="vd-muted">{t('board.saveVersionNote')}</p>
               <button type="submit" className="vd-primary" disabled={saving}>
                 {saving ? t('board.savingVersion') : t('board.saveNewVersion')}
@@ -346,72 +347,67 @@ export default function StoryboardBoard({
           ) : shot ? (
             <div className="vd-stack">
               <h3>{t('board.shotDetail')}</h3>
-              <label>
-                {t('board.shotNameLabel')}
-                <input
+              <Field label={t('board.shotNameLabel')}>
+                <Input
                   aria-label={t('board.shotNameLabel')}
                   value={shot.title}
                   onChange={(e) => patch('title', e.target.value)}
                 />
-              </label>
-              <label>
-                {t('board.shotDescriptionLabel')}
-                <textarea
+              </Field>
+              <Field label={t('board.shotDescriptionLabel')}>
+                <Textarea
+                  className="min-h-0 resize-y"
                   aria-label={t('board.shotDescriptionLabel')}
                   value={shot.description}
                   onChange={(e) => patch('description', e.target.value)}
                   rows={4}
                 />
-              </label>
+              </Field>
               <div className="vd-fields">
-                <label>
-                  {t('board.cameraLabel')}
-                  <input
+                <Field label={t('board.cameraLabel')}>
+                  <Input
                     aria-label={t('board.cameraLabel')}
                     value={shot.camera}
                     onChange={(e) => patch('camera', e.target.value)}
                   />
-                </label>
-                <label>
-                  {t('board.durationLabel')}
-                  <input
+                </Field>
+                <Field label={t('board.durationLabel')}>
+                  <Input
                     type="number"
                     min="0.5"
                     max="30"
                     step="0.5"
-                    aria-label={t('board.durationAria')}
                     value={shot.seconds}
                     onChange={(e) => patch('seconds', Number(e.target.value))}
                   />
-                </label>
+                </Field>
               </div>
-              <label>
-                {t('board.lineLabel')}
-                <textarea
-                  aria-label={t('board.lineAria')}
+              <Field label={t('board.lineLabel')}>
+                <Textarea
+                  className="min-h-0 resize-y"
                   value={shot.line}
                   onChange={(e) => patch('line', e.target.value)}
                   rows={2}
                 />
-              </label>
+              </Field>
               <details>
                 <summary>{t('board.shotPromptsSummary')}</summary>
-                <label>
-                  {t('board.imagePromptLabel')}
-                  <textarea
+                <Field label={t('board.imagePromptLabel')}>
+                  <Textarea
+                    className="min-h-0 resize-y"
                     aria-label={t('board.imagePromptLabel')}
                     value={shot.imagePrompt}
                     onChange={(e) => patch('imagePrompt', e.target.value)}
                   />
-                </label>
-                <label>
-                  {t('board.shotVideoPromptLabel')}
-                  <textarea
+                </Field>
+                <Field label={t('board.shotVideoPromptLabel')}>
+                  <Textarea
+                    className="min-h-0 resize-y"
                     aria-label={t('board.shotVideoPromptLabel')}
                     value={shot.videoPrompt}
                     onChange={(e) => patch('videoPrompt', e.target.value)}
                   />
-                </label>
+                </Field>
               </details>
               <button
                 type="button"

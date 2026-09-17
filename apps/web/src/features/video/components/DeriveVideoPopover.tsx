@@ -56,7 +56,7 @@ export default function DeriveVideoPopover({
 
   return (
     <Overlay onClose={onClose} tier={tier}>
-      <div className="relative z-10 w-full max-w-sm rounded-2xl border border-white/50 bg-white p-4 shadow-2xl ring-1 ring-black/5 animate-modal-in dark:border-white/[0.08] dark:bg-gray-900 dark:ring-white/10">
+      <div className="relative z-10 w-full max-w-sm rounded-2xl border border-white/50 bg-card p-4 shadow-2xl ring-1 ring-black/5 animate-modal-in border-border dark:ring-white/10">
         <h3 className={`${PANEL_TITLE} mb-3`}>{title}</h3>
 
         <div className={`${LABEL} mb-1.5`}>{t('field.description')}</div>
@@ -79,7 +79,7 @@ export default function DeriveVideoPopover({
               onChange={setExtendSeconds}
             />
           ) : (
-            <p className="text-xs text-gray-500 dark:text-gray-400">
+            <p className="text-xs text-muted-foreground">
               {t('derive.keepDuration', {
                 seconds: task.duration,
                 resolution: DERIVE_RESOLUTION,
@@ -90,7 +90,7 @@ export default function DeriveVideoPopover({
 
         <div className={`${PANEL_SECTION} mt-4`}>
           {guard.blocked && guard.disabledReason && (
-            <p className="mb-1.5 text-[11px] text-red-600 dark:text-red-400">
+            <p className="mb-1.5 text-[11px] text-destructive dark:text-destructive">
               {guard.disabledReason}
             </p>
           )}

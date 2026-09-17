@@ -1,26 +1,30 @@
-import { Fragment, type PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef } from 'react'
+import {
+  Fragment,
+  type PointerEvent as ReactPointerEvent,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+} from 'react'
 import Credits from '../../../components/Credits'
-import { PlusIcon, TrashIcon } from '../../../components/icons'
+import { PlusIcon } from '../../../components/icons'
+import { useImageDropZone } from '../../../hooks/useImageDropZone'
 import { useTranslation } from '../../../i18n'
-import { useStore } from '../../../store'
 import type { CanvasDoc } from '../../canvas/lib/canvasDoc'
 import type { CanvasEditor } from '../../canvas/lib/editor'
+import { projectDisplayName, UNTITLED_PROJECT } from '../../canvas/lib/projectRepository'
+import { useCanvasProjectStore } from '../../canvas/projectStore'
+import { useLibraryStore } from '../../library/store'
 import {
-  ACTIVE_LIST_ROW,
   ACTIVE_TAB,
-  CARD_NOTE,
   GHOST_LINK,
   ICON_BUTTON,
   IDLE_TAB,
-  INK,
   INK_3,
-  LIST_ROW,
-  PANEL_MARGIN,
-  PANEL_SHADOW,
-  PANEL_SURFACE,
   TAB,
   USER_BUBBLE,
 } from '../agentStyles'
+import { attachFilesToComposer } from '../lib/attachments'
 import { agentSessionCredits } from '../lib/turnCost'
 import { agentPanelPresent } from '../panelLayout'
 import { answerableClarificationId, useAgentStore } from '../store'
@@ -28,7 +32,8 @@ import type { AgentPanelMessage } from '../types'
 import AgentActivity from './AgentActivity'
 import AgentClarification from './AgentClarification'
 import AgentComposer from './AgentComposer'
-import AgentLayers from './AgentLayers'
+import AgentCreations from './AgentCreations'
+import AgentHistoryStatus from './AgentHistoryStatus'
 import AgentReply from './AgentReply'
 import AgentToolCard from './AgentToolCard'
 import AgentTurnCost from './AgentTurnCost'
@@ -38,70 +43,11 @@ const TABS = [
   { id: 'layers', labelKey: 'label.layers' },
 ] as const
 
-function ConversationList({ onPick }: { onPick: () => void }) {
-  const { t } = useTranslation('agent')
-  const conversations = useAgentStore((state) => state.conversations)
-  const conversationId = useAgentStore((state) => state.conversationId)
-  const running = useAgentStore((state) => state.turn === 'running')
-  const { selectConversation, deleteConversation } = useAgentStore.getState()
-  const setConfirmDialog = useStore((state) => state.setConfirmDialog)
-
-  if (conversations.length === 0) {
-    return <p className={`px-3 text-xs ${INK_3}`}>{t('panel.noConversations')}</p>
-  }
-
-  return (
-    <div className="flex flex-col gap-0.5 px-2">
-      {conversations.map((one) => {
-        const name = one.title || t('panel.untitled')
-        return (
-          <div
-            key={one.id}
-            className={`${LIST_ROW} ${one.id === conversationId ? ACTIVE_LIST_ROW : ''}`}
-          >
-            <button
-              type="button"
-              disabled={running}
-              className={`min-w-0 flex-1 truncate text-left disabled:opacity-40 ${INK}`}
-              onClick={() => {
-                void selectConversation(one.id)
-                onPick()
-              }}
-            >
-              {name}
-            </button>
-            <button
-              type="button"
-              aria-label={t('panel.deleteConversationAria', { name })}
-              className={`${ICON_BUTTON} opacity-0 group-hover:opacity-100`}
-              onClick={() =>
-                setConfirmDialog({
-                  title: t('panel.deleteConversationTitle'),
-                  message: t('panel.deleteConversationMessage', { name }),
-                  tone: 'danger',
-                  action: () => void deleteConversation(one.id),
-                })
-              }
-            >
-              <TrashIcon className="h-3.5 w-3.5" />
-            </button>
-          </div>
-        )
-      })}
-    </div>
-  )
-}
-
 function CollapsedButton({ onOpen }: { onOpen: () => void }) {
   const { t } = useTranslation('agent')
   return (
-    <button
-      type="button"
-      onClick={onOpen}
-      style={{ left: PANEL_MARGIN, top: PANEL_MARGIN }}
-      className={`absolute z-[400] rounded-xl px-3 py-1.5 text-xs ${PANEL_SURFACE} ${PANEL_SHADOW} text-[#e8e8ea]`}
-    >
-      {t('label.chat')}
+    <button type="button" onClick={onOpen} className="studio-open-chat">
+      {t('panel.expand')}
     </button>
   )
 }
@@ -115,18 +61,40 @@ function renderMessage(message: AgentPanelMessage, answerableId: string | null) 
   return <AgentReply text={message.text} streaming={message.streaming} />
 }
 
-export default function AgentPanel({ doc, editor }: { doc: CanvasDoc; editor: CanvasEditor }) {
+export default function AgentPanel({
+  doc,
+  editor,
+  mobile = false,
+  onViewCanvas,
+}: {
+  doc: CanvasDoc
+  editor: CanvasEditor
+  mobile?: boolean
+  onViewCanvas?: () => void
+}) {
   const { t } = useTranslation('agent')
   const open = useAgentStore((state) => state.open)
   const tab = useAgentStore((state) => state.tab)
   const messages = useAgentStore((state) => state.messages)
   const turns = useAgentStore((state) => state.turns)
-  const turn = useAgentStore((state) => state.turn)
   const error = useAgentStore((state) => state.error)
   const panelWidth = useAgentStore((state) => state.panelWidth)
-  const { setOpen, setTab, load, startNewConversation, refreshConversations, setPanelWidth } =
-    useAgentStore.getState()
+  const { setOpen, setTab, load, createProject, setPanelWidth } = useAgentStore.getState()
+  const historyLoading = useAgentStore((state) => state.historyLoading)
+  const historyFailed = useAgentStore((state) => state.historyFailed)
+  const projectName = useCanvasProjectStore(
+    (state) => state.projects.find((one) => one.id === state.activeId)?.name ?? UNTITLED_PROJECT,
+  )
   const logRef = useRef<HTMLDivElement>(null)
+  const followLatest = useRef(true)
+  const conversationId = useAgentStore((state) => state.conversationId)
+  useLayoutEffect(() => {
+    followLatest.current = true
+  }, [conversationId, open, tab])
+  // 文件拖到对话记录上也算数：草稿归输入框管，这里只把文件递过去。
+  const { dragging, dropZoneProps } = useImageDropZone((files) => {
+    attachFilesToComposer(files)
+  })
   // 流式输出时这个组件每个字都重渲染一次，别让它顺带把整张轮表遍历两遍。
   const sessionCredits = useMemo(
     () => (Object.values(turns).some((footer) => footer.cost) ? agentSessionCredits(turns) : null),
@@ -137,10 +105,10 @@ export default function AgentPanel({ doc, editor }: { doc: CanvasDoc; editor: Ca
     void load()
   }, [load])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const log = logRef.current
-    if (log) log.scrollTop = log.scrollHeight
-  }, [messages])
+    if (log && followLatest.current) log.scrollTop = log.scrollHeight
+  }, [messages, open, tab, conversationId])
 
   /** 右缘拖宽：按下即捕获指针，宽度跟手，松开时的值已经在 store 里记住了。 */
   const startResize = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -161,29 +129,21 @@ export default function AgentPanel({ doc, editor }: { doc: CanvasDoc; editor: Ca
   }
 
   if (!agentPanelPresent()) return null
-  if (!open) return <CollapsedButton onOpen={() => setOpen(true)} />
+  if (!open && !mobile) return <CollapsedButton onOpen={() => setOpen(true)} />
 
   const answerableId = answerableClarificationId(messages)
 
   return (
-    <div
-      style={{
-        left: PANEL_MARGIN,
-        top: PANEL_MARGIN,
-        bottom: PANEL_MARGIN,
-        width: panelWidth,
-      }}
-      className={`absolute z-[400] flex flex-col rounded-2xl ${PANEL_SURFACE} ${PANEL_SHADOW}`}
-    >
+    <div aria-label={t('panel.aria')} style={{ width: panelWidth }} className="studio-sidebar">
       <div
         role="separator"
         aria-orientation="vertical"
         aria-label={t('panel.resizeAria')}
         title={t('panel.resizeTitle')}
         onPointerDown={startResize}
-        className="absolute -right-1.5 top-6 bottom-6 z-10 w-3 cursor-col-resize touch-none rounded-full transition-colors hover:bg-blue-500/40 active:bg-blue-500/60"
+        className="absolute -right-1.5 top-6 bottom-6 z-10 hidden md:block w-3 cursor-col-resize touch-none rounded-full transition-colors hover:bg-primary/40 active:bg-primary/60"
       />
-      <div className="flex shrink-0 items-center justify-between gap-3 px-3 pb-1.5 pt-2">
+      <div className="studio-agent-tabs flex shrink-0 items-center justify-between gap-3 px-4 pb-3 pt-2">
         <div className="flex items-center gap-3">
           {TABS.map((one) => (
             <button
@@ -199,7 +159,7 @@ export default function AgentPanel({ doc, editor }: { doc: CanvasDoc; editor: Ca
         <button
           type="button"
           aria-label={t('panel.collapseAria')}
-          className={ICON_BUTTON}
+          className={`${ICON_BUTTON} hidden md:inline-flex`}
           onClick={() => setOpen(false)}
         >
           <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" aria-hidden="true">
@@ -214,50 +174,60 @@ export default function AgentPanel({ doc, editor }: { doc: CanvasDoc; editor: Ca
         </button>
       </div>
 
-      {tab !== 'layers' && (
-        <div className="flex shrink-0 items-center justify-between gap-2 px-3 pb-1.5">
+      <div className="studio-agent-project flex shrink-0 items-center gap-2 px-4 pb-3">
+        <div className="min-w-0 flex-1">
           <button
             type="button"
-            className={GHOST_LINK}
-            onClick={() => {
-              if (tab === 'history') {
-                setTab('chat')
-                return
-              }
-              setTab('history')
-              void refreshConversations()
-            }}
+            className={`${GHOST_LINK} block max-w-full truncate text-left`}
+            title={projectDisplayName(projectName)}
+            onClick={() => useLibraryStore.getState().openPanel('projects')}
           >
-            {tab === 'history' ? t('panel.backToChat') : t('panel.history')}
+            {projectDisplayName(projectName)}
           </button>
-          <button
-            type="button"
-            aria-label={t('panel.newConversationAria')}
-            className={ICON_BUTTON}
-            onClick={() => {
-              setTab('chat')
-              startNewConversation()
-            }}
-          >
-            <PlusIcon className="h-3.5 w-3.5" />
-          </button>
+          {sessionCredits !== null && (
+            <span
+              className="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground"
+              aria-label={t('panel.creditsUsedAria', { credits: sessionCredits.toLocaleString() })}
+            >
+              {t('panel.creditsUsedPrefix')} <Credits credits={sessionCredits} />{' '}
+              {t('panel.creditsUsedSuffix')}
+            </span>
+          )}
         </div>
-      )}
-
-      {tab === 'history' ? (
+        <button
+          type="button"
+          aria-label={t('panel.newProjectAria')}
+          className={ICON_BUTTON}
+          onClick={() => void createProject()}
+        >
+          <PlusIcon className="h-3.5 w-3.5" />
+        </button>
+      </div>
+      {tab === 'layers' ? (
         <div className="min-h-0 flex-1 overflow-y-auto py-1">
-          <ConversationList onPick={() => setTab('chat')} />
-        </div>
-      ) : tab === 'layers' ? (
-        <div className="min-h-0 flex-1 overflow-y-auto py-1">
-          <AgentLayers doc={doc} editor={editor} />
+          <AgentCreations doc={doc} editor={editor} onSelect={mobile ? onViewCanvas : undefined} />
         </div>
       ) : (
         <div
           ref={logRef}
-          className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto px-3 py-1"
+          // 全站默认禁止选中文字（画布拖拽不能拖出一片高亮）；对话记录是要被复制的，放开。
+          data-selectable-text
+          aria-label={t('panel.logAria')}
+          onScroll={(event) => {
+            const log = event.currentTarget
+            followLatest.current = log.scrollHeight - log.clientHeight - log.scrollTop <= 48
+          }}
+          className={`relative flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto px-3 py-1 ${dragging ? 'rounded-xl outline-dashed outline-1 outline-ring/70' : ''}`}
+          {...dropZoneProps}
         >
-          {messages.length === 0 && <p className={`text-xs ${INK_3}`}>{t('panel.noMessages')}</p>}
+          {messages.length === 0 && !historyLoading && !historyFailed && (
+            <div className="studio-chat-empty">
+              <span className="studio-spark">✧</span>
+              <h3>{t('panel.emptyTitle')}</h3>
+              <p>{t('panel.emptyBody')}</p>
+              <div className="studio-example">{t('panel.emptyExample')}</div>
+            </div>
+          )}
           {messages.map((message, index) => {
             // 页脚跟在本轮最后一条消息后面，所以只在下一条换了轮时渲染。
             const footer =
@@ -270,17 +240,12 @@ export default function AgentPanel({ doc, editor }: { doc: CanvasDoc; editor: Ca
             )
           })}
           <AgentActivity />
-          {error && <p className={`text-xs ${INK_3}`}>{error}</p>}
+          <AgentHistoryStatus />
+          {error && !historyFailed && <p className={`text-xs ${INK_3}`}>{error}</p>}
         </div>
       )}
 
-      {tab === 'chat' && sessionCredits !== null && (
-        <div className={`flex shrink-0 items-center justify-between px-3 pb-1 ${CARD_NOTE}`}>
-          <span>{t('panel.sessionTotal')}</span>
-          <Credits credits={sessionCredits} />
-        </div>
-      )}
-      {tab === 'chat' && <AgentComposer doc={doc} />}
+      {tab === 'chat' && <AgentComposer doc={doc} editor={editor} />}
     </div>
   )
 }

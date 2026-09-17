@@ -3,11 +3,14 @@
     "rename": "Rename"
   },
   "panel": {
-    "title": "Assets and templates",
+    "title": "My assets",
+    "tabProjects": "My projects",
     "tabAssets": "Assets",
     "tabTemplates": "Templates",
+    "searchProjects": "Search project names",
     "searchAssets": "Search asset names",
     "searchTemplates": "Search template names",
+    "reloadProjects": "Reload",
     "noMatchAssets": "No matching assets",
     "noMatchTemplates": "No matching templates",
     "dropToSave": "Drop to save as an asset"
@@ -91,6 +94,7 @@
   "toast": {
     "assetSaved": "Saved as an asset",
     "templateSaved": "Saved as a template",
+    "promptTemplateSaved": "Saved as a template — find it in My assets",
     "firstFrameFilled": "Set as the first frame",
     "assetImageMissing": "The asset image is gone",
     "alreadyInReferences": "Already in the references",

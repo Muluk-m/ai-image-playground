@@ -30,7 +30,14 @@ export default function RunningOverlay({ task }: { task: VideoTask }) {
       {task.status === 'running' && support && (
         <span className="absolute inset-x-0 bottom-0 h-[3px] bg-white/25">
           <span
-            className="block h-full bg-blue-500"
+            role="progressbar"
+            aria-label={t('overlay.progressAria')}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.round(
+              Math.min(MAX_PROGRESS, elapsed / 1000 / support.typicalSeconds) * 100,
+            )}
+            className="block h-full bg-primary"
             style={{
               width: `${Math.min(MAX_PROGRESS, elapsed / 1000 / support.typicalSeconds) * 100}%`,
             }}

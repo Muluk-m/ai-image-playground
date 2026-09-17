@@ -1,0 +1,66 @@
+/* Shared shadcn semantic tokens. Components never own a separate palette. */
+:root {
+  color-scheme: light;
+  --background: 60 9% 97%;
+  --foreground: 120 5% 12%;
+  --card: 0 0% 100%;
+  --card-foreground: var(--foreground);
+  --popover: var(--card);
+  --popover-foreground: var(--foreground);
+  --primary: 96 46% 29%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 90 8% 93%;
+  --secondary-foreground: var(--foreground);
+  --muted: var(--secondary);
+  --muted-foreground: 100 4% 43%;
+  --accent: 95 22% 90%;
+  --accent-foreground: var(--foreground);
+  --destructive: 0 72% 46%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 90 7% 85%;
+  --input: var(--border);
+  --ring: var(--primary);
+  --radius: 0.625rem;
+  --sidebar: var(--card);
+  --sidebar-foreground: var(--foreground);
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: var(--primary-foreground);
+  --sidebar-accent: var(--accent);
+  --sidebar-accent-foreground: var(--accent-foreground);
+  --sidebar-border: var(--border);
+  --sidebar-ring: var(--ring);
+  --success: 142 65% 30%;
+  --warning: 35 90% 35%;
+  --warning-foreground: 0 0% 100%;
+  --info: var(--primary);
+  /* Canvas geometry and compatibility aliases share the same theme. */
+  --studio-shadow: 0 8px 24px rgb(0 0 0 / 8%);
+  --studio-space-2: 8px;
+  --studio-space-3: 12px;
+  --studio-space-4: 16px;
+  --studio-space-6: 24px;
+  --studio-radius: var(--radius);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --background: 120 4% 7%;
+    --foreground: 60 9% 96%;
+    --card: 120 4% 10%;
+    --primary: 89 68% 75%;
+    --primary-foreground: 110 20% 10%;
+    --secondary: 110 4% 15%;
+    --muted-foreground: 90 4% 65%;
+    --accent: 105 10% 19%;
+    --destructive: 0 75% 65%;
+    --border: 110 4% 20%;
+    --success: 142 55% 65%;
+    --warning: 40 90% 65%;
+    --warning-foreground: 35 60% 10%;
+  }
+}
+@layer base {
+  * { border-color: hsl(var(--border)); }
+  body { background: hsl(var(--background)); color: hsl(var(--foreground)); }
+  :focus-visible { outline-color: hsl(var(--ring)); }
+}

@@ -14,7 +14,7 @@ export default function NewAssetButton({
     <button
       type="button"
       onClick={onClick}
-      className={`flex items-center gap-1 rounded-lg bg-blue-500/10 px-3 py-1.5 text-sm font-medium text-blue-700 transition hover:bg-blue-500/20 dark:bg-blue-500/15 dark:text-blue-300 dark:hover:bg-blue-500/25 ${className}`}
+      className={`flex items-center gap-1 rounded-lg bg-primary/10 px-3 py-1.5 text-sm font-medium text-primary transition hover:bg-primary/20 ${className}`}
     >
       <PlusIcon className="h-4 w-4" />
       {t('asset.new')}

@@ -1,5 +1,5 @@
 import { OAUTH_ERROR_QUERY_PARAM, type OAuthProviderView } from '@image-playground/shared'
-import { type FormEvent, useEffect, useState } from 'react'
+import { type FormEvent, useEffect, useRef, useState } from 'react'
 import { type AppLocale, SUPPORTED_LOCALES, useTranslation } from '../i18n'
 import { useLocalePicker } from '../i18n/useLocalePicker'
 import {
@@ -224,6 +224,7 @@ export function LoginScreen() {
       ? ''
       : (new URLSearchParams(window.location.search).get('ref') ?? ''),
   )
+  const [referralExpanded, setReferralExpanded] = useState(Boolean(referralCode))
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
@@ -232,6 +233,14 @@ export function LoginScreen() {
   const [view, setView] = useState<'login' | 'registration'>(
     referralEnabled && referralCode ? 'registration' : 'login',
   )
+  const panelRef = useRef<HTMLDivElement>(null)
+  const previousView = useRef(view)
+  useEffect(() => {
+    if (previousView.current !== view) {
+      panelRef.current?.querySelector('h1')?.focus({ preventScroll: true })
+      previousView.current = view
+    }
+  }, [view])
   const [providers, setProviders] = useState<OAuthProviderView[]>([])
   const error = errorKey ? tError(errorKey) : null
 
@@ -287,7 +296,15 @@ export function LoginScreen() {
   }
 
   const invitationField = referralEnabled ? (
-    <div className="auth-form mb-4">
+    <details
+      className="auth-referral"
+      open={referralExpanded}
+      onToggle={(event) => setReferralExpanded(event.currentTarget.open)}
+    >
+      <summary>
+        {t('referral.summary')}
+        <span>{t('referral.optional')}</span>
+      </summary>
       <label className="auth-field">
         <span>{t('referral.label')}</span>
         <input
@@ -303,13 +320,9 @@ export function LoginScreen() {
           autoComplete="off"
           disabled={pending}
           placeholder={t('referral.placeholder')}
-          aria-describedby="referral-code-hint"
         />
       </label>
-      <p id="referral-code-hint" className="text-xs text-muted-foreground">
-        {t('referral.hint')}
-      </p>
-    </div>
+    </details>
   ) : null
   const providerButtons =
     providers.length > 0 ? (
@@ -323,7 +336,7 @@ export function LoginScreen() {
               onClick={() => {
                 window.location.href = oauthStartUrl(
                   provider.id,
-                  referralEnabled ? referralCode : undefined,
+                  view === 'registration' && referralEnabled ? referralCode : undefined,
                 )
               }}
             >
@@ -348,7 +361,7 @@ export function LoginScreen() {
         <section className="auth-panel">
           <LanguagePicker />
 
-          <div className="auth-panel-content">
+          <div className="auth-panel-content" ref={panelRef}>
             {view === 'registration' ? (
               <RegistrationPanel
                 pending={pending}
@@ -357,19 +370,18 @@ export function LoginScreen() {
                   setErrorKey(null)
                   setView('login')
                 }}
+                invitationField={invitationField}
                 onRegister={(credentials) => void submitRegistration(credentials)}
               >
-                {invitationField}
                 {providerButtons}
               </RegistrationPanel>
             ) : (
               <div className="auth-form-view auth-login">
                 <div className="auth-form-heading">
-                  <h1>{t('login.title')}</h1>
+                  <h1 tabIndex={-1}>{t('login.title')}</h1>
                   <p>{t('login.subtitle')}</p>
                 </div>
 
-                {providers.length > 0 ? invitationField : null}
                 {providerButtons}
 
                 <form
@@ -388,7 +400,6 @@ export function LoginScreen() {
                       autoComplete="username"
                       autoCapitalize="none"
                       spellCheck={false}
-                      autoFocus
                       disabled={pending}
                       placeholder={t('login.emailPlaceholder')}
                     />

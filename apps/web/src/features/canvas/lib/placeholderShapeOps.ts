@@ -6,7 +6,10 @@ import { Box } from './geometry'
 import { fitToTarget, PLACEMENT_GAP, type PlacementTarget } from './placement'
 
 /** 要放的一项。`id` 与 `video` 只属于这一项，`opts.meta` 是整批共用的溯源。 */
-export type PlaceItem = Pick<PlacedImage, 'dataUrl' | 'id' | 'video'>
+export type PlaceItem = Pick<
+  PlacedImage,
+  'dataUrl' | 'id' | 'video' | 'name' | 'groupId' | 'createdAt'
+>
 
 /** 统一的错误消息提取（画布任务终局共用）。 */
 export function errorMessage(err: unknown): string {
@@ -81,6 +84,11 @@ export async function placeImagesIntoTargets(
       y: target.y + (target.h - fitted.h) / 2,
       width: fitted.w,
       height: fitted.h,
+      naturalWidth: width,
+      naturalHeight: height,
+      name: one.name,
+      groupId: one.groupId,
+      createdAt: one.createdAt,
       ...(one.id ? { id: one.id } : {}),
       ...(one.video ? { video: one.video } : {}),
     })
@@ -131,7 +139,9 @@ async function placeResults(
 ): Promise<void> {
   const placeholder = editor.getPlaceholder(placeholderId)
   const anchor = placeholder ? targetFromShape(placeholder) : target
-  const provenance = placeholder ? { prompt: placeholder.meta.prompt } : undefined
+  const provenance = placeholder
+    ? { prompt: placeholder.meta.prompt, taskId: placeholder.meta.taskId }
+    : undefined
   // 放置成功后才删占位框：中途失败（如图片解码）时它得留着，错误态才有处可标
   await placeImagesOnCanvas(
     editor,

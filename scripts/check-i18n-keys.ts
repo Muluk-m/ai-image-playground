@@ -17,7 +17,14 @@ const WEB_SRC = join(import.meta.dir, '..', 'apps', 'web', 'src')
 const CATALOG_DIR = join(WEB_SRC, 'i18n', 'locales', 'zh-CN')
 
 /** 靠模板字符串拼出来的 key 前缀，字面量搜不到，按前缀整体放行。 */
-const DYNAMIC_PREFIXES = ['common:locale.', 'locale.']
+const DYNAMIC_PREFIXES = [
+  'common:locale.',
+  'locale.',
+  // features/video/lib/labels.ts：按 shared 的稳定 id（驳回码、派生模式、模型别名）拼 key。
+  'video:reject.',
+  'video:tagline.',
+  'video:derive.',
+]
 
 const PLURAL_SUFFIX = /_(zero|one|two|few|many|other)$/
 

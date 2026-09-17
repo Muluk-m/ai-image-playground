@@ -1,22 +1,22 @@
 {
   "label": {
     "chat": "Chat",
-    "layers": "Layers"
+    "layers": "Creations"
   },
   "panel": {
-    "untitled": "Untitled",
-    "noConversations": "No conversations yet",
-    "noMessages": "No messages yet",
-    "deleteConversationAria": "Delete conversation {{name}}",
-    "deleteConversationTitle": "Delete conversation",
-    "deleteConversationMessage": "Delete “{{name}}”? It will no longer appear in the list.",
     "resizeAria": "Drag to resize the panel",
     "resizeTitle": "Drag to resize",
     "collapseAria": "Collapse panel",
-    "backToChat": "Back to chat",
-    "history": "History",
-    "newConversationAria": "New chat",
-    "sessionTotal": "This session"
+    "expand": "Open chat",
+    "aria": "Creation chat",
+    "creditsUsedAria": "Used {{credits}} credits",
+    "creditsUsedPrefix": "Used",
+    "creditsUsedSuffix": "credits",
+    "newProjectAria": "New project",
+    "logAria": "Conversation log",
+    "emptyTitle": "What will you create today?",
+    "emptyBody": "Describe your idea, or add a reference image. Once something is generated, switch to the canvas and select it to keep editing.",
+    "emptyExample": "Try describing the subject, the style and the mood."
   },
   "tool": {
     "stageSubmitted": "Queued",
@@ -26,23 +26,17 @@
     "offCanvas": "Not on the current canvas. You can add it again.",
     "deliveryFailed": "Generated, but could not be added to the canvas. You can retry.",
     "locateTitle": "Find these results on the canvas",
-    "place": "Add to canvas"
-  },
-  "layers": {
-    "empty": "The canvas is empty",
-    "selectAria": "Select layer {{name}}",
-    "typeImage": "Image",
-    "typeFreedraw": "Brush",
-    "typeArrow": "Arrow",
-    "typeText": "Text",
-    "typeVideo": "Video"
+    "place": "Add to canvas",
+    "viewPrompt": "View prompt"
   },
   "cost": {
     "duration": "Took {{duration}}",
     "free": "Free turn, no credits used",
     "spent": "Used",
     "image": "Image",
-    "video": "Video"
+    "video": "Video",
+    "failed": "Turn failed",
+    "noCredits": "No credits used"
   },
   "composer": {
     "placeholder": "Say what you want, @ for canvas or assets",
@@ -52,14 +46,30 @@
     "removeReferenceAria": "Remove reference image {{label}}",
     "abort": "Stop",
     "interject": "Interject",
-    "send": "Send"
+    "send": "Send",
+    "dropHint": "Drop to add as a reference image",
+    "draftLoadingToast": "The draft is still loading. Add images in a moment.",
+    "sendFailedToast": "The message was not sent. Your draft is back in the box, please retry.",
+    "fileInputAria": "Choose reference images",
+    "attachAria": "Add a reference image",
+    "attachTitle": "Add a reference image (you can also drop or paste one)",
+    "sending": "Sending…",
+    "sendAndCreate": "Send and create",
+    "tooManyReferences_one": "At most {{count}} reference image per turn",
+    "tooManyReferences_other": "At most {{count}} reference images per turn"
   },
   "params": {
     "title": "Generation settings",
     "autoSize": "Auto size",
-    "imageCount_one": "{{count}} image",
-    "imageCount_other": "{{count}} images",
-    "note": "Changes apply to the next turn. The running turn keeps the settings it started with."
+    "note": "The agent decides how many images to make. Setting changes apply from the next turn.",
+    "autoRatio": "Auto ratio",
+    "thinkingFast": "Fast",
+    "thinkingMedium": "Balanced",
+    "thinkingDeep": "Deep",
+    "thinkingSummary": "Thinking: {{label}}",
+    "thinkingLegend": "Thinking depth",
+    "closeAria": "Close generation settings",
+    "done": "Done"
   },
   "mentions": {
     "canvasImage": "Canvas {{index}}",
@@ -73,14 +83,70 @@
     "executing": "Running"
   },
   "clarification": {
-    "answered": "Answered"
+    "answered": "Answered",
+    "other": "Other…",
+    "otherAria": "Other answer",
+    "otherPlaceholder": "Tell it what you want"
   },
   "delivery": {
-    "generateFailed": "Generation failed"
+    "generateFailed": "Generation failed",
+    "artifactName": "Creation"
   },
   "error": {
     "turnFailed": "This turn did not finish",
     "rateLimited": "Too many messages. Try again shortly.",
-    "conversationUnreadable": "Could not load this conversation. Try again shortly."
+    "conversationUnreadable": "Could not load the conversation. Please reload.",
+    "conversationGone": "This conversation is no longer available. Your canvas and draft are kept, so you can keep creating.",
+    "invalidSelection": "That selection can't be used. Mark the area again — your draft is kept.",
+    "interjectFailed": "The interjection was not sent. Your draft is kept, please retry.",
+    "canvasBindFailed": "The canvas could not be saved into the new conversation. Please retry — the original canvas and draft are kept.",
+    "turnAlreadyRunning": "A turn is already running in this conversation. The message was not sent and your draft is kept."
+  },
+  "project": {
+    "createFailed": "Could not create the project. Your current work is kept, please retry.",
+    "saveFailed": "Could not save the current project. Your work is kept, please retry.",
+    "deleteBusy": "The project still has a running task. Delete it once that finishes.",
+    "deleteFailed": "Could not delete the project. Please retry."
+  },
+  "draft": {
+    "unreadable": "The draft can't be read or saved right now. Copy your text before refreshing.",
+    "saveFailed": "Could not save the draft. It's still on this page — copy it before refreshing."
+  },
+  "promptDialog": {
+    "title": "Prompt",
+    "closeAria": "Close prompt",
+    "copyFailed": "Copy failed. Select the text and copy it manually.",
+    "copied": "Copied",
+    "bodyAria": "Full prompt",
+    "charCount_one": "{{count}} character",
+    "charCount_other": "{{count}} characters",
+    "saveTemplate": "Save as template",
+    "templateSaveFailed": "Could not save the template. Please retry.",
+    "templateName": "Template name",
+    "templateNamePlaceholder": "Give this prompt a name",
+    "saving": "Saving…",
+    "saveTemplateAction": "Save template"
+  },
+  "creations": {
+    "taskTitle": "Generation task",
+    "importedTitle": "Imported images",
+    "earlierTitle": "Earlier",
+    "locateAria": "Locate {{name}}",
+    "generating": "Generating",
+    "notFinished": "Did not finish",
+    "previewUnavailable": "Preview unavailable",
+    "emptyTitle": "No creations yet",
+    "emptyBody": "Once you generate or import images, they show up here grouped by task.",
+    "itemCount_one": "{{count}} item",
+    "itemCount_other": "{{count}} items",
+    "marks": "Canvas markup",
+    "markText": "Text",
+    "markArrow": "Arrow",
+    "markPen": "Pen"
+  },
+  "history": {
+    "loading": "Loading the conversation…",
+    "failed": "Could not load the conversation. Your project and draft are kept.",
+    "retry": "Reload"
   }
 }

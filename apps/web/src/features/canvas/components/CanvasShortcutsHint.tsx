@@ -9,14 +9,14 @@ const MOD = IS_MAC ? '⌘' : 'Ctrl'
 const COLLAPSED_STORAGE_KEY = 'canvas-shortcuts-collapsed'
 
 /**
- * 快捷键引导：**默认展开**做新手引导，可一键收起（收起后记住，之后默认只剩一颗
+ * 快捷键引导：默认收起，按需查看，可一键收起（收起后记住，之后默认只剩一颗
  * 28px 圆形图标钮）。桌面端专属（移动端无键盘）。
  * 定位由 CanvasMode 的右下角控件栈负责——它和小地图共用一列，自己不占绝对定位，
  * 免得两个都往角上贴、糊在一起。
  */
 export default function CanvasShortcutsHint() {
   const { t } = useTranslation('canvas')
-  const [open, setOpen] = useState(() => localStorage.getItem(COLLAPSED_STORAGE_KEY) !== '1')
+  const [open, setOpen] = useState(() => localStorage.getItem(COLLAPSED_STORAGE_KEY) === '0')
 
   /** 精选最常用的一屏速查，保持面板小巧。 */
   const shortcutRows: Array<{ label: string; keys: string[] }> = [
@@ -43,15 +43,15 @@ export default function CanvasShortcutsHint() {
   return (
     <div className="flex flex-col items-end gap-1.5" onPointerDown={(e) => e.stopPropagation()}>
       {open && (
-        <div className="pointer-events-auto w-52 rounded-xl border border-white/10 bg-gray-900/95 px-2.5 py-2 shadow-xl backdrop-blur">
+        <div className="pointer-events-auto w-52 rounded-xl border border-border bg-sidebar px-2.5 py-2 shadow-xl backdrop-blur">
           {shortcutRows.map((row) => (
             <div key={row.label} className="flex items-center justify-between gap-2 py-[3px]">
-              <span className="text-[11px] text-gray-300">{row.label}</span>
+              <span className="text-[11px] text-foreground">{row.label}</span>
               <span className="flex shrink-0 items-center gap-1">
                 {row.keys.map((key) => (
                   <kbd
                     key={key}
-                    className="rounded border border-white/10 bg-white/[0.06] px-1 py-px font-mono text-[10px] leading-none text-gray-300"
+                    className="rounded border border-border bg-muted px-1 py-px font-mono text-[10px] leading-none text-foreground"
                   >
                     {key}
                   </kbd>
@@ -66,8 +66,8 @@ export default function CanvasShortcutsHint() {
         onClick={toggle}
         className={`pointer-events-auto flex h-7 w-7 items-center justify-center rounded-full border shadow-lg backdrop-blur transition-colors ${
           open
-            ? 'border-blue-500/40 bg-blue-500/15 text-blue-300'
-            : 'border-white/10 bg-gray-900/90 text-gray-500 hover:text-gray-200'
+            ? 'border-primary/40 bg-primary/15 text-primary'
+            : 'border-border bg-sidebar text-muted-foreground hover:text-foreground'
         }`}
         title={open ? t('shortcuts.collapse') : t('shortcuts.expand')}
         aria-label={t('shortcuts.title')}

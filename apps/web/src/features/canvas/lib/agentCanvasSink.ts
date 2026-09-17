@@ -1,14 +1,16 @@
+import { i18next } from '../../../i18n'
 import type { AgentCanvasSink, AgentPlaceOutcome } from '../../agent/lib/canvasSink'
 import type { CanvasEditor } from './editor'
 import { markPlaceholderStatus, placeImagesIntoTargets } from './placeholderShapeOps'
 import { computePlaceholderTargets, type PlacementTarget } from './placement'
+import { recoverVideoPoster } from './recoverVideoPoster'
 
 /** 结果卡缩略图的缩放比。画布对象通常 360 页面单位宽，缩到面板里够看。 */
 const THUMBNAIL_SCALE = 0.25
 
 export function createAgentCanvasSink(
   editor: CanvasEditor,
-  ready?: Promise<unknown>,
+  ready?: Promise<unknown> | (() => Promise<unknown>),
 ): AgentCanvasSink {
   // 面板折叠一次、切一次页签，每张卡都会重新问一遍缩略图；栅格化不便宜，存下来。
   const thumbnails = new Map<string, string>()
@@ -17,25 +19,35 @@ export function createAgentCanvasSink(
     anchorObjectId ? (editor.getElementPageBounds(anchorObjectId) ?? null) : null
 
   return {
-    ready,
+    get ready() {
+      return typeof ready === 'function' ? ready() : ready
+    },
     has: (objectId) => editor.getElement(objectId) !== undefined,
 
     revision: () => editor.editRevision(),
 
-    async reserve({ count, anchorObjectId }) {
-      if (ready) await ready
+    async reserve({ count, anchorObjectId, title, messageId }) {
+      if (ready) await (typeof ready === 'function' ? ready() : ready)
       if (count <= 0) return []
+      if (messageId) {
+        const existing = editor
+          .getPlaceholders()
+          .filter((one) => one.meta.agentMessageId === messageId)
+        if (existing.length) return existing.map((one) => one.id)
+      }
       // history: false —— 智能体的占位框不是用户编辑，抬了 editRevision 它会判自己冲突。
+      const groupId = crypto.randomUUID()
       const ids = computePlaceholderTargets(editor, anchorBounds(anchorObjectId), count).map(
         (target) =>
           editor.createPlaceholder(
             target,
             {
               taskId: '',
-              clientRequestId: '',
+              clientRequestId: groupId,
               source: 'builtin-edge',
-              prompt: '',
+              prompt: title ?? '',
               agent: true,
+              agentMessageId: messageId,
             },
             { history: false },
           ),
@@ -54,7 +66,7 @@ export function createAgentCanvasSink(
     },
 
     async place(artifacts, options) {
-      if (ready) await ready
+      if (ready) await (typeof ready === 'function' ? ready() : ready)
       let outcome: AgentPlaceOutcome = 'placed'
       const canPlace = () => {
         const base = options?.baseRevision
@@ -85,10 +97,19 @@ export function createAgentCanvasSink(
         missing.map((artifact) => ({
           dataUrl: artifact.dataUrl,
           id: artifact.artifactId,
+          groupId: artifact.taskId,
+          name: artifact.name,
           ...(artifact.video ? { video: artifact.video } : {}),
         })),
         targets,
-        { canPlace },
+        {
+          canPlace,
+          meta: {
+            prompt:
+              missing[0]?.name?.replace(/\s+\d+$/, '') ||
+              i18next.t('creations.taskTitle', { ns: 'agent' }),
+          },
+        },
       )
       // 落图成功才收占位框：中途被判冲突时它得留着，用户点「放入画布」还认得这个位置。
       if (outcome === 'placed') {
@@ -105,11 +126,14 @@ export function createAgentCanvasSink(
     },
 
     async thumbnail(objectId) {
-      if (ready) await ready
-      const cached = thumbnails.get(objectId)
+      if (ready) await (typeof ready === 'function' ? ready() : ready)
+      await recoverVideoPoster(editor, objectId)
+      const element = editor.getElement(objectId)
+      const cacheKey = element?.type === 'image' ? `${objectId}:${element.fileId}` : objectId
+      const cached = thumbnails.get(cacheKey)
       if (cached) return cached
       const rendered = await editor.toImage([objectId], { scale: THUMBNAIL_SCALE })
-      if (rendered) thumbnails.set(objectId, rendered)
+      if (rendered) thumbnails.set(cacheKey, rendered)
       return rendered
     },
   }

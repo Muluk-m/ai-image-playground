@@ -113,6 +113,27 @@
       "when": 1789385488738,
       "tag": "0016_agent_turn_summaries",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1789527085982,
+      "tag": "0017_agent_model_calls",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1789559506053,
+      "tag": "0018_cloud_projects",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1789563144507,
+      "tag": "0019_domain_migration",
+      "breakpoints": true
     }
   ]
 }

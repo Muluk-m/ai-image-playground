@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import DropOverlay from '../../../components/DropOverlay'
 import { CloseIcon, LibraryIcon } from '../../../components/icons'
@@ -6,6 +6,8 @@ import Overlay from '../../../components/Overlay'
 import { useImageDropZone } from '../../../hooks/useImageDropZone'
 import { usePasteImageFiles } from '../../../hooks/usePasteImageFiles'
 import { useTranslation } from '../../../i18n'
+import ProjectGrid from '../../canvas/components/ProjectGrid'
+import { useCanvasProjectStore } from '../../canvas/projectStore'
 import {
   type LibraryTab,
   selectVisibleAssets,
@@ -18,7 +20,11 @@ import NewAssetButton from './NewAssetButton'
 import TemplateCard from './TemplateCard'
 import TemplateDetail from './TemplateDetail'
 
-const TABS: Array<{ id: LibraryTab; labelKey: 'panel.tabAssets' | 'panel.tabTemplates' }> = [
+const TABS: Array<{
+  id: LibraryTab
+  labelKey: 'panel.tabProjects' | 'panel.tabAssets' | 'panel.tabTemplates'
+}> = [
+  { id: 'projects', labelKey: 'panel.tabProjects' },
   { id: 'assets', labelKey: 'panel.tabAssets' },
   { id: 'templates', labelKey: 'panel.tabTemplates' },
 ]
@@ -37,13 +43,28 @@ export default function LibraryPanel() {
   const templateCount = useLibraryStore((s) => s.templates.length)
   const importAssetFiles = useLibraryStore((s) => s.importAssetFiles)
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const saveAssets = (files: File[]) => void importAssetFiles(files)
+  const projects = useCanvasProjectStore((state) => state.projects)
+  const projectError = useCanvasProjectStore((state) => state.error)
+  useEffect(() => {
+    if (panelOpen)
+      void useCanvasProjectStore
+        .getState()
+        .load()
+        .catch(() => {})
+  }, [panelOpen])
+  const saveAssets = (files: File[]) => {
+    if (panelOpen && tab === 'assets') void importAssetFiles(files)
+  }
   const { dragging, dropZoneProps } = useImageDropZone(saveAssets)
   usePasteImageFiles('library', saveAssets)
 
   if (!panelOpen) return null
 
-  const counts: Record<LibraryTab, number> = { assets: assetCount, templates: templateCount }
+  const counts: Record<LibraryTab, number> = {
+    projects: projects.length,
+    assets: assetCount,
+    templates: templateCount,
+  }
   const openFilePicker = () => fileInputRef.current?.click()
 
   const renderAssets = () => {
@@ -75,11 +96,11 @@ export default function LibraryPanel() {
   }
 
   return (
-    <Overlay onClose={closePanel} tier="modal">
-      <div className="relative z-10 flex h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-3xl border border-white/50 bg-white/95 shadow-2xl ring-1 ring-black/5 animate-modal-in sm:h-[680px] dark:border-white/[0.08] dark:bg-gray-900/95 dark:ring-white/10">
-        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-gray-100 p-5 dark:border-white/[0.08]">
-          <h3 className="flex shrink-0 items-center gap-2 text-lg font-bold text-gray-800 dark:text-gray-100">
-            <LibraryIcon className="h-5 w-5 text-blue-500" />
+    <Overlay onClose={closePanel} tier="modal" layout="fill" backdrop="none">
+      <div className="relative z-10 flex h-dvh w-full flex-col overflow-hidden bg-background text-foreground">
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-5 py-5 sm:px-10">
+          <h3 className="flex shrink-0 items-center gap-2 text-lg font-bold text-foreground">
+            <LibraryIcon className="h-5 w-5 text-primary" />
             {t('panel.title')}
           </h3>
 
@@ -89,23 +110,27 @@ export default function LibraryPanel() {
               value={searchKeyword}
               onChange={(e) => setSearch(e.target.value)}
               placeholder={
-                tab === 'templates' ? t('panel.searchTemplates') : t('panel.searchAssets')
+                tab === 'projects'
+                  ? t('panel.searchProjects')
+                  : tab === 'templates'
+                    ? t('panel.searchTemplates')
+                    : t('panel.searchAssets')
               }
-              className="w-full rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-800 placeholder:text-gray-400 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100 dark:border-white/[0.08] dark:bg-white/[0.04] dark:text-gray-100 dark:focus:border-blue-500/50 dark:focus:ring-blue-500/15"
+              className="w-full rounded-lg border border-border bg-card px-3 py-1.5 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-ring"
             />
           </div>
 
           <button
             type="button"
             onClick={closePanel}
-            className="shrink-0 rounded-full p-1 text-gray-400 transition hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-white/[0.06] dark:hover:text-gray-200"
+            className="shrink-0 rounded-full p-1 text-muted-foreground transition hover:bg-muted hover:text-muted-foreground"
             aria-label={t('common:action.close')}
           >
             <CloseIcon className="h-5 w-5" />
           </button>
         </div>
 
-        <div className="flex shrink-0 items-center gap-1 border-b border-gray-100 px-5 py-2 dark:border-white/[0.08]">
+        <div className="flex shrink-0 items-center gap-2 px-5 py-5 sm:px-10">
           {TABS.map(({ id, labelKey }) => (
             <button
               key={id}
@@ -114,15 +139,13 @@ export default function LibraryPanel() {
               aria-pressed={tab === id}
               className={`rounded-lg px-3 py-1.5 text-sm transition ${
                 tab === id
-                  ? 'bg-blue-500/10 font-medium text-blue-700 dark:bg-blue-500/15 dark:text-blue-300'
-                  : 'text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-white/[0.04]'
+                  ? 'bg-primary/10 font-medium text-primary'
+                  : 'text-muted-foreground hover:bg-muted'
               }`}
             >
               {t(labelKey)}
               {counts[id] > 0 && (
-                <span className="ml-1.5 text-xs text-gray-400 dark:text-gray-500">
-                  {counts[id]}
-                </span>
+                <span className="ml-1.5 text-xs text-muted-foreground">{counts[id]}</span>
               )}
             </button>
           ))}
@@ -145,7 +168,29 @@ export default function LibraryPanel() {
           )}
         </div>
 
-        {tab === 'templates' ? (
+        {tab === 'projects' ? (
+          <div className="custom-scrollbar min-h-0 flex-1 overflow-y-auto px-5 pb-10 sm:px-10">
+            {projectError ? (
+              <div role="alert" className="py-10 text-sm text-muted-foreground">
+                {projectError}
+                <button
+                  type="button"
+                  className="ml-3 text-primary underline"
+                  onClick={() =>
+                    void useCanvasProjectStore
+                      .getState()
+                      .load()
+                      .catch(() => {})
+                  }
+                >
+                  {t('panel.reloadProjects')}
+                </button>
+              </div>
+            ) : (
+              <ProjectGrid search={searchKeyword} />
+            )}
+          </div>
+        ) : tab === 'templates' ? (
           <div className="custom-scrollbar min-h-0 flex-1 overflow-y-auto p-5">
             {renderTemplates()}
           </div>

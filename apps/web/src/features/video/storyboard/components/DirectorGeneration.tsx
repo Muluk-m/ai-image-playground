@@ -1,18 +1,28 @@
 import {
   VIDEO_RESOLUTION_LABELS,
+  videoDurationsForResolution,
   videoPromptRejection,
   videoRateMultiplier,
   videoRequestRejection,
 } from '@image-playground/shared'
 import { useState } from 'react'
 import Credits from '../../../../components/Credits'
+import Field from '../../../../components/Field'
 import SubmissionBillingAction from '../../../../components/SubmissionBillingAction'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../../../../components/ui/select'
 import { describeError, useTranslation } from '../../../../i18n'
 import { videoModelOptions } from '../../../../lib/channels/videoChannels'
 import { usePrivateSubmissionGuard } from '../../../../lib/privateOverlay'
 import { useStore } from '../../../../store'
 import { videoRejectionText } from '../../lib/labels'
 import { useVideoStore } from '../../store'
+import { promptAtDuration } from '../lib/director'
 import { useStoryboardStore, wholeVideoFrameId } from '../store'
 import type { StoryboardRecord, StoryboardShotRecord } from '../types'
 
@@ -33,14 +43,26 @@ export default function DirectorGeneration({
 }) {
   const { t } = useTranslation('video')
   const [scope, setScope] = useState(initialScope)
+  const [selectedSeconds, setSelectedSeconds] = useState<number | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const draft = useVideoStore((s) => s.draft)
   const saveState = useStoryboardStore((s) => s.saveStates[record.id])
   const options = videoModelOptions()
   const option = options.find((item) => item.modelId === draft.model)
-  const seconds = scope === 'shot' ? (shot?.seconds ?? 0) : record.totalSeconds
+  const sourceSeconds = scope === 'shot' ? (shot?.seconds ?? 0) : record.totalSeconds
+  const durations = option ? videoDurationsForResolution(option.support, draft.resolution) : []
+  const preferredSeconds = selectedSeconds ?? sourceSeconds
+  const seconds = durations.reduce<number>(
+    (nearest, value) =>
+      Math.abs(value - preferredSeconds) < Math.abs(nearest - preferredSeconds) ? value : nearest,
+    durations[0] ?? sourceSeconds,
+  )
   const imageId = scope === 'shot' ? shot?.imageId : wholeVideoFrameId(record)
-  const prompt = scope === 'shot' ? (shot?.videoPrompt ?? '') : record.videoPrompt
+  const prompt = promptAtDuration(
+    scope === 'shot' ? (shot?.videoPrompt ?? '') : record.videoPrompt,
+    sourceSeconds,
+    seconds,
+  )
   const requestRejection = videoRequestRejection(
     draft.model,
     {
@@ -71,8 +93,8 @@ export default function DirectorGeneration({
     try {
       const taskId =
         scope === 'shot' && shot
-          ? await useStoryboardStore.getState().generateShotVideo(record.id, shot.no)
-          : await useStoryboardStore.getState().generateWholeVideo(record.id)
+          ? await useStoryboardStore.getState().generateShotVideo(record.id, shot.no, seconds)
+          : await useStoryboardStore.getState().generateWholeVideo(record.id, seconds)
       if (taskId) onSubmitted()
     } catch (error) {
       useStore
@@ -101,49 +123,86 @@ export default function DirectorGeneration({
         </button>
       </div>
       <div className="vd-stack" role="group" aria-label={t('generation.scopeLabel')}>
-        <button type="button" aria-pressed={scope === 'whole'} onClick={() => setScope('whole')}>
+        <button
+          type="button"
+          aria-pressed={scope === 'whole'}
+          onClick={() => {
+            setScope('whole')
+            setSelectedSeconds(null)
+          }}
+        >
           {t('generation.wholeScope', { seconds: record.totalSeconds })}
         </button>
         <button
           type="button"
           disabled={!shot}
           aria-pressed={scope === 'shot'}
-          onClick={() => setScope('shot')}
+          onClick={() => {
+            setScope('shot')
+            setSelectedSeconds(null)
+          }}
         >
           {t('generation.shotScope', { seconds: shot?.seconds ?? 0 })}
         </button>
       </div>
-      <label>
-        {t('generation.modelLabel')}
-        <select
-          aria-label={t('generation.modelAria')}
+      <Field label={t('generation.modelLabel')}>
+        <Select
           value={draft.model}
-          onChange={(e) => useVideoStore.getState().setModel(e.target.value)}
+          onValueChange={(value) => useVideoStore.getState().setModel(value)}
         >
-          {!option && <option value="">{t('generation.selectModel')}</option>}
-          {options.map((item) => (
-            <option key={item.modelId} value={item.modelId}>
-              {item.label}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label>
-        {t('field.resolution')}
-        <select
-          aria-label={t('generation.resolutionAria')}
+          <SelectTrigger aria-label={t('generation.modelAria')} className="text-foreground">
+            <SelectValue placeholder={t('generation.selectModel')} />
+          </SelectTrigger>
+          <SelectContent>
+            {options.map((item) => (
+              <SelectItem key={item.modelId} value={item.modelId}>
+                {item.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </Field>
+      <Field label={t('field.resolution')}>
+        <Select
           value={draft.resolution}
-          onChange={(e) =>
-            useVideoStore.getState().setResolution(e.target.value as typeof draft.resolution)
+          onValueChange={(value) =>
+            useVideoStore.getState().setResolution(value as typeof draft.resolution)
           }
         >
-          {option?.support.resolutions.map((r) => (
-            <option key={r} value={r}>
-              {VIDEO_RESOLUTION_LABELS[r]}
-            </option>
-          ))}
-        </select>
-      </label>
+          <SelectTrigger aria-label={t('generation.resolutionAria')} className="text-foreground">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {option?.support.resolutions.map((r) => (
+              <SelectItem key={r} value={r}>
+                {VIDEO_RESOLUTION_LABELS[r]}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </Field>
+      <Field label={t('generation.durationLabel')}>
+        <Select
+          value={String(seconds)}
+          onValueChange={(value) => setSelectedSeconds(Number(value))}
+        >
+          <SelectTrigger aria-label={t('generation.durationAria')} className="text-foreground">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {durations.map((duration) => (
+              <SelectItem key={duration} value={String(duration)}>
+                {t('shared.seconds', { seconds: duration })}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </Field>
+      {seconds !== sourceSeconds && (
+        <p className="vd-muted">
+          {t('generation.durationAdjusted', { source: sourceSeconds, target: seconds })}
+        </p>
+      )}
       <p className="vd-muted">
         {t('generation.hint', {
           aspect: record.aspectRatio,

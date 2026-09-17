@@ -44,7 +44,7 @@ export default function ProductAssetPicker({
         >
           {uploadLabel}
         </button>
-        <span className="text-xs text-gray-400 dark:text-gray-500">
+        <span className="text-xs text-muted-foreground">
           {t('picker.selectedCount', { count: selected.length })}
         </span>
         <input
@@ -62,7 +62,7 @@ export default function ProductAssetPicker({
       </div>
 
       {assets.length === 0 ? (
-        <p className="text-sm text-gray-500 dark:text-gray-400">{t('picker.empty')}</p>
+        <p className="text-sm text-muted-foreground">{t('picker.empty')}</p>
       ) : (
         <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           {assets.map((asset) => {
@@ -75,14 +75,14 @@ export default function ProductAssetPicker({
                   aria-pressed={angle !== null}
                   className={`overflow-hidden rounded-xl border transition ${
                     angle !== null
-                      ? 'border-blue-400 ring-2 ring-blue-400/30'
-                      : 'border-gray-200 hover:border-blue-300 dark:border-white/[0.08]'
+                      ? 'border-primary ring-2 ring-ring/30'
+                      : 'border-border hover:border-primary'
                   }`}
                 >
                   <span className="block aspect-square">
                     <AssetThumb imageId={asset.imageId} alt={asset.name} />
                   </span>
-                  <span className="block truncate px-2 py-1 text-xs text-gray-700 dark:text-gray-200">
+                  <span className="block truncate px-2 py-1 text-xs text-foreground">
                     {asset.name}
                   </span>
                 </button>

@@ -2,12 +2,11 @@ import { OAUTH_LINK_ERROR_QUERY_PARAM, OAUTH_LINK_QUERY_PARAM } from '@image-pla
 import { useEffect, useRef, useState } from 'react'
 import { useAuth } from '../auth/AuthContext'
 import { LoginMethodsPanel } from '../auth/LoginMethodsPanel'
-import InspirationCoach from '../features/inspiration/components/InspirationCoach'
 import { useInspirationStore } from '../features/inspiration/store'
-import LibraryCoach, { useLibraryCoach } from '../features/library/components/LibraryCoach'
 import { useLibraryStore } from '../features/library/store'
+import { useWorkspaceViewport } from '../hooks/useMobileWorkspace'
 import { useTooltip } from '../hooks/useTooltip'
-import { useTranslation } from '../i18n'
+import { BRAND_WORDMARK, brandNeedsWordmark, useTranslation } from '../i18n'
 import {
   PrivateWebHeaderAccountActions,
   PrivateWebHeaderCreditAction,
@@ -16,12 +15,15 @@ import {
 import { useSyncStatus } from '../lib/sync/status'
 import { dismissAllTooltips } from '../lib/tooltipDismiss'
 import { APP_MODE_LABELS, useStore, visibleAppModes } from '../store'
+import BrandAvatar from './BrandAvatar'
+import DisplaySettingsMenuItems from './DisplaySettingsMenuItems'
 import { LibraryIcon, SettingsIcon, SparkleIcon } from './icons'
 import LogoutDialog from './LogoutDialog'
 import ViewportTooltip from './ViewportTooltip'
 
 export default function Header() {
   const { t } = useTranslation('shell')
+  useWorkspaceViewport()
   const setShowSettings = useStore((s) => s.setShowSettings)
   const appMode = useStore((s) => s.appMode)
   const setAppMode = useStore((s) => s.setAppMode)
@@ -34,16 +36,10 @@ export default function Header() {
 
   const openInspiration = useInspirationStore((s) => s.openPanel)
   const openLibrary = useLibraryStore((s) => s.openPanel)
-  const dismissInspirationCoach = useStore((s) => s.dismissInspirationCoach)
-  const inspirationCoachActive = useStore(
-    (s) => !s.inspirationCoachDismissed && s.tasks.length === 0,
-  )
-  const { active: libraryCoachActive, dismiss: dismissLibraryCoach } = useLibraryCoach()
   const inspirationTooltip = useTooltip()
   const libraryTooltip = useTooltip()
   const syncPending = useSyncStatus((s) => s.enabled && (s.pending > 0 || s.status === 'error'))
   // 中文品牌名后面还跟一个拉丁字标；英文里字标就是品牌名本身，没有第二段可跟。
-  const brandWordmark = t('header.brandWordmark')
 
   // 绑定回跳只回到工作台，面板得靠回跳参数自己重开。
   useEffect(() => {
@@ -82,15 +78,15 @@ export default function Header() {
     <>
       <header
         data-no-drag-select
-        className="safe-area-top fixed top-0 left-0 right-0 z-40 bg-white/90 dark:bg-gray-950/90 backdrop-blur border-b border-gray-200 dark:border-white/[0.08]"
+        className="studio-header safe-area-top fixed top-0 left-0 right-0 z-40 border-b"
       >
-        <div className="safe-area-x safe-header-inner max-w-7xl mx-auto grid grid-cols-[minmax(0,1fr)_auto] grid-rows-[3.5rem_2.5rem] items-center gap-x-4 lg:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] lg:grid-rows-[4rem]">
-          <h1 className="min-w-0">
+        <div className="safe-area-x safe-header-inner w-full flex items-center gap-2 sm:gap-4">
+          <h1 className="min-w-0 shrink-0">
             <button
               type="button"
-              onClick={() => setAppMode('browse')}
+              onClick={() => setAppMode('create')}
               aria-label={t('header.homeAria')}
-              className="inline-flex max-w-full items-center gap-2.5 rounded-lg font-display text-[18px] font-medium tracking-wide text-gray-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:text-gray-50"
+              className="flex max-w-full items-center gap-2.5 rounded-lg font-display text-[18px] font-medium tracking-wide text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <img
                 src="/brand/muvloom-icon.svg"
@@ -101,25 +97,25 @@ export default function Header() {
               />
               <span className="truncate">
                 {t('header.brandName')}
-                {brandWordmark ? (
-                  <span className="ml-2 hidden sm:inline">{brandWordmark}</span>
+                {brandNeedsWordmark() ? (
+                  <span className="ml-2 hidden sm:inline">{BRAND_WORDMARK}</span>
                 ) : null}
               </span>
             </button>
           </h1>
           <nav
             aria-label={t('header.nav')}
-            className="col-span-2 row-start-2 mb-2 flex items-center justify-self-center gap-0.5 rounded-xl bg-gray-100/80 p-1 dark:bg-white/[0.04] lg:col-span-1 lg:col-start-2 lg:row-start-1 lg:mb-0"
+            className="studio-main-nav flex items-center gap-0.5 rounded-lg bg-muted p-1 sm:ml-4"
           >
             {visibleAppModes().map((mode) => (
               <button
                 key={mode}
                 type="button"
                 onClick={() => setAppMode(mode)}
-                className={`h-8 px-3 text-[13px] font-medium rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
+                className={`h-8 px-2 sm:px-3 text-[13px] font-medium rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
                   appMode === mode
-                    ? 'bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-50 shadow-sm'
-                    : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+                    ? 'bg-card text-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground'
                 }`}
                 aria-pressed={appMode === mode}
               >
@@ -127,47 +123,43 @@ export default function Header() {
               </button>
             ))}
           </nav>
-          <div className="col-start-2 row-start-1 flex items-center gap-1 justify-self-end lg:col-start-3">
+          <div className="ml-auto flex shrink-0 items-center gap-1">
             <div className="relative" {...inspirationTooltip.handlers}>
               <button
                 type="button"
                 onClick={() => {
                   dismissAllTooltips()
-                  dismissInspirationCoach()
                   openInspiration()
                 }}
-                className={`grid h-9 w-9 place-items-center rounded-lg hover:bg-gray-100 dark:hover:bg-gray-900 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${inspirationCoachActive ? 'animate-coach-pulse' : ''}`}
+                className="grid h-9 w-9 place-items-center rounded-lg hover:bg-muted transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 aria-label={t('header.inspiration')}
               >
-                <SparkleIcon
-                  className={`h-[18px] w-[18px] ${inspirationCoachActive ? 'text-blue-500' : 'text-gray-600 dark:text-gray-400'}`}
-                />
+                <SparkleIcon className={`h-[18px] w-[18px] text-muted-foreground`} />
               </button>
               <ViewportTooltip visible={inspirationTooltip.visible} className="whitespace-nowrap">
                 {t('header.inspiration')}
               </ViewportTooltip>
-              {inspirationCoachActive && <InspirationCoach />}
             </div>
             <div className="relative" {...libraryTooltip.handlers}>
               <button
                 type="button"
                 onClick={() => {
                   dismissAllTooltips()
-                  openLibrary()
+                  openLibrary('projects')
                 }}
-                className={`grid h-9 w-9 place-items-center rounded-lg hover:bg-gray-100 dark:hover:bg-gray-900 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${libraryCoachActive ? 'animate-coach-pulse' : ''}`}
+                className="flex h-9 items-center gap-2 px-2.5 rounded-lg hover:bg-muted transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 aria-label={t('header.library')}
               >
-                <LibraryIcon
-                  className={`h-[18px] w-[18px] ${libraryCoachActive ? 'text-blue-500' : 'text-gray-600 dark:text-gray-400'}`}
-                />
+                <LibraryIcon className={`h-[18px] w-[18px] text-muted-foreground`} />
+                <span className="hidden text-xs text-muted-foreground sm:inline">
+                  {t('header.library')}
+                </span>
               </button>
               <ViewportTooltip visible={libraryTooltip.visible} className="whitespace-nowrap">
                 {t('header.library')}
               </ViewportTooltip>
-              {libraryCoachActive && <LibraryCoach onDismiss={dismissLibraryCoach} />}
             </div>
-            <div className="ml-2 flex items-center gap-2 border-l border-gray-200 pl-3 dark:border-white/[0.08]">
+            <div className="ml-2 flex items-center gap-2 border-l border-border pl-3">
               <PrivateWebHeaderCreditAction />
               <PrivateWebHeaderAccountActions
                 username={auth.user?.username ?? null}
@@ -183,10 +175,10 @@ export default function Header() {
                     onClick={() => setAccountMenuOpen((open) => !open)}
                     aria-label={auth.user ? t('header.accountMenu') : t('header.appMenu')}
                     aria-expanded={accountMenuOpen}
-                    className="relative grid h-8 w-8 place-items-center rounded-full bg-gradient-to-br from-blue-500 to-violet-600 text-xs font-semibold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+                    className="relative grid h-8 w-8 place-items-center rounded-full bg-primary text-xs font-semibold text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                   >
                     {auth.user ? (
-                      Array.from(auth.user.username)[0]?.toUpperCase()
+                      <BrandAvatar />
                     ) : (
                       <SettingsIcon className="h-4 w-4" aria-hidden="true" />
                     )}
@@ -194,21 +186,25 @@ export default function Header() {
                       <span
                         role="img"
                         aria-label={t('header.unsynced')}
-                        className="absolute right-0 top-0 h-2 w-2 rounded-full bg-amber-500 ring-2 ring-white dark:ring-gray-950"
+                        className="absolute right-0 top-0 h-2 w-2 rounded-full bg-warning ring-2 ring-white dark:ring-border"
                       />
                     ) : null}
                   </button>
                   {accountMenuOpen ? (
-                    <div className="absolute right-0 top-[calc(100%+0.75rem)] z-50 w-56 max-w-[calc(100vw-2rem)] rounded-xl border border-gray-200 bg-white p-1.5 text-sm shadow-xl dark:border-white/10 dark:bg-gray-900">
+                    <div className="absolute right-0 top-[calc(100%+0.75rem)] z-50 w-56 max-w-[calc(100vw-2rem)] rounded-xl border border-border bg-card p-1.5 text-sm shadow-xl">
                       {auth.user ? (
-                        <div className="truncate px-3 py-2 font-medium text-gray-900 dark:text-gray-100">
+                        <div className="truncate px-3 py-2 font-medium text-foreground">
                           {auth.user.username}
                         </div>
                       ) : null}
+                      <DisplaySettingsMenuItems
+                        itemClassName="flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-muted-foreground hover:bg-muted"
+                        iconClassName="h-[18px] w-[18px]"
+                      />
                       <button
                         type="button"
                         onClick={openSettings}
-                        className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-white/[0.06]"
+                        className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-muted-foreground hover:bg-muted"
                       >
                         <SettingsIcon className="h-[18px] w-[18px]" aria-hidden="true" />
                         <span>{t('header.settings')}</span>
@@ -216,7 +212,7 @@ export default function Header() {
                           <span
                             role="img"
                             aria-label={t('header.unsynced')}
-                            className="ml-auto h-1.5 w-1.5 rounded-full bg-amber-500"
+                            className="ml-auto h-1.5 w-1.5 rounded-full bg-warning"
                           />
                         ) : null}
                       </button>
@@ -228,7 +224,7 @@ export default function Header() {
                               setAccountMenuOpen(false)
                               setLoginMethodsOpen(true)
                             }}
-                            className="block w-full rounded-lg px-3 py-2.5 text-left text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-white/[0.06]"
+                            className="block w-full rounded-lg px-3 py-2.5 text-left text-muted-foreground hover:bg-muted"
                           >
                             {t('header.loginMethods')}
                           </button>
@@ -239,7 +235,7 @@ export default function Header() {
                               setAccountMenuOpen(false)
                               setLogoutOpen(true)
                             }}
-                            className="block w-full rounded-lg px-3 py-2.5 text-left text-gray-600 hover:bg-gray-100 disabled:cursor-wait disabled:opacity-50 dark:text-gray-300 dark:hover:bg-white/[0.06]"
+                            className="block w-full rounded-lg px-3 py-2.5 text-left text-muted-foreground hover:bg-muted disabled:cursor-wait disabled:opacity-50"
                           >
                             {loggingOut ? t('header.loggingOut') : t('logout.title')}
                           </button>

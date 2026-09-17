@@ -11,6 +11,7 @@ export const SYNC_CHECKPOINT_KEY = 'image-playground-sync'
 
 /** 当前智能体会话的 id。 */
 export const AGENT_CONVERSATION_KEY = 'image-playground.agent_conversation_id'
+export const CANVAS_PROJECT_KEY = 'image-playground.canvas_project_id'
 
 /**
  * 走 scopedLocalStorage 的全部 key。登录后认领匿名历史要照着它搬，
@@ -20,6 +21,7 @@ export const SCOPED_LOCAL_STORAGE_KEYS = [
   STORE_PERSIST_KEY,
   SYNC_CHECKPOINT_KEY,
   AGENT_CONVERSATION_KEY,
+  CANVAS_PROJECT_KEY,
 ]
 
 /**
@@ -35,6 +37,10 @@ export function setClientStorageScope(userId: string | null): void {
 
 export function scopedStorageName(baseName: string): string {
   return currentScope === ANONYMOUS_SCOPE ? baseName : `${baseName}:${currentScope}`
+}
+
+export function isUserStorageScope(): boolean {
+  return currentScope !== ANONYMOUS_SCOPE
 }
 
 interface SyncStorage {

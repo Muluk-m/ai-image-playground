@@ -1,6 +1,8 @@
-import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test'
+import { afterAll, afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test'
 import { resolve } from 'node:path'
+import { Agent } from '@earendil-works/pi-agent-core'
 import { resetTestDatabase } from '@image-playground/db/testing'
+import { sql } from 'drizzle-orm'
 import { Elysia } from 'elysia'
 import { _setPrivateBffOverlayForTesting } from '../../lib/private-overlay'
 import {
@@ -13,6 +15,8 @@ import {
   type ReceivedFrame,
   readFrames,
   recordingAgentFetch,
+  scriptedAgentFetch,
+  toolCallCompletion,
 } from '../helpers/agentStubs'
 import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
 import { installRecordingTaskHooks } from '../helpers/privateOverlayStub'
@@ -214,6 +218,11 @@ describe('对话轮的预扣', () => {
       (await db.select().from(schema.tasks)).find((task) => task.id === failedTurnId)?.status,
     ).toBe('failed')
     expect(calls).toHaveLength(1)
+    expect((await db.select().from(schema.agent_model_calls))[0]).toMatchObject({
+      input_image_count: 1,
+      user_id: USER_ID,
+      device_id: DEVICE,
+    })
   })
 
   it('对话模型没有有效单价时拒绝起轮', async () => {
@@ -242,6 +251,142 @@ describe('对话轮的预扣', () => {
 })
 
 describe('对话轮的结算', () => {
+  it('逐次保存工具循环用量，以原轮和调用身份结算', async () => {
+    setAgentFetchForTesting(
+      scriptedAgentFetch(
+        [],
+        [
+          () => toolCallCompletion({ id: 'lookup-1', name: 'readLibrary', args: {} }),
+          () => completionStream('没有匹配素材，可以上传一张'),
+        ],
+      ),
+    )
+    const conversationId = await startConversation()
+    const { frames } = await runTurn(conversationId, '查找杯子素材')
+    const turnId = turnIdOf(frames)
+
+    expect(frames.at(-1)?.event).toMatchObject({
+      type: 'turnEnd',
+      usage: { inputTokens: 24, outputTokens: 8 },
+    })
+    expect(settlements[0]).toMatchObject({
+      taskId: turnId,
+      upstreamInvocationCount: 2,
+      actualUsage: { tokens: { input: 24, output: 8 } },
+    })
+    const records = await db.execute(sql`
+      SELECT * FROM agent_model_calls WHERE conversation_id = ${conversationId}
+      ORDER BY started_at, id
+    `)
+    expect(records).toHaveLength(2)
+    expect(new Set(records.map((row) => row.id)).size).toBe(2)
+    for (const record of records) {
+      expect(record).toMatchObject({
+        conversation_id: conversationId,
+        turn_id: turnId,
+        user_id: USER_ID,
+        device_id: DEVICE,
+        purpose: 'conversation',
+        status: 'completed',
+        usage: { inputTokens: 12, outputTokens: 4 },
+      })
+    }
+    expect(records[0]?.tool_calls).toEqual([{ id: 'lookup-1', name: 'readLibrary' }])
+  })
+
+  it('运行时淘汰消息且重复报告完成时，不漏计也不重复计费', async () => {
+    const subscribe = Agent.prototype.subscribe
+    let evicted = 0
+    // 在第三方运行时边界注入重复完成和工作集淘汰，HTTP 入口与结算链路保持真实。
+    const runtime = spyOn(Agent.prototype, 'subscribe').mockImplementation(function (
+      this: Agent,
+      listener,
+    ) {
+      return subscribe.call(this, async (event, signal) => {
+        await listener(event, signal)
+        if (event.type === 'message_end' && event.message.role === 'assistant') {
+          await listener(event, signal)
+          this.state.messages = []
+          evicted += 1
+        }
+      })
+    })
+    try {
+      setAgentFetchForTesting(
+        scriptedAgentFetch(
+          [],
+          [
+            () => toolCallCompletion({ id: 'lookup-evict', name: 'readLibrary', args: {} }),
+            () => completionStream('查完了'),
+          ],
+        ),
+      )
+      const conversationId = await startConversation()
+      const { frames } = await runTurn(conversationId, '查一下素材')
+      expect(evicted).toBe(2)
+      expect(frames.at(-1)?.event).toMatchObject({
+        type: 'turnEnd',
+        usage: { inputTokens: 24, outputTokens: 8 },
+      })
+      expect(settlements).toHaveLength(1)
+      expect(settlements[0]).toMatchObject({
+        upstreamInvocationCount: 2,
+        actualUsage: { tokens: { input: 24, output: 8 } },
+      })
+      expect(await db.select().from(schema.agent_model_calls)).toHaveLength(2)
+    } finally {
+      runtime.mockRestore()
+    }
+  })
+
+  it('完成记录后账本不可查询时仍结束事件流并准确结算', async () => {
+    await db.execute(sql`CREATE FUNCTION fixture_hide_usage_ledger() RETURNS trigger
+      LANGUAGE plpgsql AS $$ BEGIN
+        ALTER TABLE agent_model_calls RENAME TO fixture_model_calls;
+        RETURN NEW;
+      END $$`)
+    await db.execute(sql`CREATE TRIGGER fixture_hide_usage_ledger
+      AFTER INSERT ON agent_messages FOR EACH ROW WHEN (NEW.role = 'assistant')
+      EXECUTE FUNCTION fixture_hide_usage_ledger()`)
+    let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
+    let timeout: ReturnType<typeof setTimeout> | undefined
+    try {
+      setAgentFetchForTesting(recordingAgentFetch([], () => completionStream('好')))
+      const conversationId = await startConversation()
+      const response = await post(`/api/agent/conversations/${conversationId}/turns`, {
+        deviceId: DEVICE,
+        text: '继续',
+      })
+      reader = response.body!.getReader()
+      // 有意使收尾存储边界失效；取消悬挂的消费者，避免回归让测试永远等待。
+      timeout = setTimeout(() => void reader?.cancel(), 1_000)
+      let payload = ''
+      const decoder = new TextDecoder()
+      while (true) {
+        const part = await reader.read()
+        if (part.done) break
+        payload += decoder.decode(part.value, { stream: true })
+      }
+      expect(parseFrames(payload).at(-1)?.event).toMatchObject({
+        type: 'turnEnd',
+        stopReason: 'completed',
+        usage: { inputTokens: 12, outputTokens: 4 },
+      })
+      expect(settlements).toHaveLength(1)
+      expect(settlements[0]).toMatchObject({
+        outcome: 'completed',
+        upstreamInvocationCount: 1,
+        actualUsage: { tokens: { input: 12, output: 4 } },
+      })
+    } finally {
+      clearTimeout(timeout)
+      await reader?.cancel()
+      await db.execute(sql`DROP TRIGGER fixture_hide_usage_ledger ON agent_messages`)
+      await db.execute(sql`DROP FUNCTION fixture_hide_usage_ledger()`)
+      await db.execute(sql`ALTER TABLE fixture_model_calls RENAME TO agent_model_calls`)
+    }
+  })
+
   it('按上游报的实际用量结算', async () => {
     setAgentFetchForTesting(recordingAgentFetch([], () => completionStream('好')))
     const conversationId = await startConversation()
@@ -269,6 +414,10 @@ describe('对话轮的结算', () => {
     expect(settlements).toHaveLength(1)
     expect(settlements[0]!.outcome).toBe('completed')
     expect(settlements[0]!.actualUsage).toBeUndefined()
+    expect((await db.select().from(schema.agent_model_calls))[0]).toMatchObject({
+      status: 'completed',
+      usage: null,
+    })
   })
 
   it('失败的轮按失败结算，让占用整笔退回', async () => {
@@ -279,6 +428,10 @@ describe('对话轮的结算', () => {
 
     expect(settlements).toHaveLength(1)
     expect(settlements[0]!.outcome).toBe('failed')
+    expect((await db.select().from(schema.agent_model_calls))[0]).toMatchObject({
+      status: 'failed',
+      usage: null,
+    })
   })
 
   it('被中止的轮按取消结算，让占用整笔退回', async () => {
@@ -300,5 +453,79 @@ describe('对话轮的结算', () => {
 
     await waitFor(async () => settlements.length === 1)
     expect(settlements[0]).toMatchObject({ taskId: turnId, outcome: 'cancelled' })
+    expect((await db.select().from(schema.agent_model_calls))[0]).toMatchObject({
+      status: 'cancelled',
+      usage: null,
+    })
   })
+})
+
+it('settles reported cache hits at the configured rate without subtracting twice', async () => {
+  billing.pricing = { outputPriceRatio: 5, outputReserveTokens: 1500, cachedInputPriceRatio: 0.1 }
+  setAgentFetchForTesting(
+    recordingAgentFetch([], () =>
+      completion({
+        deltas: ['收到'],
+        usage: {
+          prompt_tokens: 10000,
+          completion_tokens: 1000,
+          prompt_tokens_details: { cached_tokens: 8000 },
+        },
+      }),
+    ),
+  )
+  const conversationId = await startConversation()
+  const { frames } = await runTurn(conversationId, '简短回答')
+  expect(frames.at(-1)!.event).toMatchObject({
+    type: 'turnEnd',
+    usage: { inputTokens: 10000, cachedInputTokens: 8000, outputTokens: 1000 },
+  })
+  expect(settlements[0]?.actualUsage?.unitMultiplier).toBeCloseTo(7.8)
+  expect(settlements[0]?.actualUsage?.tokens).toEqual({
+    input: 10000,
+    cachedInput: 8000,
+    output: 1000,
+  })
+  expect((await db.select().from(schema.agent_model_calls))[0]).toMatchObject({
+    cache_read_tokens: 8000,
+    usage: { inputTokens: 10000, cachedInputTokens: 8000, outputTokens: 1000 },
+  })
+})
+
+it('does not treat partial multi-call usage as the complete turn for refunds', async () => {
+  setAgentFetchForTesting(
+    scriptedAgentFetch(
+      [],
+      [
+        () => toolCallCompletion({ id: 'lookup-unknown', name: 'readLibrary', args: {} }),
+        () => completion({ deltas: ['没有素材'] }),
+      ],
+    ),
+  )
+  const { frames } = await runTurn(await startConversation(), '查找素材')
+  expect(frames.at(-1)?.event).toMatchObject({ type: 'turnEnd', usage: null })
+  expect(settlements[0]).toMatchObject({ upstreamInvocationCount: 2 })
+  expect(settlements[0]?.actualUsage).toBeUndefined()
+})
+
+it('counts a fully cached input even when uncached input and output are zero', async () => {
+  billing.pricing = { outputPriceRatio: 5, outputReserveTokens: 1500, cachedInputPriceRatio: 0.1 }
+  setAgentFetchForTesting(
+    recordingAgentFetch([], () =>
+      completion({
+        deltas: ['收到'],
+        usage: {
+          prompt_tokens: 10000,
+          completion_tokens: 0,
+          prompt_tokens_details: { cached_tokens: 10000 },
+        },
+      }),
+    ),
+  )
+  const { frames } = await runTurn(await startConversation(), '继续')
+  expect(frames.at(-1)?.event).toMatchObject({
+    type: 'turnEnd',
+    usage: { inputTokens: 10000, cachedInputTokens: 10000, outputTokens: 0 },
+  })
+  expect(settlements[0]?.actualUsage?.unitMultiplier).toBe(1)
 })

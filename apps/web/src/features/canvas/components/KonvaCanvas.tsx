@@ -1,19 +1,9 @@
 import Konva from 'konva'
 import type { KonvaEventObject } from 'konva/lib/Node'
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
-import {
-  Arrow,
-  Image as KImage,
-  Layer,
-  Line,
-  Rect,
-  Shape,
-  Stage,
-  Text,
-  Transformer,
-} from 'react-konva'
+import { Arrow, Image as KImage, Layer, Line, Rect, Stage, Text, Transformer } from 'react-konva'
 import { copySelection, duplicateSelection, pasteClipboard } from '../lib/canvasClipboard'
-import type { ArrowEl, CanvasDoc, CanvasEl, FreedrawEl, TextEl } from '../lib/canvasDoc'
+import type { ArrowEl, CanvasEl, FreedrawEl, TextEl } from '../lib/canvasDoc'
 import { newElementId, ZOOM_MAX, ZOOM_MIN } from '../lib/canvasDoc'
 import { type CanvasEditor, elementBounds } from '../lib/editor'
 import { Box } from '../lib/geometry'
@@ -35,6 +25,8 @@ import {
   type SnapTargets,
   selectionBounds,
 } from '../lib/snapping'
+import CanvasImageMenu, { type CanvasImageMenuState } from './CanvasImageMenu'
+import SelectionInfo from './SelectionInfo'
 
 /** 手势里判定「有效箭头 / 笔画」的最小长度（页面单位），低于则丢弃。 */
 const MIN_GESTURE_LEN = 3
@@ -53,48 +45,6 @@ type Gesture =
  * 双层点阵网格（对齐 tldraw 暗色风格）：细点打底、每 4 格一个亮点。
  * 间距随缩放按 2 的幂自适应，点半径换算回页面坐标使屏幕上恒定大小。
  */
-function DotGrid({ doc }: { doc: CanvasDoc }) {
-  const { camera, viewport } = doc
-  return (
-    <Shape
-      listening={false}
-      // 相机/视口任一变化都要触发重绘：传成 props 让 react-konva 感知
-      camX={camera.x}
-      camY={camera.y}
-      camZoom={camera.zoom}
-      vpW={viewport.width}
-      vpH={viewport.height}
-      sceneFunc={(ctx) => {
-        let spacing = 18
-        while (spacing * camera.zoom < 12) spacing *= 2
-        while (spacing * camera.zoom > 44 && spacing > 3) spacing /= 2
-        const x0 = Math.floor(camera.x / spacing) * spacing
-        const y0 = Math.floor(camera.y / spacing) * spacing
-        const x1 = camera.x + viewport.width / camera.zoom
-        const y1 = camera.y + viewport.height / camera.zoom
-        const isMajor = (v: number) => Math.round(v / spacing) % 4 === 0
-        // 两遍绘制：细点（暗）与主点（亮），主点稍大
-        for (const pass of ['minor', 'major'] as const) {
-          const r = (pass === 'major' ? 1.6 : 1) / camera.zoom
-          ctx.beginPath()
-          for (let x = x0; x <= x1; x += spacing) {
-            for (let y = y0; y <= y1; y += spacing) {
-              const onMajor = isMajor(x) && isMajor(y)
-              if ((pass === 'major') !== onMajor) continue
-              ctx.moveTo(x + r, y)
-              ctx.arc(x, y, r, 0, Math.PI * 2)
-            }
-          }
-          ctx.setAttr(
-            'fillStyle',
-            pass === 'major' ? 'rgba(255,255,255,0.32)' : 'rgba(255,255,255,0.10)',
-          )
-          ctx.fill()
-        }
-      }}
-    />
-  )
-}
 
 /**
  * 自建无限画布（Konva 渲染）：
@@ -119,6 +69,7 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
   const [panning, setPanning] = useState(false)
   const [marquee, setMarquee] = useState<Box | null>(null)
   const [hoveredId, setHoveredId] = useState<string | null>(null)
+  const [imageMenu, setImageMenu] = useState<CanvasImageMenuState | null>(null)
   // 拖拽中隐藏虚线选中框：它按模型位置画，而节点位移在 dragend 才落模型，中途会滞留原地
   const [dragging, setDragging] = useState(false)
 
@@ -637,7 +588,23 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
     <div
       ref={containerRef}
       className="absolute inset-0 overflow-hidden"
-      style={{ cursor }}
+      style={{
+        cursor,
+        backgroundImage: 'radial-gradient(hsl(var(--border)) 1px, transparent 1px)',
+        backgroundSize: '20px 20px',
+        backgroundPosition: `${-camera.x * camera.zoom}px ${-camera.y * camera.zoom}px`,
+      }}
+      onContextMenu={(e) => {
+        // 原生菜单在画布上只会抓到空的顶层图层，一律拦掉；指在图片上就给自己的菜单。
+        e.preventDefault()
+        const stage = stageRef.current
+        const rect = containerRef.current?.getBoundingClientRect()
+        if (!stage || !rect) return
+        const node = stage.getIntersection({ x: e.clientX - rect.left, y: e.clientY - rect.top })
+        const el = node?.id() ? doc.getElement(node.id()) : undefined
+        if (el?.type !== 'image') return
+        setImageMenu({ id: el.id, x: e.clientX, y: e.clientY })
+      }}
       onDragOver={(e) => {
         if (e.dataTransfer.types.includes('Files')) e.preventDefault()
       }}
@@ -652,6 +619,7 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
         void importImageFiles(editor, [...e.dataTransfer.files], drop)
       }}
     >
+      {!dragging && !panning && <SelectionInfo doc={doc} />}
       <Stage
         ref={stageRef}
         width={viewport.width}
@@ -665,9 +633,7 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
         onPointerUp={onPointerUp}
         onWheel={onWheel}
       >
-        <Layer listening={false}>
-          <DotGrid doc={doc} />
-        </Layer>
+        <Layer listening={false}></Layer>
         <Layer>
           {doc.elements.map((el) => {
             const common = {
@@ -810,6 +776,7 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
           />
         </Layer>
       </Stage>
+      <CanvasImageMenu menu={imageMenu} doc={doc} onClose={() => setImageMenu(null)} />
       {editingText && (
         <textarea
           autoFocus

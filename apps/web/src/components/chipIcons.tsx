@@ -128,20 +128,6 @@ export const ChipIcons = {
       <line x1="4" y1="21" x2="21" y2="4" />
     </svg>
   ),
-  moderation: (
-    <svg
-      className={CHIP_ICON_CLASS}
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.6}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      viewBox="0 0 24 24"
-    >
-      <path d="M12 3l8 3v6c0 4.5-3.5 8-8 9-4.5-1-8-4.5-8-9V6l8-3z" />
-      <path d="M9 12l2 2 4-4" />
-    </svg>
-  ),
   count: (
     <svg
       className={CHIP_ICON_CLASS}

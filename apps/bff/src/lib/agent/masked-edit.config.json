@@ -1,0 +1,6 @@
+{
+  "output": { "dimensionMultiple": 16, "maxEdge": 3840, "maxAspectRatio": 3, "minPixels": 655360, "maxPixels": 8294400 },
+  "alignment": { "gridSize": 12, "minVariance": 25, "minCorrelation": 0.92, "minMatchedFraction": 0.75, "maxFlatDifference": 5 },
+  "rescale": { "maxScaleDifference": 0.05, "maxAspectDifference": 0.005, "minTexturedRegions": 12, "minMatchedQuadrants": 3 },
+  "boundary": { "featherPixels": 4, "minImageEdge": 256 }
+}

@@ -62,7 +62,7 @@ describe('the user settings document', () => {
   it('carries behaviour switches, params, pins and coach marks without navigation', () => {
     useStore.getState().setSettings({ enterSubmit: true, alwaysShowRetryButton: true })
     useStore.getState().setParams({ n: 3 })
-    useStore.getState().setAppMode('product')
+    useStore.getState().setAppMode('browse')
     useStore.getState().toggleInspirationPin('inspiration-7')
     useStore.getState().dismissLibraryCoach()
 
@@ -160,10 +160,10 @@ describe('applying a document from another device', () => {
   })
 
   it('does not interrupt navigation already chosen in this session', () => {
-    useStore.getState().setAppMode('product')
+    useStore.getState().setAppMode('browse')
     applyUserSettingsDocument({ ...readUserSettingsDocument(), appMode: 'create' })
 
-    expect(useStore.getState().appMode).toBe('product')
+    expect(useStore.getState().appMode).toBe('browse')
   })
 
   it('ignores a document that is not an object', () => {

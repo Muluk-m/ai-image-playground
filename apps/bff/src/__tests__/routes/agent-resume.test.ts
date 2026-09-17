@@ -7,6 +7,7 @@ import {
   DEVICE_ID_HEADER,
 } from '@image-playground/shared'
 import { Elysia } from 'elysia'
+import sharp from 'sharp'
 import {
   type AgentCall,
   type ControlledCompletion,
@@ -16,6 +17,7 @@ import {
   readFrames,
   recordingAgentFetch,
 } from '../helpers/agentStubs'
+import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
 import { waitFor } from '../helpers/upstreamStubs'
 
 process.env.DATABASE_URL = await resetTestDatabase('bff_agent_resume')
@@ -28,6 +30,8 @@ process.env.OPERATOR_CONFIG_FILE = resolve(import.meta.dir, '../agent-operator-c
 
 const { agentRoutes } = await import('../../routes/agent')
 const { setAgentFetchForTesting } = await import('../../lib/agent/model')
+const { setObjectStoreForTesting } = await import('../../lib/objectStore')
+const { createAgentImageSource } = await import('../../lib/agent/images')
 const { close: closeDb, db, schema } = await import('../../db/client')
 
 const app = new Elysia().use(agentRoutes)
@@ -90,6 +94,7 @@ let upstream: ControlledCompletion
 let calls: AgentCall[]
 
 beforeEach(async () => {
+  setObjectStoreForTesting(new InMemoryObjectStore())
   await db.delete(schema.agent_conversations)
   calls = []
   upstream = controlledCompletion()
@@ -107,6 +112,7 @@ afterEach(async () => {
     await waitFor(async () => (await readState(conversationId)).activeTurn === null)
   }
   setAgentFetchForTesting()
+  setObjectStoreForTesting()
 })
 
 afterAll(async () => {
@@ -227,6 +233,55 @@ describe('中止', () => {
 })
 
 describe('插话', () => {
+  it('新参考图与遮罩随插话归档，模型可见，下一轮仍可改图', async () => {
+    const second = controlledCompletion()
+    const conversationId = await startConversation()
+    const live = await startTurn(conversationId, '先聊聊')
+    upstream.push('好的')
+    const seen = await readFrames(live, 3)
+    const start = seen[0]!.event
+    const turnId = start.type === 'turnStart' ? start.turnId : ''
+    const resumed = resume(conversationId, turnId, seen.at(-1)!.id)
+    const reference = {
+      imageId: 'new-image',
+      dataUrl: `data:image/png;base64,${(
+        await sharp({ create: { width: 2, height: 2, channels: 4, background: '#ffffff' } })
+          .png()
+          .toBuffer()
+      ).toString('base64')}`,
+      maskDataUrl: `data:image/png;base64,${(
+        await sharp({ create: { width: 2, height: 2, channels: 4, background: '#00000000' } })
+          .png()
+          .toBuffer()
+      ).toString('base64')}`,
+    }
+    const interjected = await post(
+      `/api/agent/conversations/${conversationId}/turns/${turnId}/interject`,
+      {
+        deviceId: DEVICE,
+        text: '修改 [image 1]',
+        references: [reference],
+      },
+    )
+    expect(interjected.status).toBe(200)
+    setAgentFetchForTesting(recordingAgentFetch(calls, (signal) => second.responseFor(signal)))
+    upstream.finish()
+    await waitFor(() => calls.length === 2)
+    expect(JSON.stringify(calls[1]!.messages.at(-1))).toContain('new-image')
+    expect(JSON.stringify(calls[1]!.messages.at(-1))).toContain('data:image/png;base64,')
+    second.push('收到图片')
+    second.finish()
+    await drainFrames(await resumed)
+    const { messages } = await readState(conversationId)
+    const block = messages.find(
+      (message) => message.role === 'user' && JSON.stringify(message.content).includes('new-image'),
+    )!.content[0]!
+    expect(block.type === 'text' && block.references?.[0]?.mask).toBeTruthy()
+    expect(JSON.stringify(block)).not.toContain('data:image')
+    const source = createAgentImageSource({ references: [], history: messages, userId: null })
+    expect(await source.resolve('image 1')).toEqual(reference)
+  })
+
   it('轮进行中追加一条用户消息，运行时接着它往下跑', async () => {
     const second = controlledCompletion()
     const conversationId = await startConversation()

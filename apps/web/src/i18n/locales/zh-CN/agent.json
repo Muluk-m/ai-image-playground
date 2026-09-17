@@ -1,22 +1,22 @@
 {
   "label": {
     "chat": "对话",
-    "layers": "图层"
+    "layers": "创作记录"
   },
   "panel": {
-    "untitled": "未命名",
-    "noConversations": "还没有会话",
-    "noMessages": "还没有对话",
-    "deleteConversationAria": "删除会话 {{name}}",
-    "deleteConversationTitle": "删除会话",
-    "deleteConversationMessage": "确定删除「{{name}}」吗？这段对话不再出现在列表里。",
     "resizeAria": "拖动调整面板宽度",
     "resizeTitle": "拖动调整宽度",
     "collapseAria": "收起面板",
-    "backToChat": "返回对话",
-    "history": "历史会话",
-    "newConversationAria": "新对话",
-    "sessionTotal": "本次会话"
+    "expand": "展开对话",
+    "aria": "创作对话",
+    "creditsUsedAria": "已用 {{credits}} 积分",
+    "creditsUsedPrefix": "已用",
+    "creditsUsedSuffix": "积分",
+    "newProjectAria": "新建项目",
+    "logAria": "对话记录",
+    "emptyTitle": "今天，想创作什么？",
+    "emptyBody": "描述你的想法，或添加一张参考图。生成后切换到画布，选中作品就能继续修改。",
+    "emptyExample": "试着描述画面中的主体、风格和氛围。"
   },
   "tool": {
     "stageSubmitted": "已排队",
@@ -26,23 +26,17 @@
     "offCanvas": "产物不在当前画布上，可以再放入。",
     "deliveryFailed": "产物已生成，但放入画布失败，可以重试。",
     "locateTitle": "在画布上定位这些产物",
-    "place": "放入画布"
-  },
-  "layers": {
-    "empty": "画布还是空的",
-    "selectAria": "选中图层 {{name}}",
-    "typeImage": "图片",
-    "typeFreedraw": "画笔",
-    "typeArrow": "箭头",
-    "typeText": "文字",
-    "typeVideo": "视频"
+    "place": "放入画布",
+    "viewPrompt": "查看提示词"
   },
   "cost": {
     "duration": "本轮耗时 {{duration}}",
     "free": "本轮免费，未扣积分",
     "spent": "消耗",
     "image": "生图",
-    "video": "生视频"
+    "video": "生视频",
+    "failed": "本轮失败",
+    "noCredits": "未扣积分"
   },
   "composer": {
     "placeholder": "说一句你想做什么，@ 引用画布或素材",
@@ -52,13 +46,29 @@
     "removeReferenceAria": "移除参考图 {{label}}",
     "abort": "中止",
     "interject": "插话",
-    "send": "发送"
+    "send": "发送",
+    "dropHint": "松开即作为参考图",
+    "draftLoadingToast": "草稿正在恢复，请稍后添加图片。",
+    "sendFailedToast": "消息未发送成功，草稿已放回输入框，请重试。",
+    "fileInputAria": "选择参考图",
+    "attachAria": "添加参考图",
+    "attachTitle": "添加参考图（也可以拖进来或粘贴）",
+    "sending": "发送中…",
+    "sendAndCreate": "发送并创作",
+    "tooManyReferences_other": "一轮最多带 {{count}} 张参考图"
   },
   "params": {
     "title": "生成参数",
     "autoSize": "自动尺寸",
-    "imageCount_other": "{{count}} 张",
-    "note": "改完下一轮生效，跑着的这一轮按起轮时的参数走。"
+    "note": "张数由智能体按需求决定。参数改动从下一轮生效。",
+    "autoRatio": "自动比例",
+    "thinkingFast": "快速",
+    "thinkingMedium": "中等",
+    "thinkingDeep": "深度",
+    "thinkingSummary": "思考：{{label}}",
+    "thinkingLegend": "思考深度",
+    "closeAria": "关闭生成参数",
+    "done": "完成"
   },
   "mentions": {
     "canvasImage": "画布图{{index}}",
@@ -72,14 +82,68 @@
     "executing": "执行中"
   },
   "clarification": {
-    "answered": "已回答"
+    "answered": "已回答",
+    "other": "其他…",
+    "otherAria": "其他回答",
+    "otherPlaceholder": "说说你想要的"
   },
   "delivery": {
-    "generateFailed": "生成失败"
+    "generateFailed": "生成失败",
+    "artifactName": "生成作品"
   },
   "error": {
     "turnFailed": "这一轮没有跑完",
     "rateLimited": "发送太频繁，稍后再试",
-    "conversationUnreadable": "这个会话读不回来，稍后再试"
+    "conversationUnreadable": "对话暂时未能加载，请重新加载。",
+    "conversationGone": "这段对话已不可用，画布和草稿仍保留，可以继续创作。",
+    "invalidSelection": "选区无法使用，请重新圈选。草稿已保留。",
+    "interjectFailed": "插话未发送成功，草稿已保留，请重试。",
+    "canvasBindFailed": "画布未能保存到新会话，请重试。原画布和草稿已保留。",
+    "turnAlreadyRunning": "会话中已有任务运行，本次消息未发送，草稿已保留。"
+  },
+  "project": {
+    "createFailed": "项目创建失败，当前内容已保留，请重试。",
+    "saveFailed": "当前项目未能保存，内容已保留，请重试。",
+    "deleteBusy": "项目仍有任务运行，完成后再删除。",
+    "deleteFailed": "项目删除失败，请重试。"
+  },
+  "draft": {
+    "unreadable": "草稿暂时无法读取或保存，刷新前请复制输入内容。",
+    "saveFailed": "草稿保存失败，内容仍在当前页面，刷新前请复制。"
+  },
+  "promptDialog": {
+    "title": "提示词",
+    "closeAria": "关闭提示词",
+    "copyFailed": "复制失败，请选择正文手动复制",
+    "copied": "已复制",
+    "bodyAria": "完整提示词",
+    "charCount_other": "{{count}} 字符",
+    "saveTemplate": "存为模板",
+    "templateSaveFailed": "模板保存失败，请重试",
+    "templateName": "模板名称",
+    "templateNamePlaceholder": "给这段提示词起个名字",
+    "saving": "保存中…",
+    "saveTemplateAction": "保存模板"
+  },
+  "creations": {
+    "taskTitle": "生成任务",
+    "importedTitle": "导入图片",
+    "earlierTitle": "较早的内容",
+    "locateAria": "定位 {{name}}",
+    "generating": "正在生成",
+    "notFinished": "生成未完成",
+    "previewUnavailable": "预览不可用",
+    "emptyTitle": "还没有创作记录",
+    "emptyBody": "生成作品或导入图片后，会按任务显示在这里。",
+    "itemCount_other": "{{count}} 项",
+    "marks": "画布标注",
+    "markText": "文字",
+    "markArrow": "箭头",
+    "markPen": "画笔"
+  },
+  "history": {
+    "loading": "正在加载对话…",
+    "failed": "对话暂时未能加载，项目和草稿已保留。",
+    "retry": "重新加载"
   }
 }

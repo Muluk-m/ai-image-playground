@@ -1,6 +1,8 @@
 /** 智能体产出落画布的出口。创作模式挂载时把实现塞进来。 */
 export interface AgentPlacedArtifact {
   readonly artifactId: string
+  readonly taskId?: string
+  readonly name?: string
   /** 落到画布上的位图；视频产物给的是封面。 */
   readonly dataUrl: string
   /** 视频产物的播放来源。mp4 不进画布存档，播放时现拼地址。 */
@@ -28,6 +30,8 @@ export interface AgentPlaceOptions {
 
 /** 工具起跑时要在画布上占的位。 */
 export interface AgentReservation {
+  readonly messageId?: string
+  readonly title?: string
   /** 这次调用会出几件产物，就占几个框。 */
   readonly count: number
   /** 贴着这个对象占；它不在画布上就从视口中央找空位。 */
@@ -35,6 +39,8 @@ export interface AgentReservation {
 }
 
 export interface AgentCanvasSink {
+  /** 会话文档在视图切走后仍存活并持久化，允许原任务完成交付。 */
+  background?: boolean
   /** 场景恢复完成；同步画布不需要等待。观察历史产物也必须等这个边界。 */
   readonly ready?: Promise<unknown>
   has(objectId: string): boolean
@@ -64,9 +70,22 @@ export interface AgentCanvasSink {
 }
 
 let sink: AgentCanvasSink | null = null
+const listeners = new Set<(sink: AgentCanvasSink | null) => void>()
 
 export function setAgentCanvasSink(next: AgentCanvasSink | null): void {
+  if (sink === next) return
   sink = next
+  for (const listener of listeners) listener(next)
+}
+
+/** 画布挂上 / 卸下时通知；交付层靠它把画布不在时错过的产物补落回去。 */
+export function onAgentCanvasSinkChange(
+  listener: (sink: AgentCanvasSink | null) => void,
+): () => void {
+  listeners.add(listener)
+  return () => {
+    listeners.delete(listener)
+  }
 }
 
 export function agentCanvasSink(): AgentCanvasSink | null {

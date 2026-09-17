@@ -21,7 +21,7 @@ export default function Segmented<T extends string>({
     <div
       role="group"
       aria-label={label}
-      className="flex flex-wrap items-center gap-0.5 rounded-lg bg-gray-100 p-0.5 dark:bg-gray-900"
+      className="flex flex-wrap items-center gap-0.5 rounded-lg bg-muted p-0.5"
     >
       {options.map((option) => (
         <button

@@ -3,9 +3,9 @@ import { resolveApiKey } from './resolveApiKey'
 import {
   createDispatcher,
   createFetchSlot,
+  startDeadline,
   type UndiciFetchInit,
   type UndiciFetchInput,
-  withDeadline,
 } from './timeoutFetch'
 import { isObject } from './type-guards'
 
@@ -25,13 +25,52 @@ export class ChatInvalidResponseError extends Error {
   }
 }
 
-/** 两个失败都是 502：上游挂了与答非所问对调用方是一回事。返回 null 表示不是 chat 失败。 */
-export function chatFailure(error: unknown, feature: string): Record<string, unknown> | null {
-  if (error instanceof ChatUpstreamError) {
-    return { error: `${feature}_upstream_error`, upstream_status: error.status }
+/** 模型答得太慢，不是它答不了。调用方据此提示重试，而不是报告上游故障。 */
+export class ChatTimeoutError extends Error {
+  constructor(readonly timeoutMs: number) {
+    super(`Chat upstream did not answer within ${timeoutMs}ms`)
+    this.name = 'ChatTimeoutError'
   }
-  if (error instanceof ChatInvalidResponseError) return { error: `${feature}_invalid_response` }
+}
+
+export interface ChatFailure {
+  readonly status: 502 | 504
+  readonly body: Record<string, unknown>
+}
+
+/**
+ * 上游挂了与答非所问都是 502：对调用方是一回事。超时单独给 504——请求本身没毛病，
+ * 慢而已，裸 AbortError 冒到路由外会变成一个什么都没说的 500。
+ * 返回 null 表示不是 chat 失败。
+ */
+export function chatFailure(error: unknown, feature: string): ChatFailure | null {
+  if (error instanceof ChatTimeoutError) {
+    return { status: 504, body: { error: `${feature}_timeout`, timeout_ms: error.timeoutMs } }
+  }
+  if (error instanceof ChatUpstreamError) {
+    return {
+      status: 502,
+      body: { error: `${feature}_upstream_error`, upstream_status: error.status },
+    }
+  }
+  if (error instanceof ChatInvalidResponseError) {
+    return { status: 502, body: { error: `${feature}_invalid_response` } }
+  }
   return null
+}
+
+/**
+ * 每条 chat 路由的 catch 都长一个样。收在这里，下次再添一种失败状态就只改一处，
+ * 不用把四个 catch 块挨个翻一遍。不是 chat 失败的原样抛出，交给上层。
+ */
+export function respondChatFailure<R>(
+  error: unknown,
+  feature: string,
+  status: (code: ChatFailure['status'], body: Record<string, unknown>) => R,
+): R {
+  const failure = chatFailure(error, feature)
+  if (!failure) throw error
+  return status(failure.status, failure.body)
 }
 
 interface ChatResponse {
@@ -84,12 +123,23 @@ export function extractJson(content: string): unknown {
   }
 }
 
+export interface ChatAttempt {
+  readonly id: string
+  readonly model: string
+  readonly startedAt: number
+  readonly finishedAt: number
+  readonly status: 'completed' | 'failed'
+  readonly usage: { readonly inputTokens: number; readonly outputTokens: number } | null
+}
+
 export interface ChatAsk {
   readonly model: string
   readonly prompt: string
   readonly images?: readonly string[]
   readonly maxTokens: number
   readonly timeoutMs: number
+  /** 每次真实请求（包括解析重试）各报告一次，不包含提示词或回复正文。 */
+  readonly onAttempt?: (attempt: ChatAttempt) => Promise<void>
 }
 
 function requestBody({ model, prompt, images = [], maxTokens }: ChatAsk): string {
@@ -108,8 +158,34 @@ function requestBody({ model, prompt, images = [], maxTokens }: ChatAsk): string
   })
 }
 
-function requestContent(body: string, timeoutMs: number): Promise<string | undefined> {
-  return withDeadline(timeoutMs, async (signal) => {
+function responseUsage(raw: string): ChatAttempt['usage'] {
+  let payload: unknown
+  try {
+    payload = JSON.parse(raw)
+  } catch {
+    return null
+  }
+  if (!isObject(payload) || !isObject(payload.usage)) return null
+  const { prompt_tokens: input, completion_tokens: output } = payload.usage
+  if (
+    typeof input !== 'number' ||
+    typeof output !== 'number' ||
+    !Number.isSafeInteger(input) ||
+    !Number.isSafeInteger(output) ||
+    input < 0 ||
+    output < 0
+  )
+    return null
+  return { inputTokens: input, outputTokens: output }
+}
+
+async function requestContent(body: string, ask: ChatAsk): Promise<string | undefined> {
+  const id = crypto.randomUUID()
+  const startedAt = Date.now()
+  let usage: ChatAttempt['usage'] = null
+  let status: ChatAttempt['status'] = 'failed'
+  const deadline = startDeadline(ask.timeoutMs)
+  try {
     const response = await chatTransport.current(`${config.upstream.baseUrl}/v1/chat/completions`, {
       method: 'POST',
       headers: {
@@ -117,12 +193,29 @@ function requestContent(body: string, timeoutMs: number): Promise<string | undef
         authorization: `Bearer ${resolveApiKey('openai-compat')}`,
       },
       body,
-      signal,
+      signal: deadline.signal,
       dispatcher: chatDispatcher,
     })
     if (!response.ok) throw new ChatUpstreamError(response.status)
-    return messageContent(await response.text())
-  })
+    const raw = await response.text()
+    usage = responseUsage(raw)
+    status = 'completed'
+    return messageContent(raw)
+  } catch (error) {
+    // 只有我们自己切的才算超时；上游主动断开保持原样往上抛。
+    if (deadline.timedOut) throw new ChatTimeoutError(ask.timeoutMs)
+    throw error
+  } finally {
+    deadline.release()
+    await ask.onAttempt?.({
+      id,
+      model: ask.model,
+      startedAt,
+      finishedAt: Date.now(),
+      status,
+      usage,
+    })
+  }
 }
 
 /** 上游偶发不回 JSON，重试一次；第二次仍不可用就是硬失败。 */
@@ -133,7 +226,7 @@ export async function askChatModel<T>(
   // 请求体只序列化一次：参考图是 data URL，重试时重新转义要多花一整份内存。
   const body = requestBody(ask)
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    const content = await requestContent(body, ask.timeoutMs)
+    const content = await requestContent(body, ask)
     const parsed = content === undefined ? null : parse(extractJson(content))
     if (parsed) return parsed
   }

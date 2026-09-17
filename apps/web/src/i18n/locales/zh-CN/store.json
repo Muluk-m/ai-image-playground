@@ -1,8 +1,7 @@
 {
   "appMode": {
-    "browse": "工作台",
+    "browse": "作品",
     "create": "创作",
-    "product": "商品图",
     "video": "视频"
   },
   "task": {

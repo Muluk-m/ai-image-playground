@@ -83,8 +83,8 @@ export default function StoryboardShotCard({
   const thumbnail = videoDone ? videoTask?.thumbnailDataUrl : undefined
 
   return (
-    <li className="overflow-hidden rounded-xl border border-gray-200/70 bg-white/70 dark:border-white/[0.08] dark:bg-white/[0.02]">
-      <div className="relative aspect-video bg-gray-100 dark:bg-white/[0.04]">
+    <li className="overflow-hidden rounded-xl border border-border/70 bg-card/70">
+      <div className="relative aspect-video bg-muted">
         {thumbnail ? (
           <img src={thumbnail} alt={shot.title} className="h-full w-full object-cover" />
         ) : (
@@ -103,7 +103,7 @@ export default function StoryboardShotCard({
         )}
 
         {imagePending && !videoTask && (
-          <span className="absolute inset-0 grid place-items-center text-xs text-gray-500 dark:text-gray-400">
+          <span className="absolute inset-0 grid place-items-center text-xs text-muted-foreground">
             <Pending
               label={t('shared.shotImagePending')}
               startedAt={imageTask?.createdAt ?? null}
@@ -119,7 +119,7 @@ export default function StoryboardShotCard({
         {label && <span className={`${BADGE} right-1.5 top-1.5`}>{label}</span>}
       </div>
 
-      <div className="flex flex-col gap-1.5 px-2.5 py-2 text-xs text-gray-500 dark:text-gray-400">
+      <div className="flex flex-col gap-1.5 px-2.5 py-2 text-xs text-muted-foreground">
         {editing ? (
           <div className="flex flex-col gap-1.5">
             {EDIT_FIELDS.filter((field) => editing === 'all' || field.key === 'description').map(
@@ -149,9 +149,7 @@ export default function StoryboardShotCard({
           </div>
         ) : (
           <>
-            <b className="block truncate font-medium text-gray-800 dark:text-gray-100">
-              {shot.title}
-            </b>
+            <b className="block truncate font-medium text-foreground">{shot.title}</b>
             <button
               type="button"
               onClick={() => setEditing('description')}

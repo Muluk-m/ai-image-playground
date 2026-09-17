@@ -29,7 +29,7 @@ export default function FrameSlot({ slot, imageId, disabledReason, hint, onPick 
     return (
       <div
         aria-disabled={disabled}
-        className={`relative aspect-[16/10] overflow-hidden rounded-xl border border-gray-200 dark:border-white/[0.08] ${
+        className={`relative aspect-[16/10] overflow-hidden rounded-xl border border-border border-border ${
           disabled ? 'opacity-55' : ''
         }`}
       >
@@ -61,17 +61,15 @@ export default function FrameSlot({ slot, imageId, disabledReason, hint, onPick 
       aria-disabled={disabled}
       className={`flex aspect-[16/10] flex-col items-center justify-center gap-1 rounded-xl border border-dashed text-center transition ${
         disabled
-          ? 'border-gray-200 opacity-55 dark:border-white/[0.08]'
+          ? 'border-border opacity-55'
           : dragging
-            ? 'border-blue-400 bg-blue-500/5'
-            : 'border-gray-300 dark:border-white/[0.14]'
+            ? 'border-primary bg-primary/5'
+            : 'border-border'
       }`}
     >
-      <span className="text-xs text-gray-500 dark:text-gray-400">{label}</span>
+      <span className="text-xs text-muted-foreground">{label}</span>
       {(disabledReason ?? hint) && (
-        <span className="px-2 text-[11px] text-gray-400 dark:text-gray-500">
-          {disabledReason ?? hint}
-        </span>
+        <span className="px-2 text-[11px] text-muted-foreground">{disabledReason ?? hint}</span>
       )}
       {!disabled && (
         <div className="flex items-center gap-1">

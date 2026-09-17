@@ -58,10 +58,26 @@ export function detectLocale(): AppLocale {
   return DEFAULT_LOCALE
 }
 
-/** index.html 里写死的是 zh-CN，运行时按实际 locale 覆盖，屏读与 `:lang()` 才准。 */
+/**
+ * index.html 里的 lang 与标题写死的是中文，运行时按实际 locale 覆盖：屏读与 `:lang()` 才准，
+ * 标签页标题也才是用户读得懂的那一种。必须在 `changeLanguage` 之后调，标题取的是当前语料。
+ * 静态 meta 与 manifest 不动，那是给爬虫看的。
+ */
 function applyDocumentLocale(locale: AppLocale): void {
   if (typeof document === 'undefined') return
   document.documentElement.lang = locale
+  document.title = i18next.t('documentTitle')
+}
+
+/**
+ * 中文品牌是「幕芽」加拉丁字标 Muvloom；品牌名本身已经是 Muvloom 的语言不再重复字标。
+ * 写成显式的表而不是一条空字符串译文：语料里不允许空值，空值一律当漏翻。
+ */
+const BRAND_NEEDS_WORDMARK: Record<AppLocale, boolean> = { 'zh-CN': true, en: false }
+export const BRAND_WORDMARK = 'Muvloom'
+
+export function brandNeedsWordmark(locale: AppLocale = currentLocale()): boolean {
+  return BRAND_NEEDS_WORDMARK[locale]
 }
 
 /**
@@ -122,10 +138,11 @@ export async function setLocale(locale: AppLocale): Promise<void> {
 /** 启动时按探测结果切一次。`main.tsx` 是 top-level await，能在首帧之前等英文 chunk 落地。 */
 export async function bootstrapLocale(): Promise<void> {
   const locale = detectLocale()
+  if (locale !== DEFAULT_LOCALE) {
+    await ensureLocaleLoaded(locale)
+    await i18next.changeLanguage(locale)
+  }
   applyDocumentLocale(locale)
-  if (locale === DEFAULT_LOCALE) return
-  await ensureLocaleLoaded(locale)
-  await i18next.changeLanguage(locale)
 }
 
 /**

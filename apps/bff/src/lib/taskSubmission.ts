@@ -5,10 +5,15 @@ import type {
   SubmitRequest,
   TaskStatus,
 } from '@image-playground/shared'
-import { QUEUE_TIMEOUTS, videoRateMultiplier } from '@image-playground/shared'
+import {
+  DEFAULT_IMAGE_MODERATION,
+  QUEUE_TIMEOUTS,
+  videoRateMultiplier,
+} from '@image-playground/shared'
 import { and, eq, isNull } from 'drizzle-orm'
 import { config } from '../config'
 import { db, schema } from '../db/client'
+import { prepareMaskedInput } from './agent/masked-input'
 import { isCapabilityEnabled } from './capabilities'
 import { describeEmptyResult, type ExtractedResult, extractMeta } from './extractImages'
 import { archiveInputImages, ObjectStorageError } from './imageArchive'
@@ -68,9 +73,28 @@ export async function createQueueTask(
   const id = crypto.randomUUID()
   let requestPayload: PersistedSubmitRequest
   try {
+    let request = input.request
+    const strict =
+      input.agent && request.mask && !input.video
+        ? await prepareMaskedInput(input.model, request.input_images?.[0] ?? '', request.mask)
+        : undefined
+    if (strict) {
+      const { output_compression: _compression, ...rest } = request
+      request = {
+        ...rest,
+        input_images: [strict.source, ...request.input_images!.slice(1)],
+        mask: strict.mask,
+        size: strict.size,
+        output_format: 'png',
+      }
+    }
     requestPayload = {
-      ...(await archiveInputImages(id, input.request)),
+      ...(await archiveInputImages(id, request)),
       ...(input.video ? { video: input.video } : {}),
+      ...(input.agent && input.request.mask && !input.video
+        ? { preserve_outside_mask: true as const }
+        : {}),
+      ...(strict ? { masked_original_size: strict.originalSize } : {}),
     }
   } catch (error) {
     await discardArchivedInputs(id)
@@ -82,6 +106,9 @@ export async function createQueueTask(
       message:
         error instanceof ObjectStorageError ? error.message : 'Object storage input archive failed',
     }
+  }
+  if (input.provider === 'openai-compat' && !input.video) {
+    requestPayload.moderation ??= DEFAULT_IMAGE_MODERATION
   }
 
   const now = Date.now()

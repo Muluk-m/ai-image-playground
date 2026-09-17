@@ -11,6 +11,7 @@ import { ensureImageCached, storeImageFromFile, submitPrepared, useStore } from 
 import type { InputImage, TaskRecord } from '../../../types'
 import { useVideoStore } from '../store'
 import {
+  promptAtDuration,
   sameStoryboard,
   sequencePrompt,
   sequenceShots,
@@ -85,9 +86,9 @@ export interface StoryboardState {
   updateVideoPrompt(id: string, videoPrompt: string): Promise<void>
   regenerateShotImage(id: string, no: number): Promise<void>
   generateMissingShotImages(id: string): Promise<void>
-  generateShotVideo(id: string, no: number): Promise<string | null>
-  /** 整条分镜出成一条视频：一条多镜提示词，时长是分镜总时长。 */
-  generateWholeVideo(id: string): Promise<string | null>
+  generateShotVideo(id: string, no: number, seconds?: number): Promise<string | null>
+  /** 整条分镜出成一条视频：一条多镜提示词，未指定生成时长时沿用分镜总时长。 */
+  generateWholeVideo(id: string, seconds?: number): Promise<string | null>
   /** 工作台任务跑完后把出图挂回对应的镜。 */
   adoptShotImages(tasks: ReadonlyMap<string, TaskRecord>): void
   exportZip(id: string): Promise<void>
@@ -542,7 +543,7 @@ export const useStoryboardStore = create<StoryboardState>((set, get) => {
       return submitShotImages(id, (shot) => shot.imageTaskId === null)
     },
 
-    async generateShotVideo(id, no) {
+    async generateShotVideo(id, no, seconds) {
       const record = boardOf(id)
       const shot = record?.shots.find((item) => item.no === no)
       if (!record || !shot) return null
@@ -560,15 +561,15 @@ export const useStoryboardStore = create<StoryboardState>((set, get) => {
         storyboardId: id,
         shotNo: no,
         imageId: shot.imageId,
-        prompt: shot.videoPrompt,
-        seconds: shot.seconds,
+        prompt: promptAtDuration(shot.videoPrompt, shot.seconds, seconds ?? shot.seconds),
+        seconds: seconds ?? shot.seconds,
         aspectRatio: record.aspectRatio,
       })
       if (taskId) await patchShot(id, no, { videoTaskId: taskId })
       return taskId
     },
 
-    async generateWholeVideo(id) {
+    async generateWholeVideo(id, seconds) {
       const record = boardOf(id)
       if (!record) return null
       const { model, resolution } = useVideoStore.getState().draft
@@ -580,8 +581,12 @@ export const useStoryboardStore = create<StoryboardState>((set, get) => {
         resolution,
         storyboardId: id,
         imageId: wholeVideoFrameId(record),
-        prompt: record.videoPrompt,
-        seconds: record.totalSeconds,
+        prompt: promptAtDuration(
+          record.videoPrompt,
+          record.totalSeconds,
+          seconds ?? record.totalSeconds,
+        ),
+        seconds: seconds ?? record.totalSeconds,
         aspectRatio: record.aspectRatio,
       })
       if (taskId) await patchBoard(id, { videoTaskId: taskId })

@@ -124,11 +124,8 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
   }
 
   return (
-    <div
-      className="pointer-events-none absolute inset-x-0 bottom-20 z-[400] flex justify-center px-4"
-      onPointerDown={(e) => e.stopPropagation()}
-    >
-      <div className="pointer-events-auto flex w-full max-w-2xl flex-col gap-2 rounded-2xl border border-gray-200 bg-white/95 p-2 shadow-lg backdrop-blur dark:border-white/10 dark:bg-gray-900/95">
+    <div className="studio-direct-composer" onPointerDown={(e) => e.stopPropagation()}>
+      <div className="studio-direct-card">
         {/* 参数控制条：与工作台共用同一份全局 params/settings。数量 n>1 时 fan-out
             成 n 个并行任务，占位框水平排开各自出图（变体对比）。 */}
         <div className="flex flex-wrap items-center gap-2">
@@ -142,30 +139,30 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
                 key={i}
                 src={src}
                 alt={t('generate.inputAlt', { index: i + 1 })}
-                className="h-12 w-12 rounded-md border border-gray-200 object-cover dark:border-white/10"
+                className="h-12 w-12 rounded-md border border-border object-cover"
               />
             ))}
             {previews.length === 0 && (
-              <span className="text-[11px] text-gray-400 dark:text-gray-500">
+              <span className="text-[11px] text-muted-foreground">
                 {t('generate.previewPending')}
               </span>
             )}
             {annotationText && (
-              <span className="max-w-[50%] truncate text-[11px] text-amber-600 dark:text-amber-400">
+              <span className="max-w-[50%] truncate text-[11px] text-warning dark:text-warning">
                 {t('generate.annotationHint', { text: annotationText })}
               </span>
             )}
           </div>
         )}
-        <div className="flex items-end gap-2">
-          <div className="flex flex-1 flex-col">
-            <span className="px-2 pt-1 text-[11px] text-gray-400 dark:text-gray-500">{hint}</span>
+        <div className="flex flex-col gap-3">
+          <div className="flex w-full flex-1 flex-col">
+            <span className="px-2 pt-1 text-[11px] text-muted-foreground">{hint}</span>
             <SubmissionBillingAction
               blockedAction={submissionGuard.blockedAction}
               className="px-2 text-[11px]"
             />
             {submissionGuard.blocked && submissionGuard.disabledReason ? (
-              <span className="px-2 text-[11px] text-red-600 dark:text-red-400">
+              <span className="px-2 text-[11px] text-destructive dark:text-destructive">
                 {submissionGuard.disabledReason}
               </span>
             ) : null}
@@ -184,8 +181,9 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
                 }
               }}
               placeholder={t('generate.promptPlaceholder')}
-              rows={1}
-              className="max-h-32 min-h-[2.25rem] resize-none bg-transparent px-2 py-1.5 text-sm text-gray-900 outline-none placeholder:text-gray-400 dark:text-gray-50"
+              aria-label={t('generate.promptAria')}
+              rows={5}
+              className="max-h-32 min-h-[2.25rem] resize-none bg-transparent px-2 py-1.5 text-sm text-foreground outline-none placeholder:text-muted-foreground"
             />
           </div>
           <button
@@ -193,7 +191,7 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
             onClick={run}
             disabled={!canSubmit}
             title={submissionGuard.disabledReason}
-            className="shrink-0 rounded-xl bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:bg-gray-200 disabled:text-gray-400 dark:disabled:bg-white/10 dark:disabled:text-gray-500"
+            className="studio-primary w-full"
           >
             {t('common:action.generate')}
           </button>

@@ -129,7 +129,7 @@
   "mask": {
     "sizeMismatch": "遮罩尺寸与遮罩主图不一致，请重新绘制遮罩",
     "baseImageMissing": "遮罩主图已不存在，请重新选择遮罩区域",
-    "emptySelection": "请先涂抹需要编辑的区域"
+    "emptySelection": "请先圈选或涂抹需要编辑的区域"
   },
   "export": {
     "fitCrop": "裁切",
@@ -160,6 +160,17 @@
     "analyzeUnavailable": "竞品图分析没有返回可用的简报",
     "matteUnavailable": "服务端抠图没有返回可用的蒙版",
     "listingUnavailable": "抓不到这条链接的图集",
-    "storyboardUnavailable": "分镜脚本没有生成成功"
+    "storyboardUnavailable": "分镜脚本没有生成成功",
+    "storyboardTimedOut": "分镜脚本生成超时，请重试"
+  },
+  "mention": {
+    "imageLabel": "@图{{n}}",
+    "removedImage": "@已移除图片"
+  },
+  "legacyProduct": {
+    "background": "换背景",
+    "replaceProduct": "换产品",
+    "replaceAndBackground": "换产品并换背景",
+    "remix": "借创意重做"
   }
 }

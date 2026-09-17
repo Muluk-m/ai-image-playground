@@ -83,14 +83,30 @@ function settleSubmittedTasks(outcome: 'completed' | 'failed'): () => void {
   let stopped = false
   void (async () => {
     while (!stopped) {
-      await db
-        .update(schema.tasks)
-        .set(
-          outcome === 'completed'
-            ? { status: 'completed', result_payload: TEST_RESULT_PAYLOAD, completed_at: Date.now() }
-            : { status: 'failed', error_message: '上游拒绝了这张图', error_type: 'upstream_error' },
-        )
-        .where(eq(schema.tasks.status, 'queued'))
+      const queued = await db.select().from(schema.tasks).where(eq(schema.tasks.status, 'queued'))
+      for (const task of queued) {
+        await db
+          .update(schema.tasks)
+          .set(
+            outcome === 'completed'
+              ? {
+                  status: 'completed',
+                  result_payload: {
+                    data: Array.from(
+                      { length: task.request_payload.n ?? 1 },
+                      () => TEST_RESULT_PAYLOAD.data[0]!,
+                    ),
+                  },
+                  completed_at: Date.now(),
+                }
+              : {
+                  status: 'failed',
+                  error_message: '上游拒绝了这张图',
+                  error_type: 'upstream_error',
+                },
+          )
+          .where(eq(schema.tasks.id, task.id))
+      }
       await Bun.sleep(2)
     }
   })()
@@ -116,59 +132,6 @@ afterAll(async () => {
 })
 
 describe('智能体生图工具', () => {
-  it('把这一轮选的生成参数填进生图任务', async () => {
-    const calls: AgentCall[] = []
-    setAgentFetchForTesting(
-      scriptedAgentFetch(calls, [
-        () =>
-          toolCallCompletion({ id: 'call-1', name: 'generateImage', args: { prompt: '一只橘猫' } }),
-        () => completionStream('画好了'),
-      ]),
-    )
-    const stop = settleSubmittedTasks('completed')
-    const conversationId = await startConversation()
-
-    await runTurn(conversationId, '画一只橘猫', {
-      size: '1024x1536',
-      quality: 'high',
-      output_format: 'webp',
-      output_compression: 80,
-      n: 2,
-    })
-    stop()
-
-    const [task] = await db.select().from(schema.tasks)
-    expect(task!.request_payload).toMatchObject({
-      prompt: '一只橘猫',
-      size: '1024x1536',
-      quality: 'high',
-      output_format: 'webp',
-      output_compression: 80,
-      n: 2,
-    })
-  })
-
-  it('没选参数时还是一张，不把前端的默认值当成用户的选择', async () => {
-    const calls: AgentCall[] = []
-    setAgentFetchForTesting(
-      scriptedAgentFetch(calls, [
-        () =>
-          toolCallCompletion({ id: 'call-1', name: 'generateImage', args: { prompt: '一只黑猫' } }),
-        () => completionStream('画好了'),
-      ]),
-    )
-    const stop = settleSubmittedTasks('completed')
-    const conversationId = await startConversation()
-
-    await runTurn(conversationId, '画一只黑猫')
-    stop()
-
-    const [task] = await db.select().from(schema.tasks)
-    expect(task!.request_payload.n).toBe(1)
-    expect(task!.request_payload.size).toBeUndefined()
-    expect(task!.request_payload.quality).toBeUndefined()
-  })
-
   it('reports one tool call and links the image task to the turn', async () => {
     const calls: AgentCall[] = []
     setAgentFetchForTesting(
@@ -204,6 +167,7 @@ describe('智能体生图工具', () => {
       toolCallId: 'call-1',
       toolName: 'generateImage',
       title: '一只橘猫坐在窗台上',
+      prompt: '一只橘猫坐在窗台上',
     })
     const [end] = eventsOfType(frames, 'toolEnd')
     expect(end).toMatchObject({
@@ -211,6 +175,7 @@ describe('智能体生图工具', () => {
       toolCallId: 'call-1',
       status: 'succeeded',
       title: '一只橘猫坐在窗台上',
+      prompt: '一只橘猫坐在窗台上',
     })
     expect(end!.artifacts).toHaveLength(1)
     const artifact = end!.artifacts![0]!
@@ -237,42 +202,13 @@ describe('智能体生图工具', () => {
         toolName: 'generateImage',
         status: 'succeeded',
         title: '一只橘猫坐在窗台上',
+        prompt: '一只橘猫坐在窗台上',
         artifacts: [artifact],
       },
     ])
     expect(messages[2]!.content).toEqual([{ type: 'text', text: '画好了' }])
 
     expect(calls[0]!.tools?.map((tool) => tool.function.name)).toContain('generateImage')
-  })
-
-  it('tells the canvas how many slots to reserve before the tool finishes', async () => {
-    setAgentFetchForTesting(
-      scriptedAgentFetch(
-        [],
-        [
-          () =>
-            toolCallCompletion({
-              id: 'call-1',
-              name: 'generateImage',
-              args: { prompt: '一只橘猫坐在窗台上' },
-            }),
-          () => completionStream('画好了'),
-        ],
-      ),
-    )
-    const stop = settleSubmittedTasks('completed')
-    const conversationId = await startConversation()
-
-    const frames = await runTurn(conversationId, '画三张橘猫', { n: 3 })
-    stop()
-
-    // 占位数量来自这一轮的参数，和队列请求里的 n 是同一个算式。
-    const [start] = eventsOfType(frames, 'toolStart')
-    expect(start).toMatchObject({ toolName: 'generateImage', outputCount: 3 })
-    // 文生图没有源图可贴，锚点缺席即落在视口中央。
-    expect(start!.anchorObjectId).toBeUndefined()
-    const [task] = await db.select().from(schema.tasks)
-    expect(task!.request_payload.n).toBe(3)
   })
 
   it('adds up the usage of every upstream call the tool loop makes', async () => {
@@ -301,39 +237,67 @@ describe('智能体生图工具', () => {
     expect(end!.usage).toEqual({ inputTokens: 24, outputTokens: 8 })
   })
 
-  it('reports two tool calls in one turn independently', async () => {
+  it('reserves and returns the model-selected count independently for each image call', async () => {
     const calls: AgentCall[] = []
     setAgentFetchForTesting(
       scriptedAgentFetch(calls, [
         () =>
           toolCallCompletion(
-            { id: 'call-1', name: 'generateImage', args: { prompt: '橘猫' } },
-            { id: 'call-2', name: 'generateImage', args: { prompt: '黑猫' } },
+            { id: 'call-1', name: 'generateImage', args: { prompt: '橘猫', n: '3' } },
+            { id: 'call-2', name: 'generateImage', args: { prompt: '黑猫', n: 2 } },
           ),
-        () => completionStream('两张都好了'),
+        () => completionStream('五张都好了'),
       ]),
     )
     const stop = settleSubmittedTasks('completed')
     const conversationId = await startConversation()
 
-    const frames = await runTurn(conversationId, '画两只猫')
+    const frames = await runTurn(conversationId, '画三张橘猫和两张黑猫')
     stop()
 
     const starts = eventsOfType(frames, 'toolStart')
     expect(starts.map((event) => event.toolCallId)).toEqual(['call-1', 'call-2'])
+    expect(starts.map((event) => event.outputCount)).toEqual([3, 2])
     expect(starts.map((event) => event.title)).toEqual(['橘猫', '黑猫'])
     expect(new Set(starts.map((event) => event.messageId)).size).toBe(2)
 
     const ends = eventsOfType(frames, 'toolEnd')
     expect(ends.map((event) => event.status)).toEqual(['succeeded', 'succeeded'])
+    expect(ends.map((event) => event.artifacts?.length)).toEqual([3, 2])
     const artifactIds = ends.flatMap((event) =>
       (event.artifacts ?? []).map((artifact) => artifact.artifactId),
     )
-    expect(new Set(artifactIds).size).toBe(2)
+    expect(new Set(artifactIds).size).toBe(5)
 
     const tasks = await db.select().from(schema.tasks)
     expect(tasks).toHaveLength(2)
     expect(tasks.map((task) => task.request_payload.prompt).sort()).toEqual(['橘猫', '黑猫'])
+  })
+
+  it('rejects an over-limit image count before creating a task', async () => {
+    setAgentFetchForTesting(
+      scriptedAgentFetch(
+        [],
+        [
+          () =>
+            toolCallCompletion({
+              id: 'too-many',
+              name: 'generateImage',
+              args: { prompt: '橘猫', n: 11 },
+            }),
+          () => completionStream('不该走到这里'),
+        ],
+      ),
+    )
+    const stop = settleSubmittedTasks('completed')
+    try {
+      const conversationId = await startConversation()
+      const frames = await runTurn(conversationId, '画十一张橘猫')
+      expect(eventsOfType(frames, 'toolEnd')[0]?.status).toBe('failed')
+      expect(await db.select({ id: schema.tasks.id }).from(schema.tasks)).toEqual([])
+    } finally {
+      stop()
+    }
   })
 
   it('fails the turn when the image task fails', async () => {

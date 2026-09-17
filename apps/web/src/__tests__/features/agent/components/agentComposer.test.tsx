@@ -1,10 +1,13 @@
 // @vitest-environment jsdom
 
+import 'fake-indexeddb/auto'
 import type { AgentTurnReference } from '@image-playground/shared'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import AgentComposer from '../../../../features/agent/components/AgentComposer'
+import { agentDraft } from '../../../../features/agent/lib/drafts'
+import { EMPTY_DRAFT } from '../../../../features/agent/lib/references'
 import { useAgentStore } from '../../../../features/agent/store'
 import { CanvasDoc, type ImageEl } from '../../../../features/canvas/lib/canvasDoc'
 import { useLibraryStore } from '../../../../features/library/store'
@@ -86,13 +89,24 @@ function capsules(): string[] {
   return [...host.querySelectorAll('.mention-tag')].map((node) => node.textContent ?? '')
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+  const session = agentDraft(null)
+  await vi.waitFor(() => expect(session.getSnapshot().loading).toBe(false))
+  session.update(EMPTY_DRAFT)
+  session.setSubmitting(false)
   doc = new CanvasDoc()
   doc.restore([imageElement('canvas-1', 'file-1')], { 'file-1': PIXEL })
   send = vi.fn<(text: string, references?: readonly AgentTurnReference[]) => Promise<void>>(
     async () => {},
   )
-  useAgentStore.setState({ turn: 'idle', send })
+  useAgentStore.setState({
+    turn: 'idle',
+    conversationId: null,
+    send: async (text, references, accepted) => {
+      await send(text, references)
+      accepted?.()
+    },
+  })
   useStore.setState({ maskEditorImageId: null, maskEditorSession: null })
   useLibraryStore.setState({ assets: [], loadAssets: async () => {} })
   host = document.createElement('div')
@@ -109,7 +123,131 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
+function png(name = 'photo.png'): File {
+  return new File([new Uint8Array([137, 80, 78, 71])], name, { type: 'image/png' })
+}
+
+function fireDrag(target: Element, type: string, files: File[]): void {
+  const event = new Event(type, { bubbles: true, cancelable: true })
+  Object.defineProperty(event, 'dataTransfer', {
+    value: {
+      files,
+      types: ['Files'],
+      items: files.map((file) => ({ kind: 'file', type: file.type, getAsFile: () => file })),
+    },
+  })
+  act(() => {
+    target.dispatchEvent(event)
+  })
+}
+
+/** 读文件与压缩都是异步的，等它们落进引用区。 */
+async function attached(): Promise<string[]> {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  })
+  return [...host.querySelectorAll('img')].map((img) => img.getAttribute('src') ?? '')
+}
+
 describe('智能体输入框', () => {
+  it('图片文件拖进输入框就成为参考图，名字用文件名', async () => {
+    render()
+    const zone = host.querySelector('[data-image-dropzone]')!
+
+    fireDrag(zone, 'dragenter', [png()])
+    expect(host.textContent).toContain('松开即作为参考图')
+    fireDrag(zone, 'drop', [png('海报底图.png')])
+
+    const sources = await attached()
+    expect(sources).toHaveLength(1)
+    expect(sources[0]).toMatch(/^data:image\/png;base64,/)
+    expect(host.textContent).toContain('海报底图')
+    expect(host.textContent).not.toContain('松开即作为参考图')
+
+    type('把它放到浴缸旁边')
+    click('发送并创作')
+    expect(send).toHaveBeenCalledWith('把它放到浴缸旁边', [
+      expect.objectContaining({ imageId: expect.stringMatching(/^file_/), name: '海报底图' }),
+    ])
+  })
+
+  it('粘贴图片同样进引用区；非图片文件不收', async () => {
+    render()
+    const event = new Event('paste', { bubbles: true, cancelable: true })
+    Object.defineProperty(event, 'clipboardData', {
+      value: {
+        files: [png('clip.png'), new File(['%PDF'], 'brief.pdf', { type: 'application/pdf' })],
+      },
+    })
+    act(() => {
+      editor().dispatchEvent(event)
+    })
+
+    expect(await attached()).toHaveLength(1)
+    expect(useStore.getState().toast?.message).toBe('只支持图片文件')
+  })
+
+  it('输入框卸载再挂载后保留文字、引用和遮罩', async () => {
+    render()
+    type('把@')
+    pick('画布图1')
+    click('给参考图 @图1 画遮罩')
+    await save({ maskDataUrl: MASK, targetImageId: 'prepared', targetDataUrl: PREPARED })
+    act(() => root.render(null))
+    render()
+    expect(capsules()).toEqual(['@图1'])
+    expect(host.querySelector('img')?.getAttribute('src')).toBe(PREPARED)
+    expect(host.textContent).toContain('MASK')
+    click('发送并创作')
+    expect(send).toHaveBeenCalledWith('把[image 1]', [
+      { imageId: 'canvas-1', dataUrl: PREPARED, maskDataUrl: MASK },
+    ])
+  })
+
+  it('敲下发送输入框立刻清空，不等服务端接收', async () => {
+    let accept!: () => void
+    useAgentStore.setState({
+      send: async (_text, _references, accepted) => {
+        await new Promise<void>((resolve) => {
+          accept = () => {
+            accepted?.()
+            resolve()
+          }
+        })
+      },
+    })
+    render()
+    type('把背景换成浅木色')
+    await act(async () => click('发送并创作'))
+    expect(editor().textContent).toBe('')
+
+    await act(async () => accept())
+    expect(editor().textContent).toBe('')
+  })
+
+  it('服务端没收下时草稿放回输入框；用户已经在打下一句就不冲掉', async () => {
+    useAgentStore.setState({ send: async () => {} })
+    render()
+    type('重试这段内容')
+    await act(async () => click('发送并创作'))
+    expect(editor().textContent).toBe('重试这段内容')
+    expect(useStore.getState().toast?.message).toContain('草稿已放回')
+
+    let finish!: () => void
+    useAgentStore.setState({
+      send: async () => {
+        await new Promise<void>((resolve) => {
+          finish = resolve
+        })
+      },
+    })
+    await act(async () => click('发送并创作'))
+    expect(editor().textContent).toBe('')
+    type('下一句')
+    await act(async () => finish())
+    expect(editor().textContent).toBe('下一句')
+  })
+
   it('`@` 从画布挑一张图，插成引用胶囊', () => {
     render()
     type('把@')
@@ -118,6 +256,42 @@ describe('智能体输入框', () => {
     pick('画布图1')
 
     expect(capsules()).toEqual(['@图1'])
+  })
+
+  it('选中的批注烧进参考图；批注取消选中就回到原图', async () => {
+    const COMPOSITE = 'data:image/png;base64,bWFya2Vk'
+    const toImage = vi.fn(async () => COMPOSITE)
+    doc.restore(
+      [
+        imageElement('canvas-1', 'file-1'),
+        {
+          id: 'circle',
+          type: 'freedraw',
+          points: [2, 2, 6, 6, 2, 6],
+          stroke: '#f00',
+          strokeWidth: 2,
+        },
+      ],
+      { 'file-1': PIXEL },
+    )
+    act(() => {
+      root.render(<AgentComposer doc={doc} editor={{ toImage }} />)
+    })
+
+    act(() => doc.setSelection(['canvas-1', 'circle']))
+    expect(await attached()).toEqual([COMPOSITE])
+    expect(toImage).toHaveBeenCalledWith(['canvas-1', 'circle'], {
+      bounds: expect.objectContaining({ x: 0, y: 0, w: 10, h: 10 }),
+    })
+
+    act(() => doc.setSelection(['canvas-1']))
+    expect(await attached()).toEqual([PIXEL])
+
+    type('把圈出来的地方换成木纹')
+    click('发送并创作')
+    expect(send).toHaveBeenCalledWith('把圈出来的地方换成木纹', [
+      { imageId: 'canvas-1', dataUrl: PIXEL },
+    ])
   })
 
   it('画布上选中的图直接进引用区，取消选中就撤走', () => {
@@ -137,7 +311,7 @@ describe('智能体输入框', () => {
     expect([...host.querySelectorAll('img')].map((img) => img.getAttribute('src'))).toEqual([PIXEL])
 
     type('把它的背景换成浅木色')
-    click('发送')
+    click('发送并创作')
     expect(send).toHaveBeenCalledWith('把它的背景换成浅木色', [
       { imageId: 'canvas-1', dataUrl: PIXEL },
     ])
@@ -149,7 +323,7 @@ describe('智能体输入框', () => {
     pick('画布图1')
     type('的背景换成浅木色')
 
-    click('发送')
+    click('发送并创作')
 
     expect(send).toHaveBeenCalledWith('把[image 1]的背景换成浅木色', [
       { imageId: 'canvas-1', dataUrl: PIXEL },
@@ -165,7 +339,7 @@ describe('智能体输入框', () => {
 
     expect(capsules()).toEqual(['@图1', '@图1'])
 
-    click('发送')
+    click('发送并创作')
     expect(send).toHaveBeenCalledWith('把[image 1] 和 [image 1]', [
       { imageId: 'canvas-1', dataUrl: PIXEL },
     ])
@@ -194,7 +368,7 @@ describe('智能体输入框', () => {
     click('给参考图 @图1 画遮罩')
     await save({ maskDataUrl: MASK, targetImageId: 'img-prepared', targetDataUrl: PREPARED })
 
-    click('发送')
+    click('发送并创作')
     expect(send).toHaveBeenCalledWith('把[image 1]的桌面换成木纹', [
       { imageId: 'canvas-1', dataUrl: PREPARED, maskDataUrl: MASK },
     ])
@@ -214,7 +388,7 @@ describe('智能体输入框', () => {
       await useStore.getState().maskEditorSession?.onRemove?.()
     })
 
-    click('发送')
+    click('发送并创作')
     expect(send).toHaveBeenCalledWith('把[image 1]', [{ imageId: 'canvas-1', dataUrl: PREPARED }])
   })
 
@@ -227,7 +401,7 @@ describe('智能体输入框', () => {
     click('移除参考图 @图1')
 
     expect(capsules()).toEqual([])
-    click('发送')
+    click('发送并创作')
     expect(send).toHaveBeenCalledWith('把@已移除图片改成木色', [])
   })
 })

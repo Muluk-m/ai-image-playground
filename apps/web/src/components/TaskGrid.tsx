@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import InspirationEmptyHero from '../features/inspiration/components/InspirationEmptyHero'
-import { jobActionLabels } from '../features/productShots/lib/actions'
-import { useProductShotsStore } from '../features/productShots/store'
 import { useStoryboardStore } from '../features/video/storyboard/store'
 import { i18next, useTranslation } from '../i18n'
+import {
+  type LegacyProductJob,
+  legacyActionLabels,
+  readLegacyProductJobs,
+} from '../lib/legacyProductHistory'
 import { groupTasksBySet } from '../lib/setHistory'
 import { editOutputImage, removeTask, reuseConfig, sendTaskToCanvas, useStore } from '../store'
 import type { TaskRecord } from '../types'
@@ -67,12 +70,20 @@ export default function TaskGrid() {
   }, [tasks, searchQuery, filterStatus, filterFavorite])
 
   const historyItems = useMemo(() => groupTasksBySet(filteredTasks), [filteredTasks])
-  const productShotJobs = useProductShotsStore((s) => s.jobs)
+  const [productShotJobs, setProductShotJobs] = useState<LegacyProductJob[]>([])
   const storyboards = useStoryboardStore((s) => s.storyboards)
 
   useEffect(() => {
-    void useProductShotsStore.getState().loadJobs()
+    let active = true
+    void readLegacyProductJobs()
+      .then((jobs) => {
+        if (active) setProductShotJobs(jobs)
+      })
+      .catch((error) => console.warn('[history] Legacy records unavailable', error))
     void useStoryboardStore.getState().load()
+    return () => {
+      active = false
+    }
   }, [])
 
   const handleDelete = (task: (typeof tasks)[0]) => {
@@ -335,7 +346,7 @@ export default function TaskGrid() {
   if (!filteredTasks.length) {
     if (searchQuery || filterFavorite || filterStatus !== 'all') {
       return (
-        <div className="text-center py-20 text-gray-400 dark:text-gray-500">
+        <div className="text-center py-20 text-muted-foreground">
           <p className="text-sm">{t('grid.noMatches')}</p>
         </div>
       )
@@ -355,7 +366,7 @@ export default function TaskGrid() {
             <SetHistoryCard
               key={`set-${item.setId}`}
               name={storyboard?.title ?? job?.name ?? setFallbackName(item.tasks[0])}
-              actions={jobActionLabels(job)}
+              actions={legacyActionLabels(job)}
               tasks={item.tasks}
               expanded={expanded}
               onToggle={() =>
@@ -372,7 +383,7 @@ export default function TaskGrid() {
       </div>
       {selectionBox && (
         <div
-          className="fixed bg-blue-500/20 border border-blue-500/50 pointer-events-none z-[30]"
+          className="fixed bg-primary/20 border border-primary/50 pointer-events-none z-[30]"
           style={{
             left: Math.min(selectionBox.startPageX, selectionBox.currentPageX) - window.scrollX,
             top: Math.min(selectionBox.startPageY, selectionBox.currentPageY) - window.scrollY,

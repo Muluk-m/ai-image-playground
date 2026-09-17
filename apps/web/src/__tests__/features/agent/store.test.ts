@@ -6,6 +6,7 @@ import { PANEL_WIDTH } from '../../../features/agent/agentStyles'
 import {
   agentActivityPhase,
   answerableClarificationId,
+  conversationStarted,
   useAgentStore,
 } from '../../../features/agent/store'
 import { _setRuntimeConfigForTesting } from '../../../lib/runtimeConfig'
@@ -90,6 +91,8 @@ beforeEach(() => {
     turns: {},
     error: null,
     loaded: false,
+    historyLoading: false,
+    historyFailed: false,
   })
 })
 
@@ -248,7 +251,7 @@ describe('读回历史', () => {
 
     expect(state().conversationId).toBe(CONVERSATION)
     expect(localStorage.getItem('image-playground.agent_conversation_id')).toBe(CONVERSATION)
-    expect(state().error).toBe('这个会话读不回来，稍后再试')
+    expect(state().error).toBe('对话暂时未能加载，请重新加载。')
   })
 
   it('网络断了同样留着会话', async () => {
@@ -260,11 +263,32 @@ describe('读回历史', () => {
     await state().load()
 
     expect(state().conversationId).toBe(CONVERSATION)
-    expect(state().error).toBe('这个会话读不回来，稍后再试')
+    expect(state().error).toBe('对话暂时未能加载，请重新加载。')
   })
 })
 
 describe('发送反馈', () => {
+  it('先上屏的那条就算会话开始了；起轮失败时撤掉它，欢迎页回来', async () => {
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    turnResponse = async () => {
+      await gate
+      return new Response(JSON.stringify({ error: 'rate_limited' }), { status: 429 })
+    }
+
+    const sending = state().send('画一只橘猫')
+    await Promise.resolve()
+    expect(conversationStarted(state().messages)).toBe(true)
+
+    release()
+    await sending
+    expect(state().turn).toBe('failed')
+    expect(state().messages).toEqual([])
+    expect(conversationStarted(state().messages)).toBe(false)
+  })
+
   it('敲下回车消息立刻上屏，turnStart 到了换成服务端的 id', async () => {
     let release!: () => void
     const gate = new Promise<void>((resolve) => {
@@ -598,5 +622,56 @@ describe('澄清', () => {
       CARD,
     ])
     expect(answerableClarificationId(state().messages)).toBe('clarify-1')
+  })
+})
+
+describe('发送确认', () => {
+  it('插话携带引用，拒收时不清草稿也不结束正在运行的轮', async () => {
+    useAgentStore.setState({
+      conversationId: CONVERSATION,
+      turn: 'running',
+      activeTurn: { turnId: 'turn-1' },
+    })
+    turnResponse = () => new Response(null, { status: 409 })
+    const accepted = vi.fn()
+    const references = [{ imageId: 'new-image', dataUrl: 'data:image/png;base64,aGk=' }]
+    await state().send('修改这张', references, accepted)
+    expect(accepted).not.toHaveBeenCalled()
+    expect(state().turn).toBe('running')
+    expect(state().error).toContain('草稿已保留')
+    const request = fetchMock.mock.calls[fetchMock.mock.calls.length - 1]!
+    expect(JSON.parse(String(request[1]?.body)).references).toEqual(references)
+    turnResponse = () => Response.json({ messageId: 'user-2' })
+    await state().send('修改这张', references, accepted)
+    expect(accepted).toHaveBeenCalledOnce()
+  })
+  it('起轮失败时不确认发送，成功响应后才确认', async () => {
+    turnResponse = () => new Response(null, { status: 429 })
+    const accepted = vi.fn()
+    await state().send('画一只猫', [], accepted)
+    expect(accepted).not.toHaveBeenCalled()
+    turnResponse = () => turnStream(TURN_START, TURN_END)
+    await state().send('画一只猫', [], accepted)
+    expect(accepted).toHaveBeenCalledOnce()
+  })
+})
+
+describe('历史读取重试', () => {
+  it('失败后仅重读当前会话，期间禁止发送，不新建会话或发起轮', async () => {
+    localStorage.setItem('image-playground.agent_conversation_id', CONVERSATION)
+    messagesResponse = () => new Response('{}', { status: 503 })
+    await state().load()
+    expect(state().historyFailed).toBe(true)
+    expect(state().conversationId).toBe(CONVERSATION)
+    const calls = fetchMock.mock.calls.length
+    await state().send('草稿不能误发')
+    expect(fetchMock).toHaveBeenCalledTimes(calls)
+    messagesResponse = () => Response.json({ messages: [], activeTurn: null, turns: [] })
+    await state().retryHistory()
+    expect(state().historyFailed).toBe(false)
+    expect(state().historyLoading).toBe(false)
+    expect(state().error).toBeNull()
+    expect(state().conversationId).toBe(CONVERSATION)
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false)
   })
 })

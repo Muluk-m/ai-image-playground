@@ -3,11 +3,14 @@
     "rename": "重命名"
   },
   "panel": {
-    "title": "素材与模板",
+    "title": "我的资产",
+    "tabProjects": "我的项目",
     "tabAssets": "素材",
     "tabTemplates": "模板",
+    "searchProjects": "搜索项目名",
     "searchAssets": "搜索素材名",
     "searchTemplates": "搜索模板名",
+    "reloadProjects": "重新加载",
     "noMatchAssets": "没有匹配的素材",
     "noMatchTemplates": "没有匹配的模板",
     "dropToSave": "松开即存为素材"
@@ -88,6 +91,7 @@
   "toast": {
     "assetSaved": "已存为素材",
     "templateSaved": "已存为模板",
+    "promptTemplateSaved": "已存为模板，可在我的资产中查看",
     "firstFrameFilled": "已填入首帧",
     "assetImageMissing": "素材图片已丢失",
     "alreadyInReferences": "已在参考图中",

@@ -5,7 +5,10 @@ import type {
   AgentTurnCost,
   AgentTurnEvent,
   AgentTurnStopReason,
+  AgentTurnUsage,
   PersistedSubmitRequest,
+  ProjectDocument,
+  ProjectReceipt,
   QueueProvider,
   TaskKind,
   TaskStatus,
@@ -208,6 +211,24 @@ export const user_sync_state = pgTable('user_sync_state', {
   version: integer('version').notNull().default(0),
 })
 
+export const canvas_projects = pgTable(
+  'canvas_projects',
+  {
+    id: text('id').primaryKey(),
+    user_id: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    revision: integer('revision').notNull(),
+    document: bunJsonb('document').$type<ProjectDocument>().notNull(),
+    element_count: integer('element_count').notNull(),
+    receipts: bunJsonb('receipts').$type<ProjectReceipt[]>().notNull(),
+    created_at: epochMs('created_at').notNull(),
+    updated_at: epochMs('updated_at').notNull(),
+  },
+  (t) => [index('idx_canvas_projects_owner_id').on(t.user_id, t.id)],
+)
+
 /**
  * 智能体会话。归属 `user_id` 或 `device_id`，二者互斥：设备登录后会话改挂到用户。
  * 删除以墓碑传播，`deleted_at` 非空的会话从读路径消失。
@@ -306,6 +327,41 @@ export const agent_turns = pgTable(
     check(
       'agent_turns_stop_reason_check',
       sql`${t.stop_reason} IN ('completed', 'aborted', 'failed')`,
+    ),
+  ],
+)
+
+/** 每次模型请求的独立用量；摘要由平台承担，不混入对话任务结算。 */
+export const agent_model_calls = pgTable(
+  'agent_model_calls',
+  {
+    id: text('id').primaryKey(),
+    conversation_id: text('conversation_id')
+      .notNull()
+      .references(() => agent_conversations.id, { onDelete: 'cascade' }),
+    turn_id: text('turn_id').notNull(),
+    user_id: text('user_id'),
+    device_id: text('device_id').notNull(),
+    purpose: text('purpose').$type<'conversation' | 'compaction' | 'handoff'>().notNull(),
+    model: text('model').notNull(),
+    input_image_count: integer('input_image_count').notNull().default(0),
+    status: text('status').$type<'in_progress' | 'completed' | 'failed' | 'cancelled'>().notNull(),
+    usage: bunJsonb('usage').$type<AgentTurnUsage>(),
+    cache_read_tokens: integer('cache_read_tokens'),
+    cache_write_tokens: integer('cache_write_tokens'),
+    tool_calls: bunJsonb('tool_calls').$type<{ id: string; name: string }[]>(),
+    started_at: epochMs('started_at').notNull(),
+    finished_at: epochMs('finished_at'),
+  },
+  (t) => [
+    index('idx_agent_model_calls_turn').on(t.conversation_id, t.turn_id),
+    check(
+      'agent_model_calls_purpose_check',
+      sql`${t.purpose} IN ('conversation', 'compaction', 'handoff')`,
+    ),
+    check(
+      'agent_model_calls_status_check',
+      sql`${t.status} IN ('in_progress', 'completed', 'failed', 'cancelled')`,
     ),
   ],
 )
@@ -419,3 +475,29 @@ export type AgentConversationRow = typeof agent_conversations.$inferSelect
 export type AgentMessageRow = typeof agent_messages.$inferSelect
 export type AgentTurnEventRow = typeof agent_turn_events.$inferSelect
 export type AgentTurnRow = typeof agent_turns.$inferSelect
+
+/** Short-lived encrypted cross-origin handoff; source browser retains its original data. */
+export const domain_migrations = pgTable('domain_migrations', {
+  id: text('id').primaryKey(),
+  proof_hash: text('proof_hash').notNull(),
+  upload_hash: text('upload_hash').notNull(),
+  source_session_hash: text('source_session_hash'),
+  source_user_id: text('source_user_id'),
+  created_at: epochMs('created_at').notNull(),
+  expires_at: epochMs('expires_at').notNull(),
+  chunks: integer('chunks').notNull().default(0),
+  bytes: integer('bytes').notNull().default(0),
+  sealed: integer('sealed').notNull().default(0),
+})
+
+export const domain_migration_chunks = pgTable(
+  'domain_migration_chunks',
+  {
+    migration_id: text('migration_id')
+      .notNull()
+      .references(() => domain_migrations.id, { onDelete: 'cascade' }),
+    sequence: integer('sequence').notNull(),
+    ciphertext: text('ciphertext').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.migration_id, t.sequence] })],
+)

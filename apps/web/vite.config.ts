@@ -76,6 +76,7 @@ export default defineConfig(({ command }) => {
     },
     resolve: {
       alias: {
+        '@': resolve(__dirname, 'src'),
         react: resolve(__dirname, 'node_modules/react'),
         'react-dom': resolve(__dirname, 'node_modules/react-dom'),
       },
@@ -96,6 +97,10 @@ export default defineConfig(({ command }) => {
       // 'esnext' 与 TLA 的 baseline (Chrome 89+/Safari 15+) 对齐。
       target: 'esnext',
       rollupOptions: {
+        input: {
+          main: resolve(__dirname, 'index.html'),
+          localCompatibility: resolve(__dirname, 'local-compat.html'),
+        },
         output: {
           // 拆出第三方依赖，缓解 500KB chunk warning + 让缓存复用率更高（首屏 vendor
           // 大概率不变，业务代码改动只 bust 业务 chunk）。用函数形式才能匹配

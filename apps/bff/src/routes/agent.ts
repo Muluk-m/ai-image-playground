@@ -1,6 +1,5 @@
 import type { AgentTurnAlreadyRunningBody, AuthUserView } from '@image-playground/shared'
 import {
-  AGENT_TURN_MAX_N,
   AGENT_TURN_MAX_REFERENCES,
   AGENT_USER_MESSAGE_MAX_CHARS,
   DEVICE_ID_HEADER,
@@ -17,6 +16,7 @@ import {
 } from '../lib/agent/conversations'
 import { agentTurnHasEvents, readAgentTurnEvents } from '../lib/agent/events'
 import { type RunningTurn, runningTurn } from '../lib/agent/runningTurns'
+import { InvalidSelectionError, validateSelections } from '../lib/agent/selection-preview'
 import { agentReplayStream, agentTurnStream } from '../lib/agent/sse'
 import { startConversationTurn } from '../lib/agent/start-turn'
 import { agentTurnRateLimited } from '../lib/agent/turn-rate-limit'
@@ -47,13 +47,12 @@ const TURN_NOT_FOUND = { error: 'turn_not_found' }
  */
 const paramsSchema = t.Optional(
   t.Object({
+    thinkingDepth: t.Optional(t.Union([t.Literal('fast'), t.Literal('medium'), t.Literal('deep')])),
     model: t.Optional(t.String({ maxLength: 128 })),
     size: t.Optional(t.String({ maxLength: 32 })),
     quality: t.Optional(t.String({ maxLength: 16 })),
     output_format: t.Optional(t.String({ maxLength: 16 })),
     output_compression: t.Optional(t.Integer({ minimum: 0, maximum: 100 })),
-    moderation: t.Optional(t.String({ maxLength: 16 })),
-    n: t.Optional(t.Integer({ minimum: 1, maximum: AGENT_TURN_MAX_N })),
     gemini_aspect_ratio: t.Optional(t.String({ maxLength: 16 })),
     gemini_image_size: t.Optional(t.String({ maxLength: 16 })),
     gemini_thinking_level: t.Optional(t.String({ maxLength: 16 })),
@@ -134,6 +133,13 @@ export const agentRoutes = new Elysia()
         return status(409, body)
       }
 
+      try {
+        await validateSelections(body.references ?? [])
+      } catch (error) {
+        if (error instanceof InvalidSelectionError)
+          return status(422, { error: 'invalid_selection' })
+        throw error
+      }
       const started = await startConversationTurn({
         conversationId: conversation.id,
         owner,
@@ -229,15 +235,24 @@ export const agentRoutes = new Elysia()
   )
   .post(
     '/api/agent/conversations/:id/turns/:turnId/interject',
-    ({ activeTurn, body, status }) => {
+    async ({ activeTurn, body, status }) => {
       if (!activeTurn) return status(404, TURN_NOT_FOUND)
-      return { messageId: activeTurn.interject(body.text) }
+      let messageId: string | null
+      try {
+        messageId = await activeTurn.interject(body.text, body.references)
+      } catch (error) {
+        if (error instanceof InvalidSelectionError)
+          return status(422, { error: 'invalid_selection' })
+        throw error
+      }
+      return messageId ? { messageId } : status(409, { error: 'turn_finished' })
     },
     {
       params: turnParams,
       body: t.Object({
         deviceId: deviceIdSchema(),
         text: t.String({ minLength: 1, maxLength: AGENT_USER_MESSAGE_MAX_CHARS }),
+        references: referencesSchema,
       }),
     },
   )

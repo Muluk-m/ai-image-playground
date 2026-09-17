@@ -33,14 +33,15 @@ export default function StoryboardReferences() {
         {referenceImageIds.map((imageId) => (
           <li
             key={imageId}
-            className="relative aspect-square overflow-hidden rounded-xl border border-gray-200 dark:border-white/[0.08]"
+            className="relative aspect-square overflow-hidden rounded-xl border border-border"
           >
             <AssetThumb imageId={imageId} alt={referenceLabel} />
             <button
               type="button"
               onClick={() => useStoryboardStore.getState().removeReference(imageId)}
               aria-label={t('frameSlot.removeAria', { label: referenceLabel })}
-              className="absolute right-1 top-1 grid h-5 w-5 place-items-center rounded-full bg-black/55 text-[11px] text-white"
+              // p-0/border-0 是给导演台的 button reset 兜底：它按文字按钮给内边距和描边。
+              className="absolute right-1 top-1 grid h-5 w-5 place-items-center rounded-full border-0 bg-black/55 p-0 text-[11px] text-white"
             >
               ×
             </button>
@@ -50,9 +51,7 @@ export default function StoryboardReferences() {
           <li
             {...dropZoneProps}
             className={`flex aspect-square flex-col items-center justify-center gap-1 rounded-xl border border-dashed text-center transition ${
-              dragging
-                ? 'border-blue-400 bg-blue-500/5'
-                : 'border-gray-300 dark:border-white/[0.14]'
+              dragging ? 'border-primary bg-primary/5' : 'border-border'
             }`}
           >
             <button

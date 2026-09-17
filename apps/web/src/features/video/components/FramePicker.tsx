@@ -38,7 +38,7 @@ export default function FramePicker({
 
   return (
     <Overlay onClose={onClose}>
-      <div className="relative z-10 flex max-h-[80vh] w-full max-w-lg flex-col rounded-2xl border border-white/50 bg-white p-5 shadow-2xl ring-1 ring-black/5 animate-modal-in dark:border-white/[0.08] dark:bg-gray-900 dark:ring-white/10">
+      <div className="relative z-10 flex max-h-[80vh] w-full max-w-lg flex-col rounded-2xl border border-white/50 bg-card p-5 shadow-2xl ring-1 ring-black/5 animate-modal-in border-border dark:ring-white/10">
         <div className="mb-3 flex items-center justify-between gap-3">
           <h3 className={PANEL_TITLE}>{t('picker.title', { label })}</h3>
           <Segmented
@@ -52,7 +52,7 @@ export default function FramePicker({
 
         <div className="min-h-0 flex-1 overflow-y-auto">
           {items.length === 0 ? (
-            <p className="text-sm text-gray-500 dark:text-gray-400">
+            <p className="text-sm text-muted-foreground">
               {tab === 'library' ? t('picker.emptyLibrary') : t('picker.emptyHistory')}
             </p>
           ) : (
@@ -67,8 +67,8 @@ export default function FramePicker({
                     onClick={() => onSelect(item.imageId)}
                     className={`w-full overflow-hidden rounded-xl border transition ${
                       selectedImageIds?.includes(item.imageId)
-                        ? 'border-blue-400 ring-2 ring-blue-400/30'
-                        : 'border-gray-200 hover:border-blue-400 dark:border-white/[0.08]'
+                        ? 'border-primary ring-2 ring-ring/30'
+                        : 'border-border hover:border-primary'
                     }`}
                   >
                     <span className="block aspect-square">

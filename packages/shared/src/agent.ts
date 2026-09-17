@@ -47,28 +47,28 @@ export interface AgentStoredReference {
 
 /**
  * 一轮里生效的生成参数：用户在输入框的参数浮层里选，随起轮一起送到服务端，
- * 生图与改图工具提交队列任务时按它填。
+ * 生图与改图工具提交队列任务时按它填。张数由每次工具调用决定，审核使用应用默认。
  *
  * 字段名对齐 `SubmitRequest`，避免在途中翻译两次；但 `gemini_*` 三项保持前缀，
  * 因为它们只对 gemini 系模型成立，往队列请求里填哪一支由服务端按 provider 决定。
  */
+export type AgentThinkingDepth = 'fast' | 'medium' | 'deep'
+
 export interface AgentTurnParams {
+  readonly thinkingDepth?: AgentThinkingDepth
   /** 生成模型。解析不出来（模型下线、介质不符）就退回部署配置的那一个。 */
   readonly model?: string
   readonly size?: string
   readonly quality?: string
   readonly output_format?: string
   readonly output_compression?: number
-  readonly moderation?: string
-  /** 一次出几张。缺席按 1。 */
-  readonly n?: number
   readonly gemini_aspect_ratio?: string
   readonly gemini_image_size?: string
   readonly gemini_thinking_level?: string
 }
 
-/** 一次提交最多出几张：和输入框的数量 chip 同一上限，服务端不认更大的数。 */
-export const AGENT_TURN_MAX_N = 10
+/** 图片工具单次调用的产出上限；模型参数与画布占位共用。 */
+export const AGENT_IMAGE_MAX_N = 10
 
 export const AGENT_TURN_MAX_REFERENCES = 8
 
@@ -96,6 +96,8 @@ export interface AgentToolResultBlock {
   readonly status: AgentToolStatus
   /** 面板上这张卡的一行标签。 */
   readonly title: string
+  /** 完整生成提示词，标题仅用于摘要。旧记录可能缺席。 */
+  readonly prompt?: string
   readonly artifacts?: readonly AgentToolArtifact[]
   /** 产出落画布时贴着这个画布对象放；缺席就落在视口中央。 */
   readonly anchorObjectId?: string
@@ -185,6 +187,8 @@ export interface AgentToolStartEvent {
   readonly toolCallId: string
   readonly toolName: AgentToolName
   readonly title: string
+  /** 完整生成提示词，标题仅用于摘要。旧记录可能缺席。 */
+  readonly prompt?: string
   /** 这次调用会落几件产物；缺席即这个工具不落画布（查素材库），画布不必占位。 */
   readonly outputCount?: number
   /** 占位框贴着这个画布对象放；缺席就落在视口中央。与结果里的 `anchorObjectId` 同源。 */
@@ -220,7 +224,9 @@ export interface AgentInterjectionEvent {
 
 /** 上游按 `stream_options.include_usage` 在末帧回的用量。中转网关不透传时是 null。 */
 export interface AgentTurnUsage {
+  /** Total input, including the separately reported cached portion. */
   readonly inputTokens: number
+  readonly cachedInputTokens?: number
   readonly outputTokens: number
 }
 

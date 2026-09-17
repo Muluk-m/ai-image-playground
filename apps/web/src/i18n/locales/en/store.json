@@ -1,8 +1,7 @@
 {
   "appMode": {
-    "browse": "Workspace",
+    "browse": "Gallery",
     "create": "Create",
-    "product": "Product",
     "video": "Video"
   },
   "task": {

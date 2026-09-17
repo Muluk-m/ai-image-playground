@@ -50,7 +50,7 @@ export default function VideoFeed() {
       </div>
 
       {visible.length === 0 ? (
-        <p className="text-sm text-gray-500 dark:text-gray-400">
+        <p className="text-sm text-muted-foreground">
           {tasks.length === 0 ? t('feed.empty') : t('feed.noMatch')}
         </p>
       ) : (

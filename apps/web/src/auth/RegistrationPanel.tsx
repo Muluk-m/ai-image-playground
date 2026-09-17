@@ -24,6 +24,7 @@ interface RegistrationPanelProps {
   onBack: () => void
   onRegister: (credentials: RegistrationCredentials) => void
   children?: ReactNode
+  invitationField?: ReactNode
 }
 
 function EyeIcon({ crossed = false }: { crossed?: boolean }) {
@@ -42,6 +43,7 @@ export function RegistrationPanel({
   onBack,
   onRegister,
   children,
+  invitationField,
 }: RegistrationPanelProps) {
   const { t } = useTranslation('auth')
   const [email, setEmail] = useState('')
@@ -83,7 +85,7 @@ export function RegistrationPanel({
       </button>
 
       <div className="auth-form-heading">
-        <h1>{t('registration.title')}</h1>
+        <h1 tabIndex={-1}>{t('registration.title')}</h1>
         <p>{t('registration.subtitle')}</p>
       </div>
       {children}
@@ -103,7 +105,6 @@ export function RegistrationPanel({
             disabled={pending}
             autoCapitalize="none"
             spellCheck={false}
-            autoFocus
             required
           />
         </label>
@@ -166,6 +167,8 @@ export function RegistrationPanel({
             </button>
           </div>
         </label>
+
+        {invitationField}
 
         <div className="auth-message-slot" aria-live="polite">
           {visibleError ? (

@@ -58,15 +58,11 @@ function ModelCard({
       aria-pressed={selected}
       onClick={onSelect}
       className={`rounded-xl border px-2.5 py-2 text-left transition ${
-        selected
-          ? 'border-blue-400 bg-blue-500/10'
-          : 'border-gray-200 hover:border-blue-300 dark:border-white/[0.12]'
+        selected ? 'border-primary bg-primary/10' : 'border-border hover:border-primary'
       }`}
     >
-      <span className="block text-[13px] font-medium text-gray-800 dark:text-gray-100">
-        {option.label}
-      </span>
-      <span className="block text-[11px] text-gray-500 dark:text-gray-400">
+      <span className="block text-[13px] font-medium text-foreground">{option.label}</span>
+      <span className="block text-[11px] text-muted-foreground">
         {guard.estimatedCredits === undefined ? (
           hint
         ) : (
@@ -121,9 +117,7 @@ function VideoSubmitPanel({
         <div>
           <div className="mb-1.5 flex items-baseline justify-between">
             <span className={LABEL}>{t('composer.framesLabel')}</span>
-            <span className="text-[11px] text-gray-400 dark:text-gray-500">
-              {t('composer.framesHint')}
-            </span>
+            <span className="text-[11px] text-muted-foreground">{t('composer.framesHint')}</span>
           </div>
           <div className="grid grid-cols-2 gap-2">
             <FrameSlot
@@ -152,13 +146,11 @@ function VideoSubmitPanel({
         <div className="mb-1.5 flex items-baseline justify-between">
           <span className={LABEL}>{t('field.description')}</span>
           {promptRejection ? (
-            <span className="text-[11px] text-red-600 dark:text-red-400">
+            <span className="text-[11px] text-destructive dark:text-destructive">
               {draft.prompt.length} / {support.promptMaxChars}
             </span>
           ) : (
-            <span className="text-[11px] text-gray-400 dark:text-gray-500">
-              {t('composer.promptHint')}
-            </span>
+            <span className="text-[11px] text-muted-foreground">{t('composer.promptHint')}</span>
           )}
         </div>
         <textarea
@@ -233,17 +225,14 @@ function VideoSubmitPanel({
       </div>
 
       <div className={PANEL_SECTION}>
-        <div className="mb-2 flex items-baseline justify-between text-xs text-gray-500 dark:text-gray-400">
+        <div className="mb-2 flex items-baseline justify-between text-xs text-muted-foreground">
           <span>{summary}</span>
           {guard.estimatedCredits !== undefined && (
-            <Credits
-              credits={guard.estimatedCredits}
-              className="font-medium text-gray-800 dark:text-gray-100"
-            />
+            <Credits credits={guard.estimatedCredits} className="font-medium text-foreground" />
           )}
         </div>
         {guard.blocked && guard.disabledReason && (
-          <p className="mb-1.5 text-[11px] text-red-600 dark:text-red-400">
+          <p className="mb-1.5 text-[11px] text-destructive dark:text-destructive">
             {guard.disabledReason}
           </p>
         )}

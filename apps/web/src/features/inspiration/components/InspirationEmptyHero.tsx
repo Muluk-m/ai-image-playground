@@ -19,14 +19,14 @@ export default function InspirationEmptyHero() {
   return (
     <div className="py-8 sm:py-10">
       <div className="mb-4 flex items-center justify-between gap-3 sm:mb-5">
-        <h2 className="font-display inline-flex items-center gap-1.5 text-sm font-medium tracking-wide text-blue-600 dark:text-blue-300 sm:text-base">
+        <h2 className="font-display inline-flex items-center gap-1.5 text-sm font-medium tracking-wide text-primary sm:text-base">
           <SparkleIcon className="h-4 w-4" aria-hidden />
           {t('hero.title')}
         </h2>
         <button
           type="button"
           onClick={openPanel}
-          className="group inline-flex items-center gap-0.5 text-xs text-gray-500 transition-colors hover:text-gray-800 focus:outline-none focus-visible:text-gray-800 dark:text-gray-400 dark:hover:text-gray-100 dark:focus-visible:text-gray-100 sm:text-sm"
+          className="group inline-flex items-center gap-0.5 text-xs text-muted-foreground transition-colors hover:text-foreground focus:outline-none focus-visible:text-foreground sm:text-sm"
         >
           {t('hero.viewAll')}
           <span aria-hidden className="transition-transform group-hover:translate-x-0.5">

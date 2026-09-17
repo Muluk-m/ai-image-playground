@@ -31,23 +31,19 @@ export default function InspirationCoach() {
     <div
       role="dialog"
       aria-label={t('coach.label')}
-      className="animate-coach-pop-in absolute right-0 top-full z-50 mt-3 w-72 rounded-2xl border border-blue-100 bg-white p-4 shadow-xl ring-1 ring-black/5 dark:border-blue-500/20 dark:bg-gray-900 dark:ring-white/10"
+      className="animate-coach-pop-in absolute right-0 top-full z-50 mt-3 w-72 rounded-2xl border border-primary bg-card p-4 shadow-xl ring-1 ring-black/5 dark:ring-white/10"
     >
       {/* 气泡尖角，指向上方的按钮 */}
       <span
         aria-hidden
-        className="absolute -top-1.5 right-4 h-3 w-3 rotate-45 border-l border-t border-blue-100 bg-white dark:border-blue-500/20 dark:bg-gray-900"
+        className="absolute -top-1.5 right-4 h-3 w-3 rotate-45 border-l border-t border-primary bg-card"
       />
 
       <div className="flex items-start gap-2">
-        <SparkleIcon className="mt-0.5 h-4 w-4 shrink-0 text-blue-500" />
+        <SparkleIcon className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
         <div className="flex-1">
-          <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">
-            {t('coach.title')}
-          </div>
-          <p className="mt-1 text-xs leading-relaxed text-gray-600 dark:text-gray-400">
-            {t('coach.body')}
-          </p>
+          <div className="text-sm font-semibold text-foreground">{t('coach.title')}</div>
+          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{t('coach.body')}</p>
         </div>
       </div>
 
@@ -55,14 +51,14 @@ export default function InspirationCoach() {
         <button
           type="button"
           onClick={dismiss}
-          className="rounded-md px-2.5 py-1 text-xs text-gray-500 transition hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-white/[0.06] dark:hover:text-gray-200"
+          className="rounded-md px-2.5 py-1 text-xs text-muted-foreground transition hover:bg-muted hover:text-foreground"
         >
           {t('coach.dismiss')}
         </button>
         <button
           type="button"
           onClick={handleExplore}
-          className="inline-flex items-center gap-1 rounded-md bg-blue-500 px-2.5 py-1 text-xs font-medium text-white shadow-sm transition hover:bg-blue-600"
+          className="inline-flex items-center gap-1 rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground shadow-sm transition hover:bg-primary/90"
         >
           <SparkleIcon className="h-3 w-3" />
           {t('coach.explore')}

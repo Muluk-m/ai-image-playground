@@ -21,16 +21,18 @@ export default function AgentTurnCost({ footer }: { footer: AgentTurnFooter }) {
 
   // 进行中不写预扣：那是内部记账，用户只关心结算后的实际消耗；进行中由状态行表达。
   const parts: ReactNode[] = []
+  const failed = footer.stopReason === 'failed'
+  if (failed) parts.push(<span>{t('cost.failed')}</span>)
   if (footer.durationMs !== undefined) {
     parts.push(<span>{t('cost.duration', { duration: formatElapsed(footer.durationMs) })}</span>)
   }
-  if (total === 0) parts.push(<span>{t('cost.free')}</span>)
+  if (total === 0) parts.push(<span>{failed ? t('cost.noCredits') : t('cost.free')}</span>)
   if (total) {
     parts.push(
       <button
         type="button"
         aria-expanded={open}
-        className="inline-flex items-center gap-1 transition-colors hover:text-[#8b8b93]"
+        className="inline-flex items-center gap-1 transition-colors hover:text-foreground"
         onClick={() => setOpen(!open)}
       >
         {t('cost.spent')} <Credits credits={total} />

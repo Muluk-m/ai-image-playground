@@ -1,8 +1,4 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import {
-  PRODUCT_IS_SOURCE_REASON,
-  PRODUCT_MISSING_REASON,
-} from '../../features/productShots/lib/productGate'
 import { i18next, setLocale } from '../../i18n'
 import { NO_EDIT_SUPPORT_MESSAGE } from '../../lib/channels/profileSelectors'
 import { IMAGE_FETCH_CORS_HINT } from '../../lib/imageApiShared'
@@ -45,18 +41,14 @@ describe('lib 的 module-level 标签表', () => {
     expect(SHOT_TYPE_LABELS['spec-diagram']).toBe('尺寸参数图')
   })
 
-  it('另外四张表同样跟着切，别只覆盖头三个', async () => {
+  it('另外两张表同样跟着切，别只覆盖头三个', async () => {
     expect(EXPORT_FIT_LABELS.crop).toBe('裁切')
     expect(IMAGE_FETCH_CORS_HINT).toContain('复制结果链接')
-    expect(PRODUCT_MISSING_REASON).toBe('产品素材已丢失')
-    expect(PRODUCT_IS_SOURCE_REASON).toBe('产品素材与原图相同')
 
     await setLocale('en')
 
     expect(EXPORT_FIT_LABELS.crop).toBe('Crop')
     expect(IMAGE_FETCH_CORS_HINT).toContain('copy the result URL')
-    expect(PRODUCT_MISSING_REASON).toBe('The product asset is gone')
-    expect(PRODUCT_IS_SOURCE_REASON).toContain('same as the source')
   })
 
   it('重算挂在 languageChanged 上，且排在 react-i18next 之后', () => {

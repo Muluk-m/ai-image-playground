@@ -127,4 +127,16 @@ describe('i18n catalogs', () => {
       }
     }
   })
+
+  it('has no empty values: an empty string is a missing translation, never a way to hide something', () => {
+    const empty: string[] = []
+    for (const namespace of I18N_NAMESPACES) {
+      for (const locale of SUPPORTED_LOCALES) {
+        for (const [path, value] of leafValues(catalog(locale, namespace))) {
+          if (value.trim() === '') empty.push(`${locale} ${namespace}:${path}`)
+        }
+      }
+    }
+    expect(empty).toEqual([])
+  })
 })

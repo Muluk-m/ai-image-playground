@@ -4,7 +4,13 @@ import { createPortal } from 'react-dom'
 import { describeError, i18next, useTranslation } from '../i18n'
 import { canvasToBlob, loadImage } from '../lib/canvasImage'
 import { storeImage } from '../lib/db'
-import { maskPaintOperation } from '../lib/mask'
+import {
+  assertUsableMaskCoverage,
+  classifyMaskAlpha,
+  fillMaskLasso,
+  isUsableMaskLasso,
+  maskPaintOperation,
+} from '../lib/mask'
 import { prepareMaskTargetDataUrl } from '../lib/maskPreprocess'
 import {
   clampViewTransform,
@@ -17,8 +23,9 @@ import {
 } from '../lib/viewportTransform'
 import { ensureImageCached, useStore } from '../store'
 import Overlay from './Overlay'
+import { Button } from './ui/button'
 
-type Tool = 'brush' | 'eraser'
+type Tool = 'lasso' | 'brush' | 'eraser'
 
 interface CanvasSize {
   width: number
@@ -125,6 +132,7 @@ export default function MaskEditorModal() {
   const maskInfoTimerRef = useRef<number | null>(null)
   const activePointerIdRef = useRef<number | null>(null)
   const lastPointRef = useRef<Point | null>(null)
+  const lassoPointsRef = useRef<Point[]>([])
   const pointerPositionsRef = useRef<Map<number, Point>>(new Map())
   const pinchGestureRef = useRef<PinchGesture | null>(null)
   const panGestureRef = useRef<PanGesture | null>(null)
@@ -138,7 +146,7 @@ export default function MaskEditorModal() {
 
   const [sourceDataUrl, setSourceDataUrl] = useState('')
   const [size, setSize] = useState<CanvasSize | null>(null)
-  const [tool, setTool] = useState<Tool>('brush')
+  const [tool, setTool] = useState<Tool>('lasso')
   const [brushSize, setBrushSize] = useState(64)
   const [showBrushControls, setShowBrushControls] = useState(false)
   const [viewTransform, setViewTransform] = useState<ViewTransform>(DEFAULT_VIEW_TRANSFORM)
@@ -232,9 +240,13 @@ export default function MaskEditorModal() {
 
   function cancelActiveStroke() {
     if (activePointerIdRef.current == null) return
-
-    const previous = undoStackRef.current.pop()
-    if (previous) restoreMask(previous)
+    if (lassoPointsRef.current.length) {
+      lassoPointsRef.current = []
+      renderPreview()
+    } else {
+      const previous = undoStackRef.current.pop()
+      if (previous) restoreMask(previous)
+    }
     activePointerIdRef.current = null
     lastPointRef.current = null
     syncHistoryState()
@@ -303,6 +315,19 @@ export default function MaskEditorModal() {
     previewCtx.fillRect(0, 0, previewCanvas.width, previewCanvas.height)
     previewCtx.globalCompositeOperation = 'destination-out'
     previewCtx.drawImage(maskCanvas, 0, 0)
+    const path = lassoPointsRef.current
+    if (path.length > 1) {
+      previewCtx.globalCompositeOperation = 'source-over'
+      previewCtx.beginPath()
+      previewCtx.moveTo(path[0]!.x, path[0]!.y)
+      for (const point of path.slice(1)) previewCtx.lineTo(point.x, point.y)
+      previewCtx.closePath()
+      previewCtx.fillStyle = 'rgba(59, 130, 246, 0.35)'
+      previewCtx.fill('evenodd')
+      previewCtx.lineWidth = 2 / viewTransformRef.current.scale
+      previewCtx.strokeStyle = '#fff'
+      previewCtx.stroke()
+    }
     previewCtx.restore()
   }
 
@@ -347,7 +372,8 @@ export default function MaskEditorModal() {
       frameTop +
       (point.y / maskCanvas.height) * frame.clientHeight * scale +
       viewTransformRef.current.y
-    const radius = (brushSize / 2 / maskCanvas.width) * frame.clientWidth * scale
+    const radius =
+      tool === 'lasso' ? 3 : (brushSize / 2 / maskCanvas.width) * frame.clientWidth * scale
 
     ctx.save()
     ctx.lineWidth = 1
@@ -421,7 +447,10 @@ export default function MaskEditorModal() {
   }
 
   function paintOperation(nextTool: Tool): GlobalCompositeOperation {
-    return maskPaintOperation(nextTool, session?.keepSemantics ?? false)
+    return maskPaintOperation(
+      nextTool === 'lasso' ? 'brush' : nextTool,
+      session?.keepSemantics ?? false,
+    )
   }
 
   function drawAt(point: Point, nextTool = tool) {
@@ -497,6 +526,8 @@ export default function MaskEditorModal() {
     }
 
     const targetImageId = imageId
+    setTool(session?.keepSemantics ? 'brush' : 'lasso')
+    lassoPointsRef.current = []
     let cancelled = false
     setIsLoading(true)
     setSourceDataUrl('')
@@ -599,6 +630,7 @@ export default function MaskEditorModal() {
     }
   }, [
     brushSize,
+    tool,
     viewTransform,
     hoverPoint,
     isPointerOverCanvas,
@@ -696,10 +728,15 @@ export default function MaskEditorModal() {
     }
 
     activePointerIdRef.current = event.pointerId
-    pushUndoSnapshot()
     const point = getCanvasPoint(canvas, event)
     lastPointRef.current = point
-    drawAt(point)
+    if (tool === 'lasso') {
+      lassoPointsRef.current = [point]
+      renderPreview()
+    } else {
+      pushUndoSnapshot()
+      drawAt(point)
+    }
   }
 
   const handlePointerMove = (event: ReactPointerEvent<HTMLCanvasElement>) => {
@@ -740,7 +777,11 @@ export default function MaskEditorModal() {
     )
       return
     event.preventDefault()
-    drawStroke(lastPointRef.current, point)
+    if (lassoPointsRef.current.length) {
+      if (distance(lassoPointsRef.current[lassoPointsRef.current.length - 1]!, point) >= 1)
+        lassoPointsRef.current.push(point)
+      renderPreview()
+    } else drawStroke(lastPointRef.current, point)
     lastPointRef.current = point
   }
 
@@ -772,9 +813,24 @@ export default function MaskEditorModal() {
   }
 
   const finishStroke = (event: ReactPointerEvent<HTMLCanvasElement>) => {
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId)
+    if (activePointerIdRef.current === event.pointerId) {
+      if (event.type !== 'pointerup') cancelActiveStroke()
+      else {
+        const points = lassoPointsRef.current
+        if (points.length) points.push(getCanvasPoint(event.currentTarget, event))
+        const ctx = maskCanvasRef.current?.getContext('2d')
+        if (isUsableMaskLasso(points) && ctx) {
+          pushUndoSnapshot()
+          fillMaskLasso(ctx, points, session?.keepSemantics ?? false)
+        }
+        lassoPointsRef.current = []
+        activePointerIdRef.current = null
+        lastPointRef.current = null
+        renderPreview()
+      }
     }
+    if (event.currentTarget.hasPointerCapture(event.pointerId))
+      event.currentTarget.releasePointerCapture(event.pointerId)
     pointerPositionsRef.current.delete(event.pointerId)
 
     if (pinchGestureRef.current) {
@@ -843,6 +899,12 @@ export default function MaskEditorModal() {
     const savingImageId = imageId
     try {
       setIsSaving(true)
+      const ctx = canvas.getContext('2d', { willReadFrequently: true })
+      if (!ctx) throw new Error(t('mask.canvasUnsupported'))
+      if (!session.keepSemantics)
+        assertUsableMaskCoverage(
+          classifyMaskAlpha(ctx.getImageData(0, 0, canvas.width, canvas.height)),
+        )
       const blob = await canvasToBlob(canvas, 'image/png')
       const maskDataUrl = await blobToDataUrl(blob)
       const workingTargetId = await storeImage(sourceDataUrl, 'upload')
@@ -891,14 +953,14 @@ export default function MaskEditorModal() {
   return (
     <>
       <Overlay onClose={close} tier="raised" backdrop="none" layout="fill">
-        <div className="relative flex h-full w-full flex-col bg-gray-50 dark:bg-gray-900 animate-modal-in">
+        <div className="relative flex h-full w-full flex-col bg-card animate-modal-in">
           {/* Header */}
-          <div className="flex-none flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-950 z-20">
+          <div className="flex-none flex items-center justify-between px-4 py-3 border-b border-border bg-card z-20">
             <div className="flex items-center gap-3">
               <button
                 onClick={close}
                 disabled={isSaving}
-                className="p-2 -ml-2 text-gray-500 hover:bg-gray-100 rounded-lg dark:text-gray-400 dark:hover:bg-gray-800 transition"
+                className="p-2 -ml-2 text-muted-foreground hover:bg-muted rounded-lg transition"
                 title={t('common:action.cancel')}
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -911,11 +973,8 @@ export default function MaskEditorModal() {
                 </svg>
               </button>
               <div className="relative flex items-center gap-1.5">
-                <h2
-                  className="text-sm font-medium text-gray-700 dark:text-gray-200"
-                  id="mask-editor-title"
-                >
-                  {t('mask.title')}
+                <h2 className="text-sm font-medium text-foreground" id="mask-editor-title">
+                  {t('mask.panelTitle')}
                 </h2>
                 <button
                   type="button"
@@ -925,7 +984,7 @@ export default function MaskEditorModal() {
                   onTouchStart={startMaskInfoTouch}
                   onTouchEnd={clearMaskInfoTimer}
                   onTouchCancel={hideMaskInfoPopover}
-                  className="flex h-6 w-6 items-center justify-center rounded-full text-gray-400 transition hover:bg-gray-100 hover:text-gray-600 dark:text-gray-500 dark:hover:bg-gray-800 dark:hover:text-gray-300"
+                  className="flex h-6 w-6 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted hover:text-muted-foreground"
                   aria-label={t('mask.infoLabel')}
                   title={t('mask.infoLabel')}
                 >
@@ -939,9 +998,9 @@ export default function MaskEditorModal() {
                   </svg>
                 </button>
                 {showMaskInfo && (
-                  <div className="absolute left-0 top-full mt-2 w-64 rounded-xl border border-gray-200/80 bg-white px-3 py-2 text-xs leading-5 text-gray-600 shadow-lg dark:border-white/[0.08] dark:bg-gray-900 dark:text-gray-300">
-                    <div className="absolute -top-1.5 left-16 h-3 w-3 rotate-45 border-l border-t border-gray-200/80 bg-white dark:border-white/[0.08] dark:bg-gray-900" />
-                    {t('mask.infoText')}
+                  <div className="absolute left-0 top-full mt-2 w-64 rounded-xl border border-border/80 bg-card px-3 py-2 text-xs leading-5 text-muted-foreground shadow-lg">
+                    <div className="absolute -top-1.5 left-16 h-3 w-3 rotate-45 border-l border-t border-border/80 bg-card" />
+                    {session?.keepSemantics ? t('mask.infoTextKeep') : t('mask.infoText')}
                   </div>
                 )}
               </div>
@@ -950,7 +1009,7 @@ export default function MaskEditorModal() {
               {removeMask && (
                 <button
                   onClick={handleRemoveMask}
-                  className="flex h-8 items-center gap-1.5 px-4 text-sm font-medium text-white bg-red-500 hover:bg-red-600 rounded-lg transition"
+                  className="flex h-8 items-center gap-1.5 px-4 text-sm font-medium text-white bg-destructive hover:bg-destructive/90 rounded-lg transition"
                 >
                   {t('mask.remove')}
                 </button>
@@ -958,7 +1017,7 @@ export default function MaskEditorModal() {
               <button
                 onClick={handleSave}
                 disabled={!isReady || isSaving}
-                className="flex h-8 items-center gap-1.5 px-4 text-sm font-medium text-white bg-blue-500 hover:bg-blue-600 rounded-lg disabled:opacity-50 transition"
+                className="flex h-8 items-center gap-1.5 px-4 text-sm font-medium text-primary-foreground bg-primary hover:bg-primary/90 rounded-lg disabled:opacity-50 transition"
               >
                 {isSaving ? t('mask.saving') : t('common:action.save')}
               </button>
@@ -966,13 +1025,26 @@ export default function MaskEditorModal() {
           </div>
 
           {/* Workspace */}
+          {!session?.keepSemantics && (
+            <p
+              className="m-0 border-b border-border px-4 py-2 text-center text-xs text-muted-foreground"
+              aria-live="polite"
+            >
+              {tool === 'lasso'
+                ? t('mask.hintLasso')
+                : tool === 'brush'
+                  ? t('mask.hintBrush')
+                  : t('mask.hintEraser')}{' '}
+              · {t('mask.hintSelectionColor')}
+            </p>
+          )}
           <div
             ref={stageRef}
-            className="flex-1 relative flex items-center justify-center overflow-hidden bg-gray-100/50 dark:bg-black/50 p-0 pb-[76px] sm:p-6 sm:pb-[100px]"
+            className="flex-1 relative flex items-center justify-center overflow-hidden bg-muted/50 dark:bg-black/50 p-0 pb-[76px] sm:p-6 sm:pb-[100px]"
             style={{ containerType: 'size' }}
           >
             {isLoading && (
-              <div className="absolute inset-0 z-20 flex items-center justify-center bg-white/50 text-sm text-gray-500 backdrop-blur-sm dark:bg-gray-900/50 dark:text-gray-300">
+              <div className="absolute inset-0 z-20 flex items-center justify-center bg-card/50 text-sm text-muted-foreground backdrop-blur-sm">
                 {t('mask.loading')}
               </div>
             )}
@@ -1027,11 +1099,24 @@ export default function MaskEditorModal() {
 
           {/* Footer Toolbar */}
           <div className="absolute bottom-4 sm:bottom-8 left-1/2 -translate-x-1/2 flex items-center justify-center z-20 pointer-events-none w-full px-2 sm:px-4">
-            <div className="flex items-center gap-2 sm:gap-4 px-2 sm:px-3 py-1.5 sm:py-2 bg-white/95 dark:bg-[#0f0f0f]/95 backdrop-blur-md border border-gray-200/80 dark:border-white/5 rounded-2xl sm:rounded-[1.25rem] shadow-2xl pointer-events-auto">
+            <div className="flex items-center gap-2 sm:gap-4 px-2 sm:px-3 py-1.5 sm:py-2 bg-card/95 backdrop-blur-md border border-border/80 rounded-2xl sm:rounded-[1.25rem] shadow-2xl pointer-events-auto">
               <div className="flex items-center gap-1.5 sm:gap-3">
-                <div className="flex items-center bg-gray-100/80 dark:bg-[#232325]/80 p-1 rounded-xl sm:rounded-[14px]">
-                  <button
-                    className={`p-2 sm:p-2.5 rounded-lg sm:rounded-xl transition-all ${tool === 'brush' ? 'bg-white shadow-sm text-blue-500 dark:bg-[#323338] dark:text-blue-400 dark:shadow-none' : 'text-gray-500 hover:text-gray-700 dark:text-[#8a8a8e] dark:hover:text-gray-200'}`}
+                <div className="flex items-center bg-muted/80 p-1 rounded-xl sm:rounded-[14px]">
+                  {!session?.keepSemantics && (
+                    <Button
+                      variant={tool === 'lasso' ? 'secondary' : 'ghost'}
+                      size="sm"
+                      aria-pressed={tool === 'lasso'}
+                      onClick={() => setTool('lasso')}
+                      disabled={!isReady || isSaving}
+                    >
+                      {t('mask.lasso')}
+                    </Button>
+                  )}
+                  <Button
+                    variant={tool === 'brush' ? 'secondary' : 'ghost'}
+                    size="sm"
+                    aria-pressed={tool === 'brush'}
                     onClick={() => setTool('brush')}
                     disabled={!isReady || isSaving}
                     title={session?.keepSemantics ? t('mask.brushKeep') : t('mask.brush')}
@@ -1044,9 +1129,14 @@ export default function MaskEditorModal() {
                         d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"
                       />
                     </svg>
-                  </button>
-                  <button
-                    className={`p-2 sm:p-2.5 rounded-lg sm:rounded-xl transition-all ${tool === 'eraser' ? 'bg-white shadow-sm text-blue-500 dark:bg-[#323338] dark:text-blue-400 dark:shadow-none' : 'text-gray-500 hover:text-gray-700 dark:text-[#8a8a8e] dark:hover:text-gray-200'}`}
+                    <span className="hidden sm:inline">
+                      {session?.keepSemantics ? t('mask.brushKeepLabel') : t('mask.brush')}
+                    </span>
+                  </Button>
+                  <Button
+                    variant={tool === 'eraser' ? 'secondary' : 'ghost'}
+                    size="sm"
+                    aria-pressed={tool === 'eraser'}
                     onClick={() => setTool('eraser')}
                     disabled={!isReady || isSaving}
                     title={session?.keepSemantics ? t('mask.eraserKeep') : t('mask.eraser')}
@@ -1066,7 +1156,8 @@ export default function MaskEditorModal() {
                       </g>
                       <path d="M8 21h12" />
                     </svg>
-                  </button>
+                    <span className="hidden sm:inline">{t('mask.eraserLabel')}</span>
+                  </Button>
                 </div>
 
                 <div
@@ -1076,8 +1167,8 @@ export default function MaskEditorModal() {
                   <button
                     ref={brushSizeButtonRef}
                     onClick={toggleBrushControls}
-                    className={`flex items-center justify-center w-10 h-10 sm:w-[46px] sm:h-[46px] rounded-xl sm:rounded-[14px] transition-all border ${showBrushControls ? 'bg-blue-50 border-blue-200 text-blue-600 dark:bg-[#323338] dark:border-gray-600 dark:text-blue-400' : 'bg-white border-gray-200/80 text-gray-700 hover:bg-gray-50 dark:bg-transparent dark:border-[#323338] dark:text-[#e0e0e0] dark:hover:border-gray-500'}`}
-                    disabled={!isReady || isSaving}
+                    className={`flex items-center justify-center w-10 h-10 sm:w-[46px] sm:h-[46px] rounded-xl sm:rounded-[14px] transition-all border ${showBrushControls ? 'bg-primary/10 border-primary text-primary bg-card dark:text-primary' : 'bg-card hover:bg-card dark:bg-transparent border-border text-muted-foreground dark:hover:border-border'}`}
+                    disabled={!isReady || isSaving || tool === 'lasso'}
                     title={t('mask.brushSize')}
                   >
                     <span className="text-[14px] sm:text-[15px] font-semibold tracking-tight">
@@ -1091,7 +1182,7 @@ export default function MaskEditorModal() {
                 <button
                   onClick={handleUndo}
                   disabled={!canUndo}
-                  className="p-2 sm:p-2.5 text-gray-500 hover:bg-gray-100 rounded-lg sm:rounded-xl disabled:opacity-30 dark:text-[#8a8a8e] dark:hover:bg-white/10 dark:hover:text-gray-200 transition-all"
+                  className="p-2 sm:p-2.5 text-muted-foreground hover:bg-muted rounded-lg sm:rounded-xl disabled:opacity-30 hover:text-foreground transition-all"
                   title={t('mask.undo')}
                 >
                   <svg
@@ -1110,7 +1201,7 @@ export default function MaskEditorModal() {
                 <button
                   onClick={handleRedo}
                   disabled={!canRedo}
-                  className="p-2 sm:p-2.5 text-gray-500 hover:bg-gray-100 rounded-lg sm:rounded-xl disabled:opacity-30 dark:text-[#8a8a8e] dark:hover:bg-white/10 dark:hover:text-gray-200 transition-all"
+                  className="p-2 sm:p-2.5 text-muted-foreground hover:bg-muted rounded-lg sm:rounded-xl disabled:opacity-30 hover:text-foreground transition-all"
                   title={t('mask.redo')}
                 >
                   <svg
@@ -1126,11 +1217,11 @@ export default function MaskEditorModal() {
                     <path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3l3 2.7" />
                   </svg>
                 </button>
-                <div className="w-px h-4 sm:h-5 bg-gray-300 dark:bg-[#323338] mx-1"></div>
+                <div className="w-px h-4 sm:h-5 bg-muted mx-1"></div>
                 <button
                   onClick={resetViewTransform}
                   disabled={!isReady || isSaving || !isZoomed}
-                  className="p-2 sm:p-2.5 text-gray-500 hover:bg-gray-100 rounded-lg sm:rounded-xl disabled:opacity-30 dark:text-[#8a8a8e] dark:hover:bg-white/10 dark:hover:text-gray-200 transition-all"
+                  className="p-2 sm:p-2.5 text-muted-foreground hover:bg-muted rounded-lg sm:rounded-xl disabled:opacity-30 hover:text-foreground transition-all"
                   title={t('mask.resetView')}
                 >
                   <svg
@@ -1151,7 +1242,7 @@ export default function MaskEditorModal() {
                 <button
                   onClick={handleClear}
                   disabled={!isReady || isSaving}
-                  className="p-2 sm:p-2.5 text-gray-500 hover:bg-gray-100 rounded-lg sm:rounded-xl disabled:opacity-30 dark:text-[#8a8a8e] dark:hover:bg-white/10 dark:hover:text-gray-200 transition-all"
+                  className="p-2 sm:p-2.5 text-muted-foreground hover:bg-muted rounded-lg sm:rounded-xl disabled:opacity-30 hover:text-foreground transition-all"
                   title={t('mask.clear')}
                 >
                   <svg
@@ -1178,7 +1269,7 @@ export default function MaskEditorModal() {
         createPortal(
           <div
             ref={brushSizePanelRef}
-            className="fixed z-[100] h-44 w-14 -translate-x-1/2 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700"
+            className="fixed z-[100] h-44 w-14 -translate-x-1/2 bg-card rounded-xl shadow-xl border border-border"
             style={{ left: sliderAnchor.left, bottom: sliderAnchor.bottom }}
           >
             <input
@@ -1191,7 +1282,7 @@ export default function MaskEditorModal() {
                 setBrushSize(nextSize)
                 if (!isPointerOverCanvas && size) updateCursor(getViewportCenterCanvasPoint())
               }}
-              className="absolute left-1/2 top-1/2 h-5 w-32 -translate-x-1/2 -translate-y-1/2 -rotate-90 accent-blue-500 cursor-ns-resize"
+              className="absolute left-1/2 top-1/2 h-5 w-32 -translate-x-1/2 -translate-y-1/2 -rotate-90 accent-primary cursor-ns-resize"
               disabled={!isReady || isSaving}
             />
           </div>,

@@ -29,8 +29,8 @@ export function ActualValueBadge({
   const touchTimerRef = useRef<number | null>(null)
   const colorClass =
     variant === 'normal'
-      ? 'bg-gray-100 text-gray-500 dark:bg-white/[0.04] dark:text-gray-400'
-      : 'bg-yellow-100 text-yellow-800 dark:bg-yellow-500/20 dark:text-yellow-300'
+      ? 'bg-muted text-muted-foreground'
+      : 'bg-warning/10 text-warning dark:bg-warning/20 dark:text-warning'
 
   useEffect(
     () => () => {
@@ -105,13 +105,7 @@ export function ParamValue({ task, paramKey, className = '', actualParams }: Par
     return <ActualValueBadge value={displayValue} className={className} />
   }
 
-  return (
-    <span
-      className={`${className} bg-gray-100 text-gray-500 dark:bg-white/[0.04] dark:text-gray-400`}
-    >
-      {displayValue}
-    </span>
-  )
+  return <span className={`${className} bg-muted text-muted-foreground`}>{displayValue}</span>
 }
 
 export function DetailParamValue({
@@ -130,19 +124,19 @@ export function DetailParamValue({
     if (isAutoResolved) {
       return (
         <span className={`inline-flex items-center gap-1 ${className}`}>
-          <span className="text-gray-700 dark:text-gray-300">{requestedValue}</span>
-          <span className="text-gray-300 dark:text-gray-600">|</span>
+          <span className="text-foreground">{requestedValue}</span>
+          <span className="text-foreground">|</span>
           <ActualValueBadge value={displayValue} variant="normal" className="rounded px-1 py-0.5" />
         </span>
       )
     }
-    return <span className={`text-gray-700 dark:text-gray-300 ${className}`}>{displayValue}</span>
+    return <span className={`text-foreground ${className}`}>{displayValue}</span>
   }
 
   return (
     <span className={`inline-flex items-center gap-1 ${className}`}>
-      <span className="text-gray-700 dark:text-gray-300">{requestedValue}</span>
-      <span className="text-gray-300 dark:text-gray-600">|</span>
+      <span className="text-foreground">{requestedValue}</span>
+      <span className="text-foreground">|</span>
       <ActualValueBadge value={displayValue} className="rounded px-1 py-0.5" />
     </span>
   )
