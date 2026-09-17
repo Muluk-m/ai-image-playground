@@ -1,10 +1,15 @@
-import type { GenerationDetail, GenerationPage } from '@image-playground/shared'
+import {
+  type GenerationDetail,
+  type GenerationPage,
+  projectArtifactId,
+} from '@image-playground/shared'
 import { and, desc, eq, inArray, lt, or, sql } from 'drizzle-orm'
 import { db, schema } from '../db/client'
 
 const table = schema.generation_records
 const columns = {
   id: table.id,
+  source: table.source,
   provider: table.provider,
   model: table.model,
   status: table.status,
@@ -65,7 +70,12 @@ export async function listGenerations(
           ),
         )
     : []
-  const byId = new Map(covers.map(({ generationId, ...cover }) => [generationId, cover]))
+  const byId = new Map(
+    covers.map(({ generationId, ...cover }) => [
+      generationId,
+      { ...cover, artifactId: projectArtifactId(generationId, cover.index) },
+    ]),
+  )
   const items = selected.map((row) => ({ ...row, cover: byId.get(row.id) ?? null }))
   const last = items.at(-1)
   return {
@@ -108,7 +118,12 @@ export async function readGeneration(
     )
     .orderBy(schema.generation_images.position)
   const byRole = (role: 'input' | 'mask' | 'output') =>
-    images.filter((image) => image.role === role).map(({ role: _role, ...image }) => image)
+    images
+      .filter((image) => image.role === role)
+      .map(({ role: _role, ...image }) => ({
+        ...image,
+        ...(role === 'output' ? { artifactId: projectArtifactId(id, image.index) } : {}),
+      }))
   return {
     ...record,
     outputs: byRole('output'),
