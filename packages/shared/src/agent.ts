@@ -40,6 +40,7 @@ export type AgentToolName =
   | 'editImage'
   | 'readLibrary'
   | 'generateVideo'
+  | 'stitchVideos'
   | 'loadSkill'
 
 /**

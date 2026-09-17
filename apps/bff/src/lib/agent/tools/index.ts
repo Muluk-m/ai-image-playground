@@ -13,6 +13,7 @@ import { generateImage } from './generateImage'
 import { generateVideo } from './generateVideo'
 import { loadSkill } from './loadSkill'
 import { readLibrary } from './readLibrary'
+import { stitchVideos } from './stitchVideos'
 import type { AgentToolContext, AgentToolDeclaration, AgentToolSpec } from './types'
 
 export type { AgentToolOutcome, AgentToolStart } from './adapter'
@@ -24,6 +25,7 @@ const TOOLS: readonly AgentToolSpec[] = [
   editImage,
   readLibrary,
   generateVideo,
+  stitchVideos,
   loadSkill,
 ]
 

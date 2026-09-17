@@ -63,6 +63,9 @@ if (agentEnabled) {
     { event: 'agent.skills_ready', image: skills.image.length, video: skills.video.length },
     'agent skills ready',
   )
+  // ffmpeg 也只探这一次：拼接工具的可用性跟着它走，没探到就整条不进模型的清单。
+  const { detectFfmpeg } = await import('./lib/ffmpeg')
+  await detectFfmpeg()
 }
 
 // Importing the app loads optional private routes. Public migrations and

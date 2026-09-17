@@ -6,7 +6,7 @@ import type {
   StoredImageRef,
 } from '@image-playground/shared'
 import { db, schema } from '../../db/client'
-import { resolveImageBytesRef } from '../extractImages'
+import { type ImageBytesRef, resolveImageBytesRef } from '../extractImages'
 import { archiveInputImages, hydrateInputImages } from '../imageArchive'
 import { log } from '../logger'
 import { objectStore } from '../objectStore'
@@ -23,6 +23,27 @@ export interface ResolvedAgentImage {
   /** 用户在这张图上画的遮罩，只有输入框附上的参考图才可能有。 */
   readonly maskDataUrl?: string
 }
+
+/**
+ * 一段模型可以指着说话的视频产出。**字节不进模型**——它只拿得到 id，取字节是工具的事。
+ */
+export interface ResolvedAgentVideo {
+  readonly videoId: string
+  readonly taskId: string
+  readonly outputIndex: number
+  readonly mime: string
+  /** 成片字节。大到几十 MB 都在这一次调用里读完，调用方自己决定写去哪。 */
+  read(): Promise<Uint8Array>
+}
+
+/**
+ * 按 id 找一段视频的三种结局。**分开回答**：「没这个 id」与「有但取不出来」要让模型
+ * 看到不同的话，前者是它记错了 id，后者是那一镜还没跑完或者不归这个用户。
+ */
+export type AgentVideoLookup =
+  | { readonly kind: 'ready'; readonly video: ResolvedAgentVideo }
+  | { readonly kind: 'unknown' }
+  | { readonly kind: 'unavailable' }
 
 /** 模型只会说图片 id，字节从哪来由这里决定。 */
 export interface AgentImageSource {
@@ -41,6 +62,10 @@ export interface AgentImageSource {
   resolve(imageId: string): Promise<ResolvedAgentImage | null>
   /** 记下工具刚产出的图，同一轮里下一个工具才能接着改它。视频不进这里：它取不出可编辑的位图。 */
   note(artifacts: readonly AgentToolArtifact[]): void
+  /** 这一轮模型指得到的视频产物 id，按产出顺序；回执里列给它看。 */
+  readonly videoIds: readonly string[]
+  /** 视频产物的字节出口。与图片并列，规则相同：模型说 id，取字节只此一处。 */
+  resolveVideo(videoId: string): Promise<AgentVideoLookup>
 }
 
 /** 按 id 取图，取不到就抛。工具共用这一句：模型换个 id 重试是它唯一的出路。 */
@@ -65,6 +90,10 @@ interface TaskOutput {
   readonly outputIndex: number
 }
 
+interface VideoOutput extends TaskOutput {
+  readonly mime: string
+}
+
 function dataUrl(bytes: Uint8Array, mime: string): string {
   const view = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength)
   return `data:${mime};base64,${view.toString('base64')}`
@@ -77,10 +106,11 @@ async function modelImage(image: ResolvedAgentImage | null): Promise<ResolvedAge
   return normalized === image.dataUrl ? image : { ...image, dataUrl: normalized }
 }
 
-async function readTaskOutput(
+/** 这条任务产出的第 n 件东西在哪；任务不存在、没跑完、不归这个用户都是 null。 */
+async function resolveTaskOutputRef(
   output: TaskOutput,
   userId: string | null,
-): Promise<Omit<ResolvedAgentImage, 'imageId'> | null> {
+): Promise<ImageBytesRef | null> {
   const [task] = await db
     .select({
       status: schema.tasks.status,
@@ -93,27 +123,50 @@ async function readTaskOutput(
   if (!task || task.status !== 'completed') return null
   const provider = asQueueProvider(task.provider)
   if (!provider) return null
-  const ref = resolveImageBytesRef(provider, task.result_payload, output.outputIndex)
-  if (!ref) return null
-  if (ref.kind === 'b64') return { dataUrl: `data:${ref.mime};base64,${ref.data}` }
-  if (ref.kind === 'object')
-    return { dataUrl: dataUrl(await objectStore().read(ref.data), ref.mime) }
-  const upstream = await fetch(ref.data)
-  if (!upstream.ok) return null
-  const mime = upstream.headers.get('content-type') ?? ref.mime
-  return { dataUrl: dataUrl(new Uint8Array(await upstream.arrayBuffer()), mime) }
+  return resolveImageBytesRef(provider, task.result_payload, output.outputIndex)
 }
 
-/** 历史里的工具结果块记着每张产出图的任务与下标，所以产物不必另立一张表。 */
-function outputsFromHistory(history: readonly AgentMessageView[]): Map<string, TaskOutput> {
-  const outputs = new Map<string, TaskOutput>()
+/** 三种落法（内联 base64 / 对象存储 / 上游地址）取字节只此一处，图片与视频共用。 */
+async function readOutputBytes(ref: ImageBytesRef): Promise<{ bytes: Uint8Array; mime: string }> {
+  if (ref.kind === 'b64') return { bytes: Buffer.from(ref.data, 'base64'), mime: ref.mime }
+  if (ref.kind === 'object') return { bytes: await objectStore().read(ref.data), mime: ref.mime }
+  const upstream = await fetch(ref.data)
+  if (!upstream.ok) throw new Error(`上游产出取不回来：HTTP ${upstream.status}`)
+  return {
+    bytes: new Uint8Array(await upstream.arrayBuffer()),
+    mime: upstream.headers.get('content-type') ?? ref.mime,
+  }
+}
+
+async function readTaskOutput(
+  output: TaskOutput,
+  userId: string | null,
+): Promise<Omit<ResolvedAgentImage, 'imageId'> | null> {
+  const ref = await resolveTaskOutputRef(output, userId)
+  if (!ref) return null
+  try {
+    const read = await readOutputBytes(ref)
+    return { dataUrl: dataUrl(read.bytes, read.mime) }
+  } catch {
+    return null
+  }
+}
+
+/** 历史里的工具结果块记着每件产物的任务与下标，所以产物不必另立一张表。 */
+function outputsFromHistory(history: readonly AgentMessageView[]): {
+  images: Map<string, TaskOutput>
+  videos: Map<string, VideoOutput>
+} {
+  const images = new Map<string, TaskOutput>()
+  const videos = new Map<string, VideoOutput>()
   for (const message of history) {
     for (const block of message.content) {
       if (block.type !== 'toolResult') continue
-      rememberImages(outputs, block.artifacts ?? [])
+      rememberImages(images, block.artifacts ?? [])
+      rememberVideos(videos, block.artifacts ?? [])
     }
   }
-  return outputs
+  return { images, videos }
 }
 
 /** 视频取不出可编辑的位图，所以只有图片产物进得来。 */
@@ -126,6 +179,24 @@ function rememberImages(
     outputs.set(artifact.artifactId, {
       taskId: artifact.taskId,
       outputIndex: artifact.outputIndex,
+    })
+  }
+}
+
+/**
+ * 视频产物走自己这张表：模型指得到它、工具取得到它的字节，但它永远不会被当成一张图
+ * 送进模型的上下文，也不会被改图工具误取。
+ */
+function rememberVideos(
+  outputs: Map<string, VideoOutput>,
+  artifacts: readonly AgentToolArtifact[],
+): void {
+  for (const artifact of artifacts) {
+    if (artifact.media !== 'video') continue
+    outputs.set(artifact.artifactId, {
+      taskId: artifact.taskId,
+      outputIndex: artifact.outputIndex,
+      mime: artifact.mime,
     })
   }
 }
@@ -222,7 +293,7 @@ export function createAgentImageSource(input: {
     }
   }
   for (const reference of input.references) references.set(reference.imageId, reference)
-  const outputs = outputsFromHistory(input.history)
+  const { images: outputs, videos } = outputsFromHistory(input.history)
   // 缓存 promise 而不是值：模型连着改同一张图时，重复的那几次连 I/O 都不发。
   const resolving = new Map<string, Promise<ResolvedAgentImage | null>>()
 
@@ -277,6 +348,28 @@ export function createAgentImageSource(input: {
     },
     note(artifacts) {
       rememberImages(outputs, artifacts)
+      rememberVideos(videos, artifacts)
+    },
+
+    get videoIds() {
+      return [...videos.keys()]
+    },
+
+    async resolveVideo(videoId) {
+      const output = videos.get(videoId.trim())
+      if (!output) return { kind: 'unknown' }
+      const ref = await resolveTaskOutputRef(output, userId)
+      if (!ref) return { kind: 'unavailable' }
+      return {
+        kind: 'ready',
+        video: {
+          videoId,
+          taskId: output.taskId,
+          outputIndex: output.outputIndex,
+          mime: output.mime,
+          read: async () => (await readOutputBytes(ref)).bytes,
+        },
+      }
     },
 
     identify,

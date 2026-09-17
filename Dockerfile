@@ -63,8 +63,9 @@ RUN pnpm --filter @image-playground/admin build
 FROM oven/bun:1 AS runtime
 WORKDIR /app
 
+# ffmpeg 是智能体拼接视频用的；缺了它那个工具自动不进清单，别的功能不受影响。
 RUN apt-get update \
-  && apt-get install --yes --no-install-recommends nginx \
+  && apt-get install --yes --no-install-recommends nginx ffmpeg \
   && rm -rf /var/lib/apt/lists/* /usr/share/nginx/html/* \
   && rm -f /etc/nginx/sites-enabled/default
 
