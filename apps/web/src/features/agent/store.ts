@@ -2,7 +2,6 @@ import type {
   AgentActiveTurnView,
   AgentClarificationBlock,
   AgentConversationView,
-  AgentFrame,
   AgentMessageView,
   AgentThinkingDepth,
   AgentToolResultBlock,
@@ -27,13 +26,14 @@ import { currentCanvasProject, useCanvasProjectStore } from '../canvas/projectSt
 import { clampPanelWidth, PANEL_WIDTH } from './agentStyles'
 import {
   AgentRequestError,
+  type AgentTurnSource,
   abortTurn,
   createConversation,
   fetchConversations,
   fetchMessages,
+  followTurn,
   interjectTurn,
   removeConversation,
-  resumeTurn,
   type StartTurnOutcome,
   startTurn,
 } from './lib/agentClient'
@@ -55,8 +55,6 @@ const TURN_FAILED = () => i18next.t('error.turnFailed', { ns: 'agent' })
 const TURN_RATE_LIMITED = () => i18next.t('error.rateLimited', { ns: 'agent' })
 const CONVERSATION_UNREADABLE = () => i18next.t('error.conversationUnreadable', { ns: 'agent' })
 const CONVERSATION_GONE = () => i18next.t('error.conversationGone', { ns: 'agent' })
-
-const RECONNECT_DELAYS_MS = [0, 500, 2_000, 5_000]
 
 /** 登录后 scope 会变，所以每次现算，不缓存。 */
 const conversationKey = () => scopedStorageName(AGENT_CONVERSATION_KEY)
@@ -182,8 +180,6 @@ export function answerableClarificationId(messages: readonly AgentPanelMessage[]
   }
   return null
 }
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
 const failPatch = (state: AgentState, message = TURN_FAILED()) => ({
   turn: 'failed' as const,
@@ -387,13 +383,12 @@ export const useAgentStore = create<AgentState>((set, get) => {
 
   const followers = new Map<string, TurnArtifactDelivery>()
 
-  /** 跟一轮到底：流断了就带断点重连，直到读到终帧或者一直接不上。 */
+  /** 把这一轮的事件归约进面板，直到 `agentClient` 把它跟到终局。 */
   const follow = async (
     conversationId: string,
-    frames: AsyncGenerator<AgentFrame>,
+    source: AgentTurnSource,
     pendingUserText: string | null,
     turnDelivery: TurnArtifactDelivery,
-    resumedTurnId = '',
     onStarted?: (turnId: string) => Promise<void>,
   ) => {
     const previous = followers.get(conversationId)
@@ -407,44 +402,23 @@ export const useAgentStore = create<AgentState>((set, get) => {
     const canContinue = () =>
       Boolean(startedCallback) ||
       (followers.get(conversationId) === turnDelivery && turnDelivery.canContinue())
-    let source = frames
-    let seen = 0
-    let turnId = resumedTurnId
+    let turnId = 'turnId' in source ? source.turnId : ''
+    const stream = followTurn(conversationId, source, { shouldContinue: canContinue })
     try {
-      for (let attempt = 0; ; attempt += 1) {
-        if (!canContinue()) return
-        try {
-          for await (const frame of source) {
-            if (!canContinue()) return
-            if (frame.id !== null && frame.id <= seen) continue
-            if (frame.id !== null) {
-              seen = frame.id
-              attempt = -1
-            }
-            if (frame.event.type === 'turnStart') turnId = frame.event.turnId
-            apply(frame.event, pendingUserText, turnId, turnDelivery)
-            if (frame.event.type === 'turnStart') {
-              await startedCallback?.(turnId)
-              startedCallback = undefined
-            }
-            if (frame.event.type === 'turnEnd') return
-          }
-        } catch (thrown) {
-          if (!canContinue()) return
-          if (thrown instanceof AgentRequestError && thrown.status === 404) break
-          if (thrown instanceof AgentRequestError && thrown.status === 429) {
-            if (turnDelivery.isCurrent()) fail(TURN_RATE_LIMITED())
-            return
-          }
+      for await (const event of stream.events) {
+        if (event.type === 'turnStart') turnId = event.turnId
+        apply(event, pendingUserText, turnId, turnDelivery)
+        if (event.type === 'turnStart') {
+          await startedCallback?.(turnId)
+          startedCallback = undefined
         }
-        const active = turnId ? { turnId } : null
-        const delay = RECONNECT_DELAYS_MS[Math.max(attempt, 0)]
-        if (!active || delay === undefined) break
-        await sleep(delay)
-        if (!canContinue()) return
-        source = resumeTurn(conversationId, active.turnId, seen)
       }
-      if (turnDelivery.isCurrent() && get().turn === 'running') fail()
+      if (stream.outcome === 'rateLimited') {
+        if (turnDelivery.isCurrent()) fail(TURN_RATE_LIMITED())
+      } else if (stream.outcome === 'gone' || stream.outcome === 'unreachable') {
+        // 轮没了或者一直接不上：面板还停在进行中就得给个交代。
+        if (turnDelivery.isCurrent() && get().turn === 'running') fail()
+      }
     } finally {
       await turnDelivery.settled()
       if (followers.get(conversationId) === turnDelivery) followers.delete(conversationId)
@@ -519,7 +493,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
     if (!active) return
     set({ turn: 'running', error: null, activeTurn: { turnId: active } })
     const turnDelivery = delivery.beginTurn()
-    await follow(conversationId, resumeTurn(conversationId, active, 0), null, turnDelivery, active)
+    await follow(conversationId, { turnId: active }, null, turnDelivery)
   }
 
   // 发送请求尚未返回轮标识时，也必须记住用户的中止意图。
@@ -922,9 +896,15 @@ export const useAgentStore = create<AgentState>((set, get) => {
         if (!turnDelivery.isCurrent()) {
           if (outcome.kind !== 'alreadyRunning') {
             onAccepted?.()
-            await follow(target, outcome.frames, trimmed, turnDelivery, '', async (turnId) => {
-              if (submission.cancelled) await requestAbort(target, turnId)
-            })
+            await follow(
+              target,
+              { frames: outcome.frames },
+              trimmed,
+              turnDelivery,
+              async (turnId) => {
+                if (submission.cancelled) await requestAbort(target, turnId)
+              },
+            )
           } else await turnDelivery.settled()
           return
         }
@@ -938,7 +918,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
           return
         }
         onAccepted?.()
-        await follow(target, outcome.frames, trimmed, turnDelivery, '', async (turnId) => {
+        await follow(target, { frames: outcome.frames }, trimmed, turnDelivery, async (turnId) => {
           if (submission.cancelled) await requestAbort(target, turnId)
         })
         if (firstTurn) await get().refreshConversations()
