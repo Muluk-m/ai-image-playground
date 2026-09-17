@@ -3,7 +3,6 @@ import {
   type PointerEvent as ReactPointerEvent,
   useEffect,
   useLayoutEffect,
-  useMemo,
   useRef,
 } from 'react'
 import ProjectNavigation from '../../../components/ProjectNavigation'
@@ -14,7 +13,6 @@ import type { CanvasEditor } from '../../canvas/lib/editor'
 import { ACTIVE_TAB, ICON_BUTTON, IDLE_TAB, INK_3, TAB, USER_BUBBLE } from '../agentStyles'
 import { attachFilesToComposer } from '../lib/attachments'
 import { answerableClarificationId } from '../lib/panelMessages'
-import { agentSessionCredits } from '../lib/turnCost'
 import { agentPanelPresent } from '../panelLayout'
 import { useAgentStore } from '../store'
 import type { AgentPanelMessage } from '../types'
@@ -89,11 +87,6 @@ export default function AgentPanel({
   const { dragging, dropZoneProps } = useImageDropZone((files) => {
     attachFilesToComposer(files)
   })
-  // 流式输出时这个组件每个字都重渲染一次，别让它顺带把整张轮表遍历两遍。
-  const sessionCredits = useMemo(
-    () => (Object.values(turns).some((footer) => footer.cost) ? agentSessionCredits(turns) : null),
-    [turns],
-  )
 
   useEffect(() => {
     void load()
@@ -137,7 +130,7 @@ export default function AgentPanel({
         onPointerDown={startResize}
         className="absolute -right-1.5 top-6 bottom-6 z-10 hidden md:block w-3 cursor-col-resize touch-none rounded-full transition-colors hover:bg-primary/40 active:bg-primary/60"
       />
-      <ProjectNavigation credits={sessionCredits} />
+      <ProjectNavigation />
       <div className="studio-agent-tabs flex shrink-0 items-center justify-between gap-3 px-4 pb-3 pt-2">
         <div className="flex items-center gap-3">
           {TABS.map((one) => (
