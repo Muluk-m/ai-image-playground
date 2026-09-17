@@ -204,19 +204,48 @@ describe('智能体输入框', () => {
     ])
   })
 
-  it('请求失败保留草稿，服务端接收后才清空', async () => {
+  it('敲下发送输入框立刻清空，不等服务端接收', async () => {
+    let accept!: () => void
+    useAgentStore.setState({
+      send: async (_text, _references, accepted) => {
+        await new Promise<void>((resolve) => {
+          accept = () => {
+            accepted?.()
+            resolve()
+          }
+        })
+      },
+    })
+    render()
+    type('把背景换成浅木色')
+    await act(async () => click('发送并创作'))
+    expect(editor().textContent).toBe('')
+
+    await act(async () => accept())
+    expect(editor().textContent).toBe('')
+  })
+
+  it('服务端没收下时草稿放回输入框；用户已经在打下一句就不冲掉', async () => {
     useAgentStore.setState({ send: async () => {} })
     render()
     type('重试这段内容')
     await act(async () => click('发送并创作'))
     expect(editor().textContent).toBe('重试这段内容')
+    expect(useStore.getState().toast?.message).toContain('草稿已放回')
+
+    let finish!: () => void
     useAgentStore.setState({
-      send: async (_text, _references, accepted) => {
-        accepted?.()
+      send: async () => {
+        await new Promise<void>((resolve) => {
+          finish = resolve
+        })
       },
     })
     await act(async () => click('发送并创作'))
     expect(editor().textContent).toBe('')
+    type('下一句')
+    await act(async () => finish())
+    expect(editor().textContent).toBe('下一句')
   })
 
   it('`@` 从画布挑一张图，插成引用胶囊', () => {
