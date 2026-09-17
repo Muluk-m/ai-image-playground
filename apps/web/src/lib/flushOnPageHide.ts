@@ -11,7 +11,7 @@ function flushAll() {
 
 /**
  * 页面要被藏起来或关掉时，把登记过的东西冲一遍；返回值注销这一笔。
- * 冲盘的时机归这里，冲什么由登记方自己说了算。
+ * 同一个函数登记多次只算一次。
  */
 export function flushOnPageHide(flush: () => void): () => void {
   if (!installed) {
