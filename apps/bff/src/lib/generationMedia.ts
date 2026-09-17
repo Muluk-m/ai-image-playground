@@ -1,6 +1,7 @@
 import { setTimeout as delay } from 'node:timers/promises'
 import type { PersistedSubmitRequest, QueueProvider } from '@image-playground/shared'
 import { and, eq, inArray } from 'drizzle-orm'
+import { config } from '../config'
 import { db, schema } from '../db/client'
 import { durableMediaStore } from './durableMediaStore'
 import { extractMeta, resolveImageBytesRef } from './extractImages'
@@ -12,10 +13,52 @@ import {
   SourceImageFetchError,
 } from './imageArchive'
 import { log } from './logger'
-import { objectStore } from './objectStore'
+import { type ObjectStore, objectStore } from './objectStore'
 import type { BffTransaction } from './private-overlay'
-import { lockMediaOwner, storeMedia } from './projectMedia'
+import { lockMediaOwner, MediaError, storeMedia } from './projectMedia'
 import { UpstreamResultUnknownError } from './upstream'
+
+let transfers = 0
+const waiting: (() => void)[] = []
+async function withMediaTransfer<T>(work: () => Promise<T>): Promise<T> {
+  if (transfers >= 2) {
+    if (waiting.length >= 20) throw new MediaError(503, 'media_processing_busy')
+    await new Promise<void>((resolve) => waiting.push(resolve))
+  } else transfers++
+  try {
+    return await work()
+  } finally {
+    const next = waiting.shift()
+    if (next) next()
+    else transfers--
+  }
+}
+
+async function readMediaBytes(store: ObjectStore, key: string) {
+  const source = await store.open(key)
+  if (!Number.isSafeInteger(source.size) || source.size <= 0)
+    throw new MediaError(422, 'media_size_mismatch')
+  if (source.size > config.operator.quotas['sync:asset-image-bytes'])
+    throw new MediaError(413, 'media_too_large')
+  const bytes = new Uint8Array(source.size)
+  const reader = source.stream(0, source.size - 1).getReader()
+  let offset = 0
+  try {
+    while (true) {
+      const part = await reader.read()
+      if (part.done) break
+      if (offset + part.value.length > bytes.length)
+        throw new MediaError(422, 'media_size_mismatch')
+      bytes.set(part.value, offset)
+      offset += part.value.length
+    }
+  } finally {
+    await reader.cancel()
+    reader.releaseLock()
+  }
+  if (offset !== bytes.length) throw new MediaError(422, 'media_size_mismatch')
+  return bytes
+}
 
 export interface GenerationMediaLink {
   role: 'input' | 'mask' | 'output'
@@ -45,12 +88,8 @@ export async function spoolGenerationOutputs(
   while (true) {
     signal.throwIfAborted()
     try {
-      const archived = await archiveOutputImages(
-        id,
-        provider,
-        structuredClone(payload),
-        transform,
-        durableMediaStore(),
+      const archived = await withMediaTransfer(() =>
+        archiveOutputImages(id, provider, structuredClone(payload), transform, durableMediaStore()),
       )
       return { ...archived, archive_store: 'durable' }
     } catch (error) {
@@ -75,23 +114,29 @@ export async function spoolGenerationOutputs(
 }
 
 export async function preserveGenerationInputs(id: string, request: PersistedSubmitRequest) {
-  const preserve = async (ref: NonNullable<PersistedSubmitRequest['mask']>) => {
-    if (ref.store === 'durable') return ref
-    await durableMediaStore().write(ref.object, await objectStore().read(ref.object), ref.mime)
-    return { ...ref, store: 'durable' as const }
-  }
-  const next = { ...request }
-  if (request.input_images) {
-    next.input_images = []
-    for (const ref of request.input_images) next.input_images.push(await preserve(ref))
-  }
-  if (request.mask) next.mask = await preserve(request.mask)
-  const updated = await db
-    .update(schema.tasks)
-    .set({ request_payload: next })
-    .where(and(eq(schema.tasks.id, id), eq(schema.tasks.status, 'in_progress')))
-    .returning({ id: schema.tasks.id })
-  return updated.length ? next : null
+  return withMediaTransfer(async () => {
+    const preserve = async (ref: NonNullable<PersistedSubmitRequest['mask']>) => {
+      if (ref.store === 'durable') return ref
+      await durableMediaStore().write(
+        ref.object,
+        await readMediaBytes(objectStore(), ref.object),
+        ref.mime,
+      )
+      return { ...ref, store: 'durable' as const }
+    }
+    const next = { ...request }
+    if (request.input_images) {
+      next.input_images = []
+      for (const ref of request.input_images) next.input_images.push(await preserve(ref))
+    }
+    if (request.mask) next.mask = await preserve(request.mask)
+    const updated = await db
+      .update(schema.tasks)
+      .set({ request_payload: next })
+      .where(and(eq(schema.tasks.id, id), eq(schema.tasks.status, 'in_progress')))
+      .returning({ id: schema.tasks.id })
+    return updated.length ? next : null
+  })
 }
 
 export async function archiveGenerationOutputs(
@@ -100,39 +145,48 @@ export async function archiveGenerationOutputs(
   payload: unknown,
   request: PersistedSubmitRequest,
 ) {
-  const links: GenerationMediaLink[] = []
-  for (const image of extractMeta(provider, payload).images) {
-    const source = resolveImageBytesRef(provider, payload, image.index)
-    if (!source || !source.mime.startsWith('image/')) throw new Error('generation_image_missing')
-    const bytes =
-      source.kind === 'object'
-        ? await (source.store === 'durable' ? durableMediaStore() : objectStore()).read(source.data)
-        : source.kind === 'b64'
-          ? Buffer.from(source.data, 'base64')
-          : null
-    if (!bytes) throw new Error('generation_image_not_archived')
-    const media = await storeMedia(userId, bytes, source.mime)
-    links.push({ role: 'output', position: image.index, mediaId: media.id })
-  }
-  for (const [position, ref] of (request.input_images ?? []).entries()) {
-    const media = await storeMedia(
-      userId,
-      await (ref.store === 'durable' ? durableMediaStore() : objectStore()).read(ref.object),
-      ref.mime,
-    )
-    links.push({ role: 'input', position, mediaId: media.id })
-  }
-  if (request.mask) {
-    const media = await storeMedia(
-      userId,
-      await (request.mask.store === 'durable' ? durableMediaStore() : objectStore()).read(
-        request.mask.object,
-      ),
-      request.mask.mime,
-    )
-    links.push({ role: 'mask', position: 0, mediaId: media.id })
-  }
-  return links
+  return withMediaTransfer(async () => {
+    const links: GenerationMediaLink[] = []
+    for (const image of extractMeta(provider, payload).images) {
+      const source = resolveImageBytesRef(provider, payload, image.index)
+      if (!source || !source.mime.startsWith('image/')) throw new Error('generation_image_missing')
+      const bytes =
+        source.kind === 'object'
+          ? await readMediaBytes(
+              source.store === 'durable' ? durableMediaStore() : objectStore(),
+              source.data,
+            )
+          : source.kind === 'b64'
+            ? Buffer.from(source.data, 'base64')
+            : null
+      if (!bytes) throw new Error('generation_image_not_archived')
+      const media = await storeMedia(userId, bytes, source.mime)
+      links.push({ role: 'output', position: image.index, mediaId: media.id })
+    }
+    for (const [position, ref] of (request.input_images ?? []).entries()) {
+      const media = await storeMedia(
+        userId,
+        await readMediaBytes(
+          ref.store === 'durable' ? durableMediaStore() : objectStore(),
+          ref.object,
+        ),
+        ref.mime,
+      )
+      links.push({ role: 'input', position, mediaId: media.id })
+    }
+    if (request.mask) {
+      const media = await storeMedia(
+        userId,
+        await readMediaBytes(
+          request.mask.store === 'durable' ? durableMediaStore() : objectStore(),
+          request.mask.object,
+        ),
+        request.mask.mime,
+      )
+      links.push({ role: 'mask', position: 0, mediaId: media.id })
+    }
+    return links
+  })
 }
 
 export async function publishGenerationImages(
