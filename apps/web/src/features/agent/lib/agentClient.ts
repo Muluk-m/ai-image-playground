@@ -13,6 +13,7 @@ import type {
 } from '@image-playground/shared'
 import { AGENT_FRAME_SEPARATOR, DEVICE_ID_HEADER, parseAgentFrame } from '@image-playground/shared'
 import { authenticatedBffFetch } from '../../../lib/authClient'
+import { resolveMediaSource } from '../../../lib/cloudMedia'
 import { getDeviceId } from '../../../lib/deviceId'
 import { bffBaseUrl } from '../../../lib/runtimeConfig'
 
@@ -171,6 +172,7 @@ export async function startTurn(
   mode?: AgentMode,
   fetcher: Fetcher = authenticatedBffFetch,
 ): Promise<StartTurnOutcome> {
+  references = await resolveReferences(references)
   const response = await fetcher(
     url(`/conversations/${conversationId}/turns`),
     jsonInit({
@@ -329,9 +331,19 @@ export async function interjectTurn(
   references: readonly AgentTurnReference[] = [],
   fetcher: Fetcher = authenticatedBffFetch,
 ): Promise<void> {
+  references = await resolveReferences(references)
   const response = await fetcher(
     url(`/conversations/${conversationId}/turns/${turnId}/interject`),
     jsonInit({ deviceId: getDeviceId(), text, references }),
   )
   if (!response.ok) throw await requestError(response)
+}
+
+async function resolveReferences(
+  references: readonly AgentTurnReference[],
+): Promise<AgentTurnReference[]> {
+  const resolved: AgentTurnReference[] = []
+  for (const reference of references)
+    resolved.push({ ...reference, dataUrl: await resolveMediaSource(reference.dataUrl) })
+  return resolved
 }

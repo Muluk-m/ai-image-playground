@@ -13,6 +13,12 @@ export function projectCatalog(
         ? {
             ...project,
             name: remote.name,
+            cover:
+              remote.updatedAt >= project.updatedAt && remote.coverMediaId !== undefined
+                ? remote.coverMediaId
+                  ? `aip-media:${remote.coverMediaId}`
+                  : undefined
+                : project.cover,
             updatedAt: Math.max(project.updatedAt, remote.updatedAt),
             hasContent: project.hasContent || remote.elementCount > 0,
           }

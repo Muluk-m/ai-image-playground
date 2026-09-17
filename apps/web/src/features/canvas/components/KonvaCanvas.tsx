@@ -2,6 +2,7 @@ import Konva from 'konva'
 import type { KonvaEventObject } from 'konva/lib/Node'
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { Arrow, Image as KImage, Layer, Line, Rect, Stage, Text, Transformer } from 'react-konva'
+import { mediaIdentity } from '../../../lib/cloudMedia'
 import { copySelection, duplicateSelection, pasteClipboard } from '../lib/canvasClipboard'
 import type { ArrowEl, CanvasEl, FreedrawEl, TextEl } from '../lib/canvasDoc'
 import { newElementId, ZOOM_MAX, ZOOM_MIN } from '../lib/canvasDoc'
@@ -651,6 +652,12 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
             }
             switch (el.type) {
               case 'image': {
+                if (
+                  mediaIdentity(doc.files[el.fileId]) &&
+                  !doc.selection.has(el.id) &&
+                  !elementBounds(el).collides(editor.getViewportPageBounds())
+                )
+                  return null
                 const img = getLoadedImage(el.fileId, doc.files[el.fileId], () =>
                   doc.notifyAssetLoaded(),
                 )

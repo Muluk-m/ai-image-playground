@@ -1,4 +1,5 @@
 import { i18next } from '../i18n'
+import { resolveMediaSource } from './cloudMedia'
 import { assertUsableMaskCoverage, classifyMaskAlpha, type MaskCoverage } from './mask'
 
 export interface ImageDimensions {
@@ -30,6 +31,7 @@ export function calculateFitSize(
 }
 
 export async function loadImage(dataUrl: string): Promise<HTMLImageElement> {
+  dataUrl = await resolveMediaSource(dataUrl)
   return new Promise((resolve, reject) => {
     const image = new Image()
     image.onload = () => resolve(image)
@@ -44,7 +46,7 @@ export async function getImageDimensions(dataUrl: string): Promise<ImageDimensio
 }
 
 export async function dataUrlToBlob(dataUrl: string, fallbackType = 'image/png'): Promise<Blob> {
-  const response = await fetch(dataUrl)
+  const response = await fetch(await resolveMediaSource(dataUrl))
   const blob = await response.blob()
   return blob.type ? blob : new Blob([await blob.arrayBuffer()], { type: fallbackType })
 }

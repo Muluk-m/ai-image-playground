@@ -18,6 +18,7 @@ import {
   ComposerToolbar,
 } from '../../../components/assistant-ui/elements/composer'
 import { CloseIcon, MaskBrushIcon } from '../../../components/icons'
+import MediaImage from '../../../components/MediaImage'
 import SuggestionMenu, {
   type SuggestionMenuGroup,
   useSuggestionMenu,
@@ -32,6 +33,7 @@ import {
 import { useImageDropZone } from '../../../hooks/useImageDropZone'
 import { useTranslation } from '../../../i18n'
 import { isVideoModeAvailable } from '../../../lib/channels/videoChannels'
+import { mediaIdentity, resolveMediaSource } from '../../../lib/cloudMedia'
 import { acceptImageFiles } from '../../../lib/imageFiles'
 import {
   getContentEditableCursor,
@@ -319,19 +321,25 @@ export default function AgentComposer({
    * 画完的遮罩回到这份草稿里，工作台自己的遮罩草稿一概不动。
    */
   const editMask = (reference: AgentReference) => {
-    useStore.getState().openMaskEditorSession(reference.id, {
-      maskDataUrl: reference.maskDataUrl ?? null,
-      keepSemantics: false,
-      targetDataUrl: reference.dataUrl,
-      onSave: ({ maskDataUrl, targetDataUrl }) => {
-        setDraft((current) =>
-          setReferenceMask(current, reference.id, { maskDataUrl, dataUrl: targetDataUrl }),
-        )
-      },
-      onRemove: () => {
-        setDraft((current) => clearReferenceMask(current, reference.id))
-      },
-    })
+    const open = (target: string) =>
+      useStore.getState().openMaskEditorSession(reference.id, {
+        maskDataUrl: reference.maskDataUrl ?? null,
+        keepSemantics: false,
+        targetDataUrl: target,
+        onSave: ({ maskDataUrl, targetDataUrl }) => {
+          setDraft((current) =>
+            setReferenceMask(current, reference.id, { maskDataUrl, dataUrl: targetDataUrl }),
+          )
+        },
+        onRemove: () => {
+          setDraft((current) => clearReferenceMask(current, reference.id))
+        },
+      })
+    if (mediaIdentity(reference.dataUrl))
+      void resolveMediaSource(reference.dataUrl).then(open, () =>
+        useStore.getState().showToast(t('composer.sendFailedToast'), 'error'),
+      )
+    else open(reference.dataUrl)
   }
 
   const submit = () => {
@@ -411,7 +419,7 @@ export default function AgentComposer({
                   className="group flex max-w-full items-center gap-2 rounded-lg border border-border bg-muted/60 p-1 pr-1.5"
                 >
                   <div className="relative">
-                    <img
+                    <MediaImage
                       src={reference.dataUrl}
                       className={`${STRIP_THUMB} ${masked ? 'ring-1 ring-ring/70' : ''}`}
                       alt=""

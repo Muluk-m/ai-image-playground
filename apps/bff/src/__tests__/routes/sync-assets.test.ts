@@ -120,6 +120,39 @@ describe('sync asset images', () => {
     expect(new Uint8Array(await fetched.arrayBuffer())).toEqual(bytes(8))
   })
 
+  it('does not hold the owner lock while object storage is slow', async () => {
+    let release!: () => void
+    let entered!: () => void
+    const started = new Promise<void>((resolve) => {
+      entered = resolve
+    })
+    const waiting = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const write = storage.write.bind(storage)
+    storage.write = async (...args) => {
+      entered()
+      await waiting
+      await write(...args)
+    }
+    const pending = upload(owner, 'slow-image', bytes(8))
+    await started
+    let unlocked = false
+    const probe = db.transaction(async (tx) => {
+      const { lockMediaOwner } = await import('../../lib/projectMedia')
+      await lockMediaOwner(tx, 'asset-owner')
+      unlocked = true
+    })
+    try {
+      await Promise.race([probe, Bun.sleep(300)])
+      expect(unlocked).toBe(true)
+    } finally {
+      release()
+      await pending
+      await probe
+    }
+  })
+
   it('accepts a repeat upload of the same imageId without counting it twice', async () => {
     await upload(owner, 'image-1', bytes(8))
     const again = await upload(owner, 'image-1', bytes(8))

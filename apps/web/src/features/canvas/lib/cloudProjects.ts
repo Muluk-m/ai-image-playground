@@ -5,9 +5,16 @@ import {
 } from '@image-playground/shared'
 import { i18next } from '../../../i18n'
 import { scopedStorageName } from '../../../lib/authScope'
+import { MediaRequestError } from '../../../lib/cloudMedia'
 import type { CanvasEditor } from './editor'
 import { type CloudSceneCheckpoint, readPersistedScene, saveScene } from './persistence'
 import { getCloudProject, ProjectRequestError, putCloudProject } from './projectClient'
+import {
+  type LoadedBindings,
+  prepareProjectMedia,
+  projectDocument,
+  projectScene,
+} from './projectMedia'
 import { type CanvasProject, projectRepository } from './projectRepository'
 
 type Checkpoint = Omit<CloudSceneCheckpoint, 'version' | 'name'>
@@ -33,6 +40,7 @@ function content(name: string, document: ProjectDocument): string {
 /** 一个已打开项目的同步会话持有自己的基线，不能借用另一标签页的新修订覆盖旧文档。 */
 export class CloudProjectSession {
   private baseline: Checkpoint = { revision: 0, savedContent: null, pending: null, conflict: false }
+  private readonly mediaBindings: LoadedBindings = new Map()
   private initialized = false
   private writable = false
   private queue: Promise<unknown> = Promise.resolve()
@@ -66,8 +74,7 @@ export class CloudProjectSession {
     for (const listener of this.listeners) listener()
   }
   private document(): ProjectDocument | null {
-    const value = { version: 1, elements: this.editor.doc.elements }
-    return isProjectDocument(value) ? value : null
+    return projectDocument(this.editor.doc, this.mediaBindings)
   }
   private async persist() {
     if (!(await this.saveLocal())) throw new Error('local_save_failed')
@@ -110,12 +117,21 @@ export class CloudProjectSession {
       }
       this.initialized = true
     }
+    if (this.baseline.media)
+      await prepareProjectMedia(
+        this.editor.doc,
+        this.baseline.media,
+        this.mediaBindings,
+        this.controller.signal,
+        false,
+      )
+    this.current()
     const local = this.document()
-    // Text-only cloud documents cannot replace a locally restored drawing containing media.
+    // Preserve local media while it is being confirmed; never replace it with a remote structure.
     if (hasLocalScene && !local) {
       this.writable = true
       await this.persist()
-      this.update('media-local', i18next.t('cloud.mediaLocal', { ns: 'canvas' }))
+      await this.push()
       return
     }
     const dirty =
@@ -146,7 +162,8 @@ export class CloudProjectSession {
       )
         throw new Error('unsupported_project')
       if (retryingRead || !hasLocalScene || remote.revision !== this.baseline.revision) {
-        this.editor.doc.restore(remote.document.elements, {}, this.editor.doc.camera)
+        const scene = projectScene(remote.document, this.mediaBindings)
+        this.editor.doc.restore(scene.elements, scene.files, this.editor.doc.camera)
       }
       await this.metadata({
         name: remote.name,
@@ -157,6 +174,7 @@ export class CloudProjectSession {
       })
       this.baseline = {
         revision: remote.revision,
+        media: this.baseline.media,
         savedContent: content(remote.name, remote.document),
         pending: null,
         conflict: false,
@@ -200,6 +218,7 @@ export class CloudProjectSession {
     this.baseline = {
       revision: result.revision,
       savedContent: content(pending.name, pending.document),
+      media: this.baseline.media,
       pending: null,
       conflict: false,
     }
@@ -219,6 +238,15 @@ export class CloudProjectSession {
     try {
       this.update('syncing')
       if (this.baseline.pending) await this.commitPending()
+      await this.persist()
+      this.baseline.media ??= {}
+      await prepareProjectMedia(
+        this.editor.doc,
+        this.baseline.media,
+        this.mediaBindings,
+        this.controller.signal,
+      )
+      this.current()
       const document = this.document()
       if (!document) {
         this.update('media-local', i18next.t('cloud.mediaLocal', { ns: 'canvas' }))
@@ -249,7 +277,8 @@ export class CloudProjectSession {
       } else {
         this.update(
           'error',
-          error instanceof ProjectRequestError && error.status === 413
+          (error instanceof ProjectRequestError || error instanceof MediaRequestError) &&
+            error.status === 413
             ? i18next.t('cloud.quotaExceeded', { ns: 'canvas' })
             : i18next.t('cloud.syncFailed', { ns: 'canvas' }),
         )
