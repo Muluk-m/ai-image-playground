@@ -6,6 +6,13 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+const videoAvailable = vi.hoisted(() => ({ value: true }))
+
+vi.mock('../../../../lib/channels/videoChannels', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../../lib/channels/videoChannels')>()),
+  isVideoModeAvailable: () => videoAvailable.value,
+}))
+
 const skills = vi.hoisted(() => ({
   image: [] as { name: string; title: string; description: string }[],
   video: [
@@ -80,6 +87,7 @@ async function settle(): Promise<void> {
 }
 
 beforeEach(async () => {
+  videoAvailable.value = true
   stubPointerApis()
   const session = agentDraft(null)
   await vi.waitFor(() => expect(session.getSnapshot().loading).toBe(false))
@@ -130,6 +138,43 @@ describe('创作类型切换', () => {
     expect(send).toHaveBeenCalledWith('做个开箱片', [], 'video')
     expect(triggerText('创作类型')).toBe('视频')
   })
+
+  it('切换同时写进会话状态，代用户发一轮的入口据此跟上', async () => {
+    render()
+    await settle()
+    expect(useAgentStore.getState().mode).toBe('image')
+
+    chooseOption('创作类型', '视频')
+    await settle()
+
+    expect(useAgentStore.getState().mode).toBe('video')
+  })
+})
+
+describe('部署做不了视频时', () => {
+  it('不给「视频」这个选项', async () => {
+    videoAvailable.value = false
+    render()
+    await settle()
+
+    const trigger = document.querySelector<HTMLElement>('[aria-label="创作类型"]')
+    // 只有一个选项时开关本身也没有意义了。
+    expect(trigger).toBeNull()
+    expect(host.textContent).not.toContain('视频')
+  })
+
+  it('把上次存下来的视频草稿归一成图片，不按视频发出去', async () => {
+    const session = agentDraft(null)
+    session.update((draft) => ({ ...draft, mode: 'video' }))
+    videoAvailable.value = false
+    render()
+    await settle()
+
+    type('画一只猫')
+    click('发送并创作')
+    expect(send).toHaveBeenCalledWith('画一只猫', [], 'image')
+    expect(useAgentStore.getState().mode).toBe('image')
+  })
 })
 
 describe('`/` 技能候选', () => {
@@ -163,6 +208,33 @@ describe('`/` 技能候选', () => {
 
     type('/')
     expect(host.querySelectorAll('[role="option"]')).toHaveLength(1)
+  })
+
+  it('草稿里已经有图片引用时，打 `/` 照样弹得出来', async () => {
+    // `@` 与 `/` 共用可见文本那一套光标坐标；各用一套的话有胶囊的草稿就会算错位置。
+    const session = agentDraft(null)
+    session.update((draft) => ({
+      ...draft,
+      prompt: '/story 参考 @图1',
+      references: [{ id: 'img-1', dataUrl: 'data:image/png;base64,aGk=' }],
+    }))
+    render()
+    await settle()
+    chooseOption('创作类型', '视频')
+    await settle()
+
+    // 光标停在命令名末尾（可见文本的第 6 位）。
+    document.dispatchEvent(new Event('selectionchange'))
+    const el = editor()
+    el.textContent = '/story'
+    act(() => {
+      el.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    expect(
+      [...host.querySelectorAll<HTMLElement>('[role="option"]')].some((one) =>
+        one.textContent?.includes('分镜短片'),
+      ),
+    ).toBe(true)
   })
 
   it('图片轮没有技能时不弹任何候选', async () => {

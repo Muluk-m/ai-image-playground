@@ -65,6 +65,13 @@ function readThinkingDepth(): AgentThinkingDepth {
 export interface AgentState {
   thinkingDepth: AgentThinkingDepth
   setThinkingDepth(depth: AgentThinkingDepth): void
+  /**
+   * 这个会话此刻在做什么。输入框上的开关是它的唯一写入口，草稿仍然负责持久化；
+   * 放在 store 里是因为「代用户发一轮」的入口（澄清作答等）看不见输入框，
+   * 而 mode 不落库，服务端也无从替它们补。
+   */
+  mode: AgentMode
+  setMode(mode: AgentMode): void
   open: boolean
   tab: AgentPanelTab
   conversationId: string | null
@@ -100,7 +107,7 @@ export interface AgentState {
     text: string,
     references?: readonly AgentTurnReference[],
     onAccepted?: () => void,
-    /** 这一轮要创作什么；缺席即图片。插话不带它——mode 是起轮时定下的。 */
+    /** 这一轮要创作什么；缺席即沿用会话此刻的那个。插话不带它——mode 是起轮时定下的。 */
     mode?: AgentMode,
   ): Promise<void | 'cancelled'>
   abort(): Promise<void>
@@ -417,6 +424,10 @@ export const useAgentStore = create<AgentState>((set, get) => {
     historyLoading: false,
     historyFailed: false,
     panelWidth: readPanelWidth(),
+    mode: 'image',
+    setMode: (mode) => {
+      if (get().mode !== mode) set({ mode })
+    },
     thinkingDepth: readThinkingDepth(),
     setThinkingDepth: (thinkingDepth) => {
       safeLocalStorage.setItem(THINKING_DEPTH_KEY, thinkingDepth)
@@ -596,7 +607,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
       })
     },
 
-    async send(text, references = [], onAccepted, mode = 'image') {
+    async send(text, references = [], onAccepted, mode = get().mode) {
       if (changingProject || get().historyLoading || get().historyFailed || get().stopping) return
       const trimmed = text.trim()
       if (!trimmed) return
