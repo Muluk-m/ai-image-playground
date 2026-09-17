@@ -10,6 +10,7 @@ import type {
 import type { Static, TSchema } from 'typebox'
 import type { AgentImageSource } from '../images'
 import type { MaskedEditPlan } from '../masked-plan'
+import type { TurnAuthorizationText } from '../turn-authorization'
 
 /** 工具跑在 BFF 进程里，身份与轮的归属由这里带过去。 */
 export interface AgentToolContext {
@@ -21,7 +22,8 @@ export interface AgentToolContext {
   readonly deviceId: string
   /** 模型说的图片 id 到字节的唯一出口。 */
   readonly images: AgentImageSource
-  readonly editRequest?: () => { readonly revision: number; readonly instructions: string }
+  /** 此刻的授权原文；缺席即这一轮没有授权原文可核对。 */
+  readonly authorization?: () => TurnAuthorizationText
   /** 「这次付费操作能不能提交」的唯一回答者；缺席即这一轮没有遮罩计划要守。 */
   readonly maskedEditPlan?: MaskedEditPlan
   /** 这一轮用户在参数浮层里选的生成参数；缺席即全部按部署默认。 */

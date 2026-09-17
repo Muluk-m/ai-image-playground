@@ -178,9 +178,8 @@ async function adoptLegacyCommand(
 }
 
 /**
- * 「这是不是一次遮罩提交」只在这里判一次：是的话，补边后的请求与落库的那对事实一起产出。
- * `preserve_outside_mask` 让 worker 保护选区外的像素，`masked_original_size` 让它交付前把补边
- * 裁回原尺寸——两个字段描述同一个判定，所以要么都写、要么都不写，由这里的返回值保证。
+ * 「这是不是一次遮罩提交」只在这里判一次：`preserve_outside_mask` 与 `masked_original_size`
+ * 描述同一个判定，要么都写、要么都不写，由这一个返回值保证。
  * `prepareMaskedInput` 不合规时抛 `TypeError`，由调用方翻成 `invalid_input_image`。
  */
 async function prepareMaskedSubmission(input: CreateQueueTaskInput) {

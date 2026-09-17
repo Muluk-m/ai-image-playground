@@ -179,7 +179,6 @@ export async function runTask(id: string): Promise<void> {
       const message = describeEmptyResult(task.provider, payload)
       const attemptJustFailed = task.attempt_count + 1
       // 遮罩提交一律不自动重生成：失败就是终态，要不要再来一次由那一轮的智能体决定。
-      // 这条规则随选区保护一起进来（#466），当时没记理由，此处沿用原实现。
       if (
         !task.request_payload.preserve_outside_mask &&
         (await tryScheduleRetry(
