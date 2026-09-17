@@ -119,6 +119,12 @@
     "reuse": "复用参数",
     "preparing": "正在准备…",
     "reuseFailed": "未能恢复全部参考图和参数，请重试。",
-    "modelUnavailable": "原模型当前不可用，请稍后重试。"
+    "modelUnavailable": "原模型当前不可用，请稍后重试。",
+    "download": "下载原图",
+    "downloadFailed": "原图下载失败，请重试。",
+    "output": "生成图片 {{number}}",
+    "references": "参考图",
+    "reference": "参考图 {{number}}",
+    "mask": "蒙版"
   }
 }

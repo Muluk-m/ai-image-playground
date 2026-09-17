@@ -121,6 +121,12 @@
     "reuse": "Reuse settings",
     "preparing": "Preparing…",
     "reuseFailed": "Could not restore all references and settings. Please retry.",
-    "modelUnavailable": "The original model is currently unavailable. Please retry later."
+    "modelUnavailable": "The original model is currently unavailable. Please retry later.",
+    "download": "Download original",
+    "downloadFailed": "Could not download the original. Please retry.",
+    "output": "Generated image {{number}}",
+    "references": "References",
+    "reference": "Reference {{number}}",
+    "mask": "Mask"
   }
 }
