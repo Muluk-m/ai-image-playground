@@ -137,6 +137,7 @@ export const projectRepository = {
           createdAt: summary.createdAt,
           updatedAt: summary.updatedAt,
           hasContent: summary.elementCount > 0,
+          cover: summary.coverMediaId ? `aip-media:${summary.coverMediaId}` : undefined,
           cloud: { revision: summary.revision },
         }
         if (!request.result) store.add(result, storageKey)

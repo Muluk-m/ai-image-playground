@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import 'fake-indexeddb/auto'
+import { webcrypto } from 'node:crypto'
 import { afterEach, expect, it, vi } from 'vitest'
 import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
 import { CloudProjectSession } from '../../../../features/canvas/lib/cloudProjects'
@@ -54,6 +55,69 @@ it('新设备打开云端文字画布，恢复名称与标注；相机和选区�
   expect((await projectRepository.list())[0].name).toBe('跨设备海报')
 })
 
+it('新设备先恢复图片布局和稳定身份，打开项目不批量下载原图，拖动只更新结构', async () => {
+  setClientStorageScope(crypto.randomUUID())
+  const mediaId = crypto.randomUUID()
+  const image = {
+    id: 'image',
+    type: 'image',
+    mediaId,
+    x: 20,
+    y: 30,
+    width: 320,
+    height: 240,
+    rotation: 0,
+    name: '产品',
+    groupId: 'set',
+    naturalWidth: 3200,
+    naturalHeight: 2400,
+    meta: { prompt: '一张产品图' },
+  }
+  const remote = {
+    id: crypto.randomUUID(),
+    name: '图片画布',
+    revision: 1,
+    createdAt: 1,
+    updatedAt: 2,
+    elementCount: 1,
+    document: { version: 1, elements: [image] },
+  }
+  const requests: { url: string; body?: unknown }[] = []
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string, init?: RequestInit) => {
+      requests.push({ url, body: init?.body && JSON.parse(init.body as string) })
+      return Response.json(
+        init?.method === 'PUT' ? receipt(remote.id, JSON.parse(init.body as string)) : remote,
+      )
+    }),
+  )
+  const project = await projectRepository.importCloud(remote)
+  const editor = new CanvasEditor(new CanvasDoc())
+  const session = new CloudProjectSession(project, editor)
+  await session.load()
+  expect(session.getSnapshot().status).toBe('saved')
+  expect(editor.doc.elements[0]).toMatchObject({
+    id: 'image',
+    name: '产品',
+    groupId: 'set',
+    x: 20,
+    y: 30,
+    naturalWidth: 3200,
+  })
+  const restoredImage = editor.doc.elements[0]!
+  expect(restoredImage.type === 'image' && editor.doc.files[restoredImage.fileId]).toBe(
+    `aip-media:${mediaId}`,
+  )
+  expect(requests).toHaveLength(1)
+  editor.doc.updateElements([{ id: 'image', patch: { x: 80 } }])
+  await session.sync()
+  expect(requests).toHaveLength(2)
+  expect(requests[1]!.body).toMatchObject({ document: { elements: [{ ...image, x: 80 }] } })
+  expect(JSON.stringify(requests[1]!.body)).not.toContain('data:')
+  expect(session.getSnapshot().status).toBe('saved')
+})
+
 async function fresh() {
   setClientStorageScope(crypto.randomUUID())
   const project = await projectRepository.create('本机编辑', undefined, true)
@@ -83,6 +147,98 @@ const receipt = (
   elementCount: body.document.elements.length,
   createdAt: 1000,
   updatedAt: 2000,
+})
+
+it('本机原图确认上传后才保存云端结构，拖动不重复上传且保留本机原件', async () => {
+  vi.stubGlobal('crypto', webcrypto)
+  const { project, editor } = await fresh()
+  const mediaId = crypto.randomUUID()
+  const source = 'data:image/png;base64,AQID'
+  editor.doc.addElements(
+    [
+      {
+        id: 'photo',
+        type: 'image',
+        fileId: 'original',
+        x: 10,
+        y: 20,
+        width: 30,
+        height: 40,
+        rotation: 0,
+      },
+    ],
+    { files: { original: source } },
+  )
+  const urls: string[] = []
+  let confirmed = false
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string, init?: RequestInit) => {
+      urls.push(url)
+      if (url === source)
+        return new Response(new Uint8Array([1, 2, 3]), { headers: { 'content-type': 'image/png' } })
+      if (url.endsWith('/uploads'))
+        return Response.json({
+          id: mediaId,
+          status: 'pending',
+          uploadUrl: 'https://media.example/upload',
+        })
+      if (url === 'https://media.example/upload') return new Response(null)
+      if (url.endsWith('/complete')) {
+        confirmed = true
+        return Response.json({ id: mediaId, status: 'ready' })
+      }
+      expect(confirmed).toBe(true)
+      const body = JSON.parse(init!.body as string)
+      expect(body.document.elements[1]).toMatchObject({ type: 'image', mediaId })
+      expect(body.document.elements[1]).not.toHaveProperty('fileId')
+      return Response.json(receipt(project.id, body))
+    }),
+  )
+  const session = new CloudProjectSession(project, editor)
+  await session.load(true)
+  expect(session.getSnapshot().status).toBe('saved')
+  expect(editor.doc.files.original).toBe(source)
+  editor.doc.updateElements([{ id: 'photo', patch: { x: 200 } }])
+  await session.sync()
+  expect(session.getSnapshot().status).toBe('saved')
+  expect(urls.filter((url) => url === 'https://media.example/upload')).toHaveLength(1)
+  expect(urls.filter((url) => url.endsWith('/uploads'))).toHaveLength(1)
+  session.dispose()
+  const saved = await import('../../../../features/canvas/lib/persistence').then((module) =>
+    module.readPersistedScene(project.sceneKey),
+  )
+  const nextImage = {
+    id: 'photo',
+    type: 'image',
+    mediaId,
+    x: 400,
+    y: 20,
+    width: 30,
+    height: 40,
+    rotation: 0,
+  }
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string) =>
+      url === source
+        ? new Response(new Uint8Array([1, 2, 3]), { headers: { 'content-type': 'image/png' } })
+        : Response.json({
+            id: project.id,
+            name: '其他设备修改',
+            revision: 3,
+            createdAt: 1,
+            updatedAt: 3000,
+            elementCount: 2,
+            document: { version: 1, elements: [saved!.elements[0], nextImage] },
+          }),
+    ),
+  )
+  const reopened = new CanvasEditor(new CanvasDoc())
+  const next = new CloudProjectSession(project, reopened)
+  await next.load(true)
+  expect(reopened.doc.elements[1]).toMatchObject({ x: 400 })
+  expect(next.getSnapshot().status).toBe('saved')
 })
 
 it('读取错误保留原画布，重试成功前不发送空文档', async () => {
@@ -121,8 +277,8 @@ it.each([0, 3])('图片未上传时保留本地场景，即使云端已有修订
   await saveScene(editor, project.sceneKey)
   const session = new CloudProjectSession({ ...project, cloud: { revision } }, editor)
   await session.load(true)
-  expect(session.getSnapshot().status).toBe('media-local')
-  expect(fetcher).not.toHaveBeenCalled()
+  expect(session.getSnapshot().status).toBe('error')
+  expect(fetcher.mock.calls.every((call) => String(call[0]).startsWith('data:'))).toBe(true)
   expect(editor.doc.elements).toHaveLength(2)
 })
 
