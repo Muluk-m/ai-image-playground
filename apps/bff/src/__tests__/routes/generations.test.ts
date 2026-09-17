@@ -647,3 +647,47 @@ it('归档等待超过临时桶过期时间，生成原件、参考图和蒙版�
   expect(detail.mask).not.toBeNull()
   expect(calls).toBe(1)
 })
+
+for (const provider of ['openai-compat', 'gemini'] as const) {
+  it(`${provider} 已返回原图后首次存储短暂失败，只重试保存原响应`, async () => {
+    const png = await sharp({ create: { width: 8, height: 6, channels: 3, background: '#448877' } })
+      .png()
+      .toBuffer()
+    let calls = 0
+    setUpstreamFetchForTesting((async () => {
+      calls++
+      return Response.json(
+        provider === 'openai-compat'
+          ? { data: [{ b64_json: png.toString('base64') }] }
+          : {
+              candidates: [
+                {
+                  content: {
+                    parts: [
+                      { inlineData: { mimeType: 'image/png', data: png.toString('base64') } },
+                    ],
+                  },
+                },
+              ],
+            },
+      )
+    }) as NonNullable<Parameters<typeof setUpstreamFetchForTesting>[0]>)
+    const submitted = await request(
+      `/v1/queue/${provider}/${provider === 'gemini' ? 'gemini-3-pro-image-preview' : 'gpt-image-2'}/submit`,
+      deviceA,
+      input,
+    )
+    expect(submitted.status).toBe(200)
+    const { request_id: id } = await submitted.json()
+    durable.writeFailuresRemaining = 4
+    await runTask(id)
+    const detail = await (await request(`/api/generations/${id}`, deviceB)).json()
+    expect(detail.status).toBe('completed')
+    expect(detail.outputs).toHaveLength(1)
+    const { originalUrl } = await (
+      await request(`/api/media/${detail.outputs[0].mediaId}/access`, deviceB)
+    ).json()
+    expect(await durable.read(new URL(originalUrl).pathname.slice(1))).toEqual(new Uint8Array(png))
+    expect(calls).toBe(1)
+  })
+}

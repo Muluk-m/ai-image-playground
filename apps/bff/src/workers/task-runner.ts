@@ -10,12 +10,12 @@ import {
 } from '../db/task-transitions'
 import { protectMaskedOutput } from '../lib/agent/masked-output'
 import { isCapabilityEnabled } from '../lib/capabilities'
-import { durableMediaStore } from '../lib/durableMediaStore'
 import { describeEmptyResult, extractMeta } from '../lib/extractImages'
 import {
   archiveGenerationOutputs,
   generationSourceCheckpoint,
   preserveGenerationInputs,
+  spoolGenerationOutputs,
 } from '../lib/generationMedia'
 import {
   archiveOutputImages,
@@ -186,14 +186,13 @@ export async function runTask(id: string): Promise<void> {
         )
       : undefined
     if (archivePayload) {
-      archivePayload = await archiveOutputImages(
+      archivePayload = await spoolGenerationOutputs(
         id,
         task.provider,
-        structuredClone(archivePayload),
+        archivePayload,
         protectOutput,
-        durableMediaStore(),
+        ctrl.signal,
       )
-      archivePayload = { ...(archivePayload as Record<string, unknown>), archive_store: 'durable' }
       if (!(await saveArchiveCheckpoint(id, archivePayload))) return
       const media = await archiveGenerationOutputs(
         task.userId!,
@@ -263,14 +262,9 @@ export async function runTask(id: string): Promise<void> {
         if (!(await saveArchiveCheckpoint(id, archivePayload))) return
       }
     }
-    const archivedPayload = await archiveOutputImages(
-      id,
-      task.provider,
-      payload,
-      protectOutput,
-      cloudArchive ? durableMediaStore() : undefined,
-    )
-    if (cloudArchive) archivedPayload.archive_store = 'durable'
+    const archivedPayload = cloudArchive
+      ? await spoolGenerationOutputs(id, task.provider, payload, protectOutput, ctrl.signal)
+      : await archiveOutputImages(id, task.provider, payload, protectOutput)
     if (cloudArchive) {
       archivePayload = archivedPayload
       if (!(await saveArchiveCheckpoint(id, archivePayload))) return
