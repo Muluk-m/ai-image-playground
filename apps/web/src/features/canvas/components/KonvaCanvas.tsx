@@ -2,6 +2,8 @@ import Konva from 'konva'
 import type { KonvaEventObject } from 'konva/lib/Node'
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { Arrow, Image as KImage, Layer, Line, Rect, Stage, Text, Transformer } from 'react-konva'
+import { useMobileWorkspace } from '../../../hooks/useMobileWorkspace'
+import { useTranslation } from '../../../i18n'
 import { mediaIdentity } from '../../../lib/cloudMedia'
 import { copySelection, duplicateSelection, pasteClipboard } from '../lib/canvasClipboard'
 import type { ArrowEl, CanvasEl, FreedrawEl, TextEl } from '../lib/canvasDoc'
@@ -26,6 +28,7 @@ import {
   type SnapTargets,
   selectionBounds,
 } from '../lib/snapping'
+import { bindCanvasTouch } from '../lib/touchGestures'
 import CanvasImageMenu, { type CanvasImageMenuState } from './CanvasImageMenu'
 import SelectionInfo from './SelectionInfo'
 
@@ -56,6 +59,8 @@ type Gesture =
  * 文档状态全部在 CanvasDoc；本组件是无状态渲染 + 手势翻译层。
  */
 export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
+  const { t } = useTranslation('canvas')
+  const mobile = useMobileWorkspace()
   const doc = editor.doc
   useSyncExternalStore(doc.subscribe, () => doc.version)
 
@@ -76,6 +81,31 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
 
   const { camera, viewport, tool, selection, editingTextId } = doc
   const selectMode = tool === 'select' && !spaceDown
+
+  useEffect(() => {
+    const container = stageRef.current?.container()
+    if (!container) return
+    return bindCanvasTouch(container, doc, {
+      native: (point) =>
+        doc.tool === 'select' &&
+        Boolean(stageRef.current?.getIntersection(point)?.findAncestor('Transformer')),
+      hit: (point) => stageRef.current?.getIntersection(point)?.id() || undefined,
+      menu: (id, point) => setImageMenu({ id, ...point }),
+      active: setPanning,
+      interrupt: () => {
+        trRef.current?.stopTransform()
+        const gesture = gestureRef.current
+        gestureRef.current = null
+        if (gesture?.kind === 'draw' || gesture?.kind === 'arrow') {
+          doc.deleteElements([gesture.id], { history: false })
+        } else if (gesture?.kind === 'erase' && gesture.captured) {
+          doc.undo()
+        }
+        setMarquee(null)
+        setHoveredId(null)
+      },
+    })
+  }, [doc])
 
   // ===== 视口尺寸跟随容器 =====
   useEffect(() => {
@@ -340,7 +370,8 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
       const dy = e.evt.clientY - g.lastY
       g.lastX = e.evt.clientX
       g.lastY = e.evt.clientY
-      doc.setCamera({ x: camera.x - dx / camera.zoom, y: camera.y - dy / camera.zoom })
+      const current = doc.camera
+      doc.setCamera({ x: current.x - dx / current.zoom, y: current.y - dy / current.zoom })
       return
     }
     const p = pagePoint()
@@ -591,6 +622,7 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
       className="absolute inset-0 overflow-hidden"
       style={{
         cursor,
+        touchAction: 'none',
         backgroundImage: 'radial-gradient(hsl(var(--border)) 1px, transparent 1px)',
         backgroundSize: '20px 20px',
         backgroundPosition: `${-camera.x * camera.zoom}px ${-camera.y * camera.zoom}px`,
@@ -620,7 +652,9 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
         void importImageFiles(editor, [...e.dataTransfer.files], drop)
       }}
     >
-      {!dragging && !panning && <SelectionInfo doc={doc} />}
+      {!dragging && !panning && (
+        <SelectionInfo doc={doc} onImageMenu={(menu) => setImageMenu(menu)} />
+      )}
       <Stage
         ref={stageRef}
         width={viewport.width}
@@ -632,6 +666,7 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
         onWheel={onWheel}
       >
         <Layer listening={false}></Layer>
@@ -774,7 +809,7 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
                     'bottom-center',
                   ]
             }
-            anchorSize={9}
+            anchorSize={mobile ? 18 : 9}
             anchorCornerRadius={4}
             anchorStroke="#3b82f6"
             anchorFill="#ffffff"
@@ -783,6 +818,11 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
           />
         </Layer>
       </Stage>
+      {mobile && (
+        <div className="pointer-events-none absolute bottom-2 left-16 right-3 text-center text-[11px] text-muted-foreground">
+          {t('touch.hint')}
+        </div>
+      )}
       <CanvasImageMenu menu={imageMenu} doc={doc} onClose={() => setImageMenu(null)} />
       {editingText && (
         <textarea
