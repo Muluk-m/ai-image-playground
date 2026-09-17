@@ -1,3 +1,4 @@
+import { setTimeout as delay } from 'node:timers/promises'
 import type {
   PersistedSubmitRequest,
   PersistedVideoRequest,
@@ -257,6 +258,6 @@ export async function awaitQueueTask(
 
     const waited = Date.now() - startedAt
     if (waited > polling.budgetMs) return { kind: 'failed', reason: '超时未返回' }
-    await Bun.sleep(nextInterval(waited))
+    await delay(nextInterval(waited), undefined, { signal: options.signal })
   }
 }

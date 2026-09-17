@@ -1,8 +1,7 @@
-import { and, inArray } from 'drizzle-orm'
 import { Elysia, t } from 'elysia'
 import { db, schema } from '../db/client'
+import { cancelTasks } from '../db/task-transitions'
 import { log } from '../lib/logger'
-import { loadPrivateBffOverlay } from '../lib/private-overlay'
 import { taskAccessWhere } from '../lib/task-access'
 import { requireUser } from '../lib/user-auth'
 
@@ -17,26 +16,7 @@ export const cancelRoutes = new Elysia().use(requireUser).put(
   '/v1/queue/requests/:id/cancel',
   async ({ params, status, authUser }) => {
     const access = taskAccessWhere(params.id, authUser?.id ?? null)
-    const taskHooks = (await loadPrivateBffOverlay()).taskHooks
-    const cancelled = await db.transaction(async (tx) => {
-      const rows = await tx
-        .update(schema.tasks)
-        .set({ status: 'cancelled', completed_at: Date.now() })
-        .where(and(access, inArray(schema.tasks.status, ['queued', 'in_progress'])))
-        .returning({
-          id: schema.tasks.id,
-          upstreamInvocationCount: schema.tasks.upstream_invocation_count,
-        })
-      for (const row of rows) {
-        await taskHooks.finalizeTask({
-          tx,
-          taskId: row.id,
-          outcome: 'cancelled',
-          upstreamInvocationCount: row.upstreamInvocationCount,
-        })
-      }
-      return rows
-    })
+    const cancelled = await cancelTasks(access!)
 
     if (cancelled.length > 0) {
       log.info({ event: 'task.cancel_requested', taskId: params.id }, 'task cancelled')

@@ -15,6 +15,8 @@ import { fetchImageDataUrl, queueOutputUrl } from '../../../lib/channels/queueCl
 import { getDeviceId } from '../../../lib/deviceId'
 import { bffBaseUrl } from '../../../lib/runtimeConfig'
 
+const CONTROL_REQUEST_TIMEOUT_MS = 15_000
+
 type Fetcher = (input: string, init?: RequestInit) => Promise<Response>
 
 export class AgentRequestError extends Error {
@@ -99,6 +101,7 @@ export async function fetchMessages(
 ): Promise<AgentConversationState> {
   const response = await fetcher(url(`/conversations/${conversationId}/messages`), {
     headers: deviceHeaders(),
+    signal: AbortSignal.timeout(CONTROL_REQUEST_TIMEOUT_MS),
   })
   if (!response.ok) throw await requestError(response)
   return (await response.json()) as AgentConversationState
@@ -189,10 +192,11 @@ export async function abortTurn(
   turnId: string,
   fetcher: Fetcher = authenticatedBffFetch,
 ): Promise<void> {
-  await fetcher(
-    url(`/conversations/${conversationId}/turns/${turnId}/abort`),
-    jsonInit({ deviceId: getDeviceId() }),
-  )
+  const response = await fetcher(url(`/conversations/${conversationId}/turns/${turnId}/abort`), {
+    ...jsonInit({ deviceId: getDeviceId() }),
+    signal: AbortSignal.timeout(CONTROL_REQUEST_TIMEOUT_MS),
+  })
+  if (!response.ok) throw await requestError(response)
 }
 
 export async function interjectTurn(

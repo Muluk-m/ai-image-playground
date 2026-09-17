@@ -5,6 +5,7 @@ import { type AgentActivityPhase, agentActivityPhase, useAgentStore } from '../s
 
 const LABEL: Record<AgentActivityPhase, string> = {
   sending: '发送中',
+  stopping: '正在中止',
   thinking: '思考中',
   executing: '执行中',
 }

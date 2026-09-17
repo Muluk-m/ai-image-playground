@@ -1,5 +1,5 @@
 import type { TaskErrorType } from '@image-playground/shared'
-import { and, eq, inArray } from 'drizzle-orm'
+import { and, eq, inArray, type SQL } from 'drizzle-orm'
 import { loadPrivateBffOverlay, type TaskUsage } from '../lib/private-overlay'
 import { db, schema } from './client'
 
@@ -99,5 +99,29 @@ export async function finishTask(id: string, update: TerminalTaskUpdate): Promis
       actualUsage: update.actualUsage,
     })
     return true
+  })
+}
+
+/** 取消状态和积分退回必须在同一事务中提交；调用方提供任务归属范围。 */
+export async function cancelTasks(access: SQL) {
+  const taskHooks = (await loadPrivateBffOverlay()).taskHooks
+  return db.transaction(async (tx) => {
+    const rows = await tx
+      .update(schema.tasks)
+      .set({ status: 'cancelled', completed_at: Date.now() })
+      .where(and(access, inArray(schema.tasks.status, ['queued', 'in_progress'])))
+      .returning({
+        id: schema.tasks.id,
+        upstreamInvocationCount: schema.tasks.upstream_invocation_count,
+      })
+    for (const row of rows) {
+      await taskHooks.finalizeTask({
+        tx,
+        taskId: row.id,
+        outcome: 'cancelled',
+        upstreamInvocationCount: row.upstreamInvocationCount,
+      })
+    }
+    return rows
   })
 }
