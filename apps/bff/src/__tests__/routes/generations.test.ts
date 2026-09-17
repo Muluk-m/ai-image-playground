@@ -27,6 +27,18 @@ class DurableFixture extends InMemoryObjectStore {
   interruptNextWrite = false
   publicationUnavailable = false
   publicationFailuresRemaining = 0
+  oversizedSpool = false
+  spoolReads = 0
+  override async read(key: string) {
+    if (key.includes('/out/')) this.spoolReads++
+    return super.read(key)
+  }
+  override async open(key: string) {
+    const object = await super.open(key)
+    return this.oversizedSpool && key.includes('/out/')
+      ? { ...object, size: Number.MAX_SAFE_INTEGER }
+      : object
+  }
   override async write(key: string, bytes: Uint8Array, contentType: string) {
     if (this.interruptNextWrite && key.startsWith('staging/')) {
       this.interruptNextWrite = false
@@ -691,3 +703,30 @@ for (const provider of ['openai-compat', 'gemini'] as const) {
     expect(calls).toBe(1)
   })
 }
+
+it('归档读取先检查对象长度，拒绝超限原件时不整份缓冲且可恢复', async () => {
+  const png = await sharp({ create: { width: 8, height: 6, channels: 3, background: '#447766' } })
+    .png()
+    .toBuffer()
+  let calls = 0
+  setUpstreamFetchForTesting((async () => {
+    calls++
+    return Response.json({ data: [{ b64_json: png.toString('base64') }] })
+  }) as NonNullable<Parameters<typeof setUpstreamFetchForTesting>[0]>)
+  const { request_id: id } = await (
+    await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, input)
+  ).json()
+  durable.oversizedSpool = true
+  await runTask(id)
+  expect((await (await request(`/api/generations/${id}`, deviceB)).json()).status).toBe('queued')
+  expect(durable.spoolReads).toBe(0)
+  durable.oversizedSpool = false
+  const clock = spyOn(Date, 'now').mockReturnValue(Date.now() + 61_000)
+  try {
+    await runTask(id)
+  } finally {
+    clock.mockRestore()
+  }
+  expect((await (await request(`/api/generations/${id}`, deviceB)).json()).status).toBe('completed')
+  expect(calls).toBe(1)
+})
