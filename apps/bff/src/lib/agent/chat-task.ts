@@ -79,12 +79,18 @@ function usageUnits(
   }
 }
 
-/** 预扣：输入按起轮前的估算，输出按预留上限。 */
-function reservedChatUsage(estimatedInputTokens: number, pricing: ChatTaskPricing): TaskUsage {
+/**
+ * 预扣：输入按起轮前的估算，输出按预留上限。
+ * 与 `actualChatUsage` 一起导出给私有计费套件：它拿真实账本验这套折算端到端对得上。
+ */
+export function reservedChatUsage(
+  estimatedInputTokens: number,
+  pricing: ChatTaskPricing,
+): TaskUsage {
   return usageUnits(estimatedInputTokens, pricing.outputReserveTokens, pricing)
 }
 
-function actualChatUsage(usage: AgentTurnUsage, pricing: ChatTaskPricing): TaskUsage {
+export function actualChatUsage(usage: AgentTurnUsage, pricing: ChatTaskPricing): TaskUsage {
   return {
     ...usageUnits(usage.inputTokens, usage.outputTokens, pricing, usage.cachedInputTokens),
     tokens: {
