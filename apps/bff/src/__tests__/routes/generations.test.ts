@@ -28,7 +28,7 @@ class DurableFixture extends InMemoryObjectStore {
   publicationUnavailable = false
   publicationFailuresRemaining = 0
   oversizedSpool = false
-  afterWrite?: (key: string) => void
+  afterWrite?: (key: string) => void | Promise<void>
   spoolReads = 0
   override async read(key: string) {
     if (key.includes('/out/')) this.spoolReads++
@@ -52,7 +52,7 @@ class DurableFixture extends InMemoryObjectStore {
       throw new Error('publication failed')
     }
     await super.write(key, bytes, contentType)
-    this.afterWrite?.(key)
+    await this.afterWrite?.(key)
   }
   sign(key: string) {
     return `https://durable.example/${key}`
@@ -950,4 +950,43 @@ it('上游原图下载在读取响应体前拒绝超限长度，重试保存不�
   } finally {
     restore()
   }
+})
+
+it('原件正在保存时另一设备看到归档状态，完成后变为已保存', async () => {
+  const png = await sharp({ create: { width: 8, height: 6, channels: 3, background: '#22aa88' } })
+    .png()
+    .toBuffer()
+  setUpstreamFetchForTesting((async () =>
+    Response.json({ data: [{ b64_json: png.toString('base64') }] })) as NonNullable<
+    Parameters<typeof setUpstreamFetchForTesting>[0]
+  >)
+  const { request_id: id } = await (
+    await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, input)
+  ).json()
+  let wrote!: () => void
+  let resume!: () => void
+  const written = new Promise<void>((resolve) => {
+    wrote = resolve
+  })
+  const pause = new Promise<void>((resolve) => {
+    resume = resolve
+  })
+  durable.afterWrite = async (key) => {
+    if (key === `${id}/out/0`) {
+      wrote()
+      await pause
+    }
+  }
+  const running = runTask(id)
+  try {
+    await written
+    const detail = await (await request(`/api/generations/${id}`, deviceB)).json()
+    expect(detail.archiveStatus).toBe('pending')
+  } finally {
+    resume()
+    await running
+  }
+  expect((await (await request(`/api/generations/${id}`, deviceB)).json()).archiveStatus).toBe(
+    'ready',
+  )
 })
