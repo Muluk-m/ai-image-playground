@@ -1,4 +1,4 @@
-import type { TaskStatus } from '@image-playground/shared'
+import type { OpsBackups, TaskStatus } from '@image-playground/shared'
 
 export const RANGES = ['1d', '7d', '30d'] as const
 export type Range = (typeof RANGES)[number]
@@ -205,8 +205,12 @@ export interface OpsDatabase {
   tables: Array<{ name: string; bytes: number }>
 }
 
+export type { OpsBackupObject, OpsBackups } from '@image-playground/shared'
+
 export interface OpsSnapshot {
   generated_at: number
   queue: OpsBlock<OpsQueue>
   database: OpsBlock<OpsDatabase>
+  /** 真正落在对象存储里的备份文件；只有后端够得着，所以经它的内部接口取。 */
+  backup: OpsBlock<OpsBackups>
 }

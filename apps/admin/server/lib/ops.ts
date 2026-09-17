@@ -1,6 +1,7 @@
 import { QUEUE_TIMEOUTS } from '@image-playground/shared'
 import { sql } from 'drizzle-orm'
-import type { OpsBlock, OpsDatabase, OpsQueue, OpsSnapshot } from '../../contracts'
+import type { OpsBackups, OpsBlock, OpsDatabase, OpsQueue, OpsSnapshot } from '../../contracts'
+import { config } from '../config'
 import { getDbHandle } from './db'
 
 /** 看板上列出来的卡住任务与大表的条数上限；再多也只是同一件事的重复。 */
@@ -28,8 +29,12 @@ async function settle<T>(source: () => Promise<T>): Promise<OpsBlock<T>> {
  * 各块并行取、各自失败。出事的时候恰恰最需要看其余几块，所以任何一块抛错都只落在它自己身上。
  */
 export async function buildOpsSnapshot(sources: OpsSources = defaultSources): Promise<OpsSnapshot> {
-  const [queue, database] = await Promise.all([settle(sources.queue), settle(sources.database)])
-  return { generated_at: Date.now(), queue, database }
+  const [queue, database, backup] = await Promise.all([
+    settle(sources.queue),
+    settle(sources.database),
+    settle(sources.backup),
+  ])
+  return { generated_at: Date.now(), queue, database, backup }
 }
 
 async function readQueue(): Promise<OpsQueue> {
@@ -95,4 +100,20 @@ async function readDatabase(): Promise<OpsDatabase> {
   }
 }
 
-const defaultSources: OpsSources = { queue: readQueue, database: readDatabase }
+/** 后端内部只读接口。只有后端够得着的现状（对象存储）经这里取，鉴权用内部令牌。 */
+async function readFromBff<T>(path: string): Promise<T> {
+  const token = config.auth.internalApiToken
+  if (!token) throw new Error('INTERNAL_API_TOKEN 未配置，后台无法向后端取数')
+  const response = await fetch(`${config.bffInternalUrl}/internal/admin/ops${path}`, {
+    headers: { accept: 'application/json', authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(10_000),
+  })
+  if (!response.ok) throw new Error(`后端返回 ${response.status}`)
+  return (await response.json()) as T
+}
+
+const defaultSources: OpsSources = {
+  queue: readQueue,
+  database: readDatabase,
+  backup: () => readFromBff<OpsBackups>('/backups'),
+}

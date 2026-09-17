@@ -4,6 +4,8 @@ export type {
   DeviceRow,
   ListDevicesResult,
   ListUsersResult,
+  OpsBackupObject,
+  OpsBackups,
   OpsBlock,
   OpsDatabase,
   OpsQueue,

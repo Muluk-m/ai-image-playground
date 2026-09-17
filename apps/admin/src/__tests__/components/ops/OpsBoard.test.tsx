@@ -14,10 +14,12 @@ vi.mock('@tanstack/react-router', () => ({
 const { OpsBoard } = await import('../../../components/ops/OpsBoard')
 
 const minute = 60_000
+const hour = 60 * minute
+const NOW = Date.now()
 
 function snapshot(patch: Partial<OpsSnapshot> = {}): OpsSnapshot {
   return {
-    generated_at: Date.now(),
+    generated_at: NOW,
     queue: {
       ok: true,
       data: {
@@ -36,6 +38,21 @@ function snapshot(patch: Partial<OpsSnapshot> = {}): OpsSnapshot {
           { name: 'tasks', bytes: 2 * 1024 ** 3 },
           { name: 'agent_turn_events', bytes: 512 * 1024 ** 2 },
         ],
+      },
+    },
+    backup: {
+      ok: true,
+      data: {
+        latest: {
+          key: 'pg/2026-09-17.dump',
+          size_bytes: 42 * 1024 ** 2,
+          modified_at: NOW - 3 * hour,
+        },
+        previous: {
+          key: 'pg/2026-09-16.dump',
+          size_bytes: 41 * 1024 ** 2,
+          modified_at: NOW - 27 * hour,
+        },
       },
     },
     ...patch,
@@ -132,5 +149,65 @@ describe('运维看板', () => {
     expect(within(block('数据库')).getByText('取不到')).toBeTruthy()
     expect(within(block('数据库')).getByText('permission denied')).toBeTruthy()
     expect(within(block('队列')).getByText('4 秒')).toBeTruthy()
+  })
+
+  it('备份一栏说清最新一份是哪天的、多大、多久之前', () => {
+    render(<OpsBoard snapshot={snapshot()} />)
+    const backup = block('备份')
+    expect(within(backup).getByText('2026-09-17')).toBeTruthy()
+    expect(within(backup).getByText('42.0 MB')).toBeTruthy()
+    expect(within(backup).getByText('3 小时前')).toBeTruthy()
+    expect(within(backup).queryByRole('alert')).toBeNull()
+  })
+
+  it('超过 26 小时没有新备份就报警', () => {
+    render(
+      <OpsBoard
+        snapshot={snapshot({
+          backup: {
+            ok: true,
+            data: {
+              latest: {
+                key: 'pg/2026-09-15.dump',
+                size_bytes: 42 * 1024 ** 2,
+                modified_at: NOW - 50 * hour,
+              },
+              previous: null,
+            },
+          },
+        })}
+      />,
+    )
+    expect(within(block('备份')).getByRole('alert').textContent).toContain('2 天 2 小时')
+  })
+
+  it('最新一份比前一份小了一大半，多半是 dump 半途而废', () => {
+    render(
+      <OpsBoard
+        snapshot={snapshot({
+          backup: {
+            ok: true,
+            data: {
+              latest: { key: 'pg/2026-09-17.dump', size_bytes: 8 * 1024, modified_at: NOW - hour },
+              previous: {
+                key: 'pg/2026-09-16.dump',
+                size_bytes: 41 * 1024 ** 2,
+                modified_at: NOW - 25 * hour,
+              },
+            },
+          },
+        })}
+      />,
+    )
+    expect(within(block('备份')).getByRole('alert').textContent).toContain('比前一份小')
+  })
+
+  it('一份备份都还没有时照实说，也算要处理的事', () => {
+    render(
+      <OpsBoard
+        snapshot={snapshot({ backup: { ok: true, data: { latest: null, previous: null } } })}
+      />,
+    )
+    expect(within(block('备份')).getByRole('alert').textContent).toContain('还没有备份')
   })
 })

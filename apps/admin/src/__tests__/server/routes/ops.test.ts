@@ -11,6 +11,28 @@ process.env.DATABASE_URL = databaseUrl
 process.env.INTERNAL_API_TOKEN = 'fixture-service-credential-alpha'
 process.env.PORT = '0'
 
+// 备份一栏经后端内部接口取：只有后端够得着对象存储。mock 要赶在 config 读 BFF_INTERNAL_URL 之前起。
+const bffCalls: Array<{ path: string; authorization: string | null }> = []
+const backupAt = Date.now() - 3 * 3600_000
+const mockBff = Bun.serve({
+  port: 0,
+  fetch(request) {
+    bffCalls.push({
+      path: new URL(request.url).pathname,
+      authorization: request.headers.get('authorization'),
+    })
+    return Response.json({
+      latest: { key: 'pg/2026-09-17.dump', size_bytes: 42_000_000, modified_at: backupAt },
+      previous: {
+        key: 'pg/2026-09-16.dump',
+        size_bytes: 41_000_000,
+        modified_at: backupAt - 86_400_000,
+      },
+    })
+  },
+})
+process.env.BFF_INTERNAL_URL = `http://127.0.0.1:${mockBff.port}`
+
 const writer = createDb(databaseUrl)
 const now = Date.now()
 const minute = 60_000
@@ -52,6 +74,7 @@ await writer.db.insert(writer.schema.tasks).values([
 const { app } = await import('../../../../server/app')
 
 afterAll(async () => {
+  mockBff.stop()
   await writer.close()
 })
 
@@ -104,5 +127,25 @@ describe('GET /api/ops', () => {
     expect(body.database.data.tables.map((table) => table.name)).toContain('tasks')
     const sizes = body.database.data.tables.map((table) => table.bytes)
     expect(sizes).toEqual([...sizes].sort((a, b) => b - a))
+  })
+
+  it('reads the newest backup through the BFF, with the service credential', async () => {
+    const cookie = await login()
+    const response = await app.handle(
+      new Request('http://localhost/api/ops', { headers: { cookie } }),
+    )
+    const body = (await response.json()) as OpsSnapshot
+
+    if (!body.backup.ok) throw new Error(body.backup.error)
+    expect(body.backup.data.latest).toEqual({
+      key: 'pg/2026-09-17.dump',
+      size_bytes: 42_000_000,
+      modified_at: backupAt,
+    })
+    expect(body.backup.data.previous?.size_bytes).toBe(41_000_000)
+    expect(bffCalls.at(-1)).toEqual({
+      path: '/internal/admin/ops/backups',
+      authorization: 'Bearer fixture-service-credential-alpha',
+    })
   })
 })
