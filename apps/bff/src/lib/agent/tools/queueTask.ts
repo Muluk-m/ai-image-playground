@@ -13,7 +13,7 @@ import { schema } from '../../../db/client'
 import { cancelTasks } from '../../../db/task-transitions'
 import { resolveQueueModel } from '../../channels'
 import { awaitQueueTask, type CreateQueueTaskOutcome, createQueueTask } from '../../taskSubmission'
-import type { MaskedOperation } from '../masked-plan'
+import type { MaskedEditContent, MaskedOperation, MaskedSubmission } from '../masked-plan'
 import { agentImageCount, queueParamsFor } from './queueParams'
 import type { AgentToolContext, AgentToolDetails } from './types'
 
@@ -42,6 +42,8 @@ export interface QueueTarget {
 export interface QueueTaskInput {
   readonly toolCallId?: string
   readonly maskedOperation?: MaskedOperation
+  /** 这次真遮罩编辑的内容身份；缺席即这次提交不参与内容去重。 */
+  readonly maskedContent?: MaskedEditContent
   readonly media: ChannelMedia
   /** 已经解析好的模型；缺席就按介质现解析。 */
   readonly target?: QueueTarget
@@ -50,7 +52,6 @@ export interface QueueTaskInput {
   readonly n?: number
   readonly inputImages?: readonly string[]
   readonly mask?: string
-  readonly onSubmitted?: () => void
   /** 视频档位；缺席即这是一条图片任务。 */
   readonly video?: PersistedVideoRequest
   /** 产出落画布时贴着这个画布对象放。 */
@@ -94,11 +95,22 @@ export async function runQueueTask(
   const maskedTurn = input.media === 'image' && (hasSelection || context.maskedEditPlan?.protected)
   if (maskedTurn && !input.inputImages?.length)
     throw new Error('本轮存在用户选区，请使用改图工具核对目标与参考，不能改为无参考生图')
-  if (
-    maskedTurn &&
-    context.maskedEditPlan &&
-    !context.maskedEditPlan.includes(input.toolCallId ?? '', input.maskedOperation)
-  )
+  // 批次身份只在遮罩轮上问；内容身份跟着这次编辑走，与本轮是不是遮罩轮无关。
+  const submission: MaskedSubmission = {
+    ...(maskedTurn
+      ? {
+          call: {
+            toolCallId: input.toolCallId ?? '',
+            ...(input.maskedOperation ? { operation: input.maskedOperation } : {}),
+          },
+        }
+      : {}),
+    ...(input.maskedContent ? { content: input.maskedContent } : {}),
+  }
+  const approval = context.maskedEditPlan?.approve(submission) ?? 'approved'
+  if (approval === 'already-submitted')
+    throw new Error('这个编辑操作已经提交，请先检查候选；不要自行付费重试')
+  if (approval === 'outside-batch')
     throw new Error('本轮编辑计划已经执行，不能自行追加生成；请检查已有候选并等待用户指示')
 
   if (signal?.aborted) throw new Error('这一轮被中止了')
@@ -123,8 +135,8 @@ export async function runQueueTask(
     throw new Error(refusal(submitted.kind, words))
   }
 
-  input.onSubmitted?.()
-  if (maskedTurn) context.maskedEditPlan?.submitted(input.toolCallId ?? '', input.maskedOperation)
+  // 任务真的建出来了才登记：失败的提交不占批次名额，也不算这条内容提交过。
+  context.maskedEditPlan?.submitted(submission)
   onUpdate?.({ content: [], details: { stage: 'submitted' } })
   const outcome = await awaitQueueTask(submitted.taskId, {
     signal,

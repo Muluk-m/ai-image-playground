@@ -93,7 +93,6 @@ export const editImage = defineAgentTool({
     }
   },
   execute(context) {
-    const submittedOperations = new Set<string>()
     const originalInstructions = context.editRequest?.().instructions
     return async (toolCallId, params, signal, onUpdate) => {
       const snapshot = context.editRequest?.()
@@ -114,22 +113,23 @@ export const editImage = defineAgentTool({
       )
       if (signal?.aborted || snapshot !== context.editRequest?.())
         throw new Error('修改要求已更新，请按最新要求核对后执行')
-      const operationKey = prepared
-        ? JSON.stringify([
-            images.map((image) => image.imageId),
-            params.selectionBindings
-              ?.map(({ imageId, selectionId }) => [imageId, selectionId])
-              .sort(),
-            params.requestQuote ?? originalInstructions,
-          ])
-        : undefined
-      if (operationKey && submittedOperations.has(operationKey))
-        throw new Error('这个编辑操作已经提交，请先检查候选；不要自行付费重试')
       return runQueueTask(
         context,
         {
           media: 'image',
           toolCallId,
+          // 只有真遮罩编辑参与内容去重：换个 tool-call id 重来一次要认得出来。
+          ...(prepared
+            ? {
+                maskedContent: {
+                  imageIds: images.map((image) => image.imageId),
+                  ...(params.selectionBindings
+                    ? { selectionBindings: params.selectionBindings }
+                    : {}),
+                  quote: params.requestQuote ?? originalInstructions,
+                },
+              }
+            : {}),
           ...(params.requestQuote
             ? {
                 maskedOperation: {
@@ -142,9 +142,6 @@ export const editImage = defineAgentTool({
                 },
               }
             : {}),
-          onSubmitted: () => {
-            if (operationKey) submittedOperations.add(operationKey)
-          },
           prompt: prepared?.prompt ?? params.prompt,
           n: params.n,
           inputImages: prepared?.inputImages ?? images.map((image) => image.dataUrl),
