@@ -68,6 +68,41 @@ export async function writeProject(userId: string, id: string, input: ProjectWri
         error: 'project_conflict',
         revision: existing?.revision ?? 0,
       }
+    const reservations = input.document.elements.filter((element) => element.type === 'generation')
+    if (reservations.length) {
+      const owned = await tx
+        .select()
+        .from(schema.project_generation_outputs)
+        .where(
+          and(
+            eq(schema.project_generation_outputs.user_id, userId),
+            eq(schema.project_generation_outputs.project_id, id),
+            inArray(
+              schema.project_generation_outputs.object_id,
+              reservations.map((element) => element.id),
+            ),
+          ),
+        )
+      if (
+        reservations.some(
+          (element) =>
+            !existing?.document.elements.some(
+              (current) =>
+                current.type === 'generation' &&
+                current.id === element.id &&
+                current.generationId === element.generationId &&
+                current.position === element.position,
+            ) ||
+            !owned.some(
+              (output) =>
+                output.object_id === element.id &&
+                output.generation_id === element.generationId &&
+                output.position === element.position,
+            ),
+        )
+      )
+        return { ok: false as const, status: 409 as const, error: 'project_output_not_owned' }
+    }
     const imageIds = input.document.elements.flatMap((element) =>
       element.type === 'image' ? [element.mediaId] : [],
     )

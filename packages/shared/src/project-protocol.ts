@@ -1,3 +1,5 @@
+import { AGENT_IMAGE_MAX_N } from './agent'
+
 export const PROJECT_NAME_MAX_LENGTH = 120
 export const PROJECT_PAGE_SIZE = 30
 export const PROJECT_PAGE_MAX_SIZE = 100
@@ -22,7 +24,23 @@ export interface ProjectImage {
   meta?: Record<string, string>
 }
 
+export interface ProjectGeneration {
+  id: string
+  type: 'generation'
+  generationId: string
+  position: number
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+export function projectArtifactId(generationId: string, position: number): string {
+  return `agent_${generationId}_${position}`
+}
+
 export type ProjectElement =
+  | ProjectGeneration
   | ProjectImage
   | {
       id: string
@@ -97,6 +115,22 @@ function color(value: unknown): boolean {
 function element(value: unknown): value is ProjectElement {
   if (!object(value) || typeof value.id !== 'string' || !value.id.length || value.id.length > 128)
     return false
+  if (value.type === 'generation') {
+    return (
+      keys(value, ['id', 'type', 'generationId', 'position', 'x', 'y', 'width', 'height']) &&
+      typeof value.generationId === 'string' &&
+      value.generationId.length <= 128 &&
+      typeof value.position === 'number' &&
+      Number.isSafeInteger(value.position) &&
+      value.position >= 0 &&
+      value.position < AGENT_IMAGE_MAX_N &&
+      value.id === projectArtifactId(value.generationId, value.position) &&
+      coordinate(value.x) &&
+      coordinate(value.y) &&
+      size(value.width) &&
+      size(value.height)
+    )
+  }
   if (value.type === 'image') {
     return (
       keys(value, [

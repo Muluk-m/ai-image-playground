@@ -15,6 +15,18 @@ export function projectDocument(
   bindings: LoadedBindings = new Map(),
 ): ProjectDocument | null {
   const elements = doc.elements.map((element) => {
+    if (element.type === 'placeholder' && element.meta.cloudGeneration) {
+      return {
+        id: element.id,
+        type: 'generation',
+        generationId: element.meta.cloudGeneration.id,
+        position: element.meta.cloudGeneration.position,
+        x: element.x,
+        y: element.y,
+        width: element.width,
+        height: element.height,
+      }
+    }
     if (element.type !== 'image') return element
     const source = doc.files[element.fileId]
     const bound = bindings.get(element.fileId)
@@ -106,6 +118,25 @@ export function projectScene(document: ProjectDocument, bindings: LoadedBindings
   )
   const files: Record<string, string> = {}
   const elements: CanvasEl[] = document.elements.map((element) => {
+    if (element.type === 'generation')
+      return {
+        id: element.id,
+        type: 'placeholder',
+        x: element.x,
+        y: element.y,
+        width: element.width,
+        height: element.height,
+        status: 'loading',
+        message: '',
+        meta: {
+          taskId: '',
+          clientRequestId: element.generationId,
+          source: 'builtin-edge',
+          prompt: '',
+          agent: true,
+          cloudGeneration: { id: element.generationId, position: element.position },
+        },
+      }
     if (element.type !== 'image') return element
     const { mediaId, ...image } = element
     const original = originals.get(mediaId)

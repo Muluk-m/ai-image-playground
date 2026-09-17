@@ -176,6 +176,13 @@
       "when": 1789650200000,
       "tag": "0025_project_conversations",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1789650300000,
+      "tag": "0026_project_generation_outputs",
+      "breakpoints": true
     }
   ]
 }

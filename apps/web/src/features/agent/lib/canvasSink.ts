@@ -1,3 +1,4 @@
+import type { AgentToolArtifact, ChannelMedia } from '@image-playground/shared'
 /** 智能体产出落画布的出口。创作模式挂载时把实现塞进来。 */
 export interface AgentPlacedArtifact {
   readonly artifactId: string
@@ -25,6 +26,7 @@ export interface AgentPlaceOptions {
 
 /** 工具起跑时要在画布上占的位。 */
 export interface AgentReservation {
+  readonly media?: ChannelMedia
   readonly messageId?: string
   readonly title?: string
   /** 这次调用会出几件产物，就占几个框。 */
@@ -39,6 +41,8 @@ export interface AgentCanvasSink {
   /** 场景恢复完成；同步画布不需要等待。观察历史产物也必须等这个边界。 */
   readonly ready?: Promise<unknown>
   has(objectId: string): boolean
+  /** 云端负责交付时只刷新项目；null 表示仍由本机交付。 */
+  syncArtifacts?(artifacts: readonly AgentToolArtifact[]): Promise<AgentPlaceOutcome | null>
   /**
    * 画布对象的 id 就是 `artifactId`。写入的唯一入口。产物落的是起跑时占好的位，
    * 用户中途编辑画布不会拦下它；源对象一个像素不动，产出只是新增。
