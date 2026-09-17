@@ -237,7 +237,13 @@ it('本机原图确认上传后才保存云端结构，拖动不重复上传且�
   const reopened = new CanvasEditor(new CanvasDoc())
   const next = new CloudProjectSession(project, reopened)
   await next.load(true)
-  expect(reopened.doc.elements[1]).toMatchObject({ x: 400 })
+  expect(reopened.doc.elements[1]).toMatchObject({ x: 400, fileId: 'original' })
+  expect(reopened.doc.files.original).toBe(source)
+  const retained = await import('../../../../features/canvas/lib/persistence').then((module) =>
+    module.readPersistedScene(project.sceneKey),
+  )
+  expect(retained?.files.original).toBe(source)
+  expect(retained?.cloud?.media?.original.id).toBe(mediaId)
   expect(next.getSnapshot().status).toBe('saved')
 })
 

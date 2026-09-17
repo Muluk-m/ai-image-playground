@@ -162,7 +162,7 @@ export class CloudProjectSession {
       )
         throw new Error('unsupported_project')
       if (retryingRead || !hasLocalScene || remote.revision !== this.baseline.revision) {
-        const scene = projectScene(remote.document)
+        const scene = projectScene(remote.document, this.mediaBindings)
         this.editor.doc.restore(scene.elements, scene.files, this.editor.doc.camera)
       }
       await this.metadata({
@@ -174,6 +174,7 @@ export class CloudProjectSession {
       })
       this.baseline = {
         revision: remote.revision,
+        media: this.baseline.media,
         savedContent: content(remote.name, remote.document),
         pending: null,
         conflict: false,
