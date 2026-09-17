@@ -13,18 +13,22 @@ import { clientProfileToApiProfile, getActiveApiProfile } from '../../lib/apiPro
 import { AGENT_CONVERSATION_KEY, safeLocalStorage, scopedStorageName } from '../../lib/authScope'
 import { notifyPrivateSubmissionSettled } from '../../lib/privateOverlay'
 import { useStore } from '../../store'
+import { cloudProjectsEnabled, getCloudProject } from '../canvas/lib/projectClient'
 import {
   bindNewCanvasWorkspace,
   currentCanvasWorkspace,
   selectCanvasWorkspace,
 } from '../canvas/lib/workspaces'
-import { currentCanvasProject, useCanvasProjectStore } from '../canvas/projectStore'
+import {
+  currentCanvasProject,
+  restoreCloudProject,
+  useCanvasProjectStore,
+} from '../canvas/projectStore'
 import { clampPanelWidth, PANEL_WIDTH } from './agentStyles'
 import {
   AgentRequestError,
   type AgentTurnSource,
   abortTurn,
-  createConversation,
   fetchConversations,
   fetchMessages,
   followTurn,
@@ -43,6 +47,7 @@ import {
   reduceAgentPanelEvent,
 } from './lib/panelMessages'
 import {
+  createProjectConversation,
   currentProjectDraft,
   type DeleteProjectPanel,
   deleteProject,
@@ -549,9 +554,8 @@ export const useAgentStore = create<AgentState>((set, get) => {
 
     async selectProject(projectId, isCurrent = () => true) {
       return changeProject(async () => {
-        const project = useCanvasProjectStore
-          .getState()
-          .projects.find((one) => one.id === projectId)
+        const scope = scopedStorageName('canvas')
+        let project = useCanvasProjectStore.getState().projects.find((one) => one.id === projectId)
         if (!project) return false
         if (!(await saveCurrentProject(get().conversationId)).ok) {
           useStore.getState().showToast(i18next.t('project.saveFailed', { ns: 'agent' }), 'error')
@@ -559,6 +563,16 @@ export const useAgentStore = create<AgentState>((set, get) => {
         }
         if (!isCurrent()) return false
         try {
+          if (project.cloud?.revision && cloudProjectsEnabled() && navigator.onLine !== false) {
+            const remote = await getCloudProject(project.id, AbortSignal.timeout(10000))
+            if (!isCurrent() || scopedStorageName('canvas') !== scope) return false
+            project = await restoreCloudProject(remote)
+            if (!isCurrent() || scopedStorageName('canvas') !== scope) return false
+            const refreshed = project
+            useCanvasProjectStore.setState((state) => ({
+              projects: state.projects.map((one) => (one.id === refreshed.id ? refreshed : one)),
+            }))
+          }
           await useCanvasProjectStore.getState().update(project.id, { workspaceOpened: true })
         } catch {
           useStore.getState().showToast(i18next.t('project.openFailed', { ns: 'agent' }), 'error')
@@ -661,7 +675,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
         let target = conversationId
         try {
           if (!target) {
-            target = (await createConversation()).id
+            target = await createProjectConversation()
             if (submission.cancelled) return await cancelUnsent()
             if (!turnDelivery.isCurrent()) {
               await turnDelivery.settled()
@@ -680,6 +694,28 @@ export const useAgentStore = create<AgentState>((set, get) => {
             safeLocalStorage.setItem(conversationKey(), target)
             bindNewAgentDraft(target, currentCanvasProject()?.id)
             set({ conversationId: target })
+            if (sourceProject?.cloud && cloudProjectsEnabled()) {
+              let history: Awaited<ReturnType<typeof fetchMessages>>
+              try {
+                history = await fetchMessages(target)
+              } catch (error) {
+                if (turnDelivery.isCurrent()) set({ historyFailed: true })
+                throw error
+              }
+              if (!turnDelivery.isCurrent()) return
+              const restored = panelStateFromHistory(history)
+              set((state) => ({
+                turns: restored.turns,
+                messages: [
+                  ...restored.messages,
+                  ...state.messages.filter((one) => one.kind === 'text' && one.pending),
+                ],
+              }))
+              if (history.activeTurn) {
+                await openConversation(target, history.activeTurn.turnId)
+                return
+              }
+            }
           }
         } catch {
           if (turnDelivery.isCurrent()) fail()

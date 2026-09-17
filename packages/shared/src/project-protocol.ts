@@ -58,6 +58,7 @@ export interface CloudProjectSummary {
   updatedAt: number
   elementCount: number
   coverMediaId?: string | null
+  conversationId?: string | null
 }
 export interface CloudProject extends CloudProjectSummary {
   document: ProjectDocument

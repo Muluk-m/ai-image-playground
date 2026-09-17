@@ -169,6 +169,13 @@
       "when": 1789650100000,
       "tag": "0024_generation_images",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1789650200000,
+      "tag": "0025_project_conversations",
+      "breakpoints": true
     }
   ]
 }

@@ -1,4 +1,5 @@
 import type {
+  AgentConversationView,
   CloudProject,
   CloudProjectSummary,
   ProjectPage,
@@ -54,5 +55,16 @@ export function putCloudProject(
     signal,
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
+  })
+}
+
+export function ensureCloudProjectConversation(
+  id: string,
+  conversationId?: string,
+): Promise<{ conversation: AgentConversationView }> {
+  return json(`/${encodeURIComponent(id)}/conversation`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(conversationId ? { conversationId } : {}),
   })
 }
