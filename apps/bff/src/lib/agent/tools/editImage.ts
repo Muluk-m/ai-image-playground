@@ -1,11 +1,10 @@
-import type { AgentTool } from '@earendil-works/pi-agent-core'
 import { agentTitleLine } from '@image-playground/shared'
 import { Type } from 'typebox'
 import { requireAgentImages } from '../images'
 import { prepareMaskedEdit } from '../masked-edit'
+import { defineAgentTool } from './adapter'
 import { agentImageCount, imageCountParameter } from './queueParams'
 import { runQueueTask } from './queueTask'
-import type { AgentToolDefinition, AgentToolDetails } from './types'
 
 const TITLE_MAX_CHARS = 40
 const MAX_REFERENCES = 4
@@ -66,104 +65,96 @@ const parameters = Type.Object({
   n: imageCountParameter,
 })
 
-function title(args: unknown): string {
-  if ((args as { selectionBindings?: unknown[] } | null)?.selectionBindings?.length)
-    return '编辑选区'
-  const prompt = (args as { prompt?: unknown } | null)?.prompt
-  return typeof prompt === 'string' && prompt.trim()
-    ? agentTitleLine(prompt, TITLE_MAX_CHARS)
-    : '改图'
-}
-
-/** 第一张参考图就是被改的那张，产出贴着它放——与执行时的 `anchorObjectId` 取同一项。 */
-function anchor(args: unknown): string | undefined {
-  const first = (args as { imageIds?: unknown } | null)?.imageIds
-  const id = Array.isArray(first) ? first[0] : undefined
-  return typeof id === 'string' && id ? id : undefined
-}
-
-export const editImage: AgentToolDefinition = {
+export const editImage = defineAgentTool({
   name: 'editImage',
+  label: '改图',
+  description:
+    '在已有的图上修改指定内容，产出落到画布上源图旁边，源图不动。目标图遮罩会随请求提交，要求只改圈选部分；接口成功不代表效果已验收。',
   guidance:
     '用户指着某张图说要改时调改图工具，参考图用他引用的那张，产出落在源图旁边，源图不动。版本数按需求用 n 指定，未要求多张时只出一张；不同修改方案分别调用。有遮罩时以圈选位置指认对象，不能以其他同名实例替代指定目标。参考图圈选表示参考来源，不是修改对象。',
-  title,
-  outputCount: agentImageCount,
-  anchor,
+  parameters,
   // 模型可以换一个图片 id 重试，所以拿不到图不该把整轮拖垮。
   onError: 'continue',
-  create(context) {
+  call({ prompt, imageIds, selectionBindings, n }) {
+    const written = typeof prompt === 'string' ? prompt : undefined
+    // 第一张参考图就是被改的那张，产出贴着它放——与执行时的 `anchorObjectId` 取同一项。
+    const first = Array.isArray(imageIds) ? imageIds[0] : undefined
+    return {
+      title: selectionBindings?.length
+        ? '编辑选区'
+        : written?.trim()
+          ? agentTitleLine(written, TITLE_MAX_CHARS)
+          : '改图',
+      outputCount: agentImageCount({ n }),
+      ...(typeof first === 'string' && first ? { anchor: first } : {}),
+      ...(written ? { prompt: written } : {}),
+    }
+  },
+  execute(context) {
     const submittedOperations = new Set<string>()
     const originalInstructions = context.editRequest?.().instructions
-    const tool: AgentTool<typeof parameters, AgentToolDetails> = {
-      name: 'editImage',
-      label: '改图',
-      description:
-        '在已有的图上修改指定内容，产出落到画布上源图旁边，源图不动。目标图遮罩会随请求提交，要求只改圈选部分；接口成功不代表效果已验收。',
-      parameters,
-      async execute(toolCallId, params, signal, onUpdate) {
-        const snapshot = context.editRequest?.()
-        const images = await requireAgentImages(context.images, params.imageIds)
-        if (
-          (context.maskedEditPlan?.protected ||
-            context.images.references.some((ref) =>
-              Boolean('dataUrl' in ref ? ref.maskDataUrl : ref.mask),
-            )) &&
-          !images.some((image) => image.maskDataUrl)
-        ) {
-          throw new Error(
-            '本轮存在用户选区，不能静默改成无选区编辑；请核对目标和参考，或先请用户取消选区',
-          )
-        }
-        const prepared = await prepareMaskedEdit(
-          images,
-          params.selectionBindings,
-          snapshot?.instructions ?? '',
-          params.requestQuote,
+    return async (toolCallId, params, signal, onUpdate) => {
+      const snapshot = context.editRequest?.()
+      const images = await requireAgentImages(context.images, params.imageIds)
+      if (
+        (context.maskedEditPlan?.protected ||
+          context.images.references.some((ref) =>
+            Boolean('dataUrl' in ref ? ref.maskDataUrl : ref.mask),
+          )) &&
+        !images.some((image) => image.maskDataUrl)
+      ) {
+        throw new Error(
+          '本轮存在用户选区，不能静默改成无选区编辑；请核对目标和参考，或先请用户取消选区',
         )
-        if (signal?.aborted || snapshot !== context.editRequest?.())
-          throw new Error('修改要求已更新，请按最新要求核对后执行')
-        const operationKey = prepared
-          ? JSON.stringify([
-              images.map((image) => image.imageId),
-              params.selectionBindings
-                ?.map(({ imageId, selectionId }) => [imageId, selectionId])
-                .sort(),
-              params.requestQuote ?? originalInstructions,
-            ])
-          : undefined
-        if (operationKey && submittedOperations.has(operationKey))
-          throw new Error('这个编辑操作已经提交，请先检查候选；不要自行付费重试')
-        return runQueueTask(
-          context,
-          {
-            media: 'image',
-            toolCallId,
-            ...(params.requestQuote
-              ? {
-                  maskedOperation: {
-                    targetImageId: images[0]!.imageId,
-                    selectionId: params.selectionBindings?.find(
-                      (binding) => binding.imageId === images[0]!.imageId,
-                    )?.selectionId,
-                    requestQuote: params.requestQuote,
-                    n: params.n,
-                  },
-                }
-              : {}),
-            onSubmitted: () => {
-              if (operationKey) submittedOperations.add(operationKey)
-            },
-            prompt: prepared?.prompt ?? params.prompt,
-            n: params.n,
-            inputImages: prepared?.inputImages ?? images.map((image) => image.dataUrl),
-            ...(images[0]?.maskDataUrl ? { mask: images[0].maskDataUrl } : {}),
-            anchorObjectId: images[0]!.imageId,
+      }
+      const prepared = await prepareMaskedEdit(
+        images,
+        params.selectionBindings,
+        snapshot?.instructions ?? '',
+        params.requestQuote,
+      )
+      if (signal?.aborted || snapshot !== context.editRequest?.())
+        throw new Error('修改要求已更新，请按最新要求核对后执行')
+      const operationKey = prepared
+        ? JSON.stringify([
+            images.map((image) => image.imageId),
+            params.selectionBindings
+              ?.map(({ imageId, selectionId }) => [imageId, selectionId])
+              .sort(),
+            params.requestQuote ?? originalInstructions,
+          ])
+        : undefined
+      if (operationKey && submittedOperations.has(operationKey))
+        throw new Error('这个编辑操作已经提交，请先检查候选；不要自行付费重试')
+      return runQueueTask(
+        context,
+        {
+          media: 'image',
+          toolCallId,
+          ...(params.requestQuote
+            ? {
+                maskedOperation: {
+                  targetImageId: images[0]!.imageId,
+                  selectionId: params.selectionBindings?.find(
+                    (binding) => binding.imageId === images[0]!.imageId,
+                  )?.selectionId,
+                  requestQuote: params.requestQuote,
+                  n: params.n,
+                },
+              }
+            : {}),
+          onSubmitted: () => {
+            if (operationKey) submittedOperations.add(operationKey)
           },
-          signal,
-          onUpdate,
-        )
-      },
+          prompt: prepared?.prompt ?? params.prompt,
+          n: params.n,
+          inputImages: prepared?.inputImages ?? images.map((image) => image.dataUrl),
+          ...(images[0]?.maskDataUrl ? { mask: images[0].maskDataUrl } : {}),
+          anchorObjectId: images[0]!.imageId,
+        },
+        signal,
+        onUpdate,
+      )
     }
-    return tool as AgentTool
   },
-}
+})
