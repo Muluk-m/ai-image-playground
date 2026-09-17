@@ -16,8 +16,6 @@ import { useStore } from '../../store'
 import {
   bindNewCanvasWorkspace,
   currentCanvasWorkspace,
-  forgetCanvasWorkspace,
-  prepareCanvasRemoval,
   selectCanvasWorkspace,
 } from '../canvas/lib/workspaces'
 import { currentCanvasProject, useCanvasProjectStore } from '../canvas/projectStore'
@@ -37,7 +35,7 @@ import {
 } from './lib/agentClient'
 import { createArtifactDelivery, type TurnArtifactDelivery } from './lib/artifactDelivery'
 import { onAgentCanvasSinkChange } from './lib/canvasSink'
-import { bindNewAgentDraft, removeProjectDraft } from './lib/drafts'
+import { bindNewAgentDraft } from './lib/drafts'
 import {
   dropUnsettledMessages,
   panelMessage,
@@ -47,6 +45,8 @@ import {
 import {
   type AgentPanelSeam,
   currentProjectDraft,
+  type DeleteProjectPanel,
+  deleteProject,
   saveCurrentProject,
   showProject,
 } from './lib/projectLifecycle'
@@ -403,6 +403,20 @@ export const useAgentStore = create<AgentState>((set, get) => {
     showProject(project, panelSeam)
     return true
   }
+  /** 删除时属于面板的那两步，外加它此刻的两件事实。 */
+  const deleteSeam: DeleteProjectPanel = {
+    get conversationId() {
+      return get().conversationId
+    },
+    get running() {
+      return get().turn === 'running'
+    },
+    replaceCurrent: async () => void (await createProject(false)),
+    forgetConversation: (conversationId) =>
+      set((state) => ({
+        conversations: state.conversations.filter((one) => one.id !== conversationId),
+      })),
+  }
 
   return {
     open: true,
@@ -558,42 +572,21 @@ export const useAgentStore = create<AgentState>((set, get) => {
 
     async deleteProject(projectId) {
       return changeProject(async () => {
+        // 成对的两次自增作废在途的会话列表：删之前发出的那一份不能把项目重新导回来。
         conversationListRevision += 1
-        const projects = useCanvasProjectStore.getState()
-        const project = projects.projects.find((one) => one.id === projectId)
-        if (!project) return false
         try {
-          if (project.cloud) throw new Error('cloud_project_delete_unavailable')
-          if (project.id === projects.activeId && get().turn === 'running') throw new Error('busy')
-          const saved = await saveCurrentProject(get().conversationId)
-          if (!saved.ok) throw new Error(saved.reason)
-          await prepareCanvasRemoval(project.sceneKey)
-          if (project.conversationId) {
-            try {
-              const history = await fetchMessages(project.conversationId)
-              if (history.activeTurn) throw new Error('busy')
-              await removeConversation(project.conversationId)
-            } catch (error) {
-              if (!(error instanceof AgentRequestError && error.status === 404)) throw error
-            }
-          }
-          if (project.id === projects.activeId) await createProject(false)
-          await removeProjectDraft(projectId, project.conversationId)
-          await projects.remove(projectId)
-          forgetCanvasWorkspace(project.sceneKey)
-          set((state) => ({
-            conversations: state.conversations.filter((one) => one.id !== project.conversationId),
-          }))
-          return true
-        } catch (error) {
-          useStore
-            .getState()
-            .showToast(
-              error instanceof Error && error.message === 'busy'
-                ? i18next.t('project.deleteBusy', { ns: 'agent' })
-                : i18next.t('project.deleteFailed', { ns: 'agent' }),
-              'error',
-            )
+          const result = await deleteProject(projectId, deleteSeam)
+          if (result.ok) return true
+          // 项目本来就不在了，没什么好说的；其余按「在忙」与「没删成」两句文案分。
+          if (result.reason !== 'not_found')
+            useStore
+              .getState()
+              .showToast(
+                result.reason === 'busy'
+                  ? i18next.t('project.deleteBusy', { ns: 'agent' })
+                  : i18next.t('project.deleteFailed', { ns: 'agent' }),
+                'error',
+              )
           return false
         } finally {
           conversationListRevision += 1

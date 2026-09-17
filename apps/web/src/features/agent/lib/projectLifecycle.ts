@@ -1,10 +1,13 @@
 import {
   canvasSceneKey,
   currentCanvasWorkspace,
+  forgetCanvasWorkspace,
+  prepareCanvasRemoval,
   selectCanvasWorkspace,
 } from '../../canvas/lib/workspaces'
 import { currentCanvasProject, useCanvasProjectStore } from '../../canvas/projectStore'
-import { agentDraft, type DraftSession } from './drafts'
+import { AgentRequestError, fetchMessages, removeConversation } from './agentClient'
+import { agentDraft, type DraftSession, removeProjectDraft } from './drafts'
 
 /**
  * 当前项目此刻用的那份草稿。项目身份决定草稿归属，会话 id 只用来接住项目化之前
@@ -69,4 +72,72 @@ export function showProject(project: ShownProject, panel: AgentPanelSeam): void 
   panel.reset(project)
   selectCanvasWorkspace(project.conversationId)
   if (project.conversationId) panel.open(project.conversationId)
+}
+
+export type DeleteProjectResult =
+  | { readonly ok: true }
+  | {
+      readonly ok: false
+      readonly reason: 'not_found' | 'cloud_project' | 'busy' | 'save_failed' | 'failed'
+    }
+
+/** 删除时面板那一侧。前两样是面板此刻的事实，读它们与后面的判断之间没有 await。 */
+export interface DeleteProjectPanel {
+  /** 面板此刻跟着的会话：要保住的是它那份草稿。 */
+  readonly conversationId: string | null
+  /** 面板上有没有一轮在跑。 */
+  readonly running: boolean
+  /** 删掉当前项目之前先让新项目顶上：要清面板、发布新画布，只有 store 走得了这条。 */
+  replaceCurrent(): Promise<void>
+  /** 会话列表是面板状态，会话没了要由它摘掉。 */
+  forgetConversation(conversationId: string | null): void
+}
+
+/** 删掉这个项目的草稿、项目记录与画布存档。 */
+export async function deleteProject(
+  projectId: string,
+  panel: DeleteProjectPanel,
+): Promise<DeleteProjectResult> {
+  const projects = useCanvasProjectStore.getState()
+  const project = projects.projects.find((one) => one.id === projectId)
+  if (!project) return { ok: false, reason: 'not_found' }
+  // 云端项目只能在云端删：本机这一套只销毁本机存档，删完服务端那份还在，
+  // 「已删除」就成了一句假话（ADR-0002「回收恢复尚未交付前不开放云端项目删除」、ADR-0005 第 8 条）。
+  if (project.cloud) return { ok: false, reason: 'cloud_project' }
+  // 正在跑的那一轮还在往这张画布上落东西，连它一起删等于半路抽走目标（ADR-0005 第 4 条）。
+  if (project.id === projects.activeId && panel.running) return { ok: false, reason: 'busy' }
+  // 手头这份先保住：删除会把当前项目换掉，没落盘的输入与画布之后就找不回来了。
+  if (!(await saveCurrentProject(panel.conversationId)).ok)
+    return { ok: false, reason: 'save_failed' }
+  try {
+    // 画布那边只会抛，这里是把它翻成判别值的唯一一处；同样只停在 `prepareCanvasRemoval` 这一层。
+    await prepareCanvasRemoval(project.sceneKey)
+    if (project.conversationId) {
+      try {
+        const history = await fetchMessages(project.conversationId)
+        // 服务端说还有一轮在跑：别的标签页正用着这个会话。
+        if (history.activeTurn) throw new Error('busy')
+        await removeConversation(project.conversationId)
+      } catch (error) {
+        // 服务端那份已经没了正是我们要的结果，其余失败照旧算失败。
+        if (!(error instanceof AgentRequestError && error.status === 404)) throw error
+      }
+    }
+    // 删的是当前项目就先让新项目顶上：界面一刻也不能没有当前项目。
+    if (project.id === projects.activeId) await panel.replaceCurrent()
+    await removeProjectDraft(projectId, project.conversationId)
+    await projects.remove(projectId)
+    forgetCanvasWorkspace(project.sceneKey)
+    panel.forgetConversation(project.conversationId)
+    return { ok: true }
+  } catch (error) {
+    return { ok: false, reason: failureReason(error) }
+  }
+}
+
+/** 画布与会话那两条路只用抛出报告失败，翻译在这一处收口。 */
+function failureReason(error: unknown): 'busy' | 'save_failed' | 'failed' {
+  const thrown = error instanceof Error ? error.message : ''
+  if (thrown === 'busy') return 'busy'
+  return thrown === 'save_failed' ? 'save_failed' : 'failed'
 }
