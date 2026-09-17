@@ -1,5 +1,6 @@
 import type { ImageContent } from '@earendil-works/pi-ai'
 import sharp from 'sharp'
+import { toModelImageDataUrl } from './modelImage'
 
 interface Reference {
   readonly dataUrl: string
@@ -8,11 +9,12 @@ interface Reference {
 
 /** 与画布预览相同：mask 的透明像素是用户圈选区；只给 LLM 看，绝不替换生图原图。 */
 export async function selectionPreview(reference: Reference): Promise<ImageContent> {
-  const raw = Buffer.from(reference.dataUrl.slice(reference.dataUrl.indexOf(',') + 1), 'base64')
+  const dataUrl = await toModelImageDataUrl(reference.dataUrl)
+  const raw = Buffer.from(dataUrl.slice(dataUrl.indexOf(',') + 1), 'base64')
   if (!reference.maskDataUrl) {
     return {
       type: 'image',
-      mimeType: reference.dataUrl.slice(5, reference.dataUrl.indexOf(';')),
+      mimeType: dataUrl.slice(5, dataUrl.indexOf(';')),
       data: raw.toString('base64'),
     }
   }
