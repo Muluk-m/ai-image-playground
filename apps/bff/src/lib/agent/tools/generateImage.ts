@@ -15,6 +15,8 @@ const parameters = Type.Object({
 
 export const generateImage = defineAgentTool({
   name: 'generateImage',
+  // 视频轮也要它：首帧先画出来，才有东西可以动。
+  modes: ['image', 'video'],
   label: '生图',
   description:
     '按提示词生成全新的图片，产出直接落到用户的画布上。可用 n 指定同一画面的版本数；改已有的图用 editImage。',

@@ -138,6 +138,60 @@ afterEach(() => {
 })
 
 describe('AgentPanel', () => {
+  it('读取技能只出一行脚注，不出结果卡', () => {
+    render()
+    act(() =>
+      useAgentStore.setState({
+        messages: [
+          {
+            kind: 'tool',
+            id: 'tool-skill',
+            turnId: 'turn-1',
+            toolCallId: 'call-skill',
+            toolName: 'loadSkill',
+            title: '读取技能：storyboard-short',
+            status: 'succeeded',
+          },
+          {
+            kind: 'tool',
+            id: 'tool-image',
+            turnId: 'turn-1',
+            toolCallId: 'call-image',
+            toolName: 'generateImage',
+            title: '一只橘猫',
+            status: 'running',
+          },
+        ],
+      }),
+    )
+    const line = host.querySelector<HTMLElement>('[data-tool="loadSkill"]')
+    expect(line?.textContent).toBe('读取技能：storyboard-short')
+    // 结果卡有边框底座，技能那一行没有；这里数的就是「出了几张卡」。
+    expect(host.querySelectorAll('.rounded-xl.border')).toHaveLength(1)
+  })
+
+  it('没读到的那次不显示成读到了', () => {
+    render()
+    act(() =>
+      useAgentStore.setState({
+        messages: [
+          {
+            kind: 'tool',
+            id: 'tool-skill',
+            turnId: 'turn-1',
+            toolCallId: 'call-skill',
+            toolName: 'loadSkill',
+            // 起跑那一刻还不知道读不读得到，标题照常是「读取技能：…」。
+            title: '读取技能：nope',
+            status: 'succeeded',
+            skill: { label: 'nope', found: false },
+          },
+        ],
+      }),
+    )
+    expect(host.querySelector('[data-tool="loadSkill"]')?.textContent).toBe('没找到技能：nope')
+  })
+
   it('上翻阅读历史时保留位置，回到底部后继续跟随流式回复', () => {
     render()
     const log = host.querySelector<HTMLElement>('[aria-label="对话记录"]')!
@@ -605,7 +659,7 @@ describe('AgentPanel', () => {
     expect(host.textContent).not.toContain('本轮免费')
   })
 
-  it('项目标题旁显示已用积分', () => {
+  it('项目标题保持单行，消耗只出现在每轮页脚', () => {
     useAgentStore.setState({
       messages: [
         {
@@ -642,8 +696,10 @@ describe('AgentPanel', () => {
     })
     render()
 
-    expect(host.textContent).toContain('已用')
-    expect(host.textContent).toContain('312')
+    expect(host.querySelector('.studio-agent-project')?.textContent).not.toContain('已用')
+    expect(host.textContent).not.toContain('312')
+    expect(host.textContent).toContain('127')
+    expect(host.textContent).toContain('185')
   })
 
   it('计费关着的部署里页脚只剩耗时，会话合计不出现', () => {

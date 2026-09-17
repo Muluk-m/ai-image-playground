@@ -9,9 +9,6 @@
     "collapseAria": "Collapse panel",
     "expand": "Open chat",
     "aria": "Creation chat",
-    "creditsUsedAria": "Used {{credits}} credits",
-    "creditsUsedPrefix": "Used",
-    "creditsUsedSuffix": "credits",
     "newProjectAria": "New project",
     "logAria": "Conversation log",
     "emptyTitle": "What will you create today?",
@@ -25,6 +22,7 @@
     "delivering": "Generated, adding to the canvas…",
     "offCanvas": "Not on the current canvas. You can add it again.",
     "deliveryFailed": "Generated, but could not be added to the canvas. You can retry.",
+    "skillNotFound": "Skill not found: {{name}}",
     "locateTitle": "Find these results on the canvas",
     "place": "Add to canvas",
     "viewPrompt": "View prompt"
@@ -58,7 +56,10 @@
     "tooManyReferences_one": "At most {{count}} reference image per turn",
     "tooManyReferences_other": "At most {{count}} reference images per turn",
     "abortedToast": "Stopped. Your draft is back in the box.",
-    "aborting": "Stopping…"
+    "aborting": "Stopping…",
+    "modeAria": "Creation type",
+    "modeImage": "Image",
+    "modeVideo": "Video"
   },
   "params": {
     "title": "Generation settings",
@@ -77,7 +78,8 @@
     "canvasImage": "Canvas image {{index}}",
     "headingReferences": "Reference images",
     "headingCanvas": "Canvas",
-    "headingAssets": "Assets"
+    "headingAssets": "Assets",
+    "headingSkills": "Skills"
   },
   "activity": {
     "sending": "Sending",

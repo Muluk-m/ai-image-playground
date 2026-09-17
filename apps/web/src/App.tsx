@@ -2,14 +2,13 @@ import { useEffect } from 'react'
 import { useAuth } from './auth/AuthContext'
 import ConfirmDialog from './components/ConfirmDialog'
 import DetailModal from './components/DetailModal'
+import GenerationHistory from './components/GenerationHistory'
 import Header from './components/Header'
 import ImageContextMenu from './components/ImageContextMenu'
 import InputBar from './components/InputBar'
 import Lightbox from './components/Lightbox'
 import MaskEditorModal from './components/MaskEditorModal'
-import SearchBar from './components/SearchBar'
 import SettingsModal from './components/SettingsModal'
-import TaskGrid from './components/TaskGrid'
 import Toast from './components/Toast'
 import UpdateBanner from './components/UpdateBanner'
 import CanvasMode from './features/canvas/components/CanvasMode'
@@ -104,8 +103,7 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
         <>
           <main data-home-main data-drag-select-surface className="pb-48">
             <div className="safe-area-x max-w-7xl mx-auto">
-              <SearchBar />
-              <TaskGrid />
+              <GenerationHistory key={user?.id ?? 'anonymous'} userId={user?.id} />
             </div>
           </main>
           <InputBar />

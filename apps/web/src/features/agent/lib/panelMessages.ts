@@ -49,11 +49,13 @@ function toolCard(block: AgentToolResultBlock, id: string, turnId: string): Agen
     id,
     turnId,
     toolCallId: block.toolCallId,
+    toolName: block.toolName,
     title: block.title,
     ...(block.prompt ? { prompt: block.prompt } : {}),
     status: block.status,
     ...(block.artifacts ? { artifacts: block.artifacts } : {}),
     ...(block.anchorObjectId ? { anchorObjectId: block.anchorObjectId } : {}),
+    ...(block.skill ? { skill: block.skill } : {}),
     ...(block.message ? { message: block.message } : {}),
   }
 }
@@ -138,6 +140,7 @@ function runningToolCard(event: AgentToolStartEvent, turnId: string): AgentToolM
     id: event.messageId,
     turnId,
     toolCallId: event.toolCallId,
+    toolName: event.toolName,
     title: event.title,
     ...(event.prompt ? { prompt: event.prompt } : {}),
     status: 'running',
@@ -192,15 +195,18 @@ export function reduceAgentPanelEvent(
           event.turnId,
           event.reservedCredits === undefined ? {} : { reservedCredits: event.reservedCredits },
         ),
-        messages: state.messages.some((one) => one.id === event.userMessageId)
-          ? state.messages
-          : [
-              // 先上屏的那条换成服务端的 id；同一轮不会有第二条待确认的。
-              ...state.messages.filter((one) => one.kind !== 'text' || !one.pending),
-              panelMessage(event.userMessageId, turnId, 'user', [
-                { type: 'text', text: pendingUserText ?? '' },
-              ]),
-            ],
+        // 续播没有正文可补（`pendingUserText` 为空），找不到那条用户消息就不显示它：
+        // 空气泡比少一条更糟。
+        messages:
+          pendingUserText === null || state.messages.some((one) => one.id === event.userMessageId)
+            ? state.messages
+            : [
+                // 先上屏的那条换成服务端的 id；同一轮不会有第二条待确认的。
+                ...state.messages.filter((one) => one.kind !== 'text' || !one.pending),
+                panelMessage(event.userMessageId, turnId, 'user', [
+                  { type: 'text', text: pendingUserText },
+                ]),
+              ],
       }
     case 'assistantStart':
       // 先定稿再替换：重放同一条 `assistantStart` 时，替换会原样还它 `streaming: true`。

@@ -1,6 +1,6 @@
 {
-  "id": "0ac15236-4187-453a-9c7e-3aac49b35475",
-  "prevId": "d0856b2b-0c17-4175-8c6c-1987339c3c4d",
+  "id": "d0856b2b-0c17-4175-8c6c-1987339c3c4d",
+  "prevId": "97e213c3-0f27-40a5-b40c-f5ec779b886a",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -855,49 +855,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": 0
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.host_samples": {
-      "name": "host_samples",
-      "schema": "",
-      "columns": {
-        "sampled_at": {
-          "name": "sampled_at",
-          "type": "timestamp with time zone",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "disk_total_bytes": {
-          "name": "disk_total_bytes",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "disk_available_bytes": {
-          "name": "disk_available_bytes",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "mem_total_bytes": {
-          "name": "mem_total_bytes",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "mem_available_bytes": {
-          "name": "mem_available_bytes",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
         }
       },
       "indexes": {},

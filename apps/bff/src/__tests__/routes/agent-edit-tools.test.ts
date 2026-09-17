@@ -486,10 +486,12 @@ describe('智能体改图工具', () => {
     expect(task!.request_payload.input_images).toHaveLength(1)
     expect(task!.request_payload.mask).toBeUndefined()
 
+    // `loadSkill` 在场是因为 `apps/bff/skills/image` 里有随仓库发的技能。
     expect(calls[0]!.tools?.map((tool) => tool.function.name).sort()).toEqual([
       'askClarification',
       'editImage',
       'generateImage',
+      'loadSkill',
       'readLibrary',
     ])
   })

@@ -113,6 +113,18 @@ prune_old_images() {
   done
 }
 
+# Image pruning alone does not keep the disk in check: BuildKit keeps every superseded layer in
+# its cache, and that is what actually fills the host (27G of cache next to 4G of images, 17G of
+# it referenced by nothing). Drop only the unreferenced part; the cache the next build reuses
+# stays. A failure here is reported and ignored: the rollout already succeeded.
+prune_build_cache() {
+  if reclaimed=$(docker builder prune -f 2>/dev/null | tail -n 1); then
+    echo "build cache: ${reclaimed:-nothing to reclaim}"
+  else
+    echo "could not prune the build cache; leaving it" >&2
+  fi
+}
+
 stage "Sync the checkout to $ref"
 if [ -n "$(git -C "$repo_root" status --porcelain --untracked-files=no)" ]; then
   echo "Refusing to deploy: tracked files are modified in $repo_root." >&2
@@ -194,6 +206,9 @@ for edition in $editions; do
   echo "recorded in $deployments_log"
   prune_old_images "$(edition_var "$prefix" IMAGE)" "$tag"
 done
+
+stage "Prune the unreferenced build cache"
+prune_build_cache
 
 printf '\nDeployed public=%s private=%s\n' "$public_sha" "$private_sha"
 for edition in $editions; do

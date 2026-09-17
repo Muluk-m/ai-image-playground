@@ -1,6 +1,7 @@
 import type {
   AgentActiveTurnView,
   AgentConversationView,
+  AgentMode,
   AgentThinkingDepth,
   AgentTurnEvent,
   AgentTurnReference,
@@ -10,6 +11,7 @@ import { create } from 'zustand'
 import { i18next } from '../../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../lib/apiProfiles'
 import { AGENT_CONVERSATION_KEY, safeLocalStorage, scopedStorageName } from '../../lib/authScope'
+import { notifyPrivateSubmissionSettled } from '../../lib/privateOverlay'
 import { useStore } from '../../store'
 import {
   bindNewCanvasWorkspace,
@@ -64,6 +66,13 @@ function readThinkingDepth(): AgentThinkingDepth {
 export interface AgentState {
   thinkingDepth: AgentThinkingDepth
   setThinkingDepth(depth: AgentThinkingDepth): void
+  /**
+   * 这个会话此刻在做什么。输入框上的开关是它的唯一写入口，草稿仍然负责持久化；
+   * 放在 store 里是因为「代用户发一轮」的入口（澄清作答等）看不见输入框，
+   * 而 mode 不落库，服务端也无从替它们补。
+   */
+  mode: AgentMode
+  setMode(mode: AgentMode): void
   open: boolean
   tab: AgentPanelTab
   conversationId: string | null
@@ -99,6 +108,8 @@ export interface AgentState {
     text: string,
     references?: readonly AgentTurnReference[],
     onAccepted?: () => void,
+    /** 这一轮要创作什么；缺席即沿用会话此刻的那个。插话不带它——mode 是起轮时定下的。 */
+    mode?: AgentMode,
   ): Promise<void | 'cancelled'>
   abort(): Promise<void>
   /** 产物没能落下去（画布已离开等）时，由用户把那张结果卡的产出放进画布。 */
@@ -156,6 +167,9 @@ export const useAgentStore = create<AgentState>((set, get) => {
         if (event.stopReason === 'failed') return { ...failPatch(state), turns: panel.turns }
         return { ...panel, turn: 'idle' as const, stopping: false, activeTurn: null }
       })
+    // 扣费在轮与工具各自收尾时发生，顶栏余额属于用户而不属于某个项目：切了项目之后
+    // 迟到的结算也要刷新，所以放在 `isCurrent()` 之外。没有私有 overlay 时是空操作。
+    if (event.type === 'turnEnd' || event.type === 'toolEnd') notifyPrivateSubmissionSettled()
     // 工具一起跑画布就占好位、镜头跟过去；产物到了落进这些位，没跑成就在原地标错。
     if (event.type === 'toolStart' && event.outputCount) {
       turnDelivery.reserve(event.messageId, {
@@ -414,6 +428,10 @@ export const useAgentStore = create<AgentState>((set, get) => {
     historyLoading: false,
     historyFailed: false,
     panelWidth: readPanelWidth(),
+    mode: 'image',
+    setMode: (mode) => {
+      if (get().mode !== mode) set({ mode })
+    },
     thinkingDepth: readThinkingDepth(),
     setThinkingDepth: (thinkingDepth) => {
       safeLocalStorage.setItem(THINKING_DEPTH_KEY, thinkingDepth)
@@ -593,7 +611,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
       })
     },
 
-    async send(text, references = [], onAccepted) {
+    async send(text, references = [], onAccepted, mode = get().mode) {
       if (changingProject || get().historyLoading || get().historyFailed || get().stopping) return
       const trimmed = text.trim()
       if (!trimmed) return
@@ -696,7 +714,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
         // 起轮这一步的失败不在 `follow` 的重连范围里：请求没发出去就没有轮可以接。
         let outcome: StartTurnOutcome
         try {
-          outcome = await startTurn(target, trimmed, references, turnParams)
+          outcome = await startTurn(target, trimmed, references, turnParams, mode)
         } catch (thrown) {
           if (turnDelivery.isCurrent())
             fail(

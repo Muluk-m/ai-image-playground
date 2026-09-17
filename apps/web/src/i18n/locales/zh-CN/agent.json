@@ -9,9 +9,6 @@
     "collapseAria": "收起面板",
     "expand": "展开对话",
     "aria": "创作对话",
-    "creditsUsedAria": "已用 {{credits}} 积分",
-    "creditsUsedPrefix": "已用",
-    "creditsUsedSuffix": "积分",
     "newProjectAria": "新建项目",
     "logAria": "对话记录",
     "emptyTitle": "今天，想创作什么？",
@@ -25,6 +22,7 @@
     "delivering": "产物已生成，正在放入画布…",
     "offCanvas": "产物不在当前画布上，可以再放入。",
     "deliveryFailed": "产物已生成，但放入画布失败，可以重试。",
+    "skillNotFound": "没找到技能：{{name}}",
     "locateTitle": "在画布上定位这些产物",
     "place": "放入画布",
     "viewPrompt": "查看提示词"
@@ -57,7 +55,10 @@
     "sendAndCreate": "发送并创作",
     "tooManyReferences_other": "一轮最多带 {{count}} 张参考图",
     "abortedToast": "已中止，草稿已放回输入框。",
-    "aborting": "正在中止…"
+    "aborting": "正在中止…",
+    "modeAria": "创作类型",
+    "modeImage": "图片",
+    "modeVideo": "视频"
   },
   "params": {
     "title": "生成参数",
@@ -76,7 +77,8 @@
     "canvasImage": "画布图{{index}}",
     "headingReferences": "本次参考图",
     "headingCanvas": "画布",
-    "headingAssets": "素材"
+    "headingAssets": "素材",
+    "headingSkills": "技能"
   },
   "activity": {
     "sending": "发送中",

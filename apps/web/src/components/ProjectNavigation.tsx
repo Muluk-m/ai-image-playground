@@ -7,12 +7,11 @@ import { useCanvasProjectStore } from '../features/canvas/projectStore'
 import { useLibraryStore } from '../features/library/store'
 import { useTranslation } from '../i18n'
 import { formatDateMinute } from '../i18n/format'
-import Credits from './Credits'
 import { Button } from './ui/button'
 import { Input } from './ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover'
 
-export default function ProjectNavigation({ credits }: { credits: number | null }) {
+export default function ProjectNavigation() {
   const { t } = useTranslation(['agent', 'canvas'])
   const projects = useCanvasProjectStore((state) => state.projects)
   const activeId = useCanvasProjectStore((state) => state.activeId)
@@ -201,15 +200,6 @@ export default function ProjectNavigation({ credits }: { credits: number | null 
           {busy ? <LoaderCircle className="animate-spin" /> : <Plus />}
         </Button>
       </div>
-      {credits !== null && (
-        <span
-          className="ml-12 mt-1 flex items-center gap-1 text-[11px] text-muted-foreground"
-          aria-label={t('panel.creditsUsedAria', { credits: credits.toLocaleString() })}
-        >
-          {t('panel.creditsUsedPrefix')} <Credits credits={credits} />{' '}
-          {t('panel.creditsUsedSuffix')}
-        </span>
-      )}
     </div>
   )
 }

@@ -21,8 +21,36 @@ export interface AgentTextBlock {
   readonly references?: readonly AgentStoredReference[]
 }
 
+/**
+ * 这一轮要创作什么。它决定模型收到哪些工具、系统提示词里列哪些技能，
+ * 不决定历史怎么渲染——旧轮的工具结果在任何创作类型下都照样认得出来。
+ * 请求里缺席即 `image`：老客户端不知道有这回事。
+ */
+export type AgentMode = 'image' | 'video'
+
+export const AGENT_MODES: readonly AgentMode[] = ['image', 'video']
+
+export function isAgentMode(value: unknown): value is AgentMode {
+  return value === 'image' || value === 'video'
+}
+
 /** 智能体可调用的工具。 */
-export type AgentToolName = 'generateImage' | 'editImage' | 'readLibrary' | 'generateVideo'
+export type AgentToolName =
+  | 'generateImage'
+  | 'editImage'
+  | 'readLibrary'
+  | 'generateVideo'
+  | 'loadSkill'
+
+/**
+ * 技能清单端点给前端的那一份：只有标识、标题和「何时用」，正文由模型自己去读。
+ * `name` 是 Agent Skills 标准的 kebab-case 标识，服务端只认它；`title` 是给人看的那个名字。
+ */
+export interface AgentSkillSummary {
+  readonly name: string
+  readonly title: string
+  readonly description: string
+}
 
 /**
  * 一轮里用户在输入框附上的参考图。数组下标加一就是提示词里 `[image N]` 的 N，
@@ -101,8 +129,19 @@ export interface AgentToolResultBlock {
   readonly artifacts?: readonly AgentToolArtifact[]
   /** 产出落画布时贴着这个画布对象放；缺席就落在视口中央。 */
   readonly anchorObjectId?: string
+  /** 读取技能这一步的结果。缺席即这条不是读技能，或者它还没跑完。 */
+  readonly skill?: AgentSkillOutcome
   /** 失败原因，一句话。 */
   readonly message?: string
+}
+
+/**
+ * 读取技能读到了什么。`found` 是机器可读的那一位：面板据它决定这一行说「读取技能」还是
+ * 「没找到技能」，不靠匹配工具返回的文案。
+ */
+export interface AgentSkillOutcome {
+  readonly label: string
+  readonly found: boolean
 }
 
 /** 一次澄清提问。落在助手消息里，所以重新打开会话还能看见、还能作答。 */

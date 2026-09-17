@@ -2,7 +2,14 @@
 import type { AgentTurnEvent, AgentTurnSummaryView } from '@image-playground/shared'
 import { encodeAgentFrame } from '@image-playground/shared'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { agentSessionCredits } from '../../../features/agent/lib/turnCost'
+
+const { settledMock } = vi.hoisted(() => ({ settledMock: vi.fn() }))
+// 只替换这一个导出：privateOverlay 的其它导出还有别的模块在用。
+vi.mock('../../../lib/privateOverlay', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../lib/privateOverlay')>()),
+  notifyPrivateSubmissionSettled: settledMock,
+}))
+
 import { useAgentStore } from '../../../features/agent/store'
 import { _setRuntimeConfigForTesting } from '../../../lib/runtimeConfig'
 
@@ -167,7 +174,6 @@ describe('本轮消耗', () => {
       durationMs: 1_200,
       stopReason: 'completed',
     })
-    expect(agentSessionCredits(state().turns)).toBe(0)
   })
 
   it('读回历史时把每轮的页脚带回来', async () => {
@@ -189,14 +195,42 @@ describe('本轮消耗', () => {
   })
 })
 
-describe('会话合计', () => {
-  it('把各轮的消耗加起来', () => {
-    expect(
-      agentSessionCredits({
-        'turn-1': { turnId: 'turn-1', cost: { chat: 42, image: 85, video: 0 } },
-        'turn-2': { turnId: 'turn-2', cost: { chat: 60, image: 0, video: 125 } },
-        'turn-3': { turnId: 'turn-3', reservedCredits: 60 },
-      }),
-    ).toBe(312)
+describe('顶栏余额', () => {
+  it('一轮跑完就通知私有 overlay 重拉余额', async () => {
+    turnResponses = [() => sseResponse(frames(1, TURN_START, turnEnd()))]
+
+    await state().send('画一只猫')
+
+    expect(settledMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('失败的轮同样通知：预扣要退回来', async () => {
+    turnResponses = [
+      () =>
+        sseResponse(
+          frames(1, TURN_START, turnEnd({ stopReason: 'failed' } as Partial<AgentTurnEvent>)),
+        ),
+    ]
+
+    await state().send('画一只猫')
+
+    expect(settledMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('工具任务自己结算，轮还没完也先刷一次', async () => {
+    const toolFailed: AgentTurnEvent = {
+      type: 'toolEnd',
+      messageId: 'tool-1',
+      toolCallId: 'call-1',
+      toolName: 'generateImage',
+      status: 'failed',
+      title: '一只橘猫坐在窗台上',
+      message: '上游拒绝了这张图',
+    }
+    turnResponses = [() => sseResponse(frames(1, TURN_START, toolFailed, turnEnd()))]
+
+    await state().send('画一只猫')
+
+    expect(settledMock).toHaveBeenCalledTimes(2)
   })
 })

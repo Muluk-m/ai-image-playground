@@ -24,7 +24,7 @@ const EMPTY: AgentPanelState = { messages: [], turns: {} }
 /** 与 store 的 `follow` 同样的喂法：事件逐个进归约，轮标识来自 `turnStart`。 */
 function replay(
   events: readonly AgentTurnEvent[],
-  pendingUserText: string | null = null,
+  pendingUserText: string | null = USER_TEXT,
   initial: AgentPanelState = EMPTY,
 ): AgentPanelState {
   let state = initial
@@ -219,6 +219,7 @@ describe('历史与直播同源', () => {
       id: 'tool-1',
       turnId: TURN,
       toolCallId: 'call-1',
+      toolName: 'generateImage',
       title: SUCCEEDED.title,
       prompt: SUCCEEDED.prompt,
       status: 'succeeded',
@@ -230,6 +231,7 @@ describe('历史与直播同源', () => {
       id: 'tool-2',
       turnId: TURN,
       toolCallId: 'call-2',
+      toolName: 'generateVideo',
       title: FAILED.title,
       status: 'failed',
       message: FAILED.message,
@@ -288,6 +290,28 @@ describe('直播专属', () => {
     const twice = replay([START, START], USER_TEXT)
 
     expect(twice.messages).toEqual(once.messages)
+  })
+
+  it('续播没有正文可补时，turnStart 不造一条空的用户消息', () => {
+    const state = replay([START, { type: 'assistantStart', messageId: 'assistant-1' }], null)
+
+    expect(state.messages.map((one) => one.id)).toEqual(['assistant-1'])
+    expect(state.turns[TURN]).toEqual({ turnId: TURN })
+  })
+
+  it('续播时那条用户消息已经从历史读回来了，turnStart 原样留着它', () => {
+    const known: AgentPanelMessage = {
+      kind: 'text',
+      id: 'user-1',
+      turnId: TURN,
+      role: 'user',
+      text: USER_TEXT,
+      streaming: false,
+    }
+
+    const state = replay([START], null, { messages: [known], turns: {} })
+
+    expect(state.messages).toEqual([known])
   })
 
   it('增量累加成一段话，轮结束才收尾', () => {

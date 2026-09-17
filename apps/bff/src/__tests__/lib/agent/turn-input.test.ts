@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'bun:test'
 import type { AgentMessage } from '@earendil-works/pi-agent-core'
-import { estimateTokens } from '@earendil-works/pi-agent-core'
 import type { AgentMessageView, AgentTurnReference } from '@image-playground/shared'
 import sharp from 'sharp'
+import { estimateMessageTokens } from '../../../lib/agent/token-estimate'
 import type { AgentToolDeclaration } from '../../../lib/agent/tools'
 
 // 只装配文字与占位图片块，一句 SQL 都不发；库名故意不可达，真连上就会立刻炸出来。
@@ -116,8 +116,11 @@ const LONG_HISTORY: AgentMessageView[] = Array.from({ length: 40 }, (_, index) =
  * 措辞不会让它们变红；变红说明装配口径动了——每个引用折算几个图片块、引用清单怎么写、
  * 历史怎么回放、封顶取什么——改之前先想清楚线上冻结的积分会跟着变。
  *
- * 每条增量旁边写清它由哪几部分构成，好让下一个读的人自己验算：pi 的启发式是
- * 「一条消息的字符数 / 4，向上取整」，一个图片块按 4800 字符计。
+ * 每条增量旁边写清它由哪几部分构成，好让下一个读的人自己验算：口径是 pi 的
+ * 「一条消息的字符数 / 4，向上取整」再按 CJK 校正（每个 CJK 字符补 0.55，见
+ * `token-estimate.ts`），一个图片块按 4800 字符计、不含 CJK。
+ *
+ * 这一批数字整体上移过一次：CJK 校正上线，同时空引用不再拼一个 28 字符的清单头。
  */
 describe('estimateTurnInputTokens', () => {
   const bare = (history: readonly AgentMessageView[], text: string) =>
@@ -128,37 +131,40 @@ describe('estimateTurnInputTokens', () => {
     references: readonly AgentTurnReference[],
   ) => estimateTurnInputTokens(history, text, references) - bare([], text)
 
+  // 8 个汉字：ceil(8 / 4) = 2，再补 ceil(8 × 0.55) = 5。
   it('counts this turn text on top of the system prompt', () => {
-    expect(bare([], '画一只坐着的橘猫') - bare([], '')).toBe(2)
+    expect(bare([], '画一只坐着的橘猫') - bare([], '')).toBe(7)
   })
 
+  // 四条回放：用户原话 10 + 工具结果摘要 10 + 澄清摘要 23 + 用户回答 3。
   it('replays tool results and clarifications from a multi-turn history', () => {
-    expect(added(RICH_HISTORY, '再来一张', [])).toBe(16)
+    expect(added(RICH_HISTORY, '再来一张', [])).toBe(46)
   })
 
-  // 1 个图片块（4800 字符）+ 提示词里的 `[image 1]` 引用行 + 视觉证据清单里这张图的一行（18 字符）。
+  // 1 个图片块（4800 字符 = 1200）+ 提示词里的 `[image 1]` 引用行与整个视觉证据清单（56）。
+  // 清单头现在只有带引用时才拼，所以它整块算进这条增量里。
   it('charges one image block for a plain reference', () => {
-    expect(added([], '换成夜景', [PLAIN])).toBe(1219)
+    expect(added([], '换成夜景', [PLAIN])).toBe(1256)
   })
 
-  // 3 个图片块（14400 字符）+ 带选区说明的引用行 + 清单里带选区 ID 与 bounds 的那一行（188 字符）。
+  // 3 个图片块（14400 字符 = 3600）+ 带选区说明的引用行与带选区 ID、bounds 的清单行（170）。
   it('charges three image blocks for a masked reference', () => {
-    expect(added([], '换成夜景', [MASKED])).toBe(3676)
+    expect(added([], '换成夜景', [MASKED])).toBe(3770)
   })
 
-  // 上面两条各自的块与清单行加在一起，清单头只写一次。
+  // 上面两条各自的块与清单行加在一起（4800 字符 = 4800 + 189），清单头只写一次。
   it('adds the blocks of every active reference', () => {
-    expect(added([], '换成夜景', [PLAIN, MASKED])).toBe(4887)
+    expect(added([], '换成夜景', [PLAIN, MASKED])).toBe(4989)
   })
 
-  // 历史里那张带遮罩的图照遮罩引用算：3 个图片块 + 清单里的遮罩行 + 回放这两条历史消息。
+  // 历史里那张带遮罩的图照遮罩引用算：3600（3 个图片块）+ 84（回放这两条历史消息）+ 170（清单）。
   it('falls back to the last batch of references in history when this turn attaches none', () => {
-    expect(added(OLD_REFERENCE_HISTORY, '再改一次', [])).toBe(3707)
+    expect(added(OLD_REFERENCE_HISTORY, '再改一次', [])).toBe(3854)
   })
 
-  // 本轮自己带了图，历史那批不再编号：1 个图片块 + 普通引用的清单行 + 回放这两条历史消息。
+  // 本轮自己带了图，历史那批不再编号：1200（1 个图片块）+ 84（回放）+ 56（普通引用的清单）。
   it('numbers only this turn references when the turn attaches its own', () => {
-    expect(added(OLD_REFERENCE_HISTORY, '再改一次', [PLAIN])).toBe(1250)
+    expect(added(OLD_REFERENCE_HISTORY, '再改一次', [PLAIN])).toBe(1340)
   })
 
   it('caps a long history at the compaction threshold', () => {
@@ -166,22 +172,30 @@ describe('estimateTurnInputTokens', () => {
   })
 
   /**
-   * 量级哨兵：线上一句「你好」的真实输入是 2268 token，本文件的估算是一千出头——差的是
-   * pi 的「字符数 / 4」对中文的系统性低估，不是漏项（真开了 generation:video 的部署还要多
-   * 191）。区间放宽到容得下这两个数，但漏掉工具清单（674）或系统提示词（322）就会掉出去。
+   * 校准哨兵：CJK 校正上线后，这一句「你好」估出来是 2268——系统提示词 1037 + 工具清单 1228
+   * + 本轮 3。区间是围着它的 ±15%，掉出去说明装配漏了一块（工具清单 1228 / 系统提示词 1037），
+   * 或者校正系数被人动过。
+   *
+   * 头上这个 2268 与线上那次实测正好同值，但两者不是同一件事：线上一句「你好」的真实输入
+   * 2268 token（其中缓存命中 1536）是 #522 **之前** 的读数，W = 0.8 就是拿它反解的。#522 之后
+   * 系统提示词长了（多一句创作类型说明，澄清那段也重写了），同一句话的估算从 2213 抬到 2268，
+   * 而 #522 之后还没有新的线上数据点，W 没有重新校准。
+   *
+   * 这个文件没加载技能目录，所以清单里既没有 loadSkill 也没有 `<available_skills>`。真开了
+   * generation:video 的部署，工具清单再多 299；视频轮的模式说明再多 19，都还在区间里。
    */
-  it('lands in the right order of magnitude for a short first turn', () => {
+  it('lands on the calibrated size for a short first turn', () => {
     const estimated = estimateTurnInputTokens([], '你好', [])
-    expect(estimated).toBeGreaterThan(800)
-    expect(estimated).toBeLessThan(3500)
+    expect(estimated).toBeGreaterThan(1_928)
+    expect(estimated).toBeLessThan(2_608)
   })
 })
 
 /** 模型每次请求都收到整份工具清单；预扣不算它就是漏掉本轮输入里最大的一块固定开销。 */
 describe('tool declarations in the estimate', () => {
-  /** 与生产同一条启发式：先拿它对齐生产，再用它量视频工具那一份声明的增量。 */
+  /** 与生产同一条口径：先拿它对齐生产，再用它量视频工具那一份声明的增量。 */
   const declarationTokens = (declarations: readonly AgentToolDeclaration[]) =>
-    estimateTokens({
+    estimateMessageTokens({
       role: 'user',
       content: [{ type: 'text', text: JSON.stringify(declarations) }],
       timestamp: 0,
@@ -189,16 +203,21 @@ describe('tool declarations in the estimate', () => {
 
   it('counts the tool declarations on top of the messages', () => {
     const messages = estimatedTurnInput([], '你好', []).reduce(
-      (total, message) => total + estimateTokens(message),
+      (total, message) => total + estimateMessageTokens(message),
       0,
     )
-    expect(estimateTurnInputTokens([], '你好', []) - messages).toBe(estimateToolDeclarationTokens())
-    expect(declarationTokens(agentToolDeclarations())).toBe(estimateToolDeclarationTokens())
+    expect(estimateTurnInputTokens([], '你好', []) - messages).toBe(
+      estimateToolDeclarationTokens('image'),
+    )
+    expect(declarationTokens(agentToolDeclarations('image'))).toBe(
+      estimateToolDeclarationTokens('image'),
+    )
   })
 
   it('registers the same list the turn hands the model, clarification included', () => {
-    // 这个文件的部署没开 generation:video，所以清单里没有 generateVideo。
-    expect(agentToolDeclarations().map((declaration) => declaration.name)).toEqual([
+    // 这个文件的部署没开 generation:video，所以清单里没有 generateVideo；
+    // 也没加载技能目录，所以 loadSkill 同样不在。
+    expect(agentToolDeclarations('image').map((declaration) => declaration.name)).toEqual([
       'generateImage',
       'editImage',
       'readLibrary',
@@ -206,9 +225,13 @@ describe('tool declarations in the estimate', () => {
     ])
   })
 
+  // 多出来的那份声明让 JSON 长 766 字符、多 197 个 CJK：字符那半仍是 191，CJK 校正再补 108。
   it('grows by exactly one declaration where the video tool is on', () => {
-    const withVideo = declarationTokens([...agentToolDeclarations(), generateVideo.declaration])
-    expect(withVideo - estimateToolDeclarationTokens()).toBe(191)
+    const withVideo = declarationTokens([
+      ...agentToolDeclarations('image'),
+      generateVideo.declaration,
+    ])
+    expect(withVideo - estimateToolDeclarationTokens('image')).toBe(299)
   })
 })
 
@@ -244,12 +267,12 @@ const REAL_MASKED = {
 describe('estimated and sent turn input', () => {
   it('opens with the same system prompt the agent starts from', () => {
     const estimated = estimatedTurnInput(RICH_HISTORY, '再来一张', [])
-    expect(textOf(estimated[0]!)).toBe(turnInitialState(RICH_HISTORY).systemPrompt)
+    expect(textOf(estimated[0]!)).toBe(turnInitialState(RICH_HISTORY, 'image').systemPrompt)
   })
 
   it('replays history exactly as the agent initial state does', () => {
     const estimated = estimatedTurnInput(RICH_HISTORY, '再来一张', [])
-    expect(estimated.slice(1, -1)).toEqual(turnInitialState(RICH_HISTORY).messages)
+    expect(estimated.slice(1, -1)).toEqual(turnInitialState(RICH_HISTORY, 'image').messages)
   })
 
   it('writes this turn prompt text the same way on both paths', () => {

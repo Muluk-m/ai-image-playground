@@ -44,6 +44,7 @@ async function describe(context: AgentToolContext, query: string | undefined): P
 
 export const readLibrary = defineAgentTool({
   name: 'readLibrary',
+  modes: ['image', 'video'],
   label: '查素材库',
   description:
     '按名字或关键词查用户素材库里的素材，返回名字与图片 id。用户提到某个素材但没有在输入框里引用它时调用；查到的图片 id 可以直接交给 editImage。',
