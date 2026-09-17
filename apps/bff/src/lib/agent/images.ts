@@ -32,8 +32,27 @@ export interface ResolvedAgentVideo {
   readonly taskId: string
   readonly outputIndex: number
   readonly mime: string
-  /** 成片字节。大到几十 MB 都在这一次调用里读完，调用方自己决定写去哪。 */
-  read(): Promise<Uint8Array>
+  /**
+   * 任务行上声明的时长。**不读一个字节就问得到**，所以「总时长超标」这条上限
+   * 在下载之前就能拦住；缺席即那条任务没写（老记录、非视频任务）。
+   */
+  readonly declaredDurationSeconds?: number
+  /**
+   * 把这一段写到本地文件，返回字节数。对象存储里的产物**边读边写**，进程内存只吃当前
+   * chunk；大小在读第一个字节之前就问得到，超过 `limitBytes` 直接抛 `AgentVideoTooLargeError`。
+   */
+  writeTo(path: string, limitBytes: number): Promise<number>
+}
+
+/** 这一段大到不该被拉进内存或磁盘。调用方把它翻译成一句给模型看的话，不是崩溃。 */
+export class AgentVideoTooLargeError extends Error {
+  constructor(
+    readonly videoId: string,
+    readonly limitBytes: number,
+  ) {
+    super(`video ${videoId} exceeds ${limitBytes} bytes`)
+    this.name = 'AgentVideoTooLargeError'
+  }
 }
 
 /**
@@ -106,15 +125,22 @@ async function modelImage(image: ResolvedAgentImage | null): Promise<ResolvedAge
   return normalized === image.dataUrl ? image : { ...image, dataUrl: normalized }
 }
 
+interface TaskOutputRef {
+  readonly ref: ImageBytesRef
+  /** 任务行自己声明的视频时长；图片任务与老记录没有这一位。 */
+  readonly declaredDurationSeconds?: number
+}
+
 /** 这条任务产出的第 n 件东西在哪；任务不存在、没跑完、不归这个用户都是 null。 */
 async function resolveTaskOutputRef(
   output: TaskOutput,
   userId: string | null,
-): Promise<ImageBytesRef | null> {
+): Promise<TaskOutputRef | null> {
   const [task] = await db
     .select({
       status: schema.tasks.status,
       provider: schema.tasks.provider,
+      request_payload: schema.tasks.request_payload,
       result_payload: schema.tasks.result_payload,
     })
     .from(schema.tasks)
@@ -123,7 +149,36 @@ async function resolveTaskOutputRef(
   if (!task || task.status !== 'completed') return null
   const provider = asQueueProvider(task.provider)
   if (!provider) return null
-  return resolveImageBytesRef(provider, task.result_payload, output.outputIndex)
+  const ref = resolveImageBytesRef(provider, task.result_payload, output.outputIndex)
+  if (!ref) return null
+  const declared = task.request_payload.video?.duration_seconds
+  return { ref, ...(typeof declared === 'number' ? { declaredDurationSeconds: declared } : {}) }
+}
+
+/**
+ * 把一份产出写到本地文件。对象存储那条路只问大小、按 Range 流式落盘，整段 mp4 不进内存；
+ * 另外两种落法（内联 base64、上游地址）没有「先问大小」的接口，只能读完再判。
+ */
+async function writeOutputTo(
+  ref: ImageBytesRef,
+  path: string,
+  limitBytes: number,
+  videoId: string,
+): Promise<number> {
+  if (ref.kind === 'object') {
+    const object = await objectStore().open(ref.data)
+    if (object.size > limitBytes) throw new AgentVideoTooLargeError(videoId, limitBytes)
+    if (object.size === 0) {
+      await Bun.write(path, new Uint8Array())
+      return 0
+    }
+    await Bun.write(path, new Response(object.stream(0, object.size - 1)))
+    return object.size
+  }
+  const { bytes } = await readOutputBytes(ref)
+  if (bytes.byteLength > limitBytes) throw new AgentVideoTooLargeError(videoId, limitBytes)
+  await Bun.write(path, bytes)
+  return bytes.byteLength
 }
 
 /** 三种落法（内联 base64 / 对象存储 / 上游地址）取字节只此一处，图片与视频共用。 */
@@ -142,10 +197,10 @@ async function readTaskOutput(
   output: TaskOutput,
   userId: string | null,
 ): Promise<Omit<ResolvedAgentImage, 'imageId'> | null> {
-  const ref = await resolveTaskOutputRef(output, userId)
-  if (!ref) return null
+  const resolved = await resolveTaskOutputRef(output, userId)
+  if (!resolved) return null
   try {
-    const read = await readOutputBytes(ref)
+    const read = await readOutputBytes(resolved.ref)
     return { dataUrl: dataUrl(read.bytes, read.mime) }
   } catch {
     return null
@@ -358,8 +413,8 @@ export function createAgentImageSource(input: {
     async resolveVideo(videoId) {
       const output = videos.get(videoId.trim())
       if (!output) return { kind: 'unknown' }
-      const ref = await resolveTaskOutputRef(output, userId)
-      if (!ref) return { kind: 'unavailable' }
+      const resolved = await resolveTaskOutputRef(output, userId)
+      if (!resolved) return { kind: 'unavailable' }
       return {
         kind: 'ready',
         video: {
@@ -367,7 +422,10 @@ export function createAgentImageSource(input: {
           taskId: output.taskId,
           outputIndex: output.outputIndex,
           mime: output.mime,
-          read: async () => (await readOutputBytes(ref)).bytes,
+          ...(resolved.declaredDurationSeconds !== undefined
+            ? { declaredDurationSeconds: resolved.declaredDurationSeconds }
+            : {}),
+          writeTo: (path, limitBytes) => writeOutputTo(resolved.ref, path, limitBytes, videoId),
         },
       }
     },

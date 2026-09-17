@@ -237,20 +237,25 @@ describe('stitchFilterGraph', () => {
 
 describe('stitchLimitRefusal', () => {
   it('says nothing when the request fits', () => {
-    expect(stitchLimitRefusal([probe(), probe()])).toBeNull()
+    expect(stitchLimitRefusal([5, 5])).toBeNull()
   })
 
   it('refuses a single segment: there is nothing to stitch', () => {
-    expect(stitchLimitRefusal([probe()])).toContain(`${STITCH_LIMITS.minSegments}`)
+    expect(stitchLimitRefusal([5])).toContain(`${STITCH_LIMITS.minSegments}`)
   })
 
   it('refuses more segments than this machine will chew through', () => {
-    const many = Array.from({ length: STITCH_LIMITS.maxSegments + 1 }, () => probe())
+    const many = Array.from({ length: STITCH_LIMITS.maxSegments + 1 }, () => 5)
     expect(stitchLimitRefusal(many)).toContain(`${STITCH_LIMITS.maxSegments}`)
   })
 
   it('refuses a film longer than the per-call budget', () => {
-    const long = [probe({ durationSeconds: 100 }), probe({ durationSeconds: 100 })]
-    expect(stitchLimitRefusal(long)).toContain(`${STITCH_LIMITS.maxTotalSeconds}`)
+    expect(stitchLimitRefusal([100, 100])).toContain(`${STITCH_LIMITS.maxTotalSeconds}`)
+  })
+
+  it('counts the segments even when no duration is known yet', () => {
+    // 下载之前那一遍：任务行没声明时长时，只有段数那一条拦得住。
+    expect(stitchLimitRefusal([undefined, undefined])).toBeNull()
+    expect(stitchLimitRefusal([undefined])).toContain(`${STITCH_LIMITS.minSegments}`)
   })
 })

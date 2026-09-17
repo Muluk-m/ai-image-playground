@@ -86,7 +86,21 @@ export const stitchVideos = defineAgentTool({
     }
   },
   execute(context) {
+    // 一轮里拼几次有上限：闭包跟着这一轮的工具实例活，轮结束就随它一起没了——
+    // 不用另立一张按 turnId 索引、还得自己清理的表。
+    let ran = 0
     return async (_toolCallId, params, signal, onUpdate) => {
+      if (ran >= STITCH_LIMITS.maxPerTurn) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `这一轮已经拼过 ${ran} 次，到了 ${STITCH_LIMITS.maxPerTurn} 次的上限。把已经交付的成片告诉用户，要再拼请他开新的一轮。`,
+            },
+          ],
+          details: {},
+        }
+      }
       const ids = videoIdsOf(params.videoIds)
       if (ids.length < STITCH_LIMITS.minSegments) {
         return {
@@ -120,14 +134,18 @@ export const stitchVideos = defineAgentTool({
       const videos = lookups.map(([, lookup]) =>
         lookup.kind === 'ready' ? lookup.video : null,
       ) as ResolvedAgentVideo[]
-      const title = typeof params.title === 'string' ? params.title.trim() : ''
+      const written = typeof params.title === 'string' ? params.title.trim() : ''
+      // 落库的那一份与卡片标题同一条截断规则：`request_payload.prompt` 不该收下一篇作文。
+      const title = written ? agentTitleLine(written, TITLE_MAX_CHARS) : '拼接成片'
+      // 真要起 ffmpeg 了才记一次：参数不合法、引用取不到这些回执不吃 CPU，不该占名额。
+      ran++
       const outcome = await stitchVideoSegments({
         videos,
         userId: context.userId,
         deviceId: context.deviceId,
         conversationId: context.conversationId,
         turnId: context.turnId,
-        title: title || '拼接成片',
+        title,
         ...(signal ? { signal } : {}),
         onQueued: () => onUpdate?.({ content: [], details: { stage: 'submitted' } }),
         onRunning: () => onUpdate?.({ content: [], details: { stage: 'running' } }),

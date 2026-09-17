@@ -37,13 +37,24 @@ export interface StitchAdaptation {
   readonly silenced: boolean
 }
 
-/** 一次拼接的资源上限。VPS 是小机器，这三个数字是它扛得住的那条线。 */
+/** 一次拼接的资源上限。VPS 是小机器，这几个数字是它扛得住的那条线。 */
 export const STITCH_LIMITS = {
   minSegments: 2,
   maxSegments: 8,
   maxTotalSeconds: 180,
-  /** 单次 ffmpeg 的墙钟上限；到点杀进程。 */
-  timeoutMs: 300_000,
+  /** 一轮里最多拼几次。模型会重试，重试也吃 CPU。 */
+  maxPerTurn: 3,
+  /**
+   * **整次拼接**的墙钟上限，不是单次 spawn 的。逐段探测是串行的，只给单次设上限的话
+   * 最坏情况是「段数 × 单次上限」独占全局槽——8 段就是四十多分钟。
+   */
+  totalBudgetMs: 300_000,
+  /** 探一段参数该是毫秒级的事；给它一个自己的短上限，别让一段坏片吃掉整份预算。 */
+  probeTimeoutMs: 15_000,
+  /** 单段字节上限：超了就是别的东西，不是这一轮出的片。 */
+  maxSegmentBytes: 200 * 1024 * 1024,
+  /** 成片字节上限。成片仍要整份读回内存才能进对象存储（见 ADR 0009 的已知债）。 */
+  maxFilmBytes: 400 * 1024 * 1024,
 } as const
 
 const FPS_MIN = 1
@@ -231,15 +242,21 @@ export function stitchProbeArgs(path: string): string[] {
   return ['-v', 'error', '-print_format', 'json', '-show_streams', '-show_format', path]
 }
 
-/** 上限检查。触到上限不是异常，是一条要如实转达给用户的话。 */
-export function stitchLimitRefusal(probes: readonly StitchProbe[]): string | null {
-  if (probes.length < STITCH_LIMITS.minSegments) {
-    return `拼接至少要 ${STITCH_LIMITS.minSegments} 段视频，这次只有 ${probes.length} 段。`
+/**
+ * 段数与总时长的上限检查。触到上限不是异常，是一条要如实转达给用户的话。
+ *
+ * 参数是**时长**而不是探测结果，因为这件事要问两遍：下载之前照任务行上声明的时长问一遍
+ * （拦住那些根本不该被拉下来的段），探测之后照真时长再问一遍。不知道的时长传 `undefined`，
+ * 它只是不参与求和，不影响段数那一条。
+ */
+export function stitchLimitRefusal(durations: readonly (number | undefined)[]): string | null {
+  if (durations.length < STITCH_LIMITS.minSegments) {
+    return `拼接至少要 ${STITCH_LIMITS.minSegments} 段视频，这次只有 ${durations.length} 段。`
   }
-  if (probes.length > STITCH_LIMITS.maxSegments) {
-    return `一次最多拼 ${STITCH_LIMITS.maxSegments} 段，这次给了 ${probes.length} 段。分批拼，再把成片接起来。`
+  if (durations.length > STITCH_LIMITS.maxSegments) {
+    return `一次最多拼 ${STITCH_LIMITS.maxSegments} 段，这次给了 ${durations.length} 段。分批拼，再把成片接起来。`
   }
-  const total = probes.reduce((sum, probe) => sum + probe.durationSeconds, 0)
+  const total = durations.reduce((sum: number, one) => sum + (one ?? 0), 0)
   if (total > STITCH_LIMITS.maxTotalSeconds) {
     return `这几段加起来 ${total.toFixed(1)} 秒，超过单次拼接的 ${STITCH_LIMITS.maxTotalSeconds} 秒上限。分批拼，再把成片接起来。`
   }

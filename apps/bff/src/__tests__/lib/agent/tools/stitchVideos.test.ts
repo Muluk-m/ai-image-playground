@@ -154,7 +154,7 @@ const READY: AgentVideoLookup = {
     taskId: 'task-1',
     outputIndex: 0,
     mime: 'video/mp4',
-    read: async () => new Uint8Array(),
+    writeTo: async () => 0,
   },
 }
 
