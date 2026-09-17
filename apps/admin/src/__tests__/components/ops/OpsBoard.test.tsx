@@ -109,7 +109,7 @@ describe('运维看板', () => {
   it('没事的时候一眼看得出没事：没有任何一块在报警', () => {
     render(<OpsBoard snapshot={snapshot()} />)
 
-    expect(screen.queryAllByRole('alert')).toEqual([])
+    expect(screen.queryAllByRole('list', { name: '需要处理' })).toEqual([])
     expect(within(block('队列')).getByText('2')).toBeTruthy()
     expect(within(block('队列')).getByText('4 秒')).toBeTruthy()
     expect(within(block('数据库')).getByText('3.0 GB')).toBeTruthy()
@@ -153,9 +153,9 @@ describe('运维看板', () => {
         })}
       />,
     )
-    const alert = within(block('队列')).getByRole('alert')
+    const alert = within(block('队列')).getByRole('list', { name: '需要处理' })
     expect(alert.textContent).toContain('12 分钟')
-    expect(within(block('数据库')).queryByRole('alert')).toBeNull()
+    expect(within(block('数据库')).queryByRole('list', { name: '需要处理' })).toBeNull()
   })
 
   it('卡住的任务列出来，能点进任务详情', () => {
@@ -178,7 +178,9 @@ describe('运维看板', () => {
       />,
     )
     const queue = block('队列')
-    expect(within(queue).getByRole('alert').textContent).toContain('1 个任务卡住')
+    expect(within(queue).getByRole('list', { name: '需要处理' }).textContent).toContain(
+      '1 个任务运行超过',
+    )
     const link = within(queue).getByRole('link', { name: /task-stuck-1/ })
     expect(link.getAttribute('href')).toBe('/tasks/task-stuck-1')
   })
@@ -199,7 +201,7 @@ describe('运维看板', () => {
     expect(within(backup).getByText('2026-09-17')).toBeTruthy()
     expect(within(backup).getByText('42.0 MB')).toBeTruthy()
     expect(within(backup).getByText('3 小时前')).toBeTruthy()
-    expect(within(backup).queryByRole('alert')).toBeNull()
+    expect(within(backup).queryByRole('list', { name: '需要处理' })).toBeNull()
   })
 
   it('超过 26 小时没有新备份就报警', () => {
@@ -220,7 +222,9 @@ describe('运维看板', () => {
         })}
       />,
     )
-    expect(within(block('备份')).getByRole('alert').textContent).toContain('2 天 2 小时')
+    expect(within(block('备份')).getByRole('list', { name: '需要处理' }).textContent).toContain(
+      '2 天 2 小时',
+    )
   })
 
   it('最新一份比前一份小了一大半，多半是 dump 半途而废', () => {
@@ -241,7 +245,9 @@ describe('运维看板', () => {
         })}
       />,
     )
-    expect(within(block('备份')).getByRole('alert').textContent).toContain('比前一份小')
+    expect(within(block('备份')).getByRole('list', { name: '需要处理' }).textContent).toContain(
+      '比前一份小',
+    )
   })
 
   it('一份备份都还没有时照实说，也算要处理的事', () => {
@@ -250,7 +256,9 @@ describe('运维看板', () => {
         snapshot={snapshot({ backup: { ok: true, data: { latest: null, previous: null } } })}
       />,
     )
-    expect(within(block('备份')).getByRole('alert').textContent).toContain('还没有备份')
+    expect(within(block('备份')).getByRole('list', { name: '需要处理' }).textContent).toContain(
+      '还没有备份',
+    )
   })
 
   it('服务一栏说清谁活着、跑的是哪个版本、worker 是不是真的在干活', () => {
@@ -259,7 +267,7 @@ describe('运维看板', () => {
     expect(within(services).getAllByText('ae5da35c')).toHaveLength(2)
     expect(within(services).getByText('12 秒前')).toBeTruthy()
     expect(within(services).getByText(/最后一次成功轮询/).textContent).toContain('刚刚')
-    expect(within(services).queryByRole('alert')).toBeNull()
+    expect(within(services).queryByRole('list', { name: '需要处理' })).toBeNull()
   })
 
   it('心跳断了超过 2 分钟就报警，从没出现过的服务也算', () => {
@@ -283,7 +291,7 @@ describe('运维看板', () => {
         })}
       />,
     )
-    const alert = within(block('服务')).getByRole('alert').textContent ?? ''
+    const alert = within(block('服务')).getByRole('list', { name: '需要处理' }).textContent ?? ''
     expect(alert).toContain('后端的心跳已经断了 5 分钟')
     expect(alert).toContain('worker 还没有心跳')
   })
@@ -316,7 +324,9 @@ describe('运维看板', () => {
         })}
       />,
     )
-    expect(within(block('服务')).getByRole('alert').textContent).toContain('版本不一致')
+    expect(within(block('服务')).getByRole('list', { name: '需要处理' }).textContent).toContain(
+      '版本不一致',
+    )
   })
 
   it('宿主机一栏给出磁盘和内存的现状与趋势', () => {
@@ -326,7 +336,7 @@ describe('运维看板', () => {
     expect(within(host).getByText(/剩 18\.0 GB/)).toBeTruthy()
     expect(within(host).getByText('1.5 GB')).toBeTruthy()
     expect(within(host).getByRole('img', { name: /磁盘用量/ })).toBeTruthy()
-    expect(within(host).queryByRole('alert')).toBeNull()
+    expect(within(host).queryByRole('list', { name: '需要处理' })).toBeNull()
   })
 
   it('磁盘用到 85% 就报警', () => {
@@ -349,7 +359,9 @@ describe('运维看板', () => {
         })}
       />,
     )
-    expect(within(block('宿主机')).getByRole('alert').textContent).toContain('磁盘已用 90%')
+    expect(within(block('宿主机')).getByRole('list', { name: '需要处理' }).textContent).toContain(
+      '磁盘已用 90%',
+    )
   })
 
   it('采样断了就说曲线过期了，而不是让人对着旧数字放心', () => {
@@ -372,7 +384,9 @@ describe('运维看板', () => {
         })}
       />,
     )
-    expect(within(block('宿主机')).getByRole('alert').textContent).toContain('20 分钟没有新的采样')
+    expect(within(block('宿主机')).getByRole('list', { name: '需要处理' }).textContent).toContain(
+      '20 分钟没有新的采样',
+    )
   })
 
   it('没启用采集容器时照实说未启用，不算出事', () => {
@@ -381,6 +395,6 @@ describe('运维看板', () => {
     )
     const host = block('宿主机')
     expect(within(host).getByText('未启用')).toBeTruthy()
-    expect(within(host).queryByRole('alert')).toBeNull()
+    expect(within(host).queryByRole('list', { name: '需要处理' })).toBeNull()
   })
 })

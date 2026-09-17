@@ -26,58 +26,93 @@ type OpsData = {
 /** 每一块的取数函数。测试注入会抛错的那一个，来验证其余几块不受牵连。 */
 export type OpsSources = { [K in keyof OpsData]: () => Promise<OpsData[K]> }
 
-async function settle<T>(source: () => Promise<T>): Promise<OpsBlock<T>> {
+/** 任何一块最多等这么久。数据库挂起时查询不会自己回来，而那正是最需要看其余几块的时候。 */
+const BLOCK_TIMEOUT_MS = 8_000
+
+/**
+ * 能原样给运营者看的失败原因。其余的错误（驱动、fetch）可能带着内部地址与角色名，
+ * 只进服务端日志，看板上一律是一句固定的话。
+ */
+export class OpsReadError extends Error {}
+
+function timeoutAfter(ms: number): { promise: Promise<never>; cancel: () => void } {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const promise = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new OpsReadError(`${Math.round(ms / 1000)} 秒内没有取到`)), ms)
+  })
+  return { promise, cancel: () => clearTimeout(timer) }
+}
+
+async function settle<T>(
+  name: string,
+  source: () => Promise<T>,
+  timeoutMs: number,
+): Promise<OpsBlock<T>> {
+  const timeout = timeoutAfter(timeoutMs)
   try {
-    return { ok: true, data: await source() }
+    return { ok: true, data: await Promise.race([source(), timeout.promise]) }
   } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.message : String(error) }
+    if (error instanceof OpsReadError) return { ok: false, error: error.message }
+    console.error(`[ops] ${name} block failed`, error)
+    return { ok: false, error: '取数失败，原因见后台服务日志' }
+  } finally {
+    timeout.cancel()
   }
 }
 
 /**
- * 各块并行取、各自失败。出事的时候恰恰最需要看其余几块，所以任何一块抛错都只落在它自己身上。
+ * 各块并行取、各自失败、各自超时。出事的时候恰恰最需要看其余几块，所以任何一块抛错或挂起
+ * 都只落在它自己身上。
  */
-export async function buildOpsSnapshot(sources: OpsSources = defaultSources): Promise<OpsSnapshot> {
+export async function buildOpsSnapshot(
+  sources: OpsSources = defaultSources,
+  timeoutMs: number = BLOCK_TIMEOUT_MS,
+): Promise<OpsSnapshot> {
   const [queue, database, backup, services, host] = await Promise.all([
-    settle(sources.queue),
-    settle(sources.database),
-    settle(sources.backup),
-    settle(sources.services),
-    settle(sources.host),
+    settle('queue', sources.queue, timeoutMs),
+    settle('database', sources.database, timeoutMs),
+    settle('backup', sources.backup, timeoutMs),
+    settle('services', sources.services, timeoutMs),
+    settle('host', sources.host, timeoutMs),
   ])
   return { generated_at: Date.now(), host, services, queue, database, backup }
 }
 
+/**
+ * 只看 `queue_tasks`（后台读不了裸 `tasks`），所以对话轮的滞留不在这一栏里。
+ * 时长全部交给数据库的时钟算：`submitted_at` 是后端写进去的，拿后台进程的时钟去减会把
+ * 两台机器的时钟差算进等待时长。
+ */
 async function readQueue(): Promise<OpsQueue> {
   const { db } = getDbHandle()
-  const now = Date.now()
-  // 时间列在库里是 timestamptz，毫秒数只在应用边界上用：参数传 Date，读出来转回毫秒。
-  const staleBefore = new Date(now - QUEUE_TIMEOUTS.STALE_IN_PROGRESS_MS)
+  const staleSeconds = QUEUE_TIMEOUTS.STALE_IN_PROGRESS_MS / 1000
   const [countsRaw, stuckRaw] = await Promise.all([
     db.execute(sql`
       SELECT
         COUNT(*) FILTER (WHERE status = 'queued') AS queued,
         COUNT(*) FILTER (WHERE status = 'in_progress') AS in_progress,
-        EXTRACT(EPOCH FROM MIN(submitted_at) FILTER (WHERE status = 'queued')) * 1000
-          AS oldest_queued_at
+        EXTRACT(EPOCH FROM NOW() - MIN(submitted_at) FILTER (WHERE status = 'queued')) * 1000
+          AS oldest_queued_wait_ms
       FROM queue_tasks
       WHERE status IN ('queued', 'in_progress')
     `),
     db.execute(sql`
       SELECT id, model, EXTRACT(EPOCH FROM started_at) * 1000 AS started_at
       FROM queue_tasks
-      WHERE status = 'in_progress' AND started_at < ${staleBefore}
+      WHERE status = 'in_progress'
+        AND started_at < NOW() - make_interval(secs => ${staleSeconds})
       ORDER BY started_at ASC
       LIMIT ${STUCK_TASK_LIMIT}
     `),
   ])
   const counts = (countsRaw as unknown as Array<Record<string, unknown>>)[0] ?? {}
-  const oldestQueuedAt =
-    counts.oldest_queued_at == null ? null : Math.round(Number(counts.oldest_queued_at))
   return {
     queued: Number(counts.queued ?? 0),
     in_progress: Number(counts.in_progress ?? 0),
-    oldest_queued_wait_ms: oldestQueuedAt == null ? null : Math.max(0, now - oldestQueuedAt),
+    oldest_queued_wait_ms:
+      counts.oldest_queued_wait_ms == null
+        ? null
+        : Math.max(0, Math.round(Number(counts.oldest_queued_wait_ms))),
     stale_after_ms: QUEUE_TIMEOUTS.STALE_IN_PROGRESS_MS,
     stuck: (stuckRaw as unknown as Array<Record<string, unknown>>).map((row) => ({
       id: String(row.id),
@@ -184,12 +219,12 @@ async function readDatabase(): Promise<OpsDatabase> {
 /** 后端内部只读接口。只有后端够得着的现状（对象存储）经这里取，鉴权用内部令牌。 */
 async function readFromBff<T>(path: string): Promise<T> {
   const token = config.auth.internalApiToken
-  if (!token) throw new Error('INTERNAL_API_TOKEN 未配置，后台无法向后端取数')
+  if (!token) throw new OpsReadError('INTERNAL_API_TOKEN 未配置，后台无法向后端取数')
   const response = await fetch(`${config.bffInternalUrl}/internal/admin/ops${path}`, {
     headers: { accept: 'application/json', authorization: `Bearer ${token}` },
-    signal: AbortSignal.timeout(10_000),
+    signal: AbortSignal.timeout(BLOCK_TIMEOUT_MS),
   })
-  if (!response.ok) throw new Error(`后端返回 ${response.status}`)
+  if (!response.ok) throw new OpsReadError(`后端返回 ${response.status}`)
   return (await response.json()) as T
 }
 

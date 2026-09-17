@@ -15,7 +15,8 @@ function toBackup(entry: ObjectEntry | undefined): OpsBackupObject | null {
  */
 export async function readBackups(): Promise<OpsBackups> {
   const dumps = (await objectStore().listEntries(BACKUP_PREFIX))
-    .filter((entry) => entry.key.endsWith('.dump'))
+    // 没有修改时间的对象排不了先后，也算不出距今多久；当它不存在，好过报一份「56 年前」的备份。
+    .filter((entry) => entry.key.endsWith('.dump') && entry.lastModified > 0)
     .sort((a, b) => b.lastModified - a.lastModified || b.key.localeCompare(a.key))
   return { latest: toBackup(dumps[0]), previous: toBackup(dumps[1]) }
 }

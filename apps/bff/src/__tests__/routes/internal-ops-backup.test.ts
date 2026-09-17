@@ -57,6 +57,19 @@ describe('GET /internal/admin/ops/backups', () => {
     })
   })
 
+  it('ignores an object the bucket gave no modification time for', async () => {
+    const now = Date.now()
+    setObjectStoreForTesting(
+      new BackupStore([
+        { key: 'pg/2026-09-17.dump', size: 42_000_000, lastModified: 0 },
+        { key: 'pg/2026-09-16.dump', size: 41_000_000, lastModified: now - day },
+      ]),
+    )
+
+    const body = (await (await backups()).json()) as { latest: { key: string } | null }
+    expect(body.latest?.key).toBe('pg/2026-09-16.dump')
+  })
+
   it('says so plainly when there is no backup yet, rather than failing', async () => {
     setObjectStoreForTesting(new BackupStore([]))
     const response = await backups()

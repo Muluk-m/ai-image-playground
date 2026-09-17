@@ -15,6 +15,8 @@ interface OpsBlockCardProps<T> {
 /**
  * 看板的一栏。每一栏独立取、独立失败：取不到时只有这一栏说取不到，别的栏照常。
  * 有问题时整栏描红并把问题写成一句话放在最上面——运营者打开看板是来找红色的。
+ * 问题列表刻意不是 live region：句子里带着会走的数字，看板每 30 秒刷新一次，读屏会把同一件事
+ * 从头到尾念一整场事故。
  */
 export function OpsBlockCard<T>({ title, block, problems, children }: OpsBlockCardProps<T>) {
   const issues = block.ok ? problems(block.data) : []
@@ -38,7 +40,7 @@ export function OpsBlockCard<T>({ title, block, problems, children }: OpsBlockCa
         ) : (
           <>
             {issues.length > 0 ? (
-              <ul role="alert" className="space-y-1 text-sm font-medium text-danger">
+              <ul aria-label="需要处理" className="space-y-1 text-sm font-medium text-danger">
                 {issues.map((issue) => (
                   <li key={issue}>{issue}</li>
                 ))}

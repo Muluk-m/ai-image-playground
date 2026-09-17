@@ -136,7 +136,11 @@ function queueProblems(queue: OpsQueue): string[] {
     problems.push(`最老的排队任务已经等了 ${elapsed(queue.oldest_queued_wait_ms)}`)
   }
   if (queue.stuck.length > 0) {
-    problems.push(`${queue.stuck.length} 个任务卡住：运行超过 ${elapsed(queue.stale_after_ms)}`)
+    // 后台看不到 worker 手里正拿着哪些任务：上传大产物的长视频会合法地超过这个时长，
+    // 所以这里只说「运行超过」，不替 worker 下「卡住」的结论。
+    problems.push(
+      `${queue.stuck.length} 个任务运行超过 ${elapsed(queue.stale_after_ms)}，可能卡住了`,
+    )
   }
   return problems
 }
