@@ -7,6 +7,7 @@ import {
   DEVICE_ID_HEADER,
 } from '@image-playground/shared'
 import { Elysia } from 'elysia'
+import sharp from 'sharp'
 import {
   type AgentCall,
   type ControlledCompletion,
@@ -243,8 +244,16 @@ describe('插话', () => {
     const resumed = resume(conversationId, turnId, seen.at(-1)!.id)
     const reference = {
       imageId: 'new-image',
-      dataUrl: 'data:image/png;base64,aGk=',
-      maskDataUrl: 'data:image/png;base64,bWFzaw==',
+      dataUrl: `data:image/png;base64,${(
+        await sharp({ create: { width: 2, height: 2, channels: 4, background: '#ffffff' } })
+          .png()
+          .toBuffer()
+      ).toString('base64')}`,
+      maskDataUrl: `data:image/png;base64,${(
+        await sharp({ create: { width: 2, height: 2, channels: 4, background: '#00000000' } })
+          .png()
+          .toBuffer()
+      ).toString('base64')}`,
     }
     const interjected = await post(
       `/api/agent/conversations/${conversationId}/turns/${turnId}/interject`,
@@ -259,7 +268,7 @@ describe('插话', () => {
     upstream.finish()
     await waitFor(() => calls.length === 2)
     expect(JSON.stringify(calls[1]!.messages.at(-1))).toContain('new-image')
-    expect(JSON.stringify(calls[1]!.messages.at(-1))).toContain('data:image/png;base64,aGk=')
+    expect(JSON.stringify(calls[1]!.messages.at(-1))).toContain('data:image/png;base64,')
     second.push('收到图片')
     second.finish()
     await drainFrames(await resumed)

@@ -3,7 +3,13 @@ import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { canvasToBlob, loadImage } from '../lib/canvasImage'
 import { storeImage } from '../lib/db'
-import { maskPaintOperation } from '../lib/mask'
+import {
+  assertUsableMaskCoverage,
+  classifyMaskAlpha,
+  fillMaskLasso,
+  isUsableMaskLasso,
+  maskPaintOperation,
+} from '../lib/mask'
 import { prepareMaskTargetDataUrl } from '../lib/maskPreprocess'
 import {
   clampViewTransform,
@@ -16,8 +22,9 @@ import {
 } from '../lib/viewportTransform'
 import { ensureImageCached, useStore } from '../store'
 import Overlay from './Overlay'
+import { Button } from './ui/button'
 
-type Tool = 'brush' | 'eraser'
+type Tool = 'lasso' | 'brush' | 'eraser'
 
 interface CanvasSize {
   width: number
@@ -122,6 +129,7 @@ export default function MaskEditorModal() {
   const maskInfoTimerRef = useRef<number | null>(null)
   const activePointerIdRef = useRef<number | null>(null)
   const lastPointRef = useRef<Point | null>(null)
+  const lassoPointsRef = useRef<Point[]>([])
   const pointerPositionsRef = useRef<Map<number, Point>>(new Map())
   const pinchGestureRef = useRef<PinchGesture | null>(null)
   const panGestureRef = useRef<PanGesture | null>(null)
@@ -135,7 +143,7 @@ export default function MaskEditorModal() {
 
   const [sourceDataUrl, setSourceDataUrl] = useState('')
   const [size, setSize] = useState<CanvasSize | null>(null)
-  const [tool, setTool] = useState<Tool>('brush')
+  const [tool, setTool] = useState<Tool>('lasso')
   const [brushSize, setBrushSize] = useState(64)
   const [showBrushControls, setShowBrushControls] = useState(false)
   const [viewTransform, setViewTransform] = useState<ViewTransform>(DEFAULT_VIEW_TRANSFORM)
@@ -229,9 +237,13 @@ export default function MaskEditorModal() {
 
   function cancelActiveStroke() {
     if (activePointerIdRef.current == null) return
-
-    const previous = undoStackRef.current.pop()
-    if (previous) restoreMask(previous)
+    if (lassoPointsRef.current.length) {
+      lassoPointsRef.current = []
+      renderPreview()
+    } else {
+      const previous = undoStackRef.current.pop()
+      if (previous) restoreMask(previous)
+    }
     activePointerIdRef.current = null
     lastPointRef.current = null
     syncHistoryState()
@@ -300,6 +312,19 @@ export default function MaskEditorModal() {
     previewCtx.fillRect(0, 0, previewCanvas.width, previewCanvas.height)
     previewCtx.globalCompositeOperation = 'destination-out'
     previewCtx.drawImage(maskCanvas, 0, 0)
+    const path = lassoPointsRef.current
+    if (path.length > 1) {
+      previewCtx.globalCompositeOperation = 'source-over'
+      previewCtx.beginPath()
+      previewCtx.moveTo(path[0]!.x, path[0]!.y)
+      for (const point of path.slice(1)) previewCtx.lineTo(point.x, point.y)
+      previewCtx.closePath()
+      previewCtx.fillStyle = 'rgba(59, 130, 246, 0.35)'
+      previewCtx.fill('evenodd')
+      previewCtx.lineWidth = 2 / viewTransformRef.current.scale
+      previewCtx.strokeStyle = '#fff'
+      previewCtx.stroke()
+    }
     previewCtx.restore()
   }
 
@@ -344,7 +369,8 @@ export default function MaskEditorModal() {
       frameTop +
       (point.y / maskCanvas.height) * frame.clientHeight * scale +
       viewTransformRef.current.y
-    const radius = (brushSize / 2 / maskCanvas.width) * frame.clientWidth * scale
+    const radius =
+      tool === 'lasso' ? 3 : (brushSize / 2 / maskCanvas.width) * frame.clientWidth * scale
 
     ctx.save()
     ctx.lineWidth = 1
@@ -418,7 +444,10 @@ export default function MaskEditorModal() {
   }
 
   function paintOperation(nextTool: Tool): GlobalCompositeOperation {
-    return maskPaintOperation(nextTool, session?.keepSemantics ?? false)
+    return maskPaintOperation(
+      nextTool === 'lasso' ? 'brush' : nextTool,
+      session?.keepSemantics ?? false,
+    )
   }
 
   function drawAt(point: Point, nextTool = tool) {
@@ -494,6 +523,8 @@ export default function MaskEditorModal() {
     }
 
     const targetImageId = imageId
+    setTool(session?.keepSemantics ? 'brush' : 'lasso')
+    lassoPointsRef.current = []
     let cancelled = false
     setIsLoading(true)
     setSourceDataUrl('')
@@ -596,6 +627,7 @@ export default function MaskEditorModal() {
     }
   }, [
     brushSize,
+    tool,
     viewTransform,
     hoverPoint,
     isPointerOverCanvas,
@@ -693,10 +725,15 @@ export default function MaskEditorModal() {
     }
 
     activePointerIdRef.current = event.pointerId
-    pushUndoSnapshot()
     const point = getCanvasPoint(canvas, event)
     lastPointRef.current = point
-    drawAt(point)
+    if (tool === 'lasso') {
+      lassoPointsRef.current = [point]
+      renderPreview()
+    } else {
+      pushUndoSnapshot()
+      drawAt(point)
+    }
   }
 
   const handlePointerMove = (event: ReactPointerEvent<HTMLCanvasElement>) => {
@@ -737,7 +774,11 @@ export default function MaskEditorModal() {
     )
       return
     event.preventDefault()
-    drawStroke(lastPointRef.current, point)
+    if (lassoPointsRef.current.length) {
+      if (distance(lassoPointsRef.current[lassoPointsRef.current.length - 1]!, point) >= 1)
+        lassoPointsRef.current.push(point)
+      renderPreview()
+    } else drawStroke(lastPointRef.current, point)
     lastPointRef.current = point
   }
 
@@ -769,9 +810,24 @@ export default function MaskEditorModal() {
   }
 
   const finishStroke = (event: ReactPointerEvent<HTMLCanvasElement>) => {
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId)
+    if (activePointerIdRef.current === event.pointerId) {
+      if (event.type !== 'pointerup') cancelActiveStroke()
+      else {
+        const points = lassoPointsRef.current
+        if (points.length) points.push(getCanvasPoint(event.currentTarget, event))
+        const ctx = maskCanvasRef.current?.getContext('2d')
+        if (isUsableMaskLasso(points) && ctx) {
+          pushUndoSnapshot()
+          fillMaskLasso(ctx, points, session?.keepSemantics ?? false)
+        }
+        lassoPointsRef.current = []
+        activePointerIdRef.current = null
+        lastPointRef.current = null
+        renderPreview()
+      }
     }
+    if (event.currentTarget.hasPointerCapture(event.pointerId))
+      event.currentTarget.releasePointerCapture(event.pointerId)
     pointerPositionsRef.current.delete(event.pointerId)
 
     if (pinchGestureRef.current) {
@@ -840,6 +896,12 @@ export default function MaskEditorModal() {
     const savingImageId = imageId
     try {
       setIsSaving(true)
+      const ctx = canvas.getContext('2d', { willReadFrequently: true })
+      if (!ctx) throw new Error('当前浏览器不支持 Canvas')
+      if (!session.keepSemantics)
+        assertUsableMaskCoverage(
+          classifyMaskAlpha(ctx.getImageData(0, 0, canvas.width, canvas.height)),
+        )
       const blob = await canvasToBlob(canvas, 'image/png')
       const maskDataUrl = await blobToDataUrl(blob)
       const workingTargetId = await storeImage(sourceDataUrl, 'upload')
@@ -909,7 +971,7 @@ export default function MaskEditorModal() {
               </button>
               <div className="relative flex items-center gap-1.5">
                 <h2 className="text-sm font-medium text-foreground" id="mask-editor-title">
-                  编辑遮罩
+                  选择区域
                 </h2>
                 <button
                   type="button"
@@ -935,7 +997,9 @@ export default function MaskEditorModal() {
                 {showMaskInfo && (
                   <div className="absolute left-0 top-full mt-2 w-64 rounded-xl border border-border/80 bg-card px-3 py-2 text-xs leading-5 text-muted-foreground shadow-lg">
                     <div className="absolute -top-1.5 left-16 h-3 w-3 rotate-45 border-l border-t border-border/80 bg-card" />
-                    根据官方文档说明，此功能仅基于提示词，无法完全控制模型编辑区域
+                    {session?.keepSemantics
+                      ? '涂抹要保留的区域，擦除可移出保留区。'
+                      : '圈选会选中圈内区域，涂抹只选中笔刷经过的位置。蓝色覆盖处就是实际选区。'}
                   </div>
                 )}
               </div>
@@ -960,6 +1024,19 @@ export default function MaskEditorModal() {
           </div>
 
           {/* Workspace */}
+          {!session?.keepSemantics && (
+            <p
+              className="m-0 border-b border-border px-4 py-2 text-center text-xs text-muted-foreground"
+              aria-live="polite"
+            >
+              {tool === 'lasso'
+                ? '圈出区域，松手后自动闭合并选中内部'
+                : tool === 'brush'
+                  ? '涂抹要选中的区域；只画圈线不会选中内部'
+                  : '擦除不需要修改的选区'}{' '}
+              · 蓝色为选中范围
+            </p>
+          )}
           <div
             ref={stageRef}
             className="flex-1 relative flex items-center justify-center overflow-hidden bg-muted/50 dark:bg-black/50 p-0 pb-[76px] sm:p-6 sm:pb-[100px]"
@@ -1024,11 +1101,24 @@ export default function MaskEditorModal() {
             <div className="flex items-center gap-2 sm:gap-4 px-2 sm:px-3 py-1.5 sm:py-2 bg-card/95 backdrop-blur-md border border-border/80 rounded-2xl sm:rounded-[1.25rem] shadow-2xl pointer-events-auto">
               <div className="flex items-center gap-1.5 sm:gap-3">
                 <div className="flex items-center bg-muted/80 p-1 rounded-xl sm:rounded-[14px]">
-                  <button
-                    className={`p-2 sm:p-2.5 rounded-lg sm:rounded-xl transition-all ${tool === 'brush' ? 'bg-card shadow-sm text-primary bg-card dark:shadow-none' : 'text-muted-foreground hover:text-foreground text-muted-foreground dark:hover:text-foreground'}`}
+                  {!session?.keepSemantics && (
+                    <Button
+                      variant={tool === 'lasso' ? 'secondary' : 'ghost'}
+                      size="sm"
+                      aria-pressed={tool === 'lasso'}
+                      onClick={() => setTool('lasso')}
+                      disabled={!isReady || isSaving}
+                    >
+                      圈选
+                    </Button>
+                  )}
+                  <Button
+                    variant={tool === 'brush' ? 'secondary' : 'ghost'}
+                    size="sm"
+                    aria-pressed={tool === 'brush'}
                     onClick={() => setTool('brush')}
                     disabled={!isReady || isSaving}
-                    title={session?.keepSemantics ? '涂成保留区' : '画笔'}
+                    title={session?.keepSemantics ? '涂成保留区' : '涂抹'}
                   >
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path
@@ -1038,9 +1128,14 @@ export default function MaskEditorModal() {
                         d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"
                       />
                     </svg>
-                  </button>
-                  <button
-                    className={`p-2 sm:p-2.5 rounded-lg sm:rounded-xl transition-all ${tool === 'eraser' ? 'bg-card shadow-sm text-primary bg-card dark:shadow-none' : 'text-muted-foreground hover:text-foreground text-muted-foreground dark:hover:text-foreground'}`}
+                    <span className="hidden sm:inline">
+                      {session?.keepSemantics ? '保留' : '涂抹'}
+                    </span>
+                  </Button>
+                  <Button
+                    variant={tool === 'eraser' ? 'secondary' : 'ghost'}
+                    size="sm"
+                    aria-pressed={tool === 'eraser'}
                     onClick={() => setTool('eraser')}
                     disabled={!isReady || isSaving}
                     title={session?.keepSemantics ? '移出保留区' : '橡皮'}
@@ -1060,7 +1155,8 @@ export default function MaskEditorModal() {
                       </g>
                       <path d="M8 21h12" />
                     </svg>
-                  </button>
+                    <span className="hidden sm:inline">擦除</span>
+                  </Button>
                 </div>
 
                 <div
@@ -1071,7 +1167,7 @@ export default function MaskEditorModal() {
                     ref={brushSizeButtonRef}
                     onClick={toggleBrushControls}
                     className={`flex items-center justify-center w-10 h-10 sm:w-[46px] sm:h-[46px] rounded-xl sm:rounded-[14px] transition-all border ${showBrushControls ? 'bg-primary/10 border-primary text-primary bg-card dark:text-primary' : 'bg-card hover:bg-card dark:bg-transparent border-border text-muted-foreground dark:hover:border-border'}`}
-                    disabled={!isReady || isSaving}
+                    disabled={!isReady || isSaving || tool === 'lasso'}
                     title="调节笔刷大小"
                   >
                     <span className="text-[14px] sm:text-[15px] font-semibold tracking-tight">

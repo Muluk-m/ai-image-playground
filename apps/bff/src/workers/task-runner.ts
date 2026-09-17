@@ -3,8 +3,14 @@ import { and, eq, sql } from 'drizzle-orm'
 import { claimQueuedTask } from '../db/claim-task'
 import { db, schema } from '../db/client'
 import { finishTask, requeueTask } from '../db/task-transitions'
+import { protectMaskedOutput } from '../lib/agent/masked-output'
 import { describeEmptyResult, extractMeta } from '../lib/extractImages'
-import { archiveOutputImages, hydrateInputImages, ObjectStorageError } from '../lib/imageArchive'
+import {
+  archiveOutputImages,
+  hydrateInputImages,
+  MaskedOutputArchiveError,
+  ObjectStorageError,
+} from '../lib/imageArchive'
 import { log } from '../lib/logger'
 import { loadPrivateBffOverlay } from '../lib/private-overlay'
 import { isAbortError } from '../lib/queueProvider'
@@ -147,6 +153,13 @@ export async function runTask(id: string): Promise<void> {
 
   try {
     const hydratedRequest = await hydrateInputImages(task.request_payload)
+    const protectOutput = task.request_payload.preserve_outside_mask
+      ? await protectMaskedOutput(
+          hydratedRequest.input_images?.[0] ?? '',
+          hydratedRequest.mask ?? '',
+          task.request_payload.masked_original_size,
+        )
+      : undefined
     const { payload } = await callUpstream({
       provider: task.provider,
       model: task.model,
@@ -165,12 +178,13 @@ export async function runTask(id: string): Promise<void> {
       const message = describeEmptyResult(task.provider, payload)
       const attemptJustFailed = task.attempt_count + 1
       if (
-        await tryScheduleRetry(
+        !task.request_payload.preserve_outside_mask &&
+        (await tryScheduleRetry(
           id,
           attemptJustFailed,
           shouldRetryEmptyResult(task.provider, payload),
           `no_image: ${message}`,
-        )
+        ))
       ) {
         return
       }
@@ -192,7 +206,7 @@ export async function runTask(id: string): Promise<void> {
       )
       return
     }
-    const archivedPayload = await archiveOutputImages(id, task.provider, payload)
+    const archivedPayload = await archiveOutputImages(id, task.provider, payload, protectOutput)
     await finishTask(id, {
       status: 'completed',
       resultPayload: archivedPayload,
@@ -225,7 +239,10 @@ export async function runTask(id: string): Promise<void> {
         : 'upstream_error'
 
     const attemptJustFailed = task.attempt_count + 1
-    if (await tryScheduleRetry(id, attemptJustFailed, isRetryableError(err), message)) {
+    if (
+      !task.request_payload.preserve_outside_mask &&
+      (await tryScheduleRetry(id, attemptJustFailed, isRetryableError(err), message))
+    ) {
       return
     }
 
@@ -234,6 +251,9 @@ export async function runTask(id: string): Promise<void> {
       status: 'failed',
       errorMessage: message,
       errorType,
+      ...(err instanceof MaskedOutputArchiveError
+        ? { resultPayload: { masked_edit_candidates: err.candidates } }
+        : {}),
       upstreamStatus: upstream.status,
       upstreamBody: upstream.body,
       completedAt: now(),

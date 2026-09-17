@@ -18,10 +18,18 @@ import { bffBaseUrl } from '../../../lib/runtimeConfig'
 type Fetcher = (input: string, init?: RequestInit) => Promise<Response>
 
 export class AgentRequestError extends Error {
-  constructor(readonly status: number) {
+  constructor(
+    readonly status: number,
+    readonly code?: string,
+  ) {
     super(`Agent request failed with ${status}`)
     this.name = 'AgentRequestError'
   }
+}
+
+async function requestError(response: Response): Promise<AgentRequestError> {
+  const body = (await response.json().catch(() => null)) as { error?: string } | null
+  return new AgentRequestError(response.status, body?.error)
 }
 
 function url(path: string): string {
@@ -48,7 +56,7 @@ export async function createConversation(
   fetcher: Fetcher = authenticatedBffFetch,
 ): Promise<AgentConversationView> {
   const response = await fetcher(url('/conversations'), jsonInit({ deviceId: getDeviceId() }))
-  if (!response.ok) throw new AgentRequestError(response.status)
+  if (!response.ok) throw await requestError(response)
   return ((await response.json()) as { conversation: AgentConversationView }).conversation
 }
 
@@ -56,7 +64,7 @@ export async function fetchConversations(
   fetcher: Fetcher = authenticatedBffFetch,
 ): Promise<AgentConversationView[]> {
   const response = await fetcher(url('/conversations'), { headers: deviceHeaders() })
-  if (!response.ok) throw new AgentRequestError(response.status)
+  if (!response.ok) throw await requestError(response)
   return ((await response.json()) as { conversations: AgentConversationView[] }).conversations
 }
 
@@ -68,14 +76,14 @@ export async function removeConversation(
     url(`/conversations/${conversationId}`),
     jsonInit({ deviceId: getDeviceId() }, 'DELETE'),
   )
-  if (!response.ok) throw new AgentRequestError(response.status)
+  if (!response.ok) throw await requestError(response)
 }
 
 export async function adoptAgentConversations(
   fetcher: Fetcher = authenticatedBffFetch,
 ): Promise<number> {
   const response = await fetcher(url('/conversations/adopt'), jsonInit({ deviceId: getDeviceId() }))
-  if (!response.ok) throw new AgentRequestError(response.status)
+  if (!response.ok) throw await requestError(response)
   return ((await response.json()) as { adopted: number }).adopted
 }
 
@@ -92,12 +100,12 @@ export async function fetchMessages(
   const response = await fetcher(url(`/conversations/${conversationId}/messages`), {
     headers: deviceHeaders(),
   })
-  if (!response.ok) throw new AgentRequestError(response.status)
+  if (!response.ok) throw await requestError(response)
   return (await response.json()) as AgentConversationState
 }
 
 async function* readFrames(response: Response): AsyncGenerator<AgentFrame> {
-  if (!response.ok || !response.body) throw new AgentRequestError(response.status)
+  if (!response.ok || !response.body) throw await requestError(response)
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
   let buffered = ''
@@ -157,7 +165,7 @@ export async function startTurn(
     const turnId = await alreadyRunningTurnId(response)
     if (turnId) return { kind: 'alreadyRunning', turnId }
   }
-  if (!response.ok || !response.body) throw new AgentRequestError(response.status)
+  if (!response.ok || !response.body) throw await requestError(response)
   return { kind: 'frames', frames: readFrames(response) }
 }
 
@@ -198,7 +206,7 @@ export async function interjectTurn(
     url(`/conversations/${conversationId}/turns/${turnId}/interject`),
     jsonInit({ deviceId: getDeviceId(), text, references }),
   )
-  if (!response.ok) throw new AgentRequestError(response.status)
+  if (!response.ok) throw await requestError(response)
 }
 
 export function fetchToolImage(artifact: AgentToolArtifact): Promise<string> {

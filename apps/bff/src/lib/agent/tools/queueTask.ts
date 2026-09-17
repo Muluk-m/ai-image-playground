@@ -10,6 +10,7 @@ import { AGENT_ARTIFACT_NOUN } from '@image-playground/shared'
 import { config } from '../../../config'
 import { resolveQueueModel } from '../../channels'
 import { awaitQueueTask, type CreateQueueTaskOutcome, createQueueTask } from '../../taskSubmission'
+import type { MaskedOperation } from '../masked-plan'
 import { agentImageCount, queueParamsFor } from './queueParams'
 import type { AgentToolContext, AgentToolDetails } from './types'
 
@@ -36,6 +37,8 @@ export interface QueueTarget {
 }
 
 export interface QueueTaskInput {
+  readonly toolCallId?: string
+  readonly maskedOperation?: MaskedOperation
   readonly media: ChannelMedia
   /** 已经解析好的模型；缺席就按介质现解析。 */
   readonly target?: QueueTarget
@@ -44,6 +47,7 @@ export interface QueueTaskInput {
   readonly n?: number
   readonly inputImages?: readonly string[]
   readonly mask?: string
+  readonly onSubmitted?: () => void
   /** 视频档位；缺席即这是一条图片任务。 */
   readonly video?: PersistedVideoRequest
   /** 产出落画布时贴着这个画布对象放。 */
@@ -82,6 +86,21 @@ export async function runQueueTask(
   const target = input.target ?? resolveAgentModel(input.media, context.params?.model)
   if (!target) throw new Error(noModelMessage(input.media))
 
+  const hasSelection = context.images.references.some((ref) =>
+    Boolean('dataUrl' in ref ? ref.maskDataUrl : ref.mask),
+  )
+  if (hasSelection) context.maskedEditPlan?.protect()
+  const maskedTurn = input.media === 'image' && (hasSelection || context.maskedEditPlan?.protected)
+  if (maskedTurn && !input.inputImages?.length)
+    throw new Error('本轮存在用户选区，请使用改图工具核对目标与参考，不能改为无参考生图')
+  if (
+    maskedTurn &&
+    context.maskedEditPlan &&
+    !context.maskedEditPlan.includes(input.toolCallId ?? '', input.maskedOperation)
+  )
+    throw new Error('本轮编辑计划已经执行，不能自行追加生成；请检查已有候选并等待用户指示')
+
+  if (signal?.aborted) throw new Error('这一轮被中止了')
   const submitted = await createQueueTask({
     provider: target.provider,
     model: target.model,
@@ -98,8 +117,13 @@ export async function runQueueTask(
     userId: context.userId,
     agent: { conversationId: context.conversationId, turnId: context.turnId },
   })
-  if (submitted.kind !== 'created') throw new Error(refusal(submitted.kind, words))
+  if (submitted.kind !== 'created') {
+    if (submitted.kind === 'invalid_input_image') throw new Error(submitted.message)
+    throw new Error(refusal(submitted.kind, words))
+  }
 
+  input.onSubmitted?.()
+  if (maskedTurn) context.maskedEditPlan?.submitted(input.toolCallId ?? '', input.maskedOperation)
   onUpdate?.({ content: [], details: { stage: 'submitted' } })
   const outcome = await awaitQueueTask(submitted.taskId, {
     signal,
@@ -125,12 +149,13 @@ export async function runQueueTask(
     content: [
       {
         type: 'text',
-        text: `已生成 ${artifacts.length} ${words.unit}并放到画布上，${
+        text: `已生成 ${artifacts.length} ${words.unit}${input.mask ? '候选（仍需检查选区内效果与边缘）' : ''}并放到画布上，${
           AGENT_ARTIFACT_NOUN[input.media]
         } id：${artifacts.map((artifact) => artifact.artifactId).join(', ')}`,
       },
     ],
     details: {
+      executedPrompt: input.prompt,
       artifacts,
       ...(input.anchorObjectId ? { anchorObjectId: input.anchorObjectId } : {}),
     },
