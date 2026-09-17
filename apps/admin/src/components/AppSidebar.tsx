@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useLocation, useNavigate } from '@tanstack/react-router'
 import {
   Activity,
+  HeartPulse,
   LogOut,
   type LucideIcon,
   MonitorSmartphone,
@@ -28,7 +29,7 @@ import { apiClient } from '@/lib/api-client'
 import { usePrivateAdminNavigation } from '@/lib/private-overlay'
 
 interface NavEntry {
-  to: '/overview' | '/users' | '/devices'
+  to: '/overview' | '/ops' | '/users' | '/devices'
   icon: LucideIcon
   label: string
   /** 只有开了 accounts:login 才出现 */
@@ -37,6 +38,7 @@ interface NavEntry {
 
 const NAV: readonly NavEntry[] = [
   { to: '/overview', icon: Activity, label: '概览' },
+  { to: '/ops', icon: HeartPulse, label: '运维看板' },
   { to: '/users', icon: Users, label: '用户', gated: true },
   { to: '/devices', icon: MonitorSmartphone, label: '设备' },
 ]

@@ -1,4 +1,4 @@
-import type { ObjectRangeReader, ObjectStore } from '../../lib/objectStore'
+import type { ObjectEntry, ObjectRangeReader, ObjectStore } from '../../lib/objectStore'
 
 export class InMemoryObjectStore implements ObjectStore {
   readonly objects = new Map<string, { bytes: Uint8Array<ArrayBuffer>; contentType: string }>()
@@ -49,6 +49,13 @@ export class InMemoryObjectStore implements ObjectStore {
   async listPrefix(prefix: string): Promise<string[]> {
     this.events.push(`list:${prefix}`)
     return Array.from(this.objects.keys()).filter((key) => key.startsWith(prefix))
+  }
+
+  async listEntries(prefix: string): Promise<ObjectEntry[]> {
+    this.events.push(`entries:${prefix}`)
+    return Array.from(this.objects.entries())
+      .filter(([key]) => key.startsWith(prefix))
+      .map(([key, stored]) => ({ key, size: stored.bytes.length, lastModified: 0 }))
   }
 
   async deletePrefix(prefix: string): Promise<void> {

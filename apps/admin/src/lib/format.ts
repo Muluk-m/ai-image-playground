@@ -87,3 +87,15 @@ export async function copyText(text: string): Promise<boolean> {
     return false
   }
 }
+
+/** 一段时长的口语写法："4 秒" / "12 分钟" / "3 小时 5 分钟" / "2 天 4 小时"。看板上用，单位随量级走。 */
+export function elapsed(ms: number): string {
+  const seconds = Math.max(0, Math.floor(ms / 1000))
+  if (seconds < 60) return `${seconds} 秒`
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes} 分钟`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return minutes % 60 === 0 ? `${hours} 小时` : `${hours} 小时 ${minutes % 60} 分钟`
+  const days = Math.floor(hours / 24)
+  return hours % 24 === 0 ? `${days} 天` : `${days} 天 ${hours % 24} 小时`
+}

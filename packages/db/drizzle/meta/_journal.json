@@ -141,6 +141,20 @@
       "when": 1789640000000,
       "tag": "0020_cloud_generations",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1789647900311,
+      "tag": "0021_service_heartbeats",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1789648819573,
+      "tag": "0022_host_samples",
+      "breakpoints": true
     }
   ]
 }

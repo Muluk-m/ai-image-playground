@@ -145,3 +145,22 @@ describe('normalizeKeyPrefix', () => {
     expect(normalizeKeyPrefix('team/image-playground')).toBe('team/image-playground/')
   })
 })
+
+describe('S3ObjectStore.listEntries', () => {
+  it('returns size and modification time with the deployment prefix stripped from each key', async () => {
+    const modified = new Date('2026-09-17T18:00:05Z')
+    const client = {
+      list: async ({ prefix }: { prefix?: string }) => ({
+        contents: [
+          { key: `${prefix}2026-09-17.dump`, size: 42, lastModified: modified.toISOString() },
+        ],
+        isTruncated: false,
+      }),
+    } as unknown as S3ClientLike
+    const store = new S3ObjectStore(client, 'image-playground/')
+
+    expect(await store.listEntries('pg/')).toEqual([
+      { key: 'pg/2026-09-17.dump', size: 42, lastModified: modified.getTime() },
+    ])
+  })
+})

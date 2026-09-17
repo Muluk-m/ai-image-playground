@@ -640,5 +640,9 @@ class HugeVideoStore implements ObjectStore {
     return []
   }
 
+  async listEntries(): Promise<[]> {
+    return []
+  }
+
   async deletePrefix(): Promise<void> {}
 }

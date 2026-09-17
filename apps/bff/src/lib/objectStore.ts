@@ -10,12 +10,21 @@ export interface ObjectRangeReader {
   stream(start: number, end: number): ReadableStream<Uint8Array>
 }
 
+/** 桶里的一个对象连同它的元信息。`lastModified` 是毫秒时间戳。 */
+export interface ObjectEntry {
+  key: string
+  size: number
+  lastModified: number
+}
+
 export interface ObjectStore {
   write(key: string, bytes: Uint8Array, contentType: string): Promise<void>
   read(key: string): Promise<Uint8Array<ArrayBuffer>>
   /** 视频这类大对象走这条；小对象整份 `read` 更省一次元信息往返。 */
   open(key: string): Promise<ObjectRangeReader>
   listPrefix(prefix: string): Promise<string[]>
+  /** 带大小与修改时间的列举。运维看板靠它看「真正落在桶里的备份」，而不是备份脚本的自述。 */
+  listEntries(prefix: string): Promise<ObjectEntry[]>
   deletePrefix(prefix: string): Promise<void>
 }
 
@@ -44,18 +53,23 @@ export class S3ObjectStore implements ObjectStore {
   }
 
   async listPrefix(prefix: string): Promise<string[]> {
-    const keys = await this.listBucketKeys(prefix)
-    return keys.map((key) => key.slice(this.keyPrefix.length))
+    const entries = await this.listBucketEntries(prefix)
+    return entries.map((entry) => entry.key.slice(this.keyPrefix.length))
+  }
+
+  async listEntries(prefix: string): Promise<ObjectEntry[]> {
+    const entries = await this.listBucketEntries(prefix)
+    return entries.map((entry) => ({ ...entry, key: entry.key.slice(this.keyPrefix.length) }))
   }
 
   async deletePrefix(prefix: string): Promise<void> {
-    for (const key of await this.listBucketKeys(prefix)) {
-      await this.client.delete(key)
+    for (const entry of await this.listBucketEntries(prefix)) {
+      await this.client.delete(entry.key)
     }
   }
 
-  private async listBucketKeys(prefix: string): Promise<string[]> {
-    const keys: string[] = []
+  private async listBucketEntries(prefix: string): Promise<ObjectEntry[]> {
+    const entries: ObjectEntry[] = []
     let continuationToken: string | undefined
     do {
       const page = await this.client.list({
@@ -63,11 +77,16 @@ export class S3ObjectStore implements ObjectStore {
         continuationToken,
       })
       for (const entry of page.contents ?? []) {
-        if (entry.key) keys.push(entry.key)
+        if (!entry.key) continue
+        entries.push({
+          key: entry.key,
+          size: Number(entry.size ?? 0),
+          lastModified: entry.lastModified ? new Date(entry.lastModified).getTime() : 0,
+        })
       }
       continuationToken = page.isTruncated ? page.nextContinuationToken : undefined
     } while (continuationToken)
-    return keys
+    return entries
   }
 }
 

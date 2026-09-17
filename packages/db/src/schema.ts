@@ -561,3 +561,35 @@ export const generation_commands = pgTable(
   },
   (t) => [primaryKey({ columns: [t.user_id, t.command_id] })],
 )
+
+/**
+ * 服务进程定期留下的「我还在，我是哪个版本」。运维看板据此判断死活与线上版本，不去探测端口。
+ * 每个实例一行、原地更新；重新部署会换实例，旧实例的行由 worker 的维护循环清掉。
+ */
+export const service_heartbeats = pgTable(
+  'service_heartbeats',
+  {
+    service: text('service').notNull(),
+    instance: text('instance').notNull(),
+    version: text('version').notNull(),
+    last_seen_at: epochMs('last_seen_at').notNull(),
+    /** 服务自述的附加状态，例如 worker 最后一次成功轮询队列的时间。 */
+    detail: bunJsonb('detail').$type<Record<string, unknown>>(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.service, t.instance] }),
+    index('idx_service_heartbeats_seen').on(t.service, t.last_seen_at.desc()),
+  ],
+)
+
+/**
+ * 宿主机资源的一次读数。按时间成序列、只留近几天，用来看趋势而不只是当前值。
+ * 由采集容器经后端内部接口写入；同一台宿主机上的每套部署各存各的一份。
+ */
+export const host_samples = pgTable('host_samples', {
+  sampled_at: epochMs('sampled_at').primaryKey(),
+  disk_total_bytes: bigint('disk_total_bytes', { mode: 'number' }).notNull(),
+  disk_available_bytes: bigint('disk_available_bytes', { mode: 'number' }).notNull(),
+  mem_total_bytes: bigint('mem_total_bytes', { mode: 'number' }).notNull(),
+  mem_available_bytes: bigint('mem_available_bytes', { mode: 'number' }).notNull(),
+})

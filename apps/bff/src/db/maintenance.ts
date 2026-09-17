@@ -194,3 +194,14 @@ export async function purgeOldTasks(
   }
   return deleted.length
 }
+
+/** 宿主机采样只为看近几天的趋势；留久了这张表自己就成了吃磁盘的那个。 */
+const HOST_SAMPLE_RETENTION_MS = 7 * 24 * 60 * 60 * 1000
+
+export async function purgeOldHostSamples(now: number = Date.now()): Promise<number> {
+  const deleted = await db
+    .delete(schema.host_samples)
+    .where(lt(schema.host_samples.sampled_at, now - HOST_SAMPLE_RETENTION_MS))
+    .returning({ sampled_at: schema.host_samples.sampled_at })
+  return deleted.length
+}

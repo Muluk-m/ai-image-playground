@@ -70,6 +70,11 @@ case "$role" in
     export DATABASE_URL
     unset MIGRATOR_DATABASE_URL APP_DATABASE_URL ADMIN_DATABASE_URL
     ;;
+  host-collector)
+    # Reads the host through a read-only mount and talks to the BFF over HTTP. It must never hold a
+    # database credential, whatever the environment it was started with contains.
+    unset MIGRATOR_DATABASE_URL APP_DATABASE_URL ADMIN_DATABASE_URL DATABASE_URL
+    ;;
   *)
     echo "[entrypoint] unknown APP_ROLE: $role" >&2
     exit 1
