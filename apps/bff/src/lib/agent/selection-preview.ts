@@ -108,6 +108,17 @@ export async function imageSelection(
   }
 }
 
+/**
+ * 一个引用的视觉证据由哪几块组成：原图始终保留，有选区时再加蓝色定位图与原色选区裁片。
+ * 实发路径拿真字节代入，预扣估算拿占位块代入——张数这条规则只写在这里，两边不会各数各的。
+ */
+export function evidenceBlocks<T>(
+  original: T,
+  selection?: { readonly preview: T; readonly crop: T },
+): T[] {
+  return selection ? [original, selection.preview, selection.crop] : [original]
+}
+
 /** 原图始终保留；定位图与原色选区裁片是补充证据。 */
 export async function referenceEvidence(references: readonly (Reference & { imageId: string })[]) {
   const content: ImageContent[] = []
@@ -116,12 +127,16 @@ export async function referenceEvidence(references: readonly (Reference & { imag
     const original = await toModelImageDataUrl(reference.dataUrl)
     const selection = await imageSelection(reference)
     const first = content.length + 1
-    content.push(asImage(original))
+    content.push(
+      ...evidenceBlocks(
+        asImage(original),
+        selection && { preview: selection.preview, crop: asImage(selection.crop) },
+      ),
+    )
     if (!selection) {
       descriptions.push(`视觉输入 ${first}：图片 ${reference.imageId} 原图`)
       continue
     }
-    content.push(selection.preview, asImage(selection.crop))
     descriptions.push(
       `视觉输入 ${first}：图片 ${reference.imageId} 原图；${first + 1}：蓝色定位图；${first + 2}：原色选区裁片。选区 ID ${selection.id}，位置 ${JSON.stringify(selection.bounds)}。蓝色和裁片透明处均为定位信息，不是产品外观。`,
     )
