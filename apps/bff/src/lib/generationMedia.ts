@@ -7,6 +7,7 @@ import { durableMediaStore } from './durableMediaStore'
 import { extractMeta, resolveImageBytesRef } from './extractImages'
 import {
   archiveOutputImages,
+  detectMediaMime,
   MaskedOutputArchiveError,
   ObjectStorageError,
   type OutputTransform,
@@ -66,13 +67,36 @@ export interface GenerationMediaLink {
   mediaId: string
 }
 
-/** Keep retrievable source URLs before any download; large inline originals stay out of PostgreSQL. */
-export function generationSourceCheckpoint(provider: QueueProvider, payload: unknown) {
-  if (provider !== 'openai-compat') return null
+/** Record deterministic destinations before writing bytes; PostgreSQL never stores inline originals. */
+export function generationSourceCheckpoint(id: string, provider: QueueProvider, payload: unknown) {
   const meta = extractMeta(provider, payload)
-  const refs = meta.images.map((image) => resolveImageBytesRef(provider, payload, image.index))
-  if (!refs.length || refs.some((ref) => ref?.kind !== 'url')) return null
-  return { ...meta.actual_params, data: refs.map((ref) => ({ url: ref!.data, mime: ref!.mime })) }
+  const refs = meta.images.map((image) => {
+    const ref = resolveImageBytesRef(provider, payload, image.index)
+    if (!ref) throw new Error('generation_image_missing')
+    return { ...ref, index: image.index }
+  })
+  if (!refs.length) return null
+  if (provider === 'openai-compat')
+    return {
+      ...meta.actual_params,
+      archive_store: 'durable',
+      data: refs.map((ref) => ({
+        ...(ref.kind === 'url' ? { url: ref.data } : { object: `${id}/out/${ref.index}` }),
+        mime: ref.mime,
+      })),
+    }
+  return {
+    archive_store: 'durable',
+    candidates: [
+      {
+        content: {
+          parts: refs.map((ref) => ({
+            inlineData: { object: `${id}/out/${ref.index}`, mimeType: ref.mime },
+          })),
+        },
+      },
+    ],
+  }
 }
 
 /** A successful inline response remains in its worker slot until safely spooled or interrupted. */
@@ -89,7 +113,14 @@ export async function spoolGenerationOutputs(
     signal.throwIfAborted()
     try {
       const archived = await withMediaTransfer(() =>
-        archiveOutputImages(id, provider, structuredClone(payload), transform, durableMediaStore()),
+        archiveOutputImages(
+          id,
+          provider,
+          structuredClone(payload),
+          transform,
+          durableMediaStore(),
+          true,
+        ),
       )
       return { ...archived, archive_store: 'durable' }
     } catch (error) {
@@ -160,7 +191,7 @@ export async function archiveGenerationOutputs(
             ? Buffer.from(source.data, 'base64')
             : null
       if (!bytes) throw new Error('generation_image_not_archived')
-      const media = await storeMedia(userId, bytes, source.mime)
+      const media = await storeMedia(userId, bytes, detectMediaMime(bytes) ?? source.mime)
       links.push({ role: 'output', position: image.index, mediaId: media.id })
     }
     for (const [position, ref] of (request.input_images ?? []).entries()) {

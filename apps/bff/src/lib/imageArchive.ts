@@ -9,6 +9,7 @@ import type {
 import { MaskedOutputError } from './agent/masked-output'
 import { durableMediaStore } from './durableMediaStore'
 import { type ObjectStore, objectStore } from './objectStore'
+import { isAbortError } from './queueProvider'
 
 export type OutputTransform = (bytes: Uint8Array) => Promise<{
   bytes: Uint8Array
@@ -114,6 +115,7 @@ export async function archiveOutputImages(
   payload: unknown,
   transform?: OutputTransform,
   store: ObjectStore = objectStore(),
+  retainOnFailure = false,
 ): Promise<Record<string, unknown>> {
   if (!payload || typeof payload !== 'object') {
     throw new ObjectStorageError('Object storage archive failed: upstream payload is not an object')
@@ -124,11 +126,14 @@ export async function archiveOutputImages(
     else await archiveGeminiOutput(taskId, payload, transform, store)
     return payload as Record<string, unknown>
   } catch (error) {
-    try {
-      await store.deletePrefix(`${taskId}/out/`)
-    } catch {
-      // The database has no references to these objects. Lifecycle cleanup removes any orphan.
+    if (!retainOnFailure) {
+      try {
+        await store.deletePrefix(`${taskId}/out/`)
+      } catch {
+        // Legacy unreferenced objects remain covered by lifecycle cleanup.
+      }
     }
+    if (isAbortError(error)) throw error
     // 必须原样重抛：包一层 ObjectStorageError 会丢掉 SourceImageFetchError 的 retryable。
     if (error instanceof ObjectStorageError || error instanceof MaskedOutputError) throw error
     throw new ObjectStorageError('Object storage output archive failed', { cause: error })
@@ -288,6 +293,7 @@ async function writeWithRetry(
       await store.write(key, bytes, mime)
       return
     } catch (error) {
+      if (isAbortError(error)) throw error
       lastError = error
       const delay = STORAGE_RETRY_DELAYS_MS[attempt]
       if (delay !== undefined) await Bun.sleep(delay)
@@ -313,7 +319,7 @@ function openAIOutputMime(format: string | undefined): string {
   return 'image/png'
 }
 
-function detectMediaMime(bytes: Uint8Array): string | undefined {
+export function detectMediaMime(bytes: Uint8Array): string | undefined {
   if (
     bytes.length >= 8 &&
     bytes[0] === 0x89 &&

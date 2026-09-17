@@ -28,6 +28,7 @@ class DurableFixture extends InMemoryObjectStore {
   publicationUnavailable = false
   publicationFailuresRemaining = 0
   oversizedSpool = false
+  afterWrite?: (key: string) => void
   spoolReads = 0
   override async read(key: string) {
     if (key.includes('/out/')) this.spoolReads++
@@ -50,7 +51,8 @@ class DurableFixture extends InMemoryObjectStore {
       this.publicationFailuresRemaining--
       throw new Error('publication failed')
     }
-    return super.write(key, bytes, contentType)
+    await super.write(key, bytes, contentType)
+    this.afterWrite?.(key)
   }
   sign(key: string) {
     return `https://durable.example/${key}`
@@ -728,5 +730,35 @@ it('归档读取先检查对象长度，拒绝超限原件时不整份缓冲且�
     clock.mockRestore()
   }
   expect((await (await request(`/api/generations/${id}`, deviceB)).json()).status).toBe('completed')
+  expect(calls).toBe(1)
+})
+
+it('原件已写入但完成凭据尚未提交时重启，按原任务找回而不重新生成', async () => {
+  const png = await sharp({ create: { width: 8, height: 6, channels: 3, background: '#779955' } })
+    .png()
+    .toBuffer()
+  let calls = 0
+  setUpstreamFetchForTesting((async () => {
+    calls++
+    return Response.json({ data: [{ b64_json: png.toString('base64') }] })
+  }) as NonNullable<Parameters<typeof setUpstreamFetchForTesting>[0]>)
+  const { request_id: id } = await (
+    await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, input)
+  ).json()
+  const { abortRunningTask } = await import('../../workers/task-runner')
+  durable.afterWrite = (key) => {
+    if (key === `${id}/out/0`) {
+      abortRunningTask(id)
+      throw new DOMException('Worker stopped after object write', 'AbortError')
+    }
+  }
+  await runTask(id)
+  durable.afterWrite = undefined
+  const { recoverTasksByIds } = await import('../../db/maintenance')
+  await recoverTasksByIds([id])
+  await runTask(id)
+  const detail = await (await request(`/api/generations/${id}`, deviceB)).json()
+  expect(detail.status).toBe('completed')
+  expect(detail.outputs).toHaveLength(1)
   expect(calls).toBe(1)
 })
