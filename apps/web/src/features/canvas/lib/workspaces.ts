@@ -25,6 +25,7 @@ export { canvasSceneKey } from './workspaceKeys'
 /** 生命周期属于会话，切模式/切会话只换视图，异步任务仍写原文档并自动保存。 */
 export class CanvasWorkspace {
   readonly id = crypto.randomUUID()
+  private readonly scope = scopedStorageName('canvas')
   readonly doc = new CanvasDoc()
   readonly editor = new CanvasEditor(this.doc)
   readonly sink = createAgentCanvasSink(this.editor, () => this.ready)
@@ -36,6 +37,7 @@ export class CanvasWorkspace {
   private timer: ReturnType<typeof setTimeout> | undefined
   private writes: Promise<unknown> = Promise.resolve()
   private disposed = false
+  private refreshing = false
   private revision = 0
   private savedRevision = 0
   private structureRevision = 0
@@ -97,6 +99,7 @@ export class CanvasWorkspace {
           }))
         })
         await this.cloud.load(hasLocal)
+        this.cloud.start()
         this.needsInitialFit = !hasLocal && this.doc.elements.length > 0
       }
       let { elements, files, camera } = this.doc
@@ -130,55 +133,75 @@ export class CanvasWorkspace {
     void this.ready.catch(() => {})
   }
   refreshCloud() {
-    if (!this.cloud || this.state.loading || this.state.loadFailed) return
+    if (
+      this.disposed ||
+      this.refreshing ||
+      !this.cloud ||
+      this.state.loading ||
+      this.state.loadFailed
+    )
+      return
+    this.refreshing = true
     this.ready = this.ready.then(async () => {
-      if (!(await this.flush())) return
-      this.update({ loading: true })
       try {
-        await this.cloud!.load(true)
-        this.update({ loading: false, loadFailed: false })
-      } catch (error) {
-        this.update({ loading: false, loadFailed: true })
-        throw error
+        if (!(await this.flush())) return
+        await this.cloud!.refresh()
+      } catch {
+        // 已打开的本机画布继续可用；具体同步失败由 cloud 状态展示。
+      } finally {
+        this.refreshing = false
       }
     })
     void this.ready.catch(() => {})
   }
   flush = (): Promise<boolean> => {
     clearTimeout(this.timer)
-    const save = this.writes.then(async () => {
-      if (this.disposed || this.state.loading || this.state.loadFailed) return false
-      if (this.savedRevision === this.revision && !this.state.saveFailed) return true
-      const revision = this.revision
-      const structureRevision = this.structureRevision
-      const preserveStructure = structureRevision === this.savedStructureRevision
-      const localProject = useCanvasProjectStore
-        .getState()
-        .projects.find((one) => one.sceneKey === this.key)
-      const cloud = this.localCloudCheckpoint
-        ? {
-            ...this.localCloudCheckpoint,
-            name: localProject?.name ?? this.localCloudCheckpoint.name,
+    const save = this.writes
+      .then(async () => {
+        if (
+          this.disposed ||
+          this.scope !== scopedStorageName('canvas') ||
+          this.state.loading ||
+          this.state.loadFailed
+        )
+          return false
+        if (this.savedRevision === this.revision && !this.state.saveFailed) return true
+        const revision = this.revision
+        const structureRevision = this.structureRevision
+        const preserveStructure = structureRevision === this.savedStructureRevision
+        const localProject = useCanvasProjectStore
+          .getState()
+          .projects.find((one) => one.sceneKey === this.key)
+        const cloud = this.localCloudCheckpoint
+          ? {
+              ...this.localCloudCheckpoint,
+              name: localProject?.name ?? this.localCloudCheckpoint.name,
+            }
+          : undefined
+        let saved = this.cloud
+          ? await this.cloud.saveLocal(preserveStructure)
+          : await saveScene(this.editor, this.key, undefined, { preserveStructure, cloud })
+        if (this.disposed || this.scope !== scopedStorageName('canvas')) return false
+        if (saved) {
+          try {
+            await useCanvasProjectStore.getState().recordScene(this.key, this.doc)
+          } catch {
+            saved = false
           }
-        : undefined
-      let saved = this.cloud
-        ? await this.cloud.saveLocal(preserveStructure)
-        : await saveScene(this.editor, this.key, undefined, { preserveStructure, cloud })
-      if (saved) {
-        try {
-          await useCanvasProjectStore.getState().recordScene(this.key, this.doc)
-        } catch {
-          saved = false
         }
-      }
-      if (saved) {
-        this.savedRevision = revision
-        this.savedStructureRevision = structureRevision
-      }
-      this.update({ saveFailed: !saved })
-      if (saved) void this.cloud?.sync().catch(() => {})
-      return saved
-    })
+        if (saved) {
+          this.savedRevision = revision
+          this.savedStructureRevision = structureRevision
+        }
+        this.update({ saveFailed: !saved })
+        if (saved) this.cloud?.requestSync()
+        return saved
+      })
+      .catch(() => {
+        if (!this.disposed && this.scope === scopedStorageName('canvas'))
+          this.update({ saveFailed: true })
+        return false
+      })
     this.writes = save
     return save
   }
@@ -224,6 +247,15 @@ const listeners = new Set<() => void>()
 let current: CanvasWorkspace | undefined
 let visible = false
 let lifecycleInstalled = false
+let refreshTimer: ReturnType<typeof setInterval> | undefined
+
+function refreshVisibleWorkspace() {
+  clearInterval(refreshTimer)
+  refreshTimer = undefined
+  if (!visible || document.visibilityState !== 'visible') return
+  current?.refreshCloud()
+  refreshTimer = setInterval(() => current?.refreshCloud(), 15000)
+}
 
 function workspace(key: string, migrateLegacy = false): CanvasWorkspace {
   let value = workspaces.get(key)
@@ -246,6 +278,7 @@ export function currentCanvasWorkspace(): CanvasWorkspace {
     flushOnPageHide(() => {
       for (const item of workspaces.values()) void item.flush()
     })
+    document.addEventListener('visibilitychange', refreshVisibleWorkspace)
   }
   return current
 }
@@ -258,8 +291,10 @@ export function subscribeCanvasWorkspace(listener: () => void): () => void {
 }
 
 export function showCanvasWorkspace(show: boolean): void {
+  const changed = show !== visible
   visible = show
   setAgentCanvasSink(show ? currentCanvasWorkspace().sink : null)
+  if (changed) refreshVisibleWorkspace()
   if (!show) void current?.flush()
 }
 
@@ -316,6 +351,10 @@ export async function prepareCanvasRemoval(key: string): Promise<void> {
 }
 
 export function forgetCanvasWorkspace(key: string): void {
+  if (workspaces.get(key) === current) {
+    clearInterval(refreshTimer)
+    refreshTimer = undefined
+  }
   workspaces.get(key)?.dispose()
   workspaces.delete(key)
 }

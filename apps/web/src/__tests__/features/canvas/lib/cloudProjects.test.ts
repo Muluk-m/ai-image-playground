@@ -258,7 +258,7 @@ it('读取错误保留原画布，重试成功前不发送空文档', async () =
   expect(editor.doc.elements[0]).toMatchObject({ text: '本机原稿' })
   expect(fetcher.mock.calls).toHaveLength(1)
   expect(session.getSnapshot().status).toBe('load-error')
-  await expect(session.sync()).rejects.toThrow('project_not_loaded')
+  await expect(session.sync()).rejects.toThrow('unavailable')
 })
 
 it.each([0, 3])('图片未上传时保留本地场景，即使云端已有修订 %s', async (revision) => {
@@ -491,4 +491,443 @@ it('本地模式保存保留云端基线，重新启用后不覆盖未同步修�
   expect(restored.doc.elements[0]).toMatchObject({ text: '关闭同步期间的修改' })
   expect(saved).toHaveLength(1)
   expect(saved[0]).toMatchObject({ baseRevision: 1 })
+})
+
+it('已缓存云端画布断网后仍可编辑，刷新保留修改，联网才确认云端保存', async () => {
+  const { project, editor } = await fresh()
+  const writes: Parameters<typeof receipt>[1][] = []
+  const fetcher = vi.fn(async (_url: string, init: RequestInit) => {
+    const body = JSON.parse(init.body as string)
+    writes.push(body)
+    return Response.json(receipt(project.id, body))
+  })
+  vi.stubGlobal('fetch', fetcher)
+  const first = new CloudProjectSession(project, editor)
+  await first.load(true)
+  first.dispose()
+  const online = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
+  const local = new CanvasEditor(new CanvasDoc())
+  const offline = new CloudProjectSession(project, local)
+  await offline.load(true)
+  expect(offline.getSnapshot().status).toBe('offline')
+  local.doc.updateElements([{ id: 'note', patch: { text: '离线修改' } }])
+  offline.markChanged()
+  expect(await offline.saveLocal()).toBe(true)
+  await offline.sync()
+  expect(writes).toHaveLength(1)
+  offline.dispose()
+  const reopenedEditor = new CanvasEditor(new CanvasDoc())
+  const reopened = new CloudProjectSession(project, reopenedEditor)
+  await reopened.load(true)
+  expect(reopenedEditor.doc.elements[0]).toMatchObject({ text: '离线修改' })
+  expect(reopened.getSnapshot().status).toBe('offline')
+  online.mockReturnValue(true)
+  await reopened.sync()
+  expect(writes).toHaveLength(2)
+  expect(writes[1]).toMatchObject({
+    baseRevision: 1,
+    document: { elements: [{ text: '离线修改' }] },
+  })
+  expect(reopened.getSnapshot().status).toBe('saved')
+  reopened.dispose()
+  online.mockRestore()
+})
+
+it('联网事件自动续传离线修改，重复事件不会重复上传', async () => {
+  const { project, editor } = await fresh()
+  const online = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
+  const fetcher = vi.fn(async (_url: string, init: RequestInit) =>
+    Response.json(receipt(project.id, JSON.parse(init.body as string))),
+  )
+  vi.stubGlobal('fetch', fetcher)
+  const session = new CloudProjectSession(project, editor)
+  await session.load(true)
+  session.start()
+  expect(fetcher).not.toHaveBeenCalled()
+  online.mockReturnValue(true)
+  window.dispatchEvent(new Event('online'))
+  window.dispatchEvent(new Event('online'))
+  await vi.waitFor(() => expect(session.getSnapshot().status).toBe('saved'), { timeout: 3000 })
+  expect(fetcher).toHaveBeenCalledTimes(1)
+  session.dispose()
+  online.mockRestore()
+})
+
+it('网络故障有限退避五次，手动重试仍沿用原请求身份', async () => {
+  const { project, editor } = await fresh()
+  const requests: { requestId: string }[] = []
+  let available = false
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (_url: string, init: RequestInit) => {
+      const body = JSON.parse(init.body as string)
+      requests.push(body)
+      if (!available) return Response.json({ error: 'unavailable' }, { status: 503 })
+      return Response.json(receipt(project.id, body))
+    }),
+  )
+  const session = new CloudProjectSession(project, editor)
+  await session.load(true)
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+  try {
+    session.start()
+    for (const [index, delay] of [1000, 2000, 5000, 15000, 30000].entries()) {
+      await vi.advanceTimersByTimeAsync(delay)
+      await vi.waitFor(() => expect(requests).toHaveLength(index + 2))
+      await vi.waitFor(() => expect(session.getSnapshot().status).toBe('error'))
+    }
+    await vi.advanceTimersByTimeAsync(300000)
+    expect(requests).toHaveLength(6)
+    available = true
+    await session.sync()
+    expect(session.getSnapshot().status).toBe('saved')
+    expect(new Set(requests.map((request) => request.requestId)).size).toBe(1)
+  } finally {
+    session.dispose()
+    vi.useRealTimers()
+  }
+})
+
+it.each([
+  [401, 'auth-error'],
+  [403, 'permission-error'],
+  [404, 'permission-error'],
+  [413, 'quota-error'],
+  [422, 'format-error'],
+  [400, 'format-error'],
+])('不可自动修复的 %s 错误单独提示且停写', async (status, expected) => {
+  const { project, editor } = await fresh()
+  const fetcher = vi.fn(async () =>
+    Response.json({ error: 'rejected' }, { status: Number(status) }),
+  )
+  vi.stubGlobal('fetch', fetcher)
+  const session = new CloudProjectSession(project, editor)
+  await session.load(true)
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+  try {
+    session.start()
+    expect(session.getSnapshot().status).toBe(expected)
+    window.dispatchEvent(new Event('online'))
+    editor.doc.updateElements([{ id: 'note', patch: { text: '继续保留在本机' } }])
+    session.markChanged()
+    await session.saveLocal()
+    await vi.advanceTimersByTimeAsync(300000)
+    expect(fetcher).toHaveBeenCalledTimes(1)
+    expect(session.getSnapshot().status).toBe(expected)
+    const restored = new CanvasEditor(new CanvasDoc())
+    await loadScene(restored, project.sceneKey)
+    expect(restored.doc.elements[0]).toMatchObject({ text: '继续保留在本机' })
+  } finally {
+    session.dispose()
+    vi.useRealTimers()
+  }
+})
+
+it('本机写入失败单独提示，不把未持久化的修改发到云端', async () => {
+  const { project, editor } = await fresh()
+  const fetcher = vi.fn(async (_url: string, init: RequestInit) =>
+    Response.json(receipt(project.id, JSON.parse(init.body as string))),
+  )
+  vi.stubGlobal('fetch', fetcher)
+  const session = new CloudProjectSession(project, editor)
+  await session.load(true)
+  editor.doc.updateElements([{ id: 'note', patch: { text: '尚未落盘' } }])
+  session.markChanged()
+  const originalPut = IDBObjectStore.prototype.put
+  const spy = vi.spyOn(IDBObjectStore.prototype, 'put').mockImplementation(function (
+    this: IDBObjectStore,
+    ...args: Parameters<IDBObjectStore['put']>
+  ) {
+    const result = originalPut.apply(this, args)
+    if (args[1] === project.sceneKey) this.transaction.abort()
+    return result
+  })
+  try {
+    expect(await session.saveLocal()).toBe(false)
+    expect(session.getSnapshot().status).toBe('local-error')
+    await session.sync()
+    expect(fetcher).toHaveBeenCalledTimes(1)
+  } finally {
+    spy.mockRestore()
+  }
+  expect(await session.saveLocal()).toBe(true)
+  expect(session.getSnapshot().status).toBe('local')
+  await session.sync()
+  expect(session.getSnapshot().status).toBe('saved')
+  session.dispose()
+})
+
+it('一轮连续编辑合并为一次后台写入，只发送最后的画布状态', async () => {
+  const { project, editor } = await fresh()
+  const bodies: unknown[] = []
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (_url: string, init: RequestInit) => {
+      const body = JSON.parse(init.body as string)
+      bodies.push(body)
+      return Response.json(receipt(project.id, body))
+    }),
+  )
+  const session = new CloudProjectSession(project, editor)
+  await session.load(true)
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+  try {
+    session.start()
+    for (let index = 1; index <= 10; index++) {
+      editor.doc.updateElements([{ id: 'note', patch: { x: index * 10 } }])
+      session.markChanged()
+      await session.saveLocal()
+      session.requestSync()
+    }
+    expect(bodies).toHaveLength(1)
+    await vi.advanceTimersByTimeAsync(1000)
+    await vi.waitFor(() => expect(session.getSnapshot().status).toBe('saved'))
+    expect(bodies).toHaveLength(2)
+    expect(bodies[1]).toMatchObject({ document: { elements: [{ x: 100 }] } })
+  } finally {
+    session.dispose()
+    vi.useRealTimers()
+  }
+})
+
+it('浏览器显示在线但 API 暂不可达时，已缓存项目仍可编辑并在恢复后续传', async () => {
+  const { project, editor } = await fresh()
+  const writes: unknown[] = []
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (_url: string, init: RequestInit) => {
+      if (init.method !== 'PUT') throw new TypeError('Failed to fetch')
+      const body = JSON.parse(init.body as string)
+      writes.push(body)
+      return Response.json(receipt(project.id, body))
+    }),
+  )
+  const first = new CloudProjectSession(project, editor)
+  await first.load(true)
+  first.dispose()
+  const nextEditor = new CanvasEditor(new CanvasDoc())
+  const second = new CloudProjectSession(project, nextEditor)
+  await second.load(true)
+  expect(second.getSnapshot().status).toBe('error')
+  expect(nextEditor.doc.elements[0]).toMatchObject({ text: '本机原稿' })
+  nextEditor.doc.updateElements([{ id: 'note', patch: { text: '网络故障期间的新稿' } }])
+  second.markChanged()
+  await second.saveLocal()
+  await second.sync()
+  expect(second.getSnapshot().status).toBe('saved')
+  expect(writes).toHaveLength(2)
+  expect(writes[1]).toMatchObject({
+    baseRevision: 1,
+    document: { elements: [{ text: '网络故障期间的新稿' }] },
+  })
+  second.dispose()
+})
+
+it('检查远端期间发生的新编辑不能被较晚的 GET 覆盖', async () => {
+  const { project, editor } = await fresh()
+  let finish: (value: Response) => void = () => {}
+  let reading = false
+  let writes = 0
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (_url: string, init: RequestInit) => {
+      if (init.method !== 'PUT') {
+        reading = true
+        return new Promise<Response>((resolve) => {
+          finish = resolve
+        })
+      }
+      const body = JSON.parse(init.body as string)
+      writes++
+      return writes === 1
+        ? Response.json(receipt(project.id, body))
+        : Response.json({ error: 'project_conflict' }, { status: 409 })
+    }),
+  )
+  const session = new CloudProjectSession(project, editor)
+  await session.load(true)
+  const loading = session.load(true)
+  await vi.waitFor(() => expect(reading).toBe(true))
+  editor.doc.updateElements([{ id: 'note', patch: { text: '读取期间编辑的稿件' } }])
+  session.markChanged()
+  finish(
+    Response.json({
+      id: project.id,
+      name: project.name,
+      revision: 2,
+      createdAt: 1,
+      updatedAt: 2,
+      elementCount: 0,
+      document: { version: 1, elements: [] },
+    }),
+  )
+  await loading
+  expect(editor.doc.elements[0]).toMatchObject({ text: '读取期间编辑的稿件' })
+  expect(session.getSnapshot().status).toBe('conflict')
+  const restored = new CanvasEditor(new CanvasDoc())
+  await loadScene(restored, project.sceneKey)
+  expect(restored.doc.elements[0]).toMatchObject({ text: '读取期间编辑的稿件' })
+  session.dispose()
+})
+
+it('重复打开或恢复可见时五秒内至多检查一次远端', async () => {
+  const { project, editor } = await fresh()
+  let reads = 0
+  let remote: unknown
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (_url: string, init: RequestInit) => {
+      if (init.method === 'PUT') {
+        const body = JSON.parse(init.body as string)
+        remote = { ...receipt(project.id, body), document: body.document }
+      } else reads++
+      return Response.json(remote)
+    }),
+  )
+  const session = new CloudProjectSession(project, editor)
+  await session.load(true)
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+  try {
+    await session.refresh()
+    expect(reads).toBe(0)
+    await vi.advanceTimersByTimeAsync(5000)
+    await Promise.all(Array.from({ length: 20 }, () => session.refresh()))
+    expect(reads).toBe(1)
+    await vi.advanceTimersByTimeAsync(5000)
+    await session.refresh()
+    expect(reads).toBe(2)
+  } finally {
+    session.dispose()
+    vi.useRealTimers()
+  }
+})
+
+it('同时恢复多个项目时最多两条同步链占用网络', async () => {
+  setClientStorageScope(crypto.randomUUID())
+  let active = 0
+  let peak = 0
+  const finish: (() => void)[] = []
+  vi.stubGlobal(
+    'fetch',
+    vi.fn((url: string, init: RequestInit) => {
+      active++
+      peak = Math.max(peak, active)
+      const body = JSON.parse(init.body as string)
+      const id = url.slice(url.lastIndexOf('/') + 1)
+      return new Promise<Response>((resolve) =>
+        finish.push(() => {
+          active--
+          resolve(Response.json(receipt(id, body)))
+        }),
+      )
+    }),
+  )
+  const projects = await Promise.all(
+    Array.from({ length: 4 }, () => projectRepository.create('并发项目', undefined, true)),
+  )
+  const sessions = projects.map(
+    (project) => new CloudProjectSession(project, new CanvasEditor(new CanvasDoc())),
+  )
+  const loading = sessions.map((session) => session.load(true))
+  try {
+    await vi.waitFor(() => expect(finish.length).toBeGreaterThanOrEqual(2))
+    expect(peak).toBe(2)
+    while (finish.length) {
+      finish.shift()!()
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    }
+    await Promise.all(loading)
+    expect(peak).toBe(2)
+    expect(sessions.every((session) => session.getSnapshot().status === 'saved')).toBe(true)
+  } finally {
+    for (const resolve of finish) resolve()
+    for (const session of sessions) session.dispose()
+    await Promise.allSettled(loading)
+  }
+})
+
+it('切换账号后迟到的确认不清除原账号待同步批次，也不写新账号', async () => {
+  const { project, editor } = await fresh()
+  let finish: (value: Response) => void = () => {}
+  let body: Parameters<typeof receipt>[1] | undefined
+  vi.stubGlobal(
+    'fetch',
+    vi.fn((_url: string, init: RequestInit) => {
+      body = JSON.parse(init.body as string)
+      return new Promise<Response>((resolve) => {
+        finish = resolve
+      })
+    }),
+  )
+  const session = new CloudProjectSession(project, editor)
+  const loading = session.load(true)
+  const settled = loading.catch((error) => error)
+  await vi.waitFor(() => expect(body).toBeDefined())
+  setClientStorageScope(crypto.randomUUID())
+  const other = await projectRepository.create('另一个账号', undefined, true)
+  finish(Response.json(receipt(project.id, body!)))
+  expect(await settled).toMatchObject({ message: 'project_scope_changed' })
+  const { readPersistedScene } = await import('../../../../features/canvas/lib/persistence')
+  expect((await readPersistedScene(project.sceneKey))?.cloud?.pending).toMatchObject({
+    baseRevision: 0,
+  })
+  expect(await readPersistedScene(other.sceneKey)).toBeUndefined()
+  expect((await projectRepository.list()).map((item) => item.id)).toEqual([other.id])
+  session.dispose()
+})
+
+it.each([
+  [401, 'auth-error'],
+  [403, 'permission-error'],
+  [404, 'permission-error'],
+  [413, 'quota-error'],
+  [422, 'format-error'],
+])('读取项目的 %s 错误保留独立分类且不允许盲写', async (status, expected) => {
+  const { project, editor } = await fresh()
+  const fetcher = vi.fn(async () =>
+    Response.json({ error: 'rejected' }, { status: Number(status) }),
+  )
+  vi.stubGlobal('fetch', fetcher)
+  const session = new CloudProjectSession({ ...project, cloud: { revision: 1 } }, editor)
+  await expect(session.load(true)).rejects.toThrow()
+  expect(session.getSnapshot().status).toBe(expected)
+  await expect(session.sync()).rejects.toThrow()
+  expect(fetcher).toHaveBeenCalledTimes(2)
+  session.dispose()
+})
+
+it('后台读取被拒后继续编辑，权限恢复重试不会用旧云端内容覆盖本机新稿', async () => {
+  const { project, editor } = await fresh()
+  let allowed = true
+  let remote: unknown
+  const writes: unknown[] = []
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (_url: string, init: RequestInit) => {
+      if (!allowed) return Response.json({ error: 'forbidden' }, { status: 403 })
+      if (init.method === 'PUT') {
+        const body = JSON.parse(init.body as string)
+        writes.push(body)
+        remote = { ...receipt(project.id, body), document: body.document }
+      }
+      return Response.json(remote)
+    }),
+  )
+  const session = new CloudProjectSession(project, editor)
+  await session.load(true)
+  allowed = false
+  await expect(session.load(true)).rejects.toThrow()
+  editor.doc.updateElements([{ id: 'note', patch: { text: '权限恢复前保留的新稿' } }])
+  session.markChanged()
+  await session.saveLocal()
+  allowed = true
+  await session.sync()
+  expect(editor.doc.elements[0]).toMatchObject({ text: '权限恢复前保留的新稿' })
+  expect(writes).toHaveLength(2)
+  expect(writes[1]).toMatchObject({
+    baseRevision: 1,
+    document: { elements: [{ text: '权限恢复前保留的新稿' }] },
+  })
+  expect(session.getSnapshot().status).toBe('saved')
+  session.dispose()
 })

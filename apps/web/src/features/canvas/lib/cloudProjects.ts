@@ -3,7 +3,6 @@ import {
   PROJECT_NAME_MAX_LENGTH,
   type ProjectDocument,
 } from '@image-playground/shared'
-import { i18next } from '../../../i18n'
 import { scopedStorageName } from '../../../lib/authScope'
 import { MediaRequestError } from '../../../lib/cloudMedia'
 import type { CanvasEditor } from './editor'
@@ -18,15 +17,85 @@ import {
 import { type CanvasProject, projectRepository } from './projectRepository'
 
 type Checkpoint = Omit<CloudSceneCheckpoint, 'version' | 'name'>
+const RETRY_DELAYS = [1000, 2000, 5000, 15000, 30000]
+let activeSyncs = 0
+const waitingSyncs: (() => void)[] = []
+async function withSyncSlot(work: () => Promise<void>) {
+  if (activeSyncs < 2) activeSyncs++
+  else await new Promise<void>((resolve) => waitingSyncs.push(resolve))
+  try {
+    await work()
+  } finally {
+    const next = waitingSyncs.shift()
+    if (next) next()
+    else activeSyncs--
+  }
+}
 export type ProjectSyncStatus =
   | 'loading'
   | 'pending'
+  | 'local'
+  | 'offline'
   | 'syncing'
   | 'saved'
   | 'error'
   | 'load-error'
   | 'conflict'
   | 'media-local'
+  | 'local-error'
+  | 'auth-error'
+  | 'permission-error'
+  | 'quota-error'
+  | 'format-error'
+
+type SyncMessage =
+  | 'errors:projectSync.local_save_failed'
+  | 'errors:projectSync.unauthorized'
+  | 'errors:projectSync.project_not_found'
+  | 'errors:projectSync.project_document_too_large'
+  | 'errors:projectSync.invalid_project_document'
+  | 'errors:projectSync.project_conflict'
+  | 'errors:projectSync.media_local'
+  | 'errors:projectSync.load_failed'
+  | 'errors:projectSync.fallback'
+
+function classifyFailure(error: unknown): { status: ProjectSyncStatus; message: SyncMessage } {
+  const status =
+    error instanceof ProjectRequestError || error instanceof MediaRequestError
+      ? error.status
+      : undefined
+  if (error instanceof Error && error.message === 'local_save_failed')
+    return { status: 'local-error', message: 'errors:projectSync.local_save_failed' }
+  if (status === 401) return { status: 'auth-error', message: 'errors:projectSync.unauthorized' }
+  if (status === 403 || status === 404)
+    return { status: 'permission-error', message: 'errors:projectSync.project_not_found' }
+  if (status === 413 || status === 507)
+    return { status: 'quota-error', message: 'errors:projectSync.project_document_too_large' }
+  if (error instanceof ProjectRequestError && status === 409)
+    return { status: 'conflict', message: 'errors:projectSync.project_conflict' }
+  if (
+    (status && status >= 400 && status < 500 && status !== 408 && status !== 429) ||
+    error instanceof SyntaxError ||
+    (error instanceof Error &&
+      [
+        'unsupported_project',
+        'invalid_project_receipt',
+        'invalid_media_upload',
+        'invalid_media_confirmation',
+      ].includes(error.message))
+  )
+    return { status: 'format-error', message: 'errors:projectSync.invalid_project_document' }
+  return { status: 'error', message: 'errors:projectSync.fallback' }
+}
+const STOPPED = new Set<ProjectSyncStatus>([
+  'conflict',
+  'local-error',
+  'auth-error',
+  'permission-error',
+  'quota-error',
+  'format-error',
+  'load-error',
+])
 
 function content(name: string, document: ProjectDocument): string {
   // PostgreSQL JSONB 的键序与浏览器可能不同；对象键排序，元素数组顺序保留。
@@ -43,14 +112,57 @@ export class CloudProjectSession {
   private readonly mediaBindings: LoadedBindings = new Map()
   private initialized = false
   private writable = false
+  private readRequired = false
+  private readVersion = 0
   private queue: Promise<unknown> = Promise.resolve()
   private readonly scope = scopedStorageName('canvas-cloud')
   private readonly controller = new AbortController()
-  private state: { status: ProjectSyncStatus; message: string | null } = {
+  private state: { status: ProjectSyncStatus; message: SyncMessage | null } = {
     status: 'loading',
     message: null,
   }
   private listeners = new Set<() => void>()
+  private started = false
+  private timer: ReturnType<typeof setTimeout> | undefined
+  private scheduled: Promise<void> | undefined
+  private retries = 0
+  private editVersion = 0
+  private lastCheck = 0
+
+  start() {
+    if (this.started) return
+    this.started = true
+    window.addEventListener('online', this.resume)
+    if (this.state.status === 'error') this.retryLater()
+    else this.requestSync()
+  }
+  requestSync() {
+    if (
+      this.state.status === 'pending' ||
+      this.state.status === 'local' ||
+      this.state.status === 'offline'
+    )
+      this.schedule(1000)
+  }
+  private resume = () => {
+    if (STOPPED.has(this.state.status)) return
+    this.retries = 0
+    this.schedule(1000)
+  }
+  private retryLater() {
+    const delay = RETRY_DELAYS[this.retries]
+    if (delay !== undefined && this.started && navigator.onLine !== false) {
+      this.retries++
+      this.schedule(delay)
+    }
+  }
+  private schedule(delay: number) {
+    if (!this.started || this.timer || navigator.onLine === false) return
+    this.timer = setTimeout(() => {
+      this.timer = undefined
+      void this.runSync().catch(() => {})
+    }, delay)
+  }
 
   constructor(
     private project: CanvasProject,
@@ -68,10 +180,16 @@ export class CloudProjectSession {
     if (this.controller.signal.aborted || scopedStorageName('canvas-cloud') !== this.scope)
       throw new Error('project_scope_changed')
   }
-  private update(status: ProjectSyncStatus, message: string | null = null) {
+  private update(status: ProjectSyncStatus, message: SyncMessage | null = null) {
     this.current()
     this.state = { status, message }
     for (const listener of this.listeners) listener()
+    if (status === 'saved') {
+      this.retries = 0
+      clearTimeout(this.timer)
+      this.timer = undefined
+    }
+    if (status === 'error') this.retryLater()
   }
   private document(): ProjectDocument | null {
     return projectDocument(this.editor.doc, this.mediaBindings)
@@ -81,11 +199,18 @@ export class CloudProjectSession {
   }
   async saveLocal(preserveStructure = false): Promise<boolean> {
     this.current()
+    const version = this.editVersion
     const saved = await saveScene(this.editor, this.project.sceneKey, undefined, {
       cloud: { version: 1, ...this.baseline, name: this.project.name },
       preserveStructure,
     })
     this.current()
+    if (!saved) this.update('local-error', 'errors:projectSync.local_save_failed')
+    else if (
+      version === this.editVersion &&
+      (this.state.status === 'pending' || this.state.status === 'local-error')
+    )
+      this.update(navigator.onLine === false ? 'offline' : 'local')
     return saved
   }
   private async metadata(patch: Parameters<typeof projectRepository.update>[1]) {
@@ -95,11 +220,21 @@ export class CloudProjectSession {
     this.publish(this.project)
   }
   load(hasLocalScene = false): Promise<void> {
+    this.lastCheck = Date.now()
     return this.serialize(() => this.loadCurrent(hasLocalScene))
+  }
+  refresh(): Promise<void> {
+    if (
+      Date.now() - this.lastCheck < 5000 ||
+      STOPPED.has(this.state.status) ||
+      this.state.status === 'error'
+    )
+      return Promise.resolve()
+    return this.load(true).then(() => this.requestSync())
   }
   private async loadCurrent(hasLocalScene: boolean): Promise<void> {
     this.current()
-    const retryingRead = this.state.status === 'load-error'
+    const retryingRead = this.readRequired && !this.writable
     if (!this.initialized) {
       const cached = await readPersistedScene(this.project.sceneKey)
       this.current()
@@ -126,6 +261,13 @@ export class CloudProjectSession {
         false,
       )
     this.current()
+    if (navigator.onLine === false && hasLocalScene && this.baseline.savedContent !== null) {
+      this.writable = true
+      this.readRequired = true
+      await this.persist()
+      this.update('offline')
+      return
+    }
     const local = this.document()
     // Preserve local media while it is being confirmed; never replace it with a remote structure.
     if (hasLocalScene && !local) {
@@ -135,7 +277,7 @@ export class CloudProjectSession {
       return
     }
     const dirty =
-      !retryingRead &&
+      (!retryingRead || this.editVersion !== this.readVersion) &&
       hasLocalScene &&
       this.baseline.savedContent !== null &&
       (!local || content(this.project.name, local) !== this.baseline.savedContent)
@@ -151,6 +293,10 @@ export class CloudProjectSession {
     }
     this.update('loading')
     this.writable = false
+    this.readRequired = true
+    const version = this.editVersion
+    this.readVersion = version
+    const { elements, files } = this.editor.doc
     try {
       const remote = await getCloudProject(this.project.id, this.controller.signal)
       this.current()
@@ -161,6 +307,16 @@ export class CloudProjectSession {
         remote.revision < 1
       )
         throw new Error('unsupported_project')
+      if (
+        (version !== this.editVersion ||
+          elements !== this.editor.doc.elements ||
+          files !== this.editor.doc.files) &&
+        hasLocalScene
+      ) {
+        this.writable = true
+        await this.push()
+        return
+      }
       if (retryingRead || !hasLocalScene || remote.revision !== this.baseline.revision) {
         const scene = projectScene(remote.document, this.mediaBindings)
         this.editor.doc.restore(scene.elements, scene.files, this.editor.doc.camera)
@@ -181,14 +337,28 @@ export class CloudProjectSession {
       }
       await this.persist()
       this.writable = true
-      this.update('saved')
+      this.readRequired = false
+      const current = this.document()
+      this.update(
+        current && content(this.project.name, current) === this.baseline.savedContent
+          ? 'saved'
+          : 'pending',
+      )
     } catch (error) {
-      this.update('load-error', i18next.t('cloud.loadFailed', { ns: 'canvas' }))
+      this.current()
+      const failure = classifyFailure(error)
+      if (hasLocalScene && this.baseline.savedContent !== null && failure.status === 'error') {
+        this.writable = true
+        this.update(failure.status, failure.message)
+        return
+      }
+      this.update(failure.status === 'error' ? 'load-error' : failure.status, failure.message)
       throw error
     }
   }
   markChanged() {
-    if (this.state.status !== 'conflict') this.update('pending')
+    this.editVersion++
+    if (!STOPPED.has(this.state.status) && this.state.status !== 'error') this.update('pending')
   }
   rename(name: string): Promise<void> {
     return this.serialize(async () => {
@@ -204,11 +374,30 @@ export class CloudProjectSession {
     })
   }
   private serialize(work: () => Promise<void>): Promise<void> {
-    const operation = this.queue.then(work)
+    const operation = this.queue.then(() => withSyncSlot(work))
     this.queue = operation.catch(() => {})
     return operation
   }
-  sync = (): Promise<void> => this.serialize(() => this.push())
+  sync = (): Promise<void> => {
+    clearTimeout(this.timer)
+    this.timer = undefined
+    this.retries = 0
+    return this.runSync()
+  }
+  private runSync(): Promise<void> {
+    if (this.scheduled) return this.scheduled
+    const operation = this.serialize(() =>
+      this.readRequired ? this.loadCurrent(true) : this.push(),
+    )
+    this.scheduled = operation
+    void operation
+      .finally(() => {
+        if (this.scheduled === operation) this.scheduled = undefined
+        this.requestSync()
+      })
+      .catch(() => {})
+    return operation
+  }
   private async commitPending(): Promise<void> {
     const pending = this.baseline.pending!
     const result = await putCloudProject(this.project.id, pending, this.controller.signal)
@@ -222,6 +411,7 @@ export class CloudProjectSession {
       pending: null,
       conflict: false,
     }
+    this.readRequired = false
     await this.persist()
     await this.metadata({
       cloud: { revision: result.revision, nameDirty: this.project.name !== pending.name },
@@ -232,10 +422,15 @@ export class CloudProjectSession {
     this.current()
     if (!this.writable) throw new Error('project_not_loaded')
     if (this.baseline.conflict) {
-      this.update('conflict', i18next.t('cloud.conflict', { ns: 'canvas' }))
+      this.update('conflict', 'errors:projectSync.project_conflict')
       return
     }
     try {
+      await this.persist()
+      if (navigator.onLine === false) {
+        this.update('offline')
+        return
+      }
       this.update('syncing')
       if (this.baseline.pending) await this.commitPending()
       await this.persist()
@@ -249,7 +444,7 @@ export class CloudProjectSession {
       this.current()
       const document = this.document()
       if (!document) {
-        this.update('media-local', i18next.t('cloud.mediaLocal', { ns: 'canvas' }))
+        this.update('media-local', 'errors:projectSync.media_local')
         return
       }
       if (content(this.project.name, document) !== this.baseline.savedContent) {
@@ -273,19 +468,17 @@ export class CloudProjectSession {
       if (error instanceof ProjectRequestError && error.status === 409) {
         this.baseline.conflict = true
         await this.persist()
-        this.update('conflict', i18next.t('cloud.conflict', { ns: 'canvas' }))
+        this.update('conflict', 'errors:projectSync.project_conflict')
       } else {
-        this.update(
-          'error',
-          (error instanceof ProjectRequestError || error instanceof MediaRequestError) &&
-            error.status === 413
-            ? i18next.t('cloud.quotaExceeded', { ns: 'canvas' })
-            : i18next.t('cloud.syncFailed', { ns: 'canvas' }),
-        )
+        const failure = classifyFailure(error)
+        this.update(failure.status, failure.message)
       }
     }
   }
   dispose() {
+    this.started = false
+    clearTimeout(this.timer)
+    window.removeEventListener('online', this.resume)
     this.controller.abort()
     this.listeners.clear()
   }
