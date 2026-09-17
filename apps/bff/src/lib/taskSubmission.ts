@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { setTimeout as delay } from 'node:timers/promises'
 import type {
   PersistedSubmitRequest,
@@ -11,13 +12,14 @@ import {
   QUEUE_TIMEOUTS,
   videoRateMultiplier,
 } from '@image-playground/shared'
-import { and, eq, isNull } from 'drizzle-orm'
+import { and, eq, isNull, sql } from 'drizzle-orm'
 import { config } from '../config'
 import { db, schema } from '../db/client'
+import { publishGenerations } from '../db/generation-events'
 import { prepareMaskedInput } from './agent/masked-input'
 import { isCapabilityEnabled } from './capabilities'
 import { describeEmptyResult, type ExtractedResult, extractMeta } from './extractImages'
-import { archiveInputImages, ObjectStorageError } from './imageArchive'
+import { archiveInputImages, hydrateInputImages, ObjectStorageError } from './imageArchive'
 import { objectStore } from './objectStore'
 import { loadPrivateBffOverlay } from './private-overlay'
 import { asQueueProvider } from './queueProvider'
@@ -37,6 +39,7 @@ export interface CreateQueueTaskInput {
 export type CreateQueueTaskOutcome =
   | { readonly kind: 'created'; readonly taskId: string; readonly submittedAt: number }
   | { readonly kind: 'idempotency_conflict' }
+  | { readonly kind: 'idempotency_mismatch' }
   | { readonly kind: 'authentication_required' }
   | { readonly kind: 'insufficient_credits'; readonly required: number; readonly available: number }
   | { readonly kind: 'price_unavailable'; readonly model: string }
@@ -68,9 +71,123 @@ function pricingOf(input: CreateQueueTaskInput) {
   }
 }
 
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`
+  if (value && typeof value === 'object')
+    return `{${Object.entries(value)
+      .filter(([, v]) => v !== undefined)
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      .map(([key, v]) => `${JSON.stringify(key)}:${canonicalJson(v)}`)
+      .join(',')}}`
+  return JSON.stringify(value)
+}
+function commandHash(input: CreateQueueTaskInput) {
+  const { device_id: _device, client_request_id: _command, ...request } = input.request
+  return createHash('sha256')
+    .update(
+      canonicalJson({
+        provider: input.provider,
+        model: input.model,
+        request: {
+          ...request,
+          n: request.n ?? 1,
+          ...(!input.video && input.provider === 'openai-compat'
+            ? { moderation: request.moderation ?? DEFAULT_IMAGE_MODERATION }
+            : {}),
+        },
+        video: input.video,
+        agent: input.agent,
+      }),
+    )
+    .digest('hex')
+}
+async function replayCommand(
+  database: Pick<typeof db, 'select'>,
+  userId: string,
+  commandId: string,
+  hash: string,
+) {
+  const [receipt] = await database
+    .select()
+    .from(schema.generation_commands)
+    .where(
+      and(
+        eq(schema.generation_commands.user_id, userId),
+        eq(schema.generation_commands.command_id, commandId),
+      ),
+    )
+  if (!receipt) return null
+  return receipt.request_hash === hash
+    ? { kind: 'created' as const, taskId: receipt.task_id, submittedAt: receipt.submitted_at }
+    : { kind: 'idempotency_mismatch' as const }
+}
+
+async function adoptLegacyCommand(
+  userId: string,
+  commandId: string,
+  hash: string,
+): Promise<CreateQueueTaskOutcome | null> {
+  return db.transaction(async (tx) => {
+    await tx.execute(
+      sql`SELECT pg_advisory_xact_lock(hashtextextended(${JSON.stringify(['generation-command', userId, commandId])}, 0))`,
+    )
+    const replay = await replayCommand(tx, userId, commandId, hash)
+    if (replay) return replay
+    const [task] = await tx
+      .select()
+      .from(schema.tasks)
+      .where(and(eq(schema.tasks.user_id, userId), eq(schema.tasks.client_request_id, commandId)))
+      .limit(1)
+      .for('update')
+    if (!task) return null
+    const provider = asQueueProvider(task.provider)
+    // Agent mask preparation changes the original request, so it cannot be reconstructed safely.
+    if (!provider || task.request_payload.preserve_outside_mask)
+      return { kind: 'idempotency_mismatch' }
+    let originalHash: string
+    try {
+      const { video, ...payload } = task.request_payload
+      const { video: _video, ...request } = await hydrateInputImages(payload)
+      originalHash = commandHash({
+        provider,
+        model: task.model,
+        request,
+        video,
+        userId,
+        ...(task.agent_conversation_id && task.agent_turn_id
+          ? {
+              agent: { conversationId: task.agent_conversation_id, turnId: task.agent_turn_id },
+            }
+          : {}),
+      })
+    } catch {
+      return { kind: 'object_storage_error', message: 'Original task inputs could not be read' }
+    }
+    // The task lock prevents retention from deleting the identity before its receipt is durable.
+    await tx.insert(schema.generation_commands).values({
+      user_id: userId,
+      command_id: commandId,
+      request_hash: originalHash,
+      task_id: task.id,
+      submitted_at: task.submitted_at,
+    })
+    return originalHash === hash
+      ? { kind: 'created', taskId: task.id, submittedAt: task.submitted_at }
+      : { kind: 'idempotency_mismatch' }
+  })
+}
+
 export async function createQueueTask(
   input: CreateQueueTaskInput,
 ): Promise<CreateQueueTaskOutcome> {
+  const commandId = input.request.client_request_id
+  const hash = commandHash(input)
+  if (input.userId && commandId) {
+    const replay = await replayCommand(db, input.userId, commandId, hash)
+    if (replay) return replay
+    const legacy = await adoptLegacyCommand(input.userId, commandId, hash)
+    if (legacy) return legacy
+  }
   const id = crypto.randomUUID()
   let requestPayload: PersistedSubmitRequest
   try {
@@ -118,6 +235,14 @@ export async function createQueueTask(
   const dailyQuotaEnabled = isCapabilityEnabled('quota:daily')
   const dailyImageQuota = config.operator.quotas['generation:daily-images']
   const outcome = await db.transaction(async (tx) => {
+    if (input.userId && commandId) {
+      // A per-command transaction lock also covers the first submission, before a receipt exists.
+      await tx.execute(
+        sql`SELECT pg_advisory_xact_lock(hashtextextended(${JSON.stringify(['generation-command', input.userId, commandId])}, 0))`,
+      )
+      const replay = await replayCommand(tx, input.userId, commandId, hash)
+      if (replay) return replay
+    }
     const inserted = await tx
       .insert(schema.tasks)
       .values({
@@ -166,6 +291,15 @@ export async function createQueueTask(
         return { kind: 'quota_exceeded' as const, quota }
       }
     }
+    if (input.userId && commandId)
+      await tx.insert(schema.generation_commands).values({
+        user_id: input.userId,
+        command_id: commandId,
+        request_hash: hash,
+        task_id: id,
+        submitted_at: now,
+      })
+    await publishGenerations(tx, [id])
     return {
       kind: 'created' as const,
       taskId: inserted[0]!.id,
@@ -173,7 +307,10 @@ export async function createQueueTask(
     }
   })
 
-  if (outcome.kind !== 'created') await discardArchivedInputs(id)
+  if (outcome.kind !== 'created' || outcome.taskId !== id) await discardArchivedInputs(id)
+  if (outcome.kind === 'idempotency_conflict' && input.userId && commandId) {
+    return (await adoptLegacyCommand(input.userId, commandId, hash)) ?? outcome
+  }
   return outcome
 }
 

@@ -97,5 +97,24 @@
     "failedCount": "失败 {{failed}}",
     "expandToView": "展开查看",
     "resultAlt": "{{name}} 结果"
+  },
+  "cloudHistory": {
+    "title": "云端记录",
+    "description": "查看已提交到平台的图片任务",
+    "refresh": "刷新",
+    "loading": "正在加载…",
+    "empty": "还没有云端图片记录",
+    "details": "查看详情",
+    "local": "此设备",
+    "status": {
+      "queued": "排队中",
+      "in_progress": "生成中",
+      "completed": "已完成",
+      "failed": "生成失败",
+      "cancelled": "已取消"
+    },
+    "pages": "记录分页",
+    "previous": "上一页",
+    "next": "下一页"
   }
 }

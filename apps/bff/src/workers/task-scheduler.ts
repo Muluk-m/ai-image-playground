@@ -2,6 +2,7 @@ import { type QueueProvider, type TaskStatus } from '@image-playground/shared'
 import { and, asc, eq, inArray, isNull, lte, or } from 'drizzle-orm'
 import { config } from '../config'
 import { db, schema } from '../db/client'
+import { finishTask } from '../db/task-transitions'
 import { log } from '../lib/logger'
 import { abortRunningTask, runningTaskIds, runTask } from './task-runner'
 
@@ -127,15 +128,12 @@ export class TaskScheduler {
       .catch(async (err) => {
         const message = err instanceof Error ? err.message : String(err)
         log.error({ event: 'task.crashed', taskId: id, err: message }, 'task-runner crashed')
-        await db
-          .update(schema.tasks)
-          .set({
-            status: 'failed',
-            error_message: `Worker 执行异常：${message}`,
-            error_type: 'interrupted',
-            completed_at: Date.now(),
-          })
-          .where(and(eq(schema.tasks.id, id), eq(schema.tasks.status, 'in_progress')))
+        await finishTask(id, {
+          status: 'failed',
+          errorMessage: `Worker 执行异常：${message}`,
+          errorType: 'interrupted',
+          completedAt: Date.now(),
+        })
       })
       .finally(() => active.delete(id))
     active.set(id, promise)

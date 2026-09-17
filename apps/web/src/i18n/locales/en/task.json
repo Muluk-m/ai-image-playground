@@ -99,5 +99,24 @@
     "failedCount": "{{failed}} failed",
     "expandToView": "Expand",
     "resultAlt": "{{name}} result"
+  },
+  "cloudHistory": {
+    "title": "Cloud history",
+    "description": "Image tasks submitted to the platform",
+    "refresh": "Refresh",
+    "loading": "Loading…",
+    "empty": "No cloud image tasks yet",
+    "details": "View details",
+    "local": "This device",
+    "status": {
+      "queued": "Queued",
+      "in_progress": "Generating",
+      "completed": "Completed",
+      "failed": "Failed",
+      "cancelled": "Cancelled"
+    },
+    "pages": "History pages",
+    "previous": "Previous",
+    "next": "Next"
   }
 }
