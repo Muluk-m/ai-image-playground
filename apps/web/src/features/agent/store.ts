@@ -1,14 +1,11 @@
 import type {
   AgentActiveTurnView,
-  AgentClarificationBlock,
   AgentConversationView,
-  AgentMessageView,
   AgentThinkingDepth,
-  AgentToolResultBlock,
   AgentTurnEvent,
   AgentTurnReference,
 } from '@image-playground/shared'
-import { AGENT_IMAGE_MAX_N, agentMessageText } from '@image-playground/shared'
+import { AGENT_IMAGE_MAX_N } from '@image-playground/shared'
 import { create } from 'zustand'
 import { i18next } from '../../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../lib/apiProfiles'
@@ -40,15 +37,14 @@ import {
 import { createArtifactDelivery, type TurnArtifactDelivery } from './lib/artifactDelivery'
 import { onAgentCanvasSinkChange } from './lib/canvasSink'
 import { agentDraft, bindNewAgentDraft, removeProjectDraft } from './lib/drafts'
+import {
+  dropUnsettledMessages,
+  panelMessage,
+  panelStateFromHistory,
+  reduceAgentPanelEvent,
+} from './lib/panelMessages'
 import { toAgentTurnParams } from './lib/turnParams'
-import type {
-  AgentClarificationMessage,
-  AgentPanelMessage,
-  AgentPanelTab,
-  AgentToolMessage,
-  AgentTurnFooter,
-  AgentTurnStatus,
-} from './types'
+import type { AgentPanelMessage, AgentPanelTab, AgentTurnFooter, AgentTurnStatus } from './types'
 
 // 文案按调用时取，不在模块加载时定死：切语言之后新出的报错要跟着换语言。
 const TURN_FAILED = () => i18next.t('error.turnFailed', { ns: 'agent' })
@@ -109,114 +105,13 @@ export interface AgentState {
   placeOnCanvas(messageId: string): Promise<void>
 }
 
-function mergeTurn(
-  turns: Record<string, AgentTurnFooter>,
-  turnId: string,
-  patch: Partial<AgentTurnFooter>,
-): Record<string, AgentTurnFooter> {
-  return { ...turns, [turnId]: { ...turns[turnId], turnId, ...patch } }
-}
-
-function replaceOrAppend(
-  messages: AgentPanelMessage[],
-  message: AgentPanelMessage,
-): AgentPanelMessage[] {
-  const index = messages.findIndex((one) => one.id === message.id)
-  if (index < 0) return [...messages, message]
-  return messages.map((one, at) => (at === index ? message : one))
-}
-
-function toolCard(block: AgentToolResultBlock, id: string, turnId: string): AgentToolMessage {
-  return {
-    kind: 'tool',
-    id,
-    turnId,
-    toolCallId: block.toolCallId,
-    title: block.title,
-    ...(block.prompt ? { prompt: block.prompt } : {}),
-    status: block.status,
-    ...(block.artifacts ? { artifacts: block.artifacts } : {}),
-    ...(block.anchorObjectId ? { anchorObjectId: block.anchorObjectId } : {}),
-    ...(block.message ? { message: block.message } : {}),
-  }
-}
-
-function clarificationCard(
-  block: AgentClarificationBlock,
-  id: string,
-  turnId: string,
-): AgentClarificationMessage {
-  return { kind: 'clarification', id, turnId, question: block.question, options: block.options }
-}
-
-function panelMessage(message: AgentMessageView): AgentPanelMessage {
-  const result = message.content.find(
-    (block): block is AgentToolResultBlock => block.type === 'toolResult',
-  )
-  if (result) return toolCard(result, message.id, message.turnId)
-  const asked = message.content.find(
-    (block): block is AgentClarificationBlock => block.type === 'clarification',
-  )
-  if (asked) return clarificationCard(asked, message.id, message.turnId)
-  return {
-    kind: 'text',
-    id: message.id,
-    turnId: message.turnId,
-    role: message.role,
-    text: agentMessageText(message),
-    streaming: false,
-  }
-}
-
-/**
- * 可作答的只有末尾那一条：澄清之后一旦有用户消息，它就已经作过答。
- * 回填的答案本身就是那条用户消息，所以不必另存作答状态。
- */
-export function answerableClarificationId(messages: readonly AgentPanelMessage[]): string | null {
-  for (let at = messages.length - 1; at >= 0; at -= 1) {
-    const message = messages[at]!
-    if (message.kind === 'text' && message.role === 'user') return null
-    if (message.kind === 'clarification') return message.id
-  }
-  return null
-}
-
 const failPatch = (state: AgentState, message = TURN_FAILED()) => ({
   turn: 'failed' as const,
   stopping: false,
   activeTurn: null,
   error: message,
-  // 半截的回复撤掉；起轮前就失败的那条先上屏的用户消息也撤掉——草稿还在输入框里，
-  // 留着它屏幕上就有两份同样的话。
-  messages: state.messages.filter((one) => one.kind !== 'text' || (!one.streaming && !one.pending)),
+  messages: dropUnsettledMessages(state.messages),
 })
-
-/**
- * 这个会话有没有"开始"：敲下回车那条先上屏的消息也算。欢迎页据此让位——
- * 发送是乐观的，视图不等服务端确认；起轮失败会把那条撤回，欢迎页随之回来。
- */
-export function conversationStarted(messages: readonly AgentPanelMessage[]): boolean {
-  return messages.length > 0
-}
-
-export type AgentActivityPhase = 'sending' | 'thinking' | 'executing' | 'stopping'
-
-/**
- * 进行中这一轮此刻在干什么，给对话末尾的状态行用。文字一旦在流就返回 null：
- * 正文自己就是最好的进度。
- */
-export function agentActivityPhase(
-  state: Pick<AgentState, 'turn' | 'activeTurn' | 'messages'> &
-    Partial<Pick<AgentState, 'stopping'>>,
-): AgentActivityPhase | null {
-  if (state.turn !== 'running') return null
-  if (state.stopping) return 'stopping'
-  if (!state.activeTurn) return 'sending'
-  const last = state.messages[state.messages.length - 1]
-  if (last?.kind === 'tool' && last.status === 'running') return 'executing'
-  if (last?.kind === 'text' && last.role === 'assistant' && last.streaming && last.text) return null
-  return 'thinking'
-}
 
 let pendingSeq = 0
 const PENDING_PREFIX = 'pending_'
@@ -243,7 +138,10 @@ export const useAgentStore = create<AgentState>((set, get) => {
     if (sink) void delivery.redeliverUnavailable(get().messages)
   })
 
-  /** 事件按 id 幂等：重连重发的帧、以及续播重放的整轮，都要落到同一个结果上。 */
+  /**
+   * 先把事件归约进面板，再做交付副作用。归约是纯的（见 `lib/panelMessages`），
+   * 这里只补轮自己的状态：哪一轮在跑、跑完是回 idle 还是判失败。
+   */
   const apply = (
     event: AgentTurnEvent,
     pendingUserText: string | null,
@@ -252,115 +150,11 @@ export const useAgentStore = create<AgentState>((set, get) => {
   ) => {
     if (turnDelivery.isCurrent())
       set((state) => {
-        switch (event.type) {
-          case 'turnStart':
-            return {
-              activeTurn: { turnId: event.turnId },
-              turns: mergeTurn(
-                state.turns,
-                event.turnId,
-                event.reservedCredits === undefined
-                  ? {}
-                  : { reservedCredits: event.reservedCredits },
-              ),
-              messages: state.messages.some((one) => one.id === event.userMessageId)
-                ? state.messages
-                : [
-                    // 先上屏的那条换成服务端的 id；同一轮不会有第二条待确认的。
-                    ...state.messages.filter((one) => one.kind !== 'text' || !one.pending),
-                    {
-                      kind: 'text' as const,
-                      id: event.userMessageId,
-                      turnId,
-                      role: 'user' as const,
-                      text: pendingUserText ?? '',
-                      streaming: false,
-                    },
-                  ],
-            }
-          case 'assistantStart':
-            return {
-              messages: replaceOrAppend(state.messages, {
-                kind: 'text',
-                id: event.messageId,
-                turnId,
-                role: 'assistant',
-                text: '',
-                streaming: true,
-              }),
-            }
-          case 'interjection':
-            return {
-              messages: replaceOrAppend(state.messages, {
-                kind: 'text',
-                id: event.messageId,
-                turnId,
-                role: 'user',
-                text: event.text,
-                streaming: false,
-              }),
-            }
-          case 'textDelta':
-            return {
-              messages: state.messages.map((one) =>
-                one.kind === 'text' && one.id === event.messageId
-                  ? { ...one, text: one.text + event.delta }
-                  : one,
-              ),
-            }
-          case 'toolStart':
-            return {
-              messages: replaceOrAppend(state.messages, {
-                kind: 'tool',
-                id: event.messageId,
-                turnId,
-                toolCallId: event.toolCallId,
-                title: event.title,
-                ...(event.prompt ? { prompt: event.prompt } : {}),
-                status: 'running',
-                ...(event.anchorObjectId ? { anchorObjectId: event.anchorObjectId } : {}),
-              }),
-            }
-          case 'toolProgress':
-            return {
-              messages: state.messages.map((one) =>
-                one.kind === 'tool' && one.id === event.messageId
-                  ? { ...one, stage: event.stage }
-                  : one,
-              ),
-            }
-          case 'clarification':
-            return {
-              messages: replaceOrAppend(
-                state.messages,
-                clarificationCard(event, event.messageId, turnId),
-              ),
-            }
-          case 'toolEnd':
-            return {
-              messages: replaceOrAppend(
-                state.messages,
-                toolCard({ ...event, type: 'toolResult' }, event.messageId, turnId),
-              ),
-            }
-          case 'turnEnd': {
-            const turns = mergeTurn(state.turns, event.turnId, {
-              durationMs: event.durationMs,
-              stopReason: event.stopReason,
-              ...(event.cost ? { cost: event.cost } : {}),
-            })
-            if (event.stopReason === 'failed') return { ...failPatch(state), turns }
-            return {
-              turn: 'idle' as const,
-              stopping: false,
-              activeTurn: null,
-              turns,
-              messages: state.messages.map((one) =>
-                one.kind === 'text' && one.streaming ? { ...one, streaming: false } : one,
-              ),
-            }
-          }
-        }
+        const panel = reduceAgentPanelEvent(state, event, { turnId, pendingUserText })
+        if (event.type === 'turnStart') return { ...panel, activeTurn: { turnId: event.turnId } }
+        if (event.type !== 'turnEnd') return panel
+        if (event.stopReason === 'failed') return { ...failPatch(state), turns: panel.turns }
+        return { ...panel, turn: 'idle' as const, stopping: false, activeTurn: null }
       })
     // 工具一起跑画布就占好位、镜头跟过去；产物到了落进这些位，没跑成就在原地标错。
     if (event.type === 'toolStart' && event.outputCount) {
@@ -372,9 +166,12 @@ export const useAgentStore = create<AgentState>((set, get) => {
       })
     }
     if (event.type === 'toolEnd') {
-      const message = toolCard({ ...event, type: 'toolResult' }, event.messageId, turnId)
+      // 交付拿的是与面板上同一张卡：投递前后不会出现第二种产物清单。
+      const card = panelMessage(event.messageId, turnId, 'assistant', [
+        { ...event, type: 'toolResult' },
+      ])
       if (event.status === 'failed') turnDelivery.failed(event.messageId, event.message)
-      else if (message?.kind === 'tool' && message.artifacts?.length) turnDelivery.enqueue(message)
+      else if (card.kind === 'tool' && card.artifacts?.length) turnDelivery.enqueue(card)
       else turnDelivery.discard(event.messageId)
     }
   }
@@ -486,12 +283,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
       else fail(CONVERSATION_UNREADABLE())
       return
     }
-    set({
-      historyLoading: false,
-      historyFailed: false,
-      messages: state.messages.map(panelMessage),
-      turns: Object.fromEntries(state.turns.map((one) => [one.turnId, one])),
-    })
+    set({ historyLoading: false, historyFailed: false, ...panelStateFromHistory(state) })
     void delivery.restore(get().messages)
     const active = state.activeTurn?.turnId ?? turnId
     if (!active) return
@@ -522,8 +314,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
               stopping: false,
               activeTurn: null,
               error: null,
-              messages: history.messages.map(panelMessage),
-              turns: Object.fromEntries(history.turns.map((one) => [one.turnId, one])),
+              ...panelStateFromHistory(history),
             })
             void delivery.restore(get().messages)
             return

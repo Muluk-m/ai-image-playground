@@ -25,9 +25,10 @@ import {
   USER_BUBBLE,
 } from '../agentStyles'
 import { attachFilesToComposer } from '../lib/attachments'
+import { answerableClarificationId } from '../lib/panelMessages'
 import { agentSessionCredits } from '../lib/turnCost'
 import { agentPanelPresent } from '../panelLayout'
-import { answerableClarificationId, useAgentStore } from '../store'
+import { useAgentStore } from '../store'
 import type { AgentPanelMessage } from '../types'
 import AgentActivity from './AgentActivity'
 import AgentClarification from './AgentClarification'

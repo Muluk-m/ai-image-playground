@@ -7,8 +7,8 @@ import {
   agentActivityPhase,
   answerableClarificationId,
   conversationStarted,
-  useAgentStore,
-} from '../../../features/agent/store'
+} from '../../../features/agent/lib/panelMessages'
+import { useAgentStore } from '../../../features/agent/store'
 import { _setRuntimeConfigForTesting } from '../../../lib/runtimeConfig'
 
 const CONVERSATION = 'conversation-1'
