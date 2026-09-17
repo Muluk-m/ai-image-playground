@@ -11,6 +11,7 @@ import { create } from 'zustand'
 import { i18next } from '../../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../lib/apiProfiles'
 import { AGENT_CONVERSATION_KEY, safeLocalStorage, scopedStorageName } from '../../lib/authScope'
+import { notifyPrivateSubmissionSettled } from '../../lib/privateOverlay'
 import { useStore } from '../../store'
 import {
   bindNewCanvasWorkspace,
@@ -166,6 +167,9 @@ export const useAgentStore = create<AgentState>((set, get) => {
         if (event.stopReason === 'failed') return { ...failPatch(state), turns: panel.turns }
         return { ...panel, turn: 'idle' as const, stopping: false, activeTurn: null }
       })
+    // 扣费在轮与工具各自收尾时发生，顶栏余额属于用户而不属于某个项目：切了项目之后
+    // 迟到的结算也要刷新，所以放在 `isCurrent()` 之外。没有私有 overlay 时是空操作。
+    if (event.type === 'turnEnd' || event.type === 'toolEnd') notifyPrivateSubmissionSettled()
     // 工具一起跑画布就占好位、镜头跟过去；产物到了落进这些位，没跑成就在原地标错。
     if (event.type === 'toolStart' && event.outputCount) {
       turnDelivery.reserve(event.messageId, {
