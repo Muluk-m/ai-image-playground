@@ -1,27 +1,8 @@
-import type { HostSample, OpsBackupObject, OpsBackups } from '@image-playground/shared'
+import type { HostSample } from '@image-playground/shared'
 import { Elysia, t } from 'elysia'
 import { db, schema } from '../db/client'
-import { type ObjectEntry, objectStore } from '../lib/objectStore'
+import { readBackups } from '../lib/ops-backups'
 import { requireInternalService } from '../lib/user-auth'
-
-/** pg-backup 容器把每天的 dump 传到这个前缀下，key 形如 `pg/2026-09-17.dump`。 */
-const BACKUP_PREFIX = 'pg/'
-
-function toBackup(entry: ObjectEntry | undefined): OpsBackupObject | null {
-  if (!entry) return null
-  return { key: entry.key, size_bytes: entry.size, modified_at: entry.lastModified }
-}
-
-/**
- * 看的是真正落在桶里的文件，不是备份脚本自称的成功：脚本的成功痕迹是容器里一个文件的 mtime，
- * 容器一启动就会被刷成健康。带上前一份是为了让调用方看出「今天这份突然小了一个量级」。
- */
-export async function readBackups(): Promise<OpsBackups> {
-  const dumps = (await objectStore().listEntries(BACKUP_PREFIX))
-    .filter((entry) => entry.key.endsWith('.dump'))
-    .sort((a, b) => b.lastModified - a.lastModified || b.key.localeCompare(a.key))
-  return { latest: toBackup(dumps[0]), previous: toBackup(dumps[1]) }
-}
 
 /** 采集方的时钟允许的超前量；再往后的读数只可能是坏数据。 */
 const CLOCK_SKEW_MS = 5 * 60 * 1000

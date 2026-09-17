@@ -26,7 +26,10 @@ if (!bffUrl || !token) {
   })
 }
 
-const webhookUrl = process.env.OPS_ALERT_WEBHOOK_URL?.trim()
+// 同一台宿主机上的每套部署各跑一个采集容器、读到同一块盘。宿主机告警只该由其中一套发，
+// 其余的把 OPS_HOST_ALERTS 设成 false；它们自己的应用告警（队列、备份、心跳）不受影响。
+const hostAlertsEnabled = process.env.OPS_HOST_ALERTS?.trim().toLowerCase() !== 'false'
+const webhookUrl = hostAlertsEnabled ? process.env.OPS_ALERT_WEBHOOK_URL?.trim() : undefined
 const deployment = process.env.OPS_DEPLOYMENT_NAME?.trim() || 'deployment'
 
 const stop = runCollector({

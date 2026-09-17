@@ -7,6 +7,8 @@ import { initChannels } from './lib/channels'
 import { purgeStaleHeartbeats, startHeartbeat } from './lib/heartbeat'
 import { log } from './lib/logger'
 import { assertPrivateBffOverlayPresent, loadPrivateBffOverlay } from './lib/private-overlay'
+import { createAlertSender } from './ops/alert-sender'
+import { createAppAlerting } from './ops/app-alerts'
 import { abortAllRunningTasks, runningTaskIds } from './workers/task-runner'
 import { TaskScheduler } from './workers/task-scheduler'
 import { startWorkerHealthServer } from './workers/worker-health'
@@ -31,7 +33,15 @@ const stopHeartbeat = startHeartbeat({
   service: 'worker',
   detail: () => ({ last_successful_poll_at: scheduler.lastSuccessfulPollAt() }),
 })
+// 队列积压、备份断了、后端心跳断了：每次维护循环看一眼，该发就发。没配地址就安静跳过。
+const checkAppAlerts = createAppAlerting({
+  send: createAlertSender({
+    webhookUrl: process.env.OPS_ALERT_WEBHOOK_URL,
+    deployment: process.env.OPS_DEPLOYMENT_NAME?.trim() || 'deployment',
+  }),
+})
 const staleScanTimer = setInterval(() => {
+  void checkAppAlerts()
   // 运维看板的两张小表都靠这个循环保持小：过期的心跳实例，和 7 天前的宿主机采样。
   Promise.all([purgeStaleHeartbeats(), purgeOldHostSamples()]).catch((err) => {
     log.warn(
