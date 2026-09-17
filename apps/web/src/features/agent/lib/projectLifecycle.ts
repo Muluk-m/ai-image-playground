@@ -1,5 +1,9 @@
-import { canvasSceneKey, currentCanvasWorkspace } from '../../canvas/lib/workspaces'
-import { currentCanvasProject } from '../../canvas/projectStore'
+import {
+  canvasSceneKey,
+  currentCanvasWorkspace,
+  selectCanvasWorkspace,
+} from '../../canvas/lib/workspaces'
+import { currentCanvasProject, useCanvasProjectStore } from '../../canvas/projectStore'
 import { agentDraft, type DraftSession } from './drafts'
 
 /**
@@ -34,4 +38,35 @@ export async function saveCurrentProject(
   // 画布的 flush 反过来：不抛，直接返回成败。
   if (!(await workspace.flush())) return { ok: false, reason: 'save_failed' }
   return { ok: true }
+}
+
+/** 一个项目在界面上的最小身份：展示它要知道的就这两样。 */
+export interface ShownProject {
+  readonly id: string
+  readonly conversationId: string | null
+}
+
+/**
+ * 面板自己那几步。顺序归本模块，这三步必须由 store 走：
+ * - `resetDelivery`：交付的当前代次是 store 里的闭包，作废它只有 store 做得到；
+ * - `reset`：面板字段（消息、轮、会话）住在 zustand 里，而且必须是一次 `set`，
+ *   不能让任何一次渲染看见「消息已清、会话还是旧的」这种中间态；
+ * - `open`：读回会话历史顺带挂回在跑的轮，那是 store 的整条流程。
+ */
+export interface AgentPanelSeam {
+  resetDelivery(): void
+  reset(project: ShownProject): void
+  open(conversationId: string): void
+}
+
+/**
+ * 把这个项目摆到界面上：作废旧交付、认它当前项目、清面板、发布它的画布，最后读回会话。
+ * 顺序不能动——清掉旧消息后再发布新画布，画布挂载的通知才不会把旧产物投到新项目里。
+ */
+export function showProject(project: ShownProject, panel: AgentPanelSeam): void {
+  panel.resetDelivery()
+  useCanvasProjectStore.getState().activate(project.id)
+  panel.reset(project)
+  selectCanvasWorkspace(project.conversationId)
+  if (project.conversationId) panel.open(project.conversationId)
 }

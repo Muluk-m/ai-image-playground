@@ -44,7 +44,12 @@ import {
   panelStateFromHistory,
   reduceAgentPanelEvent,
 } from './lib/panelMessages'
-import { currentProjectDraft, saveCurrentProject } from './lib/projectLifecycle'
+import {
+  type AgentPanelSeam,
+  currentProjectDraft,
+  saveCurrentProject,
+  showProject,
+} from './lib/projectLifecycle'
 import { toAgentTurnParams } from './lib/turnParams'
 import type { AgentPanelMessage, AgentPanelTab, AgentTurnFooter, AgentTurnStatus } from './types'
 
@@ -352,26 +357,25 @@ export const useAgentStore = create<AgentState>((set, get) => {
       changingProject = false
     }
   }
-  const showProject = (project: { id: string; conversationId: string | null }) => {
-    delivery.reset()
-    useCanvasProjectStore.getState().activate(project.id)
-    // 清掉旧消息后再发布新画布，挂载通知不会把旧产物投到新项目。
-    set({
-      conversationId: project.conversationId,
-      messages: [],
-      turns: {},
-      turn: 'idle',
-      stopping: false,
-      activeTurn: null,
-      error: null,
-      historyFailed: false,
-      historyLoading: false,
-      loaded: true,
-      tab: 'chat',
-      open: true,
-    })
-    selectCanvasWorkspace(project.conversationId)
-    if (project.conversationId) void openConversation(project.conversationId)
+  /** 展示项目时属于面板自己的那几步；次序归 `projectLifecycle`。 */
+  const panelSeam: AgentPanelSeam = {
+    resetDelivery: () => void delivery.reset(),
+    reset: (project) =>
+      set({
+        conversationId: project.conversationId,
+        messages: [],
+        turns: {},
+        turn: 'idle',
+        stopping: false,
+        activeTurn: null,
+        error: null,
+        historyFailed: false,
+        historyLoading: false,
+        loaded: true,
+        tab: 'chat',
+        open: true,
+      }),
+    open: (conversationId) => void openConversation(conversationId),
   }
   const createProject = async (reuseEmpty = true) => {
     const saved = await saveCurrentProject(get().conversationId)
@@ -392,11 +396,11 @@ export const useAgentStore = create<AgentState>((set, get) => {
       !draft.references.length
     ) {
       await useCanvasProjectStore.getState().update(current.id, { workspaceOpened: true })
-      showProject(current)
+      showProject(current, panelSeam)
       return true
     }
     const project = await useCanvasProjectStore.getState().create()
-    showProject(project)
+    showProject(project, panelSeam)
     return true
   }
 
@@ -547,7 +551,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
           return false
         }
         if (!isCurrent()) return false
-        showProject(project)
+        showProject(project, panelSeam)
         return true
       })
     },

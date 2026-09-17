@@ -5,6 +5,7 @@ import { DraftSession } from '../../../../features/agent/lib/drafts'
 import {
   currentProjectDraft,
   saveCurrentProject,
+  showProject,
 } from '../../../../features/agent/lib/projectLifecycle'
 import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
 import { CanvasEditor } from '../../../../features/canvas/lib/editor'
@@ -125,6 +126,44 @@ it('没有当前项目也没有会话时，草稿落回会话键，画布照样�
     '没有项目时的输入',
   )
   expect(await persistedCamera(sceneKey)).toBe(5)
+})
+
+/**
+ * store 那一侧的三步只记录次序：顺序归 module，这里观察它，不复述它。
+ * `reset` 顺手记下此刻的画布，用来分辨面板是在旧画布还是新画布上被清空的。
+ */
+function recordingPanel(seen: string[]) {
+  return {
+    resetDelivery: () => void seen.push('resetDelivery'),
+    reset: () => void seen.push(`reset@camera=${currentCanvasWorkspace().doc.camera.x}`),
+    open: (conversationId: string) => void seen.push(`open:${conversationId}`),
+  }
+}
+
+it('展示项目：面板先被清空，新画布之后才发布', async () => {
+  currentCanvasWorkspace().doc.setCamera({ x: 42 })
+  const target = await useCanvasProjectStore.getState().create()
+  const seen: string[] = []
+
+  showProject(target, recordingPanel(seen))
+
+  expect(seen).toEqual(['resetDelivery', 'reset@camera=42'])
+  expect(currentCanvasWorkspace().doc.camera.x).toBe(0)
+  expect(currentCanvasProject()?.id).toBe(target.id)
+})
+
+it('展示项目：绑了会话就读回那个会话，没绑就不读', async () => {
+  const bound = await useCanvasProjectStore.getState().create()
+  await useCanvasProjectStore.getState().update(bound.id, { conversationId: 'conversation-3' })
+  const unbound = await useCanvasProjectStore.getState().create()
+  const seen: string[] = []
+
+  showProject({ ...bound, conversationId: 'conversation-3' }, recordingPanel(seen))
+  expect(seen).toContain('open:conversation-3')
+
+  seen.length = 0
+  showProject(unbound, recordingPanel(seen))
+  expect(seen.some((one) => one.startsWith('open:'))).toBe(false)
 })
 
 it('首次发送前的新项目沿用未绑定会话留下的草稿', async () => {
