@@ -326,12 +326,16 @@ function canvasContent(value: Record<string, unknown>): string {
 }
 
 const unchangedProjectScenes = new Set<string>()
+export function beginImport(): void {
+  unchangedProjectScenes.clear()
+}
 
 function repairCanvas(
   store: IDBObjectStore,
   key: IDBValidKey,
   source: unknown,
   target: unknown,
+  unresolved: () => void,
 ): void {
   if (!source || !target || typeof source !== 'object' || typeof target !== 'object') return
   const old = source as Record<string, unknown>,
@@ -392,9 +396,10 @@ function repairCanvas(
       typeof project.result.createdAt === 'number'
     if (!same && !placeholder) {
       recoverCanvas(store, key, old)
+      if (emptyLocal && Array.isArray(old.elements) && old.elements.length) unresolved()
       return
     }
-    if (placeholder) store.put(old, key)
+    if (placeholder) store.put({ ...old, camera: current.camera ?? old.camera }, key)
     if (originalCopy) {
       store.delete(projectKey)
       store.delete(recoveredKey)
@@ -402,7 +407,7 @@ function repairCanvas(
   }
 }
 
-export async function importEntry(entry: StorageEntry): Promise<void> {
+export async function importEntry(entry: StorageEntry): Promise<boolean> {
   if (entry.kind === 'local') {
     if (!appStorageKey(entry.key)) throw new Error('Unknown storage key')
     const current = localStorage.getItem(entry.key)
@@ -413,7 +418,7 @@ export async function importEntry(entry: StorageEntry): Promise<void> {
         localStorage.setItem(entry.key, mergeCheckpoint(entry.value, current))
       }
     }
-    return
+    return true
   }
   if (entry.kind === 'database') {
     if (!appDatabase(entry.name)) throw new Error('Unknown database')
@@ -423,7 +428,7 @@ export async function importEntry(entry: StorageEntry): Promise<void> {
     current.close()
     const target = await open(entry.name, version, entry.stores)
     target.close()
-    return
+    return true
   }
   if (!appDatabase(entry.database)) throw new Error('Unknown database')
   const db = await open(entry.database)
@@ -433,6 +438,7 @@ export async function importEntry(entry: StorageEntry): Promise<void> {
     const done = completed(tx),
       key = unpack(entry.key) as IDBValidKey
     let collision = false
+    let resolved = true
     const existingValue = s.get(key)
     const count = s.count(key)
     count.onsuccess = () => {
@@ -462,7 +468,9 @@ export async function importEntry(entry: StorageEntry): Promise<void> {
             }
           }
         } else if (entry.database === 'image-playground-canvas' && entry.store === 'scene') {
-          repairCanvas(s, key, unpack(entry.value), existingValue.result)
+          repairCanvas(s, key, unpack(entry.value), existingValue.result, () => {
+            resolved = false
+          })
         }
       } catch {
         tx.abort()
@@ -476,6 +484,7 @@ export async function importEntry(entry: StorageEntry): Promise<void> {
     ) {
       await archiveConflict(entry)
     }
+    return resolved
   } finally {
     db.close()
   }

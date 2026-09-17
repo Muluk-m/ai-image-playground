@@ -1,6 +1,7 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
+import { legacyFallback, restoreLogin } from './lib/localCompatibility/auth'
 import { restoreLocalStorage } from './lib/localCompatibility/bridge'
 import { loadRuntimeConfig } from './lib/runtimeConfig'
 import { installMobileViewportGuards } from './lib/viewport'
@@ -28,12 +29,12 @@ const runtime = await loadRuntimeConfig()
 const restored =
   !runtime.localCompatibility || (await restoreLocalStorage(runtime.localCompatibility))
 if (!restored && runtime.localCompatibility) {
-  const fallback = new URL(runtime.localCompatibility.sourceOrigin)
-  fallback.pathname = location.pathname
-  fallback.search = location.search
-  fallback.hash = location.hash
-  location.replace(fallback.href)
-} else {
+  location.replace(legacyFallback(runtime.localCompatibility))
+} else if (
+  !runtime.localCompatibility ||
+  !runtime.bff.enabled ||
+  (await restoreLogin(runtime.localCompatibility, runtime.bff.baseUrl))
+) {
   const [{ AuthGate }, { bootstrapChannels }, { bootstrapClientCapabilities }] = await Promise.all([
     import('./auth/AuthGate'),
     import('./lib/channels/bootstrapChannels'),
