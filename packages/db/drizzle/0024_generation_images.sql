@@ -5,3 +5,5 @@ CREATE TABLE generation_images (
  media_id text NOT NULL REFERENCES media_objects(id) ON DELETE RESTRICT,
  CONSTRAINT generation_images_generation_id_role_position_pk PRIMARY KEY (generation_id, role, position)
 );
+
+ALTER TABLE tasks ADD COLUMN archive_payload jsonb;

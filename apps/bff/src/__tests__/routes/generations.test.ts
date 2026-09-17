@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeEach, expect, it } from 'bun:test'
+import { afterAll, afterEach, beforeEach, expect, it, spyOn } from 'bun:test'
 import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
 import sharp from 'sharp'
@@ -417,5 +417,36 @@ it('没有项目的生成原件在临时任务清理后仍可跨设备读取', a
   expect(legacyImage.status).toBe(200)
   expect(new Uint8Array(await legacyImage.arrayBuffer())).toEqual(new Uint8Array(original))
   expect((await request(`/v1/queue/requests/${id}/image/0`, stranger)).status).toBe(404)
+  expect(calls).toBe(1)
+})
+
+it('原件归档中断后只恢复保存，不再次生成或丢失已生成图片', async () => {
+  const original = await sharp({
+    create: { width: 8, height: 6, channels: 3, background: '#559966' },
+  })
+    .png()
+    .toBuffer()
+  let calls = 0
+  setUpstreamFetchForTesting((async () => {
+    calls++
+    return Response.json({ data: [{ b64_json: original.toString('base64') }] })
+  }) as NonNullable<Parameters<typeof setUpstreamFetchForTesting>[0]>)
+  const { request_id: id } = await (
+    await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, input)
+  ).json()
+  durable.writeFailuresRemaining = 1
+  await runTask(id)
+  expect(await (await request(`/api/generations/${id}`, deviceB)).json()).toMatchObject({
+    status: 'queued',
+  })
+  const clock = spyOn(Date, 'now').mockReturnValue(Date.now() + 61_000)
+  try {
+    await runTask(id)
+  } finally {
+    clock.mockRestore()
+  }
+  const detail = await (await request(`/api/generations/${id}`, deviceB)).json()
+  expect(detail.status).toBe('completed')
+  expect(detail.outputs).toHaveLength(1)
   expect(calls).toBe(1)
 })
