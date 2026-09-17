@@ -1,6 +1,7 @@
 import type { PersistedSubmitRequest, QueueProvider } from '@image-playground/shared'
 import { and, eq, inArray } from 'drizzle-orm'
-import { schema } from '../db/client'
+import { db, schema } from '../db/client'
+import { durableMediaStore } from './durableMediaStore'
 import { extractMeta, resolveImageBytesRef } from './extractImages'
 import { objectStore } from './objectStore'
 import type { BffTransaction } from './private-overlay'
@@ -21,6 +22,26 @@ export function generationSourceCheckpoint(provider: QueueProvider, payload: unk
   return { ...meta.actual_params, data: refs.map((ref) => ({ url: ref!.data, mime: ref!.mime })) }
 }
 
+export async function preserveGenerationInputs(id: string, request: PersistedSubmitRequest) {
+  const preserve = async (ref: NonNullable<PersistedSubmitRequest['mask']>) => {
+    if (ref.store === 'durable') return ref
+    await durableMediaStore().write(ref.object, await objectStore().read(ref.object), ref.mime)
+    return { ...ref, store: 'durable' as const }
+  }
+  const next = { ...request }
+  if (request.input_images) {
+    next.input_images = []
+    for (const ref of request.input_images) next.input_images.push(await preserve(ref))
+  }
+  if (request.mask) next.mask = await preserve(request.mask)
+  const updated = await db
+    .update(schema.tasks)
+    .set({ request_payload: next })
+    .where(and(eq(schema.tasks.id, id), eq(schema.tasks.status, 'in_progress')))
+    .returning({ id: schema.tasks.id })
+  return updated.length ? next : null
+}
+
 export async function archiveGenerationOutputs(
   userId: string,
   provider: QueueProvider,
@@ -33,7 +54,7 @@ export async function archiveGenerationOutputs(
     if (!source || !source.mime.startsWith('image/')) throw new Error('generation_image_missing')
     const bytes =
       source.kind === 'object'
-        ? await objectStore().read(source.data)
+        ? await (source.store === 'durable' ? durableMediaStore() : objectStore()).read(source.data)
         : source.kind === 'b64'
           ? Buffer.from(source.data, 'base64')
           : null
@@ -42,13 +63,19 @@ export async function archiveGenerationOutputs(
     links.push({ role: 'output', position: image.index, mediaId: media.id })
   }
   for (const [position, ref] of (request.input_images ?? []).entries()) {
-    const media = await storeMedia(userId, await objectStore().read(ref.object), ref.mime)
+    const media = await storeMedia(
+      userId,
+      await (ref.store === 'durable' ? durableMediaStore() : objectStore()).read(ref.object),
+      ref.mime,
+    )
     links.push({ role: 'input', position, mediaId: media.id })
   }
   if (request.mask) {
     const media = await storeMedia(
       userId,
-      await objectStore().read(request.mask.object),
+      await (request.mask.store === 'durable' ? durableMediaStore() : objectStore()).read(
+        request.mask.object,
+      ),
       request.mask.mime,
     )
     links.push({ role: 'mask', position: 0, mediaId: media.id })

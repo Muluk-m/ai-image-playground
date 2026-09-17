@@ -25,10 +25,18 @@ const { setObjectStoreForTesting } = await import('../../lib/objectStore')
 const { setDurableMediaStoreForTesting } = await import('../../lib/durableMediaStore')
 class DurableFixture extends InMemoryObjectStore {
   interruptNextWrite = false
+  publicationUnavailable = false
+  publicationFailuresRemaining = 0
   override async write(key: string, bytes: Uint8Array, contentType: string) {
-    if (this.interruptNextWrite) {
+    if (this.interruptNextWrite && key.startsWith('staging/')) {
       this.interruptNextWrite = false
       throw new DOMException('Worker stopped', 'AbortError')
+    }
+    if (this.publicationUnavailable && key.startsWith('objects/'))
+      throw new Error('publication unavailable')
+    if (this.publicationFailuresRemaining > 0 && key.startsWith('objects/')) {
+      this.publicationFailuresRemaining--
+      throw new Error('publication failed')
     }
     return super.write(key, bytes, contentType)
   }
@@ -457,7 +465,7 @@ it('原件归档中断后只恢复保存，不再次生成或丢失已生成图�
   const { request_id: id } = await (
     await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, input)
   ).json()
-  durable.writeFailuresRemaining = 1
+  durable.publicationFailuresRemaining = 1
   await runTask(id)
   expect(await (await request(`/api/generations/${id}`, deviceB)).json()).toMatchObject({
     status: 'queued',
@@ -601,4 +609,41 @@ it('归档重试下载成功后重启，即使原链接过期也能用已保存�
   } finally {
     restore()
   }
+})
+
+it('归档等待超过临时桶过期时间，生成原件、参考图和蒙版仍可恢复', async () => {
+  const png = await sharp({ create: { width: 8, height: 6, channels: 3, background: '#449977' } })
+    .png()
+    .toBuffer()
+  const source = `data:image/png;base64,${png.toString('base64')}`
+  let calls = 0
+  setUpstreamFetchForTesting((async () => {
+    calls++
+    return Response.json({ data: [{ b64_json: png.toString('base64') }] })
+  }) as NonNullable<Parameters<typeof setUpstreamFetchForTesting>[0]>)
+  const { request_id: id } = await (
+    await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, {
+      ...input,
+      input_images: [source],
+      mask: source,
+    })
+  ).json()
+  durable.publicationUnavailable = true
+  await runTask(id)
+  expect((await (await request(`/api/generations/${id}`, deviceB)).json()).status).toBe('queued')
+  const { objectStore } = await import('../../lib/objectStore')
+  const clock = spyOn(Date, 'now').mockReturnValue(Date.now() + 46 * 86_400_000)
+  try {
+    await objectStore().deletePrefix(`${id}/`)
+    durable.publicationUnavailable = false
+    await runTask(id)
+  } finally {
+    clock.mockRestore()
+  }
+  const detail = await (await request(`/api/generations/${id}`, deviceB)).json()
+  expect(detail.status).toBe('completed')
+  expect(detail.outputs).toHaveLength(1)
+  expect(detail.inputs).toHaveLength(1)
+  expect(detail.mask).not.toBeNull()
+  expect(calls).toBe(1)
 })

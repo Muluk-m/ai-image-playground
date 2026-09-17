@@ -7,7 +7,8 @@ import type {
   VideoRequest,
 } from '@image-playground/shared'
 import { MaskedOutputError } from './agent/masked-output'
-import { objectStore } from './objectStore'
+import { durableMediaStore } from './durableMediaStore'
+import { type ObjectStore, objectStore } from './objectStore'
 
 export type OutputTransform = (bytes: Uint8Array) => Promise<{
   bytes: Uint8Array
@@ -112,18 +113,19 @@ export async function archiveOutputImages(
   provider: QueueProvider,
   payload: unknown,
   transform?: OutputTransform,
+  store: ObjectStore = objectStore(),
 ): Promise<Record<string, unknown>> {
   if (!payload || typeof payload !== 'object') {
     throw new ObjectStorageError('Object storage archive failed: upstream payload is not an object')
   }
 
   try {
-    if (provider === 'openai-compat') await archiveOpenAIOutput(taskId, payload, transform)
-    else await archiveGeminiOutput(taskId, payload, transform)
+    if (provider === 'openai-compat') await archiveOpenAIOutput(taskId, payload, transform, store)
+    else await archiveGeminiOutput(taskId, payload, transform, store)
     return payload as Record<string, unknown>
   } catch (error) {
     try {
-      await objectStore().deletePrefix(`${taskId}/out/`)
+      await store.deletePrefix(`${taskId}/out/`)
     } catch {
       // The database has no references to these objects. Lifecycle cleanup removes any orphan.
     }
@@ -146,7 +148,8 @@ export class MaskedOutputArchiveError extends ObjectStorageError {
 async function archiveOpenAIOutput(
   taskId: string,
   payload: object,
-  transform?: OutputTransform,
+  transform: OutputTransform | undefined,
+  store: ObjectStore,
 ): Promise<void> {
   const response = payload as {
     data?: Array<Record<string, unknown>>
@@ -158,6 +161,7 @@ async function archiveOpenAIOutput(
     (response.data ?? []).map((item) => ({ item, dataKey: 'b64_json', mimeKey: 'mime' })),
     openAIOutputMime(response.output_format),
     transform,
+    store,
   )
   if (transform) {
     response.output_format = 'png'
@@ -170,7 +174,8 @@ async function archiveOutputs(
   taskId: string,
   entries: { item: Record<string, unknown>; dataKey: string; mimeKey: string }[],
   fallbackMime: string,
-  transform?: OutputTransform,
+  transform: OutputTransform | undefined,
+  store: ObjectStore,
 ) {
   const pending: {
     item: Record<string, unknown>
@@ -191,7 +196,7 @@ async function archiveOutputs(
       const declared = typeof item[mimeKey] === 'string' ? (item[mimeKey] as string) : undefined
       const mime = detectMediaMime(source.bytes) ?? declared ?? source.mime ?? fallbackMime
       const ref = { object: `${taskId}/${transform ? 'candidate' : 'out'}/${pending.length}`, mime }
-      await writeWithRetry(ref.object, source.bytes, mime)
+      await writeWithRetry(ref.object, source.bytes, mime, store)
       if (transform) candidates.push(ref)
       else {
         item.object = ref.object
@@ -205,9 +210,9 @@ async function archiveOutputs(
     // 全部原始候选先落盘；一张无法应用时，其余已生成的候选仍可追查。
     if (!transform) return
     for (const [index, { item, dataKey, mimeKey, source }] of pending.entries()) {
-      const output = await transform(await objectStore().read(source.object))
+      const output = await transform(await store.read(source.object))
       const key = `${taskId}/out/${index}`
-      await writeWithRetry(key, output.bytes, output.mime)
+      await writeWithRetry(key, output.bytes, output.mime, store)
       item.object = key
       item[mimeKey] = output.mime
       item.masked_edit = { ...output.inspection, candidate: source }
@@ -246,7 +251,8 @@ async function fetchSourceImage(url: string): Promise<{ bytes: Uint8Array; mime?
 async function archiveGeminiOutput(
   taskId: string,
   payload: object,
-  transform?: OutputTransform,
+  transform: OutputTransform | undefined,
+  store: ObjectStore,
 ): Promise<void> {
   const response = payload as {
     candidates?: Array<{ content?: { parts?: Array<{ inlineData?: Record<string, unknown> }> } }>
@@ -256,23 +262,30 @@ async function archiveGeminiOutput(
       part.inlineData ? [{ item: part.inlineData, dataKey: 'data', mimeKey: 'mimeType' }] : [],
     ),
   )
-  await archiveOutputs(taskId, entries, 'image/png', transform)
+  await archiveOutputs(taskId, entries, 'image/png', transform, store)
 }
 
 async function hydrateObjectRef(ref: StoredImageRef): Promise<string> {
   try {
-    const bytes = await objectStore().read(ref.object)
+    const bytes = await (ref.store === 'durable' ? durableMediaStore() : objectStore()).read(
+      ref.object,
+    )
     return `data:${ref.mime};base64,${Buffer.from(bytes).toString('base64')}`
   } catch (error) {
     throw new ObjectStorageError(`Object storage read failed for ${ref.object}`, { cause: error })
   }
 }
 
-async function writeWithRetry(key: string, bytes: Uint8Array, mime: string): Promise<void> {
+async function writeWithRetry(
+  key: string,
+  bytes: Uint8Array,
+  mime: string,
+  store: ObjectStore = objectStore(),
+): Promise<void> {
   let lastError: unknown
   for (let attempt = 0; attempt < STORAGE_WRITE_ATTEMPTS; attempt++) {
     try {
-      await objectStore().write(key, bytes, mime)
+      await store.write(key, bytes, mime)
       return
     } catch (error) {
       lastError = error

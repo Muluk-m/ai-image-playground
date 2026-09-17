@@ -10,8 +10,13 @@ import {
 } from '../db/task-transitions'
 import { protectMaskedOutput } from '../lib/agent/masked-output'
 import { isCapabilityEnabled } from '../lib/capabilities'
+import { durableMediaStore } from '../lib/durableMediaStore'
 import { describeEmptyResult, extractMeta } from '../lib/extractImages'
-import { archiveGenerationOutputs, generationSourceCheckpoint } from '../lib/generationMedia'
+import {
+  archiveGenerationOutputs,
+  generationSourceCheckpoint,
+  preserveGenerationInputs,
+} from '../lib/generationMedia'
 import {
   archiveOutputImages,
   hydrateInputImages,
@@ -166,6 +171,11 @@ export async function runTask(id: string): Promise<void> {
   let archivePayload = task.archive_payload
   let receivedImages = false
   try {
+    if (cloudArchive && !archivePayload) {
+      const preserved = await preserveGenerationInputs(id, task.request_payload)
+      if (!preserved) return
+      task.request_payload = preserved
+    }
     const hydratedRequest = await hydrateInputImages(task.request_payload)
     // 老任务只有 preserve_outside_mask、没有 masked_original_size：那时不补边，交付时也不裁边。
     const protectOutput = task.request_payload.preserve_outside_mask
@@ -181,7 +191,9 @@ export async function runTask(id: string): Promise<void> {
         task.provider,
         structuredClone(archivePayload),
         protectOutput,
+        durableMediaStore(),
       )
+      archivePayload = { ...(archivePayload as Record<string, unknown>), archive_store: 'durable' }
       if (!(await saveArchiveCheckpoint(id, archivePayload))) return
       const media = await archiveGenerationOutputs(
         task.userId!,
@@ -251,7 +263,14 @@ export async function runTask(id: string): Promise<void> {
         if (!(await saveArchiveCheckpoint(id, archivePayload))) return
       }
     }
-    const archivedPayload = await archiveOutputImages(id, task.provider, payload, protectOutput)
+    const archivedPayload = await archiveOutputImages(
+      id,
+      task.provider,
+      payload,
+      protectOutput,
+      cloudArchive ? durableMediaStore() : undefined,
+    )
+    if (cloudArchive) archivedPayload.archive_store = 'durable'
     if (cloudArchive) {
       archivePayload = archivedPayload
       if (!(await saveArchiveCheckpoint(id, archivePayload))) return
