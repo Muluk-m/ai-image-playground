@@ -53,26 +53,35 @@ export function toolDeclaration(tool: AgentTool): AgentToolDeclaration {
   return { name: tool.name, description: tool.description, parameters: tool.parameters }
 }
 
-/** 定义 → 注册表条目。工具那边照常写自己的参数类型，擦除只发生在这里。 */
+/**
+ * 定义 → 注册表条目。工具那边照常写自己的参数类型，擦除只发生在这里。
+ *
+ * 声明与指引都是**现问的**，不是模块加载那一刻定死的常量：一个工具能做什么可能要到运行期
+ * 才解析得出来（生视频的档位跟着这个部署解析到的视频模型走）。`create`、`declaration()` 与
+ * `guidance()` 读的仍是同一个算式，所以「模型收到的清单 = 预扣估算的声明 = 系统提示词的指引」
+ * 这条不变量没有松动。
+ */
 export function defineAgentTool<P extends TSchema>(
   definition: AgentToolDefinition<P>,
 ): AgentToolSpec {
-  const declaration: AgentToolDeclaration<P> = {
+  const declaration = (): AgentToolDeclaration<P> => ({
     name: definition.name,
     description: definition.description,
-    parameters: definition.parameters,
-  }
+    parameters: definition.currentParameters?.() ?? definition.parameters,
+  })
   return {
     name: definition.name,
     modes: definition.modes,
-    guidance: definition.guidance,
+    guidance: () =>
+      typeof definition.guidance === 'string' ? definition.guidance : definition.guidance(),
     onError: definition.onError,
     declaration,
     ...(definition.available ? { available: definition.available } : {}),
+    // 起跑这一刻按静态 schema 宽松换算就够：`currentParameters()` 只改说明，不改形状。
     call: (args, mode) => definition.call(leniently(definition.parameters, args), mode),
     create: (context) =>
       asPiTool<P, AgentToolDetails>({
-        ...declaration,
+        ...declaration(),
         label: definition.label,
         execute: definition.execute(context),
       }),
