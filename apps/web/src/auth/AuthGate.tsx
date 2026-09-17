@@ -8,10 +8,11 @@ import {
   getCurrentUser,
   logoutUser,
 } from '../lib/authClient'
-import { setClientStorageScope } from '../lib/authScope'
+import { setClientStorageScope, setRecoveryBackend } from '../lib/authScope'
 import { bootstrapChannels } from '../lib/channels/bootstrapChannels'
 import { clearScopedClientStorage } from '../lib/clearScopedStorage'
 import { isClientCapabilityEnabled } from '../lib/clientCapabilities'
+import { recoverStorageUser, rememberStorageUser } from '../lib/localRecovery'
 import { getRuntimeConfig } from '../lib/runtimeConfig'
 import { adoptAnonymousStorage } from '../lib/storageAdoption'
 import { AuthContextProvider } from './AuthContext'
@@ -72,6 +73,7 @@ export function AuthGate() {
   const { t } = useTranslation('auth')
   const runtime = getRuntimeConfig()
   const accountsLoginEnabled = isClientCapabilityEnabled('accounts:login')
+  const localRecoveryEnabled = isClientCapabilityEnabled('accounts:local-recovery')
   const [phase, setPhase] = useState<Phase>('checking')
   const [user, setUser] = useState<AuthUserView | null>(null)
   const [attempt, setAttempt] = useState(0)
@@ -80,13 +82,17 @@ export function AuthGate() {
   useEffect(() => {
     let cancelled = false
     async function boot(): Promise<void> {
-      if (!accountsLoginEnabled) {
-        setClientStorageScope(null)
-        if (!cancelled) setPhase('ready')
-        return
-      }
-
       try {
+        setRecoveryBackend(
+          !accountsLoginEnabled && localRecoveryEnabled ? runtime.bff.baseUrl : null,
+        )
+        if (!accountsLoginEnabled) {
+          const id = localRecoveryEnabled ? await recoverStorageUser() : null
+          if (cancelled) return
+          setClientStorageScope(id)
+          setPhase('ready')
+          return
+        }
         const currentUser = await getCurrentUser()
         setClientStorageScope(currentUser.id)
         const [adopted] = await Promise.all([
@@ -99,6 +105,7 @@ export function AuthGate() {
         ])
         if (!cancelled) {
           setAdoptedTaskCount(adopted)
+          rememberStorageUser(currentUser.id)
           setUser(currentUser)
           setPhase('ready')
         }
@@ -115,20 +122,29 @@ export function AuthGate() {
     return () => {
       cancelled = true
     }
-  }, [accountsLoginEnabled, attempt, runtime.bff.baseUrl, runtime.bff.enabled])
+  }, [
+    accountsLoginEnabled,
+    localRecoveryEnabled,
+    attempt,
+    runtime.bff.baseUrl,
+    runtime.bff.enabled,
+  ])
 
   useEffect(() => {
+    if (!accountsLoginEnabled) return
     const expired = () => {
+      rememberStorageUser(null)
       setUser(null)
       setPhase('login')
     }
     window.addEventListener(AUTH_SESSION_EXPIRED_EVENT, expired)
     return () => window.removeEventListener(AUTH_SESSION_EXPIRED_EVENT, expired)
-  }, [])
+  }, [accountsLoginEnabled])
 
   const logout = useCallback(async (clearLocalData: boolean) => {
     try {
       await logoutUser()
+      rememberStorageUser(null)
       if (clearLocalData) await clearScopedClientStorage()
     } finally {
       window.location.reload()
