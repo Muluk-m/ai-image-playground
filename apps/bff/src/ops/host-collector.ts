@@ -1,5 +1,6 @@
 import { readFile, statfs } from 'node:fs/promises'
-import type { HostSample } from '@image-playground/shared'
+import { type AlertState, evaluateAlerts, type HostSample } from '@image-playground/shared'
+import type { AlertSender } from './alert-sender'
 
 /**
  * 宿主机采集器。跑在一个单独的小容器里（ADR 0007）。它从宿主机只拿到两个只读文件：
@@ -55,7 +56,7 @@ export async function readHostSample(
   }
 }
 
-export type CollectorStage = 'read' | 'report'
+export type CollectorStage = 'read' | 'report' | 'alert'
 
 export interface CollectorOptions {
   intervalMs: number
@@ -95,7 +96,12 @@ export function runCollector(options: CollectorOptions): () => void {
         onError('read', error)
         return
       }
-      await Promise.resolve(options.onSample?.(sample)).catch((error) => onError('report', error))
+      // 同步抛出的也要接住：onSample 是告警，它坏了不该连累上报。
+      try {
+        await options.onSample?.(sample)
+      } catch (error) {
+        onError('alert', error)
+      }
       await options.report(sample).catch((error) => onError('report', error))
     } finally {
       running = false
@@ -123,5 +129,19 @@ export function createReporter(
       signal: AbortSignal.timeout(10_000),
     })
     if (!response.ok) throw new Error(`backend answered ${response.status}`)
+  }
+}
+
+/**
+ * 宿主机的两条告警（磁盘、内存）。只靠读数本身判断，不经过后端与数据库。
+ * 状态放在这个闭包里：容器重启后最多重发一次。发送失败时状态不前进，下一轮会再试——
+ * 否则一条没送达的「磁盘满了」会被当成已经提醒过，安静一个小时。
+ */
+export function createHostAlerting(send: AlertSender): (sample: HostSample) => Promise<void> {
+  let state: AlertState = {}
+  return async (sample) => {
+    const result = evaluateAlerts({ host: sample }, state, sample.sampled_at)
+    if (result.messages.length > 0) await send(result.messages)
+    state = result.state
   }
 }

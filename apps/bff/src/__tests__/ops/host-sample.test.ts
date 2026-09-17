@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { parseMeminfo, runCollector } from '../../ops/host-collector'
+import { createHostAlerting, parseMeminfo, runCollector } from '../../ops/host-collector'
 
 const MEMINFO = `MemTotal:        3753084 kB
 MemFree:          148880 kB
@@ -82,5 +82,67 @@ describe('runCollector', () => {
     await new Promise((resolve) => setTimeout(resolve, 25))
     stop()
     expect(reported.length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('hands every sample to onSample even when the backend is unreachable', async () => {
+    // 宿主机告警挂在 onSample 上：磁盘真满的时候后端多半已经写不动了，告警不能等它。
+    const seen: number[] = []
+    const stop = runCollector({
+      intervalMs: 5,
+      read: async () => sample,
+      report: async () => {
+        throw new Error('ECONNREFUSED')
+      },
+      onSample: (one) => {
+        seen.push(one.disk_available_bytes)
+      },
+      onError: () => {},
+    })
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    stop()
+    expect(seen.length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('keeps going when onSample itself throws', async () => {
+    const reported: unknown[] = []
+    const stop = runCollector({
+      intervalMs: 5,
+      read: async () => sample,
+      report: async (one) => {
+        reported.push(one)
+      },
+      onSample: () => {
+        throw new Error('webhook exploded')
+      },
+      onError: () => {},
+    })
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    stop()
+    expect(reported.length).toBeGreaterThanOrEqual(2)
+  })
+})
+
+describe('createHostAlerting', () => {
+  it('sends a disk alert from the samples alone, and the recovery after it', async () => {
+    const sent: string[] = []
+    const alerting = createHostAlerting(async (messages) => {
+      sent.push(...messages.map((message) => `${message.kind}:${message.rule}`))
+    })
+    const GBYTES = 1024 ** 3
+    await alerting({ ...sample, disk_available_bytes: 2 * GBYTES })
+    await alerting({ ...sample, disk_available_bytes: 2 * GBYTES })
+    await alerting({ ...sample, disk_available_bytes: 30 * GBYTES })
+    expect(sent).toEqual(['firing:disk', 'resolved:disk'])
+  })
+
+  it('retries a message the webhook refused instead of marking it delivered', async () => {
+    let attempts = 0
+    const alerting = createHostAlerting(async () => {
+      if (++attempts === 1) throw new Error('feishu 19024')
+    })
+    const GBYTES = 1024 ** 3
+    await alerting({ ...sample, disk_available_bytes: 2 * GBYTES }).catch(() => {})
+    await alerting({ ...sample, disk_available_bytes: 2 * GBYTES })
+    expect(attempts).toBe(2)
   })
 })

@@ -1,4 +1,10 @@
-import { createReporter, readHostSample, runCollector } from './ops/host-collector'
+import { createAlertSender } from './ops/alert-sender'
+import {
+  createHostAlerting,
+  createReporter,
+  readHostSample,
+  runCollector,
+} from './ops/host-collector'
 
 function say(level: 'info' | 'warn', event: string, extra: Record<string, unknown> = {}): void {
   console.log(JSON.stringify({ level, service: 'host-collector', event, ...extra }))
@@ -20,13 +26,23 @@ if (!bffUrl || !token) {
   })
 }
 
+const webhookUrl = process.env.OPS_ALERT_WEBHOOK_URL?.trim()
+const deployment = process.env.OPS_DEPLOYMENT_NAME?.trim() || 'deployment'
+
 const stop = runCollector({
   intervalMs,
+  onSample: createHostAlerting(createAlertSender({ webhookUrl, deployment })),
   read: () => readHostSample(paths),
   report: bffUrl && token ? createReporter(bffUrl, token) : async () => {},
 })
 
-say('info', 'collector.started', { ...paths, intervalMs, reporting: Boolean(bffUrl && token) })
+say('info', 'collector.started', {
+  ...paths,
+  intervalMs,
+  reporting: Boolean(bffUrl && token),
+  // 只说配没配，地址本身等同于密钥，不进日志。
+  alerting: Boolean(webhookUrl),
+})
 
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.on(signal, () => {
