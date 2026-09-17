@@ -11,6 +11,7 @@ const THUMBNAIL_SCALE = 0.25
 export function createAgentCanvasSink(
   editor: CanvasEditor,
   ready?: Promise<unknown> | (() => Promise<unknown>),
+  cloud?: { enabled(): boolean; refresh(): Promise<void> },
 ): AgentCanvasSink {
   // 面板折叠一次、切一次页签，每张卡都会重新问一遍缩略图；栅格化不便宜，存下来。
   const thumbnails = new Map<string, string>()
@@ -22,11 +23,19 @@ export function createAgentCanvasSink(
     get ready() {
       return typeof ready === 'function' ? ready() : ready
     },
-    has: (objectId) => editor.getElement(objectId) !== undefined,
-
-    async reserve({ count, anchorObjectId, title, messageId }) {
+    has: (objectId) => editor.getElement(objectId)?.type === 'image',
+    async syncArtifacts(artifacts) {
       if (ready) await (typeof ready === 'function' ? ready() : ready)
-      if (count <= 0) return []
+      if (!cloud?.enabled() || artifacts.some((artifact) => artifact.media === 'video')) return null
+      await cloud.refresh()
+      return artifacts.every((artifact) => editor.getElement(artifact.artifactId)?.type === 'image')
+        ? 'placed'
+        : 'unavailable'
+    },
+
+    async reserve({ count, anchorObjectId, title, messageId, media }) {
+      if (ready) await (typeof ready === 'function' ? ready() : ready)
+      if (count <= 0 || (cloud?.enabled() && media !== 'video')) return []
       if (messageId) {
         const existing = editor
           .getPlaceholders()

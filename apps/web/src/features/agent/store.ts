@@ -185,6 +185,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
       turnDelivery.reserve(event.messageId, {
         // 数量来自服务端；按协议上限收口，坏值不会在画布上铺出一片空框。
         count: Math.min(AGENT_IMAGE_MAX_N, event.outputCount),
+        media: event.toolName === 'generateVideo' ? 'video' : 'image',
         title: event.title,
         ...(event.anchorObjectId ? { anchorObjectId: event.anchorObjectId } : {}),
       })

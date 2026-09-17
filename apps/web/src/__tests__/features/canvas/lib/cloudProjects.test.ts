@@ -1239,3 +1239,52 @@ it.each([
     action === 'rename' ? 2 : 1,
   )
 })
+
+it('新设备恢复服务端生成占位，刷新不删除；移动只同步几何，不重提任务', async () => {
+  setClientStorageScope(crypto.randomUUID())
+  const generationId = '70cf33ea-d548-4a2b-ab0b-4a10e2e444fb'
+  const id = `agent_${generationId}_0`
+  const remote = {
+    id: crypto.randomUUID(),
+    name: '运行中的图片项目',
+    revision: 2,
+    createdAt: 1,
+    updatedAt: 2,
+    elementCount: 1,
+    document: {
+      version: 1,
+      elements: [
+        { id, type: 'generation', generationId, position: 0, x: 24, y: 0, width: 360, height: 360 },
+      ],
+    },
+  }
+  const writes: { document: { elements: unknown[] } }[] = []
+  vi.stubGlobal('fetch', async (_url: string, init?: RequestInit) => {
+    if (init?.method === 'PUT') {
+      const body = JSON.parse(init.body as string)
+      writes.push(body)
+      return Response.json(receipt(remote.id, body))
+    }
+    return Response.json(remote)
+  })
+  const project = await projectRepository.importCloud(remote)
+  const editor = new CanvasEditor(new CanvasDoc())
+  const session = new CloudProjectSession(project, editor)
+  await session.load()
+  expect(editor.doc.elements).toMatchObject([
+    {
+      id,
+      type: 'placeholder',
+      status: 'loading',
+      meta: { cloudGeneration: { id: generationId, position: 0 } },
+    },
+  ])
+  const { recoverCanvasTasks } = await import('../../../../features/canvas/lib/recoverCanvasTasks')
+  recoverCanvasTasks(editor)
+  expect(editor.doc.elements).toHaveLength(1)
+  editor.doc.updateElements([{ id, patch: { x: 900 } }])
+  await session.sync()
+  expect(writes).toHaveLength(1)
+  expect(writes[0].document.elements).toEqual([{ ...remote.document.elements[0], x: 900 }])
+  session.dispose()
+})

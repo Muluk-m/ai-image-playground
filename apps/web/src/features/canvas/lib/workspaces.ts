@@ -28,7 +28,13 @@ export class CanvasWorkspace {
   private readonly scope = scopedStorageName('canvas')
   readonly doc = new CanvasDoc()
   readonly editor = new CanvasEditor(this.doc)
-  readonly sink = createAgentCanvasSink(this.editor, () => this.ready)
+  readonly sink = createAgentCanvasSink(this.editor, () => this.ready, {
+    enabled: () => Boolean(this.cloud),
+    refresh: async () => {
+      if (!(await this.flush())) throw new Error('local_save_failed')
+      await this.cloud?.refresh(true)
+    },
+  })
   cloud: CloudProjectSession | undefined
   needsInitialFit = false
   ready: Promise<unknown>
