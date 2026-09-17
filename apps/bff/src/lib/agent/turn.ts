@@ -39,6 +39,7 @@ import {
   requireAgentImages,
 } from './images'
 import { agentModel, agentStreamFn } from './model'
+import { toModelImageDataUrl } from './modelImage'
 import { type RunningTurn, registerRunningTurn, turnEventLog } from './runningTurns'
 import {
   type AgentToolDetails,
@@ -465,6 +466,14 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
         return null
       }
       const contentText = text + referenceManifest(references)
+      // 首轮的参考图走 resolve() 会先转成上游认的位图；插话的直接塞给模型，同样得转。
+      const modelImages = await Promise.all(
+        references.map((reference) => toModelImageDataUrl(reference.dataUrl)),
+      )
+      if (!acceptingInterjections || aborted) {
+        if (stored.length) await removeAgentTurnReferences(conversationId, archiveId)
+        return null
+      }
       const pending = steeringReferences.get(contentText) ?? []
       pending.push(references)
       steeringReferences.set(contentText, pending)
@@ -475,11 +484,11 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
         role: 'user',
         content: [
           { type: 'text', text: contentText },
-          ...references.map(
-            (reference): ImageContent => ({
+          ...modelImages.map(
+            (image): ImageContent => ({
               type: 'image',
-              mimeType: reference.dataUrl.slice(5, reference.dataUrl.indexOf(';')),
-              data: reference.dataUrl.slice(reference.dataUrl.indexOf(',') + 1),
+              mimeType: image.slice(5, image.indexOf(';')),
+              data: image.slice(image.indexOf(',') + 1),
             }),
           ),
         ],
