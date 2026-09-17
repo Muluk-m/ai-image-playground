@@ -9,7 +9,8 @@ import { encodeAgentFrame } from '@image-playground/shared'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../../../features/agent/lib/videoPoster', () => ({
-  videoPosterDataUrl: async () => POSTER,
+  captureVideoPoster: async () => POSTER,
+  blankVideoPoster: () => POSTER,
 }))
 
 import { agentCanvasSink, setAgentCanvasSink } from '../../../features/agent/lib/canvasSink'
