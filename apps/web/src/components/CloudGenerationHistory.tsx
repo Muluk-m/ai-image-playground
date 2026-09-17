@@ -22,8 +22,8 @@ export default function CloudGenerationHistory() {
     [scope],
   )
 
-  const load = useCallback(
-    async (cursor = '', nextTrail = ['']) => {
+  const fetchHistory = useCallback(
+    async <T,>(path: string, apply: (value: T) => void) => {
       request.current?.abort()
       const controller = new AbortController()
       request.current = controller
@@ -31,19 +31,13 @@ export default function CloudGenerationHistory() {
       setFailed(false)
       setDetail(null)
       try {
-        const response = await authenticatedBffFetch(
-          `${bffBaseUrl()}/api/generations?limit=50${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`,
-          {
-            cache: 'no-store',
-            signal: controller.signal,
-          },
-        )
+        const response = await authenticatedBffFetch(`${bffBaseUrl()}${path}`, {
+          cache: 'no-store',
+          signal: controller.signal,
+        })
         if (!response.ok) throw new Error('load_failed')
-        const next: GenerationPage = await response.json()
-        if (current(controller)) {
-          setPage(next)
-          setTrail(nextTrail)
-        }
+        const next: T = await response.json()
+        if (current(controller)) apply(next)
       } catch {
         if (current(controller)) setFailed(true)
       } finally {
@@ -52,35 +46,25 @@ export default function CloudGenerationHistory() {
     },
     [current],
   )
+  const load = useCallback(
+    (cursor = '', nextTrail = ['']) =>
+      fetchHistory<GenerationPage>(
+        `/api/generations?limit=50${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`,
+        (next) => {
+          setPage(next)
+          setTrail(nextTrail)
+        },
+      ),
+    [fetchHistory],
+  )
 
   useEffect(() => {
     void load()
     return () => request.current?.abort()
   }, [load])
 
-  async function open(id: string) {
-    request.current?.abort()
-    const controller = new AbortController()
-    request.current = controller
-    setLoading(true)
-    setFailed(false)
-    setDetail(null)
-    try {
-      const response = await authenticatedBffFetch(
-        `${bffBaseUrl()}/api/generations/${encodeURIComponent(id)}`,
-        {
-          cache: 'no-store',
-          signal: controller.signal,
-        },
-      )
-      if (!response.ok) throw new Error('load_failed')
-      const next: GenerationDetail = await response.json()
-      if (current(controller)) setDetail(next)
-    } catch {
-      if (current(controller)) setFailed(true)
-    } finally {
-      if (current(controller)) setLoading(false)
-    }
+  function open(id: string) {
+    return fetchHistory<GenerationDetail>(`/api/generations/${encodeURIComponent(id)}`, setDetail)
   }
 
   return (

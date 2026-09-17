@@ -169,11 +169,8 @@ export const submitRoutes = new Elysia()
       }
 
       if (outcome.kind === 'idempotency_conflict') {
-        if (body.client_request_id) {
-          const existing = await findTaskByIdempotencyKey(
-            body.client_request_id,
-            authUser?.id ?? null,
-          )
+        if (body.client_request_id && !authUser) {
+          const existing = await findTaskByIdempotencyKey(body.client_request_id, null)
           if (existing) {
             return {
               request_id: existing.id,

@@ -101,6 +101,61 @@ it('丢失响应后重试返回原任务，换参数不能复用同一命令', a
   expect((await (await request('/api/generations', deviceB)).json()).items).toHaveLength(1)
 })
 
+it('升级前的带参考图任务也校验原参数并保留永久重试回执', async () => {
+  const legacyInput = {
+    ...input,
+    input_images: ['data:image/png;base64,aGVsbG8='],
+  }
+  const original = await (
+    await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, legacyInput)
+  ).json()
+  // Simulate a task written before command receipts existed.
+  await db.delete(schema.generation_commands)
+  const { finishTask } = await import('../../db/task-transitions')
+  const { claimQueuedTask } = await import('../../db/claim-task')
+  const { purgeOldTasks } = await import('../../db/maintenance')
+  await claimQueuedTask(db, original.request_id, Date.now())
+  expect(await finishTask(original.request_id, { status: 'failed', completedAt: Date.now() })).toBe(
+    true,
+  )
+  expect(await purgeOldTasks(-1)).toBe(0)
+  const changed = await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceB, {
+    ...legacyInput,
+    prompt: 'Different legacy image',
+  })
+  expect(changed.status).toBe(409)
+  const replay = await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceB, {
+    ...legacyInput,
+    device_id: 'device-b',
+  })
+  expect(replay.status).toBe(200)
+  expect((await replay.json()).request_id).toBe(original.request_id)
+  expect(await purgeOldTasks(-1)).toBe(1)
+  const afterPurge = await request(
+    '/v1/queue/openai-compat/gpt-image-2/submit',
+    deviceB,
+    legacyInput,
+  )
+  expect(afterPurge.status).toBe(200)
+  expect((await afterPurge.json()).request_id).toBe(original.request_id)
+  expect(await db.select().from(schema.tasks)).toHaveLength(0)
+})
+
+it('旧任务参考图不可读时保留原任务，不把重试变成新生成', async () => {
+  const { objectStore } = await import('../../lib/objectStore')
+  const legacyInput = { ...input, input_images: ['data:image/png;base64,aGVsbG8='] }
+  const original = await (
+    await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, legacyInput)
+  ).json()
+  await db.delete(schema.generation_commands)
+  await objectStore().deletePrefix(`${original.request_id}/`)
+  const retried = await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceB, legacyInput)
+  expect(retried.status).toBe(503)
+  expect(await db.select({ id: schema.tasks.id }).from(schema.tasks)).toEqual([
+    { id: original.request_id },
+  ])
+})
+
 it('另一设备取消任务后，两台设备都读取到同一终态', async () => {
   const { request_id: id } = await (
     await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, input)

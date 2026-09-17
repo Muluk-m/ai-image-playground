@@ -19,7 +19,7 @@ import { publishGenerations } from '../db/generation-events'
 import { prepareMaskedInput } from './agent/masked-input'
 import { isCapabilityEnabled } from './capabilities'
 import { describeEmptyResult, type ExtractedResult, extractMeta } from './extractImages'
-import { archiveInputImages, ObjectStorageError } from './imageArchive'
+import { archiveInputImages, hydrateInputImages, ObjectStorageError } from './imageArchive'
 import { objectStore } from './objectStore'
 import { loadPrivateBffOverlay } from './private-overlay'
 import { asQueueProvider } from './queueProvider'
@@ -122,6 +122,61 @@ async function replayCommand(
     : { kind: 'idempotency_mismatch' as const }
 }
 
+async function adoptLegacyCommand(
+  userId: string,
+  commandId: string,
+  hash: string,
+): Promise<CreateQueueTaskOutcome | null> {
+  return db.transaction(async (tx) => {
+    await tx.execute(
+      sql`SELECT pg_advisory_xact_lock(hashtextextended(${JSON.stringify(['generation-command', userId, commandId])}, 0))`,
+    )
+    const replay = await replayCommand(tx, userId, commandId, hash)
+    if (replay) return replay
+    const [task] = await tx
+      .select()
+      .from(schema.tasks)
+      .where(and(eq(schema.tasks.user_id, userId), eq(schema.tasks.client_request_id, commandId)))
+      .limit(1)
+      .for('update')
+    if (!task) return null
+    const provider = asQueueProvider(task.provider)
+    // Agent mask preparation changes the original request, so it cannot be reconstructed safely.
+    if (!provider || task.request_payload.preserve_outside_mask)
+      return { kind: 'idempotency_mismatch' }
+    let originalHash: string
+    try {
+      const { video, ...payload } = task.request_payload
+      const { video: _video, ...request } = await hydrateInputImages(payload)
+      originalHash = commandHash({
+        provider,
+        model: task.model,
+        request,
+        video,
+        userId,
+        ...(task.agent_conversation_id && task.agent_turn_id
+          ? {
+              agent: { conversationId: task.agent_conversation_id, turnId: task.agent_turn_id },
+            }
+          : {}),
+      })
+    } catch {
+      return { kind: 'object_storage_error', message: 'Original task inputs could not be read' }
+    }
+    // The task lock prevents retention from deleting the identity before its receipt is durable.
+    await tx.insert(schema.generation_commands).values({
+      user_id: userId,
+      command_id: commandId,
+      request_hash: originalHash,
+      task_id: task.id,
+      submitted_at: task.submitted_at,
+    })
+    return originalHash === hash
+      ? { kind: 'created', taskId: task.id, submittedAt: task.submitted_at }
+      : { kind: 'idempotency_mismatch' }
+  })
+}
+
 export async function createQueueTask(
   input: CreateQueueTaskInput,
 ): Promise<CreateQueueTaskOutcome> {
@@ -130,6 +185,8 @@ export async function createQueueTask(
   if (input.userId && commandId) {
     const replay = await replayCommand(db, input.userId, commandId, hash)
     if (replay) return replay
+    const legacy = await adoptLegacyCommand(input.userId, commandId, hash)
+    if (legacy) return legacy
   }
   const id = crypto.randomUUID()
   let requestPayload: PersistedSubmitRequest
@@ -251,6 +308,9 @@ export async function createQueueTask(
   })
 
   if (outcome.kind !== 'created' || outcome.taskId !== id) await discardArchivedInputs(id)
+  if (outcome.kind === 'idempotency_conflict' && input.userId && commandId) {
+    return (await adoptLegacyCommand(input.userId, commandId, hash)) ?? outcome
+  }
   return outcome
 }
 
