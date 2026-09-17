@@ -7,7 +7,13 @@ import type {
 import { agentTextFromBlocks } from '@image-playground/shared'
 import type { TSchema } from 'typebox'
 import { Value } from 'typebox/value'
-import type { AgentToolArgs, AgentToolDefinition, AgentToolDetails, AgentToolSpec } from './types'
+import type {
+  AgentToolArgs,
+  AgentToolDeclaration,
+  AgentToolDefinition,
+  AgentToolDetails,
+  AgentToolSpec,
+} from './types'
 
 /** 这次调用从起到止一直带着的东西：结果卡的标题与提示词由起跑那一刻定下，不再重算。 */
 export type AgentToolStart = Omit<AgentToolStartEvent, 'type' | 'messageId'>
@@ -39,22 +45,34 @@ export function asPiTool<P extends TSchema, D>(tool: AgentTool<P, D>): AgentTool
   return tool as unknown as AgentTool
 }
 
+/**
+ * 每次请求都随请求发出去的那一部分：pi 把名称、说明与参数 schema 写进工具清单，
+ * `label` 与 `execute` 留在进程里。注册与预扣估算读的是同一份，不会各列各的。
+ */
+export function toolDeclaration(tool: AgentTool): AgentToolDeclaration {
+  return { name: tool.name, description: tool.description, parameters: tool.parameters }
+}
+
 /** 定义 → 注册表条目。工具那边照常写自己的参数类型，擦除只发生在这里。 */
 export function defineAgentTool<P extends TSchema>(
   definition: AgentToolDefinition<P>,
 ): AgentToolSpec {
+  const declaration: AgentToolDeclaration<P> = {
+    name: definition.name,
+    description: definition.description,
+    parameters: definition.parameters,
+  }
   return {
     name: definition.name,
     guidance: definition.guidance,
     onError: definition.onError,
+    declaration,
     ...(definition.available ? { available: definition.available } : {}),
     call: (args) => definition.call(leniently(definition.parameters, args)),
     create: (context) =>
       asPiTool<P, AgentToolDetails>({
-        name: definition.name,
+        ...declaration,
         label: definition.label,
-        description: definition.description,
-        parameters: definition.parameters,
         execute: definition.execute(context),
       }),
   }
