@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'bun:test'
 import type { AgentMessage } from '@earendil-works/pi-agent-core'
+import { estimateTokens } from '@earendil-works/pi-agent-core'
 import type { AgentMessageView, AgentTurnReference } from '@image-playground/shared'
 import sharp from 'sharp'
+import type { AgentToolDeclaration } from '../../../lib/agent/tools'
 
 // 只装配文字与占位图片块，一句 SQL 都不发；库名故意不可达，真连上就会立刻炸出来。
 process.env.DATABASE_URL = 'postgres://unused/turn-input'
@@ -14,6 +16,7 @@ process.env.AGENT_CHAT_MAX_TOKENS = '500'
 
 // 动态引入：环境要先钉死，再让捕获配置的模块加载。
 const {
+  estimateToolDeclarationTokens,
   estimateTurnInputTokens,
   estimatedTurnInput,
   turnInitialState,
@@ -21,6 +24,8 @@ const {
   turnPromptText,
   turnVisualEvidence,
 } = await import('../../../lib/agent/turn-input')
+const { agentToolDeclarations } = await import('../../../lib/agent/tools')
+const { generateVideo } = await import('../../../lib/agent/tools/generateVideo')
 
 function userMessage(
   id: string,
@@ -110,6 +115,9 @@ const LONG_HISTORY: AgentMessageView[] = Array.from({ length: 40 }, (_, index) =
  * 预扣估算的基线。断言的是相对「同一句话、不带图」的增量，所以改系统提示词或工具说明的
  * 措辞不会让它们变红；变红说明装配口径动了——每个引用折算几个图片块、引用清单怎么写、
  * 历史怎么回放、封顶取什么——改之前先想清楚线上冻结的积分会跟着变。
+ *
+ * 每条增量旁边写清它由哪几部分构成，好让下一个读的人自己验算：pi 的启发式是
+ * 「一条消息的字符数 / 4，向上取整」，一个图片块按 4800 字符计。
  */
 describe('estimateTurnInputTokens', () => {
   const bare = (history: readonly AgentMessageView[], text: string) =>
@@ -128,28 +136,79 @@ describe('estimateTurnInputTokens', () => {
     expect(added(RICH_HISTORY, '再来一张', [])).toBe(16)
   })
 
+  // 1 个图片块（4800 字符）+ 提示词里的 `[image 1]` 引用行 + 视觉证据清单里这张图的一行（18 字符）。
   it('charges one image block for a plain reference', () => {
-    expect(added([], '换成夜景', [PLAIN])).toBe(1214)
+    expect(added([], '换成夜景', [PLAIN])).toBe(1219)
   })
 
+  // 3 个图片块（14400 字符）+ 带选区说明的引用行 + 清单里带选区 ID 与 bounds 的那一行（188 字符）。
   it('charges three image blocks for a masked reference', () => {
-    expect(added([], '换成夜景', [MASKED])).toBe(3629)
+    expect(added([], '换成夜景', [MASKED])).toBe(3676)
   })
 
+  // 上面两条各自的块与清单行加在一起，清单头只写一次。
   it('adds the blocks of every active reference', () => {
-    expect(added([], '换成夜景', [PLAIN, MASKED])).toBe(4836)
+    expect(added([], '换成夜景', [PLAIN, MASKED])).toBe(4887)
   })
 
+  // 历史里那张带遮罩的图照遮罩引用算：3 个图片块 + 清单里的遮罩行 + 回放这两条历史消息。
   it('falls back to the last batch of references in history when this turn attaches none', () => {
-    expect(added(OLD_REFERENCE_HISTORY, '再改一次', [])).toBe(3660)
+    expect(added(OLD_REFERENCE_HISTORY, '再改一次', [])).toBe(3707)
   })
 
+  // 本轮自己带了图，历史那批不再编号：1 个图片块 + 普通引用的清单行 + 回放这两条历史消息。
   it('numbers only this turn references when the turn attaches its own', () => {
-    expect(added(OLD_REFERENCE_HISTORY, '再改一次', [PLAIN])).toBe(1245)
+    expect(added(OLD_REFERENCE_HISTORY, '再改一次', [PLAIN])).toBe(1250)
   })
 
   it('caps a long history at the compaction threshold', () => {
     expect(estimateTurnInputTokens(LONG_HISTORY, '继续', [])).toBe(26_500)
+  })
+
+  /**
+   * 量级哨兵：线上一句「你好」的真实输入是 2268 token，本文件的估算是一千出头——差的是
+   * pi 的「字符数 / 4」对中文的系统性低估，不是漏项（真开了 generation:video 的部署还要多
+   * 191）。区间放宽到容得下这两个数，但漏掉工具清单（674）或系统提示词（322）就会掉出去。
+   */
+  it('lands in the right order of magnitude for a short first turn', () => {
+    const estimated = estimateTurnInputTokens([], '你好', [])
+    expect(estimated).toBeGreaterThan(800)
+    expect(estimated).toBeLessThan(3500)
+  })
+})
+
+/** 模型每次请求都收到整份工具清单；预扣不算它就是漏掉本轮输入里最大的一块固定开销。 */
+describe('tool declarations in the estimate', () => {
+  /** 与生产同一条启发式：先拿它对齐生产，再用它量视频工具那一份声明的增量。 */
+  const declarationTokens = (declarations: readonly AgentToolDeclaration[]) =>
+    estimateTokens({
+      role: 'user',
+      content: [{ type: 'text', text: JSON.stringify(declarations) }],
+      timestamp: 0,
+    })
+
+  it('counts the tool declarations on top of the messages', () => {
+    const messages = estimatedTurnInput([], '你好', []).reduce(
+      (total, message) => total + estimateTokens(message),
+      0,
+    )
+    expect(estimateTurnInputTokens([], '你好', []) - messages).toBe(estimateToolDeclarationTokens())
+    expect(declarationTokens(agentToolDeclarations())).toBe(estimateToolDeclarationTokens())
+  })
+
+  it('registers the same list the turn hands the model, clarification included', () => {
+    // 这个文件的部署没开 generation:video，所以清单里没有 generateVideo。
+    expect(agentToolDeclarations().map((declaration) => declaration.name)).toEqual([
+      'generateImage',
+      'editImage',
+      'readLibrary',
+      'askClarification',
+    ])
+  })
+
+  it('grows by exactly one declaration where the video tool is on', () => {
+    const withVideo = declarationTokens([...agentToolDeclarations(), generateVideo.declaration])
+    expect(withVideo - estimateToolDeclarationTokens()).toBe(191)
   })
 })
 
@@ -195,7 +254,10 @@ describe('estimated and sent turn input', () => {
 
   it('writes this turn prompt text the same way on both paths', () => {
     const estimated = estimatedTurnInput([], '换成夜景', [PLAIN, MASKED])
-    expect(textOf(estimated.at(-1)!)).toBe(turnPromptText('换成夜景', [PLAIN, MASKED]))
+    // 实发那一份是 `turnPromptText` 再接视觉证据清单，估算照同一条规则拼，所以只能是前缀。
+    expect(textOf(estimated.at(-1)!).startsWith(turnPromptText('换成夜景', [PLAIN, MASKED]))).toBe(
+      true,
+    )
   })
 
   it('charges the same number of image blocks the sent evidence carries', async () => {
@@ -205,13 +267,28 @@ describe('estimated and sent turn input', () => {
     expect(evidence.content).toHaveLength(4)
   })
 
-  it('leaves the visual evidence manifest out of the estimate', async () => {
-    // 口径差异，见 PR 说明：实发 prompt 末尾带着视觉证据清单，预扣不为它估 token。
-    const evidence = await turnVisualEvidence([REAL_MASKED])
-    const promptText = turnPromptText('换成夜景', [MASKED])
+  /**
+   * 清单的措辞只写在 `evidenceManifest` 一处，两条路只差选区 ID 与 bounds 的真值/占位，
+   * 所以行数与结构必须一致，普通引用那一行还应逐字相等。
+   */
+  it('writes the same visual evidence manifest on both paths', async () => {
+    const evidence = await turnVisualEvidence([REAL_PLAIN, REAL_MASKED])
+    const promptText = turnPromptText('换成夜景', [PLAIN, MASKED])
     const sent = turnModelPrompt(promptText, evidence)
-    expect(sent.text.startsWith(promptText)).toBe(true)
-    expect(sent.text).not.toBe(promptText)
-    expect(textOf(estimatedTurnInput([], '换成夜景', [MASKED]).at(-1)!)).toBe(promptText)
+    const estimatedText = textOf(estimatedTurnInput([], '换成夜景', [PLAIN, MASKED]).at(-1)!)
+    const estimatedManifest = estimatedText.slice(promptText.length)
+
+    expect(sent.text).toBe(promptText + evidence.manifest)
+    expect(estimatedText.startsWith(promptText)).toBe(true)
+    const sentLines = evidence.manifest.split('\n')
+    const estimatedLines = estimatedManifest.split('\n')
+    expect(estimatedLines).toHaveLength(sentLines.length)
+    // 清单头与普通引用那一行不含任何读字节才知道的值，两边逐字相等。
+    expect(estimatedLines.slice(0, 4)).toEqual(sentLines.slice(0, 4))
+    // 遮罩那一行只有选区 ID 与 bounds 是占位：占位 ID 与真 sha256 同长，bounds 同为 JSON。
+    const masked =
+      /^视觉输入 2：图片 img-2 原图；3：蓝色定位图；4：原色选区裁片。选区 ID selection_[0-9a-f]{64}，位置 \{"left":\d+,"top":\d+,"width":\d+,"height":\d+\}。蓝色和裁片透明处均为定位信息，不是产品外观。$/
+    expect(sentLines[4]).toMatch(masked)
+    expect(estimatedLines[4]).toMatch(masked)
   })
 })

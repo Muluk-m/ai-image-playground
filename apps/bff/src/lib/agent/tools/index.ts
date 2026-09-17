@@ -1,16 +1,22 @@
 import type { AgentTool } from '@earendil-works/pi-agent-core'
 import type { AgentToolName } from '@image-playground/shared'
+import { clarificationTool } from '../clarification'
 import type { AgentImageSource } from '../images'
-import { type AgentToolOutcome, type AgentToolStart, toolResultBlock } from './adapter'
+import {
+  type AgentToolOutcome,
+  type AgentToolStart,
+  toolDeclaration,
+  toolResultBlock,
+} from './adapter'
 import { editImage } from './editImage'
 import { generateImage } from './generateImage'
 import { generateVideo } from './generateVideo'
 import { readLibrary } from './readLibrary'
-import type { AgentToolContext, AgentToolSpec } from './types'
+import type { AgentToolContext, AgentToolDeclaration, AgentToolSpec } from './types'
 
 export type { AgentToolOutcome, AgentToolStart } from './adapter'
 export { agentToolStage } from './adapter'
-export type { AgentToolContext, AgentToolDetails } from './types'
+export type { AgentToolContext, AgentToolDeclaration, AgentToolDetails } from './types'
 
 const TOOLS: readonly AgentToolSpec[] = [generateImage, editImage, readLibrary, generateVideo]
 
@@ -22,8 +28,20 @@ function present(): AgentToolSpec[] {
   return TOOLS.filter((tool) => tool.available?.() ?? true)
 }
 
-export function agentTools(context: AgentToolContext): AgentTool[] {
-  return present().map((tool) => tool.create(context))
+/**
+ * 这一轮注册给模型的整份工具清单：注册表里此刻可用的那些，加上澄清工具——它不出工具卡，
+ * 所以不在注册表里（`isAgentToolName` 认不出它），但模型每次请求都收到它的声明。
+ */
+export function agentTurnTools(context: AgentToolContext): AgentTool[] {
+  return [...present().map((tool) => tool.create(context)), clarificationTool]
+}
+
+/**
+ * 同一份清单里随请求发出去的那部分声明，不需要运行期 context——预扣估算发生在起轮之前，
+ * 拿不到 images / 事件这些东西，但清单的 token 照样得算进去。
+ */
+export function agentToolDeclarations(): AgentToolDeclaration[] {
+  return [...present().map((tool) => tool.declaration), toolDeclaration(clarificationTool)]
 }
 
 /** 系统提示词里逐工具的那几句。与模型收到的清单同一份过滤，两边不会各说各的。 */

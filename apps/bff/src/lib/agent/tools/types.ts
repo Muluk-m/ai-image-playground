@@ -77,11 +77,23 @@ export interface AgentToolDefinition<P extends TSchema = TSchema> {
   execute(context: AgentToolContext): AgentTool<P, AgentToolDetails>['execute']
 }
 
+/**
+ * 一个工具随每次请求发给模型的那一份声明。清单占的 token 全在这三项里，所以预扣估算
+ * 读的就是它——而不是另列一份工具名。
+ */
+export interface AgentToolDeclaration<P extends TSchema = TSchema> {
+  readonly name: string
+  readonly description: string
+  readonly parameters: P
+}
+
 /** 注册表与轮看到的工具：参数类型已经在 `defineAgentTool` 那一处被擦掉。 */
 export interface AgentToolSpec {
   readonly name: AgentToolName
   readonly guidance: string
   readonly onError: 'abort' | 'continue'
+  /** `create` 出来的工具照它填，估算也读它：同一份声明，不会各说各的。 */
+  readonly declaration: AgentToolDeclaration
   available?(): boolean
   call(args: unknown): AgentToolCall
   create(context: AgentToolContext): AgentTool

@@ -119,32 +119,50 @@ export function evidenceBlocks<T>(
   return selection ? [original, selection.preview, selection.crop] : [original]
 }
 
+/** 清单里一个引用要交代的全部：它是哪张图，有没有选区、选区是哪一个、圈在哪。 */
+export interface EvidenceListing {
+  readonly imageId: string
+  readonly selection?: { readonly id: string; readonly bounds: ImageSelection['bounds'] }
+}
+
+/**
+ * 清单文本怎么写只写在这里：实发路径代入真的选区 ID 与位置，预扣估算代入等长占位。
+ * 序号跟着 `evidenceBlocks` 数出来的块数走，两边不会各数各的；改措辞两边一起跟着变。
+ */
+export function evidenceManifest(references: readonly EvidenceListing[]): string {
+  const descriptions: string[] = []
+  let blocks = 0
+  for (const { imageId, selection } of references) {
+    const first = blocks + 1
+    blocks += evidenceBlocks(1, selection && { preview: 1, crop: 1 }).length
+    descriptions.push(
+      selection
+        ? `视觉输入 ${first}：图片 ${imageId} 原图；${first + 1}：蓝色定位图；${first + 2}：原色选区裁片。选区 ID ${selection.id}，位置 ${JSON.stringify(selection.bounds)}。蓝色和裁片透明处均为定位信息，不是产品外观。`
+        : `视觉输入 ${first}：图片 ${imageId} 原图`,
+    )
+  }
+  return `\n\n视觉证据（这些序号不是用户的 image 编号）：\n${descriptions.join('\n')}`
+}
+
 /** 原图始终保留；定位图与原色选区裁片是补充证据。 */
 export async function referenceEvidence(references: readonly (Reference & { imageId: string })[]) {
   const content: ImageContent[] = []
-  const descriptions: string[] = []
+  const listed: EvidenceListing[] = []
   for (const reference of references) {
     const original = await toModelImageDataUrl(reference.dataUrl)
     const selection = await imageSelection(reference)
-    const first = content.length + 1
     content.push(
       ...evidenceBlocks(
         asImage(original),
         selection && { preview: selection.preview, crop: asImage(selection.crop) },
       ),
     )
-    if (!selection) {
-      descriptions.push(`视觉输入 ${first}：图片 ${reference.imageId} 原图`)
-      continue
-    }
-    descriptions.push(
-      `视觉输入 ${first}：图片 ${reference.imageId} 原图；${first + 1}：蓝色定位图；${first + 2}：原色选区裁片。选区 ID ${selection.id}，位置 ${JSON.stringify(selection.bounds)}。蓝色和裁片透明处均为定位信息，不是产品外观。`,
-    )
+    listed.push({
+      imageId: reference.imageId,
+      ...(selection ? { selection: { id: selection.id, bounds: selection.bounds } } : {}),
+    })
   }
-  return {
-    content,
-    manifest: `\n\n视觉证据（这些序号不是用户的 image 编号）：\n${descriptions.join('\n')}`,
-  }
+  return { content, manifest: evidenceManifest(listed) }
 }
 
 export async function selectionPreview(reference: Reference): Promise<ImageContent> {
