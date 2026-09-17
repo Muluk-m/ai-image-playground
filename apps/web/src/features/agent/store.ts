@@ -107,7 +107,7 @@ export interface AgentState {
     onAccepted?: () => void,
   ): Promise<void | 'cancelled'>
   abort(): Promise<void>
-  /** 画布冲突后由用户把那张结果卡的产出放进画布。 */
+  /** 产物没能落下去（画布已离开等）时，由用户把那张结果卡的产出放进画布。 */
   placeOnCanvas(messageId: string): Promise<void>
 }
 

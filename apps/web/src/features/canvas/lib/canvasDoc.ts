@@ -143,7 +143,7 @@ export class CanvasDoc {
    */
   captureHistory(): void {
     // 兼当 editRevision 的入口：这里正好是「一次用户操作」的边界，占位框状态流转与
-    // restore 都不经过它，智能体的画布冲突判据要的就是这条线。
+    // restore 都不经过它。
     this.editRevision += 1
     this.undoStack.push({ elements: this.elements, files: this.files })
     if (this.undoStack.length > HISTORY_LIMIT) this.undoStack.shift()

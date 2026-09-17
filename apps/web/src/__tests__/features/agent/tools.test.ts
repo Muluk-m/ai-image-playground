@@ -95,8 +95,6 @@ const placed: {
   dataUrl: string
   video?: { taskId: string; outputIndex: number }
 }[] = []
-/** 画布内容的修订号；测试里手动抬它就等于「用户动了画布」。 */
-let revision = 0
 const anchors: (string | undefined)[] = []
 /** 工具起跑时占的位：每次 reserve 记一条，落图时按 placeholderIds 认回去。 */
 const reserved: { count: number; anchorObjectId?: string; ids: string[] }[] = []
@@ -134,7 +132,6 @@ beforeEach(() => {
   state().startNewConversation()
   onCanvas.clear()
   placed.length = 0
-  revision = 0
   anchors.length = 0
   reserved.length = 0
   discarded.length = 0
@@ -145,7 +142,6 @@ beforeEach(() => {
     new Response(new Uint8Array([1, 2, 3]), { headers: { 'content-type': 'image/png' } })
   setAgentCanvasSink({
     has: (objectId) => onCanvas.has(objectId),
-    revision: () => revision,
     async reserve(request) {
       const ids = Array.from(
         { length: request.count },
@@ -162,15 +158,12 @@ beforeEach(() => {
     },
     async place(items, options) {
       if (options?.isCurrent && !options.isCurrent()) return 'unavailable'
-      const base = options?.baseRevision
-      if (base !== undefined && base !== revision) return 'conflict'
       anchors.push(options?.anchorObjectId)
       placedInto.push(options?.placeholderIds)
       for (const item of items) {
         placed.push(item)
         onCanvas.add(item.artifactId)
       }
-      revision += 1
       return 'placed'
     },
     focus() {},
@@ -417,7 +410,7 @@ describe('工具事件', () => {
     expect(placed).toEqual([])
   })
 
-  it('一轮里连着两次落图，第二次不因为第一次的写入误判冲突', async () => {
+  it('一轮里连着两次落图，两次产出都写入', async () => {
     turnResponse = () => turnStream(...twoToolTurn())
 
     await state().send('画两只橘猫')
@@ -568,46 +561,6 @@ describe('视频产物', () => {
       String(input).includes('/v1/queue/requests/'),
     )
     expect(downloads).toEqual([])
-  })
-})
-
-describe('生成期间画布有改动', () => {
-  /** 起完这一轮之后用户动了画布：修订号抬了，产物照样落进起跑时占的位。 */
-  function editCanvasDuringTurn(...events: AgentTurnEvent[]): void {
-    turnResponse = () => {
-      revision += 1
-      return turnStream(...events)
-    }
-  }
-
-  it('产物照样写入画布，不留手动放入的入口', async () => {
-    editCanvasDuringTurn(TURN_START, TOOL_START, TOOL_END, TURN_END)
-
-    await state().send('画一只橘猫')
-
-    expect(placed).toEqual([
-      {
-        artifactId: 'agent_image_1',
-        dataUrl: 'data:image/png;base64,AQID',
-        taskId: 'task-1',
-        name: '一只橘猫坐在窗台上 1',
-      },
-    ])
-    expect(onCanvas.has(IMAGE.artifactId)).toBe(true)
-    expect(toolMessages()[0]).toMatchObject({
-      status: 'succeeded',
-      artifacts: [IMAGE],
-      delivery: 'placed',
-    })
-  })
-
-  it('这一轮的每一次产出都写入', async () => {
-    editCanvasDuringTurn(...twoToolTurn())
-
-    await state().send('画两只橘猫')
-
-    expect(placed).toHaveLength(2)
-    expect(toolMessages().map((one) => one.delivery)).toEqual(['placed', 'placed'])
   })
 })
 
