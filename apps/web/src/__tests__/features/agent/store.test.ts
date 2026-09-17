@@ -6,6 +6,7 @@ import { PANEL_WIDTH } from '../../../features/agent/agentStyles'
 import {
   agentActivityPhase,
   answerableClarificationId,
+  conversationStarted,
   useAgentStore,
 } from '../../../features/agent/store'
 import { _setRuntimeConfigForTesting } from '../../../lib/runtimeConfig'
@@ -267,6 +268,27 @@ describe('读回历史', () => {
 })
 
 describe('发送反馈', () => {
+  it('先上屏的那条就算会话开始了；起轮失败时撤掉它，欢迎页回来', async () => {
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    turnResponse = async () => {
+      await gate
+      return new Response(JSON.stringify({ error: 'rate_limited' }), { status: 429 })
+    }
+
+    const sending = state().send('画一只橘猫')
+    await Promise.resolve()
+    expect(conversationStarted(state().messages)).toBe(true)
+
+    release()
+    await sending
+    expect(state().turn).toBe('failed')
+    expect(state().messages).toEqual([])
+    expect(conversationStarted(state().messages)).toBe(false)
+  })
+
   it('敲下回车消息立刻上屏，turnStart 到了换成服务端的 id', async () => {
     let release!: () => void
     const gate = new Promise<void>((resolve) => {

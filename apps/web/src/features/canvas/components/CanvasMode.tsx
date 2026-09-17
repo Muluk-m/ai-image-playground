@@ -4,7 +4,7 @@ import { useMobileWorkspace } from '../../../hooks/useMobileWorkspace'
 import { useStore } from '../../../store'
 import AgentPanel from '../../agent/components/AgentPanel'
 import { agentPanelPresent } from '../../agent/panelLayout'
-import { useAgentStore } from '../../agent/store'
+import { conversationStarted, useAgentStore } from '../../agent/store'
 import type { CanvasEditor } from '../lib/editor'
 import { importImageFiles } from '../lib/importImages'
 import { placeImagesIntoTargets } from '../lib/placeholderShapeOps'
@@ -105,10 +105,9 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
   const project = useCanvasProjectStore((state) =>
     state.projects.find((one) => one.id === state.activeId),
   )
-  const accepted = useAgentStore((state) =>
-    state.messages.some((one) => one.kind !== 'text' || !one.pending),
-  )
-  const showWelcome = hasAgent && !hasContent && !project?.hasContent && !accepted
+  // 敲下回车就切到工作区：消息先上屏、状态行亮「发送中」，不等服务端回 turnStart。
+  const started = useAgentStore((state) => conversationStarted(state.messages))
+  const showWelcome = hasAgent && !hasContent && !project?.hasContent && !started
   useEffect(() => {
     if (hasAgent) void useAgentStore.getState().load()
   }, [hasAgent])
