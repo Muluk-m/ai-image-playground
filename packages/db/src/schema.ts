@@ -16,7 +16,7 @@ import type {
   TaskKind,
   TaskStatus,
 } from '@image-playground/shared'
-import { eq, sql } from 'drizzle-orm'
+import { eq, getTableColumns, sql } from 'drizzle-orm'
 import {
   bigint,
   check,
@@ -461,8 +461,10 @@ export const daily_quota = pgTable(
  * 后台与队列端点读这张视图，不读 `tasks`：对话轮的可见性靠这一层挡，不靠每条查询自觉。
  * 真要看对话轮，显式写 `tasks`。
  */
+// Archive recovery sources are worker-private and are not part of the operational view.
+const { archive_payload: _archivePayload, ...queueTaskColumns } = getTableColumns(tasks)
 export const queue_tasks = pgView('queue_tasks').as((qb) =>
-  qb.select().from(tasks).where(eq(tasks.kind, 'queue')),
+  qb.select(queueTaskColumns).from(tasks).where(eq(tasks.kind, 'queue')),
 )
 
 export type Task = typeof tasks.$inferSelect

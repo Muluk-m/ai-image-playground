@@ -251,16 +251,11 @@ export async function archiveGenerationOutputs(
       if (missing.has(image.index)) continue
       const source = resolveImageBytesRef(provider, payload, image.index)
       if (!source || !source.mime.startsWith('image/')) throw new Error('generation_image_missing')
-      const bytes =
-        source.kind === 'object'
-          ? await readMediaBytes(
-              source.store === 'durable' ? durableMediaStore() : objectStore(),
-              source.data,
-            )
-          : source.kind === 'b64'
-            ? Buffer.from(source.data, 'base64')
-            : null
-      if (!bytes) throw new Error('generation_image_not_archived')
+      if (source.kind !== 'object') throw new Error('generation_image_not_archived')
+      const bytes = await readMediaBytes(
+        source.store === 'durable' ? durableMediaStore() : objectStore(),
+        source.data,
+      )
       const media = await storeMedia(userId, bytes, detectMediaMime(bytes) ?? source.mime)
       links.push({ role: 'output', position: image.index, mediaId: media.id })
     }
