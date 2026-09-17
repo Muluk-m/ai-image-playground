@@ -421,6 +421,43 @@ describe('AgentPanel', () => {
     expect(send).toHaveBeenCalledWith('扁平插画')
   })
 
+  it('方案都不对时点「其他」，在卡片里写一句就是下一条消息', () => {
+    const send = vi.fn(async () => {})
+    useAgentStore.setState({
+      send,
+      messages: [
+        {
+          kind: 'clarification',
+          id: 'clarify-1',
+          turnId: 'turn-1',
+          question: '要哪种风格？',
+          options: ['写实照片', '扁平插画'],
+        },
+      ],
+    })
+    render()
+
+    const other = [...host.querySelectorAll('button')].find(
+      (button) => button.textContent === '其他…',
+    )!
+    act(() => other.click())
+    const field = host.querySelector('input[aria-label="其他回答"]') as HTMLInputElement
+    const submit = [...host.querySelectorAll('button')].find(
+      (button) => button.textContent === '发送' && button.getAttribute('type') === 'submit',
+    ) as HTMLButtonElement
+    // 空着不能发：一条空回答只会让助手再问一遍。
+    expect(submit.disabled).toBe(true)
+
+    const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+    act(() => {
+      setValue.call(field, '  水墨国风  ')
+      field.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    act(() => field.form!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })))
+
+    expect(send).toHaveBeenCalledWith('水墨国风')
+  })
+
   it('作过答的澄清只剩状态标签，选项不再可点', () => {
     useAgentStore.setState({
       messages: [
@@ -448,6 +485,10 @@ describe('AgentPanel', () => {
       (button) => button.textContent === '扁平插画',
     ) as HTMLButtonElement
     expect(option.disabled).toBe(true)
+    const other = [...host.querySelectorAll('button')].find(
+      (button) => button.textContent === '其他…',
+    ) as HTMLButtonElement
+    expect(other.disabled).toBe(true)
   })
 
   it('每轮页脚写耗时与合计消耗，点开看明细', () => {

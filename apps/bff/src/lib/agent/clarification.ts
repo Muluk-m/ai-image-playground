@@ -19,7 +19,7 @@ const parameters = Type.Object({
   options: Type.Array(Type.String(), {
     minItems: MIN_OPTIONS,
     maxItems: MAX_OPTIONS,
-    description: `${COUNT} 个互斥的选项，每项是一个你可以直接照做的具体方案，一句短语写清会产出什么；推荐项放第一个。用户点其中一项就是他的下一条消息。`,
+    description: `${COUNT} 个互斥的选项，每项是一个你可以直接照做的具体方案，一句短语写清会产出什么；推荐项放第一个；界面自带「其他」，不要自己加。用户点其中一项就是他的下一条消息。`,
   }),
 })
 
