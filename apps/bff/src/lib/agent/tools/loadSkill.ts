@@ -74,11 +74,13 @@ interface LoadedSkillText {
 async function loadSkillText(mode: AgentMode, params: LoadSkillParams): Promise<LoadedSkillText> {
   const name = params.name?.trim() ?? ''
   const label = skillLabel(mode, name)
+  const skill = name ? findAgentSkill(mode, name) : undefined
+  // 图标跟着这一轮真找到的那条技能走，与 `/` 菜单同一张白名单；没找到时不给，界面退回默认图标。
+  const icon = skill ? { icon: skill.icon } : {}
   const miss = (text: string): LoadedSkillText => ({
     text,
-    outcome: { label: label || name, found: false },
+    outcome: { label: label || name, found: false, ...icon },
   })
-  const skill = name ? findAgentSkill(mode, name) : undefined
   if (!skill) {
     const known = agentSkills(mode).map((one) => one.name)
     return miss(
@@ -89,7 +91,7 @@ async function loadSkillText(mode: AgentMode, params: LoadSkillParams): Promise<
   }
   const file = params.file?.trim()
   if (!file) {
-    return { text: agentSkillInvocation(skill), outcome: { label, found: true } }
+    return { text: agentSkillInvocation(skill), outcome: { label, found: true, ...icon } }
   }
 
   const result = await readAgentSkillFile(mode, skill.name, file)
@@ -97,7 +99,7 @@ async function loadSkillText(mode: AgentMode, params: LoadSkillParams): Promise<
     case 'ok':
       return {
         text: `<skill_file name="${skill.name}" location="skill://${skill.name}/${file}">\n${result.text}\n</skill_file>`,
-        outcome: { label, found: true },
+        outcome: { label, found: true, ...icon },
       }
     case 'escapes-skill':
       return miss(`${file} 不在技能 ${skill.name} 的目录里，只能读该技能自己的附属文件。`)

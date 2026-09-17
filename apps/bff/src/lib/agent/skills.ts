@@ -6,7 +6,11 @@ import {
   loadSkills,
 } from '@earendil-works/pi-agent-core'
 import { NodeExecutionEnv } from '@earendil-works/pi-agent-core/node'
-import type { AgentMode, AgentSkillSummary } from '@image-playground/shared'
+import {
+  type AgentMode,
+  type AgentSkillSummary,
+  DEFAULT_AGENT_SKILL_ICON,
+} from '@image-playground/shared'
 import { log } from '../logger'
 
 /**
@@ -31,6 +35,74 @@ export interface AgentSkill {
   readonly content: string
   /** 磁盘上这个技能的目录，附属文件只在它里面找。 */
   readonly directory: string
+  /** 界面用的 lucide 图标名，来自 `meta.json`；**不进任何给模型的文本**。 */
+  readonly icon: string
+  /** 界面用的一句话简介，来自 `meta.json`；空串表示没写。**不进任何给模型的文本**。 */
+  readonly summary: string
+}
+
+/**
+ * 技能的界面元数据，放在技能目录的 `meta.json` 里。
+ *
+ * **为什么不写进 frontmatter**：Agent Skills 标准的 frontmatter 只有 `name` 与 `description`，
+ * 框架的 `loadSkills` 也不保留额外字段——塞进去等于加一条只有我们认的方言，还拿不回来。
+ * 旁路文件读不到就整条回退，技能本身照常可用。
+ */
+export interface AgentSkillMeta {
+  readonly icon: string
+  readonly summary: string
+}
+
+/** 技能目录里那份界面元数据的文件名。 */
+export const AGENT_SKILL_META_FILE = 'meta.json'
+
+const FALLBACK_META: AgentSkillMeta = { icon: DEFAULT_AGENT_SKILL_ICON, summary: '' }
+
+/** lucide 图标名的形状：kebab-case。写成 `Clapperboard` 这种前端映射表里查不到。 */
+const ICON_NAME_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
+
+/**
+ * 读一个技能目录的 `meta.json`。**读不到、解析不了、字段不合规都只是回退**：
+ * 图标退到默认值、简介退成空串（界面自己回退到 description），技能一条都不丢。
+ */
+async function loadSkillMeta(directory: string, name: string): Promise<AgentSkillMeta> {
+  const path = join(directory, AGENT_SKILL_META_FILE)
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(await Bun.file(path).text())
+  } catch (thrown) {
+    log.warn(
+      { event: 'agent.skill_meta_unreadable', skill: name, path, err: thrown },
+      'agent skill meta.json missing or unparsable; falling back to defaults',
+    )
+    return FALLBACK_META
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    log.warn(
+      { event: 'agent.skill_meta_invalid', skill: name, path },
+      'agent skill meta.json is not an object',
+    )
+    return FALLBACK_META
+  }
+  const raw = parsed as { icon?: unknown; summary?: unknown }
+  const icon = typeof raw.icon === 'string' ? raw.icon.trim() : ''
+  const summary = typeof raw.summary === 'string' ? raw.summary.trim() : ''
+  if (!ICON_NAME_RE.test(icon)) {
+    log.warn(
+      { event: 'agent.skill_meta_invalid', skill: name, path, field: 'icon' },
+      'agent skill meta.json has no usable kebab-case icon name',
+    )
+  }
+  if (!summary) {
+    log.warn(
+      { event: 'agent.skill_meta_invalid', skill: name, path, field: 'summary' },
+      'agent skill meta.json has no usable summary',
+    )
+  }
+  return {
+    icon: ICON_NAME_RE.test(icon) ? icon : DEFAULT_AGENT_SKILL_ICON,
+    summary,
+  }
 }
 
 /** 正文的第一个一级标题就是这条技能的人类标题；没有就退回 kebab-case 的 name。 */
@@ -105,18 +177,24 @@ async function loadFrom(dirs: readonly string[]): Promise<LoadedSkills> {
       diagnostic.message,
     )
   }
-  return {
-    complete,
-    skills: result.skills
+  const skills = await Promise.all(
+    result.skills
       .filter((skill) => !skill.disableModelInvocation)
-      .map((skill) => ({
-        name: skill.name,
-        title: agentSkillTitle(skill.content, skill.name),
-        description: skill.description,
-        content: skill.content,
-        directory: directoryOf(skill.filePath),
-      })),
-  }
+      .map(async (skill) => {
+        const directory = directoryOf(skill.filePath)
+        const meta = await loadSkillMeta(directory, skill.name)
+        return {
+          name: skill.name,
+          title: agentSkillTitle(skill.content, skill.name),
+          description: skill.description,
+          content: skill.content,
+          directory,
+          icon: meta.icon,
+          summary: meta.summary,
+        }
+      }),
+  )
+  return { complete, skills }
 }
 
 /** 技能根目录在不在。不在是「这个部署没有技能」，在却空着是「有人漏了什么」。 */
@@ -184,7 +262,13 @@ export function findAgentSkill(mode: AgentMode, name: string): AgentSkill | unde
 }
 
 export function agentSkillSummaries(mode: AgentMode): AgentSkillSummary[] {
-  return index[mode].map(({ name, title, description }) => ({ name, title, description }))
+  return index[mode].map(({ name, title, description, icon, summary }) => ({
+    name,
+    title,
+    description,
+    icon,
+    summary,
+  }))
 }
 
 /** 测试注入目录用的接缝：换根目录并丢掉缓存，下一次 `ensureAgentSkills()` 重新读盘。 */

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test'
 import { readdirSync } from 'node:fs'
 import { basename, resolve } from 'node:path'
-import type { AgentMode } from '@image-playground/shared'
+import { type AgentMode, DEFAULT_AGENT_SKILL_ICON } from '@image-playground/shared'
 
 // 只读磁盘上随仓库发的技能目录，一句 SQL 都不发；库名故意不可达，真连上就会立刻炸出来。
 process.env.DATABASE_URL = 'postgres://unused/shipped-agent-skills'
@@ -19,6 +19,7 @@ const { agentSkills, defaultAgentSkillsRoot, ensureAgentSkills } = await import(
   '../../../lib/agent/skills'
 )
 const { agentToolDeclarations } = await import('../../../lib/agent/tools')
+const { turnInitialState } = await import('../../../lib/agent/turn-input')
 const { _setChannelsForTesting } = await import('../../../lib/channels')
 
 type InternalChannel = import('../../../lib/channels').InternalChannel
@@ -43,6 +44,9 @@ const VIDEO_CHANNEL: InternalChannel = {
 
 /** description 是常驻上下文里唯一进每一轮系统提示词的东西，所以它有长度上限。 */
 const DESCRIPTION_MAX_CHARS = 120
+
+/** summary 是 `/` 菜单里那一行次级文案，长了就在菜单宽度里被截断。 */
+const SUMMARY_MAX_CHARS = 30
 
 const MODES: AgentMode[] = ['image', 'video']
 
@@ -111,6 +115,41 @@ describe('随仓库发的技能', () => {
       }
     }
     expect(strayed).toEqual([])
+  })
+
+  it.each(MODES)('%s 轮的每条技能都写了 meta.json 里的图标与一句话简介', (mode) => {
+    for (const skill of agentSkills(mode)) {
+      // 读不出来时加载器会回退到默认图标 + 空简介，所以这两条就是「meta.json 合法」的判据。
+      expect(skill.icon).not.toBe(DEFAULT_AGENT_SKILL_ICON)
+      expect(skill.icon).toMatch(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
+      expect(skill.summary).not.toBe('')
+      expect([...skill.summary].length).toBeLessThanOrEqual(SUMMARY_MAX_CHARS)
+      // 简介是写给用户的，`description` 那套「何时用 / 不处理」的路牌是写给模型的。
+      expect(skill.summary.startsWith('何时用')).toBe(false)
+    }
+  })
+
+  it('两个 mode 合起来没有两条技能撞同一个图标', () => {
+    // 图标是用来一眼分辨场景的；重了就等于没有。`shared/` 下的技能两边各出现一次，按名字去重。
+    const byName = new Map<string, string>()
+    for (const mode of MODES) for (const one of agentSkills(mode)) byName.set(one.name, one.icon)
+    const icons = [...byName.values()]
+    expect(new Set(icons).size).toBe(icons.length)
+  })
+
+  it.each(MODES)('%s 轮的系统提示词里没有 meta.json 的任何内容', (mode) => {
+    // `<available_skills>` 只有 name / description / location。图标与简介是界面的东西，
+    // 混进常驻上下文既白花 token，也会让模型照着一句营销话去挑技能。
+    const { systemPrompt } = turnInitialState([], mode)
+    // 非贪婪并咬住换行：`<available_skills>` 这个词在 loadSkill 的逐工具指引里也出现过一次。
+    const block =
+      /<available_skills>\n([\s\S]*?)\n<\/available_skills>/.exec(systemPrompt)?.[1] ?? ''
+    expect(block).not.toBe('')
+    const tags = new Set([...block.matchAll(/<([a-z_]+)>/g)].map(([, tag]) => tag))
+    expect([...tags].sort()).toEqual(['description', 'location', 'name', 'skill'])
+    for (const skill of agentSkills(mode)) {
+      expect(systemPrompt).not.toContain(skill.summary)
+    }
   })
 
   it('磁盘上每个技能目录都被加载了出来', () => {
