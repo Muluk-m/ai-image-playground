@@ -19,6 +19,12 @@ frontmatter 只有 `name` 与 `description`，正文是完整指引，同目录�
 开销不长。`description` 因此是整套机制的承重墙：它写成「何时用 / 不处理什么」，决定模型会不会在对的
 时候把正文读进来。
 
+**技能有两个名字。** 标准把 `name` 钉死成与父目录同名的 kebab-case，界面上直接显示它就是一串
+英文。所以界面用的标题另取一处：正文的第一个一级标题，没有就回退到 `name`。不改标准、不多加一个
+frontmatter 字段，写 `SKILL.md` 的人本来就会给正文写标题。标题只走 `/` 菜单与面板上「读取技能：…」
+那一行，**不进系统提示词的 `<available_skills>`**——那里仍只有 name / description / location，模型
+认的始终是标识。
+
 **位置写虚拟路径 `skill://<name>/SKILL.md`，不写磁盘路径。** 服务器绝对路径对模型没有任何用处，
 写出去只会诱导它去猜一个它调不到的文件读工具，顺带把部署的目录结构告诉它。所以系统提示词里的
 `<location>` 与 `formatSkillInvocation` 拿到的 `filePath` 都是虚拟路径，磁盘路径只留在服务端用来读
@@ -65,7 +71,8 @@ frontmatter 只有 `name` 与 `description`，正文是完整指引，同目录�
 成本越高，到某个数量就该改成「按 mode 再细分」或者先给模型一层目录。
 
 `AgentToolName` 多了 `loadSkill`，前端第一次出现按工具名分支的地方：它渲染成一行轻量脚注，不出结果
-卡、不占画布位、不扣生成积分。
+卡、不占画布位、不扣生成积分。那一行的标题在工具起跑时就要写好，而那一刻 pi 只给参数、拿不到这一轮
+的 mode，所以按标识跨 mode 找标题；真正的 mode 门禁在 `execute` 里。
 
 种子技能（各 mode 两条）标注为草稿：内容来自 `docs/research/video-workflow-trace.md` 与
 `docs/research/agent-native-video-mode.md` 的产品走查，没有经过真实用户与投放数据验证。

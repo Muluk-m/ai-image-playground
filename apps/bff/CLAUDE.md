@@ -55,6 +55,10 @@ BFF 的公开核心只做四件事：
   mode 专属的那份胜出。同目录可放 `references/*.md` 这类附属文件。
 - frontmatter 只认 `name` 与 `description`。**`name` 必须与父目录同名且是 kebab-case**（框架
   loader 会校验，不符只记 diagnostic 不丢弃）；**`description` 缺席那条技能直接被丢掉**。
+- **正文第一行写一个中文一级标题**（`# 分镜短片`），它就是界面上那个名字（`title`）：标准把
+  `name` 钉死成 kebab-case，直接显示就是一串英文。没有一级标题时回退到 `name`。标题只进
+  `/` 菜单与面板上「读取技能：…」那一行，**不进系统提示词的 `<available_skills>`**——那里只有
+  name / description / location。
 - **`description` 写成「何时用 / 不处理什么」**，这是 Agent Skills 的惯例，也是常驻上下文里
   唯一进模型眼睛的东西——它决定模型会不会在对的时候调 `loadSkill` 把正文读进来。写成一句功能
   介绍等于关掉这条技能。

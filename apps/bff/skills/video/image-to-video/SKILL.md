@@ -3,9 +3,11 @@ name: image-to-video
 description: 何时用：用户指着一张已有的图说想让它动起来（「让这张图动一下」「给这张海报加个运镜」「做成 3 秒循环」）。直接干活，不要先问分镜。不处理：要多个镜头的成片（用 storyboard-short）、还没有图的纯文生视频。
 ---
 
-> 草稿。这份技能来自 `docs/research/video-workflow-trace.md` §八 的走查结论，尚未经过真实用户验证。
+# 让图动起来
 
-# 让一张已有的图动起来
+> 示例级内容，来自 `docs/research/video-workflow-trace.md` §八 的走查结论，尚未经过真实用户验证。
+
+让一张已有的图动起来。
 
 这是整条视频路径里最短的一条：**一张图 + 一句动作 = 一次 `generateVideo`**。别把它做复杂。
 

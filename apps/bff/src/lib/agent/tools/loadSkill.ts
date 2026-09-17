@@ -5,6 +5,7 @@ import {
   agentSkillLocation,
   agentSkills,
   findAgentSkill,
+  findAgentSkillInAnyMode,
   readAgentSkillFile,
 } from '../skills'
 import { defineAgentTool } from './adapter'
@@ -40,9 +41,12 @@ export const loadSkill = defineAgentTool({
   available: (mode) => agentSkills(mode).length > 0,
   // 不落画布，所以没有 outputCount；也没有送进上游的提示词。
   call: ({ name, file }) => {
-    const skill = typeof name === 'string' && name.trim() ? name.trim() : ''
+    const asked = typeof name === 'string' ? name.trim() : ''
+    // 起跑这一刻拿不到这一轮的 mode（pi 只给参数），所以按 name 跨 mode 找一份标题；
+    // 找不到就照模型说的名字写。mode 门禁在 `execute` 里，不在这一行标题上。
+    const label = asked ? (findAgentSkillInAnyMode(asked)?.title ?? asked) : ''
     const suffix = typeof file === 'string' && file.trim() ? ` · ${file.trim()}` : ''
-    return { title: skill ? `读取技能：${skill}${suffix}` : '读取技能' }
+    return { title: label ? `读取技能：${label}${suffix}` : '读取技能' }
   },
   execute: (context) => async (_toolCallId, params) => ({
     content: [{ type: 'text', text: await loadSkillText(context.mode, params) }],

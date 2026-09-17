@@ -24,10 +24,13 @@ export function getSlashSkillQuery(prompt: string, cursor: number): SlashSkillQu
   return SLASH_QUERY_RE.test(tail) ? { start: 0, query } : null
 }
 
+/** 打的是名字（`/story`），但看的是标题，所以两边都匹配。 */
 export function skillMatches(query: string, skill: AgentSkillSummary): boolean {
   const normalized = query.trim().toLowerCase()
   if (!normalized) return true
-  return skill.name.toLowerCase().includes(normalized)
+  return (
+    skill.name.toLowerCase().includes(normalized) || skill.title.toLowerCase().includes(normalized)
+  )
 }
 
 /** 选中候选后的新提示词：整段名字被换掉，光标落在名字后面的那个空格之后。 */
@@ -47,9 +50,15 @@ export function buildAgentSkillGroups<T>(
   skills: readonly AgentSkillSummary[],
   toValue: (skill: AgentSkillSummary) => T,
 ): SuggestionMenuGroup<T>[] {
+  // 主行是人看的标题，次行是「何时用」；插进输入框的仍是 `/name`，服务端只认它。
   const options = skills
     .filter((skill) => skillMatches(query, skill))
-    .map((skill) => ({ key: `skill:${skill.name}`, label: skill.name, value: toValue(skill) }))
+    .map((skill) => ({
+      key: `skill:${skill.name}`,
+      label: skill.title,
+      description: skill.description,
+      value: toValue(skill),
+    }))
   if (options.length === 0) return []
   return [{ key: 'skills', heading: i18next.t('mentions.headingSkills', { ns: 'agent' }), options }]
 }

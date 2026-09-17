@@ -7,8 +7,14 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const skills = vi.hoisted(() => ({
-  image: [] as { name: string; description: string }[],
-  video: [{ name: 'storyboard-short', description: '何时用：一句话要一条多镜短片。' }],
+  image: [] as { name: string; title: string; description: string }[],
+  video: [
+    {
+      name: 'storyboard-short',
+      title: '分镜短片',
+      description: '何时用：一句话要一条多镜短片。',
+    },
+  ],
 }))
 
 vi.mock('../../../../features/agent/lib/agentClient', async () => {
@@ -127,22 +133,36 @@ describe('创作类型切换', () => {
 })
 
 describe('`/` 技能候选', () => {
-  it('视频轮打 `/` 弹出这个 mode 的技能，选中后补成命令', async () => {
+  it('视频轮打 `/` 弹出中文标题与「何时用」，选中后补成 `/name`', async () => {
     render()
     await settle()
     chooseOption('创作类型', '视频')
     await settle()
 
     type('/story')
-    const option = [...host.querySelectorAll<HTMLElement>('[role="option"]')].find((one) =>
-      one.textContent?.includes('storyboard-short'),
-    )
+    const option = [...host.querySelectorAll<HTMLElement>('[role="option"]')][0]
     expect(option).toBeDefined()
+    // 主行是人看的标题，次行是「何时用」；kebab-case 的标识不该露在面上。
+    expect(option!.textContent).toContain('分镜短片')
+    expect(option!.textContent).toContain('何时用：一句话要一条多镜短片。')
+    expect(option!.textContent).not.toContain('storyboard-short')
+
     act(() => {
       option!.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
     })
 
+    // 插进去的仍是标识：服务端只认它。
     expect(agentDraft(null).getSnapshot().draft.prompt).toBe('/storyboard-short ')
+  })
+
+  it('只打一个 `/` 就列出这个 mode 的全部技能', async () => {
+    render()
+    await settle()
+    chooseOption('创作类型', '视频')
+    await settle()
+
+    type('/')
+    expect(host.querySelectorAll('[role="option"]')).toHaveLength(1)
   })
 
   it('图片轮没有技能时不弹任何候选', async () => {

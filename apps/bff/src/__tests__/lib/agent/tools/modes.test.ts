@@ -15,7 +15,13 @@ process.env.OPERATOR_CONFIG_FILE = resolve(
   '../../../agent-video-operator-config.json',
 )
 
-const { agentToolDeclarations, agentToolGuidance, agentTurnTools, isAgentToolName } = await import(
+const {
+  agentToolDeclarations,
+  agentToolGuidance,
+  agentToolStart,
+  agentTurnTools,
+  isAgentToolName,
+} = await import(
   '../../../../lib/agent/tools'
 )
 const { turnInitialState, expandSkillInvocation, estimatedTurnInput } = await import(
@@ -71,8 +77,18 @@ beforeAll(async () => {
   _setChannelsForTesting([VIDEO_CHANNEL])
   root = await mkdtemp(join(tmpdir(), 'aip-tool-modes-'))
   for (const [mode, name, description, body] of [
-    ['image', 'main-image', '何时用：电商主图。不处理：视频。', '主图正文只应出现在工具返回里'],
-    ['video', 'storyboard', '何时用：多镜短片。不处理：单张图。', '分镜正文只应出现在工具返回里'],
+    [
+      'image',
+      'main-image',
+      '何时用：电商主图。不处理：视频。',
+      '# 电商主图\n\n主图正文只应出现在工具返回里',
+    ],
+    [
+      'video',
+      'storyboard',
+      '何时用：多镜短片。不处理：单张图。',
+      '# 分镜短片\n\n分镜正文只应出现在工具返回里',
+    ],
   ] as const) {
     const dir = join(root, mode, name)
     await mkdir(dir, { recursive: true })
@@ -124,12 +140,40 @@ describe('tools filtered by creation mode', () => {
   })
 })
 
+describe('what the panel shows for a loadSkill call', () => {
+  const start = (args: unknown) =>
+    agentToolStart('loadSkill', 'call-1', args, { identify: () => undefined } as never)
+
+  it('writes the human title, not the kebab-case name', () => {
+    expect(start({ name: 'storyboard' }).title).toBe('读取技能：分镜短片')
+    // 起跑这一刻拿不到 mode，所以图片轮的技能也认得出来；mode 门禁在 execute 里。
+    expect(start({ name: 'main-image' }).title).toBe('读取技能：电商主图')
+  })
+
+  it('names the attachment when the model asked for one', () => {
+    expect(start({ name: 'storyboard', file: 'references/shot-list.md' }).title).toBe(
+      '读取技能：分镜短片 · references/shot-list.md',
+    )
+  })
+
+  it('falls back to what the model said when the name is unknown or missing', () => {
+    expect(start({ name: 'nope' }).title).toBe('读取技能：nope')
+    expect(start({}).title).toBe('读取技能')
+  })
+
+  it('never reserves a place on the canvas', () => {
+    expect(start({ name: 'storyboard' }).outputCount).toBeUndefined()
+  })
+})
+
 describe('the skills block in the system prompt', () => {
   it('lists this mode skills and nothing else', () => {
     const video = turnInitialState([], 'video').systemPrompt
     expect(video).toContain('<available_skills>')
     expect(video).toContain('<name>storyboard</name>')
     expect(video).not.toContain('main-image')
+    // 清单只有 name / description / location：标题是界面用的，不占模型的上下文。
+    expect(video).not.toContain('分镜短片')
   })
 
   it('carries descriptions but never the body', () => {

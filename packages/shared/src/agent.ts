@@ -42,9 +42,13 @@ export type AgentToolName =
   | 'generateVideo'
   | 'loadSkill'
 
-/** 技能清单端点给前端的那一份：只有名字和「何时用」，正文由模型自己去读。 */
+/**
+ * 技能清单端点给前端的那一份：只有标识、标题和「何时用」，正文由模型自己去读。
+ * `name` 是 Agent Skills 标准的 kebab-case 标识，服务端只认它；`title` 是给人看的那个名字。
+ */
 export interface AgentSkillSummary {
   readonly name: string
+  readonly title: string
   readonly description: string
 }
 

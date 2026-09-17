@@ -12,9 +12,11 @@ const {
   agentSkillInvocation,
   agentSkillLocation,
   agentSkillSummaries,
+  agentSkillTitle,
   agentSkills,
   ensureAgentSkills,
   findAgentSkill,
+  findAgentSkillInAnyMode,
   readAgentSkillFile,
   setAgentSkillsRootForTesting,
 } = await import('../../../lib/agent/skills')
@@ -34,13 +36,13 @@ beforeAll(async () => {
     'image',
     'main-image',
     'name: main-image\ndescription: 何时用：电商主图。',
-    '主图正文',
+    '# 电商主图\n\n主图正文',
   )
   await skill(
     'video',
     'storyboard',
     'name: storyboard\ndescription: 何时用：多镜短片。',
-    '分镜正文',
+    '# 分镜短片\n\n分镜正文',
   )
   await skill('shared', 'palette', 'name: palette\ndescription: 何时用：配色。', '配色正文')
   // 名字与父目录不一致 + 缺 description：两种 diagnostic 各来一条。
@@ -87,9 +89,26 @@ describe('agent skills loading', () => {
   it('summarises a mode without leaking the body', () => {
     expect(agentSkillSummaries('video')).toContainEqual({
       name: 'storyboard',
+      title: '分镜短片',
       description: '何时用：多镜短片。',
     })
     expect(JSON.stringify(agentSkillSummaries('video'))).not.toContain('分镜正文')
+  })
+
+  it('takes the human title from the first h1 and falls back to the name', () => {
+    expect(findAgentSkill('video', 'storyboard')?.title).toBe('分镜短片')
+    // `palette` 的正文没有一级标题，标题就是它的 kebab-case 标识。
+    expect(findAgentSkill('image', 'palette')?.title).toBe('palette')
+    expect(agentSkillTitle('前言\n\n#  留白的标题  \n\n正文', 'fallback')).toBe('留白的标题')
+    expect(agentSkillTitle('## 只有二级标题', 'fallback')).toBe('fallback')
+    expect(agentSkillTitle('', 'fallback')).toBe('fallback')
+  })
+
+  it('finds a skill by name without being told the mode', () => {
+    // 工具起跑那一刻 pi 只给参数，拿不到这一轮的 mode，面板上那行标题仍要写对。
+    expect(findAgentSkillInAnyMode('storyboard')?.title).toBe('分镜短片')
+    expect(findAgentSkillInAnyMode('main-image')?.title).toBe('电商主图')
+    expect(findAgentSkillInAnyMode('nope')).toBeUndefined()
   })
 
   it('addresses skills by a virtual path, never by a server path', () => {

@@ -20,11 +20,23 @@ import { log } from '../logger'
 
 /** 一条加载好的技能。`directory` 只给服务端读附属文件用，任何进模型的文本里都不许出现。 */
 export interface AgentSkill {
+  /** Agent Skills 标准的 kebab-case 标识，与父目录同名。模型和 `/name` 都按它认。 */
   readonly name: string
+  /**
+   * 给人看的名字，取正文第一个一级标题。标准把 `name` 钉死成 kebab-case，界面上直接显示
+   * 它就是一串英文，所以标题另取一处——不改标准，也不多一个 frontmatter 字段。
+   */
+  readonly title: string
   readonly description: string
   readonly content: string
   /** 磁盘上这个技能的目录，附属文件只在它里面找。 */
   readonly directory: string
+}
+
+/** 正文的第一个一级标题就是这条技能的人类标题；没有就退回 kebab-case 的 name。 */
+export function agentSkillTitle(content: string, name: string): string {
+  const heading = /^#[ \t]+(.+?)[ \t]*$/m.exec(content)
+  return heading?.[1] || name
 }
 
 /** 附属文件的大小上限：技能正文与参考资料是给模型读的散文，不是数据集。 */
@@ -79,6 +91,7 @@ async function loadFrom(dirs: readonly string[]): Promise<AgentSkill[]> {
     .filter((skill) => !skill.disableModelInvocation)
     .map((skill) => ({
       name: skill.name,
+      title: agentSkillTitle(skill.content, skill.name),
       description: skill.description,
       content: skill.content,
       directory: directoryOf(skill.filePath),
@@ -124,7 +137,18 @@ export function findAgentSkill(mode: AgentMode, name: string): AgentSkill | unde
 }
 
 export function agentSkillSummaries(mode: AgentMode): AgentSkillSummary[] {
-  return index[mode].map(({ name, description }) => ({ name, description }))
+  return index[mode].map(({ name, title, description }) => ({ name, title, description }))
+}
+
+/**
+ * 不看 mode 地按 name 找。工具起跑那一刻 pi 只给参数，拿不到这一轮的 mode，而面板上那行
+ * 标题总得写对；真正的 mode 门禁在 `execute` 里，这里只为了起跑那一行标题。
+ */
+export function findAgentSkillInAnyMode(name: string): AgentSkill | undefined {
+  return (
+    index.image.find((skill) => skill.name === name) ??
+    index.video.find((skill) => skill.name === name)
+  )
 }
 
 /** 测试注入目录用的接缝：换根目录并丢掉缓存，下一次 `ensureAgentSkills()` 重新读盘。 */

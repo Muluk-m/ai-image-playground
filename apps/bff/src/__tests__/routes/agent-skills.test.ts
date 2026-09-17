@@ -33,7 +33,8 @@ _setPrivateBffOverlayForTesting(EMPTY_PRIVATE_BFF_OVERLAY)
 
 const app = new Elysia().use(agentRoutes)
 const DEVICE = 'device-abcdefgh'
-const BODY = '分镜表每行写：序号、时长、画面、引用。'
+const TITLE = '分镜短片'
+const BODY = `# ${TITLE}\n\n分镜表每行写：序号、时长、画面、引用。`
 
 let root = ''
 const calls: AgentCall[] = []
@@ -115,7 +116,11 @@ describe('GET /api/agent/skills', () => {
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({
       skills: [
-        { name: 'storyboard-short', description: '何时用：一句话要一条多镜短片。不处理：单张图。' },
+        {
+          name: 'storyboard-short',
+          title: TITLE,
+          description: '何时用：一句话要一条多镜短片。不处理：单张图。',
+        },
       ],
     })
   })
