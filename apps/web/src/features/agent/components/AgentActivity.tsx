@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react'
 import { formatElapsed, useElapsed } from '../../../hooks/useElapsed'
 import { useTranslation } from '../../../i18n'
 import { INK_3 } from '../agentStyles'
-import { type AgentActivityPhase, agentActivityPhase, useAgentStore } from '../store'
+import { type AgentActivityPhase, agentActivityPhase } from '../lib/panelMessages'
+import { useAgentStore } from '../store'
 
 const LABEL_KEY = {
   sending: 'activity.sending',

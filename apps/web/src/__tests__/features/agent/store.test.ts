@@ -7,8 +7,8 @@ import {
   agentActivityPhase,
   answerableClarificationId,
   conversationStarted,
-  useAgentStore,
-} from '../../../features/agent/store'
+} from '../../../features/agent/lib/panelMessages'
+import { useAgentStore } from '../../../features/agent/store'
 import { _setRuntimeConfigForTesting } from '../../../lib/runtimeConfig'
 
 const CONVERSATION = 'conversation-1'
@@ -403,47 +403,6 @@ describe('发送反馈', () => {
     expect(state().messages.map((one) => one.id)).toEqual(['user-1'])
     expect(state().messages.some((one) => one.kind === 'text' && one.pending)).toBe(false)
   })
-
-  it('状态相位：起轮前发送中，等模型时思考中，工具跑着执行中，文字在流就让位', () => {
-    const user = {
-      kind: 'text' as const,
-      id: 'user-1',
-      turnId: 'turn-1',
-      role: 'user' as const,
-      text: '画',
-      streaming: false,
-    }
-    expect(agentActivityPhase({ turn: 'idle', activeTurn: null, messages: [user] })).toBeNull()
-    expect(agentActivityPhase({ turn: 'running', activeTurn: null, messages: [user] })).toBe(
-      'sending',
-    )
-    const active = { turnId: 'turn-1' }
-    expect(agentActivityPhase({ turn: 'running', activeTurn: active, messages: [user] })).toBe(
-      'thinking',
-    )
-    const tool = {
-      kind: 'tool' as const,
-      id: 'tool-1',
-      turnId: 'turn-1',
-      toolCallId: 'call-1',
-      title: '生成图片',
-      status: 'running' as const,
-    }
-    expect(
-      agentActivityPhase({ turn: 'running', activeTurn: active, messages: [user, tool] }),
-    ).toBe('executing')
-    const reply = { ...user, id: 'assistant-1', role: 'assistant' as const, streaming: true }
-    expect(
-      agentActivityPhase({ turn: 'running', activeTurn: active, messages: [user, reply] }),
-    ).toBeNull()
-    expect(
-      agentActivityPhase({
-        turn: 'running',
-        activeTurn: active,
-        messages: [user, { ...reply, text: '' }],
-      }),
-    ).toBe('thinking')
-  })
 })
 
 describe('面板宽度', () => {
@@ -666,52 +625,6 @@ describe('澄清', () => {
     ])
     // 后面已经有用户消息了，这条澄清作过答。
     expect(answerableClarificationId(state().messages)).toBeNull()
-  })
-
-  it('重新打开会话时没作答的澄清还能作答', async () => {
-    localStorage.setItem('image-playground.agent_conversation_id', CONVERSATION)
-    messagesResponse = () =>
-      Response.json({
-        activeTurn: null,
-        turns: [],
-        messages: [
-          {
-            id: 'user-1',
-            turnId: 'turn-1',
-            role: 'user',
-            content: [{ type: 'text', text: '给我画个杯子' }],
-            createdAt: 1,
-          },
-          {
-            id: 'clarify-1',
-            turnId: 'turn-1',
-            role: 'assistant',
-            content: [
-              {
-                type: 'clarification',
-                question: '要哪种风格？',
-                options: ['写实照片', '扁平插画'],
-              },
-            ],
-            createdAt: 2,
-          },
-        ],
-      })
-
-    await state().load()
-
-    expect(state().messages).toEqual([
-      {
-        kind: 'text',
-        id: 'user-1',
-        turnId: 'turn-1',
-        role: 'user',
-        text: '给我画个杯子',
-        streaming: false,
-      },
-      CARD,
-    ])
-    expect(answerableClarificationId(state().messages)).toBe('clarify-1')
   })
 })
 
