@@ -185,6 +185,8 @@ describe('智能体生视频工具', () => {
 
     // 视频轮照样带着生图与改图：首帧要先画出来、改到位，再让它动起来。
     // `loadSkill` 在场是因为 `apps/bff/skills/video` 里有随仓库发的技能。
+    // `stitchVideos` 不在，是因为这个进程没跑过 ffmpeg 探测——装了 ffmpeg 的部署里它会多一条，
+    // 那一份清单由 `lib/agent/tools/modes.test.ts` 守着。
     expect(calls[0]!.tools?.map((tool) => tool.function.name).sort()).toEqual([
       'askClarification',
       'editImage',
