@@ -1,5 +1,7 @@
 import type {
+  AgentSkillOutcome,
   AgentToolArtifact,
+  AgentToolName,
   AgentToolStage,
   AgentToolStatus,
   AgentTurnCost,
@@ -27,6 +29,8 @@ export interface AgentToolMessage {
   readonly id: string
   readonly turnId: string
   readonly toolCallId: string
+  /** 哪个工具。历史里可能有这个前端还不认识的工具名，所以它不参与任何穷尽判断。 */
+  readonly toolName?: AgentToolName
   readonly title: string
   readonly prompt?: string
   readonly status: AgentToolStatus | 'running'
@@ -35,6 +39,8 @@ export interface AgentToolMessage {
   readonly message?: string
   /** 产出贴着这个画布对象放；手动放入时也照这个位置。 */
   readonly anchorObjectId?: string
+  /** 读取技能这一步读到了什么；缺席即还没跑完，或者这条不是读技能。 */
+  readonly skill?: AgentSkillOutcome
   /** 本机产物交付与工具生成分别完成，不改写工具状态或本轮消耗。 */
   readonly delivery?: AgentDeliveryStatus
 }

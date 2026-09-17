@@ -67,6 +67,8 @@ const parameters = Type.Object({
 
 export const editImage = defineAgentTool({
   name: 'editImage',
+  // 视频轮也要它：首帧不满意先改图，比重出一条片子便宜得多。
+  modes: ['image', 'video'],
   label: '改图',
   description:
     '在已有的图上修改指定内容，产出落到画布上源图旁边，源图不动。目标图遮罩会随请求提交，要求只改圈选部分；接口成功不代表效果已验收。',

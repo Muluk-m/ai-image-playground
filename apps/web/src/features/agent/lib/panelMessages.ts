@@ -49,11 +49,13 @@ function toolCard(block: AgentToolResultBlock, id: string, turnId: string): Agen
     id,
     turnId,
     toolCallId: block.toolCallId,
+    toolName: block.toolName,
     title: block.title,
     ...(block.prompt ? { prompt: block.prompt } : {}),
     status: block.status,
     ...(block.artifacts ? { artifacts: block.artifacts } : {}),
     ...(block.anchorObjectId ? { anchorObjectId: block.anchorObjectId } : {}),
+    ...(block.skill ? { skill: block.skill } : {}),
     ...(block.message ? { message: block.message } : {}),
   }
 }
@@ -138,6 +140,7 @@ function runningToolCard(event: AgentToolStartEvent, turnId: string): AgentToolM
     id: event.messageId,
     turnId,
     toolCallId: event.toolCallId,
+    toolName: event.toolName,
     title: event.title,
     ...(event.prompt ? { prompt: event.prompt } : {}),
     status: 'running',

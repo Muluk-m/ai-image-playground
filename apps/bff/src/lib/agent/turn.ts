@@ -2,6 +2,7 @@ import { Agent } from '@earendil-works/pi-agent-core'
 import type {
   AgentContentBlock,
   AgentMessageView,
+  AgentMode,
   AgentStoredReference,
   AgentTurnCost,
   AgentTurnErrorCode,
@@ -37,6 +38,7 @@ import {
   isAgentToolName,
 } from './tools'
 import {
+  expandSkillInvocation,
   replayTurnText,
   turnInitialState,
   turnModelPrompt,
@@ -60,6 +62,8 @@ export interface StartAgentTurnInput {
   readonly text: string
   /** 输入框里附上的参考图，序号就是提示词里的 `[image N]`。 */
   readonly references: readonly AgentTurnReference[]
+  /** 这一轮要创作什么；缺席即图片。工具清单与技能清单都按它过滤。 */
+  readonly mode: AgentMode
   /** 工具提交的图片任务归到这个身份下，计费与配额因此与用户自己提交的一致。 */
   readonly userId: string | null
   readonly deviceId: string
@@ -134,11 +138,12 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
   )
   const agent = new Agent({
     initialState: {
-      ...turnInitialState(input.history),
+      ...turnInitialState(input.history, input.mode),
       model: agentModel(input.params?.thinkingDepth),
       thinkingLevel: agentThinking(input.params?.thinkingDepth).effort,
-      // 清单与预扣估算读的是同一份声明：`agentToolDeclarations()` 与这里同源。
+      // 清单与预扣估算读的是同一份声明：`agentToolDeclarations(mode)` 与这里同源。
       tools: agentTurnTools({
+        mode: input.mode,
         conversationId: input.conversationId,
         turnId: input.turnId,
         userId: input.userId,
@@ -300,7 +305,7 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
     }
     if (event.type === 'tool_execution_start' && isAgentToolName(event.toolName)) {
       const messageId = crypto.randomUUID()
-      const start = agentToolStart(event.toolName, event.toolCallId, event.args, images)
+      const start = agentToolStart(input.mode, event.toolName, event.toolCallId, event.args, images)
       openTools.set(event.toolCallId, { messageId, start })
       events.emit({ type: 'toolStart', messageId, ...start })
     }
@@ -351,6 +356,7 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
   const turn: RunningTurn = {
     conversationId,
     turnId,
+    mode: input.mode,
     read: (afterSeq) => events.read(afterSeq),
     async interject(text, references = []) {
       if (!acceptingInterjections || aborted) return null
@@ -364,8 +370,13 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
         if (stored.length) await removeAgentTurnReferences(conversationId, archiveId)
         return null
       }
-      const instructions = turnPromptText(text, references.length ? references : images.references)
-      const steered = turnModelPrompt(instructions, evidence)
+      const active = references.length ? references : images.references
+      // 执行原文仍是用户打的那句：`/skill-name` 是给模型看的指引，不是他授权的修改要求。
+      const instructions = turnPromptText(text, active)
+      const steered = turnModelPrompt(
+        turnPromptText(expandSkillInvocation(text, input.mode), active),
+        evidence,
+      )
       const pending = steeringReferences.get(steered.text) ?? []
       pending.push({ references, instructions })
       steeringReferences.set(steered.text, pending)
@@ -394,7 +405,11 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
       if (aborted) return
       const evidence = await turnVisualEvidence(references)
       if (aborted) return
-      const sent = turnModelPrompt(turnPromptText(prompt, images.references), evidence)
+      // `/skill-name` 只改送给模型的这一份；落库与回显的用户消息仍是他打的原话。
+      const sent = turnModelPrompt(
+        turnPromptText(expandSkillInvocation(prompt, input.mode), images.references),
+        evidence,
+      )
       return agent.prompt(sent.text, sent.content)
     })
     .catch((thrown) => {

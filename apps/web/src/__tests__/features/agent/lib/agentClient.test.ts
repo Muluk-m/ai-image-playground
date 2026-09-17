@@ -159,7 +159,14 @@ describe('跟一轮到底', () => {
           { id: 4, event: TURN_END },
         ]),
     ])
-    const started = await startTurn(CONVERSATION, '把背景换成浅木色', [], undefined, fetcher)
+    const started = await startTurn(
+      CONVERSATION,
+      '把背景换成浅木色',
+      [],
+      undefined,
+      undefined,
+      fetcher,
+    )
     if (started.kind !== 'frames') throw new Error('起轮没拿到帧流')
 
     const turn = followTurn(CONVERSATION, { frames: started.frames }, { fetcher, delaysMs: [0] })
@@ -229,7 +236,7 @@ describe('跟一轮到底', () => {
 
   it('还没读到轮标识就断了，没有轮可以接', async () => {
     const { calls, fetcher } = scriptedFetcher([() => sse([], true)])
-    const started = await startTurn(CONVERSATION, '画一只猫', [], undefined, fetcher)
+    const started = await startTurn(CONVERSATION, '画一只猫', [], undefined, undefined, fetcher)
     if (started.kind !== 'frames') throw new Error('起轮没拿到帧流')
 
     const turn = followTurn(CONVERSATION, { frames: started.frames }, { fetcher, delaysMs: [0] })

@@ -3,6 +3,8 @@ import type {
   AgentConversationView,
   AgentFrame,
   AgentMessageView,
+  AgentMode,
+  AgentSkillSummary,
   AgentTurnAlreadyRunningBody,
   AgentTurnEvent,
   AgentTurnParams,
@@ -147,11 +149,26 @@ async function alreadyRunningTurnId(response: Response): Promise<string | null> 
   }
 }
 
+/**
+ * 输入框打 `/` 时的候选。技能是部署的东西、不是用户的东西，所以按 mode 现拉一次就够，
+ * 不进任何本地存储。
+ */
+export async function fetchAgentSkills(
+  mode: AgentMode,
+  fetcher: Fetcher = authenticatedBffFetch,
+): Promise<AgentSkillSummary[]> {
+  const response = await fetcher(url(`/skills?mode=${mode}`), { headers: deviceHeaders() })
+  if (!response.ok) throw await requestError(response)
+  const body = (await response.json()) as { skills?: AgentSkillSummary[] }
+  return body.skills ?? []
+}
+
 export async function startTurn(
   conversationId: string,
   text: string,
   references: readonly AgentTurnReference[] = [],
   params?: AgentTurnParams,
+  mode?: AgentMode,
   fetcher: Fetcher = authenticatedBffFetch,
 ): Promise<StartTurnOutcome> {
   const response = await fetcher(
@@ -160,6 +177,8 @@ export async function startTurn(
       deviceId: getDeviceId(),
       text,
       ...(references.length ? { references } : {}),
+      // 图片是服务端的默认；只有视频才值得占一个字段，老服务端也认得出这是新东西。
+      ...(mode && mode !== 'image' ? { mode } : {}),
       ...(params ? { params } : {}),
     }),
   )

@@ -66,6 +66,7 @@ async function usageOfTurnAfter(history: AgentMessageView[]): Promise<AgentTurnU
     history,
     text: '再来一张',
     references: [],
+    mode: 'image',
     userId: null,
     deviceId: 'device-abcdefgh',
   })
@@ -118,6 +119,7 @@ describe('startAgentTurn usage', () => {
       history: HISTORY,
       references: [],
       text: '再来一张',
+      mode: 'image',
       userId: null,
       deviceId: 'device-abcdefgh',
       settle: async (settlement) => {

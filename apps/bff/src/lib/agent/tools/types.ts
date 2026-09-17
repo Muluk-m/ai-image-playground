@@ -1,5 +1,7 @@
 import type { AgentTool } from '@earendil-works/pi-agent-core'
 import type {
+  AgentMode,
+  AgentSkillOutcome,
   AgentToolArtifact,
   AgentToolName,
   AgentToolStage,
@@ -11,6 +13,8 @@ import type { createMaskedEditPlan } from '../masked-plan'
 
 /** 工具跑在 BFF 进程里，身份与轮的归属由这里带过去。 */
 export interface AgentToolContext {
+  /** 这一轮要创作什么。工具清单、技能清单与逐工具指引都按它过滤。 */
+  readonly mode: AgentMode
   readonly conversationId: string
   readonly turnId: string
   readonly userId: string | null
@@ -29,6 +33,8 @@ export interface AgentToolDetails {
   readonly stage?: AgentToolStage
   readonly artifacts?: readonly AgentToolArtifact[]
   readonly anchorObjectId?: string
+  /** 读取技能这一步读到了什么；只有那个工具会填。 */
+  readonly skill?: AgentSkillOutcome
 }
 
 /**
@@ -58,6 +64,8 @@ export interface AgentToolCall {
 
 export interface AgentToolDefinition<P extends TSchema = TSchema> {
   readonly name: AgentToolName
+  /** 哪些创作类型看得见这个工具。视频轮也要生图改图——首帧要先画出来再改。 */
+  readonly modes: readonly AgentMode[]
   /** 面板与模型清单上的短名。 */
   readonly label: string
   /** 给模型看的工具说明。 */
@@ -71,9 +79,13 @@ export interface AgentToolDefinition<P extends TSchema = TSchema> {
    */
   readonly onError: 'abort' | 'continue'
   /** 部署开关；缺席即到处都在。关掉时工具不进模型的清单，历史里的结果照样认得出来。 */
-  available?(): boolean
-  /** 这次调用的自述。参数残缺时退回默认值，绝不抛——抛了就是把一次能跑的调用挡在门外。 */
-  call(args: AgentToolArgs<P>): AgentToolCall
+  available?(mode: AgentMode): boolean
+  /**
+   * 这次调用的自述。参数残缺时退回默认值，绝不抛——抛了就是把一次能跑的调用挡在门外。
+   * 带上这一轮的创作类型：同一个名字在两个 mode 下未必指同一件事，起跑这一行标签要按
+   * 这一轮看得见的那份清单写。
+   */
+  call(args: AgentToolArgs<P>, mode: AgentMode): AgentToolCall
   execute(context: AgentToolContext): AgentTool<P, AgentToolDetails>['execute']
 }
 
@@ -90,11 +102,12 @@ export interface AgentToolDeclaration<P extends TSchema = TSchema> {
 /** 注册表与轮看到的工具：参数类型已经在 `defineAgentTool` 那一处被擦掉。 */
 export interface AgentToolSpec {
   readonly name: AgentToolName
+  readonly modes: readonly AgentMode[]
   readonly guidance: string
   readonly onError: 'abort' | 'continue'
   /** `create` 出来的工具照它填，估算也读它：同一份声明，不会各说各的。 */
   readonly declaration: AgentToolDeclaration
-  available?(): boolean
-  call(args: unknown): AgentToolCall
+  available?(mode: AgentMode): boolean
+  call(args: unknown, mode: AgentMode): AgentToolCall
   create(context: AgentToolContext): AgentTool
 }

@@ -1,0 +1,10 @@
+{
+  "capabilities": {
+    "agent:chat": true,
+    "generation:video": true
+  },
+  "quotas": {
+    "agent:turns-per-device-minute": 0,
+    "agent:turns-per-ip-hour": 0
+  }
+}

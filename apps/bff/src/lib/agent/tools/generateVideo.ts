@@ -56,6 +56,8 @@ function videoModel(): { target: QueueTarget; support: VideoModelSupport } | nul
 
 export const generateVideo = defineAgentTool({
   name: 'generateVideo',
+  // 只在视频轮：图片轮里出现它，模型就会把「让它动起来」当成随时可选的下一步。
+  modes: ['video'],
   label: '生视频',
   description:
     '生成一段视频，产出直接落到用户的画布上，带封面可播放。给了图片 id 就从那张图动起来，不给就按提示词凭空生成。视频比图片慢得多也贵得多，用户明确要视频时才调。',

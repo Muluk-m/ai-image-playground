@@ -64,11 +64,12 @@ export function defineAgentTool<P extends TSchema>(
   }
   return {
     name: definition.name,
+    modes: definition.modes,
     guidance: definition.guidance,
     onError: definition.onError,
     declaration,
     ...(definition.available ? { available: definition.available } : {}),
-    call: (args) => definition.call(leniently(definition.parameters, args)),
+    call: (args, mode) => definition.call(leniently(definition.parameters, args), mode),
     create: (context) =>
       asPiTool<P, AgentToolDetails>({
         ...declaration,
@@ -118,5 +119,6 @@ export function toolResultBlock(
     title: start.title,
     ...(details?.artifacts?.length ? { artifacts: details.artifacts } : {}),
     ...(details?.anchorObjectId ? { anchorObjectId: details.anchorObjectId } : {}),
+    ...(details?.skill ? { skill: details.skill } : {}),
   }
 }

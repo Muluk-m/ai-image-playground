@@ -11,6 +11,8 @@ import ComposerPopover from './ComposerPopover'
 export interface SuggestionMenuOption<T> {
   key: string
   label: string
+  /** 第二行的补充说明；缺席即这一条只有一行。 */
+  description?: string
   thumbnail?: ReactNode
   /** 选中时交还给调用方的候选身份，弹层自己不解释它 */
   value: T
@@ -94,7 +96,14 @@ export default function SuggestionMenu<T>({
                       {option.thumbnail}
                     </span>
                   )}
-                  <span className="min-w-0 flex-1 truncate font-medium">{option.label}</span>
+                  <span className="flex min-w-0 flex-1 flex-col">
+                    <span className="truncate font-medium">{option.label}</span>
+                    {option.description && (
+                      <span className="truncate text-[11px] font-normal text-muted-foreground">
+                        {option.description}
+                      </span>
+                    )}
+                  </span>
                 </button>
               )
             })}
