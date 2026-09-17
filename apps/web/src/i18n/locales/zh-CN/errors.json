@@ -41,5 +41,16 @@
   },
   "generations": {
     "fallback": "暂时无法加载云端记录，请刷新重试。"
+  },
+  "projectSync": {
+    "local_save_failed": "本机保存失败，请保留此页面并重试。",
+    "load_failed": "云端项目读取失败，原内容已保留，请重新读取。",
+    "project_conflict": "另一设备已修改此项目，已暂停同步。本机内容已保留。",
+    "project_document_too_large": "云端容量或画布大小超出限制，本机内容已保留。",
+    "fallback": "云端同步失败，本机内容已保留，请重试。",
+    "media_local": "画布含尚未同步的媒体或不支持的内容，仅保存在此设备。",
+    "unauthorized": "登录已过期，本机内容已保留，请重新登录。",
+    "project_not_found": "项目不存在或当前账号没有访问权限，本机内容已保留。",
+    "invalid_project_document": "画布格式不受支持，本机内容已保留，请更新页面后重试。"
   }
 }
