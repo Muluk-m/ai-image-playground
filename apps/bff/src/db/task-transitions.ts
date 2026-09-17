@@ -1,5 +1,6 @@
 import type { TaskErrorType } from '@image-playground/shared'
 import { and, eq, inArray, type SQL } from 'drizzle-orm'
+import { type GenerationMediaLink, publishGenerationImages } from '../lib/generationMedia'
 import { loadPrivateBffOverlay, type TaskUsage } from '../lib/private-overlay'
 import { db, schema } from './client'
 import { publishGenerations } from './generation-events'
@@ -65,6 +66,50 @@ export async function requeueTasksForPolling(ids: readonly string[]): Promise<nu
   })
 }
 
+export async function saveArchiveCheckpoint(
+  id: string,
+  payload: (typeof schema.tasks.$inferInsert)['archive_payload'],
+) {
+  return db.transaction(async (tx) => {
+    const updated = await tx
+      .update(schema.tasks)
+      .set({ archive_payload: payload })
+      .where(stillRunning(id))
+      .returning({ id: schema.tasks.id })
+    await publishGenerations(
+      tx,
+      updated.map((row) => row.id),
+    )
+    return updated.length > 0
+  })
+}
+
+/** Archive retries keep the successful result and never consume model attempts. */
+export async function requeueTaskArchive(
+  id: string,
+  nextRetryAt = Date.now() + 60_000,
+  payload?: (typeof schema.tasks.$inferInsert)['archive_payload'],
+) {
+  return db.transaction(async (tx) => {
+    const updated = await tx
+      .update(schema.tasks)
+      .set({
+        status: 'queued',
+        next_retry_at: nextRetryAt,
+        archive_payload: payload,
+        error_message: '图片已生成，正在重试保存',
+        error_type: 'object_storage_error',
+      })
+      .where(stillRunning(id))
+      .returning({ id: schema.tasks.id })
+    await publishGenerations(
+      tx,
+      updated.map((row) => row.id),
+    )
+    return updated.length > 0
+  })
+}
+
 export type TerminalTaskUpdate = {
   status: 'completed' | 'failed' | 'cancelled'
   completedAt: number
@@ -77,6 +122,7 @@ export type TerminalTaskUpdate = {
   upstreamStatus?: number | null
   upstreamBody?: string | null
   actualUsage?: TaskUsage
+  media?: GenerationMediaLink[]
 }
 
 /** 写终态并触发私有 overlay 的结算 / 退回。返回是否真的改到了行。 */
@@ -87,11 +133,12 @@ export async function finishTask(id: string, update: TerminalTaskUpdate): Promis
       .update(schema.tasks)
       .set({
         status: update.status,
+        archive_payload: null,
         attempt_count: update.attemptCount,
         upstream_invocation_count: update.upstreamInvocationCount,
         result_payload: update.resultPayload,
-        error_message: update.errorMessage,
-        error_type: update.errorType,
+        error_message: update.errorMessage ?? null,
+        error_type: update.errorType ?? null,
         upstream_status: update.upstreamStatus,
         upstream_body: update.upstreamBody,
         completed_at: update.completedAt,
@@ -99,9 +146,12 @@ export async function finishTask(id: string, update: TerminalTaskUpdate): Promis
       .where(stillRunning(id))
       .returning({
         id: schema.tasks.id,
+        userId: schema.tasks.user_id,
         upstreamInvocationCount: schema.tasks.upstream_invocation_count,
       })
     if (!finished) return false
+    if (finished.userId && update.media)
+      await publishGenerationImages(tx, finished.userId, id, update.media)
     await taskHooks.finalizeTask({
       tx,
       taskId: finished.id,

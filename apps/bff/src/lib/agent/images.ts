@@ -6,6 +6,7 @@ import type {
   StoredImageRef,
 } from '@image-playground/shared'
 import { db, schema } from '../../db/client'
+import { durableMediaStore } from '../durableMediaStore'
 import { resolveImageBytesRef } from '../extractImages'
 import { archiveInputImages, hydrateInputImages } from '../imageArchive'
 import { log } from '../logger'
@@ -94,7 +95,12 @@ async function readTaskOutput(
   if (!ref) return null
   if (ref.kind === 'b64') return { dataUrl: `data:${ref.mime};base64,${ref.data}` }
   if (ref.kind === 'object')
-    return { dataUrl: dataUrl(await objectStore().read(ref.data), ref.mime) }
+    return {
+      dataUrl: dataUrl(
+        await (ref.store === 'durable' ? durableMediaStore() : objectStore()).read(ref.data),
+        ref.mime,
+      ),
+    }
   const upstream = await fetch(ref.data)
   if (!upstream.ok) return null
   const mime = upstream.headers.get('content-type') ?? ref.mime

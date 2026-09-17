@@ -2,9 +2,22 @@ import { QUEUE_TIMEOUTS, type TaskErrorType } from '@image-playground/shared'
 import { and, eq, sql } from 'drizzle-orm'
 import { claimQueuedTask } from '../db/claim-task'
 import { db, schema } from '../db/client'
-import { finishTask, requeueTask } from '../db/task-transitions'
-import { protectMaskedOutput } from '../lib/agent/masked-output'
+import {
+  finishTask,
+  requeueTask,
+  requeueTaskArchive,
+  saveArchiveCheckpoint,
+} from '../db/task-transitions'
+import { MaskedOutputError, protectMaskedOutput } from '../lib/agent/masked-output'
+import { isCapabilityEnabled } from '../lib/capabilities'
 import { describeEmptyResult, extractMeta } from '../lib/extractImages'
+import {
+  archiveGenerationOutputs,
+  generationSourceCheckpoint,
+  missingGenerationOutputs,
+  preserveGenerationInputs,
+  spoolGenerationOutputs,
+} from '../lib/generationMedia'
 import {
   archiveOutputImages,
   hydrateInputImages,
@@ -129,6 +142,8 @@ export async function runTask(id: string): Promise<void> {
       provider: schema.tasks.provider,
       model: schema.tasks.model,
       request_payload: schema.tasks.request_payload,
+      userId: schema.tasks.user_id,
+      archive_payload: schema.tasks.archive_payload,
       attempt_count: schema.tasks.attempt_count,
       upstream_task_ids: schema.tasks.upstream_task_ids,
       upstream_submitted_at: schema.tasks.upstream_submitted_at,
@@ -151,7 +166,17 @@ export async function runTask(id: string): Promise<void> {
       ? { taskIds: task.upstream_task_ids, submittedAt: task.upstream_submitted_at }
       : undefined
 
+  const cloudArchive = Boolean(
+    task.userId && !task.request_payload.video && isCapabilityEnabled('accounts:sync'),
+  )
+  let archivePayload = task.archive_payload
+  let receivedImages = false
   try {
+    if (cloudArchive && !archivePayload) {
+      const preserved = await preserveGenerationInputs(id, task.request_payload)
+      if (!preserved) return
+      task.request_payload = preserved
+    }
     const hydratedRequest = await hydrateInputImages(task.request_payload)
     // 老任务只有 preserve_outside_mask、没有 masked_original_size：那时不补边，交付时也不裁边。
     const protectOutput = task.request_payload.preserve_outside_mask
@@ -161,6 +186,37 @@ export async function runTask(id: string): Promise<void> {
           task.request_payload.masked_original_size,
         )
       : undefined
+    if (archivePayload) {
+      archivePayload = await spoolGenerationOutputs(
+        id,
+        task.provider,
+        archivePayload,
+        protectOutput,
+        ctrl.signal,
+      )
+      if (!(await saveArchiveCheckpoint(id, archivePayload))) return
+      const missing = await missingGenerationOutputs(id, task.provider, archivePayload)
+      const media = await archiveGenerationOutputs(
+        task.userId!,
+        task.provider,
+        archivePayload,
+        task.request_payload,
+        missing,
+      )
+      await finishTask(id, {
+        status: missing.size ? 'failed' : 'completed',
+        ...(missing.size
+          ? {
+              errorType: 'upstream_result_unknown' as const,
+              errorMessage: '部分原件在保存前中断，已保留可恢复的图片；不会自动重新生成',
+            }
+          : {}),
+        media,
+        resultPayload: archivePayload,
+        completedAt: now(),
+      })
+      return
+    }
     const { payload } = await callUpstream({
       provider: task.provider,
       model: task.model,
@@ -208,9 +264,39 @@ export async function runTask(id: string): Promise<void> {
       )
       return
     }
-    const archivedPayload = await archiveOutputImages(id, task.provider, payload, protectOutput)
+    receivedImages = true
+    if (cloudArchive) {
+      archivePayload = generationSourceCheckpoint(id, task.provider, payload)
+      if (archivePayload) {
+        try {
+          if (!(await saveArchiveCheckpoint(id, archivePayload))) return
+        } catch {
+          // Keep the successful response alive; a checkpoint outage must not discard its bytes.
+          log.warn(
+            { event: 'task.checkpoint_delayed', taskId: id },
+            'saving original before retrying archive checkpoint',
+          )
+        }
+      }
+    }
+    const archivedPayload = cloudArchive
+      ? await spoolGenerationOutputs(id, task.provider, payload, protectOutput, ctrl.signal)
+      : await archiveOutputImages(id, task.provider, payload, protectOutput)
+    if (cloudArchive) {
+      archivePayload = archivedPayload
+      if (!(await saveArchiveCheckpoint(id, archivePayload))) return
+    }
+    const media = cloudArchive
+      ? await archiveGenerationOutputs(
+          task.userId!,
+          task.provider,
+          archivedPayload,
+          task.request_payload,
+        )
+      : undefined
     await finishTask(id, {
       status: 'completed',
+      media,
       resultPayload: archivedPayload,
       completedAt: now(),
     })
@@ -224,6 +310,16 @@ export async function runTask(id: string): Promise<void> {
     // cancel route 已经写好 'cancelled'；停机 abort 由 worker-index 按 id 回收。
     if (isAbortError(err)) {
       log.info({ event: 'task.aborted', taskId: id }, 'task aborted')
+      return
+    }
+    const rejectedMaskedOutput =
+      err instanceof MaskedOutputArchiveError && err.cause instanceof MaskedOutputError
+    if (archivePayload && !rejectedMaskedOutput) {
+      await requeueTaskArchive(id, Date.now() + 60_000, archivePayload)
+      log.warn(
+        { event: 'task.archive_retry', taskId: id, err: String(err) },
+        'generated output awaiting durable archive',
+      )
       return
     }
     const isTimeout = err instanceof UpstreamTimeoutError
@@ -243,7 +339,12 @@ export async function runTask(id: string): Promise<void> {
     const attemptJustFailed = task.attempt_count + 1
     if (
       !task.request_payload.preserve_outside_mask &&
-      (await tryScheduleRetry(id, attemptJustFailed, isRetryableError(err), message))
+      (await tryScheduleRetry(
+        id,
+        attemptJustFailed,
+        !(cloudArchive && receivedImages) && isRetryableError(err),
+        message,
+      ))
     ) {
       return
     }
@@ -254,7 +355,13 @@ export async function runTask(id: string): Promise<void> {
       errorMessage: message,
       errorType,
       ...(err instanceof MaskedOutputArchiveError
-        ? { resultPayload: { masked_edit_candidates: err.candidates } }
+        ? {
+            resultPayload: {
+              masked_edit_candidates: err.candidates.map((candidate) =>
+                cloudArchive ? { ...candidate, store: 'durable' } : candidate,
+              ),
+            },
+          }
         : {}),
       upstreamStatus: upstream.status,
       upstreamBody: upstream.body,

@@ -11,13 +11,19 @@ import {
   or,
   type SQL,
 } from 'drizzle-orm'
+import { isCapabilityEnabled } from '../lib/capabilities'
 import { log } from '../lib/logger'
 import { objectStore } from '../lib/objectStore'
 import { loadPrivateBffOverlay } from '../lib/private-overlay'
 import { planNextAttempt, type RetryPlan } from '../lib/retry'
 import { ASSET_OBJECT_ROOT, assetOwnerPrefix } from '../lib/sync-assets'
 import { db, schema } from './client'
-import { finishTask, requeueTask, requeueTasksForPolling } from './task-transitions'
+import {
+  finishTask,
+  requeueTask,
+  requeueTaskArchive,
+  requeueTasksForPolling,
+} from './task-transitions'
 
 export interface RecoveredTasks {
   requeued: number
@@ -63,19 +69,43 @@ async function recoverTasks(scope: SQL, now: number): Promise<RecoveredTasks> {
       kind: schema.tasks.kind,
       attemptCount: schema.tasks.attempt_count,
       upstreamTaskIds: schema.tasks.upstream_task_ids,
+      archivePayload: schema.tasks.archive_payload,
+      userId: schema.tasks.user_id,
+      invocations: schema.tasks.upstream_invocation_count,
     })
     .from(schema.tasks)
     .where(and(eq(schema.tasks.status, 'in_progress'), scope))
 
   // 轮询恢复没有 per-row 计算，一条 UPDATE 收掉；启动与 SIGTERM drain 都在等这个结果。
   const resumedPolling = await requeueTasksForPolling(
-    candidates.filter((c) => c.upstreamTaskIds?.length).map((c) => c.id),
+    candidates.filter((c) => !c.archivePayload && c.upstreamTaskIds?.length).map((c) => c.id),
   )
 
   let requeued = 0
   let failed = 0
   for (const candidate of candidates) {
+    if (candidate.archivePayload) {
+      if (await requeueTaskArchive(candidate.id, now)) requeued++
+      continue
+    }
     if (candidate.upstreamTaskIds?.length) continue
+    if (
+      candidate.userId &&
+      candidate.invocations > 0 &&
+      candidate.kind === 'queue' &&
+      isCapabilityEnabled('accounts:sync')
+    ) {
+      if (
+        await finishTask(candidate.id, {
+          status: 'failed',
+          errorType: 'upstream_result_unknown',
+          errorMessage: '生成请求已发出，但结果尚未确认，请勿重复提交',
+          completedAt: now,
+        })
+      )
+        failed++
+      continue
+    }
     const attemptJustFailed = candidate.attemptCount + 1
     // 对话轮不能回队：worker 会把它当生图任务重跑一遍。断了就是断了，退款收场。
     const plan: RetryPlan =

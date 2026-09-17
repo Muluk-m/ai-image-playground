@@ -1,6 +1,9 @@
-import type { TaskStatus } from './queue-protocol'
+import type { SubmitRequest, TaskErrorType, TaskStatus } from './queue-protocol'
 
 export interface GenerationSummary {
+  archiveStatus: 'none' | 'pending' | 'ready' | 'unavailable'
+  errorType: TaskErrorType | null
+  cover: GenerationImage | null
   id: string
   provider: string
   model: string
@@ -11,7 +14,33 @@ export interface GenerationSummary {
   revision: string
 }
 
+export interface GenerationImage {
+  index: number
+  mediaId: string
+  width: number | null
+  height: number | null
+  contentType: string
+}
+
+export type GenerationParameters = Pick<
+  SubmitRequest,
+  | 'size'
+  | 'quality'
+  | 'output_format'
+  | 'output_compression'
+  | 'moderation'
+  | 'aspect_ratio'
+  | 'image_size'
+  | 'thinking_level'
+  | 'n'
+>
+
 export interface GenerationDetail extends GenerationSummary {
+  inputs: GenerationImage[]
+  mask: GenerationImage | null
+  parameters: GenerationParameters
+  actualParameters: Pick<GenerationParameters, 'size' | 'quality' | 'output_format'>
+  outputs: GenerationImage[]
   prompt: string
 }
 

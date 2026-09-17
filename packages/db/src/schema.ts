@@ -6,14 +6,17 @@ import type {
   AgentTurnEvent,
   AgentTurnStopReason,
   AgentTurnUsage,
+  GenerationParameters,
+  GenerationSummary,
   PersistedSubmitRequest,
   ProjectDocument,
   ProjectReceipt,
   QueueProvider,
+  TaskErrorType,
   TaskKind,
   TaskStatus,
 } from '@image-playground/shared'
-import { eq, sql } from 'drizzle-orm'
+import { eq, getTableColumns, sql } from 'drizzle-orm'
 import {
   bigint,
   check,
@@ -377,6 +380,8 @@ export const tasks = pgTable(
     status: text('status').$type<TaskStatus>().notNull(),
     request_payload: bunJsonb('request_payload').$type<PersistedSubmitRequest>().notNull(),
     result_payload: bunJsonb('result_payload'),
+    /** Recoverable source URLs or spooled object references; never inline original bytes. */
+    archive_payload: bunJsonb('archive_payload'),
     error_message: text('error_message'),
     error_type: text('error_type'),
     /**
@@ -456,8 +461,10 @@ export const daily_quota = pgTable(
  * 后台与队列端点读这张视图，不读 `tasks`：对话轮的可见性靠这一层挡，不靠每条查询自觉。
  * 真要看对话轮，显式写 `tasks`。
  */
+// Archive recovery sources are worker-private and are not part of the operational view.
+const { archive_payload: _archivePayload, ...queueTaskColumns } = getTableColumns(tasks)
 export const queue_tasks = pgView('queue_tasks').as((qb) =>
-  qb.select().from(tasks).where(eq(tasks.kind, 'queue')),
+  qb.select(queueTaskColumns).from(tasks).where(eq(tasks.kind, 'queue')),
 )
 
 export type Task = typeof tasks.$inferSelect
@@ -514,7 +521,20 @@ export const generation_records = pgTable(
     provider: text('provider').notNull(),
     model: text('model').notNull(),
     status: text('status').$type<TaskStatus>().notNull(),
+    archive_status: text('archive_status')
+      .$type<GenerationSummary['archiveStatus']>()
+      .notNull()
+      .default('none'),
+    error_type: text('error_type').$type<TaskErrorType>(),
     prompt: text('prompt').notNull(),
+    parameters: bunJsonb('parameters')
+      .$type<GenerationParameters>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    actual_parameters: bunJsonb('actual_parameters')
+      .$type<GenerationParameters>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
     created_at: epochMs('created_at').notNull(),
     started_at: epochMs('started_at'),
     completed_at: epochMs('completed_at'),
@@ -648,5 +668,23 @@ export const media_references = pgTable(
       'media_references_owner_kind_check',
       sql`${t.owner_kind} IN ('project', 'asset', 'conversation', 'generation')`,
     ),
+  ],
+)
+
+export const generation_images = pgTable(
+  'generation_images',
+  {
+    generation_id: text('generation_id')
+      .notNull()
+      .references(() => generation_records.id, { onDelete: 'cascade' }),
+    role: text('role').$type<'input' | 'mask' | 'output'>().notNull(),
+    position: integer('position').notNull(),
+    media_id: text('media_id')
+      .notNull()
+      .references(() => media_objects.id, { onDelete: 'restrict' }),
+  },
+  (t) => [
+    primaryKey({ columns: [t.generation_id, t.role, t.position] }),
+    check('generation_images_role_check', sql`${t.role} IN ('input', 'mask', 'output')`),
   ],
 )

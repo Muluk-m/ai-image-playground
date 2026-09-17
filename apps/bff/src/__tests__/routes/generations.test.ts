@@ -1,11 +1,14 @@
-import { afterAll, afterEach, beforeEach, expect, it } from 'bun:test'
+import { afterAll, afterEach, beforeEach, expect, it, spyOn } from 'bun:test'
 import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
+import { eq, sql } from 'drizzle-orm'
+import sharp from 'sharp'
 import {
   _setPrivateBffOverlayForTesting,
   EMPTY_PRIVATE_BFF_OVERLAY,
 } from '../../lib/private-overlay'
 import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
+import { stubGlobalFetch } from '../helpers/upstreamStubs'
 
 _setPrivateBffOverlayForTesting(EMPTY_PRIVATE_BFF_OVERLAY)
 process.env.PORT = '0'
@@ -19,11 +22,50 @@ const { createUserSession, USER_SESSION_COOKIE } = await import('../../lib/user-
 const { runTask } = await import('../../workers/task-runner')
 const { setUpstreamFetchForTesting } = await import('../../lib/upstream')
 const { setObjectStoreForTesting } = await import('../../lib/objectStore')
+const { setDurableMediaStoreForTesting } = await import('../../lib/durableMediaStore')
+class DurableFixture extends InMemoryObjectStore {
+  interruptNextWrite = false
+  publicationUnavailable = false
+  publicationFailuresRemaining = 0
+  oversizedSpool = false
+  afterWrite?: (key: string) => void | Promise<void>
+  spoolReads = 0
+  override async read(key: string) {
+    if (key.includes('/out/')) this.spoolReads++
+    return super.read(key)
+  }
+  override async open(key: string) {
+    const object = await super.open(key)
+    return this.oversizedSpool && key.includes('/out/')
+      ? { ...object, size: Number.MAX_SAFE_INTEGER }
+      : object
+  }
+  override async write(key: string, bytes: Uint8Array, contentType: string) {
+    if (this.interruptNextWrite && key.startsWith('staging/')) {
+      this.interruptNextWrite = false
+      throw new DOMException('Worker stopped', 'AbortError')
+    }
+    if (this.publicationUnavailable && key.startsWith('objects/'))
+      throw new Error('publication unavailable')
+    if (this.publicationFailuresRemaining > 0 && key.startsWith('objects/')) {
+      this.publicationFailuresRemaining--
+      throw new Error('publication failed')
+    }
+    await super.write(key, bytes, contentType)
+    await this.afterWrite?.(key)
+  }
+  sign(key: string) {
+    return `https://durable.example/${key}`
+  }
+}
+let durable: DurableFixture
 let deviceA: string
 let deviceB: string
 let stranger: string
 beforeEach(async () => {
   setObjectStoreForTesting(new InMemoryObjectStore())
+  durable = new DurableFixture()
+  setDurableMediaStoreForTesting(durable)
   await db.delete(schema.tasks)
   await db.delete(schema.users)
   for (const id of ['owner', 'stranger']) {
@@ -45,6 +87,7 @@ beforeEach(async () => {
 afterEach(() => {
   setUpstreamFetchForTesting()
   setObjectStoreForTesting()
+  setDurableMediaStoreForTesting()
 })
 afterAll(close)
 function request(path: string, cookie: string, body?: unknown) {
@@ -278,6 +321,11 @@ it('worker 意外退出后，云端历史也结束任务', async () => {
 })
 
 it('完成记录与命令回执不会随临时任务过期而消失', async () => {
+  const encoded = (
+    await sharp({ create: { width: 1, height: 1, channels: 3, background: '#112233' } })
+      .png()
+      .toBuffer()
+  ).toString('base64')
   const { purgeOldTasks } = await import('../../db/maintenance')
   setUpstreamFetchForTesting(
     (async () =>
@@ -285,8 +333,7 @@ it('完成记录与命令回执不会随临时任务过期而消失', async () =
         JSON.stringify({
           data: [
             {
-              b64_json:
-                'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgAAIAAAUAAeImBZsAAAAASUVORK5CYII=',
+              b64_json: encoded,
             },
           ],
         }),
@@ -297,15 +344,14 @@ it('完成记录与命令回执不会随临时任务过期而消失', async () =
     await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, input)
   ).json()
   await runTask(original.request_id)
-  expect(
-    await (await request(`/api/generations/${original.request_id}`, deviceB)).json(),
-  ).toMatchObject({ status: 'completed', revision: '3' })
+  const completed = await (await request(`/api/generations/${original.request_id}`, deviceB)).json()
+  expect(completed.status).toBe('completed')
   expect(await purgeOldTasks(-1)).toBe(1)
   const replay = await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceB, input)
   expect(replay.status).toBe(200)
   expect((await replay.json()).request_id).toBe(original.request_id)
   expect((await (await request('/api/generations', deviceB)).json()).items).toMatchObject([
-    { id: original.request_id, status: 'completed' },
+    { id: original.request_id, status: 'completed', revision: completed.revision },
   ])
 })
 
@@ -363,4 +409,618 @@ it('历史按有界页遍历，页面之间新提交不会造成重复或漏掉�
   expect(seen.sort()).toEqual(ids.sort())
   expect((await request('/api/generations?limit=101', deviceB)).status).not.toBe(200)
   expect((await request('/api/generations', '')).status).toBe(401)
+})
+
+it('没有项目的生成原件在临时任务清理后仍可跨设备读取', async () => {
+  const original = await sharp({
+    create: { width: 8, height: 6, channels: 3, background: '#77aa44' },
+  })
+    .png()
+    .toBuffer()
+  let calls = 0
+  setUpstreamFetchForTesting((async () => {
+    calls++
+    return Response.json({ data: [{ b64_json: original.toString('base64') }] })
+  }) as NonNullable<Parameters<typeof setUpstreamFetchForTesting>[0]>)
+  const submitted = await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, input)
+  const { request_id: id } = await submitted.json()
+  await runTask(id)
+  const detail = await (await request(`/api/generations/${id}`, deviceB)).json()
+  expect(detail.status).toBe('completed')
+  expect(detail.outputs).toHaveLength(1)
+  const mediaId = detail.outputs[0].mediaId
+  expect(detail.outputs[0]).toMatchObject({ index: 0, width: 8, height: 6 })
+  const { objectStore } = await import('../../lib/objectStore')
+  await objectStore().deletePrefix(`${id}/`)
+  expect((await request(`/v1/queue/requests/${id}/output/0`, deviceB)).status).toBe(200)
+  const { purgeOldTasks } = await import('../../db/maintenance')
+  expect(await purgeOldTasks(-1)).toBe(1)
+  const resumed = await request(`/v1/queue/requests/${id}/status`, deviceB)
+  expect(resumed.status).toBe(200)
+  expect(await resumed.json()).toMatchObject({
+    status: 'completed',
+    result: { images: [{ index: 0, mime: 'image/png' }] },
+  })
+  const retained = await (await request(`/api/generations/${id}`, deviceB)).json()
+  expect(retained.outputs[0].mediaId).toBe(mediaId)
+  const listing = await (await request('/api/generations', deviceB)).json()
+  expect(listing.items[0].cover).toMatchObject({ mediaId, width: 8, height: 6 })
+  expect(listing.items[0].outputs).toBeUndefined()
+  expect(listing.items[0].parameters).toBeUndefined()
+  const access = await request(`/api/media/${mediaId}/access`, deviceB)
+  expect(access.status).toBe(200)
+  const { originalUrl } = await access.json()
+  expect(await durable.read(new URL(originalUrl).pathname.slice(1))).toEqual(
+    new Uint8Array(original),
+  )
+  expect((await request(`/api/media/${mediaId}/access`, stranger)).status).toBe(404)
+  const legacy = await request(`/v1/queue/requests/${id}`, deviceB)
+  expect(legacy.status).toBe(200)
+  expect((await legacy.json()).images).toHaveLength(1)
+  const legacyImage = await request(`/v1/queue/requests/${id}/output/0`, deviceB)
+  expect(legacyImage.status).toBe(200)
+  expect(new Uint8Array(await legacyImage.arrayBuffer())).toEqual(new Uint8Array(original))
+  expect((await request(`/v1/queue/requests/${id}/image/0`, stranger)).status).toBe(404)
+  expect(calls).toBe(1)
+})
+
+it('原件归档中断后只恢复保存，不再次生成或丢失已生成图片', async () => {
+  const original = await sharp({
+    create: { width: 8, height: 6, channels: 3, background: '#559966' },
+  })
+    .png()
+    .toBuffer()
+  let calls = 0
+  setUpstreamFetchForTesting((async () => {
+    calls++
+    return Response.json({ data: [{ b64_json: original.toString('base64') }] })
+  }) as NonNullable<Parameters<typeof setUpstreamFetchForTesting>[0]>)
+  const { request_id: id } = await (
+    await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, input)
+  ).json()
+  durable.publicationFailuresRemaining = 1
+  await runTask(id)
+  expect(await (await request(`/api/generations/${id}`, deviceB)).json()).toMatchObject({
+    status: 'queued',
+  })
+  const clock = spyOn(Date, 'now').mockReturnValue(Date.now() + 61_000)
+  try {
+    await runTask(id)
+  } finally {
+    clock.mockRestore()
+  }
+  const detail = await (await request(`/api/generations/${id}`, deviceB)).json()
+  expect(detail.status).toBe('completed')
+  expect(detail.outputs).toHaveLength(1)
+  expect(calls).toBe(1)
+})
+
+it('上游原图链接暂时不可读时只重取原图，不重新调用模型', async () => {
+  const original = await sharp({
+    create: { width: 8, height: 6, channels: 3, background: '#779944' },
+  })
+    .png()
+    .toBuffer()
+  let calls = 0
+  setUpstreamFetchForTesting((async () => {
+    calls++
+    return Response.json({ data: [{ url: 'https://fixture.example/generated.png' }] })
+  }) as NonNullable<Parameters<typeof setUpstreamFetchForTesting>[0]>)
+  let available = false
+  const restore = stubGlobalFetch(() =>
+    available ? new Response(original) : new Response('unavailable', { status: 503 }),
+  )
+  const { request_id: id } = await (
+    await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, input)
+  ).json()
+  try {
+    await runTask(id)
+    expect((await (await request(`/api/generations/${id}`, deviceB)).json()).status).toBe('queued')
+    available = true
+    const clock = spyOn(Date, 'now').mockReturnValue(Date.now() + 61_000)
+    try {
+      await runTask(id)
+    } finally {
+      clock.mockRestore()
+    }
+    expect((await (await request(`/api/generations/${id}`, deviceB)).json()).status).toBe(
+      'completed',
+    )
+    expect(calls).toBe(1)
+  } finally {
+    restore()
+  }
+})
+
+it('worker 重启遇到已发出但无结果凭据的生成不会盲目再次提交', async () => {
+  const { request_id: id } = await (
+    await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, input)
+  ).json()
+  // Persisted process-crash fixture: dispatch happened, no response or async receipt survived.
+  await db
+    .update(schema.tasks)
+    .set({ status: 'in_progress', upstream_invocation_count: 1 })
+    .where(eq(schema.tasks.id, id))
+  const { recoverTasksByIds } = await import('../../db/maintenance')
+  await recoverTasksByIds([id])
+  expect((await (await request(`/api/generations/${id}`, deviceB)).json()).status).toBe('failed')
+  const status = await request(`/v1/queue/requests/${id}/status`, deviceB)
+  expect(await status.json()).toMatchObject({ error: { type: 'upstream_result_unknown' } })
+})
+
+it('临时数据清理后仍保留参考图、蒙版和可复用参数，不携带额外秘密字段', async () => {
+  const png = await sharp({ create: { width: 8, height: 6, channels: 4, background: '#779944' } })
+    .png()
+    .toBuffer()
+  const source = `data:image/png;base64,${png.toString('base64')}`
+  setUpstreamFetchForTesting((async () =>
+    Response.json({
+      data: [{ b64_json: png.toString('base64') }],
+      size: '8x6',
+      quality: 'high',
+    })) as NonNullable<Parameters<typeof setUpstreamFetchForTesting>[0]>)
+  const { request_id: id } = await (
+    await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, {
+      ...input,
+      input_images: [source],
+      mask: source,
+      quality: 'high',
+      size: 'auto',
+      n: 1,
+      extra: { api_key: 'must-not-sync', response_format: 'b64_json' },
+    })
+  ).json()
+  await runTask(id)
+  const { purgeOldTasks } = await import('../../db/maintenance')
+  expect(await purgeOldTasks(-1)).toBe(1)
+  const detail = await (await request(`/api/generations/${id}`, deviceB)).json()
+  expect(detail.inputs).toHaveLength(1)
+  expect(detail.mask.mediaId).toBe(detail.inputs[0].mediaId)
+  expect(detail.parameters).toMatchObject({ quality: 'high', size: 'auto', n: 1 })
+  expect(detail.actualParameters).toMatchObject({ size: '8x6', quality: 'high' })
+  expect(JSON.stringify(detail)).not.toContain('must-not-sync')
+  for (const mediaId of [detail.inputs[0].mediaId, detail.mask.mediaId]) {
+    const { originalUrl } = await (await request(`/api/media/${mediaId}/access`, deviceB)).json()
+    expect(await durable.read(new URL(originalUrl).pathname.slice(1))).toEqual(new Uint8Array(png))
+  }
+})
+
+it('归档重试下载成功后重启，即使原链接过期也能用已保存原件完成', async () => {
+  const png = await sharp({ create: { width: 8, height: 6, channels: 3, background: '#779944' } })
+    .png()
+    .toBuffer()
+  let calls = 0
+  setUpstreamFetchForTesting((async () => {
+    calls++
+    return Response.json({ data: [{ url: 'https://fixture.example/short-lived.png' }] })
+  }) as NonNullable<Parameters<typeof setUpstreamFetchForTesting>[0]>)
+  let available = false
+  const restore = stubGlobalFetch(() =>
+    available ? new Response(png) : new Response('expired', { status: 403 }),
+  )
+  const { request_id: id } = await (
+    await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, input)
+  ).json()
+  try {
+    await runTask(id)
+    available = true
+    durable.interruptNextWrite = true
+    const clock = spyOn(Date, 'now').mockReturnValue(Date.now() + 61_000)
+    try {
+      await runTask(id)
+      available = false
+      const { recoverTasksByIds } = await import('../../db/maintenance')
+      await recoverTasksByIds([id])
+      await runTask(id)
+    } finally {
+      clock.mockRestore()
+    }
+    expect((await (await request(`/api/generations/${id}`, deviceB)).json()).status).toBe(
+      'completed',
+    )
+    expect(calls).toBe(1)
+  } finally {
+    restore()
+  }
+})
+
+it('归档等待超过临时桶过期时间，生成原件、参考图和蒙版仍可恢复', async () => {
+  const png = await sharp({ create: { width: 8, height: 6, channels: 3, background: '#449977' } })
+    .png()
+    .toBuffer()
+  const source = `data:image/png;base64,${png.toString('base64')}`
+  let calls = 0
+  setUpstreamFetchForTesting((async () => {
+    calls++
+    return Response.json({ data: [{ b64_json: png.toString('base64') }] })
+  }) as NonNullable<Parameters<typeof setUpstreamFetchForTesting>[0]>)
+  const { request_id: id } = await (
+    await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, {
+      ...input,
+      input_images: [source],
+      mask: source,
+    })
+  ).json()
+  durable.publicationUnavailable = true
+  await runTask(id)
+  expect((await (await request(`/api/generations/${id}`, deviceB)).json()).status).toBe('queued')
+  const { objectStore } = await import('../../lib/objectStore')
+  const clock = spyOn(Date, 'now').mockReturnValue(Date.now() + 46 * 86_400_000)
+  try {
+    await objectStore().deletePrefix(`${id}/`)
+    durable.publicationUnavailable = false
+    await runTask(id)
+  } finally {
+    clock.mockRestore()
+  }
+  const detail = await (await request(`/api/generations/${id}`, deviceB)).json()
+  expect(detail.status).toBe('completed')
+  expect(detail.outputs).toHaveLength(1)
+  expect(detail.inputs).toHaveLength(1)
+  expect(detail.mask).not.toBeNull()
+  expect(calls).toBe(1)
+})
+
+for (const provider of ['openai-compat', 'gemini'] as const) {
+  it(`${provider} 已返回原图后首次存储短暂失败，只重试保存原响应`, async () => {
+    const png = await sharp({ create: { width: 8, height: 6, channels: 3, background: '#448877' } })
+      .png()
+      .toBuffer()
+    let calls = 0
+    setUpstreamFetchForTesting((async () => {
+      calls++
+      return Response.json(
+        provider === 'openai-compat'
+          ? { data: [{ b64_json: png.toString('base64') }] }
+          : {
+              candidates: [
+                {
+                  content: {
+                    parts: [
+                      { inlineData: { mimeType: 'image/png', data: png.toString('base64') } },
+                    ],
+                  },
+                },
+              ],
+            },
+      )
+    }) as NonNullable<Parameters<typeof setUpstreamFetchForTesting>[0]>)
+    const submitted = await request(
+      `/v1/queue/${provider}/${provider === 'gemini' ? 'gemini-3-pro-image-preview' : 'gpt-image-2'}/submit`,
+      deviceA,
+      input,
+    )
+    expect(submitted.status).toBe(200)
+    const { request_id: id } = await submitted.json()
+    durable.writeFailuresRemaining = 4
+    await runTask(id)
+    const detail = await (await request(`/api/generations/${id}`, deviceB)).json()
+    expect(detail.status).toBe('completed')
+    expect(detail.outputs).toHaveLength(1)
+    const { originalUrl } = await (
+      await request(`/api/media/${detail.outputs[0].mediaId}/access`, deviceB)
+    ).json()
+    expect(await durable.read(new URL(originalUrl).pathname.slice(1))).toEqual(new Uint8Array(png))
+    expect(calls).toBe(1)
+  })
+}
+
+it('归档读取先检查对象长度，拒绝超限原件时不整份缓冲且可恢复', async () => {
+  const png = await sharp({ create: { width: 8, height: 6, channels: 3, background: '#447766' } })
+    .png()
+    .toBuffer()
+  let calls = 0
+  setUpstreamFetchForTesting((async () => {
+    calls++
+    return Response.json({ data: [{ b64_json: png.toString('base64') }] })
+  }) as NonNullable<Parameters<typeof setUpstreamFetchForTesting>[0]>)
+  const { request_id: id } = await (
+    await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, input)
+  ).json()
+  durable.oversizedSpool = true
+  await runTask(id)
+  expect((await (await request(`/api/generations/${id}`, deviceB)).json()).status).toBe('queued')
+  expect(durable.spoolReads).toBe(0)
+  durable.oversizedSpool = false
+  const clock = spyOn(Date, 'now').mockReturnValue(Date.now() + 61_000)
+  try {
+    await runTask(id)
+  } finally {
+    clock.mockRestore()
+  }
+  expect((await (await request(`/api/generations/${id}`, deviceB)).json()).status).toBe('completed')
+  expect(calls).toBe(1)
+})
+
+it('原件已写入但完成凭据尚未提交时重启，按原任务找回而不重新生成', async () => {
+  const png = await sharp({ create: { width: 8, height: 6, channels: 3, background: '#779955' } })
+    .png()
+    .toBuffer()
+  let calls = 0
+  setUpstreamFetchForTesting((async () => {
+    calls++
+    return Response.json({ data: [{ b64_json: png.toString('base64') }] })
+  }) as NonNullable<Parameters<typeof setUpstreamFetchForTesting>[0]>)
+  const { request_id: id } = await (
+    await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, input)
+  ).json()
+  const { abortRunningTask } = await import('../../workers/task-runner')
+  durable.afterWrite = (key) => {
+    if (key === `${id}/out/0`) {
+      abortRunningTask(id)
+      throw new DOMException('Worker stopped after object write', 'AbortError')
+    }
+  }
+  await runTask(id)
+  durable.afterWrite = undefined
+  const { recoverTasksByIds } = await import('../../db/maintenance')
+  await recoverTasksByIds([id])
+  await runTask(id)
+  const detail = await (await request(`/api/generations/${id}`, deviceB)).json()
+  expect(detail.status).toBe('completed')
+  expect(detail.outputs).toHaveLength(1)
+  expect(calls).toBe(1)
+})
+
+it('多图响应中途重启时保留已保存的原件，缺失部分明确失败且不重新生成', async () => {
+  const png = await sharp({ create: { width: 8, height: 6, channels: 3, background: '#884466' } })
+    .png()
+    .toBuffer()
+  let calls = 0
+  setUpstreamFetchForTesting((async () => {
+    calls++
+    return Response.json({
+      data: [{ b64_json: png.toString('base64') }, { b64_json: png.toString('base64') }],
+    })
+  }) as NonNullable<Parameters<typeof setUpstreamFetchForTesting>[0]>)
+  const { request_id: id } = await (
+    await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, { ...input, n: 2 })
+  ).json()
+  const { abortRunningTask } = await import('../../workers/task-runner')
+  durable.afterWrite = (key) => {
+    if (key === `${id}/out/0`) {
+      abortRunningTask(id)
+      throw new DOMException('Worker stopped after first object', 'AbortError')
+    }
+  }
+  await runTask(id)
+  expect(calls).toBe(2)
+  durable.afterWrite = undefined
+  const { recoverTasksByIds } = await import('../../db/maintenance')
+  await recoverTasksByIds([id])
+  await runTask(id)
+  const detail = await (await request(`/api/generations/${id}`, deviceB)).json()
+  expect(detail.status).toBe('failed')
+  expect(detail.archiveStatus).toBe('unavailable')
+  expect(detail.errorType).toBe('upstream_result_unknown')
+  expect(detail.outputs).toHaveLength(1)
+  const status = await (await request(`/v1/queue/requests/${id}/status`, deviceB)).json()
+  expect(status.error.type).toBe('upstream_result_unknown')
+  expect(calls).toBe(2)
+})
+
+it('混合内联和 URL 多图中断后恢复，第二张不会覆盖已经保存的第一张', async () => {
+  const first = await sharp({ create: { width: 8, height: 6, channels: 3, background: '#ff0000' } })
+    .png()
+    .toBuffer()
+  const second = await sharp({
+    create: { width: 8, height: 6, channels: 3, background: '#0000ff' },
+  })
+    .png()
+    .toBuffer()
+  let calls = 0
+  setUpstreamFetchForTesting((async () => {
+    calls++
+    return Response.json({
+      data: [
+        { b64_json: first.toString('base64') },
+        { url: 'https://upstream.example/second.png' },
+      ],
+    })
+  }) as NonNullable<Parameters<typeof setUpstreamFetchForTesting>[0]>)
+  const restore = stubGlobalFetch(async () => new Response(second))
+  const { request_id: id } = await (
+    await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, input)
+  ).json()
+  const { abortRunningTask } = await import('../../workers/task-runner')
+  durable.afterWrite = (key) => {
+    if (key === `${id}/out/0`) {
+      abortRunningTask(id)
+      throw new DOMException('Interrupted', 'AbortError')
+    }
+  }
+  try {
+    await runTask(id)
+    durable.afterWrite = undefined
+    const { recoverTasksByIds } = await import('../../db/maintenance')
+    await recoverTasksByIds([id])
+    await runTask(id)
+    const detail = await (await request(`/api/generations/${id}`, deviceB)).json()
+    expect(detail.status).toBe('completed')
+    expect(detail.outputs).toHaveLength(2)
+    for (const [index, bytes] of [first, second].entries()) {
+      const { originalUrl } = await (
+        await request(`/api/media/${detail.outputs[index].mediaId}/access`, deviceB)
+      ).json()
+      expect(await durable.read(new URL(originalUrl).pathname.slice(1))).toEqual(
+        new Uint8Array(bytes),
+      )
+    }
+    expect(calls).toBe(1)
+  } finally {
+    restore()
+  }
+})
+
+it('URL 原件已落盘后链接过期，恢复直接使用已保存原件', async () => {
+  const first = await sharp({ create: { width: 8, height: 6, channels: 3, background: '#ff0000' } })
+    .png()
+    .toBuffer()
+  const second = await sharp({
+    create: { width: 8, height: 6, channels: 3, background: '#0000ff' },
+  })
+    .png()
+    .toBuffer()
+  let calls = 0
+  setUpstreamFetchForTesting((async () => {
+    calls++
+    return Response.json({
+      data: [
+        { url: 'https://upstream.example/first.png' },
+        { url: 'https://upstream.example/second.png' },
+      ],
+    })
+  }) as NonNullable<Parameters<typeof setUpstreamFetchForTesting>[0]>)
+  let firstAvailable = true
+  const restore = stubGlobalFetch(async (url: string | URL | Request) =>
+    String(url).endsWith('first.png')
+      ? firstAvailable
+        ? new Response(first)
+        : new Response('expired', { status: 403 })
+      : new Response(second),
+  )
+  const { request_id: id } = await (
+    await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, input)
+  ).json()
+  const { abortRunningTask } = await import('../../workers/task-runner')
+  durable.afterWrite = (key) => {
+    if (key === `${id}/out/0`) {
+      abortRunningTask(id)
+      throw new DOMException('Interrupted', 'AbortError')
+    }
+  }
+  try {
+    await runTask(id)
+    durable.afterWrite = undefined
+    firstAvailable = false
+    const { recoverTasksByIds } = await import('../../db/maintenance')
+    await recoverTasksByIds([id])
+    await runTask(id)
+    const detail = await (await request(`/api/generations/${id}`, deviceB)).json()
+    expect(detail.status).toBe('completed')
+    expect(detail.outputs).toHaveLength(2)
+    for (const [index, bytes] of [first, second].entries()) {
+      const { originalUrl } = await (
+        await request(`/api/media/${detail.outputs[index].mediaId}/access`, deviceB)
+      ).json()
+      expect(await durable.read(new URL(originalUrl).pathname.slice(1))).toEqual(
+        new Uint8Array(bytes),
+      )
+    }
+    expect(calls).toBe(1)
+  } finally {
+    restore()
+  }
+})
+
+it('上游原图下载在读取响应体前拒绝超限长度，重试保存不重新生成', async () => {
+  const png = await sharp({ create: { width: 8, height: 6, channels: 3, background: '#33aacc' } })
+    .png()
+    .toBuffer()
+  let calls = 0
+  let oversized = true
+  setUpstreamFetchForTesting((async () => {
+    calls++
+    return Response.json({ data: [{ url: 'https://upstream.example/large.png' }] })
+  }) as NonNullable<Parameters<typeof setUpstreamFetchForTesting>[0]>)
+  const restore = stubGlobalFetch(
+    async () =>
+      new Response(png, {
+        headers: { 'content-length': String(oversized ? Number.MAX_SAFE_INTEGER : png.length) },
+      }),
+  )
+  const { request_id: id } = await (
+    await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, input)
+  ).json()
+  try {
+    await runTask(id)
+    expect((await (await request(`/api/generations/${id}`, deviceB)).json()).status).toBe('queued')
+    oversized = false
+    const clock = spyOn(Date, 'now').mockReturnValue(Date.now() + 61000)
+    try {
+      await runTask(id)
+    } finally {
+      clock.mockRestore()
+    }
+    expect((await (await request(`/api/generations/${id}`, deviceB)).json()).status).toBe(
+      'completed',
+    )
+    expect(calls).toBe(1)
+  } finally {
+    restore()
+  }
+})
+
+it('原件正在保存时另一设备看到归档状态，完成后变为已保存', async () => {
+  const png = await sharp({ create: { width: 8, height: 6, channels: 3, background: '#22aa88' } })
+    .png()
+    .toBuffer()
+  setUpstreamFetchForTesting((async () =>
+    Response.json({ data: [{ b64_json: png.toString('base64') }] })) as NonNullable<
+    Parameters<typeof setUpstreamFetchForTesting>[0]
+  >)
+  const { request_id: id } = await (
+    await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, input)
+  ).json()
+  let wrote!: () => void
+  let resume!: () => void
+  const written = new Promise<void>((resolve) => {
+    wrote = resolve
+  })
+  const pause = new Promise<void>((resolve) => {
+    resume = resolve
+  })
+  durable.afterWrite = async (key) => {
+    if (key === `${id}/out/0`) {
+      wrote()
+      await pause
+    }
+  }
+  const running = runTask(id)
+  try {
+    await written
+    const detail = await (await request(`/api/generations/${id}`, deviceB)).json()
+    expect(detail.archiveStatus).toBe('pending')
+  } finally {
+    resume()
+    await running
+  }
+  expect((await (await request(`/api/generations/${id}`, deviceB)).json()).archiveStatus).toBe(
+    'ready',
+  )
+})
+
+it('首次归档凭据写入短暂失败仍保存已返回原图，不释放响应后重新生成', async () => {
+  const png = await sharp({ create: { width: 8, height: 6, channels: 3, background: '#ddaa88' } })
+    .png()
+    .toBuffer()
+  let calls = 0
+  setUpstreamFetchForTesting((async () => {
+    calls++
+    return Response.json({ data: [{ b64_json: png.toString('base64') }] })
+  }) as NonNullable<Parameters<typeof setUpstreamFetchForTesting>[0]>)
+  const { request_id: id } = await (
+    await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, input)
+  ).json()
+  await db.execute(sql`CREATE SEQUENCE generation_checkpoint_fault`)
+  await db.execute(
+    sql`CREATE FUNCTION generation_checkpoint_fault() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF nextval('generation_checkpoint_fault') = 1 THEN RAISE EXCEPTION 'checkpoint temporarily unavailable'; END IF; RETURN NEW; END; $$`,
+  )
+  await db.execute(
+    sql`CREATE TRIGGER generation_checkpoint_fault BEFORE UPDATE OF archive_payload ON tasks FOR EACH ROW WHEN (OLD.archive_payload IS NULL AND NEW.archive_payload IS NOT NULL) EXECUTE FUNCTION generation_checkpoint_fault()`,
+  )
+  try {
+    await runTask(id)
+    const detail = await (await request(`/api/generations/${id}`, deviceB)).json()
+    expect(detail.status).toBe('completed')
+    const { originalUrl } = await (
+      await request(`/api/media/${detail.outputs[0].mediaId}/access`, deviceB)
+    ).json()
+    expect(await durable.read(new URL(originalUrl).pathname.slice(1))).toEqual(new Uint8Array(png))
+    expect(calls).toBe(1)
+  } finally {
+    await db.execute(sql`DROP TRIGGER generation_checkpoint_fault ON tasks`)
+    await db.execute(sql`DROP FUNCTION generation_checkpoint_fault()`)
+    await db.execute(sql`DROP SEQUENCE generation_checkpoint_fault`)
+  }
 })
