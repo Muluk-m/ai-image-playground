@@ -401,8 +401,17 @@ it('没有项目的生成原件在临时任务清理后仍可跨设备读取', a
   expect(detail.outputs).toHaveLength(1)
   const mediaId = detail.outputs[0].mediaId
   expect(detail.outputs[0]).toMatchObject({ index: 0, width: 8, height: 6 })
+  const { objectStore } = await import('../../lib/objectStore')
+  await objectStore().deletePrefix(`${id}/`)
+  expect((await request(`/v1/queue/requests/${id}/output/0`, deviceB)).status).toBe(200)
   const { purgeOldTasks } = await import('../../db/maintenance')
   expect(await purgeOldTasks(-1)).toBe(1)
+  const resumed = await request(`/v1/queue/requests/${id}/status`, deviceB)
+  expect(resumed.status).toBe(200)
+  expect(await resumed.json()).toMatchObject({
+    status: 'completed',
+    result: { images: [{ index: 0, mime: 'image/png' }] },
+  })
   const retained = await (await request(`/api/generations/${id}`, deviceB)).json()
   expect(retained.outputs[0].mediaId).toBe(mediaId)
   const listing = await (await request('/api/generations', deviceB)).json()
