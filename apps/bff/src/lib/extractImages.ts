@@ -10,6 +10,7 @@ export interface ExtractedResult {
 }
 
 export interface ImageBytesRef {
+  store?: 'durable'
   kind: 'b64' | 'url' | 'object'
   /** Base64 data, an upstream URL, or an object-store key according to kind. */
   data: string
@@ -30,9 +31,18 @@ export function resolveImageBytesRef(
   payload: unknown,
   index: number,
 ): ImageBytesRef | null {
-  if (provider === 'openai-compat') return resolveOpenAIBytes(payload, index)
-  if (provider === 'gemini') return resolveGeminiBytes(payload, index)
-  return null
+  const ref =
+    provider === 'openai-compat'
+      ? resolveOpenAIBytes(payload, index)
+      : resolveGeminiBytes(payload, index)
+  if (
+    ref &&
+    payload &&
+    typeof payload === 'object' &&
+    (payload as Record<string, unknown>).archive_store === 'durable'
+  )
+    ref.store = 'durable'
+  return ref
 }
 
 /**

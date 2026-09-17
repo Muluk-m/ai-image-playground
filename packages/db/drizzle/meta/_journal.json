@@ -162,6 +162,13 @@
       "when": 1789650000000,
       "tag": "0023_durable_media",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1789650100000,
+      "tag": "0024_generation_images",
+      "breakpoints": true
     }
   ]
 }
