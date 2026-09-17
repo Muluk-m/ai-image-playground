@@ -131,7 +131,9 @@ export function referenceManifest(references: readonly AgentImageReference[]): s
   const lines = references.map((one, at) => {
     const name = one.name ? `${one.name}，` : ''
     const masked = 'dataUrl' in one ? one.maskDataUrl : one.mask
-    const mask = masked ? '，用户在上面画了遮罩' : ''
+    const mask = masked
+      ? '，蓝色半透明覆盖处是用户圈选区（仅供定位，不是图中原有颜色；编辑时用原图）。作为编辑目标时只改圈选内，作为参考时只参考圈选内容'
+      : ''
     return `[image ${at + 1}] ${name}图片 id ${one.imageId}${mask}`
   })
   return `\n\n可用参考图（工具参数使用图片 id，不要把编号当 id）：\n${lines.join('\n')}`

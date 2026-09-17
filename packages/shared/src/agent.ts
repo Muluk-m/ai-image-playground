@@ -52,7 +52,10 @@ export interface AgentStoredReference {
  * 字段名对齐 `SubmitRequest`，避免在途中翻译两次；但 `gemini_*` 三项保持前缀，
  * 因为它们只对 gemini 系模型成立，往队列请求里填哪一支由服务端按 provider 决定。
  */
+export type AgentThinkingDepth = 'fast' | 'medium' | 'deep'
+
 export interface AgentTurnParams {
+  readonly thinkingDepth?: AgentThinkingDepth
   /** 生成模型。解析不出来（模型下线、介质不符）就退回部署配置的那一个。 */
   readonly model?: string
   readonly size?: string

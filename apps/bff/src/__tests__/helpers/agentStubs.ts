@@ -8,6 +8,7 @@ import {
 export interface AgentCall {
   readonly url: string
   readonly authorization: string | null
+  readonly reasoning_effort?: string
   readonly model: string
   readonly messages: { role: string; content: unknown }[]
   readonly tools?: { function: { name: string } }[]
@@ -99,6 +100,7 @@ export function recordingAgentFetch(
       url: String(input),
       authorization: new Headers(request.headers).get('authorization'),
       model: sent.model,
+      reasoning_effort: sent.reasoning_effort,
       messages: sent.messages,
       tools: sent.tools,
       stream_options: sent.stream_options,

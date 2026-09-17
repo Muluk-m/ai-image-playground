@@ -65,7 +65,7 @@ describe('classifyMaskAlpha', () => {
 
 describe('assertUsableMaskCoverage', () => {
   it('rejects masks with no edit area', () => {
-    expect(() => assertUsableMaskCoverage('empty')).toThrow('请先涂抹需要编辑的区域')
+    expect(() => assertUsableMaskCoverage('empty')).toThrow('请先圈选或涂抹需要编辑的区域')
   })
 
   it('allows partial masks', () => {

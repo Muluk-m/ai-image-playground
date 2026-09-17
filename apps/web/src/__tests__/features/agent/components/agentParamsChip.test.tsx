@@ -4,6 +4,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import AgentParamsChip from '../../../../features/agent/components/AgentParamsChip'
+import { useAgentStore } from '../../../../features/agent/store'
 import { setChannels } from '../../../../lib/channels/channelStore'
 import { useStore } from '../../../../store'
 import { DEFAULT_PARAMS } from '../../../../types'
@@ -30,6 +31,7 @@ function toggle(): void {
 }
 
 beforeEach(() => {
+  useAgentStore.setState({ thinkingDepth: 'medium' })
   setChannels([])
   useStore.setState({ params: { ...DEFAULT_PARAMS } })
   host = document.createElement('div')
@@ -126,7 +128,7 @@ describe('gemini 专属参数跟着当前模型走', () => {
 
     expect(host.textContent).toContain('比例')
     expect(host.textContent).not.toContain('分辨率')
-    expect(host.textContent).not.toContain('思考')
+    expect(host.querySelector('[title^="思考:"]')).toBeNull()
   })
 
   it('不走 gemini 协议时一项都不给', () => {
@@ -135,7 +137,7 @@ describe('gemini 专属参数跟着当前模型走', () => {
     toggle()
 
     expect(host.textContent).not.toContain('分辨率')
-    expect(host.textContent).not.toContain('思考')
+    expect(host.querySelector('[title^="思考:"]')).toBeNull()
   })
 })
 
@@ -217,4 +219,15 @@ it('Escape dismisses only the topmost picker and leaves unconfirmed parameters u
   expect(useStore.getState().params.size).toBe('auto')
   act(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
   expect(trigger().getAttribute('aria-expanded')).toBe('false')
+})
+
+it('selects and remembers thinking depth independently of the image model', () => {
+  render()
+  toggle()
+  const deep = [...host.querySelectorAll('button')].find((button) => button.textContent === '深度')!
+  act(() => deep.click())
+  expect(deep.getAttribute('aria-pressed')).toBe('true')
+  expect(useAgentStore.getState().thinkingDepth).toBe('deep')
+  expect(localStorage.getItem('image-playground-agent-thinking-depth')).toBe('deep')
+  expect(trigger().textContent).toContain('思考：深度')
 })

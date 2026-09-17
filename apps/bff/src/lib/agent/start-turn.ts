@@ -1,7 +1,6 @@
 import type { AgentTurnCost, AgentTurnParams, AgentTurnReference } from '@image-playground/shared'
 import { agentConversationTitle } from '@image-playground/shared'
 import { eq } from 'drizzle-orm'
-import { config } from '../../config'
 import { db, schema } from '../../db/client'
 import { finishTask } from '../../db/task-transitions'
 import { isCapabilityEnabled } from '../capabilities'
@@ -16,6 +15,7 @@ import {
 } from './conversations'
 import { archiveAgentReferences, removeAgentTurnReferences } from './images'
 import type { RunningTurn } from './runningTurns'
+import { agentThinking } from './thinking'
 import type { AgentTurnSettlement } from './turn'
 import { collectTurnCost } from './turn-cost'
 
@@ -42,14 +42,20 @@ export type StartConversationTurnResult =
  */
 async function insertChatTask(
   tx: BffTransaction,
-  input: { taskId: string; conversationId: string; userId: string; deviceId: string },
+  input: {
+    taskId: string
+    conversationId: string
+    userId: string
+    deviceId: string
+    model: string
+  },
 ): Promise<void> {
   const now = Date.now()
   await tx.insert(schema.tasks).values({
     id: input.taskId,
     kind: 'chat',
     provider: 'openai-compat',
-    model: config.agent.model,
+    model: input.model,
     status: 'in_progress',
     // 会话内容不进后台，占位里只留设备号——它喂的是 device_id 那个生成列。
     request_payload: { prompt: '', device_id: input.deviceId },
@@ -80,6 +86,7 @@ export async function startConversationTurn(
   input: StartConversationTurnInput,
 ): Promise<StartConversationTurnResult> {
   const { conversationId, owner, text, references, deviceId, params } = input
+  const selectedModel = agentThinking(params?.thinkingDepth).model
   const userId = owner.kind === 'user' ? owner.userId : null
   const billed = isCapabilityEnabled('billing:credits')
   if (billed && owner.kind !== 'user') return { kind: 'authentication_required' }
@@ -91,7 +98,7 @@ export async function startConversationTurn(
       import('./turn'),
       overlayPromise,
       listAgentMessages(conversationId, owner),
-      billed ? overlayPromise.then((it) => it.taskHooks.chatPricing(config.agent.model)) : null,
+      billed ? overlayPromise.then((it) => it.taskHooks.chatPricing(selectedModel)) : null,
     ])
   const turnId = crypto.randomUUID()
   // 预扣与结算共用这一份快照：运营中途改价不该改写在途那一轮的账。
@@ -101,7 +108,7 @@ export async function startConversationTurn(
       ? {
           taskId: turnId,
           userId,
-          model: config.agent.model,
+          model: selectedModel,
           ...reservedChatUsage(estimateTurnInputTokens(history, text, references), pricing),
         }
       : null
@@ -115,6 +122,7 @@ export async function startConversationTurn(
           taskId: turnId,
           conversationId,
           userId: reservation.userId,
+          model: selectedModel,
           deviceId,
         })
         const reserved = await overlay.taskHooks.reserveTask({ tx, ...reservation })

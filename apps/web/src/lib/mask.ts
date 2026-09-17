@@ -1,4 +1,5 @@
 import type { InputImage } from '../types'
+import type { Point } from './viewportTransform'
 
 export type MaskCoverage = 'empty' | 'partial' | 'full'
 
@@ -27,6 +28,39 @@ export function maskPaintOperation(
   return (tool === 'brush') === keepSemantics ? 'source-over' : 'destination-out'
 }
 
+/** 圈选在抬笔时闭合并填充；笔刷仍只改变实际经过的像素。 */
+export function isUsableMaskLasso(points: readonly Point[]): boolean {
+  if (points.length < 3) return false
+  const bounds = points.reduce(
+    (box, point) => ({
+      left: Math.min(box.left, point.x),
+      right: Math.max(box.right, point.x),
+      top: Math.min(box.top, point.y),
+      bottom: Math.max(box.bottom, point.y),
+    }),
+    { left: Infinity, right: -Infinity, top: Infinity, bottom: -Infinity },
+  )
+  return bounds.right - bounds.left >= 1 && bounds.bottom - bounds.top >= 1
+}
+
+export function fillMaskLasso(
+  ctx: CanvasRenderingContext2D,
+  points: readonly Point[],
+  keepSemantics: boolean,
+): boolean {
+  if (!isUsableMaskLasso(points)) return false
+  ctx.save()
+  ctx.globalCompositeOperation = maskPaintOperation('brush', keepSemantics)
+  ctx.fillStyle = '#fff'
+  ctx.beginPath()
+  ctx.moveTo(points[0]!.x, points[0]!.y)
+  for (const point of points.slice(1)) ctx.lineTo(point.x, point.y)
+  ctx.closePath()
+  ctx.fill('evenodd')
+  ctx.restore()
+  return true
+}
+
 export function classifyMaskAlpha(imageData: Pick<ImageData, 'data'>): MaskCoverage {
   let edited = 0
   let fullyTransparent = 0
@@ -44,6 +78,6 @@ export function classifyMaskAlpha(imageData: Pick<ImageData, 'data'>): MaskCover
 
 export function assertUsableMaskCoverage(coverage: MaskCoverage): void {
   if (coverage === 'empty') {
-    throw new Error('请先涂抹需要编辑的区域')
+    throw new Error('请先圈选或涂抹需要编辑的区域')
   }
 }

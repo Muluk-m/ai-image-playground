@@ -2,12 +2,14 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronDownIcon, SettingsIcon } from '../../../components/icons'
 import { compactModelName } from '../../../components/ModelIdentity'
 import ParamControls, { type UnsupportedParam } from '../../../components/ParamControls'
+import { Button } from '../../../components/ui/button'
 import { useCloseOnEscape } from '../../../hooks/useCloseOnEscape'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/apiProfiles'
 import { getParamCapabilities } from '../../../lib/paramCompatibility'
 import { normalizeImageSize, sizeRatioLabel } from '../../../lib/size'
 import { useStore } from '../../../store'
 import { INK, INK_3, PANEL_SHADOW, PANEL_SURFACE } from '../agentStyles'
+import { useAgentStore } from '../store'
 
 /**
  * 智能体这条路做不到的两项，chip 不出现。理由见 `lib/turnParams.ts`：
@@ -42,7 +44,11 @@ function useSummary(): string[] {
 export default function AgentParamsChip() {
   const [open, setOpen] = useState(false)
   const wrapperRef = useRef<HTMLDivElement>(null)
-  const summary = useSummary()
+  const generationSummary = useSummary()
+  const depth = useAgentStore((state) => state.thinkingDepth)
+  const setDepth = useAgentStore((state) => state.setThinkingDepth)
+  const labels = { fast: '快速', medium: '中等', deep: '深度' }
+  const summary = [`思考：${labels[depth]}`, ...generationSummary]
   const insidePointerRef = useRef<Event | null>(null)
   useCloseOnEscape(open, () => setOpen(false))
 
@@ -97,6 +103,24 @@ export default function AgentParamsChip() {
               完成
             </button>
           </div>
+          <fieldset className="mb-3">
+            <legend className={`mb-2 text-xs font-semibold ${INK}`}>思考深度</legend>
+            <div className="flex gap-1">
+              {(['fast', 'medium', 'deep'] as const).map((value) => (
+                <Button
+                  type="button"
+                  key={value}
+                  aria-pressed={depth === value}
+                  onClick={() => setDepth(value)}
+                  size="sm"
+                  variant={depth === value ? 'default' : 'secondary'}
+                  className="flex-1"
+                >
+                  {labels[value]}
+                </Button>
+              ))}
+            </div>
+          </fieldset>
           <div className="flex flex-wrap items-center gap-1.5">
             <ParamControls unsupported={UNSUPPORTED} />
           </div>

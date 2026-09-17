@@ -6,7 +6,14 @@ import type {
   SubmitRequest,
   VideoRequest,
 } from '@image-playground/shared'
+import { MaskedOutputError } from './agent/masked-output'
 import { objectStore } from './objectStore'
+
+export type OutputTransform = (bytes: Uint8Array) => Promise<{
+  bytes: Uint8Array
+  mime: string
+  inspection: Record<string, number>
+}>
 
 export type HydratedVideoRequest = VideoRequest & { source_video?: string }
 export type HydratedSubmitRequest = Omit<SubmitRequest, 'video'> & {
@@ -74,7 +81,12 @@ export async function archiveInputImages(
 export async function hydrateInputImages(
   request: SubmitRequest | PersistedSubmitRequest,
 ): Promise<HydratedSubmitRequest> {
-  const hydrated = { ...request } as HydratedSubmitRequest
+  const {
+    preserve_outside_mask: _boundary,
+    masked_original_size: _originalSize,
+    ...upstreamRequest
+  } = request as PersistedSubmitRequest
+  const hydrated = { ...upstreamRequest } as HydratedSubmitRequest
   if (request.input_images) {
     const inputs: string[] = []
     for (const input of request.input_images) {
@@ -99,14 +111,15 @@ export async function archiveOutputImages(
   taskId: string,
   provider: QueueProvider,
   payload: unknown,
+  transform?: OutputTransform,
 ): Promise<Record<string, unknown>> {
   if (!payload || typeof payload !== 'object') {
     throw new ObjectStorageError('Object storage archive failed: upstream payload is not an object')
   }
 
   try {
-    if (provider === 'openai-compat') await archiveOpenAIOutput(taskId, payload)
-    else await archiveGeminiOutput(taskId, payload)
+    if (provider === 'openai-compat') await archiveOpenAIOutput(taskId, payload, transform)
+    else await archiveGeminiOutput(taskId, payload, transform)
     return payload as Record<string, unknown>
   } catch (error) {
     try {
@@ -115,41 +128,103 @@ export async function archiveOutputImages(
       // The database has no references to these objects. Lifecycle cleanup removes any orphan.
     }
     // 必须原样重抛：包一层 ObjectStorageError 会丢掉 SourceImageFetchError 的 retryable。
-    if (error instanceof ObjectStorageError) throw error
+    if (error instanceof ObjectStorageError || error instanceof MaskedOutputError) throw error
     throw new ObjectStorageError('Object storage output archive failed', { cause: error })
   }
 }
 
-async function archiveOpenAIOutput(taskId: string, payload: object): Promise<void> {
+export class MaskedOutputArchiveError extends ObjectStorageError {
+  constructor(
+    message: string,
+    readonly candidates: readonly StoredImageRef[],
+    options?: ErrorOptions,
+  ) {
+    super(message, options)
+  }
+}
+
+async function archiveOpenAIOutput(
+  taskId: string,
+  payload: object,
+  transform?: OutputTransform,
+): Promise<void> {
   const response = payload as {
     data?: Array<Record<string, unknown>>
     output_format?: string
+    size?: string
   }
-  let index = 0
-  for (const item of response.data ?? []) {
-    const encoded = typeof item.b64_json === 'string' ? item.b64_json : undefined
-    const sourceUrl =
-      typeof item.url === 'string' && /^https?:\/\//i.test(item.url) ? item.url : undefined
-    if (!encoded && !sourceUrl) continue
+  await archiveOutputs(
+    taskId,
+    (response.data ?? []).map((item) => ({ item, dataKey: 'b64_json', mimeKey: 'mime' })),
+    openAIOutputMime(response.output_format),
+    transform,
+  )
+  if (transform) {
+    response.output_format = 'png'
+    const size = response.data?.find((item) => typeof item.size === 'string')?.size
+    if (typeof size === 'string') response.size = size
+  }
+}
 
-    const source: { bytes: Uint8Array; mime?: string } = encoded
-      ? { bytes: Buffer.from(encoded, 'base64') }
-      : await fetchSourceImage(sourceUrl!)
-    const declared = typeof item.mime === 'string' ? item.mime : undefined
-    const mime =
-      detectMediaMime(source.bytes) ??
-      declared ??
-      source.mime ??
-      openAIOutputMime(response.output_format)
-
-    const key = `${taskId}/out/${index}`
-    await writeWithRetry(key, source.bytes, mime)
-    item.object = key
-    item.mime = mime
-    if (sourceUrl) item.source_url = sourceUrl
-    delete item.b64_json
-    delete item.url
-    index++
+async function archiveOutputs(
+  taskId: string,
+  entries: { item: Record<string, unknown>; dataKey: string; mimeKey: string }[],
+  fallbackMime: string,
+  transform?: OutputTransform,
+) {
+  const pending: {
+    item: Record<string, unknown>
+    dataKey: string
+    mimeKey: string
+    source: StoredImageRef
+  }[] = []
+  const candidates: StoredImageRef[] = []
+  try {
+    for (const { item, dataKey, mimeKey } of entries) {
+      const encoded = typeof item[dataKey] === 'string' ? (item[dataKey] as string) : undefined
+      const sourceUrl =
+        typeof item.url === 'string' && /^https?:\/\//i.test(item.url) ? item.url : undefined
+      if (!encoded && !sourceUrl) continue
+      const source = encoded
+        ? { bytes: Buffer.from(encoded, 'base64'), mime: undefined }
+        : await fetchSourceImage(sourceUrl!)
+      const declared = typeof item[mimeKey] === 'string' ? (item[mimeKey] as string) : undefined
+      const mime = detectMediaMime(source.bytes) ?? declared ?? source.mime ?? fallbackMime
+      const ref = { object: `${taskId}/${transform ? 'candidate' : 'out'}/${pending.length}`, mime }
+      await writeWithRetry(ref.object, source.bytes, mime)
+      if (transform) candidates.push(ref)
+      else {
+        item.object = ref.object
+        item[mimeKey] = ref.mime
+        if (sourceUrl) item.source_url = sourceUrl
+        delete item[dataKey]
+        delete item.url
+      }
+      pending.push({ item, dataKey, mimeKey, source: ref })
+    }
+    // 全部原始候选先落盘；一张无法应用时，其余已生成的候选仍可追查。
+    if (!transform) return
+    for (const [index, { item, dataKey, mimeKey, source }] of pending.entries()) {
+      const output = await transform(await objectStore().read(source.object))
+      const key = `${taskId}/out/${index}`
+      await writeWithRetry(key, output.bytes, output.mime)
+      item.object = key
+      item[mimeKey] = output.mime
+      item.masked_edit = { ...output.inspection, candidate: source }
+      item.size = `${output.inspection.width}x${output.inspection.height}`
+      item.width = output.inspection.width
+      item.height = output.inspection.height
+      delete item[dataKey]
+      delete item.url
+      delete item.source_url
+    }
+  } catch (error) {
+    if (!transform) throw error
+    throw new MaskedOutputArchiveError(
+      error instanceof Error ? error.message : '局部编辑结果无法应用',
+      candidates,
+      { cause: error },
+    )
   }
 }
 
@@ -168,28 +243,20 @@ async function fetchSourceImage(url: string): Promise<{ bytes: Uint8Array; mime?
   }
 }
 
-async function archiveGeminiOutput(taskId: string, payload: object): Promise<void> {
+async function archiveGeminiOutput(
+  taskId: string,
+  payload: object,
+  transform?: OutputTransform,
+): Promise<void> {
   const response = payload as {
-    candidates?: Array<{
-      content?: { parts?: Array<{ inlineData?: Record<string, unknown> }> }
-    }>
+    candidates?: Array<{ content?: { parts?: Array<{ inlineData?: Record<string, unknown> }> } }>
   }
-  let index = 0
-  for (const candidate of response.candidates ?? []) {
-    for (const part of candidate.content?.parts ?? []) {
-      const inline = part.inlineData
-      if (!inline || typeof inline.data !== 'string' || !inline.data) continue
-      const bytes = Buffer.from(inline.data, 'base64')
-      const declaredMime = typeof inline.mimeType === 'string' ? inline.mimeType : 'image/png'
-      const mime = detectMediaMime(bytes) ?? declaredMime
-      const key = `${taskId}/out/${index}`
-      await writeWithRetry(key, bytes, mime)
-      inline.object = key
-      inline.mimeType = mime
-      delete inline.data
-      index++
-    }
-  }
+  const entries = (response.candidates ?? []).flatMap((candidate) =>
+    (candidate.content?.parts ?? []).flatMap((part) =>
+      part.inlineData ? [{ item: part.inlineData, dataKey: 'data', mimeKey: 'mimeType' }] : [],
+    ),
+  )
+  await archiveOutputs(taskId, entries, 'image/png', transform)
 }
 
 async function hydrateObjectRef(ref: StoredImageRef): Promise<string> {
