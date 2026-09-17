@@ -15,10 +15,16 @@ function usageUnits(
   inputTokens: number,
   outputTokens: number,
   pricing: ChatPricing,
+  cachedInputTokens = 0,
 ): { quantity: number; unitMultiplier: number } {
   return {
     quantity: 1,
-    unitMultiplier: (inputTokens + outputTokens * pricing.outputPriceRatio) / 1_000,
+    unitMultiplier:
+      (inputTokens -
+        cachedInputTokens +
+        cachedInputTokens * (pricing.cachedInputPriceRatio ?? 0) +
+        outputTokens * pricing.outputPriceRatio) /
+      1_000,
   }
 }
 
@@ -29,7 +35,11 @@ export function reservedChatUsage(estimatedInputTokens: number, pricing: ChatPri
 
 export function actualChatUsage(usage: AgentTurnUsage, pricing: ChatPricing): TaskUsage {
   return {
-    ...usageUnits(usage.inputTokens, usage.outputTokens, pricing),
-    tokens: { input: usage.inputTokens, output: usage.outputTokens },
+    ...usageUnits(usage.inputTokens, usage.outputTokens, pricing, usage.cachedInputTokens),
+    tokens: {
+      input: usage.inputTokens,
+      output: usage.outputTokens,
+      ...(usage.cachedInputTokens ? { cachedInput: usage.cachedInputTokens } : {}),
+    },
   }
 }

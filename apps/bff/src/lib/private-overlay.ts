@@ -32,11 +32,13 @@ export interface TaskUsage {
   quantity: number
   unitMultiplier: number
   /** 对话任务才有：上游报的 token 数，后台的消耗汇总只认它。 */
-  tokens?: { input: number; output: number }
+  tokens?: { input: number; output: number; cachedInput?: number }
 }
 
 /** 对话按 token 计费的两个参数，权威在私有单价表。 */
 export interface ChatPricing {
+  /** Cached input rate relative to ordinary input; absent preserves legacy free cache reads. */
+  readonly cachedInputPriceRatio?: number
   readonly outputPriceRatio: number
   /** 一轮预扣多少输出 token；实际用量超过它就按预留封顶。 */
   readonly outputReserveTokens: number

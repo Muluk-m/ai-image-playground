@@ -240,3 +240,25 @@ cd <checkout> && ./scripts/app-compose.sh up <project>
 ```
 
 只把 `agent:chat` 改回 `false` 也够：能力一关，路由整条拒绝，单价行与环境变量留着无害。
+
+### Cached input settlement
+
+The Agent SDK separates uncached input, cache reads and cache writes. The turn ledger restores
+**total input** and also records `cachedInputTokens` (cache reads only). Output already includes
+reasoning tokens. Do not add reasoning again or charge cache hits both as ordinary and cached input.
+
+The private price row provides `cachedInputPriceRatio`. Settlement weights total input minus cache
+reads at the ordinary rate, reads at that ratio, and output at its configured ratio. Cache writes
+remain ordinary input under this product policy. Sum the whole turn before the existing integer-credit
+rounding. Precharge remains conservative because cache hits are unknown before execution.
+
+Overlay migration `0012_cached_input_pricing` adds the operator's 0–100% cached input rate and
+settled cache counters. Default 0 preserves legacy deployments that did not bill cache reads;
+configure each model explicitly before claiming a paid cache rate. The operator-approved rollout
+sets Luna, Sol and Astra to 1 / 0.1 / 5 credits per thousand ordinary input / cache-read / output tokens.
+Changing other fields through an older admin preserves the cached rate. Existing turns keep their
+captured pricing; historical tasks are not rebilled.
+
+A turn with only cached input still has known usage. If any conversation call lacks usage, the turn
+must not expose partial totals as complete or calculate a refund from them; existing reservation
+fallback applies. Individual call records remain available for diagnosis.

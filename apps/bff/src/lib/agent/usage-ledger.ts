@@ -16,8 +16,10 @@ type CallPurpose = typeof schema.agent_model_calls.$inferInsert.purpose
 /** 调用事实不保存消息对象：上下文可以被替换，结算只读取这一轮的独立记录。 */
 export function createAgentUsageLedger(identity: TurnIdentity) {
   let upstreamInvocationCount = 0
+  let knownConversationCalls = 0
   let inputTokens = 0
   let outputTokens = 0
+  let cachedInputTokens = 0
   const calls = schema.agent_model_calls
   const scope = and(
     eq(calls.conversation_id, identity.conversationId),
@@ -56,8 +58,16 @@ export function createAgentUsageLedger(identity: TurnIdentity) {
       const reported = message.usage
       // pi 在上游缺 usage 时填零；不能将占位零宣称为已知的免费调用。
       const usage =
-        reported.totalTokens || reported.input || reported.output
-          ? { inputTokens: reported.input, outputTokens: reported.output }
+        reported.totalTokens ||
+        reported.input ||
+        reported.output ||
+        reported.cacheRead ||
+        reported.cacheWrite
+          ? {
+              inputTokens: reported.input + reported.cacheRead + reported.cacheWrite,
+              outputTokens: reported.output,
+              ...(reported.cacheRead > 0 ? { cachedInputTokens: reported.cacheRead } : {}),
+            }
           : null
       const [completed] = await db
         .update(calls)
@@ -79,8 +89,10 @@ export function createAgentUsageLedger(identity: TurnIdentity) {
         .where(and(scope, eq(calls.id, id), eq(calls.status, 'in_progress')))
         .returning({ purpose: calls.purpose })
       if (completed?.purpose === 'conversation' && usage) {
+        knownConversationCalls += 1
         inputTokens += usage.inputTokens
         outputTokens += usage.outputTokens
+        cachedInputTokens += usage.cachedInputTokens ?? 0
       }
     },
 
@@ -106,7 +118,10 @@ export function createAgentUsageLedger(identity: TurnIdentity) {
     settlement(): { usage: AgentTurnUsage | null; upstreamInvocationCount: number } {
       return {
         upstreamInvocationCount,
-        usage: inputTokens || outputTokens ? { inputTokens, outputTokens } : null,
+        usage:
+          knownConversationCalls === upstreamInvocationCount && (inputTokens || outputTokens)
+            ? { inputTokens, outputTokens, ...(cachedInputTokens > 0 ? { cachedInputTokens } : {}) }
+            : null,
       }
     },
   }

@@ -18,6 +18,7 @@ export interface AgentCall {
 interface CompletionUsage {
   readonly prompt_tokens: number
   readonly completion_tokens: number
+  readonly prompt_tokens_details?: { cached_tokens?: number; cache_write_tokens?: number }
 }
 
 const REPORTED_USAGE: CompletionUsage = { prompt_tokens: 12, completion_tokens: 4 }

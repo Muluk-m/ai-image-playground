@@ -459,3 +459,73 @@ describe('对话轮的结算', () => {
     })
   })
 })
+
+it('settles reported cache hits at the configured rate without subtracting twice', async () => {
+  billing.pricing = { outputPriceRatio: 5, outputReserveTokens: 1500, cachedInputPriceRatio: 0.1 }
+  setAgentFetchForTesting(
+    recordingAgentFetch([], () =>
+      completion({
+        deltas: ['收到'],
+        usage: {
+          prompt_tokens: 10000,
+          completion_tokens: 1000,
+          prompt_tokens_details: { cached_tokens: 8000 },
+        },
+      }),
+    ),
+  )
+  const conversationId = await startConversation()
+  const { frames } = await runTurn(conversationId, '简短回答')
+  expect(frames.at(-1)!.event).toMatchObject({
+    type: 'turnEnd',
+    usage: { inputTokens: 10000, cachedInputTokens: 8000, outputTokens: 1000 },
+  })
+  expect(settlements[0]?.actualUsage?.unitMultiplier).toBeCloseTo(7.8)
+  expect(settlements[0]?.actualUsage?.tokens).toEqual({
+    input: 10000,
+    cachedInput: 8000,
+    output: 1000,
+  })
+  expect((await db.select().from(schema.agent_model_calls))[0]).toMatchObject({
+    cache_read_tokens: 8000,
+    usage: { inputTokens: 10000, cachedInputTokens: 8000, outputTokens: 1000 },
+  })
+})
+
+it('does not treat partial multi-call usage as the complete turn for refunds', async () => {
+  setAgentFetchForTesting(
+    scriptedAgentFetch(
+      [],
+      [
+        () => toolCallCompletion({ id: 'lookup-unknown', name: 'readLibrary', args: {} }),
+        () => completion({ deltas: ['没有素材'] }),
+      ],
+    ),
+  )
+  const { frames } = await runTurn(await startConversation(), '查找素材')
+  expect(frames.at(-1)?.event).toMatchObject({ type: 'turnEnd', usage: null })
+  expect(settlements[0]).toMatchObject({ upstreamInvocationCount: 2 })
+  expect(settlements[0]?.actualUsage).toBeUndefined()
+})
+
+it('counts a fully cached input even when uncached input and output are zero', async () => {
+  billing.pricing = { outputPriceRatio: 5, outputReserveTokens: 1500, cachedInputPriceRatio: 0.1 }
+  setAgentFetchForTesting(
+    recordingAgentFetch([], () =>
+      completion({
+        deltas: ['收到'],
+        usage: {
+          prompt_tokens: 10000,
+          completion_tokens: 0,
+          prompt_tokens_details: { cached_tokens: 10000 },
+        },
+      }),
+    ),
+  )
+  const { frames } = await runTurn(await startConversation(), '继续')
+  expect(frames.at(-1)?.event).toMatchObject({
+    type: 'turnEnd',
+    usage: { inputTokens: 10000, cachedInputTokens: 10000, outputTokens: 0 },
+  })
+  expect(settlements[0]?.actualUsage?.unitMultiplier).toBe(1)
+})
