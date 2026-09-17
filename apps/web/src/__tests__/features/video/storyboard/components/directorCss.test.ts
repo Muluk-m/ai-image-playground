@@ -72,5 +72,14 @@ it('keeps every element-matching rule from outranking a single utility class', (
 
 it('still lowers the element reset instead of dropping it', () => {
   expect(css).toMatch(/:where\(\.video-director\)\s+button\s*\{/)
-  expect(css).toMatch(/:where\(\.video-director\)\s+:is\(input, textarea, select\)/)
+})
+
+// iOS Safari 在 font-size 不足 16px 的控件上聚焦会放大整页。Radix 的下拉渲染成
+// button[role=combobox]，按标签名一个也选不中——这正是它第一次漏网的原因。
+it('keeps the zoom floor on every control, including the ones Radix renders', () => {
+  const floor = css.match(/@media\(max-width:540px\)[^\n]*/)?.[0] ?? ''
+  expect(floor).toContain('font-size: 16px !important')
+  for (const control of ['input', 'textarea', 'select', '[role="combobox"]']) {
+    expect(floor).toContain(control)
+  }
 })
