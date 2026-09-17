@@ -177,7 +177,12 @@ export async function runTask(id: string): Promise<void> {
         structuredClone(archivePayload),
         protectOutput,
       )
-      const media = await archiveGenerationOutputs(task.userId!, task.provider, archivePayload)
+      const media = await archiveGenerationOutputs(
+        task.userId!,
+        task.provider,
+        archivePayload,
+        task.request_payload,
+      )
       await finishTask(id, {
         status: 'completed',
         media,
@@ -256,7 +261,12 @@ export async function runTask(id: string): Promise<void> {
       if (!stored.length) return
     }
     const media = cloudArchive
-      ? await archiveGenerationOutputs(task.userId!, task.provider, archivedPayload)
+      ? await archiveGenerationOutputs(
+          task.userId!,
+          task.provider,
+          archivedPayload,
+          task.request_payload,
+        )
       : undefined
     await finishTask(id, {
       status: 'completed',

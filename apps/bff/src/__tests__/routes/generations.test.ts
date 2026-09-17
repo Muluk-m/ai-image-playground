@@ -505,3 +505,40 @@ it('worker 重启遇到已发出但无结果凭据的生成不会盲目再次提
   const status = await request(`/v1/queue/requests/${id}/status`, deviceB)
   expect(await status.json()).toMatchObject({ error: { type: 'upstream_result_unknown' } })
 })
+
+it('临时数据清理后仍保留参考图、蒙版和可复用参数，不携带额外秘密字段', async () => {
+  const png = await sharp({ create: { width: 8, height: 6, channels: 4, background: '#779944' } })
+    .png()
+    .toBuffer()
+  const source = `data:image/png;base64,${png.toString('base64')}`
+  setUpstreamFetchForTesting((async () =>
+    Response.json({
+      data: [{ b64_json: png.toString('base64') }],
+      size: '8x6',
+      quality: 'high',
+    })) as NonNullable<Parameters<typeof setUpstreamFetchForTesting>[0]>)
+  const { request_id: id } = await (
+    await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, {
+      ...input,
+      input_images: [source],
+      mask: source,
+      quality: 'high',
+      size: 'auto',
+      n: 1,
+      extra: { api_key: 'must-not-sync', response_format: 'b64_json' },
+    })
+  ).json()
+  await runTask(id)
+  const { purgeOldTasks } = await import('../../db/maintenance')
+  expect(await purgeOldTasks(-1)).toBe(1)
+  const detail = await (await request(`/api/generations/${id}`, deviceB)).json()
+  expect(detail.inputs).toHaveLength(1)
+  expect(detail.mask.mediaId).toBe(detail.inputs[0].mediaId)
+  expect(detail.parameters).toMatchObject({ quality: 'high', size: 'auto', n: 1 })
+  expect(detail.actualParameters).toMatchObject({ size: '8x6', quality: 'high' })
+  expect(JSON.stringify(detail)).not.toContain('must-not-sync')
+  for (const mediaId of [detail.inputs[0].mediaId, detail.mask.mediaId]) {
+    const { originalUrl } = await (await request(`/api/media/${mediaId}/access`, deviceB)).json()
+    expect(await durable.read(new URL(originalUrl).pathname.slice(1))).toEqual(new Uint8Array(png))
+  }
+})

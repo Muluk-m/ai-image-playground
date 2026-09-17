@@ -1,4 +1,4 @@
-import type { QueueProvider } from '@image-playground/shared'
+import type { PersistedSubmitRequest, QueueProvider } from '@image-playground/shared'
 import { and, eq, inArray } from 'drizzle-orm'
 import { schema } from '../db/client'
 import { extractMeta, resolveImageBytesRef } from './extractImages'
@@ -25,6 +25,7 @@ export async function archiveGenerationOutputs(
   userId: string,
   provider: QueueProvider,
   payload: unknown,
+  request: PersistedSubmitRequest,
 ) {
   const links: GenerationMediaLink[] = []
   for (const image of extractMeta(provider, payload).images) {
@@ -39,6 +40,18 @@ export async function archiveGenerationOutputs(
     if (!bytes) throw new Error('generation_image_not_archived')
     const media = await storeMedia(userId, bytes, source.mime)
     links.push({ role: 'output', position: image.index, mediaId: media.id })
+  }
+  for (const [position, ref] of (request.input_images ?? []).entries()) {
+    const media = await storeMedia(userId, await objectStore().read(ref.object), ref.mime)
+    links.push({ role: 'input', position, mediaId: media.id })
+  }
+  if (request.mask) {
+    const media = await storeMedia(
+      userId,
+      await objectStore().read(request.mask.object),
+      request.mask.mime,
+    )
+    links.push({ role: 'mask', position: 0, mediaId: media.id })
   }
   return links
 }

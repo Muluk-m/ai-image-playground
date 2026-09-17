@@ -6,6 +6,7 @@ import type {
   AgentTurnEvent,
   AgentTurnStopReason,
   AgentTurnUsage,
+  GenerationParameters,
   PersistedSubmitRequest,
   ProjectDocument,
   ProjectReceipt,
@@ -517,6 +518,14 @@ export const generation_records = pgTable(
     model: text('model').notNull(),
     status: text('status').$type<TaskStatus>().notNull(),
     prompt: text('prompt').notNull(),
+    parameters: bunJsonb('parameters')
+      .$type<GenerationParameters>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    actual_parameters: bunJsonb('actual_parameters')
+      .$type<GenerationParameters>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
     created_at: epochMs('created_at').notNull(),
     started_at: epochMs('started_at'),
     completed_at: epochMs('completed_at'),
