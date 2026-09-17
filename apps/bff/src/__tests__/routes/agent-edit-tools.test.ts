@@ -698,10 +698,48 @@ it('does not charge a second masked generation when the model tries again', asyn
     expect(tasks).toHaveLength(1)
     expect(tasks[0]!.request_payload.prompt).toContain('参考原图只修改圈中头枕的位置')
     expect(tasks[0]!.request_payload.prompt).not.toContain('把头枕降低到椅背上沿')
-    expect(eventsOfType(frames, 'toolEnd').map((event) => event.status)).toEqual([
-      'succeeded',
-      'failed',
-    ])
+    const ends = eventsOfType(frames, 'toolEnd')
+    expect(ends.map((event) => event.status)).toEqual(['succeeded', 'failed'])
+    // 这一条追加不在冻结的批次里：拒绝的是「别自行追加」，不是「这条内容提过了」。
+    expect(ends[1]?.message).toBe(
+      '本轮编辑计划已经执行，不能自行追加生成；请检查已有候选并等待用户指示',
+    )
+  } finally {
+    stop()
+  }
+})
+
+/** 与上一条互为对照：同一批次里、内容一模一样的第二次调用，拒绝语与上面那句不是一句。 */
+it('refuses an identical masked edit that the approved batch already submitted', async () => {
+  const args = {
+    prompt: '把头枕降低到椅背上沿',
+    imageIds: ['target'],
+    selectionBindings: bindings('target'),
+    requestQuote: '只修改圈中头枕的位置',
+  }
+  setAgentFetchForTesting(
+    scriptedAgentFetch(
+      [],
+      [
+        () =>
+          toolCallCompletion(
+            { id: 'first-edit', name: 'editImage', args },
+            { id: 'same-edit-again', name: 'editImage', args },
+          ),
+        () => completionStream('请先检查候选图'),
+      ],
+    ),
+  )
+  const conversationId = await startConversation()
+  const stop = settleSubmittedTasks('completed')
+  try {
+    const frames = await runTurn(conversationId, '参考原图只修改圈中头枕的位置', {
+      references: [{ imageId: 'target', dataUrl: PIXEL, maskDataUrl: MASK }],
+    })
+    expect(await db.select().from(schema.tasks)).toHaveLength(1)
+    const ends = eventsOfType(frames, 'toolEnd')
+    expect(ends.map((event) => event.status)).toEqual(['succeeded', 'failed'])
+    expect(ends[1]?.message).toBe('这个编辑操作已经提交，请先检查候选；不要自行付费重试')
   } finally {
     stop()
   }
