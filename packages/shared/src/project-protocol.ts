@@ -5,7 +5,25 @@ export const PROJECT_DOCUMENT_MAX_BYTES = 512 * 1024
 export const PROJECT_ELEMENT_MAX_COUNT = 1000
 export const PROJECT_RECEIPT_COUNT = 128
 
+export interface ProjectImage {
+  id: string
+  type: 'image'
+  mediaId: string
+  x: number
+  y: number
+  width: number
+  height: number
+  rotation: number
+  name?: string
+  naturalWidth?: number
+  naturalHeight?: number
+  createdAt?: number
+  groupId?: string
+  meta?: Record<string, string>
+}
+
 export type ProjectElement =
+  | ProjectImage
   | {
       id: string
       type: 'text'
@@ -39,6 +57,7 @@ export interface CloudProjectSummary {
   createdAt: number
   updatedAt: number
   elementCount: number
+  coverMediaId?: string | null
 }
 export interface CloudProject extends CloudProjectSummary {
   document: ProjectDocument
@@ -77,6 +96,49 @@ function color(value: unknown): boolean {
 function element(value: unknown): value is ProjectElement {
   if (!object(value) || typeof value.id !== 'string' || !value.id.length || value.id.length > 128)
     return false
+  if (value.type === 'image') {
+    return (
+      keys(value, [
+        'id',
+        'type',
+        'mediaId',
+        'x',
+        'y',
+        'width',
+        'height',
+        'rotation',
+        'name',
+        'naturalWidth',
+        'naturalHeight',
+        'createdAt',
+        'groupId',
+        'meta',
+      ]) &&
+      typeof value.mediaId === 'string' &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value.mediaId) &&
+      coordinate(value.x) &&
+      coordinate(value.y) &&
+      size(value.width) &&
+      size(value.height) &&
+      coordinate(value.rotation) &&
+      (value.name === undefined || (typeof value.name === 'string' && value.name.length <= 500)) &&
+      (value.groupId === undefined ||
+        (typeof value.groupId === 'string' && value.groupId.length <= 128)) &&
+      (value.naturalWidth === undefined || size(value.naturalWidth)) &&
+      (value.naturalHeight === undefined || size(value.naturalHeight)) &&
+      (value.createdAt === undefined ||
+        (typeof value.createdAt === 'number' &&
+          Number.isSafeInteger(value.createdAt) &&
+          value.createdAt >= 0)) &&
+      (value.meta === undefined ||
+        (object(value.meta) &&
+          Object.keys(value.meta).length <= 32 &&
+          Object.entries(value.meta).every(
+            ([key, content]) =>
+              key.length <= 128 && typeof content === 'string' && content.length <= 10000,
+          )))
+    )
+  }
   if (value.type === 'text') {
     return (
       keys(value, ['id', 'type', 'x', 'y', 'text', 'fontSize', 'fill', 'width', 'height']) &&

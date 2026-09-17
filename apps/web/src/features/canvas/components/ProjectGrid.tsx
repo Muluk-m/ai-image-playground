@@ -1,6 +1,7 @@
 import { MoreHorizontal, Pencil } from 'lucide-react'
 import { useState } from 'react'
 import { PlusIcon, TrashIcon } from '../../../components/icons'
+import MediaImage from '../../../components/MediaImage'
 import { Button } from '../../../components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '../../../components/ui/popover'
 import { useTranslation } from '../../../i18n'
@@ -108,7 +109,7 @@ export default function ProjectGrid({
             >
               <div className="relative flex aspect-[16/10] items-center justify-center overflow-hidden bg-muted/50">
                 {project.cover ? (
-                  <img
+                  <MediaImage
                     src={project.cover}
                     alt=""
                     loading="lazy"

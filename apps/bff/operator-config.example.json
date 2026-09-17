@@ -31,7 +31,8 @@
     "agent:compaction-verbatim-tokens": 20000,
     "generation:daily-images": 0,
     "sync:asset-image-bytes": 10485760,
-    "sync:user-asset-bytes": 524288000
+    "sync:user-asset-bytes": 524288000,
+    "sync:user-media-bytes": 10737418240
   },
   "channelsFile": "/run/operator/channels.json"
 }

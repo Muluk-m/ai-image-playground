@@ -46,6 +46,7 @@ export const QUOTAS = {
   'agent:turns-per-device-minute': { defaultValue: 20 },
   'agent:turns-per-ip-hour': { defaultValue: 600 },
   'generation:daily-images': { defaultValue: 0 },
+  'sync:user-media-bytes': { defaultValue: 10 * 1024 * 1024 * 1024 },
   'sync:asset-image-bytes': { defaultValue: 10 * 1024 * 1024 },
   'sync:user-asset-bytes': { defaultValue: 500 * 1024 * 1024 },
   'sync:project-document-bytes': { defaultValue: PROJECT_DOCUMENT_MAX_BYTES },
