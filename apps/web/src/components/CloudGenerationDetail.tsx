@@ -1,21 +1,27 @@
 import type { GenerationDetail } from '@image-playground/shared'
-import { Download, RotateCcw } from 'lucide-react'
+import { Download, Plus, RotateCcw } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from '../i18n'
 import { scopedStorageName } from '../lib/authScope'
 import { resolveMediaSource } from '../lib/cloudMedia'
 import { downloadBlob } from '../lib/downloadImages'
+import { placeCloudGeneration } from '../lib/placeCloudGeneration'
 import { reuseCloudGeneration } from '../lib/reuseCloudGeneration'
 import MediaImage from './MediaImage'
 import { Button } from './ui/button'
 
 export default function CloudGenerationDetail({ detail }: { detail: GenerationDetail }) {
-  const { t } = useTranslation('task')
+  const { t } = useTranslation(['task', 'errors'])
   const controller = useRef<AbortController | null>(null)
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<'reuseFailed' | 'modelUnavailable' | 'downloadFailed' | null>(
-    null,
-  )
+  const [error, setError] = useState<
+    | 'reuseFailed'
+    | 'modelUnavailable'
+    | 'downloadFailed'
+    | 'place_failed'
+    | 'project_not_ready'
+    | null
+  >(null)
   useEffect(() => () => controller.current?.abort(), [])
   async function reuse() {
     controller.current?.abort()
@@ -31,6 +37,26 @@ export default function CloudGenerationDetail({ detail }: { detail: GenerationDe
           cause instanceof Error && cause.message === 'model_unavailable'
             ? 'modelUnavailable'
             : 'reuseFailed',
+        )
+    } finally {
+      if (!operation.signal.aborted) setBusy(false)
+    }
+  }
+  async function place(image: GenerationDetail['outputs'][number]) {
+    controller.current?.abort()
+    const operation = new AbortController()
+    controller.current = operation
+    const scope = scopedStorageName('generation-history')
+    setBusy(true)
+    setError(null)
+    try {
+      await placeCloudGeneration(detail, image, operation.signal)
+    } catch (cause) {
+      if (!operation.signal.aborted && scope === scopedStorageName('generation-history'))
+        setError(
+          cause instanceof Error && cause.message === 'project_not_ready'
+            ? 'project_not_ready'
+            : 'place_failed',
         )
     } finally {
       if (!operation.signal.aborted) setBusy(false)
@@ -64,6 +90,15 @@ export default function CloudGenerationDetail({ detail }: { detail: GenerationDe
           {t('cloudHistory.unavailable')}
         </p>
       )}
+      {detail.source && (
+        <p className="text-xs text-muted-foreground">
+          {t(
+            detail.source.kind === 'agent'
+              ? 'cloudHistory.agentSource'
+              : 'cloudHistory.studioSource',
+          )}
+        </p>
+      )}
       <p className="whitespace-pre-wrap break-words text-sm">{detail.prompt}</p>
       {detail.outputs.length > 0 && (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -78,12 +113,21 @@ export default function CloudGenerationDetail({ detail }: { detail: GenerationDe
                 loading="lazy"
                 className="aspect-square w-full object-contain"
               />
-              <figcaption className="flex items-center justify-between gap-2 p-3">
+              <figcaption className="flex flex-wrap items-center justify-between gap-2 p-3">
                 <span className="text-xs text-muted-foreground">
                   {image.width && image.height
                     ? `${image.width} × ${image.height}`
                     : image.contentType}
                 </span>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={busy}
+                  onClick={() => void place(image)}
+                >
+                  <Plus size={14} />
+                  {t('cloudHistory.place')}
+                </Button>
                 <Button
                   size="sm"
                   variant="ghost"
@@ -128,7 +172,9 @@ export default function CloudGenerationDetail({ detail }: { detail: GenerationDe
       </Button>
       {error && (
         <p role="alert" className="text-sm text-destructive">
-          {t(`cloudHistory.${error}`)}
+          {error === 'place_failed' || error === 'project_not_ready'
+            ? t(`errors:cloudPlacement.${error}`)
+            : t(`cloudHistory.${error}`)}
         </p>
       )}
     </div>

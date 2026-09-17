@@ -1,6 +1,12 @@
 import type { SubmitRequest, TaskErrorType, TaskStatus } from './queue-protocol'
 
+export type GenerationSource =
+  | { kind: 'studio' }
+  | { kind: 'agent'; conversationId: string; turnId: string; projectId: string | null }
+
 export interface GenerationSummary {
+  /** 缺席或 null 表示历史版本未保留来源，不猜测为普通生成。 */
+  source?: GenerationSource | null
   archiveStatus: 'none' | 'pending' | 'ready' | 'unavailable'
   errorType: TaskErrorType | null
   cover: GenerationImage | null
@@ -15,6 +21,8 @@ export interface GenerationSummary {
 }
 
 export interface GenerationImage {
+  /** 仅输出具有稳定画布身份；旧响应可缺席。 */
+  artifactId?: string
   index: number
   mediaId: string
   width: number | null

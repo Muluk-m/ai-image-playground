@@ -7,6 +7,7 @@ import type {
   AgentTurnStopReason,
   AgentTurnUsage,
   GenerationParameters,
+  GenerationSource,
   GenerationSummary,
   PersistedSubmitRequest,
   ProjectDocument,
@@ -520,6 +521,7 @@ export const domain_migration_chunks = pgTable(
 export const generation_records = pgTable(
   'generation_records',
   {
+    source: bunJsonb('source').$type<GenerationSource>(),
     id: text('id').primaryKey(),
     user_id: text('user_id')
       .notNull()

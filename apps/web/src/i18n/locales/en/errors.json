@@ -54,5 +54,10 @@
     "invalid_project_document": "This canvas format is not supported. Local content is retained. Update the page and retry.",
     "recovery_copy_failed": "Could not save a local recovery copy. Free browser storage and retry. Your current changes were not replaced.",
     "recovery_changed": "New changes were made while saving the copy. They remain on this canvas. Choose a recovery action again."
+  },
+  "cloudPlacement": {
+    "place_failed": "Could not add to the current project. Please retry.",
+    "project_not_ready": "The project is still syncing or has a conflict. Finish syncing or resolve the conflict first.",
+    "fallback": "Could not add to the current project. Please retry."
   }
 }

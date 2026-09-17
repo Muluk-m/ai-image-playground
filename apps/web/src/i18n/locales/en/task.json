@@ -129,6 +129,9 @@
     "reference": "Reference {{number}}",
     "mask": "Mask",
     "archiving": "Saving",
-    "unavailable": "Some originals could not be saved. Recoverable images are retained; generation will not restart automatically."
+    "unavailable": "Some originals could not be saved. Recoverable images are retained; generation will not restart automatically.",
+    "place": "Add to current project",
+    "agentSource": "Agent generation",
+    "studioSource": "Studio generation"
   }
 }

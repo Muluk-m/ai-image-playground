@@ -75,6 +75,8 @@ export async function placeImagesIntoTargets(
   const items: PlacedImage[] = []
   for (let i = 0; i < placing.length; i++) {
     const one = placing[i]!
+    // Cloud delivery can arrive while decoding; preserve its identity and user edits.
+    if (one.id && editor.getElement(one.id)) continue
     const target = targets[i]!
     const { width, height } = sizes[i]
     const fitted = fitToTarget(width, height, target)
