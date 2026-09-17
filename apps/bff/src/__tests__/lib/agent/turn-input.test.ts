@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'bun:test'
+import type { AgentMessage } from '@earendil-works/pi-agent-core'
 import type { AgentMessageView, AgentTurnReference } from '@image-playground/shared'
+import sharp from 'sharp'
 
 // 只装配文字与占位图片块，一句 SQL 都不发；库名故意不可达，真连上就会立刻炸出来。
 process.env.DATABASE_URL = 'postgres://unused/turn-input'
@@ -11,7 +13,14 @@ process.env.AGENT_CHAT_CONTEXT_WINDOW = '40000'
 process.env.AGENT_CHAT_MAX_TOKENS = '500'
 
 // 动态引入：环境要先钉死，再让捕获配置的模块加载。
-const { estimateTurnInputTokens } = await import('../../../lib/agent/turn')
+const {
+  estimateTurnInputTokens,
+  estimatedTurnInput,
+  turnInitialState,
+  turnModelPrompt,
+  turnPromptText,
+  turnVisualEvidence,
+} = await import('../../../lib/agent/turn-input')
 
 function userMessage(
   id: string,
@@ -133,5 +142,68 @@ describe('estimateTurnInputTokens', () => {
 
   it('caps a long history at the compaction threshold', () => {
     expect(estimateTurnInputTokens(LONG_HISTORY, '继续', [])).toBe(26_500)
+  })
+})
+
+function textOf(message: AgentMessage): string {
+  if (!('content' in message)) return ''
+  const content = message.content
+  if (typeof content === 'string') return content
+  const first = content[0]
+  return first?.type === 'text' ? first.text : ''
+}
+
+function imageBlocks(message: AgentMessage): number {
+  if (!('content' in message)) return 0
+  const content = message.content
+  return typeof content === 'string' ? 0 : content.filter((block) => block.type === 'image').length
+}
+
+async function png(pixels: number[], width = 2): Promise<string> {
+  const buffer = await sharp(Buffer.from(pixels), { raw: { width, height: 1, channels: 4 } })
+    .png()
+    .toBuffer()
+  return `data:image/png;base64,${buffer.toString('base64')}`
+}
+
+const REAL_PLAIN = { imageId: 'img-1', dataUrl: await png([255, 0, 0, 255, 0, 255, 0, 255]) }
+const REAL_MASKED = {
+  ...REAL_PLAIN,
+  imageId: 'img-2',
+  maskDataUrl: await png([0, 0, 0, 0, 0, 0, 0, 255]),
+}
+
+/** 估算路径与实发路径必须同形；不同形的地方要在这里写明白，别等它悄悄变成漂移。 */
+describe('estimated and sent turn input', () => {
+  it('opens with the same system prompt the agent starts from', () => {
+    const estimated = estimatedTurnInput(RICH_HISTORY, '再来一张', [])
+    expect(textOf(estimated[0]!)).toBe(turnInitialState(RICH_HISTORY).systemPrompt)
+  })
+
+  it('replays history exactly as the agent initial state does', () => {
+    const estimated = estimatedTurnInput(RICH_HISTORY, '再来一张', [])
+    expect(estimated.slice(1, -1)).toEqual(turnInitialState(RICH_HISTORY).messages)
+  })
+
+  it('writes this turn prompt text the same way on both paths', () => {
+    const estimated = estimatedTurnInput([], '换成夜景', [PLAIN, MASKED])
+    expect(textOf(estimated.at(-1)!)).toBe(turnPromptText('换成夜景', [PLAIN, MASKED]))
+  })
+
+  it('charges the same number of image blocks the sent evidence carries', async () => {
+    const evidence = await turnVisualEvidence([REAL_PLAIN, REAL_MASKED])
+    const estimated = estimatedTurnInput([], '换成夜景', [PLAIN, MASKED])
+    expect(imageBlocks(estimated.at(-1)!)).toBe(evidence.content.length)
+    expect(evidence.content).toHaveLength(4)
+  })
+
+  it('leaves the visual evidence manifest out of the estimate', async () => {
+    // 口径差异，见 PR 说明：实发 prompt 末尾带着视觉证据清单，预扣不为它估 token。
+    const evidence = await turnVisualEvidence([REAL_MASKED])
+    const promptText = turnPromptText('换成夜景', [MASKED])
+    const sent = turnModelPrompt(promptText, evidence)
+    expect(sent.text.startsWith(promptText)).toBe(true)
+    expect(sent.text).not.toBe(promptText)
+    expect(textOf(estimatedTurnInput([], '换成夜景', [MASKED]).at(-1)!)).toBe(promptText)
   })
 })

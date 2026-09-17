@@ -125,13 +125,17 @@ function rememberImages(
   }
 }
 
+/** 用户在这张图上画没画遮罩。新旧两种引用形态各把它存在不同字段里，问法只此一处。 */
+export function referenceHasMask(reference: AgentImageReference): boolean {
+  return Boolean('dataUrl' in reference ? reference.maskDataUrl : reference.mask)
+}
+
 /** 附在用户消息后面送给模型；没有引用时是空串。 */
 export function referenceManifest(references: readonly AgentImageReference[]): string {
   if (references.length === 0) return ''
   const lines = references.map((one, at) => {
     const name = one.name ? `${one.name}，` : ''
-    const masked = 'dataUrl' in one ? one.maskDataUrl : one.mask
-    const mask = masked
+    const mask = referenceHasMask(one)
       ? '，蓝色半透明覆盖处是用户圈选区（仅供定位，不是图中原有颜色；编辑时用原图）。作为编辑目标时只改圈选内，作为参考时只参考圈选内容'
       : ''
     return `[image ${at + 1}] ${name}图片 id ${one.imageId}${mask}`
