@@ -124,11 +124,8 @@ export const submitRoutes = new Elysia()
       }
 
       // 幂等命中（client_request_id 已存在）走优先返回，避免重复扣配额。
-      if (body.client_request_id) {
-        const existing = await findTaskByIdempotencyKey(
-          body.client_request_id,
-          authUser?.id ?? null,
-        )
+      if (body.client_request_id && !authUser) {
+        const existing = await findTaskByIdempotencyKey(body.client_request_id, null)
         if (existing) {
           return { request_id: existing.id, status: 'queued', submitted_at: existing.submitted_at }
         }
@@ -142,6 +139,9 @@ export const submitRoutes = new Elysia()
         ...(persistedVideo ? { video: persistedVideo } : {}),
         userId: authUser?.id ?? null,
       })
+
+      if (outcome.kind === 'idempotency_mismatch')
+        return status(409, { error: 'idempotency_key_conflict' })
 
       if (outcome.kind === 'invalid_input_image') {
         return status(400, { error: 'invalid_input_image', message: outcome.message })

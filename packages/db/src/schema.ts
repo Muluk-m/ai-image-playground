@@ -15,6 +15,7 @@ import type {
 } from '@image-playground/shared'
 import { eq, sql } from 'drizzle-orm'
 import {
+  bigint,
   check,
   customType,
   date,
@@ -500,4 +501,63 @@ export const domain_migration_chunks = pgTable(
     ciphertext: text('ciphertext').notNull(),
   },
   (t) => [primaryKey({ columns: [t.migration_id, t.sequence] })],
+)
+
+export const generation_records = pgTable(
+  'generation_records',
+  {
+    id: text('id').primaryKey(),
+    user_id: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    provider: text('provider').notNull(),
+    model: text('model').notNull(),
+    status: text('status').$type<TaskStatus>().notNull(),
+    prompt: text('prompt').notNull(),
+    created_at: epochMs('created_at').notNull(),
+    started_at: epochMs('started_at'),
+    completed_at: epochMs('completed_at'),
+    revision: bigint('revision', { mode: 'bigint' }).notNull(),
+  },
+  (t) => [
+    index('idx_generation_records_owner_time').on(t.user_id, t.created_at.desc(), t.id.desc()),
+  ],
+)
+
+export const user_change_heads = pgTable('user_change_heads', {
+  user_id: text('user_id')
+    .primaryKey()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  sequence: bigint('sequence', { mode: 'bigint' }).notNull().default(0n),
+})
+
+export const user_changes = pgTable(
+  'user_changes',
+  {
+    user_id: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    sequence: bigint('sequence', { mode: 'bigint' }).notNull(),
+    changes: bunJsonb('changes')
+      .$type<
+        Array<{ entity: 'generation'; id: string } | { entity: 'generation'; invalidate: true }>
+      >()
+      .notNull(),
+    created_at: epochMs('created_at').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.user_id, t.sequence] })],
+)
+
+export const generation_commands = pgTable(
+  'generation_commands',
+  {
+    user_id: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    command_id: text('command_id').notNull(),
+    request_hash: text('request_hash').notNull(),
+    task_id: text('task_id').notNull(),
+    submitted_at: epochMs('submitted_at').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.user_id, t.command_id] })],
 )

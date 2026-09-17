@@ -1,5 +1,6 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useAuth } from './auth/AuthContext'
+import CloudGenerationHistory from './components/CloudGenerationHistory'
 import ConfirmDialog from './components/ConfirmDialog'
 import DetailModal from './components/DetailModal'
 import Header from './components/Header'
@@ -12,6 +13,7 @@ import SettingsModal from './components/SettingsModal'
 import TaskGrid from './components/TaskGrid'
 import Toast from './components/Toast'
 import UpdateBanner from './components/UpdateBanner'
+import { Button } from './components/ui/button'
 import CanvasMode from './features/canvas/components/CanvasMode'
 import { installProjectNavigation } from './features/canvas/lib/projectNavigation'
 import InspirationPanel from './features/inspiration/components/InspirationPanel'
@@ -20,8 +22,8 @@ import LibraryPanel from './features/library/components/LibraryPanel'
 import SaveAssetDialog from './features/library/components/SaveAssetDialog'
 import SaveTemplateDialog from './features/library/components/SaveTemplateDialog'
 import VideoMode from './features/video/components/VideoMode'
-import { i18next } from './i18n'
-import { isByokGenerationEnabled } from './lib/clientCapabilities'
+import { i18next, useTranslation } from './i18n'
+import { isByokGenerationEnabled, isClientCapabilityEnabled } from './lib/clientCapabilities'
 import { startSyncEngine } from './lib/sync/engine'
 import {
   buildSettingsFromUrlParams,
@@ -34,6 +36,9 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
   const setSettings = useStore((s) => s.setSettings)
   const appMode = useStore((s) => s.appMode)
   const user = useAuth().user
+  const { t } = useTranslation('task')
+  const [cloudHistory, setCloudHistory] = useState(false)
+  const canReadCloudHistory = Boolean(user) && isClientCapabilityEnabled('accounts:sync')
 
   useEffect(installProjectNavigation, [])
 
@@ -104,8 +109,32 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
         <>
           <main data-home-main data-drag-select-surface className="pb-48">
             <div className="safe-area-x max-w-7xl mx-auto">
-              <SearchBar />
-              <TaskGrid />
+              {canReadCloudHistory && (
+                <div className="flex gap-2 pt-5" role="group" aria-label={t('cloudHistory.title')}>
+                  <Button
+                    variant={cloudHistory ? 'ghost' : 'secondary'}
+                    aria-pressed={!cloudHistory}
+                    onClick={() => setCloudHistory(false)}
+                  >
+                    {t('cloudHistory.local')}
+                  </Button>
+                  <Button
+                    variant={cloudHistory ? 'secondary' : 'ghost'}
+                    aria-pressed={cloudHistory}
+                    onClick={() => setCloudHistory(true)}
+                  >
+                    {t('cloudHistory.title')}
+                  </Button>
+                </div>
+              )}
+              {canReadCloudHistory && cloudHistory ? (
+                <CloudGenerationHistory key={user!.id} />
+              ) : (
+                <>
+                  <SearchBar />
+                  <TaskGrid />
+                </>
+              )}
             </div>
           </main>
           <InputBar />
