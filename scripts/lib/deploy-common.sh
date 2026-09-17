@@ -95,11 +95,10 @@ deploy_lock_holder_alive() {
 #
 # Succeeds holding the lock, fails having printed the current holder. `mkdir` is the primitive:
 # it is atomic, and flock(1) does not exist on macOS. A caller that cannot take the lock must
-# stop rather than queue — on 2026-09-18 two sessions 52 seconds apart deployed different commits
-# from the same checkout, and a queued second rollout would have moved production to the other
-# commit the moment the first finished. A holder whose process is gone is taken over; there is
-# deliberately no takeover based on how long the lock has been held, because a normal rollout
-# runs for well over ten minutes and that timer is itself a way to end up with two of them.
+# stop rather than queue: a queued rollout would move production to another commit the moment
+# the first one finished. A holder whose process is gone is taken over; there is deliberately no
+# takeover based on how long the lock has been held, because a normal rollout runs for well over
+# ten minutes and such a timer is itself a way to end up with two of them.
 acquire_deploy_lock() {
   lock_dir=$1
   lock_what=$2
@@ -143,10 +142,9 @@ release_deploy_lock() {
 
 # should_prune_build_cache <free-gb> <threshold-gb>
 #
-# The rollout used to drop the build cache every time. That reclaims space the next build would
-# otherwise reuse, turning every rollout into a cold build, so it is worth doing only while the
-# disk is actually short. The threshold sits above DEPLOY_MIN_FREE_GB so that a pruned host still
-# clears the pre-build check after the next build has written its layers.
+# Pruning is only worth doing while the disk is actually short. The threshold sits above
+# DEPLOY_MIN_FREE_GB so that a pruned host still clears the pre-build check after the next build
+# has written its layers.
 should_prune_build_cache() {
   [ "$1" -lt "$2" ]
 }

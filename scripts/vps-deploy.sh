@@ -65,9 +65,8 @@ on_exit() {
   release_deploy_lock "$deploy_lock" || true
 }
 trap on_exit EXIT
-# A rollout that is killed must still drop the lock. The ssh session that started the
-# 2026-09-18 deploy was cut halfway through, which reaches the remote shell as HUP; exiting from
-# these traps runs the EXIT trap above.
+# A rollout that is killed must still drop the lock: a cut ssh session reaches the remote shell
+# as HUP. Exiting from these traps runs the EXIT trap above.
 trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
@@ -125,8 +124,7 @@ prune_old_images() {
 # Image pruning alone does not keep the disk in check: BuildKit keeps every superseded layer in
 # its cache, and that is what actually fills the host (27G of cache next to 4G of images, 17G of
 # it referenced by nothing). Drop only the unreferenced part; the cache the next build reuses
-# stays. Called only when the disk is short (see should_prune_build_cache): doing it after every
-# rollout makes the next build cold for space the host was not missing. A failure here is
+# stays. Called only when the disk is short (see should_prune_build_cache). A failure here is
 # reported and ignored: the rollout already succeeded.
 prune_build_cache() {
   if reclaimed=$(docker builder prune -f 2>/dev/null | tail -n 1); then
@@ -137,9 +135,8 @@ prune_build_cache() {
 }
 
 # Everything below touches this host: the checkout gets detached onto $ref, Docker builds, the
-# running services are replaced. Two rollouts doing that at once is what took the machine down on
-# 2026-09-18 — different commits, one checkout, two builds. Take the lock first, before the first
-# step with a side effect, and give up immediately if someone else holds it.
+# running services are replaced. Two rollouts at once would detach one checkout onto two commits
+# and build from a mixed tree, so take the lock before the first step with a side effect.
 stage "Take the deploy lock"
 acquire_deploy_lock "$deploy_lock" "editions=$editions ref=$ref"
 echo "holding $deploy_lock"
