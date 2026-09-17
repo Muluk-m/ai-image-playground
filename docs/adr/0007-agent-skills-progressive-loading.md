@@ -25,6 +25,17 @@ frontmatter 字段，写 `SKILL.md` 的人本来就会给正文写标题。标�
 那一行，**不进系统提示词的 `<available_skills>`**——那里仍只有 name / description / location，模型
 认的始终是标识。
 
+**界面元数据（图标与一句话简介）走旁路的 `meta.json`，不进 frontmatter。** 标准的 frontmatter
+只认 `name` 与 `description`，框架的 `loadSkills` 也不保留额外字段——往里塞等于加一条只有我们
+认的方言，而且加载器读不回来。所以每个技能目录多一个 `meta.json`：`icon` 是 lucide 的
+kebab-case 图标名（前端一张静态 import 的白名单映射表，不用按名字动态取组件——那会让打包器
+放弃摇树，为 13 个图标搭进三千多个），`summary` 是 `/` 菜单第二行写给用户的那句话。
+和标题一样，**这两样只走界面，不进 `<available_skills>`**：那里仍只有 name / description /
+location。第二行原本直接露的是 `description`，而 `description` 是写给模型的「何时用 / 不处理」，
+对用户既难读又必然被截断——这是把这两个读者分开。旁路文件读不到、写坏了都只回退（图标退到
+`sparkles`、简介退成空串，界面再退回去掉「何时用：」的 `description`）并打 warn，技能一条不丢：
+界面元数据缺席不该让一条能用的技能消失。
+
 **位置写虚拟路径 `skill://<name>/SKILL.md`，不写磁盘路径。** 服务器绝对路径对模型没有任何用处，
 写出去只会诱导它去猜一个它调不到的文件读工具，顺带把部署的目录结构告诉它。所以系统提示词里的
 `<location>` 与 `formatSkillInvocation` 拿到的 `filePath` 都是虚拟路径，磁盘路径只留在服务端用来读
