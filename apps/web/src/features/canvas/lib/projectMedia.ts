@@ -100,13 +100,17 @@ export async function prepareProjectMedia(
   }
 }
 
-export function projectScene(document: ProjectDocument) {
+export function projectScene(document: ProjectDocument, bindings: LoadedBindings = new Map()) {
+  const originals = new Map(
+    Array.from(bindings, ([fileId, binding]) => [binding.id, { fileId, source: binding.source }]),
+  )
   const files: Record<string, string> = {}
   const elements: CanvasEl[] = document.elements.map((element) => {
     if (element.type !== 'image') return element
     const { mediaId, ...image } = element
-    const fileId = `cloud-${mediaId}`
-    files[fileId] = `aip-media:${mediaId}`
+    const original = originals.get(mediaId)
+    const fileId = original?.fileId ?? `cloud-${mediaId}`
+    files[fileId] = original?.source ?? `aip-media:${mediaId}`
     return { ...image, fileId }
   })
   return { elements, files }

@@ -58,48 +58,54 @@ export async function storeAssetImage(
     return { ok: false, error: 'asset_image_too_large', limit: imageLimit }
   }
 
-  return db.transaction(async (tx) => {
-    await lockMediaOwner(tx, userId)
-    const [used, [existing]] = await Promise.all([
-      totalBytes(tx, userId),
-      tx
-        .select({ bytes: schema.user_asset_objects.bytes })
-        .from(schema.user_asset_objects)
-        .where(
-          and(
-            eq(schema.user_asset_objects.user_id, userId),
-            eq(schema.user_asset_objects.image_id, imageId),
+  const account = (publish: boolean): Promise<AssetUploadAccepted | AssetUploadRejected | null> =>
+    db.transaction(async (tx) => {
+      await lockMediaOwner(tx, userId)
+      const [used, [existing]] = await Promise.all([
+        totalBytes(tx, userId),
+        tx
+          .select({ bytes: schema.user_asset_objects.bytes })
+          .from(schema.user_asset_objects)
+          .where(
+            and(
+              eq(schema.user_asset_objects.user_id, userId),
+              eq(schema.user_asset_objects.image_id, imageId),
+            ),
           ),
-        ),
-    ])
-    if (existing) {
-      return { ok: true, result: { imageId, bytes: existing.bytes, totalBytes: used } }
-    }
+      ])
+      if (existing) {
+        return { ok: true, result: { imageId, bytes: existing.bytes, totalBytes: used } }
+      }
 
-    if (
-      used + bytes.byteLength > userLimit ||
-      (await mediaUsage(tx, userId)) + bytes.byteLength >
-        config.operator.quotas['sync:user-media-bytes']
-    ) {
-      return { ok: false, error: 'asset_storage_quota_exceeded', limit: userLimit }
-    }
+      if (
+        used + bytes.byteLength > userLimit ||
+        (await mediaUsage(tx, userId)) + bytes.byteLength >
+          config.operator.quotas['sync:user-media-bytes']
+      ) {
+        return { ok: false, error: 'asset_storage_quota_exceeded', limit: userLimit }
+      }
 
-    await objectStore().write(assetObjectKey(userId, imageId), bytes, contentType)
-    await tx
-      .insert(schema.user_asset_objects)
-      .values({
-        user_id: userId,
-        image_id: imageId,
-        bytes: bytes.byteLength,
-        content_type: contentType,
-        created_at: Date.now(),
-      })
-      .onConflictDoNothing()
-    return {
-      ok: true,
-      result: { imageId, bytes: bytes.byteLength, totalBytes: used + bytes.byteLength },
-    }
-  })
+      if (!publish) return null
+      await tx
+        .insert(schema.user_asset_objects)
+        .values({
+          user_id: userId,
+          image_id: imageId,
+          bytes: bytes.byteLength,
+          content_type: contentType,
+          created_at: Date.now(),
+        })
+        .onConflictDoNothing()
+      return {
+        ok: true,
+        result: { imageId, bytes: bytes.byteLength, totalBytes: used + bytes.byteLength },
+      }
+    })
+  const existingOrRejected = await account(false)
+  if (existingOrRejected) return existingOrRejected
+  await objectStore().write(assetObjectKey(userId, imageId), bytes, contentType)
+  // Recheck capacity under the owner lock; rejected writes remain unreferenced for orphan cleanup.
+  return (await account(true))!
 }
 
 export async function readAssetImage(
