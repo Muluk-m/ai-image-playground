@@ -139,13 +139,11 @@ describe('tools filtered by creation mode', () => {
 })
 
 describe('what the panel shows for a loadSkill call', () => {
-  const start = (args: unknown) =>
-    agentToolStart('loadSkill', 'call-1', args, { identify: () => undefined } as never)
+  const start = (args: unknown, mode: AgentMode = 'video') =>
+    agentToolStart(mode, 'loadSkill', 'call-1', args, { identify: () => undefined } as never)
 
   it('writes the human title, not the kebab-case name', () => {
     expect(start({ name: 'storyboard' }).title).toBe('读取技能：分镜短片')
-    // 起跑这一刻拿不到 mode，所以图片轮的技能也认得出来；mode 门禁在 execute 里。
-    expect(start({ name: 'main-image' }).title).toBe('读取技能：电商主图')
   })
 
   it('names the attachment when the model asked for one', () => {
@@ -154,7 +152,10 @@ describe('what the panel shows for a loadSkill call', () => {
     )
   })
 
-  it('falls back to what the model said when the name is unknown or missing', () => {
+  it('falls back to what the model said when this turn cannot see that skill', () => {
+    // `main-image` 只在图片轮；拿它在别的 mode 里的标题写这一行，等于报一件没发生的事。
+    expect(start({ name: 'main-image' }).title).toBe('读取技能：main-image')
+    expect(start({ name: 'main-image' }, 'image').title).toBe('读取技能：电商主图')
     expect(start({ name: 'nope' }).title).toBe('读取技能：nope')
     expect(start({}).title).toBe('读取技能')
   })

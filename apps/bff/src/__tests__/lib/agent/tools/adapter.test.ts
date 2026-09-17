@@ -29,7 +29,7 @@ const images = {
 } as unknown as AgentImageSource
 
 const start = (toolName: AgentToolName, args: unknown) =>
-  agentToolStart(toolName, 'call-1', args, images)
+  agentToolStart('image', toolName, 'call-1', args, images)
 
 const facts = (toolName: AgentToolName, args: unknown) => {
   const {

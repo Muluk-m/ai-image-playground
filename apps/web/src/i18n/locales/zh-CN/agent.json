@@ -25,6 +25,7 @@
     "delivering": "产物已生成，正在放入画布…",
     "offCanvas": "产物不在当前画布上，可以再放入。",
     "deliveryFailed": "产物已生成，但放入画布失败，可以重试。",
+    "skillNotFound": "没找到技能：{{name}}",
     "locateTitle": "在画布上定位这些产物",
     "place": "放入画布",
     "viewPrompt": "查看提示词"

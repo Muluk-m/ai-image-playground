@@ -170,6 +170,28 @@ describe('AgentPanel', () => {
     expect(host.querySelectorAll('.rounded-xl.border')).toHaveLength(1)
   })
 
+  it('没读到的那次不显示成读到了', () => {
+    render()
+    act(() =>
+      useAgentStore.setState({
+        messages: [
+          {
+            kind: 'tool',
+            id: 'tool-skill',
+            turnId: 'turn-1',
+            toolCallId: 'call-skill',
+            toolName: 'loadSkill',
+            // 起跑那一刻还不知道读不读得到，标题照常是「读取技能：…」。
+            title: '读取技能：nope',
+            status: 'succeeded',
+            skill: { label: 'nope', found: false },
+          },
+        ],
+      }),
+    )
+    expect(host.querySelector('[data-tool="loadSkill"]')?.textContent).toBe('没找到技能：nope')
+  })
+
   it('上翻阅读历史时保留位置，回到底部后继续跟随流式回复', () => {
     render()
     const log = host.querySelector<HTMLElement>('[aria-label="对话记录"]')!

@@ -1,11 +1,10 @@
-import type { AgentMode } from '@image-playground/shared'
+import type { AgentMode, AgentSkillOutcome } from '@image-playground/shared'
 import { Type } from 'typebox'
 import {
   agentSkillInvocation,
   agentSkillLocation,
   agentSkills,
   findAgentSkill,
-  findAgentSkillInAnyMode,
   readAgentSkillFile,
 } from '../skills'
 import { defineAgentTool } from './adapter'
@@ -40,43 +39,73 @@ export const loadSkill = defineAgentTool({
   onError: 'continue',
   available: (mode) => agentSkills(mode).length > 0,
   // 不落画布，所以没有 outputCount；也没有送进上游的提示词。
-  call: ({ name, file }) => {
-    const asked = typeof name === 'string' ? name.trim() : ''
-    // 起跑这一刻拿不到这一轮的 mode（pi 只给参数），所以按 name 跨 mode 找一份标题；
-    // 找不到就照模型说的名字写。mode 门禁在 `execute` 里，不在这一行标题上。
-    const label = asked ? (findAgentSkillInAnyMode(asked)?.title ?? asked) : ''
+  call: ({ name, file }, mode) => {
+    const label = skillLabel(mode, name)
     const suffix = typeof file === 'string' && file.trim() ? ` · ${file.trim()}` : ''
     return { title: label ? `读取技能：${label}${suffix}` : '读取技能' }
   },
-  execute: (context) => async (_toolCallId, params) => ({
-    content: [{ type: 'text', text: await loadSkillText(context.mode, params) }],
-    details: {},
-  }),
+  execute: (context) => async (_toolCallId, params) => {
+    const loaded = await loadSkillText(context.mode, params)
+    return {
+      content: [{ type: 'text', text: loaded.text }],
+      // 面板据 `found` 决定这一行说「读取技能」还是「没找到技能」，不靠匹配上面那段文案。
+      details: { skill: loaded.outcome },
+    }
+  },
 })
 
 type LoadSkillParams = { readonly name?: string; readonly file?: string }
 
-async function loadSkillText(mode: AgentMode, params: LoadSkillParams): Promise<string> {
+/**
+ * 面板上这一步的名字。**只认这一轮看得见的那份清单**：另一个 mode 里碰巧有同名技能，
+ * 不代表这一轮读得到它，拿它的标题写在这里就是在报一件没发生的事。
+ */
+function skillLabel(mode: AgentMode, name: unknown): string {
+  const asked = typeof name === 'string' ? name.trim() : ''
+  if (!asked) return ''
+  return findAgentSkill(mode, asked)?.title ?? asked
+}
+
+interface LoadedSkillText {
+  readonly text: string
+  readonly outcome: AgentSkillOutcome
+}
+
+async function loadSkillText(mode: AgentMode, params: LoadSkillParams): Promise<LoadedSkillText> {
   const name = params.name?.trim() ?? ''
+  const label = skillLabel(mode, name)
+  const miss = (text: string): LoadedSkillText => ({
+    text,
+    outcome: { label: label || name, found: false },
+  })
   const skill = name ? findAgentSkill(mode, name) : undefined
   if (!skill) {
     const known = agentSkills(mode).map((one) => one.name)
-    return known.length > 0
-      ? `没有名为 ${name || '(空)'} 的技能。当前可用：${known.join('、')}`
-      : '当前没有可用的技能。'
+    return miss(
+      known.length > 0
+        ? `没有名为 ${name || '(空)'} 的技能。当前可用：${known.join('、')}`
+        : '当前没有可用的技能。',
+    )
   }
   const file = params.file?.trim()
-  if (!file) return agentSkillInvocation(skill)
+  if (!file) {
+    return { text: agentSkillInvocation(skill), outcome: { label, found: true } }
+  }
 
   const result = await readAgentSkillFile(mode, skill.name, file)
   switch (result.kind) {
     case 'ok':
-      return `<skill_file name="${skill.name}" location="skill://${skill.name}/${file}">\n${result.text}\n</skill_file>`
+      return {
+        text: `<skill_file name="${skill.name}" location="skill://${skill.name}/${file}">\n${result.text}\n</skill_file>`,
+        outcome: { label, found: true },
+      }
     case 'escapes-skill':
-      return `${file} 不在技能 ${skill.name} 的目录里，只能读该技能自己的附属文件。`
+      return miss(`${file} 不在技能 ${skill.name} 的目录里，只能读该技能自己的附属文件。`)
     case 'too-large':
-      return `${file} 太大，读不进来；请改读技能目录里更小的那一份。`
+      return miss(`${file} 太大，读不进来；请改读技能目录里更小的那一份。`)
     default:
-      return `技能 ${skill.name} 的目录里没有 ${file}，请照 ${agentSkillLocation(skill)} 正文里写的路径再试。`
+      return miss(
+        `技能 ${skill.name} 的目录里没有 ${file}，请照 ${agentSkillLocation(skill)} 正文里写的路径再试。`,
+      )
   }
 }

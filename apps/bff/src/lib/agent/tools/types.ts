@@ -1,6 +1,7 @@
 import type { AgentTool } from '@earendil-works/pi-agent-core'
 import type {
   AgentMode,
+  AgentSkillOutcome,
   AgentToolArtifact,
   AgentToolName,
   AgentToolStage,
@@ -32,6 +33,8 @@ export interface AgentToolDetails {
   readonly stage?: AgentToolStage
   readonly artifacts?: readonly AgentToolArtifact[]
   readonly anchorObjectId?: string
+  /** 读取技能这一步读到了什么；只有那个工具会填。 */
+  readonly skill?: AgentSkillOutcome
 }
 
 /**
@@ -77,8 +80,12 @@ export interface AgentToolDefinition<P extends TSchema = TSchema> {
   readonly onError: 'abort' | 'continue'
   /** 部署开关；缺席即到处都在。关掉时工具不进模型的清单，历史里的结果照样认得出来。 */
   available?(mode: AgentMode): boolean
-  /** 这次调用的自述。参数残缺时退回默认值，绝不抛——抛了就是把一次能跑的调用挡在门外。 */
-  call(args: AgentToolArgs<P>): AgentToolCall
+  /**
+   * 这次调用的自述。参数残缺时退回默认值，绝不抛——抛了就是把一次能跑的调用挡在门外。
+   * 带上这一轮的创作类型：同一个名字在两个 mode 下未必指同一件事，起跑这一行标签要按
+   * 这一轮看得见的那份清单写。
+   */
+  call(args: AgentToolArgs<P>, mode: AgentMode): AgentToolCall
   execute(context: AgentToolContext): AgentTool<P, AgentToolDetails>['execute']
 }
 
@@ -101,6 +108,6 @@ export interface AgentToolSpec {
   /** `create` 出来的工具照它填，估算也读它：同一份声明，不会各说各的。 */
   readonly declaration: AgentToolDeclaration
   available?(mode: AgentMode): boolean
-  call(args: unknown): AgentToolCall
+  call(args: unknown, mode: AgentMode): AgentToolCall
   create(context: AgentToolContext): AgentTool
 }

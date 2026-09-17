@@ -25,6 +25,7 @@
     "delivering": "Generated, adding to the canvas…",
     "offCanvas": "Not on the current canvas. You can add it again.",
     "deliveryFailed": "Generated, but could not be added to the canvas. You can retry.",
+    "skillNotFound": "Skill not found: {{name}}",
     "locateTitle": "Find these results on the canvas",
     "place": "Add to canvas",
     "viewPrompt": "View prompt"

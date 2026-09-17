@@ -55,6 +55,7 @@ function toolCard(block: AgentToolResultBlock, id: string, turnId: string): Agen
     status: block.status,
     ...(block.artifacts ? { artifacts: block.artifacts } : {}),
     ...(block.anchorObjectId ? { anchorObjectId: block.anchorObjectId } : {}),
+    ...(block.skill ? { skill: block.skill } : {}),
     ...(block.message ? { message: block.message } : {}),
   }
 }

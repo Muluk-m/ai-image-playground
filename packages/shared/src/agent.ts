@@ -129,8 +129,19 @@ export interface AgentToolResultBlock {
   readonly artifacts?: readonly AgentToolArtifact[]
   /** 产出落画布时贴着这个画布对象放；缺席就落在视口中央。 */
   readonly anchorObjectId?: string
+  /** 读取技能这一步的结果。缺席即这条不是读技能，或者它还没跑完。 */
+  readonly skill?: AgentSkillOutcome
   /** 失败原因，一句话。 */
   readonly message?: string
+}
+
+/**
+ * 读取技能读到了什么。`found` 是机器可读的那一位：面板据它决定这一行说「读取技能」还是
+ * 「没找到技能」，不靠匹配工具返回的文案。
+ */
+export interface AgentSkillOutcome {
+  readonly label: string
+  readonly found: boolean
 }
 
 /** 一次澄清提问。落在助手消息里，所以重新打开会话还能看见、还能作答。 */

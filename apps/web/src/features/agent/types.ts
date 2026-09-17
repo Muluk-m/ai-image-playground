@@ -1,4 +1,5 @@
 import type {
+  AgentSkillOutcome,
   AgentToolArtifact,
   AgentToolName,
   AgentToolStage,
@@ -38,6 +39,8 @@ export interface AgentToolMessage {
   readonly message?: string
   /** 产出贴着这个画布对象放；手动放入时也照这个位置。 */
   readonly anchorObjectId?: string
+  /** 读取技能这一步读到了什么；缺席即还没跑完，或者这条不是读技能。 */
+  readonly skill?: AgentSkillOutcome
   /** 本机产物交付与工具生成分别完成，不改写工具状态或本轮消耗。 */
   readonly delivery?: AgentDeliveryStatus
 }
