@@ -305,7 +305,7 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
     }
     if (event.type === 'tool_execution_start' && isAgentToolName(event.toolName)) {
       const messageId = crypto.randomUUID()
-      const start = agentToolStart(event.toolName, event.toolCallId, event.args, images)
+      const start = agentToolStart(input.mode, event.toolName, event.toolCallId, event.args, images)
       openTools.set(event.toolCallId, { messageId, start })
       events.emit({ type: 'toolStart', messageId, ...start })
     }
@@ -356,6 +356,7 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
   const turn: RunningTurn = {
     conversationId,
     turnId,
+    mode: input.mode,
     read: (afterSeq) => events.read(afterSeq),
     async interject(text, references = []) {
       if (!acceptingInterjections || aborted) return null
@@ -369,8 +370,13 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
         if (stored.length) await removeAgentTurnReferences(conversationId, archiveId)
         return null
       }
-      const instructions = turnPromptText(text, references.length ? references : images.references)
-      const steered = turnModelPrompt(instructions, evidence)
+      const active = references.length ? references : images.references
+      // 执行原文仍是用户打的那句：`/skill-name` 是给模型看的指引，不是他授权的修改要求。
+      const instructions = turnPromptText(text, active)
+      const steered = turnModelPrompt(
+        turnPromptText(expandSkillInvocation(text, input.mode), active),
+        evidence,
+      )
       const pending = steeringReferences.get(steered.text) ?? []
       pending.push({ references, instructions })
       steeringReferences.set(steered.text, pending)
