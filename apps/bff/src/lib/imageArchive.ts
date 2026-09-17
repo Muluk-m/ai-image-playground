@@ -33,8 +33,7 @@ export class ObjectStorageError extends Error {
 }
 
 /**
- * 归档时回源拉上游结果 URL 失败。`retryable` 让 task-runner 重跑整个 task——赌的是
- * 换一个上游账户返回 b64 而非 URL，代价是重新生一次图，不是重拉一次这个 URL。
+ * 旧匿名任务沿用模型重试策略；云端任务已有归档凭据，只重试下载原结果。
  */
 export class SourceImageFetchError extends ObjectStorageError {
   readonly retryable = true
