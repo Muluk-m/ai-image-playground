@@ -17,6 +17,7 @@ const summaryColumns = {
   updatedAt: table.updated_at,
   elementCount: table.element_count,
   coverMediaId: table.cover_media_id,
+  conversationId: table.conversation_id,
 }
 
 export async function listProjects(userId: string, pageSize: number, cursor?: string) {
@@ -94,6 +95,7 @@ export async function writeProject(userId: string, id: string, input: ProjectWri
       updatedAt: now,
       elementCount: input.document.elements.length,
       coverMediaId: imageIds.at(-1) ?? null,
+      conversationId: existing?.conversation_id ?? null,
     }
     const values = {
       name: project.name,

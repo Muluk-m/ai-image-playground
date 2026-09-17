@@ -67,3 +67,27 @@ it('旧场景按原 key 导入，重复导入不会复制项目', async () => {
   await loadScene(restored, a.sceneKey)
   expect(restored.doc.camera.x).toBe(123)
 })
+
+it('云端会话关联在另一设备恢复，刷新关联不覆盖本机未同步的项目内容', async () => {
+  setClientStorageScope(crypto.randomUUID())
+  const id = crypto.randomUUID()
+  const summary = {
+    id,
+    name: '云端项目',
+    revision: 3,
+    createdAt: 1,
+    updatedAt: 2,
+    elementCount: 0,
+    coverMediaId: null,
+    conversationId: crypto.randomUUID(),
+  }
+  const imported = await projectRepository.importCloud(summary)
+  expect(imported.conversationId).toBe(summary.conversationId)
+  await projectRepository.update(id, { name: '本机未同步名称' })
+  const changed = { ...summary, conversationId: crypto.randomUUID(), revision: 4 }
+  const refreshed = await projectRepository.importCloud(changed)
+  expect(refreshed.conversationId).toBe(changed.conversationId)
+  expect(refreshed.name).toBe('本机未同步名称')
+  expect(refreshed.cloud?.revision).toBe(3)
+  expect((await projectRepository.list())[0]?.conversationId).toBe(changed.conversationId)
+})

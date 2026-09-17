@@ -9,7 +9,12 @@ import {
 } from '../../lib/authScope'
 import type { CanvasDoc } from './lib/canvasDoc'
 import { getLoadedImage } from './lib/imageCache'
-import { cloudProjectsEnabled, getCloudProject, listCloudProjects } from './lib/projectClient'
+import {
+  cloudProjectsEnabled,
+  ensureCloudProjectConversation,
+  getCloudProject,
+  listCloudProjects,
+} from './lib/projectClient'
 import { type CanvasProject, projectRepository, UNTITLED_PROJECT } from './lib/projectRepository'
 import { readProjectRoute, resolveProjectRoute, writeProjectRoute } from './lib/projectRoute'
 import { canvasSceneKey } from './lib/workspaceKeys'
@@ -79,11 +84,11 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
         },
       }))
       for (const summary of page.projects) {
-        const project = await projectRepository.importCloud(summary)
+        const project = await restoreCloudProject(summary)
         if (scopedStorageName(CANVAS_PROJECT_KEY) !== scope) return
         set((state) => ({
           projects: state.projects.some((one) => one.id === project.id)
-            ? state.projects
+            ? state.projects.map((one) => (one.id === project.id ? project : one))
             : [...state.projects, project],
         }))
       }
@@ -115,9 +120,7 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
         if (routeId && !projects.some((one) => one.id === routeId)) {
           if (!cloudProjectsEnabled()) throw new Error('Project not available on this device')
           projects.push(
-            await projectRepository.importCloud(
-              await getCloudProject(routeId, AbortSignal.timeout(10000)),
-            ),
+            await restoreCloudProject(await getCloudProject(routeId, AbortSignal.timeout(10000))),
           )
         }
         let active =
@@ -165,9 +168,7 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
     const existing = get().projects.find((one) => one.id === id)
     if (existing) return existing
     if (!cloudProjectsEnabled()) throw new Error('Project not available on this device')
-    const project = await projectRepository.importCloud(
-      await getCloudProject(id, AbortSignal.timeout(10000)),
-    )
+    const project = await restoreCloudProject(await getCloudProject(id, AbortSignal.timeout(10000)))
     set((state) => ({ projects: [...state.projects, project] }))
     return project
   },
@@ -246,4 +247,15 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
 export function currentCanvasProject(): CanvasProject | undefined {
   const state = useCanvasProjectStore.getState()
   return state.projects.find((one) => one.id === state.activeId)
+}
+
+export async function restoreCloudProject(summary: CloudProjectSummary): Promise<CanvasProject> {
+  const scope = scopedStorageName('canvas')
+  const local = useCanvasProjectStore.getState().projects.find((one) => one.id === summary.id)
+  if (summary.conversationId === null && local?.cloud && local.conversationId) {
+    const { conversation } = await ensureCloudProjectConversation(summary.id, local.conversationId)
+    if (scopedStorageName('canvas') !== scope) throw new Error('account_changed')
+    summary = { ...summary, conversationId: conversation.id }
+  }
+  return projectRepository.importCloud(summary)
 }

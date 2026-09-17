@@ -239,7 +239,9 @@ export const projectRepository = {
           cover: summary.coverMediaId ? `aip-media:${summary.coverMediaId}` : undefined,
           cloud: { revision: summary.revision },
         }
-        if (!request.result) store.add(result, storageKey)
+        if (summary.conversationId !== undefined)
+          result = { ...result, conversationId: summary.conversationId }
+        store.put(result, storageKey)
       }
       tx.oncomplete = () => resolve(projectView(result))
       tx.onabort = () => reject(tx.error)
