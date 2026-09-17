@@ -90,7 +90,7 @@ describe('头像菜单里的界面语言', () => {
     })
 
     expect(localStorage.getItem('aip.locale')).toBe('en')
-    expect(localeRow().textContent).toContain('Interface language')
+    expect(localeRow().textContent).toContain('Language')
     expect(localeRow().textContent).toContain('English')
     expect(localeRow().getAttribute('aria-label')).toBe('Language: English. Switch to 中文')
   })

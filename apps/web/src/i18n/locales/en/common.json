@@ -10,7 +10,7 @@
   },
   "locale": {
     "switchAria": "Language: {{current}}. Switch to {{next}}",
-    "label": "Interface language",
+    "label": "Language",
     "zh-CN": "中文",
     "en": "English"
   },
