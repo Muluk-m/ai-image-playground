@@ -8,6 +8,7 @@ import DirectorGeneration from '../../../../../features/video/storyboard/compone
 import { useStoryboardStore } from '../../../../../features/video/storyboard/store'
 import type { StoryboardRecord } from '../../../../../features/video/storyboard/types'
 import { setChannels } from '../../../../../lib/channels/channelStore'
+import { chooseOption, stubPointerApis, triggerText } from '../../../../helpers/radix'
 import { AGNES_CHANNEL } from '../../fixtures'
 
 const guard = vi.hoisted(() => vi.fn(() => ({ blocked: false, estimatedCredits: 300 })))
@@ -44,9 +45,11 @@ const record: StoryboardRecord = {
     },
   ],
 }
+
 let host: HTMLDivElement
 let root: Root
 beforeEach(() => {
+  stubPointerApis()
   vi.stubGlobal('indexedDB', new IDBFactory())
   setChannels([AGNES_CHANNEL])
   useVideoStore.setState({
@@ -76,16 +79,11 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 it('15秒分镜在Agnes下默认10秒，提供模型支持的时长并按所选时长计费和提交', async () => {
-  const select = host.querySelector<HTMLSelectElement>('[aria-label="分镜视频时长"]')!
-  expect(Array.from(select.options, (option) => option.value)).toEqual(['5', '8', '10'])
-  expect(select.value).toBe('10')
+  expect(triggerText('分镜视频时长')).toBe('10 秒')
   expect(host.textContent).toContain('原分镜 15 秒，本次按 10 秒生成')
   expect(host.textContent).not.toContain('时长只支持')
   expect(guard).toHaveBeenLastCalledWith(expect.objectContaining({ quantity: 10 }))
-  act(() => {
-    select.value = '8'
-    select.dispatchEvent(new Event('change', { bubbles: true }))
-  })
+  chooseOption('分镜视频时长', '8 秒')
   expect(guard).toHaveBeenLastCalledWith(expect.objectContaining({ quantity: 8 }))
   const submit = vi
     .spyOn(useStoryboardStore.getState(), 'generateWholeVideo')
@@ -103,11 +101,7 @@ it('切换到单镜时采用镜头时长，仍可选择10秒', () => {
       .find((button) => button.textContent?.includes('当前镜头'))!
       .click(),
   )
-  const select = host.querySelector<HTMLSelectElement>('[aria-label="分镜视频时长"]')!
-  expect(select.value).toBe('5')
-  act(() => {
-    select.value = '10'
-    select.dispatchEvent(new Event('change', { bubbles: true }))
-  })
+  expect(triggerText('分镜视频时长')).toBe('5 秒')
+  chooseOption('分镜视频时长', '10 秒')
   expect(host.textContent).toContain('生成 10 秒视频')
 })
