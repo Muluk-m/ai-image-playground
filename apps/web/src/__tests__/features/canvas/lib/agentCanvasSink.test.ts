@@ -55,10 +55,11 @@ beforeEach(() => {
 
 afterEach(() => vi.unstubAllGlobals())
 
+/** 修订号不再是交付的判据，仍是 undo 历史「一次用户操作」的边界，直接对 editor 断言。 */
 describe('画布编辑修订号', () => {
   it('平移、缩放、选区与工具不算编辑', () => {
     addText('text-1')
-    const before = sink.revision()
+    const before = editor.editRevision()
 
     doc.setCamera({ x: 120, y: 40 })
     doc.zoomAt(10, 10, 2)
@@ -66,29 +67,29 @@ describe('画布编辑修订号', () => {
     doc.setTool('pen')
     doc.notifyAssetLoaded()
 
-    expect(sink.revision()).toBe(before)
+    expect(editor.editRevision()).toBe(before)
   })
 
   it('增删元素与撤销重做各抬一次', () => {
-    const start = sink.revision()
+    const start = editor.editRevision()
 
     addText('text-1')
     doc.deleteElements(['text-1'])
     doc.undo()
     doc.redo()
 
-    expect(sink.revision()).toBe(start + 4)
+    expect(editor.editRevision()).toBe(start + 4)
   })
 
   it('一次拖拽只算一次，过程中的高频更新不重复计', () => {
     addText('text-1')
-    const before = sink.revision()
+    const before = editor.editRevision()
 
     doc.captureHistory()
     doc.updateElements([{ id: 'text-1', patch: { x: 10 } }])
     doc.updateElements([{ id: 'text-1', patch: { x: 20 } }])
 
-    expect(sink.revision()).toBe(before + 1)
+    expect(editor.editRevision()).toBe(before + 1)
   })
 
   it('占位框状态流转与场景恢复不算用户编辑', () => {
@@ -96,34 +97,17 @@ describe('画布编辑修订号', () => {
       { x: 0, y: 0, w: 10, h: 10 },
       { taskId: 't', clientRequestId: 'c', source: 'builtin-edge', prompt: '' },
     )
-    const before = sink.revision()
+    const before = editor.editRevision()
 
     editor.updatePlaceholder(placeholderId, { status: 'error', message: '上游拒绝' })
     doc.restore([], {})
 
-    expect(sink.revision()).toBe(before)
+    expect(editor.editRevision()).toBe(before)
   })
 })
 
 describe('落画布', () => {
-  it('基线与当前修订号一致时写入', async () => {
-    const outcome = await sink.place(IMAGES, { baseRevision: sink.revision() })
-
-    expect(outcome).toBe('placed')
-    expect(editor.getElement('agent_image_1')).toMatchObject({ type: 'image' })
-  })
-
-  it('基线过期时判为画布冲突，一张都不写', async () => {
-    const base = sink.revision()
-    addText('text-1')
-
-    const outcome = await sink.place(IMAGES, { baseRevision: base })
-
-    expect(outcome).toBe('conflict')
-    expect(editor.getElement('agent_image_1')).toBeUndefined()
-  })
-
-  it('不带基线时无条件写入', async () => {
+  it('用户中途改过画布也照样写入', async () => {
     addText('text-1')
 
     const outcome = await sink.place(IMAGES)
@@ -132,11 +116,11 @@ describe('落画布', () => {
     expect(editor.getElement('agent_image_1')).toMatchObject({ type: 'image' })
   })
 
-  it('写入后的修订号可以当作下一次的基线', async () => {
-    await sink.place(IMAGES, { baseRevision: sink.revision() })
+  it('连着两次交付都写入', async () => {
+    await sink.place(IMAGES)
 
     const second = [{ ...IMAGES[0]!, artifactId: 'agent_image_2' }]
-    expect(await sink.place(second, { baseRevision: sink.revision() })).toBe('placed')
+    expect(await sink.place(second)).toBe('placed')
     expect(editor.getElements().map((element) => element.id)).toEqual([
       'agent_image_1',
       'agent_image_2',
@@ -158,18 +142,6 @@ describe('落画布', () => {
       video: { taskId: 'task-2', outputIndex: 0 },
     })
     expect(editor.getElement('agent_image_1')).not.toHaveProperty('video')
-  })
-
-  it('图片尺寸晚到期间用户编辑，真正插入前仍判为冲突', async () => {
-    holdSizing = true
-    const placing = sink.place(IMAGES, { baseRevision: sink.revision() })
-    await vi.waitFor(() => expect(sizing).toHaveLength(1))
-    addText('user-edit')
-    sizing[0]!()
-
-    expect(await placing).toBe('conflict')
-    expect(editor.getElement('agent_image_1')).toBeUndefined()
-    expect(editor.getElement('user-edit')).toMatchObject({ type: 'text' })
   })
 
   it('尺寸加载期间原画布失效，不再写入离开的画布', async () => {
@@ -236,13 +208,13 @@ describe('工具起跑占位', () => {
     expect(scrolled).toEqual([[...ids]])
   })
 
-  it('占位不算用户编辑：修订号不动，智能体不会判自己冲突', async () => {
-    const before = sink.revision()
+  it('占位不算用户编辑：修订号不动，占位框也不进 undo 栈', async () => {
+    const before = editor.editRevision()
 
     const ids = await sink.reserve({ count: 2 })
     sink.discard(ids)
 
-    expect(sink.revision()).toBe(before)
+    expect(editor.editRevision()).toBe(before)
   })
 
   it('占位框让开画布上已有的元素', async () => {
@@ -284,12 +256,12 @@ describe('工具起跑占位', () => {
     expect(first.collides(second)).toBe(false)
   })
 
-  it('落图被判冲突时占位框留在原地，不把它连同产物一起吞掉', async () => {
+  it('原画布已离开、没落成图时占位框留在原地，不把它连同产物一起吞掉', async () => {
     const [id] = await sink.reserve({ count: 1 })
-    const base = sink.revision()
-    addText('user-edit')
 
-    expect(await sink.place(IMAGES, { baseRevision: base, placeholderIds: [id!] })).toBe('conflict')
+    expect(await sink.place(IMAGES, { placeholderIds: [id!], isCurrent: () => false })).toBe(
+      'unavailable',
+    )
     expect(editor.getPlaceholder(id!)).toBeDefined()
   })
 

@@ -117,7 +117,7 @@ export function createArtifactDelivery(
       isCurrent: () => current(origin),
     })
     if (outcome !== 'placed') canvas.discard(placeholderIds)
-    return outcome === 'conflict' ? 'unavailable' : outcome
+    return outcome
   }
 
   /**
