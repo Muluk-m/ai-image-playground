@@ -138,6 +138,38 @@ afterEach(() => {
 })
 
 describe('AgentPanel', () => {
+  it('读取技能只出一行脚注，不出结果卡', () => {
+    render()
+    act(() =>
+      useAgentStore.setState({
+        messages: [
+          {
+            kind: 'tool',
+            id: 'tool-skill',
+            turnId: 'turn-1',
+            toolCallId: 'call-skill',
+            toolName: 'loadSkill',
+            title: '读取技能：storyboard-short',
+            status: 'succeeded',
+          },
+          {
+            kind: 'tool',
+            id: 'tool-image',
+            turnId: 'turn-1',
+            toolCallId: 'call-image',
+            toolName: 'generateImage',
+            title: '一只橘猫',
+            status: 'running',
+          },
+        ],
+      }),
+    )
+    const line = host.querySelector<HTMLElement>('[data-tool="loadSkill"]')
+    expect(line?.textContent).toBe('读取技能：storyboard-short')
+    // 结果卡有边框底座，技能那一行没有；这里数的就是「出了几张卡」。
+    expect(host.querySelectorAll('.rounded-xl.border')).toHaveLength(1)
+  })
+
   it('上翻阅读历史时保留位置，回到底部后继续跟随流式回复', () => {
     render()
     const log = host.querySelector<HTMLElement>('[aria-label="对话记录"]')!

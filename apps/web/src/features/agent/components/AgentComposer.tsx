@@ -1,3 +1,4 @@
+import type { AgentSkillSummary } from '@image-playground/shared'
 import {
   type ClipboardEvent,
   type KeyboardEvent,
@@ -17,7 +18,17 @@ import {
   ComposerToolbar,
 } from '../../../components/assistant-ui/elements/composer'
 import { CloseIcon, MaskBrushIcon } from '../../../components/icons'
-import SuggestionMenu, { useSuggestionMenu } from '../../../components/SuggestionMenu'
+import SuggestionMenu, {
+  type SuggestionMenuGroup,
+  useSuggestionMenu,
+} from '../../../components/SuggestionMenu'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../../../components/ui/select'
 import { useImageDropZone } from '../../../hooks/useImageDropZone'
 import { useTranslation } from '../../../i18n'
 import { acceptImageFiles } from '../../../lib/imageFiles'
@@ -41,12 +52,18 @@ import { canvasSceneKey } from '../../canvas/lib/workspaces'
 import { currentCanvasProject } from '../../canvas/projectStore'
 import { useLibraryStore } from '../../library/store'
 import { ABORT_BUTTON, ICON_BUTTON } from '../agentStyles'
+import { fetchAgentSkills } from '../lib/agentClient'
 import {
   type AgentMentionValue,
   buildAgentMentionGroups,
   type CanvasImage,
   canvasImages,
 } from '../lib/agentMentions'
+import {
+  applySkillCommand,
+  buildAgentSkillGroups,
+  getSlashSkillQuery,
+} from '../lib/agentSkillMentions'
 import {
   assetToReference,
   attachReferences,
@@ -60,6 +77,7 @@ import {
   attachReference,
   clearReferenceMask,
   draftForSubmit,
+  draftMode,
   referenceLabels,
   removeReference,
   setReferenceMask,
@@ -72,6 +90,9 @@ const EDITOR_CLASS =
   'min-h-16 max-h-44 w-full overflow-y-auto whitespace-pre-wrap break-words bg-transparent px-1 pt-1 text-sm leading-relaxed text-foreground outline-none empty:before:pointer-events-none empty:before:text-muted-foreground empty:before:content-[attr(data-placeholder)]'
 
 const STRIP_THUMB = 'h-8 w-8 shrink-0 overflow-hidden rounded-md object-cover'
+
+/** `@` 与 `/` 两个弹层共用一个菜单，所以候选身份要能分得出是哪一支。 */
+type ComposerSuggestion = AgentMentionValue | { readonly type: 'skill'; readonly name: string }
 
 /** 画布对象 → 参考图：位图就在画布文档里，不必回存储里找。 */
 function canvasReference(
@@ -203,12 +224,36 @@ export default function AgentComposer({
     if (el.innerHTML !== html) el.innerHTML = html
   }, [draft.prompt, labels])
 
+  const mode = draftMode(draft)
+  // 技能是部署的东西，随 mode 现拉；拉不到就当这个部署没有技能，输入框照常能用。
+  const [skills, setSkills] = useState<readonly AgentSkillSummary[]>([])
+  useEffect(() => {
+    let live = true
+    void fetchAgentSkills(mode)
+      .then((loaded) => {
+        if (live) setSkills(loaded)
+      })
+      .catch(() => {
+        if (live) setSkills([])
+      })
+    return () => {
+      live = false
+    }
+  }, [mode])
+
   const query = isCursorInSelectedImageMention(draft.prompt, cursor, labels)
     ? null
     : getAtImageQuery(getVisiblePrompt(draft.prompt, labels), cursor)
-  const groups = query
+  // `/` 只在整段话的开头算命令，所以它和 `@` 不会同时有候选。
+  const skillQuery = query ? null : getSlashSkillQuery(draft.prompt, cursor)
+  const groups: SuggestionMenuGroup<ComposerSuggestion>[] = query
     ? buildAgentMentionGroups({ query: query.query, references: draft.references, canvas, assets })
-    : []
+    : skillQuery
+      ? buildAgentSkillGroups(skillQuery.query, skills, (skill) => ({
+          type: 'skill',
+          name: skill.name,
+        }))
+      : []
 
   const applyAttach = (reference: AgentReference, start: number, at: number) => {
     const next = attachReference(draft, reference, start, at)
@@ -220,6 +265,21 @@ export default function AgentComposer({
       if (!el) return
       el.focus()
       setContentEditableCursor(el, next.cursor)
+    }, 0)
+  }
+
+  const selectSkill = (name: string) => {
+    const el = editorRef.current
+    const at = el ? getContentEditableCursor(el) : cursor
+    const next = applySkillCommand(draft.prompt, at, name)
+    typedRef.current = null
+    setDraft((current) => ({ ...current, prompt: next.prompt }))
+    setCursor(next.cursor)
+    window.setTimeout(() => {
+      const editor = editorRef.current
+      if (!editor) return
+      editor.focus()
+      setContentEditableCursor(editor, next.cursor)
     }, 0)
   }
 
@@ -241,7 +301,10 @@ export default function AgentComposer({
 
   const menu = useSuggestionMenu({
     groups,
-    onSelect: (value: AgentMentionValue) => void selectMention(value),
+    onSelect: (value: ComposerSuggestion) => {
+      if (value.type === 'skill') selectSkill(value.name)
+      else void selectMention(value)
+    },
     onClose: () => editorRef.current?.blur(),
   })
 
@@ -289,10 +352,15 @@ export default function AgentComposer({
     }
     void useAgentStore
       .getState()
-      .send(submission.text, submission.references, () => {
-        accepted = true
-        releaseSubmission()
-      })
+      .send(
+        submission.text,
+        submission.references,
+        () => {
+          accepted = true
+          releaseSubmission()
+        },
+        mode,
+      )
       .then(
         (outcome) => {
           if (!accepted) restore(outcome === 'cancelled')
@@ -433,6 +501,23 @@ export default function AgentComposer({
             />
           </div>
           <ComposerActions className="min-w-0">
+            <Select
+              value={mode}
+              onValueChange={(value) =>
+                setDraft((current) => ({ ...current, mode: value === 'video' ? 'video' : 'image' }))
+              }
+            >
+              <SelectTrigger
+                aria-label={t('composer.modeAria')}
+                className="h-8 w-auto gap-1.5 rounded-full border-0 bg-muted px-2.5 text-[11px] text-muted-foreground"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="image">{t('composer.modeImage')}</SelectItem>
+                <SelectItem value="video">{t('composer.modeVideo')}</SelectItem>
+              </SelectContent>
+            </Select>
             <AgentParamsChip />
             {running && (
               <button

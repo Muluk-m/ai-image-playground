@@ -58,7 +58,10 @@
     "tooManyReferences_one": "At most {{count}} reference image per turn",
     "tooManyReferences_other": "At most {{count}} reference images per turn",
     "abortedToast": "Stopped. Your draft is back in the box.",
-    "aborting": "Stopping…"
+    "aborting": "Stopping…",
+    "modeAria": "Creation type",
+    "modeImage": "Image",
+    "modeVideo": "Video"
   },
   "params": {
     "title": "Generation settings",
@@ -77,7 +80,8 @@
     "canvasImage": "Canvas image {{index}}",
     "headingReferences": "Reference images",
     "headingCanvas": "Canvas",
-    "headingAssets": "Assets"
+    "headingAssets": "Assets",
+    "headingSkills": "Skills"
   },
   "activity": {
     "sending": "Sending",

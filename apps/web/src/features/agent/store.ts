@@ -1,6 +1,7 @@
 import type {
   AgentActiveTurnView,
   AgentConversationView,
+  AgentMode,
   AgentThinkingDepth,
   AgentTurnEvent,
   AgentTurnReference,
@@ -99,6 +100,8 @@ export interface AgentState {
     text: string,
     references?: readonly AgentTurnReference[],
     onAccepted?: () => void,
+    /** 这一轮要创作什么；缺席即图片。插话不带它——mode 是起轮时定下的。 */
+    mode?: AgentMode,
   ): Promise<void | 'cancelled'>
   abort(): Promise<void>
   /** 产物没能落下去（画布已离开等）时，由用户把那张结果卡的产出放进画布。 */
@@ -593,7 +596,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
       })
     },
 
-    async send(text, references = [], onAccepted) {
+    async send(text, references = [], onAccepted, mode = 'image') {
       if (changingProject || get().historyLoading || get().historyFailed || get().stopping) return
       const trimmed = text.trim()
       if (!trimmed) return
@@ -696,7 +699,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
         // 起轮这一步的失败不在 `follow` 的重连范围里：请求没发出去就没有轮可以接。
         let outcome: StartTurnOutcome
         try {
-          outcome = await startTurn(target, trimmed, references, turnParams)
+          outcome = await startTurn(target, trimmed, references, turnParams, mode)
         } catch (thrown) {
           if (turnDelivery.isCurrent())
             fail(

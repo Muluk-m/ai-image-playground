@@ -57,7 +57,10 @@
     "sendAndCreate": "发送并创作",
     "tooManyReferences_other": "一轮最多带 {{count}} 张参考图",
     "abortedToast": "已中止，草稿已放回输入框。",
-    "aborting": "正在中止…"
+    "aborting": "正在中止…",
+    "modeAria": "创作类型",
+    "modeImage": "图片",
+    "modeVideo": "视频"
   },
   "params": {
     "title": "生成参数",
@@ -76,7 +79,8 @@
     "canvasImage": "画布图{{index}}",
     "headingReferences": "本次参考图",
     "headingCanvas": "画布",
-    "headingAssets": "素材"
+    "headingAssets": "素材",
+    "headingSkills": "技能"
   },
   "activity": {
     "sending": "发送中",
