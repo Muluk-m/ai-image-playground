@@ -1,5 +1,5 @@
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test'
-import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
+import { afterAll, beforeAll, describe, expect, it, spyOn } from 'bun:test'
+import { chmod, mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -16,10 +16,10 @@ const {
   agentSkills,
   ensureAgentSkills,
   findAgentSkill,
-  findAgentSkillInAnyMode,
   readAgentSkillFile,
   setAgentSkillsRootForTesting,
 } = await import('../../../lib/agent/skills')
+const { log } = await import('../../../lib/logger')
 
 let root = ''
 
@@ -104,13 +104,6 @@ describe('agent skills loading', () => {
     expect(agentSkillTitle('', 'fallback')).toBe('fallback')
   })
 
-  it('finds a skill by name without being told the mode', () => {
-    // 工具起跑那一刻 pi 只给参数，拿不到这一轮的 mode，面板上那行标题仍要写对。
-    expect(findAgentSkillInAnyMode('storyboard')?.title).toBe('分镜短片')
-    expect(findAgentSkillInAnyMode('main-image')?.title).toBe('电商主图')
-    expect(findAgentSkillInAnyMode('nope')).toBeUndefined()
-  })
-
   it('addresses skills by a virtual path, never by a server path', () => {
     const skill = findAgentSkill('video', 'storyboard')!
     expect(agentSkillLocation(skill)).toBe('skill://storyboard/SKILL.md')
@@ -151,6 +144,53 @@ describe('reading a skill attachment', () => {
     expect(await readAgentSkillFile('video', 'storyboard', 'references/nope.md')).toEqual({
       kind: 'unreadable',
     })
+  })
+})
+
+describe('a skills directory that cannot be read right now', () => {
+  it('retries the next time instead of staying empty for the life of the process', async () => {
+    const broken = await mkdtemp(join(tmpdir(), 'aip-skills-broken-'))
+    const dir = join(broken, 'image', 'later')
+    await mkdir(dir, { recursive: true })
+    await writeFile(
+      join(dir, 'SKILL.md'),
+      '---\nname: later\ndescription: 何时用：等目录可读之后。\n---\n\n# 迟到的技能\n\n正文',
+      'utf8',
+    )
+    // 读不了这一刻：加载器会记一条 diagnostic，但技能是空的。
+    await chmod(join(broken, 'image'), 0o000)
+    setAgentSkillsRootForTesting(broken)
+    try {
+      await ensureAgentSkills()
+      expect(agentSkills('image')).toEqual([])
+
+      // 权限恢复之后，下一次起轮就该把它读进来——而不是等进程重启。
+      await chmod(join(broken, 'image'), 0o755)
+      await ensureAgentSkills()
+      expect(agentSkills('image').map((one) => one.name)).toEqual(['later'])
+    } finally {
+      await chmod(join(broken, 'image'), 0o755).catch(() => {})
+      await rm(broken, { recursive: true, force: true })
+      setAgentSkillsRootForTesting(root)
+      await ensureAgentSkills()
+    }
+  })
+
+  it('shouts when the directory is there but nothing usable came out of it', async () => {
+    const empty = await mkdtemp(join(tmpdir(), 'aip-skills-empty-'))
+    await mkdir(join(empty, 'image'), { recursive: true })
+    const error = spyOn(log, 'error').mockImplementation(() => {})
+    setAgentSkillsRootForTesting(empty)
+    try {
+      await ensureAgentSkills()
+      // 镜像漏打包与「这个部署本来就没有技能」长得一模一样，只有这条日志分得开。
+      expect(error).toHaveBeenCalled()
+    } finally {
+      error.mockRestore()
+      await rm(empty, { recursive: true, force: true })
+      setAgentSkillsRootForTesting(root)
+      await ensureAgentSkills()
+    }
   })
 })
 

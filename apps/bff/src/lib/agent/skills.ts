@@ -1,4 +1,4 @@
-import { realpath } from 'node:fs/promises'
+import { realpath, stat } from 'node:fs/promises'
 import { join, resolve, sep } from 'node:path'
 import {
   BACKGROUND_CONTEXT,
@@ -78,51 +78,98 @@ function dedupe(skills: readonly AgentSkill[]): AgentSkill[] {
   })
 }
 
-async function loadFrom(dirs: readonly string[]): Promise<AgentSkill[]> {
+/**
+ * 这次读盘是不是完整地读完了。文件系统这一刻不给读（权限、挂载还没就绪、镜像层还在解压）
+ * 与「这个部署本来就没有技能」长得一模一样，所以把它们分开：不完整的那次不许进缓存。
+ */
+const RETRYABLE_DIAGNOSTICS: ReadonlySet<string> = new Set([
+  'file_info_failed',
+  'list_failed',
+  'read_failed',
+])
+
+interface LoadedSkills {
+  readonly skills: AgentSkill[]
+  /** 整棵树都读到了；false 表示这次的结果只是当下能读到的那部分。 */
+  readonly complete: boolean
+}
+
+async function loadFrom(dirs: readonly string[]): Promise<LoadedSkills> {
   const env = new NodeExecutionEnv({ cwd: root })
   const result = await loadSkills(env, [...dirs], BACKGROUND_CONTEXT)
+  let complete = true
   for (const diagnostic of result.diagnostics) {
+    if (RETRYABLE_DIAGNOSTICS.has(diagnostic.code)) complete = false
     log.warn(
       { event: 'agent.skill_diagnostic', code: diagnostic.code, path: diagnostic.path },
       diagnostic.message,
     )
   }
-  return result.skills
-    .filter((skill) => !skill.disableModelInvocation)
-    .map((skill) => ({
-      name: skill.name,
-      title: agentSkillTitle(skill.content, skill.name),
-      description: skill.description,
-      content: skill.content,
-      directory: directoryOf(skill.filePath),
-    }))
+  return {
+    complete,
+    skills: result.skills
+      .filter((skill) => !skill.disableModelInvocation)
+      .map((skill) => ({
+        name: skill.name,
+        title: agentSkillTitle(skill.content, skill.name),
+        description: skill.description,
+        content: skill.content,
+        directory: directoryOf(skill.filePath),
+      })),
+  }
 }
 
-async function loadIndex(): Promise<SkillIndex> {
+/** 技能根目录在不在。不在是「这个部署没有技能」，在却空着是「有人漏了什么」。 */
+async function rootExists(): Promise<boolean> {
+  try {
+    return (await stat(root)).isDirectory()
+  } catch {
+    return false
+  }
+}
+
+interface LoadOutcome {
+  readonly index: SkillIndex
+  readonly complete: boolean
+}
+
+async function loadIndex(): Promise<LoadOutcome> {
   try {
     const shared = join(root, 'shared')
     const [image, video] = await Promise.all([
       loadFrom([join(root, 'image'), shared]),
       loadFrom([join(root, 'video'), shared]),
     ])
-    const next = { image: dedupe(image), video: dedupe(video) }
-    log.info(
-      { event: 'agent.skills_loaded', image: next.image.length, video: next.video.length },
-      'agent skills loaded',
-    )
-    return next
+    const next = { image: dedupe(image.skills), video: dedupe(video.skills) }
+    const complete = image.complete && video.complete
+    const counts = { image: next.image.length, video: next.video.length }
+    if (complete && counts.image + counts.video === 0 && (await rootExists())) {
+      // 镜像漏打包 `apps/bff/skills` 与「这个部署本来就没有技能」长得一模一样：
+      // 目录在、却一条都读不出来，只有这条日志分得开。
+      log.error(
+        { event: 'agent.skills_empty', root },
+        'agent skills directory exists but holds no usable skill',
+      )
+    } else {
+      log.info({ event: 'agent.skills_loaded', ...counts, complete }, 'agent skills loaded')
+    }
+    return { index: next, complete }
   } catch (thrown) {
-    // 技能是加分项，不是服务的起跑线：读不出来就当这个部署没有技能，别让 BFF 起不来。
-    log.warn({ event: 'agent.skills_load_failed', err: thrown }, 'agent skills not loaded')
-    return EMPTY_INDEX
+    // 技能是加分项，不是服务的起跑线：读不出来就当这个部署此刻没有技能，别让 BFF 起不来。
+    log.error({ event: 'agent.skills_load_failed', err: thrown }, 'agent skills not loaded')
+    return { index: EMPTY_INDEX, complete: false }
   }
 }
 
-/** 加载一次并缓存。起轮前和 BFF 启动时都会叫它，重复调用共享同一次读盘。 */
+/**
+ * 加载一次并缓存。起轮前和 BFF 启动时都会叫它，重复调用共享同一次读盘。
+ * **只有完整读完的那次才进缓存**：否则文件系统一次不给读，这个进程到死都没有技能。
+ */
 export function ensureAgentSkills(): Promise<SkillIndex> {
-  loading ??= loadIndex().then((loaded) => {
-    index = loaded
-    return loaded
+  loading ??= loadIndex().then((outcome) => {
+    index = outcome.index
+    if (!outcome.complete) loading = undefined
+    return outcome.index
   })
   return loading
 }
@@ -138,17 +185,6 @@ export function findAgentSkill(mode: AgentMode, name: string): AgentSkill | unde
 
 export function agentSkillSummaries(mode: AgentMode): AgentSkillSummary[] {
   return index[mode].map(({ name, title, description }) => ({ name, title, description }))
-}
-
-/**
- * 不看 mode 地按 name 找。工具起跑那一刻 pi 只给参数，拿不到这一轮的 mode，而面板上那行
- * 标题总得写对；真正的 mode 门禁在 `execute` 里，这里只为了起跑那一行标题。
- */
-export function findAgentSkillInAnyMode(name: string): AgentSkill | undefined {
-  return (
-    index.image.find((skill) => skill.name === name) ??
-    index.video.find((skill) => skill.name === name)
-  )
 }
 
 /** 测试注入目录用的接缝：换根目录并丢掉缓存，下一次 `ensureAgentSkills()` 重新读盘。 */
