@@ -5,6 +5,7 @@ import { resolve } from 'path'
 import type { Plugin } from 'vite'
 import { defineConfig } from 'vitest/config'
 import { normalizeDevProxyConfig } from './src/lib/devProxy'
+import { themeBootPlugin } from './src/theme/vitePlugin'
 
 const pkg = JSON.parse(readFileSync('./package.json', 'utf-8'))
 
@@ -68,7 +69,7 @@ export default defineConfig(({ command }) => {
   }
 
   return {
-    plugins: [react(), injectSwBuildVersion()],
+    plugins: [react(), themeBootPlugin(), injectSwBuildVersion()],
     base: '/',
     define: {
       __APP_VERSION__: JSON.stringify(pkg.version),

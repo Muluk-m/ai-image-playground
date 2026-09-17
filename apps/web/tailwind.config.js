@@ -19,7 +19,8 @@ const privateWebOverlayContent = privateWebOverlayRoot
 
 /** @type {import('tailwindcss').Config} */
 export default {
-  darkMode: 'media',
+  // 由 src/theme 在 <html> 上打 .dark：没选过时它跟随系统，选过就固定，所以不能再用 media。
+  darkMode: 'class',
   content: [
     './index.html',
     './src/**/*.{js,ts,jsx,tsx}',

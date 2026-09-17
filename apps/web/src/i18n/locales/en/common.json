@@ -1,8 +1,16 @@
 {
   "documentTitle": "Muvloom · AI image and video studio",
+  "theme": {
+    "label": "Theme",
+    "light": "Light",
+    "dark": "Dark",
+    "system": "System",
+    "toDark": "Switch to dark",
+    "toLight": "Switch to light"
+  },
   "locale": {
     "switchAria": "Language: {{current}}. Switch to {{next}}",
-    "label": "Interface language",
+    "label": "Language",
     "zh-CN": "中文",
     "en": "English"
   },
