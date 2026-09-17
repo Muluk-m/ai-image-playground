@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeEach, expect, it, spyOn } from 'bun:test'
 import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
-import { eq } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import sharp from 'sharp'
 import {
   _setPrivateBffOverlayForTesting,
@@ -344,15 +344,14 @@ it('完成记录与命令回执不会随临时任务过期而消失', async () =
     await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, input)
   ).json()
   await runTask(original.request_id)
-  expect(
-    await (await request(`/api/generations/${original.request_id}`, deviceB)).json(),
-  ).toMatchObject({ status: 'completed', revision: '3' })
+  const completed = await (await request(`/api/generations/${original.request_id}`, deviceB)).json()
+  expect(completed.status).toBe('completed')
   expect(await purgeOldTasks(-1)).toBe(1)
   const replay = await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceB, input)
   expect(replay.status).toBe(200)
   expect((await replay.json()).request_id).toBe(original.request_id)
   expect((await (await request('/api/generations', deviceB)).json()).items).toMatchObject([
-    { id: original.request_id, status: 'completed' },
+    { id: original.request_id, status: 'completed', revision: completed.revision },
   ])
 })
 
@@ -989,4 +988,39 @@ it('原件正在保存时另一设备看到归档状态，完成后变为已保�
   expect((await (await request(`/api/generations/${id}`, deviceB)).json()).archiveStatus).toBe(
     'ready',
   )
+})
+
+it('首次归档凭据写入短暂失败仍保存已返回原图，不释放响应后重新生成', async () => {
+  const png = await sharp({ create: { width: 8, height: 6, channels: 3, background: '#ddaa88' } })
+    .png()
+    .toBuffer()
+  let calls = 0
+  setUpstreamFetchForTesting((async () => {
+    calls++
+    return Response.json({ data: [{ b64_json: png.toString('base64') }] })
+  }) as NonNullable<Parameters<typeof setUpstreamFetchForTesting>[0]>)
+  const { request_id: id } = await (
+    await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, input)
+  ).json()
+  await db.execute(sql`CREATE SEQUENCE generation_checkpoint_fault`)
+  await db.execute(
+    sql`CREATE FUNCTION generation_checkpoint_fault() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF nextval('generation_checkpoint_fault') = 1 THEN RAISE EXCEPTION 'checkpoint temporarily unavailable'; END IF; RETURN NEW; END; $$`,
+  )
+  await db.execute(
+    sql`CREATE TRIGGER generation_checkpoint_fault BEFORE UPDATE OF archive_payload ON tasks FOR EACH ROW WHEN (OLD.archive_payload IS NULL AND NEW.archive_payload IS NOT NULL) EXECUTE FUNCTION generation_checkpoint_fault()`,
+  )
+  try {
+    await runTask(id)
+    const detail = await (await request(`/api/generations/${id}`, deviceB)).json()
+    expect(detail.status).toBe('completed')
+    const { originalUrl } = await (
+      await request(`/api/media/${detail.outputs[0].mediaId}/access`, deviceB)
+    ).json()
+    expect(await durable.read(new URL(originalUrl).pathname.slice(1))).toEqual(new Uint8Array(png))
+    expect(calls).toBe(1)
+  } finally {
+    await db.execute(sql`DROP TRIGGER generation_checkpoint_fault ON tasks`)
+    await db.execute(sql`DROP FUNCTION generation_checkpoint_fault()`)
+    await db.execute(sql`DROP SEQUENCE generation_checkpoint_fault`)
+  }
 })

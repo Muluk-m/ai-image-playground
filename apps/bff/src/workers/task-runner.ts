@@ -268,7 +268,15 @@ export async function runTask(id: string): Promise<void> {
     if (cloudArchive) {
       archivePayload = generationSourceCheckpoint(id, task.provider, payload)
       if (archivePayload) {
-        if (!(await saveArchiveCheckpoint(id, archivePayload))) return
+        try {
+          if (!(await saveArchiveCheckpoint(id, archivePayload))) return
+        } catch {
+          // Keep the successful response alive; a checkpoint outage must not discard its bytes.
+          log.warn(
+            { event: 'task.checkpoint_delayed', taskId: id },
+            'saving original before retrying archive checkpoint',
+          )
+        }
       }
     }
     const archivedPayload = cloudArchive

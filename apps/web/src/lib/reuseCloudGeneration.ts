@@ -64,8 +64,13 @@ export async function reuseCloudGeneration(detail: GenerationDetail, signal: Abo
       current()
       await new Promise<void>((resolve, reject) => {
         const tx = database.transaction('images', 'readwrite')
-        for (const image of inputs)
-          tx.objectStore('images').put({ ...image, source: 'upload', createdAt: Date.now() })
+        const images = tx.objectStore('images')
+        for (const image of inputs) {
+          const existing = images.get(image.id)
+          existing.onsuccess = () => {
+            if (!existing.result) images.put({ ...image, source: 'upload', createdAt: Date.now() })
+          }
+        }
         tx.oncomplete = () => resolve()
         tx.onerror = () => reject(tx.error)
         tx.onabort = () => reject(tx.error)
