@@ -224,7 +224,9 @@ export interface AgentInterjectionEvent {
 
 /** 上游按 `stream_options.include_usage` 在末帧回的用量。中转网关不透传时是 null。 */
 export interface AgentTurnUsage {
+  /** Total input, including the separately reported cached portion. */
   readonly inputTokens: number
+  readonly cachedInputTokens?: number
   readonly outputTokens: number
 }
 

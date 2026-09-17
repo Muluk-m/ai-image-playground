@@ -50,3 +50,35 @@ describe('actualChatUsage', () => {
     ).toBe(1)
   })
 })
+
+describe('cached input settlement', () => {
+  const pricing = { outputPriceRatio: 5, outputReserveTokens: 1500, cachedInputPriceRatio: 0.1 }
+  it('charges cached input once at one tenth, then rounds the whole turn once', () => {
+    const usage = actualChatUsage(
+      { inputTokens: 10000, cachedInputTokens: 8000, outputTokens: 1000 },
+      pricing,
+    )
+    expect(usage.unitMultiplier).toBeCloseTo(7.8)
+    expect(usage.tokens).toEqual({ input: 10000, cachedInput: 8000, output: 1000 })
+    expect(credits(1, usage)).toBe(8)
+  })
+  it('settles fully cached input without treating the call as missing usage', () => {
+    expect(
+      credits(
+        1,
+        actualChatUsage({ inputTokens: 10000, cachedInputTokens: 10000, outputTokens: 0 }, pricing),
+      ),
+    ).toBe(1)
+  })
+  it('reserves ordinary input price because cache hits are unknown before the request', () => {
+    expect(reservedChatUsage(10000, pricing).unitMultiplier).toBe(17.5)
+  })
+  it('keeps cache reads free until the private overlay configures their rate', () => {
+    expect(
+      actualChatUsage(
+        { inputTokens: 10000, cachedInputTokens: 10000, outputTokens: 0 },
+        FALLBACK_CHAT_PRICING,
+      ).unitMultiplier,
+    ).toBe(0)
+  })
+})
