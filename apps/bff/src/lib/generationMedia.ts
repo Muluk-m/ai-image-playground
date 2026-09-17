@@ -108,22 +108,57 @@ export async function spoolGenerationOutputs(
   signal: AbortSignal,
 ) {
   if (
-    provider === 'openai-compat' &&
     payload &&
     typeof payload === 'object' &&
     'archive_store' in payload &&
     payload.archive_store === 'durable'
   ) {
-    const next = structuredClone(payload) as { data?: Record<string, unknown>[] }
-    const keys = new Set(await durableMediaStore().listPrefix(`${id}/out/`))
-    for (const [index, item] of (next.data ?? []).entries()) {
-      const key = `${id}/out/${index}`
-      if (typeof item.url === 'string' && keys.has(key)) {
-        item.object = key
-        delete item.url
+    payload = await withMediaTransfer(async () => {
+      const next = structuredClone(payload) as {
+        data?: Record<string, unknown>[]
+        candidates?: { content?: { parts?: { inlineData?: Record<string, unknown> }[] } }[]
       }
-    }
-    payload = next
+      const entries =
+        provider === 'openai-compat'
+          ? (next.data ?? [])
+          : (next.candidates ?? []).flatMap((candidate) =>
+              (candidate.content?.parts ?? []).flatMap((part) =>
+                part.inlineData ? [part.inlineData] : [],
+              ),
+            )
+      const store = durableMediaStore()
+      const keys = new Set(await store.listPrefix(`${id}/`))
+      for (const [index, item] of entries.entries()) {
+        const key = `${id}/out/${index}`
+        const candidate = `${id}/candidate/${index}`
+        if (!keys.has(key) && transform && keys.has(candidate)) {
+          let output: Awaited<ReturnType<OutputTransform>>
+          try {
+            output = await transform(await readMediaBytes(store, candidate))
+          } catch (cause) {
+            throw new MaskedOutputArchiveError(
+              cause instanceof Error ? cause.message : '局部编辑结果无法应用',
+              [{ object: candidate, mime: 'image/png', store: 'durable' }],
+              { cause },
+            )
+          }
+          await store.write(key, output.bytes, output.mime)
+          keys.add(key)
+          item[provider === 'openai-compat' ? 'mime' : 'mimeType'] = output.mime
+          item.masked_edit = {
+            ...output.inspection,
+            candidate: { object: candidate, mime: 'image/png', store: 'durable' },
+          }
+          item.size = `${output.inspection.width}x${output.inspection.height}`
+        }
+        if (keys.has(key)) {
+          item.object = key
+          delete item.url
+          delete item[provider === 'openai-compat' ? 'b64_json' : 'data']
+        }
+      }
+      return next
+    })
   }
   const deadline = performance.now() + 15 * 60_000
   let attempt = 0
