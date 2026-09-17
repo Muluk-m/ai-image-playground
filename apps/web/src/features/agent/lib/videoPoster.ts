@@ -1,4 +1,3 @@
-import { AGENT_CONVERSATION_KEY, scopedStorageName } from '../../../lib/authScope'
 import { captureVideoFrame } from '../../video/lib/playback'
 
 /** 上游慢或跨域没配好时，抓封面不该把整次落画布拖住。 */
@@ -7,10 +6,14 @@ const FALLBACK_WIDTH = 640
 const FALLBACK_HEIGHT = 360
 const FALLBACK_FILL = '#17171a'
 
-function blankPoster(width: number, height: number): string {
+/** 取不到首帧时的深色底：视频仍然点得开，只是没有封面。 */
+export function blankVideoPoster(size: {
+  readonly width?: number
+  readonly height?: number
+}): string {
   const canvas = document.createElement('canvas')
-  canvas.width = Math.max(1, Math.round(width))
-  canvas.height = Math.max(1, Math.round(height))
+  canvas.width = Math.max(1, Math.round(size.width ?? FALLBACK_WIDTH))
+  canvas.height = Math.max(1, Math.round(size.height ?? FALLBACK_HEIGHT))
   const context = canvas.getContext('2d')
   if (context) {
     context.fillStyle = FALLBACK_FILL
@@ -19,7 +22,8 @@ function blankPoster(width: number, height: number): string {
   return canvas.toDataURL('image/png')
 }
 
-function captureFirstFrame(url: string): Promise<string | null> {
+/** 抓视频首帧当封面：抓不到、或上游慢到超时都返回 null，不该把调用方拖住。 */
+export function captureVideoPoster(url: string): Promise<string | null> {
   return new Promise((resolve) => {
     const video = document.createElement('video')
     const listeners = new AbortController()
@@ -49,29 +53,6 @@ function captureFirstFrame(url: string): Promise<string | null> {
     video.src = url
     video.load()
   })
-}
-
-/** 画布上的视频对象是一张封面加一个播放地址；取不到首帧就给深色底，仍然点得开。 */
-export async function videoPosterDataUrl(
-  url: string,
-  size: { readonly width?: number; readonly height?: number },
-): Promise<string> {
-  const captured = await capturedVideoPoster(url)
-  return captured ?? blankPoster(size.width ?? FALLBACK_WIDTH, size.height ?? FALLBACK_HEIGHT)
-}
-
-const capturedPosters = new Map<string, Promise<string | null>>()
-export function capturedVideoPoster(url: string): Promise<string | null> {
-  const key = `${scopedStorageName(AGENT_CONVERSATION_KEY)}:${url}`
-  const hit = capturedPosters.get(key)
-  if (hit) return hit
-  const pending = captureFirstFrame(url).then((poster) => {
-    if (!poster) capturedPosters.delete(key)
-    return poster
-  })
-  capturedPosters.set(key, pending)
-  if (capturedPosters.size > 12) capturedPosters.delete(capturedPosters.keys().next().value!)
-  return pending
 }
 
 /** Only replace the exact legacy solid placeholder, never a user's real cover. */
