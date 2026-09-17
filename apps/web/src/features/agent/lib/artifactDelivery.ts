@@ -2,14 +2,13 @@ import type { AgentToolArtifact } from '@image-playground/shared'
 import { i18next } from '../../../i18n'
 import { AGENT_CONVERSATION_KEY, scopedStorageName } from '../../../lib/authScope'
 import type { AgentDeliveryStatus, AgentPanelMessage, AgentToolMessage } from '../types'
-import { fetchToolImage, toolArtifactUrl } from './agentClient'
+import { artifactBitmap } from './artifactSource'
 import {
   type AgentCanvasSink,
   type AgentPlacedArtifact,
   type AgentReservation,
   agentCanvasSink,
 } from './canvasSink'
-import { videoPosterDataUrl } from './videoPoster'
 
 interface DeliveryOrigin {
   readonly generation: number
@@ -38,15 +37,13 @@ export interface TurnArtifactDelivery {
   settled(): Promise<void>
 }
 
+/** 位图问 `artifactSource` 要；这里只管视频落画布的是封面加播放来源，mp4 不下载到本地。 */
 async function prepare(artifact: AgentToolArtifact): Promise<AgentPlacedArtifact> {
   const { artifactId, taskId, outputIndex } = artifact
+  const dataUrl = await artifactBitmap(artifact)
   return artifact.media === 'video'
-    ? {
-        artifactId,
-        dataUrl: await videoPosterDataUrl(toolArtifactUrl(artifact), artifact),
-        video: { taskId, outputIndex },
-      }
-    : { artifactId, dataUrl: await fetchToolImage(artifact) }
+    ? { artifactId, dataUrl, video: { taskId, outputIndex } }
+    : { artifactId, dataUrl }
 }
 
 /** 交付串行，文字流不等它；每轮持有原画布，持久化文档可在切换后完成交付。 */

@@ -3,7 +3,6 @@ import type {
   AgentConversationView,
   AgentFrame,
   AgentMessageView,
-  AgentToolArtifact,
   AgentTurnAlreadyRunningBody,
   AgentTurnEvent,
   AgentTurnParams,
@@ -12,7 +11,6 @@ import type {
 } from '@image-playground/shared'
 import { AGENT_FRAME_SEPARATOR, DEVICE_ID_HEADER, parseAgentFrame } from '@image-playground/shared'
 import { authenticatedBffFetch } from '../../../lib/authClient'
-import { fetchImageDataUrl, queueOutputUrl } from '../../../lib/channels/queueClient'
 import { getDeviceId } from '../../../lib/deviceId'
 import { bffBaseUrl } from '../../../lib/runtimeConfig'
 
@@ -317,13 +315,4 @@ export async function interjectTurn(
     jsonInit({ deviceId: getDeviceId(), text, references }),
   )
   if (!response.ok) throw await requestError(response)
-}
-
-export function fetchToolImage(artifact: AgentToolArtifact): Promise<string> {
-  return fetchImageDataUrl(bffBaseUrl(), artifact.taskId, artifact.outputIndex, artifact.mime)
-}
-
-/** 视频产物的播放地址。mp4 不落本地，画布与结果卡都打这里。 */
-export function toolArtifactUrl(artifact: AgentToolArtifact): string {
-  return queueOutputUrl(artifact.taskId, artifact.outputIndex)
 }

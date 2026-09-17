@@ -5,7 +5,9 @@ import { recoverVideoPoster } from '../../../../features/canvas/lib/recoverVideo
 
 vi.mock('../../../../features/agent/lib/videoPoster', () => ({
   isBlankVideoPoster: async (value: string) => value === 'blank',
-  capturedVideoPoster: async () => 'real-frame',
+}))
+vi.mock('../../../../features/agent/lib/artifactSource', () => ({
+  videoOutputFrame: async () => 'real-frame',
 }))
 it('repairs only the legacy blank file and preserves geometry and real covers', async () => {
   const doc = new CanvasDoc()
