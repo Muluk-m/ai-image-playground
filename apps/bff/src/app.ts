@@ -15,6 +15,7 @@ import { generationRoutes } from './routes/generations'
 import { internalOpsRoutes } from './routes/internal-ops'
 import { internalUserRoutes } from './routes/internal-users'
 import { matteRoutes } from './routes/matte'
+import { mediaRoutes } from './routes/media'
 import { oauthRoutes } from './routes/oauth'
 import { projectRoutes } from './routes/projects'
 import { remixAnalyzeRoutes } from './routes/remix-analyze'
@@ -144,6 +145,7 @@ export const app = new Elysia()
   .use(agentRoutes)
   .use(syncRoutes)
   .use(projectRoutes)
+  .use(mediaRoutes)
   .use(generationRoutes)
   .use(internalUserRoutes)
   .use(internalOpsRoutes)

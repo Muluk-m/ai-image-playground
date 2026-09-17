@@ -1,3 +1,4 @@
+import MediaImage from '../../../components/MediaImage'
 import type { SuggestionMenuGroup, SuggestionMenuOption } from '../../../components/SuggestionMenu'
 import { i18next } from '../../../i18n'
 import { getImageMentionLabel, imageMentionMatches } from '../../../lib/promptImageMentions'
@@ -48,7 +49,7 @@ export function inputImageOptions<T>(
     .map((image, index) => ({
       key: `image:${image.id}`,
       label: label(image, index),
-      thumbnail: <img src={image.dataUrl} className="h-full w-full object-cover" alt="" />,
+      thumbnail: <MediaImage src={image.dataUrl} className="h-full w-full object-cover" alt="" />,
       value: value(index),
       index,
     }))

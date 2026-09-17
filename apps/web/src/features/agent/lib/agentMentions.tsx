@@ -1,3 +1,4 @@
+import MediaImage from '../../../components/MediaImage'
 import type { SuggestionMenuGroup } from '../../../components/SuggestionMenu'
 import { i18next } from '../../../i18n'
 import { getImageMentionLabel } from '../../../lib/promptImageMentions'
@@ -53,7 +54,7 @@ export function buildAgentMentionGroups({
     .map((image) => ({
       key: `canvas:${image.imageId}`,
       label: image.label,
-      thumbnail: <img src={image.dataUrl} className="h-full w-full object-cover" alt="" />,
+      thumbnail: <MediaImage src={image.dataUrl} className="h-full w-full object-cover" alt="" />,
       value: { type: 'canvas', imageId: image.imageId } as const,
     }))
 

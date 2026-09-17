@@ -4,6 +4,7 @@ import { config } from '../config'
 import { db, schema } from '../db/client'
 import { objectStore } from './objectStore'
 import type { BffTransaction } from './private-overlay'
+import { lockMediaOwner, mediaUsage } from './projectMedia'
 
 export interface StoredAssetImage {
   readonly bytes: Uint8Array<ArrayBuffer>
@@ -32,9 +33,9 @@ export function assetImageByteLimit(): number {
   return config.operator.quotas['sync:asset-image-bytes']
 }
 
-async function totalBytes(userId: string): Promise<number> {
+async function totalBytes(tx: BffTransaction, userId: string): Promise<number> {
   // sum() 出来是 bigint，别往 int4 上转——运营把每用户配额调过 2 GB 之后这里就会溢出报错。
-  const [row] = await db
+  const [row] = await tx
     .select({ total: sql<string | number>`coalesce(sum(${schema.user_asset_objects.bytes}), 0)` })
     .from(schema.user_asset_objects)
     .where(eq(schema.user_asset_objects.user_id, userId))
@@ -57,41 +58,48 @@ export async function storeAssetImage(
     return { ok: false, error: 'asset_image_too_large', limit: imageLimit }
   }
 
-  const [used, [existing]] = await Promise.all([
-    totalBytes(userId),
-    db
-      .select({ bytes: schema.user_asset_objects.bytes })
-      .from(schema.user_asset_objects)
-      .where(
-        and(
-          eq(schema.user_asset_objects.user_id, userId),
-          eq(schema.user_asset_objects.image_id, imageId),
+  return db.transaction(async (tx) => {
+    await lockMediaOwner(tx, userId)
+    const [used, [existing]] = await Promise.all([
+      totalBytes(tx, userId),
+      tx
+        .select({ bytes: schema.user_asset_objects.bytes })
+        .from(schema.user_asset_objects)
+        .where(
+          and(
+            eq(schema.user_asset_objects.user_id, userId),
+            eq(schema.user_asset_objects.image_id, imageId),
+          ),
         ),
-      ),
-  ])
-  if (existing) {
-    return { ok: true, result: { imageId, bytes: existing.bytes, totalBytes: used } }
-  }
+    ])
+    if (existing) {
+      return { ok: true, result: { imageId, bytes: existing.bytes, totalBytes: used } }
+    }
 
-  if (used + bytes.byteLength > userLimit) {
-    return { ok: false, error: 'asset_storage_quota_exceeded', limit: userLimit }
-  }
+    if (
+      used + bytes.byteLength > userLimit ||
+      (await mediaUsage(tx, userId)) + bytes.byteLength >
+        config.operator.quotas['sync:user-media-bytes']
+    ) {
+      return { ok: false, error: 'asset_storage_quota_exceeded', limit: userLimit }
+    }
 
-  await objectStore().write(assetObjectKey(userId, imageId), bytes, contentType)
-  await db
-    .insert(schema.user_asset_objects)
-    .values({
-      user_id: userId,
-      image_id: imageId,
-      bytes: bytes.byteLength,
-      content_type: contentType,
-      created_at: Date.now(),
-    })
-    .onConflictDoNothing()
-  return {
-    ok: true,
-    result: { imageId, bytes: bytes.byteLength, totalBytes: used + bytes.byteLength },
-  }
+    await objectStore().write(assetObjectKey(userId, imageId), bytes, contentType)
+    await tx
+      .insert(schema.user_asset_objects)
+      .values({
+        user_id: userId,
+        image_id: imageId,
+        bytes: bytes.byteLength,
+        content_type: contentType,
+        created_at: Date.now(),
+      })
+      .onConflictDoNothing()
+    return {
+      ok: true,
+      result: { imageId, bytes: bytes.byteLength, totalBytes: used + bytes.byteLength },
+    }
+  })
 }
 
 export async function readAssetImage(

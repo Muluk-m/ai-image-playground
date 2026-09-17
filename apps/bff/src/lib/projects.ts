@@ -4,7 +4,7 @@ import {
   PROJECT_RECEIPT_COUNT,
   type ProjectWrite,
 } from '@image-playground/shared'
-import { and, asc, count, eq, gt } from 'drizzle-orm'
+import { and, asc, count, eq, gt, inArray } from 'drizzle-orm'
 import { config } from '../config'
 import { db, schema } from '../db/client'
 
@@ -16,6 +16,7 @@ const summaryColumns = {
   createdAt: table.created_at,
   updatedAt: table.updated_at,
   elementCount: table.element_count,
+  coverMediaId: table.cover_media_id,
 }
 
 export async function listProjects(userId: string, pageSize: number, cursor?: string) {
@@ -66,6 +67,24 @@ export async function writeProject(userId: string, id: string, input: ProjectWri
         error: 'project_conflict',
         revision: existing?.revision ?? 0,
       }
+    const imageIds = input.document.elements.flatMap((element) =>
+      element.type === 'image' ? [element.mediaId] : [],
+    )
+    const mediaIds = [...new Set(imageIds)]
+    if (mediaIds.length) {
+      const ready = await tx
+        .select({ id: schema.media_objects.id })
+        .from(schema.media_objects)
+        .where(
+          and(
+            eq(schema.media_objects.user_id, userId),
+            eq(schema.media_objects.status, 'ready'),
+            inArray(schema.media_objects.id, mediaIds),
+          ),
+        )
+      if (ready.length !== mediaIds.length)
+        return { ok: false as const, status: 409 as const, error: 'project_media_not_ready' }
+    }
     const now = Date.now()
     const project: CloudProjectSummary = {
       id,
@@ -74,12 +93,14 @@ export async function writeProject(userId: string, id: string, input: ProjectWri
       createdAt: existing?.created_at ?? now,
       updatedAt: now,
       elementCount: input.document.elements.length,
+      coverMediaId: imageIds.at(-1) ?? null,
     }
     const values = {
       name: project.name,
       revision: project.revision,
       document: input.document,
       element_count: project.elementCount,
+      cover_media_id: project.coverMediaId,
       updated_at: now,
       receipts: [
         ...(existing?.receipts ?? []),
@@ -106,6 +127,25 @@ export async function writeProject(userId: string, id: string, input: ProjectWri
       if (!created.length)
         return { ok: false as const, status: 404 as const, error: 'project_not_found' }
     }
+    await tx
+      .delete(schema.media_references)
+      .where(
+        and(
+          eq(schema.media_references.user_id, userId),
+          eq(schema.media_references.owner_kind, 'project'),
+          eq(schema.media_references.owner_id, id),
+        ),
+      )
+    if (mediaIds.length)
+      await tx.insert(schema.media_references).values(
+        mediaIds.map((mediaId) => ({
+          user_id: userId,
+          media_id: mediaId,
+          owner_kind: 'project' as const,
+          owner_id: id,
+          created_at: now,
+        })),
+      )
     return { ok: true as const, project }
   })
 }
