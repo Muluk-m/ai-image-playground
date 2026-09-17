@@ -21,26 +21,26 @@ export function createAlertSender(options: AlertSenderOptions): AlertSender {
   const url = options.webhookUrl?.trim()
   const fetchImpl = options.fetchImpl ?? fetch
   return async (messages) => {
-    if (!url) return
-    for (const message of messages) {
-      const response = await fetchImpl(url, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          msg_type: 'text',
-          content: { text: `${MARK[message.kind]}【${options.deployment}】${message.text}` },
-        }),
-        signal: AbortSignal.timeout(10_000),
-      })
-      if (!response.ok) throw new Error(`alert webhook answered ${response.status}`)
-      // 被关键词或签名校验拦下的消息，飞书回的是 200，错误在 body 里。
-      const body = (await response.json().catch(() => null)) as {
-        code?: number
-        msg?: string
-      } | null
-      if (body && typeof body.code === 'number' && body.code !== 0) {
-        throw new Error(`alert webhook refused the message: ${body.code} ${body.msg ?? ''}`.trim())
-      }
+    if (!url || messages.length === 0) return
+    // 一轮的几条告警并成一条消息发：逐条发的话，发到一半失败，调用方只知道「这轮没发成」，
+    // 下一轮会把已经送达的那几条再发一遍。
+    const text = messages
+      .map((message) => `${MARK[message.kind]}【${options.deployment}】${message.text}`)
+      .join('\n')
+    const response = await fetchImpl(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ msg_type: 'text', content: { text } }),
+      signal: AbortSignal.timeout(10_000),
+    })
+    if (!response.ok) throw new Error(`alert webhook answered ${response.status}`)
+    // 被关键词或签名校验拦下的消息，飞书回的是 200，错误在 body 里。
+    const body = (await response.json().catch(() => null)) as {
+      code?: number
+      msg?: string
+    } | null
+    if (body && typeof body.code === 'number' && body.code !== 0) {
+      throw new Error(`alert webhook refused the message: ${body.code} ${body.msg ?? ''}`.trim())
     }
   }
 }

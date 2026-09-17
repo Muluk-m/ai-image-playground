@@ -240,9 +240,8 @@ services:
         source: /proc/meminfo
         target: /host/meminfo
         read_only: true
-    depends_on:
-      bff:
-        condition: service_healthy
+    # Deliberately no depends_on: a BFF that never turns healthy is one of the moments the disk
+    # and memory alerts are for. Reports to it simply fail and are retried on the next sample.
     networks:
       - application
 

@@ -19,7 +19,7 @@ function recorder(reply: () => Response = () => Response.json({ code: 0 })) {
 }
 
 describe('createAlertSender', () => {
-  it('posts one text message per alert, naming the deployment so two editions are not confused', async () => {
+  it('posts a round of alerts as one message, naming the deployment so two editions are not confused', async () => {
     const { calls, fetchImpl } = recorder()
     const send = createAlertSender({
       webhookUrl: 'https://hook.test/abc',
@@ -34,12 +34,10 @@ describe('createAlertSender', () => {
         url: 'https://hook.test/abc',
         body: {
           msg_type: 'text',
-          content: { text: '🔴【paid】磁盘已用 96%，只剩 2.0 GB（告警线 85%）' },
+          content: {
+            text: '🔴【paid】磁盘已用 96%，只剩 2.0 GB（告警线 85%）\n🟢【paid】已恢复：磁盘已用 40%',
+          },
         },
-      },
-      {
-        url: 'https://hook.test/abc',
-        body: { msg_type: 'text', content: { text: '🟢【paid】已恢复：磁盘已用 40%' } },
       },
     ])
   })

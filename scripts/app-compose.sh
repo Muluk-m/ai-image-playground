@@ -106,6 +106,9 @@ require_tunnel_credentials() {
 activate_backend_then_ingress() {
   compose up --detach --wait "$@" dependency-check bff worker admin
   compose up --detach --wait "$@" cloudflared pg-backup
+  # Started last and not waited on: the collector watches the deployment, it is not part of it,
+  # so a collector that cannot start must not fail a rollout. The board shows it as missing.
+  compose up --detach "$@" host-collector
 }
 
 case "$command" in
