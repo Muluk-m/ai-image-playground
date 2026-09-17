@@ -117,6 +117,11 @@ beforeAll(async () => {
     `---\nname: storyboard-short\ndescription: 何时用：一句话要一条多镜短片。不处理：单张图。\n---\n\n${BODY}\n`,
     'utf8',
   )
+  await writeFile(
+    join(dir, 'meta.json'),
+    JSON.stringify({ icon: 'clapperboard', summary: '一句话生成多镜头短片' }),
+    'utf8',
+  )
   _setChannelsForTesting([VIDEO_CHANNEL])
   setAgentSkillsRootForTesting(root)
   await ensureAgentSkills()
@@ -145,6 +150,9 @@ describe('GET /api/agent/skills', () => {
           name: 'storyboard-short',
           title: TITLE,
           description: '何时用：一句话要一条多镜短片。不处理：单张图。',
+          // 界面用的图标与一句话简介来自旁路的 meta.json，跟着清单一起发给前端。
+          icon: 'clapperboard',
+          summary: '一句话生成多镜头短片',
         },
       ],
     })

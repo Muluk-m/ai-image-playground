@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it, spyOn } from 'bun:test'
 import { chmod, mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { DEFAULT_AGENT_SKILL_ICON } from '@image-playground/shared'
 
 // 只读磁盘上的技能目录，一句 SQL 都不发；库名故意不可达，真连上就会立刻炸出来。
 process.env.DATABASE_URL = 'postgres://unused/agent-skills'
@@ -49,6 +50,19 @@ beforeAll(async () => {
   await skill('image', 'mismatch', 'name: other-name\ndescription: 何时用：随便。', '正文')
   await skill('image', 'no-description', 'name: no-description', '正文')
 
+  // 界面元数据走旁路文件：写对的一条、写坏的一条、压根没写的一条，三种都要有。
+  await writeFile(
+    join(root, 'video', 'storyboard', 'meta.json'),
+    JSON.stringify({ icon: 'clapperboard', summary: '一句话生成多镜头短片' }),
+    'utf8',
+  )
+  await writeFile(join(root, 'image', 'main-image', 'meta.json'), '{ 这不是 JSON', 'utf8')
+  await writeFile(
+    join(root, 'shared', 'palette', 'meta.json'),
+    JSON.stringify({ icon: 'Palette', summary: '   ' }),
+    'utf8',
+  )
+
   const withFiles = join(root, 'video', 'storyboard', 'references')
   await mkdir(withFiles, { recursive: true })
   await writeFile(join(withFiles, 'shot-list.md'), '# 镜头清单\n每镜一行。', 'utf8')
@@ -91,8 +105,36 @@ describe('agent skills loading', () => {
       name: 'storyboard',
       title: '分镜短片',
       description: '何时用：多镜短片。',
+      icon: 'clapperboard',
+      summary: '一句话生成多镜头短片',
     })
     expect(JSON.stringify(agentSkillSummaries('video'))).not.toContain('分镜正文')
+  })
+
+  it('takes icon and summary from meta.json', () => {
+    expect(findAgentSkill('video', 'storyboard')?.icon).toBe('clapperboard')
+    expect(findAgentSkill('video', 'storyboard')?.summary).toBe('一句话生成多镜头短片')
+  })
+
+  it('keeps a skill whose meta.json is missing or broken, just with the fallbacks', () => {
+    // `main-image` 的 meta.json 不是 JSON，`mismatch` 压根没有；两条都不该因此消失。
+    expect(findAgentSkill('image', 'main-image')?.icon).toBe(DEFAULT_AGENT_SKILL_ICON)
+    expect(findAgentSkill('image', 'main-image')?.summary).toBe('')
+    expect(findAgentSkill('image', 'other-name')?.icon).toBe(DEFAULT_AGENT_SKILL_ICON)
+    expect(findAgentSkill('image', 'other-name')?.summary).toBe('')
+  })
+
+  it('rejects an icon that is not kebab-case and a blank summary', () => {
+    // `Palette` 是 lucide 的组件名，不是前端白名单里的 key；写成它等于查不到。
+    expect(findAgentSkill('image', 'palette')?.icon).toBe(DEFAULT_AGENT_SKILL_ICON)
+    expect(findAgentSkill('image', 'palette')?.summary).toBe('')
+  })
+
+  it('never lets the interface metadata reach the model', () => {
+    const skill = findAgentSkill('video', 'storyboard')!
+    const injected = agentSkillInvocation(skill, '横屏')
+    expect(injected).not.toContain('clapperboard')
+    expect(injected).not.toContain('一句话生成多镜头短片')
   })
 
   it('takes the human title from the first h1 and falls back to the name', () => {
