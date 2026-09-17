@@ -92,9 +92,11 @@ export async function startConversationTurn(
   if (billed && owner.kind !== 'user') return { kind: 'authentication_required' }
 
   // 动态引入：pi 的模块图有 60-90ms，`agent:chat` 关着的部署不该在启动时付。
+  // `turn-input` 也静态依赖 pi，所以它同样只能晚到这里，且与 `turn` 并排等在同一组里。
   const overlayPromise = loadPrivateBffOverlay()
-  const [{ estimateTurnInputTokens, startAgentTurn }, overlay, history, configured] =
+  const [{ estimateTurnInputTokens }, { startAgentTurn }, overlay, history, configured] =
     await Promise.all([
+      import('./turn-input'),
       import('./turn'),
       overlayPromise,
       listAgentMessages(conversationId, owner),

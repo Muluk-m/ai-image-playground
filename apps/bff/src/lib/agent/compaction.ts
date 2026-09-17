@@ -88,6 +88,14 @@ export function compactionBudget(settings: CompactionSettings): CompactionBudget
   return { effectiveWindow, threshold: effectiveWindow - settings.bufferTokens }
 }
 
+/**
+ * 起轮前按 token 预扣时的上限。压缩保证真正送出去的输入不超过阈值，所以再长的历史
+ * 也不该按原样预扣——问的是压缩，不是把整个 budget 借出去自己挑一项。
+ */
+export function reservationCeiling(settings: CompactionSettings): number {
+  return compactionBudget(settings).threshold
+}
+
 const CLOSED_BREAKER: CompactionBreaker = { failureCount: 0, openedAt: null }
 
 /** 这个钩子每次模型请求都跑一遍，而前缀逐字节不变；不记住就每次重扫整段历史。 */
