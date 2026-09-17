@@ -377,7 +377,7 @@ export const tasks = pgTable(
     status: text('status').$type<TaskStatus>().notNull(),
     request_payload: bunJsonb('request_payload').$type<PersistedSubmitRequest>().notNull(),
     result_payload: bunJsonb('result_payload'),
-    /** Only object references after upstream output is spooled; never inline original bytes. */
+    /** Recoverable source URLs or spooled object references; never inline original bytes. */
     archive_payload: bunJsonb('archive_payload'),
     error_message: text('error_message'),
     error_type: text('error_type'),

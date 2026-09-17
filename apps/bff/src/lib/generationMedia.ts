@@ -12,6 +12,15 @@ export interface GenerationMediaLink {
   mediaId: string
 }
 
+/** Keep retrievable source URLs before any download; large inline originals stay out of PostgreSQL. */
+export function generationSourceCheckpoint(provider: QueueProvider, payload: unknown) {
+  if (provider !== 'openai-compat') return null
+  const meta = extractMeta(provider, payload)
+  const refs = meta.images.map((image) => resolveImageBytesRef(provider, payload, image.index))
+  if (!refs.length || refs.some((ref) => ref?.kind !== 'url')) return null
+  return { ...meta.actual_params, data: refs.map((ref) => ({ url: ref!.data, mime: ref!.mime })) }
+}
+
 export async function archiveGenerationOutputs(
   userId: string,
   provider: QueueProvider,

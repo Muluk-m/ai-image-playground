@@ -1,12 +1,14 @@
 import { afterAll, afterEach, beforeEach, expect, it, spyOn } from 'bun:test'
 import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
+import { eq } from 'drizzle-orm'
 import sharp from 'sharp'
 import {
   _setPrivateBffOverlayForTesting,
   EMPTY_PRIVATE_BFF_OVERLAY,
 } from '../../lib/private-overlay'
 import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
+import { stubGlobalFetch } from '../helpers/upstreamStubs'
 
 _setPrivateBffOverlayForTesting(EMPTY_PRIVATE_BFF_OVERLAY)
 process.env.PORT = '0'
@@ -449,4 +451,57 @@ it('原件归档中断后只恢复保存，不再次生成或丢失已生成图�
   expect(detail.status).toBe('completed')
   expect(detail.outputs).toHaveLength(1)
   expect(calls).toBe(1)
+})
+
+it('上游原图链接暂时不可读时只重取原图，不重新调用模型', async () => {
+  const original = await sharp({
+    create: { width: 8, height: 6, channels: 3, background: '#779944' },
+  })
+    .png()
+    .toBuffer()
+  let calls = 0
+  setUpstreamFetchForTesting((async () => {
+    calls++
+    return Response.json({ data: [{ url: 'https://fixture.example/generated.png' }] })
+  }) as NonNullable<Parameters<typeof setUpstreamFetchForTesting>[0]>)
+  let available = false
+  const restore = stubGlobalFetch(() =>
+    available ? new Response(original) : new Response('unavailable', { status: 503 }),
+  )
+  const { request_id: id } = await (
+    await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, input)
+  ).json()
+  try {
+    await runTask(id)
+    expect((await (await request(`/api/generations/${id}`, deviceB)).json()).status).toBe('queued')
+    available = true
+    const clock = spyOn(Date, 'now').mockReturnValue(Date.now() + 61_000)
+    try {
+      await runTask(id)
+    } finally {
+      clock.mockRestore()
+    }
+    expect((await (await request(`/api/generations/${id}`, deviceB)).json()).status).toBe(
+      'completed',
+    )
+    expect(calls).toBe(1)
+  } finally {
+    restore()
+  }
+})
+
+it('worker 重启遇到已发出但无结果凭据的生成不会盲目再次提交', async () => {
+  const { request_id: id } = await (
+    await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, input)
+  ).json()
+  // Persisted process-crash fixture: dispatch happened, no response or async receipt survived.
+  await db
+    .update(schema.tasks)
+    .set({ status: 'in_progress', upstream_invocation_count: 1 })
+    .where(eq(schema.tasks.id, id))
+  const { recoverTasksByIds } = await import('../../db/maintenance')
+  await recoverTasksByIds([id])
+  expect((await (await request(`/api/generations/${id}`, deviceB)).json()).status).toBe('failed')
+  const status = await request(`/v1/queue/requests/${id}/status`, deviceB)
+  expect(await status.json()).toMatchObject({ error: { type: 'upstream_result_unknown' } })
 })
