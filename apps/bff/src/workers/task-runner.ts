@@ -14,6 +14,7 @@ import { describeEmptyResult, extractMeta } from '../lib/extractImages'
 import {
   archiveGenerationOutputs,
   generationSourceCheckpoint,
+  missingGenerationOutputs,
   preserveGenerationInputs,
   spoolGenerationOutputs,
 } from '../lib/generationMedia'
@@ -194,14 +195,22 @@ export async function runTask(id: string): Promise<void> {
         ctrl.signal,
       )
       if (!(await saveArchiveCheckpoint(id, archivePayload))) return
+      const missing = await missingGenerationOutputs(id, task.provider, archivePayload)
       const media = await archiveGenerationOutputs(
         task.userId!,
         task.provider,
         archivePayload,
         task.request_payload,
+        missing,
       )
       await finishTask(id, {
-        status: 'completed',
+        status: missing.size ? 'failed' : 'completed',
+        ...(missing.size
+          ? {
+              errorType: 'upstream_result_unknown' as const,
+              errorMessage: '部分原件在保存前中断，已保留可恢复的图片；不会自动重新生成',
+            }
+          : {}),
         media,
         resultPayload: archivePayload,
         completedAt: now(),

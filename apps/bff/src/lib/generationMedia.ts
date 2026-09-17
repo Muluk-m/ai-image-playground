@@ -170,15 +170,34 @@ export async function preserveGenerationInputs(id: string, request: PersistedSub
   })
 }
 
+/** A successful listing distinguishes missing bytes from a transient storage outage. */
+export async function missingGenerationOutputs(
+  id: string,
+  provider: QueueProvider,
+  payload: unknown,
+) {
+  const keys = new Set(await durableMediaStore().listPrefix(`${id}/out/`))
+  return new Set(
+    extractMeta(provider, payload)
+      .images.filter((image) => {
+        const ref = resolveImageBytesRef(provider, payload, image.index)
+        return ref?.kind === 'object' && ref.store === 'durable' && !keys.has(ref.data)
+      })
+      .map((image) => image.index),
+  )
+}
+
 export async function archiveGenerationOutputs(
   userId: string,
   provider: QueueProvider,
   payload: unknown,
   request: PersistedSubmitRequest,
+  missing: ReadonlySet<number> = new Set(),
 ) {
   return withMediaTransfer(async () => {
     const links: GenerationMediaLink[] = []
     for (const image of extractMeta(provider, payload).images) {
+      if (missing.has(image.index)) continue
       const source = resolveImageBytesRef(provider, payload, image.index)
       if (!source || !source.mime.startsWith('image/')) throw new Error('generation_image_missing')
       const bytes =

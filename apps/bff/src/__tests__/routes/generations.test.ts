@@ -762,3 +762,38 @@ it('原件已写入但完成凭据尚未提交时重启，按原任务找回而�
   expect(detail.outputs).toHaveLength(1)
   expect(calls).toBe(1)
 })
+
+it('多图响应中途重启时保留已保存的原件，缺失部分明确失败且不重新生成', async () => {
+  const png = await sharp({ create: { width: 8, height: 6, channels: 3, background: '#884466' } })
+    .png()
+    .toBuffer()
+  let calls = 0
+  setUpstreamFetchForTesting((async () => {
+    calls++
+    return Response.json({
+      data: [{ b64_json: png.toString('base64') }, { b64_json: png.toString('base64') }],
+    })
+  }) as NonNullable<Parameters<typeof setUpstreamFetchForTesting>[0]>)
+  const { request_id: id } = await (
+    await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, { ...input, n: 2 })
+  ).json()
+  const { abortRunningTask } = await import('../../workers/task-runner')
+  durable.afterWrite = (key) => {
+    if (key === `${id}/out/0`) {
+      abortRunningTask(id)
+      throw new DOMException('Worker stopped after first object', 'AbortError')
+    }
+  }
+  await runTask(id)
+  expect(calls).toBe(2)
+  durable.afterWrite = undefined
+  const { recoverTasksByIds } = await import('../../db/maintenance')
+  await recoverTasksByIds([id])
+  await runTask(id)
+  const detail = await (await request(`/api/generations/${id}`, deviceB)).json()
+  expect(detail.status).toBe('failed')
+  expect(detail.outputs).toHaveLength(1)
+  const status = await (await request(`/v1/queue/requests/${id}/status`, deviceB)).json()
+  expect(status.error.type).toBe('upstream_result_unknown')
+  expect(calls).toBe(2)
+})
