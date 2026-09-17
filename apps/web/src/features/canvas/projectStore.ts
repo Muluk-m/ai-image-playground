@@ -153,6 +153,7 @@ export const useCanvasProjectStore = create<ProjectState>((set, get) => ({
       UNTITLED_PROJECT,
       undefined,
       cloudProjectsEnabled(),
+      true,
     )
     set((state) => ({ projects: [project, ...state.projects] }))
     get().activate(project.id)

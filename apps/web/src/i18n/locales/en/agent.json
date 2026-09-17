@@ -110,7 +110,8 @@
     "createFailed": "Could not create the project. Your current work is kept, please retry.",
     "saveFailed": "Could not save the current project. Your work is kept, please retry.",
     "deleteBusy": "The project still has a running task. Delete it once that finishes.",
-    "deleteFailed": "Could not delete the project. Please retry."
+    "deleteFailed": "Could not delete the project. Please retry.",
+    "openFailed": "Unable to open this project. Please try again."
   },
   "draft": {
     "unreadable": "The draft can't be read or saved right now. Copy your text before refreshing.",
@@ -152,5 +153,15 @@
     "loading": "Loading the conversation…",
     "failed": "Could not load the conversation. Your project and draft are kept.",
     "retry": "Reload"
+  },
+  "navigation": {
+    "back": "Back to projects",
+    "switchAria": "Switch project, current: {{name}}",
+    "switchTitle": "Switch project",
+    "search": "Search projects",
+    "recent": "Recent projects",
+    "results": "Search results",
+    "newHint": "Start a separate chat and canvas",
+    "all": "View all projects"
   }
 }
