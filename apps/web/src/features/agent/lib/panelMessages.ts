@@ -195,15 +195,18 @@ export function reduceAgentPanelEvent(
           event.turnId,
           event.reservedCredits === undefined ? {} : { reservedCredits: event.reservedCredits },
         ),
-        messages: state.messages.some((one) => one.id === event.userMessageId)
-          ? state.messages
-          : [
-              // 先上屏的那条换成服务端的 id；同一轮不会有第二条待确认的。
-              ...state.messages.filter((one) => one.kind !== 'text' || !one.pending),
-              panelMessage(event.userMessageId, turnId, 'user', [
-                { type: 'text', text: pendingUserText ?? '' },
-              ]),
-            ],
+        // 续播没有正文可补（`pendingUserText` 为空），找不到那条用户消息就不显示它：
+        // 空气泡比少一条更糟。
+        messages:
+          pendingUserText === null || state.messages.some((one) => one.id === event.userMessageId)
+            ? state.messages
+            : [
+                // 先上屏的那条换成服务端的 id；同一轮不会有第二条待确认的。
+                ...state.messages.filter((one) => one.kind !== 'text' || !one.pending),
+                panelMessage(event.userMessageId, turnId, 'user', [
+                  { type: 'text', text: pendingUserText },
+                ]),
+              ],
       }
     case 'assistantStart':
       // 先定稿再替换：重放同一条 `assistantStart` 时，替换会原样还它 `streaming: true`。
