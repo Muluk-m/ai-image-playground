@@ -55,7 +55,9 @@
     "attachTitle": "添加参考图（也可以拖进来或粘贴）",
     "sending": "发送中…",
     "sendAndCreate": "发送并创作",
-    "tooManyReferences_other": "一轮最多带 {{count}} 张参考图"
+    "tooManyReferences_other": "一轮最多带 {{count}} 张参考图",
+    "abortedToast": "已中止，草稿已放回输入框。",
+    "aborting": "正在中止…"
   },
   "params": {
     "title": "生成参数",
@@ -79,7 +81,8 @@
   "activity": {
     "sending": "发送中",
     "thinking": "思考中",
-    "executing": "执行中"
+    "executing": "执行中",
+    "stopping": "正在中止"
   },
   "clarification": {
     "answered": "已回答",
@@ -99,7 +102,8 @@
     "invalidSelection": "选区无法使用，请重新圈选。草稿已保留。",
     "interjectFailed": "插话未发送成功，草稿已保留，请重试。",
     "canvasBindFailed": "画布未能保存到新会话，请重试。原画布和草稿已保留。",
-    "turnAlreadyRunning": "会话中已有任务运行，本次消息未发送，草稿已保留。"
+    "turnAlreadyRunning": "会话中已有任务运行，本次消息未发送，草稿已保留。",
+    "stopFailed": "中止未成功，请点击中止重试。"
   },
   "project": {
     "createFailed": "项目创建失败，当前内容已保留，请重试。",

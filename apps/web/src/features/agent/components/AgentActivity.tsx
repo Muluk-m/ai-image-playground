@@ -6,6 +6,7 @@ import { type AgentActivityPhase, agentActivityPhase, useAgentStore } from '../s
 
 const LABEL_KEY = {
   sending: 'activity.sending',
+  stopping: 'activity.stopping',
   thinking: 'activity.thinking',
   executing: 'activity.executing',
 } as const satisfies Record<AgentActivityPhase, string>

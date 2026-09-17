@@ -33,6 +33,10 @@ const { setAgentFetchForTesting } = await import('../../lib/agent/model')
 const { setQueueTaskPollingForTesting } = await import('../../lib/taskSubmission')
 const { _setChannelsForTesting } = await import('../../lib/channels')
 const { close: closeDb, db, schema } = await import('../../db/client')
+const { _setPrivateBffOverlayForTesting, EMPTY_PRIVATE_BFF_OVERLAY } = await import(
+  '../../lib/private-overlay'
+)
+_setPrivateBffOverlayForTesting(EMPTY_PRIVATE_BFF_OVERLAY)
 
 const app = new Elysia().use(agentRoutes)
 const DEVICE = 'device-abcdefgh'
@@ -132,6 +136,45 @@ afterAll(async () => {
 })
 
 describe('智能体生图工具', () => {
+  it.each([
+    'queued',
+    'in_progress',
+  ] as const)('中止轮会取消 %s 的生成任务，且不再调用模型', async (status) => {
+    const calls: AgentCall[] = []
+    setAgentFetchForTesting(
+      scriptedAgentFetch(calls, [
+        () =>
+          toolCallCompletion({
+            id: 'call-stop',
+            name: 'generateImage',
+            args: { prompt: '一只橘猫' },
+          }),
+      ]),
+    )
+    const conversationId = await startConversation()
+    const finished = runTurn(conversationId, '画一只橘猫')
+    let task: typeof schema.tasks.$inferSelect | undefined
+    for (let i = 0; i < 200 && !task; i++) {
+      ;[task] = await db
+        .select()
+        .from(schema.tasks)
+        .where(eq(schema.tasks.agent_conversation_id, conversationId))
+      if (!task) await Bun.sleep(5)
+    }
+    expect(task).toBeDefined()
+    await db.update(schema.tasks).set({ status }).where(eq(schema.tasks.id, task!.id))
+    const response = await post(
+      `/api/agent/conversations/${conversationId}/turns/${task!.agent_turn_id}/abort`,
+      { deviceId: DEVICE },
+    )
+    expect(response.status).toBe(200)
+    const frames = await finished
+    expect(frames.at(-1)?.event).toMatchObject({ type: 'turnEnd', stopReason: 'aborted' })
+    const [stored] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, task!.id))
+    expect(stored!.status).toBe('cancelled')
+    expect(calls).toHaveLength(1)
+  })
+
   it('reports one tool call and links the image task to the turn', async () => {
     const calls: AgentCall[] = []
     setAgentFetchForTesting(

@@ -77,6 +77,7 @@ export interface AgentState {
   messages: AgentPanelMessage[]
   turns: Record<string, AgentTurnFooter>
   turn: AgentTurnStatus
+  stopping: boolean
   /** 正在跟的那一轮；中止与插话都指向它。 */
   activeTurn: AgentActiveTurnView | null
   error: string | null
@@ -104,7 +105,7 @@ export interface AgentState {
     text: string,
     references?: readonly AgentTurnReference[],
     onAccepted?: () => void,
-  ): Promise<void>
+  ): Promise<void | 'cancelled'>
   abort(): Promise<void>
   /** 画布冲突后由用户把那张结果卡的产出放进画布。 */
   placeOnCanvas(messageId: string): Promise<void>
@@ -186,6 +187,7 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
 const failPatch = (state: AgentState, message = TURN_FAILED()) => ({
   turn: 'failed' as const,
+  stopping: false,
   activeTurn: null,
   error: message,
   // 半截的回复撤掉；起轮前就失败的那条先上屏的用户消息也撤掉——草稿还在输入框里，
@@ -201,16 +203,18 @@ export function conversationStarted(messages: readonly AgentPanelMessage[]): boo
   return messages.length > 0
 }
 
-export type AgentActivityPhase = 'sending' | 'thinking' | 'executing'
+export type AgentActivityPhase = 'sending' | 'thinking' | 'executing' | 'stopping'
 
 /**
  * 进行中这一轮此刻在干什么，给对话末尾的状态行用。文字一旦在流就返回 null：
  * 正文自己就是最好的进度。
  */
 export function agentActivityPhase(
-  state: Pick<AgentState, 'turn' | 'activeTurn' | 'messages'>,
+  state: Pick<AgentState, 'turn' | 'activeTurn' | 'messages'> &
+    Partial<Pick<AgentState, 'stopping'>>,
 ): AgentActivityPhase | null {
   if (state.turn !== 'running') return null
+  if (state.stopping) return 'stopping'
   if (!state.activeTurn) return 'sending'
   const last = state.messages[state.messages.length - 1]
   if (last?.kind === 'tool' && last.status === 'running') return 'executing'
@@ -352,6 +356,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
             if (event.stopReason === 'failed') return { ...failPatch(state), turns }
             return {
               turn: 'idle' as const,
+              stopping: false,
               activeTurn: null,
               turns,
               messages: state.messages.map((one) =>
@@ -389,12 +394,19 @@ export const useAgentStore = create<AgentState>((set, get) => {
     pendingUserText: string | null,
     turnDelivery: TurnArtifactDelivery,
     resumedTurnId = '',
+    onStarted?: (turnId: string) => Promise<void>,
   ) => {
     const previous = followers.get(conversationId)
-    followers.set(conversationId, turnDelivery)
-    if (previous && previous !== turnDelivery) await previous.settled()
+    // 迟到的起轮响应不能抢走切回项目后建立的新订阅。
+    if (!previous || turnDelivery.isCurrent()) {
+      followers.set(conversationId, turnDelivery)
+      if (previous && previous !== turnDelivery) await previous.settled()
+    }
+    let startedCallback = onStarted
+    // 即使切项目后已有新订阅，旧提交仍须读到轮标识并兑现它自己的中止请求。
     const canContinue = () =>
-      followers.get(conversationId) === turnDelivery && turnDelivery.canContinue()
+      Boolean(startedCallback) ||
+      (followers.get(conversationId) === turnDelivery && turnDelivery.canContinue())
     let source = frames
     let seen = 0
     let turnId = resumedTurnId
@@ -411,6 +423,10 @@ export const useAgentStore = create<AgentState>((set, get) => {
             }
             if (frame.event.type === 'turnStart') turnId = frame.event.turnId
             apply(frame.event, pendingUserText, turnId, turnDelivery)
+            if (frame.event.type === 'turnStart') {
+              await startedCallback?.(turnId)
+              startedCallback = undefined
+            }
             if (frame.event.type === 'turnEnd') return
           }
         } catch (thrown) {
@@ -448,6 +464,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
       ...(!same ? { messages: [], turns: {} } : {}),
       error: null,
       turn: 'idle',
+      stopping: false,
       activeTurn: null,
       historyLoading: true,
       historyFailed: false,
@@ -477,6 +494,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
             messages: [],
             turns: {},
             turn: 'idle',
+            stopping: false,
             activeTurn: null,
             error: CONVERSATION_GONE(),
           })
@@ -504,6 +522,42 @@ export const useAgentStore = create<AgentState>((set, get) => {
     await follow(conversationId, resumeTurn(conversationId, active, 0), null, turnDelivery, active)
   }
 
+  // 发送请求尚未返回轮标识时，也必须记住用户的中止意图。
+  let pendingStart: { cancelled: boolean; delivery: TurnArtifactDelivery } | null = null
+  const requestAbort = async (conversationId: string, turnId: string) => {
+    const current = () =>
+      get().conversationId === conversationId && get().activeTurn?.turnId === turnId
+    try {
+      if (current()) set({ stopping: true, error: null })
+      await abortTurn(conversationId, turnId)
+    } catch (error) {
+      if (!current()) return
+      // 轮可能恰好结束；读回事实后再决定是否报错，不能把 404 当成中止成功。
+      if (error instanceof AgentRequestError && error.status === 404) {
+        try {
+          const history = await fetchMessages(conversationId)
+          if (!current()) return
+          if (!history.activeTurn) {
+            delivery.reset()
+            set({
+              turn: 'idle',
+              stopping: false,
+              activeTurn: null,
+              error: null,
+              messages: history.messages.map(panelMessage),
+              turns: Object.fromEntries(history.turns.map((one) => [one.turnId, one])),
+            })
+            void delivery.restore(get().messages)
+            return
+          }
+        } catch {
+          /* 保留在运行的轮，让用户重试。 */
+        }
+      }
+      if (current()) set({ stopping: false, error: i18next.t('error.stopFailed', { ns: 'agent' }) })
+    }
+  }
+
   let conversationListRevision = 0
   let changingProject = false
   const changeProject = async (action: () => Promise<boolean>) => {
@@ -524,6 +578,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
       messages: [],
       turns: {},
       turn: 'idle',
+      stopping: false,
       activeTurn: null,
       error: null,
       historyFailed: false,
@@ -564,6 +619,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
     messages: [],
     turns: {},
     turn: 'idle',
+    stopping: false,
     activeTurn: null,
     error: null,
     loaded: false,
@@ -652,6 +708,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
         turns: {},
         error: null,
         turn: 'idle',
+        stopping: false,
         activeTurn: null,
         historyLoading: false,
         historyFailed: false,
@@ -742,7 +799,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
     },
 
     async send(text, references = [], onAccepted) {
-      if (changingProject || get().historyLoading || get().historyFailed) return
+      if (changingProject || get().historyLoading || get().historyFailed || get().stopping) return
       const trimmed = text.trim()
       if (!trimmed) return
 
@@ -773,6 +830,7 @@ export const useAgentStore = create<AgentState>((set, get) => {
       pendingSeq += 1
       set((state) => ({
         turn: 'running',
+        stopping: false,
         error: null,
         activeTurn: null,
         messages: [
@@ -789,82 +847,119 @@ export const useAgentStore = create<AgentState>((set, get) => {
         ],
       }))
       const turnDelivery = delivery.beginTurn()
-      let target = conversationId
-      try {
-        if (!target) {
-          target = (await createConversation()).id
-          if (!turnDelivery.isCurrent()) {
-            await turnDelivery.settled()
-            return
-          }
-          if (!(await bindNewCanvasWorkspace(target))) {
-            if (turnDelivery.isCurrent()) fail(i18next.t('error.canvasBindFailed', { ns: 'agent' }))
-            await turnDelivery.settled()
-            return
-          }
-          if (!turnDelivery.isCurrent()) {
-            await turnDelivery.settled()
-            return
-          }
-          safeLocalStorage.setItem(conversationKey(), target)
-          bindNewAgentDraft(target, currentCanvasProject()?.id)
-          set({ conversationId: target })
-        }
-      } catch {
-        if (turnDelivery.isCurrent()) fail()
-        await turnDelivery.settled()
-        return
-      }
-      // 起轮这一刻的参数快照：轮跑到一半用户改了 chip，改的是下一轮，不该追改这一轮。
-      const { params, settings } = useStore.getState()
-      const model = clientProfileToApiProfile(getActiveApiProfile(settings)).model
-      const turnParams = { ...toAgentTurnParams(params, model), thinkingDepth: get().thinkingDepth }
-      // 起轮这一步的失败不在 `follow` 的重连范围里：请求没发出去就没有轮可以接。
-      let outcome: StartTurnOutcome
-      try {
-        outcome = await startTurn(target, trimmed, references, turnParams)
-      } catch (thrown) {
+      const submission = { cancelled: false, delivery: turnDelivery }
+      pendingStart = submission
+      const cancelUnsent = async () => {
         if (turnDelivery.isCurrent())
-          fail(
-            thrown instanceof AgentRequestError && thrown.status === 429
-              ? TURN_RATE_LIMITED()
-              : thrown instanceof AgentRequestError && thrown.code === 'invalid_selection'
-                ? i18next.t('error.invalidSelection', { ns: 'agent' })
-                : undefined,
-          )
+          set((state) => ({
+            turn: 'idle',
+            stopping: false,
+            activeTurn: null,
+            error: null,
+            messages: state.messages.filter((one) => one.kind !== 'text' || !one.pending),
+          }))
         await turnDelivery.settled()
-        return
+        return 'cancelled' as const
       }
-      if (outcome.kind !== 'alreadyRunning' && sourceProject)
-        void useCanvasProjectStore
-          .getState()
-          .update(sourceProject.id, { hasContent: true, updatedAt: Date.now() })
-          .catch(() => {})
-      if (!turnDelivery.isCurrent()) {
-        if (outcome.kind !== 'alreadyRunning') {
-          onAccepted?.()
-          await follow(target, outcome.frames, trimmed, turnDelivery)
-        } else await turnDelivery.settled()
-        return
+      try {
+        let target = conversationId
+        try {
+          if (!target) {
+            target = (await createConversation()).id
+            if (submission.cancelled) return await cancelUnsent()
+            if (!turnDelivery.isCurrent()) {
+              await turnDelivery.settled()
+              return
+            }
+            if (!(await bindNewCanvasWorkspace(target))) {
+              if (turnDelivery.isCurrent())
+                fail(i18next.t('error.canvasBindFailed', { ns: 'agent' }))
+              await turnDelivery.settled()
+              return
+            }
+            if (!turnDelivery.isCurrent()) {
+              await turnDelivery.settled()
+              return
+            }
+            safeLocalStorage.setItem(conversationKey(), target)
+            bindNewAgentDraft(target, currentCanvasProject()?.id)
+            set({ conversationId: target })
+          }
+        } catch {
+          if (turnDelivery.isCurrent()) fail()
+          await turnDelivery.settled()
+          return
+        }
+        if (submission.cancelled) return await cancelUnsent()
+        // 起轮这一刻的参数快照：轮跑到一半用户改了 chip，改的是下一轮，不该追改这一轮。
+        const { params, settings } = useStore.getState()
+        const model = clientProfileToApiProfile(getActiveApiProfile(settings)).model
+        const turnParams = {
+          ...toAgentTurnParams(params, model),
+          thinkingDepth: get().thinkingDepth,
+        }
+        // 起轮这一步的失败不在 `follow` 的重连范围里：请求没发出去就没有轮可以接。
+        let outcome: StartTurnOutcome
+        try {
+          outcome = await startTurn(target, trimmed, references, turnParams)
+        } catch (thrown) {
+          if (turnDelivery.isCurrent())
+            fail(
+              thrown instanceof AgentRequestError && thrown.status === 429
+                ? TURN_RATE_LIMITED()
+                : thrown instanceof AgentRequestError && thrown.code === 'invalid_selection'
+                  ? i18next.t('error.invalidSelection', { ns: 'agent' })
+                  : undefined,
+            )
+          await turnDelivery.settled()
+          return
+        }
+        if (outcome.kind !== 'alreadyRunning' && sourceProject)
+          void useCanvasProjectStore
+            .getState()
+            .update(sourceProject.id, { hasContent: true, updatedAt: Date.now() })
+            .catch(() => {})
+        if (!turnDelivery.isCurrent()) {
+          if (outcome.kind !== 'alreadyRunning') {
+            onAccepted?.()
+            await follow(target, outcome.frames, trimmed, turnDelivery, '', async (turnId) => {
+              if (submission.cancelled) await requestAbort(target, turnId)
+            })
+          } else await turnDelivery.settled()
+          return
+        }
+        if (outcome.kind === 'alreadyRunning') {
+          // 别的标签页已经在这个会话里跑轮了。它那条用户消息只在服务端，先把历史读回来再续播。
+          await turnDelivery.settled()
+          set({ stopping: false })
+          await openConversation(target, outcome.turnId)
+          if (get().conversationId === target)
+            set({ error: i18next.t('error.turnAlreadyRunning', { ns: 'agent' }) })
+          return
+        }
+        onAccepted?.()
+        await follow(target, outcome.frames, trimmed, turnDelivery, '', async (turnId) => {
+          if (submission.cancelled) await requestAbort(target, turnId)
+        })
+        if (firstTurn) await get().refreshConversations()
+      } finally {
+        if (pendingStart === submission) pendingStart = null
       }
-      if (outcome.kind === 'alreadyRunning') {
-        // 别的标签页已经在这个会话里跑轮了。它那条用户消息只在服务端，先把历史读回来再续播。
-        await turnDelivery.settled()
-        await openConversation(target, outcome.turnId)
-        if (get().conversationId === target)
-          set({ error: i18next.t('error.turnAlreadyRunning', { ns: 'agent' }) })
-        return
-      }
-      onAccepted?.()
-      await follow(target, outcome.frames, trimmed, turnDelivery)
-      if (firstTurn) await get().refreshConversations()
     },
 
     async abort() {
+      if (get().turn !== 'running' || get().stopping) return
       const active = get().activeTurn
       const conversationId = get().conversationId
-      if (!active || !conversationId) return
-      await abortTurn(conversationId, active.turnId)
+      if (!active || !conversationId) {
+        if (pendingStart?.delivery.isCurrent()) {
+          pendingStart.cancelled = true
+          set({ stopping: true, error: null })
+        }
+        return
+      }
+      set({ stopping: true, error: null })
+      await requestAbort(conversationId, active.turnId)
     },
 
     async placeOnCanvas(messageId) {

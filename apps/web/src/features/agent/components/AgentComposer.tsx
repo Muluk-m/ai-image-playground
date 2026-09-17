@@ -77,6 +77,7 @@ export default function AgentComposer({
   const { t, i18n } = useTranslation('agent')
   const historyBlocked = useAgentStore((state) => state.historyLoading || state.historyFailed)
   const running = useAgentStore((state) => state.turn === 'running')
+  const stopping = useAgentStore((state) => state.stopping)
   const assets = useLibraryStore((state) => state.assets)
   const loadAssets = useLibraryStore((state) => state.loadAssets)
   const conversationId = useAgentStore((state) => state.conversationId)
@@ -289,7 +290,7 @@ export default function AgentComposer({
   }
 
   const submit = () => {
-    if (loading || submitting || historyBlocked) return
+    if (loading || submitting || historyBlocked || stopping) return
     const submission = draftForSubmit(draft)
     if (!submission.text.trim()) return
     // 乐观发送：敲下回车输入框立刻清空，那句话已经在对话里了；服务端没收下再把草稿放回来。
@@ -298,8 +299,13 @@ export default function AgentComposer({
     setCursor(0)
     const releaseSubmission = session.beginSubmission()
     let accepted = false
-    const restore = () => {
-      useStore.getState().showToast(t('composer.sendFailedToast'), 'error')
+    const restore = (cancelled = false) => {
+      useStore
+        .getState()
+        .showToast(
+          cancelled ? t('composer.abortedToast') : t('composer.sendFailedToast'),
+          cancelled ? 'info' : 'error',
+        )
       // 这几秒里用户要是已经开始打下一句，别把它冲掉。
       setDraft((current) =>
         current.prompt.trim() || current.references.length ? current : snapshot,
@@ -312,8 +318,8 @@ export default function AgentComposer({
         releaseSubmission()
       })
       .then(
-        () => {
-          if (!accepted) restore()
+        (outcome) => {
+          if (!accepted) restore(outcome === 'cancelled')
         },
         () => restore(),
       )
@@ -456,14 +462,21 @@ export default function AgentComposer({
               <button
                 type="button"
                 className={ABORT_BUTTON}
+                disabled={stopping}
                 onClick={() => void useAgentStore.getState().abort()}
               >
-                {t('composer.abort')}
+                {stopping ? t('composer.aborting') : t('composer.abort')}
               </button>
             )}
             <ComposerSend
               streaming={false}
-              idle={!historyBlocked && !loading && !submitting && Boolean(draft.prompt.trim())}
+              idle={
+                !stopping &&
+                !historyBlocked &&
+                !loading &&
+                !submitting &&
+                Boolean(draft.prompt.trim())
+              }
               aria-label={
                 submitting
                   ? t('composer.sending')
