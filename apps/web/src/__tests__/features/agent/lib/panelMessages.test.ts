@@ -559,3 +559,67 @@ describe('面板查询', () => {
     ).toBe('thinking')
   })
 })
+
+/**
+ * 拼接成片走的是与生视频完全同一条路：面板不为它分支，标题是服务端在起跑那一刻写好的，
+ * 进度阶段复用「已排队 / 生成中」那两格。这条测试就是钉住「前端零改动」这件事。
+ */
+describe('拼接成片这张卡', () => {
+  const FILM: AgentToolArtifact = {
+    artifactId: 'agent_film_1',
+    media: 'video',
+    taskId: 'task-stitch',
+    outputIndex: 0,
+    mime: 'video/mp4',
+    width: 1280,
+    height: 720,
+  }
+  const STITCHED: AgentToolResultBlock = {
+    type: 'toolResult',
+    toolCallId: 'call-9',
+    toolName: 'stitchVideos',
+    status: 'succeeded',
+    title: '拼接：咖啡的一天',
+    artifacts: [FILM],
+    anchorObjectId: 'agent_video_1',
+  }
+  const EVENTS: AgentTurnEvent[] = [
+    { type: 'turnStart', turnId: TURN, userMessageId: 'user-1' },
+    {
+      type: 'toolStart',
+      messageId: 'tool-9',
+      toolCallId: 'call-9',
+      toolName: 'stitchVideos',
+      title: STITCHED.title,
+      outputCount: 1,
+      anchorObjectId: 'agent_video_1',
+    },
+    { type: 'toolProgress', messageId: 'tool-9', toolCallId: 'call-9', stage: 'submitted' },
+    { type: 'toolProgress', messageId: 'tool-9', toolCallId: 'call-9', stage: 'running' },
+    toolEnd(STITCHED, 'tool-9'),
+  ]
+
+  const last = (state: AgentPanelState) => state.messages[state.messages.length - 1]
+
+  it('排队与运行两格都走既有的阶段，用不着新文案', () => {
+    expect(last(replay(EVENTS.slice(0, 3), null))).toMatchObject({
+      kind: 'tool',
+      stage: 'submitted',
+    })
+    expect(last(replay(EVENTS.slice(0, 4), null))).toMatchObject({ kind: 'tool', stage: 'running' })
+  })
+
+  it('成片就是一件普通视频产物，卡上带着服务端写好的标题与锚点', () => {
+    expect(last(replay(EVENTS, null))).toEqual({
+      kind: 'tool',
+      id: 'tool-9',
+      turnId: TURN,
+      toolCallId: 'call-9',
+      toolName: 'stitchVideos',
+      title: STITCHED.title,
+      status: 'succeeded',
+      artifacts: [FILM],
+      anchorObjectId: 'agent_video_1',
+    })
+  })
+})

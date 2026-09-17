@@ -29,6 +29,7 @@ const { ensureAgentSkills, setAgentSkillsRootForTesting } = await import(
   '../../../../lib/agent/skills'
 )
 const { _setChannelsForTesting } = await import('../../../../lib/channels')
+const { setFfmpegForTesting } = await import('../../../../lib/ffmpeg')
 
 type InternalChannel = import('../../../../lib/channels').InternalChannel
 
@@ -119,6 +120,17 @@ describe('tools filtered by creation mode', () => {
       'loadSkill',
       'readLibrary',
     ])
+  })
+
+  it('adds the stitch tool only where ffmpeg is installed, and only to a video turn', () => {
+    // 没探测到 ffmpeg 就是没有：这也是上面那两条清单里没有它的原因。
+    setFfmpegForTesting({ available: true })
+    try {
+      expect(toolNames('video')).toContain('stitchVideos')
+      expect(toolNames('image')).not.toContain('stitchVideos')
+    } finally {
+      setFfmpegForTesting()
+    }
   })
 
   it.each([

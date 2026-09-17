@@ -2,6 +2,7 @@ import { expect, it } from 'bun:test'
 import type {
   AgentMessageView,
   AgentStoredReference,
+  AgentToolArtifact,
   AgentTurnReference,
 } from '@image-playground/shared'
 
@@ -101,4 +102,58 @@ it('follows the references an interjection attached mid-turn', () => {
   expect(images.masked).toBe(false)
   images.attach([{ imageId: 'b', dataUrl: PIXEL, maskDataUrl: PIXEL }])
   expect(images.masked).toBe(true)
+})
+
+/** 视频与图片并列各有一张表：模型指得到视频，但改图工具永远取不到它。 */
+function assistantWithArtifacts(artifacts: AgentToolArtifact[]): AgentMessageView {
+  return {
+    id: crypto.randomUUID(),
+    turnId: 'turn-old',
+    role: 'assistant',
+    content: [
+      {
+        type: 'toolResult',
+        toolCallId: 'call-1',
+        toolName: 'generateVideo',
+        status: 'succeeded',
+        title: '生视频',
+        artifacts,
+      },
+    ],
+    createdAt: 2,
+  }
+}
+
+const VIDEO: AgentToolArtifact = {
+  artifactId: 'agent_video_1',
+  media: 'video',
+  taskId: 'task-v',
+  outputIndex: 0,
+  mime: 'video/mp4',
+}
+
+const IMAGE: AgentToolArtifact = {
+  artifactId: 'agent_image_1',
+  media: 'image',
+  taskId: 'task-i',
+  outputIndex: 0,
+  mime: 'image/png',
+}
+
+it('lists the finished videos of this conversation, and only those', () => {
+  const images = source({ history: [assistantWithArtifacts([VIDEO, IMAGE])] })
+  expect(images.videoIds).toEqual([VIDEO.artifactId])
+})
+
+it('picks up a video the current turn just produced', () => {
+  const images = source({})
+  expect(images.videoIds).toEqual([])
+  images.note([VIDEO, IMAGE])
+  expect(images.videoIds).toEqual([VIDEO.artifactId])
+})
+
+it('separates an id it never saw from one it would have to go read', async () => {
+  const images = source({ history: [assistantWithArtifacts([VIDEO])] })
+  // 认不出来的 id 一个字节都不取，所以这一句不碰数据库。
+  expect(await images.resolveVideo('agent_nope')).toEqual({ kind: 'unknown' })
 })

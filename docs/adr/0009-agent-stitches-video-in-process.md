@@ -50,7 +50,9 @@ ffmpeg 是一次本机子进程调用——它长得就像工具，不像队列�
 **音轨按需补。** 一段都没有音轨时输出就没有音轨；只要有一段有，其余段补等长静音轨
 （`anullsrc` 一路输入 + `atrim`），否则 `concat` 滤镜会因为输入流数不齐而失败。
 
-参数怎么拼是纯函数（`buildStitchPlan` / `stitchFfmpegArgs`），单测只测它，不启动 ffmpeg。
+参数怎么拼是纯函数（`video-stitch-plan.ts` 的 `stitchTarget` / `stitchFilterGraph` /
+`stitchFfmpegArgs`），单测只测它，不启动 ffmpeg；另有一条「本机装了 ffmpeg 才跑」的
+集成测试拿真二进制把滤镜图跑通一次。
 
 ### 4. 成片是一条出生即 `completed` 的任务行，走 generateVideo 同一条交付链路
 
@@ -129,8 +131,12 @@ VPS 的 CPU 是共享的，两条 1080p 重编码同时跑会把整个 BFF 的�
 `AgentToolName` 多了一个 `stitchVideos`。前端不为它分支：它渲染成一张普通工具卡，
 标题由服务端在起跑时写好，产物走既有的视频交付链路。
 
-工具清单多一条，每一轮的系统提示词与预扣估算跟着涨一点——`agent-billing.test.ts` 的
-两条 `unitMultiplier` 区间按实测上移，理由与 ADR 0007 里技能条数那次相同。
+工具清单多一条，每一轮的系统提示词与预扣估算跟着涨一点，但**只涨在视频轮**：
+实测（`agent-video-operator-config.json` + 一条短提示词）一条视频轮的输入估算从 2800
+涨到 3098 token，其中 179 来自工具声明、119 来自系统提示词里那句逐工具指引。
+图片轮一个 token 都没动，所以 `agent-billing.test.ts` 那两条 `unitMultiplier` 区间不用改
+——它们断言的是图片轮。视频轮没有对应的预扣断言，这条增量因此没有测试守着；
+真要守，该加的是一条视频轮的预扣用例，而不是把这两条改成视频。
 
 模型现在能指着一段已完成的视频说话了。这条能力目前只有拼接在用，但它是「视频当输入」
 这一类工具（续写、配乐、加字幕）共同的地基。

@@ -21,6 +21,7 @@ const { agentSkills, defaultAgentSkillsRoot, ensureAgentSkills } = await import(
 const { agentToolDeclarations } = await import('../../../lib/agent/tools')
 const { turnInitialState } = await import('../../../lib/agent/turn-input')
 const { _setChannelsForTesting } = await import('../../../lib/channels')
+const { setFfmpegForTesting } = await import('../../../lib/ffmpeg')
 
 type InternalChannel = import('../../../lib/channels').InternalChannel
 
@@ -51,6 +52,9 @@ const SUMMARY_MAX_CHARS = 30
 const MODES: AgentMode[] = ['image', 'video']
 
 _setChannelsForTesting([VIDEO_CHANNEL])
+// 拼接工具的门禁之一是本机装了 ffmpeg。体检要按「装了」的那份清单校对技能正文，
+// 否则 `stitchVideos` 在这里只是个普通英文词，写错了也没人拦。
+setFfmpegForTesting({ available: true })
 const diagnostics: string[] = []
 const { log } = await import('../../../lib/logger')
 const warn = log.warn.bind(log)
@@ -102,6 +106,11 @@ describe('随仓库发的技能', () => {
       expect(skill.description).toContain('不处理')
       expect([...skill.description].length).toBeLessThanOrEqual(DESCRIPTION_MAX_CHARS)
     }
+  })
+
+  it('视频轮真的调得到拼接工具，技能正文里那个名字才校得住', () => {
+    expect(toolNames('video')).toContain('stitchVideos')
+    expect(toolNames('image')).not.toContain('stitchVideos')
   })
 
   it.each(MODES)('%s 轮的技能正文只引用这一轮调得到的工具', (mode) => {

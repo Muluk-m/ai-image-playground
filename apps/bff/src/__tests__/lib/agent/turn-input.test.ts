@@ -19,6 +19,7 @@ const {
   estimateToolDeclarationTokens,
   estimateTurnInputTokens,
   estimatedTurnInput,
+  replayTurnText,
   turnInitialState,
   turnModelPrompt,
   turnPromptText,
@@ -320,5 +321,35 @@ describe('estimated and sent turn input', () => {
       /^视觉输入 2：图片 img-2 原图；3：蓝色定位图；4：原色选区裁片。选区 ID selection_[0-9a-f]{64}，位置 \{"left":\d+,"top":\d+,"width":\d+,"height":\d+\}。蓝色和裁片透明处均为定位信息，不是产品外观。$/
     expect(sentLines[4]).toMatch(masked)
     expect(estimatedLines[4]).toMatch(masked)
+  })
+})
+
+/**
+ * 下一轮模型还能指着上一轮那几段视频说话，靠的就是这一行摘要。没有它，出完片再想拼，
+ * 模型连「那几段的 id」都说不出来。
+ */
+describe('replaying a finished video result', () => {
+  it('keeps every artifact id in the summary, video included', () => {
+    const text = replayTurnText(
+      assistantMessage('m1', [
+        {
+          type: 'toolResult',
+          toolCallId: 'call-1',
+          toolName: 'generateVideo',
+          status: 'succeeded',
+          title: '视频：第一镜',
+          artifacts: [
+            {
+              artifactId: 'agent_video_1',
+              media: 'video',
+              taskId: 'task-1',
+              outputIndex: 0,
+              mime: 'video/mp4',
+            },
+          ],
+        },
+      ]),
+    )
+    expect(text).toBe('视频：第一镜：完成，视频 agent_video_1')
   })
 })
