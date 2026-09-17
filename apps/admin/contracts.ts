@@ -176,3 +176,37 @@ export interface OverviewResult {
     average_multiplier: number | null
   }>
 }
+
+// ---- 运维看板 ----
+// 回答「这套部署现在有没有出事」。每一块独立取、独立失败：某一块拿不到时只有它带错误，
+// 其余照常返回，页面也只在那一块显示取不到。
+
+export type OpsBlock<T> = { ok: true; data: T } | { ok: false; error: string }
+
+export interface OpsStuckTask {
+  id: string
+  model: string
+  started_at: number
+}
+
+export interface OpsQueue {
+  queued: number
+  in_progress: number
+  /** 最老的排队任务已经等了多久；队列为空时是 null。 */
+  oldest_queued_wait_ms: number | null
+  /** 运行超过这个时长即视为卡住，与 worker 回收无主任务用的是同一个阈值。 */
+  stale_after_ms: number
+  stuck: OpsStuckTask[]
+}
+
+export interface OpsDatabase {
+  size_bytes: number
+  /** 占用最大的几张表，从大到小。 */
+  tables: Array<{ name: string; bytes: number }>
+}
+
+export interface OpsSnapshot {
+  generated_at: number
+  queue: OpsBlock<OpsQueue>
+  database: OpsBlock<OpsDatabase>
+}

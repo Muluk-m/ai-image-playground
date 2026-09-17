@@ -1,0 +1,136 @@
+// @vitest-environment jsdom
+
+import { render, screen, within } from '@testing-library/react'
+import { describe, expect, it, vi } from 'vitest'
+import type { OpsSnapshot } from '../../../lib/types'
+
+// 任务详情是一条路由链接；这里只关心它指向哪，不需要起整棵路由树。
+vi.mock('@tanstack/react-router', () => ({
+  Link: ({ children, params }: { children: React.ReactNode; params: { taskId: string } }) => (
+    <a href={`/tasks/${params.taskId}`}>{children}</a>
+  ),
+}))
+
+const { OpsBoard } = await import('../../../components/ops/OpsBoard')
+
+const minute = 60_000
+
+function snapshot(patch: Partial<OpsSnapshot> = {}): OpsSnapshot {
+  return {
+    generated_at: Date.now(),
+    queue: {
+      ok: true,
+      data: {
+        queued: 2,
+        in_progress: 1,
+        oldest_queued_wait_ms: 4_000,
+        stale_after_ms: 16 * minute,
+        stuck: [],
+      },
+    },
+    database: {
+      ok: true,
+      data: {
+        size_bytes: 3 * 1024 ** 3,
+        tables: [
+          { name: 'tasks', bytes: 2 * 1024 ** 3 },
+          { name: 'agent_turn_events', bytes: 512 * 1024 ** 2 },
+        ],
+      },
+    },
+    ...patch,
+  }
+}
+
+function block(name: string): HTMLElement {
+  return screen.getByRole('region', { name })
+}
+
+describe('运维看板', () => {
+  it('没事的时候一眼看得出没事：没有任何一块在报警', () => {
+    render(<OpsBoard snapshot={snapshot()} />)
+
+    expect(screen.queryAllByRole('alert')).toEqual([])
+    expect(within(block('队列')).getByText('2')).toBeTruthy()
+    expect(within(block('队列')).getByText('4 秒')).toBeTruthy()
+    expect(within(block('数据库')).getByText('3.0 GB')).toBeTruthy()
+    expect(within(block('数据库')).getByText('tasks')).toBeTruthy()
+  })
+
+  it('队列为空时不把「没有在等的任务」显示成 0 秒', () => {
+    render(
+      <OpsBoard
+        snapshot={snapshot({
+          queue: {
+            ok: true,
+            data: {
+              queued: 0,
+              in_progress: 0,
+              oldest_queued_wait_ms: null,
+              stale_after_ms: 16 * minute,
+              stuck: [],
+            },
+          },
+        })}
+      />,
+    )
+    expect(within(block('队列')).getByText('没有在等的任务')).toBeTruthy()
+  })
+
+  it('最老的任务等得太久时，队列这一块报警', () => {
+    render(
+      <OpsBoard
+        snapshot={snapshot({
+          queue: {
+            ok: true,
+            data: {
+              queued: 9,
+              in_progress: 1,
+              oldest_queued_wait_ms: 12 * minute,
+              stale_after_ms: 16 * minute,
+              stuck: [],
+            },
+          },
+        })}
+      />,
+    )
+    const alert = within(block('队列')).getByRole('alert')
+    expect(alert.textContent).toContain('12 分钟')
+    expect(within(block('数据库')).queryByRole('alert')).toBeNull()
+  })
+
+  it('卡住的任务列出来，能点进任务详情', () => {
+    render(
+      <OpsBoard
+        snapshot={snapshot({
+          queue: {
+            ok: true,
+            data: {
+              queued: 0,
+              in_progress: 1,
+              oldest_queued_wait_ms: null,
+              stale_after_ms: 16 * minute,
+              stuck: [
+                { id: 'task-stuck-1', model: 'gpt-image-2', started_at: Date.now() - 20 * minute },
+              ],
+            },
+          },
+        })}
+      />,
+    )
+    const queue = block('队列')
+    expect(within(queue).getByRole('alert').textContent).toContain('1 个任务卡住')
+    const link = within(queue).getByRole('link', { name: /task-stuck-1/ })
+    expect(link.getAttribute('href')).toBe('/tasks/task-stuck-1')
+  })
+
+  it('某一块取不到时只有那一块显示取不到，其余照常', () => {
+    render(
+      <OpsBoard snapshot={snapshot({ database: { ok: false, error: 'permission denied' } })} />,
+    )
+
+    expect(within(block('数据库')).getByText('取不到')).toBeTruthy()
+    expect(within(block('数据库')).getByText('permission denied')).toBeTruthy()
+    expect(within(block('队列')).getByText('4 秒')).toBeTruthy()
+  })
+})
