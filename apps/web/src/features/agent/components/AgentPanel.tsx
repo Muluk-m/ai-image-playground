@@ -6,6 +6,7 @@ import {
   useMemo,
   useRef,
 } from 'react'
+import ProjectNavigation from '../../../components/ProjectNavigation'
 import { useImageDropZone } from '../../../hooks/useImageDropZone'
 import { useTranslation } from '../../../i18n'
 import type { CanvasDoc } from '../../canvas/lib/canvasDoc'
@@ -22,7 +23,6 @@ import AgentClarification from './AgentClarification'
 import AgentComposer from './AgentComposer'
 import AgentCreations from './AgentCreations'
 import AgentHistoryStatus from './AgentHistoryStatus'
-import AgentProjectNavigation from './AgentProjectNavigation'
 import AgentReply from './AgentReply'
 import AgentToolCard from './AgentToolCard'
 import AgentTurnCost from './AgentTurnCost'
@@ -129,7 +129,7 @@ export default function AgentPanel({
         onPointerDown={startResize}
         className="absolute -right-1.5 top-6 bottom-6 z-10 hidden md:block w-3 cursor-col-resize touch-none rounded-full transition-colors hover:bg-primary/40 active:bg-primary/60"
       />
-      <AgentProjectNavigation credits={sessionCredits} />
+      <ProjectNavigation credits={sessionCredits} />
       <div className="studio-agent-tabs flex shrink-0 items-center justify-between gap-3 px-4 pb-3 pt-2">
         <div className="flex items-center gap-3">
           {TABS.map((one) => (

@@ -1,18 +1,18 @@
 import { ArrowLeft, Check, ChevronDown, FolderOpen, LoaderCircle, Plus, Search } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import Credits from '../../../components/Credits'
-import { Button } from '../../../components/ui/button'
-import { Input } from '../../../components/ui/input'
-import { Popover, PopoverContent, PopoverTrigger } from '../../../components/ui/popover'
-import { useTranslation } from '../../../i18n'
-import { formatDateMinute } from '../../../i18n/format'
-import { projectCatalog } from '../../canvas/lib/projectCatalog'
-import { projectDisplayName, UNTITLED_PROJECT } from '../../canvas/lib/projectRepository'
-import { useCanvasProjectStore } from '../../canvas/projectStore'
-import { useLibraryStore } from '../../library/store'
-import { useAgentStore } from '../store'
+import { useAgentStore } from '../features/agent/store'
+import { projectCatalog } from '../features/canvas/lib/projectCatalog'
+import { projectDisplayName, UNTITLED_PROJECT } from '../features/canvas/lib/projectRepository'
+import { useCanvasProjectStore } from '../features/canvas/projectStore'
+import { useLibraryStore } from '../features/library/store'
+import { useTranslation } from '../i18n'
+import { formatDateMinute } from '../i18n/format'
+import Credits from './Credits'
+import { Button } from './ui/button'
+import { Input } from './ui/input'
+import { Popover, PopoverContent, PopoverTrigger } from './ui/popover'
 
-export default function AgentProjectNavigation({ credits }: { credits: number | null }) {
+export default function ProjectNavigation({ credits }: { credits: number | null }) {
   const { t } = useTranslation(['agent', 'canvas'])
   const projects = useCanvasProjectStore((state) => state.projects)
   const activeId = useCanvasProjectStore((state) => state.activeId)
@@ -26,7 +26,10 @@ export default function AgentProjectNavigation({ credits }: { credits: number | 
   const current = catalog.find((project) => project.id === activeId)
   const name = projectDisplayName(current?.name ?? UNTITLED_PROJECT)
   const query = search.trim().toLocaleLowerCase()
-  const visible = catalog
+  const recent = current
+    ? [current, ...catalog.filter((project) => project.id !== activeId)]
+    : catalog
+  const visible = (query ? catalog : recent)
     .filter((project) => projectDisplayName(project.name).toLocaleLowerCase().includes(query))
     .slice(0, query ? 30 : 8)
   const allProjects = () => {
