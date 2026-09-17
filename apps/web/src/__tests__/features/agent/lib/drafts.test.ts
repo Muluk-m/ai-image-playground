@@ -1,10 +1,23 @@
 // @vitest-environment jsdom
 import 'fake-indexeddb/auto'
 import { describe, expect, it, vi } from 'vitest'
-import { DraftSession } from '../../../../features/agent/lib/drafts'
+import { agentDraft, DraftSession, removeProjectDraft } from '../../../../features/agent/lib/drafts'
 
 async function ready(session: DraftSession) {
   await vi.waitFor(() => expect(session.getSnapshot().loading).toBe(false))
+}
+
+/** 让页面隐藏那一刻排下的写事务先进队；此刻 300ms 的 debounce 还没到，落盘只可能来自它。 */
+const settled = () => new Promise((resolve) => setTimeout(resolve, 0))
+
+function hidePage() {
+  window.dispatchEvent(new Event('pagehide'))
+}
+
+async function storedPrompt(key: string): Promise<string> {
+  const restored = new DraftSession(key)
+  await ready(restored)
+  return restored.getSnapshot().draft.prompt
 }
 
 describe('草稿恢复', () => {
@@ -82,4 +95,26 @@ it('新建会话的草稿迁移与旧记录删除在同一事务内，确认后�
   await Promise.all([ready(old), ready(current)])
   expect(old.getSnapshot().draft.prompt).toBe('')
   expect(current.getSnapshot().draft.prompt).toBe('')
+})
+
+describe('输入框不在场', () => {
+  it('页面被藏起来时照样把没落盘的草稿冲掉', async () => {
+    const session = agentDraft('composer-unmounted')
+    await ready(session)
+    session.update({ prompt: '收起面板之后补上的内容', references: [] })
+    hidePage()
+    await settled()
+    expect(await storedPrompt(session.key)).toBe('收起面板之后补上的内容')
+  })
+
+  it('已经删掉的草稿不会被页面隐藏又写回去', async () => {
+    const session = agentDraft(null, 'removed-project')
+    await ready(session)
+    session.update({ prompt: '删掉之前的内容', references: [] })
+    await removeProjectDraft('removed-project', null)
+    session.update({ prompt: '删掉之后才写进来的内容', references: [] })
+    hidePage()
+    await settled()
+    expect(await storedPrompt(session.key)).toBe('')
+  })
 })

@@ -1,5 +1,6 @@
 import { i18next } from '../../../i18n'
 import { AGENT_CONVERSATION_KEY, safeLocalStorage, scopedStorageName } from '../../../lib/authScope'
+import { flushOnPageHide } from '../../../lib/flushOnPageHide'
 import { useStore } from '../../../store'
 import { setAgentCanvasSink } from '../../agent/lib/canvasSink'
 import { currentCanvasProject, useCanvasProjectStore } from '../projectStore'
@@ -241,12 +242,9 @@ export function currentCanvasWorkspace(): CanvasWorkspace {
   }
   if (!lifecycleInstalled) {
     lifecycleInstalled = true
-    const flush = () => {
+    // 冲的是此刻还活着的那些：`forgetCanvasWorkspace` 摘掉的不在其中。
+    flushOnPageHide(() => {
       for (const item of workspaces.values()) void item.flush()
-    }
-    window.addEventListener('pagehide', flush)
-    document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'hidden') flush()
     })
   }
   return current

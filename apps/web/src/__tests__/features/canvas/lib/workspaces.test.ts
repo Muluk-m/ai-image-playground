@@ -121,6 +121,20 @@ describe('会话画布', () => {
     expect(workspace.doc.camera.x).toBe(81)
   })
 
+  it('页面被藏起来时把没落盘的画布冲掉', async () => {
+    currentCanvasWorkspace()
+    selectCanvasWorkspace('page-hide')
+    const workspace = currentCanvasWorkspace()
+    await workspace.ready
+    workspace.doc.setCamera({ x: 64 })
+    window.dispatchEvent(new Event('pagehide'))
+    // 让冲盘排下的写事务先进队；此刻 500ms 的 debounce 还没到，落盘只可能来自它。
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    const restored = editor()
+    await loadScene(restored, canvasSceneKey('page-hide'))
+    expect(restored.doc.camera.x).toBe(64)
+  })
+
   it('账号与匿名画布键互不相同', () => {
     const anonymous = canvasSceneKey('same')
     setClientStorageScope('a/b')

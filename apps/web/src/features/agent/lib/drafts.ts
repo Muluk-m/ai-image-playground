@@ -1,5 +1,6 @@
 import { i18next } from '../../../i18n'
 import { scopedStorageName } from '../../../lib/authScope'
+import { flushOnPageHide } from '../../../lib/flushOnPageHide'
 import { type AgentDraft, EMPTY_DRAFT } from './references'
 
 const sessions = new Map<string, DraftSession>()
@@ -165,6 +166,11 @@ export class DraftSession {
   }
 }
 
+/** 冲的是此刻还活着的那些：被 `removeProjectDraft` 摘掉的不在其中，也就不会被写回去。 */
+function flushSessions() {
+  for (const session of sessions.values()) void session.flush()
+}
+
 export function agentDraft(
   conversationId: string | null,
   projectId?: string,
@@ -174,6 +180,8 @@ export function agentDraft(
   const key = projectId ? scopedStorageName(`agent-project-draft:${projectId}`) : legacyKey
   let session = sessions.get(key)
   if (!session) {
+    // 草稿的存活周期早就与输入框无关，冲盘也不该绑在它的挂载上。同一个函数登记多次只算一次。
+    flushOnPageHide(flushSessions)
     session = new DraftSession(
       key,
       projectId && (conversationId || legacyDraft) ? legacyKey : undefined,
