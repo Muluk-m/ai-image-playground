@@ -41,23 +41,22 @@
   --studio-space-6: 24px;
   --studio-radius: var(--radius);
 }
-@media (prefers-color-scheme: dark) {
-  :root {
-    color-scheme: dark;
-    --background: 120 4% 7%;
-    --foreground: 60 9% 96%;
-    --card: 120 4% 10%;
-    --primary: 89 68% 75%;
-    --primary-foreground: 110 20% 10%;
-    --secondary: 110 4% 15%;
-    --muted-foreground: 90 4% 65%;
-    --accent: 105 10% 19%;
-    --destructive: 0 75% 65%;
-    --border: 110 4% 20%;
-    --success: 142 55% 65%;
-    --warning: 40 90% 65%;
-    --warning-foreground: 35 60% 10%;
-  }
+/* 暗色由 src/theme 打在 <html> 上的 .dark 决定；跟随系统也是它算出来的，这里不再写 media。 */
+:root.dark {
+  color-scheme: dark;
+  --background: 120 4% 7%;
+  --foreground: 60 9% 96%;
+  --card: 120 4% 10%;
+  --primary: 89 68% 75%;
+  --primary-foreground: 110 20% 10%;
+  --secondary: 110 4% 15%;
+  --muted-foreground: 90 4% 65%;
+  --accent: 105 10% 19%;
+  --destructive: 0 75% 65%;
+  --border: 110 4% 20%;
+  --success: 142 55% 65%;
+  --warning: 40 90% 65%;
+  --warning-foreground: 35 60% 10%;
 }
 @layer base {
   * { border-color: hsl(var(--border)); }

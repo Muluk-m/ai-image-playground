@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react'
 import { useTranslation } from '../../../i18n'
+import { subscribeTheme } from '../../../theme'
 import type { CanvasEl } from '../lib/canvasDoc'
 import type { CanvasEditor } from '../lib/editor'
 import type { Box } from '../lib/geometry'
@@ -109,14 +110,14 @@ export default function CanvasMinimap({ editor }: { editor: CanvasEditor }) {
     }
 
     draw()
-    const theme = window.matchMedia?.('(prefers-color-scheme: dark)')
-    theme?.addEventListener('change', draw)
+    // 颜色取自 CSS 变量，主题一换（无论是系统变了还是用户翻转）就得重画。
+    const unsubscribeTheme = subscribeTheme(draw)
     const unsubscribe = doc.subscribe(() => {
       if (!frame) frame = requestAnimationFrame(draw)
     })
     return () => {
       unsubscribe()
-      theme?.removeEventListener('change', draw)
+      unsubscribeTheme()
       if (frame) cancelAnimationFrame(frame)
     }
   }, [doc, currentFrame, hasContent])

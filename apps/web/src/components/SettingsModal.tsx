@@ -34,6 +34,9 @@ import { fetchProfileModels } from '../lib/fetchProfileModels'
 import { isSeedNewProfileName, profileSeedNames } from '../lib/profileSeedNames'
 import { getProviderModelOptions } from '../lib/providerModels'
 import { clearData, exportData, importData, useStore } from '../store'
+import type { ThemeChoice } from '../theme'
+import { THEME_LABEL_KEY } from '../theme/labels'
+import { useTheme } from '../theme/useTheme'
 import type { AppSettings, CustomProviderDefinition } from '../types'
 
 // SettingsModal 内部 draft 仍以扁平 ApiProfile 形态承载表单。加载/提交两端做一次 ClientProfile ↔ ApiProfile 转换。
@@ -205,6 +208,9 @@ function saveCopyImportUrlOptions(options: CopyImportUrlOptions) {
     // localStorage 不可用时只保留当前会话状态。
   }
 }
+
+/** 设置面板是唯一能选回「跟随系统」的地方；头像菜单与登录页只做亮暗翻转。 */
+const THEME_CHOICES: readonly ThemeChoice[] = ['system', 'light', 'dark']
 
 interface CustomProviderForm {
   json: string
@@ -408,6 +414,7 @@ export default function SettingsModal() {
   const { t } = useTranslation('settings')
   const { t: tCommon } = useTranslation('common')
   const localePicker = useLocalePicker()
+  const themeControls = useTheme()
   const showSettings = useStore((s) => s.showSettings)
   const setShowSettings = useStore((s) => s.setShowSettings)
   const settings = useStore((s) => s.settings)
@@ -1382,6 +1389,29 @@ export default function SettingsModal() {
                             {SUPPORTED_LOCALES.map((locale) => (
                               <option key={locale} value={locale}>
                                 {tCommon(`locale.${locale}` as const)}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="block">
+                      <div className="mb-1 flex items-center justify-between">
+                        <span className="block text-sm text-muted-foreground">
+                          {tCommon('theme.label')}
+                        </span>
+                        <div className="w-32">
+                          <select
+                            aria-label={tCommon('theme.label')}
+                            value={themeControls.choice}
+                            onChange={(event) =>
+                              themeControls.setChoice(event.currentTarget.value as ThemeChoice)
+                            }
+                            className="w-full px-3 py-1.5 rounded-xl border border-border/60 border-border bg-card/50 hover:bg-card text-xs transition-all duration-200 shadow-sm text-foreground outline-none"
+                          >
+                            {THEME_CHOICES.map((choice) => (
+                              <option key={choice} value={choice}>
+                                {tCommon(THEME_LABEL_KEY[choice])}
                               </option>
                             ))}
                           </select>

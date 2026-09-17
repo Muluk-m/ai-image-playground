@@ -1,5 +1,13 @@
 {
   "documentTitle": "幕芽 Muvloom · AI 图片与视频创作工作台",
+  "theme": {
+    "label": "主题",
+    "light": "亮色",
+    "dark": "暗色",
+    "system": "跟随系统",
+    "toDark": "切到暗色",
+    "toLight": "切到亮色"
+  },
   "locale": {
     "switchAria": "界面语言：{{current}}，点击切换到 {{next}}",
     "label": "界面语言",
