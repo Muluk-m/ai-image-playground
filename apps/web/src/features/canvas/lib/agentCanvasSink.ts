@@ -81,7 +81,9 @@ export function createAgentCanvasSink(
       }
       if (!canPlace()) return outcome
       const missing = artifacts.filter((artifact) => !editor.getElement(artifact.artifactId))
-      if (missing.length === 0) return 'placed'
+      const allPlaced = () =>
+        artifacts.every((artifact) => editor.getElement(artifact.artifactId)?.type === 'image')
+      if (missing.length === 0) return allPlaced() ? 'placed' : 'unavailable'
       // 起跑时占下的位还在就用它的几何：用户看着那个框转圈，产物就该落进那个框。
       const reserved = (options?.placeholderIds ?? []).filter((id) => editor.getPlaceholder(id))
       const bounds = anchorBounds(options?.anchorObjectId)
@@ -112,6 +114,7 @@ export function createAgentCanvasSink(
           },
         },
       )
+      if (outcome === 'placed' && !allPlaced()) return 'unavailable'
       // 落图成功才收占位框：中途画布离开时它得留着，用户点「放入画布」还认得这个位置。
       if (outcome === 'placed') {
         for (const id of reserved) editor.deleteElement(id, { history: false })

@@ -54,5 +54,10 @@
     "invalid_project_document": "画布格式不受支持，本机内容已保留，请更新页面后重试。",
     "recovery_copy_failed": "无法保存本机恢复副本。请释放浏览器存储空间后重试，当前修改未被替换。",
     "recovery_changed": "保存副本期间有了新修改，已保留在当前画布。请再次选择处理方式。"
+  },
+  "cloudPlacement": {
+    "place_failed": "未能放入当前项目，请重试。",
+    "project_not_ready": "项目仍在同步或存在冲突，请先完成同步或处理冲突。",
+    "fallback": "未能放入当前项目，请重试。"
   }
 }
