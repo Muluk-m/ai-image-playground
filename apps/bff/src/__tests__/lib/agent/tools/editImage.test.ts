@@ -11,6 +11,7 @@ process.env.UPSTREAM_API_KEY = 'fixture-upstream-key'
 // 动态引入：环境要先钉死，再让捕获配置的模块加载。
 const { editImage } = await import('../../../../lib/agent/tools/editImage')
 const { createAgentImageSource } = await import('../../../../lib/agent/images')
+const { createTurnAuthorization } = await import('../../../../lib/agent/turn-authorization')
 const { _setChannelsForTesting } = await import('../../../../lib/channels')
 
 // 一个可用模型都没有：控制组走完身份检查后停在这一句，不必真提交一条任务。
@@ -25,11 +26,15 @@ const PIXEL = `data:image/png;base64,${(
 ).toString('base64')}`
 
 /**
- * 一次工具调用看得见的那一份上下文。`interjectWhileFetching` 把改写挂在取图这一步上——
- * 「用户赶在工具执行前插了一句」在工具眼里就是这个样子：快照取过了，原文却换了。
+ * 一次工具调用看得见的那一份上下文。`interjectWhileFetching` 把插话挂在取图这一步上——
+ * 「用户赶在工具执行前插了一句」在工具眼里就是这个样子：快照取过了，授权原文却换了。
  */
 function fixture() {
-  let current = { revision: 0, instructions: INSTRUCTIONS }
+  const authorization = createTurnAuthorization({
+    history: [],
+    prompt: INSTRUCTIONS,
+    references: [],
+  })
   let onResolve: (() => void) | undefined
   const real = createAgentImageSource({
     references: [{ imageId: 'target', dataUrl: PIXEL }],
@@ -50,19 +55,14 @@ function fixture() {
     userId: null,
     deviceId: 'device-abcdefgh',
     images,
-    editRequest: () => current,
+    authorization: () => authorization.current(),
   }
   return {
     context,
     interjectWhileFetching(text: string) {
-      onResolve = () => {
-        current = {
-          revision: current.revision + 1,
-          instructions: `${current.instructions}\n用户补充：${text}`,
-        }
-      }
+      onResolve = () => authorization.amend(text, [])
     },
-    revision: () => current.revision,
+    revision: () => authorization.current().revision,
   }
 }
 

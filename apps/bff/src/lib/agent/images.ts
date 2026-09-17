@@ -27,10 +27,7 @@ export interface ResolvedAgentImage {
 /** 模型只会说图片 id，字节从哪来由这里决定。 */
 export interface AgentImageSource {
   readonly references: readonly AgentImageReference[]
-  /**
-   * 这一轮是不是遮罩轮：当前这批引用里有没有用户画的遮罩。插话换掉引用后跟着变，
-   * 「本轮存在用户选区」的判断只问这一处。
-   */
+  /** 当前这批引用里有没有用户画的遮罩；「本轮存在用户选区」的判断只问这一处。 */
   readonly masked: boolean
   /**
    * 模型说的那个 id 对应的真 id（把 `image 2` 这类编号翻回去），不读字节。

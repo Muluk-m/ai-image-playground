@@ -103,7 +103,6 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
     history: input.history,
     userId: input.userId,
   })
-  // 本轮的授权原文是这段历史的第三种读法，拼法与澄清链回溯都在 `turn-authorization.ts`。
   const authorization = createTurnAuthorization({
     history: input.history,
     prompt,
@@ -128,7 +127,7 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
         userId: input.userId,
         deviceId: input.deviceId,
         images,
-        editRequest: () => authorization.current(),
+        authorization: () => authorization.current(),
         maskedEditPlan,
         ...(input.params ? { params: input.params } : {}),
       }),
@@ -357,7 +356,7 @@ export async function startAgentTurn(input: StartAgentTurnInput): Promise<Runnin
         evidence,
       )
       const pending = steeringReferences.get(steered.text) ?? []
-      // 授权原文仍是用户打的那句：`/skill-name` 是给模型看的指引，不是他授权的修改要求。
+      // 授权原文仍是用户打的那句：`/skill-name` 展开出来的是给模型看的指引，不是他的许可。
       pending.push({ references, text, active })
       steeringReferences.set(steered.text, pending)
       queued.push({ id: messageId, text, references: stored })

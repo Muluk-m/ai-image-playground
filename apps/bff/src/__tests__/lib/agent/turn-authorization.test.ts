@@ -89,7 +89,7 @@ const COMPLETED: AgentMessageView[] = [
 describe('turnAuthorizationText', () => {
   it('authorizes only this turn when there is no history', () => {
     expect(turnAuthorizationText([], '把背景换成海边', [])).toBe('把背景换成海边')
-    expect(turnAuthorizationText([] as AgentMessageView[], '把背景换成海边', [COVER])).toBe(
+    expect(turnAuthorizationText([], '把背景换成海边', [COVER])).toBe(
       `把背景换成海边${COVER_MANIFEST}`,
     )
   })

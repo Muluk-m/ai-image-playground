@@ -4,12 +4,9 @@ import type { AgentImageReference } from './images'
 import { replayTurnText, turnPromptText } from './turn-input'
 
 /**
- * 「这一轮用户授权了什么」只由本模块回答。它与 `turn-input.ts` 走同一段历史，读法却不同：
- * 送给模型的输入回放整段对话，授权只认末尾那条未完成的澄清链——已完成的任务模型仍读得到，
- * 但不是本轮的许可。
- *
- * 这段文字会被拿去校验 requestQuote 是不是原文的子串（`masked-plan.ts` 与 `masked-edit.ts`），
- * 差一个字符就会把本该放行的改图拒掉，所以每一个分隔符都定在这一处。
+ * 「这一轮用户授权了什么」只由本模块回答：与 `turn-input.ts` 同一段历史，但只认末尾那条
+ * 未完成的澄清链。这段文字要拿去校验 requestQuote 是不是它的子串（`masked-plan.ts` 与
+ * `masked-edit.ts`），差一个字符就会把本该放行的改图拒掉，所以每一个分隔符都定在这一处。
  */
 
 /** 未完成澄清链的起点：从历史末尾往回走，澄清与作答它的那条用户消息都还算本轮。 */
@@ -27,10 +24,7 @@ function clarificationChainStart(history: readonly AgentMessageView[]): number {
   return start
 }
 
-/**
- * 起轮那一刻的授权原文：未完成澄清链上的用户原话与澄清摘要逐条排开，
- * 收尾是本轮 prompt 与它的引用清单。助手自己说的话不是授权，不进来。
- */
+/** 起轮那一刻的授权原文：澄清链上的用户原话与澄清摘要，收尾是本轮 prompt 与引用清单。 */
 export function turnAuthorizationText(
   history: readonly AgentMessageView[],
   prompt: string,

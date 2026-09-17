@@ -7,14 +7,11 @@ export interface MaskedOperation {
   readonly n?: number
 }
 
-/**
- * 一次真遮罩编辑做的是哪件事。同一件事换个 tool-call id 再来一次，这几项一模一样——
- * 批次身份认不出这种重复，所以它单独存一份。
- */
+/** 一次真遮罩编辑做的是哪件事：换个 tool-call id 重来一次，批次身份认不出，内容身份认得出。 */
 export interface MaskedEditContent {
   readonly imageIds: readonly string[]
   readonly selectionBindings?: readonly { readonly imageId: string; readonly selectionId: string }[]
-  /** 这次操作对应的用户原文；模型没摘录时回落到工具起跑时的完整修改要求。 */
+  /** 这次操作对应的用户原文；模型没摘录时回落到工具起跑时的整段授权原文。 */
   readonly quote?: string
 }
 
@@ -75,7 +72,7 @@ const contentKey = (content: MaskedEditContent) =>
 
 /** 首次付费前固定操作与数量；依赖产物的后续操作也必须提前列明。 */
 export function createMaskedEditPlan(
-  instructions: () => string,
+  authorizationText: () => string,
   identify: (id: string) => string,
   initiallyProtected = false,
 ): MaskedEditPlan {
@@ -110,7 +107,7 @@ export function createMaskedEditPlan(
             typeof op.targetImageId !== 'string' ||
             typeof op.requestQuote !== 'string' ||
             !op.requestQuote.trim() ||
-            !instructions().includes(op.requestQuote)
+            !authorizationText().includes(op.requestQuote)
           )
             continue
           if (op.selectionId !== undefined && typeof op.selectionId !== 'string') continue
