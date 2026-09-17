@@ -74,3 +74,10 @@ BFF 的公开核心只做四件事：
   端点与 `/skill-name` 显式调用（`src/__tests__/routes/agent-skills.test.ts`）。
   **改 `skills/` 下随仓库发的那几条技能会动到路由测试里的工具清单断言**——`loadSkill` 只在
   该 mode 有技能时才进清单。
+- **随仓库发的技能有一份体检**（`src/__tests__/lib/agent/shipped-skills.test.ts`）：它加载真实的
+  `apps/bff/skills`，断言零 diagnostic、每条有中文一级标题、`description` 含「何时用 / 不处理」
+  且不超过 120 字、`name` 与目录同名、同一 mode 内不重名、正文里反引号包着的工具名都属于该 mode
+  的工具集合（图片技能正文里不许出现 `generateVideo`）。加技能先看它。
+- **技能条数会推高每轮的预扣**：`description` 进每一轮的系统提示词，条数一多
+  `agent-billing.test.ts` 里那两条 `unitMultiplier` 区间就会被顶穿。那不是 bug，如实调区间并在
+  注释里写清这次为什么上移。
