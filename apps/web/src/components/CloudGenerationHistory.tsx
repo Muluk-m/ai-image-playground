@@ -5,6 +5,7 @@ import { useTranslation } from '../i18n'
 import { authenticatedBffFetch } from '../lib/authClient'
 import { scopedStorageName } from '../lib/authScope'
 import { bffBaseUrl } from '../lib/runtimeConfig'
+import MediaImage from './MediaImage'
 import { Button } from './ui/button'
 
 export default function CloudGenerationHistory() {
@@ -99,14 +100,24 @@ export default function CloudGenerationHistory() {
         {page.items.map((item) => (
           <li key={item.id} className="rounded-xl border border-border bg-card p-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <p className="font-medium">{item.model}</p>
-                <time
-                  dateTime={new Date(item.createdAt).toISOString()}
-                  className="text-xs text-muted-foreground"
-                >
-                  {new Date(item.createdAt).toLocaleString(i18n.language)}
-                </time>
+              <div className="flex items-center gap-4">
+                {item.cover && (
+                  <MediaImage
+                    src={`aip-media:${item.cover.mediaId}`}
+                    alt=""
+                    loading="lazy"
+                    className="h-20 w-20 rounded-lg bg-muted object-cover"
+                  />
+                )}
+                <div>
+                  <p className="font-medium">{item.model}</p>
+                  <time
+                    dateTime={new Date(item.createdAt).toISOString()}
+                    className="text-xs text-muted-foreground"
+                  >
+                    {new Date(item.createdAt).toLocaleString(i18n.language)}
+                  </time>
+                </div>
               </div>
               <div className="flex items-center gap-3">
                 <span className="rounded-full bg-muted px-3 py-1 text-xs">
