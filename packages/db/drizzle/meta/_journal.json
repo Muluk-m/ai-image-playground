@@ -134,6 +134,13 @@
       "when": 1789563144507,
       "tag": "0019_domain_migration",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1789647900311,
+      "tag": "0020_service_heartbeats",
+      "breakpoints": true
     }
   ]
 }

@@ -71,6 +71,19 @@ await writer.db.insert(writer.schema.tasks).values([
   { ...base, id: 'ops-chat-turn', kind: 'chat', status: 'queued', submitted_at: now - 30 * minute },
 ])
 
+// 重新部署换了实例：每个服务只该报最新的那个实例。
+await writer.db.insert(writer.schema.service_heartbeats).values([
+  { service: 'bff', instance: 'bff-old', version: 'aaaaaaa', last_seen_at: now - 3 * 3600_000 },
+  { service: 'bff', instance: 'bff-new', version: 'bbbbbbb', last_seen_at: now - 10_000 },
+  {
+    service: 'worker',
+    instance: 'worker-new',
+    version: 'bbbbbbb',
+    last_seen_at: now - 20_000,
+    detail: { last_successful_poll_at: now - 1_000 },
+  },
+])
+
 const { app } = await import('../../../../server/app')
 
 afterAll(async () => {
@@ -147,5 +160,31 @@ describe('GET /api/ops', () => {
       path: '/internal/admin/ops/backups',
       authorization: 'Bearer fixture-service-credential-alpha',
     })
+  })
+
+  it('reports the current instance of each service with the version it runs', async () => {
+    const cookie = await login()
+    const response = await app.handle(
+      new Request('http://localhost/api/ops', { headers: { cookie } }),
+    )
+    const body = (await response.json()) as OpsSnapshot
+
+    if (!body.services.ok) throw new Error(body.services.error)
+    expect(body.services.data.services).toEqual([
+      {
+        service: 'bff',
+        instance: 'bff-new',
+        version: 'bbbbbbb',
+        last_seen_at: now - 10_000,
+        last_successful_poll_at: null,
+      },
+      {
+        service: 'worker',
+        instance: 'worker-new',
+        version: 'bbbbbbb',
+        last_seen_at: now - 20_000,
+        last_successful_poll_at: now - 1_000,
+      },
+    ])
   })
 })

@@ -38,10 +38,11 @@ if [ "$command" = build ] || [ "$command" = build-private ]; then
       --no-cache-filter private-manifests,deps \
       --build-context private-overlay="$repo_root/private" \
       --build-arg PRIVATE_OVERLAY_PRESENT=true \
+      --build-arg APP_VERSION="${APP_VERSION:-unknown}" \
       --tag "$image" \
       "$repo_root"
   else
-    docker build --tag "$image" "$repo_root"
+    docker build --build-arg APP_VERSION="${APP_VERSION:-unknown}" --tag "$image" "$repo_root"
   fi
   exit 0
 fi

@@ -4,6 +4,7 @@ import { close as closeDb } from './db/client'
 import { recoverAbandonedTasks, recoverTasksByIds } from './db/maintenance'
 import { isCapabilityEnabled } from './lib/capabilities'
 import { initChannels } from './lib/channels'
+import { purgeStaleHeartbeats, startHeartbeat } from './lib/heartbeat'
 import { log } from './lib/logger'
 import { assertPrivateBffOverlayPresent, loadPrivateBffOverlay } from './lib/private-overlay'
 import { abortAllRunningTasks, runningTaskIds } from './workers/task-runner'
@@ -25,7 +26,21 @@ await recoverAbandonedTasks()
 
 const scheduler = new TaskScheduler()
 scheduler.start()
+// 活着不等于在干活：把最后一次成功轮询的时间一并写进心跳，看板才分得清两者。
+const stopHeartbeat = startHeartbeat({
+  service: 'worker',
+  detail: () => ({ last_successful_poll_at: scheduler.lastSuccessfulPollAt() }),
+})
 const staleScanTimer = setInterval(() => {
+  purgeStaleHeartbeats().catch((err) => {
+    log.warn(
+      {
+        event: 'worker.heartbeat_purge_failed',
+        err: err instanceof Error ? err.message : String(err),
+      },
+      'stale heartbeat purge failed',
+    )
+  })
   recoverAbandonedTasks(runningTaskIds()).catch((err) => {
     log.error(
       { event: 'worker.stale_scan_failed', err: err instanceof Error ? err.message : String(err) },
@@ -62,6 +77,7 @@ async function gracefulShutdown(signal: string): Promise<void> {
   if (shuttingDown) return
   shuttingDown = true
   scheduler.stop()
+  stopHeartbeat()
   clearInterval(staleScanTimer)
   await workerHealthServer.stop()
   const drainTimeoutMs = config.worker.drainTimeoutMs

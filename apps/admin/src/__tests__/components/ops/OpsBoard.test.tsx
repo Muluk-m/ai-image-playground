@@ -40,6 +40,27 @@ function snapshot(patch: Partial<OpsSnapshot> = {}): OpsSnapshot {
         ],
       },
     },
+    services: {
+      ok: true,
+      data: {
+        services: [
+          {
+            service: 'bff',
+            instance: 'b1',
+            version: 'ae5da35c',
+            last_seen_at: NOW - 12_000,
+            last_successful_poll_at: null,
+          },
+          {
+            service: 'worker',
+            instance: 'w1',
+            version: 'ae5da35c',
+            last_seen_at: NOW - 8_000,
+            last_successful_poll_at: NOW - 2_000,
+          },
+        ],
+      },
+    },
     backup: {
       ok: true,
       data: {
@@ -209,5 +230,71 @@ describe('运维看板', () => {
       />,
     )
     expect(within(block('备份')).getByRole('alert').textContent).toContain('还没有备份')
+  })
+
+  it('服务一栏说清谁活着、跑的是哪个版本、worker 是不是真的在干活', () => {
+    render(<OpsBoard snapshot={snapshot()} />)
+    const services = block('服务')
+    expect(within(services).getAllByText('ae5da35c')).toHaveLength(2)
+    expect(within(services).getByText('12 秒前')).toBeTruthy()
+    expect(within(services).getByText(/最后一次成功轮询/).textContent).toContain('刚刚')
+    expect(within(services).queryByRole('alert')).toBeNull()
+  })
+
+  it('心跳断了超过 2 分钟就报警，从没出现过的服务也算', () => {
+    render(
+      <OpsBoard
+        snapshot={snapshot({
+          services: {
+            ok: true,
+            data: {
+              services: [
+                {
+                  service: 'bff',
+                  instance: 'b1',
+                  version: 'ae5da35c',
+                  last_seen_at: NOW - 5 * minute,
+                  last_successful_poll_at: null,
+                },
+              ],
+            },
+          },
+        })}
+      />,
+    )
+    const alert = within(block('服务')).getByRole('alert').textContent ?? ''
+    expect(alert).toContain('后端的心跳已经断了 5 分钟')
+    expect(alert).toContain('worker 还没有心跳')
+  })
+
+  it('两个服务版本不一致时提示，部署只滚了一半就是这个样子', () => {
+    render(
+      <OpsBoard
+        snapshot={snapshot({
+          services: {
+            ok: true,
+            data: {
+              services: [
+                {
+                  service: 'bff',
+                  instance: 'b1',
+                  version: 'ae5da35c',
+                  last_seen_at: NOW - 5_000,
+                  last_successful_poll_at: null,
+                },
+                {
+                  service: 'worker',
+                  instance: 'w1',
+                  version: '4943d1a9',
+                  last_seen_at: NOW - 5_000,
+                  last_successful_poll_at: NOW - 1_000,
+                },
+              ],
+            },
+          },
+        })}
+      />,
+    )
+    expect(within(block('服务')).getByRole('alert').textContent).toContain('版本不一致')
   })
 })

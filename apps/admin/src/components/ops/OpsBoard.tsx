@@ -4,7 +4,61 @@ import { Link } from '@tanstack/react-router'
 import { Kpi } from '@/components/Kpi'
 import { OpsBlockCard } from '@/components/ops/OpsBlockCard'
 import { bytes, elapsed, fuzzyTime, shortId } from '@/lib/format'
-import type { OpsBackups, OpsDatabase, OpsQueue, OpsSnapshot } from '@/lib/types'
+import type {
+  OpsBackups,
+  OpsDatabase,
+  OpsQueue,
+  OpsServiceName,
+  OpsServices,
+  OpsSnapshot,
+} from '@/lib/types'
+
+const SERVICE_LABEL: Record<OpsServiceName, string> = { bff: '后端', worker: 'worker' }
+const EXPECTED_SERVICES: readonly OpsServiceName[] = ['bff', 'worker']
+
+function servicesProblems({ services }: OpsServices, now: number): string[] {
+  const problems: string[] = []
+  for (const name of EXPECTED_SERVICES) {
+    const service = services.find((one) => one.service === name)
+    if (!service) {
+      problems.push(`${SERVICE_LABEL[name]} 还没有心跳`)
+      continue
+    }
+    const silence = now - service.last_seen_at
+    if (silence > OPS_THRESHOLDS.HEARTBEAT_MAX_AGE_MS) {
+      problems.push(`${SERVICE_LABEL[name]}的心跳已经断了 ${elapsed(silence)}`)
+    }
+  }
+  const versions = new Set(services.map((service) => service.version))
+  if (versions.size > 1) problems.push('各服务版本不一致，部署可能只滚了一半')
+  return problems
+}
+
+function ServicesBody({ services, now }: { services: OpsServices; now: number }) {
+  if (services.services.length === 0) {
+    return <p className="text-sm text-muted-foreground">还没有任何服务写过心跳。</p>
+  }
+  return (
+    <ul className="space-y-3 text-sm">
+      {services.services.map((service) => (
+        <li key={service.service} className="flex flex-wrap items-baseline justify-between gap-x-4">
+          <span className="font-medium">{SERVICE_LABEL[service.service]}</span>
+          <span className="font-mono text-xs text-muted-foreground" title={service.instance}>
+            {service.version}
+          </span>
+          <span className="tabular-nums text-muted-foreground">
+            {fuzzyTime(service.last_seen_at, now)}
+          </span>
+          {service.last_successful_poll_at !== null ? (
+            <span className="w-full text-xs text-muted-foreground">
+              最后一次成功轮询：{fuzzyTime(service.last_successful_poll_at, now)}
+            </span>
+          ) : null}
+        </li>
+      ))}
+    </ul>
+  )
+}
 
 function queueProblems(queue: OpsQueue): string[] {
   const problems: string[] = []
@@ -122,6 +176,13 @@ function BackupBody({ backup, now }: { backup: OpsBackups; now: number }) {
 export function OpsBoard({ snapshot }: { snapshot: OpsSnapshot }) {
   return (
     <section className="grid gap-4 xl:grid-cols-2">
+      <OpsBlockCard
+        title="服务"
+        block={snapshot.services}
+        problems={(services) => servicesProblems(services, snapshot.generated_at)}
+      >
+        {(services) => <ServicesBody services={services} now={snapshot.generated_at} />}
+      </OpsBlockCard>
       <OpsBlockCard title="队列" block={snapshot.queue} problems={queueProblems}>
         {(queue) => <QueueBody queue={queue} now={snapshot.generated_at} />}
       </OpsBlockCard>

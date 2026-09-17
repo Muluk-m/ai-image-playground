@@ -207,8 +207,26 @@ export interface OpsDatabase {
 
 export type { OpsBackupObject, OpsBackups } from '@image-playground/shared'
 
+export type OpsServiceName = 'bff' | 'worker'
+
+export interface OpsService {
+  service: OpsServiceName
+  instance: string
+  /** 镜像构建时打进去的来源提交；直接构建的镜像是 unknown。 */
+  version: string
+  last_seen_at: number
+  /** 只有 worker 会报：活着不等于在干活。 */
+  last_successful_poll_at: number | null
+}
+
+export interface OpsServices {
+  /** 每个服务只报最新的那个实例；从没出现过心跳的服务不在列表里。 */
+  services: OpsService[]
+}
+
 export interface OpsSnapshot {
   generated_at: number
+  services: OpsBlock<OpsServices>
   queue: OpsBlock<OpsQueue>
   database: OpsBlock<OpsDatabase>
   /** 真正落在对象存储里的备份文件；只有后端够得着，所以经它的内部接口取。 */

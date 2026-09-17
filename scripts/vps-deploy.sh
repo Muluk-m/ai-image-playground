@@ -160,9 +160,15 @@ for edition in $editions; do
   prefix=$(printf '%s' "$edition" | tr '[:lower:]' '[:upper:]')
   tag=$(edition_tag "$edition")
   current_edition=$edition
+  # Baked into the image and reported in each service's heartbeat. Same shape as the frontend's
+  # version.json: <public sha>, or <public sha>+<private sha> for the paid edition.
   case "$edition" in
-    internal) "$repo_root/scripts/app-compose.sh" build "$tag" ;;
-    *) "$repo_root/scripts/app-compose.sh" build-private "$tag" ;;
+    internal)
+      APP_VERSION=$public_sha "$repo_root/scripts/app-compose.sh" build "$tag"
+      ;;
+    *)
+      APP_VERSION="$public_sha+$private_sha" "$repo_root/scripts/app-compose.sh" build-private "$tag"
+      ;;
   esac
   moving_alias=$(edition_var "$prefix" IMAGE)
   docker tag "$tag" "$moving_alias"

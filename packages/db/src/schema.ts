@@ -501,3 +501,23 @@ export const domain_migration_chunks = pgTable(
   },
   (t) => [primaryKey({ columns: [t.migration_id, t.sequence] })],
 )
+
+/**
+ * 服务进程定期留下的「我还在，我是哪个版本」。运维看板据此判断死活与线上版本，不去探测端口。
+ * 每个实例一行、原地更新；重新部署会换实例，旧实例的行由 worker 的维护循环清掉。
+ */
+export const service_heartbeats = pgTable(
+  'service_heartbeats',
+  {
+    service: text('service').notNull(),
+    instance: text('instance').notNull(),
+    version: text('version').notNull(),
+    last_seen_at: epochMs('last_seen_at').notNull(),
+    /** 服务自述的附加状态，例如 worker 最后一次成功轮询队列的时间。 */
+    detail: bunJsonb('detail').$type<Record<string, unknown>>(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.service, t.instance] }),
+    index('idx_service_heartbeats_seen').on(t.service, t.last_seen_at.desc()),
+  ],
+)

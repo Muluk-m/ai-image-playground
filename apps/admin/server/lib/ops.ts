@@ -1,6 +1,13 @@
 import { QUEUE_TIMEOUTS } from '@image-playground/shared'
 import { sql } from 'drizzle-orm'
-import type { OpsBackups, OpsBlock, OpsDatabase, OpsQueue, OpsSnapshot } from '../../contracts'
+import type {
+  OpsBackups,
+  OpsBlock,
+  OpsDatabase,
+  OpsQueue,
+  OpsServices,
+  OpsSnapshot,
+} from '../../contracts'
 import { config } from '../config'
 import { getDbHandle } from './db'
 
@@ -29,12 +36,13 @@ async function settle<T>(source: () => Promise<T>): Promise<OpsBlock<T>> {
  * 各块并行取、各自失败。出事的时候恰恰最需要看其余几块，所以任何一块抛错都只落在它自己身上。
  */
 export async function buildOpsSnapshot(sources: OpsSources = defaultSources): Promise<OpsSnapshot> {
-  const [queue, database, backup] = await Promise.all([
+  const [queue, database, backup, services] = await Promise.all([
     settle(sources.queue),
     settle(sources.database),
     settle(sources.backup),
+    settle(sources.services),
   ])
-  return { generated_at: Date.now(), queue, database, backup }
+  return { generated_at: Date.now(), services, queue, database, backup }
 }
 
 async function readQueue(): Promise<OpsQueue> {
@@ -73,6 +81,33 @@ async function readQueue(): Promise<OpsQueue> {
       model: String(row.model),
       started_at: Math.round(Number(row.started_at)),
     })),
+  }
+}
+
+/** 重新部署会换实例；每个服务只报最新的那个，旧实例的行由 worker 清。 */
+async function readServices(): Promise<OpsServices> {
+  const { db } = getDbHandle()
+  const rows = (await db.execute(sql`
+    SELECT DISTINCT ON (service)
+      service, instance, version,
+      EXTRACT(EPOCH FROM last_seen_at) * 1000 AS last_seen_ms,
+      detail
+    FROM service_heartbeats
+    WHERE service IN ('bff', 'worker')
+    ORDER BY service ASC, last_seen_at DESC
+  `)) as unknown as Array<Record<string, unknown>>
+  return {
+    services: rows.map((row) => {
+      const detail = (row.detail ?? {}) as { last_successful_poll_at?: unknown }
+      const polledAt = Number(detail.last_successful_poll_at)
+      return {
+        service: row.service as 'bff' | 'worker',
+        instance: String(row.instance),
+        version: String(row.version),
+        last_seen_at: Math.round(Number(row.last_seen_ms)),
+        last_successful_poll_at: Number.isFinite(polledAt) && polledAt > 0 ? polledAt : null,
+      }
+    }),
   }
 }
 
@@ -116,4 +151,5 @@ const defaultSources: OpsSources = {
   queue: readQueue,
   database: readDatabase,
   backup: () => readFromBff<OpsBackups>('/backups'),
+  services: readServices,
 }
