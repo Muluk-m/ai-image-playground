@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { IDBFactory } from 'fake-indexeddb'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -276,4 +277,75 @@ it('展开输出只加载预览，点击下载原图后才取原件并保留文�
   expect(urls).toContain('https://media.example/output-original.png')
   expect((download.mock.instances[0] as HTMLAnchorElement | undefined)?.download).toMatch(/\.png$/)
   download.mockRestore()
+})
+
+it('复用参考图下载期间切换账号，不覆盖新账号的创作内容', async () => {
+  vi.stubGlobal('indexedDB', new IDBFactory())
+  setChannels([
+    {
+      id: 'openai-images',
+      kind: 'openai-queue',
+      label: 'Image',
+      defaults: {},
+      models: [
+        { id: 'gpt-image-2', label: 'GPT Image', capabilities: ['generate', 'edit', 'mask'] },
+      ],
+    },
+  ])
+  const mediaId = '99999999-9999-4999-8999-999999999999'
+  let respond!: (value: Response) => void
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string) => {
+      if (url.includes('/access'))
+        return Response.json({
+          previewUrl: 'https://media.example/scope-preview',
+          originalUrl: 'https://media.example/scope-original',
+          expiresAt: Date.now() + 600000,
+        })
+      if (url === 'https://media.example/scope-original')
+        return new Promise<Response>((resolve) => {
+          respond = resolve
+        })
+      if (url === 'https://media.example/scope-preview')
+        return {
+          ok: true,
+          status: 200,
+          blob: async () => new Blob(['preview'], { type: 'image/png' }),
+        } as Response
+      if (url.includes('?')) return Response.json({ items: [item], nextCursor: null })
+      return Response.json({
+        ...item,
+        prompt: '旧账号内容',
+        parameters: {},
+        actualParameters: {},
+        inputs: [{ index: 0, mediaId, width: 8, height: 6, contentType: 'image/png' }],
+        mask: null,
+        outputs: [],
+      })
+    }),
+  )
+  await act(async () => root.render(<CloudGenerationHistory />))
+  await act(async () =>
+    [...host.querySelectorAll('button')]
+      .find((node) => node.textContent?.includes('查看详情'))!
+      .click(),
+  )
+  await act(async () => {
+    ;[...host.querySelectorAll('button')]
+      .find((node) => node.textContent?.includes('复用参数'))!
+      .click()
+    await vi.waitFor(() => expect(respond).toBeDefined())
+  })
+  setClientStorageScope('different-owner')
+  useStore.setState({ prompt: '新账号草稿', inputImages: [] })
+  await act(async () => {
+    respond({
+      ok: true,
+      status: 200,
+      blob: async () => new Blob(['original'], { type: 'image/png' }),
+    } as Response)
+  })
+  expect(useStore.getState().prompt).toBe('新账号草稿')
+  expect(useStore.getState().inputImages).toEqual([])
 })

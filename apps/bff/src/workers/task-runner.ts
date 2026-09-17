@@ -8,7 +8,7 @@ import {
   requeueTaskArchive,
   saveArchiveCheckpoint,
 } from '../db/task-transitions'
-import { protectMaskedOutput } from '../lib/agent/masked-output'
+import { MaskedOutputError, protectMaskedOutput } from '../lib/agent/masked-output'
 import { isCapabilityEnabled } from '../lib/capabilities'
 import { describeEmptyResult, extractMeta } from '../lib/extractImages'
 import {
@@ -304,7 +304,9 @@ export async function runTask(id: string): Promise<void> {
       log.info({ event: 'task.aborted', taskId: id }, 'task aborted')
       return
     }
-    if (archivePayload) {
+    const rejectedMaskedOutput =
+      err instanceof MaskedOutputArchiveError && err.cause instanceof MaskedOutputError
+    if (archivePayload && !rejectedMaskedOutput) {
       await requeueTaskArchive(id, Date.now() + 60_000, archivePayload)
       log.warn(
         { event: 'task.archive_retry', taskId: id, err: String(err) },
@@ -345,7 +347,13 @@ export async function runTask(id: string): Promise<void> {
       errorMessage: message,
       errorType,
       ...(err instanceof MaskedOutputArchiveError
-        ? { resultPayload: { masked_edit_candidates: err.candidates } }
+        ? {
+            resultPayload: {
+              masked_edit_candidates: err.candidates.map((candidate) =>
+                cloudArchive ? { ...candidate, store: 'durable' } : candidate,
+              ),
+            },
+          }
         : {}),
       upstreamStatus: upstream.status,
       upstreamBody: upstream.body,
