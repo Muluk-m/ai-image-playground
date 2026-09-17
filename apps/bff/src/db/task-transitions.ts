@@ -66,6 +66,27 @@ export async function requeueTasksForPolling(ids: readonly string[]): Promise<nu
   })
 }
 
+/** Archive retries keep the successful result and never consume model attempts. */
+export async function requeueTaskArchive(id: string, nextRetryAt = Date.now() + 60_000) {
+  return db.transaction(async (tx) => {
+    const updated = await tx
+      .update(schema.tasks)
+      .set({
+        status: 'queued',
+        next_retry_at: nextRetryAt,
+        error_message: '图片已生成，正在重试保存',
+        error_type: 'object_storage_error',
+      })
+      .where(stillRunning(id))
+      .returning({ id: schema.tasks.id })
+    await publishGenerations(
+      tx,
+      updated.map((row) => row.id),
+    )
+    return updated.length > 0
+  })
+}
+
 export type TerminalTaskUpdate = {
   status: 'completed' | 'failed' | 'cancelled'
   completedAt: number
@@ -89,6 +110,7 @@ export async function finishTask(id: string, update: TerminalTaskUpdate): Promis
       .update(schema.tasks)
       .set({
         status: update.status,
+        archive_payload: null,
         attempt_count: update.attemptCount,
         upstream_invocation_count: update.upstreamInvocationCount,
         result_payload: update.resultPayload,

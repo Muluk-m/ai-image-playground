@@ -2,8 +2,9 @@ import { QUEUE_TIMEOUTS, type TaskErrorType } from '@image-playground/shared'
 import { and, eq, sql } from 'drizzle-orm'
 import { claimQueuedTask } from '../db/claim-task'
 import { db, schema } from '../db/client'
-import { finishTask, requeueTask } from '../db/task-transitions'
+import { finishTask, requeueTask, requeueTaskArchive } from '../db/task-transitions'
 import { protectMaskedOutput } from '../lib/agent/masked-output'
+import { isCapabilityEnabled } from '../lib/capabilities'
 import { describeEmptyResult, extractMeta } from '../lib/extractImages'
 import { archiveGenerationOutputs } from '../lib/generationMedia'
 import {
@@ -131,6 +132,7 @@ export async function runTask(id: string): Promise<void> {
       model: schema.tasks.model,
       request_payload: schema.tasks.request_payload,
       userId: schema.tasks.user_id,
+      archive_payload: schema.tasks.archive_payload,
       attempt_count: schema.tasks.attempt_count,
       upstream_task_ids: schema.tasks.upstream_task_ids,
       upstream_submitted_at: schema.tasks.upstream_submitted_at,
@@ -153,7 +155,21 @@ export async function runTask(id: string): Promise<void> {
       ? { taskIds: task.upstream_task_ids, submittedAt: task.upstream_submitted_at }
       : undefined
 
+  const cloudArchive = Boolean(
+    task.userId && !task.request_payload.video && isCapabilityEnabled('accounts:sync'),
+  )
+  let archivePayload = task.archive_payload
   try {
+    if (archivePayload) {
+      const media = await archiveGenerationOutputs(task.userId!, task.provider, archivePayload)
+      await finishTask(id, {
+        status: 'completed',
+        media,
+        resultPayload: archivePayload,
+        completedAt: now(),
+      })
+      return
+    }
     const hydratedRequest = await hydrateInputImages(task.request_payload)
     // 老任务只有 preserve_outside_mask、没有 masked_original_size：那时不补边，交付时也不裁边。
     const protectOutput = task.request_payload.preserve_outside_mask
@@ -211,10 +227,18 @@ export async function runTask(id: string): Promise<void> {
       return
     }
     const archivedPayload = await archiveOutputImages(id, task.provider, payload, protectOutput)
-    const media =
-      task.userId && !task.request_payload.video
-        ? await archiveGenerationOutputs(task.userId, task.provider, archivedPayload)
-        : undefined
+    if (cloudArchive) {
+      archivePayload = archivedPayload
+      const stored = await db
+        .update(schema.tasks)
+        .set({ archive_payload: archivePayload })
+        .where(and(eq(schema.tasks.id, id), eq(schema.tasks.status, 'in_progress')))
+        .returning({ id: schema.tasks.id })
+      if (!stored.length) return
+    }
+    const media = cloudArchive
+      ? await archiveGenerationOutputs(task.userId!, task.provider, archivedPayload)
+      : undefined
     await finishTask(id, {
       status: 'completed',
       media,
@@ -231,6 +255,14 @@ export async function runTask(id: string): Promise<void> {
     // cancel route 已经写好 'cancelled'；停机 abort 由 worker-index 按 id 回收。
     if (isAbortError(err)) {
       log.info({ event: 'task.aborted', taskId: id }, 'task aborted')
+      return
+    }
+    if (archivePayload) {
+      await requeueTaskArchive(id)
+      log.warn(
+        { event: 'task.archive_retry', taskId: id, err: String(err) },
+        'generated output awaiting durable archive',
+      )
       return
     }
     const isTimeout = err instanceof UpstreamTimeoutError
