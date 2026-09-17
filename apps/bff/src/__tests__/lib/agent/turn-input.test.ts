@@ -107,37 +107,45 @@ const LONG_HISTORY: AgentMessageView[] = Array.from({ length: 40 }, (_, index) =
 )
 
 /**
- * 预扣估算的特征化基线。数字本身没有语义，它们钉住的是「这一份输入怎么装配」：
- * 系统提示词、工具清单、回放拼法、每个引用折算几个图片块、封顶取压缩阈值。
- * 有意改口径时这些数字会一起变，改之前先想清楚线上冻结的积分会跟着变。
+ * 预扣估算的基线。断言的是相对「同一句话、不带图」的增量，所以改系统提示词或工具说明的
+ * 措辞不会让它们变红；变红说明装配口径动了——每个引用折算几个图片块、引用清单怎么写、
+ * 历史怎么回放、封顶取什么——改之前先想清楚线上冻结的积分会跟着变。
  */
 describe('estimateTurnInputTokens', () => {
-  it('counts the system prompt and this turn text when there is no history', () => {
-    expect(estimateTurnInputTokens([], '画一只坐着的橘猫', [])).toBe(324)
+  const bare = (history: readonly AgentMessageView[], text: string) =>
+    estimateTurnInputTokens(history, text, [])
+  const added = (
+    history: readonly AgentMessageView[],
+    text: string,
+    references: readonly AgentTurnReference[],
+  ) => estimateTurnInputTokens(history, text, references) - bare([], text)
+
+  it('counts this turn text on top of the system prompt', () => {
+    expect(bare([], '画一只坐着的橘猫') - bare([], '')).toBe(2)
   })
 
   it('replays tool results and clarifications from a multi-turn history', () => {
-    expect(estimateTurnInputTokens(RICH_HISTORY, '再来一张', [])).toBe(339)
+    expect(added(RICH_HISTORY, '再来一张', [])).toBe(16)
   })
 
   it('charges one image block for a plain reference', () => {
-    expect(estimateTurnInputTokens([], '换成夜景', [PLAIN])).toBe(1537)
+    expect(added([], '换成夜景', [PLAIN])).toBe(1214)
   })
 
   it('charges three image blocks for a masked reference', () => {
-    expect(estimateTurnInputTokens([], '换成夜景', [MASKED])).toBe(3952)
+    expect(added([], '换成夜景', [MASKED])).toBe(3629)
   })
 
   it('adds the blocks of every active reference', () => {
-    expect(estimateTurnInputTokens([], '换成夜景', [PLAIN, MASKED])).toBe(5159)
+    expect(added([], '换成夜景', [PLAIN, MASKED])).toBe(4836)
   })
 
   it('falls back to the last batch of references in history when this turn attaches none', () => {
-    expect(estimateTurnInputTokens(OLD_REFERENCE_HISTORY, '再改一次', [])).toBe(3983)
+    expect(added(OLD_REFERENCE_HISTORY, '再改一次', [])).toBe(3660)
   })
 
   it('numbers only this turn references when the turn attaches its own', () => {
-    expect(estimateTurnInputTokens(OLD_REFERENCE_HISTORY, '再改一次', [PLAIN])).toBe(1568)
+    expect(added(OLD_REFERENCE_HISTORY, '再改一次', [PLAIN])).toBe(1245)
   })
 
   it('caps a long history at the compaction threshold', () => {
