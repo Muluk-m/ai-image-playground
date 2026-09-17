@@ -2,6 +2,14 @@
 import type { AgentTurnEvent, AgentTurnSummaryView } from '@image-playground/shared'
 import { encodeAgentFrame } from '@image-playground/shared'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+const { settledMock } = vi.hoisted(() => ({ settledMock: vi.fn() }))
+// 只替换这一个导出：privateOverlay 的其它导出还有别的模块在用。
+vi.mock('../../../lib/privateOverlay', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../lib/privateOverlay')>()),
+  notifyPrivateSubmissionSettled: settledMock,
+}))
+
 import { useAgentStore } from '../../../features/agent/store'
 import { _setRuntimeConfigForTesting } from '../../../lib/runtimeConfig'
 
@@ -184,5 +192,45 @@ describe('本轮消耗', () => {
 
     expect(state().turns['turn-1']).toEqual(turns[0])
     expect(state().turns['turn-2']).toEqual(turns[1])
+  })
+})
+
+describe('顶栏余额', () => {
+  it('一轮跑完就通知私有 overlay 重拉余额', async () => {
+    turnResponses = [() => sseResponse(frames(1, TURN_START, turnEnd()))]
+
+    await state().send('画一只猫')
+
+    expect(settledMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('失败的轮同样通知：预扣要退回来', async () => {
+    turnResponses = [
+      () =>
+        sseResponse(
+          frames(1, TURN_START, turnEnd({ stopReason: 'failed' } as Partial<AgentTurnEvent>)),
+        ),
+    ]
+
+    await state().send('画一只猫')
+
+    expect(settledMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('工具任务自己结算，轮还没完也先刷一次', async () => {
+    const toolFailed: AgentTurnEvent = {
+      type: 'toolEnd',
+      messageId: 'tool-1',
+      toolCallId: 'call-1',
+      toolName: 'generateImage',
+      status: 'failed',
+      title: '一只橘猫坐在窗台上',
+      message: '上游拒绝了这张图',
+    }
+    turnResponses = [() => sseResponse(frames(1, TURN_START, toolFailed, turnEnd()))]
+
+    await state().send('画一只猫')
+
+    expect(settledMock).toHaveBeenCalledTimes(2)
   })
 })
