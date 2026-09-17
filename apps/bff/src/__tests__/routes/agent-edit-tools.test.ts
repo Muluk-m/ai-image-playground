@@ -34,21 +34,24 @@ const { setObjectStoreForTesting } = await import('../../lib/objectStore')
 const { createUserSession, USER_SESSION_COOKIE } = await import('../../lib/user-session')
 const { close: closeDb, db, schema } = await import('../../db/client')
 const { hydrateInputImages } = await import('../../lib/imageArchive')
-const { selectionPreview } = await import('../../lib/agent/selection-preview')
+const { selectionPreview, imageSelection } = await import('../../lib/agent/selection-preview')
 
 const app = new Elysia().use(agentRoutes)
 const DEVICE = 'device-abcdefgh'
 
 const PIXEL = `data:image/png;base64,${(
-  await sharp({ create: { width: 2, height: 2, channels: 4, background: '#ffffff' } })
+  await sharp({ create: { width: 1024, height: 1024, channels: 4, background: '#ffffff' } })
     .png()
     .toBuffer()
 ).toString('base64')}`
 const MASK = `data:image/png;base64,${(
-  await sharp({ create: { width: 2, height: 2, channels: 4, background: '#00000000' } })
+  await sharp({ create: { width: 1024, height: 1024, channels: 4, background: '#00000000' } })
     .png()
     .toBuffer()
 ).toString('base64')}`
+
+const SELECTION_ID = (await imageSelection({ dataUrl: PIXEL, maskDataUrl: MASK }))!.id
+const bindings = (imageId: string) => [{ imageId, selectionId: SELECTION_ID }]
 
 let storage: InMemoryObjectStore
 
@@ -211,7 +214,12 @@ describe('智能体改图工具', () => {
           toolCallCompletion({
             id: 'edit-after-answer',
             name: 'editImage',
-            args: { prompt: '基于原图设计悬浮卡片与展开详情', imageIds: ['canvas-original'], n: 2 },
+            args: {
+              prompt: '基于原图设计悬浮卡片与展开详情',
+              imageIds: ['canvas-original'],
+              selectionBindings: bindings('canvas-original'),
+              n: 2,
+            },
           }),
         () => completionStream('已生成新的设计图'),
       ]),
@@ -361,7 +369,11 @@ describe('智能体改图工具', () => {
               toolCallCompletion({
                 id: crypto.randomUUID(),
                 name: 'editImage',
-                args: { prompt: '保留主体改背景', imageIds: [id] },
+                args: {
+                  prompt: '保留主体改背景',
+                  imageIds: [id],
+                  ...(id === 'original-a' ? { selectionBindings: bindings(id) } : {}),
+                },
               }),
             () => completionStream('完成'),
           ],
@@ -445,7 +457,11 @@ describe('智能体改图工具', () => {
           toolCallCompletion({
             id: 'call-1',
             name: 'editImage',
-            args: { prompt: '把背景换成浅木色', imageIds: ['canvas-1'] },
+            args: {
+              prompt: '把背景换成浅木色',
+              imageIds: ['canvas-1'],
+              selectionBindings: bindings('canvas-1'),
+            },
           }),
         () => completionStream('改好了'),
       ]),
@@ -487,7 +503,11 @@ describe('智能体改图工具', () => {
             toolCallCompletion({
               id: 'call-1',
               name: 'editImage',
-              args: { prompt: '只改这一块', imageIds: ['canvas-1'] },
+              args: {
+                prompt: '只改这一块',
+                imageIds: ['canvas-1'],
+                selectionBindings: bindings('canvas-1'),
+              },
             }),
           () => completionStream('改好了'),
         ],
@@ -632,3 +652,308 @@ for (const [depth, model, effort] of [
     expect(calls[0]?.reasoning_effort).toBe(effort)
   })
 }
+
+it('rejects an empty selection before storing a message or submitting a task', async () => {
+  const conversationId = await startConversation()
+  const response = await post(`/api/agent/conversations/${conversationId}/turns`, {
+    deviceId: DEVICE,
+    text: '只改这里',
+    references: [{ imageId: 'canvas-empty-mask', dataUrl: PIXEL, maskDataUrl: PIXEL }],
+  })
+  expect(response).toEqual({ status: 422, json: { error: 'invalid_selection' } })
+  expect(await db.select().from(schema.tasks)).toHaveLength(0)
+  expect(await db.select().from(schema.agent_messages)).toHaveLength(0)
+})
+
+it('does not charge a second masked generation when the model tries again', async () => {
+  const args = {
+    prompt: '把头枕降低到椅背上沿',
+    imageIds: ['target'],
+    selectionBindings: bindings('target'),
+  }
+  setAgentFetchForTesting(
+    scriptedAgentFetch(
+      [],
+      [
+        () => toolCallCompletion({ id: 'first-edit', name: 'editImage', args }),
+        () =>
+          toolCallCompletion({
+            id: 'unsolicited-retry',
+            name: 'editImage',
+            args: { ...args, requestQuote: '圈中头枕的位置' },
+          }),
+        () => completionStream('请先检查候选图'),
+      ],
+    ),
+  )
+  const conversationId = await startConversation()
+  const stop = settleSubmittedTasks('completed')
+  try {
+    const frames = await runTurn(conversationId, '参考原图只修改圈中头枕的位置', {
+      references: [{ imageId: 'target', dataUrl: PIXEL, maskDataUrl: MASK }],
+    })
+    const tasks = await db.select().from(schema.tasks)
+    expect(tasks).toHaveLength(1)
+    expect(tasks[0]!.request_payload.prompt).toContain('参考原图只修改圈中头枕的位置')
+    expect(tasks[0]!.request_payload.prompt).not.toContain('把头枕降低到椅背上沿')
+    expect(eventsOfType(frames, 'toolEnd').map((event) => event.status)).toEqual([
+      'succeeded',
+      'failed',
+    ])
+  } finally {
+    stop()
+  }
+})
+
+it('does not let the planner omit the selected target and freely edit another image', async () => {
+  setAgentFetchForTesting(
+    scriptedAgentFetch(
+      [],
+      [
+        () =>
+          toolCallCompletion({
+            id: 'wrong-target',
+            name: 'editImage',
+            args: { prompt: '改参考图', imageIds: ['reference'] },
+          }),
+        () => completionStream('需要核对目标'),
+      ],
+    ),
+  )
+  const conversationId = await startConversation()
+  const frames = await runTurn(conversationId, '修改图1，参考图2', {
+    references: [
+      { imageId: 'target', dataUrl: PIXEL, maskDataUrl: MASK },
+      { imageId: 'reference', dataUrl: PIXEL },
+    ],
+  })
+  expect(await db.select().from(schema.tasks)).toHaveLength(0)
+  expect(eventsOfType(frames, 'toolEnd')[0]?.status).toBe('failed')
+})
+
+it('allows separately requested variants while preserving each operation scope', async () => {
+  const args = { prompt: '改颜色', imageIds: ['target'], selectionBindings: bindings('target') }
+  setAgentFetchForTesting(
+    scriptedAgentFetch(
+      [],
+      [
+        () =>
+          toolCallCompletion(
+            {
+              id: 'red',
+              name: 'editImage',
+              args: { ...args, requestQuote: '一个红色版本' },
+            },
+            {
+              id: 'blue',
+              name: 'editImage',
+              args: { ...args, requestQuote: '一个蓝色版本' },
+            },
+          ),
+        () => completionStream('已生成两个候选版本'),
+      ],
+    ),
+  )
+  const conversationId = await startConversation()
+  const stop = settleSubmittedTasks('completed')
+  try {
+    const frames = await runTurn(conversationId, '选区内做一个红色版本、一个蓝色版本，其他不变', {
+      references: [{ imageId: 'target', dataUrl: PIXEL, maskDataUrl: MASK }],
+    })
+    const tasks = await db.select().from(schema.tasks)
+    expect(tasks).toHaveLength(2)
+    expect(eventsOfType(frames, 'toolEnd').map((event) => event.status)).toEqual([
+      'succeeded',
+      'succeeded',
+    ])
+    expect(tasks.map((task) => task.request_payload.prompt)).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('当前操作对应的原文："一个红色版本"'),
+        expect.stringContaining('当前操作对应的原文："一个蓝色版本"'),
+      ]),
+    )
+  } finally {
+    stop()
+  }
+})
+
+it('does not carry completed edit instructions into a new masked task', async () => {
+  setAgentFetchForTesting(
+    scriptedAgentFetch(
+      [],
+      [
+        () =>
+          toolCallCompletion({
+            id: 'old',
+            name: 'editImage',
+            args: { prompt: '旧任务', imageIds: ['a'], selectionBindings: bindings('a') },
+          }),
+        () => completionStream('已生成候选'),
+        () =>
+          toolCallCompletion({
+            id: 'new',
+            name: 'editImage',
+            args: { prompt: '新任务', imageIds: ['b'], selectionBindings: bindings('b') },
+          }),
+        () => completionStream('已生成候选'),
+      ],
+    ),
+  )
+  const conversationId = await startConversation()
+  const stop = settleSubmittedTasks('completed')
+  try {
+    await runTurn(conversationId, '将选区改成红色', {
+      references: [{ imageId: 'a', dataUrl: PIXEL, maskDataUrl: MASK }],
+    })
+    await runTurn(conversationId, '去掉选区背景', {
+      references: [{ imageId: 'b', dataUrl: PIXEL, maskDataUrl: MASK }],
+    })
+    const tasks = await db.select().from(schema.tasks)
+    const current = tasks.find((task) => task.request_payload.prompt.includes('去掉选区背景'))!
+    expect(current).toBeDefined()
+    expect(current.request_payload.prompt).not.toContain('改成红色')
+  } finally {
+    stop()
+  }
+})
+
+it('executes a predeclared dependent edit after its reference artifact exists', async () => {
+  const next = {
+    targetImageId: 'b',
+    selectionId: bindings('b')[0]!.selectionId,
+    requestQuote: '再以产物为参考修改 B',
+    n: 1,
+  }
+  const calls: AgentCall[] = []
+  setAgentFetchForTesting(
+    scriptedAgentFetch(calls, [
+      () =>
+        toolCallCompletion({
+          id: 'first',
+          name: 'editImage',
+          args: {
+            prompt: '第一步',
+            imageIds: ['a'],
+            selectionBindings: bindings('a'),
+            requestQuote: '先修改 A',
+            deferredEdits: [next],
+          },
+        }),
+      () => {
+        const match = JSON.stringify(calls.at(-1)!.messages).match(/agent_[0-9a-f-]{36}/)
+        if (!match) throw new Error('missing generated reference')
+        return toolCallCompletion({
+          id: 'dependent',
+          name: 'editImage',
+          args: {
+            prompt: '第二步',
+            imageIds: ['b', match[0]],
+            selectionBindings: bindings('b'),
+            requestQuote: next.requestQuote,
+          },
+        })
+      },
+      () => completionStream('已生成两个候选'),
+    ]),
+  )
+  const conversationId = await startConversation()
+  const stop = settleSubmittedTasks('completed')
+  try {
+    const frames = await runTurn(conversationId, '先修改 A，再以产物为参考修改 B', {
+      references: ['a', 'b'].map((imageId) => ({ imageId, dataUrl: PIXEL, maskDataUrl: MASK })),
+    })
+    expect(await db.select().from(schema.tasks)).toHaveLength(2)
+    expect(eventsOfType(frames, 'toolEnd').map((event) => event.status)).toEqual([
+      'succeeded',
+      'succeeded',
+    ])
+  } finally {
+    stop()
+  }
+})
+
+it('keeps the pending request when clarification asks for a new reference image', async () => {
+  setAgentFetchForTesting(
+    scriptedAgentFetch(
+      [],
+      [
+        () =>
+          toolCallCompletion({
+            id: 'ask',
+            name: 'askClarification',
+            args: { question: '请提供参考图片', options: ['补充参考图', '取消修改'] },
+          }),
+        () =>
+          toolCallCompletion({
+            id: 'edit',
+            name: 'editImage',
+            args: { prompt: '按参考修改', imageIds: ['a', 'b'], selectionBindings: bindings('a') },
+          }),
+        () => completionStream('已生成候选'),
+      ],
+    ),
+  )
+  const conversationId = await startConversation()
+  const first = await runTurn(conversationId, '只换扶手，颜色和背景不变', {
+    references: [{ imageId: 'a', dataUrl: PIXEL, maskDataUrl: MASK }],
+  })
+  expect(eventsOfType(first, 'clarification')).toHaveLength(1)
+  const stop = settleSubmittedTasks('completed')
+  try {
+    await runTurn(conversationId, '用这个', { references: [{ imageId: 'b', dataUrl: PIXEL }] })
+    const [task] = await db.select().from(schema.tasks)
+    expect(task?.request_payload.prompt).toContain('只换扶手，颜色和背景不变')
+    expect(task?.request_payload.prompt).toContain('用这个')
+  } finally {
+    stop()
+  }
+})
+
+it('does not unlock paid generation when an interjection replaces the active references', async () => {
+  setAgentFetchForTesting(
+    scriptedAgentFetch(
+      [],
+      [
+        () =>
+          toolCallCompletion({
+            id: 'first',
+            name: 'editImage',
+            args: { prompt: '改颜色', imageIds: ['a'], selectionBindings: bindings('a') },
+          }),
+        () =>
+          toolCallCompletion({ id: 'retry', name: 'generateImage', args: { prompt: '追加一张' } }),
+        () => completionStream('等待用户下一步'),
+      ],
+    ),
+  )
+  const conversationId = await startConversation()
+  const running = runTurn(conversationId, '修改圈选颜色', {
+    references: [{ imageId: 'a', dataUrl: PIXEL, maskDataUrl: MASK }],
+  })
+  let task: typeof schema.tasks.$inferSelect | undefined
+  for (let i = 0; i < 200 && !task; i++) {
+    task = (await db.select().from(schema.tasks))[0]
+    if (!task) await Bun.sleep(5)
+  }
+  expect(task).toBeDefined()
+  const interjected = await post(
+    `/api/agent/conversations/${conversationId}/turns/${task!.agent_turn_id}/interject`,
+    {
+      deviceId: DEVICE,
+      text: '参考的是这张，好了吗？',
+      references: [{ imageId: 'b', dataUrl: PIXEL }],
+    },
+  )
+  expect(interjected.status).toBe(200)
+  const stop = settleSubmittedTasks('completed')
+  try {
+    const frames = await running
+    expect(await db.select().from(schema.tasks)).toHaveLength(1)
+    expect(eventsOfType(frames, 'toolEnd').map((event) => event.status)).toEqual([
+      'succeeded',
+      'failed',
+    ])
+  } finally {
+    stop()
+  }
+})

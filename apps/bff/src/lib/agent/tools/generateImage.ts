@@ -35,10 +35,10 @@ export const generateImage: AgentToolDefinition = {
       description:
         '按提示词生成全新的图片，产出直接落到用户的画布上。可用 n 指定同一画面的版本数；改已有的图用 editImage。',
       parameters,
-      execute: (_toolCallId, params, signal, onUpdate) =>
+      execute: (toolCallId, params, signal, onUpdate) =>
         runQueueTask(
           context,
-          { media: 'image', prompt: params.prompt, n: params.n },
+          { media: 'image', toolCallId, prompt: params.prompt, n: params.n },
           signal,
           onUpdate,
         ),

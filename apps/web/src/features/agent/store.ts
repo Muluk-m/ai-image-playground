@@ -750,9 +750,14 @@ export const useAgentStore = create<AgentState>((set, get) => {
           await interjectTurn(conversationId, active.turnId, trimmed, references)
           onAccepted?.()
           if (get().conversationId === conversationId) set({ error: null })
-        } catch {
+        } catch (thrown) {
           if (get().conversationId === conversationId)
-            set({ error: '插话未发送成功，草稿已保留，请重试。' })
+            set({
+              error:
+                thrown instanceof AgentRequestError && thrown.code === 'invalid_selection'
+                  ? '选区无法使用，请重新圈选。草稿已保留。'
+                  : '插话未发送成功，草稿已保留，请重试。',
+            })
         }
         return
       }
@@ -820,7 +825,9 @@ export const useAgentStore = create<AgentState>((set, get) => {
           fail(
             thrown instanceof AgentRequestError && thrown.status === 429
               ? TURN_RATE_LIMITED
-              : undefined,
+              : thrown instanceof AgentRequestError && thrown.code === 'invalid_selection'
+                ? '选区无法使用，请重新圈选。草稿已保留。'
+                : undefined,
           )
         await turnDelivery.settled()
         return

@@ -32,5 +32,5 @@ it('rejects mismatched masks rather than guessing selection coordinates', async 
     ).toString('base64')}`
   await expect(
     selectionPreview({ dataUrl: await image(2), maskDataUrl: await image(1) }),
-  ).rejects.toThrow('dimensions')
+  ).rejects.toThrow('尺寸')
 })

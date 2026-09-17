@@ -6,6 +6,7 @@ import type {
   AgentTurnParams,
 } from '@image-playground/shared'
 import type { AgentImageSource } from '../images'
+import type { createMaskedEditPlan } from '../masked-plan'
 
 /** 工具跑在 BFF 进程里，身份与轮的归属由这里带过去。 */
 export interface AgentToolContext {
@@ -15,12 +16,15 @@ export interface AgentToolContext {
   readonly deviceId: string
   /** 模型说的图片 id 到字节的唯一出口。 */
   readonly images: AgentImageSource
+  readonly editRequest?: () => { readonly revision: number; readonly instructions: string }
+  readonly maskedEditPlan?: ReturnType<typeof createMaskedEditPlan>
   /** 这一轮用户在参数浮层里选的生成参数；缺席即全部按部署默认。 */
   readonly params?: AgentTurnParams
 }
 
 /** 进行中的 `onUpdate` 只填 `stage`，终局填 `artifacts`。 */
 export interface AgentToolDetails {
+  readonly executedPrompt?: string
   readonly stage?: AgentToolStage
   readonly artifacts?: readonly AgentToolArtifact[]
   readonly anchorObjectId?: string

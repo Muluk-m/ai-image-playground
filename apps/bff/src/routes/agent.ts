@@ -16,6 +16,7 @@ import {
 } from '../lib/agent/conversations'
 import { agentTurnHasEvents, readAgentTurnEvents } from '../lib/agent/events'
 import { type RunningTurn, runningTurn } from '../lib/agent/runningTurns'
+import { InvalidSelectionError, validateSelections } from '../lib/agent/selection-preview'
 import { agentReplayStream, agentTurnStream } from '../lib/agent/sse'
 import { startConversationTurn } from '../lib/agent/start-turn'
 import { agentTurnRateLimited } from '../lib/agent/turn-rate-limit'
@@ -132,6 +133,13 @@ export const agentRoutes = new Elysia()
         return status(409, body)
       }
 
+      try {
+        await validateSelections(body.references ?? [])
+      } catch (error) {
+        if (error instanceof InvalidSelectionError)
+          return status(422, { error: 'invalid_selection' })
+        throw error
+      }
       const started = await startConversationTurn({
         conversationId: conversation.id,
         owner,
@@ -229,7 +237,14 @@ export const agentRoutes = new Elysia()
     '/api/agent/conversations/:id/turns/:turnId/interject',
     async ({ activeTurn, body, status }) => {
       if (!activeTurn) return status(404, TURN_NOT_FOUND)
-      const messageId = await activeTurn.interject(body.text, body.references)
+      let messageId: string | null
+      try {
+        messageId = await activeTurn.interject(body.text, body.references)
+      } catch (error) {
+        if (error instanceof InvalidSelectionError)
+          return status(422, { error: 'invalid_selection' })
+        throw error
+      }
       return messageId ? { messageId } : status(409, { error: 'turn_finished' })
     },
     {
