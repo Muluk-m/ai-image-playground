@@ -412,8 +412,10 @@ fast-forward `./private` without a prompt.
 Each build is tagged with the commits it came from, which is what `app-compose.sh rollback`
 rolls back to. After a successful rollout the script keeps the newest `DEPLOY_KEEP_IMAGES`
 commit-qualified images per edition (default 5) plus whatever a container still runs, and removes
-the older ones; hand-named images are left alone. It then drops the build cache nothing references
-any more — the superseded layers, not the images, are what actually fills the disk. Before building it checks the free space where
+the older ones; hand-named images are left alone. It then drops build cache no build has touched for
+`DEPLOY_CACHE_KEEP_HOURS` (default 168) — the superseded layers, not the images, are what actually
+fills the disk, but the cache of the build that just finished has to stay or the next rollout is a
+cold build of both editions. Before building it checks the free space where
 Docker keeps its data and refuses below `DEPLOY_MIN_FREE_GB` (default 8): PostgreSQL shares that
 filesystem, so a build that fills it is an outage. It also refuses below
 `DEPLOY_MIN_FREE_MEMORY_MB` of available memory (default 1024): the build runs inside dockerd next

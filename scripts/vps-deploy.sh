@@ -45,6 +45,7 @@ PAID_IMAGE=${PAID_IMAGE:-ai-image-playground:paid}
 DEPLOY_KEEP_IMAGES=${DEPLOY_KEEP_IMAGES:-5}
 DEPLOY_MIN_FREE_GB=${DEPLOY_MIN_FREE_GB:-8}
 DEPLOY_MIN_FREE_MEMORY_MB=${DEPLOY_MIN_FREE_MEMORY_MB:-1024}
+DEPLOY_CACHE_KEEP_HOURS=${DEPLOY_CACHE_KEEP_HOURS:-168}
 
 public_sha=-
 private_sha=-
@@ -126,10 +127,15 @@ prune_old_images() {
 
 # Image pruning alone does not keep the disk in check: BuildKit keeps every superseded layer in
 # its cache, and that is what actually fills the host (27G of cache next to 4G of images, 17G of
-# it referenced by nothing). Drop only the unreferenced part; the cache the next build reuses
-# stays. A failure here is reported and ignored: the rollout already succeeded.
+# it referenced by nothing).
+#
+# Only cache that no build has touched for $DEPLOY_CACHE_KEEP_HOURS is dropped. An unfiltered
+# `docker builder prune -f` reclaimed 17G here, and the rollout after it behaved like a build with
+# no cache at all: both editions from scratch on a 3.6G host, which stopped SSH, the tunnel and
+# both APIs from answering. Keeping what recent builds used keeps the next rollout incremental.
+# A failure here is reported and ignored: the rollout already succeeded.
 prune_build_cache() {
-  if reclaimed=$(docker builder prune -f 2>/dev/null | tail -n 1); then
+  if reclaimed=$(docker builder prune -f --filter "until=${DEPLOY_CACHE_KEEP_HOURS}h" 2>/dev/null | tail -n 1); then
     echo "build cache: ${reclaimed:-nothing to reclaim}"
   else
     echo "could not prune the build cache; leaving it" >&2
