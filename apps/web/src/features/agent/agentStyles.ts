@@ -54,6 +54,13 @@ export const CARD_NOTE = `text-[11px] ${INK_3}`
 export const CHOICE =
   'w-full rounded-lg border border-border px-2.5 py-1.5 text-left text-xs text-foreground transition enabled:hover:border-primary enabled:hover:bg-muted disabled:cursor-not-allowed disabled:opacity-45'
 
+/** 澄清卡片里「其他」的输入框与发送键，和选项同高，读起来还是一列。 */
+export const CHOICE_FIELD =
+  'min-w-0 flex-1 rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none disabled:opacity-45'
+
+export const CHOICE_SUBMIT =
+  'shrink-0 rounded-lg bg-primary px-2.5 py-1.5 text-xs font-semibold text-primary-foreground transition disabled:cursor-not-allowed disabled:opacity-40'
+
 /** 产出缩略图的底座。不在画布上的那些点了也定位不到，用这个不带悬停反馈的版本。 */
 export const THUMBNAIL_STATIC =
   'relative block h-16 w-16 overflow-hidden rounded-lg border border-border'
