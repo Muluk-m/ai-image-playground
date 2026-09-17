@@ -1,6 +1,9 @@
 import { storyboardRangeLabel } from '@image-playground/shared'
 import { useEffect, useState } from 'react'
+import Field from '../../../../components/Field'
 import Pending from '../../../../components/Pending'
+import { Input } from '../../../../components/ui/input'
+import { Textarea } from '../../../../components/ui/textarea'
 import { useVideoStore } from '../../store'
 import { STORYBOARD_PLAN_TYPICAL_SECONDS, useStoryboardStore } from '../store'
 import type { StoryboardShotPatch, StoryboardShotRecord } from '../types'
@@ -218,15 +221,14 @@ export default function StoryboardBoard({
           <details>
             <summary>全片风格与高级提示词</summary>
             <p>{record.summary}</p>
-            <label>
-              整条视频提示词
-              <textarea
+            <Field label="整条视频提示词">
+              <Textarea
                 aria-label="整条视频提示词"
                 value={record.videoPrompt}
                 onChange={(e) => void store().updateVideoPrompt(record.id, e.target.value)}
                 rows={6}
               />
-            </label>
+            </Field>
             <p className="vd-muted">编辑镜头内容或顺序后，会重新组织这里的镜头段落。</p>
           </details>
           <div className="vd-row">
@@ -272,22 +274,20 @@ export default function StoryboardBoard({
               }}
             >
               <h3>保存分镜版本</h3>
-              <label>
-                分镜名称
-                <input
+              <Field label="分镜名称">
+                <Input
                   aria-label="分镜名称"
                   value={record.title}
                   onChange={(e) => void store().rename(record.id, e.target.value)}
                 />
-              </label>
-              <label>
-                版本名称
-                <input
+              </Field>
+              <Field label="版本名称">
+                <Input
                   aria-label="版本名称"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                 />
-              </label>
+              </Field>
               <p className="vd-muted">保存脚本、镜头顺序与参考画面，可在分镜库恢复。</p>
               <button type="submit" className="vd-primary" disabled={saving}>
                 {saving ? '保存中…' : '保存新版本'}
@@ -325,35 +325,31 @@ export default function StoryboardBoard({
           ) : shot ? (
             <div className="vd-stack">
               <h3>镜头详情</h3>
-              <label>
-                镜头名称
-                <input
+              <Field label="镜头名称">
+                <Input
                   aria-label="镜头名称"
                   value={shot.title}
                   onChange={(e) => patch('title', e.target.value)}
                 />
-              </label>
-              <label>
-                画面描述
-                <textarea
+              </Field>
+              <Field label="画面描述">
+                <Textarea
                   aria-label="画面描述"
                   value={shot.description}
                   onChange={(e) => patch('description', e.target.value)}
                   rows={4}
                 />
-              </label>
+              </Field>
               <div className="vd-fields">
-                <label>
-                  运镜
-                  <input
+                <Field label="运镜">
+                  <Input
                     aria-label="运镜"
                     value={shot.camera}
                     onChange={(e) => patch('camera', e.target.value)}
                   />
-                </label>
-                <label>
-                  时长 / 秒
-                  <input
+                </Field>
+                <Field label="时长 / 秒">
+                  <Input
                     type="number"
                     min="0.5"
                     max="30"
@@ -362,35 +358,32 @@ export default function StoryboardBoard({
                     value={shot.seconds}
                     onChange={(e) => patch('seconds', Number(e.target.value))}
                   />
-                </label>
+                </Field>
               </div>
-              <label>
-                对白 / 声音
-                <textarea
+              <Field label="对白 / 声音">
+                <Textarea
                   aria-label="对白"
                   value={shot.line}
                   onChange={(e) => patch('line', e.target.value)}
                   rows={2}
                 />
-              </label>
+              </Field>
               <details>
                 <summary>单镜头提示词</summary>
-                <label>
-                  图片提示词
-                  <textarea
+                <Field label="图片提示词">
+                  <Textarea
                     aria-label="图片提示词"
                     value={shot.imagePrompt}
                     onChange={(e) => patch('imagePrompt', e.target.value)}
                   />
-                </label>
-                <label>
-                  视频提示词
-                  <textarea
+                </Field>
+                <Field label="视频提示词">
+                  <Textarea
                     aria-label="视频提示词"
                     value={shot.videoPrompt}
                     onChange={(e) => patch('videoPrompt', e.target.value)}
                   />
-                </label>
+                </Field>
               </details>
               <button
                 type="button"

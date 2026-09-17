@@ -15,11 +15,7 @@
 :where(.video-director) h3 { font-size: 15px; font-weight: 600; }
 :where(.video-director) p { font-size: 13px; line-height: 1.75; }
 :where(.video-director) small, .vd-muted { color: hsl(var(--muted-foreground)); font-size: 12px; }
-:where(.video-director) label { display: grid; gap: 7px; color: hsl(var(--muted-foreground)); font-size: 12px; }
-/* 勾选框与单选框不是文本框：给它们套上文本框的宽度与内边距会直接把控件撑没。 */
-:where(.video-director) :is(input, textarea, select):where(:not([type="checkbox"], [type="radio"])) { width: 100%; min-width: 0; border: 1px solid hsl(var(--border)); border-radius: 7px; padding: 9px; color: hsl(var(--foreground)); background: hsl(var(--background)); font-size: 14px; }
-:where(.video-director) textarea { resize: vertical; line-height: 1.7; }
-:where(.video-director) :is(button, input, textarea, select):where(:focus-visible) { outline: 2px solid hsl(var(--primary)); outline-offset: 2px; }
+:where(.video-director) button:where(:focus-visible) { outline: 2px solid hsl(var(--primary)); outline-offset: 2px; }
 .vd-row { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; }
 .vd-between { justify-content: space-between; }
 .vd-stack { display: grid; gap: 15px; }
