@@ -2,6 +2,15 @@ import type { StateStorage } from 'zustand/middleware'
 
 const ANONYMOUS_SCOPE = 'anonymous'
 let currentScope = ANONYMOUS_SCOPE
+let recoveryBackend: string | null = null
+
+export function setRecoveryBackend(baseUrl: string | null): void {
+  recoveryBackend = baseUrl
+}
+
+export function getRecoveryBackend(): string | null {
+  return recoveryBackend
+}
 
 /** store persist 的 name。 */
 export const STORE_PERSIST_KEY = 'image-playground'
@@ -36,6 +45,8 @@ export function setClientStorageScope(userId: string | null): void {
 }
 
 export function scopedStorageName(baseName: string): string {
+  if (recoveryBackend && baseName === AGENT_CONVERSATION_KEY)
+    baseName = `${baseName}:recovery-${encodeURIComponent(recoveryBackend)}`
   return currentScope === ANONYMOUS_SCOPE ? baseName : `${baseName}:${currentScope}`
 }
 
