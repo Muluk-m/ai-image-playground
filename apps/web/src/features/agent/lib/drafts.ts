@@ -180,7 +180,7 @@ export function agentDraft(
   const key = projectId ? scopedStorageName(`agent-project-draft:${projectId}`) : legacyKey
   let session = sessions.get(key)
   if (!session) {
-    // 草稿的存活周期早就与输入框无关，冲盘也不该绑在它的挂载上。同一个函数登记多次只算一次。
+    // 登记在这里而不是输入框里：草稿活得比它久。同一个函数登记多次只算一次。
     flushOnPageHide(flushSessions)
     session = new DraftSession(
       key,
