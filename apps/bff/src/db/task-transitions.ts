@@ -144,7 +144,7 @@ export async function finishTask(id: string, update: TerminalTaskUpdate): Promis
         upstreamInvocationCount: schema.tasks.upstream_invocation_count,
       })
     if (!finished) return false
-    if (update.status === 'completed' && finished.userId && update.media)
+    if (finished.userId && update.media)
       await publishGenerationImages(tx, finished.userId, id, update.media)
     await taskHooks.finalizeTask({
       tx,
