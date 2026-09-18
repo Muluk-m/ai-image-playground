@@ -101,6 +101,14 @@ case "$1 $2" in
   'image inspect')
     case "$5" in
       '{{.Id}}') echo "\${TEST_IMAGE_ID:-${imageId}}" ;;
+      '{{range .RepoDigests}}{{println .}}{{end}}')
+        if [ -n "\${TEST_REPO_DIGESTS+x}" ]; then echo "\$TEST_REPO_DIGESTS"; else
+          case "$3" in
+            *:vps-main-*) echo '${digest('1')}' ;;
+            *:paid-*) echo '${digest('2')}' ;;
+            *) echo '${digest('3')}' ;;
+          esac
+        fi ;;
       '{{.Os}}/{{.Architecture}}') echo "\${TEST_PLATFORM:-linux/amd64}" ;;
       *) case "$3" in *:paid-*) echo 'APP_VERSION=${sha}+${sha}' ;; *) echo 'APP_VERSION=${sha}' ;; esac ;;
     esac ;;
@@ -224,7 +232,7 @@ describe('registry release receiver', () => {
       expect(calls).toContain(pulled(d))
       expect(calls.indexOf(`tag ${digest(d)} ${image}`)).toBeGreaterThan(calls.indexOf(pulled(d)))
       expect(calls.indexOf(`tag ${digest(d)} ${image}`)).toBeLessThan(
-        calls.indexOf(`image inspect ${image} --format {{.Id}}`),
+        calls.indexOf(`image inspect ${image} --format {{range .RepoDigests}}{{println .}}{{end}}`),
       )
     }
     const rollout = calls.findIndex((c) => c.startsWith('rollout'))
@@ -264,13 +272,23 @@ describe('registry release receiver', () => {
     expect(run().status).not.toBe(0)
     expect(readFileSync(log, 'utf8')).not.toContain('rollout')
   })
-  it('does not roll services when the pulled image is not the one that was built', () => {
+  it('trusts the pinned digest, not the local image ID, for a pulled image', () => {
+    // A containerd-backed build host reports a different image ID than the VPS's classic store.
     registryRelease()
     writeFileSync(join(root, 'logged-in'), '')
     env.TEST_IMAGE_ID = `sha256:${'c'.repeat(64)}`
     const result = run()
+    expect(result.stderr).toBe('')
+    expect(result.status).toBe(0)
+    expect(readFileSync(log, 'utf8')).toContain('rollout')
+  })
+  it('does not roll services when the pulled image does not carry its pinned digest', () => {
+    registryRelease()
+    writeFileSync(join(root, 'logged-in'), '')
+    env.TEST_REPO_DIGESTS = `${repo}@sha256:${'e'.repeat(64)}`
+    const result = run()
     expect(result.status).not.toBe(0)
-    expect(result.stderr).toContain('Image ID mismatch')
+    expect(result.stderr).toContain('Image digest mismatch')
     expect(readFileSync(log, 'utf8')).not.toContain('rollout')
   })
   it('rejects a release with neither an image archive nor digests', () => {
