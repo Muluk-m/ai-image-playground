@@ -339,27 +339,10 @@ cloudflared 日志出现 `open /etc/cloudflared/config.yml: permission denied` �
 ```bash
 scripts/infra-compose.sh up
 scripts/infra-compose.sh provision                    # 每个部署数据库跑一次
-scripts/vps-deploy.sh internal                        # 之后每次部署都走这一条
+/path/to/release/scripts/vps-deploy.sh internal /path/to/release
 ```
 
-`vps-deploy.sh <internal|paid|all> [git-ref]` 是一次上线的唯一入口。它在检出有未提交的
-已跟踪改动时拒绝执行，fetch 后 detach 到指定 ref（默认 `origin/main`），paid 形态会
-fast-forward `./private`，然后构建、经 `app-compose.sh up` 滚动，最后往
-`$config_root/deployments.log` 追加一行。把一个对私有仓库有读权限的 GitHub token 放进
-`$config_root/secrets/private-repo-token`，`./private` 就能无交互地 fast-forward。
-
-同一时刻只允许一次上线。脚本在动任何东西之前先用原子 `mkdir` 拿下 `$config_root/deploy.lock`
-并写明持有者；第二次上线不排队，直接打印持有者信息后失败退出——排队意味着第一次结束后线上版本
-会被悄悄换成另一个提交。持有者进程已经不在时自动接管；不按「锁存在了多久」接管，因为一次正常
-部署本来就要十几分钟。万一留下了没人持有的锁（比如被 kill -9），删掉那个目录即可。
-
-每次构建都按来源提交打 tag，那正是 `app-compose.sh rollback` 的回滚目标。滚动成功后，每个形态只保留最近
-`DEPLOY_KEEP_IMAGES` 代（默认 5）外加仍在运行的那一代，更旧的按提交打出的 tag 会被删掉；手工起名的
-镜像不受影响。随后只在可用空间低于 `DEPLOY_PRUNE_CACHE_BELOW_GB`（默认 15，够下一次 `all` 构建
-再垫上拒绝线）时才清掉已经没有任何引用的构建缓存——真正把盘写满的是被替换下来的层，不是镜像；
-空间充裕就把缓存留给下一次构建复用。构建前还会检查 Docker 数据所在分区的可用空间，少于 `DEPLOY_MIN_FREE_GB`（默认 8）就
-拒绝执行：PostgreSQL 与镜像共用这块盘，构建把它写满就是一次事故。底下的构件仍是
-`app-compose.sh` 与 `infra-compose.sh`：回滚、停项目、临时 compose 命令都走它们。
+发布流程：在 **macmini2** 运行 `scripts/build-vps-release.sh all /绝对路径/release`，将整个产物目录传到 VPS，再运行产物内的 `scripts/vps-deploy.sh all /绝对路径/release`。VPS 不再构建或拉取源码。固定提交、资源预算、完整性校验、互斥锁及回滚见 [镜像发布手册](docs/deploy/image-release.md)。
 
 在持有域名的那个账号下把 hostname 指到隧道：
 
@@ -410,10 +393,10 @@ BFF 600 MB 那两条只在同源与 nginx 形态下才是约束，那里前面�
 收不到请求。把 `net.core.rmem_max` / `wmem_max` 调大只能消掉 quic-go 的告警，解决不了问题。
 隧道下大上传挂住，先试 `protocol: http2`。
 
-把每一步换成 `image-playground-paid` 再做一遍，然后用 `scripts/vps-deploy.sh paid` 与
+把每一步换成 `image-playground-paid` 再做一遍，然后用 `/path/to/release/scripts/vps-deploy.sh paid /path/to/release` 与
 `scripts/pages-release.sh paid` 部署，就能在同一台机器上跑第二套完全独立的部署：各自的
 数据库、R2 位置、隧道、Pages 项目与 Cloudflare 账号，只共用 PostgreSQL 进程和这台机器。
-两套都配好之后，`scripts/vps-deploy.sh all` 一条命令滚完整台机器。
+两套都配好之后，`/path/to/release/scripts/vps-deploy.sh all /path/to/release` 一条命令滚完整台机器。
 
 paid 形态两边都需要那份经过评审的 `./private` overlay：VPS 上检出旁边一份，发它 Pages
 项目的那台机器的检出里也要一份。internal 形态恰好相反——它的 Pages 发布必须在没有这棵树的

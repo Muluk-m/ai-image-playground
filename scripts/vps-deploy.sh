@@ -1,109 +1,66 @@
 #!/bin/sh
 set -eu
-
-# One entry point for a VPS rollout (README option 4): sync the checkout, refresh the private
-# overlay, build, roll out, record. Runs on the host, inside the repository checkout.
-
+# Receiver only: no git checkout, dependency installation or image build on production.
 repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 . "$repo_root/scripts/lib/deploy-common.sh"
-
-deploy_env=${DEPLOY_ENV_FILE:-$config_root/deploy.env}
-private_token_file=$config_root/secrets/private-repo-token
-private_root=$repo_root/private
-
-usage() {
-  cat >&2 <<'EOF'
-Usage: scripts/vps-deploy.sh <internal|paid|all> [git-ref]
-
-Deploys one or both editions on this host. The default git ref is origin/main.
-
-Project names and image tags come from $XDG_CONFIG_HOME/ai-image-playground/deploy.env
-(see deploy/deploy.env.example); every key there is optional.
-EOF
-  exit 2
-}
-
 target=${1:-}
-ref=${2:-origin/main}
-[ "$#" -le 2 ] || usage
-
-case "$target" in
-  internal) editions='internal' ;;
-  paid) editions='paid' ;;
-  all) editions='internal paid' ;;
-  *) usage ;;
-esac
-
-if [ -f "$deploy_env" ]; then
-  # shellcheck source=/dev/null
-  . "$deploy_env"
-fi
+case "$target" in internal) editions=internal ;; paid) editions=paid ;; all) editions='internal paid' ;; *) echo "Usage: $0 internal|paid|all /absolute/release-directory" >&2; exit 2 ;; esac
+release=${2:-}
+case "$release" in /*) ;; *) echo "Prebuilt release required. Run build-vps-release.sh on macmini2 first." >&2; exit 2 ;; esac
+[ -f "$release/SHA256SUMS" ] || { echo "Incomplete release: no checksums" >&2; exit 1; }
+release=$(CDPATH= cd -- "$release" && pwd)
+[ "$repo_root" = "$release" ] || { echo "Run the receiver shipped inside this release directory." >&2; exit 1; }
+deploy_env=${DEPLOY_ENV_FILE:-$config_root/deploy.env}
+[ ! -f "$deploy_env" ] || . "$deploy_env"
 INTERNAL_PROJECT=${INTERNAL_PROJECT:-image-playground-internal}
 INTERNAL_IMAGE=${INTERNAL_IMAGE:-ai-image-playground:vps-main}
 PAID_PROJECT=${PAID_PROJECT:-image-playground-paid}
 PAID_IMAGE=${PAID_IMAGE:-ai-image-playground:paid}
 DEPLOY_KEEP_IMAGES=${DEPLOY_KEEP_IMAGES:-5}
 DEPLOY_MIN_FREE_GB=${DEPLOY_MIN_FREE_GB:-8}
-DEPLOY_PRUNE_CACHE_BELOW_GB=${DEPLOY_PRUNE_CACHE_BELOW_GB:-15}
-
 public_sha=-
 private_sha=-
 current_edition=
-
-edition_tag() {
-  case "$1" in
-    internal) printf '%s-%s' "$INTERNAL_IMAGE" "$public_sha" ;;
-    *) printf '%s-%s-%s' "$PAID_IMAGE" "$public_sha" "$private_sha" ;;
-  esac
-}
-
-on_exit() {
+image=
+cleanup() {
   status=$?
   if [ "$status" -ne 0 ] && [ -n "$current_edition" ]; then
-    append_deploy_log "$current_edition" "$(edition_tag "$current_edition")" failed || true
+    append_deploy_log "$current_edition" "$image" failed || true
   fi
-  release_deploy_lock "$deploy_lock" || true
+  release_deploy_lock "$deploy_lock"
 }
-trap on_exit EXIT
-# A rollout that is killed must still drop the lock: a cut ssh session reaches the remote shell
-# as HUP. Exiting from these traps runs the EXIT trap above.
+trap cleanup EXIT
 trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
-
-update_private() {
-  set --
-  if [ -f "$private_token_file" ]; then
-    private_remote=$(git -C "$private_root" remote get-url origin)
-    case "$private_remote" in
-      https://github.com/*) ;;
-      *)
-        echo "Refusing to send the token in $private_token_file to $private_remote." >&2
-        echo "The overlay origin must be an https://github.com/ remote." >&2
-        exit 1
-        ;;
-    esac
-    T=$(cat "$private_token_file")
-    export T
-    # The token must never become a command-line argument; git's helper shell expands $T.
-    # shellcheck disable=SC2016
-    set -- -c 'credential.helper=' \
-      -c 'credential.helper=!f(){ echo username=x-access-token; echo password=$T; }; f'
+acquire_deploy_lock "$deploy_lock" "receive $target $release"
+(cd "$release" && sha256sum --strict -c SHA256SUMS)
+# Require exactly one record per requested edition and only inert, well-formed fields.
+awk -F '\t' '
+  NF != 5 || $1 !~ /^(internal|paid)$/ || seen[$1]++ { exit 1 }
+  $2 !~ /^ai-image-playground:(vps-main|paid)-[0-9a-f-]+$/ { exit 1 }
+  $3 !~ /^sha256:[0-9a-f]+$/ || length($3) != 71 { exit 1 }
+  $4 !~ /^[0-9a-f]+$/ || length($4) != 40 { exit 1 }
+  $5 != "-" && ($5 !~ /^[0-9a-f]+$/ || length($5) != 40) { exit 1 }
+' "$release/images.tsv" || { echo "Invalid image manifest" >&2; exit 1; }
+for edition in $editions; do
+  [ "$(awk -F '\t' -v e="$edition" '$1==e { n++ } END { print n+0 }' "$release/images.tsv")" = 1 ] || { echo "Missing $edition image" >&2; exit 1; }
+done
+free_gb=$(docker_root_free_gb)
+[ "$free_gb" -ge "$DEPLOY_MIN_FREE_GB" ] || { echo "Insufficient Docker disk space: ${free_gb}G" >&2; exit 1; }
+docker load -i "$release/images.tar.gz"
+# Check every image before changing any service or running a migration.
+while IFS="$(printf '\t')" read -r edition image expected_id public_sha private_sha; do
+  [ "$(docker image inspect "$image" --format '{{.Id}}')" = "$expected_id" ] || { echo "Image ID mismatch: $image" >&2; exit 1; }
+  [ "$(docker image inspect "$image" --format '{{.Os}}/{{.Architecture}}')" = linux/amd64 ] || { echo "Wrong image platform: $image" >&2; exit 1; }
+  version=$public_sha
+  if [ "$edition" = paid ]; then
+    [ "$private_sha" != - ] || exit 1
+    version=$public_sha+$private_sha
   fi
-  if ! git -C "$private_root" "$@" pull -q --ff-only; then
-    unset T
-    echo "Fast-forwarding $private_root failed." >&2
-    echo "Put a GitHub token with read access to the private repository in $private_token_file, then chmod 600 it." >&2
-    exit 1
-  fi
-  unset T
-}
-
-# prune_old_images <moving-alias> <tag-just-rolled-out>
-#
-# Every deploy leaves a commit-qualified image behind as a rollback target, and nothing used to
-# remove them: the host filled up. Keep the newest $DEPLOY_KEEP_IMAGES per edition, plus whatever
-# is still running. A failed removal is reported and ignored; the rollout already succeeded.
+  actual=$(docker image inspect "$image" --format '{{range .Config.Env}}{{println .}}{{end}}' | sed -n 's/^APP_VERSION=//p')
+  [ "$actual" = "$version" ] || { echo "APP_VERSION mismatch: $image" >&2; exit 1; }
+done < "$release/images.tsv"
 prune_old_images() {
   running=$(docker ps --format '{{.Image}}' | sort -u | tr '\n' ' ')
   stale=$(docker images --format '{{.Repository}}:{{.Tag}}' "${1%%:*}" |
@@ -121,121 +78,17 @@ prune_old_images() {
   done
 }
 
-# Image pruning alone does not keep the disk in check: BuildKit keeps every superseded layer in
-# its cache, and that is what actually fills the host (27G of cache next to 4G of images, 17G of
-# it referenced by nothing). Drop only the unreferenced part; the cache the next build reuses
-# stays. Called only when the disk is short (see should_prune_build_cache). A failure here is
-# reported and ignored: the rollout already succeeded.
-prune_build_cache() {
-  if reclaimed=$(docker builder prune -f 2>/dev/null | tail -n 1); then
-    echo "build cache: ${reclaimed:-nothing to reclaim}"
-  else
-    echo "could not prune the build cache; leaving it" >&2
-  fi
-}
-
-# Everything below touches this host: the checkout gets detached onto $ref, Docker builds, the
-# running services are replaced. Two rollouts at once would detach one checkout onto two commits
-# and build from a mixed tree, so take the lock before the first step with a side effect.
-stage "Take the deploy lock"
-acquire_deploy_lock "$deploy_lock" "editions=$editions ref=$ref"
-echo "holding $deploy_lock"
-
-stage "Sync the checkout to $ref"
-if [ -n "$(git -C "$repo_root" status --porcelain --untracked-files=no)" ]; then
-  echo "Refusing to deploy: tracked files are modified in $repo_root." >&2
-  git -C "$repo_root" status --short --untracked-files=no >&2
-  exit 1
-fi
-git -C "$repo_root" fetch -q origin
-git -C "$repo_root" checkout -q --detach "$ref"
-public_sha=$(git -C "$repo_root" rev-parse --short HEAD)
-echo "public $public_sha  $(git -C "$repo_root" log -1 --pretty=%s)"
-
-stage "Refresh the private overlay"
-case "$editions" in
-  *paid*)
-    if [ ! -d "$private_root/.git" ]; then
-      echo "No private overlay clone at $private_root; the paid edition needs one." >&2
-      echo "Clone the private repository there over HTTPS first." >&2
-      exit 1
-    fi
-    update_private
-    private_sha=$(git -C "$private_root" rev-parse --short HEAD)
-    echo "private $private_sha  $(git -C "$private_root" log -1 --pretty=%s)"
-    ;;
-  *)
-    echo "Skipped: the internal edition builds without ./private."
-    ;;
-esac
-
-# A build that fills the disk takes PostgreSQL down with it: both share this filesystem. Refuse
-# while there is still room to recover, instead of finding out halfway through a layer export.
-stage "Check free space for the build"
-free_gb=$(docker_root_free_gb)
-echo "${free_gb}G free, ${DEPLOY_MIN_FREE_GB}G required"
-if [ "$free_gb" -lt "$DEPLOY_MIN_FREE_GB" ]; then
-  echo "Refusing to build: less than ${DEPLOY_MIN_FREE_GB}G free where Docker keeps its data." >&2
-  echo "Old commit-qualified images are the usual cause. List them with" >&2
-  echo "  docker images 'ai-image-playground'" >&2
-  echo "remove the ones no rollback needs, then deploy again. DEPLOY_MIN_FREE_GB in" >&2
-  echo "$deploy_env overrides the threshold." >&2
-  exit 1
-fi
-
-stage "Build the images"
 for edition in $editions; do
-  prefix=$(printf '%s' "$edition" | tr '[:lower:]' '[:upper:]')
-  tag=$(edition_tag "$edition")
-  current_edition=$edition
-  # Baked into the image and reported in each service's heartbeat. Same shape as the frontend's
-  # version.json: <public sha>, or <public sha>+<private sha> for the paid edition.
-  case "$edition" in
-    internal)
-      APP_VERSION=$public_sha "$repo_root/scripts/app-compose.sh" build "$tag"
-      ;;
-    *)
-      paid_version=$public_sha
-      [ "$private_sha" = "-" ] || paid_version="$public_sha+$private_sha"
-      APP_VERSION=$paid_version "$repo_root/scripts/app-compose.sh" build-private "$tag"
-      ;;
-  esac
-  moving_alias=$(edition_var "$prefix" IMAGE)
-  docker tag "$tag" "$moving_alias"
-  echo "built $tag, aliased to $moving_alias"
-  current_edition=
-done
-
-for edition in $editions; do
+  record=$(awk -F '\t' -v e="$edition" '$1==e' "$release/images.tsv")
+  IFS="$(printf '\t')" read -r current_edition image expected_id public_sha private_sha <<EOF
+$record
+EOF
   prefix=$(printf '%s' "$edition" | tr '[:lower:]' '[:upper:]')
   project=$(edition_var "$prefix" PROJECT)
-  tag=$(edition_tag "$edition")
-  current_edition=$edition
-
-  stage "Roll out $project with $tag"
-  APP_IMAGE=$tag
-  export APP_IMAGE
-  if ! "$repo_root/scripts/app-compose.sh" up "$project"; then
-    "$repo_root/scripts/app-compose.sh" status "$project" >&2 || true
-    exit 1
-  fi
-  append_deploy_log "$edition" "$tag" ok
+  APP_IMAGE=$image "$release/scripts/app-compose.sh" up "$project"
+  docker tag "$image" "$(edition_var "$prefix" IMAGE)"
+  append_deploy_log "$edition" "$image" ok
   current_edition=
-  echo "recorded in $deployments_log"
-  prune_old_images "$(edition_var "$prefix" IMAGE)" "$tag"
+  prune_old_images "$(edition_var "$prefix" IMAGE)" "$image"
 done
-
-stage "Check the build cache"
-free_gb=$(docker_root_free_gb)
-if should_prune_build_cache "$free_gb" "$DEPLOY_PRUNE_CACHE_BELOW_GB"; then
-  echo "${free_gb}G free, below ${DEPLOY_PRUNE_CACHE_BELOW_GB}G"
-  prune_build_cache
-else
-  echo "build cache left alone (${free_gb}G free)"
-fi
-
-printf '\nDeployed public=%s private=%s\n' "$public_sha" "$private_sha"
-for edition in $editions; do
-  prefix=$(printf '%s' "$edition" | tr '[:lower:]' '[:upper:]')
-  printf '  %-8s %s -> %s\n' "$edition" "$(edition_tag "$edition")" "$(edition_var "$prefix" PROJECT)"
-done
+echo "Deployed prebuilt release: $release"
