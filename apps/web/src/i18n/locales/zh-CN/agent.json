@@ -12,8 +12,17 @@
     "newProjectAria": "新建项目",
     "logAria": "对话记录",
     "emptyTitle": "今天，想创作什么？",
-    "emptyBody": "描述你的想法，或添加一张参考图。生成后切换到画布，选中作品就能继续修改。",
-    "emptyExample": "试着描述画面中的主体、风格和氛围。"
+    "emptyBody": "描述你的想法，或添加一张参考图。生成后切换到画布，选中作品就能继续修改。"
+  },
+  "suggestions": {
+    "aria": "示例提示词",
+    "productTitle": "产品主图",
+    "productPrompt": "为一只极简风格的白色陶瓷咖啡杯拍一张电商主图：纯色背景，柔和侧光，突出釉面质感。",
+    "posterTitle": "节日海报",
+    "posterPrompt": "设计一张中秋节海报：夜空中的满月、远山与桂花，暖金色调，顶部留出标题位置。",
+    "characterTitle": "角色插画",
+    "characterPrompt": "画一个赛博朋克风格的少女角色半身像：雨夜街头，霓虹灯光映在雨衣上，电影感构图。",
+    "draftKeptToast": "输入框里已有内容，清空后再选示例"
   },
   "tool": {
     "stageSubmitted": "已排队",

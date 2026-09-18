@@ -12,7 +12,6 @@
 .studio-spark { display: grid; place-items: center; width: 42px; height: 42px; margin-bottom: 20px; border: 1px solid hsl(var(--border)); border-radius: var(--studio-radius); color: hsl(var(--primary)); font-size: 27px; }
 .studio-chat-empty h3 { font-size: 16px; font-weight: 550; }
 .studio-chat-empty p { color: hsl(var(--muted-foreground)); font-size: 12px; line-height: 1.9; margin-top: 10px; }
-.studio-example { margin-top: 24px; padding: 12px; border: 1px dashed hsl(var(--border)); border-radius: var(--studio-radius); color: hsl(var(--muted-foreground)); font-size: 11px; line-height: 1.8; }
 .studio-agent-composer { position: relative; }
 .studio-canvas { position: relative; flex: 1; min-width: 0; height: 100%; background: hsl(var(--background)); }
 .studio-canvas-heading { position: absolute; top: 18px; left: 22px; right: 20px; z-index: 100; pointer-events: none; display: flex; justify-content: space-between; gap: 12px; font-size: 12px; color: hsl(var(--foreground)); }
@@ -105,7 +104,7 @@
   html[data-workspace-keyboard="true"] .studio-agent-project { display: none; }
   html[data-workspace-keyboard="true"] .studio-chat-empty { padding-top: 8px; }
   html[data-workspace-keyboard="true"] .studio-chat-empty .studio-spark,
-  html[data-workspace-keyboard="true"] .studio-example { display: none; }
+  html[data-workspace-keyboard="true"] .studio-suggestions { display: none; }
 }
 @media (max-width: 767px) {
   .studio-agent-composer [data-slot="composer-send"],
