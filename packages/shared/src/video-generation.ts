@@ -63,6 +63,9 @@ export function isVideoGenerationRecord(value: unknown): value is VideoGeneratio
   if (record.referenceIds !== undefined) {
     const ids = record.referenceIds
     if (!Array.isArray(ids) || ids.length > REFERENCE_IDS_MAX || !ids.every(objectId)) return false
+    // 一张图只有一种用法：重复或与首尾帧重合的记录提交时会被驳回，也就不该被当成合法记录读进来。
+    const used = [record.firstFrameId, record.lastFrameId, ...ids].filter(Boolean)
+    if (new Set(used).size !== used.length) return false
   }
   if (record.derivedFrom !== undefined) {
     const derived = record.derivedFrom

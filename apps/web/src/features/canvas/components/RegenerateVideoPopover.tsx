@@ -53,9 +53,9 @@ export default function RegenerateVideoPopover({
   const draft = useVideoStore((state) => state.draft)
   const options = videoModelOptions()
   const option = options.find((one) => one.modelId === draft.model)
-  const frames = regenerateInputs(editor, node)
-  const frameCount = keepFrames ? frames.present.length : 0
-  const frameRefusal = regenerateInputRefusal(keepFrames ? frames.inputs : {}, draft)
+  const inputs = regenerateInputs(editor, node)
+  const inputCount = keepFrames ? inputs.present.length : 0
+  const inputRefusal = regenerateInputRefusal(keepFrames ? inputs.inputs : {}, draft)
   // 关掉弹窗就作废还没发出的提交；草稿也还原成打开前的样子（它和生成栏共用）。
   const open = useRef(true)
   const submitted = useRef(false)
@@ -109,17 +109,17 @@ export default function RegenerateVideoPopover({
             {note}
           </p>
         ))}
-        {frames.recorded.length > 0 && !frames.complete && (
+        {inputs.recorded.length > 0 && !inputs.complete && (
           <p className="mb-2 text-xs text-warning">{t('videoToolbar.framesGoneTextOnly')}</p>
         )}
-        {frames.present.length > 0 && (
+        {inputs.present.length > 0 && (
           <label className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
             <input
               type="checkbox"
               checked={keepFrames}
               onChange={(event) => setKeepFrames(event.target.checked)}
             />
-            {t('videoToolbar.keepsFrames', { count: frames.present.length })}
+            {t('videoToolbar.keepsFrames', { count: inputs.present.length })}
           </label>
         )}
 
@@ -156,14 +156,14 @@ export default function RegenerateVideoPopover({
               <VideoPresetRows
                 support={option.support}
                 draft={draft}
-                aspectFollowsFirstFrame={frameCount > 0}
+                aspectFollowsFirstFrame={inputCount > 0}
               />
             </>
           )}
         </div>
 
         <div className={`${PANEL_SECTION} mt-4`}>
-          {frameRefusal && <p className="mb-1.5 text-[11px] text-destructive">{frameRefusal}</p>}
+          {inputRefusal && <p className="mb-1.5 text-[11px] text-destructive">{inputRefusal}</p>}
           {guard.blocked && guard.disabledReason && (
             <p className="mb-1.5 text-[11px] text-destructive">{guard.disabledReason}</p>
           )}
@@ -174,7 +174,7 @@ export default function RegenerateVideoPopover({
           <button
             type="button"
             disabled={
-              guard.blocked || !prompt.trim() || !option || Boolean(frameRefusal) || submitting
+              guard.blocked || !prompt.trim() || !option || Boolean(inputRefusal) || submitting
             }
             title={guard.disabledReason}
             onClick={() => void submit()}

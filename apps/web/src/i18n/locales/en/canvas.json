@@ -252,9 +252,7 @@
     "keepsFrames_other": "Keep the {{count}} original input images (frames and references)",
     "nothingRecorded": "This video has no recorded settings or description; choose settings and write one.",
     "noSettingsRecorded": "This video has no recorded settings; the current ones are used.",
-    "framesFailed": "The original frames could not be prepared; try again, or turn off \"Keep the original frames\" to use text only.",
-    "modelNoFrames": "{{model}} cannot start from an image: pick another model or turn off \"Keep the original frames\".",
-    "modelNoLastFrame": "{{model}} has no last frame: pick another model or turn off \"Keep the original frames\"."
+    "framesFailed": "The original frames could not be prepared; try again, or turn off \"Keep the original frames\" to use text only."
   },
   "timeline": {
     "title": "Timeline",
@@ -309,9 +307,8 @@
     "open_other": "Make a video from {{count}} images",
     "title_one": "Make a video from {{count}} image",
     "title_other": "Make a video from {{count}} images",
-    "hint": "Ordered left to right as on the canvas; drag to reorder. Mark each as the first frame, last frame or a reference, and mention references as Image 1, Image 2 in the description.",
+    "hint": "Ordered left to right as on the canvas; drag to reorder. Mark each as the first frame, last frame or a reference, and mention references as Reference 1, Reference 2 in the description.",
     "listAria": "Input images",
-    "imageLabel": "Image {{no}}",
     "roleAria": "How image {{no}} is used",
     "moveUp": "Move image {{no}} up",
     "role": {
@@ -319,9 +316,10 @@
       "first": "First frame",
       "last": "Last frame"
     },
-    "placeholder": "e.g. the person in Image 1 swings the racket from Image 2 on the court in Image 3",
+    "placeholder": "e.g. the person in Reference 1 swings the racket from Reference 2 on the court in Reference 3",
     "modelWithoutReferences": "{{label}} (no reference images)",
     "submit": "Generate video",
-    "submitted": "Video generation submitted"
+    "submitted": "Video generation submitted",
+    "referenceLabel": "Reference {{no}}"
   }
 }

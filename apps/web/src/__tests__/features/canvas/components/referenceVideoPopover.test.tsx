@@ -175,6 +175,12 @@ describe('选中即参考', () => {
     expect(document.querySelector('[role="alert"]')?.textContent).toContain('720p')
   })
 
+  it('offers the entry only for two or more images', () => {
+    act(() => editor.setSelectedElements(['a']))
+    act(() => root.render(<CanvasVideoToolbar editor={editor} />))
+    expect(document.querySelector('[aria-label="用选中的图生成视频"]')).toBeNull()
+  })
+
   it('restores the shared draft when closed without submitting', () => {
     act(() => button('用 3 张图生成视频').click())
     expect(useVideoStore.getState().draft.model).toBe(GROK)

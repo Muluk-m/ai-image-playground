@@ -38,6 +38,10 @@ describe('视频生成记录', () => {
     expect(isVideoGenerationRecord({ ...BASE, referenceIds: 'el_a' })).toBe(false)
     expect(isVideoGenerationRecord({ ...BASE, referenceIds: [''] })).toBe(false)
     expect(isVideoGenerationRecord({ ...BASE, referenceIds: [1] })).toBe(false)
+    expect(isVideoGenerationRecord({ ...BASE, referenceIds: ['el_a', 'el_a'] })).toBe(false)
+    expect(isVideoGenerationRecord({ ...BASE, firstFrameId: 'el_a', referenceIds: ['el_a'] })).toBe(
+      false,
+    )
     expect(
       isVideoGenerationRecord({
         ...BASE,

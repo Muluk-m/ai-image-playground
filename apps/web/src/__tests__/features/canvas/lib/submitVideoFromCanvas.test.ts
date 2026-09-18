@@ -403,6 +403,18 @@ describe('选中即参考', () => {
   })
 
   it(
+    'refuses references when the channel has not declared them, even if the matrix allows',
+    withMatrix(async () => {
+      mocks.support.current = support
+      addImage('a', 0)
+      addImage('b', 200)
+      expect(await submitReferenceVideo(editor, items(['a', 'b']), '出场')).toBe(false)
+      expect(mocks.showToast).toHaveBeenCalledWith(expect.stringContaining('不支持参考图'), 'error')
+      expect(mocks.submitVideoRequest).not.toHaveBeenCalled()
+    }),
+  )
+
+  it(
     'refuses more references than the model takes',
     withMatrix(async () => {
       mocks.support.current = withReferences

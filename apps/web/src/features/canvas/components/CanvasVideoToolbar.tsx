@@ -14,7 +14,7 @@ import {
 import { type ReactNode, useEffect, useState, useSyncExternalStore } from 'react'
 import { Button } from '../../../components/ui/button'
 import { useTranslation } from '../../../i18n'
-import { isVideoModeAvailable } from '../../../lib/channels/videoChannels'
+import { isVideoModeAvailable, videoModelOptions } from '../../../lib/channels/videoChannels'
 import { useStore } from '../../../store'
 import DeriveVideoPopover from '../../video/components/DeriveVideoPopover'
 import { videoDeriveLabel } from '../../video/lib/labels'
@@ -190,9 +190,13 @@ export default function CanvasVideoToolbar({ editor }: { editor: CanvasEditor })
         </>
       )
     }
-    // 只选了图：给「用 N 张图生成视频」，打开选中即参考的面板。
+    // 多选了几张图（没有视频）且有模型带得了参考图：给「用 N 张图生成视频」，打开选中即参考的面板。
     const images =
-      editor.doc.tool === 'select' && isVideoModeAvailable() ? referenceSelection(editor) : null
+      editor.doc.tool === 'select' &&
+      isVideoModeAvailable() &&
+      videoModelOptions().some((one) => one.support.referenceImages)
+        ? referenceSelection(editor)
+        : null
     if (images && !popover) {
       const boxes = images.map((entry) => entry.box)
       const group = Box.Common(boxes)

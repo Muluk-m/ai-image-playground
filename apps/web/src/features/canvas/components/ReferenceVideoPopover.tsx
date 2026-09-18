@@ -32,8 +32,10 @@ import {
   defaultInputItems,
   moveInputItem,
   setInputRole,
+  type VideoInputItem,
   type VideoInputRole,
 } from '../lib/videoInputs'
+import { referenceModelOption } from '../lib/videoRejection'
 
 /**
  * 选中即参考：选中的几张图按画布从左到右列出，可拖动排序，每张标成首帧、尾帧或参考图，
@@ -63,12 +65,10 @@ export default function ReferenceVideoPopover({
   // 打开时对齐可用模型；当前模型不接参考图就换到第一个接的，关掉没提交就把草稿还原。
   useEffect(() => {
     const before = useVideoStore.getState().draft
+    useVideoStore.getState().syncModelOptions()
     const video = useVideoStore.getState()
-    video.syncModelOptions()
-    const current = videoModelOptions().find((one) => one.modelId === video.draft.model)
-    const withReferences = videoModelOptions().find((one) => one.support.referenceImages)
-    if (!current?.support.referenceImages && withReferences)
-      useVideoStore.getState().setModel(withReferences.modelId)
+    const withReferences = referenceModelOption(video.draft.model)
+    if (withReferences) useVideoStore.getState().setModel(withReferences.modelId)
     return () => {
       open.current = false
       if (!submitted.current) useVideoStore.setState({ draft: before })
@@ -95,6 +95,13 @@ export default function ReferenceVideoPopover({
   }
 
   const roleLabel = (role: VideoInputRole) => t(`referenceVideo.role.${role}`)
+  // 参考图按送给模型的顺序编号（首尾帧不占号），描述里提「参考1」对得上模型收到的第一张参考图。
+  const inputLabel = (list: readonly VideoInputItem[], index: number) => {
+    const item = list[index]!
+    if (item.role !== 'reference') return roleLabel(item.role)
+    const no = list.slice(0, index + 1).filter((one) => one.role === 'reference').length
+    return t('referenceVideo.referenceLabel', { no })
+  }
   const hasFrames = items.some((item) => item.role !== 'reference')
 
   return (
@@ -111,7 +118,12 @@ export default function ReferenceVideoPopover({
               key={item.entry.imageId}
               draggable
               data-input-id={item.entry.imageId}
-              onDragStart={() => setDragging(index)}
+              onDragStart={(event) => {
+                // Firefox 不 setData 就不开始拖。
+                event.dataTransfer.setData('text/plain', item.entry.imageId)
+                event.dataTransfer.effectAllowed = 'move'
+                setDragging(index)
+              }}
               onDragOver={(event) => event.preventDefault()}
               onDrop={(event) => {
                 event.preventDefault()
@@ -123,8 +135,8 @@ export default function ReferenceVideoPopover({
               className={`flex items-center gap-2 rounded-lg border border-border px-2 py-1.5 ${dragging === index ? 'opacity-50' : ''}`}
             >
               <GripVertical className="h-4 w-4 shrink-0 cursor-grab text-muted-foreground" />
-              <span className="w-10 shrink-0 text-xs text-muted-foreground">
-                {t('referenceVideo.imageLabel', { no: index + 1 })}
+              <span className="w-12 shrink-0 text-xs text-muted-foreground">
+                {inputLabel(items, index)}
               </span>
               <InputThumb editor={editor} imageId={item.entry.imageId} />
               {/* 拖动之外给键盘一条路：往前挪一位。 */}
@@ -151,8 +163,13 @@ export default function ReferenceVideoPopover({
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="reference">{roleLabel('reference')}</SelectItem>
-                  <SelectItem value="first">{roleLabel('first')}</SelectItem>
-                  <SelectItem value="last">{roleLabel('last')}</SelectItem>
+                  {/* 模型接不住的帧不给选，免得选完只看到一句驳回。 */}
+                  {option?.support.firstFrame !== false && (
+                    <SelectItem value="first">{roleLabel('first')}</SelectItem>
+                  )}
+                  {option?.support.lastFrame !== false && (
+                    <SelectItem value="last">{roleLabel('last')}</SelectItem>
+                  )}
                 </SelectContent>
               </Select>
             </li>

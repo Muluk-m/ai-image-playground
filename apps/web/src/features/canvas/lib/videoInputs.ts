@@ -9,7 +9,10 @@ export interface VideoInputItem {
   role: VideoInputRole
 }
 
-type GenerationInputs = Pick<VideoGenerationRecord, 'firstFrameId' | 'lastFrameId' | 'referenceIds'>
+export type GenerationInputs = Pick<
+  VideoGenerationRecord,
+  'firstFrameId' | 'lastFrameId' | 'referenceIds'
+>
 
 /** 「选中即参考」的初始面板：按画布从左到右，默认都当参考图，首尾帧由用户标。 */
 export function defaultInputItems(entries: readonly CanvasInputEntry[]): VideoInputItem[] {
@@ -51,6 +54,15 @@ export function generationInputs(items: readonly VideoInputItem[]): GenerationIn
     ...(first ? { firstFrameId: first.entry.imageId } : {}),
     ...(last ? { lastFrameId: last.entry.imageId } : {}),
     ...(references.length ? { referenceIds: references.map((item) => item.entry.imageId) } : {}),
+  }
+}
+
+/** 从一条生成记录里取出输入图那几项（首尾帧与参考图）。 */
+export function pickGenerationInputs(record: GenerationInputs): GenerationInputs {
+  return {
+    ...(record.firstFrameId ? { firstFrameId: record.firstFrameId } : {}),
+    ...(record.lastFrameId ? { lastFrameId: record.lastFrameId } : {}),
+    ...(record.referenceIds?.length ? { referenceIds: [...record.referenceIds] } : {}),
   }
 }
 

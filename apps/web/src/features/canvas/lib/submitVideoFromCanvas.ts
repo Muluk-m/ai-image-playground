@@ -3,7 +3,6 @@ import {
   type VideoRequest,
   videoPromptRejection,
   videoRateMultiplier,
-  videoRequestRejection,
 } from '@image-playground/shared'
 import { i18next } from '../../../i18n'
 import { getStoredChannel } from '../../../lib/channels/channelStore'
@@ -38,6 +37,7 @@ import {
   inputIndices,
   type VideoInputItem,
 } from './videoInputs'
+import { videoOptionRejection } from './videoRejection'
 
 /**
  * 画布视频任务的内存运行态：首尾帧位图。它不进占位框 meta（几 MB 的 data URL 不该随画布
@@ -121,10 +121,10 @@ function candidatesOf(editor: CanvasEditor) {
   })
 }
 
-/** 「选中即参考」的入口：选区里有图且没有视频时返回这些图，否则 null。 */
+/** 「选中即参考」的入口：选区里有两张以上的图且没有视频时返回这些图，否则 null。 */
 export function referenceSelection(editor: CanvasEditor): CanvasInputEntry[] | null {
   const candidates = candidatesOf(editor)
-  if (candidates.length === 0 || candidates.some((one) => one.video)) return null
+  if (candidates.length < 2 || candidates.some((one) => one.video)) return null
   return candidates.map((one) => one.entry)
 }
 
@@ -168,7 +168,7 @@ export async function submitVideoFromCanvas(
     ...(plan.frames[1] ? { lastFrameId: plan.frames[1].imageId } : {}),
   }
   const frameCount = plan.frames.length
-  const rejected = videoRequestRejection(
+  const rejected = videoOptionRejection(
     option.modelId,
     canvasVideoRequest(editor, generation),
     frameCount,
@@ -211,7 +211,7 @@ export function referenceVideoRefusal(
   const option = videoModelOptions().find((one) => one.modelId === draft.model)
   if (!option) return i18next.t('error.noModel', { ns: 'video' })
   const generation = referenceGeneration(option.modelId, items, draft)
-  const rejected = videoRequestRejection(
+  const rejected = videoOptionRejection(
     option.modelId,
     {
       duration_seconds: draft.duration,
