@@ -32,6 +32,7 @@ export interface CloudSceneCheckpoint {
   savedContent: string | null
   pending: ProjectWrite | null
   conflict: boolean
+  deleted?: boolean
   media?: MediaBindings
 }
 

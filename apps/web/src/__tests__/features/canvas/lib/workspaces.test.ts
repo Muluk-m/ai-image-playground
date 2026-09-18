@@ -224,6 +224,8 @@ it('持续前台的当前项目定期发现远端变更，隐藏后停止检查'
     'fetch',
     vi.fn(async (url: string, init?: RequestInit) => {
       if (url.endsWith('/api/capabilities')) return Response.json({ 'accounts:sync': true })
+      if (url.endsWith('/api/projects'))
+        return Response.json({ projects: [], deletedIds: [], nextCursor: null })
       if (init?.method === 'PUT')
         return Response.json({
           id: project.id,

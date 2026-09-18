@@ -149,7 +149,8 @@
     "copySuffix": "本机恢复副本",
     "conflictHelp": "两台设备都修改了这个项目。选择云端版前，会把本机修改保留为独立恢复副本。",
     "useCloud": "使用云端版",
-    "saveCopy": "本机版另存为项目"
+    "saveCopy": "本机版另存为项目",
+    "deleted": "项目已删除"
   },
   "welcome": {
     "aria": "开始新项目",
@@ -202,5 +203,15 @@
     "editText": "编辑文字",
     "edit": "编辑",
     "imageActions": "图片操作"
+  },
+  "trash": {
+    "title": "回收站",
+    "back": "返回项目",
+    "help": "回收期内可恢复画布和会话，回收站内容仍占用云端容量。本机未同步的编辑会继续保留。",
+    "empty": "回收站为空",
+    "until": "可恢复至 {{date}}",
+    "localEdits": "本机编辑另存为新项目",
+    "restore": "恢复",
+    "deleteMessage": "将“{{name}}”移到云端回收站？其他设备也会同步移除，可在回收期内恢复。"
   }
 }

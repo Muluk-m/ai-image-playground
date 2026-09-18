@@ -15,7 +15,7 @@ import {
   saveScene,
 } from './persistence'
 import { cloudProjectsEnabled } from './projectClient'
-import type { CanvasProject } from './projectRepository'
+import { type CanvasProject, projectRepository } from './projectRepository'
 import { recoverCanvasTasks } from './recoverCanvasTasks'
 
 import { canvasSceneKey } from './workspaceKeys'
@@ -275,7 +275,11 @@ function refreshVisibleWorkspace() {
   refreshTimer = undefined
   if (!visible || document.visibilityState !== 'visible') return
   current?.refreshCloud()
-  refreshTimer = setInterval(() => current?.refreshCloud(), 15000)
+  refreshTimer = setInterval(() => {
+    if (document.visibilityState === 'hidden') return
+    current?.refreshCloud()
+    void useCanvasProjectStore.getState().refreshCloud()
+  }, 15000)
 }
 
 function workspace(key: string, migrateLegacy = false): CanvasWorkspace {
@@ -390,4 +394,27 @@ export function forgetCanvasWorkspace(key: string): void {
   }
   workspaces.get(key)?.dispose()
   workspaces.delete(key)
+}
+
+export async function reloadCloudProject(id: string): Promise<void> {
+  const project = useCanvasProjectStore.getState().projects.find((one) => one.id === id)
+  if (project) await workspaces.get(project.sceneKey)?.cloud?.load(true)
+}
+
+export async function copyDeletedProjectLocally(id: string): Promise<CanvasProject> {
+  const scope = scopedStorageName('canvas')
+  const project = useCanvasProjectStore.getState().projects.find((one) => one.id === id)
+  if (!project?.cloud?.deleted) throw new Error('project_not_deleted')
+  const cached = workspaces.get(project.sceneKey)
+  if (cached && !(await cached.flush())) throw new Error('local_save_failed')
+  if (scopedStorageName('canvas') !== scope) throw new Error('account_changed')
+  const scene = await readPersistedScene(project.sceneKey)
+  if (scopedStorageName('canvas') !== scope) throw new Error('account_changed')
+  if (!scene) throw new Error('local_scene_missing')
+  const copy = await projectRepository.createRecoveryCopy(project, scene)
+  if (scopedStorageName('canvas') !== scope) throw new Error('account_changed')
+  useCanvasProjectStore.setState((state) => ({
+    projects: [...state.projects.filter((one) => one.id !== copy.id), copy],
+  }))
+  return copy
 }
