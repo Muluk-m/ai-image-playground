@@ -49,7 +49,7 @@
   中文烤死，切语言后也不会更新。三种已在用的做法，按调用方改动成本选：
   getter 对象（`store.ts` 的 `APP_MODE_LABELS`，消费方按 `X[key]` 索引，零改动）、
   惰性函数（`video/types.ts`，消费方加一对括号）、
-  `export let` + `i18next.on('languageChanged')` 重算（`lib/shotTypes.ts`，靠 ESM live binding，
+  `export let` + `i18next.on('languageChanged')` 重算（`lib/imageExport.ts`，靠 ESM live binding，
   消费方完全零改动，代价是可变导出）。
   [`src/__tests__/i18n/liveBindings.test.ts`](./src/__tests__/i18n/liveBindings.test.ts) 钉住第三种。
 - **React 组件只有调用了 `useTranslation()` 才会在切语言时重渲染。** 只用 `i18next.t()` 取值的

@@ -238,25 +238,6 @@
     "removeShot": "删除镜头",
     "noShotSelected": "先添加一个镜头"
   },
-  "shotCard": {
-    "fieldTitle": "标题",
-    "fieldDescription": "画面",
-    "fieldCamera": "运镜",
-    "fieldLine": "台词",
-    "fieldVideoPrompt": "视频提示词",
-    "badgeVideoDone": "视频 ✓",
-    "badgeVideoFailed": "视频失败",
-    "badgeFrame": "分镜图",
-    "badgeImageFailed": "出图失败",
-    "copied": "已复制",
-    "playAria": "播放 镜 {{no}}",
-    "edit": "改文案",
-    "regenerateImage": "重出图",
-    "generateImage": "出分镜图",
-    "copyPrompt": "复制提示词",
-    "generateVideo": "生视频",
-    "line": "「{{line}}」"
-  },
   "directorFrame": {
     "failed": "出图失败，可重新生成",
     "idle": "待生成分镜图"

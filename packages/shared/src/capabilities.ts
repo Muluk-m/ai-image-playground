@@ -10,12 +10,19 @@ export const CAPABILITIES = {
   'generation:byok': { defaultValue: false, clientExposed: true },
   'generation:storyboard': { defaultValue: false, clientExposed: true },
   'generation:video': { defaultValue: false, clientExposed: true },
-  'matte:server': { defaultValue: false, clientExposed: true },
   'operator:console': { defaultValue: false, clientExposed: false },
   'quota:daily': { defaultValue: false, clientExposed: true },
-  'remix:analyze': { defaultValue: false, clientExposed: true },
-  'remix:listing': { defaultValue: false, clientExposed: true },
 } as const satisfies Record<`${string}:${string}`, CapabilityDefinition>
+
+/**
+ * 已下线能力的名字。旧运营配置里可能还留着它们，读配置时静默忽略而不是拒绝启动；
+ * 不要复用这些名字表示新能力。
+ */
+export const RETIRED_CAPABILITIES: readonly string[] = [
+  'matte:server',
+  'remix:analyze',
+  'remix:listing',
+]
 
 export interface CapabilityDefinition {
   readonly defaultValue: false

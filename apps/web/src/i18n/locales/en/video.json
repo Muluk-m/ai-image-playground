@@ -242,25 +242,6 @@
     "removeShot": "Delete shot",
     "noShotSelected": "Add a shot first"
   },
-  "shotCard": {
-    "fieldTitle": "Title",
-    "fieldDescription": "Frame",
-    "fieldCamera": "Camera",
-    "fieldLine": "Line",
-    "fieldVideoPrompt": "Video prompt",
-    "badgeVideoDone": "Video ✓",
-    "badgeVideoFailed": "Video failed",
-    "badgeFrame": "Shot frame",
-    "badgeImageFailed": "Image failed",
-    "copied": "Copied",
-    "playAria": "Play shot {{no}}",
-    "edit": "Edit text",
-    "regenerateImage": "Redo image",
-    "generateImage": "Make frame",
-    "copyPrompt": "Copy prompt",
-    "generateVideo": "Make video",
-    "line": "“{{line}}”"
-  },
   "directorFrame": {
     "failed": "Image failed — regenerate it",
     "idle": "Shot frame pending"

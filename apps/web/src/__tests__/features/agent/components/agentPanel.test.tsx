@@ -34,10 +34,7 @@ const MANIFEST = {
   'generation:byok': true,
   'generation:storyboard': false,
   'generation:video': false,
-  'matte:server': false,
   'quota:daily': false,
-  'remix:analyze': false,
-  'remix:listing': false,
 }
 
 /** 画布渲出来的缩略图；服务端回退取回来的是 SERVER_IMAGE。 */

@@ -57,27 +57,10 @@
     "description": "保存当前提示词、引用的素材与尺寸 / 质量 / 数量",
     "placeholder": "模板名"
   },
-  "picker": {
-    "selectedCount_other": "已选 {{count}} 张",
-    "empty": "素材库还是空的",
-    "angleLabel": "{{name}} 角度"
-  },
   "empty": {
     "assetsTitle": "拖入或粘贴图片，或右键参考图缩略图存为素材",
     "assetsMobile": "手机上长按缩略图",
     "templates": "写好提示词后点存为模板，输入 / 调用"
-  },
-  "coach": {
-    "ariaLabel": "素材与模板引导",
-    "title": "同一批图、同一段提示词",
-    "tokenRightClick": "右键",
-    "tokenSlot": "{槽位}",
-    "stepSave": "参考图存为素材",
-    "stepMention": "引用素材",
-    "stepSlot": "一次生成多张",
-    "stepTemplate": "调用模板",
-    "gotIt": "知道了",
-    "view": "看看"
   },
   "hint": {
     "rightClickToSave": "右键可存为素材",

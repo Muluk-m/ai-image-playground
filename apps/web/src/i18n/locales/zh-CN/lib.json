@@ -110,22 +110,6 @@
   "model": {
     "noEditSupport": "当前模型不支持参考图（图生图），切换模型后可用"
   },
-  "angle": {
-    "front": "正面",
-    "threeQuarter": "3/4 侧",
-    "highAngle": "俯拍",
-    "topDown": "正顶",
-    "side": "侧面"
-  },
-  "shotType": {
-    "main": "主图",
-    "scene": "场景图",
-    "topdown": "俯拍图",
-    "detail": "细节图",
-    "sellingPoint": "卖点图",
-    "specDiagram": "尺寸参数图",
-    "other": "其它"
-  },
   "mask": {
     "sizeMismatch": "遮罩尺寸与遮罩主图不一致，请重新绘制遮罩",
     "baseImageMissing": "遮罩主图已不存在，请重新选择遮罩区域",
@@ -138,14 +122,6 @@
     "failed": "导出失败",
     "imageNotFound": "找不到这张图"
   },
-  "matte": {
-    "timeout": "{{backend}} 抠图超时",
-    "unsupported": "当前浏览器跑不了本地抠图",
-    "localFailed": "本地抠图失败",
-    "workerStartFailed": "抠图 worker 启动失败",
-    "backendServer": "服务端",
-    "localFailedWithReason": "本地抠图失败：{{reason}}"
-  },
   "transparent": {
     "pixelSizeMismatch": "透明背景像素数据尺寸不匹配",
     "unsupportedKeyColor": "不支持的透明背景 key color：{{keyColor}}"
@@ -157,9 +133,6 @@
     "adoptTxAborted": "认领历史的 {{store}} 事务被中止"
   },
   "bffClient": {
-    "analyzeUnavailable": "竞品图分析没有返回可用的简报",
-    "matteUnavailable": "服务端抠图没有返回可用的蒙版",
-    "listingUnavailable": "抓不到这条链接的图集",
     "storyboardUnavailable": "分镜脚本没有生成成功",
     "storyboardTimedOut": "分镜脚本生成超时，请重试"
   },

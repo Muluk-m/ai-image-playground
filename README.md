@@ -138,7 +138,8 @@ The two deployments must also use different databases, object-store locations, o
 credentials, internal service tokens, provider credentials, and CORS origins. Real secrets and operator
 configuration remain in these external directories; only safe examples are committed.
 `operator-config.json` is optional beside each `app.env`: missing means every capability is off;
-a present invalid file prevents BFF startup. The browser obtains its read-only capability list
+a present invalid file prevents BFF startup. Names of retired capabilities left in an older file
+are ignored. The browser obtains its read-only capability list
 from the BFF and never evaluates operator settings itself.
 When frontend and BFF releases differ, capabilities omitted by an older BFF remain disabled;
 explicitly returned flags still apply. A malformed capability value rejects the manifest.
@@ -146,12 +147,6 @@ Set `accounts:login=true` and `accounts:self-register=true` to expose the regist
 `POST /api/auth/register`; self-registration cannot be enabled without login. When the private
 billing overlay also enables `billing:credits`, account creation grants welcome credits in the
 same database transaction.
-`matte:server` needs `INTERNAL_API_TOKEN`, which signs the short-lived tokens Cloudflare uses to
-fetch a source image back, and `MATTE_TRANSFORM_ORIGIN`, a bare https origin of this deployment
-on a zone with image transformations on; BFF refuses to start without both.
-When `accounts:login` is enabled, both listing endpoints (`POST /api/remix/listing` and
-`GET /api/remix/image`) require a user session or the internal service credential; browser
-requests include the session cookie even when the BFF is on a separate origin.
 
 Start infrastructure, provision one migrator, one application writer, and one Admin reader for
 each deployment, build the release image once, then start each project:
@@ -184,8 +179,7 @@ any schema it still cannot read before it exits. No Compose file publishes a Pos
 Object storage is any S3-compatible service. Both deployment examples point at Cloudflare R2;
 `S3_KEY_PREFIX` confines a deployment to one prefix when its bucket is shared with other
 workloads. Each project also runs a `pg-backup` sidecar that uploads a daily `pg_dump` of its
-own database to `<S3_KEY_PREFIX>pg/<UTC date>.dump`, and `matte:server` caches each cutout under
-`<S3_KEY_PREFIX>matte/<sha256 of the source image>/`. Retention belongs to a bucket lifecycle
+own database to `<S3_KEY_PREFIX>pg/<UTC date>.dump`. Retention belongs to a bucket lifecycle
 rule, not to the sidecar. On start the sidecar runs a missed backup at once when the newest dump
 is over 24 hours old (say, the host was down at cron time). Every Monday 03:00 Asia/Shanghai it
 also restores the newest dump into a throwaway PostgreSQL inside the container, checks the tables
@@ -203,16 +197,6 @@ recent rollouts. If Docker's data lives on its own partition, point
 `HOST_DISK_PROBE_SOURCE` at a file there. Without `INTERNAL_API_TOKEN` it still runs; its readings
 just never reach the board. See
 [`docs/adr/0007`](./docs/adr/0007-host-sampling-without-the-docker-socket.md) for the trade-off.
-
-The browser probes `GET /api/matte/:hash` with the SHA-256 hex digest of the original image bytes
-before uploading to `POST /api/matte`. A hit returns the alpha with one object read and no source
-upload or transform. Both endpoints enforce `matte:server` and the same session/service guard.
-Browsers without Web Crypto use the upload path.
-
-For automatic product-shot mattes, action-time mask preparation removes foreground components
-wholly outside the plan's product box before agreement checking and expansion. Components that
-intersect or cross the box remain whole, including diagonal cords; objects touching the product
-or inside the box cannot be separated by this rule. Hand-edited mattes are left untouched.
 
 `app-compose.sh` defaults to
 `$XDG_CONFIG_HOME/ai-image-playground/apps/<project>/app.env` and requires a sibling
@@ -430,8 +414,7 @@ wrangler r2 bucket lifecycle add <bucket> --name pg-dumps \
   --prefix '<prefix>pg/' --expire-days 14
 ```
 
-The dumps sit inside the pixel prefix, so both rules match them and the shorter one decides. The
-`matte/` cache sits there too, with only the 45-day rule matching it.
+The dumps sit inside the pixel prefix, so both rules match them and the shorter one decides.
 
 Publish the frontend and only then move its DNS record to Pages. Copy
 `deploy/pages.env.example` to `$config_root/pages.env` on the workstation that releases the

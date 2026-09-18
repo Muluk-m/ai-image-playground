@@ -8,6 +8,7 @@ import {
   QUOTAS,
   type QuotaKey,
   type QuotaValues,
+  RETIRED_CAPABILITIES,
 } from '@image-playground/shared'
 import { isObject } from './type-guards'
 
@@ -60,6 +61,7 @@ function parseCapabilities(value: unknown, at: string): ParsedCapabilityValues {
 
   const parsed: ParsedCapabilityValues = {}
   for (const [key, enabled] of Object.entries(value)) {
+    if (RETIRED_CAPABILITIES.includes(key)) continue
     if (!Object.hasOwn(CAPABILITIES, key))
       throw new Error(`${at} contains unknown capability: ${key}`)
     if (typeof enabled !== 'boolean') throw new Error(`${at}.${key} must be a boolean`)
