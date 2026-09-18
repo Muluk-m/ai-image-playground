@@ -3,7 +3,11 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { assertPrivateBffOverlayPresent, loadPrivateBffOverlay } from '../../lib/private-overlay'
+import {
+  assertPrivateBffOverlayPresent,
+  EMPTY_PRIVATE_BFF_OVERLAY,
+  loadPrivateBffOverlay,
+} from '../../lib/private-overlay'
 
 const repositoryRoot = resolve(import.meta.dir, '../../../../..')
 
@@ -52,6 +56,11 @@ describe('private overlay boundary', () => {
     expect(overlay.present).toBe(false)
     const response = await overlay.routes.handle(new Request('http://localhost/private-route'))
     expect(response.status).toBe(404)
+  })
+
+  it('starts public test processes on the empty overlay even when private/ is checked out', async () => {
+    // 公开测试库没有私有迁移；真 overlay 的结算钩子会去查不存在的计费表。
+    expect(await loadPrivateBffOverlay()).toBe(EMPTY_PRIVATE_BFF_OVERLAY)
   })
 
   it('rejects a required private overlay when its entry is absent', async () => {
