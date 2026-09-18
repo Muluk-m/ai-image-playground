@@ -332,16 +332,25 @@ async function readDeployments(): Promise<OpsDeployments> {
   return { own, available: entries.length > 0, entries }
 }
 
-/** 重新部署会换实例；每个服务只报最新的那个，旧实例的行由 worker 清。 */
+/**
+ * 每个服务报所有还活着的实例，外加它最近的那一个（哪怕已经断了，看板才说得出断了多久）。
+ * 发布流程会同时留着好几个实例：新的在服务，上一版在排空，更早的旧实例留给升级前开始的会话。
+ * 只看最新一条心跳的话，看板会在新旧版本之间来回跳。
+ */
 async function readServices(): Promise<OpsServices> {
   const { db } = getDbHandle()
+  const aliveSeconds = OPS_THRESHOLDS.HEARTBEAT_MAX_AGE_MS / 1000
   const rows = (await db.execute(sql`
-    SELECT DISTINCT ON (service)
-      service, instance, version,
-      EXTRACT(EPOCH FROM last_seen_at) * 1000 AS last_seen_ms,
-      detail
-    FROM service_heartbeats
-    WHERE service IN ('bff', 'worker')
+    SELECT service, instance, version, last_seen_ms, detail
+    FROM (
+      SELECT
+        service, instance, version, detail, last_seen_at,
+        EXTRACT(EPOCH FROM last_seen_at) * 1000 AS last_seen_ms,
+        ROW_NUMBER() OVER (PARTITION BY service ORDER BY last_seen_at DESC) AS freshness
+      FROM service_heartbeats
+      WHERE service IN ('bff', 'worker')
+    ) heartbeats
+    WHERE freshness = 1 OR last_seen_at >= NOW() - make_interval(secs => ${aliveSeconds})
     ORDER BY service ASC, last_seen_at DESC
   `)) as unknown as Array<Record<string, unknown>>
   return {

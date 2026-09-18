@@ -5,6 +5,28 @@ export function shortSha(sha: string): string {
   return sha.slice(0, 8)
 }
 
+/** 旧的部署记录里提交号是短的，心跳里是全的；按前缀比。 */
+function sameCommit(a: string, b: string): boolean {
+  const shorter = Math.min(a.length, b.length)
+  return shorter >= 7 && a.slice(0, shorter) === b.slice(0, shorter)
+}
+
+/** 心跳里的版本（`<公开提交>` 或 `<公开提交>+<私有提交>`）是不是这次部署发的。 */
+export function runsDeployment(version: string, entry: OpsDeployment): boolean {
+  const [publicSha = '', privateSha] = version.split('+')
+  if (!sameCommit(publicSha, entry.public_sha)) return false
+  return (
+    entry.private_sha === null ||
+    (privateSha !== undefined && sameCommit(privateSha, entry.private_sha))
+  )
+}
+
+/** 本套最近一次成功的部署；没有部署记录时为 null。 */
+export function currentDeployment(deployments: OpsDeployments | null): OpsDeployment | null {
+  if (!deployments?.available) return null
+  return deployments.entries.find((entry) => entry.target === deployments.own && entry.ok) ?? null
+}
+
 export function deploymentsProblems({ own, entries }: OpsDeployments): string[] {
   const latestOwn = entries.find((entry) => entry.target === own)
   if (latestOwn && !latestOwn.ok) {

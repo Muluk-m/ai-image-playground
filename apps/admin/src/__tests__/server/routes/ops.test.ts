@@ -92,6 +92,8 @@ await writer.db.insert(writer.schema.tasks).values([
 await writer.db.insert(writer.schema.service_heartbeats).values([
   { service: 'bff', instance: 'bff-old', version: 'aaaaaaa', last_seen_at: now - 3 * 3600_000 },
   { service: 'bff', instance: 'bff-new', version: 'bbbbbbb', last_seen_at: now - 10_000 },
+  // 发布流程留着的旧实例：还活着，看板要列出来，而不是在新旧之间来回跳。
+  { service: 'bff', instance: 'bff-retained', version: 'aaaaaaa', last_seen_at: now - 30_000 },
   {
     service: 'worker',
     instance: 'worker-new',
@@ -261,7 +263,7 @@ describe('GET /api/ops', () => {
     })
   })
 
-  it('reports the current instance of each service with the version it runs', async () => {
+  it('reports every live instance of each service, newest first, and drops long-gone ones', async () => {
     const cookie = await login()
     const response = await app.handle(
       new Request('http://localhost/api/ops', { headers: { cookie } }),
@@ -275,6 +277,13 @@ describe('GET /api/ops', () => {
         instance: 'bff-new',
         version: 'bbbbbbb',
         last_seen_at: now - 10_000,
+        last_successful_poll_at: null,
+      },
+      {
+        service: 'bff',
+        instance: 'bff-retained',
+        version: 'aaaaaaa',
+        last_seen_at: now - 30_000,
         last_successful_poll_at: null,
       },
       {

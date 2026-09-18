@@ -24,6 +24,9 @@ const minute = 60_000
 const hour = 60 * minute
 const NOW = Date.now()
 const GB = 1024 ** 3
+/** 与下面部署记录里本套最近一次成功部署对得上的版本。 */
+const CURRENT_VERSION =
+  '586302544693b2fb261269ff0b18a77d8f8f76df+79fc8056986651efcd4f8dc8f804319b953a4688'
 
 function snapshot(patch: Partial<OpsSnapshot> = {}): OpsSnapshot {
   return {
@@ -76,14 +79,14 @@ function snapshot(patch: Partial<OpsSnapshot> = {}): OpsSnapshot {
           {
             service: 'bff',
             instance: 'b1',
-            version: 'ae5da35c',
+            version: CURRENT_VERSION,
             last_seen_at: NOW - 12_000,
             last_successful_poll_at: null,
           },
           {
             service: 'worker',
             instance: 'w1',
-            version: 'ae5da35c',
+            version: CURRENT_VERSION,
             last_seen_at: NOW - 8_000,
             last_successful_poll_at: NOW - 2_000,
           },
@@ -347,7 +350,8 @@ describe('运维看板', () => {
   it('服务一栏说清谁活着、跑的是哪个版本、worker 是不是真的在干活', () => {
     render(<OpsBoard snapshot={snapshot()} />)
     const services = block('服务')
-    expect(within(services).getAllByText('ae5da35c')).toHaveLength(2)
+    expect(within(services).getAllByText('58630254+79fc8056')).toHaveLength(2)
+    expect(within(services).getAllByText('当前版本')).toHaveLength(2)
     expect(within(services).getByText('12 秒前')).toBeTruthy()
     expect(within(services).getByText(/最后一次成功轮询/).textContent).toContain('刚刚')
     expect(within(services).queryByRole('list', { name: '需要处理' })).toBeNull()
@@ -379,7 +383,39 @@ describe('运维看板', () => {
     expect(alert).toContain('worker 还没有心跳')
   })
 
-  it('两个服务版本不一致时提示，部署只滚了一半就是这个样子', () => {
+  it('发布流程留着的旧实例不算出事：新版本在跑就行，旧的标成旧版本实例', () => {
+    const base = snapshot().services
+    if (!base.ok) throw new Error('fixture')
+    render(
+      <OpsBoard
+        snapshot={snapshot({
+          services: {
+            ok: true,
+            data: {
+              services: [
+                ...base.data.services.slice(0, 1),
+                {
+                  service: 'bff',
+                  instance: 'legacy',
+                  version:
+                    'eae490e868102405bd6c7867cbdfbdd4e5057cfb+17faf6165e2d984fe02f16fe017544e8b219dbf5',
+                  last_seen_at: NOW - 20_000,
+                  last_successful_poll_at: null,
+                },
+                ...base.data.services.slice(1),
+              ],
+            },
+          },
+        })}
+      />,
+    )
+    const services = block('服务')
+    expect(within(services).getByText('旧版本实例')).toBeTruthy()
+    expect(within(services).queryByRole('list', { name: '需要处理' })).toBeNull()
+  })
+
+  it('刚部署的版本没有任何实例在跑时报警', () => {
+    const old = 'eae490e868102405bd6c7867cbdfbdd4e5057cfb+17faf6165e2d984fe02f16fe017544e8b219dbf5'
     render(
       <OpsBoard
         snapshot={snapshot({
@@ -389,15 +425,15 @@ describe('运维看板', () => {
               services: [
                 {
                   service: 'bff',
-                  instance: 'b1',
-                  version: 'ae5da35c',
+                  instance: 'b-old',
+                  version: old,
                   last_seen_at: NOW - 5_000,
                   last_successful_poll_at: null,
                 },
                 {
                   service: 'worker',
                   instance: 'w1',
-                  version: '4943d1a9',
+                  version: CURRENT_VERSION,
                   last_seen_at: NOW - 5_000,
                   last_successful_poll_at: NOW - 1_000,
                 },
@@ -407,9 +443,9 @@ describe('运维看板', () => {
         })}
       />,
     )
-    expect(within(block('服务')).getByRole('list', { name: '需要处理' }).textContent).toContain(
-      '版本不一致',
-    )
+    const alert = within(block('服务')).getByRole('list', { name: '需要处理' }).textContent ?? ''
+    expect(alert).toContain('后端没有实例在跑最近部署的版本 58630254')
+    expect(alert).not.toContain('worker')
   })
 
   it('宿主机一栏给出磁盘和内存的现状与趋势', () => {

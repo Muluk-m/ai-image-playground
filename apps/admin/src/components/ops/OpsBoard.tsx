@@ -4,13 +4,20 @@ import { Link } from '@tanstack/react-router'
 import { Kpi } from '@/components/Kpi'
 import { ApiBody, apiProblems } from '@/components/ops/ApiBlock'
 import { ContainersBody, containersProblems } from '@/components/ops/ContainersBlock'
-import { DeploymentsBody, deploymentsProblems, shortSha } from '@/components/ops/DeploymentsBlock'
+import {
+  currentDeployment,
+  DeploymentsBody,
+  deploymentsProblems,
+  runsDeployment,
+  shortSha,
+} from '@/components/ops/DeploymentsBlock'
 import { LazyHostTrendChart } from '@/components/ops/LazyHostTrendChart'
 import { OpsBlockCard } from '@/components/ops/OpsBlockCard'
 import { bytes, elapsed, fuzzyTime, isoTime, shortId } from '@/lib/format'
 import type {
   OpsBackups,
   OpsDatabase,
+  OpsDeployments,
   OpsHost,
   OpsQueue,
   OpsServiceName,
@@ -129,49 +136,86 @@ function HostBody({ host, now }: { host: OpsHost; now: number }) {
 const SERVICE_LABEL: Record<OpsServiceName, string> = { bff: '后端', worker: 'worker' }
 const EXPECTED_SERVICES: readonly OpsServiceName[] = ['bff', 'worker']
 
-function servicesProblems({ services }: OpsServices, now: number): string[] {
+function servicesProblems(
+  { services }: OpsServices,
+  now: number,
+  deployments: OpsDeployments | null,
+): string[] {
   const problems: string[] = []
+  const current = currentDeployment(deployments)
   for (const name of EXPECTED_SERVICES) {
-    const service = services.find((one) => one.service === name)
-    if (!service) {
+    const instances = services.filter((one) => one.service === name)
+    const freshest = instances[0]
+    if (!freshest) {
       problems.push(`${SERVICE_LABEL[name]} 还没有心跳`)
       continue
     }
-    const silence = now - service.last_seen_at
+    const silence = now - freshest.last_seen_at
     if (silence > OPS_THRESHOLDS.HEARTBEAT_MAX_AGE_MS) {
       problems.push(`${SERVICE_LABEL[name]}的心跳已经断了 ${elapsed(silence)}`)
+      continue
+    }
+    // 同时活着好几个版本是发布流程的常态（新的在服务、旧的在排空）；要紧的是刚部署的那版在不在跑。
+    const alive = instances.filter(
+      (one) => now - one.last_seen_at <= OPS_THRESHOLDS.HEARTBEAT_MAX_AGE_MS,
+    )
+    if (current && !alive.some((one) => runsDeployment(one.version, current))) {
+      problems.push(
+        `${SERVICE_LABEL[name]}没有实例在跑最近部署的版本 ${shortSha(current.public_sha)}`,
+      )
     }
   }
-  const versions = new Set(services.map((service) => service.version))
-  if (versions.size > 1) problems.push('各服务版本不一致，部署可能只滚了一半')
   return problems
 }
 
-function ServicesBody({ services, now }: { services: OpsServices; now: number }) {
+function ServicesBody({
+  services,
+  now,
+  deployments,
+}: {
+  services: OpsServices
+  now: number
+  deployments: OpsDeployments | null
+}) {
   if (services.services.length === 0) {
     return <p className="text-sm text-muted-foreground">还没有任何服务写过心跳。</p>
   }
+  const current = currentDeployment(deployments)
   return (
     <ul className="space-y-3 text-sm">
-      {services.services.map((service) => (
-        <li key={service.service} className="flex flex-wrap items-baseline justify-between gap-x-4">
-          <span className="font-medium">{SERVICE_LABEL[service.service]}</span>
-          <span
-            className="font-mono text-xs text-muted-foreground"
-            title={`${service.version}（实例 ${service.instance}）`}
+      {services.services.map((service) => {
+        const alive = now - service.last_seen_at <= OPS_THRESHOLDS.HEARTBEAT_MAX_AGE_MS
+        const note = !alive
+          ? '已断开'
+          : current === null
+            ? null
+            : runsDeployment(service.version, current)
+              ? '当前版本'
+              : '旧版本实例'
+        return (
+          <li
+            key={`${service.service}-${service.instance}`}
+            className="flex flex-wrap items-baseline justify-between gap-x-4"
           >
-            {service.version.split('+').map(shortSha).join('+')}
-          </span>
-          <span className="tabular-nums text-muted-foreground">
-            {fuzzyTime(service.last_seen_at, now)}
-          </span>
-          {service.last_successful_poll_at !== null ? (
-            <span className="w-full text-xs text-muted-foreground">
-              最后一次成功轮询：{fuzzyTime(service.last_successful_poll_at, now)}
+            <span className="font-medium">{SERVICE_LABEL[service.service]}</span>
+            <span
+              className="font-mono text-xs text-muted-foreground"
+              title={`${service.version}（实例 ${service.instance}）`}
+            >
+              {service.version.split('+').map(shortSha).join('+')}
+              {note ? <span className="ml-2 font-sans">{note}</span> : null}
             </span>
-          ) : null}
-        </li>
-      ))}
+            <span className="tabular-nums text-muted-foreground">
+              {fuzzyTime(service.last_seen_at, now)}
+            </span>
+            {service.last_successful_poll_at !== null ? (
+              <span className="w-full text-xs text-muted-foreground">
+                最后一次成功轮询：{fuzzyTime(service.last_successful_poll_at, now)}
+              </span>
+            ) : null}
+          </li>
+        )
+      })}
     </ul>
   )
 }
@@ -294,6 +338,7 @@ function BackupBody({ backup, now }: { backup: OpsBackups; now: number }) {
 
 /** 回答「这套部署现在有没有出事」。业务跑得怎么样是概览页的事，这里不重复。 */
 export function OpsBoard({ snapshot }: { snapshot: OpsSnapshot }) {
+  const deployments = snapshot.deployments.ok ? snapshot.deployments.data : null
   return (
     <section className="grid gap-4 xl:grid-cols-2">
       <OpsBlockCard
@@ -309,9 +354,11 @@ export function OpsBoard({ snapshot }: { snapshot: OpsSnapshot }) {
       <OpsBlockCard
         title="服务"
         block={snapshot.services}
-        problems={(services) => servicesProblems(services, snapshot.generated_at)}
+        problems={(services) => servicesProblems(services, snapshot.generated_at, deployments)}
       >
-        {(services) => <ServicesBody services={services} now={snapshot.generated_at} />}
+        {(services) => (
+          <ServicesBody services={services} now={snapshot.generated_at} deployments={deployments} />
+        )}
       </OpsBlockCard>
       <OpsBlockCard title="接口" block={snapshot.api} problems={apiProblems}>
         {(api) => <ApiBody api={api} />}

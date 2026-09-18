@@ -220,7 +220,10 @@ export interface OpsService {
 }
 
 export interface OpsServices {
-  /** 每个服务只报最新的那个实例；从没出现过心跳的服务不在列表里。 */
+  /**
+   * 每个服务所有还活着的实例，加上它最近的那一个；按服务、再按最近心跳从新到旧。
+   * 从没出现过心跳的服务不在列表里。
+   */
   services: OpsService[]
 }
 
