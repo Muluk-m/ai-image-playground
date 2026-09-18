@@ -7,18 +7,9 @@ set -eu
 : "${S3_ACCESS_KEY_ID:?S3_ACCESS_KEY_ID is required}"
 : "${S3_SECRET_ACCESS_KEY:?S3_SECRET_ACCESS_KEY is required}"
 
-AWS_ACCESS_KEY_ID=$S3_ACCESS_KEY_ID
-AWS_SECRET_ACCESS_KEY=$S3_SECRET_ACCESS_KEY
-# R2 accepts no other region name.
-AWS_DEFAULT_REGION=auto
-# aws-cli v2 attaches a checksum to every upload by default; S3-compatible stores reject some.
-AWS_REQUEST_CHECKSUM_CALCULATION=when_required
-export AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_DEFAULT_REGION
-export AWS_REQUEST_CHECKSUM_CALCULATION
-
-# Same confinement as the application objects: the dump must not escape S3_KEY_PREFIX.
-prefix=$(printf '%s' "${S3_KEY_PREFIX:-}" | sed 's#^/*##; s#/*$##')
-[ -z "$prefix" ] || prefix="$prefix/"
+# shellcheck source=lib.sh
+. /usr/local/lib/pg-backup/lib.sh
+pg_backup_env
 
 stamp=$(date -u +%Y-%m-%d)
 dump=/tmp/pg-$stamp.dump

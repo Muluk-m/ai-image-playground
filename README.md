@@ -186,7 +186,11 @@ Object storage is any S3-compatible service. Both deployment examples point at C
 workloads. Each project also runs a `pg-backup` sidecar that uploads a daily `pg_dump` of its
 own database to `<S3_KEY_PREFIX>pg/<UTC date>.dump`, and `matte:server` caches each cutout under
 `<S3_KEY_PREFIX>matte/<sha256 of the source image>/`. Retention belongs to a bucket lifecycle
-rule, not to the sidecar.
+rule, not to the sidecar. On start the sidecar runs a missed backup at once when the newest dump
+is over 24 hours old (say, the host was down at cron time). Every Monday 03:00 Asia/Shanghai it
+also restores the newest dump into a throwaway PostgreSQL inside the container, checks the tables
+and rows, and writes the verdict to `<S3_KEY_PREFIX>pg/drill/latest.json`; the worker alerts when
+a drill fails or none has run for 8 days.
 
 Each project also runs a `host-collector` sidecar that reads the host's disk and memory once a
 minute for the admin's operations board, which draws the last seven days. It receives exactly two
